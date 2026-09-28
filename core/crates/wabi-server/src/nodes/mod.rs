@@ -6,7 +6,13 @@
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    io::Write,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 use thiserror::Error;
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -206,16 +212,52 @@ impl NodeRegistry {
         }
     }
 
-    pub fn new_persistent(authority_node_id: String, storage_path: PathBuf) -> Self {
-        let data = std::fs::read_to_string(&storage_path)
-            .ok()
-            .and_then(|content| serde_json::from_str::<NodeRegistryData>(&content).ok())
-            .unwrap_or_default();
-        Self {
+    pub fn new_persistent(
+        authority_node_id: String,
+        storage_path: PathBuf,
+    ) -> Result<Self, NodeRegistryError> {
+        let data = match std::fs::symlink_metadata(&storage_path) {
+            Ok(metadata) => {
+                if !metadata.is_file() || metadata.file_type().is_symlink() {
+                    return Err(NodeRegistryError::Persistence(format!(
+                        "node registry is not a regular file: {}",
+                        storage_path.display()
+                    )));
+                }
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if metadata.permissions().mode() & 0o077 != 0 {
+                        std::fs::set_permissions(
+                            &storage_path,
+                            std::fs::Permissions::from_mode(0o600),
+                        )
+                        .map_err(|error| {
+                            NodeRegistryError::Persistence(format!(
+                                "cannot make node registry private: {error}"
+                            ))
+                        })?;
+                    }
+                }
+                let content = std::fs::read_to_string(&storage_path)
+                    .map_err(|error| NodeRegistryError::Persistence(error.to_string()))?;
+                serde_json::from_str::<NodeRegistryData>(&content).map_err(|error| {
+                    NodeRegistryError::Persistence(format!(
+                        "invalid node registry {}: {error}",
+                        storage_path.display()
+                    ))
+                })?
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                NodeRegistryData::default()
+            }
+            Err(error) => return Err(NodeRegistryError::Persistence(error.to_string())),
+        };
+        Ok(Self {
             authority_node_id,
             storage_path: Some(storage_path),
             inner: Arc::new(RwLock::new(data)),
-        }
+        })
     }
 
     pub fn authority_node_id(&self) -> Option<&str> {
@@ -261,8 +303,10 @@ impl NodeRegistry {
         };
 
         let mut data = self.inner.write().await;
-        data.pairing_tokens.push(token.clone());
-        self.persist_locked(&data).await?;
+        let mut next = data.clone();
+        next.pairing_tokens.push(token.clone());
+        self.persist_locked(&next).await?;
+        *data = next;
         Ok(token)
     }
 
@@ -284,7 +328,8 @@ impl NodeRegistry {
 
         let now = Utc::now();
         let mut data = self.inner.write().await;
-        let token = data
+        let mut next = data.clone();
+        let token = next
             .pairing_tokens
             .iter_mut()
             .find(|token| token.token == req.token)
@@ -314,10 +359,11 @@ impl NodeRegistry {
             lan_reachable_at: None,
             standby: StandbySnapshotMetadata::default(),
         };
-        data.node_secrets
+        next.node_secrets
             .insert(node.node_id.clone(), node_secret.clone());
-        data.nodes.push(node.clone());
-        self.persist_locked(&data).await?;
+        next.nodes.push(node.clone());
+        self.persist_locked(&next).await?;
+        *data = next;
 
         Ok(JoinNodeResponse {
             node,
@@ -333,7 +379,8 @@ impl NodeRegistry {
         req: NodeHeartbeatRequest,
     ) -> Result<HelperNode, NodeRegistryError> {
         let mut data = self.inner.write().await;
-        let expected_secret = data
+        let mut next = data.clone();
+        let expected_secret = next
             .node_secrets
             .get(node_id)
             .ok_or(NodeRegistryError::InvalidNodeSecret)?;
@@ -341,7 +388,7 @@ impl NodeRegistry {
             return Err(NodeRegistryError::InvalidNodeSecret);
         }
 
-        let node = data
+        let node = next
             .nodes
             .iter_mut()
             .find(|node| node.node_id == node_id)
@@ -350,6 +397,15 @@ impl NodeRegistry {
         if node.status == NodeStatus::Revoked {
             return Err(NodeRegistryError::NodeRevoked);
         }
+        if req.capabilities.as_ref().is_some_and(|requested| {
+            requested
+                .iter()
+                .any(|capability| !node.capabilities.contains(capability))
+        }) {
+            return Err(NodeRegistryError::InvalidInput(
+                "heartbeat cannot grant an unpaired node capability".into(),
+            ));
+        }
 
         node.status = NodeStatus::Online;
         node.last_heartbeat_at = Some(Utc::now());
@@ -357,13 +413,12 @@ impl NodeRegistry {
         node.reachability = req.reachability;
         node.endpoint = req.endpoint;
         node.lan_reachable_at = req.lan_reachable_at;
-        if let Some(capabilities) = req.capabilities {
-            if !capabilities.is_empty() {
-                node.capabilities = capabilities;
-            }
-        }
+        // Pairing fixes the granted capability set. A helper's own heartbeat
+        // may report a subset, but it cannot upgrade its trust or replace the
+        // operator-approved grants stored here.
         let updated = node.clone();
-        self.persist_locked(&data).await?;
+        self.persist_locked(&next).await?;
+        *data = next;
         Ok(updated)
     }
 
@@ -398,7 +453,8 @@ impl NodeRegistry {
         status: impl Into<String>,
     ) -> Result<HelperNode, NodeRegistryError> {
         let mut data = self.inner.write().await;
-        let node = data
+        let mut next = data.clone();
+        let node = next
             .nodes
             .iter_mut()
             .find(|node| node.node_id == node_id)
@@ -417,13 +473,15 @@ impl NodeRegistry {
         node.standby.last_snapshot_at = Some(Utc::now());
         node.standby.last_snapshot_status = Some(status.into());
         let updated = node.clone();
-        self.persist_locked(&data).await?;
+        self.persist_locked(&next).await?;
+        *data = next;
         Ok(updated)
     }
 
     pub async fn revoke_node(&self, node_id: &str) -> Result<HelperNode, NodeRegistryError> {
         let mut data = self.inner.write().await;
-        let node = data
+        let mut next = data.clone();
+        let node = next
             .nodes
             .iter_mut()
             .find(|node| node.node_id == node_id)
@@ -431,20 +489,25 @@ impl NodeRegistry {
         node.status = NodeStatus::Revoked;
         node.revoked_at = Some(Utc::now());
         let updated = node.clone();
-        self.persist_locked(&data).await?;
+        self.persist_locked(&next).await?;
+        *data = next;
         Ok(updated)
     }
 
     /// Mark nodes offline if their last heartbeat is older than the threshold.
-    pub async fn mark_stale_nodes_offline(&self, threshold: Duration) -> Vec<HelperNode> {
+    pub async fn mark_stale_nodes_offline(
+        &self,
+        threshold: Duration,
+    ) -> Result<Vec<HelperNode>, NodeRegistryError> {
         let mut changed = Vec::new();
         let mut data = self.inner.write().await;
+        let mut next = data.clone();
         let now = Utc::now();
         let threshold = match ChronoDuration::from_std(threshold) {
             Ok(d) => d,
-            Err(_) => return changed,
+            Err(_) => return Ok(changed),
         };
-        for node in data.nodes.iter_mut() {
+        for node in next.nodes.iter_mut() {
             if node.status != NodeStatus::Online {
                 continue;
             }
@@ -457,9 +520,10 @@ impl NodeRegistry {
             }
         }
         if !changed.is_empty() {
-            let _ = self.persist_locked(&data).await;
+            self.persist_locked(&next).await?;
+            *data = next;
         }
-        changed
+        Ok(changed)
     }
 
     pub async fn find_online_node_with_capability(
@@ -482,17 +546,61 @@ impl NodeRegistry {
         let Some(path) = &self.storage_path else {
             return Ok(());
         };
-        if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(|e| NodeRegistryError::Persistence(e.to_string()))?;
-        }
-        let content = serde_json::to_string_pretty(data)
+        let path = path.clone();
+        let content = serde_json::to_vec_pretty(data)
             .map_err(|e| NodeRegistryError::Persistence(e.to_string()))?;
-        tokio::fs::write(path, content)
+        tokio::task::spawn_blocking(move || persist_private_registry(&path, &content))
             .await
-            .map_err(|e| NodeRegistryError::Persistence(e.to_string()))
+            .map_err(|error| NodeRegistryError::Persistence(error.to_string()))?
     }
+}
+
+fn persist_private_registry(path: &Path, content: &[u8]) -> Result<(), NodeRegistryError> {
+    use std::fs::{self, OpenOptions};
+    #[cfg(unix)]
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let parent = path
+        .parent()
+        .ok_or_else(|| NodeRegistryError::Persistence("node registry path has no parent".into()))?;
+    fs::create_dir_all(parent)
+        .map_err(|error| NodeRegistryError::Persistence(error.to_string()))?;
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if !metadata.is_file() || metadata.file_type().is_symlink() => {
+            return Err(NodeRegistryError::Persistence(format!(
+                "node registry is not a regular file: {}",
+                path.display()
+            )));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(NodeRegistryError::Persistence(error.to_string())),
+    }
+
+    let temporary = parent.join(format!(".node-registry-{}.tmp", Uuid::new_v4()));
+    let result = (|| -> std::io::Result<()> {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        let mut file = options.open(&temporary)?;
+        file.write_all(content)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temporary, path)?;
+        #[cfg(unix)]
+        fs::File::open(parent)?.sync_all()?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result.map_err(|error| {
+        NodeRegistryError::Persistence(format!(
+            "could not save node registry {}: {error}",
+            path.display()
+        ))
+    })
 }
 
 fn new_id(prefix: &str) -> String {
@@ -515,6 +623,133 @@ mod tests {
 
     fn test_registry() -> NodeRegistry {
         NodeRegistry::new_in_memory("authority-test".to_string())
+    }
+
+    #[test]
+    fn damaged_persistent_registry_refuses_startup() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("node_registry.json");
+        std::fs::write(&path, b"{incomplete").unwrap();
+        assert!(matches!(
+            NodeRegistry::new_persistent("authority-test".into(), path),
+            Err(NodeRegistryError::Persistence(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_registry_is_private_and_symlink_is_rejected() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("node_registry.json");
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&NodeRegistryData::default()).unwrap(),
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        NodeRegistry::new_persistent("authority-test".into(), path.clone()).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o077,
+            0
+        );
+
+        let link = temp.path().join("linked-registry.json");
+        symlink(&path, &link).unwrap();
+        assert!(matches!(
+            NodeRegistry::new_persistent("authority-test".into(), link),
+            Err(NodeRegistryError::Persistence(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn node_credentials_are_private_and_survive_restart() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("node_registry.json");
+        let registry = NodeRegistry::new_persistent("authority-test".into(), path.clone()).unwrap();
+        let token = registry
+            .create_pairing_token(
+                "standby".into(),
+                vec![NodeCapability::Standby],
+                Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+        let joined = registry
+            .join_with_token(JoinNodeRequest {
+                token: token.token,
+                display_name: "standby-1".into(),
+                public_key: "standby-public-key".into(),
+                reachability: NodeReachability::OutboundOnly,
+                endpoint: None,
+            })
+            .await
+            .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o077,
+                0
+            );
+        }
+        let reopened = NodeRegistry::new_persistent("authority-test".into(), path).unwrap();
+        assert_eq!(
+            reopened
+                .authenticate_node(&joined.node.node_id, &joined.node_secret)
+                .await
+                .unwrap()
+                .node_id,
+            joined.node.node_id
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_registry_save_does_not_change_live_node_trust() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("node_registry.json");
+        let mut registry = NodeRegistry::new_persistent("authority-test".into(), path).unwrap();
+        let token = registry
+            .create_pairing_token(
+                "worker".into(),
+                vec![NodeCapability::CpuWorker],
+                Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+        let joined = registry
+            .join_with_token(JoinNodeRequest {
+                token: token.token,
+                display_name: "worker-1".into(),
+                public_key: "worker-public-key".into(),
+                reachability: NodeReachability::OutboundOnly,
+                endpoint: None,
+            })
+            .await
+            .unwrap();
+        let non_directory = temp.path().join("not-a-directory");
+        std::fs::write(&non_directory, b"occupied").unwrap();
+        registry.storage_path = Some(non_directory.join("node_registry.json"));
+        assert!(matches!(
+            registry.revoke_node(&joined.node.node_id).await,
+            Err(NodeRegistryError::Persistence(_))
+        ));
+        assert!(registry
+            .authenticate_node(&joined.node.node_id, &joined.node_secret)
+            .await
+            .is_ok());
+        assert!(matches!(
+            registry
+                .create_pairing_token(
+                    "second".into(),
+                    vec![NodeCapability::CpuWorker],
+                    Duration::from_secs(60)
+                )
+                .await,
+            Err(NodeRegistryError::Persistence(_))
+        ));
+        assert_eq!(registry.list_pairing_tokens().await.len(), 1);
     }
 
     #[tokio::test]
@@ -595,7 +830,7 @@ mod tests {
                     },
                     reachability: NodeReachability::LanReachable,
                     endpoint: Some("https://worker.lan:9443".to_string()),
-                    capabilities: Some(vec![NodeCapability::CpuWorker, NodeCapability::FileCache]),
+                    capabilities: Some(vec![NodeCapability::CpuWorker]),
                     ..Default::default()
                 },
             )
@@ -611,10 +846,48 @@ mod tests {
         assert_eq!(node.reachability, NodeReachability::LanReachable);
         assert_eq!(node.endpoint.as_deref(), Some("https://worker.lan:9443"));
         assert_eq!(node.load.cpu_percent, Some(21.5));
-        assert_eq!(
-            node.capabilities,
-            vec![NodeCapability::CpuWorker, NodeCapability::FileCache]
-        );
+        assert_eq!(node.capabilities, vec![NodeCapability::CpuWorker]);
+    }
+
+    #[tokio::test]
+    async fn heartbeat_cannot_grant_itself_standby_trust() {
+        let registry = test_registry();
+        let token = registry
+            .create_pairing_token(
+                "worker".into(),
+                vec![NodeCapability::CpuWorker],
+                Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+        let joined = registry
+            .join_with_token(JoinNodeRequest {
+                token: token.token,
+                display_name: "worker-1".into(),
+                public_key: "worker-public-key".into(),
+                reachability: NodeReachability::OutboundOnly,
+                endpoint: None,
+            })
+            .await
+            .unwrap();
+        let result = registry
+            .record_heartbeat(
+                &joined.node.node_id,
+                &joined.node_secret,
+                NodeHeartbeatRequest {
+                    capabilities: Some(vec![NodeCapability::CpuWorker, NodeCapability::Standby]),
+                    ..Default::default()
+                },
+            )
+            .await;
+        assert!(matches!(result, Err(NodeRegistryError::InvalidInput(_))));
+        let stored = registry.list_nodes().await;
+        assert_eq!(stored[0].status, NodeStatus::Pending);
+        assert_eq!(stored[0].capabilities, vec![NodeCapability::CpuWorker]);
+        assert!(registry
+            .record_standby_snapshot(&joined.node.node_id, "untrusted-snapshot", "received")
+            .await
+            .is_err());
     }
 
     #[tokio::test]

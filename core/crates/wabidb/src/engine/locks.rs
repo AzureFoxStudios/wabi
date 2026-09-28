@@ -450,6 +450,17 @@ impl ProjectionState {
     /// Keys and values are hex-encoded for compact JSON representation.
     /// The watermark is stored alongside the data.
     pub fn save_snapshot(&self, data_dir: &Path) -> Result<()> {
+        self.with_checkpoint_snapshot(data_dir, || Ok(()))
+    }
+
+    /// Save a complete projection snapshot and keep its writer/application
+    /// lock across a synchronous checkpoint copy. The engine's mutation guards
+    /// must also be held. Never invoke this from a handler or await in `copy`.
+    pub(crate) fn with_checkpoint_snapshot<T>(
+        &self,
+        data_dir: &Path,
+        copy: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
         let _application =
             self.application
                 .write()
@@ -461,6 +472,11 @@ impl ProjectionState {
                 invariant: "cannot snapshot partial state after projection failure".into(),
             });
         }
+        self.write_snapshot_locked(data_dir)?;
+        copy()
+    }
+
+    fn write_snapshot_locked(&self, data_dir: &Path) -> Result<()> {
         let path = Self::snapshot_path(data_dir);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
@@ -706,6 +722,47 @@ mod tests {
         state.insert("messages", b"k1".to_vec(), b"v1".to_vec(), 1);
         assert_eq!(state.get("messages", b"k1"), Some(b"v1".to_vec()));
         assert_eq!(state.get("messages", b"k2"), None);
+    }
+
+    #[test]
+    fn checkpoint_copy_holds_the_snapshot_writer_and_releases_on_an_error_result() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(ProjectionState::new());
+        state.insert("fixture", b"key".to_vec(), b"value".to_vec(), 1);
+        state.set_applied_commit_seq(1);
+        let result = state.with_checkpoint_snapshot(dir.path(), || {
+            assert!(state.application.try_write().is_err());
+            assert_eq!(state.get("fixture", b"key"), Some(b"value".to_vec()));
+            let (_, watermark) = ProjectionState::load_snapshot(dir.path()).unwrap().unwrap();
+            assert_eq!(watermark, 1);
+            Err::<(), _>(WabiError::Validation {
+                command: "fixture_copy".into(),
+                reason: "refused".into(),
+            })
+        });
+        assert!(result.is_err());
+        assert!(state.application.try_write().is_ok());
+        assert!(state.is_healthy());
+        state.save_snapshot(dir.path()).unwrap();
+    }
+
+    #[test]
+    fn a_panicking_copy_poisoned_boundary_refuses_later_snapshots() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = ProjectionState::new();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            state.with_checkpoint_snapshot(dir.path(), || -> Result<()> {
+                panic!("fixture copy panic")
+            })
+        }));
+        assert!(result.is_err());
+        let before = std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap();
+        assert!(!state.is_healthy());
+        assert!(state.save_snapshot(dir.path()).is_err());
+        assert_eq!(
+            std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap(),
+            before
+        );
     }
 
     /// Zombie-channel regression (2026-08-27, live on wabi.chat): a shutdown

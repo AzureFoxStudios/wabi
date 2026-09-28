@@ -5,29 +5,84 @@
 //! - POST /api/auth/login
 //! - POST /api/auth/guest
 
-use axum::{extract::{ConnectInfo, State}, Json, Router};
+use axum::{
+    extract::{ConnectInfo, State},
+    Json, Router,
+};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::auth_extractor::{AuthUser, decode_token};
+use crate::auth_extractor::{decode_token, AuthUser};
 use crate::error::{AppError, Result};
 use crate::state::AppState;
 use serde_json::{json, Value};
 use wabidb::engine::wabi_store::WabiStore;
 
-fn load_auth_policy(state: &AppState) -> Value {
-    std::fs::read_to_string(std::path::PathBuf::from(&state.config.data_dir).join("admin_policies.json"))
-        .ok()
-        .and_then(|raw| serde_json::from_str::<serde_json::Map<String, Value>>(&raw).ok())
-        .and_then(|map| map.get("auth_policy").cloned())
-        .unwrap_or_else(|| json!({
-            "mode": "open",
-            "allowGuest": true,
-            "allowRegister": true,
-            "emailVerifyRequired": false
-        }))
+fn load_auth_policy(state: &AppState) -> Result<Value> {
+    let path = std::path::Path::new(&state.config.data_dir).join("admin_policies.json");
+    let policy = match std::fs::read(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => json!({}),
+        Err(error) => {
+            return Err(AppError::Internal(format!(
+                "Cannot read admission policy: {error}"
+            )))
+        }
+        Ok(bytes) => {
+            let map: serde_json::Map<String, Value> =
+                serde_json::from_slice(&bytes).map_err(|_| {
+                    AppError::Internal("Admission policy is damaged; access refused".into())
+                })?;
+            map.get("auth_policy").cloned().unwrap_or_else(|| json!({}))
+        }
+    };
+    if !policy.is_object() {
+        return Err(AppError::Internal("Invalid admission policy".into()));
+    }
+    // A malformed boolean/mode must never be treated as an open policy.
+    for key in ["allowRegister", "allowGuest"] {
+        if policy.get(key).is_some_and(|value| !value.is_boolean()) {
+            return Err(AppError::Internal("Invalid admission policy".into()));
+        }
+    }
+    if policy.get("mode").is_some_and(|value| {
+        !matches!(
+            value.as_str(),
+            Some("open" | "invite" | "closed" | "verified")
+        )
+    }) {
+        return Err(AppError::Internal("Invalid admission policy".into()));
+    }
+    if policy.get("mode").and_then(Value::as_str) == Some("verified")
+        || policy.get("emailVerifyRequired").and_then(Value::as_bool) == Some(true)
+    {
+        return Err(AppError::Forbidden(
+            "Email verification is not implemented; choose open, invite, or closed admission".into(),
+        ));
+    }
+    Ok(policy)
+}
+
+fn authorize_bootstrap(state: &AppState, headers: &axum::http::HeaderMap) -> Result<()> {
+    if let Some(expected) = &state.desktop_bootstrap_token {
+        let actual = headers
+            .get("x-wabi-bootstrap-token")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("");
+        let matches = actual.len() == expected.len()
+            && actual
+                .bytes()
+                .zip(expected.bytes())
+                .fold(0_u8, |diff, (a, b)| diff | (a ^ b))
+                == 0;
+        if !matches {
+            return Err(AppError::Forbidden(
+                "Create the first owner from the desktop hosting screen".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Create auth router
@@ -39,7 +94,10 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/logout", axum::routing::post(handle_logout))
         .route("/refresh", axum::routing::post(handle_refresh))
         .route("/recover", axum::routing::post(handle_recover))
-        .route("/change-password", axum::routing::post(handle_change_password))
+        .route(
+            "/change-password",
+            axum::routing::post(handle_change_password),
+        )
         .route("/stepup", axum::routing::post(handle_stepup))
         .route(
             "/turn-credentials",
@@ -56,7 +114,16 @@ struct RegisterRequest {
     email: Option<String>,
     password: String,
     handle: Option<String>,
+    #[serde(rename = "inviteToken")]
+    invite_token: Option<String>,
+    #[serde(rename = "communityName")]
+    community_name: Option<String>,
+    #[serde(rename = "starterChannels")]
+    starter_channels: Option<Vec<StarterChannelRequest>>,
 }
+
+#[derive(Debug, Deserialize)]
+struct StarterChannelRequest { name: String, kind: String }
 
 /// Auth user profile — matches frontend AuthUserProfile contract
 #[derive(Debug, Serialize)]
@@ -108,6 +175,8 @@ impl AuthResponse {
 /// Register a new user
 async fn handle_register(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<AuthResponse>> {
     // Fresh-server setup window: exactly one account (the owner) may be
@@ -115,6 +184,12 @@ async fn handle_register(
     // registrations can't interleave with the claim. The claim ignores the
     // auth policy — the owner account is bootstrap, not a join.
     let _setup_guard = if state.needs_setup().await {
+        authorize_bootstrap(&state, &headers)?;
+        if req.invite_token.is_some() {
+            return Err(AppError::Forbidden(
+                "An invitation cannot claim an unconfigured server".into(),
+            ));
+        }
         let guard = state.setup_claim_lock.lock().await;
         if !state.needs_setup().await {
             return Err(AppError::Conflict(
@@ -123,12 +198,24 @@ async fn handle_register(
         }
         Some(guard)
     } else {
-        let auth_policy = load_auth_policy(&state);
-        if auth_policy.get("allowRegister").and_then(Value::as_bool) == Some(false) {
-            return Err(AppError::Forbidden("Registration is closed on this server".into()));
+        let auth_policy = load_auth_policy(&state)?;
+        if crate::api::server_center::raid_mode_active(&state.config.data_dir)? && req.invite_token.is_none() {
+            return Err(AppError::Forbidden("New registrations temporarily require an invitation while raid mode is active".into()));
         }
-        if auth_policy.get("mode").and_then(Value::as_str) == Some("invite") {
-            return Err(AppError::Forbidden("An invite is required to register on this server".into()));
+        if auth_policy.get("allowRegister").and_then(Value::as_bool) == Some(false)
+            || auth_policy.get("mode").and_then(Value::as_str) == Some("closed")
+        {
+            return Err(AppError::Forbidden(
+                "Registration is closed on this server".into(),
+            ));
+        }
+        if (state.desktop_bootstrap_token.is_some()
+            || auth_policy.get("mode").and_then(Value::as_str) == Some("invite"))
+            && req.invite_token.is_none()
+        {
+            return Err(AppError::Forbidden(
+                "An invite is required to register on this server".into(),
+            ));
         }
         None
     };
@@ -141,26 +228,95 @@ async fn handle_register(
         ));
     }
 
+    if let Some(name) = &req.community_name {
+        if _setup_guard.is_none() {
+            return Err(AppError::BadRequest(
+                "Community name is only accepted during owner setup".into(),
+            ));
+        }
+        if name.trim().is_empty() || name.trim().chars().count() > 80 {
+            return Err(AppError::BadRequest(
+                "Community name must be 1–80 characters".into(),
+            ));
+        }
+    }
+    let starter_channels = if let Some(requested) = &req.starter_channels {
+        if _setup_guard.is_none() {
+            return Err(AppError::BadRequest("Starter channels are only chosen during owner setup".into()));
+        }
+        if requested.len() > 12 {
+            return Err(AppError::BadRequest("Choose at most 12 starter channels".into()));
+        }
+        let mut channels = Vec::with_capacity(requested.len());
+        for channel in requested {
+            let name = channel.name.trim();
+            if name.is_empty() || name.chars().count() > 40 || name.contains(['|', '\n', '\r']) {
+                return Err(AppError::BadRequest("Starter channel names must be 1–40 characters".into()));
+            }
+            let kind = match channel.kind.as_str() {
+                "text" => wabidb::domain::ChannelKind::Text,
+                "voice" => wabidb::domain::ChannelKind::Voice,
+                _ => return Err(AppError::BadRequest("Starter channels must be text or voice".into())),
+            };
+            channels.push((name.to_string(), kind));
+        }
+        channels
+    } else {
+        vec![("general".into(), wabidb::domain::ChannelKind::Text), ("general".into(), wabidb::domain::ChannelKind::Voice)]
+    };
+
+    if _setup_guard.is_none() {
+        let key = state.tailcat.rate_limit_key(&headers, &peer);
+        let now = chrono::Utc::now().timestamp();
+        let mut limiter = state.registration_rate_limiter.write().await;
+        limiter.retain(|_, (_, started)| now.saturating_sub(*started) < 3600);
+        if limiter.len() >= 10_000 { return Err(AppError::Forbidden("Registration is busy; try again later".into())); }
+        let (count, _) = limiter.entry(key).or_insert((0, now));
+        *count = count.saturating_add(1);
+        if *count > 10 { return Err(AppError::Forbidden("Too many registration attempts. Try again later".into())); }
+    }
+
     // Validate bootstrap defaults before creating/claiming the owner account.
     let bootstrap_retention = if _setup_guard.is_some() {
+        load_auth_policy(&state)?;
         crate::api::retention_policy::all(&state.config.data_dir)?;
-        Some(crate::api::server_center::privacy_default_retention(&state.config.data_dir)?)
-    } else { None };
+        Some(crate::api::server_center::privacy_default_retention(
+            &state.config.data_dir,
+        )?)
+    } else {
+        None
+    };
 
-    // Check IP blacklist (if available)
-    // Note: We don't have IP here, but admin can manually ban usernames
+    // IP deny entries are not enforced here: the peer may be a shared tunnel
+    // or reverse proxy. Account bans and bounded creation attempts are the
+    // current admission controls until trusted client-address semantics exist.
 
     let password_hash = bcrypt::hash(&req.password, bcrypt::DEFAULT_COST)?;
 
-    let existing = state
-        .wdb
-        .get_user_by_username(&req.username)
-        .await?;
+    let existing = state.wdb.get_user_by_username(&req.username).await?;
     if existing.is_some() {
         return Err(AppError::BadRequest("Username already taken".into()));
     }
 
-    let handle = req.handle.clone().unwrap_or_else(|| req.username.to_lowercase());
+    // Redeem once before durable account creation. A failure can burn this
+    // grant; retrying admission must never reuse it after a crash.
+    let _invite_guard = if let Some(token) = req.invite_token.as_deref() {
+        let guard = super::invites::GRANTS.lock().await;
+        super::invites::consume(&state.config.data_dir, token)?;
+        Some(guard)
+    } else {
+        None
+    };
+
+    if let Some(name) = req.community_name.as_deref() {
+        super::admin::save_bootstrap_community_name(&state.config.data_dir, name.trim())
+            .map_err(|error| AppError::Internal(format!("Cannot save community name: {error}")))?;
+    }
+
+    let handle = req
+        .handle
+        .clone()
+        .unwrap_or_else(|| req.username.to_lowercase());
     let user_id_u64 = state
         .wdb
         .create_user(&req.username, Some(&handle), &password_hash)
@@ -168,25 +324,44 @@ async fn handle_register(
     let user_id = user_id_u64 as i64;
 
     // First registrant on a fresh server automatically becomes the owner.
-    let was_first = state.claim_ownership(user_id, &req.username).await;
+    let was_first = state
+        .claim_ownership(user_id, &req.username)
+        .await
+        .map_err(|error| {
+            AppError::Internal(format!(
+                "Owner setup could not finish; stored data was preserved: {error}"
+            ))
+        })?;
 
     // Seed default channels on first-ever registration.
     if was_first {
-        use wabidb::domain::{ChannelKind, MemberRole};
+        use wabidb::domain::MemberRole;
         let retention = bootstrap_retention.as_deref().unwrap_or("24h");
-        for (name, kind) in &[("general", ChannelKind::Text), ("general", ChannelKind::Voice)] {
-            match state.wdb.create_channel(name, *kind, user_id as u64, false).await {
+        // New servers use the server-level Reference Desk for arrival. Older
+        // Reception channels remain valid and are not rewritten or deleted.
+        for (name, kind) in &starter_channels {
+            match state
+                .wdb
+                .create_channel(name, *kind, user_id as u64, false)
+                .await
+            {
                 Ok(ch_id) => {
                     if let Err(e) = state
                         .wdb
                         .add_channel_member(&ch_id, user_id as u64, MemberRole::Owner)
                         .await
                     {
-                        tracing::warn!("[setup] failed to add owner to default channel {ch_id}: {e}");
+                        tracing::warn!(
+                            "[setup] failed to add owner to default channel {ch_id}: {e}"
+                        );
                     }
-                    if let Err(error) = crate::api::channels::apply_channel_retention(&state, &ch_id, retention).await {
+                    if let Err(error) =
+                        crate::api::channels::apply_channel_retention(&state, &ch_id, retention)
+                            .await
+                    {
                         tracing::error!(channel_id = %ch_id, %error, "[setup] initial retention save failed; removing default channel");
-                        if let Err(cleanup) = state.wdb.delete_channel(&ch_id, user_id as u64).await {
+                        if let Err(cleanup) = state.wdb.delete_channel(&ch_id, user_id as u64).await
+                        {
                             tracing::error!(channel_id = %ch_id, %cleanup, "[setup] default channel cleanup failed");
                         }
                     }
@@ -196,7 +371,12 @@ async fn handle_register(
         }
     }
 
-    let (access_token, refresh_token) = generate_account_jwts(&state, user_id, &req.username, false, None).await?;
+    if let Err(error) = super::server_center::mark_welcome_pending(&state, user_id).await {
+        tracing::warn!(%error, user_id, "new member welcome marker could not be saved");
+    }
+
+    let (access_token, refresh_token) =
+        generate_account_jwts(&state, user_id, &req.username, false, None).await?;
 
     Ok(Json(AuthResponse::new(
         access_token,
@@ -229,7 +409,10 @@ async fn handle_login(
         // during password verification must not turn the old password proof
         // into a new session beyond that reset's cutoff.
         let revocations = state.revocations.read().await;
-        let user = state.wdb.get_user_by_username(&req.username).await
+        let user = state
+            .wdb
+            .get_user_by_username(&req.username)
+            .await
             .map_err(|e| AppError::Internal(format!("wdb get_user_by_username: {e}")))?
             .ok_or_else(|| AppError::Unauthorized("Invalid username or password".into()))?;
         let watermark = revocations.account_watermark(user.user_id as i64);
@@ -282,9 +465,10 @@ async fn handle_login(
     // session again. Clear any stale on-disk permanent-ban entry so a legacy
     // `users: [id]` in revocations.json cannot trap the user in a
     // login→401 bounce loop (2026-07-23 incident).
-    state.clear_legacy_user_revocation(user_id).await;
+    state.clear_legacy_user_revocation(user_id).await?;
 
-    let (access_token, refresh_token) = generate_account_jwts(&state, user_id, &username, false, Some(authenticated_at)).await?;
+    let (access_token, refresh_token) =
+        generate_account_jwts(&state, user_id, &username, false, Some(authenticated_at)).await?;
 
     Ok(Json(AuthResponse::new(
         access_token,
@@ -315,11 +499,8 @@ struct RecoverRequest {
 }
 
 /// Logout — revoke the caller's own token (force re-auth next request).
-async fn handle_logout(
-    State(state): State<Arc<AppState>>,
-    auth: AuthUser,
-) -> Result<Json<Value>> {
-    state.revoke_token_with_exp(auth.jti, auth.exp).await;
+async fn handle_logout(State(state): State<Arc<AppState>>, auth: AuthUser) -> Result<Json<Value>> {
+    state.revoke_token_with_exp(auth.jti, auth.exp).await?;
     Ok(Json(json!({ "success": true })))
 }
 
@@ -346,7 +527,9 @@ async fn handle_refresh(
 
     // Must be a refresh token
     if claims.token_type != "refresh" {
-        return Err(AppError::Unauthorized("invalid token type for refresh".into()));
+        return Err(AppError::Unauthorized(
+            "invalid token type for refresh".into(),
+        ));
     }
 
     let user_id = claims
@@ -357,12 +540,17 @@ async fn handle_refresh(
     // Check if token is revoked (reuse detection: if already burned, kill the whole family)
     let (revoked, authenticated_at) = {
         let revocations = state.revocations.read().await;
-        (revocations.is_revoked(&claims.jti, user_id, claims.iat), revocations.account_watermark(user_id))
+        (
+            revocations.is_revoked(&claims.jti, user_id, claims.iat),
+            revocations.account_watermark(user_id),
+        )
     };
     if revoked {
         // Refresh token was already used — treat as theft, revoke all user tokens
-        state.revoke_user(user_id).await;
-        return Err(AppError::Unauthorized("token reuse detected; all sessions revoked".into()));
+        state.revoke_user(user_id).await?;
+        return Err(AppError::Unauthorized(
+            "token reuse detected; all sessions revoked".into(),
+        ));
     }
 
     // Check blacklist (banned users cannot refresh)
@@ -376,7 +564,7 @@ async fn handle_refresh(
     }
 
     // Burn the presented refresh token (with its exp so the entry prunes later)
-    state.revoke_token_with_exp(claims.jti, claims.exp).await;
+    state.revoke_token_with_exp(claims.jti, claims.exp).await?;
 
     // Load user profile for response
     let user_row = state
@@ -392,7 +580,8 @@ async fn handle_refresh(
     let is_guest = user_row.password_hash.is_empty();
 
     // Mint fresh access + refresh pair
-    let (access_token, refresh_token) = generate_account_jwts(&state, user_id, &username, is_guest, Some(authenticated_at)).await?;
+    let (access_token, refresh_token) =
+        generate_account_jwts(&state, user_id, &username, is_guest, Some(authenticated_at)).await?;
 
     Ok(Json(AuthResponse::new(
         access_token,
@@ -417,21 +606,16 @@ async fn handle_recover(
     Json(payload): Json<RecoverRequest>,
 ) -> Result<Json<Value>> {
     if !state
-        .consume_recovery_code(&payload.code, payload.user_id)
-        .await
+        .recover_owner_with_code(&payload.code, payload.user_id)
+        .await?
     {
         return Err(AppError::Unauthorized(
             "invalid or already-used recovery code".into(),
         ));
     }
-    {
-        *state.owner_user_id.write().await = Some(payload.user_id);
-    }
-    if let Err(e) = state.wdb.claim_owner(payload.user_id as u64).await {
-        return Err(AppError::Internal(format!("failed to persist owner: {e}")));
-    }
-    state.revoke_all_tokens().await;
-    Ok(Json(json!({ "success": true, "owner_user_id": payload.user_id })))
+    Ok(Json(
+        json!({ "success": true, "owner_user_id": payload.user_id }),
+    ))
 }
 
 /// Guest login (no password required)
@@ -441,42 +625,54 @@ async fn handle_guest(
     ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
     Json(req): Json<GuestRequest>,
 ) -> Result<Json<AuthResponse>> {
+    if state.desktop_bootstrap_token.is_some() {
+        return Err(AppError::Forbidden(
+            "Guest access is disabled; use an invitation to create an account".into(),
+        ));
+    }
     // WS-5b: per-IP rate limit for guest creation. Pipe clients (Tailcat
     // forwarder, validated via the in-process token) are keyed per pipe
     // connection instead of collapsing into one "127.0.0.1" bucket —
     // otherwise a 5-member family exhausts the 5/hour cap on evening one.
     let mut guest_limiter = state.guest_rate_limiter.write().await;
-    if guest_limiter.len() > 10_000 {
-        let keys: Vec<String> = guest_limiter.keys().take(guest_limiter.len() / 2).cloned().collect();
-        for k in keys {
-            guest_limiter.remove(&k);
-        }
-    }
+    let now = chrono::Utc::now().timestamp();
+    guest_limiter.retain(|_, (_, started)| now.saturating_sub(*started) < 3600);
+    if guest_limiter.len() >= 10_000 { return Err(AppError::Forbidden("Guest joining is busy; try again later".into())); }
     let ip = state.tailcat.rate_limit_key(&headers, &peer);
-    let count = guest_limiter.entry(ip).or_insert(0);
-    *count += 1;
+    let (count, _) = guest_limiter.entry(ip).or_insert((0, now));
+    *count = count.saturating_add(1);
     // 5 guest creations per hour per IP.
     if *count > 5 {
-        return Err(AppError::Forbidden("Guest creation rate limit exceeded. Try again later.".into()));
+        return Err(AppError::Forbidden(
+            "Guest creation rate limit exceeded. Try again later.".into(),
+        ));
     }
     drop(guest_limiter);
 
-    let auth_policy = load_auth_policy(&state);
-    if auth_policy.get("allowGuest").and_then(Value::as_bool) == Some(false) {
-        return Err(AppError::Forbidden("Guest access is disabled on this server".into()));
+    let auth_policy = load_auth_policy(&state)?;
+    if crate::api::server_center::raid_mode_active(&state.config.data_dir)? {
+        return Err(AppError::Forbidden("Guest joins are temporarily paused while raid mode is active".into()));
+    }
+    if auth_policy.get("allowGuest").and_then(Value::as_bool) == Some(false)
+        || matches!(
+            auth_policy.get("mode").and_then(Value::as_str),
+            Some("invite" | "closed")
+        )
+    {
+        return Err(AppError::Forbidden(
+            "Guest access is disabled on this server".into(),
+        ));
     }
     let username = req
         .username
         .unwrap_or_else(|| format!("Guest_{}", uuid::Uuid::new_v4()));
 
     // Guest users: empty password hash, handle = username.
-    let user_id_u64 = state
-        .wdb
-        .create_user(&username, None, "")
-        .await?;
+    let user_id_u64 = state.wdb.create_user(&username, None, "").await?;
     let user_id = user_id_u64 as i64;
 
-    let (access_token, refresh_token) = generate_account_jwts(&state, user_id, &username, true, None).await?;
+    let (access_token, refresh_token) =
+        generate_account_jwts(&state, user_id, &username, true, None).await?;
 
     Ok(Json(AuthResponse::new(
         access_token,
@@ -525,7 +721,9 @@ async fn handle_change_password(
         ));
     }
     if !bcrypt::verify(&req.current_password, &user_row.password_hash)? {
-        return Err(AppError::Unauthorized("Current password is incorrect".into()));
+        return Err(AppError::Unauthorized(
+            "Current password is incorrect".into(),
+        ));
     }
 
     let password_hash = bcrypt::hash(&req.new_password, bcrypt::DEFAULT_COST)?;
@@ -543,7 +741,9 @@ async fn handle_change_password(
 
     // Force re-auth on OTHER sessions for this user while preserving the
     // current session (the bearer token that just performed the change).
-    state.revoke_user_other_sessions(auth.user_id, &auth.jti).await;
+    state
+        .revoke_user_other_sessions(auth.user_id, &auth.jti)
+        .await?;
 
     Ok(Json(json!({ "success": true })))
 }
@@ -554,9 +754,9 @@ struct JwtClaims {
     sub: String, // User ID
     username: String,
     is_guest: bool,
-    exp: i64, // Expiration timestamp
-    iat: i64, // Issued at timestamp
-    jti: String, // Unique token ID, for revocation
+    exp: i64,     // Expiration timestamp
+    iat: i64,     // Issued at timestamp
+    jti: String,  // Unique token ID, for revocation
     stepup: bool, // True only for step-up tokens (re-verified password)
     #[serde(default)]
     token_type: String, // "access" or "refresh"; missing = legacy access token
@@ -566,26 +766,51 @@ struct JwtClaims {
 /// fresh proof after a reset must work immediately, even when the cutoff is
 /// the next Unix second. Only iat is clamped; wall-clock TTLs are unchanged.
 async fn generate_account_jwts(
-    state: &AppState, user_id: i64, username: &str, is_guest: bool,
+    state: &AppState,
+    user_id: i64,
+    username: &str,
+    is_guest: bool,
     authenticated_at: Option<(u64, u64)>,
 ) -> Result<(String, String)> {
     let now = Utc::now();
     let revocations = state.revocations.read().await;
     let watermark = revocations.account_watermark(user_id);
     if authenticated_at.is_some_and(|proof| proof != watermark) {
-        return Err(AppError::Unauthorized("Account sessions changed during authentication. Sign in again.".into()));
+        return Err(AppError::Unauthorized(
+            "Account sessions changed during authentication. Sign in again.".into(),
+        ));
     }
-    let issued_at = i64::try_from((now.timestamp().max(0) as u64).max(watermark.0).max(watermark.1))
-        .map_err(|_| AppError::Internal("Invalid account revocation timestamp".into()))?;
+    let issued_at = i64::try_from(
+        (now.timestamp().max(0) as u64)
+            .max(watermark.0)
+            .max(watermark.1),
+    )
+    .map_err(|_| AppError::Internal("Invalid account revocation timestamp".into()))?;
     let mint = |kind: &str, ttl: Duration| -> Result<String> {
-        Ok(encode(&Header::default(), &JwtClaims {
-            sub: user_id.to_string(), username: username.to_string(), is_guest,
-            exp: (now + ttl).timestamp(), iat: issued_at,
-            jti: uuid::Uuid::new_v4().to_string(), stepup: false, token_type: kind.into(),
-        }, &EncodingKey::from_secret(state.config.jwt_secret.as_bytes()))?)
+        Ok(encode(
+            &Header::default(),
+            &JwtClaims {
+                sub: user_id.to_string(),
+                username: username.to_string(),
+                is_guest,
+                exp: (now + ttl).timestamp(),
+                iat: issued_at,
+                jti: uuid::Uuid::new_v4().to_string(),
+                stepup: false,
+                token_type: kind.into(),
+            },
+            &EncodingKey::from_secret(state.config.jwt_secret.as_bytes()),
+        )?)
     };
     let access = mint("access", Duration::minutes(15))?;
-    let refresh = mint("refresh", if is_guest { Duration::hours(24) } else { Duration::days(30) })?;
+    let refresh = mint(
+        "refresh",
+        if is_guest {
+            Duration::hours(24)
+        } else {
+            Duration::days(30)
+        },
+    )?;
     Ok((access, refresh))
 }
 
@@ -730,8 +955,8 @@ pub async fn handle_turn_credentials(
 /// Generate TURN password using HMAC
 fn generate_turn_password(username: &str, secret: &str, _expiry: u64) -> String {
     use hmac::{Hmac, Mac};
-    use sha2::digest::KeyInit;
     use sha1::Sha1;
+    use sha2::digest::KeyInit;
 
     type HmacSha1 = Hmac<Sha1>;
 
@@ -775,7 +1000,11 @@ mod tests {
             server_role: crate::config::ServerRole::Authority,
             authority_url: None,
             admin_user_ids: vec![],
-            blacklist_file: data_dir.path().join("blacklist.txt").to_string_lossy().to_string(),
+            blacklist_file: data_dir
+                .path()
+                .join("blacklist.txt")
+                .to_string_lossy()
+                .to_string(),
             max_body_size: None,
             mesh_enabled: false,
             mesh_peers: vec![],
@@ -787,7 +1016,11 @@ mod tests {
     #[tokio::test]
     async fn fresh_account_pair_respects_cutoff_without_reviving_an_older_proof() {
         let (_directory, state) = make_test_state().await;
-        let uid = state.wdb.create_user("mint-test", None, "test-hash").await.unwrap() as i64;
+        let uid = state
+            .wdb
+            .create_user("mint-test", None, "test-hash")
+            .await
+            .unwrap() as i64;
         let now = Utc::now().timestamp();
         let old_proof = state.revocations.read().await.account_watermark(uid);
         {
@@ -795,23 +1028,60 @@ mod tests {
             revocations.epoch = (now + 60) as u64;
             revocations.user_iat_revoked.insert(uid, (now + 120) as u64);
         }
-        assert!(matches!(generate_account_jwts(&state, uid, "mint-test", false, Some(old_proof)).await, Err(AppError::Unauthorized(_))));
+        assert!(matches!(
+            generate_account_jwts(&state, uid, "mint-test", false, Some(old_proof)).await,
+            Err(AppError::Unauthorized(_))
+        ));
         let current_proof = state.revocations.read().await.account_watermark(uid);
-        let (access, refresh) = generate_account_jwts(&state, uid, "mint-test", false, Some(current_proof)).await.unwrap();
-        let access_claims = decode_token(&access, &state.config.jwt_secret).await.unwrap();
-        let refresh_claims = decode_token(&refresh, &state.config.jwt_secret).await.unwrap();
+        let (access, refresh) =
+            generate_account_jwts(&state, uid, "mint-test", false, Some(current_proof))
+                .await
+                .unwrap();
+        let access_claims = decode_token(&access, &state.config.jwt_secret)
+            .await
+            .unwrap();
+        let refresh_claims = decode_token(&refresh, &state.config.jwt_secret)
+            .await
+            .unwrap();
         assert_eq!(access_claims.iat, now + 120);
         assert_eq!(refresh_claims.iat, access_claims.iat);
-        assert!(access_claims.exp <= Utc::now().timestamp() + 15 * 60, "a future cutoff must not extend token TTL");
-        assert!(crate::auth_extractor::authenticate_access_token(&state, &access).await.is_ok());
-        assert!(!state.is_token_revoked(&refresh_claims.jti, uid, refresh_claims.iat).await);
-        state.revoke_user(uid).await;
-        assert!(state.is_token_revoked(&access_claims.jti, uid, access_claims.iat).await, "a repeated cutoff must move beyond freshly clamped tokens");
+        assert!(
+            access_claims.exp <= Utc::now().timestamp() + 15 * 60,
+            "a future cutoff must not extend token TTL"
+        );
+        assert!(
+            crate::auth_extractor::authenticate_access_token(&state, &access)
+                .await
+                .is_ok()
+        );
+        assert!(
+            !state
+                .is_token_revoked(&refresh_claims.jti, uid, refresh_claims.iat)
+                .await
+        );
+        state.revoke_user(uid).await.unwrap();
+        assert!(
+            state
+                .is_token_revoked(&access_claims.jti, uid, access_claims.iat)
+                .await,
+            "a repeated cutoff must move beyond freshly clamped tokens"
+        );
         let proof = state.revocations.read().await.account_watermark(uid);
-        let (access, _) = generate_account_jwts(&state, uid, "mint-test", false, Some(proof)).await.unwrap();
-        assert!(crate::auth_extractor::authenticate_access_token(&state, &access).await.is_ok());
-        state.revoke_all_tokens().await;
-        assert!(crate::auth_extractor::authenticate_access_token(&state, &access).await.is_err(), "global revoke must include tokens minted at a user's future cutoff");
+        let (access, _) = generate_account_jwts(&state, uid, "mint-test", false, Some(proof))
+            .await
+            .unwrap();
+        assert!(
+            crate::auth_extractor::authenticate_access_token(&state, &access)
+                .await
+                .is_ok()
+        );
+        state.revoke_all_tokens().await.unwrap();
+        assert!(
+            crate::auth_extractor::authenticate_access_token(&state, &access)
+                .await
+                .is_err(),
+            "global revoke must include tokens minted at a user's future cutoff"
+        );
     }
 
     #[tokio::test]
@@ -824,13 +1094,27 @@ mod tests {
             email: None,
             password: "password123".into(),
             handle: Some("testuser".into()),
+            invite_token: None,
+            community_name: None,
+            starter_channels: None,
         };
-        let resp = handle_register(State(state.clone()), Json(register_req)).await.unwrap();
+        let resp = handle_register(
+            State(state.clone()),
+            axum::http::HeaderMap::new(),
+            ConnectInfo("127.0.0.1:12345".parse().unwrap()),
+            Json(register_req),
+        )
+        .await
+        .unwrap();
         let refresh_token = resp.0.refresh_token.clone();
 
         // Use refresh token to get new pair
-        let refresh_req = RefreshRequest { refresh_token: refresh_token.clone() };
-        let resp = handle_refresh(State(state.clone()), Json(refresh_req)).await.unwrap();
+        let refresh_req = RefreshRequest {
+            refresh_token: refresh_token.clone(),
+        };
+        let resp = handle_refresh(State(state.clone()), Json(refresh_req))
+            .await
+            .unwrap();
         assert!(!resp.0.access_token.is_empty());
         assert!(!resp.0.refresh_token.is_empty());
         // New tokens should be different from old
@@ -847,18 +1131,34 @@ mod tests {
             email: None,
             password: "password123".into(),
             handle: Some("theftuser".into()),
+            invite_token: None,
+            community_name: None,
+            starter_channels: None,
         };
-        let resp = handle_register(State(state.clone()), Json(register_req)).await.unwrap();
+        let resp = handle_register(
+            State(state.clone()),
+            axum::http::HeaderMap::new(),
+            ConnectInfo("127.0.0.1:12345".parse().unwrap()),
+            Json(register_req),
+        )
+        .await
+        .unwrap();
         let refresh_token = resp.0.refresh_token.clone();
         let old_access_token = resp.0.access_token.clone();
 
         // First refresh - should succeed
-        let refresh_req = RefreshRequest { refresh_token: refresh_token.clone() };
-        let _resp = handle_refresh(State(state.clone()), Json(refresh_req)).await.unwrap();
+        let refresh_req = RefreshRequest {
+            refresh_token: refresh_token.clone(),
+        };
+        let _resp = handle_refresh(State(state.clone()), Json(refresh_req))
+            .await
+            .unwrap();
 
         // Second reuse of SAME refresh token - should fail with family revocation
         let refresh_req = RefreshRequest { refresh_token };
-        let err = handle_refresh(State(state.clone()), Json(refresh_req)).await.unwrap_err();
+        let err = handle_refresh(State(state.clone()), Json(refresh_req))
+            .await
+            .unwrap_err();
         match err {
             AppError::Unauthorized(msg) => assert!(msg.contains("reuse detected")),
             _ => panic!("expected Unauthorized error"),
@@ -868,18 +1168,22 @@ mod tests {
         // must now be rejected by the per-request revocation check, while a
         // fresh login mints valid tokens again (floor semantics, not a
         // permanent ban — permanent bans are the 2026-07-23 login-bounce bug).
-        let old_claims = decode_token(&old_access_token, &state.config.jwt_secret).await.unwrap();
+        let old_claims = decode_token(&old_access_token, &state.config.jwt_secret)
+            .await
+            .unwrap();
         assert!(
-            state.is_token_revoked(&old_claims.jti, 1, old_claims.iat).await,
+            state
+                .is_token_revoked(&old_claims.jti, old_claims.sub.parse().unwrap(), old_claims.iat)
+                .await,
             "pre-theft access token must be revoked after family kill"
         );
         let relogin = LoginRequest {
             username: "theftuser".into(),
             password: "password123".into(),
         };
-        let resp = handle_login(State(state), Json(relogin)).await.expect(
-            "login after family revocation must succeed (floor, not ban)",
-        );
+        let resp = handle_login(State(state), Json(relogin))
+            .await
+            .expect("login after family revocation must succeed (floor, not ban)");
         assert!(!resp.0.access_token.is_empty());
     }
 
@@ -902,10 +1206,15 @@ mod tests {
             &Header::default(),
             &claims,
             &EncodingKey::from_secret(state.config.jwt_secret.as_bytes()),
-        ).unwrap();
+        )
+        .unwrap();
 
-        let refresh_req = RefreshRequest { refresh_token: expired_token };
-        let err = handle_refresh(State(state), Json(refresh_req)).await.unwrap_err();
+        let refresh_req = RefreshRequest {
+            refresh_token: expired_token,
+        };
+        let err = handle_refresh(State(state), Json(refresh_req))
+            .await
+            .unwrap_err();
         assert!(matches!(err, AppError::Unauthorized(_)));
     }
 
@@ -928,12 +1237,15 @@ mod tests {
             &Header::default(),
             &claims,
             &EncodingKey::from_secret(state.config.jwt_secret.as_bytes()),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Verify token_type is set correctly for refresh tokens
-        let claims = decode_token(&refresh_token, &state.config.jwt_secret).await.unwrap();
+        let claims = decode_token(&refresh_token, &state.config.jwt_secret)
+            .await
+            .unwrap();
         assert_eq!(claims.token_type, "refresh");
-        
+
         // The AuthUser extractor would reject this with "refresh token cannot be used for authentication"
         // We can't easily test the full extractor here, but we verified the token_type is set correctly
     }
@@ -957,12 +1269,15 @@ mod tests {
             &Header::default(),
             &claims,
             &EncodingKey::from_secret(state.config.jwt_secret.as_bytes()),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Decode and verify token_type is empty (legacy)
-        let claims = decode_token(&legacy_token, &state.config.jwt_secret).await.unwrap();
+        let claims = decode_token(&legacy_token, &state.config.jwt_secret)
+            .await
+            .unwrap();
         assert_eq!(claims.token_type, "");
-        
+
         // The AuthUser extractor would accept this (token_type != "refresh")
         // This verifies backward compatibility
     }

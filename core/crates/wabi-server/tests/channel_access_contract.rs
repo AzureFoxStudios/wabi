@@ -15,7 +15,7 @@ use wabi_server::{
     state::AppState,
 };
 use wabidb::{
-    domain::{ChannelKind, MemberRole},
+    domain::{ChannelKind, MemberRole, UserUpdate},
     engine::wabi_store::WabiStore,
 };
 
@@ -127,20 +127,53 @@ async fn unsupported_group_avatar_upload_cannot_rewrite_group_or_store_a_file() 
     let dir = tempfile::tempdir().unwrap();
     let state = server(dir.path()).await;
     let (member, outsider, _) = users(&state).await;
-    state.wdb.create_group("group-avatar-safe", "keep group metadata", member, &[member, outsider]).await.unwrap();
-    let before = state.wdb.get_channel("group-avatar-safe").await.unwrap().unwrap();
+    state
+        .wdb
+        .create_group(
+            "group-avatar-safe",
+            "keep group metadata",
+            member,
+            &[member, outsider],
+        )
+        .await
+        .unwrap();
+    let before = state
+        .wdb
+        .get_channel("group-avatar-safe")
+        .await
+        .unwrap()
+        .unwrap();
     let before_seq = state.wdb.engine().projection_state().applied_commit_seq();
     let app = create_api_router(state.clone()).with_state(state.clone());
     let multipart = "--wabi-test\r\nContent-Disposition: form-data; name=\"channelId\"\r\n\r\ngroup-avatar-safe\r\n--wabi-test\r\nContent-Disposition: form-data; name=\"file\"; filename=\"avatar.png\"\r\nContent-Type: image/png\r\n\r\nnot-a-real-image\r\n--wabi-test--\r\n";
-    let response = app.oneshot(Request::post("/upload/group-avatar")
-        .header("authorization", format!("Bearer {}", jwt(&state, member)))
-        .header("content-type", "multipart/form-data; boundary=wabi-test")
-        .body(Body::from(multipart)).unwrap()).await.unwrap();
+    let response = app
+        .oneshot(
+            Request::post("/upload/group-avatar")
+                .header("authorization", format!("Bearer {}", jwt(&state, member)))
+                .header("content-type", "multipart/form-data; boundary=wabi-test")
+                .body(Body::from(multipart))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
-    assert_eq!(state.wdb.get_channel("group-avatar-safe").await.unwrap().unwrap(), before);
-    assert_eq!(state.wdb.engine().projection_state().applied_commit_seq(), before_seq);
+    assert_eq!(
+        state
+            .wdb
+            .get_channel("group-avatar-safe")
+            .await
+            .unwrap()
+            .unwrap(),
+        before
+    );
+    assert_eq!(
+        state.wdb.engine().projection_state().applied_commit_seq(),
+        before_seq
+    );
     let uploads = std::path::Path::new(&state.config.uploads_dir);
-    if uploads.exists() { assert_eq!(std::fs::read_dir(uploads).unwrap().count(), 0); }
+    if uploads.exists() {
+        assert_eq!(std::fs::read_dir(uploads).unwrap().count(), 0);
+    }
 }
 
 #[tokio::test]
@@ -244,7 +277,11 @@ async fn shared_dm_notes_persist_for_members_and_reject_outsiders_or_peer_edits(
     let state = server(dir.path()).await;
     let (author, outsider, recipient) = users(&state).await;
     let dm = channel(&state, author, ChannelKind::Dm).await;
-    state.wdb.add_channel_member(&dm, recipient, MemberRole::Member).await.unwrap();
+    state
+        .wdb
+        .add_channel_member(&dm, recipient, MemberRole::Member)
+        .await
+        .unwrap();
     let app = create_api_router(state.clone()).with_state(state.clone());
     let path = format!("/conversation-notes/{dm}");
     let author_token = jwt(&state, author);
@@ -252,9 +289,32 @@ async fn shared_dm_notes_persist_for_members_and_reject_outsiders_or_peer_edits(
     let outsider_token = jwt(&state, outsider);
     let readable = json!({"title":"Meeting details","text":"Please bring the draft"}).to_string();
 
-    assert_eq!(request(&app, Method::GET, &path, &outsider_token, json!(null)).await.0, StatusCode::FORBIDDEN);
-    assert_eq!(request(&app, Method::POST, &path, &outsider_token, json!({"content":readable})).await.0, StatusCode::FORBIDDEN);
-    let (status, note) = request(&app, Method::POST, &path, &author_token, json!({"content":readable})).await;
+    assert_eq!(
+        request(&app, Method::GET, &path, &outsider_token, json!(null))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            Method::POST,
+            &path,
+            &outsider_token,
+            json!({"content":readable})
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    let (status, note) = request(
+        &app,
+        Method::POST,
+        &path,
+        &author_token,
+        json!({"content":readable}),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{note}");
     let id = note["id"].as_str().unwrap();
     assert_eq!(note["authorUserId"], author);
@@ -262,34 +322,122 @@ async fn shared_dm_notes_persist_for_members_and_reject_outsiders_or_peer_edits(
     let note_path = format!("{path}/{id}");
     let (status, received) = request(&app, Method::GET, &path, &recipient_token, json!(null)).await;
     assert_eq!(status, StatusCode::OK, "{received}");
-    assert_eq!(received["notes"][0]["content"], readable, "recipient reads the saved note from disk");
+    assert_eq!(
+        received["notes"][0]["content"], readable,
+        "recipient reads the saved note from disk"
+    );
     let weak_store = Arc::downgrade(&state.wdb);
     drop(app);
     drop(state);
     for _ in 0..500 {
-        if weak_store.strong_count() == 0 { break; }
+        if weak_store.strong_count() == 0 {
+            break;
+        }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
-    assert_eq!(weak_store.strong_count(), 0, "first Authority released its store before restart");
+    assert_eq!(
+        weak_store.strong_count(),
+        0,
+        "first Authority released its store before restart"
+    );
     let state = server(dir.path()).await;
     let app = create_api_router(state.clone()).with_state(state.clone());
-    assert_eq!(request(&app, Method::GET, &path, &recipient_token, json!(null)).await.1["notes"][0]["content"], readable,
-        "recipient still sees the shared note after Authority restart");
-    assert_eq!(request(&app, Method::PUT, &note_path, &recipient_token, json!({"content":readable,"revision":1})).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(
+        request(&app, Method::GET, &path, &recipient_token, json!(null))
+            .await
+            .1["notes"][0]["content"],
+        readable,
+        "recipient still sees the shared note after Authority restart"
+    );
+    assert_eq!(
+        request(
+            &app,
+            Method::PUT,
+            &note_path,
+            &recipient_token,
+            json!({"content":readable,"revision":1})
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
 
-    let revision_two = json!({"title":"Meeting details","text":"Bring the final draft"}).to_string();
-    let (status, changed) = request(&app, Method::PUT, &note_path, &author_token, json!({"content":revision_two,"revision":1})).await;
+    let revision_two =
+        json!({"title":"Meeting details","text":"Bring the final draft"}).to_string();
+    let (status, changed) = request(
+        &app,
+        Method::PUT,
+        &note_path,
+        &author_token,
+        json!({"content":revision_two,"revision":1}),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{changed}");
     assert_eq!(changed["revision"], 2);
-    assert_eq!(request(&app, Method::PUT, &note_path, &author_token, json!({"content":readable,"revision":1})).await.0, StatusCode::CONFLICT);
-    assert_eq!(request(&app, Method::GET, &path, &recipient_token, json!(null)).await.1["notes"][0]["content"], revision_two);
+    assert_eq!(
+        request(
+            &app,
+            Method::PUT,
+            &note_path,
+            &author_token,
+            json!({"content":readable,"revision":1})
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        request(&app, Method::GET, &path, &recipient_token, json!(null))
+            .await
+            .1["notes"][0]["content"],
+        revision_two
+    );
 
-    state.wdb.remove_channel_member(&dm, recipient).await.unwrap();
-    assert_eq!(request(&app, Method::GET, &path, &recipient_token, json!(null)).await.0, StatusCode::FORBIDDEN,
-        "membership removal revokes saved note reads immediately");
-    assert_eq!(request(&app, Method::DELETE, &note_path, &outsider_token, json!({"revision":2})).await.0, StatusCode::FORBIDDEN);
-    assert_eq!(request(&app, Method::DELETE, &note_path, &author_token, json!({"revision":2})).await.0, StatusCode::OK);
-    assert_eq!(request(&app, Method::GET, &path, &author_token, json!(null)).await.1["notes"].as_array().unwrap().len(), 0);
+    state
+        .wdb
+        .remove_channel_member(&dm, recipient)
+        .await
+        .unwrap();
+    assert_eq!(
+        request(&app, Method::GET, &path, &recipient_token, json!(null))
+            .await
+            .0,
+        StatusCode::FORBIDDEN,
+        "membership removal revokes saved note reads immediately"
+    );
+    assert_eq!(
+        request(
+            &app,
+            Method::DELETE,
+            &note_path,
+            &outsider_token,
+            json!({"revision":2})
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            Method::DELETE,
+            &note_path,
+            &author_token,
+            json!({"revision":2})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        request(&app, Method::GET, &path, &author_token, json!(null))
+            .await
+            .1["notes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
 }
 
 #[tokio::test]
@@ -297,17 +445,41 @@ async fn new_dm_shared_notes_reject_plaintext_while_encryption_is_pending() {
     let dir = tempfile::tempdir().unwrap();
     let state = server(dir.path()).await;
     let (author, _, peer) = users(&state).await;
-    let app = create_api_router(state.clone()).with_state(state.clone())
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
         .layer(wabi_server::socketio::create_socket_layer(state.clone()));
     let mut creator = SocketClient::connect(&app, &jwt(&state, author)).await;
-    creator.emit("create-dm", json!({"targetUserId": format!("user-{peer}")})).await;
-    let dm = creator.event("dm-created").await["channelId"].as_str().unwrap().to_string();
+    creator
+        .emit("create-dm", json!({"targetUserId": format!("user-{peer}")}))
+        .await;
+    let dm = creator.event("dm-created").await["channelId"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let path = format!("/conversation-notes/{dm}");
     let readable = json!({"title":"Do not leak","text":"pending room secret"}).to_string();
-    let (status, body) = request(&app, Method::POST, &path, &jwt(&state, author), json!({"content":readable})).await;
+    let (status, body) = request(
+        &app,
+        Method::POST,
+        &path,
+        &jwt(&state, author),
+        json!({"content":readable}),
+    )
+    .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
-    assert_eq!(request(&app, Method::GET, &path, &jwt(&state, peer), json!(null)).await.1["notes"].as_array().unwrap().len(), 0);
-    assert!(!dir.path().join("conversation_notes.json").exists(), "rejected note was never persisted");
+    assert_eq!(
+        request(&app, Method::GET, &path, &jwt(&state, peer), json!(null))
+            .await
+            .1["notes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    assert!(
+        !dir.path().join("conversation_notes.json").exists(),
+        "rejected note was never persisted"
+    );
 }
 
 #[tokio::test]
@@ -316,30 +488,89 @@ async fn deleting_a_group_removes_its_shared_notes_sidecar_rows() {
     let state = server(dir.path()).await;
     let (author, _, recipient) = users(&state).await;
     let group = "group-shared-notes-cleanup";
-    let first_revision = state.wdb.create_group(group, "notes cleanup", author, &[author, recipient]).await.unwrap();
-    let app = create_api_router(state.clone()).with_state(state.clone())
+    let first_revision = state
+        .wdb
+        .create_group(group, "notes cleanup", author, &[author, recipient])
+        .await
+        .unwrap();
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
         .layer(wabi_server::socketio::create_socket_layer(state.clone()));
     let path = format!("/conversation-notes/{group}");
     let readable = json!({"title":"Group plan","text":"Visible to both members"}).to_string();
-    assert_eq!(request(&app, Method::POST, &path, &jwt(&state, author), json!({"content":readable})).await.0, StatusCode::OK);
-    assert_eq!(request(&app, Method::GET, &path, &jwt(&state, recipient), json!(null)).await.1["notes"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        request(
+            &app,
+            Method::POST,
+            &path,
+            &jwt(&state, author),
+            json!({"content":readable})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        request(
+            &app,
+            Method::GET,
+            &path,
+            &jwt(&state, recipient),
+            json!(null)
+        )
+        .await
+        .1["notes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 
     let mut first = SocketClient::connect(&app, &jwt(&state, author)).await;
     let mut second = SocketClient::connect(&app, &jwt(&state, recipient)).await;
-    let leave = |uid, revision: u64| json!({"channelId":group,"requestId":uuid::Uuid::new_v4().to_string(),
-        "expectedRevision":revision.to_string(),"userId":format!("user-{uid}"),"targetUserId":format!("user-{uid}")});
-    first.emit("leave-group", leave(author, first_revision)).await;
+    let leave = |uid, revision: u64| {
+        json!({"channelId":group,"requestId":uuid::Uuid::new_v4().to_string(),
+        "expectedRevision":revision.to_string(),"userId":format!("user-{uid}"),"targetUserId":format!("user-{uid}")})
+    };
+    first
+        .emit("leave-group", leave(author, first_revision))
+        .await;
     let first_result = first.event("group-operation-result").await;
     assert_eq!(first_result["ok"], true, "{first_result}");
-    assert_eq!(request(&app, Method::GET, &path, &jwt(&state, recipient), json!(null)).await.1["notes"].as_array().unwrap().len(), 1,
-        "remaining member keeps the note");
-    let next_revision = first_result["membershipRevision"].as_str().unwrap().parse::<u64>().unwrap();
-    second.emit("leave-group", leave(recipient, next_revision)).await;
+    assert_eq!(
+        request(
+            &app,
+            Method::GET,
+            &path,
+            &jwt(&state, recipient),
+            json!(null)
+        )
+        .await
+        .1["notes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "remaining member keeps the note"
+    );
+    let next_revision = first_result["membershipRevision"]
+        .as_str()
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
+    second
+        .emit("leave-group", leave(recipient, next_revision))
+        .await;
     let second_result = second.event("group-operation-result").await;
     assert_eq!(second_result["ok"], true, "{second_result}");
     assert!(state.wdb.get_channel(group).await.unwrap().is_none());
-    let sidecar: Value = serde_json::from_slice(&std::fs::read(dir.path().join("conversation_notes.json")).unwrap()).unwrap();
-    assert!(sidecar["notes"].as_array().unwrap().is_empty(), "deleted group notes remain in the sidecar: {sidecar}");
+    let sidecar: Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("conversation_notes.json")).unwrap())
+            .unwrap();
+    assert!(
+        sidecar["notes"].as_array().unwrap().is_empty(),
+        "deleted group notes remain in the sidecar: {sidecar}"
+    );
 }
 
 #[tokio::test]
@@ -538,6 +769,7 @@ async fn socket_policy_denies_removed_or_fabricated_membership_and_group_admin_o
         voice_channels: Default::default(),
         group_call_sessions: Default::default(),
         breakout_rooms: Default::default(),
+        roster_cache: Default::default(),
     };
     let group = channel(&state, member, ChannelKind::GroupDm).await;
     for uid in [outsider, owner] {
@@ -554,7 +786,7 @@ async fn socket_policy_denies_removed_or_fabricated_membership_and_group_admin_o
         .create_dm_channel(
             &dm,
             "canary",
-            Some(&[format!("user-{member}")]),
+            Some(&[format!("user-{member}"), format!("user-{outsider}")]),
             member as i64,
         )
         .await
@@ -684,25 +916,198 @@ struct SocketClient {
 }
 
 #[tokio::test]
-async fn bot_presence_views_include_registry_identity() {
+async fn channel_clear_commits_history_tombstones_before_live_view_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (_, _, owner) = users(&state).await;
+    let channel_id = channel(&state, owner, ChannelKind::Text).await;
+    let earlier_id = state
+        .wdb
+        .send_message(&channel_id, owner, "clear this history", false, &[])
+        .await
+        .unwrap();
+    state.session_messages.write().await.insert(
+        channel_id.clone(),
+        vec![json!({"id": earlier_id, "userId": format!("user-{owner}")})],
+    );
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
+        .layer(wabi_server::socketio::create_socket_layer(state.clone()));
+    let mut client = SocketClient::connect(&app, &jwt(&state, owner)).await;
+
+    client
+        .emit("clear-channel-messages", json!({"channelId": channel_id}))
+        .await;
+    assert_eq!(client.event("channel-messages-cleared").await["channelId"], channel_id);
+    assert!(state.wdb.list_messages_typed(&channel_id, 100).await.unwrap().is_empty());
+    assert!(state.wdb.get_message_typed(&earlier_id).await.unwrap().unwrap().is_deleted);
+    assert!(!state.session_messages.read().await.contains_key(&channel_id));
+
+    let later_id = state
+        .wdb
+        .send_message(&channel_id, owner, "keep this after failed clear", false, &[])
+        .await
+        .unwrap();
+    state.session_messages.write().await.insert(
+        channel_id.clone(),
+        vec![json!({"id": later_id, "userId": format!("user-{owner}")})],
+    );
+    state.wdb.engine().fence_local_writer().await.unwrap();
+    client
+        .emit("clear-channel-messages", json!({"channelId": channel_id}))
+        .await;
+    let error = client.event("clear-channel-error").await;
+    assert_eq!(error["channelId"], channel_id);
+    assert_eq!(error["code"], "persistence_unconfirmed");
+    assert_eq!(state.wdb.list_messages_typed(&channel_id, 100).await.unwrap().len(), 1);
+    assert!(!state.wdb.get_message_typed(&later_id).await.unwrap().unwrap().is_deleted);
+    assert!(state.session_messages.read().await[&channel_id]
+        .iter()
+        .any(|message| message["id"] == later_id));
+}
+
+#[tokio::test]
+async fn durable_delete_waits_for_commit_but_live_delete_remains_session_only() {
     let dir = tempfile::tempdir().unwrap();
     let state = server(dir.path()).await;
     let (member, _, _) = users(&state).await;
-    let bot = state.wdb.create_user("roster_bot", Some("roster_bot"), "dummy-bot-hash").await.unwrap();
-    state.bot_registry.create(bot).await;
-    let app = create_api_router(state.clone()).with_state(state.clone())
+    let channel_id = channel(&state, member, ChannelKind::Text).await;
+    let durable_id = state
+        .wdb
+        .send_message(&channel_id, member, "retain until deletion commits", false, &[])
+        .await
+        .unwrap();
+    let live_id = "live_test_delete";
+    state.session_messages.write().await.insert(
+        channel_id.clone(),
+        vec![
+            json!({"id": durable_id, "userId": format!("user-{member}"), "user": "member"}),
+            json!({"id": live_id, "userId": format!("user-{member}"), "user": "member"}),
+        ],
+    );
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
         .layer(wabi_server::socketio::create_socket_layer(state.clone()));
+    let mut client = SocketClient::connect(&app, &jwt(&state, member)).await;
+    state.wdb.engine().fence_local_writer().await.unwrap();
+
+    client
+        .emit(
+            "delete-message",
+            json!({"channelId": channel_id, "messageId": durable_id}),
+        )
+        .await;
+    let error = client.event("delete-error").await;
+    assert_eq!(error["messageId"], durable_id);
+    assert_eq!(error["code"], "persistence_unconfirmed");
+    assert!(!state
+        .wdb
+        .get_message_typed(&durable_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .is_deleted);
+    assert!(state.session_messages.read().await[&channel_id]
+        .iter()
+        .any(|message| message["id"] == durable_id));
+
+    client
+        .emit(
+            "delete-message",
+            json!({"channelId": channel_id, "messageId": live_id}),
+        )
+        .await;
+    assert_eq!(client.event("message-deleted").await["messageId"], live_id);
+    assert!(state.session_messages.read().await[&channel_id]
+        .iter()
+        .all(|message| message["id"] != live_id));
+}
+
+#[tokio::test]
+async fn cached_roster_refreshes_after_registration_and_profile_update() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (member, _, _) = users(&state).await;
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
+        .layer(wabi_server::socketio::create_socket_layer(state.clone()));
+
+    let mut first = SocketClient::handshake(&app, &jwt(&state, member)).await;
+    first.emit("join", json!("first")).await;
+    let initial = first.event("init").await;
+    assert!(initial["serverMembers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|user| user["username"] != "late_member"));
+
+    let added = state
+        .wdb
+        .create_user("late_member", Some("late_member"), "test-hash")
+        .await
+        .unwrap();
+    let mut second = SocketClient::handshake(&app, &jwt(&state, member)).await;
+    second.emit("join", json!("second")).await;
+    let after_register = second.event("init").await;
+    let registered = after_register["serverMembers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|user| user["dbUserId"] == added)
+        .expect("new account must appear without waiting for cache expiry");
+    assert_eq!(registered["username"], "late_member");
+
+    state
+        .wdb
+        .update_user(
+            added,
+            UserUpdate {
+                bio: Some("updated bio".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let mut third = SocketClient::handshake(&app, &jwt(&state, member)).await;
+    third.emit("join", json!("third")).await;
+    let after_profile = third.event("init").await;
+    let updated = after_profile["serverMembers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|user| user["dbUserId"] == added)
+        .unwrap();
+    assert_eq!(updated["bio"], "updated bio");
+
+    let bot = state
+        .wdb
+        .create_user("roster_bot", Some("roster_bot"), "dummy-bot-hash")
+        .await
+        .unwrap();
+    state.bot_registry.create(bot).await;
     let mut bot_client = SocketClient::handshake(&app, &jwt(&state, bot)).await;
     bot_client.emit("join", json!("roster_bot")).await;
-    let init = bot_client.event("init").await;
-    let bot_member = init["serverMembers"].as_array().unwrap().iter()
-        .find(|user| user["dbUserId"] == bot).unwrap();
+    let bot_init = bot_client.event("init").await;
+    let bot_member = bot_init["serverMembers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|user| user["dbUserId"] == bot)
+        .expect("bot appears in server roster");
     assert_eq!(bot_member["isBot"], true);
-    let bot_online = init["users"].as_array().unwrap().iter()
-        .find(|user| user["dbUserId"] == bot).unwrap();
+    let bot_online = bot_init["users"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|user| user["dbUserId"] == bot)
+        .expect("bot appears online");
     assert_eq!(bot_online["isBot"], true);
-    let human_member = init["serverMembers"].as_array().unwrap().iter()
-        .find(|user| user["dbUserId"] == member).unwrap();
+    let human_member = bot_init["serverMembers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|user| user["dbUserId"] == member)
+        .unwrap();
     assert_eq!(human_member["isBot"], false);
 }
 
@@ -713,17 +1118,28 @@ async fn voice_admission_rejects_private_missing_and_nonmember_channels() {
     let (member, outsider, _) = users(&state).await;
     let voice = channel(&state, member, ChannelKind::Voice).await;
     let group = channel(&state, outsider, ChannelKind::GroupDm).await;
-    let app = create_api_router(state.clone()).with_state(state.clone())
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
         .layer(wabi_server::socketio::create_socket_layer(state.clone()));
     let mut client = SocketClient::connect(&app, &jwt(&state, outsider)).await;
     for id in [&voice, &group, &"missing".to_string()] {
         for event in ["voice-channel-join", "voice-channel-subscribe"] {
-            client.emit(event, json!({"channelId":id,"requestId":event})).await;
+            client
+                .emit(event, json!({"channelId":id,"requestId":event}))
+                .await;
             let error = client.event("voice-channel-error").await;
             assert_eq!(error["channelId"], *id);
             assert_eq!(error["requestId"], event);
-            client.emit("join-wabidb-call", json!({"channelId":id,"sessionId":format!("channel:{id}"),"requestId":"relay"})).await;
-            assert_eq!(client.event("wabidb-call-denied").await["requestId"], "relay");
+            client
+                .emit(
+                    "join-wabidb-call",
+                    json!({"channelId":id,"sessionId":format!("channel:{id}"),"requestId":"relay"}),
+                )
+                .await;
+            assert_eq!(
+                client.event("wabidb-call-denied").await["requestId"],
+                "relay"
+            );
         }
     }
 }
@@ -734,34 +1150,80 @@ async fn group_answer_requires_current_membership_even_when_call_exists() {
     let state = server(dir.path()).await;
     let (member, peer, outsider) = users(&state).await;
     let group = channel(&state, member, ChannelKind::GroupDm).await;
-    state.wdb.add_channel_member(&group, peer, MemberRole::Member).await.unwrap();
-    let app = create_api_router(state.clone()).with_state(state.clone())
+    state
+        .wdb
+        .add_channel_member(&group, peer, MemberRole::Member)
+        .await
+        .unwrap();
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
         .layer(wabi_server::socketio::create_socket_layer(state.clone()));
     let mut caller = SocketClient::connect(&app, &jwt(&state, member)).await;
     let mut invited = SocketClient::connect(&app, &jwt(&state, peer)).await;
     let mut stranger = SocketClient::connect(&app, &jwt(&state, outsider)).await;
-    caller.emit("call-initiate", json!({"channelId":group,"requestId":"start"})).await;
-    assert_eq!(caller.event("group-call-started").await["requestId"], "start");
+    caller
+        .emit(
+            "call-initiate",
+            json!({"channelId":group,"requestId":"start"}),
+        )
+        .await;
+    assert_eq!(
+        caller.event("group-call-started").await["requestId"],
+        "start"
+    );
     assert_eq!(invited.event("call-incoming").await["channelId"], group);
-    stranger.emit("call-initiate", json!({"channelId":group,"requestId":"outsider-start"})).await;
+    stranger
+        .emit(
+            "call-initiate",
+            json!({"channelId":group,"requestId":"outsider-start"}),
+        )
+        .await;
     let denied = stranger.event("call-error").await;
     assert_eq!(denied["channelId"], group);
     assert_eq!(denied["requestId"], "outsider-start");
-    stranger.emit("call-answer", json!({"channelId":group})).await;
+    stranger
+        .emit("call-answer", json!({"channelId":group}))
+        .await;
     assert_eq!(stranger.event("call-error").await["channelId"], group);
-    invited.emit("call-answer", json!({"channelId":group,"requestId":"answer"})).await;
-    assert_eq!(invited.event("group-call-admitted").await["requestId"], "answer");
-    caller.emit("call-initiate", json!({"channelId":group,"requestId":"existing"})).await;
+    invited
+        .emit(
+            "call-answer",
+            json!({"channelId":group,"requestId":"answer"}),
+        )
+        .await;
+    assert_eq!(
+        invited.event("group-call-admitted").await["requestId"],
+        "answer"
+    );
+    caller
+        .emit(
+            "call-initiate",
+            json!({"channelId":group,"requestId":"existing"}),
+        )
+        .await;
     let existing = caller.event("group-call-started").await;
     assert_eq!(existing["requestId"], "existing");
     assert_eq!(existing["established"], true);
-    assert_eq!(invited.event("group-call-participant-joined").await["userId"], format!("user-{member}"));
+    assert_eq!(
+        invited.event("group-call-participant-joined").await["userId"],
+        format!("user-{member}")
+    );
     invited.emit("join-wabidb-call", json!({"channelId":group,"sessionId":format!("channel:{group}"),"requestId":"group-media"})).await;
-    assert_eq!(invited.event("wabidb-call-joined").await["requestId"], "group-media");
+    assert_eq!(
+        invited.event("wabidb-call-joined").await["requestId"],
+        "group-media"
+    );
     state.wdb.remove_channel_member(&group, peer).await.unwrap();
-    invited.emit("call-answer", json!({"channelId":group})).await;
+    invited
+        .emit("call-answer", json!({"channelId":group}))
+        .await;
     assert_eq!(invited.event("call-error").await["channelId"], group);
-    invited.emit("join-wabidb-call", json!({"channelId":group,"sessionId":format!("channel:{group}")})).await;
+    invited
+        .emit(
+            "join-wabidb-call",
+            json!({"channelId":group,"sessionId":format!("channel:{group}")}),
+        )
+        .await;
     invited.event("wabidb-call-denied").await;
 }
 
@@ -770,12 +1232,15 @@ async fn direct_call_rings_invisible_account_and_unrelated_end_does_not_end_it()
     let dir = tempfile::tempdir().unwrap();
     let state = server(dir.path()).await;
     let (caller_id, recipient_id, stranger_id) = users(&state).await;
-    let app = create_api_router(state.clone()).with_state(state.clone())
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
         .layer(wabi_server::socketio::create_socket_layer(state.clone()));
     let mut caller = SocketClient::connect(&app, &jwt(&state, caller_id)).await;
     let mut recipient = SocketClient::connect(&app, &jwt(&state, recipient_id)).await;
     let stranger = SocketClient::connect(&app, &jwt(&state, stranger_id)).await;
-    recipient.emit("set-presence", json!({"presence":"invisible"})).await;
+    recipient
+        .emit("set-presence", json!({"presence":"invisible"}))
+        .await;
     // The polling fixture does not expose the layer-owned presence map, and
     // namespace broadcasts are not delivered through this test transport.
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -791,12 +1256,30 @@ async fn direct_call_rings_invisible_account_and_unrelated_end_does_not_end_it()
     assert_eq!(invite["isVideoCall"], true);
 
     stranger.emit("call-end", json!({})).await;
-    recipient.emit("call-answer", json!({"callerId":format!("user-{caller_id}"),"isVideoCall":true})).await;
-    assert_eq!(caller.event("call-accepted").await["userId"], format!("user-{recipient_id}"));
-    assert!(caller.events.iter().all(|event| event[0] != "call-ended"),
-        "an unrelated account ending a call must not end this call");
-    caller.emit("call-end", json!({"participants":[format!("user-{recipient_id}")]})).await;
-    assert_eq!(recipient.event("call-ended").await["userId"], format!("user-{caller_id}"));
+    recipient
+        .emit(
+            "call-answer",
+            json!({"callerId":format!("user-{caller_id}"),"isVideoCall":true}),
+        )
+        .await;
+    assert_eq!(
+        caller.event("call-accepted").await["userId"],
+        format!("user-{recipient_id}")
+    );
+    assert!(
+        caller.events.iter().all(|event| event[0] != "call-ended"),
+        "an unrelated account ending a call must not end this call"
+    );
+    caller
+        .emit(
+            "call-end",
+            json!({"participants":[format!("user-{recipient_id}")]}),
+        )
+        .await;
+    assert_eq!(
+        recipient.event("call-ended").await["userId"],
+        format!("user-{caller_id}")
+    );
 }
 
 #[tokio::test]
@@ -805,25 +1288,64 @@ async fn calls_can_start_for_offline_members_without_presence_admission() {
     let state = server(dir.path()).await;
     let (caller_id, recipient_id, _) = users(&state).await;
     let group = channel(&state, caller_id, ChannelKind::GroupDm).await;
-    state.wdb.add_channel_member(&group, recipient_id, MemberRole::Member).await.unwrap();
-    let app = create_api_router(state.clone()).with_state(state.clone())
+    state
+        .wdb
+        .add_channel_member(&group, recipient_id, MemberRole::Member)
+        .await
+        .unwrap();
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
         .layer(wabi_server::socketio::create_socket_layer(state.clone()));
     let mut caller = SocketClient::connect(&app, &jwt(&state, caller_id)).await;
 
-    caller.emit("call-initiate", json!({"targetUserId":format!("user-{recipient_id}"),"requestId":"offline-dm"})).await;
-    assert_eq!(caller.event("call-ringing").await["requestId"], "offline-dm");
-    caller.emit("call-cancel", json!({"targetUserId":format!("user-{recipient_id}")})).await;
+    caller
+        .emit(
+            "call-initiate",
+            json!({"targetUserId":format!("user-{recipient_id}"),"requestId":"offline-dm"}),
+        )
+        .await;
+    assert_eq!(
+        caller.event("call-ringing").await["requestId"],
+        "offline-dm"
+    );
+    caller
+        .emit(
+            "call-cancel",
+            json!({"targetUserId":format!("user-{recipient_id}")}),
+        )
+        .await;
     let mut recipient = SocketClient::connect(&app, &jwt(&state, recipient_id)).await;
-    recipient.emit("call-answer", json!({"callerId":format!("user-{caller_id}")})).await;
-    assert_eq!(recipient.event("call-error").await["code"], "caller_unavailable");
+    recipient
+        .emit(
+            "call-answer",
+            json!({"callerId":format!("user-{caller_id}")}),
+        )
+        .await;
+    assert_eq!(
+        recipient.event("call-error").await["code"],
+        "caller_unavailable"
+    );
 
-    caller.emit("call-initiate", json!({"channelId":group,"requestId":"offline-group"})).await;
+    caller
+        .emit(
+            "call-initiate",
+            json!({"channelId":group,"requestId":"offline-group"}),
+        )
+        .await;
     let started = caller.event("group-call-started").await;
     assert_eq!(started["requestId"], "offline-group");
     assert_eq!(started["established"], false);
     caller.emit("call-cancel", json!({"channelId":group})).await;
-    recipient.emit("call-answer", json!({"channelId":group,"requestId":"late-group-answer"})).await;
-    assert_eq!(recipient.event("call-error").await["code"], "caller_unavailable");
+    recipient
+        .emit(
+            "call-answer",
+            json!({"channelId":group,"requestId":"late-group-answer"}),
+        )
+        .await;
+    assert_eq!(
+        recipient.event("call-error").await["code"],
+        "caller_unavailable"
+    );
 }
 
 #[tokio::test]
@@ -832,10 +1354,16 @@ async fn one_member_group_call_reports_no_recipients_immediately() {
     let state = server(dir.path()).await;
     let (caller_id, _, _) = users(&state).await;
     let group = channel(&state, caller_id, ChannelKind::GroupDm).await;
-    let app = create_api_router(state.clone()).with_state(state.clone())
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
         .layer(wabi_server::socketio::create_socket_layer(state.clone()));
     let mut caller = SocketClient::connect(&app, &jwt(&state, caller_id)).await;
-    caller.emit("call-initiate", json!({"channelId":group,"requestId":"solo"})).await;
+    caller
+        .emit(
+            "call-initiate",
+            json!({"channelId":group,"requestId":"solo"}),
+        )
+        .await;
     let error = caller.event("call-error").await;
     assert_eq!(error["requestId"], "solo");
     assert_eq!(error["code"], "no_recipients");
@@ -871,7 +1399,9 @@ impl SocketClient {
     }
     async fn connect(app: &Router, token: &str) -> Self {
         let mut client = Self::handshake(app, token).await;
-        client.emit("join", json!("client-supplied name is not identity")).await;
+        client
+            .emit("join", json!("client-supplied name is not identity"))
+            .await;
         client.event("init").await;
         client
     }
@@ -938,7 +1468,8 @@ async fn voice_consent_is_device_owned_and_kick_revokes_only_that_channels_media
     let channel_id = channel(&state, member, ChannelKind::Voice).await;
     let other = channel(&state, member, ChannelKind::Voice).await;
     let private = channel(&state, member, ChannelKind::GroupDm).await;
-    let app = create_api_router(state.clone()).with_state(state.clone())
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
         .layer(wabi_server::socketio::create_socket_layer(state.clone()));
     let mut first = SocketClient::connect(&app, &jwt(&state, member)).await;
     let mut second = SocketClient::connect(&app, &jwt(&state, member)).await;
@@ -946,41 +1477,101 @@ async fn voice_consent_is_device_owned_and_kick_revokes_only_that_channels_media
     let room = format!("wabidb-call-channel:{channel_id}");
     let other_room = format!("wabidb-call-channel:{other}");
     for id in [&channel_id, &other] {
-        first.emit("voice-channel-join", json!({"channelId":id,"requestId":"primary"})).await;
-        assert_eq!(first.event("voice-channel-admitted").await["requestId"], "primary");
-        first.emit("join-wabidb-call", json!({"channelId":id,"sessionId":format!("channel:{id}")})).await;
+        first
+            .emit(
+                "voice-channel-join",
+                json!({"channelId":id,"requestId":"primary"}),
+            )
+            .await;
+        assert_eq!(
+            first.event("voice-channel-admitted").await["requestId"],
+            "primary"
+        );
+        first
+            .emit(
+                "join-wabidb-call",
+                json!({"channelId":id,"sessionId":format!("channel:{id}")}),
+            )
+            .await;
         first.event("wabidb-call-joined").await;
     }
-    second.emit("join-wabidb-call", json!({"channelId":channel_id,"sessionId":format!("channel:{channel_id}")})).await;
+    second
+        .emit(
+            "join-wabidb-call",
+            json!({"channelId":channel_id,"sessionId":format!("channel:{channel_id}")}),
+        )
+        .await;
     second.event("wabidb-call-denied").await;
-    second.emit("voice-channel-subscribe", json!({"channelId":channel_id,"requestId":"listen"})).await;
+    second
+        .emit(
+            "voice-channel-subscribe",
+            json!({"channelId":channel_id,"requestId":"listen"}),
+        )
+        .await;
     second.event("voice-channel-admitted").await;
-    second.emit("join-wabidb-call", json!({"channelId":channel_id,"sessionId":format!("channel:{channel_id}")})).await;
+    second
+        .emit(
+            "join-wabidb-call",
+            json!({"channelId":channel_id,"sessionId":format!("channel:{channel_id}")}),
+        )
+        .await;
     second.event("wabidb-call-joined").await;
     // An unsolicited primary leave cannot eject the listener.
     first.emit("webrtc-offer", json!({"channelId":channel_id,"targetId":second.socket_id,"offer":{"type":"offer","sdp":"authorized-canary"}})).await;
-    assert_eq!(second.event("webrtc-offer").await["offer"]["sdp"], "authorized-canary");
-    second.emit("voice-channel-leave", json!({"channelId":channel_id})).await;
-    second.emit("join-wabidb-call", json!({"channelId":channel_id,"sessionId":format!("channel:{channel_id}")})).await;
+    assert_eq!(
+        second.event("webrtc-offer").await["offer"]["sdp"],
+        "authorized-canary"
+    );
+    second
+        .emit("voice-channel-leave", json!({"channelId":channel_id}))
+        .await;
+    second
+        .emit(
+            "join-wabidb-call",
+            json!({"channelId":channel_id,"sessionId":format!("channel:{channel_id}")}),
+        )
+        .await;
     second.event("wabidb-call-joined").await;
     first.emit("wabidb-media", json!({"sessionId":format!("channel:{channel_id}"),"kind":"audio","seq":0,"data":"header-canary"})).await;
     assert_eq!(second.event("wabidb-media").await["data"], "header-canary");
-    first.emit("move-user-to-voice-channel", json!({"targetUserId":format!("user-{member}"),"toChannelId":private})).await;
+    first
+        .emit(
+            "move-user-to-voice-channel",
+            json!({"targetUserId":format!("user-{member}"),"toChannelId":private}),
+        )
+        .await;
     first.event("move-user-to-voice-channel-error").await;
-    moderator.emit("voice-channel-kick", json!({"channelId":channel_id,"targetUserId":format!("user-{member}")})).await;
+    moderator
+        .emit(
+            "voice-channel-kick",
+            json!({"channelId":channel_id,"targetUserId":format!("user-{member}")}),
+        )
+        .await;
     first.event("voice-self-kicked").await;
     second.event("voice-self-kicked").await;
     // Inspect the real server rooms, not the UI's reaction to a kick.
     let io = state.socket_io().unwrap();
     for client in [&first, &second] {
-        let socket = io.sockets().into_iter().find(|s| s.id.to_string() == client.socket_id).unwrap();
+        let socket = io
+            .sockets()
+            .into_iter()
+            .find(|s| s.id.to_string() == client.socket_id)
+            .unwrap();
         assert!(!socket.rooms().iter().any(|r| r.as_ref() == room));
         if client.socket_id == first.socket_id {
             assert!(socket.rooms().iter().any(|r| r.as_ref() == other_room));
         }
     }
-    assert!(wabi_server::socketio::wabidb_header_cache_snapshot(&format!("channel:{channel_id}")).is_empty());
-    second.emit("join-wabidb-call", json!({"channelId":channel_id,"sessionId":format!("channel:{channel_id}")})).await;
+    assert!(
+        wabi_server::socketio::wabidb_header_cache_snapshot(&format!("channel:{channel_id}"))
+            .is_empty()
+    );
+    second
+        .emit(
+            "join-wabidb-call",
+            json!({"channelId":channel_id,"sessionId":format!("channel:{channel_id}")}),
+        )
+        .await;
     second.event("wabidb-call-denied").await;
 }
 
@@ -990,21 +1581,36 @@ async fn screen_and_peer_signaling_stay_in_one_call_and_reject_old_membership() 
     let state = server(dir.path()).await;
     let (member, peer, background) = users(&state).await;
     let group = "group-screen-boundary";
-    let revision = state.wdb.create_group(group, "Screen", member, &[member, peer]).await.unwrap();
+    let revision = state
+        .wdb
+        .create_group(group, "Screen", member, &[member, peer])
+        .await
+        .unwrap();
     let voice = channel(&state, member, ChannelKind::Voice).await;
-    state.wdb.add_channel_member(&voice, background, MemberRole::Member).await.unwrap();
-    let app = create_api_router(state.clone()).with_state(state.clone())
+    state
+        .wdb
+        .add_channel_member(&voice, background, MemberRole::Member)
+        .await
+        .unwrap();
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
         .layer(wabi_server::socketio::create_socket_layer(state.clone()));
     let mut sender = SocketClient::connect(&app, &jwt(&state, member)).await;
     let mut recipient = SocketClient::connect(&app, &jwt(&state, peer)).await;
     let mut listener = SocketClient::connect(&app, &jwt(&state, background)).await;
     for client in [&mut sender, &mut listener] {
-        client.emit("voice-channel-join", json!({"channelId":voice})).await;
+        client
+            .emit("voice-channel-join", json!({"channelId":voice}))
+            .await;
         client.event("voice-channel-admitted").await;
     }
-    sender.emit("call-initiate", json!({"channelId":group})).await;
+    sender
+        .emit("call-initiate", json!({"channelId":group}))
+        .await;
     sender.event("group-call-started").await;
-    recipient.emit("call-answer", json!({"channelId":group})).await;
+    recipient
+        .emit("call-answer", json!({"channelId":group}))
+        .await;
     recipient.event("group-call-admitted").await;
     let share = json!({"channelId":group,"membershipRevision":revision.to_string(),"requestId":"group-share"});
     sender.emit("start-screen-share", share.clone()).await;
@@ -1012,34 +1618,70 @@ async fn screen_and_peer_signaling_stay_in_one_call_and_reject_old_membership() 
     assert_eq!(targets["requestId"], "group-share");
     assert_eq!(targets["targets"].as_array().unwrap().len(), 1);
     assert_eq!(targets["targets"][0]["userId"], format!("user-{peer}"));
-    assert_eq!(recipient.event("screen-share-started").await["channelId"], group);
+    assert_eq!(
+        recipient.event("screen-share-started").await["channelId"],
+        group
+    );
 
     // An independently valid voice relationship must not authorize group SDP.
-    for (event, field) in [("webrtc-offer", "offer"), ("webrtc-answer", "answer"),
-        ("webrtc-ice-candidate", "candidate"), ("call-offer", "offer"),
-        ("call-answer-sdp", "answer"), ("call-ice-candidate", "candidate")] {
+    for (event, field) in [
+        ("webrtc-offer", "offer"),
+        ("webrtc-answer", "answer"),
+        ("webrtc-ice-candidate", "candidate"),
+        ("call-offer", "offer"),
+        ("call-answer-sdp", "answer"),
+        ("call-ice-candidate", "candidate"),
+    ] {
         sender.emit(event, json!({"targetId":listener.socket_id,"channelId":group,field:{"canary":"wrong-call"}})).await;
         sender.emit(event, json!({"targetId":recipient.socket_id,"channelId":group,"requestId":"group-share",field:{"canary":"right-call"}})).await;
         let signal = recipient.event(event).await;
         assert_eq!(signal["channelId"], group);
         assert_eq!(signal[field]["canary"], "right-call");
     }
-    sender.emit("start-screen-share", json!({"channelId":voice,"requestId":"voice-barrier"})).await;
+    sender
+        .emit(
+            "start-screen-share",
+            json!({"channelId":voice,"requestId":"voice-barrier"}),
+        )
+        .await;
     let barrier = listener.event("screen-share-started").await;
-    assert_eq!(barrier["requestId"], "voice-barrier", "group notification must not leak to the background call");
-    assert!(!listener.events.iter().any(|event| event[1].to_string().contains("wrong-call")));
+    assert_eq!(
+        barrier["requestId"], "voice-barrier",
+        "group notification must not leak to the background call"
+    );
+    assert!(!listener
+        .events
+        .iter()
+        .any(|event| event[1].to_string().contains("wrong-call")));
     sender.emit("stop-screen-share", share.clone()).await;
     let stop = recipient.event("screen-share-stopped").await;
     assert_eq!(stop["requestId"], "group-share");
     assert_eq!(stop["channelId"], group);
 
     // Do not silently choose every active call for an old unscoped start.
-    sender.emit("start-screen-share", json!({"requestId":"ambiguous"})).await;
-    assert_eq!(sender.event("screen-share-error").await["requestId"], "ambiguous");
-    state.wdb.change_group_membership(member, group, None, Some(peer), member).await.unwrap();
-    state.wdb.change_group_membership(member, group, Some(peer), None, member).await.unwrap();
+    sender
+        .emit("start-screen-share", json!({"requestId":"ambiguous"}))
+        .await;
+    assert_eq!(
+        sender.event("screen-share-error").await["requestId"],
+        "ambiguous"
+    );
+    state
+        .wdb
+        .change_group_membership(member, group, None, Some(peer), member)
+        .await
+        .unwrap();
+    state
+        .wdb
+        .change_group_membership(member, group, Some(peer), None, member)
+        .await
+        .unwrap();
     sender.emit("start-screen-share", share).await;
-    assert_eq!(sender.event("screen-share-error").await["requestId"], "group-share", "old scope cannot start after re-add");
+    assert_eq!(
+        sender.event("screen-share-error").await["requestId"],
+        "group-share",
+        "old scope cannot start after re-add"
+    );
 }
 
 #[tokio::test]
@@ -1057,20 +1699,42 @@ async fn group_consent_is_device_owned_and_old_disconnect_cannot_evict_a_replace
     let state = server(dir.path()).await;
     let (member, peer, _) = users(&state).await;
     let group = "group-device-reconnect";
-    let revision = state.wdb.create_group(group, "Devices", member, &[member, peer]).await.unwrap();
-    let app = create_api_router(state.clone()).with_state(state.clone())
+    let revision = state
+        .wdb
+        .create_group(group, "Devices", member, &[member, peer])
+        .await
+        .unwrap();
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
         .layer(wabi_server::socketio::create_socket_layer(state.clone()));
     let mut original = SocketClient::connect(&app, &jwt(&state, member)).await;
     let mut other_device = SocketClient::connect(&app, &jwt(&state, member)).await;
     let mut partner = SocketClient::connect(&app, &jwt(&state, peer)).await;
-    original.emit("call-initiate", json!({"channelId":group})).await;
+    original
+        .emit("call-initiate", json!({"channelId":group}))
+        .await;
     original.event("group-call-started").await;
-    partner.emit("call-answer", json!({"channelId":group,"requestId":"answer"})).await;
+    partner
+        .emit(
+            "call-answer",
+            json!({"channelId":group,"requestId":"answer"}),
+        )
+        .await;
     partner.event("group-call-admitted").await;
-    other_device.emit("join-wabidb-call", json!({"channelId":group,"sessionId":format!("channel:{group}")})).await;
+    other_device
+        .emit(
+            "join-wabidb-call",
+            json!({"channelId":group,"sessionId":format!("channel:{group}")}),
+        )
+        .await;
     other_device.event("wabidb-call-denied").await;
     disconnect(&other_device, &state).await;
-    original.emit("join-wabidb-call", json!({"channelId":group,"sessionId":format!("channel:{group}")})).await;
+    original
+        .emit(
+            "join-wabidb-call",
+            json!({"channelId":group,"sessionId":format!("channel:{group}")}),
+        )
+        .await;
     original.event("wabidb-call-joined").await;
 
     // Reconnect can win before the old socket's disconnect is processed.
@@ -1081,21 +1745,51 @@ async fn group_consent_is_device_owned_and_old_disconnect_cannot_evict_a_replace
     assert_eq!(admitted["established"], true);
     partner.event("group-call-participant-joined").await;
     disconnect(&original, &state).await;
-    replacement.emit("join-wabidb-call", json!({"channelId":group,"sessionId":format!("channel:{group}")})).await;
+    replacement
+        .emit(
+            "join-wabidb-call",
+            json!({"channelId":group,"sessionId":format!("channel:{group}")}),
+        )
+        .await;
     replacement.event("wabidb-call-joined").await;
     replacement.emit("webrtc-offer", json!({"channelId":group,"targetId":partner.socket_id,"offer":{"sdp":"replacement-alive"}})).await;
-    assert_eq!(partner.event("webrtc-offer").await["offer"]["sdp"], "replacement-alive");
-    assert!(!partner.events.iter().any(|e| e[0] == "group-call-participant-left" || e[0] == "call-ended"));
+    assert_eq!(
+        partner.event("webrtc-offer").await["offer"]["sdp"],
+        "replacement-alive"
+    );
+    assert!(!partner
+        .events
+        .iter()
+        .any(|e| e[0] == "group-call-participant-left" || e[0] == "call-ended"));
 
-    replacement.emit("group-call-leave", json!({"channelId":group})).await;
+    replacement
+        .emit("group-call-leave", json!({"channelId":group}))
+        .await;
     let left = partner.event("group-call-participant-left").await;
-    assert_eq!(left["userId"], format!("user-{member}"), "departure addresses the same stable key as admission");
+    assert_eq!(
+        left["userId"],
+        format!("user-{member}"),
+        "departure addresses the same stable key as admission"
+    );
     assert_eq!(left["socketId"], replacement.socket_id);
-    replacement.emit("join-wabidb-call", json!({"channelId":group,"sessionId":format!("channel:{group}")})).await;
+    replacement
+        .emit(
+            "join-wabidb-call",
+            json!({"channelId":group,"sessionId":format!("channel:{group}")}),
+        )
+        .await;
     replacement.event("wabidb-call-denied").await;
 
-    state.wdb.change_group_membership(member, group, None, Some(peer), member).await.unwrap();
-    state.wdb.change_group_membership(member, group, Some(peer), None, member).await.unwrap();
+    state
+        .wdb
+        .change_group_membership(member, group, None, Some(peer), member)
+        .await
+        .unwrap();
+    state
+        .wdb
+        .change_group_membership(member, group, Some(peer), None, member)
+        .await
+        .unwrap();
     replacement.emit("call-initiate", json!({"channelId":group,"rejoin":true,"membershipRevision":revision.to_string(),"requestId":"stale-resume"})).await;
     let denied = replacement.event("call-error").await;
     assert_eq!(denied["code"], "membership_changed");
@@ -1108,22 +1802,46 @@ async fn group_readmission_can_rebuild_empty_runtime_state_without_ringing_membe
     let state = server(dir.path()).await;
     let (member, peer, _) = users(&state).await;
     let group = "group-cold-readmission";
-    let revision = state.wdb.create_group(group, "Cold", member, &[member, peer]).await.unwrap();
+    let revision = state
+        .wdb
+        .create_group(group, "Cold", member, &[member, peer])
+        .await
+        .unwrap();
     // Durable membership exists, but the newly constructed Socket.IO layer has
     // no ephemeral call roster (the same boundary as a server restart).
-    let app = create_api_router(state.clone()).with_state(state.clone())
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
         .layer(wabi_server::socketio::create_socket_layer(state.clone()));
     let mut first = SocketClient::connect(&app, &jwt(&state, member)).await;
     let mut second = SocketClient::connect(&app, &jwt(&state, peer)).await;
     first.emit("call-initiate", json!({"channelId":group,"rejoin":true,"membershipRevision":revision.to_string(),"requestId":"first"})).await;
-    assert_eq!(first.event("group-call-started").await["requestId"], "first");
-    second.emit("join-wabidb-call", json!({"channelId":group,"sessionId":format!("channel:{group}")})).await;
+    assert_eq!(
+        first.event("group-call-started").await["requestId"],
+        "first"
+    );
+    second
+        .emit(
+            "join-wabidb-call",
+            json!({"channelId":group,"sessionId":format!("channel:{group}")}),
+        )
+        .await;
     second.event("wabidb-call-denied").await;
-    assert!(!second.events.iter().any(|e| e[0] == "call-incoming"), "recovery is not a new ringing invitation");
+    assert!(
+        !second.events.iter().any(|e| e[0] == "call-incoming"),
+        "recovery is not a new ringing invitation"
+    );
     second.emit("call-initiate", json!({"channelId":group,"rejoin":true,"membershipRevision":revision.to_string(),"requestId":"second"})).await;
-    assert_eq!(second.event("group-call-started").await["established"], true);
+    assert_eq!(
+        second.event("group-call-started").await["established"],
+        true
+    );
     for client in [&mut first, &mut second] {
-        client.emit("join-wabidb-call", json!({"channelId":group,"sessionId":format!("channel:{group}")})).await;
+        client
+            .emit(
+                "join-wabidb-call",
+                json!({"channelId":group,"sessionId":format!("channel:{group}")}),
+            )
+            .await;
         client.event("wabidb-call-joined").await;
     }
 }
@@ -1133,13 +1851,18 @@ async fn direct_relay_accepts_both_named_peers_with_legacy_ui_channel_hints_only
     let dir = tempfile::tempdir().unwrap();
     let state = server(dir.path()).await;
     let (first_id, second_id, outsider) = users(&state).await;
-    let app = create_api_router(state.clone()).with_state(state.clone())
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
         .layer(wabi_server::socketio::create_socket_layer(state.clone()));
     let session = format!("dm:user-{first_id}:user-{second_id}");
     for uid in [first_id, second_id, outsider] {
         let mut client = SocketClient::connect(&app, &jwt(&state, uid)).await;
         client.emit("join-wabidb-call", json!({"sessionId":session,"channelId":format!("user-{second_id}"),"requestId":"direct"})).await;
-        let event = if uid == outsider { "wabidb-call-denied" } else { "wabidb-call-joined" };
+        let event = if uid == outsider {
+            "wabidb-call-denied"
+        } else {
+            "wabidb-call-joined"
+        };
         assert_eq!(client.event(event).await["requestId"], "direct");
     }
 }
@@ -1282,16 +2005,20 @@ async fn conversation_events_reach_only_participants_and_legacy_changes_do_not_l
     creator.event("group-operation-result").await;
     for (event, error, code) in [
         ("leave-group", "group-operation-result", "INVALID_REQUEST"),
-        ("kick-group-member", "group-operation-result", "INVALID_REQUEST"),
-        ("add-group-member", "group-operation-result", "INVALID_REQUEST"),
+        (
+            "kick-group-member",
+            "group-operation-result",
+            "INVALID_REQUEST",
+        ),
+        (
+            "add-group-member",
+            "group-operation-result",
+            "INVALID_REQUEST",
+        ),
         ("update-group-avatar", "avatar-error", "NOT_IMPLEMENTED"),
     ] {
         creator.emit(event, json!({"channelId":group,"userId":format!("user-{owner}"),"targetUserId":format!("user-{invited}"),"avatarUrl":"/uploads/anything"})).await;
-        assert_eq!(
-            creator.event(error).await["code"],
-            code,
-            "{event}"
-        );
+        assert_eq!(creator.event(error).await["code"], code, "{event}");
     }
     assert_eq!(
         state.wdb.list_channel_members(group).await.unwrap().len(),
@@ -1371,7 +2098,7 @@ async fn nested_workspace_paths_cannot_alias_another_channels_records() {
     for (path, payload) in [
         (
             format!("/wiki/{allowed}/pages/{page}"),
-            json!({"title":"stolen","body":"overwritten"}),
+            json!({"title":"stolen","body":"overwritten","expectedUpdatedAtMicros":0}),
         ),
         (
             format!("/forum/{allowed}/threads/{thread}/posts/{thread}"),
@@ -1436,23 +2163,45 @@ async fn dm_identity_uses_persisted_offline_name_and_recipient_specific_payload(
     let dir = tempfile::tempdir().unwrap();
     let state = server(dir.path()).await;
     let (member, invited, owner) = users(&state).await;
-    let app = create_api_router(state.clone()).with_state(state.clone())
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
         .layer(wabi_server::socketio::create_socket_layer(state.clone()));
     let mut creator = SocketClient::connect(&app, &jwt(&state, member)).await;
-    creator.emit("create-dm", json!({"targetUserId": format!("user-{invited}")})).await;
+    creator
+        .emit(
+            "create-dm",
+            json!({"targetUserId": format!("user-{invited}")}),
+        )
+        .await;
     let offline = creator.event("dm-created").await;
     assert_eq!(offline["channel"]["otherUser"]["username"], "outsider");
-    assert_eq!(offline["channel"]["otherUser"]["id"], format!("user-{invited}"));
+    assert_eq!(
+        offline["channel"]["otherUser"]["id"],
+        format!("user-{invited}")
+    );
     let mut recipient = SocketClient::connect(&app, &jwt(&state, owner)).await;
-    creator.emit("create-dm", json!({"targetUserId": format!("user-{owner}")})).await;
+    creator
+        .emit(
+            "create-dm",
+            json!({"targetUserId": format!("user-{owner}")}),
+        )
+        .await;
     let online = creator.event("dm-created").await;
     assert_eq!(online["channel"]["otherUser"]["username"], "owner");
     let received = recipient.event("dm-channel-added").await;
     assert_eq!(received["channelId"], online["channelId"]);
-    assert_eq!(received["channel"]["otherUser"]["id"], format!("user-{member}"));
+    assert_eq!(
+        received["channel"]["otherUser"]["id"],
+        format!("user-{member}")
+    );
     assert_eq!(received["otherUser"]["id"], format!("user-{member}"));
-    creator.emit("create-dm", json!({"targetUserId": "user-999999999"})).await;
-    assert_eq!(creator.event("dm-error").await["error"], "Target must be an active registered user");
+    creator
+        .emit("create-dm", json!({"targetUserId": "user-999999999"}))
+        .await;
+    assert_eq!(
+        creator.event("dm-error").await["error"],
+        "Target must be an active registered user"
+    );
 }
 
 #[tokio::test]
@@ -1467,33 +2216,81 @@ async fn exact_retention_loads_before_requests_and_corruption_cannot_change_live
     let config = state.config.clone();
     drop(state);
     let state = Arc::new(AppState::new(config.clone()).await.unwrap());
-    assert_eq!(state.channel_auto_delete_label.read().await.get(&room).map(String::as_str), Some("live"));
+    assert_eq!(
+        state
+            .channel_auto_delete_label
+            .read()
+            .await
+            .get(&room)
+            .map(String::as_str),
+        Some("live")
+    );
     let app = create_api_router(state.clone()).with_state(state.clone());
-    let (status, body) = request(&app, Method::POST, "/messages", &jwt(&state, member),
-        json!({"channel_id":room,"content":"startup-live-canary"})).await;
+    let (status, body) = request(
+        &app,
+        Method::POST,
+        "/messages",
+        &jwt(&state, member),
+        json!({"channel_id":room,"content":"startup-live-canary"}),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(state.wdb.get_message_typed(body["id"].as_str().unwrap()).await.unwrap().is_none());
+    assert!(state
+        .wdb
+        .get_message_typed(body["id"].as_str().unwrap())
+        .await
+        .unwrap()
+        .is_none());
     std::fs::write(&policy_path, b"{broken-policy").unwrap();
     // Use the persisted owner to exercise the mutation after authorization.
     let owner = state.wdb.get_owner_user_id().await.unwrap().unwrap();
-    let (status, _) = request(&app, Method::PUT, &format!("/channels/{room}/retention"), &jwt(&state, owner), json!({"retention":"forever"})).await;
+    let (status, _) = request(
+        &app,
+        Method::PUT,
+        &format!("/channels/{room}/retention"),
+        &jwt(&state, owner),
+        json!({"retention":"forever"}),
+    )
+    .await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-    assert_eq!(state.channel_auto_delete_label.read().await.get(&room).map(String::as_str), Some("live"));
+    assert_eq!(
+        state
+            .channel_auto_delete_label
+            .read()
+            .await
+            .get(&room)
+            .map(String::as_str),
+        Some("live")
+    );
     assert_eq!(std::fs::read(&policy_path).unwrap(), b"{broken-policy");
     let weak_store = Arc::downgrade(&state.wdb);
     drop(app);
     drop(state);
     // The live send may still have a detached delivery task holding the adapter.
     for _ in 0..100 {
-        if weak_store.strong_count() == 0 { break; }
+        if weak_store.strong_count() == 0 {
+            break;
+        }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
-    assert_eq!(weak_store.strong_count(), 0, "disposable writer released before restart");
+    assert_eq!(
+        weak_store.strong_count(),
+        0,
+        "disposable writer released before restart"
+    );
     assert!(AppState::new(config.clone()).await.is_err());
     assert_eq!(std::fs::read(&policy_path).unwrap(), b"{broken-policy");
     std::fs::write(&policy_path, original).unwrap();
     let restored = AppState::new(config).await.unwrap();
-    assert_eq!(restored.channel_auto_delete_label.read().await.get(&room).map(String::as_str), Some("live"));
+    assert_eq!(
+        restored
+            .channel_auto_delete_label
+            .read()
+            .await
+            .get(&room)
+            .map(String::as_str),
+        Some("live")
+    );
 }
 
 #[tokio::test]
@@ -1502,26 +2299,57 @@ async fn socket_retention_persists_exact_modes_and_ignores_unrelated_updates() {
     let state = server(dir.path()).await;
     let (_, _, owner) = users(&state).await;
     let room = channel(&state, owner, ChannelKind::Text).await;
-    let app = create_api_router(state.clone()).with_state(state.clone())
+    let app = create_api_router(state.clone())
+        .with_state(state.clone())
         .layer(wabi_server::socketio::create_socket_layer(state.clone()));
     let mut client = SocketClient::connect(&app, &jwt(&state, owner)).await;
     for mode in ["live", "5s", "forever"] {
-        client.emit("update-channel-settings", json!({"channelId":room,"settings":{"autoDeleteAfter":mode}})).await;
+        client
+            .emit(
+                "update-channel-settings",
+                json!({"channelId":room,"settings":{"autoDeleteAfter":mode}}),
+            )
+            .await;
         client.event("channel-settings-updated").await;
-        assert_eq!(wabi_server::api::retention_policy::label(dir.path().to_str().unwrap(), &room).unwrap().as_deref(), Some(mode));
+        assert_eq!(
+            wabi_server::api::retention_policy::label(dir.path().to_str().unwrap(), &room)
+                .unwrap()
+                .as_deref(),
+            Some(mode)
+        );
     }
-    client.emit("update-channel-settings", json!({"channelId":room,"settings":{"name":"renamed"}})).await;
+    client
+        .emit(
+            "update-channel-settings",
+            json!({"channelId":room,"settings":{"name":"renamed"}}),
+        )
+        .await;
     let receipt = client.event("channel-settings-updated").await;
     assert!(receipt.get("autoDeleteAfter").is_none());
     assert!(receipt.get("forceSpoiler").is_none());
     assert_eq!(receipt["name"], "renamed");
     std::fs::write(dir.path().join("channel_retention.json"), b"{broken-policy").unwrap();
-    client.emit("update-channel-settings", json!({"channelId":room,"settings":{"autoDeleteAfter":"live"}})).await;
+    client
+        .emit(
+            "update-channel-settings",
+            json!({"channelId":room,"settings":{"autoDeleteAfter":"live"}}),
+        )
+        .await;
     client.event("channel-settings-error").await;
-    assert_eq!(state.channel_auto_delete_label.read().await.get(&room).map(String::as_str), Some("forever"));
-    assert_eq!(std::fs::read(dir.path().join("channel_retention.json")).unwrap(), b"{broken-policy");
+    assert_eq!(
+        state
+            .channel_auto_delete_label
+            .read()
+            .await
+            .get(&room)
+            .map(String::as_str),
+        Some("forever")
+    );
+    assert_eq!(
+        std::fs::read(dir.path().join("channel_retention.json")).unwrap(),
+        b"{broken-policy"
+    );
 }
-
 
 #[cfg(unix)]
 #[tokio::test]
@@ -1534,21 +2362,60 @@ async fn failed_retention_write_preserves_policy_and_rolls_back_new_channel() {
     let app = create_api_router(state.clone()).with_state(state.clone());
     let token = jwt(&state, owner);
     let endpoint = format!("/channels/{room}/retention");
-    assert_eq!(request(&app, Method::PUT, &endpoint, &token, json!({"retention":"5s"})).await.0, StatusCode::OK);
+    assert_eq!(
+        request(
+            &app,
+            Method::PUT,
+            &endpoint,
+            &token,
+            json!({"retention":"5s"})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
     let path = dir.path().join("channel_retention.json");
     let original = std::fs::read(&path).unwrap();
     let count = state.wdb.list_channels(None).await.unwrap().len();
     let prior_mirror = state.wdb.get_channel_retention(&room).await.unwrap();
     std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
-    let update = request(&app, Method::PUT, &endpoint, &token, json!({"retention":"forever"})).await;
-    let create = request(&app, Method::POST, "/channels", &token, json!({"name":"failed-policy-channel"})).await;
+    let update = request(
+        &app,
+        Method::PUT,
+        &endpoint,
+        &token,
+        json!({"retention":"forever"}),
+    )
+    .await;
+    let create = request(
+        &app,
+        Method::POST,
+        "/channels",
+        &token,
+        json!({"name":"failed-policy-channel"}),
+    )
+    .await;
     std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     assert_eq!(update.0, StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(create.0, StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(std::fs::read(path).unwrap(), original);
-    assert_eq!(state.channel_auto_delete_label.read().await.get(&room).map(String::as_str), Some("5s"));
-    assert_eq!(state.channel_auto_delete_ms.read().await.get(&room), Some(&5000));
-    assert_eq!(state.wdb.get_channel_retention(&room).await.unwrap(), prior_mirror);
+    assert_eq!(
+        state
+            .channel_auto_delete_label
+            .read()
+            .await
+            .get(&room)
+            .map(String::as_str),
+        Some("5s")
+    );
+    assert_eq!(
+        state.channel_auto_delete_ms.read().await.get(&room),
+        Some(&5000)
+    );
+    assert_eq!(
+        state.wdb.get_channel_retention(&room).await.unwrap(),
+        prior_mirror
+    );
     assert_eq!(state.wdb.list_channels(None).await.unwrap().len(), count);
 }
 
@@ -1561,15 +2428,40 @@ async fn concurrent_retention_updates_leave_disk_and_runtime_in_agreement() {
     let app = create_api_router(state.clone()).with_state(state.clone());
     let token = jwt(&state, owner);
     let endpoint = format!("/channels/{room}/retention");
-    let (a,b) = tokio::join!(
-        request(&app, Method::PUT, &endpoint, &token, json!({"retention":"5s"})),
-        request(&app, Method::PUT, &endpoint, &token, json!({"retention":"forever"}))
+    let (a, b) = tokio::join!(
+        request(
+            &app,
+            Method::PUT,
+            &endpoint,
+            &token,
+            json!({"retention":"5s"})
+        ),
+        request(
+            &app,
+            Method::PUT,
+            &endpoint,
+            &token,
+            json!({"retention":"forever"})
+        )
     );
     assert_eq!(a.0, StatusCode::OK);
     assert_eq!(b.0, StatusCode::OK);
-    let label = wabi_server::api::retention_policy::label(dir.path().to_str().unwrap(), &room).unwrap().unwrap();
-    assert_eq!(state.channel_auto_delete_label.read().await.get(&room), Some(&label));
-    assert_eq!(state.channel_auto_delete_ms.read().await.get(&room).copied(), wabi_server::api::retention_policy::timed_ms(&label));
+    let label = wabi_server::api::retention_policy::label(dir.path().to_str().unwrap(), &room)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        state.channel_auto_delete_label.read().await.get(&room),
+        Some(&label)
+    );
+    assert_eq!(
+        state
+            .channel_auto_delete_ms
+            .read()
+            .await
+            .get(&room)
+            .copied(),
+        wabi_server::api::retention_policy::timed_ms(&label)
+    );
 }
 
 #[tokio::test]
@@ -1580,12 +2472,23 @@ async fn damaged_server_defaults_reject_channel_creation_without_new_state() {
     let app = create_api_router(state.clone()).with_state(state.clone());
     let count = state.wdb.list_channels(None).await.unwrap().len();
     let path = dir.path().join("server_center.json");
-    for bytes in [b"{broken".to_vec(), serde_json::to_vec(&json!({"privacy": {
-        "defaultRetention":"invalid", "privateContentAutomation":false,
-        "analyticsMode":"off", "externalProcessing":"none", "reportEvidencePreservation":"none"
-    }})).unwrap()] {
+    for bytes in [
+        b"{broken".to_vec(),
+        serde_json::to_vec(&json!({"privacy": {
+            "defaultRetention":"invalid", "privateContentAutomation":false,
+            "analyticsMode":"off", "externalProcessing":"none", "reportEvidencePreservation":"none"
+        }}))
+        .unwrap(),
+    ] {
         std::fs::write(&path, &bytes).unwrap();
-        let response = request(&app, Method::POST, "/channels", &jwt(&state, owner), json!({"name":"invalid-default-channel"})).await;
+        let response = request(
+            &app,
+            Method::POST,
+            "/channels",
+            &jwt(&state, owner),
+            json!({"name":"invalid-default-channel"}),
+        )
+        .await;
         assert_eq!(response.0, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(state.wdb.list_channels(None).await.unwrap().len(), count);
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
@@ -1599,16 +2502,54 @@ async fn exact_retention_overrides_stale_database_day_count() {
     let (member, _, owner) = users(&state).await;
     let room = channel(&state, member, ChannelKind::Text).await;
     let app = create_api_router(state.clone()).with_state(state.clone());
-    for (label, expected) in [("forever", None), ("live", None), ("7d", Some(7 * 86_400_000_000)), ("5s", Some(5_000_000))] {
-        assert_eq!(request(&app, Method::PUT, &format!("/channels/{room}/retention"), &jwt(&state, owner), json!({"retention":label})).await.0, StatusCode::OK);
+    for (label, expected) in [
+        ("forever", None),
+        ("live", None),
+        ("7d", Some(7 * 86_400_000_000)),
+        ("5s", Some(5_000_000)),
+    ] {
+        assert_eq!(
+            request(
+                &app,
+                Method::PUT,
+                &format!("/channels/{room}/retention"),
+                &jwt(&state, owner),
+                json!({"retention":label})
+            )
+            .await
+            .0,
+            StatusCode::OK
+        );
         // Seed an actual compatibility record: the current legacy writer has no
         // projection handler, so invoking it alone would not exercise stale data.
-        state.wdb.engine().projection_state().insert("channel_retention", room.as_bytes().to_vec(),
+        state.wdb.engine().projection_state().insert(
+            "channel_retention",
+            room.as_bytes().to_vec(),
             serde_json::to_vec(&wabidb::domain::RetentionPolicy {
-                channel_id: room.clone(), days: 1, set_at_micros: 0, set_by_user_id: owner,
-            }).unwrap(), 0);
-        assert_eq!(state.wdb.get_channel_retention(&room).await.unwrap().unwrap().days, 1);
+                channel_id: room.clone(),
+                days: 1,
+                set_at_micros: 0,
+                set_by_user_id: owner,
+            })
+            .unwrap(),
+            0,
+        );
+        assert_eq!(
+            state
+                .wdb
+                .get_channel_retention(&room)
+                .await
+                .unwrap()
+                .unwrap()
+                .days,
+            1
+        );
         let _guard = state.retention_policy_lock.lock().await;
-        assert_eq!(wabi_server::api::retention_policy::channel_expiry_micros(&state, &room).await.unwrap(), expected);
+        assert_eq!(
+            wabi_server::api::retention_policy::channel_expiry_micros(&state, &room)
+                .await
+                .unwrap(),
+            expected
+        );
     }
 }

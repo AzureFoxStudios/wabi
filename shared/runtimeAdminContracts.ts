@@ -96,15 +96,15 @@ export interface AdminCompressionMetrics {
 export interface RuntimeGuardrailsSnapshot {
   uptimeSeconds: number;
   memory: {
-    rssBytes: number;
-    heapUsedBytes: number;
-    heapTotalBytes: number;
-    externalBytes: number;
-    arrayBuffersBytes: number;
+    rssBytes: number | null;
+    heapUsedBytes: number | null;
+    heapTotalBytes: number | null;
+    externalBytes: number | null;
+    arrayBuffersBytes: number | null;
   };
   cpu: {
-    userMicros: number;
-    systemMicros: number;
+    userMicros: number | null;
+    systemMicros: number | null;
   };
   heavyProfiling: {
     enabled: boolean;

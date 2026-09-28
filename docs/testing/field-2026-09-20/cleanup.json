@@ -1,0 +1,8 @@
+{
+  "test_processes": "No wabi-server, wabi-desktop, tailcat or WebKitWebDriver from campaign remaining on Iyoku; no native/Tailcat/driver campaign process remaining on coordinator",
+  "existing_local_authority": "Original PID/start time preserved",
+  "Tim": "Existing Wabi remains healthy; original container uptime continues; Caddy/coturn/cloudflared still present",
+  "public_domain_reference": "HTTPS /health returned healthy; separate existing deployment, not this candidate",
+  "ironin": "Read-only inspection only; no changes",
+  "state": "Private artifacts retained; no persistent test service installed"
+}

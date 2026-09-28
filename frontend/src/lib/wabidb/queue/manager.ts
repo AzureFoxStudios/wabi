@@ -1,7 +1,7 @@
 import type { QueuedAction, QueueFilter } from '../types';
 import { QueueDB } from './db';
 import { groupMembership } from '$lib/groupAccess';
-import { GROUP_QUEUE_ACTIONS, CALL_QUEUE_ACTIONS, ADMIN_ROLE_QUEUE_ACTIONS, ADMIN_ROLE_QUEUE_ERROR, BAN_QUEUE_ERROR, MESSAGE_QUEUE_ACTIONS, MESSAGE_QUEUE_OWNERSHIP_ERROR } from './groupPolicy';
+import { GROUP_QUEUE_ACTIONS, CALL_QUEUE_ACTIONS, ADMIN_ROLE_QUEUE_ACTIONS, ADMIN_ROLE_QUEUE_ERROR, BAN_QUEUE_ERROR, CHANNEL_CLEAR_QUEUE_ERROR, MESSAGE_QUEUE_ACTIONS, MESSAGE_QUEUE_OWNERSHIP_ERROR } from './groupPolicy';
 import type { MessageSettlement } from '$lib/messageDelivery';
 
 const MAX_QUEUE_SIZE = 10000;
@@ -17,6 +17,7 @@ export class QueueManager {
 
 	async enqueue(action: Omit<QueuedAction, 'id' | 'status' | 'createdAt'>): Promise<string> {
 		if (action.type === 'ban-user') throw new Error(BAN_QUEUE_ERROR);
+		if (action.type === 'clear-channel-messages') throw new Error(CHANNEL_CLEAR_QUEUE_ERROR);
 		if (GROUP_QUEUE_ACTIONS.has(action.type)) throw new Error('Group membership changes require a live server confirmation');
 		if (CALL_QUEUE_ACTIONS.has(action.type)) throw new Error('Voice actions belong to the current call, not the offline queue');
 		if (ADMIN_ROLE_QUEUE_ACTIONS.has(action.type)) throw new Error(ADMIN_ROLE_QUEUE_ERROR);
@@ -115,9 +116,9 @@ export class QueueManager {
 
 		for (const item of all) {
 			if (!this._isQueuedAction(item)) continue;
-			if (item.status === 'failed' && item.type === 'ban-user') {
+			if (item.status === 'failed' && (item.type === 'ban-user' || item.type === 'clear-channel-messages')) {
 				await this.db.updateAction(`${item.scopeId}:${item.id}`, current => current.status !== 'failed' ? null :
-					({ ...current, error: BAN_QUEUE_ERROR, retryable: false }));
+					({ ...current, error: current.type === 'ban-user' ? BAN_QUEUE_ERROR : CHANNEL_CLEAR_QUEUE_ERROR, retryable: false }));
 				continue;
 			}
 			if (item.status === 'failed' && item.retryable !== false) {

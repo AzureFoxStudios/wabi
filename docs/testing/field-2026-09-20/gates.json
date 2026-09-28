@@ -1,0 +1,120 @@
+{
+  "server-gates": {
+    "suites": [
+      {
+        "status": "ok",
+        "passed": 10,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 8,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 4,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      }
+    ]
+  },
+  "server-gates-b": {
+    "suites": [
+      {
+        "status": "ok",
+        "passed": 10,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 8,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 4,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      }
+    ]
+  },
+  "tailcat-tests": {
+    "suites": [
+      {
+        "status": "ok",
+        "passed": 4,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    ]
+  },
+  "server-upgrade-before": {
+    "suites": [
+      {
+        "status": "FAILED",
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      }
+    ]
+  },
+  "server-upgrade-after": {
+    "suites": [
+      {
+        "status": "ok",
+        "passed": 5,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "status": "ok",
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      }
+    ]
+  },
+  "client-upgrade-before": {
+    "suites": [
+      {
+        "status": "FAILED",
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      }
+    ]
+  },
+  "client-upgrade-after": {
+    "suites": [
+      {
+        "status": "ok",
+        "passed": 38,
+        "failed": 0,
+        "ignored": 0
+      }
+    ]
+  }
+}

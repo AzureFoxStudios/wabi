@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-09-28T03:22:37.450275+00:00",
+  "scope": "Disposable local main Wabi revocation component; dirty working tree candidate, not deployed",
+  "checks": [
+    {
+      "name": "database",
+      "command": "CARGO_INCREMENTAL=0 cargo test --locked -p wabidb --lib -- auth_revocations sequencer::tests tests::write_completion",
+      "passed": 34,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log_sha256": "ba7f16479d519282a1b5bc112351e58783da9fd78de862cfb836905e0daec146"
+    },
+    {
+      "name": "integration",
+      "command": "CARGO_INCREMENTAL=0 cargo test --locked -p wabi-server --test auth_revocation_recovery_contract --test helper_admin_auth_contract --test payment_access_contract --test admin_role_contract --test first_boot_onboarding",
+      "passed": 53,
+      "failed": 0,
+      "ignored": 1,
+      "exit_code": 0,
+      "log_sha256": "45e367f00a0dd000335bbdf7e0a307da77311c44b356209757f08b143332bd7f"
+    },
+    {
+      "name": "auth_and_socket_units",
+      "command": "CARGO_INCREMENTAL=0 cargo test --locked -p wabi-server --lib -- state::tests api::auth::tests socket_revocation_tests socket_authentication_tests",
+      "passed": 32,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log_sha256": "e16b91179f909f0449231cf0191a37b41c8de4e09f8bc32093c65948bd6f4038"
+    }
+  ],
+  "total_passing_checks": 119,
+  "source_sha256": {
+    "core/crates/wabidb/src/projections/auth_revocations.rs": "2c956878c714e6ab845665b847320884187d7fa0b9f44ee6932226582eabf3a1",
+    "core/crates/wabidb/src/projections/mod.rs": "026a7ba2a7482a473e660ef474815de9752f5cb81bdbf5640d2b080d80536bf7",
+    "core/crates/wabidb/src/engine/mod.rs": "5c11078f70f60457e3e50308542feb8f513e8df090ea0d05dfe526d7409d2c8f",
+    "core/crates/wabidb/src/sequencer/mod.rs": "a2ffcec988a4c613c9742ca448bea431271d34cdc4b304f320843ee3d2469395",
+    "core/crates/wabi-server/src/auth_revocations.rs": "d5c0881aa534fbe2e2b182cdadc6722bab03e4aa7f95693e917602744ac5d808",
+    "core/crates/wabi-server/src/state.rs": "ebf8dd2ca73fffc05ffc354d624568387caf090f49899da2116d448776759072",
+    "core/crates/wabi-server/src/api/auth.rs": "05ed708312719f069e596e163e538e1cbb7e7c52b0d3cddb31a12315e5538efc",
+    "core/crates/wabi-server/src/api/admin.rs": "585f2f03b0359a9d9b2cc07b7ac368f9fc4b8e7b8301a8c54b19dc5060d687bc",
+    "core/crates/wabi-server/src/api/operator.rs": "9d650d32349f213ea7ec5a193a2b0681c6332354ee88325d5d06613191f01bbc",
+    "core/crates/wabi-server/src/api/server_center.rs": "e89a480855dfd6d8cd27b2090277a4fc6272f8b5adc14ea1bf44da8d8fcfdfd6",
+    "core/crates/wabi-server/src/socketio/wiring_handlers.rs": "51507161240cf0a3c466c0c1c12be9956096129ac348cd07667d8aac026d571f",
+    "core/crates/wabi-server/tests/auth_revocation_recovery_contract.rs": "25770f031fbef5a3131820cef193fa98bca63cc6ba15300456a8c58225efb372",
+    "core/crates/wabi-server/tests/admin_role_contract.rs": "547b6c5dd9662f040762e885af60e3443f05e69019289b765b88d1d6b5f2bce0"
+  },
+  "limitations": [
+    "No whole-workspace run",
+    "Eighteen socket checks are two executions of nine cases",
+    "Existing compiler warnings remain",
+    "Not a complete checkpoint, WAN receiver acceptance or automatic failover proof"
+  ],
+  "cleanup": {
+    "status": "completed",
+    "cargo_lock": "exclusive nonblocking acquired",
+    "idle_incremental_cache_file_bytes_removed": 10856866691,
+    "owned_test_artifacts_removed": [
+      {
+        "path": "target/debug/deps/auth_revocation_recovery_contract-389abf0ef20ffc64",
+        "bytes": 409722632
+      },
+      {
+        "path": "target/debug/deps/auth_revocation_recovery_contract-389abf0ef20ffc64.d",
+        "bytes": 382
+      }
+    ],
+    "owned_logs_removed": [
+      {
+        "path": "/tmp/wabi-auth-revocations-db-20260928.log",
+        "bytes": 5743
+      },
+      {
+        "path": "/tmp/wabi-auth-revocations-db-final-20260928.log",
+        "bytes": 5743
+      },
+      {
+        "path": "/tmp/wabi-auth-revocations-server-20260928.log",
+        "bytes": 25302
+      },
+      {
+        "path": "/tmp/wabi-auth-revocations-server-final-20260928.log",
+        "bytes": 25398
+      },
+      {
+        "path": "/tmp/wabi-auth-revocations-unit-20260928.log",
+        "bytes": 16275
+      },
+      {
+        "path": "/tmp/wabi-auth-revocations-unit-final-20260928.log",
+        "bytes": 18581
+      },
+      {
+        "path": "/tmp/wabi-auth-revocations-socket-20260928.log",
+        "bytes": 15357
+      }
+    ],
+    "total_file_bytes_removed": 11266702104,
+    "retained": "Shared dependencies, shared binaries, live preview and production data",
+    "size_measurement": "Logical file bytes; not filesystem blocks freed",
+    "observed_df_h_available_before": "136G",
+    "observed_df_h_available_after": "144G",
+    "available_bytes_after": 153791303680
+  }
+}

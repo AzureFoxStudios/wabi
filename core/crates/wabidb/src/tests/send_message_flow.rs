@@ -2,7 +2,25 @@ use crate::crypto::bootstrap::BootstrapSource;
 use crate::engine::{WabiDbConfig, WabiDbEngine};
 use crate::error::WabiError;
 use crate::format::record::RecordKind;
+use crate::projections::messages::{encode_record, MessageRecord};
 use crate::sequencer::types::{CommandCommit, EventToWrite};
+
+fn message_payload(channel: &str, author: u64, device: &str, body: &str) -> Vec<u8> {
+    encode_record(&MessageRecord {
+        message_id: String::new(),
+        channel_id: channel.into(),
+        author_user_id: author,
+        author_device_id: device.into(),
+        created_at_micros: 1,
+        encrypted_body_ref: body.into(),
+        idempotency_key: None,
+        edit_history: vec![],
+        edited_at_micros: None,
+        is_deleted: false,
+        is_spoiler: false,
+        files: vec![],
+    })
+}
 
 async fn setup_engine() -> (WabiDbEngine, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
@@ -32,11 +50,12 @@ async fn send_message_flow() {
         event_type: "message_created".into(),
         stream_kind: 1,
         record_kind: RecordKind::Event,
-        plaintext: content.as_bytes().to_vec(),
+        plaintext: message_payload(channel_id, user_id, "dev_test", content),
     };
 
     let (tx, _rx) = tokio::sync::oneshot::channel();
     let cmd = CommandCommit {
+        room_owner_precondition: None,
         caller_user_id: user_id,
         caller_device_id: "dev_test".into(),
         command_name: "send_message".into(),
@@ -64,11 +83,12 @@ async fn non_member_cannot_send() {
         event_type: "message_created".into(),
         stream_kind: 1,
         record_kind: RecordKind::Event,
-        plaintext: b"unauthorized".to_vec(),
+        plaintext: message_payload("ch_restricted", 999, "dev_intruder", "unauthorized"),
     };
 
     let (tx, _rx) = tokio::sync::oneshot::channel();
     let cmd = CommandCommit {
+        room_owner_precondition: None,
         caller_user_id: 999,
         caller_device_id: "dev_intruder".into(),
         command_name: "send_message".into(),
@@ -103,11 +123,12 @@ async fn two_users_send_and_receive() {
             event_type: "message_created".into(),
             stream_kind: 1,
             record_kind: RecordKind::Event,
-            plaintext: content.as_bytes().to_vec(),
+            plaintext: message_payload(channel_id, *user_id, device_id, content),
         };
 
         let (tx, _rx) = tokio::sync::oneshot::channel();
         let cmd = CommandCommit {
+            room_owner_precondition: None,
             caller_user_id: *user_id,
             caller_device_id: device_id.to_string(),
             command_name: "send_message".into(),

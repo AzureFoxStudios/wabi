@@ -200,6 +200,7 @@ fn make_crash_cmd(
 ) -> CommandCommit {
     let (tx, _rx) = tokio::sync::oneshot::channel();
     CommandCommit {
+        room_owner_precondition: None,
         caller_user_id: seq_prefix,
         caller_device_id: format!("dev{seq_prefix}"),
         command_name: "crash_test".into(),

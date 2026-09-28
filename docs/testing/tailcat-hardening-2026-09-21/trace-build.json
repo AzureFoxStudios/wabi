@@ -1,0 +1,10 @@
+{
+  "revision": "ce6fedcabc220bab3b94d470ab330219111eeae8",
+  "go": "go version go1.27.0 linux/amd64",
+  "tailscale_dependency": "v1.103.0-pre.0.20260830144538-72780705eda8",
+  "tailscale_sum": "h1:Ow72mYrStZyFA3kwBBACYJZ5EkicN7fc3IEQh/U7HBA=",
+  "sha256": "eef6c07d7f4140099a73cfefd7b56617d973573594f8f196b7b9ee7509dc79aa",
+  "instrumentation": "read-only existing magicsock counters; no discovery/reconnect changes",
+  "build_features": "default; differs from stripped release binary",
+  "discovery_trace": true
+}

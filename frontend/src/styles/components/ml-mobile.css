@@ -106,13 +106,13 @@
 			height: 18px;
 		}
 
-		.action-btn {
+		.message-actions .action-btn {
 			width: 44px;
 			height: 44px;
 			padding: 0.5rem;
 		}
 
-		.action-btn svg {
+		.message-actions .action-btn svg {
 			width: 20px;
 			height: 20px;
 		}
@@ -429,5 +429,4 @@
 			grid-template-columns: 1fr 1fr;
 		}
 	}
-
 

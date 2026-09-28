@@ -36,6 +36,7 @@ async fn lore_repo_registered_via_command() {
 
     let (tx, _rx) = tokio::sync::oneshot::channel();
     let cmd = CommandCommit {
+        room_owner_precondition: None,
         caller_user_id: 1,
         caller_device_id: "dev_test".into(),
         command_name: "lore_create_repo".into(),
@@ -83,6 +84,7 @@ async fn lore_commit_via_command() {
 
     let (tx, _rx) = tokio::sync::oneshot::channel();
     let cmd = CommandCommit {
+        room_owner_precondition: None,
         caller_user_id: 42,
         caller_device_id: "dev_test".into(),
         command_name: "lore_commit".into(),
@@ -126,6 +128,7 @@ async fn lore_full_flow() {
     };
     let (tx, _rx) = tokio::sync::oneshot::channel();
     let cmd = CommandCommit {
+        room_owner_precondition: None,
         caller_user_id: 7,
         caller_device_id: "dev_test".into(),
         command_name: "lore_create_repo".into(),
@@ -154,6 +157,7 @@ async fn lore_full_flow() {
     };
     let (tx, _rx) = tokio::sync::oneshot::channel();
     let cmd = CommandCommit {
+        room_owner_precondition: None,
         caller_user_id: 7,
         caller_device_id: "dev_test".into(),
         command_name: "lore_commit".into(),

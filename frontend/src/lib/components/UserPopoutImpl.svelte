@@ -8,6 +8,7 @@
 		currentUser,
 		dmPanelSignal,
 		roleDefinitions,
+		serverMembers,
 		socket,
 		users,
 		type Message,
@@ -16,15 +17,25 @@
 	import { startCall } from '$lib/calling';
 	import { startScreenShare } from '$lib/calling';
 	import { browser } from '$app/environment';
+	import { portal } from '$lib/actions/portal';
+	import { openProfilePanel } from '$lib/profilePanelNavigation';
+	import { profileIdentity, sameProfileIdentity } from '$lib/profilePanelController';
+	import { activeServerUrl } from '$lib/serverUrl';
 	import { get } from 'svelte/store';
+	import { profileDecorationsVisible } from '$lib/profileAppearance';
+	import ProfileName from '$lib/components/ProfileName.svelte';
+	import ProfileMedia from '$lib/components/ProfileMedia.svelte';
+	import ProfileDecoration from '$lib/components/ProfileDecoration.svelte';
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { _ } from '$lib/i18n';
 	import { brandName } from '$lib/branding';
+	import { currentSavedServer } from '$lib/savedServers';
+	import { ownerBadgeMark, staffBadgeMark } from '$lib/badgeMarks';
 	import UserPopoutActions from './UserPopoutActions.svelte';
 	import RoleBadge from '$lib/components/RoleBadge.svelte';
 	import { requestLiveRoleChange, selectAssignableRoles } from './userListHelpers';
 	import { attachUserBanListeners, bannedUserIds } from '$lib/presenceStore';
-	import { overlayStyle } from '$lib/overlayStyle';
+	import { mediaUrl } from '$lib/mediaUrl';
 	import { resolveDmEntry } from '$lib/dmEntry';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import {
@@ -48,6 +59,7 @@
 	export let isOpen = false;
 	export let anchorElement: HTMLElement | null = null;
 	export let isOwnProfile = false;
+	export let surface: 'popout' | 'panel' = 'popout';
 
 	const dispatch = createEventDispatcher();
 
@@ -65,7 +77,9 @@
 	let noteLoad = 0;
 	let legacyNotesFound = false;
 	let profileExpanded = false;
-	let disableAllBanners = false;
+	let retired = false;
+	$: completeProfile = profileExpanded || surface === 'panel';
+	$: noteDraftSurface = surface === 'panel' ? 'panel' : 'profile';
 	type ConnectionRow = { label: string; value: string; url?: string };
 	const fallbackRoleLabels: Record<string, string> = {
 		owner: 'Owner',
@@ -151,27 +165,31 @@
 			})()
 			: null;
 	$: connectionRows =
-		user && $displayEnhancementSettingsStore.showConnectionsEnabled
-			? buildConnectionsRows(user)
+		liveUser && $displayEnhancementSettingsStore.showConnectionsEnabled
+			? buildConnectionsRows(liveUser)
 			: [];
 	$: localNickname = (() => {
 		if (!user || !$displayEnhancementSettingsStore.localNicknamesEnabled) return '';
 		const identityKey = getUserIdentityKey(user);
 		return identityKey ? $localNicknamesStore[identityKey] || '' : '';
 	})();
-	$: popoutDisplayName = localNickname || user?.username || '';
-	$: popoutTopRoleName = getUserTopRoleName(user ?? undefined);
+	$: popoutDisplayName = localNickname || liveUser?.username || user?.username || '';
+	$: popoutTopRoleName = getUserTopRoleName(liveUser ?? undefined);
+	$: ownerMark = ownerBadgeMark($currentSavedServer?.frontendMetadata);
+	$: staffMark = staffBadgeMark($currentSavedServer?.frontendMetadata);
 	// Live-sync status/avatar: the `user` prop is captured at click time and
 	// goes stale when presence changes. Resolve the freshest roster entry by
 	// id so the dot and label track the real status.
 	$: liveUser =
-		(user && $users.find((candidate) => candidate.id === user.id)) || user || null;
+		(user && sameProfileIdentity($currentUser, user) ? $currentUser : null) ||
+		(user && $users.find((candidate) => sameProfileIdentity(candidate, user))) ||
+		(user && $serverMembers.find((candidate) => sameProfileIdentity(candidate, user))) || user || null;
 	$: popoutStatus = liveUser?.status || user?.status || 'offline';
 
 	$: if (browser) {
 		const subject = stableUserNoteSubject(user?.dbUserId);
 		const owner = $notebookOwner.owner;
-		const identity = JSON.stringify([owner?.scopeId, subject, isOpen]);
+		const identity = JSON.stringify([owner?.scopeId, subject, isOpen, noteDraftSurface]);
 		if (identity !== lastLoadedUserId || noteOwner !== owner) {
 			lastLoadedUserId = identity;
 			void loadUserNote(owner, subject);
@@ -179,7 +197,7 @@
 		}
 	}
 
-	$: if (isOpen && anchorElement) {
+	$: if (surface === 'popout' && isOpen && anchorElement) {
 		// The popout node may not be laid out yet at this reactive tick —
 		// measure AFTER paint so offsetHeight is real (a 0-height measure
 		// fell back to 400 and clipped tall popouts off-screen).
@@ -189,12 +207,12 @@
 
 	// Expanding the profile (or any height change) must re-clamp the popout
 	// into the viewport, otherwise the bottom runs off-screen again.
-	$: if (isOpen && profileExpanded) {
+	$: if (surface === 'popout' && isOpen && profileExpanded) {
 		void tick().then(() => calculatePosition());
 	}
 
 	function handleViewportChange(): void {
-		if (isOpen) calculatePosition();
+		if (surface === 'popout' && isOpen) calculatePosition();
 	}
 
 	async function loadUserNote(owner: NotebookOwner | null, subject: string | null) {
@@ -206,7 +224,7 @@
 			userNoteStatus = !subject ? 'Personal notes need a stable account identity; this profile does not provide one.' : ($notebookOwner.error || 'Waiting for your notebook account.');
 			return;
 		}
-		const retained = getUserNoteDraft(owner, subject);
+		const retained = getUserNoteDraft(owner, subject, noteDraftSurface);
 		if (retained) {
 			userNoteDraft = retained.text;
 			noteRevision = retained.baseRevision;
@@ -216,7 +234,7 @@
 		try {
 			const saved = await getUserNote(owner, subject);
 			if (ticket !== noteLoad || !owner.isCurrent()) return;
-			const draft = getUserNoteDraft(owner, subject);
+			const draft = getUserNoteDraft(owner, subject, noteDraftSurface);
 			userNote = saved.text;
 			userNoteDraft = draft?.text ?? saved.text;
 			noteRevision = draft?.baseRevision ?? saved.revision;
@@ -229,18 +247,18 @@
 
 	function retainNoteDraft() {
 		if (!noteOwner || !noteSubject || !noteReady) return;
-		retainUserNoteDraft(noteOwner, noteSubject, { text: userNoteDraft, baseRevision: noteRevision });
+		retainUserNoteDraft(noteOwner, noteSubject, { text: userNoteDraft, baseRevision: noteRevision }, noteDraftSurface);
 		userNoteStatus = 'Unsaved on this device. Save or download before leaving.';
 	}
 
 	async function saveUserNoteDraft() {
 		if (!noteOwner || !noteSubject || !noteReady || noteBusy) return;
-		const owner = noteOwner, subject = noteSubject, ticket = noteLoad, text = userNoteDraft, revision = noteRevision;
+		const owner = noteOwner, subject = noteSubject, ticket = noteLoad, text = userNoteDraft, revision = noteRevision, draftSurface = noteDraftSurface;
 		retainNoteDraft(); noteBusy = true; userNoteStatus = 'Saving…';
 		try {
 			const saved = await setUserNote(owner, subject, text, revision);
-			const retained = getUserNoteDraft(owner, subject);
-			if (retained?.text === text && retained.baseRevision === revision) forgetUserNoteDraft(owner, subject);
+			const retained = getUserNoteDraft(owner, subject, draftSurface);
+			if (retained?.text === text && retained.baseRevision === revision) forgetUserNoteDraft(owner, subject, draftSurface);
 			if (ticket !== noteLoad || !owner.isCurrent()) return;
 			userNote = saved.text; noteRevision = saved.revision;
 			userNoteStatus = 'Saved on this device.';
@@ -263,7 +281,7 @@
 	function reloadSavedNote() {
 		if (!noteOwner || !noteSubject || noteBusy) return;
 		if (userNoteDraft !== userNote) downloadNoteDraft();
-		forgetUserNoteDraft(noteOwner, noteSubject);
+		forgetUserNoteDraft(noteOwner, noteSubject, noteDraftSurface);
 		void loadUserNote(noteOwner, noteSubject);
 	}
 
@@ -287,7 +305,7 @@
 		if (!anchorElement) return;
 
 		const rect = anchorElement.getBoundingClientRect();
-		const popoutWidth = 340;
+		const popoutWidth = popoutElement?.offsetWidth || Math.min(380, window.innerWidth - 16);
 		// Measure the real node after it renders — the fixed 400px guess let
 		// tall popouts run past the viewport bottom with no way to scroll.
 		const popoutHeight = popoutElement?.offsetHeight || 400;
@@ -319,11 +337,28 @@
 	}
 
 	function closePopout() {
+		if (surface === 'panel' && profileExpanded) {
+			profileExpanded = false;
+			void tick().then(() => popoutElement?.querySelector<HTMLElement>('[data-profile-expand]')?.focus());
+			return;
+		}
 		isOpen = false;
 		dispatch('close');
+		anchorElement?.focus();
+	}
+
+	function handleProfileKeydown(event: KeyboardEvent): void {
+		if (event.key === 'Escape') { event.preventDefault(); closePopout(); return; }
+		if (!profileExpanded || event.key !== 'Tab') return;
+		const focusable = [...popoutElement.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]')].filter((node) => node.offsetParent !== null);
+		const first = focusable[0], last = focusable[focusable.length - 1];
+		if (!first) { event.preventDefault(); return; }
+		if (event.shiftKey && (document.activeElement === first || document.activeElement === popoutElement)) { event.preventDefault(); last.focus(); }
+		else if (!event.shiftKey && (document.activeElement === last || document.activeElement === popoutElement)) { event.preventDefault(); first.focus(); }
 	}
 
 	function handleClickOutside(event: MouseEvent) {
+		if (surface === 'panel' || !isOpen || profileExpanded) return;
 		// The username that opened the popout lives outside the popout node, so
 		// the reopen click bubbles to document and would instantly close it on
 		// every open after the first. Ignore clicks on the anchor (and anything
@@ -335,21 +370,24 @@
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape') {
+		if (surface === 'popout' && isOpen && !event.defaultPrevented && event.key === 'Escape') {
 			closePopout();
 		}
 	}
 
 	async function openDM() {
-		if (!user) return;
+		if (!liveUser) return;
+		const target = liveUser;
 		const self = get(currentUser);
-		if (!self || user.id === self.id) return;
+		if (!self || sameProfileIdentity(target, self)) return;
+		const account = profileIdentity(self), server = get(activeServerUrl), identity = profileIdentity(target);
 
 		const result = await resolveDmEntry({
 			channels: get(channels),
-			target: user,
+			target,
 			createDm: createDM
 		});
+		if (retired || !isOpen || account !== profileIdentity(get(currentUser)) || server !== get(activeServerUrl) || identity !== profileIdentity(user)) return;
 		if (result.ok === false) {
 			console.warn('[DM] Could not open conversation:', result.error);
 			closePopout();
@@ -358,17 +396,45 @@
 
 		// +page owns the signal and always joins the socket room before showing
 		// the DM, keeping profile-popout behavior identical to the other entry paths.
-		dmPanelSignal.set({ channelId: result.channelId, otherUser: user });
+		dmPanelSignal.set({ channelId: result.channelId, otherUser: target });
 		closePopout();
 	}
 
 	function openFullProfile() {
-		if (isOwnProfile) {
-			dispatch('openFullProfile', { user, isOwnProfile });
-			closePopout();
-			return;
-		}
 		profileExpanded = !profileExpanded;
+		if (profileExpanded) void tick().then(() => {
+			popoutElement?.focus({ preventScroll: true });
+			const body = popoutElement?.querySelector('.popout-body');
+			if (body) body.scrollTop = 0;
+		});
+	}
+
+	function keepInProfilePanel() {
+		if (!liveUser) return;
+		if (noteOwner && noteSubject && noteReady && userNoteDraft !== userNote && !getUserNoteDraft(noteOwner, noteSubject, 'panel')) {
+			retainUserNoteDraft(noteOwner, noteSubject, { text: userNoteDraft, baseRevision: noteRevision }, 'panel');
+		}
+		if (openProfilePanel(liveUser)) closePopout();
+	}
+
+	/** Keep one body/actions implementation in both the dock and modal. */
+	function placeProfile(node: HTMLElement, detached: boolean) {
+		const marker = document.createComment('profile surface');
+		node.parentNode?.insertBefore(marker, node);
+		function update(nextDetached: boolean) {
+			if (nextDetached) document.body.appendChild(node);
+			else marker.parentNode?.insertBefore(node, marker.nextSibling);
+		}
+		update(detached);
+		return { update, destroy() { node.remove(); marker.remove(); } };
+	}
+
+	function openProfileSettings() {
+		// Opening Settings owns the next focus. A dock-to-dialog return must not
+		// schedule focus behind that modal after its focus action has mounted.
+		if (surface === 'panel') profileExpanded = false;
+		else closePopout();
+		window.dispatchEvent(new CustomEvent('wabi:open-settings', { detail: { tab: 'profile' } }));
 	}
 
 	async function handleVoiceCall() {
@@ -515,6 +581,8 @@
 	});
 
 	onDestroy(() => {
+		retired = true;
+		noteLoad++;
 		if (browser) {
 			document.removeEventListener('click', handleClickOutside);
 			document.removeEventListener('keydown', handleKeydown);
@@ -527,36 +595,44 @@
 <svelte:window on:beforeunload={warnUnsavedNote} />
 
 {#if isOpen && user}
+	{#if profileExpanded}
+		<button type="button" class="profile-full-backdrop" use:portal tabindex="-1" aria-label="Close full profile" on:click={closePopout}></button>
+	{/if}
 	<div
 		class="popout-container"
+		class:profile-expanded={profileExpanded}
+		class:profile-docked={surface === 'panel' && !profileExpanded}
 		bind:this={popoutElement}
-		style="top: {position.top}px; left: {position.left}px;"
-		role="dialog"
-		aria-label="User profile"
+		use:placeProfile={surface === 'popout' || profileExpanded}
+		style={surface === 'popout' ? `top: ${position.top}px; left: ${position.left}px;` : undefined}
+		role={surface === 'panel' && !profileExpanded ? 'region' : 'dialog'}
+		aria-label={surface === 'panel' && !profileExpanded ? 'Complete profile' : 'User profile'}
+		aria-modal={profileExpanded ? 'true' : undefined}
 		tabindex="-1"
 		on:click|stopPropagation
-		on:keydown|stopPropagation
+		on:keydown|stopPropagation={handleProfileKeydown}
 	>
+		<button type="button" class="profile-close" aria-label="Close profile" on:click={closePopout}>×</button>
 		<!-- Banner/Header Area -->
-		<div class="popout-banner" style="--banner-color: {user.color || 'var(--pfp-banner)'}">
+		<div class="popout-banner" style="--banner-color: {liveUser?.color || 'var(--pfp-banner)'}">
 			<div class="banner-gradient"></div>
-			{#if user.bannerUrl && !disableAllBanners}
-				<img src={user.bannerUrl} alt="Profile banner" class="popout-banner-img" />
+			{#if liveUser?.bannerUrl && $profileDecorationsVisible}
+				<ProfileMedia src={mediaUrl(liveUser?.bannerUrl)} alt="Profile banner" class="popout-banner-img" />
 			{/if}
 		</div>
 
 		<!-- Avatar overlapping banner -->
 		<div class="avatar-section">
 			<div class="avatar-ring">
-				{#if user.profilePicture}
-					<img src={user.profilePicture} alt={popoutDisplayName} class="popout-avatar" />
+				{#if liveUser?.profilePicture}
+					<ProfileMedia src={mediaUrl(liveUser?.profilePicture)} alt={popoutDisplayName} class="popout-avatar" />
 				{:else}
-					<div class="popout-avatar-placeholder" style="--avatar-color: {user.color}">
+					<div class="popout-avatar-placeholder" style="--avatar-color: {liveUser?.color}">
 						{popoutDisplayName.charAt(0).toUpperCase()}
 					</div>
 				{/if}
-				{#if user.overlayUrl && !disableAllBanners}
-					<span class="popout-avatar-overlay" style={overlayStyle(user)} aria-hidden="true"></span>
+				{#if liveUser?.overlayUrl && $profileDecorationsVisible}
+					<ProfileDecoration user={liveUser!} class="popout-avatar-overlay" />
 				{/if}
 				<!-- Presence dot: bottom-right of the avatar, tracks live status -->
 				<span
@@ -571,56 +647,50 @@
 		<!-- User Info Card -->
 		<div class="popout-body">
 			<div class="username-section">
-				<h3 class="display-name">{popoutDisplayName}</h3>
-				<span class="username-handle">@{user.handle || user.username}</span>
+				<h3 class="display-name"><ProfileName username={popoutDisplayName} font={liveUser?.usernameFont} color={liveUser?.color} /></h3>
+				<span class="username-handle">@{liveUser?.handle || liveUser?.username}</span>
 			</div>
-			{#if $displayEnhancementSettingsStore.topRoleEverywhereEnabled || ($displayEnhancementSettingsStore.staffTagEnabled && isStaffRole(popoutTopRoleName)) || (user.badges?.length ?? 0) > 0}
+			{#if ($displayEnhancementSettingsStore.topRoleEverywhereEnabled && roleToneClass(popoutTopRoleName) === 'owner') || ($displayEnhancementSettingsStore.staffTagEnabled && isStaffRole(popoutTopRoleName)) || (user.badges?.length ?? 0) > 0}
 				<div class="popout-role-tags">
-					{#if $displayEnhancementSettingsStore.topRoleEverywhereEnabled}
-						<span class={`popout-role-badge tone-${roleToneClass(popoutTopRoleName)}`}>
-							{getUserTopRoleLabel(user)}
+					{#if $displayEnhancementSettingsStore.topRoleEverywhereEnabled && roleToneClass(popoutTopRoleName) === 'owner'}
+						<span class="popout-role-badge tone-owner role-mark" title="Owner" aria-label="Owner">
+							{ownerMark}
 						</span>
 					{/if}
 					{#if $displayEnhancementSettingsStore.staffTagEnabled && isStaffRole(popoutTopRoleName)}
-						<span class="popout-staff-tag">Staff</span>
+						<span class="popout-staff-tag role-mark" title="Staff" aria-label="Staff">{staffMark}</span>
 					{/if}
-					<RoleBadge {user} size="md" mode="custom" />
+					<RoleBadge user={liveUser!} size="md" mode="custom" />
 				</div>
 			{/if}
 
-			{#if profileExpanded}
+			{#if completeProfile}
 				<div class="profile-detail-grid">
 					<div>
-						<span>Status</span>
-						<strong>{getStatusLabel(user.status)}</strong>
-					</div>
-					<div>
 						<span>Role</span>
-						<strong>{getUserTopRoleLabel(user)}</strong>
+						<strong>{getUserTopRoleLabel(liveUser!)}</strong>
 					</div>
-					<div>
-						<span>Handle</span>
-						<strong>{user.handle ? `@${user.handle}` : 'Not set'}</strong>
-					</div>
-					<div>
-						<span>User ID</span>
-						<strong>{user.id.slice(-8)}</strong>
-					</div>
+					{#if liveUser?.joinedAt}
+						<div>
+							<span>Member since</span>
+							<strong>{new Date(liveUser.joinedAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</strong>
+						</div>
+					{/if}
 				</div>
 			{/if}
 
 			<div class="status-section">
 				<span class="status-indicator" style="--status-color: {getStatusColor(popoutStatus)}"></span>
-				<span class="status-label" title={getStatusLabel(popoutStatus)} aria-label={getStatusLabel(popoutStatus)}>{getStatusLabel(popoutStatus)}</span>
+				<span class="status-label" title={getStatusLabel(popoutStatus)} aria-label={getStatusLabel(popoutStatus)}>{getStatusLabel(popoutStatus)}{#if liveUser?.statusMessage} · {liveUser.statusMessage}{/if}</span>
 			</div>
 
 			<div class="divider"></div>
 
 			<!-- About Me / Bio section -->
-			{#if user.bio}
+			{#if liveUser?.bio}
 				<div class="section">
 					<h4 class="section-title">{$_('user.popout.about_me')}</h4>
-					<p class="section-content">{user.bio}</p>
+					<p class="section-content">{liveUser?.bio}</p>
 				</div>
 			{/if}
 
@@ -666,7 +736,9 @@
 				</div>
 			{/if}
 
-			<span class="member-since-ghost">Member since {new Date(user.joinedAt || Date.now()).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+			{#if !completeProfile && liveUser?.joinedAt}
+				<span class="member-since-ghost">Member since {new Date(liveUser.joinedAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+			{/if}
 
 			{#if $displayEnhancementSettingsStore.lastMessageDateEnabled}
 				<div class="section">
@@ -677,7 +749,7 @@
 
 			{#if $displayEnhancementSettingsStore.showConnectionsEnabled}
 				<div class="section">
-					<h4 class="section-title">{$_('user.popout.connections')}</h4>
+					<h4 class="section-title">Links from bio</h4>
 					{#if connectionRows.length === 0}
 						<p class="section-content note-content">{$_('user.popout.no_connections')}</p>
 					{:else}
@@ -709,7 +781,9 @@
 			<UserPopoutActions
 				{isOwnProfile}
 				{profileExpanded}
-				{user}
+				inSidePanel={surface === 'panel'}
+				completeProfile={completeProfile}
+				user={liveUser}
 				{localNickname}
 				localNicknamesEnabled={$displayEnhancementSettingsStore.localNicknamesEnabled}
 				canManageRoles={canManageRoles}
@@ -724,7 +798,8 @@
 				onUnbanUser={handleUnbanUser}
 				onOpenDM={openDM}
 				onOpenFullProfile={openFullProfile}
-				onOpenSettings={openFullProfile}
+				onKeepInPanel={keepInProfilePanel}
+				onOpenSettings={openProfileSettings}
 				onVoiceCall={handleVoiceCall}
 				onVideoCall={handleVideoCall}
 				onScreenShare={handleScreenShare}

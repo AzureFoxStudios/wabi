@@ -4,6 +4,7 @@ use std::{collections::HashSet, sync::Arc};
 
 use axum::{
     extract::{Path, Request, State},
+    http::Method,
     middleware::Next,
     response::Response,
 };
@@ -47,6 +48,29 @@ pub async fn is_member(state: &AppState, user_id: i64, channel_id: &str) -> Resu
     )
 }
 
+/// Persisted Server Center role gate for ordinary channels. Existing channel
+/// membership never overrides a stricter current role requirement.
+pub async fn channel_role_allows(state: &AppState, user_id: i64, channel_id: &str) -> Result<bool> {
+    let required = crate::api::server_center::channel_min_role(state, channel_id).await;
+    let community_allowed = crate::api::server_center::channel_community_role_allows(state, user_id, channel_id).await;
+    if required.is_none() && community_allowed { return Ok(true); }
+    if user_id <= 0 { return Ok(false); }
+    let rank = if state.is_owner(user_id).await { 4 }
+        else if state.is_admin(user_id).await { 3 }
+        else if state.has_role(user_id, "Moderator").await { 2 }
+        else {
+            match state.wdb.get_user(user_id as u64).await? {
+                Some(user) if user.is_active && !user.password_hash.is_empty() => 1,
+                _ => 0,
+            }
+        };
+    let minimum = match required.as_deref() {
+        None => 0, Some("member") => 1, Some("moderator") => 2, Some("admin") => 3,
+        _ => return Err(AppError::Internal("Invalid channel role policy".into())),
+    };
+    Ok(rank >= minimum && (community_allowed || rank >= 3))
+}
+
 /// Require a live channel and its current authorization. Never infer membership
 /// from dm-* IDs: doing so resurrects access after removal/deletion/replay.
 pub async fn require_access(state: &AppState, user_id: i64, channel_id: &str) -> Result<Channel> {
@@ -55,6 +79,13 @@ pub async fn require_access(state: &AppState, user_id: i64, channel_id: &str) ->
         .get_channel(channel_id)
         .await?
         .ok_or_else(|| AppError::NotFound("Channel not found".into()))?;
+    let blacklist = state.get_blacklist().await.ok_or_else(|| AppError::Internal("Channel restriction enforcement unavailable".into()))?;
+    if blacklist.is_channel_banned(channel_id, user_id).await.is_some() {
+        return Err(AppError::Forbidden("Banned from this channel".into()));
+    }
+    if !is_conversation(channel.channel_kind) && !channel_role_allows(state, user_id, channel_id).await? {
+        return Err(AppError::Forbidden("Channel requires a role you have not chosen or been assigned".into()));
+    }
     if is_member(state, user_id, channel_id).await?
         || (!is_conversation(channel.channel_kind) && user_id > 0 && state.is_admin(user_id).await)
     {
@@ -66,6 +97,7 @@ pub async fn require_access(state: &AppState, user_id: i64, channel_id: &str) ->
 /// Joinable ordinary channels plus the caller's private conversations. There is
 /// no persisted private/min_role flag on ordinary Channel records today.
 pub async fn discoverable_channels(state: &AppState, user_id: i64) -> Result<Vec<Channel>> {
+    let blacklist = state.get_blacklist().await.ok_or_else(|| AppError::Internal("Channel restriction enforcement unavailable".into()))?;
     let member_ids: HashSet<_> = state
         .wdb
         .list_channels(Some(user_id as u64))
@@ -73,13 +105,37 @@ pub async fn discoverable_channels(state: &AppState, user_id: i64) -> Result<Vec
         .into_iter()
         .map(|c| c.channel_id)
         .collect();
-    Ok(state
+    let candidates: Vec<_> = state
         .wdb
         .list_channels(None)
         .await?
         .into_iter()
         .filter(|c| !is_conversation(c.channel_kind) || member_ids.contains(&c.channel_id))
-        .collect())
+        .collect();
+    let mut visible = Vec::with_capacity(candidates.len());
+    for channel in candidates {
+        if blacklist.is_channel_banned(&channel.channel_id, user_id).await.is_none()
+            && (is_conversation(channel.channel_kind) || channel_role_allows(state, user_id, &channel.channel_id).await?) {
+            visible.push(channel);
+        }
+    }
+    Ok(visible)
+}
+
+async fn require_rules_for_mutation(state: &AppState, user_id: i64, kind: ChannelKind) -> Result<()> {
+    if is_conversation(kind) || state.is_owner(user_id).await { return Ok(()); }
+    let needs_ack = crate::api::server_center::rules_required_for_post(&state.config.data_dir, user_id)
+        .map_err(|error| AppError::Internal(format!("Server rules could not be checked; action refused: {error}")))?;
+    if needs_ack {
+        return Err(AppError::Forbidden("Read and acknowledge this server's current rules before posting".into()));
+    }
+    Ok(())
+}
+
+/// Content-bearing mutations use this as well as the ordinary access check.
+pub async fn require_participation(state: &AppState, user_id: i64, channel_id: &str) -> Result<()> {
+    let channel = require_access(state, user_id, channel_id).await?;
+    require_rules_for_mutation(state, user_id, channel.channel_kind).await
 }
 
 #[derive(Deserialize)]
@@ -96,7 +152,11 @@ pub async fn require_channel(
     request: Request,
     next: Next,
 ) -> Result<Response> {
-    require_access(&state, auth.user_id, &path.channel_id).await?;
+    let channel = require_access(&state, auth.user_id, &path.channel_id).await?;
+    if request.method() == Method::POST || request.method() == Method::PUT || request.method() == Method::PATCH || request.method() == Method::DELETE
+    {
+        require_rules_for_mutation(&state, auth.user_id, channel.channel_kind).await?;
+    }
     Ok(next.run(request).await)
 }
 

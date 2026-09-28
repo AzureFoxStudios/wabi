@@ -7,7 +7,9 @@
 //! and linearizability barrier.
 
 pub mod locks;
+pub mod checkpoint;
 mod membership_repair;
+pub mod node_identity;
 pub mod replay;
 pub mod wabi_store;
 
@@ -26,9 +28,16 @@ use crate::sequencer::types::{CommandCommit, CommandOutcome};
 use crate::storage::fsync::fsync_dir;
 use crate::subscription::engine::SubscriptionEngine;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync::{broadcast, mpsc, Semaphore};
+use tokio::sync::{broadcast, mpsc, RwLock, Semaphore};
+
+const WRITER_FENCE_MARKER: &str = "writer-fenced-v1";
+const ACTIVATION_PENDING_MARKER: &str = "activation-pending-v1";
+pub const LIVE_CHECKPOINT_MARKER: &str = "live-checkpoint-v1";
 
 /// A single subscription delivery: a `consumer_id` matched to a commit event.
 #[derive(Debug, Clone)]
@@ -58,13 +67,12 @@ pub struct WabiDbConfig {
     pub allow_init: bool,
 
     /// Optional replication configuration. When `Some`, the engine will spawn
-    /// a background sync worker that periodically pulls/pushes commit index
-    /// entries with the configured peer.
+    /// a background sync worker that periodically sends missing commits to a
+    /// fenced peer after checking its applied position.
     pub replication_config: Option<crate::replication::config::ReplicationConfig>,
 
-    /// Transport implementation for replication. `None` = `NoopTransport`
-    /// (single-node mode). Set to `Some(...)` with an HTTP-based transport
-    /// for multi-node sync.
+    /// Transport implementation for replication. Required when
+    /// `replication_config` is set; `None` is single-node mode.
     pub sync_transport: Option<std::sync::Arc<dyn SyncTransport>>,
 
     /// Test hook: override the "boot wallclock" used by stale-lock detection.
@@ -122,6 +130,8 @@ impl WabiDbConfig {
 /// The main WabiDB engine. Holds all runtime components: sequencer,
 /// projection state, dispatcher, subscription engine, and lock-file tracking.
 pub struct WabiDbEngine {
+    /// Selected and validated before startup; commands cannot replace it.
+    local_node_id: String,
     /// The data directory path.
     data_dir: PathBuf,
     /// The loaded bootstrap key (32 bytes). Held in memory only; never persisted.
@@ -151,8 +161,18 @@ pub struct WabiDbEngine {
     sync_transport: Arc<dyn SyncTransport>,
     /// Batcher handle for replicated entries (segment shipping from peers).
     replication_batcher: Option<BatcherHandle>,
+    /// Serialize inbound commits and stop after an on-disk commit cannot be
+    /// applied in memory; a restart must replay before receiving more data.
+    replication_ingest: Arc<tokio::sync::Mutex<()>>,
+    replication_poisoned: AtomicBool,
     /// Join handle for the background sync worker.
     _sync_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Held across each complete local commit window; an operator fence takes
+    /// the write lock and waits for all earlier acknowledgments to settle.
+    write_fence: Arc<RwLock<bool>>,
+    /// Set only after the writer-fenced marker has been observed at startup
+    /// or its file and parent directory have synced successfully.
+    durable_writer_fence: AtomicBool,
 }
 
 impl std::fmt::Debug for WabiDbEngine {
@@ -190,6 +210,20 @@ impl WabiDbEngine {
     /// - `WabiError::KeychainUnavailable` if OS keychain is requested (stub).
     /// - `WabiError::Validation` if the bootstrap source is invalid.
     pub async fn open(config: WabiDbConfig) -> Result<Self> {
+        Self::open_with_node_id(config, node_identity::DEFAULT_NODE_ID.into()).await
+    }
+
+    /// Select the local writer identity before any file mutation, replay or
+    /// worker startup. Keep this operator-configured identity stable across
+    /// restarts; it does not grant a distributed lease or enable another writer.
+    pub async fn open_with_node_id(config: WabiDbConfig, local_node_id: String) -> Result<Self> {
+        node_identity::validate(&local_node_id)?;
+        if config.replication_config.is_some() && config.sync_transport.is_none() {
+            return Err(WabiError::Validation {
+                command: "open_replicated_engine".into(),
+                reason: "replication configuration requires an explicit transport".into(),
+            });
+        }
         let data_dir = &config.data_dir;
 
         // 1. Validate / create data directory
@@ -218,6 +252,28 @@ impl WabiDbEngine {
         // Failed open (including replay failure) must release our own lock.
         let mut opening_lock = OpeningLock(Some(lock_path.clone()));
         fsync_dir(data_dir).await?;
+
+        // Any marker, including one left by an interrupted fence write,
+        // disables local commits. A restored copy of a fenced node must not
+        // silently become writable merely because it starts on a new host.
+        let mut initially_fenced = false;
+        let mut durable_writer_fence = false;
+        for marker in [WRITER_FENCE_MARKER, ACTIVATION_PENDING_MARKER, LIVE_CHECKPOINT_MARKER] {
+            match tokio::fs::symlink_metadata(data_dir.join(marker)).await {
+                Ok(metadata) => {
+                    initially_fenced = true;
+                    if marker == WRITER_FENCE_MARKER
+                        && metadata.is_file()
+                        && !metadata.file_type().is_symlink()
+                    {
+                        durable_writer_fence = true;
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(WabiError::Io(error)),
+            }
+        }
+        let write_fence = Arc::new(RwLock::new(initially_fenced));
 
         // 3. Load the bootstrap key
         let bootstrap_key = load_bootstrap_key(&config.bootstrap_source)?;
@@ -267,6 +323,15 @@ impl WabiDbEngine {
             } else {
                 Arc::new(ProjectionState::new())
             };
+        // Older snapshots may lack derived ID lookups. Rebuild them before
+        // the dispatcher or sequencer can use the state; validate message
+        // pointers even when their count matches the primary index.
+        let rebuilt_albums =
+            crate::projections::albums::AlbumProjection::rebuild_id_index(&projection_state)?;
+        let rebuilt_messages = crate::projections::message_lookup::rebuild(&projection_state)?;
+        if rebuilt_albums > 0 || rebuilt_messages > 0 {
+            projection_state.save_snapshot(data_dir)?;
+        }
         let snapshot_watermark = projection_state.applied_commit_seq();
 
         // 7.1 Create barrier and dispatcher
@@ -331,6 +396,9 @@ impl WabiDbEngine {
         // 10. Spawn the sequencer task
         let data_dir_clone = data_dir.clone();
         let key_registry_for_engine = Arc::clone(&key_registry);
+        let sequencer_write_fence = Arc::clone(&write_fence);
+        let sequencer_projection_state = Arc::clone(&projection_state);
+        let sequencer_node_id = local_node_id.clone();
         let sequencer_handle = tokio::spawn(async move {
             crate::sequencer::run(
                 permit,
@@ -340,6 +408,9 @@ impl WabiDbEngine {
                 cmd_rx,
                 data_dir_clone,
                 recovered_high_seq,
+                sequencer_write_fence,
+                sequencer_projection_state,
+                sequencer_node_id,
             )
             .await
         });
@@ -359,38 +430,82 @@ impl WabiDbEngine {
         let sync_handle = if let Some(ref rep_config) = config.replication_config {
             rep_config.validate()?;
             let sync_transport = Arc::clone(&transport_for_sync);
+            let sync_writer_fence = Arc::clone(&write_fence);
+            let sync_projection_state = Arc::clone(&projection_state);
             let commit_index_dir = data_dir.join("global").join("commit-index");
             let peer_endpoint = rep_config.peer_endpoint.clone();
             let interval = Duration::from_micros(rep_config.sync_interval_micros);
             let handle = tokio::spawn(async move {
-                // Track the last commit_seq we've ingested from the peer.
-                let mut last_peer_seq: u64 = 0u64;
                 loop {
                     tokio::time::sleep(interval).await;
-
-                    // Pull new entries from the peer (since last_peer_seq).
-                    // Pulled entries carry hashes but not segment data, so
-                    // ingestion requires a separate fetch call (not yet
-                    // implemented in this session). We track the watermark
-                    // for future use.
-                    if let Ok(entries) = sync_transport.pull(&peer_endpoint, last_peer_seq).await {
-                        if !entries.is_empty() {
-                            last_peer_seq = entries.last().unwrap().commit_seq;
-                            tracing::info!(
-                                "replication: pulled {} entries from peer (up to seq {})",
-                                entries.len(),
-                                last_peer_seq,
-                            );
-                        }
+                    if *sync_writer_fence.read().await {
+                        continue;
                     }
-
-                    // Push local entries to the peer (segment shipping).
-                    if let Ok(local) =
-                        crate::commit_index::batcher::read_all_entries(&commit_index_dir)
-                    {
-                        if !local.is_empty() {
-                            tracing::info!("replication: pushing {} entries to peer", local.len());
-                            let _ = sync_transport.push(&peer_endpoint, local).await;
+                    // A peer's applied position is meaningful only after the
+                    // transport verifies the root-key fingerprint. The old
+                    // metadata-only pull advanced a false progress watermark.
+                    let peer_position = match sync_transport.latest_position(&peer_endpoint).await {
+                        Ok(position) => position,
+                        Err(error) => {
+                            tracing::warn!(%error, "replication: peer applied position unavailable");
+                            continue;
+                        }
+                    };
+                    let mut peer_applied = peer_position.applied_seq;
+                    let local = match crate::commit_index::batcher::read_all_entries(
+                        &commit_index_dir,
+                    ) {
+                        Ok(entries) => entries,
+                        Err(error) => {
+                            tracing::warn!(%error, "replication: local commit index unavailable");
+                            continue;
+                        }
+                    };
+                    let local_high = local.last().map(|entry| entry.commit_seq).unwrap_or(0);
+                    if peer_applied > local_high {
+                        tracing::warn!(
+                            peer_applied,
+                            local_high,
+                            "replication: peer is ahead of this Authority"
+                        );
+                        continue;
+                    }
+                    let local_prefix =
+                        crate::replication::commit_prefix_fingerprint(&local, peer_applied);
+                    if local_prefix != peer_position.prefix_fingerprint {
+                        tracing::warn!(
+                            peer_applied,
+                            "replication: peer commit prefix diverges from this Authority"
+                        );
+                        continue;
+                    }
+                    let pending: Vec<_> = local
+                        .into_iter()
+                        .filter(|entry| entry.commit_seq > peer_applied)
+                        .collect();
+                    for batch in pending.chunks(32).take(32) {
+                        if *sync_writer_fence.read().await {
+                            break;
+                        }
+                        if let Err(error) =
+                            sync_transport.push(&peer_endpoint, batch.to_vec()).await
+                        {
+                            tracing::warn!(%error, peer_applied, "replication: batch push failed");
+                            break;
+                        }
+                        peer_applied = batch.last().unwrap().commit_seq;
+                        tracing::info!(
+                            peer_applied,
+                            sent = batch.len(),
+                            "replication: peer applied batch"
+                        );
+                    }
+                    if peer_applied == local_high && !*sync_writer_fence.read().await {
+                        if let Err(error) = sync_transport
+                            .sync_auxiliary(&peer_endpoint, &sync_projection_state)
+                            .await
+                        {
+                            tracing::warn!(%error, "replication: external asset sync failed");
                         }
                     }
                 }
@@ -404,6 +519,7 @@ impl WabiDbEngine {
 
         opening_lock.0.take(); // ownership transfers to the engine's Drop
         Ok(Self {
+            local_node_id,
             data_dir: data_dir.clone(),
             bootstrap_key,
             dispatch_table,
@@ -417,13 +533,22 @@ impl WabiDbEngine {
             delivery_tx,
             sync_transport: transport_for_sync,
             replication_batcher,
+            replication_ingest: Arc::new(tokio::sync::Mutex::new(())),
+            replication_poisoned: AtomicBool::new(false),
             _sync_handle: sync_handle,
+            write_fence,
+            durable_writer_fence: AtomicBool::new(durable_writer_fence),
         })
     }
 
     /// The data directory this engine is bound to.
     pub fn data_dir(&self) -> &std::path::Path {
         &self.data_dir
+    }
+
+    /// Immutable identity of this runtime, also held by its sequencer.
+    pub fn local_node_id(&self) -> &str {
+        &self.local_node_id
     }
 
     /// Access the stream key registry for retention operations.
@@ -434,6 +559,12 @@ impl WabiDbEngine {
     /// The bootstrap key (32 bytes). Held in memory only.
     pub fn bootstrap_key(&self) -> &[u8; 32] {
         &self.bootstrap_key
+    }
+
+    /// Peer-consistency fingerprint of this engine's root key. It does not
+    /// grant access or prove that the complete Wabi instance is replicated.
+    pub fn replica_fingerprint(&self) -> String {
+        crate::replication::replica_fingerprint(&self.bootstrap_key)
     }
 
     /// The dispatch table mapping event types to projection handlers.
@@ -482,10 +613,58 @@ impl WabiDbEngine {
         }
     }
 
+    /// Durably stop local canonical commits. Returns only after any commit
+    /// window already in progress has reached its normal acknowledgment path.
+    /// There is deliberately no automatic unfence: promotion needs a separate
+    /// quorum/epoch protocol and a full state reconciliation contract.
+    pub async fn fence_local_writer(&self) -> Result<()> {
+        use tokio::io::AsyncWriteExt;
+
+        let mut fenced = self.write_fence.write().await;
+        *fenced = true; // Fail closed in this process even if persistence fails.
+        let marker = self.data_dir.join(WRITER_FENCE_MARKER);
+        let mut options = tokio::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            options.mode(0o600);
+        }
+        match options.open(&marker).await {
+            Ok(mut file) => {
+                file.write_all(b"fenced\n").await.map_err(WabiError::Io)?;
+                file.sync_all().await.map_err(WabiError::Io)?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let metadata = tokio::fs::symlink_metadata(&marker).await?;
+                if !metadata.is_file() || metadata.file_type().is_symlink() {
+                    return Err(replication_validation(
+                        "writer fence marker is not a regular file",
+                    ));
+                }
+            }
+            Err(error) => return Err(WabiError::Io(error)),
+        }
+        fsync_dir(&self.data_dir).await?;
+        self.durable_writer_fence.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// Whether this engine refuses local canonical commits.
+    pub async fn local_writer_fenced(&self) -> bool {
+        *self.write_fence.read().await
+    }
+
+    /// Whether the local writer fence has a durable marker. An in-memory
+    /// fail-closed fence after an I/O error is insufficient for replication.
+    pub fn durable_writer_fenced(&self) -> bool {
+        self.durable_writer_fence.load(Ordering::SeqCst)
+    }
+
     /// Ingest a replicated commit from a peer (segment shipping model).
     ///
-    /// Writes each segment file to the correct stream events directory, then
-    /// submits the `CommitIndexEntry` to the batcher and fsyncs.
+    /// Accepts only on a locally fenced engine. Validates every referenced
+    /// encrypted record before appending segment bytes, durably indexes the
+    /// commit, and applies its events to live projections in index order.
     ///
     /// # Segment shipping model
     ///
@@ -499,8 +678,61 @@ impl WabiDbEngine {
         segments: Vec<(String, u8, u64, Vec<u8>)>,
     ) -> Result<()> {
         use tokio::io::AsyncWriteExt;
+        let _ingest = self.replication_ingest.lock().await;
+        if !*self.write_fence.read().await {
+            return Err(replication_validation(
+                "receiving engine is still a local writer",
+            ));
+        }
+        if !self.durable_writer_fenced() {
+            return Err(replication_validation(
+                "receiving engine has no durable writer fence",
+            ));
+        }
+        if self.replication_poisoned.load(Ordering::SeqCst) {
+            return Err(replication_validation(
+                "previous replicated commit needs restart and replay",
+            ));
+        }
+        let index_dir = self.data_dir.join("global").join("commit-index");
+        let indexed = crate::commit_index::batcher::read_all_entries(&index_dir)?;
+        if indexed
+            .iter()
+            .any(|candidate| candidate.commit_seq > self.barrier.current())
+        {
+            self.replication_poisoned.store(true, Ordering::SeqCst);
+            return Err(replication_validation(
+                "indexed commit is not applied; restart and replay before receiving more data",
+            ));
+        }
+        let duplicate = if let Some(existing) = indexed
+            .iter()
+            .find(|candidate| candidate.commit_seq == entry.commit_seq)
+        {
+            if existing != &entry {
+                return Err(replication_validation(
+                    "commit sequence conflicts with a local entry",
+                ));
+            }
+            true
+        } else {
+            false
+        };
+        if !duplicate
+            && indexed
+                .iter()
+                .any(|candidate| candidate.commit_seq >= entry.commit_seq)
+        {
+            return Err(replication_validation(
+                "replicated commit arrived out of order",
+            ));
+        }
+        let events = self.validate_replicated_events(&entry, &segments).await?;
 
-        // Write each segment file
+        // Preflight every target before writing any bytes. An existing segment
+        // may be an identical/longer copy, or an exact prefix to extend. Never
+        // truncate it: the same segment can contain several later commits.
+        let mut writes = Vec::with_capacity(segments.len());
         for (stream_id, stream_kind, segment_id, data) in &segments {
             let kind_dir = crate::sequencer::stream_kind_dir_name(*stream_kind);
             let seg_dir = self
@@ -509,28 +741,200 @@ impl WabiDbEngine {
                 .join(kind_dir)
                 .join(stream_id)
                 .join("events");
-            tokio::fs::create_dir_all(&seg_dir)
-                .await
-                .map_err(WabiError::Io)?;
-
             let seg_path = seg_dir.join(format!("{segment_id:08}.wseg"));
-            let mut file = tokio::fs::File::create(&seg_path)
-                .await
-                .map_err(WabiError::Io)?;
-            file.write_all(data).await.map_err(WabiError::Io)?;
-            file.sync_all().await.map_err(WabiError::Io)?;
+            let (existing_len, exists) = match tokio::fs::symlink_metadata(&seg_path).await {
+                Ok(metadata) => {
+                    if !metadata.is_file() || metadata.file_type().is_symlink() {
+                        return Err(replication_validation(
+                            "segment target is not a regular file",
+                        ));
+                    }
+                    let old = tokio::fs::read(&seg_path).await?;
+                    if data.starts_with(&old) {
+                        (old.len(), true)
+                    } else if old.starts_with(data) {
+                        (data.len(), true)
+                    } else {
+                        return Err(replication_validation(
+                            "replicated segment conflicts with stored bytes",
+                        ));
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => (0, false),
+                Err(error) => return Err(WabiError::Io(error)),
+            };
+            writes.push((seg_dir, seg_path, existing_len, exists));
+        }
+        for ((_, _, _, data), (seg_dir, seg_path, existing_len, exists)) in
+            segments.iter().zip(writes)
+        {
+            tokio::fs::create_dir_all(&seg_dir).await?;
+            if existing_len == data.len() {
+                continue;
+            }
+            let mut options = tokio::fs::OpenOptions::new();
+            options.write(true);
+            if !exists {
+                options.create_new(true);
+            } else {
+                options.append(true);
+            }
+            let mut file = options.open(&seg_path).await?;
+            file.write_all(&data[existing_len..]).await?;
+            file.sync_all().await?;
+            fsync_dir(&seg_dir).await?;
+        }
+        if duplicate {
+            return Ok(());
         }
 
-        // Submit entry to batcher and flush
+        // Commit index publication follows durable segment bytes. A crash
+        // before this point leaves only orphan bytes, which replay ignores.
         match &self.replication_batcher {
             Some(batcher) => {
-                batcher.submit(entry)?;
-                batcher.flush_now().await
+                batcher.submit(entry.clone())?;
+                if let Err(error) = batcher.flush_now().await {
+                    self.replication_poisoned.store(true, Ordering::SeqCst);
+                    return Err(error);
+                }
             }
-            None => Err(WabiError::InternalInvariantViolated {
-                invariant: "engine has no replication batcher (not fully opened)".into(),
-            }),
+            None => {
+                return Err(WabiError::InternalInvariantViolated {
+                    invariant: "engine has no replication batcher (not fully opened)".into(),
+                })
+            }
+        };
+        let applied = (|| {
+            for event in events {
+                if let Some(handler) = self.dispatch_table.get(&event.event_type) {
+                    handler.apply(&event, &self.projection_state)?;
+                } else {
+                    self.projection_state.insert(
+                        "events",
+                        event.event_type.as_bytes().to_vec(),
+                        event.payload,
+                        event.commit_seq,
+                    );
+                }
+            }
+            self.barrier.advance(entry.commit_seq)
+        })();
+        if applied.is_err() {
+            self.replication_poisoned.store(true, Ordering::SeqCst);
         }
+        applied
+    }
+
+    async fn validate_replicated_events(
+        &self,
+        entry: &CommitIndexEntry,
+        segments: &[(String, u8, u64, Vec<u8>)],
+    ) -> Result<Vec<crate::projections::handler::DurableEvent>> {
+        use crate::format::record::{RecordHeader, HEADER_LEN};
+        use crate::sequencer::types::ReplayEnvelope;
+        use std::collections::HashSet;
+
+        if entry.event_refs.len() != entry.payload_hashes.len() {
+            return Err(replication_validation(
+                "event reference and payload hash counts differ",
+            ));
+        }
+        let mut seen = HashSet::new();
+        for (stream_id, stream_kind, segment_id, data) in segments {
+            if stream_id.is_empty()
+                || matches!(stream_id.as_str(), "." | "..")
+                || stream_id.chars().any(|character| {
+                    matches!(character, '/' | '\\' | '\0') || character.is_control()
+                })
+                || data.len() > 128 * 1024 * 1024
+            {
+                return Err(replication_validation(
+                    "invalid replicated segment identity or size",
+                ));
+            }
+            if !seen.insert((stream_id, stream_kind, segment_id)) {
+                return Err(replication_validation("duplicate replicated segment"));
+            }
+            let hash = crate::stream_identity::stream_id_hash(stream_id);
+            if !entry.event_refs.iter().any(|reference| {
+                reference.stream_id_hash == hash
+                    && reference.stream_kind == *stream_kind
+                    && reference.segment_id == *segment_id
+            }) {
+                return Err(replication_validation(
+                    "segment is not referenced by its commit",
+                ));
+            }
+        }
+        let mut events = Vec::with_capacity(entry.event_refs.len());
+        for (reference, expected_hash) in entry.event_refs.iter().zip(&entry.payload_hashes) {
+            let (stream_id, _, _, data) = segments
+                .iter()
+                .find(|(stream_id, kind, id, _)| {
+                    crate::stream_identity::stream_id_hash(stream_id) == reference.stream_id_hash
+                        && *kind == reference.stream_kind
+                        && *id == reference.segment_id
+                })
+                .ok_or_else(|| replication_validation("commit is missing a referenced segment"))?;
+            let start = reference.offset as usize;
+            let end = start
+                .checked_add(reference.length as usize)
+                .ok_or_else(|| replication_validation("record reference overflows"))?;
+            if end > data.len() || reference.length < HEADER_LEN as u32 {
+                return Err(replication_validation(
+                    "record reference is outside segment",
+                ));
+            }
+            let record = &data[start..end];
+            let header = RecordHeader::decode(&record[..HEADER_LEN as usize])?;
+            if header.commit_seq != entry.commit_seq
+                || header.stream_id_hash != reference.stream_id_hash
+                || header.total_size() != record.len()
+            {
+                return Err(replication_validation(
+                    "record header does not match commit reference",
+                ));
+            }
+            let payload_end = HEADER_LEN as usize + header.payload_len as usize;
+            let ciphertext = &record[HEADER_LEN as usize..payload_end];
+            if record[payload_end..].iter().any(|byte| *byte != 0) {
+                return Err(replication_validation(
+                    "replicated record has nonzero padding",
+                ));
+            }
+            header.verify_payload_crc(ciphertext)?;
+            if blake3::hash(ciphertext).as_bytes() != expected_hash {
+                return Err(replication_validation("replicated payload hash mismatch"));
+            }
+            self.get_or_create_stream_key(stream_id).await?;
+            let key = self
+                .key_registry
+                .lock()
+                .await
+                .get_active_key(stream_id, entry.commit_seq)?
+                .key_material;
+            let plaintext = crate::crypto::aes_gcm_record::decrypt_record(
+                &key,
+                entry.commit_seq,
+                &header.encode(),
+                ciphertext,
+            )?;
+            let envelope: ReplayEnvelope = serde_json::from_slice(&plaintext).map_err(|_| {
+                replication_validation("replicated payload is not a replay envelope")
+            })?;
+            if envelope.stream_id != *stream_id {
+                return Err(replication_validation(
+                    "replicated envelope names a different stream",
+                ));
+            }
+            events.push(crate::projections::handler::DurableEvent {
+                commit_seq: entry.commit_seq,
+                stream_id: envelope.stream_id,
+                event_type: envelope.event_type,
+                payload: envelope.payload,
+            });
+        }
+        Ok(events)
     }
 
     /// Deliver an event to all matching subscribers and broadcast results
@@ -608,8 +1012,13 @@ impl WabiDbEngine {
     /// Whether the sequencer still accepts commands and its task is alive.
     /// This is runtime liveness, not an acknowledgement of any particular write.
     pub fn is_writer_running(&self) -> bool {
-        self.sequencer.as_ref().is_some_and(|s| !s.sender().is_closed())
-            && self._sequencer_handle.as_ref().is_some_and(|h| !h.is_finished())
+        self.sequencer
+            .as_ref()
+            .is_some_and(|s| !s.sender().is_closed())
+            && self
+                ._sequencer_handle
+                .as_ref()
+                .is_some_and(|h| !h.is_finished())
     }
 
     /// A reference to the linearizability barrier.
@@ -632,6 +1041,7 @@ impl WabiDbEngine {
         let _ = std::fs::create_dir_all(&data_dir);
         let (delivery_tx, _) = broadcast::channel::<SubscriptionDelivery>(1024);
         Self {
+            local_node_id: node_identity::DEFAULT_NODE_ID.into(),
             data_dir,
             bootstrap_key: [0u8; 32],
             dispatch_table: Arc::new(DispatchTable::new(vec![]).unwrap()),
@@ -647,7 +1057,11 @@ impl WabiDbEngine {
             delivery_tx,
             sync_transport: new_noop_transport(),
             replication_batcher: None,
+            replication_ingest: Arc::new(tokio::sync::Mutex::new(())),
+            replication_poisoned: AtomicBool::new(false),
             _sync_handle: None,
+            write_fence: Arc::new(RwLock::new(false)),
+            durable_writer_fence: AtomicBool::new(false),
         }
     }
 
@@ -655,6 +1069,13 @@ impl WabiDbEngine {
     #[allow(dead_code)]
     fn _category() -> ErrorCategory {
         ErrorCategory::Sequencer
+    }
+}
+
+fn replication_validation(reason: &str) -> WabiError {
+    WabiError::Validation {
+        command: "ingest_replicated_commit".into(),
+        reason: reason.into(),
     }
 }
 
@@ -667,8 +1088,9 @@ static BOOT_WALLCLOCK: std::sync::OnceLock<std::time::SystemTime> = std::sync::O
 /// from "same-PID stale lock left by a previous container incarnation"
 /// (steal): inside a Docker PID namespace every run is PID 1, so the
 /// holder PID alone cannot make that call.
-static HELD_LOCKS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<std::path::PathBuf>>> =
-    std::sync::OnceLock::new();
+static HELD_LOCKS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashSet<std::path::PathBuf>>,
+> = std::sync::OnceLock::new();
 
 fn held_locks() -> &'static std::sync::Mutex<std::collections::HashSet<std::path::PathBuf>> {
     HELD_LOCKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
@@ -693,7 +1115,11 @@ async fn acquire_lock_file(
         // Same-process double-open must ALWAYS be refused, even though the
         // on-disk holder PID equals ours (the mtime/steal arms below cannot
         // distinguish it from a previous container incarnation).
-        if held_locks().lock().map(|g| g.contains(lock_path)).unwrap_or(false) {
+        if held_locks()
+            .lock()
+            .map(|g| g.contains(lock_path))
+            .unwrap_or(false)
+        {
             return Err(WabiError::AlreadyRunning);
         }
         match tokio::fs::OpenOptions::new()
@@ -749,8 +1175,9 @@ async fn acquire_lock_file(
                     .ok()
                     .and_then(|m| m.modified().ok())
                     .map(|t| {
-                        let boot = boot_wallclock_override
-                            .unwrap_or_else(|| *BOOT_WALLCLOCK.get_or_init(std::time::SystemTime::now));
+                        let boot = boot_wallclock_override.unwrap_or_else(|| {
+                            *BOOT_WALLCLOCK.get_or_init(std::time::SystemTime::now)
+                        });
                         t <= boot
                     });
                 let steal = match (holder_pid, lock_mtime_before_boot) {
@@ -854,8 +1281,11 @@ impl Drop for OpeningLock {
 
 impl Drop for WabiDbEngine {
     fn drop(&mut self) {
-        // Persist projection state snapshot before shutdown.
-        if !self.data_dir.as_os_str().is_empty() {
+        // A failed replicated projection may have applied only part of a
+        // committed batch. Restart must replay the prior safe snapshot.
+        if !self.data_dir.as_os_str().is_empty()
+            && !self.replication_poisoned.load(Ordering::SeqCst)
+        {
             let _ = self.projection_state.save_snapshot(&self.data_dir);
         }
 
@@ -896,17 +1326,19 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
     use crate::projections::incidents::IncidentProjection;
     use crate::projections::layouts::LayoutsProjection;
     use crate::projections::lore::{
-        LoreBindingProjection, LoreCommitProjection, LoreFileChangeProjection, LorePromoteProjection,
-        LoreRepoProjection, LoreTokenProjection,
+        LoreBindingProjection, LoreCommitProjection, LoreFileChangeProjection,
+        LorePromoteProjection, LoreRepoProjection, LoreTokenProjection,
     };
     use crate::projections::messages::MessagesProjection;
     use crate::projections::noop::NoopProjection;
     use crate::projections::owner::OwnerProjection;
     use crate::projections::payments::PaymentsProjection;
+    use crate::projections::project_tasks::ProjectTaskProjection;
+    use crate::projections::project_runs::ProjectRunProjection;
     use crate::projections::reactions::ReactionsProjection;
     use crate::projections::registry::{ProjectionRegistration, TypeRegistry};
-    use crate::projections::users::UsersProjection;
     use crate::projections::user_deletion::UserDeletionProjection;
+    use crate::projections::users::UsersProjection;
     use crate::projections::webhooks::WebhooksProjection;
     use crate::projections::whiteboard_docs::WhiteboardDocsProjection;
     use crate::projections::wiki::{WikiProjection, WikiRevisionProjection};
@@ -920,9 +1352,14 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "wabidb::projections::audit::AuditEntry",
         },
         ProjectionRegistration {
-            event_types: &["message_created", "message_edited", "message_deleted"],
+            event_types: &[
+                "message_created",
+                "message_edited",
+                "message_deleted",
+                "channel_messages_cleared",
+            ],
             handler: Arc::new(MessagesProjection),
-            index_name: "messages",
+            index_name: "messages,message_by_id_v1",
             record_type_name: "wabidb::projections::messages::MessageRecord",
         },
         ProjectionRegistration {
@@ -932,7 +1369,11 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "wabidb::projections::reactions::Reaction",
         },
         ProjectionRegistration {
-            event_types: &["channel_member_added", "channel_member_removed", "channel_members_changed"],
+            event_types: &[
+                "channel_member_added",
+                "channel_member_removed",
+                "channel_members_changed",
+            ],
             handler: Arc::new(ChannelMembersProjection),
             index_name: "channel_members",
             record_type_name: "wabidb::projections::channel_members::ChannelMemberRecord",
@@ -1037,6 +1478,16 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "wabidb::projections::wiki::WikiRevisionRecord",
         },
         ProjectionRegistration {
+            event_types: &["project_run_updated"], handler: Arc::new(ProjectRunProjection),
+            index_name: "project_runs", record_type_name: "wabidb::projections::project_runs::ProjectRun",
+        },
+        ProjectionRegistration {
+            event_types: &["project_task_created", "project_task_updated"],
+            handler: Arc::new(ProjectTaskProjection),
+            index_name: "project_tasks",
+            record_type_name: "wabidb::projections::project_tasks::ProjectTaskRecord",
+        },
+        ProjectionRegistration {
             event_types: &[
                 "forum_thread_created",
                 "forum_post_created",
@@ -1056,7 +1507,7 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
         ProjectionRegistration {
             event_types: &["album_created", "album_updated", "album_deleted"],
             handler: Arc::new(AlbumProjection),
-            index_name: "albums",
+            index_name: "albums,album_by_id",
             record_type_name: "wabidb::projections::albums::AlbumRecord",
         },
         ProjectionRegistration {
@@ -1138,6 +1589,51 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "wabidb::projections::payments",
         },
         ProjectionRegistration {
+            event_types: &[crate::projections::service_access::EVENT],
+            handler: Arc::new(crate::projections::service_access::ServiceAccessProjection),
+            index_name: crate::projections::service_access::INDEX,
+            record_type_name: "wabidb::projections::service_access::ServiceAccess",
+        },
+        ProjectionRegistration {
+            event_types: &[crate::projections::community_roster::EVENT],
+            handler: Arc::new(crate::projections::community_roster::CommunityRosterProjection),
+            index_name: crate::projections::community_roster::INDEX,
+            record_type_name: "wabidb::projections::community_roster::CommunityRosterRecord",
+        },
+        ProjectionRegistration {
+            event_types: &[
+                crate::projections::room_placement::EVENT,
+                crate::projections::room_placement::INIT_EVENT,
+            ],
+            handler: Arc::new(crate::projections::room_placement::RoomPlacementProjection),
+            index_name: crate::projections::room_placement::INDEX,
+            record_type_name: "wabidb::projections::room_placement::RoomPlacementRecord",
+        },
+        ProjectionRegistration {
+            event_types: &[crate::projections::upload_revocations::EVENT],
+            handler: Arc::new(crate::projections::upload_revocations::UploadRevocationsProjection),
+            index_name: crate::projections::upload_revocations::INDEX,
+            record_type_name: "wabidb::projections::upload_revocations::RevokedUploadRecord",
+        },
+        ProjectionRegistration {
+            event_types: &[crate::projections::auth_revocations::EVENT],
+            handler: Arc::new(crate::projections::auth_revocations::AuthRevocationsProjection),
+            index_name: crate::projections::auth_revocations::INDEX,
+            record_type_name: "wabidb::projections::auth_revocations::Value",
+        },
+        ProjectionRegistration {
+            event_types: &[crate::projections::recovery_codes::EVENT],
+            handler: Arc::new(crate::projections::recovery_codes::RecoveryCodesProjection),
+            index_name: crate::projections::recovery_codes::INDEX,
+            record_type_name: "wabidb::projections::recovery_codes::Value",
+        },
+        ProjectionRegistration {
+            event_types: &[crate::projections::upload_assets::EVENT],
+            handler: Arc::new(crate::projections::upload_assets::UploadAssetsProjection),
+            index_name: crate::projections::upload_assets::INDEX,
+            record_type_name: "wabidb::projections::upload_assets::UploadAssetRecord",
+        },
+        ProjectionRegistration {
             event_types: &[crate::projections::friends::EVENT],
             handler: Arc::new(crate::projections::friends::FriendsProjection),
             index_name: crate::projections::friends::INDEX,
@@ -1171,9 +1667,509 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
 }
 
 #[cfg(test)]
+mod message_admission_tests;
+
+#[cfg(test)]
+mod node_identity_tests;
+
+#[cfg(test)]
+mod workspace_admission_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+    use crate::format::record::RecordKind;
+    use crate::sequencer::types::{CommandCommit, EventToWrite};
     use tempfile::tempdir;
+
+    fn replica_test_config(path: &std::path::Path) -> WabiDbConfig {
+        let mut config =
+            WabiDbConfig::new(path.to_path_buf(), BootstrapSource::Provided([0xAB; 32]));
+        config.allow_init = true;
+        config
+    }
+
+    #[tokio::test]
+    async fn open_backfills_album_id_index_from_legacy_snapshot() {
+        use crate::projections::albums::{encode_record, AlbumProjection, AlbumRecord, ID_INDEX};
+
+        let dir = tempdir().unwrap();
+        let engine = WabiDbEngine::open(replica_test_config(dir.path()))
+            .await
+            .unwrap();
+        let stream = "albums:user:1";
+        engine.get_or_create_stream_key(stream).await.unwrap();
+        let mut album = AlbumRecord {
+            album_id: String::new(),
+            scope_type: "user".into(),
+            scope_id: "1".into(),
+            name: "Legacy album".into(),
+            description: String::new(),
+            owner_user_id: 1,
+            cover_url: String::new(),
+            created_at_micros: 1,
+            updated_at_micros: 1,
+            is_deleted: false,
+        };
+        let (response_tx, _response_rx) = tokio::sync::oneshot::channel();
+        let outcome = engine
+            .run_command(CommandCommit {
+                room_owner_precondition: None,
+                caller_user_id: 1,
+                caller_device_id: "album-migration-test".into(),
+                command_name: "create_album".into(),
+                idempotency_key: None,
+                events: vec![EventToWrite {
+                    stream_id: stream.into(),
+                    event_type: "album_created".into(),
+                    stream_kind: 6,
+                    record_kind: RecordKind::Event,
+                    plaintext: encode_record(&album),
+                }],
+                essential: true,
+                response_tx,
+            })
+            .await
+            .unwrap();
+        album.album_id = format!("alb_{:x}", outcome.commit_seq);
+        assert_eq!(
+            AlbumProjection::get_album_by_id(&engine.projection_state(), &album.album_id)
+                .unwrap(),
+            Some(album.clone())
+        );
+        drop(engine);
+
+        // Remove only the derived lookup to reproduce an older snapshot.
+        let (legacy, watermark) = ProjectionState::load_snapshot(dir.path()).unwrap().unwrap();
+        assert_eq!(watermark, outcome.commit_seq);
+        legacy.remove(ID_INDEX, album.album_id.as_bytes());
+        legacy.save_snapshot(dir.path()).unwrap();
+
+        let restarted = WabiDbEngine::open(replica_test_config(dir.path()))
+            .await
+            .unwrap();
+        let state = restarted.projection_state();
+        assert_eq!(state.applied_commit_seq(), watermark);
+        assert_eq!(state.index_len(ID_INDEX), 1);
+        assert_eq!(
+            AlbumProjection::get_album_by_id(&state, &album.album_id).unwrap(),
+            Some(album)
+        );
+        let (persisted, persisted_watermark) =
+            ProjectionState::load_snapshot(dir.path()).unwrap().unwrap();
+        assert_eq!(persisted_watermark, watermark);
+        assert_eq!(persisted.index_len(ID_INDEX), 1);
+    }
+
+    #[tokio::test]
+    async fn call_creation_preflight_preserves_parent_for_queued_creates_and_replay() {
+        use crate::domain::CallSession;
+        use crate::projections::call_sessions::{decode_value, INDEX_NAME};
+        use crate::sequencer::types::RoomOwnerPrecondition;
+
+        let dir = tempdir().unwrap();
+        let engine = WabiDbEngine::open_with_node_id(replica_test_config(dir.path()), "site-a".into())
+            .await
+            .unwrap();
+        let stream = "call_session:queued-call";
+        engine.get_or_create_stream_key(stream).await.unwrap();
+        let make = |room: &str| {
+            let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+            (
+                CommandCommit {
+                    room_owner_precondition: Some(RoomOwnerPrecondition {
+                        channel_id: room.into(),
+                        owner_node_id: "site-a".into(),
+                        expected_epoch: None,
+                    }),
+                    caller_user_id: 1,
+                    caller_device_id: "call-parent-test".into(),
+                    command_name: "create_call_session".into(),
+                    idempotency_key: None,
+                    events: vec![EventToWrite {
+                        stream_id: stream.into(),
+                        event_type: "call_session_created".into(),
+                        stream_kind: 6,
+                        record_kind: RecordKind::Event,
+                        plaintext: serde_json::to_vec(&CallSession::new(
+                            "queued-call",
+                            room,
+                            "audio-call",
+                            1,
+                            10,
+                            "webrtc",
+                        ))
+                        .unwrap(),
+                    }],
+                    essential: true,
+                    response_tx,
+                },
+                response_rx,
+            )
+        };
+        let sender = engine.sequencer().unwrap().sender().clone();
+        let (first, first_rx) = make("ch_first");
+        let (rebind, rebind_rx) = make("ch_different");
+        // Both commands are ready before the current-thread runtime yields.
+        sender.try_send(first).unwrap();
+        sender.try_send(rebind).unwrap();
+        let accepted = first_rx.await.unwrap().unwrap();
+        assert!(
+            matches!(rebind_rx.await.unwrap(), Err(WabiError::Validation { command, .. })
+            if command == "room_owner_precondition")
+        );
+        assert_eq!(engine.barrier().current(), accepted.commit_seq);
+        let entries =
+            crate::commit_index::batcher::read_all_entries(&dir.path().join("global/commit-index"))
+                .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            decode_value(
+                &engine
+                    .projection_state()
+                    .get(INDEX_NAME, b"queued-call")
+                    .unwrap()
+            )
+            .unwrap()
+            .channel_id,
+            "ch_first"
+        );
+        drop(sender);
+        drop(engine);
+        std::fs::remove_file(dir.path().join("projections/snapshot.json")).unwrap();
+        let reopened = WabiDbEngine::open_with_node_id(replica_test_config(dir.path()), "site-a".into())
+            .await
+            .unwrap();
+        assert_eq!(reopened.barrier().current(), accepted.commit_seq);
+        assert_eq!(
+            decode_value(
+                &reopened
+                    .projection_state()
+                    .get(INDEX_NAME, b"queued-call")
+                    .unwrap()
+            )
+            .unwrap()
+            .channel_id,
+            "ch_first"
+        );
+    }
+
+    #[tokio::test]
+    async fn room_placement_event_is_projected_and_restored_after_restart() {
+        use crate::projections::room_placement::{
+            decode, stream_id, RoomPlacementRecord, EVENT, INDEX,
+        };
+
+        let dir = tempdir().unwrap();
+        let engine = WabiDbEngine::open(replica_test_config(dir.path()))
+            .await
+            .unwrap();
+        let channel_id = "ch_placement_restart";
+        let stream = stream_id(channel_id);
+        engine.get_or_create_stream_key(&stream).await.unwrap();
+        let placement = RoomPlacementRecord {
+            schema_version: 1,
+            channel_id: channel_id.into(),
+            epoch: 1,
+            owner_node_id: "site-a".into(),
+            replica_node_ids: vec!["site-b".into()],
+        };
+        let (response_tx, _response_rx) = tokio::sync::oneshot::channel();
+        engine
+            .run_command(CommandCommit {
+                room_owner_precondition: None,
+                caller_user_id: 1,
+                caller_device_id: "placement-test".into(),
+                command_name: "record_room_placement".into(),
+                idempotency_key: None,
+                events: vec![EventToWrite {
+                    stream_id: stream,
+                    event_type: EVENT.into(),
+                    stream_kind: 6,
+                    record_kind: RecordKind::Event,
+                    plaintext: serde_json::to_vec(&placement).unwrap(),
+                }],
+                essential: true,
+                response_tx,
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            decode(
+                &engine
+                    .projection_state()
+                    .get(INDEX, channel_id.as_bytes())
+                    .unwrap()
+            )
+            .unwrap(),
+            placement
+        );
+        drop(engine);
+
+        // Exercise event replay even if shutdown created a projection snapshot.
+        let snapshot = dir.path().join("projections/snapshot.json");
+        if snapshot.exists() {
+            std::fs::remove_file(snapshot).unwrap();
+        }
+
+        let restarted = WabiDbEngine::open(replica_test_config(dir.path()))
+            .await
+            .unwrap();
+        assert_eq!(
+            decode(
+                &restarted
+                    .projection_state()
+                    .get(INDEX, channel_id.as_bytes())
+                    .unwrap()
+            )
+            .unwrap(),
+            placement
+        );
+    }
+
+    #[tokio::test]
+    async fn room_placement_preflight_rejects_queued_duplicate_and_stale_write() {
+        use crate::projections::room_placement::{
+            decode, stream_id, RoomPlacementRecord, EVENT, INDEX,
+        };
+        use crate::sequencer::types::RoomOwnerPrecondition;
+
+        let dir = tempdir().unwrap();
+        let engine = WabiDbEngine::open_with_node_id(replica_test_config(dir.path()), "site-a".into())
+            .await
+            .unwrap();
+        let channel_id = "ch_queued_placement";
+        let stream = stream_id(channel_id);
+        engine.get_or_create_stream_key(&stream).await.unwrap();
+        engine
+            .get_or_create_stream_key("room-write-probe")
+            .await
+            .unwrap();
+        let sender = engine.sequencer.as_ref().unwrap().sender().clone();
+        let make_command = |epoch| {
+            let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+            let placement = RoomPlacementRecord {
+                schema_version: 1,
+                channel_id: channel_id.into(),
+                epoch,
+                owner_node_id: "site-a".into(),
+                replica_node_ids: vec![],
+            };
+            (
+                CommandCommit {
+                    room_owner_precondition: None,
+                    caller_user_id: 1,
+                    caller_device_id: "placement-preflight-test".into(),
+                    command_name: "record_room_placement".into(),
+                    idempotency_key: None,
+                    events: vec![EventToWrite {
+                        stream_id: stream.clone(),
+                        event_type: EVENT.into(),
+                        stream_kind: 6,
+                        record_kind: RecordKind::Event,
+                        plaintext: serde_json::to_vec(&placement).unwrap(),
+                    }],
+                    essential: true,
+                    response_tx,
+                },
+                response_rx,
+            )
+        };
+        let (first, first_rx) = make_command(1);
+        let (duplicate, duplicate_rx) = make_command(1);
+        let (stale_tx, stale_rx) = tokio::sync::oneshot::channel();
+        let stale_room_write = CommandCommit {
+            room_owner_precondition: Some(RoomOwnerPrecondition {
+                channel_id: channel_id.into(),
+                owner_node_id: "site-a".into(),
+                expected_epoch: None,
+            }),
+            caller_user_id: 1,
+            caller_device_id: "placement-preflight-test".into(),
+            command_name: "stale_room_write".into(),
+            idempotency_key: None,
+            events: vec![EventToWrite {
+                stream_id: "room-write-probe".into(),
+                event_type: "room_write_probe".into(),
+                stream_kind: 6,
+                record_kind: RecordKind::Event,
+                plaintext: vec![],
+            }],
+            essential: true,
+            response_tx: stale_tx,
+        };
+        sender.send(first).await.unwrap();
+        sender.send(duplicate).await.unwrap();
+        sender.send(stale_room_write).await.unwrap();
+        first_rx.await.unwrap().unwrap();
+        assert!(duplicate_rx.await.unwrap().is_err());
+        assert!(stale_rx.await.unwrap().is_err());
+        let entries =
+            crate::commit_index::batcher::read_all_entries(&dir.path().join("global/commit-index"))
+                .unwrap();
+        assert_eq!(entries.len(), 1, "rejected placement must not be durable");
+        assert_eq!(
+            decode(
+                &engine
+                    .projection_state()
+                    .get(INDEX, channel_id.as_bytes())
+                    .unwrap()
+            )
+            .unwrap()
+            .epoch,
+            1
+        );
+
+        let (second, second_rx) = make_command(2);
+        sender.send(second).await.unwrap();
+        second_rx.await.unwrap().unwrap();
+        assert_eq!(
+            decode(
+                &engine
+                    .projection_state()
+                    .get(INDEX, channel_id.as_bytes())
+                    .unwrap()
+            )
+            .unwrap()
+            .epoch,
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn fenced_replica_validates_and_applies_ordered_segment_extensions() {
+        let source_dir = tempdir().unwrap();
+        let replica_dir = tempdir().unwrap();
+        let source = WabiDbEngine::open(replica_test_config(source_dir.path()))
+            .await
+            .unwrap();
+        let stream_id = "channel:regional-probe";
+        source.get_or_create_stream_key(stream_id).await.unwrap();
+        let commit = |payload: &[u8]| {
+            let (response_tx, _response_rx) = tokio::sync::oneshot::channel();
+            CommandCommit {
+                room_owner_precondition: None,
+                caller_user_id: 1,
+                caller_device_id: "regional-device".into(),
+                command_name: "regional_probe".into(),
+                idempotency_key: None,
+                events: vec![EventToWrite {
+                    stream_id: stream_id.into(),
+                    event_type: "regional_probe_event".into(),
+                    stream_kind: 1,
+                    record_kind: RecordKind::Event,
+                    plaintext: payload.to_vec(),
+                }],
+                essential: true,
+                response_tx,
+            }
+        };
+        source.run_command(commit(b"first")).await.unwrap();
+        let index_dir = source_dir.path().join("global/commit-index");
+        let first_entry = crate::commit_index::batcher::read_all_entries(&index_dir)
+            .unwrap()
+            .remove(0);
+        let segment_path = source_dir
+            .path()
+            .join("streams/channel/channel:regional-probe/events/00000001.wseg");
+        let first_segment = tokio::fs::read(&segment_path).await.unwrap();
+
+        source.run_command(commit(b"second")).await.unwrap();
+        let entries = crate::commit_index::batcher::read_all_entries(&index_dir).unwrap();
+        let second_entry = entries[1].clone();
+        let extended_segment = tokio::fs::read(&segment_path).await.unwrap();
+        assert!(extended_segment.starts_with(&first_segment));
+
+        tokio::fs::write(replica_dir.path().join(WRITER_FENCE_MARKER), b"fenced\n")
+            .await
+            .unwrap();
+        let replica = WabiDbEngine::open(replica_test_config(replica_dir.path()))
+            .await
+            .unwrap();
+        assert!(replica.local_writer_fenced().await);
+        assert!(replica.durable_writer_fenced());
+        let first = (stream_id.into(), 1, 1, first_segment.clone());
+        replica
+            .ingest_replicated_commit(first_entry.clone(), vec![first])
+            .await
+            .unwrap();
+        assert_eq!(replica.barrier().current(), first_entry.commit_seq);
+        assert_eq!(
+            replica
+                .projection_state()
+                .get("events", b"regional_probe_event"),
+            Some(b"first".to_vec())
+        );
+
+        let mut corrupt = extended_segment.clone();
+        corrupt[second_entry.event_refs[0].offset as usize
+            + crate::format::record::HEADER_LEN as usize] ^= 1;
+        assert!(replica
+            .ingest_replicated_commit(
+                second_entry.clone(),
+                vec![(stream_id.into(), 1, 1, corrupt)]
+            )
+            .await
+            .is_err());
+        let replica_segment = replica_dir
+            .path()
+            .join("streams/channel/channel:regional-probe/events/00000001.wseg");
+        assert_eq!(
+            tokio::fs::read(&replica_segment).await.unwrap(),
+            first_segment
+        );
+
+        let second = (stream_id.into(), 1, 1, extended_segment.clone());
+        replica
+            .ingest_replicated_commit(second_entry.clone(), vec![second.clone()])
+            .await
+            .unwrap();
+        replica
+            .ingest_replicated_commit(second_entry.clone(), vec![second])
+            .await
+            .unwrap();
+        assert_eq!(
+            tokio::fs::read(&replica_segment).await.unwrap(),
+            extended_segment
+        );
+        assert_eq!(replica.barrier().current(), second_entry.commit_seq);
+        assert_eq!(
+            replica
+                .projection_state()
+                .get("events", b"regional_probe_event"),
+            Some(b"second".to_vec())
+        );
+        assert_eq!(
+            crate::commit_index::batcher::read_all_entries(
+                &replica_dir.path().join("global/commit-index")
+            )
+            .unwrap()
+            .len(),
+            2
+        );
+
+        assert!(source
+            .ingest_replicated_commit(second_entry.clone(), vec![])
+            .await
+            .is_err());
+        *source.write_fence.write().await = true;
+        assert!(!source.durable_writer_fenced());
+        assert!(source
+            .ingest_replicated_commit(second_entry, vec![])
+            .await
+            .is_err());
+        drop(replica);
+        let restarted = WabiDbEngine::open(replica_test_config(replica_dir.path()))
+            .await
+            .unwrap();
+        assert!(restarted.local_writer_fenced().await);
+        assert_eq!(
+            restarted
+                .projection_state()
+                .get("events", b"regional_probe_event"),
+            Some(b"second".to_vec())
+        );
+    }
 
     #[tokio::test]
     async fn open_with_provided_key() {
@@ -1385,15 +2381,15 @@ mod tests {
         let other_alive: Option<u32> = {
             #[cfg(unix)]
             {
-                std::fs::read_dir("/proc")
-                    .ok()
-                    .and_then(|entries| {
-                        entries
-                            .filter_map(|e| e.ok())
-                            .find_map(|e| {
-                                e.file_name().to_str()?.parse::<u32>().ok().filter(|p| *p != std::process::id())
-                            })
+                std::fs::read_dir("/proc").ok().and_then(|entries| {
+                    entries.filter_map(|e| e.ok()).find_map(|e| {
+                        e.file_name()
+                            .to_str()?
+                            .parse::<u32>()
+                            .ok()
+                            .filter(|p| *p != std::process::id())
                     })
+                })
             }
             #[cfg(not(unix))]
             {

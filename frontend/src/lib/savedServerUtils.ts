@@ -8,6 +8,8 @@ import type { FrontendAppMetadataPolicy, LaunchPageConfig } from './api';
 import { getAuthToken, getGuestSessionId, getStoredDbUserId, getStoredUsername } from './authSession';
 import { normalizeServerUrl } from './serverUrl';
 import type { SavedServerEntry, SavedServerFolder, SavedServerView } from './savedServers';
+import { resolveServerAssetUrl } from './serverAssetUrl';
+export { resolveServerAssetUrl } from './serverAssetUrl';
 
 export function createFolderId(): string {
 	if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -72,17 +74,6 @@ export function defaultDisplayName(url: string): string {
 		return parsed.hostname;
 	} catch {
 		return url;
-	}
-}
-
-export function resolveServerAssetUrl(serverUrl: string, assetUrl: string | null | undefined): string | null {
-	if (!assetUrl) return null;
-	const trimmed = assetUrl.trim();
-	if (!trimmed) return null;
-	try {
-		return new URL(trimmed, serverUrl).toString();
-	} catch {
-		return trimmed;
 	}
 }
 

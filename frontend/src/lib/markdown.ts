@@ -296,8 +296,8 @@ function injectMessageEntityPlaceholders(
 	};
 }
 
-export function parseMessage(text: string, entities: MessageEntity[] = []): string {
-	const cacheKey = `${emojiCacheVersion}:${emoteCacheVersion}:${text}:${entities.length > 0 ? JSON.stringify(entities) : ''}`;
+export function parseMessage(text: string, entities: MessageEntity[] = [], options: { allowTables?: boolean } = {}): string {
+	const cacheKey = `${emojiCacheVersion}:${emoteCacheVersion}:${options.allowTables ? 'tables' : 'chat'}:${text}:${entities.length > 0 ? JSON.stringify(entities) : ''}`;
 	const cached = markdownRenderCache.get(cacheKey);
 	if (cached !== undefined) {
 		markdownRenderCache.delete(cacheKey);
@@ -382,6 +382,7 @@ export function parseMessage(text: string, entities: MessageEntity[] = []): stri
 	// Sanitize HTML to prevent XSS (math still opaque tokens — safe plain text)
 	const clean = DOMPurify.sanitize(html, {
 		ALLOWED_TAGS: [
+			...(options.allowTables ? ['table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption'] : []),
 			'p',
 			'br',
 			'strong',

@@ -164,7 +164,7 @@
 			{#if snapshotFeedItems.length === 0}
 				<div class="following-empty following-empty--stream">
 					<h2>No recent posts loaded</h2>
-					<p>Open a followed channel once on any saved server to seed its lightweight preview here.</p>
+					<p>Follow a channel on a saved server to see its activity here. Message previews stay in memory and may disappear after Wabi closes.</p>
 				</div>
 			{:else}
 				<div class="stream-list">

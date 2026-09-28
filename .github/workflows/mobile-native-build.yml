@@ -1,6 +1,15 @@
 name: Native Mobile Build
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'
+      - 'src-tauri/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/mobile-native-build.yml'
   pull_request:
     paths:
       - 'frontend/**'
@@ -9,6 +18,10 @@ on:
       - 'package-lock.json'
       - '.github/workflows/mobile-native-build.yml'
   workflow_dispatch:
+
+concurrency:
+  group: mobile-native-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -143,3 +156,4 @@ jobs:
           name: wabi-android-aarch64-debug
           path: ${{ steps.apk.outputs.path }}
           if-no-files-found: error
+          retention-days: 14

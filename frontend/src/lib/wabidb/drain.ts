@@ -28,7 +28,6 @@ const DRAIN_DISPATCH: Record<string, string> = {
 	'message': 'message',
 	'delete-emoji': 'delete-emoji',
 	'delete-emoji-role-rule': 'delete-emoji-role-rule',
-	'clear-channel-messages': 'clear-channel-messages',
 	'toggle-reception': 'toggle-reception',
 };
 

@@ -38,6 +38,8 @@ export interface ImagePage {
 	alt: string;
 	width?: number;
 	height?: number;
+	/** SHA-256 of imported image bytes; stable across temporary object URLs. */
+	digest?: string;
 }
 
 export interface ReaderDocumentSelection {
@@ -311,7 +313,7 @@ export function openReaderImageDocument(
 	const content = `Gallery: ${images.length} images`;
 	const entry: ReaderDocumentSelection = {
 		id: makeReaderId(),
-		docKey: computeDocumentKey(normalizedTitle, content, 'text'),
+		docKey: images.every(image => image.digest) ? `rimg-${hashImportedImageBytes(new TextEncoder().encode(images.map(image => image.digest).join(':')))}` : computeDocumentKey(normalizedTitle, images.map(image => image.url).join(':'), 'text'),
 		title: normalizedTitle,
 		content,
 		format: 'text',
@@ -323,6 +325,16 @@ export function openReaderImageDocument(
 	openReaderSelection(entry);
 }
 
+/** Stable fallback for non-secure self-hosted origins without WebCrypto. */
+function hashImportedImageBytes(bytes: Uint8Array): string {
+	let first = 0x811c9dc5, second = 0x9e3779b9;
+	for (const byte of bytes) {
+		first = Math.imul(first ^ byte, 0x01000193);
+		second = Math.imul(second ^ byte, 0x85ebca6b);
+	}
+	return `fast64-${(first >>> 0).toString(16).padStart(8, '0')}${(second >>> 0).toString(16).padStart(8, '0')}-${bytes.length}`;
+}
+
 export async function openReaderImagesFromFiles(title: string, files: FileList): Promise<void> {
 	const images: ImagePage[] = [];
 	const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
@@ -331,8 +343,13 @@ export async function openReaderImagesFromFiles(title: string, files: FileList):
 		const file = files[i];
 		const ext = file.name.toLowerCase().slice(file.name.lastIndexOf('.'));
 		if (imageExtensions.includes(ext)) {
+			const bytes = await file.arrayBuffer();
+			const digest = typeof crypto !== 'undefined' && crypto.subtle
+				? Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('')
+				: hashImportedImageBytes(new Uint8Array(bytes));
 			const url = URL.createObjectURL(file);
 			images.push({
+				digest,
 				url,
 				alt: file.name,
 				width: undefined,

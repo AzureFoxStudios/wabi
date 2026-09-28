@@ -32,6 +32,8 @@ pub struct PersistedSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemberKeyRecord {
+    #[serde(default = "default_allowed")]
+    pub allowed: bool,
     pub id: String,
     pub user_id: i64,
     /// Client public key as printed by `tailcat printpub` (nodekey-prefixed
@@ -39,6 +41,10 @@ pub struct MemberKeyRecord {
     pub public_key: String,
     pub label: Option<String>,
     pub created_at: String,
+}
+
+fn default_allowed() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,6 +179,7 @@ mod tests {
         let store = TailcatStore::new(tmp.path());
 
         let key = MemberKeyRecord {
+            allowed: true,
             id: "k1".into(),
             user_id: 7,
             public_key: "nodekey:abc".into(),

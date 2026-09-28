@@ -15,7 +15,8 @@
 import { addQuickReactionCustomEmojiId } from '$lib/quickReactions';
 import type { MediaAlbum } from '$lib/api';
 	import { getMatchingCommands, type Command } from '$lib/commands';
-	import { getAuthToken } from '$lib/authSession';
+	import { authSessionGeneration, getAuthToken } from '$lib/authSession';
+	import { getServerUrl } from '$lib/serverUrl';
 	import { composerEnhancementSettingsStore, splitMessageForSending } from '$lib/composerEnhancements';
 	import { gifCaptionerSettingsStore } from '$lib/gifCaptionerSettings';
 	import { previewUnicodeEmojiConversion, unicodeEmojiSettingsStore } from '$lib/unicodeEmojis';
@@ -36,6 +37,8 @@ import type { MediaAlbum } from '$lib/api';
 	import MentionSuggestions from './MentionSuggestions.svelte';
 	import EmojiSuggestions from './EmojiSuggestions.svelte';
 	import { applyMentionToInput, computeMentionSuggestions } from './mentionSuggestions';
+	import { loadSharedGamesForMentions } from '$lib/games/mentions';
+	import type { GameSelection } from '$lib/games/model';
 	import { checkSendBurst, detectMessageKind, processAttachmentCaption, processOutgoingText } from './messageSend';
 	import { orchestrateUpload } from './uploadOrchestrator';
 	import VideoCompressionController from './VideoCompressionController.svelte';
@@ -143,6 +146,14 @@ import type { MediaAlbum } from '$lib/api';
 	let commandPalette: CommandPalette = $state();
 	let showMentionSuggestions = $state(false);
 	let mentionSuggestions: MentionSuggestion[] = $state([]);
+	let sharedGameMentions: GameSelection[] = $state([]);
+	let gameMentionsLoading = false;
+	let gameMentionsLoaded = false;
+	let gameMentionsScope = '';
+	function currentGameMentionsScope(): string {
+		const server = getServerUrl();
+		return `${server}|${$currentUser?.dbUserId || ''}|${authSessionGeneration(server)}`;
+	}
 	let mentionSelectedIndex = $state(0);
 	let mentionTokenStart = -1;
 	let mentionMenuContainer: HTMLElement | null = $state(null);
@@ -248,8 +259,26 @@ import type { MediaAlbum } from '$lib/api';
 	function handleInput() { autoResizeTextarea(); const now = Date.now(); if (now - lastTypingEmit >= TYPING_THROTTLE_MS) { sendTyping(true, effectiveChannel); lastTypingEmit = now; } if (typingTimeout) clearTimeout(typingTimeout); typingTimeout = setTimeout(() => sendTyping(false, effectiveChannel), 1000) as unknown as number; }
 	function handleInputChange() {
 		syncComposerEntities();
+		if (gameMentionsScope !== currentGameMentionsScope()) {
+			sharedGameMentions = [];
+			gameMentionsLoaded = false;
+		}
 		if (messageInput.startsWith('/')) { showCommandPalette = getMatchingCommands(messageInput).length > 0; showMentionSuggestions = false; }
-		else { showCommandPalette = false; const caret = textareaElement?.selectionStart ?? messageInput.length; if (!$placeRegistry.length) void loadPlaceRegistry(); const result = computeMentionSuggestions(messageInput, caret, $users as User[], $currentUser?.id, $placeRegistry); if (result.show) { mentionTokenStart = result.tokenStart; mentionSuggestions = result.suggestions; mentionSelectedIndex = 0; showMentionSuggestions = true; } else showMentionSuggestions = false; updateEmojiSuggestions(caret); }
+		else { showCommandPalette = false; const caret = textareaElement?.selectionStart ?? messageInput.length; if (!$placeRegistry.length) void loadPlaceRegistry(); if (/@game(?::[^\s]*)?$/i.test(messageInput.slice(0, caret))) void loadGameMentionChoices(); const result = computeMentionSuggestions(messageInput, caret, $users as User[], $currentUser?.id, $placeRegistry, sharedGameMentions); if (result.show) { mentionTokenStart = result.tokenStart; mentionSuggestions = result.suggestions; mentionSelectedIndex = 0; showMentionSuggestions = true; } else showMentionSuggestions = false; updateEmojiSuggestions(caret); }
+	}
+	async function loadGameMentionChoices(): Promise<void> {
+		if (gameMentionsLoading || gameMentionsLoaded) return;
+		gameMentionsLoading = true;
+		const scope = currentGameMentionsScope();
+		const games = await loadSharedGamesForMentions();
+		gameMentionsLoading = false;
+		if (!operationCurrent() || scope !== currentGameMentionsScope()) return;
+		gameMentionsScope = scope;
+		gameMentionsLoaded = true;
+		sharedGameMentions = games;
+		const caret = textareaElement?.selectionStart ?? messageInput.length;
+		const result = computeMentionSuggestions(messageInput, caret, $users as User[], $currentUser?.id, $placeRegistry, sharedGameMentions);
+		if (result.show) { mentionTokenStart = result.tokenStart; mentionSuggestions = result.suggestions; mentionSelectedIndex = 0; showMentionSuggestions = true; }
 	}
 	function updateEmojiSuggestions(caret: number): void {
 		const match = messageInput.slice(0, caret).match(/(^|\s):([\w+_-]*)$/);

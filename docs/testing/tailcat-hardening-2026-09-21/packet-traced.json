@@ -1,0 +1,67 @@
+{
+  "sessions": {
+    "fresh": {
+      "transfers": [
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 1.134
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 0.371
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 0.267
+        }
+      ],
+      "final_tunnel_byte_counters": {
+        "rx_direct_v4": 3462492,
+        "rx_derp": 0,
+        "tx_direct_v4": 57392,
+        "tx_derp": 33425
+      }
+    },
+    "reconnect": {
+      "transfers": [
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 2.27
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 1.799
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 2.439
+        }
+      ],
+      "final_tunnel_byte_counters": {
+        "rx_direct_v4": 0,
+        "rx_derp": 3461452,
+        "tx_direct_v4": 0,
+        "tx_derp": 176065
+      }
+    }
+  },
+  "cleanup": true,
+  "binary_sha256": {
+    "server": "aedb1633fcbfefc1f8a0c9401f090b5f43be2d43263a799b417f9a850c08645e",
+    "client": "aedb1633fcbfefc1f8a0c9401f090b5f43be2d43263a799b417f9a850c08645e"
+  },
+  "verdict": "RECONNECT_REGRESSION: fresh direct payload passed; reconnect failed",
+  "trial": "packet-traced"
+}

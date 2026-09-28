@@ -20,6 +20,8 @@ import { performGroupOperation } from './groupOperations';
 import { groupMembership } from './groupAccess';
 import { socket as socketState } from './socketConnectionState';
 import { requestServerRoleChange } from './serverRoleCommands';
+import { activeServerUrl } from './serverUrl';
+import { getAuthToken } from './authSession';
 import { users, serverMembers, currentUser } from './presenceIdentity';
 export { users, serverMembers, currentUser } from './presenceIdentity';
 
@@ -158,27 +160,27 @@ export async function removeBadge(userId: string | number, badgeId: string): Pro
 // PUBLIC API - User Management (server-wide bans)
 // ============================================================================
 
-/** Client-side mirror of server ban enforcement, fed by `user-banned` /
- *  `user-unbanned` broadcasts. The server is the source of truth; this set
- *  only drives Ban vs Unban affordances until a durable roster arrives. */
+/** Account-ban mirror for the active Authority. The server is authoritative. */
 export const bannedUserIds = writable<Set<number>>(new Set());
+const banIdsByServer = new Map<string, Set<number>>();
+let banMirrorServer = '';
+activeServerUrl.subscribe((server) => {
+	banMirrorServer = server;
+	bannedUserIds.set(new Set(banIdsByServer.get(server) ?? []));
+});
 
-function addBannedUserId(targetUserId: number): void {
-	bannedUserIds.update((current) => {
-		if (current.has(targetUserId)) return current;
-		const next = new Set(current);
-		next.add(targetUserId);
-		return next;
-	});
+function addBannedUserId(targetUserId: number, server = banMirrorServer): void {
+	const next = new Set(banIdsByServer.get(server) ?? []);
+	next.add(targetUserId);
+	banIdsByServer.set(server, next);
+	if (server === banMirrorServer) bannedUserIds.set(new Set(next));
 }
 
-function removeBannedUserId(targetUserId: number): void {
-	bannedUserIds.update((current) => {
-		if (!current.has(targetUserId)) return current;
-		const next = new Set(current);
-		next.delete(targetUserId);
-		return next;
-	});
+function removeBannedUserId(targetUserId: number, server = banMirrorServer): void {
+	const next = new Set(banIdsByServer.get(server) ?? []);
+	next.delete(targetUserId);
+	banIdsByServer.set(server, next);
+	if (server === banMirrorServer) bannedUserIds.set(new Set(next));
 }
 
 /** Reactive Ban vs Unban check for moderation UI. */
@@ -219,16 +221,28 @@ export function attachUserBanListeners(sock: BanCommandSocket | Socket): () => v
 	if (banListenerSockets.has(sock)) return () => {};
 	banListenerSockets.add(sock);
 	const socket = sock as BanCommandSocket;
+	const server = banMirrorServer;
+	const eventsSinceFetch: Array<{ id: number; banned: boolean }> = [];
 	const onBanned = (payload: any) => {
 		const targetUserId = toBanPayloadTarget(payload?.targetUserId);
-		if (targetUserId) addBannedUserId(targetUserId);
+		if (targetUserId) { eventsSinceFetch.push({ id: targetUserId, banned: true }); addBannedUserId(targetUserId, server); }
 	};
 	const onUnbanned = (payload: any) => {
 		const targetUserId = toBanPayloadTarget(payload?.targetUserId);
-		if (targetUserId) removeBannedUserId(targetUserId);
+		if (targetUserId) { eventsSinceFetch.push({ id: targetUserId, banned: false }); removeBannedUserId(targetUserId, server); }
 	};
 	socket.on('user-banned', onBanned);
 	socket.on('user-unbanned', onUnbanned);
+	const token = getAuthToken(server);
+	if (token) void fetch(`${server}/api/server-center/bans`, { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' })
+		.then(async (response) => {
+			if (!response.ok || !banListenerSockets.has(sock)) return;
+			const data = await response.json();
+			const snapshot = new Set<number>((Array.isArray(data.userIds) ? data.userIds : []).filter((id: unknown): id is number => typeof id === 'number' && Number.isSafeInteger(id) && id > 0));
+			for (const event of eventsSinceFetch) event.banned ? snapshot.add(event.id) : snapshot.delete(event.id);
+			banIdsByServer.set(server, snapshot);
+			if (server === banMirrorServer) bannedUserIds.set(new Set(snapshot));
+		}).catch(() => {});
 	return () => {
 		socket.off('user-banned', onBanned);
 		socket.off('user-unbanned', onUnbanned);

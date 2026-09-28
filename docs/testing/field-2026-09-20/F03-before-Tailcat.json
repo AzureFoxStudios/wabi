@@ -1,0 +1,48 @@
+{
+  "runId": "F03-pre-enrolled-Tailcat",
+  "startedUtc": "2026-09-20T12:23:28.718Z",
+  "route": "native HTTP proxy -> bundled Tailcat SOCKS -> Tailcat listener on Iyoku -> Authority loopback",
+  "tailcatPath": "unknown (direct/relay telemetry not collected)",
+  "enrollment": "Device public key registered using SSH management + ordinary disposable owner account; fresh-user enrollment NOT tested",
+  "checks": {
+    "health": "PASS",
+    "unauthenticatedAdmin": {
+      "status": 404,
+      "result": "NOT TESTED",
+      "reason": "Harness requested nonexistent endpoint; not an authorization failure"
+    },
+    "authentication": "PASS",
+    "chat": {
+      "sent": 10,
+      "authorityVerified": true
+    },
+    "uploadDownload": {
+      "pass": true,
+      "bytes": 65536
+    },
+    "websocket": {
+      "result": "FAIL",
+      "error": "Error: timeout"
+    },
+    "nativeLoginAndWorkspace": "Native login and workspace shell rendered; populated realtime state not verified",
+    "refresh": "PASS",
+    "disconnect": "PASS",
+    "transportReconnect": {
+      "pass": true,
+      "ms": 1360.5052990000004,
+      "proxyPortChanged": true,
+      "uiAccountContinuity": "NOT TESTED"
+    }
+  },
+  "connectReturnedMs": 507.2674480000005,
+  "firstHealthMs": 2293.194476999999,
+  "observedBuildIdentity": {
+    "availability": "NOT TESTED",
+    "reason": "Harness requested nonexistent endpoint; native package checksum verified separately"
+  },
+  "passed": false,
+  "remoteCleanup": {
+    "released": true
+  },
+  "sourceSnapshot": "8f93a080d4047bf801091a822a5210feca485d98d9922793bd5c666a79f91f82"
+}

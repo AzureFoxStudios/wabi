@@ -45,6 +45,7 @@
 	import AdminHeader from './admin/AdminHeader.svelte';
 	import RoleNamesPanel from './admin/RoleNamesPanel.svelte';
 	import ChannelAccessPanel from './admin/ChannelAccessPanel.svelte';
+	import CommunityRolesPanel from './admin/CommunityRolesPanel.svelte';
 	import RoleGatesUnavailable from './admin/RoleGatesUnavailable.svelte';
 	import PaymentAccessPanel from './admin/PaymentAccessPanel.svelte';
 	import CompressionPanel from './admin/CompressionPanel.svelte';
@@ -69,18 +70,30 @@
 
 	function createEmptyFrontendAppMetadata(): FrontendAppMetadataPolicy {
 		return {
+			revision: 0,
 			displayName: null,
 			iconUrl: null,
 			bannerUrl: null,
+			deskBackgroundUrl: null,
+			deskStillUrl: null,
 			accentColor: null,
 			description: null,
+			deskWelcomeText: null,
+			deskHelpText: null,
+			deskHelpUrl: null,
+			deskHelpLabel: null,
+			deskPosterBlocks: [],
+			deskStartingRoomId: null,
+			deskFocusedWelcome: false,
 			tagline: null,
-			launchPageFallbackEnabled: true
+			launchPageFallbackEnabled: true,
+			ownerBadgeMark: null,
+			staffBadgeMark: null
 		};
 	}
 
 	function cloneFrontendAppMetadata(metadata: FrontendAppMetadataPolicy): FrontendAppMetadataPolicy {
-		return { ...metadata };
+		return { ...createEmptyFrontendAppMetadata(), ...metadata, deskPosterBlocks: [...(metadata.deskPosterBlocks || [])] };
 	}
 
 	function resolveFrontendMetadataAssetUrl(assetUrl: string | null | undefined): string | null {
@@ -157,7 +170,7 @@
 	let frontendMetadataSaving = $state(false);
 	let frontendMetadataError = $state('');
 	let frontendMetadataSaveStatus = $state('');
-	let frontendMetadataUploadTarget: 'icon' | 'banner' | null = $state(null);
+	let frontendMetadataUploadTarget: 'icon' | 'banner' | 'deskBackground' | 'deskStill' | null = $state(null);
 	let paymentPolicyLoading = $state(false);
 	let paymentPolicyLoaded = $state(false);
 	let paymentPolicyAttempted = $state(false);
@@ -453,13 +466,23 @@
 		}
 	}
 
-	async function uploadFrontendMetadataAsset(target: 'icon' | 'banner', source: Event | File): Promise<void> {
+	async function uploadFrontendMetadataAsset(target: 'icon' | 'banner' | 'deskBackground' | 'deskStill', source: Event | File): Promise<void> {
 		if (!frontendMetadataLoaded || frontendMetadataSaving || frontendMetadataUploadTarget) return;
 		const isCurrent = captureAdminWork();
 		if (!isCurrent()) return;
 		const input = source instanceof File ? null : source.currentTarget as HTMLInputElement;
 		const file = source instanceof File ? source : input?.files?.[0];
 		if (!file) return;
+		if (target === 'deskBackground' && !['image/gif', 'image/webp'].includes(file.type)) {
+			frontendMetadataError = 'Use GIF or WebP for the moving Reference Desk background.';
+			if (input) input.value = '';
+			return;
+		}
+		if (target === 'deskStill' && !['image/png', 'image/jpeg'].includes(file.type)) {
+			frontendMetadataError = 'Use PNG or JPG for the Reference Desk still image.';
+			if (input) input.value = '';
+			return;
+		}
 		const token = getAuthToken();
 		if (!token) {
 			frontendMetadataError = 'Authentication required to upload branding assets.';
@@ -479,10 +502,14 @@
 			if (!isCurrent()) return;
 			if (target === 'icon') {
 				frontendAppMetadata = { ...frontendAppMetadata, iconUrl: fileUrl };
-			} else {
+			} else if (target === 'banner') {
 				frontendAppMetadata = { ...frontendAppMetadata, bannerUrl: fileUrl };
+			} else if (target === 'deskBackground') {
+				frontendAppMetadata = { ...frontendAppMetadata, deskBackgroundUrl: fileUrl };
+			} else {
+				frontendAppMetadata = { ...frontendAppMetadata, deskStillUrl: fileUrl };
 			}
-			frontendMetadataSaveStatus = `${target === 'icon' ? 'Icon' : 'Banner'} uploaded to the draft. Publish changes to make it visible.`;
+			frontendMetadataSaveStatus = `${target === 'icon' ? 'Icon' : target === 'banner' ? 'Banner' : target === 'deskBackground' ? 'Desk background' : 'Desk still image'} uploaded to the draft. Publish changes to make it visible.`;
 		} catch (error) {
 			if (!isCurrent()) return;
 			frontendMetadataError = (error as Error).message || `Failed to upload ${target}.`;
@@ -638,10 +665,21 @@
 			left.displayName === right.displayName &&
 			left.iconUrl === right.iconUrl &&
 			left.bannerUrl === right.bannerUrl &&
+			left.deskBackgroundUrl === right.deskBackgroundUrl &&
+			left.deskStillUrl === right.deskStillUrl &&
 			left.accentColor === right.accentColor &&
 			left.description === right.description &&
+			left.deskWelcomeText === right.deskWelcomeText &&
+			left.deskHelpText === right.deskHelpText &&
+			left.deskHelpUrl === right.deskHelpUrl &&
+			left.deskHelpLabel === right.deskHelpLabel &&
+			JSON.stringify(left.deskPosterBlocks || []) === JSON.stringify(right.deskPosterBlocks || []) &&
+			left.deskStartingRoomId === right.deskStartingRoomId &&
+			left.deskFocusedWelcome === right.deskFocusedWelcome &&
 			left.tagline === right.tagline &&
-			left.launchPageFallbackEnabled === right.launchPageFallbackEnabled
+			left.launchPageFallbackEnabled === right.launchPageFallbackEnabled &&
+			left.ownerBadgeMark === right.ownerBadgeMark &&
+			left.staffBadgeMark === right.staffBadgeMark
 		);
 	}
 
@@ -694,6 +732,7 @@
 				{customChannels}
 				onOpenChannel={openAdminChannel}
 			/>
+			<CommunityRolesPanel />
 
 			<RoleGatesUnavailable />
 
@@ -846,6 +885,7 @@
 	{/if}
 {:else if section === 'gates'}
 	{#if canManageRoles}
+		<CommunityRolesPanel />
 		<RoleGatesUnavailable />
 	{/if}
 {:else if section === 'payments'}

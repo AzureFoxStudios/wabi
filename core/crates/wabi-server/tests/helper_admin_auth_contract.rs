@@ -387,6 +387,7 @@ async fn paired_node_secrets_still_work_and_standby_remains_explicitly_incomplet
         request(&app, "GET", "/standby/status", Some(&token), None, &[]).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(readiness["snapshotReceiveReady"], true);
+    assert_eq!(readiness["localWriterFenced"], false);
     for field in [
         "snapshotExportReady",
         "manualRestoreReady",
@@ -451,4 +452,10 @@ async fn paired_node_secrets_still_work_and_standby_remains_explicitly_incomplet
         .0,
         StatusCode::UNAUTHORIZED
     );
+
+    state.wdb.engine().fence_local_writer().await.unwrap();
+    let (status, readiness) =
+        request(&app, "GET", "/standby/status", Some(&token), None, &[]).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(readiness["localWriterFenced"], true);
 }

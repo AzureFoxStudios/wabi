@@ -2,6 +2,7 @@
 	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
 	import { get } from 'svelte/store';
 	import { browser } from '$app/environment';
+	import { safeNameStyle, nameStylesVisible } from '$lib/addons/nameStyles';
 	import type { Message, User, Emoji, Channel, FileAttachment } from '$lib/socket';
 	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder, loadOlderHistory, channelHistoryLoading, channelHasMoreHistory, roleDefinitions } from '$lib/socket';
 	import { themeStore } from '$lib/theme/themeStore';
@@ -50,6 +51,7 @@
 	import { longpress } from '$lib/actions/longpress';
 	import { activeServerUrl, getServerUrl } from '$lib/serverUrl';
 	import { getRelayFileUrl, relayEnabled } from '$lib/relaySelector';
+	import { downloadWithBoosters } from '$lib/volunteerBoosters';
 		import { MODEL_VIEWPORT_ADDON_ID, openModelViewport } from '$lib/modelViewportTab';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { layoutStore } from '$lib/layoutStore';
@@ -658,18 +660,7 @@
 		} else {
 			// Use the user's custom font
 			if (resolvedUser?.usernameFont) {
-				if (resolvedUser.usernameFont.family && resolvedUser.usernameFont.family !== 'inherit') {
-					style += `font-family: ${resolvedUser.usernameFont.family};`;
-				}
-				if (resolvedUser.usernameFont.size && resolvedUser.usernameFont.size !== 'inherit') {
-					style += `font-size: ${resolvedUser.usernameFont.size};`;
-				}
-				if (resolvedUser.usernameFont.weight) {
-					style += `font-weight: ${resolvedUser.usernameFont.weight};`;
-				}
-				if (resolvedUser.usernameFont.style) {
-					style += `font-style: ${resolvedUser.usernameFont.style};`;
-				}
+				style += safeNameStyle(resolvedUser.usernameFont, $nameStylesVisible);
 			}
 		}
 
@@ -1576,11 +1567,10 @@
 		attachmentEncryption?: { scheme: 'dm-e2ee-v1'; iv: string; mimeType?: string; originalSize?: number }
 	): Promise<void> {
 		const resolvedUrl = getFileUrl(fileUrl);
-		const response = await fetch(resolvedUrl);
-		if (!response.ok) throw new Error(`Failed to download attachment (${response.status})`);
+		const blobDownload = await downloadWithBoosters(resolvedUrl);
 
 		if (!attachmentEncryption || attachmentEncryption.scheme !== 'dm-e2ee-v1') {
-			const blob = await response.blob();
+			const blob = blobDownload;
 			const url = window.URL.createObjectURL(blob);
 			const link = document.createElement('a');
 			link.href = url;
@@ -1600,7 +1590,7 @@
 			return;
 		}
 
-		const encryptedBuffer = await response.arrayBuffer();
+		const encryptedBuffer = await blobDownload.arrayBuffer();
 		const decrypted = await null;
 		if (!decrypted) {
 			showToast(get(_)('messages.errors.decrypt_failed'), 'error');

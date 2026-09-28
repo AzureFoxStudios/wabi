@@ -1,0 +1,6 @@
+{
+  "source": "81d383336bc298148d164e84afac5d1f8954feaf16ad1306738d982b61b057e7",
+  "checks": "e6c21adfb932ec070df1456f77ff7ed410b6b7990fd467192e56492b95089abc",
+  "normalization": "Only comments and blank lines removed from the inspected model proposal. Raw output preserved in recording.json.",
+  "inspectedAt": "2026-09-28T05:00:28.388Z"
+}

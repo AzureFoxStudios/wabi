@@ -1,0 +1,10 @@
+{
+  "Janya": {
+    "routeDevice": "wlp3s0",
+    "managementInterface": false
+  },
+  "Tim": {
+    "routeDevice": "wlp2s0",
+    "managementInterface": false
+  }
+}

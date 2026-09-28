@@ -22,6 +22,10 @@ The Appearance setting controls only the small per-message badge: Static (the de
 
 Normal history omits deleted messages. The database can still retain their body and attachment metadata in deleted records and event history. Diagnostic-log rotation is a different operation and does not erase database events.
 
+Owner/admin channel clear now commits one `channel_messages_cleared` event on that channel's stream. The messages projection marks every then-visible durable message in that channel deleted at the event's commit position and refreshes its history indexes; later messages remain visible. Replaying the event rebuilds the same current view on a fenced receiver or restart. The Socket.IO handler holds the send/policy ordering lock, waits for the durable commit, then clears the session view and tells clients. If the commit fails, it reports `clear-channel-error` and leaves the live view in place. A channel with a very large history makes this projection pass expensive; this is a correctness step, not a demonstrated large-room purge capacity result. Older binaries do not understand this new event and must not be used to open or replicate state after a clear without a compatible restore/migration.
+
+Channel clear requires a live server confirmation in the client. New offline queue entries are rejected; older pending clear requests are marked as failed for review rather than replayed after reconnect. The settings screen reports a server rejection or an unconfirmed timeout and asks the owner to check history before retrying.
+
 Attachment files, explicitly saved report evidence, client caches, exports and backups have independent lifecycles. Do not promise that deleting a message deletes every copy. An older backup can restore a message that was deleted after that backup.
 
 ## Reproduce the current boundary safely

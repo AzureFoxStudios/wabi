@@ -280,6 +280,7 @@
 		const body = editBody;
 		saveState = 'saving';
 		const result = await updateWikiPage(effectiveChannel, selectedPage.pageId, {
+			expectedUpdatedAtMicros: selectedPage.updatedAtMicros,
 			title,
 			body,
 		});
@@ -336,6 +337,7 @@
 		const owner = draftOwner;
 		const restoringPage = selectedPage.pageId;
 		const result = await updateWikiPage(effectiveChannel, selectedPage.pageId, {
+			expectedUpdatedAtMicros: selectedPage.updatedAtMicros,
 			title: revision.title,
 			body: revision.body,
 		});
@@ -426,7 +428,7 @@
 		updatedAt: selectedPage.updatedAtMicros > 1e12 ? Math.floor(selectedPage.updatedAtMicros / 1000) : selectedPage.updatedAtMicros,
 	} : null;
 
-	$: renderedBody = displayBody ? parseMessage(displayBody) : '';
+	$: renderedBody = displayBody ? parseMessage(displayBody, [], { allowTables: true }) : '';
 	$: editIsDirty = editMode && (editTitle !== editSavedTitle || editBody !== editSavedBody);
 	$: if (editMode && editIsDirty && (saveState === 'idle' || saveState === 'saved')) saveState = 'dirty';
 	$: if (editMode && !editIsDirty && saveState === 'dirty') saveState = 'idle';
@@ -470,6 +472,7 @@
 			onSelect={selectPage}
 			onNewChild={handleNewChild}
 			searchQuery={wikiSearchQuery}
+			emptyStateLabel={isLoading ? 'Loading pages…' : error ? 'Pages unavailable' : null}
 			/>
 			</div>
 
@@ -547,7 +550,7 @@
 							<button type="button" class:active={editPreview} on:click={() => { editPreview = !editPreview; }}>{editPreview ? 'Edit' : 'Preview'}</button>
 						</div>
 						{#if editPreview}
-							<div class="wiki-edit-preview wiki-content-body">{@html parseMessage(editBody)}</div>
+							<div class="wiki-edit-preview wiki-content-body">{@html parseMessage(editBody, [], { allowTables: true })}</div>
 						{:else}
 							<textarea
 								class="wiki-edit-body"
@@ -654,7 +657,7 @@
 						<button type="button" class:active={newPagePreview} on:click={() => { newPagePreview = !newPagePreview; }}>{newPagePreview ? 'Edit' : 'Preview'}</button>
 					</div>
 					{#if newPagePreview}
-						<div class="wiki-edit-preview wiki-content-body">{@html parseMessage(newPageBody)}</div>
+						<div class="wiki-edit-preview wiki-content-body">{@html parseMessage(newPageBody, [], { allowTables: true })}</div>
 					{:else}
 						<textarea
 							class="wiki-edit-body"

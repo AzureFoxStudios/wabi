@@ -2,6 +2,7 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { _ as t } from '$lib/i18n';
 	import { isTauriRuntime } from '$lib/tauri-platform';
+	import { areBackgroundFollowAlertsEnabled } from '$lib/notificationSettings';
 	import {
 		getDefaultCustomSynthRingtonePreset,
 		playCallRingtone,
@@ -29,6 +30,7 @@
 	let suppressEveryoneHereMentions = false;
 	let suppressRoleMentions = false;
 	let notificationPreviewEnabled = false;
+	let backgroundFollowAlertsEnabled = true;
 	let notificationSound = '/sounds/ProjectSound.ogg';
 	let notificationSoundLabel = 'ProjectSound.ogg';
 	let notificationVolume = 0.5;
@@ -54,6 +56,7 @@
 		suppressEveryoneHereMentions = localStorage.getItem('suppressEveryoneHereMentions') === 'true';
 		suppressRoleMentions = localStorage.getItem('suppressRoleMentions') === 'true';
 		notificationPreviewEnabled = localStorage.getItem('notificationPreviewEnabled') === 'true';
+		backgroundFollowAlertsEnabled = areBackgroundFollowAlertsEnabled();
 		notificationSound = localStorage.getItem('notificationSound') || '/sounds/ProjectSound.ogg';
 		notificationSoundLabel =
 			notificationSound === '/sounds/ProjectSound.ogg'
@@ -144,6 +147,12 @@
 	function toggleNotificationPreview() {
 		notificationPreviewEnabled = !notificationPreviewEnabled;
 		localStorage.setItem('notificationPreviewEnabled', notificationPreviewEnabled.toString());
+		window.dispatchEvent(new Event('wabi:notification-settings-changed'));
+	}
+
+	function toggleBackgroundFollowAlerts() {
+		backgroundFollowAlertsEnabled = !backgroundFollowAlertsEnabled;
+		localStorage.setItem('backgroundFollowAlertsEnabled', String(backgroundFollowAlertsEnabled));
 	}
 
 	function updateNotificationSound(sound: string) {
@@ -449,6 +458,7 @@
 
 <div class="settings-section">
 	<h3>{$t('settings.sections.notifications')}</h3>
+	<p class="notification-status-note">Activity brings friend requests, unread conversations, loaded mentions and followed channels together. Friends are managed there, separately from Messages. Each saved server keeps its own account and permissions.</p>
 	<div class="settings-group-card">
 	<div class="notification-status-note" role="status">
 		{#if pushPermission === 'denied'}
@@ -464,7 +474,7 @@
 	<div class="setting-item">
 		<div class="setting-info">
 			<span class="setting-label">Desktop Notifications</span>
-			<span class="setting-description">Browser alerts for new messages.</span>
+			<span class="setting-description">Allow supported alerts outside Wabi. Activity remains available when system alerts are off.</span>
 		</div>
 		<button class="action-btn" class:active={notificationsEnabled} disabled={pushBusy} on:click={requestNotificationPermission}>
 			{notificationsEnabled ? 'Enabled' : 'Enable'}
@@ -476,7 +486,7 @@
 		<div class="setting-info">
 			<span class="setting-label">Background push (PWA)</span>
 			<span class="setting-description">
-				Web Push for phone lock-screen alerts. Permission: {pushPermission}.
+				Push subscription and test delivery. Message push delivery is not connected yet. Permission: {pushPermission}.
 				{pushSubscribed ? 'Subscribed.' : 'Not subscribed.'}
 			</span>
 			{#if pushStatus}
@@ -526,9 +536,16 @@
 	<div class="setting-item">
 		<div class="setting-info">
 			<span class="setting-label">Show Message Preview</span>
-			<span class="setting-description">Include message text in the alert.</span>
+			<span class="setting-description">Include available message text in system alerts and Activity. Live messages are never saved as previews.</span>
 		</div>
 		<button class="toggle-btn" class:active={notificationPreviewEnabled} on:click={toggleNotificationPreview} role="switch" aria-checked={notificationPreviewEnabled} aria-label="Show message preview"></button>
+	</div>
+	<div class="setting-item">
+		<div class="setting-info">
+			<span class="setting-label">Background follow alerts</span>
+			<span class="setting-description">Allow system toasts for followed channels on inactive servers when their alert level permits them. Followed activity still appears in Activity when off.</span>
+		</div>
+		<button class="toggle-btn" class:active={backgroundFollowAlertsEnabled} on:click={toggleBackgroundFollowAlerts} role="switch" aria-checked={backgroundFollowAlertsEnabled} aria-label="Background follow alerts"></button>
 	</div>
 	</div>
 

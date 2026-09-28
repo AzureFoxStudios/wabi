@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher, onMount, tick } from 'svelte';
   import { layoutStore } from '$lib/layoutStore';
   import { centerDmChannelId } from '$lib/layoutStoreStates';
-  import { channels, channelMessages, currentUser, users, serverMembers, connected, channelUnreadCounts, createDM, joinChannel, markChannelAsRead } from '$lib/socket';
+  import { channels, channelMessages, currentUser, users, serverMembers, connected, channelUnreadCounts, createDM, joinChannel, markChannelAsRead, leaveGroup } from '$lib/socket';
   import type { Channel, User, Message } from '$lib/socket-types';
   import { getDmDirectoryKey } from '$lib/dmUserDirectory';
   import { buildDmPlaceholderChannel, findExistingDmChannel, getDmStableUserId, resolveDmOtherUser } from '$lib/dmConversations';
@@ -12,7 +12,10 @@
   import CreateGroupModal from './CreateGroupModal.svelte';
   import { friendships, startFriendshipSync } from '$lib/friendships';
   import { mediaUrl } from '$lib/mediaUrl';
+  import ProfileName from './ProfileName.svelte';
+  import ProfileMedia from './ProfileMedia.svelte';
   import { E2EE_MESSAGE_PREFIX } from '$lib/e2ee';
+  import { leaveSelectedGroupChannels } from '$lib/dmGroupBatch';
   import { livePresenceForUser } from '$lib/dmPresentation';
 
   import { openDetachedPanel } from '$lib/detachedPanels';
@@ -26,6 +29,12 @@
   let activeTab: 'messages' | 'friends' = 'messages';
   let pendingDmUser: User | null = null;
   let pendingDmError = '';
+  let batchMode = false;
+  let selectedGroupIds: string[] = [];
+  let reviewBatchLeave = false;
+  let batchBusy = false;
+  let batchStatus = '';
+
 
   onMount(() => {
     const stopSync = startFriendshipSync();
@@ -94,6 +103,38 @@
   $: dmChannels = ($channels || [])
     .filter((ch: Channel) => ch.type === "dm" || ch.type === "group")
     .sort((a, b) => sortDms(a, b, $channelMessages));
+  $: groupChannels = dmChannels.filter((channel) => channel.type === 'group');
+  $: selectedGroups = groupChannels.filter((channel) => selectedGroupIds.includes(channel.id));
+
+  function toggleGroupSelection(channelId: string): void {
+    selectedGroupIds = selectedGroupIds.includes(channelId)
+      ? selectedGroupIds.filter((id) => id !== channelId)
+      : [...selectedGroupIds, channelId];
+    reviewBatchLeave = false;
+  }
+
+  function exitBatchMode(): void {
+    batchMode = false;
+    reviewBatchLeave = false;
+    selectedGroupIds = [];
+  }
+
+  async function leaveSelectedGroups(): Promise<void> {
+    if (batchBusy || selectedGroups.length === 0) return;
+    const targetIds = selectedGroups.map((channel) => channel.id);
+    batchBusy = true;
+    batchStatus = '';
+    const result = await leaveSelectedGroupChannels($channels, targetIds, leaveGroup);
+    batchBusy = false;
+    if (result.failedIds.length === 0) {
+      batchStatus = `Left ${result.leftIds.length} group ${result.leftIds.length === 1 ? 'conversation' : 'conversations'}.`;
+      exitBatchMode();
+    } else {
+      selectedGroupIds = result.failedIds;
+      reviewBatchLeave = false;
+      batchStatus = `Left ${result.leftIds.length} of ${result.attempted} groups. ${result.failedIds.length} could not be confirmed; review and retry them.`;
+    }
+  }
 
   let contextMenuOpen = false;
   let contextMenuPos = { x: 0, y: 0 };
@@ -109,14 +150,6 @@
     }
     const other = otherUserFor(channel);
     return other?.handle || other?.username || 'Recipient unavailable';
-  }
-
-  function conversationAvatar(channel: Channel): string | null {
-    if (channel.type === 'group') {
-      return channel.avatar || null;
-    }
-    const other = otherUserFor(channel);
-    return other?.profilePicture || null;
   }
 
   function lastMessagePreview(msgs: Message[] | undefined): string {
@@ -147,7 +180,7 @@
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
-  function openInCenter(channel: Channel, fallbackUser: User | null = null) {
+  async function openInCenter(channel: Channel, fallbackUser: User | null = null) {
     selectTab('messages');
     const other = fallbackUser || otherUserFor(channel);
     if (channel.type === 'group') {
@@ -157,6 +190,11 @@
     }
     joinChannel(channel.id);
     markChannelAsRead(channel.id);
+    await tick();
+    const list = document.querySelector('.center-dm-list');
+    if (list && getComputedStyle(list).display === 'none') {
+      document.querySelector<HTMLButtonElement>('.center-dm-thread .dm-header-back')?.focus();
+    }
   }
 
   function openInSidePanel(channel: Channel, fallbackUser: User | null = null) {
@@ -328,6 +366,7 @@
       </div>
       {#if activeTab === 'messages'}
       <div class="dm-hub-actions">
+        {#if groupChannels.length && !batchMode}<button class="dm-hub-manage-btn" type="button" on:click={() => { batchMode = true; batchStatus = ''; }} title="Leave multiple group conversations">Manage groups</button>{/if}
         <button type="button" class="dm-hub-group-btn" on:click={() => (showCreateGroup = true)} title="Create group" aria-label="Create group">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a6 6 0 0 1 12 0v1"/><circle cx="18" cy="9" r="2"/><path d="M18 15a4 4 0 0 1 4 4v1"/></svg>
           <span>New group</span>
@@ -362,9 +401,26 @@
     {#if pendingDmUser}
       <div class="dm-hub-pending" role="status">Opening conversation with {pendingDmUser.username}…</div>
     {/if}
+    {#if batchStatus}<p class="dm-hub-batch-status" role="status">{batchStatus}</p>{/if}
+    {#if batchMode}
+      <div class="dm-hub-batch-actions">
+        <p>Select group conversations to leave. Unread and pinned groups stay unselected. Activity is shown only when it is loaded on this device.</p>
+        <div><button type="button" on:click={exitBatchMode} disabled={batchBusy}>Cancel</button>
+          <button type="button" on:click={() => (reviewBatchLeave = true)} disabled={selectedGroups.length === 0 || batchBusy}>Review {selectedGroups.length} selected</button></div>
+      </div>
+      {#if reviewBatchLeave}
+        <div class="dm-hub-batch-review" role="group" aria-label="Review groups to leave">
+          <strong>Leave {selectedGroups.length} group {selectedGroups.length === 1 ? 'conversation' : 'conversations'}?</strong>
+          <ul>{#each selectedGroups as group (group.id)}<li>{conversationLabel(group)}</li>{/each}</ul>
+          <p>You may lose access to these conversations. This applies only to the current server.</p>
+          <div><button type="button" on:click={() => (reviewBatchLeave = false)} disabled={batchBusy}>Back</button>
+            <button type="button" class="dm-hub-leave-btn" on:click={leaveSelectedGroups} disabled={batchBusy}>{batchBusy ? 'Leaving…' : 'Leave selected groups'}</button></div>
+        </div>
+      {/if}
+    {/if}
 
     <div class="dm-hub-scroll">
-      {#if dmChannels.length === 0}
+      {#if (batchMode ? groupChannels : dmChannels).length === 0}
         <div class="dm-hub-empty">
           <p>No conversations yet.</p>
           <button class="dm-hub-empty-btn ui-btn ui-btn-primary" on:click={() => (showPeoplePicker = true)}>
@@ -372,22 +428,29 @@
           </button>
         </div>
       {:else}
-        {#each dmChannels as channel (channel.id)}
-          {@const other = otherUserFor(channel)}
+        {#each (batchMode ? groupChannels : dmChannels) as channel (channel.id)}
+          {@const other = resolveDmOtherUser(channel, $currentUser, $users, $serverMembers)}
+          {@const avatar = channel.type === 'group' ? channel.avatar : other?.profilePicture}
           {@const presence = livePresenceForUser(other, $users, $connected)}
           {@const unread = $channelUnreadCounts[channel.id] || 0}
           {@const previewMessages = $channelMessages[channel.id]}
           <button
             class="dm-hub-conversation"
             data-dm-channel-id={channel.id}
-            class:active={$centerDmChannelId === channel.id}
+            aria-pressed={batchMode ? selectedGroupIds.includes(channel.id) : $centerDmChannelId === channel.id}
+            class:active={batchMode ? selectedGroupIds.includes(channel.id) : $centerDmChannelId === channel.id}
             class:unread={unread > 0}
-            on:click={() => openInCenter(channel)}
-            on:contextmenu={(e) => handleContextMenu(channel, e)}
+            on:click={() => batchMode ? toggleGroupSelection(channel.id) : openInCenter(channel)}
+            on:contextmenu={(e) => { if (!batchMode) handleContextMenu(channel, e); }}
           >
+            {#if batchMode}<span class="dm-hub-select-indicator" aria-hidden="true">{selectedGroupIds.includes(channel.id) ? '☑' : '☐'}</span>{/if}
             <div class="dm-hub-avatar-wrap">
-              {#if conversationAvatar(channel)}
-                <img class="dm-hub-avatar" src={mediaUrl(conversationAvatar(channel)!)} alt="" />
+              {#if avatar}
+                {#if channel.type === 'dm'}
+                  <ProfileMedia class="dm-hub-avatar" src={mediaUrl(avatar)} decorative />
+                {:else}
+                  <img class="dm-hub-avatar" src={mediaUrl(avatar)} alt="" />
+                {/if}
               {:else}
                 <div class="dm-hub-avatar dm-hub-avatar-placeholder">
                   {(conversationLabel(channel) || '?')[0]}
@@ -399,7 +462,7 @@
             </div>
             <div class="dm-hub-body">
               <div class="dm-hub-top">
-                <span class="dm-hub-name">{conversationLabel(channel)}</span>
+                <span class="dm-hub-name">{#if channel.type === 'dm' && other}<ProfileName username={other.handle || other.username} font={other.usernameFont} color={other.color} />{:else}{conversationLabel(channel)}{/if}</span>
                 {#if lastMessageTime(previewMessages)}
                   <span class="dm-hub-time">{lastMessageTime(previewMessages)}</span>
                 {/if}
@@ -493,7 +556,6 @@
     font-weight: var(--font-weight-semibold, 600);
     border-bottom-color: var(--accent-primary-color, #6366f1);
   }
-
   .dm-hub-header {
     display: flex;
     align-items: center;
@@ -502,6 +564,14 @@
     border-bottom: 1px solid var(--color-border-primary, #302b63);
     flex-shrink: 0;
   }
+
+  .dm-hub-manage-btn, .dm-hub-batch-actions button, .dm-hub-batch-review button { border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--text-heading); padding: .45rem .65rem; cursor: pointer; }
+  .dm-hub-batch-actions, .dm-hub-batch-review, .dm-hub-batch-status { margin: .6rem 1rem; padding: .7rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); color: var(--text-secondary); font-size: .85rem; }
+  .dm-hub-batch-actions p, .dm-hub-batch-review p { margin: 0 0 .6rem; }
+  .dm-hub-batch-actions > div, .dm-hub-batch-review > div { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .dm-hub-batch-review ul { max-height: 7rem; overflow: auto; margin: .5rem 0; }
+  .dm-hub-batch-review .dm-hub-leave-btn { color: var(--color-danger, #ef4444); }
+  .dm-hub-select-indicator { color: var(--accent-primary-color); font-size: 1.25rem; }
 
   .dm-hub-title-wrap {
     display: flex;
@@ -531,7 +601,8 @@
   .dm-hub-group-btn:focus-visible { outline: 2px solid var(--accent-primary-color, #6366f1); outline-offset: 2px; }
 
   @container dm-hub (max-width: 360px) {
-    .dm-hub-header { padding-inline: var(--space-3, 12px); }
+    .dm-hub-header { padding-inline: var(--space-3, 12px); flex-wrap: wrap; gap: var(--space-2, 8px); }
+    .dm-hub-actions { width: 100%; justify-content: flex-end; }
     .dm-hub-group-btn { width: 40px; padding: 0; }
     .dm-hub-group-btn span { display: none; }
   }
@@ -636,7 +707,7 @@
     position: relative;
     flex-shrink: 0;
   }
-  .dm-hub-avatar {
+  .dm-hub-avatar, .dm-hub-avatar-wrap :global(.dm-hub-avatar) {
     width: 32px;
     height: 32px;
     border-radius: var(--radius-full, 9999px);
@@ -736,7 +807,7 @@
 		.dm-hub-group-btn { min-height: 44px; }
 		.dm-hub-scroll { padding: var(--space-3, 12px); }
 		.dm-hub-conversation { padding: var(--space-3, 12px); }
-		.dm-hub-avatar,
+		.dm-hub-avatar, .dm-hub-avatar-wrap :global(.dm-hub-avatar),
 		.dm-hub-avatar-placeholder { width: 44px; height: 44px; }
 		.dm-hub-avatar-placeholder { font-size: var(--font-size-base, 14px); }
 		.dm-hub-status-dot { width: 10px; height: 10px; }

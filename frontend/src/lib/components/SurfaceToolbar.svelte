@@ -27,7 +27,8 @@
 <div class="surface-toolbar">
 	<input
 		type="text"
-		class="surface-search"
+		class="ui-input surface-search"
+		aria-label={searchPlaceholder || 'Search'}
 		placeholder={searchPlaceholder || 'Search\u2026'}
 		bind:value={searchValue}
 		on:input={handleSearchInput}
@@ -47,10 +48,10 @@
 	{/if}
 	<slot />
 	{#if primaryLabel}
-		<button class="surface-toolbar-primary" on:click={() => onPrimary?.()}>{primaryLabel}</button>
+		<button type="button" class="ui-btn ui-btn-primary surface-toolbar-primary" on:click={() => onPrimary?.()}>{primaryLabel}</button>
 	{/if}
 	{#if sortOptions}
-		<select class="surface-sort" on:change={handleSortChange}>
+		<select class="ui-select surface-sort" aria-label="Sort order" on:change={handleSortChange}>
 			{#each sortOptions as option}
 				<option value={option}>{option}</option>
 			{/each}

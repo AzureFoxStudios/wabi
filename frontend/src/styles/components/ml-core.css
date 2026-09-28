@@ -290,7 +290,9 @@
 	.header-left {
 		display: flex;
 		align-items: baseline;
-		gap: 0.4rem;
+		column-gap: 0.48rem;
+		row-gap: 0.28rem;
+		flex-wrap: wrap;
 	}
 
 

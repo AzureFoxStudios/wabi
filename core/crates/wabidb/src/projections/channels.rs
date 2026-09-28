@@ -90,7 +90,7 @@ fn parse_channel_kind(value: &serde_json::Value) -> ChannelKind {
 ///     events used to be dropped silently, so DM/group channels never got
 ///     a projection row and their deletes could never find them.
 ///   * Partial payloads missing optional fields.
-fn decode_created_payload(payload: &[u8]) -> Result<Channel> {
+pub(crate) fn decode_created_payload(payload: &[u8]) -> Result<Channel> {
     if let Ok(channel) = serde_json::from_slice::<Channel>(payload) {
         return Ok(channel);
     }

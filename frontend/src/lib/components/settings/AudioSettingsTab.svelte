@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { deviceVisual, deviceVisualSymbol } from '$lib/deviceVisuals';
 	import { onDestroy, onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { _ as t } from '$lib/i18n';
@@ -184,18 +185,20 @@
 	<section class="audio-settings-group" aria-label="Microphone and camera">
 		<h4>Microphone and camera</h4>
 		<p class="runtime-note">Device access is controlled by your browser or operating system. Selecting a device does not turn it on.</p>
-		<div class="quality-mode-row">
-			<label for="mic-device-select">Microphone</label>
-			<select id="mic-device-select" class="theme-select" value={selectedMicDeviceId} onchange={(event) => handleMicDeviceChange(event.currentTarget.value)}>
-				<option value="">System Default</option>
-				{#each audioInputDevices as device, index}<option value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>{/each}
+			<div class="quality-mode-row">
+				<label for="mic-device-select">Microphone</label>
+				<span aria-hidden="true">{deviceVisualSymbol(deviceVisual('audioinput', audioInputDevices.find((device) => device.deviceId === selectedMicDeviceId)?.label || ''))}</span>
+				<select id="mic-device-select" class="theme-select" value={selectedMicDeviceId} onchange={(event) => handleMicDeviceChange(event.currentTarget.value)}>
+					<option value="">System Default</option>
+					{#each audioInputDevices as device, index}<option value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>{/each}
 			</select>
 		</div>
-		<div class="quality-mode-row">
-			<label for="camera-device-select">Camera</label>
-			<select id="camera-device-select" class="theme-select" value={selectedCameraDeviceId} onchange={(event) => handleCameraDeviceChange(event.currentTarget.value)}>
-				<option value="">System Default</option>
-				{#each videoInputDevices as device, index}<option value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>{/each}
+			<div class="quality-mode-row">
+				<label for="camera-device-select">Camera</label>
+				<span aria-hidden="true">{deviceVisualSymbol(deviceVisual('videoinput', ''))}</span>
+				<select id="camera-device-select" class="theme-select" value={selectedCameraDeviceId} onchange={(event) => handleCameraDeviceChange(event.currentTarget.value)}>
+					<option value="">System Default</option>
+					{#each videoInputDevices as device, index}<option value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>{/each}
 			</select>
 		</div>
 		{#if audioInputDevices.length === 0 || videoInputDevices.length === 0}
@@ -271,16 +274,7 @@
 			<p class="runtime-note">Auto tries the server's audio relay first. P2P connects participants directly or through TURN. SFU uses LiveKit when the host provides it. Server relay mode routes audio through this Wabi server.</p>
 			{#if mediaRuntimeSnapshot && !mediaRuntimeSnapshot.media?.turn?.configured}<p class="runtime-note">This server has no TURN relay configured. Direct P2P connections can fail across mobile or home-network boundaries; Auto can also use the server relay.</p>{/if}
 			<div class="setting-item"><div class="setting-info"><span class="setting-label">SRT gateway</span><span class="setting-description">{localAppRuntime ? 'Requires gateway workers provided by your host.' : 'Requires the desktop app and host-provided gateway workers.'}</span></div><button type="button" class="toggle-btn" role="switch" aria-label="SRT gateway" aria-checked={srtGatewayEnabled} class:active={srtGatewayEnabled} onclick={toggleSrtGateway} disabled={!localAppRuntime}></button></div>
-			{#if desktopLocalAppRuntime}
-				<div class="audio-helper">
-					<h4>Desktop helper profile</h4>
-					<p class="runtime-note">Give this device a friendly name before activating its helper.</p>
-					<div class="quality-mode-row"><label for="desktop-helper-name">Helper name</label><input id="desktop-helper-name" class="emoji-name-input" maxlength="120" placeholder="My laptop" bind:value={desktopHelperProfileName} /></div>
-					<div class="quality-mode-row"><label for="desktop-helper-mode">Helper mode</label><select id="desktop-helper-mode" class="theme-select" bind:value={desktopHelperProfileMode}><option value="off">Off</option><option value="files-only">Files Only</option><option value="desktop-assist">Desktop Assist</option></select></div>
-					<button type="button" class="action-btn" onclick={saveDesktopHelperProfile}>Save Helper Profile</button>
-					{#if desktopHelperProfileStatus}<p class="runtime-note" role="status">{desktopHelperProfileStatus}</p>{/if}
-				</div>
-			{/if}
+			<p class="runtime-note">Volunteer file boosting is available in Settings → Server → Boost this server. Operator media helpers remain separately configured by the server owner.</p>
 		</div>
 	</details>
 

@@ -11,9 +11,11 @@ import { PLANNER_ADDON_ID } from './plannerWorkspace';
 import { NOTES_ADDON_ID } from './notesWorkspace';
 import { LORE_ADDON_ID } from './loreWorkspace';
 import { FILES_ADDON_ID } from './filesWorkspace';
+import { NOTIFICATIONS_ADDON_ID } from './notificationsWorkspace';
 
 const navigation = createWorkspaceNavigation({
 	addonIds: {
+		notifications: NOTIFICATIONS_ADDON_ID,
 		reader: READER_ADDON_ID, model: MODEL_VIEWPORT_ADDON_ID, map: MAP_ADDON_ID,
 		media: MEDIA_ALBUMS_ADDON_ID, planner: PLANNER_ADDON_ID, notes: NOTES_ADDON_ID,
 		lore: LORE_ADDON_ID, files: FILES_ADDON_ID

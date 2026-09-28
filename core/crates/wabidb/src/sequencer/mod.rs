@@ -29,7 +29,7 @@ use crate::commit_index::batcher::BatcherHandle;
 use crate::commit_index::record::{CommitIndexEntry, StreamRef};
 use crate::crypto::aes_gcm_record::{encrypt_record, TAG_LEN};
 use crate::crypto::stream_key_registry::StreamKeyRegistry;
-use crate::engine::locks::{DispatchCommit, DispatchItem, SequencerPermit};
+use crate::engine::locks::{DispatchCommit, DispatchItem, ProjectionState, SequencerPermit};
 use crate::error::{Result, WabiError};
 use crate::format::record::RecordHeader;
 pub use crate::sequencer::types::ReplayEnvelope;
@@ -189,26 +189,59 @@ pub async fn run(
     mut command_rx: mpsc::Receiver<CommandCommit>,
     data_dir: PathBuf,
     initial_commit_seq: u64,
+    write_fence: Arc<tokio::sync::RwLock<bool>>,
+    projection_state: Arc<ProjectionState>,
+    local_node_id: String,
 ) -> Result<()> {
+    crate::engine::node_identity::validate(&local_node_id)?;
     let mut writers: HashMap<String, WriterEntry> = HashMap::new();
     let mut next_commit_seq: u64 = initial_commit_seq.saturating_add(1).max(1);
+    let mut deferred: Option<CommandCommit> = None;
 
-    while let Some(first) = command_rx.recv().await {
+    loop {
+        let first = match deferred.take() {
+            Some(command) => command,
+            None => match command_rx.recv().await {
+                Some(command) => command,
+                None => break,
+            },
+        };
         // ---- Group-commit window: drain everything already queued --------
         // `recv` waited for work; `try_recv` only takes what is ready NOW,
         // so an idle system keeps windows small (latency stays low) while a
         // burst collapses into one fsync.
         let mut window = Vec::with_capacity(GROUP_COMMIT_WINDOW);
+        // State-control commands are their own windows. Later admission must
+        // see their applied room bindings or account revocation floors.
+        let room_control_boundary = has_room_control_event(&first);
         window.push(first);
-        while window.len() < GROUP_COMMIT_WINDOW {
-            match command_rx.try_recv() {
-                Ok(command) => window.push(command),
-                Err(_) => break,
+        if !room_control_boundary {
+            while window.len() < GROUP_COMMIT_WINDOW {
+                match command_rx.try_recv() {
+                    Ok(command) if has_room_control_event(&command) => {
+                        deferred = Some(command);
+                        break;
+                    }
+                    Ok(command) => window.push(command),
+                    Err(_) => break,
+                }
             }
+        }
+
+        // Hold the read side through preparation, durability, projection
+        // application and acknowledgments. A fence takes the write side, so
+        // its successful return is a boundary after all prior local commits.
+        let admission = write_fence.read().await;
+        if *admission {
+            for command in window {
+                let _ = command.response_tx.send(Err(WabiError::WriterFenced));
+            }
+            continue;
         }
 
         // ---- Stage A: prepare + submit index entries (in seq order) ------
         let mut prepared: Vec<PreparedCommand> = Vec::with_capacity(window.len());
+        let mut pending_message_parents = HashMap::new();
         for command in window {
             let commit_seq = next_commit_seq;
             next_commit_seq = commit_seq.checked_add(1).ok_or_else(|| {
@@ -222,6 +255,77 @@ pub async fn run(
                 .unwrap_or_default()
                 .as_micros() as i64;
 
+            if let Some(ref precondition) = command.room_owner_precondition {
+                if let Err(error) = crate::projections::room_placement::preflight_room_owner(
+                    precondition,
+                    &projection_state,
+                    &local_node_id,
+                ) {
+                    let _ = command.response_tx.send(Err(error));
+                    continue;
+                }
+            }
+
+            if let Err(error) = crate::projections::workspace_writes::preflight_command(
+                &command.events,
+                command.room_owner_precondition.as_ref(),
+                &projection_state,
+            ) {
+                let _ = command.response_tx.send(Err(error));
+                continue;
+            }
+
+            // Track prepared message parents within the fsync group instead
+            // of isolating every message creation into a separate fsync.
+            let created_message_parents = match crate::projections::room_writes::preflight_command(
+                &command.events,
+                command.room_owner_precondition.as_ref(),
+                &projection_state,
+                &pending_message_parents,
+                commit_seq,
+            ) {
+                Ok(parents) => parents,
+                Err(error) => {
+                    let _ = command.response_tx.send(Err(error));
+                    continue;
+                }
+            };
+
+            if let Err(error) = crate::projections::call_sessions::preflight_room_writes(
+                &command.events,
+                command.room_owner_precondition.as_ref(),
+                &projection_state,
+            ) {
+                let _ = command.response_tx.send(Err(error));
+                continue;
+            }
+
+            // A placement must never become durable if its stream, payload or
+            // epoch would fail the projection. Isolation above makes this
+            // check observe every preceding applied placement command.
+            if let Err(error) = crate::projections::room_placement::preflight_command(
+                &command.events,
+                commit_seq,
+                &projection_state,
+            ) {
+                let _ = command.response_tx.send(Err(error));
+                continue;
+            }
+
+            if let Err(error) = crate::projections::auth_revocations::preflight(
+                &command.events, &projection_state, timestamp_micros.max(0) as u64 / 1_000_000,
+            ) {
+                let _ = command.response_tx.send(Err(error));
+                continue;
+            }
+
+            if let Err(error) = crate::projections::recovery_codes::preflight(
+                &command.events, &projection_state,
+            ) {
+                let _ = command.response_tx.send(Err(error));
+                continue;
+            }
+
             match prepare_command(
                 &key_registry,
                 &mut writers,
@@ -233,11 +337,14 @@ pub async fn run(
             )
             .await
             {
-                Ok(()) => prepared.push(PreparedCommand {
-                    commit_seq,
-                    timestamp_micros,
-                    command,
-                }),
+                Ok(()) => {
+                    pending_message_parents.extend(created_message_parents);
+                    prepared.push(PreparedCommand {
+                        commit_seq,
+                        timestamp_micros,
+                        command,
+                    });
+                }
                 // Failure burns the seq and reports to the caller; the
                 // sequencer keeps running (unchanged behavior).
                 Err(e) => {
@@ -279,6 +386,7 @@ pub async fn run(
                 return Err(WabiError::InternalInvariantViolated { invariant });
             }
         }
+        drop(admission);
     }
 
     // Graceful shutdown: close all open writers.
@@ -287,6 +395,19 @@ pub async fn run(
     }
 
     Ok(())
+}
+
+fn has_room_control_event(command: &CommandCommit) -> bool {
+    command.events.iter().any(|event| {
+        matches!(
+            event.event_type.as_str(),
+            crate::projections::room_placement::EVENT
+                | crate::projections::room_placement::INIT_EVENT
+                | "call_session_created"
+                | crate::projections::auth_revocations::EVENT
+                | crate::projections::recovery_codes::EVENT
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -611,6 +732,7 @@ mod tests {
     ) -> (CommandCommit, oneshot::Receiver<Result<CommandOutcome>>) {
         let (tx, rx) = oneshot::channel();
         let cmd = CommandCommit {
+            room_owner_precondition: None,
             caller_user_id: seq_prefix,
             caller_device_id: format!("dev{seq_prefix}"),
             command_name: "test_cmd".into(),
@@ -665,6 +787,9 @@ mod tests {
                 cmd_rx,
                 data_dir,
                 0,
+                Arc::new(tokio::sync::RwLock::new(false)),
+                Arc::new(ProjectionState::new()),
+                "node-1".into(),
             )
             .await
         });
@@ -727,6 +852,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fence_waits_for_prior_application_and_rejects_queued_commands() {
+        use std::future::Future;
+        use std::task::Poll;
+
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
+        registry
+            .lock()
+            .await
+            .create_stream("fenced-room", [7; 32])
+            .unwrap();
+        let index_dir = dir.path().join("global/commit-index");
+        tokio::fs::create_dir_all(&index_dir).await.unwrap();
+        let (batcher, batcher_task) =
+            crate::commit_index::batcher::new_batcher(index_dir, None, None);
+        tokio::spawn(batcher_task);
+        let permit = SequencerPermit::acquire(&Arc::new(Semaphore::new(1)))
+            .await
+            .unwrap();
+        let (dispatch_tx, mut dispatch_rx) = mpsc::channel::<DispatchCommit>(1);
+        let (tx, rx) = mpsc::channel::<CommandCommit>(2);
+        let gate = Arc::new(tokio::sync::RwLock::new(false));
+        let sequencer = tokio::spawn(run(
+            permit,
+            registry,
+            batcher,
+            dispatch_tx,
+            rx,
+            dir.path().into(),
+            0,
+            gate.clone(),
+            Arc::new(ProjectionState::new()),
+            "node-1".into(),
+        ));
+
+        let (first, first_ack) = make_cmd(1, true, "fenced-room", 6, b"first");
+        tx.send(first).await.unwrap();
+        let pending_application = dispatch_rx.recv().await.unwrap();
+        let mut fence_waiter = Box::pin(gate.write());
+        std::future::poll_fn(|cx| match fence_waiter.as_mut().poll(cx) {
+            Poll::Pending => Poll::Ready(()),
+            Poll::Ready(_) => panic!("fence crossed an unacknowledged commit"),
+        })
+        .await;
+
+        let (second, second_ack) = make_cmd(2, true, "fenced-room", 6, b"second");
+        tx.send(second).await.unwrap();
+        pending_application.applied_tx.send(Ok(())).unwrap();
+        assert_eq!(first_ack.await.unwrap().unwrap().commit_seq, 1);
+        let mut fenced = fence_waiter.await;
+        *fenced = true;
+        drop(fenced);
+        assert!(matches!(second_ack.await.unwrap(), Err(WabiError::WriterFenced)));
+        drop(tx);
+        sequencer.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
     async fn failed_application_stops_a_durable_group_without_dispatching_later_commands() {
         let dir = tempfile::tempdir().unwrap();
         let registry = Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new()));
@@ -757,6 +940,9 @@ mod tests {
             rx,
             dir.path().into(),
             0,
+            Arc::new(tokio::sync::RwLock::new(false)),
+            Arc::new(ProjectionState::new()),
+            "node-1".into(),
         ));
         let batch = dispatch_rx.recv().await.unwrap();
         assert_eq!(batch.commit_seq, 1);
@@ -908,6 +1094,9 @@ mod tests {
                 cmd_rx,
                 dir.path().to_path_buf(),
                 100,
+                Arc::new(tokio::sync::RwLock::new(false)),
+                Arc::new(ProjectionState::new()),
+                "node-1".into(),
             )
             .await
         });
@@ -963,6 +1152,9 @@ mod tests {
                 cmd_rx,
                 dir.path().to_path_buf(),
                 0,
+                Arc::new(tokio::sync::RwLock::new(false)),
+                Arc::new(ProjectionState::new()),
+                "node-1".into(),
             )
             .await
         });
@@ -1108,6 +1300,9 @@ mod tests {
             cmd_rx,
             dir.path().to_path_buf(),
             0,
+            Arc::new(tokio::sync::RwLock::new(false)),
+            Arc::new(ProjectionState::new()),
+            "node-1".into(),
         );
         tokio::pin!(sequencer);
         assert!(
@@ -1181,6 +1376,9 @@ mod tests {
                 cmd_rx,
                 dir.path().to_path_buf(),
                 0,
+                Arc::new(tokio::sync::RwLock::new(false)),
+                Arc::new(ProjectionState::new()),
+                "node-1".into(),
             )
             .await
         });
@@ -1234,6 +1432,9 @@ mod tests {
             cmd_rx,
             dir.path().to_path_buf(),
             0,
+            Arc::new(tokio::sync::RwLock::new(false)),
+            Arc::new(ProjectionState::new()),
+            "node-1".into(),
         )
         .await;
         assert!(result.is_ok());

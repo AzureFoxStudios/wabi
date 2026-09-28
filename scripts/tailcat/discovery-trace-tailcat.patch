@@ -1,0 +1,18 @@
+--- a/tailcat.go
++++ b/tailcat.go
+@@ -1229,6 +1229,7 @@
+ 	if len(eps) == 0 || len(peers) == 0 {
+ 		return
+ 	}
++	b.logf("TRACE advertise endpoints=%v peers=%d", eps, len(peers))
+ 	payload := (&disco.CallMeMaybe{MyNumber: eps}).AppendMarshal(nil)
+ 	discoPriv := discoPrivateForNode(b.priv)
+ 	mc := b.sys.MagicSock.Get()
+@@ -1369,6 +1370,7 @@
+ 	}
+ 
+ 	if _, ok := b.clients[src]; ok {
++        b.logf("TRACE reused peer disco_equal=%v", b.clients[src].DiscoKey == discoPub)
+ 		return true
+ 	}
+ 	id := len(b.clients) + 2 // server is ID 1, clients are IDs 2, 3, ...

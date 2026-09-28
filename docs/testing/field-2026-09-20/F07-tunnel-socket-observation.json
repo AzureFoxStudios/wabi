@@ -1,0 +1,103 @@
+{
+  "run": "F07",
+  "source": "ss -tinp snapshot for owned tailcat process",
+  "connections": [
+    {
+      "state": "ESTAB",
+      "peer_is_public": false,
+      "peer_port": 57460,
+      "counters": {
+        "bytes_sent": 24,
+        "bytes_acked": 24,
+        "bytes_received": 24,
+        "data_segs_out": 2,
+        "data_segs_in": 2
+      }
+    },
+    {
+      "state": "ESTAB",
+      "peer_is_public": true,
+      "peer_port": 443,
+      "counters": {
+        "bytes_sent": 1893,
+        "bytes_acked": 1894,
+        "bytes_received": 6030,
+        "data_segs_out": 5,
+        "data_segs_in": 9
+      }
+    },
+    {
+      "state": "ESTAB",
+      "peer_is_public": false,
+      "peer_port": 57432,
+      "counters": {
+        "bytes_sent": 12461,
+        "bytes_acked": 12461,
+        "bytes_received": 5964,
+        "data_segs_out": 20,
+        "data_segs_in": 14
+      }
+    },
+    {
+      "state": "ESTAB",
+      "peer_is_public": false,
+      "peer_port": 57426,
+      "counters": {
+        "bytes_sent": 18193,
+        "bytes_acked": 18193,
+        "bytes_received": 8663,
+        "data_segs_out": 32,
+        "data_segs_in": 25
+      }
+    },
+    {
+      "state": "ESTAB",
+      "peer_is_public": true,
+      "peer_port": 443,
+      "counters": {
+        "bytes_sent": 17817,
+        "bytes_acked": 17818,
+        "bytes_received": 5576,
+        "data_segs_out": 43,
+        "data_segs_in": 7
+      }
+    },
+    {
+      "state": "ESTAB",
+      "peer_is_public": false,
+      "peer_port": 57416,
+      "counters": {
+        "bytes_sent": 15709,
+        "bytes_acked": 15709,
+        "bytes_received": 9875,
+        "data_segs_out": 30,
+        "data_segs_in": 22
+      }
+    },
+    {
+      "state": "ESTAB",
+      "peer_is_public": false,
+      "peer_port": 57444,
+      "counters": {
+        "bytes_sent": 10475,
+        "bytes_acked": 10475,
+        "bytes_received": 1844,
+        "data_segs_out": 16,
+        "data_segs_in": 13
+      }
+    },
+    {
+      "state": "ESTAB",
+      "peer_is_public": false,
+      "peer_port": 57476,
+      "counters": {
+        "bytes_sent": 24,
+        "bytes_acked": 24,
+        "bytes_received": 24,
+        "data_segs_out": 2,
+        "data_segs_in": 2
+      }
+    }
+  ],
+  "limits": "Public TCP activity can indicate relay use; no per-flow direct/relay classification or guaranteed independence from other interfaces. SOCKS loopback bytes must not be added to underlying bytes."
+}

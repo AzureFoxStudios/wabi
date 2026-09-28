@@ -27,7 +27,7 @@ impl WdbAdapter {
         game_profiles::decode(&plaintext).map_err(|_|AppError::BadRequest("Game board exceeds the supported storage limits".into()))?;
         let stream_id=format!("game-profile:{user_id}");
         self.engine.get_or_create_stream_key(&stream_id).await?;
-        let cmd=CommandCommit {caller_user_id:user_id,caller_device_id:"primary".into(),command_name:"replace_game_profile_v1".into(),idempotency_key:None,
+        let cmd=CommandCommit {room_owner_precondition: None,caller_user_id:user_id,caller_device_id:"primary".into(),command_name:"replace_game_profile_v1".into(),idempotency_key:None,
             events:vec![EventToWrite {stream_id,event_type:game_profiles::EVENT.into(),stream_kind:6,record_kind:RecordKind::Event,plaintext}],
             essential:true,response_tx:tokio::sync::oneshot::channel().0};
         self.engine.run_command(cmd).await?;

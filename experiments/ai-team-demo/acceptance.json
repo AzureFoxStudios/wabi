@@ -1,0 +1,115 @@
+{
+  "verifiedAt": "2026-09-28T05:08:29.084Z",
+  "boundary": "Standalone local prototype; CUA browser exercised all five steps and a saved review note. Model responses recorded; coordination scripted; no Lore, WabiDB or remote-worker connection.",
+  "state": {
+    "schema": 1,
+    "revision": 7,
+    "phase": "done",
+    "owner": "worker-a",
+    "claims": [
+      {
+        "actor": "worker-a",
+        "outcome": "ok"
+      },
+      {
+        "actor": "worker-b",
+        "outcome": "conflict"
+      }
+    ],
+    "comments": [
+      {
+        "id": 1,
+        "actor": "human",
+        "text": "Reconnecting repeats events. Keep one event per ID, retain its original position, and use the latest value. The reproduction fails; claim this card before editing.",
+        "kind": "brief",
+        "at": "2026-09-28T05:03:03.068Z"
+      },
+      {
+        "id": 2,
+        "actor": "worker-a",
+        "text": "Claimed the fix in candidate.mjs. I will propose a change with a pinned source version.",
+        "kind": "coordination",
+        "at": "2026-09-28T05:03:50.055Z"
+      },
+      {
+        "id": 3,
+        "actor": "worker-b",
+        "text": "The edit is already claimed. I will wait for a proposal and verify it in a separate folder; I will not overwrite the owner’s work.",
+        "kind": "coordination",
+        "at": "2026-09-28T05:03:50.062Z"
+      },
+      {
+        "id": 4,
+        "actor": "worker-a",
+        "text": "Recorded model proposal is ready. Please check the source and run the regression fixture independently.",
+        "kind": "model-proposal",
+        "at": "2026-09-28T05:05:05.587Z"
+      },
+      {
+        "id": 5,
+        "actor": "worker-b",
+        "text": "The candidate implementation satisfies all stated requirements. It processes `current` first, preserving order, then `incoming`, updating existing entries or appending new ones while keeping the first-seen order. Duplicate IDs within a single array are handled by the last occurrence (the `process` helper overwrites the entry). No mutations occur: objects are shallow‑copied with `{ ...obj }`, and the original arrays are not altered. The tests pass and the behavior matches the specification exactly.",
+        "kind": "model-review",
+        "at": "2026-09-28T05:05:13.471Z"
+      },
+      {
+        "id": 6,
+        "actor": "system",
+        "text": "Independent local checks passed on the proposed source hash. Human acceptance is still required.",
+        "kind": "evidence",
+        "at": "2026-09-28T05:05:13.471Z"
+      },
+      {
+        "id": 7,
+        "actor": "human",
+        "text": "Demo review: the reconnect and existing-duplicate cases pass. Keep the tested source version with this card so another session can pick it up.",
+        "kind": "discussion",
+        "at": "2026-09-28T05:06:51.304Z"
+      },
+      {
+        "id": 8,
+        "actor": "human",
+        "text": "Accepted the tested version. Keep the reproduction, proposal and check results together for the next session.",
+        "kind": "decision",
+        "at": "2026-09-28T05:06:57.444Z"
+      }
+    ],
+    "baseline": {
+      "stdout": "TAP version 13\n# Subtest: reconnect replay does not duplicate an existing event\nnot ok 1 - reconnect replay does not duplicate an existing event\n  ---\n  duration_ms: 7.211348\n  type: 'test'\n  location: '/tmp/wabi-team-demo-R9Kfis/reproduction/checks.mjs:5:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    Expected values to be strictly deep-equal:\n    + actual - expected\n    \n      [\n        {\n          id: 'a',\n          text: 'hello'\n        },\n    +   {\n    +     id: 'a',\n    +     text: 'hello'\n    +   }\n      ]\n    \n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected:\n    0:\n      id: 'a'\n      text: 'hello'\n  actual:\n    0:\n      id: 'a'\n      text: 'hello'\n    1:\n      id: 'a'\n      text: 'hello'\n  operator: 'deepStrictEqual'\n  stack: |-\n    TestContext.<anonymous> (file:///tmp/wabi-team-demo-R9Kfis/reproduction/checks.mjs:6:10)\n    Test.runInAsyncScope (node:async_hooks:214:14)\n    Test.run (node:internal/test_runner/test:1047:25)\n    Test.start (node:internal/test_runner/test:944:17)\n    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)\n  ...\n# Subtest: new data replaces an existing event without moving it\nnot ok 2 - new data replaces an existing event without moving it\n  ---\n  duration_ms: 2.568585\n  type: 'test'\n  location: '/tmp/wabi-team-demo-R9Kfis/reproduction/checks.mjs:8:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    Expected values to be strictly deep-equal:\n    + actual - expected\n    \n      [\n        {\n          id: 'a',\n    +     text: 'old'\n    -     text: 'edited'\n        },\n        {\n          id: 'b',\n          text: 'keep'\n        },\n        {\n    +     id: 'a',\n    +     text: 'edited'\n    +   },\n    +   {\n          id: 'c',\n          text: 'new'\n        }\n      ]\n    \n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected:\n    0:\n      id: 'a'\n      text: 'edited'\n    1:\n      id: 'b'\n      text: 'keep'\n    2:\n      id: 'c'\n      text: 'new'\n  actual:\n    0:\n      id: 'a'\n      text: 'old'\n    1:\n      id: 'b'\n      text: 'keep'\n    2:\n      id: 'a'\n      text: 'edited'\n    3:\n      id: 'c'\n      text: 'new'\n  operator: 'deepStrictEqual'\n  stack: |-\n    TestContext.<anonymous> (file:///tmp/wabi-team-demo-R9Kfis/reproduction/checks.mjs:9:10)\n    Test.runInAsyncScope (node:async_hooks:214:14)\n    Test.run (node:internal/test_runner/test:1047:25)\n    Test.processPendingSubtests (node:internal/test_runner/test:744:18)\n    Test.postRun (node:internal/test_runner/test:1173:19)\n    Test.run (node:internal/test_runner/test:1101:12)\n    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)\n  ...\n# Subtest: duplicates within a replay use the last value\nnot ok 3 - duplicates within a replay use the last value\n  ---\n  duration_ms: 2.957775\n  type: 'test'\n  location: '/tmp/wabi-team-demo-R9Kfis/reproduction/checks.mjs:11:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    Expected values to be strictly deep-equal:\n    + actual - expected\n    \n      [\n        {\n          id: 'a',\n    +     text: 'first'\n    +   },\n    +   {\n    +     id: 'a',\n          text: 'last'\n        }\n      ]\n    \n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected:\n    0:\n      id: 'a'\n      text: 'last'\n  actual:\n    0:\n      id: 'a'\n      text: 'first'\n    1:\n      id: 'a'\n      text: 'last'\n  operator: 'deepStrictEqual'\n  stack: |-\n    TestContext.<anonymous> (file:///tmp/wabi-team-demo-R9Kfis/reproduction/checks.mjs:12:10)\n    Test.runInAsyncScope (node:async_hooks:214:14)\n    Test.run (node:internal/test_runner/test:1047:25)\n    Test.processPendingSubtests (node:internal/test_runner/test:744:18)\n    Test.postRun (node:internal/test_runner/test:1173:19)\n    Test.run (node:internal/test_runner/test:1101:12)\n    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)\n  ...\n# Subtest: existing duplicates are repaired too, keeping the latest value\nnot ok 4 - existing duplicates are repaired too, keeping the latest value\n  ---\n  duration_ms: 1.330294\n  type: 'test'\n  location: '/tmp/wabi-team-demo-R9Kfis/reproduction/checks.mjs:14:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    Expected values to be strictly deep-equal:\n    + actual - expected\n    \n      [\n        {\n          id: 'a',\n    +     text: 'old'\n    -     text: 'edited'\n        },\n        {\n          id: 'b',\n          text: 'keep'\n        },\n    +   {\n    +     id: 'a',\n    +     text: 'edited'\n    +   }\n      ]\n    \n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected:\n    0:\n      id: 'a'\n      text: 'edited'\n    1:\n      id: 'b'\n      text: 'keep'\n  actual:\n    0:\n      id: 'a'\n      text: 'old'\n    1:\n      id: 'b'\n      text: 'keep'\n    2:\n      id: 'a'\n      text: 'edited'\n  operator: 'deepStrictEqual'\n  stack: |-\n    TestContext.<anonymous> (file:///tmp/wabi-team-demo-R9Kfis/reproduction/checks.mjs:15:10)\n    Test.runInAsyncScope (node:async_hooks:214:14)\n    Test.run (node:internal/test_runner/test:1047:25)\n    Test.processPendingSubtests (node:internal/test_runner/test:744:18)\n    Test.postRun (node:internal/test_runner/test:1173:19)\n    Test.run (node:internal/test_runner/test:1101:12)\n    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)\n  ...\n# Subtest: input arrays are not mutated\nok 5 - input arrays are not mutated\n  ---\n  duration_ms: 1.955125\n  type: 'test'\n  ...\n# Subtest: empty input preserves the existing order\nok 6 - empty input preserves the existing order\n  ---\n  duration_ms: 0.602189\n  type: 'test'\n  ...\n1..6\n# tests 6\n# suites 0\n# pass 2\n# fail 4\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 203.170585\n",
+      "stderr": "",
+      "exitCode": 1,
+      "sourceHash": "1dbc0f42612ca2cb6ac067940ceb6b358e9fa0cad0c7d7fd3fa7ab2ef8a4b2e0",
+      "checksHash": "e6c21adfb932ec070df1456f77ff7ed410b6b7990fd467192e56492b95089abc",
+      "node": "v22.22.3",
+      "command": "node --test --test-reporter=tap checks.mjs",
+      "at": "2026-09-28T05:03:03.066Z",
+      "folder": "reproduction"
+    },
+    "candidate": {
+      "hash": "81d383336bc298148d164e84afac5d1f8954feaf16ad1306738d982b61b057e7",
+      "checksHash": "e6c21adfb932ec070df1456f77ff7ed410b6b7990fd467192e56492b95089abc",
+      "owner": "worker-a",
+      "folder": "worker-a",
+      "at": "2026-09-28T05:05:05.587Z"
+    },
+    "verification": {
+      "stdout": "TAP version 13\n# Subtest: reconnect replay does not duplicate an existing event\nok 1 - reconnect replay does not duplicate an existing event\n  ---\n  duration_ms: 4.85251\n  type: 'test'\n  ...\n# Subtest: new data replaces an existing event without moving it\nok 2 - new data replaces an existing event without moving it\n  ---\n  duration_ms: 1.004041\n  type: 'test'\n  ...\n# Subtest: duplicates within a replay use the last value\nok 3 - duplicates within a replay use the last value\n  ---\n  duration_ms: 0.808074\n  type: 'test'\n  ...\n# Subtest: existing duplicates are repaired too, keeping the latest value\nok 4 - existing duplicates are repaired too, keeping the latest value\n  ---\n  duration_ms: 2.394546\n  type: 'test'\n  ...\n# Subtest: input arrays are not mutated\nok 5 - input arrays are not mutated\n  ---\n  duration_ms: 4.336042\n  type: 'test'\n  ...\n# Subtest: empty input preserves the existing order\nok 6 - empty input preserves the existing order\n  ---\n  duration_ms: 0.721562\n  type: 'test'\n  ...\n1..6\n# tests 6\n# suites 0\n# pass 6\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 234.561773\n",
+      "stderr": "",
+      "exitCode": 0,
+      "total": 6,
+      "passed": 6,
+      "sourceHash": "81d383336bc298148d164e84afac5d1f8954feaf16ad1306738d982b61b057e7",
+      "checksHash": "e6c21adfb932ec070df1456f77ff7ed410b6b7990fd467192e56492b95089abc",
+      "node": "v22.22.3",
+      "command": "node --test --test-reporter=tap checks.mjs",
+      "at": "2026-09-28T05:05:13.470Z",
+      "folder": "worker-b",
+      "reviewer": "worker-b"
+    },
+    "accepted": {
+      "hash": "81d383336bc298148d164e84afac5d1f8954feaf16ad1306738d982b61b057e7",
+      "at": "2026-09-28T05:06:57.444Z",
+      "actor": "human"
+    }
+  }
+}

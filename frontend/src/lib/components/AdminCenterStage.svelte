@@ -15,6 +15,10 @@
 	import OverviewSection from './admin/OverviewSection.svelte';
 	import ServerHealthSection from './admin/ServerHealthSection.svelte';
 	import ModerationCenter from './admin/ModerationCenter.svelte';
+	import CommunityRulesPanel from './admin/CommunityRulesPanel.svelte';
+	import RaidModePanel from './admin/RaidModePanel.svelte';
+	import ChannelAccessPanel from './admin/ChannelAccessPanel.svelte';
+	import CommunityRolesPanel from './admin/CommunityRolesPanel.svelte';
 	import SafetyRulesPanel from './admin/SafetyRulesPanel.svelte';
 	import PrivacyCenter from './admin/PrivacyCenter.svelte';
 	import StorageCenter from './admin/StorageCenter.svelte';
@@ -133,15 +137,21 @@
 				{#if section === 'overview'}
 					<OverviewSection stats={snapshot.stats} loading={snapshot.loading} {stale} onNavigate={navigate} />
 				{:else if section === 'moderation'}
-					<ModerationCenter />
+					{#key JSON.stringify([$activeServerUrl, accountId, role])}
+						{#if canManageServer(role)}<CommunityRulesPanel />{/if}
+						{#if canManageServer(role)}<RaidModePanel />{/if}
+						{#if canManageServer(role)}<ChannelAccessPanel />{/if}
+						{#if canManageServer(role)}<CommunityRolesPanel />{/if}
+						<ModerationCenter />
+					{/key}
 				{:else if section === 'safety'}
 					<SafetyRulesPanel />
 				{:else if section === 'privacy'}
-					<PrivacyCenter />
+					{#key JSON.stringify([$activeServerUrl, accountId, role])}<PrivacyCenter />{/key}
 				{:else if section === 'storage'}
 					<StorageCenter />
-				{:else if section === 'infrastructure'}
-					<InfrastructureCenter />
+					{:else if section === 'infrastructure'}
+						{#key JSON.stringify([$activeServerUrl, accountId, role])}<InfrastructureCenter owner={role === 'owner'} />{/key}
 				{:else if section === 'runtime'}
 					<ServerHealthSection health={snapshot.stats?.extra?.health} loading={snapshot.loading && !snapshot.stats} {stale} expanded />
 				{:else if section}

@@ -1,0 +1,18 @@
+running 1 test
+test tailcat_proxy::upgrade_tests::upgrade_bridges_bytes_in_both_directions ... FAILED
+
+failures:
+
+---- tailcat_proxy::upgrade_tests::upgrade_bridges_bytes_in_both_directions stdout ----
+
+thread 'tailcat_proxy::upgrade_tests::upgrade_bridges_bytes_in_both_directions' (2226394) panicked at src/tailcat_proxy.rs:262:52:
+upstream bytes cross the upgraded proxy: Custom { kind: UnexpectedEof, error: "early eof" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tailcat_proxy::upgrade_tests::upgrade_bridges_bytes_in_both_directions
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 37 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--lib`

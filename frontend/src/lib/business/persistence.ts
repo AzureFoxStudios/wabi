@@ -32,7 +32,7 @@ function openDatabase(): Promise<IDBDatabase> {
 	});
 }
 
-export const plannerPersistence: PlannerPersistence = {
+export const browserPlannerPersistence: PlannerPersistence = {
 	async read(scope) {
 		const db = await openDatabase();
 		try {
@@ -78,5 +78,28 @@ export const plannerPersistence: PlannerPersistence = {
 				tx.onabort = () => reject(tx.error ?? new Error('Planner recovery read was interrupted.'));
 			});
 		} finally { db.close(); }
+	}
+};
+
+async function personalRequest<T>(request: Record<string, unknown>): Promise<T> {
+	const { invoke } = await import('@tauri-apps/api/core');
+	return invoke<T>('personal_planner_request', { request });
+}
+/** Personal desktop storage never falls back silently to a different database. */
+export const plannerPersistence: PlannerPersistence = {
+	read(scope) {
+		return scope === 'planner:personal-desktop:v1'
+			? personalRequest<PlannerRecord | null>({ scope, operation: 'read' })
+			: browserPlannerPersistence.read(scope);
+	},
+	write(scope, revision, data, draftId) {
+		return scope === 'planner:personal-desktop:v1'
+			? personalRequest<number>({ scope, operation: 'write', revision, data, draftId })
+			: browserPlannerPersistence.write(scope, revision, data, draftId);
+	},
+	drafts(scope) {
+		return scope === 'planner:personal-desktop:v1'
+			? personalRequest<PlannerDraft[]>({ scope, operation: 'drafts' })
+			: browserPlannerPersistence.drafts(scope);
 	}
 };

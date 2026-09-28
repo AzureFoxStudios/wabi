@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { currentUser } from '$lib/socket';
 	import type { Channel, User } from '$lib/socket';
+	import { mediaUrl } from '$lib/mediaUrl';
 
 	export let channel: Channel;
 	export let size: number = 36;
@@ -33,7 +34,7 @@
 		{#if avatarMembers.length >= 1}
 			<div class="avatar-slot top-left" style="width: {innerSize}px; height: {innerSize}px;">
 				{#if avatarMembers[0].profilePicture}
-					<img src={avatarMembers[0].profilePicture} alt={avatarMembers[0].username} />
+					<img src={mediaUrl(avatarMembers[0].profilePicture)} alt={avatarMembers[0].username} />
 				{:else}
 					<div class="avatar-placeholder" style="--avatar-color: {avatarMembers[0].roleColor || avatarMembers[0].color}">
 						{avatarMembers[0].username.charAt(0).toUpperCase()}
@@ -44,7 +45,7 @@
 		{#if avatarMembers.length >= 2}
 			<div class="avatar-slot bottom-right" style="width: {innerSize}px; height: {innerSize}px;">
 				{#if avatarMembers[1].profilePicture}
-					<img src={avatarMembers[1].profilePicture} alt={avatarMembers[1].username} />
+					<img src={mediaUrl(avatarMembers[1].profilePicture)} alt={avatarMembers[1].username} />
 				{:else}
 					<div class="avatar-placeholder" style="--avatar-color: {avatarMembers[1].roleColor || avatarMembers[1].color}">
 						{avatarMembers[1].username.charAt(0).toUpperCase()}

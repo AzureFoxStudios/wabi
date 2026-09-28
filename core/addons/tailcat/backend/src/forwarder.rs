@@ -47,7 +47,13 @@ fn is_hop_by_hop(name: &http::HeaderName, upgrading: bool) -> bool {
     }
     matches!(
         name.as_str(),
-        "connection" | "keep-alive" | "proxy-connection" | "te" | "trailer" | "transfer-encoding" | "upgrade"
+        "connection"
+            | "keep-alive"
+            | "proxy-connection"
+            | "te"
+            | "trailer"
+            | "transfer-encoding"
+            | "upgrade"
     )
 }
 
@@ -59,9 +65,20 @@ pub async fn run(
     mut shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
     let listener = TcpListener::bind(listen).await?;
-    tracing::info!("[tailcat] tagging forwarder listening on {listen} -> {target}");
-    let client: Client<HttpConnector, BoxBody> =
-        Client::builder(TokioExecutor::new()).build_http();
+    run_listener(listener, target, pipe_auth_token, shutdown).await
+}
+
+pub async fn run_listener(
+    listener: TcpListener,
+    target: SocketAddr,
+    pipe_auth_token: String,
+    mut shutdown: watch::Receiver<bool>,
+) -> anyhow::Result<()> {
+    tracing::info!(
+        "[tailcat] tagging forwarder listening on {} -> {target}",
+        listener.local_addr()?
+    );
+    let client: Client<HttpConnector, BoxBody> = Client::builder(TokioExecutor::new()).build_http();
     loop {
         tokio::select! {
             _ = shutdown.changed() => {
@@ -82,22 +99,26 @@ pub async fn run(
                 // No trailing slash: request paths arrive absolute ("/api/...")
                 // and a "//api/..." double slash 404s in the target router.
                 let target_http = format!("http://{target}");
+                let mut connection_stop = shutdown.clone();
+                let request_stop = shutdown.clone();
                 tokio::spawn(async move {
                     let service = service_fn(move |req| {
                         let client = client.clone();
                         let token = token.clone();
                         let target_http = target_http.clone();
+                        let request_stop = request_stop.clone();
                         async move {
                             Ok::<_, std::convert::Infallible>(
-                                proxy(client, target_http, token, peer, req).await,
+                                proxy_with_shutdown(client, target_http, token, peer, req, request_stop).await,
                             )
                         }
                     });
                     // with_upgrades() is required for socket.io websockets.
-                    let _ = hyper::server::conn::http1::Builder::new()
-                        .serve_connection(TokioIo::new(stream), service)
-                        .with_upgrades()
-                        .await;
+                    tokio::select! {
+                        _ = connection_stop.changed() => {},
+                        _ = async { let _ = hyper::server::conn::http1::Builder::new()
+                            .serve_connection(TokioIo::new(stream), service).with_upgrades().await; } => {}
+                    }
                 });
             }
         }
@@ -111,7 +132,22 @@ async fn proxy(
     peer: SocketAddr,
     req: Request<Incoming>,
 ) -> Response<BoxBody> {
-    match proxy_inner(client, &target, &token, peer, req).await {
+    let (keep, shutdown) = watch::channel(false);
+    tokio::spawn(async move {
+        keep.closed().await;
+    });
+    proxy_with_shutdown(client, target, token, peer, req, shutdown).await
+}
+
+async fn proxy_with_shutdown(
+    client: Client<HttpConnector, BoxBody>,
+    target: String,
+    token: String,
+    peer: SocketAddr,
+    req: Request<Incoming>,
+    shutdown: watch::Receiver<bool>,
+) -> Response<BoxBody> {
+    match proxy_inner(client, &target, &token, peer, req, shutdown).await {
         Ok(res) => res,
         Err(e) => {
             tracing::warn!("[tailcat] forwarder proxy error: {e}");
@@ -129,12 +165,13 @@ async fn proxy_inner(
     token: &str,
     peer: SocketAddr,
     req: Request<Incoming>,
+    mut shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<Response<BoxBody>> {
     let (mut parts, body) = req.into_parts();
 
-    // The server side of the upgrade: hyper inserted OnUpgrade into the
-    // request extensions; move it to the upstream request so the client
-    // performs the same upgrade.
+    // Retain the downstream request's upgrade handle. A newly constructed
+    // response does not contain it, and the upstream client owns a separate
+    // upgrade handle for its connection.
     let server_upgrade = parts.extensions.remove::<OnUpgrade>();
     let upgrading = server_upgrade.is_some();
 
@@ -148,9 +185,18 @@ async fn proxy_inner(
     let mut builder = Request::builder()
         .method(parts.method.clone())
         .uri(uri)
-        .header(header::HOST, target.trim_start_matches("http://").trim_end_matches('/'));
+        .header(
+            header::HOST,
+            target.trim_start_matches("http://").trim_end_matches('/'),
+        );
     for (name, value) in parts.headers.iter() {
-        if is_hop_by_hop(name, upgrading) || name == header::HOST {
+        // These tags belong to this trusted hop. Appending after a caller's
+        // values leaves duplicates, and HeaderMap::get reads the first one.
+        if is_hop_by_hop(name, upgrading)
+            || name == header::HOST
+            || name == PIPE_AUTH_HEADER
+            || name == PIPE_CLIENT_HEADER
+        {
             continue;
         }
         builder = builder.header(name, value);
@@ -159,10 +205,7 @@ async fn proxy_inner(
         .header(PIPE_AUTH_HEADER, token)
         .header(PIPE_CLIENT_HEADER, peer.to_string());
 
-    let mut creq = builder.body(body.boxed())?;
-    if let Some(ou) = server_upgrade {
-        creq.extensions_mut().insert(ou);
-    }
+    let creq = builder.body(body.boxed())?;
 
     let mut cres = client.request(creq).await?;
     let is_101 = cres.status() == StatusCode::SWITCHING_PROTOCOLS;
@@ -180,22 +223,20 @@ async fn proxy_inner(
         }
         rb = rb.header(name, value);
     }
-    let mut res = rb.body(if is_101 { empty() } else { rbody.boxed() })?;
+    let res = rb.body(if is_101 { empty() } else { rbody.boxed() })?;
 
     if is_101 {
-        if let Some(cu) = client_upgrade {
-            // hyper::upgrade::on() registers interest in OUR 101 being written
-            // and yields the upgraded client IO once the handshake completes.
-            let su = hyper::upgrade::on(&mut res);
+        if let (Some(su), Some(cu)) = (server_upgrade, client_upgrade) {
             tokio::spawn(async move {
                 match tokio::try_join!(su, cu) {
                     Ok((server_io, client_io)) => {
                         let mut server_io = TokioIo::new(server_io);
                         let mut client_io = TokioIo::new(client_io);
-                        if let Err(e) =
-                            copy_bidirectional(&mut server_io, &mut client_io).await
-                        {
-                            tracing::debug!("[tailcat] upgraded tunnel closed: {e}");
+                        tokio::select! {
+                            _ = shutdown.changed() => {},
+                            result = copy_bidirectional(&mut server_io, &mut client_io) => {
+                                if let Err(e) = result { tracing::debug!("[tailcat] upgraded tunnel closed: {e}"); }
+                            }
                         }
                     }
                     Err(e) => {
@@ -213,8 +254,8 @@ async fn proxy_inner(
 mod tests {
     use super::*;
     use http_body_util::BodyExt;
-    use hyper::service::service_fn;
     use hyper::body::Incoming as IncomingBody;
+    use hyper::service::service_fn;
     use std::net::SocketAddr as SA;
 
     /// Target server that echoes back the pipe headers it received.
@@ -246,12 +287,10 @@ mod tests {
                         // Echo the path too: a forwarder that mangles the
                         // path (e.g. double slash) must fail this test.
                         let path = parts.uri.path().to_string();
-                        Ok::<_, std::convert::Infallible>(
-                            Response::new(
-                                http_body_util::Full::<Bytes>::from(format!("{auth}|{client}|{path}"))
-                                    .boxed(),
-                            ),
-                        )
+                        Ok::<_, std::convert::Infallible>(Response::new(
+                            http_body_util::Full::<Bytes>::from(format!("{auth}|{client}|{path}"))
+                                .boxed(),
+                        ))
                     });
                     let _ = hyper::server::conn::http1::Builder::new()
                         .serve_connection(TokioIo::new(stream), service)
@@ -271,12 +310,7 @@ mod tests {
 
         let (tx, rx) = watch::channel(false);
         let token = "test-token-123".to_string();
-        let fwd = tokio::spawn(run(
-            fwd_addr,
-            target,
-            token.clone(),
-            rx,
-        ));
+        let fwd = tokio::spawn(run(fwd_addr, target, token.clone(), rx));
 
         // Give the forwarder a moment to bind.
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -287,6 +321,8 @@ mod tests {
             .request(
                 Request::builder()
                     .uri(format!("http://{fwd_addr}/probe"))
+                    .header(PIPE_AUTH_HEADER, "caller-forged-token")
+                    .header(PIPE_CLIENT_HEADER, "caller-chosen-identity")
                     .body(empty())
                     .unwrap(),
             )
@@ -296,9 +332,94 @@ mod tests {
         let body = res.into_body().collect().await.unwrap().to_bytes();
         let text = String::from_utf8_lossy(&body);
         assert!(text.starts_with("test-token-123|127.0.0.1:"), "got: {text}");
-        assert!(text.ends_with("|/probe"), "path must be preserved, got: {text}");
+        assert!(
+            text.ends_with("|/probe"),
+            "path must be preserved, got: {text}"
+        );
 
         tx.send(true).unwrap();
         let _ = fwd.await;
+    }
+}
+
+#[cfg(test)]
+mod upgrade_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn upgrade_bridges_bytes_in_both_directions() {
+        use std::time::Duration;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::{TcpListener, TcpStream};
+        let target_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target = target_listener.local_addr().unwrap();
+        let upstream = tokio::spawn(async move {
+            let (stream, _) = target_listener.accept().await.unwrap();
+            let service = service_fn(|req: Request<Incoming>| async move {
+                let upgrade = hyper::upgrade::on(req);
+                tokio::spawn(async move {
+                    let mut io = TokioIo::new(upgrade.await.unwrap());
+                    io.write_all(b"HELLO").await.unwrap();
+                    let mut request = [0; 4];
+                    io.read_exact(&mut request).await.unwrap();
+                    assert_eq!(&request, b"PING");
+                    io.write_all(b"PONG").await.unwrap();
+                });
+                Ok::<_, std::convert::Infallible>(
+                    Response::builder()
+                        .status(StatusCode::SWITCHING_PROTOCOLS)
+                        .header(header::CONNECTION, "upgrade")
+                        .header(header::UPGRADE, "wabi-test")
+                        .body(empty())
+                        .unwrap(),
+                )
+            });
+            hyper::server::conn::http1::Builder::new()
+                .serve_connection(TokioIo::new(stream), service)
+                .with_upgrades()
+                .await
+                .unwrap();
+        });
+        let proxy_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_address = proxy_listener.local_addr().unwrap();
+        let forwarder = tokio::spawn(async move {
+            let (stream, peer) = proxy_listener.accept().await.unwrap();
+            let client: Client<HttpConnector, BoxBody> =
+                Client::builder(TokioExecutor::new()).build_http();
+            let target = format!("http://{target}");
+            let service = service_fn(move |req| {
+                let client = client.clone();
+                let target = target.clone();
+                async move {
+                    Ok::<_, std::convert::Infallible>(
+                        proxy(client, target, "upgrade-test-token".into(), peer, req).await,
+                    )
+                }
+            });
+            hyper::server::conn::http1::Builder::new()
+                .serve_connection(TokioIo::new(stream), service)
+                .with_upgrades()
+                .await
+                .unwrap();
+        });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let mut client = TcpStream::connect(proxy_address).await.unwrap();
+            client.write_all(b"GET /upgrade HTTP/1.1\r\nHost: localhost\r\nConnection: upgrade\r\nUpgrade: wabi-test\r\n\r\n").await.unwrap();
+            let mut headers = Vec::new();
+            while !headers.ends_with(b"\r\n\r\n") {
+                headers.push(client.read_u8().await.unwrap());
+                assert!(headers.len() < 8192);
+            }
+            assert!(headers.starts_with(b"HTTP/1.1 101"));
+            let mut greeting = [0; 5];
+            client.read_exact(&mut greeting).await.expect("upstream bytes cross the upgraded proxy");
+            assert_eq!(&greeting, b"HELLO");
+            client.write_all(b"PING").await.unwrap();
+            let mut response = [0; 4];
+            client.read_exact(&mut response).await.unwrap();
+            assert_eq!(&response, b"PONG");
+        }).await.expect("upgrade round trip must not hang");
+        upstream.await.unwrap();
+        forwarder.await.unwrap();
     }
 }

@@ -7,7 +7,10 @@ use crate::domain::{
     WikiPage, WikiRevision,
 };
 use crate::error::Result;
-use crate::projections::lore::{LoreBindingRecord, LoreCommitRecord, LoreFileChangeRecord, LorePromoteRecord, LoreRepoRecord, LoreTokenRecord};
+use crate::projections::lore::{
+    LoreBindingRecord, LoreCommitRecord, LoreFileChangeRecord, LorePromoteRecord, LoreRepoRecord,
+    LoreTokenRecord,
+};
 use crate::projections::payments::{
     PaymentAccountLinkRecord, PaymentIntentRecord, PaymentUserBlockRecord,
 };
@@ -61,12 +64,7 @@ pub trait WabiStore: Send + Sync {
     ) -> Result<()>;
 
     /// Add or update a reaction on a message.
-    async fn add_reaction(
-        &self,
-        message_id: &str,
-        user_id: u64,
-        emote: &str,
-    ) -> Result<()>;
+    async fn add_reaction(&self, message_id: &str, user_id: u64, emote: &str) -> Result<()>;
 
     /// Add a user to a channel with a given role.
     async fn add_channel_member(
@@ -100,11 +98,7 @@ pub trait WabiStore: Send + Sync {
     async fn touch_user(&self, user_id: u64) -> Result<()>;
 
     /// Patch mutable profile fields on a user (avatar, font, bio, status, color, username).
-    async fn update_user(
-        &self,
-        user_id: u64,
-        updates: crate::domain::UserUpdate,
-    ) -> Result<()>;
+    async fn update_user(&self, user_id: u64, updates: crate::domain::UserUpdate) -> Result<()>;
 
     /// Hard-delete a user via the `user_deleted` tombstone event. Removes
     /// the account row plus dependent rows (channel memberships, DM
@@ -121,11 +115,7 @@ pub trait WabiStore: Send + Sync {
     async fn get_message_typed(&self, message_id: &str) -> Result<Option<Message>>;
 
     /// List messages in a channel, newest first, up to `limit` entries (typed).
-    async fn list_messages_typed(
-        &self,
-        channel_id: &str,
-        limit: u64,
-    ) -> Result<Vec<Message>>;
+    async fn list_messages_typed(&self, channel_id: &str, limit: u64) -> Result<Vec<Message>>;
 
     /// Retrieve a single message by its ID (legacy string interface).
     async fn get_message(&self, message_id: &str) -> Result<Option<String>>;
@@ -201,7 +191,12 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// Edit a message's content.
-    async fn edit_message(&self, _message_id: &str, _actor_user_id: u64, _new_content: &str) -> Result<()> {
+    async fn edit_message(
+        &self,
+        _message_id: &str,
+        _actor_user_id: u64,
+        _new_content: &str,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -211,12 +206,23 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// Mute a user in a channel until the given microsecond timestamp.
-    async fn mute_user(&self, _channel_id: &str, _actor_user_id: u64, _target_user_id: u64, _until_micros: i64) -> Result<()> {
+    async fn mute_user(
+        &self,
+        _channel_id: &str,
+        _actor_user_id: u64,
+        _target_user_id: u64,
+        _until_micros: i64,
+    ) -> Result<()> {
         Ok(())
     }
 
     /// Unmute a user in a channel.
-    async fn unmute_user(&self, _channel_id: &str, _actor_user_id: u64, _target_user_id: u64) -> Result<()> {
+    async fn unmute_user(
+        &self,
+        _channel_id: &str,
+        _actor_user_id: u64,
+        _target_user_id: u64,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -226,12 +232,22 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// Deafen a user in a voice channel.
-    async fn deafen_user(&self, _channel_id: &str, _actor_user_id: u64, _target_user_id: u64) -> Result<()> {
+    async fn deafen_user(
+        &self,
+        _channel_id: &str,
+        _actor_user_id: u64,
+        _target_user_id: u64,
+    ) -> Result<()> {
         Ok(())
     }
 
     /// Undeafen a user in a voice channel.
-    async fn undeafen_user(&self, _channel_id: &str, _actor_user_id: u64, _target_user_id: u64) -> Result<()> {
+    async fn undeafen_user(
+        &self,
+        _channel_id: &str,
+        _actor_user_id: u64,
+        _target_user_id: u64,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -306,7 +322,12 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// Upsert a retention policy for a channel.
-    async fn upsert_channel_retention(&self, _channel_id: &str, _days: u32, _set_by_user_id: u64) -> Result<()> {
+    async fn upsert_channel_retention(
+        &self,
+        _channel_id: &str,
+        _days: u32,
+        _set_by_user_id: u64,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -379,18 +400,24 @@ pub trait WabiStore: Send + Sync {
         _members: &[u64],
     ) -> Result<u64> {
         Err(crate::error::WabiError::Validation {
-            command: "create_group".into(), reason: "store does not implement group commands".into(),
+            command: "create_group".into(),
+            reason: "store does not implement group commands".into(),
         })
     }
 
     /// Apply an authorized membership delta and owner succession in one command.
     /// Empty final membership retires the channel. Returns the applied revision.
     async fn change_group_membership(
-        &self, _actor_user_id: u64, _channel_id: &str,
-        _add: Option<u64>, _remove: Option<u64>, _owner_user_id: u64,
+        &self,
+        _actor_user_id: u64,
+        _channel_id: &str,
+        _add: Option<u64>,
+        _remove: Option<u64>,
+        _owner_user_id: u64,
     ) -> Result<u64> {
         Err(crate::error::WabiError::Validation {
-            command: "change_group_membership".into(), reason: "store does not implement group commands".into(),
+            command: "change_group_membership".into(),
+            reason: "store does not implement group commands".into(),
         })
     }
 
@@ -455,20 +482,12 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// Mark a user as having left a call session.
-    async fn leave_call_session(
-        &self,
-        _session_id: String,
-        _user_id: u64,
-    ) -> Result<u64> {
+    async fn leave_call_session(&self, _session_id: String, _user_id: u64) -> Result<u64> {
         Ok(0)
     }
 
     /// Mark a call session as ended.
-    async fn end_call_session(
-        &self,
-        _session_id: String,
-        _actor_user_id: u64,
-    ) -> Result<u64> {
+    async fn end_call_session(&self, _session_id: String, _actor_user_id: u64) -> Result<u64> {
         Ok(0)
     }
 
@@ -501,10 +520,7 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// List all participants in a call session.
-    async fn get_call_participants(
-        &self,
-        _session_id: &str,
-    ) -> Result<Vec<CallParticipant>> {
+    async fn get_call_participants(&self, _session_id: &str) -> Result<Vec<CallParticipant>> {
         Ok(Vec::new())
     }
 
@@ -525,17 +541,34 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// Get a single album.
-    async fn get_album(&self, _scope_type: &str, _scope_id: &str, _album_id: &str) -> Result<Option<Album>> {
+    async fn get_album(
+        &self,
+        _scope_type: &str,
+        _scope_id: &str,
+        _album_id: &str,
+    ) -> Result<Option<Album>> {
         Ok(None)
     }
 
     /// Create an album. Returns the new album_id.
-    async fn create_album(&self, _scope_type: &str, _scope_id: &str, _name: &str, _user_id: u64) -> Result<String> {
+    async fn create_album(
+        &self,
+        _scope_type: &str,
+        _scope_id: &str,
+        _name: &str,
+        _user_id: u64,
+    ) -> Result<String> {
         Ok(String::new())
     }
 
     /// Soft-delete an album.
-    async fn delete_album(&self, _scope_type: &str, _scope_id: &str, _album_id: &str, _user_id: u64) -> Result<()> {
+    async fn delete_album(
+        &self,
+        _scope_type: &str,
+        _scope_id: &str,
+        _album_id: &str,
+        _user_id: u64,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -545,7 +578,14 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// Add an item to an album. Returns the new item_id.
-    async fn add_item(&self, _album_id: &str, _url: &str, _name: &str, _caption: Option<&str>, _user_id: u64) -> Result<String> {
+    async fn add_item(
+        &self,
+        _album_id: &str,
+        _url: &str,
+        _name: &str,
+        _caption: Option<&str>,
+        _user_id: u64,
+    ) -> Result<String> {
         Ok(String::new())
     }
 
@@ -596,24 +636,43 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// Soft-delete a wiki page.
-    async fn delete_wiki_page(&self, _channel_id: &str, _page_id: &str, _actor_user_id: u64) -> Result<()> {
+    async fn delete_wiki_page(
+        &self,
+        _channel_id: &str,
+        _page_id: &str,
+        _actor_user_id: u64,
+    ) -> Result<()> {
         Ok(())
     }
 
     /// List revisions for a wiki page.
-    async fn list_wiki_revisions(&self, _channel_id: &str, _page_id: &str) -> Result<Vec<WikiRevision>> {
+    async fn list_wiki_revisions(
+        &self,
+        _channel_id: &str,
+        _page_id: &str,
+    ) -> Result<Vec<WikiRevision>> {
         Ok(Vec::new())
     }
 
     /// Get a single wiki revision.
-    async fn get_wiki_revision(&self, _channel_id: &str, _page_id: &str, _revision_id: &str) -> Result<Option<WikiRevision>> {
+    async fn get_wiki_revision(
+        &self,
+        _channel_id: &str,
+        _page_id: &str,
+        _revision_id: &str,
+    ) -> Result<Option<WikiRevision>> {
         Ok(None)
     }
 
     // --- forum ---
 
     /// Get a single forum post.
-    async fn get_forum_post(&self, _channel_id: &str, _thread_id: &str, _post_id: &str) -> Result<Option<ForumPost>> {
+    async fn get_forum_post(
+        &self,
+        _channel_id: &str,
+        _thread_id: &str,
+        _post_id: &str,
+    ) -> Result<Option<ForumPost>> {
         Ok(None)
     }
 
@@ -623,7 +682,11 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// List posts in a thread (excludes deleted).
-    async fn list_forum_posts(&self, _channel_id: &str, _thread_id: &str) -> Result<Vec<ForumPost>> {
+    async fn list_forum_posts(
+        &self,
+        _channel_id: &str,
+        _thread_id: &str,
+    ) -> Result<Vec<ForumPost>> {
         Ok(Vec::new())
     }
 
@@ -668,7 +731,13 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// Soft-delete a forum post.
-    async fn delete_forum_post(&self, _channel_id: &str, _thread_id: &str, _post_id: &str, _actor_user_id: u64) -> Result<()> {
+    async fn delete_forum_post(
+        &self,
+        _channel_id: &str,
+        _thread_id: &str,
+        _post_id: &str,
+        _actor_user_id: u64,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -712,7 +781,11 @@ pub trait WabiStore: Send + Sync {
     // --- incidents ---
 
     /// Get a single incident.
-    async fn get_incident(&self, _channel_id: &str, _incident_id: &str) -> Result<Option<Incident>> {
+    async fn get_incident(
+        &self,
+        _channel_id: &str,
+        _incident_id: &str,
+    ) -> Result<Option<Incident>> {
         Ok(None)
     }
 
@@ -722,17 +795,39 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// Create an incident. Returns the new incident_id.
-    async fn create_incident(&self, _channel_id: &str, _title: &str, _description: &str, _severity: &str, _reporter_user_id: u64) -> Result<String> {
+    async fn create_incident(
+        &self,
+        _channel_id: &str,
+        _title: &str,
+        _description: &str,
+        _severity: &str,
+        _reporter_user_id: u64,
+    ) -> Result<String> {
         Ok(String::new())
     }
 
     /// Update incident fields (title, description, severity, status, assignment).
-    async fn update_incident(&self, _channel_id: &str, _incident_id: &str, _title: &str, _description: &str, _severity: &str, _status: &str, _assigned_user_id: Option<u64>, _actor_user_id: u64) -> Result<()> {
+    async fn update_incident(
+        &self,
+        _channel_id: &str,
+        _incident_id: &str,
+        _title: &str,
+        _description: &str,
+        _severity: &str,
+        _status: &str,
+        _assigned_user_id: Option<u64>,
+        _actor_user_id: u64,
+    ) -> Result<()> {
         Ok(())
     }
 
     /// Resolve an incident (sets status to "resolved" and resolved_at).
-    async fn resolve_incident(&self, _channel_id: &str, _incident_id: &str, _actor_user_id: u64) -> Result<()> {
+    async fn resolve_incident(
+        &self,
+        _channel_id: &str,
+        _incident_id: &str,
+        _actor_user_id: u64,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -839,19 +934,34 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// List recipients for a DM message (delivery/read status).
-    async fn list_dm_recipients(&self, _dm_id: &str, _message_id: &str) -> Result<Vec<DmRecipient>> {
+    async fn list_dm_recipients(
+        &self,
+        _dm_id: &str,
+        _message_id: &str,
+    ) -> Result<Vec<DmRecipient>> {
         Ok(Vec::new())
     }
 
     /// Send a DM message. Returns the new message id.
-    async fn send_dm_message(&self, _dm_id: &str, _author_user_id: u64, _content: &str) -> Result<String> {
+    async fn send_dm_message(
+        &self,
+        _dm_id: &str,
+        _author_user_id: u64,
+        _content: &str,
+    ) -> Result<String> {
         Ok(String::new())
     }
 
     // --- lore ---
 
     /// Register a Lore repo for a channel.
-    async fn lore_create_repo(&self, _channel_id: i64, _repo_name: &str, _lore_server_url: &str, _created_by: i64) -> Result<()> {
+    async fn lore_create_repo(
+        &self,
+        _channel_id: i64,
+        _repo_name: &str,
+        _lore_server_url: &str,
+        _created_by: i64,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -908,7 +1018,15 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// Record a Lore commit in the event log.
-    async fn lore_commit(&self, _channel_id: i64, _commit_hash: &str, _repo_name: &str, _file_path: &str, _message: &str, _author_user_id: i64) -> Result<()> {
+    async fn lore_commit(
+        &self,
+        _channel_id: i64,
+        _commit_hash: &str,
+        _repo_name: &str,
+        _file_path: &str,
+        _message: &str,
+        _author_user_id: i64,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -974,37 +1092,83 @@ pub trait WabiStore: Send + Sync {
     }
 
     /// Get a single gallery work.
-    async fn get_gallery_work(&self, _channel_id: &str, _work_id: &str) -> Result<Option<GalleryWork>> {
+    async fn get_gallery_work(
+        &self,
+        _channel_id: &str,
+        _work_id: &str,
+    ) -> Result<Option<GalleryWork>> {
         Ok(None)
     }
 
     /// Upload a gallery work. Returns the new work_id.
-    async fn upload_gallery_work(&self, _channel_id: &str, _title: &str, _caption: &str, _attachment_url: &str, _mime_type: &str, _category: &str, _is_wip: bool, _author_user_id: u64) -> Result<String> {
+    async fn upload_gallery_work(
+        &self,
+        _channel_id: &str,
+        _title: &str,
+        _caption: &str,
+        _attachment_url: &str,
+        _mime_type: &str,
+        _category: &str,
+        _is_wip: bool,
+        _author_user_id: u64,
+    ) -> Result<String> {
         Ok(String::new())
     }
 
     /// Edit a gallery work's mutable fields.
-    async fn edit_gallery_work(&self, _channel_id: &str, _work_id: &str, _title: &str, _caption: &str, _category: &str, _is_wip: bool, _actor_user_id: u64) -> Result<()> {
+    async fn edit_gallery_work(
+        &self,
+        _channel_id: &str,
+        _work_id: &str,
+        _title: &str,
+        _caption: &str,
+        _category: &str,
+        _is_wip: bool,
+        _actor_user_id: u64,
+    ) -> Result<()> {
         Ok(())
     }
 
     /// Soft-delete a gallery work.
-    async fn delete_gallery_work(&self, _channel_id: &str, _work_id: &str, _actor_user_id: u64) -> Result<()> {
+    async fn delete_gallery_work(
+        &self,
+        _channel_id: &str,
+        _work_id: &str,
+        _actor_user_id: u64,
+    ) -> Result<()> {
         Ok(())
     }
 
     /// List feedback for a gallery work (excludes deleted).
-    async fn list_gallery_feedback(&self, _channel_id: &str, _work_id: &str) -> Result<Vec<GalleryFeedback>> {
+    async fn list_gallery_feedback(
+        &self,
+        _channel_id: &str,
+        _work_id: &str,
+    ) -> Result<Vec<GalleryFeedback>> {
         Ok(Vec::new())
     }
 
     /// Add feedback to a gallery work. Returns the new feedback_id.
-    async fn add_gallery_feedback(&self, _channel_id: &str, _work_id: &str, _comment: &str, _x_percent: f32, _y_percent: f32, _author_user_id: u64) -> Result<String> {
+    async fn add_gallery_feedback(
+        &self,
+        _channel_id: &str,
+        _work_id: &str,
+        _comment: &str,
+        _x_percent: f32,
+        _y_percent: f32,
+        _author_user_id: u64,
+    ) -> Result<String> {
         Ok(String::new())
     }
 
     /// Soft-delete a feedback comment.
-    async fn delete_gallery_feedback(&self, _channel_id: &str, _work_id: &str, _feedback_id: &str, _actor_user_id: u64) -> Result<()> {
+    async fn delete_gallery_feedback(
+        &self,
+        _channel_id: &str,
+        _work_id: &str,
+        _feedback_id: &str,
+        _actor_user_id: u64,
+    ) -> Result<()> {
         Ok(())
     }
 }
@@ -1070,12 +1234,7 @@ impl WabiStore for LocalWabiStore {
         Ok("ch_local_stub".to_string())
     }
 
-    async fn add_reaction(
-        &self,
-        _message_id: &str,
-        _user_id: u64,
-        _emote: &str,
-    ) -> Result<()> {
+    async fn add_reaction(&self, _message_id: &str, _user_id: u64, _emote: &str) -> Result<()> {
         Ok(())
     }
 
@@ -1115,11 +1274,7 @@ impl WabiStore for LocalWabiStore {
         Ok(())
     }
 
-    async fn update_user(
-        &self,
-        _user_id: u64,
-        _updates: crate::domain::UserUpdate,
-    ) -> Result<()> {
+    async fn update_user(&self, _user_id: u64, _updates: crate::domain::UserUpdate) -> Result<()> {
         Ok(())
     }
 
@@ -1137,11 +1292,7 @@ impl WabiStore for LocalWabiStore {
         Ok(self.messages.get(message_id).cloned())
     }
 
-    async fn list_messages_typed(
-        &self,
-        channel_id: &str,
-        limit: u64,
-    ) -> Result<Vec<Message>> {
+    async fn list_messages_typed(&self, channel_id: &str, limit: u64) -> Result<Vec<Message>> {
         let ids = self
             .messages_by_channel
             .get(channel_id)
@@ -1228,11 +1379,7 @@ impl WabiStore for LocalWabiStore {
     }
 
     async fn list_reactions(&self, message_id: &str) -> Result<Vec<Reaction>> {
-        Ok(self
-            .reactions
-            .get(message_id)
-            .cloned()
-            .unwrap_or_default())
+        Ok(self.reactions.get(message_id).cloned().unwrap_or_default())
     }
 
     async fn list_bans(&self, channel_id: &str) -> Result<Vec<Ban>> {
@@ -1271,7 +1418,12 @@ impl WabiStore for LocalWabiStore {
         Ok(())
     }
 
-    async fn edit_message(&self, message_id: &str, _actor_user_id: u64, _new_content: &str) -> Result<()> {
+    async fn edit_message(
+        &self,
+        message_id: &str,
+        _actor_user_id: u64,
+        _new_content: &str,
+    ) -> Result<()> {
         let _ = message_id;
         Ok(())
     }
@@ -1353,11 +1505,7 @@ impl WabiStore for LocalWabiStore {
     }
 
     async fn get_webhooks(&self, channel_id: &str) -> Result<Vec<Webhook>> {
-        Ok(self
-            .webhooks
-            .get(channel_id)
-            .cloned()
-            .unwrap_or_default())
+        Ok(self.webhooks.get(channel_id).cloned().unwrap_or_default())
     }
 
     async fn upsert_webhook(&self, _channel_id: &str, _name: &str, _url: &str) -> Result<()> {
@@ -1403,7 +1551,10 @@ mod tests {
     #[tokio::test]
     async fn legacy_string_methods_still_work() {
         let store = LocalWabiStore::new();
-        let id = store.send_message("ch_1", 42, "hello", false, &[]).await.unwrap();
+        let id = store
+            .send_message("ch_1", 42, "hello", false, &[])
+            .await
+            .unwrap();
         assert!(!id.is_empty());
         let _ = store.get_message("any_id").await.unwrap();
         let _ = store.list_messages("ch_1", 10).await.unwrap();
@@ -1456,13 +1607,24 @@ mod tests {
         store.undeafen_user("ch_1", 1, 42).await.unwrap();
         assert!(!store.is_user_deafened("ch_1", 42).await.unwrap());
         assert!(store.get_emotes().await.unwrap().is_empty());
-        store.upsert_emote("wave", "url", "Wave", "", "custom", "emoji", 42).await.unwrap();
-        assert!(store.get_emoji_role_rules("msg_1").await.unwrap().is_empty());
+        store
+            .upsert_emote("wave", "url", "Wave", "", "custom", "emoji", 42)
+            .await
+            .unwrap();
+        assert!(store
+            .get_emoji_role_rules("msg_1")
+            .await
+            .unwrap()
+            .is_empty());
         assert!(store.get_webhooks("ch_1").await.unwrap().is_empty());
         store.upsert_webhook("ch_1", "hook", "url").await.unwrap();
         assert!(store.get_user_layout(42).await.unwrap().is_none());
         store.upsert_user_layout(42, "{}").await.unwrap();
-        assert!(store.get_whiteboard_doc("channel:abc").await.unwrap().is_none());
+        assert!(store
+            .get_whiteboard_doc("channel:abc")
+            .await
+            .unwrap()
+            .is_none());
         store.put_whiteboard_doc("channel:abc", "{}").await.unwrap();
         assert!(store.get_channel_retention("ch_1").await.unwrap().is_none());
         store.upsert_channel_retention("ch_1", 30, 1).await.unwrap();
@@ -1472,7 +1634,11 @@ mod tests {
     async fn get_user_returns_none_for_missing() {
         let store = LocalWabiStore::new();
         assert!(store.get_user(999).await.unwrap().is_none());
-        assert!(store.get_user_by_username("nobody").await.unwrap().is_none());
+        assert!(store
+            .get_user_by_username("nobody")
+            .await
+            .unwrap()
+            .is_none());
         assert!(store.list_users().await.unwrap().is_empty());
     }
 

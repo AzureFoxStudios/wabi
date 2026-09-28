@@ -27,6 +27,8 @@
 					{$_('chat.mentions.kind_mention')}
 				{:else if suggestion.kind === 'place'}
 					Place
+				{:else if suggestion.kind === 'game'}
+					🎮 Game
 				{:else if suggestion.kind === 'channel'}
 					# Channel
 				{:else if suggestion.kind === 'forum_post'}

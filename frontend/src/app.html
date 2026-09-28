@@ -3,13 +3,14 @@
 	<head>
 		<meta charset="utf-8" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.png" data-wabi-favicon />
+		<link rel="apple-touch-icon" href="%sveltekit.assets%/apple-touch-icon.png" />
 		<link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
 		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 		<meta name="mobile-web-app-capable" content="yes" />
 		<meta name="theme-color" content="#0D1024" data-wabi-theme-color />
-		<meta name="description" content="Ephemeral chat with screen sharing and business features" />
+		<meta name="description" content="Open-source, self-hosted communication and collaboration for small communities, with chat, calls, shared workspaces, and creative review." />
 		<title data-wabi-brand-title>Wabi</title>
 		<script>
 			// Early shell flag so first paint can skip desktop chrome on phones / PWA.
@@ -329,6 +330,10 @@
 			// Apply saved-server brand BEFORE first paint so boot isn't stuck on "Wabi".
 			(() => {
 				try {
+					if (window.location.pathname.replace(/\/$/, '') === '/personal') {
+						window.__WABI_BOOT_BRAND__ = { brandName: 'Wabi', logoUrl: '/wabi-logo.png', accent: '#818cf8' };
+						return;
+					}
 					const NEUTRAL_SVG =
 						"data:image/svg+xml;utf8," +
 						"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'>" +

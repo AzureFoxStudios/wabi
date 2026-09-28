@@ -1,0 +1,408 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-09-28T05:24:24.763268+00:00",
+  "scope": "Disposable local main Wabi coordinated application/engine/projection checkpoint boundary; no complete encrypted live exporter or promotion",
+  "checkout_head": "cf00e3cbe37920d6b1da76dff3e9171ab4aac7a5",
+  "dirty_worktree": true,
+  "toolchain": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+  "incremental_output_enabled": false,
+  "checks": [
+    {
+      "name": "database_checkpoint_and_snapshot_regressions",
+      "command": "CARGO_INCREMENTAL=0 cargo test --locked -p wabidb --lib -- engine::checkpoint::tests engine::locks::tests tests::write_completion sequencer::tests",
+      "passed": 49,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log_sha256": "fc97d92c225e4affa12852ae649d3750aa65b45f85d7cb959296fda33d6afafc",
+      "target_results": [
+        {
+          "target": "database_checkpoint_and_snapshot_regressions",
+          "passed": 49,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "name": "server_operation_and_auth_units",
+      "command": "CARGO_INCREMENTAL=0 cargo test --locked -p wabi-server --lib -- instance_operations::tests state::tests api::auth::tests socket_revocation_tests socket_authentication_tests",
+      "passed": 43,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log_sha256": "2a7223f13bd00d657d9f07fa0ae057591a5f715389db130ab080f4a71cc1ea40",
+      "target_results": [
+        {
+          "target": "server_operation_and_auth_units",
+          "passed": 43,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "name": "main_wabi_checkpoint_and_account_chat_contracts",
+      "command": "CARGO_INCREMENTAL=0 cargo test --locked -p wabi-server --test instance_checkpoint_contract --test account_recovery_contract --test auth_revocation_recovery_contract --test message_delivery_contract --test write_visibility_contract --test first_boot_onboarding",
+      "passed": 61,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log_sha256": "861df302aa7601073fbcd8a0e31116ab2ec4bb9103bf4180f664a6eeaee25c8a",
+      "target_results": [
+        {
+          "target": "account_recovery_contract",
+          "passed": 16,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "target": "auth_revocation_recovery_contract",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "target": "first_boot_onboarding",
+          "passed": 21,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "target": "instance_checkpoint_contract",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "target": "message_delivery_contract",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "target": "write_visibility_contract",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    }
+  ],
+  "total_passing_test_executions": 153,
+  "final_failures": 0,
+  "socket_test_execution_note": "18 socket executions cover 9 existing cases through two module paths",
+  "source_sha256": {
+    "rust-toolchain.toml": "e99fdaaa2922d35780ca194f2a321357870b331842c6092653e61a3d42bad977",
+    "Cargo.lock": "44baa98cc7385e28f7770be25db1f18c7d3f9b23f06e8dd6a774ff31db7b4486",
+    "core/crates/wabi-server/Cargo.toml": "2bdfa6af4a4a8fc070140741bb1f11553b82b3217c8a2622df797eb605d80d34",
+    "core/crates/wabidb/Cargo.toml": "41d34cd0315759987d5a14818d4184615538a1613c0913ecacb33f3822289a5d",
+    "core/crates/wabi-server/src/instance_operations.rs": "a21ea71f7eac45f44fee27484aed070a673e3d4780ce27bed941af1219d365f5",
+    "core/crates/wabi-server/src/instance_checkpoint.rs": "b13fbd073c8e05fe2f0cb837f393375545d3876d5de3251f50f4f58a545b017f",
+    "core/crates/wabi-server/src/lib.rs": "2391879396417582f9e068f256ee84038aef9126253a49ad4ecf3431b1e0922f",
+    "core/crates/wabi-server/src/main.rs": "ab8c9c1358016afb3f89e6991a39f844e984a7c743299a9c59733a046a9d5789",
+    "core/crates/wabi-server/src/state.rs": "a5d5a22418e9de1d954a2a99769979f4888a818f85fcc1388ef53787f28824cb",
+    "core/crates/wabi-server/src/adapter/mod.rs": "e5155761749caf6eec01ec186b5ac63cf7a36c6ab26a5f3deddeb0ca37954452",
+    "core/crates/wabi-server/src/recovery_codes.rs": "da86af8007a0ac43ef2d7788354a246e06cf55aa9a4202554bf4d6554d0c69a0",
+    "core/crates/wabi-server/src/auth_revocations.rs": "d5c0881aa534fbe2e2b182cdadc6722bab03e4aa7f95693e917602744ac5d808",
+    "core/crates/wabi-server/src/upload_registry.rs": "9fd342ed75b53d824ed2d0204239b26b1b319d0cdaa2261948a491ac94a0ee7c",
+    "core/crates/wabi-server/src/api/routes.rs": "cd6ef4a0c0407e41cd1d1d59ca33d46d048b92f69b0da79d1d76a8268ab58572",
+    "core/crates/wabi-server/src/app_router.rs": "580f463dcd96ab4d96363467ec58a3e547125448add973f1a1473f31a4e17bed",
+    "core/crates/wabi-server/src/socketio/wiring_handlers.rs": "51507161240cf0a3c466c0c1c12be9956096129ac348cd07667d8aac026d571f",
+    "core/crates/wabi-server/tests/instance_checkpoint_contract.rs": "0cdf9df9b47a7c3f193f23888a16979451888f74393a3d35170874f1a57d1071",
+    "core/crates/wabi-server/tests/account_recovery_contract.rs": "b3db851ef7a501a936e71ac836b447719d967d136ad875bbc49ebc0605b32db8",
+    "core/crates/wabi-server/tests/auth_revocation_recovery_contract.rs": "25770f031fbef5a3131820cef193fa98bca63cc6ba15300456a8c58225efb372",
+    "core/crates/wabi-server/tests/message_delivery_contract.rs": "c12da3904ede32d0528ede7fad49e7fa18a266e2da58c560a2de70db9b1b42c7",
+    "core/crates/wabi-server/tests/write_visibility_contract.rs": "40c052b5ee578835c7764f50c2f2aa6f6658f402f6b20cef9feed55bd1a74f24",
+    "core/crates/wabi-server/tests/first_boot_onboarding.rs": "04bc8b98a5cf3414a33265bab7d1c84e2665a30070c925466dfdf7b8565cb85b",
+    "core/crates/wabidb/src/engine/checkpoint.rs": "80734438b353b14d3252b15622deb4029d89643d057d1a42dd98f320acbc3e0d",
+    "core/crates/wabidb/src/engine/checkpoint/tests.rs": "2de1d1d60ff2b265a4a4026fbff0630f77b5e1789508c9c7df0941c2e59ec329",
+    "core/crates/wabidb/src/engine/locks.rs": "f2ab9fc1df5b7c01e3730c6d53d461da55b10ac25e045e86fe5672d0badae03e",
+    "core/crates/wabidb/src/engine/mod.rs": "e0244ab1aa81fe1d5e1516470d356bf555ec9cb05186f775752a638694a58915",
+    "core/crates/wabidb/src/sequencer/mod.rs": "68a043ad4911183cf52bf2bf8dddb1d38f58cbdfda59e200bc88bef4c7dfa10a",
+    "core/crates/wabidb/src/sequencer/run_command.rs": "67c88c070dfc4ae67284691b18882c0ae35f0f141cd02afafae06c8fa25a2a0e",
+    "core/crates/wabidb/src/engine/replay.rs": "48260fe73da1508055459684c302782bdac29f037bb991a84111561c35999bcb",
+    "core/crates/wabidb/src/tests/write_completion.rs": "35c6f818d590b328b046d1edaf05951e35504750aca044006c1aa3a273bf2cf0",
+    "docs/deployment/CHECKPOINT_BOUNDARY.md": "9cbccb9dcf1c69effb5e8bef9edd5fae7e2b368934bfbc9cd685e7ac8593a2ab",
+    "docs/deployment/RUNTIME_OPERATION_PAUSE.md": "4d051d293d195f9e47d8be8c79f8ab793ab055ce52422f17a9e3d47c6826df05",
+    "docs/architecture/INSTANCE_RECOVERY_INVENTORY.md": "6e884c06fb28992996766cf5cb7919927f5ed2cedf1113ace3f9663180e02a1a",
+    "docs/plans/2026-09-26-geographic-community-nodes.md": "1d58dd7566b3ea3074d3d1d9069bfb06af557ff76b4d47810aad0f0933fad40d",
+    "docs/PROJECT_STATUS.md": "c0e190ff26793e2a96c6b381f89445fbf90bc619bc4cf530338f31916e482093",
+    "docs/ai/wabidb-projections.md": "98c31f6c0e1d55bf5334f0540f4e39c1dc381bc448e82353e3c8313c0122982f",
+    "docs/testing/CHECKPOINT_BOUNDARY_2026-09-28.md": "3ff0f953ef6b1283f583932fb3e3aa158e1e01ddc0e2144ded017b56bb6b4d5e",
+    ".agents/skills/wabidb/wabidb-transaction-system/SKILL.md": "f945c68bcb992e82da4d3d808d881e9d482289c6a5acd05a03300b54cf47da70"
+  },
+  "earlier_passing_runs_not_in_final_total": [
+    {
+      "name": "database_initial",
+      "command": "Earlier scoped development run; excluded from final totals",
+      "passed": 22,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log_sha256": "ae870498ddfcb0f498807afe72fa97ab59a8efb71946fd3e632386fce7ed8d87",
+      "target_results": [
+        {
+          "target": "database_initial",
+          "passed": 22,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "name": "operation_units_initial",
+      "command": "Earlier scoped development run; excluded from final totals",
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log_sha256": "4c92d13f7b06f8d7fda285d5412ad39d17f6b2e75d328a6126a3f45cdbc8c76f",
+      "target_results": [
+        {
+          "target": "operation_units_initial",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "name": "contracts_before_deadline",
+      "command": "Earlier scoped development run; excluded from final totals",
+      "passed": 60,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log_sha256": "b4f7dc9ae203920c256a9ed3533c351b6db4fd87d4e79c89bc1a1bcca7c8ad55",
+      "target_results": [
+        {
+          "target": "account_recovery_contract",
+          "passed": 16,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "target": "auth_revocation_recovery_contract",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "target": "first_boot_onboarding",
+          "passed": 21,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "target": "instance_checkpoint_contract",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "target": "message_delivery_contract",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "target": "write_visibility_contract",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "name": "contracts_before_final_stability_confirmation",
+      "command": "Earlier scoped development run; excluded from final totals",
+      "passed": 61,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log_sha256": "c6306b00fb02977f7864c1e581e8f745aee33e5f9e5cccb2ae6a622954801ca9",
+      "target_results": [
+        {
+          "target": "account_recovery_contract",
+          "passed": 16,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "target": "auth_revocation_recovery_contract",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "target": "first_boot_onboarding",
+          "passed": 21,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "target": "instance_checkpoint_contract",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "target": "message_delivery_contract",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "target": "write_visibility_contract",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    }
+  ],
+  "setup_corrections": [
+    {
+      "kind": "fixture_compile_error",
+      "cause": "New token-expiry fixture supplied u64 where the API accepts i64",
+      "resolution": "Removed the unsigned cast before successful integration runs",
+      "original_log_retained": false
+    },
+    {
+      "kind": "fixture_source_review",
+      "cause": "Snapshot lookup needed the copied data/wabidb directory",
+      "resolution": "Corrected the lookup before the first successful integration run"
+    }
+  ],
+  "execution_environment": "Final integration used approved local loopback listener access for the existing webhook fixture. Production services, firewall and live data were unchanged.",
+  "fixture_limits": [
+    "Plaintext local whole-root fixture copy, not an encrypted live exporter or general backup recipe",
+    "Only known fixture engine process lock omitted; unknown files and empty directories preserved",
+    "Fixture signing key/configuration explicitly supplied; external secrets/plugins/helpers/logs/cache/temp state not certified",
+    "Synthetic unknown events used for sequencing cases; real AppState accounts/messages/uploads used in the combined fixture",
+    "Preparation deadline is cooperative: synchronous validation cannot be preempted, but late results are refused",
+    "Started blocking copy retains guards; no bounded production copy implementation is enabled",
+    "Isolated source and restored fixture have no listening user endpoint; this is not safe promotion",
+    "No fresh WAN/native/media/bandwidth/load/privacy run in this component check"
+  ],
+  "maturity": {
+    "full_instance_ready": false,
+    "encrypted_live_exporter_enabled": false,
+    "unavailable_host_promotion_enabled": false,
+    "automatic_failover_enabled": false,
+    "regional_room_writers_enabled": false,
+    "gate_b_complete": false,
+    "gate_c_complete": false,
+    "gate_d_complete": false,
+    "capacity_privacy_gates_complete": false
+  },
+  "static_checks": {
+    "new_module_fixture_rustfmt_check_exit_code": 0,
+    "tracked_touched_path_diff_check_exit_code": 0
+  },
+  "cleanup": {
+    "status": "complete",
+    "completed_at_utc": "2026-09-28T05:25:16.818286+00:00",
+    "exclusive_nonblocking_cargo_artifact_lock": true,
+    "removed": [
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/instance_checkpoint_contract-e1cdc2260686d257",
+        "logical_bytes": 470266760,
+        "allocated_bytes": 469913600,
+        "link_count_before_removal": 1,
+        "sha256": "101853062cc188136b023fec8f2f0772b87a6a42d0a1c329c75e22571a51e28c"
+      },
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/instance_checkpoint_contract-e1cdc2260686d257.d",
+        "logical_bytes": 357,
+        "allocated_bytes": 4096,
+        "link_count_before_removal": 1,
+        "sha256": "30021b6a363e003bb75b6021ea8210eeff4cd3e26258e5cf58e585be1b0017f5"
+      },
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/account_recovery_contract-36de912130581d76",
+        "logical_bytes": 515203576,
+        "allocated_bytes": 514244608,
+        "link_count_before_removal": 1,
+        "sha256": "8177d8888bd4927fb8262b551a8cfe33b29fee77ad85ca0928bcd0c42b96ee87"
+      },
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/account_recovery_contract-36de912130581d76.d",
+        "logical_bytes": 342,
+        "allocated_bytes": 4096,
+        "link_count_before_removal": 1,
+        "sha256": "2f33253052b928f552ed51cf3a38afd921aa544e04894a41945f1a3d4fdbce53"
+      },
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/auth_revocation_recovery_contract-389abf0ef20ffc64",
+        "logical_bytes": 509059640,
+        "allocated_bytes": 508104704,
+        "link_count_before_removal": 1,
+        "sha256": "a1e56acb3d9c20b999017a5687ec18f139c8ffa2dccf382cfc845a60d55ee4a7"
+      },
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/auth_revocation_recovery_contract-389abf0ef20ffc64.d",
+        "logical_bytes": 382,
+        "allocated_bytes": 4096,
+        "link_count_before_removal": 1,
+        "sha256": "06314799dfd0424fe20b034a8c4fae99d9b25a196e1f8eabe1c19afd0d19f6aa"
+      },
+      {
+        "path": "/tmp/wabi-checkpoint-boundary-db-20260928.log",
+        "logical_bytes": 4938,
+        "allocated_bytes": 8192,
+        "link_count_before_removal": 1,
+        "sha256": "ae870498ddfcb0f498807afe72fa97ab59a8efb71946fd3e632386fce7ed8d87"
+      },
+      {
+        "path": "/tmp/wabi-checkpoint-boundary-unit-20260928.log",
+        "logical_bytes": 16664,
+        "allocated_bytes": 20480,
+        "link_count_before_removal": 1,
+        "sha256": "4c92d13f7b06f8d7fda285d5412ad39d17f6b2e75d328a6126a3f45cdbc8c76f"
+      },
+      {
+        "path": "/tmp/wabi-checkpoint-boundary-contract-20260928.log",
+        "logical_bytes": 28790,
+        "allocated_bytes": 36864,
+        "link_count_before_removal": 1,
+        "sha256": "b4f7dc9ae203920c256a9ed3533c351b6db4fd87d4e79c89bc1a1bcca7c8ad55"
+      },
+      {
+        "path": "/tmp/wabi-checkpoint-boundary-db-final-20260928.log",
+        "logical_bytes": 6800,
+        "allocated_bytes": 8192,
+        "link_count_before_removal": 1,
+        "sha256": "fc97d92c225e4affa12852ae649d3750aa65b45f85d7cb959296fda33d6afafc"
+      },
+      {
+        "path": "/tmp/wabi-checkpoint-boundary-unit-final-20260928.log",
+        "logical_bytes": 19886,
+        "allocated_bytes": 20480,
+        "link_count_before_removal": 1,
+        "sha256": "2a7223f13bd00d657d9f07fa0ae057591a5f715389db130ab080f4a71cc1ea40"
+      },
+      {
+        "path": "/tmp/wabi-checkpoint-boundary-contract-final-20260928.log",
+        "logical_bytes": 28986,
+        "allocated_bytes": 36864,
+        "link_count_before_removal": 1,
+        "sha256": "c6306b00fb02977f7864c1e581e8f745aee33e5f9e5cccb2ae6a622954801ca9"
+      },
+      {
+        "path": "/tmp/wabi-checkpoint-boundary-contract-verified-20260928.log",
+        "logical_bytes": 28986,
+        "allocated_bytes": 36864,
+        "link_count_before_removal": 1,
+        "sha256": "861df302aa7601073fbcd8a0e31116ab2ec4bb9103bf4180f664a6eeaee25c8a"
+      }
+    ],
+    "removed_logical_bytes": 1494666107,
+    "removed_allocated_bytes": 1492443136,
+    "available_bytes_before": 150872707072,
+    "available_bytes_after": 152365039616,
+    "incremental_output_enabled": false,
+    "retained": "Shared dependencies, main/server/lib-test binaries, other contract binaries and other tasks previews; no production or remote paths touched"
+  }
+}

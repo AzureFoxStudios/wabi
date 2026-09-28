@@ -1,0 +1,52 @@
+{
+  "passed": true,
+  "runtime": "real Linux Tauri/WebKit + bundled Authority",
+  "binary": "Wabi-Host-Test.AppImage",
+  "frontendScope": "source-snapshot-8f93a080d404",
+  "firstOwnerAndName": true,
+  "simpleSetup": true,
+  "automaticLanInvitation": false,
+  "workspaceRendered": "DOM assertions passed; screenshot capture unavailable",
+  "closeKeepsHosting": true,
+  "stopRestart": true,
+  "nativeBackupRestore": true,
+  "quitAndReopen": true,
+  "secondClientJoined": false,
+  "limits": [
+    "AppImage portable package launched with isolated profile; no system installation",
+    "Localhost colocated client/Authority only; no physical media or cross-network Wabi route",
+    "Remote WebKit and X11 screenshot capture failed; no visual acceptance claimed on Iyoku"
+  ],
+  "observations": {
+    "runId": "F02-Iyoku",
+    "startedUtc": "2026-09-20T12:21:14.153Z",
+    "phases": [
+      {
+        "name": "idle",
+        "durationMs": 30085.593536000004,
+        "messages": 0,
+        "scope": "WebKit driver, native client and child Authority; localhost; no helper or media"
+      },
+      {
+        "name": "active",
+        "durationMs": 30086.153992,
+        "messages": 30,
+        "scope": "WebKit driver, native client and child Authority; localhost; no helper or media"
+      },
+      {
+        "name": "post-active",
+        "durationMs": 30084.55563300001,
+        "messages": 0,
+        "scope": "WebKit driver, native client and child Authority; localhost; no helper or media"
+      }
+    ],
+    "nativeTailcat": {
+      "result": "PASS",
+      "publicKeyLength": 72
+    },
+    "buildRevision": "8f93a080d4047bf801091a822a5210feca485d98d9922793bd5c666a79f91f82",
+    "testBuild": true,
+    "sharing": "local",
+    "retainedMessagesAfterRestart": 30
+  }
+}

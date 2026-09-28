@@ -1,4 +1,5 @@
 import type { User } from './socket-types';
+import { mediaUrl } from './mediaUrl';
 
 type OverlayAlignmentLike = Pick<User, 'overlayUrl' | 'overlayScale' | 'overlayOffsetX' | 'overlayOffsetY'> | null | undefined;
 
@@ -13,5 +14,5 @@ export function overlayStyle(user: OverlayAlignmentLike): string {
 	const scale = Math.min(3, Math.max(0.5, num(user.overlayScale, 1)));
 	const ox = Math.min(200, Math.max(-200, num(user.overlayOffsetX, 0)));
 	const oy = Math.min(200, Math.max(-200, num(user.overlayOffsetY, 0)));
-	return `background-image: url(${user.overlayUrl}); --overlay-scale: ${scale}; --overlay-offset-x: ${ox}px; --overlay-offset-y: ${oy}px;`;
+	return `background-image: url(${mediaUrl(user.overlayUrl)}); --overlay-scale: ${scale}; --overlay-offset-x: ${ox}px; --overlay-offset-y: ${oy}px;`;
 }

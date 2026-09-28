@@ -1,0 +1,24 @@
+{
+  "format": "wabi-profile-design",
+  "version": 1,
+  "title": "Aurora Loop",
+  "usernameFont": {
+    "family": "inherit",
+    "size": "1em",
+    "weight": "700",
+    "style": "normal",
+    "preset": "none",
+    "design": {
+      "effect": "glow",
+      "color": "#C4B5FD",
+      "color2": "#A5F3FC",
+      "angle": 105,
+      "glow": 3,
+      "animationSeconds": 8,
+      "plate": "gradient",
+      "plateColor": "#312E81",
+      "plateColor2": "#164E63",
+      "plateOpacity": 0.45
+    }
+  }
+}

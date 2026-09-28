@@ -390,9 +390,9 @@ async fn account_revocation_and_current_membership_apply_to_connect_tokens() {
             .await
             .unwrap();
         if revoke_all {
-            state.revoke_all_tokens().await;
+            state.revoke_all_tokens().await.unwrap();
         } else {
-            state.revoke_user(uid as i64).await;
+            state.revoke_user(uid as i64).await.unwrap();
         }
         assert_eq!(
             request(&app, Method::GET, &path, &token, json!(null))
@@ -591,7 +591,7 @@ async fn single_token_revocation_accepts_legacy_and_exact_session_ids_after_rest
         let id = if short { &hash[..12] } else { &hash };
         state
             .revoke_token_with_exp(format!("lore-token:{id}"), i64::MAX)
-            .await;
+            .await.unwrap();
         drop(state);
         let state = server(dir.path()).await;
         let app = create_api_router(state.clone()).with_state(state);

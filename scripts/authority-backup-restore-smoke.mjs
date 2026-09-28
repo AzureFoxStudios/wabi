@@ -1,21 +1,49 @@
 // Disposable stopped-copy restore rehearsal. Never opens an operator data directory.
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, cp, readFile, writeFile, chmod } from 'node:fs/promises';
-import { createWriteStream } from 'node:fs';
+import { mkdtemp, mkdir, cp, readFile, writeFile, chmod, readdir, stat } from 'node:fs/promises';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
+import { execFile as execFileCallback, spawn } from 'node:child_process';
+import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import net from 'node:net';
 
 const binaryArgument = process.argv.indexOf('--binary');
 assert.ok(binaryArgument > 0 && process.argv[binaryArgument + 1], 'Usage: node scripts/authority-backup-restore-smoke.mjs --binary /absolute/wabi-server');
 const binary = resolve(process.argv[binaryArgument + 1]);
+const snapshotBinaryArgument = process.argv.indexOf('--snapshot-binary');
+if (snapshotBinaryArgument > 0) assert.ok(process.argv[snapshotBinaryArgument + 1], '--snapshot-binary needs a path');
+const snapshotBinary = snapshotBinaryArgument > 0 ? resolve(process.argv[snapshotBinaryArgument + 1]) : null;
+const execFile = promisify(execFileCallback);
 const scratch = await mkdtemp('/tmp/wabi-authority-restore-');
 await chmod(scratch, 0o700);
 const binarySha256 = createHash('sha256').update(await readFile(binary)).digest('hex');
 const children = new Set();
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function instanceFiles(root) {
+	const files = [];
+	async function visit(directory, relative) {
+		const entries = await readdir(directory, { withFileTypes: true });
+		entries.sort((a, b) => a.name.localeCompare(b.name));
+		for (const entry of entries) {
+			const path = join(directory, entry.name);
+			const name = `${relative}/${entry.name}`;
+			if (entry.isDirectory()) {
+				await visit(path, name);
+			} else if (entry.isFile()) {
+				const digest = createHash('sha256');
+				for await (const chunk of createReadStream(path)) digest.update(chunk);
+				files.push({ path: name, size: (await stat(path)).size, sha256: digest.digest('hex') });
+			} else {
+				throw new Error(`Snapshot input contains a symlink or unsupported entry: ${name}`);
+			}
+		}
+	}
+	for (const tree of ['data', 'uploads']) await visit(join(root, tree), tree);
+	files.sort((a, b) => a.path.localeCompare(b.path));
+	return files;
+}
 async function start(name) {
 	const listener = net.createServer();
 	await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
@@ -95,14 +123,34 @@ try {
 	const keys = await keyHashes(original.root); // Must exist on the first-ever boot.
 	await verify(original, account, channelId, ['Before snapshot'], [], [firstUpload]);
 	await stop(original);
+	const sourceFiles = await instanceFiles(`${scratch}/source`);
+	for (const required of ['data/jwt_secret', 'data/wabidb/root_key']) {
+		assert.ok(sourceFiles.some(file => file.path === required), `snapshot must include ${required}`);
+	}
+	assert.ok(sourceFiles.some(file => file.path.startsWith('uploads/') && !file.path.startsWith('uploads/.tmp/')), 'snapshot must include a completed upload');
 	await mkdir(`${scratch}/snapshot`);
 	for (const path of ['data', 'uploads']) await cp(`${scratch}/source/${path}`, `${scratch}/snapshot/${path}`, { recursive: true, errorOnExist: true, force: false });
+	assert.deepEqual(await instanceFiles(`${scratch}/snapshot`), sourceFiles, 'stopped snapshot must preserve every data and upload file');
+	if (snapshotBinary) {
+		const identity = `${scratch}/snapshot-identity.txt`;
+		const keygen = await execFile(snapshotBinary, ['keygen', '--identity-file', identity]);
+		const recipient = /^Recipient: (\S+)$/m.exec(keygen.stdout)?.[1];
+		assert.ok(recipient, 'snapshot tool returned an age recipient');
+		const encrypted = `${scratch}/encrypted-instance.age`;
+		await execFile(snapshotBinary, ['export', '--data-dir', `${scratch}/source/data`, '--uploads-dir', `${scratch}/source/uploads`, '--recipient', recipient, '--output', encrypted]);
+		await execFile(snapshotBinary, ['restore', '--input', encrypted, '--identity-file', identity, '--target-root', `${scratch}/encrypted-restored`]);
+		assert.deepEqual(await instanceFiles(`${scratch}/encrypted-restored`), sourceFiles, 'encrypted restore must preserve every source file');
+		const encryptedRestored = await start('encrypted-restored');
+		await verify(encryptedRestored, account, channelId, ['Before snapshot'], [], [firstUpload]);
+		await stop(encryptedRestored);
+	}
 	original = await start('source');
 	await verify(original, account, channelId, ['Before snapshot'], [], [firstUpload]);
 	assert.deepEqual(await keyHashes(original.root), keys);
 	await post(original, 'After snapshot');
 	await stop(original);
 	await cp(`${scratch}/snapshot`, `${scratch}/restored`, { recursive: true, errorOnExist: true, force: false });
+	assert.deepEqual(await instanceFiles(`${scratch}/restored`), sourceFiles, 'clean restore must preserve every snapshot file');
 	let restored = await start('restored');
 	await verify(restored, account, channelId, ['Before snapshot'], ['After snapshot'], [firstUpload]);
 	assert.deepEqual(await keyHashes(restored.root), keys);
@@ -115,7 +163,7 @@ try {
 	await verify(restored, account, channelId, ['Before snapshot', 'Written after restore'], ['After snapshot'], [firstUpload, secondUpload]);
 	assert.deepEqual(await keyHashes(restored.root), keys);
 	await stop(restored);
-	const report = { status: 'passed', binary, binarySha256, scratch, keyHashesStable: true, accountPreserved: true, oldAndNewMessages: true, oldAndNewUploads: true, snapshotIsolation: true, completedAt: new Date().toISOString(), limits: ['Disposable state only', 'Same binary before and after restore', 'No hosted-data copy, real host, proxy, optional service or in-progress upload acceptance'] };
+	const report = { status: 'passed', binary, binarySha256, snapshotBinary, encryptedSnapshotRoundTrip: Boolean(snapshotBinary), scratch, keyHashesStable: true, accountPreserved: true, oldAndNewMessages: true, oldAndNewUploads: true, snapshotIsolation: true, snapshotFileCount: sourceFiles.length, snapshotBytes: sourceFiles.reduce((sum, file) => sum + file.size, 0), snapshotManifestSha256: hash(Buffer.from(JSON.stringify(sourceFiles))), completedAt: new Date().toISOString(), limits: ['Disposable state only', 'Same binary before and after restore', 'No hosted-data copy, real host, proxy, optional service or in-progress upload acceptance'] };
 	await writeFile(`${scratch}/report.json`, JSON.stringify(report, null, 2), { mode: 0o600 });
 	console.log(`PASS: stopped Authority backup/restore/restart; report ${scratch}/report.json`);
 } catch (error) {

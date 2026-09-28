@@ -1,0 +1,198 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-09-28T07:22:15.116253+00:00",
+  "scope": "Disposable local main Wabi live encrypted core archive, authenticated opaque inbox and inactive restore; no full-instance promotion or HA",
+  "checkout_head": "cf00e3cbe37920d6b1da76dff3e9171ab4aac7a5",
+  "dirty_worktree": true,
+  "toolchain": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+  "incremental_output_enabled_for_this_task": false,
+  "external_database_root_key_present_in_fixture_environment": false,
+  "checks": [
+    {
+      "name": "archive_and_stopped_compatibility_units",
+      "command": "CARGO_INCREMENTAL=0 cargo test --locked -p wabi-server --bin wabi-instance-snapshot",
+      "exit_code": 0,
+      "results": [
+        {
+          "passed": 28,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "8a393c07d81c148effbdd819a446abbf685425645d1c1e9c7c1b41977ee21615"
+    },
+    {
+      "name": "main_wabi_archive_and_boundary_contracts",
+      "command": "CARGO_INCREMENTAL=0 cargo test --locked -p wabi-server --test live_checkpoint_archive_contract --test instance_checkpoint_contract",
+      "exit_code": 0,
+      "results": [
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "cf390da68a020b09660d995150dcd8ebc87a219eb5f7aa434cf3be2be783fdf0"
+    },
+    {
+      "name": "engine_checkpoint_and_inactive_live_marker",
+      "command": "CARGO_INCREMENTAL=0 cargo test --locked -p wabidb --lib engine::checkpoint::tests",
+      "exit_code": 0,
+      "results": [
+        {
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "log_sha256": "188b8eafbd651e95c67d7a28be24fcb91d49973d4d962f8be436721273930d05",
+      "retry_after_queued_exit_143": true
+    }
+  ],
+  "total_passing_test_executions": 45,
+  "verification_in_progress": false,
+  "full_instance_ready": false,
+  "earlier_runs_excluded_from_final_total": [
+    {
+      "path": "/tmp/wabi-live-checkpoint-contract-20260928.log",
+      "log_sha256": "5908a32b2a905d0a72352612b5d8c6340aec012be4990e7cc188750d74cf29c0",
+      "note": "Earlier three-case development pass; excluded from final count"
+    },
+    {
+      "path": "/tmp/wabi-live-checkpoint-archive-units-20260928.log",
+      "log_sha256": "6a1d7df2438cb8c5832269d2e633df0b94cab8b970fff935bd60843f8a9db4a8",
+      "note": "26 passed, two synthetic fixtures failed for missing manifest; fixed before final pass"
+    },
+    {
+      "path": "/tmp/wabi-live-checkpoint-engine-final-20260928.log",
+      "log_sha256": "b0ae086a7b26ebf259a931e28b9986307cb21c53692449ada5e2a7e019d7f786",
+      "note": "Queued engine check exited 143 before any tests; retry required"
+    }
+  ],
+  "source_sha256": {
+    "rust-toolchain.toml": "e99fdaaa2922d35780ca194f2a321357870b331842c6092653e61a3d42bad977",
+    "Cargo.lock": "44baa98cc7385e28f7770be25db1f18c7d3f9b23f06e8dd6a774ff31db7b4486",
+    "core/crates/wabi-server/Cargo.toml": "2bdfa6af4a4a8fc070140741bb1f11553b82b3217c8a2622df797eb605d80d34",
+    "core/crates/wabi-server/src/bin/wabi-instance-snapshot.rs": "caa29be27488a1dbbaf337d3b9b800705094b1fb0a63ed2c9ec89e5014457bb1",
+    "core/crates/wabi-server/src/bin/wabi-instance-inbox.rs": "5cc9f03fcd9c314d2df3058fbd2ab6b5c4ad97e77bb51dc3d03760e15a7482b7",
+    "core/crates/wabi-server/src/instance_archive/mod.rs": "f3306e051dbe576cd4ac37652f25da8fd816ada268f9fe4a34dbe52262915388",
+    "core/crates/wabi-server/src/instance_archive/live.rs": "f51d60754ab2e833853a07a1252e480ea21f864d2ca963b96dc03b9b5765ea39",
+    "core/crates/wabi-server/src/instance_archive/live/tests.rs": "84ef26ea7bc47c0346e2e5db4595c0ddd45b9d0696543a57bf6c1ca2ebce8e1e",
+    "core/crates/wabi-server/src/instance_checkpoint.rs": "c166f208ba3facce9e7e1d6303930df238f63b0ae9ed73043314e309fe0a6006",
+    "core/crates/wabi-server/src/instance_operations.rs": "a21ea71f7eac45f44fee27484aed070a673e3d4780ce27bed941af1219d365f5",
+    "core/crates/wabi-server/src/lib.rs": "4f277ac75bbf68ec4e38b510f1027ff1813504e497f621afcb8e9c6da01183e2",
+    "core/crates/wabi-server/src/main.rs": "7101f1cfc580c0ac8e0306c0eeded8740c471f8e8af0d1adebe8b288ed0fd0e1",
+    "core/crates/wabi-server/src/state.rs": "3c6665b60aa30dd5fa5e3fc8a78b6d56594e926b8562cb716fd99f29b278fb64",
+    "core/crates/wabi-server/src/adapter/mod.rs": "e5155761749caf6eec01ec186b5ac63cf7a36c6ab26a5f3deddeb0ca37954452",
+    "core/crates/wabi-server/tests/live_checkpoint_archive_contract.rs": "70283a7b649130b65de118d319951c9fe512b51e5cb3f1fb3be3b48fd17aebb6",
+    "core/crates/wabi-server/tests/instance_checkpoint_contract.rs": "0cdf9df9b47a7c3f193f23888a16979451888f74393a3d35170874f1a57d1071",
+    "core/crates/wabidb/src/engine/mod.rs": "cb1547a9e93b08c9ccf50fffdaf2a10498eb34c985c812137a14b95109a3e24c",
+    "core/crates/wabidb/src/engine/checkpoint.rs": "80734438b353b14d3252b15622deb4029d89643d057d1a42dd98f320acbc3e0d",
+    "core/crates/wabidb/src/engine/checkpoint/tests.rs": "e277e8b265aa055911b2c7a937ab445587549a372a92e135bd0f47101594c3e4",
+    "docs/deployment/LIVE_CHECKPOINT_ARCHIVE.md": "75dc06a4039e0e28fa4a16551cc5db245daf0b6dc705b2c9498134bff448f15e",
+    "docs/deployment/CHECKPOINT_BOUNDARY.md": "bbfa416ae456e579ced111776f7e6abbc6c3bcb1a4034ccc0e13d198d71445fe",
+    "docs/architecture/INSTANCE_RECOVERY_INVENTORY.md": "2835e82c2eec28b2d310b542126182e90b22b3110f09fba3e6660cfb03cc03e4",
+    "docs/architecture/SERVER_MESH_PLAN.md": "c259bf0e01de843e0684f43df2f93996088edda1323d53e3683ba174a0fb17e9",
+    "docs/PROJECT_STATUS.md": "024471dba9ba6dbd67450822804b80457ee8df27aca1f92e9b1af457c0131704",
+    "docs/plans/2026-09-26-geographic-community-nodes.md": "927aa136c71cb872ef4880f8c9e5951fc8a367fe375a95eba0a283cc0af58eab",
+    "docs/testing/LIVE_CHECKPOINT_ARCHIVE_2026-09-28.md": "c43d9e32bdd0102a89ec5c6b12560de9172deda4d434203295011f832fd660b5",
+    "Cargo.toml": "8313f923bdea0f126158c58ff78e758374fc8391e8b3c50181459137dcd15858"
+  },
+  "cleanup": {
+    "artifact_lock_held": true,
+    "completed_generated_incremental_cache_removed": "/home/ironin/wabi/target/debug/incremental",
+    "incremental_cache_logical_bytes": 13794510295,
+    "owned_artifacts_removed": [
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/wabi_instance_snapshot-05a66cb3f4021401",
+        "bytes": 453877448,
+        "sha256": "b2ec709a9dfe93f5506117b0864651c728dfd132d6932095eb9ca35ffe663a59"
+      },
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/wabi_instance_snapshot-05a66cb3f4021401.d",
+        "bytes": 929,
+        "sha256": "a84b5c681799594e4cdcf8b17edf77f89b7a880d002eed134e60cac28d76c11e"
+      },
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/live_checkpoint_archive_contract-fab427bb16ca83e1",
+        "bytes": 486187528,
+        "sha256": "1e75461b6ea99c381c3fa78d12a5c55b5644dab883c3a5dbe1ab00dd7cfa965d"
+      },
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/live_checkpoint_archive_contract-fab427bb16ca83e1.d",
+        "bytes": 574,
+        "sha256": "2166b6bdf2075850c88fe69c3ec46017cdbffa7e8b03df93f34ed5f42d98e68e"
+      },
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/instance_checkpoint_contract-e1cdc2260686d257",
+        "bytes": 481813528,
+        "sha256": "762d7bd7f73a5fbb752175243d03065df93779fbb2b4cd67cc6a90966c59f1a5"
+      },
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/instance_checkpoint_contract-e1cdc2260686d257.d",
+        "bytes": 357,
+        "sha256": "30021b6a363e003bb75b6021ea8210eeff4cd3e26258e5cf58e585be1b0017f5"
+      },
+      {
+        "path": "/tmp/wabi-live-checkpoint-contract-20260928.log",
+        "bytes": 38698,
+        "sha256": "5908a32b2a905d0a72352612b5d8c6340aec012be4990e7cc188750d74cf29c0"
+      },
+      {
+        "path": "/tmp/wabi-live-checkpoint-archive-units-20260928.log",
+        "bytes": 17879,
+        "sha256": "6a1d7df2438cb8c5832269d2e633df0b94cab8b970fff935bd60843f8a9db4a8"
+      },
+      {
+        "path": "/tmp/wabi-live-checkpoint-archive-units-final-20260928.log",
+        "bytes": 16339,
+        "sha256": "8a393c07d81c148effbdd819a446abbf685425645d1c1e9c7c1b41977ee21615"
+      },
+      {
+        "path": "/tmp/wabi-live-checkpoint-contracts-final-20260928.log",
+        "bytes": 38450,
+        "sha256": "cf390da68a020b09660d995150dcd8ebc87a219eb5f7aa434cf3be2be783fdf0"
+      },
+      {
+        "path": "/tmp/wabi-live-checkpoint-engine-final-20260928.log",
+        "bytes": 57,
+        "sha256": "b0ae086a7b26ebf259a931e28b9986307cb21c53692449ada5e2a7e019d7f786"
+      }
+    ],
+    "owned_artifact_logical_bytes": 1421991787,
+    "filesystem_free_bytes_before": 130856685568,
+    "filesystem_free_bytes_after": 144886407168,
+    "source_data_runnable_programs_shared_dependencies_preserved": true,
+    "final_retry_and_validation_logs_removed": [
+      {
+        "path": "/tmp/wabi-live-checkpoint-engine-retry-20260928.log",
+        "bytes": 3395,
+        "sha256": "188b8eafbd651e95c67d7a28be24fcb91d49973d4d962f8be436721273930d05"
+      },
+      {
+        "path": "/tmp/wabi-live-checkpoint-profile-validation-20260928.log",
+        "bytes": 2490,
+        "sha256": "339fe0f99433436e11f485bd6eb1e029281bc7ad0a1aab40eec998a1d691d076"
+      }
+    ],
+    "filesystem_free_bytes_after_final_checks": 144823918592
+  },
+  "build_profile_validation": {
+    "command": "CARGO_INCREMENTAL=0 cargo test --locked -p wabidb --lib engine::checkpoint::tests --no-run",
+    "exit_code": 0,
+    "cached": true,
+    "log_sha256": "339fe0f99433436e11f485bd6eb1e029281bc7ad0a1aab40eec998a1d691d076",
+    "workspace_dev_and_test_incremental_defaults": false
+  },
+  "limits": [
+    "No complete-instance readiness or operator live export trigger",
+    "No unavailable-source promotion, automatic failover or room partitioning",
+    "Synthetic low-level frame fixtures do not prove engine restore; real AppState cases are separate",
+    "No physical multi-network live recovery, sustained capacity or privacy gate"
+  ]
+}

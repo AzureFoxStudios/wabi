@@ -86,6 +86,9 @@ jobs:
           cd frontend
           npm ci --no-audit --no-fund
 
+      - name: Build and stage bundled Authority
+        run: node scripts/build-desktop-host.mjs
+
       - name: Build Tauri app
         working-directory: .
         run: |

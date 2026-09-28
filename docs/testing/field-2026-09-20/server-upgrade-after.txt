@@ -1,0 +1,9 @@
+running 5 tests
+test store::tests::settings_round_trip_and_defaults ... ok
+test store::tests::keys_round_trip ... ok
+test store::tests::audit_appends_and_reads_tail ... ok
+test forwarder::upgrade_tests::upgrade_bridges_bytes_in_both_directions ... ok
+test forwarder::tests::forwarder_injects_pipe_headers ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

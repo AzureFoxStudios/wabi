@@ -113,7 +113,8 @@ async fn authenticate(
         .ok_or_else(invalid)?;
     if !user.is_active
         || user.password_hash.is_empty()
-        || app.wdb.is_user_banned(record.user_id as u64).await?
+        || app.get_blacklist().await.ok_or_else(invalid)?
+            .is_user_banned(record.user_id).await.is_some()
     {
         return Err(invalid());
     }

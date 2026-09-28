@@ -73,6 +73,16 @@ describe('add-on settings render snapshots', () => {
 		expect(view.addonSectionMatchCount('utilities')).toBe(1);
 	});
 
+	test('inventory rows honor the same query and enabled-only filter as local controls', () => {
+		const steam = { id: 'steam', name: 'Steam', enabled: false };
+		const lore = { id: 'lore', name: 'Lore', enabled: true };
+		expect(createAddonSettingsView('steam', false, NO_STATE).inventoryAddonMatches(steam, 'server')).toBe(true);
+		expect(createAddonSettingsView('steam', false, NO_STATE).inventoryAddonMatches(lore, 'server')).toBe(false);
+		expect(createAddonSettingsView('no-addon-matches', false, NO_STATE).inventoryAddonMatches(steam, 'bundled')).toBe(false);
+		expect(createAddonSettingsView('', true, NO_STATE).inventoryAddonMatches(steam, 'server')).toBe(false);
+		expect(createAddonSettingsView('', true, NO_STATE).inventoryAddonMatches(lore, 'server')).toBe(true);
+	});
+
 	test('unknown, removed, and nonmatching controls do not advertise phantom matches', () => {
 		for (const query of ['not-an-addon-at-all', 'LINE DM', 'PinDMs']) {
 			const view = createAddonSettingsView(query, false, NO_STATE);

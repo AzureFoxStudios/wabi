@@ -7,6 +7,9 @@
 	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
 	import { buildDmPlaceholderChannel, findExistingDmChannel, getDmStableUserId } from '$lib/dmConversations';
 	import { overlayStyle } from '$lib/overlayStyle';
+	import { mediaUrl } from '$lib/mediaUrl';
+	import ProfileName from './ProfileName.svelte';
+	import ProfileMedia from './ProfileMedia.svelte';
 
 	export let isOpen = false;
 
@@ -156,7 +159,7 @@
 					>
 						<div class="user-avatar-container">
 							{#if user.profilePicture}
-								<img src={user.profilePicture} alt={user.username} class="user-avatar" />
+								<ProfileMedia src={mediaUrl(user.profilePicture)} decorative class="user-avatar" />
 							{:else}
 								<div class="user-avatar-placeholder" style="background-color: {user.color}">
 									{user.username.charAt(0).toUpperCase()}
@@ -168,7 +171,7 @@
 							<div class="status-indicator" style="background-color: {getStatusColor(user.status)}"></div>
 						</div>
 						<div class="user-info">
-							<div class="username">{user.username}</div>
+							<div class="username"><ProfileName username={user.username} font={user.usernameFont} color={user.color} /></div>
 							<div class="status-text">
 								{pendingUserKey === userKey ? 'Opening…' : user.status}
 							</div>
@@ -313,7 +316,7 @@
 		flex-shrink: 0;
 	}
 
-	.user-avatar,
+	.user-avatar-container :global(.user-avatar),
 	.user-avatar-placeholder {
 		width: 32px;
 		height: 32px;

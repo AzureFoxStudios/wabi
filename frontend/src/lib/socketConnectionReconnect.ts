@@ -4,8 +4,26 @@
  */
 
 import { normalizeServerUrl, getServerUrl, setConfiguredServerUrl, getConfiguredServerRememberPreference } from './serverUrl';
-import { copyScopedAuthState } from './authSession';
-import { getCachedBackendEndpointCandidates, refreshBackendEndpointCandidates } from './backendEndpoints';
+import { authSessionGeneration, getAuthToken, getStoredDbUserId, getStoredUsername, setAuthToken, setStoredDbUserId, setStoredUsername } from './authSession';
+import { canCarrySessionTo, getPinnedCommunityRoster, refreshCommunityRoster } from './communityRoster';
+
+const defaultDependencies = {
+	getServerUrl,
+	setConfiguredServerUrl,
+	getConfiguredServerRememberPreference,
+	authSessionGeneration,
+	getAuthToken,
+	getStoredDbUserId,
+	getStoredUsername,
+	setAuthToken,
+	setStoredDbUserId,
+	setStoredUsername,
+	canCarrySessionTo,
+	getPinnedCommunityRoster,
+	refreshCommunityRoster
+};
+
+export type ReconnectDependencies = typeof defaultDependencies;
 
 export interface ReconnectConfig {
 	baseDelay: number;
@@ -15,6 +33,7 @@ export interface ReconnectConfig {
 }
 
 export class SocketReconnectionManager {
+	constructor(private readonly dependencies: ReconnectDependencies = defaultDependencies) {}
 	private reconnectAttempts = 0;
 	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	private failoverCandidates: string[] = [];
@@ -74,21 +93,20 @@ export class SocketReconnectionManager {
 		const deduped: string[] = [];
 		const seen = new Set<string>();
 
-		if (preferred) {
-			deduped.push(preferred);
-			seen.add(preferred);
-		}
-
 		for (const candidate of urls) {
 			const normalized = normalizeServerUrl(candidate || '');
 			if (!normalized || seen.has(normalized)) continue;
 			seen.add(normalized);
 			deduped.push(normalized);
 		}
+		// Keep the signed roster order across reconnects. Putting the current
+		// endpoint first on every attempt makes two healthy candidates ping-pong
+		// and can leave another approved site untried indefinitely.
+		if (preferred && !seen.has(preferred)) deduped.unshift(preferred);
 
 		if (deduped.length === 0) return;
 		this.failoverCandidates = deduped;
-		const currentUrl = preferred || normalizeServerUrl(getServerUrl());
+		const currentUrl = preferred || normalizeServerUrl(this.dependencies.getServerUrl());
 		const currentIndex = currentUrl ? deduped.findIndex((candidate) => candidate === currentUrl) : -1;
 		this.currentFailoverCandidateIndex = currentIndex >= 0 ? currentIndex : 0;
 	}
@@ -96,28 +114,35 @@ export class SocketReconnectionManager {
 	primeFailoverCandidates(serverUrl: string): void {
 		const normalizedServerUrl = normalizeServerUrl(serverUrl);
 		if (!normalizedServerUrl) return;
-		const cached = getCachedBackendEndpointCandidates(normalizedServerUrl);
-		this.setFailoverCandidates([normalizedServerUrl, ...cached], normalizedServerUrl);
+		this.setFailoverCandidates([normalizedServerUrl], normalizedServerUrl);
 	}
 
 	async refreshFailoverCandidates(serverUrl: string): Promise<void> {
 		const normalizedServerUrl = normalizeServerUrl(serverUrl);
 		if (!normalizedServerUrl) return;
 		try {
-			const candidates = await refreshBackendEndpointCandidates(normalizedServerUrl);
-			if (candidates.length > 0) {
-				this.setFailoverCandidates(candidates, normalizedServerUrl);
+			const roster = await this.dependencies.refreshCommunityRoster(normalizedServerUrl);
+			if (roster && normalizeServerUrl(this.dependencies.getServerUrl()) === normalizedServerUrl) {
+				this.setFailoverCandidates(roster.body.entries.map((entry) => entry.url), normalizedServerUrl);
 			}
 		} catch (error) {
 			console.warn('[SocketReconnectionManager] Failed to refresh backend failover candidates:', error);
 		}
 	}
 
-	rotateToNextFailoverCandidate(currentServerUrl: string | null): { rotated: boolean; nextUrl: string | null } {
-		const currentUrl = normalizeServerUrl(currentServerUrl || getServerUrl());
+	async rotateToNextFailoverCandidate(currentServerUrl: string | null): Promise<{ rotated: boolean; nextUrl: string | null }> {
+		const currentUrl = normalizeServerUrl(currentServerUrl || this.dependencies.getServerUrl());
 		if (!currentUrl) return { rotated: false, nextUrl: null };
-
-		this.primeFailoverCandidates(currentUrl);
+		const accountId = this.dependencies.getStoredDbUserId(currentUrl);
+		const token = this.dependencies.getAuthToken(currentUrl);
+		if (!accountId || !token) return { rotated: false, nextUrl: null };
+		const generation = this.dependencies.authSessionGeneration(currentUrl);
+		const roster = await this.dependencies.getPinnedCommunityRoster(currentUrl, accountId);
+		if (!roster || this.dependencies.getAuthToken(currentUrl) !== token || this.dependencies.getStoredDbUserId(currentUrl) !== accountId ||
+			this.dependencies.authSessionGeneration(currentUrl) !== generation || normalizeServerUrl(this.dependencies.getServerUrl()) !== currentUrl) {
+			return { rotated: false, nextUrl: null };
+		}
+		this.setFailoverCandidates(roster.body.entries.map((entry) => entry.url), currentUrl);
 		if (this.failoverCandidates.length < 2) {
 			return { rotated: false, nextUrl: null };
 		}
@@ -127,10 +152,14 @@ export class SocketReconnectionManager {
 		for (let offset = 1; offset < this.failoverCandidates.length; offset += 1) {
 			const nextIndex = (baseIndex + offset) % this.failoverCandidates.length;
 			const nextUrl = this.failoverCandidates[nextIndex];
-			if (!nextUrl || nextUrl === currentUrl) continue;
+			if (!nextUrl || nextUrl === currentUrl || !this.dependencies.canCarrySessionTo(roster, nextUrl)) continue;
+			const existingToken = this.dependencies.getAuthToken(nextUrl);
+			if (existingToken && existingToken !== token) continue;
 
-			copyScopedAuthState(currentUrl, nextUrl);
-			setConfiguredServerUrl(nextUrl, getConfiguredServerRememberPreference());
+			this.dependencies.setAuthToken(token, nextUrl);
+			this.dependencies.setStoredUsername(this.dependencies.getStoredUsername(currentUrl), nextUrl);
+			this.dependencies.setStoredDbUserId(accountId, nextUrl);
+			this.dependencies.setConfiguredServerUrl(nextUrl, this.dependencies.getConfiguredServerRememberPreference());
 			this.currentFailoverCandidateIndex = nextIndex;
 			console.warn(`[SocketReconnectionManager] Rotating backend endpoint: ${currentUrl} -> ${nextUrl}`);
 			return { rotated: true, nextUrl };

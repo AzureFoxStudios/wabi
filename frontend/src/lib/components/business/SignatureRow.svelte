@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { currentUser } from '$lib/socket';
+	import { plannerActor as currentUser } from '$lib/business/personalWorkspace';
 	import type { ItemSignature } from '$lib/business/types';
 	import PlannerAvatar from './PlannerAvatar.svelte';
 	import {
@@ -24,7 +24,7 @@
 	/** Two-way bound draft used by forms before submit. */
 	export let draftSignatures: ItemSignature[] = [];
 	export let disabled = false;
-	export let label = 'Sign-off';
+	export let label = 'Names attached';
 
 	function me(): { by: string; name: string } | null {
 		const u = $currentUser;
@@ -95,19 +95,21 @@
 				class="sig-toggle"
 				class:signed={mySigIndex >= 0}
 				on:click={toggleSign}
-				title={mySigIndex >= 0 ? 'Remove your sign-off' : 'Sign off with your name'}
+				title={mySigIndex >= 0 ? 'Remove your name' : 'Attach your name to this item'}
 			>
 				{#if mySigIndex >= 0}
-					<span aria-hidden="true">✓</span> Signed
+					<span aria-hidden="true">✓</span> Name attached
 				{:else}
-					<span aria-hidden="true">＋</span> Sign off
+					<span aria-hidden="true">＋</span> Add my name
 				{/if}
 			</button>
 		{/if}
 	</div>
+	<p class="sig-explanation">Adds your name to this item. It does not publish or change who can see it.</p>
 </div>
 
 <style>
+ .sig-explanation{flex-basis:100%;font-size:12px;line-height:1.5;color:var(--text-muted);margin:2px 0 0}
 	.sig-row {
 		display: flex;
 		align-items: center;

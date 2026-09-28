@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400">
+  <rect width="1200" height="400" fill="#171827"/>
+  <rect x="60" y="40" width="1080" height="320" rx="12" fill="none" stroke="#9ca3af" stroke-dasharray="10 8"/>
+  <rect x="420" y="50" width="700" height="230" rx="16" fill="#312e81" stroke="#a5b4fc" stroke-width="2"/>
+  <path d="M0 200H400V400H0Z" fill="#7f1d1d" opacity=".8"/>
+  <rect x="1020" width="180" height="90" fill="#78350f" opacity=".6"/>
+  <g fill="#f9fafb" font-family="Arial,sans-serif" text-anchor="middle">
+    <text x="770" y="125" font-size="32" font-weight="700">1200 × 400 · 3:1 banner</text>
+    <text x="770" y="172" font-size="22">Suggested subject / focal area</text>
+    <text x="770" y="215" font-size="18">Hide this guide layer before exporting</text>
+    <text x="200" y="295" font-size="22">Avatar overlap zone</text>
+    <text x="200" y="332" font-size="17">Keep essential details clear</text>
+    <text x="1110" y="44" font-size="17">Profile controls</text>
+    <text x="770" y="337" font-size="18">PNG / JPEG / GIF / WebP · max 10 MiB</text>
+  </g>
+</svg>

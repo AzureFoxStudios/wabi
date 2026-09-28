@@ -1,0 +1,67 @@
+{
+  "server": "Janya (authorized SSH control only)",
+  "sessions": {
+    "fresh": {
+      "transfers": [
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 1.814
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 0.375
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 0.444
+        }
+      ],
+      "final_tunnel_byte_counters": {
+        "rx_direct_v4": 3461276,
+        "rx_derp": 0,
+        "tx_direct_v4": 61872,
+        "tx_derp": 31441
+      }
+    },
+    "reconnect": {
+      "transfers": [
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 2.553
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 1.954
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 2.061
+        }
+      ],
+      "final_tunnel_byte_counters": {
+        "rx_direct_v4": 0,
+        "rx_derp": 3461612,
+        "tx_direct_v4": 0,
+        "tx_derp": 177761
+      }
+    }
+  },
+  "cleanup": true,
+  "binary_sha256": {
+    "server": "8e72a7932baf395c79383c668a5856bbc911d5b24f8a329813246c8a73252566",
+    "client": "a2d46bb79b5ae2e01e334bdc8f830d6ce034acd6f4528751e6a476b7a03c8087"
+  },
+  "verdict": "RECONNECT_REGRESSION: fresh direct payload passed; reconnect failed"
+}

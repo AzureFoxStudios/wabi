@@ -259,10 +259,12 @@ async fn authorization_rechecks_current_role_and_legacy_removal_has_an_honest_re
 #[tokio::test]
 async fn configured_administrator_cannot_be_reported_demoted_while_retaining_access() {
     let dir = tempfile::tempdir().unwrap();
-    // Fresh fixture IDs are allocated in insertion order (owner=1, member=2).
-    let state = configured_server(dir.path(), vec![2]).await;
+    let state = server(dir.path()).await;
     let (owner, member, _) = seed(&state).await;
-    assert_eq!(member, 2);
+    // Configure the actual persisted account, independently of bootstrap
+    // control events that also consume sequencer IDs.
+    drop(state);
+    let state = configured_server(dir.path(), vec![member as i64]).await;
     let app = router(&state); let mut client = Client::connect(&app, &token(&state, owner)).await;
     let before = state.wdb.engine().projection_state().applied_commit_seq();
     for role in ["member", "mod"] {
@@ -487,6 +489,7 @@ async fn dashboard_reports_degraded_when_projection_failure_stops_writes_but_rea
     let engine = state.wdb.engine();
     engine.get_or_create_stream_key("dashboard-bad-event").await.unwrap();
     assert!(engine.run_command(CommandCommit {
+        room_owner_precondition: None,
         caller_user_id: owner, caller_device_id:"test".into(), command_name:"dashboard-test-invalid".into(),
         idempotency_key:None, essential:true, response_tx:tokio::sync::oneshot::channel().0,
         events:vec![EventToWrite { stream_id:"dashboard-bad-event".into(), stream_kind:6,
@@ -551,7 +554,9 @@ async fn badges_broadcast_authoritative_changes_and_revoked_admins_cannot_mutate
 
     // Both sockets were authenticated before revocation. A cached handshake
     // identity must not bypass the current account's revocation floor.
-    state.revoke_user(owner as i64).await;
+    state.revoke_user(owner as i64).await.unwrap();
+    let after_revocation = state.wdb.engine().projection_state().applied_commit_seq();
+    assert!(after_revocation > before, "session denial is now a canonical commit");
     assigning_admin.emit("assign-badge", json!({"targetUserId":member,"badgeId":"founder"})).await;
     assigning_admin.event("auth-revoked").await;
     removing_admin.emit("remove-badge", json!({"targetUserId":member,"badgeId":"supporter"})).await;
@@ -559,7 +564,7 @@ async fn badges_broadcast_authoritative_changes_and_revoked_admins_cannot_mutate
     let retained = state.wdb.list_user_badges(member).await.unwrap();
     assert_eq!(retained.len(), 1);
     assert_eq!(retained[0].badge_id, "supporter");
-    assert_eq!(state.wdb.engine().projection_state().applied_commit_seq(), before);
+    assert_eq!(state.wdb.engine().projection_state().applied_commit_seq(), after_revocation);
     // A synchronous round trip on the observer proves no false badge mutation
     // was broadcast ahead of the revocation rejection.
     observer.emit("get-badge-catalog", Value::Null).await;

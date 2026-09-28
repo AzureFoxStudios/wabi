@@ -4,21 +4,20 @@
 	 * Desktop-only flow: register this device's key with the server, then
 	 * dial the server's tc… address. The Tauri shell runs the SOCKS tunnel
 	 * plus a local forwarder; the app's server URL is switched to the
-	 * forwarder (existing setConfiguredServerUrl mechanism) so ALL traffic —
-	 * API, socket.io, uploads — rides the encrypted tunnel. Disconnect
+	 * forwarder (existing setConfiguredServerUrl mechanism) so server-bound
+	 * API, socket.io and upload requests use the encrypted tunnel. Disconnect
 	 * restores the previous server URL.
 	 */
 	import { onMount } from 'svelte';
-	import { getAuthToken } from '$lib/authSession';
+	import { clearAuthSession, clearStoredIdentity, getAuthToken } from '$lib/authSession';
 	import { isTauriRuntime } from '$lib/tauri-platform';
 	import { getServerUrl, setConfiguredServerUrl } from '$lib/serverUrl';
+	import { clearTailcatConnection, rememberTailcatConnection, restoreTailcatConnection } from '$lib/tailcatConnection';
 	import {
 		getTailcatConnectInfo,
 		registerTailcatKey,
 		type TailcatConnectInfo
 	} from '$lib/api/tailcat';
-
-	const PREV_URL_KEY = 'wabi.tailcat.prevServerUrl';
 
 	let info: TailcatConnectInfo | null = $state(null);
 	let tunnel: { connected: boolean; socksPort: number | null; proxyPort: number | null } | null =
@@ -39,12 +38,12 @@
 	async function refresh(): Promise<void> {
 		error = '';
 		try {
-			info = await getTailcatConnectInfo(getAuthToken());
 			if (desktop) {
 				tunnel = await invoke<{ connected: boolean; socksPort: number | null; proxyPort: number | null }>(
 					'tailcat_status'
 				);
 			}
+			info = await getTailcatConnectInfo(getAuthToken());
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		}
@@ -72,24 +71,33 @@
 		busy = true;
 		error = '';
 		notice = '';
+		let tunnelStarted = false;
 		try {
+			const previousUrl = getServerUrl();
 			const result = await invoke<{ socksPort: number; proxyPort: number }>('tailcat_connect', {
 				address: info.address,
 				pipePort: info.pipePort
 			});
-			// Remember the current server URL, then route everything through
-			// the tunnel's local forwarder.
-			try {
-				localStorage.setItem(PREV_URL_KEY, getServerUrl());
-			} catch {
-				/* non-fatal: disconnect just won't restore */
-			}
-			setConfiguredServerUrl(`http://127.0.0.1:${result.proxyPort}`, false);
-			notice =
-				'Connected — your traffic now flows through the encrypted tunnel. ' +
-				'If anything looks stale, reload the app (Ctrl/Cmd+R).';
-			await refresh();
+			tunnelStarted = true;
+			const proxyUrl = `http://127.0.0.1:${result.proxyPort}`;
+			// Probe without credentials. A running SOCKS process alone does not
+			// prove that the local forwarder reaches a ready Wabi server.
+			const ready = await fetch(`${proxyUrl}/readyz`, { signal: AbortSignal.timeout(5000) });
+			if (!ready.ok) throw new Error('Private tunnel could not reach a ready server');
+			rememberTailcatConnection(previousUrl, proxyUrl);
+			// A random proxy port can coincide with one used by another tunnel.
+			// Never inherit credentials or an account label from that old URL.
+			clearAuthSession(proxyUrl);
+			clearStoredIdentity(proxyUrl);
+			setConfiguredServerUrl(proxyUrl, false);
+			// Authentication is URL-scoped. Reconnect through the new address;
+			// do not copy a bearer token to an unverified loopback proxy.
+			window.location.reload();
 		} catch (e) {
+			if (tunnelStarted) {
+				await invoke('tailcat_disconnect').catch(() => {});
+				if (!restoreTailcatConnection()) clearTailcatConnection();
+			}
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
 			busy = false;
@@ -102,17 +110,10 @@
 		notice = '';
 		try {
 			await invoke('tailcat_disconnect');
-			const prev = localStorage.getItem(PREV_URL_KEY);
-			if (prev) {
-				try {
-					setConfiguredServerUrl(prev, false);
-				} catch {
-					/* restored URL no longer validates — leave as-is */
-				}
-				localStorage.removeItem(PREV_URL_KEY);
+			if (!restoreTailcatConnection()) {
+				throw new Error('Tunnel closed. Choose your server address from the login screen.');
 			}
-			notice = 'Tunnel closed. Back on the normal server address.';
-			await refresh();
+			window.location.reload();
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -134,7 +135,12 @@
 		<p class="notice">{notice}</p>
 	{/if}
 
-	{#if info === null}
+	{#if desktop && tunnel?.connected}
+		<p class="notice">
+			Private tunnel connected. Local forwarder port {tunnel.proxyPort}.
+		</p>
+		<button disabled={busy} onclick={disconnect}>Disconnect</button>
+	{:else if info === null}
 		<p class="muted">Loading…</p>
 	{:else if !info.enabled}
 		<p class="muted">
@@ -161,17 +167,11 @@
 				Register this device
 			</button>
 		</div>
-	{:else if tunnel?.connected}
-		<p class="notice">
-			Connected through the tunnel — all traffic (chat, voice relay, uploads) is encrypted
-			end-to-end. Local forwarder port {tunnel.proxyPort}.
-		</p>
-		<button disabled={busy} onclick={disconnect}>Disconnect</button>
 	{:else}
 		<p class="muted">
-			This device is registered. Connect through the server's private tunnel — no ports, no
-			domain, encrypted the whole way. Your server address switches automatically and switches
-			back when you disconnect.
+			This device is registered. Connect through the server's private tunnel without a domain.
+			The app will switch to the tunnel address and ask you to sign in there. Disconnect to
+			return to the previous address.
 		</p>
 		<button class="primary" disabled={busy} onclick={connect}>Connect</button>
 	{/if}

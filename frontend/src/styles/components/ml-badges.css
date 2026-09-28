@@ -4,82 +4,125 @@
    ========================================================================== */
 
 
-	.role-inline-badge {
+	.role-inline-badge,
+	.staff-inline-tag,
+	.bot-inline-badge,
+	.popout-container .popout-role-badge,
+	.popout-container .popout-staff-tag {
 		display: inline-flex;
 		align-items: center;
-		padding: 0.08rem 0.36rem;
-		border-radius: var(--radius-full);
-		font-size: var(--text-xs);
-		font-weight: 700;
-		line-height: 1;
-		letter-spacing: 0.02em;
-		text-transform: uppercase;
-		border: 1px solid transparent;
+		gap: 0.2rem;
+		padding: 0;
+		border: 0;
+		border-radius: 0;
+		background: none;
+		box-shadow: none;
+		font-size: 0.7rem;
+		font-weight: 650;
+		line-height: 1.2;
+		letter-spacing: 0.01em;
 		white-space: nowrap;
+		vertical-align: middle;
 	}
 
-
-	.role-inline-badge.tone-owner {
-		background: color-mix(in srgb, var(--color-warning, #f0b429) 22%, var(--surface-base));
-		border-color: color-mix(in srgb, var(--color-warning, #f0b429) 55%, transparent);
-		color: var(--color-warning, #f7d98c);
-	}
-
-
-	.role-inline-badge.tone-admin {
-		background: color-mix(in srgb, var(--color-info, #4f9cff) 20%, var(--surface-base));
-		border-color: color-mix(in srgb, var(--color-info, #4f9cff) 50%, transparent);
-		color: var(--text-info, #cde0ff);
-	}
-
-
-	.role-inline-badge.tone-mod {
-		background: color-mix(in srgb, var(--color-success, #18a999) 18%, var(--surface-base));
-		border-color: color-mix(in srgb, var(--color-success, #18a999) 48%, transparent);
-		color: var(--text-success, #b6f0e9);
-	}
-
-
-	.role-inline-badge.tone-default {
-		background: color-mix(in srgb, var(--accent-primary-color) 16%, var(--surface-base));
-		border-color: color-mix(in srgb, var(--accent-primary-color) 42%, transparent);
-		color: var(--text-secondary);
-	}
-
-
-	.staff-inline-tag {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.08rem 0.36rem;
-		border-radius: var(--radius-full);
-		font-size: var(--text-xs);
-		font-weight: 700;
+	.role-inline-badge::before,
+	.staff-inline-tag::before,
+	.bot-inline-badge::before,
+	.popout-container .popout-role-badge::before,
+	.popout-container .popout-staff-tag::before {
+		content: '✧';
+		width: auto;
+		height: auto;
+		flex: 0 0 auto;
+		font-family: Georgia, 'Times New Roman', serif;
+		font-size: 0.88rem;
 		line-height: 1;
-		letter-spacing: 0.03em;
-		text-transform: uppercase;
-		border: 1px solid color-mix(in srgb, var(--color-danger, #ef5f5f) 42%, transparent);
-		background: color-mix(in srgb, var(--color-danger, #ef5f5f) 17%, var(--surface-base));
-		color: var(--text-danger, #ffc6c6);
-		white-space: nowrap;
 	}
 
+
+	.role-inline-badge.tone-owner,
+	.popout-container .popout-role-badge.tone-owner {
+		color: color-mix(in srgb, var(--color-warning, #f7d98c) 76%, white);
+	}
+
+	.role-inline-badge.tone-owner::before,
+	.popout-container .popout-role-badge.tone-owner::before {
+		content: '♛';
+		font-size: 0.82rem;
+	}
+
+
+	.role-inline-badge.tone-admin,
+	.popout-container .popout-role-badge.tone-admin {
+		color: color-mix(in srgb, var(--text-info, #cde0ff) 78%, white);
+	}
+
+	.role-inline-badge.tone-admin::before,
+	.popout-container .popout-role-badge.tone-admin::before {
+		content: '⬡';
+		font-size: 0.77rem;
+	}
+
+
+	.role-inline-badge.tone-mod,
+	.popout-container .popout-role-badge.tone-mod {
+		color: color-mix(in srgb, var(--text-success, #b6f0e9) 78%, white);
+	}
+
+	.role-inline-badge.tone-mod::before,
+	.popout-container .popout-role-badge.tone-mod::before {
+		content: '✦';
+		font-size: 0.79rem;
+	}
+
+
+	.role-inline-badge.tone-default,
+	.popout-container .popout-role-badge.tone-default {
+		color: color-mix(in srgb, var(--text-secondary) 84%, white);
+	}
+
+	.role-badge-md .role-inline-badge,
+	.popout-container .popout-role-badge {
+		font-size: 0.78rem;
+	}
+
+	.staff-inline-tag,
+	.popout-container .popout-staff-tag {
+		color: color-mix(in srgb, var(--text-info, #cde0ff) 82%, white);
+	}
+
+	.staff-inline-tag::before,
+	.popout-container .popout-staff-tag::before {
+		content: '✦';
+		font-size: 0.82rem;
+	}
 
 	.bot-inline-badge {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.08rem 0.36rem;
-		border-radius: var(--radius-full);
-		font-size: var(--text-xs);
-		font-weight: 700;
-		line-height: 1;
-		letter-spacing: 0.03em;
-		text-transform: uppercase;
-		border: 1px solid color-mix(in srgb, var(--accent-primary-color) 42%, transparent);
-		background: color-mix(in srgb, var(--accent-primary-color) 17%, var(--surface-base));
-		color: var(--text-secondary);
-		white-space: nowrap;
+		color: color-mix(in srgb, var(--text-secondary) 86%, white);
 	}
 
+	.bot-inline-badge::before {
+		content: '◈';
+	}
+
+	.role-inline-badge.badge-custom::before,
+	.role-inline-badge.badge-more::before,
+	.role-mark::before,
+	.popout-container .role-mark::before {
+		display: none;
+	}
+
+	.role-mark {
+		gap: 0;
+		font-size: 0.95rem;
+		line-height: 1;
+	}
+
+	.role-inline-badge.badge-custom {
+		padding: 0.08rem 0.3rem;
+		border-radius: 0.35rem;
+		background: color-mix(in srgb, var(--accent-primary-color) 13%, var(--surface-base));
+	}
 
 	.deletion-timer {
 		display: inline-flex;

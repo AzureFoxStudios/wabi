@@ -59,7 +59,12 @@ mod tests {
     #[test]
     fn missing_entries_detected() {
         let local = vec![sample_entry(1), sample_entry(3)];
-        let remote = vec![sample_entry(1), sample_entry(2), sample_entry(3), sample_entry(4)];
+        let remote = vec![
+            sample_entry(1),
+            sample_entry(2),
+            sample_entry(3),
+            sample_entry(4),
+        ];
 
         let missing = run_anti_entropy(&local, &remote).unwrap();
         assert_eq!(missing.len(), 2);

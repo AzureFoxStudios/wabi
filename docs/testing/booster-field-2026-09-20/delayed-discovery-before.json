@@ -1,0 +1,15 @@
+{
+  "assertions": [
+    "Origin download works with no volunteers",
+    "Explicit opt-in starts a bounded volunteer; no automatic traffic claim",
+    "Real WebRTC payload passes hash verification without another origin file request",
+    "Back-to-back peer downloads remain available"
+  ],
+  "screenshots": [],
+  "pageErrors": [],
+  "measurements": {
+    "peerPayloadBytes": 262144,
+    "originFileRequestsAvoided": 1
+  },
+  "failure": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n524288 !== 786432\n\n    at file:///var/home/Ronin/wabi/frontend/scripts/volunteer-boosters-browser-smoke.mjs:77:83\n    at async check (file:///var/home/Ronin/wabi/frontend/scripts/volunteer-boosters-browser-smoke.mjs:24:31)\n    at async file:///var/home/Ronin/wabi/frontend/scripts/volunteer-boosters-browser-smoke.mjs:73:5"
+}

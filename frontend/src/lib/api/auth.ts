@@ -6,11 +6,13 @@ import { getApiBase, getApiBaseFor, fetchWithTimeout, safeJsonParse } from './ut
 export type FollowedChannelPollChannelResult = SharedFollowedChannelPollChannelResult<Message>;
 export type FollowedChannelPollResponse = SharedFollowedChannelPollResponse<Message>;
 
-export async function register(username: string, password: string, handle?: string): Promise<AuthResponse> {
+export type StarterChannel = { name: string; kind: 'text' | 'voice' };
+
+export async function register(username: string, password: string, handle?: string, starterChannels?: StarterChannel[]): Promise<AuthResponse> {
 	const res = await fetchWithTimeout(`${getApiBase()}/api/auth/register`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ username, password, handle })
+		body: JSON.stringify({ username, password, handle, starterChannels })
 	});
 
 	if (!res.ok) {
@@ -25,7 +27,24 @@ export async function register(username: string, password: string, handle?: stri
 	}
 }
 
+export async function joinAsGuest(username: string): Promise<AuthResponse> {
+	const res = await fetchWithTimeout(`${getApiBase()}/api/auth/guest`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ username })
+	});
+	if (!res.ok) {
+		const error = (await safeJsonParse(res)) as Record<string, any>;
+		throw new Error(error.error || 'Guest join failed');
+	}
+	return await res.json();
+}
+
 export async function login(username: string, password: string): Promise<AuthResponse> {
+	// Explicit frontend-only fixture mode; never enabled in an ordinary build.
+	if (import.meta.env.VITE_WABI_LOCAL_MOCK === '1') {
+		return { accessToken: 'local-preview', user: { id: 1, username, handle: 'preview_artist', color: '#98D8C8', isRegistered: true } };
+	}
 	const res = await fetchWithTimeout(`${getApiBase()}/api/auth/login`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },

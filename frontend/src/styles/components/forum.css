@@ -313,8 +313,9 @@
 
 .forum-post-row-meta {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
-	gap: var(--space-2);
+	gap: var(--space-1) var(--space-2);
 	font-size: var(--font-size-xs);
 	color: var(--text-muted);
 }
@@ -323,6 +324,18 @@
 	display: flex;
 	align-items: center;
 	gap: var(--space-1);
+	min-width: 0;
+	max-width: 100%;
+}
+
+.forum-post-row-author > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.forum-post-row-meta > span {
+	white-space: nowrap;
 }
 
 .forum-post-row-avatar {
@@ -339,10 +352,12 @@
 }
 
 .forum-post-row-stats {
-	margin-left: auto;
+	flex-basis: 100%;
 	display: flex;
 	gap: var(--space-2);
 	color: var(--text-muted);
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
 }
 
 .forum-reading-pane {

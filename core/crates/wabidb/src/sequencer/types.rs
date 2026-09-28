@@ -28,6 +28,17 @@ pub struct EventToWrite {
     pub plaintext: Vec<u8>,
 }
 
+/// The room placement observed when a caller authorized a room write. The
+/// sequencer checks it after all earlier placement commits have applied and
+/// before this command becomes durable. `None` epoch is for a legacy room
+/// without a placement record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoomOwnerPrecondition {
+    pub channel_id: String,
+    pub owner_node_id: String,
+    pub expected_epoch: Option<u64>,
+}
+
 /// A command that the sequencer should commit.
 ///
 /// The caller constructs a `CommandCommit` with the events to persist, sends
@@ -42,6 +53,10 @@ pub struct CommandCommit {
     pub command_name: String,
     /// Optional idempotency key for replay detection.
     pub idempotency_key: Option<String>,
+    /// Room owner/epoch admission check for guarded room writes. `None` is
+    /// retained for global and not-yet-migrated command paths; it must not
+    /// be treated as sufficient admission for a multi-owner deployment.
+    pub room_owner_precondition: Option<RoomOwnerPrecondition>,
     /// The events to write as part of this commit.
     pub events: Vec<EventToWrite>,
     /// Whether this is an essential command (`send_message`, `set_presence`).

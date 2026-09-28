@@ -60,38 +60,12 @@ function toPreviewMessage(message: Message): FollowPreviewMessage {
 	};
 }
 
-function sanitizePreviewMessage(raw: unknown): FollowPreviewMessage | null {
-	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-	const candidate = raw as Record<string, unknown>;
-	const id = typeof candidate.id === 'string' ? candidate.id : '';
-	const user = typeof candidate.user === 'string' ? candidate.user : '';
-	const text = typeof candidate.text === 'string' ? candidate.text : '';
-	const timestamp =
-		typeof candidate.timestamp === 'number' && Number.isFinite(candidate.timestamp)
-			? candidate.timestamp
-			: 0;
-	const type =
-		candidate.type === 'gif' ||
-		candidate.type === 'file' ||
-		candidate.type === 'emoji' ||
-		candidate.type === 'role_gate'
-			? candidate.type
-			: 'text';
-
-	if (!id || !user || !timestamp) return null;
-
-	return { id, user, text, timestamp, type };
-}
-
 function sanitizeSnapshot(raw: unknown, serverUrl: string, channelId: string): FollowedChannelSnapshot | null {
 	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
 	const candidate = raw as Record<string, unknown>;
-	const previewMessages = Array.isArray(candidate.previewMessages)
-		? candidate.previewMessages
-				.map((entry) => sanitizePreviewMessage(entry))
-				.filter(Boolean)
-				.slice(-MAX_PREVIEW_MESSAGES) as FollowPreviewMessage[]
-		: [];
+	// Earlier versions persisted message text in localStorage. Do not restore it:
+	// the source channel may have expired, been revoked, or used Live retention.
+	const previewMessages: FollowPreviewMessage[] = [];
 
 	return {
 		serverUrl,
@@ -170,7 +144,13 @@ function loadState(): FollowSnapshotState {
 function persistState(state: FollowSnapshotState): void {
 	if (!browser) return;
 	try {
-		localStorage.setItem(FOLLOW_SNAPSHOTS_STORAGE_KEY, JSON.stringify(state));
+		const metadataOnly = Object.fromEntries(Object.entries(state).map(([serverUrl, channels]) => [
+			serverUrl,
+			Object.fromEntries(Object.entries(channels).map(([channelId, snapshot]) => [
+				channelId, { ...snapshot, previewMessages: [] }
+			]))
+		]));
+		localStorage.setItem(FOLLOW_SNAPSHOTS_STORAGE_KEY, JSON.stringify(metadataOnly));
 	} catch {
 		// best effort only
 	}

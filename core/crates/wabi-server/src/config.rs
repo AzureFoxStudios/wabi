@@ -64,6 +64,28 @@ pub struct ServerConfig {
     pub lore: LoreAddonConfig,
 }
 
+/// Node IDs are operator-assigned in advanced deployments. Keep the wire and
+/// placement key shape stable across restarts and reject ambiguous separators.
+pub fn valid_node_id(value: &str) -> bool {
+    wabidb::engine::node_identity::valid_node_id(value)
+}
+
+#[cfg(test)]
+mod node_id_tests {
+    use super::valid_node_id;
+
+    #[test]
+    fn advanced_node_ids_are_bounded_and_pathless() {
+        for value in ["node-1", "roofing_bangkok", "materials2"] {
+            assert!(valid_node_id(value));
+        }
+        for value in ["", "-node", "node/other", "node:other", " node", "nöde"] {
+            assert!(!valid_node_id(value));
+        }
+        assert!(!valid_node_id(&"a".repeat(65)));
+    }
+}
+
 /// An advertised ICE endpoint, shared by credential issuance and runtime status.
 /// This is runtime configuration, not a persisted WabiDB record.
 #[derive(Debug, Clone, PartialEq, Eq)]

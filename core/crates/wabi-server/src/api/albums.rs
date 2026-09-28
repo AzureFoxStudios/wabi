@@ -58,25 +58,14 @@ async fn require_scope(state: &AppState, auth: &AuthUser, scope_type: &str, scop
 }
 
 async fn authorized_album(state: &AppState, auth: &AuthUser, album_id: &str) -> Result<wabidb::domain::Album> {
-    // IDs are globally sequence-assigned, but the index is scope-keyed. Resolve
-    // the stored parent before accessing items or accepting any mutations.
-    let proj = state.wdb.engine().projection_state();
-    let mut found = None;
-    let mut failure = None;
-    proj.for_each("albums", |_key, value| {
-        match wabidb::projections::albums::decode_record(value) {
-            Ok(r) if r.album_id == album_id && !r.is_deleted => {
-                if found.is_some() {
-                    failure = Some(AppError::Internal("Duplicate album ID".into()));
-                }
-                found = Some(wabidb::domain::Album::from(r));
-            }
-            Ok(_) => (),
-            Err(e) => failure = Some(e.into()),
-        }
-    });
-    if let Some(e) = failure { return Err(e); }
-    let album = found.ok_or_else(|| AppError::NotFound("Album not found".into()))?;
+    // IDs are globally sequence-assigned; resolve the persisted parent before
+    // checking access, using the derived ID lookup rebuilt from old snapshots.
+    let album = wabidb::projections::albums::AlbumProjection::get_album_by_id(
+        &state.wdb.engine().projection_state(), album_id,
+    )?
+    .filter(|record| !record.is_deleted)
+    .map(wabidb::domain::Album::from)
+    .ok_or_else(|| AppError::NotFound("Album not found".into()))?;
     require_scope(state, auth, &album.scope_type, &album.scope_id).await?;
     Ok(album)
 }
@@ -166,6 +155,7 @@ async fn create_album(
     Json(payload): Json<CreateAlbumPayload>,
 ) -> Result<Json<Value>> {
     require_scope(&state, &auth, &payload.scope_type, &payload.scope_id).await?;
+    crate::channel_access::require_participation(&state, auth.user_id, &payload.scope_id).await?;
     let album_id = state
         .wdb
         .create_album(&payload.scope_type, &payload.scope_id, &payload.name, auth.user_id as u64)
@@ -228,7 +218,8 @@ async fn add_item(
     Path(album_id): Path<String>,
     Json(payload): Json<AddItemPayload>,
 ) -> Result<Json<Value>> {
-    authorized_album(&state, &auth, &album_id).await?;
+    let album = authorized_album(&state, &auth, &album_id).await?;
+    crate::channel_access::require_participation(&state, auth.user_id, &album.scope_id).await?;
     let item_id = state
         .wdb
         .add_item(

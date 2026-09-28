@@ -49,6 +49,8 @@ A memory-only message can still be read by the server process while it exists. C
 
 The current Authority deletion path writes a deleted message record; it does not purge the original event history. Timed retention uses the same logical deletion path. See [message retention](features/MESSAGE_RETENTION.md) for the sweep cadence, upgrade effect and reproducible canary checks. Database event history is distinct from rotating diagnostic log files. A UI disappearance, a retention timer firing, or routine log rotation is not evidence of secure erasure. Attachment files, explicit report evidence, browser caches, exported copies and backups have separate lifecycles.
 
+The upload registry also stores filenames revoked from the `/uploads/` capability URL path. A malformed registry blocks startup rather than forgetting those revocations, and the server reports a revocation only after its registry update is saved. A missing registry blocks Authority startup when the uploads directory is nonempty; an empty fresh installation can still start. This is an access denial, not erasure of file bytes or cached copies. Restore `upload_registry.json` with the matching upload tree; do not delete or replace a damaged registry to resume service. See the [local persistence check](testing/UPLOAD_REVOCATION_RECOVERY_2026-09-27.md).
+
 Only a correctly implemented end-to-end encrypted path can remove the server operator from the content-confidentiality boundary.
 
 ## Experimental encryption is not a verified E2EE guarantee
@@ -169,6 +171,12 @@ Product principles:
 - encrypted spaces must not quietly gain a server-side content classifier/backdoor;
 - evidence preservation/export should be explicit rather than an invisible universal surveillance mode;
 - already delivered content cannot be magically recalled from another user's device.
+
+The current working-tree moderation candidate records case actions as limited metadata (actor, target, action, reason, time, outcome) without requiring a channel content log. A participant's explicit report saves the selected message as evidence, including a Live message while it is still available. Staff cannot reconstruct an expired Live message that nobody reported. Automated safety flags record a case reference and rule details without a second content snapshot, and private conversations are inspected only when the operator opted into server-readable private-content automation. The owner can clear preserved snapshots or choose a lifetime for snapshots in new reports; old backups and any content copied into staff comments remain separate. Opening a case does not freeze ordinary message deletion or extend a room's retention policy. These worktree changes are not a deployed privacy guarantee; see [project status](PROJECT_STATUS.md).
+
+An ordinary channel's required staff or self-selected community role controls future discovery, reads, joins, and live delivery on that Authority. Tightening it cannot remove messages already delivered to a member's device, an export, or an earlier backup. Reception's separate personal room list is a display preference, not an access boundary.
+Room names and descriptions linked to self-selected community roles are intentionally visible in Reception before a member chooses the role; channel content remains behind the Authority's access check.
+The Authority stores each member's selected community role IDs to enforce access. Those choices are local to that server and are not shared with other Wabi servers.
 
 ## Data recovery is part of privacy
 

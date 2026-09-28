@@ -1,5 +1,6 @@
 import { writable, derived } from 'svelte/store';
 import { browser } from '$app/environment';
+import { isPersonalWorkspace, personalWorkspace } from './personalWorkspace';
 import { getServerUrl } from '$lib/serverUrl';
 import { getAuthToken } from '$lib/authSession';
 import { isLocalMockApiMode, getLocalMockUsers } from '$lib/localMockApi';
@@ -23,11 +24,20 @@ export interface PlannerDirectoryUser {
 export const plannerDirectoryUsers = writable<PlannerDirectoryUser[]>([]);
 
 let fetchStarted = false;
+let directoryGeneration = 0;
+personalWorkspace.subscribe(personal => {
+	directoryGeneration++;
+	fetchStarted = false;
+	if (personal) plannerDirectoryUsers.set([]);
+});
 
 /** Idempotent: safe to call from every surface's onMount. */
 export function ensurePlannerDirectory(): void {
-	if (!browser || fetchStarted) return;
+	if (!browser) return;
+	if (isPersonalWorkspace()) { plannerDirectoryUsers.set([]); return; }
+	if (fetchStarted) return;
 	fetchStarted = true;
+	const generation = directoryGeneration;
 
 	if (isLocalMockApiMode()) {
 		plannerDirectoryUsers.set(getLocalMockUsers() as PlannerDirectoryUser[]);
@@ -45,6 +55,7 @@ export function ensurePlannerDirectory(): void {
 				return;
 			}
 			const data = await response.json();
+			if (generation !== directoryGeneration || isPersonalWorkspace()) return;
 			const rows: unknown = Array.isArray(data) ? data : (data?.users ?? []);
 			if (!Array.isArray(rows)) return;
 			plannerDirectoryUsers.set(

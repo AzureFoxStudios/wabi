@@ -270,6 +270,7 @@ async fn poison_writer(state: &AppState) {
         .unwrap();
     assert!(engine
         .run_command(CommandCommit {
+            room_owner_precondition: None,
             caller_user_id: 1,
             caller_device_id: "test".into(),
             command_name: "delivery-fault".into(),
@@ -287,6 +288,59 @@ async fn poison_writer(state: &AppState) {
         .await
         .is_err());
     assert!(!engine.is_healthy());
+}
+
+#[tokio::test]
+async fn instance_pause_holds_a_real_socket_message_until_release() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (sender_id, recipient_id, channel) = seed(&state).await;
+    let app = router(&state);
+    let mut sender = Client::connect(&app, &token(&state, sender_id)).await;
+    let mut recipient = Client::connect(&app, &token(&state, recipient_id)).await;
+    recipient.join_channel(&channel).await;
+    let before = state.wdb.engine().barrier().current();
+    let paused = state.instance_operations.quiesce().await.unwrap();
+    // The fixture's Engine.IO transport is outside API middleware, so a 200
+    // here demonstrates callback admission rather than an HTTP-only pause.
+    sender
+        .emit(
+            "message",
+            json!({
+                "channelId":channel, "clientMessageId":"after-pause", "text":"held then committed",
+            }),
+        )
+        .await;
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while state.instance_operations.waiting_operations() == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(state.wdb.engine().barrier().current(), before);
+    assert!(state
+        .wdb
+        .list_messages_typed(&channel, 10)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(state
+        .session_messages
+        .read()
+        .await
+        .get(&channel)
+        .is_none_or(Vec::is_empty));
+    drop(paused);
+    let accepted = sender.event("message-accepted").await;
+    assert_eq!(accepted["clientMessageId"], "after-pause");
+    let id = accepted["messageId"].as_str().unwrap();
+    assert_eq!(recipient.event("message").await["message"]["id"], id);
+    let messages = state.wdb.list_messages_typed(&channel, 10).await.unwrap();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].message_id, id);
+    assert_eq!(messages[0].content, "held then committed");
+    assert_eq!(state.wdb.engine().barrier().current(), before + 1);
 }
 
 #[tokio::test]
@@ -600,6 +654,38 @@ async fn direct_message_reaches_unopened_recipient_and_history_uses_latest_durab
     // round trip on either the desktop or the recipient's phone.
     sender.emit("create-dm", json!({"targetUserId": format!("user-{recipient_id}")})).await;
     assert_eq!(sender.event("dm-created").await["channelId"], channel);
+    // New DMs start encryption-pending. This delivery fixture explicitly
+    // selects server-readable messages through the real member API.
+    sender.emit("message", json!({"channelId":channel,"clientMessageId":"pending-denial","text":"not yet allowed"})).await;
+    let (event, denial) = sender
+        .event_one_of(&["message-error", "message-accepted"])
+        .await;
+    assert_eq!(event, "message-error");
+    assert_eq!(denial["code"], "e2ee_required");
+    assert!(state
+        .wdb
+        .list_messages_typed(&channel, 10)
+        .await
+        .unwrap()
+        .is_empty());
+    for user in [sender_id, recipient_id] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/e2ee/channels/{channel}/allow-server-readable"))
+                    .header("authorization", format!("Bearer {}", token(&state, user)))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let choice: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(choice["serverReadableSelected"], true);
+    }
     sender.emit("message", json!({"channelId":channel,"clientMessageId":"dm-first","text":"hello from first device"})).await;
     assert_eq!(sender.event("message-accepted").await["clientMessageId"], "dm-first");
     assert_eq!(recipient.event("message").await["message"]["text"], "hello from first device");

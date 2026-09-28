@@ -548,7 +548,7 @@ async fn admin_and_creation_reject_non_account_and_revoked_credentials() {
     let revoked = claims(owner);
     state
         .revoke_token_with_exp(revoked.jti.clone(), revoked.exp)
-        .await;
+        .await.unwrap();
     invalid_tokens.push(sign(&state, &revoked));
     for invalid in invalid_tokens {
         assert_eq!(
@@ -654,7 +654,7 @@ async fn admin_and_creation_reject_non_account_and_revoked_credentials() {
         StatusCode::OK
     );
     let previously_valid = token(&state, owner);
-    state.revoke_user(owner as i64).await;
+    state.revoke_user(owner as i64).await.unwrap();
     assert_eq!(
         request(&app, "GET", ADMIN_PATH, &previously_valid, None)
             .await
@@ -801,7 +801,7 @@ async fn permanent_password_reset_protects_owner_and_self_and_revokes_target_ses
     let member_claims = claims(member);
     state
         .revoke_user_other_sessions(member as i64, &member_claims.jti)
-        .await;
+        .await.unwrap();
     assert!(
         !state
             .is_token_revoked(&member_claims.jti, member as i64, member_claims.iat)
@@ -883,6 +883,6 @@ async fn permanent_password_reset_protects_owner_and_self_and_revokes_target_ses
     let rotated_access = rotated.1["accessToken"].as_str().unwrap();
     assert_eq!(request(&app, "POST", "/payments/intents", rotated_access, Some(intent())).await.0, StatusCode::OK);
     assert!(state.is_token_revoked(&member_claims.jti, member as i64, member_claims.iat).await, "new login must never lower the old cutoff");
-    state.revoke_user(member as i64).await;
+    state.revoke_user(member as i64).await.unwrap();
     assert_eq!(request(&app, "POST", "/payments/intents", rotated_access, Some(intent())).await.0, StatusCode::UNAUTHORIZED, "another reset must revoke the freshly clamped session too");
 }

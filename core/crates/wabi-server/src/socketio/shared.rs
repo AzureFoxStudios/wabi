@@ -4,7 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -13,7 +13,7 @@ use socketioxide::{
     layer::SocketIoLayer,
     SocketIo,
 };
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex as TokioMutex, RwLock};
 use tracing::{info, warn};
 
 use crate::state::AppState;
@@ -41,6 +41,44 @@ pub fn shared_connected_users() -> ConnectedUsers {
 pub async fn connected_user_count() -> u64 {
     shared_connected_users().read().await.values()
         .map(|user| &user.stable_id).collect::<std::collections::HashSet<_>>().len() as u64
+}
+
+/// Remove an account from a channel's realtime room immediately after a
+/// persisted channel ban. Future joins still go through require_access.
+pub fn evict_channel_user(io: &SocketIo, channel_id: &str, user_id: i64) {
+    let media_room = format!("wabidb-call-channel:{channel_id}");
+    for device in io.sockets() {
+        if device.extensions.get::<SioIdentity>().is_some_and(|identity| identity.user_id == user_id) {
+            let _ = device.leave(channel_id.to_string());
+            let _ = device.leave(media_room.clone());
+            let _ = device.emit("channel-access-revoked", &json!({ "channelId": channel_id }));
+        }
+    }
+}
+
+/// Remove only viewers who fail the newly saved role gate. Members whose role
+/// still permits access keep their voice session and media room intact.
+pub async fn evict_channel_disallowed(io: &SocketIo, state: &AppState, channel_id: &str) {
+    let media_room = format!("wabidb-call-channel:{channel_id}");
+    for device in io.sockets() {
+        let Some(identity) = device.extensions.get::<SioIdentity>() else { continue; };
+        if matches!(crate::channel_access::channel_role_allows(state, identity.user_id, channel_id).await, Ok(true)) {
+            continue;
+        }
+        let _ = device.leave(channel_id.to_string());
+        let _ = device.leave(media_room.clone());
+        let _ = device.emit("channel-access-revoked", &json!({ "channelId": channel_id }));
+    }
+}
+
+
+pub fn evict_server_user(io: &SocketIo, user_id: i64) {
+    for device in io.sockets() {
+        if device.extensions.get::<SioIdentity>().is_some_and(|identity| identity.user_id == user_id) {
+            let _ = device.emit("auth-revoked", &json!({ "reason": "You have been banned from this server" }));
+            let _ = device.disconnect();
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -298,6 +336,19 @@ pub struct SioState {
     pub voice_channels: VoiceChannels,
     pub group_call_sessions: GroupCallSessions,
     pub breakout_rooms: BreakoutRooms,
+    pub roster_cache: Arc<TokioMutex<Option<RosterSnapshot>>>,
+}
+
+pub struct RosterSnapshot {
+    pub revision: u64,
+    pub built_at: Instant,
+    pub members: Vec<Value>,
+}
+
+impl RosterSnapshot {
+    pub fn reusable(&self, revision: u64) -> bool {
+        self.revision == revision && self.built_at.elapsed() < Duration::from_secs(30)
+    }
 }
 
 /// Periodic sweep of stale Socket.IO state. Safety net for on_disconnect
@@ -420,25 +471,31 @@ pub fn spawn_sweep_loop(state: SioState) -> tokio::task::JoinHandle<()> {
         // restart land in connected_users first, then clear every guest
         // row left over from the previous process.
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-        reap_disconnected_guests(&state).await;
+        state
+            .app
+            .instance_operations
+            .run(reap_disconnected_guests(&state))
+            .await;
 
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
         // The boot sweep above already handled the startup pass.
         interval.tick().await;
         loop {
             interval.tick().await;
-            let (u, v, g) = sweep_stale_state(
-                &state.connected_users,
-                &state.voice_channels,
-                &state.group_call_sessions,
-            )
-            .await;
-            if u > 0 || v > 0 || g > 0 {
-                tracing::info!("[sweep] removed {} stale connected users, {} empty voice channels, {} empty group call sessions", u, v, g);
-            }
-            // Guest reconciliation: catches disconnects on_disconnect
-            // missed and guests whose stale socket entry was just swept.
-            reap_disconnected_guests(&state).await;
+            state.app.instance_operations.run(async {
+                let (u, v, g) = sweep_stale_state(
+                    &state.connected_users,
+                    &state.voice_channels,
+                    &state.group_call_sessions,
+                )
+                .await;
+                if u > 0 || v > 0 || g > 0 {
+                    tracing::info!("[sweep] removed {} stale connected users, {} empty voice channels, {} empty group call sessions", u, v, g);
+                }
+                // Guest reconciliation: catches disconnects on_disconnect
+                // missed and guests whose stale socket entry was just swept.
+                reap_disconnected_guests(&state).await;
+            }).await;
         }
     })
 }
@@ -532,8 +589,14 @@ pub async fn resolve_identity(socket: &SocketRef, state: &SioState) -> Option<So
     }
 
     // Banned users are rejected at the socket-event level too (not just REST).
-    if let Ok(true) = state.app.wdb.is_user_banned(user_id as u64).await {
+    let Some(blacklist) = state.app.get_blacklist().await else {
+        let _ = socket.emit("auth-revoked", &json!({ "reason": "Ban enforcement unavailable" }));
+        let _ = socket.clone().disconnect();
+        return None;
+    };
+    if blacklist.is_user_banned(user_id).await.is_some() {
         let _ = socket.emit("ban", &json!({ "reason": "You are banned from this server" }));
+        let _ = socket.clone().disconnect();
         return None;
     }
 
@@ -898,23 +961,24 @@ fn row_to_user_view(row: &HashMap<String, Value>, owner_id: Option<i64>) -> Valu
 
 #[allow(dead_code)]
 async fn connected_user_to_view(user: &ConnectedUser, _owner_id: Option<i64>, state: &SioState) -> Value {
-    let (profile_picture, username_font, bio, is_registered) = if let Some(db_id) = user.db_user_id {
+    let (profile_picture, username_font, bio, status_message, is_registered) = if let Some(db_id) = user.db_user_id {
         if db_id > 0 {
             if let Ok(Some(db_user)) = state.app.wdb.get_user(db_id as u64).await {
                 (
                     db_user.profile_picture,
                     db_user.username_font.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
                     db_user.bio,
+                    db_user.status_message,
                     Some(!db_user.password_hash.is_empty()),
                 )
             } else {
-                (None, None, None, None)
+                (None, None, None, None, None)
             }
         } else {
-            (None, None, None, None)
+            (None, None, None, None, None)
         }
     } else {
-        (None, None, None, None)
+        (None, None, None, None, None)
     };
 
     let role = effective_user_role(state, user.db_user_id, is_registered.unwrap_or(false)).await;
@@ -965,6 +1029,7 @@ async fn connected_user_to_view(user: &ConnectedUser, _owner_id: Option<i64>, st
         "overlayOffsetY": overlay_oy,
         "usernameFont": username_font,
         "bio":         bio,
+        "statusMessage": status_message,
         "dbUserId":    user.db_user_id,
         "roles":       [role],
         "highestRole": role,

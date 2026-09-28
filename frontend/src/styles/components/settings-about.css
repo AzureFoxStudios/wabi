@@ -24,6 +24,10 @@
 	background: color-mix(in srgb, var(--surface-sunken) 50%, transparent);
 }
 
+:root:not([data-theme='light']) .about-logo-wabi {
+	filter: invert(1);
+}
+
 .about-copy {
 	min-width: 0;
 	display: flex;

@@ -1,6 +1,8 @@
 <script lang="ts">
 	import ImageViewer from '$lib/components/ImageViewer.svelte';
-	import { currentUser } from '$lib/socket';
+	import { parseMessage } from '$lib/markdown';
+	import { journalCodeBlock } from '$lib/business/journalFormatting';
+	import { plannerActor as currentUser } from '$lib/business/personalWorkspace';
 	import {
 		diaryEntries,
 		addDiaryEntry,
@@ -39,24 +41,54 @@
 	/** Legacy signer name of the loaded entry (read-only display). */
 	let legacySignedBy: string | undefined = undefined;
 	let fileInput: HTMLInputElement;
+ let codeInput: HTMLInputElement;
+ let contentEditor: HTMLTextAreaElement;
+ let showPreview = false;
+ let attachmentError = '';
+ let editorGeneration = 0;
+ function insertFormatting(before: string, after = '') {
+  const start = contentEditor?.selectionStart ?? formContent.length;
+  const end = contentEditor?.selectionEnd ?? start;
+  formContent = formContent.slice(0,start) + before + formContent.slice(start,end) + after + formContent.slice(end);
+  showPreview = false;
+ }
+ async function importCode(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const generation = editorGeneration;
+  const file = input.files?.[0]; input.value = '';
+  if (!file) return;
+  if (file.size > 1024 * 1024) { attachmentError = 'Choose a text or code file smaller than 1 MB.'; return; }
+  try {
+   const content = await file.text();
+   if (generation !== editorGeneration) return;
+   if (content.includes('\0')) { attachmentError = 'This looks like a binary file. Add a link to it instead.'; return; }
+   formContent += `\n\n${journalCodeBlock(content,file.name.split('.').pop() || '')}\n`;
+   attachmentError = ''; showPreview = false;
+  } catch { attachmentError = 'Could not read that file. Please try again.'; }
+ }
+ function pasteImages(event: ClipboardEvent) {
+  const files = Array.from(event.clipboardData?.files || []).filter(file => file.type.startsWith('image/'));
+  if (files.length) {event.preventDefault(); addImages(files);}
+ }
+ function addImages(files: File[]) {
+  const generation = editorGeneration;
+  for (const file of files) {
+   if (!file.type.startsWith('image/')) continue;
+   if (file.size > 5 * 1024 * 1024) {attachmentError = 'Choose images smaller than 5 MB each.'; continue;}
+   const reader = new FileReader();
+   reader.onload = () => {if(generation === editorGeneration && typeof reader.result === 'string') formImages = [...formImages,reader.result];};
+   reader.onerror = () => attachmentError = 'Could not read that image. Please try again.';
+   reader.readAsDataURL(file);
+  }
+ }
+
 
 	// Image upload handling
 	function handleImageUpload(event: Event) {
 		const input = event.target as HTMLInputElement;
 		if (!input.files?.length) return;
 
-		Array.from(input.files).forEach(file => {
-			if (!file.type.startsWith('image/')) return;
-
-			const reader = new FileReader();
-			reader.onload = (e) => {
-				const result = e.target?.result as string;
-				if (result) {
-					formImages = [...formImages, result];
-				}
-			};
-			reader.readAsDataURL(file);
-		});
+		addImages(Array.from(input.files));
 
 		// Reset input so same file can be selected again
 		input.value = '';
@@ -110,6 +142,7 @@
 	}
 
 	function loadEntry() {
+		editorGeneration++; showPreview = false; attachmentError = "";
 		if (!selectedDate) {
 			currentEntry = null;
 			resetForm();
@@ -131,6 +164,7 @@
 	}
 
 	function resetForm() {
+		editorGeneration++; showPreview = false; attachmentError = "";
 		formContent = '';
 		formTags = '';
 		formIsPrivate = false;
@@ -201,7 +235,8 @@
 	$: canGoNext = selectedDate ? new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000) <= new Date() : false;
 </script>
 
-<div class="diary-container">
+<div class="diary-container" class:journal-stream={!selectedDate}>
+	{#if selectedDate && sortedEntries.length}
 	<aside class="entries-sidebar">
 		<div class="sidebar-header">
 			<h2>Journal Entries</h2>
@@ -241,6 +276,7 @@
 			{/if}
 		</div>
 	</aside>
+	{/if}
 
 	<main class="diary-main">
 		{#if selectedDate}
@@ -265,12 +301,10 @@
 			</header>
 		{:else}
 			<header class="diary-header welcome-header" class:embedded={embedded}>
-				{#if !embedded}
-					<h1>Journal</h1>
-				{/if}
-				<div class="header-actions">
-					<button class="today-btn primary" on:click={goToToday}>+ New Entry</button>
-				</div>
+<div class="journal-intro"><span>MY PLANNER · ON THIS DEVICE</span><h1>A little space to think.</h1><p>Keep the sketches, decisions, and small discoveries along the way.</p></div>
+				{#if !embedded}<div class="header-actions">
+					<button class="today-btn primary" on:click={() => { goToToday(); startEditing(); }}>+ New Entry</button>
+				</div>{/if}
 			</header>
 		{/if}
 
@@ -289,7 +323,7 @@
 							<h2>No journal entries yet</h2>
 							<p>Capture a thought for today. Photos and sketches welcome.</p>
 							{#if !isReadOnly}
-								<button type="button" class="today-btn primary" on:click={goToToday}>Write today’s entry</button>
+								<button type="button" class="today-btn primary" on:click={() => { goToToday(); startEditing(); }}>Write today’s entry</button>
 							{/if}
 						</div>
 					{:else}
@@ -348,8 +382,25 @@
 			{:else if isEditing || !currentEntry}
 				<!-- Edit Mode -->
 				<div class="editor">
+ <div class="journal-formatting" role="toolbar" aria-label="Journal formatting">
+  <button type="button" on:click={() => insertFormatting('**','**')}>Bold</button>
+  <button type="button" on:click={() => insertFormatting('## ')}>Heading</button>
+  <button type="button" on:click={() => insertFormatting('[','](https://)')}>Link</button>
+  <button type="button" on:click={() => insertFormatting('\n```\n','\n```\n')}>Code block</button>
+  <button type="button" on:click={() => codeInput.click()}>Add text / code file</button>
+  <button type="button" on:click={() => showPreview = !showPreview} aria-pressed={showPreview}>{showPreview ? 'Write' : 'Preview'}</button>
+ </div>
+ <input type="file" bind:this={codeInput} accept=".txt,.md,.js,.ts,.json,.py,.rs,.sh,.css,.html,.yaml,.yml,.toml,.sql,.c,.cpp,.h,.go,.java,.xml,.csv" on:change={importCode} style="display:none" />
+ <p class="format-hint">Write notes, lists, links, tables, or fenced code. Paste images here or use Add image. Code is saved as text and never runs.</p>
+ {#if attachmentError}<p role="alert">{attachmentError}</p>{/if}
+ {#if showPreview}<div class="journal-markdown">{@html parseMessage(formContent,[],{allowTables:true})}</div>{/if}
+
 					<textarea
 						class="content-editor"
+						bind:this={contentEditor}
+						aria-label="Journal entry content"
+						on:paste={pasteImages}
+						class:preview-hidden={showPreview}
 						bind:value={formContent}
 						placeholder="Document your learnings, ideas, or notes..."
 						rows="12"
@@ -369,7 +420,7 @@
 									<circle cx="8.5" cy="8.5" r="1.5"/>
 									<polyline points="21 15 16 10 5 21"/>
 								</svg>
-								Add Photo
+								Add image
 							</button>
 							<input
 								bind:this={fileInput}
@@ -412,12 +463,13 @@
 
 						<label class="private-toggle">
 							<input type="checkbox" bind:checked={formIsPrivate} />
-							<span>Private entry</span>
+							<span>Personal entry</span>
 						</label>
 
-						<!-- Sign-off row -->
+						<p class="journal-visibility">Visibility: only on this device. The personal marker does not change access or publish this entry.</p>
+						<!-- Names attached -->
 						<div class="sign-toggle">
-							<SignatureRow bind:draftSignatures {legacySignedBy} label="Sign-off" />
+							<SignatureRow bind:draftSignatures {legacySignedBy} label="Names attached" />
 						</div>
 					</div>
 
@@ -428,7 +480,7 @@
 						<button
 							class="save-btn"
 							on:click={handleSave}
-							disabled={!formContent.trim()}
+							disabled={!formContent.trim() && formImages.length === 0}
 						>
 							{currentEntry ? 'Save Changes' : 'Save Entry'}
 						</button>
@@ -437,15 +489,7 @@
 			{:else}
 				<!-- View Mode -->
 				<div class="entry-view">
-					<div class="entry-content">
-						{#each currentEntry.content.split('\n') as paragraph}
-							{#if paragraph.trim()}
-								<p>{paragraph}</p>
-							{:else}
-								<br />
-							{/if}
-						{/each}
-					</div>
+					<div class="entry-content journal-markdown">{@html parseMessage(currentEntry.content,[],{allowTables:true})}</div>
 
 					{#if currentEntry.images?.length}
 						<div class="entry-images">
@@ -514,3 +558,11 @@
 
 <ImageViewer src={viewingImage || ''} alt="Diary image" onClose={() => (viewingImage = null)} />
 
+
+<style>
+ .journal-visibility{flex-basis:100%;font-size:12px;color:var(--text-muted);line-height:1.5;margin:0}
+ .journal-formatting{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}.journal-formatting button{padding:7px 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface-base);color:var(--text-secondary);cursor:pointer}.format-hint{font-size:12px;line-height:1.6;color:var(--text-muted);margin:0 0 14px}.preview-hidden{display:none}.journal-markdown{line-height:1.75;overflow-wrap:anywhere}.journal-markdown :global(pre){padding:16px;overflow:auto;background:var(--surface-sunken);border-radius:var(--radius-lg);white-space:pre}.journal-markdown :global(code){font-family:var(--font-mono);font-size:.9em}.journal-markdown :global(table){border-collapse:collapse;display:block;overflow:auto}.journal-markdown :global(th),.journal-markdown :global(td){border:1px solid var(--border-subtle);padding:8px}.journal-markdown :global(img){max-width:100%}.journal-markdown :global(a){color:var(--accent-secondary)}
+ .journal-intro{padding:12px 24px}.journal-intro span{font-size:11px;letter-spacing:.1em;color:var(--text-muted);font-weight:700}.journal-intro h1{font-size:30px;margin:14px 0}.journal-intro p{font-size:14px;line-height:1.6;color:var(--text-secondary);margin:0}
+ .journal-stream .diary-main{width:100%;max-width:1000px;margin:0 auto}.journal-stream :global(.welcome-view){padding:24px}.journal-stream :global(.month-header){font-size:13px;letter-spacing:.06em;color:var(--text-muted);margin:24px 0 12px}.journal-stream :global(.month-entries){display:grid;gap:14px}.journal-stream :global(.entry-row){padding:20px;border-radius:var(--radius-xl);background:var(--surface-base);border:1px solid var(--border-subtle)}.journal-stream :global(.entry-row-excerpt){line-height:1.7}.journal-stream :global(.empty-state){max-width:520px;min-height:0;margin:24px auto;padding:32px;border:1px solid var(--border-subtle);border-radius:var(--radius-xl);background:var(--surface-base)}
+ @media(max-width:720px){.diary-container :global(.entries-sidebar){display:none}.journal-stream :global(.welcome-view){padding:16px}}
+</style>

@@ -12,6 +12,7 @@
 	import { screenShares } from '$lib/callingStateStores';
 	import { voiceCallRecordingParticipants } from '$lib/callRecordingPresence';
 	import { formatBadge, formatVoiceDuration as formatVoiceDurationLabel, formatVoiceOccupancy, getVoiceOccupancyTitle } from './channelSidebarHelpers';
+	import { mediaUrl } from '$lib/mediaUrl';
 
 	const voiceMediaByChannel = derived([wabidbRemoteVideoSessions, screenShares],
 		([sessions, shares]) => buildChannelMediaSharers(sessions, shares));
@@ -301,7 +302,7 @@
 			{#if row.isConnected && $currentUser}
 				<div class="voice-member-item" in:fly={reducedMotion ? undefined : { x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={reducedMotion ? undefined : { x: -24, duration: 150, opacity: 0.1 }}>
 					{#if $currentUser.profilePicture}
-						<img class="voice-member-avatar" class:speaking={row.isSelfSpeaking} src={$currentUser.profilePicture} alt={$currentUser.username} />
+						<img class="voice-member-avatar" class:speaking={row.isSelfSpeaking} src={mediaUrl($currentUser.profilePicture)} alt={$currentUser.username} />
 					{:else}
 						<span class="voice-member-avatar voice-avatar-fallback" class:speaking={row.isSelfSpeaking}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
 					{/if}
@@ -365,7 +366,7 @@
 					out:fly={reducedMotion ? undefined : { x: -24, duration: 150, opacity: 0.1 }}
 				>
 					{#if member.profilePicture}
-						<img class="voice-member-avatar" class:speaking={row.speakingIds.has(member.userId)} src={member.profilePicture} alt={member.username || member.userId} />
+						<img class="voice-member-avatar" class:speaking={row.speakingIds.has(member.userId)} src={mediaUrl(member.profilePicture)} alt={member.username || member.userId} />
 					{:else}
 						<span class="voice-member-avatar voice-avatar-fallback" class:speaking={row.speakingIds.has(member.userId)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 					{/if}
@@ -444,7 +445,7 @@
 				{#if brow.isConnected && $currentUser}
 				<div class="voice-member-item" in:fly={reducedMotion ? undefined : { x: -18, duration: 180, opacity: 0.2, easing: cubicOut }} out:fly={reducedMotion ? undefined : { x: -24, duration: 150, opacity: 0.1 }}>
 					{#if $currentUser.profilePicture}
-						<img class="voice-member-avatar" class:speaking={brow.isSelfSpeaking} src={$currentUser.profilePicture} alt={$currentUser.username} />
+						<img class="voice-member-avatar" class:speaking={brow.isSelfSpeaking} src={mediaUrl($currentUser.profilePicture)} alt={$currentUser.username} />
 					{:else}
 						<span class="voice-member-avatar voice-avatar-fallback" class:speaking={brow.isSelfSpeaking}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
 					{/if}
@@ -469,7 +470,7 @@
 						out:fly={reducedMotion ? undefined : { x: -24, duration: 150, opacity: 0.1 }}
 					>
 						{#if member.profilePicture}
-							<img class="voice-member-avatar" class:speaking={brow.speakingIds.has(member.userId)} src={member.profilePicture} alt={member.username || member.userId} />
+							<img class="voice-member-avatar" class:speaking={brow.speakingIds.has(member.userId)} src={mediaUrl(member.profilePicture)} alt={member.username || member.userId} />
 						{:else}
 							<span class="voice-member-avatar voice-avatar-fallback" class:speaking={brow.speakingIds.has(member.userId)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 						{/if}

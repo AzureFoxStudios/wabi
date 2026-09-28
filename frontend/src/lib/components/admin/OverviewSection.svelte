@@ -114,7 +114,7 @@
 			<div class="admin-summary-grid admin-moderation-grid">
 				<div class="admin-summary"><span>Open reports</span><strong class="admin-stat-value">{formatCount(openReports)}</strong><small>{openReports === null ? 'Open the inbox for live cases' : openReports === 0 ? 'Snapshot queue is clear' : 'Awaiting moderator review'}</small></div>
 				<div class="admin-summary"><span>Banned accounts</span><strong class="admin-stat-value">{formatCount(bannedUsers)}</strong><small>{bannedUsers === null ? 'Not in this snapshot' : 'Recorded enforcement total'}</small></div>
-				<div class="admin-summary"><span>Muted accounts</span><strong class="admin-stat-value">{formatCount(mutedUsers)}</strong><small>{mutedUsers === null ? 'Not in this snapshot' : 'Currently restricted'}</small></div>
+				<div class="admin-summary"><span>Muted accounts</span><strong class="admin-stat-value">{formatCount(mutedUsers)}</strong><small>{mutedUsers === null ? 'Not measured' : 'Currently restricted'}</small></div>
 				<div class="admin-summary"><span>Audit entries</span><strong class="admin-stat-value">{formatCount(auditEntries)}</strong><small>{auditEntries === null ? 'Not in this snapshot' : 'Recorded staff actions'}</small></div>
 			</div>
 		</section>

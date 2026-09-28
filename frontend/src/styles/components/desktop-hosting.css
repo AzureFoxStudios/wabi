@@ -1,0 +1,56 @@
+.desktop-communities { width: min(100%, 900px); height: 100dvh; overflow-y: auto; box-sizing: border-box; margin: 0 auto; padding: clamp(24px, 5vw, 56px) clamp(16px, 4vw, 40px); color: var(--text-heading); }
+.desktop-communities header { margin-bottom: var(--space-6); }
+.desktop-communities h1 { font-size: clamp(28px, 5vw, 42px); letter-spacing: -.025em; margin: var(--space-2) 0; text-wrap: balance; }
+.desktop-communities h2 { font-size: var(--font-size-xl); margin: 0 0 var(--space-3); text-wrap: balance; }
+.desktop-communities h3 { font-size: var(--font-size-base); margin: var(--space-5) 0 var(--space-2); }
+.desktop-communities p { line-height: 1.6; color: var(--text-secondary); text-wrap: pretty; }
+.desktop-communities .eyebrow { font-size: var(--font-size-sm); font-weight: 600; color: var(--accent-secondary); margin: 0; }
+.desktop-communities .community-nav { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-6) 0; }
+.desktop-communities .community-nav button { background: var(--surface-base); color: var(--text-secondary); }
+.desktop-communities .community-nav button[aria-pressed="true"] { color: var(--text-heading); background: var(--surface-raised); box-shadow: inset 0 -2px var(--accent-primary); }
+.desktop-communities .community-card { padding: clamp(20px, 4vw, 32px); margin: var(--space-4) 0; border: 1px solid var(--border-default); border-radius: var(--radius-xl); background: var(--surface-base); }
+.desktop-communities label { display: block; font-size: var(--font-size-sm); font-weight: 600; margin: var(--space-4) 0 var(--space-2); }
+.desktop-communities input, .desktop-communities textarea, .desktop-communities select { width: 100%; min-width: 0; box-sizing: border-box; padding: 12px; border: 1px solid var(--border-default); border-radius: var(--radius-md); color: var(--text-heading); background: var(--surface-sunken); font: inherit; }
+.desktop-communities button { min-height: 44px; padding: 10px 16px; border: 1px solid transparent; border-radius: var(--radius-md); background: var(--accent-primary); color: var(--text-on-accent, white); cursor: pointer; font: inherit; font-weight: 600; transition: background-color 120ms ease, opacity 120ms ease; }
+.desktop-communities button:hover:not(:disabled) { background: var(--accent-secondary); }
+.desktop-communities button:disabled { opacity: .5; cursor: not-allowed; }
+.desktop-communities button.secondary { background: var(--surface-raised); color: var(--text-heading); border-color: var(--border-default); }
+.desktop-communities :is(button, input, textarea, select, a, summary):focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: 3px; }
+.desktop-communities .row { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+.desktop-communities .actions { margin-top: var(--space-5); }
+.desktop-communities .hosting-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.desktop-communities .mode-choice { padding: var(--space-5); text-align: start; }
+.desktop-communities .mode-choice strong { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
+.desktop-communities .mode-choice strong span { color: var(--accent-secondary); }
+.desktop-communities .mode-choice > span { display: block; font-weight: 400; line-height: 1.6; color: var(--text-secondary); }
+.desktop-communities .small { font-size: var(--font-size-sm); }
+.desktop-communities .muted { color: var(--text-muted); }
+.desktop-communities .notice { padding: var(--space-4); background: var(--surface-raised); border-radius: var(--radius-md); overflow-wrap: anywhere; }
+.desktop-communities .notice.error { border-inline-start: 3px solid var(--color-danger); }
+.desktop-communities .notice.warning { border-inline-start: 3px solid var(--color-warning); }
+.desktop-communities .status { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: 600; }
+.desktop-communities .status::before { content: ''; width: 8px; height: 8px; background: var(--text-muted); border-radius: var(--radius-full); }
+.desktop-communities .status[data-state="Ready"]::before { background: var(--color-success); }
+.desktop-communities .status[data-state="Failed"]::before { background: var(--color-danger); }
+.desktop-communities .status[data-state="Starting"]::before { background: var(--color-warning); }
+.desktop-communities .community-list { list-style: none; padding: 0; margin: 0; }
+.desktop-communities .community-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) 0; border-bottom: 1px solid var(--border-default); }
+.desktop-communities .community-list li:last-child { border-bottom: 0; }
+.desktop-communities .community-list p { margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
+.desktop-communities .community-list .community-description { min-width: 0; flex: 1 1 200px; }
+.desktop-communities .confirmation { padding: 0 var(--space-6) var(--space-6); }
+.desktop-communities code { font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+.desktop-communities a { color: var(--accent-secondary); }
+.desktop-communities details { margin-top: var(--space-5); }
+.desktop-communities .starter-channels { padding: var(--space-4); border: 1px solid var(--border-default); border-radius: var(--radius-md); }
+.desktop-communities .starter-channel-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+.desktop-communities .starter-channel-row button { min-width: 0; }
+.desktop-communities summary { cursor: pointer; min-height: 40px; align-content: center; color: var(--text-secondary); }
+.desktop-communities footer { padding-top: var(--space-5); }
+@media (max-width: 520px) {
+	.desktop-communities .starter-channel-row { grid-template-columns: 1fr 1fr; }
+	.desktop-communities .starter-channel-row input { grid-column: 1 / -1; grid-row: 1; }
+	.desktop-communities .hosting-modes { grid-template-columns: 1fr; }
+	.desktop-communities .community-nav { flex-direction: column; }
+	.desktop-communities .row.actions > button { flex: 1 1 140px; }
+}

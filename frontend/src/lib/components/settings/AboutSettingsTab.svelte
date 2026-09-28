@@ -72,7 +72,7 @@
 			(brand.description && brand.description.trim()) ||
 			(brand.tagline && brand.tagline.trim()) ||
 			(brand.subheadline && brand.subheadline.trim()) ||
-			'Self-hosted community chat.';
+			'Self-hosted communication and collaboration.';
 		aboutFooter = (brand.footerText && brand.footerText.trim()) || '';
 
 
@@ -91,7 +91,12 @@
 	<h3>{$_('settings.sections.about')}</h3>
 	<div class="about-card">
 		{#if activeBrand.logoSmallUrl || activeBrand.logoUrl}
-			<img class="about-logo" src={activeBrand.logoSmallUrl || activeBrand.logoUrl} alt="" />
+			<img
+				class="about-logo"
+				class:about-logo-wabi={activeBrand === brandConfig}
+				src={activeBrand.logoSmallUrl || activeBrand.logoUrl}
+				alt=""
+			/>
 		{/if}
 		<div class="about-copy">
 			<p class="about-title"><strong>{aboutTitle}</strong></p>

@@ -20,7 +20,7 @@
 </script>
 
 <div
-	class="modal-overlay"
+	class="modal-overlay todo-task-modal"
 	role="button"
 	tabindex="0"
 	on:click={closeModal}
@@ -121,7 +121,7 @@
 			</div>
 
 			<div class="form-group">
-				<SignatureRow bind:draftSignatures {legacySignedBy} label="Sign-off" />
+				<SignatureRow bind:draftSignatures {legacySignedBy} label="Names attached" />
 			</div>
 
 			<div class="form-actions">

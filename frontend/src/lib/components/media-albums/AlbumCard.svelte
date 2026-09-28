@@ -15,12 +15,11 @@
 	export let onQuickAdd: (albumId: number) => void = () => {};
 	export let onQuickDelete: (albumId: number) => void = () => {};
 
-	function albumRowStatus(album: MediaAlbum): string | null {
-		if (selectedAlbumId === album.id && isUploadingAlbumFile) return 'Uploading';
-		if (lastUploadedAlbumId === album.id) return 'Updated';
-		if (selectedAlbumId === album.id) return album.itemCount > 0 ? 'Selected' : 'Ready';
-		return null;
-	}
+	$: rowStatus = selectedAlbumId === album.id && isUploadingAlbumFile
+		? 'Uploading'
+		: selectedAlbumId === album.id
+			? (album.itemCount > 0 ? 'Selected' : 'Ready')
+			: lastUploadedAlbumId === album.id ? 'Updated' : null;
 
 	function handleKeydown(event: KeyboardEvent, album: MediaAlbum): void {
 		if (event.key === 'Enter' || event.key === ' ') {
@@ -29,11 +28,10 @@
 		}
 	}
 
-	function cardPlaceholderText(): string {
-		if (selectedAlbumId === album.id && isUploadingAlbumFile) return 'Uploading into this album...';
-		if (album.itemCount > 0) return 'Open album gallery';
-		return 'Click row to upload the first image';
-	}
+	$: placeholderText = selectedAlbumId === album.id && isUploadingAlbumFile
+		? 'Uploading into this album...'
+		: album.itemCount > 0 ? 'Open album gallery' : 'Click row to upload the first image';
+
 </script>
 
 <div
@@ -50,8 +48,8 @@
 	<div class="album-name-row">
 		<div class="album-name-stack">
 			<div class="album-name">{album.name}</div>
-			{#if albumRowStatus(album)}
-				<span class="album-row-status">{albumRowStatus(album)}</span>
+			{#if rowStatus}
+				<span class="album-row-status">{rowStatus}</span>
 			{/if}
 		</div>
 		<div class="album-card-actions">
@@ -108,7 +106,7 @@
 			{/each}
 		{:else}
 			<div class="album-card-placeholder">
-				{cardPlaceholderText()}
+				{placeholderText}
 			</div>
 		{/if}
 	</div>

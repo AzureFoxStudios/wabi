@@ -86,7 +86,7 @@
 	import type { CreateableChannelType } from '$lib/channelStore';
 
 	const dispatch = createEventDispatcher();
-	export let activeView: 'chat' | 'business' | 'screen' | 'following' | 'dm' = 'chat';
+	export let activeView: 'chat' | 'business' | 'screen' | 'following' | 'dm' | 'server' = 'chat';
 	export let dmHubTab: 'messages' | 'friends' = 'messages';
 	export let friendRequestCount = 0;
 
@@ -230,7 +230,7 @@
 	$: wikiChannelsAll = $channels.filter(ch => ch.type === 'wiki').filter(ch => !shouldHideChannelFromList(ch));
 	// L2: Asset Storage (lore) — never mix into text list
 	$: loreChannelsAll = $channels.filter(ch => { const t = ch.type as string | undefined; return t === 'lore' || (ch as any).asset_storage === true; }).filter(ch => !shouldHideChannelFromList(ch));
-	// BZ3: Planning channels render the Planner workspace (center stage).
+	// Planning channels open the shared Project workspace; personal Planner is separate.
 	$: planningChannelsAll = $channels.filter(ch => (ch.type as string | undefined) === 'planning').filter(ch => !shouldHideChannelFromList(ch));
 	// Unified sidebar: ONE pool of every sidebar channel (all types), grouped by
 	// category folders that may hold ANY mix of types. Folders are first-class
@@ -913,9 +913,8 @@
 			createFolderChoice = 'none';
 			createNewFolderName = '';
 			showCreateInput = false;
-			// Project channels: land the user inside the new channel so they see
-			// the repo workspace (file tree etc.) instead of being left on the hub.
-			if (createdType === 'lore' && createdId) {
+			// Project channels land in the shared Project workspace.
+			if ((createdType === 'lore' || createdType === 'planning') && createdId) {
 				// give the optimistic upsert a tick, then switch into it
 				await new Promise((r) => setTimeout(r, 50));
 				switchChannel(createdId);
@@ -1074,7 +1073,7 @@
 <div class="channel-sidebar" class:compact={isCompactSidebar} class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'} style:width={$layoutStore.isMobile ? '100%' : `${$layoutStore.channelSidebarWidth}px`}>
 	<div class="top-section" class:has-banner={Boolean(currentServerBannerUrl)} style:--sidebar-banner-image={currentServerBannerUrl ? `url('${currentServerBannerUrl}')` : 'none'}>
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
-		<button type="button" class="server-identity" on:click={() => dispatch('openServerSwitcher')}>
+		<button type="button" class="server-identity" class:active={activeView === 'server'} aria-label={`Open ${currentServerLabel} hub`} aria-current={activeView === 'server' ? 'page' : undefined} on:click={() => { dispatch('openServerHub'); dispatch('close'); }}>
 	<div class="logo">
 		{#if serverIdentityIconUrl && !serverIdentityImageFailed}
 			<img src={serverIdentityIconUrl} alt={`${currentServerLabel} icon`} class="logo-img server-logo-img" on:error={() => (serverIdentityImageFailed = true)} />
@@ -1083,7 +1082,7 @@
 		{/if}
 	</div>
 	{#if !isCompactSidebar}
-		<div class="server-copy"><strong class="server-name">{currentServerLabel}</strong>{#if currentServerTagline}<span class="server-tagline">{currentServerTagline}</span>{/if}</div>
+		<div class="server-copy"><strong class="server-name">{currentServerLabel}</strong><span class="server-tagline">Reference Desk{currentServerTagline ? ` · ${currentServerTagline}` : ''}</span></div>
 	{/if}
 		</button>
 		{#if sidebarWidth < 170 && !isCompactSidebar}

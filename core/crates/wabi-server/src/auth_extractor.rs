@@ -92,6 +92,10 @@ pub async fn authenticate_access_token(state: &AppState, token: &str) -> Result<
     if uid <= 0 || state.is_token_revoked(&claims.jti, uid, claims.iat).await {
         return Err(AppError::Unauthorized("Invalid or revoked account token".into()));
     }
+    let blacklist = state.get_blacklist().await.ok_or_else(|| AppError::Internal("Ban enforcement unavailable".into()))?;
+    if blacklist.is_user_banned(uid).await.is_some() {
+        return Err(AppError::Unauthorized("Account banned from this server".into()));
+    }
     AuthUser::from_claims(claims)
 }
 
@@ -105,6 +109,10 @@ async fn bot_auth_user(
     let Some(bot_user_id) = app_state.bot_registry.authenticate(token).await else {
         return Ok(None);
     };
+    let blacklist = app_state.get_blacklist().await.ok_or_else(|| AppError::Internal("Ban enforcement unavailable".into()))?;
+    if blacklist.is_user_banned(bot_user_id as i64).await.is_some() {
+        return Ok(None);
+    }
     let username = match app_state.wdb.get_user(bot_user_id).await {
         Ok(Some(user)) => user.username,
         Ok(None) => return Ok(None),

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import '../styles/styles.css';
+	import '../styles/desktop-shell.css';
+	import DesktopTitlebar from '$lib/components/DesktopTitlebar.svelte';
 	// Phase 4 boot optimization: katex/prism CSS moved next to their JS usage
 	// in $lib/markdown.ts so they load with the lazy app chunk, not at login.
 	import { onMount, onDestroy } from 'svelte';
@@ -95,6 +97,13 @@ function isLocalPreviewHost(): boolean {
 		injectNeutralBranding(isNeutralBrandingEnabled());
 
 		void initEmojis();
+
+		// Personal planning must not probe relays or replay community operations.
+		// Community initialization happens on a fresh navigation back to the app.
+		if (window.location.pathname.replace(/\/$/, '') === '/personal') {
+			startupMark('layout:onMount:end');
+			return;
+		}
 
 		// Register service worker for PWA support (browser/PWA only, not Tauri webview)
 		if ('serviceWorker' in navigator && !isRunningInTauri() && isLocalPreviewHost()) {
@@ -218,19 +227,20 @@ function isLocalPreviewHost(): boolean {
 </script>
 
 <svelte:head>
-	<meta name="description" content="Wabi is an open-source, self-hostable communication workspace for small communities and teams, with chat, calls, collaborative tools, and extensible workspaces." />
+	<meta name="description" content="Open-source, self-hosted communication and collaboration for small communities, with chat, calls, shared workspaces, and creative review." />
 	<meta property="og:site_name" content="Wabi" />
 	<meta property="og:type" content="website" />
-	<meta property="og:title" content="Wabi — self-hosted communication and collaboration" />
-	<meta property="og:description" content="An open-source, self-hostable communication workspace for small communities and teams." />
+	<meta property="og:title" content="Wabi — talk, create, and work together" />
+	<meta property="og:description" content="Open-source, self-hosted communication and collaboration for small communities, with chat, calls, shared workspaces, and creative review." />
 	<meta property="og:image" content="https://wabi.chat/screenshot-wide.png" />
 	<meta property="og:image:alt" content="Wabi communication workspace interface" />
 	<meta name="twitter:card" content="summary_large_image" />
-	<meta name="twitter:title" content="Wabi — self-hosted communication and collaboration" />
-	<meta name="twitter:description" content="An open-source, self-hostable communication workspace for small communities and teams." />
+	<meta name="twitter:title" content="Wabi — talk, create, and work together" />
+	<meta name="twitter:description" content="Open-source, self-hosted communication and collaboration for small communities, with chat, calls, shared workspaces, and creative review." />
 	<meta name="twitter:image" content="https://wabi.chat/screenshot-wide.png" />
 </svelte:head>
 
+<DesktopTitlebar />
 <AmbientBackground />
 <div class="app-content-layer">
 	<ConnectionBadge />
