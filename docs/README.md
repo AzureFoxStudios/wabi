@@ -51,6 +51,7 @@ Named-host update runbooks under `deployment/` are operational history for speci
 
 ## Product and feature docs
 
+- [Profile designs](features/PROFILE_DESIGNS.md) and [profile artist guide](features/PROFILE_ARTIST_GUIDE.md) — creator controls, export templates and showcase examples.
 - [features/](features/) — feature-specific guides, including private access, media, Reader/call tooling, and other surfaces.
 - [addons/](addons/) — curated integration documentation, including Lore.
 - [tauri/](tauri/) — desktop/native client material.

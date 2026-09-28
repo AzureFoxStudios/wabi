@@ -35,7 +35,7 @@ import {
 	channelHasMoreHistory, channelOldestMessageId
 } from './messagePagination';
 import { isRenderableMessage } from '$lib/displayEnhancements';
-import { mergeServerEmotes, removeServerEmote, type ServerEmote } from './emoji-store';
+import { mergeServerEmotes, removeServerEmote, clearServerEmotes, type ServerEmote } from './emoji-store';
 import { recordSuccessfulServerConnection } from './savedServerActions';
 import {
 	centerDmChannelId,
@@ -255,6 +255,7 @@ export class SocketManager {
 	}
 
 	private clearAccountRoster(): void {
+		clearServerEmotes();
 		_setUsers([]);
 		_setServerMembers([]);
 		_setCurrentUser(null);
@@ -1123,7 +1124,7 @@ export class SocketManager {
 
 		// Server-side custom emote list (upload/delete broadcast) -> picker store.
 		on('emojis-list', (serverEmotes: ServerEmote[]) => {
-			mergeServerEmotes(Array.isArray(serverEmotes) ? serverEmotes : []);
+			mergeServerEmotes(Array.isArray(serverEmotes) ? serverEmotes : [], server);
 		});
 
 		on('delete-emoji-success', (payload: { name?: string }) => {
@@ -1132,7 +1133,8 @@ export class SocketManager {
 
 		on('emoji-reaction-added', (payload: { channelId?: string; messageId?: string; userId?: number; emojiId?: string }) => {
 			if (!payload?.channelId || !payload.messageId || !payload.emojiId) return;
-			const userIdStr = String(payload.userId);
+			if (!Number.isSafeInteger(payload.userId) || (payload.userId ?? 0) <= 0) return;
+			const userIdStr = `user-${payload.userId}`;
 			channelMessages.update((state) => {
 				const messages = state[payload.channelId!];
 				if (!messages) return state;
@@ -1151,7 +1153,8 @@ export class SocketManager {
 
 		on('emoji-reaction-removed', (payload: { channelId?: string; messageId?: string; userId?: number; emojiId?: string }) => {
 			if (!payload?.channelId || !payload.messageId || !payload.emojiId) return;
-			const userIdStr = String(payload.userId);
+			if (!Number.isSafeInteger(payload.userId) || (payload.userId ?? 0) <= 0) return;
+			const userIdStr = `user-${payload.userId}`;
 			channelMessages.update((state) => {
 				const messages = state[payload.channelId!];
 				if (!messages) return state;
@@ -1214,6 +1217,9 @@ export class SocketManager {
 			upsertUser(serverMembers, user);
 			if (!isCurrentUserProfile(user, get(currentUser), sock.id)) return;
 			_mergeCurrentUserProfile({
+				username: user.username,
+				color: user.color,
+				statusMessage: user.statusMessage,
 				profilePicture: user.profilePicture,
 				bannerUrl: user.bannerUrl,
 				overlayUrl: user.overlayUrl,
@@ -1260,6 +1266,9 @@ export class SocketManager {
 			upsertUser(serverMembers, user);
 			if (!isCurrentUserProfile(user, get(currentUser), sock.id)) return;
 			_mergeCurrentUserProfile({
+				username: user.username,
+				color: user.color,
+				statusMessage: user.statusMessage,
 				profilePicture: user.profilePicture,
 				bannerUrl: user.bannerUrl,
 				overlayUrl: user.overlayUrl,

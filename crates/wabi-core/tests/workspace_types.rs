@@ -2,8 +2,8 @@ use wabi_core::workspace::SessionView;
 use wabi_core::{
     ChannelCreatedEvent, ChannelType, ChannelUpdatedEvent, ChannelView, ConversationUserSummary,
     DirectMessageChannelEvent, GroupAvatarUpdatedEvent, GroupCreatedEvent, GroupMemberAddedEvent,
-    GroupMemberRemovedEvent, MessageRetentionDuration, UserLeftEvent,
-    UserStatus, UserView, UsernameFont, VoiceBitrateMode, VoiceChannelSettings,
+    GroupMemberRemovedEvent, MessageRetentionDuration, UserLeftEvent, UserStatus, UserView,
+    UsernameFont, VoiceBitrateMode, VoiceChannelSettings,
 };
 
 #[test]
@@ -45,6 +45,8 @@ fn user_view_serializes_current_public_user_shape() {
         highest_role: Some("owner".to_owned()),
         role_color: Some("#ff00aa".to_owned()),
         username_font: Some(UsernameFont {
+            design: None,
+            preset: None,
             family: Some("Atkinson".to_owned()),
             size: Some("16px".to_owned()),
             weight: Some("700".to_owned()),
@@ -78,6 +80,51 @@ fn user_view_serializes_current_public_user_shape() {
             "isRegistered": true
         })
     );
+}
+
+#[test]
+fn username_font_preset_is_optional_and_wire_visible_when_selected() {
+    let style = UsernameFont {
+        design: None,
+        preset: Some("ocean".to_owned()),
+        family: None,
+        size: None,
+        weight: None,
+        style: None,
+    };
+    assert_eq!(
+        serde_json::to_value(&style).unwrap(),
+        serde_json::json!({ "preset": "ocean" })
+    );
+}
+
+#[test]
+fn editable_name_design_is_optional_complete_and_bounded() {
+    let legacy: UsernameFont =
+        serde_json::from_value(serde_json::json!({ "family": "Arial" })).unwrap();
+    assert!(legacy.design.is_none());
+    let design = serde_json::json!({
+        "effect": "shimmer", "color": "#abcdef", "color2": "#123456", "angle": 120.5,
+        "glow": 6.5, "animationSeconds": 8, "plate": "outline", "plateColor": "#010203",
+        "plateColor2": "#040506", "plateOpacity": 0.4,
+    });
+    let font: UsernameFont =
+        serde_json::from_value(serde_json::json!({ "design": design })).unwrap();
+    font.design.as_ref().unwrap().validate().unwrap();
+    assert_eq!(
+        serde_json::to_value(font).unwrap(),
+        serde_json::json!({ "design": design })
+    );
+    let mut too_fast = design.clone();
+    too_fast["animationSeconds"] = serde_json::json!(0.2);
+    let invalid: wabi_core::NameStyleDesign = serde_json::from_value(too_fast).unwrap();
+    assert!(invalid.validate().unwrap_err().contains("animationSeconds"));
+    let mut incomplete = design.clone();
+    incomplete.as_object_mut().unwrap().remove("plateOpacity");
+    assert!(serde_json::from_value::<wabi_core::NameStyleDesign>(incomplete).is_err());
+    let mut unknown = design;
+    unknown["css"] = serde_json::json!("position:fixed");
+    assert!(serde_json::from_value::<wabi_core::NameStyleDesign>(unknown).is_err());
 }
 
 #[test]

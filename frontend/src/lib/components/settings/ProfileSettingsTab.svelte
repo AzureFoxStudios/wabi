@@ -2,7 +2,11 @@
 	import { createEventDispatcher, onMount, tick } from 'svelte';
 	import { _ as t } from '$lib/i18n';
 	import { brandName } from '$lib/branding';
-	import { currentUser, updateProfile } from '$lib/socket';
+	import { currentUser } from '$lib/socket';
+	import { saveProfilePatch } from '$lib/profileSave';
+	import { selectPresence, getStoredPresence, type PresenceState } from '$lib/presenceControl';
+	import { profileAppearance, setProfileAppearance, profileDecorationsVisible } from '$lib/profileAppearance';
+	import ProfileName from '$lib/components/ProfileName.svelte';
 	import { getAuthToken } from '$lib/authSession';
 	import { paymentAccessStore } from '$lib/payments/paymentAccessStore';
 	import { getServerUrl } from '$lib/serverUrl';
@@ -22,8 +26,12 @@
 		getLocalWabiProfileImportPreview
 	} from '$lib/localWabiProfileImport';
 	import UsernameFontCustomizer from '../UsernameFontCustomizer.svelte';
+	import ProfileArtExamples from '$lib/components/ProfileArtExamples.svelte';
+	import type { ProfileArtExample } from '$lib/profileArtExamples';
 	import RoleBadge from '../RoleBadge.svelte';
-	import { overlayStyle } from '$lib/overlayStyle';
+	import ProfileMedia from '$lib/components/ProfileMedia.svelte';
+	import ProfileDecoration from '$lib/components/ProfileDecoration.svelte';
+	import { mediaUrl } from '$lib/mediaUrl';
 
 	const dispatch = createEventDispatcher<{
 		openAvatarEditor: void;
@@ -33,17 +41,16 @@
 	}>();
 
 	let { passwordChangeRequest = 0 } = $props();
+	let nameDesignStudio = $state<{ loadExampleDraft: (example: ProfileArtExample) => void } | null>(null);
 	let lastHandledPasswordChangeRequest = $state(0);
 
 	// ── Display name ──
 	let displayNameDraft = $state('');
 	let updatingDisplayName = $state(false);
+	let displayNameStatus = $state('');
+	let loadedProfileIdentity = $state('');
+	let selectedPresence = $state<PresenceState>(getStoredPresence());
 
-	$effect(() => {
-		if (!updatingDisplayName && $currentUser?.username && displayNameDraft === '') {
-			displayNameDraft = $currentUser.username;
-		}
-	});
 
 	// ── Local Wabi accounts ──
 	let linkedWabiImportSourceKey = $state('');
@@ -104,27 +111,52 @@
 		tick().then(() => currentPasswordInput?.focus());
 	}
 
-	// ── PR4: Profile status + about me (self-edit) ──
+	// Profile identity drafts stay local until the Authority confirms the save.
 	let bioDraft = $state('');
 	let bioStatus = $state('');
-
+	let bioSaving = $state(false);
+	let statusMessageDraft = $state('');
+	let statusMessageFeedback = $state('');
+	let statusMessageSaving = $state(false);
+	const statusMessageBytes = $derived(new TextEncoder().encode(statusMessageDraft.trim()).length);
+	const bioBytes = $derived(new TextEncoder().encode(bioDraft.trim()).length);
 	$effect(() => {
-		if ($currentUser?.bio && bioDraft === '') {
-			bioDraft = $currentUser.bio;
+		const identity = `${getServerUrl()}:${$currentUser?.dbUserId ?? $currentUser?.id ?? ''}`;
+		if ($currentUser && identity !== loadedProfileIdentity) {
+			loadedProfileIdentity = identity;
+			displayNameDraft = $currentUser.username || '';
+			bioDraft = $currentUser.bio || '';
+			statusMessageDraft = $currentUser.statusMessage || '';
+			statusMessageFeedback = '';
+			bioStatus = ''; displayNameStatus = '';
 		}
 	});
-
-	function changeStatus(newStatus: 'active' | 'away' | 'busy') {
+	function changeStatus(newStatus: PresenceState) {
 		clearActiveCustomStatusPreset();
-		updateProfile({ status: newStatus });
-		if ($currentUser) $currentUser = { ...$currentUser, status: newStatus };
+		selectedPresence = newStatus;
+		selectPresence(newStatus);
 	}
-
-	function saveBio() {
-		const next = bioDraft.trim();
-		updateProfile({ bio: next });
-		if ($currentUser) $currentUser = { ...$currentUser, bio: next };
-		bioStatus = next ? 'Bio saved.' : 'Bio cleared.';
+	async function saveBio() {
+		if (bioSaving) return;
+		if (bioBytes > 280) { bioStatus = 'About me must be 280 bytes or fewer. Emoji and some letters use more than one byte.'; return; }
+		bioSaving = true; bioStatus = 'Saving bio…';
+		try {
+			const submitted = bioDraft; const next = submitted.trim();
+			await saveProfilePatch({ bio: next });
+			if (bioDraft === submitted) { bioDraft = next; bioStatus = next ? 'Bio saved.' : 'Bio cleared.'; }
+			else bioStatus = 'Earlier bio saved. Your newer edits are still a draft.';
+		} catch (error) { bioStatus = error instanceof Error ? error.message : 'Could not save bio. Your draft is still here.'; }
+		finally { bioSaving = false; }
+	}
+	async function saveStatusMessage(): Promise<void> {
+		if (statusMessageSaving || statusMessageBytes > 120) return;
+		statusMessageSaving = true; statusMessageFeedback = 'Saving status message…';
+		const submitted = statusMessageDraft;
+		try {
+			await saveProfilePatch({ statusMessage: submitted.trim() });
+			statusMessageFeedback = statusMessageDraft === submitted ? (submitted.trim() ? 'Status message saved.' : 'Status message cleared.') : 'Earlier status message saved. Your newer edits are still a draft.';
+		} catch (error) { statusMessageFeedback = error instanceof Error ? error.message : 'Could not save the status message.'; }
+		finally { statusMessageSaving = false; }
 	}
 
 	$effect(() => {
@@ -138,8 +170,10 @@
 	let bannerUploading = $state(false);
 	let bannerStatus = $state('');
 	let overlayUploading = $state(false);
+	let avatarRemoving = $state(false);
+	let avatarStatus = $state('');
 	let overlayStatus = $state('');
-	let disableAllBannersLocal = $state(false);
+	const disableAllBannersLocal = $derived(!$profileDecorationsVisible);
 
 	// ── Overlay alignment editor (per-user scale + X/Y offset) ──
 	let overlayAlignMode = $state(false);
@@ -147,6 +181,7 @@
 	let overlayDraftX = $state(0);
 	let overlayDraftY = $state(0);
 	let overlayAlignSaving = $state(false);
+	const overlayPreviewUser = $derived(overlayAlignMode ? { overlayUrl: $currentUser?.overlayUrl, overlayScale: overlayDraftScale, overlayOffsetX: overlayDraftX, overlayOffsetY: overlayDraftY } : { overlayUrl: $currentUser?.overlayUrl, overlayScale: $currentUser?.overlayScale, overlayOffsetX: $currentUser?.overlayOffsetX, overlayOffsetY: $currentUser?.overlayOffsetY });
 	let overlayDrag: { pointerId: number; startX: number; startY: number; baseX: number; baseY: number } | null = null;
 
 	function clampOverlayDrafts() {
@@ -179,28 +214,14 @@
 		overlayDraftScale = Math.round(Math.min(3, Math.max(0.5, overlayDraftScale + delta)) * 100) / 100;
 	}
 
-	function saveOverlayAlign() {
-		clampOverlayDrafts();
-		overlayAlignSaving = true;
+	async function saveOverlayAlign() {
+		if (overlayAlignSaving) return;
+		clampOverlayDrafts(); overlayAlignSaving = true; overlayStatus = 'Saving alignment…';
 		try {
-			if ($currentUser) {
-				$currentUser = {
-					...$currentUser,
-					overlayScale: overlayDraftScale,
-					overlayOffsetX: overlayDraftX,
-					overlayOffsetY: overlayDraftY
-				};
-			}
-			updateProfile({
-				overlayScale: overlayDraftScale,
-				overlayOffsetX: overlayDraftX,
-				overlayOffsetY: overlayDraftY
-			});
-			overlayStatus = 'Overlay alignment saved.';
-		} finally {
-			overlayAlignSaving = false;
-			overlayAlignMode = false;
-		}
+			await saveProfilePatch({ overlayScale: overlayDraftScale, overlayOffsetX: overlayDraftX, overlayOffsetY: overlayDraftY });
+			overlayStatus = 'Overlay alignment saved.'; overlayAlignMode = false;
+		} catch (error) { overlayStatus = error instanceof Error ? error.message : 'Could not save overlay alignment.'; }
+		finally { overlayAlignSaving = false; }
 	}
 
 	function onOverlayPointerDown(e: PointerEvent) {
@@ -234,26 +255,37 @@
 		nudgeOverlayScale(e.deltaY < 0 ? 0.05 : -0.05);
 	}
 
-	const VISIBILITY_KEY = 'wabi:profile:visibility';
-
-	function loadBannerVisibility() {
-		try {
-			const raw = localStorage.getItem(VISIBILITY_KEY);
-			if (!raw) return;
-			const v = JSON.parse(raw);
-			if (typeof v.disableAll === 'boolean') disableAllBannersLocal = v.disableAll;
-		} catch { /* ignore */ }
+	const PROFILE_MEDIA_LIMIT = 10 * 1024 * 1024;
+	function validateProfileMedia(file: File, overlay = false) {
+		const allowed = overlay ? ['image/png', 'image/gif', 'image/webp'] : ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+		if (!allowed.includes(file.type)) throw new Error(overlay ? 'Choose a PNG, GIF or WebP overlay.' : 'Choose a PNG, JPEG, GIF or WebP banner.');
+		if (file.size > PROFILE_MEDIA_LIMIT) throw new Error('Export profile artwork at 10 MiB or less.');
 	}
-
-	$effect(() => {
-		localStorage.setItem(VISIBILITY_KEY, JSON.stringify({ disableAll: disableAllBannersLocal }));
-	});
+	async function removeAvatar() {
+		if (avatarRemoving) return; avatarRemoving = true; avatarStatus = 'Removing avatar…';
+		try { await saveProfilePatch({ profilePicture: '' }); avatarStatus = 'Avatar removed.'; }
+		catch (error) { avatarStatus = error instanceof Error ? error.message : 'Could not remove your avatar.'; }
+		finally { avatarRemoving = false; }
+	}
+	async function removeProfileMedia(kind: 'banner' | 'overlay') {
+		if (kind === 'banner') { bannerUploading = true; bannerStatus = 'Removing banner…'; }
+		else { overlayUploading = true; overlayStatus = 'Removing overlay…'; }
+		try {
+			await saveProfilePatch(kind === 'banner' ? { bannerUrl: '' } : { overlayUrl: '', overlayScale: 1, overlayOffsetX: 0, overlayOffsetY: 0 });
+			if (kind === 'banner') bannerStatus = 'Banner removed.';
+			else { overlayStatus = 'Overlay removed.'; overlayAlignMode = false; }
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Could not remove profile artwork.';
+			if (kind === 'banner') bannerStatus = message; else overlayStatus = message;
+		} finally { if (kind === 'banner') bannerUploading = false; else overlayUploading = false; }
+	}
 
 	async function uploadBanner(file: File) {
 		if (!file) return;
 		bannerUploading = true;
 		bannerStatus = '';
 		try {
+			validateProfileMedia(file);
 			const fd = new FormData();
 			fd.append('file', file, file.name || 'banner.png');
 			const res = await fetch(`${getServerUrl()}/api/upload-profile-media`, {
@@ -265,11 +297,8 @@
 			if (!res.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : `Upload failed (${res.status})`);
 			const url = typeof payload?.fileUrl === 'string' ? payload.fileUrl : '';
 			if (!url) throw new Error('No URL returned');
-			// Patch current user locally so the UI updates immediately; the
-			// socket write below persists it and broadcasts to every client.
-			if ($currentUser) $currentUser = { ...$currentUser, bannerUrl: url };
-			bannerStatus = 'Banner uploaded.';
-			updateProfile({ bannerUrl: url });
+			await saveProfilePatch({ bannerUrl: url });
+			bannerStatus = 'Banner saved.';
 		} catch (e) {
 			bannerStatus = e instanceof Error ? e.message : 'Banner upload failed.';
 		} finally {
@@ -282,6 +311,7 @@
 		overlayUploading = true;
 		overlayStatus = '';
 		try {
+			validateProfileMedia(file, true);
 			const fd = new FormData();
 			fd.append('file', file, file.name || 'overlay.png');
 			const res = await fetch(`${getServerUrl()}/api/upload-profile-media`, {
@@ -293,9 +323,8 @@
 			if (!res.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : `Upload failed (${res.status})`);
 			const url = typeof payload?.fileUrl === 'string' ? payload.fileUrl : '';
 			if (!url) throw new Error('No URL returned');
-			if ($currentUser) $currentUser = { ...$currentUser, overlayUrl: url };
-			overlayStatus = 'Overlay uploaded.';
-			updateProfile({ overlayUrl: url });
+			await saveProfilePatch({ overlayUrl: url });
+			overlayStatus = 'Overlay saved.';
 		} catch (e) {
 			overlayStatus = e instanceof Error ? e.message : 'Overlay upload failed.';
 		} finally {
@@ -303,19 +332,14 @@
 		}
 	}
 
-	onMount(() => {
-		loadBannerVisibility();
-		const bannerInput = document.getElementById('banner-file-input');
-		bannerInput?.addEventListener('change', (ev) => {
-			const file = (ev.target as HTMLInputElement).files?.[0];
-			if (file) void uploadBanner(file);
-		});
-		const overlayInput = document.getElementById('overlay-file-input');
-		overlayInput?.addEventListener('change', (ev) => {
-			const file = (ev.target as HTMLInputElement).files?.[0];
-			if (file) void uploadOverlay(file);
-		});
-	});
+	async function onBannerFile(event: Event) {
+		const input = event.currentTarget as HTMLInputElement; const file = input.files?.[0];
+		if (file) await uploadBanner(file); input.value = '';
+	}
+	async function onOverlayFile(event: Event) {
+		const input = event.currentTarget as HTMLInputElement; const file = input.files?.[0];
+		if (file) await uploadOverlay(file); input.value = '';
+	}
 
 	onMount(() => {
 		const token = getAuthToken();
@@ -330,23 +354,16 @@
 	});
 
 	// ── Handlers ──
-	function updateDisplayName() {
+	async function updateDisplayName() {
+		if (updatingDisplayName) return;
 		const nextName = displayNameDraft.trim();
-		if (!nextName) {
-			alert('Display name cannot be empty.');
-			return;
-		}
-		if (nextName.length < 2 || nextName.length > 32) {
-			alert('Display name must be between 2 and 32 characters.');
-			return;
-		}
-		if (nextName === ($currentUser?.username || '')) {
-			return;
-		}
-
-		updatingDisplayName = true;
-		updateProfile({ username: nextName });
-		updatingDisplayName = false;
+		const bytes = new TextEncoder().encode(nextName).length;
+		if (nextName.length < 2 || bytes > 32) { displayNameStatus = 'Use at least 2 characters and at most 32 bytes for your display name.'; return; }
+		if (nextName === ($currentUser?.username || '')) return;
+		updatingDisplayName = true; displayNameStatus = 'Saving name…';
+		try { await saveProfilePatch({ username: nextName }); displayNameStatus = displayNameDraft.trim() === nextName ? 'Display name saved.' : 'Earlier name saved. Your newer edits are still a draft.'; }
+		catch (error) { displayNameStatus = error instanceof Error ? error.message : 'Could not save your name.'; }
+		finally { updatingDisplayName = false; }
 	}
 
 	function makeCurrentLocalWabiDefault(): void {
@@ -454,8 +471,8 @@
 	);
 </script>
 
-<input type="file" accept="image/*" id="banner-file-input" class="hidden-file-input" />
-<input type="file" accept="image/png" id="overlay-file-input" class="hidden-file-input" />
+<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" id="banner-file-input" class="hidden-file-input" onchange={onBannerFile} />
+<input type="file" accept="image/png,image/gif,image/webp" id="overlay-file-input" class="hidden-file-input" onchange={onOverlayFile} />
 
 <section class="profile-settings-layout">
 	<div class="profile-preview-column">
@@ -465,14 +482,13 @@
 				type="button"
 				class="profile-preview-banner"
 				class:is-empty={!$currentUser?.bannerUrl || disableAllBannersLocal}
-				style={$currentUser?.bannerUrl && !disableAllBannersLocal
-					? `background-image: url(${$currentUser.bannerUrl})`
-					: `background: linear-gradient(135deg, ${$currentUser?.color || 'var(--accent-secondary-color)'}, var(--accent-primary-color))`}
-				on:click={() => document.getElementById('banner-file-input')?.click()}
+				style={`background: linear-gradient(135deg, ${$currentUser?.color || 'var(--accent-secondary-color)'}, var(--accent-primary-color))`}
+				onclick={() => document.getElementById('banner-file-input')?.click()}
 				disabled={bannerUploading}
 				title={bannerUploading ? 'Uploading banner…' : 'Change banner'}
 				aria-label="Change banner"
 			>
+				{#if $currentUser?.bannerUrl && !disableAllBannersLocal}<ProfileMedia src={mediaUrl($currentUser.bannerUrl)} class="profile-preview-banner-media" decorative={true} />{/if}
 				<span class="profile-preview-banner-hint">{bannerUploading ? 'Uploading banner…' : 'Change banner'}</span>
 			</button>
 			<div class="profile-preview-avatar-wrap">
@@ -480,30 +496,25 @@
 					type="button"
 					class="profile-preview-avatar"
 					class:aligning={overlayAlignMode}
-					on:click={() => { if (!overlayAlignMode) dispatch('openAvatarEditor'); }}
-					on:pointerdown={onOverlayPointerDown}
-					on:pointermove={onOverlayPointerMove}
-					on:pointerup={onOverlayPointerUp}
-					on:pointercancel={onOverlayPointerUp}
-					on:wheel={onOverlayWheel}
+					onclick={() => { if (!overlayAlignMode) dispatch('openAvatarEditor'); }}
+					onpointerdown={onOverlayPointerDown}
+					onpointermove={onOverlayPointerMove}
+					onpointerup={onOverlayPointerUp}
+					onpointercancel={onOverlayPointerUp}
+					onwheel={onOverlayWheel}
 					title={overlayAlignMode ? 'Drag to move the overlay · scroll to scale' : 'Change avatar'}
 					aria-label={overlayAlignMode ? 'Overlay alignment preview. Drag to move.' : 'Change avatar'}
 					style={overlayAlignMode ? 'touch-action: none; cursor: move;' : undefined}
 				>
 					{#if $currentUser?.profilePicture}
-						<img src={$currentUser.profilePicture} alt="" />
+						<ProfileMedia src={mediaUrl($currentUser.profilePicture)} class="profile-preview-avatar-media" decorative={true} />
 					{:else}
 						<span class="profile-preview-avatar-fallback" style="--avatar-color: {$currentUser?.color || 'var(--accent-primary-color)'}">
 							{previewName.charAt(0).toUpperCase()}
 						</span>
 					{/if}
 					{#if $currentUser?.overlayUrl && !disableAllBannersLocal}
-						<span
-							class="profile-preview-overlay"
-							style={overlayAlignMode
-								? `background-image: url({$currentUser.overlayUrl}); --overlay-scale: ${overlayDraftScale}; --overlay-offset-x: ${overlayDraftX}px; --overlay-offset-y: ${overlayDraftY}px;`
-								: overlayStyle($currentUser)}
-						></span>
+						<ProfileDecoration user={overlayPreviewUser} class="profile-preview-overlay" />
 					{/if}
 					<span
 						class="profile-preview-status"
@@ -517,15 +528,14 @@
 					type="button"
 					class="profile-preview-overlay-btn"
 					class:has-overlay={!!$currentUser?.overlayUrl}
-					style={$currentUser?.overlayUrl ? `background-image: url({$currentUser.overlayUrl})` : undefined}
-					on:click={() => document.getElementById('overlay-file-input')?.click()}
+					onclick={() => document.getElementById('overlay-file-input')?.click()}
 					disabled={overlayUploading}
 					title={overlayUploading ? 'Uploading…' : ($currentUser?.overlayUrl ? 'Replace avatar overlay' : 'Upload avatar overlay')}
 					aria-label="Upload avatar overlay"
-				></button>
+				>{#if $currentUser?.overlayUrl && !disableAllBannersLocal}<ProfileMedia src={mediaUrl($currentUser.overlayUrl)} class="profile-overlay-button-media" decorative={true} />{/if}</button>
 			</div>
 			{#if $currentUser?.overlayUrl && !overlayAlignMode}
-				<button type="button" class="action-btn secondary small" on:click={enterOverlayAlign}>
+				<button type="button" class="action-btn secondary small" onclick={enterOverlayAlign}>
 					Adjust overlay
 				</button>
 			{/if}
@@ -533,26 +543,26 @@
 				<div class="overlay-align-editor" role="group" aria-label="Overlay alignment">
 					<p class="runtime-note">Drag the preview to move · scroll or use −/+ to scale.</p>
 					<div class="overlay-align-row">
-						<button type="button" class="action-btn secondary small" on:click={() => nudgeOverlayScale(-0.05)} aria-label="Decrease overlay scale">−</button>
+						<button type="button" class="action-btn secondary small" onclick={() => nudgeOverlayScale(-0.05)} aria-label="Decrease overlay scale">−</button>
 						<span class="runtime-note" aria-live="polite">Scale {overlayDraftScale.toFixed(2)}×</span>
-						<button type="button" class="action-btn secondary small" on:click={() => nudgeOverlayScale(0.05)} aria-label="Increase overlay scale">+</button>
+						<button type="button" class="action-btn secondary small" onclick={() => nudgeOverlayScale(0.05)} aria-label="Increase overlay scale">+</button>
 					</div>
 					<div class="overlay-align-row">
-						<button type="button" class="action-btn secondary small" on:click={resetOverlayAlign}>Reset</button>
-						<button type="button" class="action-btn secondary small" on:click={cancelOverlayAlign}>Cancel</button>
-						<button type="button" class="action-btn small" on:click={saveOverlayAlign} disabled={overlayAlignSaving}>
+						<button type="button" class="action-btn secondary small" onclick={resetOverlayAlign}>Reset</button>
+						<button type="button" class="action-btn secondary small" onclick={cancelOverlayAlign}>Cancel</button>
+						<button type="button" class="action-btn small" onclick={saveOverlayAlign} disabled={overlayAlignSaving}>
 							{overlayAlignSaving ? 'Saving…' : 'Save alignment'}
 						</button>
 					</div>
 				</div>
 			{/if}
 			<div class="profile-preview-body">
-				<strong class="profile-preview-name">{previewName}</strong>
+				<strong class="profile-preview-name"><ProfileName username={previewName} font={$currentUser?.usernameFont} color={$currentUser?.color} preview={true} /></strong>
 				<span class="profile-preview-handle">{previewHandle}</span>
 				{#if bioDraft.trim()}
 					<p class="profile-preview-bio">{bioDraft.trim()}</p>
 				{/if}
-				<span class="profile-preview-meta">Member since {previewJoined}</span>
+				{#if $currentUser?.joinedAt}<span class="profile-preview-meta">Member since {previewJoined}</span>{/if}
 			</div>
 		</div>
 	</div>
@@ -564,12 +574,12 @@
 			<button
 				type="button"
 				class="profile-mock-avatar-btn"
-				on:click={() => dispatch('openAvatarEditor')}
+				onclick={() => dispatch('openAvatarEditor')}
 				title="Change avatar"
 				aria-label="Change avatar"
 			>
 				{#if $currentUser?.profilePicture}
-					<img src={$currentUser.profilePicture} alt="" class="profile-mock-avatar" />
+					<ProfileMedia src={mediaUrl($currentUser.profilePicture)} class="profile-mock-avatar" decorative={true} />
 				{:else}
 					<span
 						class="profile-mock-avatar profile-mock-avatar-fallback"
@@ -579,13 +589,7 @@
 					</span>
 				{/if}
 				{#if $currentUser?.overlayUrl && !disableAllBannersLocal}
-					<span
-						class="profile-preview-overlay"
-						style={overlayAlignMode && $currentUser?.overlayUrl
-							? `background-image: url({$currentUser.overlayUrl}); --overlay-scale: ${overlayDraftScale}; --overlay-offset-x: ${overlayDraftX}px; --overlay-offset-y: ${overlayDraftY}px;`
-							: overlayStyle($currentUser)}
-						aria-hidden="true"
-					></span>
+					<ProfileDecoration user={overlayPreviewUser} class="profile-preview-overlay" />
 				{/if}
 				<span
 					class="profile-mock-status"
@@ -610,7 +614,7 @@
 				<button
 					type="button"
 					class="profile-mock-save"
-					on:click={updateDisplayName}
+					onclick={updateDisplayName}
 					disabled={updatingDisplayName || !displayNameDraft.trim() || displayNameDraft.trim() === ($currentUser?.username || '')}
 				>
 					{updatingDisplayName ? '…' : 'Save'}
@@ -626,45 +630,74 @@
 				{/if}
 			</p>
 			<div class="profile-mock-presence" role="group" aria-label="Presence">
-				<button type="button" class="presence-chip" class:active={$currentUser?.status === 'active'} on:click={() => changeStatus('active')}>
+				<button type="button" class="presence-chip" class:active={selectedPresence === 'active'} onclick={() => changeStatus('active')}>
 					<span class="status-option-dot" style="background-color: var(--status-online)"></span> Active
 				</button>
-				<button type="button" class="presence-chip" class:active={$currentUser?.status === 'away'} on:click={() => changeStatus('away')}>
+				<button type="button" class="presence-chip" class:active={selectedPresence === 'away'} onclick={() => changeStatus('away')}>
 					<span class="status-option-dot" style="background-color: var(--status-away)"></span> Away
 				</button>
-				<button type="button" class="presence-chip" class:active={$currentUser?.status === 'busy'} on:click={() => changeStatus('busy')}>
+				<button type="button" class="presence-chip" class:active={selectedPresence === 'busy'} onclick={() => changeStatus('busy')}>
 					<span class="status-option-dot" style="background-color: var(--status-busy)"></span> Busy
 				</button>
+				<button type="button" class="presence-chip" class:active={selectedPresence === 'invisible'} onclick={() => changeStatus('invisible')}>
+					<span class="status-option-dot" style="background-color: var(--status-offline)"></span> Invisible
+				</button>
 			</div>
+			<label class="setting-label" for="profile-status-message">Status message</label>
+			<input id="profile-status-message" type="text" maxlength="120" bind:value={statusMessageDraft} placeholder="What are you up to?" class="profile-mock-bio" />
+			<div class="profile-bio-actions">
+				<button type="button" class="profile-mock-save ghost" onclick={saveStatusMessage} disabled={statusMessageSaving || statusMessageBytes > 120}>{statusMessageSaving ? 'Saving…' : 'Save status message'}</button>
+				<span class="runtime-note">{statusMessageBytes}/120 bytes</span>
+			</div>
+			{#if statusMessageBytes > 120}<p class="profile-bio-error" role="alert">Shorten this status message before saving. Emoji can use more than one byte.</p>{/if}
+			{#if statusMessageFeedback}<p class="runtime-note" role="status">{statusMessageFeedback}</p>{/if}
 			<textarea
 				class="profile-mock-bio"
 				rows="2"
-				maxlength="500"
+				maxlength="280"
 				bind:value={bioDraft}
 				placeholder="About me…"
 				aria-label="About me"
-				on:blur={saveBio}
 			></textarea>
+			{#if bioBytes > 280}<p class="profile-bio-error" role="alert">About me is too long. Emoji and some letters use more than one byte; shorten it before saving.</p>{/if}
 			<div class="profile-mock-bio-bar">
-				<button type="button" class="profile-mock-save ghost" on:click={saveBio}>Save bio</button>
-				{#if bioStatus}<span class="runtime-note">{bioStatus}</span>{/if}
+				<button type="button" class="profile-mock-save ghost" onclick={saveBio} disabled={bioSaving || bioBytes > 280}>{bioSaving ? 'Saving…' : 'Save bio'}</button><span class="runtime-note" class:bio-over-limit={bioBytes > 280}>{bioBytes}/280 bytes</span>
+				{#if bioStatus}<span class="runtime-note" role="status">{bioStatus}</span>{/if}
+				{#if displayNameStatus}<span class="runtime-note" role="status">{displayNameStatus}</span>{/if}
 				{#if bannerStatus}<span class="runtime-note">{bannerStatus}</span>{/if}
-				{#if overlayStatus}<span class="runtime-note">{overlayStatus}</span>{/if}
+				{#if overlayStatus}<span class="runtime-note" role="status">{overlayStatus}</span>{/if}
+				{#if avatarStatus}<span class="runtime-note" role="status">{avatarStatus}</span>{/if}
 			</div>
 		</div>
 	</div>
 
+	<div class="profile-art-actions" aria-label="Profile artwork">
+		{#if $currentUser?.profilePicture}<button type="button" class="action-btn secondary small" disabled={avatarRemoving} onclick={removeAvatar}>{avatarRemoving ? 'Removing avatar…' : 'Remove avatar'}</button>{/if}
+		<button type="button" class="action-btn secondary small" onclick={() => document.getElementById('banner-file-input')?.click()} disabled={bannerUploading}>{bannerUploading ? 'Saving banner…' : 'Upload banner'}</button>
+		<button type="button" class="action-btn secondary small" onclick={() => document.getElementById('overlay-file-input')?.click()} disabled={overlayUploading}>{overlayUploading ? 'Saving overlay…' : 'Upload overlay'}</button>
+		{#if $currentUser?.bannerUrl}<button type="button" class="action-btn secondary small" disabled={bannerUploading} onclick={() => removeProfileMedia('banner')}>Remove banner</button>{/if}
+		{#if $currentUser?.overlayUrl}<button type="button" class="action-btn secondary small" disabled={overlayUploading || overlayAlignSaving} onclick={() => removeProfileMedia('overlay')}>Remove overlay</button>{/if}
+	</div>
+	<details class="profile-art-guide">
+		<summary>Making artwork? Export sizes, templates & examples</summary>
+		<p><strong>Banner:</strong> 1200 × 400 px, 3:1. Export PNG, JPEG, GIF or WebP at 10 MiB or less. Keep key artwork inside the guide’s safe area; the avatar overlaps the lower left and smaller views may crop the edges.</p>
+		<p><strong>Avatar overlay:</strong> 512 × 512 px with a transparent center. Check the rounded square profile crop and circular message/People crops. PNG for still art; GIF or WebP for animation. Scale and position it with Adjust overlay.</p>
+		<p><strong>Animation:</strong> export a looping GIF or animated WebP at 10 MiB or less. A 3–6 second seamless loop at 12–24 fps is a useful starting point. Choose a calm still frame: viewers can pause artwork or use reduced motion. Videos and SVG uploads are not profile artwork formats.</p>
+		<div class="profile-guide-downloads"><a href="/profile-art/banner-guide.svg" download>Banner template · SVG</a><a href="/profile-art/avatar-overlay-guide.svg" download>Overlay template · SVG</a><a href="/profile-art/artist-guide.md" download>Full artist guide</a></div>
+		<ProfileArtExamples onUseDesign={(example) => nameDesignStudio?.loadExampleDraft(example)} />
+	</details>
 	<div class="profile-mock-toggles" role="group" aria-label="Banner and overlay visibility">
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Hide banners & overlays</span>
-				<span class="setting-description">Hide everyone’s banners and avatar overlays on this device.</span>
+				<span class="setting-description">Hide everyone’s banners and avatar overlays on this device. Your artwork stays saved.</span>
 			</div>
 			<button
 				type="button"
 				class="toggle-btn settings-switch"
 				class:active={disableAllBannersLocal}
-				on:click={() => (disableAllBannersLocal = !disableAllBannersLocal)}
+				onclick={() => setProfileAppearance({ decorations: !$profileAppearance.decorations })}
+				disabled={!$profileAppearance.showCosmetics}
 				role="switch"
 				aria-checked={disableAllBannersLocal}
 				aria-label="Hide banners and overlays"
@@ -678,7 +711,7 @@
 <div class="settings-section">
 	<div class="settings-group-card tight">
 		<div class="setting-item-full" style="padding-top:0.55rem">
-			<UsernameFontCustomizer />
+			<UsernameFontCustomizer bind:this={nameDesignStudio} />
 		</div>
 	</div>
 </div>
@@ -703,19 +736,19 @@
 {#if $paymentAccessStore.canViewPaymentUi}
 <div class="settings-section">
 	<div class="icon-action-row">
-		<button type="button" class="icon-action" title="Payment requests you created" on:click={openPaymentHistorySafe} disabled={!$currentUser?.dbUserId}>
+		<button type="button" class="icon-action" title="Payment requests you created" onclick={openPaymentHistorySafe} disabled={!$currentUser?.dbUserId}>
 			<span class="icon-action-glyph" aria-hidden="true">
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18v10H3z"/><path d="M3 10h18"/><path d="M7 15h4"/></svg>
 			</span>
 			<span class="icon-action-label">History</span>
 		</button>
-		<button type="button" class="icon-action" title="Saved non-sensitive payment references" on:click={openPaymentConnectionsSafe} disabled={!$currentUser?.dbUserId}>
+		<button type="button" class="icon-action" title="Saved non-sensitive payment references" onclick={openPaymentConnectionsSafe} disabled={!$currentUser?.dbUserId}>
 			<span class="icon-action-glyph" aria-hidden="true">
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/><path d="M7 15h2"/></svg>
 			</span>
 			<span class="icon-action-label">Refs</span>
 		</button>
-		<button type="button" class="icon-action" title="Support this server" on:click={() => dispatch('openServerDonation')}>
+		<button type="button" class="icon-action" title="Support this server" onclick={() => dispatch('openServerDonation')}>
 			<span class="icon-action-glyph" aria-hidden="true">
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 11c0 5.5-7 10-7 10z"/></svg>
 			</span>
@@ -747,20 +780,20 @@
 							bind:value={currentPasswordDraft}
 							bind:this={currentPasswordInput}
 							autocomplete="current-password"
-							on:keydown={(e) => { if (e.key === 'Enter') advancePasswordStep(); }}
+							onkeydown={(e) => { if (e.key === 'Enter') advancePasswordStep(); }}
 						/>
-						<button type="button" class="action-btn" on:click={advancePasswordStep}>Continue</button>
+						<button type="button" class="action-btn" onclick={advancePasswordStep}>Continue</button>
 					</div>
 				{:else}
 					<div class="pwd-step">
-						<button type="button" class="action-btn secondary small" on:click={backPasswordStep} title="Back to current password">
+						<button type="button" class="action-btn secondary small" onclick={backPasswordStep} title="Back to current password">
 							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
 							Back
 						</button>
 						<div class="pwd-grid">
 							<input type="password" class="emoji-name-input" placeholder="New password" data-pwd-new bind:value={newPasswordDraft} autocomplete="new-password" />
-							<input type="password" class="emoji-name-input" placeholder="Confirm new password" bind:value={confirmNewPasswordDraft} autocomplete="new-password" on:keydown={(e) => { if (e.key === 'Enter') changeOwnPassword(); }} />
-							<button type="button" class="action-btn" on:click={changeOwnPassword} disabled={changingPassword}>
+							<input type="password" class="emoji-name-input" placeholder="Confirm new password" bind:value={confirmNewPasswordDraft} autocomplete="new-password" onkeydown={(e) => { if (e.key === 'Enter') changeOwnPassword(); }} />
+							<button type="button" class="action-btn" onclick={changeOwnPassword} disabled={changingPassword}>
 								{changingPassword ? '…' : 'Update password'}
 							</button>
 						</div>
@@ -783,7 +816,7 @@
 					<button
 						type="button"
 						class="action-btn secondary small"
-						on:click={makeCurrentLocalWabiDefault}
+						onclick={makeCurrentLocalWabiDefault}
 						disabled={!currentLocalWabiAccountKey || currentLocalWabiAccountIsDefault}
 					>
 						{currentLocalWabiAccountIsDefault ? 'Is default' : 'Make default'}
@@ -799,7 +832,7 @@
 						<button
 							type="button"
 							class="action-btn secondary small"
-							on:click={importProfileFromSelectedLocalWabiAccount}
+							onclick={importProfileFromSelectedLocalWabiAccount}
 							disabled={!linkedWabiImportPreview?.canImport || linkedWabiImporting}
 						>
 							{linkedWabiImporting ? '…' : 'Import look'}
@@ -820,4 +853,3 @@
 		</div>
 	</div>
 {/if}
-

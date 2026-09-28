@@ -5,6 +5,8 @@
 	import type { User } from '$lib/socket-types';
 	import { buildDmDirectoryUsers } from '$lib/dmUserDirectory';
 	import { mediaUrl } from '$lib/mediaUrl';
+	import ProfileName from './ProfileName.svelte';
+	import ProfileMedia from './ProfileMedia.svelte';
 	import type { FriendPerson } from '$lib/api/friends';
 	import { canFriendUser, friendshipRelation } from '$lib/friendshipRelation';
 	import {
@@ -37,6 +39,9 @@
 		!['friend', 'incoming'].includes(friendshipRelation($friendships, person.dbUserId).kind)
 	);
 	$: visibleFriends = $friendships.friends.filter((person) => matchesSearch(person, search));
+	$: rosterById = new Map([...$serverMembers, ...$users]
+		.filter((person) => typeof person.dbUserId === 'number')
+		.map((person) => [person.dbUserId!, person] as const));
 
 	function matchesSearch(person: FriendPerson, queryText: string): boolean {
 		const query = queryText.trim().toLowerCase();
@@ -44,15 +49,7 @@
 	}
 
 	function rosterUser(userId: number): User | null {
-		return [...$users, ...$serverMembers].find((person) => person.dbUserId === userId) || null;
-	}
-
-	function visibleStatus(person: FriendPerson): string {
-		return rosterUser(person.user_id)?.status || person.status || 'offline';
-	}
-
-	function visibleAvatar(person: FriendPerson): string | null {
-		return rosterUser(person.user_id)?.profilePicture || person.profile_picture;
+		return rosterById.get(userId) || null;
 	}
 
 	function userFromPerson(person: FriendPerson): User {
@@ -130,11 +127,13 @@
 				<p class="friends-empty">No friend requests waiting for you.</p>
 			{:else}
 				{#each $friendships.incoming as request (request.id)}
+					{@const profile = rosterById.get(request.user_id)}
+					{@const avatar = profile?.profilePicture || request.profile_picture}
 					<div class="friend-row">
 						<div class="friend-avatar" style:background={request.color || 'var(--accent-primary)'}>
-							{#if visibleAvatar(request)}<img src={mediaUrl(visibleAvatar(request)!)} alt="" />{:else}{request.username[0]?.toUpperCase() || '?'}{/if}
+							{#if avatar}<ProfileMedia src={mediaUrl(avatar)} decorative />{:else}{request.username[0]?.toUpperCase() || '?'}{/if}
 						</div>
-						<div class="friend-details"><strong>{request.username}</strong><span>Wants to be friends</span></div>
+						<div class="friend-details"><strong><ProfileName username={request.username} font={profile?.usernameFont} color={profile?.color || request.color} /></strong><span>Wants to be friends</span></div>
 						<div class="friend-actions">
 							<button type="button" class="friend-primary" disabled={Boolean(pendingAction)} on:click={() => runAction(`accept-${request.id}`, () => acceptFriendship(request.id), `You and ${request.username} are friends.`)}>{pendingAction === `accept-${request.id}` ? 'Accepting…' : 'Accept'}</button>
 							<button type="button" disabled={Boolean(pendingAction)} on:click={() => runAction(`decline-${request.id}`, () => dismissFriendship(request.id), 'Request declined.')}>{pendingAction === `decline-${request.id}` ? 'Declining…' : 'Decline'}</button>
@@ -150,11 +149,13 @@
 				<p class="friends-empty">No requests awaiting a reply.</p>
 			{:else}
 				{#each $friendships.outgoing as request (request.id)}
+					{@const profile = rosterById.get(request.user_id)}
+					{@const avatar = profile?.profilePicture || request.profile_picture}
 					<div class="friend-row">
 						<div class="friend-avatar" style:background={request.color || 'var(--accent-primary)'}>
-							{#if visibleAvatar(request)}<img src={mediaUrl(visibleAvatar(request)!)} alt="" />{:else}{request.username[0]?.toUpperCase() || '?'}{/if}
+							{#if avatar}<ProfileMedia src={mediaUrl(avatar)} decorative />{:else}{request.username[0]?.toUpperCase() || '?'}{/if}
 						</div>
-						<div class="friend-details"><strong>{request.username}</strong><span>Waiting for a reply</span></div>
+						<div class="friend-details"><strong><ProfileName username={request.username} font={profile?.usernameFont} color={profile?.color || request.color} /></strong><span>Waiting for a reply</span></div>
 						<div class="friend-actions">
 							<button type="button" disabled={Boolean(pendingAction)} on:click={() => runAction(`cancel-${request.id}`, () => dismissFriendship(request.id), 'Request cancelled.')}>{pendingAction === `cancel-${request.id}` ? 'Cancelling…' : 'Cancel'}</button>
 						</div>
@@ -176,12 +177,15 @@
 				<p class="friends-empty">{$friendships.friends.length ? 'No friends match your search.' : 'No friends yet. Find someone below to send a request.'}</p>
 			{:else}
 				{#each visibleFriends as person (person.user_id)}
+					{@const profile = rosterById.get(person.user_id)}
+					{@const avatar = profile?.profilePicture || person.profile_picture}
+					{@const status = profile?.status || person.status || 'offline'}
 					<div class="friend-row">
 						<div class="friend-avatar" style:background={person.color || 'var(--accent-primary)'}>
-							{#if visibleAvatar(person)}<img src={mediaUrl(visibleAvatar(person)!)} alt="" />{:else}{person.username[0]?.toUpperCase() || '?'}{/if}
-							<span class="friend-status" style:background={statusColor(visibleStatus(person))} aria-label={visibleStatus(person)}></span>
+							{#if avatar}<ProfileMedia src={mediaUrl(avatar)} decorative />{:else}{person.username[0]?.toUpperCase() || '?'}{/if}
+							<span class="friend-status" style:background={statusColor(status)} aria-label={status}></span>
 						</div>
-						<div class="friend-details"><strong>{person.username}</strong><span>{visibleStatus(person)}</span></div>
+						<div class="friend-details"><strong><ProfileName username={person.username} font={profile?.usernameFont} color={profile?.color || person.color} /></strong><span>{status}</span></div>
 						<div class="friend-actions">
 							<button type="button" class="friend-primary" disabled={Boolean(pendingAction)} on:click={() => message(person)}>Message</button>
 							<button type="button" disabled={Boolean(pendingAction)} on:click={() => confirmRemove(person)} aria-label={`Remove ${person.username} from friends`}>{pendingAction === `remove-${person.user_id}` ? 'Removing…' : 'Remove'}</button>
@@ -202,10 +206,10 @@
 				{@const relation = friendshipRelation($friendships, person.dbUserId)}
 				<div class="friend-row">
 					<div class="friend-avatar" style:background={person.color || 'var(--accent-primary)'}>
-						{#if person.profilePicture}<img src={mediaUrl(person.profilePicture)} alt="" />{:else}{person.username[0]?.toUpperCase() || '?'}{/if}
+						{#if person.profilePicture}<ProfileMedia src={mediaUrl(person.profilePicture)} decorative />{:else}{person.username[0]?.toUpperCase() || '?'}{/if}
 						<span class="friend-status" style:background={statusColor(person.status)} aria-label={person.status}></span>
 					</div>
-					<div class="friend-details"><strong>{person.username}</strong><span>{relation.kind === 'outgoing' ? 'Request sent · waiting for a reply' : person.handle ? `@${person.handle}` : person.status}</span></div>
+					<div class="friend-details"><strong><ProfileName username={person.username} font={person.usernameFont} color={person.color} /></strong><span>{relation.kind === 'outgoing' ? 'Request sent · waiting for a reply' : person.handle ? `@${person.handle}` : person.status}</span></div>
 					<div class="friend-actions">
 						{#if relation.kind === 'outgoing'}
 							<span class="friend-pending-label" aria-label={`Friend request sent to ${person.username}`}>Request sent</span>
@@ -240,7 +244,7 @@
 	.friend-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: var(--space-2, 8px); align-items: center; padding: var(--space-2, 8px); border-radius: var(--radius-lg, 12px); }
 	.friend-row:hover { background: color-mix(in srgb, var(--text-heading) 5%, transparent); }
 	.friend-avatar { position: relative; display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: var(--radius-full, 9999px); color: white; font-weight: 700; overflow: visible; }
-	.friend-avatar img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
+	.friend-avatar :global(img), .friend-avatar :global(canvas) { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
 	.friend-status { position: absolute; right: 0; bottom: 0; width: 10px; height: 10px; border: 2px solid var(--surface-base); border-radius: 50%; }
 	.friend-details { display: grid; min-width: 0; gap: 2px; }
 	.friend-details strong { font-size: var(--font-size-sm, 13px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

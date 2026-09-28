@@ -3,6 +3,8 @@
 	import type { Message, User } from '$lib/socket';
 	import SteamStatusBadge from '$lib/components/SteamStatusBadge.svelte';
 	import RoleBadge from '$lib/components/RoleBadge.svelte';
+	import ProfileName from '$lib/components/ProfileName.svelte';
+
 
 	export let author: User | undefined;
 	export let displayUsername: string;
@@ -32,11 +34,11 @@
 				<span
 					class="username"
 					class:clickable-username={displayEnhancementSettingsStore.clickableMentionsEnabled}
-					style="color: {getUserColor(author, displayUsername)}; {getUsernameStyle(author, displayUsername, themeStore)}"
+					style={themeStore.uniformFontEnabled ? getUsernameStyle(author, displayUsername, themeStore) : ''}
 					on:click={(event) => onUsernameClick(event, message, author)}
 					on:contextmenu={(event) => onUsernameContextMenu(event, message, author)}
 				>
-					{displayUsername}
+					<ProfileName username={displayUsername} font={themeStore.uniformFontEnabled ? null : author.usernameFont} color={getUserColor(author, displayUsername)} />
 				</span>
 			{:else}
 				<span class="username">{displayUsername}</span>
@@ -79,11 +81,11 @@
 				<span
 					class="username"
 					class:clickable-username={displayEnhancementSettingsStore.clickableMentionsEnabled}
-					style="color: {getUserColor(author, displayUsername)}; {getUsernameStyle(author, displayUsername, themeStore)}"
+					style={themeStore.uniformFontEnabled ? getUsernameStyle(author, displayUsername, themeStore) : ''}
 					on:click={(event) => onUsernameClick(event, message, author)}
 					on:contextmenu={(event) => onUsernameContextMenu(event, message, author)}
 				>
-					{displayUsername}
+					<ProfileName username={displayUsername} font={themeStore.uniformFontEnabled ? null : author.usernameFont} color={getUserColor(author, displayUsername)} />
 				</span>
 			{:else}
 				<span class="username">{displayUsername}</span>

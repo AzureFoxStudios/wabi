@@ -73,6 +73,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	export let accountSecurityOpenRequest = 0;
 	let showSettings = false;
 	let requestedSettingsPaymentSurface: 'connections' | null = null;
+	let requestedSettingsTab: 'profile' | null = null;
 	let requestedSettingsPasswordChangeRequest = 0;
 	let lastHandledAccountSecurityOpenRequest = 0;
 	// N1: overlay reactive
@@ -216,6 +217,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	layoutStore.isResizingRight.subscribe(v => resizingRight = v);
 	$: if (!showSettings) {
 		requestedSettingsPaymentSurface = null;
+		requestedSettingsTab = null;
 	}
 	$: if (accountSecurityOpenRequest > lastHandledAccountSecurityOpenRequest) {
 		lastHandledAccountSecurityOpenRequest = accountSecurityOpenRequest;
@@ -223,8 +225,18 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		openSettings();
 	}
 
+	onMount(() => {
+		const openRequestedSettings = (event: Event) => {
+			openSettings();
+			if ((event as CustomEvent<{ tab?: string }>).detail?.tab === 'profile') requestedSettingsTab = 'profile';
+		};
+		window.addEventListener('wabi:open-settings', openRequestedSettings);
+		return () => window.removeEventListener('wabi:open-settings', openRequestedSettings);
+	});
+
 	function openSettings(paymentSurface: 'connections' | null = null): void {
 		requestedSettingsPaymentSurface = paymentSurface;
+		requestedSettingsTab = null;
 		showSettings = true;
 	}
 
@@ -1469,6 +1481,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			this={SettingsCmp}
 			bind:isOpen={showSettings}
 			requestedPaymentSurface={requestedSettingsPaymentSurface}
+			requestedTab={requestedSettingsTab}
 			requestedPasswordChangeRequest={requestedSettingsPasswordChangeRequest}
 			on:logout
 		/>

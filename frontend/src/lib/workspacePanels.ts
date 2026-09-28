@@ -25,6 +25,7 @@ export type WorkspacePanelIcon =
 
 export type WorkspacePanelComponentKey =
 	| 'users'
+	| 'profile'
 	| 'dms'
 	| 'notes'
 	| 'whiteboard-layers'
@@ -148,6 +149,17 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 		sortOrder: 20
 	},
 	{
+		id: 'profile',
+		label: 'Profile',
+		icon: 'users',
+		component: 'profile',
+		capabilities: ['complete-profile', 'profile-actions'],
+		defaultDock: 'right',
+		mobileMode: 'fullscreen',
+		source: 'core',
+		sortOrder: 25
+	},
+	{
 		id: 'notes',
 		label: 'Notes',
 		icon: 'notes',
@@ -269,6 +281,7 @@ const panelRegistry = writable<Record<WorkspacePanelId, WorkspacePanelManifest>>
 );
 const KNOWN_COMPONENT_KEYS = new Set<WorkspacePanelComponentKey>([
 	'users',
+	'profile',
 	'dms',
 	'notes',
 	'whiteboard-layers',

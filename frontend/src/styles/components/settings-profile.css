@@ -34,7 +34,8 @@
 .profile-preview-banner {
 	display: block;
 	width: 100%;
-	height: 92px;
+	aspect-ratio: 3 / 1;
+	height: auto;
 	padding: 0;
 	border: 0;
 	background-size: cover;
@@ -90,7 +91,7 @@
 	display: block;
 	width: 72px;
 	height: 72px;
-	border-radius: 50%;
+	border-radius: 28%;
 	padding: 3px;
 	border: 0;
 	background: var(--surface-base, #1a1a2e);
@@ -107,10 +108,11 @@
 }
 
 .profile-preview-avatar img,
+.profile-preview-avatar-media,
 .profile-preview-avatar-fallback {
 	width: 100%;
 	height: 100%;
-	border-radius: 50%;
+	border-radius: 28%;
 	object-fit: cover;
 	display: flex;
 	align-items: center;
@@ -124,7 +126,7 @@
 .profile-preview-overlay {
 	position: absolute;
 	inset: 0;
-	border-radius: 50%;
+	border-radius: 28%;
 	background-size: calc(100% * var(--overlay-scale, 1));
 	background-position: calc(50% + var(--overlay-offset-x, 0px)) calc(50% + var(--overlay-offset-y, 0px));
 	background-repeat: no-repeat;
@@ -289,7 +291,7 @@
 	height: 84px;
 	padding: 3px;
 	border: 0;
-	border-radius: 50%;
+	border-radius: 28%;
 	background: var(--surface-base, #1a1a2e);
 	box-shadow:
 		0 0 0 3px color-mix(in srgb, var(--surface-base) 90%, black),
@@ -300,7 +302,7 @@
 .profile-mock-avatar {
 	width: 100%;
 	height: 100%;
-	border-radius: 50%;
+	border-radius: 28%;
 	object-fit: cover;
 	display: block;
 }
@@ -673,3 +675,19 @@
 		padding: 0.6rem 0.75rem;
 	}
 }
+
+/* Profile artwork controls sit with identity editing, and fit narrow settings. */
+.profile-art-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; padding: 0.7rem 0.85rem; }
+.profile-art-guide { margin: 0 0.85rem 0.8rem; padding: 0.7rem 0.85rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-base); }
+.profile-art-guide summary { cursor: pointer; color: var(--text-heading); font-size: 0.8rem; font-weight: 650; }
+.profile-art-guide p { margin: 0.65rem 0; font-size: 0.78rem; line-height: 1.5; color: var(--text-secondary); }
+.profile-guide-downloads { display: flex; flex-wrap: wrap; gap: 0.5rem 0.85rem; }
+.profile-guide-downloads a { color: var(--accent-primary-color); font-size: 0.76rem; text-underline-offset: 3px; }
+.profile-preview-name { min-width: 0; overflow-wrap: anywhere; }
+@media (pointer: coarse) { .profile-art-actions button { min-height: 44px; } .profile-art-guide summary { min-height: 32px; } }
+
+.profile-preview-banner-media { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.profile-overlay-button-media { width: 100%; height: 100%; border-radius: 50%; object-fit: contain; }
+
+.bio-over-limit, .profile-bio-error { color: var(--color-danger); }
+.profile-bio-error { margin: 0.3rem 0; font-size: 0.78rem; line-height: 1.4; }

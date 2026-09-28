@@ -26,6 +26,10 @@ export async function register(username: string, password: string, handle?: stri
 }
 
 export async function login(username: string, password: string): Promise<AuthResponse> {
+	// Explicit frontend-only fixture mode; never enabled in an ordinary build.
+	if (import.meta.env.VITE_WABI_LOCAL_MOCK === '1') {
+		return { accessToken: 'local-preview', user: { id: 1, username, handle: 'preview_artist', color: '#98D8C8', isRegistered: true } };
+	}
 	const res = await fetchWithTimeout(`${getApiBase()}/api/auth/login`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },

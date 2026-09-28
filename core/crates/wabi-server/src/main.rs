@@ -606,6 +606,7 @@ async fn main() -> anyhow::Result<()> {
     let lore_addon_enabled = state
         .addon_enabled("lore", Some("WABI_LORE_ENABLED"), false)
         .await;
+    #[cfg(feature = "wabi-lore")]
     if lore_addon_enabled {
         let lore_config = crate::lore::LoreConfig {
             enabled: true,

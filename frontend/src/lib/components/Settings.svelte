@@ -29,6 +29,7 @@
 
 	export let isOpen = false;
 	export let requestedPaymentSurface: 'connections' | null = null;
+	export let requestedTab: 'profile' | null = null;
 	export let requestedPasswordChangeRequest = 0;
 
 	type SettingsTab =
@@ -72,6 +73,7 @@
 	];
 
 	let activeSettingsTab: SettingsTab = 'profile';
+	let lastHandledRequestedTab: 'profile' | null = null;
 	let lastHandledRequestedPaymentSurface: 'connections' | null = null;
 	let lastHandledRequestedPasswordChangeRequest = 0;
 	let showAvatarEditor = false;
@@ -98,6 +100,11 @@
 	}
 	$: if (!isOpen) {
 		lastHandledRequestedPaymentSurface = null;
+		lastHandledRequestedTab = null;
+	}
+	$: if (isOpen && requestedTab && lastHandledRequestedTab !== requestedTab) {
+		activeSettingsTab = requestedTab;
+		lastHandledRequestedTab = requestedTab;
 	}
 	$: if (
 		isOpen &&

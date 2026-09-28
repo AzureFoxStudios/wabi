@@ -119,6 +119,7 @@ export interface User {
   overlayOffsetX?: number;
   overlayOffsetY?: number;
   bio?: Exclude<ProtocolUserView['bio'], null>;
+  statusMessage?: string;
   joinedAt?: Exclude<ProtocolUserView['joinedAt'], null>;
   dbUserId?: Exclude<ProtocolUserView['dbUserId'], null>;
   roles?: Exclude<ProtocolUserView['roles'], null>;

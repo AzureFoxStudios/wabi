@@ -1,37 +1,29 @@
 <script lang="ts">
-	import { createEventDispatcher, onMount } from 'svelte';
+	import { createEventDispatcher } from 'svelte';
+	import { profileDecorationsVisible } from '$lib/profileAppearance';
+	import ProfileName from '$lib/components/ProfileName.svelte';
+	import ProfileMedia from '$lib/components/ProfileMedia.svelte';
+	import ProfileDecoration from '$lib/components/ProfileDecoration.svelte';
 	import { currentUser, roleDefinitions, getSocket } from '$lib/socket';
 	import { isMuted as callMuted, isDeafened as callDeafened, toggleMute, toggleDeafen, isInCall, endCall } from '$lib/calling';
 	import { clearActiveCustomStatusPreset, customStatusPresetsStore, getActiveCustomStatusPreset } from '$lib/customStatusPresets';
 	import { selectPresence, getStoredPresence, maskedStatus, type PresenceState } from '$lib/presenceControl';
 	import { FALLBACK_ROLE_LABELS } from './channelSidebarHelpers';
 	import { overlayStyle } from '$lib/overlayStyle';
+import { mediaUrl } from '$lib/mediaUrl';
 
 	export let sidebarWidth: number;
 
 	const dispatch = createEventDispatcher();
 
 	let showStatusPopup = false;
-	let disableAllBanners = false;
 	let shareCopied = false;
-
-	const BANNER_VISIBILITY_KEY = 'wabi:profile:visibility';
 
 	// Self-selected presence (not the broadcast status): invisible is kept
 	// locally so the picker can re-highlight it even though everyone else
 	// (including our own roster row) sees "offline".
 	let selectedPresence: PresenceState = getStoredPresence();
 
-	onMount(() => {
-		try {
-			const raw = localStorage.getItem(BANNER_VISIBILITY_KEY);
-			if (!raw) return;
-			const v = JSON.parse(raw);
-			if (typeof v.disableAll === 'boolean') disableAllBanners = v.disableAll;
-		} catch {
-			// ignore malformed local state
-		}
-	});
 
 	function onDocClick(event: MouseEvent): void {
 		if (!showStatusPopup) return;
@@ -40,8 +32,8 @@
 	}
 
 	$: cardBannerUrl =
-		$currentUser?.bannerUrl && !disableAllBanners
-			? $currentUser.bannerUrl
+		$currentUser?.bannerUrl && $profileDecorationsVisible
+			? mediaUrl($currentUser.bannerUrl)
 			: '';
 
 	$: currentUserRoleLabel = (() => {
@@ -101,19 +93,19 @@
 {#if $currentUser}
 	<div class="profile-card">
 		{#if cardBannerUrl}
-			<div class="profile-card-banner" style="background-image: url({cardBannerUrl});" aria-hidden="true"></div>
+			<ProfileMedia src={cardBannerUrl} class="profile-card-banner" style="object-fit:cover;width:100%;" decorative />
 		{/if}
 		<div class="profile-info">
 			<button class="avatar-container" on:click={openProfilePopout}>
 				{#if $currentUser.profilePicture}
-					<img src={$currentUser.profilePicture} alt={displayUsername} class="avatar" />
+					<ProfileMedia src={mediaUrl($currentUser.profilePicture)} alt={displayUsername} class="avatar" />
 				{:else}
 					<div class="avatar-placeholder" style="--avatar-color: {$currentUser.color}">
 						{avatarInitial}
 					</div>
 				{/if}
-				{#if $currentUser.overlayUrl && !disableAllBanners}
-					<span class="avatar-overlay-badge" style={overlayStyle($currentUser)} aria-hidden="true"></span>
+				{#if $currentUser.overlayUrl && $profileDecorationsVisible}
+					<ProfileDecoration user={$currentUser} class="avatar-overlay-badge" />
 				{/if}
 				<span
 					class="status-indicator presence-toggle"
@@ -139,7 +131,7 @@
 			</button>
 			<div class="user-details">
 				<div class="username">
-					<span class="username-text">{displayUsername}</span>
+					<span class="username-text"><ProfileName username={displayUsername} font={$currentUser.usernameFont} color={$currentUser.color} /></span>
 					<span class="self-role-badge">{currentUserRoleLabel}</span>
 				</div>
 				<div class="user-tag">@{displayHandle}</div>

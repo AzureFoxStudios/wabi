@@ -25,7 +25,7 @@
 	}
 
 	.popout-container .popout-banner {
-		height: 92px;
+		aspect-ratio: 3 / 1;
 		position: relative;
 	}
 
@@ -103,9 +103,45 @@
 
 	.popout-container .popout-body {
 		padding: 12px 18px 18px;
-		max-height: calc(min(680px, 100dvh - 16px) - 92px);
+		max-height: calc(min(680px, 100dvh - 16px) - 164px);
 		overflow-y: auto;
 	}
+
+	.profile-full-backdrop {
+		position: fixed; inset: 0; border: 0; background: rgba(0, 0, 0, 0.65);
+		z-index: calc(var(--z-floating-ui, 2250) - 1);
+	}
+	.popout-container.profile-expanded {
+		width: min(680px, calc(100vw - 24px));
+		max-height: calc(100dvh - 24px);
+		top: 50% !important; left: 50% !important; transform: translate(-50%, -50%);
+		z-index: var(--z-floating-ui, 2250); animation: none;
+	}
+	.popout-container.profile-expanded .popout-body {
+		max-height: calc(100dvh - min(226px, (100vw - 24px) / 3) - 72px);
+		padding: 18px 24px 24px;
+	}
+	.popout-container.profile-expanded .display-name { font-size: 1.6rem; }
+	.popout-container.profile-docked {
+		position: relative; width: 100%; height: 100%; max-height: none;
+		top: 0 !important; left: 0 !important; right: auto;
+		display: flex; flex-direction: column; min-height: 0;
+		border: 0; border-radius: 0; box-shadow: none; animation: none; z-index: auto;
+	}
+	.popout-container.profile-docked .popout-banner,
+	.popout-container.profile-docked .avatar-section { flex-shrink: 0; }
+	.popout-container.profile-docked .popout-body {
+		flex: 1; min-height: 0; max-height: none; padding: 12px 16px 20px;
+	}
+	.popout-container.profile-docked .actions { flex-direction: column; }
+	.popout-container.profile-docked .action-btn { flex: 0 0 auto; width: 100%; min-height: 40px; }
+	.popout-container .profile-close {
+		position: absolute; top: 10px; right: 10px; z-index: 2;
+		width: 32px; height: 32px; padding: 0; border-radius: var(--radius-full);
+		border: 1px solid var(--border-subtle); background: var(--surface-base);
+		color: var(--text-heading); font-size: 1.4rem; cursor: pointer;
+	}
+	.popout-container .profile-close:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 
 	.popout-container .username-section {
 		display: flex;
@@ -208,6 +244,7 @@
 		background: color-mix(in srgb, var(--surface-raised) 58%, transparent);
 		min-width: 0;
 	}
+	.popout-container .profile-detail-grid > div:only-child { grid-column: 1 / -1; }
 
 	.popout-container .profile-detail-grid span {
 		color: var(--text-muted);
@@ -521,6 +558,14 @@
 		.popout-container .actions,
 		.popout-container .call-actions {
 			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.popout-container .action-btn {
+			flex: 0 0 auto;
+			width: 100%;
+			height: auto;
+			min-height: 44px;
 		}
 	}
 
