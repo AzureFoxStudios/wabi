@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#171827"/>
+  <rect x="12" y="12" width="488" height="488" rx="130" fill="#312e81" stroke="#a5b4fc" stroke-width="3"/>
+  <rect x="72" y="72" width="368" height="368" rx="105" fill="#171827" stroke="#9ca3af" stroke-dasharray="10 8"/>
+  <circle cx="256" cy="256" r="244" fill="none" stroke="#fbbf24" stroke-width="2" stroke-dasharray="8 8"/>
+  <g font-family="Arial,sans-serif" fill="#f9fafb" text-anchor="middle">
+    <text x="256" y="166" font-size="30" font-weight="700">512 × 512</text>
+    <text x="256" y="220" font-size="20">Avatar decoration canvas</text>
+    <text x="256" y="271" font-size="18">Keep this center transparent</text>
+    <text x="256" y="304" font-size="18">so the avatar stays visible</text>
+    <text x="256" y="365" font-size="16">Hide the guide before exporting</text>
+    <text x="256" y="446" font-size="15">Profile: rounded square · Rows: circle</text>
+    <text x="256" y="471" font-size="15">Keep key art inside the circle · PNG / GIF / WebP</text>
+  </g>
+</svg>

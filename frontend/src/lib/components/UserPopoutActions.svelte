@@ -11,6 +11,8 @@
 
 	export let isOwnProfile = false;
 	export let profileExpanded = false;
+	export let inSidePanel = false;
+	export let completeProfile = false;
 	export let localNicknamesEnabled = false;
 	export let localNickname = '';
 	export let user: User | null = null;
@@ -46,6 +48,7 @@
 	}
 	export let onOpenDM: () => void = () => {};
 	export let onOpenFullProfile: () => void = () => {};
+	export let onKeepInPanel: () => void = () => {};
 	export let onOpenSettings: () => void = () => {};
 	export let onVoiceCall: () => void = () => {};
 	export let onVideoCall: () => void = () => {};
@@ -69,10 +72,10 @@
 		const shareText = handle && handle.toLowerCase() !== 'unknown' ? `@${handle}` : `@${user.username}`;
 		try {
 			await navigator.clipboard.writeText(shareText);
+			showToast('Handle copied.', 'info', 1200);
 		} catch {
-			// no-op
+			showToast('Could not copy the handle. Please select it from the profile.', 'error', 3000);
 		}
-		showToast('Copied!', 'info', 1200);
 	}
 </script>
 
@@ -93,28 +96,24 @@
 			</button>
 		{/if}
 	{/if}
-	<button class="action-btn secondary" on:click={onOpenFullProfile}>
+	{#if isOwnProfile}
+		<button class="action-btn primary" on:click={onOpenSettings}>{$_('user.popout.edit_profile')}</button>
+	{/if}
+	<button class="action-btn secondary" data-profile-expand on:click={onOpenFullProfile}>
 		<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
 			<path d="M12 12C14.21 12 16 10.21 16 8C16 5.79 14.21 4 12 4C9.79 4 8 5.79 8 8C8 10.21 9.79 12 12 12ZM12 14C9.33 14 4 15.34 4 18V20H20V18C20 15.34 14.67 14 12 14Z"/>
 		</svg>
-		{isOwnProfile ? $_('user.popout.edit_profile') : profileExpanded ? 'Hide details' : $_('user.popout.view_full_profile')}
+		{profileExpanded ? (inSidePanel ? 'Return to side panel' : 'Back to popout') : $_('user.popout.view_full_profile')}
 	</button>
+	{#if !inSidePanel}
+		<button class="action-btn secondary" on:click={onKeepInPanel}>Keep in side panel</button>
+	{/if}
 </div>
 
 {#if friendActionError}<p class="friend-action-error" role="alert">{friendActionError}</p>{/if}
 
-{#if isOwnProfile}
-	<div class="own-profile-note">Voice controls live in the active call bar.</div>
-{/if}
-
 <style>
 	.friend-action-error { margin: 0.35rem 0.65rem; color: var(--color-danger, #ef4444); font-size: 0.75rem; }
-	.own-profile-note {
-		padding: 0.45rem 0.65rem;
-		font-size: 0.72rem;
-		color: var(--text-muted, #8e9297);
-		text-align: center;
-	}
 	.manage-roles {
 		display: grid;
 		gap: 0.4rem;
@@ -165,8 +164,8 @@
 	</div>
 {/if}
 
-{#if (isOwnProfile || profileExpanded) && user}
-	<button class="share-btn" on:click={handleShareProfile} title={$_('user.popout.share_profile')}>
+{#if (isOwnProfile || profileExpanded || completeProfile) && user}
+	<button class="share-btn" on:click={handleShareProfile} title="Copy handle">
 		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 			<circle cx="18" cy="5" r="3"/>
 			<circle cx="6" cy="12" r="3"/>
@@ -174,7 +173,7 @@
 			<line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
 			<line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
 		</svg>
-		{$_('user.popout.share_profile')}
+		Copy handle
 	</button>
 {/if}
 

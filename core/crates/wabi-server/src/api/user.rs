@@ -19,6 +19,212 @@ use crate::error::{AppError, Result};
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
 
+/// Shared REST/realtime validation. Empty values explicitly clear optional text.
+pub(crate) fn profile_text(
+    value: &serde_json::Value,
+    field: &str,
+    max: usize,
+    clearable: bool,
+) -> std::result::Result<String, String> {
+    let text = match value {
+        serde_json::Value::Null if clearable => "",
+        serde_json::Value::String(text) => text.trim(),
+        _ => return Err(format!("{field} must be text")),
+    };
+    if (!clearable && text.is_empty())
+        || text.chars().count() > max
+        || text
+            .chars()
+            .any(|c| c.is_control() && c != '\n' && c != '\t')
+    {
+        return Err(format!(
+            "{field} must be {}text of at most {max} characters without control characters",
+            if clearable { "" } else { "nonempty " }
+        ));
+    }
+    Ok(text.to_owned())
+}
+
+pub(crate) fn profile_image_url(
+    value: &serde_json::Value,
+    field: &str,
+) -> std::result::Result<String, String> {
+    let url = match value {
+        serde_json::Value::Null => "",
+        serde_json::Value::String(url) => url.trim(),
+        _ => return Err(format!("{field} must be an image URL or null")),
+    };
+    if url.is_empty() {
+        return Ok(String::new());
+    }
+    if url.len() > 2048 || url.chars().any(char::is_control) {
+        return Err(format!("invalid {field} image URL"));
+    }
+    let https = url.starts_with("https://")
+        && reqwest::Url::parse(url).is_ok_and(|parsed| parsed.host_str().is_some());
+    if !(url.starts_with("/uploads/") || url.starts_with("/api/") || https) {
+        return Err(format!(
+            "{field} must use an uploaded image path or HTTPS URL"
+        ));
+    }
+    Ok(url.to_owned())
+}
+
+pub(crate) fn profile_font(value: &serde_json::Value) -> std::result::Result<String, String> {
+    let value = match value {
+        serde_json::Value::Null => serde_json::json!({}),
+        serde_json::Value::String(family) if family.is_empty() => serde_json::json!({}),
+        serde_json::Value::String(family) => serde_json::json!({ "family": family }),
+        serde_json::Value::Object(_) => value.clone(),
+        _ => return Err("usernameFont must be a style object or legacy font name".into()),
+    };
+    let object = value.as_object().expect("normalized font object");
+    if let Some(key) = object.keys().find(|key| {
+        !["design", "preset", "family", "size", "weight", "style"].contains(&key.as_str())
+    }) {
+        return Err(format!("unknown usernameFont field: {key}"));
+    }
+    let font: wabi_core::UsernameFont =
+        serde_json::from_value(value).map_err(|error| format!("invalid usernameFont: {error}"))?;
+    for (field, value, allowed) in [
+        (
+            "family",
+            font.family.as_deref(),
+            &[
+                "inherit",
+                "Arial",
+                "Georgia",
+                "Times New Roman",
+                "Comic Sans MS",
+                "Courier New",
+                "Trebuchet MS",
+                "Verdana",
+                "Impact",
+                "Palatino",
+                "Helvetica",
+            ][..],
+        ),
+        (
+            "size",
+            font.size.as_deref(),
+            &["0.9em", "1em", "1.2em", "1.4em", "16px"][..],
+        ),
+        (
+            "weight",
+            font.weight.as_deref(),
+            &["400", "500", "600", "700"][..],
+        ),
+        ("style", font.style.as_deref(), &["normal", "italic"][..]),
+        (
+            "preset",
+            font.preset.as_deref(),
+            &["none", "ember", "ocean", "mint", "violet"][..],
+        ),
+    ] {
+        if value.is_some_and(|value| !allowed.contains(&value)) {
+            return Err(format!("unsupported usernameFont.{field}"));
+        }
+    }
+    if let Some(design) = &font.design {
+        design.validate()?;
+    }
+    serde_json::to_string(&font).map_err(|error| error.to_string())
+}
+
+pub(crate) fn profile_user_patch(
+    data: &serde_json::Value,
+) -> std::result::Result<wabidb::domain::UserUpdate, String> {
+    let mut patch = wabidb::domain::UserUpdate::default();
+    if let Some(value) = data.get("username") {
+        patch.username = Some(profile_text(value, "username", 32, false)?);
+    }
+    if let Some(value) = data.get("profilePicture") {
+        patch.profile_picture = Some(profile_image_url(value, "profilePicture")?);
+    }
+    if let Some(value) = data.get("usernameFont") {
+        patch.username_font = Some(profile_font(value)?);
+    }
+    if let Some(value) = data.get("bio") {
+        patch.bio = Some(profile_text(value, "bio", 280, true)?);
+    }
+    if let Some(value) = data.get("statusMessage") {
+        patch.status_message = Some(profile_text(value, "statusMessage", 120, true)?);
+    }
+    if let Some(value) = data.get("color") {
+        let color = profile_text(value, "color", 64, true)?;
+        patch.color = Some(format!("\0{color}"));
+    }
+    Ok(patch)
+}
+
+/// Merge one container slot without discarding unrelated preferences.
+pub(crate) fn merge_user_container(
+    root: serde_json::Value,
+    key: &str,
+    value: serde_json::Value,
+) -> serde_json::Value {
+    let mut object = match root {
+        serde_json::Value::Object(object)
+            if object.is_empty()
+                || object.keys().any(|key| {
+                    [
+                        "layout",
+                        "theme",
+                        "railDensity",
+                        "railSide",
+                        "background_image",
+                        "profile_media",
+                    ]
+                    .contains(&key.as_str())
+                }) =>
+        {
+            object
+        }
+        serde_json::Value::Null => serde_json::Map::new(),
+        legacy => {
+            let mut object = serde_json::Map::new();
+            object.insert("layout".into(), legacy);
+            object
+        }
+    };
+    object.insert(key.into(), value);
+    serde_json::Value::Object(object)
+}
+
+pub(crate) fn profile_media_patch(
+    data: &serde_json::Value,
+    mut existing: serde_json::Map<String, serde_json::Value>,
+) -> std::result::Result<serde_json::Map<String, serde_json::Value>, String> {
+    for key in ["banner_url", "overlay_url"] {
+        if let Some(value) = data.get(key) {
+            let url = profile_image_url(value, key)?;
+            existing.insert(
+                key.into(),
+                if url.is_empty() {
+                    serde_json::Value::Null
+                } else {
+                    url.into()
+                },
+            );
+        }
+    }
+    for (key, min, max) in [
+        ("overlay_scale", 0.5, 3.0),
+        ("overlay_offset_x", -200.0, 200.0),
+        ("overlay_offset_y", -200.0, 200.0),
+    ] {
+        if let Some(value) = data.get(key) {
+            let number = value
+                .as_f64()
+                .or_else(|| value.as_str().and_then(|value| value.parse().ok()))
+                .filter(|number| number.is_finite())
+                .ok_or_else(|| format!("{key} must be a finite number"))?;
+            existing.insert(key.into(), serde_json::json!(number.clamp(min, max)));
+        }
+    }
+    Ok(existing)
+}
+
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/me", axum::routing::get(get_current_user))
@@ -30,10 +236,18 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
                 .post(update_settings),
         )
         .route("/profile/{id}", axum::routing::get(get_user_profile))
-        .route("/layout", axum::routing::get(get_layout).put(save_layout).post(save_layout))
+        .route(
+            "/layout",
+            axum::routing::get(get_layout)
+                .put(save_layout)
+                .post(save_layout),
+        )
         .route("/theme", axum::routing::get(get_theme).post(save_theme))
         .route("/theme/reset", axum::routing::post(reset_theme))
-        .route("/profile-media", axum::routing::get(get_profile_media).post(save_profile_media))
+        .route(
+            "/profile-media",
+            axum::routing::get(get_profile_media).post(save_profile_media),
+        )
         .with_state(state)
 }
 
@@ -69,7 +283,11 @@ struct PublicUserProfileResponse {
 
 /// Convert WDB User micros timestamp to milliseconds.
 fn wdb_user_to_response(u: &wabidb::domain::User) -> (String, Option<String>, i64) {
-    (u.username.clone(), u.handle.clone(), u.created_at_micros / 1000)
+    (
+        u.username.clone(),
+        u.handle.clone(),
+        u.created_at_micros / 1000,
+    )
 }
 
 /// Get current user profile
@@ -110,15 +328,22 @@ async fn get_settings(
     auth: AuthUser,
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>> {
-    // The WDB User has `handle` and `color` but not display_name / avatar_url /
-    // status_message / theme. Until Carl adds the settings fields to
-    // wabidb::domain::User, we return what we have + nulls for the rest.
     if let Some(user) = state.wdb.get_user(auth.user_id as u64).await? {
+        let stored = state.wdb.get_user_layout(auth.user_id as u64).await?;
+        let theme = stored
+            .and_then(|record| serde_json::from_str::<serde_json::Value>(&record.layout_json).ok())
+            .and_then(|root| {
+                root.get("theme")
+                    .and_then(|theme| theme.get("theme_id"))
+                    .cloned()
+            });
         Ok(Json(serde_json::json!({
-            "displayName": null,  // TODO: wabidb User.display_name
-            "avatarUrl": null,    // TODO: wabidb User.avatar_url
-            "statusMessage": null, // TODO: wabidb User.status_message
-            "theme": null,        // TODO: wabidb User.theme
+            "displayName": user.username,
+            "avatarUrl": user.profile_picture,
+            "statusMessage": user.status_message,
+            "bio": user.bio,
+            "usernameFont": user.username_font.and_then(|font| serde_json::from_str::<serde_json::Value>(&font).ok()),
+            "theme": theme,
             "color": user.color,
             "handle": user.handle,
         })))
@@ -143,12 +368,51 @@ async fn update_settings(
     State(state): State<Arc<AppState>>,
     Json(req): Json<UpdateSettingsRequest>,
 ) -> Result<Json<serde_json::Value>> {
-    // The WDB User has no settings fields yet. For v1, we do a `touch_user`
-    // (updates last_seen) as the closest equivalent to "user upsert" until
-    // Carl adds a real update method. The settings fields are dropped.
-    let _ = (req.display_name, req.avatar_url, req.status_message, req.theme);
-    state.wdb.touch_user(auth.user_id as u64).await?;
-    Ok(Json(serde_json::json!({ "ok": true, "note": "settings not yet persisted to wabidb; tracked by last_seen" })))
+    let mut data = serde_json::Map::new();
+    if let Some(value) = req.display_name {
+        data.insert("username".into(), value.into());
+    }
+    if let Some(value) = req.avatar_url {
+        data.insert("profilePicture".into(), value.into());
+    }
+    if let Some(value) = req.status_message {
+        data.insert("statusMessage".into(), value.into());
+    }
+    let patch = profile_user_patch(&serde_json::Value::Object(data.clone()))
+        .map_err(AppError::BadRequest)?;
+    let theme_patch = if let Some(theme) = req.theme {
+        let theme =
+            profile_text(&theme.into(), "theme", 128, false).map_err(AppError::BadRequest)?;
+        let stored = state.wdb.get_user_layout(auth.user_id as u64).await?;
+        let root = stored
+            .map(|record| serde_json::from_str::<serde_json::Value>(&record.layout_json))
+            .transpose()
+            .map_err(|_| AppError::BadRequest("stored settings are invalid".into()))?
+            .unwrap_or_else(|| serde_json::json!({}));
+        let mut existing_theme = root
+            .get("theme")
+            .and_then(serde_json::Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        existing_theme.insert("theme_id".into(), theme.into());
+        Some(merge_user_container(
+            root,
+            "theme",
+            serde_json::Value::Object(existing_theme),
+        ))
+    } else {
+        None
+    };
+    if !data.is_empty() {
+        state.wdb.update_user(auth.user_id as u64, patch).await?;
+    }
+    if let Some(root) = theme_patch {
+        state
+            .wdb
+            .upsert_user_layout(auth.user_id as u64, &root.to_string())
+            .await?;
+    }
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 /// Get a public-safe user profile by ID.
@@ -162,13 +426,12 @@ async fn get_user_profile(
         let is_bot = state.is_bot_user(id as u64).await;
         Ok(Json(PublicUserProfileResponse {
             user_id: id,
-            username,
+            username: username.clone(),
             handle: user.handle,
             color: Some(user.color),
-            // Settings fields: not in WDB User yet. Return None for v1.
-            display_name: None,
-            avatar_url: None,
-            status_message: None,
+            display_name: Some(username),
+            avatar_url: user.profile_picture,
+            status_message: user.status_message,
             is_bot,
             created_at: created_at_ms,
         }))
@@ -291,13 +554,19 @@ async fn save_theme(
     State(state): State<Arc<AppState>>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>> {
-    let object = body.as_object().ok_or_else(|| {
-        AppError::BadRequest("theme preferences must be a JSON object".into())
-    })?;
+    let object = body
+        .as_object()
+        .ok_or_else(|| AppError::BadRequest("theme preferences must be a JSON object".into()))?;
     let allowed = [
-        "theme_id", "custom_theme", "uniform_font_enabled", "uniform_font_family",
-        "uniform_font_size", "uniform_font_weight", "uniform_font_style",
-        "theme_ambient", "background_image",
+        "theme_id",
+        "custom_theme",
+        "uniform_font_enabled",
+        "uniform_font_family",
+        "uniform_font_size",
+        "uniform_font_weight",
+        "uniform_font_style",
+        "theme_ambient",
+        "background_image",
     ];
     let filtered = object
         .iter()
@@ -343,7 +612,10 @@ async fn save_theme(
     }
     let json = serde_json::to_string(&serde_json::Value::Object(combined))
         .map_err(|error| AppError::BadRequest(format!("invalid theme preferences: {error}")))?;
-    state.wdb.upsert_user_layout(auth.user_id as u64, &json).await?;
+    state
+        .wdb
+        .upsert_user_layout(auth.user_id as u64, &json)
+        .await?;
     Ok(Json(serde_json::Value::Object(filtered)))
 }
 
@@ -352,13 +624,27 @@ async fn reset_theme(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>> {
     let layout = state.wdb.get_user_layout(auth.user_id as u64).await?;
-    let layout_value = layout
-        .and_then(|record| serde_json::from_str::<serde_json::Value>(&record.layout_json).ok())
-        .and_then(|value| value.get("layout").cloned().or(Some(value)))
+    let root = layout
+        .map(|record| serde_json::from_str::<serde_json::Value>(&record.layout_json))
+        .transpose()
+        .map_err(|_| AppError::BadRequest("stored settings are invalid".into()))?
         .unwrap_or_else(|| serde_json::json!({}));
-    let combined = serde_json::json!({ "layout": layout_value, "theme": serde_json::from_str::<serde_json::Value>(DEFAULT_THEME_JSON).expect("valid default theme") });
-    state.wdb.upsert_user_layout(auth.user_id as u64, &serde_json::to_string(&combined).map_err(|error| AppError::BadRequest(error.to_string()))?).await?;
-    Ok(Json(serde_json::from_str(DEFAULT_THEME_JSON).expect("valid default theme")))
+    let combined = merge_user_container(
+        root,
+        "theme",
+        serde_json::from_str(DEFAULT_THEME_JSON).expect("valid default theme"),
+    );
+    state
+        .wdb
+        .upsert_user_layout(
+            auth.user_id as u64,
+            &serde_json::to_string(&combined)
+                .map_err(|error| AppError::BadRequest(error.to_string()))?,
+        )
+        .await?;
+    Ok(Json(
+        serde_json::from_str(DEFAULT_THEME_JSON).expect("valid default theme"),
+    ))
 }
 
 async fn get_profile_media(
@@ -381,36 +667,32 @@ async fn save_profile_media(
     let media = media
         .as_object()
         .ok_or_else(|| AppError::BadRequest("profile media must be a JSON object".into()))?;
-    let allowed = ["banner_url", "overlay_url"];
-    let filtered = media
-        .iter()
-        .filter(|(key, _)| allowed.contains(&key.as_str()))
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect::<serde_json::Map<_, _>>();
     let existing = state.wdb.get_user_layout(auth.user_id as u64).await?;
     let root = existing
-        .and_then(|record| serde_json::from_str::<serde_json::Value>(&record.layout_json).ok())
+        .map(|record| serde_json::from_str::<serde_json::Value>(&record.layout_json))
+        .transpose()
+        .map_err(|_| AppError::BadRequest("stored settings are invalid".into()))?
         .unwrap_or_else(|| serde_json::json!({}));
-    let mut combined = serde_json::json!({
-        "layout": root.get("layout").cloned().unwrap_or_else(|| root.clone()),
-        "theme": root.get("theme").cloned().unwrap_or_else(|| serde_json::json!({})),
-        "profile_media": filtered,
-    });
-    // Preserve the theme-agnostic top-level background (and rail chrome)
-    // across profile-media saves — the rebuild shape would otherwise wipe it.
-    if let Some(bg) = root.get("background_image") {
-        combined["background_image"] = bg.clone();
-    }
-    if let Some(rail_density) = root.get("railDensity") {
-        combined["railDensity"] = rail_density.clone();
-    }
-    if let Some(rail_side) = root.get("railSide") {
-        combined["railSide"] = rail_side.clone();
-    }
+    let existing_media = root
+        .get("profile_media")
+        .and_then(serde_json::Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let saved_media =
+        profile_media_patch(&serde_json::Value::Object(media.clone()), existing_media)
+            .map_err(AppError::BadRequest)?;
+    let combined = merge_user_container(
+        root,
+        "profile_media",
+        serde_json::Value::Object(saved_media.clone()),
+    );
     let serialized = serde_json::to_string(&combined)
         .map_err(|error| AppError::BadRequest(error.to_string()))?;
-    state.wdb.upsert_user_layout(auth.user_id as u64, &serialized).await?;
-    Ok(Json(serde_json::Value::Object(media.clone())))
+    state
+        .wdb
+        .upsert_user_layout(auth.user_id as u64, &serialized)
+        .await?;
+    Ok(Json(serde_json::Value::Object(saved_media)))
 }
 
 #[cfg(test)]
@@ -444,5 +726,3 @@ mod tests {
         assert!(validate_layout_keys(&unknown).is_err());
     }
 }
-
-

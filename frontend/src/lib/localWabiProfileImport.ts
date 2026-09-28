@@ -1,7 +1,8 @@
 import type { User } from '$lib/socket';
 import { get } from 'svelte/store';
 import { brandName } from './branding';
-import { currentUser, updateProfile } from './socket';
+import { currentUser } from './socket';
+import { saveProfilePatch } from './profileSave';
 import {
 	getLocalWabiAccountByKey,
 	getLocalWabiAccountDisplayLabel,
@@ -36,22 +37,11 @@ export const DEFAULT_LOCAL_WABI_PROFILE_IMPORT_SELECTION: LocalWabiProfileImport
 	profilePicture: true
 };
 
-function updateProfileAsync(
+async function updateProfileAsync(
 	patch: { username?: string; profilePicture?: string }
 ): Promise<{ success: boolean; error?: string }> {
-	return new Promise((resolve) => {
-		let settled = false;
-		const timeout = window.setTimeout(() => {
-			if (settled) return;
-			settled = true;
-			resolve({ success: false, error: 'Timed out while updating the profile.' });
-		}, 8000);
-
-		updateProfile({ username: patch.username, profilePicture: patch.profilePicture });
-		window.clearTimeout(timeout);
-		settled = true;
-		resolve({ success: true });
-	});
+	try { await saveProfilePatch(patch); return { success: true }; }
+	catch (error) { return { success: false, error: error instanceof Error ? error.message : 'The profile save could not be confirmed.' }; }
 }
 
 export function getLocalWabiProfileImportPreview(

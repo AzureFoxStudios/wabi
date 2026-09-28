@@ -1,6 +1,6 @@
 # Wabi Project Status
 
-**Updated:** 2026-09-26
+**Updated:** 2026-09-28
 
 **Purpose:** canonical product-status boundary for operators, contributors, reviewers, and AI agents.
 
@@ -102,6 +102,34 @@ exchanging durable messages, including HTTP polling and offline replay. Tim
 origin and public readiness, application shell, protected note/admin routes,
 realtime polling, and the Lore addon passed after restart. Physical devices
 remain an acceptance gate.
+
+## Profile creator and presentation — not deployed
+
+The implementation adds an editable name/plate studio with typography, gradients,
+glow and slow shimmer, plus versioned design-file import/export. Names and plates
+use shared rendering in messages, People and profile cards. Appearance offers
+one plain-profile switch and separate names, plates, artwork and motion controls;
+app/OS reduced motion keeps profile images still and stops name shimmer.
+
+Profile saves now wait for an owner receipt, preserve existing layout/profile
+values and broadcast saved updates to other viewers. Full profile dialogs work
+for self and other members; complete profiles also open in the existing optional
+right dock and expand back into the large card. Profile targets follow live
+account data and clear on server/account/logout changes. The artist guide
+specifies a recommended 1200 × 400
+banner, 512 × 512 transparent decoration, image formats, upload limits, cropping
+and downloadable artboard templates. Two example looks include a painted banner,
+a four-second animated WebP/GIF banner, editable animation source and portable
+name/plate designs. See the
+[profile contract and showcase gaps](features/PROFILE_DESIGNS.md) and
+[artist guide](features/PROFILE_ARTIST_GUIDE.md).
+
+Server emoji catalog, upload conflict/error and reaction-identity fixes are also
+in this implementation. Super reactions, emoji confetti, profile-wide effects/frame
+authoring, verified connections and a design marketplace remain unimplemented.
+Focused tests and a static frontend build pass; local browser checks use a mock
+transport. A live two-account showcase, physical phones and native webviews
+remain acceptance work. No deployment of this candidate is recorded.
 
 ## Production-finish candidate — not yet merged or deployed
 

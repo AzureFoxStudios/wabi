@@ -28,7 +28,6 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
     };
 
     let user_id_num = identity.user_id;
-    let authed_username = identity.username;
 
     let stable_id = if user_id_num > 0 {
         format!("user-{}", user_id_num)
@@ -39,15 +38,12 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
     // Join a room named after stable_id so io.to(stable_id) routes here
     socket.join(stable_id.clone());
 
-    let color = state
-        .app
-        .wdb
-        .get_user_by_username(&authed_username)
-        .await
-        .ok()
-        .flatten()
-        .map(|u| u.color)
-        .unwrap_or_else(|| "#98D8C8".to_string());
+    // A bearer may predate a profile rename. Its subject remains the authority;
+    // presentation comes from the current durable account, never the old name.
+    let (authed_username, color) = match state.app.wdb.get_user(user_id_num as u64).await {
+        Ok(Some(user)) => (user.username, user.color),
+        _ => (identity.username, "#98D8C8".to_owned()),
+    };
 
     // Inherit presence from another live socket of the same account
     // (multi-tab): a second tab shouldn't flip Invisible back to Active.
@@ -204,38 +200,6 @@ async fn on_join(socket: SocketRef, username: String, state: SioState, io: Socke
     let _ = io; // keep io alive
 }
 
-/// Validate and normalize a user-submitted profile string field.
-/// Rejects overly long values and control characters.
-fn sanitize_profile_text(input: &str, max_len: usize) -> Option<String> {
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    if trimmed.len() > max_len {
-        return None;
-    }
-    if trimmed.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
-        return None;
-    }
-    Some(trimmed.to_string())
-}
-
-/// Validate an avatar URL. Only same-origin relative paths and https URLs
-/// are allowed, to prevent javascript:/data: injection.
-fn sanitize_avatar_url(input: &str) -> Option<String> {
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    if trimmed.starts_with("/uploads/")
-        || trimmed.starts_with("/api/")
-        || trimmed.starts_with("https://")
-    {
-        return Some(trimmed.to_string());
-    }
-    None
-}
-
 /// Read the `profile_media` object from a user's layout record. This is where
 /// the avatar banner (`banner_url`) and pfp overlay (`overlay_url`) live —
 /// written by the REST `/api/user/profile-media` endpoint and by the
@@ -292,32 +256,8 @@ fn media_overlay_alignment(media: &serde_json::Map<String, Value>) -> (f64, f64,
     (scale, ox, oy)
 }
 
-/// Sanitize an optional numeric alignment field from the update-profile
-/// payload: accepts numbers (or numeric strings), clamps to [min, max].
-fn sanitize_overlay_num(v: &Value, min: f64, max: f64) -> Option<f64> {
-    let n = v.as_f64().or_else(|| {
-        v.as_str()
-            .and_then(|s| s.trim().parse::<f64>().ok())
-    })?;
-    if !n.is_finite() {
-        return None;
-    }
-    Some(n.clamp(min, max))
-}
-
-/// Build a full `UserView` (with profile fields) for broadcast.
-///
-/// The profile fields are passed in (not re-read from the store) because
-/// `update_user` commits through WabiDB's async projection dispatcher: a
-/// read issued immediately after a write can race the dispatcher and return
-/// the stale pre-update row. Broadcasting that stale row (e.g. a missing
-/// `profilePicture`) makes clients merge the old value over the optimistic
-/// one — the avatar "doesn't stick". Callers merge the just-applied patch
-/// into the previous profile and pass the merged values here.
-///
-/// The same race applies to `profile_media` (stored in `user_layout`): when
-/// `None`, it is read from the store; callers that just wrote it pass the
-/// merged map instead.
+/// Build the public profile view from the authenticated account's fields.
+/// Callers may pass the just-saved media map after its durable write completes.
 async fn build_user_view(
     state: &SioState,
     db_user_id: i64,
@@ -371,303 +311,115 @@ async fn build_user_view(
     })
 }
 
-/// Handle `update-profile` (and the legacy `n`) socket event: patch the
-/// authenticated user's profile fields and broadcast the updated `UserView`.
+/// Save an authenticated profile; publication follows both existing durable writes.
 #[allow(dead_code)]
-async fn on_update_profile(
-    socket: SocketRef,
-    data: Value,
-    state: SioState,
-    io: SocketIo,
-) {
-    let identity = match resolve_sio_identity(&socket) {
-        Some(id) => id,
-        None => {
-            let _ = socket.emit(
-                "profile-update-failed",
-                &json!({ "reason": "authentication required" }),
-            );
+async fn on_update_profile(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
+    let request_id = data.get("requestId").cloned().unwrap_or(Value::Null);
+    let fail = |reason: &str| {
+        let _ = socket.emit("profile-update-failed", &json!({
+            "reason": reason, "profileRequestId": request_id,
+        }));
+    };
+    if !data.is_object() {
+        fail("profile update must be an object");
+        return;
+    }
+    if !request_id.is_null() && !request_id.as_str().is_some_and(|id|
+        !id.is_empty() && id.len() <= 128 && !id.chars().any(char::is_control))
+    {
+        fail("requestId must be a nonempty string of at most 128 bytes");
+        return;
+    }
+    let Some(identity) = resolve_sio_identity(&socket) else {
+        fail("authentication required");
+        return;
+    };
+    let token = socket.extensions.get::<AuthToken>().map(|token| token.0.clone()).unwrap_or_default();
+    if socket_token_revoked(&state.app, &token).await {
+        fail("session revoked; please sign in again");
+        return;
+    }
+    let db_user_id = identity.user_id;
+    if db_user_id <= 0 {
+        fail("authentication required");
+        return;
+    }
+    // Presence and custom status text are deliberately independent.
+    if data.get("status").is_some() && data.get("statusMessage").is_none() {
+        let _ = socket.emit("presence-ignored", &json!({ "reason": "use set-presence for presence changes" }));
+    }
+    let updates = match crate::api::user::profile_user_patch(&data) {
+        Ok(updates) => updates,
+        Err(reason) => { fail(&reason); return; }
+    };
+    let current = match state.app.wdb.get_user(db_user_id as u64).await {
+        Ok(Some(current)) => current,
+        _ => { fail("could not read the current profile"); return; }
+    };
+    let mut media_request = serde_json::Map::new();
+    for (wire, stored) in [
+        ("bannerUrl", "banner_url"), ("overlayUrl", "overlay_url"),
+        ("overlayScale", "overlay_scale"), ("overlayOffsetX", "overlay_offset_x"),
+        ("overlayOffsetY", "overlay_offset_y"),
+    ] {
+        if let Some(value) = data.get(wire) { media_request.insert(stored.into(), value.clone()); }
+    }
+    // Read and validate all inputs before either write; retain the complete container.
+    let media_patch = if !media_request.is_empty() {
+        let stored = match state.app.wdb.get_user_layout(db_user_id as u64).await {
+            Ok(stored) => stored,
+            Err(_) => { fail("could not read profile media settings"); return; }
+        };
+        let root = match stored.map(|stored| serde_json::from_str::<Value>(&stored.layout_json)).transpose() {
+            Ok(root) => root.unwrap_or_else(|| json!({})),
+            Err(_) => { fail("stored profile settings are invalid; nothing was saved"); return; }
+        };
+        let existing = root.get("profile_media").and_then(Value::as_object).cloned().unwrap_or_default();
+        let media = match crate::api::user::profile_media_patch(&Value::Object(media_request), existing) {
+            Ok(media) => media,
+            Err(reason) => { fail(&reason); return; }
+        };
+        let combined = crate::api::user::merge_user_container(root, "profile_media", Value::Object(media.clone()));
+        Some((media, combined.to_string()))
+    } else { None };
+
+    let username = updates.username.clone().unwrap_or(current.username);
+    let color = updates.color.as_deref().map(|color| color.strip_prefix('\0').unwrap_or(color).to_owned()).unwrap_or(current.color);
+    let profile_picture = updates.profile_picture.clone().or(current.profile_picture);
+    let username_font = updates.username_font.clone().or(current.username_font);
+    let bio = updates.bio.clone().or(current.bio);
+    let status_message = updates.status_message.clone().or(current.status_message);
+    let has_user_patch = updates.username.is_some() || updates.color.is_some() || updates.profile_picture.is_some()
+        || updates.username_font.is_some() || updates.bio.is_some() || updates.status_message.is_some();
+    if has_user_patch {
+        if let Err(error) = state.app.wdb.update_user(db_user_id as u64, updates).await {
+            warn!("[sio] update-profile failed: {}", error);
+            fail("failed to persist profile");
             return;
         }
-    };
-
-    // Revocation check (async, cannot run at handshake)
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    if socket_token_revoked(&state.app, &token).await {
-        let _ = socket.emit(
-            "profile-update-failed",
-            &json!({ "reason": "session revoked; please sign in again" }),
-        );
-        return;
     }
-
-    let db_user_id = identity.user_id;
-    let username = identity.username;
-
-    if db_user_id <= 0 {
-        let _ = socket.emit(
-            "profile-update-failed",
-            &json!({ "reason": "authentication required" }),
-        );
-        return;
-    }
-
-    // Legacy `updateProfile({ status })` calls used to land here and write
-    // the presence word ("away"/"busy") into the user's status MESSAGE field.
-    // Presence is owned by `set-presence` now — ignore `status` in this
-    // handler entirely so it can never corrupt profile text again.
-    if data.get("status").is_some() && data.get("statusMessage").is_none() {
-        let _ = socket.emit(
-            "presence-ignored",
-            &json!({ "reason": "use set-presence for presence changes" }),
-        );
-    }
-
-    let mut updates = wabidb::domain::UserUpdate::default();
-
-    if let Some(v) = data.get("profilePicture").and_then(|v| v.as_str()) {
-        match sanitize_avatar_url(v) {
-            Some(url) => updates.profile_picture = Some(url),
-            None => {
-                let _ = socket.emit(
-                    "profile-update-failed",
-                    &json!({ "reason": "invalid profilePicture url" }),
-                );
-                return;
-            }
+    if let Some((_, serialized)) = &media_patch {
+        if let Err(error) = state.app.wdb.upsert_user_layout(db_user_id as u64, serialized).await {
+            warn!("[sio] profile media save failed: {}", error);
+            fail(if has_user_patch {
+                "profile fields were saved, but profile media could not be saved; retry the media change"
+            } else { "failed to persist profile media" });
+            return;
         }
     }
-    if let Some(v) = data.get("usernameFont") {
-        // Accept either a string (legacy) or an object {family,size,weight,style}.
-        let encoded = if let Some(s) = v.as_str() {
-            if s.is_empty() {
-                None
-            } else {
-                Some(serde_json::json!({ "family": s }).to_string())
-            }
-        } else if v.is_object() {
-            let family = v.get("family").and_then(|x| x.as_str()).map(|s| s.to_string());
-            let size = v.get("size").and_then(|x| x.as_str()).map(|s| s.to_string());
-            let weight = v.get("weight").and_then(|x| x.as_str()).map(|s| s.to_string());
-            let style = v.get("style").and_then(|x| x.as_str()).map(|s| s.to_string());
-            if family.is_none() && size.is_none() && weight.is_none() && style.is_none() {
-                None
-            } else {
-                Some(serde_json::json!({
-                    "family": family,
-                    "size": size,
-                    "weight": weight,
-                    "style": style,
-                }).to_string())
-            }
-        } else {
-            None
-        };
-        updates.username_font = encoded;
+    // Future presence snapshots must retain the published display name/color.
+    for user in state.connected_users.write().await.values_mut() {
+        if user.db_user_id == Some(db_user_id) { user.username = username.clone(); user.color = color.clone(); }
     }
-    if let Some(v) = data.get("username").and_then(|v| v.as_str()) {
-        match sanitize_profile_text(v, 32) {
-            Some(name) => updates.username = Some(name),
-            None => {
-                let _ = socket.emit(
-                    "profile-update-failed",
-                    &json!({ "reason": "invalid username" }),
-                );
-                return;
-            }
-        }
-    }
-    if let Some(v) = data.get("bio").and_then(|v| v.as_str()) {
-        updates.bio = sanitize_profile_text(v, 280);
-    }
-    // NOTE: `status` is deliberately NOT accepted here. It used to be
-    // written into status_message, corrupting profile text with presence
-    // words. Presence goes through `set-presence`; custom status text
-    // should use `statusMessage`.
-    if let Some(v) = data.get("statusMessage").and_then(|v| v.as_str()) {
-        updates.status_message = sanitize_profile_text(v, 120);
-    }
-    if let Some(v) = data.get("color").and_then(|v| v.as_str()) {
-        // Prefix with NUL so the projection can distinguish "set" from "unchanged".
-        updates.color = Some(format!("\0{}", v));
-    }
-
-    // Avatar banner + pfp overlay live in `profile_media` inside the user's
-    // layout record. Merge the just-applied patch here (same B6 race guard as
-    // the profile fields below): the merged map is passed straight into the
-    // broadcast view instead of re-reading the store after the write.
-    let mut media_patch: Option<serde_json::Map<String, Value>> = None;
-    if data.get("bannerUrl").is_some()
-        || data.get("overlayUrl").is_some()
-        || data.get("overlayScale").is_some()
-        || data.get("overlayOffsetX").is_some()
-        || data.get("overlayOffsetY").is_some()
-    {
-        let mut media = profile_media_for(&state, db_user_id).await.unwrap_or_default();
-        if let Some(v) = data.get("bannerUrl") {
-            let value = match v.as_str() {
-                Some(s) if !s.trim().is_empty() => match sanitize_avatar_url(s) {
-                    Some(url) => Value::String(url),
-                    None => {
-                        let _ = socket.emit(
-                            "profile-update-failed",
-                            &json!({ "reason": "invalid bannerUrl" }),
-                        );
-                        return;
-                    }
-                },
-                _ => Value::Null,
-            };
-            media.insert("banner_url".into(), value);
-        }
-        if let Some(v) = data.get("overlayUrl") {
-            let value = match v.as_str() {
-                Some(s) if !s.trim().is_empty() => match sanitize_avatar_url(s) {
-                    Some(url) => Value::String(url),
-                    None => {
-                        let _ = socket.emit(
-                            "profile-update-failed",
-                            &json!({ "reason": "invalid overlayUrl" }),
-                        );
-                        return;
-                    }
-                },
-                _ => Value::Null,
-            };
-            media.insert("overlay_url".into(), value);
-        }
-        if let Some(v) = data.get("overlayScale") {
-            if let Some(n) = sanitize_overlay_num(v, 0.5, 3.0) {
-                media.insert(
-                    "overlay_scale".into(),
-                    Value::from(serde_json::Number::from_f64(n).unwrap_or(serde_json::Number::from(1))),
-                );
-            }
-        }
-        if let Some(v) = data.get("overlayOffsetX") {
-            if let Some(n) = sanitize_overlay_num(v, -200.0, 200.0) {
-                media.insert(
-                    "overlay_offset_x".into(),
-                    Value::from(serde_json::Number::from_f64(n).unwrap_or(serde_json::Number::from(0))),
-                );
-            }
-        }
-        if let Some(v) = data.get("overlayOffsetY") {
-            if let Some(n) = sanitize_overlay_num(v, -200.0, 200.0) {
-                media.insert(
-                    "overlay_offset_y".into(),
-                    Value::from(serde_json::Number::from_f64(n).unwrap_or(serde_json::Number::from(0))),
-                );
-            }
-        }
-        media_patch = Some(media);
-    }
-
-    // Snapshot the pre-update profile BEFORE the write. `update_user` persists
-    // through the async projection dispatcher, so a post-write read can race it
-    // and broadcast a stale view (e.g. missing a just-uploaded profile picture),
-    // which clients merge over the optimistic value (B6 fix).
-    let current = state
-        .app
-        .wdb
-        .get_user(db_user_id as u64)
-        .await
-        .ok()
-        .flatten();
-    let color = current
-        .as_ref()
-        .map(|u| u.color.clone())
-        .unwrap_or_else(|| "#98D8C8".to_string());
-
-    // Mirror the merge semantics of `WdbAdapter::update_user` /
-    // `UsersProjection::apply` so the broadcast view reflects the just-applied
-    // patch regardless of projection timing.
-    let merged_profile_picture = updates
-        .profile_picture
-        .clone()
-        .or_else(|| current.as_ref().and_then(|u| u.profile_picture.clone()));
-    let merged_username_font = updates
-        .username_font
-        .clone()
-        .or_else(|| current.as_ref().and_then(|u| u.username_font.clone()));
-    let merged_bio = updates
-        .bio
-        .clone()
-        .or_else(|| current.as_ref().and_then(|u| u.bio.clone()));
-    let merged_status_message = updates
-        .status_message
-        .clone()
-        .or_else(|| current.as_ref().and_then(|u| u.status_message.clone()));
-    let merged_color = updates
-        .color
-        .as_deref()
-        .map(|c| c.strip_prefix('\0').unwrap_or(c).to_string())
-        .unwrap_or_else(|| color.clone());
-    let merged_username = updates
-        .username
-        .clone()
-        .unwrap_or_else(|| username.clone());
-
-    match state.app.wdb.update_user(db_user_id as u64, updates).await {
-        Ok(()) => {
-            // Persist the banner/overlay patch into the user's layout record
-            // (keeps the `profile_media` JSON blob next to layout + theme).
-            if let Some(media) = &media_patch {
-                let existing = state
-                    .app
-                    .wdb
-                    .get_user_layout(db_user_id as u64)
-                    .await
-                    .ok()
-                    .flatten()
-                    .and_then(|l| serde_json::from_str::<Value>(&l.layout_json).ok())
-                    .unwrap_or_else(|| json!({}));
-                let combined = json!({
-                    "layout": existing.get("layout").cloned().unwrap_or_else(|| existing.clone()),
-                    "theme": existing.get("theme").cloned().unwrap_or_else(|| json!({})),
-                    "profile_media": media,
-                });
-                if let Ok(serialized) = serde_json::to_string(&combined) {
-                    let _ = state
-                        .app
-                        .wdb
-                        .upsert_user_layout(db_user_id as u64, &serialized)
-                        .await;
-                }
-            }
-
-            let view = build_user_view(
-                &state,
-                db_user_id,
-                &merged_username,
-                &merged_color,
-                merged_profile_picture,
-                merged_username_font,
-                merged_bio,
-                merged_status_message,
-                current
-                    .as_ref()
-                    .map(|u| !u.password_hash.is_empty())
-                    .unwrap_or(false),
-                media_patch,
-            )
-            .await;
-            let _ = socket.emit("profile-updated", &view);
-            let _ = io.to(format!("user-{}", db_user_id)).emit("user-updated", &view);
-            let _ = socket.broadcast().emit("user-updated", &view);
-        }
-        Err(e) => {
-            warn!("[sio] update-profile failed: {}", e);
-            let _ = socket.emit(
-                "profile-update-failed",
-                &json!({ "reason": "failed to persist profile" }),
-            );
-        }
-    }
+    let view = build_user_view(
+        &state, db_user_id, &username, &color, profile_picture, username_font, bio, status_message,
+        !current.password_hash.is_empty(), media_patch.map(|(media, _)| media),
+    ).await;
+    let mut receipt = view.clone();
+    if !request_id.is_null() { receipt["profileRequestId"] = request_id; }
+    let _ = socket.emit("profile-updated", &receipt);
+    let _ = io.to(format!("user-{}", db_user_id)).emit("user-updated", &view).await;
+    let _ = socket.broadcast().emit("user-updated", &view).await;
 }
 
 /// Handle `set-presence`: update this socket's self-selected presence

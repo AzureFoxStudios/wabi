@@ -17,6 +17,8 @@
   import { groupRecipientSummary, livePresenceForUser, missingDeviceParticipantLabel } from '$lib/dmPresentation';
   import { pushLocalDirectionsCard } from '$lib/directionsAssist';
   import { mediaUrl } from '$lib/mediaUrl';
+  import ProfileName from './ProfileName.svelte';
+  import ProfileMedia from './ProfileMedia.svelte';
   import { cachedE2eeStatus, chooseServerReadable, prepareNewConversationEncryption, rekeyE2ee, turnOnE2ee } from '$lib/dm/dmE2eeState';
   import type { E2eeRoomStatus } from '$lib/e2ee';
 
@@ -311,7 +313,7 @@
     {#if isGroup && channel?.avatar}
       <img class="dm-header-avatar" src={mediaUrl(channel.avatar)} alt="" />
     {:else if !isGroup && otherUser?.profilePicture}
-      <img class="dm-header-avatar" src={mediaUrl(otherUser.profilePicture)} alt="" />
+      <ProfileMedia class="dm-header-avatar" src={mediaUrl(otherUser.profilePicture)} decorative />
     {:else}
       <span class="dm-header-avatar dm-header-avatar-fallback" aria-hidden="true">
         {#if isGroup}
@@ -323,7 +325,7 @@
     {/if}
     <div class="dm-header-info">
       <span class="dm-header-eyebrow">{isGroup ? 'Group conversation' : 'Direct message to'}</span>
-      <span class="dm-header-name">{channelDisplayName}</span>
+      <span class="dm-header-name">{#if !isGroup && otherUser}<ProfileName username={channelDisplayName} font={otherUser.usernameFont} color={otherUser.color} />{:else}{channelDisplayName}{/if}</span>
       <div class="dm-header-meta">
         {#if isGroup}
           <span class="dm-recipient-detail" title={groupParticipants}>{groupParticipants || ((channel?.members?.length || channel?.memberUsers?.length) ? `${channel?.members?.length || channel?.memberUsers?.length} members` : 'Participants loading')}</span>
@@ -558,7 +560,7 @@
     text-transform: uppercase;
   }
 
-  .dm-header-avatar {
+  .dm-header-avatar, .dm-header :global(.dm-header-avatar) {
     width: 48px;
     height: 48px;
     flex-shrink: 0;
@@ -735,7 +737,7 @@
 
   @container dm-conversation (max-width: 420px) {
     .dm-header { padding: var(--space-2); gap: var(--space-2); }
-    .dm-header-avatar { width: 40px; height: 40px; }
+    .dm-header-avatar, .dm-header :global(.dm-header-avatar) { width: 40px; height: 40px; }
     .dm-header-name { font-size: var(--font-size-lg, 16px); }
     .dm-notes-action { width: 40px; padding: 0; }
     .dm-notes-action span { display: none; }

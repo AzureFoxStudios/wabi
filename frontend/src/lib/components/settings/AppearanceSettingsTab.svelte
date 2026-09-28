@@ -7,6 +7,7 @@
 	import BackgroundImageEditor from '../BackgroundImageEditor.svelte';
 	import UniformFontMode from '../UniformFontMode.svelte';
 	import EffectsTab from '$lib/effects/EffectsTab.svelte';
+	import ProfileAppearanceControls from '$lib/components/ProfileAppearanceControls.svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import {
 		homeLayout,
@@ -261,6 +262,7 @@
 </script>
 
 <!-- Chat -->
+<div class="settings-section"><div class="settings-group-card"><ProfileAppearanceControls /></div></div>
 <div class="settings-section">
 	<h3>Chat</h3>
 	<div class="settings-group-card">

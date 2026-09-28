@@ -12,6 +12,8 @@
   import CreateGroupModal from './CreateGroupModal.svelte';
   import { friendships, startFriendshipSync } from '$lib/friendships';
   import { mediaUrl } from '$lib/mediaUrl';
+  import ProfileName from './ProfileName.svelte';
+  import ProfileMedia from './ProfileMedia.svelte';
   import { E2EE_MESSAGE_PREFIX } from '$lib/e2ee';
   import { livePresenceForUser } from '$lib/dmPresentation';
 
@@ -109,14 +111,6 @@
     }
     const other = otherUserFor(channel);
     return other?.handle || other?.username || 'Recipient unavailable';
-  }
-
-  function conversationAvatar(channel: Channel): string | null {
-    if (channel.type === 'group') {
-      return channel.avatar || null;
-    }
-    const other = otherUserFor(channel);
-    return other?.profilePicture || null;
   }
 
   function lastMessagePreview(msgs: Message[] | undefined): string {
@@ -378,7 +372,8 @@
         </div>
       {:else}
         {#each dmChannels as channel (channel.id)}
-          {@const other = otherUserFor(channel)}
+          {@const other = resolveDmOtherUser(channel, $currentUser, $users, $serverMembers)}
+          {@const avatar = channel.type === 'group' ? channel.avatar : other?.profilePicture}
           {@const presence = livePresenceForUser(other, $users, $connected)}
           {@const unread = $channelUnreadCounts[channel.id] || 0}
           {@const previewMessages = $channelMessages[channel.id]}
@@ -392,8 +387,12 @@
             on:contextmenu={(e) => handleContextMenu(channel, e)}
           >
             <div class="dm-hub-avatar-wrap">
-              {#if conversationAvatar(channel)}
-                <img class="dm-hub-avatar" src={mediaUrl(conversationAvatar(channel)!)} alt="" />
+              {#if avatar}
+                {#if channel.type === 'dm'}
+                  <ProfileMedia class="dm-hub-avatar" src={mediaUrl(avatar)} decorative />
+                {:else}
+                  <img class="dm-hub-avatar" src={mediaUrl(avatar)} alt="" />
+                {/if}
               {:else}
                 <div class="dm-hub-avatar dm-hub-avatar-placeholder">
                   {(conversationLabel(channel) || '?')[0]}
@@ -405,7 +404,7 @@
             </div>
             <div class="dm-hub-body">
               <div class="dm-hub-top">
-                <span class="dm-hub-name">{conversationLabel(channel)}</span>
+                <span class="dm-hub-name">{#if channel.type === 'dm' && other}<ProfileName username={other.handle || other.username} font={other.usernameFont} color={other.color} />{:else}{conversationLabel(channel)}{/if}</span>
                 {#if lastMessageTime(previewMessages)}
                   <span class="dm-hub-time">{lastMessageTime(previewMessages)}</span>
                 {/if}
@@ -642,7 +641,7 @@
     position: relative;
     flex-shrink: 0;
   }
-  .dm-hub-avatar {
+  .dm-hub-avatar, .dm-hub-avatar-wrap :global(.dm-hub-avatar) {
     width: 32px;
     height: 32px;
     border-radius: var(--radius-full, 9999px);
@@ -742,7 +741,7 @@
 		.dm-hub-group-btn { min-height: 44px; }
 		.dm-hub-scroll { padding: var(--space-3, 12px); }
 		.dm-hub-conversation { padding: var(--space-3, 12px); }
-		.dm-hub-avatar,
+		.dm-hub-avatar, .dm-hub-avatar-wrap :global(.dm-hub-avatar),
 		.dm-hub-avatar-placeholder { width: 44px; height: 44px; }
 		.dm-hub-avatar-placeholder { font-size: var(--font-size-base, 14px); }
 		.dm-hub-status-dot { width: 10px; height: 10px; }

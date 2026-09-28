@@ -1,4 +1,5 @@
 import { browser } from '$app/environment';
+import { writable } from 'svelte/store';
 
 const ACCESSIBILITY_SETTINGS_KEY = 'accessibilitySettings';
 const INTERFACE_SCALE_STORAGE_KEY = 'accessibilityInterfaceScale';
@@ -54,6 +55,7 @@ function normalizeChatAvatarMode(value: string | undefined): ChatAvatarMode {
 }
 
 let currentSettings: AccessibilitySettings = { ...DEFAULT_SETTINGS };
+export const accessibilityReducedMotion = writable(getStoredAccessibilitySettings().reducedMotion);
 
 function clampInterfaceScale(value: number): number {
 	if (!Number.isFinite(value)) return DEFAULT_INTERFACE_SCALE;
@@ -197,6 +199,7 @@ export function setStoredInterfaceScale(scale: number): number {
 }
 
 export function applyAccessibilitySettings(settings: AccessibilitySettings): void {
+	accessibilityReducedMotion.set(settings.reducedMotion === true);
 	if (!browser) return;
 	currentSettings = normalizeSettings(settings);
 	const root = document.documentElement;

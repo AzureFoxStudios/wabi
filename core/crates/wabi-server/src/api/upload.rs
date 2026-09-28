@@ -664,9 +664,22 @@ fn sniff_background_mime(data: &[u8]) -> Option<&'static str> {
     None
 }
 
+const PROFILE_MEDIA_MAX_BYTES: usize = 10 * 1024 * 1024;
+
+fn profile_media_extension(data: &[u8]) -> std::result::Result<String, String> {
+    if data.len() > PROFILE_MEDIA_MAX_BYTES {
+        return Err("Profile image is too large. Maximum size is 10 MiB.".into());
+    }
+    let mime = sniff_background_mime(data)
+        .filter(|mime| mime.starts_with("image/"))
+        .ok_or_else(|| "Profile images must be PNG, JPEG, GIF, or WebP.".to_owned())?;
+    Ok(extension_for_mime(mime, ".png"))
+}
+
 /// POST /api/upload
 /// Accepts multipart form with a `file` field. Any authenticated user can upload
-/// (banner, overlay, etc). Returns { fileUrl }.
+/// PNG/JPEG/GIF/WebP profile images up to 10 MiB, preserving animation bytes.
+/// Returns { fileUrl }; dimensions are recommendations, not a file constraint.
 pub async fn upload_profile_media(
     auth: AuthUser,
     State(state): State<Arc<AppState>>,
@@ -681,7 +694,7 @@ pub async fn upload_profile_media(
     let mut file_data: Vec<u8> = Vec::new();
     let mut filename = "media".to_string();
 
-    while let Some(field) = multipart
+    while let Some(mut field) = multipart
         .next_field()
         .await
         .map_err(|e| anyhow::anyhow!(e))?
@@ -689,11 +702,19 @@ pub async fn upload_profile_media(
         let name = field.name().unwrap_or("").to_string();
         if name == "file" {
             filename = field.file_name().unwrap_or("media").to_string();
-            file_data = field
-                .bytes()
+            file_data.clear();
+            while let Some(chunk) = field
+                .chunk()
                 .await
-                .map_err(|e| anyhow::anyhow!(e))?
-                .to_vec();
+                .map_err(|error| anyhow::anyhow!(error))?
+            {
+                if file_data.len().saturating_add(chunk.len()) > PROFILE_MEDIA_MAX_BYTES {
+                    return Err(crate::error::AppError::BadRequest(
+                        "Profile image is too large. Maximum size is 10 MiB.".into(),
+                    ));
+                }
+                file_data.extend_from_slice(&chunk);
+            }
         }
     }
 
@@ -701,11 +722,7 @@ pub async fn upload_profile_media(
         return Err(anyhow::anyhow!("No file data provided").into());
     }
 
-    let ext = std::path::Path::new(&filename)
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| format!(".{}", e))
-        .unwrap_or_else(|| ".png".to_string());
+    let ext = profile_media_extension(&file_data).map_err(crate::error::AppError::BadRequest)?;
 
     let uploads_dir = PathBuf::from(&state.config.uploads_dir);
     tokio::fs::create_dir_all(&uploads_dir).await?;
@@ -715,7 +732,7 @@ pub async fn upload_profile_media(
 
     let mut file = File::create(&final_path).await?;
     file.write_all(&file_data).await?;
-    file.flush().await;
+    file.flush().await?;
     drop(file);
 
     let file_url = format!("/uploads/{}", final_name);
@@ -829,6 +846,35 @@ pub async fn upload_profile_picture(
 #[cfg(test)]
 mod tests {
     use super::upload_response_headers;
+
+    #[test]
+    fn profile_media_uses_bounded_image_signatures_and_canonical_extensions() {
+        use super::{profile_media_extension, PROFILE_MEDIA_MAX_BYTES};
+        for (bytes, extension) in [
+            (&b"\x89PNG\r\n\x1a\n1234"[..], ".png"),
+            (&b"\xff\xd8\xff123456789"[..], ".jpg"),
+            (&b"GIF89a1234567"[..], ".gif"),
+            (&b"RIFF1234WEBP"[..], ".webp"),
+        ] {
+            assert_eq!(profile_media_extension(bytes).unwrap(), extension);
+        }
+        for bytes in [
+            &b"RIFFWEBP1234"[..],
+            &b"GIF89a"[..],
+            &b"<svg>bad</svg>"[..],
+            &b"1234ftyp1234"[..],
+        ] {
+            assert!(profile_media_extension(bytes).is_err());
+        }
+        let mut oversized = vec![0; PROFILE_MEDIA_MAX_BYTES + 1];
+        oversized[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        assert!(profile_media_extension(&oversized)
+            .unwrap_err()
+            .contains("10 MiB"));
+        oversized.pop();
+        assert_eq!(profile_media_extension(&oversized).unwrap(), ".png");
+    }
+
 
     #[test]
     fn upload_headers_carry_nosniff_and_csp() {

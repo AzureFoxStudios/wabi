@@ -7,10 +7,10 @@ export const MAX_USER_NOTE_LENGTH = 400;
 export interface UserNote { scopeId: string; subjectId: string; text: string; revision: number; updatedAt: number }
 export interface UserNoteDraft { text: string; baseRevision: number }
 const drafts = new Map<string, UserNoteDraft>();
-const draftKey = (owner: NotebookOwner, subjectId: string) => JSON.stringify([owner.scopeId, subjectId]);
-export function retainUserNoteDraft(owner: NotebookOwner, subjectId: string, draft: UserNoteDraft): void { drafts.set(draftKey(owner, subjectId), { ...draft }); }
-export function getUserNoteDraft(owner: NotebookOwner, subjectId: string): UserNoteDraft | undefined { return drafts.get(draftKey(owner, subjectId)); }
-export function forgetUserNoteDraft(owner: NotebookOwner, subjectId: string): void { drafts.delete(draftKey(owner, subjectId)); }
+const draftKey = (owner: NotebookOwner, subjectId: string, surface: string) => JSON.stringify([owner.scopeId, subjectId, surface]);
+export function retainUserNoteDraft(owner: NotebookOwner, subjectId: string, draft: UserNoteDraft, surface = 'profile'): void { drafts.set(draftKey(owner, subjectId, surface), { ...draft }); }
+export function getUserNoteDraft(owner: NotebookOwner, subjectId: string, surface = 'profile'): UserNoteDraft | undefined { return drafts.get(draftKey(owner, subjectId, surface)); }
+export function forgetUserNoteDraft(owner: NotebookOwner, subjectId: string, surface = 'profile'): void { drafts.delete(draftKey(owner, subjectId, surface)); }
 export function hasLegacyUserNotes(): boolean {
 	try { return typeof window !== 'undefined' && window.localStorage.getItem(USER_NOTES_STORAGE_KEY) !== null; } catch { return false; }
 }
