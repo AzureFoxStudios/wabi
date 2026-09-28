@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
 import type { Emoji } from './socket-types';
+import { resolveServerAssetUrl } from './serverAssetUrl';
 
 export const emojis = writable<Emoji[]>([]);
 
@@ -16,14 +17,14 @@ export interface ServerEmote {
 	type?: string;
 }
 
-function toEmoji(server: ServerEmote): Emoji {
+function toEmoji(server: ServerEmote, authorityUrl?: string): Emoji {
 	const kind = server.type || 'emoji';
 	return {
 		id: server.emote_id,
 		name: server.name,
 		displayName: server.display_name || undefined,
 		artist: server.artist || undefined,
-		url: server.image_url,
+		url: authorityUrl ? resolveServerAssetUrl(authorityUrl, server.image_url) || server.image_url : server.image_url,
 		category: server.category || 'custom',
 		isCustom: true,
 		type: kind === 'sticker' ? 'sticker' : 'emoji',
@@ -94,27 +95,26 @@ function frontloadEverydayEmoji(entries: Emoji[]): Emoji[] {
 }
 
 /**
- * Merge server emotes into the store, replacing any stale custom entries
- * for the same name (dedupe by emoji id). Bundled (non-custom) entries are
- * left untouched.
+ * Apply the complete server emote snapshot. Entries omitted from a refreshed
+ * list were deleted or belong to a previously connected server. Bundled
+ * entries are left untouched.
  */
-export function mergeServerEmotes(serverEmotes: ServerEmote[]): void {
-	const mapped = serverEmotes.map(toEmoji);
-	const ids = new Set(mapped.map((e) => e.id));
+export function mergeServerEmotes(serverEmotes: ServerEmote[], authorityUrl?: string): void {
+	const mapped = serverEmotes.map((emote) => toEmoji(emote, authorityUrl));
 	emojis.update((current) => {
-		const kept = current.filter((e) => !e.isCustom || !ids.has(e.id));
+		const kept = current.filter((e) => !e.isCustom && e.source !== 'custom');
 		return [...kept, ...mapped];
 	});
 }
 
 /** Remove a custom emote by name after server deletion. */
 export function removeServerEmote(name: string): void {
-	emojis.update((current) => current.filter((e) => e.name !== name || !e.isCustom));
+	emojis.update((current) => current.filter((e) => e.name !== name || (!e.isCustom && e.source !== 'custom')));
 }
 
 /** Reset the custom emote portion of the store (used on explicit reload). */
 export function clearServerEmotes(): void {
-	emojis.update((current) => current.filter((e) => !e.isCustom));
+	emojis.update((current) => current.filter((e) => !e.isCustom && e.source !== 'custom'));
 }
 
 export async function initEmojis(): Promise<void> {

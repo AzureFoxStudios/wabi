@@ -14,12 +14,16 @@ fn invalid(reason: &str) -> WabiError {
 }
 
 impl WdbAdapter {
-    async fn commit_group_events(
+    pub(super) async fn commit_events(
         &self,
         actor: u64,
         name: &str,
         events: Vec<EventToWrite>,
+        room_id: Option<&str>,
     ) -> Result<u64> {
+        let room_owner_precondition = room_id
+            .map(|id| self.room_owner_precondition(id, name))
+            .transpose()?;
         for event in &events {
             self.engine
                 .get_or_create_stream_key(&event.stream_id)
@@ -38,6 +42,7 @@ impl WdbAdapter {
         let outcome = self
             .engine
             .run_command(CommandCommit {
+                room_owner_precondition,
                 caller_user_id: actor,
                 caller_device_id: "primary".into(),
                 command_name: name.into(),
@@ -66,6 +71,47 @@ impl WdbAdapter {
         }
     }
 
+    pub(super) async fn create_dm_command(
+        &self,
+        id: &str,
+        name: &str,
+        owner: u64,
+        members: &[u64],
+    ) -> Result<()> {
+        let _creation_guard = self.group_creation_write.lock().await;
+        if !id.starts_with("dm-") || id.len() > 128
+            || !id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+            || name.trim().is_empty() || name.chars().count() > 100
+            || members.len() != 2 || members[0] == members[1]
+            || members.iter().any(|id| *id == 0) || !members.contains(&owner)
+        { return Err(invalid("invalid direct conversation or participants")); }
+        // A deleted pair may deliberately reopen its canonical conversation.
+        // The historical membership revision can remain after channel_deleted,
+        // so only a currently live channel blocks this command.
+        if self.get_channel(id).await?.is_some() {
+            return Err(invalid("direct conversation already exists"));
+        }
+        let now = now_micros();
+        let mut channel = Channel::new(id, name.trim(), owner);
+        channel.channel_kind = ChannelKind::Dm;
+        channel.created_at_micros = now;
+        let change = ChannelMembersChanged {
+            channel_id: id.into(),
+            removals: vec![],
+            upserts: members.iter().map(|user_id| ChannelMemberRecord {
+                channel_id: id.into(), user_id: *user_id, joined_at_micros: now,
+                role: 0, nick: None,
+            }).collect(),
+        };
+        change.validate()?;
+        self.commit_events(owner, "create_dm", vec![
+            Self::group_event(id.into(), "channel_created", Self::payload_json(&channel)?),
+            Self::group_event(format!("channel_members:{id}"), "channel_members_changed", Self::payload_json(&change)?),
+            self.placement_event_for_created_id(id)?,
+        ], None).await?;
+        Ok(())
+    }
+
     pub(super) async fn create_group_command(
         &self,
         id: &str,
@@ -73,6 +119,7 @@ impl WdbAdapter {
         owner: u64,
         members: &[u64],
     ) -> Result<u64> {
+        let _creation_guard = self.group_creation_write.lock().await;
         if !id.starts_with("group-")
             || id.len() > 128
             || !id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
@@ -113,7 +160,7 @@ impl WdbAdapter {
         let mut channel = Channel::new(id, name.trim(), owner);
         channel.channel_kind = ChannelKind::GroupDm;
         channel.created_at_micros = now;
-        self.commit_group_events(
+        self.commit_events(
             owner,
             "create_group",
             vec![
@@ -123,7 +170,9 @@ impl WdbAdapter {
                     "channel_members_changed",
                     Self::payload_json(&change)?,
                 ),
+                self.placement_event_for_created_id(id)?,
             ],
+            None,
         )
         .await
     }
@@ -244,7 +293,7 @@ impl WdbAdapter {
                 }
             }
         }
-        self.commit_group_events(actor, "change_group_membership", events)
+        self.commit_events(actor, "change_group_membership", events, Some(id))
             .await
     }
 }

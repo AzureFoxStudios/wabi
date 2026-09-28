@@ -65,6 +65,17 @@ writing/fsyncing a temporary JSON snapshot and renaming it over the old file
 (parent-directory fsync on Unix). Engine checkpoints still use
 `projections/snapshot.json`, not the separate binary snapshot implementation.
 
+The dispatcher may start a periodic snapshot after sending its application
+acknowledgment. A sequencer writer pause alone therefore does not freeze that
+file. The candidate `engine/checkpoint.rs` acquires inbound-ingest then local
+writer guards and verifies the indexed/applied prefix. Its
+`with_projection_checkpoint` holds the existing synchronous application/snapshot
+lock through the file-copy closure. Move all guards into the blocking task;
+caller cancellation must not release them while a copy continues. The server's
+`instance_checkpoint` also drains registered application/sidecar work first and
+refuses after an interrupted admitted task. These are local ordering components,
+not a complete encrypted bundle, external-store inventory or promotion lease.
+
 Replay uses the commit index as authority even when empty. Skip unindexed
 orphans, but count their sequences for nonce allocation. Recover every indexed
 post-snapshot event or fail startup; apply in `(commit_seq, event_ref ordinal)`

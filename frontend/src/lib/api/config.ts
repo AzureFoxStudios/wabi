@@ -85,17 +85,18 @@ export async function getPublicFrontendAppMetadata(baseUrl?: string | null): Pro
 }
 
 export async function getPublicAuthPolicy(baseUrl?: string | null): Promise<AuthPolicy> {
-	const fallback: AuthPolicy = { mode: 'open', allowGuest: true, allowRegister: true, emailVerifyRequired: false };
+	const fallback: AuthPolicy = { mode: 'closed', allowGuest: false, allowRegister: false, emailVerifyRequired: false };
 	try {
 		const res = await fetchWithTimeout(`${getApiBaseFor(baseUrl)}/api/public/auth-policy`, {
 			method: 'GET', timeoutMs: LAUNCH_PAGE_TIMEOUT_MS, retries: 2
 		});
 		if (!res.ok) return fallback;
 		const data = (await res.json()) as Partial<AuthPolicy>;
+		const mode = data.mode === 'open' || data.mode === 'invite' || data.mode === 'closed' || data.mode === 'verified' ? data.mode : 'closed';
 		return {
-			mode: data.mode === 'invite' || data.mode === 'verified' ? data.mode : 'open',
-			allowGuest: data.allowGuest !== false,
-			allowRegister: data.allowRegister !== false,
+			mode,
+			allowGuest: data.allowGuest !== false && mode === 'open' && data.emailVerifyRequired !== true,
+			allowRegister: data.allowRegister !== false && mode !== 'closed' && mode !== 'verified' && data.emailVerifyRequired !== true,
 			emailVerifyRequired: data.emailVerifyRequired === true
 		};
 	} catch {

@@ -34,8 +34,9 @@ pub use plugin::{
 pub use workspace::{
     ChannelCreatedEvent, ChannelUpdatedEvent, ChannelView, ConversationUserSummary,
     DirectMessageChannelEvent, GroupAvatarUpdatedEvent, GroupCreatedEvent, GroupMemberAddedEvent,
-    GroupMemberRemovedEvent, GroupRemovedEvent, UserLeftEvent, UserStatus, UserView, UsernameFont,
-    VoiceBitrateMode, VoiceChannelParticipantView, VoiceChannelSettings, VoiceChannelStateEvent,
+    GroupMemberRemovedEvent, GroupRemovedEvent, NameStyleDesign, NameStyleEffect, NameplateStyle,
+    UserLeftEvent, UserStatus, UserView, UsernameFont, VoiceBitrateMode,
+    VoiceChannelParticipantView, VoiceChannelSettings, VoiceChannelStateEvent,
     VoiceChannelSubscriptionEvent, VoiceChannelUserJoinedEvent, VoiceChannelUserLeftEvent,
     VoiceStateEvent,
 };

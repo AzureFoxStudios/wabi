@@ -8,6 +8,7 @@
   import { isLiveRetention } from '../../../../../shared/messageRetention.js';
   import LiveEmptyState from './LiveEmptyState.svelte';
   import LiveConnectionBar from './LiveConnectionBar.svelte';
+	import { mediaUrl } from '$lib/mediaUrl';
 
   const DEFAULT_TTL_MS = 10 * 60 * 1000;
 
@@ -245,7 +246,7 @@
             {#if !isSystem}
               <div class="live-msg-avatar">
                 {#if msg.userId && $userLookup?.[msg.userId]?.profilePicture}
-                  <img src={$userLookup[msg.userId].profilePicture} alt="" class="live-avatar-img" />
+                  <img src={mediaUrl($userLookup[msg.userId].profilePicture)} alt="" class="live-avatar-img" />
                 {:else}
                   <div class="live-avatar-placeholder" style="background-color: {msg.color || '#98D8C8'}">
                     {msg.user?.charAt(0)?.toUpperCase() || '?'}
@@ -274,7 +275,7 @@
               <div class="participant-row" class:afk={p.status === 'afk'} class:is-you={p.status === 'you'}>
                 <div class="participant-avatar">
                   {#if $userLookup?.[uid]?.profilePicture}
-                    <img src={$userLookup[uid].profilePicture} alt="" class="p-avatar-img" />
+                    <img src={mediaUrl($userLookup[uid].profilePicture)} alt="" class="p-avatar-img" />
                   {:else}
                     <div class="p-avatar-placeholder" style="background-color: {$userLookup?.[uid]?.color || '#98D8C8'}">
                       {(getUserDisplayName(uid)).charAt(0).toUpperCase()}

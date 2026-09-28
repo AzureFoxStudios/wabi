@@ -196,6 +196,8 @@ async fn create_group_admitted(
             if group_revision(state, &id)? != 0 {
                 return Err(("CONFLICT", "This group was already retired"));
             }
+            crate::api::e2ee::mark_new_room_pending(&state.app.config.data_dir, &id)
+                .map_err(|_| ("UNAVAILABLE", "Could not prepare private group encryption"))?;
             state
                 .app
                 .wdb
@@ -325,6 +327,11 @@ async fn change_group_admitted(
         .change_group_membership(actor, id, add, remove, next_owner)
         .await
         .map_err(group_internal)?;
+    if members.is_empty() {
+        if let Err(error) = crate::api::conversation_notes::remove_channel_notes(&state.app.config.data_dir, id) {
+            tracing::warn!("[sio] group deletion: shared note cleanup failed for {}: {}", id, error);
+        }
+    }
     if remove.is_some() {
         revoke_group_devices(state, io, id, target, revision, operation).await;
     }

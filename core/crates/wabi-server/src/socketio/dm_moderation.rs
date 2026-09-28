@@ -28,9 +28,12 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
     let clean_target_user_id = target_user_id.strip_prefix("user-").unwrap_or(&target_user_id);
     let parsed_target_user_id = match clean_target_user_id.parse::<i64>() {
         Ok(id) => id,
-        Err(_) => return, // Invalid targetUserId format
+        Err(_) => {
+            let _ = socket.emit("dm-error", &json!({"error": "Choose a valid member"}));
+            return;
+        }
     };
-    if parsed_target_user_id <= 0 {
+    if parsed_target_user_id <= 0 || parsed_target_user_id == my_user_id {
         let _ = socket.emit("dm-error", &json!({"error": "Target must be an active registered user"}));
         return;
     }
@@ -53,20 +56,43 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
     sorted.sort();
     let channel_id = format!("dm-{}", sorted.join("-"));
 
-    // Check if DM already exists in channel list — point lookup (t_6bbbc52a).
-    if state
-        .app
-        .wdb
-        .get_channel_kind(&channel_id)
-        .await
-        .is_some()
-    {
-        let _ = socket.emit("dm-error", &json!({ "error": "DM already exists", "channelId": channel_id }));
-        return;
+    // Repeat creation is an open-conversation command. A valid existing pair
+    // returns the same success shape so a reconnect cannot strand the UI.
+    let existing = match state.app.wdb.get_channel(&channel_id).await {
+        Ok(Some(channel)) if channel.channel_kind == wabidb::domain::ChannelKind::Dm => {
+            match state.app.wdb.list_channel_members(&channel_id).await {
+                Ok(members) if members.len() == 2 && members.iter().any(|m| m.user_id == my_user_id as u64)
+                    && members.iter().any(|m| m.user_id == parsed_target_user_id as u64) => true,
+                _ => {
+                    let _ = socket.emit("dm-error", &json!({ "error": "DM membership is unavailable", "channelId": channel_id }));
+                    return;
+                }
+            }
+        }
+        Ok(Some(_)) => {
+            let _ = socket.emit("dm-error", &json!({ "error": "Conversation ID is unavailable", "channelId": channel_id }));
+            return;
+        }
+        Ok(None) => false,
+        Err(error) => {
+            warn!("[sio] create-dm: failed to read channel {}: {}", channel_id, error);
+            let _ = socket.emit("dm-error", &json!({ "error": "Failed to open DM", "channelId": channel_id }));
+            return;
+        }
+    };
+
+    // Register the encrypted-by-default boundary before the new channel can
+    // accept messages. Reopening an older DM preserves its existing policy.
+    if !existing {
+        if let Err(error) = crate::api::e2ee::mark_new_room_pending(&state.app.config.data_dir, &channel_id) {
+            warn!("[e2ee] failed to prepare new DM {}: {}", channel_id, error);
+            let _ = socket.emit("dm-error", &json!({ "error": "Could not prepare private conversation", "channelId": channel_id }));
+            return;
+        }
     }
 
     // Persist DM channel to WDB
-    if let Err(e) = state
+    if !existing { if let Err(e) = state
         .app
         .wdb
         .create_dm_channel(&channel_id, &format!("DM with {}", target_username), Some(&sorted), my_user_id)
@@ -75,7 +101,7 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
         warn!("[sio] create-dm: failed to create channel {}: {}", channel_id, e);
         let _ = socket.emit("dm-error", &json!({ "error": "Failed to create DM", "channelId": channel_id }));
         return;
-    }
+    }}
 
     let dm_channel = json!({
         "id": channel_id,
@@ -105,8 +131,11 @@ async fn on_create_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
         }
     });
 
+    // The initiator can send before its client processes dm-created/join.
+    socket.join(channel_id.clone());
     // Emit dm-created to the initiating socket
     let _ = socket.emit("dm-created", &dm_event);
+    if existing { return; }
     // Emit dm-channel-added to the two participants only — never broadcast
     // to all clients (that leaks DM existence to non-participants).
     let _ = io
@@ -155,6 +184,10 @@ async fn on_delete_dm(socket: SocketRef, data: Value, state: SioState, io: Socke
         warn!("[sio] delete-dm: failed to delete channel {}: {}", channel_id, e);
         let _ = socket.emit("dm-error", &json!({ "error": "Failed to delete DM", "channelId": channel_id }));
         return;
+    }
+
+    if let Err(error) = crate::api::conversation_notes::remove_channel_notes(&state.app.config.data_dir, &channel_id) {
+        warn!("[sio] delete-dm: shared note cleanup failed for {}: {}", channel_id, error);
     }
 
     let _ = socket.emit("dm-deleted", &json!({ "channelId": channel_id }));

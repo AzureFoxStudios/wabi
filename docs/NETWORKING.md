@@ -100,19 +100,26 @@ See [features/PRIVATE_ACCESS_GUIDE.md](features/PRIVATE_ACCESS_GUIDE.md) and [de
 
 `WABI_SERVER_ROLE=authority` is the normal state-owning runtime.
 
+Advanced operators can set `WABI_NODE_ID` to a stable, unique ID for this Authority, using 1–64 ASCII letters, digits, hyphens or underscores and starting with a letter or digit. The default remains `node-1` for ordinary single-Authority installs. Keep the value across restarts: changing it after rooms are created can make this server refuse their writes because their recorded owner ID stays the old value. Restore the original ID instead of editing placement events. New channels and private conversations now commit a local owner placement with creation; older rooms can receive a matching local placement through the [stopped-Authority backfill](deployment/ROOM_PLACEMENT_BACKFILL.md). Selected durable chat, channel and group-membership writes now carry their observed owner and epoch into the sequencer; a changed placement is rejected before commit. Live-room sends also receive an entry-point check before entering the session cache. Other room operations still lack this sequenced admission. There is no operator move command, remote-room routing or complete atomic owner fence. Setting a node ID does not create another room owner, a voting node, a standby or automatic recovery.
+
 ### Anchor — experimental
 
-The current `anchor` runtime is a **stateless proxy to one Authority**. It intentionally starts without opening local WabiDB/community state.
+The current `anchor` runtime is a **proxy to one Authority without local community state**. It intentionally starts without opening WabiDB. An operator can enable a bounded, temporary in-memory copy of eligible uploads; this does not make the Anchor an Authority or a standby.
 
 Current boundary:
 
-- `WABI_AUTHORITY_URL` is required;
+- `WABI_AUTHORITY_URL` is required and must be an origin. HTTPS is required for a public upstream. Loopback HTTP works for development; protected private/Tailcat IP HTTP needs `WABI_ANCHOR_ALLOW_PRIVATE_HTTP=true` and an actual private transport. The Anchor's public member-facing endpoint also needs HTTPS;
 - Anchor is not another writer/Authority;
-- current proxying is HTTP-oriented;
-- native WebSocket upgrade forwarding is not complete;
-- therefore Anchor is **not yet a complete regional realtime edge**.
+- HTTP streaming and WebSocket upgrade forwarding have focused loopback checks, including Engine.IO polling and Socket.IO WebSocket connection;
+- matching public `/_app/immutable/` frontend assets come from the Anchor's embedded build without an Authority request; absent versions fall back to the Authority. A [three-process loopback check](testing/THREE_SITE_REAL_AUTHORITY_PREFLIGHT_2026-09-27.md) compared one chunk at both Anchors. This is static byte offload, not community availability;
+- `WABI_ANCHOR_UPLOAD_CACHE_MB` optionally caches verified canonical uploads. Every hit rechecks availability and digest with the Authority; revocation or Authority loss prevents a hit. A [real Authority-to-Anchor loopback check](testing/REGIONAL_UPLOAD_CACHE_2026-09-27.md) passed, but physical bandwidth savings are unmeasured. See [regional upload cache operations](deployment/REGIONAL_UPLOAD_CACHE.md);
+- physical multi-network and long-lived realtime acceptance remain open, so Anchor is **not yet a proven regional realtime edge**.
 
 Do not put “regional HA” or “automatic failover” in front of this behavior.
+
+### Trusted helper pairing
+
+An Authority grants helper capabilities when it creates a pairing token. A helper heartbeat can report current load and reachability, but cannot grant itself another capability such as `Standby` or `Backup`. The Authority keeps node IDs, one-time tokens, node secrets, revocations and granted capabilities in `node_registry.json`. On Unix, saves use a private `0600` file and an atomic replacement; a damaged or unreadable registry now stops Authority startup instead of silently replacing the trusted-node list with an empty one. Restore this file from a verified instance backup rather than deleting it to make startup succeed. This registry is for scoped helpers; it is not a voting membership list, a writer lease or proof of a recoverable standby.
 
 ### WabiDB peer replication — experimental
 
@@ -155,6 +162,7 @@ An ingress outage is not necessarily an Authority outage. A DERP/TURN/SFU failur
 
 ## 8. Related files
 
+- [Alternative communications transports](COMMUNICATIONS_TRANSPORTS.md) — research inventory of mesh, radio, through-the-earth, acoustic, satellite, and telecom integration paths
 - `docker-compose.yml` — canonical minimal Authority plus optional profiles
 - `Caddyfile.example` / `Caddyfile.tunnel` — reverse-proxy examples
 - [deployment/FRESH_INSTALL.md](deployment/FRESH_INSTALL.md) — first install

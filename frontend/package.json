@@ -1,5 +1,6 @@
 {
   "name": "wabi-frontend",
+  "description": "Open-source, self-hosted communication and collaboration for small communities, with chat, calls, shared workspaces, and creative review.",
   "version": "1.0.0",
   "private": true,
   "type": "module",

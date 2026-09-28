@@ -109,6 +109,8 @@ export function normalizePoiRecord(raw: unknown): PlacePoiRecord | null {
 export function normalizePlaceRecord(raw: unknown): PlaceRecord | null {
 	if (!raw || typeof raw !== 'object') return null;
 	const record = raw as Record<string, unknown>;
+	const mapLayers: unknown[] = Array.isArray(record.mapLayers) ? record.mapLayers : [];
+	const pois: unknown[] = Array.isArray(record.pois) ? record.pois : [];
 	const slug = normalizeKey(record.slug || record.id || record.name || '');
 	if (!slug) return null;
 	const id = normalizeKey(record.id || slug);
@@ -127,8 +129,8 @@ export function normalizePlaceRecord(raw: unknown): PlaceRecord | null {
 		mapImageUrl: safeString(record.mapImageUrl) || null,
 		mapRotation: normalizeRotationDegrees(record.mapRotation) ?? 0,
 		poiThemePreset: (safeString(record.poiThemePreset) as PlacePoiThemePreset) || 'classic',
-		mapLayers: safeStringList(record.mapLayers).map((entry) => normalizeMapLayerRecord(entry)).filter((entry): entry is PlaceMapLayerRecord => Boolean(entry)),
-		pois: safeStringList(record.pois).map((entry) => normalizePoiRecord(entry)).filter((entry): entry is PlacePoiRecord => Boolean(entry)),
+		mapLayers: mapLayers.map((entry) => normalizeMapLayerRecord(entry)).filter((entry): entry is PlaceMapLayerRecord => Boolean(entry)),
+		pois: pois.map((entry) => normalizePoiRecord(entry)).filter((entry): entry is PlacePoiRecord => Boolean(entry)),
 		tags: Array.from(new Set(safeStringList(record.tags).map((entry) => entry.toLowerCase())))
 	};
 }

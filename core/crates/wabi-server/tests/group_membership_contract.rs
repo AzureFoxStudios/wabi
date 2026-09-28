@@ -2,6 +2,7 @@
 use wabi_server::adapter::WdbAdapter;
 use wabidb::engine::wabi_store::WabiStore;
 use wabidb::projections::channel_members::ChannelMembersProjection;
+use wabidb::projections::room_placement::{decode as decode_placement, INDEX as PLACEMENT_INDEX};
 
 #[tokio::test]
 async fn removal_retires_persisted_call_consent_atomically_without_touching_other_calls() {
@@ -201,9 +202,19 @@ async fn group_creation_commits_owner_and_complete_membership_together() {
     );
     assert_eq!(
         commits[0].event_refs.len(),
-        2,
-        "channel + one membership batch"
+        3,
+        "channel + one membership batch + initial placement"
     );
+    let placement = decode_placement(
+        &store
+            .engine()
+            .projection_state()
+            .get(PLACEMENT_INDEX, b"group-atomic")
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(placement.epoch, 1);
+    assert_eq!(placement.owner_node_id, "node-1");
     assert_eq!(
         ChannelMembersProjection::revision(&store.engine().projection_state(), "group-atomic")
             .unwrap(),
@@ -327,7 +338,8 @@ async fn membership_delta_owner_succession_and_last_leave_replay_together() {
         )
         .unwrap();
         assert_eq!(commits.len(), 5);
-        assert!(commits.iter().all(|c| c.event_refs.len() == 2));
+        assert_eq!(commits[0].event_refs.len(), 3);
+        assert!(commits[1..].iter().all(|c| c.event_refs.len() == 2));
     }
 }
 

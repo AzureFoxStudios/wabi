@@ -13,8 +13,14 @@ export interface AddonCapabilityRecord {
 	version: string;
 	description?: string;
 	enabled?: boolean;
+	/** Always compiled into the server binary (no cargo feature to detach it). */
+	compiled?: boolean;
 	backendRuntime?: string;
 	cargoFeature?: string | null;
+	/** Env var that switches this add-on on/off at runtime, when one exists. */
+	runtimeEnv?: string | null;
+	/** True when the owner can flip this add-on in-app (Server Center → Add-ons). */
+	runtimeSwitch?: boolean;
 	permissions?: string[];
 	frontend?: {
 		bundled?: boolean;
@@ -38,6 +44,10 @@ export interface PluginApiRecord {
 	version?: string;
 	description?: string;
 	enabled?: boolean;
+	compiled?: boolean;
+	cargoFeature?: string | null;
+	runtimeEnv?: string | null;
+	runtimeSwitch?: boolean;
 	signerKeyId?: string | null;
 	frontendEntry?: string | null;
 	backendEntry?: string | null;
@@ -64,6 +74,7 @@ const frontendAddonModules = import.meta.glob([
 
 /** Bundled frontend allowlist IDs (must match loader.ts BUNDLED_ADDON_LOADERS). */
 const BUNDLED_FRONTEND_IDS = new Set([
+	'name-styles',
 	'youtube-sync',
 	'spotify-sync',
 	'steam',
@@ -95,6 +106,10 @@ export function capabilityToPluginRecord(cap: AddonCapabilityRecord): PluginApiR
 		version: cap.version,
 		description: cap.description,
 		enabled: cap.enabled !== false,
+		compiled: cap.compiled !== false,
+		cargoFeature: cap.cargoFeature ?? null,
+		runtimeEnv: cap.runtimeEnv ?? null,
+		runtimeSwitch: cap.runtimeSwitch === true,
 		hasFrontend: bundled,
 		hasBackend,
 		// Never a remote URL — only a marker when bundled (Finding 14).

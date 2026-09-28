@@ -1,7 +1,7 @@
 {
-  "name": "community-chat",
+  "name": "wabi",
   "version": "1.0.0",
-  "description": "Self-hosted ephemeral chat system with screen sharing",
+  "description": "Open-source, self-hosted communication and collaboration for small communities, with chat, calls, shared workspaces, and creative review.",
   "type": "module",
   "scripts": {
     "dev": "bun run dev:local",
@@ -43,7 +43,11 @@
     "chat",
     "webrtc",
     "screen-sharing",
-    "ephemeral"
+    "collaboration",
+    "workspace",
+    "self-hosted",
+    "open-source",
+    "creative-review"
   ],
   "author": "",
   "license": "MIT",

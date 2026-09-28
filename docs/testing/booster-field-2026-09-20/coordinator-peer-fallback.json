@@ -1,0 +1,139 @@
+{
+  "assertions": [
+    "Origin download works with no volunteers",
+    "Explicit opt-in starts a bounded volunteer; no automatic traffic claim",
+    "Cross-network download completes; peer delivery or fallback is recorded",
+    "Admin observations match the live process and confirmed peer workload",
+    "Opting out while discovery is pending never starts a peer request",
+    "Stopping a booster clears its cache and downloads fall back to origin",
+    "Account/server switches retire consent and local contribution counters"
+  ],
+  "screenshots": [],
+  "pageErrors": [],
+  "measurements": {
+    "peerDelivered": false,
+    "peerPayloadBytes": 0,
+    "originFileRequestsAvoided": 0,
+    "adminProcessMemoryBytes": 64471040,
+    "confirmedPeerPayloadBytes": 0
+  },
+  "durationsMs": {
+    "Origin download works with no volunteers": 15,
+    "Explicit opt-in starts a bounded volunteer; no automatic traffic claim": 1155,
+    "Cross-network download completes; peer delivery or fallback is recorded": 22232,
+    "Admin observations match the live process and confirmed peer workload": 4,
+    "Opting out while discovery is pending never starts a peer request": 101,
+    "Stopping a booster clears its cache and downloads fall back to origin": 586,
+    "Account/server switches retire consent and local contribution counters": 4
+  },
+  "peerStates": {
+    "sender": [
+      {
+        "stunServers": 3,
+        "states": [
+          [
+            "signalingstatechange",
+            "new",
+            "new",
+            "have-remote-offer"
+          ],
+          [
+            "signalingstatechange",
+            "new",
+            "new",
+            "stable"
+          ],
+          [
+            "iceconnectionstatechange",
+            "new",
+            "checking",
+            "stable"
+          ],
+          [
+            "connectionstatechange",
+            "connecting",
+            "checking",
+            "stable"
+          ],
+          [
+            "iceconnectionstatechange",
+            "connecting",
+            "disconnected",
+            "stable"
+          ],
+          [
+            "connectionstatechange",
+            "failed",
+            "disconnected",
+            "stable"
+          ]
+        ],
+        "candidateTypes": [
+          {
+            "type": "host",
+            "network": "mdns"
+          },
+          {
+            "type": "srflx",
+            "network": "public"
+          }
+        ]
+      }
+    ],
+    "recipient": [
+      {
+        "stunServers": 3,
+        "states": [
+          [
+            "signalingstatechange",
+            "new",
+            "new",
+            "have-local-offer"
+          ],
+          [
+            "iceconnectionstatechange",
+            "new",
+            "checking",
+            "have-local-offer"
+          ],
+          [
+            "signalingstatechange",
+            "new",
+            "checking",
+            "stable"
+          ],
+          [
+            "connectionstatechange",
+            "connecting",
+            "checking",
+            "stable"
+          ]
+        ],
+        "candidateTypes": [
+          {
+            "type": "host",
+            "network": "mdns"
+          },
+          {
+            "type": "srflx",
+            "network": "public"
+          }
+        ]
+      }
+    ]
+  },
+  "signaling": {
+    "ticketPolls": 14,
+    "answerPresentAtCompletion": true
+  },
+  "routes": {
+    "sender": [],
+    "recipient": []
+  },
+  "unavailable": [
+    "Consecutive peer delivery",
+    "Corrupt peer copy",
+    "Volunteer disappearing mid-payload"
+  ],
+  "failure": "Error: Timed out: remote reallow recovery\n    at until (file:///var/home/Ronin/wabi/frontend/scripts/volunteer-boosters-field.mjs:28:126)\n    at async file:///var/home/Ronin/wabi/frontend/scripts/volunteer-boosters-field.mjs:159:9\n    at async check (file:///var/home/Ronin/wabi/frontend/scripts/volunteer-boosters-field.mjs:29:61)\n    at async file:///var/home/Ronin/wabi/frontend/scripts/volunteer-boosters-field.mjs:150:5"
+}

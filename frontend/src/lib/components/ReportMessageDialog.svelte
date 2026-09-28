@@ -46,7 +46,7 @@
 				<label><span>What is wrong?</span><select bind:value={reason}>{#each reasons as item}<option>{item}</option>{/each}</select></label>
 				<label><span>Anything staff should know? <small>Optional</small></span><textarea bind:value={comment} maxlength="1000" rows="4" placeholder="Add context without having to copy/paste the message…"></textarea></label>
 				<div class="evidence"><strong>This report preserves evidence.</strong><span>Even if this channel is ephemeral or the message is later deleted, submitting the report stores this message snapshot in the server’s moderation case so staff can review what you chose to report.</span></div>
-				<p class="privacy">The evidence goes only to this server’s staff. Wabi does not send the report to a central Wabi moderation service. Cancel if you do not want to disclose this message to staff.</p>
+				<p class="privacy">The active snapshot remains until the server’s chosen expiry or owner removal; backups may last longer. Wabi does not send it to a central moderation service. Cancel if you do not want to disclose this message to staff.</p>
 				{#if error}<div class="error" role="alert">{error}</div>{/if}
 				<footer><button class="cancel" onclick={onClose}>Cancel</button><button class="submit" onclick={submit} disabled={busy}>{busy ? 'Sending…' : 'Preserve & send report'}</button></footer>
 			{/if}

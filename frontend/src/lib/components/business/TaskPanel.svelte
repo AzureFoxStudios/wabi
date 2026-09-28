@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { get } from 'svelte/store';
-	import { currentUser } from '$lib/socket';
+	import { plannerActor as currentUser } from '$lib/business/personalWorkspace';
 	import { todos, projects, addTodo, updateTodo, deleteTodo, type Todo } from '$lib/business';
 	import {
 		plannerUserById,

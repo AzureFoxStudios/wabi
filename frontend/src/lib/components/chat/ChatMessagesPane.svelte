@@ -9,6 +9,7 @@
 	type PaneTransition = (node: Element, params: ChannelPaneAnimation) => unknown;
 
 	export let currentChannel = '';
+	export let messageDomScope = '';
 	export let searchInput = '';
 	export let channelDisplayName = '';
 	export let filteredMessages: Message[] = [];
@@ -32,8 +33,13 @@
 	export let onReply: (message: Message) => void;
 	export let onQuickMention: (message: Message) => void;
 	export let onOpenSettings: () => void;
+	export let onFocusComposer: (() => void) | undefined = undefined;
 
 	function focusComposer(): void {
+		if (onFocusComposer) {
+			onFocusComposer();
+			return;
+		}
 		if (typeof document === 'undefined') return;
 		const composer = document.querySelector<HTMLTextAreaElement>('.input-container textarea');
 		composer?.focus();
@@ -99,6 +105,7 @@
 		<MessageList
 			messages={filteredMessages}
 			channelId={currentChannel}
+			{messageDomScope}
 			{onReply}
 			{onQuickMention}
 			{firstUnreadMessageId}

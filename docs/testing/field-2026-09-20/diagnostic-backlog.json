@@ -1,0 +1,116 @@
+{
+  "reviewer": "Codex; Jev integration unavailable and not used",
+  "decision_rule": "Missing evidence yields insufficient-evidence, never inferred success.",
+  "items": [
+    {
+      "priority": "P0",
+      "id": "fresh-enrollment",
+      "question": "Can a new remote user join with only an invitation?",
+      "missing_observation": "The current invite requires reachable HTTP first; Tailcat member key registration already requires Wabi authentication.",
+      "existing_evidence_and_limits": "docs/deployment/DESKTOP_HOSTING.md; F03 explicitly used management-assisted pre-enrollment.",
+      "component": "Desktop onboarding + Authority admission",
+      "smallest_next_change": "Implement the separately planned expiring, invitation-only first-contact enrollment; preserve member transport authorization.",
+      "measurement_verification": "Fresh profiles on independent networks; redeem, replay, expire, revoke, restart; no management bootstrap.",
+      "placement": "product feature; larger than this campaign fix"
+    },
+    {
+      "priority": "P0",
+      "id": "linux-package-compatibility",
+      "question": "Can the package run on all available Linux clients?",
+      "missing_observation": "The Bazzite-built desktop and bundled libraries require glibc 2.43; Mint has 2.39.",
+      "existing_evidence_and_limits": "runtime-requirements.json; read-only ironin version check.",
+      "component": "Release build/packaging",
+      "smallest_next_change": "Build against the oldest supported Linux runtime in a pinned builder, then package and install-test it on Mint and Bazzite.",
+      "measurement_verification": "Run the actual AppImage on clean supported distributions; test native media dependencies as well as startup.",
+      "placement": "release pipeline"
+    },
+    {
+      "priority": "P1",
+      "id": "tunnel-readiness",
+      "question": "Does connected mean requests can reach the Authority?",
+      "missing_observation": "IPC returns after a fixed delay and live-child check. Candidate A returned in ~507 ms; its first successful health request took ~2293 ms.",
+      "existing_evidence_and_limits": "F03-before-Tailcat.json; src-tauri/src/tailcat.rs.",
+      "component": "Native Tailcat lifecycle + connection card",
+      "smallest_next_change": "Report connecting until local proxy binding and a bounded application readiness probe succeed; retain a clear failure state.",
+      "measurement_verification": "Inject delayed/failed tunnel startup and occupied ports; compare UI state with actual requests.",
+      "placement": "permanent product diagnostics/behavior"
+    },
+    {
+      "priority": "P1",
+      "id": "stable-server-identity",
+      "question": "Do credentials and offline state survive changing proxy ports?",
+      "missing_observation": "A reconnect picked a new loopback port. Transport recovered, but automatic native account continuity was not proved. Explicit Tailcat server key persistence also remains unfinished.",
+      "existing_evidence_and_limits": "F03-before-Tailcat.json; docs/deployment/DESKTOP_HOSTING.md.",
+      "component": "Native hosting identity + frontend server/account scope",
+      "smallest_next_change": "Bind proxy connections to verified logical server identity; persist the intended per-community transport key without crossing account/server boundaries.",
+      "measurement_verification": "Restart client and disposable Authority with new proxy ports; preserve correct account/offline state and reject an unrelated server.",
+      "placement": "product behavior"
+    },
+    {
+      "priority": "P1",
+      "id": "tailcat-route",
+      "question": "Was the active Wabi tunnel direct or relayed?",
+      "missing_observation": "The native status exposes only child/port state, not observed transport route. Existing management Tailscale status is not this route.",
+      "existing_evidence_and_limits": "F03/F05 route observation is explicitly unknown.",
+      "component": "Active Tailcat subprocess adapter",
+      "smallest_next_change": "Expose route events/counters from the active tunnel if the pinned CLI supports them; otherwise keep unknown visible.",
+      "measurement_verification": "Correlate controlled direct/relay transitions with the same active connection; do not substitute a separate ping tunnel.",
+      "placement": "permanent optional diagnostics"
+    },
+    {
+      "priority": "P1",
+      "id": "helper-attribution",
+      "question": "Did a helper carry media, and did the Authority benefit?",
+      "missing_observation": "No eligible isolated publicly reachable SFU was available. Heartbeats/domain health cannot answer workload placement.",
+      "existing_evidence_and_limits": "inventory.json; docs/deployment/SHARED_MEDIA_NODE_SETUP.md; helper scenario BLOCKED.",
+      "component": "Media broker + helper + client diagnostics",
+      "smallest_next_change": "Record assigned node, backend room/session, selected endpoint, actual participant tracks and scoped traffic, then run matched helper-off/on calls.",
+      "measurement_verification": "Correlate Authority assignment with SFU room/track counters and both clients; repeat equal workloads.",
+      "placement": "product diagnostics and future controlled field run"
+    },
+    {
+      "priority": "P2",
+      "id": "media-measurements",
+      "question": "What did every participant actually hear/see?",
+      "missing_observation": "No human physical-media run. GPU activity, codecs, frames, jitter/loss, playback interruptions and per-stream routing unavailable here. Socket echo timing is signaling RTT.",
+      "existing_evidence_and_limits": "Physical scenarios NOT TESTED; callingDiagnostics.ts and CallDebugPanel.svelte source review.",
+      "component": "Per-participant native/WebRTC/relay diagnostics",
+      "smallest_next_change": "Export requested/observed backend per media type and source-tagged per-participant stats; label signaling RTT separately. Add opt-in audio queue/underrun counters where supported.",
+      "measurement_verification": "Known synthetic impairment + human heard/seen checks on each participant; distinguish unsupported/stale/unavailable from zero.",
+      "placement": "product diagnostics"
+    },
+    {
+      "priority": "P2",
+      "id": "resource-attribution",
+      "question": "How much traffic and resource use belongs to Wabi?",
+      "missing_observation": "Process CPU/RSS/IO available; interface traffic is host-wide. Child-tree RSS can double-count shared pages. FUSE/compositor/harness are outside the sampled client tree.",
+      "existing_evidence_and_limits": "Raw JSONL exports and resource-summary.json; collector wall overhead recorded.",
+      "component": "Temporary Linux collector",
+      "smallest_next_change": "Temporary collector implemented. Add app-attributed socket/cgroup counters only when available and necessary; retain current scope labels.",
+      "measurement_verification": "Synthetic child CPU/lifetime validation passed; compare against OS counters with an isolated known transfer.",
+      "placement": "temporary tooling"
+    },
+    {
+      "priority": "P2",
+      "id": "remote-render-acceptance",
+      "question": "Was the native UI visually correct on Iyoku?",
+      "missing_observation": "Native IPC/DOM actions work, but WebKit snapshot capture times out and X11 capture cannot read the window. Client CPU differs sharply from the coordinator; rendering conditions are not comparable.",
+      "existing_evidence_and_limits": "F02-Iyoku-native.json; private failed-capture logs.",
+      "component": "Desktop test harness / display session",
+      "smallest_next_change": "Obtain a visible native-window capture or human confirmation before visual/media acceptance; do not infer painted output from DOM checks.",
+      "measurement_verification": "Verify readable actual pixels on the intended desktop, then rerun any rendering comparison.",
+      "placement": "temporary acceptance tooling"
+    },
+    {
+      "priority": "P2",
+      "id": "rest-message-live-notification",
+      "question": "Do REST-created messages notify open chat clients?",
+      "missing_observation": "REST messages persist and are retrievable, but were not delivered live in F05; normal Socket.IO message events are tested separately.",
+      "existing_evidence_and_limits": "F05-fixed-Tailcat-rest-gap.json; api/messages.rs emits only specialized Steam-link notifications; socketio/messages.rs owns normal message broadcast.",
+      "component": "Authority REST message write path",
+      "smallest_next_change": "Decide/document the REST realtime contract; if live notification is intended, emit the canonical committed message event without duplicating Socket.IO delivery.",
+      "measurement_verification": "An already joined client receives one REST-created message, with stable ID and authorized scope, after durable acceptance; no duplicate on refresh.",
+      "placement": "separate focused behavioral follow-up; normal native chat path is usable"
+    }
+  ]
+}

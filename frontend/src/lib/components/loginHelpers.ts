@@ -1,4 +1,3 @@
-import type { HomeExperienceMode } from '$lib/homeExperience';
 import { sanitizeAccentColor, sanitizeCustomCss, sanitizeCssUrl } from '$lib/cssSanitize';
 import { applyBootShellBrand, selectBrandConfig, type BrandConfig } from '$lib/branding';
 import { currentSavedServer } from '$lib/savedServerStore';
@@ -145,26 +144,3 @@ export function buildLaunchPageStyles(config: {
 	return { launchContainerStyle, launchCardStyle, launchCustomCss };
 }
 
-export type HomeExperienceChoice = 'conversations' | 'community';
-
-export function completeRegistrationHomeExperience(
-	mode: HomeExperienceMode,
-	pendingLogin: { username: string; token: string } | null,
-	saveUserSettings: (token: string, settings: { home_experience: HomeExperienceMode }) => Promise<void>,
-	setStoredHomeExperienceMode: (mode: HomeExperienceMode) => void,
-	dispatchLogin: (data: { username: string; token: string; authMethod: 'registered'; homeExperience: HomeExperienceMode }) => void
-): Promise<{ success: boolean; error?: string }> {
-	if (!pendingLogin) return Promise.resolve({ success: false, error: 'No pending login data' });
-	return saveUserSettings(pendingLogin.token, { home_experience: mode })
-		.then(() => {
-			setStoredHomeExperienceMode(mode);
-			dispatchLogin({
-				username: pendingLogin.username,
-				token: pendingLogin.token,
-				authMethod: 'registered',
-				homeExperience: mode
-			});
-			return { success: true };
-		})
-		.catch((err) => ({ success: false, error: err instanceof Error ? err.message : 'Failed to save home experience setting.' }));
-}

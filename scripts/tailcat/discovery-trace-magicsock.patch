@@ -1,0 +1,53 @@
+--- a/wgengine/magicsock/endpoint.go
++++ b/wgengine/magicsock/endpoint.go
+@@ -1288,11 +1288,12 @@
+ 	size = min(size, MaxDiscoPingSize)
+ 	padding := max(size-discoPingSize, 0)
+ 
+-	sent, _ := de.c.sendDiscoMessage(ep, de.publicKey, discoKey, &disco.Ping{
++	sent, sendErr := de.c.sendDiscoMessage(ep, de.publicKey, discoKey, &disco.Ping{
+ 		TxID:    [12]byte(txid),
+ 		NodeKey: de.c.publicKeyAtomic.Load(),
+ 		Padding: padding,
+ 	}, logLevel)
++	de.c.logf("TRACE ping dst=%v sent=%v err=%v", ep, sent, sendErr)
+ 	if !sent {
+ 		de.forgetDiscoPing(txid)
+ 		return
+@@ -1399,6 +1400,7 @@
+ // sendDiscoPingsLocked starts pinging all of ep's direct endpoints.
+ // Sibling of discoverUDPRelayPathsLocked for udprelay.
+ func (de *endpoint) sendDiscoPingsLocked(now mono.Time, sendCallMeMaybe bool) {
++ de.c.logf("TRACE discovery peer=%v endpoints=%d disabled=%v",de.publicKey.ShortString(),len(de.endpointState),debugNeverDirectUDP())
+ 	if debugNeverDirectUDP() {
+ 		return // skip when direct UDP is disabled
+ 	}
+@@ -2030,6 +2032,7 @@
+ // already sent to us via UDP, so their stateful firewall should be
+ // open. Now we can Ping back and make it through.
+ func (de *endpoint) handleCallMeMaybe(m *disco.CallMeMaybe) {
++ de.c.logf("TRACE received CMM peer=%v eps=%v",de.publicKey.ShortString(),m.MyNumber)
+ 	if runtime.GOOS == "js" {
+ 		// Nothing to do on js/wasm if we can't send UDP packets anyway.
+ 		return
+--- a/wgengine/magicsock/magicsock.go
++++ b/wgengine/magicsock/magicsock.go
+@@ -2271,6 +2271,7 @@
+ 	}
+ 
+ 	dm, err := disco.Parse(payload)
++ c.logf("TRACE recv src=%v via=%v message=%T err=%v",src,via,dm,err)
+ 	if debugDisco() {
+ 		c.logf("magicsock: disco: disco.Parse = %T, %v", dm, err)
+ 	}
+--- a/wgengine/magicsock/debugknobs.go
++++ b/wgengine/magicsock/debugknobs.go
+@@ -19,7 +19,7 @@
+ var (
+ 	// debugDisco prints verbose logs of active discovery events as
+ 	// they happen.
+-	debugDisco = envknob.RegisterBool("TS_DEBUG_DISCO")
++	debugDisco = func() bool { return true }
+ 	// debugPeerMap prints verbose logs of changes to the peermap.
+ 	debugPeerMap = envknob.RegisterBool("TS_DEBUG_MAGICSOCK_PEERMAP")
+ 	// debugOmitLocalAddresses removes all local interface addresses

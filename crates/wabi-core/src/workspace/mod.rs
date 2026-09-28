@@ -16,9 +16,89 @@ pub use voice::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", ts(export))]
+pub enum NameStyleEffect {
+    Solid,
+    Gradient,
+    Glow,
+    Shimmer,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", ts(export))]
+pub enum NameplateStyle {
+    None,
+    Solid,
+    Gradient,
+    Outline,
+}
+
+/// Declarative appearance values; this is a JSON wire type, not a durable record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct NameStyleDesign {
+    pub effect: NameStyleEffect,
+    pub color: String,
+    pub color2: String,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub angle: serde_json::Number,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub glow: serde_json::Number,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub animation_seconds: serde_json::Number,
+    pub plate: NameplateStyle,
+    pub plate_color: String,
+    pub plate_color2: String,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub plate_opacity: serde_json::Number,
+}
+
+impl NameStyleDesign {
+    pub fn validate(&self) -> Result<(), String> {
+        for (name, color) in [
+            ("color", &self.color),
+            ("color2", &self.color2),
+            ("plateColor", &self.plate_color),
+            ("plateColor2", &self.plate_color2),
+        ] {
+            if color.len() != 7
+                || !color.starts_with('#')
+                || !color.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
+            {
+                return Err(format!("design.{name} must be a #RRGGBB color"));
+            }
+        }
+        for (name, number, min, max) in [
+            ("angle", &self.angle, 0.0, 360.0),
+            ("glow", &self.glow, 0.0, 12.0),
+            ("animationSeconds", &self.animation_seconds, 4.0, 20.0),
+            ("plateOpacity", &self.plate_opacity, 0.0, 1.0),
+        ] {
+            if !number
+                .as_f64()
+                .is_some_and(|n| n.is_finite() && n >= min && n <= max)
+            {
+                return Err(format!("design.{name} must be between {min} and {max}"));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct UsernameFont {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub design: Option<NameStyleDesign>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

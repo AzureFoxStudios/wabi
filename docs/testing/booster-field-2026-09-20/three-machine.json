@@ -1,0 +1,315 @@
+{
+  "assertions": [
+    "Origin download works with no volunteers",
+    "Explicit opt-in starts a bounded volunteer; no automatic traffic claim",
+    "Cross-network download completes; peer delivery or fallback is recorded",
+    "Back-to-back peer downloads remain available",
+    "Admin observations match the live process and confirmed peer workload",
+    "Opting out while discovery is pending never starts a peer request",
+    "A corrupted peer payload is discarded and retried at the Authority",
+    "Stopping a booster clears its cache and downloads fall back to origin",
+    "A volunteer leaving during transfer still completes the original download",
+    "Account/server switches retire consent and local contribution counters",
+    "Tailcat remote device blocking, reallow and live port change",
+    "Admin health and private-access port controls render without horizontal overflow"
+  ],
+  "screenshots": [
+    "three-machine-admin.png",
+    "three-machine-volunteer.png",
+    "three-machine-volunteer-mobile.png"
+  ],
+  "pageErrors": [],
+  "measurements": {
+    "peerDelivered": true,
+    "peerPayloadBytes": 262144,
+    "originFileRequestsAvoided": 1,
+    "adminProcessMemoryBytes": 65699840,
+    "confirmedPeerPayloadBytes": 524288,
+    "interruptedPeerBytes": 16384
+  },
+  "transportTransitions": [
+    {
+      "machine": "Janya",
+      "pipePort": 36820,
+      "addressDigest": "b5b15f11639e"
+    },
+    {
+      "machine": "Tim-isolated-browser",
+      "pipePort": 36820,
+      "addressDigest": "64eb8ad0142b"
+    },
+    {
+      "machine": "Janya",
+      "pipePort": 36820,
+      "addressDigest": "64eb8ad0142b"
+    },
+    {
+      "machine": "Janya",
+      "pipePort": 36820,
+      "addressDigest": "9568b9cc553d"
+    },
+    {
+      "machine": "Janya",
+      "pipePort": 41313,
+      "addressDigest": "443f7fa935eb"
+    },
+    {
+      "machine": "Tim-isolated-browser",
+      "pipePort": 41313,
+      "addressDigest": "443f7fa935eb"
+    }
+  ],
+  "durationsMs": {
+    "Origin download works with no volunteers": 1245,
+    "Explicit opt-in starts a bounded volunteer; no automatic traffic claim": 4085,
+    "Cross-network download completes; peer delivery or fallback is recorded": 9652,
+    "Back-to-back peer downloads remain available": 9164,
+    "Admin observations match the live process and confirmed peer workload": 311,
+    "Opting out while discovery is pending never starts a peer request": 2076,
+    "A corrupted peer payload is discarded and retried at the Authority": 9259,
+    "Stopping a booster clears its cache and downloads fall back to origin": 1147,
+    "A volunteer leaving during transfer still completes the original download": 12474,
+    "Account/server switches retire consent and local contribution counters": 51,
+    "Tailcat remote device blocking, reallow and live port change": 18620,
+    "Admin health and private-access port controls render without horizontal overflow": 1736
+  },
+  "peerStates": {
+    "sender": [
+      {
+        "stunServers": 3,
+        "states": [
+          [
+            "signalingstatechange",
+            "new",
+            "new",
+            "have-remote-offer"
+          ],
+          [
+            "signalingstatechange",
+            "new",
+            "new",
+            "stable"
+          ],
+          [
+            "iceconnectionstatechange",
+            "new",
+            "checking",
+            "stable"
+          ],
+          [
+            "connectionstatechange",
+            "connecting",
+            "checking",
+            "stable"
+          ],
+          [
+            "iceconnectionstatechange",
+            "connecting",
+            "connected",
+            "stable"
+          ],
+          [
+            "connectionstatechange",
+            "connected",
+            "connected",
+            "stable"
+          ]
+        ],
+        "candidateTypes": [
+          {
+            "type": "host",
+            "network": "mdns"
+          },
+          {
+            "type": "srflx",
+            "network": "public"
+          }
+        ]
+      }
+    ],
+    "recipient": [
+      {
+        "stunServers": 3,
+        "states": [
+          [
+            "signalingstatechange",
+            "new",
+            "new",
+            "have-local-offer"
+          ],
+          [
+            "iceconnectionstatechange",
+            "new",
+            "checking",
+            "have-local-offer"
+          ],
+          [
+            "signalingstatechange",
+            "new",
+            "checking",
+            "stable"
+          ],
+          [
+            "connectionstatechange",
+            "connecting",
+            "checking",
+            "stable"
+          ],
+          [
+            "iceconnectionstatechange",
+            "connecting",
+            "connected",
+            "stable"
+          ],
+          [
+            "connectionstatechange",
+            "connected",
+            "connected",
+            "stable"
+          ]
+        ],
+        "candidateTypes": [
+          {
+            "type": "host",
+            "network": "mdns"
+          },
+          {
+            "type": "srflx",
+            "network": "public"
+          }
+        ]
+      }
+    ]
+  },
+  "signaling": {
+    "ticketPolls": 9,
+    "answerPresentAtCompletion": true
+  },
+  "routes": {
+    "sender": [
+      {
+        "localType": "srflx",
+        "remoteType": "srflx",
+        "localNetwork": "public",
+        "remoteNetwork": "public",
+        "protocol": "udp",
+        "bytesSent": 2179,
+        "bytesReceived": 1934,
+        "currentRoundTripTime": 0.016
+      },
+      {
+        "localType": "srflx",
+        "remoteType": "srflx",
+        "localNetwork": "public",
+        "remoteNetwork": "public",
+        "protocol": "udp",
+        "bytesSent": 41681,
+        "bytesReceived": 2886,
+        "currentRoundTripTime": 0.016
+      },
+      {
+        "localType": "srflx",
+        "remoteType": "srflx",
+        "localNetwork": "public",
+        "remoteNetwork": "public",
+        "protocol": "udp",
+        "bytesSent": 93263,
+        "bytesReceived": 4086,
+        "currentRoundTripTime": 0.016
+      },
+      {
+        "localType": "srflx",
+        "remoteType": "srflx",
+        "localNetwork": "public",
+        "remoteNetwork": "public",
+        "protocol": "udp",
+        "bytesSent": 157185,
+        "bytesReceived": 5136,
+        "currentRoundTripTime": 0.016
+      },
+      {
+        "localType": "srflx",
+        "remoteType": "srflx",
+        "localNetwork": "public",
+        "remoteNetwork": "public",
+        "protocol": "udp",
+        "bytesSent": 208733,
+        "bytesReceived": 6386,
+        "currentRoundTripTime": 0.016
+      },
+      {
+        "localType": "srflx",
+        "remoteType": "srflx",
+        "localNetwork": "public",
+        "remoteNetwork": "public",
+        "protocol": "udp",
+        "bytesSent": 260315,
+        "bytesReceived": 7786,
+        "currentRoundTripTime": 0.016
+      }
+    ],
+    "recipient": [
+      {
+        "localType": "srflx",
+        "remoteType": "srflx",
+        "localNetwork": "public",
+        "remoteNetwork": "public",
+        "protocol": "udp",
+        "bytesSent": 0,
+        "bytesReceived": 0,
+        "currentRoundTripTime": 0.02
+      },
+      {
+        "localType": "srflx",
+        "remoteType": "srflx",
+        "localNetwork": "public",
+        "remoteNetwork": "public",
+        "protocol": "udp",
+        "bytesSent": 2186,
+        "bytesReceived": 2325,
+        "currentRoundTripTime": 0.019
+      },
+      {
+        "localType": "srflx",
+        "remoteType": "srflx",
+        "localNetwork": "public",
+        "remoteNetwork": "public",
+        "protocol": "udp",
+        "bytesSent": 3436,
+        "bytesReceived": 58875,
+        "currentRoundTripTime": 0.014
+      },
+      {
+        "localType": "srflx",
+        "remoteType": "srflx",
+        "localNetwork": "public",
+        "remoteNetwork": "public",
+        "protocol": "udp",
+        "bytesSent": 4836,
+        "bytesReceived": 122831,
+        "currentRoundTripTime": 0.014
+      },
+      {
+        "localType": "srflx",
+        "remoteType": "srflx",
+        "localNetwork": "public",
+        "remoteNetwork": "public",
+        "protocol": "udp",
+        "bytesSent": 5686,
+        "bytesReceived": 162025,
+        "currentRoundTripTime": 0.014
+      },
+      {
+        "localType": "srflx",
+        "remoteType": "srflx",
+        "localNetwork": "public",
+        "remoteNetwork": "public",
+        "protocol": "udp",
+        "bytesSent": 7036,
+        "bytesReceived": 225927,
+        "currentRoundTripTime": 0.014
+      }
+    ]
+  },
+  "privateScreenshotOmitted": "Populated Tailcat controls rendered successfully; screenshot contains an expired disposable connection code and is retained only in private evidence."
+}

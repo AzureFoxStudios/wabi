@@ -1,6 +1,7 @@
 import { derived } from 'svelte/store';
 import { channels, currentChannel, type Channel } from '$lib/socket';
 import type { Project, Todo } from './types';
+import { personalWorkspace } from './personalWorkspace';
 
 /**
  * Planning scopes: 'personal' (device-local, yours only) vs a channel link
@@ -15,8 +16,8 @@ export const PERSONAL_SCOPE = '__personal__' as const;
 export type PlannerScope = typeof PERSONAL_SCOPE | string; // personal | channel id
 
 /** Channels the user is in that can host a piped plan (no DMs/threads). */
-export const pipableChannels = derived(channels, ($channels) =>
-	($channels || []).filter(
+export const pipableChannels = derived([channels, personalWorkspace], ([$channels, $personal]) =>
+	($personal ? [] : ($channels || [])).filter(
 		(c: Channel) => c.id && c.type !== 'dm' && c.type !== 'group' && c.type !== 'thread_public' && c.type !== 'thread_private'
 	)
 );

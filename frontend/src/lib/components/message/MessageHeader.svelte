@@ -3,6 +3,12 @@
 	import type { Message, User } from '$lib/socket';
 	import SteamStatusBadge from '$lib/components/SteamStatusBadge.svelte';
 	import RoleBadge from '$lib/components/RoleBadge.svelte';
+	import { currentSavedServer } from '$lib/savedServers';
+	import { ownerBadgeMark, staffBadgeMark } from '$lib/badgeMarks';
+	import ProfileName from '$lib/components/ProfileName.svelte';
+
+	$: ownerMark = ownerBadgeMark($currentSavedServer?.frontendMetadata);
+	$: staffMark = staffBadgeMark($currentSavedServer?.frontendMetadata);
 
 	export let author: User | undefined;
 	export let displayUsername: string;
@@ -32,20 +38,20 @@
 				<span
 					class="username"
 					class:clickable-username={displayEnhancementSettingsStore.clickableMentionsEnabled}
-					style="color: {getUserColor(author, displayUsername)}; {getUsernameStyle(author, displayUsername, themeStore)}"
+					style={themeStore.uniformFontEnabled ? getUsernameStyle(author, displayUsername, themeStore) : ''}
 					on:click={(event) => onUsernameClick(event, message, author)}
 					on:contextmenu={(event) => onUsernameContextMenu(event, message, author)}
 				>
-					{displayUsername}
+					<ProfileName username={displayUsername} font={themeStore.uniformFontEnabled ? null : author.usernameFont} color={getUserColor(author, displayUsername)} />
 				</span>
 			{:else}
 				<span class="username">{displayUsername}</span>
 			{/if}
-			{#if getTopRoleBadgeLabel(author)}
-				<span class={`role-inline-badge tone-${getTopRoleBadgeTone(author)}`}>{getTopRoleBadgeLabel(author)}</span>
+			{#if getTopRoleBadgeLabel(author) && getTopRoleBadgeTone(author) === 'owner'}
+				<span class="role-inline-badge tone-owner role-mark" title="Owner" aria-label="Owner">{ownerMark}</span>
 			{/if}
 			{#if shouldShowStaffTag(author)}
-				<span class="staff-inline-tag">Staff</span>
+				<span class="staff-inline-tag role-mark" title="Staff" aria-label="Staff">{staffMark}</span>
 			{/if}
 			{#if author?.isBot || message.isBot}
 				<span class="bot-inline-badge" title="Bot account">BOT</span>
@@ -57,6 +63,7 @@
 			</span>
 			{#if deletionLabel}
 				<span class="deletion-timer" title={$_('messages.deletion.scheduled_title')}>
+					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="5.75"/><path d="M8 4.5v3.7l2.35 1.4"/></svg>
 					{deletionLabel}
 				</span>
 			{/if}
@@ -78,20 +85,20 @@
 				<span
 					class="username"
 					class:clickable-username={displayEnhancementSettingsStore.clickableMentionsEnabled}
-					style="color: {getUserColor(author, displayUsername)}; {getUsernameStyle(author, displayUsername, themeStore)}"
+					style={themeStore.uniformFontEnabled ? getUsernameStyle(author, displayUsername, themeStore) : ''}
 					on:click={(event) => onUsernameClick(event, message, author)}
 					on:contextmenu={(event) => onUsernameContextMenu(event, message, author)}
 				>
-					{displayUsername}
+					<ProfileName username={displayUsername} font={themeStore.uniformFontEnabled ? null : author.usernameFont} color={getUserColor(author, displayUsername)} />
 				</span>
 			{:else}
 				<span class="username">{displayUsername}</span>
 			{/if}
-			{#if getTopRoleBadgeLabel(author)}
-				<span class={`role-inline-badge tone-${getTopRoleBadgeTone(author)}`}>{getTopRoleBadgeLabel(author)}</span>
+			{#if getTopRoleBadgeLabel(author) && getTopRoleBadgeTone(author) === 'owner'}
+				<span class="role-inline-badge tone-owner role-mark" title="Owner" aria-label="Owner">{ownerMark}</span>
 			{/if}
 			{#if shouldShowStaffTag(author)}
-				<span class="staff-inline-tag">Staff</span>
+				<span class="staff-inline-tag role-mark" title="Staff" aria-label="Staff">{staffMark}</span>
 			{/if}
 		</div>
 	</div>
@@ -99,6 +106,7 @@
 {#if groupedWithPrevious && deletionLabel}
 	<div class="grouped-deletion-meta">
 		<span class="deletion-timer" title={$_('messages.deletion.scheduled_title')}>
+			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="5.75"/><path d="M8 4.5v3.7l2.35 1.4"/></svg>
 			{deletionLabel}
 		</span>
 	</div>

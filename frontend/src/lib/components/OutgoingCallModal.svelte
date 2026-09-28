@@ -4,6 +4,7 @@
 		isVideoCall: boolean;
 		scope: 'group' | 'direct';
 		channelName?: string;
+		status?: 'connecting' | 'ringing';
 	};
 
 	export let caller: OutgoingCallerInfo;
@@ -17,7 +18,7 @@
 		<div class="caller-info">
 			<div class="caller-avatar">{caller.username.charAt(0).toUpperCase()}</div>
 			<h2>{caller.username}</h2>
-			<p class="call-type">Calling... {caller.isVideoCall ? 'Video' : 'Voice'} {caller.scope === 'group' ? 'Group Call' : 'Call'}</p>
+			<p class="call-type">{caller.status === 'ringing' ? 'Ringing · waiting for an answer' : 'Connecting call'} · {caller.isVideoCall ? 'Video' : 'Voice'} {caller.scope === 'group' ? 'Group Call' : 'Call'}</p>
 			{#if caller.channelName}
 				<p class="call-subtitle">Ringing {caller.channelName}</p>
 			{/if}

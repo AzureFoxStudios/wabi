@@ -2,4 +2,4 @@
 	import UserListTabImpl from './UserListTabImpl.svelte';
 </script>
 
-<UserListTabImpl />
+<UserListTabImpl on:openSettings />

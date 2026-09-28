@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ServiceRolesPanel from "./ServiceRolesPanel.svelte";
 	import type { AdminRoleDefinition } from '$lib/adminRoleCatalog';
 	let { roleDefinitions, loading = false, error = '', onRetry, onOpenPeople }: {
 		roleDefinitions: AdminRoleDefinition[];
@@ -9,6 +10,8 @@
 	} = $props();
 </script>
 
+<ServiceRolesPanel />
+<details><summary>Server authority role reference</summary>
 <section class="admin-section role-reference" aria-label="Server roles" aria-busy={loading}>
 	<h4>Server roles</h4>
 	<div class="role-introduction"><p>Roles control server access. Assign a member’s role in People.</p><button class="ui-btn ui-btn-secondary" type="button" onclick={onOpenPeople}>Manage people</button></div>
@@ -30,6 +33,7 @@
 		<p class="role-note">Built-in role names are fixed. This catalog shows the available roles, not how many are currently assigned.</p>
 	{/if}
 </section>
+</details>
 
 <style>
 	.role-reference { min-width: 0; }

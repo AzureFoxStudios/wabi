@@ -22,8 +22,8 @@ export interface BrandConfig {
 export const brandConfig: BrandConfig = {
 	name: 'Wabi',
 	shortName: 'Wabi',
-	tagline: 'Chat',
-	description: 'Ephemeral chat with screen sharing and business features',
+	tagline: 'A place to talk, create, and work together.',
+	description: 'Open-source, self-hosted communication and collaboration for small communities, with chat, calls, shared workspaces, and creative review.',
 	domain: 'wabi.chat',
 	logoUrl: '/wabi-logo.png',
 	logoSmallUrl: '/wabi-logo-small.webp',

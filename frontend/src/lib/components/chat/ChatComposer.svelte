@@ -15,7 +15,8 @@
 import { addQuickReactionCustomEmojiId } from '$lib/quickReactions';
 import type { MediaAlbum } from '$lib/api';
 	import { getMatchingCommands, type Command } from '$lib/commands';
-	import { getAuthToken } from '$lib/authSession';
+	import { authSessionGeneration, getAuthToken } from '$lib/authSession';
+	import { getServerUrl } from '$lib/serverUrl';
 	import { composerEnhancementSettingsStore, splitMessageForSending } from '$lib/composerEnhancements';
 	import { gifCaptionerSettingsStore } from '$lib/gifCaptionerSettings';
 	import { previewUnicodeEmojiConversion, unicodeEmojiSettingsStore } from '$lib/unicodeEmojis';
@@ -36,18 +37,24 @@ import type { MediaAlbum } from '$lib/api';
 	import MentionSuggestions from './MentionSuggestions.svelte';
 	import EmojiSuggestions from './EmojiSuggestions.svelte';
 	import { applyMentionToInput, computeMentionSuggestions } from './mentionSuggestions';
+	import { loadSharedGamesForMentions } from '$lib/games/mentions';
+	import type { GameSelection } from '$lib/games/model';
 	import { checkSendBurst, detectMessageKind, processAttachmentCaption, processOutgoingText } from './messageSend';
 	import { orchestrateUpload } from './uploadOrchestrator';
 	import VideoCompressionController from './VideoCompressionController.svelte';
 	import type { MediaAlbumScopeType } from '$lib/api';
 	import type { FilePreview } from './fileHandlers';
 	import type { MentionSuggestion } from './types';
+	import type { E2eeRoomStatus } from '$lib/e2ee';
 
 	interface Props {
 		isDMChannel?: boolean;
 		channelId?: string | null;
 		draftSurface?: string;
 		paymentButtonEnabled?: boolean;
+		/** E2EE: on send, wrap the payload text in an encrypted envelope instead of sending plaintext. */
+		encryptSend?: boolean;
+		e2eeStatus?: E2eeRoomStatus | null;
 		replyingTo?: Message | null;
 		composerVisible?: boolean;
 		isTextareaFocused?: boolean;
@@ -57,6 +64,8 @@ import type { MediaAlbum } from '$lib/api';
 
 	let {
 		isDMChannel = false,
+		encryptSend = false,
+		e2eeStatus = null,
 		channelId = null,
 		draftSurface = 'channel',
 		paymentButtonEnabled = false,
@@ -66,6 +75,36 @@ import type { MediaAlbum } from '$lib/api';
 		onExecuteCommand,
 		onOpenPaymentSheet
 	}: Props = $props();
+
+	/** E2EE indicator: plaintext shows a muted "Server-readable" note; encrypted messages show a lock. */
+	let e2eeIndicator = $derived.by(() => {
+		if (!encryptSend) {
+			return {
+				icon: '⚠',
+				label: 'Server-readable',
+				title: 'Messages are readable by the server operator. Turn on end-to-end encryption from the DM header to encrypt them.',
+				locked: false
+			};
+		}
+		return {
+			icon: '🔒',
+			label: 'End-to-end encrypted',
+			title: 'Messages are encrypted on this device (experimental — not independently verified).',
+			locked: true
+		};
+	});
+
+	/** Mirror the derived indicator into state so the template can read it. */
+	let e2eeIndicatorState = $state<{ icon: string; label: string; title: string; locked: boolean }>({
+		icon: '⚠',
+		label: 'Server-readable',
+		title: '',
+		locked: false
+	});
+
+	$effect(() => {
+		e2eeIndicatorState = e2eeIndicator;
+	});
 
 	const dispatch = createEventDispatcher();
 	type SendChatMessage = (
@@ -85,6 +124,7 @@ import type { MediaAlbum } from '$lib/api';
 	const restoredDraft = draftOwner.initial;
 	let mounted = true;
 	let isSending = $state(draftOwner.isSending());
+	let commandBusy = $state(false);
 	const operationCurrent = () => mounted && draftOwner.current();
 	let messageInput = $state(restoredDraft?.text || '');
 	let gifCaptionInput = $state(restoredDraft?.gifCaption || '');
@@ -106,6 +146,14 @@ import type { MediaAlbum } from '$lib/api';
 	let commandPalette: CommandPalette = $state();
 	let showMentionSuggestions = $state(false);
 	let mentionSuggestions: MentionSuggestion[] = $state([]);
+	let sharedGameMentions: GameSelection[] = $state([]);
+	let gameMentionsLoading = false;
+	let gameMentionsLoaded = false;
+	let gameMentionsScope = '';
+	function currentGameMentionsScope(): string {
+		const server = getServerUrl();
+		return `${server}|${$currentUser?.dbUserId || ''}|${authSessionGeneration(server)}`;
+	}
 	let mentionSelectedIndex = $state(0);
 	let mentionTokenStart = -1;
 	let mentionMenuContainer: HTMLElement | null = $state(null);
@@ -211,8 +259,26 @@ import type { MediaAlbum } from '$lib/api';
 	function handleInput() { autoResizeTextarea(); const now = Date.now(); if (now - lastTypingEmit >= TYPING_THROTTLE_MS) { sendTyping(true, effectiveChannel); lastTypingEmit = now; } if (typingTimeout) clearTimeout(typingTimeout); typingTimeout = setTimeout(() => sendTyping(false, effectiveChannel), 1000) as unknown as number; }
 	function handleInputChange() {
 		syncComposerEntities();
+		if (gameMentionsScope !== currentGameMentionsScope()) {
+			sharedGameMentions = [];
+			gameMentionsLoaded = false;
+		}
 		if (messageInput.startsWith('/')) { showCommandPalette = getMatchingCommands(messageInput).length > 0; showMentionSuggestions = false; }
-		else { showCommandPalette = false; const caret = textareaElement?.selectionStart ?? messageInput.length; if (!$placeRegistry.length) void loadPlaceRegistry(); const result = computeMentionSuggestions(messageInput, caret, $users as User[], $currentUser?.id, $placeRegistry); if (result.show) { mentionTokenStart = result.tokenStart; mentionSuggestions = result.suggestions; mentionSelectedIndex = 0; showMentionSuggestions = true; } else showMentionSuggestions = false; updateEmojiSuggestions(caret); }
+		else { showCommandPalette = false; const caret = textareaElement?.selectionStart ?? messageInput.length; if (!$placeRegistry.length) void loadPlaceRegistry(); if (/@game(?::[^\s]*)?$/i.test(messageInput.slice(0, caret))) void loadGameMentionChoices(); const result = computeMentionSuggestions(messageInput, caret, $users as User[], $currentUser?.id, $placeRegistry, sharedGameMentions); if (result.show) { mentionTokenStart = result.tokenStart; mentionSuggestions = result.suggestions; mentionSelectedIndex = 0; showMentionSuggestions = true; } else showMentionSuggestions = false; updateEmojiSuggestions(caret); }
+	}
+	async function loadGameMentionChoices(): Promise<void> {
+		if (gameMentionsLoading || gameMentionsLoaded) return;
+		gameMentionsLoading = true;
+		const scope = currentGameMentionsScope();
+		const games = await loadSharedGamesForMentions();
+		gameMentionsLoading = false;
+		if (!operationCurrent() || scope !== currentGameMentionsScope()) return;
+		gameMentionsScope = scope;
+		gameMentionsLoaded = true;
+		sharedGameMentions = games;
+		const caret = textareaElement?.selectionStart ?? messageInput.length;
+		const result = computeMentionSuggestions(messageInput, caret, $users as User[], $currentUser?.id, $placeRegistry, sharedGameMentions);
+		if (result.show) { mentionTokenStart = result.tokenStart; mentionSuggestions = result.suggestions; mentionSelectedIndex = 0; showMentionSuggestions = true; }
 	}
 	function updateEmojiSuggestions(caret: number): void {
 		const match = messageInput.slice(0, caret).match(/(^|\s):([\w+_-]*)$/);
@@ -280,7 +346,7 @@ import type { MediaAlbum } from '$lib/api';
 	function cancelReply() { replyingTo = null; }
 	function clearAfterSend() { messageInput = ''; resetComposerEntityState(); showMentionSuggestions = false; showMediaMenu = false; sendCooldownMessage = ''; sendTyping(false, effectiveChannel); if (typingTimeout) clearTimeout(typingTimeout); if (textareaElement) textareaElement.style.height = 'auto'; textareaElement?.focus(); }
 	async function handleSubmit() {
-		if (isSending || isUploading || !operationCurrent()) return;
+		if (isSending || commandBusy || isUploading || !operationCurrent()) return;
 		const hasFiles = selectedFiles.length > 0;
 		const hasText = Boolean(messageInput.trim());
 		if (!hasFiles && !hasText) return;
@@ -329,9 +395,16 @@ import type { MediaAlbum } from '$lib/api';
 		}
 
 		if (processed.text.startsWith('/')) {
-			void onExecuteCommand(processed.text);
-			messageInput = '';
-			resetComposerEntityState();
+			const inputAtSubmit = messageInput;
+			commandBusy = true;
+			try {
+				await onExecuteCommand(processed.text);
+				if (operationCurrent() && messageInput === inputAtSubmit) clearAfterSend();
+			} catch (error) {
+				if (operationCurrent()) showToast(error instanceof Error ? error.message : 'Command was not sent. Try again.', 'error');
+			} finally {
+				commandBusy = false;
+			}
 			return;
 		}
 
@@ -364,6 +437,9 @@ import type { MediaAlbum } from '$lib/api';
 				});
 			}
 		} else {
+			// The shared send boundary encrypts exactly once, after message-kind
+			// detection. Encrypting here as well nested an E2EE envelope inside a
+			// second one and made the recipient see ciphertext after decryption.
 			const kind = detectMessageKind(processed.text, $emojis as unknown as Emoji[]);
 			if (kind.type === 'emoji') {
 				payloads.push({
@@ -616,6 +692,10 @@ import type { MediaAlbum } from '$lib/api';
 	{#if isUploading}<div class="upload-progress-bar"><div class="upload-progress-info"><span>{uploadStatusLabel || $_('chat.upload.uploading')}</span><span>{uploadProgress}%</span></div><div class="progress-bar"><div class="progress-fill" style="width: {uploadProgress}%"></div></div></div>{/if}
 	<input type="file" bind:this={fileInput} onchange={handleFileSelect} multiple class="hidden" />
 	{#if sendCooldownMessage}<div class="composer-rate-limit-notice" role="status" aria-live="polite">{sendCooldownMessage}</div>{/if}
+	<div class="composer-e2ee-status" class:locked={e2eeIndicatorState.locked} title={e2eeIndicatorState.title} aria-live="polite">
+		<span class="composer-e2ee-icon" aria-hidden="true">{e2eeIndicatorState.icon}</span>
+		<span class="composer-e2ee-label">{e2eeIndicatorState.label}</span>
+	</div>
 	<div class="input-container">
 		<CommandPalette bind:this={commandPalette} bind:input={messageInput} bind:isVisible={showCommandPalette} bind:selectedIndex={commandPaletteSelectedIndex} onSelect={handleCommandSelect} />
 		<textarea bind:this={textareaElement} bind:value={messageInput} onpaste={handlePaste} oninput={() => { handleInput(); handleInputChange(); }} onkeydown={handleKeyDown} onfocus={() => { isTextareaFocused = true; composerVisible = true; }} onblur={() => { isTextareaFocused = false; }} placeholder={$isMobile ? 'Message...' : $_('chat.compose.placeholder')} maxlength={composerInputMaxLength} spellcheck={composerSpellcheckEnabled} rows="1"></textarea>

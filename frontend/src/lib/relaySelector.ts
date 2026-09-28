@@ -45,7 +45,7 @@ export const selectedTurnRelay = writable<RelayInfo | null>(null);
 export const selectedSfuRelay = writable<RelayInfo | null>(null);
 export const relayEnabled = writable<boolean>(false);
 
-const RELAY_CACHE_KEY = 'wabi_relay_selection';
+const relayCacheKey = () => `wabi_relay_selection:${encodeURIComponent(getServerUrl())}`;
 const RELAY_CACHE_TTL = 5 * 60 * 1000;
 
 let lastFetchTime = 0;
@@ -53,7 +53,7 @@ let lastFetchTime = 0;
 function readCachedSelection(): CachedRelaySelection | null {
 	if (!browser) return null;
 	try {
-		const cached = JSON.parse(localStorage.getItem(RELAY_CACHE_KEY) || 'null');
+		const cached = JSON.parse(localStorage.getItem(relayCacheKey()) || 'null');
 		if (!cached || typeof cached !== 'object') return null;
 		if (typeof cached.timestamp !== 'number' || cached.timestamp <= Date.now() - RELAY_CACHE_TTL) {
 			return null;
@@ -73,7 +73,7 @@ function writeCachedSelection(fileRelay: RelayInfo | null, turnRelay: RelayInfo 
 	if (!browser) return;
 	try {
 		localStorage.setItem(
-			RELAY_CACHE_KEY,
+			relayCacheKey(),
 			JSON.stringify({
 				fileRelay,
 				turnRelay,
@@ -99,25 +99,10 @@ function isSfuRelayCapable(relay: RelayInfo): boolean {
 }
 
 export async function initRelaySelector(): Promise<void> {
-	if (!browser) return;
-	if (import.meta.env.VITE_ENABLE_RELAYS !== 'true') {
-		relayEnabled.set(false);
-		selectedRelay.set(null);
-		selectedTurnRelay.set(null);
-		selectedSfuRelay.set(null);
-		return;
-	}
-	relayEnabled.set(true);
-
-	const cached = readCachedSelection();
-	if (cached) {
-		selectedRelay.set(cached.fileRelay);
-		selectedTurnRelay.set(cached.turnRelay);
-		selectedSfuRelay.set(cached.sfuRelay);
-		return;
-	}
-
-	await refreshRelays();
+    // The legacy /api/relays registration service is not implemented by the
+    // Rust Authority. Volunteer downloads use scoped, verified booster tickets.
+    relayEnabled.set(false);
+    selectedRelay.set(null); selectedTurnRelay.set(null); selectedSfuRelay.set(null);
 }
 
 export async function refreshRelays(): Promise<void> {
@@ -197,11 +182,8 @@ async function measureLatency(relayUrl: string): Promise<number | null> {
 }
 
 export function getRelayFileUrl(relativePath: string): string {
-	const relay = get(selectedRelay);
-	if (relay && isFileRelayCapable(relay)) {
-		return `${relay.url}${relativePath}`;
-	}
-	return `${getServerUrl()}${relativePath}`;
+    // An unverified URL rewrite cannot provide per-request origin fallback.
+    return `${getServerUrl()}${relativePath}`;
 }
 
 export function getPreferredTurnRelayId(): number | null {

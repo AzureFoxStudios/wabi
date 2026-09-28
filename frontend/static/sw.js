@@ -1,16 +1,16 @@
 // Wabi Custom Service Worker — no third-party dependencies
 // Replaces vite-plugin-pwa / workbox
 //
-// Finding 5: media cache stamps X-Cached-At, enforces max age, cleared on logout.
 // Finding 12: install actually precaches a shell; navigate falls back to it;
-//             media SWR revalidate is tied to event.waitUntil.
+//             revocable files always use the network.
 
-const MEDIA_CACHE = 'media-cache-v3';
-const SHELL_CACHE = 'shell-cache-v3';
-
-const MAX_MEDIA_ENTRIES = 300;
-// Capability-URL uploads: short retention. Logout also deletes this cache.
-const MEDIA_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+// Old upload/whiteboard responses are purged when this worker activates.
+// The static build fills these markers with a content-derived ID and the full
+// immutable asset list. A missing build step must not claim offline readiness.
+const BUILD_ID = 'unversioned';
+const APP_PRECACHE_URLS = [];
+const SHELL_CACHE = `shell-cache-${BUILD_ID}`;
+const APP_ASSET_CACHE = `app-assets-${BUILD_ID}`;
 
 /** Static assets safe to precache (same-origin, no auth). */
 const SHELL_PRECACHE_URLS = [
@@ -27,21 +27,26 @@ const SHELL_PRECACHE_URLS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
-      const cache = await caches.open(SHELL_CACHE);
-      // Best-effort: one failure must not abort the whole install.
-      await Promise.all(
-        SHELL_PRECACHE_URLS.map(async (path) => {
-          try {
-            const req = new Request(path, { cache: 'reload', credentials: 'same-origin' });
-            const res = await fetch(req);
-            if (res && res.ok) {
-              await cache.put(path === '/' ? '/' : path, res.clone());
-            }
-          } catch {
-            // ignore individual precache failures
-          }
-        })
-      );
+      if (BUILD_ID === 'unversioned' || APP_PRECACHE_URLS.length === 0) {
+        throw new Error('Static build did not provide an offline asset list');
+      }
+      const shell = await caches.open(SHELL_CACHE);
+      const app = await caches.open(APP_ASSET_CACHE);
+      const putRequired = async (cache, path) => {
+        if (await cache.match(path)) return;
+        const response = await fetch(new Request(path, { cache: 'reload', credentials: 'same-origin' }));
+        if (!response.ok || response.type !== 'basic') throw new Error(`Cannot precache ${path}: ${response.status}`);
+        await cache.put(path, response);
+      };
+      // A failed chunk leaves the previous worker and its complete caches
+      // active. Keep concurrency bounded for phones and smaller servers.
+      for (const paths of [SHELL_PRECACHE_URLS, APP_PRECACHE_URLS]) {
+        for (let index = 0; index < paths.length; index += 12) {
+          await Promise.all(paths.slice(index, index + 12).map(path =>
+            putRequired(paths === SHELL_PRECACHE_URLS ? shell : app, path)
+          ));
+        }
+      }
       await self.skipWaiting();
     })()
   );
@@ -72,14 +77,22 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Media — network-preferring SWR with real max-age (cachePut stamps age)
+  // The cached HTML shell needs its versioned JS/CSS to start offline.
+  // These hashed build assets are public and immutable; API and uploads keep
+  // their separate network/cache policies below.
+  if (request.method === 'GET' && url.origin === self.location.origin && url.pathname.startsWith('/_app/immutable/')) {
+    event.respondWith(immutableAssetHandler(request));
+    return;
+  }
+
+  // Revocable capability URLs must reach the Authority on every request.
   if (
-    url.pathname.startsWith('/uploads/') ||
-    /^\/api\/whiteboard\/boards\/[^/]+\/files\//.test(url.pathname)
+    request.method === 'GET' && url.origin === self.location.origin && (
+      url.pathname.startsWith('/uploads/') ||
+      /^\/api\/whiteboard\/boards\/[^/]+\/files\//.test(url.pathname)
+    )
   ) {
-    event.respondWith(
-      staleWhileRevalidateHandler(request, MEDIA_CACHE, MAX_MEDIA_ENTRIES, MEDIA_MAX_AGE_MS, event)
-    );
+    event.respondWith(revocableMediaHandler(request));
     return;
   }
 
@@ -96,6 +109,19 @@ self.addEventListener('fetch', (event) => {
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
+
+async function immutableAssetHandler(request) {
+  const cache = await caches.open(APP_ASSET_CACHE);
+  // A tab opened before an update may still request an old hashed chunk.
+  // Activation retains one prior asset cache for exactly this transition.
+  const cached = (await cache.match(request)) || (await caches.match(request));
+  if (cached) return cached;
+  const response = await fetch(request);
+  if (response.ok && response.type === 'basic') {
+    await cache.put(request, response.clone());
+  }
+  return response;
+}
 
 async function navigationHandler(request, event) {
   try {
@@ -136,123 +162,29 @@ function offlineFallbackResponse() {
   });
 }
 
-async function networkFirstHandler(request, cacheName, maxEntries, maxAgeMs) {
-  const cache = await caches.open(cacheName);
-
+async function revocableMediaHandler(request) {
   try {
-    const response = await fetch(request);
-    if (response.ok) {
-      await cachePut(cache, request, response.clone());
-      await trimCache(cache, maxEntries);
-    }
-    return response;
+    // Bypass the browser HTTP cache as well as this worker's old media cache.
+    return await fetch(new Request(request, { cache: 'no-store' }));
   } catch {
-    const cached = await cache.match(request);
-    if (cached) {
-      const isFresh = await isEntryFresh(cached, maxAgeMs);
-      if (isFresh) return cached;
-    }
-    return new Response(JSON.stringify({ error: 'Offline', details: 'Network unavailable and no cached response' }), {
+    // A cached capability URL may have been revoked while this device was
+    // offline, so an unavailable Authority cannot authorize stale bytes.
+    return new Response(JSON.stringify({ error: 'Authority unavailable' }), {
       status: 503,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
     });
   }
 }
 
-async function staleWhileRevalidateHandler(request, cacheName, maxEntries, maxAgeMs, event) {
-  const cache = await caches.open(cacheName);
-  const cached = await cache.match(request);
-  const fresh = cached ? await isEntryFresh(cached, maxAgeMs) : false;
-
-  const fetchAndStore = async () => {
-    const response = await fetch(request);
-    if (response.ok) {
-      await cachePut(cache, request, response.clone());
-      await trimCache(cache, maxEntries);
-    }
-    return response;
-  };
-
-  // Fresh hit: serve immediately, refresh in background (tied to SW lifetime)
-  if (cached && fresh) {
-    const bg = fetchAndStore().catch(() => {});
-    if (event && typeof event.waitUntil === 'function') {
-      event.waitUntil(bg);
-    }
-    return cached;
-  }
-
-  // Miss or stale: prefer network so expiry is actually enforced
-  try {
-    return await fetchAndStore();
-  } catch {
-    // Offline last resort only if we still have *something* (stale allowed offline)
-    if (cached) return cached;
-    return new Response(JSON.stringify({ error: 'Offline', details: 'Network unavailable and no cached response' }), {
-      status: 503,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 /**
- * Check if a cached response is still within maxAgeMs.
- * We store a timestamp as a custom header when caching: `X-Cached-At`
- */
-async function isEntryFresh(cachedResponse, maxAgeMs) {
-  const cachedAt = cachedResponse.headers.get('X-Cached-At');
-  if (!cachedAt) return false;
-  return Date.now() - parseInt(cachedAt, 10) < maxAgeMs;
-}
-
-/**
- * Open a cache and store a response with an X-Cached-At timestamp header.
- */
-async function cachePut(cache, request, response) {
-  const headers = new Headers(response.headers);
-  headers.set('X-Cached-At', String(Date.now()));
-  const augmentedResponse = new Response(await response.clone().blob(), {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
-  await cache.put(request, augmentedResponse);
-}
-
-/**
- * Enforce max entry count by deleting oldest entries.
- * Uses X-Cached-At header for ordering.
- */
-async function trimCache(cache, maxEntries) {
-  const keys = await cache.keys();
-  if (keys.length <= maxEntries) return;
-
-  const entriesWithAge = [];
-  for (const key of keys) {
-    const response = await cache.match(key);
-    if (response) {
-      const cachedAt = response.headers.get('X-Cached-At');
-      entriesWithAge.push({ key, age: cachedAt ? parseInt(cachedAt, 10) : 0 });
-    }
-  }
-
-  entriesWithAge.sort((a, b) => a.age - b.age);
-
-  const toDelete = entriesWithAge.slice(0, entriesWithAge.length - maxEntries);
-  await Promise.all(toDelete.map(({ key }) => cache.delete(key)));
-}
-
-/**
- * Delete caches whose names we no longer use (stale workbox caches, old versions).
- * shell-cache-v2 drops empty v1 shells; media-cache-v2 drops unstamped v1 media.
+ * Keep one prior shell/asset pair for pages opened before an update. Their
+ * hashed imports may still be in flight after the new worker claims clients.
  */
 async function deleteOldCaches() {
-  const expectedCaches = [MEDIA_CACHE, SHELL_CACHE];
   const keys = await caches.keys();
+  const previousShell = keys.filter(key => key.startsWith('shell-cache-') && key !== SHELL_CACHE).at(-1);
+  const previousAssets = keys.filter(key => key.startsWith('app-assets-') && key !== APP_ASSET_CACHE).at(-1);
+  const expectedCaches = [SHELL_CACHE, APP_ASSET_CACHE, previousShell, previousAssets];
   return Promise.all(
     keys
       .filter((key) => !expectedCaches.includes(key))
@@ -319,6 +251,9 @@ self.addEventListener('message', (event) => {
   const data = event.data;
   if (!data || typeof data !== 'object') return;
   if (data.type === 'wabi-skip-waiting') self.skipWaiting();
-  if (data.type === 'wabi-clear-media-cache') event.waitUntil(caches.delete(MEDIA_CACHE));
+  if (data.type === 'wabi-clear-media-cache') {
+    event.waitUntil(caches.keys().then(keys =>
+      Promise.all(keys.filter(key => key.startsWith('media-cache-')).map(key => caches.delete(key)))
+    ));
+  }
 });
-

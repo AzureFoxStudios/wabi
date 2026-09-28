@@ -1,0 +1,26 @@
+name: Tailcat regression contracts
+on:
+  pull_request:
+    paths:
+      - 'scripts/tailcat/**'
+      - 'scripts/tests/test_tailcat_reconnect.py'
+      - 'docs/testing/tailcat-janya-2026-09-21/**'
+      - '.github/workflows/tailcat-regression.yml'
+      - 'core/addons/tailcat/**'
+      - 'core/crates/wabi-server/src/api/tailcat.rs'
+      - 'src-tauri/src/tailcat*'
+      - 'scripts/fetch-tailcat-sidecar.sh'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  evidence-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Ensure real-network regression remains a failure verdict
+        run: python -m unittest discover -s scripts/tests -p test_tailcat_reconnect.py -v

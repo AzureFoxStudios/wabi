@@ -3,6 +3,9 @@ use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+pub const ID_INDEX: &str = "album_by_id";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AlbumRecord {
@@ -47,6 +50,109 @@ pub fn encode_key(scope_type: &str, scope_id: &str, album_id: &str) -> Vec<u8> {
 }
 
 impl AlbumProjection {
+    /// Resolve a sequence-assigned album ID without scanning every scope.
+    /// Older snapshots predate `album_by_id`; their rows are rebuilt at open.
+    pub fn get_album_by_id(state: &ProjectionState, album_id: &str) -> Result<Option<AlbumRecord>> {
+        if let Some(key) = state.get(ID_INDEX, album_id.as_bytes()) {
+            let bytes = state.get("albums", &key).ok_or_else(|| crate::error::WabiError::Corrupt {
+                location: ID_INDEX.into(),
+                detail: format!("album {album_id} points to a missing row"),
+            })?;
+            let record = decode_record(&bytes)?;
+            if record.album_id != album_id || encode_key(&record.scope_type, &record.scope_id, album_id) != key {
+                return Err(crate::error::WabiError::Corrupt {
+                    location: ID_INDEX.into(),
+                    detail: format!("album {album_id} lookup does not match its row"),
+                });
+            }
+            return Ok(Some(record));
+        }
+        if state.index_len(ID_INDEX) == state.index_len("albums") {
+            return Ok(None);
+        }
+        // An old in-memory/snapshot state may lack this derived index. The
+        // engine backfills it before serving requests; keep a read-only
+        // fallback for callers constructing ProjectionState directly.
+        let mut found = None;
+        let mut error = None;
+        state.for_each("albums", |_key, value| match decode_record(value) {
+            Ok(record) if record.album_id == album_id => {
+                if found.replace(record).is_some() {
+                    error = Some(crate::error::WabiError::Corrupt {
+                        location: "albums".into(),
+                        detail: format!("duplicate album ID {album_id}"),
+                    });
+                }
+            }
+            Ok(_) => {}
+            Err(failure) => error = Some(failure),
+        });
+        if let Some(error) = error {
+            return Err(error);
+        }
+        Ok(found)
+    }
+
+    /// Add the derived lookup to snapshots written before this index existed.
+    /// Call only before the dispatcher starts; this does not alter durable
+    /// album records or the applied commit watermark.
+    pub fn rebuild_id_index(state: &ProjectionState) -> Result<usize> {
+        let album_count = state.index_len("albums");
+        if album_count == state.index_len(ID_INDEX) {
+            return Ok(0);
+        }
+        let mut rows = Vec::with_capacity(album_count);
+        let mut error = None;
+        state.for_each("albums", |key, value| match decode_record(value) {
+            Ok(record) => {
+                if key != encode_key(&record.scope_type, &record.scope_id, &record.album_id) {
+                    error = Some(crate::error::WabiError::Corrupt {
+                        location: "albums".into(),
+                        detail: format!("album {} has a mismatched scope key", record.album_id),
+                    });
+                }
+                rows.push((record.album_id, key.to_vec()));
+            }
+            Err(failure) => error = Some(failure),
+        });
+        if let Some(error) = error {
+            return Err(error);
+        }
+        let mut seen = HashMap::with_capacity(rows.len());
+        for (album_id, key) in &rows {
+            if let Some(previous) = seen.insert(album_id, key) {
+                if previous != key {
+                    return Err(crate::error::WabiError::Corrupt {
+                        location: "albums".into(),
+                        detail: format!("duplicate album ID {album_id}"),
+                    });
+                }
+            }
+            if let Some(existing) = state.get(ID_INDEX, album_id.as_bytes()) {
+                if existing != *key {
+                    return Err(crate::error::WabiError::Corrupt {
+                        location: ID_INDEX.into(),
+                        detail: format!("album {album_id} lookup conflicts with its row"),
+                    });
+                }
+            }
+        }
+        let mut inserted = 0;
+        for (album_id, key) in rows {
+            if state.get(ID_INDEX, album_id.as_bytes()).is_none() {
+                state.insert(ID_INDEX, album_id.into_bytes(), key, state.applied_commit_seq());
+                inserted += 1;
+            }
+        }
+        if state.index_len(ID_INDEX) != album_count {
+            return Err(crate::error::WabiError::Corrupt {
+                location: ID_INDEX.into(),
+                detail: "album ID index does not cover the album rows".into(),
+            });
+        }
+        Ok(inserted)
+    }
+
     /// Look up a single album by its scope and ID.
     pub fn get_album(state: &ProjectionState, scope_type: &str, scope_id: &str, album_id: &str) -> Result<Option<AlbumRecord>> {
         let key = encode_key(scope_type, scope_id, album_id);
@@ -77,11 +183,23 @@ impl AlbumProjection {
 
     /// Remove all soft-deleted records from the `albums` index.
     pub fn compact(state: &ProjectionState) -> usize {
-        state.compact_index("albums", |_key, value| {
+        let mut deleted_ids = Vec::new();
+        state.for_each("albums", |_key, value| {
+            if let Ok(record) = decode_record(value) {
+                if record.is_deleted {
+                    deleted_ids.push(record.album_id);
+                }
+            }
+        });
+        let removed = state.compact_index("albums", |_key, value| {
             postcard::from_bytes::<AlbumRecord>(value)
                 .ok()
                 .map_or(false, |r| r.is_deleted)
-        })
+        });
+        for id in deleted_ids {
+            state.remove(ID_INDEX, id.as_bytes());
+        }
+        removed
     }
 }
 
@@ -107,29 +225,35 @@ impl Projection for AlbumProjection {
 }
 
 impl AlbumProjection {
+    fn write_record(state: &ProjectionState, record: &AlbumRecord, commit_seq: u64) -> Result<()> {
+        let key = encode_key(&record.scope_type, &record.scope_id, &record.album_id);
+        if let Some(existing) = state.get(ID_INDEX, record.album_id.as_bytes()) {
+            if existing != key {
+                return Err(crate::error::WabiError::Corrupt {
+                    location: ID_INDEX.into(),
+                    detail: format!("album {} changed scope or reused an ID", record.album_id),
+                });
+            }
+        }
+        state.insert("albums", key.clone(), encode_record(record), commit_seq);
+        state.insert(ID_INDEX, record.album_id.as_bytes().to_vec(), key, commit_seq);
+        Ok(())
+    }
+
     fn apply_created(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
         let mut record: AlbumRecord = decode_record(&event.payload)?;
         record.album_id = format!("alb_{:x}", event.commit_seq);
-        let key = encode_key(&record.scope_type, &record.scope_id, &record.album_id);
-        let value = encode_record(&record);
-        state.insert("albums", key, value, event.commit_seq);
-        Ok(())
+        Self::write_record(state, &record, event.commit_seq)
     }
 
     fn apply_updated(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
         let record: AlbumRecord = decode_record(&event.payload)?;
-        let key = encode_key(&record.scope_type, &record.scope_id, &record.album_id);
-        let value = encode_record(&record);
-        state.insert("albums", key, value, event.commit_seq);
-        Ok(())
+        Self::write_record(state, &record, event.commit_seq)
     }
 
     fn apply_deleted(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
         let record: AlbumRecord = decode_record(&event.payload)?;
-        let key = encode_key(&record.scope_type, &record.scope_id, &record.album_id);
-        let value = encode_record(&record);
-        state.insert("albums", key, value, event.commit_seq);
-        Ok(())
+        Self::write_record(state, &record, event.commit_seq)
     }
 }
 
@@ -192,6 +316,8 @@ mod tests {
         let decoded = decode_record(&stored).unwrap();
         assert_eq!(decoded.album_id, expected_id);
         assert_eq!(decoded.name, "Trip Photos");
+        assert_eq!(state.get(ID_INDEX, expected_id.as_bytes()), Some(key));
+        assert_eq!(AlbumProjection::get_album_by_id(&state, &expected_id).unwrap(), Some(decoded));
     }
 
     #[test]
@@ -351,13 +477,14 @@ mod tests {
         let removed = AlbumProjection::compact(&state);
         assert_eq!(removed, 1);
         assert_eq!(AlbumProjection::list_albums(&state, "channel", "ch_01", true).unwrap().len(), 2);
+        assert!(state.get(ID_INDEX, b"alb_2").is_none());
     }
 
     #[test]
     fn different_scopes_are_independent() {
         let state = ProjectionState::new();
         let proj = AlbumProjection;
-        for scope in ["ch_01", "ch_02"] {
+        for (seq, scope) in [(1, "ch_01"), (2, "ch_02")] {
             let r = AlbumRecord {
                 album_id: String::new(),
                 scope_type: "channel".into(),
@@ -370,10 +497,35 @@ mod tests {
                 updated_at_micros: 1_000_000,
                 is_deleted: false,
             };
-            proj.apply(&make_event(1, "album_created", &r), &state).unwrap();
+            proj.apply(&make_event(seq, "album_created", &r), &state).unwrap();
         }
         assert_eq!(AlbumProjection::list_albums(&state, "channel", "ch_01", false).unwrap().len(), 1);
         assert_eq!(AlbumProjection::list_albums(&state, "channel", "ch_02", false).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn old_snapshot_rebuilds_album_id_lookup_without_changing_records() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = ProjectionState::new();
+        let mut record = sample_album();
+        record.album_id = "alb_9".into();
+        let key = encode_key(&record.scope_type, &record.scope_id, &record.album_id);
+        state.insert("albums", key.clone(), encode_record(&record), 9);
+        state.set_applied_commit_seq(9);
+        state.save_snapshot(temp.path()).unwrap();
+
+        let (restored, watermark) = ProjectionState::load_snapshot(temp.path()).unwrap().unwrap();
+        assert_eq!(watermark, 9);
+        assert_eq!(restored.index_len(ID_INDEX), 0);
+        assert_eq!(AlbumProjection::rebuild_id_index(&restored).unwrap(), 1);
+        assert_eq!(AlbumProjection::get_album_by_id(&restored, "alb_9").unwrap(), Some(record.clone()));
+        restored.save_snapshot(temp.path()).unwrap();
+
+        let (reopened, watermark) = ProjectionState::load_snapshot(temp.path()).unwrap().unwrap();
+        assert_eq!(watermark, 9);
+        assert_eq!(reopened.get(ID_INDEX, b"alb_9"), Some(key));
+        assert_eq!(AlbumProjection::get_album_by_id(&reopened, "alb_9").unwrap(), Some(record));
+        assert_eq!(AlbumProjection::rebuild_id_index(&reopened).unwrap(), 0);
     }
 
     #[test]

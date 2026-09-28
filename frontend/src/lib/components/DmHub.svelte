@@ -1,19 +1,61 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { createEventDispatcher, onMount, tick } from 'svelte';
   import { layoutStore } from '$lib/layoutStore';
   import { centerDmChannelId } from '$lib/layoutStoreStates';
-  import { channels, channelMessages, currentUser, users, serverMembers, channelUnreadCounts, createDM, joinChannel } from '$lib/socket';
+  import { channels, channelMessages, currentUser, users, serverMembers, connected, channelUnreadCounts, createDM, joinChannel, markChannelAsRead, leaveGroup } from '$lib/socket';
   import type { Channel, User, Message } from '$lib/socket-types';
   import { getDmDirectoryKey } from '$lib/dmUserDirectory';
   import { buildDmPlaceholderChannel, findExistingDmChannel, getDmStableUserId, resolveDmOtherUser } from '$lib/dmConversations';
   import PeoplePicker from './PeoplePicker.svelte';
   import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
+  import FriendsPanel from './FriendsPanel.svelte';
+  import CreateGroupModal from './CreateGroupModal.svelte';
+  import { friendships, startFriendshipSync } from '$lib/friendships';
+  import { mediaUrl } from '$lib/mediaUrl';
+  import ProfileName from './ProfileName.svelte';
+  import ProfileMedia from './ProfileMedia.svelte';
+  import { E2EE_MESSAGE_PREFIX } from '$lib/e2ee';
+  import { leaveSelectedGroupChannels } from '$lib/dmGroupBatch';
+  import { livePresenceForUser } from '$lib/dmPresentation';
 
   import { openDetachedPanel } from '$lib/detachedPanels';
 
+  export let friendsOpenRequest = 0;
+  export let messagesOpenRequest = 0;
+  const dispatch = createEventDispatcher<{ tabChange: { tab: 'messages' | 'friends' } }>();
+
   let showPeoplePicker = false;
+  let showCreateGroup = false;
+  let activeTab: 'messages' | 'friends' = 'messages';
   let pendingDmUser: User | null = null;
   let pendingDmError = '';
+  let batchMode = false;
+  let selectedGroupIds: string[] = [];
+  let reviewBatchLeave = false;
+  let batchBusy = false;
+  let batchStatus = '';
+
+
+  onMount(() => {
+    const stopSync = startFriendshipSync();
+    dispatch('tabChange', { tab: activeTab });
+    return stopSync;
+  });
+
+  function selectTab(tab: 'messages' | 'friends') {
+    if (tab === 'friends') {
+      showPeoplePicker = false;
+      layoutStore.closeCenterDm();
+    }
+    if (activeTab === tab) return;
+    activeTab = tab;
+    dispatch('tabChange', { tab });
+  }
+
+  // Both request props use one increasing sequence in MainLayout, so the
+  // latest sidebar navigation still wins when this component remounts.
+  $: if (friendsOpenRequest > messagesOpenRequest) selectTab('friends');
+  $: if (messagesOpenRequest > friendsOpenRequest) selectTab('messages');
 
   let showExternalConfig = false;
   let externalApp = 'obsidian' as 'obsidian' | 'notion' | 'logseq' | 'custom' | 'none';
@@ -34,15 +76,15 @@
    * the same millisecond need a deterministic tie-break, and seq gives
    * that for free — directly analogous to Discord's last_message_id snowflake.
    */
-  function sortDms(a: Channel, b: Channel): number {
+  function sortDms(a: Channel, b: Channel, messagesByChannel: Record<string, Message[]>): number {
     // 1. Pinned first
     const aPinned = ((a as any).pinnedBy?.length ?? 0) > 0 ? 1 : 0;
     const bPinned = ((b as any).pinnedBy?.length ?? 0) > 0 ? 1 : 0;
     if (aPinned !== bPinned) return bPinned - aPinned;
 
     // 2. Last timestamp desc (most recent first)
-    const aMsgs = $channelMessages[a.id] || [];
-    const bMsgs = $channelMessages[b.id] || [];
+    const aMsgs = messagesByChannel[a.id] || [];
+    const bMsgs = messagesByChannel[b.id] || [];
     const aLastTs = aMsgs.length ? aMsgs[aMsgs.length - 1].timestamp : 0;
     const bLastTs = bMsgs.length ? bMsgs[bMsgs.length - 1].timestamp : 0;
     if (aLastTs !== bLastTs) return bLastTs - aLastTs;
@@ -56,9 +98,43 @@
     return conversationLabel(a).localeCompare(conversationLabel(b));
   }
 
+  // Keep the message store as an explicit reactive dependency. Reads hidden
+  // inside helper functions did not refresh previews or conversation ordering.
   $: dmChannels = ($channels || [])
     .filter((ch: Channel) => ch.type === "dm" || ch.type === "group")
-    .sort(sortDms);
+    .sort((a, b) => sortDms(a, b, $channelMessages));
+  $: groupChannels = dmChannels.filter((channel) => channel.type === 'group');
+  $: selectedGroups = groupChannels.filter((channel) => selectedGroupIds.includes(channel.id));
+
+  function toggleGroupSelection(channelId: string): void {
+    selectedGroupIds = selectedGroupIds.includes(channelId)
+      ? selectedGroupIds.filter((id) => id !== channelId)
+      : [...selectedGroupIds, channelId];
+    reviewBatchLeave = false;
+  }
+
+  function exitBatchMode(): void {
+    batchMode = false;
+    reviewBatchLeave = false;
+    selectedGroupIds = [];
+  }
+
+  async function leaveSelectedGroups(): Promise<void> {
+    if (batchBusy || selectedGroups.length === 0) return;
+    const targetIds = selectedGroups.map((channel) => channel.id);
+    batchBusy = true;
+    batchStatus = '';
+    const result = await leaveSelectedGroupChannels($channels, targetIds, leaveGroup);
+    batchBusy = false;
+    if (result.failedIds.length === 0) {
+      batchStatus = `Left ${result.leftIds.length} group ${result.leftIds.length === 1 ? 'conversation' : 'conversations'}.`;
+      exitBatchMode();
+    } else {
+      selectedGroupIds = result.failedIds;
+      reviewBatchLeave = false;
+      batchStatus = `Left ${result.leftIds.length} of ${result.attempted} groups. ${result.failedIds.length} could not be confirmed; review and retry them.`;
+    }
+  }
 
   let contextMenuOpen = false;
   let contextMenuPos = { x: 0, y: 0 };
@@ -76,26 +152,19 @@
     return other?.handle || other?.username || 'Recipient unavailable';
   }
 
-  function conversationAvatar(channel: Channel): string | null {
-    if (channel.type === 'group') {
-      return channel.avatar || null;
-    }
-    const other = otherUserFor(channel);
-    return other?.profilePicture || null;
-  }
-
-  function lastMessagePreview(channel: Channel): string {
-    const msgs: Message[] = $channelMessages[channel.id] || [];
-    if (msgs.length === 0) return '';
+  function lastMessagePreview(msgs: Message[] | undefined): string {
+    if (!msgs) return 'Open to load conversation';
+    if (msgs.length === 0) return 'No messages to show';
     const last = msgs[msgs.length - 1];
+    if (last.encrypted || last.text?.startsWith(E2EE_MESSAGE_PREFIX)) return 'Encrypted message';
     if (last.type === 'file') return last.fileName || '[File]';
     if (last.type === 'gif') return '[GIF]';
     if (last.type === 'emoji') return '[Emoji]';
-    return last.text || '';
+    return last.text || 'Message';
   }
 
-  function lastMessageTime(channel: Channel): string {
-    const msgs: Message[] = $channelMessages[channel.id] || [];
+  function lastMessageTime(msgs: Message[] | undefined): string {
+    msgs ||= [];
     if (msgs.length === 0) return '';
     const ts = msgs[msgs.length - 1].timestamp;
     const d = new Date(ts);
@@ -111,17 +180,8 @@
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
-  function statusColor(user: User | null): string {
-    if (!user) return 'var(--status-offline, #708090)';
-    switch (user.status) {
-      case 'active': return 'var(--color-success, #22c55e)';
-      case 'away': return 'var(--color-warning, #f59e0b)';
-      case 'busy': return 'var(--color-danger, #ef4444)';
-      default: return 'var(--status-offline, #708090)';
-    }
-  }
-
   async function openInCenter(channel: Channel, fallbackUser: User | null = null) {
+    selectTab('messages');
     const other = fallbackUser || otherUserFor(channel);
     if (channel.type === 'group') {
       layoutStore.openCenterGroupDm(channel.id, channel);
@@ -129,6 +189,7 @@
       layoutStore.openCenterDm(channel.id, other);
     }
     joinChannel(channel.id);
+    markChannelAsRead(channel.id);
     await tick();
     const list = document.querySelector('.center-dm-list');
     if (list && getComputedStyle(list).display === 'none') {
@@ -144,6 +205,14 @@
       layoutStore.openDM(channel.id, other);
     }
     joinChannel(channel.id);
+  }
+
+  function openCreatedGroup(channel: Channel) {
+    selectTab('messages');
+    showPeoplePicker = false;
+    layoutStore.openCenterGroupDm(channel.id, channel);
+    joinChannel(channel.id);
+    markChannelAsRead(channel.id);
   }
 
   function handleContextMenu(channel: Channel, e: MouseEvent) {
@@ -177,6 +246,7 @@
   }
 
   async function handlePersonSelected(user: User) {
+    selectTab('messages');
     pendingDmError = '';
     showPeoplePicker = false;
     if (isSelfUser(user)) return;
@@ -291,17 +361,34 @@
 <div class="dm-hub">
     <div class="dm-hub-header">
       <div class="dm-hub-title-wrap">
-        <span class="dm-hub-title">Direct Messages</span>
-        <span class="dm-hub-subtitle">Your conversations</span>
+        <span class="dm-hub-title">{activeTab === 'friends' ? 'Friends' : 'Messages'}</span>
+        <span class="dm-hub-subtitle">{activeTab === 'friends' ? 'People on this server' : 'Your conversations'}</span>
       </div>
-      <button class="dm-hub-new-btn" on:click={() => (showPeoplePicker = !showPeoplePicker)} title="New conversation" aria-label="New conversation" aria-expanded={showPeoplePicker}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="12" y1="5" x2="12" y2="19" />
-          <line x1="5" y1="12" x2="19" y2="12" />
-        </svg>
-      </button>
+      {#if activeTab === 'messages'}
+      <div class="dm-hub-actions">
+        {#if groupChannels.length && !batchMode}<button class="dm-hub-manage-btn" type="button" on:click={() => { batchMode = true; batchStatus = ''; }} title="Leave multiple group conversations">Manage groups</button>{/if}
+        <button type="button" class="dm-hub-group-btn" on:click={() => (showCreateGroup = true)} title="Create group" aria-label="Create group">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a6 6 0 0 1 12 0v1"/><circle cx="18" cy="9" r="2"/><path d="M18 15a4 4 0 0 1 4 4v1"/></svg>
+          <span>New group</span>
+        </button>
+        <button type="button" class="dm-hub-new-btn" on:click={() => (showPeoplePicker = !showPeoplePicker)} title="New direct message" aria-label="New direct message" aria-expanded={showPeoplePicker}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+        </button>
+      </div>
+      {/if}
     </div>
 
+    <nav class="dm-hub-tabs" aria-label="Messages and friends">
+      <button type="button" class="dm-hub-tab" class:active={activeTab === 'messages'} aria-pressed={activeTab === 'messages'} on:click={() => selectTab('messages')}>Messages</button>
+      <button type="button" class="dm-hub-tab" class:active={activeTab === 'friends'} aria-pressed={activeTab === 'friends'} on:click={() => selectTab('friends')}>
+        Friends{#if $friendships.incoming.length > 0}<span class="dm-hub-request-badge" aria-label={`${$friendships.incoming.length} pending friend requests`}>{$friendships.incoming.length}</span>{:else if $friendships.outgoing.length > 0}<span class="dm-hub-sent-count" aria-label={`${$friendships.outgoing.length} sent friend requests`}>{$friendships.outgoing.length} sent</span>{/if}
+      </button>
+    </nav>
+
+    {#if activeTab === 'messages'}
     {#if showPeoplePicker}
       <div class="dm-hub-picker">
         <PeoplePicker on:select={async (e) => handlePersonSelected(e.detail)} on:close={() => (showPeoplePicker = false)} />
@@ -314,9 +401,26 @@
     {#if pendingDmUser}
       <div class="dm-hub-pending" role="status">Opening conversation with {pendingDmUser.username}…</div>
     {/if}
+    {#if batchStatus}<p class="dm-hub-batch-status" role="status">{batchStatus}</p>{/if}
+    {#if batchMode}
+      <div class="dm-hub-batch-actions">
+        <p>Select group conversations to leave. Unread and pinned groups stay unselected. Activity is shown only when it is loaded on this device.</p>
+        <div><button type="button" on:click={exitBatchMode} disabled={batchBusy}>Cancel</button>
+          <button type="button" on:click={() => (reviewBatchLeave = true)} disabled={selectedGroups.length === 0 || batchBusy}>Review {selectedGroups.length} selected</button></div>
+      </div>
+      {#if reviewBatchLeave}
+        <div class="dm-hub-batch-review" role="group" aria-label="Review groups to leave">
+          <strong>Leave {selectedGroups.length} group {selectedGroups.length === 1 ? 'conversation' : 'conversations'}?</strong>
+          <ul>{#each selectedGroups as group (group.id)}<li>{conversationLabel(group)}</li>{/each}</ul>
+          <p>You may lose access to these conversations. This applies only to the current server.</p>
+          <div><button type="button" on:click={() => (reviewBatchLeave = false)} disabled={batchBusy}>Back</button>
+            <button type="button" class="dm-hub-leave-btn" on:click={leaveSelectedGroups} disabled={batchBusy}>{batchBusy ? 'Leaving…' : 'Leave selected groups'}</button></div>
+        </div>
+      {/if}
+    {/if}
 
     <div class="dm-hub-scroll">
-      {#if dmChannels.length === 0}
+      {#if (batchMode ? groupChannels : dmChannels).length === 0}
         <div class="dm-hub-empty">
           <p>No conversations yet.</p>
           <button class="dm-hub-empty-btn ui-btn ui-btn-primary" on:click={() => (showPeoplePicker = true)}>
@@ -324,39 +428,47 @@
           </button>
         </div>
       {:else}
-        {#each dmChannels as channel (channel.id)}
-          {@const other = otherUserFor(channel)}
+        {#each (batchMode ? groupChannels : dmChannels) as channel (channel.id)}
+          {@const other = resolveDmOtherUser(channel, $currentUser, $users, $serverMembers)}
+          {@const avatar = channel.type === 'group' ? channel.avatar : other?.profilePicture}
+          {@const presence = livePresenceForUser(other, $users, $connected)}
           {@const unread = $channelUnreadCounts[channel.id] || 0}
+          {@const previewMessages = $channelMessages[channel.id]}
           <button
             class="dm-hub-conversation"
             data-dm-channel-id={channel.id}
-            aria-pressed={$centerDmChannelId === channel.id}
-            class:active={$centerDmChannelId === channel.id}
+            aria-pressed={batchMode ? selectedGroupIds.includes(channel.id) : $centerDmChannelId === channel.id}
+            class:active={batchMode ? selectedGroupIds.includes(channel.id) : $centerDmChannelId === channel.id}
             class:unread={unread > 0}
-            on:click={() => openInCenter(channel)}
-            on:contextmenu={(e) => handleContextMenu(channel, e)}
+            on:click={() => batchMode ? toggleGroupSelection(channel.id) : openInCenter(channel)}
+            on:contextmenu={(e) => { if (!batchMode) handleContextMenu(channel, e); }}
           >
+            {#if batchMode}<span class="dm-hub-select-indicator" aria-hidden="true">{selectedGroupIds.includes(channel.id) ? '☑' : '☐'}</span>{/if}
             <div class="dm-hub-avatar-wrap">
-              {#if conversationAvatar(channel)}
-                <img class="dm-hub-avatar" src={conversationAvatar(channel)} alt="" />
+              {#if avatar}
+                {#if channel.type === 'dm'}
+                  <ProfileMedia class="dm-hub-avatar" src={mediaUrl(avatar)} decorative />
+                {:else}
+                  <img class="dm-hub-avatar" src={mediaUrl(avatar)} alt="" />
+                {/if}
               {:else}
                 <div class="dm-hub-avatar dm-hub-avatar-placeholder">
                   {(conversationLabel(channel) || '?')[0]}
                 </div>
               {/if}
-              {#if other}
-                <span class="dm-hub-status-dot" style:background={statusColor(other)}></span>
+              {#if presence === 'active' || presence === 'away' || presence === 'busy'}
+                <span class="dm-hub-status-dot" class:away={presence === 'away'} class:busy={presence === 'busy'} title={`${other?.username || 'Recipient'} is ${presence === 'active' ? 'online' : presence}`} aria-label={`${other?.username || 'Recipient'} is ${presence === 'active' ? 'online' : presence}`}></span>
               {/if}
             </div>
             <div class="dm-hub-body">
               <div class="dm-hub-top">
-                <span class="dm-hub-name">{conversationLabel(channel)}</span>
-                {#if lastMessageTime(channel)}
-                  <span class="dm-hub-time">{lastMessageTime(channel)}</span>
+                <span class="dm-hub-name">{#if channel.type === 'dm' && other}<ProfileName username={other.handle || other.username} font={other.usernameFont} color={other.color} />{:else}{conversationLabel(channel)}{/if}</span>
+                {#if lastMessageTime(previewMessages)}
+                  <span class="dm-hub-time">{lastMessageTime(previewMessages)}</span>
                 {/if}
               </div>
               <div class="dm-hub-bottom">
-                <span class="dm-hub-preview">{lastMessagePreview(channel) || 'No messages yet'}</span>
+                <span class="dm-hub-preview">{lastMessagePreview(previewMessages)}</span>
                 {#if unread > 0}
                   <span class="dm-hub-badge">{unread > 99 ? '99+' : unread}</span>
                 {/if}
@@ -366,6 +478,9 @@
         {/each}
       {/if}
     </div>
+    {:else}
+      <FriendsPanel on:message={(event) => handlePersonSelected(event.detail)} />
+    {/if}
   </div>
 
 <ContextMenu
@@ -378,10 +493,13 @@
   on:close={() => (contextMenuOpen = false)}
 />
 
+<CreateGroupModal bind:isOpen={showCreateGroup} onCreated={openCreatedGroup} />
+
 <style>
   .dm-hub {
     display: flex;
     flex-direction: column;
+    container: dm-hub / inline-size;
     height: 100%;
     min-height: 0;
     overflow: hidden;
@@ -394,6 +512,27 @@
     padding: var(--space-1, 4px) var(--space-3, 12px) 0;
     border-bottom: 1px solid var(--color-border-primary, #302b63);
     flex-shrink: 0;
+  }
+
+  .dm-hub-request-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    margin-left: var(--space-2, 8px);
+    padding: 0 var(--space-1, 4px);
+    border-radius: var(--radius-full, 9999px);
+    background: var(--accent-primary-color, var(--accent-primary));
+    color: var(--text-on-accent, #fff);
+    font-size: var(--font-size-xs, 11px);
+    line-height: 1;
+  }
+
+  .dm-hub-sent-count {
+    margin-left: var(--space-2, 8px);
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs, 11px);
   }
 
   .dm-hub-tab {
@@ -417,7 +556,6 @@
     font-weight: var(--font-weight-semibold, 600);
     border-bottom-color: var(--accent-primary-color, #6366f1);
   }
-
   .dm-hub-header {
     display: flex;
     align-items: center;
@@ -426,6 +564,14 @@
     border-bottom: 1px solid var(--color-border-primary, #302b63);
     flex-shrink: 0;
   }
+
+  .dm-hub-manage-btn, .dm-hub-batch-actions button, .dm-hub-batch-review button { border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--text-heading); padding: .45rem .65rem; cursor: pointer; }
+  .dm-hub-batch-actions, .dm-hub-batch-review, .dm-hub-batch-status { margin: .6rem 1rem; padding: .7rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); color: var(--text-secondary); font-size: .85rem; }
+  .dm-hub-batch-actions p, .dm-hub-batch-review p { margin: 0 0 .6rem; }
+  .dm-hub-batch-actions > div, .dm-hub-batch-review > div { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .dm-hub-batch-review ul { max-height: 7rem; overflow: auto; margin: .5rem 0; }
+  .dm-hub-batch-review .dm-hub-leave-btn { color: var(--color-danger, #ef4444); }
+  .dm-hub-select-indicator { color: var(--accent-primary-color); font-size: 1.25rem; }
 
   .dm-hub-title-wrap {
     display: flex;
@@ -441,6 +587,24 @@
   .dm-hub-subtitle {
     font-size: var(--font-size-sm, 13px);
     color: var(--text-muted, #9999ff);
+  }
+
+  .dm-hub-actions { display: flex; align-items: center; gap: var(--space-2, 8px); flex-shrink: 0; }
+  .dm-hub-group-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2, 8px);
+    min-height: 40px; padding: 0 var(--space-3, 12px);
+    border: 1px solid var(--color-border-primary, #302b63); border-radius: var(--radius-md, 8px);
+    background: var(--surface-raised, rgba(255, 255, 255, 0.04)); color: var(--text-secondary, #b3b3ff);
+    font: inherit; font-size: var(--font-size-sm, 13px); font-weight: 600; cursor: pointer;
+  }
+  .dm-hub-group-btn:hover { background: color-mix(in srgb, var(--text-heading) 8%, transparent); color: var(--text-heading, #e0e0ff); }
+  .dm-hub-group-btn:focus-visible { outline: 2px solid var(--accent-primary-color, #6366f1); outline-offset: 2px; }
+
+  @container dm-hub (max-width: 360px) {
+    .dm-hub-header { padding-inline: var(--space-3, 12px); flex-wrap: wrap; gap: var(--space-2, 8px); }
+    .dm-hub-actions { width: 100%; justify-content: flex-end; }
+    .dm-hub-group-btn { width: 40px; padding: 0; }
+    .dm-hub-group-btn span { display: none; }
   }
 
   .dm-hub-new-btn {
@@ -543,7 +707,7 @@
     position: relative;
     flex-shrink: 0;
   }
-  .dm-hub-avatar {
+  .dm-hub-avatar, .dm-hub-avatar-wrap :global(.dm-hub-avatar) {
     width: 32px;
     height: 32px;
     border-radius: var(--radius-full, 9999px);
@@ -568,7 +732,10 @@
     height: var(--space-2, 8px);
     border-radius: 50%;
     border: 2px solid var(--surface-base, #24243e);
+    background: var(--color-success, #22c55e);
   }
+  .dm-hub-status-dot.away { background: var(--color-warning, #f59e0b); }
+  .dm-hub-status-dot.busy { background: var(--color-danger, #ef4444); }
 
   .dm-hub-body {
     flex: 1;
@@ -632,111 +799,15 @@
     line-height: 1;
   }
 
-  .dm-hub-notes {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .notes-external-config {
-    padding: var(--space-3, 12px) var(--space-4, 16px);
-    border-bottom: 1px solid var(--color-border-primary, #302b63);
-    flex-shrink: 0;
-  }
-
-  .notes-external-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2, 8px);
-  }
-
-  .notes-external-title {
-    font-size: var(--font-size-sm, 13px);
-    font-weight: var(--font-weight-semibold, 600);
-    color: var(--text-heading, #e0e0ff);
-  }
-
-  .notes-external-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    border: 1px solid var(--color-border-primary, #302b63);
-    border-radius: var(--radius-sm, 4px);
-    background: transparent;
-    color: var(--text-secondary, #b3b3ff);
-    cursor: pointer;
-    transition: background var(--duration-fast, 150ms), color var(--duration-fast, 150ms);
-  }
-  .notes-external-toggle:hover {
-    color: var(--text-heading, #e0e0ff);
-    background: var(--surface-hover, #302b63);
-  }
-
-  .notes-external-settings {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2, 8px);
-    margin-top: var(--space-3, 12px);
-  }
-
-  .notes-external-label {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1, 4px);
-    font-size: var(--font-size-sm, 13px);
-    color: var(--text-secondary, #b3b3ff);
-  }
-
-  .notes-external-select,
-  .notes-external-input {
-    width: 100%;
-    padding: var(--space-2, 8px) var(--space-3, 12px);
-    border: 1px solid var(--color-border-primary, #302b63);
-    border-radius: var(--radius-md, 8px);
-    background: var(--surface-input, #24243e);
-    color: var(--text-heading, #e0e0ff);
-    font-size: var(--font-size-sm, 13px);
-  }
-
-  .notes-external-test {
-    align-self: flex-start;
-    padding: var(--space-2, 8px) var(--space-3, 12px);
-    border: 1px solid var(--color-border-primary, #302b63);
-    border-radius: var(--radius-md, 8px);
-    background: var(--surface-button, #302b63);
-    color: var(--text-heading, #e0e0ff);
-    font-size: var(--font-size-sm, 13px);
-    font-weight: var(--font-weight-medium, 500);
-    cursor: pointer;
-  }
-  .notes-external-test:hover {
-    background: var(--surface-hover, #302b63);
-  }
-
-  .notes-external-result {
-    font-size: var(--font-size-sm, 13px);
-    color: var(--text-muted, #9999ff);
-  }
-  .notes-external-result.success {
-    color: var(--color-success, #22c55e);
-  }
-  .notes-external-result.error {
-    color: var(--color-danger, #ef4444);
-  }
-
 	/* Mobile: roomier rows and thumb-sized targets */
 	@media (max-width: 768px) {
 		.dm-hub-header { padding: var(--space-3, 12px) var(--space-4, 16px); }
 		.dm-hub-picker { padding: var(--space-3, 12px) var(--space-4, 16px); }
 		.dm-hub-new-btn { width: 44px; height: 44px; }
+		.dm-hub-group-btn { min-height: 44px; }
 		.dm-hub-scroll { padding: var(--space-3, 12px); }
 		.dm-hub-conversation { padding: var(--space-3, 12px); }
-		.dm-hub-avatar,
+		.dm-hub-avatar, .dm-hub-avatar-wrap :global(.dm-hub-avatar),
 		.dm-hub-avatar-placeholder { width: 44px; height: 44px; }
 		.dm-hub-avatar-placeholder { font-size: var(--font-size-base, 14px); }
 		.dm-hub-status-dot { width: 10px; height: 10px; }
@@ -747,11 +818,10 @@
 			border-radius: var(--radius-lg, 12px);
 		}
 		.dm-hub-tab { min-height: 40px; }
-		.notes-external-toggle { width: 36px; height: 36px; }
 	}
+	@media (max-width: 520px) { .dm-hub-group-btn { width: 44px; padding: 0; } .dm-hub-group-btn span { display: none; } }
 
 	@media (prefers-reduced-motion: reduce) {
-		.dm-hub-new-btn, .dm-hub-conversation, .dm-hub-tab, .dm-hub-empty-btn,
-		.notes-external-toggle, .notes-external-test { transition: none; }
+		.dm-hub-new-btn, .dm-hub-group-btn, .dm-hub-conversation, .dm-hub-tab, .dm-hub-empty-btn { transition: none; }
 	}
 </style>

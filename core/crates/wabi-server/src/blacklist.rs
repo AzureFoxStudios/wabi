@@ -4,16 +4,16 @@
 //! # Comments start with #
 //! type|value|reason|expires_timestamp
 //!
-//! Types: user, ip
+//! Types: user, ip, channel_ban, channel_timeout
 //! expires_timestamp: Unix timestamp (0 = never expires)
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::{error, info};
 
 /// Blacklist entry
 #[derive(Debug, Clone)]
@@ -30,6 +30,8 @@ pub struct BlacklistEntry {
 pub enum BlacklistType {
     User,
     Ip,
+    ChannelBan,
+    ChannelTimeout,
 }
 
 impl BlacklistType {
@@ -37,6 +39,8 @@ impl BlacklistType {
         match s.trim().to_lowercase().as_str() {
             "user" => Some(BlacklistType::User),
             "ip" => Some(BlacklistType::Ip),
+            "channel_ban" => Some(BlacklistType::ChannelBan),
+            "channel_timeout" => Some(BlacklistType::ChannelTimeout),
             _ => None,
         }
     }
@@ -58,12 +62,16 @@ impl BlacklistManager {
     }
 
     /// Load blacklist from file (async, safe for concurrent access)
-    pub async fn load_from_file(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn load_from_file(&self) -> anyhow::Result<()> {
         let path = Path::new(&self.file_path);
 
-        // Create empty file if it doesn't exist
+        // An absent file is a fresh installation. An unreadable or damaged
+        // existing file is never an empty allowlist.
         if !path.exists() {
-            std::fs::write(path, "# Wabi Blacklist\n# Format: type|value|reason|expires_timestamp\n# Types: user, ip\n# expires_timestamp: Unix timestamp (0 = never expires)\n")?;
+            if let Some(parent) = path.parent() { std::fs::create_dir_all(parent)?; }
+            let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+            file.write_all(b"# Wabi Blacklist\n# Format: type|value|reason|expires_timestamp\n# Types: user, ip, channel_ban, channel_timeout\n# expires_timestamp: Unix timestamp (0 = never expires)\n")?;
+            file.sync_all()?;
             info!(
                 "[blacklist] Created empty blacklist file at {}",
                 self.file_path
@@ -86,40 +94,50 @@ impl BlacklistManager {
             }
 
             let parts: Vec<&str> = line.split('|').collect();
-            if parts.len() < 3 {
-                warn!(
-                    "[blacklist] Line {} invalid format (expected type|value|reason|[expires]): {}",
-                    line_num + 1,
-                    line
-                );
-                continue;
+            if !(3..=4).contains(&parts.len()) {
+                anyhow::bail!("blacklist line {} has invalid format", line_num + 1);
             }
 
             let entry_type = match BlacklistType::from_str(parts[0]) {
                 Some(t) => t,
-                None => {
-                    warn!(
-                        "[blacklist] Line {} unknown type '{}': {}",
-                        line_num + 1,
-                        parts[0],
-                        line
-                    );
-                    continue;
-                }
+                None => anyhow::bail!("blacklist line {} has unknown type", line_num + 1),
             };
 
-            let value = parts[1].trim().to_string();
+            let mut value = parts[1].trim().to_string();
             let reason = parts[2].trim().to_string();
-            let expires_at = parts
-                .get(3)
-                .and_then(|s| s.trim().parse::<u64>().ok())
-                .filter(|&ts| ts > 0);
+            if value.is_empty() {
+                anyhow::bail!("blacklist line {} has an empty value", line_num + 1);
+            }
+            match &entry_type {
+                BlacklistType::User => {
+                    if value.parse::<i64>().ok().filter(|id| *id > 0).is_none() {
+                        anyhow::bail!("blacklist line {} needs a positive numeric user ID", line_num + 1);
+                    }
+                }
+                BlacklistType::Ip => {
+                    value = value.parse::<std::net::IpAddr>()
+                        .map_err(|_| anyhow::anyhow!("blacklist line {} needs one IP address, not a range or hostname", line_num + 1))?
+                        .to_string();
+                }
+                BlacklistType::ChannelBan | BlacklistType::ChannelTimeout => {
+                    let valid = value.rsplit_once(':').is_some_and(|(channel, user)| {
+                        !channel.is_empty() && user.parse::<i64>().ok().is_some_and(|id| id > 0)
+                    });
+                    if !valid { anyhow::bail!("blacklist line {} needs channel_id:user_id", line_num + 1); }
+                }
+            }
+            let expires_at = match parts.get(3) {
+                Some(value) => Some(value.trim().parse::<u64>().map_err(|_| anyhow::anyhow!("blacklist line {} has an invalid expiry", line_num + 1))?).filter(|&ts| ts > 0),
+                None => None,
+            };
 
             let key = format!(
                 "{}:{}",
                 match entry_type {
                     BlacklistType::User => "user",
                     BlacklistType::Ip => "ip",
+                    BlacklistType::ChannelBan => "channel_ban",
+                    BlacklistType::ChannelTimeout => "channel_timeout",
                 },
                 &value
             );
@@ -164,6 +182,16 @@ impl BlacklistManager {
         })
     }
 
+    pub async fn active_user_ban_ids(&self) -> Vec<i64> {
+        let now = chrono::Utc::now().timestamp() as u64;
+        let guard = self.entries.read().await;
+        let mut ids: Vec<i64> = guard.values().filter(|entry| {
+            entry.entry_type == BlacklistType::User && entry.expires_at.is_none_or(|expires| now < expires)
+        }).filter_map(|entry| entry.value.parse::<i64>().ok()).collect();
+        ids.sort_unstable();
+        ids
+    }
+
     /// Check if an IP is banned
     pub async fn is_ip_banned(&self, ip: &str) -> Option<BlacklistEntry> {
         let key = format!("ip:{}", ip);
@@ -180,8 +208,76 @@ impl BlacklistManager {
         })
     }
 
-    /// Add a user to the blacklist (in-memory only, doesn't persist)
-    pub async fn add_user(&self, user_id: i64, reason: &str, expires_at: Option<u64>) {
+    async fn active_restriction(&self, kind: &str, channel_id: &str, user_id: i64) -> Option<BlacklistEntry> {
+        let key = format!("{kind}:{channel_id}:{user_id}");
+        let guard = self.entries.read().await;
+        guard.get(&key).filter(|entry| entry.expires_at.is_none_or(|expires| (chrono::Utc::now().timestamp() as u64) < expires)).cloned()
+    }
+
+    pub async fn is_channel_banned(&self, channel_id: &str, user_id: i64) -> Option<BlacklistEntry> {
+        self.active_restriction("channel_ban", channel_id, user_id).await
+    }
+
+    pub async fn is_channel_timed_out(&self, channel_id: &str, user_id: i64) -> Option<BlacklistEntry> {
+        self.active_restriction("channel_timeout", channel_id, user_id).await
+    }
+
+    pub async fn restrict_channel(&self, channel_id: &str, user_id: i64, reason: &str, expires_at: Option<u64>) -> anyhow::Result<()> {
+        let entry_type = if expires_at.is_some() { BlacklistType::ChannelTimeout } else { BlacklistType::ChannelBan };
+        let kind = if expires_at.is_some() { "channel_timeout" } else { "channel_ban" };
+        let value = format!("{channel_id}:{user_id}");
+        let mut guard = self.entries.write().await;
+        let mut next = guard.clone();
+        next.insert(format!("{kind}:{value}"), BlacklistEntry { entry_type, value, reason: reason.to_string(), expires_at });
+        self.persist(&next)?;
+        *guard = next;
+        Ok(())
+    }
+
+    pub async fn remove_channel_restriction(&self, channel_id: &str, user_id: i64, timeout: bool) -> anyhow::Result<()> {
+        let kind = if timeout { "channel_timeout" } else { "channel_ban" };
+        let mut guard = self.entries.write().await;
+        let mut next = guard.clone();
+        next.remove(&format!("{kind}:{channel_id}:{user_id}"));
+        self.persist(&next)?;
+        *guard = next;
+        Ok(())
+    }
+
+    fn persist(&self, entries: &HashMap<String, BlacklistEntry>) -> anyhow::Result<()> {
+        let path = Path::new(&self.file_path);
+        let parent = path.parent().ok_or_else(|| anyhow::anyhow!("blacklist path has no parent"))?;
+        std::fs::create_dir_all(parent)?;
+        let temporary = parent.join(format!(".blacklist-{}.tmp", uuid::Uuid::new_v4()));
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)] { use std::os::unix::fs::OpenOptionsExt; options.mode(0o600); }
+        let mut file = options.open(&temporary)?;
+        let result = (|| -> anyhow::Result<()> {
+            file.write_all(b"# Wabi Blacklist\n# Format: type|value|reason|expires_timestamp\n")?;
+            let mut ordered: Vec<_> = entries.values().collect();
+            ordered.sort_by_key(|entry| match entry.entry_type {
+                BlacklistType::User => format!("user:{}", entry.value),
+                BlacklistType::Ip => format!("ip:{}", entry.value),
+                BlacklistType::ChannelBan => format!("channel_ban:{}", entry.value),
+                BlacklistType::ChannelTimeout => format!("channel_timeout:{}", entry.value),
+            });
+            for entry in ordered {
+                let kind = match entry.entry_type { BlacklistType::User => "user", BlacklistType::Ip => "ip", BlacklistType::ChannelBan => "channel_ban", BlacklistType::ChannelTimeout => "channel_timeout" };
+                writeln!(file, "{}|{}|{}|{}", kind, entry.value, entry.reason.replace(['|', '\n', '\r'], " "), entry.expires_at.unwrap_or(0))?;
+            }
+            file.sync_all()?;
+            std::fs::rename(&temporary, path)?;
+            #[cfg(unix)]
+            File::open(parent)?.sync_all()?;
+            Ok(())
+        })();
+        if result.is_err() { let _ = std::fs::remove_file(&temporary); }
+        result
+    }
+
+    /// Save the new file before changing the in-memory enforcement map.
+    pub async fn add_user(&self, user_id: i64, reason: &str, expires_at: Option<u64>) -> anyhow::Result<()> {
         let key = format!("user:{}", user_id);
         let entry = BlacklistEntry {
             entry_type: BlacklistType::User,
@@ -190,27 +286,36 @@ impl BlacklistManager {
             expires_at,
         };
         let mut guard = self.entries.write().await;
-        guard.insert(key, entry);
+        let mut next = guard.clone();
+        next.insert(key, entry);
+        self.persist(&next)?;
+        *guard = next;
         info!(
             "[blacklist] Added user {} to blacklist: {}",
             user_id, reason
         );
+        Ok(())
     }
 
-    /// Remove a user from the blacklist (in-memory only)
-    pub async fn remove_user(&self, user_id: i64) {
+    pub async fn remove_user(&self, user_id: i64) -> anyhow::Result<()> {
         let key = format!("user:{}", user_id);
         let mut guard = self.entries.write().await;
-        guard.remove(&key);
+        let mut next = guard.clone();
+        next.remove(&key);
+        self.persist(&next)?;
+        *guard = next;
         info!("[blacklist] Removed user {} from blacklist", user_id);
+        Ok(())
     }
 
-    /// Clear all blacklist entries (admin use). In-memory only.
-    pub async fn clear_all(&self) {
+    /// Clear all blacklist entries only after the change is durable.
+    pub async fn clear_all(&self) -> anyhow::Result<()> {
         let mut guard = self.entries.write().await;
         let count = guard.len();
-        guard.clear();
+        self.persist(&HashMap::new())?;
+        *guard = HashMap::new();
         info!("[blacklist] Cleared all {} entries", count);
+        Ok(())
     }
 
     /// Sweep expired entries. Required to prevent unbounded memory growth
@@ -225,19 +330,25 @@ impl BlacklistManager {
         let now = chrono::Utc::now().timestamp() as u64;
         let mut guard = self.entries.write().await;
         let before = guard.len();
-        guard.retain(|_, entry| match entry.expires_at {
+        let mut next = guard.clone();
+        next.retain(|_, entry| match entry.expires_at {
             None => true,                                // never expires — keep
             Some(expires) => now < expires,              // not yet expired — keep
         });
-        let removed = before - guard.len();
+        let removed = before - next.len();
         if removed > 0 {
+            if let Err(error) = self.persist(&next) {
+                error!(%error, "[blacklist] Could not persist expired-entry cleanup");
+                return 0;
+            }
+            *guard = next;
             info!("[blacklist] Cleaned up {} expired entries", removed);
         }
         removed
     }
 
     /// Reload blacklist from file
-    pub async fn reload(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn reload(&self) -> anyhow::Result<()> {
         self.load_from_file().await
     }
 }
@@ -246,13 +357,14 @@ impl BlacklistManager {
 /// Returns the JoinHandle so shutdown can cancel the loop.
 pub fn spawn_blacklist_cleanup_loop(
     manager: Arc<BlacklistManager>,
+    operations: crate::instance_operations::InstanceOperations,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
         interval.tick().await; // skip the immediate first tick
         loop {
             interval.tick().await;
-            manager.cleanup_expired().await;
+            operations.run(manager.cleanup_expired()).await;
         }
     })
 }
@@ -308,7 +420,7 @@ mod tests {
         m.add_user(3, "ban 3", None).await;
         assert_eq!(m.entries.read().await.len(), 3);
 
-        m.clear_all().await;
+        m.clear_all().await.unwrap();
         assert_eq!(m.entries.read().await.len(), 0);
         assert!(m.is_user_banned(1).await.is_none());
     }

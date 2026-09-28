@@ -9,7 +9,7 @@ import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 import { authStore } from './authStore';
 import { getServerUrl, normalizeServerUrl } from './serverUrl';
-import { getAuthToken, getGuestSessionId, authSessionGeneration } from './authSession';
+import { getAuthToken, getGuestSessionId, authSessionGeneration, onAuthSessionCleared } from './authSession';
 import { tryRefresh } from './api/authRefresh';
 import { VALID_TRANSITIONS, type ConnectionState, socket, connected, connectionState } from './socketConnectionState';
 import { callSessionManager, backfillCallSessionChannelNames } from './callSessionManager';
@@ -28,10 +28,15 @@ import { isCurrentUserProfile } from './profileIdentity';
 import { messageDeliveries, parseMessageAcceptance, parseMessageFailure, isOwnMessage, isSameMessageIdentity } from './messageDelivery';
 import type { Channel, Message, User } from './socket-types';
 import { channels, currentChannel, joinChannel, descendantIds, _updatePinnedChannels, readLastChannel, persistLastChannel } from './channelStore';
+import { channelAccessPolicyVersion } from './channelAccessPolicyVersion';
 import { upsertBreakoutRooms, removeBreakoutRooms } from './breakoutChannels';
-import { channelMessages, _updateOptimisticMessage, _removeOptimisticMessage } from './messageStore';
+import { channelMessages, _incrementUnreadCount, _updateOptimisticMessage, _removeOptimisticMessage } from './messageStore';
+import {
+	loadDmPreview, _completeHistoryRequest, _failHistoryRequests, _resetHistoryRequests,
+	channelHasMoreHistory, channelOldestMessageId
+} from './messagePagination';
 import { isRenderableMessage } from '$lib/displayEnhancements';
-import { mergeServerEmotes, removeServerEmote, type ServerEmote } from './emoji-store';
+import { mergeServerEmotes, removeServerEmote, clearServerEmotes, type ServerEmote } from './emoji-store';
 import { recordSuccessfulServerConnection } from './savedServerActions';
 import {
 	centerDmChannelId,
@@ -92,6 +97,23 @@ function dedupeMessagesKeepOrder(items: Message[]): Message[] {
 	return out;
 }
 
+function mergeHistoryMessages(existing: Message[], incoming: Message[]): Message[] {
+	const merged = [...existing];
+	for (const message of incoming) {
+		const index = merged.findIndex((candidate) => isSameMessageRow(candidate, message));
+		if (index >= 0) merged[index] = mergeMessageRow(merged[index], message);
+		else merged.push(message);
+	}
+	merged.sort((left, right) => {
+		const time = (Number(left.timestamp) || 0) - (Number(right.timestamp) || 0);
+		if (time) return time;
+		const sequence = (Number((left as Message & { commitSeq?: number }).commitSeq) || 0) -
+			(Number((right as Message & { commitSeq?: number }).commitSeq) || 0);
+		return sequence;
+	});
+	return dedupeMessagesKeepOrder(merged);
+}
+
 /** Collapse list items that would crash Svelte keyed {#each} blocks. */
 function dedupeByIdKey<T extends { id?: string | null }>(items: T[]): T[] {
 	const seen = new Set<string>();
@@ -125,7 +147,7 @@ import {
 } from './presenceStore';
 import { _setTypingUsers, _clearTypingUsers } from './typingStore';
 import { restorePresence } from './presenceControl';
-import { incomingCall, outgoingCall } from './callingStateStores';
+import { incomingCall, outgoingCall, activeCallSessionId } from './callingStateStores';
 
 /**
  * L2: normalize wire channel payloads so Chat routes to LoreChannel.
@@ -220,6 +242,24 @@ export class SocketManager {
 	constructor() {
 		this.heartbeat = new SocketHeartbeat(() => this.socketInstance?.disconnect());
 		this.reconnect = new SocketReconnectionManager();
+		onAuthSessionCleared((server) => {
+			if (normalizeServerUrl(this.currentServerUrl || '') !== server) return;
+			this.reconnect.cancelReconnect();
+			this.heartbeat.stop();
+			this.destroySocket();
+			this.username = '';
+			this.authToken = null;
+			this.currentServerUrl = null;
+			this.transition('disconnected');
+			this.clearAccountRoster();
+		});
+	}
+
+	private clearAccountRoster(): void {
+		clearServerEmotes();
+		_setUsers([]);
+		_setServerMembers([]);
+		_setCurrentUser(null);
 	}
 
 	// ==================== STATE MACHINE ====================
@@ -318,27 +358,28 @@ export class SocketManager {
 
 		this.reconnect.setReconnectTimer(
 			setTimeout(() => {
-				this.reconnect.setReconnectTimer(null);
-				const currentUrl = normalizeServerUrl(this.currentServerUrl || getServerUrl());
-				if (!currentUrl) {
-					this.transition('failed');
-					return;
-				}
+				void (async () => {
+					this.reconnect.setReconnectTimer(null);
+					const currentUrl = normalizeServerUrl(this.currentServerUrl || getServerUrl());
+					if (!currentUrl) {
+						this.transition('failed');
+						return;
+					}
+					const attempt = this.reconnect.getAttemptCount();
+					const { rotated, nextUrl } = await this.reconnect.rotateToNextFailoverCandidate(this.currentServerUrl);
+					if (this.state !== 'reconnecting' || this.reconnect.getAttemptCount() !== attempt ||
+						(!rotated && normalizeServerUrl(getServerUrl()) !== currentUrl)) return;
+					if (rotated && nextUrl) {
+						this.currentServerUrl = nextUrl;
+						this.reconnect.primeFailoverCandidates(nextUrl);
+					}
 
-				const { rotated, nextUrl } = this.reconnect.rotateToNextFailoverCandidate(this.currentServerUrl);
-				if (rotated && nextUrl) {
-					this.currentServerUrl = nextUrl;
-					this.reconnect.primeFailoverCandidates(nextUrl);
-				}
-
-				// Token freshness: the captured authToken may predate a silent
-				// refresh (15-minute access tokens). Prefer whatever authSession
-				// holds NOW; fall back to the captured value (also covers guests
-				// whose credentials are sessionId-based).
-				const liveToken = getAuthToken() || undefined;
-				this.authToken = liveToken || this.authToken;
-
-				this.connect(this.username, this.authToken || undefined);
+					// Prefer a token refreshed while the timer waited. Guests still
+					// use the previously captured session credential.
+					const liveToken = getAuthToken() || undefined;
+					this.authToken = liveToken || this.authToken;
+					this.connect(this.username, this.authToken || undefined);
+				})();
 			}, delay)
 		);
 	}
@@ -370,13 +411,15 @@ export class SocketManager {
 	connect(username: string, authToken?: string): Socket | null {
 		if (!browser) return null;
 		const isReconnectAttempt = this.state === 'reconnecting' || this.reconnect.getAttemptCount() > 0;
+		const nextServerUrl = normalizeServerUrl(getServerUrl()) || getServerUrl();
 
 		if (this.state === 'connecting') {
 			console.log('[SocketManager] Connection in progress, returning existing socket');
 			return this.socketInstance;
 		}
 
-		if (this.state === 'connected' && this.socketInstance && this.username === username) {
+		if (this.state === 'connected' && this.socketInstance && this.username === username &&
+			this.currentServerUrl === nextServerUrl) {
 			console.log('[SocketManager] Already connected with same username');
 			return this.socketInstance;
 		}
@@ -385,7 +428,8 @@ export class SocketManager {
 		// starting a connection (e.g. overlapping bootstrap + login handlers, or
 		// aggressive HMR remounts) must not spin up a second socket that the
 		// server would then kick, triggering a disconnect/reconnect storm.
-		if (this.socketInstance && Date.now() - this.lastConnectStartedAt < 500) {
+		if (this.socketInstance && this.username === username && this.currentServerUrl === nextServerUrl &&
+			Date.now() - this.lastConnectStartedAt < 500) {
 			console.log('[SocketManager] Ignoring duplicate connect() within cooldown window');
 			return this.socketInstance;
 		}
@@ -394,6 +438,9 @@ export class SocketManager {
 		if (!this.canTransition('connecting')) {
 			console.warn(`[SocketManager] Cannot connect from state: ${this.state}`);
 			this.forceReset();
+		}
+		if (this.currentServerUrl && (this.currentServerUrl !== nextServerUrl || this.username !== username)) {
+			this.clearAccountRoster();
 		}
 
 		this.transition('connecting');
@@ -418,11 +465,10 @@ export class SocketManager {
 		console.log('[SocketManager] Connecting to:', serverUrl, token ? '(token)' : sessionId ? '(session)' : '(new)');
 
 		this.socketInstance = io(serverUrl, {
-			// Prefer WebSocket, but fall back to long-polling. Cloudflare/cloudflared
-			// can strip the WS Upgrade header on some tunnel configs, and without a
-			// polling fallback the client would never connect. socket.io negotiates
-			// polling first, then upgrades to WS when the transport is available.
-			transports: ['websocket', 'polling'],
+			// Establish HTTP polling first, then upgrade to WebSocket when available.
+			// Socket.IO does not try the second transport when a WebSocket-first
+			// handshake fails, so that order strands some mobile/tunnel clients.
+			transports: ['polling', 'websocket'],
 			reconnection: false,
 			timeout: this.connectTimeoutMs,
 			withCredentials: true,
@@ -454,6 +500,7 @@ export class SocketManager {
 		this.currentServerUrl = null;
 		this.shouldSyncAfterReconnect = false;
 		this.transition('disconnected');
+		this.clearAccountRoster();
 	}
 
 	private forceReset(): void {
@@ -628,6 +675,7 @@ export class SocketManager {
 			roleDefinitions?: unknown[];
 			voiceState?: Record<string, unknown>;
 		}) => {
+			_resetHistoryRequests();
 			const offered = dedupeByIdKey(normalizeChannelList(payload?.channels));
 			const nextChannels = offered.filter(channel => channel.type !== 'group' || (realm && groupMembership.apply(channel, realm)));
 			if (realm) {
@@ -700,6 +748,22 @@ export class SocketManager {
 				upsertUser(serverMembers, me);
 			}
 			_setCurrentUser(me);
+			// An updated client must advertise its encryption device even when the
+			// user has not opened a DM yet. Otherwise the other participant cannot
+			// enable the default encryption policy for a new conversation.
+			if (me?.isRegistered) {
+				void import('./e2ee').then(({ ensureE2eeDeviceRegistered }) => {
+					if (currentConnection()) return ensureE2eeDeviceRegistered();
+				}).catch(() => {
+					// The conversation surface retries and shows the actionable error.
+				});
+			}
+			// The initial channel list contains existing conversations, but their
+			// messages have not been loaded. Fetch one durable row per conversation
+			// so previews and ordering survive a reload on both devices.
+			for (const channel of nextChannels) {
+				if (channel.type === 'dm' || channel.type === 'group') loadDmPreview(channel.id);
+			}
 
 			for (const [channelId, members] of Object.entries(payload?.voiceState || {})) {
 				if (Array.isArray(members)) {
@@ -714,6 +778,55 @@ export class SocketManager {
 			});
 			void drainOutboundQueue();
 			void callSocketInitialized(sock);
+		});
+		const refreshAccessibleChannels = () => {
+			const token = getAuthToken(server);
+			if (!token) return;
+			void fetch(`${server}/api/channels`, { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' })
+				.then(async response => {
+					if (!response.ok || !currentConnection()) return;
+					const data = await response.json();
+					if (!currentConnection()) return;
+					const previous = new Map(get(channels).map(channel => [channel.id, channel]));
+					const visible = normalizeChannelList(data.channels).filter(channel => channel.type !== 'group' || (realm && groupMembership.acceptsContent(channel.id)));
+					const allowed = new Set(visible.map(channel => channel.id));
+					for (const channel of previous.values()) {
+						if (channel.type === 'voice' && !allowed.has(channel.id)) {
+							void import('./calling').then(({ handleForcedVoiceLeave }) =>
+								currentConnection() ? handleForcedVoiceLeave(sock, channel.id) : undefined
+							).catch(error => console.warn('[Socket] Could not close revoked voice channel:', error));
+						}
+					}
+					channels.set(visible.map(channel => ({ ...previous.get(channel.id), ...channel })));
+					channelMessages.update(current => Object.fromEntries(Object.entries(current).filter(([id]) => allowed.has(id))));
+					_updatePinnedChannels();
+					const active = get(currentChannel);
+					if (!allowed.has(active)) {
+						const next = visible.find(channel => channel.type !== 'category')?.id ?? '';
+						currentChannel.set(next); persistLastChannel(next);
+						if (next) joinChannel(next);
+					} else if (active) joinChannel(active);
+				}).catch(() => {});
+		};
+		on('channel-access-policy-updated', () => { channelAccessPolicyVersion.update(version => version + 1); refreshAccessibleChannels(); });
+		on('channel-access-revoked', (payload: { channelId?: string }) => {
+			if (payload?.channelId) {
+				const revoked = payload.channelId;
+				const old = get(channels).find(channel => channel.id === revoked);
+				channels.update(current => current.filter(channel => channel.id !== revoked));
+				channelMessages.update(current => Object.fromEntries(Object.entries(current).filter(([id]) => id !== revoked)));
+				if (get(currentChannel) === revoked) {
+					const next = get(channels).find(channel => channel.type !== 'category')?.id ?? '';
+					currentChannel.set(next); persistLastChannel(next);
+					if (next) joinChannel(next);
+				}
+				if (old?.type === 'voice') {
+					void import('./calling').then(({ handleForcedVoiceLeave }) =>
+						currentConnection() ? handleForcedVoiceLeave(sock, revoked) : undefined
+					).catch(error => console.warn('[Socket] Could not close revoked voice channel:', error));
+				}
+			}
+			refreshAccessibleChannels();
 		});
 
 		const upsertChannel = (channel: Channel | undefined) => {
@@ -834,6 +947,31 @@ export class SocketManager {
 			});
 		});
 
+		on('history-loaded', (payload: {
+			channelId?: string; requestId?: string; messages?: Message[]; hasMore?: boolean
+		}) => {
+			if (!payload?.channelId) return;
+			const request = _completeHistoryRequest(payload.channelId, payload.requestId);
+			if (!request) return;
+			const incoming = dedupeMessagesKeepOrder(
+				(Array.isArray(payload.messages) ? payload.messages : []).map(scopedMessageCorrelation)
+			);
+			channelMessages.update((state) => ({
+				...state,
+				[payload.channelId!]: mergeHistoryMessages(state[payload.channelId!] || [], incoming)
+			}));
+			if (!request.preview) {
+				channelHasMoreHistory.update((state) => ({ ...state, [payload.channelId!]: payload.hasMore === true }));
+				const oldest = (get(channelMessages)[payload.channelId] || []).find((message) =>
+					Boolean(message.id) && !message.id.startsWith('optimistic:'))?.id || null;
+				channelOldestMessageId.update((state) => ({ ...state, [payload.channelId!]: oldest }));
+			}
+		});
+		on('history-error', (payload: { channelId?: string; error?: string }) => {
+			if (payload?.channelId) _failHistoryRequests(payload.channelId);
+			console.warn('[socket] history-error', payload?.channelId, payload?.error);
+		});
+
 		on('message', (payload: { channelId?: string; message?: Message }) => {
 			if (!payload?.channelId || !payload.message) return;
 			if (!isRenderableMessage(payload.message)) {
@@ -842,6 +980,7 @@ export class SocketManager {
 			}
 			const channelId = payload.channelId;
 			const message = scopedMessageCorrelation(payload.message);
+			let inserted = false;
 			channelMessages.update((state) => {
 				const existing = state[channelId] || [];
 				const duplicateIndex = existing.findIndex((candidate) =>
@@ -853,8 +992,12 @@ export class SocketManager {
 								index === duplicateIndex ? mergeMessageRow(candidate, message) : candidate
 							)
 						: [...existing, message];
+				inserted = duplicateIndex < 0;
 				return { ...state, [channelId]: dedupeMessagesKeepOrder(next) };
 			});
+			if (inserted && !isOwnMessage(message, get(currentUser)) && get(currentChannel) !== channelId) {
+				_incrementUnreadCount(channelId, message.id);
+			}
 		});
 
 		on('message-accepted', (raw: unknown) => {
@@ -1022,7 +1165,6 @@ export class SocketManager {
 			'add-member-error',
 			'avatar-error',
 			'join-error',
-			'history-error',
 			'sync-error',
 			'wiki-error',
 			'forum-error',
@@ -1033,7 +1175,7 @@ export class SocketManager {
 
 		// Server-side custom emote list (upload/delete broadcast) -> picker store.
 		on('emojis-list', (serverEmotes: ServerEmote[]) => {
-			mergeServerEmotes(Array.isArray(serverEmotes) ? serverEmotes : []);
+			mergeServerEmotes(Array.isArray(serverEmotes) ? serverEmotes : [], server);
 		});
 
 		on('delete-emoji-success', (payload: { name?: string }) => {
@@ -1042,7 +1184,8 @@ export class SocketManager {
 
 		on('emoji-reaction-added', (payload: { channelId?: string; messageId?: string; userId?: number; emojiId?: string }) => {
 			if (!payload?.channelId || !payload.messageId || !payload.emojiId) return;
-			const userIdStr = String(payload.userId);
+			if (!Number.isSafeInteger(payload.userId) || (payload.userId ?? 0) <= 0) return;
+			const userIdStr = `user-${payload.userId}`;
 			channelMessages.update((state) => {
 				const messages = state[payload.channelId!];
 				if (!messages) return state;
@@ -1061,7 +1204,8 @@ export class SocketManager {
 
 		on('emoji-reaction-removed', (payload: { channelId?: string; messageId?: string; userId?: number; emojiId?: string }) => {
 			if (!payload?.channelId || !payload.messageId || !payload.emojiId) return;
-			const userIdStr = String(payload.userId);
+			if (!Number.isSafeInteger(payload.userId) || (payload.userId ?? 0) <= 0) return;
+			const userIdStr = `user-${payload.userId}`;
 			channelMessages.update((state) => {
 				const messages = state[payload.channelId!];
 				if (!messages) return state;
@@ -1124,6 +1268,9 @@ export class SocketManager {
 			upsertUser(serverMembers, user);
 			if (!isCurrentUserProfile(user, get(currentUser), sock.id)) return;
 			_mergeCurrentUserProfile({
+				username: user.username,
+				color: user.color,
+				statusMessage: user.statusMessage,
 				profilePicture: user.profilePicture,
 				bannerUrl: user.bannerUrl,
 				overlayUrl: user.overlayUrl,
@@ -1143,12 +1290,25 @@ export class SocketManager {
 			const matches = (u: { id: string; dbUserId?: number | null }): boolean =>
 				(payload.dbUserId != null && u.dbUserId === payload.dbUserId) ||
 				(payload.id != null && u.id === payload.id);
-			const applyStatus = (u: User & { dbUserId?: number | null }): User =>
-				matches(u) ? { ...u, status: payload.status as User['status'] } : u;
-			users.update((list) => list.map(applyStatus));
-			serverMembers.update((list) => list.map(applyStatus));
+			// Only rebuild the array when a matched user's status actually
+			// changes. Map-to-new-array on every presence tick fans out a new
+			// reference to every subscriber (sidebar, user list, message
+			// presence badges) even when nothing differed.
+			const applyStatus = <T extends User>(list: T[]): T[] => {
+				let changed = false;
+				const next = list.map((u) => {
+					if (!matches(u) || u.status === payload.status) return u;
+					changed = true;
+					return { ...u, status: payload.status as User['status'] };
+				});
+				return changed ? next : list;
+			};
+			users.update((list) => applyStatus(list));
+			serverMembers.update((list) => applyStatus(list));
 			const me = get(currentUser);
-			if (me && matches(me)) currentUser.set({ ...me, status: payload.status as User['status'] });
+			if (me && matches(me) && me.status !== payload.status) {
+				currentUser.set({ ...me, status: payload.status as User['status'] });
+			}
 		});
 
 		on('profile-updated', (user: User) => {
@@ -1157,6 +1317,9 @@ export class SocketManager {
 			upsertUser(serverMembers, user);
 			if (!isCurrentUserProfile(user, get(currentUser), sock.id)) return;
 			_mergeCurrentUserProfile({
+				username: user.username,
+				color: user.color,
+				statusMessage: user.statusMessage,
 				profilePicture: user.profilePicture,
 				bannerUrl: user.bannerUrl,
 				overlayUrl: user.overlayUrl,
@@ -1177,7 +1340,6 @@ export class SocketManager {
 		});
 
 		on('voice-channel-state', (payload: { channelId?: string; members?: any[] }) => {
-			console.log('[voice-channel-state] received:', JSON.stringify(payload));
 			if (!payload?.channelId) return;
 			const members = Array.isArray(payload.members) ? payload.members : [];
 			_setVoiceChannelMembers(payload.channelId, members);
@@ -1197,7 +1359,6 @@ export class SocketManager {
 						}))
 				);
 			}
-			console.log('[voice-channel-state] set members for', payload.channelId, 'count:', members.length);
 			// Roster snapshots are observations, not new call intent. The call
 			// owner/watchdog controls transport setup after correlated admission.
 		});
@@ -1362,6 +1523,10 @@ export class SocketManager {
 		// =====================================================================
 		on('call-incoming', (payload: { userId?: string; username?: string; isVideoCall?: boolean; channelId?: string; channelName?: string }) => {
 			if (!payload?.userId) return;
+			if (get(incomingCall) || get(outgoingCall) || get(activeCallSessionId)) {
+				sock.emit('call-reject', { callerId: payload.userId, channelId: payload.channelId, reason: 'busy' });
+				return;
+			}
 			incomingCall.set({
 				userId: payload.userId,
 				username: payload.username || 'User',
@@ -1371,18 +1536,33 @@ export class SocketManager {
 			});
 		});
 
+		on('call-ringing', (payload: { targetUserId?: string; requestId?: string }) => {
+			if (!payload?.targetUserId) return;
+			void import('./calling').then(({ markDirectCallRinging }) =>
+				markDirectCallRinging(payload.targetUserId!, payload.requestId)
+			).catch((error) => console.warn('[Socket] Failed to update call status:', error));
+		});
+
 		on('call-accepted', (payload: { userId?: string; username?: string; isVideoCall?: boolean }) => {
 			if (!payload?.userId) return;
 			const pending = get(outgoingCall);
 			const targetId = pending?.targetUserId || payload.userId;
-			void import('./calling').then(async ({ beginEstablishedDirectCall, createCallOffer }) => {
+			void import('./calling').then(async ({ beginEstablishedDirectCall, createCallOffer, handleDirectCallFailure }) => {
 				if (!beginEstablishedDirectCall()) return;
-				await createCallOffer(
-					sock,
-					targetId,
-					payload.username || 'User',
-					pending?.channelId ? { channelId: pending.channelId } : {}
-				);
+				try {
+					await createCallOffer(
+						sock,
+						targetId,
+						payload.username || 'User',
+						pending?.channelId ? { channelId: pending.channelId } : {}
+						);
+				} catch (error) {
+					// Admission already linked both accounts. Tell the other side when
+					// our media setup fails so it does not wait in a silent call.
+					if (sock.connected) sock.emit('call-end', { participants: [targetId] });
+					handleDirectCallFailure(targetId, 'error', 'Could not connect the call. Check your connection and try again.');
+					throw error;
+				}
 			}).catch((error) => console.warn('[Socket] Failed to create call offer:', error));
 		});
 
@@ -1422,16 +1602,21 @@ export class SocketManager {
 				.catch((error) => console.warn('[Socket] Failed to handle call cancelled:', error));
 		});
 
-		on('call-rejected', (payload: { userId?: string; callerId?: string }) => {
+		on('call-rejected', (payload: { userId?: string; callerId?: string; reason?: string }) => {
 			const id = payload?.callerId || payload?.userId || '';
-			void import('./calling').then(({ handleIncomingCallCancelled }) => handleIncomingCallCancelled(id))
+			void import('./calling').then(({ handleDirectCallFailure }) =>
+				handleDirectCallFailure(id, payload?.reason === 'busy' ? 'error' : payload?.reason === 'could_not_answer' ? 'error' : 'declined',
+					payload?.reason === 'busy' ? 'They are already in another call.' : 'They could not answer the call.')
+			)
 				.catch((error) => console.warn('[Socket] Failed to handle call rejected:', error));
 		});
 
 		on('call-error', (payload: { code?: string; message?: string; targetUserId?: string }) => {
 			console.warn('[Socket] call-error:', payload?.code, payload?.message);
 			if (payload?.targetUserId) {
-				void import('./calling').then(({ handleIncomingCallCancelled }) => handleIncomingCallCancelled(payload.targetUserId!))
+				void import('./calling').then(({ handleDirectCallFailure }) =>
+					handleDirectCallFailure(payload.targetUserId!, 'error', payload.message)
+				)
 					.catch((error) => console.warn('[Socket] Failed to handle call error:', error));
 			}
 		});
@@ -1552,56 +1737,6 @@ export class SocketManager {
 				_setUserBadges(payload.dbUserId, Array.isArray(payload.badges) ? payload.badges : []);
 			}
 		);
-
-		on('emoji-reaction-added', (payload: { messageId?: string; userId?: number; emojiId?: string }) => {
-			if (!payload?.messageId || !payload.userId || !payload.emojiId) return;
-			const userIdStr = `user-${payload.userId}`;
-			channelMessages.update((state) => {
-				const next = { ...state };
-				for (const channelId of Object.keys(next)) {
-					const messages = next[channelId];
-					const idx = messages.findIndex((m) => m.id === payload.messageId);
-					if (idx === -1) continue;
-					const message = messages[idx];
-					const reactions = { ...(message.reactions || {}) };
-					const existing = reactions[payload.emojiId] ? [...reactions[payload.emojiId]] : [];
-					if (!existing.includes(userIdStr)) {
-						existing.push(userIdStr);
-					}
-					reactions[payload.emojiId] = existing;
-					const updated = [...messages];
-					updated[idx] = { ...message, reactions };
-					next[channelId] = updated;
-				}
-				return next;
-			});
-		});
-
-		on('emoji-reaction-removed', (payload: { messageId?: string; userId?: number; emojiId?: string }) => {
-			if (!payload?.messageId || !payload.userId || !payload.emojiId) return;
-			const userIdStr = `user-${payload.userId}`;
-			channelMessages.update((state) => {
-				const next = { ...state };
-				for (const channelId of Object.keys(next)) {
-					const messages = next[channelId];
-					const idx = messages.findIndex((m) => m.id === payload.messageId);
-					if (idx === -1) continue;
-					const message = messages[idx];
-					const reactions = { ...(message.reactions || {}) };
-					const existing = reactions[payload.emojiId] ? [...reactions[payload.emojiId]] : [];
-					const filtered = existing.filter((id) => id !== userIdStr);
-					if (filtered.length > 0) {
-						reactions[payload.emojiId] = filtered;
-					} else {
-						delete reactions[payload.emojiId];
-					}
-					const updated = [...messages];
-					updated[idx] = { ...message, reactions };
-					next[channelId] = updated;
-				}
-				return next;
-			});
-		});
 	}
 }
 

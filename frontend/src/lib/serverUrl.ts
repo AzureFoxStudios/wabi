@@ -147,6 +147,8 @@ function resolveServerUrlInternal(): { url: string; source: string } {
 	const hostname = window.location.hostname;
 	const port = window.location.port;
 	const protocol = window.location.protocol;
+	const hasTauriBridge =
+		typeof (window as any).__TAURI__ !== 'undefined' || typeof (window as any).__TAURI_INTERNALS__ !== 'undefined';
 
 	const configured = getConfiguredServerUrl();
 	if (configured) {
@@ -160,9 +162,9 @@ function resolveServerUrlInternal(): { url: string; source: string } {
 			const isWwwVariant =
 				storedHost === `www.${hostname}` || hostname === `www.${storedHost}`;
 			const isSameHostProtocolMismatch =
-				storedHost === hostname && configuredUrl.protocol !== protocol;
+				!hasTauriBridge && storedHost === hostname && configuredUrl.protocol !== protocol;
 			if (
-				(isLocalHost(storedHost) && !isLocalHost(hostname)) ||
+				(!hasTauriBridge && isLocalHost(storedHost) && !isLocalHost(hostname)) ||
 				isWwwVariant ||
 				isSameHostProtocolMismatch
 			) {
@@ -193,9 +195,6 @@ function resolveServerUrlInternal(): { url: string; source: string } {
 		}
 		return { url: envUrl, source: 'env_override' };
 	}
-
-	const hasTauriBridge =
-		typeof (window as any).__TAURI__ !== 'undefined' || typeof (window as any).__TAURI_INTERNALS__ !== 'undefined';
 
 	// 2. Tauri runtime (Windows often uses https://tauri.localhost, but runtime can vary by platform/build)
 	if (hasTauriBridge || hostname === 'tauri.localhost' || protocol === 'tauri:') {

@@ -293,6 +293,15 @@ async fn on_whiteboard_snapshot(socket: SocketRef, data: Value, state: SioState,
         whiteboard_board_error(&socket, &board_id, "UNAUTHORIZED", "No channel membership");
         return;
     }
+    if let Err(error) = crate::channel_access::require_participation(&state.app, user_id, &board_to_channel_id(&board_id)).await {
+        let (code, message) = match error {
+            crate::error::AppError::Forbidden(ref reason) if reason.starts_with("Read and acknowledge") =>
+                ("RULES_REQUIRED", "Read and acknowledge this server's rules before editing"),
+            _ => ("ACCESS_DENIED", "This board is unavailable to your account"),
+        };
+        whiteboard_board_error(&socket, &board_id, code, message);
+        return;
+    }
 
     // Version check against the server-owned map.
     let client_version = doc_version(&document);
@@ -366,6 +375,15 @@ async fn on_whiteboard_patch(socket: SocketRef, data: Value, state: SioState, io
     }
     if !can_access_board_channel(&state, user_id, &board_to_channel_id(&board_id)).await {
         whiteboard_board_error(&socket, &board_id, "UNAUTHORIZED", "No channel membership");
+        return;
+    }
+    if let Err(error) = crate::channel_access::require_participation(&state.app, user_id, &board_to_channel_id(&board_id)).await {
+        let (code, message) = match error {
+            crate::error::AppError::Forbidden(ref reason) if reason.starts_with("Read and acknowledge") =>
+                ("RULES_REQUIRED", "Read and acknowledge this server's rules before editing"),
+            _ => ("ACCESS_DENIED", "This board is unavailable to your account"),
+        };
+        whiteboard_board_error(&socket, &board_id, code, message);
         return;
     }
 

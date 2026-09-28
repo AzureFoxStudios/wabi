@@ -28,7 +28,8 @@ const server = await createServer({
 let browser;
 const results = [];
 try {
-  await server.listen(); browser = await chromium.launch({ headless: false });
+  await server.listen(); browser = await chromium.launch({ headless: false,
+    executablePath: process.env.WABI_SMOKE_CHROMIUM_PATH || undefined });
   const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
   const errors = []; page.on('pageerror', error => { errors.push(error.message); console.error(error.message); });
   await page.route('**/api/**', route => {
@@ -107,6 +108,29 @@ try {
   await acknowledge('create-group', 'create', created);
   await page.getByRole('dialog', { name: 'Create group' }).waitFor({ state: 'hidden' });
   results.push('lost create confirmation preserves the form and explicit retry reuses the same creation ID');
+
+  // The center-stage Messages hub must expose creation, then open the
+  // server-confirmed group as the selected workspace.
+  await page.locator('#show-message-hub').click();
+  const hub = page.getByRole('complementary', { name: 'Messages hub' });
+  await hub.getByRole('button', { name: 'Create group', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Create group' }).waitFor();
+  await page.getByRole('textbox', { name: 'Group name', exact: true }).fill('Main view group');
+  await page.getByRole('button', { name: /Third offline/ }).click();
+  await page.evaluate(() => window.__group.clearSent());
+  await page.getByRole('button', { name: 'Create Group (2 members)', exact: true }).click();
+  const hubRequest = await sent('create-group');
+  assert.ok(hubRequest?.requestId);
+  const hubGroup = { ...added, id: `group-${hubRequest.requestId}`, name: 'Main view group',
+    membershipRevision: '7', members: ['user-1', 'user-3'] };
+  await receive('group-channel-added', { channel: hubGroup });
+  await receive('group-operation-result', { ...hubRequest, operation: 'create', ok: true,
+    channelId: hubGroup.id, membershipRevision: hubGroup.membershipRevision, channel: hubGroup });
+  await page.getByRole('dialog', { name: 'Create group' }).waitFor({ state: 'hidden' });
+  assert.equal((await page.evaluate(() => window.__group.state())).center, hubGroup.id);
+  await page.locator('#show-message-hub').click();
+  await page.evaluate(() => window.__group.seedViews());
+  results.push('main Messages hub renders Create group and opens the confirmed group in center stage');
 
   await page.evaluate(async () => {
     await window.__group.legacyQueue('leave-group', 'legacy-leave');

@@ -4,6 +4,7 @@ import { isTrackedPersonStatusAlertsEnabled, rememberPeople, toggleTrackedPerson
 import { queueConversationPaymentLaunch } from '$lib/payments/paymentLaunch';
 import { getUserIdentityKey } from '$lib/localNicknames';
 import { startCall } from '$lib/calling';
+import { canFriendUser, type FriendshipRelation } from '$lib/friendshipRelation';
 
 const fallbackRolePriority: Record<string, number> = {
 	owner: 100, admin: 90, mod: 70, member: 10, guest: 0
@@ -99,6 +100,10 @@ export function matchesPresenceFilter(user: User, filter: 'all' | 'active' | 'aw
 export interface BuildMenuContext {
 	contextMenuUser: User | null;
 	currentUser: User | null;
+	friendRelation?: FriendshipRelation;
+	friendsAvailable?: boolean;
+	friendsReady?: boolean;
+	friendActionBusy?: boolean;
 	rolePriority: Record<string, number>;
 	localNicknamesEnabled: boolean;
 	hasLocalNickname: boolean;
@@ -264,6 +269,12 @@ export function buildUserMenuItems(ctx: BuildMenuContext): ContextMenuItem[] {
 
 	const items: ContextMenuItem[] = [
 		{
+			id: 'profile',
+			label: isSelf ? 'View My Profile' : 'View Profile',
+			icon: 'user',
+			onSelect: () => {}
+		},
+		{
 			id: 'message',
 			label: isSelf ? 'Open Notes' : 'Message',
 			icon: 'message-circle',
@@ -272,6 +283,21 @@ export function buildUserMenuItems(ctx: BuildMenuContext): ContextMenuItem[] {
 	];
 
 	if (!isSelf) {
+		if (ctx.friendsAvailable && canFriendUser(contextMenuUser)) {
+			const relation = ctx.friendRelation?.kind || 'none';
+			items.push({
+				id: 'friend-action',
+				label: !ctx.friendsReady ? 'Loading friend options…'
+					: relation === 'friend' ? 'Remove Friend'
+					: relation === 'incoming' ? 'Accept Friend Request'
+					: relation === 'outgoing' ? 'Cancel Friend Request'
+					: 'Add Friend',
+				icon: 'user',
+				danger: relation === 'friend',
+				disabled: !ctx.friendsReady || ctx.friendActionBusy,
+				onSelect: () => {}
+			});
+		}
 		items.push(
 			{ id: 'request-payment', label: 'Request Payment', icon: 'credit-card', disabled: !contextMenuUser?.dbUserId, onSelect: () => {} },
 			{ id: 'voice', label: 'Voice Call', icon: 'phone', onSelect: () => {} },

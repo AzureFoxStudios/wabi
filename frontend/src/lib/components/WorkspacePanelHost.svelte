@@ -2,6 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import type { WorkspacePanelManifest } from '$lib/workspacePanels';
 	import UserListTab from './UserListTab.svelte';
+	import ProfilePanel from './ProfilePanel.svelte';
 	import CallsPanel from './CallsPanel.svelte';
 	import MediaAlbumsTab from './MediaAlbumsTab.svelte';
 	import KeepNotesView from './KeepNotesView.svelte';
@@ -36,12 +37,14 @@
 	}
 
 	const dispatch = createEventDispatcher<{
-		openSettings: { paymentSurface: 'connections' };
+		openSettings: { paymentSurface?: 'connections' } | undefined;
 	}>();
 </script>
 
 {#if panel.component === 'users'}
-	<UserListTab />
+	<UserListTab on:openSettings={() => dispatch('openSettings', undefined)} />
+{:else if panel.component === 'profile'}
+	<ProfilePanel />
 {:else if panel.component === 'calls'}
 	<CallsPanel />
 {:else if panel.component === 'dms'}

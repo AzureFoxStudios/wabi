@@ -459,6 +459,9 @@
 
 	/* Personal Messages hub — sticky under server header, not buried in channel scroll */
 	.personal-nav {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
 		flex-shrink: 0;
 		padding: 0.4rem 0.55rem 0.35rem;
 		border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));

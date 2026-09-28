@@ -3,6 +3,9 @@
   import { users, serverMembers, currentUser } from '$lib/socket';
   import type { User } from '$lib/socket-types';
   import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
+	import { mediaUrl } from '$lib/mediaUrl';
+  import ProfileName from './ProfileName.svelte';
+  import ProfileMedia from './ProfileMedia.svelte';
 
   const dispatch = createEventDispatcher<{
     select: User;
@@ -55,13 +58,13 @@
         <button class="people-picker-item" on:click={() => select(user)}>
           <div class="people-picker-avatar">
             {#if user.profilePicture}
-              <img src={user.profilePicture} alt="" class="people-picker-avatar-img" />
+              <ProfileMedia src={mediaUrl(user.profilePicture)} decorative class="people-picker-avatar-img" />
             {:else}
               <span class="people-picker-avatar-letter">{(user.handle || user.username || '?')[0]}</span>
             {/if}
           </div>
           <div class="people-picker-info">
-            <span class="people-picker-name">{user.handle || user.username}</span>
+            <span class="people-picker-name"><ProfileName username={user.handle || user.username} font={user.usernameFont} color={user.color} /></span>
             {#if user.handle && user.username}
               <span class="people-picker-handle">@{user.handle}</span>
             {/if}
@@ -75,13 +78,13 @@
         <button class="people-picker-item" on:click={() => select(user)}>
           <div class="people-picker-avatar">
             {#if user.profilePicture}
-              <img src={user.profilePicture} alt="" class="people-picker-avatar-img" />
+              <ProfileMedia src={mediaUrl(user.profilePicture)} decorative class="people-picker-avatar-img" />
             {:else}
               <span class="people-picker-avatar-letter">{(user.handle || user.username || '?')[0]}</span>
             {/if}
           </div>
           <div class="people-picker-info">
-            <span class="people-picker-name">{user.handle || user.username}</span>
+            <span class="people-picker-name"><ProfileName username={user.handle || user.username} font={user.usernameFont} color={user.color} /></span>
             {#if user.handle && user.username}
               <span class="people-picker-handle">@{user.handle}</span>
             {/if}
@@ -182,7 +185,7 @@
     font-weight: var(--font-weight-semibold, 600);
   }
 
-  .people-picker-avatar-img {
+  .people-picker-avatar :global(.people-picker-avatar-img) {
     width: 100%;
     height: 100%;
     object-fit: cover;

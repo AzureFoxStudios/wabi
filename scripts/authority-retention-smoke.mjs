@@ -67,27 +67,60 @@ try {
     const account = await api(instance, '/api/auth/register', 'POST', { username: 'retention_fixture', password: 'Disposable-Retention-2026!' });
     const channel = await api(instance, '/api/channels', 'POST', { name: 'timed-retention', channel_type: 'text' }, account.accessToken);
     const channelId = channel.id ?? channel.channel?.id;
+    await api(instance, `/api/channels/${channelId}/retention`, 'PUT', { retention: 'forever' }, account.accessToken);
+    const old = await api(instance, '/api/messages', 'POST', { channel_id: channelId, content: 'forever-history-canary', message_type: 'text' }, account.accessToken);
     await api(instance, `/api/channels/${channelId}/retention`, 'PUT', { retention: '5s' }, account.accessToken);
     const file = await upload(instance, account.accessToken, channelId, 'retained-upload-canary', 'retention.txt');
     const sent = await api(instance, '/api/messages', 'POST', { channel_id: channelId, content: 'timed-message-canary', message_type: 'text' }, account.accessToken);
+    await api(instance, `/api/channels/${channelId}/retention`, 'PUT', { retention: '1h' }, account.accessToken);
+    const long = await api(instance, '/api/messages', 'POST', { channel_id: channelId, content: 'long-history-canary', message_type: 'text' }, account.accessToken);
     const history = async () => (await api(instance, `/api/messages/${channelId}`, 'GET', undefined, account.accessToken)).messages;
     assert.ok((await history()).some(message => message.id === sent.id));
-    // Exercise exact-policy hydration too. The real sweep runs once per minute.
+    const liveDeadline = Date.now() + 9000;
+    while ((await history()).some(message => message.id === sent.id)) {
+        assert.ok(Date.now() < liveDeadline, '5s message expires within 9 seconds without a restart');
+        await pause(250);
+    }
+    assert.ok((await history()).some(message => message.id === old.id), 'forever history survives a later 5s policy');
+    assert.ok((await history()).some(message => message.id === long.id), 'later 1h history survives the old 5s epoch');
+    // Exercise exact-policy hydration too, including an unexpired message
+    // carried through restart instead of a fresh process-only timer.
+    await api(instance, `/api/channels/${channelId}/retention`, 'PUT', { retention: '5s' }, account.accessToken);
+    const restartSent = await api(instance, '/api/messages', 'POST', { channel_id: channelId, content: 'restart-retention-canary', message_type: 'text' }, account.accessToken);
+    assert.ok((await history()).some(message => message.id === restartSent.id));
     await stop(instance);
     instance = await start('instance');
     const policy = await api(instance, `/api/privacy/channels/${channelId}`, 'GET', undefined, account.accessToken);
     assert.equal(policy.retention, '5s');
-    const deadline = Date.now() + 90000;
-    while ((await history()).some(message => message.id === sent.id)) {
-        assert.ok(Date.now() < deadline, 'real retention sweep expires message within 90 seconds');
-        await pause(500);
+    const deadline = Date.now() + 9000;
+    while ((await history()).some(message => message.id === restartSent.id)) {
+        assert.ok(Date.now() < deadline, 'restart preserves the 5s deadline within 9 seconds');
+        await pause(250);
     }
+    assert.ok((await history()).some(message => message.id === old.id));
+    assert.ok((await history()).some(message => message.id === long.id));
+    const timeline = await api(instance, `/api/channels/${channelId}/retention`, 'GET', undefined, account.accessToken);
+    assert.equal(timeline.epochs[0].label, 'forever');
+    assert.deepEqual(timeline.epochs.map(epoch => epoch.label).slice(-2), ['1h', '5s']);
     const download = await fetch(instance.origin + file.url, { headers: { Authorization: `Bearer ${account.accessToken}` } });
     assert.ok(download.ok, 'uploaded file has an independent lifecycle');
     assert.equal(hash(Buffer.from(await download.arrayBuffer())), file.sha256);
     await stop(instance);
     instance = await start('instance');
-    assert.ok(!(await history()).some(message => message.id === sent.id), 'expired message does not return after restart');
+    assert.ok(!(await history()).some(message => message.id === sent.id || message.id === restartSent.id), 'expired messages do not return after restart');
+    const finalHistory = await history();
+    assert.ok(finalHistory.some(message => message.id === old.id), 'forever history survives another restart');
+    assert.ok(finalHistory.some(message => message.id === long.id), 'one-hour history survives another restart');
+    const bot = await api(instance, '/api/bot/create', 'POST', { username: 'retention_bot' }, account.accessToken);
+    await api(instance, `/api/channels/${channelId}/retention`, 'PUT', { retention: 'live' }, account.accessToken);
+    const botLiveSend = await fetch(`${instance.origin}/api/bot/send-message`, {
+        method: 'POST',
+        headers: { Authorization: `Bot ${bot.botToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel_id: channelId, content: 'bot-live-storage-canary' }),
+    });
+    assert.equal(botLiveSend.status, 400, 'durable bot endpoint rejects Live rooms');
+    assert.match(JSON.stringify(await botLiveSend.json()), /Live rooms/, 'Live rejection explains the storage boundary');
+    assert.ok(!(await history()).some(message => message.content === 'bot-live-storage-canary'), 'rejected bot message never enters history');
     await stop(instance);
     const logs = [
         ...(await readdir(instance.root)).filter(name => name.startsWith('process-')).map(name => `${instance.root}/${name}`),
@@ -95,12 +128,12 @@ try {
     ];
     for (const path of logs) {
         const bytes = await readFile(path);
-        assert.ok(!bytes.includes(Buffer.from('timed-message-canary')) && !bytes.includes(Buffer.from('retained-upload-canary')), 'default logs do not contain fixture bodies');
+        assert.ok(!bytes.includes(Buffer.from('forever-history-canary')) && !bytes.includes(Buffer.from('timed-message-canary')) && !bytes.includes(Buffer.from('long-history-canary')) && !bytes.includes(Buffer.from('restart-retention-canary')) && !bytes.includes(Buffer.from('retained-upload-canary')) && !bytes.includes(Buffer.from('bot-live-storage-canary')), 'default logs do not contain fixture bodies');
     }
-    const report = { status: 'passed', binarySha256, defaultLogsExcludeCanaryBodies: true, exactPolicySurvivesRestart: true, realSweepRemovesNormalHistory: true, deletionSurvivesRestart: true, uploadedFileRemains: true,
+    const report = { status: 'passed', binarySha256, defaultLogsExcludeCanaryBodies: true, exactPolicySurvivesRestart: true, shortTimerExpiresWithinNineSeconds: true, futureOnlyPolicySurvivesRepeatedChanges: true, realSweepRemovesNormalHistory: true, deletionSurvivesRestart: true, uploadedFileRemains: true, liveBotDurableSendRejected: true,
         limits: ['Disposable data only', 'Uploaded file is separate from the text message', 'No report-evidence, browser cache, external backup or secure-erasure certification'] };
     await writeFile(`${scratch}/report.json`, JSON.stringify(report, null, 2), { mode: 0o600 });
-    console.log(`PASS real timed retention, exact policy, restarts and independent upload lifecycle; report ${scratch}/report.json`);
+    console.log(`PASS real timed retention, exact policy, restarts, Live bot rejection and independent upload lifecycle; report ${scratch}/report.json`);
 } finally {
     for (const child of children) child.kill('SIGTERM');
 }

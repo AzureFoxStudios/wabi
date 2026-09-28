@@ -3,6 +3,7 @@
 	import { get } from 'svelte/store';
 	import { browser } from '$app/environment';
 	import ReaderIcon from './ReaderIcon.svelte';
+	import ReaderImageAnnotator from './ReaderImageAnnotator.svelte';
 	import ReaderImportSheet from './ReaderImportSheet.svelte';
 	import './readerCode.css';
 	import { countWords, formatSourceLabel, renderReaderHtml } from './readerTabHelpers';
@@ -516,7 +517,7 @@
 				{#if isImageMode}
 					<div class="reader-gallery" data-fit={$readerPreferences.imageFit} dir={$readerPreferences.readingDirection === 'rtl' ? 'rtl' : 'ltr'}>
 						{#each images as image, index (`${index}:${image.url}`)}
-							<figure class="reader-image-page"><button class="reader-image-open" type="button" aria-label={`Open image ${index + 1}: ${image.alt || 'Image'}`} onclick={() => { lightboxIndex = index; }}><img src={image.url} alt={image.alt || `Image ${index + 1}`} width={image.width} height={image.height} decoding="async" onload={() => { if (viewport && !restoring) restoreReaderAnchor(viewport, blocks, lastAnchor, horizontal); updateMetrics(); }} /></button><figcaption>{index + 1} / {images.length}<span>{image.alt}</span></figcaption></figure>
+							<figure class="reader-image-page"><ReaderImageAnnotator {image} pageIndex={index} documentKey={$readerSelection.docKey} on:open={() => { lightboxIndex = index; }} /><figcaption>{index + 1} / {images.length}<span>{image.alt}</span></figcaption></figure>
 						{/each}
 					</div>
 				{:else}

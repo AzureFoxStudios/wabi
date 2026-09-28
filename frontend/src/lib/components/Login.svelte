@@ -1,24 +1,27 @@
 	<script lang="ts">
+	import HostLink from './HostLink.svelte';
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { get } from 'svelte/store';
-	import { register, login, saveUserSettings, getLaunchPageConfig, getPublicAuthPolicy, getSetupStatus, saveAdminPolicy, type LaunchPageConfig } from '$lib/api';
+	import { register, login, joinAsGuest, getLaunchPageConfig, getPublicAuthPolicy, getSetupStatus, saveAdminPolicy, type LaunchPageConfig } from '$lib/api';
 	import type { AuthPolicy } from '../../../../shared/adminPolicyContracts';
 	import { clearAuthSession, setAuthToken, setPersistentAuthToken, setStoredDbUserId } from '$lib/authSession';
 import { setRefreshToken } from '$lib/api/authRefresh';
 		import { retryDecryptLoadedDmMessages } from '$lib/socket';
-	import { setStoredHomeExperienceMode, type HomeExperienceMode } from '$lib/homeExperience';
 	import { _, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
 	import { getConfiguredServerUrl, getServerUrl, resolveServerUrl } from '$lib/serverUrl';
+	import { isCurrentTailcatProxy, restoreTailcatConnection } from '$lib/tailcatConnection';
+	import { isTauriRuntime } from '$lib/tauri-platform';
 	import { brandName, selectBrandConfig } from '$lib/branding';
 	import { currentSavedServer } from '$lib/savedServerStore';
 	import LaunchPanel from '$lib/components/login/LaunchPanel.svelte';
 	import LoginQRModal from '$lib/components/login/LoginQRModal.svelte';
 	import LoginConnectionPrompt from '$lib/components/login/LoginConnectionPrompt.svelte';
 	import { buildLaunchPageStyles, injectNeutralBranding } from '$lib/components/loginHelpers';
+	import type { StarterChannel } from '$lib/api/auth';
 	import './login.css';
 
 	const dispatch = createEventDispatcher<{
-		login: { username: string; token?: string; authMethod: 'guest' | 'registered'; homeExperience?: HomeExperienceMode; mustChangePassword?: boolean };
+		login: { username: string; token?: string; authMethod: 'guest' | 'registered'; newlyRegistered?: boolean; mustChangePassword?: boolean };
 	}>();
 
 	let authMode: 'login' | 'register' = 'login';
@@ -31,11 +34,10 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	let error = '';
 	let loading = false;
 	let showConnectionPrompt = true;
+	let privateTunnelActive = false;
 	let serverDomain = '';
 	let rememberMe = false;
 	let showQR = false;
-	let showHomeExperiencePrompt = false;
-	let pendingRegisteredLogin: { username: string; token: string } | null = null;
 	let selectedLocale = 'en';
 	let launchPageConfig: LaunchPageConfig | null = null;
 	let wizardMode = false;
@@ -43,6 +45,17 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	let pendingOwnerLogin: { username: string; token: string } | null = null;
 	let joinPolicy: 'open' | 'closed' = 'open';
 	let allowGuests = true;
+	let starterTemplate: 'basic' | 'project' | 'community' | 'blank' = 'basic';
+	let starterChannels: StarterChannel[] = [{ name: 'general', kind: 'text' }, { name: 'general', kind: 'voice' }];
+	function chooseStarterTemplate(value: typeof starterTemplate): void {
+		starterTemplate = value;
+		starterChannels = ({
+			basic: [{ name: 'general', kind: 'text' }, { name: 'general', kind: 'voice' }],
+			project: [{ name: 'general', kind: 'text' }, { name: 'updates', kind: 'text' }, { name: 'planning', kind: 'text' }, { name: 'voice', kind: 'voice' }],
+			community: [{ name: 'general', kind: 'text' }, { name: 'announcements', kind: 'text' }, { name: 'introductions', kind: 'text' }, { name: 'voice', kind: 'voice' }],
+			blank: []
+		} satisfies Record<typeof starterTemplate, StarterChannel[]>)[value].map(channel => ({ ...channel }));
+	}
 	let showPassword = false;
 	// Host-uploaded logos can 404 (e.g. uploads missing after a restore);
 	// fall back to the bundled mark instead of rendering a broken image.
@@ -108,8 +121,33 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 		authMode = newMode; error = ''; username = ''; guestName = ''; handle = ''; handleManuallyEdited = false; password = ''; passwordConfirm = '';
 	}
 
-	function handleGuestLogin() {
-		if (guestName.trim()) { clearAuthSession(); setStoredDbUserId(null); dispatch('login', { username: guestName.trim(), authMethod: 'guest' }); }
+	async function leavePrivateTunnel(): Promise<void> {
+		loading = true;
+		error = '';
+		try {
+			const { invoke } = await import('@tauri-apps/api/core');
+			await invoke('tailcat_disconnect');
+			if (!restoreTailcatConnection()) throw new Error('Previous server address is unavailable. Choose a server address.');
+			window.location.reload();
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Could not leave the private tunnel';
+			loading = false;
+		}
+	}
+
+	async function handleGuestLogin() {
+		if (!guestName.trim() || loading) return;
+		loading = true;
+		error = '';
+		try {
+			const result = await joinAsGuest(guestName.trim());
+			clearAuthSession();
+			setStoredDbUserId(null);
+			setAuthToken(result.accessToken);
+			dispatch('login', { username: result.user.username, token: result.accessToken, authMethod: 'guest' });
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Guest join failed';
+		} finally { loading = false; }
 	}
 
 	async function handleRegister() {
@@ -121,7 +159,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 		if (password !== passwordConfirm) { error = t('login.errors.password_mismatch'); return; }
 		loading = true;
 		try {
-			const result = await register(username, password, cleanHandle);
+			const result = await register(username, password, cleanHandle, wizardMode ? starterChannels : undefined);
 			setAuthToken(result.accessToken);
 			setRefreshToken(result.refreshToken);
 			if (result.user.id) { setStoredDbUserId(result.user.id); /* DM-strip: removed initE2E + retryDecryptLoadedDmMessages */ }
@@ -130,7 +168,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 				pendingOwnerLogin = { username: result.user.username, token: result.accessToken };
 				wizardStep = 2;
 			}
-			else { pendingRegisteredLogin = { username: result.user.username, token: result.accessToken }; showHomeExperiencePrompt = true; }
+			else dispatch('login', { username: result.user.username, token: result.accessToken, authMethod: 'registered', newlyRegistered: true });
 		} catch (err) { error = err instanceof Error ? err.message : t('login.errors.registration_failed'); }
 		finally { loading = false; }
 	}
@@ -155,18 +193,6 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 			dispatch('login', { username: pendingOwnerLogin.username, token: pendingOwnerLogin.token, authMethod: 'registered' });
 			pendingOwnerLogin = null;
 		} finally { loading = false; }
-	}
-
-	async function completeRegistrationHomeExperience(mode: HomeExperienceMode) {
-		if (!pendingRegisteredLogin) return;
-		loading = true; error = '';
-		try {
-			await saveUserSettings(pendingRegisteredLogin.token, { home_experience: mode });
-			setStoredHomeExperienceMode(mode);
-			dispatch('login', { username: pendingRegisteredLogin.username, token: pendingRegisteredLogin.token, authMethod: 'registered', homeExperience: mode });
-			pendingRegisteredLogin = null; showHomeExperiencePrompt = false;
-		} catch (err) { error = err instanceof Error ? err.message : 'Failed to save home experience setting.'; }
-		finally { loading = false; }
 	}
 
 	async function handleLogin() {
@@ -196,6 +222,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	}
 
 	onMount(async () => {
+		privateTunnelActive = isTauriRuntime() && isCurrentTailcatProxy();
 		injectNeutralBranding();
 		// The selected theme owns accents and ambient effects. Login must not
 		// replace it with a random theme or leave root-level overrides behind.
@@ -283,6 +310,11 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 			</div>
 
 			<div class="login-auth-panel">
+				<a href="/personal" data-sveltekit-reload class="auth-btn auth-btn-ghost">Open personal Planner</a>
+				<HostLink />
+				{#if privateTunnelActive}
+					<button type="button" class="login-change-server" on:click={leavePrivateTunnel} disabled={loading}>Leave private tunnel</button>
+				{/if}
 				{#if showConnectionPrompt}
 					<LoginConnectionPrompt bind:serverDomain {loading} on:applied={() => (showConnectionPrompt = false)} />
 				{:else}
@@ -303,6 +335,20 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 								</div>
 								<input type="password" bind:value={password} placeholder={$_('login.auth.password_rules_placeholder')} minlength="8" required disabled={loading} />
 								<input type="password" bind:value={passwordConfirm} placeholder={$_('login.auth.confirm_password_placeholder')} minlength="8" required disabled={loading} />
+								<div class="starter-layout">
+									<label for="starter-layout-preset">Starting channels</label>
+									<select id="starter-layout-preset" value={starterTemplate} on:change={event => chooseStarterTemplate(event.currentTarget.value as typeof starterTemplate)} disabled={loading}>
+										<option value="basic">Basic · general chat and voice</option>
+										<option value="project">Project · updates and planning</option>
+										<option value="community">Community · announcements and introductions</option>
+										<option value="blank">Blank · add rooms later</option>
+									</select>
+									<p>These are editable rooms, not security settings.</p>
+									{#each starterChannels as channel, index (index)}
+										<div class="starter-room"><select bind:value={channel.kind} aria-label="Room type" disabled={loading}><option value="text">Text</option><option value="voice">Voice</option></select><input bind:value={channel.name} aria-label="Room name" maxlength="40" required disabled={loading} /><button type="button" on:click={() => starterChannels = starterChannels.filter((_, item) => item !== index)} disabled={loading} aria-label="Remove room">×</button></div>
+									{/each}
+									{#if starterChannels.length < 12}<button type="button" class="starter-add" on:click={() => starterChannels = [...starterChannels, { name: '', kind: 'text' }]} disabled={loading}>Add room</button>{/if}
+								</div>
 								<button type="submit" class="auth-btn auth-btn-primary" disabled={loading}>
 									{loading ? $_('login.auth.creating_account') : $_('login.auth.create_account_button')}
 								</button>
@@ -348,19 +394,6 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 							<p class="wizard-note wizard-note-standalone">{$_('login.wizard.join_note')}</p>
 						</div>
 
-					{:else if showHomeExperiencePrompt}
-						<div class="experience-prompt">
-							<h3>Choose your default home view</h3>
-							<p>Choose what you see first. You can change this any time in Settings.</p>
-							<div class="experience-actions">
-								<button type="button" class="auth-btn auth-btn-primary" disabled={loading} on:click={() => completeRegistrationHomeExperience('conversations')}>
-									Conversation-first
-								</button>
-								<button type="button" class="auth-btn auth-btn-secondary" disabled={loading} on:click={() => completeRegistrationHomeExperience('community')}>
-									Community-first
-								</button>
-							</div>
-						</div>
 					{:else}
 						<header class="login-auth-heading">
 							<h2>{authMode === 'login' ? 'Welcome back.' : 'Find your place here.'}</h2>
@@ -491,7 +524,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 						{#each availableLocales as localeOption}<option value={localeOption.code}>{localeOption.label}</option>{/each}
 					</select>
 				</label>
-				{#if !wizardMode && !showHomeExperiencePrompt && !showConnectionPrompt}
+				{#if !wizardMode && !showConnectionPrompt}
 					<button type="button" class="login-change-server" on:click={() => (showConnectionPrompt = true)}>{$_('login.auth.change_server_button')} <span aria-hidden="true">↗</span></button>
 				{/if}
 			</nav>

@@ -135,7 +135,7 @@ async fn record_lore_commit_and_change(
 /// Follows the retention-reaper pattern (state.sio handle, fire-and-forget).
 async fn emit_lore_file_changed(state: &AppState, channel_id: i64, payload: serde_json::Value) {
     let room = format!("ch_{:x}", channel_id);
-    let io = state.sio.read().await.clone();
+    let io = state.socket_io();
     if let Some(io) = io {
         if let Err(e) = io.to(room).emit("lore:file-changed", &payload).await {
             warn!(channel_id, error = %e, "failed to emit lore:file-changed");
@@ -638,6 +638,17 @@ async fn promote_from_message(
             AppError::BadRequest(format!("Message channel {} is not Lore-bindable", message.channel_id))
         })?;
     ensure_channel_member(&state, channel_id, auth.user_id).await?;
+    {
+        // A promotion writes a durable chat announcement after committing to
+        // Lore. Reject up front so a Live room never reports a failed request
+        // after the external promotion has already succeeded.
+        let _retention_guard = state.retention_policy_lock.lock().await;
+        if state.channel_auto_delete_label.read().await.get(&message.channel_id).is_some_and(|label| label == "live") {
+            return Err(AppError::BadRequest(
+                "Lore promotion is unavailable in Live rooms because it stores a chat announcement".into(),
+            ));
+        }
+    }
 
     let attachment = message
         .files
@@ -833,10 +844,19 @@ async fn promote_from_message(
             attachment.file_name, target_path, short_rev
         )
     };
-    state
-        .wdb
-        .send_message(&message.channel_id, auth.user_id as u64, &system_content, false, &[])
-        .await?;
+    let retention_guard = state.retention_policy_lock.lock().await;
+    let announcement_posted = !state.channel_auto_delete_label.read().await
+        .get(&message.channel_id).is_some_and(|label| label == "live")
+        && !crate::api::e2ee::room_blocks_server_content(&state.config.data_dir, &message.channel_id)?;
+    if announcement_posted {
+        state
+            .wdb
+            .send_message(&message.channel_id, auth.user_id as u64, &system_content, false, &[])
+            .await?;
+    } else {
+        tracing::warn!(channel_id, "Live or encryption policy prevents a durable Lore chat announcement");
+    }
+    drop(retention_guard);
 
     info!(channel_id, repo_channel_id, path = %target_path, pending_review, "Attachment promoted to Lore from chat");
     Ok(Json(serde_json::json!({
@@ -847,6 +867,7 @@ async fn promote_from_message(
         "pending_review": pending_review,
         "review_branch": review_branch,
         "file": result.file_info,
+        "chat_announcement_posted": announcement_posted,
     })))
 }
 

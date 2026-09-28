@@ -7,7 +7,8 @@ import { browser, building } from '$app/environment';
 import { get } from 'svelte/store';
 import type { SavedServerEntry } from './savedServers';
 import { getLaunchPageConfigFrom, getPublicFrontendAppMetadata } from './api';
-import { getAuthToken, getGuestSessionId, getStoredDbUserId, getStoredUsername } from './authSession';
+import { authSessionGeneration, getAuthToken, getGuestSessionId, getStoredDbUserId, getStoredUsername, setAuthToken, setStoredDbUserId, setStoredUsername } from './authSession';
+import { canCarrySessionTo, getPinnedCommunityRoster } from './communityRoster';
 import { getConfiguredServerRememberPreference, normalizeServerUrl, resolveServerUrl, setConfiguredServerUrl } from './serverUrl';
 import { setPendingChannelNavigation } from './pendingServerNavigation';
 import { updateEntry, withMutableState, moveEntryInOrderedList, savedServersState, currentSavedServer, buildStateRailItems } from './savedServerStore';
@@ -247,13 +248,38 @@ export function refreshSavedServer(url: string): void {
 	void refreshSavedServerMetadata(url);
 }
 
+let switchRequest = 0;
+
 export function switchToSavedServer(url: string): void {
 	const normalizedUrl = normalizeServerUrl(url);
 	if (!normalizedUrl || !browser) return;
-	const remember = getConfiguredServerRememberPreference();
-	setConfiguredServerUrl(normalizedUrl, remember);
-	recordSuccessfulServerConnection({ url: normalizedUrl });
-	window.location.reload();
+	const request = ++switchRequest;
+	void (async () => {
+		const fromUrl = normalizeServerUrl(resolveServerUrl().url);
+		const accountId = fromUrl ? getStoredDbUserId(fromUrl) : null;
+		const token = fromUrl ? getAuthToken(fromUrl) : null;
+		const generation = fromUrl ? authSessionGeneration(fromUrl) : 0;
+		if (fromUrl && fromUrl !== normalizedUrl && accountId && token) {
+			const roster = await getPinnedCommunityRoster(fromUrl, accountId);
+			if (request !== switchRequest) return;
+			if (roster && canCarrySessionTo(roster, normalizedUrl) &&
+				normalizeServerUrl(resolveServerUrl().url) === fromUrl &&
+				getAuthToken(fromUrl) === token && getStoredDbUserId(fromUrl) === accountId &&
+				authSessionGeneration(fromUrl) === generation) {
+				const destinationToken = getAuthToken(normalizedUrl);
+				if (!destinationToken || destinationToken === token) {
+					setAuthToken(token, normalizedUrl);
+					setStoredUsername(getStoredUsername(fromUrl), normalizedUrl);
+					setStoredDbUserId(accountId, normalizedUrl);
+				}
+			}
+		}
+		if (request !== switchRequest) return;
+		const remember = getConfiguredServerRememberPreference();
+		setConfiguredServerUrl(normalizedUrl, remember);
+		recordSuccessfulServerConnection({ url: normalizedUrl });
+		window.location.reload();
+	})();
 }
 
 export function switchToSavedServerChannel(url: string, channelId: string): void {

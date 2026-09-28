@@ -92,6 +92,8 @@ pub enum WabiError {
         /// Suggested time to wait before retrying, in milliseconds.
         retry_after_ms: u64,
     },
+    /// Local canonical writes are disabled by a durable operator fence.
+    WriterFenced,
     /// The projection dispatcher channel is full and the commit cannot proceed.
     DispatcherBacklogFull {
         /// Current depth of the dispatcher channel.
@@ -260,6 +262,7 @@ impl fmt::Display for WabiError {
             Self::EngineBusy { retry_after_ms } => {
                 write!(f, "engine busy, retry after {retry_after_ms}ms")
             }
+            Self::WriterFenced => write!(f, "canonical writer is fenced"),
             Self::DispatcherBacklogFull { depth, capacity } => {
                 write!(f, "dispatcher backlog full: {depth}/{capacity}")
             }
@@ -386,6 +389,7 @@ impl WabiError {
             | Self::SignatureVerificationFailed
             | Self::SkippedKeyCacheFull => ErrorCategory::Crypto,
             Self::EngineBusy { .. }
+            | Self::WriterFenced
             | Self::DispatcherBacklogFull { .. }
             | Self::CommitSeqReuse { .. } => ErrorCategory::Sequencer,
             Self::Validation { .. }

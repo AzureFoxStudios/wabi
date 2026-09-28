@@ -1,0 +1,7 @@
+# Tim pre-load snapshot — 2026-09-24
+
+Before any public join load test, the live `wabi-server` was briefly stopped and a cold copy was made at `/home/tim/wabi-backups/pre-load-20260924T144819Z` on Tim. The private backup contains `data/wabi-server`, the actual `uploads-tim` mount, plugins, `.env`, Compose/Caddy configuration, and the exact server binary. It occupies about 490 MiB and contains 22,039 files. A SHA-256 manifest was generated and verified without errors. The live binary and copied binary had the same SHA-256 digest.
+
+The live container restarted healthy. Public `https://wabi.chat/health` and the Socket.IO polling handshake both returned HTTP 200. A second copy of the backup booted to `/readyz` in a Docker container with networking disabled; that disposable restore copy and container were removed afterward. The original backup remains private on Tim. No load test or test account creation occurred during this snapshot work.
+
+This is a same-host recovery point, not protection from Tim's disk failing. Restoring it over the live Authority would roll back every legitimate write after the snapshot. The canonical [backup and recovery runbook](../deployment/BACKUP_AND_RECOVERY.md) still treats live file copies and the experimental standby endpoints as unsupported backups. Future automatic snapshots need a coordinated WabiDB hot-backup protocol or an explicit stopped-server maintenance window, plus off-host storage and periodic restore checks.

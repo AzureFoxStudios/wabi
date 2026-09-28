@@ -38,6 +38,12 @@
 	min-height: 0;
 }
 
+/* A Project card editor is a modal over the whole workspace, including
+   pinned panels and their floating stub strip. */
+.main-content:has(.task-backdrop) {
+	z-index: var(--z-modal);
+}
+
 .chat-stack {
 	height: 100%;
 	width: 100%;
@@ -482,5 +488,4 @@
 .mobile-right-overlay { display: none; }
 .mobile-nav-grabber { display: none; }
 .mobile-panel-backdrop { display: none; }
-
 

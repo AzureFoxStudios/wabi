@@ -98,6 +98,29 @@
 		font-weight: var(--font-weight-medium);
 	}
 
+	.retention-channel-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		min-height: 1.4rem;
+		padding: 0.12rem 0.48rem;
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-full);
+		background: var(--surface-raised);
+		color: var(--text-secondary);
+		font-size: var(--text-xs);
+		font-weight: var(--font-weight-medium);
+		line-height: 1;
+		white-space: nowrap;
+	}
+
+	.retention-channel-badge svg {
+		width: 0.82rem;
+		height: 0.82rem;
+		flex: none;
+		opacity: 0.7;
+	}
+
 	.spoiler-channel-badge {
 		display: inline-block;
 		margin-top: 0.35rem;

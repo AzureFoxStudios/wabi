@@ -6,6 +6,7 @@
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getAuthToken } from '$lib/authSession';
 	import type { Emoji } from '$lib/socket-types';
+	import { emojiUploadError, emojiUploadFailureMessage } from '$lib/emojiUploadErrors';
 
 	let emojiFileInput: HTMLInputElement;
 	let emojiName = '';
@@ -130,7 +131,7 @@
 				headers: authHeaders(),
 				body: formData
 			});
-			if (!response.ok) throw new Error('Upload failed');
+			if (!response.ok) throw new Error(await emojiUploadError(response));
 
 			const result = await response.json();
 			const uploadedType = emojiType;
@@ -143,7 +144,7 @@
 			alert(`${uploadedType === 'sticker' ? 'Sticker' : 'Emoji'} "${result.emoji.displayName || result.emoji.name}" uploaded to ${normalizeFolder(emojiFolder)}.`);
 		} catch (error) {
 			console.error('Emoji upload error:', error);
-			alert('Failed to upload emoji. Please try again.');
+			alert(emojiUploadFailureMessage(error));
 		} finally {
 			uploadingEmoji = false;
 		}
@@ -202,6 +203,8 @@
 		uploadingBulk = true;
 		let successCount = 0;
 		let failCount = 0;
+		const failedItems: typeof bulkEmojiFiles = [];
+		const failures: string[] = [];
 		try {
 			for (const item of bulkEmojiFiles) {
 				try {
@@ -220,22 +223,28 @@
 					});
 					if (!response.ok) {
 						failCount++;
+						failedItems.push(item);
+						failures.push(`:${item.name}: — ${await emojiUploadError(response)}`);
 						continue;
 					}
 					successCount++;
 				} catch (error) {
 					console.error(`Error uploading ${item.name}:`, error);
 					failCount++;
+					failedItems.push(item);
+					failures.push(`:${item.name}: — ${emojiUploadFailureMessage(error)}`);
 				}
 			}
 
-			bulkEmojiFiles = [];
-			bulkEmojiArtist = '';
-			if (bulkEmojiFileInput) bulkEmojiFileInput.value = '';
-			alert(`Upload complete to ${normalizeFolder(bulkEmojiFolder)}.\n✅ ${successCount} successful\n❌ ${failCount} failed`);
+			bulkEmojiFiles = failedItems;
+			if (failCount === 0) {
+				bulkEmojiArtist = '';
+				if (bulkEmojiFileInput) bulkEmojiFileInput.value = '';
+			}
+			alert(`Upload complete to ${normalizeFolder(bulkEmojiFolder)}.\n✅ ${successCount} successful\n❌ ${failCount} failed${failures.length ? `\n\n${failures.join('\n')}\n\nFailed items are kept below so you can fix their shortcodes and retry.` : ''}`);
 		} catch (error) {
 			console.error('Bulk upload error:', error);
-			alert('Failed to upload emojis. Please try again.');
+			alert(emojiUploadFailureMessage(error));
 		} finally {
 			uploadingBulk = false;
 		}

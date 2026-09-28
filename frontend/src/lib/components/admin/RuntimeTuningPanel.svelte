@@ -11,8 +11,9 @@
 	export let onSave: () => void;
 	export let onDraftChange: (draft: RuntimeTuningConfig) => void;
 
-	function formatBytes(bytes: number): string {
-		if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+	function formatBytes(bytes: number | null): string {
+		if (bytes == null || !Number.isFinite(bytes)) return 'Not measured';
+		if (bytes <= 0) return '0 B';
 		if (bytes < 1024) return `${bytes} B`;
 		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
 		if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
@@ -101,8 +102,8 @@
 				<span class="v">{formatBytes(runtimePanel.guardrails.memory.heapUsedBytes)}</span>
 			</div>
 			<div class="compression-stat">
-				<span class="k">CPU User (ms)</span>
-				<span class="v">{formatNumber(runtimePanel.guardrails.cpu.userMicros / 1000)}</span>
+				<span class="k">CPU user time since start (ms)</span>
+				<span class="v">{formatNumber(runtimePanel.guardrails.cpu.userMicros == null ? null : runtimePanel.guardrails.cpu.userMicros / 1000)}</span>
 			</div>
 			<div class="compression-stat">
 				<span class="k">EL Delay P95 (ms)</span>

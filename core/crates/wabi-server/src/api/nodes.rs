@@ -69,7 +69,15 @@ async fn list_nodes(
 ) -> Result<Json<serde_json::Value>> {
     require_admin(&state, &headers).await?;
     let nodes = state.node_registry.list_nodes().await;
-    Ok(Json(json!({ "nodes": nodes })))
+    let rooms = state.media_registry.list_rooms().await;
+    let workload: Vec<_> = nodes.iter().map(|node| {
+        let assigned = rooms.iter().filter(|room| room.assigned_node_id.as_deref() == Some(node.node_id.as_str()) && !matches!(room.status, crate::media::MediaRoomStatus::Closed)).count();
+        let active = rooms.iter().filter(|room| room.assigned_node_id.as_deref() == Some(node.node_id.as_str()) && matches!(room.status, crate::media::MediaRoomStatus::Active)).count();
+        json!({"nodeId":node.node_id,"assignedMediaRooms":assigned,"reportedActiveMediaRooms":active})
+    }).collect();
+    Ok(Json(
+        json!({ "nodes": nodes, "workload": workload, "observedAt": chrono::Utc::now().to_rfc3339() }),
+    ))
 }
 
 async fn list_media_advertisements(

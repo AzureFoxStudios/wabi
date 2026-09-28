@@ -8,7 +8,6 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -66,11 +65,32 @@ pub struct RoomState {
     pub envelopes: Vec<WrappedRoomKey>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum NewRoomMode {
+    PendingEncryption,
+    ServerReadable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NewRoomPolicy {
+    mode: NewRoomMode,
+    created_at: String,
+    chosen_by_user_id: Option<i64>,
+    #[serde(default)]
+    consenting_user_ids: BTreeSet<i64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct E2eeData {
     devices: Vec<DeviceBundle>,
     rooms: HashMap<String, RoomState>,
+    // Added to the JSON sidecar, never to postcard channel/message records.
+    // Old rooms without an entry retain their existing server-readable mode.
+    #[serde(default)]
+    new_room_policies: HashMap<String, NewRoomPolicy>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -133,6 +153,29 @@ pub(super) fn room_is_enabled(data_dir: &str, channel_id: &str) -> Result<bool> 
     Ok(read_data(data_dir)?.rooms.get(channel_id).is_some_and(|room| room.enabled))
 }
 
+pub(super) fn room_blocks_server_content(data_dir: &str, channel_id: &str) -> Result<bool> {
+    let data = read_data(data_dir)?;
+    Ok(data.rooms.get(channel_id).is_some_and(|room| room.enabled)
+        || data.new_room_policies.get(channel_id).is_some_and(|policy| policy.mode == NewRoomMode::PendingEncryption))
+}
+
+/// Called before a newly-created DM/group is made visible in WabiDB. An
+/// orphaned policy after a failed create is harmless; the opposite ordering
+/// could briefly accept a plaintext message in a new private room.
+pub(crate) fn mark_new_room_pending(data_dir: &str, channel_id: &str) -> Result<()> {
+    mutate_data(data_dir, |data| {
+        if !data.rooms.contains_key(channel_id) {
+            data.new_room_policies.insert(channel_id.to_string(), NewRoomPolicy {
+                mode: NewRoomMode::PendingEncryption,
+                created_at: chrono::Utc::now().to_rfc3339(),
+                chosen_by_user_id: None,
+                consenting_user_ids: BTreeSet::new(),
+            });
+        }
+        Ok(())
+    })
+}
+
 fn write_unlocked(data_dir: &str, data: &E2eeData) -> anyhow::Result<()> {
     use std::io::Write;
     let path = store_path(data_dir);
@@ -153,6 +196,11 @@ fn write_unlocked(data_dir: &str, data: &E2eeData) -> anyhow::Result<()> {
         file.sync_all()?;
         drop(file);
         std::fs::rename(&temporary, &path)?;
+        // The pending-room policy is written before WabiDB exposes a new
+        // channel. Sync the rename too, or power loss could leave a durable
+        // channel without its fail-closed privacy boundary.
+        #[cfg(unix)]
+        std::fs::File::open(parent)?.sync_all()?;
         Ok(())
     })();
     if result.is_err() { let _ = std::fs::remove_file(&temporary); }
@@ -219,6 +267,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/channels/{channel_id}", axum::routing::get(room_status))
         .route("/channels/{channel_id}/enable", axum::routing::post(enable_room))
         .route("/channels/{channel_id}/rekey", axum::routing::post(rekey_room))
+        .route("/channels/{channel_id}/allow-server-readable", axum::routing::post(allow_server_readable))
         .with_state(state)
 }
 
@@ -295,12 +344,18 @@ async fn room_status(
     let devices: Vec<DeviceBundle> = active_devices(&data, &members).into_iter().cloned().collect();
     let missing_user_ids: Vec<i64> = members.iter().copied().filter(|uid| !devices.iter().any(|d| d.user_id == *uid)).collect();
     let room = data.rooms.get(&channel_id).filter(|r| r.enabled).cloned();
+    let mode = data.new_room_policies.get(&channel_id).map(|policy| policy.mode);
+    let server_readable_allowed_by_me = data.new_room_policies.get(&channel_id)
+        .is_some_and(|policy| policy.mode == NewRoomMode::ServerReadable && policy.consenting_user_ids.contains(&auth.user_id));
     let expected = device_pairs(devices.iter());
     let actual = room.as_ref().map(|r| envelope_pairs(&r.envelopes)).unwrap_or_default();
     let needs_rekey = room.as_ref().is_some_and(|r| r.membership_revision != current_revision || expected != actual);
     let my_envelopes: Vec<WrappedRoomKey> = room.as_ref().map(|r| r.envelopes.iter().filter(|e| e.recipient_user_id == auth.user_id).cloned().collect()).unwrap_or_default();
     Ok(Json(json!({
         "enabled": room.is_some(),
+        "pendingDefault": room.is_none() && mode == Some(NewRoomMode::PendingEncryption),
+        "serverReadableSelected": room.is_none() && mode == Some(NewRoomMode::ServerReadable),
+        "serverReadableAllowedByMe": server_readable_allowed_by_me,
         "epoch": room.as_ref().map(|r| r.epoch).unwrap_or(0),
         "membershipRevision": room.as_ref().map(|r| r.membership_revision.to_string()).unwrap_or_else(|| current_revision.to_string()),
         "currentMembershipRevision": current_revision.to_string(),
@@ -310,6 +365,30 @@ async fn room_status(
         "keyEnvelopes": my_envelopes,
         "downgradeAllowed": false,
     })))
+}
+
+async fn allow_server_readable(
+    State(state): State<Arc<AppState>>, auth: AuthUser, Path(channel_id): Path<String>,
+) -> Result<Json<serde_json::Value>> {
+    if auth.is_guest { return Err(AppError::Forbidden("Guests cannot choose private-room mode".into())); }
+    private_room_members(&state, auth.user_id, &channel_id).await?;
+    // Serialize the explicit choice with messages and room enable/rekey. Once
+    // encryption is enabled, this endpoint can never downgrade it.
+    let _policy_guard = state.retention_policy_lock.lock().await;
+    mutate_data(&state.config.data_dir, |data| {
+        if data.rooms.get(&channel_id).is_some_and(|room| room.enabled) {
+            return Err(AppError::Conflict("This conversation is already encrypted and cannot be downgraded".into()));
+        }
+        let policy = data.new_room_policies.get_mut(&channel_id)
+            .ok_or_else(|| AppError::BadRequest("This conversation uses the earlier server-readable policy".into()))?;
+        if policy.mode == NewRoomMode::PendingEncryption {
+            policy.mode = NewRoomMode::ServerReadable;
+            policy.chosen_by_user_id = Some(auth.user_id);
+        }
+        policy.consenting_user_ids.insert(auth.user_id);
+        Ok(())
+    })?;
+    Ok(Json(json!({ "serverReadableSelected": true })))
 }
 
 fn validate_wrapped_key(envelope: &WrappedRoomKey, sender_device_id: &str) -> bool {
@@ -327,6 +406,7 @@ async fn set_room(
     state: &AppState, auth: &AuthUser, channel_id: &str, input: SetRoomInput, rekey: bool,
 ) -> Result<RoomState> {
     if auth.is_guest { return Err(AppError::Forbidden("Guests cannot enable E2EE".into())); }
+    let _policy_guard = state.retention_policy_lock.lock().await;
     let (members, current_revision) = private_room_members(state, auth.user_id, channel_id).await?;
     let requested_revision = input.membership_revision.parse::<u64>()
         .map_err(|_| AppError::BadRequest("Invalid E2EE membership revision".into()))?;
@@ -378,7 +458,7 @@ async fn set_room(
         data.rooms.insert(channel_id.to_string(), next.clone());
         Ok(next)
     })?;
-    if let Some(io) = state.sio.read().await.clone() {
+    if let Some(io) = state.socket_io() {
         let _ = io.to(channel_id.to_string()).emit("e2ee-room-updated", &json!({
             "channelId": channel_id,
             "enabled": true,
@@ -423,6 +503,13 @@ pub async fn validate_outbound_message(
     let room = data.rooms.get(channel_id).filter(|r| r.enabled).cloned();
     let Some(room) = room else {
         if is_ciphertext(content) { return Err("E2EE envelopes are only accepted in an E2EE conversation".into()); }
+        if data.new_room_policies.get(channel_id).is_some_and(|policy| policy.mode == NewRoomMode::PendingEncryption) {
+            return Err("Encryption is pending for this new conversation. Wait for participants to prepare encryption, or explicitly choose server-readable messages.".into());
+        }
+        if data.new_room_policies.get(channel_id).is_some_and(|policy|
+            policy.mode == NewRoomMode::ServerReadable && !policy.consenting_user_ids.contains(&user_id)) {
+            return Err("A participant chose server-readable chat. Confirm server-readable messages on your own device before sending.".into());
+        }
         return Ok(false);
     };
     let envelope = parse_message(content).ok_or_else(|| "This E2EE conversation requires a valid encrypted message envelope".to_string())?;
@@ -536,5 +623,40 @@ mod registry_tests {
         let result = validate_outbound_message(&state, "dm-test", 1, "plain-message-canary").await;
         assert_eq!(result.unwrap_err(), REGISTRY_UNAVAILABLE);
         assert_eq!(std::fs::read(directory.path().join("e2ee_state.json")).unwrap(), original);
+    }
+
+    #[tokio::test]
+    async fn new_room_requires_each_sender_to_choose_plaintext_and_recreation_resets_it() {
+        let (directory, state) = make_test_state().await;
+        let dir = directory.path().to_str().unwrap();
+        mark_new_room_pending(dir, "dm-test").unwrap();
+        assert!(validate_outbound_message(&state, "dm-test", 1, "private-canary").await.is_err());
+        assert!(validate_outbound_message(&state, "dm-test", 2, "private-canary").await.is_err());
+
+        mutate_data(dir, |data| {
+            let policy = data.new_room_policies.get_mut("dm-test").unwrap();
+            policy.mode = NewRoomMode::ServerReadable;
+            policy.chosen_by_user_id = Some(1);
+            policy.consenting_user_ids.insert(1);
+            Ok(())
+        }).unwrap();
+        assert!(!validate_outbound_message(&state, "dm-test", 1, "private-canary").await.unwrap());
+        assert!(validate_outbound_message(&state, "dm-test", 2, "private-canary").await
+            .unwrap_err().contains("your own device"));
+
+        // Stable DM IDs can be reused after deletion. The new conversation
+        // must not inherit the previous conversation's plaintext choice.
+        mark_new_room_pending(dir, "dm-test").unwrap();
+        assert!(validate_outbound_message(&state, "dm-test", 1, "private-canary").await.is_err());
+        assert_eq!(read_data(dir).unwrap().new_room_policies["dm-test"].mode, NewRoomMode::PendingEncryption);
+    }
+
+    #[test]
+    fn legacy_registry_without_new_room_policy_remains_readable() {
+        let directory = tempfile::tempdir().unwrap();
+        let dir = directory.path().to_str().unwrap();
+        std::fs::write(store_path(dir), br#"{"devices":[],"rooms":{}}"#).unwrap();
+        let data = read_data(dir).unwrap();
+        assert!(data.new_room_policies.is_empty());
     }
 }

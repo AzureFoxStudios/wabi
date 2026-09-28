@@ -149,6 +149,7 @@ mod tests {
     ) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let cmd = CommandCommit {
+            room_owner_precondition: None,
             caller_user_id: user_id,
             caller_device_id: "dev_test".into(),
             command_name: "test_cmd".into(),

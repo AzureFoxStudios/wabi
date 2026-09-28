@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { currentUser } from '$lib/socket';
+	import { plannerActor as currentUser } from '$lib/business/personalWorkspace';
 	import {
 		projects,
 		addProject,
@@ -13,6 +13,7 @@
 	import type { Project, Sprint } from '$lib/business/types';
 	import { onMount } from 'svelte';
 	import ProjectDetail from './ProjectDetail.svelte';
+	import ProjectInventory from './ProjectInventory.svelte';
 	import ProjectModal from './ProjectModal.svelte';
 	import ProjectSidebar from './ProjectSidebar.svelte';
 	import SprintModal from './SprintModal.svelte';
@@ -22,6 +23,7 @@
 	export let embedded = false;
 	export let addSignal = 0;
 
+	let showProjectTree = false;
 	let selectedProject: Project | null = null;
 	let showProjectModal = false;
 	let showSprintModal = false;
@@ -69,9 +71,6 @@
 				selectedProject = project;
 				return;
 			}
-		}
-		if ($rootProjects.length > 0) {
-			selectedProject = $rootProjects[0];
 		}
 	});
 
@@ -224,15 +223,19 @@
 </script>
 
 <div class="projects-container" class:embedded={embedded}>
+	{#if selectedProject && showProjectTree}
 	<ProjectSidebar
 		bind:selectedProject
 		bind:expandedProjects
 		onOpenProjectModal={openProjectModal}
 	/>
 
+	{/if}
 	<main class="project-main">
 		{#if selectedProject}
+			<div class="project-navigation"><button type="button" class="tree-toggle" on:click={() => showProjectTree = !showProjectTree} aria-expanded={showProjectTree}>Browse project tree</button><button class="inventory-back" on:click={() => { selectedProject = null; localStorage.removeItem('businessHubSelectedProject'); }}>← All projects</button></div>
 			<ProjectDetail
+				onSelectProject={(project) => selectedProject = project}
 				{selectedProject}
 				{isReadOnly}
 				onOpenProjectModal={openProjectModal}
@@ -240,12 +243,7 @@
 				onOpenSprintModal={openSprintModal}
 			/>
 		{:else}
-			<div class="no-project-selected">
-				<p>Select a project or create a new one</p>
-				<button class="create-project-btn" on:click={() => openProjectModal()}>
-					Create Project
-				</button>
-			</div>
+			<ProjectInventory onSelect={(project) => selectedProject = project} onCreate={() => openProjectModal()} {isReadOnly} />
 		{/if}
 	</main>
 </div>
@@ -283,3 +281,5 @@
 		onDeleteSprint={handleDeleteSprint}
 	/>
 {/if}
+
+<style>.project-navigation{display:flex;justify-content:space-between;align-items:center;padding:16px 28px;gap:12px}.tree-toggle{background:var(--surface-base);border:1px solid var(--border-subtle);border-radius:var(--radius-md);color:var(--text-secondary);padding:8px 12px;cursor:pointer}.project-navigation .inventory-back{margin:0}.projects-container :global(.projects-sidebar){width:220px}.projects-container :global(.project-item){min-width:0;padding:10px;background:var(--surface-base);border-radius:var(--radius-md)}.projects-container :global(.project-item.selected){background:var(--surface-raised);border-color:var(--accent-primary)}.projects-container :global(.project-name){white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;font-size:13px}.projects-container :global(.project-progress-mini){display:none}.projects-container :global(.sub-projects){margin-left:8px;padding-left:4px}.projects-container :global(.projects-list){overflow-x:hidden}.project-main{min-width:0}@media(max-width:720px){.projects-container{flex-direction:column}.projects-container :global(.projects-sidebar){width:100%;max-height:220px}.project-navigation{padding:12px 20px}}.inventory-back{margin:20px 28px 0;background:transparent;color:var(--text-secondary);border:0;cursor:pointer}</style>

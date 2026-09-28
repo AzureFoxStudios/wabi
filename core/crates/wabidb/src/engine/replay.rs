@@ -408,6 +408,7 @@ mod tests {
         engine.get_or_create_stream_key(stream).await.unwrap();
         let (tx, _rx) = tokio::sync::oneshot::channel();
         let cmd = CommandCommit {
+            room_owner_precondition: None,
             caller_user_id: seq,
             caller_device_id: format!("dev{seq}"),
             command_name: "test_cmd".into(),

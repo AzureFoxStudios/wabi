@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-09-28T04:39:20.408803+00:00",
+  "scope": "Disposable local main Wabi operation pause and auth/chat regressions; no checkpoint exporter or deployment",
+  "checkout_head": "cf00e3cbe37920d6b1da76dff3e9171ab4aac7a5",
+  "dirty_worktree": true,
+  "checks": [
+    {
+      "name": "integration",
+      "command": "CARGO_INCREMENTAL=0 cargo test --locked -p wabi-server --test account_recovery_contract --test message_delivery_contract --test auth_revocation_recovery_contract --test first_boot_onboarding --test admin_role_contract --test helper_admin_auth_contract --test payment_access_contract",
+      "passed": 78,
+      "failed": 0,
+      "ignored": 1,
+      "exit_code": 0,
+      "log_sha256": "a6d08a2c1f3687c90e920e88dc4ea1828c2db34889d7ccaaf5ceef226c96ddce",
+      "target_results": [
+        {
+          "passed": 16,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 14,
+          "failed": 0,
+          "ignored": 1
+        },
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 21,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "name": "auth_and_operation_units",
+      "command": "CARGO_INCREMENTAL=0 cargo test --locked -p wabi-server --lib -- instance_operations::tests state::tests api::auth::tests socket_revocation_tests socket_authentication_tests",
+      "passed": 40,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log_sha256": "385ae7c86f7671a49191769300b4f2699686c3e983b5f05c4089641edd9b9c1b",
+      "target_results": [
+        {
+          "passed": 40,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    }
+  ],
+  "total_passing_test_executions": 118,
+  "socket_callback_registrations": 89,
+  "source_sha256": {
+    "rust-toolchain.toml": "e99fdaaa2922d35780ca194f2a321357870b331842c6092653e61a3d42bad977",
+    "Cargo.lock": "44baa98cc7385e28f7770be25db1f18c7d3f9b23f06e8dd6a774ff31db7b4486",
+    "core/crates/wabi-server/Cargo.toml": "2bdfa6af4a4a8fc070140741bb1f11553b82b3217c8a2622df797eb605d80d34",
+    "core/crates/wabi-server/src/instance_operations.rs": "c2beeca7b47c95b07fb5c3b2874ecf9d194f1c11219e39e4b691221ce01426d9",
+    "core/crates/wabi-server/src/lib.rs": "c6d98cfdc3bca8ebbab382fbf57eac3bd87f40878ce3891aa849e7dfc635e844",
+    "core/crates/wabi-server/src/main.rs": "2f8d7a27e2b07a8afc25cf611010982d909ae30d80d6304436608b304da8252d",
+    "core/crates/wabi-server/src/state.rs": "a5d5a22418e9de1d954a2a99769979f4888a818f85fcc1388ef53787f28824cb",
+    "core/crates/wabi-server/src/recovery_codes.rs": "da86af8007a0ac43ef2d7788354a246e06cf55aa9a4202554bf4d6554d0c69a0",
+    "core/crates/wabi-server/src/blacklist.rs": "5a9dfa67f11d280e19159786ef568ea9cb73a8a4d017676f87a8c717e2c7f7f0",
+    "core/crates/wabi-server/src/api/routes.rs": "cd6ef4a0c0407e41cd1d1d59ca33d46d048b92f69b0da79d1d76a8268ab58572",
+    "core/crates/wabi-server/src/app_router.rs": "580f463dcd96ab4d96363467ec58a3e547125448add973f1a1473f31a4e17bed",
+    "core/crates/wabi-server/src/socketio/shared.rs": "2a7ecd7e3eb470a9822cddbc2bdbe361dce6befac2ddbcb5ba936d2226ba1ea8",
+    "core/crates/wabi-server/src/socketio/wiring.rs": "d6065fce4090d5dafa7493a557bd17eefa2a51a6c79a43ad5930664975203c47",
+    "core/crates/wabi-server/src/api/server_center.rs": "df57f2a46f55539954060dca1a01e3d7d90a3eeb85b426b66283452cfca9b914",
+    "core/crates/wabi-server/src/api/field.rs": "37eb0d6c9c1b3079e5854c5095a04f5a44628034cf417dedeba7307f7aae61ba",
+    "core/crates/wabi-server/src/api/payments/mod.rs": "1ba2cec081808087789deff5ba294d68657fdbb489c3a84e8a5569cd56c0bf79",
+    "core/crates/wabi-server/src/bot_delivery.rs": "7639a7fef76c1d383a2afb109cf27967dcc3a2db2972679ebd32627c9749bbbd",
+    "core/crates/wabi-server/tests/account_recovery_contract.rs": "b3db851ef7a501a936e71ac836b447719d967d136ad875bbc49ebc0605b32db8",
+    "core/crates/wabi-server/tests/message_delivery_contract.rs": "c12da3904ede32d0528ede7fad49e7fa18a266e2da58c560a2de70db9b1b42c7",
+    "core/crates/wabi-server/tests/auth_revocation_recovery_contract.rs": "25770f031fbef5a3131820cef193fa98bca63cc6ba15300456a8c58225efb372",
+    "core/crates/wabi-server/tests/first_boot_onboarding.rs": "04bc8b98a5cf3414a33265bab7d1c84e2665a30070c925466dfdf7b8565cb85b",
+    "core/crates/wabi-server/tests/admin_role_contract.rs": "547b6c5dd9662f040762e885af60e3443f05e69019289b765b88d1d6b5f2bce0",
+    "core/crates/wabi-server/tests/helper_admin_auth_contract.rs": "69dc8b3e8847fc5c22f9560b9199aaa0d36a2df4dbec26d96ac3586f75cac195",
+    "core/crates/wabi-server/tests/payment_access_contract.rs": "3dada9cee6c54f2c76475946e0dd18a8bf3dab083a14be42bf40433aad0698c3"
+  },
+  "initial_environment_failure": {
+    "command": "CARGO_INCREMENTAL=0 cargo test --locked -p wabi-server --test account_recovery_contract --test message_delivery_contract --test auth_revocation_recovery_contract --test first_boot_onboarding --test admin_role_contract --test helper_admin_auth_contract --test payment_access_contract",
+    "exit_code": 101,
+    "passed": 68,
+    "failed": 1,
+    "ignored": 1,
+    "cause": "Sandbox refused binding the existing loopback webhook fixture with EPERM",
+    "log_sha256": "0a1fb37372559c7462c45c2665ee5843ec11a6b90c8b5e652adf0835afaf8065",
+    "resolution": "Full integration suite rerun with local listener access; final exit 0"
+  },
+  "limitations": [
+    "Focused targets, not the entire workspace",
+    "Eighteen socket executions represent nine cases through two module paths",
+    "Background-loop registration audited in source; not every timed pass tested",
+    "No fresh physical WAN, native desktop, media, load or privacy acceptance",
+    "Direct engine/plugin/external coordination and complete file inventory remain open",
+    "No live encrypted checkpoint, unavailable-host promotion, quorum election or HA enabled",
+    "Existing compiler warnings remain"
+  ],
+  "cleanup": {
+    "status": "completed",
+    "cargo_lock": "exclusive nonblocking acquired",
+    "removed": [
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/account_recovery_contract-36de912130581d76",
+        "logical_file_bytes": 512045160
+      },
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/account_recovery_contract-36de912130581d76.d",
+        "logical_file_bytes": 342
+      },
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/auth_revocation_recovery_contract-389abf0ef20ffc64",
+        "logical_file_bytes": 506069416
+      },
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/auth_revocation_recovery_contract-389abf0ef20ffc64.d",
+        "logical_file_bytes": 382
+      },
+      {
+        "path": "/tmp/wabi-instance-operations-unit-20260928.log",
+        "logical_file_bytes": 16092
+      },
+      {
+        "path": "/tmp/wabi-instance-operations-unit-final-20260928.log",
+        "logical_file_bytes": 16289
+      },
+      {
+        "path": "/tmp/wabi-instance-operations-contract-20260928.log",
+        "logical_file_bytes": 29279
+      },
+      {
+        "path": "/tmp/wabi-instance-operations-contract-final-20260928.log",
+        "logical_file_bytes": 29519
+      },
+      {
+        "path": "/tmp/wabi-instance-operations-auth-unit-final-20260928.log",
+        "logical_file_bytes": 19579
+      }
+    ],
+    "logical_file_bytes_removed": 1018226058,
+    "available_bytes_before": 151525650432,
+    "available_bytes_after": 152541986816,
+    "retained": "Shared dependencies, other test executables, shared binaries and other tasks live previews",
+    "incremental": "Disabled for every build; incremental directory contains no artifact files"
+  }
+}

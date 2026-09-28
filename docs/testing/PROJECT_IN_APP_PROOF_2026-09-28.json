@@ -1,0 +1,102 @@
+{
+  "verifiedAt": "2026-09-28T05:23:42.834Z",
+  "verified": true,
+  "fullyAutonomous": false,
+  "limitation": "Corrected wiki data verified; model needed explicit correction and failed to save the card note. Human review must finish the task.",
+  "origin": "http://127.0.0.1:47311",
+  "channelId": "ch_9",
+  "task": {
+    "id": "task_8feb05388ee1480e86f98af26bfa472d",
+    "title": "Live in-app proof: repair a reconnect sample",
+    "status": "in_progress",
+    "assigneeUserId": 17,
+    "updatedByUserId": 17,
+    "notes": ""
+  },
+  "inputPage": "page_5e",
+  "resultPage": "page_69",
+  "input": [
+    {
+      "id": "event-a",
+      "text": "original"
+    },
+    {
+      "id": "event-b",
+      "text": "keep B"
+    },
+    {
+      "id": "event-a",
+      "text": "updated"
+    },
+    {
+      "id": "event-c",
+      "text": "keep C"
+    }
+  ],
+  "result": {
+    "inputCount": 4,
+    "uniqueCount": 3,
+    "duplicateIds": [
+      "event-a"
+    ],
+    "events": [
+      {
+        "id": "event-a",
+        "text": "updated"
+      },
+      {
+        "id": "event-b",
+        "text": "keep B"
+      },
+      {
+        "id": "event-c",
+        "text": "keep C"
+      }
+    ]
+  },
+  "runs": [
+    {
+      "runId": "run_5fd8c366543e462085ef4638b8539f4d",
+      "status": "failed",
+      "provider": "openrouter.ai",
+      "model": "cohere/north-mini-code:free",
+      "tools": [
+        "read_card",
+        "claim_card",
+        "read_page",
+        "create_page",
+        "fail"
+      ],
+      "reply": "Worker stopped: Model returned an unsupported action; no edit was attempted. No automatic retry was made."
+    },
+    {
+      "runId": "run_7456b6c2b1bd4daaa421da58b921a470",
+      "status": "failed",
+      "provider": "openrouter.ai",
+      "model": "cohere/north-mini-code:free",
+      "tools": [
+        "read_page",
+        "update_page",
+        "read_card",
+        "update_card"
+      ],
+      "reply": "A Project tool was rejected. Review the checkpoint before retrying."
+    },
+    {
+      "runId": "run_57ac43f4fa8549bdbfe6bec1bcbaf378",
+      "status": "failed",
+      "provider": "openrouter.ai",
+      "model": "cohere/north-mini-code:free",
+      "tools": [
+        "fail"
+      ],
+      "reply": "Worker stopped: Model returned an unsupported action; no edit was attempted. No automatic retry was made."
+    }
+  ],
+  "humanReview": {
+    "status": "done",
+    "updatedByUserId": 25,
+    "revision": 3,
+    "notes": "Reviewed through the real Wabi UI after an independent API check. Input wiki: page_5e. Corrected result wiki: page_69. Verified: 4 inputs, 3 unique IDs, duplicate event-a, first-seen order preserved, latest text retained, original input unchanged.\n\nLive AI evidence: the free model claimed this card, read the input, created the result and corrected its count after explicit feedback. It failed to finish the card note; all three run outcomes remain failed in Assistant history. This human-account review completes the data task; it does NOT prove an unattended workflow, a code bugfix, Lore sync or remote failover."
+  }
+}

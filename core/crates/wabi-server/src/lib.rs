@@ -3,24 +3,33 @@
 //! the public API (adapter, state, socketio types, etc.)
 
 pub mod adapter;
+pub mod addon_switches;
 pub mod anchor;
 pub mod api;
 pub mod app_router;
 pub mod auth_extractor;
+pub(crate) mod auth_revocations;
+pub(crate) mod recovery_codes;
 pub mod blacklist;
 pub mod blobs;
+pub mod bootstrap_guard;
 pub mod bot_delivery;
 pub mod bot_registry;
-pub mod channel_access;
 pub mod call_access;
+pub mod channel_access;
 pub mod config;
+pub mod community_roster;
 pub mod error;
 pub mod helper_api;
+pub mod instance_sidecars;
+pub mod instance_operations;
+pub mod instance_checkpoint;
+pub mod instance_archive;
 pub mod jobs;
 pub mod lan;
+pub mod listener;
 pub mod mdns;
 pub mod media;
-pub mod mesh;
 pub mod metrics;
 pub mod nodes;
 pub mod rate_limit;

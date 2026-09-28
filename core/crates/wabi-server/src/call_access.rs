@@ -40,25 +40,8 @@ pub async fn require_principal(state: &AppState, uid: i64) -> Result<()> {
 }
 
 pub fn direct_pair(id: &str) -> Result<Option<[u64; 2]>> {
-    let Some(pair) = id.strip_prefix("dm:") else {
-        return Ok(None);
-    };
-    let parts: Vec<_> = pair.split(':').collect();
-    let parse = |s: &str| {
-        s.strip_prefix("user-")
-            .and_then(|s| s.parse::<i64>().ok())
-            .filter(|u| *u > 0)
-    };
-    if parts.len() == 2 {
-        if let (Some(a), Some(b)) = (parse(parts[0]), parse(parts[1])) {
-            if a != b && parts[0] < parts[1] && id == format!("dm:user-{a}:user-{b}") {
-                return Ok(Some([a as u64, b as u64]));
-            }
-        }
-    }
-    Err(AppError::BadRequest(
-        "Invalid direct-call session key".into(),
-    ))
+    wabidb::projections::call_sessions::direct_pair(id)
+        .map_err(|_| AppError::BadRequest("Invalid direct-call session key".into()))
 }
 
 /// Return the canonical scope. Direct UI channel hints are deliberately ignored:

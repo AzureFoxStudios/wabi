@@ -3,6 +3,7 @@
   import { currentUser, users } from '$lib/socket';
   import type { Channel } from '$lib/socket';
   import { overlayStyle } from '$lib/overlayStyle';
+	import { mediaUrl } from '$lib/mediaUrl';
 
   export let channel: Channel;
   export let liveCount: number = 0;
@@ -52,7 +53,7 @@
         {#each participantUsers as user (user.id)}
           <div class="avatar-wrapper">
             {#if user.profilePicture}
-              <img src={user.profilePicture} alt={user.username} class="avatar-img" />
+              <img src={mediaUrl(user.profilePicture)} alt={user.username} class="avatar-img" />
             {:else}
               <div class="avatar-placeholder" style="background-color: {user.color || '#98D8C8'}">
                 {user.username?.charAt(0).toUpperCase() || '?'}

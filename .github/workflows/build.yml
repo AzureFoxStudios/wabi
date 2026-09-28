@@ -119,10 +119,30 @@ jobs:
             ./scripts/fetch-tailcat-sidecar.sh
           fi
 
+      - name: Build embedded web assets and the bundled Authority
+        shell: bash
+        run: |
+          (cd frontend && npm run build:static)
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            node scripts/build-desktop-host.mjs --target universal-apple-darwin
+          else
+            node scripts/build-desktop-host.mjs
+          fi
+
       - name: build Tauri
         run: bunx @tauri-apps/cli@2.11.4 build --ci ${{ matrix.args }} -- --locked
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check native hosting and the packaged Authority
+        shell: bash
+        run: |
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol --lib hosting::
+          TARGET=$(rustc -vV | sed -n 's/^host: //p')
+          BINARY="$GITHUB_WORKSPACE/target/$TARGET/release/wabi-server"
+          if [[ "$RUNNER_OS" == Windows ]]; then BINARY="$BINARY.exe"; fi
+          cargo test --locked --manifest-path scripts/host-safety/Cargo.toml
+          WABI_HOST_TEST_BINARY="$BINARY" cargo test --locked --manifest-path scripts/host-safety/Cargo.toml -- --ignored
 
       - name: Upload desktop installers (Linux)
         if: matrix.artifact-platform == 'linux'
@@ -216,6 +236,11 @@ jobs:
       - name: Verify timed retention and restart on the release binary
         run: node scripts/authority-retention-smoke.mjs --binary target/release/wabi-server
 
+      - name: Verify desktop-managed owner, invitations and restart
+        run: |
+          node scripts/desktop-host-smoke.mjs target/release/wabi-server
+          node scripts/desktop-host-account-smoke.mjs target/release/wabi-server
+
       - name: Write artifact identity manifest
         run: node scripts/write-release-manifest.mjs --binary target/release/wabi-server --frontend frontend/build --output target/release/wabi-release-manifest.json
 
@@ -265,6 +290,13 @@ jobs:
           cd frontend
           STATIC_BUILD=1 npm run build
           test -f build/index.html
+
+      - name: Verify PWA installation and offline app assets
+        run: |
+          cd frontend
+          npx playwright install --with-deps chromium
+          WABI_SMOKE_CHROMIUM_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')" \
+            xvfb-run -a node scripts/pwa-production-smoke.mjs
 
       # svelte-check gates the job: currently 0 errors / warnings only.
       # Soft-failing (continue-on-error) hid real regressions that ci.yml

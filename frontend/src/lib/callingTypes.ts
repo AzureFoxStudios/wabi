@@ -30,11 +30,13 @@ export interface IncomingCall {
 
 export interface OutgoingCall {
 	targetUserId?: string;
+	requestId?: string;
 	channelId?: string;
 	channelName?: string;
 	username: string;
 	isVideoCall: boolean;
 	startedAt: number;
+	status?: 'connecting' | 'ringing';
 	scope: 'direct' | 'group';
 	localDisplayName?: string;
 }

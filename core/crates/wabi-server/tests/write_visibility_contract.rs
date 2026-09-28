@@ -216,6 +216,7 @@ async fn health_and_readiness_fail_when_the_writer_has_stopped_but_reads_still_w
     engine.get_or_create_stream_key("bad").await.unwrap();
     assert!(engine
         .run_command(CommandCommit {
+            room_owner_precondition: None,
             caller_user_id: 1,
             caller_device_id: "test".into(),
             command_name: "bad".into(),

@@ -1,0 +1,57 @@
+{
+  "runId": "F07-normal-chat-protocol",
+  "startedUtc": "2026-09-20T12:43:18.072Z",
+  "route": "native HTTP proxy -> bundled Tailcat SOCKS -> Tailcat listener on Iyoku -> Authority loopback",
+  "tailcatPath": "unknown (direct/relay telemetry not collected)",
+  "enrollment": "Device public key registered using SSH management + ordinary disposable owner account; fresh-user enrollment NOT tested",
+  "checks": {
+    "health": "PASS",
+    "unauthenticatedAdmin": {
+      "status": 401,
+      "pass": true
+    },
+    "authentication": "PASS",
+    "chat": {
+      "sent": 10,
+      "authorityVerified": true
+    },
+    "uploadDownload": {
+      "pass": true,
+      "bytes": 65536
+    },
+    "websocket": "PASS",
+    "nativeLoginAndWorkspace": "PASS",
+    "refresh": "PASS",
+    "shortSustainedRealtime": {
+      "pass": true,
+      "sender": "Socket.IO protocol probe on coordinator, normal chat message event",
+      "messagesObservedWithoutRefresh": 12,
+      "durationMs": 120003.507985,
+      "limits": "two-minute chat stability only; no media or long soak"
+    },
+    "disconnect": "PASS",
+    "transportReconnect": {
+      "pass": true,
+      "ms": 1387.972054999991,
+      "proxyPortChanged": true,
+      "uiAccountContinuity": "NOT TESTED"
+    }
+  },
+  "connectReturnedMs": 506.09790599999906,
+  "firstHealthMs": 2227.970901999999,
+  "observedBuildIdentity": {
+    "component": "wabi-server",
+    "profile": "release",
+    "schemaVersion": 1,
+    "sourceRevision": "b092bff398160adcb5b82c11ff846b5eb5192cecfb5519d41636e437d8dd29e0",
+    "targetArch": "x86_64",
+    "targetOs": "linux",
+    "version": "0.1.0"
+  },
+  "nativeBuildRevision": "b092bff398160adcb5b82c11ff846b5eb5192cecfb5519d41636e437d8dd29e0",
+  "passed": true,
+  "remoteCleanup": {
+    "released": true
+  },
+  "transportLimit": "Management Tailscale remained available; direct/relay route and underlay independence were not proven."
+}

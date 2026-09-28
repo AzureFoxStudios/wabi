@@ -113,7 +113,9 @@ impl RateLimitState {
                         .trim_end_matches(']')
                 })
             }) {
-                return for_val.to_string();
+                if let Ok(ip) = for_val.parse::<std::net::IpAddr>() {
+                    return ip.to_string();
+                }
             }
         }
 
@@ -144,6 +146,12 @@ impl RateLimitState {
 
         Ok(())
     }
+}
+
+/// Admission IP denies share the rate limiter's trusted-proxy interpretation.
+/// A direct peer's forwarding headers cannot change its identity.
+pub fn trusted_client_ip(headers: &HeaderMap, peer: SocketAddr) -> String {
+    RateLimitState::new(1, 1).with_trusted_proxies().extract_client_ip(headers, peer)
 }
 
 pub async fn rate_limit_middleware(

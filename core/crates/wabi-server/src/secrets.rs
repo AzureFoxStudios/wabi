@@ -46,7 +46,24 @@ fn resolve_jwt_secret_with(
         }
         return Ok(value);
     }
-    let secret = read_or_create_secret(&Path::new(data_dir).join("jwt_secret"), || {
+    let secret_path = Path::new(data_dir).join("jwt_secret");
+    if let Err(error) = std::fs::symlink_metadata(&secret_path) {
+        if error.kind() != io::ErrorKind::NotFound {
+            return Err(error);
+        }
+        let database = Path::new(data_dir).join("wabidb");
+        match std::fs::read_dir(database) {
+            Ok(mut files) => {
+                if files.next().transpose()?.is_some() {
+                    return Err(io::Error::new(io::ErrorKind::InvalidData,
+                        "Existing community is missing jwt_secret. Restore the original file; no replacement secret was generated."));
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    let secret = read_or_create_secret(&secret_path, || {
         format!("{}{}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4())
     })?;
     let secret = secret.trim();
@@ -130,6 +147,7 @@ fn resolve_root_key_with(
     env_value: Option<&str>,
     data_dir: &Path,
 ) -> wabidb::error::Result<[u8; 32]> {
+    crate::bootstrap_guard::check(data_dir, env_value.is_some())?;
     if let Some(env) = env_value {
         return decode_root_key_hex(env).map_err(|e| wabidb::error::WabiError::Validation {
             command: "resolve_root_key".into(),
@@ -302,6 +320,19 @@ mod tests {
             resolve_jwt_secret_with(None, None, fresh_dir).unwrap(),
             generated,
             "must be stable across boots"
+        );
+    }
+
+    #[test]
+    fn missing_jwt_in_existing_community_does_not_regenerate() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("wabidb")).unwrap();
+        std::fs::write(dir.path().join("wabidb/root_key"), "original").unwrap();
+        assert!(resolve_jwt_secret_with(None, None, dir.path().to_str().unwrap()).is_err());
+        assert!(!dir.path().join("jwt_secret").exists());
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("wabidb/root_key")).unwrap(),
+            "original"
         );
     }
 

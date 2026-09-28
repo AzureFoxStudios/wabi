@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod compaction_regression {
     use tempfile::tempdir;
+    use tokio::io::AsyncWriteExt;
     use wabidb::format::record::{payload_crc32c, RecordHeader, RecordKind};
     use wabidb::retention::compaction::compact_segment;
     use wabidb::retention::tombstone::TombstoneTable;
@@ -75,5 +76,63 @@ mod compaction_regression {
 
         let surviving_seqs2: Vec<u64> = records2.iter().map(|r| r.header.commit_seq).collect();
         assert_eq!(surviving_seqs2, vec![1, 3, 5]);
+    }
+
+    #[tokio::test]
+    async fn compact_corrupted_segment_preserves_original_bytes() {
+        // Regression test for the destructive-scan defect: compact_segment()
+        // previously called scan_segment_file(), which TRUNCATES the original
+        // file at the first invalid record. A maintenance operation must not
+        // alter the original bytes — it should return an error and leave the
+        // file untouched.
+        let dir = tempdir().unwrap();
+        let events_dir = dir.path().join("streams").join("ch_test").join("events");
+        tokio::fs::create_dir_all(&events_dir).await.unwrap();
+
+        // Write 5 valid records.
+        let path = write_test_segment(&events_dir, 5).await;
+        let original_bytes = tokio::fs::read(&path).await.unwrap();
+        let original_len = original_bytes.len();
+
+        // Corrupt a middle record by invalidating its header magic.
+        // Record 3 starts at byte 128 (each record is 64 bytes).
+        {
+            use tokio::io::AsyncSeekExt;
+            let mut f = tokio::fs::OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .await
+                .unwrap();
+            // Corrupt the first byte of record 3's header.
+            f.seek(std::io::SeekFrom::Start(128)).await.unwrap();
+            f.write_all(&[0xFF]).await.unwrap();
+            f.sync_all().await.unwrap();
+        }
+
+        // Capture the corrupted bytes for comparison.
+        let corrupted_bytes = tokio::fs::read(&path).await.unwrap();
+
+        let table = TombstoneTable::new();
+        let result = compact_segment(&path, "ch_test", &table).await;
+
+        // Compaction MUST fail with a Corrupt error — the segment is damaged.
+        assert!(
+            result.is_err(),
+            "compaction must refuse to process a corrupted segment"
+        );
+
+        // The original file must be byte-for-byte unchanged.
+        // This is the critical preservation check: the old destructive scan
+        // would truncate the file before the compactor wrote its replacement.
+        let after_bytes = tokio::fs::read(&path).await.unwrap();
+        assert_eq!(
+            after_bytes, corrupted_bytes,
+            "compaction must not modify the original file when corruption is detected"
+        );
+        assert_eq!(
+            after_bytes.len(),
+            original_len,
+            "file length must be preserved when compaction rejects a corrupted segment"
+        );
     }
 }

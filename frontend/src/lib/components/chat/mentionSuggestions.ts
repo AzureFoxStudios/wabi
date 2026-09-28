@@ -4,6 +4,8 @@ import { channels } from '$lib/channelStore';
 import { get } from 'svelte/store';
 import { searchObjectRefs } from '$lib/objectRefRegistry';
 import type { MentionSuggestion } from './types';
+import type { GameSelection } from '$lib/games/model';
+import { applyGameMention, suggestSharedGames } from './gameMentionSuggestions';
 
 export type { MentionSuggestion } from './types';
 
@@ -52,7 +54,8 @@ export function computeMentionSuggestions(
 	caret: number,
 	users: User[],
 	currentUserId: string | undefined,
-	_placeRegistry?: Array<{ id: string; name: string }>
+	_placeRegistry?: Array<{ id: string; name: string }>,
+	sharedGames: GameSelection[] = []
 ): MentionResult {
 	const beforeCaret = input.slice(0, caret);
 
@@ -78,6 +81,11 @@ export function computeMentionSuggestions(
 	const query = after.toLowerCase();
 
 	if (trigger.mode === 'user') {
+		if (query === 'game' || query.startsWith('game:')) {
+			const gameQuery = query.startsWith('game:') ? query.slice(5) : '';
+			const suggestions = suggestSharedGames(gameQuery, sharedGames);
+			return { show: suggestions.length > 0, tokenStart: trigger.idx, suggestions };
+		}
 		const suggestions: MentionSuggestion[] = users
 			.filter((u) => u.id !== currentUserId)
 			.filter((u) => u.username.toLowerCase().includes(query))
@@ -114,6 +122,7 @@ export function computeMentionSuggestions(
 
 function mentionPrefix(kind: MentionSuggestion['kind']): string {
 	if (kind === 'channel') return '#';
+	if (kind === 'game') return '@';
 	if (kind === 'user' || kind === 'special' || kind === 'place') return '@';
 	// forum_post / wiki_page / gallery_work use caret object refs
 	return '^';
@@ -124,6 +133,7 @@ function toMessageEntityKind(
 ): MessageEntity['kind'] {
 	// Protocol MessageEntityKind has no "special"; treat as user mention.
 	if (kind === 'special') return 'user';
+	if (kind === 'game') return 'user';
 	return kind;
 }
 
@@ -136,6 +146,9 @@ export function applyMentionToInput(
 ): { input: string; entities: MessageEntity[]; cursor: number } {
 	const before = input.slice(0, tokenStart);
 	const after = input.slice(caret);
+	if (suggestion.kind === 'game') {
+		return applyGameMention(input, entities, suggestion, tokenStart, caret);
+	}
 	const mentionText = `${mentionPrefix(suggestion.kind)}${suggestion.value} `;
 	const newInput = before + mentionText + after;
 	const cursor = before.length + mentionText.length;

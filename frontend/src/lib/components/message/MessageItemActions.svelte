@@ -18,13 +18,8 @@
 </script>
 
 <div class="message-actions" class:mobile-visible={mobileActionsMessageId === message.id}>
-	<!-- Quick reactions strip: always visible with fallbacks when no custom emojis -->
+	{#if quickReactionEmojis.length > 0}
 	<div class="quick-reactions-strip">
-		{#if quickReactionEmojis.length === 0}
-			<button class="quick-reaction-btn" on:click|stopPropagation={() => onQuickReact(message.id, "👍")}>👍</button>
-			<button class="quick-reaction-btn" on:click|stopPropagation={() => onQuickReact(message.id, "❤️")}>❤️</button>
-			<button class="quick-reaction-btn" on:click|stopPropagation={() => onQuickReact(message.id, "😂")}>😂</button>
-		{:else}
 			{#each quickReactionEmojis as quickEmoji (quickEmoji.id)}
 				<button
 					class="quick-reaction-btn"
@@ -53,8 +48,8 @@
 					/>
 				</button>
 			{/each}
-		{/if}
 	</div>
+	{/if}
 
 	<button class="action-btn" title={$_('messages.add_reaction')} on:click={(event) => onOpenReactionPicker(event, message.id)}>
 		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>

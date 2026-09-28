@@ -7,7 +7,7 @@ use crate::domain::CallParticipant;
 use crate::error::{Result, WabiError};
 use crate::format::record::RecordKind;
 use crate::sequencer::run_command::run_command;
-use crate::sequencer::types::{CommandCommit, CommandOutcome, EventToWrite};
+use crate::sequencer::types::{CommandCommit, CommandOutcome, EventToWrite, RoomOwnerPrecondition};
 
 const STREAM_KIND_OTHER: u8 = 6;
 
@@ -16,6 +16,7 @@ pub async fn join_call_session(
     user_id: u64,
     stable_user_id: String,
     is_host: bool,
+    room_owner_precondition: RoomOwnerPrecondition,
     engine: &crate::engine::WabiDbEngine,
     sequencer: &crate::sequencer::run_command::CommitSequencer,
 ) -> Result<CommandOutcome> {
@@ -39,6 +40,7 @@ pub async fn join_call_session(
 
     let (tx, _rx) = tokio::sync::oneshot::channel();
     let cmd = CommandCommit {
+        room_owner_precondition: Some(room_owner_precondition),
         caller_user_id: user_id,
         caller_device_id: format!("dev_{}", user_id),
         command_name: "call_session_join".into(),
@@ -64,7 +66,7 @@ mod tests {
     use crate::engine::{WabiDbConfig, WabiDbEngine};
     use tempfile::tempdir;
 
-    async fn setup_engine() -> WabiDbEngine {
+    async fn setup_engine() -> (tempfile::TempDir, WabiDbEngine) {
         let dir = tempdir().unwrap();
         let config = WabiDbConfig {
             data_dir: dir.path().to_path_buf(),
@@ -76,29 +78,57 @@ mod tests {
             test_boot_wallclock_override: None,
         };
         let engine = WabiDbEngine::open(config).await.unwrap();
-        // Leak the tempdir so it lives for the test (mirrors replay_test.rs).
-        std::mem::forget(dir);
-        engine
+        crate::commands::call_session_create::create_call_session(
+            "s_1".into(),
+            "ch_1".into(),
+            "audio-call".into(),
+            1,
+            10,
+            "webrtc".into(),
+            room_precondition(),
+            &engine,
+            engine.sequencer().unwrap(),
+        )
+        .await
+        .unwrap();
+        (dir, engine)
+    }
+
+    fn room_precondition() -> RoomOwnerPrecondition {
+        RoomOwnerPrecondition {
+            channel_id: "ch_1".into(),
+            owner_node_id: "node-1".into(),
+            expected_epoch: None,
+        }
     }
 
     #[tokio::test]
     async fn empty_session_id_rejected() {
-        let engine = setup_engine().await;
+        let (_dir, engine) = setup_engine().await;
         let sequencer = engine.sequencer().unwrap();
-        let result =
-            join_call_session("".into(), 1, "stable-1".into(), false, &engine, sequencer).await;
+        let result = join_call_session(
+            "".into(),
+            1,
+            "stable-1".into(),
+            false,
+            room_precondition(),
+            &engine,
+            sequencer,
+        )
+        .await;
         assert!(matches!(result, Err(WabiError::Validation { .. })));
     }
 
     #[tokio::test]
     async fn happy_path_joins_session() {
-        let engine = setup_engine().await;
+        let (_dir, engine) = setup_engine().await;
         let sequencer = engine.sequencer().unwrap();
         let result = join_call_session(
             "s_1".into(),
             1,
             "stable-1".into(),
             false,
+            room_precondition(),
             &engine,
             sequencer,
         )

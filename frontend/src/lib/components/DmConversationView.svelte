@@ -1,15 +1,26 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { afterUpdate, onMount, tick } from 'svelte';
   import { layoutStore } from '$lib/layoutStore';
   import { selectedDmChannelId, dmOtherUser } from '$lib/layoutStoreStates';
-  import { channelMessages, currentUser, channels, users, serverMembers, joinChannel } from '$lib/socket';
+  import { channelMessages, channelHasMoreHistory, channelHistoryLoading, currentUser, channels, users, serverMembers, connected, getSocket, joinChannel, loadHistory, loadOlderHistory, markChannelAsRead, sendMessage, updateChannelSettings } from '$lib/socket';
+  import { DEFAULT_DM_RETENTION, normalizeMessageRetentionDuration } from '../../../../shared/messageRetention.js';
   import ChatComposer from './chat/ChatComposer.svelte';
   import ChatMessagesPane from './chat/ChatMessagesPane.svelte';
+  import DmRetentionControl from './DmRetentionControl.svelte';
+  import GroupSettingsPanel from './GroupSettingsPanel.svelte';
+  import SharedConversationNotes from './SharedConversationNotes.svelte';
   import { formatTypingUsers } from './chat/typing';
   import { channelPaneInTransition, channelPaneOutTransition } from './chat/transitions';
   import { filterMessages } from './chat/search';
   import type { Channel, Message, User } from '$lib/socket-types';
   import { resolveDmOtherUser } from '$lib/dmConversations';
+  import { groupRecipientSummary, livePresenceForUser, missingDeviceParticipantLabel } from '$lib/dmPresentation';
+  import { pushLocalDirectionsCard } from '$lib/directionsAssist';
+  import { mediaUrl } from '$lib/mediaUrl';
+  import ProfileName from './ProfileName.svelte';
+  import ProfileMedia from './ProfileMedia.svelte';
+  import { cachedE2eeStatus, chooseServerReadable, prepareNewConversationEncryption, rekeyE2ee, turnOnE2ee } from '$lib/dm/dmE2eeState';
+  import type { E2eeRoomStatus } from '$lib/e2ee';
 
   export let context: 'center' | 'right' = 'right';
   export let channelIdProp: string | null = null;
@@ -19,30 +30,244 @@
   let lastJoinedChannelId = '';
 
   $: channelId = channelIdProp ?? $selectedDmChannelId;
-  $: channel = channelProp ?? (channelId ? ($channels || []).find((c: { id: string }) => c.id === channelId) || null : null);
+  $: channel = (channelId ? ($channels || []).find((c: { id: string }) => c.id === channelId) || null : null) ?? channelProp;
   $: isGroup = channel?.type === 'group';
   $: layoutOtherUser = context === 'right' ? $dmOtherUser : null;
   $: otherUser = otherUserProp ?? layoutOtherUser ?? resolveDmOtherUser(channel, $currentUser, $users, $serverMembers);
+  $: recipientPresence = isGroup ? 'unavailable' : livePresenceForUser(otherUser, $users, $connected);
+  $: recipientPresenceLabel = recipientPresence === 'active' ? 'Online' : recipientPresence === 'away' ? 'Away' : recipientPresence === 'busy' ? 'Busy' : recipientPresence === 'offline' ? 'Offline' : '';
+  $: groupParticipants = groupRecipientSummary(channel, $currentUser, [...$serverMembers, ...$users]);
+  $: missingDeviceLabel = missingDeviceParticipantLabel(e2eeStatus?.missingUserIds || [], [...$serverMembers, ...$users]);
   $: if (channelId && channelId !== lastJoinedChannelId) {
     lastJoinedChannelId = channelId;
+    showGroupSettings = false;
+    showNotes = false;
+    notesMounted = false;
+    olderAnchor = null;
     joinChannel(channelId);
+    loadHistory(channelId, { limit: 50 });
+    followLatest = true;
+    showJumpToLatest = false;
   }
   $: messages = channelId ? ($channelMessages[channelId] || []) : [];
   $: filteredMessages = filterMessages(messages, '', Number.POSITIVE_INFINITY);
   $: pinnedMessages = messages.filter((m: Message) => m.isPinned);
-  $: channelDisplayName = isGroup ? (channel?.name || 'Group Message') : (otherUser?.handle || otherUser?.username || 'Recipient unavailable');
+  $: channelDisplayName = isGroup ? (channel?.name || 'Group message') : (otherUser?.username || otherUser?.handle || 'Recipient unavailable');
+  $: selectedRetention = channel?.autoDeleteAfter === null || String(channel?.autoDeleteAfter) === 'forever'
+    ? ''
+    : channel?.autoDeleteAfter || DEFAULT_DM_RETENTION;
+
+  function handleRetentionChange(event: Event): void {
+    const select = event.currentTarget as HTMLSelectElement;
+    if (!channelId || !channel) return;
+    const next = normalizeMessageRetentionDuration(select.value);
+    select.value = selectedRetention;
+    void updateChannelSettings(channelId, { autoDeleteAfter: next });
+  }
 
   let replyingTo: Message | null = null;
   let composerVisible = true;
   let isTextareaFocused = false;
   let chatContainer: HTMLDivElement | undefined;
   let chatComposer: ChatComposer;
+  let followLatest = true;
+  let showJumpToLatest = false;
+  let lastMessageKey = '';
+  let showGroupSettings = false;
+  let showNotes = false;
+  let notesMounted = false;
+  let olderAnchor: { channelId: string; firstId: string; height: number; top: number } | null = null;
+
+  // ── E2EE conversation state ──────────────────────────────────────────────
+  let e2eeStatus: E2eeRoomStatus | null = null;
+  let e2eeBusy = false;
+  let e2eeChecking = false;
+  let e2eeError = '';
+
+  $: e2eeEnabled = !!e2eeStatus?.enabled;
+
+  async function loadE2eeStatus(targetChannelId: string | null): Promise<void> {
+    if (!targetChannelId) {
+      e2eeStatus = null;
+      return;
+    }
+    e2eeStatus = cachedE2eeStatus(targetChannelId) ?? null;
+    e2eeChecking = true;
+    try {
+      const status = await prepareNewConversationEncryption(targetChannelId);
+      if (channelId === targetChannelId) {
+        e2eeStatus = status;
+        e2eeError = '';
+      }
+    } catch (error) {
+      if (channelId === targetChannelId) e2eeError = error instanceof Error ? error.message : 'Could not check encryption. Try again.';
+    } finally {
+      if (channelId === targetChannelId) e2eeChecking = false;
+    }
+  }
+
+  async function useServerReadable(): Promise<void> {
+    if (!channelId || e2eeBusy) return;
+    const targetChannelId = channelId;
+    e2eeBusy = true;
+    e2eeError = '';
+    try {
+      const status = await chooseServerReadable(targetChannelId);
+      if (channelId === targetChannelId) e2eeStatus = status;
+    } catch (error) {
+      if (channelId === targetChannelId) e2eeError = error instanceof Error ? error.message : 'Could not change conversation mode.';
+    } finally {
+      e2eeBusy = false;
+    }
+  }
+
+  async function updateEncryptionKeys(): Promise<void> {
+    if (!channelId || e2eeBusy) return;
+    const targetChannelId = channelId;
+    e2eeBusy = true;
+    e2eeError = '';
+    try {
+      const status = await rekeyE2ee(targetChannelId);
+      if (channelId === targetChannelId) {
+        if (status) e2eeStatus = status;
+        else e2eeError = 'Could not update encryption keys. Check participant devices and try again.';
+      }
+    } catch (error) {
+      if (channelId === targetChannelId) e2eeError = error instanceof Error ? error.message : 'Could not update encryption keys. Try again.';
+    } finally {
+      e2eeBusy = false;
+    }
+  }
+
+  async function enableE2ee(): Promise<void> {
+    if (!channelId || e2eeBusy) return;
+    const targetChannelId = channelId;
+    e2eeBusy = true;
+    e2eeError = '';
+    try {
+      const status = await turnOnE2ee(targetChannelId);
+      if (channelId !== targetChannelId) return;
+      if (!status) {
+        e2eeError = 'Could not enable encryption on this device. Check that you are signed in and try again.';
+        return;
+      }
+      e2eeStatus = status;
+    } catch (error) {
+      if (channelId === targetChannelId) e2eeError = error instanceof Error ? error.message : 'Could not enable encryption. Try again.';
+    } finally {
+      e2eeBusy = false;
+    }
+  }
+
+  $: void loadE2eeStatus(channelId);
 
   function handleReply(msg: Message) {
     replyingTo = msg;
+    chatComposer?.focus();
   }
 
+  async function executeCommand(command: string): Promise<void> {
+    if (!channelId) throw new Error('Conversation is unavailable.');
+    const [name, ...args] = command.slice(1).trim().split(/\s+/);
+    if (name === 'directions' || name === 'dir' || name === 'where') {
+      const target = args.join(' ').trim();
+      if (!target) throw new Error('Enter a place after /directions.');
+      if (!(await pushLocalDirectionsCard(channelId, target))) throw new Error(`Place "${target}" was not found.`);
+      return;
+    }
+    const result = await sendMessage(channelId, command, 'text');
+    if (!result.ok) throw new Error('Message was not sent. Try again.');
+  }
+
+  function markVisibleMessagesRead(): void {
+    if (channelId && document.visibilityState === 'visible' && chatContainer?.getClientRects().length) {
+      markChannelAsRead(channelId);
+    }
+  }
+
+  function handleScroll(): void {
+    if (!chatContainer) return;
+    followLatest = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 128;
+    showJumpToLatest = !followLatest && messages.length > 0;
+    if (chatContainer.scrollTop < 72) loadEarlier();
+  }
+
+  function loadEarlier(): void {
+    if (!channelId || !chatContainer || olderAnchor || !$channelHasMoreHistory[channelId] || $channelHistoryLoading[channelId]) return;
+    const firstId = messages.find((message: Message) => message.id && !message.id.startsWith('optimistic:'))?.id;
+    if (!firstId) return;
+    olderAnchor = { channelId, firstId, height: chatContainer.scrollHeight, top: chatContainer.scrollTop };
+    followLatest = false;
+    loadOlderHistory(channelId);
+  }
+
+  async function scrollToLatest(): Promise<void> {
+    followLatest = true;
+    showJumpToLatest = false;
+    await tick();
+    chatContainer?.scrollTo({ top: chatContainer.scrollHeight, behavior: 'smooth' });
+    markVisibleMessagesRead();
+  }
+
+  afterUpdate(() => {
+    if (olderAnchor && olderAnchor.channelId !== channelId) olderAnchor = null;
+    if (olderAnchor && chatContainer) {
+      const firstId = messages.find((message: Message) => message.id && !message.id.startsWith('optimistic:'))?.id;
+      if (firstId && firstId !== olderAnchor.firstId) {
+        chatContainer.scrollTop = olderAnchor.top + chatContainer.scrollHeight - olderAnchor.height;
+        olderAnchor = null;
+      } else if (!$channelHistoryLoading[channelId || '']) {
+        olderAnchor = null;
+      }
+    }
+    const newest = messages.at(-1);
+    const nextKey = `${channelId}:${messages.length}:${newest?.id || ''}`;
+    if (nextKey !== lastMessageKey) {
+      lastMessageKey = nextKey;
+      if (followLatest && chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
+      markVisibleMessagesRead();
+    }
+  });
+
+  onMount(() => {
+    document.addEventListener('visibilitychange', markVisibleMessagesRead);
+    void tick().then(markVisibleMessagesRead);
+    let observedSocket: ReturnType<typeof getSocket> = null;
+    const onEncryptionUpdate = (payload: { channelId?: string }) => {
+      if (payload?.channelId === channelId) void loadE2eeStatus(channelId);
+    };
+    const bindSocket = () => {
+      const next = getSocket();
+      if (next === observedSocket) return;
+      observedSocket?.off('e2ee-room-updated', onEncryptionUpdate);
+      observedSocket = next;
+      observedSocket?.on('e2ee-room-updated', onEncryptionUpdate);
+      if (next && channelId) void loadE2eeStatus(channelId);
+    };
+    const onFocus = () => { if (channelId) void loadE2eeStatus(channelId); };
+    window.addEventListener('focus', onFocus);
+    bindSocket();
+    const poll = window.setInterval(() => {
+      bindSocket();
+      if (channelId && e2eeStatus && !e2eeStatus.enabled && !e2eeStatus.serverReadableSelected && !e2eeChecking && !e2eeBusy) void loadE2eeStatus(channelId);
+    }, 5000);
+    return () => {
+      document.removeEventListener('visibilitychange', markVisibleMessagesRead);
+      window.removeEventListener('focus', onFocus);
+      observedSocket?.off('e2ee-room-updated', onEncryptionUpdate);
+      window.clearInterval(poll);
+    };
+  });
+
   async function handleClose() {
+    if (showNotes) {
+      showNotes = false;
+      return;
+    }
+    if (showGroupSettings) {
+      showGroupSettings = false;
+      return;
+    }
     if (context === 'center') {
       const closedChannelId = channelId;
       layoutStore.closeCenterDm();
@@ -68,6 +293,14 @@
       layoutStore.openDM(channelId, otherUser);
     }
   }
+
+  function toggleSharedNotes(): void {
+    showNotes = !showNotes;
+    if (showNotes) {
+      notesMounted = true;
+      showGroupSettings = false;
+    }
+  }
 </script>
 
 <div class="dm-conversation">
@@ -77,35 +310,102 @@
         <polyline points="15 18 9 12 15 6" />
       </svg>
     </button>
+    {#if isGroup && channel?.avatar}
+      <img class="dm-header-avatar" src={mediaUrl(channel.avatar)} alt="" />
+    {:else if !isGroup && otherUser?.profilePicture}
+      <ProfileMedia class="dm-header-avatar" src={mediaUrl(otherUser.profilePicture)} decorative />
+    {:else}
+      <span class="dm-header-avatar dm-header-avatar-fallback" aria-hidden="true">
+        {#if isGroup}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a6 6 0 0 1 12 0v1"/><circle cx="18" cy="9" r="2"/><path d="M18 15a4 4 0 0 1 4 4v1"/></svg>
+        {:else}
+          {channelDisplayName.charAt(0).toUpperCase()}
+        {/if}
+      </span>
+    {/if}
     <div class="dm-header-info">
-      <span class="dm-header-name">{channelDisplayName}</span>
+      <span class="dm-header-eyebrow">{isGroup ? 'Group conversation' : 'Direct message to'}</span>
+      <span class="dm-header-name">{#if !isGroup && otherUser}<ProfileName username={channelDisplayName} font={otherUser.usernameFont} color={otherUser.color} />{:else}{channelDisplayName}{/if}</span>
       <div class="dm-header-meta">
-        <span class="dm-badge">{isGroup ? 'Group' : 'DM'}</span>
+        {#if isGroup}
+          <span class="dm-recipient-detail" title={groupParticipants}>{groupParticipants || ((channel?.members?.length || channel?.memberUsers?.length) ? `${channel?.members?.length || channel?.memberUsers?.length} members` : 'Participants loading')}</span>
+        {:else}
+          {#if otherUser?.handle}<span class="dm-recipient-detail">@{otherUser.handle}</span>{/if}
+          {#if recipientPresenceLabel}<span class="dm-header-presence" class:online={recipientPresence === 'active'} class:away={recipientPresence === 'away'} class:busy={recipientPresence === 'busy'}>{recipientPresenceLabel}</span>{/if}
+        {/if}
         {#if !isGroup && !otherUser}<span role="status">Recipient details aren’t available. Reconnect to refresh this conversation.</span>{/if}
       </div>
+      <div class="dm-header-security">
+        {#if e2eeEnabled}
+          <span class="dm-header-pill dm-header-pill-secure" role="status" aria-label="New messages encrypted on participant devices. Earlier messages keep their previous protection. Experimental: device identities and the complete client are not independently verified." title="New messages are encrypted on participant devices. Earlier messages keep their previous protection. Experimental: device identities and the complete client are not independently verified.">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM12 17c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM15.1 8H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/></svg>
+            New messages encrypted<span class="dm-security-qualifier"> · experimental</span>
+          </span>
+        {:else if e2eeStatus?.pendingDefault}
+          <span class="dm-header-pill" title="New conversations wait for participant devices before encrypted messages can start.">Encryption pending</span>
+        {:else if e2eeStatus?.serverReadableSelected && !e2eeStatus.serverReadableAllowedByMe}
+          <span class="dm-header-pill">Your confirmation needed</span>
+        {:else if !e2eeStatus}
+          <span class="dm-header-pill">Checking encryption…</span>
+        {:else if e2eeStatus.serverReadableSelected}
+          <span class="dm-header-pill">Server-readable by choice</span>
+          {#if e2eeStatus.missingUserIds.length === 0}
+            <button type="button" class="dm-header-pill dm-header-pill-action" on:click={() => void enableE2ee()} disabled={e2eeBusy} title="Encrypt new messages after all participant devices are ready">{e2eeBusy ? 'Enabling…' : 'Encrypt new messages'}</button>
+          {/if}
+        {:else if e2eeStatus.missingUserIds.length > 0}
+          <span class="dm-header-wait" role="status">Waiting for participant devices: {missingDeviceLabel}. New messages remain server-readable until encryption starts.</span>
+        {:else}
+          <button
+            type="button"
+            class="dm-header-pill dm-header-pill-action"
+            title="Turn on experimental encryption for new messages in this conversation. Device identities and the complete client are not independently verified."
+            on:click={() => enableE2ee()}
+            disabled={e2eeBusy}
+          >
+            {e2eeBusy ? 'Enabling…' : 'Encrypt new messages'}
+          </button>
+        {/if}
+      </div>
+      {#if e2eeError}
+        <div class="dm-e2ee-error" role="alert">{e2eeError}</div>
+      {/if}
     </div>
     <div class="dm-header-actions">
+      <button type="button" class="dm-header-action dm-notes-action" class:active={showNotes} title={showNotes ? 'Back to messages' : 'Shared notes'} aria-label={showNotes ? 'Back to messages' : 'Shared notes'} aria-pressed={showNotes} on:click={toggleSharedNotes}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4.5A2.5 2.5 0 0 1 7.5 2H20v18H7.5A2.5 2.5 0 0 0 5 22z"/><path d="M5 4.5V22M9 7h7M9 11h7"/></svg>
+        <span>{showNotes ? 'Messages' : 'Shared notes'}</span>
+      </button>
+      {#if isGroup}
+        <button type="button" class="dm-header-action" title={showGroupSettings ? 'Back to group messages' : 'Group settings'} aria-label={showGroupSettings ? 'Back to group messages' : 'Group settings'} aria-pressed={showGroupSettings} on:click={() => { showGroupSettings = !showGroupSettings; if (showGroupSettings) showNotes = false; }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a6 6 0 0 1 12 0v1"/><circle cx="18" cy="9" r="2"/><path d="M18 15a4 4 0 0 1 4 4v1"/></svg>
+        </button>
+      {/if}
       <button class="dm-header-action" title={context === 'right' ? 'Open in main view' : 'Move to side panel'} aria-label={context === 'right' ? 'Open in main view' : 'Move to side panel'} on:click={handleToggleSurface}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" />
         </svg>
       </button>
-      <button class="dm-header-action" title="Close DM (Esc)" aria-label="Close DM" on:click={handleClose}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
-      </button>
     </div>
   </div>
 
+  {#if channelId && channel}
+    <DmRetentionControl value={selectedRetention} onChange={handleRetentionChange} />
+  {/if}
+
   <div
     class="dm-messages"
+    class:hidden={showGroupSettings || showNotes}
     bind:this={chatContainer}
-    on:scroll={() => {}}
+    on:scroll={handleScroll}
   >
+    {#if channelId && $channelHasMoreHistory[channelId]}
+      <button type="button" class="dm-load-earlier" disabled={$channelHistoryLoading[channelId]} on:click={loadEarlier}>
+        {$channelHistoryLoading[channelId] ? 'Loading earlier messages…' : 'Load earlier messages'}
+      </button>
+    {/if}
     <ChatMessagesPane
       currentChannel={channelId || ''}
+      messageDomScope={`dm-conversation-${context}`}
       searchInput=""
       {channelDisplayName}
       filteredMessages={filteredMessages}
@@ -118,8 +418,8 @@
       fullHistorySearchPagesLoaded={0}
       fullHistorySearchStatus=""
       visibleTypingUsers={[]}
-      emptyStateIcon={isGroup ? '👥' : '💬'}
-      emptyStateSubtitle={isGroup ? 'This is the beginning of this group message.' : 'This is the beginning of this direct message.'}
+      emptyStateIcon={isGroup ? '◎' : '@'}
+      emptyStateSubtitle={isGroup ? `A conversation with ${groupParticipants || 'this group'} starts here.` : `You’re messaging ${channelDisplayName}.`}
       emptyStateActionLabel="Send a message"
       {channelPaneInTransition}
       {channelPaneOutTransition}
@@ -129,10 +429,24 @@
       onReply={handleReply}
       onQuickMention={() => {}}
       onOpenSettings={() => {}}
+      onFocusComposer={() => chatComposer?.focus()}
     />
   </div>
 
-  <div class="dm-composer">
+  {#if showGroupSettings && isGroup && channel}
+    <div class="dm-group-settings" aria-label="Group settings"><GroupSettingsPanel {channel} /></div>
+  {/if}
+
+  {#if notesMounted && channelId}
+    <div class="dm-shared-notes" class:hidden={!showNotes} aria-label="Shared conversation notes"><SharedConversationNotes {channelId} surface="center" /></div>
+  {/if}
+
+  {#if showJumpToLatest && !showGroupSettings && !showNotes}
+    <button type="button" class="dm-jump-latest" on:click={() => void scrollToLatest()}>↓ New messages</button>
+  {/if}
+
+  <div class="dm-composer" class:hidden={showGroupSettings || showNotes}>
+    {#if e2eeStatus && !e2eeStatus.pendingDefault && !e2eeStatus.needsRekey && (!e2eeStatus.serverReadableSelected || e2eeStatus.serverReadableAllowedByMe)}
     {#key `${context}:${$currentUser?.dbUserId || $currentUser?.id || ''}:${channelId}`}
     <ChatComposer
       bind:this={chatComposer}
@@ -140,18 +454,50 @@
       channelId={channelId}
       draftSurface={`dm-${context}`}
       paymentButtonEnabled={false}
+      encryptSend={e2eeEnabled}
+      e2eeStatus={e2eeStatus}
       bind:replyingTo
       bind:composerVisible
       bind:isTextareaFocused
-      onExecuteCommand={async (_cmd: string) => {}}
+      onExecuteCommand={executeCommand}
       onOpenPaymentSheet={() => {}}
     />
     {/key}
+    {:else}
+      <div class="dm-encryption-gate" role="status">
+        {#if e2eeStatus?.enabled && e2eeStatus.needsRekey}
+          <strong>Encryption keys need an update.</strong>
+          <span>Membership or devices changed. Review the participant devices before trusting the new key. Earlier encrypted messages may be unavailable on newly added devices.</span>
+          <button type="button" on:click={() => void updateEncryptionKeys()} disabled={e2eeBusy}>Trust current devices · update keys</button>
+        {:else if e2eeStatus?.pendingDefault}
+          <strong>Encryption is waiting for participant devices.</strong>
+          <span>{e2eeStatus.missingUserIds.length ? `Device setup is still needed for ${missingDeviceLabel}.` : 'Participant devices are ready; encryption is starting.'} Messages cannot be sent until encryption starts or someone chooses server-readable chat.</span>
+          <div class="dm-encryption-actions">
+            <button type="button" on:click={() => void loadE2eeStatus(channelId)} disabled={e2eeChecking}>Check again</button>
+            <button type="button" on:click={() => void useServerReadable()} disabled={e2eeBusy}>Use server-readable messages</button>
+          </div>
+        {:else if e2eeStatus?.serverReadableSelected && !e2eeStatus.serverReadableAllowedByMe}
+          <strong>This conversation is server-readable.</strong>
+          <span>Another participant chose this mode. Confirm it on your own account before sending; you can enable encryption later when participant devices are ready.</span>
+          <button type="button" on:click={() => void useServerReadable()} disabled={e2eeBusy}>I understand · send server-readable</button>
+        {:else}
+          <strong>Checking conversation encryption…</strong>
+          <span>Sending is paused until this device can confirm the conversation mode.</span>
+          <button type="button" on:click={() => void loadE2eeStatus(channelId)} disabled={e2eeChecking}>Retry</button>
+        {/if}
+      </div>
+    {/if}
   </div>
 </div>
 
 <style>
+  .dm-encryption-gate { display: grid; gap: 0.35rem; padding: 0.75rem 1rem; border-top: 1px solid var(--border-subtle); color: var(--text-secondary); font-size: var(--text-sm); }
+  .dm-encryption-gate strong { color: var(--text-primary); font-weight: 600; }
+  .dm-encryption-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.25rem; }
+  .dm-encryption-gate button { width: fit-content; padding: 0.35rem 0.65rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-hover); color: var(--text-primary); cursor: pointer; }
+  .dm-encryption-gate button:disabled { opacity: 0.55; cursor: default; }
   .dm-conversation {
+    position: relative;
     display: flex;
     container: dm-conversation / inline-size;
     flex-direction: column;
@@ -165,12 +511,12 @@
   .dm-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
+    gap: var(--space-3, 12px);
+    padding: var(--space-3, 12px) var(--space-4, 16px);
     border-bottom: 1px solid var(--color-border-primary, #302b63);
     background: var(--surface-raised, #302b63);
     flex-shrink: 0;
-    min-height: 72px;
+    min-height: 88px;
   }
 
   .dm-header-back {
@@ -197,16 +543,44 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
   }
 
+  .dm-header-eyebrow {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs, 11px);
+    font-weight: var(--font-weight-semibold, 600);
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+  }
+
+  .dm-header-avatar, .dm-header :global(.dm-header-avatar) {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+    border-radius: var(--radius-full);
+    object-fit: cover;
+    background: var(--surface-hover);
+  }
+
+  .dm-header-avatar-fallback {
+    display: grid;
+    place-items: center;
+    color: var(--text-heading);
+    font-size: var(--font-size-lg, 16px);
+    font-weight: var(--font-weight-semibold);
+  }
+  .dm-header-avatar-fallback svg { width: 23px; height: 23px; }
+
   .dm-header-name {
-    font-size: var(--text-base, 14px);
+    font-size: var(--font-size-xl, 20px);
     font-weight: var(--font-weight-semibold, 600);
     color: var(--text-heading, #e0e0ff);
-    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   .dm-header-meta {
@@ -215,17 +589,75 @@
     gap: 6px;
     flex-wrap: wrap;
     font-size: var(--text-xs, 11px);
+    min-width: 0;
   }
 
-  .dm-badge {
-    padding: var(--space-0, 0) var(--space-1, 4px);
-    border-radius: var(--radius-sm, 4px);
-    background: var(--accent-primary-color, #6366f1);
-    color: #fff;
-    font-weight: var(--font-weight-semibold, 600);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-size: var(--font-size-xs, 11px);
+  .dm-recipient-detail {
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    line-height: var(--line-height-normal);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dm-header-presence { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); }
+  .dm-header-presence::before { content: ''; width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: currentColor; }
+  .dm-header-presence.online { color: var(--color-success, #22c55e); }
+  .dm-header-presence.away { color: var(--color-warning, #f59e0b); }
+  .dm-header-presence.busy { color: var(--color-danger, #ef4444); }
+  .dm-header-security { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1, 4px); min-width: 0; }
+  .dm-header-wait { color: var(--text-secondary); font-size: var(--font-size-xs, 11px); line-height: 1.35; }
+
+  /* E2EE header pill: muted warning when off, green lock when encrypted. */
+  .dm-header-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    max-width: 22rem;
+    min-height: 24px;
+    padding: 2px 8px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    background: var(--surface-hover);
+    font-family: inherit;
+    font-size: var(--text-xs);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-normal);
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  .dm-header-pill-action {
+    cursor: pointer;
+    transition: background var(--duration-fast), color var(--duration-fast);
+  }
+
+  .dm-header-pill-action:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent-secondary, #818cf8) 16%, transparent);
+    color: var(--text-heading);
+  }
+
+  .dm-header-pill-action:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+
+  .dm-header-pill-secure {
+    color: color-mix(in srgb, #34d399 88%, var(--text-heading) 12%);
+    border-color: color-mix(in srgb, #34d399 36%, transparent);
+    background: color-mix(in srgb, #34d399 10%, transparent);
+  }
+
+  .dm-header-pill-secure svg {
+    width: 10px;
+    height: 10px;
+  }
+
+  .dm-e2ee-error {
+    width: 100%;
+    font-size: 0.7rem;
+    color: var(--text-danger, #ff8a80);
   }
 
   .dm-header-actions {
@@ -252,12 +684,44 @@
     background: color-mix(in srgb, var(--text-heading, #e0e0ff) 8%, transparent);
     color: var(--text-heading, #e0e0ff);
   }
+  .dm-notes-action { width: auto; gap: var(--space-2, 8px); padding: 0 var(--space-3, 12px); border: 1px solid var(--border-subtle); background: var(--surface-base); font: inherit; font-size: var(--font-size-sm, 13px); white-space: nowrap; }
+  .dm-notes-action.active { border-color: var(--accent-primary); color: var(--text-heading); background: var(--surface-hover); }
+  .dm-notes-action:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 
   .dm-messages {
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
     min-height: 0;
+    padding: var(--space-2);
+  }
+  .dm-messages.hidden, .dm-composer.hidden { display: none; }
+  .dm-group-settings { flex: 1; min-height: 0; overflow: hidden; }
+  .dm-shared-notes { flex: 1; min-height: 0; overflow: hidden; }
+  .dm-shared-notes.hidden { display: none; }
+
+  .dm-load-earlier {
+    display: block; min-height: 36px; margin: var(--space-1) auto var(--space-3); padding: 0 var(--space-3);
+    border: 1px solid var(--border-subtle); border-radius: var(--radius-full);
+    background: var(--surface-raised); color: var(--text-secondary); font: inherit; cursor: pointer;
+  }
+  .dm-load-earlier:hover:not(:disabled) { color: var(--text-heading); background: var(--surface-hover); }
+  .dm-load-earlier:disabled { opacity: .65; cursor: wait; }
+
+  .dm-jump-latest {
+    position: absolute;
+    bottom: calc(var(--app-chrome-height) + var(--space-3));
+    left: 50%;
+    transform: translateX(-50%);
+    min-height: 36px;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-full);
+    background: var(--surface-raised);
+    color: var(--text-heading);
+    box-shadow: var(--shadow-md);
+    cursor: pointer;
+    white-space: nowrap;
   }
 
   .dm-composer {
@@ -266,6 +730,14 @@
   }
 
   @container dm-conversation (max-width: 420px) {
+    .dm-header { padding: var(--space-2); gap: var(--space-2); }
+    .dm-header-avatar, .dm-header :global(.dm-header-avatar) { width: 40px; height: 40px; }
+    .dm-header-name { font-size: var(--font-size-lg, 16px); }
+    .dm-notes-action { width: 40px; padding: 0; }
+    .dm-notes-action span { display: none; }
+    .dm-security-qualifier { display: none; }
+    .dm-header-pill { max-width: 100%; white-space: normal; line-height: 1.2; }
+    .dm-messages { padding: var(--space-1); }
     .dm-messages :global(.message-header .header-left) {
       flex-wrap: wrap;
       min-width: 0;

@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { profileDecorationsVisible } from '$lib/profileAppearance';
+	import ProfileDecoration from '$lib/components/ProfileDecoration.svelte';
+	import ProfileMedia from '$lib/components/ProfileMedia.svelte';
+	import { safeNameStyle, nameStylesVisible } from '$lib/addons/nameStyles';
 	import type { Message, User, Emoji, FileAttachment, Channel } from '$lib/socket';
 	import { _ } from '$lib/i18n';
 	import type { ChatFilterResult } from '$lib/chatEnhancements';
@@ -17,8 +20,10 @@
 	import MessageDeliveryRow from './message/MessageDeliveryRow.svelte';
 	import MessageContent from './message/MessageContent.svelte';
 	import { overlayStyle } from '$lib/overlayStyle';
+	import { mediaUrl } from '$lib/mediaUrl';
 
 	export let message: Message;
+	export let messageDomId = '';
 	export let author: User | undefined;
 	export let displayUsername: string;
 	export let replyToMsg: Message | undefined;
@@ -97,20 +102,6 @@
 		guest: 'Guest'
 	};
 
-	// Mirrors the popout `disableAllBanners` profile-visibility kill switch
-	// (localStorage `wabi:profile:visibility` -> disableAll).
-	let disableAllBanners = false;
-
-	onMount(() => {
-		try {
-			const raw = localStorage.getItem('wabi:profile:visibility');
-			if (!raw) return;
-			const v = JSON.parse(raw);
-			if (typeof v.disableAll === 'boolean') disableAllBanners = v.disableAll;
-		} catch {
-			// ignore malformed local state
-		}
-	});
 
 	$: roleLabelMap = (() => {
 		const labels: Record<string, string> = { ...fallbackRoleLabels };
@@ -151,18 +142,7 @@
 			}
 		} else {
 			if (resolvedUser?.usernameFont) {
-				if (resolvedUser.usernameFont.family && resolvedUser.usernameFont.family !== 'inherit') {
-					style += `font-family: ${resolvedUser.usernameFont.family};`;
-				}
-				if (resolvedUser.usernameFont.size && resolvedUser.usernameFont.size !== 'inherit') {
-					style += `font-size: ${resolvedUser.usernameFont.size};`;
-				}
-				if (resolvedUser.usernameFont.weight) {
-					style += `font-weight: ${resolvedUser.usernameFont.weight};`;
-				}
-				if (resolvedUser.usernameFont.style) {
-					style += `font-style: ${resolvedUser.usernameFont.style};`;
-				}
+				style += safeNameStyle(resolvedUser.usernameFont, $nameStylesVisible);
 			}
 		}
 
@@ -203,7 +183,8 @@
 {#if !filteredMessage.hidden && isRenderableMessage(message)}
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
-		id="message-{message.id}"
+		id={messageDomId || `message-${message.id}`}
+		data-message-id={message.id}
 		class="message {message.isPinned ? 'pinned' : ''} {isPersonalPinned ? 'personal-pinned' : ''} {highlightedMessageId === message.id ? 'highlighted' : ''} {groupedWithPrevious ? 'continuation' : ''} {groupedWithNext ? 'has-continuation' : ''} {ownMessage ? 'own-message' : ''} {deletionModeEnabled ? 'deletion-mode-active' : ''} {message.deliveryState === 'sending' ? 'is-sending' : ''} {message.deliveryState === 'failed' ? 'is-send-failed' : ''}"
 		title={ownMessage && message.deliveryState === 'failed' ? (message.deliveryError || 'Delivery not confirmed. Check this conversation before sending again.') : undefined}
 		on:contextmenu={(e) => onContextMenu(e, message)}
@@ -262,14 +243,14 @@
 				}}
 			>
 				{#if author?.profilePicture}
-					<img src={author.profilePicture} alt={displayUsername} class="avatar" loading="lazy" decoding="async" />
+					<ProfileMedia src={mediaUrl(author.profilePicture)} alt={displayUsername} class="avatar" />
 				{:else}
 					<div class="avatar-placeholder" style="--avatar-color: {getUserColor(author, displayUsername)}">
 						{displayUsername.charAt(0).toUpperCase()}
 					</div>
 				{/if}
-				{#if author?.overlayUrl && !disableAllBanners}
-					<span class="avatar-overlay-badge" style={overlayStyle(author)} aria-hidden="true"></span>
+				{#if author?.overlayUrl && $profileDecorationsVisible}
+					<ProfileDecoration user={author} class="avatar-overlay-badge" />
 				{/if}
 			</div>
 	{/if}

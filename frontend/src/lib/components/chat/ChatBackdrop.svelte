@@ -82,6 +82,12 @@
 
 	function draw(t = 0) {
 		if (!mounted || !canvas) return;
+		// Pause the rAF chain while the document is hidden — koi scenery has
+		// no business software-rendering on an invisible surface.
+		if (document.hidden) {
+			frame = 0;
+			return;
+		}
 		const ctx = canvas.getContext('2d');
 		if (!ctx) return;
 		resize(ctx);
@@ -115,6 +121,7 @@
 	function restart() {
 		if (!mounted) return;
 		cancelAnimationFrame(frame);
+		frame = 0;
 		draw(performance.now());
 	}
 
@@ -131,12 +138,22 @@
 		media.addEventListener?.('change', syncMotion);
 		const observer = new ResizeObserver(restart);
 		observer.observe(canvas);
+		const onVisibility = () => {
+			if (document.hidden) {
+				cancelAnimationFrame(frame);
+				frame = 0;
+			} else {
+				restart();
+			}
+		};
+		document.addEventListener('visibilitychange', onVisibility);
 		restart();
 		return () => {
 			mounted = false;
 			cancelAnimationFrame(frame);
 			observer.disconnect();
 			media.removeEventListener?.('change', syncMotion);
+			document.removeEventListener('visibilitychange', onVisibility);
 		};
 	});
 </script>
