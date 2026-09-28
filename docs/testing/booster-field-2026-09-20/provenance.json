@@ -1,0 +1,17 @@
+{
+  "baseCommit": "dcfa8a3b986eba964929cac10f94d9994744aef8",
+  "dirtyWorkingTree": true,
+  "sourceManifestSha256": "cbbf279f70cdf785f2a3c899d05001d9e70c385c560161b893a489b8ffb5e521",
+  "authoritySha256": "f6947b90d6e3a2aa0a593f18aad92531a8072840969cda335cf1713ae6f8411f",
+  "authorityMode": "Rust 1.93.1 locked debug binary; disposable loopback data",
+  "clientMode": "Actual Svelte components and booster module in Vite harness; headful isolated Chromium",
+  "packagedNativeCandidate": false,
+  "publicEgressesObserved": 4,
+  "participantMachines": [
+    "Coordinator (Authority)",
+    "Janya (volunteer browser)",
+    "Tim (recipient browser)"
+  ],
+  "managementPath": "SSH for browser control and fixture JS; Wabi API/files via Tailcat on remote clients",
+  "peerPath": "Selected WebRTC public srflx UDP candidates; OS route checks use Wi-Fi, not tailscale0"
+}

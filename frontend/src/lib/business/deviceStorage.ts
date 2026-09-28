@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
 import { browser } from '$app/environment';
 import { notebookOwner } from '../notes/scope';
+import { isPersonalWorkspace, personalPlannerOwner, personalWorkspace } from './personalWorkspace';
 import { plannerPersistence } from './persistence';
 import { PlannerSession, type PlannerOwner } from './session';
 import { getBusinessDataSnapshot, applyBusinessDataSnapshot } from './snapshot';
@@ -15,6 +16,8 @@ let session: PlannerSession | null = null;
 let epoch = 0;
 let applying = false;
 let started = false;
+let activePersonal = false;
+let stopOwner: (() => void) | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
 const retained = new Map<string, PlannerSession>();
 const empty = (): BusinessDataSnapshot => ({ todos: [], calendarEvents: [], diaryEntries: [], projects: [], sprints: [],
@@ -74,19 +77,38 @@ async function switchOwner(next: PlannerOwner | null) {
 }
 export function reloadFromStorage(): void {
 	if (!browser) return;
-	if (started) { if (!session && owner) void switchOwner(owner); return; }
+	if (started) {
+		if (activePersonal !== isPersonalWorkspace()) connectOwner();
+		else if (!session && owner) void switchOwner(owner);
+		return;
+	}
 	started = true;
 	setPlannerAdmission(() => !!session && !!owner?.isCurrent());
 	const collections = [state.todos, state.calendarEvents, state.diaryEntries, state.projects, state.sprints,
 		state.kanbanColumns, state.resources, state.tags, state.graphEdges];
 	for (const collection of collections) collection.subscribe(changed);
 	setPersistFlush(changed);
-	notebookOwner.subscribe(({ owner: next }) => { void switchOwner(next); });
+	connectOwner();
 	window.addEventListener('pagehide', () => { void flushBusinessStorage(); });
 	document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') void flushBusinessStorage(); });
 	window.addEventListener('beforeunload', event => {
 		if ([...retained.values()].some(s => s.dirty)) { event.preventDefault(); event.returnValue = ''; }
 	});
+}
+function connectOwner(): void {
+	stopOwner?.(); stopOwner = null;
+	activePersonal = isPersonalWorkspace(); personalWorkspace.set(activePersonal);
+	if (activePersonal) {
+		try { void switchOwner(personalPlannerOwner()); }
+		catch (error) {
+			void switchOwner(null);
+			plannerStorage.update(s => ({ ...s, error: error instanceof Error ? error.message : 'Personal storage is unavailable.' }));
+		}
+	} else {
+		stopOwner = notebookOwner.subscribe(({ owner: next }) => {
+			void switchOwner(next ? { scopeId: next.scopeId, isCurrent: () => !isPersonalWorkspace() && next.isCurrent() } : null);
+		});
+	}
 }
 export function downloadPlannerData(data: unknown, name = 'wabi-planner-backup'): void {
 	const bytes = typeof data === 'string' ? data : JSON.stringify(data, null, 2);

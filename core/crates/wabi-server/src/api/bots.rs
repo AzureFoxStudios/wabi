@@ -27,6 +27,7 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/create", axum::routing::post(handle_create))
         .route("/rotate", axum::routing::post(handle_rotate))
         .route("/disable", axum::routing::post(handle_disable))
+        .route("/project-access", axum::routing::post(handle_project_access))
         .route("/send-message", axum::routing::post(handle_send_message))
         .with_state(state)
 }
@@ -138,6 +139,41 @@ async fn handle_disable(
     })))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BotProjectAccessRequest {
+    bot_user_id: u64,
+    channel_id: String,
+    allow: bool,
+}
+
+/// POST /api/bot/project-access — owner-controlled admission to one Project.
+async fn handle_project_access(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Json(req): Json<BotProjectAccessRequest>,
+) -> Result<Json<serde_json::Value>> {
+    require_owner(&state, &auth).await?;
+    // Serialize Project admission changes with in-flight Project and wiki
+    // writes, so a removed bot cannot commit after revocation completes.
+    let _membership = state.membership_gate.write().await;
+    if !state.bot_registry.is_bot(req.bot_user_id).await {
+        return Err(AppError::NotFound("Bot not found".into()));
+    }
+    let channel = state.wdb.get_channel(&req.channel_id).await?
+        .ok_or_else(|| AppError::NotFound("Project channel not found".into()))?;
+    if !matches!(channel.channel_kind, wabidb::domain::ChannelKind::Planning | wabidb::domain::ChannelKind::Lore) {
+        return Err(AppError::BadRequest("Bot project access requires a Planning or Project channel".into()));
+    }
+    let member = crate::channel_access::is_member(&state, req.bot_user_id as i64, &req.channel_id).await?;
+    if req.allow && !member {
+        state.wdb.add_channel_member(&req.channel_id, req.bot_user_id, wabidb::domain::MemberRole::Member).await?;
+    } else if !req.allow && member {
+        state.wdb.remove_channel_member(&req.channel_id, req.bot_user_id).await?;
+    }
+    Ok(Json(json!({ "botUserId": req.bot_user_id, "channelId": req.channel_id, "allowed": req.allow })))
+}
+
 /// POST /api/bot/send-message — send a message as the authenticated bot.
 ///
 /// Accepts `Bot <token>` auth (resolved by AuthUser's extractor). Writes the
@@ -158,6 +194,23 @@ async fn handle_send_message(
     let sender_username = auth.username;
 
     // Reuse the same WDB write path as REST /api/messages.
+    let retention_guard = state.retention_policy_lock.lock().await;
+    crate::channel_access::require_participation(&state, auth.user_id, &req.channel_id).await?;
+    let blacklist = state.get_blacklist().await
+        .ok_or_else(|| AppError::Internal("Channel restriction enforcement unavailable".into()))?;
+    if blacklist.is_channel_timed_out(&req.channel_id, auth.user_id).await.is_some() {
+        return Err(AppError::Forbidden("Bot is timed out in this channel".into()));
+    }
+    if crate::api::e2ee::room_blocks_server_content(&state.config.data_dir, &req.channel_id)? {
+        return Err(AppError::BadRequest(
+            "Bot sends are unavailable while private-room encryption is pending or enabled".into(),
+        ));
+    }
+    if state.channel_auto_delete_label.read().await.get(&req.channel_id).is_some_and(|label| label == "live") {
+        return Err(AppError::BadRequest(
+            "Bot sends are unavailable in Live rooms because this endpoint stores messages".into(),
+        ));
+    }
     let created_at_micros = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_micros() as i64)
@@ -177,6 +230,7 @@ async fn handle_send_message(
         .wdb
         .send_message(&req.channel_id, sender_id, &req.content, is_spoiler, &[])
         .await?;
+    drop(retention_guard);
 
     let message_view = json!({
         "id": message_id.clone(),
@@ -195,7 +249,7 @@ async fn handle_send_message(
         "channelId": &req.channel_id,
         "message": message_view,
     });
-    if let Some(io) = state.sio.read().await.clone() {
+    if let Some(io) = state.socket_io() {
         let ch = req.channel_id.clone();
         let payload = msg_payload.clone();
         tokio::spawn(async move {

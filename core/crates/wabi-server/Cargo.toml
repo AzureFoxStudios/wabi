@@ -48,16 +48,18 @@ async-trait = "0.1"
 futures = "0.3"
 
 # HTTP middleware
-tower-http = { version = "0.6", features = ["cors", "trace", "timeout", "compression-br", "compression-gzip"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "timeout", "compression-br", "compression-gzip", "limit"] }
 
 # Rate limiting
 governor = { version = "0.6", features = ["std"] }
 ipnet = "2"
 
 # HTTP client / upstream adapters
-reqwest = { version = "0.13", features = ["json", "query"] }
+reqwest = { version = "0.13", features = ["json", "query", "stream"] }
+tokio-tungstenite = { version = "0.29", features = ["rustls-tls-native-roots"] }
 regex = "1"
 sha2 = "0.11"
+p256 = { version = "0.13", features = ["ecdsa"] }
 hex = "0.4"
 rand = "0.8"
 
@@ -98,15 +100,26 @@ wabi-payments-eu = { path = "../../addons/payments-eu/backend", optional = true 
 wabi-payments-us = { path = "../../addons/payments-us/backend", optional = true }
 
 [dev-dependencies]
-tokio-tungstenite = "0.29"
 tempfile = "3"
 tower = { version = "0.5", features = ["util", "timeout"] }
 jsonwebtoken = { version = "11", features = ["rust_crypto"] }
 
 [features]
 default = []
+# Embed the static frontend in debug field binaries that run on other hosts.
+# Ordinary debug builds still read frontend/build from the local filesystem.
+field-embed = ["rust-embed/debug-embed"]
+# Curated add-on bundle (compile-time attach/detach).
 addons = ["wabi-webhooks", "wabi-lore"]
+# Per-add-on aliases so `--features lore` reads cleanly in build commands.
+lore = ["wabi-lore"]
+webhooks = ["wabi-webhooks"]
+# Payment rails (roadmap Phases 2-4) — compile-time optional.
 payments-rails = ["wabi-payments-crypto", "wabi-payments-eu", "wabi-payments-us"]
+payments = ["payments-rails"]
+# Everything this tree can attach. Always-compiled add-ons (tailcat, steam) are
+# runtime-gated instead: see docs/addons/ATTACH_DETACH.md.
+full = ["addons", "payments-rails"]
 
 [lib]
 name = "wabi_server"
@@ -115,3 +128,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "wabi-server"
 path = "src/main.rs"
+
+[[bin]]
+name = "wabi-instance-snapshot"
+path = "src/bin/wabi-instance-snapshot.rs"

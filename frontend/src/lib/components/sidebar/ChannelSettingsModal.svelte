@@ -7,7 +7,6 @@ import { get } from 'svelte/store';
 	import { getAuthToken } from '$lib/authSession';
 	import { hasAddonCapability } from '$lib/addonInventory';
 	import { getSocket, connected } from '$lib/socketConnection';
-	import { getWabiDB } from '$lib/wabidb';
 	import {
 		MESSAGE_RETENTION_LABELS,
 		MESSAGE_RETENTION_PRESETS,
@@ -36,18 +35,39 @@ import { get } from 'svelte/store';
 	async function clearAllMessages(): Promise<void> {
 		if (!canClearMessages || channel.type === 'dm') return;
 		const confirmed = window.confirm(
-			`Purge ALL messages in #${channel.name}? This removes chat history for everyone. Attachment files on disk are not deleted. This cannot be undone.`
+			`Remove visible message history in #${channel.name} for everyone? Attachment files are not deleted, and backups or older storage may retain copies.`
 		);
 		if (!confirmed) return;
-		const sock = getSocket();
-		if (!sock) return;
-		const db = getWabiDB();
-		const online = get(connected);
-		if (db && !online) {
-			await db.enqueue({ scopeId: 'corechat', type: 'clear-channel-messages', payload: { channelId: channel.id } });
+		if (!get(connected)) {
+			window.alert('Reconnect to the server, then review the channel and request the clear again.');
 			return;
 		}
-		sock.emit('clear-channel-messages', { channelId: channel.id });
+		const sock = getSocket();
+		if (!sock) {
+			window.alert('The server connection is unavailable. Check the channel before retrying.');
+			return;
+		}
+		const requestedChannelId = channel.id;
+		const onSuccess = (payload: { channelId?: string }) => {
+			if (payload?.channelId === requestedChannelId) cleanup();
+		};
+		const onError = (payload: { channelId?: string; error?: string }) => {
+			if (payload?.channelId !== requestedChannelId) return;
+			cleanup();
+			window.alert(payload.error || 'Channel history could not be cleared. Check history before retrying.');
+		};
+		const cleanup = () => {
+			clearTimeout(timer);
+			sock.off('channel-messages-cleared', onSuccess);
+			sock.off('clear-channel-error', onError);
+		};
+		const timer = setTimeout(() => {
+			cleanup();
+			window.alert('No clear confirmation was received. Check channel history before retrying.');
+		}, 15_000);
+		sock.on('channel-messages-cleared', onSuccess);
+		sock.on('clear-channel-error', onError);
+		sock.emit('clear-channel-messages', { channelId: requestedChannelId });
 	}
 
 	/** Clear this channel's in-memory view; unowned legacy archives are untouched. */
@@ -72,7 +92,7 @@ import { get } from 'svelte/store';
 		// Opt into Live (session-only, no persistence).
 		if (isLiveRetention(next) && !isLiveRetention(prev)) {
 			const ok = window.confirm(
-				`Make #${channel.name} a Live room?\n\nMessages are session-only and are lost when the server restarts. No history is stored. Note: Live is not private from the server owner while messages are live.`
+				`Make #${channel.name} a Live room?\n\nNew messages are session-only and are lost when the server restarts. Earlier retained messages keep their original policy in storage, but may be hidden from chat while Live mode is active. Live is not private from the server owner while messages are live.`
 			);
 			if (!ok) return;
 			saveChannelSettings(LIVE_RETENTION);
@@ -83,24 +103,12 @@ import { get } from 'svelte/store';
 			saveChannelSettings(next);
 			return;
 		}
-		// Opt into keep-forever (persistence).
+		// Opt into keep-forever (persistence) for future messages.
 		if (next === null && prev !== null) {
 			const ok = window.confirm(
-				`Keep messages in #${channel.name} forever?\n\nThis opts into persistence. History will be stored until you purge it or change retention.`
+				`Keep new messages in #${channel.name} forever?\n\nEarlier messages keep the retention policy they had when sent. New history stays in chat until it is separately removed.`
 			);
 			if (!ok) return;
-		}
-		// Leaving forever → timed: offer purge of stored history.
-		if (prev === null && next !== null) {
-			const purge = window.confirm(
-				`Switch #${channel.name} back to timed chat (${next})?\n\nOK = also purge existing stored messages now.\nCancel = keep old messages, only apply the timer to new ones.`
-			);
-			saveChannelSettings(next);
-			if (purge) {
-				// Slight delay so settings save emits first.
-				setTimeout(() => clearAllMessages(), 50);
-			}
-			return;
 		}
 		saveChannelSettings(next);
 	}
@@ -329,7 +337,7 @@ import { get } from 'svelte/store';
 		return Object.keys(next).length > 0 ? next : undefined;
 	}
 
-	function saveChannelSettings(autoDeleteAfter: RetentionChoice = channel.autoDeleteAfter || null): void {
+	function saveChannelSettings(autoDeleteAfter: RetentionChoice = channel.autoDeleteAfter === undefined ? DEFAULT_CHANNEL_RETENTION : channel.autoDeleteAfter): void {
 		const liveUpdates: Record<string, unknown> = {};
 		if (isLiveRetention(tempLiveTtl ? undefined : channel.autoDeleteAfter) || isLiveRetention(autoDeleteAfter)) {
 			const ttlMs = parseDurationToMs(tempLiveTtl);
@@ -429,7 +437,7 @@ import { get } from 'svelte/store';
 				<div class="setting-group">
 					<span class="setting-label">Message retention</span>
 					<p class="setting-description">
-						Live (session only) · Timed (default 24 hours) · Keep forever (opt-in persistence).
+						Changes apply to new messages. Earlier messages keep their original lifetime, but may be hidden while Live mode is active. Live is session only; timed defaults to 24 hours.
 					</p>
 
 					<div class="auto-delete-options">
@@ -561,13 +569,13 @@ import { get } from 'svelte/store';
 
 			{#if isChatLikeChannel && channel.type !== 'dm' && canClearMessages}
 				<div class="setting-group danger-zone">
-					<span class="setting-label">Purge channel history</span>
+					<span class="setting-label">Clear channel history</span>
 					<p class="setting-description">
-						Server purge removes history for everyone. Local only clears this browser’s cache for the
-						channel (server and other members unchanged). Attachments on disk are not deleted.
+						Server clear removes visible message history for everyone after storage confirms it.
+						Local only clears this browser’s cache. Attachments and backup copies are not deleted.
 					</p>
 					<div class="purge-actions">
-						<button class="clear-messages-btn" type="button" on:click={clearAllMessages}>Purge all</button>
+						<button class="clear-messages-btn" type="button" on:click={clearAllMessages}>Clear for everyone</button>
 						<button class="clear-messages-btn local-only" type="button" on:click={clearLocalMessagesOnly}>Local only</button>
 					</div>
 				</div>

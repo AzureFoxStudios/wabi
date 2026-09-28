@@ -1,4 +1,5 @@
 <script lang="ts">
+	import HostLink from './HostLink.svelte';
 	import { createEventDispatcher, onMount, tick } from 'svelte';
 	import { longpress } from '$lib/actions/longpress';
 	import { followUnreadCountsByServer } from '$lib/followingSnapshots';
@@ -685,6 +686,7 @@
 	</div>
 
 	<div class="switcher-body">
+		<HostLink />
 		{#if mobile && mobileMove}
 			<div class="switcher-move-banner">
 				<div class="switcher-move-banner-copy">

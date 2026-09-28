@@ -1,5 +1,5 @@
-use crate::error::{Result, WabiError};
 use crate::commit_index::record::CommitIndexEntry;
+use crate::error::{Result, WabiError};
 
 pub struct SyncRequest {
     pub since_commit_seq: u64,
@@ -29,7 +29,10 @@ pub fn apply_sync_response(
             });
         }
 
-        if let Some(existing) = state.iter_mut().find(|e: &&mut CommitIndexEntry| e.commit_seq == entry.commit_seq) {
+        if let Some(existing) = state
+            .iter_mut()
+            .find(|e: &&mut CommitIndexEntry| e.commit_seq == entry.commit_seq)
+        {
             if existing != &entry {
                 return Err(WabiError::InternalInvariantViolated {
                     invariant: format!(

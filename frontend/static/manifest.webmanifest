@@ -2,7 +2,7 @@
 	"id": "/",
 	"name": "Wabi",
 	"short_name": "Wabi",
-	"description": "Self-hosted chat — messages, calls, and workspaces",
+	"description": "Open-source, self-hosted communication and collaboration for small communities, with chat, calls, shared workspaces, and creative review.",
 	"start_url": "/",
 	"scope": "/",
 	"display": "standalone",
@@ -10,7 +10,7 @@
 	"orientation": "any",
 	"background_color": "#0D1024",
 	"theme_color": "#0D1024",
-	"categories": ["social", "communication"],
+	"categories": ["social", "communication", "productivity"],
 	"icons": [
 		{
 			"src": "/icon-192.png",
@@ -25,7 +25,7 @@
 			"purpose": "any"
 		},
 		{
-			"src": "/icon-512.png",
+			"src": "/icon-maskable-512.png",
 			"sizes": "512x512",
 			"type": "image/png",
 			"purpose": "maskable"

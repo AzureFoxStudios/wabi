@@ -1,9 +1,8 @@
 //! Application state shared across handlers
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex, RwLock};
 
@@ -12,6 +11,7 @@ use crate::api::upload::UploadState;
 use crate::blacklist::BlacklistManager;
 use crate::blobs::BlobRegistry;
 use crate::bot_registry::BotRegistry;
+use crate::community_roster::CommunityRosterStore;
 use crate::config::ServerConfig;
 use crate::jobs::JobQueue;
 use crate::lore_roles::LoreRoleStore;
@@ -20,6 +20,25 @@ use crate::replication_transport::ReqwestTransport;
 use crate::upload_registry::UploadRegistry;
 use wabidb::engine::wabi_store::WabiStore;
 use wabidb::retention::tombstone::TombstoneTable;
+
+pub(crate) fn ensure_authority_not_fenced(data_dir: &str) -> anyhow::Result<()> {
+    for (name, status) in [
+        ("writer-fenced-v1", "writer-fenced"),
+        ("activation-pending-v1", "activation-pending"),
+        ("live-checkpoint-v1", "inactive live checkpoint"),
+    ] {
+        let marker = Path::new(data_dir).join("wabidb").join(name);
+        match std::fs::symlink_metadata(&marker) {
+            Ok(_) => anyhow::bail!(
+                "Authority data directory is {status}; refusing to serve from {}",
+                marker.display()
+            ),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
 
 /// In-memory message cache shared between Socket.IO and HTTP handlers.
 /// channel_id → Vec of message JSON objects (capped at 1000 per channel).
@@ -43,11 +62,16 @@ pub struct AppState {
     /// Monotonic server lifetime, including initialization; never starts on the
     /// first health/dashboard request. Runtime-only, not a persisted record.
     pub started_at: std::time::Instant,
+    pub network_health: crate::api::network_health::Sampler,
+    pub instance_operations: crate::instance_operations::InstanceOperations,
+    pub boosters: crate::api::boosters::Boosters,
     /// WabiDB engine handle. The source of truth for all persistence.
     /// Concrete `WdbAdapter` (not the trait object) — `WabiStore` is not
     /// yet dyn-compatible (its async fns need a Send bound for `dyn Trait`).
     /// Can switch to `Arc<dyn WabiStore>` once the trait gets the fix.
     pub wdb: Arc<WdbAdapter>,
+    /// Signed, owner-approved entry point list; an address is never identity.
+    pub community_roster: CommunityRosterStore,
     #[allow(dead_code)]
     pub channels: RwLock<ChannelManager>,
     pub session_messages: SessionMessages,
@@ -55,6 +79,10 @@ pub struct AppState {
     /// In-memory for full preset support (5s..90d); also mirrored to WDB days when >= 1d.
     pub channel_auto_delete_ms: Arc<RwLock<HashMap<String, u64>>>,
     pub retention_policy_lock: tokio::sync::Mutex<()>,
+    /// Channels with any sub-minute retention epoch. Hydrated before serving
+    /// and updated with each policy change; the fast sweep never rereads the
+    /// complete sidecar on every tick.
+    pub fast_retention_channels: Arc<RwLock<HashSet<String>>>,
     /// channel_id -> frontend label (e.g. "5s", "24h") for channel-updated payloads
     pub channel_auto_delete_label: Arc<RwLock<HashMap<String, String>>>,
     /// Per-channel live room TTL in milliseconds. Default: 10 minutes.
@@ -63,23 +91,27 @@ pub struct AppState {
     pub live_channel_cap: Arc<RwLock<HashMap<String, u64>>>,
     // Tombstone table for retention — tracks soft-deleted messages pending compaction.
     pub tombstone_table: Arc<RwLock<TombstoneTable>>,
-    pub owner_user_id: RwLock<Option<i64>>,
+    pub owner_user_id: Arc<RwLock<Option<i64>>>,
     /// Serialises the fresh-server setup window (create user + claim
     /// ownership) so concurrent first registrations can't interleave:
     /// exactly one account is created before an owner exists.
     pub setup_claim_lock: tokio::sync::Mutex<()>,
+    /// Private supervisor capability; never returned to browser clients or persisted.
+    pub desktop_bootstrap_token: Option<String>,
     /// Orders legacy payment-policy import against either administrative save
     /// route. Runtime coordination only; WabiDB remains authoritative.
     pub payment_policy_lock: tokio::sync::Mutex<()>,
     /// Token revocation state. A stolen/compromised JWT can be killed
     /// without rotating the signing secret: individual `jti`s, entire
     /// users, or all tokens issued before an `epoch` can be revoked.
+    /// Legacy import path; canonical mutations no longer write this sidecar.
     pub revocation_file: PathBuf,
-    pub revocations: RwLock<RevocationStore>,
+    pub revocations: Arc<RwLock<RevocationStore>>,
     /// One-time recovery codes that let the owner regain access when locked
     /// out (e.g. password changed by an attacker). Maps code-hash -> owner id.
+    /// Legacy import path; canonical issuance/consumption no longer write it.
     pub recovery_file: PathBuf,
-    pub recovery_codes: RwLock<HashMap<String, i64>>,
+    pub recovery_codes: Arc<RwLock<HashMap<String, i64>>>,
     /// Upload session state (in-memory, not persisted)
     pub upload_state: UploadState,
     /// Core helper-node registry (authority-owned; not federation)
@@ -95,15 +127,17 @@ pub struct AppState {
     /// Media room routing registry (voice/video assignment to helper nodes)
     pub media_registry: crate::media::MediaRoomRegistry,
     /// Current Socket.IO handle for HTTP handlers that need to broadcast.
-    pub sio: RwLock<Option<socketioxide::SocketIo>>,
+    pub sio: std::sync::RwLock<Option<socketioxide::SocketIo>>,
     /// Shared socket.io presence map (socket_id → ConnectedUser). Populated
     /// by `create_socket_layer` at startup; lets HTTP handlers (admin
     /// metrics) read online-socket counts without going through SioState.
     pub connected_users: crate::socketio::ConnectedUsers,
     /// Blacklist manager for bans
     pub blacklist: RwLock<Option<Arc<BlacklistManager>>>,
-    /// Mesh service for multi-node coordination
-    pub mesh_service: RwLock<Option<Arc<crate::mesh::MeshService>>>,
+    /// One serialized Server Center policy/case store shared by HTTP and live sends.
+    pub(crate) server_center: Arc<RwLock<crate::api::server_center::ServerCenterStore>>,
+    /// Runtime add-on switches (in-app; see addon_switches.rs). Env vars win.
+    pub addon_switches: RwLock<crate::addon_switches::AddonSwitches>,
     /// Lore addon service for version-controlled binary storage
     #[cfg(feature = "wabi-lore")]
     pub lore_service: RwLock<Option<Arc<crate::lore::LoreService>>>,
@@ -124,7 +158,8 @@ pub struct AppState {
     /// instead of a fresh client (TLS handshake) per cache miss.
     pub steam_http: crate::api::steam::SharedHttpClient,
     /// Guest creation rate limiter (IP → count). WS-5b.
-    pub guest_rate_limiter: Arc<RwLock<HashMap<String, u32>>>,
+    pub guest_rate_limiter: Arc<RwLock<HashMap<String, (u32, i64)>>>,
+    pub registration_rate_limiter: Arc<RwLock<HashMap<String, (u32, i64)>>>,
     /// Tailcat private-access transport (unconditionally compiled, runtime-
     /// gated — disabled = no subprocess, zero footprint). See
     /// core/addons/tailcat/backend and docs/plans/2026-09-01-tailcat-private-access.md.
@@ -134,9 +169,8 @@ pub struct AppState {
     /// to serde_json-parse that user's whole layout_json. Cache maps
     /// user_id → (raw layout string, parsed profile_media); invalidated when
     /// the stored layout string changes.
-    pub profile_media_cache: Arc<
-        RwLock<HashMap<u64, (String, Option<serde_json::Map<String, serde_json::Value>>)>>,
-    >,
+    pub profile_media_cache:
+        Arc<RwLock<HashMap<u64, (String, Option<serde_json::Map<String, serde_json::Value>>)>>>,
     /// User-defined Lore role tiers (capability bundles in
     /// `<data_dir>/lore_roles.json` + configurable default policy).
     pub lore_roles: Arc<LoreRoleStore>,
@@ -214,12 +248,16 @@ pub struct RevocationStore {
 impl RevocationStore {
     /// Capture the revocation cut associated with an authentication proof.
     pub(crate) fn account_watermark(&self, user_id: i64) -> (u64, u64) {
-        (self.epoch, self.user_iat_revoked.get(&user_id).copied().unwrap_or(0))
+        (
+            self.epoch,
+            self.user_iat_revoked.get(&user_id).copied().unwrap_or(0),
+        )
     }
 
     fn next_user_floor(&self, user_id: i64, now: i64) -> u64 {
         let (epoch, floor) = self.account_watermark(user_id);
-        (now.max(0) as u64).saturating_add(1)
+        (now.max(0) as u64)
+            .saturating_add(1)
             .max(epoch.saturating_add(1))
             .max(floor.saturating_add(1))
     }
@@ -270,33 +308,91 @@ impl RevocationStore {
 }
 
 impl AppState {
+    /// Socket.IO is installed synchronously while the router is constructed.
+    /// A Tokio try_write could lose this handle forever if a startup reader
+    /// happened to hold the lock at that instant.
+    pub fn set_socket_io(&self, io: socketioxide::SocketIo) {
+        *self.sio.write().expect("Socket.IO handle lock poisoned") = Some(io);
+    }
+
+    /// Clone the handle before any async broadcast so the lock is never held
+    /// across an await point.
+    pub fn socket_io(&self) -> Option<socketioxide::SocketIo> {
+        self.sio
+            .read()
+            .expect("Socket.IO handle lock poisoned")
+            .clone()
+    }
+
     /// Build the application state. Opens the WabiDB engine at
     /// `<data_dir>/wabidb/`. WDB is fully decommissioned — no WDB
     /// initialization, no compat shim.
     pub async fn new(config: ServerConfig) -> anyhow::Result<Self> {
+        Self::new_with_desktop_bootstrap(config, None).await
+    }
+
+    pub async fn new_with_desktop_bootstrap(
+        config: ServerConfig,
+        desktop_bootstrap_token: Option<String>,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            crate::config::valid_node_id(&config.node_id),
+            "invalid Authority node ID"
+        );
+        // A retired Authority must not load writable sidecars or bind HTTP /
+        // Socket.IO after its WabiDB writer has been durably fenced. The
+        // engine alone rejects canonical commits; other state still lives in
+        // file-backed stores, so refusing the whole server is the safe default.
+        ensure_authority_not_fenced(&config.data_dir)?;
+        if let Some(token) = &desktop_bootstrap_token {
+            anyhow::ensure!(
+                token.len() >= 32,
+                "Desktop bootstrap capability must have at least 32 characters"
+            );
+        }
+        let blacklist = BlacklistManager::new(config.blacklist_file.clone());
+        blacklist.load_from_file().await?;
+        crate::api::server_center::validate_sidecar(&config.data_dir)?;
+        let server_center = Arc::new(RwLock::new(crate::api::server_center::ServerCenterStore::load(
+            PathBuf::from(&config.data_dir).join("server_center.json"),
+        )));
         let started_at = std::time::Instant::now();
+        let instance_operations = crate::instance_operations::InstanceOperations::default();
+        let boosters = crate::api::boosters::Boosters::open(&config.data_dir)?;
         // Resolve exact storage policy before accepting requests or opening WabiDB.
         // A background hydration task can let the first Live message persist.
         let retention_labels = crate::api::retention_policy::all(&config.data_dir)?;
-        let retention_timers = retention_labels.iter().filter_map(|(channel, label)|
-            crate::api::retention_policy::timed_ms(label).map(|ms| (channel.clone(), ms))
-        ).collect();
-        let owner_user_id = RwLock::new(None);
+        let retention_timers = retention_labels
+            .iter()
+            .filter_map(|(channel, label)| {
+                crate::api::retention_policy::timed_ms(label).map(|ms| (channel.clone(), ms))
+            })
+            .collect();
+        let fast_retention_channels =
+            crate::api::retention_policy::fast_sweep_channels(&config.data_dir)?
+                .into_iter()
+                .collect();
+        let owner_user_id = Arc::new(RwLock::new(None));
+        let addon_switches =
+            RwLock::new(crate::addon_switches::AddonSwitches::load(&config.data_dir));
         let node_registry = NodeRegistry::new_persistent(
             config.node_id.clone(),
             PathBuf::from(&config.data_dir).join("node_registry.json"),
-        );
+        )?;
         let job_queue =
             JobQueue::new_persistent(PathBuf::from(&config.data_dir).join("job_queue.json"));
         let blob_registry = BlobRegistry::new_persistent(PathBuf::from(&config.data_dir));
         let bot_registry = BotRegistry::new_persistent(PathBuf::from(&config.data_dir));
-        let upload_registry = UploadRegistry::new_persistent(PathBuf::from(&config.data_dir));
+        let upload_registry = UploadRegistry::new_for_authority(
+            PathBuf::from(&config.data_dir),
+            PathBuf::from(&config.uploads_dir),
+        )?;
         let media_registry =
             crate::media::MediaRoomRegistry::new_persistent(PathBuf::from(&config.data_dir));
 
         // Open the WabiDB engine. This is the new source of truth.
         let wdb_data_dir = PathBuf::from(&config.data_dir).join("wabidb");
-        std::fs::create_dir_all(&wdb_data_dir).ok();
+        std::fs::create_dir_all(&wdb_data_dir)?;
 
         // If a peer endpoint is configured, enable replication.
         let peer_endpoint = std::env::var("WABIDB_PEER_ENDPOINT")
@@ -309,13 +405,36 @@ impl AppState {
             .map(|ms| ms.saturating_mul(1_000))
             .unwrap_or(30_000_000); // default 30s
         let wdb: Arc<WdbAdapter> = if let Some(endpoint) = peer_endpoint {
-            let transport = Arc::new(ReqwestTransport::new(wdb_data_dir.clone()));
+            let allow_private_http = std::env::var("WABIDB_ALLOW_PRIVATE_HTTP")
+                .ok()
+                .map(|value| value.trim().eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
+            ReqwestTransport::validate_peer_endpoint(&endpoint, allow_private_http)?;
+            let mut wdb_config = WdbAdapter::resolved_config(&wdb_data_dir)?;
+            let root_key = match &wdb_config.bootstrap_source {
+                wabidb::crypto::bootstrap::BootstrapSource::Provided(key) => key,
+                _ => unreachable!("resolved WabiDB config always provides the root key"),
+            };
+            let fingerprint = wabidb::replication::replica_fingerprint(root_key);
+            let mut transport = ReqwestTransport::new(wdb_data_dir.clone(), fingerprint)
+                .with_uploads_dir(PathBuf::from(&config.uploads_dir));
+            if std::env::var("WABIDB_REPLICATE_SIDECARS")
+                .ok()
+                .is_some_and(|value| {
+                    matches!(
+                        value.trim().to_ascii_lowercase().as_str(),
+                        "1" | "true" | "yes"
+                    )
+                })
+            {
+                transport = transport.with_instance_dir(PathBuf::from(&config.data_dir));
+            }
+            let transport = Arc::new(transport);
             let rep_config = wabidb::replication::config::ReplicationConfig::new(
                 &endpoint,
                 sync_interval_micros,
                 5_000_000, // 5 second max lag
             );
-            let mut wdb_config = wabidb::engine::WabiDbConfig::from_env_var(wdb_data_dir);
             wdb_config.sync_transport = Some(transport);
             wdb_config.replication_config = Some(rep_config);
             tracing::info!(
@@ -323,23 +442,45 @@ impl AppState {
                 endpoint,
                 sync_interval_micros
             );
-            Arc::new(WdbAdapter::open_with_config(wdb_config).await?)
+            Arc::new(
+                WdbAdapter::open_with_config_and_node_id(wdb_config, config.node_id.clone())
+                    .await?,
+            )
         } else {
-            Arc::new(WdbAdapter::open(&wdb_data_dir).await?)
+            Arc::new(
+                WdbAdapter::open_with_node_id(&wdb_data_dir, config.node_id.clone()).await?,
+            )
         };
+        // Also cover a marker created while the engine was opening.
+        anyhow::ensure!(
+            !wdb.engine().local_writer_fenced().await,
+            "Authority data directory became writer-fenced during startup"
+        );
+        ensure_authority_not_fenced(&config.data_dir)?;
+        upload_registry.reconcile_revocations(wdb.engine()).await?;
+        upload_registry
+            .reconcile_published_assets(Path::new(&config.uploads_dir), wdb.engine())
+            .await?;
+        let community_root_key = crate::secrets::resolve_root_key(&wdb_data_dir)?;
+        let community_roster = CommunityRosterStore::open_canonical(
+            &config.data_dir,
+            &community_root_key,
+            wdb.engine(),
+        )
+        .await?;
 
         // Load the authoritative owner from the WDB store (migrating the
         // legacy JSON file if needed). Must happen after the engine opens.
-        let owner_val = Self::load_owner(wdb.as_ref(), &config.data_dir).await;
+        let owner_val = Self::load_owner(wdb.as_ref(), &config.data_dir).await?;
         *owner_user_id.write().await = owner_val;
 
         // Load persisted token-revocation state.
         let revocation_file = Self::revocation_file_path(&config.data_dir);
-        let revocations = RwLock::new(Self::load_revocations(&config.data_dir).await);
+        let revocations = Arc::new(RwLock::new(crate::auth_revocations::open(&config.data_dir, wdb.engine()).await?));
 
         // Load persisted recovery codes.
         let recovery_file = Self::recovery_file_path(&config.data_dir);
-        let recovery_codes = RwLock::new(Self::load_recovery_codes(&config.data_dir).await);
+        let recovery_codes = Arc::new(RwLock::new(crate::recovery_codes::open(&config.data_dir, wdb.engine()).await?));
 
         let tailcat = wabi_tailcat::TailcatManager::new(
             config.port,
@@ -349,22 +490,29 @@ impl AppState {
         // missing and publish the process-global handle read by the sync
         // `server_role_catalog()`.
         let lore_roles = LoreRoleStore::open(&config.data_dir);
+        crate::api::server_center::spawn_evidence_expiry_loop(&server_center, instance_operations.clone());
         Ok(Self {
             config,
             started_at,
+            network_health: crate::api::network_health::Sampler::default(),
+            instance_operations,
+            boosters,
             wdb,
+            community_roster,
             channels: RwLock::new(ChannelManager {
                 channel_broadcasts: std::collections::HashMap::new(),
             }),
             session_messages: Arc::new(RwLock::new(HashMap::new())),
             channel_auto_delete_ms: Arc::new(RwLock::new(retention_timers)),
             retention_policy_lock: tokio::sync::Mutex::new(()),
+            fast_retention_channels: Arc::new(RwLock::new(fast_retention_channels)),
             channel_auto_delete_label: Arc::new(RwLock::new(retention_labels)),
             live_channel_ttl_ms: Arc::new(RwLock::new(HashMap::new())),
             live_channel_cap: Arc::new(RwLock::new(HashMap::new())),
             tombstone_table: Arc::new(RwLock::new(TombstoneTable::new())),
             owner_user_id,
             setup_claim_lock: tokio::sync::Mutex::new(()),
+            desktop_bootstrap_token,
             payment_policy_lock: tokio::sync::Mutex::new(()),
             revocation_file,
             revocations,
@@ -377,10 +525,11 @@ impl AppState {
             bot_registry,
             upload_registry,
             media_registry,
-            sio: RwLock::new(None),
+            sio: std::sync::RwLock::new(None),
             connected_users: Arc::new(RwLock::new(HashMap::new())),
-            blacklist: RwLock::new(None),
-            mesh_service: RwLock::new(None),
+            blacklist: RwLock::new(Some(Arc::new(blacklist))),
+            server_center,
+            addon_switches,
             #[cfg(feature = "wabi-lore")]
             lore_service: RwLock::new(None),
             membership_gate: Default::default(),
@@ -392,6 +541,7 @@ impl AppState {
             steam_cache: Arc::new(Mutex::new(Default::default())),
             steam_http: crate::api::steam::shared_http_client(),
             guest_rate_limiter: Arc::new(RwLock::new(HashMap::new())),
+            registration_rate_limiter: Arc::new(RwLock::new(HashMap::new())),
             tailcat,
             lore_roles,
             profile_media_cache: Arc::new(RwLock::new(HashMap::new())),
@@ -411,27 +561,19 @@ impl AppState {
         guard.clone()
     }
 
-    /// Set the mesh service (called during startup)
-    pub async fn set_mesh_service(&self, mesh: Arc<crate::mesh::MeshService>) {
-        let mut guard = self.mesh_service.write().await;
-        *guard = Some(mesh);
+    /// Effective runtime state of a compiled-in add-on: env → persisted → default.
+    pub async fn addon_enabled(&self, id: &str, env_var: Option<&str>, default: bool) -> bool {
+        self.addon_switches
+            .read()
+            .await
+            .resolve(id, env_var, default)
     }
 
-    /// Get the mesh service (if initialized)
-    pub async fn get_mesh_status(&self) -> anyhow::Result<crate::mesh::MeshStatus> {
-        let guard = self.mesh_service.read().await;
-        match guard.as_ref() {
-            Some(mesh) => Ok(mesh.get_status().await),
-            None => Err(anyhow::anyhow!("Mesh service not initialized")),
-        }
-    }
-
-    /// Record a heartbeat from a peer node
-    pub async fn record_heartbeat(&self, node_id: &str, timestamp: i64) {
-        let guard = self.mesh_service.read().await;
-        if let Some(mesh) = guard.as_ref() {
-            mesh.record_heartbeat(node_id, timestamp).await;
-        }
+    /// Persist an in-app add-on switch change (owner action).
+    pub async fn set_addon_enabled(&self, id: &str, enabled: bool) -> anyhow::Result<()> {
+        let mut guard = self.addon_switches.write().await;
+        guard.set(id, enabled);
+        guard.save(&self.config.data_dir)
     }
 
     /// Set the Lore service (called during startup)
@@ -441,25 +583,9 @@ impl AppState {
         *guard = Some(lore);
     }
 
-    /// Get mesh configuration
-    pub async fn get_mesh_config(&self) -> anyhow::Result<crate::mesh::MeshConfig> {
-        let guard = self.mesh_service.read().await;
-        match guard.as_ref() {
-            Some(mesh) => Ok(mesh.config.clone()),
-            None => Err(anyhow::anyhow!("Mesh service not initialized")),
-        }
-    }
-
     /// Load the owner from the authoritative WDB store.
-    async fn load_owner(wdb: &WdbAdapter, _data_dir: &str) -> Option<i64> {
-        match wdb.get_owner_user_id().await {
-            Ok(Some(id)) => Some(id as i64),
-            Ok(None) => None,
-            Err(e) => {
-                tracing::warn!("[setup] failed to read owner from store: {e}");
-                None
-            }
-        }
+    async fn load_owner(wdb: &WdbAdapter, _data_dir: &str) -> anyhow::Result<Option<i64>> {
+        Ok(wdb.get_owner_user_id().await?.map(|id| id as i64))
     }
 
     /// Returns true if the server has no owner yet (first-run state).
@@ -471,18 +597,39 @@ impl AppState {
     /// the first registrant). Persists to the WDB store so it is the
     /// authoritative source of truth and survives restarts.
     /// Fails silently if an owner already exists.
-    pub async fn claim_ownership(&self, user_id: i64, _username: &str) -> bool {
-        let mut guard = self.owner_user_id.write().await;
-        if guard.is_some() {
-            return false; // already claimed
-        }
-        if let Err(e) = self.wdb.claim_owner(user_id as u64).await {
-            tracing::error!("[setup] failed to persist owner claim: {e}");
-            return false;
-        }
-        *guard = Some(user_id);
-        tracing::info!("[setup] owner claimed by user_id={}", user_id);
-        true
+    pub async fn claim_ownership(&self, user_id: i64, _username: &str) -> anyhow::Result<bool> {
+        let owner = Arc::clone(&self.owner_user_id);
+        let wdb = Arc::clone(&self.wdb);
+        Ok(self.instance_operations.spawn(async move {
+            let mut guard = owner.write_owned().await;
+            if guard.is_some() { return Ok(false); }
+            wdb.claim_owner(user_id as u64).await?;
+            *guard = Some(user_id);
+            tracing::info!("[setup] owner claimed by user_id={}", user_id);
+            Ok::<_, wabidb::error::WabiError>(true)
+        }).await??)
+    }
+
+    /// Serialize ownership writes with code recovery and publish only after
+    /// durability/application. A caller's disappearance does not stop the
+    /// owned worker. An expected owner prevents a stale transfer from winning.
+    pub async fn set_owner_durably(&self, user_id: i64, expected_owner: Option<i64>) -> wabidb::error::Result<bool> {
+        let owner = Arc::clone(&self.owner_user_id);
+        let wdb = Arc::clone(&self.wdb);
+        self.instance_operations.spawn(async move {
+            let mut guard = owner.write_owned().await;
+            if expected_owner.is_some_and(|expected| *guard != Some(expected)) { return Ok(false); }
+            if user_id <= 0 || wdb.get_user(user_id as u64).await?.is_none() {
+                return Err(wabidb::error::WabiError::Validation {
+                    command: "set_owner".into(), reason: "target account does not exist".into(),
+                });
+            }
+            wdb.claim_owner(user_id as u64).await?;
+            *guard = Some(user_id);
+            Ok(true)
+        }).await.map_err(|error| wabidb::error::WabiError::InternalInvariantViolated {
+            invariant: format!("owner publication task failed; inspect canonical owner state: {error}"),
+        })?
     }
 
     /// Get the highest role for a user from WDB RBAC (default workspace).
@@ -565,170 +712,130 @@ impl AppState {
         PathBuf::from(data_dir).join("revocations.json")
     }
 
-    /// Parse a revocations JSON string, accepting BOTH the legacy bare-array
-    /// `jtis` format and the current `{jti: exp}` map. Exposed (pub, string-
-    /// taking) so tests can verify the compat shim without touching disk.
+    /// Compatibility parser retained for callers/tests. Authority startup uses
+    /// the strict decoder below and refuses corrupt legacy denial state.
     pub fn load_legacy_revocations_str(s: &str) -> RevocationStore {
-        // New format first.
-        if let Ok(v) = serde_json::from_str::<RevocationStore>(s) {
-            return v;
+        Self::decode_legacy_revocations_str(s).unwrap_or_default()
+    }
+
+    pub(crate) fn decode_legacy_revocations_str(s: &str) -> anyhow::Result<RevocationStore> {
+        let json: serde_json::Value = serde_json::from_str(s)?;
+        let object = json.as_object().ok_or_else(|| anyhow::anyhow!("revocations must be an object"))?;
+        if object.keys().any(|key| !matches!(key.as_str(), "epoch" | "jtis" | "users" | "user_iat_revoked" | "user_jti_exemptions")) {
+            anyhow::bail!("unknown field in legacy revocations");
         }
+        if let Ok(v) = serde_json::from_str::<RevocationStore>(s) { return Ok(v); }
         #[derive(Deserialize)]
         struct LegacyRevocationStore {
-            #[serde(default)]
-            epoch: u64,
-            #[serde(default)]
-            jtis: Vec<String>,
-            #[serde(default)]
-            users: HashSet<i64>,
-            #[serde(default)]
-            user_iat_revoked: HashMap<i64, u64>,
-            #[serde(default)]
-            user_jti_exemptions: HashMap<i64, HashSet<String>>,
+            #[serde(default)] epoch: u64,
+            #[serde(default)] jtis: Vec<String>,
+            #[serde(default)] users: HashSet<i64>,
+            #[serde(default)] user_iat_revoked: HashMap<i64, u64>,
+            #[serde(default)] user_jti_exemptions: HashMap<i64, HashSet<String>>,
         }
-        if let Ok(l) = serde_json::from_str::<LegacyRevocationStore>(s) {
-            return RevocationStore {
-                epoch: l.epoch,
-                // Legacy entries carry no expiry: keep them until explicitly
-                // cleared or epoch-revoked. An upgrade must never un-revoke.
-                jtis: l.jtis.into_iter().map(|j| (j, u64::MAX)).collect(),
-                users: l.users,
-                user_iat_revoked: l.user_iat_revoked,
-                user_jti_exemptions: l.user_jti_exemptions,
-            };
-        }
-        RevocationStore::default()
+        let legacy: LegacyRevocationStore = serde_json::from_str(s)?;
+        Ok(RevocationStore {
+            epoch: legacy.epoch,
+            jtis: legacy.jtis.into_iter().map(|jti| (jti, u64::MAX)).collect(),
+            users: legacy.users, user_iat_revoked: legacy.user_iat_revoked,
+            user_jti_exemptions: legacy.user_jti_exemptions,
+        })
     }
 
-    async fn load_revocations(data_dir: &str) -> RevocationStore {
-        let path = Self::revocation_file_path(data_dir);
-        if let Ok(s) = std::fs::read_to_string(&path) {
-            return Self::load_legacy_revocations_str(&s);
-        }
-        RevocationStore::default()
-    }
-
-    async fn save_revocations(&self) {
-        let mut guard = self.revocations.write().await;
-        guard.prune_expired_jtis(chrono::Utc::now().timestamp().max(0) as u64);
-        if let Ok(s) = serde_json::to_string_pretty(&*guard) {
-            let _ = std::fs::write(&self.revocation_file, s);
-        }
-    }
-
-    /// Revoke a single token by its `jti`. No-op for tokens that lack one.
-    /// `exp` is the revoked token's own expiration (unix seconds) — used for
-    /// pruning once the entry can no longer matter.
-    pub async fn revoke_token_with_exp(&self, jti: String, exp: i64) {
-        if jti.is_empty() {
-            return;
-        }
-        {
-            self.revocations
-                .write()
-                .await
-                .jtis
-                .insert(jti, exp.max(0) as u64);
-        }
-        self.save_revocations().await;
-    }
-
-    /// Revoke every *current* token for a user (force-logout / theft response).
-    /// Uses a per-user iat floor so a subsequent login mints a valid new token.
-    /// Does NOT permanently lock the account (the legacy `users` set did that —
-    /// see the 2026-07-23 login-bounce incident).
-    pub async fn revoke_user(&self, user_id: i64) {
-        {
-            let mut g = self.revocations.write().await;
-            let floor = g.next_user_floor(user_id, chrono::Utc::now().timestamp());
-            g.user_iat_revoked.insert(user_id, floor);
-            // A later forced logout/admin reset also revokes the session that
-            // was exempted by an earlier own-password change.
-            g.user_jti_exemptions.remove(&user_id);
-            // Drop any legacy permanent-ban entry — the floor replaces it.
-            g.users.remove(&user_id);
-        }
-        self.save_revocations().await;
-    }
-
-    /// Drop a legacy permanent user ban. Safe no-op if not present.
-    /// Called on successful password login so a stale on-disk `users: [id]`
-    /// entry cannot trap the account in a login→401 bounce loop.
-    pub async fn clear_legacy_user_revocation(&self, user_id: i64) {
-        let removed = {
-            let mut g = self.revocations.write().await;
-            g.users.remove(&user_id)
-        };
-        if removed {
-            self.save_revocations().await;
-        }
-    }
-
-    /// Revoke every outstanding token for a user EXCEPT the token identified
-    /// by `exempt_jti` (the session performing the operation, e.g. a self-
-    /// service password change). Implemented as a per-user "issued-before"
-    /// watermark plus a single jti exemption, so fresh logins (re-issued at an
-    /// `iat` at/after the watermark) stay valid while pre-existing other
-    /// sessions are rejected on their next request. If `exempt_jti` is empty
-    /// (legacy token without a `jti` claim) the exemption is omitted, safely
-    /// degrading to a full user revoke.
-    pub async fn revoke_user_other_sessions(&self, user_id: i64, exempt_jti: &str) {
-        {
-            let mut guard = self.revocations.write().await;
-            let watermark = guard.next_user_floor(user_id, chrono::Utc::now().timestamp());
-            guard.user_iat_revoked.insert(user_id, watermark);
-            if !exempt_jti.is_empty() {
-                let mut set = HashSet::new();
-                set.insert(exempt_jti.to_string());
-                guard.user_jti_exemptions.insert(user_id, set);
-            } else {
-                guard.user_jti_exemptions.remove(&user_id);
+    /// The owned task finishes commit AND auth-view publication if the caller
+    /// disconnects. Dropping a request must not strand a durable denial behind
+    /// the running Authority's in-memory view. Its write guard covers both.
+    async fn update_revocations<F>(&self, build: F) -> wabidb::error::Result<()>
+    where F: FnOnce(&RevocationStore) -> Option<wabidb::projections::auth_revocations::Operation> + Send + 'static {
+        use wabidb::projections::auth_revocations::Operation;
+        let revocations = Arc::clone(&self.revocations);
+        let wdb = Arc::clone(&self.wdb);
+        self.instance_operations.spawn(async move {
+            let mut guard = revocations.write_owned().await;
+            let Some(operation) = build(&guard) else { return Ok(()); };
+            let cutoff = (chrono::Utc::now().timestamp().max(0) as u64).saturating_sub(3600);
+            let updated_jti = match &operation { Operation::Token { jti, .. } => Some(jti.as_str()), _ => None };
+            let expired: Vec<_> = guard.jtis.iter()
+                .filter(|(jti, exp)| **exp <= cutoff && Some(jti.as_str()) != updated_jti)
+                .take(256).map(|(jti, exp)| (jti.clone(), *exp)).collect();
+            let mut operations = vec![operation.clone()];
+            operations.extend(expired.iter().map(|(jti, exp)| Operation::PruneToken {
+                jti: jti.clone(), expires_at: *exp, cutoff,
+            }));
+            crate::auth_revocations::commit(wdb.engine(), false, operations).await?;
+            match operation {
+                Operation::Token { jti, expires_at } => { guard.jtis.insert(jti, expires_at); },
+                Operation::UserFloor { user_id, floor, exempt_jtis, clear_legacy } => {
+                    guard.user_iat_revoked.insert(user_id, floor);
+                    if exempt_jtis.is_empty() { guard.user_jti_exemptions.remove(&user_id); }
+                    else { guard.user_jti_exemptions.insert(user_id, exempt_jtis.into_iter().collect()); }
+                    if clear_legacy { guard.users.remove(&user_id); }
+                },
+                Operation::GlobalFloor { epoch } => guard.epoch = epoch,
+                Operation::ClearLegacyUser { user_id } => { guard.users.remove(&user_id); },
+                _ => unreachable!("Authority mutation builder only creates canonical revocation operations"),
             }
-        }
-        self.save_revocations().await;
+            for (jti, exp) in expired {
+                if guard.jtis.get(&jti) == Some(&exp) { guard.jtis.remove(&jti); }
+            }
+            Ok(())
+        }).await.map_err(|error| wabidb::error::WabiError::InternalInvariantViolated {
+            invariant: format!("revocation publication task failed; inspect canonical denial state: {error}"),
+        })?
     }
 
-    /// Revoke ALL outstanding tokens by advancing the revocation epoch.
-    pub async fn revoke_all_tokens(&self) {
-        {
-            let mut guard = self.revocations.write().await;
-            // Fresh tokens can be stamped at a user's future watermark. A
-            // subsequent global revoke must move past those tokens as well.
-            let latest_user_floor = guard.user_iat_revoked.values().copied().max().unwrap_or(0);
-            guard.epoch = (chrono::Utc::now().timestamp().max(0) as u64).saturating_add(1)
+    pub async fn revoke_token_with_exp(&self, jti: String, exp: i64) -> wabidb::error::Result<()> {
+        use wabidb::projections::auth_revocations::Operation;
+        if jti.is_empty() { return Ok(()); }
+        self.update_revocations(move |guard| Some(Operation::Token {
+            expires_at: (exp.max(0) as u64).max(guard.jtis.get(&jti).copied().unwrap_or(0)), jti,
+        })).await
+    }
+
+    /// Force existing sessions out; a future password login remains possible.
+    pub async fn revoke_user(&self, user_id: i64) -> wabidb::error::Result<()> {
+        use wabidb::projections::auth_revocations::Operation;
+        self.update_revocations(move |guard| Some(Operation::UserFloor {
+            user_id, floor: guard.next_user_floor(user_id, chrono::Utc::now().timestamp()),
+            exempt_jtis: vec![], clear_legacy: true,
+        })).await
+    }
+
+    pub async fn clear_legacy_user_revocation(&self, user_id: i64) -> wabidb::error::Result<()> {
+        use wabidb::projections::auth_revocations::Operation;
+        self.update_revocations(move |guard| guard.users.contains(&user_id)
+            .then_some(Operation::ClearLegacyUser { user_id })).await
+    }
+
+    /// Keep only the caller's session while advancing the user's cutoff.
+    pub async fn revoke_user_other_sessions(&self, user_id: i64, exempt_jti: &str) -> wabidb::error::Result<()> {
+        use wabidb::projections::auth_revocations::Operation;
+        let exempt_jtis = if exempt_jti.is_empty() { vec![] } else { vec![exempt_jti.to_owned()] };
+        self.update_revocations(move |guard| Some(Operation::UserFloor {
+            user_id, floor: guard.next_user_floor(user_id, chrono::Utc::now().timestamp()),
+            exempt_jtis, clear_legacy: false,
+        })).await
+    }
+
+    pub async fn revoke_all_tokens(&self) -> wabidb::error::Result<()> {
+        use wabidb::projections::auth_revocations::Operation;
+        self.update_revocations(|guard| Some(Operation::GlobalFloor {
+            epoch: (chrono::Utc::now().timestamp().max(0) as u64).saturating_add(1)
                 .max(guard.epoch.saturating_add(1))
-                .max(latest_user_floor.saturating_add(1));
-        }
-        self.save_revocations().await;
+                .max(guard.user_iat_revoked.values().copied().max().unwrap_or(0).saturating_add(1)),
+        })).await
     }
 
-    /// Returns true if the given token claims have been revoked.
     pub async fn is_token_revoked(&self, jti: &str, sub: i64, iat: i64) -> bool {
         self.revocations.read().await.is_revoked(jti, sub, iat)
     }
 
-    // ─── Recovery codes ──────────────────────────────────────────────────────
+    // ─── Recovery-code legacy import path ───────────────────────────────────
 
     fn recovery_file_path(data_dir: &str) -> PathBuf {
         PathBuf::from(data_dir).join("recovery_codes.json")
     }
 
-    async fn load_recovery_codes(data_dir: &str) -> HashMap<String, i64> {
-        let path = Self::recovery_file_path(data_dir);
-        if let Ok(s) = std::fs::read_to_string(&path) {
-            if let Ok(v) = serde_json::from_str::<HashMap<String, i64>>(&s) {
-                return v;
-            }
-        }
-        HashMap::new()
-    }
-
-    async fn save_recovery_codes(&self) {
-        let guard = self.recovery_codes.read().await;
-        if let Ok(s) = serde_json::to_string_pretty(&*guard) {
-            let _ = std::fs::write(&self.recovery_file, s);
-        }
-    }
 }
 
 /// Partition a live channel's in-memory message buffer into alive and expired,
@@ -765,42 +872,23 @@ pub fn reap_live_channel_buffer(
 }
 
 impl AppState {
-    fn hash_code(code: &str) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(code.as_bytes());
-        hex::encode(hasher.finalize())
-    }
-
     /// Generate `count` one-time recovery codes for `user_id`. The plaintext
     /// codes are returned exactly once; only their hashes are persisted.
-    pub async fn generate_recovery_codes(&self, user_id: i64, count: usize) -> Vec<String> {
-        let mut plaintext = Vec::new();
-        {
-            let mut guard = self.recovery_codes.write().await;
-            for _ in 0..count {
-                let code = uuid::Uuid::new_v4().simple().to_string();
-                plaintext.push(code.clone());
-                guard.insert(Self::hash_code(&code), user_id);
-            }
-        }
-        self.save_recovery_codes().await;
-        plaintext
+    pub async fn generate_recovery_codes(&self, user_id: i64, count: usize) -> wabidb::error::Result<Vec<String>> {
+        crate::recovery_codes::issue(Arc::clone(&self.recovery_codes), Arc::clone(&self.wdb), user_id, count, self.instance_operations.clone()).await
     }
 
     /// Consume a recovery code. Returns true only if the code is valid and
     /// bound to `user_id`. The code is single-use.
-    pub async fn consume_recovery_code(&self, code: &str, user_id: i64) -> bool {
-        let key = Self::hash_code(code);
-        let mut guard = self.recovery_codes.write().await;
-        match guard.get(&key) {
-            Some(&bound) if bound == user_id => {
-                guard.remove(&key);
-                drop(guard);
-                self.save_recovery_codes().await;
-                true
-            }
-            _ => false,
-        }
+    pub async fn consume_recovery_code(&self, code: &str, user_id: i64) -> wabidb::error::Result<bool> {
+        crate::recovery_codes::consume(Arc::clone(&self.recovery_codes), Arc::clone(&self.wdb), crate::recovery_codes::hash_code(code), user_id, self.instance_operations.clone()).await
+    }
+
+    /// Spend a code, restore its account as owner and revoke existing sessions
+    /// in one ordered event. A failed write publishes none of those changes.
+    pub async fn recover_owner_with_code(&self, code: &str, user_id: i64) -> wabidb::error::Result<bool> {
+        crate::recovery_codes::recover(Arc::clone(&self.recovery_codes), Arc::clone(&self.revocations),
+            Arc::clone(&self.owner_user_id), Arc::clone(&self.wdb), crate::recovery_codes::hash_code(code), user_id, self.instance_operations.clone()).await
     }
 }
 

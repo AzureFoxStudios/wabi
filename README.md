@@ -1,16 +1,16 @@
 # Wabi
 
-> **Self-hosted communication and collaborative workspaces for small communities.**
+> **A place to talk, create, and work together.**
 
-Wabi is a free and open-source app for friends, studios, classrooms, project groups, and small communities that want modern chat and collaboration without moving the community itself onto a central platform.
+Wabi is a free, open-source, self-hosted communication and collaboration workspace for small communities. Bring conversations, calls, shared ideas, and creative review together in one place — for friends, studios, classrooms, and project groups.
 
-It borrows useful ideas from Discord, TeamSpeak, LINE, project workspaces, and creative review tools, but the deployment model is deliberately simpler: **each Wabi community owns its own server and data**. A Wabi client can save and switch between multiple independent servers; those servers do **not** federate, share accounts, or silently synchronize state.
+**Each Wabi community owns its own server and data**. A Wabi client can save and switch between multiple independent servers; those servers do **not** federate, share accounts, or silently synchronize state.
 
 Wabi is under active development. See **[Project status](docs/PROJECT_STATUS.md)** for the current shipped/experimental boundary before relying on a feature in production.
 
 ## What Wabi includes
 
-- **Communication** — channels, one-to-one DMs, group conversations, replies, presence, typing indicators, roles, and guest access.
+- **Communication** — channels, server-local friends, one-to-one DMs, group conversations, replies, presence, typing indicators, roles, and guest access.
 - **Optional translation** — local-first Translator Assist provides on-demand and viewport-aware automatic translation through user-controlled LibreTranslate endpoints, without making translation a Wabi server dependency or bundling language models.
 - **Calls** — voice, video, and screen sharing with Wabi's current call transports plus optional coturn TURN and LiveKit SFU deployment paths.
 - **Collaborative workspaces** — whiteboards, wiki/content surfaces, Planner/Notes-style workspaces, files/media, Reader, and dockable layouts instead of forcing every task through a chat scrollback.
@@ -26,6 +26,8 @@ Wabi is under active development. See **[Project status](docs/PROJECT_STATUS.md)
 |---|---|
 | Authority server + WabiDB | ✅ Core path |
 | Chat, DMs, groups, roles, presence | ✅ Core path |
+| New DM/group encryption default | 🧪 Experimental Tim rollout: pending until device keys are ready, then encrypted text; explicit server-readable fallback |
+| Server-local friend requests and friendships | ✅ Available on the current Tim release branch; physical phone acceptance pending |
 | Translator Assist | 🔌 Optional, off by default; local/self-hosted LibreTranslate |
 | Voice/video/screen sharing | ✅ Available; transport/device hardening continues |
 | Whiteboards, wiki, Reader, workspace shell | ✅ Available |
@@ -163,7 +165,8 @@ A single client connecting to many Wabi servers is **not federation**. Inside on
 Self-hosting changes **who you trust**; it does not magically remove trust.
 
 - The server operator controls the instance and its stored data.
-- **DMs and private rooms are not end-to-end encrypted today.** Treat their text and attachments as server-readable.
+- New DMs and groups in the Tim rollout start **encryption-pending**. Plaintext sends are blocked while pending; once every participant has a device key, the room can use experimental encrypted text. A participant may choose server-readable chat, but each sender must confirm that choice before sending plaintext.
+- Existing DMs/groups retain their earlier policy, including server-readable rooms. The encrypted path has **not** been independently verified as E2EE or operator-blind; attachment and device-recovery behavior still need acceptance work.
 - Ephemeral/no-retention content is not the same thing as operator-blind content.
 - Optional tunnels, media providers, plugins, and external integrations add their own trust boundaries.
 - Translator Assist does not relay message text through the Authority for translation; choosing a remote translator still gives that translator the plaintext being translated.

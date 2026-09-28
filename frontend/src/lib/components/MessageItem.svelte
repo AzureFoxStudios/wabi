@@ -11,6 +11,7 @@
 
 	let {
 		message,
+		messageDomId = '',
 		translatedText = undefined,
 		translationLoading = false,
 		ownMessage = false,
@@ -18,6 +19,7 @@
 		...rest
 	} = $props<{
 		message: Message;
+		messageDomId?: string;
 		translatedText?: string;
 		translationLoading?: boolean;
 		ownMessage?: boolean;
@@ -36,7 +38,7 @@
 	let effectiveTranslationLoading = $derived(translationLoading || autoTranslationLoading);
 
 	onMount(() => {
-		const element = document.getElementById(`message-${message.id}`);
+		const element = document.getElementById(messageDomId || `message-${message.id}`);
 		const stopObserving = element
 			? observeTranslatorVisibility(element, (visible) => {
 				isNearViewport = visible;
@@ -107,6 +109,7 @@
 <MessageItemContent
 	{...rest}
 	{message}
+	{messageDomId}
 	{ownMessage}
 	translatedText={effectiveTranslatedText}
 	translationLoading={effectiveTranslationLoading}

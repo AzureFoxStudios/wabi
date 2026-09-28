@@ -1,0 +1,44 @@
+{
+  "runId": "F06-normal-chat-protocol",
+  "startedUtc": "2026-09-20T12:40:57.223Z",
+  "route": "native HTTP proxy -> bundled Tailcat SOCKS -> Tailcat listener on Iyoku -> Authority loopback",
+  "tailcatPath": "unknown (direct/relay telemetry not collected)",
+  "enrollment": "Device public key registered using SSH management + ordinary disposable owner account; fresh-user enrollment NOT tested",
+  "checks": {
+    "health": "PASS",
+    "unauthenticatedAdmin": {
+      "status": 401,
+      "pass": true
+    },
+    "authentication": "PASS",
+    "chat": {
+      "sent": 10,
+      "authorityVerified": true
+    },
+    "uploadDownload": {
+      "pass": true,
+      "bytes": 65536
+    },
+    "websocket": "PASS",
+    "nativeLoginAndWorkspace": "PASS",
+    "refresh": "PASS"
+  },
+  "connectReturnedMs": 507.26712300000145,
+  "firstHealthMs": 2197.7208010000013,
+  "observedBuildIdentity": {
+    "component": "wabi-server",
+    "profile": "release",
+    "schemaVersion": 1,
+    "sourceRevision": "b092bff398160adcb5b82c11ff846b5eb5192cecfb5519d41636e437d8dd29e0",
+    "targetArch": "x86_64",
+    "targetOs": "linux",
+    "version": "0.1.0"
+  },
+  "nativeBuildRevision": "b092bff398160adcb5b82c11ff846b5eb5192cecfb5519d41636e437d8dd29e0",
+  "passed": false,
+  "failure": "Error: Timed out: retained channel history",
+  "remoteCleanup": {
+    "released": true
+  },
+  "failureClassification": "Harness clicked channel wrapper instead of its button; product channel selection rerun with correct button."
+}

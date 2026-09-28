@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { users, serverMembers, currentUser, createGroup } from '$lib/socket';
-	import type { User } from '$lib/socket';
+	import type { Channel, User } from '$lib/socket';
 	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
 	import { overlayStyle } from '$lib/overlayStyle';
+	import { mediaUrl } from '$lib/mediaUrl';
 
-	let { isOpen = $bindable(false) }: { isOpen?: boolean } = $props();
+	let { isOpen = $bindable(false), onCreated }: { isOpen?: boolean; onCreated?: (channel: Channel) => void } = $props();
 
 	let searchQuery = $state('');
 	let groupName = $state('');
@@ -57,9 +58,10 @@
 		pending = true;
 		operationError = '';
 		try {
-			await createGroup(groupName.trim(), memberIds);
+			const channel = await createGroup(groupName.trim(), memberIds);
 			pending = false;
 			closeModal();
+			onCreated?.(channel);
 		} catch (error) {
 			operationError = error instanceof Error ? error.message : 'Could not confirm group creation';
 		} finally { pending = false; }
@@ -142,7 +144,7 @@
 					<button class="user-item" disabled={pending} onclick={() => toggleUser(user)}>
 						<div class="user-avatar-container">
 							{#if user.profilePicture}
-								<img src={user.profilePicture} alt={user.username} class="user-avatar" />
+								<img src={mediaUrl(user.profilePicture)} alt={user.username} class="user-avatar" />
 							{:else}
 								<div class="user-avatar-placeholder" style="background-color: {user.roleColor || user.color}">
 									{user.username.charAt(0).toUpperCase()}

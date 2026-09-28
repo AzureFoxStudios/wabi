@@ -53,12 +53,37 @@ pub struct ServerConfig {
     pub blacklist_file: String,
     /// Maximum request body size in bytes (default: 50GB for self-hosted "adult choice")
     pub max_body_size: Option<usize>,
-    /// Mesh coordination configuration
+    /// Retired mesh coordination flags. The legacy `wabi-mesh` coordinator is
+    /// gone (see docs/architecture/SERVER_MESH_PLAN.md); these remain only so old
+    /// configs/env vars still parse. Nothing reads them at runtime.
+    #[serde(default)]
     pub mesh_enabled: bool,
     pub mesh_peers: Vec<String>,
     /// Lore addon configuration (version-controlled binary storage)
     #[serde(default)]
     pub lore: LoreAddonConfig,
+}
+
+/// Node IDs are operator-assigned in advanced deployments. Keep the wire and
+/// placement key shape stable across restarts and reject ambiguous separators.
+pub fn valid_node_id(value: &str) -> bool {
+    wabidb::engine::node_identity::valid_node_id(value)
+}
+
+#[cfg(test)]
+mod node_id_tests {
+    use super::valid_node_id;
+
+    #[test]
+    fn advanced_node_ids_are_bounded_and_pathless() {
+        for value in ["node-1", "roofing_bangkok", "materials2"] {
+            assert!(valid_node_id(value));
+        }
+        for value in ["", "-node", "node/other", "node:other", " node", "nöde"] {
+            assert!(!valid_node_id(value));
+        }
+        assert!(!valid_node_id(&"a".repeat(65)));
+    }
 }
 
 /// An advertised ICE endpoint, shared by credential issuance and runtime status.

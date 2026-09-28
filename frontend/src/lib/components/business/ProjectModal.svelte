@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { personalWorkspace } from '$lib/business/personalWorkspace';
 	import { projects } from '$lib/business/store';
 	import { pipableChannels } from '$lib/business/plannerScopes';
 	import type { Project, ItemSignature } from '$lib/business/types';
@@ -74,15 +75,18 @@
 				</select>
 			</div>
 
+			{#if !$personalWorkspace}
 			<div class="form-group">
-				<label for="projectChannel">Pipe to channel (optional)</label>
+				<label for="projectChannel">Channel reference (optional)</label>
 				<select id="projectChannel" bind:value={projectChannelId}>
-					<option value="">Personal (this device only)</option>
+					<option value="">No channel reference</option>
 					{#each $pipableChannels as channel (channel.id)}
 						<option value={channel.id}>#{channel.name}</option>
 					{/each}
 				</select>
+				<small>For your own organization. This reference does not publish or share this plan.</small>
 			</div>
+			{/if}
 
 			<div class="form-group">
 				<span class="form-group-label">Color</span>
@@ -112,7 +116,7 @@
 			</div>
 
 			<div class="form-group">
-				<SignatureRow bind:draftSignatures={projectDraftSignatures} legacySignedBy={projectLegacySignedBy} label="Sign-off" />
+				<SignatureRow bind:draftSignatures={projectDraftSignatures} legacySignedBy={projectLegacySignedBy} label="Names attached" />
 			</div>
 
 			<div class="form-actions">

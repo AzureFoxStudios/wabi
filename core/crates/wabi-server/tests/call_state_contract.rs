@@ -706,7 +706,7 @@ async fn revoked_credentials_close_an_idle_authenticated_connection() {
     let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
     send(&mut ws, json!({"type":"authenticate","token":access})).await;
     assert_eq!(event(&mut ws).await["type"], "authenticated");
-    state.revoke_token_with_exp(claims.jti, claims.exp).await;
+    state.revoke_token_with_exp(claims.jti, claims.exp).await.unwrap();
     assert_eq!(event(&mut ws).await["type"], "authentication_error");
 }
 

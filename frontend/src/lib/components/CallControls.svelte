@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { deviceVisual, deviceVisualSymbol } from '$lib/deviceVisuals';
 	import { onMount, tick } from 'svelte';
 	import type { PresenterOverlayTool } from '$lib/calling/presenterOverlay';
 	import { PRESENTER_OVERLAY_COLORS, PRESENTER_OVERLAY_WIDTHS } from '$lib/calling/presenterOverlay';
@@ -231,6 +232,7 @@
 								on:click={() => handleDeviceClick('audioinput', device.deviceId)}
 							>
 								<span class="device-radio" aria-hidden="true"></span>
+								<span aria-hidden="true">{deviceVisualSymbol(deviceVisual(device.kind, device.label))}</span>
 								<span class="device-label">{deviceLabel(device, index)}</span>
 							</button>
 						{/each}
@@ -249,6 +251,7 @@
 								on:click={() => handleDeviceClick('audiooutput', device.deviceId)}
 							>
 								<span class="device-radio" aria-hidden="true"></span>
+								<span aria-hidden="true">{deviceVisualSymbol(deviceVisual(device.kind, device.label))}</span>
 								<span class="device-label">{deviceLabel(device, index)}</span>
 							</button>
 						{/each}

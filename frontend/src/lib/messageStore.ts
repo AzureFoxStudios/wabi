@@ -3,7 +3,7 @@
  * Core message state and operations
  */
 
-import { writable, get, type Writable } from 'svelte/store';
+import { writable, readable, get, type Readable } from 'svelte/store';
 import type { Message } from './socket-types';
 import type { MessageType } from '../../../packages/wabi-protocol/src/generated/MessageType';
 import { getSocket, connected } from './socketConnection';
@@ -23,8 +23,10 @@ export const unreadCount = writable(0);
 export const lastReadMessageId = writable<string | null>(null);
 export const channelUnreadCounts = writable<Record<string, number>>({});
 
-const channelSliceStores = new Map<string, Writable<Message[]>>();
 const e2eeHydrating = new Set<string>();
+// Only encrypted messages need a hydration cache. Keeping every plaintext
+// message's text here duplicated the entire loaded chat history in memory.
+const e2eeSeenText = new Map<string, string>();
 
 /**
  * One receive boundary for live messages, history, reconnects and edits. The
@@ -32,13 +34,18 @@ const e2eeHydrating = new Set<string>();
  * code downstream sees only authenticated plaintext or a safe failure marker.
  */
 channelMessages.subscribe((state) => {
+	let liveCiphertextKeys: Set<string> | null = e2eeSeenText.size ? new Set() : null;
 	for (const [channelId, messages] of Object.entries(state)) {
 		for (const message of messages) {
 			const ciphertext = typeof message?.text === 'string' ? message.text : '';
 			if (!ciphertext.startsWith(E2EE_MESSAGE_PREFIX)) continue;
+			const scanKey = `${channelId}|${message.id || message.clientMessageId || ''}`;
+			(liveCiphertextKeys ??= new Set()).add(scanKey);
+			if (e2eeSeenText.get(scanKey) === ciphertext) continue;
 			const key = `${channelId}|${message.id}|${message.clientMessageId || ''}|${ciphertext}`;
 			if (e2eeHydrating.has(key)) continue;
 			e2eeHydrating.add(key);
+			e2eeSeenText.set(scanKey, ciphertext);
 			void prepareIncomingE2eeMessage(channelId, message)
 				.then((prepared) => {
 					channelMessages.update((current) => {
@@ -59,28 +66,34 @@ channelMessages.subscribe((state) => {
 				.finally(() => e2eeHydrating.delete(key));
 		}
 	}
+	if (liveCiphertextKeys) {
+		for (const key of e2eeSeenText.keys()) {
+			if (!liveCiphertextKeys.has(key)) e2eeSeenText.delete(key);
+		}
+	}
 });
 
-export function channelMessagesStore(channelId: string): Writable<Message[]> {
-	if (!channelId) return writable([]);
-	let store = channelSliceStores.get(channelId);
-	if (!store) {
-		store = writable<Message[]>(get(channelMessages)[channelId] || []);
-		channelSliceStores.set(channelId, store);
-		let prev: Message[] = get(store);
-		const unsub = channelMessages.subscribe((map) => {
-			const next = map[channelId];
-			if ((next || []) !== prev && !(next === undefined && prev.length === 0)) {
-				prev = next || [];
-				store!.set(prev);
+export function channelMessagesStore(channelId: string): Readable<Message[]> {
+	if (!channelId) return readable([]);
+	// The slice only needs the global subscription while a view displays it.
+	// In particular, switching channels must not retain a subscription and
+	// message array for every channel visited during a long session.
+	const initial = get(channelMessages)[channelId] || [];
+	return readable<Message[]>(initial, (set) => {
+		let prev = initial;
+		return channelMessages.subscribe((map) => {
+			const next = map[channelId] || [];
+			if (next !== prev && !(map[channelId] === undefined && prev.length === 0)) {
+				prev = next;
+				set(next);
 			}
 		});
-		void unsub;
-	}
-	return store;
+	});
 }
 
-export function dropChannelMessagesStore(channelId: string): void { channelSliceStores.delete(channelId); }
+// Kept for callers that previously invalidated the cache. Slices are now
+// ephemeral, so there is no retained entry to drop.
+export function dropChannelMessagesStore(_channelId: string): void {}
 
 function createClientMessageId(channelId: string): string {
 	return `optimistic:${channelId}:${Date.now()}:${Math.random().toString(36).substring(7)}`;
@@ -156,10 +169,15 @@ export async function sendMessage(
 	const trimmed = content.trim();
 	if (!trimmed && type === 'text') return { ok: false, reason: 'empty' };
 
-	const sock = getSocket();
-	const online = get(connected);
+	const server = normalizeServerUrl(getServerUrl());
+	const generation = authSessionGeneration(server);
+	const realm = groupMembership.realm();
+	const guest = getGuestSessionId();
 	const db = getWabiDB();
-	if (!sock && !(db && !online)) return { ok: false, reason: 'no_socket' };
+	const initialSocket = getSocket();
+	if ((!initialSocket || !get(connected) || initialSocket.connected === false) && !db) {
+		return { ok: false, reason: 'no_socket' };
+	}
 
 	let wireText = trimmed;
 	let wireType: MessageType = type;
@@ -179,6 +197,16 @@ export async function sendMessage(
 			return { ok: false, reason: 'queue_failed' };
 		}
 	}
+	// Encryption can cross a reconnect, logout, or server switch. A stale socket
+	// must never receive a message prepared for another account or server.
+	if (normalizeServerUrl(getServerUrl()) !== server || authSessionGeneration(server) !== generation ||
+		groupMembership.realm() !== realm || getGuestSessionId() !== guest) {
+		return { ok: false, reason: 'no_socket' };
+	}
+	if (!groupMembership.acceptsContent(channelId)) return { ok: false, reason: 'no_channel' };
+	const sock = getSocket();
+	const online = Boolean(sock && get(connected) && sock.connected !== false);
+	if (!online && !db) return { ok: false, reason: 'no_socket' };
 
 	const clientMessageId = createClientMessageId(channelId);
 	const me = get(currentUser);
@@ -222,9 +250,6 @@ export async function sendMessage(
 	if (db && !online) {
 		const groupRealm = groupMembership.realm();
 		const lease = groupMembership.tracks(channelId) ? groupMembership.capture(channelId) : null;
-		const server = normalizeServerUrl(getServerUrl());
-		const generation = authSessionGeneration(server);
-		const guest = getGuestSessionId();
 		let sessionCurrent = true;
 		const unsubscribe = onAuthSessionCleared(clearedServer => {
 			if (normalizeServerUrl(clearedServer) === server) sessionCurrent = false;
@@ -266,6 +291,7 @@ export async function sendMessage(
 		sock!.emit('message', { ...wireOptions, channelId, text: wireText, type: wireType, clientMessageId });
 	} catch {
 		messageDeliveries.unconfirm(sock!, { channelId, clientMessageId });
+		return { ok: false, reason: 'no_socket' };
 	}
 	return { ok: true, clientMessageId };
 }

@@ -35,7 +35,10 @@ fn test_config(data_dir: &Path) -> ServerConfig {
         server_role: ServerRole::Authority,
         authority_url: None,
         admin_user_ids: vec![1],
-        blacklist_file: data_dir.join("blacklist.txt").to_string_lossy().into_owned(),
+        blacklist_file: data_dir
+            .join("blacklist.txt")
+            .to_string_lossy()
+            .into_owned(),
         max_body_size: None,
         mesh_enabled: false,
         mesh_peers: vec![],
@@ -158,22 +161,47 @@ async fn enable_disable_lifecycle_and_allow_list() {
     assert!(!snap.enabled && !snap.running, "must start disabled");
     assert!(!args_log.exists(), "no subprocess before enabling");
 
-    // Enable: subprocess starts, address blob is captured.
+    // Zero allowed keys must never launch an unrestricted listener.
     state.tailcat.set_enabled(true, 1).await.unwrap();
-    let snap = wait_for(&state, |s| s.running && s.address.is_some(), "running+address after enable").await;
+    assert!(!state.tailcat.status().await.running);
+    let initial = state
+        .tailcat
+        .register_key(
+            1,
+            "nodekey:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+            None,
+        )
+        .await
+        .unwrap();
+    // A registered device allows the listener to start.
+    state.tailcat.set_enabled(true, 1).await.unwrap();
+    let snap = wait_for(
+        &state,
+        |s| s.running && s.address.is_some(),
+        "running+address after enable",
+    )
+    .await;
     assert_eq!(snap.address.as_deref(), Some("tcMOCKADDRESS1234567890"));
     assert_eq!(snap.binary_version.as_deref(), Some("v0.4.0-mock"));
-    assert!(!last_spawn_args(&args_log).contains("--allow"));
+    assert!(last_spawn_args(&args_log).contains(
+        "--allow=nodekey:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ));
 
     // Register a member key: the listener bounces with the key allow-listed.
     state
         .tailcat
-        .register_key(7, "nodekey:member-seven-key".into(), Some("laptop".into()))
+        .register_key(
+            7,
+            "nodekey:7777777777777777777777777777777777777777777777777777777777777777".into(),
+            Some("laptop".into()),
+        )
         .await
         .unwrap();
     let mut allow_ok = false;
     for _ in 0..50 {
-        if last_spawn_args(&args_log).contains("--allow=nodekey:member-seven-key") {
+        if last_spawn_args(&args_log)
+            .contains("nodekey:7777777777777777777777777777777777777777777777777777777777777777")
+        {
             allow_ok = true;
             break;
         }
@@ -184,12 +212,18 @@ async fn enable_disable_lifecycle_and_allow_list() {
     // Raw (unprefixed) keys are normalized to nodekey: form.
     state
         .tailcat
-        .register_key(8, "raw-key-eight".into(), None)
+        .register_key(
+            8,
+            "8888888888888888888888888888888888888888888888888888888888888888".into(),
+            None,
+        )
         .await
         .unwrap();
     let mut normalized = false;
     for _ in 0..50 {
-        if last_spawn_args(&args_log).contains("nodekey:raw-key-eight") {
+        if last_spawn_args(&args_log)
+            .contains("nodekey:8888888888888888888888888888888888888888888888888888888888888888")
+        {
             normalized = true;
             break;
         }
@@ -209,13 +243,18 @@ async fn enable_disable_lifecycle_and_allow_list() {
     let mut revoked = false;
     for _ in 0..50 {
         let args = last_spawn_args(&args_log);
-        if args.contains("nodekey:member-seven-key") && !args.contains("raw-key-eight") {
+        if args.contains("nodekey:7777777777777777777777777777777777777777777777777777777777777777")
+            && !args.contains("8888888888888888888888888888888888888888888888888888888888888888")
+        {
             revoked = true;
             break;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    assert!(revoked, "revocation must remove the key from the allow-list");
+    assert!(
+        revoked,
+        "revocation must remove the key from the allow-list"
+    );
 
     // Address for members: only for key holders while enabled (the revoke
     // bounce re-spawns the listener, so poll for the address to return).
@@ -229,6 +268,76 @@ async fn enable_disable_lifecycle_and_allow_list() {
     }
     assert!(addr_ok, "key holder must receive the address after bounce");
     assert!(state.tailcat.address_for(99).await.is_none());
+
+    // Device block cannot be bypassed by registering the same key again.
+    state
+        .tailcat
+        .set_key_allowed(&initial.id, false, 1)
+        .await
+        .unwrap();
+    let repeated = state
+        .tailcat
+        .register_key(
+            1,
+            "nodekey:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(!repeated.allowed);
+    assert!(
+        !state
+            .tailcat
+            .register_key(1, "A".repeat(64), None)
+            .await
+            .unwrap()
+            .allowed
+    );
+    assert!(state
+        .tailcat
+        .register_key(1, "".into(), None)
+        .await
+        .is_err());
+    assert!(state
+        .tailcat
+        .register_key(1, "nodekey:".into(), None)
+        .await
+        .is_err());
+    assert!(
+        !state
+            .tailcat
+            .register_key(
+                1,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+                None
+            )
+            .await
+            .unwrap()
+            .allowed,
+        "prefix alias must not bypass a device block"
+    );
+    assert!(state.tailcat.address_for(1).await.is_none());
+    // Reserve a conflict: failed change must leave the saved port unchanged.
+    let conflict = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let before = state.tailcat.pipe_port();
+    assert!(state
+        .tailcat
+        .set_pipe_port(conflict.local_addr().unwrap().port(), 1)
+        .await
+        .is_err());
+    assert_eq!(state.tailcat.pipe_port(), before);
+    let available = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = available.local_addr().unwrap().port();
+    drop(available);
+    state.tailcat.set_pipe_port(port, 1).await.unwrap();
+    assert_eq!(state.tailcat.pipe_port(), port);
+    assert!(
+        tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port))
+            .await
+            .is_ok()
+    );
+    assert!(state.tailcat.set_pipe_port(45454, 1).await.is_err());
+    assert!(state.tailcat.set_pipe_port(0, 1).await.is_err());
 
     // Disable: instant kill.
     state.tailcat.set_enabled(false, 1).await.unwrap();
@@ -244,6 +353,19 @@ async fn enable_disable_lifecycle_and_allow_list() {
     assert!(audit.contains("\"action\":\"enable\""));
     assert!(audit.contains("\"action\":\"key-revoke\""));
 
+    // Process shutdown reaps the listener without changing the saved choice.
+    state.tailcat.set_enabled(true, 1).await.unwrap();
+    wait_for(&state, |s| s.running, "running again before shutdown").await;
+    state.tailcat.shutdown().await;
+    let snap = state.tailcat.status().await;
+    assert!(
+        !snap.running,
+        "shutdown waits for the owned listener to exit"
+    );
+    assert!(snap.enabled, "shutdown must preserve private-access intent");
+    let persisted = std::fs::read_to_string(data_dir.join("tailcat/settings.json")).unwrap();
+    assert!(persisted.contains("\"enabled\": true"));
+
     std::env::remove_var("WABI_TAILCAT_BINARY");
 }
 
@@ -254,7 +376,9 @@ async fn rate_limit_keying_distinguishes_pipe_clients() {
     let peer: std::net::SocketAddr = "127.0.0.1:54321".parse().unwrap();
 
     // No headers: plain peer IP (public path unchanged).
-    let key = state.tailcat.rate_limit_key(&axum::http::HeaderMap::new(), &peer);
+    let key = state
+        .tailcat
+        .rate_limit_key(&axum::http::HeaderMap::new(), &peer);
     assert_eq!(key, "127.0.0.1");
 
     // Spoofed token (public client pretending to be the forwarder): ignored.
@@ -286,7 +410,12 @@ async fn http_surface_admin_gating_and_member_connect() {
     // Unauthenticated status: rejected.
     let res = app
         .clone()
-        .oneshot(Request::builder().uri("/status").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
@@ -297,7 +426,10 @@ async fn http_surface_admin_gating_and_member_connect() {
         .oneshot(
             Request::builder()
                 .uri("/status")
-                .header("authorization", format!("Bearer {}", mint_token(&secret, "2")))
+                .header(
+                    "authorization",
+                    format!("Bearer {}", mint_token(&secret, "2")),
+                )
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -311,13 +443,53 @@ async fn http_surface_admin_gating_and_member_connect() {
         .oneshot(
             Request::builder()
                 .uri("/status")
-                .header("authorization", format!("Bearer {}", mint_token(&secret, "1")))
+                .header(
+                    "authorization",
+                    format!("Bearer {}", mint_token(&secret, "1")),
+                )
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
+
+    // Populated admin views must match the browser contract without changing JSON storage.
+    state
+        .tailcat
+        .register_key(7, "7".repeat(64), Some("Field laptop".into()))
+        .await
+        .unwrap();
+    for path in ["/status", "/keys"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .header(
+                        "authorization",
+                        format!("Bearer {}", mint_token(&secret, "1")),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let key = &value["keys"][0];
+        assert_eq!(key["userId"], 7);
+        assert!(key["publicKey"]
+            .as_str()
+            .unwrap()
+            .ends_with(&"7".repeat(64)));
+        assert!(key["createdAt"].is_string());
+        assert_eq!(key["allowed"], true);
+        assert!(key.get("public_key").is_none());
+    }
 
     // Enable without confirm body: refused (cognitive-friction contract).
     let res = app
@@ -326,7 +498,10 @@ async fn http_surface_admin_gating_and_member_connect() {
             Request::builder()
                 .method("POST")
                 .uri("/enable")
-                .header("authorization", format!("Bearer {}", mint_token(&secret, "1")))
+                .header(
+                    "authorization",
+                    format!("Bearer {}", mint_token(&secret, "1")),
+                )
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -339,7 +514,10 @@ async fn http_surface_admin_gating_and_member_connect() {
         .oneshot(
             Request::builder()
                 .uri("/connect")
-                .header("authorization", format!("Bearer {}", mint_token(&secret, "7")))
+                .header(
+                    "authorization",
+                    format!("Bearer {}", mint_token(&secret, "99")),
+                )
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -353,4 +531,120 @@ async fn http_surface_admin_gating_and_member_connect() {
     assert_eq!(json["enabled"], false);
     assert_eq!(json["registered"], false);
     assert!(json["address"].is_null());
+}
+
+/// Even authentic transport tagging does not grant an account or admin role.
+#[tokio::test]
+async fn valid_pipe_tag_never_grants_account_or_admin_authorization() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = open(&tmp.path().join("data")).await;
+    let app: axum::Router = api::routes(state.clone()).with_state(state.clone());
+    let token = state.tailcat.pipe_auth_token_for_tests();
+    let routes = [
+        ("GET", "/status", "{}"),
+        ("GET", "/keys", "{}"),
+        ("POST", "/enable", r#"{"confirm":true}"#),
+        ("POST", "/disable", "{}"),
+        ("PUT", "/port", r#"{"pipePort":45678}"#),
+        ("PUT", "/keys/test/access", r#"{"allowed":true}"#),
+        ("DELETE", "/keys/test", "{}"),
+    ];
+    for (method, path, body) in routes {
+        for authenticated in [false, true] {
+            let mut request = Request::builder()
+                .method(method)
+                .uri(path)
+                .header("content-type", "application/json")
+                .header("x-wabi-pipe-auth", token)
+                .header("x-wabi-pipe-client", "127.0.0.1:41000");
+            if authenticated {
+                request = request.header(
+                    "authorization",
+                    format!("Bearer {}", mint_token(&state.config.jwt_secret, "2")),
+                );
+            }
+            let response = app
+                .clone()
+                .oneshot(request.body(Body::from(body)).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                if authenticated {
+                    StatusCode::FORBIDDEN
+                } else {
+                    StatusCode::UNAUTHORIZED
+                },
+                "{method} {path}, authenticated={authenticated}"
+            );
+        }
+    }
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/connect")
+                .header("x-wabi-pipe-auth", token)
+                .header("x-wabi-pipe-client", "127.0.0.1:41000")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+// Characterization, not a policy recommendation: registration currently accepts
+// every AuthUser variant and automatically admits new device keys.
+#[tokio::test]
+async fn enrollment_is_self_service_for_guest_and_bot_auth_users() {
+    use wabidb::engine::wabi_store::WabiStore;
+    let tmp = tempfile::tempdir().unwrap();
+    let state = open(tmp.path()).await;
+    let bot_id = state
+        .wdb
+        .create_user("enrollment-bot", None, "unused")
+        .await
+        .unwrap();
+    let (bot_token, _) = state.bot_registry.create(bot_id).await;
+    let guest_claims = serde_json::json!({
+        "sub": "77", "username": "guest", "is_guest": true,
+        "exp": 9999999999i64, "iat": 0, "jti": "guest-enrollment", "token_type": "access"
+    });
+    let guest_token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &guest_claims,
+        &jsonwebtoken::EncodingKey::from_secret(state.config.jwt_secret.as_bytes()),
+    )
+    .unwrap();
+    let app = api::routes(state.clone()).with_state(state.clone());
+    for (credential, digit, user_id) in [
+        (format!("Bearer {guest_token}"), 'a', 77),
+        (format!("Bot {bot_token}"), 'b', bot_id as i64),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/keys")
+                    .header("authorization", credential)
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"publicKey": digit.to_string().repeat(64)}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(state
+            .tailcat
+            .keys()
+            .iter()
+            .any(|k| k.user_id == user_id && k.allowed));
+    }
+    assert!(
+        !state.tailcat.status().await.enabled,
+        "enrollment alone does not enable transport"
+    );
 }

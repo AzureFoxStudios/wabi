@@ -31,7 +31,6 @@
 		type Channel
 	} from '$lib/socket';
 	import { todos, projects, calendarEvents, diaryEntries } from '$lib/business/store';
-	import PaymentSheet from '$lib/payments/PaymentSheet.svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import { isMobile } from '$lib/layoutStoreStates';
 	import { callMode, isInCall, outgoingCall } from '$lib/callingStateStores';
@@ -53,18 +52,10 @@
 	import { activeWorkspaceView } from '$lib/workspaceNavigationState';
 	import { isRoutedChannelType, isTextLikeChannelType } from '$lib/channelTypes';
 	import { isLiveRetention } from '../../../../shared/messageRetention.js';
-	import LiveChannelView from './live/LiveChannelView.svelte';
-	import WhiteboardTab from './WhiteboardTab.svelte';
 	import ChannelModePlaceholder from './ChannelModePlaceholder.svelte';
 	import ChatComposer from './chat/ChatComposer.svelte';
 	import ChatHeader from './chat/ChatHeader.svelte';
 	import ChatMessagesPane from './chat/ChatMessagesPane.svelte';
-	import GalleryChannel from './GalleryChannel.svelte';
-	import LoreChannelShell from './lore/LoreChannelShell.svelte';
-	import ForumChannel from './ForumChannel.svelte';
-	import WikiChannel from './WikiChannel.svelte';
-import ReceptionBoard from './ReceptionBoard.svelte';
-import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 	import { executeChatCommand } from './chat/commandExecutor';
 	import { filterMessages, getChannelHistoryFlags, waitForHistoryIdle } from './chat/search';
 	import { formatTypingUsers, getVisibleTypingUsers } from './chat/typing';
@@ -72,19 +63,20 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 	import { isNearMessageBottom } from '$lib/messageViewport';
 
 	const dispatch = createEventDispatcher();
+	let PaymentSheetCmp: typeof import('$lib/payments/PaymentSheet.svelte').default | null = null;
 	type SendChatMessage = (channelId: string, text: string, type: string, opts?: Record<string, unknown>) => void;
 	const sendChatMessage = sendMessage as unknown as SendChatMessage;
 	const resolveDmChannelId = "" as unknown as (u: User | null, t: User) => string;
 	const openExistingDmSignal = dmPanelSignal as unknown as { set(v: { channelId: string; otherUser: User }): void };
 
 	$: chatSurface = $currentChatSurface;
+	$: if (paymentSheetOpen && !PaymentSheetCmp) void import('$lib/payments/PaymentSheet.svelte').then((module) => (PaymentSheetCmp = module.default));
 
-	// Project (lore) channels get an explicit Files | Chat toggle. 'files'
-	// is the default landing; Chat restores the normal message stream +
-	// composer so the channel's conversation is reachable without leaving
-	// the channel (and without a reload).
+	// The Project workspace owns the visible Board / Wiki / Discussion navigation.
+	// Keep this local mode so the ordinary channel stream and composer render only
+	// while Discussion is selected.
 	let projectChannelMode: 'files' | 'chat' = 'files';
-	$: if (currentChannelType !== 'lore') projectChannelMode = 'files';
+	$: if (currentChannelType !== 'lore' && currentChannelType !== 'planning') projectChannelMode = 'files';
 
 	function setProjectChannelMode(mode: 'files' | 'chat'): void {
 		projectChannelMode = mode;
@@ -142,7 +134,8 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 	$: isDMChannel = currentChannelData?.type === 'dm';
 	$: isGroupChannel = currentChannelData?.type === 'group';
 	$: currentChannelType = (currentChannelData?.type || 'text') as string;
-	$: channelUsesChatStream = isTextLikeChannelType(currentChannelType);
+	$: channelUsesChatStream = isTextLikeChannelType(currentChannelType)
+		|| ((currentChannelType === 'planning' || currentChannelType === 'lore') && projectChannelMode === 'chat');
 	$: isLiveChannel = isLiveRetention(currentChannelData?.autoDeleteAfter);
 	$: dmCallTargetUser = getDMOtherUser(currentChannelData, $currentUser, $userLookup);
 	let paymentTargetKind: 'channel' | 'dm' | 'group' | 'workspace' | null = null;
@@ -453,43 +446,21 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 
 	{#if chatSurface === 'whiteboard'}
 		<div class="whiteboard-surface">
-			<WhiteboardTab channelId={$currentChannel} />
+			{#await import('./WhiteboardTab.svelte') then module}
+				<svelte:component this={module.default} channelId={$currentChannel} />
+			{/await}
 		</div>
 	{/if}
 
-	{#if currentChannelType === 'lore' && $activeWorkspaceView === 'messages' && projectChannelMode === 'files'}
+	{#if (currentChannelType === 'lore' || currentChannelType === 'planning') && $activeWorkspaceView === 'messages'}
 		<!-- Project channels ARE their view: the repo workspace is the default
 		     surface, not a teaser card pointing at the server-wide hub.
 		     Single occupant of the center stage — the messages pane below is
 		     hidden while this renders (no sibling flex split). -->
-		<div class="lore-channel-surface">
-			<LoreChannelShell />
-		</div>
-	{/if}
-
-	<!-- Project channel mode toggle: Files (repo workspace) | Chat (stream) -->
-	{#if currentChannelType === 'lore' && $activeWorkspaceView === 'messages'}
-		<div class="project-mode-toggle" role="tablist" aria-label="Project channel view">
-			<button
-				type="button"
-				class="project-mode-btn"
-				class:active={projectChannelMode === 'files'}
-				role="tab"
-				aria-selected={projectChannelMode === 'files'}
-				on:click={() => setProjectChannelMode('files')}
-			>
-				Files
-			</button>
-			<button
-				type="button"
-				class="project-mode-btn"
-				class:active={projectChannelMode === 'chat'}
-				role="tab"
-				aria-selected={projectChannelMode === 'chat'}
-				on:click={() => setProjectChannelMode('chat')}
-			>
-				Chat
-			</button>
+		<div class="lore-channel-surface" class:discussion-mode={projectChannelMode === 'chat'}>
+			{#await import('./ProjectWorkspace.svelte') then module}
+				<svelte:component this={module.default} discussionAvailable discussionActive={projectChannelMode === 'chat'} onDiscussionChange={(active: boolean) => setProjectChannelMode(active ? 'chat' : 'files')} />
+			{/await}
 		</div>
 	{/if}
 
@@ -497,24 +468,30 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 	<div
 		class="messages"
 		bind:this={chatContainer}
-		class:surface-hidden={chatSurface !== 'messages' || (currentChannelType === 'lore' && $activeWorkspaceView === 'messages' && projectChannelMode === 'files')}
+		class:surface-hidden={chatSurface !== 'messages' || ((currentChannelType === 'lore' || currentChannelType === 'planning') && $activeWorkspaceView === 'messages' && projectChannelMode === 'files')}
 		on:scroll={(e) => handleConversationScroll(e.currentTarget)}
 	>
 		{#if isLiveChannel}
-			<LiveChannelView channel={currentChannelData} />
+			{#await import('./live/LiveChannelView.svelte') then module}
+				<svelte:component this={module.default} channel={currentChannelData} />
+			{/await}
 		{:else if currentChannelType === 'gallery'}
-			<GalleryChannel />
+			{#await import('./GalleryChannel.svelte') then module}
+				<svelte:component this={module.default} />
+			{/await}
 		{:else if currentChannelType === 'forum'}
-			<ForumChannel />
+			{#await import('./ForumChannel.svelte') then module}
+				<svelte:component this={module.default} />
+			{/await}
 		{:else if currentChannelType === 'wiki'}
-			<WikiChannel />
-		{:else if currentChannelType === 'planning'}
-				<PlannerWorkspace />
+			{#await import('./WikiChannel.svelte') then module}
+				<svelte:component this={module.default} />
+			{/await}
 		{:else if currentChannelType === 'reception'}
-				<ReceptionBoard />
-		{:else if currentChannelType === 'lore'}
-			<LoreChannelShell />
-		{:else if isRoutedChannelType(currentChannelType)}
+			{#await import('./ReceptionBoard.svelte') then module}
+				<svelte:component this={module.default} />
+			{/await}
+		{:else if isRoutedChannelType(currentChannelType) && currentChannelType !== 'lore' && currentChannelType !== 'planning'}
 			<ChannelModePlaceholder channel={currentChannelData} mode={currentChannelType as 'forum' | 'wiki' | 'stage'} />
 		{:else}
 			<ChatMessagesPane
@@ -571,7 +548,8 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 		{/if}
 	</div>
 
-		<PaymentSheet
+		{#if PaymentSheetCmp}
+		<svelte:component this={PaymentSheetCmp}
 			isOpen={paymentSheetOpen}
 			openSeed={paymentSheetOpenSeed}
 			initialAmountInput={paymentSheetPrefillAmountInput}
@@ -588,3 +566,4 @@ import PlannerWorkspace from '$lib/components/business/PlannerWorkspace.svelte';
 			}}
 			defaultChannelId={$currentChannel}
 		/>
+		{/if}

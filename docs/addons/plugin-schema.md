@@ -54,7 +54,7 @@ A frontend-only addon uses `"backend": null`. This is preferable to inventing a 
 | `backend.runtime` | string | when backend exists | Currently `"rust"` only. Future: node/python/wasm if ever supported. |
 | `backend.path` | string | when backend exists | Path to backend source from addon root (usually `"backend"`). |
 | `backend.crate` | string | when backend exists | Cargo package name (`Cargo.toml` `[package].name`). |
-| `backend.cargo_feature` | string \| null | when backend exists | Feature flag on `wabi-server`, or `null` if always compiled (e.g. mesh). |
+| `backend.cargo_feature` | string \| null | when backend exists | Feature flag on `wabi-server`, or `null` if always compiled (e.g. tailcat). |
 | `frontend` | object | yes | Frontend integration block (may be empty contributions). |
 | `frontend.contributions` | object | yes | Contribution maps; empty arrays are valid. |
 | `frontend.contributions.channelTypes` | string[] | yes | Channel types this addon adds (e.g. `"lore"`). |
@@ -83,11 +83,11 @@ A frontend-only addon uses `"backend": null`. This is preferable to inventing a 
 | id | crate | cargo_feature | permissions |
 |----|-------|---------------|-------------|
 | `lore` | `wabi-lore` | `wabi-lore` | network:outbound, filesystem:read, filesystem:write |
-| `mesh` | `wabi-mesh` | `null` | network:outbound |
+| `tailcat` | `wabi-tailcat` | `null` (always compiled, runtime-gated) | network:outbound, process:spawn |
 | `webhooks` | `wabi-webhooks` | `wabi-webhooks` | network:outbound |
 | `translator-assist` | frontend-only | n/a | network:outbound |
 
-`persistence-disk` has no `plugin.json` yet (Cargo crate only) — out of A1 scope.
+`persistence-disk` is an orphaned crate (no `plugin.json`, not a workspace member, not linked into `wabi-server`) — it does not attach to any build. See `ATTACH_DETACH.md`.
 
 ---
 
@@ -108,7 +108,7 @@ See `archive/addons-dead-node-layer/README.md`.
 ```bash
 python3 -c "import json; [json.load(open(f)) for f in [
   'core/addons/lore/plugin.json',
-  'core/addons/mesh/plugin.json',
+  'core/addons/tailcat/plugin.json',
   'core/addons/webhooks/plugin.json',
   'core/addons/translator-assist/plugin.json'
 ]]; print('ok')"

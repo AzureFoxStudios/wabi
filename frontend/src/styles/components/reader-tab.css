@@ -248,13 +248,13 @@
 .reader-viewport.reader-images { padding: 0; }
 .reader-gallery { display: flex; flex-direction: column; min-height: 100%; }
 .reader-image-page { flex-shrink: 0; width: 100%; margin: 0; padding: 24px; }
-.reader-image-open { display: block; max-width: 100%; margin: 0 auto; padding: 0; overflow: auto; border: 0; background: transparent; color: inherit; }
-.reader-image-open img { display: block; max-width: 100%; height: auto; margin-inline: auto; }
+.annotation-image-button { display: block; max-width: 100%; margin: 0 auto; padding: 0; overflow: auto; border: 0; background: transparent; color: inherit; }
+.annotation-image-button img { display: block; max-width: 100%; height: auto; margin-inline: auto; }
 .reader-image-page figcaption { display: flex; justify-content: center; gap: 18px; margin-top: 12px; color: var(--reader-chrome-muted); font-size: 12px; }
 .reader-image-page figcaption span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.reader-gallery[data-fit='height'] .reader-image-open img { max-height: calc(100cqh - 90px); width: auto; object-fit: contain; }
-.reader-gallery[data-fit='original'] .reader-image-open { max-height: calc(100cqh - 90px); }
-.reader-gallery[data-fit='original'] .reader-image-open img { max-width: none; width: auto; height: auto; }
+.reader-gallery[data-fit='height'] .annotation-image-button img { max-height: calc(100cqh - 90px); width: auto; object-fit: contain; }
+.reader-gallery[data-fit='original'] .annotation-image-button { max-height: calc(100cqh - 90px); }
+.reader-gallery[data-fit='original'] .annotation-image-button img { max-width: none; width: auto; height: auto; }
 .reader-viewport.reader-horizontal { overflow-x: auto; overflow-y: hidden; scrollbar-gutter: auto; scroll-snap-type: x mandatory; }
 .reader-horizontal .reader-gallery { flex-direction: row; height: 100%; }
 .reader-horizontal .reader-image-page { flex: 0 0 100%; height: 100%; overflow-y: auto; scroll-snap-align: start; }

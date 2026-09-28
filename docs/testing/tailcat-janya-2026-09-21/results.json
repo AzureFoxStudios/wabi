@@ -1,0 +1,76 @@
+{
+  "tailcat_version": "0.4.0",
+  "binary_sha256": "8e72a7932baf395c79383c668a5856bbc911d5b24f8a329813246c8a73252566",
+  "server": "Janya",
+  "client": "Ronin",
+  "tim_used": false,
+  "wabi_chat_used": false,
+  "direct_ping_ms": 21.84,
+  "initial_derp_ping_ms": 207.82,
+  "normal_transfers": [
+    {
+      "bytes": 1048576,
+      "sha256_matches": true,
+      "seconds": 2.8,
+      "exit": 0
+    },
+    {
+      "bytes": 1048576,
+      "sha256_matches": true,
+      "seconds": 2.746,
+      "exit": 0
+    },
+    {
+      "bytes": 1048576,
+      "sha256_matches": true,
+      "seconds": 2.804,
+      "exit": 0
+    }
+  ],
+  "forced_relay_transfers": [
+    {
+      "bytes": 1048576,
+      "sha256_matches": true,
+      "seconds": 2.668,
+      "exit": 0
+    },
+    {
+      "bytes": 1048576,
+      "sha256_matches": true,
+      "seconds": 2.296,
+      "exit": 0
+    },
+    {
+      "bytes": 1048576,
+      "sha256_matches": true,
+      "seconds": 1.932,
+      "exit": 0
+    }
+  ],
+  "restored_normal_transfers": [
+    {
+      "bytes": 1048576,
+      "sha256_matches": true,
+      "seconds": 3.351,
+      "exit": 0
+    },
+    {
+      "bytes": 1048576,
+      "sha256_matches": true,
+      "seconds": 2.089,
+      "exit": 0
+    },
+    {
+      "bytes": 1048576,
+      "sha256_matches": true,
+      "seconds": 2.344,
+      "exit": 0
+    }
+  ],
+  "cgnat_confirmed": false,
+  "direct_payload_proven": false,
+  "route_interfaces": {
+    "server": "wlp3s0",
+    "client": "wlp6s0"
+  }
+}

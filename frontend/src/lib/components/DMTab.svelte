@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { openGames } from '$lib/games/navigation';
 	import { createEventDispatcher, onDestroy } from 'svelte';
-	import { channels, channelMessages, currentUser, users, serverMembers, createDM, deleteDM, leaveGroup, socket, joinChannel } from '$lib/socket';
+	import { channels, channelMessages, currentUser, users, serverMembers, connected, createDM, deleteDM, leaveGroup, socket, joinChannel } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
 	import { brandName } from '$lib/branding';
 	import { showToast } from '$lib/toast';
@@ -20,6 +20,11 @@
 	import { getUserIdentityKey } from '$lib/localNicknames';
 	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
 	import { buildDmPlaceholderChannel, findExistingDmChannel, getDmStableUserId, resolveDmOtherUser } from '$lib/dmConversations';
+	import { cachedE2eeStatus } from '$lib/dm/dmE2eeState';
+	import { mediaUrl } from '$lib/mediaUrl';
+	import ProfileName from './ProfileName.svelte';
+	import ProfileMedia from './ProfileMedia.svelte';
+	import { livePresenceForUser } from '$lib/dmPresentation';
 	type ConversationAction = {
 		id: 'voice' | 'video' | 'remove';
 		label: string;
@@ -208,16 +213,14 @@
 				if (!memberId || memberId === myStableId) continue;
 				if (memberId.startsWith('user-')) {
 					const dbUserId = Number.parseInt(memberId.substring(5), 10);
-					const onlineUser = $users.find((u) => u.dbUserId === dbUserId);
-					if (onlineUser) {
-						invitees.set(memberId, { stableUserId: memberId, username: onlineUser.username });
-					}
+					const member = [...$users, ...$serverMembers].find((u) => u.dbUserId === dbUserId);
+					invitees.set(memberId, { stableUserId: memberId, username: member?.username || 'Member' });
 					continue;
 				}
-				const onlineUser = $users.find((u) => u.id === memberId);
-				if (onlineUser) {
-					const stableUserId = typeof onlineUser.dbUserId === 'number' ? `user-${onlineUser.dbUserId}` : onlineUser.id;
-					invitees.set(stableUserId, { stableUserId, username: onlineUser.username });
+				const member = [...$users, ...$serverMembers].find((u) => u.id === memberId);
+				if (member) {
+					const stableUserId = typeof member.dbUserId === 'number' ? `user-${member.dbUserId}` : member.id;
+					invitees.set(stableUserId, { stableUserId, username: member.username });
 				}
 			}
 
@@ -475,11 +478,24 @@
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
 					</button>
 					<div class="dm-header-title-wrap">
-						<span class="dm-header-title">{activeHeaderTitle}</span>
+						<div class="dm-header-identity">
+							<span class="dm-header-context">{isKeepNotesSelected ? 'Your notes' : activeGroup ? 'Group conversation' : 'Direct message to'}</span>
+							<span class="dm-header-title" title={activeHeaderTitle}>{#if !activeGroup && !isKeepNotesSelected && dmOther}<ProfileName username={activeHeaderTitle} font={dmOther.usernameFont} color={dmOther.color} />{:else}{activeHeaderTitle}{/if}</span>
+						</div>
 						{#if isKeepNotesSelected}
                             <span class="dm-header-pill">Device-local</span>
                         {:else}
-                            <span class="dm-header-pill" title="The server operator is part of the trust boundary. Experimental encryption is not a verified confidentiality guarantee.">Server-readable by default</span>
+							{@const security = cachedE2eeStatus(selectedDmId ?? '')}
+							{#if security?.pendingDefault}
+								<span class="dm-header-pill">Encryption pending</span>
+							{:else if security?.enabled}
+                                <span class="dm-header-pill dm-header-pill-secure" title="End-to-end encrypted · experimental · not independently verified">
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM12 17c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM15.1 8H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/></svg>
+									New messages encrypted · experimental
+                                </span>
+							{:else if security?.serverReadableSelected}
+								<span class="dm-header-pill" title="The server operator can read messages in this conversation.">Server-readable</span>
+                            {/if}
                         {/if}
 					</div>
 				</div>
@@ -577,14 +593,14 @@
 						{#each filteredUsers as user (getDmDirectoryKey(user))}
 							<button class="dm-new-user" disabled={creatingDmKey === getDmDirectoryKey(user)} on:click={() => startDMWith(user)}>
 								{#if user.profilePicture}
-									<img src={user.profilePicture} alt={user.username} class="dm-new-avatar" />
+									<ProfileMedia src={mediaUrl(user.profilePicture)} decorative class="dm-new-avatar" />
 								{:else}
 									<div class="dm-new-avatar-ph" style="background-color: {user.roleColor || user.color}">
 										{user.username.charAt(0).toUpperCase()}
 									</div>
 								{/if}
 								<div class="dm-new-info">
-									<span class="dm-new-name">{user.username}</span>
+									<span class="dm-new-name"><ProfileName username={user.username} font={user.usernameFont} color={user.roleColor || user.color} /></span>
 									{#if user.handle}<span class="dm-new-handle">@{user.handle}</span>{/if}
 								</div>
 							</button>
@@ -647,8 +663,9 @@
 							</div>
 						</div>
 					{:else}
-						{@const other = getOtherUser(channel)}
+						{@const other = resolveDmOtherUser(channel, $currentUser, $users, $serverMembers)}
 						{#if other}
+							{@const presence = livePresenceForUser(other, $users, $connected)}
 							<div
 								class="dm-conv-item"
 								class:selected={selectedDmId === channel.id}
@@ -662,19 +679,19 @@
 							>
 								<div class="dm-conv-avatar-wrap">
 									{#if other.profilePicture}
-										<img src={other.profilePicture} alt={other.username} class="dm-conv-avatar" />
+										<ProfileMedia src={mediaUrl(other.profilePicture)} decorative class="dm-conv-avatar" />
 									{:else}
 										<div class="dm-conv-avatar-ph" style="background-color: {other.roleColor || other.color}">
 											{other.username.charAt(0).toUpperCase()}
 										</div>
 									{/if}
-									{#if other.status && other.status !== 'offline'}
-										<span class="dm-conv-status-dot" class:active={other.status === 'active'} class:away={other.status === 'away'} class:busy={other.status === 'busy'} title={other.status}></span>
+									{#if presence === 'active' || presence === 'away' || presence === 'busy'}
+										<span class="dm-conv-status-dot" class:active={presence === 'active'} class:away={presence === 'away'} class:busy={presence === 'busy'} title={presence}></span>
 									{/if}
 								</div>
 								<div class="dm-conv-info">
 									<div class="dm-conv-top">
-										<span class="dm-conv-name">{other.username}</span>
+										<span class="dm-conv-name"><ProfileName username={other.username} font={other.usernameFont} color={other.roleColor || other.color} /></span>
 										{#if isConversationPinned(channel.id)}
 											<span class="dm-conv-pin" title="Pinned conversation">Pinned</span>
 										{/if}
@@ -783,10 +800,22 @@
 		text-align: left;
 	}
 
+	.dm-header-identity {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+
+	.dm-header-context {
+		color: var(--text-secondary);
+		font-size: var(--font-size-xs, 11px);
+		line-height: 1.1;
+	}
+
 	.dm-header-title {
 		display: block;
 		text-align: left;
-		font-size: var(--font-size-base, 14px);
+		font-size: var(--font-size-lg, 16px);
 		font-weight: 600;
 		color: var(--text-primary);
 		white-space: nowrap;
@@ -1033,7 +1062,7 @@
 			cursor: progress;
 		}
 
-		.dm-new-avatar,
+	.dm-new-user :global(.dm-new-avatar),
 	.dm-new-avatar-ph {
 		width: 28px;
 		height: 28px;
@@ -1177,7 +1206,7 @@
 		position: relative;
 	}
 
-	.dm-conv-avatar,
+	.dm-conv-avatar-wrap :global(.dm-conv-avatar),
 	.dm-conv-avatar-ph {
 		width: 36px;
 		height: 36px;
@@ -1308,7 +1337,7 @@
 			height: 40px;
 		}
 
-		.dm-conv-avatar,
+		.dm-conv-avatar-wrap :global(.dm-conv-avatar),
 		.dm-conv-avatar-ph {
 			width: 40px;
 			height: 40px;

@@ -7,9 +7,10 @@ use std::sync::Arc;
 use crate::state::AppState;
 
 use super::{
-    addons, admin, albums, auth, blobs, bots, cad, calls, channels, e2ee, emoji, forum, gallery, incidents,
-    jobs, lan, media, mesh, messages, nodes, operator, payments, places, preview, privacy, public, server_center,
-    standby, steam, sync, upload, user, wiki,
+    addons, admin, albums, auth, blobs, bots, cad, calls, channels, conversation_notes, e2ee,
+    community, emoji, field, following, forum, friends, gallery, incidents, jobs, lan, media, messages, nodes,
+    operator, payments, places, preview, privacy, project_tasks, public, server_center, standby, steam, sync,
+    upload, user, wiki,
 };
 // lore is nested inside addons::routes (feature-gated there) — do not import here.
 
@@ -24,17 +25,22 @@ fn experimental_replication_enabled() -> bool {
 pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     // Build common routes
     let router = Router::new()
+        .merge(super::service_access::routes(state.clone()))
         // Public routes (no auth)
         .nest("/public", public::routes(state.clone()))
         // Setup status (called on every page load)
         .nest("/setup", public::setup_routes(state.clone()))
         // Auth routes
         .nest("/auth", auth::routes(state.clone()))
+        .nest("/invites", super::invites::routes(state.clone()))
         // Bot account routes (owner-only token lifecycle)
         .nest("/bot", bots::routes(state.clone()))
         .nest("/games", super::games::routes(state.clone()))
         // User routes
         .nest("/user", user::routes(state.clone()))
+        .nest("/friends", friends::routes(state.clone()))
+        .nest("/field", field::routes(state.clone()))
+        .nest("/following", following::routes(state.clone()))
         // Member-visible privacy/retention contract
         .nest("/privacy", privacy::routes(state.clone()))
         // Operator-blind private-room device/key registry. The server stores
@@ -42,6 +48,10 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/e2ee", e2ee::routes(state.clone()))
         // Channel routes
         .nest("/channels", channels::routes(state.clone()))
+        .nest(
+            "/conversation-notes",
+            conversation_notes::routes(state.clone()),
+        )
         // Message routes
         .nest("/messages", messages::routes(state.clone()))
         // Upload routes
@@ -50,6 +60,7 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/albums", albums::routes(state.clone()))
         // Wiki page routes
         .nest("/wiki", wiki::routes(state.clone()))
+        .nest("/projects", project_tasks::routes(state.clone()))
         // Forum thread & post routes
         .nest("/forum", forum::routes(state.clone()))
         // Gallery work & feedback routes
@@ -66,12 +77,12 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/payments", payments::routes(state.clone()))
         // Helper node registry routes
         .nest("/nodes", nodes::routes(state.clone()))
+        .nest("/community", community::routes(state.clone()))
+        .nest("/boosters", super::boosters::routes(state.clone()))
         // Blob storage routes (content-addressed)
         .nest("/blobs", blobs::routes(state.clone()))
         // CAD preview conversion (authenticated, optional helper-backed)
         .nest("/cad", cad::routes(state.clone()))
-        // Legacy mesh coordination compatibility routes.
-        .nest("/mesh", mesh::routes(state.clone()))
         // Break-glass operator routes (loopback + WABI_OPERATOR_SECRET only)
         .nest("/operator", operator::routes(state.clone()))
         // Addon capability list/get + nested lore (when feature on).
@@ -132,6 +143,7 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/lan", lan::routes(state.clone()))
         // Media/TURN routes
         .nest("/media-turn", media_routes(state.clone()))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), crate::instance_operations::middleware))
 }
 
 /// Media routes (TURN credentials, file uploads)

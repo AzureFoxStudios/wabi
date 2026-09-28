@@ -1,0 +1,194 @@
+{
+  "sessions": {
+    "fresh": {
+      "transfers": [
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 1.14
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 0.741
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 0.463
+        }
+      ],
+      "final_tunnel_byte_counters": {
+        "rx_direct_v4": 3462604,
+        "rx_derp": 0,
+        "tx_direct_v4": 54144,
+        "tx_derp": 29649
+      },
+      "boundary_probes": [
+        {
+          "target": "allowed",
+          "socks_reply": 0,
+          "connected": true
+        },
+        {
+          "target": "ssh",
+          "socks_reply": 1,
+          "connected": false
+        },
+        {
+          "target": "smb",
+          "socks_reply": 1,
+          "connected": false
+        },
+        {
+          "target": "unrelated-live",
+          "socks_reply": 1,
+          "connected": false
+        },
+        {
+          "target": "loopback-live",
+          "socks_reply": 1,
+          "connected": false
+        },
+        {
+          "target": "lan-interface-live",
+          "socks_reply": 1,
+          "connected": false
+        },
+        {
+          "target": "lan-allowed-port",
+          "socks_reply": 1,
+          "connected": false
+        },
+        {
+          "target": "other-lan-live",
+          "socks_reply": 1,
+          "connected": false
+        }
+      ]
+    },
+    "reconnect": {
+      "transfers": [
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 2.275
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 3.318
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 2.136
+        }
+      ],
+      "final_tunnel_byte_counters": {
+        "rx_direct_v4": 0,
+        "rx_derp": 3461084,
+        "tx_direct_v4": 0,
+        "tx_derp": 146401
+      }
+    },
+    "reconnect-2": {
+      "transfers": [
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 2.117
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 2.233
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 1.883
+        }
+      ],
+      "final_tunnel_byte_counters": {
+        "rx_direct_v4": 0,
+        "rx_derp": 3461516,
+        "tx_direct_v4": 0,
+        "tx_derp": 155473
+      }
+    },
+    "reconnect-3": {
+      "transfers": [
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 1.966
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 1.869
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 1.749
+        }
+      ],
+      "final_tunnel_byte_counters": {
+        "rx_direct_v4": 0,
+        "rx_derp": 3461276,
+        "tx_direct_v4": 0,
+        "tx_derp": 155921
+      }
+    },
+    "forced-relay": {
+      "transfers": [
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 2.531
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 2.268
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 2.368
+        }
+      ],
+      "final_tunnel_byte_counters": {
+        "rx_direct_v4": 0,
+        "rx_derp": 3460988,
+        "tx_direct_v4": 0,
+        "tx_derp": 210665
+      }
+    }
+  },
+  "cleanup": true,
+  "binary_sha256": {
+    "server": "8e72a7932baf395c79383c668a5856bbc911d5b24f8a329813246c8a73252566",
+    "client": "a2d46bb79b5ae2e01e334bdc8f830d6ce034acd6f4528751e6a476b7a03c8087"
+  },
+  "verdict": "RECONNECT_REGRESSION: fresh direct payload passed; reconnect failed (reconnect-3)",
+  "fallback_passed": true,
+  "trial": "stock-full"
+}

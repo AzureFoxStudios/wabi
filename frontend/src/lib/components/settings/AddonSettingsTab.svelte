@@ -11,6 +11,7 @@
 		fetchPluginInventory,
 		pluginBackendAddons,
 		pluginFrontendAddons,
+		switchAddon,
 		type DetectedAddon
 	} from './addonDetection';
 	import { getServerUrl } from '$lib/serverUrl';
@@ -39,6 +40,9 @@
 	let enabledOnly = $state(false);
 	/** Blender's category dropdown: All / Server / Bundled / one local section. */
 	let categoryFilter = $state<AddonCategoryFilter>('all');
+	/** In-app switch feedback (owner action on a compiled-in add-on). */
+	let addonSwitchBusy = $state<string | null>(null);
+	let addonSwitchStatus = $state('');
 	let translatorAddonDetected = $derived(
 		[...frontendAddons, ...backendAddons].some((addon) => addon.id === 'translator-assist')
 	);
@@ -59,6 +63,54 @@
 
 	function clearAddonSearchQuery(): void {
 		addonSearchQuery = '';
+	}
+
+	/** How this add-on is attached: build-time feature and/or runtime switch. */
+	function attachMeta(addon: DetectedAddon): string {
+		const parts = [`id: ${addon.id}`, `version: ${addon.version}`];
+		parts.push(addon.cargoFeature ? `build: --features ${addon.cargoFeature}` : 'always compiled');
+		if (addon.runtimeEnv) parts.push(`runtime: ${addon.runtimeEnv}=1`);
+		parts.push(addon.runtimeSwitch ? 'switch: in-app' : 'switch: rebuild only');
+		return parts.join(' · ');
+	}
+
+	function serverAddonDescription(addon: DetectedAddon): string {
+		const detach = addon.cargoFeature
+			? `Detach it by rebuilding without the ${addon.cargoFeature} cargo feature.`
+			: 'Always compiled into this server binary — detaching needs a rebuild.';
+		const runtime = addon.runtimeEnv
+			? ` Runtime switch on the host: ${addon.runtimeEnv}=1.`
+			: '';
+		return `Server add-on. ${detach}${runtime}`;
+	}
+
+	function bundledAddonDescription(): string {
+		return 'Bundled with this client build (static allowlist — never a remote import). Remove it from the allowlist and rebuild the frontend to detach.';
+	}
+
+	/**
+	 * Flip a compiled-in add-on from the app (owner/admin). Steam and tailcat
+	 * apply immediately; lore attaches to its service at startup, so the server
+	 * tells us when a restart is needed.
+	 */
+	async function toggleServerAddon(addon: DetectedAddon): Promise<void> {
+		if (!addon.runtimeSwitch || addonSwitchBusy) return;
+		const next = !addon.enabled;
+		addonSwitchBusy = addon.id;
+		addonSwitchStatus = '';
+		const result = await switchAddon(getServerUrl(), getAuthToken(), addon.id, next);
+		addonSwitchBusy = null;
+		if (!result) {
+			addonSwitchStatus = `Could not switch ${addon.name}. This action needs an owner or admin session on this server.`;
+			return;
+		}
+		backendAddons = backendAddons.map((entry) =>
+			entry.id === addon.id ? { ...entry, enabled: result.enabled } : entry
+		);
+		addonSwitchStatus = result.appliesOnRestart
+			? `${addon.name} ${result.enabled ? 'enabled' : 'disabled'} — applies after the next server restart.`
+			: `${addon.name} ${result.enabled ? 'enabled' : 'disabled'}.`;
+		void refreshAddonDetection();
 	}
 
 	/**
@@ -171,6 +223,9 @@
 					</button>
 				{/if}
 			</div>
+			{#if addonSwitchStatus}
+				<div class="addon-status-note addon-switch-status" role="status">{addonSwitchStatus}</div>
+			{/if}
 		</div>
 		<div class="addons-settings-window-body">
 			{#if addonsError}
@@ -182,11 +237,12 @@
 					<AddonRow
 						id={`server:${addon.id}`}
 						label={addon.name}
-						description="Compiled into this server binary (Cargo feature). There is no runtime package install from this UI."
-						enabled={true}
-						locked={true}
+						description={serverAddonDescription(addon)}
+						enabled={addon.enabled}
+						locked={!addon.runtimeSwitch}
 						badge="Server"
-						meta={`id: ${addon.id} · version: ${addon.version} · ${addon.source}`}
+						meta={attachMeta(addon)}
+						onToggle={addon.runtimeSwitch ? () => void toggleServerAddon(addon) : undefined}
 					/>
 				{/each}
 			{/if}
@@ -196,11 +252,11 @@
 					<AddonRow
 						id={`bundled:${addon.id}`}
 						label={addon.name}
-						description="Bundled with this client build. Frontend modules load only via the static allowlist (never remote import)."
-						enabled={true}
+						description={bundledAddonDescription()}
+						enabled={addon.enabled}
 						locked={true}
 						badge="Bundled"
-						meta={`id: ${addon.id} · version: ${addon.version} · ${addon.source}`}
+						meta={attachMeta(addon)}
 					/>
 				{/each}
 			{/if}

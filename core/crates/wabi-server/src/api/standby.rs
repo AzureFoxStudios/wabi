@@ -62,6 +62,7 @@ struct StandbyStatusResponse {
     authority_node_id: String,
     standby_nodes: Vec<HelperNode>,
     snapshot_receive_ready: bool,
+    local_writer_fenced: bool,
     snapshot_export_ready: bool,
     manual_restore_ready: bool,
     manual_promotion_ready: bool,
@@ -87,6 +88,7 @@ async fn status(
         // Encrypted envelopes can be stored and validated today. Wabi itself
         // does not yet create a complete WabiDB live-state envelope.
         snapshot_receive_ready: true,
+        local_writer_fenced: state.wdb.engine().local_writer_fenced().await,
         snapshot_export_ready: false,
         manual_restore_ready: false,
         manual_promotion_ready: false,
@@ -242,6 +244,7 @@ fn snapshot_store_error_to_app_error(error: SnapshotStoreError) -> AppError {
         | SnapshotStoreError::AlgorithmMismatch { .. }
         | SnapshotStoreError::PayloadHashMismatch
         | SnapshotStoreError::UnsafeSnapshotId => AppError::BadRequest(error.to_string()),
+        SnapshotStoreError::SnapshotAlreadyExists => AppError::Conflict(error.to_string()),
         SnapshotStoreError::Persistence(_) => AppError::Internal(error.to_string()),
     }
 }

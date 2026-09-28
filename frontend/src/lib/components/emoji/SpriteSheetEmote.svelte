@@ -35,7 +35,9 @@
 
 	let host = $state<HTMLDivElement | null>(null);
 	let frame = $state(0);
-	let visible = $state(true);
+	// Start hidden so off-screen emotes do not tick until IntersectionObserver
+	// confirms they are actually visible (reduces idle CPU from unseen sprites).
+	let visible = $state(false);
 	let reducedMotion = $state(false);
 
 	const config = $derived(normalizeSpriteAnimation({ frameCount, columns, fps, loop }));

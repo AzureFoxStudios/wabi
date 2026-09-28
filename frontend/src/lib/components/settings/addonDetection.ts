@@ -16,6 +16,16 @@ export interface DetectedAddon {
 	version: string;
 	source: string;
 	side: AddonRuntimeSide;
+	/** Usable right now (server runtime state for backend add-ons). */
+	enabled: boolean;
+	/** Always compiled into the binary — detaching needs a rebuild. */
+	compiled: boolean;
+	/** Cargo feature that attaches this add-on, when it is build-time optional. */
+	cargoFeature: string | null;
+	/** Env var that switches this add-on at runtime, when one exists. */
+	runtimeEnv: string | null;
+	/** True when the owner can flip this add-on from the app. */
+	runtimeSwitch: boolean;
 }
 
 /** Compatibility record — same shape as $lib/addonInventory.PluginApiRecord */
@@ -25,6 +35,10 @@ export interface PluginApiRecord {
 	version?: string;
 	description?: string;
 	enabled?: boolean;
+	compiled?: boolean;
+	cargoFeature?: string | null;
+	runtimeEnv?: string | null;
+	runtimeSwitch?: boolean;
 	signerKeyId?: string | null;
 	frontendEntry?: string | null;
 	backendEntry?: string | null;
@@ -91,7 +105,13 @@ export function detectFrontendAddons(modulePaths: string[]): DetectedAddon[] {
 			name: builtinMeta?.name || toAddonNameFromComponentFile(fileName),
 			version: 'local',
 			source: path,
-			side: 'frontend' as const
+			side: 'frontend' as const,
+			// Bundled client-side module: present in this build, no server switch.
+			enabled: true,
+			compiled: true,
+			cargoFeature: null,
+			runtimeEnv: null,
+			runtimeSwitch: false
 		};
 	});
 
@@ -190,8 +210,47 @@ export function pluginFrontendAddons(plugins: PluginApiRecord[]): DetectedAddon[
 			name: String(plugin.name || plugin.id || 'Unknown Plugin'),
 			version: String(plugin.version || 'unknown'),
 			source: String(plugin.frontendEntry || 'plugin-manifest'),
-			side: 'frontend' as const
+			side: 'frontend' as const,
+			enabled: plugin.enabled !== false,
+			compiled: plugin.compiled !== false,
+			cargoFeature: plugin.cargoFeature ?? null,
+			runtimeEnv: plugin.runtimeEnv ?? null,
+			runtimeSwitch: plugin.runtimeSwitch === true
 		}));
+}
+
+/**
+ * POST /api/addons/{id}/switch — owner action: flip a compiled-in add-on.
+ * Returns null when the caller is not an admin or the endpoint is unavailable.
+ */
+export async function switchAddon(
+	serverUrl: string,
+	token: string | null,
+	id: string,
+	enabled: boolean
+): Promise<{ enabled: boolean; appliesOnRestart: boolean } | null> {
+	const base = serverUrl.replace(/\/$/, '');
+	try {
+		const response = await fetch(`${base}/api/addons/${encodeURIComponent(id)}/switch`, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				...(token ? { Authorization: `Bearer ${token}` } : {})
+			},
+			body: JSON.stringify({ enabled })
+		});
+		if (!response.ok) return null;
+		const payload = (await response.json()) as {
+			enabled?: boolean;
+			appliesOnRestart?: boolean;
+		};
+		return {
+			enabled: payload.enabled !== false,
+			appliesOnRestart: payload.appliesOnRestart === true
+		};
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -208,7 +267,12 @@ export function pluginBackendAddons(plugins: PluginApiRecord[]): DetectedAddon[]
 			source: plugin.signerKeyId
 				? `signer:${plugin.signerKeyId}`
 				: String(plugin.backendEntry || 'api/addons'),
-			side: 'backend' as const
+			side: 'backend' as const,
+			enabled: plugin.enabled !== false,
+			compiled: plugin.compiled !== false,
+			cargoFeature: plugin.cargoFeature ?? null,
+			runtimeEnv: plugin.runtimeEnv ?? null,
+			runtimeSwitch: plugin.runtimeSwitch === true
 		}))
 		.sort((a, b) => a.name.localeCompare(b.name));
 }

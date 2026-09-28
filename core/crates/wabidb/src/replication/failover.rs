@@ -1,12 +1,13 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Legacy health observation only. A missed heartbeat cannot elect or fence a
+/// writer; a future failover protocol must use durable terms and quorum votes.
 pub struct FailoverCoordinator {
     primary_healthy: bool,
     replica_healthy: bool,
     primary_last_heartbeat_micros: i64,
     replica_last_heartbeat_micros: i64,
     heartbeat_timeout_micros: u64,
-    primary_promoted: bool,
 }
 
 impl FailoverCoordinator {
@@ -17,7 +18,6 @@ impl FailoverCoordinator {
             primary_last_heartbeat_micros: now_micros(),
             replica_last_heartbeat_micros: now_micros(),
             heartbeat_timeout_micros,
-            primary_promoted: false,
         }
     }
 
@@ -34,18 +34,13 @@ impl FailoverCoordinator {
     pub fn check_health(&mut self) -> HealthStatus {
         let now = now_micros();
 
-        let primary_healthy = now - self.primary_last_heartbeat_micros
-            < self.heartbeat_timeout_micros as i64;
-        let replica_healthy = now - self.replica_last_heartbeat_micros
-            < self.heartbeat_timeout_micros as i64;
+        let primary_healthy =
+            now - self.primary_last_heartbeat_micros < self.heartbeat_timeout_micros as i64;
+        let replica_healthy =
+            now - self.replica_last_heartbeat_micros < self.heartbeat_timeout_micros as i64;
 
         self.primary_healthy = primary_healthy;
         self.replica_healthy = replica_healthy;
-
-        if !primary_healthy && !self.primary_promoted {
-            self.primary_promoted = true;
-            return HealthStatus::Promoted;
-        }
 
         if !primary_healthy {
             return HealthStatus::PrimaryDown;
@@ -72,7 +67,6 @@ pub enum HealthStatus {
     Healthy,
     PrimaryDown,
     ReplicaDown,
-    Promoted,
 }
 
 fn now_micros() -> i64 {
@@ -95,12 +89,13 @@ mod tests {
     }
 
     #[test]
-    fn primary_down_triggers_promotion() {
+    fn primary_timeout_only_reports_failure() {
         let mut coord = FailoverCoordinator::new(1);
         coord.heartbeat_from_primary();
         coord.heartbeat_from_replica();
         std::thread::sleep(std::time::Duration::from_millis(2));
-        assert_eq!(coord.check_health(), HealthStatus::Promoted);
+        assert_eq!(coord.check_health(), HealthStatus::PrimaryDown);
+        assert_eq!(coord.check_health(), HealthStatus::PrimaryDown);
     }
 
     #[test]

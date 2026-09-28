@@ -1,0 +1,59 @@
+Command: cargo +1.93 test --locked -p wabi-tailcat -p wabi-server
+Toolchain alias 1.93 resolves to 1.93.1. Exit: 0
+
+     Running unittests src/lib.rs (target/debug/deps/wabi_server-8905f4f6de438637)
+test result: ok. 255 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.39s
+     Running unittests src/main.rs (target/debug/deps/wabi_server-7155d5ab6a25db2f)
+test result: ok. 255 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.37s
+     Running tests/admin_role_contract.rs (target/debug/deps/admin_role_contract-761566ea6a371f00)
+test result: ok. 14 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.14s
+     Running tests/boot_brand_injection.rs (target/debug/deps/boot_brand_injection-ce824848f5cd84a2)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+     Running tests/call_state_contract.rs (target/debug/deps/call_state_contract-33abf39931a1504a)
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+     Running tests/channel_access_contract.rs (target/debug/deps/channel_access_contract-09065f2f849392a8)
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+     Running tests/channel_lifecycle_contract.rs (target/debug/deps/channel_lifecycle_contract-3a3faec9dec007fe)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/first_boot_onboarding.rs (target/debug/deps/first_boot_onboarding-f26959db7c4ee233)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.24s
+     Running tests/gallery_feedback_contract.rs (target/debug/deps/gallery_feedback_contract-38a8953c7e068130)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/game_profile_contract.rs (target/debug/deps/game_profile_contract-102437edbe6ce8ed)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/group_membership_contract.rs (target/debug/deps/group_membership_contract-db978debbfc08eec)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running tests/guest_tombstone.rs (target/debug/deps/guest_tombstone-1f4a3a6021cf8aae)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+     Running tests/helper_admin_auth_contract.rs (target/debug/deps/helper_admin_auth_contract-f40ab41d52a15d0a)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+     Running tests/live_session_room_contract.rs (target/debug/deps/live_session_room_contract-9c31c118b5bfbc25)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/lore_binding_promote_contract.rs (target/debug/deps/lore_binding_promote_contract-e4b641b96faad849)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/lore_credential_contract.rs (target/debug/deps/lore_credential_contract-775f9b7e16fd285f)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/message_delivery_contract.rs (target/debug/deps/message_delivery_contract-40f55cb800ffcd45)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.29s
+     Running tests/message_retention_contract.rs (target/debug/deps/message_retention_contract-8101a9323151e1f2)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/payment_access_contract.rs (target/debug/deps/payment_access_contract-5ebef61975d022e9)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.93s
+     Running tests/payments_projection_contract.rs (target/debug/deps/payments_projection_contract-e3b1c830ff52e6d6)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.47s
+     Running tests/payments_rails_contract.rs (target/debug/deps/payments_rails_contract-70131e3978e2aa10)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/tailcat_private_access_contract.rs (target/debug/deps/tailcat_private_access_contract-635557b561971bff)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.89s
+     Running tests/turn_configuration_contract.rs (target/debug/deps/turn_configuration_contract-cab5b463fe61d14d)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+     Running tests/volunteer_boosters_contract.rs (target/debug/deps/volunteer_boosters_contract-85ff48de94ef1a7e)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+     Running tests/write_visibility_contract.rs (target/debug/deps/write_visibility_contract-a19e9ec64d8dbb94)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/wabi_tailcat-7e9b52e96f405c75)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+   Doc-tests wabi_server
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+   Doc-tests wabi_tailcat
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

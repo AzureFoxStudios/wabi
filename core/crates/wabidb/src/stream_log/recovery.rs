@@ -35,13 +35,17 @@ pub async fn truncate_at_offset(path: &Path, offset: u64) -> Result<()> {
     Ok(())
 }
 
-/// Scan a segment file for valid records and truncate at the first
+/// Scan a segment file for valid records, truncating at the first
 /// corrupt or truncated position.
 ///
 /// Per the kanban card body (wabidb-08): *"Truncate at first invalid
 /// record. Update file size on disk."* The [`SegmentReader`] stops at
 /// the first invalid header or truncated tail; this function records the
 /// stop offset and truncates the file if any trailing data remains.
+///
+/// This is the DESTRUCTIVE variant for crash recovery: it physically
+/// truncates the original file. For a read-only scan suitable for
+/// compaction (which writes a new file), see [`scan_segment_file_readonly`].
 pub async fn scan_segment_file(path: &Path) -> Result<RecoveryResult> {
     use crate::stream_log::segment_reader::SegmentReader;
     let file_len = tokio::fs::metadata(path)
@@ -55,6 +59,51 @@ pub async fn scan_segment_file(path: &Path) -> Result<RecoveryResult> {
     // Truncate if we didn't reach the end of the file.
     if cursor < file_len {
         truncate_at_offset(path, cursor).await?;
+    }
+
+    let valid_records: Vec<RecoveryRecord> = records
+        .into_iter()
+        .map(|r| RecoveryRecord {
+            stream_id: String::new(),
+            header: r.header,
+            payload: r.payload,
+        })
+        .collect();
+    Ok(RecoveryResult {
+        valid_records,
+        error: None,
+    })
+}
+
+/// Read-only variant of segment scanning for maintenance operations
+/// (like compaction) that must NOT alter the original file.
+///
+/// Returns an error if the segment contains corruption or truncation,
+/// instead of silently truncating. The compactor uses this to refuse
+/// damaged input rather than rewrite the original based on a partial read.
+pub async fn scan_segment_file_readonly(
+    path: &Path,
+) -> Result<RecoveryResult> {
+    use crate::stream_log::segment_reader::SegmentReader;
+    let file_len = tokio::fs::metadata(path)
+        .await
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let mut reader = SegmentReader::open(path).await?;
+    let records = reader.read_records().await?;
+    let cursor = reader.cursor();
+
+    // If we didn't reach the end, the segment has corruption or a
+    // truncated tail. For maintenance (compaction), this is an error —
+    // don't silently destroy original bytes.
+    if cursor < file_len {
+        return Err(crate::error::WabiError::Corrupt {
+            location: format!(
+                "scan_segment_file_readonly({}): reader stopped at {cursor}/{file_len} bytes — segment is corrupt or truncated",
+                path.display()
+            ),
+            detail: "segment has trailing data after last valid record".to_string(),
+        });
     }
 
     let valid_records: Vec<RecoveryRecord> = records

@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::atomic::AtomicI64;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub struct ReplicationMetrics {
     pub lag_micros: AtomicU64,
@@ -38,7 +38,8 @@ impl ReplicationMetrics {
     }
 
     pub fn add_entries_synced(&self, entries: u64) {
-        self.total_entries_synced.fetch_add(entries, Ordering::Relaxed);
+        self.total_entries_synced
+            .fetch_add(entries, Ordering::Relaxed);
     }
 
     pub fn get_metrics(&self) -> ReplicationMetricsSnapshot {

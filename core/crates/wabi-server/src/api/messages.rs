@@ -35,7 +35,7 @@ async fn emit_steam_join_events(
 ) {
     let appids = find_steam_join_appids(content);
     if appids.is_empty() { return; }
-    if let Some(io) = state.sio.read().await.clone() {
+    if let Some(io) = state.socket_io() {
         for appid in appids {
             let payload = json!({
                 "appid": appid, "messageId": message_id, "channelId": channel_id,
@@ -129,8 +129,25 @@ struct SendMessageRequest {
 async fn send_message(
     State(state): State<Arc<AppState>>, auth: AuthUser, Json(req): Json<SendMessageRequest>,
 ) -> Result<Json<MessageResponse>> {
+    // Channel policy changes use this same boundary when evicting live rooms.
+    let retention_guard = state.retention_policy_lock.lock().await;
     crate::channel_access::require_access(&state, auth.user_id, &req.channel_id).await?;
+    match state.wdb.require_local_room_owner(&req.channel_id, "send_message") {
+        Ok(()) => {}
+        Err(wabidb::error::WabiError::Validation { .. }) => {
+            return Err(AppError::Conflict(
+                "This room is assigned to another node and cannot accept a write here".into(),
+            ));
+        }
+        Err(error) => return Err(AppError::Wdb(error)),
+    }
+    let blacklist = state.get_blacklist().await.ok_or_else(|| AppError::Internal("Channel restriction enforcement unavailable".into()))?;
+    if blacklist.is_channel_timed_out(&req.channel_id, auth.user_id).await.is_some() {
+        return Err(AppError::Forbidden("You are timed out in this channel".into()));
+    }
 
+    // Serialize policy changes with the message commit so a pending room
+    // cannot write plaintext after a participant enables encryption.
     // This check happens BEFORE every server content feature. In an E2EE room,
     // plaintext is rejected and the server sees only a versioned ciphertext
     // envelope. Membership/device changes fail closed until clients rekey.
@@ -140,29 +157,34 @@ async fn send_message(
 
     let channel_kind = state.wdb.get_channel_kind(&req.channel_id).await;
     let is_private_conversation = matches!(channel_kind.as_deref(), Some("dm" | "group"));
+    let mut safety_flag = None;
+    if !is_private_conversation && !state.is_owner(auth.user_id).await {
+        let needs_ack = crate::api::server_center::rules_required_for_post(&state.config.data_dir, auth.user_id)
+            .map_err(|error| AppError::Internal(format!("Server rules could not be checked; message refused: {error}")))?;
+        if needs_ack { return Err(AppError::Forbidden("Read and acknowledge this server's current rules before posting".into())); }
+    }
     if !e2ee && !state.is_owner(auth.user_id).await {
         if let Some(rule) = crate::api::server_center::evaluate_safety_rules(
             &state.config.data_dir, &req.content, is_private_conversation,
-        ) {
+        ).map_err(|error| AppError::Internal(format!("Safety policy is unreadable; message refused: {error}")))? {
             let reason = rule.reason.clone().unwrap_or_else(|| format!("Safety rule: {}", rule.name));
-            match rule.action {
+            match &rule.action {
                 crate::api::server_center::SafetyAction::Flag => {
-                    tracing::warn!("[safety] REST flag rule '{}' matched user {} in {}", rule.name, auth.user_id, req.channel_id);
+                    safety_flag = Some(rule.clone());
                 }
                 crate::api::server_center::SafetyAction::Delete => return Err(AppError::Forbidden(format!("Message blocked by server safety rule: {}", rule.name))),
                 crate::api::server_center::SafetyAction::Warn => return Err(AppError::Forbidden(reason)),
                 crate::api::server_center::SafetyAction::Timeout => {
                     let minutes = rule.timeout_minutes.unwrap_or(10).max(1) as i64;
-                    let actor = state.owner_user_id.read().await.unwrap_or(auth.user_id);
-                    let until_micros = chrono::Utc::now().timestamp_micros().saturating_add(minutes.saturating_mul(60_000_000));
-                    state.wdb.mute_user(&req.channel_id, actor as u64, auth.user_id as u64, until_micros).await
-                        .map_err(|error| AppError::Internal(format!("safety timeout failed: {error}")))?;
+                    let expires_at = (chrono::Utc::now().timestamp() as u64).saturating_add((minutes as u64).saturating_mul(60));
+                    blacklist.restrict_channel(&req.channel_id, auth.user_id, &reason, Some(expires_at)).await
+                        .map_err(|error| AppError::Internal(format!("safety timeout could not be saved: {error}")))?;
                     return Err(AppError::Forbidden(format!("Timed out for {minutes} minute(s): {reason}")));
                 }
                 crate::api::server_center::SafetyAction::Ban => {
-                    let actor = state.owner_user_id.read().await.unwrap_or(auth.user_id);
-                    state.wdb.ban_user(&req.channel_id, actor as u64, auth.user_id as u64, &reason).await
-                        .map_err(|error| AppError::Internal(format!("safety ban failed: {error}")))?;
+                    blacklist.restrict_channel(&req.channel_id, auth.user_id, &reason, None).await
+                        .map_err(|error| AppError::Internal(format!("safety ban could not be saved: {error}")))?;
+                    if let Some(io) = state.socket_io() { crate::socketio::evict_channel_user(&io, &req.channel_id, auth.user_id); }
                     return Err(AppError::Forbidden(format!("Banned from this channel: {reason}")));
                 }
             }
@@ -172,6 +194,8 @@ async fn send_message(
     let sender_id = auth.user_id as u64;
     let sender_username = auth.username;
     let message_type = if e2ee { "text".to_string() } else { req.message_type.unwrap_or_else(|| "text".into()) };
+    // A retention epoch must not be inserted between selecting Live/durable
+    // mode and assigning the durable message its database timestamp.
     let created_at_micros = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_micros() as i64).unwrap_or(0);
     let is_live = state.channel_auto_delete_label.read().await.get(&req.channel_id).map(|s| s == "live").unwrap_or(false);
@@ -194,6 +218,12 @@ async fn send_message(
             "text": req.content.clone(), "timestamp": created_at_micros / 1000, "bornAt": created_at_micros / 1000,
             "type": message_type.clone(), "isSpoiler": is_spoiler, "encrypted": e2ee,
         }));
+    }
+    drop(retention_guard);
+
+    if let Some(rule) = safety_flag {
+        crate::api::server_center::record_safety_flag(&state, &req.channel_id, &message_id, auth.user_id, &sender_username, &rule)
+            .await.map_err(|error| AppError::Internal(format!("Message {message_id} was saved, but its safety flag could not be recorded: {error}")))?;
     }
 
     // E2EE means no server-side content fan-out. Webhooks, Steam detection,

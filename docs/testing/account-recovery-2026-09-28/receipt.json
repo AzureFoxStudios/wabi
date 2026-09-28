@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-09-28T03:58:26.829602+00:00",
+  "scope": "Disposable local main Wabi account recovery component; not deployed or a full checkpoint",
+  "checkout_head": "cf00e3cbe37920d6b1da76dff3e9171ab4aac7a5",
+  "dirty_worktree": true,
+  "checks": [
+    {
+      "name": "database",
+      "command": "CARGO_INCREMENTAL=0 cargo test --locked -p wabidb --lib -- recovery_codes auth_revocations sequencer::tests tests::write_completion",
+      "passed": 42,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log_sha256": "78282ec6fea50ca8f2aee97d1a7c99dcd1c7a3de16ca297858760be8f080d41e"
+    },
+    {
+      "name": "integration",
+      "command": "CARGO_INCREMENTAL=0 cargo test --locked -p wabi-server --test account_recovery_contract --test auth_revocation_recovery_contract --test helper_admin_auth_contract --test payment_access_contract --test admin_role_contract --test first_boot_onboarding",
+      "passed": 66,
+      "failed": 0,
+      "ignored": 1,
+      "exit_code": 0,
+      "log_sha256": "77aec921307455c82700908bce1917e25d8b5f044af540949f012d9acfbf2716"
+    },
+    {
+      "name": "crash_parent",
+      "command": "CARGO_INCREMENTAL=0 cargo test --locked -p wabidb --features test-harness --lib -- projections::recovery_codes::tests::process_crashes_keep_code_owner_and_session_recovery_together --exact",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log_sha256": "e505f0f44472722aa5da60b03a96a4078ce74fd4326ad73aeb74ed8df7465ad8"
+    },
+    {
+      "name": "auth_and_socket_units",
+      "command": "CARGO_INCREMENTAL=0 cargo test --locked -p wabi-server --lib -- state::tests api::auth::tests socket_revocation_tests socket_authentication_tests",
+      "passed": 32,
+      "failed": 0,
+      "ignored": 0,
+      "exit_code": 0,
+      "log_sha256": "dcf8cd63b5a406f8c5fc35b74d4d85eb54f67374b3da9fbc5d980d08c9cc6b32"
+    }
+  ],
+  "total_passing_checks": 141,
+  "injected_process_exit_boundaries": 5,
+  "source_sha256": {
+    "core/crates/wabidb/src/projections/recovery_codes.rs": "62459204eda188212c3cb9b7ad305cb6588a02acd647e9129ec606be5d4eb4cb",
+    "core/crates/wabidb/src/projections/auth_revocations.rs": "7b410b9f286ba1ebc6eced0b3028e30315b2ef2939c799776fc8089aff95888a",
+    "core/crates/wabidb/src/projections/mod.rs": "b746cd0326cf5ec875f08da2e6c6a7f4ae77a4c34eddc7c08e72466fd22080e6",
+    "core/crates/wabidb/src/engine/mod.rs": "d214e3b5e8dcfaf4a53c3687ccb38a7391821097f83f4f1614d376c7f2c76e18",
+    "core/crates/wabidb/src/sequencer/mod.rs": "68a043ad4911183cf52bf2bf8dddb1d38f58cbdfda59e200bc88bef4c7dfa10a",
+    "core/crates/wabi-server/src/recovery_codes.rs": "a3621c55558a32c19e4f09a11b682f20d6b4097f2de0c64db918c180dc411458",
+    "core/crates/wabi-server/src/state.rs": "f2481ee65e51c829c017f83782c146361e9fb4be33c500ff865e24d62ee08c8e",
+    "core/crates/wabi-server/src/lib.rs": "73e2762c28ae7df0f45b4297f25e87f081fe1261d632c6e2f404f0b1920a4424",
+    "core/crates/wabi-server/src/main.rs": "3cde93b11d026739ebb4c604cc4e8f3ff819edb94496b49ae9bd27dadf19cbc8",
+    "core/crates/wabi-server/src/api/auth.rs": "4d396cbf4186b3186f5a159727eab312131101c5fb37626589608b7e8d2ff979",
+    "core/crates/wabi-server/src/api/admin.rs": "bfa54f9d21547f6cfea2f7960a819cec385ac6860019bb3bab7784f3641341ea",
+    "core/crates/wabi-server/src/api/operator.rs": "48280ad88026fab938b1ba0c2698ac924b59a2b3ce77c6f1a5cd52f8fdb59c3b",
+    "core/crates/wabi-server/tests/account_recovery_contract.rs": "ceaaf94d8726aea5a93feb7fea3f6e2d6f6b47b403dfaad9bdc630e24f7d1eb1"
+  },
+  "limitations": [
+    "Focused checks, not the whole workspace",
+    "Eighteen socket checks execute nine cases through two existing module paths",
+    "Process exits, not hardware power cuts",
+    "Receiver transport is in-process, not a WAN acceptance run",
+    "Existing compiler warnings remain",
+    "Complete checkpoint, unavailable-host promotion, distributed fencing and capacity/privacy gates remain open"
+  ],
+  "cleanup": {
+    "status": "completed",
+    "cargo_lock": "exclusive nonblocking acquired",
+    "removed": [
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/account_recovery_contract-36de912130581d76",
+        "logical_file_bytes": 416670640
+      },
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/account_recovery_contract-36de912130581d76.d",
+        "logical_file_bytes": 342
+      },
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/auth_revocation_recovery_contract-389abf0ef20ffc64",
+        "logical_file_bytes": 413177688
+      },
+      {
+        "path": "/home/ironin/wabi/target/debug/deps/auth_revocation_recovery_contract-389abf0ef20ffc64.d",
+        "logical_file_bytes": 382
+      },
+      {
+        "path": "/tmp/wabi-account-recovery-db-20260928.log",
+        "logical_file_bytes": 6522
+      },
+      {
+        "path": "/tmp/wabi-account-recovery-db-final-20260928.log",
+        "logical_file_bytes": 6634
+      },
+      {
+        "path": "/tmp/wabi-account-recovery-server-20260928.log",
+        "logical_file_bytes": 27248
+      },
+      {
+        "path": "/tmp/wabi-account-recovery-server-final-20260928.log",
+        "logical_file_bytes": 27503
+      },
+      {
+        "path": "/tmp/wabi-account-recovery-crash-20260928.log",
+        "logical_file_bytes": 2149
+      },
+      {
+        "path": "/tmp/wabi-account-recovery-unit-final-20260928.log",
+        "logical_file_bytes": 18867
+      },
+      {
+        "path": "/tmp/wabi-account-recovery-receipt-20260928.py",
+        "logical_file_bytes": 7836
+      }
+    ],
+    "logical_file_bytes_removed": 829945811,
+    "available_bytes_before": 152814305280,
+    "available_bytes_after": 153642377216,
+    "retained": "Shared dependencies, shared binaries and another task's live preview",
+    "incremental": "Disabled for every build; idle directory contains no incremental artifact files"
+  }
+}

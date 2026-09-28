@@ -124,6 +124,11 @@ Authority A never receives B or C's secret. A media job targeted to A's assigned
 node id cannot be claimed by B's node identity. Job claims and job-result reports
 verify the Authority-issued node secret and registered capabilities. Room
 activation also requires the secret for the exact assigned MediaRelay node.
+The helper cannot add a capability through its heartbeat; the original pairing
+token sets the Authority's grants. If `node_registry.json` is damaged, the
+Authority refuses startup rather than forgetting existing node identities and
+revocations. Keep this private file in the same verified backups as the rest of
+the Authority state.
 
 LiveKit root credentials remain local to the Media Node. The Authority sends only
 an already-authorized request containing the opaque backend room, opaque user

@@ -1,0 +1,22 @@
+{
+  "Coordinator": {
+    "configured": {
+      "bindingResponse": false,
+      "error": "TimeoutError"
+    },
+    "currentTim": {
+      "bindingResponse": false,
+      "error": "TimeoutError"
+    }
+  },
+  "Janya": {
+    "configured": {
+      "bindingResponse": false,
+      "error": "TimeoutError"
+    },
+    "currentTim": {
+      "bindingResponse": false,
+      "error": "TimeoutError"
+    }
+  }
+}

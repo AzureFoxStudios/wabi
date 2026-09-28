@@ -1,5 +1,7 @@
 <script lang="ts">
 	import '../styles/styles.css';
+	import '../styles/desktop-shell.css';
+	import DesktopTitlebar from '$lib/components/DesktopTitlebar.svelte';
 	// Phase 4 boot optimization: katex/prism CSS moved next to their JS usage
 	// in $lib/markdown.ts so they load with the lazy app chunk, not at login.
 	import { onMount, onDestroy } from 'svelte';
@@ -45,6 +47,12 @@ let onlineHandler: (() => void) | null = null;
 let cleanupInstallPrompt: (() => void) | null = null;
 let cleanupSwNav: (() => void) | null = null;
 let cleanupMobileShell: (() => void) | null = null;
+let cleanupSwUpdate: (() => void) | null = null;
+let pwaUpdateReady = false;
+
+function reloadUpdatedApp(): void {
+	window.location.reload();
+}
 
 function isLocalPreviewHost(): boolean {
 	if (typeof window === 'undefined') return false;
@@ -90,6 +98,13 @@ function isLocalPreviewHost(): boolean {
 
 		void initEmojis();
 
+		// Personal planning must not probe relays or replay community operations.
+		// Community initialization happens on a fresh navigation back to the app.
+		if (window.location.pathname.replace(/\/$/, '') === '/personal') {
+			startupMark('layout:onMount:end');
+			return;
+		}
+
 		// Register service worker for PWA support (browser/PWA only, not Tauri webview)
 		if ('serviceWorker' in navigator && !isRunningInTauri() && isLocalPreviewHost()) {
 			try {
@@ -115,9 +130,29 @@ function isLocalPreviewHost(): boolean {
 			}
 		} else if (import.meta.env.PROD && 'serviceWorker' in navigator && !isRunningInTauri()) {
 			startupMark('layout:sw:register:start');
+			let hadController = Boolean(navigator.serviceWorker.controller);
+			let registrationForChecks: ServiceWorkerRegistration | null = null;
+			const onControllerChange = () => {
+				if (hadController) pwaUpdateReady = true;
+				hadController = true;
+			};
+			const checkForUpdate = () => {
+				if (document.visibilityState === 'visible' && navigator.onLine) {
+					void registrationForChecks?.update().catch(() => {});
+				}
+			};
+			navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+			window.addEventListener('focus', checkForUpdate);
+			document.addEventListener('visibilitychange', checkForUpdate);
+			cleanupSwUpdate = () => {
+				navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+				window.removeEventListener('focus', checkForUpdate);
+				document.removeEventListener('visibilitychange', checkForUpdate);
+			};
 			navigator.serviceWorker.register(`/sw.js?v=${__WABI_SW_VERSION__}`).then((registration) => {
 				console.log('✅ Service Worker registered:', registration);
-				void registration.update();
+				registrationForChecks = registration;
+				checkForUpdate();
 				startupMark('layout:sw:register:end');
 				startupMeasure('layout:sw:register', 'layout:sw:register:start', 'layout:sw:register:end');
 			}).catch((error) => {
@@ -176,6 +211,10 @@ function isLocalPreviewHost(): boolean {
 			cleanupSwNav();
 			cleanupSwNav = null;
 		}
+		if (cleanupSwUpdate) {
+			cleanupSwUpdate();
+			cleanupSwUpdate = null;
+		}
 		if (relayInitTimer) {
 			clearTimeout(relayInitTimer);
 			relayInitTimer = null;
@@ -188,19 +227,20 @@ function isLocalPreviewHost(): boolean {
 </script>
 
 <svelte:head>
-	<meta name="description" content="Wabi is an open-source, self-hostable communication workspace for small communities and teams, with chat, calls, collaborative tools, and extensible workspaces." />
+	<meta name="description" content="Open-source, self-hosted communication and collaboration for small communities, with chat, calls, shared workspaces, and creative review." />
 	<meta property="og:site_name" content="Wabi" />
 	<meta property="og:type" content="website" />
-	<meta property="og:title" content="Wabi — self-hosted communication and collaboration" />
-	<meta property="og:description" content="An open-source, self-hostable communication workspace for small communities and teams." />
+	<meta property="og:title" content="Wabi — talk, create, and work together" />
+	<meta property="og:description" content="Open-source, self-hosted communication and collaboration for small communities, with chat, calls, shared workspaces, and creative review." />
 	<meta property="og:image" content="https://wabi.chat/screenshot-wide.png" />
 	<meta property="og:image:alt" content="Wabi communication workspace interface" />
 	<meta name="twitter:card" content="summary_large_image" />
-	<meta name="twitter:title" content="Wabi — self-hosted communication and collaboration" />
-	<meta name="twitter:description" content="An open-source, self-hostable communication workspace for small communities and teams." />
+	<meta name="twitter:title" content="Wabi — talk, create, and work together" />
+	<meta name="twitter:description" content="Open-source, self-hosted communication and collaboration for small communities, with chat, calls, shared workspaces, and creative review." />
 	<meta name="twitter:image" content="https://wabi.chat/screenshot-wide.png" />
 </svelte:head>
 
+<DesktopTitlebar />
 <AmbientBackground />
 <div class="app-content-layer">
 	<ConnectionBadge />
@@ -212,6 +252,14 @@ function isLocalPreviewHost(): boolean {
 	<PureRefViewer />
 
 	<SyncLoadingOverlay />
+
+	{#if pwaUpdateReady}
+		<div class="pwa-update-banner" role="region" aria-label="Wabi update available">
+			<div><strong>Wabi has an update</strong><span>Finish or copy any unsent draft, then reload for the latest fixes.</span></div>
+			<button type="button" on:click={reloadUpdatedApp}>Reload</button>
+			<button type="button" class="pwa-update-later" aria-label="Dismiss update notice" on:click={() => (pwaUpdateReady = false)}>Later</button>
+		</div>
+	{/if}
 
 	{#if $socketToasts.length}
 		<div class="socket-toast-stack" role="status" aria-live="polite">
@@ -255,5 +303,32 @@ function isLocalPreviewHost(): boolean {
 		font-size: 13px;
 		line-height: 1.35;
 		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+	}
+	.pwa-update-banner {
+		position: fixed;
+		z-index: 10000;
+		top: calc(env(safe-area-inset-top, 0px) + 12px);
+		left: 12px;
+		right: 12px;
+		max-width: 520px;
+		margin: 0 auto;
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 12px;
+		border: 1px solid var(--border-subtle);
+		border-radius: 14px;
+		background: var(--surface-raised);
+		color: var(--text-heading);
+		box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+	}
+	.pwa-update-banner div { display: grid; gap: 2px; min-width: 0; flex: 1; }
+	.pwa-update-banner span { color: var(--text-secondary); font-size: 0.78rem; }
+	.pwa-update-banner button { min-height: 44px; padding: 0 12px; border: 0; border-radius: 10px; background: var(--accent-primary-color); color: var(--text-on-accent); font: inherit; font-weight: 700; cursor: pointer; }
+	.pwa-update-banner .pwa-update-later { background: transparent; color: var(--text-secondary); }
+	@media (max-width: 480px) {
+		.pwa-update-banner { align-items: stretch; flex-wrap: wrap; }
+		.pwa-update-banner div { flex-basis: 100%; }
+		.pwa-update-banner button { flex: 1; }
 	}
 </style>

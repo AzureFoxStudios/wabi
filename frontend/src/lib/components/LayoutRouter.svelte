@@ -4,7 +4,7 @@
 </script>
 
 <div class="layout-root" class:dm-pure={$homeLayout === 'dm-pure'} class:dm-focused={$homeLayout === 'dm-focused'} class:server-browser={$homeLayout === 'server-browser'}>
-  <MainLayout {...$$props} />
+  <MainLayout {...$$props} on:logout />
 </div>
 
 <style>
@@ -25,5 +25,13 @@
   /* dm-focused: hide server rail, channel sidebar still accessible */
   .layout-root.dm-focused :global(.server-rail-container) {
     display: none !important;
+  }
+
+  /* The mobile Browse sheet remains usable in every conversation layout. */
+  @media (max-width: 768px) {
+    .layout-root.dm-pure :global(.channel-sidebar-container.mobile-visible),
+    .layout-root.dm-pure :global(.channel-sidebar-container.preview-visible) {
+      display: block !important;
+    }
   }
 </style>

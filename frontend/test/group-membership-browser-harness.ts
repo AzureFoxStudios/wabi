@@ -23,6 +23,7 @@ import { registerCallSocketOwner } from '../src/lib/callSocketLifecycle';
 import { currentUser, users, serverMembers } from '../src/lib/presenceIdentity';
 import { buildUserMenuItems } from '../src/lib/components/userListHelpers';
 import { messageDeliveryContract } from './message-delivery-contract';
+import { initI18n } from '../src/lib/i18n';
 
 class FixtureSocket {
   id = crypto.randomUUID(); connected = true;
@@ -78,6 +79,7 @@ function seedViews() {
 setConfiguredServerUrl(location.origin, false);
 setAuthToken(`eyJhbGciOiJub25lIn0.${btoa(JSON.stringify({ sub: '1', exp: 4102444800 }))}.fixture`);
 setStoredDbUserId(1); setStoredUsername('Owner');
+initI18n();
 install(); init();
 mount(GroupMembershipHarness, { target: document.querySelector('#harness')! });
 (window as any).__group = {
@@ -153,7 +155,7 @@ mount(GroupMembershipHarness, { target: document.querySelector('#harness')! });
 			const guestMenu = buildUserMenuItems({ ...context, contextMenuUser: { ...second, isRegistered: false } as any });
 			const memberMenu = buildUserMenuItems({ ...context, contextMenuUser: { ...second, isRegistered: true } as any });
 			assert(!guestMenu.some(item => ['make-admin', 'make-mod', 'remove-admin', 'remove-mod', 'reset-member'].includes(item.id!)), 'guest menu offered unsupported role changes');
-			assert(memberMenu.some(item => item.id === 'make-admin'), 'registered member role action disappeared');
+			assert(memberMenu.some(item => item.id === 'make-role:admin'), 'registered member role action disappeared');
 			return true;
 		} finally {
 			currentUser.set(previous.current); users.set(previous.users); serverMembers.set(previous.members);

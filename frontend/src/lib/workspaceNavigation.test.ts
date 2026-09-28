@@ -4,7 +4,7 @@ import { createWorkspaceNavigation } from './workspaceNavigation';
 import { mobileTabQueue } from './mobileTabQueue';
 import type { WorkspaceViewKey } from './components/chat/types';
 
-const addonIds = { reader: 'reader', model: 'model-viewport', map: 'server-map', media: 'media-albums',
+const addonIds = { notifications: 'notifications', reader: 'reader', model: 'model-viewport', map: 'server-map', media: 'media-albums',
 	planner: 'planner', notes: 'notes', lore: 'lore', files: 'files' };
 const views: WorkspaceViewKey[] = ['messages', 'whiteboard', 'voice', ...Object.keys(addonIds) as (keyof typeof addonIds)[]];
 const channel = writable('current-channel');

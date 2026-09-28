@@ -61,7 +61,7 @@ test('opening a channel uses the real workspace resolver, preserves other addon 
 	const boards = writable<Record<string, 'messages' | 'whiteboard'>>({ 'previous-channel': 'whiteboard', destination: 'whiteboard' });
 	const surface = derived([channel, boards], ([id, values]) => values[id] ?? 'messages');
 	const navigation = createWorkspaceNavigation({
-		addonIds: { reader: 'reader', model: 'model-viewport', map: 'server-map', media: 'media-albums', planner: 'planner', notes: 'notes', lore: 'lore', files: 'files' },
+		addonIds: { notifications: 'notifications', reader: 'reader', model: 'model-viewport', map: 'server-map', media: 'media-albums', planner: 'planner', notes: 'notes', lore: 'lore', files: 'files' },
 		queue: mobileTabQueue, channel, voice, surface,
 		setSurface: (id, next) => boards.update(values => ({ ...values, [id]: next }))
 	});

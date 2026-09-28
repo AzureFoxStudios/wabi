@@ -270,6 +270,7 @@ async fn poison_writer(state: &AppState) {
         .unwrap();
     assert!(engine
         .run_command(CommandCommit {
+            room_owner_precondition: None,
             caller_user_id: 1,
             caller_device_id: "test".into(),
             command_name: "delivery-fault".into(),
@@ -287,6 +288,59 @@ async fn poison_writer(state: &AppState) {
         .await
         .is_err());
     assert!(!engine.is_healthy());
+}
+
+#[tokio::test]
+async fn instance_pause_holds_a_real_socket_message_until_release() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (sender_id, recipient_id, channel) = seed(&state).await;
+    let app = router(&state);
+    let mut sender = Client::connect(&app, &token(&state, sender_id)).await;
+    let mut recipient = Client::connect(&app, &token(&state, recipient_id)).await;
+    recipient.join_channel(&channel).await;
+    let before = state.wdb.engine().barrier().current();
+    let paused = state.instance_operations.quiesce().await.unwrap();
+    // The fixture's Engine.IO transport is outside API middleware, so a 200
+    // here demonstrates callback admission rather than an HTTP-only pause.
+    sender
+        .emit(
+            "message",
+            json!({
+                "channelId":channel, "clientMessageId":"after-pause", "text":"held then committed",
+            }),
+        )
+        .await;
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while state.instance_operations.waiting_operations() == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(state.wdb.engine().barrier().current(), before);
+    assert!(state
+        .wdb
+        .list_messages_typed(&channel, 10)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(state
+        .session_messages
+        .read()
+        .await
+        .get(&channel)
+        .is_none_or(Vec::is_empty));
+    drop(paused);
+    let accepted = sender.event("message-accepted").await;
+    assert_eq!(accepted["clientMessageId"], "after-pause");
+    let id = accepted["messageId"].as_str().unwrap();
+    assert_eq!(recipient.event("message").await["message"]["id"], id);
+    let messages = state.wdb.list_messages_typed(&channel, 10).await.unwrap();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].message_id, id);
+    assert_eq!(messages[0].content, "held then committed");
+    assert_eq!(state.wdb.engine().barrier().current(), before + 1);
 }
 
 #[tokio::test]
@@ -579,4 +633,245 @@ async fn legacy_persistence_retry_reports_unsupported_without_acknowledging_or_m
         .await
         .values()
         .all(Vec::is_empty));
+}
+
+#[tokio::test]
+async fn direct_message_reaches_unopened_recipient_and_history_uses_latest_durable_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let sender_id = state.wdb.create_user("sender", None, "registered-test-hash").await.unwrap();
+    let recipient_id = state.wdb.create_user("recipient", None, "registered-test-hash").await.unwrap();
+    let app = router(&state);
+    let mut sender = Client::connect(&app, &token(&state, sender_id)).await;
+    let mut recipient = Client::connect(&app, &token(&state, recipient_id)).await;
+    sender.emit("create-dm", json!({"targetUserId": format!("user-{recipient_id}")})).await;
+    let created = sender.event("dm-created").await;
+    let channel = created["channelId"].as_str().unwrap().to_string();
+    assert_eq!(recipient.event("dm-channel-added").await["channelId"], channel);
+    assert_eq!(state.wdb.list_channel_members(&channel).await.unwrap().len(), 2);
+
+    // Reopening is a success, and sending does not depend on a join-channel
+    // round trip on either the desktop or the recipient's phone.
+    sender.emit("create-dm", json!({"targetUserId": format!("user-{recipient_id}")})).await;
+    assert_eq!(sender.event("dm-created").await["channelId"], channel);
+    // New DMs start encryption-pending. This delivery fixture explicitly
+    // selects server-readable messages through the real member API.
+    sender.emit("message", json!({"channelId":channel,"clientMessageId":"pending-denial","text":"not yet allowed"})).await;
+    let (event, denial) = sender
+        .event_one_of(&["message-error", "message-accepted"])
+        .await;
+    assert_eq!(event, "message-error");
+    assert_eq!(denial["code"], "e2ee_required");
+    assert!(state
+        .wdb
+        .list_messages_typed(&channel, 10)
+        .await
+        .unwrap()
+        .is_empty());
+    for user in [sender_id, recipient_id] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/e2ee/channels/{channel}/allow-server-readable"))
+                    .header("authorization", format!("Bearer {}", token(&state, user)))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let choice: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(choice["serverReadableSelected"], true);
+    }
+    sender.emit("message", json!({"channelId":channel,"clientMessageId":"dm-first","text":"hello from first device"})).await;
+    assert_eq!(sender.event("message-accepted").await["clientMessageId"], "dm-first");
+    assert_eq!(recipient.event("message").await["message"]["text"], "hello from first device");
+    assert_eq!(state.wdb.list_messages_typed(&channel, 10).await.unwrap().len(), 1);
+
+    // A second writer can add a durable row while the first is still cached
+    // in session memory. limit:1 must return the actual durable tail.
+    state.wdb.send_message(&channel, recipient_id, "newest durable DM", false, &[]).await.unwrap();
+    sender.emit("load-history", json!({"channelId":channel,"limit":1,"requestId":"dm-preview"})).await;
+    let history = sender.event("history-loaded").await;
+    assert_eq!(history["requestId"], "dm-preview");
+    assert_eq!(history["messages"].as_array().unwrap().len(), 1);
+    assert_eq!(history["messages"][0]["text"], "newest durable DM");
+    sender.emit("join-channel", json!(channel)).await;
+    let joined = sender.event("channel-messages").await;
+    assert_eq!(joined["messages"].as_array().unwrap().last().unwrap()["text"], "newest durable DM");
+}
+
+#[tokio::test]
+async fn direct_message_history_pages_past_one_hundred_and_survives_reconnect() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let sender_id = state.wdb.create_user("page_sender", None, "registered-test-hash").await.unwrap();
+    let recipient_id = state.wdb.create_user("page_recipient", None, "registered-test-hash").await.unwrap();
+    let app = router(&state);
+    let credential = token(&state, sender_id);
+    let mut sender = Client::connect(&app, &credential).await;
+    sender.emit("create-dm", json!({"targetUserId": format!("user-{recipient_id}")})).await;
+    let channel = sender.event("dm-created").await["channelId"].as_str().unwrap().to_string();
+    let mut ids = Vec::new();
+    for index in 0..125 {
+        ids.push(state.wdb.send_message(&channel, sender_id, &format!("page-{index}"), false, &[]).await.unwrap());
+    }
+
+    sender.emit("load-history", json!({"channelId":channel,"limit":100,"requestId":"latest"})).await;
+    let latest = sender.event("history-loaded").await;
+    let latest_ids: Vec<_> = latest["messages"].as_array().unwrap().iter()
+        .map(|row| row["id"].as_str().unwrap().to_string()).collect();
+    assert_eq!(latest["requestId"], "latest");
+    assert_eq!(latest_ids.len(), 100);
+    assert_eq!(latest["hasMore"], true);
+    assert_eq!(latest_ids, ids[25..].to_vec());
+
+    // A fresh phone/desktop connection can resume from a message ID without
+    // relying on the original socket's in-memory message cache.
+    let mut reconnected = Client::connect(&app, &credential).await;
+    reconnected.emit("join-channel", json!(channel)).await;
+    let snapshot = reconnected.event("channel-messages").await;
+    assert_eq!(snapshot["messages"].as_array().unwrap().len(), 50);
+    reconnected.emit("load-history", json!({
+        "channelId":channel,"beforeMessageId":latest_ids[0],"limit":30,"requestId":"older"
+    })).await;
+    let older = reconnected.event("history-loaded").await;
+    let older_ids: Vec<_> = older["messages"].as_array().unwrap().iter()
+        .map(|row| row["id"].as_str().unwrap().to_string()).collect();
+    assert_eq!(older["requestId"], "older");
+    assert_eq!(older_ids, ids[..25].to_vec());
+    assert_eq!(older["hasMore"], false);
+
+    reconnected.emit("load-history", json!({
+        "channelId":channel,"afterMessageId":ids[10],"limit":30,"requestId":"newer"
+    })).await;
+    let newer = reconnected.event("history-loaded").await;
+    let newer_ids: Vec<_> = newer["messages"].as_array().unwrap().iter()
+        .map(|row| row["id"].as_str().unwrap().to_string()).collect();
+    assert_eq!(newer_ids, ids[11..41].to_vec());
+    assert_eq!(newer["hasMore"], true);
+    reconnected.emit("load-history", json!({
+        "channelId":channel,"afterMessageId":ids[124],"limit":30,"requestId":"end"
+    })).await;
+    let end = reconnected.event("history-loaded").await;
+    assert_eq!(end["messages"], json!([]));
+    assert_eq!(end["hasMore"], false);
+
+    reconnected.emit("load-history", json!({
+        "channelId":channel,"beforeMessageId":"missing-row","limit":30,"requestId":"bad-cursor"
+    })).await;
+    assert_eq!(reconnected.event("history-error").await["requestId"], "bad-cursor");
+}
+
+#[tokio::test]
+async fn group_message_history_pages_past_one_hundred_and_survives_reconnect() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let owner = state.wdb.create_user("group_owner", None, "registered-test-hash").await.unwrap();
+    let member = state.wdb.create_user("group_member", None, "registered-test-hash").await.unwrap();
+    let group = "group-history-pages";
+    state.wdb.create_group(group, "History room", owner, &[owner, member]).await.unwrap();
+    let app = router(&state);
+    let credential = token(&state, member);
+    let mut client = Client::connect(&app, &credential).await;
+    let mut ids = Vec::new();
+    for index in 0..125 {
+        ids.push(state.wdb.send_message(group, owner, &format!("group-page-{index}"), false, &[]).await.unwrap());
+    }
+
+    client.emit("load-history", json!({"channelId":group,"limit":100,"requestId":"latest"})).await;
+    let latest = client.event("history-loaded").await;
+    let latest_ids: Vec<_> = latest["messages"].as_array().unwrap().iter()
+        .map(|row| row["id"].as_str().unwrap().to_string()).collect();
+    assert_eq!(latest["requestId"], "latest");
+    assert_eq!(latest_ids, ids[25..].to_vec());
+    assert_eq!(latest["hasMore"], true);
+
+    let mut reconnected = Client::connect(&app, &credential).await;
+    reconnected.emit("join-channel", json!(group)).await;
+    let snapshot = reconnected.event("channel-messages").await;
+    assert_eq!(snapshot["messages"].as_array().unwrap().len(), 50);
+    reconnected.emit("load-history", json!({
+        "channelId":group,"beforeMessageId":latest_ids[0],"limit":30,"requestId":"older"
+    })).await;
+    let older = reconnected.event("history-loaded").await;
+    let older_ids: Vec<_> = older["messages"].as_array().unwrap().iter()
+        .map(|row| row["id"].as_str().unwrap().to_string()).collect();
+    assert_eq!(older_ids, ids[..25].to_vec());
+    assert_eq!(older["hasMore"], false);
+
+    reconnected.emit("load-history", json!({
+        "channelId":group,"afterMessageId":ids[100],"limit":30,"requestId":"newer"
+    })).await;
+    let newer = reconnected.event("history-loaded").await;
+    let newer_ids: Vec<_> = newer["messages"].as_array().unwrap().iter()
+        .map(|row| row["id"].as_str().unwrap().to_string()).collect();
+    assert_eq!(newer_ids, ids[101..].to_vec());
+    assert_eq!(newer["hasMore"], false);
+
+    reconnected.emit("load-history", json!({
+        "channelId":group,"beforeMessageId":"missing-row","limit":30,"requestId":"bad-cursor"
+    })).await;
+    assert_eq!(reconnected.event("history-error").await["requestId"], "bad-cursor");
+}
+
+#[tokio::test]
+async fn friend_requests_reach_both_signed_in_sockets_and_remain_visible_to_each_account() {
+    async fn friend_api(app: &Router, method: Method, path: &str, token: &str, body: Value) -> Value {
+        let response = app.clone().oneshot(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let alice = state.wdb.create_user("friend_alice", None, "registered-test-hash").await.unwrap();
+    let bob = state.wdb.create_user("friend_bob", None, "registered-test-hash").await.unwrap();
+    // A startup reader must not cause the one-time HTTP broadcast handle to
+    // be silently discarded. This used to happen with sio.try_write().
+    let state_for_reader = state.clone();
+    let (reader_ready, reader_started) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let _guard = state_for_reader.sio.try_read().unwrap();
+        reader_ready.send(()).unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+    });
+    reader_started.recv().unwrap();
+    let layer = wabi_server::socketio::create_socket_layer(state.clone());
+    reader.join().unwrap();
+    assert!(state.socket_io().is_some(), "HTTP handlers need the live Socket.IO handle");
+    let app = create_api_router(state.clone()).with_state(state.clone()).layer(layer);
+    let alice_token = token(&state, alice);
+    let bob_token = token(&state, bob);
+    let mut alice_socket = Client::connect(&app, &alice_token).await;
+    let mut bob_socket = Client::connect(&app, &bob_token).await;
+
+    friend_api(&app, Method::POST, "/friends/requests", &alice_token, json!({"user_id": bob})).await;
+    assert_eq!(alice_socket.event("friends-updated").await["userId"], alice);
+    assert_eq!(bob_socket.event("friends-updated").await["userId"], bob);
+    let alice_list = friend_api(&app, Method::GET, "/friends", &alice_token, json!(null)).await;
+    let bob_list = friend_api(&app, Method::GET, "/friends", &bob_token, json!(null)).await;
+    assert_eq!(alice_list["outgoing"][0]["user_id"], bob);
+    assert_eq!(bob_list["incoming"][0]["user_id"], alice);
+
+    let request_id = bob_list["incoming"][0]["id"].as_str().unwrap();
+    friend_api(&app, Method::POST, &format!("/friends/requests/{request_id}/accept"), &bob_token, json!(null)).await;
+    assert_eq!(alice_socket.event("friends-updated").await["userId"], alice);
+    assert_eq!(bob_socket.event("friends-updated").await["userId"], bob);
+    let alice_list = friend_api(&app, Method::GET, "/friends", &alice_token, json!(null)).await;
+    let bob_list = friend_api(&app, Method::GET, "/friends", &bob_token, json!(null)).await;
+    assert_eq!(alice_list["friends"][0]["user_id"], bob);
+    assert_eq!(bob_list["friends"][0]["user_id"], alice);
 }

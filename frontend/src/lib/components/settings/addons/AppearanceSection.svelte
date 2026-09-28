@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { nameStylesVisible, setNameStylesVisible } from '$lib/addons/nameStyles';
 	import { THEMES } from '$lib/theme/themes';
 	import {
 		setTimedThemeModeDarkThemeId, setTimedThemeModeDayStartHour, setTimedThemeModeEnabled,
@@ -47,6 +48,17 @@
 		setTimedThemeModeDarkThemeId(themeId);
 	}
 </script>
+
+{#if localAddonControlMatches('name_styles')}
+	<AddonRow
+		id="name_styles"
+		label="Name Styles"
+		description="Show styled names in messages, People and profiles on this device. Create and share your own design in Profile settings; Appearance also controls plates, artwork and motion."
+		enabled={$nameStylesVisible}
+		badge={SECTION}
+		onToggle={() => setNameStylesVisible(!$nameStylesVisible)}
+	/>
+{/if}
 
 {#if localAddonControlMatches('timed_theme_mode')}
 	<AddonRow

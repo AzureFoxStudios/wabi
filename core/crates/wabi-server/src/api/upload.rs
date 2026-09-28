@@ -20,15 +20,16 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
+use tower_http::limit::RequestBodyLimitLayer;
 use uuid::Uuid;
-
-use wabidb::engine::wabi_store::WabiStore;
 
 use crate::auth_extractor::AuthUser;
 use crate::error::Result;
 use crate::state::AppState;
 use crate::upload_registry::UploadKind;
+
+const MAX_RESUMABLE_CHUNK_BYTES: usize = 8 * 1024 * 1024;
 
 /// Upload session state — stored in-memory for the lifetime of the server process.
 #[derive(Debug, Clone)]
@@ -48,6 +49,8 @@ pub struct UploadSession {
     pub extension: String,
     /// ID of the user who initiated the upload
     pub uploader_id: Option<i64>,
+    /// Serialize chunks and completion for this upload without blocking others.
+    pub write_gate: Arc<Mutex<()>>,
 }
 #[derive(Debug, Default)]
 pub struct UploadState {
@@ -64,7 +67,10 @@ impl UploadState {
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/resumable/init", post(init_upload))
-        .route("/resumable/chunk", put(upload_chunk))
+        .route(
+            "/resumable/chunk",
+            put(upload_chunk).layer(RequestBodyLimitLayer::new(MAX_RESUMABLE_CHUNK_BYTES)),
+        )
         .route("/resumable/complete", post(complete_upload))
         .route("/group-avatar", post(upload_group_avatar))
         .route("/", post(upload_simple))
@@ -165,6 +171,9 @@ async fn init_upload(
     if auth.is_guest {
         return Err(anyhow::anyhow!("Guests cannot upload files").into());
     }
+    if !req.channel_id.is_empty() {
+        crate::channel_access::require_participation(&state, auth.user_id, &req.channel_id).await?;
+    }
     let uploads_dir = PathBuf::from(&state.config.uploads_dir);
 
     // Check if resuming existing upload
@@ -230,6 +239,7 @@ async fn init_upload(
         temp_path: temp_path.clone(),
         extension,
         uploader_id: Some(auth.user_id),
+        write_gate: Arc::new(Mutex::new(())),
     };
 
     state
@@ -265,6 +275,25 @@ struct ChunkQuery {
     offset: u64,
 }
 
+fn validated_chunk_end(
+    uploaded_so_far: u64,
+    declared_size: u64,
+    offset: u64,
+    chunk_len: usize,
+) -> std::result::Result<u64, &'static str> {
+    let end = offset
+        .checked_add(chunk_len as u64)
+        .ok_or("Upload chunk exceeds declared file size")?;
+    if chunk_len > MAX_RESUMABLE_CHUNK_BYTES || offset != uploaded_so_far || end > declared_size {
+        return Err("Upload chunk offset or size is invalid");
+    }
+    Ok(end)
+}
+
+fn complete_size_matches(uploaded_bytes: u64, declared_size: u64, actual_size: u64) -> bool {
+    uploaded_bytes == declared_size && actual_size == declared_size
+}
+
 /// Upload a chunk
 async fn upload_chunk(
     State(state): State<Arc<AppState>>,
@@ -293,16 +322,31 @@ async fn upload_chunk(
         return Err(anyhow::anyhow!("Invalid upload token").into());
     }
 
+    let _gate = session.write_gate.lock().await;
+    let uploaded_so_far = state
+        .upload_state
+        .sessions
+        .read()
+        .await
+        .get(&query.upload_id)
+        .map(|current| current.uploaded_bytes)
+        .ok_or_else(|| anyhow::anyhow!("Upload session not found"))?;
+    let end = validated_chunk_end(uploaded_so_far, session.file_size, query.offset, body.len())
+        .map_err(anyhow::Error::msg)?;
+
     let mut file = OpenOptions::new()
         .write(true)
         .open(&session.temp_path)
         .await?;
+    if file.metadata().await?.len() != uploaded_so_far {
+        return Err(anyhow::anyhow!("Upload staging bytes do not match session position").into());
+    }
     file.seek(tokio::io::SeekFrom::Start(query.offset)).await?;
     file.write_all(&body).await?;
     file.flush().await?;
     drop(file);
 
-    let uploaded_bytes = query.offset + body.len() as u64;
+    let uploaded_bytes = end;
     if let Some(s) = state
         .upload_state
         .sessions
@@ -355,8 +399,7 @@ async fn complete_upload(
     auth: AuthUser,
     Json(req): Json<CompleteUploadRequest>,
 ) -> Result<Json<CompleteUploadResponse>> {
-    // WS-3b: verify token BEFORE removing the session.
-    // Look up the session first without removing it.
+    // Verify the token before touching the file or session state.
     let session = {
         let sessions = state.upload_state.sessions.read().await;
         let s = sessions
@@ -371,45 +414,123 @@ async fn complete_upload(
         }
         s
     };
+    let _gate = session.write_gate.lock().await;
+    let session = {
+        let sessions = state.upload_state.sessions.read().await;
+        sessions
+            .get(&req.upload_id)
+            .filter(|current| {
+                current.upload_token == req.upload_token
+                    && current.uploader_id == Some(auth.user_id)
+            })
+            .ok_or_else(|| anyhow::anyhow!("Upload session not found"))?
+            .clone()
+    };
+    if !session.channel_id.is_empty() {
+        crate::channel_access::require_participation(&state, auth.user_id, &session.channel_id)
+            .await?;
+    }
+    if session.uploaded_bytes != session.file_size {
+        return Err(anyhow::anyhow!("Upload is incomplete").into());
+    }
+    let room_owner_precondition = if session.channel_id.is_empty() {
+        None
+    } else {
+        Some(
+            state
+                .wdb
+                .room_owner_precondition(&session.channel_id, "complete_upload")?,
+        )
+    };
 
-    // Now remove the session (token already verified).
+    // Final filename: UUID with original extension
+    let final_name = format!("{}{}", session.upload_id, session.extension);
+    let final_path = PathBuf::from(&state.config.uploads_dir).join(&final_name);
+
+    if tokio::fs::try_exists(&session.temp_path).await? {
+        let file = OpenOptions::new()
+            .write(true)
+            .open(&session.temp_path)
+            .await?;
+        if !complete_size_matches(
+            session.uploaded_bytes,
+            session.file_size,
+            file.metadata().await?.len(),
+        ) {
+            return Err(anyhow::anyhow!("Upload bytes do not match declared size").into());
+        }
+        file.sync_all().await?;
+        drop(file);
+        crate::upload_registry::sync_upload_directory(
+            session
+                .temp_path
+                .parent()
+                .ok_or_else(|| anyhow::anyhow!("Upload staging path has no parent"))?,
+        )
+        .await?;
+
+        // Persist ownership while the bytes remain in the private staging path.
+        state
+            .upload_registry
+            .record(
+                &final_name,
+                &session.file_name,
+                if session.channel_id.is_empty() {
+                    None
+                } else {
+                    Some(session.channel_id.clone())
+                },
+                session.uploader_id,
+                UploadKind::Attachment,
+                session.file_size,
+            )
+            .await?;
+        let sha256 = crate::upload_registry::sha256_file(&session.temp_path).await?;
+        state
+            .upload_registry
+            .prepare_published(
+                &final_name,
+                &sha256,
+                state.wdb.engine(),
+                room_owner_precondition.clone(),
+            )
+            .await?;
+        tokio::fs::rename(&session.temp_path, &final_path).await?;
+    } else {
+        // A previous completion may have renamed the file but failed its
+        // directory sync. Keep the session so a retry can finish publication.
+        let meta = state.upload_registry.get(&final_name).await;
+        if !meta.is_some_and(|meta| meta.size == session.file_size) {
+            return Err(anyhow::anyhow!("Upload staging file is missing").into());
+        }
+        if tokio::fs::metadata(&final_path).await?.len() != session.file_size {
+            return Err(anyhow::anyhow!("Published upload size changed").into());
+        }
+        let sha256 = crate::upload_registry::sha256_file(&final_path).await?;
+        state
+            .upload_registry
+            .prepare_published(
+                &final_name,
+                &sha256,
+                state.wdb.engine(),
+                room_owner_precondition,
+            )
+            .await?;
+    }
+    crate::upload_registry::sync_upload_directory(&PathBuf::from(&state.config.uploads_dir))
+        .await?;
     state
         .upload_state
         .sessions
         .write()
         .await
         .remove(&req.upload_id);
-
-    // Final filename: UUID with original extension
-    let final_name = format!("{}{}", session.upload_id, session.extension);
-    let final_path = PathBuf::from(&state.config.uploads_dir).join(&final_name);
-
-    // Move temp file to final location
-    tokio::fs::rename(&session.temp_path, &final_path).await?;
-
     tracing::info!(
         "Completed upload: {} -> {:?} ({} bytes)",
         session.file_name,
         final_path,
         session.uploaded_bytes
     );
-
-    // Record ownership (ops metadata). Failure is logged, never fatal.
-    state
-        .upload_registry
-        .record(
-            &final_name,
-            &session.file_name,
-            if session.channel_id.is_empty() {
-                None
-            } else {
-                Some(session.channel_id.clone())
-            },
-            session.uploader_id,
-            UploadKind::Attachment,
-            session.uploaded_bytes,
-        )
-        .await;
 
     Ok(Json(CompleteUploadResponse {
         file_url: format!("/uploads/{}", final_name),
@@ -429,13 +550,14 @@ async fn complete_upload(
 /// Upload group avatar — POST /api/upload/group-avatar
 /// Group avatars have no durable model yet. Never rewrite a group's owner,
 /// kind or name via the former compatibility upsert, or create an orphan upload.
-async fn upload_group_avatar(
-    _auth: AuthUser,
-) -> (axum::http::StatusCode, Json<serde_json::Value>) {
-    (axum::http::StatusCode::NOT_IMPLEMENTED, Json(serde_json::json!({
-        "error": "Group avatars are not yet supported; nothing was changed",
-        "code": "NOT_IMPLEMENTED"
-    })))
+async fn upload_group_avatar(_auth: AuthUser) -> (axum::http::StatusCode, Json<serde_json::Value>) {
+    (
+        axum::http::StatusCode::NOT_IMPLEMENTED,
+        Json(serde_json::json!({
+            "error": "Group avatars are not yet supported; nothing was changed",
+            "code": "NOT_IMPLEMENTED"
+        })),
+    )
 }
 
 /// POST /api/upload (mounted at "/" inside the `/upload` router)
@@ -456,8 +578,6 @@ async fn upload_simple(
     State(state): State<Arc<AppState>>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<SimpleUploadResponse>> {
-    use tokio::io::AsyncWriteExt;
-
     if auth.is_guest {
         return Err(anyhow::anyhow!("Guests cannot upload branding assets").into());
     }
@@ -502,10 +622,20 @@ async fn upload_simple(
     let final_name = format!("{}{}", Uuid::new_v4(), ext);
     let final_path = uploads_dir.join(&final_name);
 
-    let mut file = File::create(&final_path).await?;
-    file.write_all(&file_data).await?;
-    file.flush().await?;
-    drop(file);
+    state
+        .upload_registry
+        .publish_bytes(
+            &uploads_dir,
+            state.wdb.engine(),
+            &final_name,
+            &filename,
+            None,
+            None,
+            Some(auth.user_id),
+            UploadKind::Branding,
+            &file_data,
+        )
+        .await?;
 
     let file_url = format!("/uploads/{}", final_name);
     tracing::info!(
@@ -515,18 +645,6 @@ async fn upload_simple(
         file_data.len(),
         final_path
     );
-
-    state
-        .upload_registry
-        .record(
-            &final_name,
-            &filename,
-            None,
-            Some(auth.user_id),
-            UploadKind::Branding,
-            file_data.len() as u64,
-        )
-        .await;
 
     Ok(Json(SimpleUploadResponse { file_url }))
 }
@@ -553,8 +671,6 @@ pub async fn upload_background_image(
     State(state): State<Arc<AppState>>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<BackgroundImageResponse>> {
-    use tokio::io::AsyncWriteExt;
-
     if auth.is_guest {
         return Err(anyhow::anyhow!("Guests cannot upload backgrounds").into());
     }
@@ -603,10 +719,20 @@ pub async fn upload_background_image(
     let final_name = format!("{}{}", Uuid::new_v4(), ext);
     let final_path = uploads_dir.join(&final_name);
 
-    let mut file = File::create(&final_path).await?;
-    file.write_all(&file_data).await?;
-    file.flush().await?;
-    drop(file);
+    state
+        .upload_registry
+        .publish_bytes(
+            &uploads_dir,
+            state.wdb.engine(),
+            &final_name,
+            &filename,
+            None,
+            None,
+            Some(auth.user_id),
+            UploadKind::Other,
+            &file_data,
+        )
+        .await?;
 
     let file_url = format!("/uploads/{}", final_name);
     tracing::info!(
@@ -617,18 +743,6 @@ pub async fn upload_background_image(
         mime,
         final_path
     );
-
-    state
-        .upload_registry
-        .record(
-            &final_name,
-            &filename,
-            None,
-            Some(auth.user_id),
-            UploadKind::Other,
-            file_data.len() as u64,
-        )
-        .await;
 
     Ok(Json(BackgroundImageResponse {
         background_image_url: file_url,
@@ -664,16 +778,27 @@ fn sniff_background_mime(data: &[u8]) -> Option<&'static str> {
     None
 }
 
+const PROFILE_MEDIA_MAX_BYTES: usize = 10 * 1024 * 1024;
+
+fn profile_media_extension(data: &[u8]) -> std::result::Result<String, String> {
+    if data.len() > PROFILE_MEDIA_MAX_BYTES {
+        return Err("Profile image is too large. Maximum size is 10 MiB.".into());
+    }
+    let mime = sniff_background_mime(data)
+        .filter(|mime| mime.starts_with("image/"))
+        .ok_or_else(|| "Profile images must be PNG, JPEG, GIF, or WebP.".to_owned())?;
+    Ok(extension_for_mime(mime, ".png"))
+}
+
 /// POST /api/upload
 /// Accepts multipart form with a `file` field. Any authenticated user can upload
-/// (banner, overlay, etc). Returns { fileUrl }.
+/// PNG/JPEG/GIF/WebP profile images up to 10 MiB, preserving animation bytes.
+/// Returns { fileUrl }; dimensions are recommendations, not a file constraint.
 pub async fn upload_profile_media(
     auth: AuthUser,
     State(state): State<Arc<AppState>>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<SimpleUploadResponse>> {
-    use tokio::io::AsyncWriteExt;
-
     if auth.is_guest {
         return Err(anyhow::anyhow!("Guests cannot upload media").into());
     }
@@ -681,7 +806,7 @@ pub async fn upload_profile_media(
     let mut file_data: Vec<u8> = Vec::new();
     let mut filename = "media".to_string();
 
-    while let Some(field) = multipart
+    while let Some(mut field) = multipart
         .next_field()
         .await
         .map_err(|e| anyhow::anyhow!(e))?
@@ -689,11 +814,19 @@ pub async fn upload_profile_media(
         let name = field.name().unwrap_or("").to_string();
         if name == "file" {
             filename = field.file_name().unwrap_or("media").to_string();
-            file_data = field
-                .bytes()
+            file_data.clear();
+            while let Some(chunk) = field
+                .chunk()
                 .await
-                .map_err(|e| anyhow::anyhow!(e))?
-                .to_vec();
+                .map_err(|error| anyhow::anyhow!(error))?
+            {
+                if file_data.len().saturating_add(chunk.len()) > PROFILE_MEDIA_MAX_BYTES {
+                    return Err(crate::error::AppError::BadRequest(
+                        "Profile image is too large. Maximum size is 10 MiB.".into(),
+                    ));
+                }
+                file_data.extend_from_slice(&chunk);
+            }
         }
     }
 
@@ -701,11 +834,7 @@ pub async fn upload_profile_media(
         return Err(anyhow::anyhow!("No file data provided").into());
     }
 
-    let ext = std::path::Path::new(&filename)
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| format!(".{}", e))
-        .unwrap_or_else(|| ".png".to_string());
+    let ext = profile_media_extension(&file_data).map_err(crate::error::AppError::BadRequest)?;
 
     let uploads_dir = PathBuf::from(&state.config.uploads_dir);
     tokio::fs::create_dir_all(&uploads_dir).await?;
@@ -713,10 +842,20 @@ pub async fn upload_profile_media(
     let final_name = format!("{}{}", Uuid::new_v4(), ext);
     let final_path = uploads_dir.join(&final_name);
 
-    let mut file = File::create(&final_path).await?;
-    file.write_all(&file_data).await?;
-    file.flush().await;
-    drop(file);
+    state
+        .upload_registry
+        .publish_bytes(
+            &uploads_dir,
+            state.wdb.engine(),
+            &final_name,
+            &filename,
+            None,
+            None,
+            Some(auth.user_id),
+            UploadKind::Profile,
+            &file_data,
+        )
+        .await?;
 
     let file_url = format!("/uploads/{}", final_name);
     tracing::info!(
@@ -726,18 +865,6 @@ pub async fn upload_profile_media(
         file_data.len(),
         final_path
     );
-
-    state
-        .upload_registry
-        .record(
-            &final_name,
-            &filename,
-            None,
-            Some(auth.user_id),
-            UploadKind::Profile,
-            file_data.len() as u64,
-        )
-        .await;
 
     Ok(Json(SimpleUploadResponse { file_url }))
 }
@@ -754,8 +881,6 @@ pub async fn upload_profile_picture(
     State(state): State<Arc<AppState>>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<ProfilePictureResponse>> {
-    use tokio::io::AsyncWriteExt;
-
     // WS-3e: guests cannot upload profile pictures.
     if auth.is_guest {
         return Err(anyhow::anyhow!("Guests cannot upload profile pictures").into());
@@ -793,13 +918,24 @@ pub async fn upload_profile_picture(
         .map(|e| format!(".{}", e))
         .unwrap_or_else(|| ".png".to_string());
 
+    let uploads_dir = PathBuf::from(&state.config.uploads_dir);
     let final_name = format!("{}{}", Uuid::new_v4(), ext);
-    let final_path = PathBuf::from(&state.config.uploads_dir).join(&final_name);
+    let final_path = uploads_dir.join(&final_name);
 
-    let mut file = File::create(&final_path).await?;
-    file.write_all(&file_data).await?;
-    file.flush().await?;
-    drop(file);
+    state
+        .upload_registry
+        .publish_bytes(
+            &uploads_dir,
+            state.wdb.engine(),
+            &final_name,
+            &filename,
+            None,
+            None,
+            Some(auth.user_id),
+            UploadKind::Profile,
+            &file_data,
+        )
+        .await?;
 
     let profile_picture_url = format!("/uploads/{}", final_name);
     tracing::info!(
@@ -809,18 +945,6 @@ pub async fn upload_profile_picture(
         final_path
     );
 
-    state
-        .upload_registry
-        .record(
-            &final_name,
-            &filename,
-            None,
-            Some(auth.user_id),
-            UploadKind::Profile,
-            file_data.len() as u64,
-        )
-        .await;
-
     Ok(Json(ProfilePictureResponse {
         profile_picture_url,
     }))
@@ -828,7 +952,51 @@ pub async fn upload_profile_picture(
 
 #[cfg(test)]
 mod tests {
-    use super::upload_response_headers;
+    use super::{complete_size_matches, upload_response_headers, validated_chunk_end};
+
+    #[test]
+    fn profile_media_uses_bounded_image_signatures_and_canonical_extensions() {
+        use super::{profile_media_extension, PROFILE_MEDIA_MAX_BYTES};
+        for (bytes, extension) in [
+            (&b"\x89PNG\r\n\x1a\n1234"[..], ".png"),
+            (&b"\xff\xd8\xff123456789"[..], ".jpg"),
+            (&b"GIF89a1234567"[..], ".gif"),
+            (&b"RIFF1234WEBP"[..], ".webp"),
+        ] {
+            assert_eq!(profile_media_extension(bytes).unwrap(), extension);
+        }
+        for bytes in [
+            &b"RIFFWEBP1234"[..],
+            &b"GIF89a"[..],
+            &b"<svg>bad</svg>"[..],
+            &b"1234ftyp1234"[..],
+        ] {
+            assert!(profile_media_extension(bytes).is_err());
+        }
+        let mut oversized = vec![0; PROFILE_MEDIA_MAX_BYTES + 1];
+        oversized[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        assert!(profile_media_extension(&oversized)
+            .unwrap_err()
+            .contains("10 MiB"));
+        oversized.pop();
+        assert_eq!(profile_media_extension(&oversized).unwrap(), ".png");
+    }
+
+    #[test]
+    fn resumable_chunks_must_append_within_the_declared_size() {
+        assert_eq!(validated_chunk_end(4, 10, 4, 6), Ok(10));
+        assert!(validated_chunk_end(4, 10, 3, 1).is_err());
+        assert!(validated_chunk_end(4, 10, 4, 7).is_err());
+        assert!(validated_chunk_end(4, u64::MAX, u64::MAX, 1).is_err());
+        assert!(validated_chunk_end(0, u64::MAX, 0, 8 * 1024 * 1024 + 1).is_err());
+    }
+
+    #[test]
+    fn completion_requires_all_declared_bytes_on_disk() {
+        assert!(complete_size_matches(10, 10, 10));
+        assert!(!complete_size_matches(9, 10, 10));
+        assert!(!complete_size_matches(10, 10, 9));
+    }
 
     #[test]
     fn upload_headers_carry_nosniff_and_csp() {
@@ -839,14 +1007,14 @@ mod tests {
             .collect();
 
         // nosniff must be present to prevent MIME sniffing of user uploads.
-        assert_eq!(
-            map.get("x-content-type-options").copied(),
-            Some("nosniff")
-        );
+        assert_eq!(map.get("x-content-type-options").copied(), Some("nosniff"));
 
         // A strict CSP/sandbox must be present so uploaded content (e.g. SVG)
         // cannot execute script or reach other origins.
-        let csp = map.get("content-security-policy").copied().expect("CSP header");
+        let csp = map
+            .get("content-security-policy")
+            .copied()
+            .expect("CSP header");
         assert!(csp.contains("default-src 'none'"));
         assert!(csp.contains("sandbox"));
     }

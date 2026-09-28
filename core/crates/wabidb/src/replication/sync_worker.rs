@@ -16,7 +16,8 @@ impl SyncWorker {
     }
 
     pub fn run_once(&self) -> Result<()> {
-        self.cycle_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.cycle_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 

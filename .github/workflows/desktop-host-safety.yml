@@ -1,0 +1,43 @@
+name: Desktop hosting regression checks
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/*build.yml'
+      - '.github/workflows/desktop-host-safety.yml'
+      - 'src-tauri/**'
+      - 'core/crates/wabi-server/**'
+      - 'scripts/*desktop-host*'
+      - 'scripts/host-safety/**'
+      - 'scripts/tests/desktop-host-*.test.mjs'
+      - 'frontend/src/lib/*host*'
+      - 'frontend/src/lib/*Hosting*'
+      - 'frontend/src/routes/host/**'
+      - 'frontend/src/routes/join/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hosting:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      RUSTUP_TOOLCHAIN: 1.93.1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@1.93
+      - name: Production process, profile and archive regression tests
+        run: cargo test --locked --manifest-path scripts/host-safety/Cargo.toml
+      - name: Package and invitation regression tests
+        run: |
+          node --test scripts/tests/desktop-host-foundation.test.mjs
+          node --experimental-strip-types --test scripts/tests/desktop-host-invites.test.mjs

@@ -2,6 +2,7 @@
 	import { projects, todos, sprints, generateBurnChartData } from '$lib/business/store';
 	import type { Project, Sprint, BurnChartDataPoint } from '$lib/business/types';
 	import GanttChart from './GanttChart.svelte';
+	import ProjectOverview from './ProjectOverview.svelte';
 
 	export let selectedProject: Project;
 	export let isReadOnly = false;
@@ -9,6 +10,8 @@
 	export let onDeleteProject: (project: Project) => void = () => {};
 	export let onOpenSprintModal: (sprint?: Sprint) => void = () => {};
 
+	export let onSelectProject: (project: Project) => void = () => {};
+	let detailView: 'overview' | 'reports' = 'overview';
 	let activeTab: 'burndown' | 'gantt' = 'burndown';
 	let burnRangeSprint: Sprint | null = null;
 	/** Burn range control: auto (sprint/project) or fixed windows. */
@@ -21,7 +24,9 @@
 	function getProjectPath(project: Project): string[] {
 		const path: string[] = [];
 		let current = project;
-		while (current.parentId) {
+		const visited = new Set([current.id]);
+		while (current.parentId && !visited.has(current.parentId)) {
+			visited.add(current.parentId);
 			const parent = $projects.find(p => p.id === current.parentId);
 			if (parent) {
 				path.unshift(parent.name);
@@ -144,6 +149,13 @@
 	</div>
 </header>
 
+<nav class="detail-views" aria-label="Project detail views">
+ <button class:chosen={detailView === 'overview'} on:click={() => detailView = 'overview'}>Overview</button>
+ <button class:chosen={detailView === 'reports'} on:click={() => detailView = 'reports'}>Reports &amp; sprints</button>
+</nav>
+{#if detailView === 'overview'}
+ <ProjectOverview project={selectedProject} {onSelectProject} />
+{:else}
 {#if activeSprint}
 	<div class="sprint-indicator">
 		<div class="sprint-info">
@@ -312,3 +324,9 @@
 		</div>
 	{/if}
 </div>
+
+{/if}
+<style>
+ .project-header{padding:24px 28px;margin-bottom:0;gap:24px}.header-info{min-width:0}.header-info h1{overflow-wrap:anywhere}.project-description{max-width:680px;line-height:1.6}.header-actions{flex-wrap:wrap;flex-shrink:0}@media(max-width:720px){.project-header{flex-direction:column;padding:20px}.detail-views{padding:12px 20px}}
+ .detail-views{display:flex;gap:8px;padding:12px 28px;border-bottom:1px solid var(--border-subtle)}.detail-views button{padding:8px 14px;border:0;border-radius:var(--radius-md);background:transparent;color:var(--text-muted);cursor:pointer}.detail-views button.chosen{background:var(--surface-raised);color:var(--text-heading)}
+</style>

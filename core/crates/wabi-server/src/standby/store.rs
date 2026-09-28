@@ -6,6 +6,7 @@
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use sha2::{Digest, Sha256};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -33,6 +34,8 @@ pub enum SnapshotStoreError {
     PayloadHashMismatch,
     #[error("snapshot id contains unsafe path characters")]
     UnsafeSnapshotId,
+    #[error("snapshot id already exists; stored snapshots are immutable")]
+    SnapshotAlreadyExists,
     #[error("snapshot persistence failed: {0}")]
     Persistence(String),
 }
@@ -58,10 +61,19 @@ impl SnapshotStore {
         let path = self.snapshot_path(&envelope.manifest.snapshot_id)?;
         let content = serde_json::to_vec_pretty(envelope)
             .map_err(|error| SnapshotStoreError::Persistence(error.to_string()))?;
-        tokio::fs::write(&path, content)
-            .await
-            .map_err(|error| SnapshotStoreError::Persistence(error.to_string()))?;
-        Ok(path)
+        let root = self.root.clone();
+        let temporary = root.join(format!(
+            ".{}-{}.tmp",
+            envelope.manifest.snapshot_id,
+            uuid::Uuid::new_v4()
+        ));
+        tokio::task::spawn_blocking(move || {
+            let result = persist_immutable(&root, &temporary, &path, &content);
+            let _ = std::fs::remove_file(&temporary);
+            result.map(|()| path)
+        })
+        .await
+        .map_err(|error| SnapshotStoreError::Persistence(error.to_string()))?
     }
 
     pub fn validate_encrypted(
@@ -100,6 +112,40 @@ impl SnapshotStore {
         }
         Ok(self.root.join(format!("{snapshot_id}.json")))
     }
+}
+
+fn persist_immutable(
+    root: &Path,
+    temporary: &Path,
+    final_path: &Path,
+    content: &[u8],
+) -> Result<(), SnapshotStoreError> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(temporary).map_err(persistence_error)?;
+    file.write_all(content).map_err(persistence_error)?;
+    file.sync_all().map_err(persistence_error)?;
+    match std::fs::hard_link(temporary, final_path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            return Err(SnapshotStoreError::SnapshotAlreadyExists);
+        }
+        Err(error) => return Err(persistence_error(error)),
+    }
+    #[cfg(unix)]
+    std::fs::File::open(root)
+        .and_then(|directory| directory.sync_all())
+        .map_err(persistence_error)?;
+    Ok(())
+}
+
+fn persistence_error(error: io::Error) -> SnapshotStoreError {
+    SnapshotStoreError::Persistence(error.to_string())
 }
 
 #[cfg(test)]
@@ -142,6 +188,32 @@ mod tests {
             .expect("store encrypted envelope");
         assert!(path.exists());
         assert!(path.ends_with(format!("{}.json", envelope.manifest.snapshot_id)));
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[tokio::test]
+    async fn stored_snapshot_cannot_be_replaced_by_the_same_id() {
+        let temp = std::env::temp_dir().join(format!("wabi-standby-test-{}", uuid::Uuid::new_v4()));
+        let store = SnapshotStore::new(&temp);
+        let envelope = encrypted_fixture();
+        let path = store
+            .store_encrypted(&envelope)
+            .await
+            .expect("first snapshot");
+        let original = std::fs::read(&path).expect("read stored snapshot");
+
+        let mut replacement = encrypted_fixture();
+        replacement.manifest.snapshot_id = envelope.manifest.snapshot_id.clone();
+        assert!(matches!(
+            store.store_encrypted(&replacement).await,
+            Err(SnapshotStoreError::SnapshotAlreadyExists)
+        ));
+        assert_eq!(
+            std::fs::read(&path).expect("read original snapshot"),
+            original
+        );
+        assert_eq!(std::fs::read_dir(&temp).unwrap().count(), 1);
 
         let _ = std::fs::remove_dir_all(temp);
     }

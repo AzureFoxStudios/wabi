@@ -85,3 +85,9 @@ export function isNotificationPreviewEnabled(): boolean {
 	if (!browser) return false;
 	return localStorage.getItem('notificationPreviewEnabled') === 'true';
 }
+
+/** Followed channels still update Activity when their system toasts are disabled. */
+export function areBackgroundFollowAlertsEnabled(): boolean {
+	if (!browser) return true;
+	return localStorage.getItem('backgroundFollowAlertsEnabled') !== 'false';
+}

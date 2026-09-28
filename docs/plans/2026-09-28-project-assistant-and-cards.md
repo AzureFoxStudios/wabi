@@ -1,0 +1,11 @@
+# Project milestones 1–3 and human Kanban detail
+
+Request: finish shared Project board/wiki, usable in-Wabi AI conversation, and one bounded worker with checkpoints/human controls. Preserve the larger multi-computer vision as later milestones. Extend cards with human estimates excluded from AI, notes/checklists/links, and human/bot assignment/claiming.
+
+The selected implementation adds a Project Assistant view, provider-neutral optional API worker, and durable Project-scoped run API. Tool scope is cards/wiki, with no terminal execution. This gives an immediately useful shared-work loop while leaving generic coding-agent host permissions and ordinary encrypted-DM enrollment as explicit later integrations. Existing OpenCode/Hermes bridge acceptance is retained, not relabeled as native worker acceptance.
+
+Storage changes: `project_run_updated` / `project_runs`, schema-version-1 JSON, channel-stream parent/owner admission; new `project_task_history` revision snapshots; task `WPT2\0` JSON encoding with exact legacy postcard decode. All new fields/events/indexes and rollback limitations are documented in [Project Assistant](../features/PROJECT_ASSISTANT.md). No ChannelKind, federation, WabiDB failover, or Authority-role change.
+
+Acceptance gates: human/bot assignment and stale claims; bot estimate omission/denial/preservation; notes/checklist/link persistence; shared burndown changes; native Project prompt/reply; provider failure visibility; bounded card/wiki work; duplicate/stale attempts; single-active-run admission; pause/cancel/takeover; requester/bot revocation; replay of completed and uncertain pending checkpoints; real browser and one explicitly free-model experiment. Tim deployment remains separate from candidate validation.
+
+Candidate acceptance is complete for these three **core slices**: shared board/wiki, native Project Assistant conversation, and a single bounded Project-tool worker. [Recorded checks](../testing/PROJECT_ASSISTANT_ACCEPTANCE_2026-09-28.md) include the live free-model work/hello trials, real browser controls and restarted persistence. This does not complete the broader proposal's ordinary DM/mention connector, generic coding-agent execution, parallel workers or automatic computer takeover.

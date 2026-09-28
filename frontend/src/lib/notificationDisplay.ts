@@ -92,8 +92,8 @@ export function showNotification(
 	const forceDesktop = options?.forceDesktop === true;
 	const shouldPlaySound = forceDesktop || document.hidden || !isCurrentChannelActive || isMention;
 
-	if (Notification.permission !== 'granted') {
-		console.log('Notification permission not granted:', Notification.permission);
+	if (!isDesktopTauri() && (typeof Notification === 'undefined' || Notification.permission !== 'granted')) {
+		console.log('Notification permission not granted');
 		return;
 	}
 
@@ -119,8 +119,8 @@ export function showNotification(
 			return;
 		}
 
-		if (Notification.permission !== 'granted') {
-			console.log('Notification permission not granted:', Notification.permission);
+		if (!isDesktopTauri() && (typeof Notification === 'undefined' || Notification.permission !== 'granted')) {
+			console.log('Notification permission not granted');
 			return;
 		}
 
@@ -225,7 +225,7 @@ export function showCallNotification(
 		return null;
 	}
 
-	if (Notification.permission !== 'granted') {
+	if (!isDesktopTauri() && (typeof Notification === 'undefined' || Notification.permission !== 'granted')) {
 		console.log('Notification permission not granted');
 		return null;
 	}

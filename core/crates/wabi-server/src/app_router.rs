@@ -9,9 +9,10 @@
 use crate::auth_extractor::OptionalAuthUser;
 use crate::state::{AppState, ComposedIndexCache};
 use axum::{
-    extract::DefaultBodyLimit,
-    http::{header::CACHE_CONTROL, header::CONTENT_TYPE, StatusCode},
-    response::IntoResponse,
+    body::{Body, Bytes},
+    extract::{ConnectInfo, DefaultBodyLimit, Request, State},
+    http::{header, header::CACHE_CONTROL, header::CONTENT_TYPE, HeaderMap, Method, StatusCode, Uri},
+    response::{IntoResponse, Response},
     routing::get,
     Json, Router,
 };
@@ -19,86 +20,133 @@ use rust_embed::RustEmbed;
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::net::SocketAddr;
 use std::time::Duration;
+use tokio::io::AsyncReadExt;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use wabidb::engine::wabi_store::WabiStore;
 
-/// Serve a file from the uploads directory
+/// Serve a file from the uploads directory.
 async fn serve_upload(
     _auth: OptionalAuthUser,
     axum::extract::Path(filename): axum::extract::Path<String>,
     axum::extract::State(state): axum::extract::State<Arc<AppState>>,
-) -> impl IntoResponse {
-    // Defend against path traversal: filename must not contain '/' or '\' or '..'
-    if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
-        return (axum::http::StatusCode::BAD_REQUEST, "Invalid filename").into_response();
-    }
+    headers: HeaderMap,
+) -> Response {
+    upload_response(filename, state, Method::GET, headers).await
+}
 
+async fn head_upload(
+    _auth: OptionalAuthUser,
+    axum::extract::Path(filename): axum::extract::Path<String>,
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Response {
+    upload_response(filename, state, Method::HEAD, headers).await
+}
+
+async fn upload_response(
+    filename: String,
+    state: Arc<AppState>,
+    method: Method,
+    request_headers: HeaderMap,
+) -> Response {
+    if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
+        return (StatusCode::BAD_REQUEST, "Invalid filename").into_response();
+    }
+    // Denial wins even when final bytes have already been removed.
+    if state.upload_registry.is_revoked(&filename).await {
+        return (StatusCode::GONE, "File has been revoked").into_response();
+    }
     let uploads_dir = PathBuf::from(&state.config.uploads_dir);
     let file_path = uploads_dir.join(&filename);
-
-    // Must be inside uploads_dir (no symlink escapes)
-    let canonical = std::fs::canonicalize(&uploads_dir).ok();
-    let file_canonical = std::fs::canonicalize(&file_path).ok();
-
+    let (canonical, file_canonical) = tokio::join!(
+        tokio::fs::canonicalize(&uploads_dir),
+        tokio::fs::canonicalize(&file_path)
+    );
+    let canonical = canonical.ok();
+    let file_canonical = file_canonical.ok();
     match (canonical, file_canonical) {
-        (Some(canon_uploads), Some(canon_file)) => {
-            if !canon_file.starts_with(&canon_uploads) {
-                // Path traversal attempted
-                return (axum::http::StatusCode::FORBIDDEN, "Forbidden").into_response();
+        (Some(root), Some(file)) if file.starts_with(&root) => {}
+        (Some(_), Some(_)) => return (StatusCode::FORBIDDEN, "Forbidden").into_response(),
+        _ => return (StatusCode::NOT_FOUND, "File not found").into_response(),
+    }
+    let metadata = match tokio::fs::symlink_metadata(&file_path).await {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => metadata,
+        Ok(_) => return (StatusCode::FORBIDDEN, "Forbidden").into_response(),
+        Err(_) => return (StatusCode::NOT_FOUND, "File not found").into_response(),
+    };
+    let canonical_record = state.wdb.engine().projection_state().get(
+        wabidb::projections::upload_assets::INDEX,
+        filename.as_bytes(),
+    );
+    let etag = if let Some(record) = canonical_record {
+        let record = match wabidb::projections::upload_assets::decode(&record) {
+            Ok(record) if record.filename == filename && record.size == metadata.len() => record,
+            _ => {
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Upload record differs from file",
+                )
+                    .into_response()
             }
+        };
+        Some(format!("\"sha256-{}\"", record.sha256))
+    } else {
+        None
+    };
+    let mime = mime_guess::from_path(&file_path).first_or_octet_stream();
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, mime.as_ref().parse().unwrap());
+    headers.insert(
+        header::CONTENT_LENGTH,
+        metadata.len().to_string().parse().unwrap(),
+    );
+    for (name, value) in crate::api::upload::upload_response_headers() {
+        headers.insert(name, value);
+    }
+    headers.insert(header::REFERRER_POLICY, "no-referrer".parse().unwrap());
+    // Revocable canonical bytes may be cached only with revalidation.
+    // Legacy files have no durable digest and cannot be cached.
+    headers.insert(
+        header::CACHE_CONTROL,
+        if etag.is_some() {
+            "private, no-cache"
+        } else {
+            "private, no-store"
         }
-        _ => {
-            return (axum::http::StatusCode::NOT_FOUND, "File not found").into_response();
+        .parse()
+        .unwrap(),
+    );
+    if let Some(etag) = etag {
+        headers.insert(header::ETAG, etag.parse().unwrap());
+        if request_headers
+            .get(header::IF_NONE_MATCH)
+            .is_some_and(|value| value.as_bytes() == etag.as_bytes())
+        {
+            return (StatusCode::NOT_MODIFIED, headers).into_response();
         }
     }
-
-    // WS-6b: revoked files return 410 Gone.
-    if state.upload_registry.is_revoked(&filename).await {
-        return (axum::http::StatusCode::GONE, "File has been revoked").into_response();
+    if method == Method::HEAD {
+        return (StatusCode::OK, headers).into_response();
     }
-
-    match tokio::fs::read(&file_path).await {
-        Ok(data) => {
-            let mime = mime_guess::from_path(&file_path).first_or_octet_stream();
-            tracing::debug!(
-                "Serving upload: {:?} ({} bytes, {})",
-                file_path,
-                data.len(),
-                mime
-            );
-            // Harden user-uploaded content: disallow MIME sniffing and sandbox
-            // it behind a strict CSP so an SVG/image cannot execute script or
-            // reach other origins.
-            let mut headers = axum::http::HeaderMap::new();
-            headers.insert(axum::http::header::CONTENT_TYPE, mime.as_ref().parse().unwrap());
-            for (k, v) in crate::api::upload::upload_response_headers() {
-                headers.insert(k, v);
-            }
-            // WS-6a: cache control + referrer policy for uploaded files.
-            // Upload filenames are content-UUIDs (never overwritten), so they are
-            // safe to cache far longer than a session — 1h max-age made every
-            // avatar/background re-download after an hour (visible boot lag).
-            // The SW media cache still enforces logout-time purge + revocation
-            // returns 410 before this header matters.
-            headers.insert(
-                axum::http::header::CACHE_CONTROL,
-                "private, max-age=31536000, immutable".parse().unwrap(),
-            );
-            headers.insert(
-                axum::http::header::REFERRER_POLICY,
-                "no-referrer".parse().unwrap(),
-            );
-            (headers, data).into_response()
+    let file = match tokio::fs::File::open(&file_path).await {
+        Ok(file) => file,
+        Err(_) => return (StatusCode::NOT_FOUND, "File not found").into_response(),
+    };
+    let stream = futures::stream::try_unfold(file, |mut file| async move {
+        let mut buffer = vec![0_u8; 64 * 1024];
+        let count = file.read(&mut buffer).await?;
+        if count == 0 {
+            Ok::<_, std::io::Error>(None)
+        } else {
+            Ok(Some((Bytes::copy_from_slice(&buffer[..count]), file)))
         }
-        Err(e) => {
-            tracing::debug!("Upload file not found: {:?} — {}", file_path, e);
-            (axum::http::StatusCode::NOT_FOUND, "File not found").into_response()
-        }
-    }
+    });
+    (headers, Body::from_stream(stream)).into_response()
 }
 
 /// Embedded static assets from frontend build
@@ -106,6 +154,77 @@ async fn serve_upload(
 #[folder = "../../../frontend/build"]
 #[exclude = "*.gitkeep"]
 struct StaticAssets;
+
+/// Serve only build-versioned public assets at an Anchor. The Authority owns
+/// index.html and its injected community branding; a missing asset must be
+/// fetched from the Authority so differing binary builds remain usable.
+pub(crate) fn embedded_immutable_asset(method: &Method, uri: &Uri) -> Option<Response> {
+    if method != Method::GET && method != Method::HEAD {
+        return None;
+    }
+    let path = uri.path().strip_prefix("/_app/immutable/")?;
+    if path.is_empty()
+        || path.contains("..")
+        || path.contains("//")
+        || !path.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'_' | b'-' | b'.')
+        })
+    {
+        return None;
+    }
+    let asset = StaticAssets::get(&format!("_app/immutable/{path}"))?;
+    let mime = mime_guess::from_path(path).first_or_octet_stream();
+    let length = asset.data.len();
+    let body = if method == Method::HEAD {
+        Body::empty()
+    } else {
+        match asset.data {
+            std::borrow::Cow::Borrowed(bytes) => Body::from(Bytes::from_static(bytes)),
+            std::borrow::Cow::Owned(bytes) => Body::from(bytes),
+        }
+    };
+    Response::builder()
+        .header(CONTENT_TYPE, mime.as_ref())
+        .header(CACHE_CONTROL, "public, max-age=31536000, immutable")
+        .header(header::CONTENT_LENGTH, length.to_string())
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header("x-wabi-anchor-static", "local")
+        .body(body)
+        .ok()
+}
+
+#[cfg(test)]
+pub(crate) fn embedded_immutable_sample_path() -> Option<String> {
+    StaticAssets::iter()
+        .find(|path| path.starts_with("_app/immutable/") && path.ends_with(".js"))
+        .map(|path| format!("/{path}"))
+}
+
+#[cfg(test)]
+mod embedded_immutable_tests {
+    use super::embedded_immutable_asset;
+    use axum::http::{Method, Uri};
+
+    #[test]
+    fn only_exact_public_immutable_paths_are_local() {
+        for path in [
+            "/",
+            "/api/auth/me",
+            "/_app/immutable/../index.html",
+            "/_app/immutable/%2e%2e/index.html",
+            "/_app/immutable//chunks/app.js",
+            "/_app/immutable/chunks/absent-version.js",
+        ] {
+            let uri = path.parse::<Uri>().unwrap();
+            assert!(embedded_immutable_asset(&Method::GET, &uri).is_none(), "{path}");
+        }
+        let existing = super::embedded_immutable_sample_path().unwrap();
+        let uri = existing.parse::<Uri>().unwrap();
+        assert!(embedded_immutable_asset(&Method::GET, &uri).is_some());
+        assert!(embedded_immutable_asset(&Method::HEAD, &uri).is_some());
+        assert!(embedded_immutable_asset(&Method::POST, &uri).is_none());
+    }
+}
 
 /// Build the CORS layer based on `WABI_CORS_ORIGINS`.
 ///
@@ -185,7 +304,12 @@ fn is_safe_local_origin(origin: &str) -> bool {
         host_port.split(':').next().unwrap_or(host_port)
     };
 
-    if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
+    if host == "localhost"
+        || host == "tauri.localhost"
+        || host == "127.0.0.1"
+        || host == "::1"
+        || host == "0.0.0.0"
+    {
         return true;
     }
     // Tailscale IPv4 CGNAT range: 100.64.0.0/10.
@@ -201,6 +325,16 @@ fn is_safe_local_origin(origin: &str) -> bool {
 #[cfg(test)]
 mod cors_tests {
     use super::is_safe_local_origin;
+
+    #[test]
+    fn native_webview_origins_are_exact_matches() {
+        assert!(is_safe_local_origin("tauri://localhost"));
+        assert!(is_safe_local_origin("http://tauri.localhost"));
+        assert!(is_safe_local_origin("https://tauri.localhost"));
+        assert!(!is_safe_local_origin(
+            "https://tauri.localhost.attacker.example"
+        ));
+    }
 
     #[test]
     fn accept_localhost() {
@@ -323,7 +457,10 @@ async fn metrics_handler() -> axum::response::Response {
     let body = crate::metrics::render_prometheus();
     (
         axum::http::StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4",
+        )],
         body,
     )
         .into_response()
@@ -481,8 +618,11 @@ async fn serve_static(
             } else {
                 content.data.to_vec()
             };
-            let mut response =
-                ([(CONTENT_TYPE, mime.as_ref()), (CACHE_CONTROL, cache)], body).into_response();
+            let mut response = (
+                [(CONTENT_TYPE, mime.as_ref()), (CACHE_CONTROL, cache)],
+                body,
+            )
+                .into_response();
             if path == "index.html" {
                 // WS-6a: referrer policy on the SPA index.html response.
                 response.headers_mut().insert(
@@ -517,10 +657,30 @@ async fn serve_static(
     }
 }
 
+async fn ip_deny_middleware(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    request: Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let client_ip = crate::rate_limit::trusted_client_ip(&headers, peer);
+    let Some(blacklist) = state.get_blacklist().await else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "Admission policy unavailable").into_response();
+    };
+    if blacklist.is_ip_banned(&client_ip).await.is_some() {
+        return (StatusCode::FORBIDDEN, "This address is blocked by this server's operator").into_response();
+    }
+    next.run(request).await
+}
+
 /// Build the full application router. Extracted from `main()` so tests can
 /// reach the fallback (`serve_static`).
 pub fn build_app_router(state: Arc<AppState>) -> Router {
-    let max_body_bytes = state.config.max_body_size.unwrap_or(50 * 1024 * 1024 * 1024);
+    let max_body_bytes = state
+        .config
+        .max_body_size
+        .unwrap_or(50 * 1024 * 1024 * 1024);
 
     // Rate limiting (configurable via env, default: 10 req/s, burst 20)
     let rate_limit_rps = std::env::var("WABI_RATE_LIMIT_RPS")
@@ -531,8 +691,7 @@ pub fn build_app_router(state: Arc<AppState>) -> Router {
         .ok()
         .and_then(|s| s.parse::<u32>().ok())
         .unwrap_or(20);
-    let rate_limit_state =
-        crate::rate_limit::RateLimitState::new(rate_limit_rps, rate_limit_burst);
+    let rate_limit_state = crate::rate_limit::RateLimitState::new(rate_limit_rps, rate_limit_burst).with_trusted_proxies();
 
     Router::new()
         // Health checks (no rate limit)
@@ -559,7 +718,7 @@ pub fn build_app_router(state: Arc<AppState>) -> Router {
         // WebSocket endpoint (plain WS, kept for future use)
         .nest("/ws", crate::websocket::ws_router(state.clone()))
         // Uploaded media files
-        .route("/uploads/{filename}", get(serve_upload))
+        .route("/uploads/{filename}", get(serve_upload).head(head_upload))
         // Static assets (SPA fallback)
         .fallback(serve_static)
         // Middleware
@@ -569,6 +728,8 @@ pub fn build_app_router(state: Arc<AppState>) -> Router {
         ))
         // Socket.IO layer (must be added before the router is finalised)
         .layer(crate::socketio::create_socket_layer(state.clone()))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), crate::instance_operations::middleware))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), ip_deny_middleware))
         .layer(build_cors_layer())
         // Compress JS/CSS/JSON/SVG responses (br preferred, gzip fallback).
         // The SPA bundle ships multi-MB chunks; this cuts them ~4-5x on the wire.

@@ -171,6 +171,10 @@
 	padding: 0.55rem;
 }
 
+:root:not([data-theme='light']) .server-avatar-image--logo {
+	filter: invert(1);
+}
+
 .server-avatar-fallback,
 .rail-manage span {
 	font-size: var(--font-size-lg, 1rem);

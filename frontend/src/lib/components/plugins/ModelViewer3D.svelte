@@ -4,6 +4,7 @@
   import ModelViewerSettingsMenu from './ModelViewerSettingsMenu.svelte';
   import ModelInspectorPanel from './model-viewer/ModelInspectorPanel.svelte';
   import { createModelInspectorRuntime, type ModelInspectorRuntime } from './modelInspectorRuntime';
+  import { createModelRenderLoop } from './modelRenderLoop';
   import { EMPTY_INSPECTOR, frameDistance, extensionOf, modelFormatMessage, formatLength, type ModelUnit, type InspectorSnapshot, type ModelView } from './modelInspector';
   import {
     clearOverlayLines,
@@ -211,7 +212,7 @@
     let animationClips: any[] = [];
     const skeletonHelpers: any[] = [];
     const rigOverlays: RigOverlay[] = [];
-    let frameHandle = 0;
+    let frameLoop: ReturnType<typeof createModelRenderLoop> | null = null;
     let worker: Worker | null = null;
     let loadedRoot: any = null;
     let fitCameraToObjectRef: ((object: any, THREE: any) => void) | null = null;
@@ -547,7 +548,7 @@
       rejectWorker = null;
       inspector?.dispose();
       inspector = null;
-      if (frameHandle) cancelAnimationFrame(frameHandle);
+      frameLoop?.dispose();
       controls?.dispose?.();
       clearOverlayLines(overlayLines);
       clearSkeletonHelpers(skeletonHelpers);
@@ -888,9 +889,9 @@
           camera.updateProjectionMatrix();
         };
 
-        const animate = () => {
-          if (disposed) return;
-          frameHandle = requestAnimationFrame(animate);
+        let inViewport = true;
+        let minimized = false;
+        frameLoop = createModelRenderLoop(() => {
           if (mixer && clock) {
             const delta = clock.getDelta();
             mixer.update(delta);
@@ -899,14 +900,39 @@
           updateRigOverlays();
           controls?.update?.();
           renderer?.render?.(scene, camera);
+        }, () => { clock?.getDelta(); });
+        const updateRenderVisibility = () => {
+          frameLoop?.setActive(!disposed && !document.hidden && !minimized && inViewport);
         };
 
         const resizeObserver = new ResizeObserver(resize);
         resizeObserver.observe(canvas.parentElement!);
+        const visibilityObserver = new IntersectionObserver(([entry]) => {
+          inViewport = entry.isIntersecting;
+          updateRenderVisibility();
+        });
+        visibilityObserver.observe(canvas);
+        document.addEventListener('visibilitychange', updateRenderVisibility);
+        let cleanedUp = false;
+        let unlistenWindowState = () => {};
+        void import('$lib/tauri-window').then(({ listenForWindowStateChanges }) =>
+          listenForWindowStateChanges((state) => {
+            minimized = state === 'minimized';
+            updateRenderVisibility();
+          })
+        ).then((unlisten) => {
+          if (cleanedUp) unlisten(); else unlistenWindowState = unlisten;
+        }).catch(() => {});
         resize();
-        animate();
+        updateRenderVisibility();
 
-        return () => resizeObserver.disconnect();
+        return () => {
+          cleanedUp = true;
+          unlistenWindowState();
+          resizeObserver.disconnect();
+          visibilityObserver.disconnect();
+          document.removeEventListener('visibilitychange', updateRenderVisibility);
+        };
       } catch (e) {
         if (!disposed) {
           error = e instanceof Error ? e.message : 'Failed to initialize 3D viewer';

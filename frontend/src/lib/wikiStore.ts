@@ -196,7 +196,7 @@ export function createWikiWorkspace() {
 	async function updateWikiPage(
 		channelId: string,
 		pageId: string,
-		data: { title?: string; body?: string; parentPageId?: string; slug?: string; orderIndex?: number }
+		data: { expectedUpdatedAtMicros: number; title?: string; body?: string; parentPageId?: string; slug?: string; orderIndex?: number }
 	): Promise<WikiPage | null> {
 	 const isCurrent = capture(channelId);
 	 if (!isCurrent()) return null;
@@ -209,7 +209,9 @@ export function createWikiWorkspace() {
 					body: JSON.stringify(data),
 				}
 			);
-			if (!res.ok) throw new Error(`Failed to update page: ${res.statusText}`);
+			if (!res.ok) throw new Error(res.status === 409
+				? 'This wiki page changed. Your draft is still here; reload the page before saving.'
+				: `Failed to update page: ${res.statusText}`);
 			const page: WikiPage = normalizeWikiPage(await res.json());
 			// Preserve the acknowledgement for a draft transaction without mutating a retired view.
 			if (!isCurrent()) return page;

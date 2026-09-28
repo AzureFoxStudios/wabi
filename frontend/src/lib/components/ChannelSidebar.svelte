@@ -86,7 +86,9 @@
 	import type { CreateableChannelType } from '$lib/channelStore';
 
 	const dispatch = createEventDispatcher();
-	export let activeView: 'chat' | 'business' | 'screen' | 'following' | 'dm' = 'chat';
+	export let activeView: 'chat' | 'business' | 'screen' | 'following' | 'dm' | 'server' = 'chat';
+	export let dmHubTab: 'messages' | 'friends' = 'messages';
+	export let friendRequestCount = 0;
 
 	let newChannelName = '';
 	let newChannelDescription = '';
@@ -228,7 +230,7 @@
 	$: wikiChannelsAll = $channels.filter(ch => ch.type === 'wiki').filter(ch => !shouldHideChannelFromList(ch));
 	// L2: Asset Storage (lore) — never mix into text list
 	$: loreChannelsAll = $channels.filter(ch => { const t = ch.type as string | undefined; return t === 'lore' || (ch as any).asset_storage === true; }).filter(ch => !shouldHideChannelFromList(ch));
-	// BZ3: Planning channels render the Planner workspace (center stage).
+	// Planning channels open the shared Project workspace; personal Planner is separate.
 	$: planningChannelsAll = $channels.filter(ch => (ch.type as string | undefined) === 'planning').filter(ch => !shouldHideChannelFromList(ch));
 	// Unified sidebar: ONE pool of every sidebar channel (all types), grouped by
 	// category folders that may hold ANY mix of types. Folders are first-class
@@ -282,7 +284,10 @@
 		}
 		try { localStorage.setItem('wabi-voice-duration-mode', 'off'); } catch {}
 		voiceDurationMode = 'off';
-		voiceDurationTicker = setInterval(() => { nowMs = Date.now(); }, 1000);
+		// Duration labels are off by default — do not start the 1s nowMs ticker
+		// until the user enables a duration mode (see setVoiceDurationMode).
+		// An unconditional interval re-invalidated the whole channel list every
+		// second while nothing rendered the durations.
 		const onPtr = (e: PointerEvent) => { if (!glimpseChannelId) return; const t = e.target as HTMLElement | null; if (!t || glimpsePopover?.contains(t) || t.closest('.channel-btn')) return; glimpseChannelId = null; };
 		const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && glimpseChannelId) glimpseChannelId = null; };
 		// Peek is position:fixed — scrolling anywhere outside detaches it from
@@ -362,7 +367,8 @@
 
 	function clearAllUnreadNotifications() { for (const id of Object.keys($channelUnreadCounts)) markChannelAsRead(id); markMessagesAsRead(); }
 	function openFollowingView() { activeView = 'following'; glimpseChannelId = null; dispatch('close'); }
-	function openDmHub() { activeView = 'dm'; glimpseChannelId = null; dispatch('close'); }
+	function openDmHub() { activeView = 'dm'; glimpseChannelId = null; dispatch('openMessages'); dispatch('close'); }
+	function openFriendsHub() { activeView = 'dm'; glimpseChannelId = null; dispatch('openFriends'); dispatch('close'); }
 	function openVoiceChannelWhiteboard(id: string, e?: Event) { e?.stopPropagation(); activeView = 'chat'; currentChannel.set(id); setWhiteboardSurface(id, 'whiteboard'); dispatch('close'); }
 	function toggleChannelFollowState(id: string, e?: Event) { e?.stopPropagation(); const f = toggleChannelFollow(id); if (!f && glimpseChannelId === id) glimpseChannelId = null; }
 	function cycleFollowAlert(id: string, e?: Event) { e?.stopPropagation(); if (!followedChannelIds.has(id)) toggleChannelFollow(id); cycleChannelFollowAlertLevel(id); }
@@ -438,7 +444,16 @@
 	function handleVoiceChannelDragOver(e: DragEvent, chId: string) { if (!draggedVoiceMember || draggedVoiceMember.channelId === chId) return; e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'; voiceDropTargetChannelId = chId; }
 	function handleVoiceChannelDragLeave(chId: string) { if (voiceDropTargetChannelId === chId) voiceDropTargetChannelId = null; }
 	function handleVoiceChannelDrop(e: DragEvent, chId: string) { if (!draggedVoiceMember || draggedVoiceMember.channelId === chId) return; e.preventDefault(); e.stopPropagation(); moveUserToVoiceChannel(draggedVoiceMember.userId, chId); draggedVoiceMember = null; voiceDropTargetChannelId = null; }
-	function setVoiceDurationMode(mode: 'off' | 'others' | 'all') { voiceDurationMode = mode; try { localStorage.setItem('wabi-voice-duration-mode', mode); } catch {} }
+	function setVoiceDurationMode(mode: 'off' | 'others' | 'all') {
+		voiceDurationMode = mode;
+		try { localStorage.setItem('wabi-voice-duration-mode', mode); } catch {}
+		if (mode === 'off') {
+			if (voiceDurationTicker) { clearInterval(voiceDurationTicker); voiceDurationTicker = null; }
+		} else if (!voiceDurationTicker) {
+			nowMs = Date.now();
+			voiceDurationTicker = setInterval(() => { nowMs = Date.now(); }, 1000);
+		}
+	}
 
 	// ========================================================================
 	// DRAG & DROP — single-coordinator model
@@ -898,9 +913,8 @@
 			createFolderChoice = 'none';
 			createNewFolderName = '';
 			showCreateInput = false;
-			// Project channels: land the user inside the new channel so they see
-			// the repo workspace (file tree etc.) instead of being left on the hub.
-			if (createdType === 'lore' && createdId) {
+			// Project channels land in the shared Project workspace.
+			if ((createdType === 'lore' || createdType === 'planning') && createdId) {
 				// give the optimistic upsert a tick, then switch into it
 				await new Promise((r) => setTimeout(r, 50));
 				switchChannel(createdId);
@@ -1059,7 +1073,7 @@
 <div class="channel-sidebar" class:compact={isCompactSidebar} class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'} style:width={$layoutStore.isMobile ? '100%' : `${$layoutStore.channelSidebarWidth}px`}>
 	<div class="top-section" class:has-banner={Boolean(currentServerBannerUrl)} style:--sidebar-banner-image={currentServerBannerUrl ? `url('${currentServerBannerUrl}')` : 'none'}>
 		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
-		<button type="button" class="server-identity" on:click={() => dispatch('openServerSwitcher')}>
+		<button type="button" class="server-identity" class:active={activeView === 'server'} aria-label={`Open ${currentServerLabel} hub`} aria-current={activeView === 'server' ? 'page' : undefined} on:click={() => { dispatch('openServerHub'); dispatch('close'); }}>
 	<div class="logo">
 		{#if serverIdentityIconUrl && !serverIdentityImageFailed}
 			<img src={serverIdentityIconUrl} alt={`${currentServerLabel} icon`} class="logo-img server-logo-img" on:error={() => (serverIdentityImageFailed = true)} />
@@ -1068,7 +1082,7 @@
 		{/if}
 	</div>
 	{#if !isCompactSidebar}
-		<div class="server-copy"><strong class="server-name">{currentServerLabel}</strong>{#if currentServerTagline}<span class="server-tagline">{currentServerTagline}</span>{/if}</div>
+		<div class="server-copy"><strong class="server-name">{currentServerLabel}</strong><span class="server-tagline">Reference Desk{currentServerTagline ? ` · ${currentServerTagline}` : ''}</span></div>
 	{/if}
 		</button>
 		{#if sidebarWidth < 170 && !isCompactSidebar}
@@ -1085,11 +1099,11 @@
 		<button
 			class="messages-hub-btn"
 			type="button"
-			class:active={activeView === 'dm'}
+			class:active={activeView === 'dm' && dmHubTab === 'messages'}
 			on:click={openDmHub}
 			title={isCompactSidebar ? (dmUnreadCount > 0 ? `Messages (${dmUnreadCount} unread)` : 'Messages') : 'Direct messages & notes'}
 			aria-label={dmUnreadCount > 0 ? `Messages, ${dmUnreadCount} unread` : 'Messages'}
-			aria-current={activeView === 'dm' ? 'page' : undefined}
+			aria-current={activeView === 'dm' && dmHubTab === 'messages' ? 'page' : undefined}
 		>
 			<span class="messages-hub-icon" aria-hidden="true">
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
@@ -1099,6 +1113,25 @@
 			{/if}
 			{#if dmUnreadCount > 0}
 				<span class="messages-hub-badge">{dmUnreadCount > 99 ? '99+' : dmUnreadCount}</span>
+			{/if}
+		</button>
+		<button
+			class="messages-hub-btn"
+			type="button"
+			class:active={activeView === 'dm' && dmHubTab === 'friends'}
+			on:click={openFriendsHub}
+			title={friendRequestCount > 0 ? `Friends (${friendRequestCount} requests)` : 'Friends and requests'}
+			aria-label={friendRequestCount > 0 ? `Friends, ${friendRequestCount} requests waiting` : 'Friends and requests'}
+			aria-current={activeView === 'dm' && dmHubTab === 'friends' ? 'page' : undefined}
+		>
+			<span class="messages-hub-icon" aria-hidden="true">
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+			</span>
+			{#if !isCompactSidebar}
+				<span class="messages-hub-label">Friends</span>
+			{/if}
+			{#if friendRequestCount > 0}
+				<span class="messages-hub-badge">{friendRequestCount > 99 ? '99+' : friendRequestCount}</span>
 			{/if}
 		</button>
 	</div>

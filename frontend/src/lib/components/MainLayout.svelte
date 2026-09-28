@@ -15,16 +15,26 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import FloatingPanelHost from '$lib/components/windowing/FloatingPanelHost.svelte';
 	import ServerRail from '$lib/components/ServerRail.svelte';
 	import ServerSwitcherPanel from '$lib/components/ServerSwitcherPanel.svelte';
+	import ServerHub from '$lib/components/ServerHub.svelte';
+	import CommunityRulesNotice from '$lib/components/CommunityRulesNotice.svelte';
+	import { getOpeningSurface } from '$lib/openingSurface';
+	import { getAuthToken } from '$lib/authSession';
 	import FollowingFeed from '$lib/components/FollowingFeed.svelte';
-	import RightPanel from '$lib/components/RightPanel.svelte';
+	import NotificationsCenter from '$lib/components/NotificationsCenter.svelte';
+	import { friendships, startFriendshipSync } from '$lib/friendships';
+	import { remoteFriendRequests, startRemoteFriendRequestPoller } from '$lib/crossServerFriendRequests';
+	import { followUnreadCountsByServer } from '$lib/followingSnapshots';
+	import { NOTIFICATIONS_ADDON_ID } from '$lib/notificationsWorkspace';
+	import { getDmDirectoryKey } from '$lib/dmUserDirectory';
+	import { findExistingDmChannel } from '$lib/dmConversations';
 	import RightStubStrip from '$lib/components/RightStubStrip.svelte';
 	import VoiceLiveStrip from '$lib/components/VoiceLiveStrip.svelte';
 	import { voiceViewOpen } from '$lib/voiceView';
 	import { activeWorkspaceView, selectWorkspaceView } from '$lib/workspaceNavigationState';
 	import type { WorkspaceViewKey } from './chat/types';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
-	import { channelMessages, channelUnreadCounts, channels, currentChannel, currentUser, users, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, joinChannel, type Channel, type User } from '$lib/socket';
-	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, incomingCall, outgoingCall, isInCall, activeGroupCall, groupCallRingingTargets, isVideoOff, toggleVideo, channelCallPanelOpen } from '$lib/calling';
+	import { channelMessages, channelUnreadCounts, channels, currentChannel, currentUser, users, createDM, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, joinChannel, type Channel, type User } from '$lib/socket';
+	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, incomingCall, outgoingCall, isInCall, activeGroupCall, groupCallRingingTargets, isVideoOff, toggleVideo, channelCallPanelOpen, callOfflineNotice } from '$lib/calling';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { onDestroy, onMount } from 'svelte';
 import { _ } from '$lib/i18n';
@@ -43,13 +53,16 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		isTrackedPersonStatusAlertsKeyEnabled,
 		rememberPeople
 	} from '$lib/peopleTracker';
-	import { getServerUrl } from '$lib/serverUrl';
+	import { getServerUrl, normalizeServerUrl, resolveServerUrl } from '$lib/serverUrl';
 	import { savedServerRailItems } from '$lib/savedServers';
+	import { desktopServerRailPinned } from '$lib/serverNavigationPreference';
+	import { isDesktopTauri } from '$lib/tauri-platform';
 	// N1: floating QuickScratchpad
 	import { quickScratchpadOpen, closeQuickScratchpad } from '$lib/notesStore';
 	import QuickScratchpad from '$lib/components/QuickScratchpad.svelte';
 	import InstallAppBanner from '$lib/components/pwa/InstallAppBanner.svelte';
 	import { formatMobileUnreadBadge, nextMobileBackSurface, sumUnreadConversationCount } from '$lib/mobileShellModel';
+	import { showToast } from '$lib/toast';
 
 	// Phase 4 boot optimization: non-first-paint surfaces load on first
 	// activation. Only .svelte components go lazy; utility-module imports
@@ -66,11 +79,15 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	let KeepNotesViewCmp: typeof import('./KeepNotesView.svelte').default | null = null;
 	let PlannerWorkspaceCmp: typeof import('./business/PlannerWorkspace.svelte').default | null = null;
 	let CallDebugPanelCmp: typeof import('./CallDebugPanel.svelte').default | null = null;
+	let RightPanelCmp: typeof import('./RightPanel.svelte').default | null = null;
 
-	export let activeView: 'chat' | 'business' | 'screen' | 'following' | 'dm' = 'chat';
+	export let newlyRegistered = false;
+	export let activeView: 'chat' | 'business' | 'screen' | 'following' | 'dm' | 'server' = newlyRegistered || getOpeningSurface() === 'server' ? 'server' : 'dm';
 	export let accountSecurityOpenRequest = 0;
 	let showSettings = false;
 	let requestedSettingsPaymentSurface: 'connections' | null = null;
+	let requestedSettingsTab: 'profile' | 'server' | 'notifications' | null = null;
+	let activityActionError = '';
 	let requestedSettingsPasswordChangeRequest = 0;
 	let lastHandledAccountSecurityOpenRequest = 0;
 	// N1: overlay reactive
@@ -78,6 +95,15 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 	$: totalUnreadDMs = sumUnreadConversationCount($channelUnreadCounts, $channels);
 	$: mobileUnreadBadge = formatMobileUnreadBadge(totalUnreadDMs);
+	$: mobileFriendRequestBadge = formatMobileUnreadBadge($friendships.incoming.length);
+	let hubRequestSequence = 0;
+	let friendsOpenRequest = 0;
+	let messagesOpenRequest = 0;
+	let dmHubActiveTab: 'messages' | 'friends' = 'messages';
+	let unsubscribeFriendshipSync: (() => void) | null = null;
+	let unsubscribeFriendRequestNotices: (() => void) | null = null;
+	let knownIncomingRequestIds: Set<string> | null = null;
+	$: activityBadge = formatMobileUnreadBadge($friendships.incoming.length + Object.values($remoteFriendRequests).reduce((sum, entry) => sum + entry.requests.length, 0) + Object.values($followUnreadCountsByServer).reduce((sum, count) => sum + count, 0) + totalUnreadDMs);
 
 	let resizingChannel = false;
 	let resizingRight = false;
@@ -89,6 +115,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	// floating toggle only MOUNTS while a call surface is active.
 	const callDebugPanelEnabled = true;
 	let showServerSwitcher = false;
+	let serverHubReturnView: typeof activeView = 'chat';
+	let serverHubWelcome = newlyRegistered;
 	let mobileNavVisible = false;
 	let mobileNavIdleTimer: ReturnType<typeof setTimeout> | null = null;
 	let navTouchStartY = 0;
@@ -169,6 +197,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	// flips channelCallPanelOpen, so channel calls load the modal again
 	// (excluding them here is why the second click rendered nothing).
 	$: callUiActive = Boolean(
+		$callOfflineNotice ||
 		$incomingCall ||
 			$outgoingCall ||
 			$activeGroupCall ||
@@ -178,12 +207,43 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			$channelCallPanelOpen
 	);
 	$: if (callUiActive && !CallModalCmp) void import('./CallModal.svelte').then((m) => (CallModalCmp = m.default));
+	$: if (($layoutStore.rightPanelMode !== 'none' || peekClosing || ($layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'users')) && !RightPanelCmp) void import('./RightPanel.svelte').then((m) => (RightPanelCmp = m.default));
 
 	function handleWorkspaceViewSelect(view: WorkspaceViewKey): void {
 		activeView = 'chat';
 		// The picker owns the center only; keep docked DM conversations intact.
 		layoutStore.closeCenterDm();
 		selectWorkspaceView(view);
+	}
+
+	async function openFriendConversation(user: User): Promise<void> {
+		activityActionError = '';
+		const existing = findExistingDmChannel($channels, user);
+		if (existing) {
+			selectWorkspaceView('messages');
+			activeView = 'dm';
+			layoutStore.openCenterDm(existing.id, user);
+			void joinChannel(existing.id);
+			return;
+		}
+		const result = await createDM(getDmDirectoryKey(user));
+		const channelId = result.channelId || (result.ok ? result.channel?.id : null);
+		if (!channelId) {
+			activityActionError = result.ok === false ? result.error : 'Could not open the conversation.';
+			return;
+		}
+		selectWorkspaceView('messages');
+		activeView = 'dm';
+		layoutStore.openCenterDm(channelId, user);
+		void joinChannel(channelId);
+	}
+
+	function openActivityChannel(channelId: string): void {
+		activeView = 'chat';
+		layoutStore.closeCenterDm();
+		selectWorkspaceView('messages');
+		currentChannel.set(channelId);
+		void joinChannel(channelId);
 	}
 	const MOBILE_EDGE_SWIPE_MIN_X_PX = 56;
 	const MOBILE_EDGE_SWIPE_MAX_Y_PX = 72;
@@ -196,7 +256,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	$: desktopServerRailVisible =
 		!$layoutStore.isMobile &&
 		$layoutStore.channelSidebarWidth > 0 &&
-		$savedServerRailItems.length > 1;
+		$savedServerRailItems.length > 1 &&
+		(!isDesktopTauri() || $desktopServerRailPinned);
 	$: desktopServerRailOffset = desktopServerRailVisible ? SERVER_RAIL_WIDTH : 0;
 	$: currentChannelData = $channels.find(ch => ch.id === $currentChannel);
 	$: isGalleryChannel = currentChannelData?.type === 'gallery';
@@ -205,6 +266,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	layoutStore.isResizingRight.subscribe(v => resizingRight = v);
 	$: if (!showSettings) {
 		requestedSettingsPaymentSurface = null;
+		requestedSettingsTab = null;
 	}
 	$: if (accountSecurityOpenRequest > lastHandledAccountSecurityOpenRequest) {
 		lastHandledAccountSecurityOpenRequest = accountSecurityOpenRequest;
@@ -212,12 +274,52 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		openSettings();
 	}
 
+	onMount(() => {
+		const openDesktopSettings = (event: Event) => {
+			openSettings();
+			if ((event as CustomEvent<{ tab?: string }>).detail?.tab === 'profile') requestedSettingsTab = 'profile';
+		};
+		const openDesktopServers = () => {
+			openServerSwitcher();
+			requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('.server-switcher-overlay .switcher-close')?.focus());
+		};
+		window.addEventListener('wabi:open-settings', openDesktopSettings);
+		window.addEventListener('wabi:open-server-switcher', openDesktopServers);
+		return () => {
+			window.removeEventListener('wabi:open-settings', openDesktopSettings);
+			window.removeEventListener('wabi:open-server-switcher', openDesktopServers);
+		};
+	});
+	onMount(startRemoteFriendRequestPoller);
+	onMount(() => {
+		const target = sessionStorage.getItem('wabi.pendingActivityServer');
+		if (!target || target !== (normalizeServerUrl(resolveServerUrl().url) || resolveServerUrl().url)) return;
+		sessionStorage.removeItem('wabi.pendingActivityServer');
+		activeView = 'chat';
+		layoutStore.closeCenterDm();
+		selectWorkspaceView('notifications');
+	});
+
 	function openSettings(paymentSurface: 'connections' | null = null): void {
 		requestedSettingsPaymentSurface = paymentSurface;
+		requestedSettingsTab = null;
+		showSettings = true;
+	}
+
+	function openServerSettings(): void {
+		requestedSettingsPaymentSurface = null;
+		requestedSettingsTab = 'server';
+		showSettings = true;
+	}
+
+	function openNotificationSettings(): void {
+		requestedSettingsPaymentSurface = null;
+		requestedSettingsTab = 'notifications';
 		showSettings = true;
 	}
 
 	function openMobileChat(): void {
+		selectWorkspaceView('messages');
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
 		activeView = 'chat';
@@ -236,16 +338,54 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		scheduleMobileNavIdleHide();
 	}
 
-	function openMobileMessages(): void {
+	function selectMessagesHub(closeConversation = false): void {
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
-		layoutStore.closeDM();
+		if (closeConversation) layoutStore.closeCenterDm();
 		activeView = 'dm';
+		dmHubActiveTab = 'messages';
+		messagesOpenRequest = ++hubRequestSequence;
+	}
+
+	function openFriendsHub(): void {
+		layoutStore.showMobileChannels.set(false);
+		layoutStore.closeRightPanel();
+		layoutStore.closeCenterDm();
+		activeView = 'dm';
+		dmHubActiveTab = 'friends';
+		friendsOpenRequest = ++hubRequestSequence;
+		scheduleMobileNavIdleHide();
+	}
+
+	function openMobileMessages(): void {
+		selectWorkspaceView('messages');
+		layoutStore.closeDM();
+		selectMessagesHub(true);
 		try {
 			history.pushState({ wabiMobileSheet: 'messages' }, '');
 		} catch {
 			/* ignore */
 		}
+		scheduleMobileNavIdleHide();
+	}
+
+	function openMobileFriends(): void {
+		layoutStore.closeDM();
+		openFriendsHub();
+		try {
+			history.pushState({ wabiMobileSheet: 'friends' }, '');
+		} catch {
+			/* ignore */
+		}
+		scheduleMobileNavIdleHide();
+	}
+
+	function openMobileActivity(): void {
+		layoutStore.showMobileChannels.set(false);
+		layoutStore.closeRightPanel();
+		layoutStore.closeCenterDm();
+		activeView = 'chat';
+		selectWorkspaceView('notifications');
 		scheduleMobileNavIdleHide();
 	}
 
@@ -283,7 +423,12 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			}
 			return;
 		}
+		if (detail.view === 'friends') {
+			openFriendsHub();
+			return;
+		}
 		if (detail.view === 'settings') openSettings();
+		if (detail.view === 'notifications' || detail.view === 'activity') handleWorkspaceViewSelect('notifications');
 	}
 
 	function handleMobilePopState(): void {
@@ -323,11 +468,70 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		showServerSwitcher = true;
 	}
 
+	function openServerHub(): void {
+		showServerSwitcher = false;
+		serverHubWelcome = false;
+		if (activeView !== 'server') serverHubReturnView = activeView;
+		activeView = 'server';
+	}
+
+	onMount(() => {
+		const server = getServerUrl();
+		const token = getAuthToken(server);
+		if (!token) return;
+		const entryView = activeView;
+		void fetch(`${server}/api/server-center/reception`, {
+			headers: { Authorization: `Bearer ${token}` }, credentials: 'include'
+		}).then(async response => {
+			if (!response.ok) return;
+			const guide = await response.json();
+			if (guide.welcomePending && getServerUrl() === server && getAuthToken(server) === token && activeView === entryView) {
+				serverHubWelcome = true;
+				activeView = 'server';
+			}
+		}).catch(() => { /* Desk remains manually reachable when offline. */ });
+	});
+
+	function completeServerWelcome(): void {
+		serverHubWelcome = false;
+		const server = getServerUrl();
+		const token = getAuthToken(server);
+		if (!token) return;
+		void fetch(`${server}/api/server-center/reception/complete`, {
+			method: 'POST', headers: { Authorization: `Bearer ${token}` }, credentials: 'include'
+		}).then(response => {
+			if (!response.ok) showToast('Could not save welcome progress. The guide may reappear next time.', 'error');
+		}).catch(() => showToast('Could not save welcome progress. The guide may reappear next time.', 'error'));
+	}
+
+	function returnFromServerHub(): void {
+		serverHubWelcome = false;
+		activeView = serverHubReturnView === 'server' ? 'chat' : serverHubReturnView;
+	}
+
 	function closeServerSwitcher(): void {
 		showServerSwitcher = false;
 	}
 
 	onMount(() => {
+		unsubscribeFriendshipSync = startFriendshipSync();
+		unsubscribeFriendRequestNotices = friendships.subscribe((state) => {
+			if (!state.ready) {
+				knownIncomingRequestIds = null;
+				return;
+			}
+			const nextIds = new Set(state.incoming.map((request) => request.id));
+			if (knownIncomingRequestIds !== null) {
+				const newRequests = state.incoming.filter((request) => !knownIncomingRequestIds?.has(request.id));
+				if (newRequests.length === 1) {
+					const person = newRequests[0];
+					showToast(`Friend request from ${person.handle ? `@${person.handle}` : person.username}. Open Friends to respond.`, 'info', 8000);
+				} else if (newRequests.length > 1) {
+					showToast(`${newRequests.length} new friend requests. Open Friends to respond.`, 'info', 8000);
+				}
+			}
+			knownIncomingRequestIds = nextIds;
+		});
 		// Mobile navigation is structural chrome, not transient decoration.
 		// Keep it present while the phone shell is active; the keyboard and
 		// full-screen call surfaces are the only normal takeovers.
@@ -365,6 +569,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			label: 'Notes',
 			shortLabel: 'Notes'
 		});
+		mobileTabQueue.registerAddonTab({ id: NOTIFICATIONS_ADDON_ID, label: 'Activity', shortLabel: 'Activity' });
 
 		// Plugin workspace panels were previously registered from RightPanel's
 		// mount; the stub strip never mounts a panel body, so registration
@@ -463,12 +668,17 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	});
 
 	onDestroy(() => {
+		unsubscribeFriendRequestNotices?.();
+		unsubscribeFriendRequestNotices = null;
+		unsubscribeFriendshipSync?.();
+		unsubscribeFriendshipSync = null;
 		mobileTabQueue.unregisterAddonTab(MODEL_VIEWPORT_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(READER_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(MAP_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(MEDIA_ALBUMS_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(PLANNER_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(NOTES_ADDON_ID);
+		mobileTabQueue.unregisterAddonTab(NOTIFICATIONS_ADDON_ID);
 		if (mobileNavIdleTimer) {
 			clearTimeout(mobileNavIdleTimer);
 			mobileNavIdleTimer = null;
@@ -972,7 +1182,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			<span></span>
 		</button>
 	{/if}
-	<!-- Mobile Bottom Navigation Bar — Chat · Browse · Messages · You -->
+	<!-- Mobile Bottom Navigation Bar -->
 	<nav class="mobile-bottom-nav" class:visible={mobileNavVisible}>
 		<button
 			type="button"
@@ -980,6 +1190,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				!$layoutStore.showMobileChannels &&
 				$layoutStore.rightPanelMode === 'none' &&
 				activeView !== 'dm' &&
+				$activeWorkspaceView !== 'notifications' &&
 				!showSettings
 			}
 			on:click={openMobileChat}
@@ -1003,7 +1214,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		</button>
 		<button
 			type="button"
-			class:active={activeView === 'dm' && !$layoutStore.showMobileChannels}
+			class:active={activeView === 'dm' && dmHubActiveTab === 'messages' && !$layoutStore.showMobileChannels}
 			on:click={openMobileMessages}
 			on:touchstart={handleMobileNavTouchStart}
 			on:touchmove={handleMobileNavTouchMove}
@@ -1016,6 +1227,29 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				{/if}
 			</span>
 			<span>{$_('shell.mobile.messages')}</span>
+		</button>
+		<button type="button" class:active={$activeWorkspaceView === 'notifications' && !$layoutStore.showMobileChannels}
+			on:click={openMobileActivity} on:touchstart={handleMobileNavTouchStart} on:touchmove={handleMobileNavTouchMove} on:touchend={handleMobileNavTouchEnd}>
+			<span class="mobile-nav-icon-wrap"><svg width="24" height="24" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z"/><path d="M10 21h4"/></svg>
+				{#if activityBadge}<span class="mobile-nav-badge" aria-label="Unread activity">{activityBadge}</span>{/if}</span>
+			<span>Activity</span>
+		</button>
+		<button
+			type="button"
+			class:active={activeView === 'dm' && dmHubActiveTab === 'friends' && !$layoutStore.showMobileChannels}
+			on:click={openMobileFriends}
+			on:touchstart={handleMobileNavTouchStart}
+			on:touchmove={handleMobileNavTouchMove}
+			on:touchend={handleMobileNavTouchEnd}
+			aria-label={$friendships.incoming.length > 0 ? `Friends, ${$friendships.incoming.length} requests waiting` : 'Friends'}
+		>
+			<span class="mobile-nav-icon-wrap">
+				<svg width="24" height="24" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+				{#if mobileFriendRequestBadge}
+					<span class="mobile-nav-badge" aria-label={`${$friendships.incoming.length} friend requests`}>{mobileFriendRequestBadge}</span>
+				{/if}
+			</span>
+			<span>Friends</span>
 		</button>
 		<button
 			type="button"
@@ -1090,8 +1324,13 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	>
 		<ChannelSidebar
 			on:close={() => layoutStore.showMobileChannels.set(false)}
+			on:openMessages={() => selectMessagesHub(true)}
+			on:openFriends={openFriendsHub}
 			on:openServerSwitcher={openServerSwitcher}
+			on:openServerHub={openServerHub}
 			bind:activeView
+			dmHubTab={dmHubActiveTab}
+			friendRequestCount={$friendships.incoming.length}
 			on:logout
 			on:openSettings={() => openSettings()}
 		/>
@@ -1148,7 +1387,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 							on:mousedown|preventDefault={() => layoutStore.isResizingRight.set(true)}
 						></button>
 					{/if}
-					<RightPanel on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />
+					{#if RightPanelCmp}
+						<svelte:component this={RightPanelCmp} on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />
+					{/if}
 				</div>
 				<RightStubStrip floating />
 			</div>
@@ -1165,18 +1406,22 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			style:opacity={getPreviewOpacity(swipePreviewActive, swipePreviewTarget, swipePreviewOffsetX)}
 			style:transition={swipePreviewActive ? 'none' : undefined}
 		>
-			<RightPanel on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />
+			{#if RightPanelCmp}
+				<svelte:component this={RightPanelCmp} on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />
+			{/if}
 		</div>
 	{/if}
 
 	<!-- Main Content -->
 	<div class="main-content">
 		<div class="chat-stack">
-			{#if (!$layoutStore.centerDmChannelId && activeView !== 'dm' && activeView !== 'following') || $activeWorkspaceView !== 'messages'}
+			{#if activeView !== 'server' && ((!$layoutStore.centerDmChannelId && activeView !== 'dm' && activeView !== 'following') || $activeWorkspaceView !== 'messages')}
 				<WorkspaceViewBar activeView={$activeWorkspaceView} onSelectView={handleWorkspaceViewSelect} canOpenWhiteboard={Boolean($currentChannel)} />
 			{/if}
 			<div class="chat-surface">
-				{#if isModelViewportTabActive}
+				{#if activeView === 'server'}
+					<ServerHub welcome={serverHubWelcome} on:complete={completeServerWelcome} on:back={returnFromServerHub} on:browse={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'chat'; }} on:openRoom={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'chat'; }} on:messages={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'dm'; }} on:members={() => layoutStore.openRightPanel('users')} on:settings={openServerSettings} on:manage={() => layoutStore.showAdminCenterStage()} />
+				{:else if isModelViewportTabActive}
 					{#if ModelViewportTabCmp}
 						<svelte:component this={ModelViewportTabCmp} />
 					{:else}
@@ -1213,7 +1458,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 						<div class="lazy-panel-placeholder" aria-busy="true"></div>
 					{/if}
 				{:else if $activeWorkspaceView === 'lore'}
-					{#await import('./LoreWorkspace.svelte')}
+					{#await import('./ProjectWorkspace.svelte')}
 						<div class="lazy-panel-placeholder" role="status">Loading Project…</div>
 					{:then module}
 						<svelte:component this={module.default} />
@@ -1234,10 +1479,15 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					{:else}
 						<div class="lazy-panel-placeholder" aria-busy="true"></div>
 					{/if}
+				{:else if $activeWorkspaceView === 'notifications'}
+					<NotificationsCenter error={activityActionError} on:openDm={(event) => { selectWorkspaceView('messages'); activeView = 'dm'; layoutStore.openCenterDm(event.detail.channelId, null); void joinChannel(event.detail.channelId); }}
+						on:message={(event) => { void openFriendConversation(event.detail); }}
+						on:openChannel={(event) => openActivityChannel(event.detail.channelId)}
+						on:settings={openNotificationSettings} />
 				{:else if ($layoutStore.centerDmChannelId || activeView === 'dm') && $activeWorkspaceView !== 'whiteboard'}
-					<div class="center-dm-layout">
+					<div class="center-dm-layout" class:friends-directory={dmHubActiveTab === 'friends' && !$layoutStore.centerDmChannelId}>
 						<div class="center-dm-list">
-							<DmHub />
+							<DmHub {friendsOpenRequest} {messagesOpenRequest} on:tabChange={(event) => (dmHubActiveTab = event.detail.tab)} />
 						</div>
 						<div class="center-dm-thread">
 							{#if $layoutStore.centerDmChannelId}
@@ -1278,6 +1528,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 	<!-- Floating sub-window layer inside the app webview. This is the Odysseus-style panel system for Tauri/browser. -->
 	<FloatingPanelHost />
+	<CommunityRulesNotice autoOpen={!serverHubWelcome} />
 
 	{#if callDebugPanelEnabled && (callUiActive || showCallDebugPanel)}
 		<button
@@ -1384,6 +1635,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			this={SettingsCmp}
 			bind:isOpen={showSettings}
 			requestedPaymentSurface={requestedSettingsPaymentSurface}
+			requestedTab={requestedSettingsTab}
 			requestedPasswordChangeRequest={requestedSettingsPasswordChangeRequest}
 			on:logout
 		/>
@@ -1445,6 +1697,15 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		height: 100%;
 		min-height: 0;
 		overflow: hidden;
+	}
+	.center-dm-layout.friends-directory {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.center-dm-layout.friends-directory .center-dm-thread {
+		display: none;
+	}
+	.center-dm-layout.friends-directory .center-dm-list {
+		border-right: 0;
 	}
 
 	.center-dm-list {

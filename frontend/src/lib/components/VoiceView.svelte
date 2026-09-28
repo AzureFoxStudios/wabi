@@ -76,6 +76,7 @@
 		console.warn(`[VoiceView] ${text}`);
 	}
 	import VideoSink from './VideoSink.svelte';
+	import { mediaUrl } from '$lib/mediaUrl';
 
 	let sessions = $derived([...$callSessions.values()].sort((a, b) => {
 		if (a.focus === 'focused') return -1;
@@ -268,7 +269,7 @@
 							{#each ($voiceChannelMembers[ch.id] ?? []).slice(0, 5) as m (m.userId)}
 								<span class="vv-avatar small" title={m.username ?? m.userId}>
 									{#if m.profilePicture}
-										<img src={m.profilePicture} alt={m.username ?? m.userId} />
+										<img src={mediaUrl(m.profilePicture)} alt={m.username ?? m.userId} />
 									{:else}
 										{initial(m.username ?? m.userId)}
 									{/if}

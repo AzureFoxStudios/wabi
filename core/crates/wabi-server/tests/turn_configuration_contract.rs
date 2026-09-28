@@ -222,7 +222,7 @@ async fn credentials_require_current_account_access_not_missing_wrong_kind_or_re
         assert!(body.get("turn").is_none());
     }
     let bearer = token(&state, uid, false, "access", false, false);
-    state.revoke_user(uid as i64).await;
+    state.revoke_user(uid as i64).await.unwrap();
     let (status, body) = get(&app, "/api/media/turn-credentials", Some(&bearer)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert!(body.get("turn").is_none());

@@ -379,6 +379,12 @@ pub async fn handle_assign_role(socket: SocketRef, data: Value, state: &SioState
 
     publish_server_role(target_user_id, state, io).await;
     drop(socket.emit("assign-role-success", &json!({ "requestId": request_id, "targetUserId": target_user_id, "role": role_name })));
+    for channel_id in crate::api::server_center::gated_channel_ids(&state.app).await {
+        if !matches!(crate::channel_access::channel_role_allows(&state.app, target_user_id, &channel_id).await, Ok(true)) {
+            evict_channel_user(io, &channel_id, target_user_id);
+        }
+    }
+    let _ = io.emit("channel-access-policy-updated", &json!({ "roleChangedUserId": target_user_id })).await;
 }
 
 /// Admin ban surface backed by the durable file-backed blacklist manager.
@@ -437,10 +443,20 @@ pub async fn handle_admin_ban_user(socket: SocketRef, data: Value, state: &SioSt
         let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Ban enforcement is currently unavailable" }));
         return;
     };
-    blacklist.add_user(target_user_id, &reason, None).await;
+    if let Err(error) = blacklist.add_user(target_user_id, &reason, None).await {
+        warn!("[sio] could not persist ban for user {}: {}", target_user_id, error);
+        let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Ban could not be saved" }));
+        return;
+    }
 
     // Full token revoke so outstanding sessions die on their next request.
-    state.app.revoke_user(target_user_id).await;
+    if let Err(error) = state.app.revoke_user(target_user_id).await {
+        warn!("[sio] could not durably revoke banned user sessions: {}", error);
+        crate::socketio::evict_server_user(&io, target_user_id);
+        let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id,
+            "targetUserId": target_user_id, "error": "Session revocation could not be saved" }));
+        return;
+    }
 
     // Reuse the established revoked-session mechanism (`auth-revoked` +
     // disconnect, cf. `resolve_identity` in shared.rs): evict every live
@@ -489,7 +505,11 @@ pub async fn handle_admin_unban_user(socket: SocketRef, data: Value, state: &Sio
         let _ = socket.emit("admin-unban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Ban enforcement is currently unavailable" }));
         return;
     };
-    blacklist.remove_user(target_user_id).await;
+    if let Err(error) = blacklist.remove_user(target_user_id).await {
+        warn!("[sio] could not persist unban for user {}: {}", target_user_id, error);
+        let _ = socket.emit("admin-unban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Unban could not be saved" }));
+        return;
+    }
 
     let _ = socket.emit("admin-unban-success", &json!({ "requestId": request_id, "targetUserId": target_user_id }));
     let _ = io.broadcast().emit("user-unbanned", &json!({ "targetUserId": target_user_id, "unbannedByUserId": caller_id })).await;
@@ -560,6 +580,12 @@ pub async fn handle_remove_role(socket: SocketRef, data: Value, state: &SioState
 
     publish_server_role(target_user_id, state, io).await;
     let _ = socket.emit("remove-role-success", &json!({ "targetUserId": target_user_id, "role": "Member" }));
+    for channel_id in crate::api::server_center::gated_channel_ids(&state.app).await {
+        if !matches!(crate::channel_access::channel_role_allows(&state.app, target_user_id, &channel_id).await, Ok(true)) {
+            evict_channel_user(io, &channel_id, target_user_id);
+        }
+    }
+    let _ = io.emit("channel-access-policy-updated", &json!({ "roleChangedUserId": target_user_id })).await;
 }
 
 #[allow(dead_code)]

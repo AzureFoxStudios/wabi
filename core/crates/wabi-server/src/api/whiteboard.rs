@@ -22,7 +22,6 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
-use tokio::io::AsyncWriteExt;
 
 use crate::auth_extractor::AuthUser;
 use crate::error::Result;
@@ -317,6 +316,7 @@ async fn upload_whiteboard_image(
     if !can_access_channel(&state, Some(user_id), None, &channel_id).await {
         return Ok(json_error_response(StatusCode::FORBIDDEN, "Access denied"));
     }
+    crate::channel_access::require_participation(&state, user_id, &channel_id).await?;
 
     // Extract file from multipart
     let mut file_data: Vec<u8> = Vec::new();
@@ -369,16 +369,27 @@ async fn upload_whiteboard_image(
         tokio::fs::create_dir_all(uploads_dir).await?;
     }
 
-    // Generate file ID and path
+    // Generate a scoped file ID.
     let safe_file_name = sanitize_filename(&file_name);
     let file_id = create_whiteboard_file_id(&board_id, &safe_file_name);
-    let file_path = resolve_upload_path(uploads_dir, &file_id);
+    let room_owner_precondition = state
+        .wdb
+        .room_owner_precondition(&channel_id, "upload_whiteboard_image")?;
 
-    // Write file
-    let mut file = fs::File::create(&file_path).await?;
-    file.write_all(&file_data).await?;
-    file.flush().await?;
-    drop(file);
+    state
+        .upload_registry
+        .publish_bytes(
+            std::path::Path::new(uploads_dir),
+            state.wdb.engine(),
+            &file_id,
+            &safe_file_name,
+            Some(channel_id.clone()),
+            Some(room_owner_precondition),
+            Some(user_id),
+            UploadKind::Whiteboard,
+            &file_data,
+        )
+        .await?;
 
     let file_url = format!(
         "/api/whiteboard/boards/{}/files/{}",
@@ -392,20 +403,6 @@ async fn upload_whiteboard_image(
         file_data.len(),
         board_id,
     );
-
-    // Record ownership (ops metadata, not authz). Whiteboard files land in the
-    // generic `/uploads/` URL space, so they belong in the registry too.
-    state
-        .upload_registry
-        .record(
-            &file_id,
-            &safe_file_name,
-            Some(channel_id.clone()),
-            Some(user_id),
-            UploadKind::Whiteboard,
-            file_data.len() as u64,
-        )
-        .await;
 
     let response = WhiteboardImageUploadResponse {
         success: true,
@@ -453,6 +450,7 @@ async fn upload_whiteboard_font(
     if !can_access_channel(&state, Some(user_id), None, &channel_id).await {
         return Ok(json_error_response(StatusCode::FORBIDDEN, "Access denied"));
     }
+    crate::channel_access::require_participation(&state, user_id, &channel_id).await?;
 
     let mut file_data: Vec<u8> = Vec::new();
     let mut file_name = "whiteboard-font.bin".to_string();
@@ -517,12 +515,24 @@ async fn upload_whiteboard_font(
     }
 
     let file_id = create_whiteboard_font_file_id(&board_id, &safe_file_name);
-    let file_path = resolve_upload_path(uploads_dir, &file_id);
+    let room_owner_precondition = state
+        .wdb
+        .room_owner_precondition(&channel_id, "upload_whiteboard_font")?;
 
-    let mut file = fs::File::create(&file_path).await?;
-    file.write_all(&file_data).await?;
-    file.flush().await?;
-    drop(file);
+    state
+        .upload_registry
+        .publish_bytes(
+            std::path::Path::new(uploads_dir),
+            state.wdb.engine(),
+            &file_id,
+            &safe_file_name,
+            Some(channel_id.clone()),
+            Some(room_owner_precondition),
+            Some(user_id),
+            UploadKind::Whiteboard,
+            &file_data,
+        )
+        .await?;
 
     let mime_type = std::path::Path::new(&safe_file_name)
         .extension()
@@ -544,18 +554,6 @@ async fn upload_whiteboard_font(
         file_data.len(),
         board_id,
     );
-
-    state
-        .upload_registry
-        .record(
-            &file_id,
-            &safe_file_name,
-            Some(channel_id.clone()),
-            Some(user_id),
-            UploadKind::Whiteboard,
-            file_data.len() as u64,
-        )
-        .await;
 
     let response = WhiteboardFontUploadResponse {
         success: true,
@@ -725,6 +723,13 @@ async fn serve_whiteboard_file(
             .unwrap());
     }
 
+    if state.upload_registry.is_revoked(&file_id).await {
+        return Ok(Response::builder()
+            .status(StatusCode::GONE)
+            .body(Body::from("File has been revoked"))
+            .unwrap());
+    }
+
     // Serve the file
     let file_path = resolve_upload_path(&state.config.uploads_dir, &file_id);
     match fs::read(&file_path).await {
@@ -739,7 +744,7 @@ async fn serve_whiteboard_file(
             Ok(Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, &content_type)
-                .header(header::CACHE_CONTROL, "private, max-age=300")
+                .header(header::CACHE_CONTROL, "private, no-store")
                 .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
                 .header(
                     header::CONTENT_SECURITY_POLICY,
@@ -855,6 +860,7 @@ async fn put_board_document(
     if !can_access_channel(&state, Some(user_id), None, &channel_id).await {
         return Ok(json_error_response(StatusCode::FORBIDDEN, "Access denied"));
     }
+    crate::channel_access::require_participation(&state, user_id, &channel_id).await?;
 
     // Version check: in-memory map first (shared with socket snapshot),
     // then the persisted doc's version, else 0 for a fresh board.

@@ -1,0 +1,213 @@
+{
+  "fresh-baseline": {
+    "transfers": [
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 1.595,
+        "exit": 0
+      },
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 0.696,
+        "exit": 0
+      },
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 1.374,
+        "exit": 0
+      }
+    ],
+    "final_tunnel_byte_counters": null,
+    "direct_contact_logged": true
+  },
+  "counters-normal": {
+    "transfers": [
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 2.147,
+        "exit": 0
+      },
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 2.075,
+        "exit": 0
+      },
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 2.229,
+        "exit": 0
+      }
+    ],
+    "final_tunnel_byte_counters": {
+      "rx_derp": 3460996,
+      "rx_direct_v4": 0,
+      "tx_derp": 168217,
+      "tx_direct_v4": 0
+    },
+    "direct_contact_logged": false
+  },
+  "counters-fresh-server": {
+    "transfers": [
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 1.628,
+        "exit": 0
+      },
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 0.361,
+        "exit": 0
+      },
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 0.654,
+        "exit": 0
+      }
+    ],
+    "final_tunnel_byte_counters": {
+      "rx_derp": 0,
+      "rx_direct_v4": 3461052,
+      "tx_derp": 35729,
+      "tx_direct_v4": 51232
+    },
+    "direct_contact_logged": true
+  },
+  "patched-first": {
+    "transfers": [
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 1.792,
+        "exit": 0
+      },
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 0.691,
+        "exit": 0
+      },
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 0.619,
+        "exit": 0
+      }
+    ],
+    "final_tunnel_byte_counters": {
+      "rx_derp": 0,
+      "rx_direct_v4": 3460940,
+      "tx_derp": 37041,
+      "tx_direct_v4": 52016
+    },
+    "direct_contact_logged": true
+  },
+  "patched-reconnect": {
+    "transfers": [
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 2.402,
+        "exit": 0
+      },
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 2.075,
+        "exit": 0
+      },
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 2.532,
+        "exit": 0
+      }
+    ],
+    "final_tunnel_byte_counters": {
+      "rx_derp": 3462204,
+      "rx_direct_v4": 0,
+      "tx_derp": 165105,
+      "tx_direct_v4": 0
+    },
+    "direct_contact_logged": false
+  },
+  "discovery-ready": {
+    "transfers": [
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 2.472,
+        "exit": 0
+      },
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 1.834,
+        "exit": 0
+      },
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 2.221,
+        "exit": 0
+      }
+    ],
+    "final_tunnel_byte_counters": {
+      "rx_derp": 3463820,
+      "rx_direct_v4": 0,
+      "tx_derp": 208609,
+      "tx_direct_v4": 0
+    },
+    "direct_contact_logged": false
+  },
+  "debug-reconnect": {
+    "transfers": [
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 2.592,
+        "exit": 0
+      },
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 2.051,
+        "exit": 0
+      },
+      {
+        "bytes": 1048576,
+        "sha256_matches": true,
+        "seconds": 2.246,
+        "exit": 0
+      }
+    ],
+    "final_tunnel_byte_counters": {
+      "rx_derp": 3461292,
+      "rx_direct_v4": 0,
+      "tx_derp": 209457,
+      "tx_direct_v4": 0
+    },
+    "direct_contact_logged": false
+  },
+  "builds": {
+    "tailcat-discovery": "f26aa5bcbdffd225d4a0edbaa914bbc7d1fae982786d3a546110ad6c3915593c",
+    "tailcat-reannounce": "e2eb92ef477321b09941e4920e3f4c234f4468753b8ae395c14ca16d70df6a6d",
+    "tailcat-debug": "e24c48e5bbec4f91f043ee09fbe20a3a99e157dc784abfd3c3da10be0449fad1"
+  },
+  "notes": [
+    "Diagnostic builds use v0.4.0 tag sources; tailcat.go, CLI file, go.mod and go.sum verified identical to pinned release commit ce6fedcabc220bab3b94d470ab330219111eeae8.",
+    "Diagnostic counters expose existing magicsock per-path counters; incoming direct IPv4 counters exclude DERP and peer relay.",
+    "Diagnostic builds use default build features, unlike stripped release. Stock binary first-session logs independently show direct file contact.",
+    "TAILCAT_FIELD_DISCOVERY was unset for counters-normal, counters-fresh-server, patched-first and patched-reconnect.",
+    "Server reannouncement candidate failed to restore direct transfer on reconnect; not shipped.",
+    "Earlier discovery attempt started curl before SOCKS became ready: invalid harness trial, excluded. Corrected harness waits for readiness; discovery-ready captures valid relay outcome."
+  ]
+}

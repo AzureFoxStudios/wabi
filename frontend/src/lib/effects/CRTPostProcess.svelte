@@ -102,16 +102,7 @@
 				numOctaves="2"
 				seed="19"
 				result="tubeNoise"
-			>
-				{#if !reducedMotion}
-					<animate
-						attributeName="baseFrequency"
-						values="0.002 0.065;0.0028 0.095;0.0017 0.078;0.002 0.065"
-						dur="8.5s"
-						repeatCount="indefinite"
-					/>
-				{/if}
-			</feTurbulence>
+			/>
 			<!-- Mostly horizontal deflection, with a smaller vertical wobble. -->
 			<feColorMatrix
 				in="tubeNoise"
@@ -172,7 +163,10 @@
 			contrast(var(--crt-contrast, 1))
 			saturate(var(--crt-saturation, 1))
 			brightness(var(--crt-brightness, 1));
-		will-change: filter;
+		/* will-change: filter forces a permanent compositor layer for the
+		   whole body whenever CRT is on — expensive full-screen texture
+		   uploads on WebKitGTK software compositing. Drop it; the filter
+		   itself already re-renders only when strength vars change. */
 	}
 
 	.crt-overlay {

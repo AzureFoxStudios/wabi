@@ -238,6 +238,22 @@ async fn on_add_emoji_reaction(socket: SocketRef, data: Value, state: SioState, 
         let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "Guests cannot react" }));
         return;
     }
+    let is_private = matches!(state.app.wdb.get_channel_kind(&channel_id).await.as_deref(), Some("dm" | "group"));
+    if !is_private && !state.app.is_owner(user_id_num).await {
+        match crate::api::server_center::rules_required_for_post(&state.app.config.data_dir, user_id_num) {
+            Ok(true) => { let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "Read and acknowledge server rules before reacting" })); return; }
+            Ok(false) => {}
+            Err(error) => { warn!("[rules] could not check rules before reaction: {error}"); let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "Server rules could not be checked" })); return; }
+        }
+    }
+    let Some(blacklist) = state.app.get_blacklist().await else {
+        let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "Channel restrictions could not be checked" }));
+        return;
+    };
+    if blacklist.is_channel_timed_out(&channel_id, user_id_num).await.is_some() {
+        let _ = socket.emit("reaction-error", &json!({ "messageId": message_id, "error": "You are timed out in this channel" }));
+        return;
+    }
 
     // Store the reaction
     if let Err(e) = state.app.wdb.add_reaction(&message_id, user_id_num as u64, &emoji_id).await {

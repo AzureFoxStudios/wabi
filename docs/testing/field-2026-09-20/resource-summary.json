@@ -1,0 +1,170 @@
+{
+  "F01": {
+    "idle": {
+      "sample_count": 31,
+      "window_seconds": 30.00001565902494,
+      "authority_cpu_mean_percent_one_core": 0,
+      "authority_cpu_max_percent_one_core": 0,
+      "authority_rss_mean_mib": 26.652721774193548,
+      "client_tree_cpu_mean_percent_one_core": 49.033309207052625,
+      "collector_wall_mean_ms": 22.67473500086776,
+      "host_loadavg_1m_mean": 5.522903225806451,
+      "authority_io_deltas": {
+        "write_bytes": 0,
+        "read_bytes": 0,
+        "wchar": 40,
+        "rchar": 0
+      },
+      "network_scope": "host interface counters only; cannot attribute payload or sum overlay and physical",
+      "client_cpu_limit": "Excludes driver/Authority; partial samples with unavailable CPU omitted; FUSE daemon/compositor/harness not in native subtree"
+    },
+    "active": {
+      "sample_count": 31,
+      "window_seconds": 29.999940204026643,
+      "authority_cpu_mean_percent_one_core": 0.06666699840564617,
+      "authority_cpu_max_percent_one_core": 1.000012826164383,
+      "authority_rss_mean_mib": 28.346018145161292,
+      "client_tree_cpu_mean_percent_one_core": 48.63342331441421,
+      "collector_wall_mean_ms": 23.00613777591817,
+      "host_loadavg_1m_mean": 4.483548387096774,
+      "authority_io_deltas": {
+        "write_bytes": 0,
+        "read_bytes": 0,
+        "wchar": 48297,
+        "rchar": 0
+      },
+      "network_scope": "host interface counters only; cannot attribute payload or sum overlay and physical",
+      "client_cpu_limit": "Excludes driver/Authority; partial samples with unavailable CPU omitted; FUSE daemon/compositor/harness not in native subtree"
+    },
+    "post-active": {
+      "sample_count": 31,
+      "window_seconds": 30.000002076965757,
+      "authority_cpu_mean_percent_one_core": 0,
+      "authority_cpu_max_percent_one_core": 0,
+      "authority_rss_mean_mib": 28.7734375,
+      "client_tree_cpu_mean_percent_one_core": 49.33332517686298,
+      "collector_wall_mean_ms": 24.605216030331867,
+      "host_loadavg_1m_mean": 4.123548387096774,
+      "authority_io_deltas": {
+        "write_bytes": 0,
+        "read_bytes": 0,
+        "wchar": 40,
+        "rchar": 0
+      },
+      "network_scope": "host interface counters only; cannot attribute payload or sum overlay and physical",
+      "client_cpu_limit": "Excludes driver/Authority; partial samples with unavailable CPU omitted; FUSE daemon/compositor/harness not in native subtree"
+    }
+  },
+  "F02": {
+    "idle": {
+      "sample_count": 31,
+      "window_seconds": 30.000585056001,
+      "authority_cpu_mean_percent_one_core": 0,
+      "authority_cpu_max_percent_one_core": 0,
+      "authority_rss_mean_mib": 26.726940524193548,
+      "client_tree_cpu_mean_percent_one_core": 0.39996305381738095,
+      "collector_wall_mean_ms": 21.83336341917194,
+      "host_loadavg_1m_mean": 0.43516129032258066,
+      "authority_io_deltas": {
+        "write_bytes": 0,
+        "read_bytes": 0,
+        "wchar": 40,
+        "rchar": 0
+      },
+      "network_scope": "host interface counters only; cannot attribute payload or sum overlay and physical",
+      "client_cpu_limit": "Excludes driver/Authority; partial samples with unavailable CPU omitted; FUSE daemon/compositor/harness not in native subtree"
+    },
+    "active": {
+      "sample_count": 31,
+      "window_seconds": 30.00048459500067,
+      "authority_cpu_mean_percent_one_core": 0.233295108943892,
+      "authority_cpu_max_percent_one_core": 1.0001105902299596,
+      "authority_rss_mean_mib": 28.543094758064516,
+      "client_tree_cpu_mean_percent_one_core": 0.4665704793645661,
+      "collector_wall_mean_ms": 21.46755780649396,
+      "host_loadavg_1m_mean": 0.31548387096774194,
+      "authority_io_deltas": {
+        "write_bytes": 0,
+        "read_bytes": 0,
+        "wchar": 48582,
+        "rchar": 0
+      },
+      "network_scope": "host interface counters only; cannot attribute payload or sum overlay and physical",
+      "client_cpu_limit": "Excludes driver/Authority; partial samples with unavailable CPU omitted; FUSE daemon/compositor/harness not in native subtree"
+    },
+    "post-active": {
+      "sample_count": 31,
+      "window_seconds": 30.000409599000704,
+      "authority_cpu_mean_percent_one_core": 0,
+      "authority_cpu_max_percent_one_core": 0,
+      "authority_rss_mean_mib": 28.7890625,
+      "client_tree_cpu_mean_percent_one_core": 0.09998202152580074,
+      "collector_wall_mean_ms": 21.56706232269625,
+      "host_loadavg_1m_mean": 0.3558064516129032,
+      "authority_io_deltas": {
+        "write_bytes": 0,
+        "read_bytes": 0,
+        "wchar": 32,
+        "rchar": 0
+      },
+      "network_scope": "host interface counters only; cannot attribute payload or sum overlay and physical",
+      "client_cpu_limit": "Excludes driver/Authority; partial samples with unavailable CPU omitted; FUSE daemon/compositor/harness not in native subtree"
+    }
+  },
+  "F04": {
+    "idle": {
+      "sample_count": 31,
+      "window_seconds": 30.00004265300049,
+      "authority_cpu_mean_percent_one_core": 0.033309742008306296,
+      "authority_cpu_max_percent_one_core": 0.9992922602491889,
+      "authority_rss_mean_mib": 27.022303427419356,
+      "client_tree_cpu_mean_percent_one_core": 0.39999439983956286,
+      "collector_wall_mean_ms": 21.50512658050913,
+      "host_loadavg_1m_mean": 0.59,
+      "authority_io_deltas": {
+        "write_bytes": 0,
+        "read_bytes": 0,
+        "wchar": 32,
+        "rchar": 0
+      },
+      "network_scope": "host interface counters only; cannot attribute payload or sum overlay and physical",
+      "client_cpu_limit": "Excludes driver/Authority; partial samples with unavailable CPU omitted; FUSE daemon/compositor/harness not in native subtree"
+    },
+    "active": {
+      "sample_count": 31,
+      "window_seconds": 30.00004440000157,
+      "authority_cpu_mean_percent_one_core": 0.19997745411715875,
+      "authority_cpu_max_percent_one_core": 1.0000152452335365,
+      "authority_rss_mean_mib": 28.832535282258064,
+      "client_tree_cpu_mean_percent_one_core": 0.43344603974860735,
+      "collector_wall_mean_ms": 21.613545000124553,
+      "host_loadavg_1m_mean": 0.35516129032258065,
+      "authority_io_deltas": {
+        "write_bytes": 0,
+        "read_bytes": 0,
+        "wchar": 48619,
+        "rchar": 0
+      },
+      "network_scope": "host interface counters only; cannot attribute payload or sum overlay and physical",
+      "client_cpu_limit": "Excludes driver/Authority; partial samples with unavailable CPU omitted; FUSE daemon/compositor/harness not in native subtree"
+    },
+    "post-active": {
+      "sample_count": 31,
+      "window_seconds": 30.000078830998973,
+      "authority_cpu_mean_percent_one_core": 0,
+      "authority_cpu_max_percent_one_core": 0,
+      "authority_rss_mean_mib": 28.94140625,
+      "client_tree_cpu_mean_percent_one_core": 0.09995811971670589,
+      "collector_wall_mean_ms": 21.61760706451699,
+      "host_loadavg_1m_mean": 0.2132258064516129,
+      "authority_io_deltas": {
+        "write_bytes": 0,
+        "read_bytes": 0,
+        "wchar": 32,
+        "rchar": 0
+      },
+      "network_scope": "host interface counters only; cannot attribute payload or sum overlay and physical",
+      "client_cpu_limit": "Excludes driver/Authority; partial samples with unavailable CPU omitted; FUSE daemon/compositor/harness not in native subtree"
+    }
+  }
+}

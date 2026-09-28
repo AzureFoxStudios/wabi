@@ -9,11 +9,12 @@
 	} = $props();
 	const views: { id: WorkspaceViewKey; label: string; detail: string }[] = [
 		{ id: 'messages', label: 'Messages', detail: 'Your current channel' },
+		{ id: 'notifications', label: 'Activity', detail: 'Alerts, follows & friends' },
 		{ id: 'voice', label: 'Calls', detail: 'Voice, video & sharing' },
 		{ id: 'whiteboard', label: 'Whiteboard', detail: 'A canvas for your channel' },
-		{ id: 'planner', label: 'Planner', detail: 'Tasks, projects & calendar' },
+		{ id: 'planner', label: 'My Planner', detail: 'Personal tasks, journal & calendar' },
 		{ id: 'notes', label: 'Notes', detail: 'Your personal notes' },
-		{ id: 'lore', label: 'Project', detail: 'Repositories · Lore addon' },
+		{ id: 'lore', label: 'Project', detail: 'Shared Plan, Wiki & optional files' },
 		{ id: 'files', label: 'Files', detail: 'Browse files & transfers' },
 		{ id: 'media', label: 'Media', detail: 'Photos & albums' },
 		{ id: 'reader', label: 'Reader', detail: 'Documents & reading' },
@@ -71,6 +72,10 @@
 	{:else if view === 'messages'}
 		<svg aria-hidden="true" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 			<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+		</svg>
+	{:else if view === 'notifications'}
+		<svg aria-hidden="true" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z" /><path d="M10 21h4" />
 		</svg>
 	{:else if view === 'whiteboard'}
 		<svg aria-hidden="true" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

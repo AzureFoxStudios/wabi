@@ -1,0 +1,22 @@
+[
+  {
+    "file": "usr/bin/wabi-desktop",
+    "max_glibc_version": "2.43"
+  },
+  {
+    "file": "usr/bin/wabi-server",
+    "max_glibc_version": "2.39"
+  },
+  {
+    "file": "usr/lib/libglib-2.0.so.0",
+    "max_glibc_version": "2.43"
+  },
+  {
+    "file": "usr/lib/libwebkit2gtk-4.1.so.0",
+    "max_glibc_version": "2.43"
+  },
+  {
+    "file": "usr/lib/libpango-1.0.so.0",
+    "max_glibc_version": "2.38"
+  }
+]

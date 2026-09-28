@@ -22,7 +22,12 @@ function generateId(kind: string, payload?: FloatingPanelOptions['payload']): st
 
 export function getViewportRect(): Rect {
 	if (!browser) return { x: 0, y: 0, width: 1280, height: 800 };
-	return { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
+	const root = document.documentElement;
+	const chromeHeight = root.dataset.desktopShell === 'true'
+		? parseFloat(getComputedStyle(root).getPropertyValue('--desktop-titlebar-height')) || 0
+		: 0;
+	const top = Math.min(window.innerHeight, Math.max(0, chromeHeight));
+	return { x: 0, y: top, width: window.innerWidth, height: window.innerHeight - top };
 }
 
 function getNextZIndex(state: FloatingPanelStoreState): number {

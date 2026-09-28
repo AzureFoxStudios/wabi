@@ -1,0 +1,65 @@
+{
+  "date": "2026-09-20",
+  "machines": [
+    {
+      "label": "Coordinator",
+      "os": "Bazzite 44.20260914",
+      "cpu": "Ryzen 7 5800X",
+      "cores": 8,
+      "threads": 16,
+      "ram_bytes": 33508401152,
+      "gpu": "GeForce RTX 3070",
+      "free_storage_gb_approx": 465,
+      "role": "build/coordinator; temporary native client and local baseline Authority",
+      "physical_media": "none reported",
+      "network": "independent uplink A",
+      "changes": "isolated local build/test files; original Authority on ports 3001/3002 preserved"
+    },
+    {
+      "label": "Iyoku / Janya",
+      "os": "Bazzite 44.20260919",
+      "cpu": "Ryzen 7 3750H",
+      "cores": 4,
+      "threads": 8,
+      "ram_bytes": 16549736448,
+      "gpu": "GTX 1660 Ti Mobile + Radeon Vega",
+      "free_storage_gb_approx": 405,
+      "role": "principal disposable Authority plus colocated native client",
+      "physical_media": "microphone reported; not activated",
+      "network": "independent uplink B, Wi-Fi",
+      "changes": "portable test package and private isolated profiles only",
+      "update": "booted updated deployment, no active/staged transaction; NTP synchronized"
+    },
+    {
+      "label": "ironin",
+      "os": "Linux Mint 22.3",
+      "cpu": "Ryzen 5 7520U",
+      "cores": 4,
+      "threads": 8,
+      "ram_gib_approx": 14.9,
+      "gpu": "AMD Mendocino",
+      "free_storage_gb_approx": 36,
+      "role": "read-only inventory; physical client not run",
+      "physical_media": "microphone and camera reported; not activated",
+      "network": "independent uplink C, mobile hotspot",
+      "changes": "none; read-only SSH restriction retained",
+      "runtime": "glibc 2.39; candidate requires glibc 2.43"
+    },
+    {
+      "label": "Tim",
+      "os": "Linux Mint 22.3",
+      "cpu": "Core i7-7700HQ",
+      "cores": 4,
+      "threads": 8,
+      "ram_gib_approx": 7.6,
+      "gpu": "GTX 1060 + Intel HD 630",
+      "free_storage_gb_approx": 47,
+      "role": "existing-service/reference inventory; no helper deployed",
+      "network": "independent uplink D, separate location",
+      "changes": "none; healthy existing Wabi/Caddy/coturn/cloudflared preserved",
+      "helper": "no existing LiveKit SFU observed; new publicly reachable SFU outside allowed changes"
+    }
+  ],
+  "network_evidence": "Tailscale netcheck observed distinct public IPv4 egress on all four machines; UDP reachable. Raw addresses retained privately. This verifies management reachability, not Wabi transport.",
+  "maturity": "single Authority only; no federation, replication, standby or HA tested"
+}

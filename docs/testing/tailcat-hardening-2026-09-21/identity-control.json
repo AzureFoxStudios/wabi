@@ -1,0 +1,95 @@
+{
+  "sessions": {
+    "fresh": {
+      "transfers": [
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 1.721
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 0.718
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 0.524
+        }
+      ],
+      "final_tunnel_byte_counters": {
+        "rx_direct_v4": 3462188,
+        "rx_derp": 0,
+        "tx_direct_v4": 48656,
+        "tx_derp": 21921
+      }
+    },
+    "reconnect": {
+      "transfers": [
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 2.53
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 1.855
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 2.197
+        }
+      ],
+      "final_tunnel_byte_counters": {
+        "rx_direct_v4": 0,
+        "rx_derp": 3460748,
+        "tx_direct_v4": 0,
+        "tx_derp": 147633
+      }
+    },
+    "new-identity-control": {
+      "transfers": [
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 1.67
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 0.401
+        },
+        {
+          "bytes": 1048576,
+          "exit": 0,
+          "sha256_matches": true,
+          "seconds": 0.838
+        }
+      ],
+      "final_tunnel_byte_counters": {
+        "rx_direct_v4": 3461388,
+        "rx_derp": 0,
+        "tx_direct_v4": 48544,
+        "tx_derp": 36321
+      }
+    }
+  },
+  "cleanup": true,
+  "binary_sha256": {
+    "server": "0109e714044655a8b5825b39e34a1a2d4d007837d61dcbf101d3dc15f755bf61",
+    "client": "0109e714044655a8b5825b39e34a1a2d4d007837d61dcbf101d3dc15f755bf61"
+  },
+  "verdict": "RECONNECT_REGRESSION: fresh direct payload passed; reconnect failed",
+  "trial": "identity-control"
+}

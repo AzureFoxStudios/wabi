@@ -99,11 +99,6 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
             return;
         }
 
-        let connected_snapshot: HashMap<String, ConnectedUser> = {
-            let connected = state.connected_users.read().await;
-            connected.clone()
-        };
-
         let (invitees, existing_connected, is_video, ch_name) = {
             let mut sessions = state.group_call_sessions.write().await;
             if !voice_intent_current(&socket, &channel_id, false, intent) { return; }
@@ -146,7 +141,6 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
                         *id != &my_stable_id
                             && !session.connected_participants.contains(*id)
                             && !session.invited_participants.contains(*id)
-                            && is_stable_connected(&connected_snapshot, id)
                     })
                     .cloned()
                     .collect() };
@@ -160,8 +154,8 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
                 let _ = socket.emit(
                     "call-error",
                     &json!({
-                        "code": "target_unavailable",
-                        "message": "No group members are currently connected",
+                        "code": "no_recipients",
+                        "message": "This group has no other members to call",
                         "channelId": channel_id, "requestId": data.get("requestId"),
                         "targetUserId": channel_id
                     }),
@@ -217,24 +211,10 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
         .and_then(|v| v.as_str())
         .map(String::from)
     {
-        // DM call
-        let is_connected = {
-            let connected = state.connected_users.read().await;
-            is_stable_connected(&connected, &target_id)
-        };
-
-        if !is_connected {
-            let _ = socket.emit(
-                "call-error",
-                &json!({
-                    "code": "target_unavailable",
-                    "message": "Target user is not currently connected",
-                    "targetUserId": target_id
-                }),
-            );
-            return;
-        }
-
+        // A presence choice (including Invisible) is never call admission.
+        // The stable room can receive an invite even when roster presence is
+        // hidden; an offline member simply receives no live packet and the
+        // caller's bounded answer window reports no answer.
         if target_id == my_stable_id {
             let _ = socket.emit(
                 "call-error",
@@ -247,9 +227,30 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
             return;
         }
 
+        let target_user_id = target_id.strip_prefix("user-")
+            .and_then(|id| id.parse::<u64>().ok())
+            .filter(|id| *id > 0);
+        let target_exists = if let Some(user_id) = target_user_id {
+            state.app.wdb.get_user(user_id).await.ok().flatten().is_some()
+        } else { false };
+        if !target_exists {
+            let _ = socket.emit("call-error", &json!({
+                "code": "invalid_target",
+                "message": "This account is not available for calls",
+                "targetUserId": target_id,
+                "requestId": data.get("requestId"),
+            }));
+            return;
+        }
+
         // SEC-3: remember the active DM pair so webrtc/SDP signaling consent
         // checks can validate this relationship until the call ends.
         dm_link_remember(&my_stable_id, &target_id);
+
+        let _ = socket.emit("call-ringing", &json!({
+            "targetUserId": target_id,
+            "requestId": data.get("requestId"),
+        }));
 
         let _ = io
             .to(target_id)
@@ -358,7 +359,7 @@ async fn on_call_answer(socket: SocketRef, data: Value, state: SioState, io: Soc
             is_stable_connected(&connected, &caller_id)
         };
 
-        if !is_connected {
+        if !is_connected || !dm_link_exists(&my_stable_id, &caller_id) {
             let _ = socket.emit(
                 "call-error",
                 &json!({
@@ -451,13 +452,15 @@ async fn on_call_reject(socket: SocketRef, data: Value, state: SioState, io: Soc
     {
         // DM call reject
         // SEC-3: the call is over — drop the signaling consent link.
+        if !dm_link_exists(&my_stable_id, &caller_id) { return; }
         dm_link_forget(&my_stable_id, &caller_id);
         let _ = io
             .to(caller_id)
             .emit(
                 "call-rejected",
                 &json!({
-                    "userId": my_stable_id
+                    "userId": my_stable_id,
+                    "reason": data.get("reason").and_then(Value::as_str).unwrap_or("declined")
                 }),
             )
             .await;
@@ -516,6 +519,7 @@ async fn on_call_cancel(socket: SocketRef, data: Value, state: SioState, io: Soc
     {
         // DM call cancel
         // SEC-3: the call is over — drop the signaling consent link.
+        if !dm_link_exists(&my_stable_id, &target_id) { return; }
         dm_link_forget(&my_stable_id, &target_id);
         let _ = io
             .to(target_id)
@@ -545,14 +549,15 @@ async fn on_call_end(socket: SocketRef, data: Value, state: SioState, io: Socket
     if !participant_ids.is_empty() {
         // SEC-3: the call is over — drop DM signaling consent with each
         // participant so no further offers/answers/ICE flow between them.
-        for participant_id in &participant_ids {
-            dm_link_forget(&my_stable_id, participant_id);
-        }
+        let authorized_peers: Vec<String> = participant_ids.into_iter()
+            .filter(|peer| dm_link_exists(&my_stable_id, peer))
+            .collect();
+        for peer in &authorized_peers { dm_link_forget(&my_stable_id, peer); }
         // Round 5 hot-mic fix: the DM's wabidb media room membership dies
         // with the call — room membership is the relay's only authorization,
         // so a lingering room means a still-emitting client keeps streaming
         // its mic to the "ended" call.
-        for participant_id in &participant_ids {
+        for participant_id in &authorized_peers {
             let room = format!("wabidb-call-{}", dm_media_room_key(&my_stable_id, participant_id));
             let _ = socket.leave(room.clone());
             info!(
@@ -560,16 +565,11 @@ async fn on_call_end(socket: SocketRef, data: Value, state: SioState, io: Socket
                 socket.id, room
             );
         }
-        for participant_id in participant_ids {
+        for participant_id in authorized_peers {
             let _ = io
                 .to(participant_id)
                 .emit("call-ended", &json!({ "userId": my_stable_id }))
                 .await;
         }
-    } else {
-        let _ = socket
-            .broadcast()
-            .emit("call-ended", &json!({ "userId": my_stable_id }))
-            .await;
     }
 }

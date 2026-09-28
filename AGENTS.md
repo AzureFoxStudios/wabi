@@ -10,7 +10,7 @@ A single client can save/switch among multiple independent Wabi servers. **That 
 
 Do not quietly change these product boundaries:
 
-- current DMs/private rooms are server-readable, **not E2EE**;
+- new DMs/groups in the Tim release branch begin encryption-pending, then use experimental encrypted messages once participant devices are ready; a server-readable fallback requires each sender's explicit choice, while older rooms keep their earlier policy. This is **not independently verified operator-blind E2EE**;
 - WabiDB network replication/warm standby is experimental, **not production HA**;
 - the legacy mesh addon is not the production topology;
 - CAD/model features are review/inspection surfaces, **not a CAD editor**;
@@ -120,7 +120,7 @@ These are repository invariants that have caused real regressions when ignored.
 
 12. **CAD/model boundary: review, inspect, discuss.** DXF/DWG/3MF/STEP/IGES import paths converge into Wabi viewers/review tools. Do not grow a second renderer or editing format when the existing workspace can own the experience. Optional/proprietary conversion helpers must stay honest about licensing/deployment.
 
-13. **Privacy wording is a code-quality concern.** Do not label server-readable DMs as encrypted/private-from-operator, and do not equate ephemeral retention with confidentiality.
+13. **Privacy wording is a code-quality concern.** Label older rooms according to their actual policy and explicit plaintext fallbacks as server-readable. Label new-room encryption as experimental, not independently verified or operator-blind. Do not equate ephemeral retention with confidentiality.
 
 14. **Open PR != shipped feature.** Check `main`, the current task branch, and `docs/PROJECT_STATUS.md` before writing present-tense product claims.
 

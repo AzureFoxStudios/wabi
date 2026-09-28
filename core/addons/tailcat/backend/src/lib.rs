@@ -23,7 +23,7 @@ use std::sync::Arc;
 use rand::RngCore;
 use serde::Serialize;
 use tokio::process::{Child, Command};
-use tokio::sync::{watch, Notify, RwLock};
+use tokio::sync::{watch, Mutex, Notify, RwLock};
 use tracing::{info, warn};
 
 pub use store::{AuditEntry, MemberKeyRecord, PersistedSettings, TailcatStore};
@@ -57,6 +57,7 @@ struct Inner {
     /// Configured state (persisted). `running` tracks the subprocess.
     wanted: bool,
     running: bool,
+    listener_generation: u64,
     address: Option<String>,
     last_error: Option<String>,
     started_at: Option<String>,
@@ -75,6 +76,9 @@ pub struct TailcatManager {
     rebounce: Notify,
     tasks: tokio::sync::OnceCell<()>,
     shutdown_tx: std::sync::OnceLock<watch::Sender<bool>>,
+    shutdown_done: Notify,
+    changes: Mutex<()>,
+    forwarder: Mutex<Option<(watch::Sender<bool>, tokio::task::JoinHandle<()>)>>,
 }
 
 impl TailcatManager {
@@ -93,6 +97,9 @@ impl TailcatManager {
             rebounce: Notify::new(),
             tasks: tokio::sync::OnceCell::new(),
             shutdown_tx: std::sync::OnceLock::new(),
+            shutdown_done: Notify::new(),
+            changes: Mutex::new(()),
+            forwarder: Mutex::new(None),
         })
     }
 
@@ -119,7 +126,21 @@ impl TailcatManager {
         }
         self.ensure_tasks().await;
         if settings.enabled {
-            self.rebounce.notify_waiters();
+            self.rebounce.notify_one();
+        }
+    }
+
+    /// Process shutdown, not a persisted user setting change. Stop the monitor
+    /// and its owned child without disabling private access on the next launch.
+    pub async fn shutdown(&self) {
+        self.stop_forwarder().await;
+        if let Some(tx) = self.shutdown_tx.get() {
+            let _ = tx.send(true);
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                self.shutdown_done.notified(),
+            )
+            .await;
         }
     }
 
@@ -129,27 +150,122 @@ impl TailcatManager {
             .get_or_init(|| async {
                 let (tx, rx) = watch::channel(false);
                 let _ = self.shutdown_tx.set(tx);
-                let pipe_port = self.pipe_port();
-                let fwd = forwarder::run(
-                    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), pipe_port),
-                    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), self.server_port),
-                    self.pipe_auth_token.clone(),
-                    rx,
-                );
-                tokio::spawn(async move {
-                    if let Err(e) = fwd.await {
-                        warn!("[tailcat] forwarder stopped: {e}");
-                    }
-                });
-                tokio::spawn(Self::monitor_task(self.clone()));
+                if let Err(e) = self.replace_forwarder(None).await {
+                    self.set_running(
+                        false,
+                        Some(format!("Private-access port could not be bound: {e}")),
+                    )
+                    .await;
+                }
+                tokio::spawn(Self::monitor_task(self.clone(), rx));
             })
             .await;
     }
 
-    async fn monitor_task(self: Arc<Self>) {
+    async fn stop_forwarder(&self) {
+        if let Some((stop, mut task)) = self.forwarder.lock().await.take() {
+            let _ = stop.send(true);
+            if tokio::time::timeout(std::time::Duration::from_secs(2), &mut task)
+                .await
+                .is_err()
+            {
+                task.abort();
+            }
+        }
+    }
+
+    async fn replace_forwarder(
+        &self,
+        listener: Option<tokio::net::TcpListener>,
+    ) -> anyhow::Result<()> {
+        let listener = match listener {
+            Some(listener) => listener,
+            None => {
+                tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, self.pipe_port()))
+                    .await?
+            }
+        };
+        self.stop_forwarder().await;
+        let (stop, rx) = watch::channel(false);
+        let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), self.server_port);
+        let token = self.pipe_auth_token.clone();
+        let task = tokio::spawn(async move {
+            if let Err(e) = forwarder::run_listener(listener, target, token, rx).await {
+                warn!("[tailcat] forwarder stopped: {e}");
+            }
+        });
+        *self.forwarder.lock().await = Some((stop, task));
+        Ok(())
+    }
+
+    /// Change only this instance's Wabi pipe. Other LAN services are never targets.
+    pub async fn set_pipe_port(
+        self: &Arc<Self>,
+        port: u16,
+        actor: i64,
+    ) -> anyhow::Result<StatusSnapshot> {
+        let _change = self.changes.lock().await;
+        anyhow::ensure!(
+            port >= 1024 && port != self.server_port,
+            "Choose a port from 1024 to 65535 distinct from the Wabi server port"
+        );
+        self.ensure_tasks().await;
+        if port == self.pipe_port() {
+            return Ok(self.status().await);
+        }
+        // Reserve before changing saved settings; a conflict leaves the current pipe intact.
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
+        let mut settings = self.store.load_settings();
+        settings.pipe_port = Some(port);
+        self.store.save_settings(&settings)?;
+        self.replace_forwarder(Some(listener)).await?;
+        self.store
+            .append_audit(actor, "pipe-port-change", Some(port.to_string()));
+        self.inner.write().await.address = None;
+        self.rebounce.notify_one();
+        Ok(self.status().await)
+    }
+
+    pub async fn set_key_allowed(
+        self: &Arc<Self>,
+        key_id: &str,
+        allowed: bool,
+        actor: i64,
+    ) -> anyhow::Result<()> {
+        let _change = self.changes.lock().await;
+        let mut keys = self.store.load_keys();
+        let identity = keys
+            .iter()
+            .find(|k| k.id == key_id)
+            .map(|k| canonical_key(&k.public_key))
+            .ok_or_else(|| anyhow::anyhow!("No such device key"))?;
+        for key in keys
+            .iter_mut()
+            .filter(|k| canonical_key(&k.public_key) == identity)
+        {
+            key.allowed = allowed;
+        }
+        self.store.save_keys(&keys)?;
+        self.store.append_audit(
+            actor,
+            if allowed { "key-allow" } else { "key-block" },
+            Some(key_id.to_string()),
+        );
+        self.bounce_if_wanted().await;
+        Ok(())
+    }
+
+    async fn monitor_task(self: Arc<Self>, mut shutdown: watch::Receiver<bool>) {
         let mut child: Option<Child> = None;
         let mut consecutive_failures: u32 = 0;
         loop {
+            if *shutdown.borrow() {
+                if let Some(mut c) = child.take() {
+                    let _ = c.start_kill();
+                    let _ = c.wait().await;
+                }
+                break;
+            }
             let wanted = self.inner.read().await.wanted;
             if !wanted {
                 if let Some(mut c) = child.take() {
@@ -157,7 +273,10 @@ impl TailcatManager {
                     let _ = c.wait().await;
                 }
                 self.set_running(false, None).await;
-                self.rebounce.notified().await;
+                tokio::select! {
+                    _ = self.rebounce.notified() => {},
+                    _ = shutdown.changed() => {},
+                }
                 continue;
             }
             if child.is_none() {
@@ -171,10 +290,12 @@ impl TailcatManager {
                         let delay = std::time::Duration::from_secs(
                             (1u64 << consecutive_failures.min(5)).min(30),
                         );
-                        warn!(
-                            "[tailcat] listener spawn failed ({e}); retrying in {delay:?}"
-                        );
-                        tokio::time::sleep(delay).await;
+                        warn!("[tailcat] listener spawn failed ({e}); retrying in {delay:?}");
+                        tokio::select! {
+                            _ = tokio::time::sleep(delay) => {},
+                            _ = self.rebounce.notified() => {},
+                            _ = shutdown.changed() => {},
+                        }
                         consecutive_failures += 1;
                         continue;
                     }
@@ -183,6 +304,10 @@ impl TailcatManager {
             // Own the child across the select to satisfy the borrow checker.
             let mut c = child.take().expect("child");
             tokio::select! {
+                _ = shutdown.changed() => {
+                    let _ = c.start_kill(); let _ = c.wait().await;
+                    break;
+                }
                 _ = self.rebounce.notified() => {
                     let _ = c.start_kill();
                     let _ = c.wait().await;
@@ -205,6 +330,8 @@ impl TailcatManager {
                 }
             }
         }
+        self.set_running(false, None).await;
+        self.shutdown_done.notify_one();
     }
 
     async fn spawn_listener(self: &Arc<Self>) -> anyhow::Result<Child> {
@@ -218,9 +345,19 @@ impl TailcatManager {
         // after the port — it parses as a service name and exits).
         cmd.arg("serve").arg("--json");
         let allow = self.allow_list();
-        if !allow.is_empty() {
-            cmd.arg(format!("--allow={allow}"));
-        }
+        anyhow::ensure!(
+            !allow.is_empty(),
+            "No allowed device keys. Register or allow a device before connecting."
+        );
+        anyhow::ensure!(
+            self.forwarder
+                .lock()
+                .await
+                .as_ref()
+                .is_some_and(|(_, task)| !task.is_finished()),
+            "Private-access forwarder is not running"
+        );
+        cmd.arg(format!("--allow={allow}"));
         if let Ok(derpmap) = std::env::var(DERPMAP_ENV) {
             let derpmap = derpmap.trim().to_string();
             if !derpmap.is_empty() {
@@ -229,6 +366,7 @@ impl TailcatManager {
         }
         cmd.arg(pipe_port.to_string());
         cmd.env("TAILCAT_ADDR_FILE", &addr_file);
+        cmd.kill_on_drop(true);
         cmd.stdin(Stdio::null());
         cmd.stdout(Stdio::null());
         cmd.stderr(Stdio::piped());
@@ -251,13 +389,15 @@ impl TailcatManager {
         }
 
         let started = chrono::Utc::now().to_rfc3339();
-        {
+        let generation = {
             let mut inner = self.inner.write().await;
+            inner.listener_generation += 1;
             inner.running = true;
             inner.started_at = Some(started);
             inner.last_error = None;
             inner.address = None;
-        }
+            inner.listener_generation
+        };
 
         // Wait (bounded) for the address blob so status/`/connect` have it.
         let manager = Arc::downgrade(self);
@@ -266,9 +406,7 @@ impl TailcatManager {
             loop {
                 if std::time::Instant::now() > deadline {
                     if let Some(m) = manager.upgrade() {
-                        m.inner.write().await.last_error = Some(
-                            "listener started but produced no address within 10s".into(),
-                        );
+                        m.publish_listener_result(generation, None).await;
                     }
                     return;
                 }
@@ -276,7 +414,7 @@ impl TailcatManager {
                     let trimmed = raw.trim().to_string();
                     if trimmed.starts_with("tc") {
                         if let Some(m) = manager.upgrade() {
-                            m.inner.write().await.address = Some(trimmed);
+                            m.publish_listener_result(generation, Some(trimmed)).await;
                         }
                         return;
                     }
@@ -297,17 +435,15 @@ impl TailcatManager {
         enabled: bool,
         actor: i64,
     ) -> anyhow::Result<StatusSnapshot> {
+        let _change = self.changes.lock().await;
         let mut settings = self.store.load_settings();
         settings.enabled = enabled;
         self.store.save_settings(&settings)?;
-        self.store.append_audit(
-            actor,
-            if enabled { "enable" } else { "disable" },
-            None,
-        );
+        self.store
+            .append_audit(actor, if enabled { "enable" } else { "disable" }, None);
         self.inner.write().await.wanted = enabled;
         self.ensure_tasks().await;
-        self.rebounce.notify_waiters();
+        self.rebounce.notify_one();
 
         // Give the monitor a moment to reflect the transition in status.
         for _ in 0..30 {
@@ -329,23 +465,36 @@ impl TailcatManager {
         public_key: String,
         label: Option<String>,
     ) -> anyhow::Result<MemberKeyRecord> {
-        let key = public_key.trim().to_string();
+        let _change = self.changes.lock().await;
+        let raw_key = public_key.trim();
+        let material = raw_key.strip_prefix("nodekey:").unwrap_or(raw_key);
+        anyhow::ensure!(
+            material.len() == 64 && material.bytes().all(|b| b.is_ascii_hexdigit()),
+            "Device public key must contain 64 hexadecimal digits"
+        );
+        let key = canonical_key(raw_key);
         if key.is_empty() || key.len() > 512 {
             anyhow::bail!("public key must be 1..512 chars");
         }
         let mut keys = self.store.load_keys();
         if let Some(existing) = keys
             .iter_mut()
-            .find(|k| k.user_id == user_id && k.public_key == key)
+            .find(|k| k.user_id == user_id && canonical_key(&k.public_key) == key)
         {
             existing.label = label.clone().or(existing.label.clone());
             let updated = existing.clone();
             self.store.save_keys(&keys)?;
-            self.store.append_audit(user_id, "key-label-update", Some(key));
+            self.store
+                .append_audit(user_id, "key-label-update", Some(key));
             self.bounce_if_wanted().await;
             return Ok(updated);
         }
+        anyhow::ensure!(
+            !keys.iter().any(|k| canonical_key(&k.public_key) == key),
+            "Device key belongs to another member"
+        );
         let record = MemberKeyRecord {
+            allowed: true,
             id: uuid::Uuid::new_v4().to_string(),
             user_id,
             public_key: key.clone(),
@@ -361,6 +510,7 @@ impl TailcatManager {
 
     /// Revoke one key (admin action). Audited. Hot allow-list update.
     pub async fn revoke_key(self: &Arc<Self>, key_id: &str, actor: i64) -> anyhow::Result<()> {
+        let _change = self.changes.lock().await;
         let mut keys = self.store.load_keys();
         let before = keys.len();
         keys.retain(|k| k.id != key_id);
@@ -368,7 +518,8 @@ impl TailcatManager {
             anyhow::bail!("no such key: {key_id}");
         }
         self.store.save_keys(&keys)?;
-        self.store.append_audit(actor, "key-revoke", Some(key_id.to_string()));
+        self.store
+            .append_audit(actor, "key-revoke", Some(key_id.to_string()));
         self.bounce_if_wanted().await;
         Ok(())
     }
@@ -388,7 +539,7 @@ impl TailcatManager {
             .store
             .load_keys()
             .iter()
-            .any(|k| k.user_id == user_id);
+            .any(|k| k.user_id == user_id && k.allowed);
         if !has_key {
             return None;
         }
@@ -421,11 +572,7 @@ impl TailcatManager {
     /// Valid only when the request carries our unforgeable forwarder token;
     /// anything else (including spoofed headers on the public path) falls
     /// back to the plain peer IP.
-    pub fn rate_limit_key(
-        &self,
-        headers: &http::HeaderMap,
-        peer: &std::net::SocketAddr,
-    ) -> String {
+    pub fn rate_limit_key(&self, headers: &http::HeaderMap, peer: &std::net::SocketAddr) -> String {
         let authenticated = headers
             .get(forwarder::PIPE_AUTH_HEADER)
             .and_then(|v| v.to_str().ok())
@@ -439,6 +586,22 @@ impl TailcatManager {
             }
         }
         peer.ip().to_string()
+    }
+
+    // A reader belongs to one child, not the manager's entire lifetime. The
+    // existing state lock makes ownership validation and publication indivisible.
+    async fn publish_listener_result(&self, generation: u64, address: Option<String>) {
+        let mut inner = self.inner.write().await;
+        if !inner.running || inner.listener_generation != generation {
+            return;
+        }
+        match address {
+            Some(address) => inner.address = Some(address),
+            None => {
+                inner.last_error =
+                    Some("listener started but produced no address within 10s".into())
+            }
+        }
     }
 
     async fn set_running(&self, running: bool, err: Option<String>) {
@@ -456,23 +619,24 @@ impl TailcatManager {
     async fn bounce_if_wanted(self: &Arc<Self>) {
         if self.inner.read().await.wanted {
             self.ensure_tasks().await;
-            self.rebounce.notify_waiters();
+            self.rebounce.notify_one();
         }
     }
 
     fn allow_list(&self) -> String {
-        self.store
-            .load_keys()
+        let keys = self.store.load_keys();
+        let blocked: std::collections::HashSet<_> = keys
             .iter()
-            .map(|k| {
-                if k.public_key.starts_with("nodekey:") {
-                    k.public_key.clone()
-                } else {
-                    format!("nodekey:{}", k.public_key)
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(",")
+            .filter(|k| !k.allowed)
+            .map(|k| canonical_key(&k.public_key))
+            .collect();
+        let allowed: std::collections::BTreeSet<_> = keys
+            .iter()
+            .filter(|k| k.allowed)
+            .map(|k| canonical_key(&k.public_key))
+            .filter(|k| !blocked.contains(k))
+            .collect();
+        allowed.into_iter().collect::<Vec<_>>().join(",")
     }
 
     /// One-time `tailcat version` probe so the admin panel can say whether
@@ -500,3 +664,61 @@ impl TailcatManager {
     }
 }
 
+fn canonical_key(key: &str) -> String {
+    format!(
+        "nodekey:{}",
+        key.strip_prefix("nodekey:")
+            .unwrap_or(key)
+            .to_ascii_lowercase()
+    )
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn stopped_and_replaced_listeners_reject_late_reader_publication() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = TailcatManager::new(3001, dir.path());
+        // Skip the unrelated external binary probe.
+        manager.inner.write().await.binary_version_checked = true;
+        for generation in 1..=100 {
+            {
+                let mut inner = manager.inner.write().await;
+                inner.running = true;
+                inner.listener_generation = generation;
+            }
+            manager
+                .publish_listener_result(generation, Some("tc-current".into()))
+                .await;
+            assert_eq!(
+                manager.status().await.address.as_deref(),
+                Some("tc-current")
+            );
+            manager.set_running(false, None).await;
+            // Historical HTTP failure: the detached reader completed AFTER stop.
+            manager
+                .publish_listener_result(generation, Some("tc-stale".into()))
+                .await;
+            manager.publish_listener_result(generation, None).await;
+            let stopped = manager.status().await;
+            assert!(!stopped.running);
+            assert!(stopped.address.is_none());
+            assert!(stopped.started_at.is_none());
+            assert!(stopped.last_error.is_none());
+            {
+                let mut inner = manager.inner.write().await;
+                inner.running = true;
+                inner.listener_generation = generation + 1;
+            }
+            manager
+                .publish_listener_result(generation, Some("tc-old-child".into()))
+                .await;
+            manager.publish_listener_result(generation, None).await;
+            let replaced = manager.status().await;
+            assert!(replaced.address.is_none());
+            assert!(replaced.last_error.is_none());
+        }
+    }
+}

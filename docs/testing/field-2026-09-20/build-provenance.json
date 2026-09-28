@@ -1,0 +1,27 @@
+{
+  "source_head": "dcfa8a3b986eba964929cac10f94d9994744aef8",
+  "branch": "crash-harness-hardening",
+  "dirty_before_campaign": true,
+  "candidate_a_source_manifest_sha256": "8f93a080d4047bf801091a822a5210feca485d98d9922793bd5c666a79f91f82",
+  "candidate_b_source_manifest_sha256": "b092bff398160adcb5b82c11ff846b5eb5192cecfb5519d41636e437d8dd29e0",
+  "source_identity_method": "SHA-256 of the retained JSON per-file SHA-256 manifest; exact serialized manifest retained privately",
+  "candidate_b_change": "downstream HTTP upgrade handle retention in both Tailcat proxies; bidirectional byte regression tests",
+  "toolchain": {
+    "rustc": "1.93.1",
+    "node": "22.22.2",
+    "tauri_cli": "2.11.4",
+    "frontend_dependencies": "npm ci using pinned lock; Vite 8.2.2"
+  },
+  "mode": "release backend with addons; static Tauri frontend; host-test identifier; AppImage with media framework",
+  "packaging_workarounds": [
+    "private pkg-config runtime discovery for installed Ayatana 0.5.94 and librsvg 2.62.3; no system package changes",
+    "NO_STRIP=1 because bundled strip cannot handle Fedora RELR sections",
+    "packager-bundled patchelf made available only in build PATH",
+    "explicit Fedora GStreamer plugin/helper directories"
+  ],
+  "limitations": [
+    "glibc 2.43 desktop requirement excludes Mint 2.39; build on oldest supported distro before general distribution",
+    "packager warned about missing __TAURI_BUNDLE_TYPE on rebundle; updater acceptance not tested",
+    "HTTP unit tests are not physical calling/media acceptance"
+  ]
+}

@@ -15,26 +15,33 @@
 //! to switch to bincode once the projection handlers' format is confirmed.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use wabidb::domain::{
-    Ban, Channel, ChannelMember, DeafenRecord, EmojiRoleRule, Emote, Message,
-    MuteRecord, Reaction, RetentionPolicy, RoleDefinition, User, UserLayout,
-    Webhook,
+    Ban, Channel, ChannelMember, DeafenRecord, EmojiRoleRule, Emote, Message, MuteRecord, Reaction,
+    RetentionPolicy, RoleDefinition, User, UserLayout, Webhook,
 };
 use wabidb::engine::wabi_store::WabiStore;
+use wabidb::engine::{WabiDbConfig, WabiDbEngine};
+use wabidb::error::{Result, WabiError};
+use wabidb::format::record::RecordKind;
 use wabidb::projections::lore::LoreRepoRecord;
 use wabidb::projections::payments::{
     PaymentAccountLinkRecord, PaymentIntentRecord, PaymentUserBlockRecord,
 };
 use wabidb::projections::query::QueryableProjection;
-use wabidb::engine::{WabiDbConfig, WabiDbEngine};
-use wabidb::error::{Result, WabiError};
-use wabidb::format::record::RecordKind;
-use wabidb::sequencer::types::{CommandCommit, EventToWrite};
+use wabidb::sequencer::types::{CommandCommit, EventToWrite, RoomOwnerPrecondition};
 
-mod group_commands;
+pub(crate) mod friends;
 pub(crate) mod game_profiles;
+mod group_commands;
+mod messages_page;
+pub(crate) mod project_tasks;
+pub(crate) mod project_runs;
+pub(crate) mod wiki_checks;
+
+pub use project_tasks::ProjectTaskFields;
 
 /// Adapter from the WabiClient method shape to wabidb commands.
 ///
@@ -43,6 +50,26 @@ pub(crate) mod game_profiles;
 /// `Arc<dyn WabiStore>`.
 pub struct WdbAdapter {
     engine: Arc<WabiDbEngine>,
+    group_creation_write: tokio::sync::Mutex<()>,
+    roster_revision: AtomicU64,
+    pub(crate) project_run_write: tokio::sync::Mutex<()>,
+    project_task_write: tokio::sync::Mutex<()>,
+    wiki_write: tokio::sync::Mutex<()>,
+}
+
+fn changes_roster(event_type: &str) -> bool {
+    matches!(
+        event_type,
+        "user_registered"
+            | "user_updated"
+            | "user_deleted"
+            | "owner_claimed"
+            | "user_layout_upserted"
+            | "role_assigned"
+            | "role_removed"
+            | "badge_assigned"
+            | "badge_removed"
+    )
 }
 
 #[allow(dead_code)]
@@ -55,11 +82,10 @@ impl WdbAdapter {
     /// `WABIDB_ROOT_KEY` env > persisted `<data_dir>/root_key` >
     /// generated + persisted (see `crate::secrets::resolve_root_key`).
     pub fn resolved_config(data_dir: &Path) -> Result<WabiDbConfig> {
-        let key = crate::secrets::resolve_root_key(data_dir)
-            .map_err(|e| WabiError::Corrupt {
-                location: "wabidb root key resolution".into(),
-                detail: format!("failed to resolve bootstrap root key: {e}"),
-            })?;
+        let key = crate::secrets::resolve_root_key(data_dir).map_err(|e| WabiError::Corrupt {
+            location: "wabidb root key resolution".into(),
+            detail: format!("failed to resolve bootstrap root key: {e}"),
+        })?;
         Ok(WabiDbConfig::new(
             data_dir.to_path_buf(),
             wabidb::crypto::bootstrap::BootstrapSource::Provided(key),
@@ -69,14 +95,44 @@ impl WdbAdapter {
     /// Open the engine at the given data dir with the resolved bootstrap key.
     pub async fn open(data_dir: &Path) -> Result<Self> {
         let config = Self::resolved_config(data_dir)?;
-        let engine = WabiDbEngine::open(config).await?;
-        Ok(Self { engine: Arc::new(engine) })
+        Self::open_with_config(config).await
+    }
+
+    /// Open with the Authority's identity selected before root-key resolution
+    /// or engine startup. The adapter and sequencer share the engine identity.
+    pub async fn open_with_node_id(data_dir: &Path, node_id: String) -> Result<Self> {
+        if !crate::config::valid_node_id(&node_id) {
+            return Err(WabiError::Validation {
+                command: "configure_local_node".into(),
+                reason: "invalid node ID".into(),
+            });
+        }
+        let config = Self::resolved_config(data_dir)?;
+        Self::open_with_config_and_node_id(config, node_id).await
     }
 
     /// Open the engine with a pre-built config (for production with replication).
     pub async fn open_with_config(config: WabiDbConfig) -> Result<Self> {
-        let engine = WabiDbEngine::open(config).await?;
-        Ok(Self { engine: Arc::new(engine) })
+        Self::open_with_config_and_node_id(
+            config,
+            wabidb::engine::node_identity::DEFAULT_NODE_ID.into(),
+        )
+        .await
+    }
+
+    pub async fn open_with_config_and_node_id(
+        config: WabiDbConfig,
+        node_id: String,
+    ) -> Result<Self> {
+        let engine = WabiDbEngine::open_with_node_id(config, node_id).await?;
+        Ok(Self {
+            engine: Arc::new(engine),
+            group_creation_write: tokio::sync::Mutex::new(()),
+            roster_revision: AtomicU64::new(0),
+            project_run_write: tokio::sync::Mutex::new(()),
+            project_task_write: tokio::sync::Mutex::new(()),
+            wiki_write: tokio::sync::Mutex::new(()),
+        })
     }
 
     /// Open the engine with a passphrase-derived bootstrap key (production).
@@ -86,8 +142,142 @@ impl WdbAdapter {
         salt: [u8; 16],
     ) -> Result<Self> {
         let config = WabiDbConfig::from_passphrase(data_dir, passphrase, salt);
-        let engine = WabiDbEngine::open(config).await?;
-        Ok(Self { engine: Arc::new(engine) })
+        Self::open_with_config(config).await
+    }
+
+    pub fn roster_revision(&self) -> u64 {
+        self.roster_revision.load(Ordering::Acquire)
+    }
+
+    /// Compatibility assertion only. Use an identity-aware opener to select
+    /// the node before startup; a running engine cannot be renamed.
+    pub fn with_local_node_id(self, node_id: String) -> Result<Self> {
+        if node_id != self.engine.local_node_id() {
+            return Err(WabiError::Validation {
+                command: "configure_local_node".into(),
+                reason: "node identity is fixed at engine open; use open_with_node_id or open_with_config_and_node_id".into(),
+            });
+        }
+        Ok(self)
+    }
+
+    /// Missing placements retain the legacy single-Authority path. A recorded
+    /// remote owner is a hard stop until routed, fenced room writes exist.
+    pub(crate) fn require_local_room_owner(&self, channel_id: &str, command: &str) -> Result<()> {
+        self.room_owner_precondition(channel_id, command).map(|_| ())
+    }
+
+    pub(crate) fn room_owner_precondition(
+        &self,
+        channel_id: &str,
+        command: &str,
+    ) -> Result<RoomOwnerPrecondition> {
+        use wabidb::projections::room_placement::{decode, INDEX};
+        let Some(bytes) = self.engine.projection_state().get(INDEX, channel_id.as_bytes()) else {
+            return Ok(RoomOwnerPrecondition {
+                channel_id: channel_id.into(),
+                owner_node_id: self.engine.local_node_id().to_owned(),
+                expected_epoch: None,
+            });
+        };
+        let placement = decode(&bytes)?;
+        if placement.channel_id != channel_id {
+            return Err(WabiError::Corrupt {
+                location: INDEX.into(),
+                detail: "room placement key does not match channel".into(),
+            });
+        }
+        if placement.owner_node_id != self.engine.local_node_id() {
+            return Err(WabiError::Validation {
+                command: "room_owner_precondition".into(),
+                reason: format!(
+                    "{command}: room {} belongs to node {} in epoch {}; local node {} cannot accept its write",
+                    channel_id, placement.owner_node_id, placement.epoch, self.engine.local_node_id()
+                ),
+            });
+        }
+        Ok(RoomOwnerPrecondition {
+            channel_id: channel_id.into(),
+            owner_node_id: self.engine.local_node_id().to_owned(),
+            expected_epoch: Some(placement.epoch),
+        })
+    }
+
+    async fn call_room_owner_precondition(
+        &self,
+        session_id: &str,
+        command: &str,
+    ) -> Result<RoomOwnerPrecondition> {
+        let session =
+            self.get_call_session(session_id)
+                .await?
+                .ok_or_else(|| WabiError::NotFound {
+                    what: format!("call_session:{session_id}"),
+                })?;
+        if session.session_id != session_id {
+            return Err(WabiError::Corrupt {
+                location: "call_sessions".into(),
+                detail: "call session key does not match its record".into(),
+            });
+        }
+        let room_id = wabidb::projections::call_sessions::placement_room_id(
+            &session.session_id,
+            &session.channel_id,
+        )?;
+        self.room_owner_precondition(&room_id, command)
+    }
+
+    fn album_parent_room_id(&self, album_id: &str, command: &str) -> Result<String> {
+        use wabidb::projections::albums::AlbumProjection;
+        let album = AlbumProjection::get_album_by_id(&self.engine.projection_state(), album_id)?
+            .filter(|album| !album.is_deleted)
+            .ok_or_else(|| WabiError::Validation {
+            command: command.into(),
+            reason: format!("album {album_id} is missing or deleted"),
+        })?;
+        if !matches!(album.scope_type.as_str(), "channel" | "dm") {
+            return Err(WabiError::Corrupt {
+                location: "albums".into(),
+                detail: format!("album {album_id} has an unsupported scope"),
+            });
+        }
+        Ok(album.scope_id)
+    }
+
+    /// DM/group IDs are known before commit, so their placement can use the
+    /// ordinary per-room event in the same aggregate command. Reopening a
+    /// deleted DM advances the old epoch instead of replaying epoch one.
+    fn placement_event_for_created_id(&self, channel_id: &str) -> Result<EventToWrite> {
+        use wabidb::projections::room_placement::{decode, stream_id, RoomPlacementRecord, EVENT, INDEX};
+        let epoch = match self.engine.projection_state().get(INDEX, channel_id.as_bytes()) {
+            Some(bytes) => {
+                let previous = decode(&bytes)?;
+                if previous.channel_id != channel_id || previous.owner_node_id != self.engine.local_node_id() {
+                    return Err(WabiError::Validation {
+                        command: "create_conversation".into(),
+                        reason: "conversation placement belongs to another node".into(),
+                    });
+                }
+                previous.epoch.checked_add(1).ok_or_else(|| WabiError::Validation {
+                    command: "create_conversation".into(),
+                    reason: "conversation placement epoch exhausted".into(),
+                })?
+            }
+            None => 1,
+        };
+        Ok(EventToWrite {
+            stream_id: stream_id(channel_id),
+            event_type: EVENT.into(),
+            stream_kind: 6,
+            record_kind: RecordKind::Event,
+            plaintext: Self::payload_json(&RoomPlacementRecord {
+                schema_version: 1,
+                channel_id: channel_id.into(),
+                epoch,
+                owner_node_id: self.engine.local_node_id().to_owned(),
+                replica_node_ids: vec![],
+            })?,
+        })
     }
 
     /// Reference to the underlying engine (for advanced callers).
@@ -95,18 +285,28 @@ impl WdbAdapter {
         &*self.engine
     }
 
+    pub(crate) fn engine_handle(&self) -> Arc<WabiDbEngine> {
+        Arc::clone(&self.engine)
+    }
+
     /// Tail lookup for durable call signal allocation. Only the current call's
     /// highest key is decoded, not its entire signaling history on every write.
     pub fn last_call_signal(&self, session_id: &str) -> Result<Option<wabidb::domain::CallSignal>> {
         use wabidb::projections::call_signals;
         let mut result = Ok(None);
-        self.engine.projection_state().prefix_scan_reverse(call_signals::INDEX_NAME, format!("{session_id}:").as_bytes(), |key, value| {
-            let key = String::from_utf8_lossy(key);
-            if key.rsplit_once(':').is_some_and(|(id, _)| id == session_id) {
-                result = call_signals::decode_value(value).map(Some);
-                false
-            } else { true }
-        });
+        self.engine.projection_state().prefix_scan_reverse(
+            call_signals::INDEX_NAME,
+            format!("{session_id}:").as_bytes(),
+            |key, value| {
+                let key = String::from_utf8_lossy(key);
+                if key.rsplit_once(':').is_some_and(|(id, _)| id == session_id) {
+                    result = call_signals::decode_value(value).map(Some);
+                    false
+                } else {
+                    true
+                }
+            },
+        );
         result
     }
 
@@ -127,6 +327,62 @@ impl WdbAdapter {
         essential: bool,
         idempotency_key: Option<String>,
     ) -> Result<u64> {
+        let room_owner_precondition = wabidb::projections::workspace_writes::is_room_event(event_type)
+            .then(|| self.room_owner_precondition(&stream_id, command_name))
+            .transpose()?;
+        self.run_with_owner_precondition(
+            caller_user_id,
+            command_name,
+            stream_id,
+            event_type,
+            stream_kind,
+            plaintext,
+            essential,
+            idempotency_key,
+            room_owner_precondition,
+        )
+        .await
+    }
+
+    async fn run_room(
+        &self,
+        channel_id: &str,
+        caller_user_id: u64,
+        command_name: &str,
+        stream_id: String,
+        event_type: &str,
+        stream_kind: u8,
+        plaintext: Vec<u8>,
+        essential: bool,
+        idempotency_key: Option<String>,
+    ) -> Result<u64> {
+        let precondition = self.room_owner_precondition(channel_id, command_name)?;
+        self.run_with_owner_precondition(
+            caller_user_id,
+            command_name,
+            stream_id,
+            event_type,
+            stream_kind,
+            plaintext,
+            essential,
+            idempotency_key,
+            Some(precondition),
+        )
+        .await
+    }
+
+    async fn run_with_owner_precondition(
+        &self,
+        caller_user_id: u64,
+        command_name: &str,
+        stream_id: String,
+        event_type: &str,
+        stream_kind: u8,
+        plaintext: Vec<u8>,
+        essential: bool,
+        idempotency_key: Option<String>,
+        room_owner_precondition: Option<RoomOwnerPrecondition>,
+    ) -> Result<u64> {
         let event_type_owned = event_type.to_string();
         let stream_id_for_cmd = stream_id.clone();
         let plaintext_for_cmd = plaintext.clone();
@@ -135,6 +391,7 @@ impl WdbAdapter {
             .get_or_create_stream_key(&stream_id_for_cmd)
             .await?;
         let cmd = CommandCommit {
+            room_owner_precondition,
             caller_user_id,
             caller_device_id: "primary".into(),
             command_name: command_name.into(),
@@ -149,7 +406,17 @@ impl WdbAdapter {
             essential,
             response_tx: tokio::sync::oneshot::channel().0,
         };
-        let outcome = self.engine.run_command(cmd).await?;
+        // Mark both sides of the commit. A roster build racing a write must
+        // never cache a pre-commit view under the post-commit revision.
+        let roster_change = changes_roster(event_type);
+        if roster_change {
+            self.roster_revision.fetch_add(1, Ordering::AcqRel);
+        }
+        let outcome = self.engine.run_command(cmd).await;
+        if roster_change {
+            self.roster_revision.fetch_add(1, Ordering::AcqRel);
+        }
+        let outcome = outcome?;
         // Fan-out to subscription engine for real-time push.
         self.engine
             .deliver_event(&stream_id, event_type, &plaintext, outcome.commit_seq)
@@ -202,12 +469,22 @@ fn slugify_title(title: &str) -> String {
     let slug: String = title
         .to_lowercase()
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { ' ' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                ' '
+            }
+        })
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
         .join("-");
-    if slug.is_empty() { "untitled".into() } else { slug }
+    if slug.is_empty() {
+        "untitled".into()
+    } else {
+        slug
+    }
 }
 
 impl WabiStore for WdbAdapter {
@@ -224,11 +501,8 @@ impl WabiStore for WdbAdapter {
         files: &[wabidb::projections::messages::FileAttachmentRecord],
     ) -> Result<String> {
         use wabidb::projections::messages::{encode_record, MessageRecord};
-        let idem = format!(
-            "send_message:{}:{}",
-            channel_id,
-            uuid::Uuid::new_v4()
-        );
+        self.require_local_room_owner(channel_id, "send_message")?;
+        let idem = format!("send_message:{}:{}", channel_id, uuid::Uuid::new_v4());
         // Canonical wire/DB id: UUID. Must be stamped into the record BEFORE
         // commit so projection, session_messages, and socket emits agree.
         // Using only commit_seq caused client keyed {#each} collapses when
@@ -250,7 +524,8 @@ impl WabiStore for WdbAdapter {
         };
         let payload = encode_record(&record);
         let _seq = self
-            .run(
+            .run_room(
+                channel_id,
                 user_id,
                 "send_message",
                 channel_id.to_string(),
@@ -314,6 +589,9 @@ impl WabiStore for WdbAdapter {
         force_spoiler: bool,
     ) -> Result<String> {
         use wabidb::domain::Channel;
+        use wabidb::projections::room_placement::{
+            RoomPlacementInitialization, INIT_EVENT, INIT_STREAM,
+        };
         let mut channel = Channel::new("", name, owner_user_id);
         channel.channel_kind = channel_kind;
         channel.force_spoiler = force_spoiler;
@@ -321,16 +599,31 @@ impl WabiStore for WdbAdapter {
         if matches!(channel_kind, wabidb::domain::ChannelKind::Lore) {
             channel.asset_storage = true;
         }
-        let payload = Self::payload_json(&channel)?;
+        let initial_placement = RoomPlacementInitialization {
+            schema_version: 1,
+            owner_node_id: self.engine.local_node_id().to_owned(),
+            replica_node_ids: vec![],
+        };
         let seq = self
-            .run(
+            .commit_events(
                 owner_user_id,
                 "create_channel",
-                "channels".into(),
-                "channel_created",
-                6,
-                payload,
-                true,
+                vec![
+                    EventToWrite {
+                        stream_id: "channels".into(),
+                        event_type: "channel_created".into(),
+                        stream_kind: 6,
+                        record_kind: RecordKind::Event,
+                        plaintext: Self::payload_json(&channel)?,
+                    },
+                    EventToWrite {
+                        stream_id: INIT_STREAM.into(),
+                        event_type: INIT_EVENT.into(),
+                        stream_kind: 6,
+                        record_kind: RecordKind::Event,
+                        plaintext: Self::payload_json(&initial_placement)?,
+                    },
+                ],
                 None,
             )
             .await?;
@@ -343,6 +636,7 @@ impl WabiStore for WdbAdapter {
         patch: &serde_json::Value,
         actor_user_id: u64,
     ) -> Result<()> {
+        self.require_local_room_owner(channel_id, "update_channel")?;
         let mut payload = serde_json::Map::new();
         payload.insert("channel_id".to_string(), serde_json::json!(channel_id));
         if let Some(name) = patch.get("name") {
@@ -364,7 +658,8 @@ impl WabiStore for WdbAdapter {
             payload.insert("parent_id".to_string(), parent.clone());
         }
         let payload = serde_json::Value::Object(payload);
-        self.run(
+        self.run_room(
+            channel_id,
             actor_user_id,
             "update_channel",
             format!("channels:{}", channel_id),
@@ -378,13 +673,13 @@ impl WabiStore for WdbAdapter {
         Ok(())
     }
 
-    async fn add_reaction(
-        &self,
-        message_id: &str,
-        user_id: u64,
-        emote: &str,
-    ) -> Result<()> {
+    async fn add_reaction(&self, message_id: &str, user_id: u64, emote: &str) -> Result<()> {
         use wabidb::projections::reactions::{encode_reaction, Reaction};
+        let room_owner_precondition = self
+            .get_message_typed(message_id)
+            .await?
+            .map(|message| self.room_owner_precondition(&message.channel_id, "add_reaction"))
+            .transpose()?;
         let reaction = Reaction {
             message_id: message_id.to_string(),
             user_id,
@@ -393,7 +688,7 @@ impl WabiStore for WdbAdapter {
             key_id: "v0".to_string(),
         };
         let payload = encode_reaction(&reaction);
-        self.run(
+        self.run_with_owner_precondition(
             user_id,
             "add_reaction",
             format!("reactions:{}", message_id),
@@ -402,6 +697,7 @@ impl WabiStore for WdbAdapter {
             payload,
             false,
             None,
+            room_owner_precondition,
         )
         .await?;
         Ok(())
@@ -422,7 +718,8 @@ impl WabiStore for WdbAdapter {
             nick: None,
         };
         let payload = encode_record(&record);
-        self.run(
+        self.run_room(
+            channel_id,
             user_id,
             "add_channel_member",
             format!("channel_members:{}", channel_id),
@@ -446,7 +743,8 @@ impl WabiStore for WdbAdapter {
             nick: None,
         };
         let payload = encode_record(&record);
-        self.run(
+        self.run_room(
+            channel_id,
             user_id,
             "remove_channel_member",
             format!("channel_members:{}", channel_id),
@@ -473,7 +771,8 @@ impl WabiStore for WdbAdapter {
             "target_user_id": target_user_id,
             "reason": reason,
         });
-        self.run(
+        self.run_room(
+            channel_id,
             actor_user_id,
             "ban_user",
             format!("bans:{}", channel_id),
@@ -498,7 +797,8 @@ impl WabiStore for WdbAdapter {
             "actor_user_id": actor_user_id,
             "target_user_id": target_user_id,
         });
-        self.run(
+        self.run_room(
+            channel_id,
             actor_user_id,
             "unban_user",
             format!("bans:{}", channel_id),
@@ -528,17 +828,15 @@ impl WabiStore for WdbAdapter {
         Ok(())
     }
 
-    async fn update_user(
-        &self,
-        user_id: u64,
-        updates: wabidb::domain::UserUpdate,
-    ) -> Result<()> {
+    async fn update_user(&self, user_id: u64, updates: wabidb::domain::UserUpdate) -> Result<()> {
         use wabidb::projections::users::{encode_record, UserRecord};
 
         let current = self
             .get_user(user_id)
             .await?
-            .ok_or_else(|| WabiError::NotFound { what: format!("User {} not found", user_id) })?;
+            .ok_or_else(|| WabiError::NotFound {
+                what: format!("User {} not found", user_id),
+            })?;
 
         let record = UserRecord {
             user_id,
@@ -574,10 +872,12 @@ impl WabiStore for WdbAdapter {
         // Emit shape mirrors create_user (stream "users", kind 6 = other).
         // The UserDeletionProjection owns the cascade across dependent
         // indexes; this event only carries the target user id.
-        let payload = postcard::to_allocvec(&wabidb::domain::UserDeleted { user_id })
-            .map_err(|e| WabiError::Validation {
-                command: "delete_user".into(),
-                reason: format!("serialize failed: {}", e),
+        let payload =
+            postcard::to_allocvec(&wabidb::domain::UserDeleted { user_id }).map_err(|e| {
+                WabiError::Validation {
+                    command: "delete_user".into(),
+                    reason: format!("serialize failed: {}", e),
+                }
             })?;
         self.run(
             0,
@@ -610,45 +910,22 @@ impl WabiStore for WdbAdapter {
     }
 
     async fn get_message_typed(&self, message_id: &str) -> Result<Option<Message>> {
-        use wabidb::projections::messages::MessagesProjection;
-        use wabidb::projections::query::MessagesFilter;
-        let state = self.engine.projection_state();
-        // No message_id-only index yet, so query scans the primary index and
-        // decodes only matching rows.
-        let found = MessagesProjection
-            .query(
-                &state,
-                &MessagesFilter {
-                    include_deleted: true,
-                    ..Default::default()
-                },
-            )?
-            .into_iter()
-            .find(|r| r.message_id == message_id)
-            .map(Message::from);
-        Ok(found)
+        wabidb::projections::message_lookup::get(&self.engine.projection_state(), message_id)
+            .map(|record| record.map(Message::from))
     }
 
-    async fn list_messages_typed(
-        &self,
-        channel_id: &str,
-        limit: u64,
-    ) -> Result<Vec<Message>> {
+    async fn list_messages_typed(&self, channel_id: &str, limit: u64) -> Result<Vec<Message>> {
         use wabidb::projections::messages::MessagesProjection;
         // t_ee2420fe: bounded tail query — visits ~O(limit) index records
         // instead of decode-all + double sort. Timestamp re-sort kept: UUID-
         // generation ids carry no ordering, and the tail query may include a
         // mixed-generation boundary.
         let state = self.engine.projection_state();
-        let mut out: Vec<Message> = MessagesProjection::list_messages_tail(
-            &state,
-            channel_id,
-            limit as usize,
-            false,
-        )?
-        .into_iter()
-        .map(Message::from)
-        .collect();
+        let mut out: Vec<Message> =
+            MessagesProjection::list_messages_tail(&state, channel_id, limit as usize, false)?
+                .into_iter()
+                .map(Message::from)
+                .collect();
         out.sort_by(|a, b| a.created_at_micros.cmp(&b.created_at_micros));
         Ok(out)
     }
@@ -703,11 +980,13 @@ impl WabiStore for WdbAdapter {
 
     async fn claim_owner(&self, user_id: u64) -> Result<()> {
         use wabidb::projections::owner::{OwnerProjection, OwnerRecord};
-        let payload = serde_json::to_vec(&OwnerRecord { owner_user_id: user_id })
-            .map_err(|e| WabiError::Validation {
-                command: "claim_owner".into(),
-                reason: format!("serialize failed: {e}"),
-            })?;
+        let payload = serde_json::to_vec(&OwnerRecord {
+            owner_user_id: user_id,
+        })
+        .map_err(|e| WabiError::Validation {
+            command: "claim_owner".into(),
+            reason: format!("serialize failed: {e}"),
+        })?;
         self.run(
             user_id,
             "set_owner",
@@ -774,15 +1053,22 @@ impl WabiStore for WdbAdapter {
                         }
                     }
                 });
-                Ok(all.into_iter().filter(|c| member_of.contains(&c.channel_id)).collect())
+                Ok(all
+                    .into_iter()
+                    .filter(|c| member_of.contains(&c.channel_id))
+                    .collect())
             }
         }
     }
 
     async fn list_channel_members(&self, channel_id: &str) -> Result<Vec<ChannelMember>> {
         use wabidb::projections::channel_members::ChannelMembersProjection;
-        Ok(ChannelMembersProjection::list_members(&self.engine.projection_state(), channel_id)?
-            .into_iter().map(ChannelMember::from).collect())
+        Ok(
+            ChannelMembersProjection::list_members(&self.engine.projection_state(), channel_id)?
+                .into_iter()
+                .map(ChannelMember::from)
+                .collect(),
+        )
     }
 
     async fn list_reactions(&self, message_id: &str) -> Result<Vec<Reaction>> {
@@ -832,7 +1118,9 @@ impl WabiStore for WdbAdapter {
     async fn get_user_role(&self, workspace_id: &str, user_id: u64) -> Result<Option<String>> {
         let state = self.engine.projection_state();
         Ok(wabidb::projections::audit::AuditProjection::get_role(
-            state, workspace_id, user_id,
+            state,
+            workspace_id,
+            user_id,
         ))
     }
 
@@ -849,25 +1137,17 @@ impl WabiStore for WdbAdapter {
     // ============================================================
 
     async fn delete_channel(&self, channel_id: &str, actor_user_id: u64) -> Result<()> {
-        // Tombstone the row synchronously first so concurrent readers see
-        // the deletion immediately (read-your-writes), then commit the
-        // durable `channel_deleted` event. The projection handler REMOVES
-        // the row when the event applies; the event itself is what makes
-        // the deletion survive event-log replay, snapshot restore and
-        // replication. The old projection-only overwrite emitted no event,
-        // so every restart/replay resurrected the channel ("zombie
-        // channels" — they were never truly deleted).
-        let Some(mut ch) = self.get_channel(channel_id).await? else {
+        self.require_local_room_owner(channel_id, "delete_channel")?;
+        // The durable event removes the projection row before run_room
+        // returns. An eager projection tombstone here would leave the room
+        // hidden if admission rejects a concurrent ownership change.
+        let Some(_ch) = self.get_channel(channel_id).await? else {
             // Unknown or already deleted — nothing to do (idempotent).
             return Ok(());
         };
-        ch.is_active = false;
-        let bytes = Self::payload_json(&ch)?;
-        let state = self.engine.projection_state();
-        let key = channel_id.as_bytes().to_vec();
-        state.insert("channels", key, bytes, u64::MAX);
         let payload = serde_json::json!({ "channel_id": channel_id });
-        self.run(
+        self.run_room(
+            channel_id,
             actor_user_id,
             "delete_channel",
             format!("channels:{}", channel_id),
@@ -892,42 +1172,48 @@ impl WabiStore for WdbAdapter {
         members: Option<&[String]>,
         my_user_id: i64,
     ) -> Result<String> {
-        let payload = serde_json::json!({
-            "channel_id": channel_id,
-            "name": name,
-            "channel_kind": wabidb::domain::ChannelKind::Dm as u8,
-            "owner_user_id": my_user_id,
-            "created_at_micros": now_micros(),
+        let member_ids: Option<Vec<u64>> = members.and_then(|members| {
+            members
+                .iter()
+                .map(|member| {
+                    member
+                        .strip_prefix("user-")
+                        .unwrap_or(member)
+                        .parse::<u64>()
+                        .ok()
+                })
+                .collect()
         });
-        self.run(
-            my_user_id as u64,
-            "create_dm_channel",
-            channel_id.into(),
-            "channel_created",
-            6,
-            Self::payload_json(&payload)?,
-            true,
-            None,
-        )
-        .await?;
-        if let Some(member_ids) = members {
-            for m in member_ids.iter() {
-                let user_id = m.trim_start_matches("user-").parse::<u64>().unwrap_or(0);
-                if user_id > 0 {
-                    self.add_channel_member(channel_id, user_id, wabidb::domain::MemberRole::Member).await?;
-                }
-            }
-        }
+        let member_ids = member_ids.ok_or_else(|| WabiError::Validation {
+            command: "create_dm".into(),
+            reason: "two registered participants are required".into(),
+        })?;
+        self.create_dm_command(channel_id, name, my_user_id as u64, &member_ids)
+            .await?;
         Ok(channel_id.to_string())
     }
 
-    async fn create_group(&self, channel_id: &str, name: &str, owner_user_id: u64, members: &[u64]) -> Result<u64> {
-        self.create_group_command(channel_id, name, owner_user_id, members).await
+    async fn create_group(
+        &self,
+        channel_id: &str,
+        name: &str,
+        owner_user_id: u64,
+        members: &[u64],
+    ) -> Result<u64> {
+        self.create_group_command(channel_id, name, owner_user_id, members)
+            .await
     }
 
-    async fn change_group_membership(&self, actor_user_id: u64, channel_id: &str,
-        add: Option<u64>, remove: Option<u64>, owner_user_id: u64) -> Result<u64> {
-        self.change_group_membership_command(actor_user_id, channel_id, add, remove, owner_user_id).await
+    async fn change_group_membership(
+        &self,
+        actor_user_id: u64,
+        channel_id: &str,
+        add: Option<u64>,
+        remove: Option<u64>,
+        owner_user_id: u64,
+    ) -> Result<u64> {
+        self.change_group_membership_command(actor_user_id, channel_id, add, remove, owner_user_id)
+            .await
     }
 
     async fn get_channels_raw(
@@ -946,63 +1232,94 @@ impl WabiStore for WdbAdapter {
                 continue;
             }
             let mut row = std::collections::HashMap::new();
-                row.insert("channel_id".into(), serde_json::Value::String(c.channel_id.clone()));
-                row.insert("id".into(), serde_json::Value::String(c.channel_id));
-                row.insert("name".into(), serde_json::Value::String(c.name));
-                row.insert("created_at".into(), serde_json::json!(c.created_at_micros));
-                let kind = match c.channel_kind {
-                    wabidb::domain::ChannelKind::Text => {
-                        if c.asset_storage { "lore" } else { "text" }
+            row.insert(
+                "channel_id".into(),
+                serde_json::Value::String(c.channel_id.clone()),
+            );
+            row.insert("id".into(), serde_json::Value::String(c.channel_id));
+            row.insert("name".into(), serde_json::Value::String(c.name));
+            row.insert("created_at".into(), serde_json::json!(c.created_at_micros));
+            let kind = match c.channel_kind {
+                wabidb::domain::ChannelKind::Text => {
+                    if c.asset_storage {
+                        "lore"
+                    } else {
+                        "text"
                     }
-                    wabidb::domain::ChannelKind::Voice => "voice",
-                    wabidb::domain::ChannelKind::Dm => "dm",
-                    wabidb::domain::ChannelKind::GroupDm => "group",
-                    wabidb::domain::ChannelKind::Announcement => "announcement",
-                    wabidb::domain::ChannelKind::Whiteboard => "whiteboard",
-                    wabidb::domain::ChannelKind::Wiki => "wiki",
-                    wabidb::domain::ChannelKind::Forum => "forum",
-                    wabidb::domain::ChannelKind::Incident => "incident",
-                    wabidb::domain::ChannelKind::Gallery => "gallery",
-                    wabidb::domain::ChannelKind::Category => "category",
-                    wabidb::domain::ChannelKind::Lore => "lore",
-                    wabidb::domain::ChannelKind::Planning => "planning",
-                    wabidb::domain::ChannelKind::Reception => "reception",
-                    _ => continue,
-                };
-                row.insert("channel_type".into(), serde_json::json!(kind));
-                row.insert("type".into(), serde_json::json!(kind));
-                if let Some(desc) = &c.description {
-                    row.insert("description".into(), serde_json::json!(desc));
                 }
-                // Category/sidebar nesting uses parent_id → wire as parentId.
-                // Do NOT alias into parent_channel_id (that is threads/breakouts on the FE).
-                row.insert("position".into(), serde_json::json!(c.position));
-                if let Some(parent) = &c.parent_id {
-                    row.insert("parent_id".into(), serde_json::json!(parent));
-                    row.insert("parentId".into(), serde_json::json!(parent));
-                }
-                row.insert("force_spoiler".into(), serde_json::json!(c.force_spoiler));
-                row.insert(
-                    "asset_storage".into(),
-                    serde_json::json!(
-                        c.asset_storage
-                            || matches!(c.channel_kind, wabidb::domain::ChannelKind::Lore)
-                    ),
-                );
-                out.push(row);
+                wabidb::domain::ChannelKind::Voice => "voice",
+                wabidb::domain::ChannelKind::Dm => "dm",
+                wabidb::domain::ChannelKind::GroupDm => "group",
+                wabidb::domain::ChannelKind::Announcement => "announcement",
+                wabidb::domain::ChannelKind::Whiteboard => "whiteboard",
+                wabidb::domain::ChannelKind::Wiki => "wiki",
+                wabidb::domain::ChannelKind::Forum => "forum",
+                wabidb::domain::ChannelKind::Incident => "incident",
+                wabidb::domain::ChannelKind::Gallery => "gallery",
+                wabidb::domain::ChannelKind::Category => "category",
+                wabidb::domain::ChannelKind::Lore => "lore",
+                wabidb::domain::ChannelKind::Planning => "planning",
+                wabidb::domain::ChannelKind::Reception => "reception",
+                _ => continue,
+            };
+            row.insert("channel_type".into(), serde_json::json!(kind));
+            row.insert("type".into(), serde_json::json!(kind));
+            if let Some(desc) = &c.description {
+                row.insert("description".into(), serde_json::json!(desc));
             }
+            // Category/sidebar nesting uses parent_id → wire as parentId.
+            // Do NOT alias into parent_channel_id (that is threads/breakouts on the FE).
+            row.insert("position".into(), serde_json::json!(c.position));
+            if let Some(parent) = &c.parent_id {
+                row.insert("parent_id".into(), serde_json::json!(parent));
+                row.insert("parentId".into(), serde_json::json!(parent));
+            }
+            row.insert("force_spoiler".into(), serde_json::json!(c.force_spoiler));
+            row.insert(
+                "asset_storage".into(),
+                serde_json::json!(
+                    c.asset_storage || matches!(c.channel_kind, wabidb::domain::ChannelKind::Lore)
+                ),
+            );
+            out.push(row);
+        }
         Ok(out)
+    }
+
+    async fn clear_channel_messages(&self, channel_id: &str, actor_user_id: u64) -> Result<()> {
+        self.require_local_room_owner(channel_id, "clear_channel_messages")?;
+        let payload = serde_json::json!({
+            "channelId": channel_id,
+            "clearedAtMicros": now_micros(),
+        })
+        .to_string()
+        .into_bytes();
+        self.run_room(
+            channel_id,
+            actor_user_id,
+            "clear_channel_messages",
+            channel_id.to_string(),
+            "channel_messages_cleared",
+            1,
+            payload,
+            true,
+            None,
+        )
+        .await?;
+        Ok(())
     }
 
     async fn delete_message(&self, message_id: &str, actor_user_id: u64) -> Result<()> {
         use wabidb::projections::messages::{encode_record, MessageRecord};
         if let Some(mut m) = self.get_message_typed(message_id).await? {
+            self.require_local_room_owner(&m.channel_id, "delete_message")?;
             m.is_deleted = true;
             m.edited_at_micros = Some(now_micros());
             let record = MessageRecord::from(m);
             let payload = encode_record(&record);
             let commit_seq = self
-                .run(
+                .run_room(
+                    &record.channel_id,
                     actor_user_id,
                     "delete_message",
                     record.channel_id.clone(),
@@ -1029,11 +1346,13 @@ impl WabiStore for WdbAdapter {
     ) -> Result<()> {
         use wabidb::projections::messages::{encode_record, MessageRecord};
         if let Some(mut m) = self.get_message_typed(message_id).await? {
+            self.require_local_room_owner(&m.channel_id, "edit_message")?;
             m.content = new_content.to_string();
             m.edited_at_micros = Some(now_micros());
             let record = MessageRecord::from(m);
             let payload = encode_record(&record);
-            self.run(
+            self.run_room(
+                &record.channel_id,
                 actor_user_id,
                 "edit_message",
                 record.channel_id.clone(),
@@ -1048,13 +1367,13 @@ impl WabiStore for WdbAdapter {
         Ok(())
     }
 
-    async fn remove_reaction(
-        &self,
-        message_id: &str,
-        user_id: u64,
-        emote: &str,
-    ) -> Result<()> {
+    async fn remove_reaction(&self, message_id: &str, user_id: u64, emote: &str) -> Result<()> {
         use wabidb::projections::reactions::{encode_reaction, Reaction};
+        let room_owner_precondition = self
+            .get_message_typed(message_id)
+            .await?
+            .map(|message| self.room_owner_precondition(&message.channel_id, "remove_reaction"))
+            .transpose()?;
         let reaction = Reaction {
             message_id: message_id.to_string(),
             user_id,
@@ -1063,7 +1382,7 @@ impl WabiStore for WdbAdapter {
             key_id: "v0".to_string(),
         };
         let payload = encode_reaction(&reaction);
-        self.run(
+        self.run_with_owner_precondition(
             user_id,
             "remove_reaction",
             format!("reactions:{}:{}:removed", message_id, emote),
@@ -1072,6 +1391,7 @@ impl WabiStore for WdbAdapter {
             payload,
             false,
             None,
+            room_owner_precondition,
         )
         .await?;
         Ok(())
@@ -1093,7 +1413,8 @@ impl WabiStore for WdbAdapter {
             "target_user_id": target_user_id,
             "until_micros": until_micros,
         });
-        self.run(
+        self.run_room(
+            channel_id,
             actor_user_id,
             "mute_user",
             format!("mutes:{}:{}", channel_id, target_user_id),
@@ -1117,7 +1438,8 @@ impl WabiStore for WdbAdapter {
             "channel_id": channel_id,
             "target_user_id": target_user_id,
         });
-        self.run(
+        self.run_room(
+            channel_id,
             actor_user_id,
             "unmute_user",
             format!("mutes:{}:{}", channel_id, target_user_id),
@@ -1155,7 +1477,8 @@ impl WabiStore for WdbAdapter {
             "channel_id": channel_id,
             "target_user_id": target_user_id,
         });
-        self.run(
+        self.run_room(
+            channel_id,
             actor_user_id,
             "deafen_user",
             format!("deafens:{}:{}", channel_id, target_user_id),
@@ -1175,7 +1498,8 @@ impl WabiStore for WdbAdapter {
         actor_user_id: u64,
         target_user_id: u64,
     ) -> Result<()> {
-        self.run(
+        self.run_room(
+            channel_id,
             actor_user_id,
             "undeafen_user",
             format!("deafens:{}:{}", channel_id, target_user_id),
@@ -1309,7 +1633,8 @@ impl WabiStore for WdbAdapter {
             created_by_user_id: 0,
         };
         let payload = encode_record(&webhook);
-        self.run(
+        self.run_room(
+            channel_id,
             0,
             "upsert_webhook",
             format!("webhooks:{}", channel_id),
@@ -1343,15 +1668,13 @@ impl WabiStore for WdbAdapter {
         let state = self.engine.projection_state();
         let key = encode_key(user_id);
         match state.get("user_layouts", &key) {
-            Some(bytes) => {
-                match decode_record(&bytes) {
-                    Ok(layout) => Ok(Some(layout)),
-                    Err(e) => Err(wabidb::error::WabiError::Validation {
-                        command: "get_user_layout".into(),
-                        reason: format!("failed to decode user layout record: {e}"),
-                    }),
-                }
-            }
+            Some(bytes) => match decode_record(&bytes) {
+                Ok(layout) => Ok(Some(layout)),
+                Err(e) => Err(wabidb::error::WabiError::Validation {
+                    command: "get_user_layout".into(),
+                    reason: format!("failed to decode user layout record: {e}"),
+                }),
+            },
             None => Ok(None),
         }
     }
@@ -1398,13 +1721,15 @@ impl WabiStore for WdbAdapter {
     async fn put_whiteboard_doc(&self, board_id: &str, json: &str) -> Result<()> {
         use wabidb::domain::WhiteboardDoc;
         use wabidb::projections::whiteboard_docs::encode_record;
+        let channel_id = board_id.strip_prefix("channel:").unwrap_or(board_id);
         let doc = WhiteboardDoc {
             board_id: board_id.to_string(),
             doc_json: json.to_string(),
             updated_at_micros: now_micros(),
         };
         let payload = encode_record(&doc);
-        self.run(
+        self.run_room(
+            channel_id,
             0,
             "put_whiteboard_doc",
             format!("whiteboard_docs:{}", board_id),
@@ -1438,7 +1763,8 @@ impl WabiStore for WdbAdapter {
             "days": days,
             "set_by_user_id": set_by_user_id,
         });
-        self.run(
+        self.run_room(
+            channel_id,
             set_by_user_id,
             "upsert_channel_retention",
             format!("channel_retention:{}", channel_id),
@@ -1463,7 +1789,8 @@ impl WabiStore for WdbAdapter {
             "user_id": user_id,
             "role": role as u8,
         });
-        self.run(
+        self.run_room(
+            channel_id,
             user_id,
             "upsert_member_role",
             format!("member_roles:{}", channel_id),
@@ -1493,9 +1820,18 @@ impl WabiStore for WdbAdapter {
         match (entity, op) {
             ("rbac", "assign_role") => {
                 let user_id = payload.get("userId").and_then(|v| v.as_i64()).unwrap_or(0) as u64;
-                let workspace_id = payload.get("workspaceId").and_then(|v| v.as_str()).unwrap_or("default");
-                let role = payload.get("role").and_then(|v| v.as_str()).unwrap_or("Member");
-                let assigned_by = payload.get("assignedBy").and_then(|v| v.as_i64()).unwrap_or(0) as u64;
+                let workspace_id = payload
+                    .get("workspaceId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("default");
+                let role = payload
+                    .get("role")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Member");
+                let assigned_by = payload
+                    .get("assignedBy")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0) as u64;
                 let pl = serde_json::json!({
                     "user_id": user_id,
                     "workspace_id": workspace_id,
@@ -1511,12 +1847,19 @@ impl WabiStore for WdbAdapter {
                     Self::payload_json(&pl)?,
                     false,
                     None,
-                ).await?;
+                )
+                .await?;
             }
             ("rbac", "remove_role") => {
                 let user_id = payload.get("userId").and_then(|v| v.as_i64()).unwrap_or(0) as u64;
-                let workspace_id = payload.get("workspaceId").and_then(|v| v.as_str()).unwrap_or("default");
-                let role = payload.get("role").and_then(|v| v.as_str()).unwrap_or("Member");
+                let workspace_id = payload
+                    .get("workspaceId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("default");
+                let role = payload
+                    .get("role")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Member");
                 let pl = serde_json::json!({
                     "user_id": user_id,
                     "workspace_id": workspace_id,
@@ -1531,12 +1874,19 @@ impl WabiStore for WdbAdapter {
                     Self::payload_json(&pl)?,
                     false,
                     None,
-                ).await?;
+                )
+                .await?;
             }
             ("badges", "assign_badge") => {
                 let user_id = payload.get("userId").and_then(|v| v.as_i64()).unwrap_or(0) as u64;
-                let badge_id = payload.get("badgeId").and_then(|v| v.as_str()).unwrap_or("");
-                let assigned_by = payload.get("assignedBy").and_then(|v| v.as_i64()).unwrap_or(0) as u64;
+                let badge_id = payload
+                    .get("badgeId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let assigned_by = payload
+                    .get("assignedBy")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0) as u64;
                 let pl = serde_json::json!({
                     "user_id": user_id,
                     "badge_id": badge_id,
@@ -1551,11 +1901,15 @@ impl WabiStore for WdbAdapter {
                     Self::payload_json(&pl)?,
                     false,
                     None,
-                ).await?;
+                )
+                .await?;
             }
             ("badges", "remove_badge") => {
                 let user_id = payload.get("userId").and_then(|v| v.as_i64()).unwrap_or(0) as u64;
-                let badge_id = payload.get("badgeId").and_then(|v| v.as_str()).unwrap_or("");
+                let badge_id = payload
+                    .get("badgeId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let pl = serde_json::json!({
                     "user_id": user_id,
                     "badge_id": badge_id,
@@ -1569,7 +1923,8 @@ impl WabiStore for WdbAdapter {
                     Self::payload_json(&pl)?,
                     false,
                     None,
-                ).await?;
+                )
+                .await?;
             }
             ("channel", "update_settings") => {
                 let row = &payload["row"];
@@ -1587,7 +1942,8 @@ impl WabiStore for WdbAdapter {
                     Self::payload_json(&pl)?,
                     false,
                     None,
-                ).await?;
+                )
+                .await?;
             }
             ("channel", "update") => {
                 // Merge a partial channel update into the `channels` index
@@ -1612,7 +1968,8 @@ impl WabiStore for WdbAdapter {
                     Self::payload_json(&pl)?,
                     false,
                     None,
-                ).await?;
+                )
+                .await?;
             }
             // Payment event types — retained for replay-compat/audit of the
             // pre-Phase-1 envelope shape (no projection consumes these;
@@ -1633,7 +1990,8 @@ impl WabiStore for WdbAdapter {
                     Self::payload_json(&pl)?,
                     false,
                     None,
-                ).await?;
+                )
+                .await?;
             }
             // Unknown entity/op pairs are silently logged but not persisted.
             // This matches WDB compat behavior — unknown events were
@@ -1646,9 +2004,9 @@ impl WabiStore for WdbAdapter {
     }
 
     async fn is_user_banned(&self, _user_id: u64) -> Result<bool> {
-        // v1: no server-wide ban enforcement. Per-channel bans are checked
-        // by the wabi-server handler when it has channel context.
-        Ok(false)
+        // Account bans live in the Authority blacklist sidecar, outside
+        // WabiDB. Never return false here as an apparent authorization check.
+        Err(WabiError::Validation { command: "is_user_banned".into(), reason: "Check AppState blacklist for account bans".into() })
     }
 
     // --- subscription bridge ---
@@ -1659,13 +2017,16 @@ impl WabiStore for WdbAdapter {
         topic: &str,
         since: u64,
     ) -> Result<tokio::sync::broadcast::Receiver<wabidb::engine::SubscriptionDelivery>> {
-        Ok(self.engine.subscribe_stream(consumer_id, topic, since).await)
+        Ok(self
+            .engine
+            .subscribe_stream(consumer_id, topic, since)
+            .await)
     }
 
     async fn unsubscribe_stream(&self, consumer_id: &str, topic: &str) -> Result<bool> {
         Ok(self.engine.unsubscribe_stream(consumer_id, topic).await)
     }
-// --- call-session state (replaces WDB call_session_* tables) ---
+    // --- call-session state (replaces WDB call_session_* tables) ---
 
     async fn create_call_session(
         &self,
@@ -1677,7 +2038,22 @@ impl WabiStore for WdbAdapter {
         transport: String,
     ) -> Result<u64> {
         use wabidb::commands::call_session_create;
-        let sequencer = self.engine.sequencer().ok_or_else(|| wabidb::error::WabiError::InternalInvariantViolated { invariant: "sequencer not initialized".into() })?;
+        if let Some(existing) = self.get_call_session(&session_id).await? {
+            if existing.channel_id != channel_id {
+                return Err(WabiError::Validation {
+                    command: "call_session_create".into(),
+                    reason: "a call session cannot be rebound to another room".into(),
+                });
+            }
+        }
+        let room_id =
+            wabidb::projections::call_sessions::placement_room_id(&session_id, &channel_id)?;
+        let precondition = self.room_owner_precondition(&room_id, "call_session_create")?;
+        let sequencer = self.engine.sequencer().ok_or_else(|| {
+            wabidb::error::WabiError::InternalInvariantViolated {
+                invariant: "sequencer not initialized".into(),
+            }
+        })?;
         call_session_create::create_call_session(
             session_id,
             channel_id,
@@ -1685,6 +2061,7 @@ impl WabiStore for WdbAdapter {
             host_user_id,
             max_participants,
             transport,
+            precondition,
             self.engine(),
             sequencer,
         )
@@ -1700,12 +2077,20 @@ impl WabiStore for WdbAdapter {
         is_host: bool,
     ) -> Result<u64> {
         use wabidb::commands::call_session_join;
-        let sequencer = self.engine.sequencer().ok_or_else(|| wabidb::error::WabiError::InternalInvariantViolated { invariant: "sequencer not initialized".into() })?;
+        let precondition = self
+            .call_room_owner_precondition(&session_id, "call_session_join")
+            .await?;
+        let sequencer = self.engine.sequencer().ok_or_else(|| {
+            wabidb::error::WabiError::InternalInvariantViolated {
+                invariant: "sequencer not initialized".into(),
+            }
+        })?;
         call_session_join::join_call_session(
             session_id,
             user_id,
             stable_user_id,
             is_host,
+            precondition,
             self.engine(),
             sequencer,
         )
@@ -1713,28 +2098,46 @@ impl WabiStore for WdbAdapter {
         .map(|o| o.commit_seq)
     }
 
-    async fn leave_call_session(
-        &self,
-        session_id: String,
-        user_id: u64,
-    ) -> Result<u64> {
+    async fn leave_call_session(&self, session_id: String, user_id: u64) -> Result<u64> {
         use wabidb::commands::call_session_leave;
-        let sequencer = self.engine.sequencer().ok_or_else(|| wabidb::error::WabiError::InternalInvariantViolated { invariant: "sequencer not initialized".into() })?;
-        call_session_leave::leave_call_session(session_id, user_id, self.engine(), sequencer)
-            .await
-            .map(|o| o.commit_seq)
+        let precondition = self
+            .call_room_owner_precondition(&session_id, "call_session_leave")
+            .await?;
+        let sequencer = self.engine.sequencer().ok_or_else(|| {
+            wabidb::error::WabiError::InternalInvariantViolated {
+                invariant: "sequencer not initialized".into(),
+            }
+        })?;
+        call_session_leave::leave_call_session(
+            session_id,
+            user_id,
+            precondition,
+            self.engine(),
+            sequencer,
+        )
+        .await
+        .map(|o| o.commit_seq)
     }
 
-    async fn end_call_session(
-        &self,
-        session_id: String,
-        actor_user_id: u64,
-    ) -> Result<u64> {
+    async fn end_call_session(&self, session_id: String, actor_user_id: u64) -> Result<u64> {
         use wabidb::commands::call_session_end;
-        let sequencer = self.engine.sequencer().ok_or_else(|| wabidb::error::WabiError::InternalInvariantViolated { invariant: "sequencer not initialized".into() })?;
-        call_session_end::end_call_session(session_id, actor_user_id, self.engine(), sequencer)
-            .await
-            .map(|o| o.commit_seq)
+        let precondition = self
+            .call_room_owner_precondition(&session_id, "call_session_end")
+            .await?;
+        let sequencer = self.engine.sequencer().ok_or_else(|| {
+            wabidb::error::WabiError::InternalInvariantViolated {
+                invariant: "sequencer not initialized".into(),
+            }
+        })?;
+        call_session_end::end_call_session(
+            session_id,
+            actor_user_id,
+            precondition,
+            self.engine(),
+            sequencer,
+        )
+        .await
+        .map(|o| o.commit_seq)
     }
 
     async fn emit_call_signal(
@@ -1747,7 +2150,14 @@ impl WabiStore for WdbAdapter {
         signal_id: u64,
     ) -> Result<u64> {
         use wabidb::commands::call_signal_emit;
-        let sequencer = self.engine.sequencer().ok_or_else(|| wabidb::error::WabiError::InternalInvariantViolated { invariant: "sequencer not initialized".into() })?;
+        let precondition = self
+            .call_room_owner_precondition(&session_id, "call_signal_emit")
+            .await?;
+        let sequencer = self.engine.sequencer().ok_or_else(|| {
+            wabidb::error::WabiError::InternalInvariantViolated {
+                invariant: "sequencer not initialized".into(),
+            }
+        })?;
         call_signal_emit::emit_call_signal(
             session_id,
             from_user_id,
@@ -1755,6 +2165,7 @@ impl WabiStore for WdbAdapter {
             target_user_id,
             payload,
             signal_id,
+            precondition,
             self.engine(),
             sequencer,
         )
@@ -1762,13 +2173,24 @@ impl WabiStore for WdbAdapter {
         .map(|o| o.commit_seq)
     }
 
-    async fn list_channel_call_sessions(&self, channel_id: &str) -> Result<Vec<wabidb::domain::CallSession>> {
+    async fn list_channel_call_sessions(
+        &self,
+        channel_id: &str,
+    ) -> Result<Vec<wabidb::domain::CallSession>> {
         use wabidb::projections::call_sessions;
-        let rows = self.engine.projection_state().with_index(call_sessions::INDEX_NAME, |index| {
-            index.iter().map(|entry| call_sessions::decode_value(entry.value()))
-                .collect::<Result<Vec<_>>>()
-        })?;
-        Ok(rows.into_iter().filter(|s| s.channel_id == channel_id).collect())
+        let rows =
+            self.engine
+                .projection_state()
+                .with_index(call_sessions::INDEX_NAME, |index| {
+                    index
+                        .iter()
+                        .map(|entry| call_sessions::decode_value(entry.value()))
+                        .collect::<Result<Vec<_>>>()
+                })?;
+        Ok(rows
+            .into_iter()
+            .filter(|s| s.channel_id == channel_id)
+            .collect())
     }
 
     async fn get_call_session(
@@ -1777,7 +2199,11 @@ impl WabiStore for WdbAdapter {
     ) -> Result<Option<wabidb::domain::CallSession>> {
         use wabidb::projections::call_sessions;
         let key = call_sessions::encode_key(session_id);
-        match self.engine.projection_state().get(call_sessions::INDEX_NAME, &key) {
+        match self
+            .engine
+            .projection_state()
+            .get(call_sessions::INDEX_NAME, &key)
+        {
             Some(bytes) => Ok(Some(call_sessions::decode_value(&bytes)?)),
             None => Ok(None),
         }
@@ -1791,7 +2217,8 @@ impl WabiStore for WdbAdapter {
         let secondary_key = call_participants::secondary_key(session_id);
         let mut participants = Vec::new();
         let Some(keys_bytes) = self
-            .engine.projection_state()
+            .engine
+            .projection_state()
             .get(call_participants::INDEX_NAME, &secondary_key)
         else {
             return Ok(participants);
@@ -1804,7 +2231,11 @@ impl WabiStore for WdbAdapter {
         })?;
         for k in keys {
             let pk = call_participants::encode_key(&k);
-            if let Some(bytes) = self.engine.projection_state().get(call_participants::INDEX_NAME, &pk) {
+            if let Some(bytes) = self
+                .engine
+                .projection_state()
+                .get(call_participants::INDEX_NAME, &pk)
+            {
                 participants.push(call_participants::decode_value(&bytes)?);
             }
         }
@@ -1819,28 +2250,34 @@ impl WabiStore for WdbAdapter {
         use wabidb::projections::call_signals;
         let mut signals = Vec::new();
         let mut decode_error = None;
-        self.engine.projection_state().prefix_scan(call_signals::INDEX_NAME, format!("{session_id}:").as_bytes(), |k, v| {
-            // Key format: "<session_id>:<20-digit-zero-padded-signal_id>"
-            let key = String::from_utf8_lossy(k);
-            let Some((stored_session, id_str)) = key.rsplit_once(':') else {
-                return;
-            };
-            if stored_session != session_id {
-                return;
-            }
-            let Ok(id) = id_str.parse::<u64>() else {
-                return;
-            };
-            if id <= since_signal_id {
-                return;
-            }
-            match call_signals::decode_value(v) {
-                Ok(sig) => signals.push(sig),
-                Err(e) => decode_error = Some(e),
-            }
-        });
+        self.engine.projection_state().prefix_scan(
+            call_signals::INDEX_NAME,
+            format!("{session_id}:").as_bytes(),
+            |k, v| {
+                // Key format: "<session_id>:<20-digit-zero-padded-signal_id>"
+                let key = String::from_utf8_lossy(k);
+                let Some((stored_session, id_str)) = key.rsplit_once(':') else {
+                    return;
+                };
+                if stored_session != session_id {
+                    return;
+                }
+                let Ok(id) = id_str.parse::<u64>() else {
+                    return;
+                };
+                if id <= since_signal_id {
+                    return;
+                }
+                match call_signals::decode_value(v) {
+                    Ok(sig) => signals.push(sig),
+                    Err(e) => decode_error = Some(e),
+                }
+            },
+        );
         signals.sort_by_key(|s| s.signal_id);
-        if let Some(error) = decode_error { return Err(error); }
+        if let Some(error) = decode_error {
+            return Err(error);
+        }
         Ok(signals)
     }
 
@@ -1848,14 +2285,26 @@ impl WabiStore for WdbAdapter {
     // Album / album-items
     // ============================================================
 
-    async fn list_albums(&self, scope_type: &str, scope_id: &str) -> Result<Vec<wabidb::domain::Album>> {
+    async fn list_albums(
+        &self,
+        scope_type: &str,
+        scope_id: &str,
+    ) -> Result<Vec<wabidb::domain::Album>> {
         use wabidb::projections::albums;
         let state = self.engine.projection_state();
         let records = albums::AlbumProjection::list_albums(&state, scope_type, scope_id, false)?;
-        Ok(records.into_iter().map(wabidb::domain::Album::from).collect())
+        Ok(records
+            .into_iter()
+            .map(wabidb::domain::Album::from)
+            .collect())
     }
 
-    async fn get_album(&self, scope_type: &str, scope_id: &str, album_id: &str) -> Result<Option<wabidb::domain::Album>> {
+    async fn get_album(
+        &self,
+        scope_type: &str,
+        scope_id: &str,
+        album_id: &str,
+    ) -> Result<Option<wabidb::domain::Album>> {
         use wabidb::projections::albums;
         let state = self.engine.projection_state();
         match albums::AlbumProjection::get_album(&state, scope_type, scope_id, album_id)? {
@@ -1864,8 +2313,20 @@ impl WabiStore for WdbAdapter {
         }
     }
 
-    async fn create_album(&self, scope_type: &str, scope_id: &str, name: &str, user_id: u64) -> Result<String> {
+    async fn create_album(
+        &self,
+        scope_type: &str,
+        scope_id: &str,
+        name: &str,
+        user_id: u64,
+    ) -> Result<String> {
         use wabidb::projections::albums::{encode_record, AlbumRecord};
+        if !matches!(scope_type, "channel" | "dm") {
+            return Err(WabiError::Validation {
+                command: "create_album".into(),
+                reason: "unknown album scope".into(),
+            });
+        }
         let now = now_micros();
         let record = AlbumRecord {
             album_id: String::new(),
@@ -1881,7 +2342,8 @@ impl WabiStore for WdbAdapter {
         };
         let payload = encode_record(&record);
         let seq = self
-            .run(
+            .run_room(
+                scope_id,
                 user_id,
                 "create_album",
                 format!("albums:{}", scope_id),
@@ -1895,14 +2357,29 @@ impl WabiStore for WdbAdapter {
         Ok(format!("alb_{:x}", seq))
     }
 
-    async fn delete_album(&self, scope_type: &str, scope_id: &str, album_id: &str, user_id: u64) -> Result<()> {
+    async fn delete_album(
+        &self,
+        scope_type: &str,
+        scope_id: &str,
+        album_id: &str,
+        user_id: u64,
+    ) -> Result<()> {
         use wabidb::projections::albums::{self, encode_record};
+        if !matches!(scope_type, "channel" | "dm") {
+            return Err(WabiError::Validation {
+                command: "delete_album".into(),
+                reason: "unknown album scope".into(),
+            });
+        }
         let state = self.engine.projection_state();
-        if let Some(mut record) = albums::AlbumProjection::get_album(&state, scope_type, scope_id, album_id)? {
+        if let Some(mut record) =
+            albums::AlbumProjection::get_album(&state, scope_type, scope_id, album_id)?
+        {
             record.is_deleted = true;
             record.updated_at_micros = now_micros();
             let payload = encode_record(&record);
-            self.run(
+            self.run_room(
+                scope_id,
                 user_id,
                 "delete_album",
                 format!("albums:{}", scope_id),
@@ -1921,11 +2398,22 @@ impl WabiStore for WdbAdapter {
         use wabidb::projections::album_items;
         let state = self.engine.projection_state();
         let records = album_items::AlbumItemsProjection::list_items(&state, album_id, false)?;
-        Ok(records.into_iter().map(wabidb::domain::AlbumItem::from).collect())
+        Ok(records
+            .into_iter()
+            .map(wabidb::domain::AlbumItem::from)
+            .collect())
     }
 
-    async fn add_item(&self, album_id: &str, url: &str, name: &str, caption: Option<&str>, user_id: u64) -> Result<String> {
+    async fn add_item(
+        &self,
+        album_id: &str,
+        url: &str,
+        name: &str,
+        caption: Option<&str>,
+        user_id: u64,
+    ) -> Result<String> {
         use wabidb::projections::album_items::{encode_record, AlbumItemRecord};
+        let room_id = self.album_parent_room_id(album_id, "add_item")?;
         let now = now_micros();
         let record = AlbumItemRecord {
             item_id: String::new(),
@@ -1941,7 +2429,8 @@ impl WabiStore for WdbAdapter {
         };
         let payload = encode_record(&record);
         let seq = self
-            .run(
+            .run_room(
+                &room_id,
                 user_id,
                 "add_item",
                 format!("album_items:{}", album_id),
@@ -1957,11 +2446,15 @@ impl WabiStore for WdbAdapter {
 
     async fn delete_item(&self, album_id: &str, item_id: &str, user_id: u64) -> Result<()> {
         use wabidb::projections::album_items::{self, encode_record};
+        let room_id = self.album_parent_room_id(album_id, "delete_item")?;
         let state = self.engine.projection_state();
-        if let Some(mut record) = album_items::AlbumItemsProjection::get_item(&state, album_id, item_id)? {
+        if let Some(mut record) =
+            album_items::AlbumItemsProjection::get_item(&state, album_id, item_id)?
+        {
             record.is_deleted = true;
             let payload = encode_record(&record);
-            self.run(
+            self.run_room(
+                &room_id,
                 user_id,
                 "delete_item",
                 format!("album_items:{}", album_id),
@@ -1980,7 +2473,11 @@ impl WabiStore for WdbAdapter {
     // Wiki
     // ================================================================
 
-    async fn get_wiki_page(&self, channel_id: &str, page_id: &str) -> Result<Option<wabidb::domain::WikiPage>> {
+    async fn get_wiki_page(
+        &self,
+        channel_id: &str,
+        page_id: &str,
+    ) -> Result<Option<wabidb::domain::WikiPage>> {
         use wabidb::projections::wiki;
         let state = self.engine.projection_state();
         match wiki::WikiProjection::get_page(&state, channel_id, page_id)? {
@@ -1993,7 +2490,10 @@ impl WabiStore for WdbAdapter {
         use wabidb::projections::wiki;
         let state = self.engine.projection_state();
         let records = wiki::WikiProjection::list_pages(&state, channel_id, false)?;
-        Ok(records.into_iter().map(wabidb::domain::WikiPage::from).collect())
+        Ok(records
+            .into_iter()
+            .map(wabidb::domain::WikiPage::from)
+            .collect())
     }
 
     async fn create_wiki_page(
@@ -2053,7 +2553,9 @@ impl WabiStore for WdbAdapter {
         slug: &str,
         order_index: i64,
     ) -> Result<()> {
-        use wabidb::projections::wiki::{self, encode_record, encode_revision_record, WikiPageRecord, WikiRevisionRecord};
+        use wabidb::projections::wiki::{
+            self, encode_record, encode_revision_record, WikiPageRecord, WikiRevisionRecord,
+        };
         let state = self.engine.projection_state();
         let existing = wiki::WikiProjection::get_page(&state, channel_id, page_id)?;
         let record = match existing {
@@ -2083,7 +2585,11 @@ impl WabiStore for WdbAdapter {
                     )
                     .await?;
                 let _ = rev_seq;
-                let slug = if slug.is_empty() { r.slug.clone() } else { slug.to_string() };
+                let slug = if slug.is_empty() {
+                    r.slug.clone()
+                } else {
+                    slug.to_string()
+                };
                 WikiPageRecord {
                     page_id: r.page_id,
                     channel_id: r.channel_id,
@@ -2091,7 +2597,7 @@ impl WabiStore for WdbAdapter {
                     body: body.to_string(),
                     author_user_id: r.author_user_id,
                     created_at_micros: r.created_at_micros,
-                    updated_at_micros: now_micros(),
+                    updated_at_micros: now_micros().max(r.updated_at_micros.saturating_add(1)),
                     is_deleted: r.is_deleted,
                     parent_page_id: parent_page_id.to_string(),
                     slug,
@@ -2135,8 +2641,14 @@ impl WabiStore for WdbAdapter {
         Ok(())
     }
 
-    async fn delete_wiki_page(&self, channel_id: &str, page_id: &str, actor_user_id: u64) -> Result<()> {
+    async fn delete_wiki_page(
+        &self,
+        channel_id: &str,
+        page_id: &str,
+        actor_user_id: u64,
+    ) -> Result<()> {
         use wabidb::projections::wiki::{self, encode_record};
+        let _guard = self.wiki_write.lock().await;
         let state = self.engine.projection_state();
         if let Some(mut record) = wiki::WikiProjection::get_page(&state, channel_id, page_id)? {
             record.is_deleted = true;
@@ -2157,17 +2669,30 @@ impl WabiStore for WdbAdapter {
         Ok(())
     }
 
-    async fn list_wiki_revisions(&self, channel_id: &str, page_id: &str) -> Result<Vec<wabidb::domain::WikiRevision>> {
+    async fn list_wiki_revisions(
+        &self,
+        channel_id: &str,
+        page_id: &str,
+    ) -> Result<Vec<wabidb::domain::WikiRevision>> {
         use wabidb::projections::wiki;
         let state = self.engine.projection_state();
         let records = wiki::WikiRevisionProjection::list_revisions(&state, channel_id, page_id)?;
-        Ok(records.into_iter().map(wabidb::domain::WikiRevision::from).collect())
+        Ok(records
+            .into_iter()
+            .map(wabidb::domain::WikiRevision::from)
+            .collect())
     }
 
-    async fn get_wiki_revision(&self, channel_id: &str, page_id: &str, revision_id: &str) -> Result<Option<wabidb::domain::WikiRevision>> {
+    async fn get_wiki_revision(
+        &self,
+        channel_id: &str,
+        page_id: &str,
+        revision_id: &str,
+    ) -> Result<Option<wabidb::domain::WikiRevision>> {
         use wabidb::projections::wiki;
         let state = self.engine.projection_state();
-        match wiki::WikiRevisionProjection::get_revision(&state, channel_id, page_id, revision_id)? {
+        match wiki::WikiRevisionProjection::get_revision(&state, channel_id, page_id, revision_id)?
+        {
             Some(r) => Ok(Some(wabidb::domain::WikiRevision::from(r))),
             None => Ok(None),
         }
@@ -2177,7 +2702,12 @@ impl WabiStore for WdbAdapter {
     // Forum
     // ================================================================
 
-    async fn get_forum_post(&self, channel_id: &str, thread_id: &str, post_id: &str) -> Result<Option<wabidb::domain::ForumPost>> {
+    async fn get_forum_post(
+        &self,
+        channel_id: &str,
+        thread_id: &str,
+        post_id: &str,
+    ) -> Result<Option<wabidb::domain::ForumPost>> {
         use wabidb::projections::forum;
         let state = self.engine.projection_state();
         match forum::ForumProjection::get_post(&state, channel_id, thread_id, post_id)? {
@@ -2190,14 +2720,24 @@ impl WabiStore for WdbAdapter {
         use wabidb::projections::forum;
         let state = self.engine.projection_state();
         let records = forum::ForumProjection::list_threads(&state, channel_id, false)?;
-        Ok(records.into_iter().map(wabidb::domain::ForumPost::from).collect())
+        Ok(records
+            .into_iter()
+            .map(wabidb::domain::ForumPost::from)
+            .collect())
     }
 
-    async fn list_forum_posts(&self, channel_id: &str, thread_id: &str) -> Result<Vec<wabidb::domain::ForumPost>> {
+    async fn list_forum_posts(
+        &self,
+        channel_id: &str,
+        thread_id: &str,
+    ) -> Result<Vec<wabidb::domain::ForumPost>> {
         use wabidb::projections::forum;
         let state = self.engine.projection_state();
         let records = forum::ForumProjection::list_posts(&state, channel_id, thread_id, false)?;
-        Ok(records.into_iter().map(wabidb::domain::ForumPost::from).collect())
+        Ok(records
+            .into_iter()
+            .map(wabidb::domain::ForumPost::from)
+            .collect())
     }
 
     async fn create_forum_thread(
@@ -2346,10 +2886,18 @@ impl WabiStore for WdbAdapter {
         Ok(())
     }
 
-    async fn delete_forum_post(&self, channel_id: &str, thread_id: &str, post_id: &str, actor_user_id: u64) -> Result<()> {
+    async fn delete_forum_post(
+        &self,
+        channel_id: &str,
+        thread_id: &str,
+        post_id: &str,
+        actor_user_id: u64,
+    ) -> Result<()> {
         use wabidb::projections::forum::{self, encode_record};
         let state = self.engine.projection_state();
-        if let Some(mut record) = forum::ForumProjection::get_post(&state, channel_id, thread_id, post_id)? {
+        if let Some(mut record) =
+            forum::ForumProjection::get_post(&state, channel_id, thread_id, post_id)?
+        {
             record.is_deleted = true;
             record.edited_at_micros = Some(now_micros());
             let payload = encode_record(&record);
@@ -2368,7 +2916,14 @@ impl WabiStore for WdbAdapter {
         Ok(())
     }
 
-    async fn vote_forum_post(&self, channel_id: &str, thread_id: &str, post_id: &str, direction: &str, actor_user_id: u64) -> Result<()> {
+    async fn vote_forum_post(
+        &self,
+        channel_id: &str,
+        thread_id: &str,
+        post_id: &str,
+        direction: &str,
+        actor_user_id: u64,
+    ) -> Result<()> {
         use postcard::to_allocvec;
         #[derive(serde::Serialize)]
         struct VotePayload {
@@ -2403,7 +2958,13 @@ impl WabiStore for WdbAdapter {
         Ok(())
     }
 
-    async fn mark_forum_solution(&self, channel_id: &str, thread_id: &str, post_id: &str, actor_user_id: u64) -> Result<()> {
+    async fn mark_forum_solution(
+        &self,
+        channel_id: &str,
+        thread_id: &str,
+        post_id: &str,
+        actor_user_id: u64,
+    ) -> Result<()> {
         use postcard::to_allocvec;
         #[derive(serde::Serialize)]
         struct SolutionPayload {
@@ -2447,7 +3008,9 @@ impl WabiStore for WdbAdapter {
     ) -> Result<()> {
         use wabidb::projections::forum::{self, encode_record};
         let state = self.engine.projection_state();
-        if let Some(mut record) = forum::ForumProjection::get_post(&state, channel_id, thread_id, thread_id)? {
+        if let Some(mut record) =
+            forum::ForumProjection::get_post(&state, channel_id, thread_id, thread_id)?
+        {
             record.title = title.to_string();
             record.tags = tags.to_vec();
             record.category = category.map(|c| c.to_string());
@@ -2472,7 +3035,11 @@ impl WabiStore for WdbAdapter {
     // Incidents
     // ================================================================
 
-    async fn get_incident(&self, channel_id: &str, incident_id: &str) -> Result<Option<wabidb::domain::Incident>> {
+    async fn get_incident(
+        &self,
+        channel_id: &str,
+        incident_id: &str,
+    ) -> Result<Option<wabidb::domain::Incident>> {
         use wabidb::projections::incidents;
         let state = self.engine.projection_state();
         match incidents::IncidentProjection::get_incident(&state, channel_id, incident_id)? {
@@ -2485,10 +3052,20 @@ impl WabiStore for WdbAdapter {
         use wabidb::projections::incidents;
         let state = self.engine.projection_state();
         let records = incidents::IncidentProjection::list_incidents(&state, channel_id, false)?;
-        Ok(records.into_iter().map(wabidb::domain::Incident::from).collect())
+        Ok(records
+            .into_iter()
+            .map(wabidb::domain::Incident::from)
+            .collect())
     }
 
-    async fn create_incident(&self, channel_id: &str, title: &str, description: &str, severity: &str, reporter_user_id: u64) -> Result<String> {
+    async fn create_incident(
+        &self,
+        channel_id: &str,
+        title: &str,
+        description: &str,
+        severity: &str,
+        reporter_user_id: u64,
+    ) -> Result<String> {
         use wabidb::projections::incidents::{encode_record, IncidentRecord};
         let now = now_micros();
         let record = IncidentRecord {
@@ -2534,7 +3111,8 @@ impl WabiStore for WdbAdapter {
     ) -> Result<()> {
         use wabidb::projections::incidents::{self, encode_record, IncidentRecord};
         let state = self.engine.projection_state();
-        let existing = incidents::IncidentProjection::get_incident(&state, channel_id, incident_id)?;
+        let existing =
+            incidents::IncidentProjection::get_incident(&state, channel_id, incident_id)?;
         let now = now_micros();
         let record = match existing {
             Some(r) => IncidentRecord {
@@ -2576,10 +3154,17 @@ impl WabiStore for WdbAdapter {
         Ok(())
     }
 
-    async fn resolve_incident(&self, channel_id: &str, incident_id: &str, actor_user_id: u64) -> Result<()> {
+    async fn resolve_incident(
+        &self,
+        channel_id: &str,
+        incident_id: &str,
+        actor_user_id: u64,
+    ) -> Result<()> {
         use wabidb::projections::incidents::{self, encode_record};
         let state = self.engine.projection_state();
-        if let Some(mut record) = incidents::IncidentProjection::get_incident(&state, channel_id, incident_id)? {
+        if let Some(mut record) =
+            incidents::IncidentProjection::get_incident(&state, channel_id, incident_id)?
+        {
             let now = now_micros();
             record.status = "resolved".to_string();
             record.resolved_at_micros = Some(now);
@@ -2836,7 +3421,11 @@ impl WabiStore for WdbAdapter {
     // DM (Direct Messages)
     // ================================================================
 
-    async fn get_dm_message(&self, dm_id: &str, message_id: &str) -> Result<Option<wabidb::domain::DmMessage>> {
+    async fn get_dm_message(
+        &self,
+        dm_id: &str,
+        message_id: &str,
+    ) -> Result<Option<wabidb::domain::DmMessage>> {
         use wabidb::projections::dm_messages;
         let state = self.engine.projection_state();
         match dm_messages::DmMessagesProjection::get_message(&state, dm_id, message_id)? {
@@ -2849,19 +3438,36 @@ impl WabiStore for WdbAdapter {
         use wabidb::projections::dm_messages;
         let state = self.engine.projection_state();
         let records = dm_messages::DmMessagesProjection::list_messages(&state, dm_id)?;
-        Ok(records.into_iter().map(wabidb::domain::DmMessage::from).collect())
+        Ok(records
+            .into_iter()
+            .map(wabidb::domain::DmMessage::from)
+            .collect())
     }
 
-    async fn list_dm_recipients(&self, dm_id: &str, message_id: &str) -> Result<Vec<wabidb::domain::DmRecipient>> {
+    async fn list_dm_recipients(
+        &self,
+        dm_id: &str,
+        message_id: &str,
+    ) -> Result<Vec<wabidb::domain::DmRecipient>> {
         use wabidb::projections::dm_message_recipients;
         let state = self.engine.projection_state();
-        let records = dm_message_recipients::DmMessageRecipientsProjection::list_recipients(&state, dm_id, message_id)?;
-        Ok(records.into_iter().map(wabidb::domain::DmRecipient::from).collect())
+        let records = dm_message_recipients::DmMessageRecipientsProjection::list_recipients(
+            &state, dm_id, message_id,
+        )?;
+        Ok(records
+            .into_iter()
+            .map(wabidb::domain::DmRecipient::from)
+            .collect())
     }
 
-    async fn send_dm_message(&self, dm_id: &str, author_user_id: u64, content: &str) -> Result<String> {
-        use wabidb::projections::dm_messages::{encode_record, DmMessageRecord};
+    async fn send_dm_message(
+        &self,
+        dm_id: &str,
+        author_user_id: u64,
+        content: &str,
+    ) -> Result<String> {
         use wabidb::projections::dm_message_recipients::encode_record as encode_recipient;
+        use wabidb::projections::dm_messages::{encode_record, DmMessageRecord};
         let now = now_micros();
         let record = DmMessageRecord {
             dm_id: dm_id.to_string(),
@@ -2889,7 +3495,13 @@ impl WabiStore for WdbAdapter {
         Ok(format!("dm_msg_{:x}", seq))
     }
 
-    async fn lore_create_repo(&self, channel_id: i64, repo_name: &str, lore_server_url: &str, created_by: i64) -> Result<()> {
+    async fn lore_create_repo(
+        &self,
+        channel_id: i64,
+        repo_name: &str,
+        lore_server_url: &str,
+        created_by: i64,
+    ) -> Result<()> {
         use wabidb::projections::lore::{encode_repo_record, LoreRepoRecord};
         let now = now_micros();
         let record = LoreRepoRecord {
@@ -2942,7 +3554,10 @@ impl WabiStore for WdbAdapter {
         LoreRepoProjection::list_repos(&state)
     }
 
-    async fn lore_set_binding(&self, binding: &wabidb::projections::lore::LoreBindingRecord) -> Result<()> {
+    async fn lore_set_binding(
+        &self,
+        binding: &wabidb::projections::lore::LoreBindingRecord,
+    ) -> Result<()> {
         use wabidb::projections::lore::encode_binding_record;
         let payload = encode_binding_record(binding);
         self.run(
@@ -2975,19 +3590,27 @@ impl WabiStore for WdbAdapter {
         Ok(())
     }
 
-    async fn lore_get_binding(&self, channel_id: i64) -> Result<Option<wabidb::projections::lore::LoreBindingRecord>> {
+    async fn lore_get_binding(
+        &self,
+        channel_id: i64,
+    ) -> Result<Option<wabidb::projections::lore::LoreBindingRecord>> {
         use wabidb::projections::lore::LoreBindingProjection;
         let state = self.engine.projection_state();
         LoreBindingProjection::get_binding(&state, channel_id)
     }
 
-    async fn list_lore_bindings(&self) -> Result<Vec<wabidb::projections::lore::LoreBindingRecord>> {
+    async fn list_lore_bindings(
+        &self,
+    ) -> Result<Vec<wabidb::projections::lore::LoreBindingRecord>> {
         use wabidb::projections::lore::LoreBindingProjection;
         let state = self.engine.projection_state();
         LoreBindingProjection::list_bindings(&state)
     }
 
-    async fn lore_record_promote(&self, record: &wabidb::projections::lore::LorePromoteRecord) -> Result<()> {
+    async fn lore_record_promote(
+        &self,
+        record: &wabidb::projections::lore::LorePromoteRecord,
+    ) -> Result<()> {
         use wabidb::projections::lore::encode_promote_record;
         let payload = encode_promote_record(record);
         self.run(
@@ -3004,19 +3627,33 @@ impl WabiStore for WdbAdapter {
         Ok(())
     }
 
-    async fn lore_promotes_for_message(&self, message_id: &str) -> Result<Vec<wabidb::projections::lore::LorePromoteRecord>> {
+    async fn lore_promotes_for_message(
+        &self,
+        message_id: &str,
+    ) -> Result<Vec<wabidb::projections::lore::LorePromoteRecord>> {
         use wabidb::projections::lore::LorePromoteProjection;
         let state = self.engine.projection_state();
         LorePromoteProjection::promotes_for_message(&state, message_id)
     }
 
-    async fn lore_promotes_for_channel(&self, channel_id: i64) -> Result<Vec<wabidb::projections::lore::LorePromoteRecord>> {
+    async fn lore_promotes_for_channel(
+        &self,
+        channel_id: i64,
+    ) -> Result<Vec<wabidb::projections::lore::LorePromoteRecord>> {
         use wabidb::projections::lore::LorePromoteProjection;
         let state = self.engine.projection_state();
         LorePromoteProjection::promotes_for_channel(&state, channel_id)
     }
 
-    async fn lore_commit(&self, channel_id: i64, commit_hash: &str, repo_name: &str, file_path: &str, message: &str, author_user_id: i64) -> Result<()> {
+    async fn lore_commit(
+        &self,
+        channel_id: i64,
+        commit_hash: &str,
+        repo_name: &str,
+        file_path: &str,
+        message: &str,
+        author_user_id: i64,
+    ) -> Result<()> {
         use wabidb::projections::lore::{encode_record, LoreCommitRecord};
         let now = now_micros();
         let record = LoreCommitRecord {
@@ -3168,14 +3805,24 @@ impl WabiStore for WdbAdapter {
     // Gallery
     // ================================================================
 
-    async fn list_gallery_works(&self, channel_id: &str) -> Result<Vec<wabidb::domain::GalleryWork>> {
+    async fn list_gallery_works(
+        &self,
+        channel_id: &str,
+    ) -> Result<Vec<wabidb::domain::GalleryWork>> {
         use wabidb::projections::gallery;
         let state = self.engine.projection_state();
         let records = gallery::GalleryWorkProjection::list_works(&state, channel_id, false)?;
-        Ok(records.into_iter().map(wabidb::domain::GalleryWork::from).collect())
+        Ok(records
+            .into_iter()
+            .map(wabidb::domain::GalleryWork::from)
+            .collect())
     }
 
-    async fn get_gallery_work(&self, channel_id: &str, work_id: &str) -> Result<Option<wabidb::domain::GalleryWork>> {
+    async fn get_gallery_work(
+        &self,
+        channel_id: &str,
+        work_id: &str,
+    ) -> Result<Option<wabidb::domain::GalleryWork>> {
         use wabidb::projections::gallery;
         let state = self.engine.projection_state();
         match gallery::GalleryWorkProjection::get_work(&state, channel_id, work_id)? {
@@ -3282,10 +3929,17 @@ impl WabiStore for WdbAdapter {
         Ok(())
     }
 
-    async fn delete_gallery_work(&self, channel_id: &str, work_id: &str, actor_user_id: u64) -> Result<()> {
+    async fn delete_gallery_work(
+        &self,
+        channel_id: &str,
+        work_id: &str,
+        actor_user_id: u64,
+    ) -> Result<()> {
         use wabidb::projections::gallery::{self, encode_record};
         let state = self.engine.projection_state();
-        if let Some(mut record) = gallery::GalleryWorkProjection::get_work(&state, channel_id, work_id)? {
+        if let Some(mut record) =
+            gallery::GalleryWorkProjection::get_work(&state, channel_id, work_id)?
+        {
             record.is_deleted = true;
             record.updated_at_micros = now_micros();
             let payload = encode_record(&record);
@@ -3304,11 +3958,20 @@ impl WabiStore for WdbAdapter {
         Ok(())
     }
 
-    async fn list_gallery_feedback(&self, channel_id: &str, work_id: &str) -> Result<Vec<wabidb::domain::GalleryFeedback>> {
+    async fn list_gallery_feedback(
+        &self,
+        channel_id: &str,
+        work_id: &str,
+    ) -> Result<Vec<wabidb::domain::GalleryFeedback>> {
         use wabidb::projections::gallery;
         let state = self.engine.projection_state();
-        let records = gallery::GalleryFeedbackProjection::list_feedback_for_work(&state, channel_id, work_id, false)?;
-        Ok(records.into_iter().map(wabidb::domain::GalleryFeedback::from).collect())
+        let records = gallery::GalleryFeedbackProjection::list_feedback_for_work(
+            &state, channel_id, work_id, false,
+        )?;
+        Ok(records
+            .into_iter()
+            .map(wabidb::domain::GalleryFeedback::from)
+            .collect())
     }
 
     async fn add_gallery_feedback(
@@ -3349,11 +4012,19 @@ impl WabiStore for WdbAdapter {
         Ok(format!("feedback_{:x}", seq))
     }
 
-    async fn delete_gallery_feedback(&self, channel_id: &str, work_id: &str, feedback_id: &str, actor_user_id: u64) -> Result<()> {
+    async fn delete_gallery_feedback(
+        &self,
+        channel_id: &str,
+        work_id: &str,
+        feedback_id: &str,
+        actor_user_id: u64,
+    ) -> Result<()> {
         use wabidb::projections::gallery::{self, encode_feedback_record};
         let state = self.engine.projection_state();
         // We need to fetch the feedback record; list_feedback_for_work then filter by feedback_id.
-        let all = gallery::GalleryFeedbackProjection::list_feedback_for_work(&state, channel_id, work_id, true)?;
+        let all = gallery::GalleryFeedbackProjection::list_feedback_for_work(
+            &state, channel_id, work_id, true,
+        )?;
         if let Some(mut record) = all.into_iter().find(|r| r.feedback_id == feedback_id) {
             record.is_deleted = true;
             let payload = encode_feedback_record(&record);
@@ -3412,10 +4083,7 @@ impl WdbAdapter {
         );
         row.insert("id".into(), serde_json::Value::String(c.channel_id.clone()));
         row.insert("name".into(), serde_json::Value::String(c.name.clone()));
-        row.insert(
-            "created_at".into(),
-            serde_json::json!(c.created_at_micros),
-        );
+        row.insert("created_at".into(), serde_json::json!(c.created_at_micros));
         let kind = Self::kind_string(c);
         row.insert("channel_type".into(), serde_json::json!(kind));
         row.insert("type".into(), serde_json::json!(kind));
@@ -3429,15 +4097,10 @@ impl WdbAdapter {
             row.insert("parent_id".into(), serde_json::json!(parent));
             row.insert("parentId".into(), serde_json::json!(parent));
         }
-        row.insert(
-            "force_spoiler".into(),
-            serde_json::json!(c.force_spoiler),
-        );
+        row.insert("force_spoiler".into(), serde_json::json!(c.force_spoiler));
         row.insert(
             "asset_storage".into(),
-            serde_json::json!(
-                c.asset_storage || matches!(c.channel_kind, ChannelKind::Lore)
-            ),
+            serde_json::json!(c.asset_storage || matches!(c.channel_kind, ChannelKind::Lore)),
         );
         row
     }
@@ -3518,7 +4181,13 @@ impl WdbAdapter {
         use wabidb::projections::query::MessagesFilter;
         let state = self.engine.projection_state();
         let out: Vec<Message> = MessagesProjection
-            .query(&state, &MessagesFilter { include_deleted: true, ..Default::default() })?
+            .query(
+                &state,
+                &MessagesFilter {
+                    include_deleted: true,
+                    ..Default::default()
+                },
+            )?
             .into_iter()
             .map(Message::from)
             .collect();

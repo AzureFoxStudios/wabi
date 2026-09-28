@@ -1,15 +1,41 @@
+export interface DeskPosterBlock {
+  id: string;
+  kind: 'text' | 'link' | 'role';
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  url?: string | null;
+  roleId?: string | null;
+}
+
 export interface FrontendAppMetadataPolicy {
+  /** Compare-and-swap publication revision for server branding and poster content. */
+  revision?: number;
   displayName: string | null;
   iconUrl: string | null;
   bannerUrl: string | null;
+  /** Reference Desk motion artwork and its required still fallback. */
+  deskBackgroundUrl?: string | null;
+  deskStillUrl?: string | null;
   accentColor: string | null;
   description: string | null;
+  deskWelcomeText?: string | null;
+  deskHelpText?: string | null;
+  deskHelpUrl?: string | null;
+  deskHelpLabel?: string | null;
+  deskPosterBlocks?: DeskPosterBlock[];
+  deskStartingRoomId?: string | null;
+  deskFocusedWelcome?: boolean;
   tagline: string | null;
   launchPageFallbackEnabled: boolean;
   brandProfile?: string | null;
+  /** Server-wide identity marks shown for owner and staff roles. */
+  ownerBadgeMark?: string | null;
+  staffBadgeMark?: string | null;
 }
 
-export type AuthPolicyMode = 'open' | 'invite' | 'verified';
+export type AuthPolicyMode = 'open' | 'invite' | 'closed' | 'verified';
 
 export interface AuthPolicy {
   mode: AuthPolicyMode;
@@ -105,4 +131,6 @@ export interface ServerPrivacyPolicy {
   externalProcessing: ServerExternalProcessingMode;
   /** User reports explicitly preserve the submitted message snapshot as moderation evidence. */
   reportEvidencePreservation: 'explicit_report';
+  /** Applies only to snapshots in new reports. Null means owner removal is manual. */
+  reportEvidenceDays: 1 | 7 | 30 | 90 | null;
 }

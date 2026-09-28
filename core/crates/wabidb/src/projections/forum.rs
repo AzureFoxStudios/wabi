@@ -24,6 +24,41 @@ pub struct ForumPostRecord {
     pub category: Option<String>,
 }
 
+// Shared with local write admission. Preserve the historical postcard field
+// order used by the adapter and projection; this is not a new event format.
+#[derive(Deserialize)]
+pub(crate) struct VotePayload {
+    pub post_id: String,
+    pub thread_id: String,
+    pub channel_id: String,
+    pub direction: String,
+    #[allow(dead_code)]
+    pub actor_user_id: u64,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct SolutionPayload {
+    pub post_id: String,
+    pub thread_id: String,
+    pub channel_id: String,
+    #[allow(dead_code)]
+    pub actor_user_id: u64,
+}
+
+pub(crate) fn decode_vote(buf: &[u8]) -> Result<VotePayload> {
+    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
+        location: "forum projection".into(),
+        detail: format!("vote payload decode failed: {e}"),
+    })
+}
+
+pub(crate) fn decode_solution(buf: &[u8]) -> Result<SolutionPayload> {
+    postcard::from_bytes(buf).map_err(|e| crate::error::WabiError::Corrupt {
+        location: "forum projection".into(),
+        detail: format!("solution payload decode failed: {e}"),
+    })
+}
+
 impl RecordCodec for ForumPostRecord {
     fn codec_name() -> &'static str {
         "forum_posts"
@@ -180,21 +215,7 @@ impl ForumProjection {
     }
 
     fn apply_post_voted(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
-        #[derive(Deserialize)]
-        struct VotePayload {
-            post_id: String,
-            thread_id: String,
-            channel_id: String,
-            direction: String,
-            #[allow(dead_code)]
-            actor_user_id: u64,
-        }
-        let v: VotePayload = postcard::from_bytes(&event.payload).map_err(|e| {
-            crate::error::WabiError::Corrupt {
-                location: "forum projection".into(),
-                detail: format!("vote payload decode failed: {e}"),
-            }
-        })?;
+        let v = decode_vote(&event.payload)?;
         let key = encode_key(&v.channel_id, &v.thread_id, &v.post_id);
         if let Some(bytes) = state.get("forum_posts", &key) {
             if let Ok(mut record) = postcard::from_bytes::<ForumPostRecord>(&bytes) {
@@ -211,20 +232,7 @@ impl ForumProjection {
     }
 
     fn apply_post_solution_set(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
-        #[derive(Deserialize)]
-        struct SolutionPayload {
-            post_id: String,
-            thread_id: String,
-            channel_id: String,
-            #[allow(dead_code)]
-            actor_user_id: u64,
-        }
-        let s: SolutionPayload = postcard::from_bytes(&event.payload).map_err(|e| {
-            crate::error::WabiError::Corrupt {
-                location: "forum projection".into(),
-                detail: format!("solution payload decode failed: {e}"),
-            }
-        })?;
+        let s = decode_solution(&event.payload)?;
 
         // Clear solution on all other posts in this thread
         let mut prefix = Vec::new();

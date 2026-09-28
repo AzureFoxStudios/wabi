@@ -1,0 +1,108 @@
+{
+  "dateUtc": "2026-09-28",
+  "completedBeforeUtc": "02:34:05",
+  "mainWabi": true,
+  "erpWorkflowExercised": false,
+  "checkoutHead": "cf00e3cbe379",
+  "dirtyWorktree": true,
+  "artifacts": {
+    "wabi-server": {
+      "bytes": 142562632,
+      "sha256": "569323dcda9ae033a5fcd16a0cca06e360900dbb85d763d06d24cd2a6965cdde"
+    },
+    "socket.io.cjs": {
+      "bytes": 155836,
+      "sha256": "bc425714aa8f2547d6939e3721ebafd3830a7562a1f6cb08acc1e794bd707954"
+    }
+  },
+  "networkQualification": {
+    "sites": [
+      "iRonin",
+      "Iyoku",
+      "Ronin"
+    ],
+    "twoEchoServicesAgreePerSite": true,
+    "distinctPublicEgressCount": 3,
+    "operatorReportsLocalMoveToThirdSite": true
+  },
+  "result": {
+    "result": "PASS",
+    "scope": "configured remote field transport; physical site count verified separately",
+    "checks": [
+      "two-site auth",
+      "signed three-entry roster",
+      "shared message history",
+      "Engine.IO polling",
+      "two WebSocket sessions",
+      "bidirectional cross-Anchor live messages",
+      "site-origin HTTP and authenticated WebSocket writes visible across sites",
+      "byte-identical local versioned assets on both Anchors",
+      "upload cache miss/hit",
+      "single Anchor loss with surviving write",
+      "Authority loss returns 503 for API and cached file while a public app asset stays local"
+    ],
+    "localAssetBytesPerSite": 28424,
+    "remoteClientProbes": [
+      {
+        "role": "materials",
+        "clientLocation": "remote-host",
+        "elapsedMs": 4290,
+        "assetBytes": 28424,
+        "websocketAuthenticated": true,
+        "websocketHistoryMatched": true,
+        "websocketAcceptanceMatchedDelivery": true
+      },
+      {
+        "role": "authority",
+        "clientLocation": "remote-host",
+        "elapsedMs": 1327,
+        "assetBytes": 28424,
+        "websocketAuthenticated": true,
+        "websocketHistoryMatched": true,
+        "websocketAcceptanceMatchedDelivery": true
+      }
+    ],
+    "staticOriginBytes": {
+      "materials": 0,
+      "equipment": 0
+    },
+    "cacheOriginBytes": {
+      "fileBytes": 262144,
+      "samples": [
+        {
+          "disposition": "miss",
+          "originToAnchorBytes": 263175,
+          "anchorToOriginBytes": 1105
+        },
+        {
+          "disposition": "hit",
+          "originToAnchorBytes": 504,
+          "anchorToOriginBytes": 553
+        }
+      ]
+    }
+  },
+  "remoteCleanup": {
+    "Iyoku": {
+      "ownedProcessesRemaining": 0,
+      "testTreeRemoved": true,
+      "bytesRemoved": 143022436
+    },
+    "Ronin": {
+      "ownedProcessesRemaining": 0,
+      "testTreeRemoved": true,
+      "bytesRemoved": 142718846
+    }
+  },
+  "fullGateAComplete": false,
+  "gatesBCDComplete": false,
+  "localCleanup": {
+    "ownedProcessesRemaining": 0,
+    "stageRemoved": true,
+    "transientLogsRemoved": true,
+    "fieldAndLogBytesRemoved": 142745565,
+    "ownedNewTestExecutableBytesRemoved": 340631512,
+    "sharedDependenciesPreserved": true
+  },
+  "totalOwnedArtifactBytesRemoved": 769118359
+}

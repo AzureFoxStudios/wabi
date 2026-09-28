@@ -1,0 +1,4 @@
+package magicsock
+func (c *Conn) FieldStats() map[string]int64 {
+ return map[string]int64{"rx_direct_v4":c.metrics.inboundBytesIPv4Total.Value(), "rx_derp":c.metrics.inboundBytesDERPTotal.Value(), "tx_direct_v4":c.metrics.outboundBytesIPv4Total.Value(), "tx_derp":c.metrics.outboundBytesDERPTotal.Value()}
+}

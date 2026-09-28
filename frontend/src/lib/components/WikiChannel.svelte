@@ -280,6 +280,7 @@
 		const body = editBody;
 		saveState = 'saving';
 		const result = await updateWikiPage(effectiveChannel, selectedPage.pageId, {
+			expectedUpdatedAtMicros: selectedPage.updatedAtMicros,
 			title,
 			body,
 		});
@@ -336,6 +337,7 @@
 		const owner = draftOwner;
 		const restoringPage = selectedPage.pageId;
 		const result = await updateWikiPage(effectiveChannel, selectedPage.pageId, {
+			expectedUpdatedAtMicros: selectedPage.updatedAtMicros,
 			title: revision.title,
 			body: revision.body,
 		});
