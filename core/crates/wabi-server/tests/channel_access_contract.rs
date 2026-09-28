@@ -554,13 +554,14 @@ async fn socket_policy_denies_removed_or_fabricated_membership_and_group_admin_o
         .create_dm_channel(
             &dm,
             "canary",
-            Some(&[format!("user-{member}")]),
+            Some(&[format!("user-{member}"), format!("user-{outsider}")]),
             member as i64,
         )
         .await
         .unwrap();
     assert!(wabi_server::socketio::can_access_dm(&sio, member as i64, &dm).await);
     state.wdb.remove_channel_member(&dm, member).await.unwrap();
+    state.wdb.remove_channel_member(&dm, outsider).await.unwrap();
     assert!(
         !wabi_server::socketio::can_access_dm(&sio, member as i64, &dm).await,
         "empty membership must not restore the ID fallback"
