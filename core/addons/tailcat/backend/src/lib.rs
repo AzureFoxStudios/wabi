@@ -62,6 +62,8 @@ struct Inner {
     started_at: Option<String>,
     binary_version: Option<String>,
     binary_version_checked: bool,
+    /// Invalidates address-file reads from stopped or replaced listeners.
+    listener_generation: u64,
 }
 
 pub struct TailcatManager {
@@ -250,40 +252,42 @@ impl TailcatManager {
             });
         }
 
-        let started = chrono::Utc::now().to_rfc3339();
-        {
-            let mut inner = self.inner.write().await;
-            inner.running = true;
-            inner.started_at = Some(started);
-            inner.last_error = None;
-            inner.address = None;
-        }
+        let listener_generation = self.mark_listener_started().await;
 
         // Wait (bounded) for the address blob so status/`/connect` have it.
         let manager = Arc::downgrade(self);
         tokio::spawn(async move {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
             loop {
-                if std::time::Instant::now() > deadline {
-                    if let Some(m) = manager.upgrade() {
-                        m.inner.write().await.last_error = Some(
-                            "listener started but produced no address within 10s".into(),
-                        );
+                let Some(m) = manager.upgrade() else {
+                    return;
+                };
+                {
+                    let inner = m.inner.read().await;
+                    if inner.listener_generation != listener_generation
+                        || !inner.running
+                        || !inner.wanted
+                    {
+                        return;
                     }
+                }
+                if std::time::Instant::now() > deadline {
+                    m.publish_listener_address(
+                        listener_generation,
+                        Err("listener started but produced no address within 10s".into()),
+                    )
+                    .await;
                     return;
                 }
                 if let Ok(raw) = tokio::fs::read_to_string(&addr_file).await {
                     let trimmed = raw.trim().to_string();
                     if trimmed.starts_with("tc") {
-                        if let Some(m) = manager.upgrade() {
-                            m.inner.write().await.address = Some(trimmed);
-                        }
+                        m.publish_listener_address(listener_generation, Ok(trimmed))
+                            .await;
                         return;
                     }
                 }
-                if manager.upgrade().is_none() {
-                    return;
-                }
+                drop(m);
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
         });
@@ -441,10 +445,39 @@ impl TailcatManager {
         peer.ip().to_string()
     }
 
+    async fn mark_listener_started(&self) -> u64 {
+        let mut inner = self.inner.write().await;
+        inner.listener_generation = inner.listener_generation.wrapping_add(1);
+        inner.running = true;
+        inner.started_at = Some(chrono::Utc::now().to_rfc3339());
+        inner.last_error = None;
+        inner.address = None;
+        inner.listener_generation
+    }
+
+    /// Commit a completed read only while its own listener is still current.
+    /// The check and publication share a lock with the stopped-state update.
+    async fn publish_listener_address(
+        &self,
+        generation: u64,
+        result: Result<String, String>,
+    ) -> bool {
+        let mut inner = self.inner.write().await;
+        if inner.listener_generation != generation || !inner.running || !inner.wanted {
+            return false;
+        }
+        match result {
+            Ok(address) => inner.address = Some(address),
+            Err(error) => inner.last_error = Some(error),
+        }
+        true
+    }
+
     async fn set_running(&self, running: bool, err: Option<String>) {
         let mut inner = self.inner.write().await;
         inner.running = running;
         if !running {
+            inner.listener_generation = inner.listener_generation.wrapping_add(1);
             inner.address = None;
             inner.started_at = None;
         }
@@ -500,3 +533,80 @@ impl TailcatManager {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::TailcatManager;
+
+    #[tokio::test]
+    async fn late_address_read_cannot_restore_a_stopped_listener() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = TailcatManager::new(0, dir.path());
+        {
+            let mut inner = manager.inner.write().await;
+            inner.wanted = true;
+            inner.binary_version_checked = true;
+        }
+        let generation = manager.mark_listener_started().await;
+        assert!(
+            manager
+                .publish_listener_address(generation, Ok("tcCURRENT".into()))
+                .await
+        );
+
+        manager.inner.write().await.wanted = false;
+        manager.set_running(false, None).await;
+        // A file read already in flight completes after the kill-switch.
+        assert!(
+            !manager
+                .publish_listener_address(generation, Ok("tcLATE".into()))
+                .await
+        );
+        assert!(
+            !manager
+                .publish_listener_address(generation, Err("late timeout".into()))
+                .await
+        );
+        let stopped = manager.status().await;
+        assert!(!stopped.enabled && !stopped.running);
+        assert!(stopped.address.is_none());
+        assert!(stopped.started_at.is_none());
+        assert!(stopped.last_error.is_none());
+    }
+
+    #[tokio::test]
+    async fn replaced_listener_rejects_old_address_and_timeout_results() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = TailcatManager::new(0, dir.path());
+        {
+            let mut inner = manager.inner.write().await;
+            inner.wanted = true;
+            inner.binary_version_checked = true;
+        }
+        let old_generation = manager.mark_listener_started().await;
+        manager.set_running(false, None).await;
+        let current_generation = manager.mark_listener_started().await;
+        assert_ne!(old_generation, current_generation);
+        assert!(
+            manager
+                .publish_listener_address(current_generation, Ok("tcCURRENT".into()))
+                .await
+        );
+
+        // Running/wanted are true again, so the generation check is essential.
+        assert!(
+            !manager
+                .publish_listener_address(old_generation, Ok("tcOLD".into()))
+                .await
+        );
+        assert!(
+            !manager
+                .publish_listener_address(old_generation, Err("old timeout".into()))
+                .await
+        );
+        let current = manager.status().await;
+        assert!(current.enabled && current.running);
+        assert_eq!(current.address.as_deref(), Some("tcCURRENT"));
+        assert!(current.started_at.is_some());
+        assert!(current.last_error.is_none());
+    }
+}
