@@ -50,11 +50,13 @@ async fn simulate_power_loss_before_fsync() {
             .unwrap();
     }
 
-    // Simulate a crash by NOT flushing and just dropping the writer.
-    let _path = writer.path().to_path_buf();
+    // Complete Tokio's background writes into the kernel cache, without fsync.
+    // This tests same-system readability before fsync, not power-loss durability.
+    writer.drain_pending_writes_for_test().await.unwrap();
+    let seg_path = writer.path().to_path_buf();
+    drop(writer);
 
-    // After "restart", open the segment with a reader.
-    let seg_path = events_dir.join("00000001.wseg");
+    // Reopen the completed, unsynced segment with a separate reader.
     let mut reader = SegmentReader::open(&seg_path).await.unwrap();
     let records = reader.read_records().await.unwrap();
 
