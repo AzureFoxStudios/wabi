@@ -3,7 +3,7 @@
    Glass modal shell aligned with login/boot theme language.
    ========================================================================== */
 
-.modal-overlay {
+.modal-overlay.wabi-settings-overlay {
 	position: fixed;
 	inset: 0;
 	z-index: var(--z-settings-shell);
@@ -55,6 +55,18 @@
 	to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* Keep navigation and the close target stationary as settings tabs change. */
+@media (min-width: 769px) {
+	.wabi-settings-modal {
+		height: min(90dvh, 940px);
+		max-height: min(90dvh, 940px);
+	}
+}
+
+.wabi-settings-modal > .modal-header {
+	flex-shrink: 0;
+}
+
 .modal-header {
 	display: flex;
 	justify-content: space-between;
@@ -89,7 +101,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.modal-overlay,
+	.modal-overlay.wabi-settings-overlay,
 	.modal-content {
 		animation: none;
 	}

@@ -12,6 +12,10 @@
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
 	import UserPopout from '$lib/components/UserPopout.svelte';
 	import RoleBadge from '$lib/components/RoleBadge.svelte';
+	import ProfileName from '$lib/components/ProfileName.svelte';
+	import ProfileMedia from '$lib/components/ProfileMedia.svelte';
+	import ProfileDecoration from '$lib/components/ProfileDecoration.svelte';
+	import { profileDecorationsVisible } from '$lib/profileAppearance';
 	import type { ContextMenuItem } from '$lib/context-menu/types';
 	import { resolveUserDisplayColor } from '$lib/accessibility';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
@@ -43,6 +47,7 @@
 		startDMCall,
 		type BuildMenuContext
 	} from './userListHelpers';
+	import { mediaUrl } from '$lib/mediaUrl';
 
 	let contextMenuUser: User | null = null;
 	let contextMenuAnchor: HTMLElement | null = null;
@@ -58,12 +63,6 @@
 	let friendSortMode: 'role' | 'name' | 'status' = 'role';
 	let offlineSectionExpanded = false;
 
-	// Mirrors the popout/ProfileCard `disableAllBanners` profile-visibility kill
-	// switch (localStorage `wabi:profile:visibility` -> disableAll): suppresses
-	// avatar overlays when the user hides all banners/decorations.
-	let disableAllBanners = false;
-
-	const BANNER_VISIBILITY_KEY = 'wabi:profile:visibility';
 
 	function dismissOnNavigationChange<T>(store: Readable<T>): () => void {
 		let seenInitial = false;
@@ -86,15 +85,6 @@
 			dismissOnNavigationChange(rightPanelMode),
 			dismissOnNavigationChange(activeWorkspace)
 		];
-		try {
-			const raw = localStorage.getItem(BANNER_VISIBILITY_KEY);
-			if (raw) {
-				const v = JSON.parse(raw);
-				if (typeof v.disableAll === 'boolean') disableAllBanners = v.disableAll;
-			}
-		} catch {
-			// ignore malformed local state
-		}
 		return () => {
 			for (const stop of stopNavigation) stop();
 			stopFriendshipSync();
@@ -461,21 +451,21 @@
 					>
 					<div class="user-avatar-wrap">
 						{#if user.profilePicture}
-							<img src={user.profilePicture} alt={getDisplayName(user)} class="user-avatar" />
+							<ProfileMedia src={mediaUrl(user.profilePicture)} alt={getDisplayName(user)} class="user-avatar" />
 						{:else}
 							<div class="user-avatar-placeholder" style="--avatar-color: {user.color}">
 								{getDisplayName(user).charAt(0).toUpperCase()}
 							</div>
 						{/if}
-						{#if user.overlayUrl && !disableAllBanners}
-							<span class="avatar-overlay-badge" style={overlayStyle(user)} aria-hidden="true"></span>
+						{#if user.overlayUrl && $profileDecorationsVisible}
+							<ProfileDecoration {user} class="avatar-overlay-badge" />
 						{/if}
 						<span class="presence-dot" class:active={user.status === 'active'} class:away={user.status === 'away'} class:busy={user.status === 'busy'} style="--status-color: {getStatusColor(user.status)}"></span>
 					</div>
 					<div class="user-info">
 						<span class="user-name-row">
 							<span class="user-display-name" style="color: {getDisplayColor(user)}">
-								{getDisplayName(user)}
+								<ProfileName username={getDisplayName(user)} font={user.usernameFont} color={getDisplayColor(user)} />
 							</span>
 							<RoleBadge {user} size="sm" />
 						</span>
@@ -507,21 +497,21 @@
 						>
 						<div class="user-avatar-wrap">
 							{#if user.profilePicture}
-								<img src={user.profilePicture} alt={getDisplayName(user)} class="user-avatar" />
+								<ProfileMedia src={mediaUrl(user.profilePicture)} alt={getDisplayName(user)} class="user-avatar" />
 							{:else}
 								<div class="user-avatar-placeholder" style="--avatar-color: {user.color}">
 									{getDisplayName(user).charAt(0).toUpperCase()}
 								</div>
 							{/if}
-						{#if user.overlayUrl && !disableAllBanners}
-							<span class="avatar-overlay-badge" style={overlayStyle(user)} aria-hidden="true"></span>
+							{#if user.overlayUrl && $profileDecorationsVisible}
+								<ProfileDecoration {user} class="avatar-overlay-badge" />
 						{/if}
 						<span class="presence-dot" style="--status-color: {getStatusColor('offline')}"></span>
 						</div>
 						<div class="user-info">
 							<span class="user-name-row">
 								<span class="user-display-name" style="color: {getDisplayColor(user)}">
-									{getDisplayName(user)}
+									<ProfileName username={getDisplayName(user)} font={user.usernameFont} color={getDisplayColor(user)} />
 								</span>
 								<RoleBadge {user} size="sm" />
 							</span>

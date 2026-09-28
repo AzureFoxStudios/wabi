@@ -100,11 +100,14 @@ function isDark(hex: string): boolean {
 	return luminance < 0.5;
 }
 
-// Foreground for solid-accent fills: white on dark/mid accents, near-black on
-// pale ones. Threshold 0.25 keeps white on reds/violets and puts dark text on
-// amber/cyan-class accents where white would drop below ~3:1.
+// Use linear-light contrast, not gamma-encoded brightness: the latter chose
+// dark text on Wabi's saturated violet, making primary actions unreadable.
 function textOnAccentColor(hex: string): string {
-	return hexLuminance(hex) < 0.25 ? '#FFFFFF' : '#101223';
+	const background = hexLuminance(hex);
+	if (1.05 / (background + 0.05) >= 4.5) return '#FFFFFF';
+	return (background + 0.05) / (hexLuminance('#101223') + 0.05) >= 4.5
+		? '#101223'
+		: '#000000';
 }
 
 function hexLuminance(hex: string): number {
@@ -112,7 +115,11 @@ function hexLuminance(hex: string): number {
 	const r = parseInt(clean.substring(0, 2), 16);
 	const g = parseInt(clean.substring(2, 4), 16);
 	const b = parseInt(clean.substring(4, 6), 16);
-	return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+	const linear = [r, g, b].map(value => {
+		const channel = value / 255;
+		return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+	});
+	return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
 }
 
 // ============================================================================

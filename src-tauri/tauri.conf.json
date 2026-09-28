@@ -17,22 +17,33 @@
         "height": 800,
         "resizable": true,
         "fullscreen": false,
-        "transparent": true,
-        "decorations": false
+        "transparent": false,
+        "decorations": true,
+        "minWidth": 480,
+        "minHeight": 360
       }
     ],
     "security": {
       "csp": "default-src 'self'; connect-src 'self' ws: wss: http: https:; img-src 'self' data: blob: http: https:; media-src 'self' blob: http: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:"
-    },
-    "trayIcon": {
-      "iconPath": "icons/32x32.png",
-      "iconAsTemplate": true
     }
   },
   "bundle": {
+    "shortDescription": "Self-hosted communication and collaboration",
+    "longDescription": "Open-source, self-hosted communication and collaboration for small communities, with chat, calls, shared workspaces, and creative review.",
     "active": true,
-    "targets": ["deb", "rpm", "appimage", "nsis", "msi", "app", "dmg"],
-    "externalBin": ["binaries/tailcat"],
+    "targets": [
+      "deb",
+      "rpm",
+      "appimage",
+      "nsis",
+      "msi",
+      "app",
+      "dmg"
+    ],
+    "externalBin": [
+      "binaries/tailcat",
+      "binaries/wabi-server"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -42,10 +53,17 @@
     ],
     "linux": {
       "deb": {
-        "depends": ["openssl", "libssl3"]
+        "depends": [
+          "openssl",
+          "libssl3"
+        ]
       },
       "rpm": {
-        "depends": ["openssl", "libssl.so.3()(64bit)", "libcrypto.so.3()(64bit)"]
+        "depends": [
+          "openssl",
+          "libssl.so.3()(64bit)",
+          "libcrypto.so.3()(64bit)"
+        ]
       },
       "appimage": {}
     }

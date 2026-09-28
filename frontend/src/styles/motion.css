@@ -26,19 +26,6 @@
 	}
 }
 
-/* --- Online presence pulse (avatar-wrapped / status dots) --- */
-/* Animate opacity (cheap) instead of box-shadow radius/color (forces
-   recomposite of every online dot every frame while connected). */
-@keyframes wabi-status-pulse-online {
-	0%,
-	100% {
-		opacity: 1;
-	}
-	50% {
-		opacity: 0.55;
-	}
-}
-
 /* --- Admin status glow (opacity pulse) --- */
 @keyframes wabi-admin-pulse-glow {
 	0%,

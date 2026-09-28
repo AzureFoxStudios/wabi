@@ -132,4 +132,17 @@ describe('message E2EE boundary', () => {
 		expect(queued[0].payload.text).toBe('phone message');
 	});
 
+	test('encrypted scan cache skips repeats but releases removed messages', async () => {
+		const encrypted = { id: 'm1', text: 'wabi-e2ee-v1:opaque' } as any;
+		channelMessages.set({ private: [encrypted] });
+		await Bun.sleep(0);
+		expect(prepareCalls).toBe(1);
+		channelMessages.set({ private: [encrypted] });
+		await Bun.sleep(0);
+		expect(prepareCalls).toBe(1);
+		channelMessages.set({ private: [] });
+		channelMessages.set({ private: [encrypted] });
+		await Bun.sleep(0);
+		expect(prepareCalls).toBe(2);
+	});
 });

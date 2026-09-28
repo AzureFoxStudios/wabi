@@ -1,0 +1,11 @@
+Generated with the built-in image generation tool, 2026-09-28.
+Original output: 2172 × 724 PNG. The tool chose these dimensions; the 3:1
+composition is preserved without resizing or editing the returned artwork.
+
+Use case: stylized-concept
+Asset type: original profile banner artwork for an open source community app, downloadable artist example
+Primary request: Create a polished, illustrated night garden with softly luminous blue and violet plants and a small moon over distant hills. No characters, no writing.
+Style/medium: hand-painted digital illustration with layered gouache-like texture and gentle light; distinctive, calm, inviting
+Composition/framing: an ultra-wide 3:1 banner, 1536 x 512 pixels. Keep the main moon and foliage detail in the central-right region; the lower-left region stays quiet and darker because a profile avatar overlaps it. Important details fit within the middle 80 percent so the image works with center-cover cropping.
+Lighting/mood: twilight, soft luminous edges, deep blue shadows; clear useful still image
+Constraints: flat image fills the entire canvas; no app interface, frame, template guides, labels, text, logo, watermark or transparent margins. Exact 3:1 wide canvas.

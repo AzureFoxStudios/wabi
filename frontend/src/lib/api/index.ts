@@ -81,6 +81,7 @@ export {
 export {
 	register,
 	login,
+	joinAsGuest,
 	upgradeToRegistered,
 	changePassword,
 	adminResetUserPassword,

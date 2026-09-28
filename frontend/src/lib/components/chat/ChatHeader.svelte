@@ -11,6 +11,7 @@
 	import { getSocket, type User } from '$lib/socket';
 	import { showToast } from '$lib/toast';
 	import { MESSAGE_RETENTION_LABELS } from '../../../../../shared/messageRetention.js';
+	import { communityRulesAvailable, communityRulesOpen } from '$lib/communityRulesUi';
 	import type { WorkspaceViewKey } from './types';
 
 	type ChannelPrivacySummary = {
@@ -188,6 +189,7 @@
 		{/if}
 	</div>
 	<div class="header-actions">
+		{#if $communityRulesAvailable}<button type="button" class="btn-ghost btn-sm" on:click={() => communityRulesOpen.set(true)}>Rules</button>{/if}
 		<div class="header-action-group">
 			{#if isDMChannel && dmCallTargetUser}
 				<div class="dm-call-actions">

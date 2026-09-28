@@ -20,6 +20,10 @@ async fn on_create_thread(socket: SocketRef, data: Value, state: SioState, io: S
 
     let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "create-thread-error").await else { return; };
     let user_id = identity.user_id;
+    if let Err(error) = crate::channel_access::require_participation(&state.app, user_id, &channel_id).await {
+        let _ = socket.emit("create-thread-error", &json!({"error": error.to_string()}));
+        return;
+    }
 
     match state.app.wdb.create_forum_thread(&channel_id, &name, user_id as u64, None, None, None).await {
         Ok(thread_id) => {

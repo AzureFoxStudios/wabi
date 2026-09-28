@@ -7,6 +7,7 @@
 import { getApiBase, fetchWithTimeout, safeJsonParse } from './utils';
 
 export interface TailcatMemberKey {
+	allowed: boolean;
 	id: string;
 	userId: number;
 	publicKey: string;
@@ -74,16 +75,16 @@ export function getTailcatAudit(
 }
 
 /** Enable requires explicit confirmation (cognitive-friction contract). */
-export function enableTailcat(token: string | null | undefined): Promise<TailcatStatus> {
-	return request<TailcatStatus>(token, '/enable', {
+export function enableTailcat(token: string | null | undefined): Promise<Pick<TailcatStatus, 'enabled' | 'running' | 'address' | 'lastError'>> {
+	return request(token, '/enable', {
 		method: 'POST',
 		body: JSON.stringify({ confirm: true })
 	});
 }
 
 /** Disable is the instant kill-switch — no ceremony. */
-export function disableTailcat(token: string | null | undefined): Promise<TailcatStatus> {
-	return request<TailcatStatus>(token, '/disable', { method: 'POST' });
+export function disableTailcat(token: string | null | undefined): Promise<Pick<TailcatStatus, 'enabled' | 'running'>> {
+	return request(token, '/disable', { method: 'POST' });
 }
 
 export function listTailcatKeys(
@@ -117,4 +118,11 @@ export function getTailcatConnectInfo(
 	token: string | null | undefined
 ): Promise<TailcatConnectInfo> {
 	return request<TailcatConnectInfo>(token, '/connect');
+}
+
+export function setTailcatPort(token: string | null | undefined, pipePort: number): Promise<{ pipePort: number; serverPort: number }> {
+    return request(token, '/port', { method: 'PUT', body: JSON.stringify({ pipePort }) });
+}
+export function setTailcatKeyAccess(token: string | null | undefined, id: string, allowed: boolean): Promise<{ allowed: boolean }> {
+    return request(token, `/keys/${encodeURIComponent(id)}/access`, { method: 'PUT', body: JSON.stringify({ allowed }) });
 }

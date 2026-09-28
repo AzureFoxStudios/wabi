@@ -1,5 +1,11 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { canUseDesktopHosting, hostCommand, type HostStatus } from '$lib/desktopHosting';
+	import { shouldOpenHosting } from '$lib/desktopHostFlow';
+	import { getConfiguredServerUrl } from '$lib/serverUrl';
+	import { recoverStoppedTailcatConnection } from '$lib/tailcatConnection';
+	import { isTauriRuntime } from '$lib/tauri-platform';
 	import { fade } from 'svelte/transition';
 	import { initSocket, disconnect, dmPanelSignal, retryDecryptLoadedDmMessages, currentUser, joinChannel } from '$lib/socket';
 	import { requestNotificationPermission } from '$lib/notifications';
@@ -12,24 +18,19 @@
 		clearStoredIdentity,
 		getAuthToken,
 		getGuestSessionId,
+		isTemporaryGuestSession,
+		setTemporaryGuestSession,
 		getStoredDbUserId,
 		getStoredUsername,
 		setAuthToken,
 		setStoredUsername
 	} from '$lib/authSession';
 	import { authStore } from '$lib/authStore';
-	import { getUserSettings, getSetupStatus, getApiBase } from '$lib/api';
+	import { getSetupStatus, getApiBase } from '$lib/api';
 	import { initializeAccessibilitySettings } from '$lib/accessibility';
 	import { initializeAnimationPassSettings } from '$lib/animationPass';
-	import { refreshBackendEndpointCandidates } from '$lib/backendEndpoints';
+	import { refreshCommunityRoster } from '$lib/communityRoster';
 	import { startupMark, startupMeasure, startupScheduleReport } from '$lib/startupProfiler';
-	import {
-		applyHomeExperienceMode,
-		getStoredHomeExperienceMode,
-		normalizeHomeExperienceMode,
-		setStoredHomeExperienceMode,
-		type HomeExperienceMode
-	} from '$lib/homeExperience';
 	import { _ } from '$lib/i18n';
 	import { brandName } from '$lib/branding';
 	import { startDesktopHelperLifecycle, stopDesktopHelperService } from '$lib/desktopHelper';
@@ -71,6 +72,7 @@
 	let stopFollowNotificationPoller: (() => void) | null = null;
 	let showTempPasswordPrompt = false;
 	let accountSecurityOpenRequest = 0;
+	let newlyRegistered = false;
 	let pendingPostLoginProfileImportCheck = false;
 	let showProfileImportPrompt = false;
 	let profileImportPromptSourceKey = '';
@@ -124,10 +126,10 @@
 		window.setTimeout(task, 0);
 	}
 
-	function seedBackendFailoverCache(): void {
+	function seedCommunityRoster(): void {
 		scheduleNonCritical(() => {
-			void refreshBackendEndpointCandidates().catch((error) => {
-				console.warn('[App] Failed to seed backend failover candidates:', error);
+			void refreshCommunityRoster(getApiBase()).catch((error) => {
+				console.warn('[App] Failed to refresh community entry points:', error);
 			});
 		}, 250);
 	}
@@ -140,20 +142,6 @@
 		}
 		if (!stopFollowNotificationPoller) {
 			stopFollowNotificationPoller = startFollowNotificationPoller();
-		}
-	}
-
-	async function syncHomeExperienceFromServer(token: string | null | undefined): Promise<HomeExperienceMode> {
-		if (!token) {
-			return getStoredHomeExperienceMode();
-		}
-		try {
-			const settings = await getUserSettings(token);
-			const mode = normalizeHomeExperienceMode(settings?.home_experience);
-			setStoredHomeExperienceMode(mode);
-			return mode;
-		} catch {
-			return getStoredHomeExperienceMode();
 		}
 	}
 
@@ -171,6 +159,24 @@
 		};
 
 		(async () => {
+			// A previous desktop tunnel may have died with the app. Recover its
+			// address before any account-scoped bootstrap can contact the old port.
+			if (isTauriRuntime()) {
+				const recovered = await recoverStoppedTailcatConnection(async () => {
+					const { invoke } = await import('@tauri-apps/api/core');
+					return invoke<{ connected: boolean; proxyPort: number | null }>('tailcat_status');
+				});
+				if (recovered) { window.location.reload(); return; }
+			}
+			if (await canUseDesktopHosting()) {
+				const configured = getConfiguredServerUrl();
+				try {
+					const host = await hostCommand<HostStatus>('host_status');
+					if (shouldOpenHosting(configured, host)) { await goto('/host', { replaceState: true }); return; }
+				} catch {
+					if (!configured) { await goto('/host', { replaceState: true }); return; }
+				}
+			}
 			startupMark('page:bootstrap:start');
 			isInitialLoad = true;
 			startupMark('page:ui:unblocked');
@@ -222,6 +228,13 @@
 				authResetInFlight = false;
 			});
 
+			// The Authority deletes temporary guest accounts after their final socket disconnects.
+			// A reload therefore needs a fresh guest join, not the previous visit's token.
+			if (isTemporaryGuestSession()) {
+				clearAuthSession();
+				clearStoredIdentity();
+				localStorage.removeItem('wabi_has_logged_in');
+			}
 			const savedUsername = getStoredUsername();
 			const savedToken = getAuthToken();
 			const savedGuestSessionId = getGuestSessionId();
@@ -258,7 +271,7 @@
 				});
 
 			if (savedUsername && hasSession) {
-				seedBackendFailoverCache();
+				seedCommunityRoster();
 				// Overlap the app-bundle download with the socket connect.
 				void ensureLayoutRouter();
 				startupMark('page:socket:init:start');
@@ -267,17 +280,6 @@
 				startupMeasure('page:socket:init:call', 'page:socket:init:start', 'page:socket:init:end');
 				loggedIn = true;
 				syncFollowNotificationPoller(true);
-				// Dock restoration owns startup, including an explicitly closed dock.
-				// Home preference refresh is metadata, not a fresh panel command:
-				// applying it here (and again after HTTP) overwrites restored pins.
-				// Accounts without a saved layout use the normal People/default
-				// layout; registration's explicit home choice still seeds their dock.
-				if (savedToken) {
-					scheduleNonCritical(() => {
-						void syncHomeExperienceFromServer(savedToken);
-					});
-				}
-
 				// Initialize E2E in background so it doesn't block initial render and socket startup.
 				// DM-strip 2026-06-16: initE2E + retryDecryptLoadedDmMessages removed. E2E
 				// encryption was a DM-only concern; without DMs there's nothing to
@@ -360,7 +362,8 @@
 			startupMeasure('page:bootstrap', 'page:bootstrap:start', 'page:bootstrap:end');
 			startupMeasure('page:total-to-bootstrap', 'page:onMount:start', 'page:bootstrap:end');
 			startupScheduleReport('initial-load', 400);
-			stopDesktopHelperLifecycle = startDesktopHelperLifecycle();
+			// Legacy helper registration does not start a worker. Volunteer boosters
+				// now start only after per-server consent in Settings → Server.
 			// Hold the boot shell until the app module can actually render — but
 			// ONLY on the session path. An anonymous visitor must never download
 			// LayoutRouter (that's the whole point of this phase); Login renders
@@ -433,23 +436,25 @@
 		}
 	}
 
-	async function handleLogin(event: CustomEvent<{ username: string; token?: string; authMethod: 'guest' | 'registered'; homeExperience?: HomeExperienceMode; mustChangePassword?: boolean }>) {
+	async function handleLogin(event: CustomEvent<{ username: string; token?: string; authMethod: 'guest' | 'registered'; newlyRegistered?: boolean; mustChangePassword?: boolean }>) {
 		// Start the app-bundle download immediately — it overlaps socket
 		// connect + theme init while Login stays visible and interactive.
 		void ensureLayoutRouter();
-		const { username, token, authMethod, homeExperience, mustChangePassword } = event.detail;
+		const { username, token, authMethod, mustChangePassword } = event.detail;
+		newlyRegistered = event.detail.newlyRegistered === true;
+		setTemporaryGuestSession(authMethod === 'guest');
 		setStoredUsername(username);
 
 		if (token) {
 			setAuthToken(token);
 		}
 
-		seedBackendFailoverCache();
+		seedCommunityRoster();
 		initSocket(username, token);
 		loggedIn = true;
 		syncFollowNotificationPoller(true);
 
-		const isRegistered = authMethod === 'registered' || !!token;
+		const isRegistered = authMethod === 'registered';
 		await initializeTheme(isRegistered);
 
 		// Stop old watchers/syncers and start new ones if needed
@@ -461,18 +466,6 @@
 		stopTimedThemeScheduler = startTimedThemeModeScheduler();
 		if (!isRegistered) {
 			unsubscribeLocalStorageSync = syncThemeToLocalStorage();
-		}
-
-		const immediateMode = normalizeHomeExperienceMode(homeExperience || getStoredHomeExperienceMode());
-		setStoredHomeExperienceMode(immediateMode);
-		// Only a choice made during registration is a new layout command.
-		// Returning-user login must preserve their restored panel arrangement.
-		if (homeExperience) applyHomeExperienceMode(immediateMode);
-
-		if (isRegistered && token && !homeExperience) {
-			scheduleNonCritical(() => {
-				void syncHomeExperienceFromServer(token);
-			});
 		}
 
 		showTempPasswordPrompt = mustChangePassword === true;
@@ -560,10 +553,10 @@
 		{/if}
 	{:else}
 		{#if isInitialLoad}
-			<svelte:component this={LayoutRouterCmp} accountSecurityOpenRequest={accountSecurityOpenRequest} on:logout={handleLogout} />
+			<svelte:component this={LayoutRouterCmp} accountSecurityOpenRequest={accountSecurityOpenRequest} {newlyRegistered} on:logout={handleLogout} />
 		{:else}
 			<div transition:fade={{ duration: 300 }}>
-				<svelte:component this={LayoutRouterCmp} accountSecurityOpenRequest={accountSecurityOpenRequest} on:logout={handleLogout} />
+				<svelte:component this={LayoutRouterCmp} accountSecurityOpenRequest={accountSecurityOpenRequest} {newlyRegistered} on:logout={handleLogout} />
 			</div>
 		{/if}
 	{/if}

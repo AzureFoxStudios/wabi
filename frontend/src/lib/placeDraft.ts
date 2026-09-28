@@ -181,13 +181,13 @@ export function serializePlaceDraft(draft: PlaceDraft): Record<string, unknown> 
 		mapLayers
 	};
 
-	const lat = clampNormalizedCoordinate(draft.lat);
-	const lon = clampNormalizedCoordinate(draft.lon);
+	const lat = safeCoordinate(draft.lat);
+	const lon = safeCoordinate(draft.lon);
 	const mapRotation =
 		(typeof primaryLayer?.rotation === 'number' ? primaryLayer.rotation : null) ??
 		normalizeRotationDegrees(draft.mapRotation);
-	if (lat != null) payload.lat = lat;
-	if (lon != null) payload.lon = lon;
+	if (lat != null && Math.abs(lat) <= 90) payload.lat = lat;
+	if (lon != null && Math.abs(lon) <= 180) payload.lon = lon;
 	if (mapRotation != null) payload.mapRotation = mapRotation;
 	return payload;
 }
@@ -307,6 +307,14 @@ export function buildDraftPreview(draft: PlaceDraft): PlaceRecord | null {
 
 export function buildDraftValidationIssues(draft: PlaceDraft): string[] {
 	const issues: string[] = [];
+	const latitude = safeCoordinate(draft.lat);
+	const longitude = safeCoordinate(draft.lon);
+	if (draft.lat.trim() && (latitude == null || Math.abs(latitude) > 90)) {
+		issues.push('Latitude must be between -90 and 90.');
+	}
+	if (draft.lon.trim() && (longitude == null || Math.abs(longitude) > 180)) {
+		issues.push('Longitude must be between -180 and 180.');
+	}
 	const layerIds = new Map<string, number[]>();
 	const poiIds = new Map<string, number[]>();
 	draft.mapLayers.forEach((layer, index) => {

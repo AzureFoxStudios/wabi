@@ -7,7 +7,6 @@ import { get } from 'svelte/store';
 	import { getAuthToken } from '$lib/authSession';
 	import { hasAddonCapability } from '$lib/addonInventory';
 	import { getSocket, connected } from '$lib/socketConnection';
-	import { getWabiDB } from '$lib/wabidb';
 	import {
 		MESSAGE_RETENTION_LABELS,
 		MESSAGE_RETENTION_PRESETS,
@@ -36,18 +35,39 @@ import { get } from 'svelte/store';
 	async function clearAllMessages(): Promise<void> {
 		if (!canClearMessages || channel.type === 'dm') return;
 		const confirmed = window.confirm(
-			`Purge ALL messages in #${channel.name}? This removes chat history for everyone. Attachment files on disk are not deleted. This cannot be undone.`
+			`Remove visible message history in #${channel.name} for everyone? Attachment files are not deleted, and backups or older storage may retain copies.`
 		);
 		if (!confirmed) return;
-		const sock = getSocket();
-		if (!sock) return;
-		const db = getWabiDB();
-		const online = get(connected);
-		if (db && !online) {
-			await db.enqueue({ scopeId: 'corechat', type: 'clear-channel-messages', payload: { channelId: channel.id } });
+		if (!get(connected)) {
+			window.alert('Reconnect to the server, then review the channel and request the clear again.');
 			return;
 		}
-		sock.emit('clear-channel-messages', { channelId: channel.id });
+		const sock = getSocket();
+		if (!sock) {
+			window.alert('The server connection is unavailable. Check the channel before retrying.');
+			return;
+		}
+		const requestedChannelId = channel.id;
+		const onSuccess = (payload: { channelId?: string }) => {
+			if (payload?.channelId === requestedChannelId) cleanup();
+		};
+		const onError = (payload: { channelId?: string; error?: string }) => {
+			if (payload?.channelId !== requestedChannelId) return;
+			cleanup();
+			window.alert(payload.error || 'Channel history could not be cleared. Check history before retrying.');
+		};
+		const cleanup = () => {
+			clearTimeout(timer);
+			sock.off('channel-messages-cleared', onSuccess);
+			sock.off('clear-channel-error', onError);
+		};
+		const timer = setTimeout(() => {
+			cleanup();
+			window.alert('No clear confirmation was received. Check channel history before retrying.');
+		}, 15_000);
+		sock.on('channel-messages-cleared', onSuccess);
+		sock.on('clear-channel-error', onError);
+		sock.emit('clear-channel-messages', { channelId: requestedChannelId });
 	}
 
 	/** Clear this channel's in-memory view; unowned legacy archives are untouched. */
@@ -549,13 +569,13 @@ import { get } from 'svelte/store';
 
 			{#if isChatLikeChannel && channel.type !== 'dm' && canClearMessages}
 				<div class="setting-group danger-zone">
-					<span class="setting-label">Purge channel history</span>
+					<span class="setting-label">Clear channel history</span>
 					<p class="setting-description">
-						Server purge removes history for everyone. Local only clears this browser’s cache for the
-						channel (server and other members unchanged). Attachments on disk are not deleted.
+						Server clear removes visible message history for everyone after storage confirms it.
+						Local only clears this browser’s cache. Attachments and backup copies are not deleted.
 					</p>
 					<div class="purge-actions">
-						<button class="clear-messages-btn" type="button" on:click={clearAllMessages}>Purge all</button>
+						<button class="clear-messages-btn" type="button" on:click={clearAllMessages}>Clear for everyone</button>
 						<button class="clear-messages-btn local-only" type="button" on:click={clearLocalMessagesOnly}>Local only</button>
 					</div>
 				</div>

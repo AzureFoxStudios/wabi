@@ -4,6 +4,7 @@
 	import type { Channel, User } from '$lib/socket';
 	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
 	import { overlayStyle } from '$lib/overlayStyle';
+	import { mediaUrl } from '$lib/mediaUrl';
 
 	let { isOpen = $bindable(false), onCreated }: { isOpen?: boolean; onCreated?: (channel: Channel) => void } = $props();
 
@@ -143,7 +144,7 @@
 					<button class="user-item" disabled={pending} onclick={() => toggleUser(user)}>
 						<div class="user-avatar-container">
 							{#if user.profilePicture}
-								<img src={user.profilePicture} alt={user.username} class="user-avatar" />
+								<img src={mediaUrl(user.profilePicture)} alt={user.username} class="user-avatar" />
 							{:else}
 								<div class="user-avatar-placeholder" style="background-color: {user.roleColor || user.color}">
 									{user.username.charAt(0).toUpperCase()}

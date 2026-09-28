@@ -5,6 +5,7 @@
 		requestDirectionsGpsPermission,
 		setDirectionsGpsEnabled
 	} from '$lib/directionsAssist';
+	import VolunteerBoostCard from './VolunteerBoostCard.svelte';
 	import TailcatConnectionCard from './TailcatConnectionCard.svelte';
 
 	let directionsGpsEnabled = $state($directionsAssistSettings.gpsEnabled);
@@ -52,4 +53,5 @@
 	</div>
 
 	<TailcatConnectionCard />
+	<VolunteerBoostCard />
 </div>

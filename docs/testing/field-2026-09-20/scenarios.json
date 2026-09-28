@@ -1,0 +1,687 @@
+{
+  "schema_version": 1,
+  "candidate_ids": {
+    "A": "8f93a080d4047bf801091a822a5210feca485d98d9922793bd5c666a79f91f82",
+    "B": "b092bff398160adcb5b82c11ff846b5eb5192cecfb5519d41636e437d8dd29e0"
+  },
+  "scenarios": [
+    {
+      "run_id": "G01",
+      "status": "PASS",
+      "machines": [
+        "Coordinator"
+      ],
+      "networks": [
+        "local/host scope"
+      ],
+      "builds": [
+        "A",
+        "B"
+      ],
+      "layout": "isolated build and fixtures",
+      "routes": {
+        "authority_access": "loopback only",
+        "media_backend": "not exercised",
+        "tailcat_path": "not applicable",
+        "helper": "none"
+      },
+      "steps": [
+        "freeze source and build identity",
+        "run locked builds and focused contracts",
+        "repeat startup/account gates after fix"
+      ],
+      "expected": "reproducible candidate and applicable gates",
+      "actual": "Static frontend, release Authority/addons, AppImage, 18 desktop contracts, 25 server integration, 5 Tailcat, 38 native tests passed",
+      "evidence": [
+        "docs/testing/field-2026-09-20/build-provenance.json",
+        "docs/testing/field-2026-09-20/gates.json",
+        "docs/testing/field-2026-09-20/package-b.json"
+      ],
+      "limitations": "Frontend warnings remain; glibc 2.43 limits distribution",
+      "measurement_sufficiency": "Sufficient for listed build/contracts, insufficient for media acceptance"
+    },
+    {
+      "run_id": "F01",
+      "status": "PASS",
+      "machines": [
+        "Coordinator"
+      ],
+      "networks": [
+        "local/host scope"
+      ],
+      "builds": [
+        "A"
+      ],
+      "layout": "Authority plus colocated native client",
+      "routes": {
+        "authority_access": "localhost native hosting",
+        "media_backend": "not exercised",
+        "tailcat_path": "not applicable",
+        "helper": "none"
+      },
+      "steps": [
+        "create community/owner through native UI",
+        "31 one-second samples in idle, 30-message active and post-active phases",
+        "close window, restart, backup/restore, quit/reopen"
+      ],
+      "expected": "usable basic host; persisted messages/account/identity recover",
+      "actual": "Passed native IPC/DOM and persistence/recovery assertions",
+      "evidence": [
+        "docs/testing/field-2026-09-20/F01-local-native.json",
+        "docs/testing/field-2026-09-20/resource-summary.json"
+      ],
+      "limitations": "One local trial, no media; Iyoku screenshots unavailable; different rendering conditions prevent client hardware comparison",
+      "measurement_sufficiency": "Sufficient for basic host and scoped process observations; insufficient for capacity/GPU/media"
+    },
+    {
+      "run_id": "F02",
+      "status": "PASS",
+      "machines": [
+        "Iyoku"
+      ],
+      "networks": [
+        "local/host scope"
+      ],
+      "builds": [
+        "A"
+      ],
+      "layout": "Authority plus colocated native client",
+      "routes": {
+        "authority_access": "localhost native hosting",
+        "media_backend": "not exercised",
+        "tailcat_path": "not applicable",
+        "helper": "none"
+      },
+      "steps": [
+        "create community/owner through native UI",
+        "31 one-second samples in idle, 30-message active and post-active phases",
+        "close window, restart, backup/restore, quit/reopen"
+      ],
+      "expected": "usable basic host; persisted messages/account/identity recover",
+      "actual": "Passed native IPC/DOM and persistence/recovery assertions",
+      "evidence": [
+        "docs/testing/field-2026-09-20/F02-Iyoku-native.json",
+        "docs/testing/field-2026-09-20/resource-summary.json"
+      ],
+      "limitations": "One local trial, no media; Iyoku screenshots unavailable; different rendering conditions prevent client hardware comparison",
+      "measurement_sufficiency": "Sufficient for basic host and scoped process observations; insufficient for capacity/GPU/media"
+    },
+    {
+      "run_id": "F04",
+      "status": "PASS",
+      "machines": [
+        "Iyoku"
+      ],
+      "networks": [
+        "local/host scope"
+      ],
+      "builds": [
+        "B"
+      ],
+      "layout": "Authority plus colocated native client",
+      "routes": {
+        "authority_access": "localhost native hosting",
+        "media_backend": "not exercised",
+        "tailcat_path": "not applicable",
+        "helper": "none"
+      },
+      "steps": [
+        "create community/owner through native UI",
+        "31 one-second samples in idle, 30-message active and post-active phases",
+        "close window, restart, backup/restore, quit/reopen"
+      ],
+      "expected": "usable basic host; persisted messages/account/identity recover",
+      "actual": "Passed native IPC/DOM and persistence/recovery assertions",
+      "evidence": [
+        "docs/testing/field-2026-09-20/F04-Iyoku-fixed-native.json",
+        "docs/testing/field-2026-09-20/resource-summary.json"
+      ],
+      "limitations": "One local trial, no media; Iyoku screenshots unavailable; different rendering conditions prevent client hardware comparison",
+      "measurement_sufficiency": "Sufficient for basic host and scoped process observations; insufficient for capacity/GPU/media"
+    },
+    {
+      "run_id": "F03",
+      "status": "FAIL",
+      "machines": [
+        "Coordinator",
+        "Iyoku"
+      ],
+      "networks": [
+        "independent uplinks A/B"
+      ],
+      "builds": [
+        "A"
+      ],
+      "layout": "Iyoku Authority/native client; coordinator native client/protocol probe",
+      "routes": {
+        "authority_access": "native Tailcat proxy path after management-assisted device enrollment",
+        "media_backend": "not exercised",
+        "tailcat_path": "unknown; management overlay remained active",
+        "helper": "none"
+      },
+      "steps": [
+        "native device key generation",
+        "pre-enroll and enable private access",
+        "HTTP login/chat/upload",
+        "WebSocket connect",
+        "disconnect/reconnect"
+      ],
+      "expected": "both HTTP and realtime transport work",
+      "actual": "HTTP, 10 retained messages, 64 KiB transfer and reconnect passed; WebSocket timed out",
+      "evidence": [
+        "docs/testing/field-2026-09-20/F03-before-Tailcat.json"
+      ],
+      "limitations": "Fresh enrollment not exercised; initial endpoint probes used nonexistent paths; no media",
+      "measurement_sufficiency": "Sufficient to reproduce WebSocket failure; route classification and VPN independence insufficient"
+    },
+    {
+      "run_id": "F05",
+      "status": "FAIL",
+      "machines": [
+        "Coordinator",
+        "Iyoku"
+      ],
+      "networks": [
+        "independent uplinks A/B"
+      ],
+      "builds": [
+        "B"
+      ],
+      "layout": "same two-machine diagnostic layout",
+      "routes": {
+        "authority_access": "native Tailcat proxy path",
+        "media_backend": "not exercised",
+        "tailcat_path": "unknown; management overlay remained active",
+        "helper": "none"
+      },
+      "steps": [
+        "repeat transport/auth/build checks",
+        "load actual native channels",
+        "post REST message while native chat is open"
+      ],
+      "expected": "realtime socket works; REST-created message appears live",
+      "actual": "WebSocket/native state/refresh and auth 401 passed; REST live notification failed",
+      "evidence": [
+        "docs/testing/field-2026-09-20/F05-fixed-Tailcat-rest-gap.json"
+      ],
+      "limitations": "Normal native chat send uses Socket.IO; REST behavior is a separate finding",
+      "measurement_sufficiency": "Sufficient for fixed transport and REST gap; not calling/capacity"
+    },
+    {
+      "run_id": "F06",
+      "status": "FAIL",
+      "machines": [
+        "Coordinator",
+        "Iyoku"
+      ],
+      "networks": [
+        "independent uplinks A/B"
+      ],
+      "builds": [
+        "B"
+      ],
+      "layout": "same two-machine diagnostic layout",
+      "routes": {
+        "authority_access": "native Tailcat proxy path",
+        "media_backend": "not exercised",
+        "tailcat_path": "unknown",
+        "helper": "none"
+      },
+      "steps": [
+        "open native workspace",
+        "select channel using automated click"
+      ],
+      "expected": "selected channel history loads",
+      "actual": "Harness clicked non-interactive wrapper; channel selection did not occur",
+      "evidence": [
+        "docs/testing/field-2026-09-20/F06-Tailcat.json"
+      ],
+      "limitations": "Harness failure corrected in F07; not a product regression",
+      "measurement_sufficiency": "Insufficient for sustained chat; transport checks passed"
+    },
+    {
+      "run_id": "F07",
+      "status": "PASS",
+      "machines": [
+        "Coordinator",
+        "Iyoku"
+      ],
+      "networks": [
+        "independent uplinks A/B"
+      ],
+      "builds": [
+        "B"
+      ],
+      "layout": "Iyoku Authority + native host UI; coordinator native client and colocated Socket.IO protocol sender",
+      "routes": {
+        "authority_access": "native Tailcat proxy path",
+        "media_backend": "not exercised",
+        "tailcat_path": "unknown; public TCP socket observations retained; management overlay remained active",
+        "helper": "none"
+      },
+      "steps": [
+        "repeat auth, identity, 10 retained messages, 64 KiB transfer and WebSocket checks",
+        "native login, actual channel state and refresh",
+        "normal message protocol sends 12 messages over 120 seconds; verify native UI without refresh",
+        "disconnect/reconnect and verify retained history"
+      ],
+      "expected": "native realtime traffic and reconnect work after pre-enrollment",
+      "actual": "All specified checks passed; reconnect health/history recovered in about 1.39 s",
+      "evidence": [
+        "docs/testing/field-2026-09-20/F07-Tailcat.json",
+        "docs/testing/field-2026-09-20/F07-tunnel-socket-observation.json"
+      ],
+      "limitations": "Protocol probe is not another physical participant; no microphone/camera; two-minute run is not long soak; proxy port changed and automatic UI account continuity not tested",
+      "measurement_sufficiency": "Sufficient for this functional diagnostic; insufficient for media, capacity, direct/relay classification or VPN independence"
+    },
+    {
+      "run_id": "E01-fresh-enrollment",
+      "status": "BLOCKED",
+      "machines": [
+        "Coordinator",
+        "Iyoku"
+      ],
+      "networks": [
+        "independent uplinks A/B"
+      ],
+      "builds": [
+        "B"
+      ],
+      "layout": "fresh remote desktop user",
+      "routes": {
+        "authority_access": "intended invitation-only Tailcat",
+        "media_backend": "not exercised",
+        "tailcat_path": "not reached",
+        "helper": "none"
+      },
+      "steps": [
+        "inspect invitation and key registration prerequisites"
+      ],
+      "expected": "remote guest joins with only an invitation",
+      "actual": "Current first-contact enrollment is not implemented",
+      "evidence": [
+        "docs/testing/field-2026-09-20/diagnostic-backlog.json"
+      ],
+      "limitations": "Manual pre-enrollment is separate evidence, not onboarding acceptance",
+      "measurement_sufficiency": "Sufficient to identify implementation blocker; no field enrollment success"
+    },
+    {
+      "run_id": "I01-ironin",
+      "status": "BLOCKED",
+      "machines": [
+        "ironin"
+      ],
+      "networks": [
+        "local/host scope"
+      ],
+      "builds": [
+        "not installed"
+      ],
+      "layout": "physical client candidate",
+      "routes": {
+        "authority_access": "not exercised",
+        "media_backend": "not exercised",
+        "tailcat_path": "not applicable",
+        "helper": "none"
+      },
+      "steps": [
+        "read-only SSH inventory and runtime check"
+      ],
+      "expected": "compatible package and authorized client installation",
+      "actual": "Read-only restriction retained; candidate requires newer glibc than installed",
+      "evidence": [
+        "docs/testing/field-2026-09-20/inventory.json",
+        "docs/testing/field-2026-09-20/runtime-requirements.json"
+      ],
+      "limitations": "No installation or GUI/media test",
+      "measurement_sufficiency": "Sufficient for access/runtime boundary; not client acceptance"
+    },
+    {
+      "run_id": "H01-helper",
+      "status": "BLOCKED",
+      "machines": [
+        "Tim",
+        "Iyoku"
+      ],
+      "networks": [
+        "independent uplinks A/B"
+      ],
+      "builds": [
+        "not deployed"
+      ],
+      "layout": "dedicated helper comparison not established",
+      "routes": {
+        "authority_access": "not exercised",
+        "media_backend": "not exercised",
+        "tailcat_path": "not applicable",
+        "helper": "not deployed"
+      },
+      "steps": [
+        "inspect existing services and supported SFU/controller requirements"
+      ],
+      "expected": "helper carries attributable media under matched workload",
+      "actual": "No isolated public SFU available within allowed scope; no helper paired or workload claimed",
+      "evidence": [
+        "docs/testing/field-2026-09-20/inventory.json",
+        "docs/testing/field-2026-09-20/diagnostic-backlog.json"
+      ],
+      "limitations": "Existing coturn/domain is not proof of supported SFU workload; new public service prohibited",
+      "measurement_sufficiency": "Insufficient; actual assignment/media/counters unavailable"
+    },
+    {
+      "run_id": "C01-domain",
+      "status": "BLOCKED",
+      "machines": [
+        "Tim",
+        "Iyoku"
+      ],
+      "networks": [
+        "independent uplinks A/B"
+      ],
+      "builds": [
+        "existing production identity not established",
+        "B"
+      ],
+      "layout": "different deployments",
+      "routes": {
+        "authority_access": "existing domain HTTPS health only",
+        "media_backend": "not exercised",
+        "tailcat_path": "not applicable",
+        "helper": "none"
+      },
+      "steps": [
+        "check existing Tim and public domain health"
+      ],
+      "expected": "compare same candidate over domain and Tailcat",
+      "actual": "Existing domain healthy; it is a different Authority and cannot serve as same-instance comparison",
+      "evidence": [
+        "docs/testing/field-2026-09-20/cleanup.json"
+      ],
+      "limitations": "No production changes; no domain comparison score",
+      "measurement_sufficiency": "Sufficient for health reference only"
+    },
+    {
+      "run_id": "C02-hardware",
+      "status": "NOT TESTED",
+      "machines": [
+        "Coordinator",
+        "Iyoku"
+      ],
+      "networks": [
+        "independent uplinks A/B"
+      ],
+      "builds": [
+        "A"
+      ],
+      "layout": "local baselines only",
+      "routes": {
+        "authority_access": "loopback",
+        "media_backend": "not exercised",
+        "tailcat_path": "not applicable",
+        "helper": "none"
+      },
+      "steps": [
+        "retain same short Authority workload on both machines"
+      ],
+      "expected": "comparable call/capacity hardware result",
+      "actual": "Basic host observations exist; matched media workload and rendering conditions do not",
+      "evidence": [
+        "docs/testing/field-2026-09-20/resource-summary.json"
+      ],
+      "limitations": "Not a stronger-vs-weaker calling comparison",
+      "measurement_sufficiency": "Insufficient for comparative capacity"
+    },
+    {
+      "run_id": "M01-two-person-voice",
+      "status": "NOT TESTED",
+      "machines": [
+        "eligible physical participants required"
+      ],
+      "networks": [
+        "local/host scope"
+      ],
+      "builds": [
+        "not exercised"
+      ],
+      "layout": "not established",
+      "routes": {
+        "authority_access": "not exercised",
+        "media_backend": "not exercised",
+        "tailcat_path": "not applicable",
+        "helper": "none"
+      },
+      "steps": [],
+      "expected": "Every participant hears the other across networks",
+      "actual": "Not executed",
+      "evidence": [
+        "docs/testing/field-2026-09-20/diagnostic-backlog.json"
+      ],
+      "limitations": "Physical microphones and human participation required",
+      "measurement_sufficiency": "Insufficient; media statistics/human observations unavailable"
+    },
+    {
+      "run_id": "M02-group-voice",
+      "status": "NOT TESTED",
+      "machines": [
+        "eligible physical participants required"
+      ],
+      "networks": [
+        "local/host scope"
+      ],
+      "builds": [
+        "not exercised"
+      ],
+      "layout": "not established",
+      "routes": {
+        "authority_access": "not exercised",
+        "media_backend": "not exercised",
+        "tailcat_path": "not applicable",
+        "helper": "none"
+      },
+      "steps": [],
+      "expected": "Three/four participants all hear each other",
+      "actual": "Not executed",
+      "evidence": [
+        "docs/testing/field-2026-09-20/diagnostic-backlog.json"
+      ],
+      "limitations": "Only two computers ran Wabi test clients; no group media participation",
+      "measurement_sufficiency": "Insufficient; media statistics/human observations unavailable"
+    },
+    {
+      "run_id": "M03-camera-screen",
+      "status": "NOT TESTED",
+      "machines": [
+        "eligible physical participants required"
+      ],
+      "networks": [
+        "local/host scope"
+      ],
+      "builds": [
+        "not exercised"
+      ],
+      "layout": "not established",
+      "routes": {
+        "authority_access": "not exercised",
+        "media_backend": "not exercised",
+        "tailcat_path": "not applicable",
+        "helper": "none"
+      },
+      "steps": [],
+      "expected": "Camera, screen share, simultaneous media and late joins work",
+      "actual": "Not executed",
+      "evidence": [
+        "docs/testing/field-2026-09-20/diagnostic-backlog.json"
+      ],
+      "limitations": "Physical capture/permission and human viewing not exercised",
+      "measurement_sufficiency": "Insufficient; media statistics/human observations unavailable"
+    },
+    {
+      "run_id": "M04-controls",
+      "status": "NOT TESTED",
+      "machines": [
+        "eligible physical participants required"
+      ],
+      "networks": [
+        "local/host scope"
+      ],
+      "builds": [
+        "not exercised"
+      ],
+      "layout": "not established",
+      "routes": {
+        "authority_access": "not exercised",
+        "media_backend": "not exercised",
+        "tailcat_path": "not applicable",
+        "helper": "none"
+      },
+      "steps": [],
+      "expected": "Mute/deafen, deny/cancel, leave/rejoin and stopped capture behave correctly",
+      "actual": "Not executed",
+      "evidence": [
+        "docs/testing/field-2026-09-20/diagnostic-backlog.json"
+      ],
+      "limitations": "No real media session; no capture restart consent exercised",
+      "measurement_sufficiency": "Insufficient; media statistics/human observations unavailable"
+    },
+    {
+      "run_id": "M05-call-recovery",
+      "status": "NOT TESTED",
+      "machines": [
+        "eligible physical participants required"
+      ],
+      "networks": [
+        "local/host scope"
+      ],
+      "builds": [
+        "not exercised"
+      ],
+      "layout": "not established",
+      "routes": {
+        "authority_access": "not exercised",
+        "media_backend": "not exercised",
+        "tailcat_path": "not applicable",
+        "helper": "none"
+      },
+      "steps": [],
+      "expected": "Client/network/helper/Authority failures recover during an active call without ghosts or duplicate audio",
+      "actual": "Not executed",
+      "evidence": [
+        "docs/testing/field-2026-09-20/diagnostic-backlog.json"
+      ],
+      "limitations": "No active call, independent network switch or test helper",
+      "measurement_sufficiency": "Insufficient; media statistics/human observations unavailable"
+    },
+    {
+      "run_id": "M06-room-isolation",
+      "status": "NOT TESTED",
+      "machines": [
+        "eligible physical participants required"
+      ],
+      "networks": [
+        "local/host scope"
+      ],
+      "builds": [
+        "not exercised"
+      ],
+      "layout": "not established",
+      "routes": {
+        "authority_access": "not exercised",
+        "media_backend": "not exercised",
+        "tailcat_path": "not applicable",
+        "helper": "none"
+      },
+      "steps": [],
+      "expected": "Unauthorized participants cannot join field call sessions",
+      "actual": "Not executed",
+      "evidence": [
+        "docs/testing/field-2026-09-20/diagnostic-backlog.json"
+      ],
+      "limitations": "Call/auth contracts passed but no field media isolation run",
+      "measurement_sufficiency": "Insufficient; media statistics/human observations unavailable"
+    },
+    {
+      "run_id": "M07-long-soak",
+      "status": "NOT TESTED",
+      "machines": [
+        "eligible physical participants required"
+      ],
+      "networks": [
+        "local/host scope"
+      ],
+      "builds": [
+        "not exercised"
+      ],
+      "layout": "not established",
+      "routes": {
+        "authority_access": "not exercised",
+        "media_backend": "not exercised",
+        "tailcat_path": "not applicable",
+        "helper": "none"
+      },
+      "steps": [],
+      "expected": "No accumulating resource usage during sustained realistic media use",
+      "actual": "Not executed",
+      "evidence": [
+        "docs/testing/field-2026-09-20/diagnostic-backlog.json"
+      ],
+      "limitations": "Two-minute chat check does not establish long-duration stability",
+      "measurement_sufficiency": "Insufficient; media statistics/human observations unavailable"
+    },
+    {
+      "run_id": "M08-mobile",
+      "status": "NOT TESTED",
+      "machines": [
+        "eligible physical participants required"
+      ],
+      "networks": [
+        "local/host scope"
+      ],
+      "builds": [
+        "not exercised"
+      ],
+      "layout": "not established",
+      "routes": {
+        "authority_access": "not exercised",
+        "media_backend": "not exercised",
+        "tailcat_path": "not applicable",
+        "helper": "none"
+      },
+      "steps": [],
+      "expected": "Phone client works",
+      "actual": "Not executed",
+      "evidence": [
+        "docs/testing/field-2026-09-20/diagnostic-backlog.json"
+      ],
+      "limitations": "Redmi explicitly excluded by user",
+      "measurement_sufficiency": "Insufficient; media statistics/human observations unavailable"
+    },
+    {
+      "run_id": "R01-remote-client-restart",
+      "status": "NOT TESTED",
+      "machines": [
+        "eligible physical participants required"
+      ],
+      "networks": [
+        "local/host scope"
+      ],
+      "builds": [
+        "not exercised"
+      ],
+      "layout": "not established",
+      "routes": {
+        "authority_access": "not exercised",
+        "media_backend": "not exercised",
+        "tailcat_path": "not applicable",
+        "helper": "none"
+      },
+      "steps": [],
+      "expected": "Native remote account/tunnel returns after app restart",
+      "actual": "Not executed",
+      "evidence": [
+        "docs/testing/field-2026-09-20/diagnostic-backlog.json"
+      ],
+      "limitations": "Co-located native quit/reopen and transport reconnect passed separately; automatic remote UI continuity not exercised",
+      "measurement_sufficiency": "Insufficient; media statistics/human observations unavailable"
+    }
+  ]
+}

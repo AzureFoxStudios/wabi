@@ -29,7 +29,7 @@
 	const rows = $derived.by(() => {
 		const d = $callConnectionDiagnostics;
 		const items: Array<{ label: string; value: string }> = [
-			{ label: 'Ping', value: formatDiag(d.pingMs, 'ms') },
+			{ label: d.source === 'wabidb' ? 'Signaling round trip' : 'WebRTC round trip', value: formatDiag(d.pingMs, 'ms') },
 			{ label: 'Jitter', value: formatDiag(d.jitterMs, 'ms') },
 			{ label: 'Inbound Loss', value: formatDiag(d.inboundPacketLossPct, '%') },
 			{ label: 'Outbound Loss', value: formatDiag(d.outboundPacketLossPct, '%') },
@@ -79,6 +79,7 @@
 				</span>
 			{/if}
 		</header>
+		<p class="call-debug-scope">This device’s observations. Round-trip time does not measure microphone-to-speaker delay.</p>
 		<div class="call-debug-grid">
 			{#each rows as row (row.label)}
 				<div class="call-debug-item">
@@ -91,6 +92,7 @@
 {/if}
 
 <style>
+	.call-debug-scope { color: var(--text-secondary); font-size: .8rem; margin: 0 0 var(--space-2); max-width: 28rem; }
 	.call-debug-panel {
 		min-width: 240px;
 		max-width: 320px;

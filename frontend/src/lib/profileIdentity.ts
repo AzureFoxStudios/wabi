@@ -6,6 +6,15 @@ function accountIdentity(user: ProfileIdentity): { account: string | null; valid
 	return { account: fromField ?? fromId, valid: !(fromField && fromId && fromField !== fromId) };
 }
 
+/** One display identity for registered or provisional profiles; malformed
+ * account/socket combinations cannot borrow another account's live data. */
+export function profileIdentityKey(user: ProfileIdentity | null | undefined): string | null {
+	if (!user) return null;
+	const identity = accountIdentity(user);
+	if (!identity.valid) return null;
+	return identity.account ?? (typeof user.id === 'string' && user.id ? user.id : null);
+}
+
 /** Display names are not identity. Conflicting account IDs cannot fall back to a socket match. */
 export function isCurrentUserProfile(
 	incoming: ProfileIdentity,

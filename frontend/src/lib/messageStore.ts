@@ -3,7 +3,7 @@
  * Core message state and operations
  */
 
-import { writable, get, type Writable } from 'svelte/store';
+import { writable, readable, get, type Readable } from 'svelte/store';
 import type { Message } from './socket-types';
 import type { MessageType } from '../../../packages/wabi-protocol/src/generated/MessageType';
 import { getSocket, connected } from './socketConnection';
@@ -23,13 +23,9 @@ export const unreadCount = writable(0);
 export const lastReadMessageId = writable<string | null>(null);
 export const channelUnreadCounts = writable<Record<string, number>>({});
 
-const channelSliceStores = new Map<string, Writable<Message[]>>();
 const e2eeHydrating = new Set<string>();
-// Track which channel|message keys we've already scanned so later updates
-// only re-check messages that are new or whose text changed, instead of
-// re-walking every message in every channel on every channelMessages update
-// (idle after login: presence/reaction/slice updates fire often).
-const e2eeSeen = new Set<string>();
+// Only encrypted messages need a hydration cache. Keeping every plaintext
+// message's text here duplicated the entire loaded chat history in memory.
 const e2eeSeenText = new Map<string, string>();
 
 /**
@@ -38,23 +34,17 @@ const e2eeSeenText = new Map<string, string>();
  * code downstream sees only authenticated plaintext or a safe failure marker.
  */
 channelMessages.subscribe((state) => {
+	let liveCiphertextKeys: Set<string> | null = e2eeSeenText.size ? new Set() : null;
 	for (const [channelId, messages] of Object.entries(state)) {
 		for (const message of messages) {
 			const ciphertext = typeof message?.text === 'string' ? message.text : '';
+			if (!ciphertext.startsWith(E2EE_MESSAGE_PREFIX)) continue;
 			const scanKey = `${channelId}|${message.id || message.clientMessageId || ''}`;
-			const seenText = e2eeSeenText.get(scanKey);
-			if (e2eeSeen.has(scanKey) && seenText === ciphertext) continue;
-			if (!ciphertext.startsWith(E2EE_MESSAGE_PREFIX)) {
-				// Plaintext (or non-string): remember we scanned it so we don't
-				// re-check this identity every subsequent store update.
-				e2eeSeen.add(scanKey);
-				e2eeSeenText.set(scanKey, ciphertext);
-				continue;
-			}
+			(liveCiphertextKeys ??= new Set()).add(scanKey);
+			if (e2eeSeenText.get(scanKey) === ciphertext) continue;
 			const key = `${channelId}|${message.id}|${message.clientMessageId || ''}|${ciphertext}`;
 			if (e2eeHydrating.has(key)) continue;
 			e2eeHydrating.add(key);
-			e2eeSeen.add(scanKey);
 			e2eeSeenText.set(scanKey, ciphertext);
 			void prepareIncomingE2eeMessage(channelId, message)
 				.then((prepared) => {
@@ -76,28 +66,34 @@ channelMessages.subscribe((state) => {
 				.finally(() => e2eeHydrating.delete(key));
 		}
 	}
+	if (liveCiphertextKeys) {
+		for (const key of e2eeSeenText.keys()) {
+			if (!liveCiphertextKeys.has(key)) e2eeSeenText.delete(key);
+		}
+	}
 });
 
-export function channelMessagesStore(channelId: string): Writable<Message[]> {
-	if (!channelId) return writable([]);
-	let store = channelSliceStores.get(channelId);
-	if (!store) {
-		store = writable<Message[]>(get(channelMessages)[channelId] || []);
-		channelSliceStores.set(channelId, store);
-		let prev: Message[] = get(store);
-		const unsub = channelMessages.subscribe((map) => {
-			const next = map[channelId];
-			if ((next || []) !== prev && !(next === undefined && prev.length === 0)) {
-				prev = next || [];
-				store!.set(prev);
+export function channelMessagesStore(channelId: string): Readable<Message[]> {
+	if (!channelId) return readable([]);
+	// The slice only needs the global subscription while a view displays it.
+	// In particular, switching channels must not retain a subscription and
+	// message array for every channel visited during a long session.
+	const initial = get(channelMessages)[channelId] || [];
+	return readable<Message[]>(initial, (set) => {
+		let prev = initial;
+		return channelMessages.subscribe((map) => {
+			const next = map[channelId] || [];
+			if (next !== prev && !(map[channelId] === undefined && prev.length === 0)) {
+				prev = next;
+				set(next);
 			}
 		});
-		void unsub;
-	}
-	return store;
+	});
 }
 
-export function dropChannelMessagesStore(channelId: string): void { channelSliceStores.delete(channelId); }
+// Kept for callers that previously invalidated the cache. Slices are now
+// ephemeral, so there is no retained entry to drop.
+export function dropChannelMessagesStore(_channelId: string): void {}
 
 function createClientMessageId(channelId: string): string {
 	return `optimistic:${channelId}:${Date.now()}:${Math.random().toString(36).substring(7)}`;

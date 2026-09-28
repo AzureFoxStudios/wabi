@@ -2,11 +2,11 @@
 	import { onMount } from 'svelte';
 	import { _ as t } from '$lib/i18n';
 	import { getAuthToken } from '$lib/authSession';
-	import { saveUserSettings } from '$lib/api';
 	import ThemeCustomizer from '../ThemeCustomizer.svelte';
 	import BackgroundImageEditor from '../BackgroundImageEditor.svelte';
 	import UniformFontMode from '../UniformFontMode.svelte';
 	import EffectsTab from '$lib/effects/EffectsTab.svelte';
+	import ProfileAppearanceControls from '$lib/components/ProfileAppearanceControls.svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import {
 		homeLayout,
@@ -21,12 +21,7 @@
 	import { THEMES } from '$lib/theme/themes';
 	import { saveThemePreferences } from '$lib/theme/themeApi';
 	import { saveThemeToLocalStorage } from '$lib/theme/themeManager';
-	import {
-		applyHomeExperienceMode,
-		getStoredHomeExperienceMode,
-		setStoredHomeExperienceMode,
-		type HomeExperienceMode
-	} from '$lib/homeExperience';
+	import { getOpeningSurface, setOpeningSurface, type OpeningSurface } from '$lib/openingSurface';
 	import {
 		getStoredAccessibilitySettings,
 		updateAccessibilitySettings,
@@ -50,7 +45,7 @@
 
 	let savingTheme = false;
 	let ownMessagesOnRight = false;
-	let homeExperienceMode: HomeExperienceMode = 'community';
+	let openingSurface: OpeningSurface = 'server';
 	let chatAvatarMode: ChatAvatarMode = 'all';
 	let appChromeOpacity = 1;
 	let videoCompressionEnabled = true;
@@ -71,7 +66,7 @@
 	onMount(() => {
 		const accessibilitySettings = getStoredAccessibilitySettings();
 		ownMessagesOnRight = accessibilitySettings.ownMessagesOnRight;
-		homeExperienceMode = getStoredHomeExperienceMode();
+		openingSurface = getOpeningSurface();
 		chatAvatarMode = accessibilitySettings.chatAvatarMode;
 		appChromeOpacity = accessibilitySettings.appChromeOpacity;
 		messageDensity = accessibilitySettings.messageDensity;
@@ -79,7 +74,6 @@
 		clickableSendEnabled = accessibilitySettings.clickableSendEnabled;
 		videoCompressionEnabled = isVideoCompressionEnabled();
 		applyVideoCompressionRuntimePreferences();
-		loadHomeExperienceFromServer();
 	});
 
 	function resolveVideoCompressionRuntimeScope(): VideoCompressionRuntime {
@@ -102,20 +96,6 @@
 		defaultVideoCompressionPreset = resolvedPreset;
 		if (resolvedPreset !== storedPreset) {
 			setDefaultVideoCompressionPreset(resolvedPreset, videoCompressionRuntime);
-		}
-	}
-
-	async function loadHomeExperienceFromServer(): Promise<void> {
-		const token = getAuthToken();
-		if (!token) return;
-		try {
-			const { getUserSettings } = await import('$lib/api');
-			const settings = await getUserSettings(token);
-			if (!settings?.home_experience) return;
-			homeExperienceMode = settings.home_experience === 'conversations' ? 'conversations' : 'community';
-			setStoredHomeExperienceMode(homeExperienceMode);
-		} catch (error) {
-			console.warn('[Settings] Failed to load home experience mode:', error);
 		}
 	}
 
@@ -189,19 +169,9 @@
 		layoutStore.toggleNavCollapsed();
 	}
 
-	async function updateHomeExperienceMode(mode: HomeExperienceMode) {
-		homeExperienceMode = mode;
-		setStoredHomeExperienceMode(mode);
-		applyHomeExperienceMode(mode);
-
-		const token = getAuthToken();
-		if (!token) return;
-
-		try {
-			await saveUserSettings(token, { home_experience: mode });
-		} catch (error) {
-			console.warn('[Settings] Failed to save home experience mode:', error);
-		}
+	function updateOpeningSurface(surface: OpeningSurface) {
+		openingSurface = surface;
+		setOpeningSurface(surface);
 	}
 
 	function loadWorkspaceByName(name: string) {
@@ -261,6 +231,7 @@
 </script>
 
 <!-- Chat -->
+<div class="settings-section"><div class="settings-group-card"><ProfileAppearanceControls /></div></div>
 <div class="settings-section">
 	<h3>Chat</h3>
 	<div class="settings-group-card">
@@ -319,12 +290,12 @@
 	<div class="settings-group-card">
 		<div class="setting-item">
 			<div class="setting-info">
-				<span class="setting-label">Home view</span>
-				<span class="setting-description">What you see when you open the app.</span>
+				<span class="setting-label">Open to</span>
+				<span class="setting-description">Your starting page on this device, for this account and server.</span>
 			</div>
 			<div class="segmented">
-				<button type="button" class:active={homeExperienceMode === 'conversations'} on:click={() => updateHomeExperienceMode('conversations')}>Conversations</button>
-				<button type="button" class:active={homeExperienceMode === 'community'} on:click={() => updateHomeExperienceMode('community')}>Community</button>
+				<button type="button" class:active={openingSurface === 'server'} on:click={() => updateOpeningSurface('server')}>Reference Desk</button>
+				<button type="button" class:active={openingSurface === 'messages'} on:click={() => updateOpeningSurface('messages')}>Messages</button>
 			</div>
 		</div>
 		<div class="setting-item">

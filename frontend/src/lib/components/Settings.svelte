@@ -29,6 +29,7 @@
 
 	export let isOpen = false;
 	export let requestedPaymentSurface: 'connections' | null = null;
+	export let requestedTab: 'profile' | 'server' | 'notifications' | null = null;
 	export let requestedPasswordChangeRequest = 0;
 
 	type SettingsTab =
@@ -72,6 +73,7 @@
 	];
 
 	let activeSettingsTab: SettingsTab = 'profile';
+	let lastHandledRequestedTab: 'profile' | 'server' | 'notifications' | null = null;
 	let lastHandledRequestedPaymentSurface: 'connections' | null = null;
 	let lastHandledRequestedPasswordChangeRequest = 0;
 	let showAvatarEditor = false;
@@ -98,6 +100,11 @@
 	}
 	$: if (!isOpen) {
 		lastHandledRequestedPaymentSurface = null;
+		lastHandledRequestedTab = null;
+	}
+	$: if (isOpen && requestedTab && lastHandledRequestedTab !== requestedTab) {
+		activeSettingsTab = requestedTab;
+		lastHandledRequestedTab = requestedTab;
 	}
 	$: if (
 		isOpen &&
@@ -238,12 +245,12 @@
 
 {#if isOpen}
 	<div
-		class="modal-overlay"
+		class="modal-overlay wabi-settings-overlay"
 		role="presentation"
 		on:click={closeModal}
 	>
 		<div
-			class="modal-content"
+			class="modal-content wabi-settings-modal"
 			role="dialog"
 			aria-modal="true"
 			aria-label={$t('settings.title')}

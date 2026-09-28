@@ -10,6 +10,7 @@ import {
 	type FollowedChannelSnapshot
 } from './followingSnapshots';
 import { messageMentionsUser, showNotification } from './notifications';
+import { areBackgroundFollowAlertsEnabled } from './notificationSettings';
 import { savedServers, switchToSavedServerChannel } from './savedServers';
 import { normalizeServerUrl, resolveServerUrl } from './serverUrl';
 import type { Channel, Message } from './socket-types';
@@ -19,6 +20,7 @@ const HIDDEN_POLL_INTERVAL_MS = 25_000;
 const STARTUP_DELAY_MS = 5_000;
 const ERROR_BACKOFF_MS = 60_000;
 const AUTH_BACKOFF_MS = 5 * 60_000;
+const MAX_CHANNELS_PER_POLL = 24;
 
 let started = false;
 let pollInFlight = false;
@@ -130,6 +132,7 @@ function maybeNotifyForResult(
 	serverName: string | null,
 	iconUrl: string | null
 ): void {
+	if (!areBackgroundFollowAlertsEnabled()) return;
 	const storedUsername = getStoredUsername(serverUrl);
 	const qualifying = result.messages.filter((message) => {
 		if (isOwnMessageForServer(serverUrl, message)) return false;
@@ -180,25 +183,27 @@ async function pollServer(
 	const { serverName, iconUrl } = getSavedServerMeta(serverUrl);
 
 	try {
-		const response = await pollFollowedChannelActivity(serverUrl, token, guestSessionId, requests);
-		serverCooldownUntil.delete(serverUrl);
+		for (let offset = 0; offset < requests.length; offset += MAX_CHANNELS_PER_POLL) {
+			const response = await pollFollowedChannelActivity(serverUrl, token, guestSessionId, requests.slice(offset, offset + MAX_CHANNELS_PER_POLL));
+			serverCooldownUntil.delete(serverUrl);
 
-		for (const result of response.channels) {
-			const preference = serverPreferences[result.channelId];
-			if (!preference || result.messages.length === 0) continue;
+			for (const result of response.channels) {
+				const preference = serverPreferences[result.channelId];
+				if (!preference || result.messages.length === 0) continue;
 
-			const channel = buildChannelSummary(result);
-			const snapshot = getSnapshot(serverUrl, result.channelId);
-			if (result.cursorReset || !snapshot?.lastMessageId) {
-				applyBootstrapSnapshot(serverUrl, channel, result.messages, serverName);
-				continue;
+				const channel = buildChannelSummary(result);
+				const snapshot = getSnapshot(serverUrl, result.channelId);
+				if (result.cursorReset || !snapshot?.lastMessageId) {
+					applyBootstrapSnapshot(serverUrl, channel, result.messages, serverName);
+					continue;
+				}
+
+				for (const message of result.messages) {
+					applyMessageDelta(serverUrl, channel, message, serverName);
+				}
+
+				maybeNotifyForResult(serverUrl, preference, result, serverName, iconUrl);
 			}
-
-			for (const message of result.messages) {
-				applyMessageDelta(serverUrl, channel, message, serverName);
-			}
-
-			maybeNotifyForResult(serverUrl, preference, result, serverName, iconUrl);
 		}
 	} catch (error) {
 		const status = typeof error === 'object' && error !== null && 'status' in error

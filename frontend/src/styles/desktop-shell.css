@@ -1,0 +1,23 @@
+/* Only the main desktop webview reserves chrome. Browser/mobile/detached views
+   retain their original viewport and fixed-position coordinate system. */
+:root[data-desktop-shell='true'] { --desktop-titlebar-height: 44px; --desktop-content-height: calc(100dvh - 44px); }
+:root[data-desktop-shell='true'] .app-content-layer { padding-top: var(--desktop-titlebar-height); }
+:root[data-desktop-shell='true'] .app-container,
+:root[data-desktop-shell='true'] .app-container.in-call,
+:root[data-desktop-shell='true'] .channel-sidebar,
+:root[data-desktop-shell='true'] .reader-shell.reader-redesign.reader-focused,
+:root[data-desktop-shell='true'] .login-container,
+:root[data-desktop-shell='true'] .desktop-communities,
+:root[data-desktop-shell='true'] .public-page,
+:root[data-desktop-shell='true'] .server-rail-container .server-rail,
+:root[data-desktop-shell='true'] .right-panel-zone { height: var(--desktop-content-height); }
+:root[data-desktop-shell='true'] #wabi-boot-shell { top: var(--desktop-titlebar-height); }
+:root[data-desktop-shell='true'] :is(.modal-overlay, .reader-shell.reader-redesign.reader-focused, .right-panel-zone.peek, .right-panel-zone.closing) { top: var(--desktop-titlebar-height); }
+:root[data-desktop-shell='true'] :is(.modal-overlay.full-screen, .modal-overlay.right-panel) .modal-content { height: var(--desktop-content-height); max-height: var(--desktop-content-height); }
+@media (max-width: 768px) {
+ :root[data-desktop-shell='true'] .channel-sidebar { height: calc(var(--desktop-content-height) - 56px); }
+ :root[data-desktop-shell='true'] .app-container { height: calc(var(--desktop-content-height) - var(--mobile-nav-height, 56px)); max-height: calc(var(--desktop-content-height) - var(--mobile-nav-height, 56px)); }
+ :root[data-desktop-shell='true'] .app-container.in-call { height: var(--desktop-content-height); max-height: var(--desktop-content-height); }
+ :root[data-desktop-shell='true'] :is(.channel-sidebar-container, .mobile-panel-backdrop) { top: var(--desktop-titlebar-height); }
+ :root[data-desktop-shell='true'] .modal-overlay .modal-content { max-height: var(--desktop-content-height); }
+}

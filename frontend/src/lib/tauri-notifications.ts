@@ -32,7 +32,7 @@ export async function sendTauriDesktopNotification(title: string, body: string):
 		await invoke('plugin:notification|notify', { request: { title, body } });
 		return true;
 	} catch (err) {
-		console.warn('[wabi] native notification failed, falling back to browser API:', err);
+		console.warn('[wabi] native notification failed:', err);
 		return false;
 	}
 }

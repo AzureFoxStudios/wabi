@@ -14,12 +14,16 @@ fn invalid(reason: &str) -> WabiError {
 }
 
 impl WdbAdapter {
-    async fn commit_group_events(
+    pub(super) async fn commit_events(
         &self,
         actor: u64,
         name: &str,
         events: Vec<EventToWrite>,
+        room_id: Option<&str>,
     ) -> Result<u64> {
+        let room_owner_precondition = room_id
+            .map(|id| self.room_owner_precondition(id, name))
+            .transpose()?;
         for event in &events {
             self.engine
                 .get_or_create_stream_key(&event.stream_id)
@@ -38,6 +42,7 @@ impl WdbAdapter {
         let outcome = self
             .engine
             .run_command(CommandCommit {
+                room_owner_precondition,
                 caller_user_id: actor,
                 caller_device_id: "primary".into(),
                 command_name: name.into(),
@@ -73,6 +78,7 @@ impl WdbAdapter {
         owner: u64,
         members: &[u64],
     ) -> Result<()> {
+        let _creation_guard = self.group_creation_write.lock().await;
         if !id.starts_with("dm-") || id.len() > 128
             || !id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
             || name.trim().is_empty() || name.chars().count() > 100
@@ -98,10 +104,11 @@ impl WdbAdapter {
             }).collect(),
         };
         change.validate()?;
-        self.commit_group_events(owner, "create_dm", vec![
+        self.commit_events(owner, "create_dm", vec![
             Self::group_event(id.into(), "channel_created", Self::payload_json(&channel)?),
             Self::group_event(format!("channel_members:{id}"), "channel_members_changed", Self::payload_json(&change)?),
-        ]).await?;
+            self.placement_event_for_created_id(id)?,
+        ], None).await?;
         Ok(())
     }
 
@@ -112,6 +119,7 @@ impl WdbAdapter {
         owner: u64,
         members: &[u64],
     ) -> Result<u64> {
+        let _creation_guard = self.group_creation_write.lock().await;
         if !id.starts_with("group-")
             || id.len() > 128
             || !id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
@@ -152,7 +160,7 @@ impl WdbAdapter {
         let mut channel = Channel::new(id, name.trim(), owner);
         channel.channel_kind = ChannelKind::GroupDm;
         channel.created_at_micros = now;
-        self.commit_group_events(
+        self.commit_events(
             owner,
             "create_group",
             vec![
@@ -162,7 +170,9 @@ impl WdbAdapter {
                     "channel_members_changed",
                     Self::payload_json(&change)?,
                 ),
+                self.placement_event_for_created_id(id)?,
             ],
+            None,
         )
         .await
     }
@@ -283,7 +293,7 @@ impl WdbAdapter {
                 }
             }
         }
-        self.commit_group_events(actor, "change_group_membership", events)
+        self.commit_events(actor, "change_group_membership", events, Some(id))
             .await
     }
 }

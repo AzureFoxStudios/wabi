@@ -804,3 +804,11 @@ html[data-neutral-branding] .login-container .login-brand-lockup {
 		scroll-behavior: auto !important;
 	}
 }
+
+.login-container .starter-layout { display: grid; gap: .55rem; margin: .8rem 0; padding: .85rem; border: 1px solid var(--border-default); border-radius: 12px; }
+.login-container .starter-layout > label { font-weight: 650; }
+.login-container .starter-layout > p { margin: 0; color: var(--text-secondary); font-size: .82rem; }
+.login-container .starter-layout select, .login-container .starter-layout input { min-width: 0; width: 100%; padding: .55rem .7rem; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-base); color: var(--text-primary); font: inherit; }
+.login-container .starter-room { display: grid; grid-template-columns: 85px minmax(0,1fr) 36px; gap: .4rem; }
+.login-container .starter-room button, .login-container .starter-add { border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-base); color: var(--text-primary); cursor: pointer; }
+.login-container .starter-add { justify-self: start; padding: .45rem .7rem; }

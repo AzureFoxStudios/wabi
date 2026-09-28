@@ -98,6 +98,14 @@ async fn get_channel(
         .ok_or_else(|| AppError::NotFound(format!("Channel {id} not found")))?;
     if crate::channel_access::is_conversation(channel.channel_kind) {
         crate::channel_access::require_access(&state, auth.user_id, &id).await?;
+    } else {
+        if !crate::channel_access::channel_role_allows(&state, auth.user_id, &id).await? {
+            return Err(AppError::Forbidden("Channel requires a role you have not chosen or been assigned".into()));
+        }
+        let blacklist = state.get_blacklist().await.ok_or_else(|| AppError::Internal("Channel restriction enforcement unavailable".into()))?;
+        if blacklist.is_channel_banned(&id, auth.user_id).await.is_some() {
+            return Err(AppError::Forbidden("Banned from this channel".into()));
+        }
     }
     Ok(Json(channel_to_response(channel)))
 }
@@ -260,9 +268,14 @@ async fn create_channel(
         "category" => wabidb::domain::ChannelKind::Category,
         "lore" | "asset_storage" => wabidb::domain::ChannelKind::Lore,
         "planning" => wabidb::domain::ChannelKind::Planning,
+        "reception" => wabidb::domain::ChannelKind::Reception,
         _ => wabidb::domain::ChannelKind::Text,
     };
     let is_lore = matches!(channel_kind, wabidb::domain::ChannelKind::Lore);
+    if channel_kind == wabidb::domain::ChannelKind::Reception
+        && state.wdb.list_channels(None).await?.iter().any(|existing| existing.channel_kind == wabidb::domain::ChannelKind::Reception) {
+        return Err(AppError::Conflict("This server already has a Welcome channel".into()));
+    }
     if crate::channel_access::is_conversation(channel_kind) {
         return Err(AppError::BadRequest("Use the conversation creation flow to select participants".into()));
     }
@@ -446,10 +459,21 @@ async fn join_channel(
         .map_err(|e| AppError::Internal(format!("wdb get_channel: {e}")))?
         .ok_or_else(|| AppError::NotFound(format!("Channel {id} not found")))?;
     let already_member = crate::channel_access::is_member(&state, user_id, &id).await?;
-    if already_member { return Ok(Json(serde_json::json!({ "joined": true, "channelId": id }))); }
-    if crate::channel_access::is_conversation(channel.channel_kind) {
-        return Err(AppError::Forbidden("Conversation membership required".into()));
+    let blacklist = state.get_blacklist().await.ok_or_else(|| AppError::Internal("Channel restriction enforcement unavailable".into()))?;
+    if blacklist.is_channel_banned(&id, user_id).await.is_some() {
+        return Err(AppError::Forbidden("Banned from this channel".into()));
     }
+    if crate::channel_access::is_conversation(channel.channel_kind) {
+        return if already_member { Ok(Json(serde_json::json!({ "joined": true, "channelId": id }))) }
+            else { Err(AppError::Forbidden("Conversation membership required".into())) };
+    }
+    if auth.is_bot && matches!(channel.channel_kind, wabidb::domain::ChannelKind::Planning | wabidb::domain::ChannelKind::Lore) && !already_member {
+        return Err(AppError::Forbidden("The server owner must grant this bot project access".into()));
+    }
+    if !crate::channel_access::channel_role_allows(&state, user_id, &id).await? {
+        return Err(AppError::Forbidden("Channel requires a role you have not chosen or been assigned".into()));
+    }
+    if already_member { return Ok(Json(serde_json::json!({ "joined": true, "channelId": id }))); }
     let user_role = state.get_user_highest_role(user_id).await;
     let role_priority = |r: &str| match r.to_lowercase().as_str() {
         "owner" => 3, "admin" => 2, "moderator" => 1, "member" => 1, _ => 0,

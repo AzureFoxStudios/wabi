@@ -30,7 +30,8 @@ impl ReplicaStateMachine {
     }
 
     pub fn get_lag(&self) -> u64 {
-        self.target_commit_seq.saturating_sub(self.current_commit_seq)
+        self.target_commit_seq
+            .saturating_sub(self.current_commit_seq)
     }
 
     pub fn update_target(&mut self, seq: u64) {

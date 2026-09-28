@@ -1,59 +1,62 @@
 <script lang="ts">
+	import { activeServerUrl } from '$lib/serverUrl';
+	import { getAuthToken } from '$lib/authSession';
+	import { channels } from '$lib/socket';
 	import type { AdminChannelEntry } from '$lib/adminChannelNavigation';
-	let { customChannels, onOpenChannel }: { customChannels: AdminChannelEntry[]; onOpenChannel: (id: string) => void } = $props();
+	let { customChannels, onOpenChannel }: { customChannels?: AdminChannelEntry[]; onOpenChannel?: (channelId: string) => boolean } = $props();
+
+	let minRoles: Record<string, string> = $state({});
+	let loading = $state(true);
+	let busy = $state('');
+	let error = $state('');
+	let saved = $state('');
+	const ordinary = $derived((customChannels ?? $channels).filter(channel => !['dm', 'group', 'category', 'reception'].includes(channel.type)));
+
+	async function request(path: string, init: RequestInit = {}, server = $activeServerUrl) {
+		const token = getAuthToken(server);
+		if (!token) throw new Error('Sign in again to manage channel access.');
+		const response = await fetch(`${server}/api/server-center${path}`, {
+			...init, credentials: 'include',
+			headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) }
+		});
+		const data = await response.json().catch(() => ({}));
+		if (!response.ok) throw new Error(data.error || `Channel access request failed (${response.status}).`);
+		return data;
+	}
+	async function refresh(server = $activeServerUrl) {
+		loading = true; error = '';
+		try { const data = await request('/channel-gates', {}, server); if (server === $activeServerUrl) minRoles = data.minRoles ?? {}; }
+		catch (cause) { if (server === $activeServerUrl) error = cause instanceof Error ? cause.message : 'Could not load channel access.'; }
+		finally { if (server === $activeServerUrl) loading = false; }
+	}
+	async function setRole(channelId: string, role: string) {
+		const server = $activeServerUrl;
+		busy = channelId; error = ''; saved = '';
+		try {
+			await request(`/channel-gates/${encodeURIComponent(channelId)}`, { method: 'PUT', body: JSON.stringify({ minRole: role || null }) }, server);
+			if (server !== $activeServerUrl) return;
+			minRoles = { ...minRoles, [channelId]: role };
+			saved = 'Channel access saved. Members who no longer qualify have been removed.';
+		} catch (cause) { if (server === $activeServerUrl) error = cause instanceof Error ? cause.message : 'Could not save channel access.'; }
+		finally { if (server === $activeServerUrl) busy = ''; }
+	}
+	$effect(() => { const server = $activeServerUrl; minRoles = {}; loading = true; busy = ''; saved = ''; void refresh(server); });
 </script>
 
-<section class="channel-directory" aria-label="Server channels">
-	<p class="channel-access-introduction">Open a channel in its workspace. Your dock stays open, and viewing a voice channel does not join its call.</p>
-		<div class="channel-role-list">
-			{#each customChannels as channel (channel.id)}
-				<div class="channel-role-item">
-					<div class="channel-role-meta">
-						<span class="channel-name">{channel.name}</span>
-						<span class="channel-type" data-kind={channel.type}>{channel.typeLabel}</span>
-					</div>
-					<button class="ui-btn ui-btn-secondary" type="button" aria-label={`Open channel ${channel.name}`} onclick={() => onOpenChannel(channel.id)}>Open channel</button>
-				</div>
-			{:else}
-			<p class="channel-access-help">No server channels are available in this session.</p>
+<details class="channel-gates">
+	<summary><strong>Channel role access</strong><span>Choose who can open each ordinary channel.</span></summary>
+	<p>These are server-enforced staff-role gates. Self-selected community roles are configured below and can open linked rooms; sidebar visibility is only a personal preference. Changing a gate removes viewers who no longer qualify.</p>
+	{#if error}<p class="error" role="alert">{error}</p>{/if}
+	{#if saved}<p role="status">{saved}</p>{/if}
+	{#if loading}<p>Loading channel access…</p>{:else}
+		{#each ordinary as channel (channel.id)}
+			<label class="gate-row"><span>#{channel.name}{#if onOpenChannel}<button type="button" class="open-channel" onclick={() => onOpenChannel?.(channel.id)}>Open</button>{/if}</span><select aria-label={`Minimum role for ${channel.name}`} value={minRoles[channel.id] ?? ''} onchange={event => void setRole(channel.id, event.currentTarget.value)} disabled={busy === channel.id}>
+				<option value="">All signed-in accounts</option><option value="member">Registered members</option><option value="moderator">Moderators and admins</option><option value="admin">Admins and owner</option>
+			</select></label>
 		{/each}
-	</div>
-	<details class="channel-access-boundary"><summary>About channel access</summary><p class="channel-access-help">These server channels do not support minimum-role restrictions. Use direct or group messages for membership-restricted conversations. Category folders and private conversations are not listed here.</p></details>
-</section>
+	{/if}
+</details>
 
 <style>
-	.channel-directory { display: grid; gap: 1rem; min-width: 0; }
-	.channel-access-introduction, .channel-access-help { margin: 0; color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; text-wrap: pretty; overflow-wrap: anywhere; }
-	.channel-directory .channel-role-list { display: grid; gap: 0.75rem; min-width: 0; }
-	.channel-directory .channel-role-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; min-width: 0; padding: 1rem; background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); }
-	.channel-directory .channel-role-meta { display: grid; gap: 0.4rem; min-width: 0; flex: 1 1 12rem; }
-		.channel-directory .channel-name { color: var(--text-primary); font-size: 0.95rem; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
-		.channel-directory .channel-type {
-			justify-self: start;
-			display: inline-flex;
-			align-items: center;
-			gap: 0.4rem;
-			padding: 0.2rem 0.6rem;
-			border: 1px solid color-mix(in srgb, var(--chip-color, var(--text-muted)) 35%, transparent);
-			border-radius: var(--radius-full);
-			background: color-mix(in srgb, var(--chip-color, var(--text-muted)) 12%, transparent);
-			color: color-mix(in srgb, var(--chip-color, var(--text-muted)) 80%, var(--text-heading));
-			font-size: 0.7rem;
-			font-weight: 600;
-			letter-spacing: 0.05em;
-			line-height: 1.4;
-		}
-		.channel-directory .channel-type::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--chip-color, var(--text-muted)); }
-		.channel-directory .channel-type[data-kind='text'] { --chip-color: var(--accent-primary-color); }
-		.channel-directory .channel-type[data-kind='voice'] { --chip-color: var(--color-info); }
-		.channel-directory .channel-type[data-kind='project'],
-		.channel-directory .channel-type[data-kind='planning'] { --chip-color: var(--color-success); }
-		.channel-directory .channel-type[data-kind='forum'] { --chip-color: var(--color-warning); }
-		.channel-directory .channel-type[data-kind='wiki'],
-		.channel-directory .channel-type[data-kind='reader'] { --chip-color: var(--accent-secondary-color); }
-		.channel-directory .channel-type[data-kind='gallery'],
-		.channel-directory .channel-type[data-kind='media'] { --chip-color: var(--accent-purple, #9b59b6); }
-	.channel-access-boundary { border-top: 1px solid var(--border-subtle); padding-top: 0.5rem; }
-	.channel-access-boundary summary { min-height: 44px; padding: 0.65rem 0; box-sizing: border-box; color: var(--text-secondary); font-size: 0.875rem; cursor: pointer; }
-	.channel-directory :is(button, summary):focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: 3px; }
+	.channel-gates{padding:18px;border:1px solid var(--border-default);border-radius:16px;background:var(--surface-raised);margin-bottom:18px}.channel-gates summary{cursor:pointer;display:grid;gap:4px}.channel-gates summary span,.channel-gates p{color:var(--text-secondary);font-size:.84rem}.gate-row{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--border-default);padding:10px 0}.gate-row span{font-weight:600}.gate-row select{min-width:180px;max-width:100%;padding:8px 10px;border:1px solid var(--border-default);border-radius:9px;background:var(--surface-base);color:var(--text-primary);font:inherit}.open-channel{margin-left:8px;border:0;background:none;color:var(--accent-primary);font:inherit;cursor:pointer}.error{color:var(--danger)}@media(max-width:600px){.gate-row{align-items:stretch;flex-direction:column}.gate-row select{width:100%}}
 </style>

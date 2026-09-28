@@ -44,12 +44,21 @@ async fn on_edit_message(socket: SocketRef, data: Value, state: SioState, io: So
     };
 
     let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "edit-error").await else { return; };
+    if let Err(error) = state.app.wdb.require_local_room_owner(&channel_id, "edit_message") {
+        warn!("[sio] local room edit refused: {error}");
+        let _ = socket.emit("edit-error", &json!({"messageId": message_id, "code": "room_not_local", "error": "This room cannot be changed through this node."}));
+        return;
+    }
     if !message_in_channel(&state, &channel_id, &message_id).await {
         let _ = socket.emit("edit-error", &json!({"messageId": message_id, "error": "Message not found in channel"}));
         return;
     }
     let my_user_id = identity.user_id;
     let my_username = identity.username;
+    if let Err(error) = crate::channel_access::require_participation(&state.app, my_user_id, &channel_id).await {
+        let _ = socket.emit("edit-error", &json!({ "messageId": message_id, "error": error.to_string() }));
+        return;
+    }
 
     // Keep edits ordered with encryption mode changes just like new sends.
     let encryption_policy_guard = state.app.retention_policy_lock.lock().await;
@@ -151,6 +160,11 @@ async fn on_toggle_pin(socket: SocketRef, data: Value, state: SioState, io: Sock
     };
 
     let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "pin-error").await else { return; };
+    if let Err(error) = state.app.wdb.require_local_room_owner(&channel_id, "toggle_pin") {
+        warn!("[sio] local room pin refused: {error}");
+        let _ = socket.emit("pin-error", &json!({"messageId": message_id, "code": "room_not_local", "error": "This room cannot be changed through this node."}));
+        return;
+    }
     if !message_in_channel(&state, &channel_id, &message_id).await {
         let _ = socket.emit("pin-error", &json!({"messageId": message_id, "error": "Message not found in channel"}));
         return;

@@ -14,7 +14,8 @@
 		privateContentAutomation: false,
 		analyticsMode: 'off',
 		externalProcessing: 'none',
-		reportEvidencePreservation: 'explicit_report'
+		reportEvidencePreservation: 'explicit_report',
+		reportEvidenceDays: null
 	});
 	let published: ServerPrivacyPolicy | null = $state(null);
 	let loading = $state(true);
@@ -121,7 +122,8 @@
 		<section class="card">
 			<header><div><span class="step">3</span><div><h3>Reporting &amp; evidence</h3><p>Ephemeral does not become secretly permanent “just in case.” Evidence is preserved when a participant explicitly submits a report.</p></div></div></header>
 			<div class="policy-line"><strong>Evidence preservation</strong><span>Explicit report only</span></div>
-			<p class="note">The report dialog tells the reporter that the message snapshot is being preserved for this server’s staff. Wabi does not send it to a central moderation service.</p>
+			<label class="policy-line"><strong>New report snapshots</strong><select bind:value={policy.reportEvidenceDays} onchange={() => saved = ''}><option value={null}>Keep until owner removes</option><option value={1}>Remove after 1 day</option><option value={7}>Remove after 7 days</option><option value={30}>Remove after 30 days</option><option value={90}>Remove after 90 days</option></select></label>
+			<p class="note">The report dialog tells the reporter that the selected message is preserved for this server’s staff. Safety-rule flags create a case reference without another message snapshot. This expiry applies to new reports only; the owner can remove any active snapshot sooner. Backups and text copied into staff comments have separate lifecycles. Wabi does not send reports to a central moderation service.</p>
 		</section>
 
 		<section class="card muted-card">

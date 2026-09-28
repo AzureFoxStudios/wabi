@@ -8,6 +8,7 @@ type Listener = (...args: any[]) => void;
 
 const LOCAL_MOCK_FLAG = 'VITE_WABI_LOCAL_MOCK';
 const LOCAL_MOCK_STORAGE_KEY = 'wabi:local-mock:messages:v1';
+const LOCAL_MOCK_PROFILE_KEY = 'wabi:local-mock:profile:v1';
 
 function localMockAvatar(label: string, background: string): string {
 	const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" rx="24" fill="${background}"/><text x="50%" y="54%" text-anchor="middle" dominant-baseline="middle" font-family="Inter, Arial, sans-serif" font-size="44" font-weight="800" fill="#06111d">${label}</text></svg>`;
@@ -108,6 +109,12 @@ async function seedLocalMockState(mock: LocalMockSocket, username: string): Prom
 		highestRole: 'admin',
 		profilePicture: localMockAvatar('H', '#98D8C8')
 	};
+	try {
+		const saved = JSON.parse(localStorage.getItem(`${LOCAL_MOCK_PROFILE_KEY}:${username}`) || '{}');
+		for (const field of ['username', 'profilePicture', 'usernameFont', 'bio', 'statusMessage', 'bannerUrl', 'overlayUrl', 'overlayScale', 'overlayOffsetX', 'overlayOffsetY', 'color'] as const) {
+			if (Object.hasOwn(saved, field)) (me as any)[field] = saved[field];
+		}
+	} catch { /* A broken local fixture must not prevent the preview opening. */ }
 	const artist: User = {
 		id: 'user-2',
 		username: 'Mira',
@@ -219,6 +226,24 @@ function createSeedMessages(now: number, username: string): Record<string, Messa
 }
 
 async function handleLocalEmit(mock: LocalMockSocket, event: string, args: any[]): Promise<void> {
+	if (event === 'update-profile') {
+		const { currentUser, users, serverMembers } = await import('./presenceStore');
+		const self = get(currentUser);
+		if (!self) return;
+		const patch = args[0] || {};
+		const { requestId, ...fields } = patch;
+		const updated = { ...self, ...fields };
+		currentUser.set(updated);
+		users.update((list) => list.map((user) => user.id === self.id ? updated : user));
+		serverMembers.update((list) => list.map((user) => user.id === self.id ? updated : user));
+		try {
+			const scopeName = (mock as any).username;
+			localStorage.setItem(`${LOCAL_MOCK_PROFILE_KEY}:${scopeName}`, JSON.stringify(updated));
+		} catch { /* Browser fixture persistence is optional. */ }
+		mock.dispatch('profile-updated', { ...updated, profileRequestId: requestId });
+		mock.dispatch('user-updated', updated);
+		return;
+	}
 	if (!browser) return;
 	if (event === 'create-dm') {
 		const payload = args[0] || {};

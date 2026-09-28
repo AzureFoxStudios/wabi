@@ -1,0 +1,28 @@
+{
+  "assertions": [
+    "Origin download works with no volunteers",
+    "Explicit opt-in starts a bounded volunteer; no automatic traffic claim",
+    "Real WebRTC payload passes hash verification without another origin file request",
+    "Back-to-back peer downloads remain available",
+    "Delayed volunteer discovery still completes within the transfer deadline",
+    "Opting out while discovery is pending never starts a peer request",
+    "A corrupted peer payload is discarded and retried at the Authority",
+    "Stopping a booster clears its cache and downloads fall back to origin",
+    "A volunteer leaving during transfer still completes the original download",
+    "Account/server switches retire consent and local contribution counters",
+    "Private-access enable and disable refresh a complete status without granting an empty allow-list",
+    "Admin health and private-access port controls render without horizontal overflow"
+  ],
+  "screenshots": [
+    "local-after-admin.png",
+    "local-after-ports.png",
+    "local-after-volunteer.png",
+    "local-after-volunteer-mobile.png"
+  ],
+  "pageErrors": [],
+  "measurements": {
+    "peerPayloadBytes": 262144,
+    "originFileRequestsAvoided": 1,
+    "interruptedPeerBytes": 16384
+  }
+}

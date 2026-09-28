@@ -72,6 +72,14 @@ impl IntoResponse for AppError {
             AppError::Io(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string()),
             AppError::Anyhow(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string()),
             AppError::Reqwest(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.to_string()),
+            AppError::Wdb(wabidb::error::WabiError::Validation { command, .. })
+                if command == "room_owner_precondition" =>
+            {
+                (
+                    StatusCode::CONFLICT,
+                    "This room changed owners before the write could be committed".into(),
+                )
+            }
             AppError::Wdb(msg) => (StatusCode::INTERNAL_SERVER_ERROR, format!("wdb: {msg}")),
         };
 
@@ -85,3 +93,17 @@ impl IntoResponse for AppError {
 }
 
 pub type Result<T> = std::result::Result<T, AppError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stale_room_owner_is_an_http_conflict() {
+        let error = AppError::Wdb(wabidb::error::WabiError::Validation {
+            command: "room_owner_precondition".into(),
+            reason: "changed before commit".into(),
+        });
+        assert_eq!(error.into_response().status(), StatusCode::CONFLICT);
+    }
+}

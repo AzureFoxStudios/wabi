@@ -28,6 +28,7 @@ import { isCurrentUserProfile } from './profileIdentity';
 import { messageDeliveries, parseMessageAcceptance, parseMessageFailure, isOwnMessage, isSameMessageIdentity } from './messageDelivery';
 import type { Channel, Message, User } from './socket-types';
 import { channels, currentChannel, joinChannel, descendantIds, _updatePinnedChannels, readLastChannel, persistLastChannel } from './channelStore';
+import { channelAccessPolicyVersion } from './channelAccessPolicyVersion';
 import { upsertBreakoutRooms, removeBreakoutRooms } from './breakoutChannels';
 import { channelMessages, _incrementUnreadCount, _updateOptimisticMessage, _removeOptimisticMessage } from './messageStore';
 import {
@@ -35,7 +36,7 @@ import {
 	channelHasMoreHistory, channelOldestMessageId
 } from './messagePagination';
 import { isRenderableMessage } from '$lib/displayEnhancements';
-import { mergeServerEmotes, removeServerEmote, type ServerEmote } from './emoji-store';
+import { mergeServerEmotes, removeServerEmote, clearServerEmotes, type ServerEmote } from './emoji-store';
 import { recordSuccessfulServerConnection } from './savedServerActions';
 import {
 	centerDmChannelId,
@@ -255,6 +256,7 @@ export class SocketManager {
 	}
 
 	private clearAccountRoster(): void {
+		clearServerEmotes();
 		_setUsers([]);
 		_setServerMembers([]);
 		_setCurrentUser(null);
@@ -356,27 +358,28 @@ export class SocketManager {
 
 		this.reconnect.setReconnectTimer(
 			setTimeout(() => {
-				this.reconnect.setReconnectTimer(null);
-				const currentUrl = normalizeServerUrl(this.currentServerUrl || getServerUrl());
-				if (!currentUrl) {
-					this.transition('failed');
-					return;
-				}
+				void (async () => {
+					this.reconnect.setReconnectTimer(null);
+					const currentUrl = normalizeServerUrl(this.currentServerUrl || getServerUrl());
+					if (!currentUrl) {
+						this.transition('failed');
+						return;
+					}
+					const attempt = this.reconnect.getAttemptCount();
+					const { rotated, nextUrl } = await this.reconnect.rotateToNextFailoverCandidate(this.currentServerUrl);
+					if (this.state !== 'reconnecting' || this.reconnect.getAttemptCount() !== attempt ||
+						(!rotated && normalizeServerUrl(getServerUrl()) !== currentUrl)) return;
+					if (rotated && nextUrl) {
+						this.currentServerUrl = nextUrl;
+						this.reconnect.primeFailoverCandidates(nextUrl);
+					}
 
-				const { rotated, nextUrl } = this.reconnect.rotateToNextFailoverCandidate(this.currentServerUrl);
-				if (rotated && nextUrl) {
-					this.currentServerUrl = nextUrl;
-					this.reconnect.primeFailoverCandidates(nextUrl);
-				}
-
-				// Token freshness: the captured authToken may predate a silent
-				// refresh (15-minute access tokens). Prefer whatever authSession
-				// holds NOW; fall back to the captured value (also covers guests
-				// whose credentials are sessionId-based).
-				const liveToken = getAuthToken() || undefined;
-				this.authToken = liveToken || this.authToken;
-
-				this.connect(this.username, this.authToken || undefined);
+					// Prefer a token refreshed while the timer waited. Guests still
+					// use the previously captured session credential.
+					const liveToken = getAuthToken() || undefined;
+					this.authToken = liveToken || this.authToken;
+					this.connect(this.username, this.authToken || undefined);
+				})();
 			}, delay)
 		);
 	}
@@ -776,6 +779,55 @@ export class SocketManager {
 			void drainOutboundQueue();
 			void callSocketInitialized(sock);
 		});
+		const refreshAccessibleChannels = () => {
+			const token = getAuthToken(server);
+			if (!token) return;
+			void fetch(`${server}/api/channels`, { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' })
+				.then(async response => {
+					if (!response.ok || !currentConnection()) return;
+					const data = await response.json();
+					if (!currentConnection()) return;
+					const previous = new Map(get(channels).map(channel => [channel.id, channel]));
+					const visible = normalizeChannelList(data.channels).filter(channel => channel.type !== 'group' || (realm && groupMembership.acceptsContent(channel.id)));
+					const allowed = new Set(visible.map(channel => channel.id));
+					for (const channel of previous.values()) {
+						if (channel.type === 'voice' && !allowed.has(channel.id)) {
+							void import('./calling').then(({ handleForcedVoiceLeave }) =>
+								currentConnection() ? handleForcedVoiceLeave(sock, channel.id) : undefined
+							).catch(error => console.warn('[Socket] Could not close revoked voice channel:', error));
+						}
+					}
+					channels.set(visible.map(channel => ({ ...previous.get(channel.id), ...channel })));
+					channelMessages.update(current => Object.fromEntries(Object.entries(current).filter(([id]) => allowed.has(id))));
+					_updatePinnedChannels();
+					const active = get(currentChannel);
+					if (!allowed.has(active)) {
+						const next = visible.find(channel => channel.type !== 'category')?.id ?? '';
+						currentChannel.set(next); persistLastChannel(next);
+						if (next) joinChannel(next);
+					} else if (active) joinChannel(active);
+				}).catch(() => {});
+		};
+		on('channel-access-policy-updated', () => { channelAccessPolicyVersion.update(version => version + 1); refreshAccessibleChannels(); });
+		on('channel-access-revoked', (payload: { channelId?: string }) => {
+			if (payload?.channelId) {
+				const revoked = payload.channelId;
+				const old = get(channels).find(channel => channel.id === revoked);
+				channels.update(current => current.filter(channel => channel.id !== revoked));
+				channelMessages.update(current => Object.fromEntries(Object.entries(current).filter(([id]) => id !== revoked)));
+				if (get(currentChannel) === revoked) {
+					const next = get(channels).find(channel => channel.type !== 'category')?.id ?? '';
+					currentChannel.set(next); persistLastChannel(next);
+					if (next) joinChannel(next);
+				}
+				if (old?.type === 'voice') {
+					void import('./calling').then(({ handleForcedVoiceLeave }) =>
+						currentConnection() ? handleForcedVoiceLeave(sock, revoked) : undefined
+					).catch(error => console.warn('[Socket] Could not close revoked voice channel:', error));
+				}
+			}
+			refreshAccessibleChannels();
+		});
 
 		const upsertChannel = (channel: Channel | undefined) => {
 			const normalized = normalizeChannel(channel);
@@ -1123,7 +1175,7 @@ export class SocketManager {
 
 		// Server-side custom emote list (upload/delete broadcast) -> picker store.
 		on('emojis-list', (serverEmotes: ServerEmote[]) => {
-			mergeServerEmotes(Array.isArray(serverEmotes) ? serverEmotes : []);
+			mergeServerEmotes(Array.isArray(serverEmotes) ? serverEmotes : [], server);
 		});
 
 		on('delete-emoji-success', (payload: { name?: string }) => {
@@ -1132,7 +1184,8 @@ export class SocketManager {
 
 		on('emoji-reaction-added', (payload: { channelId?: string; messageId?: string; userId?: number; emojiId?: string }) => {
 			if (!payload?.channelId || !payload.messageId || !payload.emojiId) return;
-			const userIdStr = String(payload.userId);
+			if (!Number.isSafeInteger(payload.userId) || (payload.userId ?? 0) <= 0) return;
+			const userIdStr = `user-${payload.userId}`;
 			channelMessages.update((state) => {
 				const messages = state[payload.channelId!];
 				if (!messages) return state;
@@ -1151,7 +1204,8 @@ export class SocketManager {
 
 		on('emoji-reaction-removed', (payload: { channelId?: string; messageId?: string; userId?: number; emojiId?: string }) => {
 			if (!payload?.channelId || !payload.messageId || !payload.emojiId) return;
-			const userIdStr = String(payload.userId);
+			if (!Number.isSafeInteger(payload.userId) || (payload.userId ?? 0) <= 0) return;
+			const userIdStr = `user-${payload.userId}`;
 			channelMessages.update((state) => {
 				const messages = state[payload.channelId!];
 				if (!messages) return state;
@@ -1214,6 +1268,9 @@ export class SocketManager {
 			upsertUser(serverMembers, user);
 			if (!isCurrentUserProfile(user, get(currentUser), sock.id)) return;
 			_mergeCurrentUserProfile({
+				username: user.username,
+				color: user.color,
+				statusMessage: user.statusMessage,
 				profilePicture: user.profilePicture,
 				bannerUrl: user.bannerUrl,
 				overlayUrl: user.overlayUrl,
@@ -1260,6 +1317,9 @@ export class SocketManager {
 			upsertUser(serverMembers, user);
 			if (!isCurrentUserProfile(user, get(currentUser), sock.id)) return;
 			_mergeCurrentUserProfile({
+				username: user.username,
+				color: user.color,
+				statusMessage: user.statusMessage,
 				profilePicture: user.profilePicture,
 				bannerUrl: user.bannerUrl,
 				overlayUrl: user.overlayUrl,

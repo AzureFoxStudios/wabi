@@ -1,0 +1,26 @@
+--- a/cmd/tailcat/tailcat.go
++++ b/cmd/tailcat/tailcat.go
+@@ -897,6 +897,18 @@
+ 			log.Fatalf("tailcat Ping: %v", err)
+ 		}
+ 		logf("got ping: %+v", pi)
++        go func() { for { logf("FIELD counters: %v", cl.FieldStats()); time.Sleep(time.Second) } }()
++        if os.Getenv("TAILCAT_FIELD_DISCOVERY") == "1" {
++            ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
++            defer cancel()
++            for ctx.Err() == nil {
++                result, err := cl.DiscoPing(ctx)
++                if err != nil { logf("FIELD discovery error: %v", err); break }
++                logf("FIELD same-client path: endpoint=%s derp=%s latency=%f", result.Endpoint, result.DERPRegionCode, result.LatencySeconds)
++                if result.Endpoint != "" { break }
++                time.Sleep(time.Second)
++            }
++        }
+ 	}
+ 
+ 	var clientsMu sync.Mutex
+--- /dev/null
++++ b/field_stats.go
+@@ -0,0 +1,2 @@
++package tailcat
++func (c *Client) FieldStats() map[string]int64 { return c.lb.sys.MagicSock.Get().FieldStats() }

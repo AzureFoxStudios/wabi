@@ -30,13 +30,18 @@ fn resolve_binary(app: &tauri::AppHandle) -> String {
             return trimmed;
         }
     }
+    // externalBin is installed beside the application, with .exe on Windows.
+    let filename = if cfg!(windows) { "tailcat.exe" } else { "tailcat" };
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(parent) = executable.parent() {
+            let bundled = parent.join(filename);
+            if bundled.is_file() { return bundled.to_string_lossy().into_owned(); }
+        }
+    }
     use tauri::Manager;
-    if let Ok(resource) = app
-        .path()
-        .resolve("binaries/tailcat", tauri::path::BaseDirectory::Resource)
-    {
-        if resource.is_file() {
-            return resource.to_string_lossy().into_owned();
+    if let Ok(resource) = app.path().resource_dir() {
+        for bundled in [resource.join(filename), resource.join("binaries").join(filename)] {
+            if bundled.is_file() { return bundled.to_string_lossy().into_owned(); }
         }
     }
     "tailcat".to_string()
@@ -47,6 +52,7 @@ pub struct TailcatState {
     socks_port: Mutex<Option<u16>>,
     proxy_port: Mutex<Option<u16>>,
     shutdown: Mutex<Option<tokio::sync::watch::Sender<bool>>>,
+    forwarder: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl Default for TailcatState {
@@ -56,6 +62,7 @@ impl Default for TailcatState {
             socks_port: Mutex::new(None),
             proxy_port: Mutex::new(None),
             shutdown: Mutex::new(None),
+            forwarder: Mutex::new(None),
         }
     }
 }
@@ -132,7 +139,15 @@ pub async fn tailcat_connect(
     let _ = tailcat_disconnect(state.clone()).await;
 
     let socks_port = free_port()?;
-    let proxy_port = free_port()?;
+    // Keep the forwarder's port reserved from selection through startup.
+    // A second local process must not be able to claim the URL we return.
+    let proxy_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| format!("could not bind the private tunnel forwarder: {e}"))?;
+    let proxy_port = proxy_listener
+        .local_addr()
+        .map_err(|e| format!("could not read the private tunnel port: {e}"))?
+        .port();
     let bin = resolve_binary(&app);
     let mut child = Command::new(&bin)
         .args([
@@ -155,9 +170,9 @@ pub async fn tailcat_connect(
 
     let (tx, rx) = tokio::sync::watch::channel(false);
     let target = format!("server.tailcat:{pipe_port}");
-    tokio::spawn(async move {
+    let forwarder = tokio::spawn(async move {
         if let Err(e) = crate::tailcat_proxy::run(
-            std::net::SocketAddr::from(([127, 0, 0, 1], proxy_port)),
+            proxy_listener,
             target,
             socks_port,
             rx,
@@ -172,6 +187,7 @@ pub async fn tailcat_connect(
     *state.socks_port.lock().map_err(|e| e.to_string())? = Some(socks_port);
     *state.proxy_port.lock().map_err(|e| e.to_string())? = Some(proxy_port);
     *state.shutdown.lock().map_err(|e| e.to_string())? = Some(tx);
+    *state.forwarder.lock().map_err(|e| e.to_string())? = Some(forwarder);
     Ok(TailcatConnectResult {
         socks_port,
         proxy_port,
@@ -186,6 +202,9 @@ pub async fn tailcat_disconnect(
     if let Some(tx) = state.shutdown.lock().map_err(|e| e.to_string())?.take() {
         let _ = tx.send(true);
     }
+    if let Some(forwarder) = state.forwarder.lock().map_err(|e| e.to_string())?.take() {
+        forwarder.abort();
+    }
     let mut guard = state.child.lock().map_err(|e| e.to_string())?;
     if let Some(mut child) = guard.take() {
         let _ = child.kill();
@@ -198,6 +217,9 @@ pub async fn tailcat_disconnect(
 
 #[tauri::command]
 pub fn tailcat_status(state: tauri::State<TailcatState>) -> TailcatTunnelStatus {
+    let forwarder_alive = state.forwarder.lock().ok()
+        .and_then(|task| task.as_ref().map(|task| !task.is_finished()))
+        .unwrap_or(false);
     let mut connected = false;
     if let Ok(mut guard) = state.child.lock() {
         match guard.as_mut() {
@@ -206,19 +228,30 @@ pub fn tailcat_status(state: tauri::State<TailcatState>) -> TailcatTunnelStatus 
                 match child.try_wait() {
                     Ok(Some(_)) => {
                         *guard = None;
-                        if let Ok(mut p) = state.socks_port.lock() {
-                            *p = None;
-                        }
-                        if let Ok(mut p) = state.proxy_port.lock() {
-                            *p = None;
-                        }
                     }
-                    Ok(None) => connected = true,
+                    Ok(None) if forwarder_alive => connected = true,
                     Err(_) => {}
+                    _ => {}
                 }
             }
             None => {}
         }
+        if !connected {
+            if let Some(mut child) = guard.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+    if !connected {
+        if let Ok(mut shutdown) = state.shutdown.lock() {
+            if let Some(tx) = shutdown.take() { let _ = tx.send(true); }
+        }
+        if let Ok(mut forwarder) = state.forwarder.lock() {
+            if let Some(task) = forwarder.take() { task.abort(); }
+        }
+        if let Ok(mut port) = state.socks_port.lock() { *port = None; }
+        if let Ok(mut port) = state.proxy_port.lock() { *port = None; }
     }
     TailcatTunnelStatus {
         connected,

@@ -126,6 +126,15 @@ pub trait RecordCodec: Serialize + DeserializeOwned {
 
 A few projections (channels, audit) use `serde_json` directly for JSON encoding.
 
+The `community_roster` projection is an additive JSON control record rather
+than a change to an existing postcard layout. The Authority imports a legacy
+`community_roster.json` only if the projection has no row; after import,
+WabiDB wins over a stale or damaged sidecar. Its handler rejects skipped or
+repeated versions, and the server reads the applied projection after each
+command. When moving another sidecar into WabiDB, test import, restart,
+stale-file precedence, and fenced receiver catch-up; document how an older
+binary handles the new event and old sidecar before claiming rollback works.
+
 Each projection module exports free functions:
 - `encode_record(r) -> Vec<u8>` — postcard serialization
 - `decode_record(buf) -> Result<T>` — postcard deserialization

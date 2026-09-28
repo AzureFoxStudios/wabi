@@ -14,7 +14,7 @@ use crate::crypto::bootstrap::BootstrapSource;
 use crate::engine::{WabiDbConfig, WabiDbEngine};
 use tempfile::tempdir;
 
-async fn setup_engine() -> WabiDbEngine {
+async fn setup_engine() -> (tempfile::TempDir, WabiDbEngine) {
     let dir = tempdir().unwrap();
     let config = WabiDbConfig {
         data_dir: dir.path().to_path_buf(),
@@ -23,16 +23,23 @@ async fn setup_engine() -> WabiDbEngine {
         allow_init: true,
         replication_config: None,
         sync_transport: None,
-            test_boot_wallclock_override: None,
+        test_boot_wallclock_override: None,
     };
-    // Leaks the tempdir so it lives for the test. Acceptable for integration tests.
-    std::mem::forget(dir);
-    WabiDbEngine::open(config).await.unwrap()
+    let engine = WabiDbEngine::open(config).await.unwrap();
+    (dir, engine)
+}
+
+fn room_precondition() -> Option<crate::sequencer::types::RoomOwnerPrecondition> {
+    Some(crate::sequencer::types::RoomOwnerPrecondition {
+        channel_id: "ch_test".into(),
+        owner_node_id: "node-1".into(),
+        expected_epoch: None,
+    })
 }
 
 #[tokio::test]
 async fn create_call_session_round_trip() {
-    let engine = setup_engine().await;
+    let (_dir, engine) = setup_engine().await;
 
     // Register a stream key so the call-session command doesn't fail with UnknownStreamKey.
     engine
@@ -56,6 +63,7 @@ async fn create_call_session_round_trip() {
     let payload = serde_json::to_vec(&session).unwrap();
     let (tx, _rx) = tokio::sync::oneshot::channel();
     let cmd = CommandCommit {
+        room_owner_precondition: room_precondition(),
         caller_user_id: 42,
         caller_device_id: "dev_test".into(),
         command_name: "call_session_create".into(),
@@ -106,7 +114,7 @@ async fn create_call_session_round_trip() {
 
 #[tokio::test]
 async fn end_call_session_updates_projection() {
-    let engine = setup_engine().await;
+    let (_dir, engine) = setup_engine().await;
 
     engine
         .register_stream_key("call_session:test-end", [0xCDu8; 32])
@@ -131,6 +139,7 @@ async fn end_call_session_updates_projection() {
     });
     let (tx, _rx) = tokio::sync::oneshot::channel();
     let create_cmd = CommandCommit {
+        room_owner_precondition: room_precondition(),
         caller_user_id: 1,
         caller_device_id: "dev_test".into(),
         command_name: "call_session_create".into(),
@@ -161,6 +170,7 @@ async fn end_call_session_updates_projection() {
     });
     let (tx, _rx) = tokio::sync::oneshot::channel();
     let end_cmd = CommandCommit {
+        room_owner_precondition: room_precondition(),
         caller_user_id: 1,
         caller_device_id: "dev_test".into(),
         command_name: "call_session_end".into(),
@@ -197,7 +207,20 @@ async fn end_call_session_updates_projection() {
 
 #[tokio::test]
 async fn call_signal_round_trip() {
-    let engine = setup_engine().await;
+    let (_dir, engine) = setup_engine().await;
+    crate::commands::call_session_create::create_call_session(
+        "test-sig".into(),
+        "ch_test".into(),
+        "audio-call".into(),
+        99,
+        10,
+        "webrtc".into(),
+        room_precondition().unwrap(),
+        &engine,
+        engine.sequencer().unwrap(),
+    )
+    .await
+    .unwrap();
 
     engine
         .register_stream_key("call_signal:test-sig", [0xEFu8; 32])
@@ -220,6 +243,7 @@ async fn call_signal_round_trip() {
 
     let (tx, _rx) = tokio::sync::oneshot::channel();
     let cmd = CommandCommit {
+        room_owner_precondition: room_precondition(),
         caller_user_id: 99,
         caller_device_id: "dev_test".into(),
         command_name: "call_signal_emit".into(),

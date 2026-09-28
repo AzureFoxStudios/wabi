@@ -42,14 +42,34 @@ describe('channelMessagesStore scoped invalidation (god-store fix)', () => {
 		unsub();
 	});
 
-	test('dropChannelMessagesStore releases the cached slice', async () => {
+	test('dropChannelMessagesStore remains compatible with fresh slices', async () => {
 		dropChannelMessagesStore('ch_tmp');
-		channelMessagesStore('ch_tmp'); // create + cache
+		channelMessagesStore('ch_tmp');
 		dropChannelMessagesStore('ch_tmp');
 		// Re-creating after drop must reflect the current map state.
 		_appendOptimisticMessage('ch_tmp', fakeMsg('t1'));
 		const fresh = channelMessagesStore('ch_tmp');
 		expect(get(fresh).length).toBeGreaterThanOrEqual(1);
+	});
+
+	test('switching channels releases each old global subscription', () => {
+		const originalSubscribe = channelMessages.subscribe;
+		let activeSlices = 0;
+		channelMessages.subscribe = (run, invalidate) => {
+			activeSlices++;
+			const unsubscribe = originalSubscribe(run, invalidate);
+			return () => { activeSlices--; unsubscribe(); };
+		};
+		try {
+			for (let index = 0; index < 30; index++) {
+				const unsubscribe = channelMessagesStore(`visited_${index}`).subscribe(() => {});
+				expect(activeSlices).toBe(1);
+				unsubscribe();
+				expect(activeSlices).toBe(0);
+			}
+		} finally {
+			channelMessages.subscribe = originalSubscribe;
+		}
 	});
 });
 

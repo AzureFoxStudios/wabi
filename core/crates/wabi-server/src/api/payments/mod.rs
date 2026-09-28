@@ -25,7 +25,8 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     // One-shot migration of the pre-Phase-1 `payments/intents.jsonl` file.
     {
         let state = state.clone();
-        tokio::spawn(async move {
+        let operations = state.instance_operations.clone();
+        operations.spawn(async move {
             intents::migrate_legacy_intents(&state).await;
         });
     }

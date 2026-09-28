@@ -191,6 +191,13 @@ fn is_uuid_generation_id(message_id: &str) -> bool {
 
 pub struct MessagesProjection;
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelMessagesCleared {
+    pub channel_id: String,
+    pub cleared_at_micros: i64,
+}
+
 /// A stable history boundary within one channel. Message IDs are UUIDs, so
 /// the timestamp and ID together provide a total order for cursor pages.
 pub enum MessagePageCursor<'a> {
@@ -285,7 +292,12 @@ impl Projection for MessagesProjection {
     }
 
     fn event_types(&self) -> Vec<&str> {
-        vec!["message_created", "message_edited", "message_deleted"]
+        vec![
+            "message_created",
+            "message_edited",
+            "message_deleted",
+            "channel_messages_cleared",
+        ]
     }
 
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
@@ -293,6 +305,7 @@ impl Projection for MessagesProjection {
             "message_created" => self.apply_created(event, state),
             "message_edited" => self.apply_edited(event, state),
             "message_deleted" => self.apply_deleted(event, state),
+            "channel_messages_cleared" => self.apply_channel_cleared(event, state),
             _ => Ok(()),
         };
         if result.is_ok() {
@@ -511,15 +524,24 @@ impl MessagesProjection {
     }
 
     /// Remove all soft-deleted records from the `messages` primary index and
-    /// from the `messages_by_channel` / `messages_by_author` secondary
-    /// indexes (otherwise deleted rows linger in the secondary indexes until a
-    /// full rebuild). Returns the total number of entries removed.
+    /// from the channel, author, time and ID lookup indexes. All historical
+    /// time-index versions are removed so an older live row cannot reappear.
+    /// Returns the total number of entries removed.
     pub fn compact(state: &ProjectionState) -> usize {
+        let deleted_ids = std::cell::RefCell::new(std::collections::HashSet::new());
         let primary = state.compact_index("messages", |_key, value| {
-            decode_record_lenient(value)
-                .ok()
-                .map_or(false, |r| r.is_deleted)
+            if let Ok(record) = decode_record_lenient(value) {
+                if record.is_deleted {
+                    deleted_ids.borrow_mut().insert(super::message_lookup::key(
+                        &record.channel_id,
+                        &record.message_id,
+                    ));
+                    return true;
+                }
+            }
+            false
         });
+        let deleted_ids = deleted_ids.into_inner();
         let by_channel = state.compact_index("messages_by_channel", |_key, value| {
             decode_record_lenient(value)
                 .ok()
@@ -530,7 +552,21 @@ impl MessagesProjection {
                 .ok()
                 .map_or(false, |r| r.is_deleted)
         });
-        primary + by_channel + by_author
+        // Time indexes contain multiple historical versions. Remove every
+        // version of a compacted ID so an older live version cannot reappear.
+        let by_time = state.compact_index("messages_by_channel_time", |_key, value| {
+            decode_record_lenient(value).is_ok_and(|record| {
+                deleted_ids.contains(&super::message_lookup::key(
+                    &record.channel_id,
+                    &record.message_id,
+                ))
+            })
+        });
+        let by_id = deleted_ids
+            .iter()
+            .filter(|key| state.remove(super::message_lookup::INDEX, key))
+            .count();
+        primary + by_channel + by_author + by_time + by_id
     }
 
     fn apply_created(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
@@ -545,6 +581,7 @@ impl MessagesProjection {
         let key = encode_key(&record.channel_id, &record.message_id);
         let value = encode_record(&record);
         state.insert("messages", key, value, event.commit_seq);
+        super::message_lookup::write(state, &record, event.commit_seq);
         Ok(())
     }
 
@@ -554,6 +591,7 @@ impl MessagesProjection {
         let key = encode_key(&update.channel_id, &update.message_id);
         let value = encode_record(&update);
         state.insert("messages", key, value, event.commit_seq);
+        super::message_lookup::write(state, &update, event.commit_seq);
         Ok(())
     }
 
@@ -562,6 +600,47 @@ impl MessagesProjection {
         let key = encode_key(&update.channel_id, &update.message_id);
         let value = encode_record(&update);
         state.insert("messages", key, value, event.commit_seq);
+        super::message_lookup::write(state, &update, event.commit_seq);
+        Ok(())
+    }
+
+    fn apply_channel_cleared(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
+        let clear: ChannelMessagesCleared = serde_json::from_slice(&event.payload).map_err(|e| {
+            crate::error::WabiError::Corrupt {
+                location: "channel_messages_cleared event".into(),
+                detail: e.to_string(),
+            }
+        })?;
+        if clear.channel_id.is_empty() || clear.channel_id != event.stream_id {
+            return Err(crate::error::WabiError::Corrupt {
+                location: "channel_messages_cleared event".into(),
+                detail: "channel does not match the event stream".into(),
+            });
+        }
+        let mut prefix = (clear.channel_id.len() as u64).to_le_bytes().to_vec();
+        prefix.extend_from_slice(clear.channel_id.as_bytes());
+        let mut records = Vec::new();
+        let mut decode_error = None;
+        state.prefix_scan("messages", &prefix, |_key, value| match decode_record(value) {
+            Ok(record) if !record.is_deleted => records.push(record),
+            Ok(_) => {}
+            Err(error) => decode_error = Some(error),
+        });
+        if let Some(error) = decode_error {
+            return Err(error);
+        }
+        for mut record in records {
+            record.is_deleted = true;
+            record.edited_at_micros = Some(clear.cleared_at_micros);
+            let deletion = DurableEvent {
+                commit_seq: event.commit_seq,
+                stream_id: event.stream_id.clone(),
+                event_type: "message_deleted".into(),
+                payload: encode_record(&record),
+            };
+            self.apply_deleted(&deletion, state)?;
+            apply_secondary_indexes(&deletion, state);
+        }
         Ok(())
     }
 }
@@ -1328,9 +1407,8 @@ mod tests {
         );
 
         let removed = MessagesProjection::compact(&state);
-        // Removed: 1 primary + 1 messages_by_channel + 1 messages_by_author for
-        // the deleted message (compaction now also purges secondary indexes).
-        assert_eq!(removed, 3);
+        // One primary, channel, author and ID entry, plus both time versions.
+        assert_eq!(removed, 6);
         // After compaction: only 2 entries remain.
         assert_eq!(
             MessagesProjection::list_messages(&state, "ch_01", true)

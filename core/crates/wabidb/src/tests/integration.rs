@@ -25,6 +25,24 @@ use tokio::sync::{mpsc, oneshot, Semaphore};
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+async fn configured_replication_refuses_missing_transport_before_creating_data() {
+    let dir = tempdir().unwrap();
+    let data_dir = dir.path().join("should-not-exist");
+    let mut config = WabiDbConfig::new(
+        data_dir.clone(),
+        crate::crypto::bootstrap::BootstrapSource::Provided([0xAB; 32]),
+    );
+    config.allow_init = true;
+    config.replication_config = Some(crate::replication::config::ReplicationConfig::new(
+        "http://127.0.0.1:47074",
+        100_000,
+        5_000_000,
+    ));
+    assert!(WabiDbEngine::open(config).await.is_err());
+    assert!(!data_dir.exists());
+}
+
+#[tokio::test]
 async fn engine_starts_and_serves_a_command() {
     let dir = tempdir().unwrap();
     let config = WabiDbConfig {
@@ -34,7 +52,7 @@ async fn engine_starts_and_serves_a_command() {
         allow_init: true,
         replication_config: None,
         sync_transport: None,
-            test_boot_wallclock_override: None,
+        test_boot_wallclock_override: None,
     };
 
     // Open the engine. This creates the lock file, manifest, and all subsystems.
@@ -95,6 +113,7 @@ async fn engine_starts_and_serves_a_command() {
     // Build a command to send through the engine's sequencer channel.
     let (cmd_tx, cmd_rx) = mpsc::channel::<CommandCommit>(16);
     let data_dir = dir.path().to_path_buf();
+    let sequencer_state = Arc::clone(&state);
 
     let sequencer_handle = tokio::spawn(async move {
         crate::sequencer::run(
@@ -105,6 +124,9 @@ async fn engine_starts_and_serves_a_command() {
             cmd_rx,
             data_dir,
             0,
+            Arc::new(tokio::sync::RwLock::new(false)),
+            sequencer_state,
+            "node-1".into(),
         )
         .await
     });
@@ -112,6 +134,7 @@ async fn engine_starts_and_serves_a_command() {
     // Send a command.
     let (response_tx, response_rx) = oneshot::channel();
     let cmd = CommandCommit {
+        room_owner_precondition: None,
         caller_user_id: 1,
         caller_device_id: "dev1".into(),
         command_name: "test_cmd".into(),
@@ -151,7 +174,7 @@ async fn two_engines_cannot_share_a_data_dir() {
         allow_init: true,
         replication_config: None,
         sync_transport: None,
-            test_boot_wallclock_override: None,
+        test_boot_wallclock_override: None,
     };
 
     // First engine opens successfully.
@@ -177,7 +200,7 @@ async fn two_engines_cannot_share_a_data_dir() {
         allow_init: true,
         replication_config: None,
         sync_transport: None,
-            test_boot_wallclock_override: None,
+        test_boot_wallclock_override: None,
     };
     let _engine2 = WabiDbEngine::open(config2).await.unwrap();
 }
@@ -229,12 +252,15 @@ async fn engine_rebuilds_projections_on_startup() {
     // Send a dispatch item through the dispatcher.
     dispatcher_handle
         .sender
-        .send(DispatchItem {
-            commit_seq: 1,
-            event_type: "rebuild_event".into(),
-            stream_id: "rebuild".into(),
-            payload: b"test payload".to_vec(),
-        }.into())
+        .send(
+            DispatchItem {
+                commit_seq: 1,
+                event_type: "rebuild_event".into(),
+                stream_id: "rebuild".into(),
+                payload: b"test payload".to_vec(),
+            }
+            .into(),
+        )
         .await
         .unwrap();
 

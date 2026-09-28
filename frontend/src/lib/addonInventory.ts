@@ -74,6 +74,7 @@ const frontendAddonModules = import.meta.glob([
 
 /** Bundled frontend allowlist IDs (must match loader.ts BUNDLED_ADDON_LOADERS). */
 const BUNDLED_FRONTEND_IDS = new Set([
+	'name-styles',
 	'youtube-sync',
 	'spotify-sync',
 	'steam',

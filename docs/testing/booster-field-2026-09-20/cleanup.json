@@ -1,0 +1,35 @@
+{
+  "Janya": {
+    "removedDirectories": [
+      "wabi-booster-field-hH05yM",
+      "wabi-booster-field-74Fq3s",
+      "wabi-booster-field-rBcHkw",
+      "wabi-booster-field-o8qu1w",
+      "wabi-booster-field-famO9e",
+      "wabi-booster-field-xpTPlE",
+      "wabi-booster-field-B3qZZP",
+      "wabi-booster-field-b7mEp0",
+      "wabi-booster-field-QzyWwV",
+      "wabi-booster-field-jY1o78"
+    ],
+    "ownedProcessesRemaining": []
+  },
+  "Tim": {
+    "removedDirectories": [
+      "wabi-booster-field-hH05yM",
+      "wabi-booster-field-74Fq3s"
+    ],
+    "ownedProcessesRemaining": [],
+    "portableBrowserRemoved": true,
+    "existingContainerUptimePreserved": true,
+    "existingLocalHealthStatus": 200
+  },
+  "iRonin": {
+    "removedDirectories": [],
+    "ownedProcessesRemaining": []
+  },
+  "Coordinator": {
+    "ownedTestAuthoritiesRemaining": []
+  },
+  "publicHealthStatus": 200
+}

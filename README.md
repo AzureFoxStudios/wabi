@@ -1,10 +1,10 @@
 # Wabi
 
-> **Self-hosted communication and collaborative workspaces for small communities.**
+> **A place to talk, create, and work together.**
 
-Wabi is a free and open-source app for friends, studios, classrooms, project groups, and small communities that want modern chat and collaboration without moving the community itself onto a central platform.
+Wabi is a free, open-source, self-hosted communication and collaboration workspace for small communities. Bring conversations, calls, shared ideas, and creative review together in one place — for friends, studios, classrooms, and project groups.
 
-It borrows useful ideas from Discord, TeamSpeak, LINE, project workspaces, and creative review tools, but the deployment model is deliberately simpler: **each Wabi community owns its own server and data**. A Wabi client can save and switch between multiple independent servers; those servers do **not** federate, share accounts, or silently synchronize state.
+**Each Wabi community owns its own server and data**. A Wabi client can save and switch between multiple independent servers; those servers do **not** federate, share accounts, or silently synchronize state.
 
 Wabi is under active development. See **[Project status](docs/PROJECT_STATUS.md)** for the current shipped/experimental boundary before relying on a feature in production.
 

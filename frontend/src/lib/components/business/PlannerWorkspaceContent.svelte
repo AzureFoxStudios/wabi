@@ -25,7 +25,7 @@
 	import InsightsView from '$lib/components/business/InsightsView.svelte';
 	import TaskPanel from '$lib/components/business/TaskPanel.svelte';
 
-	type ViewKey = 'calendar' | 'board' | 'journal' | 'projects' | 'insights';
+	type ViewKey = 'calendar' | 'board' | 'journal' | 'projects';
 	type Variant = 'full' | 'compact' | 'detached';
 	type TaskPanelFilter = 'all' | 'today' | 'overdue' | 'upcoming';
 	/** What a stat pill click should do. */
@@ -56,7 +56,7 @@
 			deepLinkView === 'projects' ||
 			deepLinkView === 'insights'
 		) {
-			activeView = deepLinkView;
+			activeView = deepLinkView === 'insights' ? 'projects' : deepLinkView;
 			sessionStorage.removeItem('plannerDeepLinkView');
 		} else if (browser) {
 			// Views are device-local by design — restore the last one used here.
@@ -68,7 +68,7 @@
 				saved === 'projects' ||
 				saved === 'insights'
 			) {
-				activeView = saved;
+				activeView = saved === 'insights' ? 'projects' : saved;
 			}
 		}
 		const savedWidth = browser ? Number(localStorage.getItem('plannerTaskPanelWidth')) : 0;
@@ -124,6 +124,8 @@
 			: 'Planner data is stored on this device only. Use Export / Import in the ⋯ menu to move it between devices.';
 
 	function setActiveView(view: ViewKey): void {
+		// A create request belongs to its current view, never to a later tab visit.
+		if (activeView !== view) addSignal = 0;
 		activeView = view;
 		newMenuOpen = false;
 		persistActiveView(view);
@@ -266,14 +268,7 @@
 				aria-selected={activeView === 'projects'}
 				on:click={() => setActiveView('projects')}>Projects</button
 			>
-			<button
-				type="button"
-				class="planner-tab"
-				class:active={activeView === 'insights'}
-				role="tab"
-				aria-selected={activeView === 'insights'}
-				on:click={() => setActiveView('insights')}>Insights</button
-			>
+
 		</div>
 
 		<div class="planner-spacer"></div>
@@ -466,10 +461,6 @@
 			{:else if activeView === 'projects'}
 				<div class="planner-view active view-projects">
 					<ProjectsView embedded addSignal={addSignal} />
-				</div>
-			{:else if activeView === 'insights'}
-				<div class="planner-view active view-insights">
-					<InsightsView />
 				</div>
 			{/if}
 		</div>

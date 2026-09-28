@@ -1,0 +1,12 @@
+{
+  "filename": "Wabi Host Test_0.1.0_amd64.AppImage",
+  "bytes": 243898872,
+  "sha256": "9cee8b52ab51ce423d8f01ce81de7fb5b1583239e436d5fb5235dca34ce5dd0e",
+  "source_snapshot": "8f93a080d4047bf801091a822a5210feca485d98d9922793bd5c666a79f91f82",
+  "identifier": "chat.wabi.hosttest",
+  "version": "0.1.0",
+  "architecture": "x86_64",
+  "profile": "release",
+  "media_framework_bundled": true,
+  "portable_package": true
+}

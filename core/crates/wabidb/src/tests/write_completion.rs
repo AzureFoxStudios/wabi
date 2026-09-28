@@ -29,6 +29,7 @@ fn config_at(path: &std::path::Path) -> WabiDbConfig {
 
 fn command(events: Vec<EventToWrite>) -> CommandCommit {
     CommandCommit {
+        room_owner_precondition: None,
         caller_user_id: 1,
         caller_device_id: "test".into(),
         command_name: "probe".into(),
@@ -47,6 +48,53 @@ fn write(stream: &str, payload: &[u8]) -> EventToWrite {
         record_kind: RecordKind::Event,
         plaintext: payload.to_vec(),
     }
+}
+
+#[tokio::test]
+async fn local_writer_fence_rejects_commits_and_survives_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = WabiDbEngine::open(config_at(dir.path())).await.unwrap();
+    engine.get_or_create_stream_key("fenced-room").await.unwrap();
+    let first = engine
+        .run_command(command(vec![write("fenced-room", b"before fence")]))
+        .await
+        .unwrap();
+
+    engine.fence_local_writer().await.unwrap();
+    assert!(engine.local_writer_fenced().await);
+    assert!(dir.path().join("writer-fenced-v1").exists());
+    assert!(matches!(
+        engine
+            .run_command(command(vec![write("fenced-room", b"after fence")]))
+            .await,
+        Err(WabiError::WriterFenced)
+    ));
+    assert_eq!(engine.barrier().current(), first.commit_seq);
+
+    drop(engine);
+    let reopened = WabiDbEngine::open(config_at(dir.path())).await.unwrap();
+    assert!(reopened.local_writer_fenced().await);
+    assert!(matches!(
+        reopened
+            .run_command(command(vec![write("fenced-room", b"after restart")]))
+            .await,
+        Err(WabiError::WriterFenced)
+    ));
+    assert_eq!(reopened.barrier().current(), first.commit_seq);
+}
+
+#[tokio::test]
+async fn controlled_move_pending_marker_rejects_direct_engine_writes() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("activation-pending-v1"), b"fixture archive hash\n").unwrap();
+    let engine = WabiDbEngine::open(config_at(dir.path())).await.unwrap();
+    assert!(engine.local_writer_fenced().await);
+    assert!(matches!(
+        engine
+            .run_command(command(vec![write("pending-room", b"must not commit")]))
+            .await,
+        Err(WabiError::WriterFenced)
+    ));
 }
 
 fn event(seq: u64, stream: &str, payload: &[u8]) -> DispatchItem {
@@ -258,6 +306,7 @@ async fn projection_failure_is_durable_but_never_successful_or_ready_on_restart(
     let engine = WabiDbEngine::open(config()).await.unwrap();
     engine.get_or_create_stream_key("bad").await.unwrap();
     let command = || CommandCommit {
+        room_owner_precondition: None,
         caller_user_id: 1,
         caller_device_id: "test".into(),
         command_name: "invalid-event".into(),

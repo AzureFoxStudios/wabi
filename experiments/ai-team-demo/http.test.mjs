@@ -1,0 +1,20 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { get } from 'node:http';
+import { startDemo } from './server.mjs';
+test('loopback API enforces origin/token and arbitrates two actual HTTP claims', async t => {
+  const demo = await startDemo({ port: 0 });
+  t.after(async () => { await new Promise(resolve => demo.server.close(resolve)); await rm(demo.directory, { recursive: true, force: true }); });
+  const { token } = await (await fetch(demo.url + '/api/state')).json();
+  const post = (action, actor, headers = {}) => fetch(demo.url + '/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Demo-Token': token, Origin: demo.url, ...headers }, body: JSON.stringify({ action, actor, expectedRevision: demo.engine.snapshot().revision, requestId: randomUUID() }) });
+  assert.equal((await post('reproduce', 'human', { Origin: 'https://unrelated.example' })).status, 403);
+  assert.equal((await post('reproduce', 'human', { 'X-Demo-Token': 'invalid' })).status, 403);
+  assert.equal((await post('reproduce', 'human')).status, 200);
+  const claims = await Promise.all([post('claim', 'worker-a'), post('claim', 'worker-b')]);
+  assert.deepEqual(claims.map(r => r.status).sort(), [200, 409]);
+  const foreignHostStatus = await new Promise((resolve, reject) => { get(demo.url + '/api/state', { headers: { Host: 'unrelated.example' } }, response => { response.resume(); resolve(response.statusCode); }).on('error', reject); });
+  assert.equal(foreignHostStatus, 403);
+  assert.equal((await fetch(demo.url + '/fixtures/after.mjs')).status, 404);
+});

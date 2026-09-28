@@ -16,9 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::RwLock;
 
-use crate::api::payments::{
-    is_admin_user, json_error, PaymentAccessPolicy, PaymentUserBlock,
-};
+use crate::api::payments::{is_admin_user, json_error, PaymentAccessPolicy, PaymentUserBlock};
 use crate::auth_extractor::{verify_stepup_token, AuthUser, STEPUP_HEADER};
 use crate::jobs::JobStatus;
 use crate::state::AppState;
@@ -50,16 +48,49 @@ impl Default for RuntimeTuningConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DeskPosterBlock {
+    pub id: String,
+    pub kind: String,
+    pub text: String,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    #[serde(default)] pub url: Option<String>,
+    #[serde(default)] pub role_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FrontendAppMetadataPolicy {
+    #[serde(default)]
+    pub revision: u64,
     #[serde(rename = "displayName")]
     pub display_name: Option<String>,
     #[serde(rename = "iconUrl")]
     pub icon_url: Option<String>,
     #[serde(rename = "bannerUrl")]
     pub banner_url: Option<String>,
+    #[serde(rename = "deskBackgroundUrl", default)]
+    pub desk_background_url: Option<String>,
+    #[serde(rename = "deskStillUrl", default)]
+    pub desk_still_url: Option<String>,
     #[serde(rename = "accentColor")]
     pub accent_color: Option<String>,
     pub description: Option<String>,
+    #[serde(rename = "deskWelcomeText", default)]
+    pub desk_welcome_text: Option<String>,
+    #[serde(rename = "deskHelpText", default)]
+    pub desk_help_text: Option<String>,
+    #[serde(rename = "deskHelpUrl", default)]
+    pub desk_help_url: Option<String>,
+    #[serde(rename = "deskHelpLabel", default)]
+    pub desk_help_label: Option<String>,
+    #[serde(rename = "deskPosterBlocks", default)]
+    pub desk_poster_blocks: Vec<DeskPosterBlock>,
+    #[serde(rename = "deskStartingRoomId", default)]
+    pub desk_starting_room_id: Option<String>,
+    #[serde(rename = "deskFocusedWelcome", default)]
+    pub desk_focused_welcome: bool,
     pub tagline: Option<String>,
     #[serde(rename = "launchPageFallbackEnabled")]
     pub launch_page_fallback_enabled: bool,
@@ -70,11 +101,21 @@ pub struct FrontendAppMetadataPolicy {
 impl Default for FrontendAppMetadataPolicy {
     fn default() -> Self {
         Self {
+            revision: 0,
             display_name: None,
             icon_url: None,
             banner_url: None,
+            desk_background_url: None,
+            desk_still_url: None,
             accent_color: None,
             description: None,
+            desk_welcome_text: None,
+            desk_help_text: None,
+            desk_help_url: None,
+            desk_help_label: None,
+            desk_poster_blocks: Vec::new(),
+            desk_starting_room_id: None,
+            desk_focused_welcome: false,
             tagline: None,
             launch_page_fallback_enabled: true,
             brand_profile: None,
@@ -95,7 +136,12 @@ pub struct AuthPolicy {
 
 impl Default for AuthPolicy {
     fn default() -> Self {
-        Self { mode: "open".into(), allow_guest: true, allow_register: true, email_verify_required: false }
+        Self {
+            mode: "open".into(),
+            allow_guest: true,
+            allow_register: true,
+            email_verify_required: false,
+        }
     }
 }
 
@@ -403,23 +449,23 @@ pub struct RuntimeGuardrailsSnapshot {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MemorySnapshot {
     #[serde(rename = "rssBytes")]
-    pub rss_bytes: u64,
+    pub rss_bytes: Option<u64>,
     #[serde(rename = "heapUsedBytes")]
-    pub heap_used_bytes: u64,
+    pub heap_used_bytes: Option<u64>,
     #[serde(rename = "heapTotalBytes")]
-    pub heap_total_bytes: u64,
+    pub heap_total_bytes: Option<u64>,
     #[serde(rename = "externalBytes")]
-    pub external_bytes: u64,
+    pub external_bytes: Option<u64>,
     #[serde(rename = "arrayBuffersBytes")]
-    pub array_buffers_bytes: u64,
+    pub array_buffers_bytes: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CpuSnapshot {
     #[serde(rename = "userMicros")]
-    pub user_micros: u64,
+    pub user_micros: Option<u64>,
     #[serde(rename = "systemMicros")]
-    pub system_micros: u64,
+    pub system_micros: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -506,6 +552,20 @@ pub struct StatusDistEntry {
 
 // ─── Policy Storage ─────────────────────────────────────────────────────────
 
+/// First-owner setup already holds the setup lock. Publish the chosen name
+/// through the existing policy file; malformed existing state is never reset.
+pub(crate) fn save_bootstrap_community_name(data_dir: &str, name: &str) -> anyhow::Result<()> {
+    let mut store = PolicyStore::load(PathBuf::from(data_dir).join("admin_policies.json"));
+    let mut metadata = store
+        .get("frontend_app_metadata")?
+        .unwrap_or_else(|| json!({}));
+    let fields = metadata
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("Invalid community metadata"))?;
+    fields.insert("displayName".into(), json!(name));
+    store.set("frontend_app_metadata".into(), metadata)
+}
+
 struct PolicyStore {
     path: PathBuf,
 }
@@ -534,7 +594,10 @@ impl PolicyStore {
         let mut next = self.read()?;
         next.insert(key, value);
         let bytes = serde_json::to_vec_pretty(&next)?;
-        let parent = self.path.parent().ok_or_else(|| anyhow::anyhow!("Policy path has no parent"))?;
+        let parent = self
+            .path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("Policy path has no parent"))?;
         #[cfg(unix)]
         let directory = std::fs::File::open(parent)?;
         let temporary = parent.join(format!(".admin-policies-{}.tmp", uuid::Uuid::new_v4()));
@@ -567,7 +630,10 @@ impl PolicyStore {
 
 fn policy_unavailable(error: &anyhow::Error) -> Response {
     tracing::error!(%error, "admin policy storage unavailable");
-    json_error(StatusCode::SERVICE_UNAVAILABLE, "Server settings could not be read or published. Check the server logs before retrying.")
+    json_error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Server settings could not be read or published. Check the server logs before retrying.",
+    )
 }
 
 #[cfg(test)]
@@ -580,12 +646,33 @@ mod policy_storage_tests {
         let path = directory.path().join("admin_policies.json");
         let mut first = PolicyStore::load(path.clone());
         let mut other = PolicyStore::load(path.clone());
-        first.set("payments_access".into(), json!({"enabled":false})).unwrap();
-        other.set("frontend_app_metadata".into(), json!({"displayName":"New identity"})).unwrap();
-        assert_eq!(first.get("frontend_app_metadata").unwrap(), Some(json!({"displayName":"New identity"})));
-        assert_eq!(other.get("payments_access").unwrap(), Some(json!({"enabled":false})));
-        assert_eq!(crate::api::public::load_frontend_metadata_policy(directory.path().to_str().unwrap())["displayName"], "New identity");
-        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1, "no temporary-file leftovers");
+        first
+            .set("payments_access".into(), json!({"enabled":false}))
+            .unwrap();
+        other
+            .set(
+                "frontend_app_metadata".into(),
+                json!({"displayName":"New identity"}),
+            )
+            .unwrap();
+        assert_eq!(
+            first.get("frontend_app_metadata").unwrap(),
+            Some(json!({"displayName":"New identity"}))
+        );
+        assert_eq!(
+            other.get("payments_access").unwrap(),
+            Some(json!({"enabled":false}))
+        );
+        assert_eq!(
+            crate::api::public::load_frontend_metadata_policy(directory.path().to_str().unwrap())
+                ["displayName"],
+            "New identity"
+        );
+        assert_eq!(
+            std::fs::read_dir(directory.path()).unwrap().count(),
+            1,
+            "no temporary-file leftovers"
+        );
     }
 
     #[test]
@@ -596,7 +683,12 @@ mod policy_storage_tests {
             std::fs::write(&path, bytes).unwrap();
             let mut store = PolicyStore::load(path.clone());
             assert!(store.get("frontend_app_metadata").is_err());
-            assert!(store.set("frontend_app_metadata".into(), json!({"displayName":"Lost"})).is_err());
+            assert!(store
+                .set(
+                    "frontend_app_metadata".into(),
+                    json!({"displayName":"Lost"})
+                )
+                .is_err());
             assert_eq!(std::fs::read(&path).unwrap(), bytes);
         }
     }
@@ -606,11 +698,24 @@ mod policy_storage_tests {
         let directory = tempfile::tempdir().unwrap();
         let parent = directory.path().join("not-created-yet");
         let mut store = PolicyStore::load(parent.join("admin_policies.json"));
-        assert!(store.set("frontend_app_metadata".into(), json!({"displayName":"Unpublished"})).is_err());
+        assert!(store
+            .set(
+                "frontend_app_metadata".into(),
+                json!({"displayName":"Unpublished"})
+            )
+            .is_err());
         assert_eq!(store.get("frontend_app_metadata").unwrap(), None);
         std::fs::create_dir(&parent).unwrap();
-        store.set("frontend_app_metadata".into(), json!({"displayName":"Published"})).unwrap();
-        assert_eq!(store.get("frontend_app_metadata").unwrap(), Some(json!({"displayName":"Published"})));
+        store
+            .set(
+                "frontend_app_metadata".into(),
+                json!({"displayName":"Published"}),
+            )
+            .unwrap();
+        assert_eq!(
+            store.get("frontend_app_metadata").unwrap(),
+            Some(json!({"displayName":"Published"}))
+        );
     }
 }
 
@@ -685,9 +790,16 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/policies/{key}", get(get_policy).post(save_policy))
         .route("/compression-config", get(get_compression_config))
         .route("/compression-metrics", get(get_compression_metrics))
-        .route("/compression-metrics/reset", post(reset_compression_metrics))
+        .route(
+            "/compression-metrics/reset",
+            post(reset_compression_metrics),
+        )
         .route("/runtime-guardrails", get(get_runtime_guardrails))
-        .route("/payments/blocks", get(list_payment_blocks).post(create_payment_block))
+        .route("/network-health", get(super::network_health::get))
+        .route(
+            "/payments/blocks",
+            get(list_payment_blocks).post(create_payment_block),
+        )
         .route("/payments/blocks/{user_id}", delete(clear_payment_block))
         .route("/stats", get(get_dashboard_stats))
         .route("/revoke/user", post(revoke_user))
@@ -715,7 +827,10 @@ async fn list_dead_lettered(
     if let Err(resp) = admin_auth(&headers, &state).await {
         return Err(resp);
     }
-    let jobs = state.job_queue.list_jobs(Some(JobStatus::DeadLettered)).await;
+    let jobs = state
+        .job_queue
+        .list_jobs(Some(JobStatus::DeadLettered))
+        .await;
     let out: Vec<serde_json::Value> = jobs
         .iter()
         .map(|j| {
@@ -835,21 +950,42 @@ async fn reset_user_password(
         return json_error(StatusCode::BAD_REQUEST, "A valid target user is required");
     }
     if req.target_user_id == actor_id {
-        return json_error(StatusCode::FORBIDDEN, "Use your account password settings to change your own password");
+        return json_error(
+            StatusCode::FORBIDDEN,
+            "Use your account password settings to change your own password",
+        );
     }
     if state.is_owner(req.target_user_id).await {
-        return json_error(StatusCode::FORBIDDEN, "The server owner's password cannot be reset here");
+        return json_error(
+            StatusCode::FORBIDDEN,
+            "The server owner's password cannot be reset here",
+        );
     }
-    match state.wdb.get_user_role("default-workspace", req.target_user_id as u64).await {
-        Ok(Some(role)) if role == "Owner" => return json_error(StatusCode::FORBIDDEN, "The server owner's password cannot be reset here"),
+    match state
+        .wdb
+        .get_user_role("default-workspace", req.target_user_id as u64)
+        .await
+    {
+        Ok(Some(role)) if role == "Owner" => {
+            return json_error(
+                StatusCode::FORBIDDEN,
+                "The server owner's password cannot be reset here",
+            )
+        }
         Err(error) => {
             tracing::error!("Cannot authorize password reset target: {error}");
-            return json_error(StatusCode::SERVICE_UNAVAILABLE, "Account permissions are unavailable; password was not changed");
+            return json_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Account permissions are unavailable; password was not changed",
+            );
         }
         _ => {}
     }
     if req.temporary == Some(true) {
-        return json_error(StatusCode::BAD_REQUEST, "Temporary passwords are not supported; use a permanent password reset");
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            "Temporary passwords are not supported; use a permanent password reset",
+        );
     }
     if req.new_password.len() < 6 {
         return json_error(
@@ -898,7 +1034,9 @@ async fn reset_user_password(
             &format!("update_user failed: {e}"),
         );
     }
-    state.revoke_user(req.target_user_id).await;
+    if state.revoke_user(req.target_user_id).await.is_err() {
+        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to durably revoke sessions");
+    }
     Json(json!({ "success": true })).into_response()
 }
 
@@ -982,12 +1120,17 @@ async fn get_policy(
         return resp;
     }
     if !is_valid_policy_key(&key) {
-        return json_error(StatusCode::NOT_FOUND, &format!("Unknown policy key: {}", key));
+        return json_error(
+            StatusCode::NOT_FOUND,
+            &format!("Unknown policy key: {}", key),
+        );
     }
     let defaults = policy_default(&key);
     if key == "payments_access" {
         return match crate::api::payments::load_access_policy(&state, true).await {
-            Ok(policy) => Json(json!({ "key": key, "config": policy, "defaults": defaults })).into_response(),
+            Ok(policy) => {
+                Json(json!({ "key": key, "config": policy, "defaults": defaults })).into_response()
+            }
             Err(error) => crate::api::payments::access_unavailable(&error),
         };
     }
@@ -1017,7 +1160,10 @@ async fn save_policy(
         return resp;
     }
     if !is_valid_policy_key(&key) {
-        return json_error(StatusCode::NOT_FOUND, &format!("Unknown policy key: {}", key));
+        return json_error(
+            StatusCode::NOT_FOUND,
+            &format!("Unknown policy key: {}", key),
+        );
     }
     if key == "payments_access" {
         let policy = match crate::api::payments::parse_access_policy(&input.config) {
@@ -1029,7 +1175,7 @@ async fn save_policy(
             Err(error) => crate::api::payments::access_unavailable(&error),
         };
     }
-    let merged: Value = {
+    let mut merged: Value = {
         let defaults = policy_default(&key);
         if let Some(obj) = input.config.as_object() {
             if obj.is_empty() {
@@ -1041,8 +1187,69 @@ async fn save_policy(
             defaults
         }
     };
+    if key == "frontend_app_metadata" {
+        let metadata = match serde_json::from_value::<FrontendAppMetadataPolicy>(merged.clone()) {
+            Ok(metadata) => metadata,
+            Err(_) => return json_error(StatusCode::BAD_REQUEST, "Invalid Reference Desk metadata"),
+        };
+        if let Some(room_id) = metadata.desk_starting_room_id.as_deref() {
+            match state.wdb.get_channel(room_id).await {
+                Ok(Some(room)) if matches!(room.channel_kind, wabidb::domain::ChannelKind::Text) => {}
+                _ => return json_error(StatusCode::BAD_REQUEST, "Choose an available text room as the starting room"),
+            }
+        }
+        if metadata.desk_poster_blocks.len() > 24 {
+            return json_error(StatusCode::BAD_REQUEST, "Use at most 24 poster blocks");
+        }
+        let mut ids = std::collections::HashSet::new();
+        for block in &metadata.desk_poster_blocks {
+            if block.id.is_empty() || block.id.len() > 80 || !ids.insert(block.id.as_str())
+                || block.text.trim().is_empty() || block.text.chars().count() > 240
+                || !block.x.is_finite() || !block.y.is_finite() || !block.width.is_finite()
+                || !(0.0..=100.0).contains(&block.x) || !(0.0..=100.0).contains(&block.y)
+                || !(10.0..=100.0).contains(&block.width) || block.x + block.width > 100.0 {
+                return json_error(StatusCode::BAD_REQUEST, "Poster block label or placement is invalid");
+            }
+            match block.kind.as_str() {
+                "text" => {}
+                "link" => {
+                    let uri = block.url.as_deref().and_then(|url| url.parse::<axum::http::Uri>().ok());
+                    if !uri.as_ref().is_some_and(|uri| matches!(uri.scheme_str(), Some("http" | "https")) && uri.host().is_some()) {
+                        return json_error(StatusCode::BAD_REQUEST, "Poster links must use full http or https URLs");
+                    }
+                }
+                "role" => {
+                    if !crate::api::server_center::community_role_exists(&state, block.role_id.as_deref().unwrap_or("")).await {
+                        return json_error(StatusCode::BAD_REQUEST, "Poster role no longer exists");
+                    }
+                }
+                _ => return json_error(StatusCode::BAD_REQUEST, "Unknown poster block type"),
+            }
+        }
+    }
+    if key == "auth_policy" {
+        let policy = match serde_json::from_value::<AuthPolicy>(merged.clone()) {
+            Ok(policy) => policy,
+            Err(_) => return json_error(StatusCode::BAD_REQUEST, "Invalid admission policy"),
+        };
+        if !matches!(policy.mode.as_str(), "open" | "invite" | "closed") || policy.email_verify_required {
+            return json_error(StatusCode::BAD_REQUEST, "Email verification is not implemented; choose open, invite, or closed admission");
+        }
+    }
     {
         let mut guard: tokio::sync::RwLockWriteGuard<'_, PolicyStore> = store.write().await;
+        if key == "frontend_app_metadata" {
+            let current = match guard.get(&key) {
+                Ok(value) => value.unwrap_or_else(|| policy_default(&key)),
+                Err(error) => return policy_unavailable(&error),
+            };
+            let current_revision = current.get("revision").and_then(Value::as_u64).unwrap_or(0);
+            let expected_revision = merged.get("revision").and_then(Value::as_u64).unwrap_or(0);
+            if current_revision != expected_revision {
+                return json_error(StatusCode::CONFLICT, "Server branding changed; refresh before publishing");
+            }
+            merged["revision"] = json!(current_revision.saturating_add(1));
+        }
         if let Err(error) = guard.set(key.clone(), merged.clone()) {
             return policy_unavailable(&error);
         }
@@ -1098,32 +1305,31 @@ async fn reset_compression_metrics(
 
 // ─── Runtime Guardrails Handler ─────────────────────────────────────────────
 
-fn read_proc_self_status() -> (u64, u64) {
+fn read_proc_self_status() -> (Option<u64>, Option<u64>, Option<u64>) {
     let rss = std::fs::read_to_string("/proc/self/status")
         .ok()
         .and_then(|content| {
-            content
-                .lines()
-                .find(|line| line.starts_with("VmRSS:"))
-                .and_then(|line| {
-                    line.split_whitespace()
-                        .nth(1)
-                        .and_then(|s| s.parse::<u64>().ok())
+            content.lines().find_map(|line| {
+                line.strip_prefix("VmRSS:").and_then(|v| {
+                    v.split_whitespace()
+                        .next()?
+                        .parse::<u64>()
+                        .ok()?
+                        .checked_mul(1024)
                 })
-        })
-        .unwrap_or(0);
-
+            })
+        });
     let cpu = std::fs::read_to_string("/proc/self/stat")
         .ok()
         .and_then(|content| {
-            let fields: Vec<&str> = content.split_whitespace().collect();
-            let utime: u64 = fields.get(13).and_then(|s| s.parse().ok()).unwrap_or(0);
-            let stime: u64 = fields.get(14).and_then(|s| s.parse().ok()).unwrap_or(0);
-            Some((utime + stime) * 10_000) // Approximate µs from clock ticks
-        })
-        .unwrap_or(0);
-
-    (rss * 1024, cpu) // VmRSS is in kB, convert to bytes
+            let fields: Vec<_> = content.rsplit_once(')')?.1.split_whitespace().collect();
+            let rate = super::network_health::tick_rate()?;
+            Some((
+                (fields.get(11)?.parse::<u64>().ok()? as f64 * 1_000_000.0 / rate) as u64,
+                (fields.get(12)?.parse::<u64>().ok()? as f64 * 1_000_000.0 / rate) as u64,
+            ))
+        });
+    (rss, cpu.map(|p| p.0), cpu.map(|p| p.1))
 }
 
 async fn get_runtime_guardrails(
@@ -1134,20 +1340,20 @@ async fn get_runtime_guardrails(
         return resp;
     }
     let uptime = state.started_at.elapsed().as_secs();
-    let (rss_bytes, cpu_micros) = read_proc_self_status();
+    let (rss_bytes, cpu_micros, system_micros) = read_proc_self_status();
 
     let guardrails = RuntimeGuardrailsSnapshot {
         uptime_seconds: uptime,
         memory: MemorySnapshot {
             rss_bytes,
-            heap_used_bytes: 0,
-            heap_total_bytes: 0,
-            external_bytes: 0,
-            array_buffers_bytes: 0,
+            heap_used_bytes: None,
+            heap_total_bytes: None,
+            external_bytes: None,
+            array_buffers_bytes: None,
         },
         cpu: CpuSnapshot {
             user_micros: cpu_micros,
-            system_micros: 0,
+            system_micros,
         },
         heavy_profiling: HeavyProfilingSnapshot {
             enabled: false,
@@ -1184,7 +1390,11 @@ async fn list_payment_blocks(
     if let Err(resp) = admin_auth(&headers, &state).await {
         return resp;
     }
-    let blocks = match state.wdb.list_payment_user_blocks("default-workspace").await {
+    let blocks = match state
+        .wdb
+        .list_payment_user_blocks("default-workspace")
+        .await
+    {
         Ok(blocks) => blocks,
         Err(e) => {
             return json_error(
@@ -1281,10 +1491,20 @@ mod dashboard_tests {
 
     #[test]
     fn process_memory_is_a_measurement_or_unknown_never_an_invented_zero() {
-        assert_eq!(parse_process_memory_bytes("Name:\twabi-server\nVmRSS:\t 12345 kB\n"), Some(12_641_280));
+        assert_eq!(
+            parse_process_memory_bytes("Name:\twabi-server\nVmRSS:\t 12345 kB\n"),
+            Some(12_641_280)
+        );
         assert_eq!(parse_process_memory_bytes("VmRSS: 0 kB"), Some(0));
-        for content in ["", "Name: wabi-server", "VmRSS: unknown kB", "VmRSS: 123 bytes", "VmRSS: 123",
-            "VmRSS: -1 kB", "VmRSS: 18446744073709551615 kB"] {
+        for content in [
+            "",
+            "Name: wabi-server",
+            "VmRSS: unknown kB",
+            "VmRSS: 123 bytes",
+            "VmRSS: 123",
+            "VmRSS: -1 kB",
+            "VmRSS: 18446744073709551615 kB",
+        ] {
             assert_eq!(parse_process_memory_bytes(content), None, "{content}");
         }
     }
@@ -1292,10 +1512,13 @@ mod dashboard_tests {
     #[test]
     fn legacy_zero_actor_and_unrecognized_role_do_not_invent_identity_or_expose_payloads() {
         let entry = wabidb::projections::audit::AuditEntry {
-            commit_seq: u64::MAX, event_type: "role_assigned".into(), stream_id: "PRIVATE-STREAM".into(),
+            commit_seq: u64::MAX,
+            event_type: "role_assigned".into(),
+            stream_id: "PRIVATE-STREAM".into(),
             payload: serde_json::json!({"assigned_by":0,"user_id":7,"role":"SECRET-CANARY"}),
         };
-        let users = std::collections::HashMap::from([(0, "do not guess this actor"), (7, "target")]);
+        let users =
+            std::collections::HashMap::from([(0, "do not guess this actor"), (7, "target")]);
         let row = dashboard_audit_entry(entry, &users, &Default::default());
         assert_eq!(row["id"], u64::MAX.to_string());
         assert!(row["performedBy"].is_null());
@@ -1335,16 +1558,28 @@ fn dashboard_audit_entry(
     public_channels: &HashMap<&str, &str>,
 ) -> Value {
     let user_name = |key: &str| {
-        entry.payload.get(key).and_then(Value::as_u64)
+        entry
+            .payload
+            .get(key)
+            .and_then(Value::as_u64)
             // Legacy ingest used zero when no actor/target ID was recorded.
             .filter(|id| *id > 0)
             .and_then(|id| users.get(&id).copied())
     };
-    let role = match entry.payload.get("role").and_then(Value::as_str)
-        .unwrap_or("").to_ascii_lowercase().as_str()
+    let role = match entry
+        .payload
+        .get("role")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
     {
-        "owner" => "Owner", "admin" => "Admin", "mod" | "moderator" => "Moderator",
-        "member" => "Member", "guest" => "Guest", _ => "server",
+        "owner" => "Owner",
+        "admin" => "Admin",
+        "mod" | "moderator" => "Moderator",
+        "member" => "Member",
+        "guest" => "Guest",
+        _ => "server",
     };
     let details = match entry.event_type.as_str() {
         "role_assigned" => format!("Assigned {role} role"),
@@ -1352,7 +1587,10 @@ fn dashboard_audit_entry(
         "channel_settings_updated" => "Updated channel settings".into(),
         _ => "Recorded an administration change".into(),
     };
-    let channel = entry.payload.get("channel_id").and_then(Value::as_str)
+    let channel = entry
+        .payload
+        .get("channel_id")
+        .and_then(Value::as_str)
         .and_then(|id| public_channels.get(id).copied());
     json!({
         "id": entry.commit_seq.to_string(),
@@ -1380,7 +1618,10 @@ async fn get_dashboard_stats(
         Ok(users) => users,
         Err(error) => {
             tracing::error!(%error, "admin dashboard user query failed");
-            return json_error(StatusCode::SERVICE_UNAVAILABLE, "Server overview is temporarily unavailable");
+            return json_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Server overview is temporarily unavailable",
+            );
         }
     };
     let total_users = users.len() as u64;
@@ -1398,8 +1639,7 @@ async fn get_dashboard_stats(
         .count() as u64;
 
     // Role distribution via the existing role resolver.
-    let mut role_counts: std::collections::HashMap<String, u64> =
-        std::collections::HashMap::new();
+    let mut role_counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
     for u in &users {
         // Match the effective role shown in the Socket.IO roster. A configured
         // admin is still an admin without an RBAC event; guests are not Members.
@@ -1426,17 +1666,19 @@ async fn get_dashboard_stats(
         Ok(channels) => channels,
         Err(error) => {
             tracing::error!(%error, "admin dashboard channel query failed");
-            return json_error(StatusCode::SERVICE_UNAVAILABLE, "Server overview is temporarily unavailable");
+            return json_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Server overview is temporarily unavailable",
+            );
         }
     };
     let total_channels = channels.len() as u64;
     let mut kind_counts: serde_json::Map<String, Value> = serde_json::Map::new();
     for c in &channels {
         let kind = format!("{:?}", c.channel_kind).to_lowercase();
-        *kind_counts
-            .entry(kind)
-            .or_insert(Value::from(0u64)) = Value::from(
-            kind_counts.get(&format!("{:?}", c.channel_kind).to_lowercase())
+        *kind_counts.entry(kind).or_insert(Value::from(0u64)) = Value::from(
+            kind_counts
+                .get(&format!("{:?}", c.channel_kind).to_lowercase())
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0)
                 + 1,
@@ -1454,22 +1696,40 @@ async fn get_dashboard_stats(
         Ok(entries) => entries,
         Err(error) => {
             tracing::error!(%error, "admin dashboard activity query failed");
-            return json_error(StatusCode::SERVICE_UNAVAILABLE, "Server overview is temporarily unavailable");
+            return json_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Server overview is temporarily unavailable",
+            );
         }
     };
-    let user_names = users.iter().map(|user| (user.user_id, user.username.as_str())).collect();
-    let public_channels = channels.iter()
-        .filter(|channel| !matches!(channel.channel_kind,
-            wabidb::domain::ChannelKind::Dm | wabidb::domain::ChannelKind::GroupDm))
-        .map(|channel| (channel.channel_id.as_str(), channel.name.as_str())).collect();
-    let recent_audit = audit.into_iter()
-        .map(|entry| dashboard_audit_entry(entry, &user_names, &public_channels)).collect();
+    let user_names = users
+        .iter()
+        .map(|user| (user.user_id, user.username.as_str()))
+        .collect();
+    let public_channels = channels
+        .iter()
+        .filter(|channel| {
+            !matches!(
+                channel.channel_kind,
+                wabidb::domain::ChannelKind::Dm | wabidb::domain::ChannelKind::GroupDm
+            )
+        })
+        .map(|channel| (channel.channel_id.as_str(), channel.name.as_str()))
+        .collect();
+    let recent_audit = audit
+        .into_iter()
+        .map(|entry| dashboard_audit_entry(entry, &user_names, &public_channels))
+        .collect();
 
+    let banned_users = match state.get_blacklist().await {
+        Some(blacklist) => blacklist.active_user_ban_ids().await.len() as u64,
+        None => return json_error(StatusCode::SERVICE_UNAVAILABLE, "Ban enforcement unavailable"),
+    };
     let stats = DashboardStatsResponse {
         overview: StatsOverview {
             total_users,
             online_users,
-            banned_users: total_users.saturating_sub(active_users),
+            banned_users,
             muted_users: 0, // unavailable legacy slot, not a measured zero
             total_channels,
             total_roles: role_distribution.len() as u64,
@@ -1493,7 +1753,10 @@ async fn get_dashboard_stats(
                 "openReports", "topUsers"],
         })),
         role_distribution,
-        status_distribution: vec![StatusDistEntry { status: "online".into(), count: online_users }],
+        status_distribution: vec![StatusDistEntry {
+            status: "online".into(),
+            count: online_users,
+        }],
         recent_audit,
         top_users: Vec::new(),
     };
@@ -1530,7 +1793,9 @@ async fn revoke_user(
     if state.is_owner(input.user_id).await {
         return json_error(StatusCode::FORBIDDEN, "Cannot revoke the server owner");
     }
-    state.revoke_user(input.user_id).await;
+    if state.revoke_user(input.user_id).await.is_err() {
+        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to durably revoke sessions");
+    }
     Json(json!({ "success": true, "userId": input.user_id })).into_response()
 }
 
@@ -1543,7 +1808,9 @@ async fn revoke_all(
     if let Err(resp) = admin_auth_stepup(&headers, &state).await {
         return resp;
     }
-    state.revoke_all_tokens().await;
+    if state.revoke_all_tokens().await.is_err() {
+        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to durably revoke sessions");
+    }
     Json(json!({ "success": true })).into_response()
 }
 
@@ -1556,9 +1823,11 @@ async fn revoke_token(
     if let Err(resp) = admin_auth(&headers, &state).await {
         return resp;
     }
-    state
+    if state
         .revoke_token_with_exp(input.jti.clone(), input.exp.unwrap_or(i64::MAX))
-        .await;
+        .await.is_err() {
+        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to durably revoke sessions");
+    }
     Json(json!({ "success": true, "jti": input.jti })).into_response()
 }
 
@@ -1581,7 +1850,10 @@ async fn transfer_ownership(
         Err(resp) => return resp,
     };
     if !state.is_owner(caller).await {
-        return json_error(StatusCode::FORBIDDEN, "Only the owner can transfer ownership");
+        return json_error(
+            StatusCode::FORBIDDEN,
+            "Only the owner can transfer ownership",
+        );
     }
     // Target must be a real user.
     let exists = match state.wdb.get_user(input.user_id as u64).await {
@@ -1595,15 +1867,13 @@ async fn transfer_ownership(
         return json_error(StatusCode::BAD_REQUEST, "Already the owner");
     }
     // Revoke the old owner's sessions so a compromised owner can't interfere.
-    state.revoke_user(caller).await;
-    {
-        *state.owner_user_id.write().await = Some(input.user_id);
+    if state.revoke_user(caller).await.is_err() {
+        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to durably revoke sessions");
     }
-    if let Err(e) = state.wdb.claim_owner(input.user_id as u64).await {
-        return json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to persist owner: {e}"),
-        );
+    match state.set_owner_durably(input.user_id, Some(caller)).await {
+        Ok(true) => {},
+        Ok(false) => return json_error(StatusCode::FORBIDDEN, "Ownership changed during transfer"),
+        Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to save owner"),
     }
     Json(json!({ "success": true, "owner_user_id": input.user_id })).into_response()
 }
@@ -1619,9 +1889,15 @@ async fn recovery_codes(
         Err(resp) => return resp,
     };
     if !state.is_owner(caller).await {
-        return json_error(StatusCode::FORBIDDEN, "Only the owner can manage recovery codes");
+        return json_error(
+            StatusCode::FORBIDDEN,
+            "Only the owner can manage recovery codes",
+        );
     }
-    let codes = state.generate_recovery_codes(caller, 5).await;
+    let codes = match state.generate_recovery_codes(caller, 5).await {
+        Ok(codes) => codes,
+        Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to save recovery codes"),
+    };
     Json(json!({ "success": true, "codes": codes, "warning": "Store these safely; they are shown only once." }))
         .into_response()
 }
@@ -1632,11 +1908,23 @@ async fn revoke_upload(
     headers: axum::http::HeaderMap,
     Json(req): Json<RevokeUploadRequest>,
 ) -> Response {
-    if let Err(resp) = admin_auth(&headers, &state).await {
-        return resp;
-    }
-    let newly_revoked = state.upload_registry.revoke(&req.filename).await;
-    Json(json!({ "success": true, "revoked": newly_revoked, "filename": req.filename })).into_response()
+    let caller = match admin_auth(&headers, &state).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    let newly_revoked = match state
+        .upload_registry
+        .revoke_canonical(&req.filename, state.wdb.engine(), u64::try_from(caller).unwrap_or(0))
+        .await
+    {
+        Ok(revoked) => revoked,
+        Err(error) => {
+            tracing::error!(%error, "failed to persist upload revocation");
+            return json_error(StatusCode::SERVICE_UNAVAILABLE, "Upload revocation could not be saved");
+        }
+    };
+    Json(json!({ "success": true, "revoked": newly_revoked, "filename": req.filename }))
+        .into_response()
 }
 
 /// List uploaded files (WS-6b). Optionally filter by channel.

@@ -85,7 +85,9 @@
 		closeModal();
 		// Use a timeout to ensure the modal closes before scrolling
 		setTimeout(() => {
-			const messageElement = document.getElementById(`message-${messageId}`);
+			const messageElement = document.getElementById(`message-${messageId}`)
+				|| Array.from(document.querySelectorAll<HTMLElement>('[data-message-id]'))
+					.find((element) => element.dataset.messageId === messageId);
 			if (messageElement) {
 				messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
 				messageElement.classList.add('highlighted');

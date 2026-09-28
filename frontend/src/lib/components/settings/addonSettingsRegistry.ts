@@ -220,6 +220,11 @@ export const LOCAL_ADDON_CONTROL_META: Record<string, LocalAddonControlMeta> = {
 		section: 'appearance',
 		terms: ['theme', 'light mode', 'dark mode', 'schedule']
 	},
+	name_styles: {
+		label: 'Name Styles',
+		section: 'appearance',
+		terms: ['name', 'nametag', 'username', 'gradient', 'profile', 'plain']
+	},
 	unicode_emojis: {
 		label: 'UnicodeEmojis',
 		section: 'chat',

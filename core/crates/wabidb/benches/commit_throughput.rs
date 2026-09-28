@@ -43,6 +43,7 @@ fn bench_run_command(c: &mut Criterion, payload_size: usize) {
             b.iter(|| {
                 let (tx, _rx) = oneshot::channel();
                 let cmd = CommandCommit {
+                    room_owner_precondition: None,
                     caller_user_id: 0,
                     caller_device_id: "bench".into(),
                     command_name: "bench".into(),

@@ -123,22 +123,21 @@ async fn reset_owner(
     }
     // Revoke the old owner's sessions so a compromised owner can't immediately
     // re-assert control.
-    if let Some(old) = *state.owner_user_id.read().await {
+    let old_owner = *state.owner_user_id.read().await;
+    if let Some(old) = old_owner {
         if old != input.user_id {
-            state.revoke_user(old).await;
+            if state.revoke_user(old).await.is_err() {
+                return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to durably revoke sessions");
+            }
         }
     }
     // Persist the new owner.
-    {
-        *state.owner_user_id.write().await = Some(input.user_id);
+    if state.set_owner_durably(input.user_id, None).await.is_err() {
+        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to save owner");
     }
-    if let Err(e) = state.wdb.claim_owner(input.user_id as u64).await {
-        return json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to persist owner: {e}"),
-        );
+    if state.revoke_all_tokens().await.is_err() {
+        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to durably revoke sessions");
     }
-    state.revoke_all_tokens().await;
     Json(json!({ "success": true, "owner_user_id": input.user_id })).into_response()
 }
 
@@ -151,7 +150,9 @@ async fn revoke_all(
     if let Err(resp) = operator_auth(&headers, connect_info) {
         return resp;
     }
-    state.revoke_all_tokens().await;
+    if state.revoke_all_tokens().await.is_err() {
+        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to durably revoke sessions");
+    }
     Json(json!({ "success": true })).into_response()
 }
 

@@ -49,6 +49,17 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
     }
 
     let channel_kind: Option<String> = state.app.wdb.get_channel_kind(&channel_id).await;
+    if !matches!(channel_kind.as_deref(), Some("dm" | "group")) && !state.app.is_owner(user_id_num).await {
+        match crate::api::server_center::rules_required_for_post(&state.app.config.data_dir, user_id_num) {
+            Ok(true) => { fail("rules_ack_required", "rejected", "Read and acknowledge this server's current rules before posting."); return; }
+            Ok(false) => {}
+            Err(error) => {
+                warn!("[rules] could not read rules policy: {error}");
+                fail("rules_unavailable", "rejected", "Server rules could not be checked.");
+                return;
+            }
+        }
+    }
     let allowed = match channel_kind.as_deref() {
         Some("dm") => can_access_dm(&state, user_id_num, &channel_id).await,
         _ => can_access_channel(&state, user_id_num, &channel_id).await,
@@ -59,6 +70,14 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
         return;
     }
 
+    let Some(blacklist) = state.app.get_blacklist().await else {
+        fail("authorization_unavailable", "rejected", "Channel restrictions could not be checked.");
+        return;
+    };
+    if blacklist.is_channel_timed_out(&channel_id, user_id_num).await.is_some() {
+        fail("timed_out", "rejected", "You are timed out in this channel.");
+        return;
+    }
     match state.app.wdb.is_user_muted(&channel_id, user_id_num as u64).await {
         Ok(true) => { fail("muted", "rejected", "You are muted in this channel."); return; }
         Ok(false) => {}
@@ -72,6 +91,11 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
     // Encryption transitions and durable message writes share one ordering
     // boundary, including the new-room pending state and explicit fallback.
     let retention_guard = state.app.retention_policy_lock.lock().await;
+    if let Err(error) = state.app.wdb.require_local_room_owner(&channel_id, "send_message") {
+        warn!("[sio] local room write refused: {error}");
+        fail("room_not_local", "rejected", "This room is assigned to another node and cannot accept a write here.");
+        return;
+    }
     // Privacy boundary first. Once a private room is E2EE, plaintext is never
     // accepted as that room's message body. Membership/device changes fail
     // closed until a participant rotates the room key.
@@ -86,15 +110,24 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
         }
     };
 
+    let mut safety_flag = None;
     if !e2ee && !state.app.is_owner(user_id_num).await {
         let is_private_conversation = matches!(channel_kind.as_deref(), Some("dm" | "group"));
-        if let Some(rule) = crate::api::server_center::evaluate_safety_rules(
+        let safety_rule = match crate::api::server_center::evaluate_safety_rules(
             &state.app.config.data_dir, &text, is_private_conversation,
         ) {
+            Ok(rule) => rule,
+            Err(error) => {
+                warn!("[safety] policy unreadable; refused message: {error}");
+                fail("safety_unavailable", "rejected", "Server safety policy could not be checked.");
+                return;
+            }
+        };
+        if let Some(rule) = safety_rule {
             let reason = rule.reason.clone().unwrap_or_else(|| format!("Safety rule: {}", rule.name));
-            match rule.action {
+            match &rule.action {
                 crate::api::server_center::SafetyAction::Flag => {
-                    warn!("[safety] flag rule '{}' matched user {} in {}", rule.name, user_id_num, channel_id);
+                    safety_flag = Some(rule.clone());
                 }
                 crate::api::server_center::SafetyAction::Delete => {
                     fail("safety_rule", "rejected", &format!("Message blocked by server safety rule: {}", rule.name));
@@ -103,9 +136,8 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
                 crate::api::server_center::SafetyAction::Warn => { fail("safety_warning", "rejected", &reason); return; }
                 crate::api::server_center::SafetyAction::Timeout => {
                     let minutes = rule.timeout_minutes.unwrap_or(10).max(1) as i64;
-                    let actor = state.app.owner_user_id.read().await.unwrap_or(user_id_num);
-                    let until_micros = chrono::Utc::now().timestamp_micros().saturating_add(minutes.saturating_mul(60_000_000));
-                    match state.app.wdb.mute_user(&channel_id, actor as u64, user_id_num as u64, until_micros).await {
+                    let expires_at = (chrono::Utc::now().timestamp() as u64).saturating_add((minutes as u64).saturating_mul(60));
+                    match blacklist.restrict_channel(&channel_id, user_id_num, &reason, Some(expires_at)).await {
                         Ok(()) => fail("safety_timeout", "rejected", &format!("Timed out for {minutes} minute(s): {reason}")),
                         Err(error) => {
                             warn!("[safety] timeout rule '{}' failed to mute user {}: {}", rule.name, user_id_num, error);
@@ -115,9 +147,8 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
                     return;
                 }
                 crate::api::server_center::SafetyAction::Ban => {
-                    let actor = state.app.owner_user_id.read().await.unwrap_or(user_id_num);
-                    match state.app.wdb.ban_user(&channel_id, actor as u64, user_id_num as u64, &reason).await {
-                        Ok(()) => fail("safety_ban", "rejected", &format!("Banned from this channel: {reason}")),
+                    match blacklist.restrict_channel(&channel_id, user_id_num, &reason, None).await {
+                        Ok(()) => { evict_channel_user(&io, &channel_id, user_id_num); fail("safety_ban", "rejected", &format!("Banned from this channel: {reason}")); },
                         Err(error) => {
                             warn!("[safety] ban rule '{}' failed to ban user {}: {}", rule.name, user_id_num, error);
                             fail("safety_rule_failed", "rejected", "A server safety rule matched, but its action could not be completed.");
@@ -167,6 +198,11 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
     } else {
         match state.app.wdb.send_message(&channel_id, user_id_num as u64, &text, is_spoiler, &files).await {
             Ok(wdb_id) => message_id = wdb_id,
+            Err(wabidb::error::WabiError::Validation { command, .. })
+                if command == "room_owner_precondition" => {
+                    fail("room_not_local", "rejected", "This room changed owners before the message could be saved. Reconnect and try again.");
+                    return;
+                }
             Err(e) => {
                 warn!("Failed to persist message to WDB: {}", e);
                 fail("persistence_unconfirmed", "unknown", "Delivery could not be confirmed. Check history before sending again.");
@@ -216,6 +252,14 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
         msgs.push(message_view.clone());
     }
     drop(retention_guard);
+
+    if let Some(rule) = safety_flag {
+        if let Err(error) = crate::api::server_center::record_safety_flag(&state.app, &channel_id, &message_id, user_id_num, &username, &rule).await {
+            warn!("[safety] message {} saved but flag case could not be recorded: {}", message_id, error);
+            fail("safety_flag_unconfirmed", "unknown", &format!("Message {message_id} may be saved, but its safety flag could not be recorded. Check history before retrying."));
+            return;
+        }
+    }
 
     let _ = socket.emit("message-accepted", &json!({
         "channelId": channel_id, "messageId": message_id, "clientMessageId": client_message_id, "timestamp": timestamp,
@@ -339,6 +383,11 @@ async fn on_delete_message(socket: SocketRef, cmd: Value, state: SioState, io: S
     let channel_id = match cmd.get("channelId").and_then(|v| v.as_str()) { Some(id) => id.to_string(), None => return };
     let message_id = match cmd.get("messageId").and_then(|v| v.as_str()) { Some(id) => id.to_string(), None => return };
     let Some(identity) = require_socket_channel(&socket, &state, &channel_id, "delete-error").await else { return; };
+    if let Err(error) = state.app.wdb.require_local_room_owner(&channel_id, "delete_message") {
+        warn!("[sio] local room delete refused: {error}");
+        let _ = socket.emit("delete-error", &json!({"messageId": message_id, "code": "room_not_local", "error": "This room cannot be changed through this node."}));
+        return;
+    }
     if !message_in_channel(&state, &channel_id, &message_id).await {
         let _ = socket.emit("delete-error", &json!({"messageId": message_id, "error": "Message not found in channel"}));
         return;
@@ -371,23 +420,24 @@ async fn on_delete_message(socket: SocketRef, cmd: Value, state: SioState, io: S
         }
         if !allowed { let _ = socket.emit("delete-error", &json!({"messageId": message_id, "error": "Not allowed to delete this message"})); return; }
     }
-    let mut found_in_session = false;
+    // Live messages are session-only and use the reserved live_ ID prefix.
+    // Durable messages must commit their tombstone before any visible removal
+    // or success event, even when an in-memory copy is also present.
+    if !message_id.starts_with("live_") {
+        if let Err(error) = state.app.wdb.delete_message(&message_id, user_id as u64).await {
+            warn!("Failed to confirm deletion of message {}: {}", message_id, error);
+            let _ = socket.emit("delete-error", &json!({
+                "messageId": message_id,
+                "code": "persistence_unconfirmed",
+                "error": "Deletion could not be confirmed. Check history before retrying."
+            }));
+            return;
+        }
+    }
     {
         let mut session = state.app.session_messages.write().await;
         if let Some(msgs) = session.get_mut(&channel_id) {
-            let before = msgs.len();
             msgs.retain(|m| m.get("id").and_then(|v| v.as_str()) != Some(message_id.as_str()));
-            found_in_session = msgs.len() < before;
-        }
-    }
-    match state.app.wdb.delete_message(&message_id, user_id as u64).await {
-        Ok(()) => {}
-        Err(e) => {
-            if !found_in_session {
-                warn!("Failed to delete message {} (not in session either): {}", message_id, e);
-                let _ = socket.emit("delete-error", &json!({"messageId": message_id, "error": "Message not found"}));
-                return;
-            }
         }
     }
     let payload = json!({"channelId": channel_id, "messageId": message_id});
@@ -409,8 +459,19 @@ async fn on_clear_channel_messages(socket: SocketRef, cmd: Value, state: SioStat
         let _ = socket.emit("clear-channel-error", &json!({ "channelId": channel_id, "error": "Only the server owner or an admin can clear messages" }));
         return;
     }
+    // Sends use this same boundary. Only clear the live cache and notify
+    // clients after the durable channel tombstone has committed.
+    let _retention_guard = state.app.retention_policy_lock.lock().await;
+    if let Err(error) = state.app.wdb.clear_channel_messages(&channel_id, user_id as u64).await {
+        warn!("Failed to confirm channel message clear for {}: {}", channel_id, error);
+        let _ = socket.emit("clear-channel-error", &json!({
+            "channelId": channel_id,
+            "code": "persistence_unconfirmed",
+            "error": "Channel history could not be cleared. Check history before retrying."
+        }));
+        return;
+    }
     state.app.session_messages.write().await.remove(&channel_id);
-    let _ = state.app.wdb.clear_channel_messages(&channel_id, user_id as u64).await;
     let payload = json!({ "channelId": channel_id });
     let _ = socket.emit("channel-messages-cleared", &payload);
     let _ = io.to(channel_id.clone()).emit("channel-messages-cleared", &payload).await;

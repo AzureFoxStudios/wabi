@@ -1,0 +1,12 @@
+{
+  "pass": true,
+  "checks": [
+    "first CPU sample unavailable, not zero",
+    "child process discovered",
+    "busy child accumulated nonzero CPU",
+    "reaped root reported absent without retaining unrelated processes",
+    "monotonic timestamps increase"
+  ],
+  "scope": "synthetic validation during build; not Wabi performance",
+  "samples": 12
+}

@@ -16,6 +16,7 @@ const LEGACY_SCOPED_SESSION_AUTH_TOKEN_KEY = 'wabi_auth_token';
 const LEGACY_SCOPED_SESSION_GUEST_SESSION_ID_KEY = 'wabi_guest_session_id';
 const SESSION_AUTH_TOKEN_KEY_PREFIX = 'wabi_auth_token:';
 const SESSION_GUEST_SESSION_ID_KEY_PREFIX = 'wabi_guest_session_id:';
+const SESSION_TEMP_GUEST_KEY_PREFIX = 'wabi_temp_guest:';
 const PERSISTED_AUTH_TOKEN_KEY_PREFIX = 'wabi_persisted_auth_token:';
 const STORED_USERNAME_KEY_PREFIX = 'wabi_username:';
 const STORED_DB_USER_ID_KEY_PREFIX = 'wabi_db_user_id:';
@@ -185,6 +186,16 @@ export function setGuestSessionId(sessionId: string | null | undefined, serverUr
 	safeLocalSet(LEGACY_SESSION_ID_KEY, null);
 }
 
+/** Guest accounts are reaped when their last socket leaves. A page reload starts a new visit. */
+export function isTemporaryGuestSession(serverUrl?: string | null): boolean {
+	return browser && safeSessionGet(scopedKey(SESSION_TEMP_GUEST_KEY_PREFIX, resolveServerScope(serverUrl))) === '1';
+}
+
+export function setTemporaryGuestSession(active: boolean, serverUrl?: string | null): void {
+	if (!browser) return;
+	safeSessionSet(scopedKey(SESSION_TEMP_GUEST_KEY_PREFIX, resolveServerScope(serverUrl)), active ? '1' : null);
+}
+
 export function clearGuestSessionId(serverUrl?: string | null): void {
 	setGuestSessionId(null, serverUrl);
 }
@@ -230,6 +241,13 @@ export function clearStoredIdentity(serverUrl?: string | null): void {
 export function clearAuthSession(serverUrl?: string | null): void {
 	clearAuthToken(serverUrl);
 	clearGuestSessionId(serverUrl);
+	setTemporaryGuestSession(false, serverUrl);
+	if (browser) {
+		// Unscoped session keys from older clients must not hydrate into a new
+		// address after logout or a private tunnel's proxy-port change.
+		safeSessionSet(LEGACY_SCOPED_SESSION_AUTH_TOKEN_KEY, null);
+		safeSessionSet(LEGACY_SCOPED_SESSION_GUEST_SESSION_ID_KEY, null);
+	}
 	// The refresh token is part of the session: logout must kill it too,
 	// or a 30-day refresh token survives in sessionStorage after "logout".
 	clearRefreshToken(serverUrl);
@@ -239,16 +257,4 @@ export function clearAuthSession(serverUrl?: string | null): void {
 		try { listener(server); }
 		catch { console.error('Session memory cleanup failed'); }
 	}
-}
-
-export function copyScopedAuthState(fromServerUrl: string, toServerUrl: string): void {
-	if (!browser) return;
-	const fromScope = resolveServerScope(fromServerUrl);
-	const toScope = resolveServerScope(toServerUrl);
-	if (fromScope === toScope) return;
-
-	setAuthToken(getAuthToken(fromServerUrl), toServerUrl);
-	setGuestSessionId(getGuestSessionId(fromServerUrl), toServerUrl);
-	setStoredUsername(getStoredUsername(fromServerUrl), toServerUrl);
-	setStoredDbUserId(getStoredDbUserId(fromServerUrl), toServerUrl);
 }

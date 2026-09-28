@@ -38,14 +38,15 @@
 
 	$: typeOptions = (
 		[
+			{ id: 'reception', label: 'Welcome', hint: 'Server arrival and rules', icon: 'hash' },
 			{ id: 'text', label: 'Text', hint: 'Chat stream', icon: 'hash' },
 			{ id: 'voice', label: 'Voice', hint: 'Live call room', icon: 'mic' },
 			{ id: 'forum', label: 'Forum', hint: 'Threads & posts', icon: 'forum' },
 			{ id: 'gallery', label: 'Gallery', hint: 'Media albums', icon: 'image' },
 			{ id: 'wiki', label: 'Wiki', hint: 'Pages & revisions', icon: 'book' },
-			{ id: 'planning', label: 'Planner', hint: 'Board & calendar', icon: 'kanban' },
+			{ id: 'planning', label: 'Project', hint: 'Shared board & wiki', icon: 'kanban' },
 			{ id: 'category', label: 'Folder', hint: 'Group channels', icon: 'folder' },
-			{ id: 'lore', label: 'Project', hint: 'Versioned files & repo', icon: 'box' }
+			{ id: 'lore', label: 'Project files', hint: 'Versioned files & repo · Lore addon', icon: 'box' }
 		] as TypeOption[]
 	);
 
@@ -57,7 +58,9 @@
 	// the entire channel type from the creator.
 	$: loreDisabled = newChannelType === 'lore' && !loreAvailable;
 	$: namePlaceholder =
-		newChannelType === 'voice'
+		newChannelType === 'reception'
+			? 'welcome'
+		: newChannelType === 'voice'
 			? 'voice-room'
 					: newChannelType === 'lore'
 					? 'code-repo'

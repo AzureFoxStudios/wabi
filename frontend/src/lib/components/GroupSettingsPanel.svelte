@@ -5,6 +5,7 @@
 	import GroupAvatar from './GroupAvatar.svelte';
 	import type { Channel, User } from '$lib/socket';
 	import { overlayStyle } from '$lib/overlayStyle';
+	import { mediaUrl } from '$lib/mediaUrl';
 
 	let { channel }: { channel: Channel } = $props();
 	let showAddMember = $state(false);
@@ -109,7 +110,7 @@
 					{#each addableUsers.slice(0, 10) as user (user.id)}
 						<button class="add-user-item" disabled={busy} onclick={() => handleAdd(user)}>
 							{#if user.profilePicture}
-								<img src={user.profilePicture} alt={user.username} class="add-user-avatar" />
+								<img src={mediaUrl(user.profilePicture)} alt={user.username} class="add-user-avatar" />
 							{:else}
 								<div class="add-user-avatar-ph" style="background-color: {user.roleColor || user.color}">
 									{user.username.charAt(0).toUpperCase()}
@@ -129,7 +130,7 @@
 				<div class="member-item">
 					<div class="member-avatar-wrap">
 						{#if member.profilePicture}
-							<img src={member.profilePicture} alt={member.username} class="member-avatar" />
+							<img src={mediaUrl(member.profilePicture)} alt={member.username} class="member-avatar" />
 						{:else}
 							<div class="member-avatar-ph" style="background-color: {member.roleColor || member.color}">
 								{member.username.charAt(0).toUpperCase()}

@@ -201,19 +201,12 @@
 
 	.presence-dot.active {
 		background: var(--status-online, #22c55e);
-		/* Static ring + opacity pulse: avoid box-shadow animation recompositing
-		   every online presence dot while connected. */
+		/* Keep online presence visible without a perpetual repaint while idle. */
 		box-shadow: 0 0 0 2px rgba(var(--status-online-rgb, 34, 197, 94), 0.25);
-		animation: status-pulse-online 2.5s infinite ease-in-out;
 	}
 
 	.presence-dot.away { background: var(--status-away, #f59e0b); }
 	.presence-dot.busy { background: var(--status-busy, #ef4444); }
-
-	@keyframes status-pulse-online {
-		0%, 100% { opacity: 1; }
-		50% { opacity: 0.55; }
-	}
 
 	.user-info {
 		display: flex;

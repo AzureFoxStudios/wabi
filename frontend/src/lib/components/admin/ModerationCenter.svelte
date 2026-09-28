@@ -2,15 +2,18 @@
 	import { onMount } from 'svelte';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { getAuthToken } from '$lib/authSession';
+	import { currentUser } from '$lib/socket';
 
 	type ReportStatus = 'open' | 'reviewing' | 'resolved' | 'dismissed';
 	type StaffComment = { id: string; authorUserId: number; authorUsername: string; body: string; createdAt: string };
+	type CaseActionKind = 'server_ban' | 'channel_ban' | 'channel_timeout' | 'lift_server_ban' | 'lift_channel_ban' | 'lift_channel_timeout';
+	type CaseAction = { id: string; kind: CaseActionKind; actorUsername: string; targetUserId: number; reason: string; createdAt: string; expiresAt: string | null; outcome: string };
 	type Report = {
 		id: string; source: string; channelId: string; messageId: string; messageSnapshot: string;
-		messageWasDeleted: boolean; authorUserId: number; authorUsername: string;
+		messageWasDeleted: boolean; evidenceDeletedAt?: string | null; evidenceExpiresAt?: string | null; authorUserId: number; authorUsername: string;
 		reporterUserId: number; reporterUsername: string; reason: string; comment: string | null;
 		createdAt: string; status: ReportStatus; assignedToUserId: number | null; assignedToUsername: string | null;
-		resolution: string | null; staffComments: StaffComment[];
+		resolution: string | null; staffComments: StaffComment[]; actions?: CaseAction[];
 	};
 
 	let reports: Report[] = $state([]);
@@ -19,6 +22,12 @@
 	let busy = $state<string | null>(null);
 	let commentDrafts: Record<string, string> = $state({});
 	let expanded: Record<string, boolean> = $state({});
+	let actionOpen: Record<string, boolean> = $state({});
+	let actionKind: Record<string, CaseActionKind> = $state({});
+	let actionReason: Record<string, string> = $state({});
+	let actionMinutes: Record<string, number> = $state({});
+	let confirmRedaction: Record<string, boolean> = $state({});
+	const canRemoveEvidence = $derived($currentUser?.highestRole?.toLowerCase() === 'owner');
 
 	const openCount = $derived(reports.filter(r => r.status === 'open').length);
 	const reviewingCount = $derived(reports.filter(r => r.status === 'reviewing').length);
@@ -69,6 +78,37 @@
 		finally { busy = null; }
 	}
 
+	async function applyAction(report: Report) {
+		const kind = actionKind[report.id] ?? 'channel_timeout';
+		busy = report.id; error = '';
+		try {
+			await request(`/reports/${encodeURIComponent(report.id)}/action`, {
+				method: 'POST',
+				body: JSON.stringify({ kind, reason: (actionReason[report.id] ?? '').trim() || report.reason, minutes: actionMinutes[report.id] ?? 10 })
+			});
+			actionOpen[report.id] = false;
+			await refresh();
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Could not apply action.';
+			await refresh();
+		} finally { busy = null; }
+	}
+
+	async function removeEvidence(report: Report) {
+		busy = report.id; error = '';
+		try {
+			await request(`/reports/${encodeURIComponent(report.id)}/evidence`, { method: 'DELETE' });
+			confirmRedaction[report.id] = false;
+			await refresh();
+		} catch (cause) { error = cause instanceof Error ? cause.message : 'Could not remove the snapshot.'; }
+		finally { busy = null; }
+	}
+
+	function actionLabel(kind: CaseActionKind): string {
+		return ({ server_ban: 'Server ban', channel_ban: 'Channel ban', channel_timeout: 'Channel timeout',
+			lift_server_ban: 'Lift server ban', lift_channel_ban: 'Lift channel ban', lift_channel_timeout: 'Lift channel timeout' })[kind];
+	}
+
 	function when(value: string) {
 		const time = Date.parse(value);
 		return Number.isFinite(time) ? new Date(time).toLocaleString() : value;
@@ -101,8 +141,9 @@
 					<div class="report-title"><span class="status {report.status}">{report.status}</span><strong>{report.reason}</strong><span>#{report.channelId}</span></div>
 					<time>{when(report.createdAt)}</time>
 				</header>
-				<div class="people"><span>Reported message by <strong>@{report.authorUsername}</strong></span><span>Reported by @{report.reporterUsername}</span>{#if report.assignedToUsername}<span>Assigned to @{report.assignedToUsername}</span>{/if}</div>
-				<blockquote>{report.messageSnapshot || 'Message contained no text.'}</blockquote>
+				<div class="people"><span>{report.source === 'safety_flag' ? 'Flagged message' : 'Reported message'} by <strong>@{report.authorUsername}</strong></span><span>{report.source === 'safety_flag' ? 'Safety rule' : `Reported by @${report.reporterUsername}`}</span>{#if report.assignedToUsername}<span>Assigned to @{report.assignedToUsername}</span>{/if}</div>
+				<blockquote>{report.evidenceDeletedAt ? `Preserved snapshot removed ${when(report.evidenceDeletedAt)}.` : report.source === 'safety_flag' ? 'No content snapshot was retained. Inspect normal channel history if it still exists.' : report.messageSnapshot || 'Message contained no text.'}</blockquote>
+				{#if report.evidenceExpiresAt && !report.evidenceDeletedAt}<p class="notice">This report’s preserved snapshot expires {when(report.evidenceExpiresAt)}.</p>{/if}
 				{#if report.messageWasDeleted}<p class="notice">The source message had already been deleted when this report was captured.</p>{/if}
 				{#if report.comment}<p class="reporter-comment"><strong>Reporter note:</strong> {report.comment}</p>{/if}
 
@@ -111,7 +152,35 @@
 					{#if report.status !== 'resolved'}<button onclick={() => setStatus(report, 'resolved')} disabled={busy === report.id}>Resolve</button>{/if}
 					{#if report.status !== 'dismissed'}<button onclick={() => setStatus(report, 'dismissed')} disabled={busy === report.id}>Dismiss</button>{/if}
 					<button class="quiet" onclick={() => expanded[report.id] = !expanded[report.id]}>{expanded[report.id] ? 'Hide staff comments' : `Staff comments (${report.staffComments.length})`}</button>
+					<button onclick={() => actionOpen[report.id] = !actionOpen[report.id]} disabled={busy === report.id || report.authorUserId <= 0}>{actionOpen[report.id] ? 'Cancel action' : 'Take action'}</button>
+					{#if canRemoveEvidence && report.messageSnapshot && !report.evidenceDeletedAt}<button class="quiet" onclick={() => confirmRedaction[report.id] = !confirmRedaction[report.id]} disabled={busy === report.id}>Remove snapshot</button>{/if}
 				</div>
+				{#if confirmRedaction[report.id] && !report.evidenceDeletedAt}<div class="notice">Remove this case’s preserved message text? The case record and staff comments remain. Old backups may still contain a copy. <button onclick={() => removeEvidence(report)} disabled={busy === report.id}>Confirm removal</button></div>{/if}
+				{#if actionOpen[report.id]}
+					<section class="case-action-form">
+						<p>Acts on @{report.authorUsername} in this server. The case keeps an action record; it does not collect more chat history.</p>
+						<label>Action<select bind:value={actionKind[report.id]}>
+							<option value="channel_timeout">Timeout in this channel</option>
+							<option value="channel_ban">Ban from this channel</option>
+							<option value="server_ban">Ban from server (admin)</option>
+							<option value="lift_channel_timeout">Lift channel timeout</option>
+							<option value="lift_channel_ban">Lift channel ban</option>
+							<option value="lift_server_ban">Lift server ban (admin)</option>
+						</select></label>
+						{#if (actionKind[report.id] ?? 'channel_timeout') === 'channel_timeout'}<label>Minutes<input type="number" min="1" max="10080" bind:value={actionMinutes[report.id]} placeholder="10" /></label>{/if}
+						<label>Reason<input bind:value={actionReason[report.id]} placeholder={report.reason} maxlength="280" /></label>
+						<button onclick={() => applyAction(report)} disabled={busy === report.id}>Apply action</button>
+					</section>
+				{/if}
+				{#if (report.actions ?? []).length > 0}
+					<section class="case-history" aria-label="Case actions">
+						<strong>Action history</strong>
+						{#each report.actions ?? [] as action (action.id)}
+							<div><span>{actionLabel(action.kind)} · {action.outcome} · @{action.actorUsername} · {when(action.createdAt)}</span><small>{action.reason}{action.expiresAt ? ` · expires ${when(action.expiresAt)}` : ''}</small></div>
+						{/each}
+						{#if report.actions?.some(action => action.outcome === 'pending')}<p class="notice">A pending action may have applied before the server stopped. Inspect the restriction before repeating it.</p>{/if}
+					</section>
+				{/if}
 
 				{#if expanded[report.id]}
 					<section class="staff-thread">
@@ -129,4 +198,5 @@
 
 <style>
 	.mod-center{display:grid;gap:18px}.hero{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;padding:24px;border:1px solid var(--border-default);border-radius:18px;background:linear-gradient(135deg,var(--surface-raised),var(--surface-base))}.hero h2{margin:4px 0 6px;font-size:1.7rem}.hero p{margin:0;color:var(--text-secondary);max-width:720px}.eyebrow{text-transform:uppercase;letter-spacing:.11em;font-size:.72rem;color:var(--text-muted)}button{font:inherit;cursor:pointer;border:1px solid var(--border-default);border-radius:10px;background:var(--surface-base);color:var(--text-primary);padding:9px 13px}button:hover{background:var(--surface-hover)}button:disabled{opacity:.5;cursor:not-allowed}.summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.summary div{padding:18px;border:1px solid var(--border-default);border-radius:14px;background:var(--surface-raised);display:grid;gap:3px}.summary strong{font-size:1.6rem}.summary span,.people,time{color:var(--text-secondary);font-size:.86rem}.queue{display:grid;gap:12px}.queue article{padding:18px;border:1px solid var(--border-default);border-radius:16px;background:var(--surface-raised)}.queue article.closed{opacity:.78}.queue header{display:flex;justify-content:space-between;gap:16px}.report-title{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.status{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;border:1px solid var(--border-default);border-radius:999px;padding:3px 8px}.status.open,.status.reviewing{background:var(--surface-hover)}.people{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0}blockquote{margin:12px 0;padding:14px 16px;border-left:3px solid var(--accent-primary);background:var(--surface-base);border-radius:0 10px 10px 0;white-space:pre-wrap}.notice,.staff-note{padding:10px 12px;border:1px solid var(--border-default);border-radius:10px;background:var(--surface-base);color:var(--text-secondary)}.reporter-comment{color:var(--text-secondary)}.actions{display:flex;gap:8px;flex-wrap:wrap}.quiet{margin-left:auto}.staff-thread{margin-top:14px;padding-top:14px;border-top:1px solid var(--border-default);display:grid;gap:10px}.comment{padding:10px 12px;background:var(--surface-base);border-radius:10px}.comment div{display:flex;justify-content:space-between}.comment p{margin:5px 0 0;white-space:pre-wrap}.comment-box{display:flex;gap:8px}.comment-box textarea{flex:1;resize:vertical;background:var(--surface-base);border:1px solid var(--border-default);border-radius:10px;padding:10px;color:var(--text-primary);font:inherit}.error{padding:12px;border:1px solid var(--danger);border-radius:10px}.empty{padding:28px;border:1px dashed var(--border-default);border-radius:14px;display:grid;text-align:center;gap:4px;color:var(--text-secondary)}.empty strong{color:var(--text-primary)}@media(max-width:720px){.hero{display:grid}.summary{grid-template-columns:1fr}.queue header{display:grid}.quiet{margin-left:0}.comment-box{display:grid}}
+	.case-action-form,.case-history{margin-top:14px;padding:14px;border:1px solid var(--border-default);border-radius:12px;background:var(--surface-base);display:grid;gap:10px}.case-action-form p{margin:0;color:var(--text-secondary);font-size:.86rem}.case-action-form label{display:grid;gap:5px;font-size:.84rem}.case-action-form input,.case-action-form select{min-width:0;padding:9px 11px;border:1px solid var(--border-default);border-radius:9px;background:var(--surface-raised);color:var(--text-primary);font:inherit}.case-action-form button{justify-self:start}.case-history div{display:grid;gap:3px}.case-history small{color:var(--text-secondary)}
 </style>

@@ -12,25 +12,35 @@ mod anchor;
 mod api;
 mod app_router;
 mod auth_extractor;
-mod channel_access;
-mod call_access;
+mod auth_revocations;
+mod recovery_codes;
 mod blacklist;
 mod blobs;
+mod bootstrap_guard;
 mod bot_delivery;
 mod bot_registry;
+mod call_access;
+mod channel_access;
 mod config;
+mod community_roster;
 mod error;
 mod helper_api;
+mod instance_sidecars;
+mod instance_operations;
+mod instance_checkpoint;
+mod instance_archive;
 mod helper_client;
 mod jobs;
 mod lan;
-mod mdns;
-mod media;
-mod metrics;
+mod listener;
 #[cfg(feature = "wabi-lore")]
 mod lore;
 mod lore_roles;
+mod mdns;
+mod media;
+mod metrics;
 mod nodes;
+mod personal_planner;
 mod rate_limit;
 mod replication_transport;
 mod secrets;
@@ -40,7 +50,6 @@ mod standby;
 mod state;
 mod upload_registry;
 mod websocket;
-use crate::blacklist::BlacklistManager;
 use crate::nodes::NodeCapability;
 use crate::state::AppState;
 use clap::Parser;
@@ -58,6 +67,9 @@ use crate::secrets::resolve_jwt_secret;
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Wabi self-hosted server")]
 struct Args {
+    /// Private desktop Planner operation over stdin/stdout; opens no network listener
+    #[arg(long, conflicts_with_all = ["helper_mode", "desktop_managed", "build_info"])]
+    personal_planner: bool,
     /// Print compile-time build identity without opening data or starting the server
     #[arg(long)]
     build_info: bool,
@@ -73,6 +85,18 @@ struct Args {
     /// Data directory
     #[arg(long, default_value = "./data")]
     data_dir: String,
+
+    /// Emit the reserved listener address as JSON for a supervising desktop app
+    #[arg(long, conflicts_with = "helper_mode")]
+    print_bound_address: bool,
+
+    /// Shut down cleanly when the desktop supervisor closes its private stdin pipe
+    #[arg(long, conflicts_with = "helper_mode")]
+    shutdown_on_stdin_close: bool,
+
+    /// Require a private first-owner capability and loopback during desktop setup
+    #[arg(long, conflicts_with = "helper_mode")]
+    desktop_managed: bool,
 
     /// Run this binary as a helper node instead of a primary server
     #[arg(long)]
@@ -106,10 +130,16 @@ async fn purge_orphaned_messages(data_dir: &str) -> anyhow::Result<()> {
     let channels = adapter.list_channels(None).await?;
     info!("purge-orphans: channels found = {}", channels.len());
     for ch in &channels {
-        info!("purge-orphans: channel_id={} name={:?}", ch.channel_id, ch.name);
+        info!(
+            "purge-orphans: channel_id={} name={:?}",
+            ch.channel_id, ch.name
+        );
     }
     let all = adapter.list_all_messages_typed().await?;
-    info!("purge-orphans: total messages in projection = {}", all.len());
+    info!(
+        "purge-orphans: total messages in projection = {}",
+        all.len()
+    );
     let users = adapter.list_users().await?;
     info!("purge-orphans: total users = {}", users.len());
     for u in &users {
@@ -122,7 +152,10 @@ async fn purge_orphaned_messages(data_dir: &str) -> anyhow::Result<()> {
         let author = adapter.get_user(m.author_user_id).await.ok().flatten();
         info!(
             "purge-orphans: ALL msg={} channel_id={} author_user_id={} has_author={} content={:?}",
-            m.message_id, m.channel_id, m.author_user_id, author.is_some(),
+            m.message_id,
+            m.channel_id,
+            m.author_user_id,
+            author.is_some(),
             m.content.chars().take(20).collect::<String>()
         );
     }
@@ -131,10 +164,17 @@ async fn purge_orphaned_messages(data_dir: &str) -> anyhow::Result<()> {
         let msgs = adapter.list_messages_typed(&ch.channel_id, 100_000).await?;
         for m in msgs {
             let author = adapter.get_user(m.author_user_id).await.ok().flatten();
-            let username = author.as_ref().map(|u| u.username.clone()).unwrap_or_default();
+            let username = author
+                .as_ref()
+                .map(|u| u.username.clone())
+                .unwrap_or_default();
             info!(
                 "purge-orphans: chan={} msg={} author_user_id={} has_author={} username={:?}",
-                ch.channel_id, m.message_id, m.author_user_id, author.is_some(), username
+                ch.channel_id,
+                m.message_id,
+                m.author_user_id,
+                author.is_some(),
+                username
             );
             let has_author = author.is_some();
             if !has_author {
@@ -151,7 +191,7 @@ async fn purge_orphaned_messages(data_dir: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn wait_for_shutdown() {
+async fn wait_for_shutdown(shutdown_on_stdin_close: bool) {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -169,7 +209,26 @@ async fn wait_for_shutdown() {
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
 
+    // A dedicated thread avoids Tokio's uncancellable blocking console read
+    // keeping runtime shutdown alive when a signal wins the race.
+    let supervisor_closed = async move {
+        if !shutdown_on_stdin_close {
+            return std::future::pending::<()>().await;
+        }
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let _ = std::thread::Builder::new()
+            .name("wabi-supervisor-input".into())
+            .spawn(move || {
+                let _ = std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink());
+                let _ = tx.send(());
+            });
+        let _ = rx.await;
+    };
+
     tokio::select! {
+        _ = supervisor_closed => {
+            info!("Desktop supervisor closed, starting graceful shutdown...");
+        }
         _ = ctrl_c => {
             info!("Received Ctrl+C, starting graceful shutdown...");
         }
@@ -182,6 +241,9 @@ async fn wait_for_shutdown() {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    if args.personal_planner {
+        return personal_planner::run(std::path::Path::new(&args.data_dir));
+    }
     if args.build_info {
         println!("{}", api::public::build_identity());
         return Ok(());
@@ -235,7 +297,8 @@ async fn main() -> anyhow::Result<()> {
     // exists as a user (orphaned/ghost messages). Triggered via the
     // WABI_PURGE_ORPHANS env var so it doesn't disturb clap arg parsing.
     if std::env::var("WABI_PURGE_ORPHANS").is_ok() {
-        let data_dir = std::env::var("WABI_PURGE_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
+        let data_dir =
+            std::env::var("WABI_PURGE_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
         return purge_orphaned_messages(&data_dir).await;
     }
 
@@ -273,23 +336,66 @@ async fn main() -> anyhow::Result<()> {
     // secrets, opening WabiDB, or creating upload/data directories. An anchor is
     // an HTTP gateway to one canonical authority, not a hidden second authority.
     let server_role = ServerRole::from_env();
+    let desktop_bootstrap_token = if args.desktop_managed {
+        anyhow::ensure!(
+            server_role == ServerRole::Authority,
+            "Desktop hosting requires the Authority role"
+        );
+        let token = std::env::var("WABI_DESKTOP_BOOTSTRAP_TOKEN").map_err(|_| {
+            anyhow::anyhow!("Desktop supervisor did not supply a first-owner capability")
+        })?;
+        anyhow::ensure!(
+            token.len() >= 32,
+            "Desktop first-owner capability is invalid"
+        );
+        Some(token)
+    } else {
+        None
+    };
     if server_role == ServerRole::Anchor {
         let authority_url = std::env::var("WABI_AUTHORITY_URL")
             .ok()
             .map(|value| value.trim().trim_end_matches('/').to_string())
             .filter(|value| !value.is_empty())
-            .ok_or_else(|| anyhow::anyhow!("WABI_AUTHORITY_URL is required when WABI_SERVER_ROLE=anchor"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("WABI_AUTHORITY_URL is required when WABI_SERVER_ROLE=anchor")
+            })?;
         let app = crate::anchor::create_anchor_router(authority_url.clone())?;
-        let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], args.port));
-        let listener = TcpListener::bind(addr).await?;
-        info!("📡 Starting stateless regional anchor on port {}", args.port);
+        let listener = TcpListener::from_std(listener::bind_configured(&args.host, args.port)?)?;
+        let bound_addr = listener.local_addr()?;
+        if args.print_bound_address {
+            print_bound_address(bound_addr)?;
+        }
+        info!("📡 Starting stateless regional anchor on {}", bound_addr);
         info!("↪ Authority: {}", authority_url);
-        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-            .with_graceful_shutdown(wait_for_shutdown())
-            .await?;
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(wait_for_shutdown(args.shutdown_on_stdin_close))
+        .await?;
         info!("Anchor shut down gracefully");
         return Ok(());
     }
+
+    let node_id = match std::env::var("WABI_NODE_ID") {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => "node-1".to_string(),
+        Err(error) => return Err(anyhow::anyhow!("WABI_NODE_ID is invalid: {error}")),
+    };
+    anyhow::ensure!(
+        crate::config::valid_node_id(&node_id),
+        "WABI_NODE_ID must be 1-64 ASCII letters, digits, hyphens or underscores and start with a letter or digit"
+    );
+
+    // Refuse a retired Authority before resolving/persisting JWT material,
+    // creating upload directories, or opening any file-backed sidecar.
+    state::ensure_authority_not_fenced(&args.data_dir)?;
+
+    // Reserve the actual requested socket before storage/helpers are opened.
+    // Port zero remains reserved; every helper sees the allocated port.
+    let listener = TcpListener::from_std(listener::bind_configured(&args.host, args.port)?)?;
+    let bound_addr = listener.local_addr()?;
 
     // Compute uploads_dir and blacklist_file before data_dir is consumed.
     // Accept both the legacy UPLOADS_DIR name and the WABI_-prefixed alias so
@@ -308,14 +414,14 @@ async fn main() -> anyhow::Result<()> {
 
     let config = ServerConfig {
         host: args.host,
-        port: args.port,
+        port: bound_addr.port(),
         data_dir: args.data_dir,
         uploads_dir,
         jwt_secret: jwt_secret,
         turn_enabled: turn.enabled,
         turn_uri: turn.uri,
         turn_secret: turn.secret,
-        node_id: "node-1".to_string(),
+        node_id,
         is_primary: true,
         mesh_enabled: std::env::var("WABI_MESH_ENABLED")
             .ok()
@@ -326,7 +432,11 @@ async fn main() -> anyhow::Result<()> {
             .split(',')
             .filter_map(|s| {
                 let s = s.trim();
-                if s.is_empty() { None } else { Some(s.to_string()) }
+                if s.is_empty() {
+                    None
+                } else {
+                    Some(s.to_string())
+                }
             })
             .collect(),
         server_role: server_role.clone(),
@@ -345,12 +455,10 @@ async fn main() -> anyhow::Result<()> {
                 .ok()
                 .and_then(|s| s.parse::<bool>().ok())
                 .unwrap_or(false),
-            mode: std::env::var("WABI_LORE_MODE")
-                .unwrap_or_else(|_| "sidecar".into()),
+            mode: std::env::var("WABI_LORE_MODE").unwrap_or_else(|_| "sidecar".into()),
             server_url: std::env::var("WABI_LORE_SERVER_URL")
                 .unwrap_or_else(|_| "lore://localhost:10000".into()),
-            binary_path: std::env::var("WABI_LORE_BINARY_PATH")
-                .unwrap_or_else(|_| "lore".into()),
+            binary_path: std::env::var("WABI_LORE_BINARY_PATH").unwrap_or_else(|_| "lore".into()),
             data_dir: std::env::var("WABI_LORE_DATA_DIR")
                 .unwrap_or_else(|_| "/var/wabi/lore".into()),
             default_blob_max_size_mb: std::env::var("WABI_LORE_MAX_BLOB_MB")
@@ -372,18 +480,25 @@ async fn main() -> anyhow::Result<()> {
 
     // Ensure uploads directory exists
     std::fs::create_dir_all(&config.uploads_dir)?;
-    // Ensure temp directory for uploads exists
-    std::fs::create_dir_all(format!("{}/.tmp", config.uploads_dir))?;
 
     info!("📡 Starting server on {}:{}", config.host, config.port);
 
     // Create application state
-    let state = Arc::new(AppState::new(config.clone()).await?);
+    let state = Arc::new(
+        AppState::new_with_desktop_bootstrap(config.clone(), desktop_bootstrap_token).await?,
+    );
+    // Create staging only after the missing-registry recovery guard inspects
+    // uploads; an empty fresh instance must not look like lost upload history.
+    std::fs::create_dir_all(format!("{}/.tmp", config.uploads_dir))?;
+    if args.desktop_managed && state.needs_setup().await && !bound_addr.ip().is_loopback() {
+        anyhow::bail!("Create the owner with local-only hosting before enabling LAN sharing");
+    }
 
     // Auto-register the Hermes service bot on startup so cron jobs and
     // outbound deliveries can emit messages as this bot account.
     let hermes_state = state.clone();
-    tokio::spawn(async move {
+    let hermes_operations = hermes_state.instance_operations.clone();
+    hermes_operations.spawn(async move {
         match crate::api::bots::ensure_hermes_bot(&hermes_state).await {
             Ok(id) => tracing::info!("[bot:hermes] ready: {}", id),
             Err(e) => tracing::warn!("[bot:hermes] registration failed: {e}"),
@@ -399,11 +514,22 @@ async fn main() -> anyhow::Result<()> {
             loop {
                 interval.tick().await;
                 let offline = state
-                    .node_registry
-                    .mark_stale_nodes_offline(std::time::Duration::from_secs(120))
+                    .instance_operations
+                    .run(
+                        state
+                            .node_registry
+                            .mark_stale_nodes_offline(std::time::Duration::from_secs(120)),
+                    )
                     .await;
-                for node in offline {
-                    tracing::info!("[stale-detector] node {} marked offline", node.node_id);
+                match offline {
+                    Ok(nodes) => {
+                        for node in nodes {
+                            tracing::info!("[stale-detector] node {} marked offline", node.node_id);
+                        }
+                    }
+                    Err(error) => {
+                        tracing::error!("[stale-detector] node state could not be saved: {error}");
+                    }
                 }
             }
         });
@@ -417,10 +543,14 @@ async fn main() -> anyhow::Result<()> {
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 interval.tick().await;
-                let reaped = state
-                    .job_queue
-                    .reap_stale_jobs(&state.node_registry, std::time::Duration::from_secs(600))
-                    .await;
+                let reaped =
+                    state
+                        .instance_operations
+                        .run(state.job_queue.reap_stale_jobs(
+                            &state.node_registry,
+                            std::time::Duration::from_secs(600),
+                        ))
+                        .await;
                 for job in reaped {
                     tracing::info!(
                         "[stale-job-reaper] job {} requeued (node vanished)",
@@ -440,62 +570,77 @@ async fn main() -> anyhow::Result<()> {
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 interval.tick().await;
-                let Some(io) = state.socket_io() else {
-                    tracing::warn!("[live-reaper] SocketIo handle not available, skipping tick");
-                    continue;
-                };
-
-                // Snapshot the live channel set under the label lock.
-                let live_channels: Vec<String> = {
-                    let labels = state.channel_auto_delete_label.read().await;
-                    labels
-                        .iter()
-                        .filter(|(_, v)| v.as_str() == "live")
-                        .map(|(k, _)| k.clone())
-                        .collect()
-                };
-
-                for channel in &live_channels {
-                    // Resolve per-channel TTL and cap.
-                    let ttl = state
-                        .live_channel_ttl_ms
-                        .read()
-                        .await
-                        .get(channel)
-                        .copied()
-                        .unwrap_or(10 * 60 * 1000);
-                    let cap = state
-                        .live_channel_cap
-                        .read()
-                        .await
-                        .get(channel)
-                        .copied()
-                        .unwrap_or(1000);
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_millis() as i64)
-                        .unwrap_or(0);
-
-                    // Collect expired ids under a write lock, then drop lock and emit.
-                    let expired_ids: Vec<String> = {
-                        let mut session = state.session_messages.write().await;
-                        let msgs = match session.get_mut(channel) {
-                            Some(msgs) => msgs,
-                            None => continue,
+                state
+                    .instance_operations
+                    .run(async {
+                        let Some(io) = state.socket_io() else {
+                            tracing::warn!(
+                                "[live-reaper] SocketIo handle not available, skipping tick"
+                            );
+                            return;
                         };
-                        crate::state::reap_live_channel_buffer(msgs, ttl, cap, now)
-                    };
 
-                    // Emit message-deleted for each expired id (outside the lock).
-                    for id in &expired_ids {
-                        let payload = serde_json::json!({"channelId": channel, "messageId": id});
-                        let _ = io.to(channel.clone()).emit("message-deleted", &payload).await;
-                    }
+                        // Snapshot the live channel set under the label lock.
+                        let live_channels: Vec<String> = {
+                            let labels = state.channel_auto_delete_label.read().await;
+                            labels
+                                .iter()
+                                .filter(|(_, v)| v.as_str() == "live")
+                                .map(|(k, _)| k.clone())
+                                .collect()
+                        };
 
-                    if !expired_ids.is_empty() {
-                        tracing::debug!("[live-reaper] channel {} evicted {} messages", channel, expired_ids.len());
-                    }
-                }
+                        for channel in &live_channels {
+                            // Resolve per-channel TTL and cap.
+                            let ttl = state
+                                .live_channel_ttl_ms
+                                .read()
+                                .await
+                                .get(channel)
+                                .copied()
+                                .unwrap_or(10 * 60 * 1000);
+                            let cap = state
+                                .live_channel_cap
+                                .read()
+                                .await
+                                .get(channel)
+                                .copied()
+                                .unwrap_or(1000);
+                            let now = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis() as i64)
+                                .unwrap_or(0);
+
+                            // Collect expired ids under a write lock, then drop lock and emit.
+                            let expired_ids: Vec<String> = {
+                                let mut session = state.session_messages.write().await;
+                                let msgs = match session.get_mut(channel) {
+                                    Some(msgs) => msgs,
+                                    None => continue,
+                                };
+                                crate::state::reap_live_channel_buffer(msgs, ttl, cap, now)
+                            };
+
+                            // Emit message-deleted for each expired id (outside the lock).
+                            for id in &expired_ids {
+                                let payload =
+                                    serde_json::json!({"channelId": channel, "messageId": id});
+                                let _ = io
+                                    .to(channel.clone())
+                                    .emit("message-deleted", &payload)
+                                    .await;
+                            }
+
+                            if !expired_ids.is_empty() {
+                                tracing::debug!(
+                                    "[live-reaper] channel {} evicted {} messages",
+                                    channel,
+                                    expired_ids.len()
+                                );
+                            }
+                        }
+                    })
+                    .await;
             }
         });
     }
@@ -511,71 +656,98 @@ async fn main() -> anyhow::Result<()> {
             let mut last_full_sweep: Option<std::time::Instant> = None;
             loop {
                 interval.tick().await;
-                let full_sweep_due = last_full_sweep
-                    .is_none_or(|last| last.elapsed() >= std::time::Duration::from_secs(60));
-                let channel_ids: Vec<String> = if full_sweep_due {
-                    let channels = match state.wdb.list_channels(None).await {
-                        Ok(channels) => channels,
-                        Err(error) => {
-                            tracing::warn!("[retention-reaper] failed to list channels: {error}");
-                            continue;
-                        }
+                state.instance_operations.run(async {
+                    let full_sweep_due = last_full_sweep
+                        .is_none_or(|last| last.elapsed() >= std::time::Duration::from_secs(60));
+                    let channel_ids: Vec<String> = if full_sweep_due {
+                        let channels = match state.wdb.list_channels(None).await {
+                            Ok(channels) => channels,
+                            Err(error) => {
+                                tracing::warn!("[retention-reaper] failed to list channels: {error}");
+                                return;
+                            }
+                        };
+                        last_full_sweep = Some(std::time::Instant::now());
+                        channels
+                            .into_iter()
+                            .map(|channel| channel.channel_id)
+                            .collect()
+                    } else {
+                        state
+                            .fast_retention_channels
+                            .read()
+                            .await
+                            .iter()
+                            .cloned()
+                            .collect()
                     };
-                    last_full_sweep = Some(std::time::Instant::now());
-                    channels.into_iter().map(|channel| channel.channel_id).collect()
-                } else {
-                    state.fast_retention_channels.read().await.iter().cloned().collect()
-                };
-                let now_micros = chrono::Utc::now().timestamp_micros();
-                for channel_id in channel_ids {
-                    // Serialize against policy changes through this deletion batch.
-                    let _policy_guard = state.retention_policy_lock.lock().await;
-                    let ranges = match api::retention_policy::epochs(&state.config.data_dir, &channel_id) {
-                        Ok(Some(epochs)) => api::retention_policy::expired_ranges(&epochs, now_micros),
-                        Ok(None) => match api::retention_policy::channel_expiry_micros(&state, &channel_id).await {
-                            Ok(Some(micros)) => vec![(0, now_micros.saturating_sub(micros))],
-                            Ok(None) => continue,
+                    let now_micros = chrono::Utc::now().timestamp_micros();
+                    for channel_id in channel_ids {
+                        // Serialize against policy changes through this deletion batch.
+                        let _policy_guard = state.retention_policy_lock.lock().await;
+                        let ranges = match api::retention_policy::epochs(
+                            &state.config.data_dir,
+                            &channel_id,
+                        ) {
+                            Ok(Some(epochs)) => {
+                                api::retention_policy::expired_ranges(&epochs, now_micros)
+                            }
+                            Ok(None) => {
+                                match api::retention_policy::channel_expiry_micros(&state, &channel_id)
+                                    .await
+                                {
+                                    Ok(Some(micros)) => vec![(0, now_micros.saturating_sub(micros))],
+                                    Ok(None) => continue,
+                                    Err(error) => {
+                                        tracing::warn!(channel = %channel_id, "[retention-reaper] policy lookup failed: {error}");
+                                        continue;
+                                    }
+                                }
+                            }
                             Err(error) => {
                                 tracing::warn!(channel = %channel_id, "[retention-reaper] policy lookup failed: {error}");
                                 continue;
                             }
-                        },
-                        Err(error) => {
-                            tracing::warn!(channel = %channel_id, "[retention-reaper] policy lookup failed: {error}");
-                            continue;
-                        }
-                    };
-                    for (from, through) in ranges {
-                        let messages = match wabidb::projections::messages::MessagesProjection::list_messages_in_time_range(
-                            &state.wdb.engine().projection_state(), &channel_id, from, through, 1000,
-                        ) {
-                            Ok(messages) => messages,
-                            Err(error) => {
-                                tracing::warn!(channel = %channel_id, "[retention-reaper] message lookup failed: {error}");
-                                continue;
-                            }
                         };
-                        for message in messages {
-                            if state.wdb.delete_message(&message.message_id, 0).await.is_err() {
-                                continue;
-                            }
-                            state.session_messages.write().await.entry(channel_id.clone()).or_default().retain(|item| item.get("id").and_then(|value| value.as_str()) != Some(message.message_id.as_str()));
-                            if let Some(io) = state.socket_io() {
-                                let _ = io.to(channel_id.clone()).emit("message-deleted", &serde_json::json!({"channelId": channel_id, "messageId": message.message_id})).await;
+                        for (from, through) in ranges {
+                            let messages = match wabidb::projections::messages::MessagesProjection::list_messages_in_time_range(
+                                &state.wdb.engine().projection_state(), &channel_id, from, through, 1000,
+                            ) {
+                                Ok(messages) => messages,
+                                Err(error) => {
+                                    tracing::warn!(channel = %channel_id, "[retention-reaper] message lookup failed: {error}");
+                                    continue;
+                                }
+                            };
+                            for message in messages {
+                                if state
+                                    .wdb
+                                    .delete_message(&message.message_id, 0)
+                                    .await
+                                    .is_err()
+                                {
+                                    continue;
+                                }
+                                state
+                                    .session_messages
+                                    .write()
+                                    .await
+                                    .entry(channel_id.clone())
+                                    .or_default()
+                                    .retain(|item| {
+                                        item.get("id").and_then(|value| value.as_str())
+                                            != Some(message.message_id.as_str())
+                                    });
+                                if let Some(io) = state.socket_io() {
+                                    let _ = io.to(channel_id.clone()).emit("message-deleted", &serde_json::json!({"channelId": channel_id, "messageId": message.message_id})).await;
+                                }
                             }
                         }
                     }
-                }
+                }).await;
             }
         });
     }
-
-    // Load blacklist
-    let blacklist = BlacklistManager::new(config.blacklist_file.clone());
-    if let Err(e) = blacklist.load_from_file().await {
-        tracing::warn!("[blacklist] Failed to load: {}", e);
-    }
-    state.set_blacklist(blacklist).await;
 
     // Initialize the Tailcat private-access transport: load persisted
     // settings and auto-respawn the listener if it was enabled before a
@@ -588,7 +760,10 @@ async fn main() -> anyhow::Result<()> {
     // work: store in AppState for graceful shutdown.
     let blacklist_arc = state.blacklist.read().await.clone();
     if let Some(mgr) = blacklist_arc {
-        let _blacklist_cleanup_handle = crate::blacklist::spawn_blacklist_cleanup_loop(mgr);
+        let _blacklist_cleanup_handle = crate::blacklist::spawn_blacklist_cleanup_loop(
+            mgr,
+            state.instance_operations.clone(),
+        );
     }
 
     // WDB had a one-time "register the ingest key with the database"
@@ -606,6 +781,7 @@ async fn main() -> anyhow::Result<()> {
     let lore_addon_enabled = state
         .addon_enabled("lore", Some("WABI_LORE_ENABLED"), false)
         .await;
+    #[cfg(feature = "wabi-lore")]
     if lore_addon_enabled {
         let lore_config = crate::lore::LoreConfig {
             enabled: true,
@@ -668,7 +844,9 @@ async fn main() -> anyhow::Result<()> {
                 if let Some(io) = state_clone.socket_io() {
                     break io;
                 }
-                tracing::warn!("subscription bridge: SocketIo handle not available, retrying in 1s");
+                tracing::warn!(
+                    "subscription bridge: SocketIo handle not available, retrying in 1s"
+                );
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             };
             let mut delivery_rx = delivery_rx;
@@ -706,19 +884,55 @@ async fn main() -> anyhow::Result<()> {
     // created there too — it must be added before the router is finalised.
     let app = crate::app_router::build_app_router(state.clone());
 
-    // Bind and serve
-    let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], config.port));
-    let listener = TcpListener::bind(addr).await?;
+    // This record is address discovery only; supervisors must still check
+    // /readyz and /api/setup/status while observing child liveness.
+    if args.print_bound_address {
+        print_bound_address(bound_addr)?;
+    }
 
-    info!("✅ Server ready");
+    info!("✅ Server ready on {}", bound_addr);
     info!("🌐 Frontend: http://localhost:{}", config.port);
     info!("🔌 API: http://localhost:{}/api", config.port);
     info!("🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)");
 
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(wait_for_shutdown())
-        .await?;
+    let shutdown_state = state.clone();
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        wait_for_shutdown(args.shutdown_on_stdin_close).await;
+        // SocketIo owns SioState, which owns AppState. Remove this back
+        // reference so runtime task teardown can drop the engine and its
+        // lock after requests drain; close alone leaves an Arc cycle.
+        let io = shutdown_state
+            .sio
+            .write()
+            .expect("Socket.IO handle lock poisoned")
+            .take();
+        if let Some(io) = io {
+            if tokio::time::timeout(std::time::Duration::from_secs(5), io.close())
+                .await
+                .is_err()
+            {
+                tracing::warn!("Socket.IO close exceeded 5 seconds during shutdown");
+            }
+        }
+        shutdown_state.tailcat.shutdown().await;
+    })
+    .await?;
 
     info!("Server shut down gracefully");
     Ok(())
+}
+
+fn print_bound_address(address: SocketAddr) -> std::io::Result<()> {
+    use std::io::Write;
+    let record = serde_json::json!({
+        "event": "wabi-listener-bound", "protocolVersion": 1,
+        "pid": std::process::id(), "address": address.to_string(),
+    });
+    let mut stdout = std::io::stdout().lock();
+    writeln!(stdout, "{record}")?;
+    stdout.flush()
 }

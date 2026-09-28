@@ -14,7 +14,7 @@
 //! socket.io degrades to polling on its own.
 
 use bytes::Bytes;
-use futures_util::stream::{StreamExt, TryStreamExt};
+use futures_util::stream::TryStreamExt;
 use http::{header, Request, Response, StatusCode};
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
@@ -44,15 +44,15 @@ fn is_hop_by_hop(name: &http::HeaderName, upgrading: bool) -> bool {
     )
 }
 
-/// Run the forwarder until `shutdown` fires.
+/// Run the forwarder on a pre-bound loopback listener until `shutdown` fires.
 /// `target_authority` is e.g. `server.tailcat:3102`.
 pub async fn run(
-    listen: std::net::SocketAddr,
+    listener: TcpListener,
     target_authority: String,
     socks_port: u16,
     mut shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<()> {
-    let listener = TcpListener::bind(listen).await?;
+    let listen = listener.local_addr()?;
     let proxy = reqwest::Proxy::all(format!("socks5h://127.0.0.1:{socks_port}"))?;
     let client = reqwest::Client::builder().proxy(proxy).build()?;
     log::info!("[tailcat-proxy] forwarder on {listen} -> {target_authority} via socks:{socks_port}");
@@ -139,7 +139,7 @@ async fn proxy_inner(
     // forwarded Connection/Upgrade headers.
     // Stream the request body straight through (uploads must not buffer).
     let stream = body.into_data_stream();
-    let mut builder = builder.body(reqwest::Body::wrap_stream(stream));
+    let builder = builder.body(reqwest::Body::wrap_stream(stream));
 
     let cres = builder.send().await?;
     let status = cres.status();
@@ -169,11 +169,12 @@ async fn proxy_inner(
         )),
         None => empty(),
     };
-    let mut out = res.body(body)?;
+    let out = res.body(body)?;
 
     if is_101 {
-        if let Some(cu) = client_upgrade {
-            let su = hyper::upgrade::on(&mut out);
+        // The downstream handle belongs to the incoming request, not the
+        // response we constructed. Keep it paired with reqwest's upstream IO.
+        if let (Some(su), Some(cu)) = (server_upgrade, client_upgrade) {
             tokio::spawn(async move {
                 let server_io = match su.await {
                     Ok(io) => io,
@@ -201,4 +202,81 @@ async fn proxy_inner(
     }
 
     Ok(out)
+}
+
+#[cfg(test)]
+mod upgrade_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn upgrade_bridges_bytes_in_both_directions() {
+        use std::time::Duration;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::{TcpListener, TcpStream};
+        let target_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target = target_listener.local_addr().unwrap();
+        let upstream = tokio::spawn(async move {
+            let (stream, _) = target_listener.accept().await.unwrap();
+            let service = service_fn(|req: Request<Incoming>| async move {
+                let upgrade = hyper::upgrade::on(req);
+                tokio::spawn(async move {
+                    let mut io = TokioIo::new(upgrade.await.unwrap());
+                    io.write_all(b"HELLO").await.unwrap();
+                    let mut request = [0; 4];
+                    io.read_exact(&mut request).await.unwrap();
+                    assert_eq!(&request, b"PING");
+                    io.write_all(b"PONG").await.unwrap();
+                });
+                Ok::<_, std::convert::Infallible>(
+                    Response::builder()
+                        .status(StatusCode::SWITCHING_PROTOCOLS)
+                        .header(header::CONNECTION, "upgrade")
+                        .header(header::UPGRADE, "wabi-test")
+                        .body(empty())
+                        .unwrap(),
+                )
+            });
+            hyper::server::conn::http1::Builder::new()
+                .serve_connection(TokioIo::new(stream), service)
+                .with_upgrades()
+                .await
+                .unwrap();
+        });
+        let proxy_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_address = proxy_listener.local_addr().unwrap();
+        let forwarder = tokio::spawn(async move {
+            let (stream, _peer) = proxy_listener.accept().await.unwrap();
+            let client = reqwest::Client::builder().no_proxy().build().unwrap();
+            let target = target.to_string();
+            let service = service_fn(move |req| {
+                let client = client.clone();
+                let target = target.clone();
+                async move { Ok::<_, std::convert::Infallible>(proxy_one(client, target, req).await) }
+            });
+            hyper::server::conn::http1::Builder::new()
+                .serve_connection(TokioIo::new(stream), service)
+                .with_upgrades()
+                .await
+                .unwrap();
+        });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let mut client = TcpStream::connect(proxy_address).await.unwrap();
+            client.write_all(b"GET /upgrade HTTP/1.1\r\nHost: localhost\r\nConnection: upgrade\r\nUpgrade: wabi-test\r\n\r\n").await.unwrap();
+            let mut headers = Vec::new();
+            while !headers.ends_with(b"\r\n\r\n") {
+                headers.push(client.read_u8().await.unwrap());
+                assert!(headers.len() < 8192);
+            }
+            assert!(headers.starts_with(b"HTTP/1.1 101"));
+            let mut greeting = [0; 5];
+            client.read_exact(&mut greeting).await.expect("upstream bytes cross the upgraded proxy");
+            assert_eq!(&greeting, b"HELLO");
+            client.write_all(b"PING").await.unwrap();
+            let mut response = [0; 4];
+            client.read_exact(&mut response).await.unwrap();
+            assert_eq!(&response, b"PONG");
+        }).await.expect("upgrade round trip must not hang");
+        upstream.await.unwrap();
+        forwarder.await.unwrap();
+    }
 }

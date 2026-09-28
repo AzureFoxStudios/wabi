@@ -21,6 +21,9 @@
 	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
 	import { buildDmPlaceholderChannel, findExistingDmChannel, getDmStableUserId, resolveDmOtherUser } from '$lib/dmConversations';
 	import { cachedE2eeStatus } from '$lib/dm/dmE2eeState';
+	import { mediaUrl } from '$lib/mediaUrl';
+	import ProfileName from './ProfileName.svelte';
+	import ProfileMedia from './ProfileMedia.svelte';
 	import { livePresenceForUser } from '$lib/dmPresentation';
 	type ConversationAction = {
 		id: 'voice' | 'video' | 'remove';
@@ -477,7 +480,7 @@
 					<div class="dm-header-title-wrap">
 						<div class="dm-header-identity">
 							<span class="dm-header-context">{isKeepNotesSelected ? 'Your notes' : activeGroup ? 'Group conversation' : 'Direct message to'}</span>
-							<span class="dm-header-title" title={activeHeaderTitle}>{activeHeaderTitle}</span>
+							<span class="dm-header-title" title={activeHeaderTitle}>{#if !activeGroup && !isKeepNotesSelected && dmOther}<ProfileName username={activeHeaderTitle} font={dmOther.usernameFont} color={dmOther.color} />{:else}{activeHeaderTitle}{/if}</span>
 						</div>
 						{#if isKeepNotesSelected}
                             <span class="dm-header-pill">Device-local</span>
@@ -590,14 +593,14 @@
 						{#each filteredUsers as user (getDmDirectoryKey(user))}
 							<button class="dm-new-user" disabled={creatingDmKey === getDmDirectoryKey(user)} on:click={() => startDMWith(user)}>
 								{#if user.profilePicture}
-									<img src={user.profilePicture} alt={user.username} class="dm-new-avatar" />
+									<ProfileMedia src={mediaUrl(user.profilePicture)} decorative class="dm-new-avatar" />
 								{:else}
 									<div class="dm-new-avatar-ph" style="background-color: {user.roleColor || user.color}">
 										{user.username.charAt(0).toUpperCase()}
 									</div>
 								{/if}
 								<div class="dm-new-info">
-									<span class="dm-new-name">{user.username}</span>
+									<span class="dm-new-name"><ProfileName username={user.username} font={user.usernameFont} color={user.roleColor || user.color} /></span>
 									{#if user.handle}<span class="dm-new-handle">@{user.handle}</span>{/if}
 								</div>
 							</button>
@@ -660,7 +663,7 @@
 							</div>
 						</div>
 					{:else}
-						{@const other = getOtherUser(channel)}
+						{@const other = resolveDmOtherUser(channel, $currentUser, $users, $serverMembers)}
 						{#if other}
 							{@const presence = livePresenceForUser(other, $users, $connected)}
 							<div
@@ -676,7 +679,7 @@
 							>
 								<div class="dm-conv-avatar-wrap">
 									{#if other.profilePicture}
-										<img src={other.profilePicture} alt={other.username} class="dm-conv-avatar" />
+										<ProfileMedia src={mediaUrl(other.profilePicture)} decorative class="dm-conv-avatar" />
 									{:else}
 										<div class="dm-conv-avatar-ph" style="background-color: {other.roleColor || other.color}">
 											{other.username.charAt(0).toUpperCase()}
@@ -688,7 +691,7 @@
 								</div>
 								<div class="dm-conv-info">
 									<div class="dm-conv-top">
-										<span class="dm-conv-name">{other.username}</span>
+										<span class="dm-conv-name"><ProfileName username={other.username} font={other.usernameFont} color={other.roleColor || other.color} /></span>
 										{#if isConversationPinned(channel.id)}
 											<span class="dm-conv-pin" title="Pinned conversation">Pinned</span>
 										{/if}
@@ -1059,7 +1062,7 @@
 			cursor: progress;
 		}
 
-		.dm-new-avatar,
+	.dm-new-user :global(.dm-new-avatar),
 	.dm-new-avatar-ph {
 		width: 28px;
 		height: 28px;
@@ -1203,7 +1206,7 @@
 		position: relative;
 	}
 
-	.dm-conv-avatar,
+	.dm-conv-avatar-wrap :global(.dm-conv-avatar),
 	.dm-conv-avatar-ph {
 		width: 36px;
 		height: 36px;
@@ -1334,7 +1337,7 @@
 			height: 40px;
 		}
 
-		.dm-conv-avatar,
+		.dm-conv-avatar-wrap :global(.dm-conv-avatar),
 		.dm-conv-avatar-ph {
 			width: 40px;
 			height: 40px;

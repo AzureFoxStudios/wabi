@@ -11,7 +11,7 @@
 
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -63,7 +63,15 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/keys", get(list_keys).post(register_key))
         .route("/keys/{key_id}", delete(revoke_key))
         .route("/connect", get(connect_info))
+        .route("/port", put(set_port))
+        .route("/keys/{key_id}/access", put(set_key_access))
         .with_state(state)
+}
+
+// Storage keeps its existing snake_case format; HTTP clients use camelCase.
+fn key_view(record: &wabi_tailcat::MemberKeyRecord) -> serde_json::Value {
+    json!({"id":record.id,"userId":record.user_id,"publicKey":record.public_key,
+        "label":record.label,"createdAt":record.created_at,"allowed":record.allowed})
 }
 
 /// GET /api/addons/tailcat/status — admin-only snapshot.
@@ -71,9 +79,7 @@ async fn status(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>> {
-    admin_auth(&headers, &state)
-        .await
-        .map_err(gate)?;
+    admin_auth(&headers, &state).await.map_err(gate)?;
     let snap = state.tailcat.status().await;
     Ok(Json(json!({
         "enabled": snap.enabled,
@@ -83,7 +89,7 @@ async fn status(
         "serverPort": snap.server_port,
         "binaryPath": snap.binary_path,
         "binaryVersion": snap.binary_version,
-        "keys": snap.keys,
+        "keys": snap.keys.iter().map(key_view).collect::<Vec<_>>(),
         "lastError": snap.last_error,
         "startedAt": snap.started_at,
     })))
@@ -94,9 +100,7 @@ async fn audit_tail(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>> {
-    admin_auth(&headers, &state)
-        .await
-        .map_err(gate)?;
+    admin_auth(&headers, &state).await.map_err(gate)?;
     Ok(Json(json!({ "entries": state.tailcat.audit_tail(50) })))
 }
 
@@ -106,9 +110,7 @@ async fn enable(
     headers: HeaderMap,
     body: Option<Json<EnableRequest>>,
 ) -> Result<Json<serde_json::Value>> {
-    admin_auth(&headers, &state)
-        .await
-        .map_err(gate)?;
+    admin_auth(&headers, &state).await.map_err(gate)?;
     let confirmed = body
         .and_then(|Json(req)| (req.confirm).then_some(()))
         .is_some();
@@ -117,15 +119,15 @@ async fn enable(
             "Explicit confirmation required: POST {\"confirm\": true}".into(),
         ));
     }
-    let actor = admin_auth(&headers, &state)
-        .await
-        .map_err(gate)?;
+    let actor = admin_auth(&headers, &state).await.map_err(gate)?;
     let snap = state
         .tailcat
         .set_enabled(true, actor)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
-    Ok(Json(json!({ "enabled": snap.enabled, "running": snap.running, "address": snap.address, "lastError": snap.last_error })))
+    Ok(Json(
+        json!({ "enabled": snap.enabled, "running": snap.running, "address": snap.address, "lastError": snap.last_error }),
+    ))
 }
 
 /// POST /api/addons/tailcat/disable — instant kill-switch, no confirm.
@@ -133,15 +135,15 @@ async fn disable(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>> {
-    let actor = admin_auth(&headers, &state)
-        .await
-        .map_err(gate)?;
+    let actor = admin_auth(&headers, &state).await.map_err(gate)?;
     let snap = state
         .tailcat
         .set_enabled(false, actor)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
-    Ok(Json(json!({ "enabled": snap.enabled, "running": snap.running })))
+    Ok(Json(
+        json!({ "enabled": snap.enabled, "running": snap.running }),
+    ))
 }
 
 /// GET /api/addons/tailcat/keys — admin-only list.
@@ -149,10 +151,10 @@ async fn list_keys(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>> {
-    admin_auth(&headers, &state)
-        .await
-        .map_err(gate)?;
-    Ok(Json(json!({ "keys": state.tailcat.keys() })))
+    admin_auth(&headers, &state).await.map_err(gate)?;
+    Ok(Json(
+        json!({ "keys": state.tailcat.keys().iter().map(key_view).collect::<Vec<_>>() }),
+    ))
 }
 
 /// POST /api/addons/tailcat/keys — a member registers their own client key.
@@ -166,13 +168,7 @@ async fn register_key(
         .register_key(auth.user_id, req.public_key, req.label)
         .await
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
-    Ok(Json(json!({
-        "id": record.id,
-        "userId": record.user_id,
-        "publicKey": record.public_key,
-        "label": record.label,
-        "createdAt": record.created_at,
-    })))
+    Ok(Json(key_view(&record)))
 }
 
 /// DELETE /api/addons/tailcat/keys/{key_id} — admin-only revocation.
@@ -181,9 +177,7 @@ async fn revoke_key(
     headers: HeaderMap,
     Path(key_id): Path<String>,
 ) -> Result<Json<serde_json::Value>> {
-    let actor = admin_auth(&headers, &state)
-        .await
-        .map_err(gate)?;
+    let actor = admin_auth(&headers, &state).await.map_err(gate)?;
     state
         .tailcat
         .revoke_key(&key_id, actor)
@@ -211,4 +205,44 @@ async fn connect_info(
         address,
         pipe_port,
     }))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PortRequest {
+    pipe_port: u16,
+}
+async fn set_port(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<PortRequest>,
+) -> Result<Json<serde_json::Value>> {
+    let actor = admin_auth(&headers, &state).await.map_err(gate)?;
+    let snap = state
+        .tailcat
+        .set_pipe_port(req.pipe_port, actor)
+        .await
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    Ok(Json(
+        json!({"pipePort":snap.pipe_port,"serverPort":snap.server_port}),
+    ))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KeyAccessRequest {
+    allowed: bool,
+}
+async fn set_key_access(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(key_id): Path<String>,
+    Json(req): Json<KeyAccessRequest>,
+) -> Result<Json<serde_json::Value>> {
+    let actor = admin_auth(&headers, &state).await.map_err(gate)?;
+    state
+        .tailcat
+        .set_key_allowed(&key_id, req.allowed, actor)
+        .await
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    Ok(Json(json!({"allowed":req.allowed})))
 }

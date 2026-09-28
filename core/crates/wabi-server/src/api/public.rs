@@ -132,7 +132,7 @@ async fn get_launch_page(State(state): State<Arc<AppState>>) -> Result<Json<Valu
         .and_then(Value::as_str)
         .or_else(|| policy.get("description").and_then(Value::as_str))
         .filter(|s| !s.is_empty())
-        .unwrap_or("Self-hosted communication platform")
+        .unwrap_or("Self-hosted communication and collaboration")
         .to_string();
     let icon = policy
         .get("iconUrl")
@@ -274,11 +274,13 @@ pub fn build_boot_brand_json(policy: &Value) -> Option<String> {
 
 async fn get_auth_policy(State(state): State<Arc<AppState>>) -> Result<Json<Value>> {
     let path = PathBuf::from(&state.config.data_dir).join("admin_policies.json");
-    let policy = std::fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<serde_json::Map<String, Value>>(&raw).ok())
-        .and_then(|map| map.get("auth_policy").cloned())
-        .unwrap_or_else(|| serde_json::json!({
+    let policy = match std::fs::read(path) {
+        Ok(raw) => serde_json::from_slice::<serde_json::Map<String, Value>>(&raw)
+            .map_err(|_| crate::error::AppError::Internal("Admission policy is damaged".into()))?
+            .get("auth_policy").cloned(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(crate::error::AppError::Internal(format!("Cannot read admission policy: {error}"))),
+    }.unwrap_or_else(|| serde_json::json!({
             "mode": "open",
             "allowGuest": true,
             "allowRegister": true,

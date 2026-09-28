@@ -71,7 +71,7 @@
 			</div>
 
 			<div class="form-group">
-				<SignatureRow bind:draftSignatures={sprintDraftSignatures} legacySignedBy={sprintLegacySignedBy} label="Sign-off" />
+				<SignatureRow bind:draftSignatures={sprintDraftSignatures} legacySignedBy={sprintLegacySignedBy} label="Names attached" />
 			</div>
 
 			<div class="form-actions">

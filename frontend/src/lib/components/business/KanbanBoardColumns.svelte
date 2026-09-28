@@ -1,12 +1,20 @@
 <script lang="ts">
 	import { visibleKanbanColumns } from '$lib/business';
-	import type { Todo, TodoStatus } from '$lib/business/types';
+	import type { KanbanColumn, Todo, TodoStatus } from '$lib/business/types';
 	import PlannerAvatar from './PlannerAvatar.svelte';
 	import { parseAssigneeId } from '$lib/business/plannerUsers';
 	import LoreRefChips from './LoreRefChips.svelte';
 
 	export let sortedTodosByColumn: Record<TodoStatus, Todo[]>;
+	export let columns: KanbanColumn[] | null = null;
+	export let showPriorityLabel = false;
+	export let compactEmpty = false;
+	export let getColumnHint: (status: TodoStatus) => string = () => '';
 	export let dragOverColumn: TodoStatus | null = null;
+	export let getWorkingLabel: (todo: Todo) => string = () => '';
+	export let getClaimLabel: (todo: Todo) => string = () => 'Claim this task';
+	export let canClaim: (todo: Todo) => boolean = () => false;
+	export let claimTask: (todo: Todo) => void = () => {};
 	export let isReadOnly = false;
 	export let getPriorityColor: (priority: Todo['priority']) => string;
 	export let formatEstimateHours: (minutes: number | undefined) => string;
@@ -27,7 +35,7 @@
 </script>
 
 <div class="kanban-board">
-	{#each $visibleKanbanColumns as column (column.id)}
+	{#each (columns ?? $visibleKanbanColumns) as column (column.id)}
 		<!-- svelte-ignore a11y_no_static_element_interactions: kanban columns act as drag-and-drop targets -->
 		<div
 			class="kanban-column"
@@ -39,7 +47,7 @@
 			<div class="column-header" style="--col-color: {column.color}">
 				<div class="column-title">
 					<span class="column-indicator"></span>
-					<h2>{column.label}</h2>
+					<div class="column-labels"><h2>{column.label}</h2>{#if getColumnHint(column.id)}<p class="column-hint">{getColumnHint(column.id)}</p>{/if}</div>
 					<span class="column-count">{(sortedTodosByColumn[column.id] || []).length}</span>
 				</div>
 				<button class="add-card-btn" on:click={() => openAddModal(column.id)} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Add task'}>
@@ -61,6 +69,7 @@
 					>
 						<div class="card-priority" style="background-color: {getPriorityColor(todo.priority)}"></div>
 						<div class="card-content">
+							{#if showPriorityLabel}<span class="card-priority-label" style="--priority-color: {getPriorityColor(todo.priority)}">{todo.priority}</span>{/if}
 							<div class="card-title-row">
 								<h3 class="card-title">{todo.title}</h3>
 								<span class="card-edit-hint" aria-hidden="true">
@@ -73,6 +82,7 @@
 							{#if todo.description}
 								<p class="card-description">{todo.description.slice(0, 80)}{todo.description.length > 80 ? '...' : ''}</p>
 							{/if}
+							{#if canClaim(todo)}<button class="claim-card" type="button" on:click={(event) => { event.stopPropagation(); claimTask(todo); }} disabled={isReadOnly}>{getClaimLabel(todo)}</button>{/if}
 							<LoreRefChips refs={todo.loreRefs ?? []} />
 							<div class="card-meta">
 								{#if todo.estimatedMinutes}
@@ -87,7 +97,7 @@
 											src={getAssigneeAvatarUrl(aid ?? undefined)}
 											size="xs"
 										/>
-										<span>{getAssigneeName(aid ?? undefined)}</span>
+										<span>{getWorkingLabel(todo) || getAssigneeName(aid ?? undefined)}</span>
 									</span>
 								{/if}
 								{#if todo.projectId}
@@ -126,8 +136,8 @@
 								<line x1="5" y1="12" x2="19" y2="12"/>
 							</svg>
 						</span>
-						<span>Add a task</span>
-						<span class="empty-column-hint">or drop one here</span>
+						<span>{compactEmpty ? 'Add a card' : 'Add a task'}</span>
+						{#if !compactEmpty}<span class="empty-column-hint">or drop one here</span>{/if}
 					</button>
 				{/if}
 			</div>
