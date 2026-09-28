@@ -161,7 +161,8 @@ cover durable replay, clears, failure/rejection, owner receipt/observer broadcas
 and renamed display names after reconnect. Four emoji API contract cases cover uploads, rejection, concurrent conflicts
 and storage failure.
 The final static frontend build passes, and Svelte check reports **0 errors and
-76 warnings**. Scoped whitespace checks pass. No production release
+76 warnings**. The integrated Rust workspace check and full test suite pass. Scoped
+whitespace checks pass. No production release
 binary, deployment or release tag was produced by this task.
 
 Real in-app browser acceptance used an explicitly enabled local mock transport

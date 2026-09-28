@@ -600,6 +600,27 @@ async fn direct_message_reaches_unopened_recipient_and_history_uses_latest_durab
     // round trip on either the desktop or the recipient's phone.
     sender.emit("create-dm", json!({"targetUserId": format!("user-{recipient_id}")})).await;
     assert_eq!(sender.event("dm-created").await["channelId"], channel);
+
+    // New conversations require encryption or each sender's explicit choice.
+    // This delivery fixture exercises server-readable messages through that API.
+    sender.emit("message", json!({"channelId":channel,"clientMessageId":"dm-pending","text":"must not publish"})).await;
+    let (outcome, rejected) = sender.event_one_of(&["message-error", "message-accepted"]).await;
+    assert_eq!(outcome, "message-error");
+    assert_eq!(rejected["channelId"], channel);
+    assert_eq!(rejected["clientMessageId"], "dm-pending");
+    assert_eq!(rejected["code"], "e2ee_required");
+    assert_eq!(rejected["outcome"], "rejected");
+    assert!(state.wdb.list_messages_typed(&channel, 10).await.unwrap().is_empty());
+    recipient.assert_no_delivery().await;
+    for participant in [sender_id, recipient_id] {
+        let response = app.clone().oneshot(Request::builder()
+            .method(Method::POST)
+            .uri(format!("/e2ee/channels/{channel}/allow-server-readable"))
+            .header("authorization", format!("Bearer {}", token(&state, participant)))
+            .body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
     sender.emit("message", json!({"channelId":channel,"clientMessageId":"dm-first","text":"hello from first device"})).await;
     assert_eq!(sender.event("message-accepted").await["clientMessageId"], "dm-first");
     assert_eq!(recipient.event("message").await["message"]["text"], "hello from first device");
