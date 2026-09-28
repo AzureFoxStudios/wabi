@@ -992,15 +992,14 @@ mod tests {
         // Occupancy proof: with the old submit+flush_now-per-command loop,
         // 24 concurrent commands produced 24 non-empty flushes. Group commit
         // must collapse them into strictly fewer.
-        let (flushes, last_batch) =
+        let (flushes, _) =
             crate::commit_index::batcher::flush_stats::get(&commit_index_dir);
+        // Every command above completed successfully. Fewer non-empty flushes
+        // than commands proves at least one multi-entry batch; the final batch
+        // may contain a single straggler without invalidating that proof.
         assert!(
-            flushes < n as usize,
-            "group commit failed: {n} commands caused {flushes} flushes (expected < {n})"
-        );
-        assert!(
-            last_batch > 1 || flushes == 1 && last_batch >= 1,
-            "expected at least one multi-entry batch; last_batch={last_batch}"
+            flushes > 0 && flushes < n as usize,
+            "group commit failed: {n} commands caused {flushes} flushes (expected > 0 and < {n})"
         );
     }
 

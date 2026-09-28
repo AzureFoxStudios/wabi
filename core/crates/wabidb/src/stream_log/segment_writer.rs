@@ -118,6 +118,14 @@ impl SegmentWriter {
         Ok(())
     }
 
+    /// Complete Tokio's pending writes into the kernel cache without fsync.
+    /// This sets up pre-fsync test scenarios; it does not guarantee durability.
+    #[cfg(test)]
+    pub(crate) async fn drain_pending_writes_for_test(&mut self) -> Result<()> {
+        self.file.flush().await?;
+        Ok(())
+    }
+
     /// Close the writer, consuming it.
     ///
     /// Flushes remaining data to disk, then drops the file handle. The segment
