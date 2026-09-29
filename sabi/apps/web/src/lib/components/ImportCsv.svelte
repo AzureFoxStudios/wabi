@@ -66,8 +66,10 @@
   }
 
   async function pickFile(e: Event) {
-    const f = (e.currentTarget as HTMLInputElement).files?.[0];
+    const el = e.currentTarget as HTMLInputElement;
+    const f = el.files?.[0];
     if (!f) return;
+    el.value = ''; // so picking the same (fixed) file again fires change
     fileName = f.name;
     const all = parse(await f.text());
     header = (all[0] ?? []).map((h) => h.trim());
