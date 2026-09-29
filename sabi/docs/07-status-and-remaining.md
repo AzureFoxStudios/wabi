@@ -1,66 +1,91 @@
 # 07 — Status and what remains
 
-Date: 2026-09-29. This document states plainly what Sabi does today and what it does not do yet. Nothing here is certified by the Thai Revenue Department or by an auditor. The software helps a business keep correct records; it does not replace an accountant.
+Date: 2026-09-29. This page says plainly what Sabi does today and what it does not. **Nothing here is certified by the Thai Revenue Department or by an auditor.** `08-certification.md` explains the RD's software standard and how Sabi measures against it. Sabi helps a business keep correct records; it does not replace an accountant.
 
 ## 1. What works end to end
 
-The full flow runs on the demo seed and in `apps/server/test/workflow.e2e.test.ts` (over real HTTP):
+### Operations
+- **Workflow:** Customer → Job (configurable workflow) → Quotation (discount approval) → Sales order → materials reserved and shortages flagged → Purchase order (approval over a limit) → Goods receipt → Supplier bill → workshop tasks → Delivery / tax invoice → Payment with WHT → invoice *paid* → job *completed*.
+- **Every job, document, party and item is a workspace:** overview, discussion with @mentions and files, tasks, documents, fulfilment and activity. The Today view answers *what needs me, what changed, what's blocked, what money is due*.
+- **Stock:** per-location balances; a stock card with every movement, its voucher and a running balance; adjustments; **counts** (enter the counted quantity, the difference is posted with the reason); **transfers** between locations; **reorder points** on the item, which flag low stock on Today and in the item list ("Short or low only").
+- **Units:** pack unit labels are shown everywhere, in Thai on printed documents (เมตร, แผ่น, …).
 
-Customer → Job (install workflow) → Quotation (with discount approval) → issue → convert to Sales order → materials reserved, shortage shown → Purchase order (approval over 50,000) → Goods receipt (stock in) → Supplier bill → workshop tasks → delivery (stock out) → Tax invoice (VAT, AR posting) → payment with 3 % WHT certificate → invoice becomes *paid* → job *completed*. Discussion, files, tasks and the activity timeline hang off every job, document and party.
+### Documents, money and tax (Thai adapter)
+- Quotation, sales order, delivery / tax invoice (ม.86/4 content), purchase order, goods receipt, supplier bill, all printable (A4, Thai/English, Sarabun).
+- **Credit and debit notes** (ใบลดหนี้ / ใบเพิ่มหนี้). They are made only from the invoice they correct, show the original value, correct value, difference and reason, can return goods to stock, and appear in the VAT report as referenced negative or positive rows. **Supplier credits** work the same way against bills.
+- **Credit balances and refunds:** an over-credited invoice shows under Money → Credit balances and is paid back with a refund.
+- **Retention (เงินประกันผลงาน):** a percentage on the invoice. VAT is charged on the full value, the retained part is held in *Retention receivable*, "Due now" excludes it, and the retention is released later with one action.
+- **Progress billing:** partial invoices from one sales order; each new invoice opens with what is still unbilled. **Deposits:** a separate deposit invoice, deducted later with a credit note. Negative invoices are refused (ADR-14).
+- **Payments:** receipts and payment vouchers, with allocation across documents and WHT with certificate numbers. There are print layouts for **receipt / payment voucher / refund**, and a two-copy **50 ทวิ WHT certificate** when we withhold.
+- **PromptPay QR** on invoices for the balance due (EMVCo payload, drawn as SVG).
+- **Reports:** output VAT and input VAT (with notes, counterparty tax ID and branch), WHT by us and from us, stock valuation, trial balance. All export as CSV.
 
-Checks that pass on every run:
-- 24 `node --test` tests: core, Thai adapter, pack validation, and 4 HTTP end-to-end tests.
-- `tsc` strict, `svelte-check` 0/0, and a Vite build with no warnings.
-- `scripts/smoke-api.mjs` runs against a live server.
-- `sabi verify` confirms the hash chain is intact and that replaying the journal gives the same projections.
-- `scripts/browser/flow.mjs` is a UI test: a salesperson creates a customer, a job and a quotation, adds a line with the picker, saves with ⌘S and issues it.
-- The ledger balances: debits = credits. VAT and WHT reports match the documents.
+### Books and controls
+- **Books** (new navigation item):
+  - *Journal entries*: manual, balanced entries, corrected only by reversal.
+  - *General ledger*: any account and period, with opening, running and closing balances and links to source documents.
+  - *Chart of accounts*: the adapter's 32 accounts plus user-added accounts.
+  - *Corrections report*: every void, note, manual entry and reversal, with time, user, amount and reason. It is built from the journal and cannot be hidden.
+- **Corrections password:** a second password, separate from sign-in, for voids of issued documents and payments, manual entries and reversals. The browser asks for it only when the server needs it. Each use is logged.
+- **Settings → Controls & audit:** the system flowchart, a *who can do what* matrix with people per role, journal status (events, chain head, database size) and the sign-in / password-use log.
+- **Settings → Import from CSV:** customers and suppliers, and items. Headers are matched in English or Thai, a preview is shown, the import is all-or-nothing, and failing rows are reported with the reason. A template can be downloaded.
+- **Settings → Integrations:** an outgoing **webhook** (HMAC-signed) for LINE bots, n8n or spreadsheets, and a **sign-in notice** shown on the first screen.
+- **Audit and data ownership:** an append-only, hash-chained event journal, and `sabi verify` (chain + replay). Backups hold a SQLite snapshot, the journal as JSONL and the attachments. The full journal can be downloaded from Settings.
+
+### Checks that pass on every run (and in CI once `sabi/ci/github-workflow.yml` is copied to `.github/workflows/`)
+- **30 `node --test` tests**:
+  - core maths, the Thai adapter, pack validation;
+  - HTTP end-to-end: the full sales workflow, auth/CSRF, no-cookie embedding, seed consistency, backup and restore;
+  - books end-to-end: retention, notes, refunds, supplier credits, manual entries, the corrections password, the corrections report, imports, settings, the webhook, progress billing, tax codes locked to the item.
+- `tsc` strict, `svelte-check` 0 errors / 0 warnings, and a production build.
+- `scripts/smoke-api.mjs` against a live demo server, followed by `sabi verify`.
+- **Browser flows** (run by hand, not in CI):
+  - `scripts/browser/flow.mjs`: a salesperson creates a customer, a job and a quotation, then issues it.
+  - `scripts/browser/books-flow.mjs`: the owner turns on the corrections password, posts and reverses a manual entry through the password prompt, checks the corrections report, and imports a CSV with one bad row and then a fixed file.
 
 Screenshots are in `docs/screenshots/`.
 
-## 2. Known gaps: Thai compliance and tax
+## 2. Deliberately out of scope for this round
 
-| Gap | Notes |
-|---|---|
-| **PromptPay QR image** | The EMVCo payload is generated and tested, but the UI shows only the PromptPay ID and amount. It does not draw a QR yet. This needs a small QR encoder, either vendored or as a dependency. |
-| **e-Tax Invoice** | Not implemented. It is voluntary in Thailand. There are two routes: ETDA XML with a digital signature (form บอ.01), or e-Tax by Email (PDF/A-3 plus ETDA timestamp, turnover ≤ 30M, form กอ.01). This belongs in the jurisdiction adapter as an integration. |
-| **Credit / debit notes** | There are no document types for them yet. A mistake is corrected today by voiding and reissuing, which keeps the number and reverses the postings. Thai practice needs proper ใบลดหนี้/ใบเพิ่มหนี้ that reference the original invoice. |
-| **Receipt / tax-invoice-receipt print** | Payments are numbered (RC/PV) and posted, but they have no print layout. Services whose tax point is payment (ใบกำกับภาษี/ใบเสร็จรับเงิน) need a combined form. |
-| **50 ทวิ certificate for WHT we deduct** | WHT on outgoing payments is posted and reported. The certificate form itself is not printed. |
-| **Filing formats** | The ภ.พ.30 summary and the ภ.ง.ด.3/53 lists are screens and CSV exports only. Nothing is produced in the RD e-Filing upload format. |
-| **Payroll** | Not in scope yet. There is no ภ.ง.ด.1 and no social security. Employees are users; salaries can be recorded as expenses. |
-| **Abbreviated tax invoices, POS** | Not implemented. |
-| **VAT after 30 Sep 2027** | The adapter falls back to the statutory 10 % and flags `vat_rate_unconfirmed`. This needs updating when a new decree is gazetted. |
+These were decided, not forgotten. Each needs its own design, and usually an outside party.
 
-## 3. Known gaps: product
+| Item | Why it is out | What it would take |
+|---|---|---|
+| **Payroll** (ภ.ง.ด.1, social security, payslips) | A separate domain with its own legal calendar | A payroll module posting to the ledger; users are already people with roles |
+| **e-Tax Invoice** (XML + signature, or e-Tax by Email) | Needs a signing certificate and RD registration (บอ.01 / กอ.01) by the business, or an e-Tax Service Provider | An integration in the Thai adapter that sends issued documents to a provider |
+| **RD e-Filing upload formats** (ภ.พ.30, ภ.ง.ด.3/53) | The formats change, and filing is the accountant's step | Exporters in the Thai adapter; the report data already exists |
+| **Record-level permissions** ("sales see only their own customers") | Capability-per-role covers current needs | A rule layer in queries; the journal already records the actor |
+| **Multi-currency, multi-company, multi-branch seller** | One Thai company per install is the target | Per-document currency with rate snapshots; a company id on records |
+| **Encryption at rest** | Disk or volume encryption on the host is the simpler, stronger control | SQLCipher, or an encrypted filesystem, documented for operators |
+| **Docker** | The `Dockerfile` and `compose.yaml` exist but are **untested**: this sandbox has no Docker | Build and run once on a Docker host; `npm run start` on Node 22 is the tested path |
 
-- **The business pack is code.** `packages/pack-sheet-metal` is a validated TypeScript object. There is no UI for editing workflows, fields or roles, and no migration for records sitting in a state that a new pack version removes. `validatePack` catches broken references at start-up.
-- **Stock:** single location in the UI (the `stock.transfer` command exists, but there is no screen for it). There is no lot/serial tracking, no costing beyond the item's standard cost, and no stock count. The reorder point is read from a pack field key (`reorder_point`); it should become a first-class item property.
-- **Units** print their raw code, so "m2" appears instead of "m²". A unit label table is needed in the pack.
-- **Permissions** are per capability and per role (who can issue, approve or void). There are no record-level rules (such as "sales see only their own customers") and no field-level hiding.
-- **Automation** covers workflow auto-transitions and actions (create a task, notify a role) and the settled/paid transitions. There is no general rule builder and no time-based triggers such as overdue reminders.
-- **Notifications** are in-app only (the Today view plus live updates over SSE). There is no LINE, e-mail or push.
-- **Documents:** one currency (THB), one company, one seller branch. There are no recurring invoices, deposits or progress billing (งวดงาน), and no retention (เงินประกันผลงาน). The last two are common in construction and should come next.
-- **Import:** there is no Excel or Express/FlowAccount import. Export exists: a full journal as JSONL, CSV reports, and a SQLite backup.
-- **Search** uses SQL `LIKE`, which is fine for thousands of records. FTS5 would be the next step.
-- **Mobile:** the layout is responsive, but it has not been designed for installers on a phone. There is no PWA or offline mode.
-- **Browser tests** are ad-hoc scripts (`scripts/browser/`) and do not run in CI. Visual review was done with screenshots.
-- **Docker:** a `Dockerfile` and `compose.yaml` are provided, but they are **untested** because this sandbox has no Docker. `npm run start` on Node 22 is the tested path.
+## 3. Known gaps (smaller, but real)
+
+- **Business packs are code.** A pack is a validated TypeScript object; Settings → Business setup shows it read-only. There is no editor yet, and no migration for records in a state that a new pack version removes.
+- **Stock:** no lot or serial tracking; costing uses the item's standard cost (no FIFO or average). There is no printed ม.87 stock-and-raw-material report with quantities and values by day (the stock card has the data).
+- **Combined tax invoice / receipt** (for services whose tax point is payment) and **abbreviated tax invoices / POS** are not document types yet. A pack can add the first without core changes once its print layout exists.
+- **Automation:** workflow auto-transitions, actions (create a task, notify a role) and paid/settled transitions exist. There are no time-based triggers (overdue reminders) and no rule builder.
+- **Notifications:** in-app (Today + live updates) and the outgoing webhook. There is no built-in e-mail or LINE sender.
+- **Import:** parties and items. Opening balances are entered as a manual journal entry and opening stock as adjustments or a count; there is no CSV importer for either.
+- **Search** uses SQL `LIKE`, which is fine for thousands of records; FTS5 would be next.
+- **Mobile:** the layout is responsive but not designed for installers on a phone. There is no PWA or offline mode.
+- **Browser tests** do not run in CI (they need a headless Chromium; the scripts are in `scripts/browser/`).
 - **Accessibility:** keyboard navigation (⌘K, g-shortcuts, j/k, ⌘S) and labelled controls are in place. No formal audit has been done.
+- **VAT after 30 Sep 2027:** the adapter falls back to the statutory 10 % and flags `vat_rate_unconfirmed`. Update it when a new decree is gazetted.
 
 ## 4. Security notes
 
-- Sessions are an HttpOnly cookie (token stored as SHA-256) with a Bearer fallback. Over HTTPS the cookie is `SameSite=None; Secure; Partitioned`, so the app also works inside an iframe on another site. When cookies are blocked completely, the web client keeps the token for the tab (`sessionStorage`) and sends it as `Authorization: Bearer`. GET-only browser loads (EventSource, images, the export download) may carry `?access_token=`. **That query parameter is refused for every mutating request.**
-- CSRF: every mutation must be `application/json`, which forces a CORS preflight that the server never grants, and must pass an Origin/Host check.
-- Login is throttled (10 failures per IP per minute). Passwords use scrypt.
-- The journal is append-only (SQLite triggers) and hash-chained. This makes edits *detectable*, but it does not prevent someone with file access from rewriting the whole database. Back up off-machine.
+- **Sessions:** an HttpOnly cookie (token stored as SHA-256), `SameSite=None; Secure; Partitioned` over HTTPS, so the app also works inside an iframe on another site.
+  - When cookies are blocked completely, the client keeps the token for the tab and sends it as a header. If storage is blocked too, a manual reload signs you out.
+  - `?access_token=` is accepted only on GET.
+- **CSRF:** every mutation must be `application/json` and pass an Origin/Host check.
+- **Login:** throttled (10 failures per IP per minute), scrypt passwords, and every sign-in and failure logged.
+- **The journal** is append-only (SQLite triggers) and hash-chained. This makes edits *detectable*; it does not stop someone with file access from rewriting the whole database. Back up off-machine and keep the backups' chain heads.
 
-## 5. Suggested next steps (in order)
+## 5. Suggested next steps
 
-1. Credit/debit notes, plus receipt and tax-invoice-receipt print layouts.
-2. Deposits, progress billing and retention for construction jobs.
-3. PromptPay QR rendering and 50 ทวิ print.
-4. Pack editor, starting with read-only views of the pack and then editing of fields, states and roles.
-5. Import from spreadsheets (parties, items, opening balances, opening stock).
-6. LINE notifications through an integration module.
-7. e-Tax Invoice by Email through the Thai adapter.
+1. The ม.87 stock report layout and the RD printed layouts for the VAT reports (the remaining items in `08-certification.md` §5).
+2. A pack editor: fields, states, roles and document types, with migrations.
+3. Overdue reminders (time-based automation) sent through the webhook or a LINE module.
+4. e-Tax Invoice by Email through a provider integration in the Thai adapter.
+5. Payroll as a module.

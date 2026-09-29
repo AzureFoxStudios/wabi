@@ -1,0 +1,43 @@
+# To enable: copy this file to .github/workflows/sabi.yml (needs a push with 'workflows' permission).
+name: sabi
+
+on:
+  push:
+    paths: ['sabi/**', '.github/workflows/sabi.yml']
+  pull_request:
+    paths: ['sabi/**', '.github/workflows/sabi.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sabi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13'
+          cache: npm
+          cache-dependency-path: sabi/package-lock.json
+      - run: npm ci
+      - name: Type-check (server, packages)
+        run: npx tsc --noEmit -p tsconfig.json
+      - name: Tests (core, Thai adapter, pack, HTTP end-to-end)
+        run: npm test
+      - name: Svelte check
+        run: npm run check -w @sabi/web
+      - name: Build web
+        run: npm run build
+      - name: Smoke test a live demo server, then verify its journal
+        run: |
+          DATA="$RUNNER_TEMP/sabi-demo"
+          SABI_DATA="$DATA" PORT=8080 node --disable-warning=ExperimentalWarning apps/server/src/main.ts --demo &
+          SERVER=$!
+          for i in $(seq 1 30); do curl -sf http://localhost:8080/api/session >/dev/null && break; sleep 1; done
+          node scripts/smoke-api.mjs http://localhost:8080
+          kill $SERVER
+          node --disable-warning=ExperimentalWarning apps/server/src/cli.ts verify --data "$DATA"

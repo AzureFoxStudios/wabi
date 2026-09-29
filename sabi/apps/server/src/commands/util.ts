@@ -186,7 +186,7 @@ export function normalizeLines(s: Scope, raw: unknown, direction: 'sales' | 'pur
     }
     const defaultPrice = item ? (direction === 'sales' ? item.salePrice : item.costPrice) : 0;
     const unitPrice = Math.round(optNum(l.unitPrice, `Line ${idx + 1} price`) ?? defaultPrice);
-    const taxCode = optStr(l.taxCode, 'taxCode') ?? item?.taxCode ?? s.jur.defaultTaxCode;
+    const taxCode = item && s.pack.taxCodeFromItem ? item.taxCode : optStr(l.taxCode, 'taxCode') ?? item?.taxCode ?? s.jur.defaultTaxCode;
     if (!s.jur.taxCodes.some((t) => t.code === taxCode)) fail('invalid', `Line ${idx + 1}: unknown tax code ${taxCode}`);
     const description = optStr(l.description, 'description', 1000) ?? item?.name ?? '';
     if (!description) fail('invalid', `Line ${idx + 1}: description or item is required`);

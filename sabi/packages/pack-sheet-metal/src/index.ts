@@ -481,6 +481,7 @@ export const sheetMetalPack: Pack = {
     { id: 'cheque', label: L('Cheque', 'เช็ค') },
     { id: 'card', label: L('Card', 'บัตร') },
   ],
+  taxCodeFromItem: true,
 };
 
 export default sheetMetalPack;

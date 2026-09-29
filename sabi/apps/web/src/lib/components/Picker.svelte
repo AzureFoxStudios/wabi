@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { unit } from '$lib/format.ts';
   /** Search-as-you-type combobox for parties / items. */
   import { get } from '$lib/api.ts';
   import { T } from '$lib/state.svelte.ts';
@@ -60,7 +61,7 @@
           <button type="button" class:sel={i === sel} onmousedown={(e) => (e.preventDefault(), choose(r))}>
             {#if kind === 'items'}
               <span class="mono">{r.sku}</span> <span class="grow ellipsis">{r.name}</span>
-              {#if r.stock}<span class="tiny muted">{r.stock.available} {r.uom}</span>{/if}
+              {#if r.stock}<span class="tiny muted">{r.stock.available} {unit(r.uom)}</span>{/if}
             {:else}
               <span class="grow ellipsis">{r.name}</span><span class="tiny muted">{r.roles?.join(', ')}</span>
             {/if}

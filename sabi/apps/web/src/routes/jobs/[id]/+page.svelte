@@ -4,7 +4,7 @@
   import { get, post, command, authUrl } from '$lib/api.ts';
   import { app, T, toast, docTypeDef, roleLabel, can } from '$lib/state.svelte.ts';
   import { resource } from '$lib/resource.svelte.ts';
-  import { L, money, moneyShort, date, dueText, userName, initials, qty, ago, fmtAddress } from '$lib/format.ts';
+  import { L, money, moneyShort, date, dueText, userName, initials, qty, ago, fmtAddress, unit } from '$lib/format.ts';
   import StatePill from '$components/StatePill.svelte';
   import Pipeline from '$components/Pipeline.svelte';
   import NextStep from '$components/NextStep.svelte';
@@ -154,7 +154,7 @@
                 {#each shortLines as l (l.lineId)}
                   <a href="#fulfilment" onclick={(e) => { e.preventDefault(); setTab('fulfilment'); }}>
                     <span class="pill tone-danger">{T('Short', 'ของขาด')}</span>
-                    <span class="grow">{l.description}: {T('need', 'ต้องใช้')} {qty(l.remaining)} {l.uom} · {T('in stock', 'มีในคลัง')} {qty(l.onHand)} · <strong>{T('short', 'ขาด')} {qty(-l.available)}</strong>{#if l.incoming} · {T('on order', 'สั่งแล้ว')} {qty(l.incoming)}{#if l.incoming >= -l.available} <span class="text-success">({T('covers it', 'พอแล้ว')})</span>{/if}{/if}</span>
+                    <span class="grow">{l.description}: {T('need', 'ต้องใช้')} {qty(l.remaining)} {unit(l.uom)} · {T('in stock', 'มีในคลัง')} {qty(l.onHand)} · <strong>{T('short', 'ขาด')} {qty(-l.available)}</strong>{#if l.incoming} · {T('on order', 'สั่งแล้ว')} {qty(l.incoming)}{#if l.incoming >= -l.available} <span class="text-success">({T('covers it', 'พอแล้ว')})</span>{/if}{/if}</span>
                   </a>
                 {/each}
               </ul>
@@ -221,7 +221,7 @@
                   {#each w.fulfilment as l (l.lineId)}
                     <tr>
                       <td>{l.description}<br /><span class="tiny muted">{l.documentNumber}</span></td>
-                      <td class="num">{qty(l.ordered)} {l.uom}</td>
+                      <td class="num">{qty(l.ordered)} {unit(l.uom)}</td>
                       <td class="num">{qty(l.delivered)}</td>
                       <td class="num">{qty(l.remaining)}</td>
                       <td class="num">{l.kind === 'stock' ? qty(l.onHand) : '—'}</td>
@@ -242,7 +242,7 @@
                 <thead><tr><th>{T('When', 'เมื่อ')}</th><th>{T('Item', 'สินค้า')}</th><th class="num">{T('Qty', 'จำนวน')}</th><th>{T('Movement', 'การเคลื่อนไหว')}</th><th class="num">{T('Cost', 'ต้นทุน')}</th></tr></thead>
                 <tbody>
                   {#each w.materials as m (m.id)}
-                    <tr><td class="nowrap">{date(m.at)}</td><td><span class="mono small">{m.sku}</span> {m.name}{#if m.note}<br /><span class="tiny muted">{m.note}</span>{/if}</td><td class="num">{qty(m.qty)} {m.uom}</td>
+                    <tr><td class="nowrap">{date(m.at)}</td><td><span class="mono small">{m.sku}</span> {m.name}{#if m.note}<br /><span class="tiny muted">{m.note}</span>{/if}</td><td class="num">{qty(m.qty)} {unit(m.uom)}</td>
                       <td class="small">{m.to === 'consumed' ? T('Used on job', 'เบิกใช้') : m.to === 'customer' ? T('Delivered', 'ส่งลูกค้า') : `${m.from} → ${m.to}`}</td><td class="num">{money(m.cost)}</td></tr>
                   {/each}
                 </tbody>

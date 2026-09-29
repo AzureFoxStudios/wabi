@@ -193,6 +193,11 @@ export interface Pack {
   defaultLocation: string;
   units: { id: string; label: Label }[];
   paymentMethods: { id: string; label: Label; cash?: boolean }[];
+  /**
+   * Lines for a catalogue item always carry the item's tax code (users cannot switch a
+   * VAT-able item to exempt on one document). Supports Thai RD software standard cl. 13(ข).
+   */
+  taxCodeFromItem?: boolean;
 }
 
 // ─────────────────────────────── Records ────────────────────────────────

@@ -4,7 +4,7 @@
   import { get } from '$lib/api.ts';
   import { app, T } from '$lib/state.svelte.ts';
   import { resource } from '$lib/resource.svelte.ts';
-  import { L, money, qty, date } from '$lib/format.ts';
+  import { L, money, qty, date, unit } from '$lib/format.ts';
 
   const tabs = [
     { id: 'vat-sales', label: T('Output VAT', 'รายงานภาษีขาย'), hint: T('Sales tax invoices issued in the month — basis for the monthly VAT return (ภ.พ.30).', 'ใบกำกับภาษีขายที่ออกในเดือน ใช้ประกอบการยื่น ภ.พ.30') },
@@ -103,7 +103,7 @@
         <thead><tr><th>{T('Code', 'รหัส')}</th><th>{T('Name', 'ชื่อ')}</th><th class="num">{T('On hand', 'คงเหลือ')}</th><th class="num">{T('Reserved', 'จอง')}</th><th class="num">{T('Incoming', 'กำลังเข้า')}</th><th class="num">{T('Available', 'ใช้ได้')}</th><th class="num">{T('Cost', 'ทุน')}</th><th class="num">{T('Value', 'มูลค่า')}</th></tr></thead>
         <tbody>
           {#each data as x (x.id)}
-            <tr class="clickable" onclick={() => goto(`/items/${x.id}`)}><td class="mono small">{x.sku}</td><td>{x.name}</td><td class="num">{qty(x.onHand)} <span class="tiny muted">{x.uom}</span></td><td class="num muted">{qty(x.reserved)}</td><td class="num muted">{qty(x.incoming)}</td><td class="num" class:text-danger={x.available < 0}>{qty(x.available)}</td><td class="num">{money(x.costPrice)}</td><td class="num">{money(x.value)}</td></tr>
+            <tr class="clickable" onclick={() => goto(`/items/${x.id}`)}><td class="mono small">{x.sku}</td><td>{x.name}</td><td class="num">{qty(x.onHand)} <span class="tiny muted">{unit(x.uom)}</span></td><td class="num muted">{qty(x.reserved)}</td><td class="num muted">{qty(x.incoming)}</td><td class="num" class:text-danger={x.available < 0}>{qty(x.available)}</td><td class="num">{money(x.costPrice)}</td><td class="num">{money(x.value)}</td></tr>
           {/each}
         </tbody>
         <tfoot><tr><td colspan="7"><strong>{T('Total value', 'มูลค่ารวม')}</strong></td><td class="num"><strong>{money(sum(data, 'value'))}</strong></td></tr></tfoot>

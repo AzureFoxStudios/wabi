@@ -7,7 +7,7 @@
    */
   import { computeTotals, measuredQty } from '@sabi/core';
   import { app, T } from '$lib/state.svelte.ts';
-  import { L, money, qty as fq } from '$lib/format.ts';
+  import { L, money, qty as fq, unit } from '$lib/format.ts';
   import Picker from './Picker.svelte';
 
   let {
@@ -106,10 +106,10 @@
             {/if}
           </td>
           <td class="num c-q">{#if readonly}{fq(l.qty)}{:else}<input class="num" type="number" step="any" min="0" bind:value={l.qty} readonly={!!(tpl && l.measures && Object.values(l.measures).every((v) => v !== undefined && v !== ''))} />{/if}</td>
-          <td class="c-u">{#if readonly}{l.uom}{:else}<input bind:value={l.uom} />{/if}</td>
+          <td class="c-u">{#if readonly}{unit(l.uom)}{:else}<input bind:value={l.uom} />{/if}</td>
           <td class="num c-p">{#if readonly}{money(l.unitPrice)}{:else}<input class="num" inputmode="decimal" value={baht(l.unitPrice)} onchange={(e) => setPrice(l, (e.target as HTMLInputElement).value)} />{/if}</td>
           <td class="num c-d">{#if readonly}{l.discountPct || ''}{:else}<input class="num" type="number" step="any" min="0" max="100" bind:value={l.discountPct} />{/if}</td>
-          <td class="c-t">{#if readonly}<span class="small">{l.taxCode}</span>{:else}<select bind:value={l.taxCode}>{#each taxCodes as t (t.code)}<option value={t.code}>{t.code}</option>{/each}</select>{/if}</td>
+          <td class="c-t">{#if readonly || (l.itemId && app.boot.pack.taxCodeFromItem)}<span class="small" title={readonly ? undefined : T('Set on the item', 'กำหนดที่สินค้า')}>{l.taxCode}</span>{:else}<select bind:value={l.taxCode}>{#each taxCodes as t (t.code)}<option value={t.code}>{t.code}</option>{/each}</select>{/if}</td>
           <td class="num c-a">{money(lineTotal(l))}</td>
           {#if !readonly}<td class="c-x"><button class="btn ghost sm" onclick={() => lines.splice(i, 1)} aria-label={T('Remove line', 'ลบรายการ')}>✕</button></td>{/if}
         </tr>

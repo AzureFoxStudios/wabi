@@ -117,7 +117,7 @@
         {#if v.reservedBy.length}
           <section class="section">
             <header><h2>{T('Promised to customers', 'จองให้ลูกค้า')}</h2></header>
-            <ul class="plain">{#each v.reservedBy as rb (rb.docId)}<li><a class="link" href={`/documents/${rb.docId}`}>{rb.docNumber}</a>{#if rb.jobId}{' '}· <a class="link" href={`/jobs/${rb.jobId}`}>{rb.jobNumber}</a>{/if} · {qty(rb.qty)} {it.uom}</li>{/each}</ul>
+            <ul class="plain">{#each v.reservedBy as rb (rb.docId)}<li><a class="link" href={`/documents/${rb.docId}`}>{rb.docNumber}</a>{#if rb.jobId}{' '}· <a class="link" href={`/jobs/${rb.jobId}`}>{rb.jobNumber}</a>{/if} · {qty(rb.qty)} {unit(it.uom)}</li>{/each}</ul>
           </section>
         {/if}
         {#if v.stock}

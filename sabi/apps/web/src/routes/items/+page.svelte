@@ -3,7 +3,7 @@
   import { get } from '$lib/api.ts';
   import { T } from '$lib/state.svelte.ts';
   import { resource } from '$lib/resource.svelte.ts';
-  import { money, qty } from '$lib/format.ts';
+  import { money, qty, unit } from '$lib/format.ts';
 
   let kind = $state('');
   let search = $state('');
@@ -35,7 +35,7 @@
         <tr class="clickable" class:inactive={!i.active} tabindex="0" data-nav onclick={() => goto(`/items/${i.id}`)} onkeydown={(e) => e.key === 'Enter' && goto(`/items/${i.id}`)}>
           <td class="mono small">{i.sku}</td>
           <td>{i.name}</td>
-          <td class="num">{money(i.salePrice)}<span class="tiny muted">/{i.uom}</span></td>
+          <td class="num">{money(i.salePrice)}<span class="tiny muted">/{unit(i.uom)}</span></td>
           {#if i.stock}
             <td class="num">{qty(i.stock.onHand)}</td>
             <td class="num muted">{i.stock.reserved ? qty(i.stock.reserved) : ''}</td>

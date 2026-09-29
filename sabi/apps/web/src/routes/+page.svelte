@@ -2,7 +2,7 @@
   import { get, post } from '$lib/api.ts';
   import { app, T, roleLabel, docTypeDef } from '$lib/state.svelte.ts';
   import { resource } from '$lib/resource.svelte.ts';
-  import { L, money, date, dueText, ago, userName, initials, qty } from '$lib/format.ts';
+  import { L, money, date, dueText, ago, userName, initials, qty, unit } from '$lib/format.ts';
   import StatePill from '$components/StatePill.svelte';
   import Missing from '$components/Missing.svelte';
   import Timeline from '$components/Timeline.svelte';
@@ -170,12 +170,12 @@
                   <span class="grow">
                     <span class="mono muted">{s.sku}</span> {s.name}<br />
                     <span class="small muted">
-                      {T('On hand', 'คงเหลือ')} {qty(s.onHand)} · {T('promised', 'จองแล้ว')} {qty(s.reserved)}{#if s.incoming} · {T('on order', 'กำลังมา')} {qty(s.incoming)}{/if} {s.uom}
+                      {T('On hand', 'คงเหลือ')} {qty(s.onHand)} · {T('promised', 'จองแล้ว')} {qty(s.reserved)}{#if s.incoming} · {T('on order', 'กำลังมา')} {qty(s.incoming)}{/if} {unit(s.uom)}
                       {#if s.jobs.length} · {s.jobs.map((j: any) => j.number).join(', ')}{/if}
                     </span>
                   </span>
                   {#if s.short}
-                    <span class="pill {s.covered ? 'tone-warning' : 'tone-danger'}">{s.covered ? T('Short, PO covers it', 'ขาด แต่สั่งแล้ว') : T(`Short ${qty(-s.available)} ${s.uom}`, `ขาด ${qty(-s.available)} ${s.uom}`)}</span>
+                    <span class="pill {s.covered ? 'tone-warning' : 'tone-danger'}">{s.covered ? T('Short, PO covers it', 'ขาด แต่สั่งแล้ว') : T(`Short ${qty(-s.available)} ${unit(s.uom)}`, `ขาด ${qty(-s.available)} ${unit(s.uom)}`)}</span>
                   {:else}
                     <span class="pill tone-neutral">{T('Below reorder point', 'ต่ำกว่าจุดสั่งซื้อ')}</span>
                   {/if}

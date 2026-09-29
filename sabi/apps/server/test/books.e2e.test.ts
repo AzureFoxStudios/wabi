@@ -236,3 +236,37 @@ test('manual journal entries, custom accounts, adjustment report, imports, setti
   assert.ok(sys.events.some((e) => e.type === 'ledger.posted'));
   assert.ok(verify(app.db).ok);
 });
+
+test('progress billing: partial invoices against one order; a deposit cannot be a negative invoice', () => {
+  const { app, owner, x, cust, svc } = world();
+  // A lump-sum job: one line, qty 1, 100,000.00.
+  const so = x(owner, 'document.create', { type: 'sales_order', partyId: cust, lines: [{ itemId: svc, qty: 1, unitPrice: 10_000_000 }] }).id;
+  x(owner, 'document.transition', { id: so, transition: 'confirm' });
+  // Stage 1: bill 30 % of the line.
+  const iv1 = x(owner, 'document.create', { type: 'tax_invoice', sourceId: so }).id;
+  const l1 = view(app, iv1).document.lines[0];
+  x(owner, 'document.update', { id: iv1, lines: [{ ...l1, qty: 0.3 }] });
+  x(owner, 'document.transition', { id: iv1, transition: 'issue' });
+  assert.equal(view(app, iv1).document.totals.net, 3_000_000);
+  // Stage 2 starts from what is still open on the order.
+  const iv2 = x(owner, 'document.create', { type: 'tax_invoice', sourceId: so }).id;
+  assert.equal(view(app, iv2).document.lines[0].qty, 0.7, 'the next invoice opens with the remaining 70 %');
+  x(owner, 'document.transition', { id: iv2, transition: 'issue' });
+  // Fully billed: nothing open any more.
+  expectError(() => x(owner, 'document.create', { type: 'tax_invoice', sourceId: so }), 'nothing_open');
+
+  // "Less deposit" as a negative invoice is refused at issue; deposits are corrected with a credit note instead.
+  const neg = x(owner, 'document.create', { type: 'tax_invoice', partyId: cust, lines: [{ itemId: svc, qty: -1, unitPrice: 500_000 }] }).id;
+  expectError(() => x(owner, 'document.transition', { id: neg, transition: 'issue' }), 'invalid');
+  assert.ok(verify(app.db).ok);
+});
+
+test('item lines keep the item tax code when the pack says so (RD standard cl. 13(ข))', () => {
+  const { app, owner, x, cust, sheet } = world();
+  assert.equal(app.ctx.pack.taxCodeFromItem, true);
+  const other = app.ctx.jur.taxCodes.find((t) => t.code !== app.ctx.jur.defaultTaxCode)!.code;
+  const d = x(owner, 'document.create', { type: 'quotation', partyId: cust, lines: [{ itemId: sheet, qty: 1, taxCode: other }, { description: 'Free text', qty: 1, unitPrice: 100, taxCode: other }] }).id;
+  const lines = view(app, d).document.lines;
+  assert.equal(lines[0].taxCode, app.ctx.jur.defaultTaxCode, 'catalogue item line uses the item tax code');
+  assert.equal(lines[1].taxCode, other, 'a free-text line keeps the chosen code');
+});
