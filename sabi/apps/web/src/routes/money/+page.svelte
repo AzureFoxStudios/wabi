@@ -20,6 +20,7 @@
   let busy = $state(false);
   let seededFrom = '';
 
+  let pendingDoc = $state('');
   $effect(() => {
     const sp = page.url.searchParams;
     const key = sp.toString();
@@ -35,8 +36,14 @@
       if (doc) pendingDoc = doc;
     }
   });
-  let pendingDoc = '';
-  const openDocs = $derived(v && pay && partyId ? (pay === 'in' ? v.receivables : v.payables).filter((d: any) => d.partyId === partyId) : []);
+  // Documents this payment can settle: what the party owes (or we owe), plus over-credited documents
+  // where money flows back the other way (refunds). `open` is always the positive amount that can move.
+  const openDocs = $derived(v && pay && partyId
+    ? [
+        ...(pay === 'in' ? v.receivables : v.payables).filter((d: any) => d.partyId === partyId).map((d: any) => ({ ...d, open: d.balance, refund: false })),
+        ...v.credits.filter((d: any) => d.partyId === partyId && d.money === (pay === 'in' ? 'payable' : 'receivable')).map((d: any) => ({ ...d, open: -d.balance, refund: true })),
+      ]
+    : []);
   // Pre-select: the document we came from, or everything if the party only has one open document.
   $effect(() => {
     if (!openDocs.length) return;
@@ -44,7 +51,7 @@
     let changed = false;
     for (const d of openDocs) {
       if (next[d.id]) continue;
-      next[d.id] = { on: pendingDoc ? d.id === pendingDoc : openDocs.length === 1, amount: (d.balance / 100).toFixed(2) };
+      next[d.id] = { on: pendingDoc ? d.id === pendingDoc : openDocs.length === 1, amount: (d.open / 100).toFixed(2) };
       changed = true;
     }
     if (changed) {
@@ -53,6 +60,7 @@
     }
   });
   const selected = $derived(openDocs.filter((d: any) => alloc[d.id]?.on));
+  const refunding = $derived(selected.length > 0 && selected.every((d: any) => d.refund));
   const allocated = $derived(selected.reduce((a: number, d: any) => a + Math.round(Number(alloc[d.id].amount || 0) * 100), 0));
   const whtMinor = $derived(Math.round(Number(wht.amount || 0) * 100));
   const received = $derived(allocated - whtMinor);
@@ -60,7 +68,7 @@
   // Withholding the customer is expected to deduct (from the jurisdiction adapter), for selected sales documents.
   async function suggestWht() {
     if (pay !== 'in') return;
-    const sel = openDocs.filter((d: any) => alloc[d.id]?.on);
+    const sel = openDocs.filter((d: any) => alloc[d.id]?.on && !d.refund);
     if (!sel.length) return (wht.amount = '');
     const views = await Promise.all(sel.map((d: any) => get(`documents/${d.id}`)));
     let total = 0;
@@ -83,7 +91,7 @@
     try {
       const res = await command('payment.record', {
         direction: pay, partyId, method: form.method, date: form.date, reference: form.reference || undefined,
-        amount: received, whtAmount: whtMinor, whtCategory: whtMinor ? wht.category || undefined : undefined, whtCertificate: wht.certificate || undefined,
+        amount: refunding ? allocated : received, whtAmount: refunding ? 0 : whtMinor, whtCategory: whtMinor ? wht.category || undefined : undefined, whtCertificate: wht.certificate || undefined,
         allocations: selected.map((d: any) => ({ documentId: d.id, amount: Math.round(Number(alloc[d.id].amount) * 100) })),
       });
       toast(`${res.number} ${T('recorded', 'บันทึกแล้ว')}`, 'success');
@@ -135,11 +143,11 @@
 
   {#if pay}
     <section class="panel paybox">
-      <div class="spread"><h2>{pay === 'in' ? T('Payment received', 'รับชำระเงิน') : T('Payment to supplier', 'จ่ายเงินผู้ขาย')}</h2><button class="btn ghost sm" onclick={close}>{T('Close', 'ปิด')} <kbd>Esc</kbd></button></div>
+      <div class="spread"><h2>{refunding ? (pay === 'out' ? T('Refund to customer', 'คืนเงินลูกค้า') : T('Refund from supplier', 'รับเงินคืนจากผู้ขาย')) : pay === 'in' ? T('Payment received', 'รับชำระเงิน') : T('Payment to supplier', 'จ่ายเงินผู้ขาย')}</h2><button class="btn ghost sm" onclick={close}>{T('Close', 'ปิด')} <kbd>Esc</kbd></button></div>
       <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
       <form class="stack" onsubmit={submit} onkeydown={(e) => e.key === 'Escape' && close()}>
         <div class="g3">
-          <Picker kind="parties" role={pay === 'in' ? 'customer' : 'supplier'} bind:value={partyId} display={partyName} onpick={(p) => { partyName = p.name; alloc = {}; pendingDoc = ''; }} label={pay === 'in' ? T('From customer', 'จากลูกค้า') : T('To supplier', 'ถึงผู้ขาย')} autofocus={!partyId} />
+          <Picker kind="parties" role={pendingDoc ? undefined : pay === 'in' ? 'customer' : 'supplier'} bind:value={partyId} display={partyName} onpick={(p) => { partyName = p.name; alloc = {}; pendingDoc = ''; }} label={pay === 'in' ? T('From customer', 'จากลูกค้า') : T('To supplier', 'ถึงผู้ขาย')} autofocus={!partyId} />
           <label class="field"><span>{T('Date', 'วันที่')}</span><input type="date" bind:value={form.date} /></label>
           <label class="field"><span>{T('Method', 'วิธีชำระ')}</span><select bind:value={form.method}>{#each app.boot.pack.paymentMethods as m (m.id)}<option value={m.id}>{L(m.label)}</option>{/each}</select></label>
         </div>
@@ -152,9 +160,9 @@
                   {#if alloc[d.id]}
                     <tr>
                       <td><input type="checkbox" checked={alloc[d.id].on} onchange={() => toggle(d.id)} aria-label={d.number} /></td>
-                      <td>{L(docTypeDef(d.type)?.label)} <span class="mono small">{d.number}</span></td>
-                      <td class="small" class:text-danger={d.overdue}>{date(d.dueDate)}</td>
-                      <td class="num">{money(d.balance)}</td>
+                      <td>{L(docTypeDef(d.type)?.label)} <span class="mono small">{d.number}</span>{#if d.refund} <span class="pill tone-warning">{T('refund', 'คืนเงิน')}</span>{/if}</td>
+                      <td class="small" class:text-danger={d.overdue}>{d.refund ? '' : date(d.dueDate)}</td>
+                      <td class="num">{money(d.open)}</td>
                       <td class="num"><input class="num amt" type="number" step="0.01" min="0" bind:value={alloc[d.id].amount} disabled={!alloc[d.id].on} /></td>
                     </tr>
                   {/if}
@@ -165,7 +173,7 @@
             <p class="muted small">{T('Nothing is outstanding for this party.', 'ไม่มียอดค้างสำหรับรายนี้')}</p>
           {/if}
         {/if}
-        {#if selected.length}
+        {#if selected.length && !refunding}
           <div class="g3">
             <label class="field"><span>{pay === 'in' ? T('Tax withheld by customer ฿', 'ลูกค้าหัก ณ ที่จ่าย ฿') : T('Tax we withhold ฿', 'เราหัก ณ ที่จ่าย ฿')}</span><input class="num" type="number" step="0.01" min="0" bind:value={wht.amount} /></label>
             {#if whtMinor}
@@ -173,11 +181,13 @@
               <label class="field"><span>{T('Certificate no. (50 ทวิ)', 'เลขที่หนังสือรับรอง 50 ทวิ')}</span><input bind:value={wht.certificate} /></label>
             {/if}
           </div>
+        {/if}
+        {#if selected.length}
           <label class="field"><span>{T('Reference (bank ref, cheque no.)', 'อ้างอิง (เลขอ้างอิงธนาคาร เลขเช็ค)')}</span><input bind:value={form.reference} /></label>
           <div class="sum num">
             <span>{T('Settles', 'ตัดหนี้')} ฿{money(allocated)}</span>
-            {#if whtMinor}<span>− {T('withheld', 'หัก ณ ที่จ่าย')} ฿{money(whtMinor)}</span>{/if}
-            <strong>= {pay === 'in' ? T('Money received', 'เงินที่ได้รับ') : T('Money paid', 'เงินที่จ่าย')} ฿{money(received)}</strong>
+            {#if whtMinor && !refunding}<span>− {T('withheld', 'หัก ณ ที่จ่าย')} ฿{money(whtMinor)}</span>{/if}
+            <strong>= {pay === 'in' ? T('Money received', 'เงินที่ได้รับ') : T('Money paid', 'เงินที่จ่าย')} ฿{money(refunding ? allocated : received)}</strong>
           </div>
           <div class="row"><button class="btn primary" disabled={busy || received < 0}>{T('Record', 'บันทึก')}</button></div>
         {/if}
@@ -229,6 +239,41 @@
       </section>
     </div>
 
+    {#if v.credits.length || v.retentionHeld.length}
+      <div class="cols">
+        <section class="section">
+          <header><h2>{T('Credit balances', 'ยอดเครดิตคงเหลือ')}</h2></header>
+          <p class="tiny muted">{T('A credit note larger than what was still owed. Refund it, or keep it and settle the next invoice against it.', 'ใบลดหนี้ที่มากกว่ายอดค้าง คืนเงิน หรือเก็บไว้หักกับใบแจ้งหนี้ถัดไป')}</p>
+          <table class="data">
+            <tbody>
+              {#each v.credits as d (d.id)}
+                <tr class="clickable" onclick={() => goto(`/documents/${d.id}`)}>
+                  <td>{d.partyName}<br /><span class="tiny muted mono">{d.number}</span></td>
+                  <td class="small">{d.money === 'receivable' ? T('we owe the customer', 'เราต้องคืนลูกค้า') : T('supplier owes us', 'ผู้ขายต้องคืนเรา')}</td>
+                  <td class="num">{money(-d.balance)}</td>
+                  {#if can('money.write')}<td><a class="btn ghost sm" href={`/money?pay=${d.money === 'receivable' ? 'out' : 'in'}&partyId=${d.partyId}&doc=${d.id}`} onclick={(e) => e.stopPropagation()}>{T('Refund', 'คืนเงิน')}</a></td>{/if}
+                </tr>
+              {:else}<tr><td class="muted small">{T('None.', 'ไม่มี')}</td></tr>{/each}
+            </tbody>
+          </table>
+        </section>
+        <section class="section">
+          <header><h2>{T('Retention held', 'เงินประกันผลงานที่ถูกหัก')}</h2><span class="num">฿{money(v.retentionHeld.reduce((a: number, d: any) => a + d.retentionHeld, 0))}</span></header>
+          <table class="data">
+            <tbody>
+              {#each v.retentionHeld as d (d.id)}
+                <tr class="clickable" onclick={() => goto(`/documents/${d.id}`)}>
+                  <td>{d.partyName}<br /><span class="tiny muted mono">{d.number}</span></td>
+                  <td class="small muted">{date(d.date)}</td>
+                  <td class="num">{money(d.retentionHeld)}</td>
+                </tr>
+              {:else}<tr><td class="muted small">{T('None.', 'ไม่มี')}</td></tr>{/each}
+            </tbody>
+          </table>
+        </section>
+      </div>
+    {/if}
+
     <section class="section">
       <header><h2>{T('Recent payments', 'การชำระล่าสุด')}</h2></header>
       <table class="data">
@@ -236,7 +281,7 @@
         <tbody>
           {#each v.payments as p (p.id)}
             <tr class:void={p.voided}>
-              <td class="mono small">{p.number}</td>
+              <td class="mono small"><a class="link" href={`/payments/${p.id}/print`} target="_blank">{p.number}</a>{#if p.allocations.every((a: any) => a.refund)}<br /><span class="tiny muted">{T('refund', 'คืนเงิน')}</span>{/if}</td>
               <td class="small nowrap">{date(p.date)}</td>
               <td>{p.partyName}</td>
               <td class="small">{method(p.method)}{#if p.reference}<br /><span class="tiny muted">{p.reference}</span>{/if}</td>

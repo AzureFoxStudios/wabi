@@ -311,16 +311,18 @@ export function createHttpServer(app: App, opts: ServerOptions = {}) {
         if (seg[2] === 'wht') return send(res, 200, Q.whtReport(ctx, month));
         if (seg[2] === 'stock') return send(res, 200, Q.stockReport(ctx));
         if (seg[2] === 'trial-balance') return send(res, 200, Q.trialBalance(ctx, q.from, q.to));
+        if (seg[2] === 'stock-card') {
+          // Stock people need the card as much as accountants do.
+          const c = B.stockCard(ctx, q.item ?? '', q.from || undefined, q.to || undefined);
+          return c ? send(res, 200, c) : notFound();
+        }
         canBooks();
         if (seg[2] === 'ledger') {
           const l = B.ledgerDetail(ctx, q.account ?? '', q.from || undefined, q.to || undefined);
           return l ? send(res, 200, l) : notFound();
         }
         if (seg[2] === 'adjustments') return send(res, 200, B.adjustmentsReport(ctx, q.from || undefined, q.to || undefined));
-        if (seg[2] === 'stock-card') {
-          const c = B.stockCard(ctx, q.item ?? '', q.from || undefined, q.to || undefined);
-          return c ? send(res, 200, c) : notFound();
-        }
+
         return notFound();
       }
       case 'activity':

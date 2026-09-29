@@ -55,6 +55,8 @@
     </div>
   </form>
 
+  {#if session?.notice}<p class="notice small">{session.notice}</p>{/if}
+
   {#if session?.demo}
     <div class="demo">
       <p class="eyebrow">{T('Demo workspace — sign in as', 'เวิร์กสเปซตัวอย่าง — เข้าใช้ในฐานะ')}</p>
@@ -78,4 +80,5 @@
   .langs button.on { color: var(--accent); font-weight: 500; }
   .demo { width: min(560px, 100%); border-top: 1px solid var(--line); padding-top: 18px; display: flex; flex-direction: column; gap: 10px; }
   .accounts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .notice { width: min(560px, 100%); color: var(--ink-2); white-space: pre-wrap; border-left: 3px solid var(--line-strong); padding-left: 12px; }
 </style>

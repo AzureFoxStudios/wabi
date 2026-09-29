@@ -54,6 +54,7 @@ export function connectStream() {
 
 let toastId = 0;
 export function toast(text: string, tone: Toast['tone'] = 'info', action?: Toast['action']) {
+  if (text === 'Cancelled') return; // the user backed out of a password prompt; nothing to report
   const id = ++toastId;
   app.toasts.push({ id, text, tone, action });
   setTimeout(() => (app.toasts = app.toasts.filter((t) => t.id !== id)), tone === 'danger' ? 7000 : 3800);

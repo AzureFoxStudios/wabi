@@ -87,3 +87,11 @@ export function userName(id: string | null | undefined): string {
 
 export const fmtAddress = (a: any): string =>
   a ? [a.line1, a.line2, a.district, a.province, a.postcode].filter(Boolean).join(', ') : '';
+
+/** Unit of measure label from the pack ("m" → "เมตร"); falls back to the stored code. */
+export const unit = (uom: string | null | undefined, locale?: 'th' | 'en'): string => {
+  if (!uom) return '';
+  const u = app.boot?.pack.units?.find((x: { id: string }) => x.id === uom);
+  if (!u) return uom;
+  return (locale ?? app.locale) === 'th' ? u.label.th ?? u.label.en : u.label.en;
+};

@@ -67,10 +67,32 @@ export async function post<T = any>(path: string, body: unknown = {}): Promise<T
   return r;
 }
 
+/*
+ * Corrections (voiding issued documents or payments, manual journal entries) may need a separate
+ * password. The server answers `corrections_password`; we ask for it once, keep it in memory for a
+ * few minutes and retry the same command — so no screen has to know which actions are corrections.
+ */
+type Asker = (message: string) => Promise<string | null>;
+let askCorrections: Asker | null = null;
+let correctionsCache: { pw: string; until: number } | null = null;
+export function setCorrectionsAsker(fn: Asker | null) {
+  askCorrections = fn;
+}
+
 /** Run a domain command. Returns the handler result. */
 export async function command<T = any>(name: string, input: Record<string, unknown>): Promise<T> {
-  const r = await post<{ result: T }>(`commands/${name}`, input);
-  return r.result;
+  const pw = correctionsCache && correctionsCache.until > Date.now() ? correctionsCache.pw : undefined;
+  try {
+    const r = await post<{ result: T }>(`commands/${name}`, pw ? { ...input, correctionsPassword: pw } : input);
+    return r.result;
+  } catch (e) {
+    if (!(e instanceof ApiError) || e.code !== 'corrections_password' || !askCorrections) throw e;
+    correctionsCache = null;
+    const given = await askCorrections(pw ? 'wrong' : 'needed');
+    if (!given) throw new ApiError(0, 'cancelled', 'Cancelled');
+    correctionsCache = { pw: given, until: Date.now() + 5 * 60_000 };
+    return command<T>(name, input);
+  }
 }
 
 export async function upload(subjectType: string, subjectId: string, file: File) {

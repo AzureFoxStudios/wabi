@@ -3,7 +3,7 @@
   import { get, command } from '$lib/api.ts';
   import { app, T, toast, can, docTypeDef } from '$lib/state.svelte.ts';
   import { resource } from '$lib/resource.svelte.ts';
-  import { L, money, qty, date, ago, userName } from '$lib/format.ts';
+  import { L, money, qty, date, ago, userName, unit } from '$lib/format.ts';
   import ItemForm from '$components/ItemForm.svelte';
   import Timeline from '$components/Timeline.svelte';
 
@@ -31,6 +31,58 @@
       busy = false;
     }
   }
+  // Running balance per movement (moves arrive newest first, so walk back from today's on-hand).
+  const isIn = (id: string) => internal.some((l: any) => l.id === id);
+  const balances = $derived.by(() => {
+    if (!v?.stock) return [];
+    let bal = v.stock.onHand;
+    return v.moves.map((m: any) => {
+      const after = bal;
+      bal -= (isIn(m.to) ? m.qty : 0) - (isIn(m.from) ? m.qty : 0);
+      return after;
+    });
+  });
+
+  // Count: enter what is on the shelf; the difference becomes an adjustment with a clear reason.
+  let count = $state({ qty: '', location: app.boot.pack.defaultLocation });
+  async function recordCount(e: Event) {
+    e.preventDefault();
+    const counted = Number(count.qty);
+    const book = v.stock.byLocation[count.location] ?? 0;
+    const diff = Math.round((counted - book) * 1000) / 1000;
+    if (diff === 0) {
+      toast(T('Count matches the books', 'ยอดนับตรงกับบัญชี'), 'success');
+      count.qty = '';
+      return;
+    }
+    busy = true;
+    try {
+      await command('stock.adjust', { itemId: it.id, qty: diff, reason: `${T('Stock count', 'ตรวจนับสต็อก')}: ${counted} (${T('book', 'ตามบัญชี')} ${book})`, location: count.location });
+      count.qty = '';
+      toast(`${T('Count recorded', 'บันทึกการตรวจนับแล้ว')} (${diff > 0 ? '+' : ''}${diff})`, 'success');
+      r.reload();
+    } catch (err) {
+      toast((err as Error).message, 'danger');
+    } finally {
+      busy = false;
+    }
+  }
+  let tr = $state({ qty: '', from: internal[0]?.id ?? '', to: internal[1]?.id ?? '', note: '' });
+  async function transfer(e: Event) {
+    e.preventDefault();
+    busy = true;
+    try {
+      await command('stock.transfer', { itemId: it.id, qty: Number(tr.qty), from: tr.from, to: tr.to, note: tr.note || undefined });
+      tr = { ...tr, qty: '', note: '' };
+      toast(T('Moved', 'ย้ายแล้ว'), 'success');
+      r.reload();
+    } catch (err) {
+      toast((err as Error).message, 'danger');
+    } finally {
+      busy = false;
+    }
+  }
+
   async function toggleActive() {
     await command('item.update', { id: it.id, active: !it.active });
     r.reload();
@@ -45,16 +97,17 @@
     <header class="head">
       <div class="grow">
         <h1>{it.name}</h1>
-        <p class="sub"><span class="mono">{it.sku}</span> · ฿{money(it.salePrice)}/{it.uom} {#if !it.active}<span class="pill tone-neutral">{T('Archived', 'เก็บแล้ว')}</span>{/if}</p>
+        <p class="sub"><span class="mono">{it.sku}</span> · ฿{money(it.salePrice)}/{unit(it.uom)} {#if !it.active}<span class="pill tone-neutral">{T('Archived', 'เก็บแล้ว')}</span>{/if}</p>
       </div>
     </header>
 
     {#if v.stock}
       <div class="strip num">
-        <div><span class="small muted">{T('On hand', 'คงเหลือ')}</span><strong>{qty(v.stock.onHand)} <small>{it.uom}</small></strong></div>
+        <div><span class="small muted">{T('On hand', 'คงเหลือ')}</span><strong>{qty(v.stock.onHand)} <small>{unit(it.uom)}</small></strong></div>
         <div><span class="small muted">{T('Reserved for orders', 'จองให้คำสั่งซื้อ')}</span><strong>{qty(v.stock.reserved)}</strong></div>
         <div><span class="small muted">{T('Incoming (open POs)', 'กำลังเข้า (PO ค้าง)')}</span><strong>{qty(v.stock.incoming)}</strong></div>
-        <div><span class="small muted">{T('Available', 'ใช้ได้')}</span><strong class:text-danger={v.stock.available < 0}>{qty(v.stock.available)}</strong></div>
+        <div><span class="small muted">{T('Available', 'ใช้ได้')}</span><strong class:text-danger={v.stock.available < 0} class:text-warning={it.reorderPoint != null && v.stock.available >= 0 && v.stock.available < it.reorderPoint}>{qty(v.stock.available)}</strong>
+          {#if it.reorderPoint != null}<span class="tiny muted">{v.stock.available < it.reorderPoint ? T('below reorder point', 'ต่ำกว่าจุดสั่งซื้อ') : T('reorder at', 'สั่งเมื่อต่ำกว่า')} {qty(it.reorderPoint)}</span>{/if}</div>
         {#if internal.length > 1}<div class="small muted">{#each internal as l (l.id)}{L(l.name)}: {qty(v.stock.byLocation[l.id] ?? 0)}<br />{/each}</div>{/if}
       </div>
     {/if}
@@ -71,9 +124,9 @@
           <section class="section">
             <header><h2>{T('Stock movements', 'ความเคลื่อนไหวสต็อก')}</h2></header>
             <table class="data">
-              <thead><tr><th>{T('When', 'เมื่อ')}</th><th>{T('From → to', 'จาก → ไป')}</th><th>{T('Reference', 'อ้างอิง')}</th><th class="num">{T('Qty', 'จำนวน')}</th></tr></thead>
+              <thead><tr><th>{T('When', 'เมื่อ')}</th><th>{T('From → to', 'จาก → ไป')}</th><th>{T('Reference', 'อ้างอิง')}</th><th class="num">{T('Qty', 'จำนวน')}</th><th class="num">{T('Balance', 'คงเหลือ')}</th></tr></thead>
               <tbody>
-                {#each v.moves as m (m.id)}
+                {#each v.moves as m, mi (m.id)}
                   {@const inbound = internal.some((l: any) => l.id === m.to) && !internal.some((l: any) => l.id === m.from)}
                   {@const outbound = internal.some((l: any) => l.id === m.from) && !internal.some((l: any) => l.id === m.to)}
                   <tr>
@@ -81,8 +134,9 @@
                     <td class="small">{locLabel(m.from)} → {locLabel(m.to)}{#if m.note}<br /><span class="tiny muted">{m.note}</span>{/if}</td>
                     <td class="small">{#if m.documentId}<a class="link" href={`/documents/${m.documentId}`}>{L(docTypeDef(m.docType)?.label)} {m.docNumber}</a>{/if}{#if m.jobId} <a class="link" href={`/jobs/${m.jobId}`}>{m.jobNumber}</a>{/if}</td>
                     <td class="num" class:text-success={inbound} class:text-danger={outbound}>{inbound ? '+' : outbound ? '−' : ''}{qty(m.qty)}</td>
+                    <td class="num muted">{qty(balances[mi])}</td>
                   </tr>
-                {:else}<tr><td colspan="4" class="muted small">{T('No movements yet.', 'ยังไม่มีความเคลื่อนไหว')}</td></tr>{/each}
+                {:else}<tr><td colspan="5" class="muted small">{T('No movements yet.', 'ยังไม่มีความเคลื่อนไหว')}</td></tr>{/each}
               </tbody>
             </table>
           </section>
@@ -96,6 +150,24 @@
                 <input class="grow" bind:value={adj.reason} placeholder={T('Reason (required)', 'เหตุผล (จำเป็น)')} required />
                 <button class="btn" disabled={busy || !adj.qty || !adj.reason}>{T('Adjust', 'ปรับยอด')}</button>
               </form>
+              <h3 class="sub3">{T('Count', 'ตรวจนับ')}</h3>
+              <form class="row wrap adj" onsubmit={recordCount}>
+                <input type="number" step="any" min="0" bind:value={count.qty} placeholder={T('Counted on the shelf', 'จำนวนที่นับได้')} required class="num" style="width:170px" />
+                {#if internal.length > 1}<select bind:value={count.location} style="width:auto">{#each internal as l (l.id)}<option value={l.id}>{L(l.name)}</option>{/each}</select>{/if}
+                <span class="small muted">{T('Books say', 'ตามบัญชี')} {qty(v.stock.byLocation[count.location] ?? 0)}</span>
+                <button class="btn" disabled={busy || count.qty === ''}>{T('Record count', 'บันทึกการนับ')}</button>
+              </form>
+              {#if internal.length > 1}
+                <h3 class="sub3">{T('Move between locations', 'ย้ายระหว่างคลัง')}</h3>
+                <form class="row wrap adj" onsubmit={transfer}>
+                  <input type="number" step="any" min="0" bind:value={tr.qty} placeholder={T('Qty', 'จำนวน')} required class="num" style="width:110px" />
+                  <select bind:value={tr.from} style="width:auto" aria-label={T('From', 'จาก')}>{#each internal as l (l.id)}<option value={l.id}>{L(l.name)}</option>{/each}</select>
+                  <span>→</span>
+                  <select bind:value={tr.to} style="width:auto" aria-label={T('To', 'ไป')}>{#each internal as l (l.id)}<option value={l.id}>{L(l.name)}</option>{/each}</select>
+                  <input class="grow" bind:value={tr.note} placeholder={T('Note', 'หมายเหตุ')} />
+                  <button class="btn" disabled={busy || !tr.qty || tr.from === tr.to}>{T('Move', 'ย้าย')}</button>
+                </form>
+              {/if}
             </section>
           {/if}
         {/if}
@@ -108,6 +180,7 @@
           {:else}
             <dl class="facts">
               <dt>{T('Cost', 'ต้นทุน')}</dt><dd>฿{money(it.costPrice)}</dd>
+              {#if it.reorderPoint != null}<dt>{T('Reorder point', 'จุดสั่งซื้อ')}</dt><dd>{qty(it.reorderPoint)} {unit(it.uom)}</dd>{/if}
               <dt>{T('Tax', 'ภาษี')}</dt><dd>{L(app.boot.jurisdiction.taxCodes.find((t: any) => t.code === it.taxCode)?.label) || it.taxCode}</dd>
               {#if it.whtCategory}<dt>{T('Withholding', 'หัก ณ ที่จ่าย')}</dt><dd>{L(app.boot.jurisdiction.whtCategories.find((w: any) => w.id === it.whtCategory)?.label)}</dd>{/if}
               {#if it.measureTemplate}<dt>{T('Measured by', 'คำนวณจาก')}</dt><dd>{L(app.boot.pack.measureTemplates.find((m: any) => m.id === it.measureTemplate)?.label)}</dd>{/if}
@@ -141,6 +214,7 @@
   .facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0 0 10px; }
   .facts dt { color: var(--muted); }
   .facts dd { margin: 0; }
+  .sub3 { font-size: 0.95rem; margin: 18px 0 6px; }
   .plain { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 5px; }
   @media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } }
 </style>

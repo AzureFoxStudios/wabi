@@ -1,6 +1,7 @@
 <script lang="ts">
   /** A4 document layout used for on-screen preview and printing. Bilingual Thai/English headings. */
-  import { money, qty, fmtAddress } from '$lib/format.ts';
+  import { money, qty, fmtAddress, unit } from '$lib/format.ts';
+  import Qr from './Qr.svelte';
 
   let { v, copy = 'original' }: { v: any; copy?: 'original' | 'copy' } = $props();
   const d = $derived(v.document);
@@ -47,6 +48,19 @@
     </dl>
   </section>
 
+  {#if v.noteBasis}
+    <section class="basis">
+      <p class="lbl">{dt.adjusts === 'credit' ? 'ลดหนี้จาก' : 'เพิ่มหนี้จาก'} / {dt.adjusts === 'credit' ? 'Credit against' : 'Debit against'}</p>
+      <dl>
+        <dt>ใบกำกับภาษีเดิม / Original tax invoice</dt><dd class="mono">{v.noteBasis.sourceNumber} · {thDate(v.noteBasis.sourceDate)}</dd>
+        <dt>มูลค่าตามใบกำกับภาษีเดิม / Original value</dt><dd>{money(v.noteBasis.original)}</dd>
+        <dt>มูลค่าที่ถูกต้อง / Correct value</dt><dd>{money(v.noteBasis.corrected)}</dd>
+        <dt>ผลต่าง / Difference</dt><dd>{money(v.noteBasis.difference)}</dd>
+      </dl>
+      {#if d.fields?.reason}<p><span class="lbl">เหตุผล / Reason:</span> {d.fields.reason}</p>{/if}
+    </section>
+  {/if}
+
   <table class="items">
     <thead>
       <tr><th class="n">ลำดับ<br /><span>No.</span></th><th>รายการ<br /><span>Description</span></th><th class="r">จำนวน<br /><span>Qty</span></th><th>หน่วย<br /><span>Unit</span></th><th class="r">ราคา/หน่วย<br /><span>Unit price</span></th><th class="r">ส่วนลด<br /><span>Disc.</span></th><th class="r">จำนวนเงิน<br /><span>Amount</span></th></tr>
@@ -57,7 +71,7 @@
           <td class="n">{i + 1}</td>
           <td>{l.description}{#if l.measures && tpl(l)}<br /><span class="sub">{Object.values(l.measures).join(' × ')}</span>{/if}</td>
           <td class="r">{qty(l.qty)}</td>
-          <td>{l.uom}</td>
+          <td>{unit(l.uom, 'th')}</td>
           <td class="r">{money(l.unitPrice)}</td>
           <td class="r">{l.discountPct ? `${l.discountPct}%` : ''}</td>
           <td class="r">{money(Math.round(l.qty * l.unitPrice * (1 - (l.discountPct || 0) / 100)))}</td>
@@ -72,13 +86,22 @@
       <p><strong>({v.words.th})</strong></p>
       <p class="en">{v.words.en}</p>
       {#if d.notes}<p class="lbl notes-l">หมายเหตุ / Notes</p><p class="notes">{d.notes}</p>{/if}
-      {#if v.promptpay && v.seller.fields?.promptpay_id}<p class="pp">ชำระผ่านพร้อมเพย์ / PromptPay: <span class="mono">{v.seller.fields.promptpay_id}</span></p>{/if}
+      {#if v.promptpay && v.seller.fields?.promptpay_id}
+        <div class="pp">
+          <Qr text={v.promptpay} size={112} label="PromptPay" />
+          <p>สแกนชำระผ่านพร้อมเพย์<br />Scan to pay (PromptPay)<br /><span class="mono">{v.seller.fields.promptpay_id}</span><br /><strong>฿{money(v.balance)}</strong></p>
+        </div>
+      {/if}
     </div>
     <dl class="totals">
       {#if d.totals.discount}<dt>ส่วนลด / Discount</dt><dd>{money(d.totals.discount)}</dd>{/if}
       <dt>มูลค่าสินค้า/บริการ / Net</dt><dd>{money(d.totals.net)}</dd>
       {#each d.totals.taxes as t (t.code)}<dt>ภาษีมูลค่าเพิ่ม / VAT {Math.round(t.rate * 100)}%</dt><dd>{money(t.amount)}</dd>{/each}
       <dt class="g">รวมทั้งสิ้น / Total</dt><dd class="g">{money(d.totals.total)}</dd>
+      {#if v.retention}
+        <dt>หักเงินประกันผลงาน / Less retention</dt><dd>{money(-v.retention.amount)}</dd>
+        <dt><strong>ยอดชำระงวดนี้ / Due now</strong></dt><dd><strong>{money(d.totals.total - v.retention.amount)}</strong></dd>
+      {/if}
     </dl>
   </section>
 
@@ -119,7 +142,11 @@
   .sum { display: grid; grid-template-columns: 1fr 260px; gap: 20px; margin-top: 4px; }
   .notes-l { margin-top: 10px; }
   .notes { white-space: pre-wrap; }
-  .pp { margin-top: 10px; }
+  .pp { margin-top: 12px; display: flex; gap: 12px; align-items: center; font-size: 12px; }
+  .basis { border: 1px solid #bbb; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+  .basis dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; margin: 0; }
+  .basis dt { color: #444; }
+  .basis dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
   .totals { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; margin: 0; }
   .totals dt { color: #333; }
   .totals dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }

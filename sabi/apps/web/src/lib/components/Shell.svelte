@@ -7,6 +7,7 @@
   import { isTyping, moveListFocus } from '$lib/keys.ts';
   import Palette from './Palette.svelte';
   import CreateMenu from './CreateMenu.svelte';
+  import CorrectionsPrompt from './CorrectionsPrompt.svelte';
 
   let { children } = $props();
 
@@ -17,6 +18,7 @@
     { href: '/parties', label: T('Customers & suppliers', 'ลูกค้าและผู้ขาย'), key: 'p' },
     { href: '/items', label: T('Items & stock', 'สินค้าและสต็อก'), key: 'i' },
     ...(can('money.write') || can('reports.read') ? [{ href: '/money', label: T('Money', 'การเงิน'), key: 'm' }] : []),
+    ...(can('ledger.write') || can('reports.read') ? [{ href: '/books', label: T('Books', 'สมุดบัญชี'), key: 'b' }] : []),
     ...(can('reports.read') ? [{ href: '/reports', label: T('Tax & reports', 'ภาษีและรายงาน'), key: 'r' }] : []),
   ]);
   const active = (href: string) => (href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(href));
@@ -124,6 +126,7 @@
 </div>
 
 {#if app.paletteOpen}<Palette />{/if}
+<CorrectionsPrompt />
 {#if app.createOpen}<CreateMenu />{/if}
 
 {#if app.helpOpen}

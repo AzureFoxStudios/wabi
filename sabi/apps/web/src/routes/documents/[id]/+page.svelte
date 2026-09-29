@@ -71,6 +71,20 @@
     }
   }
 
+  async function releaseRetention() {
+    try {
+      await command('document.releaseRetention', { id: d.id });
+      toast(T('Retention released — it is now due', 'คืนเงินประกันผลงานแล้ว ถึงกำหนดชำระ'), 'success');
+      r.reload();
+    } catch (e) {
+      toast((e as Error).message, 'danger');
+    }
+  }
+  const normalConversions = $derived(v ? v.conversions.filter((c: any) => !c.adjusts && c.open > 0) : []);
+  const noteConversions = $derived(v ? v.conversions.filter((c: any) => c.adjusts && c.open > 0) : []);
+  const payDir = $derived(v?.money === 'payable' ? 'out' : 'in');
+  const refundDir = $derived(v?.money === 'payable' ? 'in' : 'out');
+
   async function convert(type: string) {
     try {
       const res = await command('document.create', { type, sourceId: d.id });
@@ -125,9 +139,14 @@
         <strong>฿{money(d.totals.total)}</strong>
         {#if v.balance !== null}
           {@const due = dueText(d.dueDate)}
-          <span class="small" class:text-success={v.balance === 0} class:text-danger={v.balance > 0 && due.tone === 'danger'}>
-            {v.balance === 0 ? T('Paid in full', 'ชำระครบแล้ว') : `${T('Balance', 'คงค้าง')} ฿${money(v.balance)}${due.tone === 'danger' ? ' · ' + due.text : ''}`}
+          <span class="small" class:text-success={v.balance === 0} class:text-danger={v.balance > 0 && due.tone === 'danger'} class:text-warning={v.balance < 0}>
+            {#if v.balance === 0}{T('Settled', 'ชำระครบแล้ว')}
+            {:else if v.balance < 0}{v.money === 'payable' ? T('Supplier owes us', 'ผู้ขายต้องคืนเรา') : T('We owe the customer', 'เราต้องคืนลูกค้า')} ฿{money(-v.balance)}
+            {:else}{T('Balance', 'คงค้าง')} ฿{money(v.balance)}{due.tone === 'danger' ? ' · ' + due.text : ''}{/if}
           </span>
+        {/if}
+        {#if v.retention}
+          <span class="tiny muted">{v.retention.releasedAt ? T('Retention released', 'คืนเงินประกันแล้ว') : T('Retention held', 'เงินประกันผลงานถูกหัก')} ฿{money(v.retention.amount)}</span>
         {/if}
       </div>
     </header>
@@ -175,7 +194,19 @@
               <label class="field"><span>{T('Prices', 'ราคา')}</span>
                 <select bind:value={edit.priceMode}><option value="exclusive">{T('Excl. VAT', 'ไม่รวม VAT')}</option><option value="inclusive">{T('Incl. VAT', 'รวม VAT')}</option></select></label>
               {#each v.docType.fields ?? [] as f (f.key)}
-                <label class="field"><span>{L(f.label)}</span><input bind:value={edit.fields[f.key]} /></label>
+                {#if f.type === 'boolean'}
+                  <label class="check"><input type="checkbox" bind:checked={edit.fields[f.key]} /> {L(f.label)}</label>
+                {:else if f.type === 'longtext'}
+                  <label class="field span2"><span>{L(f.label)}</span><textarea rows="2" bind:value={edit.fields[f.key]}></textarea></label>
+                {:else if f.type === 'number'}
+                  <label class="field"><span>{L(f.label)}{f.unit ? ` (${f.unit})` : ''}</span><input type="number" step="any" min="0" value={edit.fields[f.key] ?? ''} oninput={(e) => { const x = (e.currentTarget as HTMLInputElement).value; edit.fields[f.key] = x === '' ? null : Number(x); }} /></label>
+                {:else if f.type === 'select'}
+                  <label class="field"><span>{L(f.label)}</span><select bind:value={edit.fields[f.key]}><option value={null}>—</option>{#each f.options ?? [] as o (o.value)}<option value={o.value}>{L(o.label)}</option>{/each}</select></label>
+                {:else if f.type === 'date'}
+                  <label class="field"><span>{L(f.label)}</span><input type="date" bind:value={edit.fields[f.key]} /></label>
+                {:else}
+                  <label class="field"><span>{L(f.label)}</span><input bind:value={edit.fields[f.key]} /></label>
+                {/if}
               {/each}
             </div>
           </section>
@@ -194,13 +225,23 @@
           <section class="section">
             <div class="row printbar">
               <a class="btn" href={`/documents/${d.id}/print`} target="_blank">{T('Print / PDF', 'พิมพ์/PDF')}</a>
-              {#each v.conversions.filter((c: any) => c.open > 0) as c (c.type)}
+              {#each normalConversions as c (c.type)}
                 <button class="btn" onclick={() => convert(c.type)}>→ {L(c.label)}</button>
               {/each}
               {#if v.balance > 0 && can('money.write')}
-                <a class="btn primary" href={`/money?pay=${v.money === 'payable' ? 'out' : 'in'}&partyId=${d.partyId}&doc=${d.id}`}>{v.money === 'payable' ? T('Record payment to supplier', 'บันทึกจ่ายเงิน') : T('Record payment received', 'บันทึกรับชำระ')}</a>
+                <a class="btn primary" href={`/money?pay=${payDir}&partyId=${d.partyId}&doc=${d.id}`}>{v.money === 'payable' ? T('Record payment to supplier', 'บันทึกจ่ายเงิน') : T('Record payment received', 'บันทึกรับชำระ')}</a>
+              {/if}
+              {#if v.balance < 0 && can('money.write')}
+                <a class="btn primary" href={`/money?pay=${refundDir}&partyId=${d.partyId}&doc=${d.id}`}>{v.money === 'payable' ? T('Record refund from supplier', 'บันทึกรับเงินคืนจากผู้ขาย') : T('Refund the customer', 'คืนเงินลูกค้า')}</a>
+              {/if}
+              {#if v.retention && !v.retention.releasedAt && can('money.write') && d.phase !== 'void'}
+                <button class="btn" onclick={releaseRetention}>{T('Release retention', 'คืนเงินประกันผลงาน')} ฿{money(v.retention.amount)}</button>
               {/if}
             </div>
+            {#if noteConversions.length && can('documents.write')}
+              <p class="small muted correct">{T('Something wrong after issue? Documents are never edited — correct with', 'หากต้องแก้ไขหลังออกเอกสาร ไม่แก้ไขเอกสารเดิม ให้ออก')}
+                {#each noteConversions as c, i (c.type)}{i ? ` ${T('or', 'หรือ')} ` : ' '}<button class="linkbtn" onclick={() => convert(c.type)}>{L(c.label)}</button>{/each}.</p>
+            {/if}
             {#if d.voidReason}<p class="callout danger small">{T('Voided', 'ยกเลิกแล้ว')}: {d.voidReason}</p>{/if}
             <div class="paperwrap"><Paper {v} /></div>
           </section>
@@ -213,6 +254,17 @@
       </div>
 
       <aside class="side">
+        {#if v.noteBasis}
+          <section>
+            <h3 class="eyebrow">{v.docType.adjusts === 'credit' ? T('Reduces', 'ลดหนี้จาก') : T('Adds to', 'เพิ่มหนี้จาก')}</h3>
+            <p><a class="link" href={`/documents/${v.source.id}`}>{v.noteBasis.sourceNumber}</a> <span class="tiny muted">{date(v.noteBasis.sourceDate)}</span></p>
+            <dl class="basis num small">
+              <dt>{T('Original value', 'มูลค่าเดิม')}</dt><dd>{money(v.noteBasis.original)}</dd>
+              <dt>{T('Correct value', 'มูลค่าที่ถูกต้อง')}</dt><dd>{money(v.noteBasis.corrected)}</dd>
+              <dt>{T('Difference', 'ผลต่าง')}</dt><dd>{money(v.noteBasis.difference)}</dd>
+            </dl>
+          </section>
+        {/if}
         {#if v.children.length || v.source}
           <section>
             <h3 class="eyebrow">{T('Related documents', 'เอกสารที่เกี่ยวข้อง')}</h3>
@@ -228,7 +280,7 @@
             <h3 class="eyebrow">{T('Payments', 'การชำระเงิน')}</h3>
             <ul class="rel">
               {#each v.payments as p (p.id)}
-                <li class:void={p.voided}><span class="mono small">{p.number}</span> · {date(p.date)} · <span class="num">฿{money(p.allocated)}</span>{#if p.whtAmount}<br /><span class="tiny muted">{T('incl. WHT', 'รวมภาษีหัก ณ ที่จ่าย')} ฿{money(p.whtAmount)}{#if p.whtCertificate} · 50ทวิ {p.whtCertificate}{/if}</span>{/if}</li>
+                <li class:void={p.voided}><a class="mono small link" href={`/payments/${p.id}/print`} target="_blank">{p.number}</a> · {date(p.date)} · <span class="num">{p.refund ? '−' : ''}฿{money(p.allocated)}</span>{#if p.refund} <span class="tiny muted">{T('refund', 'คืนเงิน')}</span>{/if}{#if p.whtAmount}<br /><span class="tiny muted">{T('incl. WHT', 'รวมภาษีหัก ณ ที่จ่าย')} ฿{money(p.whtAmount)}{#if p.whtCertificate} · 50ทวิ {p.whtCertificate}{/if}</span>{/if}</li>
               {:else}<li class="small muted">{T('None yet', 'ยังไม่มี')}</li>{/each}
             </ul>
             {#if v.wht.length && v.balance > 0}<p class="tiny muted">{T('Expected withholding', 'คาดว่าจะถูกหัก ณ ที่จ่าย')}: {v.wht.map((w: any) => `${L(w.label)} ฿${money(w.amount)}`).join(', ')}</p>{/if}
@@ -276,6 +328,13 @@
   .printbar { margin: 0 0 16px; }
   .paperwrap { background: var(--sunken); border-radius: var(--radius); padding: 20px; overflow-x: auto; }
   .void { opacity: 0.5; text-decoration: line-through; }
+  .check { display: flex; align-items: center; gap: 8px; align-self: end; padding-bottom: 8px; font-size: 0.9rem; }
+  .span2 { grid-column: span 2; }
+  .correct { margin: -6px 0 14px; }
+  .linkbtn { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; }
+  .basis { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; margin: 6px 0 0; }
+  .basis dt { color: var(--muted); }
+  .basis dd { margin: 0; text-align: right; }
   .section :global(.callout) { margin-top: 10px; }
   @media (max-width: 1050px) {
     .layout { grid-template-columns: 1fr; }

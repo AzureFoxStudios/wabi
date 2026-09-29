@@ -43,6 +43,7 @@ export function paymentView(ctx: Ctx, id: string) {
     payer: p.direction === 'out' ? us : them, payee: p.direction === 'out' ? them : us,
     form: p.direction === 'out' ? (party?.kind === 'person' ? 'PND3' : 'PND53') : null,
     weIssue: p.direction === 'out',
+    words: jur.amountInWords(p.whtAmount, 'th'),
   } : null;
   const createdBy = one<{ name: string }>(db, 'SELECT name FROM users WHERE id = ?', p.createdBy)?.name ?? '';
   return {

@@ -144,7 +144,7 @@ export function shortages(db: DatabaseSync, pack: Pack) {
     const item = getItem(db, itemId);
     if (!item || item.kind !== 'stock') continue;
     const available = round3(p.onHand - p.reserved);
-    const reorder = typeof item.fields.reorder_point === 'number' ? item.fields.reorder_point : undefined;
+    const reorder = item.reorderPoint;
     const short = available < 0;
     const low = !short && reorder !== undefined && available < reorder;
     if (!short && !low) continue;
@@ -420,7 +420,12 @@ export function documentView(ctx: Ctx, id: string, viewer: Viewer) {
     document: doc, docType: dt, state: st, pipeline: pipeline(dt.workflow), party, job: doc.jobId ? getJob(db, doc.jobId) : null,
     source: source ? { id: source.id, number: source.number, type: source.type } : null,
     children: children.map((c) => docSummary(pack, c, settledAmount(db, c.id))),
-    conversions: dt.convertsTo.map((t) => ({ type: t, label: docType(pack, t).label, open: doc.phase === 'issued' || doc.phase === 'closed' ? openLines(doc, children, t).length : 0 })),
+    conversions: dt.convertsTo.map((t) => {
+      const target = docType(pack, t);
+      // Notes correct value, so they stay available for as long as the document is live.
+      const open = !live ? 0 : target.adjusts ? doc.lines.length : openLines(doc, children, t).length;
+      return { type: t, label: target.label, adjusts: target.adjusts ?? null, open };
+    }),
     fulfilment: dt.convertsTo.length ? fulfilment(doc, children) : null,
     transitions: options(opts), approvals, issues, payments,
     balance: openNow ?? null, money: mk, noteBasis,
@@ -599,7 +604,11 @@ export function attention(ctx: Ctx, viewer: Viewer) {
   const seesMoney = hasCap(pack, role, 'money.write') || hasCap(pack, role, 'reports.read');
   let money = null;
   if (seesMoney) {
-    const open = allDocs(db, "phase = 'issued'").map((d) => docSummary(pack, d, settled.get(d.id) ?? 0, parties)).filter((d) => (d.balance ?? 0) > 0);
+    const live = allDocs(db, "phase IN ('issued','closed')").map((d) => docSummary(pack, d, settled.get(d.id) ?? 0, parties));
+  const open = live.filter((d) => (d.balance ?? 0) > 0);
+  // Over-credited documents (a credit note larger than what was still owed): refund or leave as credit.
+  const credits = live.filter((d) => (d.balance ?? 0) < 0);
+  const retentionHeld = live.filter((d) => d.retentionHeld > 0);
     const soon = addDays(t, 7);
     money = {
       overdue: open.filter((d) => d.money === 'receivable' && d.overdue),
@@ -660,7 +669,11 @@ export function moneyOverview(ctx: Ctx) {
   const settled = settledMap(db);
   const parties = partyNames(db);
   const t = today();
-  const open = allDocs(db, "phase = 'issued'").map((d) => docSummary(pack, d, settled.get(d.id) ?? 0, parties)).filter((d) => (d.balance ?? 0) > 0);
+  const live = allDocs(db, "phase IN ('issued','closed')").map((d) => docSummary(pack, d, settled.get(d.id) ?? 0, parties));
+  const open = live.filter((d) => (d.balance ?? 0) > 0);
+  // Over-credited documents (a credit note larger than what was still owed): refund or leave as credit.
+  const credits = live.filter((d) => (d.balance ?? 0) < 0);
+  const retentionHeld = live.filter((d) => d.retentionHeld > 0);
   const age = (due: string | null) => (due ? Math.max(0, daysBetween(due, t)) : 0);
   const bucket = (days: number) => (days === 0 ? 'current' : days <= 30 ? '1-30' : days <= 60 ? '31-60' : days <= 90 ? '61-90' : '90+');
   const aging = (list: typeof open) => {
@@ -672,11 +685,11 @@ export function moneyOverview(ctx: Ctx) {
   const payables = open.filter((d) => d.money === 'payable').map((d) => ({ ...d, daysOverdue: age(d.dueDate) }));
   const month = t.slice(0, 7);
   const payments = all<Record<string, any>>(db, 'SELECT * FROM payments ORDER BY date DESC, created_at DESC LIMIT 100')
-    .map((p) => ({ ...toPayment(p, all<{ document_id: string; amount: number; number: string | null }>(db, 'SELECT a.*, d.number FROM payment_allocations a JOIN documents d ON d.id = a.document_id WHERE a.payment_id = ?', p.id).map((a) => ({ documentId: a.document_id, amount: a.amount, number: a.number }))), partyName: parties.get(p.party_id) ?? '' }));
+    .map((p) => ({ ...toPayment(p, all<{ document_id: string; amount: number; refund: number; number: string | null }>(db, 'SELECT a.*, d.number FROM payment_allocations a JOIN documents d ON d.id = a.document_id WHERE a.payment_id = ?', p.id).map((a) => ({ documentId: a.document_id, amount: a.amount, number: a.number, refund: !!a.refund }))), partyName: parties.get(p.party_id) ?? '' }));
   const inThisMonth = payments.filter((p) => !p.voided && p.direction === 'in' && p.date.startsWith(month)).reduce((a, p) => a + p.amount, 0);
   const outThisMonth = payments.filter((p) => !p.voided && p.direction === 'out' && p.date.startsWith(month)).reduce((a, p) => a + p.amount, 0);
   const vat = vatSummary(ctx, month);
-  return { receivables, payables, agingReceivable: aging(receivables), agingPayable: aging(payables), payments, inThisMonth, outThisMonth, vat, month };
+  return { receivables, payables, credits, retentionHeld, agingReceivable: aging(receivables), agingPayable: aging(payables), payments, inThisMonth, outThisMonth, vat, month };
 }
 
 function vatSummary(ctx: Ctx, month: string) {

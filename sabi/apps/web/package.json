@@ -11,7 +11,8 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
-    "@sabi/core": "*"
+    "@sabi/core": "*",
+    "uqr": "^0.1.3"
   },
   "devDependencies": {
     "@fontsource/ibm-plex-sans-thai": "5.2.8",

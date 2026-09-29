@@ -14,6 +14,7 @@
     salePrice: i0.salePrice !== undefined ? i0.salePrice / 100 : '', costPrice: i0.costPrice !== undefined ? i0.costPrice / 100 : '',
     taxCode: i0.taxCode ?? jur.defaultTaxCode, whtCategory: i0.whtCategory ?? '', measureTemplate: i0.measureTemplate ?? '',
     fields: { ...(i0.fields ?? {}) } as Record<string, any>,
+    reorderPoint: i0.reorderPoint ?? '',
   });
   let busy = $state(false);
   let fieldErr = $state<Record<string, string>>({});
@@ -25,6 +26,7 @@
       const body = {
         ...f, salePrice: Math.round(Number(f.salePrice || 0) * 100), costPrice: Math.round(Number(f.costPrice || 0) * 100),
         whtCategory: f.whtCategory || null, measureTemplate: f.measureTemplate || null,
+        reorderPoint: f.kind === 'stock' && f.reorderPoint !== '' && f.reorderPoint !== null ? Number(f.reorderPoint) : null,
       };
       const r = item ? await command('item.update', { id: item.id, ...body }) : await command('item.create', body);
       toast(T('Saved', 'บันทึกแล้ว'), 'success');
@@ -56,6 +58,9 @@
     <label class="field"><span>{T('Withholding when sold', 'ภาษีหัก ณ ที่จ่ายเมื่อขาย')}</span><select bind:value={f.whtCategory}><option value="">—</option>{#each jur.whtCategories as w (w.id)}<option value={w.id}>{L(w.label)}</option>{/each}</select></label>
     <label class="field"><span>{T('Quantity from measurements', 'คำนวณจำนวนจากขนาด')}</span><select bind:value={f.measureTemplate}><option value="">{T('No — enter quantity', 'ไม่ใช้ (ใส่จำนวนเอง)')}</option>{#each pack.measureTemplates as m (m.id)}<option value={m.id}>{L(m.label)}</option>{/each}</select></label>
   </div>
+  {#if f.kind === 'stock'}
+    <label class="field"><span>{T('Reorder when available falls below', 'สั่งเพิ่มเมื่อจำนวนใช้ได้ต่ำกว่า')}</span><input type="number" step="any" min="0" bind:value={f.reorderPoint} class="num" style="max-width:160px" /></label>
+  {/if}
   {#if pack.itemFields.length}
     <div class="g3">
       {#each pack.itemFields as x (x.key)}
