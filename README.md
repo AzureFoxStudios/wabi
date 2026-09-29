@@ -1,5 +1,7 @@
 # Wabi
 
+> **Sabi (this branch):** [`sabi/`](sabi/README.md) holds a new self-hosted work-management and ERP app for small businesses, built with Wabi as a donor codebase. Wabi's own tree below is unchanged.
+
 > **Self-hosted communication and collaborative workspaces for small communities.**
 
 Wabi is a free and open-source app for friends, studios, classrooms, project groups, and small communities that want modern chat and collaboration without moving the community itself onto a central platform.
