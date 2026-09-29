@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -18,8 +18,18 @@ import * as Q from '../src/queries.ts';
 import { all, one } from '../src/db.ts';
 import { thaiTaxId } from '@sabi/pack-sheet-metal';
 
+const temps: string[] = [];
+const tmp = (prefix: string) => {
+  const d = mkdtempSync(join(tmpdir(), prefix));
+  temps.push(d);
+  return d;
+};
+process.on('exit', () => {
+  for (const d of temps) rmSync(d, { recursive: true, force: true });
+});
+
 function fresh(): App {
-  const dir = mkdtempSync(join(tmpdir(), 'sabi-'));
+  const dir = tmp('sabi-');
   return createApp({ dataDir: dir });
 }
 
@@ -154,7 +164,20 @@ test('complete sales workflow from inquiry to paid, verified journal', () => {
   assert.equal(ws.money.paid, 1_664_920);
   assert.ok(ws.materials.some((m: any) => m.to === 'consumed'), 'material usage visible on the job');
   assert.ok(ws.timeline.length > 20, 'timeline aggregates job + document events');
+  // Fully settled invoices close themselves; voiding the payment reopens them.
+  const ivState = () => ({ ...one<{ state: string; phase: string }>(app.db, 'SELECT state, phase FROM documents WHERE id = ?', iv)! });
+  assert.deepEqual(ivState(), { state: 'paid', phase: 'closed' });
+  assert.throws(() => x(accounts, 'document.transition', { id: iv, transition: 'void', reason: 'x' }));
+  const payId = one<{ id: string }>(app.db, 'SELECT payment_id AS id FROM payment_allocations WHERE document_id = ?', iv)!.id;
+  x(accounts, 'payment.void', { id: payId, reason: 'bounced transfer' });
+  assert.deepEqual(ivState(), { state: 'issued', phase: 'issued' });
+  // A partly paid invoice cannot be voided until its payments are voided.
+  const part = x(accounts, 'payment.record', { direction: 'in', partyId: cust, method: 'cash', amount: 100_000, allocations: [{ documentId: iv, amount: 100_000 }] });
+  assert.equal(ivState().state, 'issued');
   expectError(() => x(accounts, 'document.transition', { id: iv, transition: 'void', reason: 'x' }), 'has_payments', 409);
+  x(accounts, 'payment.void', { id: part.id, reason: 'entered by mistake' });
+  x(accounts, 'payment.record', { direction: 'in', partyId: cust, method: 'transfer', amount: 1_649_920, whtAmount: 15000, whtCategory: 'service', allocations: [{ documentId: iv, amount: 1_664_920 }] });
+  assert.equal(ivState().state, 'paid');
 
   // Books balance; AR is cleared; WHT prepaid recorded.
   const tb = Q.trialBalance(app.ctx);
@@ -203,8 +226,8 @@ test('demo seed builds a consistent workspace; every screen query runs', () => {
   assert.ok(Q.activity(app.ctx, {}).length > 10);
 
   // Backup → restore reproduces identical projections.
-  const out = backup(app.db, app.ctx.dataDir, mkdtempSync(join(tmpdir(), 'sabi-bk-')));
-  const target = join(mkdtempSync(join(tmpdir(), 'sabi-rs-')), 'sabi.db');
+  const out = backup(app.db, app.ctx.dataDir, tmp('sabi-bk-'));
+  const target = join(tmp('sabi-rs-'), 'sabi.db');
   assert.equal(restoreFromJournal(join(out.dir, 'journal.jsonl'), target), out.events);
   const restored = createApp({ dataDir: '/nonexistent', dbPath: target });
   assert.equal(one<{ n: number }>(restored.db, 'SELECT COUNT(*) AS n FROM documents')!.n, one<{ n: number }>(app.db, 'SELECT COUNT(*) AS n FROM documents')!.n);

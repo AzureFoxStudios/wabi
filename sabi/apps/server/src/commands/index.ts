@@ -437,6 +437,7 @@ const paymentVoid: Handler = (s, input) => {
   const reason = str(input.reason, 'reason', { max: 300 });
   s.emit({ type: 'payment.voided', subjectType: 'payment', subjectId: p!.id, data: { id: p!.id, reason } });
   reverseLedger(s, 'payment', p!.id);
+  for (const a of p!.allocations) s.touched.add(`document:${a.documentId}`);
   return { id: p!.id };
 };
 

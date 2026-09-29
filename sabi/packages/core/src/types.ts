@@ -65,6 +65,8 @@ export interface Guard {
   lines?: boolean;
   /** Requires an approval from someone holding `role` when `when` (formula) is truthy. */
   approval?: { role: string; when?: string; reason?: Label };
+  /** Receivable/payable documents: `true` = nothing left to pay, `false` = something still open. */
+  settled?: boolean;
 }
 
 export type WorkflowAction =

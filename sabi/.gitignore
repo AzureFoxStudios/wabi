@@ -5,3 +5,4 @@ apps/web/.svelte-kit/
 *.sqlite
 *.sqlite-*
 screenshots/tmp/
+.cache/

@@ -34,7 +34,7 @@ function help() {
 
 switch (cmd) {
   case 'serve':
-    serve({ port: flag('port') ? Number(flag('port')) : undefined, dataDir, demo: rest.includes('--demo') });
+    serve({ port: flag('port') ? Number(flag('port')) : undefined, dataDir, demo: rest.includes('--demo') || process.env.SABI_DEMO === '1' });
     break;
   case 'verify': {
     const app = createApp({ dataDir });

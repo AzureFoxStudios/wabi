@@ -86,6 +86,14 @@ const salesOrder: DocTypeDef = {
   },
 };
 
+/** Money documents close themselves when fully settled and reopen if a payment is voided. */
+function paidTransitions(openState: string): TransitionDef[] {
+  return [
+    { id: 'paid', from: [openState], to: 'paid', label: L('Paid in full', 'ชำระครบ'), auto: true, primary: true, requires: { settled: true } },
+    { id: 'reopen', from: ['paid'], to: openState, label: L('Payment reopened', 'กลับมาค้างชำระ'), auto: true, requires: { settled: false } },
+  ];
+}
+
 const taxInvoice: DocTypeDef = {
   id: 'tax_invoice',
   label: L('Delivery note / Tax invoice', 'ใบส่งของ/ใบกำกับภาษี'),
@@ -103,11 +111,13 @@ const taxInvoice: DocTypeDef = {
     states: [
       { id: 'draft', label: L('Draft', 'ร่าง'), phase: 'draft', tone: 'neutral', ownerRole: 'accounts' },
       { id: 'issued', label: L('Issued', 'ออกแล้ว'), phase: 'issued', tone: 'info', ownerRole: 'accounts', hint: L('Collect payment.', 'ติดตามรับชำระเงิน') },
+      { id: 'paid', label: L('Paid', 'ชำระแล้ว'), phase: 'closed', tone: 'success' },
       voidState,
     ],
     transitions: [
       { id: 'issue', from: ['draft'], to: 'issued', label: L('Issue tax invoice', 'ออกใบกำกับภาษี'), primary: true,
         roles: ['accounts', 'manager', 'sales'], requires: { lines: true } },
+      ...paidTransitions('issued'),
       voidT(['draft', 'issued'], ['accounts', 'manager']),
     ],
   },
@@ -184,11 +194,13 @@ const supplierBill: DocTypeDef = {
     states: [
       { id: 'draft', label: L('Draft', 'ร่าง'), phase: 'draft', tone: 'neutral', ownerRole: 'accounts' },
       { id: 'recorded', label: L('Recorded', 'บันทึกแล้ว'), phase: 'issued', tone: 'info', ownerRole: 'accounts', hint: L('Pay the supplier by the due date.', 'จ่ายเงินภายในวันครบกำหนด') },
+      { id: 'paid', label: L('Paid', 'จ่ายแล้ว'), phase: 'closed', tone: 'success' },
       voidState,
     ],
     transitions: [
       { id: 'record', from: ['draft'], to: 'recorded', label: L('Record bill', 'บันทึกใบแจ้งหนี้'), primary: true,
         roles: ['accounts', 'manager'], requires: { lines: true, fields: ['supplier_ref'] } },
+      ...paidTransitions('recorded'),
       voidT(['draft', 'recorded'], ['accounts', 'manager']),
     ],
   },

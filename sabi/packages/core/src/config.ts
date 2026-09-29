@@ -31,10 +31,17 @@ export function transitionsFrom<P extends string>(wf: WorkflowDef<P>, state: str
 export function validatePack(pack: Pack): string[] {
   const errs: string[] = [];
   const docIds = new Set(pack.documentTypes.map((d) => d.id));
-  const checkWf = (name: string, wf: WorkflowDef<string>) => {
+  const roleIds = new Set(pack.roles.map((r) => r.id));
+  const checkWf = (name: string, wf: WorkflowDef<string>, money = false) => {
     const ids = new Set(wf.states.map((s) => s.id));
+    if (ids.size !== wf.states.length) errs.push(`${name}: duplicate state ids`);
+    if (new Set(wf.transitions.map((t) => t.id)).size !== wf.transitions.length) errs.push(`${name}: duplicate transition ids`);
     if (!ids.has(wf.initial)) errs.push(`${name}: initial state '${wf.initial}' missing`);
+    for (const s of wf.states) if (s.ownerRole && !roleIds.has(s.ownerRole)) errs.push(`${name}: state '${s.id}' owned by unknown role '${s.ownerRole}'`);
     for (const t of wf.transitions) {
+      for (const r of t.roles ?? []) if (!roleIds.has(r)) errs.push(`${name}: transition '${t.id}' allows unknown role '${r}'`);
+      if (t.requires?.approval && !roleIds.has(t.requires.approval.role)) errs.push(`${name}: transition '${t.id}' needs approval from unknown role '${t.requires.approval.role}'`);
+      if (t.requires?.settled !== undefined && !money) errs.push(`${name}: transition '${t.id}' uses 'settled' but the document carries no receivable/payable`);
       if (!ids.has(t.to)) errs.push(`${name}: transition '${t.id}' → unknown state '${t.to}'`);
       if (t.from !== '*') for (const f of t.from) if (!ids.has(f)) errs.push(`${name}: transition '${t.id}' from unknown state '${f}'`);
       for (const d of t.requires?.documents ?? []) if (!docIds.has(d.type)) errs.push(`${name}: transition '${t.id}' requires unknown document type '${d.type}'`);
@@ -45,7 +52,7 @@ export function validatePack(pack: Pack): string[] {
     for (const d of j.documentTypes) if (!docIds.has(d)) errs.push(`job:${j.id}: unknown document type '${d}'`);
   }
   for (const d of pack.documentTypes) {
-    checkWf(`doc:${d.id}`, d.workflow);
+    checkWf(`doc:${d.id}`, d.workflow, d.effects.includes('receivable') || d.effects.includes('payable'));
     const init = d.workflow.states.find((s) => s.id === d.workflow.initial);
     if (init && init.phase !== 'draft') errs.push(`doc:${d.id}: initial state must be in phase 'draft'`);
     for (const c of d.convertsTo) if (!docIds.has(c)) errs.push(`doc:${d.id}: converts to unknown type '${c}'`);

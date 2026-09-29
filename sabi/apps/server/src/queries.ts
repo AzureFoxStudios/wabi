@@ -327,7 +327,7 @@ export function jobWorkspace(ctx: Ctx, id: string, viewer: Viewer) {
     creatable, tasks, approvals, messages, docMessages, files, payments,
     fulfilment: fulfilmentLines, materials, materialCost,
     money: jobMoney(pack, docs, settled),
-    wht: docs.filter((d) => moneyKind(docType(pack, d.type)) === 'receivable' && d.phase === 'issued').flatMap((d) => jur.suggestWht(d, party).map((w) => ({ ...w, documentId: d.id }))),
+    wht: docs.filter((d) => moneyKind(docType(pack, d.type)) === 'receivable' && d.phase === 'issued').flatMap((d) => whtOf(jur, d, party).map((w) => ({ ...w, documentId: d.id }))),
     timeline: eventsFor(db, pack, 'job', job.id),
     lastRead: lastRead(db, viewer.id, 'job', job.id),
   };
@@ -372,6 +372,7 @@ export function documentView(ctx: Ctx, id: string, viewer: Viewer) {
     fields: { ...doc.fields, partyId: doc.partyId, date: doc.date, dueDate: doc.dueDate, notes: doc.notes },
     documents: children.map((c) => ({ type: c.type, phase: c.phase })), lineCount: doc.lines.length,
     openTasks: tasksOf(db, 'document', doc.id).filter((t) => !t.doneAt).length, metrics, approvals: valid,
+    outstanding: moneyKind(dt) && (doc.phase === 'issued' || doc.phase === 'closed') ? doc.totals.total - settledNow : undefined,
     role: viewer.role, isSuperuser: isSuper(pack, viewer.role),
   });
   const company = getCompany(db);
@@ -382,7 +383,7 @@ export function documentView(ctx: Ctx, id: string, viewer: Viewer) {
     'SELECT p.*, a.amount AS allocated FROM payments p JOIN payment_allocations a ON a.payment_id = p.id WHERE a.document_id = ? ORDER BY p.date', doc.id)
     .map((p) => ({ ...toPayment(p, []), allocated: p.allocated }));
   const mk = moneyKind(dt);
-  const promptpay = typeof company.fields.promptpay_id === 'string' && mk === 'receivable' && doc.phase === 'issued' && jur.paymentQr
+  const promptpay = typeof company.fields.promptpay_id === 'string' && mk === 'receivable' && doc.phase === 'issued' && doc.totals.total - settledNow > 0 && jur.paymentQr
     ? safeQr(() => jur.paymentQr!({ proxyId: company.fields.promptpay_id as string, amount: doc.totals.total - settledNow, reference: doc.number }))
     : null;
   const items = new Map(doc.lines.filter((l) => l.itemId).map((l) => [l.itemId!, getItem(db, l.itemId!)]));
@@ -394,7 +395,7 @@ export function documentView(ctx: Ctx, id: string, viewer: Viewer) {
     fulfilment: dt.convertsTo.length ? fulfilment(doc, children) : null,
     transitions: options(opts), approvals, issues, payments,
     balance: mk && doc.phase !== 'draft' && doc.phase !== 'void' ? doc.totals.total - settledNow : null, money: mk,
-    wht: mk === 'receivable' ? jur.suggestWht(doc, party) : [],
+    wht: mk === 'receivable' ? whtOf(jur, doc, party) : [],
     seller, buyer, sellerIdentity: jur.describeTaxIdentity(seller, 'th'), buyerIdentity: jur.describeTaxIdentity(buyer, 'th'),
     sellerIdentityEn: jur.describeTaxIdentity(seller, 'en'), buyerIdentityEn: jur.describeTaxIdentity(buyer, 'en'),
     words: { th: jur.amountInWords(doc.totals.total, 'th'), en: jur.amountInWords(doc.totals.total, 'en') },
@@ -403,6 +404,11 @@ export function documentView(ctx: Ctx, id: string, viewer: Viewer) {
     timeline: eventsFor(db, pack, 'document', doc.id),
     users: undefined,
   };
+}
+
+/** Expected withholding with a display label (the adapter only returns category ids). */
+function whtOf(jur: Jurisdiction, doc: Document, party: NonNullable<ReturnType<typeof getParty>>) {
+  return jur.suggestWht(doc, party).map((w) => ({ ...w, label: jur.whtCategories.find((c) => c.id === w.category)?.label ?? ({ en: w.category } as Label) }));
 }
 
 function safeQr(fn: () => string): string | null {
@@ -636,7 +642,7 @@ export function moneyOverview(ctx: Ctx) {
   const payables = open.filter((d) => d.money === 'payable').map((d) => ({ ...d, daysOverdue: age(d.dueDate) }));
   const month = t.slice(0, 7);
   const payments = all<Record<string, any>>(db, 'SELECT * FROM payments ORDER BY date DESC, created_at DESC LIMIT 100')
-    .map((p) => ({ ...toPayment(p, all<{ document_id: string; amount: number }>(db, 'SELECT * FROM payment_allocations WHERE payment_id = ?', p.id).map((a) => ({ documentId: a.document_id, amount: a.amount }))), partyName: parties.get(p.party_id) ?? '' }));
+    .map((p) => ({ ...toPayment(p, all<{ document_id: string; amount: number; number: string | null }>(db, 'SELECT a.*, d.number FROM payment_allocations a JOIN documents d ON d.id = a.document_id WHERE a.payment_id = ?', p.id).map((a) => ({ documentId: a.document_id, amount: a.amount, number: a.number }))), partyName: parties.get(p.party_id) ?? '' }));
   const inThisMonth = payments.filter((p) => !p.voided && p.direction === 'in' && p.date.startsWith(month)).reduce((a, p) => a + p.amount, 0);
   const outThisMonth = payments.filter((p) => !p.voided && p.direction === 'out' && p.date.startsWith(month)).reduce((a, p) => a + p.amount, 0);
   const vat = vatSummary(ctx, month);

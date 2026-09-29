@@ -8,7 +8,8 @@ export type Missing =
   | { kind: 'tasks'; open: number }
   | { kind: 'lines' }
   | { kind: 'approval'; role: string; status: 'none' | 'pending' | 'rejected' }
-  | { kind: 'role'; roles: string[] };
+  | { kind: 'role'; roles: string[] }
+  | { kind: 'payment'; settled: boolean };
 
 export interface GuardContext {
   /** Values addressable by `requires.fields` (core keys + custom fields). */
@@ -21,6 +22,8 @@ export interface GuardContext {
   metrics?: Record<string, number>;
   /** Current, still-valid approval decisions for this subject keyed by transition id. */
   approvals?: Record<string, 'pending' | 'approved' | 'rejected'>;
+  /** Money still owed on a receivable/payable document, in minor units (undefined for other documents). */
+  outstanding?: number;
   /** Acting user's role; `null` when evaluated for display only. */
   role: string | null;
   /** True if the acting user may approve for any role (owner/admin). */
@@ -54,6 +57,10 @@ export function checkGuard(transition: TransitionDef, ctx: GuardContext): Missin
   }
   if (g.tasksDone && (ctx.openTasks ?? 0) > 0) missing.push({ kind: 'tasks', open: ctx.openTasks ?? 0 });
   if (g.lines && (ctx.lineCount ?? 0) === 0) missing.push({ kind: 'lines' });
+  if (g.settled !== undefined) {
+    const paid = ctx.outstanding !== undefined && ctx.outstanding <= 0;
+    if (paid !== g.settled) missing.push({ kind: 'payment', settled: g.settled });
+  }
   if (g.approval && approvalRequired(g.approval, ctx)) {
     const holdsRole = ctx.role !== null && (ctx.role === g.approval.role || !!ctx.isSuperuser);
     const status = ctx.approvals?.[transition.id];

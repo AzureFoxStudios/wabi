@@ -1,1 +1,26 @@
-{"name":"@sabi/web","version":"0.1.0","private":true,"type":"module"}
+{
+  "name": "@sabi/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite dev --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@sabi/core": "*"
+  },
+  "devDependencies": {
+    "@fontsource/ibm-plex-sans-thai": "5.2.8",
+    "@fontsource/sarabun": "5.2.8",
+    "@sveltejs/adapter-static": "3.0.10",
+    "@sveltejs/kit": "2.70.3",
+    "@sveltejs/vite-plugin-svelte": "7.3.0",
+    "svelte": "5.56.8",
+    "svelte-check": "4.3.4",
+    "vite": "8.2.2"
+  }
+}

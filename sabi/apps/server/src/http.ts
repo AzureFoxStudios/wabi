@@ -63,6 +63,12 @@ async function readJson(req: IncomingMessage): Promise<any> {
 function tokenOf(req: IncomingMessage): string | undefined {
   const auth = req.headers.authorization;
   if (auth?.startsWith('Bearer ')) return auth.slice(7);
+  // Fallback for GET-only resources a browser loads without custom headers (EventSource, <img>, downloads)
+  // when cookies are unavailable, e.g. inside a third-party iframe with cookies blocked. Never for mutations.
+  if ((req.method ?? 'GET') === 'GET') {
+    const t = new URL(req.url ?? '/', 'http://localhost').searchParams.get('access_token');
+    if (t) return t;
+  }
   const cookie = req.headers.cookie ?? '';
   for (const part of cookie.split(';')) {
     const [k, ...v] = part.trim().split('=');
@@ -72,10 +78,14 @@ function tokenOf(req: IncomingMessage): string | undefined {
 }
 
 function setCookie(res: ServerResponse, req: IncomingMessage, token: string | null) {
-  const secure = req.headers['x-forwarded-proto'] === 'https' || process.env.SABI_SECURE_COOKIE === '1' ? '; Secure' : '';
+  // Over HTTPS use SameSite=None + Partitioned (CHIPS) so the app also works when embedded in an iframe
+  // on another site (reverse-proxy previews, intranet portals). CSRF is still blocked: every mutation
+  // must be JSON (forces a CORS preflight we never grant) and pass the Origin check below.
+  const https = req.headers['x-forwarded-proto'] === 'https' || process.env.SABI_SECURE_COOKIE === '1';
+  const attrs = https ? 'HttpOnly; Secure; SameSite=None; Partitioned' : 'HttpOnly; SameSite=Lax';
   res.setHeader('set-cookie', token
-    ? `${COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 86400}${secure}`
-    : `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
+    ? `${COOKIE}=${encodeURIComponent(token)}; Path=/; ${attrs}; Max-Age=${30 * 86400}`
+    : `${COOKIE}=; Path=/; ${attrs}; Max-Age=0`);
 }
 
 const loginAttempts = new Map<string, { n: number; until: number }>();
@@ -121,7 +131,7 @@ export function createHttpServer(app: App, opts: ServerOptions = {}) {
       const user = setup(app, body);
       const s = login(app.db, user.username, body.password)!;
       setCookie(res, req, s.token);
-      return send(res, 200, { user: s.user });
+      return send(res, 200, { user: s.user, token: body.wantToken ? s.token : undefined });
     }
     if (path === '/api/login' && method === 'POST') {
       const ip = req.socket.remoteAddress ?? '?';
