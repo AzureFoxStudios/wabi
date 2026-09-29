@@ -1,3 +1,5 @@
+import { session } from './storage.ts';
+
 /** Tiny API client. All requests are same-origin and relative (works behind any proxy). */
 export class ApiError extends Error {
   status: number;
@@ -17,15 +19,17 @@ export class ApiError extends Error {
  * as a Bearer header. GET-only browser loads (EventSource, images, downloads) use authUrl().
  */
 const TOKEN_KEY = 'sabi.token';
+// Tab-scoped; falls back to memory when storage is blocked (client-side navigation keeps it alive).
 function token(): string | null {
-  try { return typeof sessionStorage === 'undefined' ? null : sessionStorage.getItem(TOKEN_KEY); } catch { return null; }
+  return session.get(TOKEN_KEY);
 }
 function setToken(t: string | null | undefined) {
-  try { if (t) sessionStorage.setItem(TOKEN_KEY, t); else sessionStorage.removeItem(TOKEN_KEY); } catch { /* storage disabled */ }
+  session.set(TOKEN_KEY, t || null);
 }
 function headers(extra: Record<string, string> = {}): Record<string, string> {
   const t = token();
-  return t ? { ...extra, authorization: `Bearer ${t}` } : extra;
+  // Both headers on purpose: some proxies strip Authorization.
+  return t ? { ...extra, authorization: `Bearer ${t}`, 'x-sabi-session': t } : extra;
 }
 /** URL for a GET resource the browser loads itself (img src, download link, EventSource). */
 export function authUrl(path: string): string {

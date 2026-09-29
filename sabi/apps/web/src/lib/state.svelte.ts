@@ -1,11 +1,12 @@
 /** Global client state: session bootstrap, locale, live revision counter, toasts. */
 import { get, authUrl } from './api.ts';
+import { local } from './storage.ts';
 
 type Toast = { id: number; text: string; tone: 'info' | 'success' | 'danger' | 'warning'; action?: { label: string; href: string } };
 
 export const app = $state({
   boot: null as any,
-  locale: (typeof localStorage !== 'undefined' && (localStorage.getItem('sabi.locale') as 'th' | 'en')) || 'th',
+  locale: (local.get('sabi.locale') as 'th' | 'en' | null) || 'th',
   today: new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10),
   /** Incremented whenever the server reports a committed change. Pages re-fetch on change. */
   rev: 0,
@@ -24,14 +25,14 @@ export const T = (en: string, th?: string) => (app.locale === 'th' && th ? th : 
 
 export function setLocale(l: 'th' | 'en') {
   app.locale = l;
-  localStorage.setItem('sabi.locale', l);
+  local.set('sabi.locale', l);
   document.documentElement.lang = l;
 }
 
 export async function loadBoot() {
   app.boot = await get('bootstrap');
   app.today = app.boot.today;
-  if (!localStorage.getItem('sabi.locale')) app.locale = app.boot.user.locale ?? 'th';
+  if (!local.get('sabi.locale')) app.locale = app.boot.user.locale ?? 'th';
   document.documentElement.lang = app.locale;
   return app.boot;
 }

@@ -63,6 +63,9 @@ async function readJson(req: IncomingMessage): Promise<any> {
 function tokenOf(req: IncomingMessage): string | undefined {
   const auth = req.headers.authorization;
   if (auth?.startsWith('Bearer ')) return auth.slice(7);
+  // Same token in a custom header: some reverse proxies consume or strip Authorization.
+  const hdr = req.headers['x-sabi-session'];
+  if (typeof hdr === 'string' && hdr) return hdr;
   // Fallback for GET-only resources a browser loads without custom headers (EventSource, <img>, downloads)
   // when cookies are unavailable, e.g. inside a third-party iframe with cookies blocked. Never for mutations.
   if ((req.method ?? 'GET') === 'GET') {
@@ -77,11 +80,26 @@ function tokenOf(req: IncomingMessage): string | undefined {
   return undefined;
 }
 
+/** Behind a TLS-terminating proxy the socket is plain HTTP; trust the usual forwarding signals and the page's own origin. */
+function isHttps(req: IncomingMessage): boolean {
+  if (process.env.SABI_SECURE_COOKIE === '1') return true;
+  if (process.env.SABI_SECURE_COOKIE === '0') return false;
+  const xfp = String(req.headers['x-forwarded-proto'] ?? '');
+  const origin = String(req.headers.origin ?? req.headers.referer ?? '');
+  return xfp.split(',').some((p) => p.trim() === 'https') || req.headers['x-forwarded-ssl'] === 'on' || origin.startsWith('https://');
+}
+
+/** Hosts this request may legitimately come from: Host plus what a reverse proxy says the public host was. */
+function ownHosts(req: IncomingMessage): string[] {
+  const hosts = [req.headers.host, ...String(req.headers['x-forwarded-host'] ?? '').split(',')];
+  return hosts.map((h) => (h ?? '').trim().toLowerCase()).filter(Boolean);
+}
+
 function setCookie(res: ServerResponse, req: IncomingMessage, token: string | null) {
   // Over HTTPS use SameSite=None + Partitioned (CHIPS) so the app also works when embedded in an iframe
   // on another site (reverse-proxy previews, intranet portals). CSRF is still blocked: every mutation
   // must be JSON (forces a CORS preflight we never grant) and pass the Origin check below.
-  const https = req.headers['x-forwarded-proto'] === 'https' || process.env.SABI_SECURE_COOKIE === '1';
+  const https = isHttps(req);
   const attrs = https ? 'HttpOnly; Secure; SameSite=None; Partitioned' : 'HttpOnly; SameSite=Lax';
   res.setHeader('set-cookie', token
     ? `${COOKIE}=${encodeURIComponent(token)}; Path=/; ${attrs}; Max-Age=${30 * 86400}`
@@ -156,7 +174,7 @@ export function createHttpServer(app: App, opts: ServerOptions = {}) {
     const viewer = userForToken(app.db, tokenOf(req));
     if (!viewer) throw new CommandError(401, 'unauthenticated', 'Please sign in');
     const origin = req.headers.origin;
-    if (method !== 'GET' && origin && req.headers.host && new URL(origin).host !== req.headers.host) {
+    if (method !== 'GET' && origin && origin !== 'null' && req.headers.host && !ownHosts(req).includes(new URL(origin).host.toLowerCase())) {
       throw new CommandError(403, 'bad_origin', 'Cross-site request refused');
     }
     return routeAuthed(req, res, path, method, q, viewer);
@@ -282,7 +300,16 @@ export function createHttpServer(app: App, opts: ServerOptions = {}) {
     }
   };
 
+  const accessLog = process.env.SABI_ACCESS_LOG === '1';
   return createServer((req, res) => {
+    if (accessLog && (req.url ?? '').startsWith('/api/')) {
+      const t0 = Date.now();
+      res.on('finish', () => {
+        const h = req.headers;
+        const via = [h.cookie?.includes(`${COOKIE}=`) ? 'cookie' : '', h.authorization ? 'bearer' : '', h['x-sabi-session'] ? 'header' : '', (req.url ?? '').includes('access_token=') ? 'query' : ''].filter(Boolean).join('+') || 'none';
+        console.log(`${new Date().toISOString()} ${req.method} ${(req.url ?? '').split('?')[0]} ${res.statusCode} ${Date.now() - t0}ms auth=${via} host=${h.host} xfh=${h['x-forwarded-host'] ?? '-'} xfp=${h['x-forwarded-proto'] ?? '-'} origin=${h.origin ?? '-'}`);
+      });
+    }
     handle(req, res).catch((e) => {
       if (!res.headersSent) errorOut(res, e);
       else res.end();

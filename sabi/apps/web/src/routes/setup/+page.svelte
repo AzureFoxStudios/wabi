@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import { post } from '$lib/api.ts';
   import { T } from '$lib/state.svelte.ts';
 
@@ -15,7 +16,7 @@
     error = '';
     try {
       await post('setup', { company, name, username, password });
-      location.href = '/settings?welcome=1';
+      await goto('/settings?welcome=1', { replaceState: true });
     } catch (err) {
       error = (err as Error).message;
     } finally {

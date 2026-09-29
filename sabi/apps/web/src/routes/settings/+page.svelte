@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { get, post, command, authUrl } from '$lib/api.ts';
+  import { local } from '$lib/storage.ts';
   import { app, T, toast, can, roleLabel, loadBoot } from '$lib/state.svelte.ts';
   import { resource } from '$lib/resource.svelte.ts';
   import { L } from '$lib/format.ts';
@@ -104,7 +105,7 @@
   async function setLocale(locale: 'th' | 'en') {
     await command('user.update', { id: app.boot.user.id, locale });
     app.locale = locale;
-    localStorage.setItem('sabi.locale', locale);
+    local.set('sabi.locale', locale);
     await loadBoot();
   }
   const phaseLabel: Record<string, string> = { open: T('open', 'เปิด'), done: T('done', 'เสร็จ'), cancelled: T('cancelled', 'ยกเลิก'), draft: T('draft', 'ร่าง'), issued: T('issued', 'ออกแล้ว'), closed: T('closed', 'ปิด'), void: T('void', 'ยกเลิก') };

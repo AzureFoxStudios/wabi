@@ -279,6 +279,45 @@ test('HTTP: auth, CSRF guard, commands, reads', async () => {
   }
 });
 
+test('HTTP: session works without cookies (embedded frames, header-stripping proxies)', async () => {
+  const app = fresh();
+  seedDemo(app);
+  const server = createHttpServer(app);
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const port = (server.address() as AddressInfo).port;
+  const base = `http://127.0.0.1:${port}`;
+  const json = { 'content-type': 'application/json' };
+  try {
+    // Behind HTTPS the cookie must be usable inside a cross-site iframe.
+    const tls = await fetch(`${base}/api/login`, { method: 'POST', headers: { ...json, 'x-forwarded-proto': 'https' }, body: JSON.stringify({ username: 'owner', password: DEMO_PASSWORD }) });
+    assert.match(tls.headers.get('set-cookie')!, /Secure; SameSite=None; Partitioned/);
+    const viaOrigin = await fetch(`${base}/api/login`, { method: 'POST', headers: { ...json, origin: 'https://sabi.example' }, body: JSON.stringify({ username: 'owner', password: DEMO_PASSWORD }) });
+    assert.match(viaOrigin.headers.get('set-cookie')!, /SameSite=None/, 'https page origin also counts');
+
+    const res = await fetch(`${base}/api/login`, { method: 'POST', headers: json, body: JSON.stringify({ username: 'owner', password: DEMO_PASSWORD, wantToken: true }) });
+    const { token } = await res.json();
+    assert.ok(token);
+    const who = async (headers: Record<string, string>, q = '') => (await (await fetch(`${base}/api/session${q}`, { headers })).json()).user?.username ?? null;
+    assert.equal(await who({ authorization: `Bearer ${token}` }), 'owner');
+    assert.equal(await who({ 'x-sabi-session': token }), 'owner', 'custom header survives proxies that strip Authorization');
+    assert.equal(await who({}, `?access_token=${token}`), 'owner', 'GET-only query token (EventSource, images)');
+    assert.equal(await who({}), null);
+
+    // A query token never authorises a mutation.
+    const q = await fetch(`${base}/api/commands/party.create?access_token=${token}`, { method: 'POST', headers: json, body: JSON.stringify({ kind: 'person', name: 'X', roles: ['customer'] }) });
+    assert.equal(q.status, 401);
+
+    // Proxy rewrote Host but reported the public host: same-site request is allowed; a foreign origin is not.
+    const behindProxy = { ...json, 'x-sabi-session': token, host: `127.0.0.1:${port}`, 'x-forwarded-host': 'sabi.example' };
+    const ok = await fetch(`${base}/api/commands/party.create`, { method: 'POST', headers: { ...behindProxy, origin: 'https://sabi.example' }, body: JSON.stringify({ kind: 'person', name: 'Via proxy', roles: ['customer'] }) });
+    assert.equal(ok.status, 200);
+    const foreign = await fetch(`${base}/api/commands/party.create`, { method: 'POST', headers: { ...behindProxy, origin: 'https://evil.example' }, body: JSON.stringify({ kind: 'person', name: 'Evil', roles: ['customer'] }) });
+    assert.equal(foreign.status, 403);
+  } finally {
+    server.close();
+  }
+});
+
 test('setup refuses a second owner; passwords are not in the journal', () => {
   const app = fresh();
   const u = setup(app, { company: 'A', name: 'A', username: 'alpha', password: 'longpassword' });

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import { goto } from '$app/navigation';
   import { get, post } from '$lib/api.ts';
   import { app, T, setLocale } from '$lib/state.svelte.ts';
 
@@ -14,12 +15,14 @@
 
   async function submit(e?: Event) {
     e?.preventDefault();
+    if (busy) return;
     busy = true;
     error = '';
     try {
       await post('login', { username, password });
       const next = page.url.searchParams.get('next');
-      location.href = next && next.startsWith('/') && !next.startsWith('//') ? next : '/';
+      // Client-side navigation keeps the in-memory session even where cookies and storage are blocked.
+      await goto(next && next.startsWith('/') && !next.startsWith('//') ? next : '/', { replaceState: true });
     } catch (err) {
       error = (err as Error).message;
     } finally {
