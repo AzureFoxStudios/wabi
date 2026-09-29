@@ -3,6 +3,11 @@
   import { L, date, time, userName, initials } from '$lib/format.ts';
   let { events, showWhere = false, limit = 0 }: { events: any[]; showWhere?: boolean; limit?: number } = $props();
   let all = $state(false);
+  // Where an event happened → the screen that shows it (null when there is no screen for it).
+  const whereHref = (w: { subjectType: string; subjectId: string }): string | null => ({
+    job: `/jobs/${w.subjectId}`, document: `/documents/${w.subjectId}`, party: `/parties/${w.subjectId}`, item: `/items/${w.subjectId}`,
+    payment: `/payments/${w.subjectId}/print`, settings: w.subjectId === 'accounts' ? '/books?t=accounts' : '/settings', system: '/books?t=journal', user: '/settings#users',
+  } as Record<string, string>)[w.subjectType] ?? null;
   const shown = $derived(limit && !all ? events.slice(0, limit) : events);
   const groups = $derived.by(() => {
     const out: { day: string; items: any[] }[] = [];
@@ -25,7 +30,7 @@
           <div class="grow">
             <p><span class="who">{userName(e.actorId)}</span> <span class="what tone-text-{e.tone ?? 'neutral'}">{L(e.summary)}</span>
               {#if e.auto}<span class="tiny faint">· {T('automatic', 'อัตโนมัติ')}</span>{/if}
-              {#if showWhere && e.where}<a class="small link" href={`/${e.where.subjectType === 'party' ? 'parties' : e.where.subjectType + 's'}/${e.where.subjectId}`}>{e.where.label}</a>{/if}
+              {#if showWhere && e.where}{@const href = whereHref(e.where)}{#if href}<a class="small link" {href}>{e.where.label}</a>{:else}<span class="small muted">{e.where.label}</span>{/if}{/if}
             </p>
             {#if e.detail}<p class="detail small">“{e.detail.length > 240 ? e.detail.slice(0, 240) + '…' : e.detail}”</p>{/if}
           </div>

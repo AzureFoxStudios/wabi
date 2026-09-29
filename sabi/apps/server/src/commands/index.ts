@@ -348,7 +348,8 @@ const documentCreate: Handler = (s, input) => {
   }
   const party = mustParty(s, partyId);
   const docDate = optDate(input.date, 'date') ?? s.today();
-  const dueDays = dt.effects.includes('receivable') || dt.effects.includes('payable') ? party.paymentTermsDays ?? dt.defaultDueDays : dt.defaultDueDays;
+  // Credit/debit notes adjust another document's balance and are never "due" themselves.
+  const dueDays = dt.adjusts ? undefined : dt.effects.includes('receivable') || dt.effects.includes('payable') ? party.paymentTermsDays ?? dt.defaultDueDays : dt.defaultDueDays;
   const doc: Document = {
     id: newId('doc'), type: dt.id, state: dt.workflow.initial, phase: 'draft', partyId: party.id, jobId, sourceId,
     date: docDate, dueDate: optDate(input.dueDate, 'dueDate') ?? (dueDays !== undefined ? addDays(docDate, dueDays) : undefined),

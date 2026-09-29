@@ -160,7 +160,7 @@
                   {#if alloc[d.id]}
                     <tr>
                       <td><input type="checkbox" checked={alloc[d.id].on} onchange={() => toggle(d.id)} aria-label={d.number} /></td>
-                      <td>{L(docTypeDef(d.type)?.label)} <span class="mono small">{d.number}</span>{#if d.refund} <span class="pill tone-warning">{T('refund', 'คืนเงิน')}</span>{/if}</td>
+                      <td>{L(docTypeDef(d.type)?.label)} <span class="mono small">{d.number}</span>{#if d.refund}{' '}<span class="pill tone-warning">{T('refund', 'คืนเงิน')}</span>{/if}</td>
                       <td class="small" class:text-danger={d.overdue}>{d.refund ? '' : date(d.dueDate)}</td>
                       <td class="num">{money(d.open)}</td>
                       <td class="num"><input class="num amt" type="number" step="0.01" min="0" bind:value={alloc[d.id].amount} disabled={!alloc[d.id].on} /></td>

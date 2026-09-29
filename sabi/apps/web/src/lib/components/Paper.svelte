@@ -20,7 +20,7 @@
     <div class="seller">
       <strong class="co">{v.seller.name}</strong>
       <p>{fmtAddress(v.seller.address)}</p>
-      <p>{#if v.seller.phone}โทร {v.seller.phone}{/if}{#if v.seller.email} · {v.seller.email}{/if}</p>
+      <p>{#if v.seller.phone}โทร {v.seller.phone}{/if}{#if v.seller.email}{' '}· {v.seller.email}{/if}</p>
       {#if v.seller.taxId}<p>เลขประจำตัวผู้เสียภาษี / Tax ID <span class="mono">{v.seller.taxId}</span> · {v.sellerIdentity}</p>{/if}
     </div>
     <div class="title">
@@ -35,13 +35,13 @@
       <p class="lbl">{dt.direction === 'sales' ? 'ลูกค้า / Customer' : 'ผู้ขาย / Supplier'}</p>
       <strong>{v.buyer.name}</strong>
       <p>{fmtAddress(v.buyer.address)}</p>
-      {#if v.buyer.taxId}<p>เลขประจำตัวผู้เสียภาษี <span class="mono">{v.buyer.taxId}</span>{#if v.buyerIdentity} · {v.buyerIdentity}{/if}</p>{/if}
+      {#if v.buyer.taxId}<p>เลขประจำตัวผู้เสียภาษี <span class="mono">{v.buyer.taxId}</span>{#if v.buyerIdentity}{' '}· {v.buyerIdentity}{/if}</p>{/if}
       {#if v.buyer.phone}<p>โทร {v.buyer.phone}</p>{/if}
     </div>
     <dl class="meta">
       <dt>เลขที่ / No.</dt><dd class="mono">{d.number ?? 'ร่าง / DRAFT'}</dd>
       <dt>วันที่ / Date</dt><dd>{thDate(d.date)}</dd>
-      {#if d.dueDate}<dt>{dt.dueLabel?.th ?? 'ครบกำหนด'} / {dt.dueLabel?.en ?? 'Due'}</dt><dd>{thDate(d.dueDate)}</dd>{/if}
+      {#if d.dueDate && !dt.adjusts}<dt>{dt.dueLabel?.th ?? 'ครบกำหนด'} / {dt.dueLabel?.en ?? 'Due'}</dt><dd>{thDate(d.dueDate)}</dd>{/if}
       {#if v.source}<dt>อ้างอิง / Ref.</dt><dd class="mono">{v.source.number}</dd>{/if}
       {#if d.fields?.supplier_ref}<dt>เลขที่ผู้ขาย / Supplier ref.</dt><dd class="mono">{d.fields.supplier_ref}</dd>{/if}
       {#if v.job}<dt>งาน / Job</dt><dd class="mono">{v.job.number}</dd>{/if}
@@ -52,7 +52,7 @@
     <section class="basis">
       <p class="lbl">{dt.adjusts === 'credit' ? 'ลดหนี้จาก' : 'เพิ่มหนี้จาก'} / {dt.adjusts === 'credit' ? 'Credit against' : 'Debit against'}</p>
       <dl>
-        <dt>ใบกำกับภาษีเดิม / Original tax invoice</dt><dd class="mono">{v.noteBasis.sourceNumber} · {thDate(v.noteBasis.sourceDate)}</dd>
+        <dt>ใบกำกับภาษีเดิม / Original tax invoice</dt><dd><span class="mono">{v.noteBasis.sourceNumber}</span> · {thDate(v.noteBasis.sourceDate)}</dd>
         <dt>มูลค่าตามใบกำกับภาษีเดิม / Original value</dt><dd>{money(v.noteBasis.original)}</dd>
         <dt>มูลค่าที่ถูกต้อง / Correct value</dt><dd>{money(v.noteBasis.corrected)}</dd>
         <dt>ผลต่าง / Difference</dt><dd>{money(v.noteBasis.difference)}</dd>

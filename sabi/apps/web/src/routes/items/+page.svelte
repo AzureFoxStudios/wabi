@@ -9,7 +9,9 @@
   let search = $state('');
   let lowOnly = $state(false);
   const r = resource(() => get('items', { kind, search }));
-  const list = $derived(((r.data as any[]) ?? []).filter((i) => !lowOnly || (i.stock && i.stock.available < 0)));
+  // Short = promised more than we have; low = below the reorder point set on the item.
+  const low = (i: any) => i.stock && i.reorderPoint != null && i.stock.available >= 0 && i.stock.available < i.reorderPoint;
+  const list = $derived(((r.data as any[]) ?? []).filter((i) => !lowOnly || (i.stock && (i.stock.available < 0 || low(i)))));
 </script>
 
 <svelte:head><title>{T('Products & stock', 'สินค้าและสต็อก')} · Sabi</title></svelte:head>
@@ -23,7 +25,7 @@
     <select bind:value={kind} aria-label={T('Kind', 'ประเภท')}>
       <option value="">{T('Everything', 'ทั้งหมด')}</option><option value="stock">{T('Stocked', 'นับสต็อก')}</option><option value="non_stock">{T('Not stocked', 'ไม่นับสต็อก')}</option><option value="service">{T('Services', 'บริการ')}</option>
     </select>
-    <label class="row small"><input type="checkbox" bind:checked={lowOnly} /> {T('Short only', 'เฉพาะที่ขาด')}</label>
+    <label class="row small"><input type="checkbox" bind:checked={lowOnly} /> {T('Short or low only', 'เฉพาะที่ขาดหรือใกล้หมด')}</label>
     <input class="grow" type="search" bind:value={search} placeholder={T('Code or name…', 'รหัสหรือชื่อ…')} />
   </div>
   <table class="data">
@@ -38,7 +40,7 @@
             <td class="num">{qty(i.stock.onHand)}</td>
             <td class="num muted">{i.stock.reserved ? qty(i.stock.reserved) : ''}</td>
             <td class="num muted">{i.stock.incoming ? qty(i.stock.incoming) : ''}</td>
-            <td class="num" class:text-danger={i.stock.available < 0}><strong class="w500">{qty(i.stock.available)}</strong></td>
+            <td class="num" class:text-danger={i.stock.available < 0} class:text-warning={low(i)}><strong class="w500">{qty(i.stock.available)}</strong>{#if low(i)}<div class="tiny">{T('reorder at', 'สั่งเมื่อต่ำกว่า')} {qty(i.reorderPoint)}</div>{/if}</td>
           {:else}
             <td colspan="4" class="small faint">{i.kind === 'service' ? T('service', 'บริการ') : T('not stocked', 'ไม่นับสต็อก')}</td>
           {/if}

@@ -15,6 +15,7 @@ import { setPassword } from '../src/auth.ts';
 import { verify, backup, restoreFromJournal } from '../src/maintenance.ts';
 import { createHttpServer } from '../src/http.ts';
 import * as Q from '../src/queries.ts';
+import * as B from '../src/reports.ts';
 import { all, one } from '../src/db.ts';
 import { thaiTaxId } from '@sabi/pack-sheet-metal';
 
@@ -224,6 +225,28 @@ test('demo seed builds a consistent workspace; every screen query runs', () => {
   Q.vatReport(app.ctx, 'sales', month);
   Q.whtReport(app.ctx, month);
   assert.ok(Q.activity(app.ctx, {}).length > 10);
+
+  // Books & controls reports run over the seed, and the seeded credit note shows up where it should.
+  const cn = one<{ id: string; source_id: string }>(app.db, "SELECT id, source_id FROM documents WHERE type = 'credit_note'");
+  assert.ok(cn, 'seed has a credit note');
+  const cnMonth = one<{ date: string }>(app.db, 'SELECT date FROM documents WHERE id = ?', cn!.id)!.date.slice(0, 7);
+  const vat = Q.vatReport(app.ctx, 'sales', cnMonth);
+  const cnRow = vat.rows.find((r: any) => r.id === cn!.id);
+  assert.ok(cnRow && cnRow.kind === 'credit' && cnRow.vat < 0 && cnRow.corrects && cnRow.reason, 'credit note is a negative, referenced VAT row');
+  assert.equal(vat.totals.vat, vat.rows.reduce((a: number, r: any) => a + r.vat, 0));
+  const adj = B.adjustmentsReport(app.ctx);
+  assert.equal(adj.counts.credit_note?.count, 1);
+  const ar = B.ledgerDetail(app.ctx, '1130');
+  assert.ok(ar && ar.lines.length > 0 && ar.closing === ar.opening + ar.lines.reduce((a: number, l: any) => a + l.debit - l.credit, 0));
+  const tb = Q.trialBalance(app.ctx);
+  assert.ok(tb);
+  const sys = B.systemInfo(app.ctx);
+  assert.ok(sys.roles.length >= 5 && sys.head && sys.counts.documents > 10);
+  for (const i of all<{ id: string }>(app.db, "SELECT id FROM items WHERE kind = 'stock'")) {
+    const card = B.stockCard(app.ctx, i.id);
+    assert.ok(card);
+  }
+  assert.ok(B.manualEntries(app.ctx).length === 0);
 
   // Backup → restore reproduces identical projections.
   const out = backup(app.db, app.ctx.dataDir, tmp('sabi-bk-'));

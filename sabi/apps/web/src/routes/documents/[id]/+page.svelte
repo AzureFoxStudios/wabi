@@ -123,8 +123,8 @@
   <div class="page wide">
     <nav class="crumbs small muted">
       <a href="/documents">{T('Documents', 'เอกสาร')}</a>
-      {#if v.job} / <a href={`/jobs/${v.job.id}`}>{v.job.number} · {v.job.title}</a>{/if}
-      {#if v.source} / {T('from', 'จาก')} <a href={`/documents/${v.source.id}`}>{v.source.number}</a>{/if}
+      {#if v.job}{' '}/ <a href={`/jobs/${v.job.id}`}>{v.job.number} · {v.job.title}</a>{/if}
+      {#if v.source}{' '}/ {T('from', 'จาก')} <a href={`/documents/${v.source.id}`}>{v.source.number}</a>{/if}
     </nav>
     <header class="head">
       <div class="grow">
@@ -132,7 +132,7 @@
           <h1>{L(v.docType.label)} <span class="mono num">{d.number ?? ''}</span></h1>
           <StatePill label={v.state.label} tone={v.state.tone} />
         </div>
-        <p class="sub"><a class="link" href={partyHref}>{v.party.name}</a> · {date(d.date)}{#if d.dueDate} · {L(v.docType.dueLabel) || T('Due', 'ครบกำหนด')} {date(d.dueDate)}{/if}</p>
+        <p class="sub"><a class="link" href={partyHref}>{v.party.name}</a> · {date(d.date)}{#if d.dueDate && !v.docType.adjusts}{' '}· {L(v.docType.dueLabel) || T('Due', 'ครบกำหนด')} {date(d.dueDate)}{/if}</p>
       </div>
       <div class="amount num">
         <span class="small muted">{T('Total', 'ยอดรวม')}</span>
@@ -177,7 +177,7 @@
           {#if draft && errors.length}
             <div class="callout danger small issues">
               <strong>{T('Before this can be issued as a tax document:', 'ก่อนออกเป็นเอกสารภาษี ต้องแก้ไข:')}</strong>
-              <ul>{#each errors as i (i.code)}<li>{L(i.message)}{#if i.field?.startsWith('party.')} — <a class="link" href={partyHref}>{T('edit customer', 'แก้ไขข้อมูลลูกค้า')}</a>{:else if i.field?.startsWith('seller.')} — <a class="link" href="/settings">{T('company settings', 'ตั้งค่าบริษัท')}</a>{/if}</li>{/each}</ul>
+              <ul>{#each errors as i (i.code)}<li>{L(i.message)}{#if i.field?.startsWith('party.')}{' '}— <a class="link" href={partyHref}>{T('edit customer', 'แก้ไขข้อมูลลูกค้า')}</a>{:else if i.field?.startsWith('seller.')} — <a class="link" href="/settings">{T('company settings', 'ตั้งค่าบริษัท')}</a>{/if}</li>{/each}</ul>
             </div>
           {/if}
           {#if draft && warnings.length}
@@ -190,7 +190,7 @@
             <div class="hdr-grid">
               <Picker kind="parties" role={v.docType.direction === 'purchase' ? 'supplier' : 'customer'} bind:value={edit.partyId} display={v.party.name} label={v.docType.direction === 'purchase' ? T('Supplier', 'ผู้ขาย') : T('Customer', 'ลูกค้า')} />
               <label class="field"><span>{T('Date', 'วันที่')}</span><input type="date" bind:value={edit.date} /></label>
-              <label class="field"><span>{L(v.docType.dueLabel) || T('Due', 'ครบกำหนด')}</span><input type="date" bind:value={edit.dueDate} /></label>
+              {#if !v.docType.adjusts}<label class="field"><span>{L(v.docType.dueLabel) || T('Due', 'ครบกำหนด')}</span><input type="date" bind:value={edit.dueDate} /></label>{/if}
               <label class="field"><span>{T('Prices', 'ราคา')}</span>
                 <select bind:value={edit.priceMode}><option value="exclusive">{T('Excl. VAT', 'ไม่รวม VAT')}</option><option value="inclusive">{T('Incl. VAT', 'รวม VAT')}</option></select></label>
               {#each v.docType.fields ?? [] as f (f.key)}
@@ -275,12 +275,12 @@
             {#if v.fulfilment !== null && v.children.length}<p class="small muted">{T('Converted', 'แปลงแล้ว')} {Math.round(v.fulfilment * 100)}%</p>{/if}
           </section>
         {/if}
-        {#if v.money}
+        {#if v.money && !v.docType.adjusts}
           <section>
             <h3 class="eyebrow">{T('Payments', 'การชำระเงิน')}</h3>
             <ul class="rel">
               {#each v.payments as p (p.id)}
-                <li class:void={p.voided}><a class="mono small link" href={`/payments/${p.id}/print`} target="_blank">{p.number}</a> · {date(p.date)} · <span class="num">{p.refund ? '−' : ''}฿{money(p.allocated)}</span>{#if p.refund} <span class="tiny muted">{T('refund', 'คืนเงิน')}</span>{/if}{#if p.whtAmount}<br /><span class="tiny muted">{T('incl. WHT', 'รวมภาษีหัก ณ ที่จ่าย')} ฿{money(p.whtAmount)}{#if p.whtCertificate} · 50ทวิ {p.whtCertificate}{/if}</span>{/if}</li>
+                <li class:void={p.voided}><a class="mono small link" href={`/payments/${p.id}/print`} target="_blank">{p.number}</a> · {date(p.date)} · <span class="num">{p.refund ? '−' : ''}฿{money(p.allocated)}</span>{#if p.refund}{' '}<span class="tiny muted">{T('refund', 'คืนเงิน')}</span>{/if}{#if p.whtAmount}<br /><span class="tiny muted">{T('incl. WHT', 'รวมภาษีหัก ณ ที่จ่าย')} ฿{money(p.whtAmount)}{#if p.whtCertificate}{' '}· 50ทวิ {p.whtCertificate}{/if}</span>{/if}</li>
               {:else}<li class="small muted">{T('None yet', 'ยังไม่มี')}</li>{/each}
             </ul>
             {#if v.wht.length && v.balance > 0}<p class="tiny muted">{T('Expected withholding', 'คาดว่าจะถูกหัก ณ ที่จ่าย')}: {v.wht.map((w: any) => `${L(w.label)} ฿${money(w.amount)}`).join(', ')}</p>{/if}
@@ -292,7 +292,7 @@
             <ul class="rel small">
               {#each v.approvals as a (a.id)}
                 <li><StatePill label={{ pending: T('Pending', 'รออนุมัติ'), approved: T('Approved', 'อนุมัติ'), rejected: T('Rejected', 'ไม่อนุมัติ'), stale: T('Reset', 'ถูกยกเลิก') }[a.state as string]} tone={{ pending: 'warning', approved: 'success', rejected: 'danger', stale: 'neutral' }[a.state as string]} />
-                  {roleLabel(a.role)}{#if a.decidedBy} · {userName(a.decidedBy)}{/if}{#if a.comment}<br /><span class="muted">“{a.comment}”</span>{/if}</li>
+                  {roleLabel(a.role)}{#if a.decidedBy}{' '}· {userName(a.decidedBy)}{/if}{#if a.comment}<br /><span class="muted">“{a.comment}”</span>{/if}</li>
               {/each}
             </ul>
           </section>

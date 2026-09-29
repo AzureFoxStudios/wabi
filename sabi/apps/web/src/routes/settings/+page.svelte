@@ -5,6 +5,9 @@
   import { app, T, toast, can, roleLabel, loadBoot } from '$lib/state.svelte.ts';
   import { resource } from '$lib/resource.svelte.ts';
   import { L } from '$lib/format.ts';
+  import ImportCsv from '$lib/components/ImportCsv.svelte';
+  import IntegrationsSettings from '$lib/components/IntegrationsSettings.svelte';
+  import SystemInfo from '$lib/components/SystemInfo.svelte';
 
   const welcome = page.url.searchParams.get('welcome') === '1';
   const owner = can('all');
@@ -15,8 +18,21 @@
     ...(can('settings.write') ? [{ id: 'users', label: T('People & roles', 'ผู้ใช้และบทบาท') }] : []),
     { id: 'me', label: T('My account', 'บัญชีของฉัน') },
     { id: 'config', label: T('Business setup', 'การตั้งค่าธุรกิจ') },
+    ...(can('parties.write') || can('items.write') ? [{ id: 'import', label: T('Import from CSV', 'นำเข้าจาก CSV') }] : []),
+    ...(owner ? [{ id: 'integrations', label: T('Integrations', 'การเชื่อมต่อ') }] : []),
+    ...(owner ? [{ id: 'controls', label: T('Controls & audit', 'การควบคุมและตรวจสอบ') }] : []),
     ...(owner ? [{ id: 'data', label: T('Backup & export', 'สำรองและส่งออกข้อมูล') }] : []),
   ]);
+  // Follow the address when it changes without a remount (links to /settings#users from elsewhere, back/forward).
+  $effect(() => {
+    const h = page.url.hash.slice(1);
+    if (h) section = h;
+  });
+  $effect(() => {
+    const onHash = () => location.hash.length > 1 && (section = location.hash.slice(1));
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  });
   function go(id: string) {
     section = id;
     history.replaceState(history.state, '', `#${id}`);
@@ -242,6 +258,12 @@
             </ul>
           </section>
         </div>
+      {:else if section === 'import'}
+        <ImportCsv />
+      {:else if section === 'integrations'}
+        <IntegrationsSettings />
+      {:else if section === 'controls'}
+        <SystemInfo />
       {:else if section === 'data'}
         <div class="stack narrowform">
           <p>{T('Your data belongs to you. Everything Sabi knows is an append-only, hash-chained journal of events; every screen is rebuilt from it.', 'ข้อมูลเป็นของคุณ ทุกอย่างในระบบถูกบันทึกเป็นบันทึกเหตุการณ์แบบต่อท้ายและเชื่อมด้วยแฮช ทุกหน้าจอสร้างใหม่จากบันทึกนี้')}</p>

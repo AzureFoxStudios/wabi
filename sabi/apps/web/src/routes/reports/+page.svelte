@@ -37,7 +37,7 @@
   function exportCsv() {
     if (!data) return;
     if (tab.startsWith('vat')) {
-      csv([['Date', 'Number', 'Party', 'Tax ID', 'Branch', 'Net', 'VAT', 'Total', 'Void'], ...data.rows.map((x: any) => [x.date, x.number, x.partyName, x.taxId, x.branch, baht(x.net), baht(x.vat), baht(x.total), x.voided ? 'VOID' : ''])], `${tab}-${month}`);
+      csv([['Date', 'Number', 'Kind', 'Corrects', 'Corrects date', 'Reason', 'Party', 'Tax ID', 'Branch', 'Net', 'VAT', 'Total', 'Void'], ...data.rows.map((x: any) => [x.date, x.number, x.kind, x.corrects?.number ?? '', x.corrects?.date ?? '', x.reason ?? '', x.partyName, x.taxId, x.branch, baht(x.net), baht(x.vat), baht(x.total), x.voided ? 'VOID' : ''])], `${tab}-${month}`);
     } else if (tab === 'wht') {
       const rows = [...data.withheldFromUs.map((x: any) => ['from-us', x]), ...data.withheldByUs.map((x: any) => ['by-us', x])];
       csv([['Direction', 'Date', 'Payment', 'Party', 'Tax ID', 'Category', 'Rate', 'Base', 'WHT', 'Certificate', 'Form'], ...rows.map(([d, x]: any) => [d, x.date, x.number, x.partyName, x.taxId, x.category, x.rate, x.base !== null ? baht(x.base) : '', baht(x.wht), x.certificate, x.form])], `wht-${month}`);
@@ -73,13 +73,15 @@
         <tbody>
           {#each data.rows as x, i (x.id)}
             <tr class:void={x.voided} class="clickable" onclick={() => goto(`/documents/${x.id}`)}>
-              <td class="small muted">{i + 1}</td><td class="small nowrap">{date(x.date)}</td><td class="mono small">{x.number}{#if x.voided} <span class="pill tone-danger">{T('void', 'ยกเลิก')}</span>{/if}</td>
+              <td class="small muted">{i + 1}</td><td class="small nowrap">{date(x.date)}</td><td class="mono small">{x.number}{#if x.voided} <span class="pill tone-danger">{T('void', 'ยกเลิก')}</span>{/if}
+                {#if x.kind === 'credit'}<div class="tiny note">{T('Credit note', 'ใบลดหนี้')}{#if x.corrects}{' '}{T('for', 'ของ')} {x.corrects.number} ({date(x.corrects.date)}){/if}{#if x.reason}{' · '}{x.reason}{/if}</div>
+                {:else if x.kind === 'debit'}<div class="tiny note">{T('Debit note', 'ใบเพิ่มหนี้')}{#if x.corrects}{' '}{T('for', 'ของ')} {x.corrects.number} ({date(x.corrects.date)}){/if}{#if x.reason}{' · '}{x.reason}{/if}</div>{/if}</td>
               <td>{x.partyName}</td><td class="mono small">{x.taxId}</td><td class="small">{x.branch}</td>
-              <td class="num">{money(x.net)}</td><td class="num">{money(x.vat)}</td><td class="num">{money(x.total)}</td>
+              <td class="num" class:neg={x.net < 0}>{money(x.net)}</td><td class="num" class:neg={x.vat < 0}>{money(x.vat)}</td><td class="num" class:neg={x.total < 0}>{money(x.total)}</td>
             </tr>
           {:else}<tr><td colspan="9" class="muted small">{T('Nothing this month.', 'ไม่มีรายการในเดือนนี้')}</td></tr>{/each}
         </tbody>
-        {#if data.rows.length}<tfoot><tr><td colspan="6"><strong>{T('Total', 'รวม')}</strong></td><td class="num"><strong>{money(sum(data.rows, 'net'))}</strong></td><td class="num"><strong>{money(sum(data.rows, 'vat'))}</strong></td><td class="num"><strong>{money(sum(data.rows, 'total'))}</strong></td></tr></tfoot>{/if}
+        {#if data.rows.length}<tfoot><tr><td colspan="6"><strong>{T('Total', 'รวม')}</strong></td><td class="num"><strong>{money(data.totals?.net ?? sum(data.rows, 'net'))}</strong></td><td class="num"><strong>{money(data.totals?.vat ?? sum(data.rows, 'vat'))}</strong></td><td class="num"><strong>{money(data.totals?.total ?? sum(data.rows, 'total'))}</strong></td></tr></tfoot>{/if}
       </table>
     {:else if tab === 'wht'}
       {#each [{ k: 'withheldFromUs', t: T('Withheld from us by customers', 'ลูกค้าหักภาษี ณ ที่จ่ายจากเรา') }, { k: 'withheldByUs', t: T('Withheld by us from suppliers', 'เราหักภาษี ณ ที่จ่ายจากผู้ขาย') }] as g (g.k)}
@@ -117,6 +119,8 @@
 </div>
 
 <style>
+  .note { color: var(--muted); font-family: var(--font, inherit); }
+  .neg { color: var(--t-danger); }
   .hint { margin: 10px 0 16px; max-width: 70ch; }
   .void td { opacity: 0.55; }
   tfoot td { border-top: 2px solid var(--line-strong); }

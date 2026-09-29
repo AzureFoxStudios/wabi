@@ -146,7 +146,7 @@ export function shortages(db: DatabaseSync, pack: Pack) {
     const available = round3(p.onHand - p.reserved);
     const reorder = item.reorderPoint;
     const short = available < 0;
-    const low = !short && reorder !== undefined && available < reorder;
+    const low = !short && reorder != null && available < reorder;
     if (!short && !low) continue;
     const jobs = [...new Set(sp.reservedBy.filter((r) => r.itemId === itemId && r.jobId).map((r) => r.jobId!))];
     out.push({
@@ -652,6 +652,9 @@ export function subjectLabel(db: DatabaseSync, type: string, id: string): string
   if (type === 'party') return one<{ name: string }>(db, 'SELECT name FROM parties WHERE id = ?', id)?.name ?? '';
   if (type === 'item') return one<{ sku: string }>(db, 'SELECT sku FROM items WHERE id = ?', id)?.sku ?? '';
   if (type === 'payment') return one<{ number: string }>(db, 'SELECT number FROM payments WHERE id = ?', id)?.number ?? '';
+  if (type === 'user') return one<{ name: string }>(db, 'SELECT name FROM users WHERE id = ?', id)?.name ?? '';
+  if (type === 'settings') return id === 'company' ? 'Company' : id === 'accounts' ? 'Chart of accounts' : id;
+  if (type === 'system') return 'Books';
   return '';
 }
 

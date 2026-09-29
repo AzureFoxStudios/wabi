@@ -207,7 +207,7 @@
             {@const href = srcHref(l.source)}
             <tr class:rev={l.reversal || l.reversed}>
               <td class="small nowrap">{date(l.date)}</td>
-              <td>{#if href}<a class="link" href={href}>{l.memo}</a>{:else}{l.memo}{/if}{#if l.reversal} <span class="tiny muted">({T('reversal', 'กลับรายการ')})</span>{/if}</td>
+              <td>{#if href}<a class="link" href={href}>{l.memo}</a>{:else}{l.memo}{/if}{#if l.reversal}{' '}<span class="tiny muted">({T('reversal', 'กลับรายการ')})</span>{/if}</td>
               <td class="small">{l.partyName}</td>
               <td class="num">{l.debit ? money(l.debit) : ''}</td><td class="num">{l.credit ? money(l.credit) : ''}</td><td class="num">{money(l.balance)}</td>
             </tr>

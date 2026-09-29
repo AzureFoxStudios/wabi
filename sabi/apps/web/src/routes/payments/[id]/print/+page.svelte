@@ -50,7 +50,7 @@
           <p class="lbl">{v.payment.direction === 'in' ? 'ได้รับเงินจาก / Received from' : 'จ่ายให้ / Paid to'}</p>
           <strong>{v.buyer?.name}</strong>
           <p>{fmtAddress(v.buyer?.address)}</p>
-          {#if v.buyer?.taxId}<p>เลขประจำตัวผู้เสียภาษี <span class="mono">{v.buyer.taxId}</span>{#if v.buyer.branch} · {v.buyer.branch === '00000' ? 'สำนักงานใหญ่' : `สาขา ${v.buyer.branch}`}{/if}</p>{/if}
+          {#if v.buyer?.taxId}<p>เลขประจำตัวผู้เสียภาษี <span class="mono">{v.buyer.taxId}</span>{#if v.buyer.branch}{' '}· {v.buyer.branch === '00000' ? 'สำนักงานใหญ่' : `สาขา ${v.buyer.branch}`}{/if}</p>{/if}
         </div>
         <dl class="meta">
           <dt>เลขที่ / No.</dt><dd class="mono">{v.payment.number}</dd>

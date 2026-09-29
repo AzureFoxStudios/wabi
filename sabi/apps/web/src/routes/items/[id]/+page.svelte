@@ -117,7 +117,7 @@
         {#if v.reservedBy.length}
           <section class="section">
             <header><h2>{T('Promised to customers', 'จองให้ลูกค้า')}</h2></header>
-            <ul class="plain">{#each v.reservedBy as rb (rb.docId)}<li><a class="link" href={`/documents/${rb.docId}`}>{rb.docNumber}</a>{#if rb.jobId} · <a class="link" href={`/jobs/${rb.jobId}`}>{rb.jobNumber}</a>{/if} · {qty(rb.qty)} {it.uom}</li>{/each}</ul>
+            <ul class="plain">{#each v.reservedBy as rb (rb.docId)}<li><a class="link" href={`/documents/${rb.docId}`}>{rb.docNumber}</a>{#if rb.jobId}{' '}· <a class="link" href={`/jobs/${rb.jobId}`}>{rb.jobNumber}</a>{/if} · {qty(rb.qty)} {it.uom}</li>{/each}</ul>
           </section>
         {/if}
         {#if v.stock}
@@ -132,7 +132,7 @@
                   <tr>
                     <td class="small nowrap" title={m.at}>{date(m.at.slice(0, 10))}<br /><span class="tiny muted">{userName(m.by)}</span></td>
                     <td class="small">{locLabel(m.from)} → {locLabel(m.to)}{#if m.note}<br /><span class="tiny muted">{m.note}</span>{/if}</td>
-                    <td class="small">{#if m.documentId}<a class="link" href={`/documents/${m.documentId}`}>{L(docTypeDef(m.docType)?.label)} {m.docNumber}</a>{/if}{#if m.jobId} <a class="link" href={`/jobs/${m.jobId}`}>{m.jobNumber}</a>{/if}</td>
+                    <td class="small">{#if m.documentId}<a class="link" href={`/documents/${m.documentId}`}>{L(docTypeDef(m.docType)?.label)} {m.docNumber}</a>{/if}{#if m.jobId}{#if m.documentId}{' · '}{/if}<a class="link" href={`/jobs/${m.jobId}`}>{m.jobNumber}</a>{/if}</td>
                     <td class="num" class:text-success={inbound} class:text-danger={outbound}>{inbound ? '+' : outbound ? '−' : ''}{qty(m.qty)}</td>
                     <td class="num muted">{qty(balances[mi])}</td>
                   </tr>
@@ -152,7 +152,7 @@
               </form>
               <h3 class="sub3">{T('Count', 'ตรวจนับ')}</h3>
               <form class="row wrap adj" onsubmit={recordCount}>
-                <input type="number" step="any" min="0" bind:value={count.qty} placeholder={T('Counted on the shelf', 'จำนวนที่นับได้')} required class="num" style="width:170px" />
+                <input type="number" step="any" min="0" bind:value={count.qty} placeholder={T('Counted', 'นับได้')} required class="num" style="width:170px" />
                 {#if internal.length > 1}<select bind:value={count.location} style="width:auto">{#each internal as l (l.id)}<option value={l.id}>{L(l.name)}</option>{/each}</select>{/if}
                 <span class="small muted">{T('Books say', 'ตามบัญชี')} {qty(v.stock.byLocation[count.location] ?? 0)}</span>
                 <button class="btn" disabled={busy || count.qty === ''}>{T('Record count', 'บันทึกการนับ')}</button>

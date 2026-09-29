@@ -98,9 +98,12 @@ export function describeEvent(db: DatabaseSync, pack: Pack, e: JournalEvent): De
       if (d.kind === 'transfer') {
         return { ...base, summary: L(`Moved ${formatQty(first.qty)} ${itemName(first.itemId)} ${first.from} → ${first.to}`, `ย้าย ${formatQty(first.qty)} ${itemName(first.itemId)} ${first.from} → ${first.to}`) };
       }
-      const dir = first.to === 'customer' ? L('delivered out of stock', 'ตัดสต็อกส่งลูกค้า')
-        : first.from === 'supplier' ? L('received into stock', 'รับเข้าคลัง')
-          : L('stock reversed', 'กลับรายการสต็อก');
+      const dir = first.note === 'void' ? L('stock movement reversed (voided)', 'กลับรายการสต็อก (ยกเลิกเอกสาร)')
+        : first.to === 'customer' ? L('delivered out of stock', 'ตัดสต็อกส่งลูกค้า')
+          : first.from === 'supplier' ? L('received into stock', 'รับเข้าคลัง')
+            : first.from === 'customer' ? L('returned by the customer into stock', 'ลูกค้าคืนสินค้าเข้าคลัง')
+              : first.to === 'supplier' ? L('returned to the supplier', 'คืนสินค้าให้ผู้ขาย')
+                : L('stock moved', 'เคลื่อนไหวสต็อก');
       return { ...base, summary: { en: `${n} line${n > 1 ? 's' : ''} ${dir.en}`, th: `${n} รายการ ${dir.th}` } };
     }
     case 'payment.recorded': {

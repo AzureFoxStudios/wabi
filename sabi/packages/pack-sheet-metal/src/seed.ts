@@ -217,6 +217,13 @@ export function demoSeed(api: SeedApi): void {
 
     // ── J3: Chokchai cladding — confirmed, zincalume short, PO waiting ──
   });
+  // Two sheets from the monthly order came back bent: correct the tax invoice with a credit note.
+  step(38, 14, () => {
+    run('somchai', 'message.post', { subjectType: 'job', subjectId: s0, body: 'Somsak returned 2 sheets bent during unloading. Back in the yard, not resellable as new. @pim please credit them.' });
+    const cn = run('pim', 'document.create', { type: 'credit_note', sourceId: iv0 }).id;
+    run('pim', 'document.update', { id: cn, lines: [{ itemId: ids.ms035, measures: { pieces: 2, length: 4 } }], fields: { goods_returned: true, reason: 'Two sheets bent during unloading, returned by the customer' } });
+    run('pim', 'document.transition', { id: cn, transition: 'issue' });
+  });
   step(10, 10, () => {
     j3 = run('nok', 'job.create', {
       type: 'install', title: 'Factory wall cladding, Rojana', partyId: ids.chokchai, ownerId: uid.arun, dueDate: isoDaysAgo(-12),
