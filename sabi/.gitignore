@@ -1,0 +1,7 @@
+node_modules/
+data/
+apps/web/build/
+apps/web/.svelte-kit/
+*.sqlite
+*.sqlite-*
+screenshots/tmp/
