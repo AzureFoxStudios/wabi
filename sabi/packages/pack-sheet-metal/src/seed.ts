@@ -109,15 +109,15 @@ export function demoSeed(api: SeedApi): void {
     // ── Items (prices in satang) ─────────────────────────────────────
     const item = (input: Record<string, unknown>) => run('arun', 'item.create', input).id as string;
     ids.ms035 = item({ sku: 'MS-035-BLU', name: 'Metal sheet 0.35 mm, blue, corrugated', kind: 'stock', uom: 'm', salePrice: 16500, costPrice: 12800,
-      measureTemplate: 'sheet_length', fields: { thickness_mm: 0.35, color: 'Blue', profile: 'corrugated', reorder_point: 200 } });
+      measureTemplate: 'sheet_length', fields: { thickness_mm: 0.35, color: 'Blue', profile: 'corrugated' }, reorderPoint: 200 });
     ids.ms040 = item({ sku: 'MS-040-RED', name: 'Metal sheet 0.40 mm, red, tile profile', kind: 'stock', uom: 'm', salePrice: 19500, costPrice: 15200,
-      measureTemplate: 'sheet_length', fields: { thickness_mm: 0.4, color: 'Red', profile: 'tile', reorder_point: 150 } });
+      measureTemplate: 'sheet_length', fields: { thickness_mm: 0.4, color: 'Red', profile: 'tile' }, reorderPoint: 150 });
     ids.zl047 = item({ sku: 'ZL-047', name: 'Zincalume 0.47 mm, trapezoid', kind: 'stock', uom: 'm', salePrice: 23500, costPrice: 18500,
-      measureTemplate: 'sheet_length', fields: { thickness_mm: 0.47, color: 'Natural', profile: 'trapezoid', reorder_point: 150 } });
-    ids.ridge = item({ sku: 'RG-RED', name: 'Ridge cap, red', kind: 'stock', uom: 'pc', salePrice: 18000, costPrice: 12000, fields: { color: 'Red', reorder_point: 30 } });
-    ids.screw = item({ sku: 'SC-TEK-12', name: 'Roofing screws 12×1", box of 100', kind: 'stock', uom: 'box', salePrice: 35000, costPrice: 24000, fields: { reorder_point: 20 } });
-    ids.purlin = item({ sku: 'C-100-23', name: 'C-channel purlin 100×50×2.3 mm, 6 m', kind: 'stock', uom: 'pc', salePrice: 52000, costPrice: 43000, fields: { reorder_point: 40 } });
-    ids.sealant = item({ sku: 'SL-PU', name: 'PU sealant tube', kind: 'stock', uom: 'pc', salePrice: 12000, costPrice: 8500, fields: { reorder_point: 24 } });
+      measureTemplate: 'sheet_length', fields: { thickness_mm: 0.47, color: 'Natural', profile: 'trapezoid' }, reorderPoint: 150 });
+    ids.ridge = item({ sku: 'RG-RED', name: 'Ridge cap, red', kind: 'stock', uom: 'pc', salePrice: 18000, costPrice: 12000, fields: { color: 'Red' }, reorderPoint: 30 });
+    ids.screw = item({ sku: 'SC-TEK-12', name: 'Roofing screws 12×1", box of 100', kind: 'stock', uom: 'box', salePrice: 35000, costPrice: 24000, fields: {}, reorderPoint: 20 });
+    ids.purlin = item({ sku: 'C-100-23', name: 'C-channel purlin 100×50×2.3 mm, 6 m', kind: 'stock', uom: 'pc', salePrice: 52000, costPrice: 43000, fields: {}, reorderPoint: 40 });
+    ids.sealant = item({ sku: 'SL-PU', name: 'PU sealant tube', kind: 'stock', uom: 'pc', salePrice: 12000, costPrice: 8500, fields: {}, reorderPoint: 24 });
     ids.install = item({ sku: 'SVC-INSTALL', name: 'Roof installation labour', kind: 'service', uom: 'm2', salePrice: 12000, costPrice: 0, whtCategory: 'service' });
     ids.delivery = item({ sku: 'SVC-DELIVERY', name: 'Delivery by 6-wheel truck', kind: 'service', uom: 'trip', salePrice: 150000, costPrice: 0, whtCategory: 'transport' });
 

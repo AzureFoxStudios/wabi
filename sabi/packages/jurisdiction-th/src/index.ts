@@ -38,21 +38,43 @@ const TAX_CODES: TaxCodeDef[] = [
   { code: 'EXEMPT', label: { en: 'VAT exempt', th: 'ยกเว้นภาษี' }, kind: 'exempt', rates: [{ from: '1992-01-01', rate: 0 }] },
 ];
 
+/**
+ * A small SME chart in the common Thai 4-digit layout. Businesses add their own
+ * accounts on top (account.create); these codes are what automatic postings use.
+ */
 const COA: AccountDef[] = [
   { code: '1110', name: { en: 'Cash', th: 'เงินสด' }, type: 'asset' },
   { code: '1120', name: { en: 'Bank deposits', th: 'เงินฝากธนาคาร' }, type: 'asset' },
   { code: '1130', name: { en: 'Trade receivables', th: 'ลูกหนี้การค้า' }, type: 'asset' },
   { code: '1140', name: { en: 'Inventory', th: 'สินค้าคงเหลือ' }, type: 'asset' },
+  { code: '1150', name: { en: 'Retention receivable', th: 'เงินประกันผลงานค้างรับ' }, type: 'asset' },
   { code: '1160', name: { en: 'Input VAT', th: 'ภาษีซื้อ' }, type: 'asset' },
   { code: '1170', name: { en: 'Withholding tax prepaid', th: 'ภาษีเงินได้ถูกหัก ณ ที่จ่าย' }, type: 'asset' },
+  { code: '1180', name: { en: 'Prepaid expenses', th: 'ค่าใช้จ่ายจ่ายล่วงหน้า' }, type: 'asset' },
+  { code: '1210', name: { en: 'Equipment and vehicles', th: 'อุปกรณ์และยานพาหนะ' }, type: 'asset' },
+  { code: '1219', name: { en: 'Accumulated depreciation', th: 'ค่าเสื่อมราคาสะสม' }, type: 'asset' },
+  { code: '2110', name: { en: 'Short-term loans', th: 'เงินกู้ยืมระยะสั้น' }, type: 'liability' },
   { code: '2120', name: { en: 'Trade payables', th: 'เจ้าหนี้การค้า' }, type: 'liability' },
+  { code: '2130', name: { en: 'Accrued expenses', th: 'ค่าใช้จ่ายค้างจ่าย' }, type: 'liability' },
+  { code: '2140', name: { en: 'Retention payable', th: 'เงินประกันผลงานค้างจ่าย' }, type: 'liability' },
   { code: '2150', name: { en: 'Output VAT', th: 'ภาษีขาย' }, type: 'liability' },
   { code: '2160', name: { en: 'Withholding tax payable', th: 'ภาษีหัก ณ ที่จ่ายค้างจ่าย' }, type: 'liability' },
+  { code: '2170', name: { en: 'Customer deposits', th: 'เงินรับล่วงหน้าจากลูกค้า' }, type: 'liability' },
+  { code: '2210', name: { en: 'Long-term loans', th: 'เงินกู้ยืมระยะยาว' }, type: 'liability' },
   { code: '3100', name: { en: 'Owner equity', th: 'ทุน' }, type: 'equity' },
+  { code: '3200', name: { en: 'Retained earnings', th: 'กำไรสะสม' }, type: 'equity' },
   { code: '4110', name: { en: 'Sales of goods', th: 'รายได้จากการขายสินค้า' }, type: 'income' },
   { code: '4120', name: { en: 'Service income', th: 'รายได้ค่าบริการ' }, type: 'income' },
+  { code: '4900', name: { en: 'Other income', th: 'รายได้อื่น' }, type: 'income' },
   { code: '5110', name: { en: 'Purchases', th: 'ซื้อสินค้า' }, type: 'expense' },
+  { code: '5120', name: { en: 'Cost of sales adjustment', th: 'ปรับปรุงต้นทุนขาย' }, type: 'expense' },
   { code: '5200', name: { en: 'Operating expenses', th: 'ค่าใช้จ่ายในการดำเนินงาน' }, type: 'expense' },
+  { code: '5210', name: { en: 'Salaries and wages', th: 'เงินเดือนและค่าแรง' }, type: 'expense' },
+  { code: '5220', name: { en: 'Rent', th: 'ค่าเช่า' }, type: 'expense' },
+  { code: '5230', name: { en: 'Utilities', th: 'ค่าสาธารณูปโภค' }, type: 'expense' },
+  { code: '5240', name: { en: 'Fuel and transport', th: 'ค่าน้ำมันและขนส่ง' }, type: 'expense' },
+  { code: '5250', name: { en: 'Depreciation', th: 'ค่าเสื่อมราคา' }, type: 'expense' },
+  { code: '5300', name: { en: 'Interest and bank charges', th: 'ดอกเบี้ยและค่าธรรมเนียมธนาคาร' }, type: 'expense' },
 ];
 
 /** 13-digit Thai tax / citizen ID: last digit = (11 − Σ dᵢ·(13−i) mod 11) mod 10. */
@@ -165,6 +187,7 @@ export const th: Jurisdiction = {
     cash: '1110', bank: '1120', receivable: '1130', inputTax: '1160', whtPrepaid: '1170',
     payable: '2120', outputTax: '2150', whtPayable: '2160',
     revenueGoods: '4110', revenueServices: '4120', purchases: '5110',
+    retentionReceivable: '1150', retentionPayable: '2140',
   },
   taxRate(code, date) {
     const def = TAX_CODES.find((t) => t.code === code);

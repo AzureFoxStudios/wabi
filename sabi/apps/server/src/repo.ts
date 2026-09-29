@@ -42,7 +42,7 @@ export const toParty = (r: R): Party => ({
 export const toItem = (r: R): Item => ({
   id: r.id, sku: r.sku, name: r.name, kind: r.kind, uom: r.uom, salePrice: r.sale_price, costPrice: r.cost_price,
   taxCode: r.tax_code, whtCategory: opt(r.wht_category), measureTemplate: opt(r.measure_template),
-  fields: j(r.fields, {}), active: !!r.active, createdAt: r.created_at, updatedAt: r.updated_at,
+  reorderPoint: r.reorder_point ?? undefined, fields: j(r.fields, {}), active: !!r.active, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
 export const toJob = (r: R): Job => ({
@@ -65,6 +65,7 @@ export function toDocument(r: R, lines: DocLine[]): Document {
     partySnapshot: j<PartySnapshot | undefined>(r.party_snapshot, undefined),
     sellerSnapshot: j<PartySnapshot | undefined>(r.seller_snapshot, undefined),
     issuedAt: opt(r.issued_at), issuedBy: opt(r.issued_by), voidReason: opt(r.void_reason),
+    retention: r.retention ?? undefined, retentionReleasedAt: opt(r.retention_released_at),
     createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
@@ -154,20 +155,30 @@ export function documentsWhere(db: DatabaseSync, where: string, ...params: unkno
 export function getPayment(db: DatabaseSync, id: string): Payment | undefined {
   const r = one(db, 'SELECT * FROM payments WHERE id = ?', id);
   if (!r) return undefined;
-  const allocs = all<{ document_id: string; amount: number }>(db, 'SELECT * FROM payment_allocations WHERE payment_id = ?', id);
-  return toPayment(r, allocs.map((a) => ({ documentId: a.document_id, amount: a.amount })));
+  const allocs = all<{ document_id: string; amount: number; refund: number }>(db, 'SELECT * FROM payment_allocations WHERE payment_id = ?', id);
+  return toPayment(r, allocs.map((a) => ({ documentId: a.document_id, amount: a.amount, ...(a.refund ? { refund: true } : {}) })));
 }
 
 export function tasksOf(db: DatabaseSync, subjectType: string, subjectId: string): Task[] {
   return all(db, 'SELECT * FROM tasks WHERE subject_type = ? AND subject_id = ? ORDER BY done_at IS NOT NULL, due IS NULL, due, created_at', subjectType, subjectId).map(toTask);
 }
 
-/** Settled amount (money + WHT) allocated to a document by non-void payments. */
+/**
+ * How much of a document's total no longer needs paying: money + WHT from non-void payments,
+ * minus refunds paid back, plus issued credit notes (debit notes count negative).
+ */
 export function settledAmount(db: DatabaseSync, documentId: string): number {
   const r = one<{ s: number | null }>(db,
-    'SELECT SUM(a.amount) AS s FROM payment_allocations a JOIN payments p ON p.id = a.payment_id WHERE a.document_id = ? AND p.voided = 0',
-    documentId);
+    `SELECT COALESCE((SELECT SUM(CASE WHEN a.refund = 1 THEN -a.amount ELSE a.amount END) FROM payment_allocations a
+       JOIN payments p ON p.id = a.payment_id WHERE a.document_id = ? AND p.voided = 0), 0)
+     + COALESCE((SELECT SUM(amount) FROM doc_adjustments WHERE source_id = ?), 0) AS s`,
+    documentId, documentId);
   return r?.s ?? 0;
+}
+
+/** Retention still held on a document (not yet released). */
+export function heldRetention(doc: Document): number {
+  return doc.retention && !doc.retentionReleasedAt ? doc.retention : 0;
 }
 
 /** On-hand quantity per internal location for one item. */

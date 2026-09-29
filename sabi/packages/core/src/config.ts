@@ -57,6 +57,25 @@ export function validatePack(pack: Pack): string[] {
     if (init && init.phase !== 'draft') errs.push(`doc:${d.id}: initial state must be in phase 'draft'`);
     for (const c of d.convertsTo) if (!docIds.has(c)) errs.push(`doc:${d.id}: converts to unknown type '${c}'`);
     if (d.effects.includes('stock_out') && d.effects.includes('stock_in')) errs.push(`doc:${d.id}: cannot both stock_in and stock_out`);
+    const money = d.effects.includes('receivable') || d.effects.includes('payable');
+    if (d.adjusts) {
+      if (!money) errs.push(`doc:${d.id}: a ${d.adjusts} note must carry a receivable or payable`);
+      const sources = pack.documentTypes.filter((x) => x.convertsTo.includes(d.id));
+      if (!sources.length) errs.push(`doc:${d.id}: no document type converts to this ${d.adjusts} note`);
+      for (const src of sources) {
+        if (src.direction !== d.direction) errs.push(`doc:${d.id}: source '${src.id}' has a different direction`);
+        if (!(src.effects.includes('receivable') || src.effects.includes('payable')) || src.adjusts) errs.push(`doc:${d.id}: source '${src.id}' must be an invoice or bill`);
+      }
+      if (d.retention) errs.push(`doc:${d.id}: notes cannot hold retention`);
+    }
+    for (const [effect, field] of Object.entries(d.effectsWhen ?? {})) {
+      if (!d.effects.includes(effect as never)) errs.push(`doc:${d.id}: effectsWhen names '${effect}', which is not one of its effects`);
+      if (!(d.fields ?? []).some((f) => f.key === field && f.type === 'boolean')) errs.push(`doc:${d.id}: effectsWhen field '${field}' must be a boolean document field`);
+    }
+    if (d.retention && !money) errs.push(`doc:${d.id}: retention needs a receivable or payable`);
+    if (d.retention && !(d.fields ?? []).some((f) => f.key === d.retention!.field && f.type === 'number')) errs.push(`doc:${d.id}: retention field '${d.retention.field}' must be a number field`);
   }
+  const unitIds = new Set(pack.units.map((u) => u.id));
+  if (unitIds.size !== pack.units.length) errs.push('units: duplicate ids');
   return errs;
 }

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   evaluate, compileFormula, FormulaError, computeTotals, lineAmounts, roundHalfUp, openLines,
-  fulfilment, evaluateTransitions, nextAction, autoTransition, postDocument, postPayment, reverse,
+  fulfilment, evaluateTransitions, nextAction, autoTransition, postDocument, postPayment, reverse, postRetentionRelease, manualEntry,
   assertBalanced, formatMinor,
 } from '../src/index.ts';
 import type { DocLine, Document, WorkflowDef, DocTypeDef, PostingAccounts, Payment } from '../src/index.ts';
@@ -127,6 +127,7 @@ test('workflow: approval guard with condition, role self-approval and recorded a
 const acc: PostingAccounts = {
   receivable: '1130', payable: '2120', revenueGoods: '4110', revenueServices: '4120', purchases: '5110',
   outputTax: '2150', inputTax: '1160', whtPrepaid: '1170', whtPayable: '2160', cash: '1110', bank: '1120',
+  retentionReceivable: '1150', retentionPayable: '2140',
 };
 
 test('accounting: invoice, bill and payment postings balance; reversal mirrors', () => {
@@ -143,9 +144,37 @@ test('accounting: invoice, bill and payment postings balance; reversal mirrors',
   assertBalanced(bill.lines);
 
   const p: Payment = { id: 'p', number: 'RC-1', direction: 'in', partyId: 'c', date: '2026-10-01', method: 'transfer',
-    amount: inv.totals.total - 15_00, whtAmount: 15_00, allocations: [], createdBy: 'u', createdAt: '' };
+    amount: inv.totals.total - 15_00, whtAmount: 15_00, allocations: [{ documentId: 'd1', amount: inv.totals.total }], createdBy: 'u', createdAt: '' };
   const pe = postPayment(p, acc, 'je4');
   assertBalanced(pe.lines);
   assert.equal(pe.lines.find((l) => l.account === '1170')!.debit, 15_00);
   assert.equal(pe.lines.find((l) => l.account === '1130')!.credit, inv.totals.total);
+});
+
+test('accounting: retention is held apart, credit notes mirror, refunds and manual entries balance', () => {
+  const lines = [L({ qty: 1, unitPrice: 1000_00, itemKind: 'service' })];
+  const totals = computeTotals(lines, 'exclusive', '2026-09-29', rate);
+  const inv = doc({ number: 'IV-2', lines, totals, retention: 5350 });
+  const salesType = { effects: ['receivable'] } as unknown as DocTypeDef;
+  const e = postDocument(inv, salesType, acc, 'je1')!;
+  assert.equal(e.lines.find((l) => l.account === '1130')!.debit, totals.total - 5350);
+  assert.equal(e.lines.find((l) => l.account === '1150')!.debit, 5350);
+  const rel = postRetentionRelease(inv, salesType, acc, 'je2', '2026-12-01');
+  assert.deepEqual(rel.lines.map((l) => [l.account, l.debit, l.credit]), [['1130', 5350, 0], ['1150', 0, 5350]]);
+
+  const cn = doc({ number: 'CN-1', lines, totals });
+  const ce = postDocument(cn, { effects: ['receivable'], adjusts: 'credit' } as unknown as DocTypeDef, acc, 'je3')!;
+  assert.equal(ce.lines.find((l) => l.account === '1130')!.credit, totals.total);
+  assert.equal(ce.lines.find((l) => l.account === '2150')!.debit, totals.tax);
+
+  // Money out against a receivable document is a refund: Dr receivables / Cr bank.
+  const refund: Payment = { id: 'r', number: 'PV-1', direction: 'out', partyId: 'c', date: '2026-10-01', method: 'transfer',
+    amount: 100_00, whtAmount: 0, allocations: [{ documentId: 'iv', amount: 100_00, refund: true }], createdBy: 'u', createdAt: '' };
+  const re = postPayment(refund, acc, 'je4', ['cash'], () => 'receivable');
+  assert.deepEqual(re.lines.map((l) => [l.account, l.debit, l.credit]), [['1130', 100_00, 0], ['1120', 0, 100_00]]);
+
+  const m = manualEntry('je5', '2026-10-31', 'Depreciation', [{ account: '5250', debit: 500_00, credit: 0 }, { account: '1219', debit: 0, credit: 500_00 }]);
+  assert.equal(m.source.type, 'manual');
+  assert.throws(() => manualEntry('je6', '2026-10-31', 'x', [{ account: '5250', debit: 1, credit: 0 }, { account: '1219', debit: 0, credit: 2 }]));
+  assert.throws(() => manualEntry('je7', '2026-10-31', 'x', [{ account: '5250', debit: 1, credit: 0 }]));
 });

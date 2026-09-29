@@ -101,7 +101,11 @@ const taxInvoice: DocTypeDef = {
   direction: 'sales',
   numbering: { prefix: 'IV' },
   effects: ['stock_out', 'receivable'],
-  convertsTo: [],
+  convertsTo: ['credit_note', 'debit_note'],
+  retention: { field: 'retention_pct' },
+  fields: [
+    { key: 'retention_pct', type: 'number', label: L('Retention held by customer', 'เงินประกันผลงาน (หัก)'), unit: '%' },
+  ],
   priceMode: 'exclusive',
   defaultDueDays: 30,
   dueLabel: L('Payment due', 'ครบกำหนดชำระ'),
@@ -119,6 +123,95 @@ const taxInvoice: DocTypeDef = {
         roles: ['accounts', 'manager', 'sales'], requires: { lines: true } },
       ...paidTransitions('issued'),
       voidT(['draft', 'issued'], ['accounts', 'manager']),
+    ],
+  },
+};
+
+/** ใบลดหนี้ / ใบเพิ่มหนี้ (Revenue Code s.86/10, s.86/9): always made from the tax invoice they correct. */
+const noteReason = { key: 'reason', type: 'longtext' as const, label: L('Reason', 'เหตุผลในการออก') };
+const creditNote: DocTypeDef = {
+  id: 'credit_note',
+  label: L('Credit note', 'ใบลดหนี้'),
+  printTitle: L('Credit note / Tax invoice', 'ใบลดหนี้/ใบกำกับภาษี'),
+  direction: 'sales',
+  numbering: { prefix: 'CN' },
+  effects: ['stock_in', 'receivable'],
+  effectsWhen: { stock_in: 'goods_returned' },
+  adjusts: 'credit',
+  convertsTo: [],
+  priceMode: 'exclusive',
+  jurisdiction: { th: { taxDocument: 'credit_note' } },
+  fields: [
+    noteReason,
+    { key: 'goods_returned', type: 'boolean', label: L('Goods came back into stock', 'รับสินค้าคืนเข้าคลัง') },
+  ],
+  workflow: {
+    initial: 'draft',
+    states: [
+      { id: 'draft', label: L('Draft', 'ร่าง'), phase: 'draft', tone: 'neutral', ownerRole: 'accounts' },
+      { id: 'issued', label: L('Issued', 'ออกแล้ว'), phase: 'issued', tone: 'info' },
+      voidState,
+    ],
+    transitions: [
+      { id: 'issue', from: ['draft'], to: 'issued', label: L('Issue credit note', 'ออกใบลดหนี้'), primary: true,
+        roles: ['accounts', 'manager'], requires: { lines: true, fields: ['reason'] } },
+      voidT(['draft', 'issued'], ['accounts', 'manager']),
+    ],
+  },
+};
+const debitNote: DocTypeDef = {
+  id: 'debit_note',
+  label: L('Debit note', 'ใบเพิ่มหนี้'),
+  printTitle: L('Debit note / Tax invoice', 'ใบเพิ่มหนี้/ใบกำกับภาษี'),
+  direction: 'sales',
+  numbering: { prefix: 'DN' },
+  effects: ['receivable'],
+  adjusts: 'debit',
+  convertsTo: [],
+  priceMode: 'exclusive',
+  jurisdiction: { th: { taxDocument: 'debit_note' } },
+  fields: [noteReason],
+  workflow: {
+    initial: 'draft',
+    states: [
+      { id: 'draft', label: L('Draft', 'ร่าง'), phase: 'draft', tone: 'neutral', ownerRole: 'accounts' },
+      { id: 'issued', label: L('Issued', 'ออกแล้ว'), phase: 'issued', tone: 'info' },
+      voidState,
+    ],
+    transitions: [
+      { id: 'issue', from: ['draft'], to: 'issued', label: L('Issue debit note', 'ออกใบเพิ่มหนี้'), primary: true,
+        roles: ['accounts', 'manager'], requires: { lines: true, fields: ['reason'] } },
+      voidT(['draft', 'issued'], ['accounts', 'manager']),
+    ],
+  },
+};
+const supplierCredit: DocTypeDef = {
+  id: 'supplier_credit',
+  label: L('Supplier credit note', 'ใบลดหนี้จากผู้ขาย'),
+  printTitle: L('Supplier credit note (record)', 'บันทึกใบลดหนี้จากผู้ขาย'),
+  direction: 'purchase',
+  numbering: { prefix: 'SC' },
+  effects: ['stock_out', 'payable'],
+  effectsWhen: { stock_out: 'goods_returned' },
+  adjusts: 'credit',
+  convertsTo: [],
+  priceMode: 'exclusive',
+  fields: [
+    { key: 'supplier_ref', type: 'text', label: L("Supplier's credit note no.", 'เลขที่ใบลดหนี้ของผู้ขาย') },
+    noteReason,
+    { key: 'goods_returned', type: 'boolean', label: L('Goods sent back to the supplier', 'ส่งสินค้าคืนผู้ขาย') },
+  ],
+  workflow: {
+    initial: 'draft',
+    states: [
+      { id: 'draft', label: L('Draft', 'ร่าง'), phase: 'draft', tone: 'neutral', ownerRole: 'accounts' },
+      { id: 'recorded', label: L('Recorded', 'บันทึกแล้ว'), phase: 'issued', tone: 'info' },
+      voidState,
+    ],
+    transitions: [
+      { id: 'record', from: ['draft'], to: 'recorded', label: L('Record credit note', 'บันทึกใบลดหนี้'), primary: true,
+        roles: ['accounts', 'manager'], requires: { lines: true, fields: ['supplier_ref', 'reason'] } },
+      voidT(['draft', 'recorded'], ['accounts', 'manager']),
     ],
   },
 };
@@ -182,7 +275,7 @@ const supplierBill: DocTypeDef = {
   direction: 'purchase',
   numbering: { prefix: 'BL' },
   effects: ['payable'],
-  convertsTo: [],
+  convertsTo: ['supplier_credit'],
   priceMode: 'exclusive',
   defaultDueDays: 30,
   dueLabel: L('Pay by', 'ครบกำหนดจ่าย'),
@@ -314,14 +407,14 @@ export const sheetMetalPack: Pack = {
   version: '0.1.0',
   roles: [
     { id: 'owner', label: L('Owner', 'เจ้าของ'), capabilities: ['all'] },
-    { id: 'manager', label: L('Manager', 'ผู้จัดการ'), capabilities: ['jobs.write', 'documents.write', 'documents.issue', 'documents.void', 'money.write', 'stock.write', 'parties.write', 'items.write', 'reports.read', 'approve'] },
+    { id: 'manager', label: L('Manager', 'ผู้จัดการ'), capabilities: ['jobs.write', 'documents.write', 'documents.issue', 'documents.void', 'money.write', 'stock.write', 'parties.write', 'items.write', 'reports.read', 'ledger.write', 'approve'] },
     { id: 'sales', label: L('Sales', 'ฝ่ายขาย'), capabilities: ['jobs.write', 'documents.write', 'documents.issue', 'parties.write'] },
-    { id: 'accounts', label: L('Accounts', 'ฝ่ายบัญชี'), capabilities: ['documents.write', 'documents.issue', 'documents.void', 'money.write', 'parties.write', 'reports.read'] },
+    { id: 'accounts', label: L('Accounts', 'ฝ่ายบัญชี'), capabilities: ['documents.write', 'documents.issue', 'documents.void', 'money.write', 'parties.write', 'reports.read', 'ledger.write'] },
     { id: 'workshop', label: L('Workshop / stock', 'ฝ่ายผลิต/คลัง'), capabilities: ['jobs.write', 'stock.write', 'documents.write', 'documents.issue'] },
     { id: 'installer', label: L('Install crew', 'ทีมติดตั้ง'), capabilities: ['jobs.write'] },
   ],
   jobTypes: [installJob, supplyJob],
-  documentTypes: [quotation, salesOrder, taxInvoice, purchaseOrder, goodsReceipt, supplierBill],
+  documentTypes: [quotation, salesOrder, taxInvoice, creditNote, debitNote, purchaseOrder, goodsReceipt, supplierBill, supplierCredit],
   measureTemplates: [
     {
       id: 'sheet_length',
@@ -363,7 +456,6 @@ export const sheetMetalPack: Pack = {
       { value: 'tile', label: L('Tile profile', 'ลอนกระเบื้อง') },
       { value: 'flat', label: L('Flat', 'แผ่นเรียบ') },
     ] },
-    { key: 'reorder_point', type: 'number', label: L('Reorder point', 'จุดสั่งซื้อ') },
   ],
   locations: [
     { id: 'wh', name: L('Main warehouse', 'คลังหลัก'), kind: 'internal' },

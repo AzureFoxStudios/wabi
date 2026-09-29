@@ -35,6 +35,9 @@ export interface PostingAccounts {
   whtPayable: string;
   cash: string;
   bank: string;
+  /** Retention held back by customers (asset) and held back from suppliers (liability). */
+  retentionReceivable: string;
+  retentionPayable: string;
 }
 
 export interface Issue {

@@ -7,7 +7,7 @@ import { dirname } from 'node:path';
  * Every other table in PROJECTION_TABLES is a projection rebuilt by replay.
  * `credentials`, `sessions` and `reads` are local auth/UI state, not projected.
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const PROJECTION_TABLES = [
   'event_links', 'settings', 'users', 'parties', 'items', 'jobs', 'documents', 'document_lines',
@@ -149,13 +149,45 @@ CREATE TABLE IF NOT EXISTS approvals (
 );
 
 CREATE TABLE IF NOT EXISTS sequences (key TEXT PRIMARY KEY, last INTEGER NOT NULL);
+
+-- Credit/debit notes applied to the invoice or bill they correct (+ lowers its balance, − raises it).
+CREATE TABLE IF NOT EXISTS doc_adjustments (
+  by_id TEXT PRIMARY KEY, source_id TEXT NOT NULL, amount INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS adjustments_source ON doc_adjustments(source_id);
+
+-- Accounts added by the business on top of the jurisdiction's chart.
+CREATE TABLE IF NOT EXISTS accounts (
+  code TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, created_at TEXT NOT NULL
+);
+
+-- Use of passwords (not in the journal, like credentials): sign-ins, failed sign-ins, corrections.
+CREATE TABLE IF NOT EXISTS auth_log (
+  id INTEGER PRIMARY KEY, at TEXT NOT NULL, kind TEXT NOT NULL, username TEXT NOT NULL, user_id TEXT, ip TEXT, detail TEXT
+);
 `;
+
+/** Columns added after the first release. Projections are rebuildable, so ADD COLUMN is enough. */
+const ADDED_COLUMNS: [table: string, column: string, ddl: string][] = [
+  ['items', 'reorder_point', 'REAL'],
+  ['documents', 'retention', 'INTEGER'],
+  ['documents', 'retention_released_at', 'TEXT'],
+  ['payment_allocations', 'refund', 'INTEGER NOT NULL DEFAULT 0'],
+];
+
+function ensureColumns(db: DatabaseSync) {
+  for (const [table, column, ddl] of ADDED_COLUMNS) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  }
+}
 
 export function openDb(path: string): DatabaseSync {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = OFF; PRAGMA busy_timeout = 5000;');
   db.exec(DDL);
+  ensureColumns(db);
   db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   return db;
 }

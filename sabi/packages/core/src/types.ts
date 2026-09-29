@@ -127,6 +127,15 @@ export interface DocTypeDef {
   dueLabel?: Label;
   /** Jurisdiction-specific flags, interpreted only by the jurisdiction adapter. */
   jurisdiction?: Record<string, unknown>;
+  /**
+   * Credit/debit note: the document is created from an issued receivable/payable document (its source)
+   * and, once issued, lowers ('credit') or raises ('debit') the source's balance instead of carrying its own.
+   */
+  adjusts?: 'credit' | 'debit';
+  /** Apply an effect only when a boolean document field is set (e.g. stock comes back only if goods were returned). */
+  effectsWhen?: Partial<Record<Effect, string>>;
+  /** Retention (e.g. construction เงินประกันผลงาน): percentage read from this document field, held back until released. */
+  retention?: { field: string };
 }
 
 export interface MeasureTemplate {
@@ -150,6 +159,7 @@ export type Capability =
   | 'parties.write'
   | 'items.write'
   | 'settings.write'
+  | 'ledger.write'
   | 'reports.read'
   | 'approve';
 
@@ -227,6 +237,8 @@ export interface Item {
   taxCode: string;
   whtCategory?: string;
   measureTemplate?: string;
+  /** Warn when available stock falls below this quantity. */
+  reorderPoint?: number;
   fields: Fields;
   active: boolean;
   createdAt: IsoTime;
@@ -319,6 +331,9 @@ export interface Document {
   sellerSnapshot?: PartySnapshot;
   issuedAt?: IsoTime;
   issuedBy?: string;
+  /** Amount held back as retention, fixed at issue. */
+  retention?: Minor;
+  retentionReleasedAt?: IsoTime;
   voidReason?: string;
   createdBy: string;
   createdAt: IsoTime;
@@ -328,6 +343,8 @@ export interface Document {
 export interface PaymentAllocation {
   documentId: string;
   amount: Minor;
+  /** Money going back the other way (refund of a credit balance). Raises the document's balance. */
+  refund?: boolean;
 }
 
 export interface Payment {
@@ -428,7 +445,7 @@ export interface JournalEntry {
   id: string;
   date: IsoDate;
   memo: string;
-  source: { type: 'document' | 'payment'; id: string };
+  source: { type: 'document' | 'payment' | 'manual'; id: string };
   reversalOf?: string;
   lines: JournalLine[];
 }

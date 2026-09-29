@@ -14,6 +14,9 @@ import { addClient, broadcast } from './sse.ts';
 import { readAll } from './journal.ts';
 import { all, one, run } from './db.ts';
 import * as Q from './queries.ts';
+import * as B from './reports.ts';
+import { hashPassword } from './auth.ts';
+import { CORRECTIONS_KEY, allAccounts } from './commands/books.ts';
 import { DEMO_USERS } from '@sabi/pack-sheet-metal';
 import type { UserRecord } from './repo.ts';
 
@@ -118,6 +121,11 @@ function recordFailure(ip: string) {
   loginAttempts.set(ip, a);
 }
 
+function clientIp(req: IncomingMessage): string {
+  const xff = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim();
+  return (xff || req.socket.remoteAddress || '').slice(0, 64);
+}
+
 export interface ServerOptions {
   staticDir?: string;
 }
@@ -142,6 +150,7 @@ export function createHttpServer(app: App, opts: ServerOptions = {}) {
         user: user ?? null, setUp: app.isSetUp(), demo,
         demoAccounts: demo ? [{ username: 'owner', role: 'owner' }, ...DEMO_USERS.map((u) => ({ username: u.username, role: u.role, name: u.name }))] : undefined,
         demoPassword: demo ? DEMO_PASSWORD : undefined,
+        notice: Q.settingsFor(app.db, false).signInNotice ?? null,
       });
     }
     if (path === '/api/setup' && method === 'POST') {
@@ -156,6 +165,9 @@ export function createHttpServer(app: App, opts: ServerOptions = {}) {
       throttle(ip);
       const body = await readJson(req);
       const s = login(app.db, String(body.username ?? ''), String(body.password ?? ''));
+      const username = String(body.username ?? '').trim().toLowerCase().slice(0, 60);
+      run(app.db, 'INSERT INTO auth_log (at, kind, username, user_id, ip, detail) VALUES (?,?,?,?,?,?)',
+        new Date().toISOString(), s ? 'login' : 'login_failed', username, s?.user.id ?? null, clientIp(req), null);
       if (!s) {
         recordFailure(ip);
         throw new CommandError(401, 'bad_credentials', 'Wrong username or password');
@@ -179,6 +191,8 @@ export function createHttpServer(app: App, opts: ServerOptions = {}) {
     }
     return routeAuthed(req, res, path, method, q, viewer);
   };
+
+  const isOwner = (viewer: UserRecord) => !!app.ctx.pack.roles.find((r) => r.id === viewer.role)?.capabilities.includes('all');
 
   const routeAuthed = async (req: IncomingMessage, res: ServerResponse, path: string, method: string, q: Record<string, string>, viewer: UserRecord) => {
     const ctx = app.ctx;
@@ -220,9 +234,44 @@ export function createHttpServer(app: App, opts: ServerOptions = {}) {
       setPassword(app.db, targetId, String(body.password));
       return send(res, 200, { ok: true });
     }
+    if (method === 'POST' && path === '/api/corrections-password') {
+      // A separate password for corrections (void, reverse, manual entries). Owner only; confirm with own password.
+      if (!isOwner(viewer)) throw new CommandError(403, 'forbidden', 'Only the owner can set the corrections password');
+      const body = await readJson(req);
+      const cred = one<{ password_hash: string }>(app.db, 'SELECT password_hash FROM credentials WHERE user_id = ?', viewer.id);
+      if (!cred || !verifyPassword(String(body.current ?? ''), cred.password_hash)) {
+        throw new CommandError(400, 'bad_password', 'Your password is wrong', { field: 'current' });
+      }
+      const next = String(body.password ?? '');
+      if (next && next.length < 8) throw new CommandError(400, 'invalid', 'At least 8 characters', { field: 'password' });
+      if (next) run(app.db, 'INSERT OR REPLACE INTO local_state (key, value) VALUES (?, ?)', CORRECTIONS_KEY, hashPassword(next));
+      else run(app.db, 'DELETE FROM local_state WHERE key = ?', CORRECTIONS_KEY);
+      run(app.db, 'INSERT INTO auth_log (at, kind, username, user_id, ip, detail) VALUES (?,?,?,?,?,?)',
+        new Date().toISOString(), 'corrections_password', viewer.username, viewer.id, clientIp(req), next ? 'set' : 'removed');
+      return send(res, 200, { ok: true, protected: !!next });
+    }
     if (method !== 'GET') return notFound();
 
+    const canBooks = () => {
+      const caps = ctx.pack.roles.find((r) => r.id === viewer.role)?.capabilities ?? [];
+      if (!caps.some((c) => c === 'all' || c === 'reports.read' || c === 'money.write' || c === 'ledger.write')) {
+        throw new CommandError(403, 'forbidden', 'Your role cannot see the books');
+      }
+    };
+
     switch (seg[1]) {
+      case 'payments': {
+        const p = seg[2] ? B.paymentView(ctx, seg[2]) : null;
+        return p ? send(res, 200, p) : notFound();
+      }
+      case 'accounts':
+        return send(res, 200, allAccounts(ctx));
+      case 'journal':
+        canBooks();
+        return send(res, 200, B.manualEntries(ctx));
+      case 'system':
+        if (!isOwner(viewer)) throw new CommandError(403, 'forbidden', 'Owner only');
+        return send(res, 200, { ...B.systemInfo(ctx), authLog: B.authLog(ctx, Number(q.limit ?? 300)) });
       case 'bootstrap':
         return send(res, 200, Q.bootstrap(ctx, viewer, isDemo(app)));
       case 'attention':
@@ -262,6 +311,16 @@ export function createHttpServer(app: App, opts: ServerOptions = {}) {
         if (seg[2] === 'wht') return send(res, 200, Q.whtReport(ctx, month));
         if (seg[2] === 'stock') return send(res, 200, Q.stockReport(ctx));
         if (seg[2] === 'trial-balance') return send(res, 200, Q.trialBalance(ctx, q.from, q.to));
+        canBooks();
+        if (seg[2] === 'ledger') {
+          const l = B.ledgerDetail(ctx, q.account ?? '', q.from || undefined, q.to || undefined);
+          return l ? send(res, 200, l) : notFound();
+        }
+        if (seg[2] === 'adjustments') return send(res, 200, B.adjustmentsReport(ctx, q.from || undefined, q.to || undefined));
+        if (seg[2] === 'stock-card') {
+          const c = B.stockCard(ctx, q.item ?? '', q.from || undefined, q.to || undefined);
+          return c ? send(res, 200, c) : notFound();
+        }
         return notFound();
       }
       case 'activity':

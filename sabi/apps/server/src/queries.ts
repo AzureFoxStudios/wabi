@@ -13,10 +13,11 @@ import { all, one } from './db.ts';
 import { rowToEvent } from './journal.ts';
 import { describeEvent, type Described } from './describe.ts';
 import {
-  getCompany, getDocument, getItem, getJob, getParty, toLine, listUsers, settledAmount, tasksOf,
+  getCompany, getDocument, getItem, getJob, getParty, toLine, listUsers, settledAmount, heldRetention, tasksOf,
   toApproval, toDocument, toFile, toItem, toJob, toMessage, toMove, toParty, toPayment, type UserRecord,
 } from './repo.ts';
 import type { Ctx } from './engine.ts';
+import { allAccounts, correctionsProtected } from './commands/books.ts';
 
 type Viewer = UserRecord;
 
@@ -53,8 +54,12 @@ function moneyKind(dt: DocTypeDef): 'receivable' | 'payable' | null {
 function settledMap(db: DatabaseSync): Map<string, number> {
   const m = new Map<string, number>();
   for (const r of all<{ document_id: string; s: number }>(db,
-    'SELECT a.document_id, SUM(a.amount) AS s FROM payment_allocations a JOIN payments p ON p.id = a.payment_id WHERE p.voided = 0 GROUP BY a.document_id')) {
+    `SELECT a.document_id, SUM(CASE WHEN a.refund = 1 THEN -a.amount ELSE a.amount END) AS s FROM payment_allocations a
+     JOIN payments p ON p.id = a.payment_id WHERE p.voided = 0 GROUP BY a.document_id`)) {
     m.set(r.document_id, r.s);
+  }
+  for (const r of all<{ source_id: string; s: number }>(db, 'SELECT source_id, SUM(amount) AS s FROM doc_adjustments GROUP BY source_id')) {
+    m.set(r.source_id, (m.get(r.source_id) ?? 0) + r.s);
   }
   return m;
 }
@@ -68,12 +73,15 @@ export function docSummary(pack: Pack, d: Document, settled: number, parties?: M
   const st = stateOf(dt.workflow, d.state);
   const mk = moneyKind(dt);
   const live = d.phase === 'issued' || d.phase === 'closed';
-  const balance = mk && live ? d.totals.total - settled : null;
+  // Credit/debit notes change their source's balance and carry none of their own.
+  const held = heldRetention(d);
+  const balance = mk && live && !dt.adjusts ? d.totals.total - held - settled : null;
   return {
     id: d.id, type: d.type, number: d.number ?? null, state: d.state, stateLabel: st.label, tone: st.tone ?? 'neutral', phase: d.phase,
     partyId: d.partyId, partyName: parties?.get(d.partyId) ?? d.partySnapshot?.name ?? '', jobId: d.jobId ?? null, sourceId: d.sourceId ?? null,
     date: d.date, dueDate: d.dueDate ?? null, total: d.totals.total, net: d.totals.net, tax: d.totals.tax, money: mk, balance,
     overdue: !!(balance && balance > 0 && d.dueDate && d.dueDate < today()), ownerRole: st.ownerRole ?? null,
+    adjusts: dt.adjusts ?? null, retentionHeld: held,
   };
 }
 
@@ -192,12 +200,22 @@ export function bootstrap(ctx: Ctx, viewer: Viewer, demo: boolean) {
     jurisdiction: {
       id: jur.id, label: jur.label, currency: jur.currency, currencySymbol: jur.currencySymbol, taxCodes: jur.taxCodes,
       defaultTaxCode: jur.defaultTaxCode, whtCategories: jur.whtCategories, partyFields: jur.partyFields,
-      companyFields: jur.companyFields, chartOfAccounts: jur.chartOfAccounts,
+      companyFields: jur.companyFields, chartOfAccounts: allAccounts({ db, jur }),
     },
+    settings: settingsFor(db, isSuper(pack, viewer.role)),
+    correctionsProtected: correctionsProtected({ db }),
     head: one<{ seq: number }>(db, 'SELECT COALESCE(MAX(seq),0) AS seq FROM events')?.seq ?? 0,
     demo,
     today: today(),
   };
+}
+
+/** Business settings from the journal. The webhook secret is only shown to owners. */
+export function settingsFor(db: DatabaseSync, full: boolean) {
+  const out: Record<string, any> = {};
+  for (const r of all<{ key: string; value: string }>(db, "SELECT key, value FROM settings WHERE key != 'company'")) out[r.key] = JSON.parse(r.value);
+  if (!full && out.webhook) out.webhook = { url: out.webhook.url ? '(set)' : null };
+  return out;
 }
 
 // ───────────────────────────── Jobs ─────────────────────────────
@@ -362,6 +380,9 @@ export function documentView(ctx: Ctx, id: string, viewer: Viewer) {
   const st = stateOf(dt.workflow, doc.state);
   const party = getParty(db, doc.partyId)!;
   const settledNow = settledAmount(db, doc.id);
+  const live = doc.phase === 'issued' || doc.phase === 'closed';
+  const held = heldRetention(doc);
+  const openNow = moneyKind(dt) && live && !dt.adjusts ? doc.totals.total - held - settledNow : undefined;
   const children = allDocs(db, 'source_id = ?', doc.id);
   const source = doc.sourceId ? getDocument(db, doc.sourceId) : undefined;
   const approvals = all(db, "SELECT * FROM approvals WHERE subject_type = 'document' AND subject_id = ? ORDER BY requested_at DESC", doc.id).map(toApproval);
@@ -372,7 +393,7 @@ export function documentView(ctx: Ctx, id: string, viewer: Viewer) {
     fields: { ...doc.fields, partyId: doc.partyId, date: doc.date, dueDate: doc.dueDate, notes: doc.notes },
     documents: children.map((c) => ({ type: c.type, phase: c.phase })), lineCount: doc.lines.length,
     openTasks: tasksOf(db, 'document', doc.id).filter((t) => !t.doneAt).length, metrics, approvals: valid,
-    outstanding: moneyKind(dt) && (doc.phase === 'issued' || doc.phase === 'closed') ? doc.totals.total - settledNow : undefined,
+    outstanding: openNow,
     role: viewer.role, isSuperuser: isSuper(pack, viewer.role),
   });
   const company = getCompany(db);
@@ -380,12 +401,20 @@ export function documentView(ctx: Ctx, id: string, viewer: Viewer) {
   const buyer = doc.partySnapshot ?? { name: party.name, taxId: party.taxId, address: party.address, phone: party.phone, email: party.email, fields: party.fields };
   const issues = doc.phase === 'draft' ? jur.validateIssue({ doc, docType: dt, party, seller }) : [];
   const payments = all<Record<string, any>>(db,
-    'SELECT p.*, a.amount AS allocated FROM payments p JOIN payment_allocations a ON a.payment_id = p.id WHERE a.document_id = ? ORDER BY p.date', doc.id)
-    .map((p) => ({ ...toPayment(p, []), allocated: p.allocated }));
+    'SELECT p.*, a.amount AS allocated, a.refund AS refund FROM payments p JOIN payment_allocations a ON a.payment_id = p.id WHERE a.document_id = ? ORDER BY p.date', doc.id)
+    .map((p) => ({ ...toPayment(p, []), allocated: p.allocated, refund: !!p.refund }));
   const mk = moneyKind(dt);
-  const promptpay = typeof company.fields.promptpay_id === 'string' && mk === 'receivable' && doc.phase === 'issued' && doc.totals.total - settledNow > 0 && jur.paymentQr
-    ? safeQr(() => jur.paymentQr!({ proxyId: company.fields.promptpay_id as string, amount: doc.totals.total - settledNow, reference: doc.number }))
+  const promptpay = typeof company.fields.promptpay_id === 'string' && mk === 'receivable' && doc.phase === 'issued' && (openNow ?? 0) > 0 && jur.paymentQr
+    ? safeQr(() => jur.paymentQr!({ proxyId: company.fields.promptpay_id as string, amount: openNow!, reference: doc.number }))
     : null;
+  // A credit/debit note must show the invoice it corrects, the original and corrected value and the difference.
+  const noteBasis = dt.adjusts && source ? (() => {
+    const before = allDocs(db, `source_id = ? AND id != ? AND phase IN ('issued','closed') AND issued_at < COALESCE(?, '9999')`, source.id, doc.id, doc.issuedAt ?? null)
+      .filter((c) => docType(pack, c.type).adjusts);
+    const original = source.totals.net + before.reduce((a, c) => a + (docType(pack, c.type).adjusts === 'credit' ? -c.totals.net : c.totals.net), 0);
+    const difference = doc.totals.net;
+    return { sourceNumber: source.number, sourceDate: source.date, original, corrected: dt.adjusts === 'credit' ? original - difference : original + difference, difference };
+  })() : null;
   const items = new Map(doc.lines.filter((l) => l.itemId).map((l) => [l.itemId!, getItem(db, l.itemId!)]));
   return {
     document: doc, docType: dt, state: st, pipeline: pipeline(dt.workflow), party, job: doc.jobId ? getJob(db, doc.jobId) : null,
@@ -394,7 +423,8 @@ export function documentView(ctx: Ctx, id: string, viewer: Viewer) {
     conversions: dt.convertsTo.map((t) => ({ type: t, label: docType(pack, t).label, open: doc.phase === 'issued' || doc.phase === 'closed' ? openLines(doc, children, t).length : 0 })),
     fulfilment: dt.convertsTo.length ? fulfilment(doc, children) : null,
     transitions: options(opts), approvals, issues, payments,
-    balance: mk && doc.phase !== 'draft' && doc.phase !== 'void' ? doc.totals.total - settledNow : null, money: mk,
+    balance: openNow ?? null, money: mk, noteBasis,
+    retention: doc.retention ? { amount: doc.retention, releasedAt: doc.retentionReleasedAt ?? null } : null,
     wht: mk === 'receivable' ? whtOf(jur, doc, party) : [],
     seller, buyer, sellerIdentity: jur.describeTaxIdentity(seller, 'th'), buyerIdentity: jur.describeTaxIdentity(buyer, 'th'),
     sellerIdentityEn: jur.describeTaxIdentity(seller, 'en'), buyerIdentityEn: jur.describeTaxIdentity(buyer, 'en'),
@@ -658,26 +688,40 @@ function vatSummary(ctx: Ctx, month: string) {
 }
 
 /** Output / input tax report rows for one month (basis for the jurisdiction's VAT return). */
+/**
+ * Output/input tax report for a month. Credit notes count negative; each note
+ * row names the document it corrects so the report can be checked line by line.
+ * Counterparty tax ID and branch are included for every row.
+ */
 export function vatReport(ctx: Ctx, direction: 'sales' | 'purchase', month: string) {
   const { db, pack } = ctx;
-  const types = pack.documentTypes.filter((t) => t.direction === direction && (direction === 'sales' ? t.effects.includes('receivable') : t.effects.includes('payable'))).map((t) => t.id);
-  if (!types.length) return { month, rows: [] as any[] };
-  const docs = allDocs(db, `type IN (${types.map(() => '?').join(',')}) AND number IS NOT NULL AND substr(date,1,7) = ?`, ...types, month)
+  const types = pack.documentTypes.filter((t) => t.direction === direction && (direction === 'sales' ? t.effects.includes('receivable') : t.effects.includes('payable')));
+  if (!types.length) return { month, rows: [] as any[], totals: { net: 0, vat: 0, total: 0 } };
+  const byId = new Map(types.map((t) => [t.id, t]));
+  const docs = allDocs(db, `type IN (${types.map(() => '?').join(',')}) AND number IS NOT NULL AND substr(date,1,7) = ?`, ...types.map((t) => t.id), month)
     .sort((a, b) => a.date.localeCompare(b.date) || (a.number ?? '').localeCompare(b.number ?? ''));
   const parties = new Map<string, ReturnType<typeof getParty>>();
+  const sources = new Map<string, Document | undefined>();
   const rows = docs.map((d) => {
     const p = d.partySnapshot ?? (() => {
       if (!parties.has(d.partyId)) parties.set(d.partyId, getParty(db, d.partyId));
       return parties.get(d.partyId);
     })();
+    const dt = byId.get(d.type)!;
+    const sign = dt.adjusts === 'credit' ? -1 : 1;
+    const src = dt.adjusts && d.sourceId ? (sources.has(d.sourceId) ? sources.get(d.sourceId) : (sources.set(d.sourceId, getDocument(db, d.sourceId)), sources.get(d.sourceId))) : undefined;
     const voided = d.phase === 'void';
+    const extNumber = (x: Document) => direction === 'purchase' ? String(x.fields.supplier_ref ?? x.number) : x.number;
     return {
-      id: d.id, date: d.date, number: direction === 'purchase' ? String(d.fields.supplier_ref ?? d.number) : d.number, internalNumber: d.number,
+      id: d.id, date: d.date, number: extNumber(d), internalNumber: d.number, type: d.type, kind: dt.adjusts ?? 'invoice',
       partyName: p?.name ?? '', taxId: p?.taxId ?? '', branch: (p?.fields?.branch_code as string) ?? '',
-      net: voided ? 0 : d.totals.net, vat: voided ? 0 : d.totals.tax, total: voided ? 0 : d.totals.total, voided,
+      net: voided ? 0 : sign * d.totals.net, vat: voided ? 0 : sign * d.totals.tax, total: voided ? 0 : sign * d.totals.total, voided,
+      corrects: src ? { id: src.id, number: extNumber(src), date: src.date } : null,
+      reason: dt.adjusts ? (d.fields.reason as string | undefined) ?? null : null,
     };
   });
-  return { month, rows };
+  const sum = (k: 'net' | 'vat' | 'total') => rows.reduce((a, r) => a + r[k], 0);
+  return { month, rows, totals: { net: sum('net'), vat: sum('vat'), total: sum('total') } };
 }
 
 export function whtReport(ctx: Ctx, month: string) {
@@ -711,7 +755,11 @@ export function trialBalance(ctx: Ctx, from?: string, to?: string) {
   const rows = all<{ account: string; debit: number; credit: number }>(db,
     `SELECT l.account, SUM(l.debit) AS debit, SUM(l.credit) AS credit FROM ledger_lines l JOIN journal_entries e ON e.id = l.entry_id
      WHERE (? IS NULL OR e.date >= ?) AND (? IS NULL OR e.date <= ?) GROUP BY l.account ORDER BY l.account`, from ?? null, from ?? null, to ?? null, to ?? null);
-  return rows.map((r) => ({ ...r, name: jur.chartOfAccounts.find((a) => a.code === r.account)?.name ?? { en: r.account }, balance: r.debit - r.credit }));
+  const chart = allAccounts({ db, jur });
+  return rows.map((r) => {
+    const a = chart.find((x) => x.code === r.account);
+    return { ...r, name: a?.name ?? { en: r.account }, type: a?.type ?? null, balance: r.debit - r.credit };
+  });
 }
 
 // ───────────────────────────── Activity & search ─────────────────────────────

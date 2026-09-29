@@ -2,7 +2,7 @@ import type { DocLine, GuardContext, Job, Document, Label, SubjectType } from '@
 import { computeTotals, measuredQty, roundQty, docType } from '@sabi/core';
 import { all, one } from '../db.ts';
 import { fail, newId, type Scope } from '../engine.ts';
-import { getItem, getJob, getDocument, getParty, settledAmount } from '../repo.ts';
+import { getItem, getJob, getDocument, getParty, settledAmount, heldRetention } from '../repo.ts';
 
 // ───────────────────────────── Input validation ─────────────────────────────
 
@@ -138,8 +138,9 @@ export function documentMetrics(doc: Document): Record<string, number> {
 export function outstandingOf(s: Scope, doc: Document): number | undefined {
   const dt = docType(s.pack, doc.type);
   if (!dt.effects.includes('receivable') && !dt.effects.includes('payable')) return undefined;
+  if (dt.adjusts) return undefined;
   if (doc.phase !== 'issued' && doc.phase !== 'closed') return undefined;
-  return doc.totals.total - settledAmount(s.db, doc.id);
+  return doc.totals.total - heldRetention(doc) - settledAmount(s.db, doc.id);
 }
 
 export function documentGuardContext(s: Scope, doc: Document, role: string | null): GuardContext {

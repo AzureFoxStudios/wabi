@@ -2,16 +2,17 @@
  * Command handlers. Each command validates input against current state and
  * emits events; nothing else writes to projection tables.
  */
-import type { Document, Item, Job, Party, Payment, StockMove } from '@sabi/core';
+import type { Document, Item, Job, Party, Payment, PaymentAllocation, StockMove } from '@sabi/core';
 import { VIRTUAL_LOCATIONS, checkGuard, docType, jobType, openLines, postPayment, transitionsFrom } from '@sabi/core';
 import { all, one } from '../db.ts';
 import { fail, newId, type Handler, type Registry, type Scope } from '../engine.ts';
-import { getCompany, getDocument, getItem, getParty, getPayment, getUser, settledAmount } from '../repo.ts';
+import { getCompany, getDocument, getItem, getParty, getPayment, getUser } from '../repo.ts';
 import {
   addDays, assertSubject, date, docTypeOf, documentGuardContext, formatNumber, mustDocument, mustJob, mustParty,
-  nextSequence, normalizeLines, num, obj, oneOf, optDate, optNum, optStr, str, systemMessage, totalsFor,
+  nextSequence, normalizeLines, num, obj, oneOf, optDate, optNum, optStr, outstandingOf, str, systemMessage, totalsFor,
 } from './util.ts';
 import { reverseLedger, settle, transitionDocument, transitionJob } from './workflow.ts';
+import { booksCommands, requireCorrection } from './books.ts';
 
 // ───────────────────────────── Company & users ─────────────────────────────
 
@@ -164,6 +165,10 @@ function itemInput(s: Scope, input: Record<string, any>, partial: boolean): Part
     out.measureTemplate = optStr(input.measureTemplate, 'measureTemplate');
     if (out.measureTemplate && !s.pack.measureTemplates.some((m) => m.id === out.measureTemplate)) fail('invalid', 'Unknown measure template', { field: 'measureTemplate' });
   }
+  if (input.reorderPoint !== undefined) {
+    const rp = optNum(input.reorderPoint, 'reorderPoint', { min: 0 });
+    (out as Record<string, unknown>).reorderPoint = rp ?? null; // null clears it
+  }
   if (input.active !== undefined) out.active = !!input.active;
   return out;
 }
@@ -175,7 +180,7 @@ const itemCreate: Handler = (s, input) => {
   const item: Item = {
     id: newId('itm'), sku: b.sku!, name: b.name!, kind: b.kind!, uom: b.uom!, salePrice: b.salePrice!, costPrice: b.costPrice!,
     taxCode: b.taxCode!, whtCategory: b.whtCategory, measureTemplate: b.measureTemplate, fields: cleanFields(input.fields),
-    active: true, createdAt: s.at, updatedAt: s.at,
+    reorderPoint: b.reorderPoint ?? undefined, active: true, createdAt: s.at, updatedAt: s.at,
   };
   s.emit({ type: 'item.created', subjectType: 'item', subjectId: item.id, data: { item } });
   return { id: item.id };
@@ -319,15 +324,22 @@ const documentCreate: Handler = (s, input) => {
     const srcType = docType(s.pack, src.type);
     if (!srcType.convertsTo.includes(dt.id)) fail('invalid', `${srcType.label.en} cannot be converted to ${dt.label.en}`);
     if (src.phase !== 'issued' && src.phase !== 'closed') fail('invalid_state', 'Issue the source document first', undefined, 409);
-    const children = all<{ id: string }>(s.db, 'SELECT id FROM documents WHERE source_id = ?', src.id).map((r) => getDocument(s.db, r.id)!);
-    lines = openLines(src, children, dt.id).map((l) => ({ ...l, id: newId('ln') }));
-    if (!lines.length) fail('nothing_open', 'Everything on the source document has already been converted', undefined, 409);
+    if (dt.adjusts) {
+      // A note corrects value, not quantity: start from the original lines and edit them down to the difference.
+      if (srcType.direction !== dt.direction) fail('invalid', 'A note must stay on the same side as the document it corrects');
+      lines = src.lines.map((l) => ({ ...l, id: newId('ln') }));
+    } else {
+      const children = all<{ id: string }>(s.db, 'SELECT id FROM documents WHERE source_id = ?', src.id).map((r) => getDocument(s.db, r.id)!);
+      lines = openLines(src, children, dt.id).map((l) => ({ ...l, id: newId('ln') }));
+      if (!lines.length) fail('nothing_open', 'Everything on the source document has already been converted', undefined, 409);
+    }
     // Purchase docs converted from a sales doc would keep the customer; only same-direction conversions copy the party.
     partyId = srcType.direction === dt.direction ? src.partyId : partyId;
     jobId = src.jobId ?? jobId;
     sourceId = src.id;
     priceMode = src.priceMode;
   } else {
+    if (dt.adjusts) fail('invalid', `Create a ${dt.label.en} from the document it corrects`);
     lines = normalizeLines(s, input.lines ?? [], dt.direction);
   }
   if (jobId) {
@@ -354,6 +366,7 @@ const documentUpdate: Handler = (s, input) => {
   const dt = docType(s.pack, doc.type);
   const patch: Record<string, unknown> = {};
   if (input.partyId !== undefined) patch.partyId = mustParty(s, input.partyId).id;
+  if (dt.adjusts && patch.partyId && patch.partyId !== doc.partyId) fail('invalid', 'A note belongs to the party of the document it corrects');
   if (input.date !== undefined) patch.date = date(input.date, 'date');
   if (input.dueDate !== undefined) patch.dueDate = optDate(input.dueDate, 'dueDate') ?? null;
   if (input.priceMode !== undefined) patch.priceMode = oneOf(input.priceMode, 'priceMode', ['exclusive', 'inclusive'] as const);
@@ -378,7 +391,12 @@ const documentUpdate: Handler = (s, input) => {
 
 const documentTransition: Handler = (s, input) => {
   const doc = mustDocument(s, input.id);
-  const r = transitionDocument(s, doc, str(input.transition, 'transition'), optStr(input.reason, 'reason', 500));
+  const tid = str(input.transition, 'transition');
+  const dt = docType(s.pack, doc.type);
+  const t = dt.workflow.transitions.find((x) => x.id === tid);
+  const target = t && dt.workflow.states.find((x) => x.id === t.to);
+  if (doc.phase !== 'draft' && target?.phase === 'void') requireCorrection(s, input, `void ${doc.number}: ${input.reason ?? ''}`);
+  const r = transitionDocument(s, doc, tid, optStr(input.reason, 'reason', 500));
   return { id: doc.id, ...r };
 };
 
@@ -399,16 +417,27 @@ const paymentRecord: Handler = (s, input) => {
   if (!allocations.length) fail('invalid', 'Choose at least one document to settle');
   const total = allocations.reduce((a: number, b: { amount: number }) => a + b.amount, 0);
   if (total !== amount + whtAmount) fail('unbalanced', 'Allocations must equal the amount received plus tax withheld', { allocated: total, expected: amount + whtAmount }, 422);
-  for (const a of allocations) {
+  const kinds = new Map<string, 'receivable' | 'payable'>();
+  for (const a of allocations as PaymentAllocation[]) {
     const doc = getDocument(s.db, a.documentId);
     if (!doc) fail('not_found', 'Document not found', undefined, 404);
     const dt = docType(s.pack, doc!.type);
-    const wanted = direction === 'in' ? 'receivable' : 'payable';
-    if (!dt.effects.includes(wanted)) fail('invalid', `${doc!.number ?? 'Document'} cannot be settled by this payment`);
+    const kind = dt.effects.includes('receivable') ? 'receivable' : dt.effects.includes('payable') ? 'payable' : undefined;
+    if (!kind || dt.adjusts) fail('invalid', `${doc!.number ?? 'Document'} cannot be settled by a payment`);
     if (doc!.phase !== 'issued' && doc!.phase !== 'closed') fail('invalid_state', `${doc!.number ?? 'Draft'} is not issued`, undefined, 409);
     if (doc!.partyId !== party.id) fail('invalid', `${doc!.number} belongs to another party`);
-    const open = doc!.totals.total - settledAmount(s.db, doc!.id);
-    if (a.amount > open) fail('overpaid', `${doc!.number}: only ${(open / 100).toFixed(2)} is outstanding`, { documentId: doc!.id, open }, 422);
+    if (kinds.has(doc!.id)) fail('invalid', `${doc!.number} is listed twice`);
+    kinds.set(doc!.id, kind!);
+    const open = outstandingOf(s, doc!) ?? 0;
+    // Money flowing the "wrong" way for a document is a refund of an over-credited balance.
+    const refund = (direction === 'in') !== (kind === 'receivable');
+    if (refund) {
+      if (whtAmount) fail('invalid', 'A refund cannot carry withholding tax');
+      if (a.amount > -open) fail('overpaid', `${doc!.number}: only ${(Math.max(0, -open) / 100).toFixed(2)} can be refunded`, { documentId: doc!.id, open }, 422);
+      a.refund = true;
+    } else if (a.amount > open) {
+      fail('overpaid', `${doc!.number}: only ${(Math.max(0, open) / 100).toFixed(2)} is outstanding`, { documentId: doc!.id, open }, 422);
+    }
   }
   const whtCategory = optStr(input.whtCategory, 'whtCategory');
   if (whtCategory && !s.jur.whtCategories.some((w) => w.id === whtCategory)) fail('invalid', 'Unknown WHT category');
@@ -424,7 +453,8 @@ const paymentRecord: Handler = (s, input) => {
   };
   s.emit({ type: 'payment.recorded', subjectType: 'payment', subjectId: payment.id, data: { payment, sequence: { key, n } } });
   const cash = s.pack.paymentMethods.filter((m) => m.cash).map((m) => m.id);
-  s.emit({ type: 'ledger.posted', subjectType: 'payment', subjectId: payment.id, data: { entry: postPayment(payment, s.jur.postingAccounts, newId('je'), cash) } });
+  const entry = postPayment(payment, s.jur.postingAccounts, newId('je'), cash, (id) => kinds.get(id)!);
+  s.emit({ type: 'ledger.posted', subjectType: 'payment', subjectId: payment.id, data: { entry } });
   for (const a of allocations) s.touched.add(`document:${a.documentId}`);
   return { id: payment.id, number: payment.number };
 };
@@ -435,6 +465,7 @@ const paymentVoid: Handler = (s, input) => {
   if (!p) fail('not_found', 'Payment not found', undefined, 404);
   if (p!.voided) fail('invalid_state', 'Already void', undefined, 409);
   const reason = str(input.reason, 'reason', { max: 300 });
+  requireCorrection(s, input, `void ${p!.number}: ${reason}`);
   s.emit({ type: 'payment.voided', subjectType: 'payment', subjectId: p!.id, data: { id: p!.id, reason } });
   reverseLedger(s, 'payment', p!.id);
   for (const a of p!.allocations) s.touched.add(`document:${a.documentId}`);
@@ -597,6 +628,7 @@ export const registry: Registry = {
     'file.attach': fileAttach,
     'approval.request': approvalRequest,
     'approval.decide': approvalDecide,
+    ...booksCommands({ party: partyCreate, item: itemCreate }),
   },
   settle,
 };

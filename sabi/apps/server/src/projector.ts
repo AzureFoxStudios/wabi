@@ -32,7 +32,7 @@ function writeLines(db: DatabaseSync, doc: Pick<Document, 'id' | 'lines'>) {
 
 const COLS: Record<string, Record<string, string>> = {
   parties: { kind: 'kind', name: 'name', roles: 'roles', taxId: 'tax_id', phone: 'phone', email: 'email', address: 'address', parentId: 'parent_id', paymentTermsDays: 'payment_terms_days', creditLimit: 'credit_limit', fields: 'fields', archived: 'archived' },
-  items: { sku: 'sku', name: 'name', kind: 'kind', uom: 'uom', salePrice: 'sale_price', costPrice: 'cost_price', taxCode: 'tax_code', whtCategory: 'wht_category', measureTemplate: 'measure_template', fields: 'fields', active: 'active' },
+  items: { sku: 'sku', name: 'name', kind: 'kind', uom: 'uom', salePrice: 'sale_price', costPrice: 'cost_price', taxCode: 'tax_code', whtCategory: 'wht_category', measureTemplate: 'measure_template', reorderPoint: 'reorder_point', fields: 'fields', active: 'active' },
   jobs: { title: 'title', partyId: 'party_id', contactId: 'contact_id', ownerId: 'owner_id', dueDate: 'due_date', fields: 'fields' },
   documents: { partyId: 'party_id', date: 'date', dueDate: 'due_date', priceMode: 'price_mode', notes: 'notes', fields: 'fields', totals: 'totals' },
   users: { name: 'name', role: 'role', locale: 'locale', active: 'active' },
@@ -98,9 +98,9 @@ export function project(db: DatabaseSync, e: JournalEvent): void {
       const i: Item = d.item;
       run(db,
         `INSERT INTO items (id, sku, name, kind, uom, sale_price, cost_price, tax_code, wht_category, measure_template,
-          fields, active, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          reorder_point, fields, active, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         i.id, i.sku, i.name, i.kind, i.uom, i.salePrice, i.costPrice, i.taxCode, i.whtCategory, i.measureTemplate,
-        js(i.fields ?? {}), i.active ? 1 : 0, i.createdAt, i.updatedAt);
+        i.reorderPoint ?? null, js(i.fields ?? {}), i.active ? 1 : 0, i.createdAt, i.updatedAt);
       break;
     }
     case 'item.updated':
@@ -142,13 +142,26 @@ export function project(db: DatabaseSync, e: JournalEvent): void {
     case 'document.transitioned': {
       run(db, 'UPDATE documents SET state = ?, phase = ?, updated_at = ? WHERE id = ?', d.to, d.phase, e.at, d.id);
       if (d.issue) {
-        run(db, 'UPDATE documents SET number = ?, party_snapshot = ?, seller_snapshot = ?, issued_at = ?, issued_by = ? WHERE id = ?',
-          d.issue.number, js(d.issue.partySnapshot), js(d.issue.sellerSnapshot), e.at, e.actorId, d.id);
+        run(db, 'UPDATE documents SET number = ?, party_snapshot = ?, seller_snapshot = ?, issued_at = ?, issued_by = ?, retention = ? WHERE id = ?',
+          d.issue.number, js(d.issue.partySnapshot), js(d.issue.sellerSnapshot), e.at, e.actorId, d.issue.retention ?? null, d.id);
         bumpSequence(db, d.issue.sequence);
       }
       if (d.phase === 'void') run(db, 'UPDATE documents SET void_reason = ? WHERE id = ?', d.reason ?? null, d.id);
       break;
     }
+
+    case 'document.applied':
+      run(db, 'INSERT INTO doc_adjustments (by_id, source_id, amount) VALUES (?,?,?)', d.byId, d.sourceId, d.amount);
+      break;
+    case 'document.unapplied':
+      run(db, 'DELETE FROM doc_adjustments WHERE by_id = ?', d.byId);
+      break;
+    case 'document.retention_released':
+      run(db, 'UPDATE documents SET retention_released_at = ?, updated_at = ? WHERE id = ?', e.at, e.at, d.id);
+      break;
+    case 'account.created':
+      run(db, 'INSERT INTO accounts (code, name, type, created_at) VALUES (?,?,?,?)', d.account.code, js(d.account.name), d.account.type, e.at);
+      break;
 
     case 'stock.moved':
       for (const m of d.moves as StockMove[]) {
@@ -176,7 +189,7 @@ export function project(db: DatabaseSync, e: JournalEvent): void {
           wht_certificate, reference, voided, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?)`,
         p.id, p.number, p.direction, p.partyId, p.date, p.method, p.amount, p.whtAmount, p.whtCategory,
         p.whtCertificate, p.reference, p.createdBy, p.createdAt);
-      for (const a of p.allocations) run(db, 'INSERT INTO payment_allocations (payment_id, document_id, amount) VALUES (?,?,?)', p.id, a.documentId, a.amount);
+      for (const a of p.allocations) run(db, 'INSERT INTO payment_allocations (payment_id, document_id, amount, refund) VALUES (?,?,?,?)', p.id, a.documentId, a.amount, a.refund ? 1 : 0);
       bumpSequence(db, d.sequence);
       break;
     }
@@ -238,7 +251,7 @@ export function project(db: DatabaseSync, e: JournalEvent): void {
 
 /** Relate an event to every subject whose timeline should show it. */
 function link(db: DatabaseSync, e: JournalEvent): void {
-  if (e.type === 'ledger.posted' || e.type === 'company.updated' || e.type === 'settings.updated') return;
+  if (e.type === 'ledger.posted' || e.type === 'company.updated' || e.type === 'settings.updated' || e.type === 'account.created') return;
   const links = new Set<string>();
   const add = (t: string | undefined, id: string | null | undefined) => {
     if (t && id) links.add(`${t}\u0000${id}`);
@@ -276,6 +289,9 @@ function link(db: DatabaseSync, e: JournalEvent): void {
     for (const a of all<{ document_id: string }>(db, 'SELECT document_id FROM payment_allocations WHERE payment_id = ?', pid)) {
       addDocumentContext(a.document_id);
     }
+  } else if (e.type === 'document.applied' || e.type === 'document.unapplied') {
+    addDocumentContext(d.sourceId);
+    addDocumentContext(d.byId);
   } else if (e.type === 'party.created' || e.type === 'party.updated') {
     add('party', e.subjectId);
     const parent = one<{ parent_id: string | null }>(db, 'SELECT parent_id FROM parties WHERE id = ?', e.subjectId);

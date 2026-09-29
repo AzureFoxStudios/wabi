@@ -10,6 +10,7 @@ import { execute, SYSTEM, CommandError, type Actor, type Ctx } from './engine.ts
 import { registry } from './commands/index.ts';
 import { getDocument, getUser } from './repo.ts';
 import { setPassword } from './auth.ts';
+import { webhookListener } from './webhook.ts';
 
 export interface AppOptions {
   dataDir: string;
@@ -47,6 +48,7 @@ export function createApp(opts: AppOptions): App {
       }
     },
   };
+  listeners.add(webhookListener(db));
   return {
     ctx, db, listeners,
     exec: (name, input, actor) => execute(ctx, registry, name, input, actor),

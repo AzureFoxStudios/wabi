@@ -107,6 +107,9 @@ export function describeEvent(db: DatabaseSync, pack: Pack, e: JournalEvent): De
       const p = d.payment;
       const amt = formatMinor(p.amount);
       const wht = p.whtAmount ? ` (+ ฿${formatMinor(p.whtAmount)} WHT)` : '';
+      if (p.allocations?.every((a: { refund?: boolean }) => a.refund)) {
+        return { ...base, context: p.number, summary: L(`Refunded ฿${amt} — ${p.number}`, `คืนเงิน ฿${amt} — ${p.number}`) };
+      }
       return p.direction === 'in'
         ? { ...base, context: p.number, summary: L(`Received ฿${amt}${wht} — ${p.number}`, `รับชำระ ฿${amt}${wht} — ${p.number}`), tone: 'success' }
         : { ...base, context: p.number, summary: L(`Paid ฿${amt}${wht} — ${p.number}`, `จ่ายเงิน ฿${amt}${wht} — ${p.number}`) };
@@ -149,6 +152,23 @@ export function describeEvent(db: DatabaseSync, pack: Pack, e: JournalEvent): De
       return { ...base, summary: L('Updated a user', 'แก้ไขผู้ใช้') };
     case 'company.updated':
       return { ...base, summary: L('Updated company settings', 'แก้ไขข้อมูลบริษัท') };
+    case 'settings.updated':
+      return { ...base, summary: L(`Changed setting: ${d.key}`, `เปลี่ยนการตั้งค่า: ${d.key}`) };
+    case 'account.created':
+      return { ...base, summary: L(`Added account ${d.account.code} ${d.account.name.en}`, `เพิ่มบัญชี ${d.account.code} ${d.account.name.th ?? d.account.name.en}`) };
+    case 'document.applied': {
+      const by = docName(d.byId);
+      const amt = formatMinor(Math.abs(d.amount));
+      return d.amount >= 0
+        ? { ...base, context: by.en, summary: { en: `${by.en} reduced the balance by ฿${amt}`, th: `${by.th} ลดยอดค้าง ฿${amt}` } }
+        : { ...base, context: by.en, summary: { en: `${by.en} added ฿${amt} to the balance`, th: `${by.th} เพิ่มยอดค้าง ฿${amt}` } };
+    }
+    case 'document.unapplied': {
+      const by = docName(d.byId);
+      return { ...base, tone: 'warning', summary: { en: `${by.en} no longer applies (voided)`, th: `${by.th} ถูกยกเลิก ไม่มีผลกับยอดค้างแล้ว` } };
+    }
+    case 'document.retention_released':
+      return { ...base, tone: 'success', summary: L(`Released retention ฿${formatMinor(d.amount)}`, `คืนเงินประกันผลงาน ฿${formatMinor(d.amount)}`) };
     default:
       return null;
   }
