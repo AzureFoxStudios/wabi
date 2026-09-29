@@ -113,12 +113,13 @@
   const baht = (m: number) => (m / 100).toFixed(2);
 </script>
 
-<svelte:head><title>{T('Books', 'สมุดบัญชี')} · Sabi</title></svelte:head>
+<svelte:head><title>{T('Accounting', 'บัญชี')} · Sabi</title></svelte:head>
 
 <div class="page">
   <header class="page-head">
     <div>
-      <h1>{T('Books', 'สมุดบัญชี')}</h1>
+      <h1>{T('Accounting', 'บัญชี')} <span class="muted for">{T('— for the accountant', '— สำหรับนักบัญชี')}</span></h1>
+      <p class="callout info notacc">{T('Not an accountant? You don’t need this page. Everything here fills itself in from your documents and payments.', 'ไม่ใช่นักบัญชี? ไม่ต้องใช้หน้านี้ ทุกอย่างในหน้านี้ระบบลงให้เองจากเอกสารและการรับ–จ่ายเงิน')}</p>
       <p class="muted small">{T('Documents and payments post themselves. Nothing posted is ever edited or deleted — corrections are new entries, and all of them are listed in the corrections report.', 'เอกสารและการชำระเงินลงบัญชีให้อัตโนมัติ รายการที่ลงแล้วไม่ถูกแก้ไขหรือลบ การแก้ไขทำโดยบันทึกรายการใหม่ และแสดงทั้งหมดในรายงานการแก้ไข')}</p>
     </div>
     <button class="btn ghost" onclick={() => window.print()}>{T('Print', 'พิมพ์')}</button>
@@ -266,6 +267,8 @@
 </div>
 
 <style>
+  .for { font-size: 0.6em; font-weight: 400; }
+  .notacc { margin: 8px 0; max-width: 80ch; }
   .gap { margin-bottom: 8px; gap: 14px; }
   .jeform { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; border-color: var(--accent); }
   .g2 { display: grid; grid-template-columns: 180px 1fr; gap: 10px; }

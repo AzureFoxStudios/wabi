@@ -144,7 +144,7 @@
   .sheet { margin: 20px auto; width: fit-content; }
   .paper {
     position: relative; background: white; color: #111; width: 210mm; min-height: 148mm; padding: 12mm 14mm;
-    font-family: 'Sarabun', 'IBM Plex Sans Thai', sans-serif; font-size: 13px; line-height: 1.45; border: 1px solid var(--line);
+    font-family: 'Sarabun', 'IBM Plex Sans Thai Looped', sans-serif; font-size: 13px; line-height: 1.45; border: 1px solid var(--line);
     display: flex; flex-direction: column; gap: 12px;
   }
   .cert { min-height: 280mm; }

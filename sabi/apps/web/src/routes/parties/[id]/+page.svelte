@@ -35,46 +35,46 @@
 {#if r.error}<div class="page"><p class="err-text">{r.error.message}</p></div>
 {:else if v}
   <div class="page wide">
-    <nav class="small muted crumbs"><a href="/parties">{T('Customers & suppliers', 'ลูกค้าและผู้ขาย')}</a>{#if v.parent} / <a href={`/parties/${v.parent.id}`}>{v.parent.name}</a>{/if}</nav>
+    <nav class="small muted crumbs"><a href="/parties">← {T('All customers & suppliers', 'ลูกค้าและผู้ขายทั้งหมด')}</a>{#if v.parent} / <a href={`/parties/${v.parent.id}`}>{v.parent.name}</a>{/if}</nav>
     <header class="head">
       <div class="grow">
         <h1>{p.name}</h1>
         <p class="sub">
-          {#each p.roles as role (role)}<span class="pill tone-neutral">{({ customer: T('Customer', 'ลูกค้า'), supplier: T('Supplier', 'ผู้ขาย'), contact: T('Contact', 'ผู้ติดต่อ') } as Record<string, string>)[role] ?? role}</span> {/each}
+          {#each p.roles as role (role)}<span class="pill tone-neutral">{({ customer: T('Customer', 'ลูกค้า'), supplier: T('Supplier', 'ผู้ขาย'), contact: T('Contact person', 'ผู้ติดต่อ') } as Record<string, string>)[role] ?? role}</span> {/each}
           {#if p.phone}<a class="link" href={`tel:${p.phone}`}>{p.phone}</a>{/if}
           {#if p.email} · <a class="link" href={`mailto:${p.email}`}>{p.email}</a>{/if}
         </p>
       </div>
       <div class="row">
-        {#if isCustomer}<a class="btn primary" href={`/jobs/new?partyId=${p.id}`}>+ {T('New job', 'งานใหม่')}</a>{/if}
-        {#if isSupplier}<a class="btn" href={`/documents/new?type=purchase_order&partyId=${p.id}`}>+ {T('Purchase order', 'ใบสั่งซื้อ')}</a>{/if}
+        {#if isCustomer}<a class="btn primary" href={`/jobs/new?partyId=${p.id}`}>+ {T('New job for them', 'เปิดงานใหม่ให้ลูกค้านี้')}</a>{/if}
+        {#if isSupplier}<a class="btn" href={`/documents/new?type=purchase_order&partyId=${p.id}`}>+ {T('Order from them', 'สั่งของจากผู้ขายนี้')}</a>{/if}
       </div>
     </header>
 
     {#if v.balance.receivable || v.balance.payable}
       <div class="strip num">
-        {#if v.balance.receivable}<div><span class="small muted">{T('Owes us', 'ค้างชำระเรา')}</span><strong class:text-danger={v.balance.overdue > 0}>฿{money(v.balance.receivable)}</strong>{#if v.balance.overdue}<span class="tiny text-danger">{T('overdue', 'เกินกำหนด')} ฿{money(v.balance.overdue)}</span>{/if}</div>{/if}
-        {#if v.balance.payable}<div><span class="small muted">{T('We owe', 'เราค้างจ่าย')}</span><strong>฿{money(v.balance.payable)}</strong></div>{/if}
-        {#if v.balance.receivable && can('money.write')}<a class="btn sm" href={`/money?pay=in&partyId=${p.id}`}>{T('Record payment', 'บันทึกรับชำระ')}</a>{/if}
+        {#if v.balance.receivable}<div><span class="small muted">{T('They still owe us', 'เขายังค้างจ่ายเรา')}</span><strong class:text-danger={v.balance.overdue > 0}>฿{money(v.balance.receivable)}</strong>{#if v.balance.overdue}<span class="tiny text-danger">{T('of which late', 'ในนี้เลยกำหนดแล้ว')} ฿{money(v.balance.overdue)}</span>{/if}</div>{/if}
+        {#if v.balance.payable}<div><span class="small muted">{T('We still owe them', 'เรายังค้างจ่ายเขา')}</span><strong>฿{money(v.balance.payable)}</strong></div>{/if}
+        {#if v.balance.receivable && can('money.write')}<a class="btn sm" href={`/money?pay=in&partyId=${p.id}`}>{T('They paid — record it', 'เขาจ่ายแล้ว — บันทึกรับเงิน')}</a>{/if}
       </div>
     {/if}
 
     <div class="layout">
       <div class="main">
         <section class="section">
-          <header><h2>{T('Jobs', 'งาน')}</h2></header>
+          <header><h2>{T('Their jobs', 'งานของลูกค้านี้')}</h2></header>
           {#if openJobs.length || doneJobs.length}
             <ul class="rows">
               {#each [...openJobs, ...doneJobs.slice(0, 5)] as j (j.id)}
-                <li><a href={`/jobs/${j.id}`} class="jobrow"><span class="mono small">{j.number}</span><span class="grow">{j.title}</span><StatePill label={j.stateLabel} tone={j.tone} /></a></li>
+                <li><a href={`/jobs/${j.id}`} class="jobrow"><span class="grow"><strong class="w500">{j.title}</strong> <span class="ref">{j.number}</span></span><StatePill label={j.stateLabel} tone={j.tone} /></a></li>
               {/each}
             </ul>
-          {:else}<p class="muted small">{T('No jobs yet.', 'ยังไม่มีงาน')}</p>{/if}
+          {:else}<p class="muted small">{T('No jobs yet. Press “New job for them” when they ask for something.', 'ยังไม่มีงาน เมื่อลูกค้าขออะไร กด “เปิดงานใหม่ให้ลูกค้านี้”')}</p>{/if}
         </section>
 
         {#if unpaid.length}
           <section class="section">
-            <header><h2>{T('Unpaid', 'ค้างชำระ')}</h2></header>
+            <header><h2>{T('Bills not paid yet', 'บิลที่ยังไม่ได้จ่าย')}</h2></header>
             <table class="data">
               <tbody>
                 {#each unpaid as d (d.id)}
@@ -87,58 +87,59 @@
         {/if}
 
         <section class="section">
-          <header><h2>{T('Documents', 'เอกสาร')}</h2><a class="small link" href={`/documents?partyId=${p.id}`}>{T('All', 'ทั้งหมด')}</a></header>
+          <header><h2>{T('Their documents', 'เอกสารของรายนี้')}</h2><a class="small link" href={`/documents?partyId=${p.id}`}>{T('See all', 'ดูทั้งหมด')}</a></header>
           <table class="data">
             <tbody>
               {#each v.documents.slice(0, 12) as d (d.id)}
-                <tr class="clickable" onclick={() => goto(`/documents/${d.id}`)}><td>{L(docTypeDef(d.type)?.label)}</td><td class="mono small">{d.number ?? T('draft', 'ร่าง')}</td><td class="small">{date(d.date)}</td><td><StatePill label={d.stateLabel} tone={d.tone} /></td><td class="num">{money(d.total)}</td></tr>
-              {:else}<tr><td class="muted small">{T('None yet.', 'ยังไม่มี')}</td></tr>{/each}
+                <tr class="clickable" onclick={() => goto(`/documents/${d.id}`)}><td>{L(docTypeDef(d.type)?.label)} <span class="ref">{d.number ?? T('draft', 'ร่าง')}</span></td><td class="small">{date(d.date)}</td><td><StatePill label={d.stateLabel} tone={d.tone} /></td><td class="num">{money(d.total)}</td></tr>
+              {:else}<tr><td class="muted small">{T('No documents yet.', 'ยังไม่มีเอกสาร')}</td></tr>{/each}
             </tbody>
           </table>
         </section>
 
         <section class="section">
-          <header><h2>{T('Notes & discussion', 'บันทึกและพูดคุย')}</h2></header>
+          <header><h2>{T('Notes about them', 'บันทึกเกี่ยวกับรายนี้')}</h2></header>
+          <p class="hint small">{T('Anything the team should remember: how they like to be contacted, credit, problems, preferences.', 'สิ่งที่ทีมควรรู้ เช่น ชอบให้ติดต่อทางไหน เครดิต ปัญหาที่เคยมี หรือความชอบ')}</p>
           <Discussion subjectType="party" subjectId={p.id} messages={v.messages} files={v.files} onchange={r.reload} placeholder={T('Notes about this customer — preferences, credit, who to call…', 'บันทึกเกี่ยวกับลูกค้า เช่น ความชอบ เครดิต ติดต่อใคร…')} />
         </section>
       </div>
 
       <aside class="side">
         <section>
-          <div class="spread"><h3 class="eyebrow">{T('Details', 'ข้อมูล')}</h3>{#if can('parties.write') && !editing}<button class="btn ghost sm" onclick={() => (editing = true)}>{T('Edit', 'แก้ไข')}</button>{/if}</div>
+          <div class="spread"><h3 class="eyebrow">{T('Contact details', 'ข้อมูลติดต่อ')}</h3>{#if can('parties.write') && !editing}<button class="btn ghost sm" onclick={() => (editing = true)}>{T('Edit', 'แก้ไข')}</button>{/if}</div>
           {#if editing}
             <PartyForm party={p} onsaved={() => { editing = false; r.reload(); }} oncancel={() => (editing = false)} />
           {:else}
             <dl class="facts">
-              <dt>{T('Tax ID', 'เลขภาษี')}</dt><dd class="mono">{p.taxId ?? '—'}</dd>
+              <dt>{T('Tax ID', 'เลขผู้เสียภาษี')}</dt><dd class="mono">{p.taxId ?? '—'}</dd>
               {#each extra as x (x.key)}<dt>{L(x.label)}</dt><dd>{showField(x, p.fields[x.key])}</dd>{/each}
               <dt>{T('Address', 'ที่อยู่')}</dt><dd>{fmtAddress(p.address) || '—'}</dd>
-              {#if p.paymentTermsDays !== undefined && p.paymentTermsDays !== null}<dt>{T('Terms', 'เครดิต')}</dt><dd>{p.paymentTermsDays} {T('days', 'วัน')}</dd>{/if}
+              {#if p.paymentTermsDays !== undefined && p.paymentTermsDays !== null}<dt>{T('Pays within', 'เครดิต')}</dt><dd>{p.paymentTermsDays} {T('days', 'วัน')}</dd>{/if}
             </dl>
           {/if}
         </section>
         {#if !v.parent}
           <section>
-            <div class="spread"><h3 class="eyebrow">{T('Contacts', 'ผู้ติดต่อ')}</h3>{#if can('parties.write')}<button class="btn ghost sm" onclick={() => (addingContact = !addingContact)}>+</button>{/if}</div>
+            <div class="spread"><h3 class="eyebrow">{T('People to talk to', 'ผู้ติดต่อ')}</h3>{#if can('parties.write')}<button class="btn ghost sm" onclick={() => (addingContact = !addingContact)}>+ {T('Add person', 'เพิ่มคน')}</button>{/if}</div>
             {#if addingContact}<PartyForm parentId={p.id} onsaved={() => { addingContact = false; r.reload(); }} oncancel={() => (addingContact = false)} />{/if}
             <ul class="plain">
               {#each v.contacts as c (c.id)}<li><a class="link" href={`/parties/${c.id}`}>{c.name}</a>{#if c.phone} · <a href={`tel:${c.phone}`} class="small">{c.phone}</a>{/if}</li>
-              {:else}<li class="small muted">{T('None', 'ไม่มี')}</li>{/each}
+              {:else}<li class="small muted">{T('Nobody added yet', 'ยังไม่มี')}</li>{/each}
             </ul>
           </section>
         {/if}
         <section>
-          <h3 class="eyebrow">{T('Follow-ups', 'ติดตาม')}</h3>
+          <h3 class="eyebrow">{T('Things to follow up', 'เรื่องที่ต้องติดตาม')}</h3>
           <Tasks subjectType="party" subjectId={p.id} tasks={v.tasks} onchange={r.reload} />
         </section>
         {#if v.payments.length}
           <section>
-            <h3 class="eyebrow">{T('Payments', 'การชำระเงิน')}</h3>
-            <ul class="plain small">{#each v.payments.slice(0, 8) as pm (pm.id)}<li class:void={pm.voided}><span class="mono">{pm.number}</span> · {date(pm.date)} · ฿{money(pm.amount)}</li>{/each}</ul>
+            <h3 class="eyebrow">{T('Money in and out', 'การรับ–จ่ายเงิน')}</h3>
+            <ul class="plain small">{#each v.payments.slice(0, 8) as pm (pm.id)}<li class:void={pm.voided}>{date(pm.date)} · {pm.direction === 'out' ? T('we paid', 'เราจ่าย') : T('they paid', 'เขาจ่าย')} ฿{money(pm.amount)} <a class="ref" href={`/payments/${pm.id}/print`}>{pm.number}</a></li>{/each}</ul>
           </section>
         {/if}
         <section>
-          <h3 class="eyebrow">{T('Activity', 'ความเคลื่อนไหว')}</h3>
+          <h3 class="eyebrow">{T('History', 'ประวัติ')}</h3>
           <Timeline events={v.timeline} limit={10} />
         </section>
       </aside>

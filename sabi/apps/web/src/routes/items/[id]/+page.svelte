@@ -14,7 +14,7 @@
   let adj = $state({ qty: '', reason: '', location: app.boot.pack.defaultLocation });
   let busy = $state(false);
   const locs = app.boot.pack.locations;
-  const locLabel = (id: string) => L(locs.find((l: any) => l.id === id)?.name) || ({ customer: T('Customer', 'ลูกค้า'), supplier: T('Supplier', 'ผู้ขาย'), consumed: T('Used on job', 'ใช้ในงาน'), adjustment: T('Adjustment', 'ปรับยอด') } as Record<string, string>)[id] || id;
+  const locLabel = (id: string) => L(locs.find((l: any) => l.id === id)?.name) || ({ customer: T('Customer', 'ลูกค้า'), supplier: T('Supplier', 'ผู้ขาย'), consumed: T('Used on a job', 'เบิกใช้ในงาน'), adjustment: T('Count correction', 'แก้ยอดนับ') } as Record<string, string>)[id] || id;
   const internal = locs.filter((l: any) => l.kind === 'internal');
 
   async function adjust(e: Event) {
@@ -23,7 +23,7 @@
     try {
       await command('stock.adjust', { itemId: it.id, qty: Number(adj.qty), reason: adj.reason, location: adj.location });
       adj = { ...adj, qty: '', reason: '' };
-      toast(T('Stock adjusted', 'ปรับสต็อกแล้ว'), 'success');
+      toast(T('Stock corrected', 'แก้ยอดในคลังแล้ว'), 'success');
       r.reload();
     } catch (err) {
       toast((err as Error).message, 'danger');
@@ -51,7 +51,7 @@
     const book = v.stock.byLocation[count.location] ?? 0;
     const diff = Math.round((counted - book) * 1000) / 1000;
     if (diff === 0) {
-      toast(T('Count matches the books', 'ยอดนับตรงกับบัญชี'), 'success');
+      toast(T('Your count matches what the system says — nothing to change', 'ยอดที่นับได้ตรงกับในระบบ ไม่ต้องแก้'), 'success');
       count.qty = '';
       return;
     }
@@ -93,21 +93,21 @@
 
 {#if v}
   <div class="page wide">
-    <nav class="small muted crumbs"><a href="/items">{T('Products & stock', 'สินค้าและสต็อก')}</a></nav>
+    <nav class="small muted crumbs"><a href="/items">← {T('All products', 'สินค้าทั้งหมด')}</a></nav>
     <header class="head">
       <div class="grow">
         <h1>{it.name}</h1>
-        <p class="sub"><span class="mono">{it.sku}</span> · ฿{money(it.salePrice)}/{unit(it.uom)} {#if !it.active}<span class="pill tone-neutral">{T('Archived', 'เก็บแล้ว')}</span>{/if}</p>
+        <p class="sub">{T('Sells for', 'ราคาขาย')} ฿{money(it.salePrice)} {T('per', 'ต่อ')} {unit(it.uom)} · <span class="ref">{T('code', 'รหัส')} {it.sku}</span> {#if !it.active}<span class="pill tone-neutral">{T('No longer used (hidden from lists)', 'เลิกใช้แล้ว (ซ่อนจากรายการ)')}</span>{/if}</p>
       </div>
     </header>
 
     {#if v.stock}
       <div class="strip num">
-        <div><span class="small muted">{T('On hand', 'คงเหลือ')}</span><strong>{qty(v.stock.onHand)} <small>{unit(it.uom)}</small></strong></div>
-        <div><span class="small muted">{T('Reserved for orders', 'จองให้คำสั่งซื้อ')}</span><strong>{qty(v.stock.reserved)}</strong></div>
-        <div><span class="small muted">{T('Incoming (open POs)', 'กำลังเข้า (PO ค้าง)')}</span><strong>{qty(v.stock.incoming)}</strong></div>
-        <div><span class="small muted">{T('Available', 'ใช้ได้')}</span><strong class:text-danger={v.stock.available < 0} class:text-warning={it.reorderPoint != null && v.stock.available >= 0 && v.stock.available < it.reorderPoint}>{qty(v.stock.available)}</strong>
-          {#if it.reorderPoint != null}<span class="tiny muted">{v.stock.available < it.reorderPoint ? T('below reorder point', 'ต่ำกว่าจุดสั่งซื้อ') : T('reorder at', 'สั่งเมื่อต่ำกว่า')} {qty(it.reorderPoint)}</span>{/if}</div>
+        <div><span class="small muted">{T('In the warehouse', 'มีในคลัง')}</span><strong>{qty(v.stock.onHand)} <small>{unit(it.uom)}</small></strong></div>
+        <div><span class="small muted">{T('Already promised to customers', 'จองให้ลูกค้าแล้ว')}</span><strong>{qty(v.stock.reserved)}</strong></div>
+        <div><span class="small muted">{T('Ordered from suppliers, on the way', 'สั่งจากผู้ขายแล้ว กำลังมา')}</span><strong>{qty(v.stock.incoming)}</strong></div>
+        <div><span class="small muted">{T('Free to use', 'ว่างให้ใช้')}</span><strong class:text-danger={v.stock.available < 0} class:text-warning={it.reorderPoint != null && v.stock.available >= 0 && v.stock.available < it.reorderPoint}>{v.stock.available < 0 ? T(`${qty(-v.stock.available)} short`, `ขาด ${qty(-v.stock.available)}`) : qty(v.stock.available)}</strong>
+          {#if it.reorderPoint != null}<span class="tiny muted">{v.stock.available < it.reorderPoint ? T('running low — you wanted at least', 'ใกล้หมด — ควรมีอย่างน้อย') : T('order more when below', 'ควรสั่งเพิ่มเมื่อต่ำกว่า')} {qty(it.reorderPoint)}</span>{/if}</div>
         {#if internal.length > 1}<div class="small muted">{#each internal as l (l.id)}{L(l.name)}: {qty(v.stock.byLocation[l.id] ?? 0)}<br />{/each}</div>{/if}
       </div>
     {/if}
@@ -116,15 +116,15 @@
       <div class="main">
         {#if v.reservedBy.length}
           <section class="section">
-            <header><h2>{T('Promised to customers', 'จองให้ลูกค้า')}</h2></header>
+            <header><h2>{T('Promised to customers', 'จองให้ลูกค้าแล้ว')}</h2></header>
             <ul class="plain">{#each v.reservedBy as rb (rb.docId)}<li><a class="link" href={`/documents/${rb.docId}`}>{rb.docNumber}</a>{#if rb.jobId}{' '}· <a class="link" href={`/jobs/${rb.jobId}`}>{rb.jobNumber}</a>{/if} · {qty(rb.qty)} {unit(it.uom)}</li>{/each}</ul>
           </section>
         {/if}
         {#if v.stock}
           <section class="section">
-            <header><h2>{T('Stock movements', 'ความเคลื่อนไหวสต็อก')}</h2></header>
+            <header><h2>{T('Every time it came in or went out', 'ประวัติของเข้า–ออก')}</h2></header>
             <table class="data">
-              <thead><tr><th>{T('When', 'เมื่อ')}</th><th>{T('From → to', 'จาก → ไป')}</th><th>{T('Reference', 'อ้างอิง')}</th><th class="num">{T('Qty', 'จำนวน')}</th><th class="num">{T('Balance', 'คงเหลือ')}</th></tr></thead>
+              <thead><tr><th>{T('Date', 'วันที่')}</th><th>{T('From → to', 'จาก → ไป')}</th><th>{T('Because of', 'เพราะอะไร')}</th><th class="num">{T('Amount', 'จำนวน')}</th><th class="num">{T('Left after', 'เหลือหลังจากนั้น')}</th></tr></thead>
               <tbody>
                 {#each v.moves as m, mi (m.id)}
                   {@const inbound = internal.some((l: any) => l.id === m.to) && !internal.some((l: any) => l.id === m.from)}
@@ -136,35 +136,35 @@
                     <td class="num" class:text-success={inbound} class:text-danger={outbound}>{inbound ? '+' : outbound ? '−' : ''}{qty(m.qty)}</td>
                     <td class="num muted">{qty(balances[mi])}</td>
                   </tr>
-                {:else}<tr><td colspan="5" class="muted small">{T('No movements yet.', 'ยังไม่มีความเคลื่อนไหว')}</td></tr>{/each}
+                {:else}<tr><td colspan="5" class="muted small">{T('Nothing has come in or gone out yet.', 'ยังไม่มีของเข้าหรือออก')}</td></tr>{/each}
               </tbody>
             </table>
           </section>
           {#if can('stock.write')}
             <section class="section">
-              <header><h2>{T('Adjust stock', 'ปรับยอดสต็อก')}</h2></header>
-              <p class="small muted">{T('For counts, damage or opening balances. Deliveries and receipts move stock automatically.', 'ใช้สำหรับตรวจนับ ของเสีย หรือยอดยกมา การส่ง/รับของจะตัดสต็อกให้อัตโนมัติ')}</p>
+              <header><h2>{T('Correct the stock', 'แก้ยอดของในคลัง')}</h2></header>
+              <p class="small muted">{T('Only for broken goods, lost goods, or the starting amount. You do NOT need this for deliveries or goods arriving — those change the stock by themselves.', 'ใช้เฉพาะเมื่อของเสีย ของหาย หรือใส่ยอดตั้งต้น ไม่ต้องใช้เมื่อส่งของหรือรับของ เพราะระบบตัด/เพิ่มให้เอง')}</p>
               <form class="row wrap adj" onsubmit={adjust}>
                 <input type="number" step="any" bind:value={adj.qty} placeholder={T('+10 or −3', '+10 หรือ −3')} required class="num" style="width:120px" />
                 {#if internal.length > 1}<select bind:value={adj.location} style="width:auto">{#each internal as l (l.id)}<option value={l.id}>{L(l.name)}</option>{/each}</select>{/if}
-                <input class="grow" bind:value={adj.reason} placeholder={T('Reason (required)', 'เหตุผล (จำเป็น)')} required />
-                <button class="btn" disabled={busy || !adj.qty || !adj.reason}>{T('Adjust', 'ปรับยอด')}</button>
+                <input class="grow" bind:value={adj.reason} placeholder={T('Why? e.g. “2 sheets bent in the truck” (required)', 'เพราะอะไร? เช่น “แผ่นงอ 2 แผ่นตอนขนส่ง” (ต้องใส่)')} required />
+                <button class="btn" disabled={busy || !adj.qty || !adj.reason}>{T('Save correction', 'บันทึกการแก้ยอด')}</button>
               </form>
-              <h3 class="sub3">{T('Count', 'ตรวจนับ')}</h3>
+              <h3 class="sub3">{T('I counted it', 'ฉันนับของจริงแล้ว')}</h3>
               <form class="row wrap adj" onsubmit={recordCount}>
-                <input type="number" step="any" min="0" bind:value={count.qty} placeholder={T('Counted', 'นับได้')} required class="num" style="width:170px" />
+                <input type="number" step="any" min="0" bind:value={count.qty} placeholder={T('Counted', 'นับได้')} required class="num" style="width:130px" />
                 {#if internal.length > 1}<select bind:value={count.location} style="width:auto">{#each internal as l (l.id)}<option value={l.id}>{L(l.name)}</option>{/each}</select>{/if}
-                <span class="small muted">{T('Books say', 'ตามบัญชี')} {qty(v.stock.byLocation[count.location] ?? 0)}</span>
-                <button class="btn" disabled={busy || count.qty === ''}>{T('Record count', 'บันทึกการนับ')}</button>
+                <span class="small muted">{T('The system says', 'ในระบบมี')} {qty(v.stock.byLocation[count.location] ?? 0)}</span>
+                <button class="btn" disabled={busy || count.qty === ''}>{T('Save count', 'บันทึกยอดที่นับ')}</button>
               </form>
               {#if internal.length > 1}
-                <h3 class="sub3">{T('Move between locations', 'ย้ายระหว่างคลัง')}</h3>
+                <h3 class="sub3">{T('Move to another place', 'ย้ายไปที่อื่น')}</h3>
                 <form class="row wrap adj" onsubmit={transfer}>
                   <input type="number" step="any" min="0" bind:value={tr.qty} placeholder={T('Qty', 'จำนวน')} required class="num" style="width:110px" />
                   <select bind:value={tr.from} style="width:auto" aria-label={T('From', 'จาก')}>{#each internal as l (l.id)}<option value={l.id}>{L(l.name)}</option>{/each}</select>
                   <span>→</span>
                   <select bind:value={tr.to} style="width:auto" aria-label={T('To', 'ไป')}>{#each internal as l (l.id)}<option value={l.id}>{L(l.name)}</option>{/each}</select>
-                  <input class="grow" bind:value={tr.note} placeholder={T('Note', 'หมายเหตุ')} />
+                  <input class="grow" bind:value={tr.note} placeholder={T('Note (optional)', 'หมายเหตุ (ไม่ใส่ก็ได้)')} />
                   <button class="btn" disabled={busy || !tr.qty || tr.from === tr.to}>{T('Move', 'ย้าย')}</button>
                 </form>
               {/if}
@@ -174,23 +174,23 @@
       </div>
       <aside class="side">
         <section>
-          <div class="spread"><h3 class="eyebrow">{T('Details', 'ข้อมูล')}</h3>{#if can('items.write') && !editing}<button class="btn ghost sm" onclick={() => (editing = true)}>{T('Edit', 'แก้ไข')}</button>{/if}</div>
+          <div class="spread"><h3 class="eyebrow">{T('Product details', 'ข้อมูลสินค้า')}</h3>{#if can('items.write') && !editing}<button class="btn ghost sm" onclick={() => (editing = true)}>{T('Edit', 'แก้ไข')}</button>{/if}</div>
           {#if editing}
             <ItemForm item={it} onsaved={() => { editing = false; r.reload(); }} oncancel={() => (editing = false)} />
           {:else}
             <dl class="facts">
-              <dt>{T('Cost', 'ต้นทุน')}</dt><dd>฿{money(it.costPrice)}</dd>
-              {#if it.reorderPoint != null}<dt>{T('Reorder point', 'จุดสั่งซื้อ')}</dt><dd>{qty(it.reorderPoint)} {unit(it.uom)}</dd>{/if}
-              <dt>{T('Tax', 'ภาษี')}</dt><dd>{L(app.boot.jurisdiction.taxCodes.find((t: any) => t.code === it.taxCode)?.label) || it.taxCode}</dd>
-              {#if it.whtCategory}<dt>{T('Withholding', 'หัก ณ ที่จ่าย')}</dt><dd>{L(app.boot.jurisdiction.whtCategories.find((w: any) => w.id === it.whtCategory)?.label)}</dd>{/if}
-              {#if it.measureTemplate}<dt>{T('Measured by', 'คำนวณจาก')}</dt><dd>{L(app.boot.pack.measureTemplates.find((m: any) => m.id === it.measureTemplate)?.label)}</dd>{/if}
+              <dt>{T('We buy it for', 'ราคาทุน')}</dt><dd>฿{money(it.costPrice)}</dd>
+              {#if it.reorderPoint != null}<dt>{T('Keep at least', 'ควรมีอย่างน้อย')}</dt><dd>{qty(it.reorderPoint)} {unit(it.uom)}</dd>{/if}
+              <dt>{T('VAT', 'VAT')}</dt><dd>{L(app.boot.jurisdiction.taxCodes.find((t: any) => t.code === it.taxCode)?.label) || it.taxCode}</dd>
+              {#if it.whtCategory}<dt>{T('Tax kept back by company customers', 'ลูกค้าบริษัทหักภาษี ณ ที่จ่าย')}</dt><dd>{L(app.boot.jurisdiction.whtCategories.find((w: any) => w.id === it.whtCategory)?.label)}</dd>{/if}
+              {#if it.measureTemplate}<dt>{T('Amount worked out from', 'คำนวณจำนวนจาก')}</dt><dd>{L(app.boot.pack.measureTemplates.find((m: any) => m.id === it.measureTemplate)?.label)}</dd>{/if}
               {#each app.boot.pack.itemFields as x (x.key)}{#if it.fields[x.key] !== undefined}<dt>{L(x.label)}</dt><dd>{L(x.options?.find((o: any) => o.value === it.fields[x.key])?.label) || it.fields[x.key]}{x.unit ? ' ' + x.unit : ''}</dd>{/if}{/each}
             </dl>
-            {#if can('items.write')}<button class="btn ghost sm" onclick={toggleActive}>{it.active ? T('Archive', 'เก็บเข้าคลัง') : T('Restore', 'นำกลับมาใช้')}</button>{/if}
+            {#if can('items.write')}<button class="btn ghost sm" onclick={toggleActive}>{it.active ? T('Stop using (hide)', 'เลิกใช้ (ซ่อน)') : T('Use again', 'นำกลับมาใช้')}</button>{/if}
           {/if}
         </section>
         <section>
-          <h3 class="eyebrow">{T('Activity', 'ความเคลื่อนไหว')}</h3>
+          <h3 class="eyebrow">{T('History', 'ประวัติ')}</h3>
           <Timeline events={v.timeline} limit={10} />
         </section>
       </aside>

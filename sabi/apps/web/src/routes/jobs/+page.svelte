@@ -47,15 +47,15 @@
 <div class="page">
   <header class="page-head">
     <div>
-      <h1>{T('Jobs', 'งาน')}</h1>
-      <p class="muted small">{T('Every customer request, from first call to paid.', 'ทุกงานของลูกค้า ตั้งแต่สอบถามจนรับเงิน')}</p>
+      <h1>{T('Jobs', 'งานของลูกค้า')}</h1>
+      <p class="hint">{T('One job = one customer request, from the first phone call until the money is in. Open a job to see everything about it in one place: messages, documents, materials and money.', 'หนึ่งงาน = หนึ่งเรื่องที่ลูกค้าขอ ตั้งแต่ลูกค้าโทรมาจนได้รับเงิน เปิดงานเพื่อดูทุกอย่างในที่เดียว: ข้อความ เอกสาร ของที่ใช้ และเงิน')}</p>
     </div>
-    <a class="btn primary" href="/jobs/new">+ {T('New job', 'งานใหม่')}</a>
+    <a class="btn primary" href="/jobs/new">+ {T('New job', 'เปิดงานใหม่')}</a>
   </header>
 
   <div class="filters">
     <div class="seg" role="tablist">
-      {#each [['open', T('Open', 'กำลังทำ')], ['done', T('Done', 'เสร็จแล้ว')], ['cancelled', T('Lost', 'ไม่ได้งาน')], ['all', T('All', 'ทั้งหมด')]] as [v, lbl] (v)}
+      {#each [['open', T('In progress', 'กำลังทำ')], ['done', T('Finished', 'เสร็จแล้ว')], ['cancelled', T('Lost / cancelled', 'ไม่ได้งาน/ยกเลิก')], ['all', T('All', 'ทั้งหมด')]] as [v, lbl] (v)}
         <button role="tab" aria-selected={phase === v} class:on={phase === v} onclick={() => ((phase = v), (stateFilter = ''))}>{lbl}</button>
       {/each}
     </div>
@@ -63,8 +63,8 @@
       <option value="">{T('All types', 'ทุกประเภท')}</option>
       {#each types as t (t.id)}<option value={t.id}>{L(t.label)}</option>{/each}
     </select>
-    <label class="row small"><input type="checkbox" bind:checked={mine} /> {T('Mine', 'ของฉัน')}</label>
-    <input class="grow" type="search" bind:value={search} placeholder={T('Search number, title, customer…', 'ค้นหาเลขที่ ชื่องาน ลูกค้า…')} />
+    <label class="row small"><input type="checkbox" bind:checked={mine} /> {T('Only jobs I look after', 'เฉพาะงานที่ฉันดูแล')}</label>
+    <input class="grow" type="search" bind:value={search} placeholder={T('Search by job name, customer or number…', 'ค้นหาชื่องาน ลูกค้า หรือเลขที่…')} />
   </div>
 
   {#if groups.length > 1}
@@ -84,10 +84,9 @@
         {#each g.jobs as j (j.id)}
           {@const due = dueText(j.summaryFields.delivery_date ?? j.dueDate)}
           <a href={`/jobs/${j.id}`} data-nav class="job">
-            <span class="num mono muted id">{j.number}</span>
             <span class="grow">
               <span class="title" class:unread={j.unread}>{j.title}</span>
-              <span class="small muted"> · {j.partyName}</span>
+              <span class="small muted"> · {j.partyName}</span> <span class="ref">{j.number}</span>{#if j.unread}{' '}<span class="pill tone-info">{T('new messages', 'มีข้อความใหม่')}</span>{/if}
               <br />
               <span class="small muted">
                 {#each Object.entries(j.summaryFields).filter(([k, v]) => v && k !== 'delivery_date') as [k, v] (k)}{showField(j.type, k, v)} · {/each}
@@ -95,14 +94,14 @@
               </span>
             </span>
             <span class="money small num right">
-              {#if j.money.outstanding > 0}<span class="text-warning">{T('Due', 'ค้าง')} {moneyShort(j.money.outstanding)}</span>
-              {:else if j.money.invoiced > 0}<span class="text-success">{T('Paid', 'รับแล้ว')} {moneyShort(j.money.paid)}</span>
-              {:else if j.money.ordered > 0}{T('Order', 'สั่ง')} {moneyShort(j.money.ordered)}
-              {:else if j.money.quoted > 0}<span class="muted">{T('Quote', 'เสนอ')} {moneyShort(j.money.quoted)}</span>{/if}
+              {#if j.money.outstanding > 0}<span class="text-warning">{T('Still owed', 'ยังค้าง')} {moneyShort(j.money.outstanding)}</span>
+              {:else if j.money.invoiced > 0}<span class="text-success">{T('All paid', 'รับครบ')} {moneyShort(j.money.paid)}</span>
+              {:else if j.money.ordered > 0}{T('Agreed', 'ตกลงแล้ว')} {moneyShort(j.money.ordered)}
+              {:else if j.money.quoted > 0}<span class="muted">{T('Offered', 'เสนอราคา')} {moneyShort(j.money.quoted)}</span>{/if}
             </span>
             <span class="meta small right">
               {#if due.text}<span class="text-{due.tone}">{due.text}</span><br />{/if}
-              <span class="faint tiny">{ago(j.lastAt)}</span>
+              <span class="faint tiny">{T('last change', 'ขยับล่าสุด')} {ago(j.lastAt)}</span>
             </span>
             <span class="avatar" title={userName(j.ownerId)}>{j.ownerId ? initials(userName(j.ownerId)) : '·'}</span>
           </a>
@@ -110,7 +109,7 @@
       </ul>
     </section>
   {:else}
-    <p class="muted empty">{r.loading ? T('Loading…', 'กำลังโหลด…') : T('No jobs here.', 'ไม่มีงาน')}</p>
+    <p class="muted empty">{r.loading ? T('Loading…', 'กำลังโหลด…') : T('No jobs here. Press “New job” when a customer calls or asks for a price.', 'ไม่มีงานในหน้านี้ เมื่อลูกค้าโทรมาหรือขอราคา กด “เปิดงานใหม่”')}</p>
   {/each}
 </div>
 

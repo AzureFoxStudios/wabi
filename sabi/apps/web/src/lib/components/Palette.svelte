@@ -16,11 +16,11 @@
     { title: T('New purchase order', 'ใบสั่งซื้อใหม่'), href: '/documents/new?type=purchase_order', kind: 'action' },
     ...(can('money.write') ? [{ title: T('Record a payment', 'บันทึกรับ/จ่ายเงิน'), href: '/money?pay=in', kind: 'action' }] : []),
     { title: T('Today', 'วันนี้'), href: '/', kind: 'go' },
-    { title: T('Jobs', 'งาน'), href: '/jobs', kind: 'go' },
-    { title: T('Documents', 'เอกสาร'), href: '/documents', kind: 'go' },
-    { title: T('Items & stock', 'สินค้าและสต็อก'), href: '/items', kind: 'go' },
-    { title: T('Money', 'การเงิน'), href: '/money', kind: 'go' },
-    { title: T('VAT report', 'รายงานภาษีขาย/ซื้อ'), href: '/reports', kind: 'go' },
+    { title: T('Jobs', 'งานของลูกค้า'), href: '/jobs', kind: 'go' },
+    { title: T('Quotes, orders & invoices', 'ใบเสนอราคา ใบสั่ง ใบแจ้งหนี้'), href: '/documents', kind: 'go' },
+    { title: T('Products & stock', 'สินค้าและของในคลัง'), href: '/items', kind: 'go' }, { title: T('Customers & suppliers', 'ลูกค้าและผู้ขาย'), href: '/parties', kind: 'go' },
+    { title: T('Money in & out', 'รับเงิน–จ่ายเงิน'), href: '/money', kind: 'go' },
+    { title: T('Tax & reports', 'ภาษีและรายงาน'), href: '/reports', kind: 'go' },
     { title: T('Settings', 'ตั้งค่า'), href: '/settings', kind: 'go' },
   ]);
 

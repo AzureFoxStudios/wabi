@@ -22,6 +22,7 @@ const voidState = { id: 'void', label: L('Void', 'ยกเลิก'), phase: '
 const quotation: DocTypeDef = {
   id: 'quotation',
   label: L('Quotation', 'ใบเสนอราคา'),
+  description: L('A price offer for the customer. It is not a sale yet — nothing is reserved or billed until the customer agrees.', 'ใบบอกราคาให้ลูกค้า ยังไม่ใช่การขาย ยังไม่จองของและยังไม่เก็บเงิน จนกว่าลูกค้าจะตกลง'),
   printTitle: L('Quotation', 'ใบเสนอราคา'),
   direction: 'sales',
   numbering: { prefix: 'QT' },
@@ -61,6 +62,7 @@ const quotation: DocTypeDef = {
 const salesOrder: DocTypeDef = {
   id: 'sales_order',
   label: L('Sales order', 'ใบสั่งขาย'),
+  description: L('The customer has agreed to buy. Confirming it reserves the stock for this customer so nobody else takes it.', 'ลูกค้าตกลงซื้อแล้ว เมื่อกดยืนยัน ระบบจะจองของในคลังไว้ให้ลูกค้ารายนี้ คนอื่นจะไม่เอาไปใช้'),
   printTitle: L('Sales order confirmation', 'ใบยืนยันการสั่งซื้อ'),
   direction: 'sales',
   numbering: { prefix: 'SO' },
@@ -97,6 +99,7 @@ function paidTransitions(openState: string): TransitionDef[] {
 const taxInvoice: DocTypeDef = {
   id: 'tax_invoice',
   label: L('Delivery note / Tax invoice', 'ใบส่งของ/ใบกำกับภาษี'),
+  description: L('Goes with the goods when they are delivered. It is also the official tax invoice and the bill: it takes the goods out of stock and records what the customer owes.', 'ใบที่ส่งไปพร้อมของ เป็นทั้งใบกำกับภาษีและใบแจ้งหนี้ เมื่อออกแล้ว ของจะถูกตัดออกจากคลัง และบันทึกว่าลูกค้าต้องจ่ายเท่าไร'),
   printTitle: L('Delivery note / Tax invoice', 'ใบส่งของ/ใบกำกับภาษี'),
   direction: 'sales',
   numbering: { prefix: 'IV' },
@@ -132,6 +135,7 @@ const noteReason = { key: 'reason', type: 'longtext' as const, label: L('Reason'
 const creditNote: DocTypeDef = {
   id: 'credit_note',
   label: L('Credit note', 'ใบลดหนี้'),
+  description: L('Lowers what the customer owes on an invoice that was already issued — for example goods came back, or the price was wrong. The old invoice is never changed.', 'ใช้ลดยอดที่ลูกค้าต้องจ่าย ของใบกำกับภาษีที่ออกไปแล้ว เช่น ลูกค้าคืนของ หรือคิดราคาผิด ใบเดิมจะไม่ถูกแก้'),
   printTitle: L('Credit note / Tax invoice', 'ใบลดหนี้/ใบกำกับภาษี'),
   direction: 'sales',
   numbering: { prefix: 'CN' },
@@ -162,6 +166,7 @@ const creditNote: DocTypeDef = {
 const debitNote: DocTypeDef = {
   id: 'debit_note',
   label: L('Debit note', 'ใบเพิ่มหนี้'),
+  description: L('Raises what the customer owes on an invoice that was already issued — for example we charged too little. The old invoice is never changed.', 'ใช้เพิ่มยอดที่ลูกค้าต้องจ่าย ของใบกำกับภาษีที่ออกไปแล้ว เช่น คิดราคาต่ำไป ใบเดิมจะไม่ถูกแก้'),
   printTitle: L('Debit note / Tax invoice', 'ใบเพิ่มหนี้/ใบกำกับภาษี'),
   direction: 'sales',
   numbering: { prefix: 'DN' },
@@ -188,6 +193,7 @@ const debitNote: DocTypeDef = {
 const supplierCredit: DocTypeDef = {
   id: 'supplier_credit',
   label: L('Supplier credit note', 'ใบลดหนี้จากผู้ขาย'),
+  description: L('A supplier gave us a credit note: we owe them less (for example we sent goods back).', 'ผู้ขายออกใบลดหนี้ให้เรา แปลว่าเราจ่ายเขาน้อยลง (เช่น เราคืนของให้เขา)'),
   printTitle: L('Supplier credit note (record)', 'บันทึกใบลดหนี้จากผู้ขาย'),
   direction: 'purchase',
   numbering: { prefix: 'SC' },
@@ -219,6 +225,7 @@ const supplierCredit: DocTypeDef = {
 const purchaseOrder: DocTypeDef = {
   id: 'purchase_order',
   label: L('Purchase order', 'ใบสั่งซื้อ'),
+  description: L('What we are ordering from a supplier. Stock goes up only when the goods actually arrive (goods receipt).', 'ใบที่เราสั่งของจากผู้ขาย ของในคลังจะเพิ่มก็ต่อเมื่อของมาถึงจริง (ทำใบรับสินค้า)'),
   printTitle: L('Purchase order', 'ใบสั่งซื้อ'),
   direction: 'purchase',
   numbering: { prefix: 'PO' },
@@ -248,6 +255,7 @@ const purchaseOrder: DocTypeDef = {
 const goodsReceipt: DocTypeDef = {
   id: 'goods_receipt',
   label: L('Goods receipt', 'ใบรับสินค้า'),
+  description: L('Record what actually arrived from the supplier. Saving it adds the goods to stock.', 'บันทึกของที่ผู้ขายส่งมาถึงจริง เมื่อบันทึกแล้ว ของจะเพิ่มเข้าคลัง'),
   printTitle: L('Goods receipt', 'ใบรับสินค้า'),
   direction: 'purchase',
   numbering: { prefix: 'GR' },
@@ -271,6 +279,7 @@ const goodsReceipt: DocTypeDef = {
 const supplierBill: DocTypeDef = {
   id: 'supplier_bill',
   label: L('Supplier bill', 'ใบแจ้งหนี้ผู้ขาย'),
+  description: L('The bill (tax invoice) we got from a supplier. It records how much we owe them and when to pay.', 'ใบแจ้งหนี้/ใบกำกับภาษีที่ผู้ขายส่งมา บันทึกว่าเราต้องจ่ายเขาเท่าไร และต้องจ่ายเมื่อไร'),
   printTitle: L('Supplier bill (record)', 'บันทึกใบกำกับภาษีซื้อ'),
   direction: 'purchase',
   numbering: { prefix: 'BL' },
@@ -347,6 +356,7 @@ const installWorkflow: WorkflowDef<'open' | 'done' | 'cancelled'> = {
 const installJob: JobTypeDef = {
   id: 'install',
   label: L('Supply & install', 'ขายพร้อมติดตั้ง'),
+  description: L("Supply and install at the customer's site: survey, quote, make, deliver, install.", 'ขายพร้อมติดตั้งที่หน้างานลูกค้า: วัดหน้างาน เสนอราคา ผลิต ส่งของ ติดตั้ง'),
   numbering: { prefix: 'J' },
   documentTypes: ['quotation', 'sales_order', 'purchase_order', 'tax_invoice'],
   fields: [
@@ -370,6 +380,7 @@ const installJob: JobTypeDef = {
 const supplyJob: JobTypeDef = {
   id: 'supply',
   label: L('Material supply', 'ขายส่งวัสดุ'),
+  description: L('Sell goods only — the customer picks them up or we deliver. No installation.', 'ขายของอย่างเดียว ลูกค้ามารับเองหรือเราไปส่ง ไม่มีการติดตั้ง'),
   numbering: { prefix: 'S' },
   documentTypes: ['quotation', 'sales_order', 'tax_invoice'],
   fields: [

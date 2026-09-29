@@ -100,6 +100,8 @@ export interface WorkflowDef<P extends string> {
 export interface JobTypeDef {
   id: string;
   label: Label;
+  /** One plain sentence describing this kind of job. */
+  description?: Label;
   numbering: { prefix: string };
   fields: FieldDef[];
   workflow: WorkflowDef<JobPhase>;
@@ -112,6 +114,8 @@ export type Effect = 'reserve' | 'stock_out' | 'stock_in' | 'receivable' | 'paya
 export interface DocTypeDef {
   id: string;
   label: Label;
+  /** One plain sentence: what this piece of paper is and when you use it. Shown under the title. */
+  description?: Label;
   /** Title printed on the paper (e.g. "ใบส่งของ/ใบกำกับภาษี"). */
   printTitle?: Label;
   direction: 'sales' | 'purchase';

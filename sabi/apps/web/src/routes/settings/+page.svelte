@@ -4,7 +4,7 @@
   import { local } from '$lib/storage.ts';
   import { app, T, toast, can, roleLabel, loadBoot } from '$lib/state.svelte.ts';
   import { resource } from '$lib/resource.svelte.ts';
-  import { L } from '$lib/format.ts';
+  import { L, date } from '$lib/format.ts';
   import ImportCsv from '$lib/components/ImportCsv.svelte';
   import IntegrationsSettings from '$lib/components/IntegrationsSettings.svelte';
   import SystemInfo from '$lib/components/SystemInfo.svelte';
@@ -15,13 +15,13 @@
   let section = $state(page.url.hash.slice(1) || 'company');
   const sections = $derived([
     { id: 'company', label: T('Company', 'บริษัท') },
-    ...(can('settings.write') ? [{ id: 'users', label: T('People & roles', 'ผู้ใช้และบทบาท') }] : []),
+    ...(can('settings.write') ? [{ id: 'users', label: T('People who can log in', 'คนที่เข้าระบบได้') }] : []),
     { id: 'me', label: T('My account', 'บัญชีของฉัน') },
-    { id: 'config', label: T('Business setup', 'การตั้งค่าธุรกิจ') },
-    ...(can('parties.write') || can('items.write') ? [{ id: 'import', label: T('Import from CSV', 'นำเข้าจาก CSV') }] : []),
-    ...(owner ? [{ id: 'integrations', label: T('Integrations', 'การเชื่อมต่อ') }] : []),
-    ...(owner ? [{ id: 'controls', label: T('Controls & audit', 'การควบคุมและตรวจสอบ') }] : []),
-    ...(owner ? [{ id: 'data', label: T('Backup & export', 'สำรองและส่งออกข้อมูล') }] : []),
+    { id: 'config', label: T('How this business is set up', 'รูปแบบธุรกิจที่ตั้งไว้') },
+    ...(can('parties.write') || can('items.write') ? [{ id: 'import', label: T('Bring in lists from Excel', 'นำเข้ารายชื่อจาก Excel') }] : []),
+    ...(owner ? [{ id: 'integrations', label: T('Connect other apps', 'เชื่อมต่อแอปอื่น') }] : []),
+    ...(owner ? [{ id: 'controls', label: T('Safety & checks', 'ความปลอดภัยและการตรวจสอบ') }] : []),
+    ...(owner ? [{ id: 'data', label: T('Backup (keep a copy)', 'สำรองข้อมูล (เก็บสำเนา)') }] : []),
   ]);
   // Follow the address when it changes without a remount (links to /settings#users from elsewhere, back/forward).
   $effect(() => {
@@ -124,17 +124,35 @@
     local.set('sabi.locale', locale);
     await loadBoot();
   }
+  // Plain words for what a role may do (the capability ids are for configuration files, not people).
+  const capLabel = (c: string) => ({
+    'jobs.write': T('open and update jobs', 'เปิดและแก้ไขงาน'), 'documents.write': T('write quotes, orders and invoices', 'ทำใบเสนอราคา ใบสั่ง ใบแจ้งหนี้'),
+    'documents.issue': T('issue documents to customers', 'ออกเอกสารให้ลูกค้า'), 'documents.void': T('cancel issued documents', 'ยกเลิกเอกสารที่ออกแล้ว'),
+    'money.write': T('record money in and out', 'บันทึกรับ–จ่ายเงิน'), 'stock.write': T('move and correct stock', 'เบิก ย้าย และแก้ยอดของในคลัง'),
+    'parties.write': T('add and edit customers & suppliers', 'เพิ่มและแก้ไขลูกค้าและผู้ขาย'), 'items.write': T('add and edit products', 'เพิ่มและแก้ไขสินค้า'),
+    'settings.write': T('change settings and people', 'เปลี่ยนการตั้งค่าและผู้ใช้'), 'ledger.write': T('make accounting entries', 'ลงรายการบัญชี'),
+    'reports.read': T('see money, tax and reports', 'ดูการเงิน ภาษี และรายงาน'), approve: T('approve discounts and orders', 'อนุมัติส่วนลดและใบสั่ง'),
+  } as Record<string, string>)[c] ?? c;
+  const effectLabel = (e: string) => ({
+    reserve: T('reserves stock', 'จองของในคลัง'), stock_out: T('takes goods out of stock', 'ตัดของออกจากคลัง'), stock_in: T('adds goods to stock', 'เพิ่มของเข้าคลัง'),
+    receivable: T('customer now owes us', 'ลูกค้าต้องจ่ายเรา'), payable: T('we now owe the supplier', 'เราต้องจ่ายผู้ขาย'),
+  } as Record<string, string>)[e] ?? e;
+  const pct = (r: number) => `${Math.round(r * 1000) / 10}%`;
+  function rateText(rates: { rate: number; from: string; to?: string | null }[]): string {
+    if (rates.length === 1 && !rates[0].to) return pct(rates[0].rate);
+    return rates.map((r, i) => r.to ? T(`${pct(r.rate)} until ${date(r.to)}`, `${pct(r.rate)} ถึง ${date(r.to)}`) : i > 0 ? T(`then ${pct(r.rate)} from ${date(r.from)} — Sabi warns you; check the law nearer the time`, `แล้วเป็น ${pct(r.rate)} ตั้งแต่ ${date(r.from)} — ระบบจะเตือน ควรตรวจกฎหมายอีกครั้งเมื่อใกล้ถึง`) : pct(r.rate)).join(', ');
+  }
   const phaseLabel: Record<string, string> = { open: T('open', 'เปิด'), done: T('done', 'เสร็จ'), cancelled: T('cancelled', 'ยกเลิก'), draft: T('draft', 'ร่าง'), issued: T('issued', 'ออกแล้ว'), closed: T('closed', 'ปิด'), void: T('void', 'ยกเลิก') };
 </script>
 
 <svelte:head><title>{T('Settings', 'ตั้งค่า')} · Sabi</title></svelte:head>
 
 <div class="page">
-  <header class="page-head"><h1>{T('Settings', 'ตั้งค่า')}</h1></header>
+  <header class="page-head"><div><h1>{T('Settings', 'ตั้งค่า')}</h1><p class="hint">{T('Company details, who can log in, your password, and backups. Most people only need “My account”.', 'ข้อมูลบริษัท ใครเข้าระบบได้บ้าง รหัสผ่าน และการสำรองข้อมูล คนส่วนใหญ่ใช้แค่ “บัญชีของฉัน”')}</p></div></header>
   {#if welcome}
     <div class="callout success welcome">
       <strong>{T('Welcome to Sabi.', 'ยินดีต้อนรับสู่ Sabi')}</strong>
-      {T('Check the company details below — they are printed on every document. Then add your team under People & roles, and create your first customer and job.', 'ตรวจสอบข้อมูลบริษัทด้านล่าง ซึ่งจะพิมพ์บนเอกสารทุกฉบับ จากนั้นเพิ่มทีมงานที่ “ผู้ใช้และบทบาท” และสร้างลูกค้าและงานแรก')}
+      {T('Three steps to start: 1. Check the company details below (they are printed on every document). 2. Add your team under “People who can log in”. 3. Add your first customer and open a job.', 'เริ่มต้น 3 ขั้นตอน: 1. ตรวจข้อมูลบริษัทด้านล่าง (พิมพ์บนเอกสารทุกใบ) 2. เพิ่มทีมงานที่ “คนที่เข้าระบบได้” 3. เพิ่มลูกค้ารายแรก แล้วเปิดงาน')}
     </div>
   {/if}
   <div class="layout">
@@ -144,7 +162,7 @@
     <div class="body">
       {#if section === 'company'}
         <form class="stack narrowform" onsubmit={saveCompany}>
-          <p class="small muted">{T('Printed as the seller on quotations, tax invoices and receipts.', 'พิมพ์เป็นผู้ขายบนใบเสนอราคา ใบกำกับภาษี และใบเสร็จ')}</p>
+          <p class="small muted">{T('These details are printed at the top of every quotation, tax invoice and receipt. Check they are exactly right — the Revenue Department requires it.', 'ข้อมูลนี้พิมพ์อยู่ด้านบนของใบเสนอราคา ใบกำกับภาษี และใบเสร็จทุกใบ ต้องถูกต้องตรงตามทะเบียน เพราะกรมสรรพากรกำหนด')}</p>
           <fieldset class="stack" disabled={!can('settings.write')}>
             <label class="field"><span>{T('Registered name', 'ชื่อจดทะเบียน')}</span><input bind:value={co.name} required /></label>
             <div class="g2">
@@ -170,7 +188,7 @@
         </form>
       {:else if section === 'users'}
         <table class="data">
-          <thead><tr><th>{T('Name', 'ชื่อ')}</th><th>{T('Username', 'ชื่อผู้ใช้')}</th><th>{T('Role', 'บทบาท')}</th><th></th></tr></thead>
+          <thead><tr><th>{T('Name', 'ชื่อ')}</th><th>{T('Username', 'ชื่อผู้ใช้')}</th><th>{T('Job role', 'ตำแหน่ง')}</th><th></th></tr></thead>
           <tbody>
             {#each (users.data as any[]) ?? [] as u (u.id)}
               <tr class:inactive={!u.active}>
@@ -185,14 +203,14 @@
                   {:else if owner && u.id !== boot.user.id}
                     <button class="btn ghost sm" onclick={() => { resetFor = u.id; resetPw = ''; }}>{T('Set password', 'ตั้งรหัสผ่าน')}</button>
                   {/if}
-                  {#if u.id !== boot.user.id}<button class="btn ghost sm" onclick={() => setActive(u.id, !u.active)}>{u.active ? T('Deactivate', 'ระงับ') : T('Reactivate', 'เปิดใช้')}</button>{/if}
+                  {#if u.id !== boot.user.id}<button class="btn ghost sm" onclick={() => setActive(u.id, !u.active)}>{u.active ? T('Block login (left the company)', 'ปิดการเข้าระบบ (ลาออกแล้ว)') : T('Allow login again', 'เปิดให้เข้าระบบอีกครั้ง')}</button>{/if}
                 </td>
               </tr>
             {/each}
           </tbody>
         </table>
         <form class="adduser" onsubmit={addUser}>
-          <h3>{T('Add someone', 'เพิ่มผู้ใช้')}</h3>
+          <h3>{T('Give someone a login', 'เพิ่มคนเข้าระบบ')}</h3>
           <div class="g4">
             <input bind:value={nu.name} placeholder={T('Full name', 'ชื่อ-นามสกุล')} required aria-label={T('Full name', 'ชื่อ-นามสกุล')} />
             <input bind:value={nu.username} placeholder={T('username (a–z, 0–9)', 'ชื่อผู้ใช้ (a–z, 0–9)')} required pattern="[a-z0-9_.\-]{'{2,40}'}" aria-label={T('Username', 'ชื่อผู้ใช้')} />
@@ -201,9 +219,9 @@
           </div>
           <button class="btn primary">{T('Add', 'เพิ่ม')}</button>
         </form>
-        <h3 class="rolehdr">{T('What each role can do', 'สิทธิ์ของแต่ละบทบาท')}</h3>
+        <h3 class="rolehdr">{T('What each job role is allowed to do', 'แต่ละตำแหน่งทำอะไรได้บ้าง')}</h3>
         <dl class="roles">
-          {#each boot.pack.roles as r (r.id)}<dt>{L(r.label)}</dt><dd class="small muted">{r.capabilities.includes('all') ? T('Everything, including settings and approvals', 'ทุกอย่าง รวมถึงการตั้งค่าและอนุมัติ') : r.capabilities.join(' · ')}</dd>{/each}
+          {#each boot.pack.roles as r (r.id)}<dt>{L(r.label)}</dt><dd class="small muted">{r.capabilities.includes('all') ? T('Everything, including settings and approvals', 'ทุกอย่าง รวมถึงการตั้งค่าและอนุมัติ') : T('Can ', 'ทำได้: ') + r.capabilities.map(capLabel).join(', ')}</dd>{/each}
         </dl>
       {:else if section === 'me'}
         <div class="stack narrowform">
@@ -227,34 +245,37 @@
           )}</p>
           {#each boot.pack.jobTypes as jt (jt.id)}
             <section class="section">
-              <header><h2>{L(jt.label)}</h2><span class="tiny muted mono">{jt.numbering?.prefix ?? ''}</span></header>
+              <header><h2>{L(jt.label)}</h2><span class="tiny muted">{T('Job numbers start with', 'เลขที่งานขึ้นต้นด้วย')} <span class="mono">{jt.numbering?.prefix ?? ''}</span></span></header>
+              {#if jt.description}<p class="hint">{L(jt.description)}</p>{/if}
+              <p class="tiny muted">{T('The steps, in order. Under each step: whose turn it is.', 'ขั้นตอนตามลำดับ ใต้แต่ละขั้นบอกว่าถึงตาใคร')}</p>
               <ol class="flow">
-                {#each jt.workflow.states as s (s.id)}<li class={`tone-${s.tone ?? 'neutral'}`}><strong>{L(s.label)}</strong><span class="tiny muted">{phaseLabel[s.phase] ?? s.phase}{s.ownerRole ? ` · ${roleLabel(s.ownerRole)}` : ''}</span></li>{/each}
+                {#each jt.workflow.states as s (s.id)}<li class={`tone-${s.tone ?? 'neutral'}`}><strong>{L(s.label)}</strong><span class="tiny muted">{s.phase === 'done' ? T('finished', 'จบงาน') : s.phase === 'cancelled' ? T('stopped / lost', 'ยกเลิก / ไม่ได้งาน') : s.ownerRole ? roleLabel(s.ownerRole) : (phaseLabel[s.phase] ?? s.phase)}</span></li>{/each}
               </ol>
-              <p class="small muted">{T('Fields', 'ฟิลด์')}: {jt.fields.map((f: any) => L(f.label)).join(', ') || '—'}</p>
-              <p class="small muted">{T('Documents', 'เอกสาร')}: {jt.documentTypes.map((d: string) => L(boot.pack.documentTypes.find((x: any) => x.id === d)?.label)).join(' → ')}</p>
+              <p class="small muted">{T('Details we write down for this job', 'ข้อมูลที่จดไว้ในงานนี้')}: {jt.fields.map((f: any) => L(f.label)).join(', ') || '—'}</p>
+              <p class="small muted">{T('Paperwork used', 'เอกสารที่ใช้')}: {jt.documentTypes.map((d: string) => L(boot.pack.documentTypes.find((x: any) => x.id === d)?.label)).join(' → ')}</p>
             </section>
           {/each}
           <section class="section">
             <header><h2>{T('Document types', 'ประเภทเอกสาร')}</h2></header>
             <table class="data">
-              <thead><tr><th>{T('Type', 'ประเภท')}</th><th>{T('Prefix', 'คำนำหน้า')}</th><th>{T('Effects', 'ผลกระทบ')}</th><th>{T('Converts to', 'แปลงเป็น')}</th><th>{T('Approvals', 'การอนุมัติ')}</th></tr></thead>
+              <thead><tr><th>{T('Document', 'เอกสาร')}</th><th>{T('Number starts with', 'เลขที่ขึ้นต้นด้วย')}</th><th>{T('What it does', 'มีผลอะไร')}</th><th>{T('Next document', 'เอกสารถัดไป')}</th><th>{T('Needs approval when', 'ต้องอนุมัติเมื่อ')}</th></tr></thead>
               <tbody>
                 {#each boot.pack.documentTypes as d (d.id)}
                   <tr>
-                    <td>{L(d.label)}</td><td class="mono small">{d.numbering.prefix}</td>
-                    <td class="small">{d.effects.join(', ') || '—'}</td>
+                    <td>{L(d.label)}{#if d.description}<br /><span class="tiny muted">{L(d.description)}</span>{/if}</td><td class="mono small">{d.numbering.prefix}</td>
+                    <td class="small">{d.effects.map(effectLabel).join(', ') || T('nothing — just paper', 'ไม่มี — เป็นเอกสารอย่างเดียว')}</td>
                     <td class="small">{d.convertsTo.map((t: string) => L(boot.pack.documentTypes.find((x: any) => x.id === t)?.label)).join(', ') || '—'}</td>
-                    <td class="small">{d.workflow.transitions.filter((t: any) => t.requires?.approval).map((t: any) => `${L(t.label)} → ${roleLabel(t.requires.approval.role)}${t.requires.approval.when ? ` (${t.requires.approval.when})` : ''}`).join('; ') || '—'}</td>
+                    <td class="small">{d.workflow.transitions.filter((t: any) => t.requires?.approval).map((t: any) => `${L(t.label)} → ${roleLabel(t.requires.approval.role)}${t.requires.approval.reason ? ` (${L(t.requires.approval.reason)})` : t.requires.approval.when ? ` (${t.requires.approval.when})` : ''}`).join('; ') || '—'}</td>
                   </tr>
                 {/each}
               </tbody>
             </table>
           </section>
           <section class="section">
-            <header><h2>{T('Tax codes', 'รหัสภาษี')}</h2></header>
+            <header><h2>{T('VAT choices on products', 'ตัวเลือก VAT ของสินค้า')}</h2></header>
+            <p class="hint">{T('These come from the Thai tax rules built into Sabi. When the rate changes by law, the new rate starts on its date by itself.', 'มาจากกฎภาษีไทยที่อยู่ในระบบ เมื่อกฎหมายเปลี่ยนอัตรา ระบบจะใช้อัตราใหม่เองตามวันที่')}</p>
             <ul class="small plain">
-              {#each boot.jurisdiction.taxCodes as t (t.code)}<li><span class="mono">{t.code}</span> — {L(t.label)} {t.rates.map((r: any) => `${Math.round(r.rate * 1000) / 10}% ${r.from}→${r.to ?? '…'}`).join(', ')}</li>{/each}
+              {#each boot.jurisdiction.taxCodes as t (t.code)}<li><strong class="w500">{L(t.label)}</strong>{' — '}{rateText(t.rates)} <span class="ref">{t.code}</span></li>{/each}
             </ul>
           </section>
         </div>
@@ -266,10 +287,10 @@
         <SystemInfo />
       {:else if section === 'data'}
         <div class="stack narrowform">
-          <p>{T('Your data belongs to you. Everything Sabi knows is an append-only, hash-chained journal of events; every screen is rebuilt from it.', 'ข้อมูลเป็นของคุณ ทุกอย่างในระบบถูกบันทึกเป็นบันทึกเหตุการณ์แบบต่อท้ายและเชื่อมด้วยแฮช ทุกหน้าจอสร้างใหม่จากบันทึกนี้')}</p>
-          <div class="row"><a class="btn primary" href={authUrl('/api/export')} download>{T('Download full journal (.jsonl)', 'ดาวน์โหลดบันทึกทั้งหมด (.jsonl)')}</a></div>
-          <p class="small muted">{T('Reports can be downloaded as CSV from the Reports page.', 'ดาวน์โหลดรายงานเป็น CSV ได้จากหน้ารายงาน')}</p>
-          <h3>{T('Server backups', 'สำรองข้อมูลที่เซิร์ฟเวอร์')}</h3>
+          <p>{T('Your data belongs to you. Download a full copy any time and keep it somewhere safe (a USB drive or another computer). With this file, everything can be rebuilt.', 'ข้อมูลเป็นของคุณ ดาวน์โหลดสำเนาทั้งหมดได้ทุกเมื่อ แล้วเก็บไว้ในที่ปลอดภัย (แฟลชไดรฟ์ หรือคอมพิวเตอร์อีกเครื่อง) ไฟล์นี้ใช้สร้างข้อมูลทั้งหมดขึ้นมาใหม่ได้')}</p>
+          <div class="row"><a class="btn primary" href={authUrl('/api/export')} download>{T('Download a full copy of everything', 'ดาวน์โหลดสำเนาข้อมูลทั้งหมด')}</a></div>
+          <p class="small muted">{T('Reports for Excel can be downloaded on the “Tax & reports” page.', 'ดาวน์โหลดรายงานสำหรับ Excel ได้ที่หน้า “ภาษีและรายงาน”')}</p>
+          <h3>{T('Automatic backups (for the person who installed Sabi)', 'สำรองอัตโนมัติ (สำหรับคนที่ติดตั้งระบบ)')}</h3>
           <p class="small">{T('On the machine running Sabi, schedule:', 'บนเครื่องที่รัน Sabi ให้ตั้งเวลารัน:')}</p>
           <pre class="mono small">sabi backup /path/to/backups --data /var/lib/sabi
 sabi verify --data /var/lib/sabi</pre>

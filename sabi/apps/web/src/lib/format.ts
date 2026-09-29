@@ -13,12 +13,15 @@ const qtyFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 });
 export const money = (minor: number | null | undefined, symbol = false): string =>
   minor === null || minor === undefined ? '—' : `${minor < 0 ? '−' : ''}${symbol ? '฿' : ''}${moneyFmt.format(Math.abs(minor) / 100)}`;
 
-/** Compact money for summaries: ฿1.2M, ฿45.3k. */
+/**
+ * Money for summaries: the full amount rounded to whole baht ("฿163,020").
+ * No "k"/"M" abbreviations — many readers don't know them, and ฿163.0k is easy
+ * to misread as ฿163.
+ */
+const bahtFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
 export const moneyShort = (minor: number): string => {
   const v = minor / 100;
-  if (Math.abs(v) >= 1_000_000) return `฿${(v / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(v) >= 10_000) return `฿${(v / 1000).toFixed(1)}k`;
-  return `฿${moneyFmt.format(v)}`;
+  return `${v < 0 ? '−' : ''}฿${Math.abs(v) >= 1000 ? bahtFmt.format(Math.abs(v)) : moneyFmt.format(Math.abs(v))}`;
 };
 
 export const qty = (n: number | null | undefined) => (n === null || n === undefined ? '—' : qtyFmt.format(n));
@@ -69,10 +72,10 @@ export function dueText(isoDate: string | null | undefined): { text: string; ton
   const n = daysUntil(isoDate);
   const th = app.locale === 'th';
   if (n === null) return { text: '', tone: 'neutral' };
-  if (n < 0) return { text: th ? `เกินกำหนด ${-n} วัน` : `${-n}d overdue`, tone: 'danger' };
+  if (n < 0) return { text: th ? `เลยกำหนด ${-n} วัน` : `${-n} ${-n === 1 ? 'day' : 'days'} late`, tone: 'danger' };
   if (n === 0) return { text: th ? 'วันนี้' : 'today', tone: 'warning' };
   if (n === 1) return { text: th ? 'พรุ่งนี้' : 'tomorrow', tone: 'warning' };
-  if (n < 7) return { text: th ? `อีก ${n} วัน` : `in ${n}d`, tone: 'neutral' };
+  if (n < 7) return { text: th ? `อีก ${n} วัน` : `in ${n} days`, tone: 'neutral' };
   return { text: dateShort(isoDate), tone: 'neutral' };
 }
 
@@ -83,6 +86,21 @@ export function userName(id: string | null | undefined): string {
   if (!id) return '';
   if (id === 'system') return 'Sabi';
   return app.boot?.users.find((u: any) => u.id === id)?.name ?? '';
+}
+
+/**
+ * Message text → safe HTML where "@arun" shows as the person's name ("@Arun
+ * Wongsa") and "@workshop" as the role ("@ช่างในโรงงาน"). People recognise names,
+ * not login handles.
+ */
+export function mentionHtml(text: string): string {
+  const esc = String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return esc.replace(/(^|\s)@([\w.-]+)/g, (all, pre: string, handle: string) => {
+    const u = app.boot?.users.find((x: any) => x.username === handle.toLowerCase());
+    const r = !u ? app.boot?.pack.roles.find((x: any) => x.id === handle.toLowerCase()) : null;
+    const name = u ? u.name : r ? L(r.label) : null;
+    return name ? `${pre}<mark title="@${handle}">@${name.replace(/</g, '&lt;')}</mark>` : all;
+  });
 }
 
 export const fmtAddress = (a: any): string =>

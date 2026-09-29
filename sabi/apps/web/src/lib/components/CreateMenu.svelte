@@ -3,12 +3,12 @@
   import { app, T, can } from '$lib/state.svelte.ts';
 
   const items = $derived([
-    { key: 'j', label: T('Job', 'งาน'), hint: T('A customer request you will work on', 'งานจากลูกค้าที่ต้องดำเนินการ'), href: '/jobs/new' },
+    { key: 'j', label: T('Job', 'งานของลูกค้า'), hint: T('A customer called or asked for a price', 'ลูกค้าโทรมาหรือขอราคา'), href: '/jobs/new' },
     { key: 'p', label: T('Customer or supplier', 'ลูกค้า/ผู้ขาย'), hint: T('Person or company', 'บุคคลหรือบริษัท'), href: '/parties/new' },
-    { key: 'q', label: T('Quotation', 'ใบเสนอราคา'), hint: T('Quick quote without a job', 'เสนอราคาด่วนโดยไม่เปิดงาน'), href: '/documents/new?type=quotation' },
-    { key: 'o', label: T('Purchase order', 'ใบสั่งซื้อ'), hint: T('Order from a supplier', 'สั่งซื้อจากผู้ขาย'), href: '/documents/new?type=purchase_order' },
-    ...(can('items.write') ? [{ key: 'i', label: T('Item', 'สินค้า'), hint: T('Product or service you sell or buy', 'สินค้าหรือบริการ'), href: '/items/new' }] : []),
-    ...(can('money.write') ? [{ key: 'm', label: T('Payment', 'รับ/จ่ายเงิน'), hint: T('Money received or paid', 'บันทึกการรับหรือจ่ายเงิน'), href: '/money?pay=in' }] : []),
+    { key: 'q', label: T('Quotation', 'ใบเสนอราคา'), hint: T('Just a price, no job yet', 'แค่บอกราคา ยังไม่เปิดงาน'), href: '/documents/new?type=quotation' },
+    { key: 'o', label: T('Order from a supplier', 'สั่งของจากผู้ขาย'), hint: T('Purchase order', 'ใบสั่งซื้อ'), href: '/documents/new?type=purchase_order' },
+    ...(can('items.write') ? [{ key: 'i', label: T('Product or service', 'สินค้าหรือบริการ'), hint: T('Something you sell or buy', 'สิ่งที่เราขายหรือซื้อ'), href: '/items/new' }] : []),
+    ...(can('money.write') ? [{ key: 'm', label: T('Money in or out', 'รับเงิน/จ่ายเงิน'), hint: T('A customer paid, or we paid someone', 'ลูกค้าจ่ายเงิน หรือเราจ่ายเงิน'), href: '/money?pay=in' }] : []),
   ]);
   function go(href: string) {
     app.createOpen = false;
@@ -27,7 +27,7 @@
 <svelte:window onkeydown={onKey} />
 <div class="scrim" role="presentation" onclick={() => (app.createOpen = false)}></div>
 <div class="create panel" role="dialog" aria-label={T('Create', 'สร้าง')}>
-  <p class="eyebrow">{T('Create', 'สร้างใหม่')}</p>
+  <p class="eyebrow">{T('What do you want to add?', 'ต้องการเพิ่มอะไร?')}</p>
   {#each items as it (it.key)}
     <button onclick={() => go(it.href)}>
       <kbd>{it.key.toUpperCase()}</kbd>

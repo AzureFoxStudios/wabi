@@ -1,7 +1,7 @@
 <script lang="ts">
-  import '@fontsource/ibm-plex-sans-thai/400.css';
-  import '@fontsource/ibm-plex-sans-thai/500.css';
-  import '@fontsource/ibm-plex-sans-thai/600.css';
+  import '@fontsource/ibm-plex-sans-thai-looped/400.css';
+  import '@fontsource/ibm-plex-sans-thai-looped/500.css';
+  import '@fontsource/ibm-plex-sans-thai-looped/600.css';
   import '../app.css';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';

@@ -558,11 +558,9 @@ export function attention(ctx: Ctx, viewer: Viewer) {
 
   // 2. Tasks for me or my role.
   const tasks = all<Record<string, any>>(db,
-    `SELECT t.*, CASE t.subject_type WHEN 'job' THEN (SELECT number || ' · ' || title FROM jobs WHERE id = t.subject_id)
-       WHEN 'document' THEN (SELECT COALESCE(number, type) FROM documents WHERE id = t.subject_id) ELSE '' END AS subject_label
-     FROM tasks t WHERE t.done_at IS NULL AND (t.assignee_id = ? OR (t.assignee_id IS NULL AND (t.role = ? OR ?)))
+    `SELECT t.* FROM tasks t WHERE t.done_at IS NULL AND (t.assignee_id = ? OR (t.assignee_id IS NULL AND (t.role = ? OR ?)))
      ORDER BY t.due IS NULL, t.due, t.created_at`, viewer.id, role, sup ? 1 : 0)
-    .map((r) => ({ id: r.id, title: r.title, due: r.due, overdue: !!(r.due && r.due < t), subjectType: r.subject_type, subjectId: r.subject_id, subjectLabel: r.subject_label, assigneeId: r.assignee_id, role: r.role }));
+    .map((r) => ({ id: r.id, title: r.title, due: r.due, overdue: !!(r.due && r.due < t), subjectType: r.subject_type, subjectId: r.subject_id, subjectLabel: subjectLabel(db, r.subject_type, r.subject_id, pack), assigneeId: r.assignee_id, role: r.role }));
 
   // 3. Jobs whose next step belongs to me (my role owns the state, or I own the job).
   const openJobs = all(db, "SELECT * FROM jobs WHERE phase = 'open' ORDER BY updated_at").map(toJob);
@@ -598,7 +596,7 @@ export function attention(ctx: Ctx, viewer: Viewer) {
      ORDER BY m.seq DESC LIMIT 30`, viewer.id, `role:${role}`, viewer.id).map(toMessage);
   const mentions = mentionRows
     .filter((m) => m.seq > lastRead(db, viewer.id, m.subjectType, m.subjectId))
-    .map((m) => ({ ...m, subjectLabel: subjectLabel(db, m.subjectType, m.subjectId) }));
+    .map((m) => ({ ...m, subjectLabel: subjectLabel(db, m.subjectType, m.subjectId, pack) }));
 
   // 6. Money: overdue receivables, payables due soon (only for roles that handle money).
   const seesMoney = hasCap(pack, role, 'money.write') || hasCap(pack, role, 'reports.read');
@@ -630,32 +628,46 @@ export function attention(ctx: Ctx, viewer: Viewer) {
   const changes = changedRows.map((r) => {
     const e = rowToEvent(r as never);
     const d = describeEvent(db, pack, e);
-    return d ? { ...d, where: whereOf(db, e) } : null;
+    return d ? { ...d, where: whereOf(db, pack, e) } : null;
   }).filter(Boolean);
 
   return { approvals, tasks, nextSteps, docsWaiting, mentions, money, stock, changes, since, today: t };
 }
 
-function whereOf(db: DatabaseSync, e: JournalEvent) {
+function whereOf(db: DatabaseSync, pack: Pack, e: JournalEvent) {
   const link = one<{ subject_type: string; subject_id: string }>(db,
     "SELECT subject_type, subject_id FROM event_links WHERE seq = ? ORDER BY CASE subject_type WHEN 'job' THEN 0 WHEN 'document' THEN 1 WHEN 'party' THEN 2 ELSE 3 END LIMIT 1", e.seq);
   if (!link) return null;
-  return { subjectType: link.subject_type, subjectId: link.subject_id, label: subjectLabel(db, link.subject_type, link.subject_id) };
+  return { subjectType: link.subject_type, subjectId: link.subject_id, label: subjectLabel(db, link.subject_type, link.subject_id, pack) };
 }
 
-export function subjectLabel(db: DatabaseSync, type: string, id: string): string {
-  if (type === 'job') {
-    const j = one<{ number: string; title: string }>(db, 'SELECT number, title FROM jobs WHERE id = ?', id);
-    return j ? `${j.number} · ${j.title}` : '';
+/**
+ * A plain name for "where something happened", in both languages. Names come
+ * first (job title, customer, item name); reference numbers are left to the
+ * screens that need them, because most people recognise the name, not the code.
+ */
+export function subjectLabel(db: DatabaseSync, type: string, id: string, pack?: Pack): Label {
+  const same = (s: string): Label => ({ en: s, th: s });
+  if (type === 'job') return same(one<{ title: string }>(db, 'SELECT title FROM jobs WHERE id = ?', id)?.title ?? '');
+  if (type === 'document') {
+    const d = one<{ type: string; party: string | null }>(db, 'SELECT d.type, p.name AS party FROM documents d LEFT JOIN parties p ON p.id = d.party_id WHERE d.id = ?', id);
+    if (!d) return same('');
+    let t: Label = { en: d.type, th: d.type };
+    if (pack) { try { t = docType(pack, d.type).label; } catch { /* unknown type: keep the id */ } }
+    const tail = d.party ? ` · ${d.party}` : '';
+    return { en: `${t.en}${tail}`, th: `${t.th ?? t.en}${tail}` };
   }
-  if (type === 'document') return one<{ n: string }>(db, "SELECT COALESCE(number, 'Draft') AS n FROM documents WHERE id = ?", id)?.n ?? '';
-  if (type === 'party') return one<{ name: string }>(db, 'SELECT name FROM parties WHERE id = ?', id)?.name ?? '';
-  if (type === 'item') return one<{ sku: string }>(db, 'SELECT sku FROM items WHERE id = ?', id)?.sku ?? '';
-  if (type === 'payment') return one<{ number: string }>(db, 'SELECT number FROM payments WHERE id = ?', id)?.number ?? '';
-  if (type === 'user') return one<{ name: string }>(db, 'SELECT name FROM users WHERE id = ?', id)?.name ?? '';
-  if (type === 'settings') return id === 'company' ? 'Company' : id === 'accounts' ? 'Chart of accounts' : id;
-  if (type === 'system') return 'Books';
-  return '';
+  if (type === 'party') return same(one<{ name: string }>(db, 'SELECT name FROM parties WHERE id = ?', id)?.name ?? '');
+  if (type === 'item') return same(one<{ name: string }>(db, 'SELECT name FROM items WHERE id = ?', id)?.name ?? '');
+  if (type === 'payment') {
+    const p = one<{ direction: string; party: string | null }>(db, 'SELECT y.direction, p.name AS party FROM payments y LEFT JOIN parties p ON p.id = y.party_id WHERE y.id = ?', id);
+    if (!p) return same('');
+    return p.direction === 'in' ? { en: `Money from ${p.party ?? ''}`, th: `รับเงินจาก ${p.party ?? ''}` } : { en: `Payment to ${p.party ?? ''}`, th: `จ่ายเงินให้ ${p.party ?? ''}` };
+  }
+  if (type === 'user') return same(one<{ name: string }>(db, 'SELECT name FROM users WHERE id = ?', id)?.name ?? '');
+  if (type === 'settings') return id === 'company' ? { en: 'Company details', th: 'ข้อมูลบริษัท' } : id === 'accounts' ? { en: 'List of accounts', th: 'ผังบัญชี' } : { en: 'Settings', th: 'ตั้งค่า' };
+  if (type === 'system') return { en: 'Accounting books', th: 'สมุดบัญชี' };
+  return same('');
 }
 
 function daysBetween(a: string, b: string) {
@@ -789,7 +801,7 @@ export function activity(ctx: Ctx, q: { subjectType?: string; subjectId?: string
   return rows.map((r) => {
     const e = rowToEvent(r as never);
     const d = describeEvent(db, pack, e);
-    return d ? { ...d, where: whereOf(db, e) } : null;
+    return d ? { ...d, where: whereOf(db, pack, e) } : null;
   }).filter(Boolean);
 }
 

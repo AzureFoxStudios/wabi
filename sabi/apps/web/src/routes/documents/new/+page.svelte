@@ -41,7 +41,7 @@
   <form class="stack" onsubmit={create}>
     <Picker kind="parties" role={dt?.direction === 'purchase' ? 'supplier' : 'customer'} bind:value={partyId} label={dt?.direction === 'purchase' ? T('Supplier', 'ผู้ขาย') : T('Customer', 'ลูกค้า')} autofocus />
     {#if prefill.length}<p class="callout info small">{T(`${prefill.length} short item(s) from the job will be added. Adjust quantities on the next screen.`, `จะเพิ่มรายการที่ขาด ${prefill.length} รายการจากงาน แก้จำนวนได้ในหน้าถัดไป`)}</p>{/if}
-    {#if jobId}<p class="small muted">{T('Linked to the job, so it shows up in its documents and money.', 'ผูกกับงาน จะแสดงในเอกสารและการเงินของงาน')}</p>{/if}
+    {#if jobId}<p class="small muted">{T('This will be attached to the job, so you will find it inside the job too.', 'เอกสารนี้จะผูกกับงาน จึงหาเจอได้ในหน้างานด้วย')}</p>{/if}
     <div class="row"><button class="btn primary" disabled={!partyId || busy}>{T('Continue', 'ต่อไป')}</button><a class="btn ghost" href={jobId ? `/jobs/${jobId}` : '/documents'}>{T('Cancel', 'ยกเลิก')}</a></div>
   </form>
 </div>

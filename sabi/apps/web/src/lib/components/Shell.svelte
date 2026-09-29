@@ -11,16 +11,17 @@
 
   let { children } = $props();
 
+  // Grouped so the menu reads as three plain questions: my daily work, who/what we deal with, money and tax.
   const nav = $derived([
-    { href: '/', label: T('Today', 'วันนี้'), key: 'h' },
-    { href: '/jobs', label: T('Jobs', 'งาน'), key: 'j' },
-    { href: '/documents', label: T('Documents', 'เอกสาร'), key: 'd' },
-    { href: '/parties', label: T('Customers & suppliers', 'ลูกค้าและผู้ขาย'), key: 'p' },
-    { href: '/items', label: T('Items & stock', 'สินค้าและสต็อก'), key: 'i' },
-    ...(can('money.write') || can('reports.read') ? [{ href: '/money', label: T('Money', 'การเงิน'), key: 'm' }] : []),
-    ...(can('ledger.write') || can('reports.read') ? [{ href: '/books', label: T('Books', 'สมุดบัญชี'), key: 'b' }] : []),
-    ...(can('reports.read') ? [{ href: '/reports', label: T('Tax & reports', 'ภาษีและรายงาน'), key: 'r' }] : []),
-  ]);
+    { href: '/', label: T('Today — what needs me', 'วันนี้ — สิ่งที่ต้องทำ'), key: 'h', group: T('Daily work', 'งานประจำวัน') },
+    { href: '/jobs', label: T('Jobs', 'งานของลูกค้า'), key: 'j' },
+    { href: '/documents', label: T('Quotes, orders & invoices', 'ใบเสนอราคา ใบสั่ง ใบแจ้งหนี้'), key: 'd' },
+    { href: '/parties', label: T('Customers & suppliers', 'ลูกค้าและผู้ขาย'), key: 'p', group: T('Lists', 'รายชื่อ') },
+    { href: '/items', label: T('Products & stock', 'สินค้าและของในคลัง'), key: 'i' },
+    ...(can('money.write') || can('reports.read') ? [{ href: '/money', label: T('Money in & out', 'รับเงิน–จ่ายเงิน'), key: 'm', group: T('Money & tax', 'เงินและภาษี') }] : []),
+    ...(can('reports.read') ? [{ href: '/reports', label: T('Tax & reports', 'ภาษีและรายงาน'), key: 'r'}] : []),
+    ...(can('ledger.write') || can('reports.read') ? [{ href: '/books', label: T('Accounting (for the accountant)', 'บัญชี (สำหรับนักบัญชี)'), key: 'b' }] : []),
+  ] as { href: string; label: string; key: string; group?: string }[]);
   const active = (href: string) => (href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(href));
 
   let gPending = false;
@@ -84,10 +85,11 @@
       </span>
     </a>
     <button class="search" onclick={() => (app.paletteOpen = true)}>
-      <span>{T('Search or jump to…', 'ค้นหาหรือไปที่…')}</span><kbd>⌘K</kbd>
+      <span>{T('Search…', 'ค้นหา…')}</span><kbd>⌘K</kbd>
     </button>
     <nav>
       {#each nav as n (n.href)}
+        {#if n.group}<span class="group">{n.group}</span>{/if}
         <a href={n.href} class:on={active(n.href)} title={`g ${n.key}`}>{n.label}</a>
       {/each}
     </nav>
@@ -96,7 +98,7 @@
     </button>
     <div class="grow"></div>
     {#if !app.online}
-      <p class="offline tiny">{T('Reconnecting… changes by others may be delayed.', 'กำลังเชื่อมต่อใหม่…')}</p>
+      <p class="offline tiny">{T('Connection lost — trying again. What others change may show up late.', 'การเชื่อมต่อหลุด กำลังลองใหม่ สิ่งที่คนอื่นแก้อาจขึ้นช้า')}</p>
     {/if}
     <div class="me">
       <button class="who" onclick={() => (menuOpen = !menuOpen)} aria-expanded={menuOpen}>
@@ -155,7 +157,7 @@
 </div>
 
 <style>
-  .shell { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
+  .shell { display: grid; grid-template-columns: 252px 1fr; min-height: 100vh; }
   .rail {
     position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 6px;
     padding: 16px 12px; border-right: 1px solid var(--line); background: var(--bg);
@@ -172,7 +174,9 @@
     border-radius: var(--radius-sm); padding: 6px 8px 6px 10px; cursor: text; margin-bottom: 8px;
   }
   nav { display: flex; flex-direction: column; gap: 1px; }
-  nav a { padding: 7px 10px; border-radius: var(--radius-sm); color: var(--ink-2); font-size: 0.92rem; }
+  nav a { padding: 8px 10px; border-radius: var(--radius-sm); color: var(--ink-2); font-size: 0.95rem; line-height: 1.35; }
+  nav .group { display: block; margin: 14px 10px 4px; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+  nav .group:first-child { margin-top: 4px; }
   nav a:hover { background: var(--sunken); }
   nav a.on { background: var(--surface); color: var(--ink); font-weight: 500; box-shadow: inset 2px 0 0 var(--accent); }
   .new { margin-top: 12px; justify-content: space-between; }
@@ -205,7 +209,7 @@
     .shell { grid-template-columns: 1fr; }
     .rail { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--line); }
     .brand { padding: 0; }
-    .brand .grow, .search, .rail > .grow, .me { display: none; }
+    .brand .grow, .search, .rail > .grow, .me, nav .group { display: none; }
     nav { flex-direction: row; overflow-x: auto; flex: 1; }
     .new { margin: 0; }
   }

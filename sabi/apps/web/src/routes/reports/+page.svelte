@@ -7,11 +7,11 @@
   import { L, money, qty, date, unit } from '$lib/format.ts';
 
   const tabs = [
-    { id: 'vat-sales', label: T('Output VAT', 'รายงานภาษีขาย'), hint: T('Sales tax invoices issued in the month — basis for the monthly VAT return (ภ.พ.30).', 'ใบกำกับภาษีขายที่ออกในเดือน ใช้ประกอบการยื่น ภ.พ.30') },
-    { id: 'vat-purchases', label: T('Input VAT', 'รายงานภาษีซื้อ'), hint: T('Supplier tax invoices recorded as bills in the month. Numbers are the supplier’s invoice numbers.', 'ใบกำกับภาษีซื้อที่บันทึกในเดือน ใช้เลขที่ใบกำกับของผู้ขาย') },
-    { id: 'wht', label: T('Withholding tax', 'ภาษีหัก ณ ที่จ่าย'), hint: T('Tax customers withheld from us (keep the 50 ทวิ certificates) and tax we withheld from suppliers (file ภ.ง.ด.3 / ภ.ง.ด.53).', 'ภาษีที่ลูกค้าหักเรา (เก็บหนังสือรับรอง 50 ทวิ) และที่เราหักผู้ขาย (ยื่น ภ.ง.ด.3/53)') },
-    { id: 'stock', label: T('Stock valuation', 'มูลค่าสต็อก'), hint: T('On hand at standard cost.', 'คงเหลือ ณ ราคาทุนมาตรฐาน') },
-    { id: 'trial-balance', label: T('Trial balance', 'งบทดลอง'), hint: T('Derived ledger postings from issued documents and payments. For your accountant — not a substitute for certified books.', 'รายการบัญชีที่สร้างจากเอกสารและการชำระ สำหรับผู้ทำบัญชี ไม่ใช่สมุดบัญชีที่รับรองแล้ว') },
+    { id: 'vat-sales', label: T('VAT on sales', 'รายงานภาษีขาย'), hint: T('Every tax invoice we gave customers this month, and the VAT we charged them. Your accountant uses this for the monthly VAT form (ภ.พ.30).', 'ใบกำกับภาษีทุกใบที่เราออกให้ลูกค้าในเดือนนี้ และ VAT ที่เราเก็บจากลูกค้า นักบัญชีใช้รายงานนี้ยื่นแบบ ภ.พ.30 ทุกเดือน') },
+    { id: 'vat-purchases', label: T('VAT on purchases', 'รายงานภาษีซื้อ'), hint: T('Every tax invoice suppliers gave us this month, and the VAT we paid them. This VAT is taken off what we owe the Revenue Department. The numbers are the supplier’s own invoice numbers.', 'ใบกำกับภาษีทุกใบที่ผู้ขายให้เราในเดือนนี้ และ VAT ที่เราจ่ายไป VAT ส่วนนี้นำไปหักกับที่ต้องจ่ายสรรพากรได้ เลขที่เป็นเลขของผู้ขาย') },
+    { id: 'wht', label: T('Tax kept back (withholding)', 'ภาษีหัก ณ ที่จ่าย'), hint: T('Top: tax that company customers kept back when paying us — keep their “50 Tawi” certificates, they reduce our income tax. Bottom: tax we kept back when paying suppliers — this must be sent to the Revenue Dept. by the 7th (paper) or 15th (online) on form ภ.ง.ด.3 or ภ.ง.ด.53.', 'ด้านบน: ภาษีที่ลูกค้าบริษัทหักไว้ตอนจ่ายเงินเรา — เก็บหนังสือรับรอง 50 ทวิ ไว้ ใช้ลดภาษีเงินได้ของเรา ด้านล่าง: ภาษีที่เราหักไว้ตอนจ่ายผู้ขาย — ต้องนำส่งสรรพากรภายในวันที่ 7 (กระดาษ) หรือ 15 (ออนไลน์) ด้วยแบบ ภ.ง.ด.3 หรือ ภ.ง.ด.53') },
+    { id: 'stock', label: T('Value of stock', 'มูลค่าของในคลัง'), hint: T('How much the goods in the warehouse are worth, at the price we paid for them.', 'ของในคลังทั้งหมดมีมูลค่าเท่าไร คิดตามราคาทุนที่เราซื้อมา') },
+    { id: 'trial-balance', label: T('Trial balance (accountant)', 'งบทดลอง (นักบัญชี)'), hint: T('For your accountant. Totals of every accounting account, built automatically from documents and payments. The last line must be 0 — if it is not, tell your accountant.', 'สำหรับนักบัญชี ยอดรวมของทุกบัญชี สร้างอัตโนมัติจากเอกสารและการรับ–จ่ายเงิน บรรทัดสุดท้ายต้องเป็น 0 ถ้าไม่ใช่ ให้แจ้งนักบัญชี') },
   ];
   let tab = $state(page.url.searchParams.get('r') ?? 'vat-sales');
   let month = $state(page.url.searchParams.get('month') ?? app.boot.today.slice(0, 7));
@@ -49,21 +49,22 @@
   }
 </script>
 
-<svelte:head><title>{T('Reports', 'รายงาน')} · Sabi</title></svelte:head>
+<svelte:head><title>{T('Tax & reports', 'ภาษีและรายงาน')} · Sabi</title></svelte:head>
 
 <div class="page">
   <header class="page-head">
-    <h1>{T('Reports', 'รายงาน')}</h1>
+    <div><h1>{T('Tax & reports', 'ภาษีและรายงาน')}</h1>
+    <p class="hint">{T('Monthly reports for the Revenue Department and your accountant. Pick the month, then download or print.', 'รายงานประจำเดือนสำหรับกรมสรรพากรและนักบัญชี เลือกเดือน แล้วดาวน์โหลดหรือพิมพ์')}</p></div>
     <div class="row">
       {#if monthly}<input type="month" bind:value={month} aria-label={T('Month', 'เดือน')} style="width:auto" />{/if}
-      <button class="btn" onclick={exportCsv} disabled={!data}>{T('Download CSV', 'ดาวน์โหลด CSV')}</button>
+      <button class="btn" onclick={exportCsv} disabled={!data}>{T('Download for Excel (CSV)', 'ดาวน์โหลดไฟล์ Excel (CSV)')}</button>
       <button class="btn ghost" onclick={() => window.print()}>{T('Print', 'พิมพ์')}</button>
     </div>
   </header>
   <nav class="tabs" aria-label={T('Report', 'รายงาน')}>
     {#each tabs as t (t.id)}<button class:on={tab === t.id} onclick={() => pick(t.id)}>{t.label}</button>{/each}
   </nav>
-  <p class="small muted hint">{cur.hint}</p>
+  <p class="callout info report-hint">{cur.hint}</p>
 
   {#if r.error}<p class="err-text">{r.error.message}</p>
   {:else if data}
@@ -79,7 +80,7 @@
               <td>{x.partyName}</td><td class="mono small">{x.taxId}</td><td class="small">{x.branch}</td>
               <td class="num" class:neg={x.net < 0}>{money(x.net)}</td><td class="num" class:neg={x.vat < 0}>{money(x.vat)}</td><td class="num" class:neg={x.total < 0}>{money(x.total)}</td>
             </tr>
-          {:else}<tr><td colspan="9" class="muted small">{T('Nothing this month.', 'ไม่มีรายการในเดือนนี้')}</td></tr>{/each}
+          {:else}<tr><td colspan="9" class="muted small">{T('Nothing in this month. To see another month, change the month at the top right.', 'ไม่มีรายการในเดือนนี้ ถ้าจะดูเดือนอื่น เปลี่ยนเดือนที่มุมขวาบน')}</td></tr>{/each}
         </tbody>
         {#if data.rows.length}<tfoot><tr><td colspan="6"><strong>{T('Total', 'รวม')}</strong></td><td class="num"><strong>{money(data.totals?.net ?? sum(data.rows, 'net'))}</strong></td><td class="num"><strong>{money(data.totals?.vat ?? sum(data.rows, 'vat'))}</strong></td><td class="num"><strong>{money(data.totals?.total ?? sum(data.rows, 'total'))}</strong></td></tr></tfoot>{/if}
       </table>
@@ -88,11 +89,11 @@
         <section class="section">
           <header><h2>{g.t}</h2><span class="num">฿{money(sum(data[g.k], 'wht'))}</span></header>
           <table class="data">
-            <thead><tr><th>{T('Date', 'วันที่')}</th><th>{T('Payment', 'การชำระ')}</th><th>{T('Name', 'ชื่อ')}</th><th>{T('Tax ID', 'เลขภาษี')}</th><th>{T('Type of income', 'ประเภทเงินได้')}</th><th class="num">{T('Base', 'ฐาน')}</th><th class="num">{T('Tax', 'ภาษี')}</th><th>{T('Certificate', 'หนังสือรับรอง')}</th>{#if g.k === 'withheldByUs'}<th>{T('Form', 'แบบ')}</th>{/if}</tr></thead>
+            <thead><tr><th>{T('Date', 'วันที่')}</th><th>{T('Receipt no.', 'เลขที่')}</th><th>{T('Name', 'ชื่อ')}</th><th>{T('Tax ID', 'เลขภาษี')}</th><th>{T('Type of income', 'ประเภทเงินได้')}</th><th class="num">{T('Amount before tax', 'ยอดก่อนหัก')}</th><th class="num">{T('Tax kept back', 'ภาษีที่หัก')}</th><th>{T('50 Tawi no.', 'เลขที่ 50 ทวิ')}</th>{#if g.k === 'withheldByUs'}<th>{T('Form', 'แบบ')}</th>{/if}</tr></thead>
             <tbody>
               {#each data[g.k] as x (x.id)}
                 <tr><td class="small nowrap">{date(x.date)}</td><td class="mono small">{x.number}</td><td>{x.partyName}</td><td class="mono small">{x.taxId ?? ''}</td><td class="small">{L(x.categoryLabel)}</td><td class="num">{x.base !== null ? money(x.base) : ''}</td><td class="num">{money(x.wht)}</td>
-                  <td class="small">{#if x.certificate}{x.certificate}{:else}<span class="text-warning">{T('missing', 'ยังไม่มี')}</span>{/if}</td>{#if g.k === 'withheldByUs'}<td class="small">{x.form === 'PND3' ? 'ภ.ง.ด.3' : 'ภ.ง.ด.53'}</td>{/if}</tr>
+                  <td class="small">{#if x.certificate}{x.certificate}{:else}<span class="text-warning">{T('not received yet — ask for it', 'ยังไม่ได้รับ — ขอจากลูกค้า')}</span>{/if}</td>{#if g.k === 'withheldByUs'}<td class="small">{x.form === 'PND3' ? 'ภ.ง.ด.3' : 'ภ.ง.ด.53'}</td>{/if}</tr>
               {:else}<tr><td colspan="9" class="muted small">{T('None this month.', 'ไม่มีในเดือนนี้')}</td></tr>{/each}
             </tbody>
           </table>
@@ -100,7 +101,7 @@
       {/each}
     {:else if tab === 'stock'}
       <table class="data">
-        <thead><tr><th>{T('Code', 'รหัส')}</th><th>{T('Name', 'ชื่อ')}</th><th class="num">{T('On hand', 'คงเหลือ')}</th><th class="num">{T('Reserved', 'จอง')}</th><th class="num">{T('Incoming', 'กำลังเข้า')}</th><th class="num">{T('Available', 'ใช้ได้')}</th><th class="num">{T('Cost', 'ทุน')}</th><th class="num">{T('Value', 'มูลค่า')}</th></tr></thead>
+        <thead><tr><th>{T('Code', 'รหัส')}</th><th>{T('Name', 'ชื่อ')}</th><th class="num">{T('In stock', 'มีในคลัง')}</th><th class="num">{T('Promised', 'จองแล้ว')}</th><th class="num">{T('On the way', 'กำลังมา')}</th><th class="num">{T('Free', 'ว่าง')}</th><th class="num">{T('Cost each', 'ทุนต่อหน่วย')}</th><th class="num">{T('Worth', 'มูลค่า')}</th></tr></thead>
         <tbody>
           {#each data as x (x.id)}
             <tr class="clickable" onclick={() => goto(`/items/${x.id}`)}><td class="mono small">{x.sku}</td><td>{x.name}</td><td class="num">{qty(x.onHand)} <span class="tiny muted">{unit(x.uom)}</span></td><td class="num muted">{qty(x.reserved)}</td><td class="num muted">{qty(x.incoming)}</td><td class="num" class:text-danger={x.available < 0}>{qty(x.available)}</td><td class="num">{money(x.costPrice)}</td><td class="num">{money(x.value)}</td></tr>
@@ -119,6 +120,7 @@
 </div>
 
 <style>
+  .report-hint { margin: 14px 0 18px; max-width: 80ch; }
   .note { color: var(--muted); font-family: var(--font, inherit); }
   .neg { color: var(--t-danger); }
   .hint { margin: 10px 0 16px; max-width: 70ch; }

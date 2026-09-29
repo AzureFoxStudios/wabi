@@ -93,3 +93,14 @@ Business settings (webhook, sign-in notice, custom accounts) are **events** (`se
 ## ADR-18 · Manual entries and the chart of accounts
 The adapter's chart of accounts and its posting accounts are fixed: automatic postings depend on them. Businesses can **add** accounts (`account.create`); they cannot rename or delete them. Manual journal entries (`journal.post`) need the `ledger.write` capability, must balance, and can require the corrections password. They are corrected only by `journal.reverse`, never by editing. Books → General ledger shows the opening balance, the postings with links to their source documents, and the running balance for any account and period.
 
+
+## ADR-19 · Plain language is a product requirement; Thai uses a looped font
+The people using Sabi are mostly not software users, so every screen follows the rules in `docs/09-plain-language.md`:
+- One explaining sentence per page and per section.
+- Names before reference numbers.
+- Sentences instead of labels, and buttons that start with a verb.
+- No accounting jargon outside the accounting page.
+
+The UI font is IBM Plex Sans Thai **Looped** (OFL, self-hosted through `@fontsource`), at 16px base with a 1.7 line height for Thai. Printed documents keep Sarabun.
+
+Business-specific wording belongs to the pack. `DocTypeDef.description` and `JobTypeDef.description` are optional Labels shown under titles, so a different business gets its own explanations without core changes. The server's `subjectLabel()` returns bilingual, name-first labels, so activity feeds don't lead with codes.

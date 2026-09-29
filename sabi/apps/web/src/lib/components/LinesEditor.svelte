@@ -15,6 +15,15 @@
   }: { lines: any[]; priceMode: 'exclusive' | 'inclusive'; date: string; direction: 'sales' | 'purchase'; readonly?: boolean; items?: Record<string, any> } = $props();
 
   const taxCodes = $derived(app.boot.jurisdiction.taxCodes);
+  /** Short, human tax name for the column ("7%", "0%", "No VAT"). */
+  const taxName = (code: string) => {
+    const t = taxCodes.find((x: any) => x.code === code);
+    if (!t) return code;
+    if (t.kind === 'exempt') return T('No VAT (exempt)', 'ไม่มี VAT (ยกเว้น)');
+    if (t.kind === 'zero') return T('0% (export etc.)', '0% (ส่งออก ฯลฯ)');
+    const r = t.rates?.filter((x: any) => x.from <= date).at(-1)?.rate;
+    return r !== undefined ? `${Math.round(r * 100)}%` : L(t.label);
+  };
   const rateOf = (code: string, d: string) => {
     const def = taxCodes.find((t: any) => t.code === code);
     return def?.rates.find((x: any) => d >= x.from && (!x.to || d <= x.to))?.rate ?? 0;
@@ -71,13 +80,13 @@
     <thead>
       <tr>
         <th class="c-n">#</th>
-        <th>{T('Item / description', 'รายการ')}</th>
-        <th class="num c-q">{T('Qty', 'จำนวน')}</th>
+        <th>{T('Product or service', 'สินค้า/บริการ')}</th>
+        <th class="num c-q">{T('How many', 'จำนวน')}</th>
         <th class="c-u">{T('Unit', 'หน่วย')}</th>
-        <th class="num c-p">{T('Unit price', 'ราคา/หน่วย')}</th>
-        <th class="num c-d">{T('Disc. %', 'ส่วนลด %')}</th>
-        <th class="c-t">{T('Tax', 'ภาษี')}</th>
-        <th class="num c-a">{T('Amount', 'จำนวนเงิน')}</th>
+        <th class="num c-p">{T('Price each', 'ราคาต่อหน่วย')}</th>
+        <th class="num c-d">{T('Discount %', 'ส่วนลด %')}</th>
+        <th class="c-t">{T('VAT', 'VAT')}</th>
+        <th class="num c-a">{T('Line total', 'รวมเงิน')}</th>
         {#if !readonly}<th class="c-x"></th>{/if}
       </tr>
     </thead>
@@ -94,7 +103,7 @@
               {#if !l.itemId}
                 <Picker kind="items" placeholder={T('Pick an item, or type a description below', 'เลือกสินค้า หรือพิมพ์รายละเอียดด้านล่าง')} onpick={(it) => pickItem(i, it)} />
               {/if}
-              <input class="desc" bind:value={l.description} placeholder={T('Description', 'รายละเอียด')} aria-label={T('Description', 'รายละเอียด')} />
+              <input class="desc" bind:value={l.description} placeholder={T('What is it? (printed on the document)', 'รายละเอียด (พิมพ์บนเอกสาร)')} aria-label={T('Description', 'รายละเอียด')} />
               {#if tpl && l.measures}
                 <div class="measures">
                   {#each tpl.inputs as inp, k (inp.key)}
@@ -109,22 +118,22 @@
           <td class="c-u">{#if readonly}{unit(l.uom)}{:else}<input bind:value={l.uom} />{/if}</td>
           <td class="num c-p">{#if readonly}{money(l.unitPrice)}{:else}<input class="num" inputmode="decimal" value={baht(l.unitPrice)} onchange={(e) => setPrice(l, (e.target as HTMLInputElement).value)} />{/if}</td>
           <td class="num c-d">{#if readonly}{l.discountPct || ''}{:else}<input class="num" type="number" step="any" min="0" max="100" bind:value={l.discountPct} />{/if}</td>
-          <td class="c-t">{#if readonly || (l.itemId && app.boot.pack.taxCodeFromItem)}<span class="small" title={readonly ? undefined : T('Set on the item', 'กำหนดที่สินค้า')}>{l.taxCode}</span>{:else}<select bind:value={l.taxCode}>{#each taxCodes as t (t.code)}<option value={t.code}>{t.code}</option>{/each}</select>{/if}</td>
+          <td class="c-t">{#if readonly || (l.itemId && app.boot.pack.taxCodeFromItem)}<span class="small" title={readonly ? undefined : T('Set on the product — change it there', 'กำหนดไว้ที่สินค้า — แก้ได้ที่หน้าสินค้า')}>{taxName(l.taxCode)}</span>{:else}<select bind:value={l.taxCode}>{#each taxCodes as t (t.code)}<option value={t.code}>{taxName(t.code)}</option>{/each}</select>{/if}</td>
           <td class="num c-a">{money(lineTotal(l))}</td>
           {#if !readonly}<td class="c-x"><button class="btn ghost sm" onclick={() => lines.splice(i, 1)} aria-label={T('Remove line', 'ลบรายการ')}>✕</button></td>{/if}
         </tr>
       {/each}
     </tbody>
   </table>
-  {#if !readonly}<button class="btn sm" onclick={add}>+ {T('Add line', 'เพิ่มรายการ')}</button>{/if}
+  {#if !readonly}<button class="btn sm" onclick={add}>+ {T('Add another line', 'เพิ่มอีกรายการ')}</button>{/if}
 
   <dl class="totals num">
     {#if totals.discount}<dt>{T('Before discount', 'ก่อนส่วนลด')}</dt><dd>{money(totals.gross)}</dd><dt>{T('Discount', 'ส่วนลด')}</dt><dd>−{money(totals.discount)}</dd>{/if}
-    <dt>{T('Net', 'มูลค่าก่อนภาษี')}</dt><dd>{money(totals.net)}</dd>
+    <dt>{T('Total before VAT', 'รวมก่อน VAT')}</dt><dd>{money(totals.net)}</dd>
     {#each totals.taxes.filter((t) => t.amount) as t (t.code)}<dt>{T('VAT', 'ภาษีมูลค่าเพิ่ม')} {Math.round(t.rate * 100)}%</dt><dd>{money(t.amount)}</dd>{/each}
-    <dt class="grand">{T('Total', 'รวมทั้งสิ้น')}</dt><dd class="grand">฿{money(totals.total)}</dd>
+    <dt class="grand">{T('Total to pay', 'รวมทั้งสิ้น')}</dt><dd class="grand">฿{money(totals.total)}</dd>
   </dl>
-  {#if priceMode === 'inclusive'}<p class="tiny muted right">{T('Prices include VAT', 'ราคารวมภาษีมูลค่าเพิ่มแล้ว')}</p>{/if}
+  {#if priceMode === 'inclusive'}<p class="tiny muted right">{T('The prices above already include VAT', 'ราคาด้านบนรวม VAT แล้ว')}</p>{/if}
 </div>
 
 <style>
@@ -136,7 +145,7 @@
   .c-u { width: 70px; }
   .c-p { width: 110px; }
   .c-d { width: 70px; }
-  .c-t { width: 88px; }
+  .c-t { width: 124px; }
   .c-a { width: 110px; padding-top: 12px !important; }
   .c-x { width: 36px; }
   .measures { display: flex; align-items: flex-start; gap: 4px; margin-top: 6px; }

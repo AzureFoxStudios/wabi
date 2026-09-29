@@ -69,31 +69,32 @@
       {/each}
     </div>
     {#if !primary.ok}
+      <p class="small need">{T('You can’t press this yet. First:', 'ยังกดปุ่มนี้ไม่ได้ ต้องทำสิ่งนี้ก่อน:')}</p>
       <ul class="missing">
         {#each primary.missing as m, i (i)}
           <li>
             <Missing {m} {fields} />
             {#if m.kind === 'approval' && m.status !== 'pending'}
-              <button class="btn sm" disabled={busy} onclick={() => requestApproval(primary)}>{T('Ask for approval', 'ขออนุมัติ')}</button>
+              <button class="btn sm" disabled={busy} onclick={() => requestApproval(primary)}>{T('Ask for approval now', 'ขออนุมัติเลย')}</button>
             {/if}
           </li>
         {/each}
       </ul>
     {/if}
   {:else if !autos.length}
-    <p class="muted small">{T('Nothing left to do here.', 'ไม่มีขั้นตอนถัดไป')}</p>
+    <p class="muted small">{T('Finished — there is nothing more to do here.', 'เสร็จแล้ว — ไม่มีอะไรต้องทำต่อ')}</p>
   {/if}
 
   {#each autos as a (a.id)}
     <p class="auto small">
-      <span class="muted">{T('Moves to', 'จะเปลี่ยนเป็น')} <strong>{L(a.toLabel)}</strong> {T('automatically when:', 'อัตโนมัติเมื่อ:')}</span>
+      <span class="muted">{T('No button needed: this moves to', 'ไม่ต้องกดปุ่ม: จะเลื่อนไปขั้น')} <strong>“{L(a.toLabel)}”</strong> {T('by itself as soon as you do this —', 'ให้เอง เมื่อทำสิ่งนี้เสร็จ —')}</span>
       {#each a.missing as m, i (i)}<span class="req"><Missing {m} {fields} /></span>{/each}
     </p>
   {/each}
 
   {#if blocked}
     <div class="callout danger small">
-      <strong>{T('Not yet:', 'ยังทำไม่ได้:')}</strong>
+      <strong>{T('Not yet — first you need to:', 'ยังทำไม่ได้ — ต้องทำสิ่งนี้ก่อน:')}</strong>
       <ul>
         {#each blocked as m, i (i)}<li>{#if m.kind === 'issue'}{L(m.message)}{:else}<Missing {m} {fields} />{/if}</li>{/each}
       </ul>
@@ -102,7 +103,7 @@
 
   {#if asking}
     <form class="reason" onsubmit={(e) => (e.preventDefault(), run(asking, reason.trim()))}>
-      <label class="field"><span>{L(asking.label)} — {T('why?', 'เหตุผล')}</span>
+      <label class="field"><span>{L(asking.label)} — {T('please write the reason (everyone will see it)', 'กรุณาเขียนเหตุผล (ทุกคนจะเห็น)')}</span>
         <!-- svelte-ignore a11y_autofocus -->
         <textarea bind:value={reason} rows="2" autofocus required></textarea>
       </label>
@@ -115,7 +116,7 @@
 
   {#if others.some((o) => o.tone === 'danger' || o.phase === 'cancelled' || o.phase === 'void')}
     <details class="more">
-      <summary class="small muted">{T('Other actions', 'การดำเนินการอื่น')}</summary>
+      <summary class="small muted">{T('Cancel or stop this…', 'ยกเลิก หรือหยุดงานนี้…')}</summary>
       <div class="row wrap">
         {#each others.filter((o) => o.tone === 'danger' || o.phase === 'cancelled' || o.phase === 'void') as o (o.id)}
           <button class="btn sm danger" disabled={busy || !o.ok} onclick={() => run(o)}>{L(o.label)}</button>
@@ -128,7 +129,8 @@
 <style>
   .next { display: flex; flex-direction: column; gap: 10px; }
   .hint { color: var(--ink-2); }
-  .missing { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 0.88rem; color: var(--ink-2); }
+  .need { color: var(--t-warning); font-weight: 500; margin-bottom: -4px; }
+  .missing { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 0.95rem; color: var(--ink-2); }
   .missing li { display: flex; align-items: center; gap: 10px; }
   .missing li::before { content: ''; width: 6px; height: 6px; border-radius: 50%; border: 1.5px solid var(--t-warning); flex: none; }
   .auto { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }

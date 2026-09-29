@@ -1,7 +1,7 @@
 <script lang="ts">
   import { command, upload, authUrl } from '$lib/api.ts';
   import { app, T, toast, roleLabel } from '$lib/state.svelte.ts';
-  import { ago, initials, userName, L } from '$lib/format.ts';
+  import { ago, initials, userName, L, mentionHtml } from '$lib/format.ts';
 
   let {
     subjectType, subjectId, messages, files = [], contextOf = null, onchange = () => {}, placeholder = '', lastRead = 0,
@@ -78,16 +78,12 @@
       busy = false;
     }
   }
-  function render(text: string) {
-    const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return esc.replace(/(^|\s)@([\w.-]+)/g, '$1<mark>@$2</mark>');
-  }
   const isImage = (f: any) => f?.mime?.startsWith('image/');
 </script>
 
 <div class="disc">
   {#if !sorted.length}
-    <p class="muted small empty">{T('No discussion yet. Questions, decisions, photos from site — keep them here so everyone sees the same thing.', 'ยังไม่มีการพูดคุย ถามตอบ ตัดสินใจ หรือส่งรูปหน้างานไว้ที่นี่ ทุกคนจะเห็นข้อมูลเดียวกัน')}</p>
+    <p class="muted small empty">{T('No messages yet. Write questions, decisions and site photos here — everyone working on this sees the same thing, so nothing gets lost in LINE.', 'ยังไม่มีข้อความ เขียนคำถาม สิ่งที่ตกลงกัน หรือส่งรูปหน้างานไว้ที่นี่ ทุกคนที่ทำงานนี้จะเห็นเหมือนกัน ไม่หายในไลน์')}</p>
   {/if}
   <ol class="msgs">
     {#each sorted as m (m.id)}
@@ -107,7 +103,7 @@
               <time class="faint tiny">{ago(m.createdAt)}</time>
               {#if ctx}<a class="tiny link" href={ctx.href}>{ctx.label}</a>{/if}
             </div>
-            <p class="body">{@html render(m.body)}</p>
+            <p class="body">{@html mentionHtml(m.body)}</p>
             {#if m.fileIds?.length}
               <div class="files">
                 {#each m.fileIds as fid (fid)}
@@ -129,13 +125,13 @@
   <div class="composer">
     <textarea
       bind:this={ta} bind:value={body} oninput={onInput} onkeydown={onKey} rows="2"
-      placeholder={placeholder || T('Write an update… use @name to ask someone', 'เขียนอัปเดต… พิมพ์ @ชื่อ เพื่อเรียกคน')}
+      placeholder={placeholder || T('Write a message to the team… type @ and pick a name to make sure that person sees it', 'เขียนข้อความถึงทีม… พิมพ์ @ แล้วเลือกชื่อ เพื่อให้คนนั้นเห็นข้อความนี้')}
       aria-label={T('Message', 'ข้อความ')}
     ></textarea>
     {#if suggestions.length}
       <ul class="mentions panel">
         {#each suggestions as p, i (p.handle)}
-          <li><button class:sel={i === mSel} onmousedown={(e) => (e.preventDefault(), pick(p))}><strong>@{p.handle}</strong> <span class="muted small">{p.name} · {p.sub}</span></button></li>
+          <li><button class:sel={i === mSel} onmousedown={(e) => (e.preventDefault(), pick(p))}><strong>{p.name}</strong> <span class="muted small">{p.sub}</span></button></li>
         {/each}
       </ul>
     {/if}

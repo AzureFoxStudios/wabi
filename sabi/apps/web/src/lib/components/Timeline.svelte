@@ -1,6 +1,6 @@
 <script lang="ts">
   import { T } from '$lib/state.svelte.ts';
-  import { L, date, time, userName, initials } from '$lib/format.ts';
+  import { L, date, time, userName, initials, mentionHtml } from '$lib/format.ts';
   let { events, showWhere = false, limit = 0 }: { events: any[]; showWhere?: boolean; limit?: number } = $props();
   let all = $state(false);
   // Where an event happened → the screen that shows it (null when there is no screen for it).
@@ -29,10 +29,10 @@
           <span class="avatar" class:sys={e.actorId === 'system' || e.auto}>{e.actorId === 'system' ? 'S' : initials(userName(e.actorId))}</span>
           <div class="grow">
             <p><span class="who">{userName(e.actorId)}</span> <span class="what tone-text-{e.tone ?? 'neutral'}">{L(e.summary)}</span>
-              {#if e.auto}<span class="tiny faint">· {T('automatic', 'อัตโนมัติ')}</span>{/if}
-              {#if showWhere && e.where}{@const href = whereHref(e.where)}{#if href}<a class="small link" {href}>{e.where.label}</a>{:else}<span class="small muted">{e.where.label}</span>{/if}{/if}
+              {#if e.auto}<span class="tiny faint">· {T('done automatically', 'ระบบทำให้อัตโนมัติ')}</span>{/if}
+              {#if showWhere && e.where}{@const href = whereHref(e.where)}{#if href && L(e.summary).includes(L(e.where.label))}<a class="small link" {href}>{T('open', 'เปิดดู')}</a>{:else if href}<span class="small muted">{T('in', 'ใน')}</span> <a class="small link" {href}>{L(e.where.label)}</a>{:else}<span class="small muted">{T('in', 'ใน')} {L(e.where.label)}</span>{/if}{/if}
             </p>
-            {#if e.detail}<p class="detail small">“{e.detail.length > 240 ? e.detail.slice(0, 240) + '…' : e.detail}”</p>{/if}
+            {#if e.detail}<p class="detail small">“{@html mentionHtml(e.detail.length > 240 ? e.detail.slice(0, 240) + '…' : e.detail)}”</p>{/if}
           </div>
           <time class="tiny faint">{time(e.at)}</time>
         </li>
@@ -50,8 +50,9 @@
   .tl h4 { margin: 14px 0 6px; }
   .tl h4:first-child { margin-top: 0; }
   ol { list-style: none; margin: 0; padding: 0; }
-  li { display: flex; gap: 10px; align-items: flex-start; padding: 5px 0; font-size: 0.9rem; }
-  li .avatar { width: 22px; height: 22px; font-size: 0.64rem; }
+  li { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; font-size: 0.93rem; border-bottom: 1px dashed var(--line); }
+  li:last-child { border-bottom: 0; }
+  li .avatar { width: 26px; height: 26px; font-size: 0.7rem; flex: none; }
   .who { font-weight: 500; }
   .auto .what { color: var(--muted); }
   .detail { color: var(--ink-2); margin-top: 2px; border-left: 2px solid var(--line-strong); padding-left: 8px; }

@@ -39,30 +39,30 @@
   {#each open as t (t.id)}
     {@const d = dueText(t.due)}
     <li>
-      <input type="checkbox" checked={false} onchange={() => toggle(t)} aria-label={T('Mark done', 'ทำเสร็จแล้ว')} />
+      <input type="checkbox" checked={false} onchange={() => toggle(t)} aria-label={T('Tick when finished', 'ติ๊กเมื่อทำเสร็จ')} />
       <span class="grow">{t.title}</span>
       <span class="small muted nowrap">{whoFor(t)}</span>
       {#if d.text}<span class="small nowrap text-{d.tone}">{d.text}</span>{/if}
     </li>
   {:else}
-    <li class="muted small">{T('No open tasks.', 'ไม่มีงานค้าง')}</li>
+    <li class="muted small">{T('Nothing left to do. Add a to-do below if someone needs to do something.', 'ไม่มีอะไรค้าง ถ้ามีเรื่องที่ต้องให้ใครทำ เพิ่มได้ด้านล่าง')}</li>
   {/each}
 </ul>
 
 {#if !compact}
   <form class="add" onsubmit={add}>
-    <input bind:value={title} placeholder={T('Add a task…', 'เพิ่มงานที่ต้องทำ…')} aria-label={T('Task', 'งาน')} />
+    <input bind:value={title} placeholder={T('What needs doing? e.g. “Call customer to confirm date”', 'ต้องทำอะไร? เช่น “โทรนัดวันกับลูกค้า”')} aria-label={T('Task', 'งาน')} />
     <select bind:value={assigneeId} aria-label={T('Assignee', 'ผู้รับผิดชอบ')}>
-      <option value="">{T('Unassigned', 'ไม่ระบุ')}</option>
+      <option value="">{T('Who? (anyone)', 'ใครทำ? (ใครก็ได้)')}</option>
       {#each app.boot.users.filter((u: any) => u.active) as u (u.id)}<option value={u.id}>{u.name}</option>{/each}
     </select>
     <input type="date" bind:value={due} aria-label={T('Due', 'กำหนด')} />
-    <button class="btn" disabled={!title.trim()}>{T('Add', 'เพิ่ม')}</button>
+    <button class="btn" disabled={!title.trim()}>{T('Add to-do', 'เพิ่ม')}</button>
   </form>
 {/if}
 
 {#if done.length}
-  <button class="btn ghost sm" onclick={() => (showDone = !showDone)}>{showDone ? T('Hide', 'ซ่อน') : T('Show', 'แสดง')} {done.length} {T('done', 'ที่เสร็จแล้ว')}</button>
+  <button class="btn ghost sm" onclick={() => (showDone = !showDone)}>{showDone ? T('Hide', 'ซ่อน') : T('Show', 'ดู')} {T(`${done.length} finished`, `${done.length} รายการที่เสร็จแล้ว`)}</button>
   {#if showDone}
     <ul class="tasks done">
       {#each done as t (t.id)}

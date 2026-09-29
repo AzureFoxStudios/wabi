@@ -59,7 +59,7 @@
 
   {#if session?.demo}
     <div class="demo">
-      <p class="eyebrow">{T('Demo workspace — sign in as', 'เวิร์กสเปซตัวอย่าง — เข้าใช้ในฐานะ')}</p>
+      <p class="eyebrow">{T('This is a demo with example data. Try it as:', 'นี่คือระบบตัวอย่างพร้อมข้อมูลสมมติ ลองเข้าใช้ในฐานะ:')}</p>
       <div class="accounts">
         {#each session.demoAccounts as acc (acc.username)}
           <button class="btn" onclick={() => as(acc.username)}><strong>{acc.username}</strong> <span class="muted small">{acc.role}</span></button>

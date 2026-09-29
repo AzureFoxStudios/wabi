@@ -43,7 +43,7 @@
 <svelte:head><title>{T('New job', 'งานใหม่')} · Sabi</title></svelte:head>
 
 <div class="page narrow">
-  <header class="page-head"><h1>{T('New job', 'งานใหม่')}</h1></header>
+  <header class="page-head"><div><h1>{T('New job', 'เปิดงานใหม่')}</h1><p class="hint">{T('Open a job when a customer calls, visits or asks for a price. Only the customer and a short name are needed — everything else can be added later.', 'เปิดงานเมื่อลูกค้าโทรมา มาที่ร้าน หรือขอราคา ใส่แค่ชื่อลูกค้าและชื่องานสั้น ๆ ก็พอ ที่เหลือเพิ่มทีหลังได้')}</p></div></header>
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <form class="form" onsubmit={submit} onkeydown={(e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey) && submit(e)}>
     <div class="types">
@@ -69,7 +69,7 @@
       </fieldset>
     {/if}
 
-    <label class="field"><span>{T('What is the job?', 'งานอะไร')}</span><input bind:value={title} required placeholder={T('e.g. House roof, Lat Pla Duk', 'เช่น มุงหลังคาบ้าน ลาดปลาดุก')} /></label>
+    <label class="field"><span>{T('Short name for the job', 'ชื่องานสั้น ๆ')}</span><input bind:value={title} required placeholder={T('e.g. House roof, Lat Pla Duk', 'เช่น มุงหลังคาบ้าน ลาดปลาดุก')} /></label>
 
     {#each quickFields as f (f.key)}
       <label class="field"><span>{L(f.label)}</span>
@@ -82,7 +82,7 @@
     {/each}
 
     <div class="row">
-      <button class="btn primary lg" disabled={busy || !title || (!partyId && !(newParty && partyName))}>{T('Create job', 'สร้างงาน')} <kbd>⌘↵</kbd></button>
+      <button class="btn primary lg" disabled={busy || !title || (!partyId && !(newParty && partyName))}>{T('Open the job', 'เปิดงาน')} <kbd>⌘↵</kbd></button>
       <a class="btn ghost" href="/jobs">{T('Cancel', 'ยกเลิก')}</a>
     </div>
   </form>

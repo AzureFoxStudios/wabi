@@ -117,7 +117,7 @@
 <style>
   .paper {
     position: relative; background: white; color: #111; width: 100%; max-width: 210mm; min-height: 280mm; margin: 0 auto;
-    padding: 14mm 14mm 12mm; font-family: 'Sarabun', 'IBM Plex Sans Thai', sans-serif; font-size: 13px; line-height: 1.45;
+    padding: 14mm 14mm 12mm; font-family: 'Sarabun', 'IBM Plex Sans Thai Looped', sans-serif; font-size: 13px; line-height: 1.45;
     border: 1px solid var(--line); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05); display: flex; flex-direction: column; gap: 14px;
   }
   p { margin: 0; }

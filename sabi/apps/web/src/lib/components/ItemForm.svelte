@@ -43,23 +43,23 @@
 <form class="stack" onsubmit={submit}>
   <div class="g2">
     <!-- svelte-ignore a11y_autofocus -->
-    <label class="field"><span>{T('Code / SKU', 'รหัสสินค้า')} *</span><input bind:value={f.sku} required class="mono" autofocus={!item} />{#if fieldErr.sku}<small class="err-text">{fieldErr.sku}</small>{/if}</label>
-    <label class="field"><span>{T('Kind', 'ประเภท')}</span>
+    <label class="field"><span>{T('Product code', 'รหัสสินค้า')} *</span><input bind:value={f.sku} required class="mono" autofocus={!item} />{#if fieldErr.sku}<small class="err-text">{fieldErr.sku}</small>{/if}</label>
+    <label class="field"><span>{T('What kind?', 'ประเภท')}</span>
       <select bind:value={f.kind}><option value="stock">{T('Stocked product', 'สินค้าที่นับสต็อก')}</option><option value="non_stock">{T('Product, not stocked', 'สินค้าไม่นับสต็อก')}</option><option value="service">{T('Service', 'บริการ')}</option></select></label>
   </div>
   <label class="field"><span>{T('Name (as printed)', 'ชื่อ (ที่พิมพ์บนเอกสาร)')} *</span><input bind:value={f.name} required /></label>
   <div class="g3">
     <label class="field"><span>{T('Unit', 'หน่วย')}</span><select bind:value={f.uom}>{#each pack.units as u (u.id)}<option value={u.id}>{L(u.label)}</option>{/each}</select></label>
     <label class="field"><span>{T('Sale price ฿', 'ราคาขาย ฿')}</span><input type="number" step="0.01" min="0" bind:value={f.salePrice} class="num" /></label>
-    <label class="field"><span>{T('Cost ฿', 'ต้นทุน ฿')}</span><input type="number" step="0.01" min="0" bind:value={f.costPrice} class="num" /></label>
+    <label class="field"><span>{T('We buy it for ฿', 'ราคาทุน ฿')}</span><input type="number" step="0.01" min="0" bind:value={f.costPrice} class="num" /></label>
   </div>
   <div class="g3">
-    <label class="field"><span>{T('Tax', 'ภาษี')}</span><select bind:value={f.taxCode}>{#each jur.taxCodes as t (t.code)}<option value={t.code}>{L(t.label)}</option>{/each}</select></label>
-    <label class="field"><span>{T('Withholding when sold', 'ภาษีหัก ณ ที่จ่ายเมื่อขาย')}</span><select bind:value={f.whtCategory}><option value="">—</option>{#each jur.whtCategories as w (w.id)}<option value={w.id}>{L(w.label)}</option>{/each}</select></label>
+    <label class="field"><span>{T('VAT', 'VAT')}</span><select bind:value={f.taxCode}>{#each jur.taxCodes as t (t.code)}<option value={t.code}>{L(t.label)}</option>{/each}</select></label>
+    <label class="field"><span>{T('Is it a service company customers withhold tax on?', 'เป็นบริการที่ลูกค้าบริษัทต้องหักภาษี ณ ที่จ่ายไหม?')}</span><select bind:value={f.whtCategory}><option value="">—</option>{#each jur.whtCategories as w (w.id)}<option value={w.id}>{L(w.label)}</option>{/each}</select></label>
     <label class="field"><span>{T('Quantity from measurements', 'คำนวณจำนวนจากขนาด')}</span><select bind:value={f.measureTemplate}><option value="">{T('No — enter quantity', 'ไม่ใช้ (ใส่จำนวนเอง)')}</option>{#each pack.measureTemplates as m (m.id)}<option value={m.id}>{L(m.label)}</option>{/each}</select></label>
   </div>
   {#if f.kind === 'stock'}
-    <label class="field"><span>{T('Reorder when available falls below', 'สั่งเพิ่มเมื่อจำนวนใช้ได้ต่ำกว่า')}</span><input type="number" step="any" min="0" bind:value={f.reorderPoint} class="num" style="max-width:160px" /></label>
+    <label class="field"><span>{T('Warn me when free stock falls below', 'เตือนเมื่อของว่างเหลือน้อยกว่า')}</span><input type="number" step="any" min="0" bind:value={f.reorderPoint} class="num" style="max-width:160px" /></label>
   {/if}
   {#if pack.itemFields.length}
     <div class="g3">

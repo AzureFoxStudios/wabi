@@ -8,7 +8,7 @@
 4. **Money is never more than one glance away.** Each job header shows quoted → ordered → invoiced → paid.
 5. **Lists are for triage and workspaces are for work.** Lists are dense and keyboard-navigable. They are not dashboards made of cards.
 6. **Keyboard first, mouse friendly.** `Ctrl/⌘ K` opens the command palette (search, jump, create). `g` then a letter navigates. `j`/`k` move through lists. `c` creates. `?` shows help.
-7. **Thai and English are equal.** Every label comes from a dictionary or a configuration pack `{en, th}`. The document font is Sarabun and the UI font is IBM Plex Sans Thai. Both are self-hosted, with no CDN.
+7. **Thai and English are equal.** Every label comes from a dictionary or a configuration pack `{en, th}`. The document font is Sarabun and the UI font is IBM Plex Sans Thai Looped (see `09-plain-language.md`). Both are self-hosted, with no CDN.
 
 ## 2. Navigation (one level only)
 

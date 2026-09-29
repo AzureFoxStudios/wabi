@@ -30,14 +30,14 @@
 <div class="wrap">
   <form class="card" onsubmit={submit}>
     <div class="brand"><span class="mark">S</span> Sabi</div>
-    <h1>{T('Set up your workspace', 'ตั้งค่าเวิร์กสเปซ')}</h1>
+    <h1>{T('Set up Sabi for your company', 'เริ่มใช้ Sabi สำหรับบริษัทของคุณ')}</h1>
     <p class="muted">{T('Everything stays on this server. You can add your team and company details next.', 'ข้อมูลทั้งหมดเก็บไว้บนเซิร์ฟเวอร์นี้ เพิ่มทีมงานและข้อมูลบริษัทได้ในขั้นตอนถัดไป')}</p>
     <label class="field"><span>{T('Company name', 'ชื่อบริษัท/ร้าน')}</span><input bind:value={company} required /></label>
     <label class="field"><span>{T('Your name', 'ชื่อของคุณ')}</span><input bind:value={name} required /></label>
     <label class="field"><span>{T('Username', 'ชื่อผู้ใช้')}</span><input bind:value={username} autocomplete="username" required pattern="[a-z0-9_.\-]+" /></label>
     <label class="field"><span>{T('Password (8+ characters)', 'รหัสผ่าน (8 ตัวขึ้นไป)')}</span><input type="password" bind:value={password} minlength="8" autocomplete="new-password" required /></label>
     {#if error}<p class="err-text">{error}</p>{/if}
-    <button class="btn primary lg" disabled={busy}>{T('Create workspace', 'สร้างเวิร์กสเปซ')}</button>
+    <button class="btn primary lg" disabled={busy}>{T('Start', 'เริ่มใช้งาน')}</button>
   </form>
 </div>
 

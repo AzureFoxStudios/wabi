@@ -29,7 +29,7 @@
 
 <div class="stack narrowform">
   <form class="stack" onsubmit={(e) => { e.preventDefault(); save('webhook', hook.url.trim() ? { url: hook.url.trim(), secret: hook.secret.trim() || undefined } : null); }}>
-    <h3>{T('Webhook', 'เว็บฮุก')}</h3>
+    <h3>{T('Send updates to another app (webhook)', 'ส่งข้อมูลไปแอปอื่น (Webhook)')}</h3>
     <p class="small muted">{T('After every change Sabi POSTs a short JSON summary (event type, what it is about, who, when) to this address — for LINE bots, spreadsheets, n8n or your own scripts. With a secret, the body is signed: header x-sabi-signature = sha256=HMAC(secret, body). Delivery is best-effort; the journal export is the complete record.', 'หลังทุกการเปลี่ยนแปลง ระบบจะส่ง JSON สรุปสั้น ๆ (ประเภท เรื่อง ใคร เมื่อไร) ไปยังที่อยู่นี้ ใช้กับบอท LINE สเปรดชีต n8n หรือสคริปต์ของคุณ ถ้าตั้งรหัสลับ จะมีลายเซ็นในเฮดเดอร์ x-sabi-signature การส่งเป็นแบบพยายามส่ง ข้อมูลครบถ้วนอยู่ในไฟล์ส่งออกบันทึกเหตุการณ์')}</p>
     <label class="field"><span>URL</span><input type="url" bind:value={hook.url} placeholder="https://example.com/sabi-hook" /></label>
     <label class="field"><span>{T('Signing secret (optional)', 'รหัสลับสำหรับลงลายเซ็น (ไม่บังคับ)')}</span>

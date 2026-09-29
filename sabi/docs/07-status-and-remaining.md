@@ -8,6 +8,7 @@ Date: 2026-09-29. This page says plainly what Sabi does today and what it does n
 - **Workflow:** Customer → Job (configurable workflow) → Quotation (discount approval) → Sales order → materials reserved and shortages flagged → Purchase order (approval over a limit) → Goods receipt → Supplier bill → workshop tasks → Delivery / tax invoice → Payment with WHT → invoice *paid* → job *completed*.
 - **Every job, document, party and item is a workspace:** overview, discussion with @mentions and files, tasks, documents, fulfilment and activity. The Today view answers *what needs me, what changed, what's blocked, what money is due*.
 - **Stock:** per-location balances; a stock card with every movement, its voucher and a running balance; adjustments; **counts** (enter the counted quantity, the difference is posted with the reason); **transfers** between locations; **reorder points** on the item, which flag low stock on Today and in the item list ("Short or low only").
+- **Plain language:** every screen is written for people who don't use business software (`09-plain-language.md`). Each page and section has one sentence saying what it is for. Names come before reference numbers, buttons start with a verb, and there is no accounting jargon outside the Accounting page. The UI font is the Thai *looped* font most people read fastest.
 - **Units:** pack unit labels are shown everywhere, in Thai on printed documents (เมตร, แผ่น, …).
 
 ### Documents, money and tax (Thai adapter)
@@ -70,6 +71,7 @@ These were decided, not forgotten. Each needs its own design, and usually an out
 - **Search** uses SQL `LIKE`, which is fine for thousands of records; FTS5 would be next.
 - **Mobile:** the layout is responsive but not designed for installers on a phone. There is no PWA or offline mode.
 - **Browser tests** do not run in CI (they need a headless Chromium; the scripts are in `scripts/browser/`).
+- **Plain-language leftovers:** in the line editor, the unit box shows the short unit code (`m`, `pc`) while you type; printed papers show the full Thai word. The Accounting page has one "not an accountant?" note but no per-tab explanations: it is meant for accountants and keeps Debit/Credit. Printed documents stay formal on purpose. Error messages from the server are plain for the common cases (missing tax ID, approval needed, not enough stock) but not yet for every rare one.
 - **Accessibility:** keyboard navigation (⌘K, g-shortcuts, j/k, ⌘S) and labelled controls are in place. No formal audit has been done.
 - **VAT after 30 Sep 2027:** the adapter falls back to the statutory 10 % and flags `vat_rate_unconfirmed`. Update it when a new decree is gazetted.
 
