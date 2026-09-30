@@ -1,0 +1,17 @@
+{
+  "passed": true,
+  "checks": [
+    "explicit harness and existing-chat mode",
+    "consent and scoped grant",
+    "downloaded runtime labels and private credential",
+    "read access distinguished from online chat",
+    "revoke",
+    "account-change clears connection",
+    "desktop/mobile rendering without horizontal overflow"
+  ],
+  "limits": [
+    "fixture HTTP/account boundaries",
+    "not deployed",
+    "no command forwarding or worker launch"
+  ]
+}

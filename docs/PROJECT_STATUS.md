@@ -1,6 +1,6 @@
 # Wabi Project Status
 
-**Updated:** 2026-09-28
+**Updated:** 2026-09-30
 
 **Purpose:** canonical product-status boundary for operators, contributors, reviewers, and AI agents.
 
@@ -31,6 +31,9 @@ Three focused real-router/WabiDB tests pass for bot/wiki access and revocation, 
 The candidate now adds a center-stage Assistant view to Project, with human-submitted reply-only or bounded card/wiki work, explicit provider handoff, durable run/checkpoint history and pause/cancel/resume/takeover controls. An optional provider-neutral worker polls one Project, receives no model-facing shell or credentials, and is fenced by run revision/attempt/lease at each tool. Only one run may be running in that Project. Interrupted pending edits require human review rather than automatic retry. This is a native Project conversation surface, not an installed ordinary-channel mention listener or encrypted-DM connector.
 
 Cards now have notes, stable-ID checklists, links to independent cards, and human-only effort estimates. Bots cannot read, set or clear estimates; ordinary bot edits preserve them. A human estimate burndown uses recorded revision history and exposes scope changes/unestimated work. Humans and bots can claim unassigned unfinished cards with conflict checks; explicit reassignment remains available. In-progress cards identify who is working on them. Nine server contracts, four worker-runner tests and one burndown test pass. A real browser exercised human card creation/claim/estimate history, native Assistant requests/replies, pause/resume and takeover. An explicitly authorized disposable OpenRouter free-model trial created a card, then a fresh continuation claimed that card and created its wiki journal; reply-only also completed. Provider failures remained visible with no automatic retries. Independent human/bot reads and a local Authority restart confirmed card/wiki/run replay and protected estimates. Packaging passed with 0 frontend errors and existing warnings. Full evidence and provider limitations are recorded in [the dated acceptance](testing/PROJECT_ASSISTANT_ACCEPTANCE_2026-09-28.md). See [operator/worker contract](features/PROJECT_ASSISTANT.md) and [implementation plan](plans/2026-09-28-project-assistant-and-cards.md). This is a tested local candidate, not a Tim release or a generic coding-agent sandbox.
+
+The September 30 candidate adds an optional, default-off AI Worker Connections addon with a Project-scoped computer roster and explicit manual/opt-in automatic recovery for bounded card/wiki runs. Registered workers use durable contact records, matched provider/model/harness, selected backups, a bounded recovery count and attempt fencing; uncertain pending edits block recovery. A real two-physical-computer trial interrupted the primary process, waited for actual expiry, resumed saved steps on the backup and rejected the returning primary with 409, leaving exactly one card. It used a deterministic provider stub, not a model or native harness. Eleven server contracts, eleven runner tests, four real engine admission/replay tests and old-run JSON compatibility pass; headful desktop/mobile UI acceptance passes. Native Codex chat, repository artifacts and uncommitted-code recovery remain unimplemented. No live deployment is claimed. See [Connections contract](features/PROJECT_CONNECTIONS.md) and [dated evidence](testing/PROJECT_WORKER_RECOVERY_2026-09-30.md).
+
 
 ## Moderation and newcomer candidate — current worktree, not deployed
 
