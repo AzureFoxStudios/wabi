@@ -841,6 +841,13 @@ impl LoreService {
         self.repos.read().await.values().cloned().collect()
     }
 
+    /// Forget a detached binding without touching its files or history.
+    /// Call after the durable binding removal succeeds.
+    pub async fn detach_repo(&self, channel_id: i64) {
+        self.repos.write().await.remove(&channel_id);
+        info!(channel_id, "Detached Lore repo (working tree kept)");
+    }
+
     /// Delete a Lore repo for the given channel.
     pub async fn delete_repo(&self, channel_id: i64) -> anyhow::Result<()> {
         let repo = self
@@ -2843,6 +2850,25 @@ fn parse_history_output(output: &str) -> Vec<LoreRevision> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn detached_binding_is_unavailable_but_files_survive_relink() {
+        let temp = tempfile::tempdir().unwrap();
+        let service = LoreService::new(LoreConfig {
+            lore_data_dir: temp.path().to_path_buf(),
+            ..LoreConfig::default()
+        });
+        let repo = service.register_external_mirror(42, 1, "Source", "https://example.org/source.git").await.unwrap();
+        tokio::fs::write(repo.working_tree.join("preserved.txt"), b"keep this").await.unwrap();
+        service.detach_repo(42).await;
+        assert!(service.get_repo(42).await.is_none());
+        assert!(service.list_repos().await.is_empty());
+        assert_eq!(tokio::fs::read(repo.working_tree.join("preserved.txt")).await.unwrap(), b"keep this");
+        assert!(repo.working_tree.join(".wabi-repo.json").exists());
+        service.register_external_mirror(42, 1, "Source", "https://example.org/source.git").await.unwrap();
+        assert!(service.get_repo(42).await.is_some());
+        assert_eq!(tokio::fs::read(repo.working_tree.join("preserved.txt")).await.unwrap(), b"keep this");
+    }
 
     #[test]
     fn test_parse_commit_output() {
