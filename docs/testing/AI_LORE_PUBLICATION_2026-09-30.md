@@ -43,3 +43,15 @@ release acceptance. New worker steps cannot execute shell or repository code.
 Native Codex/OpenCode/Hermes session recovery and verified code/artifact
 checkpoints remain open. No paid model, external model or credential rotation
 was used for publication validation.
+
+## Main reconciliation
+
+The draft review initially conflicted with main's `f088da43` UI-polish commit.
+The isolated branch incorporates that commit, retaining newer DM history,
+encryption/shared notes and group controls, the profile design studio and the
+current typed helper API. Main's addon-filter correction and right-panel gesture
+regressions are included. Thirty-one targeted DM, addon, theme and right-panel
+checks passed; the locked Svelte check again returned 0 errors and 90 existing
+warnings. Static packaging was repeated. Backend source did not change during
+this reconciliation, so the fresh backend and physical-worker evidence above
+still applies. Main itself and the shared checkout were not moved.
