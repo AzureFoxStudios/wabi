@@ -1,6 +1,6 @@
 # Project Assistant and bounded worker — worktree candidate
 
-This is the second and third slice of the shared Project workspace. It is not yet a Tim release, a multi-computer recovery system, or a general coding-agent sandbox.
+This is the second and third slice of the shared Project workspace. It includes optional registered-computer recovery for bounded card/wiki work. It is not yet a Tim release or a general coding-agent sandbox; native chat and repository recovery remain unimplemented.
 
 ## Human experience
 
@@ -48,7 +48,7 @@ The API adapter uses [OpenRouter's chat-completion contract](https://openrouter.
 
 ## Execution contract
 
-A human creates an idempotent request. Only its assigned bot can claim it, and only one run may be running in that Project. Claims report provider/model and receive a generation (`attempt`) and two-minute lease. Every tool request includes the run revision, attempt and a UUID operation ID. Current human requester and bot Project access are rechecked at claim and at every step; bot credentials must still be valid. Revision changes, pause, cancellation, takeover and an expired lease reject later steps.
+A human creates an idempotent request. Its assigned bot can claim it; explicitly chosen compatible backup workers can claim an eligible expired run through the optional Connections addon. Only one run may be running in that Project. Claims report provider/model and receive a generation (`attempt`) and two-minute lease. Every tool request includes the run revision, attempt and a UUID operation ID; registered attempts also require the active worker ID. Current human requester and bot Project access are rechecked at claim and at every step; bot credentials must still be valid. Revision changes, pause, cancellation, takeover and an expired lease reject later steps.
 
 Reply-only permits `complete`/`fail`. Work permits at most twelve Project tools plus a terminal response:
 
@@ -63,10 +63,10 @@ Pause/cancel/takeover waits for any already-admitted local tool to finish, then 
 
 ## Persistence and compatibility
 
-`project_run_updated` is a new channel-stream event (kind 6), guarded by the actual-parent/local-owner workspace admission catalog. `project_runs` is a new projection with schema-version-1 JSON records: Project/run IDs, human/bot IDs, prompt, mode, reply/status, revision/attempt/lease, provider/model, timestamps, checkpoint, pending intent, and recorded steps. There is no durable postcard record mutation. New-event data requires the updated binary; rollback must preserve/restore the pre-upgrade data rather than assume an older binary understands it.
+`project_run_updated` is a new channel-stream event (kind 6), guarded by the actual-parent/local-owner workspace admission catalog. `project_runs` is a new projection with schema-version-1 JSON records: Project/run IDs, human/bot IDs, prompt, mode, reply/status, revision/attempt/lease, provider/model, timestamps, checkpoint, pending intent, and recorded steps. The optional `project_worker_updated_v1` JSON event adds a `project_workers` projection; new run worker/recovery fields have defaults for old JSON records. See [Connections](PROJECT_CONNECTIONS.md). There is no durable postcard record mutation. New-event data requires the updated binary; rollback must preserve/restore the pre-upgrade data rather than assume an older binary understands it.
 
 Card writes now use a `WPT2\0`-prefixed JSON record. The decoder retains the exact original postcard record as a legacy fallback and supplies empty notes/checklists/links and no estimate. New fields are notes, stable-ID checklist entries, linked card IDs, and optional human-estimate minutes. The existing card events also populate `project_task_history` with one snapshot per card revision for the human burndown. Old snapshots without that index provide history from subsequent writes until full event replay rebuilds it. The chart plots recorded remaining hours and scope; unestimated work is explicitly counted, and scope changes/reopened/archived cards change the curve. It is not a velocity prediction or an invented ideal line.
 
 ## Acceptance
 
-See [the assistant acceptance record](../testing/PROJECT_ASSISTANT_ACCEPTANCE_2026-09-28.md) for actual checks. Compile success is not browser acceptance, and disposable worker trials are not a deployment claim. Multi-computer lease recovery, parallel workers, ordinary-DM connectors, album routing, richer journal integration and optional Pokee adapters remain later slices.
+See [the assistant acceptance record](../testing/PROJECT_ASSISTANT_ACCEPTANCE_2026-09-28.md) for actual checks. Compile success is not browser acceptance, and disposable worker trials are not a deployment claim. The [September 30 recovery acceptance](../testing/PROJECT_WORKER_RECOVERY_2026-09-30.md) proves bounded card/wiki continuation across two physical computers using a deterministic provider stub. Native coding-agent recovery, parallel execution, ordinary-DM connectors, album routing, richer journal integration and optional Pokee adapters remain later slices.

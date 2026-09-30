@@ -1,0 +1,9 @@
+{
+  "id": "project-workers",
+  "name": "AI Worker Connections",
+  "version": "0.1.0",
+  "description": "Optional Project-scoped computer connections and bounded task recovery",
+  "backend": {"runtime":"rust","path":"../../crates/wabi-server","crate":"wabi-server","cargo_feature":null},
+  "frontend": {"bundled":true,"contributions":{"channelTypes":[],"workspacePanels":[],"settingsPages":[],"mobileTabs":[]}},
+  "permissions": []
+}

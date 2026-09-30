@@ -1334,7 +1334,7 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
     use crate::projections::owner::OwnerProjection;
     use crate::projections::payments::PaymentsProjection;
     use crate::projections::project_tasks::ProjectTaskProjection;
-    use crate::projections::project_runs::ProjectRunProjection;
+    use crate::projections::project_runs::{ProjectRunProjection, ProjectWorkerProjection};
     use crate::projections::reactions::ReactionsProjection;
     use crate::projections::registry::{ProjectionRegistration, TypeRegistry};
     use crate::projections::user_deletion::UserDeletionProjection;
@@ -1480,6 +1480,10 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
         ProjectionRegistration {
             event_types: &["project_run_updated"], handler: Arc::new(ProjectRunProjection),
             index_name: "project_runs", record_type_name: "wabidb::projections::project_runs::ProjectRun",
+        },
+        ProjectionRegistration {
+            event_types: &["project_worker_updated_v1"], handler: Arc::new(ProjectWorkerProjection),
+            index_name: "project_workers", record_type_name: "wabidb::projections::project_runs::ProjectWorker",
         },
         ProjectionRegistration {
             event_types: &["project_task_created", "project_task_updated"],
