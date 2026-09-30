@@ -414,6 +414,7 @@ async fn delete_repo(
         // create_repo adopts an existing working tree, so re-linking the
         // same channel picks it back up with history intact.
         state.wdb.lore_delete_repo(channel_id, auth.user_id).await?;
+        lore.detach_repo(channel_id).await;
         info!(channel_id, "Lore repo detached via API (working tree kept)");
         return Ok(Json(serde_json::json!({ "status": "ok", "mode": "detached" })));
     }
@@ -1191,13 +1192,18 @@ async fn repo_manifest(
     // engine commit_seq (BE) so a full scan returns oldest→newest, making the
     // final entry the true head. Using it keeps `headRevision` consistent
     // with the `/changes` cursor feed sync clients advance over.
-    let changes = state.wdb.list_lore_file_changes(channel_id, 0).await?;
-    let head_revision = changes.last().map(|c| c.revision.clone()).unwrap_or_default();
+    let read_only = repo_read_only(&lore, channel_id).await;
+    let head_revision = if read_only {
+        lore.file_history(channel_id, "").await?.first().map(|r| r.hash.clone()).unwrap_or_default()
+    } else {
+        let changes = state.wdb.list_lore_file_changes(channel_id, 0).await?;
+        changes.last().map(|c| c.revision.clone()).unwrap_or_default()
+    };
     Ok(Json(serde_json::json!({
         "channelId": channel_id,
         "files": files,
         "headRevision": head_revision,
-        "readOnly": repo_read_only(&lore, channel_id).await,
+        "readOnly": read_only,
     })))
 }
 
@@ -1745,18 +1751,14 @@ fn parse_byte_range(range_str: &str, file_size: u64) -> Option<(u64, u64)> {
 
 /// Build a stable cache file name from channel_id, path, and optional revision.
 fn cache_path(channel_id: i64, path: &str, revision: Option<&str>) -> std::path::PathBuf {
-    let mut key = format!("{}_{}", channel_id, path.replace('/', "_"));
-    if let Some(rev) = revision {
-        key.push('_');
-        key.push_str(rev);
-    }
-    // Sanitize: only alphanumeric, underscore, dash
-    let sanitized: String = key
-        .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-        .collect();
+    // Mutable head downloads must never reuse a previous file's bytes. Only
+    // explicit revisions are cacheable. Hash the tuple so a/b and a_b cannot
+    // collide, and concurrent head requests receive separate snapshots.
+    let identity = serde_json::to_vec(&(channel_id, path, revision)).expect("cache identity");
+    let mut key = sha256_hex(&identity);
+    if revision.is_none() { key.push_str(&format!("-{}", uuid::Uuid::new_v4())); }
     let tmp_dir = std::env::temp_dir().join("wabi-lore-cache");
-    tmp_dir.join(sanitized)
+    tmp_dir.join(key)
 }
 
 async fn download_file(
@@ -1794,6 +1796,9 @@ async fn download_file(
     // Download via Lore CLI if not cached
     if !tokio::fs::try_exists(&tmp_path).await.unwrap_or(false) {
         let lore = lore_service(&state).await?;
+        if query.revision.is_none() && lore.head_etag(channel_id, &path).await?.is_none() {
+            return Err(AppError::NotFound("No such repository file".into()));
+        }
         lore.download_file(
             channel_id,
             &path,
@@ -2448,6 +2453,14 @@ async fn list_mirror_configs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn downloads_separate_mutable_heads_and_ambiguous_paths() {
+        assert_ne!(cache_path(1, "a/b", None), cache_path(1, "a/b", None));
+        assert_ne!(cache_path(1, "a/b", Some("rev")), cache_path(1, "a_b", Some("rev")));
+        assert_ne!(cache_path(1, "file", Some("rev")), cache_path(2, "file", Some("rev")));
+        assert_eq!(cache_path(1, "file", Some("rev")), cache_path(1, "file", Some("rev")));
+    }
 
     // -- If-Match / ETag decision logic --
 

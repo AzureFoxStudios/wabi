@@ -134,6 +134,82 @@ async fn request(
 }
 
 #[tokio::test]
+async fn head_download_changes_immediately_and_missing_file_is_not_found() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (uid, channel, _) = owner_and_repos(&state).await;
+    let binary = dir.path().join("fixture");
+    std::fs::write(&binary, include_bytes!("fixtures/lore-cli-credential-fixture.sh")).unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let lore = Arc::new(wabi_lore::LoreService::new(wabi_lore::LoreConfig {
+        lore_binary_path: binary, lore_data_dir: dir.path().join("lore"), ..Default::default()
+    }));
+    lore.create_repo(channel, uid as i64, "fresh").await.unwrap();
+    state.set_lore_service(lore).await;
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let (token, _) = connect_token(&state, uid, channel, "read,write").await;
+    let path = format!("/addons/lore/repos/{channel}/files/{}.json", uuid::Uuid::new_v4());
+    let (status, _) = request(&app, Method::GET, &path, &token, json!(null)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    for value in [json!({"version":1}), json!({"version":2})] {
+        let (status, body) = request(&app, Method::PUT, &path, &token, value.clone()).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let (status, body) = request(&app, Method::GET, &path, &token, json!(null)).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, value, "head must not reuse the previous five-minute cache");
+    }
+}
+
+#[tokio::test]
+async fn detach_removes_live_access_and_keeps_working_tree() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (uid, channel, _) = owner_and_repos(&state).await;
+    let lore = Arc::new(wabi_lore::LoreService::new(wabi_lore::LoreConfig { lore_data_dir: dir.path().join("lore"), ..Default::default() }));
+    let repo = lore.register_external_mirror(channel, uid as i64, "source", "https://example.org/source.git").await.unwrap();
+    std::fs::write(repo.working_tree.join("retained.txt"), b"retained").unwrap();
+    state.wdb.lore_create_repo(channel, "source", "embedded://source", uid as i64).await.unwrap();
+    state.set_lore_service(lore.clone()).await;
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let auth = jwt(&state, uid);
+    let base = format!("/addons/lore/repos/{channel}");
+    let (status, body) = request(&app, Method::DELETE, &format!("{base}?mode=detach"), &auth, json!(null)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(state.wdb.lore_get_repo(channel).await.unwrap().is_none());
+    assert!(lore.get_repo(channel).await.is_none());
+    let (status, _) = request(&app, Method::GET, &base, &auth, json!(null)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(std::fs::read(repo.working_tree.join("retained.txt")).unwrap(), b"retained");
+}
+
+#[tokio::test]
+async fn mirror_manifest_reports_git_head_without_native_commit_events() {
+    use std::process::Command;
+    let dir = tempfile::tempdir().unwrap();
+    let upstream = dir.path().join("upstream");
+    std::fs::create_dir(&upstream).unwrap();
+    for args in [vec!["init"], vec!["config", "user.name", "Fixture"], vec!["config", "user.email", "fixture@localhost"]] {
+        assert!(Command::new("git").args(args).current_dir(&upstream).output().unwrap().status.success());
+    }
+    std::fs::write(upstream.join("README.md"), b"source").unwrap();
+    assert!(Command::new("git").args(["add", "README.md"]).current_dir(&upstream).output().unwrap().status.success());
+    assert!(Command::new("git").args(["commit", "-m", "fixture"]).current_dir(&upstream).output().unwrap().status.success());
+    let tip = String::from_utf8(Command::new("git").args(["rev-parse", "HEAD"]).current_dir(&upstream).output().unwrap().stdout).unwrap();
+    let state = server(&dir.path().join("data")).await;
+    let (uid, channel, _) = owner_and_repos(&state).await;
+    let lore = Arc::new(wabi_lore::LoreService::new(wabi_lore::LoreConfig { lore_data_dir: dir.path().join("lore"), ..Default::default() }));
+    lore.register_external_mirror(channel, uid as i64, "mirror", upstream.to_str().unwrap()).await.unwrap();
+    state.set_lore_service(lore).await;
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let (token, _) = connect_token(&state, uid, channel, "read").await;
+    let (status, body) = request(&app, Method::GET, &format!("/addons/lore/repos/{channel}/manifest"), &token, json!(null)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["headRevision"], tip.trim());
+    assert_eq!(body["readOnly"], true);
+}
+
+#[tokio::test]
 async fn connect_token_is_not_an_account_credential() {
     let dir = tempfile::tempdir().unwrap();
     let state = server(dir.path()).await;

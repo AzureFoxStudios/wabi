@@ -5,7 +5,7 @@
 #
 #   1. frontend-builder  — STATIC_BUILD=1 SvelteKit SPA (adapter-static)
 #   2. rust-builder      — release wabi-server (embeds frontend/build via rust_embed)
-#   3. runtime           — fedora + openssl/ca-certificates/wget, non-root (UID 1000)
+#   3. runtime           — fedora + openssl/ca-certificates/wget/git-core, non-root (UID 1000)
 #
 # Dev override: to test a host-built binary instead, mount it over
 # /wabi-server (read-only) and restart the container.
@@ -65,7 +65,8 @@ RUN cargo build --locked --release -p wabi-server \
 
 # ----------------------------------------------------------- runtime ----
 FROM docker.io/library/fedora:44
-RUN dnf -y install openssl-libs ca-certificates wget \
+# Lore Git mirrors/imports invoke git in the runtime, not in the build stage.
+RUN dnf -y install openssl-libs ca-certificates wget git-core \
  && dnf clean all
 WORKDIR /app
 
