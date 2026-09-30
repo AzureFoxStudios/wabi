@@ -25,6 +25,7 @@ import type {
 	RegisterCallSessionInput
 } from './callSessionTypes';
 import { sessionBadge } from './callSessionTypes';
+import { clearVoiceAdmission, voiceAdmissionForcesListen } from './voiceAdmissionState';
 
 const sessionsWritable = writable<ReadonlyMap<string, CallSession>>(new Map());
 
@@ -53,7 +54,9 @@ export class CallSessionManager {
 		// unless explicitly promoted (mockup contract: exactly one FOCUSED).
 		const anyFocused = existing?.focus === 'focused' || focusedHasValue(next);
 		const direction: CallSessionDirection =
-			input.direction ?? (anyFocused ? 'listen' : 'transmit');
+			input.kind === 'channel' && voiceAdmissionForcesListen(input.channelId)
+				? 'listen'
+				: input.direction ?? (anyFocused ? 'listen' : 'transmit');
 		const focus: CallSessionFocus = existing?.focus ?? (anyFocused ? 'background' : 'focused');
 
 		const session: CallSession = {
@@ -96,6 +99,7 @@ export class CallSessionManager {
 		const next = new Map(get(sessionsWritable));
 		const removed = next.get(id);
 		if (!removed) return;
+		if (removed.kind === 'channel' && removed.channelId) clearVoiceAdmission(removed.channelId);
 		next.delete(id);
 		commit(next);
 		audioBindings?.onSessionEnded?.(id);
@@ -120,7 +124,11 @@ export class CallSessionManager {
 	}
 
 	leaveAll(): void {
-		const ended = [...get(sessionsWritable).keys()];
+		const endedSessions = [...get(sessionsWritable).values()];
+		const ended = endedSessions.map((session) => session.id);
+		for (const session of endedSessions) {
+			if (session.kind === 'channel' && session.channelId) clearVoiceAdmission(session.channelId);
+		}
 		commit(new Map());
 		focusedCallSessionId.set(null);
 		for (const id of ended) audioBindings?.onSessionEnded?.(id);
@@ -128,13 +136,16 @@ export class CallSessionManager {
 
 	/** Focus exactly one session; every other focused session demotes to
 	 *  background. Promoting a listen session flips it to transmit (you now
-	 *  speak there — the "primary channel switch" the old model lacked). */
+	 *  speak there — the "primary channel switch" the old model lacked),
+	 *  unless Authority admission requires that channel to remain listen-only. */
 	setFocus(id: string): void {
 		const next = new Map(get(sessionsWritable));
 		if (!next.has(id)) return;
 		this.applyFocus(next, id);
 		const session = next.get(id)!;
-		if (session.direction === 'listen') {
+		if (session.kind === 'channel' && voiceAdmissionForcesListen(session.channelId)) {
+			next.set(id, { ...session, direction: 'listen' });
+		} else if (session.direction === 'listen') {
 			next.set(id, { ...session, direction: 'transmit' });
 		}
 		commit(next);
@@ -150,7 +161,11 @@ export class CallSessionManager {
 	}
 
 	setDirection(id: string, direction: CallSessionDirection): void {
-		this.update(id, (session) => ({ ...session, direction, lastActivityAt: Date.now() }));
+		this.update(id, (session) => ({
+			...session,
+			direction: session.kind === 'channel' && voiceAdmissionForcesListen(session.channelId) ? 'listen' : direction,
+			lastActivityAt: Date.now()
+		}));
 	}
 
 	/** 0..100. Volume 0 on a background session reads as SILENCED. */

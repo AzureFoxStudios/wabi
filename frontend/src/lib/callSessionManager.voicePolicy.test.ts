@@ -47,4 +47,22 @@ describe('CallSessionManager voice admission policy', () => {
 		});
 		expect(replacement.direction).toBe('transmit');
 	});
+
+	test('a newly received listener restriction is retained when focusing an existing session', () => {
+		callSessionManager.register({ id: 'voice-a', channelId: 'voice-a', kind: 'channel', direction: 'transmit' });
+		rememberVoiceAdmission('voice-a', { listeningOnly: true });
+		callSessionManager.setFocus('voice-a');
+		expect(callSessionManager.get('voice-a')?.direction).toBe('listen');
+	});
+
+	test('leaving all sessions clears their channel admission constraints', () => {
+		rememberVoiceAdmission('voice-a', { listeningOnly: true });
+		callSessionManager.register({ id: 'voice-a', channelId: 'voice-a', kind: 'channel' });
+		callSessionManager.leaveAll();
+		const replacement = callSessionManager.register({
+			id: 'voice-a', channelId: 'voice-a', kind: 'channel', direction: 'transmit'
+		});
+		expect(replacement.direction).toBe('transmit');
+	});
+
 });

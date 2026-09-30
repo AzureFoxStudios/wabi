@@ -55,3 +55,33 @@ checks passed; the locked Svelte check again returned 0 errors and 90 existing
 warnings. Static packaging was repeated. Backend source did not change during
 this reconciliation, so the fresh backend and physical-worker evidence above
 still applies. Main itself and the shared checkout were not moved.
+
+
+## Automated check follow-up
+
+CI uses Bun 1.3.14. The complete frontend suite now runs with its built-in
+per-file isolation, preserving all test files while preventing mock/global
+leakage. The current suite passed 1,058 tests across 159 files, with three
+existing skips and zero failures. The E2EE fixture includes the current server
+and auth exports; code-highlighting tests await production grammar loading.
+Svelte check again returned 0 errors and 90 existing warnings, and static
+packaging passed.
+
+The tests exposed a real CallSessionManager regression: register, focus and
+explicit direction changes could disregard Authority-forced listening. The
+manager now retains that restriction, and leaving a channel clears its old
+admission constraint. Existing tests plus two late-admission/leave-all cases
+cover the change. This does not replace server-side voice enforcement.
+
+The reader browser harness now includes the production image annotator and
+its document-scope dependency, with anonymous surrounding auth/server fixtures.
+Nine actual headful browser checks passed, including image import, narrow
+layouts, long documents, highlighted code, search and saved annotations.
+Payment request fixtures now supply the listener's peer-address extension and
+assert the returned owner identity instead of assuming user ID 1.
+
+The initial aggregate CodeQL result flagged 35 alerts (8 critical, 27 high)
+in the broad publication backlog. They remain unresolved and require security
+review; this record neither dismisses them nor claims that all are confirmed
+vulnerabilities. The draft is a publication/review candidate, not permission to
+merge or deploy. The corrected full Rust workspace gate is being run separately.

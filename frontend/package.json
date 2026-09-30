@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "start": "node build",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "test": "bun test src/lib",
+    "test": "bun test --isolate src/lib",
     "check:zip-preview": "bun run scripts/zip-preview-fixture-smoke.ts",
     "check:unicode-emojis": "bun run scripts/unicode-emoji-compat-smoke.ts",
     "check:i18n": "node scripts/check-i18n.mjs",
