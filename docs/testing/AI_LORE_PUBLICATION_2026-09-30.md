@@ -84,4 +84,9 @@ The initial aggregate CodeQL result flagged 35 alerts (8 critical, 27 high)
 in the broad publication backlog. They remain unresolved and require security
 review; this record neither dismisses them nor claims that all are confirmed
 vulnerabilities. The draft is a publication/review candidate, not permission to
-merge or deploy. The corrected full Rust workspace gate is being run separately.
+merge or deploy. The corrected full Rust workspace gate passed on Ronin: `cargo test --locked --workspace`
+completed 74 test binaries/doc-test groups, with 2,233 passed, five existing
+ignored cases and zero failures. All six payment persistence/admission
+contracts passed, including restart/replay. Remote test dependencies and Rust
+versions remained pinned. GitHub CI is still running on the published candidate;
+the local/remote results here do not claim that every GitHub job is complete.
