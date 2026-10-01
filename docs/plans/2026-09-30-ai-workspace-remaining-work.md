@@ -29,6 +29,19 @@ checkout just to make an external connector test work.
 
 ## Connection ownership: future design
 
+September 30 follow-up: the direct personal assistant Project plugin is now
+built and its isolated gateway is deployed at the user’s own `wabi.chat/mcp`
+endpoint. Twenty-four focused tests, standard MCP SDK compatibility and public
+OAuth/card/wiki/revocation acceptance pass. A distinct test bot is restricted
+to the disposable Project. The private ChatGPT plugin entry was installed; actual Dot tool acceptance is
+deferred by the user as of October 1.
+See [plugin setup](../features/PROJECT_PLUGIN.md) and
+[evidence](../testing/PROJECT_PLUGIN_ACCEPTANCE_2026-09-30.md).
+This is an optional portable integration: other users configure their own
+Authority and connector, without joining wabi.chat or using a central account.
+Its private one-use pairing and named tools-only profile are a personal first
+slice, not completed multi-user identity/billing or native harness routing.
+
 Separate connection ownership from participation scope. A person or team owns
 the runtime connection; each Project or conversation authorizes its access.
 Record owner, operator, hosting device, runtime, model/provider destination,

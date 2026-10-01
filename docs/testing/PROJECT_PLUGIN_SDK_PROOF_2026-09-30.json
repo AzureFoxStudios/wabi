@@ -1,0 +1,15 @@
+{
+  "sdk": "@modelcontextprotocol/sdk",
+  "version": "1.31.0",
+  "tools": 11,
+  "checks": [
+    "initialize",
+    "list_tools",
+    "connection_profile",
+    "project_brief",
+    "invalid_argument_refused"
+  ],
+  "passed": true,
+  "backend": "synthetic",
+  "dotInstalled": false
+}

@@ -1,0 +1,36 @@
+name: Wabi Project plugin
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/wabi-project-mcp.mjs'
+      - 'scripts/wabi-project-plugin*.mjs'
+      - 'scripts/package-wabi-project-plugin.mjs'
+      - 'scripts/tests/wabi-project-mcp.test.mjs'
+      - 'scripts/tests/wabi-project-plugin.test.mjs'
+      - 'integrations/wabi-project-plugin/**'
+      - '.github/workflows/project-plugin-checks.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/wabi-project-mcp.mjs'
+      - 'scripts/wabi-project-plugin*.mjs'
+      - 'scripts/package-wabi-project-plugin.mjs'
+      - 'scripts/tests/wabi-project-mcp.test.mjs'
+      - 'scripts/tests/wabi-project-plugin.test.mjs'
+      - 'integrations/wabi-project-plugin/**'
+      - '.github/workflows/project-plugin-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  connector:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test local and hosted Project connectors
+        run: node --test scripts/tests/wabi-project-mcp.test.mjs scripts/tests/wabi-project-plugin.test.mjs
