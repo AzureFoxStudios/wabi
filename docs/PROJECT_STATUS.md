@@ -35,6 +35,25 @@ Cards now have notes, stable-ID checklists, links to independent cards, and huma
 The September 30 candidate adds an optional, default-off AI Worker Connections addon with a Project-scoped computer roster and explicit manual/opt-in automatic recovery for bounded card/wiki runs. Registered workers use durable contact records, matched provider/model/harness, selected backups, a bounded recovery count and attempt fencing; uncertain pending edits block recovery. A real two-physical-computer trial interrupted the primary process, waited for actual expiry, resumed saved steps on the backup and rejected the returning primary with 409, leaving exactly one card. It used a deterministic provider stub, not a model or native harness. Eleven server contracts, eleven runner tests, four real engine admission/replay tests and old-run JSON compatibility pass; headful desktop/mobile UI acceptance passes. Native Codex chat, repository artifacts and uncommitted-code recovery remain unimplemented. No live deployment is claimed. See [Connections contract](features/PROJECT_CONNECTIONS.md) and [dated evidence](testing/PROJECT_WORKER_RECOVERY_2026-09-30.md).
 
 
+## Direct assistant Project plugin — optional personal development candidate
+
+An optional Node 22 gateway exposes the existing Project card/wiki tools over
+stateless HTTP MCP, with a named tools-only profile, private one-use linking,
+PKCE/resource-bound OAuth and revocation. Portable packaging includes a skill
+and an operator-selected endpoint without credentials. Twenty-four focused
+connector/authentication/package/control tests pass. Direct HTTP and standard
+MCP clients completed disposable card/wiki acceptance with stale-edit refusal
+and Project revocation denial. The personal HTTPS gateway is deployed separately
+on Tim; the Authority was not restarted. Native-browser fixtures also verified
+consent origin checks and the approved cross-origin callback redirect.
+
+The private ChatGPT plugin entry was installed. Actual Dot tool acceptance is
+a separate gate deferred by the user on October 1; no provider call, repository
+execution, public plugin publication or production authentication audit is
+claimed. Core Wabi works without this optional gateway. See
+[setup and boundaries](features/PROJECT_PLUGIN.md) and
+[dated evidence](testing/PROJECT_PLUGIN_ACCEPTANCE_2026-09-30.md).
+
 ## Moderation and newcomer candidate — current worktree, not deployed
 
 The current worktree adds durable local account bans, per-channel bans and timeouts, server-side checks on authenticated HTTP/realtime paths, and case actions recorded with actor, target, reason and outcome. Operator IP deny entries use configured trusted-proxy address semantics; they remain weak shared-address restrictions. A report preserves only the explicitly selected message snapshot; the owner can remove it or set a lifetime for snapshots in new reports. Automated safety flags create cases without a content snapshot. Backups and staff comments have separate lifecycles. No global Wabi ban service or universal content log is involved. The Server Center and blacklist sidecars now reject damaged data at startup rather than treating corruption as empty policy. Existing WabiDB ban/mute events are not the enforcement path. See [operator recovery](deployment/MODERATION_POLICY_RECOVERY.md).
