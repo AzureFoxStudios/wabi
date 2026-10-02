@@ -27,7 +27,7 @@
 	{:else}
 		<div class="profile-panel-empty">
 			<h2>Profile</h2>
-			<p>Open someone’s profile and choose “Keep in side panel” to view it alongside your conversation.</p>
+			<p>Open someone’s profile and use the side-panel icon at the top to view it alongside your conversation.</p>
 			{#if $currentUser}
 				<button type="button" onclick={() => $currentUser && profilePanel.select($currentUser)}>View my profile</button>
 			{/if}

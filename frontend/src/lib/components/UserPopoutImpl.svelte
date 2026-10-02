@@ -1,17 +1,19 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import { showToast } from '$lib/toast';
+	async function copyHandle() {
+		try { await navigator.clipboard.writeText(`@${liveUser?.handle || liveUser?.username}`); showToast('Handle copied.', 'info', 1200); }
+		catch { showToast('Could not copy handle.', 'error', 3000); }
+	}
 	import {
-		channelMessages,
 		channels,
 		createDM,
-		currentChannel,
 		currentUser,
 		dmPanelSignal,
 		roleDefinitions,
 		serverMembers,
 		socket,
 		users,
-		type Message,
 		type User
 	} from '$lib/socket';
 	import { startCall } from '$lib/calling';
@@ -28,7 +30,6 @@
 	import ProfileDecoration from '$lib/components/ProfileDecoration.svelte';
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { _ } from '$lib/i18n';
-	import { brandName } from '$lib/branding';
 	import { currentSavedServer } from '$lib/savedServers';
 	import { ownerBadgeMark, staffBadgeMark } from '$lib/badgeMarks';
 	import UserPopoutActions from './UserPopoutActions.svelte';
@@ -97,24 +98,6 @@
 		return labels;
 	})();
 
-	function messageBelongsToUser(message: Message, candidate: User): boolean {
-		if (!message || !candidate) return false;
-		if (message.userId && candidate.id && message.userId === candidate.id) return true;
-		if (
-			message.userId &&
-			candidate.dbUserId &&
-			message.userId === `user-${candidate.dbUserId}`
-		) {
-			return true;
-		}
-		return (message.user ?? '').trim().toLowerCase() === (candidate.username ?? '').trim().toLowerCase();
-	}
-
-	function formatLastMessageTimestamp(timestamp: number | null): string {
-		if (!timestamp) return get(_)('user.popout.no_recent_messages');
-		return new Date(timestamp).toLocaleString();
-	}
-
 	function extractBioLinks(rawBio?: string): ConnectionRow[] {
 		if (!rawBio) return [];
 		const matches = rawBio.match(/https?:\/\/[^\s)]+/gi) || [];
@@ -137,36 +120,10 @@
 		});
 	}
 
-	function buildConnectionsRows(candidate: User): ConnectionRow[] {
-		const rows: ConnectionRow[] = [];
-		if (candidate.handle) {
-			rows.push({
-				label: brandName,
-				value: `@${candidate.handle}`
-			});
-		}
-		for (const row of extractBioLinks(candidate.bio)) {
-			rows.push(row);
-		}
-		return rows;
-	}
 
-	$: activeChannelMessages = $channelMessages[$currentChannel] || [];
-	$: lastMessageTimestamp =
-		user && $displayEnhancementSettingsStore.lastMessageDateEnabled
-			? (() => {
-				for (let i = activeChannelMessages.length - 1; i >= 0; i -= 1) {
-					const candidateMessage = activeChannelMessages[i];
-					if (messageBelongsToUser(candidateMessage, user)) {
-						return candidateMessage.timestamp;
-					}
-				}
-				return null;
-			})()
-			: null;
 	$: connectionRows =
 		liveUser && $displayEnhancementSettingsStore.showConnectionsEnabled
-			? buildConnectionsRows(liveUser)
+			? extractBioLinks(liveUser.bio)
 			: [];
 	$: localNickname = (() => {
 		if (!user || !$displayEnhancementSettingsStore.localNicknamesEnabled) return '';
@@ -613,6 +570,10 @@
 		on:keydown|stopPropagation={handleProfileKeydown}
 	>
 		<button type="button" class="profile-close" aria-label="Close profile" on:click={closePopout}>×</button>
+		<div class="profile-tools">
+			{#if isOwnProfile}<button type="button" aria-label="Edit profile" title="Edit profile" on:click={openProfileSettings}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 3 5 5-12 12-6 1 1-6Z"/><path d="m14 5 5 5"/></svg></button>{/if}
+			{#if surface !== 'panel'}<button type="button" aria-label="Keep in side panel" title="Keep in side panel" on:click={keepInProfilePanel}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>{/if}
+		</div>
 		<!-- Banner/Header Area -->
 		<div class="popout-banner" style="--banner-color: {liveUser?.color || 'var(--pfp-banner)'}">
 			<div class="banner-gradient"></div>
@@ -648,7 +609,7 @@
 		<div class="popout-body">
 			<div class="username-section">
 				<h3 class="display-name"><ProfileName username={popoutDisplayName} font={liveUser?.usernameFont} color={liveUser?.color} /></h3>
-				<span class="username-handle">@{liveUser?.handle || liveUser?.username}</span>
+				<button type="button" class="username-handle handle-copy" title="Copy handle" on:click={copyHandle}>@{liveUser?.handle || liveUser?.username}</button>
 			</div>
 			{#if ($displayEnhancementSettingsStore.topRoleEverywhereEnabled && roleToneClass(popoutTopRoleName) === 'owner') || ($displayEnhancementSettingsStore.staffTagEnabled && isStaffRole(popoutTopRoleName)) || (user.badges?.length ?? 0) > 0}
 				<div class="popout-role-tags">
@@ -740,16 +701,10 @@
 				<span class="member-since-ghost">Member since {new Date(liveUser.joinedAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
 			{/if}
 
-			{#if $displayEnhancementSettingsStore.lastMessageDateEnabled}
-				<div class="section">
-					<h4 class="section-title">{$_('user.popout.last_message')}</h4>
-					<p class="section-content">{formatLastMessageTimestamp(lastMessageTimestamp)}</p>
-				</div>
-			{/if}
 
-			{#if $displayEnhancementSettingsStore.showConnectionsEnabled}
+			{#if $displayEnhancementSettingsStore.showConnectionsEnabled && connectionRows.length > 0}
 				<div class="section">
-					<h4 class="section-title">Links from bio</h4>
+					<h4 class="section-title">Links</h4>
 					{#if connectionRows.length === 0}
 						<p class="section-content note-content">{$_('user.popout.no_connections')}</p>
 					{:else}
@@ -779,10 +734,10 @@
 			<div class="divider"></div>
 
 			<UserPopoutActions
+				onClose={closePopout}
 				{isOwnProfile}
 				{profileExpanded}
 				inSidePanel={surface === 'panel'}
-				completeProfile={completeProfile}
 				user={liveUser}
 				{localNickname}
 				localNicknamesEnabled={$displayEnhancementSettingsStore.localNicknamesEnabled}
@@ -798,8 +753,6 @@
 				onUnbanUser={handleUnbanUser}
 				onOpenDM={openDM}
 				onOpenFullProfile={openFullProfile}
-				onKeepInPanel={keepInProfilePanel}
-				onOpenSettings={openProfileSettings}
 				onVoiceCall={handleVoiceCall}
 				onVideoCall={handleVideoCall}
 				onScreenShare={handleScreenShare}
@@ -811,6 +764,10 @@
 {/if}
 
 <style>
+	.profile-tools {position:absolute;top:10px;right:48px;z-index:3;display:flex;gap:6px;}
+	.profile-tools button {display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:50%;background:var(--surface-raised);color:var(--text-primary);cursor:pointer;}
+	.handle-copy {border:0;background:none;padding:0;cursor:pointer;}
+	.handle-copy:hover {text-decoration:underline;}
 	.popout-container .note-actions { flex-wrap: wrap; gap: 0.5rem; }
 	.popout-container .note-actions .note-btn { min-height: 36px; padding: 0.375rem 0.625rem; font-size: 0.8125rem; border-radius: var(--radius-md, 8px); }
 	.popout-container .note-count { flex-basis: 100%; margin-left: 0; }

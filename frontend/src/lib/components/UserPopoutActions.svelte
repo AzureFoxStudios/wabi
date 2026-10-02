@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import { _ } from '$lib/i18n';
 	import { openGames } from '$lib/games/navigation';
-	import { showToast } from '$lib/toast';
 	import { getAuthToken } from '$lib/authSession';
 
 	import type { User } from '$lib/socket';
@@ -12,7 +11,6 @@
 	export let isOwnProfile = false;
 	export let profileExpanded = false;
 	export let inSidePanel = false;
-	export let completeProfile = false;
 	export let localNicknamesEnabled = false;
 	export let localNickname = '';
 	export let user: User | null = null;
@@ -46,10 +44,9 @@
 		catch (error) { friendActionError = error instanceof Error ? error.message : 'Could not remove friend.'; }
 		finally { friendActionBusy = false; }
 	}
+	export let onClose: () => void = () => {};
 	export let onOpenDM: () => void = () => {};
 	export let onOpenFullProfile: () => void = () => {};
-	export let onKeepInPanel: () => void = () => {};
-	export let onOpenSettings: () => void = () => {};
 	export let onVoiceCall: () => void = () => {};
 	export let onVideoCall: () => void = () => {};
 	export let onScreenShare: () => void = () => {};
@@ -66,22 +63,11 @@
 	export let onBanUser: () => void = () => {};
 	export let onUnbanUser: () => void = () => {};
 
-	async function handleShareProfile() {
-		if (!user) return;
-		const handle = (user.handle || '').trim();
-		const shareText = handle && handle.toLowerCase() !== 'unknown' ? `@${handle}` : `@${user.username}`;
-		try {
-			await navigator.clipboard.writeText(shareText);
-			showToast('Handle copied.', 'info', 1200);
-		} catch {
-			showToast('Could not copy the handle. Please select it from the profile.', 'error', 3000);
-		}
-	}
 </script>
 
 <div class="actions">
   {#if user?.dbUserId}
-    <button class="action-btn secondary" on:click={() => openGames({profileId: String(user!.dbUserId),label:user!.username})}>Games</button>
+    <button class="action-btn secondary" on:click={() => { onClose(); openGames({profileId: String(user!.dbUserId),label:user!.username}); }}>Games</button>
   {/if}
 	{#if !isOwnProfile}
 		<button class="action-btn primary" on:click={onOpenDM}>
@@ -96,18 +82,13 @@
 			</button>
 		{/if}
 	{/if}
-	{#if isOwnProfile}
-		<button class="action-btn primary" on:click={onOpenSettings}>{$_('user.popout.edit_profile')}</button>
-	{/if}
 	<button class="action-btn secondary" data-profile-expand on:click={onOpenFullProfile}>
 		<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
 			<path d="M12 12C14.21 12 16 10.21 16 8C16 5.79 14.21 4 12 4C9.79 4 8 5.79 8 8C8 10.21 9.79 12 12 12ZM12 14C9.33 14 4 15.34 4 18V20H20V18C20 15.34 14.67 14 12 14Z"/>
 		</svg>
 		{profileExpanded ? (inSidePanel ? 'Return to side panel' : 'Back to popout') : $_('user.popout.view_full_profile')}
 	</button>
-	{#if !inSidePanel}
-		<button class="action-btn secondary" on:click={onKeepInPanel}>Keep in side panel</button>
-	{/if}
+
 </div>
 
 {#if friendActionError}<p class="friend-action-error" role="alert">{friendActionError}</p>{/if}
@@ -164,18 +145,6 @@
 	</div>
 {/if}
 
-{#if (isOwnProfile || profileExpanded || completeProfile) && user}
-	<button class="share-btn" on:click={handleShareProfile} title="Copy handle">
-		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-			<circle cx="18" cy="5" r="3"/>
-			<circle cx="6" cy="12" r="3"/>
-			<circle cx="18" cy="19" r="3"/>
-			<line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-			<line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-		</svg>
-		Copy handle
-	</button>
-{/if}
 
 <div class="context-actions">
 	{#if !isOwnProfile && canFriendUser && friendRelation.kind === 'friend'}
