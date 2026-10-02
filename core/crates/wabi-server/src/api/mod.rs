@@ -27,6 +27,8 @@ pub mod lore;
 mod lore_auth;
 pub mod media;
 pub mod media_permissions;
+pub(crate) mod voice_policy;
+pub(crate) mod voice_self_state;
 pub(crate) mod media_node_catalog;
 pub mod messages;
 pub mod nodes;
@@ -60,3 +62,6 @@ pub mod network_health;
 pub mod service_access;
 
 pub mod whiteboard_policy;
+pub mod workspace;
+mod workspace_crdt;
+mod workspace_present;

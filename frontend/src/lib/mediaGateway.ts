@@ -1,6 +1,7 @@
 import { getServerUrl } from './serverUrl';
 import { getAuthToken } from './authSession';
 import { getPreferredSfuRelayId } from './relaySelector';
+import { getSocket } from './socketConnection';
 import type {
 	LivekitAccessTokenResponse,
 	MediaGatewaySession,
@@ -97,12 +98,14 @@ export async function createLivekitAccessToken(channelId: string, displayName?: 
 	if (typeof sfuRelayId === 'number' && sfuRelayId > 0) {
 		livekitTokenUrl.searchParams.set('relayId', String(sfuRelayId));
 	}
+	const socketId = getSocket()?.id ?? null;
+	if (!socketId) throw new Error('Voice admission socket is unavailable');
 
 	const response = await fetch(livekitTokenUrl.toString(), {
 		method: 'POST',
 		headers: getAuthHeaders(),
 		credentials: 'include',
-		body: JSON.stringify({ channelId, displayName })
+		body: JSON.stringify({ channelId, displayName, socketId })
 	});
 
 	if (!response.ok) {

@@ -50,9 +50,9 @@ export function createAddonSettingsView(
 		sectionCounts.set(section, (sectionCounts.get(section) ?? 0) + 1);
 	}
 	return {
-		inventoryAddonMatches: (addon: { id: string; name: string; enabled: boolean }, group: 'server' | 'bundled') => {
+		inventoryAddonMatches: (addon: { id: string; name: string; enabled?: boolean }, group: 'server' | 'bundled') => {
 			const haystack = `${addon.id} ${addon.name} ${group}`.toLowerCase();
-			return (!enabledOnly || addon.enabled) && tokens.every((token) => haystack.includes(token));
+			return (!enabledOnly || addon.enabled !== false) && tokens.every((token) => haystack.includes(token));
 		},
 		availableLocalAddonControlCount: available.length,
 		visibleLocalAddonControlCount: matches.size,

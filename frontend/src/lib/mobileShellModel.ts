@@ -39,24 +39,60 @@ export function shouldRenderMobileNavigation(options: {
 }
 
 export type MobileBackSurface =
-	| 'settings'
-	| 'server-switcher'
+	| 'workspace'
+	| 'conversation'
 	| 'browse'
 	| 'overlay'
-	| 'conversation'
-	| 'root';
+	| 'server-switcher'
+	| 'settings';
 
-export function nextMobileBackSurface(state: {
-	settingsOpen: boolean;
-	serverSwitcherOpen: boolean;
+export type MobileSurfaceState = {
+	workspaceOpen: boolean;
+	conversationOpen: boolean;
 	browseOpen: boolean;
 	rightOverlayOpen: boolean;
-	conversationOpen: boolean;
-}): MobileBackSurface {
-	if (state.settingsOpen) return 'settings';
-	if (state.serverSwitcherOpen) return 'server-switcher';
-	if (state.browseOpen) return 'browse';
-	if (state.rightOverlayOpen) return 'overlay';
-	if (state.conversationOpen) return 'conversation';
-	return 'root';
+	serverSwitcherOpen: boolean;
+	settingsOpen: boolean;
+};
+
+const MOBILE_SURFACE_DISCOVERY_ORDER: MobileBackSurface[] = [
+	'workspace',
+	'conversation',
+	'browse',
+	'overlay',
+	'server-switcher',
+	'settings'
+];
+
+function surfaceIsActive(surface: MobileBackSurface, state: MobileSurfaceState): boolean {
+	switch (surface) {
+		case 'workspace': return state.workspaceOpen;
+		case 'conversation': return state.conversationOpen;
+		case 'browse': return state.browseOpen;
+		case 'overlay': return state.rightOverlayOpen;
+		case 'server-switcher': return state.serverSwitcherOpen;
+		case 'settings': return state.settingsOpen;
+	}
+}
+
+export function reconcileMobileSurfaceStack(
+	previous: readonly MobileBackSurface[],
+	state: MobileSurfaceState
+): MobileBackSurface[] {
+	const next = previous.filter((surface) => surfaceIsActive(surface, state));
+	const present = new Set(next);
+	for (const surface of MOBILE_SURFACE_DISCOVERY_ORDER) {
+		if (surfaceIsActive(surface, state) && !present.has(surface)) {
+			next.push(surface);
+			present.add(surface);
+		}
+	}
+	if (next.length === previous.length && next.every((surface, index) => surface === previous[index])) {
+		return previous as MobileBackSurface[];
+	}
+	return next;
+}
+
+export function nextMobileBackSurface(stack: readonly MobileBackSurface[]): MobileBackSurface | 'root' {
+	return stack.length ? stack[stack.length - 1] : 'root';
 }

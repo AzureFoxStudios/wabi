@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { isShowcaseMode } from '$lib/showcase/mode';
 	import '../styles/styles.css';
 	import '../styles/desktop-shell.css';
 	import DesktopTitlebar from '$lib/components/DesktopTitlebar.svelte';
@@ -81,6 +82,7 @@ function isLocalPreviewHost(): boolean {
 
 	onMount(async () => {
 		startupMark('layout:onMount:start');
+		if (isShowcaseMode()) { initEmojis(); return; }
 
 		cleanupInstallPrompt = startInstallPromptCapture();
 		cleanupMobileShell = startMobileShell();

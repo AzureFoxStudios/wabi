@@ -1,0 +1,77 @@
+name: Office worker resource checks
+on:
+  pull_request:
+    paths:
+      - frontend/src/lib/workspaces/sheets/**
+      - frontend/scripts/office-worker-browser.mjs
+      - frontend/scripts/office-scale-fixture.ts
+      - frontend/package.json
+      - frontend/package-lock.json
+      - .github/workflows/office-worker-resources.yml
+  push:
+    branches: [main]
+    paths:
+      - frontend/src/lib/workspaces/sheets/**
+      - frontend/scripts/office-worker-browser.mjs
+      - frontend/scripts/office-scale-fixture.ts
+      - frontend/package.json
+      - frontend/package-lock.json
+      - .github/workflows/office-worker-resources.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: office-worker-resources-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  resources:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    env:
+      WORKSPACE_RESOURCE_DIR: /tmp/wabi-office-resources
+      SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - name: Record source and integration identity
+        run: |
+          mkdir -p "$WORKSPACE_RESOURCE_DIR"
+          git rev-parse HEAD > "$WORKSPACE_RESOURCE_DIR/tested-commit.txt"
+          printf '%s\n' "$SOURCE_HEAD" > "$WORKSPACE_RESOURCE_DIR/source-head.txt"
+      - name: Install committed dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Typecheck and all focused workspace regressions
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npm run check > "$WORKSPACE_RESOURCE_DIR/typecheck.log" 2>&1
+          bun test src/lib/workspaces > "$WORKSPACE_RESOURCE_DIR/models.log" 2>&1
+      - name: Install real browser engines
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium firefox > "$WORKSPACE_RESOURCE_DIR/browser-install.log" 2>&1
+      - name: Real-worker lifecycle and large calculation in both browsers
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          timeout 600 node scripts/office-worker-browser.mjs | tee "$WORKSPACE_RESOURCE_DIR/browser.log"
+      - name: Show evidence and diagnostics
+        if: always()
+        run: |
+          for file in "$WORKSPACE_RESOURCE_DIR/typecheck.log" "$WORKSPACE_RESOURCE_DIR/models.log" "$WORKSPACE_RESOURCE_DIR/worker-browser-results.json"; do
+            if test -f "$file"; then echo "=== $file ==="; tail -n 90 "$file"; fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: office-worker-resource-evidence
+          path: /tmp/wabi-office-resources
+          retention-days: 14
+          if-no-files-found: error

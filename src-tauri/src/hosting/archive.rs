@@ -58,6 +58,16 @@ fn digest(path: &Path) -> Result<String> {
     }
     Ok(format!("{:x}", hash.finalize()))
 }
+fn runtime_coordination_file(path: &Path) -> bool {
+    [
+        ".lock",
+        "wabidb/.lock",
+        ".wabi-secret-publication.lock",
+        "wabidb/.wabi-secret-publication.lock",
+    ]
+    .iter()
+    .any(|candidate| path == Path::new(candidate))
+}
 fn walk(
     root: &Path,
     relative: &Path,
@@ -81,8 +91,8 @@ fn walk(
         if kind.is_dir() {
             walk(root, &child, files, target)?;
         } else if kind.is_file() {
-            // Only these two paths are process leases; uploaded .lock files are data.
-            if child == Path::new(".lock") || child == Path::new("wabidb/.lock") {
+            // Exact canonical coordination paths only; uploaded names remain data.
+            if runtime_coordination_file(&child) {
                 continue;
             }
             if files.len() >= MAX_FILES {
@@ -120,52 +130,102 @@ fn walk(
     }
     Ok(())
 }
-/// Cooperate with WabiDB's create-exclusive PID lease, including CLI hosts.
-/// Publish an already-written inode atomically so there is no empty-PID window.
+/// Own WabiDB's persistent advisory lock throughout a stopped operation.
+/// Diagnostic PID bytes are never used as ownership and the inode is never
+/// unlinked. Older root PID locks require explicit operator resolution.
 struct SnapshotLease {
-    paths: Vec<PathBuf>,
-    pid: String,
+    data: PathBuf,
+    lock: fs::File,
+}
+fn refuse_legacy_lock(data: &Path) -> Result<()> {
+    match fs::symlink_metadata(data.join(".lock")) {
+        Ok(_) => Err("A legacy Authority lock exists. Stop every old Wabi process and resolve only data/.lock before continuing; do not remove wabidb/.lock.".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
 }
 impl SnapshotLease {
     fn acquire(data: &Path) -> Result<Self> {
-        let mut lease = Self {
-            paths: Vec::new(),
-            pid: std::process::id().to_string(),
-        };
+        refuse_legacy_lock(data)?;
         for dir in [data.to_path_buf(), data.join("wabidb")] {
-            if !dir.is_dir() {
-                return Err("Missing community data directory".into());
+            let metadata = fs::symlink_metadata(dir).map_err(|e| e.to_string())?;
+            if !metadata.is_dir() || metadata.file_type().is_symlink() {
+                return Err("Community data must use real directories, not symbolic links".into());
             }
-            let temporary = dir.join(format!(".desktop-lock-{}", lease.pid));
-            write_private(&temporary, lease.pid.as_bytes())?;
-            let path = dir.join(".lock");
-            let result = fs::hard_link(&temporary, &path);
-            let _ = fs::remove_file(&temporary);
-            result.map_err(|_| "Data is locked or this filesystem cannot acquire a safe snapshot lease. Stop other Wabi processes; no snapshot was taken.".to_string())?;
-            lease.paths.push(path);
         }
+        let path = data.join("wabidb/.lock");
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if !metadata.is_file() || metadata.file_type().is_symlink() => {
+                return Err("Authority process lock must be a regular file".into());
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.to_string()),
+        }
+        let mut options = fs::OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let lock = options.open(path).map_err(|e| e.to_string())?;
+        lock.try_lock().map_err(|_| "The Authority is running or safe locking is unavailable. Stop other Wabi processes; no data was copied or moved.".to_string())?;
+        let lease = Self {
+            data: data.to_owned(),
+            lock,
+        };
+        lease.verify()?;
         Ok(lease)
     }
-    fn relocated(&mut self, from: &Path, to: &Path) {
-        for path in &mut self.paths {
-            if let Ok(relative) = path.strip_prefix(from) {
-                *path = to.join(relative);
+    fn verify(&self) -> Result<()> {
+        refuse_legacy_lock(&self.data)?;
+        let current =
+            fs::symlink_metadata(self.data.join("wabidb/.lock")).map_err(|e| e.to_string())?;
+        if !current.is_file() || current.file_type().is_symlink() {
+            return Err("Authority process lock is no longer a regular file".into());
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let held = self.lock.metadata().map_err(|e| e.to_string())?;
+            if (held.dev(), held.ino()) != (current.dev(), current.ino()) {
+                return Err(
+                    "Authority process lock inode changed during the stopped operation".into(),
+                );
             }
         }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            if self
+                .lock
+                .metadata()
+                .map_err(|e| e.to_string())?
+                .creation_time()
+                != current.creation_time()
+            {
+                return Err("Authority process lock changed during the stopped operation".into());
+            }
+        }
+        Ok(())
+    }
+    fn relocated(&mut self, from: &Path, to: &Path) -> Result<()> {
+        let relative = self.data.strip_prefix(from).map_err(|e| e.to_string())?;
+        self.data = to.join(relative);
+        self.verify()
     }
 }
 impl Drop for SnapshotLease {
     fn drop(&mut self) {
-        for path in &self.paths {
-            if fs::read_to_string(path).ok().as_deref() == Some(&self.pid) {
-                let _ = fs::remove_file(path);
-            }
-        }
+        // Closing a handle releases ownership, including after a crash. Unlock
+        // explicitly too, avoiding an inherited descriptor delaying release.
+        let _ = self.lock.unlock();
     }
 }
 
 pub fn snapshot(data: &Path, destination: &Path) -> Result<()> {
-    let _lease = SnapshotLease::acquire(data)?;
+    let lease = SnapshotLease::acquire(data)?;
     // Exclusive creation avoids merging with or removing another process's data.
     fs::create_dir(destination).map_err(|e| format!("Cannot create snapshot: {e}"))?;
     private_dir(destination)?;
@@ -184,11 +244,13 @@ pub fn snapshot(data: &Path, destination: &Path) -> Result<()> {
                 ));
             }
         }
+        lease.verify()?;
         let manifest = Manifest { version: 1, files };
         write_private(
             &destination.join("manifest.json"),
             &serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?,
-        )
+        )?;
+        lease.verify()
     })();
     if result.is_err() {
         let _ = fs::remove_dir_all(destination);
@@ -201,13 +263,19 @@ fn verified_manifest(snapshot: &Path) -> Result<Manifest> {
     if !metadata.is_file() || metadata.len() > 32 * 1024 * 1024 {
         return Err("Invalid snapshot manifest".into());
     }
-    let manifest: Manifest = serde_json::from_slice(
+    let mut manifest: Manifest = serde_json::from_slice(
         &fs::read(snapshot.join("manifest.json")).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
     if manifest.version != 1 {
         return Err("Unsupported snapshot version".into());
     }
+    // Earlier version-1 snapshots may list secret-publication coordination
+    // files. They contain no community data and must not be restored as leases.
+    // Normalize only the same four exact runtime paths excluded from the walk.
+    manifest
+        .files
+        .retain(|path, _| !runtime_coordination_file(Path::new(path)));
     let mut actual = BTreeMap::new();
     walk(&snapshot.join("data"), Path::new(""), &mut actual, None)?;
     if actual != manifest.files {
@@ -249,7 +317,7 @@ pub fn restore_copy(snapshot: &Path, staging: &Path) -> Result<()> {
     copy_verified(snapshot, staging, &manifest)
 }
 
-/// Keep both server data leases held while moving a tree, including CLI hosts.
+/// Keep current and replacement advisory leases held through tree publication.
 /// A restore never renames a possibly live community or removes its original.
 pub fn install_restore(
     snapshot: &Path,
@@ -267,29 +335,37 @@ pub fn install_restore(
         None
     };
     restore_copy(snapshot, staging)?;
+    // Hold the replacement's own inode before publishing it at the live path.
+    let mut staged_lease = SnapshotLease::acquire(staging)?;
     if had_data {
+        lease.as_ref().unwrap().verify()?;
         fs::rename(data, original).map_err(|e| {
             format!(
                 "Could not preserve the current community; copied backup is kept at {}: {e}",
                 staging.display()
             )
         })?;
-        lease.as_mut().unwrap().relocated(data, original);
+        lease.as_mut().unwrap().relocated(data, original)?;
     }
+    staged_lease.verify()?;
     if let Err(error) = fs::rename(staging, data) {
         if had_data {
             fs::rename(original, data).map_err(|rollback| format!("Restore failed ({error}); the original is kept at {} and the backup copy at {}. Could not move the original back: {rollback}", original.display(), staging.display()))?;
-            lease.as_mut().unwrap().relocated(original, data);
+            lease.as_mut().unwrap().relocated(original, data)?;
         }
         return Err(format!(
             "Restore could not be installed; the original community was kept. {error}"
         ));
     }
+    staged_lease.relocated(staging, data)?;
+    if let Some(lease) = &lease {
+        lease.verify()?;
+    }
     Ok(had_data)
 }
 
-/// Undo a failed restore only after acquiring leases for both trees. Any lock
-/// left by another or interrupted process makes this stop without moving data.
+/// Undo a failed restore only after owning both trees' actual advisory locks.
+/// A live owner or unresolved legacy root lock prevents any data relocation.
 pub fn rollback_restore(data: &Path, original: &Path, failed: &Path, had_data: bool) -> Result<()> {
     if failed.exists() {
         return Err("The failed-restore preservation folder already exists".into());
@@ -300,8 +376,12 @@ pub fn rollback_restore(data: &Path, original: &Path, failed: &Path, had_data: b
     } else {
         None
     };
+    restored_lease.verify()?;
+    if let Some(lease) = &original_lease {
+        lease.verify()?;
+    }
     fs::rename(data, failed).map_err(|e| e.to_string())?;
-    restored_lease.relocated(data, failed);
+    restored_lease.relocated(data, failed)?;
     if had_data {
         fs::rename(original, data).map_err(|e| {
             format!(
@@ -309,7 +389,7 @@ pub fn rollback_restore(data: &Path, original: &Path, failed: &Path, had_data: b
                 original.display()
             )
         })?;
-        original_lease.as_mut().unwrap().relocated(original, data);
+        original_lease.as_mut().unwrap().relocated(original, data)?;
     }
     Ok(())
 }
@@ -378,15 +458,152 @@ mod tests {
         assert!(!t.0.join("untouched").exists());
     }
     #[test]
-    fn refuses_existing_lease_and_unsafe_ids() {
+    fn refuses_os_owned_writer_and_unsafe_ids() {
         let t = Temporary::new();
         let data = t.data();
-        write_private(&data.join("wabidb/.lock"), b"someone-else").unwrap();
+        write_private(&data.join("wabidb/.lock"), b"diagnostic-only").unwrap();
+        let writer = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(data.join("wabidb/.lock"))
+            .unwrap();
+        writer.try_lock().unwrap();
         assert!(snapshot(&data, &t.0.join("1")).is_err());
         assert!(!t.0.join("1").exists());
         assert!(!data.join(".lock").exists());
         assert!(checked_snapshot(&t.0, "../data").is_err());
         assert!(checked_snapshot(&t.0, "").is_err());
+    }
+    #[test]
+    fn stopped_persistent_lock_is_preserved_with_diagnostic_bytes() {
+        let t = Temporary::new();
+        let data = t.data();
+        let path = data.join("wabidb/.lock");
+        let diagnostic = std::process::id().to_string();
+        write_private(&path, diagnostic.as_bytes()).unwrap();
+        #[cfg(unix)]
+        let before = {
+            use std::os::unix::fs::MetadataExt;
+            let metadata = fs::metadata(&path).unwrap();
+            (metadata.dev(), metadata.ino())
+        };
+        snapshot(&data, &t.0.join("1")).unwrap();
+        snapshot(&data, &t.0.join("2")).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), diagnostic.as_bytes());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let metadata = fs::metadata(&path).unwrap();
+            assert_eq!((metadata.dev(), metadata.ino()), before);
+        }
+        // Neither diagnostic PID text nor file presence means a live owner.
+        let writer = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        writer.try_lock().unwrap();
+    }
+    #[test]
+    fn lease_blocks_competing_writer_and_keeps_ownership_after_relocation() {
+        let t = Temporary::new();
+        let data = t.data();
+        let mut lease = SnapshotLease::acquire(&data).unwrap();
+        let contender = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(data.join("wabidb/.lock"))
+            .unwrap();
+        assert!(contender.try_lock().is_err());
+        let original = t.0.join("original");
+        fs::rename(&data, &original).unwrap();
+        lease.relocated(&data, &original).unwrap();
+        assert!(contender.try_lock().is_err());
+        let moved_contender = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(original.join("wabidb/.lock"))
+            .unwrap();
+        assert!(moved_contender.try_lock().is_err());
+        drop(lease);
+        assert!(original.join("wabidb/.lock").is_file());
+        moved_contender.try_lock().unwrap();
+    }
+    #[test]
+    fn legacy_root_lock_refuses_snapshot_restore_and_is_never_removed() {
+        let t = Temporary::new();
+        let data = t.data();
+        let backup = t.0.join("1");
+        snapshot(&data, &backup).unwrap();
+        write_private(&data.join(".lock"), b"unresolved-legacy-pid").unwrap();
+        assert!(snapshot(&data, &t.0.join("2")).is_err());
+        assert!(
+            install_restore(&backup, &data, &t.0.join("staging"), &t.0.join("original")).is_err()
+        );
+        assert_eq!(
+            fs::read(data.join(".lock")).unwrap(),
+            b"unresolved-legacy-pid"
+        );
+        assert!(!t.0.join("2").exists());
+        assert!(!t.0.join("staging").exists());
+        assert!(!t.0.join("original").exists());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn lease_verification_refuses_changed_inode_without_unlinking_either() {
+        use std::os::unix::fs::MetadataExt;
+        let t = Temporary::new();
+        let data = t.data();
+        let lease = SnapshotLease::acquire(&data).unwrap();
+        let path = data.join("wabidb/.lock");
+        let inode = fs::metadata(&path).unwrap().ino();
+        let moved = data.join("wabidb/displaced-lock");
+        fs::rename(&path, &moved).unwrap();
+        write_private(&path, b"replacement").unwrap();
+        assert!(lease.verify().is_err());
+        drop(lease);
+        assert_eq!(fs::metadata(&moved).unwrap().ino(), inode);
+        assert_eq!(fs::read(&path).unwrap(), b"replacement");
+    }
+    #[cfg(unix)]
+    #[test]
+    fn engine_lock_symlink_is_rejected_without_touching_its_target() {
+        let t = Temporary::new();
+        let data = t.data();
+        let target = t.0.join("unrelated");
+        write_private(&target, b"untouched").unwrap();
+        std::os::unix::fs::symlink(&target, data.join("wabidb/.lock")).unwrap();
+        assert!(snapshot(&data, &t.0.join("1")).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"untouched");
+        assert!(fs::symlink_metadata(data.join("wabidb/.lock"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+    #[test]
+    fn rollback_refuses_live_restored_or_original_tree_without_moving_either() {
+        let t = Temporary::new();
+        let data = t.data();
+        let backup = t.0.join("1");
+        snapshot(&data, &backup).unwrap();
+        let original = t.0.join("original");
+        install_restore(&backup, &data, &t.0.join("staging"), &original).unwrap();
+        let failed = t.0.join("failed");
+        for root in [&data, &original] {
+            let writer = fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(root.join("wabidb/.lock"))
+                .unwrap();
+            writer.try_lock().unwrap();
+            assert!(rollback_restore(&data, &original, &failed, true).is_err());
+            assert!(data.join("jwt_secret").is_file());
+            assert!(original.join("jwt_secret").is_file());
+            assert!(!failed.exists());
+        }
+        rollback_restore(&data, &original, &failed, true).unwrap();
+        assert!(data.join("wabidb/.lock").is_file());
+        assert!(failed.join("wabidb/.lock").is_file());
     }
     #[test]
     fn changed_source_during_restore_is_rejected_and_cleaned_up() {
@@ -430,12 +647,69 @@ mod tests {
         let backup = t.0.join("1");
         private_dir(&data.join("uploads")).unwrap();
         write_private(&data.join("uploads/.lock"), b"user-upload").unwrap();
+        write_private(
+            &data.join("uploads/.wabi-secret-publication.lock"),
+            b"user-upload-publication-name",
+        )
+        .unwrap();
+        write_private(
+            &data.join(".wabi-secret-publication.lock"),
+            b"runtime-publication-lock",
+        )
+        .unwrap();
+        write_private(
+            &data.join("wabidb/.wabi-secret-publication.lock"),
+            b"runtime-db-publication-lock",
+        )
+        .unwrap();
         snapshot(&data, &backup).unwrap();
         restore_copy(&backup, &t.0.join("restore")).unwrap();
         assert_eq!(
             fs::read(t.0.join("restore/uploads/.lock")).unwrap(),
             b"user-upload"
         );
+        assert_eq!(
+            fs::read(t.0.join("restore/uploads/.wabi-secret-publication.lock")).unwrap(),
+            b"user-upload-publication-name"
+        );
+        assert!(!t.0.join("restore/.wabi-secret-publication.lock").exists());
+        assert!(!t
+            .0
+            .join("restore/wabidb/.wabi-secret-publication.lock")
+            .exists());
+        assert!(data.join(".wabi-secret-publication.lock").is_file());
+        assert!(data.join("wabidb/.wabi-secret-publication.lock").is_file());
+    }
+    #[test]
+    fn older_v1_publication_lock_entries_are_readable_but_not_restored() {
+        let t = Temporary::new();
+        let data = t.data();
+        let backup = t.0.join("1");
+        snapshot(&data, &backup).unwrap();
+        let manifest_path = backup.join("manifest.json");
+        let mut manifest: Manifest =
+            serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        for name in [
+            ".wabi-secret-publication.lock",
+            "wabidb/.wabi-secret-publication.lock",
+        ] {
+            write_private(&backup.join("data").join(name), b"legacy-runtime-metadata").unwrap();
+            manifest.files.insert(
+                name.into(),
+                digest(&backup.join("data").join(name)).unwrap(),
+            );
+        }
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let restore = t.0.join("restore");
+        restore_copy(&backup, &restore).unwrap();
+        assert_eq!(
+            fs::read(restore.join("jwt_secret")).unwrap(),
+            b"jwt-identity"
+        );
+        assert!(!restore.join(".wabi-secret-publication.lock").exists());
+        assert!(!restore
+            .join("wabidb/.wabi-secret-publication.lock")
+            .exists());
     }
     #[test]
     fn restore_preserves_original_and_rollback_keeps_failed_tree() {
@@ -453,7 +727,7 @@ mod tests {
         rollback_restore(&data, &original, &failed, true).unwrap();
         assert!(data.join("keep-original").is_file());
         assert!(failed.join("jwt_secret").is_file());
-        assert!(!data.join("wabidb/.lock").exists());
+        assert!(data.join("wabidb/.lock").is_file());
     }
     #[test]
     fn restore_does_not_move_live_data_even_after_backup_validation() {
@@ -463,6 +737,12 @@ mod tests {
         snapshot(&data, &backup).unwrap();
         validate(&backup).unwrap();
         fs::write(data.join("wabidb/.lock"), b"another-process").unwrap();
+        let writer = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(data.join("wabidb/.lock"))
+            .unwrap();
+        writer.try_lock().unwrap();
         let original = t.0.join("original");
         let staging = t.0.join("staging");
         assert!(install_restore(&backup, &data, &staging, &original).is_err());
@@ -492,6 +772,6 @@ mod tests {
         std::os::unix::fs::symlink("/etc/passwd", data.join("escape")).unwrap();
         assert!(snapshot(&data, &t.0.join("1")).is_err());
         assert!(!t.0.join("1").exists());
-        assert!(!data.join("wabidb/.lock").exists());
+        assert!(data.join("wabidb/.lock").is_file());
     }
 }
