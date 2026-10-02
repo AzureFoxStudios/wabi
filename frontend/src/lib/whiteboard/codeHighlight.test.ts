@@ -1,5 +1,9 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeAll, describe, expect, test } from 'bun:test';
+import { ensurePrismGrammars } from '../prism';
 import { highlightCodeLines, normalizeCodeLanguage, tokenColor, CODE_TEXT_COLOR } from './codeHighlight';
+
+// Production loads grammars asynchronously before rendering code cards.
+beforeAll(async () => { await ensurePrismGrammars(); });
 
 describe('normalizeCodeLanguage', () => {
 	test('maps aliases', () => {

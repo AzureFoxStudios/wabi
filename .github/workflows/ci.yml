@@ -60,7 +60,7 @@ jobs:
 
       - name: Frontend unit tests
         working-directory: frontend
-        run: bun test src/lib
+        run: bun test --isolate src/lib
 
       - name: Frontend svelte-check
         working-directory: frontend

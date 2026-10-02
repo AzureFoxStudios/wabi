@@ -278,7 +278,7 @@ jobs:
         run: cd frontend && npm ci --no-audit --no-fund
 
       - name: unit tests
-        run: cd frontend && bun test src/lib
+        run: cd frontend && bun test --isolate src/lib
 
       - name: Calendar daylight-saving regression tests
         run: cd frontend && TZ=America/New_York bun test src/lib/business/calendarOccurrences.test.ts src/lib/business/calendarForm.test.ts
