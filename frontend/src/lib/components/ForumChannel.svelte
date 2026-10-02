@@ -14,7 +14,7 @@
 	import ForumComposer from './ForumComposer.svelte';
 	import { initObjectRefRegistry, registerObjectRef, slugify } from '$lib/objectRefRegistry';
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
-	import { peekPendingNav, takePendingNav } from '$lib/pendingNav';
+	import { pendingNav, takePendingNav } from '$lib/pendingNav';
 
 	export let channelId: string | undefined = undefined;
 	export let draftSurface = 'center';
@@ -201,8 +201,8 @@
 	}
 
 	// C2: deep-link handoff after threads load — peek first, take only on hit
-	$: if (effectiveChannel && allThreads.length > 0) {
-		const pending = peekPendingNav();
+	$: if (draftSurface === 'center' && effectiveChannel && allThreads.length > 0) {
+		const pending = $pendingNav;
 		if (
 			pending?.kind === 'forum_post' &&
 			(!pending.channelId || pending.channelId === effectiveChannel)

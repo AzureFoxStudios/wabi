@@ -1,5 +1,6 @@
 <script lang="ts">
  import { onMount, onDestroy } from 'svelte';
+ import { wikiCardExcerpt } from '$lib/forumPreview';
  import { parseMessage } from '$lib/markdown';
  import { objectRefStore, resolveObjectRef } from '$lib/objectRefRegistry';
  import { forumAuthors } from '$lib/forumIdentity';
@@ -31,7 +32,7 @@
     const workspace=createWikiWorkspace();
     return {dispose:workspace.dispose,load:async()=>{
      await workspace.loadWiki(channel.id);
-     return get(workspace.wikiPagesStore).filter(page=>!page.isDeleted).map(page=>({kind:'wiki_page' as const,id:page.pageId,slug:page.slug || slugify(page.title),title:page.title,channelId:channel.id,subtitle:page.body.replace(/[#*`>]/g,'').replace(/\s+/g,' ').slice(0,180)}));
+     return get(workspace.wikiPagesStore).filter(page=>!page.isDeleted).map(page=>({kind:'wiki_page' as const,id:page.pageId,slug:page.slug || slugify(page.title),title:page.title,channelId:channel.id,subtitle:wikiCardExcerpt(page.body)}));
     }};
    }}];
    if(channel.type==='gallery')return [{id:channel.id,prefix:'g' as const,create:()=>{
