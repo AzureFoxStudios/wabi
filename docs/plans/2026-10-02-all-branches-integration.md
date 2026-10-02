@@ -1,7 +1,7 @@
 # All-branch integration — 2026-10-02
 
-Status: combined development candidate; final Rust and runtime gates in progress.
-No deployment or main merge is recorded by this document yet.
+Status: validated source consolidation. The checks below describe the combined
+integration source; merge, push and deployment remain distinct operations.
 
 The requested order is checkpoint/push accumulated source, consolidate non-main
 work on a reviewable branch, then merge the validated branch into main.
@@ -52,6 +52,11 @@ no history is rewritten.
   Authorities with matching IDs. Admission lookup, eviction and permission jobs
   are now Authority-scoped, with independent-Authority capacity/device/job tests.
   Office channel fixtures explicitly enroll creators, matching the real API.
+- The real native hosting gate exposed a stale PID/hardlink backup lease. Native
+  snapshot, restore and rollback now hold the current advisory lock through
+  copying and relocation, preserve its inode, and reject unresolved legacy root
+  locks. Seven regressions cover actual ownership, stale diagnostic bytes,
+  relocation, tampering and old snapshot publication-lock compatibility.
 - Album attachment size/MIME metadata passes through the current guarded write
   path using fields already present on durable records. No postcard record
   fields are reordered for this repair.
@@ -103,13 +108,19 @@ compilation and test debug info disabled to bound disk use.
 | Sabi own locked tests/check/build | 30 passed; Svelte/TypeScript clean; static build passed |
 | Combined pinned Rust compilation | Passed, complete workspace test executables |
 | Initial combined Rust execution | 2,717 passed, 3 failed, 18 ignored; media isolation and fixture repairs made |
-| Final combined Rust execution | Pending rerun after repairs |
-| Native Linux compilation/tests | Pending serialized slot |
-| Optional Office static SPA | Passed, all packages; 340 immutable assets |
+| Final combined Rust execution | 2,723 passed, 0 failed, 18 ignored |
+| Enabled addons/experimental broker library and security contracts | 564 passed, 0 failed, 1 ignored; current-device helper reply and mismatched-identity rejection verified |
+| Native Linux library compilation/unit tests | Passed after advisory backup repair; 58 tests, 0 failed |
+| Optional Office static SPA | Passed after UI followup, all packages; 341 immutable assets |
 | Office real workers, Chromium and Firefox | Passed; 200,000-cell result, bounded burst, cancellation and cleanup |
 | Office editor/Authority browser contracts | 37 passed in Chromium and 37 in Firefox; converters not exercised |
+| Stopped-copy and encrypted Authority backup/restore | Passed; persistent bytes, keys, accounts, uploads and restart verified; encrypted archive omits runtime locks |
+| Timed retention with real Authority restart | Passed; exact policy/deadline, upload independence and authorized Live bot rejection verified; rejected body absent after replay and from stopped data files |
+| Independent project helper | 12 Rust tests and 42 real executable contracts passed; pinned binary build passed |
+| Independent native host safety | 39 passed; explicit real-Authority bootstrap/owner/restart/profile-lock/stopped-backup/live-restore-denial/restore gate also passed |
 
-Browser/native/mobile-device, real SFU/provider and converter acceptance remain
-separate release gates where they cannot be exercised locally. A source merge
+Native keychain/JNI roundtrips, command IPC and export dialogs, physical mobile
+devices, real media/SFU providers and converters remain separate release gates
+where they cannot be exercised locally. A source merge
 must not be presented as deployment, physical-device acceptance, independently
 verified E2EE, or production replication/HA.
