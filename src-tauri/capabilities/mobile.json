@@ -1,15 +1,13 @@
 {
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "mobile",
-  "description": "Minimal core capability for Wabi phone clients; native integrations are granted explicitly as they are implemented",
-  "windows": [
-    "main"
-  ],
-  "platforms": [
-    "iOS",
-    "android"
-  ],
+  "description": "Local mobile main window notifications",
+  "windows": ["main"],
+  "platforms": ["android", "iOS"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+    "notification:allow-notify"
   ]
 }
