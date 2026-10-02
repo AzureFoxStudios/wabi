@@ -1,0 +1,49 @@
+name: Pointer effects browser checks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/src/lib/effects/**'
+      - 'frontend/src/lib/components/settings/AppearanceSettingsTab.svelte'
+      - 'frontend/src/styles/**'
+      - 'frontend/scripts/*visual-effects-browser*'
+      - 'frontend/scripts/pointer-effects-browser*'
+      - 'frontend/test/*visual-effects-browser*'
+      - 'frontend/test/pointer-effects-browser*'
+      - 'frontend/package*.json'
+      - 'src-tauri/tauri.conf.json'
+      - '.github/workflows/pointer-effects-browser.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pointer-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx svelte-kit sync
+      - run: npx playwright install --with-deps chromium
+      - name: Local import and shader audit
+        run: xvfb-run -a node scripts/local-visual-effects-browser-smoke.mjs
+      - name: Pointer worlds, settings and physical input
+        run: xvfb-run -a node scripts/pointer-effects-browser-smoke.mjs
+      - name: Save synthetic visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pointer-effects-visuals
+          path: frontend/test-results/pointer-effects
+          if-no-files-found: ignore
