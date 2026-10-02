@@ -54,7 +54,7 @@ export class CallSessionManager {
 		// unless explicitly promoted (mockup contract: exactly one FOCUSED).
 		const anyFocused = existing?.focus === 'focused' || focusedHasValue(next);
 		const direction: CallSessionDirection =
-			input.kind === 'channel' && voiceAdmissionForcesListen(input.channelId)
+			input.kind === 'channel' && voiceAdmissionForcesListen(input.channelId ?? input.id)
 				? 'listen'
 				: input.direction ?? (anyFocused ? 'listen' : 'transmit');
 		const focus: CallSessionFocus = existing?.focus ?? (anyFocused ? 'background' : 'focused');
@@ -99,7 +99,7 @@ export class CallSessionManager {
 		const next = new Map(get(sessionsWritable));
 		const removed = next.get(id);
 		if (!removed) return;
-		if (removed.kind === 'channel' && removed.channelId) clearVoiceAdmission(removed.channelId);
+		if (removed.kind === 'channel') clearVoiceAdmission(removed.channelId ?? removed.id);
 		next.delete(id);
 		commit(next);
 		audioBindings?.onSessionEnded?.(id);
@@ -127,7 +127,7 @@ export class CallSessionManager {
 		const endedSessions = [...get(sessionsWritable).values()];
 		const ended = endedSessions.map((session) => session.id);
 		for (const session of endedSessions) {
-			if (session.kind === 'channel' && session.channelId) clearVoiceAdmission(session.channelId);
+			if (session.kind === 'channel') clearVoiceAdmission(session.channelId ?? session.id);
 		}
 		commit(new Map());
 		focusedCallSessionId.set(null);
@@ -143,7 +143,7 @@ export class CallSessionManager {
 		if (!next.has(id)) return;
 		this.applyFocus(next, id);
 		const session = next.get(id)!;
-		if (session.kind === 'channel' && voiceAdmissionForcesListen(session.channelId)) {
+		if (session.kind === 'channel' && voiceAdmissionForcesListen(session.channelId ?? session.id)) {
 			next.set(id, { ...session, direction: 'listen' });
 		} else if (session.direction === 'listen') {
 			next.set(id, { ...session, direction: 'transmit' });
@@ -163,7 +163,7 @@ export class CallSessionManager {
 	setDirection(id: string, direction: CallSessionDirection): void {
 		this.update(id, (session) => ({
 			...session,
-			direction: session.kind === 'channel' && voiceAdmissionForcesListen(session.channelId) ? 'listen' : direction,
+			direction: session.kind === 'channel' && voiceAdmissionForcesListen(session.channelId ?? session.id) ? 'listen' : direction,
 			lastActivityAt: Date.now()
 		}));
 	}

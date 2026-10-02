@@ -2627,3 +2627,69 @@ async fn exact_retention_overrides_stale_database_day_count() {
         );
     }
 }
+
+#[tokio::test]
+async fn voice_policy_listener_capacity_and_mute_are_authority_decisions() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (member, outsider, owner) = users(&state).await;
+    let voice = channel(&state, member, ChannelKind::Voice).await;
+    state.wdb.add_channel_member(&voice, outsider, MemberRole::Member).await.unwrap();
+    let app = create_api_router(state.clone()).with_state(state.clone())
+        .layer(wabi_server::socketio::create_socket_layer(state.clone()));
+    let path = format!("/voice-policy/{voice}");
+    let (status, _) = request(&app, Method::PUT, &path, &jwt(&state, member), json!({"entryMode":"listen_only"})).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = request(&app, Method::PUT, &path, &jwt(&state, owner), json!({"entryMode":"listen_only","userLimit":1})).await;
+    assert_eq!(status, StatusCode::OK);
+    let mut first = SocketClient::connect(&app, &jwt(&state, member)).await;
+    let mut sibling = SocketClient::connect(&app, &jwt(&state, member)).await;
+    let mut second = SocketClient::connect(&app, &jwt(&state, outsider)).await;
+    for device in [&mut first, &mut sibling] {
+        device.emit("voice-channel-join", json!({"channelId":voice})).await;
+        assert_eq!(device.event("voice-channel-admitted").await["listeningOnly"], true);
+    }
+    second.emit("voice-channel-join", json!({"channelId":voice,"requestId":"full"})).await;
+    let denied = second.event("voice-channel-error").await;
+    assert_eq!(denied["code"], "voice_full");
+    first.emit("set-voice-transmit-mode", json!({"mode":"all-listening"})).await;
+    first.event("voice-transmit-mode-updated").await;
+    let mut roster = first.event("voice-channel-state").await;
+    // Earlier roster events may precede the current request, so drain until
+    // the transmitting-mode callback's full roster is seen.
+    for _ in 0..3 {
+        if roster["members"].as_array().unwrap().len() == 2 { break; }
+        roster = first.event("voice-channel-state").await;
+    }
+    for participant in roster["members"].as_array().unwrap() {
+        assert_eq!(participant["isListeningOnly"], true);
+        assert_eq!(participant["transmitMode"], "listening");
+    }
+    for device in [&mut first, &mut sibling] {
+        device.emit("join-wabidb-call", json!({"channelId":voice,"sessionId":format!("channel:{voice}"),"requestId":"listener-relay"})).await;
+        device.event("wabidb-call-joined").await;
+    }
+    first.emit("wabidb-media", json!({"sessionId":format!("channel:{voice}"),"kind":"audio","payload":"POLICY-LISTENER-MUST-NOT-PUBLISH","seq":0})).await;
+    first.emit("get-role-definitions", json!(null)).await;
+    first.event("role-definitions-updated").await;
+    sibling.emit("get-role-definitions", json!(null)).await;
+    sibling.event("role-definitions-updated").await;
+    assert!(!sibling.events.iter().any(|event| event[0] == "wabidb-media" && event[1]["payload"] == "POLICY-LISTENER-MUST-NOT-PUBLISH"));
+    first.emit("voice-channel-leave", json!({"channelId":voice})).await;
+    first.event("voice-channel-left").await;
+    // The second account is still fenced by its sibling's occupied slot.
+    second.emit("voice-channel-subscribe", json!({"channelId":voice})).await;
+    assert_eq!(second.event("voice-channel-error").await["code"], "voice_full");
+    sibling.emit("voice-channel-leave", json!({"channelId":voice})).await;
+    sibling.event("voice-channel-left").await;
+    let (status, _) = request(&app, Method::PUT, &path, &jwt(&state, owner), json!({"entryMode":"muted"})).await;
+    assert_eq!(status, StatusCode::OK);
+    second.emit("voice-channel-join", json!({"channelId":voice})).await;
+    let admitted = second.event("voice-channel-admitted").await;
+    assert_eq!(admitted["listeningOnly"], false);
+    assert_eq!(admitted["mutedOnEntry"], true);
+    state.wdb.mute_user(&voice, owner, outsider, i64::MAX).await.unwrap();
+    second.emit("voice-self-state", json!({"muted":false})).await;
+    // The durable restriction remains authoritative after a self-state event.
+    assert!(state.wdb.is_user_muted(&voice, outsider).await.unwrap());
+}

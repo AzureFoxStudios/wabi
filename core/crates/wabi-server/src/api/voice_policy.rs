@@ -60,6 +60,7 @@ pub struct VoiceAdmission {
     pub user_id: i64,
     pub socket_id: String,
     pub listening_only: bool,
+    pub policy_listening_only: bool,
     pub muted_on_entry: bool,
     pub server_muted: bool,
     pub server_deafened: bool,
@@ -123,35 +124,57 @@ pub fn admission_for(channel_id: &str, user_id: i64, socket_id: &str) -> Option<
         .cloned()
 }
 
+pub fn account_admissions(channel_id: &str, user_id: i64) -> Vec<VoiceAdmission> {
+    admissions()
+        .read()
+        .expect("voice admission registry")
+        .get(channel_id)
+        .map(|devices| {
+            devices
+                .values()
+                .filter(|device| device.user_id == user_id)
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn store_path(data_dir: &str) -> PathBuf {
     PathBuf::from(data_dir).join("voice_policies.json")
 }
 
-fn load(path: &Path) -> VoicePolicyFile {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<VoicePolicyFile>(&raw).ok())
-        .unwrap_or_default()
-}
-
-fn with_store<R>(data_dir: &str, f: impl FnOnce(&VoicePolicyFile) -> R) -> R {
-    let path = store_path(data_dir);
-    if let Some(existing) = cache().read().expect("voice policy cache").get(&path).cloned() {
-        return f(&existing);
+fn load(path: &Path) -> Result<VoicePolicyFile, String> {
+    let raw = match std::fs::read(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(VoicePolicyFile::default())
+        }
+        Err(error) => return Err(format!("read voice policies: {error}")),
+    };
+    if raw.len() > 2 * 1024 * 1024 {
+        return Err("voice policy file too large".into());
     }
-    let loaded = load(&path);
-    cache()
-        .write()
-        .expect("voice policy cache")
-        .entry(path)
-        .or_insert_with(|| loaded.clone());
-    f(&loaded)
+    let store: VoicePolicyFile =
+        serde_json::from_slice(&raw).map_err(|error| format!("decode voice policies: {error}"))?;
+    for policy in store.channels.values() {
+        validate(policy)?;
+    }
+    Ok(store)
 }
 
-pub fn get(data_dir: &str, channel_id: &str) -> VoiceChannelPolicy {
-    with_store(data_dir, |store| {
-        store.channels.get(channel_id).cloned().unwrap_or_default()
-    })
+pub fn get(data_dir: &str, channel_id: &str) -> Result<VoiceChannelPolicy, String> {
+    let path = store_path(data_dir);
+    let mut guard = cache()
+        .write()
+        .map_err(|_| "voice policy cache poisoned".to_string())?;
+    if !guard.contains_key(&path) {
+        guard.insert(path.clone(), load(&path)?);
+    }
+    Ok(guard[&path]
+        .channels
+        .get(channel_id)
+        .cloned()
+        .unwrap_or_default())
 }
 
 pub fn set(
@@ -164,10 +187,18 @@ pub fn set(
     }
     validate(&policy)?;
     let path = store_path(data_dir);
-    let mut guard = cache().write().map_err(|_| "voice policy cache poisoned".to_string())?;
-    let store = guard.entry(path.clone()).or_insert_with(|| load(&path));
-    store.channels.insert(channel_id.to_string(), policy.clone());
-    persist(&path, store)?;
+    let mut guard = cache()
+        .write()
+        .map_err(|_| "voice policy cache poisoned".to_string())?;
+    let mut store = match guard.get(&path) {
+        Some(store) => store.clone(),
+        None => load(&path)?,
+    };
+    store
+        .channels
+        .insert(channel_id.to_string(), policy.clone());
+    persist(&path, &store)?;
+    guard.insert(path, store);
     Ok(policy)
 }
 
@@ -183,7 +214,7 @@ pub fn update_from_value(
     let object = value
         .as_object()
         .ok_or_else(|| "voiceSettings must be an object".to_string())?;
-    let mut next = get(data_dir, channel_id);
+    let mut next = get(data_dir, channel_id)?;
 
     if let Some(raw) = object.get("bitrateMode") {
         next.bitrate_mode = if raw.is_null() {
@@ -238,17 +269,26 @@ pub fn update_from_value(
 
 pub fn remove(data_dir: &str, channel_id: &str) -> Result<(), String> {
     let path = store_path(data_dir);
-    let mut guard = cache().write().map_err(|_| "voice policy cache poisoned".to_string())?;
-    let store = guard.entry(path.clone()).or_insert_with(|| load(&path));
+    let mut guard = cache()
+        .write()
+        .map_err(|_| "voice policy cache poisoned".to_string())?;
+    let mut store = match guard.get(&path) {
+        Some(store) => store.clone(),
+        None => load(&path)?,
+    };
     if store.channels.remove(channel_id).is_some() {
-        persist(&path, store)?;
+        persist(&path, &store)?;
     }
+    guard.insert(path, store);
     Ok(())
 }
 
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
-        .route("/{channel_id}", route_get(get_policy_route).put(put_policy_route))
+        .route(
+            "/{channel_id}",
+            route_get(get_policy_route).put(put_policy_route),
+        )
         .with_state(state)
 }
 
@@ -259,10 +299,14 @@ async fn get_policy_route(
 ) -> Result<Json<Value>, AppError> {
     let channel = crate::channel_access::require_access(&state, auth.user_id, &channel_id).await?;
     if channel.channel_kind != wabidb::domain::ChannelKind::Voice {
-        return Err(AppError::BadRequest("voice policy only applies to voice channels".into()));
+        return Err(AppError::BadRequest(
+            "voice policy only applies to voice channels".into(),
+        ));
     }
-    let policy = get(&state.config.data_dir, &channel_id);
-    Ok(Json(json!({ "channelId": channel_id, "voiceSettings": policy })))
+    let policy = get(&state.config.data_dir, &channel_id).map_err(AppError::Internal)?;
+    Ok(Json(
+        json!({ "channelId": channel_id, "voiceSettings": policy }),
+    ))
 }
 
 async fn put_policy_route(
@@ -271,31 +315,46 @@ async fn put_policy_route(
     AxumPath(channel_id): AxumPath<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
-    if !state.is_admin(auth.user_id).await {
-        return Err(AppError::Unauthorized("only admins can change voice policy".into()));
-    }
-    let channel = state
-        .wdb
-        .get_channel(&channel_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Channel {channel_id} not found")))?;
-    if channel.channel_kind != wabidb::domain::ChannelKind::Voice {
-        return Err(AppError::BadRequest("voice policy only applies to voice channels".into()));
-    }
-    let settings = body.get("voiceSettings").unwrap_or(&body);
-    let policy = update_from_value(&state.config.data_dir, &channel_id, settings)
-        .map_err(AppError::BadRequest)?;
+    let membership = state.membership_gate.clone().write_owned().await;
+    let authorization = auth.admit_current(&state).await?;
+    let operation_state = state.clone();
+    authorization
+        .run(&operation_state, async move {
+            let _membership = membership;
+            crate::channel_access::require_access(&state, auth.user_id, &channel_id).await?;
+            if auth.is_guest || auth.is_bot || !state.is_admin(auth.user_id).await {
+                return Err(AppError::Unauthorized(
+                    "only admins can change voice policy".into(),
+                ));
+            }
+            let channel = state
+                .wdb
+                .get_channel(&channel_id)
+                .await?
+                .ok_or_else(|| AppError::NotFound(format!("Channel {channel_id} not found")))?;
+            if channel.channel_kind != wabidb::domain::ChannelKind::Voice {
+                return Err(AppError::BadRequest(
+                    "voice policy only applies to voice channels".into(),
+                ));
+            }
+            let settings = body.get("voiceSettings").unwrap_or(&body);
+            let policy = update_from_value(&state.config.data_dir, &channel_id, settings)
+                .map_err(AppError::BadRequest)?;
 
-    if let Some(io) = state.socket_io() {
-        let _ = io
-            .broadcast()
-            .emit(
-                "channel-updated",
-                &json!({ "channelId": channel_id, "voiceSettings": policy }),
-            )
-            .await;
-    }
-    Ok(Json(json!({ "channelId": channel_id, "voiceSettings": policy })))
+            if let Some(io) = state.socket_io() {
+                let _ = io
+                    .broadcast()
+                    .emit(
+                        "channel-updated",
+                        &json!({ "channelId": channel_id, "voiceSettings": policy }),
+                    )
+                    .await;
+            }
+            Ok(Json(
+                json!({ "channelId": channel_id, "voiceSettings": policy }),
+            ))
+        })
+        .await
 }
 
 fn validate(policy: &VoiceChannelPolicy) -> Result<(), String> {
@@ -336,8 +395,7 @@ fn persist(path: &Path, store: &VoicePolicyFile) -> Result<(), String> {
         file.sync_all()
             .map_err(|error| format!("sync voice policies: {error}"))?;
         drop(file);
-        std::fs::rename(&temp, path)
-            .map_err(|error| format!("replace voice policies: {error}"))?;
+        std::fs::rename(&temp, path).map_err(|error| format!("replace voice policies: {error}"))?;
         Ok(())
     })();
     if result.is_err() {
@@ -349,7 +407,10 @@ fn persist(path: &Path, store: &VoicePolicyFile) -> Result<(), String> {
 #[cfg(test)]
 pub fn clear_cache_for_tests() {
     cache().write().expect("voice policy cache").clear();
-    admissions().write().expect("voice admission registry").clear();
+    admissions()
+        .write()
+        .expect("voice admission registry")
+        .clear();
 }
 
 #[cfg(test)]
@@ -376,7 +437,7 @@ mod tests {
         assert_eq!(stored.user_limit, Some(25));
 
         clear_cache_for_tests();
-        let reopened = get(&dir, "voice-a");
+        let reopened = get(&dir, "voice-a").unwrap();
         assert_eq!(reopened, stored);
         let _ = std::fs::remove_dir_all(root);
     }
@@ -393,7 +454,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(stored.entry_mode, VoiceEntryMode::ListenOnly);
-        assert!(update_from_value(&dir, "voice-a", &serde_json::json!({ "userLimit": 0 })).is_err());
+        assert!(
+            update_from_value(&dir, "voice-a", &serde_json::json!({ "userLimit": 0 })).is_err()
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -407,6 +470,7 @@ mod tests {
                 user_id: 7,
                 socket_id: "sock-a".into(),
                 listening_only: true,
+                policy_listening_only: true,
                 muted_on_entry: false,
                 server_muted: false,
                 server_deafened: false,
@@ -418,5 +482,36 @@ mod tests {
         assert!(admission_for("voice-a", 7, "sock-b").is_none());
         remove_admission("voice-a", "sock-a");
         assert!(admission_for("voice-a", 7, "sock-a").is_none());
+    }
+    #[test]
+    fn malformed_policy_cannot_restore_open_defaults() {
+        let root = std::env::temp_dir().join(format!(
+            "wabi-corrupt-voice-policy-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let dir = root.to_string_lossy();
+        let path = store_path(&dir);
+        std::fs::write(&path, br#"{"channels":{"voice":{"entryMode":"typo"}}}"#).unwrap();
+        assert!(get(&dir, "voice").is_err());
+        assert!(update_from_value(&dir, "voice", &json!({"entryMode":"open"})).is_err());
+        std::fs::write(&path, br#"{"channels":{"voice":{"userLimit":0}}}"#).unwrap();
+        assert!(get(&dir, "voice").is_err());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn failed_policy_publication_keeps_previous_cached_permissions() {
+        let root =
+            std::env::temp_dir().join(format!("wabi-failed-voice-policy-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let dir = root.to_string_lossy();
+        let old = update_from_value(&dir, "voice", &json!({"entryMode":"listen_only"})).unwrap();
+        let path = store_path(&dir);
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert!(update_from_value(&dir, "voice", &json!({"entryMode":"open"})).is_err());
+        assert_eq!(get(&dir, "voice").unwrap(), old);
+        let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -1135,20 +1135,31 @@ async fn new_livekit_permission_job(
     before: &[wabi_server::jobs::Job],
 ) -> wabi_server::jobs::Job {
     let jobs = state.job_queue.list_jobs(None).await;
-    assert_eq!(
-        jobs.len(),
-        before.len() + 1,
-        "moderation must queue exactly one update"
-    );
     let mut new: Vec<_> = jobs
         .into_iter()
         .filter(|job| !before.iter().any(|old| old.job_id == job.job_id))
         .collect();
-    assert_eq!(new.len(), 1);
-    let job = new.pop().unwrap();
-    assert_eq!(job.kind, wabi_server::jobs::JobKind::MediaRelay);
-    assert_eq!(job.payload["operation"], "update_participant_permissions");
-    job
+    assert_eq!(
+        new.len(),
+        2,
+        "moderation queues the admitted device plus legacy account identity"
+    );
+    for job in &new {
+        assert_eq!(job.kind, wabi_server::jobs::JobKind::MediaRelay);
+        assert_eq!(job.payload["operation"], "update_participant_permissions");
+    }
+    let account = new
+        .iter()
+        .position(|job| {
+            !job.payload["identity"]
+                .as_str()
+                .unwrap()
+                .contains(":device:")
+        })
+        .unwrap();
+    let legacy = new.remove(account);
+    assert_eq!(new[0].payload["grants"], legacy.payload["grants"]);
+    legacy
 }
 
 #[tokio::test(flavor = "current_thread")]
