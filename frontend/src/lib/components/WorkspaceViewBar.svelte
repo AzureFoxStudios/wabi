@@ -2,10 +2,11 @@
 	import { tick } from 'svelte';
 	import type { WorkspaceViewKey } from './chat/types';
 
-	let { activeView, onSelectView, canOpenWhiteboard = true }: {
+	let { activeView, onSelectView, canOpenWhiteboard = true, activityBadge = '' }: {
 		activeView: WorkspaceViewKey;
 		onSelectView: (view: WorkspaceViewKey) => void;
 		canOpenWhiteboard?: boolean;
+		activityBadge?: string;
 	} = $props();
 	const views: { id: WorkspaceViewKey; label: string; detail: string }[] = [
 		{ id: 'messages', label: 'Messages', detail: 'Your current channel' },
@@ -141,6 +142,7 @@
 		aria-label={`Switch workspace: ${selected.label}`} onclick={toggle}>
 		{@render workspaceIcon(activeView)}
 		<span class="workspace-trigger-copy"><span class="workspace-eyebrow">Workspace</span><span class="workspace-current">{selected.label}</span></span>
+		{#if activityBadge}<span class="activity-badge" aria-label={`${activityBadge} items need attention in Activity`}>{activityBadge}</span>{/if}
 		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
 	</button>
 	<button class="workspace-return" class:unavailable={activeView === 'messages'} disabled={activeView === 'messages'} type="button" aria-label="Return to messages" onclick={() => select('messages')}>
@@ -155,7 +157,7 @@
 					<button type="button" class="workspace-option" aria-label={view.label} aria-describedby={`${pickerId}-${view.id}-detail`} aria-current={activeView === view.id ? 'page' : undefined}
 						disabled={view.id === 'whiteboard' && !canOpenWhiteboard} onclick={() => select(view.id)}>
 						{@render workspaceIcon(view.id)}
-						<span><span class="workspace-option-label">{view.label}</span><span class="workspace-option-detail" id={`${pickerId}-${view.id}-detail`}>{view.detail}</span></span>
+						<span><span class="workspace-option-label">{view.label}{#if view.id === 'notifications' && activityBadge} <span class="activity-badge">{activityBadge}</span>{/if}</span><span class="workspace-option-detail" id={`${pickerId}-${view.id}-detail`}>{view.detail}</span></span>
 					</button>
 				{/each}
 			</div>
@@ -294,4 +296,6 @@
 		button { transition: none; }
 		.workspace-picker { animation: none; }
 	}
+
+ .activity-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--accent-primary); color: var(--text-on-accent, white); font-size: 11px; font-weight: 700; }
 </style>

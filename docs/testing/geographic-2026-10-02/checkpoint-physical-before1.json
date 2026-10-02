@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T06:03:45.232744+00:00",
+  "capturedBeforeRun": true,
+  "files": {
+    "scripts/geographic-acceptance/checkpoint-field-host.py": "95236fefe7d40ecf3d8f68a4c43aa60f9a261f8e77f4e8d92a89b83998a44cf1",
+    "scripts/geographic-acceptance/checkpoint-field-run.py": "3f813c5f5165f5771a69577981b9c07d997e01bf4560814402aadad79d5ea100",
+    "scripts/geographic-acceptance/test_checkpoint_field_host.py": "0d574db7499e3f1210ee2742c70965164902c6e6691fcba34f273bc33c1dc369",
+    "scripts/geographic-acceptance/rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2",
+    "target/debug/deps/checkpoint_tcp_contract-eb8a76132423eb51": "678b9341b8d30e8a49be3abdcdacb472716a5091e5c5c196f836b263a9687c91"
+  },
+  "artifactBytes": 8511720,
+  "consensusSourceFreeze": "checkpoint-field-freeze1.json.gz",
+  "producerSourceFreeze": "checkpoint-producer-field-freeze1.json.gz",
+  "status": "no physical acceptance before launch"
+}

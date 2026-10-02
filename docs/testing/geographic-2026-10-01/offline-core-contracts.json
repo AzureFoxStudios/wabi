@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "result": "PASS",
+  "scope": "Selected offline engine and live V2 inactive contracts only",
+  "executionComputer": "dotRonin",
+  "checkout": "/home/ironin/wabi",
+  "branch": "codex/security-boundary-hardening-20260930",
+  "baseRevision": "138abe39e08e400188d1812ed3bfd378df435315",
+  "sharedWorkingTree": true,
+  "engineTests": {
+    "result": "PASS",
+    "passed": 8
+  },
+  "liveV2Integration": {
+    "result": "PASS",
+    "passed": 1,
+    "sourceTreeProfileRefusals": 12,
+    "actualCliPass": true,
+    "actualCliRedactedRefusal": true
+  },
+  "snapshotWrapper": {
+    "buildResult": "FAIL",
+    "testsResult": "NOT_RUN",
+    "reason": "Concurrent security-owned gallery edit referenced out-of-scope auth at api/gallery.rs:165; no change to that worker file"
+  },
+  "externalStateVerified": false,
+  "fullInstanceReady": false,
+  "automaticFailoverTested": false,
+  "logs": {
+    "engine": {
+      "sha256": "6ced8371e9d7121e95726bfcf652fda604041b5ef086ab4c22810c8a80f04c10",
+      "resultLines": [
+        "test engine::offline_inspect::tests::borrowed_lock_requires_this_tree_and_stays_owned_after_inspection ... ok",
+        "test engine::offline_inspect::tests::content_fingerprint_is_ordered_private_bounded_and_empty_index_neutral ... ok",
+        "test engine::offline_inspect::tests::full_replay_matches_saved_view_without_any_data_write_or_guard_change ... ok",
+        "test engine::offline_inspect::tests::running_writer_limits_and_disconnected_index_file_refuse ... ok",
+        "test engine::offline_inspect::tests::saved_state_corruption_is_not_hidden_by_loading_the_snapshot ... ok",
+        "test engine::offline_inspect::tests::strict_saved_view_rejects_duplicate_decoded_keys_and_unknown_fields ... ok",
+        "test engine::offline_inspect::tests::symlinks_and_special_files_refuse_before_replay ... ok",
+        "test engine::offline_inspect::tests::wrong_key_missing_indexed_record_and_wrong_prefix_refuse_without_repair ... ok",
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 1005 filtered out; finished in 0.37s"
+      ],
+      "savedLog": "offline-core-engine.log.gz"
+    },
+    "live": {
+      "sha256": "bb964d35fb644784cb92dcf26adbd5c47f90d1ce8fab94f9e6d254c80bd65409",
+      "resultLines": [
+        "test encrypted_live_archive_preserves_active_keys_security_retained_state_and_unknown_files ... ok",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 1.02s"
+      ],
+      "savedLog": "offline-core-live.log.gz"
+    },
+    "snapshotWrapper": {
+      "sha256": "523ac45ce966438c1b9cf9c0d21a3d2416c5aa95a2f7533876314ec2d75a11ca",
+      "resultLines": [
+        "error[E0425]: cannot find value `auth` in this scope"
+      ],
+      "savedLog": "offline-snapshot-wrapper-build.log.gz"
+    }
+  },
+  "ownedSourceSha256AtReceiptTime": {
+    "core/crates/wabidb/src/engine/offline_inspect.rs": "b873e70f852ab2a68a3a812811e29d0209c91fa4c176836ded37761ee3f59b8d",
+    "core/crates/wabidb/src/engine/offline_inspect/tests.rs": "d742fcca9ef855a9aa53cfdf708fea4cd8f3872ef0a0467f4d8b2bbf3f9e779b",
+    "core/crates/wabi-server/src/instance_archive/verify.rs": "ff6f02f601b5fdff406e9910c0acab23cc512d523a64aa78e2aa132a0c48257c"
+  },
+  "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)"
+}

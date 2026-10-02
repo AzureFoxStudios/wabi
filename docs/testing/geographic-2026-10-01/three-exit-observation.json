@@ -1,0 +1,39 @@
+{
+  "checkedAtUtc": "2026-10-01T07:26:01.766481+00:00",
+  "scope": "reported HTTPS public egress observation only; no physical uplink certification",
+  "nodes": [
+    {
+      "hostname": "dotRonin",
+      "reportedEgressSha256": "dd9d3ba8da31ca4279bef2cbbe85933569ae9e2c77cf2c717f70e15a85909cbb",
+      "siteLabel": "dotRonin",
+      "result": "PASS",
+      "expectedHostMatches": true
+    },
+    {
+      "hostname": "bazzite",
+      "reportedEgressSha256": "6e672691581a6290f94d1cc86f337c1bba8b2ec3f60a3a9fe208f5df9b556a7e",
+      "siteLabel": "Ronin",
+      "result": "PASS",
+      "expectedHostMatches": true
+    },
+    {
+      "hostname": "192.168.1.11",
+      "reportedEgressSha256": "b651aadd99e41188c8fcb68f33aa22c286dd855505ac10153144aef9046317cd",
+      "siteLabel": "Iyoku",
+      "result": "PASS",
+      "expectedHostMatches": true
+    }
+  ],
+  "distinctObservedEgresses": 3,
+  "rawEgressAddressesPublished": false,
+  "newRemoteFilesOrServices": 0,
+  "service": "https://api.ipify.org",
+  "requestsPerNode": 1,
+  "authorization": "User explicitly approved address checks after automatic approval review initially refused disclosure to external address service. Initial refused command did not run.",
+  "doesNotProve": [
+    "physical circuit independence",
+    "ordinary-IP ingress reachability",
+    "encrypted Wabi recovery RPC",
+    "Wabi automatic recovery"
+  ]
+}

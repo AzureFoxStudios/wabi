@@ -6,6 +6,9 @@ export type WhiteboardLayerMode = 'vector' | 'raster';
 export interface WhiteboardPolicy {
 	access: 'open' | 'desktop_only';
 	writeAccess: 'anyone' | 'desktop';
+	/** Omitted by older boards: all channel participants may draw. */
+	drawRole?: 'participants' | 'moderators' | 'admins' | 'owner' | 'custom';
+	drawRoles?: string[];
 }
 
 export const DEFAULT_WHITEBOARD_POLICY: WhiteboardPolicy = {
@@ -30,6 +33,10 @@ export interface WhiteboardLayer {
 	kind: WhiteboardLayerKind;
 	visible: boolean;
 	locked: boolean;
+	/** Editing aids persisted in the extensible board JSON, not permissions. */
+	lockPosition?: boolean;
+	lockPixels?: boolean;
+	lockAlpha?: boolean;
 	opacity: number;
 	order: number;
 	createdAt: number;

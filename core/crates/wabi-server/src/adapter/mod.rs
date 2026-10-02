@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use wabidb::domain::{
-    Ban, Channel, ChannelMember, DeafenRecord, EmojiRoleRule, Emote, Message, MuteRecord, Reaction,
+    Ban, Channel, ChannelMember, EmojiRoleRule, Emote, Message, Reaction,
     RetentionPolicy, RoleDefinition, User, UserLayout, Webhook,
 };
 use wabidb::engine::wabi_store::WabiStore;
@@ -74,6 +74,12 @@ fn changes_roster(event_type: &str) -> bool {
 
 #[allow(dead_code)]
 impl WdbAdapter {
+    /// Shared admission for Project-run read/modify/write and tool completion.
+    /// Keep the guard through the accepted operation; do not acquire recursively.
+    pub fn project_run_gate(&self) -> &tokio::sync::Mutex<()> {
+        &self.project_run_write
+    }
+
     pub fn is_healthy(&self) -> bool {
         self.engine.is_healthy()
     }
@@ -147,6 +153,11 @@ impl WdbAdapter {
 
     pub fn roster_revision(&self) -> u64 {
         self.roster_revision.load(Ordering::Acquire)
+    }
+
+    /// Existing-format credential commands can also change roster identity.
+    pub(crate) fn invalidate_roster(&self) {
+        self.roster_revision.fetch_add(1, Ordering::AcqRel);
     }
 
     /// Compatibility assertion only. Use an identity-aware opener to select
@@ -588,46 +599,7 @@ impl WabiStore for WdbAdapter {
         owner_user_id: u64,
         force_spoiler: bool,
     ) -> Result<String> {
-        use wabidb::domain::Channel;
-        use wabidb::projections::room_placement::{
-            RoomPlacementInitialization, INIT_EVENT, INIT_STREAM,
-        };
-        let mut channel = Channel::new("", name, owner_user_id);
-        channel.channel_kind = channel_kind;
-        channel.force_spoiler = force_spoiler;
-        // L1: Lore channels always carry asset_storage so repo auto-provision fires.
-        if matches!(channel_kind, wabidb::domain::ChannelKind::Lore) {
-            channel.asset_storage = true;
-        }
-        let initial_placement = RoomPlacementInitialization {
-            schema_version: 1,
-            owner_node_id: self.engine.local_node_id().to_owned(),
-            replica_node_ids: vec![],
-        };
-        let seq = self
-            .commit_events(
-                owner_user_id,
-                "create_channel",
-                vec![
-                    EventToWrite {
-                        stream_id: "channels".into(),
-                        event_type: "channel_created".into(),
-                        stream_kind: 6,
-                        record_kind: RecordKind::Event,
-                        plaintext: Self::payload_json(&channel)?,
-                    },
-                    EventToWrite {
-                        stream_id: INIT_STREAM.into(),
-                        event_type: INIT_EVENT.into(),
-                        stream_kind: 6,
-                        record_kind: RecordKind::Event,
-                        plaintext: Self::payload_json(&initial_placement)?,
-                    },
-                ],
-                None,
-            )
-            .await?;
-        Ok(format!("ch_{:x}", seq))
+        self.create_channel_with_parent(name, channel_kind, owner_user_id, force_spoiler, None).await
     }
 
     async fn update_channel(
@@ -840,10 +812,12 @@ impl WabiStore for WdbAdapter {
 
         let record = UserRecord {
             user_id,
-            username: updates.username.unwrap_or(current.username),
+            username: updates.username.unwrap_or_default(),
             handle: current.handle,
             color: updates.color.unwrap_or(current.color),
-            password_hash: updates.password_hash.unwrap_or(current.password_hash),
+            // Empty is an established no-password-change patch. Carrying the
+            // snapshot hash would let a delayed profile edit undo a reset.
+            password_hash: updates.password_hash.unwrap_or_default(),
             is_registered: current.is_registered,
             is_active: current.is_active,
             created_at_micros: current.created_at_micros,
@@ -958,12 +932,17 @@ impl WabiStore for WdbAdapter {
         use wabidb::projections::users::UsersProjection;
         let state = self.engine.projection_state();
         let key_lc = username.to_lowercase();
-        let found = UsersProjection
+        let mut matches = UsersProjection
             .query(&state, &UsersFilter::default())?
             .into_iter()
-            .find(|r| r.username.to_lowercase() == key_lc)
-            .map(User::from);
-        Ok(found)
+            .filter(|r| r.username.to_lowercase() == key_lc);
+        let found = matches.next();
+        if matches.next().is_some() {
+            return Err(WabiError::Validation {
+                command: "user_identity".into(), reason: "ambiguous legacy username; administrator repair required".into(),
+            });
+        }
+        Ok(found.map(User::from))
     }
 
     async fn list_users(&self) -> Result<Vec<User>> {
@@ -1117,11 +1096,18 @@ impl WabiStore for WdbAdapter {
 
     async fn get_user_role(&self, workspace_id: &str, user_id: u64) -> Result<Option<String>> {
         let state = self.engine.projection_state();
-        Ok(wabidb::projections::audit::AuditProjection::get_role(
+        let role = wabidb::projections::audit::AuditProjection::get_role(
             state,
             workspace_id,
             user_id,
-        ))
+        );
+        // A legacy Owner role cannot create a second server owner or keep a
+        // former owner privileged after the durable singleton changes.
+        if workspace_id == "default-workspace" && role.as_deref() == Some("Owner")
+            && wabidb::projections::owner::OwnerProjection::get_owner(state) != Some(user_id) {
+            return Ok(Some("Member".into()));
+        }
+        Ok(role)
     }
 
     async fn list_user_badges(
@@ -1412,6 +1398,8 @@ impl WabiStore for WdbAdapter {
             "channel_id": channel_id,
             "target_user_id": target_user_id,
             "until_micros": until_micros,
+            "actor_user_id": actor_user_id,
+            "set_at_micros": now_micros(),
         });
         self.run_room(
             channel_id,
@@ -1454,17 +1442,9 @@ impl WabiStore for WdbAdapter {
     }
 
     async fn is_user_muted(&self, channel_id: &str, user_id: u64) -> Result<bool> {
-        // v1: scan the mutes index for the (channel_id, user_id) pair.
-        let state = self.engine.projection_state();
-        let mut found = false;
-        state.for_each("mutes", |_key, value| {
-            if let Ok(m) = Self::decode::<MuteRecord>(value) {
-                if m.channel_id == channel_id && m.user_id == user_id {
-                    found = true;
-                }
-            }
-        });
-        Ok(found)
+        wabidb::projections::voice_restrictions::is_muted(
+            self.engine.projection_state(), channel_id, user_id, now_micros(),
+        )
     }
 
     async fn deafen_user(
@@ -1476,6 +1456,8 @@ impl WabiStore for WdbAdapter {
         let payload = serde_json::json!({
             "channel_id": channel_id,
             "target_user_id": target_user_id,
+            "actor_user_id": actor_user_id,
+            "set_at_micros": now_micros(),
         });
         self.run_room(
             channel_id,
@@ -1517,16 +1499,9 @@ impl WabiStore for WdbAdapter {
     }
 
     async fn is_user_deafened(&self, channel_id: &str, user_id: u64) -> Result<bool> {
-        let state = self.engine.projection_state();
-        let mut found = false;
-        state.for_each("deafens", |_key, value| {
-            if let Ok(d) = Self::decode::<DeafenRecord>(value) {
-                if d.channel_id == channel_id && d.user_id == user_id {
-                    found = true;
-                }
-            }
-        });
-        Ok(found)
+        wabidb::projections::voice_restrictions::is_deafened(
+            self.engine.projection_state(), channel_id, user_id,
+        )
     }
 
     // ============================================================
@@ -4045,13 +4020,64 @@ impl WabiStore for WdbAdapter {
 }
 
 impl WdbAdapter {
-    /// Point lookup: the wire kind string for one channel ("dm", "voice",
-    /// "text", ...), or None if the channel does not exist.
-    ///
-    /// Replaces the previous pattern of `get_channels_raw()` (full projection
-    /// scan + per-channel HashMap row build) in hot per-message paths — see
-    /// kanban t_6bbbc52a / perf-audit 2026-08-21 finding #10. The kind string
-    /// matches the "type" field emitted by `get_channels_raw`.
+    /// Parent authority is part of the initial durable channel event. A crash
+    /// cannot expose an ungated ordinary room before sidecar policy is copied.
+    pub(crate) async fn create_voice_breakout(&self, name: &str, parent: &str, owner_user_id: u64) -> Result<String> {
+        self.create_channel_with_parent(name, wabidb::domain::ChannelKind::Voice, owner_user_id, false, Some(parent)).await
+    }
+
+    async fn create_channel_with_parent(
+        &self,
+        name: &str,
+        channel_kind: wabidb::domain::ChannelKind,
+        owner_user_id: u64,
+        force_spoiler: bool,
+        parent_id: Option<&str>,
+    ) -> Result<String> {
+        use wabidb::domain::Channel;
+        use wabidb::projections::room_placement::{
+            RoomPlacementInitialization, INIT_EVENT, INIT_STREAM,
+        };
+        let mut channel = Channel::new("", name, owner_user_id);
+        channel.channel_kind = channel_kind;
+        channel.force_spoiler = force_spoiler;
+        channel.parent_id = parent_id.map(str::to_owned);
+        // L1: Lore channels always carry asset_storage so repo auto-provision fires.
+        if matches!(channel_kind, wabidb::domain::ChannelKind::Lore) {
+            channel.asset_storage = true;
+        }
+        let initial_placement = RoomPlacementInitialization {
+            schema_version: 1,
+            owner_node_id: self.engine.local_node_id().to_owned(),
+            replica_node_ids: vec![],
+        };
+        let seq = self
+            .commit_events(
+                owner_user_id,
+                "create_channel",
+                vec![
+                    EventToWrite {
+                        stream_id: "channels".into(),
+                        event_type: "channel_created".into(),
+                        stream_kind: 6,
+                        record_kind: RecordKind::Event,
+                        plaintext: Self::payload_json(&channel)?,
+                    },
+                    EventToWrite {
+                        stream_id: INIT_STREAM.into(),
+                        event_type: INIT_EVENT.into(),
+                        stream_kind: 6,
+                        record_kind: RecordKind::Event,
+                        plaintext: Self::payload_json(&initial_placement)?,
+                    },
+                ],
+                None,
+            )
+            .await?;
+        Ok(format!("ch_{:x}", seq))
+    }
+
+    /// Point lookup for the kind string emitted by `get_channels_raw`.
     pub async fn get_channel_kind(&self, channel_id: &str) -> Option<String> {
         let channel = self.get_channel(channel_id).await.ok().flatten()?;
         Some(Self::kind_string(&channel).to_string())
@@ -4192,5 +4218,27 @@ impl WdbAdapter {
             .map(Message::from)
             .collect();
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod breakout_channel_security_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn breakout_parent_is_in_initial_commit_and_survives_full_event_replay() {
+        let dir = tempfile::tempdir().unwrap();
+        let adapter = WdbAdapter::open(dir.path()).await.unwrap();
+        let owner = adapter.create_user("breakout-owner", None, "test-hash").await.unwrap();
+        let parent = adapter.create_channel("parent", wabidb::domain::ChannelKind::Voice, owner, false).await.unwrap();
+        let before = adapter.engine().projection_state().applied_commit_seq();
+        let child = adapter.create_voice_breakout("child", &parent, owner).await.unwrap();
+        assert_eq!(adapter.engine().projection_state().applied_commit_seq(), before + 1,
+            "parent authority must be in the creation commit, not a later patch");
+        assert_eq!(adapter.get_channel(&child).await.unwrap().unwrap().parent_id.as_deref(), Some(parent.as_str()));
+        drop(adapter);
+        wabidb::engine::locks::ProjectionState::remove_snapshot(dir.path());
+        let reopened = WdbAdapter::open(dir.path()).await.unwrap();
+        assert_eq!(reopened.get_channel(&child).await.unwrap().unwrap().parent_id.as_deref(), Some(parent.as_str()));
     }
 }

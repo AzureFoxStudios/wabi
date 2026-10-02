@@ -674,3 +674,9 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+
+ .active-call-container > .call-stage { flex: 1; min-height: 0; overflow: auto; }
+ .call-context-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 12px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-subtle); color: var(--text-heading); }
+ .call-context-row .connection-status, .call-context-row .route-status { position: static; transform: none; background: transparent; padding: 0; font-size: 12px; color: var(--text-body); }
+ .call-diagnostics { padding: 6px 16px; background: var(--bg-secondary); color: var(--text-muted); font-size: 12px; }
+ .call-diagnostics summary { cursor: pointer; padding: 8px; }

@@ -10,15 +10,19 @@ pub mod locks;
 pub mod checkpoint;
 mod membership_repair;
 pub mod node_identity;
+pub mod offline_inspect;
 pub mod replay;
 pub mod wabi_store;
+
+#[cfg(test)]
+mod process_lock_tests;
 
 use crate::commit_index::batcher::{new_batcher, BatcherHandle};
 use crate::commit_index::record::CommitIndexEntry;
 use crate::crypto::bootstrap::{load_bootstrap_key, BootstrapSource};
 use crate::crypto::stream_key_registry::StreamKeyRegistry;
 use crate::engine::locks::DispatchItem;
-use crate::engine::locks::{spawn_projection_dispatcher, ProjectionState, SequencerPermit};
+use crate::engine::locks::{spawn_projection_dispatcher_with_lock, ProjectionState, SequencerPermit};
 use crate::error::{ErrorCategory, Result, WabiError};
 use crate::projections::barrier::LinearizabilityBarrier;
 use crate::projections::handler::DispatchTable;
@@ -75,13 +79,8 @@ pub struct WabiDbConfig {
     /// `replication_config` is set; `None` is single-node mode.
     pub sync_transport: Option<std::sync::Arc<dyn SyncTransport>>,
 
-    /// Test hook: override the "boot wallclock" used by stale-lock detection.
-    /// Lock files with mtime at-or-before this instant are considered left
-    /// behind by a previous process incarnation. `None` (default) captures
-    /// the wallclock on first lock acquisition. Tests set an explicit future
-    /// instant so synthetic locks count as pre-boot regardless of mtime
-    /// granularity. Ignored in release builds? No — kept unconditional: it is
-    /// a pure input to the steal decision and costs nothing.
+    /// Retained for source compatibility. Advisory locks no longer use a
+    /// boot wallclock or filesystem timestamps; this field is ignored.
     #[doc(hidden)]
     pub test_boot_wallclock_override: Option<std::time::SystemTime>,
 }
@@ -146,11 +145,14 @@ pub struct WabiDbEngine {
     sequencer: Option<CommitSequencer>,
     /// Join handle for the sequencer task. Kept alive for the engine's lifetime.
     _sequencer_handle: Option<tokio::task::JoinHandle<Result<()>>>,
+    /// Background disk-writer joins permit exact draining before test handoff.
+    _batcher_handle: Option<tokio::task::JoinHandle<Result<()>>>,
+    _dispatcher_handle: Option<tokio::task::JoinHandle<()>>,
     /// Stream key registry. Shared between the sequencer task and external
     /// code (so callers can register keys for new streams).
     key_registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>>,
-    /// Path to the lock file (for cleanup on drop).
-    _lock_file_path: Option<PathBuf>,
+    /// Exclusive advisory lock, also retained by every background disk writer.
+    _process_lock: Option<Arc<std::fs::File>>,
     /// Subscription engine: topic-based pub/sub for real-time push.
     subscription_engine: tokio::sync::Mutex<SubscriptionEngine>,
     /// Broadcast channel sender for subscription deliveries. Server-side
@@ -194,7 +196,7 @@ impl WabiDbEngine {
     ///
     /// Performs, in order:
     /// 1. Validates / creates the data directory.
-    /// 2. Acquires a lock file (`$DATA_DIR/.lock`) with the engine's PID.
+    /// 2. Exclusively locks the persistent `$DATA_DIR/.lock` inode.
     /// 3. Loads the bootstrap key.
     /// 4. Reads or writes a minimal storage manifest.
     /// 5. Initializes the stream key registry (empty; persistence deferred).
@@ -218,6 +220,9 @@ impl WabiDbEngine {
     /// restarts; it does not grant a distributed lease or enable another writer.
     pub async fn open_with_node_id(config: WabiDbConfig, local_node_id: String) -> Result<Self> {
         node_identity::validate(&local_node_id)?;
+        if let Some(ref replication) = config.replication_config {
+            replication.validate()?;
+        }
         if config.replication_config.is_some() && config.sync_transport.is_none() {
             return Err(WabiError::Validation {
                 command: "open_replicated_engine".into(),
@@ -243,14 +248,10 @@ impl WabiDbEngine {
             }
         }
 
-        // 2. Lock file: atomically create (O_EXCL), write PID, fsync file +
-        // parent directory. A stale lock left by a dead process is stolen;
-        // a lock held by a LIVE process refuses to start.
+        // 2. The OS owns exclusion. Keep this guard through all startup errors
+        // and transfer it to the engine and its disk writers on success.
         let lock_path = data_dir.join(".lock");
-        let pid = std::process::id();
-        acquire_lock_file(&lock_path, pid, config.test_boot_wallclock_override).await?;
-        // Failed open (including replay failure) must release our own lock.
-        let mut opening_lock = OpeningLock(Some(lock_path.clone()));
+        let process_lock = acquire_lock_file(&lock_path).await?;
         fsync_dir(data_dir).await?;
 
         // Any marker, including one left by an interrupted fence write,
@@ -334,16 +335,9 @@ impl WabiDbEngine {
         }
         let snapshot_watermark = projection_state.applied_commit_seq();
 
-        // 7.1 Create barrier and dispatcher
+        // 7.1 Create barrier. Replay/validation must finish before any writer
+        // task is spawned, so a failed open releases its own process lock.
         let barrier = Arc::new(LinearizabilityBarrier::new(Arc::clone(&projection_state)));
-        let dispatcher_handle = spawn_projection_dispatcher(
-            Arc::clone(&projection_state),
-            Arc::clone(&dispatch_table),
-            None,
-            Some(data_dir.clone()),
-            Some(1000),
-        )?;
-        let dispatcher_tx = dispatcher_handle.sender;
 
         // 7.2 Replay events after the snapshot watermark.
         // Returns the highest commit_seq observed on disk (orphans included).
@@ -365,7 +359,6 @@ impl WabiDbEngine {
             .map_err(WabiError::Io)?;
         let (batcher, batcher_fut) = new_batcher(commit_index_dir, None, None);
         let replication_batcher = Some(batcher.clone());
-        tokio::spawn(batcher_fut);
 
         // 8.1 Recover the sequencer's high-water mark: the max commit_seq
         // across the commit index, the on-disk segments (replay scan), and
@@ -393,13 +386,31 @@ impl WabiDbEngine {
         let sem = Arc::new(Semaphore::new(1));
         let permit = SequencerPermit::acquire(&sem).await?;
 
+        let dispatcher_handle = spawn_projection_dispatcher_with_lock(
+            Arc::clone(&projection_state),
+            Arc::clone(&dispatch_table),
+            None,
+            Some(data_dir.clone()),
+            Some(1000),
+            Some(Arc::clone(&process_lock)),
+        )?;
+        let dispatcher_tx = dispatcher_handle.sender;
+        let dispatcher_task = dispatcher_handle.handle;
+        let batcher_process_lock = Arc::clone(&process_lock);
+        let batcher_handle = tokio::spawn(async move {
+            let _process_lock = batcher_process_lock;
+            batcher_fut.await
+        });
+
         // 10. Spawn the sequencer task
         let data_dir_clone = data_dir.clone();
         let key_registry_for_engine = Arc::clone(&key_registry);
         let sequencer_write_fence = Arc::clone(&write_fence);
         let sequencer_projection_state = Arc::clone(&projection_state);
         let sequencer_node_id = local_node_id.clone();
+        let sequencer_process_lock = Arc::clone(&process_lock);
         let sequencer_handle = tokio::spawn(async move {
+            let _process_lock = sequencer_process_lock;
             crate::sequencer::run(
                 permit,
                 key_registry,
@@ -428,7 +439,6 @@ impl WabiDbEngine {
             .clone()
             .unwrap_or_else(new_noop_transport);
         let sync_handle = if let Some(ref rep_config) = config.replication_config {
-            rep_config.validate()?;
             let sync_transport = Arc::clone(&transport_for_sync);
             let sync_writer_fence = Arc::clone(&write_fence);
             let sync_projection_state = Arc::clone(&projection_state);
@@ -517,7 +527,6 @@ impl WabiDbEngine {
 
         tracing::info!("WabiDbEngine opened at {}", data_dir.display());
 
-        opening_lock.0.take(); // ownership transfers to the engine's Drop
         Ok(Self {
             local_node_id,
             data_dir: data_dir.clone(),
@@ -527,8 +536,10 @@ impl WabiDbEngine {
             barrier,
             sequencer: Some(sequencer),
             _sequencer_handle: Some(sequencer_handle),
+            _batcher_handle: Some(batcher_handle),
+            _dispatcher_handle: dispatcher_task,
             key_registry: key_registry_for_engine,
-            _lock_file_path: Some(lock_path),
+            _process_lock: Some(process_lock),
             subscription_engine,
             delivery_tx,
             sync_transport: transport_for_sync,
@@ -678,6 +689,7 @@ impl WabiDbEngine {
         segments: Vec<(String, u8, u64, Vec<u8>)>,
     ) -> Result<()> {
         use tokio::io::AsyncWriteExt;
+        validate_replicated_segment_identities(&entry, &segments)?;
         let _ingest = self.replication_ingest.lock().await;
         if !*self.write_fence.read().await {
             return Err(replication_validation(
@@ -832,40 +844,6 @@ impl WabiDbEngine {
     ) -> Result<Vec<crate::projections::handler::DurableEvent>> {
         use crate::format::record::{RecordHeader, HEADER_LEN};
         use crate::sequencer::types::ReplayEnvelope;
-        use std::collections::HashSet;
-
-        if entry.event_refs.len() != entry.payload_hashes.len() {
-            return Err(replication_validation(
-                "event reference and payload hash counts differ",
-            ));
-        }
-        let mut seen = HashSet::new();
-        for (stream_id, stream_kind, segment_id, data) in segments {
-            if stream_id.is_empty()
-                || matches!(stream_id.as_str(), "." | "..")
-                || stream_id.chars().any(|character| {
-                    matches!(character, '/' | '\\' | '\0') || character.is_control()
-                })
-                || data.len() > 128 * 1024 * 1024
-            {
-                return Err(replication_validation(
-                    "invalid replicated segment identity or size",
-                ));
-            }
-            if !seen.insert((stream_id, stream_kind, segment_id)) {
-                return Err(replication_validation("duplicate replicated segment"));
-            }
-            let hash = crate::stream_identity::stream_id_hash(stream_id);
-            if !entry.event_refs.iter().any(|reference| {
-                reference.stream_id_hash == hash
-                    && reference.stream_kind == *stream_kind
-                    && reference.segment_id == *segment_id
-            }) {
-                return Err(replication_validation(
-                    "segment is not referenced by its commit",
-                ));
-            }
-        }
         let mut events = Vec::with_capacity(entry.event_refs.len());
         for (reference, expected_hash) in entry.event_refs.iter().zip(&entry.payload_hashes) {
             let (stream_id, _, _, data) = segments
@@ -1051,8 +1029,10 @@ impl WabiDbEngine {
             )),
             sequencer: None,
             _sequencer_handle: None,
+            _batcher_handle: None,
+            _dispatcher_handle: None,
             key_registry: Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new())),
-            _lock_file_path: None,
+            _process_lock: None,
             subscription_engine: tokio::sync::Mutex::new(SubscriptionEngine::new()),
             delivery_tx,
             sync_transport: new_noop_transport(),
@@ -1070,6 +1050,34 @@ impl WabiDbEngine {
     fn _category() -> ErrorCategory {
         ErrorCategory::Sequencer
     }
+
+    /// Test handoffs to a child process must await every disk writer before
+    /// blocking the parent runtime on the child's completion. Dropping an
+    /// engine only closes admission; its tasks retain the lock while draining.
+    #[cfg(test)]
+    pub(crate) async fn close_for_tests(mut self) -> Result<()> {
+        drop(self.sequencer.take());
+        drop(self.replication_batcher.take());
+        let join_error = |task: &str, error| WabiError::InternalInvariantViolated {
+            invariant: format!("{task} failed while draining engine: {error}"),
+        };
+        let sequencer = match self._sequencer_handle.take() {
+            Some(handle) => handle.await.map_err(|error| join_error("sequencer", error))?,
+            None => Ok(()),
+        };
+        let dispatcher = match self._dispatcher_handle.take() {
+            Some(handle) => handle.await.map_err(|error| join_error("dispatcher", error)),
+            None => Ok(()),
+        };
+        let batcher = match self._batcher_handle.take() {
+            Some(handle) => handle.await.map_err(|error| join_error("batcher", error))?,
+            None => Ok(()),
+        };
+        drop(self);
+        sequencer?;
+        dispatcher?;
+        batcher
+    }
 }
 
 fn replication_validation(reason: &str) -> WabiError {
@@ -1079,159 +1087,56 @@ fn replication_validation(reason: &str) -> WabiError {
     }
 }
 
-/// Boot wallclock, captured on first use: locks whose mtime predates this
-/// instant were written by a previous process incarnation, never this one.
-static BOOT_WALLCLOCK: std::sync::OnceLock<std::time::SystemTime> = std::sync::OnceLock::new();
-
-/// Lock paths currently held by LIVE engines of THIS process. Used to
-/// distinguish "second engine in this process" (genuine AlreadyRunning)
-/// from "same-PID stale lock left by a previous container incarnation"
-/// (steal): inside a Docker PID namespace every run is PID 1, so the
-/// holder PID alone cannot make that call.
-static HELD_LOCKS: std::sync::OnceLock<
-    std::sync::Mutex<std::collections::HashSet<std::path::PathBuf>>,
-> = std::sync::OnceLock::new();
-
-fn held_locks() -> &'static std::sync::Mutex<std::collections::HashSet<std::path::PathBuf>> {
-    HELD_LOCKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+// Keep this preflight pure: peer-controlled identities must be checked before
+// reading the commit index, deriving keys or touching any segment path.
+fn validate_replicated_segment_identities(
+    entry: &CommitIndexEntry,
+    segments: &[(String, u8, u64, Vec<u8>)],
+) -> Result<()> {
+    if entry.event_refs.len() != entry.payload_hashes.len() {
+        return Err(replication_validation(
+            "event reference and payload hash counts differ",
+        ));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for (stream_id, stream_kind, segment_id, data) in segments {
+        if !crate::stream_identity::is_safe_stream_id(stream_id)
+            || data.len() > 128 * 1024 * 1024
+        {
+            return Err(replication_validation(
+                "invalid replicated segment identity or size",
+            ));
+        }
+        if !seen.insert((stream_id, stream_kind, segment_id)) {
+            return Err(replication_validation("duplicate replicated segment"));
+        }
+        let hash = crate::stream_identity::stream_id_hash(stream_id);
+        if !entry.event_refs.iter().any(|reference| {
+            reference.stream_id_hash == hash
+                && reference.stream_kind == *stream_kind
+                && reference.segment_id == *segment_id
+        }) {
+            return Err(replication_validation(
+                "segment is not referenced by its commit",
+            ));
+        }
+    }
+    Ok(())
 }
 
-/// Atomically acquire the engine lock file (O_EXCL semantics).
-///
-/// - Free path: `create_new` succeeds → we own the lock; write our PID.
-/// - Held by a live process: `WabiError::AlreadyRunning`.
-/// - Held by a DEAD process (crash / kill -9 left the file behind): steal
-///   the lock. This removes the manual "rm the lock files" deploy step for
-///   the common case; an operator can still delete the file by hand if the
-///   PID is somehow wrong.
-async fn acquire_lock_file(
-    lock_path: &std::path::Path,
-    pid: u32,
-    boot_wallclock_override: Option<std::time::SystemTime>,
-) -> Result<()> {
-    use tokio::io::AsyncWriteExt;
-
-    for attempt in 0..2 {
-        // Same-process double-open must ALWAYS be refused, even though the
-        // on-disk holder PID equals ours (the mtime/steal arms below cannot
-        // distinguish it from a previous container incarnation).
-        if held_locks()
-            .lock()
-            .map(|g| g.contains(lock_path))
-            .unwrap_or(false)
-        {
+/// Allow a short drain window when a prior engine has been dropped but its
+/// sequencer/batcher/dispatcher still own admitted work. A live writer remains
+/// excluded throughout; neither PID contents nor timestamps grant ownership.
+async fn acquire_lock_file(lock_path: &std::path::Path) -> Result<Arc<std::fs::File>> {
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(100);
+    loop {
+        if let Some(lock) = locks::try_acquire_process_lock(lock_path)? {
+            return Ok(lock);
+        }
+        if tokio::time::Instant::now() >= deadline {
             return Err(WabiError::AlreadyRunning);
         }
-        match tokio::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(lock_path)
-            .await
-        {
-            Ok(mut f) => {
-                f.write_all(pid.to_string().as_bytes()).await.map_err(|e| {
-                    WabiError::Io(std::io::Error::new(
-                        e.kind(),
-                        format!("lock file write: {e}"),
-                    ))
-                })?;
-                f.sync_all().await.map_err(WabiError::Io)?;
-                if let Ok(mut g) = held_locks().lock() {
-                    g.insert(lock_path.to_path_buf());
-                }
-                return Ok(());
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                if attempt > 0 {
-                    return Err(WabiError::AlreadyRunning);
-                }
-                // Inspect the holder. A dead PID means a stale lock: steal it.
-                //
-                // Container caveat: inside a Docker PID namespace every run is
-                // PID 1, so a lock left by a PREVIOUS container run carries the
-                // same PID we now have. `process_alive(1)` in our namespace
-                // probes OUR OWN /proc/1 — which always exists while we are
-                // booting, and would exist for any init-style process anyway.
-                // The correct liveness question for pid N in a private
-                // namespace is "is something ELSE with that PID running my
-                // engine?" which we cannot answer from inside. So: when
-                // holder == pid AND the lock file predates our own start
-                // (mtime strictly before this boot attempt), treat it as
-                // stale-from-a-past-life and steal it. A genuine concurrent
-                // sibling still loses only if it wrote its lock before us —
-                // in which case IT is the one that must yield, and our steal
-                // attempt races its create_new exactly once (the retry loop
-                // re-checks). Same-host non-container deployments keep the
-                // strict rule via the mtime guard being satisfied trivially:
-                // a live sibling's lock was written before we booted too, but
-                // its holder != our pid there, so the dead-holder branch
-                // already refused us before reaching this arm.
-                let holder_pid = tokio::fs::read_to_string(lock_path)
-                    .await
-                    .ok()
-                    .and_then(|s| s.trim().parse::<u32>().ok());
-                let lock_mtime_before_boot = tokio::fs::metadata(lock_path)
-                    .await
-                    .ok()
-                    .and_then(|m| m.modified().ok())
-                    .map(|t| {
-                        let boot = boot_wallclock_override.unwrap_or_else(|| {
-                            *BOOT_WALLCLOCK.get_or_init(std::time::SystemTime::now)
-                        });
-                        t <= boot
-                    });
-                let steal = match (holder_pid, lock_mtime_before_boot) {
-                    // Dead holder on the same host: classic stale lock.
-                    (Some(holder), _) if holder != pid && !process_alive(holder) => true,
-                    // Same PID as us + lock written before this boot started:
-                    // previous incarnation of ourselves (container restart,
-                    // kill -9). The file cannot be ours from THIS run — we
-                    // have not created it yet.
-                    (Some(holder), Some(true)) if holder == pid => true,
-                    // Unparseable/empty lock file: nothing defensible holds it.
-                    (None, _) => true,
-                    _ => false,
-                };
-                if !steal {
-                    return Err(WabiError::AlreadyRunning);
-                }
-                tracing::warn!(
-                    "engine lock held by dead/stale holder {:?} (mtime_pre_boot={:?}); removing stale lock",
-                    holder_pid,
-                    lock_mtime_before_boot
-                );
-                let _ = tokio::fs::remove_file(lock_path).await;
-                // loop retries the create_new exactly once
-            }
-            Err(e) => {
-                return Err(WabiError::Io(std::io::Error::new(
-                    e.kind(),
-                    format!("lock file open: {e}"),
-                )));
-            }
-        }
-    }
-    Err(WabiError::AlreadyRunning)
-}
-
-/// Whether a PID is alive on this host.
-///
-/// Linux: `/proc/<pid>` exists iff the process is alive. On platforms
-/// without `/proc`, report `true` (conservative — never steal a lock from
-/// a holder we cannot probe).
-fn process_alive(pid: u32) -> bool {
-    #[cfg(unix)]
-    {
-        let proc_root = std::path::Path::new("/proc");
-        if !proc_root.exists() {
-            return true;
-        }
-        proc_root.join(pid.to_string()).exists()
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = pid;
-        true
+        tokio::time::sleep(Duration::from_millis(5)).await;
     }
 }
 
@@ -1266,19 +1171,6 @@ fn update_manifest_high_seq(data_dir: &std::path::Path, high: u64) {
     }
 }
 
-struct OpeningLock(Option<PathBuf>);
-
-impl Drop for OpeningLock {
-    fn drop(&mut self) {
-        if let Some(path) = self.0.take() {
-            let _ = std::fs::remove_file(&path);
-            if let Ok(mut locks) = held_locks().lock() {
-                locks.remove(&path);
-            }
-        }
-    }
-}
-
 impl Drop for WabiDbEngine {
     fn drop(&mut self) {
         // A failed replicated projection may have applied only part of a
@@ -1293,15 +1185,11 @@ impl Drop for WabiDbEngine {
         use zeroize::Zeroize;
         self.bootstrap_key.zeroize();
 
-        if let Some(ref lock_path) = self._lock_file_path {
-            let _ = std::fs::remove_file(lock_path);
-            if let Ok(mut g) = held_locks().lock() {
-                g.remove(lock_path);
-            }
-            if let Some(parent) = lock_path.parent() {
-                // Best-effort directory fsync; errors are non-fatal during cleanup.
-                let _ = std::fs::File::open(parent).and_then(|f| f.sync_all());
-            }
+        // Sync workers have no local writer queue to drain. Stop their old
+        // transport work; disk writers keep their own process-lock guards
+        // until admitted commands, final index sealing and checkpoints finish.
+        if let Some(handle) = self._sync_handle.take() {
+            handle.abort();
         }
     }
 }
@@ -1334,11 +1222,12 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
     use crate::projections::owner::OwnerProjection;
     use crate::projections::payments::PaymentsProjection;
     use crate::projections::project_tasks::ProjectTaskProjection;
-    use crate::projections::project_runs::ProjectRunProjection;
+    use crate::projections::project_runs::{ProjectRunProjection, ProjectWorkerProjection};
     use crate::projections::reactions::ReactionsProjection;
     use crate::projections::registry::{ProjectionRegistration, TypeRegistry};
     use crate::projections::user_deletion::UserDeletionProjection;
     use crate::projections::users::UsersProjection;
+    use crate::projections::voice_restrictions::VoiceRestrictionsProjection;
     use crate::projections::webhooks::WebhooksProjection;
     use crate::projections::whiteboard_docs::WhiteboardDocsProjection;
     use crate::projections::wiki::{WikiProjection, WikiRevisionProjection};
@@ -1377,6 +1266,12 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             handler: Arc::new(ChannelMembersProjection),
             index_name: "channel_members",
             record_type_name: "wabidb::projections::channel_members::ChannelMemberRecord",
+        },
+        ProjectionRegistration {
+            event_types: crate::projections::voice_restrictions::EVENTS,
+            handler: Arc::new(VoiceRestrictionsProjection),
+            index_name: "mutes,deafens",
+            record_type_name: "wabidb::domain::{MuteRecord,DeafenRecord}",
         },
         ProjectionRegistration {
             event_types: &["dm_message_created"],
@@ -1480,6 +1375,10 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
         ProjectionRegistration {
             event_types: &["project_run_updated"], handler: Arc::new(ProjectRunProjection),
             index_name: "project_runs", record_type_name: "wabidb::projections::project_runs::ProjectRun",
+        },
+        ProjectionRegistration {
+            event_types: &["project_worker_updated_v1"], handler: Arc::new(ProjectWorkerProjection),
+            index_name: "project_workers", record_type_name: "wabidb::projections::project_runs::ProjectWorker",
         },
         ProjectionRegistration {
             event_types: &["project_task_created", "project_task_updated"],
@@ -1689,6 +1588,27 @@ mod tests {
         config
     }
 
+    async fn reopen_after_drop(config: WabiDbConfig, node_id: Option<&str>) -> WabiDbEngine {
+        // Disk workers retain the advisory lock until admitted writes drain.
+        // Retry only that teardown delay, leaving other startup errors visible.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let result = match node_id {
+                Some(node_id) => {
+                    WabiDbEngine::open_with_node_id(config.clone(), node_id.into()).await
+                }
+                None => WabiDbEngine::open(config.clone()).await,
+            };
+            match result {
+                Ok(engine) => return engine,
+                Err(WabiError::AlreadyRunning) if tokio::time::Instant::now() < deadline => {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                Err(error) => panic!("could not reopen fixture after writer teardown: {error:?}"),
+            }
+        }
+    }
+
     #[tokio::test]
     async fn open_backfills_album_id_index_from_legacy_snapshot() {
         use crate::projections::albums::{encode_record, AlbumProjection, AlbumRecord, ID_INDEX};
@@ -1740,14 +1660,14 @@ mod tests {
         drop(engine);
 
         // Remove only the derived lookup to reproduce an older snapshot.
+        let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
         let (legacy, watermark) = ProjectionState::load_snapshot(dir.path()).unwrap().unwrap();
         assert_eq!(watermark, outcome.commit_seq);
         legacy.remove(ID_INDEX, album.album_id.as_bytes());
         legacy.save_snapshot(dir.path()).unwrap();
+        drop(stopped);
 
-        let restarted = WabiDbEngine::open(replica_test_config(dir.path()))
-            .await
-            .unwrap();
+        let restarted = reopen_after_drop(replica_test_config(dir.path()), None).await;
         let state = restarted.projection_state();
         assert_eq!(state.applied_commit_seq(), watermark);
         assert_eq!(state.index_len(ID_INDEX), 1);
@@ -1836,10 +1756,10 @@ mod tests {
         );
         drop(sender);
         drop(engine);
+        let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
         std::fs::remove_file(dir.path().join("projections/snapshot.json")).unwrap();
-        let reopened = WabiDbEngine::open_with_node_id(replica_test_config(dir.path()), "site-a".into())
-            .await
-            .unwrap();
+        drop(stopped);
+        let reopened = reopen_after_drop(replica_test_config(dir.path()), Some("site-a")).await;
         assert_eq!(reopened.barrier().current(), accepted.commit_seq);
         assert_eq!(
             decode_value(
@@ -1907,14 +1827,14 @@ mod tests {
         drop(engine);
 
         // Exercise event replay even if shutdown created a projection snapshot.
+        let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
         let snapshot = dir.path().join("projections/snapshot.json");
         if snapshot.exists() {
             std::fs::remove_file(snapshot).unwrap();
         }
+        drop(stopped);
 
-        let restarted = WabiDbEngine::open(replica_test_config(dir.path()))
-            .await
-            .unwrap();
+        let restarted = reopen_after_drop(replica_test_config(dir.path()), None).await;
         assert_eq!(
             decode(
                 &restarted
@@ -2037,13 +1957,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn local_command_rejects_unsafe_stream_before_writing_any_event() {
+        let dir = tempdir().unwrap();
+        let engine = WabiDbEngine::open(replica_test_config(dir.path()))
+            .await
+            .unwrap();
+        let safe_id = "reactions:msg_1:👍🏽:removed";
+        for unsafe_id in ["../outside".to_owned(), "a".repeat(256)] {
+            for id in [safe_id, unsafe_id.as_str()] {
+                engine.get_or_create_stream_key(id).await.unwrap();
+            }
+            let (response_tx, _) = tokio::sync::oneshot::channel();
+            let command = CommandCommit {
+                room_owner_precondition: None,
+                caller_user_id: 1,
+                caller_device_id: "stream-validation-device".into(),
+                command_name: "stream_validation_probe".into(),
+                idempotency_key: None,
+                events: [safe_id, unsafe_id.as_str()]
+                    .into_iter()
+                    .map(|id| EventToWrite {
+                        stream_id: id.into(),
+                        event_type: "stream_validation_probe_event".into(),
+                        stream_kind: 6,
+                        record_kind: RecordKind::Event,
+                        plaintext: b"probe".to_vec(),
+                    })
+                    .collect(),
+                essential: true,
+                response_tx,
+            };
+            assert!(matches!(
+                engine.run_command(command).await,
+                Err(WabiError::Validation { .. })
+            ));
+            assert!(
+                !dir.path().join("streams").exists(),
+                "an invalid later event must not leave earlier segment bytes"
+            );
+            assert!(crate::commit_index::batcher::read_all_entries(
+                &dir.path().join("global/commit-index")
+            )
+            .unwrap()
+            .is_empty());
+            assert!(engine.is_healthy());
+        }
+    }
+
+    #[tokio::test]
     async fn fenced_replica_validates_and_applies_ordered_segment_extensions() {
         let source_dir = tempdir().unwrap();
         let replica_dir = tempdir().unwrap();
         let source = WabiDbEngine::open(replica_test_config(source_dir.path()))
             .await
             .unwrap();
-        let stream_id = "channel:regional-probe";
+        let stream_id = "reactions:msg_1:👍🏽:removed";
         source.get_or_create_stream_key(stream_id).await.unwrap();
         let commit = |payload: &[u8]| {
             let (response_tx, _response_rx) = tokio::sync::oneshot::channel();
@@ -2071,7 +2039,9 @@ mod tests {
             .remove(0);
         let segment_path = source_dir
             .path()
-            .join("streams/channel/channel:regional-probe/events/00000001.wseg");
+            .join("streams/channel")
+            .join(stream_id)
+            .join("events/00000001.wseg");
         let first_segment = tokio::fs::read(&segment_path).await.unwrap();
 
         source.run_command(commit(b"second")).await.unwrap();
@@ -2088,6 +2058,27 @@ mod tests {
             .unwrap();
         assert!(replica.local_writer_fenced().await);
         assert!(replica.durable_writer_fenced());
+        for invalid_id in ["../outside".to_owned(), "a".repeat(256)] {
+            assert!(replica
+                .ingest_replicated_commit(
+                    first_entry.clone(),
+                    vec![(invalid_id.clone(), 1, 1, first_segment.clone())],
+                )
+                .await
+                .is_err());
+            assert!(!replica.key_registry.lock().await.has_stream(&invalid_id));
+        }
+        let mut mismatched = first_entry.clone();
+        mismatched.event_refs[0].stream_id_hash = [0x5a; 16];
+        assert!(replica
+            .ingest_replicated_commit(
+                mismatched,
+                vec![(stream_id.into(), 1, 1, first_segment.clone())],
+            )
+            .await
+            .is_err());
+        assert!(!replica_dir.path().join("streams").exists());
+        assert!(!replica.key_registry.lock().await.has_stream(stream_id));
         let first = (stream_id.into(), 1, 1, first_segment.clone());
         replica
             .ingest_replicated_commit(first_entry.clone(), vec![first])
@@ -2113,7 +2104,9 @@ mod tests {
             .is_err());
         let replica_segment = replica_dir
             .path()
-            .join("streams/channel/channel:regional-probe/events/00000001.wseg");
+            .join("streams/channel")
+            .join(stream_id)
+            .join("events/00000001.wseg");
         assert_eq!(
             tokio::fs::read(&replica_segment).await.unwrap(),
             first_segment
@@ -2159,9 +2152,7 @@ mod tests {
             .await
             .is_err());
         drop(replica);
-        let restarted = WabiDbEngine::open(replica_test_config(replica_dir.path()))
-            .await
-            .unwrap();
+        let restarted = reopen_after_drop(replica_test_config(replica_dir.path()), None).await;
         assert!(restarted.local_writer_fenced().await);
         assert_eq!(
             restarted
@@ -2189,7 +2180,7 @@ mod tests {
         assert!(engine.sequencer.is_some());
         assert!(engine.is_writer_running());
         assert!(engine.is_healthy());
-        assert!(engine._lock_file_path.is_some());
+        assert!(engine._process_lock.is_some());
     }
 
     #[test]
@@ -2269,12 +2260,21 @@ mod tests {
         let pid_str = std::fs::read_to_string(&lock_path).unwrap();
         let pid: u32 = pid_str.trim().parse().unwrap();
         assert_eq!(pid, std::process::id());
-        // Cleanup (Drop handles it, but verify it doesn't error)
+        // The inode stays in place after release so a second opener cannot
+        // race an unlink and acquire a different lock file.
         drop(engine);
         assert!(
-            !lock_path.exists(),
-            "lock file should be cleaned up on drop"
+            lock_path.exists(),
+            "the advisory lock inode must remain after drop"
         );
+        reopen_after_drop(
+            WabiDbConfig::new(
+                dir.path().to_path_buf(),
+                BootstrapSource::Provided([0u8; 32]),
+            ),
+            None,
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -2337,15 +2337,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stale_same_pid_lock_is_stolen_container_restart() {
+    async fn unlocked_pid_file_does_not_block_container_restart() {
         // Container restart scenario: the previous run (same PID in a fresh
-        // PID namespace — Docker containers always boot at PID 1) crashed
-        // leaving its .lock behind. The new boot must steal it, not refuse.
+        // PID namespace) crashed leaving its .lock behind. The new boot must
+        // reuse that inode once the OS releases the prior owner's lock.
         let dir = tempdir().unwrap();
         let lock_path = dir.path().join(".lock");
 
-        // Simulate the previous incarnation's lock: same PID as ours,
-        // mtime in the past relative to the (overridden) boot wallclock.
+        // A matching diagnostic PID never confers ownership.
         std::fs::write(&lock_path, std::process::id().to_string()).unwrap();
 
         let config = WabiDbConfig {
@@ -2355,56 +2354,20 @@ mod tests {
             allow_init: true,
             replication_config: None,
             sync_transport: None,
-            // Boot "before" the lock was written: exactly the container
-            // restart situation, deterministic regardless of mtime precision.
+            // This old compatibility input no longer changes lock ownership.
             test_boot_wallclock_override: Some(std::time::SystemTime::now()),
         };
-        // Must succeed: the stale same-PID lock is recognized and stolen.
+        // Its PID and timestamp are diagnostic only. With no OS lock owner,
+        // a prior process's file is reusable without removal.
         let engine = WabiDbEngine::open(config).await.unwrap();
         assert_eq!(engine.data_dir(), dir.path());
     }
 
     #[tokio::test]
-    async fn fresh_live_sibling_lock_is_respected() {
-        // A lock written AFTER our boot wallclock with a live-looking PID is
-        // a genuine concurrent sibling: must still be refused. We simulate by
-        // writing a different PID and then rewinding the file mtime is not
-        // possible portably — instead write a DIFFERENT live PID (our own +1
-        // may not exist; use a PID that exists: our own) but set mtime to now
-        // via a touch after BOOT_WALLCLOCK was captured... simplest portable
-        // proof: holder == pid + mtime >= boot wallclock cannot happen for a
-        // file we did not create this run, so exercise the OTHER arm: a
-        // different, definitely-dead PID must be stolen too (existing rule),
-        // while an ALIVE different PID is refused.
-        //
-        // Find a PID that exists but is not us: read any /proc entry != ours.
-        let other_alive: Option<u32> = {
-            #[cfg(unix)]
-            {
-                std::fs::read_dir("/proc").ok().and_then(|entries| {
-                    entries.filter_map(|e| e.ok()).find_map(|e| {
-                        e.file_name()
-                            .to_str()?
-                            .parse::<u32>()
-                            .ok()
-                            .filter(|p| *p != std::process::id())
-                    })
-                })
-            }
-            #[cfg(not(unix))]
-            {
-                None
-            }
-        };
-        let Some(other) = other_alive else {
-            // No other process to test against (shouldn't happen on Linux);
-            // nothing to assert here.
-            return;
-        };
-
+    async fn advisory_lock_cannot_be_stolen_by_pid_or_wallclock_override() {
         let dir = tempdir().unwrap();
         let lock_path = dir.path().join(".lock");
-        std::fs::write(&lock_path, other.to_string()).unwrap();
+        let _held = locks::try_acquire_process_lock(&lock_path).unwrap().unwrap();
 
         let config = WabiDbConfig {
             data_dir: dir.path().to_path_buf(),
@@ -2413,12 +2376,12 @@ mod tests {
             allow_init: true,
             replication_config: None,
             sync_transport: None,
-            test_boot_wallclock_override: None,
+            test_boot_wallclock_override: Some(SystemTime::now() + Duration::from_secs(3600)),
         };
         let err = WabiDbEngine::open(config).await.unwrap_err();
         assert!(
             matches!(err, WabiError::AlreadyRunning),
-            "a LIVE different-pid holder must keep its lock; got {err:?}"
+            "the OS lock owner must keep its lock; got {err:?}"
         );
     }
 }

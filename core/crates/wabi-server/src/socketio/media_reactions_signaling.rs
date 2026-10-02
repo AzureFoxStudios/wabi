@@ -1,11 +1,5 @@
-// WDB-compat shim: this file calls `state.app.wdb.X(...)` for
-// methods the WDB doesn't have equivalents for yet
-// (is_user_muted, get_channel_retention, mute_user, etc.).
-// The compat WdbClient in `db/` returns no-op defaults for all
-// of these. When WDB has the corresponding engine methods, this
-// file can be migrated to use `state.app.wdb.X(...)` instead.
-// The compat shim itself is a temporary layer and will be removed
-// once the last socketio file is migrated.
+// Server-authorized WabiDB relay and reactions. Durable channel/restriction
+// policy and current per-device roster consent govern actual media delivery.
 
 #[allow(dead_code)]
 async fn on_join_wabidb_call(socket: SocketRef, data: Value, state: SioState, _io: SocketIo) {
@@ -17,6 +11,12 @@ async fn on_join_wabidb_call(socket: SocketRef, data: Value, state: SioState, _i
         .get("channelId")
         .and_then(|v| v.as_str())
         .map(String::from);
+
+    if resolve_identity(&socket, &state).await.is_none() { return; }
+    let _channel = match session_id.strip_prefix("channel:") {
+        Some(id) => Some(crate::channel_access::publication_gate(&state.app, id).lock().await),
+        None => None,
+    };
 
     // SEC-1: the room join is authorized against server-side truth — the
     // deterministic session key must match the channel roster (or group call
@@ -33,7 +33,9 @@ async fn on_join_wabidb_call(socket: SocketRef, data: Value, state: SioState, _i
     let access = if let Some(channel_id) = channel_id.as_ref().filter(|_| !session_id.starts_with("dm:")) {
         match resolve_identity(&socket, &state).await {
             Some(identity) => matches!(crate::channel_access::require_access(&state.app, identity.user_id, channel_id).await,
-                Ok(channel) if matches!(channel.channel_kind, wabidb::domain::ChannelKind::Voice | wabidb::domain::ChannelKind::GroupDm)),
+                Ok(channel) if matches!(channel.channel_kind, wabidb::domain::ChannelKind::Voice | wabidb::domain::ChannelKind::GroupDm))
+                && matches!(state.app.wdb.is_user_deafened(channel_id, identity.user_id as u64).await, Ok(false))
+                && state.app.wdb.is_user_muted(channel_id, identity.user_id as u64).await.is_ok(),
             None => false,
         }
     } else { resolve_identity(&socket, &state).await.is_some() };
@@ -93,7 +95,7 @@ async fn on_join_wabidb_call(socket: SocketRef, data: Value, state: SioState, _i
 
 /// Evict the socket from the channel's wabidb media room when it no longer
 /// holds ANY roster slot (primary or listen-only) in that channel. Room
-/// membership is the relay's ONLY authorization — before this, a departed
+/// membership is one relay admission proof — before this, a departed
 /// socket kept both relay rights (a still-emitting client kept streaming its
 /// mic to everyone remaining) and every media envelope until it fully
 /// disconnected.
@@ -141,7 +143,7 @@ fn dm_media_room_key(my_id: &str, peer_id: &str) -> String {
 #[allow(dead_code)]
 async fn on_wabidb_media(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     // SEC-1: unauthenticated sockets may not relay media at all.
-    let Some(identity) = resolve_sio_identity(&socket) else {
+    let Some(identity) = resolve_identity(&socket, &state).await else {
         warn!(
             "[sio] wabidb-media from unauthenticated socket {}: dropped",
             socket.id
@@ -153,6 +155,18 @@ async fn on_wabidb_media(socket: SocketRef, data: Value, state: SioState, io: So
         None => return,
     };
 
+    let _channel = match session_id.strip_prefix("channel:") {
+        Some(id) => Some(crate::channel_access::publication_gate(&state.app, id).lock().await),
+        None => None,
+    };
+    if let Some(channel_id) = session_id.strip_prefix("channel:") {
+        if !can_access_channel(&state, identity.user_id, channel_id).await { return; }
+        // A roster slot is not permission to keep publishing after a mute.
+        // Corrupt restriction reads refuse relay and replay-cache publication.
+        if !matches!(state.app.wdb.is_user_muted(channel_id, identity.user_id as u64).await, Ok(false))
+            || state.app.wdb.is_user_deafened(channel_id, identity.user_id as u64).await.is_err() { return; }
+    }
+
     let room_id = format!("wabidb-call-{}", session_id);
     // Serialize the short relay/cache enqueue with roster removal. A packet
     // already in flight before a kick must not restore evicted header state.
@@ -160,7 +174,7 @@ async fn on_wabidb_media(socket: SocketRef, data: Value, state: SioState, io: So
     let groups = state.group_call_sessions.read().await;
     if authorize_wabidb_session_join(&format!("user-{}", identity.user_id),
         &socket.id.to_string(), &session_id, session_id.strip_prefix("channel:"), &voice, &groups).is_err() { return; }
-    // Room membership is the authorization proof: only sockets that passed
+    // Room membership is an admission proof: only sockets that passed
     // join-wabidb-call's checks for THIS session are in the room.
     if !socket.rooms().iter().any(|r| r.as_ref() == room_id.as_str()) {
         warn!(
@@ -204,7 +218,32 @@ async fn on_wabidb_media(socket: SocketRef, data: Value, state: SioState, io: So
         }
     }
 
-    // Relay to every authorized participant of this call session (except sender).
+    // Current durable receive policy applies to every device, including idle
+    // sockets already in the room when a deafen or corruption was published.
+    // The outer membership reader and channel gate retain this check through
+    // enqueue; voice/group guards above also retain per-device consent.
+    if let Some(channel_id) = session_id.strip_prefix("channel:") {
+        let mut recipients = Vec::new();
+        for receiver in io.within(room_id.clone()).sockets() {
+            if receiver.id == socket.id { continue; }
+            let Some(target) = receiver.extensions.get::<SioIdentity>() else { continue; };
+            if target.user_id <= 0
+                || !can_access_channel(&state, target.user_id, channel_id).await
+                || !matches!(state.app.wdb.is_user_deafened(channel_id, target.user_id as u64).await, Ok(false))
+                || state.app.wdb.is_user_muted(channel_id, target.user_id as u64).await.is_err()
+                || authorize_wabidb_session_join(&format!("user-{}", target.user_id),
+                    &receiver.id.to_string(), &session_id, Some(channel_id), &voice, &groups).is_err() {
+                continue;
+            }
+            recipients.push(receiver.id.to_string());
+        }
+        if !recipients.is_empty() {
+            let _ = io.to(recipients).emit("wabidb-media", &payload).await;
+        }
+        return;
+    }
+
+    // Direct sessions retain their separate participant/consent boundary.
     let _ = io
         .to(room_id)
         .except(socket.id.clone())
@@ -589,11 +628,11 @@ async fn on_call_recording_set_active(
     io: SocketIo,
     ack: AckSender,
 ) {
-    let Some(identity) = resolve_sio_identity(&socket) else {
+    let Some(identity) = resolve_identity(&socket, &state).await else {
         let _ = ack.send(&json!({"ok": false, "error": "authentication required"}));
         return;
     };
-    if identity.user_id <= 0 {
+    if identity.is_guest {
         let _ = ack.send(&json!({"ok": false, "error": "guests cannot record"}));
         return;
     }
@@ -858,6 +897,7 @@ async fn on_webrtc_ice_candidate(socket: SocketRef, data: Value, state: SioState
 
 #[allow(dead_code)]
 async fn on_p2p_offer(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
+    if resolve_identity(&socket, &state).await.is_none() { return; }
     let sender_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
     let username = {
         let connected = state.connected_users.read().await;
@@ -875,6 +915,7 @@ async fn on_p2p_offer(socket: SocketRef, data: Value, state: SioState, io: Socke
         Some(id) => id,
         None => return,
     };
+    if !p2p_account_target(&state, &target_id).await { return; }
     let offer = match data.get("offer") {
         Some(o) => o.clone(),
         None => return,
@@ -907,6 +948,7 @@ async fn on_p2p_offer(socket: SocketRef, data: Value, state: SioState, io: Socke
 
 #[allow(dead_code)]
 async fn on_p2p_answer(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
+    if resolve_identity(&socket, &state).await.is_none() { return; }
     let sender_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
     let transfer_id = match data.get("transferId").and_then(|v| v.as_str()).map(String::from) {
         Some(id) => id,
@@ -916,6 +958,7 @@ async fn on_p2p_answer(socket: SocketRef, data: Value, state: SioState, io: Sock
         Some(id) => id,
         None => return,
     };
+    if !p2p_account_target(&state, &target_id).await { return; }
     let answer = match data.get("answer") {
         Some(a) => a.clone(),
         None => return,
@@ -936,6 +979,7 @@ async fn on_p2p_answer(socket: SocketRef, data: Value, state: SioState, io: Sock
 
 #[allow(dead_code)]
 async fn on_p2p_ice_candidate(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
+    if resolve_identity(&socket, &state).await.is_none() { return; }
     let sender_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
     let transfer_id = match data.get("transferId").and_then(|v| v.as_str()).map(String::from) {
         Some(id) => id,
@@ -945,6 +989,7 @@ async fn on_p2p_ice_candidate(socket: SocketRef, data: Value, state: SioState, i
         Some(id) => id,
         None => return,
     };
+    if !p2p_account_target(&state, &target_id).await { return; }
     let candidate = match data.get("candidate") {
         Some(c) => c.clone(),
         None => return,
@@ -961,6 +1006,14 @@ async fn on_p2p_ice_candidate(socket: SocketRef, data: Value, state: SioState, i
             }),
         )
         .await;
+}
+
+/// Transfer signaling addresses an actual recipient account. A client-supplied
+/// Socket.IO room (channel, media session, arbitrary socket id) is not a peer.
+async fn p2p_account_target(state: &SioState, target: &str) -> bool {
+    let Some(uid) = target.strip_prefix("user-").and_then(|id| id.parse::<i64>().ok())
+        .filter(|uid| *uid > 0 && target == format!("user-{uid}")) else { return false; };
+    crate::auth_extractor::ensure_active_principal(&state.app, uid).await.is_ok()
 }
 
 // ---------------------------------------------------------------------------

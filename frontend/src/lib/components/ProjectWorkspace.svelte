@@ -5,6 +5,10 @@
 	import SharedProjectBoard from './business/SharedProjectBoard.svelte';
 	import WikiChannel from './WikiChannel.svelte';
 	import LoreWorkspace from './LoreWorkspace.svelte';
+    import ProjectConnections from './ProjectConnections.svelte';
+    import { fetchPluginInventory } from '$lib/addonInventory';
+    import { getServerUrl } from '$lib/serverUrl';
+    import { onMount } from 'svelte';
 	let { discussionActive = false, discussionAvailable = false, onDiscussionChange = () => {} }: {
 		discussionActive?: boolean;
 		discussionAvailable?: boolean;
@@ -13,7 +17,19 @@
 
 	type ProjectChannel = { id: string; name: string; type?: string | null };
 	let remembered: string | null = $state(null);
-	let tab: 'plan' | 'wiki' | 'files' | 'assistant' = $state('plan');
+	let tab: 'plan' | 'wiki' | 'files' | 'assistant' | 'connections' = $state('plan');
+    let connectionsEnabled=$state(false);
+    onMount(()=>{
+        let disposed=false;
+        const refresh=async()=>{
+            const origin=getServerUrl();const inventory=await fetchPluginInventory();
+            if(disposed || origin!==getServerUrl())return;
+            connectionsEnabled=!!inventory?.some(a=>a.id==='project-workers' && a.enabled===true);
+            if(!connectionsEnabled && tab==='connections')tab='plan';
+        };
+        void refresh();const poll=setInterval(()=>{if(document.visibilityState==='visible')void refresh();},15000);
+        return()=>{disposed=true;clearInterval(poll);};
+    });
 	let projects = $derived(($channels as ProjectChannel[]).filter(channel => channel.type === 'planning' || channel.type === 'lore'));
 	let selected = $derived(projects.find(channel => channel.id === $currentChannel)
 		?? projects.find(channel => channel.id === remembered) ?? projects[0]);
@@ -23,7 +39,7 @@
 		switchChannel(id);
 		if (projects.find(channel => channel.id === id)?.type !== 'lore' && tab === 'files') tab = 'plan';
 	}
-	function openView(view: 'plan' | 'wiki' | 'files' | 'assistant'): void {
+	function openView(view: 'plan' | 'wiki' | 'files' | 'assistant' | 'connections'): void {
 		tab = view;
 		onDiscussionChange(false);
 	}
@@ -53,16 +69,18 @@
 				<button type="button" class:active={!discussionActive && tab === 'plan'} aria-current={!discussionActive && tab === 'plan' ? 'page' : undefined} onclick={() => openView('plan')}><span aria-hidden="true">▦</span> Board</button>
 				<button type="button" class:active={!discussionActive && tab === 'wiki'} aria-current={!discussionActive && tab === 'wiki' ? 'page' : undefined} onclick={() => openView('wiki')}><span aria-hidden="true">▤</span> Wiki</button>
 				<button type="button" class:active={!discussionActive && tab === 'assistant'} aria-current={!discussionActive && tab === 'assistant' ? 'page' : undefined} onclick={() => openView('assistant')}><span aria-hidden="true">✧</span> Assistant</button>
+                {#if connectionsEnabled}<button type="button" class:active={!discussionActive && tab==='connections'} aria-current={!discussionActive && tab==='connections'?'page':undefined} onclick={()=>openView('connections')}><span aria-hidden="true">◈</span> Connections</button>{/if}
 				{#if selected.type === 'lore'}<button type="button" class:active={!discussionActive && tab === 'files'} aria-current={!discussionActive && tab === 'files' ? 'page' : undefined} onclick={() => openView('files')}><span aria-hidden="true">◇</span> Files</button>{/if}
 				{#if discussionAvailable}<button type="button" class:active={discussionActive} aria-current={discussionActive ? 'page' : undefined} onclick={() => onDiscussionChange(true)}><span aria-hidden="true">◌</span> Discussion</button>{/if}
 			</nav>
-			<span class="project-sync-note"><span aria-hidden="true">●</span> Shared on this server</span>
+
 		</div>
 		{#if discussionActive}<div class="discussion-intro"><strong>Project discussion</strong><span>Messages shared with the people in this project.</span></div>{/if}
 		{#if !discussionActive}<div class="project-content">
 			{#key selected.id}
 				{#if tab === 'plan'}<SharedProjectBoard channelId={selected.id} />
 				{:else if tab === 'assistant'}<ProjectAssistant channelId={selected.id} />
+                {:else if tab === 'connections' && connectionsEnabled}<ProjectConnections channelId={selected.id} />
 				{:else if tab === 'wiki'}<WikiChannel channelId={selected.id} draftSurface="project" />
 				{:else if selected.type === 'lore'}<LoreWorkspace />
 				{:else}<SharedProjectBoard channelId={selected.id} />{/if}

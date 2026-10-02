@@ -30,29 +30,12 @@
 		box-sizing: border-box;
 	}
 
-	/* PR4: banner strip behind the avatar. Positioned inside the card so it
-	   never clips the absolutely-positioned status popup. */
-	.profile-card-banner {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		height: 14px;
-		background-size: cover;
-		background-position: center;
-		opacity: 0.85;
-		pointer-events: none;
-	}
 
-	.profile-card-banner::after {
-		content: "";
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		height: 14px;
-		background: linear-gradient(180deg, rgba(var(--surface-base-rgb, 26, 26, 46), 0.2), rgba(var(--surface-base-rgb, 26, 26, 46), 0.95));
-	}
+	.profile-card { background: var(--bg-secondary, #202f32); isolation: isolate; }
+	.profile-card-art { position: absolute; inset: 0; overflow: hidden; z-index: -2; pointer-events: none; }
+	.profile-card.has-banner::before { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(0,0,0,.68), rgba(0,0,0,.82)); z-index: -1; pointer-events: none; }
+	.profile-card.has-banner { color: #fff; }
+	.profile-card.has-banner .user-tag, .profile-card.has-banner .username, .profile-card.has-banner .profile-controls .control-btn { color: #fff; }
 
 	.profile-card .profile-info {
 		position: relative;

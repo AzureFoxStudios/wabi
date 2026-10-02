@@ -1,5 +1,8 @@
 //! Ordered denials must survive migration, replay and failed durable writes.
 //! This fixture is not a complete instance checkpoint or promotion proof.
+#[path = "fixtures/writer_drain.rs"]
+mod writer_drain;
+
 use axum::{
     body::{to_bytes, Body},
     http::{Request, StatusCode},
@@ -85,9 +88,11 @@ async fn migration_and_new_denials_survive_event_replay_despite_a_stale_sidecar(
         "canonical writes leave legacy import source unchanged"
     );
     drop(state);
+    let stopped = writer_drain::wait_for_stopped_engine(&directory.path().join("wabidb")).await;
     std::fs::remove_file(directory.path().join("wabidb/projections/snapshot.json")).unwrap();
     std::fs::write(&file, "stale and malformed legacy file after migration").unwrap();
-    let reopened = AppState::new(config(directory.path())).await.unwrap();
+    drop(stopped);
+    let reopened = writer_drain::app_state(&config(directory.path())).await.unwrap();
     assert_eq!(
         reopened.wdb.engine().barrier().current(),
         commit,
@@ -139,7 +144,7 @@ async fn concurrent_revocations_keep_all_denials_and_advance_the_same_user_floor
     drop(guards);
     let commit = state.wdb.engine().barrier().current();
     drop(state);
-    let reopened = AppState::new(config(directory.path())).await.unwrap();
+    let reopened = writer_drain::app_state(&config(directory.path())).await.unwrap();
     assert_eq!(reopened.wdb.engine().barrier().current(), commit);
     assert_eq!(reopened.revocations.read().await.jtis.len(), 32);
     assert_eq!(
@@ -269,7 +274,7 @@ async fn an_interrupted_batched_import_resumes_without_exposing_partial_denials(
         .unwrap();
     assert!(db.engine().projection_state().get(INDEX, READY).is_none());
     drop(db);
-    let state = AppState::new(config(directory.path())).await.unwrap();
+    let state = writer_drain::app_state(&config(directory.path())).await.unwrap();
     assert_eq!(state.revocations.read().await.jtis.len(), 1100);
     assert!(state.is_token_revoked("legacy-0", 9, now).await);
     assert!(state.is_token_revoked("legacy-1099", 9, now).await);
@@ -333,7 +338,7 @@ async fn cancellation_after_admission_cannot_strand_a_committed_denial_outside_t
         .get(INDEX, b"token:cancelled-caller")
         .is_some());
     drop(state);
-    let reopened = AppState::new(config(directory.path())).await.unwrap();
+    let reopened = writer_drain::app_state(&config(directory.path())).await.unwrap();
     assert!(
         reopened
             .is_token_revoked("cancelled-caller", 9, chrono::Utc::now().timestamp())

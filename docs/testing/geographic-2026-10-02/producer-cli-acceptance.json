@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "session": 95047,
+  "actualExitCode": 0,
+  "passed": 39,
+  "failed": 0,
+  "ignored": 1,
+  "ignoredChildInvokedAtActualSIGKILLPoints": 4,
+  "sourceFreezeSha256": "a15c45f56be8097e65db49d7a6154b888d14b74ea611bba468fb0d0b48b14807",
+  "sourceReadbackChanged": [],
+  "compressedLog": "producer-cli.log.gz",
+  "logSha256": "80bebad1f0993a8da382049f40fdf5bf6b97a9edc902beebf2574fed40458a4c",
+  "artifacts": [
+    {
+      "path": "target/debug/deps/wabi_instance_snapshot-57464bfbd2258248",
+      "bytes": 23833952,
+      "sha256": "b6bfae14fe45f74d5b1c7e4dcd16f9ce993538f7909d8b8093be75a5cd610d8d"
+    }
+  ],
+  "limits": "Snapshot wrapper/library-test compatibility and archive regressions only; no HA/writer activation"
+}

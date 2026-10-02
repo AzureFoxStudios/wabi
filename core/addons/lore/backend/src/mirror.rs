@@ -1,17 +1,25 @@
 //! P7: Off-box Mirroring — publish Lore repos to external platforms.
 //!
 //! Git backends (GitHub / GitLab / GenericGit) export the lore working tree
-//! into a scratch git repo (`.wabiignore`-filtered) and `git push -f` it to
-//! the configured remote. Authentication must come from the remote URL
-//! itself (https token) or the ambient ssh agent — Wabi does not store
-//! mirror credentials. S3 is not implemented and reports an error rather
+//! into a private scratch git repo (`.wabiignore`-filtered) and replace only
+//! its explicit snapshot refs, guarded by the inspected remote revisions.
+//! Destinations must pass the same public HTTPS policy as imports; ambient
+//! credentials, Git configuration and transport helpers are not inherited. S3 is not implemented and reports an error rather
 //! than pretending to succeed.
 
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use std::path::Path;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use std::time::Duration;
+
+use crate::confined_fs::{InternalFile, RepoDir};
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use tokio::sync::{OwnedMutexGuard, RwLock};
 use tracing::{info, warn};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,6 +87,9 @@ impl MirrorService {
     }
 
     pub async fn register_mirror(&self, config: MirrorConfig) -> anyhow::Result<()> {
+        if !matches!(config.backend, MirrorBackend::S3) {
+            crate::git_remote::validate_push_target(&config.remote_url)?;
+        }
         let channel_id = config.channel_id;
         let mut configs = self.configs.write().await;
         configs.insert(channel_id, config);
@@ -111,13 +122,12 @@ impl MirrorService {
 
     /// Publish the channel's lore working tree to the configured remote.
     ///
-    /// `working_tree` must be the channel's repo path (the caller resolves it
-    /// from the lore service). Git backends do a real export-and-push; S3
-    /// returns an explicit not-implemented error instead of faking success.
-    pub async fn mirror(
+    /// Only the Lore service may supply a held repository capability and
+    /// owned I/O gate. S3 returns an explicit unsupported error.
+    pub(crate) async fn mirror(
         &self,
         channel_id: i64,
-        working_tree: Option<&Path>,
+        source: Option<MirrorSource>,
     ) -> anyhow::Result<MirrorResult> {
         let mut config = self
             .get_config(channel_id)
@@ -125,11 +135,14 @@ impl MirrorService {
             .ok_or_else(|| anyhow::anyhow!("No mirror configuration for channel {}", channel_id))?;
 
         if matches!(config.backend, MirrorBackend::S3) {
-            self.record_failure(&mut config, "S3 mirroring is not implemented").await;
-            anyhow::bail!("S3 mirroring is not implemented yet; configure a git backend (github/gitlab/git)");
+            self.record_failure(&mut config, "S3 mirroring is not implemented")
+                .await;
+            anyhow::bail!(
+                "S3 mirroring is not implemented yet; configure a git backend (github/gitlab/git)"
+            );
         }
 
-        let working_tree = working_tree.ok_or_else(|| {
+        let source = source.ok_or_else(|| {
             anyhow::anyhow!("No lore repo working tree for channel {channel_id}; nothing to mirror")
         })?;
 
@@ -141,7 +154,7 @@ impl MirrorService {
         );
 
         let start = std::time::Instant::now();
-        let result = export_and_push(working_tree, &config.remote_url).await;
+        let result = export_and_push(source, &config.remote_url, config.tags).await;
         let (status, error) = match &result {
             Ok(()) => (MirrorStatus::Success, None),
             Err(e) => (MirrorStatus::Failed, Some(e.to_string())),
@@ -151,7 +164,11 @@ impl MirrorService {
             backend: config.backend.clone(),
             remote_url: config.remote_url.clone(),
             branches_synced: vec!["main".into()],
-            tags_synced: if config.tags { vec!["latest".into()] } else { vec![] },
+            tags_synced: if config.tags {
+                vec!["latest".into()]
+            } else {
+                vec![]
+            },
             duration_ms: start.elapsed().as_millis() as u64,
             status: status.clone(),
             error,
@@ -173,12 +190,23 @@ impl MirrorService {
 
         match result.status {
             MirrorStatus::Success => {
-                info!(channel_id, duration_ms = result.duration_ms, "Mirror operation completed");
+                info!(
+                    channel_id,
+                    duration_ms = result.duration_ms,
+                    "Mirror operation completed"
+                );
                 Ok(result)
             }
             _ => {
-                let err = result.error.clone().unwrap_or_else(|| "mirror failed".into());
-                Err(anyhow::anyhow!("mirror to {} failed: {}", config.remote_url, err))
+                let err = result
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "mirror failed".into());
+                Err(anyhow::anyhow!(
+                    "mirror to {} failed: {}",
+                    config.remote_url,
+                    err
+                ))
             }
         }
     }
@@ -192,101 +220,157 @@ impl MirrorService {
     }
 }
 
-/// Export a lore working tree into a fresh scratch git repo and force-push it
-/// to `remote_url` as branch `main` (tagged `latest` when tags are enabled at
-/// the call site — the tag is created by the receiving CI or skipped).
-///
-/// The lore working tree is not itself a git repo, so every mirror builds a
-/// clean snapshot repo: files are copied (respecting `.wabiignore` and
-/// skipping `.lore`/wabi sidecar state), committed once, and force-pushed.
-/// A mirror is a snapshot view, not a history bridge.
-async fn export_and_push(working_tree: &Path, remote_url: &str) -> anyhow::Result<()> {
-    let scratch = std::env::temp_dir().join(format!(
-        "wabi-lore-mirror-{}",
-        uuid::Uuid::new_v4()
-    ));
-    tokio::fs::create_dir_all(&scratch).await?;
+/// Source capability and admission lifetime; no ambient source path escapes.
+pub(crate) struct MirrorSource {
+    root: RepoDir,
+    gate: OwnedMutexGuard<()>,
+    #[cfg(test)]
+    hook: Option<SnapshotHook>,
+}
 
-    let cleanup = |scratch: &Path| {
-        let p = scratch.to_path_buf();
-        async move {
-            let _ = tokio::fs::remove_dir_all(&p).await;
+impl MirrorSource {
+    pub(crate) fn new(root: RepoDir, gate: OwnedMutexGuard<()>) -> Self {
+        Self {
+            root,
+            gate,
+            #[cfg(test)]
+            hook: None,
         }
-    };
-
-    async fn git(args: &[&str], cwd: &Path) -> anyhow::Result<std::process::Output> {
-        let out = tokio::process::Command::new("git")
-            .args(args)
-            .current_dir(cwd)
-            .output()
-            .await?;
-        if !out.status.success() {
-            anyhow::bail!(
-                "git {} failed: {}",
-                args.join(" "),
-                String::from_utf8_lossy(&out.stderr).trim()
-            );
-        }
-        Ok(out)
     }
+}
 
-    let result: anyhow::Result<()> = async {
-        git(&["init", "-q", "-b", "main"], &scratch).await?;
+#[cfg(test)]
+struct SnapshotHook {
+    started: tokio::sync::oneshot::Sender<()>,
+    resume: std::sync::mpsc::Receiver<()>,
+}
 
-        // Copy tracked files: skip lore/wabi internal state and .wabiignore hits.
-        let filter = crate::ignore::LazyRepoFilter::new(working_tree.to_path_buf());
-        let mut walker = ignore::WalkBuilder::new(working_tree);
-        walker.hidden(false).git_ignore(false).ignore(false);
-        for entry in walker.build().flatten() {
-            let Some(ft) = entry.file_type() else { continue };
-            if !ft.is_file() {
-                continue;
-            }
-            let rel = match entry.path().strip_prefix(working_tree) {
-                Ok(r) => r.to_string_lossy().replace('\\', "/"),
-                Err(_) => continue,
-            };
-            let top = rel.split('/').next().unwrap_or("");
-            if top == ".lore" || rel == ".wabi-repo.json" || rel == ".wabiignore" || rel == ".loreignore" {
-                continue;
-            }
-            if filter.is_ignored(&rel) {
-                continue;
-            }
-            let dest = scratch.join(&rel);
-            if let Some(parent) = dest.parent() {
-                tokio::fs::create_dir_all(parent).await?;
-            }
-            tokio::fs::copy(entry.path(), &dest).await?;
-        }
-
-        if !remote_url.contains("://") && !remote_url.starts_with('/') {
-            anyhow::bail!("remote url '{remote_url}' does not look like a git remote");
-        }
-        git(&["add", "-A"], &scratch).await?;
-        // Nothing-to-commit is fine — the remote is already current.
-        let committed = tokio::process::Command::new("git")
-            .args(["-c", "user.email=wabi@localhost", "-c", "user.name=wabi", "commit", "-q", "-m", "Mirror snapshot from Wabi"])
-            .current_dir(&scratch)
-            .output()
-            .await?;
-        if !committed.status.success() {
-            let stderr = String::from_utf8_lossy(&committed.stderr);
-            if !stderr.contains("nothing to commit") && !stderr.contains("no changes added") {
-                anyhow::bail!("git commit failed: {}", stderr.trim());
-            }
-        }
-        git(&["remote", "add", "origin", remote_url], &scratch).await?;
-        git(&["push", "-q", "-f", "origin", "main"], &scratch).await?;
-        // tags=true → (re)point a lightweight `latest` tag at the snapshot.
-        git(&["tag", "-f", "latest"], &scratch).await?;
-        git(&["push", "-q", "-f", "origin", "latest"], &scratch).await?;
-        Ok(())
+struct CancelOnDrop(Arc<AtomicBool>);
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
     }
-    .await;
+}
 
-    cleanup(&scratch).await;
-    result
+/// The blocking worker owns both admission and scratch cleanup. Cancelling
+/// its caller cannot admit a branch replacement while source I/O continues.
+async fn copy_snapshot(source: MirrorSource) -> anyhow::Result<tempfile::TempDir> {
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let _cancel = CancelOnDrop(cancelled.clone());
+    let worker = tokio::task::spawn_blocking(move || -> anyhow::Result<tempfile::TempDir> {
+        let MirrorSource {
+            root,
+            gate,
+            #[cfg(test)]
+            hook,
+        } = source;
+        let _gate = gate;
+        let scratch = tempfile::Builder::new()
+            .prefix("wabi-lore-mirror-")
+            .tempdir()?;
+        let mut matcher = ignore::gitignore::GitignoreBuilder::new(Path::new(""));
+        match root.open_internal(InternalFile::WabiIgnore) {
+            Ok(file) => {
+                let mut contents = String::new();
+                file.take(1024 * 1024 + 1).read_to_string(&mut contents)?;
+                if contents.len() > 1024 * 1024 {
+                    anyhow::bail!("Mirror ignore file is too large");
+                }
+                for line in contents.lines() {
+                    matcher.add_line(None, line)?;
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                for pattern in crate::ignore::LazyRepoFilter::default_patterns() {
+                    matcher.add_line(None, pattern)?;
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+        let matcher = matcher.build()?;
+        let files = root.content_files()?;
+        #[cfg(test)]
+        if let Some(hook) = hook {
+            let _ = hook.started.send(());
+            hook.resume.recv()?;
+        }
+        let mut total_bytes = 0u64;
+        for path in files {
+            if cancelled.load(Ordering::Acquire) {
+                anyhow::bail!("Mirror export cancelled");
+            }
+            if matcher
+                .matched_path_or_any_parents(Path::new(&path), false)
+                .is_ignore()
+            {
+                continue;
+            }
+            let mut source = root.open_file(&path)?;
+            let destination = scratch
+                .path()
+                .join(crate::confined_fs::validate_path(&path)?);
+            if let Some(parent) = destination.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let mut output = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(destination)?;
+            let mut buffer = [0u8; 64 * 1024];
+            loop {
+                if cancelled.load(Ordering::Acquire) {
+                    anyhow::bail!("Mirror export cancelled");
+                }
+                let count = source.read(&mut buffer)?;
+                if count == 0 {
+                    break;
+                }
+                total_bytes = total_bytes.saturating_add(count as u64);
+                if total_bytes > 4 * 1024 * 1024 * 1024 {
+                    anyhow::bail!("Mirror snapshot exceeds 4 GiB");
+                }
+                if cancelled.load(Ordering::Acquire) {
+                    anyhow::bail!("Mirror export cancelled");
+                }
+                output.write_all(&buffer[..count])?;
+            }
+            output.flush()?;
+        }
+        Ok(scratch)
+    });
+    tokio::time::timeout(Duration::from_secs(60), worker)
+        .await
+        .map_err(|_| anyhow::anyhow!("Mirror export timed out"))?
+        .map_err(|_| anyhow::anyhow!("Mirror export worker stopped"))?
+}
+
+async fn export_and_push(source: MirrorSource, remote_url: &str, tags: bool) -> anyhow::Result<()> {
+    // Validate and pin before reading any repository content.
+    let target = crate::git_remote::resolve_push_target(remote_url).await?;
+    let scratch = copy_snapshot(source).await?;
+    crate::git_remote::checked_local(
+        &["init", "--quiet", "--template=", "-b", "main"],
+        scratch.path(),
+    )
+    .await?;
+    crate::git_remote::checked_local(&["add", "--all", "--force", "--", "."], scratch.path())
+        .await?;
+    crate::git_remote::checked_local(
+        &[
+            "-c",
+            "user.email=wabi@localhost",
+            "-c",
+            "user.name=wabi",
+            "commit",
+            "--quiet",
+            "--allow-empty",
+            "-m",
+            "Mirror snapshot from Wabi",
+        ],
+        scratch.path(),
+    )
+    .await?;
+    crate::git_remote::push_snapshot(&target, scratch.path(), tags).await
 }
 
 #[cfg(test)]
@@ -299,7 +383,7 @@ mod tests {
         let config = MirrorConfig {
             channel_id: 1,
             backend: MirrorBackend::GitHub,
-            remote_url: "git@github.com:user/repo.git".into(),
+            remote_url: "https://github.com/user/repo.git".into(),
             branches: vec!["main".into()],
             tags: true,
             auto_mirror: false,
@@ -319,7 +403,7 @@ mod tests {
         let config = MirrorConfig {
             channel_id: 1,
             backend: MirrorBackend::GitHub,
-            remote_url: "git@github.com:user/repo.git".into(),
+            remote_url: "https://github.com/user/repo.git".into(),
             branches: vec!["main".into()],
             tags: true,
             auto_mirror: false,
@@ -379,9 +463,26 @@ mod tests {
             .unwrap();
         assert!(init.status.success(), "git init --bare failed");
 
-        tokio::fs::write(tree.join("hello.txt"), b"mirror me").await.unwrap();
+        tokio::fs::write(tree.join("hello.txt"), b"mirror me")
+            .await
+            .unwrap();
         tokio::fs::create_dir_all(tree.join(".lore")).await.unwrap();
-        tokio::fs::write(tree.join(".lore/internal.bin"), b"skip me").await.unwrap();
+        tokio::fs::write(tree.join(".lore/internal.bin"), b"skip me")
+            .await
+            .unwrap();
+        for furniture in [
+            ".git/config",
+            ".mirror-cache/canary",
+            "nested/.git/config",
+            ".wabi-repo.json",
+        ] {
+            let path = tree.join(furniture);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"private furniture canary").unwrap();
+        }
+        std::fs::write(tree.join(".wabiignore"), "*.log\n!keep.log\n").unwrap();
+        std::fs::write(tree.join("skip.log"), b"ignored").unwrap();
+        std::fs::write(tree.join("keep.log"), b"keep me").unwrap();
 
         let service = MirrorService::new();
         let config = MirrorConfig {
@@ -398,7 +499,9 @@ mod tests {
         };
         service.register_mirror(config).await.unwrap();
 
-        let result = service.mirror(1, Some(&tree)).await.unwrap();
+        let gate = Arc::new(tokio::sync::Mutex::new(())).lock_owned().await;
+        let source = MirrorSource::new(RepoDir::open(&tree).unwrap(), gate);
+        let result = service.mirror(1, Some(source)).await.unwrap();
         assert_eq!(result.status, MirrorStatus::Success);
 
         // The remote received the file on main…
@@ -426,6 +529,141 @@ mod tests {
             .await
             .unwrap();
         assert!(!internal.status.success());
+        for hidden in [
+            ".git/config",
+            ".mirror-cache/canary",
+            "nested/.git/config",
+            ".wabi-repo.json",
+            ".wabiignore",
+            "skip.log",
+        ] {
+            let output = tokio::process::Command::new("git")
+                .args(["show", &format!("main:{hidden}")])
+                .current_dir(&bare)
+                .output()
+                .await
+                .unwrap();
+            assert!(
+                !output.status.success(),
+                "exported furniture or ignored file: {hidden}"
+            );
+        }
+        let kept = tokio::process::Command::new("git")
+            .args(["show", "main:keep.log"])
+            .current_dir(&bare)
+            .output()
+            .await
+            .unwrap();
+        assert_eq!(kept.stdout, b"keep me");
+
+        // A subsequent snapshot replaces main intentionally, without changing
+        // the existing latest tag when tagging is disabled.
+        let old_tag = tag.stdout;
+        std::fs::write(tree.join("hello.txt"), b"new snapshot").unwrap();
+        let mut config = service.get_config(1).await.unwrap();
+        config.tags = false;
+        service.register_mirror(config).await.unwrap();
+        let gate = Arc::new(tokio::sync::Mutex::new(())).lock_owned().await;
+        service
+            .mirror(
+                1,
+                Some(MirrorSource::new(RepoDir::open(&tree).unwrap(), gate)),
+            )
+            .await
+            .unwrap();
+        let tag = tokio::process::Command::new("git")
+            .args(["rev-parse", "refs/tags/latest"])
+            .current_dir(&bare)
+            .output()
+            .await
+            .unwrap();
+        assert_eq!(tag.stdout, old_tag);
+        let show = tokio::process::Command::new("git")
+            .args(["show", "main:hello.txt"])
+            .current_dir(&bare)
+            .output()
+            .await
+            .unwrap();
+        assert_eq!(show.stdout, b"new snapshot");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn source_replacement_with_symlink_cannot_export_outside_bytes() {
+        let tree = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(tree.path().join("file.txt"), b"original").unwrap();
+        std::fs::write(outside.path().join("canary"), b"outside private canary").unwrap();
+        let gate = Arc::new(tokio::sync::Mutex::new(())).lock_owned().await;
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (resume, wait) = std::sync::mpsc::channel();
+        let mut source = MirrorSource::new(RepoDir::open(tree.path()).unwrap(), gate);
+        source.hook = Some(SnapshotHook {
+            started,
+            resume: wait,
+        });
+        let operation = tokio::spawn(copy_snapshot(source));
+        ready.await.unwrap();
+        std::fs::remove_file(tree.path().join("file.txt")).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("canary"), tree.path().join("file.txt"))
+            .unwrap();
+        resume.send(()).unwrap();
+        assert!(operation.await.unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn cancelled_snapshot_retains_source_gate_until_worker_stops() {
+        let tree = tempfile::tempdir().unwrap();
+        std::fs::write(tree.path().join("file.txt"), b"content").unwrap();
+        let io_gate = Arc::new(tokio::sync::Mutex::new(()));
+        let gate = io_gate.clone().lock_owned().await;
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (resume, wait) = std::sync::mpsc::channel();
+        let mut source = MirrorSource::new(RepoDir::open(tree.path()).unwrap(), gate);
+        source.hook = Some(SnapshotHook {
+            started,
+            resume: wait,
+        });
+        let operation = tokio::spawn(copy_snapshot(source));
+        ready.await.unwrap();
+        operation.abort();
+        assert!(operation.await.unwrap_err().is_cancelled());
+        assert!(io_gate.try_lock().is_err());
+        resume.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), io_gate.lock())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn unsafe_mirror_destinations_are_rejected_before_registration() {
+        let service = MirrorService::new();
+        for remote in [
+            "file:///tmp/repo",
+            "ssh://host/repo",
+            "ext::command",
+            "git@host:repo",
+            "https://user:secret@example.com/repo",
+            "https://127.0.0.1/repo",
+        ] {
+            let config = MirrorConfig {
+                channel_id: 1,
+                backend: MirrorBackend::GenericGit,
+                remote_url: remote.into(),
+                branches: vec![],
+                tags: false,
+                auto_mirror: false,
+                mirror_on_push: false,
+                credentials_secret_id: None,
+                last_mirror_at: None,
+                last_mirror_status: None,
+            };
+            assert!(
+                service.register_mirror(config).await.is_err(),
+                "accepted {remote}"
+            );
+            assert!(service.get_config(1).await.is_none());
+        }
     }
 
     #[tokio::test]
@@ -434,7 +672,7 @@ mod tests {
         let config = MirrorConfig {
             channel_id: 1,
             backend: MirrorBackend::GitHub,
-            remote_url: "git@github.com:user/repo.git".into(),
+            remote_url: "https://github.com/user/repo.git".into(),
             branches: vec![],
             tags: false,
             auto_mirror: false,

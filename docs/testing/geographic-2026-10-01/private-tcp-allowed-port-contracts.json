@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "scope": "Six directed actual private-Tailscale TCP paths with bounded disposable challenge echo, no application credentials/content",
+  "firewallOrRouterChanges": 0,
+  "persistentFilesCreated": 0,
+  "noiseRpcTested": false,
+  "canonicalWriterPermitted": false,
+  "paths": [
+    {
+      "source": 1,
+      "target": 2,
+      "status": "PASS",
+      "seconds": 0.365
+    },
+    {
+      "source": 1,
+      "target": 3,
+      "status": "PASS",
+      "seconds": 0.206
+    },
+    {
+      "source": 2,
+      "target": 1,
+      "status": "PASS",
+      "seconds": 0.277
+    },
+    {
+      "source": 2,
+      "target": 3,
+      "status": "PASS",
+      "seconds": 0.2
+    },
+    {
+      "source": 3,
+      "target": 1,
+      "status": "PASS",
+      "seconds": 0.512
+    },
+    {
+      "source": 3,
+      "target": 2,
+      "status": "PASS",
+      "seconds": 0.205
+    }
+  ],
+  "status": "PASS",
+  "cleanup": [
+    {
+      "event": "cleanup",
+      "ownedThreadStopped": true,
+      "ownedListenerClosed": true,
+      "persistentFilesCreated": 0,
+      "processExitCode": 0,
+      "node": 1
+    },
+    {
+      "event": "cleanup",
+      "ownedThreadStopped": true,
+      "ownedListenerClosed": true,
+      "persistentFilesCreated": 0,
+      "processExitCode": 0,
+      "node": 2
+    },
+    {
+      "event": "cleanup",
+      "ownedThreadStopped": true,
+      "ownedListenerClosed": true,
+      "persistentFilesCreated": 0,
+      "processExitCode": 0,
+      "node": 3
+    }
+  ],
+  "recordedAtUtc": "2026-10-01T13:31:52.371987+00:00",
+  "runnerSourceSha256": "3cb65990e8abfe15769684406597293f0fce6df08f81853686645fa48484fdfa",
+  "iyokuListenerPort": 3000,
+  "iyokuPortWasAlreadyAllowedAndUnused": true,
+  "sixDirectedPathsPassed": true,
+  "verifiedTemporaryRunnerRemoved": true,
+  "exactTemporaryRunnerBytesRemoved": 6231,
+  "priorDeniedRandomPortReceipt": "private-tcp-path-contracts.json"
+}

@@ -12,6 +12,7 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
     let rejoining = data.get("rejoin").and_then(Value::as_bool) == Some(true);
     let group_intent = data.get("channelId").and_then(Value::as_str)
         .map(|id| advance_voice_intent(&socket, id, false));
+    if resolve_identity(&socket, &state).await.is_none() { return; }
     let my_stable_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
     let my_username = {
         let connected = state.connected_users.read().await;
@@ -270,6 +271,7 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
 async fn on_call_answer(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let group_intent = data.get("channelId").and_then(Value::as_str)
         .map(|id| advance_voice_intent(&socket, id, false));
+    if resolve_identity(&socket, &state).await.is_none() { return; }
     let my_stable_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
     let my_username = {
         let connected = state.connected_users.read().await;
@@ -390,6 +392,7 @@ async fn on_call_answer(socket: SocketRef, data: Value, state: SioState, io: Soc
 
 #[allow(dead_code)]
 async fn on_call_reject(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
+    if resolve_identity(&socket, &state).await.is_none() { return; }
     let my_stable_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
 
     if let Some(channel_id) = data
@@ -469,6 +472,7 @@ async fn on_call_reject(socket: SocketRef, data: Value, state: SioState, io: Soc
 
 #[allow(dead_code)]
 async fn on_call_cancel(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
+    if resolve_identity(&socket, &state).await.is_none() { return; }
     let my_stable_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
 
     if let Some(channel_id) = data
@@ -535,6 +539,7 @@ async fn on_call_cancel(socket: SocketRef, data: Value, state: SioState, io: Soc
 
 #[allow(dead_code)]
 async fn on_call_end(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
+    if resolve_identity(&socket, &state).await.is_none() { return; }
     let my_stable_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
     let participant_ids: Vec<String> = data
         .get("participants")

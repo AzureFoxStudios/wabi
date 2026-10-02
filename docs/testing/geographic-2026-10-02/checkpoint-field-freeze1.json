@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T05:46:29.028709+00:00",
+  "capturedBeforeRerun": true,
+  "files": 31,
+  "sourceFreezeSha256": "9b052aebd52cd61443c4e2b70b1c15b195f9b99b26b14ea80a137c46f17f2aaf",
+  "scope": "consensus crate Rust sources + root/crate manifests, lock and toolchain; no frontend embedding",
+  "initialRun33439": "actual0/1pass/0fail/2ignored; not frozen acceptance: attempted prior workspace freeze failed on removed frontend asset before launch",
+  "graphChanged": false
+}

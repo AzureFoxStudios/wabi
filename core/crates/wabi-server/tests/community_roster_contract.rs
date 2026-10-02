@@ -10,7 +10,7 @@ use std::{path::Path, sync::Arc};
 use tower::ServiceExt;
 use wabi_server::{
     api::routes::create_api_router,
-    auth_extractor::JwtClaims,
+    auth_extractor::{decode_token, JwtClaims, STEPUP_TTL_SECONDS},
     config::{LoreAddonConfig, ServerConfig, ServerRole},
     state::AppState,
 };
@@ -45,11 +45,13 @@ fn token(id: u64, secret: &str, stepup: bool, guest: bool) -> String {
         sub: id.to_string(),
         username: format!("user-{id}"),
         is_guest: guest,
-        exp: now + 3600,
+        exp: now + if stepup { STEPUP_TTL_SECONDS } else { 3600 },
         iat: now,
         jti: uuid::Uuid::new_v4().to_string(),
         stepup,
-        token_type: if stepup { "stepup" } else { "access" }.into(),
+        // The real issuer separates step-up credentials with this boolean,
+        // while retaining the access token kind.
+        token_type: "access".into(),
     };
     jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
@@ -187,4 +189,76 @@ async fn roster_requires_owner_stepup_and_rejects_stale_or_fenced_writes() {
             .0,
         StatusCode::CONFLICT
     );
+}
+
+async fn issue_stepup(app: &Router, bearer: &str, password: &str) -> String {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/auth/stepup")
+                .header("authorization", format!("Bearer {bearer}"))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({ "password": password }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+    serde_json::from_slice::<Value>(&bytes).unwrap()["stepupToken"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+#[tokio::test]
+async fn individually_revoked_stepup_blocks_roster_write_without_revoking_owner_access() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = Arc::new(AppState::new(config(directory.path())).await.unwrap());
+    let password = "owner-roster-password";
+    let password_hash = bcrypt::hash(password, 4).unwrap();
+    let owner = state
+        .wdb
+        .create_user("roster-owner", None, &password_hash)
+        .await
+        .unwrap();
+    state.wdb.claim_owner(owner).await.unwrap();
+    *state.owner_user_id.write().await = Some(owner as i64);
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let access = token(owner, &state.config.jwt_secret, false, false);
+    // Exercise the production issuer and roster verifier together.
+    let stepup = issue_stepup(&app, &access, password).await;
+    let claims = decode_token(&stepup, &state.config.jwt_secret)
+        .await
+        .unwrap();
+    assert!(claims.stepup);
+    assert_eq!(claims.token_type, "access");
+    let entries = json!([
+        {"nodeId": "a", "role": "authority", "url": "https://a.example"}
+    ]);
+    let initial = json!({"expectedVersion": 0, "entries": entries.clone()});
+    let (status, published) = call(&app, "PUT", Some(&access), Some(&stepup), initial).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(published["body"]["version"], 1);
+
+    state
+        .revoke_token_with_exp(claims.jti, claims.exp)
+        .await
+        .unwrap();
+    let next = json!({"expectedVersion": 1, "entries": entries});
+    let (status, rejected) = call(&app, "PUT", Some(&access), Some(&stepup), next.clone()).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        rejected["error"],
+        "step-up token has been revoked; re-authenticate"
+    );
+    // Only the step-up jti was revoked: the separate access credential still
+    // reads the unchanged roster and can prove the password for a fresh token.
+    let (status, unchanged) = call(&app, "GET", Some(&access), None, Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(unchanged["body"]["version"], 1);
+    let fresh_stepup = issue_stepup(&app, &access, password).await;
+    let (status, published) = call(&app, "PUT", Some(&access), Some(&fresh_stepup), next).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(published["body"]["version"], 2);
 }

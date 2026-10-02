@@ -43,6 +43,7 @@ pub mod secondary_index;
 pub mod service_access;
 pub mod user_deletion;
 pub mod users;
+pub mod voice_restrictions;
 pub mod upload_assets;
 pub mod upload_revocations;
 pub mod webhooks;

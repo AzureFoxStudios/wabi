@@ -7,6 +7,8 @@ license = "MIT"
 rust-version = "1.88"
 
 [dependencies]
+# Cross-platform OS advisory locks; preserve the crate's Rust 1.88 minimum.
+fs4 = { version = "=0.13.1", default-features = false, features = ["sync"] }
 # Content addressing
 blake3 = "1"
 # Authenticated encryption (per-stream records, DM bodies)

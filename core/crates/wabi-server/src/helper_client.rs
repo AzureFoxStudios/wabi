@@ -28,6 +28,16 @@ const IDENTITY_FILE: &str = "helper_identity.json";
 const HEARTBEAT_INTERVAL_SECS: u64 = 30;
 const JOB_POLL_INTERVAL_SECS: u64 = 5;
 
+fn helper_http_client() -> Result<reqwest::Client, reqwest::Error> {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
+        // Pairing and job requests contain secrets in their bodies. Never
+        // replay them at a location supplied by an HTTP redirect.
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+}
+
 /// Run helper client loop until cancellation or terminal error.
 pub async fn run_helper(
     primary_url: String,
@@ -41,11 +51,7 @@ pub async fn run_helper(
     let identity_path = PathBuf::from(&data_dir).join(IDENTITY_FILE);
     let local_blob_registry =
         BlobRegistry::new_persistent(PathBuf::from(&data_dir).join("helper_blobs"));
-    let client = match reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .connect_timeout(Duration::from_secs(10))
-        .build()
-    {
+    let client = match helper_http_client() {
         Ok(c) => c,
         Err(e) => {
             error!("[helper] Failed to build HTTP client: {}", e);
@@ -670,12 +676,113 @@ async fn load_identity(path: &PathBuf) -> anyhow::Result<HelperIdentity> {
 }
 
 async fn save_identity(path: &PathBuf, id: &HelperIdentity) -> anyhow::Result<()> {
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-    let content = serde_json::to_string_pretty(id)?;
-    tokio::fs::write(path, content).await?;
+    let path = path.clone();
+    let content = serde_json::to_vec_pretty(id)?;
+    // Keep the old credential intact until the complete replacement is synced.
+    // This also replaces a legacy permissive inode without following it.
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        use std::io::Write;
+        let parent = path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("missing identity directory"))?;
+        std::fs::create_dir_all(parent)?;
+        let temporary = parent.join(format!(".helper-identity-{}.tmp", uuid::Uuid::new_v4()));
+        let result = (|| -> anyhow::Result<()> {
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let mut file = options.open(&temporary)?;
+            file.write_all(&content)?;
+            file.sync_all()?;
+            std::fs::rename(&temporary, &path)?;
+            #[cfg(unix)]
+            std::fs::File::open(parent)?.sync_all()?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&temporary);
+        }
+        result
+    })
+    .await??;
     Ok(())
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn credential_requests_do_not_follow_redirects() {
+        use axum::{http::StatusCode, response::Redirect, routing::post, Router};
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        let count = Arc::new(AtomicUsize::new(0));
+        let observed = count.clone();
+        let sink_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let sink = format!(
+            "http://{}/credential-sink",
+            sink_listener.local_addr().unwrap()
+        );
+        let sink_app = Router::new().route(
+            "/credential-sink",
+            post(move || async move {
+                observed.fetch_add(1, Ordering::SeqCst);
+                StatusCode::OK
+            }),
+        );
+        let sink_task =
+            tokio::spawn(async move { axum::serve(sink_listener, sink_app).await.unwrap() });
+        let origin = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin_url = format!("http://{}/join", origin.local_addr().unwrap());
+        let origin_app = Router::new().route(
+            "/join",
+            post(move || async move { Redirect::temporary(&sink) }),
+        );
+        let origin_task =
+            tokio::spawn(async move { axum::serve(origin, origin_app).await.unwrap() });
+        let response = helper_http_client()
+            .unwrap()
+            .post(origin_url)
+            .json(&serde_json::json!({"token":"fixture-pairing-credential"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(count.load(Ordering::SeqCst), 0);
+        origin_task.abort();
+        sink_task.abort();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn saved_helper_identity_replaces_legacy_permissions_and_survives_reopen() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(IDENTITY_FILE);
+        std::fs::write(&path, "legacy").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let identity = HelperIdentity {
+            node_secret: "fixture-secret".into(),
+            ..Default::default()
+        };
+        save_identity(&path, &identity).await.unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            load_identity(&path).await.unwrap().node_secret,
+            identity.node_secret
+        );
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
 }
 
 fn new_keypair_placeholder() -> String {

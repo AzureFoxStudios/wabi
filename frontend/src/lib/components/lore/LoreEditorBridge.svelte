@@ -5,6 +5,11 @@
 	 * requests a session, polls for readiness, then opens in an iframe or new tab.
 	 */
 	import { onMount } from 'svelte';
+	import BaseModal from '../BaseModal.svelte';
+	import { portal } from '$lib/actions/portal';
+	let alive = true;
+	let request: AbortController | null = null;
+	function dismiss() { request?.abort(); onClose(); }
 	import { getAuthToken } from '$lib/authSession';
 	import { parseLoreChannelId } from '$lib/api/lore';
 	import { currentChannel } from '$lib/socket';
@@ -23,6 +28,10 @@
 	let progress = $state(0);
 
 	async function startSession() {
+		request?.abort();
+		request = new AbortController();
+		const controller = request;
+		const timeout = setTimeout(() => controller.abort(), 30000);
 		status = 'starting';
 		errorMessage = null;
 		progress = 0;
@@ -30,14 +39,16 @@
 		const token = getAuthToken();
 		const numericId = parseLoreChannelId(channelId);
 		if (!token || !numericId) {
+			clearTimeout(timeout);
 			status = 'error';
-			errorMessage = 'Missing auth or channel ID';
+			errorMessage = 'Sign in and choose a project first.';
 			return;
 		}
 
 		try {
 			const res = await fetch(`/api/addons/lore/repos/${numericId}/editor`, {
 				method: 'POST',
+				signal: controller.signal,
 				headers: {
 					'Authorization': `Bearer ${token}`,
 					'Content-Type': 'application/json',
@@ -45,6 +56,7 @@
 				body: JSON.stringify({ repoPath }),
 			});
 
+			if (!alive || request !== controller) return;
 			if (!res.ok) {
 				const err = await res.json().catch(() => ({}));
 				status = 'error';
@@ -53,13 +65,17 @@
 			}
 
 			const data = await res.json();
-			sessionUrl = data.url;
+			if (!alive || request !== controller) return;
+			const url = new URL(data.url, window.location.origin);
+			if (!['http:', 'https:'].includes(url.protocol)) throw new Error('The server returned an invalid editor address.');
+			sessionUrl = url.href;
 			status = 'ready';
 			progress = 100;
 		} catch (e) {
+			if (!alive || request !== controller) return;
 			status = 'error';
-			errorMessage = e instanceof Error ? e.message : 'Network error';
-		}
+			errorMessage = controller.signal.aborted ? 'The editor did not respond. You can retry or return to your files.' : e instanceof Error ? e.message : 'Network error';
+		} finally { clearTimeout(timeout); }
 	}
 
 	// Poll for progress while starting
@@ -67,12 +83,15 @@
 
 	onMount(() => {
 		return () => {
-			if (pollInterval) clearInterval(pollInterval);
+			alive = false; request?.abort(); if (pollInterval) clearInterval(pollInterval);
 		};
 	});
 </script>
 
+<div use:portal>
+<BaseModal isOpen title="External editor" onClose={dismiss} width="min(1100px, 94vw)" overlayZIndex={1700}>
 <div class="editor-bridge">
+	<button class="btn" onclick={dismiss}>← Back to files</button>
 	{#if status === 'idle'}
 		<div class="editor-prompt">
 			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
@@ -132,12 +151,14 @@
 		</div>
 	{/if}
 </div>
+</BaseModal>
+</div>
 
 <style>
 	.editor-bridge {
 		display: flex;
 		flex-direction: column;
-		height: 100%;
+		height: min(72vh, 800px);
 	}
 
 	.editor-prompt, .editor-starting, .editor-error {

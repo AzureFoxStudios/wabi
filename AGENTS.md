@@ -112,7 +112,7 @@ These are repository invariants that have caused real regressions when ignored.
 
 8. **Adapter emit/write shapes are not globally uniform.** When adding a WabiDB event through `WdbAdapter`, copy the established pattern in the target module and verify persistence/replay. A call that compiles can still bypass the intended durable path.
 
-9. **Know the lock files when recovering/deploying.** Wabi may have both `data/wabi-server/.lock` and `data/wabi-server/wabidb/.lock`. Only remove stale locks after confirming no process is using the data. See `docs/deployment/BACKUP_AND_RECOVERY.md`.
+9. **Preserve the advisory lock inode when recovering/deploying.** Current WabiDB holds an OS lock on persistent `data/wabi-server/wabidb/.lock`; PID text is diagnostic and file presence does not mean a live writer. Never unlink that file to admit a writer. A root `data/wabi-server/.lock` is legacy and may be removed only after confirming every old process is stopped. Do not run pre-advisory and advisory-lock binaries against one data tree. See `docs/deployment/BACKUP_AND_RECOVERY.md`.
 
 10. **Multi-server client UX is not federation.** Keep credentials/offline state scoped by server/account. Do not add cross-server server-side state sharing as a convenience shortcut.
 

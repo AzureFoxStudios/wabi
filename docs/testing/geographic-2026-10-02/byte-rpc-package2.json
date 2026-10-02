@@ -1,0 +1,14 @@
+{
+  "session": 99493,
+  "actualExit": 0,
+  "groups": 5,
+  "passed": 73,
+  "failed": 0,
+  "ignored": 5,
+  "sourceFilesUnchanged": 33,
+  "freeze": "byte-rpc-freeze2.json.gz",
+  "logSha256": "33f591ff8350b58f1afbe2f65400b75d39fc5fe174311c027e71a1b6cb9367b5",
+  "logBytes": 9611,
+  "scope": "Whole consensus package with byte service/local synthetic sockets; real Authority integration pending",
+  "recordedAtUtc": "2026-10-02T04:26:48.944159+00:00"
+}

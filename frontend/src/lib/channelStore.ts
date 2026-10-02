@@ -19,8 +19,9 @@ import { getSocket } from './socketConnection';
 import { getWabiDB } from '$lib/wabidb';
 import { createChannelApi, deleteChannelApi } from './api';
 import { ensureChannelMembership } from './api/channelAccess';
-import { getAuthToken } from './authSession';
+import { getAuthToken, getStoredDbUserId, getStoredUsername } from './authSession';
 import { getServerUrl } from './serverUrl';
+import { accountPreferenceKey } from './openingSurfacePreference';
 import { showToast } from './toast';
 import { captureGroupAccess, groupMembership } from './groupAccess';
 
@@ -28,12 +29,14 @@ export const channels = writable<Channel[]>([]);
 export const pinnedChannels = writable<Channel[]>([]);
 export const currentChannel = writable<string>('general');
 
-const LAST_CHANNEL_STORAGE_KEY = 'wabi:last-channel';
+function lastChannelStorageKey(): string {
+	return accountPreferenceKey('last-channel', getServerUrl(), getStoredDbUserId() || getStoredUsername() || 'guest');
+}
 
 export function readLastChannel(): string | null {
 	if (typeof localStorage === 'undefined') return null;
 	try {
-		const value = localStorage.getItem(LAST_CHANNEL_STORAGE_KEY);
+		const value = localStorage.getItem(lastChannelStorageKey());
 		return value?.trim() || null;
 	} catch {
 		return null;
@@ -41,7 +44,7 @@ export function readLastChannel(): string | null {
 }
 
 export function persistLastChannel(channelId: string): void {
-	try { localStorage.setItem(LAST_CHANNEL_STORAGE_KEY, channelId); }
+	try { localStorage.setItem(lastChannelStorageKey(), channelId); }
 	catch { /* best-effort UI preference */ }
 }
 

@@ -10,12 +10,13 @@ use crate::auth_extractor::OptionalAuthUser;
 use crate::state::{AppState, ComposedIndexCache};
 use axum::{
     body::{Body, Bytes},
-    extract::{ConnectInfo, DefaultBodyLimit, Request, State},
+    extract::{ConnectInfo, DefaultBodyLimit, MatchedPath, Request, State},
     http::{header, header::CACHE_CONTROL, header::CONTENT_TYPE, HeaderMap, Method, StatusCode, Uri},
     response::{IntoResponse, Response},
     routing::get,
     Json, Router,
 };
+use http_body_util::{BodyExt, Limited};
 use rust_embed::RustEmbed;
 use serde_json::Value;
 use std::path::PathBuf;
@@ -25,6 +26,7 @@ use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
+use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use wabidb::engine::wabi_store::WabiStore;
@@ -674,6 +676,86 @@ async fn ip_deny_middleware(
     next.run(request).await
 }
 
+const MAX_JSON_BODY_BYTES: usize = 2 * 1024 * 1024;
+
+/// Raw file routes must accept JSON files under the file/transport budget.
+/// Match registered route templates and methods, never attacker-selected paths.
+fn raw_file_body_route(method: &Method, path: &str) -> bool {
+    matches!(
+        (method, path),
+        (&Method::POST, "/api/blobs/upload")
+            | (&Method::PUT, "/api/upload/resumable/chunk")
+            | (&Method::POST, "/api/cad/dwg-to-dxf")
+            | (&Method::PUT, "/api/addons/lore/repos/{channel_id}/files/{*path}")
+            | (&Method::POST, "/api/addons/lore/recordings")
+    )
+}
+
+fn json_content_type(headers: &HeaderMap) -> bool {
+    // Keep this predicate identical to Axum's Json extractor, including MIME
+    // parameters and application/*+json. Other content types cannot reach a
+    // Json handler's buffering extractor.
+    headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<mime_guess::Mime>().ok())
+        .is_some_and(|mime| {
+            mime.type_() == mime_guess::mime::APPLICATION
+                && (mime.subtype() == mime_guess::mime::JSON
+                    || mime.suffix() == Some(mime_guess::mime::JSON))
+        })
+}
+
+async fn json_body_budget_middleware(
+    mut request: Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let path = request
+        .extensions()
+        .get::<MatchedPath>()
+        .map(MatchedPath::as_str)
+        .unwrap_or("");
+    let method = request.method();
+    // These routes have a small body contract regardless of Content-Type.
+    let small_route = (method == Method::POST && path.starts_with("/api/auth/"))
+        || (method == Method::PUT && path == "/api/whiteboard/boards/{board_id}/document");
+    let ordinary_json = path.starts_with("/api/")
+        && !raw_file_body_route(method, path)
+        && json_content_type(request.headers());
+    if small_route || ordinary_json {
+        if request
+            .headers()
+            .get(header::CONTENT_LENGTH)
+            .and_then(|value| value.to_str().ok()?.parse::<usize>().ok())
+            .is_some_and(|length| length > MAX_JSON_BODY_BYTES)
+        {
+            return (StatusCode::PAYLOAD_TOO_LARGE, "Request body exceeds 2 MiB limit")
+                .into_response();
+        }
+        // Wrap now: a later route-local DefaultBodyLimit must not increase
+        // this budget. The outer transport limit remains wrapped underneath,
+        // so a smaller operator-configured ceiling still wins.
+        request = request.map(|body| {
+            // Axum's buffering rejection recognizes at most two axum::Error
+            // wrappers. Flatten existing wrappers before making one fresh
+            // Body, preserving the original limit or transport error and all
+            // frames. A later route-local limit can add the second wrapper.
+            Body::new(Limited::new(body, MAX_JSON_BODY_BYTES).map_err(|mut error| {
+                loop {
+                    match error.downcast::<axum::Error>() {
+                        Ok(inner) => error = inner.into_inner(),
+                        Err(original) => break original,
+                    }
+                }
+            }))
+        });
+        // The budget is already enforced by the wrapped body. A later
+        // route-local lower extractor limit can still add its own wrapper.
+        DefaultBodyLimit::disable().apply(&mut request);
+    }
+    next.run(request).await
+}
+
 /// Build the full application router. Extracted from `main()` so tests can
 /// reach the fallback (`serve_static`).
 pub fn build_app_router(state: Arc<AppState>) -> Router {
@@ -729,7 +811,16 @@ pub fn build_app_router(state: Arc<AppState>) -> Router {
         // Socket.IO layer (must be added before the router is finalised)
         .layer(crate::socketio::create_socket_layer(state.clone()))
         .layer(axum::middleware::from_fn_with_state(state.clone(), crate::instance_operations::middleware))
+        // Checkpoint control must remain outside operation admission: it drains
+        // that gate, and status must remain reachable while it owns the pause.
+        .merge(crate::checkpoint_jobs::routes())
         .layer(axum::middleware::from_fn_with_state(state.clone(), ip_deny_middleware))
+        .layer(axum::middleware::from_fn(json_body_budget_middleware))
+        // Also bound direct Body readers (including Socket.IO polling), not
+        // only Axum's buffering extractors. Unknown-length bodies stay streamed
+        // and fail when the configured total is crossed. Keep CORS outside so
+        // allowed browser origins can read declared-overflow responses.
+        .layer(RequestBodyLimitLayer::new(max_body_bytes))
         .layer(build_cors_layer())
         // Compress JS/CSS/JSON/SVG responses (br preferred, gzip fallback).
         // The SPA bundle ships multi-MB chunks; this cuts them ~4-5x on the wire.

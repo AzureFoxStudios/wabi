@@ -279,15 +279,27 @@ async fn list_my_devices(State(state): State<Arc<AppState>>, auth: AuthUser) -> 
 }
 
 async fn register_device(
-    State(state): State<Arc<AppState>>, auth: AuthUser, Json(mut input): Json<RegisterDeviceInput>,
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Json(mut input): Json<RegisterDeviceInput>,
 ) -> Result<Json<serde_json::Value>> {
-    if auth.is_guest { return Err(AppError::Forbidden("Guests cannot register E2EE devices".into())); }
+    if auth.is_guest {
+        return Err(AppError::Forbidden(
+            "Guests cannot register E2EE devices".into(),
+        ));
+    }
     input.device_id = input.device_id.trim().to_string();
     input.encryption_public_key = input.encryption_public_key.trim().to_string();
     input.signing_public_key = input.signing_public_key.trim().to_string();
-    if !valid_device_id(&input.device_id) || !valid_key(&input.encryption_public_key) || !valid_key(&input.signing_public_key) {
+    if !valid_device_id(&input.device_id)
+        || !valid_key(&input.encryption_public_key)
+        || !valid_key(&input.signing_public_key)
+    {
         return Err(AppError::BadRequest("Invalid E2EE device bundle".into()));
     }
+    let admission = auth.admit_current(&state).await?;
+    let operation_state = state.clone();
+    admission.run(&operation_state, async move {
     let now = chrono::Utc::now().to_rfc3339();
     let device = mutate_data(&state.config.data_dir, |data| {
         if let Some(existing) = data.devices.iter_mut().find(|d| d.user_id == auth.user_id && d.device_id == input.device_id) {
@@ -319,38 +331,94 @@ async fn register_device(
         Ok(bundle)
     })?;
     Ok(Json(json!({ "device": device })))
+    }).await
 }
 
 async fn revoke_device(
-    State(state): State<Arc<AppState>>, auth: AuthUser, Path(device_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(device_id): Path<String>,
 ) -> Result<Json<serde_json::Value>> {
-    if auth.is_guest { return Err(AppError::Forbidden("Guests do not have E2EE devices".into())); }
-    let now = chrono::Utc::now().to_rfc3339();
-    mutate_data(&state.config.data_dir, |data| {
-        let device = data.devices.iter_mut().find(|d| d.user_id == auth.user_id && d.device_id == device_id)
-            .ok_or_else(|| AppError::NotFound("E2EE device not found".into()))?;
-        if device.revoked_at.is_none() { device.revoked_at = Some(now.clone()); }
-        Ok(())
-    })?;
-    Ok(Json(json!({ "success": true, "deviceId": device_id, "rekeyRequired": true })))
+    if auth.is_guest {
+        return Err(AppError::Forbidden(
+            "Guests do not have E2EE devices".into(),
+        ));
+    }
+    let admission = auth.admit_current(&state).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            let now = chrono::Utc::now().to_rfc3339();
+            mutate_data(&state.config.data_dir, |data| {
+                let device = data
+                    .devices
+                    .iter_mut()
+                    .find(|d| d.user_id == auth.user_id && d.device_id == device_id)
+                    .ok_or_else(|| AppError::NotFound("E2EE device not found".into()))?;
+                if device.revoked_at.is_none() {
+                    device.revoked_at = Some(now.clone());
+                }
+                Ok(())
+            })?;
+            Ok(Json(
+                json!({ "success": true, "deviceId": device_id, "rekeyRequired": true }),
+            ))
+        })
+        .await
 }
 
 async fn room_status(
-    State(state): State<Arc<AppState>>, auth: AuthUser, Path(channel_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<String>,
 ) -> Result<Json<serde_json::Value>> {
-    if auth.is_guest { return Err(AppError::Forbidden("Guests cannot use E2EE rooms".into())); }
-    let (members, current_revision) = private_room_members(&state, auth.user_id, &channel_id).await?;
+    let _membership = state.membership_gate.read().await;
+    let _authorization = auth.admit_current(&state).await?;
+    if auth.is_guest {
+        return Err(AppError::Forbidden("Guests cannot use E2EE rooms".into()));
+    }
+    let (members, current_revision) =
+        private_room_members(&state, auth.user_id, &channel_id).await?;
     let data = read_data(&state.config.data_dir)?;
-    let devices: Vec<DeviceBundle> = active_devices(&data, &members).into_iter().cloned().collect();
-    let missing_user_ids: Vec<i64> = members.iter().copied().filter(|uid| !devices.iter().any(|d| d.user_id == *uid)).collect();
+    let devices: Vec<DeviceBundle> = active_devices(&data, &members)
+        .into_iter()
+        .cloned()
+        .collect();
+    let missing_user_ids: Vec<i64> = members
+        .iter()
+        .copied()
+        .filter(|uid| !devices.iter().any(|d| d.user_id == *uid))
+        .collect();
     let room = data.rooms.get(&channel_id).filter(|r| r.enabled).cloned();
-    let mode = data.new_room_policies.get(&channel_id).map(|policy| policy.mode);
-    let server_readable_allowed_by_me = data.new_room_policies.get(&channel_id)
-        .is_some_and(|policy| policy.mode == NewRoomMode::ServerReadable && policy.consenting_user_ids.contains(&auth.user_id));
+    let mode = data
+        .new_room_policies
+        .get(&channel_id)
+        .map(|policy| policy.mode);
+    let server_readable_allowed_by_me =
+        data.new_room_policies
+            .get(&channel_id)
+            .is_some_and(|policy| {
+                policy.mode == NewRoomMode::ServerReadable
+                    && policy.consenting_user_ids.contains(&auth.user_id)
+            });
     let expected = device_pairs(devices.iter());
-    let actual = room.as_ref().map(|r| envelope_pairs(&r.envelopes)).unwrap_or_default();
-    let needs_rekey = room.as_ref().is_some_and(|r| r.membership_revision != current_revision || expected != actual);
-    let my_envelopes: Vec<WrappedRoomKey> = room.as_ref().map(|r| r.envelopes.iter().filter(|e| e.recipient_user_id == auth.user_id).cloned().collect()).unwrap_or_default();
+    let actual = room
+        .as_ref()
+        .map(|r| envelope_pairs(&r.envelopes))
+        .unwrap_or_default();
+    let needs_rekey = room
+        .as_ref()
+        .is_some_and(|r| r.membership_revision != current_revision || expected != actual);
+    let my_envelopes: Vec<WrappedRoomKey> = room
+        .as_ref()
+        .map(|r| {
+            r.envelopes
+                .iter()
+                .filter(|e| e.recipient_user_id == auth.user_id)
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
     Ok(Json(json!({
         "enabled": room.is_some(),
         "pendingDefault": room.is_none() && mode == Some(NewRoomMode::PendingEncryption),
@@ -368,27 +436,44 @@ async fn room_status(
 }
 
 async fn allow_server_readable(
-    State(state): State<Arc<AppState>>, auth: AuthUser, Path(channel_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<String>,
 ) -> Result<Json<serde_json::Value>> {
-    if auth.is_guest { return Err(AppError::Forbidden("Guests cannot choose private-room mode".into())); }
-    private_room_members(&state, auth.user_id, &channel_id).await?;
-    // Serialize the explicit choice with messages and room enable/rekey. Once
-    // encryption is enabled, this endpoint can never downgrade it.
-    let _policy_guard = state.retention_policy_lock.lock().await;
-    mutate_data(&state.config.data_dir, |data| {
-        if data.rooms.get(&channel_id).is_some_and(|room| room.enabled) {
-            return Err(AppError::Conflict("This conversation is already encrypted and cannot be downgraded".into()));
-        }
-        let policy = data.new_room_policies.get_mut(&channel_id)
-            .ok_or_else(|| AppError::BadRequest("This conversation uses the earlier server-readable policy".into()))?;
-        if policy.mode == NewRoomMode::PendingEncryption {
-            policy.mode = NewRoomMode::ServerReadable;
-            policy.chosen_by_user_id = Some(auth.user_id);
-        }
-        policy.consenting_user_ids.insert(auth.user_id);
-        Ok(())
-    })?;
-    Ok(Json(json!({ "serverReadableSelected": true })))
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            if auth.is_guest {
+                return Err(AppError::Forbidden(
+                    "Guests cannot choose private-room mode".into(),
+                ));
+            }
+            private_room_members(&state, auth.user_id, &channel_id).await?;
+            // Serialize the explicit choice with messages and room enable/rekey. Once
+            // encryption is enabled, this endpoint can never downgrade it.
+            let _policy_guard = state.retention_policy_lock.lock().await;
+            mutate_data(&state.config.data_dir, |data| {
+                if data.rooms.get(&channel_id).is_some_and(|room| room.enabled) {
+                    return Err(AppError::Conflict(
+                        "This conversation is already encrypted and cannot be downgraded".into(),
+                    ));
+                }
+                let policy = data.new_room_policies.get_mut(&channel_id).ok_or_else(|| {
+                    AppError::BadRequest(
+                        "This conversation uses the earlier server-readable policy".into(),
+                    )
+                })?;
+                if policy.mode == NewRoomMode::PendingEncryption {
+                    policy.mode = NewRoomMode::ServerReadable;
+                    policy.chosen_by_user_id = Some(auth.user_id);
+                }
+                policy.consenting_user_ids.insert(auth.user_id);
+                Ok(())
+            })?;
+            Ok(Json(json!({ "serverReadableSelected": true })))
+        })
+        .await
 }
 
 fn validate_wrapped_key(envelope: &WrappedRoomKey, sender_device_id: &str) -> bool {
@@ -403,11 +488,20 @@ fn validate_wrapped_key(envelope: &WrappedRoomKey, sender_device_id: &str) -> bo
 }
 
 async fn set_room(
-    state: &AppState, auth: &AuthUser, channel_id: &str, input: SetRoomInput, rekey: bool,
+    state: Arc<AppState>,
+    auth: AuthUser,
+    channel_id: String,
+    input: SetRoomInput,
+    rekey: bool,
 ) -> Result<RoomState> {
-    if auth.is_guest { return Err(AppError::Forbidden("Guests cannot enable E2EE".into())); }
+    if auth.is_guest {
+        return Err(AppError::Forbidden("Guests cannot enable E2EE".into()));
+    }
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission.run(&operation_state, async move {
     let _policy_guard = state.retention_policy_lock.lock().await;
-    let (members, current_revision) = private_room_members(state, auth.user_id, channel_id).await?;
+    let (members, current_revision) = private_room_members(&state, auth.user_id, &channel_id).await?;
     let requested_revision = input.membership_revision.parse::<u64>()
         .map_err(|_| AppError::BadRequest("Invalid E2EE membership revision".into()))?;
     if requested_revision != current_revision {
@@ -435,7 +529,7 @@ async fn set_room(
             let valid_recipient = devices.iter().any(|d| d.user_id == envelope.recipient_user_id && d.device_id == envelope.recipient_device_id);
             if !valid_recipient { return Err(AppError::BadRequest("Wrapped room key names a device outside this conversation".into())); }
         }
-        match data.rooms.get(channel_id) {
+        match data.rooms.get(&channel_id) {
             Some(existing) if !rekey => return Err(AppError::Conflict("This conversation is already E2EE. Downgrades are not supported; rotate the key instead.".into())),
             None if rekey => return Err(AppError::Conflict("E2EE is not enabled for this conversation yet".into())),
             Some(existing) if rekey && input.epoch != existing.epoch.saturating_add(1) => {
@@ -444,13 +538,13 @@ async fn set_room(
             None if !rekey && input.epoch != 1 => return Err(AppError::BadRequest("The first E2EE epoch must be 1".into())),
             _ => {}
         }
-        let enabled_at = data.rooms.get(channel_id).map(|r| r.enabled_at.clone()).unwrap_or_else(|| now.clone());
+        let enabled_at = data.rooms.get(&channel_id).map(|r| r.enabled_at.clone()).unwrap_or_else(|| now.clone());
         let next = RoomState {
             channel_id: channel_id.to_string(),
             enabled: true,
             epoch: input.epoch,
             membership_revision: current_revision,
-            enabled_by_user_id: data.rooms.get(channel_id).map(|r| r.enabled_by_user_id).unwrap_or(auth.user_id),
+            enabled_by_user_id: data.rooms.get(&channel_id).map(|r| r.enabled_by_user_id).unwrap_or(auth.user_id),
             enabled_at,
             rekeyed_at: now.clone(),
             envelopes: input.envelopes.clone(),
@@ -467,19 +561,26 @@ async fn set_room(
         })).await;
     }
     Ok(room)
+    }).await
 }
 
 async fn enable_room(
-    State(state): State<Arc<AppState>>, auth: AuthUser, Path(channel_id): Path<String>, Json(input): Json<SetRoomInput>,
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<String>,
+    Json(input): Json<SetRoomInput>,
 ) -> Result<Json<serde_json::Value>> {
-    let room = set_room(&state, &auth, &channel_id, input, false).await?;
+    let room = set_room(state, auth, channel_id, input, false).await?;
     Ok(Json(json!({ "room": room })))
 }
 
 async fn rekey_room(
-    State(state): State<Arc<AppState>>, auth: AuthUser, Path(channel_id): Path<String>, Json(input): Json<SetRoomInput>,
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(channel_id): Path<String>,
+    Json(input): Json<SetRoomInput>,
 ) -> Result<Json<serde_json::Value>> {
-    let room = set_room(&state, &auth, &channel_id, input, true).await?;
+    let room = set_room(state, auth, channel_id, input, true).await?;
     Ok(Json(json!({ "room": room })))
 }
 

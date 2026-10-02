@@ -8,8 +8,9 @@ use axum::{
     extract::{Query, State},
     Json,
 };
-use reqwest::Client;
+use reqwest::{ClientBuilder, Url};
 use serde::{Deserialize, Serialize};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use crate::auth_extractor::AuthUser;
@@ -23,49 +24,121 @@ use crate::state::AppState;
 const PREVIEW_MAX_BYTES: usize = 2 * 1024 * 1024; // 2 MB
 const IMAGE_PROXY_MAX_BYTES: usize = 10 * 1024 * 1024; // 10 MB
 
-/// Validate a URL for outbound fetches: http/https only, resolve and reject
-/// loopback / private / link-local / multicast / unspecified addresses.
-/// Returns the resolved SocketAddr on success.
-async fn validate_outbound_url(raw_url: &str) -> Result<std::net::SocketAddr> {
-    let url = reqwest::Url::parse(raw_url)
-        .map_err(|_| AppError::BadRequest("invalid URL".into()))?;
+struct OutboundTarget {
+    url: Url,
+    address: SocketAddr,
+}
+
+/// Validate the actual fetch destination and retain its approved address for
+/// the connection. A second DNS lookup must not undo this SSRF decision.
+async fn validate_outbound_url(raw_url: &str) -> Result<OutboundTarget> {
+    let url = Url::parse(raw_url).map_err(|_| AppError::BadRequest("invalid URL".into()))?;
 
     let scheme = url.scheme();
     if scheme != "http" && scheme != "https" {
         return Err(AppError::BadRequest("URL must be http or https".into()));
     }
 
-    let host = url.host_str()
+    let host = url
+        .host_str()
         .ok_or_else(|| AppError::BadRequest("URL has no host".into()))?;
 
-    // Reject bare IP literals that are obviously internal.
-    if host.starts_with('[') && host.ends_with(']') {
-        let inner = &host[1..host.len()-1];
-        if let Ok(ip) = inner.parse::<std::net::Ipv6Addr>() {
-            if !is_public_ipv6(&ip) {
-                return Err(AppError::BadRequest("address not allowed".into()));
-            }
-        }
-    } else if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
-        if !is_public_ipv4(&ip) {
+    let port = url.port_or_known_default().unwrap_or(80);
+    let literal = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<IpAddr>();
+    let address = if let Ok(ip) = literal {
+        let ip = normalize_ip(ip);
+        if !is_public_ip(ip) {
             return Err(AppError::BadRequest("address not allowed".into()));
         }
+        SocketAddr::new(ip, port)
+    } else {
+        tokio::net::lookup_host((host, port))
+            .await
+            .map_err(|_| AppError::BadRequest("DNS resolution failed".into()))?
+            .map(|address| SocketAddr::new(normalize_ip(address.ip()), address.port()))
+            .find(|address| is_public_ip(address.ip()))
+            .ok_or_else(|| AppError::BadRequest("address not allowed".into()))?
+    };
+
+    Ok(OutboundTarget { url, address })
+}
+
+fn normalize_ip(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(ip) => ip
+            .to_ipv4_mapped()
+            .map(IpAddr::V4)
+            .unwrap_or(IpAddr::V6(ip)),
+        ip => ip,
     }
+}
 
-    let port = url.port_or_known_default().unwrap_or(80);
-    let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host(format!("{}:{}", host, port))
-        .await
-        .map_err(|_| AppError::BadRequest("DNS resolution failed".into()))?
-        .collect();
+fn is_public_ip(ip: IpAddr) -> bool {
+    match normalize_ip(ip) {
+        IpAddr::V4(ip) => is_public_ipv4(&ip),
+        IpAddr::V6(ip) => is_public_ipv6(&ip),
+    }
+}
 
-    let addr = addrs.into_iter().find(|a| {
-        match a.ip() {
-            std::net::IpAddr::V4(ip) => is_public_ipv4(&ip),
-            std::net::IpAddr::V6(ip) => is_public_ipv6(&ip),
+fn pinned_client(target: &OutboundTarget, timeout_ms: u64) -> Result<ClientBuilder> {
+    let host = target
+        .url
+        .host_str()
+        .ok_or_else(|| AppError::BadRequest("URL has no host".into()))?;
+    Ok(reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(timeout_ms))
+        // Keep the URL hostname for Host/TLS verification, but connect only to
+        // the approved address. An environment proxy could resolve it again.
+        .resolve(host, target.address)
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none()))
+}
+
+async fn read_capped_body(mut response: reqwest::Response, max_bytes: usize) -> Result<Vec<u8>> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > max_bytes as u64)
+    {
+        return Err(AppError::BadRequest(
+            "remote response exceeds size limit".into(),
+        ));
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if chunk.len() > max_bytes.saturating_sub(body.len()) {
+            return Err(AppError::BadRequest(
+                "remote response exceeds size limit".into(),
+            ));
         }
-    }).ok_or_else(|| AppError::BadRequest("address not allowed".into()))?;
+        // Check each chunk before reserving or copying; no declared length is
+        // trusted to bound a chunked or otherwise oversized response.
+        body.try_reserve_exact(chunk.len())
+            .map_err(|_| AppError::Internal("response allocation failed".into()))?;
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
 
-    Ok(addr)
+async fn read_capped_text(response: reqwest::Response, max_bytes: usize) -> Result<String> {
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .cloned();
+    let body = read_capped_body(response, max_bytes).await?;
+    // Preserve reqwest's charset/BOM decoding using an already bounded in-memory
+    // body. Its text decoder cannot read any more bytes from the remote server.
+    let mut response = axum::http::Response::builder();
+    if let Some(content_type) = content_type {
+        response = response.header(reqwest::header::CONTENT_TYPE, content_type);
+    }
+    let response: reqwest::Response = response
+        .body(body)
+        .map_err(|_| AppError::Internal("response decoding failed".into()))?
+        .into();
+    Ok(response.text().await?)
 }
 
 fn is_public_ipv4(ip: &std::net::Ipv4Addr) -> bool {
@@ -73,21 +146,44 @@ fn is_public_ipv4(ip: &std::net::Ipv4Addr) -> bool {
     if octets[0] == 0 || octets[0] == 10 || octets[0] == 127 || octets[0] >= 224 {
         return false;
     }
-    if octets[0] == 169 && octets[1] == 254 { return false; }
-    if octets[0] == 172 && (octets[1] & 0xf0) == 16 { return false; }
-    if octets[0] == 192 && octets[1] == 168 { return false; }
-    if octets[0] == 198 && (octets[1] & 0xfe) == 18 { return false; }
-    if octets[0] == 100 && (octets[1] & 0xc0) == 64 { return false; }
-    if octets[0] == 192 && octets[1] == 0 && octets[2] == 0 { return false; }
+    if octets[0] == 169 && octets[1] == 254 {
+        return false;
+    }
+    if octets[0] == 172 && (octets[1] & 0xf0) == 16 {
+        return false;
+    }
+    if octets[0] == 192 && octets[1] == 168 {
+        return false;
+    }
+    if octets[0] == 198 && (octets[1] & 0xfe) == 18 {
+        return false;
+    }
+    if octets[0] == 100 && (octets[1] & 0xc0) == 64 {
+        return false;
+    }
+    if octets[0] == 192 && octets[1] == 0 && octets[2] == 0 {
+        return false;
+    }
     true
 }
 
 fn is_public_ipv6(ip: &std::net::Ipv6Addr) -> bool {
     let o = ip.segments();
-    if ip.is_unspecified() || ip.is_loopback() { return false; }
-    if (o[0] & 0xfe00) == 0xfc00 { return false; } // ULA
-    if (o[0] & 0xffc0) == 0xfe80 { return false; } // link-local
-    if (o[0] & 0xff00) == 0xff00 { return false; } // multicast
+    if ip.is_unspecified() || ip.is_loopback() {
+        return false;
+    }
+    if (o[0] & 0xfe00) == 0xfc00 {
+        return false;
+    } // ULA
+    if (o[0] & 0xffc0) == 0xfe80 {
+        return false;
+    } // link-local
+    if (o[0] & 0xffc0) == 0xfec0 {
+        return false;
+    } // deprecated site-local
+    if (o[0] & 0xff00) == 0xff00 {
+        return false;
+    } // multicast
     true
 }
 
@@ -229,22 +325,16 @@ pub async fn url_preview(
     _auth: AuthUser,
     Query(query): Query<UrlPreviewQuery>,
 ) -> Result<Json<UrlPreviewResponse>> {
-    // SSRF: validate scheme + resolve + reject internal addresses.
-    validate_outbound_url(&query.url).await?;
-
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_millis(PREVIEW_FETCH_TIMEOUT_MS))
-        // Never follow redirects — each hop would need re-validation.
-        .redirect(reqwest::redirect::Policy::none())
-        .build()?;
+    let target = validate_outbound_url(&query.url).await?;
 
     if parse_youtube_id(&query.url).is_some() {
-        return fetch_youtube_preview(&client, &query.url).await;
+        return fetch_youtube_preview(&query.url).await;
     }
 
+    let client = pinned_client(&target, PREVIEW_FETCH_TIMEOUT_MS)?.build()?;
     // General OG metadata fetch
     let response = client
-        .get(&query.url)
+        .get(target.url)
         .header(
             "User-Agent",
             "Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)",
@@ -267,10 +357,7 @@ pub async fn url_preview(
         return Err(anyhow::anyhow!("URL is not an HTML page").into());
     }
 
-    let html = response
-        .text()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to read response body: {}", e))?;
+    let html = read_capped_text(response, PREVIEW_MAX_BYTES).await?;
 
     let title = get_meta(&html, "og:title")
         .or_else(|| get_meta(&html, "twitter:title"))
@@ -320,7 +407,7 @@ pub async fn url_preview(
     }))
 }
 
-async fn fetch_youtube_preview(client: &Client, raw_url: &str) -> Result<Json<UrlPreviewResponse>> {
+async fn fetch_youtube_preview(raw_url: &str) -> Result<Json<UrlPreviewResponse>> {
     let youtube_id = parse_youtube_id(raw_url).unwrap_or_default();
     let image = format!("https://i.ytimg.com/vi/{}/maxresdefault.jpg", youtube_id);
     let yt_id_for_url = youtube_id.clone();
@@ -333,29 +420,15 @@ async fn fetch_youtube_preview(client: &Client, raw_url: &str) -> Result<Json<Ur
         yt_id_for_url
     );
 
-    if let Ok(response) = client
-        .get(&oembed_url)
-        .timeout(std::time::Duration::from_millis(OEMBED_FETCH_TIMEOUT_MS))
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)",
-        )
-        .header("Accept", "application/json")
-        .send()
-        .await
-    {
-        if response.status().is_success() {
-            if let Ok(oembed) = response.json::<OembedResponse>().await {
-                title = oembed
-                    .title
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty());
-                channel_name = oembed
-                    .author_name
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty());
-            }
-        }
+    if let Ok(oembed) = fetch_oembed(&oembed_url).await {
+        title = oembed
+            .title
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        channel_name = oembed
+            .author_name
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
     }
 
     Ok(Json(UrlPreviewResponse {
@@ -377,6 +450,26 @@ async fn fetch_youtube_preview(client: &Client, raw_url: &str) -> Result<Json<Ur
     }))
 }
 
+async fn fetch_oembed(raw_url: &str) -> Result<OembedResponse> {
+    // The oEmbed endpoint is a different destination from a youtu.be link;
+    // validate and pin the URL that is actually requested.
+    let target = validate_outbound_url(raw_url).await?;
+    let response = pinned_client(&target, OEMBED_FETCH_TIMEOUT_MS)?
+        .build()?
+        .get(target.url)
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)",
+        )
+        .header("Accept", "application/json")
+        .send()
+        .await?
+        .error_for_status()?;
+    let body = read_capped_body(response, PREVIEW_MAX_BYTES).await?;
+    serde_json::from_slice(&body)
+        .map_err(|_| AppError::BadRequest("invalid oEmbed response".into()))
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Image Proxy
 // ─────────────────────────────────────────────────────────────────────────────
@@ -387,22 +480,44 @@ pub struct ImageProxyQuery {
     url: String,
 }
 
+fn image_response_headers(upstream: &axum::http::HeaderMap) -> Result<axum::http::HeaderMap> {
+    let content_type = upstream
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<mime_guess::Mime>().ok())
+        .filter(|mime| {
+            mime.type_() == "image" && !mime.subtype().as_str().is_empty() && mime.subtype() != "*"
+        })
+        .ok_or_else(|| AppError::BadRequest("not an image".into()))?;
+
+    let mut headers = axum::http::HeaderMap::new();
+    // Proxied images are remote-controlled content, just like uploads. SVGs
+    // must remain safe even when opened as a document at the Authority origin.
+    for (name, value) in super::upload::upload_response_headers() {
+        headers.insert(name, value);
+    }
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_str(&content_type.to_string())
+            .map_err(|_| AppError::BadRequest("invalid image content type".into()))?,
+    );
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("public, max-age=86400"),
+    );
+    Ok(headers)
+}
+
 pub async fn image_proxy(
     State(_state): State<Arc<AppState>>,
     _auth: AuthUser,
     Query(query): Query<ImageProxyQuery>,
 ) -> Result<axum::response::Response> {
-    // SSRF: validate scheme + resolve + reject internal addresses.
-    validate_outbound_url(&query.url).await?;
-
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_millis(IMAGE_PROXY_TIMEOUT_MS))
-        // Never follow redirects.
-        .redirect(reqwest::redirect::Policy::none())
-        .build()?;
+    let target = validate_outbound_url(&query.url).await?;
+    let client = pinned_client(&target, IMAGE_PROXY_TIMEOUT_MS)?.build()?;
 
     let response = client
-        .get(&query.url)
+        .get(target.url)
         .header(
             "User-Agent",
             "Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)",
@@ -416,28 +531,287 @@ pub async fn image_proxy(
         return Err(anyhow::anyhow!("Failed to fetch image").into());
     }
 
-    let content_type = response
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("image/jpeg")
-        .to_string();
+    let headers = image_response_headers(response.headers())?;
+    let bytes = read_capped_body(response, IMAGE_PROXY_MAX_BYTES).await?;
+    let mut response = axum::response::Response::new(axum::body::Body::from(bytes));
+    *response.headers_mut() = headers;
+    Ok(response)
+}
 
-    // Require upstream content-type to start with image/.
-    if !content_type.to_lowercase().starts_with("image/") {
-        return Err(anyhow::anyhow!("not an image").into());
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{
+        body::Bytes,
+        http::{header, HeaderMap, StatusCode},
+        routing::get,
+        Router,
+    };
+    use reqwest::dns::{Name, Resolve, Resolving};
+    use std::convert::Infallible;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::net::TcpListener;
+
+    struct UnexpectedDns(Arc<AtomicUsize>);
+
+    impl Resolve for UnexpectedDns {
+        fn resolve(&self, _: Name) -> Resolving {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Box::pin(async {
+                Err(std::io::Error::other("fixture DNS fallback must not run").into())
+            })
+        }
     }
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to read image body: {}", e))?;
+    async fn fixture(app: Router) -> (SocketAddr, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (address, task)
+    }
 
-    Ok(axum::response::Response::builder()
-        .status(200)
-        .header(axum::http::header::CONTENT_TYPE, content_type)
-        .header(axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff")
-        .header(axum::http::header::CACHE_CONTROL, "public, max-age=86400")
-        .body(axum::body::Body::from(bytes))
-        .map_err(|e| anyhow::anyhow!("Failed to build response: {}", e))?)
+    // This test-only target bypasses address classification to exercise the
+    // exact production transport builder against a hermetic loopback fixture.
+    fn fixture_target(address: SocketAddr, path: &str) -> OutboundTarget {
+        OutboundTarget {
+            url: Url::parse(&format!(
+                "http://preview-fixture.invalid:{}{path}",
+                address.port()
+            ))
+            .unwrap(),
+            address,
+        }
+    }
+
+    #[tokio::test]
+    async fn literal_urls_reject_internal_and_mapped_addresses_before_any_lookup() {
+        for url in [
+            "file:///etc/passwd",
+            "ftp://8.8.8.8/file",
+            "http://127.0.0.1/",
+            "http://2130706433/",
+            "http://10.1.2.3/",
+            "http://169.254.169.254/",
+            "http://[::1]/",
+            "http://[fc00::1]/",
+            "http://[fe80::1]/",
+            "http://[fec0::1]/",
+            "http://[::ffff:127.0.0.1]/",
+            "http://[::ffff:192.168.1.1]/",
+            "http://[::ffff:169.254.169.254]/",
+        ] {
+            assert!(
+                matches!(
+                    validate_outbound_url(url).await,
+                    Err(AppError::BadRequest(_))
+                ),
+                "{url}"
+            );
+        }
+        let target = validate_outbound_url("https://[::ffff:8.8.8.8]:8443/path")
+            .await
+            .unwrap();
+        assert_eq!(target.address, "8.8.8.8:8443".parse().unwrap());
+        assert_eq!(target.url.scheme(), "https");
+    }
+
+    #[test]
+    fn dns_mapped_ipv6_uses_the_same_ipv4_classification() {
+        for address in [
+            "::ffff:127.0.0.1",
+            "::ffff:10.0.0.1",
+            "::ffff:172.16.0.1",
+            "::ffff:192.168.0.1",
+            "::ffff:169.254.169.254",
+            "::ffff:100.64.0.1",
+            "::ffff:198.18.0.1",
+            "::ffff:0.0.0.0",
+            "::ffff:224.0.0.1",
+            "::",
+            "ff02::1",
+            "fc00::1",
+            "fe80::1",
+            "fec0::1",
+            "feff::1",
+        ] {
+            assert!(!is_public_ip(address.parse().unwrap()), "{address}");
+        }
+        for address in ["8.8.8.8", "::ffff:8.8.8.8", "2606:4700:4700::1111"] {
+            assert!(is_public_ip(address.parse().unwrap()), "{address}");
+        }
+    }
+
+    #[test]
+    fn proxied_images_reuse_upload_sandbox_and_accept_valid_mime_parameters() {
+        for content_type in [
+            "image/svg+xml; charset=utf-8",
+            "image/png",
+            "image/jpeg; quality=80",
+        ] {
+            let mut upstream = HeaderMap::new();
+            upstream.insert(header::CONTENT_TYPE, content_type.parse().unwrap());
+            let headers = image_response_headers(&upstream).unwrap();
+            assert_eq!(headers[header::CONTENT_TYPE], content_type);
+            assert_eq!(headers[header::CACHE_CONTROL], "public, max-age=86400");
+            for (name, value) in super::super::upload::upload_response_headers() {
+                assert_eq!(headers[name], value);
+            }
+            let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
+            assert!(csp
+                .split(';')
+                .any(|directive| directive.trim() == "sandbox"));
+            assert!(!csp.contains("allow-scripts"));
+            assert!(!csp.contains("allow-same-origin"));
+            // Keep normal inline image rendering; sandbox applies when an SVG
+            // is opened as a standalone document, without forcing downloads.
+            assert!(!headers.contains_key(header::CONTENT_DISPOSITION));
+        }
+    }
+
+    #[test]
+    fn proxied_images_reject_missing_malformed_and_wildcard_mime_types() {
+        assert!(matches!(
+            image_response_headers(&HeaderMap::new()),
+            Err(AppError::BadRequest(_))
+        ));
+        for content_type in [
+            "text/html",
+            "image/",
+            "image/png bogus",
+            "image/*",
+            "image/*+xml",
+        ] {
+            let mut upstream = HeaderMap::new();
+            upstream.insert(header::CONTENT_TYPE, content_type.parse().unwrap());
+            assert!(
+                matches!(
+                    image_response_headers(&upstream),
+                    Err(AppError::BadRequest(_))
+                ),
+                "{content_type}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn pinned_transport_preserves_hostname_and_never_resolves_again_or_follows_redirects() {
+        let redirected = Arc::new(AtomicUsize::new(0));
+        let calls = redirected.clone();
+        let app = Router::new()
+            .route(
+                "/echo",
+                get(|headers: HeaderMap| async move {
+                    headers[header::HOST].to_str().unwrap().to_owned()
+                }),
+            )
+            .route(
+                "/redirect",
+                get(|| async {
+                    (
+                        StatusCode::TEMPORARY_REDIRECT,
+                        [(header::LOCATION, "/private")],
+                    )
+                }),
+            )
+            .route(
+                "/private",
+                get(move || {
+                    let calls = calls.clone();
+                    async move {
+                        calls.fetch_add(1, Ordering::Relaxed);
+                        "private"
+                    }
+                }),
+            );
+        let (address, task) = fixture(app).await;
+        let target = fixture_target(address, "/echo");
+        let dns_calls = Arc::new(AtomicUsize::new(0));
+        let client = pinned_client(&target, 1000)
+            .unwrap()
+            .dns_resolver(UnexpectedDns(dns_calls.clone()))
+            .build()
+            .unwrap();
+        let response = client.get(target.url.clone()).send().await.unwrap();
+        assert_eq!(
+            read_capped_text(response, 1024).await.unwrap(),
+            format!("preview-fixture.invalid:{}", address.port())
+        );
+        let response = client
+            .get(fixture_target(address, "/redirect").url)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(redirected.load(Ordering::Relaxed), 0);
+        assert_eq!(dns_calls.load(Ordering::Relaxed), 0);
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn refused_pinned_connection_does_not_fall_back_to_dns() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let target = fixture_target(address, "/");
+        let dns_calls = Arc::new(AtomicUsize::new(0));
+        let client = pinned_client(&target, 1000)
+            .unwrap()
+            .dns_resolver(UnexpectedDns(dns_calls.clone()))
+            .build()
+            .unwrap();
+        assert!(client.get(target.url).send().await.is_err());
+        assert_eq!(dns_calls.load(Ordering::Relaxed), 0);
+    }
+
+    fn streamed_response(chunks: Vec<Bytes>, content_length: Option<usize>) -> reqwest::Response {
+        let stream = futures::stream::iter(chunks.into_iter().map(Ok::<_, Infallible>));
+        let mut response = axum::http::Response::builder();
+        if let Some(length) = content_length {
+            response = response.header(header::CONTENT_LENGTH, length);
+        }
+        response
+            .body(reqwest::Body::wrap_stream(stream))
+            .unwrap()
+            .into()
+    }
+
+    #[tokio::test]
+    async fn streamed_caps_reject_oversized_bodies_with_missing_or_misleading_lengths() {
+        for declared in [None, Some(3)] {
+            let response = streamed_response(
+                vec![Bytes::from_static(b"abc"), Bytes::from_static(b"def")],
+                declared,
+            );
+            assert!(matches!(
+                read_capped_body(response, 5).await,
+                Err(AppError::BadRequest(_))
+            ));
+        }
+        let response = streamed_response(
+            vec![Bytes::from_static(b"abc"), Bytes::from_static(b"de")],
+            None,
+        );
+        assert_eq!(read_capped_body(response, 5).await.unwrap(), b"abcde");
+        for limit in [PREVIEW_MAX_BYTES, IMAGE_PROXY_MAX_BYTES] {
+            let response = streamed_response(
+                vec![Bytes::from(vec![0; limit]), Bytes::from_static(b"x")],
+                None,
+            );
+            assert!(matches!(
+                read_capped_body(response, limit).await,
+                Err(AppError::BadRequest(_))
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn capped_text_preserves_html_charset_decoding() {
+        let response = axum::http::Response::builder()
+            .header(header::CONTENT_TYPE, "text/html; charset=windows-1252")
+            .body(b"<title>Caf\xe9</title>".to_vec())
+            .unwrap()
+            .into();
+        let html = read_capped_text(response, PREVIEW_MAX_BYTES).await.unwrap();
+        assert_eq!(html, "<title>Café</title>");
+    }
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import MapVectorStage from './MapVectorStage.svelte';
 	import { createEventDispatcher } from 'svelte';
 	import MapTokenOverlay from '../MapTokenOverlay.svelte';
 	import {
@@ -132,7 +133,7 @@
 			{/if}
 		</div>
 	{:else if surfaceMode === 'osm' && embedUrl}
-		<iframe title={`Map for ${stagePlace?.name}`} src={embedUrl} loading="lazy"></iframe>
+		<MapVectorStage latitude={stagePlace?.lat ?? undefined} longitude={stagePlace?.lon ?? undefined} />
 	{:else}
 		<div class="visual-fallback">
 			{#if canManagePlaces}

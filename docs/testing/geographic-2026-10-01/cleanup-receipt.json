@@ -1,0 +1,17 @@
+{
+  "authority": {
+    "ownedTestProcessesRemaining": 0,
+    "removedRootCount": 2,
+    "logicalBytesRemoved": 307327976,
+    "rootsAbsentAfterCleanup": true
+  },
+  "materials": {
+    "ownedTestProcessesRemaining": 0,
+    "removedRootCount": 2,
+    "logicalBytesRemoved": 306833586,
+    "rootsAbsentAfterCleanup": true
+  },
+  "localFrozenBinaryRemoved": true,
+  "date": "2026-10-01",
+  "recordedAtUtc": "2026-10-01T02:52:34.219909+00:00"
+}

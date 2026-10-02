@@ -172,6 +172,18 @@ impl AuthResponse {
     }
 }
 
+/// bcrypt only uses the first 72 input bytes. Reject new credentials that
+/// would silently ignore a suffix; legacy verification remains compatible.
+pub(crate) fn validate_new_password(password: &str) -> Result<()> {
+    if password.len() < 6 {
+        return Err(AppError::BadRequest("Password must be at least 6 characters".into()));
+    }
+    if password.len() > 72 {
+        return Err(AppError::BadRequest("Password must be at most 72 UTF-8 bytes".into()));
+    }
+    Ok(())
+}
+
 /// Register a new user
 async fn handle_register(
     State(state): State<Arc<AppState>>,
@@ -222,11 +234,7 @@ async fn handle_register(
     if req.username.trim().is_empty() {
         return Err(AppError::BadRequest("Username cannot be empty".into()));
     }
-    if req.password.len() < 6 {
-        return Err(AppError::BadRequest(
-            "Password must be at least 6 characters".into(),
-        ));
-    }
+    validate_new_password(&req.password)?;
 
     if let Some(name) = &req.community_name {
         if _setup_guard.is_none() {
@@ -428,7 +436,7 @@ async fn handle_login(
     );
 
     // Guest users don't have password_hash - they must use guest login
-    if user_row.password_hash.is_empty() {
+    if !user_row.is_active || user_row.password_hash.is_empty() || state.bot_registry.is_bot(user_row.user_id).await {
         return Err(AppError::Unauthorized(
             "This account is guest-only. Use 'Join as Guest' or register a new account with a password.".into(),
         ));
@@ -500,6 +508,11 @@ struct RecoverRequest {
 
 /// Logout — revoke the caller's own token (force re-auth next request).
 async fn handle_logout(State(state): State<Arc<AppState>>, auth: AuthUser) -> Result<Json<Value>> {
+    if auth.is_bot {
+        return Err(AppError::Forbidden(
+            "Manage bot credentials through the owner bot settings".into(),
+        ));
+    }
     state.revoke_token_with_exp(auth.jti, auth.exp).await?;
     Ok(Json(json!({ "success": true })))
 }
@@ -537,22 +550,6 @@ async fn handle_refresh(
         .parse::<i64>()
         .map_err(|_| AppError::Unauthorized("invalid user_id in token".into()))?;
 
-    // Check if token is revoked (reuse detection: if already burned, kill the whole family)
-    let (revoked, authenticated_at) = {
-        let revocations = state.revocations.read().await;
-        (
-            revocations.is_revoked(&claims.jti, user_id, claims.iat),
-            revocations.account_watermark(user_id),
-        )
-    };
-    if revoked {
-        // Refresh token was already used — treat as theft, revoke all user tokens
-        state.revoke_user(user_id).await?;
-        return Err(AppError::Unauthorized(
-            "token reuse detected; all sessions revoked".into(),
-        ));
-    }
-
     // Check blacklist (banned users cannot refresh)
     if let Some(blacklist) = state.get_blacklist().await {
         if let Some(entry) = blacklist.is_user_banned(user_id).await {
@@ -563,8 +560,8 @@ async fn handle_refresh(
         }
     }
 
-    // Burn the presented refresh token (with its exp so the entry prunes later)
-    state.revoke_token_with_exp(claims.jti, claims.exp).await?;
+    // Single-use burn and theft response share a durable write boundary.
+    let authenticated_at = state.consume_refresh(user_id, claims.jti, claims.iat, claims.exp).await?;
 
     // Load user profile for response
     let user_row = state
@@ -630,10 +627,9 @@ async fn handle_guest(
             "Guest access is disabled; use an invitation to create an account".into(),
         ));
     }
-    // WS-5b: per-IP rate limit for guest creation. Pipe clients (Tailcat
-    // forwarder, validated via the in-process token) are keyed per pipe
-    // connection instead of collapsing into one "127.0.0.1" bucket —
-    // otherwise a 5-member family exhausts the 5/hour cap on evening one.
+    // WS-5b: per-IP rate limit for guest creation. Tailcat clients validated
+    // through the in-process forwarder token share an authenticated transport
+    // IP bucket, including reconnects that change the pipe ID.
     let mut guest_limiter = state.guest_rate_limiter.write().await;
     let now = chrono::Utc::now().timestamp();
     guest_limiter.retain(|_, (_, started)| now.saturating_sub(*started) < 3600);
@@ -702,48 +698,21 @@ async fn handle_change_password(
     auth: AuthUser,
     Json(req): Json<ChangePasswordRequest>,
 ) -> Result<Json<Value>> {
-    if req.new_password.len() < 6 {
-        return Err(AppError::BadRequest(
-            "Password must be at least 6 characters".into(),
-        ));
+    if auth.is_bot || auth.is_guest {
+        return Err(AppError::Unauthorized("Account password authentication required".into()));
     }
+    validate_new_password(&req.new_password)?;
 
-    let user_row = state
-        .wdb
-        .get_user(auth.user_id as u64)
-        .await
-        .map_err(|e| AppError::Internal(format!("wdb get_user: {e}")))?
-        .ok_or_else(|| AppError::Unauthorized("User not found".into()))?;
-
-    if user_row.password_hash.is_empty() {
-        return Err(AppError::Unauthorized(
-            "This account has no password (guest)".into(),
-        ));
-    }
-    if !bcrypt::verify(&req.current_password, &user_row.password_hash)? {
+    let proof = state.password_proof(&auth, auth.user_id).await?;
+    if !bcrypt::verify(&req.current_password, &proof.hash)? {
         return Err(AppError::Unauthorized(
             "Current password is incorrect".into(),
         ));
     }
 
     let password_hash = bcrypt::hash(&req.new_password, bcrypt::DEFAULT_COST)?;
-    state
-        .wdb
-        .update_user(
-            auth.user_id as u64,
-            wabidb::domain::UserUpdate {
-                password_hash: Some(password_hash),
-                ..Default::default()
-            },
-        )
-        .await
-        .map_err(|e| AppError::Internal(format!("failed to update password: {e}")))?;
-
-    // Force re-auth on OTHER sessions for this user while preserving the
-    // current session (the bearer token that just performed the change).
-    state
-        .revoke_user_other_sessions(auth.user_id, &auth.jti)
-        .await?;
+    let target = auth.user_id;
+    state.replace_password(auth, target, proof, password_hash, false).await?;
 
     Ok(Json(json!({ "success": true })))
 }
@@ -774,18 +743,9 @@ async fn generate_account_jwts(
 ) -> Result<(String, String)> {
     let now = Utc::now();
     let revocations = state.revocations.read().await;
-    let watermark = revocations.account_watermark(user_id);
-    if authenticated_at.is_some_and(|proof| proof != watermark) {
-        return Err(AppError::Unauthorized(
-            "Account sessions changed during authentication. Sign in again.".into(),
-        ));
-    }
-    let issued_at = i64::try_from(
-        (now.timestamp().max(0) as u64)
-            .max(watermark.0)
-            .max(watermark.1),
-    )
-    .map_err(|_| AppError::Internal("Invalid account revocation timestamp".into()))?;
+    crate::auth_extractor::ensure_human_principal(state, user_id).await?;
+    let issued_at =
+        authenticated_issue_time(&revocations, user_id, authenticated_at, now.timestamp())?;
     let mint = |kind: &str, ttl: Duration| -> Result<String> {
         Ok(encode(
             &Header::default(),
@@ -814,20 +774,52 @@ async fn generate_account_jwts(
     Ok((access, refresh))
 }
 
+/// A password proof belongs to the revocation cut captured with its account
+/// row. A changed cut requires a fresh proof; a current proof can use the
+/// cutoff immediately without lengthening its wall-clock expiration.
+fn authenticated_issue_time(
+    revocations: &crate::state::RevocationStore,
+    user_id: i64,
+    authenticated_at: Option<(u64, u64)>,
+    now: i64,
+) -> Result<i64> {
+    let watermark = revocations.account_watermark(user_id);
+    if authenticated_at.is_some_and(|proof| proof != watermark) {
+        return Err(AppError::Unauthorized(
+            "Account sessions changed during authentication. Sign in again.".into(),
+        ));
+    }
+    i64::try_from((now.max(0) as u64).max(watermark.0).max(watermark.1))
+        .map_err(|_| AppError::Internal("Invalid account revocation timestamp".into()))
+}
+
 /// Generate a short-lived step-up JWT after the user re-proves their password.
 /// This token (carried in `X-Stepup-Token`) is required for destructive admin
 /// operations, so a stolen long-lived bearer token is not sufficient on its own.
-fn generate_stepup_jwt(state: &AppState, user_id: i64, username: &str) -> Result<String> {
+async fn generate_stepup_jwt(
+    state: &AppState,
+    user_id: i64,
+    username: &str,
+    authenticated_at: (u64, u64),
+) -> Result<String> {
     use crate::auth_extractor::STEPUP_TTL_SECONDS;
     let now = Utc::now();
     let expiration = now + Duration::seconds(STEPUP_TTL_SECONDS);
+    let revocations = state.revocations.read().await;
+    crate::auth_extractor::ensure_human_principal(state, user_id).await?;
+    let issued_at = authenticated_issue_time(
+        &revocations,
+        user_id,
+        Some(authenticated_at),
+        now.timestamp(),
+    )?;
 
     let claims = JwtClaims {
         sub: user_id.to_string(),
         username: username.to_string(),
         is_guest: false,
         exp: expiration.timestamp(),
-        iat: now.timestamp(),
+        iat: issued_at,
         jti: uuid::Uuid::new_v4().to_string(),
         stepup: true,
         token_type: "access".to_string(),
@@ -857,12 +849,18 @@ async fn handle_stepup(
 ) -> Result<Json<Value>> {
     use crate::auth_extractor::STEPUP_TTL_SECONDS;
 
-    let user_row = state
-        .wdb
-        .get_user(auth.user_id as u64)
-        .await
-        .map_err(|e| AppError::Internal(format!("wdb get_user: {e}")))?
-        .ok_or_else(|| AppError::Unauthorized("user not found".into()))?;
+    let (user_row, authenticated_at) = {
+        // Match login's password-row snapshot: a reset during verification
+        // cannot turn an old password proof into a fresh step-up credential.
+        let revocations = state.revocations.read().await;
+        let user = state
+            .wdb
+            .get_user(auth.user_id as u64)
+            .await
+            .map_err(|e| AppError::Internal(format!("wdb get_user: {e}")))?
+            .ok_or_else(|| AppError::Unauthorized("user not found".into()))?;
+        (user, revocations.account_watermark(auth.user_id))
+    };
 
     // Guests (empty password hash) cannot perform step-up; they have no password.
     if user_row.password_hash.is_empty() {
@@ -876,7 +874,7 @@ async fn handle_stepup(
         return Err(AppError::Unauthorized("invalid password".into()));
     }
 
-    let token = generate_stepup_jwt(&state, auth.user_id, &auth.username)?;
+    let token = generate_stepup_jwt(&state, auth.user_id, &auth.username, authenticated_at).await?;
     Ok(Json(json!({
         "stepupToken": token,
         "expiresInSeconds": STEPUP_TTL_SECONDS,
@@ -1014,6 +1012,109 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn bot_logout_is_account_only_and_does_not_write_jwt_denials() {
+        use tower::ServiceExt;
+        let (_directory, state) = make_test_state().await;
+        let bot = state.wdb.create_user("logout-service-account", None, "").await.unwrap();
+        let (opaque, record) = state.bot_registry.create(bot).await.unwrap();
+        let app = routes(state.clone()).with_state(state.clone());
+        let response = app.oneshot(axum::http::Request::post("/logout")
+            .header(axum::http::header::AUTHORIZATION, format!("Bot {opaque}"))
+            .body(axum::body::Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
+        assert_eq!(state.bot_registry.authenticate(&opaque).await, Some(bot));
+        assert!(!state.revocations.read().await.jtis.contains_key(&record.token_hash));
+    }
+
+    #[tokio::test]
+    async fn overlong_password_change_and_registration_are_rejected_without_changing_legacy_credentials() {
+        let (_directory, state) = make_test_state().await;
+        let legacy_password = format!("{}OLD", "x".repeat(72));
+        let legacy_hash = bcrypt::hash(&legacy_password, 4).unwrap();
+        let uid = state.wdb.create_user("long-password-owner", None, &legacy_hash).await.unwrap() as i64;
+        state.claim_ownership(uid, "long-password-owner").await.unwrap();
+        let response = handle_login(State(state.clone()), Json(LoginRequest {
+            username: "long-password-owner".into(), password: legacy_password.clone(),
+        })).await.expect("existing overlong bcrypt credentials remain usable");
+        let auth = AuthUser::from_claims(decode_token(&response.0.access_token, &state.config.jwt_secret).await.unwrap()).unwrap();
+        let cutoff = state.revocations.read().await.account_watermark(uid);
+        for new_password in [format!("{}NEW", "x".repeat(72)), "💬".repeat(19)] {
+            assert!(matches!(handle_change_password(State(state.clone()), auth.clone(), Json(ChangePasswordRequest {
+                current_password: legacy_password.clone(), new_password: new_password.clone(),
+            })).await, Err(AppError::BadRequest(_))));
+            assert!(matches!(handle_register(State(state.clone()), Default::default(),
+                ConnectInfo("127.0.0.1:12345".parse().unwrap()), Json(RegisterRequest {
+                    username: "never-created".into(), email: None, password: new_password,
+                    handle: None, invite_token: None, community_name: None, starter_channels: None,
+                })).await, Err(AppError::BadRequest(_))));
+        }
+        assert_eq!(state.wdb.get_user(uid as u64).await.unwrap().unwrap().password_hash, legacy_hash);
+        assert_eq!(state.revocations.read().await.account_watermark(uid), cutoff);
+        assert!(state.wdb.get_user_by_username("never-created").await.unwrap().is_none());
+        assert!(crate::auth_extractor::authenticate_access_token(&state, &response.0.access_token).await.is_ok());
+        assert!(validate_new_password(&"x".repeat(72)).is_ok());
+    }
+
+    #[tokio::test]
+    async fn registered_bot_cannot_login_or_refresh_as_a_human() {
+        let (_directory, state) = make_test_state().await;
+        let password = "historical-bot-reset-password";
+        let hash = bcrypt::hash(password, 4).unwrap();
+        let uid = state.wdb.create_user("registered-service-bot", None, &hash).await.unwrap() as i64;
+        let (_, refresh) = generate_account_jwts(&state, uid, "registered-service-bot", false, None).await.unwrap();
+        state.bot_registry.create(uid as u64).await.unwrap();
+        assert!(matches!(handle_login(State(state.clone()), Json(LoginRequest {
+            username: "registered-service-bot".into(), password: password.into(),
+        })).await, Err(AppError::Unauthorized(_))));
+        assert!(matches!(handle_refresh(State(state.clone()), Json(RefreshRequest { refresh_token: refresh })).await,
+            Err(AppError::Unauthorized(_))));
+        assert!(generate_account_jwts(&state, uid, "registered-service-bot", false, None).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn concurrent_refresh_copies_cannot_both_mint_and_reuse_kills_the_account() {
+        let (_directory, state) = make_test_state().await;
+        let uid = state.wdb.create_user("refresh-race", None, "fixture-password-hash").await.unwrap() as i64;
+        let (_, token) = generate_account_jwts(&state, uid, "refresh-race", false, None).await.unwrap();
+        let claims = decode_token(&token, &state.config.jwt_secret).await.unwrap();
+        // Both handlers can perform their preliminary reads, but neither can
+        // publish a burn while this guard is held. Wait for both owned writes.
+        let reader = state.revocations.read().await;
+        let references = Arc::strong_count(&state.revocations);
+        let mut tasks = Vec::new();
+        for _ in 0..2 {
+            let state = state.clone();
+            let token = token.clone();
+            tasks.push(tokio::spawn(async move {
+                handle_refresh(State(state), Json(RefreshRequest { refresh_token: token })).await
+            }));
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while Arc::strong_count(&state.revocations) < references + 2 {
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("both refresh writes must reach the serialization boundary");
+        drop(reader);
+        let mut successes = Vec::new();
+        let mut denied = 0;
+        for task in tasks {
+            match task.await.unwrap() {
+                Ok(response) => successes.push(response.0.access_token),
+                Err(AppError::Unauthorized(_)) => denied += 1,
+                Err(error) => panic!("unexpected refresh error: {error}"),
+            }
+        }
+        assert!(successes.len() <= 1, "one refresh credential minted two token pairs");
+        assert!(denied >= 1);
+        assert!(state.revocations.read().await.account_watermark(uid).1 > claims.iat as u64,
+            "reuse must durably advance the account denial floor");
+        for access in successes {
+            assert!(crate::auth_extractor::authenticate_access_token(&state, &access).await.is_err(),
+                "a token minted before detected theft must be denied");
+        }
+    }
+
+    #[tokio::test]
     async fn fresh_account_pair_respects_cutoff_without_reviving_an_older_proof() {
         let (_directory, state) = make_test_state().await;
         let uid = state
@@ -1082,6 +1183,73 @@ mod tests {
                 .is_err(),
             "global revoke must include tokens minted at a user's future cutoff"
         );
+    }
+
+    #[tokio::test]
+    async fn stepup_mint_rejects_password_proofs_before_user_or_global_revocation() {
+        for scope in ["user", "global"] {
+            let (_directory, state) = make_test_state().await;
+            let uid = state
+                .wdb
+                .create_user("stepup-stale-proof", None, "old-password-proof")
+                .await
+                .unwrap() as i64;
+            let proof = state.revocations.read().await.account_watermark(uid);
+            match scope {
+                "user" => state.revoke_user(uid).await.unwrap(),
+                "global" => state.revoke_all_tokens().await.unwrap(),
+                _ => unreachable!(),
+            }
+            assert!(
+                matches!(
+                    generate_stepup_jwt(&state, uid, "stepup-stale-proof", proof).await,
+                    Err(AppError::Unauthorized(_))
+                ),
+                "a {scope} cutoff must invalidate an earlier password proof"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn fresh_stepup_proof_uses_future_cutoff_without_extending_ttl_and_remains_revocable() {
+        use crate::auth_extractor::{verify_stepup_token, STEPUP_TTL_SECONDS};
+        let (_directory, state) = make_test_state().await;
+        let uid = state
+            .wdb
+            .create_user("stepup-fresh-proof", None, "current-password-proof")
+            .await
+            .unwrap() as i64;
+        let now = Utc::now().timestamp();
+        {
+            let mut revocations = state.revocations.write().await;
+            revocations.epoch = (now + 60) as u64;
+            revocations.user_iat_revoked.insert(uid, (now + 120) as u64);
+        }
+        let proof = state.revocations.read().await.account_watermark(uid);
+        let token = generate_stepup_jwt(&state, uid, "stepup-fresh-proof", proof)
+            .await
+            .unwrap();
+        let claims = decode_token(&token, &state.config.jwt_secret)
+            .await
+            .unwrap();
+        assert_eq!(claims.iat, now + 120);
+        assert!(claims.stepup);
+        assert_eq!(claims.token_type, "access");
+        assert!(
+            claims.exp <= Utc::now().timestamp() + STEPUP_TTL_SECONDS,
+            "a future cutoff must not extend the step-up lifetime"
+        );
+        assert!(verify_stepup_token(&state, &token, uid).await.is_ok());
+        state.revoke_user(uid).await.unwrap();
+        assert!(verify_stepup_token(&state, &token, uid).await.is_err());
+
+        let proof = state.revocations.read().await.account_watermark(uid);
+        let token = generate_stepup_jwt(&state, uid, "stepup-fresh-proof", proof)
+            .await
+            .unwrap();
+        assert!(verify_stepup_token(&state, &token, uid).await.is_ok());
+        state.revoke_all_tokens().await.unwrap();
+        assert!(verify_stepup_token(&state, &token, uid).await.is_err());
     }
 
     #[tokio::test]

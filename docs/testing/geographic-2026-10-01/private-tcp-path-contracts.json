@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "scope": "Six directed actual private-Tailscale TCP paths with bounded disposable challenge echo, no application credentials/content",
+  "firewallOrRouterChanges": 0,
+  "persistentFilesCreated": 0,
+  "noiseRpcTested": false,
+  "canonicalWriterPermitted": false,
+  "paths": [
+    {
+      "source": 1,
+      "target": 2,
+      "status": "PASS",
+      "seconds": 0.247
+    },
+    {
+      "source": 1,
+      "target": 3,
+      "status": "FAIL",
+      "errorType": "OSError",
+      "errno": 113,
+      "seconds": 0.186
+    },
+    {
+      "source": 2,
+      "target": 1,
+      "status": "PASS",
+      "seconds": 0.262
+    },
+    {
+      "source": 2,
+      "target": 3,
+      "status": "FAIL",
+      "errorType": "OSError",
+      "errno": 113,
+      "seconds": 0.204
+    },
+    {
+      "source": 3,
+      "target": 1,
+      "status": "PASS",
+      "seconds": 0.173
+    },
+    {
+      "source": 3,
+      "target": 2,
+      "status": "PASS",
+      "seconds": 0.205
+    }
+  ],
+  "status": "FAIL",
+  "cleanup": [
+    {
+      "event": "cleanup",
+      "ownedThreadStopped": true,
+      "ownedListenerClosed": true,
+      "persistentFilesCreated": 0,
+      "processExitCode": 0,
+      "node": 1
+    },
+    {
+      "event": "cleanup",
+      "ownedThreadStopped": true,
+      "ownedListenerClosed": true,
+      "persistentFilesCreated": 0,
+      "processExitCode": 0,
+      "node": 2
+    },
+    {
+      "event": "cleanup",
+      "ownedThreadStopped": true,
+      "ownedListenerClosed": true,
+      "persistentFilesCreated": 0,
+      "processExitCode": 0,
+      "node": 3
+    }
+  ],
+  "recordedAtUtc": "2026-10-01T13:25:24.195078+00:00",
+  "runnerSourceSha256": "3aff319d188a80e0615329b46e812e2b127d913e8c9aed32022fd3bc1318d983",
+  "verifiedTemporaryRunnerRemoved": true,
+  "exactTemporaryRunnerBytesRemoved": 6168
+}

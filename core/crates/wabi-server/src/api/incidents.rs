@@ -20,7 +20,7 @@ pub fn routes(state: Arc<AppState>) -> axum::Router<Arc<AppState>> {
             "/{channel_id}/{incident_id}/resolve",
             axum::routing::post(resolve_incident),
         )
-        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::channel_access::require_channel))
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::channel_access::require_channel_with_read_gate))
         .with_state(state)
 }
 
@@ -46,22 +46,31 @@ async fn create_incident(
     Path(channel_id): Path<String>,
     Json(payload): Json<CreateIncidentPayload>,
 ) -> Result<Json<Value>, AppError> {
-    let incident_id = state
-        .wdb
-        .create_incident(
-            &channel_id,
-            &payload.title,
-            &payload.description,
-            &payload.severity,
-            auth.user_id as u64,
-        )
-        .await?;
-    let incident = state
-        .wdb
-        .get_incident(&channel_id, &incident_id)
-        .await?
-        .ok_or_else(|| AppError::Internal("incident created but not found in projection".into()))?;
-    Ok(Json(json!(incident)))
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let incident_id = state
+                .wdb
+                .create_incident(
+                    &channel_id,
+                    &payload.title,
+                    &payload.description,
+                    &payload.severity,
+                    auth.user_id as u64,
+                )
+                .await?;
+            let incident = state
+                .wdb
+                .get_incident(&channel_id, &incident_id)
+                .await?
+                .ok_or_else(|| {
+                    AppError::Internal("incident created but not found in projection".into())
+                })?;
+            Ok(Json(json!(incident)))
+        })
+        .await
 }
 
 async fn get_incident(
@@ -92,30 +101,40 @@ async fn update_incident(
     Path((channel_id, incident_id)): Path<(String, String)>,
     Json(payload): Json<UpdateIncidentPayload>,
 ) -> Result<Json<Value>, AppError> {
-    let existing = state
-        .wdb
-        .get_incident(&channel_id, &incident_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound("incident not found".into()))?;
-    state
-        .wdb
-        .update_incident(
-            &channel_id,
-            &incident_id,
-            payload.title.as_deref().unwrap_or(&existing.title),
-            payload.description.as_deref().unwrap_or(&existing.description),
-            payload.severity.as_deref().unwrap_or(&existing.severity),
-            payload.status.as_deref().unwrap_or(&existing.status),
-            payload.assigned_user_id.or(existing.assigned_user_id),
-            auth.user_id as u64,
-        )
-        .await?;
-    let incident = state
-        .wdb
-        .get_incident(&channel_id, &incident_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound("incident not found".into()))?;
-    Ok(Json(json!(incident)))
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let existing = state
+                .wdb
+                .get_incident(&channel_id, &incident_id)
+                .await?
+                .ok_or_else(|| AppError::NotFound("incident not found".into()))?;
+            state
+                .wdb
+                .update_incident(
+                    &channel_id,
+                    &incident_id,
+                    payload.title.as_deref().unwrap_or(&existing.title),
+                    payload
+                        .description
+                        .as_deref()
+                        .unwrap_or(&existing.description),
+                    payload.severity.as_deref().unwrap_or(&existing.severity),
+                    payload.status.as_deref().unwrap_or(&existing.status),
+                    payload.assigned_user_id.or(existing.assigned_user_id),
+                    auth.user_id as u64,
+                )
+                .await?;
+            let incident = state
+                .wdb
+                .get_incident(&channel_id, &incident_id)
+                .await?
+                .ok_or_else(|| AppError::NotFound("incident not found".into()))?;
+            Ok(Json(json!(incident)))
+        })
+        .await
 }
 
 async fn resolve_incident(
@@ -123,14 +142,21 @@ async fn resolve_incident(
     auth: AuthUser,
     Path((channel_id, incident_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, AppError> {
-    state
-        .wdb
-        .resolve_incident(&channel_id, &incident_id, auth.user_id as u64)
-        .await?;
-    let incident = state
-        .wdb
-        .get_incident(&channel_id, &incident_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound("incident not found".into()))?;
-    Ok(Json(json!(incident)))
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            state
+                .wdb
+                .resolve_incident(&channel_id, &incident_id, auth.user_id as u64)
+                .await?;
+            let incident = state
+                .wdb
+                .get_incident(&channel_id, &incident_id)
+                .await?
+                .ok_or_else(|| AppError::NotFound("incident not found".into()))?;
+            Ok(Json(json!(incident)))
+        })
+        .await
 }

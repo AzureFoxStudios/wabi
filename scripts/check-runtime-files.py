@@ -8,6 +8,8 @@ import sys
 def is_runtime_file(name):
     path = pathlib.PurePosixPath(name)
     parts = path.parts
+    if name == '.claude/settings.local.json':
+        return True
     # This source-controlled word list is shipped application data.
     if name == 'core/crates/wabi-server/data/blacklist.txt':
         return False

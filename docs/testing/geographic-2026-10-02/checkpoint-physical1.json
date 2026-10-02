@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+  "artifactSha256": "678b9341b8d30e8a49be3abdcdacb472716a5091e5c5c196f836b263a9687c91",
+  "export": {
+    "schemaVersion": 1,
+    "purpose": "actual_disposable_wabi_checkpoint_ciphertext",
+    "owner": "96fb064bf8129b15f0f1e16f291c3ffc9c542b353f17a2769357a8f39cdf5770",
+    "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+    "ciphertextSha256": "3f804779a078880baf384edc59299153c9099585298406bef95a7f194f385b60",
+    "ciphertextBytes": 174102,
+    "requiredObjects": 3,
+    "canonicalWriterPermitted": false
+  },
+  "physicalAccepted": false,
+  "steps": [],
+  "states": {
+    "1": {
+      "root": "/tmp/wabi-checkpoint-field-kglk8jj3",
+      "rootIdentity": [
+        66306,
+        4728963
+      ],
+      "tools": "/tmp/wabi-checkpoint-field-tools-vjfkzzwz",
+      "toolsIdentity": [
+        66306,
+        4728964
+      ],
+      "artifactSha256": "678b9341b8d30e8a49be3abdcdacb472716a5091e5c5c196f836b263a9687c91",
+      "owner": "e8924231d88508f014b911d116bcd79eb00cfe7e29069e60ddda430cadc0151a",
+      "host": "dotRonin",
+      "freeBytes": 31696973824
+    }
+  },
+  "cleanup": [
+    {
+      "nodeId": 1,
+      "reply": {
+        "ownedRootRemoved": true,
+        "unclaimedStageOnly": true
+      },
+      "tools": {
+        "ownedToolDirectoryRemoved": true
+      }
+    }
+  ],
+  "canonicalWriterPermitted": false,
+  "independentUplinksFreshlyVerified": false,
+  "failure": "node1 command refused, exit 1; stderr SHA d6d3c0b587e8b498e479d55c9688077bd9a050b99ea1eb8c4b91d46e00847c8f"
+}

@@ -91,9 +91,9 @@ import { mediaUrl } from '$lib/mediaUrl';
 <svelte:document on:click={onDocClick} />
 
 {#if $currentUser}
-	<div class="profile-card">
+	<div class="profile-card" class:has-banner={Boolean(cardBannerUrl)}>
 		{#if cardBannerUrl}
-			<ProfileMedia src={cardBannerUrl} class="profile-card-banner" style="object-fit:cover;width:100%;" decorative />
+			<div class="profile-card-art"><ProfileMedia src={cardBannerUrl} style="object-fit:cover;width:100%;height:100%;" decorative /></div>
 		{/if}
 		<div class="profile-info">
 			<button class="avatar-container" on:click={openProfilePopout}>

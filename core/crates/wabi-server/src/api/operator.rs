@@ -74,7 +74,7 @@ fn operator_secret_ok(headers: &HeaderMap) -> bool {
 }
 
 /// Guard used by every operator endpoint.
-fn operator_auth(
+pub(crate) fn operator_auth(
     headers: &HeaderMap,
     connect_info: ConnectInfo<SocketAddr>,
 ) -> Result<(), Response> {

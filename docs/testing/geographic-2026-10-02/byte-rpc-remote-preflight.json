@@ -1,0 +1,23 @@
+{
+  "recordedAtUtc": "2026-10-02T05:22:54.266937+00:00",
+  "scope": "Read-only SSH access and temporary-space preflight; not app-port, physical byte-transfer or current three-independent-uplink certification",
+  "nodes": [
+    {
+      "label": "Ronin",
+      "sshTarget": "Ronin@100.87.255.66",
+      "actualHostname": "bazzite",
+      "session": 10277,
+      "actualExit": 0,
+      "tmpAvailableBytes": 14460301312
+    },
+    {
+      "label": "Iyoku",
+      "sshTarget": "Iyoku@100.104.166.42",
+      "actualHostname": "192.168.1.11",
+      "session": 75229,
+      "actualExit": 0,
+      "tmpAvailableBytes": 7711309824
+    }
+  ],
+  "changes": "No files/keys/listeners/firewall/services changed on peers; no public-IP service queried"
+}

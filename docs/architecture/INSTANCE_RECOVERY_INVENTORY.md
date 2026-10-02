@@ -17,6 +17,14 @@ A separate [two-network live receiver check](../testing/REMOTE_FENCED_REPLICA_20
 
 The separate [encrypted instance inbox](../deployment/ENCRYPTED_INSTANCE_INBOX.md) can stream that stopped archive to another site, store immutable ciphertext, and return a hash-checked copy for isolated restore. The [disposable loopback check](../testing/ENCRYPTED_INSTANCE_INBOX_2026-09-27.md) covers this transport and restore path. It does not add a live checkpoint, incremental catch-up, or promotion authority.
 
+The October 1 [inactive core verifier](../testing/INACTIVE_CORE_VERIFY_2026-10-01.md)
+adds independent complete-history projection replay and source-receipt-bound
+whole-root comparison for actual V2 restores, without starting an Authority or
+rewriting persisted projections. A disposable live capture produced matching
+inactive verification on dotRonin and Ronin. This restricted core profile keeps
+both live guards and refuses supported detections of enabled external topology;
+it does not certify all enabled components or authorize promotion.
+
 ## Authority-owned paths
 
 | State | Where source puts it | Recovery rule |
@@ -35,7 +43,7 @@ The separate [encrypted instance inbox](../deployment/ENCRYPTED_INSTANCE_INBOX.m
 
 The experimental [sidecar copy lane](../deployment/EXPERIMENTAL_DB_REPLICA.md) uses a fixed, 64 MiB-per-file allowlist for incremental copies of several top-level files in this table. It can copy updates and remove a source-deleted file except `jwt_secret`. It excludes external paths, unknown files, nested trees and plugins. Its individual hashes do not create a cross-file recovery point; a copied policy can disagree with the database or another file. It must never be used as the only recovery inventory.
 
-These names are an audit aid, **not** an exhaustive copy filter. A stopped snapshot includes unknown files under the data and uploads roots. The Authority also has process lock files. A restored lock may be removed only after confirming no process uses that copied data, as described in [Backup and Recovery](../deployment/BACKUP_AND_RECOVERY.md).
+These names are an audit aid, **not** an exhaustive copy filter. A stopped snapshot includes unknown files under the data and uploads roots. The Authority also has process lock files. The current WabiDB advisory lock inode must be preserved; diagnostic PID text is not writer ownership. Legacy root PID locks require a stopped-version review, as described in [Backup and Recovery](../deployment/BACKUP_AND_RECOVERY.md).
 
 ## State outside those roots
 
@@ -70,7 +78,20 @@ records resolved `ServerConfig` inside the protected header. Its V2 restorer
 checks file/inventory digests and key/prefix continuity and always installs an
 inactive writer fence. This does not replace the whole-instance inventory:
 external blacklist and enabled Lore are refused; operator environment,
-deployment, plugins and other external stores remain unverified. No live
-operator trigger or promotion is enabled, and `fullInstanceReady` stays false.
+deployment, plugins and other external stores remain unverified. An opt-in
+[local operator control](../deployment/OPERATOR_CHECKPOINT_CONTROL.md) now starts
+bounded core jobs; promotion remains unavailable and `fullInstanceReady` stays false.
 
 A future exporter must define one ordering boundary across WabiDB and required sidecars/uploads, prove a clean restore with hashes and representative reads/writes, and protect the full bundle in transit and at rest. Incremental catch-up must preserve deletion, expiry, key continuity, and an observable recovery point. Promotion needs a durable writer fence and a tested old-node rejoin path. The current `standby` API intentionally returns not implemented for export, import, and promotion; its encrypted envelope receiver does not prove a recoverable community.
+
+## Bounded stopped comparison and core replay candidate
+
+The [October 1 stopped-core audit](../testing/STOPPED_CORE_AUDIT_2026-10-01.md)
+streams whole-tree comparisons under both persistent writer locks, with explicit
+entry/byte/path/deadline limits and private receipts. Four exact runtime paths
+are omitted; unknown files and empty directories participate. It can check and
+preserve inactive-live guards but never activates them. Fourteen small checks
+and a real encrypted stopped V1 restore/replay pass, including retained state,
+owner/session continuity, a revoked-session denial and attachment bytes. This
+is a same-computer core fixture. It does not certify complete enabled-instance
+inventory, active secret overrides, external stores, live V2 promotion or HA.

@@ -29,7 +29,7 @@
 
 	export let isOpen = false;
 	export let requestedPaymentSurface: 'connections' | null = null;
-	export let requestedTab: 'profile' | 'server' | 'notifications' | null = null;
+	export let requestedTab: 'profile' | 'server' | 'notifications' | 'audio' | null = null;
 	export let requestedPasswordChangeRequest = 0;
 
 	type SettingsTab =
@@ -73,7 +73,7 @@
 	];
 
 	let activeSettingsTab: SettingsTab = 'profile';
-	let lastHandledRequestedTab: 'profile' | 'server' | 'notifications' | null = null;
+	let lastHandledRequestedTab: 'profile' | 'server' | 'notifications' | 'audio' | null = null;
 	let lastHandledRequestedPaymentSurface: 'connections' | null = null;
 	let lastHandledRequestedPasswordChangeRequest = 0;
 	let showAvatarEditor = false;

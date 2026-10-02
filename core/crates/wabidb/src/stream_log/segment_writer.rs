@@ -102,6 +102,11 @@ impl SegmentWriter {
             let pad = vec![0u8; pad_len];
             self.file.write_all(&pad).await?;
         }
+        // Tokio writes may still be pending in its userspace buffer after
+        // write_all returns. Drain that buffer before claiming the record was
+        // appended, including at process-crash injection boundaries. This is
+        // not fsync: the sequencer still owns segment-before-index durability.
+        self.file.flush().await?;
 
         let record_size = body_len + pad_len;
         self.cursor += record_size as u64;

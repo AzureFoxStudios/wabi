@@ -27,8 +27,8 @@ import threading
 import time
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 STATE_VERSION = 1
 USER_AGENT = "wabi-media-node/1"
@@ -37,6 +37,12 @@ DEFAULT_POLL_SECONDS = 5.0
 DEFAULT_TIMEOUT_SECONDS = 20.0
 DEFAULT_MEDIA_TOKEN_TTL_SECONDS = 600
 MAX_MEDIA_TOKEN_TTL_SECONDS = 3600
+MAX_PERMISSION_RESPONSE_BYTES = 1024 * 1024
+
+
+class NoCredentialRedirects(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 class ControllerError(RuntimeError):
@@ -134,19 +140,22 @@ def http_json(
 
     request = Request(url, data=encoded, headers=request_headers, method=method)
     try:
-        with urlopen(request, timeout=timeout) as response:
+        with build_opener(ProxyHandler({}), NoCredentialRedirects()).open(request, timeout=timeout) as response:
             status = response.status
-            raw = response.read()
+            raw = response.read(MAX_PERMISSION_RESPONSE_BYTES + 1)
     except HTTPError as exc:
-        raw = exc.read().decode("utf-8", errors="replace")
+        exc.close()
         if allow_no_content and exc.code == 204:
             return None
-        raise HttpStatusError(exc.code, raw) from exc
+        # A remote error may echo the pairing secret or node credential.
+        raise HttpStatusError(exc.code, "request rejected") from exc
     except URLError as exc:
         raise ControllerError(f"network error contacting {url}: {exc.reason}") from exc
 
     if status == 204 and allow_no_content:
         return None
+    if len(raw) > MAX_PERMISSION_RESPONSE_BYTES:
+        raise ControllerError("HTTP JSON response too large")
     if not raw:
         return {}
     try:
@@ -303,6 +312,73 @@ class MediaProfile:
             "source": "relay",
         }
 
+    def update_livekit_permissions(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.ensure_token_signing_ready()
+        if self.provider != "livekit":
+            raise ControllerError("participant permissions require a LiveKit node")
+        room = payload.get("externalRoomName")
+        identity = payload.get("identity")
+        if not isinstance(room, str) or not room or len(room) > 512:
+            raise ControllerError("permission update missing room")
+        if not isinstance(identity, str) or not identity or len(identity) > 256:
+            raise ControllerError("permission update missing identity")
+        grants = payload.get("grants")
+        if not isinstance(grants, dict) or any(
+            type(grants.get(key)) is not bool
+            for key in ("canPublish", "canSubscribe", "canPublishData")
+        ):
+            raise ControllerError("permission update requires explicit boolean grants")
+        sources = grants.get("canPublishSources")
+        allowed = {"camera", "microphone", "screen_share", "screen_share_audio"}
+        if not isinstance(sources, list) or any(
+            not isinstance(source, str) or source not in allowed for source in sources
+        ):
+            raise ControllerError("permission update has invalid track sources")
+        permission = {
+            "canPublish": grants["canPublish"],
+            "canSubscribe": grants["canSubscribe"],
+            "canPublishData": grants["canPublishData"],
+            "canPublishSources": [source.upper() for source in sources]
+            if grants["canPublish"] else [],
+        }
+        endpoint = urlsplit(self.sfu_endpoint)
+        if endpoint.username or endpoint.password or endpoint.query or endpoint.fragment or not endpoint.hostname:
+            raise ControllerError("permission endpoint must be a configured clean URL")
+        scheme = {"wss": "https", "ws": "http", "https": "https", "http": "http"}.get(endpoint.scheme)
+        if scheme is None:
+            raise ControllerError("permission endpoint has unsupported scheme")
+        url = urlunsplit((scheme, endpoint.netloc, endpoint.path.rstrip("/") +
+            "/twirp/livekit.RoomService/UpdateParticipant", "", ""))
+        now = int(time.time())
+        token = sign_hs256_jwt({
+            "iss": self.livekit_api_key, "nbf": now - 5, "iat": now,
+            "exp": now + 60, "video": {"roomAdmin": True, "room": room},
+        }, self.livekit_api_secret)
+        request = Request(url, data=json.dumps({"room": room, "identity": identity,
+            "permission": permission}, separators=(",", ":")).encode(),
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            method="POST")
+        # The job cannot choose an endpoint. Never replay room-admin credentials
+        # to redirects or an ambient proxy, and bound the provider response.
+        opener = build_opener(ProxyHandler({}), NoCredentialRedirects())
+        try:
+            with opener.open(request, timeout=DEFAULT_TIMEOUT_SECONDS) as response:
+                raw = response.read(MAX_PERMISSION_RESPONSE_BYTES + 1)
+        except HTTPError as exc:
+            exc.close()
+            raise ControllerError("LiveKit permission update failed") from exc
+        except (URLError, OSError) as exc:
+            raise ControllerError("LiveKit permission update failed") from exc
+        if len(raw) > MAX_PERMISSION_RESPONSE_BYTES:
+            raise ControllerError("LiveKit permission response too large")
+        try:
+            result = json.loads(raw)
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise ControllerError("invalid LiveKit permission response") from exc
+        if not isinstance(result, dict) or result.get("identity") != identity:
+            raise ControllerError("LiveKit permission response identity mismatch")
+        return {"updated": True, "identity": identity, "roomName": room}
+
 
 class PairingStore:
     def __init__(self, path: Path):
@@ -454,6 +530,10 @@ class AuthoritySession:
         self._validate_target(payload)
         return self.profile.mint_livekit_token(payload)
 
+    def update_participant_permissions(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self._validate_target(payload)
+        return self.profile.update_livekit_permissions(payload)
+
     def run(self) -> None:
         log(f"{self.label}: session started as node {self.node_id}")
         next_heartbeat = 0.0
@@ -499,6 +579,8 @@ class AuthoritySession:
                 result = self.activate_room(payload)
             elif operation == "mint_token":
                 result = self.mint_token(payload)
+            elif operation == "update_participant_permissions":
+                result = self.update_participant_permissions(payload)
             else:
                 raise ControllerError(f"unsupported media operation: {operation}")
         except Exception as exc:
@@ -511,8 +593,10 @@ class AuthoritySession:
                     f"{self.label}: activated room {result['roomId']} "
                     f"as {result['externalRoomName']}"
                 )
-            else:
+            elif operation == "mint_token":
                 log(f"{self.label}: minted scoped token for {result['identity']}")
+            else:
+                log(f"{self.label}: updated participant permissions")
 
 
 def pair_authority(

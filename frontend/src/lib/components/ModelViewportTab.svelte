@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { sketchfabSource, modelLinkError } from '$lib/modelSource';
 	import { onMount } from 'svelte';
 	import ModelViewerLauncher from './ModelViewerLauncher.svelte';
 	import {
@@ -16,6 +17,8 @@
 	let viewerUiHidden = false;
 	let showUrlRow = false;
 	let modelUrl = '';
+	let linkError = '';
+	$: hostedModel = sketchfabSource($modelViewportSelection?.src || '');
 
 	const SAMPLE_MODEL_URL =
 		'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/DamagedHelmet/glTF-Binary/DamagedHelmet.glb';
@@ -67,6 +70,8 @@
 	function loadFromUrl(raw: string, fallbackName?: string): void {
 		const trimmed = raw.trim();
 		if (!trimmed) return;
+		linkError = modelLinkError(trimmed) || '';
+		if (linkError) return;
 		openModelViewport(trimmed, fallbackName || fileNameFromUrl(trimmed));
 		modelUrl = '';
 		showUrlRow = false;
@@ -130,14 +135,14 @@
 
 	{#if $modelViewportSelection}
 		<div class="viewport-canvas-wrap">
-			<ModelViewerLauncher bind:hideUi={viewerUiHidden} src={$modelViewportSelection.src} fileName={$modelViewportSelection.fileName} height={viewerHeight} fullBleed={true} lazyLoad={false} />
+			{#if hostedModel}<div class="hosted-model"><p>Hosted on Sketchfab · <a href={hostedModel.pageUrl} target="_blank" rel="noopener noreferrer">Open original</a></p><iframe src={hostedModel.embedUrl} title="Sketchfab model viewer" allow="fullscreen; xr-spatial-tracking" allowfullscreen referrerpolicy="no-referrer"></iframe></div>{:else}<ModelViewerLauncher bind:hideUi={viewerUiHidden} src={$modelViewportSelection.src} fileName={$modelViewportSelection.fileName} height={viewerHeight} fullBleed={true} lazyLoad={false} />{/if}
 		</div>
 	{:else}
 		<div class="viewport-empty">
 			<div class="empty-card">
 				<div class="empty-icon" aria-hidden="true">📦</div>
 				<p class="empty-title">No model selected yet</p>
-				<p class="empty-hint">Load a GLB/GLTF/OBJ/STL to preview it here. Models stay on this device.</p>
+				<p class="empty-hint">Open a downloaded model file to inspect it. Local files are not uploaded.</p>
 				<div class="empty-action-list">
 					<button class="empty-action primary" type="button" on:click={openTempPicker}>
 						<span class="action-icon" aria-hidden="true">📂</span>
@@ -154,18 +159,20 @@
 					>
 						<span class="action-icon" aria-hidden="true">🔗</span>
 						<span class="action-text">
-							<strong>Load from URL / sample</strong>
-							<small>Paste a direct model link, or try the bundled sample</small>
+							<strong>Model link / example</strong>
+							<small>Direct model files or a Sketchfab model page</small>
 						</span>
 						<span class="action-chevron" aria-hidden="true">{showUrlRow ? '▾' : '▸'}</span>
 					</button>
+					{#if linkError}<p role="alert" class="empty-hint">{linkError}</p>{/if}
 					{#if showUrlRow}
+						<p class="empty-hint">Paste a link to the model file itself. Sketchfab model pages open in its hosted viewer; other website preview links cannot be loaded as files. For a downloaded model, use “Open model from your computer”.</p>
 						<div class="url-row">
 							<input
 								class="url-input"
 								type="url"
 								placeholder="https://example.com/model.glb"
-								aria-label="Model URL"
+								aria-label="Model file or Sketchfab URL"
 								bind:value={modelUrl}
 								on:keydown={(event) => event.key === 'Enter' && loadFromUrl(modelUrl)}
 							/>
@@ -175,7 +182,7 @@
 								disabled={!modelUrl.trim()}
 								on:click={() => loadFromUrl(modelUrl)}
 							>
-								Load URL
+								Open model link
 							</button>
 							<button
 								class="toolbar-pill"
@@ -224,6 +231,7 @@
 
 <style>
 	.viewport-tab {
+		width: 100%;
 		height: 100%;
 		min-height: 0;
 		display: flex;
@@ -635,4 +643,8 @@
 			padding: 1.25rem 1rem;
 		}
 	}
+
+ .hosted-model { display: flex; flex-direction: column; height: 100%; background: var(--bg-primary); }
+ .hosted-model p { padding: 10px 16px; margin: 0; color: var(--text-muted); font-size: 12px; }
+ .hosted-model iframe { flex: 1; width: 100%; min-height: 300px; border: 0; }
 </style>

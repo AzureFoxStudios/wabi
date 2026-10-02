@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "sessionId": 15293,
+  "actualExitCode": 0,
+  "pass": 1,
+  "fail": 0,
+  "ignored": 0,
+  "changedSourcesAtReadback": [],
+  "rawLogSha256": "74c084a91d5a60b8e759da7edfe8184cb94f03a3e49d6c50a77caf2747db18f6",
+  "decryptionIdentityExported": false,
+  "physicalAccepted": false
+}

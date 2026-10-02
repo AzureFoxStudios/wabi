@@ -26,28 +26,8 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
 
     io.ns(
         "/",
-        |socket: SocketRef, Data(auth): Data<Value>, State(state): State<SioState>, io: SocketIo| {
+        (|socket: SocketRef, State(state): State<SioState>, io: SocketIo| {
             info!("[sio] connected: {}", socket.id);
-            let token = auth.get("token").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-            // Handshake-time JWT validation: reject invalid/expired tokens
-            // before any handlers are registered. Valid tokens get a typed
-            // SioIdentity extension so handlers never re-decode the JWT.
-            if !token.is_empty() {
-                match validate_token_sync(&token, &state.app.config.jwt_secret) {
-                    Ok(identity) => {
-                        socket.extensions.insert(identity);
-                    }
-                    Err(reason) => {
-                        warn!("[sio] handshake auth failed for {}: {}", socket.id, reason);
-                        let _ = socket.emit("auth-failed", &json!({ "reason": reason }));
-                        let _ = socket.disconnect();
-                        return;
-                    }
-                }
-            }
-
-            socket.extensions.insert(AuthToken(token));
             socket.extensions.insert(VoiceAdmissionEpochs::default());
 
             // socketioxide does not create Socket.IO's conventional per-ID
@@ -56,15 +36,16 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 socket.join(socket.id.to_string());
             }
 
-            // Every stateful socket handler holds the shared admission reader
-            // through authorize→await→room mutation/publication. Only group
-            // creation/membership commands acquire the writer themselves. Do
-            // not acquire recursively inside helpers (Tokio writers are fair).
+            // Owned callbacks retain membership and one current credential
+            // proof through mutation/publication. Reentrant identity checks
+            // reuse that proof instead of taking a reader behind a queued
+            // denial writer. Group membership handlers acquire their writer;
+            // account ban uses the separate credential-writer path below.
             socket.on("join", {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(username): Data<String>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_join(socket, username, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_join(socket, username, s, io).await })
                 }
             });
 
@@ -72,7 +53,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(cmd): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_update_profile(socket, cmd, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_update_profile(socket, cmd, s, io).await })
                 }
             });
 
@@ -81,7 +62,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(cmd): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_update_profile(socket, cmd, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_update_profile(socket, cmd, s, io).await })
                 }
             });
 
@@ -92,7 +73,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_set_presence(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_set_presence(socket, data, s, io).await })
                 }
             });
 
@@ -104,7 +85,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone();
                 move |socket: SocketRef, Data(channel_id): Data<String>| {
                     let s = s.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_join_channel(socket, channel_id, s).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_join_channel(socket, channel_id, s).await })
                 }
             });
 
@@ -112,7 +93,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(cmd): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_message(socket, cmd, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_message(socket, cmd, s, io).await })
                 }
             });
 
@@ -120,7 +101,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone();
                 move |socket: SocketRef, Data(req): Data<Value>| {
                     let s = s.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_load_history(socket, req, s).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_load_history(socket, req, s).await })
                 }
             });
 
@@ -128,7 +109,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(cmd): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_delete_message(socket, cmd, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_delete_message(socket, cmd, s, io).await })
                 }
             });
 
@@ -136,7 +117,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_typing(socket, data, s).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_typing(socket, data, s).await })
                 }
             });
 
@@ -144,7 +125,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(cmd): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_clear_channel_messages(socket, cmd, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_clear_channel_messages(socket, cmd, s, io).await })
                 }
             });
 
@@ -152,7 +133,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_voice_channel_join(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_voice_channel_join(socket, data, s, io).await })
                 }
             });
 
@@ -160,7 +141,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_voice_channel_subscribe(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_voice_channel_subscribe(socket, data, s, io).await })
                 }
             });
 
@@ -168,7 +149,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_voice_channel_unsubscribe(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_voice_channel_unsubscribe(socket, data, s, io).await })
                 }
             });
 
@@ -176,7 +157,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_voice_channel_leave(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_voice_channel_leave(socket, data, s, io).await })
                 }
             });
 
@@ -184,7 +165,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_voice_channel_kick(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_voice_channel_kick(socket, data, s, io).await })
                 }
             });
 
@@ -192,7 +173,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_set_voice_transmit_mode(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_set_voice_transmit_mode(socket, data, s, io).await })
                 }
             });
 
@@ -200,7 +181,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_voice_self_state(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_voice_self_state(socket, data, s, io).await })
                 }
             });
 
@@ -208,7 +189,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_call_initiate(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_call_initiate(socket, data, s, io).await })
                 }
             });
 
@@ -216,7 +197,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_call_answer(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_call_answer(socket, data, s, io).await })
                 }
             });
 
@@ -224,7 +205,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_call_reject(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_call_reject(socket, data, s, io).await })
                 }
             });
 
@@ -232,7 +213,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_call_cancel(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_call_cancel(socket, data, s, io).await })
                 }
             });
 
@@ -240,7 +221,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_call_end(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_call_end(socket, data, s, io).await })
                 }
             });
 
@@ -248,7 +229,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_group_call_leave(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_group_call_leave(socket, data, s, io).await })
                 }
             });
 
@@ -256,7 +237,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_group_call_stop_ringing(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_group_call_stop_ringing(socket, data, s, io).await })
                 }
             });
 
@@ -264,7 +245,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; on_create_dm(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; on_create_dm(socket, data, s, io).await })
                 }
             });
 
@@ -272,7 +253,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { on_create_group(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { on_create_group(socket, data, s, io).await })
                 }
             });
 
@@ -280,7 +261,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_delete_dm(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; on_delete_dm(socket, data, s, io).await })
                 }
             });
 
@@ -288,7 +269,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_ban_user(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_ban_user(socket, data, s, io).await })
                 }
             });
 
@@ -296,7 +277,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_voice_mute(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; on_voice_mute(socket, data, s, io).await })
                 }
             });
 
@@ -304,7 +285,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_voice_unmute(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; on_voice_unmute(socket, data, s, io).await })
                 }
             });
 
@@ -312,7 +293,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_voice_deafen(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; on_voice_deafen(socket, data, s, io).await })
                 }
             });
 
@@ -320,7 +301,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_voice_undeafen(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; on_voice_undeafen(socket, data, s, io).await })
                 }
             });
 
@@ -328,7 +309,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { on_kick_group_member(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { on_kick_group_member(socket, data, s, io).await })
                 }
             });
 
@@ -336,7 +317,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { on_leave_group(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { on_leave_group(socket, data, s, io).await })
                 }
             });
 
@@ -344,7 +325,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { on_add_group_member(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { on_add_group_member(socket, data, s, io).await })
                 }
             });
 
@@ -352,7 +333,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_update_group_avatar(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_update_group_avatar(socket, data, s, io).await })
                 }
             });
 
@@ -360,7 +341,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_edit_message(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_edit_message(socket, data, s, io).await })
                 }
             });
 
@@ -368,7 +349,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_toggle_pin(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_toggle_pin(socket, data, s, io).await })
                 }
             });
 
@@ -388,7 +369,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_call_offer(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_call_offer(socket, data, s, io).await })
                 }
             });
 
@@ -401,7 +382,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                     let target_id = data.get("targetId").and_then(|v| v.as_str()).map(String::from);
                     let answer = data.get("answer").cloned();
                     let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move {
+                    scoped_socket_event(s.app.instance_operations.clone(), async move {
                         let _membership = s.app.membership_gate.read().await;
                         if let (Some(target), Some(ans)) = (target_id, answer) {
                             // SEC-3: answers only flow within a call relationship.
@@ -424,7 +405,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                     let target_id = data.get("targetId").and_then(|v| v.as_str()).map(String::from);
                     let candidate = data.get("candidate").cloned();
                     let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move {
+                    scoped_socket_event(s.app.instance_operations.clone(), async move {
                         let _membership = s.app.membership_gate.read().await;
                         if let (Some(target), Some(cand)) = (target_id, candidate) {
                             // SEC-3: ICE candidates only flow within a call relationship.
@@ -442,7 +423,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone();
                 move |socket: SocketRef| {
                     let s = s.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_get_emojis(socket, &s).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_get_emojis(socket, &s).await })
                 }
             });
 
@@ -450,7 +431,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_delete_emoji(socket, data, &s, &io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_delete_emoji(socket, data, &s, &io).await })
                 }
             });
 
@@ -458,7 +439,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_add_emoji_reaction(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_add_emoji_reaction(socket, data, s, io).await })
                 }
             });
 
@@ -466,7 +447,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_remove_emoji_reaction(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_remove_emoji_reaction(socket, data, s, io).await })
                 }
             });
 
@@ -474,7 +455,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_get_role_definitions(socket, &io, &s).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_get_role_definitions(socket, &io, &s).await })
                 }
             });
 
@@ -484,7 +465,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                     let s = s.clone(); let io = io.clone();
                     // Authorization changes must serialize their commit, readback
                     // and publication against other gated socket operations.
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_assign_role(socket, data, &s, &io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_assign_role(socket, data, &s, &io).await })
                 }
             });
 
@@ -492,7 +473,8 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    // Ban-state changes serialize like role changes.
+                    // Account denial validates under its own credential writer;
+                    // it must not enter the ordinary retained-reader scope.
                     crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_admin_ban_user(socket, data, &s, &io).await })
                 }
             });
@@ -502,7 +484,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
                     // Ban-state changes serialize like role changes.
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_admin_unban_user(socket, data, &s, &io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_admin_unban_user(socket, data, &s, &io).await })
                 }
             });
 
@@ -510,7 +492,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_toggle_reception(socket, data, &s, &io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_toggle_reception(socket, data, &s, &io).await })
                 }
             });
 
@@ -518,7 +500,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_remove_role(socket, data, &s, &io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_remove_role(socket, data, &s, &io).await })
                 }
             });
 
@@ -527,7 +509,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
                     // Role-definition reads serialize like other gated socket operations.
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_lore_roles_list(socket, data, &s, &io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_lore_roles_list(socket, data, &s, &io).await })
                 }
             });
 
@@ -536,7 +518,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
                     // Role-definition writes serialize like assign-role.
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_lore_roles_upsert(socket, data, &s, &io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_lore_roles_upsert(socket, data, &s, &io).await })
                 }
             });
 
@@ -544,7 +526,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_lore_roles_delete(socket, data, &s, &io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_lore_roles_delete(socket, data, &s, &io).await })
                 }
             });
 
@@ -552,7 +534,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_lore_roles_set_default(socket, data, &s, &io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; handle_lore_roles_set_default(socket, data, &s, &io).await })
                 }
             });
 
@@ -560,7 +542,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone();
                 move |socket: SocketRef| {
                     let s = s.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_get_badge_catalog(socket, &s).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_get_badge_catalog(socket, &s).await })
                 }
             });
 
@@ -568,7 +550,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_assign_badge(socket, data, &s, &io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_assign_badge(socket, data, &s, &io).await })
                 }
             });
 
@@ -576,7 +558,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_remove_badge(socket, data, &s, &io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_remove_badge(socket, data, &s, &io).await })
                 }
             });
 
@@ -584,7 +566,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_update_channel_settings(socket, data, &s, &io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_update_channel_settings(socket, data, &s, &io).await })
                 }
             });
 
@@ -592,7 +574,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_set_role_display_name(socket, data, &s, &io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; handle_set_role_display_name(socket, data, &s, &io).await })
                 }
             });
 
@@ -602,7 +584,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone();
                     let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_join_wabidb_call(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_join_wabidb_call(socket, data, s, io).await })
                 }
             });
 
@@ -610,7 +592,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_wabidb_media(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_wabidb_media(socket, data, s, io).await })
                 }
             });
 
@@ -618,7 +600,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_start_screen_share(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_start_screen_share(socket, data, s, io).await })
                 }
             });
 
@@ -626,7 +608,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_stop_screen_share(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_stop_screen_share(socket, data, s, io).await })
                 }
             });
 
@@ -636,7 +618,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>, ack: AckSender| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_call_recording_set_active(socket, data, s, io, ack).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_call_recording_set_active(socket, data, s, io, ack).await })
                 }
             });
 
@@ -644,7 +626,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_webrtc_offer(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_webrtc_offer(socket, data, s, io).await })
                 }
             });
 
@@ -652,7 +634,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_webrtc_answer(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_webrtc_answer(socket, data, s, io).await })
                 }
             });
 
@@ -660,7 +642,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_webrtc_ice_candidate(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_webrtc_ice_candidate(socket, data, s, io).await })
                 }
             });
 
@@ -668,7 +650,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_p2p_offer(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_p2p_offer(socket, data, s, io).await })
                 }
             });
 
@@ -676,7 +658,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_p2p_answer(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_p2p_answer(socket, data, s, io).await })
                 }
             });
 
@@ -684,7 +666,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_p2p_ice_candidate(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_p2p_ice_candidate(socket, data, s, io).await })
                 }
             });
 
@@ -692,7 +674,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_create_thread(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_create_thread(socket, data, s, io).await })
                 }
             });
 
@@ -700,7 +682,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_pin_channel(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_pin_channel(socket, data, s, io).await })
                 }
             });
 
@@ -708,7 +690,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_unpin_channel(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_unpin_channel(socket, data, s, io).await })
                 }
             });
 
@@ -716,7 +698,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_reorder_channels(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_reorder_channels(socket, data, s, io).await })
                 }
             });
 
@@ -724,7 +706,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_retry_message(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_retry_message(socket, data, s, io).await })
                 }
             });
 
@@ -732,7 +714,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_mark_messages_as_read(socket, data, s).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_mark_messages_as_read(socket, data, s).await })
                 }
             });
 
@@ -740,7 +722,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_mark_channel_as_read(socket, data, s).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_mark_channel_as_read(socket, data, s).await })
                 }
             });
 
@@ -748,7 +730,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_sync_newer(socket, data, s).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_sync_newer(socket, data, s).await })
                 }
             });
 
@@ -756,7 +738,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_create_breakout_rooms(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; on_create_breakout_rooms(socket, data, s, io).await })
                 }
             });
 
@@ -764,7 +746,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_close_breakout_rooms(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().write_owned().await; on_close_breakout_rooms(socket, data, s, io).await })
                 }
             });
 
@@ -772,7 +754,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_move_user_to_breakout(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_move_user_to_breakout(socket, data, s, io).await })
                 }
             });
 
@@ -780,7 +762,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_move_user_to_voice_channel(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_move_user_to_voice_channel(socket, data, s, io).await })
                 }
             });
 
@@ -788,7 +770,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_whiteboard_join(socket, data, s).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_whiteboard_join(socket, data, s).await })
                 }
             });
 
@@ -796,7 +778,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_whiteboard_leave(socket, data, s).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_whiteboard_leave(socket, data, s).await })
                 }
             });
 
@@ -804,7 +786,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_whiteboard_snapshot(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_whiteboard_snapshot(socket, data, s, io).await })
                 }
             });
 
@@ -812,7 +794,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_whiteboard_patch(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_whiteboard_patch(socket, data, s, io).await })
                 }
             });
 
@@ -820,7 +802,7 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, Data(data): Data<Value>| {
                     let s = s.clone(); let io = io.clone();
-                    crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_whiteboard_cursor(socket, data, s, io).await })
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_whiteboard_cursor(socket, data, s, io).await })
                 }
             });
 
@@ -831,7 +813,10 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                     crate::instance_operations::scoped(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_disconnect(socket, s, io).await })
                 }
             });
-        },
+            // Middleware held this through namespace insertion, so a denial
+            // committed concurrently can now find and disconnect this socket.
+            socket.extensions.remove::<SioAdmissionGuard>();
+        }).with(authorize_socket_connect),
     );
 
     layer

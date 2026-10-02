@@ -98,9 +98,9 @@ async fn on_reorder_channels(socket: SocketRef, data: Value, state: SioState, io
         None => return,
     };
 
-    let identity = resolve_sio_identity(&socket);
-    let caller_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
-    if caller_id <= 0 {
+    let Some(identity) = resolve_identity(&socket, &state).await else { return; };
+    let caller_id = identity.user_id;
+    if identity.is_guest {
         let _ = socket.emit("reorder-channels-error", &json!({"error": "Authentication required"}));
         return;
     }

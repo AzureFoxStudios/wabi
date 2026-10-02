@@ -2,12 +2,10 @@
 	import { onMount } from 'svelte';
 	import { derived } from 'svelte/store';
 	import MapWorkspace from './MapWorkspace.svelte';
-	import MapTokenBoard from './MapTokenBoard.svelte';
 	import FieldPilotWorkspace from './FieldPilotWorkspace.svelte';
 	import { getFieldCapability } from '$lib/api/field';
 	import { currentUser } from '$lib/socket';
 	import { activeServerUrl } from '$lib/serverUrl';
-	import { focusedMapLayerId, focusedMapPlace } from '$lib/mapWorkspace';
 
 	export let variant: 'compact' | 'full' | 'detached' = 'full';
 	export let initialPlaceId: string | null = null;
@@ -36,7 +34,7 @@
 </script>
 
 <div class="maps-addon-root">
-	{#if variant === 'full'}
+	{#if variant === 'full' && fieldAvailable}
 		<nav class="maps-views" aria-label="Maps views">
 			<button type="button" class:active={activeView === 'map'} aria-current={activeView === 'map' ? 'page' : undefined} on:click={() => (activeView = 'map')}>Maps</button>
 			{#if fieldAvailable}<button type="button" class:active={activeView === 'field'} aria-current={activeView === 'field' ? 'page' : undefined} on:click={() => (activeView = 'field')}>Field pilot</button>{/if}
@@ -46,15 +44,7 @@
 		<div class="map-surface">
 			<MapWorkspace {variant} {initialPlaceId} />
 		</div>
-		{#if variant !== 'detached'}
-			<aside class="board-rail">
-				<MapTokenBoard
-					placeId={$focusedMapPlace?.id || null}
-					layerId={$focusedMapLayerId}
-					compact={variant === 'compact'}
-				/>
-			</aside>
-		{/if}
+
 	</div>
 	{#if variant === 'full' && fieldAvailable && activeView === 'field'}
 		<div class="field-view"><FieldPilotWorkspace /></div>
@@ -62,15 +52,15 @@
 </div>
 
 <style>
-	.maps-addon-root { display:flex; flex-direction:column; min-height:0; height:100%; }
+	.maps-addon-root { width:100%; min-width:0; display:flex; flex-direction:column; min-height:0; height:100%; }
 	.maps-views { display:flex; gap:.3rem; padding:.35rem .4rem; border-bottom:1px solid var(--color-border-primary, #464158); }
 	.maps-views button { border:0; border-radius:.45rem; padding:.45rem .8rem; background:transparent; color:var(--text-secondary, #b7b7c8); cursor:pointer; }
 	.maps-views button.active { background:var(--surface-raised, #302d3f); color:var(--text-primary, #fff); font-weight:700; }
 	.maps-views button:focus-visible { outline:2px solid var(--accent-primary, #a89cff); }
-	.maps-addon-shell { display:grid; flex:1; grid-template-columns:minmax(0,1fr) minmax(250px,320px); min-height:0; gap:.55rem; }
+	.maps-addon-shell { display:grid; flex:1; grid-template-columns:minmax(0,1fr); min-height:0; gap:.55rem; }
 	.maps-addon-shell.inactive { display:none; }
 	.field-view { flex:1; min-height:0; }
-	.map-surface { min-width:0; min-height:0; }
+	.map-surface { flex:1; min-width:0; min-height:0; }
 	.board-rail { min-width:0; overflow:auto; padding:.35rem; }
 	.maps-addon-shell.compact { display:flex; flex-direction:column; overflow:auto; }
 	.maps-addon-shell.compact .map-surface { min-height:320px; }

@@ -942,10 +942,11 @@ async fn reset_user_password(
     headers: axum::http::HeaderMap,
     Json(req): Json<ResetUserPasswordRequest>,
 ) -> Response {
-    let actor_id = match admin_auth(&headers, &state).await {
-        Ok(id) => id,
+    let actor = match admin_auth_user(&headers, &state).await {
+        Ok(auth) => auth,
         Err(response) => return response,
     };
+    let actor_id = actor.user_id;
     if req.target_user_id <= 0 {
         return json_error(StatusCode::BAD_REQUEST, "A valid target user is required");
     }
@@ -987,11 +988,8 @@ async fn reset_user_password(
             "Temporary passwords are not supported; use a permanent password reset",
         );
     }
-    if req.new_password.len() < 6 {
-        return json_error(
-            StatusCode::BAD_REQUEST,
-            "Password must be at least 6 characters",
-        );
+    if let Err(error) = super::auth::validate_new_password(&req.new_password) {
+        return error.into_response();
     }
     let user_row = match state.wdb.get_user(req.target_user_id as u64).await {
         Ok(Some(u)) => u,
@@ -1009,6 +1007,13 @@ async fn reset_user_password(
             "Target account is guest-only; it has no password to reset",
         );
     }
+    if state.bot_registry.is_bot(req.target_user_id as u64).await {
+        return json_error(StatusCode::FORBIDDEN, "Manage bot credentials through the owner bot settings");
+    }
+    let proof = match state.password_proof(&actor, req.target_user_id).await {
+        Ok(proof) => proof,
+        Err(error) => return error.into_response(),
+    };
     let password_hash = match bcrypt::hash(&req.new_password, bcrypt::DEFAULT_COST) {
         Ok(h) => h,
         Err(e) => {
@@ -1018,24 +1023,8 @@ async fn reset_user_password(
             )
         }
     };
-    if let Err(e) = state
-        .wdb
-        .update_user(
-            req.target_user_id as u64,
-            wabidb::domain::UserUpdate {
-                password_hash: Some(password_hash),
-                ..Default::default()
-            },
-        )
-        .await
-    {
-        return json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("update_user failed: {e}"),
-        );
-    }
-    if state.revoke_user(req.target_user_id).await.is_err() {
-        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to durably revoke sessions");
+    if let Err(error) = state.replace_password(actor, req.target_user_id, proof, password_hash, true).await {
+        return error.into_response();
     }
     Json(json!({ "success": true })).into_response()
 }
@@ -1077,11 +1066,18 @@ pub(crate) async fn admin_auth(
     headers: &axum::http::HeaderMap,
     state: &Arc<AppState>,
 ) -> Result<i64, Response> {
+    Ok(admin_auth_user(headers, state).await?.user_id)
+}
+
+async fn admin_auth_user(
+    headers: &axum::http::HeaderMap,
+    state: &Arc<AppState>,
+) -> Result<crate::auth_extractor::AuthUser, Response> {
     let auth = crate::api::payments::authenticate_account(headers, state).await?;
     if auth.is_guest || !is_admin_user(auth.user_id, state).await {
         return Err(json_error(StatusCode::FORBIDDEN, "Admin access required"));
     }
-    Ok(auth.user_id)
+    Ok(auth)
 }
 
 /// Like `admin_auth`, but also requires a valid step-up token in the
@@ -1092,8 +1088,15 @@ async fn admin_auth_stepup(
     headers: &axum::http::HeaderMap,
     state: &Arc<AppState>,
 ) -> Result<i64, Response> {
-    let user_id = match admin_auth(headers, state).await {
-        Ok(id) => id,
+    Ok(admin_auth_stepup_user(headers, state).await?.user_id)
+}
+
+async fn admin_auth_stepup_user(
+    headers: &axum::http::HeaderMap,
+    state: &Arc<AppState>,
+) -> Result<crate::auth_extractor::AuthUser, Response> {
+    let auth = match admin_auth_user(headers, state).await {
+        Ok(auth) => auth,
         Err(resp) => return Err(resp),
     };
     let Some(token) = headers.get(STEPUP_HEADER).and_then(|v| v.to_str().ok()) else {
@@ -1102,10 +1105,10 @@ async fn admin_auth_stepup(
             "Step-up authentication required: present an X-Stepup-Token from POST /api/auth/stepup",
         ));
     };
-    if let Err(e) = verify_stepup_token(&state.config.jwt_secret, token, user_id).await {
+    if let Err(e) = verify_stepup_token(state, token, auth.user_id).await {
         return Err(json_error(StatusCode::UNAUTHORIZED, &e.to_string()));
     }
-    Ok(user_id)
+    Ok(auth)
 }
 
 // ─── Policy Handlers ────────────────────────────────────────────────────────
@@ -1845,35 +1848,19 @@ async fn transfer_ownership(
     headers: axum::http::HeaderMap,
     Json(input): Json<TransferOwnerInput>,
 ) -> Response {
-    let caller = match admin_auth_stepup(&headers, &state).await {
-        Ok(id) => id,
+    let actor = match admin_auth_stepup_user(&headers, &state).await {
+        Ok(auth) => auth,
         Err(resp) => return resp,
     };
-    if !state.is_owner(caller).await {
+    if !state.is_owner(actor.user_id).await {
         return json_error(
             StatusCode::FORBIDDEN,
             "Only the owner can transfer ownership",
         );
     }
-    // Target must be a real user.
-    let exists = match state.wdb.get_user(input.user_id as u64).await {
-        Ok(Some(_)) => true,
-        _ => false,
-    };
-    if !exists {
-        return json_error(StatusCode::BAD_REQUEST, "Target user does not exist");
-    }
-    if caller == input.user_id {
-        return json_error(StatusCode::BAD_REQUEST, "Already the owner");
-    }
-    // Revoke the old owner's sessions so a compromised owner can't interfere.
-    if state.revoke_user(caller).await.is_err() {
-        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to durably revoke sessions");
-    }
-    match state.set_owner_durably(input.user_id, Some(caller)).await {
-        Ok(true) => {},
-        Ok(false) => return json_error(StatusCode::FORBIDDEN, "Ownership changed during transfer"),
-        Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to save owner"),
+    let stepup = headers.get(STEPUP_HEADER).and_then(|value| value.to_str().ok()).unwrap_or_default().to_owned();
+    if let Err(error) = state.transfer_owner(actor, input.user_id, stepup).await {
+        return error.into_response();
     }
     Json(json!({ "success": true, "owner_user_id": input.user_id })).into_response()
 }

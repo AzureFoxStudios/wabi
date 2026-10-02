@@ -1,12 +1,19 @@
 <script lang="ts">
+	import ProfileMedia from './ProfileMedia.svelte';
+	import { mediaUrl } from '$lib/mediaUrl';
 	import { onDestroy } from 'svelte';
+	let readingPane: HTMLDivElement;
+	let expandedReading = false;
+	async function toggleReading() {
+		try { if (document.fullscreenElement === readingPane) await document.exitFullscreen(); else await readingPane.requestFullscreen(); } catch { copyError = 'Fullscreen is unavailable in this window.'; }
+	}
 	import { wikiDrafts, type WikiDraft } from '$lib/wikiDraftState';
 	import { captureGroupAccess, groupMembership } from '$lib/groupAccess';
 	import { onAuthSessionCleared } from '$lib/authSession';
 	import { currentChannel } from '$lib/socket';
 	import { createWikiWorkspace, type WikiPage, type WikiRevision } from '$lib/wikiStore';
 	const wikiWorkspace = createWikiWorkspace();
-	const { wikiPagesStore, wikiRevisionsStore, wikiLoadingStore, wikiErrorStore, loadWiki, loadRevisions, createWikiPage, updateWikiPage, findWikiAuthor, formatWikiTime } = wikiWorkspace;
+	const { wikiPagesStore, wikiRevisionsStore, wikiLoadingStore, wikiErrorStore, loadWiki, loadRevisions, createWikiPage, updateWikiPage, formatWikiTime } = wikiWorkspace;
 
 	import SurfaceToolbar from './SurfaceToolbar.svelte';
 	import { uploadFileResumable } from './chat/uploadResumable';
@@ -15,6 +22,7 @@
 	import { initObjectRefRegistry, registerObjectRef, slugify } from '$lib/objectRefRegistry';
 	import { parseMessage } from '$lib/markdown';
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
+	import { forumAuthors } from '$lib/forumIdentity';
 	import { peekPendingNav, takePendingNav } from '$lib/pendingNav';
 	import {
 		extractWikiHeadings,
@@ -57,6 +65,7 @@
 	let imageUploading = false;
 	let saveState: 'idle' | 'dirty' | 'saving' | 'saved' | 'failed' = 'idle';
 	let showTreeOnMobile = true;
+	let headingSearch = '';
 
 	let draftOwner: ReturnType<typeof wikiDrafts.open> | undefined;
 	let stopDraftEvents: (() => void) | undefined;
@@ -135,7 +144,7 @@
 				slug: page.slug || slugify(page.title),
 				title: page.title,
 				channelId: effectiveChannel,
-				subtitle: findWikiAuthor(page.authorUserId)?.username || undefined,
+				subtitle: $forumAuthors.get(page.authorUserId)?.username || undefined,
 				updatedAt: page.updatedAtMicros > 1e12 ? Math.floor(page.updatedAtMicros / 1000) : page.updatedAtMicros,
 			});
 		}
@@ -184,7 +193,7 @@
 
 	$: displayTitle = viewRevision ? viewRevision.title : (selectedPage?.title || '');
 	$: displayBody = viewRevision ? viewRevision.body : (selectedPage?.body || '');
-	$: displayAuthor = selectedPage ? findWikiAuthor(selectedPage.authorUserId) : undefined;
+	$: displayAuthor = selectedPage ? $forumAuthors.get(selectedPage.authorUserId) : undefined;
 	$: displayTime = selectedPage ? formatWikiTime(selectedPage.updatedAtMicros) : '';
 	$: displayRevisionCount = allRevisions.length;
 
@@ -357,7 +366,7 @@
 			await navigator.clipboard.writeText(formatWikiCitationMarkdown(citation));
 			copyError = '';
 		} catch {
-			copyError = 'Could not copy citation';
+			copyError = 'Could not copy page reference';
 		}
 	}
 
@@ -424,7 +433,7 @@
 		slug: selectedPage.slug || slugify(selectedPage.title),
 		title: selectedPage.title,
 		channelId: effectiveChannel || '',
-		subtitle: findWikiAuthor(selectedPage.authorUserId)?.username || undefined,
+		subtitle: $forumAuthors.get(selectedPage.authorUserId)?.username || undefined,
 		updatedAt: selectedPage.updatedAtMicros > 1e12 ? Math.floor(selectedPage.updatedAtMicros / 1000) : selectedPage.updatedAtMicros,
 	} : null;
 
@@ -453,6 +462,7 @@
 	}
 </script>
 
+<svelte:document on:fullscreenchange={() => expandedReading = document.fullscreenElement === readingPane} />
 <div class="wiki-channel">
 	{#if !showNewPage}
 	<SurfaceToolbar
@@ -461,7 +471,7 @@
 		primaryLabel="+ New Page"
 		onPrimary={handleOpenNewPage}
 	>
-		<button class="surface-pill" disabled={isLoading || saveState === 'saving'} on:click={() => effectiveChannel && loadWiki(effectiveChannel)}>Refresh pages</button>
+		<button class="surface-pill" disabled={isLoading || saveState === 'saving'} on:click={() => effectiveChannel && loadWiki(effectiveChannel)} aria-label="Refresh pages" title="Reload pages from the server">↻</button>
 	</SurfaceToolbar>
 
 	<div class="wiki-body" class:has-drawer={showHistory}>
@@ -476,7 +486,7 @@
 			/>
 			</div>
 
-			<div class="wiki-content-pane">
+			<div class="wiki-content-pane" bind:this={readingPane}>
 			{#if isLoading}
 				<div class="wiki-loading">
 					<div class="wiki-loading-spinner"></div>
@@ -488,16 +498,17 @@
 					<button on:click={() => effectiveChannel && loadWiki(effectiveChannel)}>Retry</button>
 				</div>
 			{:else if !selectedPage}
-				<div class="wiki-empty">
-					<div class="wiki-empty-icon">
-						<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5">
-							<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-							<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-						</svg>
+				<section class="wiki-start" aria-label="Wiki overview">
+					<h1>Explore this wiki</h1>
+					<p class="wiki-start-hint">Browse a topic, search page titles and contents, or pick up a recently updated page.</p>
+					<h2>Topics</h2>
+					<div class="wiki-topic-grid">
+						{#each allPages.filter(page => !page.parentPageId || !allPages.some(parent => parent.pageId === page.parentPageId)) as page (page.pageId)}
+							<button type="button" class="wiki-topic-card" on:click={() => selectPage(page)}><strong>{page.title}</strong><span>{allPages.filter(child => child.parentPageId === page.pageId).length} subpages</span></button>
+						{:else}<p>No pages yet. Create the first topic to get started.</p>{/each}
 					</div>
-					<h3>Select a page</h3>
-					<p>Choose a page from the tree or create a new one.</p>
-				</div>
+					{#if allPages.length}<h2>Recently updated</h2><div class="wiki-recent-list">{#each [...allPages].sort((a,b) => b.updatedAtMicros-a.updatedAtMicros).slice(0,5) as page (page.pageId)}<button type="button" on:click={() => selectPage(page)}>{page.title}<span>{formatWikiTime(page.updatedAtMicros)}</span></button>{/each}</div>{/if}
+				</section>
 			{:else}
 				{#if viewRevision}
 					<div class="wiki-revision-banner">
@@ -517,18 +528,13 @@
 						{/each}
 					</div>
 					{#if !editMode}
-						<button class="wiki-content-toolbar-btn" on:click={handleEdit}>Edit</button>
-						<button type="button" class="wiki-content-toolbar-btn wiki-mobile-tree-toggle" on:click={() => { showTreeOnMobile = !showTreeOnMobile; }}>{showTreeOnMobile ? 'Hide pages' : 'Show pages'}</button>
-						<button class="wiki-content-toolbar-btn" on:click={() => void copyWikiCitation()}>Copy citation</button>
+						<button type="button" class="wiki-content-toolbar-btn wiki-mobile-tree-toggle" on:click={() => { showTreeOnMobile = !showTreeOnMobile; }}>{showTreeOnMobile ? 'Hide page browser' : 'Browse pages'}</button>
+						<div class="wiki-page-actions">
+							<button class="wiki-content-toolbar-btn" on:click={handleEdit} title="Edit page" aria-label="Edit page"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m16 3 5 5L8 21H3v-5Z"/></svg></button>
+							<button class="wiki-content-toolbar-btn" on:click={toggleReading} title={expandedReading ? 'Exit fullscreen' : 'Fullscreen'} aria-label={expandedReading ? 'Exit fullscreen' : 'Fullscreen'}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button>
+							{#if shareRecord}<ObjectShareMenu record={shareRecord} menuLabel="Page actions" extraActions={[{label: 'Revision history', run: handleHistory}, {label: 'Copy page citation', run: () => void copyWikiCitation()}]} />{/if}
+						</div>
 						{#if copyError}<span class="wiki-copy-error" role="status">{copyError}</span>{/if}
-						<button
-							class="wiki-content-toolbar-btn"
-							class:active={showHistory}
-							on:click={handleHistory}
-						>History</button>
-						{#if shareRecord}
-							<ObjectShareMenu record={shareRecord} />
-						{/if}
 					{/if}
 				</div>
 
@@ -575,7 +581,7 @@
 									class="wiki-content-header-meta-avatar"
 									style="background: {displayAuthor.color || displayAuthor.roleColor || 'var(--accent-primary)'};"
 								>
-									{displayAuthor.username.charAt(0).toUpperCase()}
+									{#if displayAuthor.profilePicture}<ProfileMedia src={mediaUrl(displayAuthor.profilePicture)} alt={displayAuthor.username} />{:else}{displayAuthor.username.charAt(0).toUpperCase()}{/if}
 								</div>
 								<span class="wiki-content-header-meta-author">{displayAuthor.username}</span>
 							{:else if selectedPage}
@@ -590,17 +596,19 @@
 							{/if}
 						</div>
 					</div>
-					<div class="wiki-content-body">
-						{@html renderedBody}
-					</div>
 					{#if headings.length > 1}
 						<nav class="wiki-table-of-contents" aria-label="On this page">
 							<strong>On this page</strong>
-							{#each headings.filter((heading) => heading.level <= 3) as heading}
+							{#if headings.length > 8}<input type="search" bind:value={headingSearch} aria-label="Find a section" placeholder="Find a section…" />{/if}
+							{#each headings.filter((heading) => heading.level <= 3 && heading.text.toLocaleLowerCase().includes(headingSearch.toLocaleLowerCase())) as heading}
 								<a href={`#${heading.id}`} class="wiki-toc-level-{heading.level}">{heading.text}</a>
 							{/each}
 						</nav>
 					{/if}
+					<div class="wiki-content-body">
+						{@html renderedBody}
+					</div>
+
 				{/if}
 			{/if}
 		</div>

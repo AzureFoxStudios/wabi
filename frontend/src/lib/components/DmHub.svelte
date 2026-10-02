@@ -22,7 +22,7 @@
 
   export let friendsOpenRequest = 0;
   export let messagesOpenRequest = 0;
-  const dispatch = createEventDispatcher<{ tabChange: { tab: 'messages' | 'friends' } }>();
+  const dispatch = createEventDispatcher<{ tabChange: { tab: 'messages' | 'friends' }; serverHome: void }>();
 
   let showPeoplePicker = false;
   let showCreateGroup = false;
@@ -361,7 +361,7 @@
 <div class="dm-hub">
     <div class="dm-hub-header">
       <div class="dm-hub-title-wrap">
-        <span class="dm-hub-title">{activeTab === 'friends' ? 'Friends' : 'Messages'}</span>
+        <span class="dm-hub-title">Home</span>
         <span class="dm-hub-subtitle">{activeTab === 'friends' ? 'People on this server' : 'Your conversations'}</span>
       </div>
       {#if activeTab === 'messages'}
@@ -381,7 +381,8 @@
       {/if}
     </div>
 
-    <nav class="dm-hub-tabs" aria-label="Messages and friends">
+    <nav class="dm-hub-tabs" aria-label="Home destinations">
+      <button type="button" class="dm-hub-tab" on:click={() => dispatch('serverHome')}>Server home</button>
       <button type="button" class="dm-hub-tab" class:active={activeTab === 'messages'} aria-pressed={activeTab === 'messages'} on:click={() => selectTab('messages')}>Messages</button>
       <button type="button" class="dm-hub-tab" class:active={activeTab === 'friends'} aria-pressed={activeTab === 'friends'} on:click={() => selectTab('friends')}>
         Friends{#if $friendships.incoming.length > 0}<span class="dm-hub-request-badge" aria-label={`${$friendships.incoming.length} pending friend requests`}>{$friendships.incoming.length}</span>{:else if $friendships.outgoing.length > 0}<span class="dm-hub-sent-count" aria-label={`${$friendships.outgoing.length} sent friend requests`}>{$friendships.outgoing.length} sent</span>{/if}

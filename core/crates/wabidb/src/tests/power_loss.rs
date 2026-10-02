@@ -269,8 +269,9 @@ async fn populate_engine(data_dir: &std::path::Path, n: u64) {
             .unwrap();
         assert_eq!(outcome.commit_seq, i);
     }
-    // Let the engine drain before drop/shutdown.
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // Await the writer/index/checkpoint tasks before synchronously launching
+    // a child from the parent runtime. Never unlink the lock to bypass them.
+    engine.close_for_tests().await.unwrap();
 }
 
 /// Verify recovery after a crash: engine reopens on the EXISTING commit
@@ -279,9 +280,7 @@ async fn populate_engine(data_dir: &std::path::Path, n: u64) {
 /// and the commit index must contain strictly increasing, duplicate-free
 /// seqs across all `.widx` files.
 async fn verify_recovery(data_dir: &std::path::Path, expected_prior_count: u64) {
-    // Remove the stale lock file left by the crashed child process.
-    let lock_path = data_dir.join(".lock");
-    let _ = std::fs::remove_file(&lock_path);
+    // The crash releases its OS advisory lock; reopen the existing inode.
 
     let config = WabiDbConfig {
         data_dir: data_dir.to_path_buf(),
@@ -580,9 +579,6 @@ async fn restart_never_reuses_commit_seq() {
     // Generation 3: reopen again. The commit index must hold exactly 7
     // strictly-increasing entries and the watermark must cover them all.
     {
-        let lock_path = dir.path().join(".lock");
-        let _ = std::fs::remove_file(&lock_path); // no-op on graceful drop
-
         let config = WabiDbConfig {
             data_dir: dir.path().to_path_buf(),
             bootstrap_source: BootstrapSource::Provided([0xABu8; 32]),
@@ -592,7 +588,7 @@ async fn restart_never_reuses_commit_seq() {
             sync_transport: None,
             test_boot_wallclock_override: None,
         };
-        let engine = WabiDbEngine::open(config).await.unwrap();
+        let engine = super::reopen_after_drop(config, None).await.unwrap();
         engine.get_or_create_stream_key("ch_crash").await.unwrap();
 
         let ci_dir = dir.path().join("global").join("commit-index");

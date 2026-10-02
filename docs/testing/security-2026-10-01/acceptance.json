@@ -1,0 +1,818 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-01T15:52:44.477152+00:00",
+  "executionComputer": "dotRonin",
+  "checkout": "/home/ironin/wabi",
+  "branch": "codex/security-boundary-hardening-20260930",
+  "baselineCommit": "138abe39e08e400188d1812ed3bfd378df435315",
+  "candidateState": "local, uncommitted, undeployed",
+  "toolchain": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+  "command": "CARGO_BUILD_JOBS=1 cargo test --offline --locked --workspace --features wabi-server/addons,wabi-server/experimental-livekit-broker --no-fail-fast",
+  "terminalExitCode": 0,
+  "totals": {
+    "passed": 2635,
+    "failed": 0,
+    "ignored": 11,
+    "groups": 88
+  },
+  "testGroups": [
+    {
+      "target": "unittests src/lib.rs (target/debug/deps/wabi_consensus-f2cfe6f02d787b6c)",
+      "status": "ok",
+      "passed": 25,
+      "failed": 0,
+      "ignored": 1,
+      "seconds": 2.34
+    },
+    {
+      "target": "tests/encrypted_tcp_contract.rs (target/debug/deps/encrypted_tcp_contract-207205cd66c3447c)",
+      "status": "ok",
+      "passed": 10,
+      "failed": 0,
+      "ignored": 2,
+      "seconds": 15.13
+    },
+    {
+      "target": "tests/storage_contract.rs (target/debug/deps/storage_contract-252d40008dd59146)",
+      "status": "ok",
+      "passed": 12,
+      "failed": 0,
+      "ignored": 1,
+      "seconds": 17.32
+    },
+    {
+      "target": "tests/three_voter_contract.rs (target/debug/deps/three_voter_contract-78a866c1d8f82256)",
+      "status": "ok",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 4.34
+    },
+    {
+      "target": "unittests src/lib.rs (target/debug/deps/wabi_core-1756b3ac323ccd47)",
+      "status": "ok",
+      "passed": 114,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.48
+    },
+    {
+      "target": "tests/lore_policy.rs (target/debug/deps/lore_policy-12a649022b257920)",
+      "status": "ok",
+      "passed": 23,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.01
+    },
+    {
+      "target": "tests/message_types.rs (target/debug/deps/message_types-44bbc4c672856e47)",
+      "status": "ok",
+      "passed": 15,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "tests/workspace_types.rs (target/debug/deps/workspace_types-534ad6c0e6302f37)",
+      "status": "ok",
+      "passed": 13,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "unittests src/lib.rs (target/debug/deps/wabi_lore-c2620c1b20c56c47)",
+      "status": "ok",
+      "passed": 61,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.33
+    },
+    {
+      "target": "unittests src/lib.rs (target/debug/deps/wabi_payments_crypto-d592a65e6b518975)",
+      "status": "ok",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "unittests src/lib.rs (target/debug/deps/wabi_payments_eu-c069cefcc06b3854)",
+      "status": "ok",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "unittests src/lib.rs (target/debug/deps/wabi_payments_us-0981135b22f6879b)",
+      "status": "ok",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "unittests src/lib.rs (target/debug/deps/wabi_server-8ad414682786899e)",
+      "status": "ok",
+      "passed": 461,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 4.23
+    },
+    {
+      "target": "unittests src/bin/wabi-db-replica-dev.rs (target/debug/deps/wabi_db_replica_dev-bb4dac4437afd393)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "unittests src/bin/wabi-instance-inbox.rs (target/debug/deps/wabi_instance_inbox-129fbc7bd6988982)",
+      "status": "ok",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.29
+    },
+    {
+      "target": "unittests src/bin/wabi-instance-snapshot.rs (target/debug/deps/wabi_instance_snapshot-7a16812aba3f33b9)",
+      "status": "ok",
+      "passed": 36,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.35
+    },
+    {
+      "target": "unittests src/bin/wabi-room-placement-backfill.rs (target/debug/deps/wabi_room_placement_backfill-54fe19b196717659)",
+      "status": "ok",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.52
+    },
+    {
+      "target": "unittests src/main.rs (target/debug/deps/wabi_server-95cb63ab1bfe84aa)",
+      "status": "ok",
+      "passed": 468,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 4.31
+    },
+    {
+      "target": "unittests src/bin/wabi-upload-backfill.rs (target/debug/deps/wabi_upload_backfill-01715e83436430d7)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "tests/account_credential_contract.rs (target/debug/deps/account_credential_contract-09f45d169b42197f)",
+      "status": "ok",
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.41
+    },
+    {
+      "target": "tests/account_recovery_contract.rs (target/debug/deps/account_recovery_contract-52e7b66b24d7de10)",
+      "status": "ok",
+      "passed": 16,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 1.29
+    },
+    {
+      "target": "tests/admin_role_contract.rs (target/debug/deps/admin_role_contract-b08e1502e3577ed1)",
+      "status": "ok",
+      "passed": 14,
+      "failed": 0,
+      "ignored": 1,
+      "seconds": 1.18
+    },
+    {
+      "target": "tests/auth_revocation_recovery_contract.rs (target/debug/deps/auth_revocation_recovery_contract-4f95ae62e3aa786a)",
+      "status": "ok",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 1.26
+    },
+    {
+      "target": "tests/boot_brand_injection.rs (target/debug/deps/boot_brand_injection-a2397de6cf6c7585)",
+      "status": "ok",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.35
+    },
+    {
+      "target": "tests/call_state_contract.rs (target/debug/deps/call_state_contract-a8c08650fd8cd6dc)",
+      "status": "ok",
+      "passed": 10,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 2.88
+    },
+    {
+      "target": "tests/channel_access_contract.rs (target/debug/deps/channel_access_contract-48df903c9c135e5d)",
+      "status": "ok",
+      "passed": 39,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 9.96
+    },
+    {
+      "target": "tests/channel_lifecycle_contract.rs (target/debug/deps/channel_lifecycle_contract-c806360fa1b785de)",
+      "status": "ok",
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.43
+    },
+    {
+      "target": "tests/checkpoint_operator_contract.rs (target/debug/deps/checkpoint_operator_contract-adb292c4b1228c7b)",
+      "status": "ok",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.65
+    },
+    {
+      "target": "tests/community_roster_contract.rs (target/debug/deps/community_roster_contract-60b48c731b7ef84f)",
+      "status": "ok",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.4
+    },
+    {
+      "target": "tests/db_replica_process_contract.rs (target/debug/deps/db_replica_process_contract-4c24677dce119cc3)",
+      "status": "ok",
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 2.03
+    },
+    {
+      "target": "tests/emoji_upload_contract.rs (target/debug/deps/emoji_upload_contract-79b98576fa0bd46a)",
+      "status": "ok",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.47
+    },
+    {
+      "target": "tests/field_pilot_contract.rs (target/debug/deps/field_pilot_contract-55720726d4ff272b)",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.57
+    },
+    {
+      "target": "tests/first_boot_onboarding.rs (target/debug/deps/first_boot_onboarding-ece1e80ed7774ad5)",
+      "status": "ok",
+      "passed": 21,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 6.73
+    },
+    {
+      "target": "tests/friends_contract.rs (target/debug/deps/friends_contract-5fed8159f04ac698)",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.4
+    },
+    {
+      "target": "tests/gallery_feedback_contract.rs (target/debug/deps/gallery_feedback_contract-f0f5eaf223533c8f)",
+      "status": "ok",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.52
+    },
+    {
+      "target": "tests/game_profile_contract.rs (target/debug/deps/game_profile_contract-91ed2d1c5dc338a8)",
+      "status": "ok",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.44
+    },
+    {
+      "target": "tests/group_membership_contract.rs (target/debug/deps/group_membership_contract-976fdeddcdd2f2f5)",
+      "status": "ok",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 1.08
+    },
+    {
+      "target": "tests/guest_tombstone.rs (target/debug/deps/guest_tombstone-38683c4cb6fd1c9d)",
+      "status": "ok",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.31
+    },
+    {
+      "target": "tests/helper_admin_auth_contract.rs (target/debug/deps/helper_admin_auth_contract-6c3a9322abd3e871)",
+      "status": "ok",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.42
+    },
+    {
+      "target": "tests/helper_resource_security_contract.rs (target/debug/deps/helper_resource_security_contract-bca5fe77b2b7a94c)",
+      "status": "ok",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 1.87
+    },
+    {
+      "target": "tests/instance_checkpoint_contract.rs (target/debug/deps/instance_checkpoint_contract-5b7b586848354ee9)",
+      "status": "ok",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.64
+    },
+    {
+      "target": "tests/instance_inbox_contract.rs (target/debug/deps/instance_inbox_contract-68b644b3a069416d)",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.39
+    },
+    {
+      "target": "tests/live_checkpoint_archive_contract.rs (target/debug/deps/live_checkpoint_archive_contract-741c4bc99dbd2588)",
+      "status": "ok",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 1.41
+    },
+    {
+      "target": "tests/live_session_room_contract.rs (target/debug/deps/live_session_room_contract-537ec14ac7a65871)",
+      "status": "ok",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.06
+    },
+    {
+      "target": "tests/lore_binding_promote_contract.rs (target/debug/deps/lore_binding_promote_contract-276055e8f055f839)",
+      "status": "ok",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.41
+    },
+    {
+      "target": "tests/lore_credential_contract.rs (target/debug/deps/lore_credential_contract-a73f499b495ad07a)",
+      "status": "ok",
+      "passed": 18,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 1.71
+    },
+    {
+      "target": "tests/message_delivery_contract.rs (target/debug/deps/message_delivery_contract-30bbbaa9df911c53)",
+      "status": "ok",
+      "passed": 9,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 2.92
+    },
+    {
+      "target": "tests/message_parent_admission_contract.rs (target/debug/deps/message_parent_admission_contract-43032c812531f4ba)",
+      "status": "ok",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.18
+    },
+    {
+      "target": "tests/message_retention_contract.rs (target/debug/deps/message_retention_contract-3fd77fb1a2ade203)",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.23
+    },
+    {
+      "target": "tests/payment_access_contract.rs (target/debug/deps/payment_access_contract-4eb3ee2726e4eb68)",
+      "status": "ok",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 3.41
+    },
+    {
+      "target": "tests/payments_projection_contract.rs (target/debug/deps/payments_projection_contract-92219f009e4aeaf3)",
+      "status": "ok",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 4.12
+    },
+    {
+      "target": "tests/payments_rails_contract.rs (target/debug/deps/payments_rails_contract-8301bf305b0a0778)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "tests/process_lock_contract.rs (target/debug/deps/process_lock_contract-16570e2fc23f8f17)",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 1,
+      "seconds": 0.11
+    },
+    {
+      "target": "tests/profile_appearance_contract.rs (target/debug/deps/profile_appearance_contract-88196b00d2d486db)",
+      "status": "ok",
+      "passed": 5,
+      "failed": 0,
+      "ignored": 1,
+      "seconds": 0.69
+    },
+    {
+      "target": "tests/project_assistant_contract.rs (target/debug/deps/project_assistant_contract-c8330fc2bb1073b4)",
+      "status": "ok",
+      "passed": 14,
+      "failed": 0,
+      "ignored": 1,
+      "seconds": 2.55
+    },
+    {
+      "target": "tests/project_wiki_bot_contract.rs (target/debug/deps/project_wiki_bot_contract-f6f5c14a37a04dde)",
+      "status": "ok",
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 2.84
+    },
+    {
+      "target": "tests/realtime_security_contract.rs (target/debug/deps/realtime_security_contract-5605a2190ebbe96a)",
+      "status": "ok",
+      "passed": 14,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 1.12
+    },
+    {
+      "target": "tests/regional_upload_cache_contract.rs (target/debug/deps/regional_upload_cache_contract-55f1a7a4fa6d6ac7)",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.58
+    },
+    {
+      "target": "tests/request_body_limit_contract.rs (target/debug/deps/request_body_limit_contract-5d79b654455041b8)",
+      "status": "ok",
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.86
+    },
+    {
+      "target": "tests/resource_ownership_contract.rs (target/debug/deps/resource_ownership_contract-0515ccbd615cbb2d)",
+      "status": "ok",
+      "passed": 12,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 1.31
+    },
+    {
+      "target": "tests/resumable_upload_contract.rs (target/debug/deps/resumable_upload_contract-833766c203a8f175)",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.46
+    },
+    {
+      "target": "tests/room_placement_admission.rs (target/debug/deps/room_placement_admission-a4e2b6daf1789faa)",
+      "status": "ok",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.75
+    },
+    {
+      "target": "tests/service_access_contract.rs (target/debug/deps/service_access_contract-e93e4af9daad6978)",
+      "status": "ok",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 1,
+      "seconds": 1.54
+    },
+    {
+      "target": "tests/tailcat_private_access_contract.rs (target/debug/deps/tailcat_private_access_contract-55cc01a01add3fb4)",
+      "status": "ok",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 4.17
+    },
+    {
+      "target": "tests/turn_configuration_contract.rs (target/debug/deps/turn_configuration_contract-2115bc515098291f)",
+      "status": "ok",
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.93
+    },
+    {
+      "target": "tests/upload_backfill_contract.rs (target/debug/deps/upload_backfill_contract-5a7d7db649c4d624)",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.21
+    },
+    {
+      "target": "tests/voice_restriction_contract.rs (target/debug/deps/voice_restriction_contract-7a8aa4bb06777ea7)",
+      "status": "ok",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.77
+    },
+    {
+      "target": "tests/volunteer_boosters_contract.rs (target/debug/deps/volunteer_boosters_contract-74b14a2a12343e57)",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.51
+    },
+    {
+      "target": "tests/whiteboard_policy_security_contract.rs (target/debug/deps/whiteboard_policy_security_contract-4b8366145ea606a0)",
+      "status": "ok",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 1.16
+    },
+    {
+      "target": "tests/workspace_room_admission_contract.rs (target/debug/deps/workspace_room_admission_contract-2e781d83f36ed5ae)",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.28
+    },
+    {
+      "target": "tests/write_visibility_contract.rs (target/debug/deps/write_visibility_contract-9ece18ac32db111f)",
+      "status": "ok",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.5
+    },
+    {
+      "target": "unittests src/main.rs (target/debug/deps/wabi_sync-9b03c52684102fcf)",
+      "status": "ok",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "unittests src/lib.rs (target/debug/deps/wabi_tailcat-1f34ae26a0e3959c)",
+      "status": "ok",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.11
+    },
+    {
+      "target": "unittests src/main.rs (target/debug/deps/wabi_tui-b21976305cfce303)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "unittests src/lib.rs (target/debug/deps/wabi_webhooks-9f8637f1c859729b)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "unittests src/lib.rs (target/debug/deps/wabidb-eb0ef26eef1a9174)",
+      "status": "ok",
+      "passed": 1015,
+      "failed": 0,
+      "ignored": 1,
+      "seconds": 18.24
+    },
+    {
+      "target": "unittests src/bin/wabidb-cli.rs (target/debug/deps/wabidb_cli-7d4fb464bf46d5f3)",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "tests/compaction_regression.rs (target/debug/deps/compaction_regression-7dd03562794362cf)",
+      "status": "ok",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.03
+    },
+    {
+      "target": "Doc-tests wabi_consensus",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "Doc-tests wabi_core",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "Doc-tests wabi_lore",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "Doc-tests wabi_payments_crypto",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "Doc-tests wabi_payments_eu",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "Doc-tests wabi_payments_us",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "Doc-tests wabi_server",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 1,
+      "seconds": 0.0
+    },
+    {
+      "target": "Doc-tests wabi_tailcat",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "Doc-tests wabi_webhooks",
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.0
+    },
+    {
+      "target": "Doc-tests wabidb",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 0.07
+    }
+  ],
+  "ignoredEntries": [
+    {
+      "target": "unittests src/lib.rs (target/debug/deps/wabi_consensus-f2cfe6f02d787b6c)",
+      "entry": "material::tests::material_process_crash_child ... ignored, owned child entrypoint invoked by process crash acceptance"
+    },
+    {
+      "target": "tests/encrypted_tcp_contract.rs (target/debug/deps/encrypted_tcp_contract-207205cd66c3447c)",
+      "entry": "processes::separate_process_identity_bootstrap ... ignored, explicit owned private node-key bootstrap invoked by parent/operator only"
+    },
+    {
+      "target": "tests/encrypted_tcp_contract.rs (target/debug/deps/encrypted_tcp_contract-207205cd66c3447c)",
+      "entry": "processes::separate_process_recovery_worker ... ignored, owned child process invoked by the parent contract only"
+    },
+    {
+      "target": "tests/storage_contract.rs (target/debug/deps/storage_contract-252d40008dd59146)",
+      "entry": "acknowledged_state_process_worker ... ignored, subprocess fixture; invoked only by the kill contract"
+    },
+    {
+      "target": "tests/admin_role_contract.rs (target/debug/deps/admin_role_contract-b08e1502e3577ed1)",
+      "entry": "write_role_replay_fixture_child ... ignored, subprocess fixture invoked by role_assignment_survives_process_restart"
+    },
+    {
+      "target": "tests/process_lock_contract.rs (target/debug/deps/process_lock_contract-16570e2fc23f8f17)",
+      "entry": "adapter_retry_child ... ignored, subprocess fixture with an isolated bootstrap environment"
+    },
+    {
+      "target": "tests/profile_appearance_contract.rs (target/debug/deps/profile_appearance_contract-88196b00d2d486db)",
+      "entry": "profile_replay_fixture_child ... ignored, subprocess fixture invoked by profile_design_and_clears_survive_restart"
+    },
+    {
+      "target": "tests/project_assistant_contract.rs (target/debug/deps/project_assistant_contract-c8330fc2bb1073b4)",
+      "entry": "two_computer_recovery_fixture ... ignored, requires the external two-computer recovery harness"
+    },
+    {
+      "target": "tests/service_access_contract.rs (target/debug/deps/service_access_contract-e93e4af9daad6978)",
+      "entry": "write_service_fixture_child ... ignored"
+    },
+    {
+      "target": "unittests src/lib.rs (target/debug/deps/wabidb-eb0ef26eef1a9174)",
+      "entry": "engine::process_lock_tests::process_lock_subprocess_child ... ignored, subprocess helper invoked by process lock regression tests"
+    },
+    {
+      "target": "Doc-tests wabi_server",
+      "entry": "core/crates/wabi-server/src/mdns.rs - mdns::browse_wabi_helpers (line 84) ... ignored"
+    }
+  ],
+  "sourceReceipt": {
+    "path": "source-receipt.json.gz",
+    "files": 5145,
+    "uncompressedSha256": "32c17860fe6f080eaa8dee6fef52dffa1dcd1e0ba9c80768f475caf2699007df",
+    "postRunUnchanged": true,
+    "coverage": "Root Rust sources/manifests, pinned lock/toolchain, embedded frontend build, media-helper and runtime-file guard sources/tests. Tauri source bytes are frozen but its separate workspace/native runtime is not accepted by this command."
+  },
+  "workspaceLogSha256": "7299685b6daa2bd9d3792bc5456cfcac31d0a0a3c28a546d3587092f39b45e84",
+  "cargoLockSha256": "cbfc64c2947a2f4ccb11f0b64c127a66b18b635b032d754f2b68beb7578da8a0",
+  "dependencyAudit": {
+    "tool": "cargo-audit 0.22.2",
+    "rustsecRevision": "9b3a3b73a7f42606494c943e95f8196e9994df46",
+    "rustsecSnapshotDate": "2026-09-30",
+    "vulnerabilitySectionMatches": 0,
+    "maintenanceWarnings": 4,
+    "tuiOnlyUnsoundnessWarnings": [
+      "RUSTSEC-2026-0002",
+      "RUSTSEC-2026-0253"
+    ],
+    "reportSha256": "9aff05c395ee1576c3b9f9a15a15c558deea7161987cf4deb9d66661a300835d"
+  },
+  "additionalChecks": {
+    "runtimeFileGuard": "passed",
+    "runtimeFileGuardRegressionTests": 3,
+    "focusedConsensusFixtureTests": 3,
+    "newHelperFormatting": "passed",
+    "scopedWhitespace": "passed"
+  },
+  "priorAttempt": {
+    "terminalExitCode": 101,
+    "totals": {
+      "passed": 2634,
+      "failed": 1,
+      "ignored": 11,
+      "groups": 88
+    },
+    "sourceReceiptUncompressedSha256": "d0c7410698cc40d6ed478b3485b3c784f9ed866c2a9019fddedc95e579ad0db3",
+    "failure": "Experimental consensus success-write fixture raced a legitimate leader change. Correction changes only ClientWriteError import and bounded ForwardToLeader handling; identical commands and all scenario/assertion bodies are preserved."
+  },
+  "remainingGates": [
+    "Upload implementation belongs to its separate owner.",
+    "Real SFU reconnect/rejoin enforcement remains unaccepted; LiveKit broker is default-off.",
+    "Independent E2EE verification and plugin isolation are not certified.",
+    "Experimental replication, standby and consensus do not establish production HA or permission to start an Authority writer.",
+    "Independent helper workspace, Tauri/native acceptance and external Live-room release smoke remain separate.",
+    "Lore publication and duplicate retirement still need authenticated lifecycle access and a verified checkout link.",
+    "No deployment, merge, push, credential rotation or history rewrite was performed."
+  ]
+}

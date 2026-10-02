@@ -246,6 +246,13 @@ pub async fn ingest_push_to_fenced_engine(
     engine: &wabidb::engine::WabiDbEngine,
     req: &SyncPushRequest,
 ) -> Result<SyncPushResponse, (StatusCode, &'static str)> {
+    if req
+        .segments
+        .iter()
+        .any(|segment| !wabidb::stream_identity::is_safe_stream_id(&segment.stream_id))
+    {
+        return Err((StatusCode::BAD_REQUEST, "invalid segment stream id"));
+    }
     if !engine.local_writer_fenced().await || !engine.durable_writer_fenced() {
         return Err((
             StatusCode::CONFLICT,
@@ -310,13 +317,24 @@ pub async fn ingest_push_to_fenced_engine(
 fn decode_sync_entry(
     entry: &SyncEntry,
 ) -> Result<wabidb::commit_index::record::CommitIndexEntry, (StatusCode, &'static str)> {
+    if entry.event_refs.len() != entry.payload_hashes.len()
+        || entry.has_idempotency_key != entry.idempotency_key_hash.is_some()
+    {
+        return Err((StatusCode::BAD_REQUEST, "inconsistent commit metadata"));
+    }
     let event_refs = entry
         .event_refs
         .iter()
         .map(|reference| {
+            if !wabidb::stream_identity::is_safe_stream_id(&reference.stream_id) {
+                return Err((StatusCode::BAD_REQUEST, "invalid stream id"));
+            }
             let mut hash = [0u8; 16];
             ::hex::decode_to_slice(&reference.stream_id_hash, &mut hash)
                 .map_err(|_| (StatusCode::BAD_REQUEST, "invalid stream id hash"))?;
+            if wabidb::stream_identity::stream_id_hash(&reference.stream_id) != hash {
+                return Err((StatusCode::BAD_REQUEST, "stream id hash mismatch"));
+            }
             Ok(wabidb::commit_index::record::StreamRef {
                 stream_id_hash: hash,
                 stream_kind: reference.stream_kind,
@@ -496,6 +514,62 @@ mod tests {
             idempotency_key_hash: None,
             event_refs: vec![],
             payload_hashes: vec![],
+        }
+    }
+
+    fn wire_entry() -> SyncEntry {
+        let id = "reactions:msg_1:👍🏽:removed";
+        SyncEntry {
+            commit_seq: 1,
+            timestamp_micros: 1,
+            caller_user_id: 1,
+            caller_device_id_hash: [1; 16],
+            command_name_hash: [2; 16],
+            has_idempotency_key: false,
+            idempotency_key_hash: None,
+            event_refs: vec![StreamRefEntry {
+                stream_id_hash: ::hex::encode(wabidb::stream_identity::stream_id_hash(id)),
+                stream_id: id.into(),
+                stream_kind: 6,
+                segment_id: 1,
+                offset: 0,
+                length: 48,
+            }],
+            payload_hashes: vec![::hex::encode([3; 32])],
+        }
+    }
+
+    #[test]
+    fn push_decoder_preserves_unicode_identity_and_refuses_invalid_metadata() {
+        let valid = wire_entry();
+        let decoded = decode_sync_entry(&valid).unwrap();
+        assert_eq!(
+            decoded.event_refs[0].stream_id_hash,
+            wabidb::stream_identity::stream_id_hash(&valid.event_refs[0].stream_id)
+        );
+        for id in ["../outside".to_owned(), "a".repeat(256), "another-stream".into()] {
+            let mut invalid = wire_entry();
+            invalid.event_refs[0].stream_id = id;
+            assert!(decode_sync_entry(&invalid).is_err());
+        }
+        let mut invalid = wire_entry();
+        invalid.event_refs[0].stream_id_hash = "not-hex".into();
+        assert!(decode_sync_entry(&invalid).is_err());
+        let mut invalid = wire_entry();
+        invalid.payload_hashes[0] = "not-hex".into();
+        assert!(decode_sync_entry(&invalid).is_err());
+        let mut invalid = wire_entry();
+        invalid.has_idempotency_key = true;
+        assert!(decode_sync_entry(&invalid).is_err());
+        let mut invalid = wire_entry();
+        invalid.payload_hashes.clear();
+        assert!(decode_sync_entry(&invalid).is_err());
+
+        let json = serde_json::to_value(wire_entry()).unwrap();
+        for field in ["callerDeviceIdHash", "commandNameHash", "idempotencyKeyHash"] {
+            let mut invalid = json.clone();
+            invalid[field] = serde_json::json!("not-hex");
+            assert!(serde_json::from_value::<SyncEntry>(invalid).is_err());
         }
     }
 
