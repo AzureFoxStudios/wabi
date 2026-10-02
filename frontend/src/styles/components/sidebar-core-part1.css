@@ -621,3 +621,9 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
+
+.server-switcher-button { display: flex; align-items: center; gap: 6px; flex: none; min-height: 44px; padding: 6px 8px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-base); color: var(--text-primary); font: inherit; font-size: .8rem; cursor: pointer; }
+.server-switcher-button:hover { background: var(--surface-raised); }
+.server-switcher-button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+
+.server-switcher-button { min-height: 32px; width: 28px; padding: 4px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); justify-content: center; }

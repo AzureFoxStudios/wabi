@@ -3,7 +3,8 @@ import { getAuthToken, onAuthSessionCleared } from '$lib/authSession';
 import { fetchChannel } from './api/channelAccess';
 import { getServerUrl } from '$lib/serverUrl';
 import { groupMembership } from './groupAccess';
-import { users, type User } from '$lib/socket';
+import type { User } from './socket-types';
+import { forumAuthors } from './forumIdentity';
 
 export interface ForumAttachment {
 	url: string;
@@ -392,6 +393,26 @@ export function createForumWorkspace() {
 		}
 	}
 
+	async function deleteForumPost(channelId: string, threadId: string, postId: string): Promise<boolean> {
+	 const isCurrent = capture(channelId);
+	 if (!isCurrent()) return false;
+	 try {
+	  const response = await fetchChannel(channelId, `${apiBase()}/${encodeURIComponent(channelId)}/threads/${encodeURIComponent(threadId)}/posts/${encodeURIComponent(postId)}`, { method: 'DELETE', headers: headers() });
+	  if (!response.ok) throw new Error(`Could not delete post (${response.status}).`);
+	  const result = await response.json();
+	  if (!isCurrent()) return false;
+	  if (result.deleted !== true) throw new Error('The server did not confirm deletion.');
+	  forumThreads.update(items => items.filter(item => item.post_id !== postId));
+	  forumPostsByThread.update(items => { const next = new Map(items); next.set(threadId, (next.get(threadId) || []).filter(item => item.post_id !== postId)); return next; });
+	  if (!get(forumThreads).some(item => item.thread_id === threadId) && get(forumSelectedThreadId) === threadId) forumSelectedThreadId.set(null);
+	  forumError.set(null);
+	  return true;
+	 } catch (error) {
+	  if (isCurrent()) forumError.set(error instanceof Error ? error.message : 'Could not delete post.');
+	  return false;
+	 }
+	}
+
 	async function renameForumCategory(
 		channelId: string,
 		from: string,
@@ -425,7 +446,7 @@ export function createForumWorkspace() {
 	}
 
 	function findAuthor(userId: number): User | undefined {
-		return get(users).find((u) => u.dbUserId === userId);
+		return get(forumAuthors).get(userId);
 	}
 
 	function formatForumTime(micros: number): string {
@@ -466,8 +487,8 @@ export function createForumWorkspace() {
 		return '';
 	}
 
-	return { forumThreadsStore, forumPostsByThreadStore, forumLoadingStore, forumErrorStore, forumSelectedThreadIdStore, buildForumImageMarkdown, withForumImages, extractForumAttachments, stripForumImageMarkdown, resolveForumFileUrl, formatForumFileSize, loadThreads, loadPosts, createThread, createPost, votePost, markSolution, updateForumPost, renameForumCategory, findAuthor, formatForumTime, getDefaultCategories, categorizeThread, tagClass, dispose };
+	return { forumThreadsStore, forumPostsByThreadStore, forumLoadingStore, forumErrorStore, forumSelectedThreadIdStore, buildForumImageMarkdown, withForumImages, extractForumAttachments, stripForumImageMarkdown, resolveForumFileUrl, formatForumFileSize, loadThreads, loadPosts, createThread, createPost, votePost, markSolution, updateForumPost, deleteForumPost, renameForumCategory, findAuthor, formatForumTime, getDefaultCategories, categorizeThread, tagClass, dispose };
 }
 
 // Compatibility facade for non-view callers and pure presentation helpers.
-export const { forumThreadsStore, forumPostsByThreadStore, forumLoadingStore, forumErrorStore, forumSelectedThreadIdStore, buildForumImageMarkdown, withForumImages, extractForumAttachments, stripForumImageMarkdown, resolveForumFileUrl, formatForumFileSize, loadThreads, loadPosts, createThread, createPost, votePost, markSolution, updateForumPost, renameForumCategory, findAuthor, formatForumTime, getDefaultCategories, categorizeThread, tagClass } = createForumWorkspace();
+export const { forumThreadsStore, forumPostsByThreadStore, forumLoadingStore, forumErrorStore, forumSelectedThreadIdStore, buildForumImageMarkdown, withForumImages, extractForumAttachments, stripForumImageMarkdown, resolveForumFileUrl, formatForumFileSize, loadThreads, loadPosts, createThread, createPost, votePost, markSolution, updateForumPost, deleteForumPost, renameForumCategory, findAuthor, formatForumTime, getDefaultCategories, categorizeThread, tagClass } = createForumWorkspace();

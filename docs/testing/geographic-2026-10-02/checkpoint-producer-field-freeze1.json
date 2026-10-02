@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T05:50:03.992270+00:00",
+  "capturedBeforeRun": true,
+  "files": 5174,
+  "sourceFreezeSha256": "b52cd1b645f6ecdadd14ecbb75ecfcdf1d9383c9d17e191a62f569d5c116dcc6",
+  "nonFrontendChangesFrom2673": [
+    "core/crates/wabi-server/tests/checkpoint_operator_contract.rs"
+  ],
+  "newRustFiles": [
+    "core/crates/wabi-consensus/tests/checkpoint_tcp_contract.rs",
+    "core/crates/wabi-server/tests/fixtures/checkpoint_field_export.rs"
+  ],
+  "frontendIndexSha256": "de2fb3f6ded10718c3d598d94a540cb2ea8a25a307cc142f5ce2e5dbeb8a1a0a",
+  "graphChanged": false,
+  "scope": "current Rust/Cargo inputs and exact current embedded frontend; test-only field changes, no acceptance yet"
+}

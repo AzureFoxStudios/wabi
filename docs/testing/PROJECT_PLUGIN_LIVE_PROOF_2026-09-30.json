@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-30T12:19:50.694Z",
+  "serverUrl": "https://wabi.chat",
+  "channelId": "ch_c72",
+  "operationId": "05d1e437-1987-4fec-bfef-432900a6831a",
+  "checks": [
+    "profile_and_project_access",
+    "card_create_claim_evidence_done_readback",
+    "wiki_create_read_update_readback",
+    "stale_card_refused",
+    "stale_wiki_refused",
+    "cross_project_argument_refused",
+    "real_project_revocation_refused",
+    "oauth_revocation_refused"
+  ],
+  "client": "direct_http_smoke_not_dot",
+  "publiclyHosted": false,
+  "taskId": "task_05d1e43719874fecbfef432900a6831a",
+  "botUserId": 3296,
+  "pageId": "page_ce4",
+  "passed": true
+}

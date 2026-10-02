@@ -1125,6 +1125,14 @@
 			{#if showRecordingPresenceBanner}
 				<CallRecordingPanel recordingState={$callRecordingState} {recordingPresenceCopy} {recordingPillText} />
 			{/if}
+			<div class="call-context-row">
+			{#if $connectionState && $connectionState !== 'idle'}
+				<div class="connection-status">Connection: {$connectionState}</div>
+			{/if}
+			{#if voiceRouteText}
+				<div class="route-status">{voiceRouteText}</div>
+			{/if}
+			</div>
 			<div class="call-stage" bind:this={callStageElement}>
 				{#if hasChannelStage && stageSession}
 					<!-- Phase 3 + 2026-09-07 stage targeting: the clicked session's
@@ -1225,7 +1233,14 @@
 				onSelectDevice={handleSelectDevice}
 			/>
 
-			<div class="call-status-row">
+
+			<button
+				class="dock-btn"
+				class:active={spatialAudioActive}
+				on:click={toggleSpatialAudioEnabled}
+				title={spatialAudioActive ? 'Spatial hearing: on — turn off' : 'Spatial hearing: off — turn on'}
+			><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1.6"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M8.46 8.46a5 5 0 0 0 0 7.07"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg> Spatial</button>
+			<details class="call-diagnostics"><summary>Call details</summary><div class="call-status-row">
 				<span class="transport-badge" class:degraded={$callTransportState.isFallback}>
 					Transport: {$callTransportState.activeTransport.toUpperCase()}
 					{#if $callTransportState.isFallback}
@@ -1242,26 +1257,14 @@
 				{#if relayVideoDiag}
 					<span class="transport-badge">{relayVideoDiag}</span>
 				{/if}
-			<button
-				class="dock-btn"
-				class:active={spatialAudioActive}
-				on:click={toggleSpatialAudioEnabled}
-				title={spatialAudioActive ? 'Spatial hearing: on — turn off' : 'Spatial hearing: off — turn on'}
-			><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1.6"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M8.46 8.46a5 5 0 0 0 0 7.07"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg> Spatial</button>
 				<button
 					class="dock-btn debug-toggle"
 					class:active={showSpatialDebugOverlay}
 					on:click={handleToggleSpatialDebug}
 					title="Spatial Debug Overlay"
 				>Diag</button>
-			</div>
-			{#if $connectionState && $connectionState !== 'idle'}
-				<div class="connection-status">Connection: {$connectionState}</div>
-			{/if}
-			{#if voiceRouteText}
-				<div class="route-status">{voiceRouteText}</div>
-			{/if}
-			{#if recordingLabel}
+			</div></details>
+			{#if recordingLabel && !showRecordingPresenceBanner}
 				<CallRecordingPanel recordingState={$callRecordingState} {recordingLabel} />
 			{/if}
 			{#if captureFeedback}

@@ -1,0 +1,397 @@
+{
+  "session": 47619,
+  "count": 78,
+  "bytes": 5234504984,
+  "files": [
+    {
+      "path": "target/debug/deps/account_credential_contract-159d13d267d0496d",
+      "bytes": 101917192,
+      "sha256": "50dc40fd26544d3b262037ae4cbaa4e9182683dc4e24066e2faa47b963703ee6"
+    },
+    {
+      "path": "target/debug/deps/account_recovery_contract-7064742c49f52158",
+      "bytes": 103803456,
+      "sha256": "481b19811f94eef241756a074353dcae8b73dbd31c87cd094fe71345899fdfaf"
+    },
+    {
+      "path": "target/debug/deps/admin_role_contract-30f4d8aed9750bfd",
+      "bytes": 133758984,
+      "sha256": "b222994ffd1dc9ac96336ca133ff128c409d59e83b516974288a586968a9553c"
+    },
+    {
+      "path": "target/debug/deps/auth_revocation_recovery_contract-c6a2f84b0e13602b",
+      "bytes": 102392944,
+      "sha256": "578a7bf2b03d1198028869c12816cc259a75de1490d3a52874baffdcd08b2c66"
+    },
+    {
+      "path": "target/debug/deps/boot_brand_injection-7d606cd7680c77cb",
+      "bytes": 140511744,
+      "sha256": "fe3fe7ad399a21c9ed8f727f963671a58650420f57f3d18f6f15e2216d0600bf"
+    },
+    {
+      "path": "target/debug/deps/call_state_contract-d0198338aaf2dbcd",
+      "bytes": 141670024,
+      "sha256": "e3d396614e796d5f9f519f92163b60a2b3b3b8229b0bc19d5cb476c0555d97ac"
+    },
+    {
+      "path": "target/debug/deps/channel_access_contract-d25806d7b41a39ba",
+      "bytes": 135427280,
+      "sha256": "8d6cc1115efce512f12b49f007848386e93a66b6110fc6ac10f0bdfa9bb6a81e"
+    },
+    {
+      "path": "target/debug/deps/channel_lifecycle_contract-ed6cdeb157c70c68",
+      "bytes": 39948376,
+      "sha256": "77ed075184fc59e3b2df250c0310372b1f5e34c358ff66a958ffb87e8ee3649c"
+    },
+    {
+      "path": "target/debug/deps/checkpoint_operator_contract-0b115e215da66209",
+      "bytes": 145356016,
+      "sha256": "b607176bc4de134356329e26c4f069696ab6326f2943c23697bc94bc79d97a6d"
+    },
+    {
+      "path": "target/debug/deps/community_roster_contract-fdb3571d873b40a0",
+      "bytes": 101902416,
+      "sha256": "efb6001d01cdab177a7bc320ec8213f9ad8fc7ac02a60a6e55194f3a258f3323"
+    },
+    {
+      "path": "target/debug/deps/compaction_regression-c7af718c489ac14a",
+      "bytes": 4778432,
+      "sha256": "e3df2cc5aa93ee60b0dfd3701abdd57ff5d8887c79a9d0c58d0426c70670873a"
+    },
+    {
+      "path": "target/debug/deps/db_replica_process_contract-c7b52d1e03096871",
+      "bytes": 36606040,
+      "sha256": "a30c1672aead0e44b49f9cb1668539030759c007de9dd9fdc26deab6c3abdae7"
+    },
+    {
+      "path": "target/debug/deps/emoji_upload_contract-90463ef68229d12b",
+      "bytes": 101892288,
+      "sha256": "9a76af6edf7b4a64eee16f09d6f40e74fe60757fa406bd17b171d3808522196c"
+    },
+    {
+      "path": "target/debug/deps/encrypted_tcp_contract-a703c8e6c76aec97",
+      "bytes": 22240080,
+      "sha256": "3de80fe5ab611ca749ec8009e20f36e0e4baf3e5c85654a1b0ee7e0ff5114536"
+    },
+    {
+      "path": "target/debug/deps/field_pilot_contract-9cbff56ccc8ccaf2",
+      "bytes": 101991944,
+      "sha256": "8f36d651350960ced311defec716b76c2589bc1b2fbcb1865be795af592852fc"
+    },
+    {
+      "path": "target/debug/deps/first_boot_onboarding-ac990b8639b01546",
+      "bytes": 140877368,
+      "sha256": "4ccc928ddd521a81589b3ba87d05976be5cab5a9e8b1a2decccfffe646e323af"
+    },
+    {
+      "path": "target/debug/deps/friends_contract-2ca8bfafda58494d",
+      "bytes": 101880696,
+      "sha256": "6d95a2e5b7b768526cca7ed155f3a42ad6501869002ae7b425eab87286a57f3b"
+    },
+    {
+      "path": "target/debug/deps/gallery_feedback_contract-55db465123a958b6",
+      "bytes": 101909784,
+      "sha256": "0e7fa3e59d11f9c11774c113c949af74437019b70ea17c09b1fa26cf68760283"
+    },
+    {
+      "path": "target/debug/deps/game_profile_contract-cf7b3fda1ffecd57",
+      "bytes": 102039848,
+      "sha256": "8a99b41b3779d9d52fa647e6d7fc0907053c7af824a1aa9197d7f5041fcfd0c2"
+    },
+    {
+      "path": "target/debug/deps/group_membership_contract-0b3c6499175a4a3c",
+      "bytes": 21922224,
+      "sha256": "fadd6661ffedd0b17ec37d38984139a948f981b651add79420d51ed97fd6936e"
+    },
+    {
+      "path": "target/debug/deps/guest_tombstone-589d3c81d8abefec",
+      "bytes": 39791792,
+      "sha256": "37200b4ffe72300184f54c103a3b4b1b79500c1b4b38d04cf1986b8a17bdcd58"
+    },
+    {
+      "path": "target/debug/deps/helper_admin_auth_contract-4f813811dee8d9f8",
+      "bytes": 103895000,
+      "sha256": "2718d0e34c4eb16cee63dfaf4f2e4e0f442e38d62d6115e20cdafcc3488de11b"
+    },
+    {
+      "path": "target/debug/deps/helper_resource_security_contract-8f9323e3d2890e32",
+      "bytes": 102590144,
+      "sha256": "f7a667ba8274b7c0a226f9f99434813196dc542299cd76e7b14a5e6a171316fb"
+    },
+    {
+      "path": "target/debug/deps/instance_checkpoint_contract-8b6ea18e7453d824",
+      "bytes": 42877744,
+      "sha256": "bf596395d833b00d005ade6c7e13ef88183676bd925c416ad53677cb9f1f6b2c"
+    },
+    {
+      "path": "target/debug/deps/instance_inbox_contract-a2a894d67cb94024",
+      "bytes": 1274896,
+      "sha256": "d727bc08002e66522116da4979ee187f2d3bc6c3d4ab3cef623728d0bf8e047d"
+    },
+    {
+      "path": "target/debug/deps/live_checkpoint_archive_contract-f523a46d1387ba1e",
+      "bytes": 51215056,
+      "sha256": "499afcb587ccd1ad5d378a31bb8e61b5ae25aba22815a223f4a3b2ba77212bc3"
+    },
+    {
+      "path": "target/debug/deps/live_session_room_contract-5615125fd80fa52f",
+      "bytes": 21308816,
+      "sha256": "e63bd0c56b7551e6fedcef5ab39f3afd4b1901c8b4a3bf8a3c154bf5507bb994"
+    },
+    {
+      "path": "target/debug/deps/lore_binding_promote_contract-782ce11d98f2f4ef",
+      "bytes": 39844760,
+      "sha256": "af26519f24c55645e27bfd383ac87af7b3b9eb4fb6df4a5fb3dc429e3d9aa255"
+    },
+    {
+      "path": "target/debug/deps/lore_credential_contract-42851c2263f4e419",
+      "bytes": 102414800,
+      "sha256": "55bf8923a03f45d4d03295692f7148f4c0925f5b3fb1bc9d52a56f5a04f1b20a"
+    },
+    {
+      "path": "target/debug/deps/lore_policy-e2e459b329751a3b",
+      "bytes": 7065160,
+      "sha256": "adf0f220e94965e70daa60c2ff23b1ed758414ebc29e86950ddeac3ebcfe216a"
+    },
+    {
+      "path": "target/debug/deps/message_delivery_contract-908853aa2e97ce8b",
+      "bytes": 134023448,
+      "sha256": "213681fec5508220be6ca5862b8d37952d73831db36bbb1664267a1104a7064a"
+    },
+    {
+      "path": "target/debug/deps/message_parent_admission_contract-1e86e041d2d1bbf6",
+      "bytes": 21671344,
+      "sha256": "1143ce8062389169ea1e3dfc8601041469bfb572503ae1958502ce82ee90e89f"
+    },
+    {
+      "path": "target/debug/deps/message_retention_contract-dff9c6f55cf5a7e3",
+      "bytes": 21582448,
+      "sha256": "f278ccda12e23100f70045a88c812aff186e802214bd42180c5170c0e075c2b9"
+    },
+    {
+      "path": "target/debug/deps/message_types-11e2f457583d2abf",
+      "bytes": 2491624,
+      "sha256": "2b465adff4c788d0e648e1064b13a692b533f7fb9921ae5c602dd5f5f17c9df1"
+    },
+    {
+      "path": "target/debug/deps/payment_access_contract-a1148ee52069d2ab",
+      "bytes": 102283472,
+      "sha256": "1d2b0bf65f36d65d3ae3b2047e568de8a461e95995e57fd2d6a4166097268d2b"
+    },
+    {
+      "path": "target/debug/deps/payments_projection_contract-c1494b568baf44cb",
+      "bytes": 101974544,
+      "sha256": "960a751be3a0ad70512829e2b361b048760c1bf8c2c0aa3d4257735ff1c33bd2"
+    },
+    {
+      "path": "target/debug/deps/payments_rails_contract-7c16552e8d4567e9",
+      "bytes": 1022616,
+      "sha256": "87bb6552bf6c655a31e1d2c6fd74696dce3a4e19289d78781f285e4f5f533647"
+    },
+    {
+      "path": "target/debug/deps/process_lock_contract-f51f010aa487cf79",
+      "bytes": 21303768,
+      "sha256": "2b6738d8484131c46c9f556bc0dc6eff4f1195863326a6ee7e902950815f3318"
+    },
+    {
+      "path": "target/debug/deps/profile_appearance_contract-d35e77ef79051a34",
+      "bytes": 133509832,
+      "sha256": "c54da619fcf2d17bc4f015909d2ba3963aaa6875848b990b1c0a8a8248e0344c"
+    },
+    {
+      "path": "target/debug/deps/project_assistant_contract-b229cf30d377a90e",
+      "bytes": 103060936,
+      "sha256": "bac600c5d715b80b62f717405809ee320c1b3a2d61cb274ad0bea801ca12b62f"
+    },
+    {
+      "path": "target/debug/deps/project_wiki_bot_contract-1fd539cac9b57618",
+      "bytes": 102369376,
+      "sha256": "3cfb9c60b6753d1588333172230603449ef2241f167dfc8552d2a9f872243d9a"
+    },
+    {
+      "path": "target/debug/deps/realtime_security_contract-fef0bf2a7d0f1386",
+      "bytes": 134079856,
+      "sha256": "997d27affde1faa5486517879a5e0103770333b1fe8038c9dcc37be4d858d266"
+    },
+    {
+      "path": "target/debug/deps/regional_upload_cache_contract-359eb974d7da92d7",
+      "bytes": 141844456,
+      "sha256": "ff017429dbce756b385a9a49109ca3c996e839f91c755c9fe8e1c4ef773cc7b3"
+    },
+    {
+      "path": "target/debug/deps/request_body_limit_contract-b913f30a665f7310",
+      "bytes": 140600976,
+      "sha256": "8054568aaefe73f1400b91e49a1a27b0e2d1b315a7358c21ab418c4f0ef4df2d"
+    },
+    {
+      "path": "target/debug/deps/resource_ownership_contract-aabb23553e58596f",
+      "bytes": 102634368,
+      "sha256": "c07e1c255aa845f3ea7590f16006d063ed3e9318220d87603da3f004584691f3"
+    },
+    {
+      "path": "target/debug/deps/resumable_upload_contract-41546f0b3e10fe0c",
+      "bytes": 140479072,
+      "sha256": "3f758d8be63719805766bb225c7996de97bee0f616d6558f2c83feadef542c7e"
+    },
+    {
+      "path": "target/debug/deps/room_placement_admission-dacbb08d65a7bacc",
+      "bytes": 102338160,
+      "sha256": "c4995b3955287e84c8360b33cba663d1096585ad969697eebeb1c437f8319466"
+    },
+    {
+      "path": "target/debug/deps/service_access_contract-6afdd48b715527ab",
+      "bytes": 133951056,
+      "sha256": "fecbf3d620d41f518d77f3c574372e960adcb4a4cc54edf3391eaf7ac3adf909"
+    },
+    {
+      "path": "target/debug/deps/storage_contract-d49f8431352c7494",
+      "bytes": 13388056,
+      "sha256": "a372354959819300bc236b840076423ad7b178045b894b0e684efed7de15b084"
+    },
+    {
+      "path": "target/debug/deps/tailcat_private_access_contract-20d369a1feb38f15",
+      "bytes": 102676408,
+      "sha256": "6c07af671db7233b56dd4ef3b9682f12562b8dec3868186d1f4653bc4136a8e7"
+    },
+    {
+      "path": "target/debug/deps/three_voter_contract-657ba7544df8b519",
+      "bytes": 17098448,
+      "sha256": "7cdefa4827782236c34b90f4c7bd6654ee722349db864ed0c9bccf0a97de53f7"
+    },
+    {
+      "path": "target/debug/deps/turn_configuration_contract-65aeb9e6e9f3f814",
+      "bytes": 101908368,
+      "sha256": "1f0c9e1e6baa8a34aec34b31a8a0ef251822b962394d1f334dec68dc7cf09929"
+    },
+    {
+      "path": "target/debug/deps/upload_backfill_contract-9a4e837cb06fa318",
+      "bytes": 21837448,
+      "sha256": "492ac97e87642027209b9f2858b63b2eccd8ad1d663599082d5922963b09945d"
+    },
+    {
+      "path": "target/debug/deps/voice_restriction_contract-807861de0ce49533",
+      "bytes": 21775816,
+      "sha256": "a573ccd314341740f47cab2265773232a8d3468538ee4071c0c9f4576e452f31"
+    },
+    {
+      "path": "target/debug/deps/volunteer_boosters_contract-8e087db24af72e51",
+      "bytes": 101932392,
+      "sha256": "5a0e3fd36d6c467e73516fa9a38a1f7dc2988d0b701b00f0a8e0ca5da72f22b2"
+    },
+    {
+      "path": "target/debug/deps/wabi_consensus-ea3b7bf9939a388b",
+      "bytes": 23767032,
+      "sha256": "009c08f71bc979e514bb7da929ae0affc204eef913c963093c772f4c144c2e1a"
+    },
+    {
+      "path": "target/debug/deps/wabi_core-5433ea22012e9868",
+      "bytes": 7612048,
+      "sha256": "85a01bee18a87a5b0586763abc5395053f22db18b23ccb8e07f83bbab80f03f7"
+    },
+    {
+      "path": "target/debug/deps/wabi_db_replica_dev-109433986a3b1824",
+      "bytes": 1028984,
+      "sha256": "72b99322536c6d3640c77552548e6d76195cab87df83d6bcc10e387a1aee6d91"
+    },
+    {
+      "path": "target/debug/deps/wabi_instance_inbox-9f977cbdd5f299dc",
+      "bytes": 22218544,
+      "sha256": "1a135c9910881cc0eea052f552d358c80774e877eae0c421616ff29b73e5200e"
+    },
+    {
+      "path": "target/debug/deps/wabi_instance_snapshot-2e292b5d944ec852",
+      "bytes": 23858920,
+      "sha256": "641b7aed1aa042ce74df21786c662547c59931b1e6a7af74b2942fc2fe6e0d49"
+    },
+    {
+      "path": "target/debug/deps/wabi_lore-72667d59d4e7aeb1",
+      "bytes": 30393904,
+      "sha256": "a25dcdb4c81ecb082dba91a9f2042a754d5447f187b46fa1bddab53d25cffd5f"
+    },
+    {
+      "path": "target/debug/deps/wabi_payments_crypto-5e20f26b431ac979",
+      "bytes": 1310960,
+      "sha256": "87fc8d50c146426bd479dc1e28c79a6757b086b32294ecbafe98b9c600b393c9"
+    },
+    {
+      "path": "target/debug/deps/wabi_payments_eu-2e688c0e7e832213",
+      "bytes": 1189280,
+      "sha256": "d8fa47f256317a77fd71dec5e18fbed2735e5498f95742a7cf024086aefe5191"
+    },
+    {
+      "path": "target/debug/deps/wabi_payments_us-8c18fe7600dce85a",
+      "bytes": 1355024,
+      "sha256": "0c061c449ed5dde5585d11462594a3f4d9dbdd04b5faf8f74bffab883f1ace59"
+    },
+    {
+      "path": "target/debug/deps/wabi_room_placement_backfill-c89a05c33cec72f9",
+      "bytes": 21738384,
+      "sha256": "aebfd236c6810bc000a5bf7728c22b567e3e7dc7a7abf5f5f36e67e52bc2758e"
+    },
+    {
+      "path": "target/debug/deps/wabi_server-07b65abc271f9a15",
+      "bytes": 169412128,
+      "sha256": "77a28a36264b14ffc5f8d815f5ffb7856a17031ecf35cdba408c01f03b9eedae"
+    },
+    {
+      "path": "target/debug/deps/wabi_server-34539b87dc08d962",
+      "bytes": 168743024,
+      "sha256": "dc87d48a0beb58e8df097d8d7904a17ba00361bb0df89b62dbffff628b3146bd"
+    },
+    {
+      "path": "target/debug/deps/wabi_sync-86ace41bdb959e99",
+      "bytes": 3023864,
+      "sha256": "aad7f4c608d8c23010cc82e71ee33d71ba8d34304895dbd16f7a453f79b63f26"
+    },
+    {
+      "path": "target/debug/deps/wabi_tailcat-334f845e7e5b0652",
+      "bytes": 10433744,
+      "sha256": "5a7d06ada832e6d139af2905ddac1e4c68a85df41f1ed7db4070e097d7cfe89b"
+    },
+    {
+      "path": "target/debug/deps/wabi_tui-a648aac457082a13",
+      "bytes": 1028960,
+      "sha256": "ab9ddbde4011d7a20848826124ee73ce681f3ec74dd588853eb27cd0610eb4a2"
+    },
+    {
+      "path": "target/debug/deps/wabi_upload_backfill-1e08f185f3996216",
+      "bytes": 1022616,
+      "sha256": "1b8369b87ad45e0be4e8b51b3e339a990d40f34da7440d9c8a9d6b39c2b273b4"
+    },
+    {
+      "path": "target/debug/deps/wabi_webhooks-ec085ad325db879c",
+      "bytes": 1028976,
+      "sha256": "7baad802cecb249ac917e146ca73ed0919ed31c6deb44c43358aa329db775767"
+    },
+    {
+      "path": "target/debug/deps/wabidb-8ff545d408dc1682",
+      "bytes": 29532016,
+      "sha256": "17599ea369fa4017a30450d74fda2e037f3e13691e4d037451a4e2b5aefe9b79"
+    },
+    {
+      "path": "target/debug/deps/wabidb_cli-e7ee53de49b5cb04",
+      "bytes": 1022592,
+      "sha256": "bbb79bb60662787b3c8a2c132ed54550d68938bb47b3a0f43a6f8a70d4ee8578"
+    },
+    {
+      "path": "target/debug/deps/whiteboard_policy_security_contract-939427f0dd1b37bc",
+      "bytes": 133640208,
+      "sha256": "2459aebf66d03e5208290de46e2b858475807b709c9115be0c1e90702b909f9b"
+    },
+    {
+      "path": "target/debug/deps/workspace_room_admission_contract-635da1b7f5f6effa",
+      "bytes": 21482976,
+      "sha256": "8f887616409e3bf8fbaf084570e7c699fd0cdbd95b16a38d9d395aee8d6dc87a"
+    },
+    {
+      "path": "target/debug/deps/workspace_types-e40994d961b02206",
+      "bytes": 2220240,
+      "sha256": "eab69c8f9f4836d9c8c2fd2b299e90b3ef704d185258fbabff56e2fa1dde4c26"
+    },
+    {
+      "path": "target/debug/deps/write_visibility_contract-4f8270a8f040dd23",
+      "bytes": 140496968,
+      "sha256": "0ff3474cade922296df9ed65f086968f229aaae98817b5705dc60b2cc9713b36"
+    }
+  ]
+}

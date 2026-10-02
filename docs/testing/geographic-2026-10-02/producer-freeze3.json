@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "sourceFiles": 5163,
+  "sourceFreezeSha256": "a15c45f56be8097e65db49d7a6154b888d14b74ea611bba468fb0d0b48b14807",
+  "changedSinceFreeze2": [
+    "core/crates/wabi-server/src/bin/wabi-instance-snapshot.rs",
+    "core/crates/wabi-server/src/instance_archive/source_context_tests.rs"
+  ],
+  "changes": "Test-only CLI namespace aliases and dynamic subprocess test-module root; no production body changed",
+  "capturedBeforeCliSession": 95047,
+  "sameSourceFullWorkspaceRequired": true,
+  "compressedReceipt": "producer-source-freeze3.json.gz"
+}

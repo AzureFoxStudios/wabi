@@ -1,0 +1,31 @@
+{
+  "result": "NOT_RUN",
+  "reason": "Automatic permission approval review timed out before launching, including its allowed retry. No unsafe-action rejection was given.",
+  "artifact": {
+    "binarySha256": "4b4814f5db6e6056b4f30908354e2d5f1ba4173c305a378e3a5ccec5d69a0e45",
+    "binaryBytes": 153260768,
+    "buildFeatures": [
+      "default",
+      "field-embed"
+    ],
+    "optimization": "debug, debug symbols stripped in private copy",
+    "baseCommit": "138abe39e08e400188d1812ed3bfd378df435315",
+    "uncommittedConcurrentChanges": true,
+    "uplinkGroups": 3,
+    "transport": "Tailscale private IPv4; no new firewall rules",
+    "remoteHashVerified": [
+      "authority",
+      "materials"
+    ]
+  },
+  "networkQualification": {
+    "distinctObservedEgresses": 3,
+    "method": "api.ipify.org queried from each computer immediately before run",
+    "addressesRetained": false
+  },
+  "recordedAtUtc": "2026-09-30T03:39:15.156809+00:00",
+  "testProcessesLaunched": false,
+  "stagedRemoteFilesStillPresent": true,
+  "temporaryBinaryBytesPerRemote": 153260768,
+  "fieldAccepted": false
+}

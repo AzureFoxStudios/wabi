@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use crate::confined_fs::{InternalFile, RepoDir};
 
 /// Thread-safe lazy-loaded filter for a repo.
 ///
@@ -60,8 +61,9 @@ impl LazyRepoFilter {
         {
             let cache = self.cache.read().unwrap();
             if let Some((ref matcher, cached_mtime)) = *cache {
-                let wabiignore = self.working_tree.join(".wabiignore");
-                if let Ok(metadata) = std::fs::metadata(&wabiignore) {
+                if let Ok(metadata) = RepoDir::open(&self.working_tree)
+                    .and_then(|root| root.open_internal(InternalFile::WabiIgnore))
+                    .and_then(|file| file.metadata()) {
                     if let Ok(modified) = metadata.modified() {
                         if let Ok(duration) =
                             modified.duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -97,7 +99,16 @@ impl LazyRepoFilter {
 
     fn build_from_file(path: &Path) -> (Gitignore, u64) {
         let mut builder = GitignoreBuilder::new(path.parent().unwrap_or_else(|| Path::new("")));
-        if let Ok(contents) = std::fs::read_to_string(path) {
+        let opened = path.parent().and_then(|parent| RepoDir::open(parent).ok())
+            .and_then(|root| root.open_internal(InternalFile::WabiIgnore).ok());
+        let mtime = opened.as_ref().and_then(|file| file.metadata().ok())
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs()).unwrap_or(0);
+        if let Some(mut opened) = opened {
+            use std::io::Read;
+            let mut contents = String::new();
+            if opened.read_to_string(&mut contents).is_err() { return Self::build_from_defaults(); }
             for line in contents.lines() {
                 let trimmed = line.trim();
                 if !trimmed.is_empty() && !trimmed.starts_with('#') {
@@ -105,15 +116,6 @@ impl LazyRepoFilter {
                 }
             }
         }
-        let mtime = std::fs::metadata(path)
-            .ok()
-            .and_then(|m| m.modified().ok())
-            .and_then(|t| {
-                t.duration_since(std::time::SystemTime::UNIX_EPOCH)
-                    .ok()
-                    .map(|d| d.as_secs())
-            })
-            .unwrap_or(0);
         let matcher = builder.build().unwrap_or_else(|_| {
             // Fallback: empty matcher (ignores nothing)
             GitignoreBuilder::new(Path::new(""))

@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "launched": false,
+  "actualExitCode": null,
+  "reason": "Automatic permission approval review timed out before execution twice, including one allowed retry. No unsafe-action finding. Human guidance requested; no further launch.",
+  "capturedBeforeRunReceipt": "checkpoint-physical-before4.json"
+}

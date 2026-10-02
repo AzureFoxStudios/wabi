@@ -73,6 +73,7 @@ pub async fn badges_json_for(state: &SioState, db_user_id: i64) -> serde_json::V
 
 #[allow(dead_code)]
 pub async fn handle_get_badge_catalog(socket: SocketRef, state: &SioState) {
+    if resolve_identity(&socket, state).await.is_none() { return; }
     let _ = socket.emit("badge-catalog", &badge_ids_json());
 }
 

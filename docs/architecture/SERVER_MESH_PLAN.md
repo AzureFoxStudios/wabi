@@ -43,7 +43,7 @@ Current boundary:
 
 - HTTP method/path/query/body/auth forwarding with streamed request and response bodies: implemented and tested in the current working tree;
 - matching `/_app/immutable/` assets from the Anchor's embedded build are served locally for GET/HEAD; missing versions and all other paths still reach the Authority. A [real three-process loopback check](../testing/THREE_SITE_REAL_AUTHORITY_PREFLIGHT_2026-09-27.md) compared a 28,424-byte chunk at both Anchors. This is static byte offload, not local chat state or a physical uplink result;
-- Anchor strips caller-supplied forwarding identity headers and reports its immediate socket peer to the Authority; a reverse proxy in front of Anchor is seen as that peer until a trusted ingress chain is designed;
+- Anchor rebuilds forwarding identity headers. By default it reports only its immediate socket peer. With explicit `WABI_TRUSTED_PROXIES`, it uses the shared rightmost-untrusted client resolver and forwards that resolved address followed by its real socket peer. The Authority must trust the Anchor and every intended upstream proxy in that chain to recover the member address; trusting an arbitrary client range permits spoofing. HTTP and WebSocket use the same resolver. Public health/errors omit private Authority URLs; detailed connection failures stay in operator logs;
 - Anchor accepts HTTPS Authority origins, loopback HTTP for development, or literal private/Tailcat IP HTTP only with `WABI_ANCHOR_ALLOW_PRIVATE_HTTP=true`; it rejects URL credentials, paths, query strings, and upstream redirects. The opt-in does not secure the private link or the member-facing Anchor listener;
 - local WabiDB state on Anchor: none by design;
 - Authority unavailable: canonical proxied requests and cached uploads fail with `503 authority unavailable`; local `/health` and embedded public app assets may still respond but cannot serve community state;
@@ -86,8 +86,8 @@ whole data/uploads roots into age ciphertext and binds inventory, active keys,
 resolved server configuration and applied prefix. V2 restores always remain
 inactive and writer-fenced; the stopped-move commands cannot activate them.
 External blacklist and enabled Lore are refused, and operator/plugin/external
-state remains unverified. There is no operator trigger or complete-instance
-readiness certificate. This is one recovery component, not an available standby
+state remains unverified. The opt-in [local operator control](../deployment/OPERATOR_CHECKPOINT_CONTROL.md)
+starts owned, bounded core jobs; no complete-instance readiness certificate is available. This is one recovery component, not an available standby
 promotion path.
 
 Important current behavior:

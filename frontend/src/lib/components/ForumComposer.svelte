@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ForumBody from './ForumBody.svelte';
 	import { onDestroy, onMount } from 'svelte';
 	import { forumDrafts, type ForumDraft } from '$lib/forumDraftState';
 	import { captureGroupAccess } from '$lib/groupAccess';
@@ -255,7 +256,7 @@
 		</button>
 	</div>
 	{#if previewMode}
-		<div class="forum-preview">{bodyValue || 'Nothing to preview'}</div>
+		<div class="forum-preview"><ForumBody text={bodyValue || 'Nothing to preview'} /></div>
 	{:else}
 		<textarea
 			class="forum-composer-textarea"

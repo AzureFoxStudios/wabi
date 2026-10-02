@@ -1,0 +1,29 @@
+name: Wabi Project native helpers
+
+on:
+  pull_request:
+    paths:
+      - 'helpers/wabi-project/**'
+      - 'integrations/wabi-project-plugin/**'
+      - '.github/workflows/project-plugin-checks.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'helpers/wabi-project/**'
+      - 'integrations/wabi-project-plugin/**'
+      - '.github/workflows/project-plugin-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  helpers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93
+      - name: Test independent native helpers
+        run: |
+          cargo test --locked --manifest-path helpers/wabi-project/Cargo.toml
+          cargo build --locked --manifest-path helpers/wabi-project/Cargo.toml
+          python3 helpers/wabi-project/tests/contracts.py

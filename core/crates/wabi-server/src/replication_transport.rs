@@ -17,7 +17,7 @@ use wabidb::engine::locks::ProjectionState;
 use wabidb::error::{Result, WabiError};
 use wabidb::projections::{upload_assets, upload_revocations};
 use wabidb::replication::{PeerPosition, SyncTransport};
-use wabidb::stream_identity::stream_id_hash;
+use wabidb::stream_identity::{is_safe_stream_id, stream_id_hash};
 
 use crate::api::sync::{
     PushedSegment, SyncEntry, SyncPullRequest, SyncPullResponse, SyncPushRequest, SyncPushResponse,
@@ -73,6 +73,14 @@ fn decode_pull_response(response: SyncPullResponse, since: u64) -> Result<Vec<Co
                 let mut hash = [0u8; 16];
                 hex::decode_to_slice(&reference.stream_id_hash, &mut hash)
                     .map_err(|_| invalid_peer_data("peer stream hash is malformed"))?;
+                // The legacy pull endpoint carries hashes without IDs. When a
+                // peer does supply an ID, it must use the same exact identity.
+                if !reference.stream_id.is_empty()
+                    && (!is_safe_stream_id(&reference.stream_id)
+                        || stream_id_hash(&reference.stream_id) != hash)
+                {
+                    return Err(invalid_peer_data("peer stream identity is inconsistent"));
+                }
                 Ok(wabidb::commit_index::record::StreamRef {
                     stream_id_hash: hash,
                     stream_kind: reference.stream_kind,
@@ -464,7 +472,11 @@ impl ReqwestTransport {
             };
             if stream_id_hash(&stream_id) == stream_ref.stream_id_hash {
                 let file_type = dir_entry.file_type()?;
-                if !file_type.is_dir() || file_type.is_symlink() || match_path.is_some() {
+                if !is_safe_stream_id(&stream_id)
+                    || !file_type.is_dir()
+                    || file_type.is_symlink()
+                    || match_path.is_some()
+                {
                     return Err(invalid_peer_data(
                         "source stream identity is unsafe or ambiguous",
                     ));
@@ -802,7 +814,7 @@ mod tests {
             has_idempotency_key: true,
             idempotency_key_hash: Some([0x33; 32]),
             event_refs: vec![crate::api::sync::StreamRefEntry {
-                stream_id_hash: hex::encode([0x7b; 16]),
+                stream_id_hash: hex::encode(stream_id_hash("room-1")),
                 stream_id: "room-1".into(),
                 stream_kind: 6,
                 segment_id: 1,
@@ -823,18 +835,21 @@ mod tests {
         assert_eq!(decoded[0].caller_device_id_hash, [0x5a; 16]);
         assert_eq!(decoded[0].command_name_hash, [0xa5; 16]);
         assert_eq!(decoded[0].idempotency_key_hash, Some([0x33; 32]));
-        assert_eq!(decoded[0].event_refs[0].stream_id_hash, [0x7b; 16]);
+        assert_eq!(decoded[0].event_refs[0].stream_id_hash, stream_id_hash("room-1"));
         assert_eq!(decoded[0].payload_hashes, vec![[0xc4; 32]]);
 
         for mutate in [
             ("payload", "malformed"),
             ("stream", "malformed"),
+            ("stream_id", "../outside"),
+            ("stream_id", "different-valid-id"),
             ("metadata", ""),
         ] {
             let mut entry = pull_entry();
             match mutate.0 {
                 "payload" => entry.payload_hashes[0] = mutate.1.into(),
                 "stream" => entry.event_refs[0].stream_id_hash = mutate.1.into(),
+                "stream_id" => entry.event_refs[0].stream_id = mutate.1.into(),
                 _ => entry.idempotency_key_hash = None,
             }
             assert!(decode_pull_response(
@@ -854,6 +869,17 @@ mod tests {
             4
         )
         .is_err());
+
+        let mut legacy_entry = pull_entry();
+        legacy_entry.event_refs[0].stream_id.clear();
+        assert!(decode_pull_response(
+            SyncPullResponse {
+                latest_commit_seq: 7,
+                entries: vec![legacy_entry]
+            },
+            4
+        )
+        .is_ok());
     }
 
     #[test]

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-02T01:50:55.541238+00:00",
+  "sessionId": 78716,
+  "terminalExitCode": 0,
+  "command": "CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 cargo test --offline --locked -p wabi-consensus",
+  "totals": {
+    "passed": 64,
+    "failed": 0,
+    "ignored": 5
+  },
+  "groups": 5,
+  "sourceReceipt": "source-context-consensus-freeze.json",
+  "sourceHashesUnchanged": true,
+  "lockSha256": "2c31a8723232abaffc228fd9801cd444997211e5b2530d994072a7f7cd4b522a",
+  "logSha256": "f53273fdc3f605f70f736f121245cbc3eb858cab1aca301c30374c532973d5d5",
+  "logBytes": 8669,
+  "scope": "local consensus/signed opaque storage; no server source producer, payload replay, quorum bytes or writer activation accepted"
+}

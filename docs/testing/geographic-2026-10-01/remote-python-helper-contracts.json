@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-01T11:25:35.058161+00:00",
+  "executionComputer": "dotRonin",
+  "checkout": "/home/ironin/wabi",
+  "scope": "Released synthetic Python helper remote runtime compatibility",
+  "runnerSourceSha256": "6712acd889caf9ac2af8f965b901907d5aecd7318abf01dfbedf5769d54bede4",
+  "remoteRunnerSourceSha256": "3ea4a2fc2a2397c1583dc5c1e4ced1ba90073b2ded6eac290ca0f039c6bbf328",
+  "nodes": [
+    {
+      "schemaVersion": 1,
+      "site": "Ronin",
+      "host": "bazzite",
+      "python": "3.14.7",
+      "architecture": "x86_64",
+      "recordedAtUtc": "2026-10-01T11:25:32.957483+00:00",
+      "sourceDigests": {
+        "rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2",
+        "rpc-probe-supervisor.test.py": "52578b172841e73cbd25f7af3659e1205b2a6553a71c03c7dd18659d4a5dabab",
+        "rpc-probe-controller.py": "cbb16bed861a55a6d978a006065e4cd6e9e57410f4ed669c5acf3f9db791eb9e",
+        "rpc-probe-controller.test.py": "dfc4ea8fc0420f9815b9d56280f3ee5d455f3a49029354675c9f96ea39b58ab0"
+      },
+      "results": [
+        {
+          "suite": "rpc-probe-supervisor.test.py",
+          "status": "PASS",
+          "exitCode": 0,
+          "testsRun": 33,
+          "expectedTests": 33,
+          "skippedObserved": false,
+          "elapsedSeconds": 6.705,
+          "terminationReason": null,
+          "rawBytes": 5062,
+          "rawSha256": "736fffbcfa4831cd6a4e032e54781b4d5716250b87bf1d34540aeeb3b411ffd6",
+          "logPath": "docs/testing/geographic-2026-10-01/remote-python-ronin-rpc-probe-supervisor.test.py.log.gz"
+        },
+        {
+          "suite": "rpc-probe-controller.test.py",
+          "status": "PASS",
+          "exitCode": 0,
+          "testsRun": 25,
+          "expectedTests": 25,
+          "skippedObserved": false,
+          "elapsedSeconds": 2.396,
+          "terminationReason": null,
+          "rawBytes": 3630,
+          "rawSha256": "2de5fc188c1cd1712cf6388407315c390096b7f78fa558c14e8f4f10df9bb24d",
+          "logPath": "docs/testing/geographic-2026-10-01/remote-python-ronin-rpc-probe-controller.test.py.log.gz"
+        }
+      ],
+      "cleanup": {
+        "ownedRootRemoved": true,
+        "ownedLiveProcessGroupsRemaining": [],
+        "bytecodeCachesRemaining": [],
+        "testRootsRemainingBeforeStageRemoval": []
+      },
+      "errorType": null,
+      "scope": "Synthetic Linux supervisor/controller suites on remote hosts; no Rust, Noise, Raft, keys or TCP",
+      "rustNoiseRaftWabiRecoveryTested": false,
+      "canonicalWriterPermitted": false,
+      "status": "PASS",
+      "sshExitCode": 0,
+      "sshStderrBytes": 0
+    },
+    {
+      "schemaVersion": 1,
+      "site": "Iyoku",
+      "host": "192.168.1.11",
+      "python": "3.14.7",
+      "architecture": "x86_64",
+      "recordedAtUtc": "2026-10-01T11:25:34.984957+00:00",
+      "sourceDigests": {
+        "rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2",
+        "rpc-probe-supervisor.test.py": "52578b172841e73cbd25f7af3659e1205b2a6553a71c03c7dd18659d4a5dabab",
+        "rpc-probe-controller.py": "cbb16bed861a55a6d978a006065e4cd6e9e57410f4ed669c5acf3f9db791eb9e",
+        "rpc-probe-controller.test.py": "dfc4ea8fc0420f9815b9d56280f3ee5d455f3a49029354675c9f96ea39b58ab0"
+      },
+      "results": [
+        {
+          "suite": "rpc-probe-supervisor.test.py",
+          "status": "PASS",
+          "exitCode": 0,
+          "testsRun": 33,
+          "expectedTests": 33,
+          "skippedObserved": false,
+          "elapsedSeconds": 7.594,
+          "terminationReason": null,
+          "rawBytes": 5062,
+          "rawSha256": "0d665162afc80c503461d528d64d66f0503c9e1c43b8428abc498a703ffea0c1",
+          "logPath": "docs/testing/geographic-2026-10-01/remote-python-iyoku-rpc-probe-supervisor.test.py.log.gz"
+        },
+        {
+          "suite": "rpc-probe-controller.test.py",
+          "status": "PASS",
+          "exitCode": 0,
+          "testsRun": 25,
+          "expectedTests": 25,
+          "skippedObserved": false,
+          "elapsedSeconds": 3.069,
+          "terminationReason": null,
+          "rawBytes": 3630,
+          "rawSha256": "923df4aa0e5e4e221245b8fc30cef8de1359de072da7bca7a8b8648ff50c04bf",
+          "logPath": "docs/testing/geographic-2026-10-01/remote-python-iyoku-rpc-probe-controller.test.py.log.gz"
+        }
+      ],
+      "cleanup": {
+        "ownedRootRemoved": true,
+        "ownedLiveProcessGroupsRemaining": [],
+        "bytecodeCachesRemaining": [],
+        "testRootsRemainingBeforeStageRemoval": []
+      },
+      "errorType": null,
+      "scope": "Synthetic Linux supervisor/controller suites on remote hosts; no Rust, Noise, Raft, keys or TCP",
+      "rustNoiseRaftWabiRecoveryTested": false,
+      "canonicalWriterPermitted": false,
+      "status": "PASS",
+      "sshExitCode": 0,
+      "sshStderrBytes": 0
+    }
+  ],
+  "noSharedBuildOrSourceMutation": true,
+  "newNodeKeys": 0,
+  "tcpListeners": 0,
+  "wabiServicesLaunched": 0,
+  "noiseRaftRustCodecPhysicalWabiRecoveryTested": false,
+  "status": "PASS",
+  "localCleanup": {
+    "runnerSourceCompressedAndVerified": true,
+    "exactTemporaryRunnerRemoved": true,
+    "localTestRootsCreated": 0,
+    "sharedTargetPreserved": true
+  },
+  "localAvailableDiskBytesAtSave": 100606017536
+}

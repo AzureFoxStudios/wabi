@@ -103,6 +103,9 @@ export function beginRasterStroke(layerId: string): void {
 }
 
 export function rasterUndo(): void {
+	const latest = rasterUndoStack.at(-1);
+	const layer = get(boardStore).layers.find(layer => layer.id === latest?.layerId);
+	if (layer?.locked || layer?.lockPixels || layer?.lockAlpha) return;
 	const entry = rasterUndoStack.pop();
 	if (!entry) return;
 	rasterRedoStack.push(entry);
@@ -183,6 +186,8 @@ export function paintRasterDab(
 	pressure = 1,
 	eraser = false
 ): void {
+	const layer = get(boardStore).layers.find((candidate) => candidate.id === layerId);
+	if (!layer || layer.locked || layer.lockPixels || (layer.lockAlpha && eraser)) return;
 	const bitmap = getLayerBitmap(layerId);
 	const ctx = bitmap.getContext('2d')!;
 	const effectiveSize = Math.max(1, size * (0.4 + 0.6 * Math.max(0, Math.min(1, pressure))));
@@ -192,7 +197,7 @@ export function paintRasterDab(
 	expandDirtyBounds(layerId, x, y, reach);
 	const stamp = getStamp(effectiveSize, hardness, color);
 	ctx.save();
-	ctx.globalCompositeOperation = eraser ? 'destination-out' : 'source-over';
+	ctx.globalCompositeOperation = layer.lockAlpha ? 'source-atop' : eraser ? 'destination-out' : 'source-over';
 	ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
 	ctx.drawImage(stamp, x - stamp.width / 2, y - stamp.height / 2);
 	ctx.restore();

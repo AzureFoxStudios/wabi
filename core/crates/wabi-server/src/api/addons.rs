@@ -74,6 +74,7 @@ pub struct AddonRuntimeFlags {
     pub tailcat_enabled: bool,
     pub lore_enabled: bool,
     pub steam_enabled: bool,
+    pub project_workers_enabled: bool,
 }
 
 /// Build the inventory from compile-time features + runtime flags.
@@ -82,11 +83,21 @@ pub fn enabled_addons_with(runtime: AddonRuntimeFlags) -> Vec<AddonCapability> {
         tailcat_enabled,
         lore_enabled,
         steam_enabled,
+        project_workers_enabled,
     } = runtime;
     let mut out = Vec::new();
+    out.push(AddonCapability {
+        id:"project-workers".into(),name:"AI Worker Connections".into(),version:"0.1.0".into(),
+        description:"Optional Project-scoped worker computers and bounded task recovery; no remote terminal or credential storage".into(),
+        enabled:project_workers_enabled,compiled:true,backend_runtime:"rust".into(),cargo_feature:None,
+        runtime_env:Some("WABI_PROJECT_WORKERS_ENABLED".into()),runtime_switch:true,permissions:vec![],
+        frontend:FrontendInfo {bundled:true,contributions:FrontendContributions {channel_types:vec![],workspace_panels:vec![],settings_pages:vec![],mobile_tabs:vec![]}},
+    });
 
     out.push(AddonCapability {
-        id: "steam".into(), name: "Steam".into(), version: "0.1.0".into(),
+        id: "steam".into(),
+        name: "Steam".into(),
+        version: "0.1.0".into(),
         description: "Verified account linking and private, selective game import".into(),
         enabled: steam_enabled,
         compiled: true,
@@ -95,9 +106,15 @@ pub fn enabled_addons_with(runtime: AddonRuntimeFlags) -> Vec<AddonCapability> {
         runtime_env: Some("WABI_STEAM_ENABLED".into()),
         runtime_switch: true,
         permissions: vec!["network:outbound".into()],
-        frontend: FrontendInfo { bundled: true, contributions: FrontendContributions {
-            channel_types: vec![], workspace_panels: vec![], settings_pages: vec!["steam".into()], mobile_tabs: vec![],
-        } },
+        frontend: FrontendInfo {
+            bundled: true,
+            contributions: FrontendContributions {
+                channel_types: vec![],
+                workspace_panels: vec![],
+                settings_pages: vec!["steam".into()],
+                mobile_tabs: vec![],
+            },
+        },
     });
 
     // tailcat — always compiled into wabi-server (runtime-gated like mesh):
@@ -273,6 +290,13 @@ async fn enabled_addons(state: &AppState) -> Vec<AddonCapability> {
         steam_enabled: state
             .addon_enabled("steam", Some("WABI_STEAM_ENABLED"), false)
             .await,
+        project_workers_enabled: state
+            .addon_enabled(
+                "project-workers",
+                Some("WABI_PROJECT_WORKERS_ENABLED"),
+                false,
+            )
+            .await,
     })
 }
 
@@ -289,7 +313,8 @@ async fn get_addon(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<AddonCapability>> {
     let needle = id.trim().to_lowercase();
-    match enabled_addons(&state).await
+    match enabled_addons(&state)
+        .await
         .into_iter()
         .find(|a| a.id.to_lowercase() == needle)
     {
@@ -383,6 +408,7 @@ mod tests {
             tailcat_enabled: tailcat,
             lore_enabled: lore,
             steam_enabled: false,
+            project_workers_enabled: false,
         }
     }
 
@@ -400,8 +426,14 @@ mod tests {
         let addons = enabled_addons_with(flags(true, false));
         let tailcat = addons.iter().find(|a| a.id == "tailcat").expect("tailcat");
         assert!(tailcat.compiled);
-        assert!(tailcat.cargo_feature.is_none(), "tailcat is always compiled");
-        assert_eq!(tailcat.runtime_env, None, "tailcat toggles in-app, not by env");
+        assert!(
+            tailcat.cargo_feature.is_none(),
+            "tailcat is always compiled"
+        );
+        assert_eq!(
+            tailcat.runtime_env, None,
+            "tailcat toggles in-app, not by env"
+        );
 
         let steam = addons.iter().find(|a| a.id == "steam").expect("steam");
         assert_eq!(steam.runtime_env.as_deref(), Some("WABI_STEAM_ENABLED"));
@@ -426,6 +458,23 @@ mod tests {
     fn runtime_flags_decide_enabled_not_compilation() {
         let on = enabled_addons_with(flags(true, true));
         assert!(on.iter().find(|a| a.id == "tailcat").unwrap().enabled);
+        let workers = on.iter().find(|a| a.id == "project-workers").unwrap();
+        assert!(workers.compiled && workers.frontend.bundled);
+        assert!(
+            !workers.enabled,
+            "bundled UI must not enable the worker addon"
+        );
+        let enabled = enabled_addons_with(AddonRuntimeFlags {
+            project_workers_enabled: true,
+            ..flags(false, false)
+        });
+        assert!(
+            enabled
+                .iter()
+                .find(|a| a.id == "project-workers")
+                .unwrap()
+                .enabled
+        );
 
         // Compiled in, switched off at runtime: must report disabled.
         let off = enabled_addons_with(flags(false, true));
@@ -437,7 +486,10 @@ mod tests {
     fn lore_reports_runtime_state_when_feature_on() {
         let reachable = enabled_addons_with(flags(false, true));
         let lore = reachable.iter().find(|a| a.id == "lore").expect("lore");
-        assert!(lore.enabled, "lore is enabled when the service is registered");
+        assert!(
+            lore.enabled,
+            "lore is enabled when the service is registered"
+        );
         assert_eq!(lore.runtime_env.as_deref(), Some("WABI_LORE_ENABLED"));
         assert!(lore
             .frontend

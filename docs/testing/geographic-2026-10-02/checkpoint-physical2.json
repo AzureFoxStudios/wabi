@@ -1,0 +1,181 @@
+{
+  "schemaVersion": 1,
+  "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+  "artifactSha256": "678b9341b8d30e8a49be3abdcdacb472716a5091e5c5c196f836b263a9687c91",
+  "export": {
+    "schemaVersion": 1,
+    "purpose": "actual_disposable_wabi_checkpoint_ciphertext",
+    "owner": "96fb064bf8129b15f0f1e16f291c3ffc9c542b353f17a2769357a8f39cdf5770",
+    "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+    "ciphertextSha256": "3f804779a078880baf384edc59299153c9099585298406bef95a7f194f385b60",
+    "ciphertextBytes": 174102,
+    "requiredObjects": 3,
+    "canonicalWriterPermitted": false
+  },
+  "physicalAccepted": false,
+  "steps": [
+    {
+      "nodeId": 1,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "claimed": true
+      }
+    },
+    {
+      "nodeId": 2,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "claimed": true
+      }
+    },
+    {
+      "nodeId": 3,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "claimed": true
+      }
+    }
+  ],
+  "states": {
+    "1": {
+      "root": "/tmp/wabi-checkpoint-field-4w1rkvpq",
+      "rootIdentity": [
+        66306,
+        4728963
+      ],
+      "tools": "/tmp/wabi-checkpoint-field-tools-x4ssgdlw",
+      "toolsIdentity": [
+        66306,
+        4728964
+      ],
+      "artifactSha256": "678b9341b8d30e8a49be3abdcdacb472716a5091e5c5c196f836b263a9687c91",
+      "owner": "679cf87aa460abb642b549875667f4879a0204aa0f74434f357df333248eb608",
+      "host": "dotRonin",
+      "freeBytes": 31541604352,
+      "identity": {
+        "nodeId": 1,
+        "publicKey": "da8fb73acfe1ba13ea8265f6d50775588c6cf5ec62e85cb409f20160b5785f64",
+        "schemaVersion": 1
+      },
+      "toolHashes": {
+        "checkpoint-field-host.py": "3f8ea4952e9fe740fbabe8739fa5945f0ee0b8066171b0519f86f58330da831e",
+        "rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2"
+      },
+      "claimed": true
+    },
+    "2": {
+      "root": "/tmp/wabi-checkpoint-field-hu9svx41",
+      "rootIdentity": [
+        58,
+        35228
+      ],
+      "tools": "/tmp/wabi-checkpoint-field-tools-2y4857tp",
+      "toolsIdentity": [
+        58,
+        35229
+      ],
+      "artifactSha256": "678b9341b8d30e8a49be3abdcdacb472716a5091e5c5c196f836b263a9687c91",
+      "owner": "b8a28563860ef51c6a6da9ccc2a52c2f1e2fc21794d76608a2bfc60fb4988f09",
+      "host": "bazzite",
+      "freeBytes": 14460301312,
+      "identity": {
+        "nodeId": 2,
+        "publicKey": "b5ec2d757ba1d51f410f47ffe73c2cb3654f8ad3e7bb3e7df3ff58209e82503a",
+        "schemaVersion": 1
+      },
+      "toolHashes": {
+        "checkpoint-field-host.py": "3f8ea4952e9fe740fbabe8739fa5945f0ee0b8066171b0519f86f58330da831e",
+        "rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2"
+      },
+      "claimed": true
+    },
+    "3": {
+      "root": "/tmp/wabi-checkpoint-field-vhkhyuhh",
+      "rootIdentity": [
+        45,
+        20956
+      ],
+      "tools": "/tmp/wabi-checkpoint-field-tools-y5j6bwbq",
+      "toolsIdentity": [
+        45,
+        20957
+      ],
+      "artifactSha256": "678b9341b8d30e8a49be3abdcdacb472716a5091e5c5c196f836b263a9687c91",
+      "owner": "6e241de46f038799e1ead3fdfffcab67cc90286366b587248af78db0346a09b6",
+      "host": "192.168.1.11",
+      "freeBytes": 7711309824,
+      "identity": {
+        "nodeId": 3,
+        "publicKey": "3b0963976afa91fc88edd696cf4d7ceeb54f320d59545f37c5b88aa387979d0e",
+        "schemaVersion": 1
+      },
+      "toolHashes": {
+        "checkpoint-field-host.py": "3f8ea4952e9fe740fbabe8739fa5945f0ee0b8066171b0519f86f58330da831e",
+        "rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2"
+      },
+      "claimed": true
+    }
+  },
+  "cleanup": [
+    {
+      "nodeId": 1,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "ownedRootRemoved": true,
+        "entries": 15
+      },
+      "tools": {
+        "ownedToolDirectoryRemoved": true
+      }
+    },
+    {
+      "nodeId": 2,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "ownedRootRemoved": true,
+        "entries": 6
+      },
+      "tools": {
+        "ownedToolDirectoryRemoved": true
+      }
+    },
+    {
+      "nodeId": 3,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "ownedRootRemoved": true,
+        "entries": 6
+      },
+      "tools": {
+        "ownedToolDirectoryRemoved": true
+      }
+    }
+  ],
+  "canonicalWriterPermitted": false,
+  "independentUplinksFreshlyVerified": false,
+  "failure": "node1 unexpected run/seed outcome: {'schemaVersion': 1, 'purpose': 'wabi-disposable-checkpoint-ciphertext-v1', 'ok': False, 'reason': 'FIELD_HOST_REFUSED'}"
+}

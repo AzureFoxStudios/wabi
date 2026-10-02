@@ -107,7 +107,6 @@
 	0 0 0 5px color-mix(in srgb, var(--accent-secondary-color) 30%, transparent);
 }
 
-.profile-preview-avatar img,
 .profile-preview-avatar-media,
 .profile-preview-avatar-fallback {
 	width: 100%;
@@ -691,3 +690,19 @@
 
 .bio-over-limit, .profile-bio-error { color: var(--color-danger); }
 .profile-bio-error { margin: 0.3rem 0; font-size: 0.78rem; line-height: 1.4; }
+
+/* The preview is the single artwork editor; identity fields get their full column. */
+.profile-mock-body { grid-template-columns: minmax(0, 1fr); }
+.profile-preview-edit-tools { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px 16px 0; }
+.profile-preview-edit-tools button { min-height: 44px; }
+.profile-preview-banner-hint { opacity: 1; }
+.profile-presence-picker { position: absolute; right: -4px; bottom: -4px; z-index: 3; }
+.profile-presence-picker .profile-preview-status { position: static; box-sizing: border-box; width: 28px; height: 28px; cursor: pointer; list-style: none; }
+.profile-presence-picker summary::-webkit-details-marker { display: none; }
+.profile-presence-picker summary:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 3px; }
+.profile-presence-menu { position: absolute; top: 34px; left: -80px; min-width: 160px; padding: 6px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-base); box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+.profile-presence-menu button { display: block; width: 100%; min-height: 44px; padding: 8px 12px; text-align: left; font: inherit; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-primary); cursor: pointer; }
+.profile-presence-menu button:hover, .profile-presence-menu button[aria-pressed="true"] { background: var(--surface-raised); }
+.profile-art-reset { padding: 12px 16px; color: var(--text-secondary); }
+.profile-art-reset summary { cursor: pointer; }
+.profile-art-resources .profile-art-guide { margin: 0; }

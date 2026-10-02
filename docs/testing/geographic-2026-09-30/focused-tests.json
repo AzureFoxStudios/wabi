@@ -1,0 +1,19 @@
+{
+  "date": "2026-09-30",
+  "result": "PASS",
+  "command": "CARGO_INCREMENTAL=0 cargo test --offline --locked -p wabi-server --test checkpoint_operator_contract --test live_checkpoint_archive_contract --test instance_checkpoint_contract --bin wabi-instance-snapshot --bin wabi-instance-inbox",
+  "rustCases": {
+    "inbox": 7,
+    "snapshot": 36,
+    "operator": 3,
+    "checkpointBoundary": 6,
+    "liveArchive": 4
+  },
+  "rustTotal": 56,
+  "nodeCases": 3,
+  "sourceBaseCommit": "138abe39e08e400188d1812ed3bfd378df435315",
+  "uncommittedConcurrentChanges": true,
+  "rustLogSha256": "8227f084123cfb6b8c9db3447317098cd7730af48d9b4f4d8a2356be14b6ccb2",
+  "productionDeployment": false,
+  "fullInstanceReady": false
+}

@@ -61,6 +61,28 @@ fn private_file(path: &Path, bytes: &[u8]) {
     }
 }
 
+async fn wait_for_writer_drain(data_dir: &Path) {
+    use fs4::fs_std::FileExt;
+
+    let lock_path = data_dir.join(".lock");
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .unwrap();
+    // Engine Drop closes admission, but background writers retain ownership
+    // until their final work drains. Keep this current-thread runtime running
+    // before blocking on a subprocess that needs the same data directory.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !FileExt::try_lock_exclusive(&lock).unwrap() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("writer did not release {}", lock_path.display()));
+    // Dropping our probe releases ownership without removing its shared inode.
+}
+
 fn snapshot_command(args: &[&str]) -> String {
     let output = Command::new(env!("CARGO_BIN_EXE_wabi-instance-snapshot"))
         .args(args)
@@ -295,7 +317,8 @@ async fn fenced_process_catches_up_after_receiver_restart() {
     {
         receiver.stop_gracefully();
         assert!(receiver_dir.join("projections/snapshot.json").is_file());
-        assert!(!receiver_dir.join(".lock").exists());
+        assert!(receiver_dir.join(".lock").is_file());
+        wait_for_writer_drain(&receiver_dir).await;
     }
     #[cfg(not(unix))]
     drop(receiver);
@@ -354,6 +377,7 @@ async fn stopped_encrypted_baseline_then_verified_upload_catch_up() {
         .unwrap();
     assert_eq!(write_event(&initial, b"baseline").await, 1);
     drop(initial);
+    wait_for_writer_drain(&source_db).await;
 
     let identity = temp.path().join("recovery.agekey");
     let keygen_output =
@@ -980,6 +1004,8 @@ async fn same_root_key_with_divergent_commit_prefix_does_not_catch_up() {
             .await
             .unwrap();
         assert_eq!(write_event(&engine, payload).await, 1);
+        drop(engine);
+        wait_for_writer_drain(data_dir).await;
     }
     private_file(&receiver_db.join("writer-fenced-v1"), b"fenced\n");
     let token_file = temp.path().join("sync-token");

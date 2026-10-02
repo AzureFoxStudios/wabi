@@ -7,9 +7,10 @@
 //!     in-process holders can mint it, so public clients cannot spoof pipe
 //!     identity to dodge per-IP policies.
 //!   - `x-wabi-pipe-client: <addr>`  — the pipe client's loopback source
-//!     address (per pipe connection ≈ per member client), used as the
-//!     rate-limit key so family members don't collapse into one "IP"
-//!     (the spike-confirmed 127.0.0.1 collapse problem).
+//!     socket address for diagnostics. Rate policies use only its IP,
+//!     scoped to this authenticated transport; changing connection ports
+//!     cannot provide a fresh allowance. The listener exposes no stable
+//!     remote member identity, so members share this creation quota.
 //!
 //! Binds 127.0.0.1 only. Websockets (socket.io) tunnel via hyper upgrades.
 

@@ -129,18 +129,21 @@
 	border-left: none;
 }
 
-/* Pinned panels reserve the 48px outward-facing stub rail so additive tabs
-   never cover center-stage controls. Peek remains an intentional overlay. */
+/* Pin keeps the overlay open without resizing center stage. */
 .right-panel-zone {
 	flex: 0 0 auto;
-	position: relative;
+	position: fixed;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	z-index: calc(var(--z-popout, 1200) - 2);
+	box-shadow: -10px 0 40px rgba(0, 0, 0, 0.4);
 	height: 100dvh;
 	min-width: 0;
 	max-width: min(744px, 55vw);
 }
 
-.right-panel-zone:not(.peek):not(.closing).stub-right { margin-left: 48px; }
-.right-panel-zone:not(.peek):not(.closing).stub-left { margin-right: 48px; }
+.right-panel-zone.stub-left { left: 0; right: auto; box-shadow: 10px 0 40px rgba(0, 0, 0, 0.4); }
 
 .right-panel-body {
 	position: relative;

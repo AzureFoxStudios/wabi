@@ -23,31 +23,54 @@ use wabidb::{
     engine::wabi_store::WabiStore,
 };
 
+fn server_config(path: &Path) -> ServerConfig {
+    ServerConfig {
+        host: "127.0.0.1".into(),
+        port: 0,
+        data_dir: path.to_string_lossy().into_owned(),
+        uploads_dir: path.join("uploads").to_string_lossy().into_owned(),
+        jwt_secret: "lore-contract-test-only".into(),
+        turn_enabled: false,
+        turn_uri: None,
+        turn_secret: None,
+        node_id: "test".into(),
+        is_primary: true,
+        server_role: ServerRole::Authority,
+        authority_url: None,
+        admin_user_ids: vec![],
+        blacklist_file: path.join("blacklist.txt").to_string_lossy().into_owned(),
+        max_body_size: None,
+        mesh_enabled: false,
+        mesh_peers: vec![],
+        lore: LoreAddonConfig::default(),
+    }
+}
+
 async fn server(path: &Path) -> Arc<AppState> {
-    Arc::new(
-        AppState::new(ServerConfig {
-            host: "127.0.0.1".into(),
-            port: 0,
-            data_dir: path.to_string_lossy().into_owned(),
-            uploads_dir: path.join("uploads").to_string_lossy().into_owned(),
-            jwt_secret: "lore-contract-test-only".into(),
-            turn_enabled: false,
-            turn_uri: None,
-            turn_secret: None,
-            node_id: "test".into(),
-            is_primary: true,
-            server_role: ServerRole::Authority,
-            authority_url: None,
-            admin_user_ids: vec![],
-            blacklist_file: path.join("blacklist.txt").to_string_lossy().into_owned(),
-            max_body_size: None,
-            mesh_enabled: false,
-            mesh_peers: vec![],
-            lore: LoreAddonConfig::default(),
-        })
-        .await
-        .unwrap(),
-    )
+    Arc::new(AppState::new(server_config(path)).await.unwrap())
+}
+
+async fn reopen_server(path: &Path) -> Arc<AppState> {
+    // Dropping the last state closes admission; the disk workers keep the OS
+    // lock until their admitted writes and checkpoints finish. Wait for that
+    // teardown without unlinking the lock or ignoring unrelated open errors.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match AppState::new(server_config(path)).await {
+            Ok(state) => return Arc::new(state),
+            Err(error)
+                if error
+                    .downcast_ref::<wabidb::error::WabiError>()
+                    .is_some_and(|error| {
+                        matches!(error, wabidb::error::WabiError::AlreadyRunning)
+                    })
+                    && tokio::time::Instant::now() < deadline =>
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            Err(error) => panic!("could not reopen Lore fixture after writer teardown: {error:#}"),
+        }
+    }
 }
 
 fn jwt(state: &AppState, uid: u64) -> String {
@@ -131,6 +154,318 @@ async fn request(
     let body =
         serde_json::from_slice(&bytes).unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes)));
     (status, body)
+}
+
+#[tokio::test]
+async fn head_download_changes_immediately_and_missing_file_is_not_found() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (uid, channel, _) = owner_and_repos(&state).await;
+    let binary = dir.path().join("fixture");
+    std::fs::write(
+        &binary,
+        include_bytes!("fixtures/lore-cli-credential-fixture.sh"),
+    )
+    .unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let lore = Arc::new(wabi_lore::LoreService::new(wabi_lore::LoreConfig {
+        lore_binary_path: binary,
+        lore_data_dir: dir.path().join("lore"),
+        ..Default::default()
+    }));
+    lore.create_repo(channel, uid as i64, "fresh")
+        .await
+        .unwrap();
+    state.set_lore_service(lore).await;
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let (token, _) = connect_token(&state, uid, channel, "read,write").await;
+    let path = format!(
+        "/addons/lore/repos/{channel}/files/{}.json",
+        uuid::Uuid::new_v4()
+    );
+    let (status, _) = request(&app, Method::GET, &path, &token, json!(null)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    for value in [json!({"version":1}), json!({"version":2})] {
+        let (status, body) = request(&app, Method::PUT, &path, &token, value.clone()).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let (status, body) = request(&app, Method::GET, &path, &token, json!(null)).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body, value,
+            "head must not reuse the previous five-minute cache"
+        );
+    }
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(&path)
+                .header("authorization", format!("Bearer {token}"))
+                .header("range", "bytes=0-2")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+    assert_eq!(
+        response.headers()["content-security-policy"],
+        "sandbox; default-src 'none'"
+    );
+    assert_eq!(to_bytes(response.into_body(), 3).await.unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn host_execution_requires_current_owner_even_for_admin_or_repository_developer() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (owner, channel, _) = owner_and_repos(&state).await;
+    let lore = Arc::new(wabi_lore::LoreService::new(wabi_lore::LoreConfig {
+        lore_data_dir: dir.path().join("lore"),
+        ..Default::default()
+    }));
+    lore.register_external_mirror(
+        channel,
+        owner as i64,
+        "host-execution",
+        "https://github.com/example/repo.git",
+    )
+    .await
+    .unwrap();
+    state.set_lore_service(lore).await;
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    for (name, role) in [
+        ("member", "Member"),
+        ("developer", "Developer"),
+        ("admin", "Admin"),
+    ] {
+        let user = state
+            .wdb
+            .create_user(name, None, "registered-fixture-hash")
+            .await
+            .unwrap();
+        state
+            .wdb
+            .add_channel_member(&format!("ch_{channel:x}"), user, MemberRole::Member)
+            .await
+            .unwrap();
+        state
+            .wdb
+            .ingest_event(
+                "rbac",
+                "assign_role",
+                &json!({"userId":user,
+            "workspaceId":"default-workspace","role":role,"assignedBy":owner}),
+            )
+            .await
+            .unwrap();
+        for (method, suffix, payload) in [
+            (
+                Method::POST,
+                "/scripts/run",
+                json!({"script_path":"scripts/test.py"}),
+            ),
+            (Method::POST, "/editor", json!({})),
+            (
+                Method::POST,
+                "/mirror",
+                json!({"remote_url":"https://github.com/example/repo.git"}),
+            ),
+            (Method::GET, "/mirror", json!(null)),
+            (Method::GET, "/mirror/configs", json!(null)),
+            (Method::POST, "/mirror/run", json!(null)),
+            (Method::DELETE, "/mirror", json!(null)),
+        ] {
+            let (status, body) = request(
+                &app,
+                method,
+                &format!("/addons/lore/repos/{channel}{suffix}"),
+                &jwt(&state, user),
+                payload,
+            )
+            .await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{role} {suffix}: {body}");
+        }
+    }
+    let mirror = format!("/addons/lore/repos/{channel}/mirror");
+    let owner_token = jwt(&state, owner);
+    for (method, payload) in [
+        (
+            Method::POST,
+            json!({"remote_url":"https://github.com/example/repo.git"}),
+        ),
+        (Method::GET, json!(null)),
+        (Method::DELETE, json!(null)),
+    ] {
+        let (status, body) = request(&app, method, &mirror, &owner_token, payload).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    let path = format!("/addons/lore/repos/{channel}/scripts/run");
+    let (status, _) = request(
+        &app,
+        Method::POST,
+        &path,
+        &jwt(&state, owner),
+        json!({"script_path":"scripts/test.py","working_dir":"/outside"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    // Owner admission reaches the disabled-by-default runtime, without
+    // enabling or executing a process in this permissions contract.
+    assert_eq!(
+        request(
+            &app,
+            Method::POST,
+            &path,
+            &jwt(&state, owner),
+            json!({"script_path":"scripts/test.py"})
+        )
+        .await
+        .0,
+        StatusCode::INTERNAL_SERVER_ERROR
+    );
+}
+
+#[tokio::test]
+async fn detach_removes_live_access_and_keeps_working_tree() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (uid, channel, _) = owner_and_repos(&state).await;
+    let lore = Arc::new(wabi_lore::LoreService::new(wabi_lore::LoreConfig {
+        lore_data_dir: dir.path().join("lore"),
+        ..Default::default()
+    }));
+    let repo = lore
+        .register_external_mirror(
+            channel,
+            uid as i64,
+            "source",
+            "https://example.org/source.git",
+        )
+        .await
+        .unwrap();
+    std::fs::write(repo.working_tree.join("retained.txt"), b"retained").unwrap();
+    state
+        .wdb
+        .lore_create_repo(channel, "source", "embedded://source", uid as i64)
+        .await
+        .unwrap();
+    state.set_lore_service(lore.clone()).await;
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let auth = jwt(&state, uid);
+    let base = format!("/addons/lore/repos/{channel}");
+    let (status, body) = request(
+        &app,
+        Method::DELETE,
+        &format!("{base}?mode=detach"),
+        &auth,
+        json!(null),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(state.wdb.lore_get_repo(channel).await.unwrap().is_none());
+    assert!(lore.get_repo(channel).await.is_none());
+    let (status, _) = request(&app, Method::GET, &base, &auth, json!(null)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        std::fs::read(repo.working_tree.join("retained.txt")).unwrap(),
+        b"retained"
+    );
+}
+
+#[tokio::test]
+async fn mirror_manifest_reports_git_head_without_native_commit_events() {
+    use std::process::Command;
+    let dir = tempfile::tempdir().unwrap();
+    let upstream = dir.path().join("upstream");
+    std::fs::create_dir(&upstream).unwrap();
+    for args in [
+        vec!["init"],
+        vec!["config", "user.name", "Fixture"],
+        vec!["config", "user.email", "fixture@localhost"],
+    ] {
+        assert!(Command::new("git")
+            .args(args)
+            .current_dir(&upstream)
+            .output()
+            .unwrap()
+            .status
+            .success());
+    }
+    std::fs::write(upstream.join("README.md"), b"source").unwrap();
+    assert!(Command::new("git")
+        .args(["add", "README.md"])
+        .current_dir(&upstream)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    assert!(Command::new("git")
+        .args(["commit", "-m", "fixture"])
+        .current_dir(&upstream)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let tip = String::from_utf8(
+        Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&upstream)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    let state = server(&dir.path().join("data")).await;
+    let (uid, channel, _) = owner_and_repos(&state).await;
+    let lore = Arc::new(wabi_lore::LoreService::new(wabi_lore::LoreConfig {
+        lore_data_dir: dir.path().join("lore"),
+        ..Default::default()
+    }));
+    let repo = lore
+        .register_external_mirror(
+            channel,
+            uid as i64,
+            "mirror",
+            "https://example.org/source.git",
+        )
+        .await
+        .unwrap();
+    // API mirror sources must be public HTTPS URLs. Seed an already-fetched
+    // cache directly in this offline fixture; production source validation
+    // remains enabled and the manifest still reads real Git history.
+    let cache = repo.working_tree.join(".mirror-cache");
+    let clone = Command::new("git")
+        .args(["clone", "--no-hardlinks", "--"])
+        .arg(&upstream)
+        .arg(&cache)
+        .output()
+        .unwrap();
+    assert!(
+        clone.status.success(),
+        "{}",
+        String::from_utf8_lossy(&clone.stderr)
+    );
+    std::fs::write(
+        cache.join(".wabi-mirror-fetched-at"),
+        chrono::Utc::now().timestamp().to_string(),
+    )
+    .unwrap();
+    state.set_lore_service(lore).await;
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let (token, _) = connect_token(&state, uid, channel, "read").await;
+    let (status, body) = request(
+        &app,
+        Method::GET,
+        &format!("/addons/lore/repos/{channel}/manifest"),
+        &token,
+        json!(null),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["headRevision"], tip.trim());
+    assert_eq!(body["readOnly"], true);
 }
 
 #[tokio::test]
@@ -402,7 +737,7 @@ async fn account_revocation_and_current_membership_apply_to_connect_tokens() {
         );
         drop(app);
         drop(state);
-        let reopened = server(dir.path()).await;
+        let reopened = reopen_server(dir.path()).await;
         let app = create_api_router(reopened.clone()).with_state(reopened);
         assert_eq!(
             request(&app, Method::GET, &path, &token, json!(null))
@@ -567,7 +902,7 @@ async fn token_scope_and_revocation_survive_reopening_wabidb() {
         .await
         .unwrap();
     drop(state);
-    let state = server(dir.path()).await;
+    let state = reopen_server(dir.path()).await;
     let app = create_api_router(state.clone()).with_state(state.clone());
     for (token, id, expected) in [
         (&active, channel, StatusCode::OK),
@@ -591,9 +926,10 @@ async fn single_token_revocation_accepts_legacy_and_exact_session_ids_after_rest
         let id = if short { &hash[..12] } else { &hash };
         state
             .revoke_token_with_exp(format!("lore-token:{id}"), i64::MAX)
-            .await.unwrap();
+            .await
+            .unwrap();
         drop(state);
-        let state = server(dir.path()).await;
+        let state = reopen_server(dir.path()).await;
         let app = create_api_router(state.clone()).with_state(state);
         let path = format!("/addons/lore/repos/{channel}/changes");
         assert_eq!(
@@ -841,4 +1177,74 @@ async fn role_loss_limits_writes_and_missing_membership_prevents_minting_dead_to
         .0,
         StatusCode::FORBIDDEN
     );
+}
+
+#[tokio::test]
+async fn scoped_write_rechecks_revocation_after_a_stalled_request_body() {
+    for (method, suffix) in [
+        (Method::POST, "/snapshot"),
+        (Method::PUT, "/files/guard.txt"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let state = server(dir.path()).await;
+        let (owner, channel, _) = owner_and_repos(&state).await;
+        let (token, hash) = connect_token(&state, owner, channel, "read,write").await;
+        let app = create_api_router(state.clone()).with_state(state.clone());
+        let path = format!("/addons/lore/repos/{channel}{suffix}");
+        // The valid capability reaches the absent optional service. This
+        // distinguishes actual post-body denial from a broken route fixture.
+        assert_eq!(
+            request(
+                &app,
+                method.clone(),
+                &path,
+                &token,
+                json!({"message":"guard fixture"})
+            )
+            .await
+            .0,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (body_tx, body_rx) = tokio::sync::oneshot::channel::<String>();
+        let stream = futures::stream::once(async move {
+            started_tx.send(()).unwrap();
+            Ok::<_, std::io::Error>(axum::body::Bytes::from(body_rx.await.unwrap()))
+        });
+        let req = Request::builder()
+            .method(method)
+            .uri(&path)
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from_stream(stream))
+            .unwrap();
+        let task = tokio::spawn(async move { app.oneshot(req).await.unwrap().status() });
+        started_rx.await.unwrap();
+        state
+            .wdb
+            .lore_revoke_token(&hash, owner as i64)
+            .await
+            .unwrap();
+        let sequence = state.wdb.engine().projection_state().applied_commit_seq();
+        body_tx
+            .send(json!({"message":"guard fixture"}).to_string())
+            .unwrap();
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), task)
+                .await
+                .unwrap()
+                .unwrap(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            state.wdb.engine().projection_state().applied_commit_seq(),
+            sequence
+        );
+        assert!(state
+            .wdb
+            .list_lore_file_changes(channel, 0)
+            .await
+            .unwrap()
+            .is_empty());
+    }
 }

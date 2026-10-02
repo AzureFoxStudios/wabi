@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
-	export let scene: 'none' | 'koi' = 'none';
+	export let scene: 'none' | 'image' | 'koi' = 'none';
 	export let motion = 0.65;
 	export let dim = 0.16;
 	export let frost = 0.32;
@@ -160,7 +160,7 @@
 
 <div
 	class="chat-backdrop"
-	class:hidden={scene === 'none'}
+	class:hidden={scene !== 'koi'}
 	aria-hidden="true"
 	style={`--chat-backdrop-dim:${dim};--chat-backdrop-frost:${frost};`}
 >

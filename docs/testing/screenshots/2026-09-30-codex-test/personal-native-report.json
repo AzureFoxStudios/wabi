@@ -1,0 +1,20 @@
+{
+  "passed": true,
+  "runtime": "Linux Tauri/WebKit, actual IPC and matching staged sidecar",
+  "source": "/home/ironin/wabi/src-tauri/target/debug/wabi-desktop",
+  "scratch": "/tmp/wabi-personal-native-B4I7qH",
+  "profiles": [
+    "chat.wabi.hosttest"
+  ],
+  "projectTaskEventJournal": true,
+  "codeAndImagePayload": true,
+  "quitReopen": true,
+  "backupDownloadAndAdditiveImport": true,
+  "missingSidecarDraftAndRetry": true,
+  "observedExternalResources": [],
+  "limits": [
+    "Built executable, not installed package",
+    "Resource timing observation, not kernel-level network isolation",
+    "No non-Linux or physical power-loss acceptance"
+  ]
+}

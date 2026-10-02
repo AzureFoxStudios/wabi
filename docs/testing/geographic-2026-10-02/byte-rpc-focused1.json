@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "session": 65781,
+  "actualExit": 0,
+  "passed": 20,
+  "failed": 0,
+  "ignored": 0,
+  "filteredOut": 28,
+  "scope": "Transport-only local opaque fixtures and existing Raft paths, not actual Authority ciphertext integration",
+  "sourceFreeze": "byte-rpc-freeze1.json.gz",
+  "sourceFilesUnchanged": 32,
+  "logSha256": "4f66103d33dedb1b3fdf80ca23248c14146cab15f4386b3f046a73fcd85b8c7b",
+  "logBytes": 4623,
+  "recordedAtUtc": "2026-10-02T04:21:56.749725+00:00"
+}

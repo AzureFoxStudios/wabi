@@ -1,0 +1,10 @@
+{
+  "session": 9420,
+  "actualExitCode": 101,
+  "testsRun": 0,
+  "failure": "E0576 test-only root derivation fixture new_from_slice referenced Mac rather than KeyInit",
+  "sourceFreezeSha256": "94f816f16f97cf87cc407441519542669cab410962fb0fc98b21d69f16a9d0b8",
+  "sourceReadbackChanged": [],
+  "logSha256": "58b9463ce499700cf6a3991bcac35d26bf84cfdbf2c7c98404913a07ca03a923",
+  "compressedLog": "producer-integration-compile-failed.log.gz"
+}

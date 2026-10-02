@@ -1,0 +1,42 @@
+{
+  "scope": "Only this completed phase owned raw logs; exact gzip equality before deletion. No shared builds, data, keys or root log deleted.",
+  "bytesRemoved": 432620,
+  "files": [
+    {
+      "path": "/tmp/wabi-geographic-byte-rpc1.log",
+      "bytes": 4623,
+      "sha256": "4f66103d33dedb1b3fdf80ca23248c14146cab15f4386b3f046a73fcd85b8c7b",
+      "verifiedArchive": "docs/testing/geographic-2026-10-02/byte-rpc-focused1.log.gz"
+    },
+    {
+      "path": "/tmp/wabi-geographic-byte-rpc2.log",
+      "bytes": 9611,
+      "sha256": "33f591ff8350b58f1afbe2f65400b75d39fc5fe174311c027e71a1b6cb9367b5",
+      "verifiedArchive": "docs/testing/geographic-2026-10-02/byte-rpc-package2.log.gz"
+    },
+    {
+      "path": "/tmp/wabi-geographic-byte-rpc-producer3.log",
+      "bytes": 37496,
+      "sha256": "2fa443f0e7ab5dfc057aa0cdfe3e019e2549063935808a32fb35724c66fefca1",
+      "verifiedArchive": "docs/testing/geographic-2026-10-02/byte-rpc-producer3-failed.log.gz"
+    },
+    {
+      "path": "/tmp/wabi-geographic-byte-rpc-producer4.log",
+      "bytes": 36424,
+      "sha256": "307b8481f58a461a789482f1f819c893f44a83964b9176d0a0e7d214cf658475",
+      "verifiedArchive": "docs/testing/geographic-2026-10-02/byte-rpc-producer4.log.gz"
+    },
+    {
+      "path": "/tmp/wabi-geographic-byte-rpc-workspace.log",
+      "bytes": 52138,
+      "sha256": "f966662459edf2ee58244c54db7eefd9c7c8deca5a20eed953f7a7a5ee82f396",
+      "verifiedArchive": "docs/testing/geographic-2026-10-02/byte-rpc-workspace-interrupted.log.gz"
+    },
+    {
+      "path": "/tmp/wabi-geographic-byte-rpc-workspace2.log",
+      "bytes": 292328,
+      "sha256": "a07d724df612d6c38587ed6b5637ea997af22cdc3389273b762e3cbca5664a7c",
+      "verifiedArchive": "docs/testing/geographic-2026-10-02/byte-rpc-workspace-final.log.gz"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+[Unit]
+Description=Wabi Project MCP gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/wabi-project-helper gateway --connection %h/.config/wabi-project/connection.json --public-url https://YOUR-MCP-HOST --name "YOUR PROJECT" --callback https://chatgpt.com/connector_platform_oauth_redirect --auth-path /project-plugin --control-socket %t/wabi-project-gateway/control.sock --listen 127.0.0.1 --port 4319
+ExecStartPost=%h/.local/bin/wabi-project-helper health http://127.0.0.1:4319/health --wait 5
+RuntimeDirectory=wabi-project-gateway
+RuntimeDirectoryMode=0700
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=25
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+UMask=0077
+StandardOutput=null
+
+[Install]
+WantedBy=default.target

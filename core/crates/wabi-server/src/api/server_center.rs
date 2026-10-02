@@ -277,6 +277,47 @@ pub async fn channel_min_role(state: &AppState, channel_id: &str) -> Option<Stri
     state.server_center.read().await.data.channel_min_roles.get(channel_id).cloned()
 }
 
+/// Breakouts are created under the shared membership writer. Save their
+/// parent's role gates before any roster is moved or room is published.
+pub(crate) async fn inherit_channel_gates(state: &AppState, parent: &str, children: &[String]) -> anyhow::Result<()> {
+    let mut guard = state.server_center.write().await;
+    let before = guard.data.clone();
+    let minimum = guard.data.channel_min_roles.get(parent).cloned();
+    let community = guard.data.channel_community_roles.get(parent).cloned();
+    for child in children {
+        if let Some(role) = &minimum { guard.data.channel_min_roles.insert(child.clone(), role.clone()); }
+        else { guard.data.channel_min_roles.remove(child); }
+        if let Some(role) = &community { guard.data.channel_community_roles.insert(child.clone(), role.clone()); }
+        else { guard.data.channel_community_roles.remove(child); }
+    }
+    if let Err(error) = guard.persist() {
+        guard.data = before;
+        return Err(error);
+    }
+    Ok(())
+}
+
+async fn evict_inherited_voice_policy(io: &socketioxide::SocketIo, state: &AppState, user_id: Option<i64>) {
+    // Existing breakouts dynamically inherit Voice parent policy. Revoke
+    // receive rooms while the shared admission writer still fences new media.
+    match state.wdb.list_channels(None).await {
+        Ok(channels) => for child in channels.into_iter().filter(|child|
+            child.channel_kind == wabidb::domain::ChannelKind::Voice && child.parent_id.is_some()) {
+            if let Some(user_id) = user_id {
+                if !matches!(crate::channel_access::channel_role_allows(state, user_id, &child.channel_id).await, Ok(true)) {
+                    crate::socketio::evict_channel_user(io, state, &child.channel_id, user_id).await;
+                }
+            } else {
+                crate::socketio::evict_channel_disallowed(io, state, &child.channel_id).await;
+            }
+        },
+        Err(_) => for socket in io.sockets() {
+            let _ = socket.emit("auth-revoked", &json!({ "reason": "Channel policy enforcement unavailable" }));
+            let _ = socket.disconnect();
+        },
+    }
+}
+
 pub async fn channel_community_role_allows(state: &AppState, user_id: i64, channel_id: &str) -> bool {
     let guard = state.server_center.read().await;
     let Some(required) = guard.data.channel_community_roles.get(channel_id) else { return true; };
@@ -583,6 +624,9 @@ async fn set_channel_gate(
     }
     if let Some(io) = state.socket_io() {
         crate::socketio::evict_channel_disallowed(&io, &state, &channel.channel_id).await;
+        if channel.channel_kind == wabidb::domain::ChannelKind::Voice {
+            evict_inherited_voice_policy(&io, &state, None).await;
+        }
     }
     drop(_message_commit);
     drop(_membership);
@@ -654,6 +698,7 @@ async fn put_community_roles(
     drop(guard);
     if let Some(io) = state.socket_io() {
         for channel_id in &affected { crate::socketio::evict_channel_disallowed(&io, &state, channel_id).await; }
+        evict_inherited_voice_policy(&io, &state, None).await;
     }
     drop(_message_commit);
     drop(_membership);
@@ -762,9 +807,10 @@ async fn put_my_community_roles(
     if let Some(io) = state.socket_io() {
         for channel_id in &affected {
             if !matches!(crate::channel_access::channel_role_allows(&state, auth.user_id, channel_id).await, Ok(true)) {
-                crate::socketio::evict_channel_user(&io, channel_id, auth.user_id);
+                crate::socketio::evict_channel_user(&io, &state, channel_id, auth.user_id).await;
             }
         }
+        evict_inherited_voice_policy(&io, &state, Some(auth.user_id)).await;
     }
     drop(_message_commit);
     drop(_membership);
@@ -1111,7 +1157,7 @@ async fn apply_report_action(
         }
     }
     if result.is_ok() && matches!(action.kind, CaseActionKind::ChannelBan) {
-        if let Some(io) = state.socket_io() { crate::socketio::evict_channel_user(&io, &report.channel_id, target_user_id); }
+        if let Some(io) = state.socket_io() { crate::socketio::evict_channel_user(&io, &state, &report.channel_id, target_user_id).await; }
     }
     action.outcome = if result.is_ok() { "applied".into() } else { "failed".into() };
     {

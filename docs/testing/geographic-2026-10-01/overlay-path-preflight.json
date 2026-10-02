@@ -1,0 +1,128 @@
+{
+  "checkedAtUtc": "2026-10-01T07:32:25.060176+00:00",
+  "scope": "Tailscale discovery-protocol reachability only; does not traverse application OS/firewall or prove Wabi RPC",
+  "paths": [
+    {
+      "source": "dotRonin",
+      "target": "Ronin",
+      "result": "PASS",
+      "samples": [
+        {
+          "path": "relay",
+          "rttMs": 186
+        },
+        {
+          "path": "relay",
+          "rttMs": 114
+        },
+        {
+          "path": "relay",
+          "rttMs": 128
+        }
+      ],
+      "exitCode": 0
+    },
+    {
+      "source": "dotRonin",
+      "target": "Iyoku",
+      "result": "PASS",
+      "samples": [
+        {
+          "path": "relay",
+          "rttMs": 189
+        },
+        {
+          "path": "relay",
+          "rttMs": 220
+        },
+        {
+          "path": "relay",
+          "rttMs": 122
+        }
+      ],
+      "exitCode": 0
+    },
+    {
+      "source": "Ronin",
+      "target": "dotRonin",
+      "result": "PASS",
+      "samples": [
+        {
+          "path": "relay",
+          "rttMs": 124
+        },
+        {
+          "path": "relay",
+          "rttMs": 110
+        },
+        {
+          "path": "relay",
+          "rttMs": 107
+        }
+      ],
+      "exitCode": 0
+    },
+    {
+      "source": "Ronin",
+      "target": "Iyoku",
+      "result": "PASS",
+      "samples": [
+        {
+          "path": "relay",
+          "rttMs": 152
+        },
+        {
+          "path": "relay",
+          "rttMs": 125
+        },
+        {
+          "path": "relay",
+          "rttMs": 125
+        }
+      ],
+      "exitCode": 0
+    },
+    {
+      "source": "Iyoku",
+      "target": "dotRonin",
+      "result": "PASS",
+      "samples": [
+        {
+          "path": "direct",
+          "rttMs": 163
+        },
+        {
+          "path": "direct",
+          "rttMs": 123
+        },
+        {
+          "path": "direct",
+          "rttMs": 122
+        }
+      ],
+      "exitCode": 0
+    },
+    {
+      "source": "Iyoku",
+      "target": "Ronin",
+      "result": "PASS",
+      "samples": [
+        {
+          "path": "relay",
+          "rttMs": 226
+        },
+        {
+          "path": "relay",
+          "rttMs": 158
+        },
+        {
+          "path": "direct",
+          "rttMs": 193
+        }
+      ],
+      "exitCode": 0
+    }
+  ],
+  "rawRouteAddressesPublished": false,
+  "newRemoteFilesOrServices": 0
+}

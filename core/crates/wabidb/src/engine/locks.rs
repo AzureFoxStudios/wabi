@@ -48,6 +48,41 @@ use std::sync::RwLock;
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
 
+/// Try to own a data directory's persistent lock inode. Its contents are only
+/// diagnostic; the operating system decides ownership and releases it when
+/// the last file handle closes, including after a process crash. Never unlink
+/// this file: a replacement inode could admit a second writer.
+pub(crate) fn try_acquire_process_lock(path: &Path) -> Result<Option<Arc<std::fs::File>>> {
+    use fs4::fs_std::FileExt;
+    use std::io::Write;
+
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if !metadata.is_file() || metadata.file_type().is_symlink() => {
+            return Err(WabiError::Validation {
+                command: "open_engine".into(),
+                reason: "engine lock must be a regular file".into(),
+            });
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(WabiError::Io(error)),
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .map_err(WabiError::Io)?;
+    if !FileExt::try_lock_exclusive(&file).map_err(WabiError::Io)? {
+        return Ok(None);
+    }
+    file.set_len(0).map_err(WabiError::Io)?;
+    write!(file, "{}", std::process::id()).map_err(WabiError::Io)?;
+    file.sync_all().map_err(WabiError::Io)?;
+    Ok(Some(Arc::new(file)))
+}
+
 /// The unique permit that grants the right to commit. There is exactly one
 /// in the entire engine. Held by the sequencer task; released when the
 /// task is dropped (or explicitly via `forget(permit)` for permanent handoff).
@@ -145,6 +180,18 @@ pub struct ProjectionState {
     dispatch_count: AtomicU64,
 }
 
+/// Canonical diagnostic for an in-memory projection view. No record bytes or
+/// individual key hashes are exposed. Empty indexes have no semantic content.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectionContentFingerprint {
+    pub watermark: u64,
+    pub nonempty_indexes: u64,
+    pub entries: u64,
+    pub record_bytes: u64,
+    pub blake3: String,
+}
+
 impl ProjectionState {
     /// Create an empty projection state with the standard set of indexes.
     ///
@@ -202,6 +249,63 @@ impl ProjectionState {
     pub fn index_len(&self, index: &str) -> usize {
         let indexes = self.indexes.read().unwrap();
         indexes.get(index).map_or(0, SkipMap::len)
+    }
+
+    /// Fingerprint a complete healthy view under the application lock, without
+    /// creating indexes, saving a snapshot, or materializing another data copy.
+    /// The caller selects ceilings for decoded key/value bytes and entry count.
+    pub fn content_fingerprint(
+        &self,
+        max_entries: u64,
+        max_record_bytes: u64,
+    ) -> Result<ProjectionContentFingerprint> {
+        let invalid = || WabiError::Validation {
+            command: "projection_content_fingerprint".into(),
+            reason: "projection content limits exceeded or invalid".into(),
+        };
+        if max_entries == 0 || max_record_bytes == 0 {
+            return Err(invalid());
+        }
+        let _application = self.application.read().map_err(|_| invalid())?;
+        if !self.is_healthy() {
+            return Err(WabiError::Validation {
+                command: "projection_content_fingerprint".into(),
+                reason: "projection application is not healthy".into(),
+            });
+        }
+        let indexes = self.indexes.read().map_err(|_| invalid())?;
+        let mut ordered: Vec<_> = indexes.iter().filter(|(_, map)| !map.is_empty()).collect();
+        ordered.sort_by(|(left, _), (right, _)| left.cmp(right));
+        let watermark = self.applied_commit_seq();
+        let mut hash = blake3::Hasher::new();
+        hash.update(b"wabi/projection-content/v1\0");
+        hash.update(&watermark.to_le_bytes());
+        let mut entries = 0u64;
+        let mut record_bytes = 0u64;
+        for (name, map) in &ordered {
+            hash.update(&u64::try_from(name.len()).map_err(|_| invalid())?.to_le_bytes());
+            hash.update(name.as_bytes());
+            hash.update(&u64::try_from(map.len()).map_err(|_| invalid())?.to_le_bytes());
+            for entry in map.iter() {
+                entries = entries.checked_add(1).ok_or_else(invalid)?;
+                for bytes in [entry.key(), entry.value()] {
+                    let length = u64::try_from(bytes.len()).map_err(|_| invalid())?;
+                    record_bytes = record_bytes.checked_add(length).ok_or_else(invalid)?;
+                    if entries > max_entries || record_bytes > max_record_bytes {
+                        return Err(invalid());
+                    }
+                    hash.update(&length.to_le_bytes());
+                    hash.update(bytes);
+                }
+            }
+        }
+        Ok(ProjectionContentFingerprint {
+            watermark,
+            nonempty_indexes: u64::try_from(ordered.len()).map_err(|_| invalid())?,
+            entries,
+            record_bytes,
+            blake3: hash.finalize().to_hex().to_string(),
+        })
     }
 
     /// Run `f` with the `SkipMap` for a named index. The create path takes a
@@ -625,12 +729,33 @@ pub fn spawn_projection_dispatcher(
     checkpoint_data_dir: Option<std::path::PathBuf>,
     checkpoint_interval: Option<u64>,
 ) -> Result<DispatcherHandle> {
+    spawn_projection_dispatcher_with_lock(
+        state,
+        table,
+        channel_depth,
+        checkpoint_data_dir,
+        checkpoint_interval,
+        None,
+    )
+}
+
+/// Engine-owned dispatcher checkpoints must retain the process lock until
+/// their task exits, even when the public engine has already been dropped.
+pub(crate) fn spawn_projection_dispatcher_with_lock(
+    state: Arc<ProjectionState>,
+    table: Arc<DispatchTable>,
+    channel_depth: Option<usize>,
+    checkpoint_data_dir: Option<std::path::PathBuf>,
+    checkpoint_interval: Option<u64>,
+    process_lock: Option<Arc<std::fs::File>>,
+) -> Result<DispatcherHandle> {
     let depth = channel_depth.unwrap_or(DEFAULT_DISPATCHER_CHANNEL_DEPTH);
     let (tx, rx) = mpsc::channel::<DispatchCommit>(depth);
 
     let state_clone = Arc::clone(&state);
     let interval = checkpoint_interval.unwrap_or(0);
     let handle = tokio::spawn(async move {
+        let _process_lock = process_lock;
         run_dispatcher(rx, state_clone, table, checkpoint_data_dir, interval).await;
     });
 

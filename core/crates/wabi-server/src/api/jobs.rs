@@ -15,8 +15,30 @@ use axum::{
 };
 use std::sync::Arc;
 
+use crate::auth_extractor::AuthUser;
 use crate::jobs::{ClaimJobRequest, JobQueueError, JobResultRequest, SubmitJobRequest};
 use crate::state::AppState;
+
+async fn require_admin(
+    state: &AppState,
+    auth: &AuthUser,
+) -> Result<
+    (
+        tokio::sync::OwnedRwLockReadGuard<()>,
+        crate::auth_extractor::CurrentAuthorizationGuard,
+    ),
+    StatusCode,
+> {
+    let membership = state.membership_gate.clone().read_owned().await;
+    let credential = auth
+        .admit_current(state)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    if auth.is_guest || auth.is_bot || !state.is_admin(auth.user_id).await {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok((membership, credential))
+}
 
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
@@ -29,8 +51,16 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
 
 async fn submit_job(
     State(state): State<Arc<AppState>>,
+    auth: AuthUser,
     Json(req): Json<SubmitJobRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    let _authorization = require_admin(&state, &auth).await?;
+    // Media grants must come from the broker/moderation path, which derives
+    // the current room, participant and policy. Raw jobs could bypass that
+    // admission and the experimental broker fence.
+    if req.kind == crate::jobs::JobKind::MediaRelay {
+        return Err(StatusCode::FORBIDDEN);
+    }
     let job = state.job_queue.submit(req).await;
     Ok(Json(serde_json::json!({
         "jobId": job.job_id,
@@ -42,7 +72,9 @@ async fn submit_job(
 
 async fn list_jobs(
     State(state): State<Arc<AppState>>,
+    auth: AuthUser,
 ) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    let _authorization = require_admin(&state, &auth).await?;
     let jobs = state.job_queue.list_jobs(None).await;
     let out: Vec<_> = jobs
         .into_iter()
@@ -98,8 +130,12 @@ async fn report_result(
 
 async fn cancel_job(
     State(state): State<Arc<AppState>>,
+    auth: AuthUser,
     Path(job_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let _authorization = require_admin(&state, &auth)
+        .await
+        .map_err(|status| (status, "Admin access required".into()))?;
     match state.job_queue.cancel_job(&job_id).await {
         Ok(job) => Ok(Json(serde_json::json!({
             "jobId": job.job_id,

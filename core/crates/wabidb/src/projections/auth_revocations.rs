@@ -303,15 +303,135 @@ pub(crate) fn preflight(events: &[EventToWrite], state: &ProjectionState, now: u
     if relevant.is_empty() {
         return Ok(());
     }
-    if relevant.len() != 1 || events.len() != 1 {
-        return Err(bad("revocation delta must be a separate command"));
+    if relevant.len() != 1 {
+        return Err(bad("one revocation delta is required per command"));
     }
     let event = relevant[0];
     if event.stream_id != STREAM || event.stream_kind != 6 || event.record_kind != RecordKind::Event
     {
         return Err(bad("invalid revocation stream or record kind"));
     }
-    plan(&decode(&event.plaintext)?, state, Some(now))?;
+    let delta = decode(&event.plaintext)?;
+    if events.len() != 1 {
+        validate_credential_command(events, &delta, state)?;
+    }
+    plan(&delta, state, Some(now))?;
+    Ok(())
+}
+
+/// Only the Authority's two existing-format account transactions may join a
+/// denial delta. Arbitrary mixed writes, migrations and additional operations
+/// remain forbidden. The sequencer isolates these controls and validates all
+/// events before writing, then the dispatcher applies the whole commit.
+fn validate_credential_command(
+    events: &[EventToWrite],
+    delta: &Delta,
+    state: &ProjectionState,
+) -> Result<()> {
+    if delta.migration || events.last().map(|event| event.event_type.as_str()) != Some(EVENT) {
+        return Err(bad("credential denial must end a non-migration command"));
+    }
+    let [Operation::UserFloor {
+        user_id,
+        exempt_jtis,
+        clear_legacy,
+        ..
+    }] = delta.operations.as_slice()
+    else {
+        return Err(bad(
+            "credential command requires one account revocation floor",
+        ));
+    };
+    if *user_id <= 0
+        || events[..events.len() - 1]
+            .iter()
+            .any(|event| event.stream_kind != 6 || event.record_kind != RecordKind::Event)
+    {
+        return Err(bad("invalid credential stream or record kind"));
+    }
+    match events[0].event_type.as_str() {
+        "user_updated" if events.len() == 2 => {
+            let record = super::users::decode_record(&events[0].plaintext)?;
+            let current = state
+                .get("users", &super::users::encode_key(*user_id as u64))
+                .map(|bytes| super::users::decode_record(&bytes))
+                .transpose()?
+                .ok_or_else(|| bad("credential account no longer exists"))?;
+            if events[0].stream_id != format!("user:{user_id}")
+                || record.user_id != *user_id as u64
+                || !current.is_active
+                || current.password_hash.is_empty()
+                || record.password_hash.is_empty()
+                || !record.username.is_empty()
+                || !record.color.is_empty()
+                || record.handle != current.handle
+                || record.is_active != current.is_active
+                || record.is_registered != current.is_registered
+                || record.created_at_micros != current.created_at_micros
+                || record.last_seen_micros != current.last_seen_micros
+                || record.profile_picture.is_some()
+                || record.username_font.is_some()
+                || record.bio.is_some()
+                || record.status_message.is_some()
+                || exempt_jtis.len() > 1
+                || (*clear_legacy && !exempt_jtis.is_empty())
+            {
+                return Err(bad("invalid credential-only account update"));
+            }
+        }
+        "owner_claimed" if matches!(events.len(), 2 | 3) => {
+            let owner_bytes = state
+                .get("server_meta", super::owner::OWNER_KEY)
+                .ok_or_else(|| bad("ownership transfer requires a current owner"))?;
+            let previous: super::owner::OwnerRecord = serde_json::from_slice(&owner_bytes)
+                .map_err(|_| bad("invalid current owner state"))?;
+            let target: super::owner::OwnerRecord = serde_json::from_slice(&events[0].plaintext)
+                .map_err(|_| bad("invalid ownership transfer"))?;
+            let payload: serde_json::Value = serde_json::from_slice(&events[0].plaintext)
+                .map_err(|_| bad("invalid ownership transfer"))?;
+            if events[0].stream_id != "server_meta"
+                || previous.owner_user_id != *user_id as u64
+                || target.owner_user_id == 0
+                || target.owner_user_id == previous.owner_user_id
+                || payload != serde_json::json!({"owner_user_id":target.owner_user_id})
+                || !*clear_legacy
+                || !exempt_jtis.is_empty()
+            {
+                return Err(bad("ownership transfer must revoke the current owner"));
+            }
+            let removes_owner = super::audit::AuditProjection::get_role(
+                state,
+                "default-workspace",
+                previous.owner_user_id,
+            )
+            .as_deref()
+                == Some("Owner");
+            if removes_owner != (events.len() == 3) {
+                return Err(bad(
+                    "ownership transfer must remove only the prior Owner role",
+                ));
+            }
+            if removes_owner {
+                let role = &events[1];
+                let payload: serde_json::Value = serde_json::from_slice(&role.plaintext)
+                    .map_err(|_| bad("invalid transferred owner role removal"))?;
+                if role.event_type != "role_removed"
+                    || role.stream_id != "rbac:default-workspace"
+                    || payload
+                        != serde_json::json!({"user_id":previous.owner_user_id,
+                        "workspace_id":"default-workspace", "role":"Owner",
+                        "assigned_by":previous.owner_user_id})
+                {
+                    return Err(bad("invalid transferred owner role removal"));
+                }
+            }
+        }
+        _ => {
+            return Err(bad(
+                "revocation delta must be standalone or an account credential command",
+            ))
+        }
+    }
     Ok(())
 }
 
@@ -366,6 +486,176 @@ mod tests {
             .apply(&event(true, vec![Operation::Initialize]), &state)
             .unwrap();
         state
+    }
+
+    fn user(id: u64, name: &str, password: &str) -> super::super::users::UserRecord {
+        super::super::users::UserRecord {
+            user_id: id,
+            username: name.into(),
+            handle: None,
+            color: "blue".into(),
+            password_hash: password.into(),
+            is_registered: true,
+            is_active: true,
+            created_at_micros: 1,
+            last_seen_micros: 2,
+            profile_picture: None,
+            username_font: None,
+            bio: None,
+            status_message: None,
+        }
+    }
+    fn write(stream: &str, kind: &str, plaintext: Vec<u8>) -> EventToWrite {
+        EventToWrite {
+            stream_id: stream.into(),
+            event_type: kind.into(),
+            stream_kind: 6,
+            record_kind: RecordKind::Event,
+            plaintext,
+        }
+    }
+    fn test_copy(events: &[EventToWrite]) -> Vec<EventToWrite> {
+        events
+            .iter()
+            .map(|event| EventToWrite {
+                stream_id: event.stream_id.clone(),
+                event_type: event.event_type.clone(),
+                stream_kind: event.stream_kind,
+                record_kind: event.record_kind,
+                plaintext: event.plaintext.clone(),
+            })
+            .collect()
+    }
+    fn password_command(id: u64, hash: &str, floor: u64) -> Vec<EventToWrite> {
+        let mut record = user(id, "", hash);
+        record.color.clear();
+        let delta = command(
+            false,
+            vec![Operation::UserFloor {
+                user_id: id as i64,
+                floor,
+                exempt_jtis: vec!["own".into()],
+                clear_legacy: false,
+            }],
+        );
+        vec![
+            write(
+                &format!("user:{id}"),
+                "user_updated",
+                super::super::users::encode_record(&record),
+            ),
+            delta.events.into_iter().next().unwrap(),
+        ]
+    }
+    fn owner_command(from: u64, to: u64, floor: u64) -> Vec<EventToWrite> {
+        let delta = command(
+            false,
+            vec![Operation::UserFloor {
+                user_id: from as i64,
+                floor,
+                exempt_jtis: vec![],
+                clear_legacy: true,
+            }],
+        );
+        vec![
+            write(
+                "server_meta",
+                "owner_claimed",
+                serde_json::json!({"owner_user_id":to})
+                    .to_string()
+                    .into_bytes(),
+            ),
+            delta.events.into_iter().next().unwrap(),
+        ]
+    }
+    fn remove_owner(id: u64) -> EventToWrite {
+        write(
+            "rbac:default-workspace",
+            "role_removed",
+            serde_json::json!({"user_id":id,
+            "workspace_id":"default-workspace", "role":"Owner", "assigned_by":id})
+            .to_string()
+            .into_bytes(),
+        )
+    }
+
+    #[test]
+    fn only_exact_atomic_credential_shapes_admit_and_denials_still_advance() {
+        let state = initialized();
+        state.insert(
+            "users",
+            super::super::users::encode_key(8),
+            super::super::users::encode_record(&user(8, "old-owner", "old-hash")),
+            1,
+        );
+        state.insert(
+            "server_meta",
+            super::super::owner::OWNER_KEY.to_vec(),
+            serde_json::json!({"owner_user_id":8})
+                .to_string()
+                .into_bytes(),
+            1,
+        );
+        let password = password_command(8, "new-hash", 100);
+        preflight(&password, &state, 10_000).unwrap();
+        let transfer = owner_command(8, 9, 101);
+        preflight(&transfer, &state, 10_000).unwrap();
+        // An otherwise canonical denial cannot smuggle an unrelated write.
+        let mut invalid = test_copy(&password);
+        invalid.insert(1, write("other", "probe", vec![]));
+        assert!(preflight(&invalid, &state, 10_000).is_err());
+        let mut invalid = test_copy(&password);
+        invalid[0].stream_id = "user:9".into();
+        assert!(preflight(&invalid, &state, 10_000).is_err());
+        let mut invalid = test_copy(&password);
+        let mut patch = super::super::users::decode_record(&invalid[0].plaintext).unwrap();
+        patch.username = "renamed-in-credential-command".into();
+        invalid[0].plaintext = super::super::users::encode_record(&patch);
+        assert!(preflight(&invalid, &state, 10_000).is_err());
+        let mut invalid = test_copy(&password);
+        invalid.reverse();
+        assert!(preflight(&invalid, &state, 10_000).is_err());
+        let mut invalid = test_copy(&password);
+        let mut delta = decode(&invalid[1].plaintext).unwrap();
+        delta.operations.push(Operation::Token {
+            jti: "extra".into(),
+            expires_at: 100,
+        });
+        invalid[1].plaintext = serde_json::to_vec(&delta).unwrap();
+        assert!(preflight(&invalid, &state, 10_000).is_err());
+        let mut invalid = test_copy(&password);
+        let mut delta = decode(&invalid[1].plaintext).unwrap();
+        delta.migration = true;
+        invalid[1].plaintext = serde_json::to_vec(&delta).unwrap();
+        assert!(preflight(&invalid, &state, 10_000).is_err());
+        assert!(preflight(&owner_command(9, 10, 100), &state, 10_000).is_err());
+        assert!(preflight(&owner_command(8, 8, 100), &state, 10_000).is_err());
+        let mut invalid = test_copy(&transfer);
+        invalid.insert(1, remove_owner(8));
+        assert!(preflight(&invalid, &state, 10_000).is_err());
+        super::super::audit::AuditProjection.apply(&DurableEvent { commit_seq: 2,
+            stream_id: "rbac:default-workspace".into(), event_type: "role_assigned".into(),
+            payload: serde_json::json!({"user_id":8,"workspace_id":"default-workspace","role":"Owner"}).to_string().into_bytes() }, &state).unwrap();
+        assert!(preflight(&transfer, &state, 10_000).is_err());
+        let mut transfer = transfer;
+        transfer.insert(1, remove_owner(8));
+        preflight(&transfer, &state, 10_000).unwrap();
+        let mut invalid = test_copy(&transfer);
+        invalid[1] = remove_owner(9);
+        assert!(preflight(&invalid, &state, 10_000).is_err());
+        AuthRevocationsProjection
+            .apply(
+                &DurableEvent {
+                    commit_seq: 3,
+                    stream_id: STREAM.into(),
+                    event_type: EVENT.into(),
+                    payload: password[1].plaintext.clone(),
+                },
+                &state,
+            )
+            .unwrap();
+        assert!(preflight(&password, &state, 10_000).is_err());
+        preflight(&transfer, &state, 10_000).unwrap();
     }
     fn preflight_event(event: &DurableEvent, state: &ProjectionState, now: u64) -> Result<()> {
         preflight(
@@ -705,8 +995,10 @@ mod tests {
             .await
             .unwrap();
         drop(engine);
+        let stopped = crate::tests::wait_for_stopped_engine(directory.path()).await;
         std::fs::remove_file(directory.path().join("projections/snapshot.json")).unwrap();
-        let reopened = crate::engine::WabiDbEngine::open(config(directory.path()))
+        drop(stopped);
+        let reopened = crate::tests::reopen_after_drop(config(directory.path()), None)
             .await
             .unwrap();
         assert_eq!(
@@ -725,6 +1017,131 @@ mod tests {
             .projection_state()
             .get(INDEX, &token_key("partial"))
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn atomic_password_and_transfer_commits_replay_and_stale_floor_writes_neither_half() {
+        let directory = tempfile::tempdir().unwrap();
+        let engine = engine(directory.path()).await;
+        engine
+            .run_command(command(true, vec![Operation::Initialize]))
+            .await
+            .unwrap();
+        for name in ["old-owner", "new-owner"] {
+            let mut cmd = command(
+                false,
+                vec![Operation::Token {
+                    jti: "unused".into(),
+                    expires_at: 1,
+                }],
+            );
+            cmd.events = vec![write(
+                "users",
+                "user_registered",
+                super::super::users::encode_record(&user(0, name, "old-hash")),
+            )];
+            engine.get_or_create_stream_key("users").await.unwrap();
+            engine.run_command(cmd).await.unwrap();
+        }
+        let mut cmd = command(
+            false,
+            vec![Operation::Token {
+                jti: "unused".into(),
+                expires_at: 1,
+            }],
+        );
+        cmd.events = vec![write(
+            "server_meta",
+            "owner_claimed",
+            serde_json::json!({"owner_user_id":2})
+                .to_string()
+                .into_bytes(),
+        )];
+        engine
+            .get_or_create_stream_key("server_meta")
+            .await
+            .unwrap();
+        engine.run_command(cmd).await.unwrap();
+        engine.get_or_create_stream_key("user:2").await.unwrap();
+        let mut cmd = command(
+            false,
+            vec![Operation::Token {
+                jti: "unused".into(),
+                expires_at: 1,
+            }],
+        );
+        cmd.events = password_command(2, "new-hash", 100);
+        let accepted = engine.run_command(cmd).await.unwrap();
+        let before = crate::commit_index::batcher::read_all_entries(
+            &directory.path().join("global/commit-index"),
+        )
+        .unwrap()
+        .len();
+        let mut cmd = command(
+            false,
+            vec![Operation::Token {
+                jti: "unused".into(),
+                expires_at: 1,
+            }],
+        );
+        cmd.events = password_command(2, "must-not-publish", 99);
+        assert!(engine.run_command(cmd).await.is_err());
+        assert_eq!(engine.barrier().current(), accepted.commit_seq);
+        assert_eq!(
+            crate::commit_index::batcher::read_all_entries(
+                &directory.path().join("global/commit-index")
+            )
+            .unwrap()
+            .len(),
+            before
+        );
+        let record = super::super::users::decode_record(
+            &engine
+                .projection_state()
+                .get("users", &super::super::users::encode_key(2))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(record.password_hash, "new-hash");
+        let mut cmd = command(
+            false,
+            vec![Operation::Token {
+                jti: "unused".into(),
+                expires_at: 1,
+            }],
+        );
+        cmd.events = owner_command(2, 3, 101);
+        engine.run_command(cmd).await.unwrap();
+        drop(engine);
+        let stopped = crate::tests::wait_for_stopped_engine(directory.path()).await;
+        std::fs::remove_file(directory.path().join("projections/snapshot.json")).unwrap();
+        drop(stopped);
+        let reopened = crate::tests::reopen_after_drop(config(directory.path()), None)
+            .await
+            .unwrap();
+        let state = reopened.projection_state();
+        assert_eq!(
+            super::super::owner::OwnerProjection::get_owner(&state),
+            Some(3)
+        );
+        assert_eq!(
+            super::super::users::decode_record(
+                &state
+                    .get("users", &super::super::users::encode_key(2))
+                    .unwrap()
+            )
+            .unwrap()
+            .password_hash,
+            "new-hash"
+        );
+        assert_eq!(
+            decode_value(b"user:2", &state.get(INDEX, b"user:2").unwrap()).unwrap(),
+            Value::User {
+                user_id: 2,
+                floor: 101,
+                exempt_jtis: vec![]
+            }
+        );
     }
 
     #[tokio::test]
@@ -798,8 +1215,10 @@ mod tests {
             .await
             .is_err());
         drop(receiver);
+        let stopped = crate::tests::wait_for_stopped_engine(receiver_dir.path()).await;
         std::fs::remove_file(receiver_dir.path().join("projections/snapshot.json")).unwrap();
-        let reopened = crate::engine::WabiDbEngine::open(config(receiver_dir.path()))
+        drop(stopped);
+        let reopened = crate::tests::reopen_after_drop(config(receiver_dir.path()), None)
             .await
             .unwrap();
         assert!(reopened.local_writer_fenced().await);

@@ -109,6 +109,60 @@ pub fn encode_key(user_id: u64) -> Vec<u8> {
 
 pub struct UsersProjection;
 
+/// Admission only: older duplicate names remain replayable. The sequencer
+/// isolates identity writes, so every check observes preceding applied names.
+pub fn preflight_command(
+    events: &[crate::sequencer::types::EventToWrite], state: &ProjectionState,
+) -> Result<()> {
+    if !events.iter().any(|event| matches!(event.event_type.as_str(), "user_registered" | "user_updated" | "owner_claimed")) {
+        return Ok(());
+    }
+    let mut users = UsersProjection.query(state, &UsersFilter::default())?;
+    for event in events {
+        if event.event_type == "owner_claimed" {
+            let owner: crate::projections::owner::OwnerRecord = serde_json::from_slice(&event.plaintext)
+                .map_err(|_| crate::error::WabiError::Validation {
+                    command: "user_identity".into(), reason: "invalid ownership target".into(),
+                })?;
+            if !users.iter().any(|user| user.user_id == owner.owner_user_id && user.is_active
+                && user.is_registered && !user.password_hash.is_empty()) {
+                return Err(crate::error::WabiError::Validation {
+                    command: "user_identity".into(), reason: "ownership target no longer qualifies".into(),
+                });
+            }
+            continue;
+        }
+        if !matches!(event.event_type.as_str(), "user_registered" | "user_updated") { continue; }
+        let record = decode_record(&event.plaintext)?;
+        let registered = event.event_type == "user_registered";
+        if !registered {
+            let current = users.iter().find(|user| user.user_id == record.user_id)
+                .ok_or_else(|| crate::error::WabiError::Validation {
+                    command: "user_identity".into(), reason: "account no longer exists".into(),
+                })?;
+            if record.username.is_empty() || record.username.to_lowercase() == current.username.to_lowercase() {
+                continue;
+            }
+        }
+        if record.username.trim().is_empty() {
+            return Err(crate::error::WabiError::Validation {
+                command: "user_identity".into(), reason: "username cannot be empty".into(),
+            });
+        }
+        let name = record.username.to_lowercase();
+        if users.iter().any(|user| user.username.to_lowercase() == name && (registered || user.user_id != record.user_id)) {
+            return Err(crate::error::WabiError::Validation {
+                command: "user_identity".into(), reason: "username is already taken".into(),
+            });
+        }
+        if registered { users.push(record); }
+        else if let Some(current) = users.iter_mut().find(|user| user.user_id == record.user_id) {
+            current.username = record.username;
+        }
+    }
+    Ok(())
+}
+
 impl Projection for UsersProjection {
     fn event_type(&self) -> &str {
         "user_registered"
@@ -129,7 +183,8 @@ impl Projection for UsersProjection {
             let key = encode_key(record.user_id);
             if let Some(existing_bytes) = state.get("users", &key) {
                 if let Ok(mut existing) = decode_record(&existing_bytes) {
-                    if record.username != existing.username {
+                    // Credential-only patches do not repeat a stale login name.
+                    if !record.username.is_empty() && record.username != existing.username {
                         existing.username = record.username;
                     }
                     if let Some(color) = record.color.strip_prefix("\0") {

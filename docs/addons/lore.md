@@ -713,10 +713,17 @@ truth" design — so it was chosen over the lazy approach.
 
 ### 11.1 Authentication
 
-Every Lore endpoint uses the same `AuthUser` extractor as the rest of the API:
-a valid Wabi session/JWT bearer token. There is no separate Lore credential —
-the Wabi token is the credential, and the server acts on the user's behalf when
-shelling out to the `lore` CLI.
+Account routes use the normal account access-token extractor. File/history
+routes explicitly accept repository-bound `wblore_` connect tokens with exact
+read or read/write scopes. Connect tokens do not authenticate general account,
+admin, bot-management or host-operation routes. Both account and repository
+denials are checked again after request-body and membership waits. A supplied
+invalid credential cannot fall back to an anonymous signed download.
+
+Signed download links bind the channel, user, file and expiry, have at most a
+one-hour remaining lifetime, and require current membership. Their signatures
+use constant-time verification. They are shareable bearer links for that file;
+account logout does not individually revoke an already issued link.
 
 ### 11.2 Authorization
 
@@ -729,6 +736,24 @@ Authorization is **channel-scoped**:
 The `upload_recording` endpoint additionally restricts its target to the single
 configured Recordings channel and refuses (404) anything that isn't a real Lore
 repo, so a user cannot redirect recordings into an arbitrary channel.
+
+Host operations have a narrower boundary: running host scripts, starting an
+editor container, and configuring or running an external export require the
+current server owner, current channel membership and a current account session.
+Repository Developer and server Admin roles do not grant host execution.
+Scripts and editor containers are disabled by default. Script working directories
+are the actual channel repository, and session inspection/control is limited to
+the matching channel and its creator or authorized staff.
+
+The current worktree uses descriptor-relative file access and rejects symlinks,
+traversal and internal repository furniture. Downloads and ZIP archives use
+private streamed snapshots rather than a shared predictable cache or whole-file
+memory buffers. Git import and mirror fetch/push accept public HTTPS targets,
+reject embedded credentials and private addresses, pin an approved DNS result,
+disable redirects and ambient Git configuration, and bound subprocess execution.
+Local paths, `file:` remotes and ambient SSH authentication are unsupported in
+these API-selected operations. Export remains an explicit snapshot replacement;
+it is not automatic synchronization or a Lore history bridge.
 
 ### 11.3 Encryption & transport
 

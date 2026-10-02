@@ -709,4 +709,12 @@
 	.add-btn:hover {
 		background: var(--biz-accent-hover, #d97706);
 	}
+
+ .calendar-container { background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: 14px; overflow: hidden; }
+ .calendar-header.embedded { padding: 16px; }
+ .weekday-header { background: var(--bg-secondary); padding-block: 12px; color: var(--text-muted); font-size: 12px; letter-spacing: .04em; }
+ .day-cell { background: var(--bg-primary); min-height: 96px; padding: 10px; transition: background .12s; }
+ .day-cell:hover { background: var(--surface-hover); }
+ .day-number { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; font-size: 13px; border-radius: 50%; }
+ @media (max-width: 700px) { .day-cell { padding: 4px; min-height: 70px; } .calendar-header.embedded { padding: 10px; } }
 </style>

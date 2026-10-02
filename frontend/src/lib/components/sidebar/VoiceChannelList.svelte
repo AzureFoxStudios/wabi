@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ScreenSharePreview from './ScreenSharePreview.svelte';
 	import { onMount } from 'svelte';
 	import { derived } from 'svelte/store';
 	import { slide, fly } from 'svelte/transition';
@@ -306,7 +307,7 @@
 					{:else}
 						<span class="voice-member-avatar voice-avatar-fallback" class:speaking={row.isSelfSpeaking}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
 					{/if}
-					<span class="voice-member-name">{$currentUser.username}</span>
+					<span class="voice-member-name">{$currentUser.username}</span><ScreenSharePreview channelId={channel.id} userId={$currentUser.id} username={$currentUser.username} self />
 					{#if row.selfRecording}
 						<span class="voice-recording-tag member">REC</span>
 					{/if}
@@ -370,7 +371,7 @@
 					{:else}
 						<span class="voice-member-avatar voice-avatar-fallback" class:speaking={row.speakingIds.has(member.userId)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 					{/if}
-					<span class="voice-member-name">{member.username || member.userId}</span>
+					<span class="voice-member-name">{member.username || member.userId}</span><ScreenSharePreview channelId={channel.id} userId={member.userId} username={member.username || member.userId} announced={row.screenIds.has(member.userId)} />
 					{#if row.screenIds.has(member.userId)}
 						<svg class="voice-share-badge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="sharing screen"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
 					{/if}
@@ -449,7 +450,7 @@
 					{:else}
 						<span class="voice-member-avatar voice-avatar-fallback" class:speaking={brow.isSelfSpeaking}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
 					{/if}
-					<span class="voice-member-name">{$currentUser.username}</span>
+					<span class="voice-member-name">{$currentUser.username}</span><ScreenSharePreview channelId={channel.id} userId={$currentUser.id} username={$currentUser.username} self />
 					{#if brow.selfRecording}
 						<span class="voice-recording-tag member">REC</span>
 					{/if}
@@ -474,7 +475,7 @@
 						{:else}
 							<span class="voice-member-avatar voice-avatar-fallback" class:speaking={brow.speakingIds.has(member.userId)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 						{/if}
-						<span class="voice-member-name">{member.username || member.userId}</span>
+						<span class="voice-member-name">{member.username || member.userId}</span><ScreenSharePreview channelId={channel.id} userId={member.userId} username={member.username || member.userId} announced={brow.screenIds.has(member.userId)} />
 						{#if brow.screenIds.has(member.userId)}
 							<svg class="voice-share-badge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="sharing screen"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
 						{/if}

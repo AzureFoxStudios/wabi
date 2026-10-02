@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "actualExitCode": 0,
+  "pass": 11,
+  "fail": 0,
+  "sourceHashes": {
+    "scripts/geographic-acceptance/checkpoint-field-host.py": "6553ae9f69c8e20c937ab2a6c156cf233b667833ef8c259263765972460525df",
+    "scripts/geographic-acceptance/checkpoint-field-run.py": "f82bca13be288528dfd3d238d6866601bff7f2c05f0cd0fc17bf037c199064d7",
+    "scripts/geographic-acceptance/test_checkpoint_field_host.py": "6679058c4e823dbfb0afa108fd0726fb3152c361e272160d62b9d83054d00a57",
+    "scripts/geographic-acceptance/rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2"
+  },
+  "rawLogSha256": "170a732eb7199f408c5e7f890a5177aa6a12a492de627a5f1a608d995936ea3a"
+}

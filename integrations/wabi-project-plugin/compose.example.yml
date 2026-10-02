@@ -1,0 +1,56 @@
+# Optional personal connector; deploy independently of the Wabi Authority.
+# Copy into an operator-owned directory with the two gateway scripts in scripts/.
+# Keep the connection file outside Git and restrict it to the service user.
+services:
+  project-plugin:
+    image: docker.io/library/node:22.22.3-bookworm-slim
+    container_name: ${WABI_PROJECT_PLUGIN_CONTAINER:-wabi-project-plugin}
+    user: '1000:1000'
+    read_only: true
+    restart: unless-stopped
+    init: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    working_dir: /opt/wabi-project
+    command:
+      - node
+      - wabi-project-plugin.mjs
+      - --connection
+      - /config/connection.json
+      - --public-url
+      - ${WABI_PROJECT_PUBLIC_URL:?Set the public HTTPS origin}
+      - --name
+      - ${WABI_PROJECT_CONNECTION_NAME:?Set the visible connection name}
+      - --callback
+      - ${WABI_PROJECT_CALLBACK:?Set the exact approved OAuth callback}
+      - --auth-path
+      - /project-plugin
+      - --control-socket
+      - /run/control/control.sock
+      - --listen
+      - 0.0.0.0
+      - --port
+      - '4319'
+    volumes:
+      - ./scripts:/opt/wabi-project:ro
+      - ${WABI_PROJECT_CONNECTION_FILE:?Set the protected connection file}:/config/connection.json:ro
+    tmpfs: ['/tmp:size=4m,mode=1777', '/run/control:size=1m,mode=0700,uid=1000,gid=1000']
+    networks: [wabi]
+    healthcheck:
+      test: ['CMD', 'node', '-e', 'fetch("http://127.0.0.1:4319/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))']
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: '128k'
+        max-file: '1'
+networks:
+  wabi:
+    external: true
+    name: ${WABI_PROJECT_DOCKER_NETWORK:?Set the existing private proxy network}

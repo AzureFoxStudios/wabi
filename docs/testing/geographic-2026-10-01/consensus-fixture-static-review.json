@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-01T15:46:19.668698+00:00",
+  "scope": "read-only review of security-owned fixture; no source edit or test run here",
+  "fixture": "core/crates/wabi-consensus/tests/three_voter_contract.rs",
+  "historicalFixtureSha256": "1afa64078575dac497c8c77b7cfc2edfcb03a03aaae0022138b246da55d89679",
+  "reviewedFixtureSha256": "8e02f84435b6b8c767460887a2c176da9d998b8b5ea9490775865a73acc7800c",
+  "diff": "--- accepted historical fixture\n+++ security-owned correction\n@@ -2,7 +2,7 @@\n //! transport. This does not validate an authenticated physical network or Wabi\n //! canonical writers, sidecar publication, encryption or client reconnection.\n use openraft::{\n-    error::{InstallSnapshotError, RPCError, RaftError, RemoteError, Unreachable},\n+    error::{ClientWriteError, InstallSnapshotError, RPCError, RaftError, RemoteError, Unreachable},\n     network::RPCOption,\n     raft::{\n         AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest,\n@@ -248,14 +248,38 @@\n         .expect(\"durable consensus application deadline\");\n     }\n     async fn write(&self, leader: u64, command: ControlCommand) -> ControlReply {\n-        tokio::time::timeout(\n-            Duration::from_secs(5),\n-            self.nodes[&leader].client_write(command),\n-        )\n+        tokio::time::timeout(Duration::from_secs(5), async {\n+            let mut target = leader;\n+            loop {\n+                match self.nodes[&target].client_write(command.clone()).await {\n+                    Ok(response) => return response.data,\n+                    Err(RaftError::APIError(ClientWriteError::ForwardToLeader(forward))) => {\n+                        tokio::time::sleep(Duration::from_millis(30)).await;\n+                        let links = self.shared.read().await;\n+                        let eligible = |id: &u64| {\n+                            self.nodes.contains_key(id)\n+                                && !links.cuts.contains(&(leader, *id))\n+                                && !links.cuts.contains(&(*id, leader))\n+                        };\n+                        target = forward\n+                            .leader_id\n+                            .filter(eligible)\n+                            .or_else(|| {\n+                                self.nodes.iter().find_map(|(id, node)| {\n+                                    (eligible(id)\n+                                        && node.metrics().borrow().state\n+                                            == openraft::ServerState::Leader)\n+                                        .then_some(*id)\n+                                })\n+                            })\n+                            .unwrap_or(target);\n+                    }\n+                    Err(error) => panic!(\"durable consensus proposal failed: {error:?}\"),\n+                }\n+            }\n+        })\n         .await\n-        .unwrap()\n-        .unwrap()\n-        .data\n+        .expect(\"durable consensus proposal deadline\")\n     }\n     async fn finish(&mut self) {\n         for id in [1, 2, 3] {\n",
+  "review": [
+    "Only import and success-write helper differ",
+    "One five-second overall deadline",
+    "Identical command/operation identity retained on explicit ForwardToLeader only",
+    "Candidate remains a retained node and is connected to the original submitting side under modeled cuts",
+    "Other errors remain fatal; timeouts are not converted to success",
+    "All scenario/minority/state/restart assertions unchanged"
+  ],
+  "productionConsensusChanged": false,
+  "actualFocusedTestResult": "not yet supplied at review time",
+  "latestCompletedFullRun": {
+    "ownerSession": "14818",
+    "actualExitCode": 101,
+    "passed": 2634,
+    "failed": 1,
+    "ignored": 11,
+    "groups": 88,
+    "sourceFilesVerifiedUnchanged": 5145,
+    "sourceReceiptUncompressedSha256": "d0c7410698cc40d6ed478b3485b3c784f9ed866c2a9019fddedc95e579ad0db3",
+    "sourceReceipt": "docs/testing/security-2026-10-01/source-receipt-before-consensus-fixture.json.gz",
+    "failure": "unchanged consensus leader-selection success fixture ForwardToLeader",
+    "provenance": "Current owner acceptance record docs/plans/2026-09-30-authority-security-hardening.md; source receipt preserved before correction. Original CargoPID550597 now absent."
+  },
+  "ownership": "Security chat holds fixture/all compiled sources/Cargo until actual focused+cached-full completion and source readback",
+  "canonicalWriterPermitted": false,
+  "fullInstanceReady": false,
+  "rootFocusedAcceptance": {
+    "actualExitCode": 0,
+    "passed": 3,
+    "provenance": "Explicit actual-result message from security owner; original scenario/assertion bodies remain unchanged",
+    "sourceSha256": "8e02f84435b6b8c767460887a2c176da9d998b8b5ea9490775865a73acc7800c"
+  },
+  "currentSourceSnapshot": {
+    "path": "docs/testing/security-2026-10-01/source-receipt.json.gz",
+    "uncompressedSha256": "32c17860fe6f080eaa8dee6fef52dffa1dcd1e0ba9c80768f475caf2699007df",
+    "files": 5145,
+    "changedFromPriorFullRun": [
+      "core/crates/wabi-consensus/tests/three_voter_contract.rs"
+    ],
+    "currentSourceReadbackMismatches": [],
+    "checkedAtUtc": "2026-10-01T15:49:47.178636+00:00"
+  },
+  "cachedFullWait": {
+    "observedAtUtc": "2026-10-01T15:46:56.712982+00:00",
+    "pid": 580597,
+    "startTicks": "11565137",
+    "state": "S",
+    "actualFinalResult": "pending at observation"
+  },
+  "organizerRevision": 32
+}

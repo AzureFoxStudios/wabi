@@ -26,6 +26,14 @@ export function parseAction(content) {
  if (!action || typeof action.tool !== 'string' || !action.arguments || typeof action.arguments !== 'object' || Array.isArray(action.arguments)) throw new Error('Model did not return a valid tool action');
  return action;
 }
+// Connectivity loss does not prove a dead computer. Only the Authority's
+// current, unexpired attempt authorizes another model call or tool submission.
+function activeAttempt(current, claimed, authorityNow=Date.now()*1000) {
+ return current?.status === 'running' && current.attempt === claimed.attempt &&
+  current.workerId === claimed.workerId &&
+  !current.pending && Number.isSafeInteger(current.leaseUntilMicros) &&
+  current.leaseUntilMicros > authorityNow;
+}
 async function jsonResponse(response) {
  if (!response.ok) throw new Error(`Request failed (${response.status})`);
  const reader = response.body.getReader(); let total=0; const chunks=[];
@@ -41,21 +49,44 @@ export async function runWorker(config, { once=false, signal, fetcher=fetch, onP
  const completionPath=config.completionPath??(new URL(provider).hostname==='openrouter.ai'?'/api/v1/chat/completions':'/v1/chat/completions');
  if (!['/api/v1/chat/completions','/v1/chat/completions'].includes(completionPath)) throw new Error('Unsupported completion path');
  const base=`${wabi}/api/projects/${encodeURIComponent(config.channel)}`;
- const request=async(path,body)=>jsonResponse(await fetcher(`${base}${path}`,{method:body===undefined?'GET':'POST',headers:{Authorization:`Bot ${config.botToken}`,'Content-Type':'application/json'},signal:AbortSignal.any([AbortSignal.timeout(30_000),...(signal?[signal]:[])]),...(body===undefined?{}:{body:JSON.stringify(body)})}));
- const action=async(run,tool,args,operationId=randomUUID())=>request(`/runs/${encodeURIComponent(run.runId)}/step`,{expectedRevision:run.revision,attempt:run.attempt,operationId,tool,arguments:args});
+ if(config.workerId && (!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(config.workerId) || !config.workerName)) throw new Error('An enrolled worker needs a persistent UUID and a computer label');
+ let clockOffset=0;
+ const authorityNow=()=>Date.now()*1000+clockOffset;
+ const request=async(path,body)=>{
+  const value=await jsonResponse(await fetcher(`${base}${path}`,{method:body===undefined?'GET':'POST',redirect:'error',headers:{Authorization:`Bot ${config.botToken}`,'Content-Type':'application/json'},signal:AbortSignal.any([AbortSignal.timeout(30_000),...(signal?[signal]:[])]),...(body===undefined?{}:{body:JSON.stringify(body)})}));
+  if(Number.isSafeInteger(value.serverNowMicros))clockOffset=value.serverNowMicros-Date.now()*1000;
+  if(path==='/runs' && config.workerId && value.workersEnabled===false)throw new Error('Worker connections addon is disabled');
+  return value;
+ };
+ const action=async(run,tool,args,operationId=randomUUID())=>request(`/runs/${encodeURIComponent(run.runId)}/step`,{expectedRevision:run.revision,attempt:run.attempt,operationId,tool,arguments:args,...(config.workerId?{workerId:config.workerId}:{})});
+ let lastHeartbeat=0;
+ if(config.workerId) {
+  await request('/workers',{workerId:config.workerId,name:config.workerName,harness:'api_worker',provider:new URL(provider).hostname,model:config.model});
+  lastHeartbeat=Date.now();
+ }
+ const heartbeat=async()=>{
+  if(config.workerId && Date.now()-lastHeartbeat>=30_000) {
+   await request(`/workers/${encodeURIComponent(config.workerId)}/heartbeat`,{});lastHeartbeat=Date.now();
+  }
+ };
  do {
+  await heartbeat();
   const {runs}=await request('/runs');
-  const next=runs.find(r=>r.status==='queued');
+  const next=runs.find(r=>r.status==='queued' && (!r.targetWorkerId || r.targetWorkerId===config.workerId) ||
+   config.workerId && r.status==='running' && r.leaseUntilMicros<=authorityNow() && !r.pending &&
+   r.recoveryPolicy?.automatic && r.recoveryPolicy.backupWorkerIds.includes(config.workerId) && r.workerId!==config.workerId && r.recoveryCount<r.recoveryPolicy.maxRecoveries);
   if (!next) { if(once) return; await delay(2500,signal); continue; }
   let run;
-  try { run=await request(`/runs/${encodeURIComponent(next.runId)}/claim`,{expectedRevision:next.revision,provider:new URL(provider).hostname,model:config.model}); }
+  try { run=await request(`/runs/${encodeURIComponent(next.runId)}/claim`,{expectedRevision:next.revision,provider:new URL(provider).hostname,model:config.model,...(config.workerId?{workerId:config.workerId}:{})}); }
   catch { if (once) throw new Error('Run could not be claimed; another worker may be active'); await delay(2500,signal); continue; }
   onProgress({runId:run.runId,status:'running'});
+  const claimedAttempt=run.attempt;
   try {
    for (let turn=0;turn<=12;turn++) {
+    await heartbeat();
     // Confirm the active attempt before each provider call. No automatic retries or paid fallback.
     const current=(await request('/runs')).runs.find(r=>r.runId===run.runId);
-    if (!current || current.status!=='running' || current.attempt!==run.attempt) {run=current;break;}
+    if (!activeAttempt(current,run,authorityNow())) {run=current;break;}
     run=current;
     const messages=[{role:'system',content:INSTRUCTIONS},{role:'user',content:JSON.stringify({mode:run.mode,prompt:run.prompt,remainingToolSteps:12-run.steps.length})}];
     for (const step of run.steps) {
@@ -64,9 +95,14 @@ export async function runWorker(config, { once=false, signal, fetcher=fetch, onP
      messages.push({role:'user',content:`Recorded tool result: ${result.length>24000?JSON.stringify({truncated:true,excerpt:result.slice(0,24000)}):result}`});
     }
     if (JSON.stringify(messages).length>180000) throw new Error('Context limit reached; split this work into smaller cards');
-    const answer=await jsonResponse(await fetcher(`${provider}${completionPath}`,{method:'POST',headers:{Authorization:`Bearer ${config.apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:config.model,messages,max_tokens:maxTokens,temperature:0.2,...(new URL(provider).hostname==='openrouter.ai'?{response_format:{type:'json_object'}}:{}),...(config.reasoningEffort?{reasoning:{effort:config.reasoningEffort}}:{})}),signal:AbortSignal.any([AbortSignal.timeout(75_000),...(signal?[signal]:[])])}));
+    const answer=await jsonResponse(await fetcher(`${provider}${completionPath}`,{method:'POST',redirect:'error',headers:{Authorization:`Bearer ${config.apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:config.model,messages,max_tokens:maxTokens,temperature:0.2,...(new URL(provider).hostname==='openrouter.ai'?{response_format:{type:'json_object'}}:{}),...(config.reasoningEffort?{reasoning:{effort:config.reasoningEffort}}:{})}),signal:AbortSignal.any([AbortSignal.timeout(75_000),...(signal?[signal]:[])])}));
     // Report routing/termination metadata, never model content or credentials.
     onProgress({runId:run.runId,status:'model_response',model:answer.model,finishReason:answer.choices?.[0]?.finish_reason});
+    // Generation can outlive a pause, lease or transfer. Discard that response
+    // before submitting any action; the server remains the final write fence.
+    const latest=(await request('/runs')).runs.find(r=>r.runId===run.runId);
+    if (!activeAttempt(latest,run,authorityNow())) {run=latest;break;}
+    run=latest;
     let selected;
     const content=answer.choices?.[0]?.message?.content;
     if(!content) throw new Error('Model returned no action content; no action was taken from this response. Earlier recorded steps remain applied');
@@ -76,13 +112,13 @@ export async function runWorker(config, { once=false, signal, fetcher=fetch, onP
     onProgress({runId:run.runId,status:run.status,steps:run.steps.length});
     if(run.status!=='running') break;
    }
-   if(run?.status==='running') run=await action(run,'fail',{reply:'The bounded step budget was reached. Split the remaining work into smaller cards.'});
+   if(run?.attempt===claimedAttempt && activeAttempt(run,run,authorityNow())) run=await action(run,'fail',{reply:'The bounded step budget was reached. Split the remaining work into smaller cards.'});
   } catch (error) {
    // A failed step request might already have committed: never retry it. Reload
    // the durable checkpoint and only report failure when no action is pending.
    try {
     const current=(await request('/runs')).runs.find(r=>r.runId===run.runId);
-    if(current?.status==='running' && current.attempt===run.attempt && !current.pending) {
+    if(run && current?.attempt===claimedAttempt && activeAttempt(current,run,authorityNow())) {
      run=await action(current,'fail',{reply:`Worker stopped: ${String(error.message).slice(0,300)}. No automatic retry was made.`});
     }
    } catch { /* Keep the durable server checkpoint for human review. */ }
@@ -95,5 +131,5 @@ export async function runWorker(config, { once=false, signal, fetcher=fetch, onP
 function delay(ms,signal) {return new Promise((resolve,reject)=>{const timer=setTimeout(done,ms);function done(){signal?.removeEventListener('abort',abort);resolve();}function abort(){clearTimeout(timer);signal?.removeEventListener('abort',abort);reject(new Error('Worker stopped'));}if(signal?.aborted)abort();else signal?.addEventListener('abort',abort,{once:true});});}
 if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href) {
  const controller=new AbortController();process.once('SIGINT',()=>controller.abort());process.once('SIGTERM',()=>controller.abort());
- runWorker({wabi:process.env.WABI_PROJECT_URL,channel:process.env.WABI_PROJECT_CHANNEL_ID,botToken:process.env.WABI_BOT_TOKEN,provider:process.env.WABI_AI_PROVIDER_URL??'https://openrouter.ai',apiKey:process.env.WABI_AI_API_KEY,completionPath:process.env.WABI_AI_COMPLETION_PATH,model:process.env.WABI_AI_MODEL,maxTokens:process.env.WABI_AI_MAX_TOKENS,reasoningEffort:process.env.WABI_AI_REASONING_EFFORT},{once:process.argv.includes('--once'),signal:controller.signal,onProgress:e=>process.stdout.write(`${JSON.stringify(e)}\n`)}).catch(()=>{process.stderr.write('Project worker stopped. Check configuration and the durable run checkpoint.\n');process.exitCode=1;});
+ runWorker({wabi:process.env.WABI_PROJECT_URL,channel:process.env.WABI_PROJECT_CHANNEL_ID,botToken:process.env.WABI_BOT_TOKEN,workerId:process.env.WABI_WORKER_ID,workerName:process.env.WABI_WORKER_NAME,provider:process.env.WABI_AI_PROVIDER_URL??'https://openrouter.ai',apiKey:process.env.WABI_AI_API_KEY,completionPath:process.env.WABI_AI_COMPLETION_PATH,model:process.env.WABI_AI_MODEL,maxTokens:process.env.WABI_AI_MAX_TOKENS,reasoningEffort:process.env.WABI_AI_REASONING_EFFORT},{once:process.argv.includes('--once'),signal:controller.signal,onProgress:e=>process.stdout.write(`${JSON.stringify(e)}\n`)}).catch(()=>{process.stderr.write('Project worker stopped. Check configuration and the durable run checkpoint.\n');process.exitCode=1;});
 }
