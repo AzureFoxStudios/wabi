@@ -125,6 +125,14 @@ export interface LivekitAccessTokenResponse {
 	url: string;
 	roomName: string;
 	identity: string;
+	stableUserId?: string;
+	canPublish?: boolean;
+	canPublishMicrophone?: boolean;
+	canSubscribe?: boolean;
+	listeningOnly?: boolean;
+	mutedOnEntry?: boolean;
+	serverMuted?: boolean;
+	serverDeafened?: boolean;
 	relayId?: number | null;
 	relayName?: string | null;
 	source?: MediaRelaySelectionSource;

@@ -5,7 +5,17 @@
 //! moderation code never needs LiveKit root credentials. Queueing an update
 //! is not confirmation that a helper applied it or that an old token expired.
 
-use std::sync::Arc;
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
+
+pub(crate) fn livekit_device_identity(user_id: i64, socket_id: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    socket_id.hash(&mut hasher);
+    format!("user:{user_id}:device:{:016x}", hasher.finish())
+}
 use wabidb::engine::wabi_store::WabiStore;
 
 use crate::{
@@ -59,32 +69,63 @@ pub async fn refresh_participant_permissions(
     } else {
         serde_json::json!([])
     };
-    let payload = serde_json::json!({
-        "operation": "update_participant_permissions",
-        "tenantNamespace": room.tenant_namespace,
-        "roomId": room.room_id,
-        "externalRoomName": room.external_room_name,
-        "channelId": room.channel_id,
-        "assignedNodeId": node_id,
-        "identity": format!("user:{user_id}"),
-        "grants": {
-            "canPublish": can_publish,
-            "canSubscribe": !unavailable && !server_deafened,
-            "canPublishData": !unavailable,
-            "canPublishSources": sources,
-        }
-    });
-    state
-        .job_queue
-        .submit(SubmitJobRequest {
-            kind: JobKind::MediaRelay,
-            payload,
-            max_retries: 2,
-        })
-        .await;
+    let devices = crate::api::voice_policy::account_admissions(channel_id, user_id);
+    let identities =
+        std::iter::once((format!("user:{user_id}"), false)).chain(devices.iter().map(|device| {
+            (
+                livekit_device_identity(user_id, &device.socket_id),
+                device.listening_only,
+            )
+        }));
+    for (identity, listening_only) in identities {
+        let device_publish = can_publish && !listening_only;
+        let payload = serde_json::json!({
+            "operation": "update_participant_permissions",
+            "tenantNamespace": room.tenant_namespace,
+            "roomId": room.room_id,
+            "externalRoomName": room.external_room_name,
+            "channelId": room.channel_id,
+            "assignedNodeId": node_id,
+            "identity": identity,
+            "grants": {
+                "canPublish": device_publish,
+                "canSubscribe": !unavailable && !server_deafened,
+                "canPublishData": !unavailable,
+                "canPublishSources": if device_publish { sources.clone() } else { serde_json::json!([]) },
+            }
+        });
+        state
+            .job_queue
+            .submit(SubmitJobRequest {
+                kind: JobKind::MediaRelay,
+                payload,
+                max_retries: 2,
+            })
+            .await;
+    }
     if unavailable {
         Err("Voice restrictions could not be read; a deny-all permission update was queued".into())
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn device_identity_is_stable_and_separates_tabs() {
+        assert_eq!(
+            livekit_device_identity(7, "a"),
+            livekit_device_identity(7, "a")
+        );
+        assert_ne!(
+            livekit_device_identity(7, "a"),
+            livekit_device_identity(7, "b")
+        );
+        assert_ne!(
+            livekit_device_identity(7, "a"),
+            livekit_device_identity(8, "a")
+        );
     }
 }

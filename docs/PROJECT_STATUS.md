@@ -20,6 +20,18 @@ The intended model is:
 
 Wabi is not trying to become a centralized hosted social network, a Matrix/ActivityPub-style federation protocol, or a distributed active-active database product.
 
+## Voice policy integration — development candidate, not deployed
+
+The October 2 integration candidate mounts authenticated voice policy routes,
+adds unique-account room capacity and open/muted/listener entry modes, and
+binds experimental broker tokens to the admitted Socket.IO device. Current
+durable mute/deafen, credentials, receiver consent and fail-closed restriction
+reads remain authoritative. Client policy hydration is fenced by server,
+account and explicit session. The broker remains default-off and its queued
+permission updates do not establish immediate revocation. Actual media/browser
+acceptance and final combined server checks remain pending. See the
+[integration record](plans/2026-10-02-voice-policy-integration.md).
+
 ## Authority security hardening — current worktree candidate, not deployed
 
 The September 30–October 1 candidate reconciles the supplied trust-boundary report with

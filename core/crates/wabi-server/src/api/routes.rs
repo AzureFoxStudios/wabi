@@ -10,7 +10,7 @@ use super::{
     addons, admin, albums, auth, blobs, bots, cad, calls, channels, conversation_notes, e2ee,
     community, emoji, field, following, forum, friends, gallery, incidents, jobs, lan, media, messages, nodes,
     operator, payments, places, preview, privacy, project_tasks, public, server_center, standby, steam, sync,
-    upload, user, wiki,
+    upload, user, voice_policy, wiki,
 };
 // lore is nested inside addons::routes (feature-gated there) — do not import here.
 
@@ -48,6 +48,7 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/e2ee", e2ee::routes(state.clone()))
         // Channel routes
         .nest("/channels", channels::routes(state.clone()))
+        .nest("/voice-policy", voice_policy::routes(state.clone()))
         .nest(
             "/conversation-notes",
             conversation_notes::routes(state.clone()),

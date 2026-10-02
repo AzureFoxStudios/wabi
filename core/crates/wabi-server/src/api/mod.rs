@@ -27,6 +27,8 @@ pub mod lore;
 mod lore_auth;
 pub mod media;
 pub mod media_permissions;
+pub(crate) mod voice_policy;
+pub(crate) mod voice_self_state;
 pub(crate) mod media_node_catalog;
 pub mod messages;
 pub mod nodes;

@@ -219,3 +219,16 @@ See:
 - `../architecture/MEDIA_BACKEND_AND_CERTIFICATION.md`
 
 for the trust model, backend/version policy and certification gates.
+
+## October 2 voice policy integration candidate
+
+The integration branch binds broker requests to the exact admitted live
+Socket.IO device (`socketId`) and mints a matching per-device identity.
+Moderation queues updates for those devices and legacy `user:n` identities.
+Voice entry defaults and unique-account capacity are Authority decisions in
+`voice_policies.json`; malformed stored policies refuse admission on load.
+Entry-policy edits affect subsequent admissions. The broker remains off by
+default behind `experimental-livekit-broker`, and queued updates/old-token
+reconnects retain the revocation limits above. Durable mute/deafen enforcement
+has not been relaxed. See the [integration and pending acceptance
+record](../plans/2026-10-02-voice-policy-integration.md).

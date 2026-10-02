@@ -1,11 +1,11 @@
 //! Helper jobs and media metadata retain the Authority's account/resource boundary.
 use axum::{
     body::{to_bytes, Body},
-    http::{Request, StatusCode},
+    http::{Method, Request, StatusCode},
     Router,
 };
 use serde_json::{json, Value};
-use std::{path::Path, sync::Arc};
+use std::{path::Path, sync::Arc, time::Duration};
 use tower::ServiceExt;
 use wabi_server::{
     api::routes::create_api_router,
@@ -17,6 +17,116 @@ use wabidb::{
     domain::{ChannelKind, MemberRole},
     engine::wabi_store::WabiStore,
 };
+
+struct SocketClient {
+    app: Router,
+    sid: String,
+    socket_id: String,
+    events: Vec<Value>,
+}
+
+impl SocketClient {
+    async fn transport(app: &Router, method: Method, path: &str, body: String) -> String {
+        let response = tokio::time::timeout(
+            Duration::from_secs(3),
+            app.clone().oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header("content-type", "text/plain;charset=UTF-8")
+                    .body(Body::from(body))
+                    .unwrap(),
+            ),
+        )
+        .await
+        .expect("socket transport timed out")
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        String::from_utf8(
+            to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap()
+    }
+
+    fn path(&self) -> String {
+        format!("/socket.io/?EIO=4&transport=polling&sid={}", self.sid)
+    }
+
+    async fn namespace(app: &Router, token: &str) -> (Self, String) {
+        let open = Self::transport(
+            app,
+            Method::GET,
+            "/socket.io/?EIO=4&transport=polling",
+            String::new(),
+        )
+        .await;
+        let open: Value = serde_json::from_str(open.strip_prefix('0').unwrap()).unwrap();
+        let mut client = Self {
+            app: app.clone(),
+            sid: open["sid"].as_str().unwrap().into(),
+            socket_id: String::new(),
+            events: vec![],
+        };
+        Self::transport(
+            app,
+            Method::POST,
+            &client.path(),
+            format!("40{}", json!({"token": token})),
+        )
+        .await;
+        let result = Self::transport(app, Method::GET, &client.path(), String::new()).await;
+        if let Some(payload) = result.strip_prefix("40") {
+            let connected: Value = serde_json::from_str(payload).unwrap();
+            client.socket_id = connected["sid"].as_str().unwrap().into();
+        }
+        (client, result)
+    }
+
+    async fn connect(app: &Router, token: &str) -> Self {
+        let (mut client, result) = Self::namespace(app, token).await;
+        assert!(result.starts_with("40"), "{result}");
+        client
+            .emit("join", json!("client-supplied identity is ignored"))
+            .await;
+        client.event("init").await;
+        client
+    }
+
+    async fn emit(&self, name: &str, payload: Value) {
+        Self::transport(
+            &self.app,
+            Method::POST,
+            &self.path(),
+            format!("42{}", json!([name, payload])),
+        )
+        .await;
+    }
+
+    async fn event(&mut self, name: &str) -> Value {
+        for _ in 0..20 {
+            if let Some(index) = self.events.iter().position(|event| event[0] == name) {
+                return self.events.remove(index)[1].clone();
+            }
+            let result = Self::transport(&self.app, Method::GET, &self.path(), String::new()).await;
+            for packet in result.split('\u{1e}') {
+                if let Some(event) = packet.strip_prefix("42") {
+                    self.events.push(serde_json::from_str(event).unwrap());
+                } else if packet == "2" {
+                    Self::transport(&self.app, Method::POST, &self.path(), "3".into()).await;
+                }
+            }
+        }
+        panic!("no {name} event");
+    }
+
+    async fn barrier(&mut self) {
+        self.emit("get-role-definitions", json!(null)).await;
+        self.event("role-definitions-updated").await;
+    }
+}
 
 async fn server(path: &Path) -> Arc<AppState> {
     Arc::new(
@@ -382,7 +492,9 @@ async fn delayed_media_credentials_recheck_revocation_and_moderation() {
             })
             .await
             .unwrap();
-        let app = create_api_router(state.clone()).with_state(state.clone());
+        let app = create_api_router(state.clone())
+            .with_state(state.clone())
+            .layer(wabi_server::socketio::create_socket_layer(state.clone()));
         let advertisement = Request::builder()
             .method("POST")
             .uri(format!("/nodes/{}/media-advertisement", node.node.node_id))
@@ -422,13 +534,19 @@ async fn delayed_media_credentials_recheck_revocation_and_moderation() {
             .await
             .unwrap();
         let access = token(&state, user, "access", false);
+        let mut client = SocketClient::connect(&app, &access).await;
+        client
+            .emit("voice-channel-join", json!({"channelId": channel}))
+            .await;
+        client.event("voice-channel-admitted").await;
+        let socket_id = client.socket_id.clone();
         let pending = tokio::spawn(async move {
             request(
                 &app,
                 "POST",
                 "/media/livekit/token",
                 Some(&access),
-                json!({"channelId":channel}),
+                json!({"channelId":channel, "socketId":socket_id}),
             )
             .await
         });
