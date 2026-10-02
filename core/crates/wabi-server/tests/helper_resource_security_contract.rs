@@ -454,7 +454,14 @@ async fn delayed_media_credentials_recheck_revocation_and_moderation() {
         jobs::{ClaimJobRequest, JobKind, JobResultRequest},
         nodes::{JoinNodeRequest, NodeCapability, NodeReachability},
     };
-    for change in ["none", "revoke", "mute", "deafen", "corrupt"] {
+    for change in [
+        "none",
+        "revoke",
+        "mute",
+        "deafen",
+        "corrupt",
+        "wrong_identity",
+    ] {
         let dir = tempfile::tempdir().unwrap();
         let state = server(dir.path()).await;
         let user = state
@@ -568,6 +575,14 @@ async fn delayed_media_credentials_recheck_revocation_and_moderation() {
         })
         .await
         .unwrap();
+        let expected_identity = job.payload["identity"]
+            .as_str()
+            .expect("broker request has an exact device identity")
+            .to_owned();
+        assert!(expected_identity.starts_with(&format!("user:{user}:device:")));
+        assert_ne!(expected_identity, format!("user:{user}"));
+        assert_eq!(job.payload["grants"]["canPublish"], true);
+        assert_eq!(job.payload["grants"]["canSubscribe"], true);
         match change {
             "revoke" => state.revoke_user(user as i64).await.unwrap(),
             "mute" => state
@@ -611,6 +626,12 @@ async fn delayed_media_credentials_recheck_revocation_and_moderation() {
             .await
             .unwrap();
         assert_eq!(claimed.job_id, job.job_id);
+        assert_eq!(claimed.payload["identity"], expected_identity);
+        let result_identity = if change == "wrong_identity" {
+            format!("user:{user}")
+        } else {
+            expected_identity.clone()
+        };
         state
             .job_queue
             .report_result(
@@ -623,7 +644,7 @@ async fn delayed_media_credentials_recheck_revocation_and_moderation() {
                     error_message: None,
                     result_payload: Some(
                         json!({"token":"fixture-media-token", "url":"wss://media.example",
-                "roomName":room.external_room_name,"identity":format!("user:{user}")}),
+                "roomName":room.external_room_name,"identity":result_identity}),
                     ),
                 },
             )
@@ -633,8 +654,13 @@ async fn delayed_media_credentials_recheck_revocation_and_moderation() {
         if change == "none" {
             assert_eq!(status, StatusCode::OK);
             assert_eq!(body["token"], "fixture-media-token");
+            assert_eq!(body["identity"], expected_identity);
+            assert_eq!(body["stableUserId"], format!("user-{user}"));
+            assert_eq!(body["canPublish"], true);
+            assert_eq!(body["canPublishMicrophone"], true);
+            assert_eq!(body["canSubscribe"], true);
         } else {
-            let expected = if change == "corrupt" {
+            let expected = if matches!(change, "corrupt" | "wrong_identity") {
                 StatusCode::INTERNAL_SERVER_ERROR
             } else {
                 StatusCode::FORBIDDEN

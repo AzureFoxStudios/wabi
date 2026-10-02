@@ -75,3 +75,13 @@ capacity, exact device/legacy jobs and independent eviction. Policy-file lookup
 remains keyed by channel within its already scoped file; no persistent schema
 change is introduced. Muted admission fixtures now require server-muted state and
 blocked media publication, while corrupt-policy admission still fails closed.
+
+Final combined checks use Rust 1.93 and the integration's own static frontend,
+including all optional Office packages. The complete default workspace passed
+2,723 tests (18 ignored), and enabled addons/experimental broker library plus
+voice, helper, realtime and channel-access contracts passed 564 tests (1 ignored).
+The delayed helper fixture now returns the requested exact device identity and
+also proves a legacy account-only identity is rejected without releasing a token.
+Revocation, mute, deafen and corrupt moderation checks remain enforced after the
+helper response. These results supersede the earlier pending server commands.
+They do not establish real SFU playback or provider revocation acceptance.
