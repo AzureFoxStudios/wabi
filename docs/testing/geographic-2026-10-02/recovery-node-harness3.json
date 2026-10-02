@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "helperFiles": [
+    {
+      "path": "/tmp/wabi-geographic-recovery-node-acceptance2.py",
+      "bytes": 10012,
+      "sha256": "9c668a7b60a6a11ec709b759c3c12d06f900111974bcd79469b7be5ce969c287"
+    },
+    {
+      "path": "/tmp/wabi-geographic-recovery-node-precheck2.py",
+      "bytes": 5901,
+      "sha256": "22d3a34c73a1daadc1cf89c050c4be1a7c943769d95cff9729807576621fa5e3"
+    }
+  ],
+  "sourceLedger": {
+    "path": "docs/testing/geographic-2026-10-02/recovery-node-source4.json",
+    "sha256": "ddb58d8a4e183e7e3631c144b52687bc62943457e6410043221586ad5edbb5ce"
+  },
+  "archive": {
+    "path": "docs/testing/geographic-2026-10-02/recovery-node-harness3-exact.json.gz",
+    "bytes": 5103,
+    "sha256": "fae465fe0e3fefc9cc017a65aa99bba25c38ea64dcf245a3c969c8e3f62b02a5"
+  },
+  "executed": false,
+  "compilerReserved": false,
+  "reuseOnlyCfgTestFixtureChanged": true,
+  "compileCommand": "cargo +1.93 test --offline --locked -p wabi-server --lib --no-run --message-format=json-render-diagnostics",
+  "metadataClarification": "Artifact requirement is separate from execution. Server invocation is verified by a passing actual binary contract, not merely an attempted contract target. Unexecuted prior harness2 draft preserved."
+}

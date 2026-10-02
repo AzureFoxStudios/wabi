@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T22:08:41.838669+00:00",
+  "reason": "Remove only accepted terminal raw log after exact private ownership/inode/hash/gzip/owned-process-absence verification",
+  "path": "/tmp/wabi-geographic-recovery-node-root-standalone2.log",
+  "bytesRemoved": 399419,
+  "sha256": "bbb08c76e8dd85d1bccba2cd2da0ac31b3bc73ae18c8132e11a299c120187756",
+  "originalDevice": 66306,
+  "originalInode": 4382767,
+  "uid": 1000,
+  "mode": "0600",
+  "singleLink": true,
+  "terminalReceiptAccepted": true,
+  "preservedGzip": "recovery-node-root-standalone2.log.gz",
+  "ownedPidsAbsent": [
+    1245176,
+    1245163,
+    1246050
+  ],
+  "otherFilesRemoved": [],
+  "freeBytesAfter": 13163204608
+}

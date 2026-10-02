@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "actualCompileExit": 0,
+  "actualNativeTerminalExit": 101,
+  "pass": 2,
+  "fail": 2,
+  "ignored": 0,
+  "groups": 1,
+  "executedTestTargets": [
+    "wabi_server"
+  ],
+  "actualContractExecuted": false,
+  "actualServerBinaryExecuted": false,
+  "historicalReceiptMarkerCorrection": "executedByContract marks intended artifact designation in harness1; it does not establish actual invocation. Contract was NOT invoked after library failure. Original receipt preserved.",
+  "failure": "Pinned tempfile directories use ambient permissions; test roots were not initialized privately, so production parent ownership guard correctly refused them. Production guard must remain unchanged.",
+  "source3Executed": true,
+  "source1And2Executed": false,
+  "canonicalWriterPermitted": false,
+  "fullInstanceReady": false
+}

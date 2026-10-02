@@ -32,6 +32,8 @@ mod instance_checkpoint;
 mod checkpoint_jobs;
 #[cfg(target_os = "linux")]
 mod recovery_peer_jobs;
+#[cfg(target_os = "linux")]
+mod recovery_node;
 mod instance_archive;
 mod helper_client;
 mod jobs;
@@ -71,6 +73,13 @@ use crate::secrets::resolve_jwt_secret;
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Wabi self-hosted server")]
 struct Args {
+    /// Run only experimental recovery control/material stores from a private operator file
+    #[arg(long, value_name = "FILE", conflicts_with_all = [
+        "personal_planner", "build_info", "helper_mode", "desktop_managed",
+        "primary_url", "pairing_token", "lan_reachable_at", "print_bound_address",
+        "host", "port", "data_dir"
+    ])]
+    recovery_node_config: Option<std::path::PathBuf>,
     /// Private desktop Planner operation over stdin/stdout; opens no network listener
     #[arg(long, conflicts_with_all = ["helper_mode", "desktop_managed", "build_info"])]
     personal_planner: bool,
@@ -245,6 +254,24 @@ async fn wait_for_shutdown(shutdown_on_stdin_close: bool) {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    // Dedicated opt-in before logging, maintenance, JWT, AppState/WabiDB and
+    // upload setup. Recovery peers never become another community Authority.
+    if let Some(path) = args.recovery_node_config {
+        anyhow::ensure!(std::env::var_os("WABI_PURGE_ORPHANS").is_none(),
+            "Recovery node mode cannot run Authority maintenance");
+        anyhow::ensure!(std::env::var_os("WABI_SERVER_ROLE").is_none(),
+            "Recovery node mode requires a dedicated role-free environment");
+        #[cfg(target_os = "linux")]
+        {
+            recovery_node::run(path, wait_for_shutdown(args.shutdown_on_stdin_close)).await?;
+            return Ok(());
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = path;
+            anyhow::bail!("Recovery node mode is supported only on Linux");
+        }
+    }
     if args.personal_planner {
         return personal_planner::run(std::path::Path::new(&args.data_dir));
     }

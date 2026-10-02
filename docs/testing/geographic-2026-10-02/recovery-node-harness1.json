@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "helperFiles": [
+    {
+      "path": "/tmp/wabi-geographic-recovery-node-acceptance.py",
+      "bytes": 8773,
+      "sha256": "232ef63f1b2b2707854495193b3d2c6b1f2faccee42c8224192aa66bf8ae02ed"
+    },
+    {
+      "path": "/tmp/wabi-geographic-recovery-node-precheck.py",
+      "bytes": 4794,
+      "sha256": "74e6b1c95e3a0a7668e983eda24bfaf05bbb77719d5ae305702675a2c1ba4317"
+    }
+  ],
+  "sourceLedger": {
+    "path": "docs/testing/geographic-2026-10-02/recovery-node-source3.json",
+    "sha256": "3ce145326de59beaa75b87e73baf81defff1d6b56957f5af6a455a6294cf7701"
+  },
+  "archive": {
+    "path": "docs/testing/geographic-2026-10-02/recovery-node-harness1-exact.json.gz",
+    "bytes": 4724,
+    "sha256": "ea8915a427905904efaaf303a86cd83b44e6d7927ad2814b96a9b0f5f526de83"
+  },
+  "executed": false,
+  "compilerReserved": false
+}

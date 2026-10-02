@@ -109,6 +109,36 @@ publication, the original-operation journal, automatic restart reconciliation
 and genuine enabled-instance recovery remain open. This prerequisite leaves
 all writer/full-instance permission fields false and changes no WabiDB schema.
 
+### October 3: standalone recovery-node entry point
+
+The narrowly owned five-file server slice adds explicit
+`--recovery-node-config` before Authority initialization. It loads a strict,
+private bounded operator file, requires preexisting identities and exactly three
+trusted voters, preserves enrollment and original lock inodes, and supervises
+status output, signal/stdin shutdown and fatal admission. It opens no community
+WabiDB and supplies no publisher, restore API or writer activation.
+See the [operator contract](../deployment/RECOVERY_CONTROL_RUNTIME.md).
+
+The [frozen local retry](../testing/geographic-2026-10-02/recovery-node-root-standalone2.json)
+compiled and passed **six checks, zero failures and zero ignored entries** on
+5,196 unchanged inputs: four configuration/lifecycle units and two real-binary
+contracts, including three loopback processes draining and reopening the same
+keys/locks/enrollment. The other library suites and doctests were excluded.
+The preserved first run compiled but failed two private-parent fixtures before
+the contract ran. Only those test fixtures changed for the accepted retry;
+permission guards remain unchanged. Its existing compiled contract/server were
+reused after exact input and artifact verification. This acceptance supplies
+an explicit process lifecycle, not complete-instance or geographic recovery.
+
+Next production work still needs a verified owned archive-handle ingestion
+path, a journal saving the original operation before any publication, and the
+exact prepared consensus command before submission. A timeout cannot justify
+a new operation ID or a changed retry fingerprint. A control follower also
+needs separately reviewed authenticated forwarding or explicit unavailability;
+a remote acknowledgment is not a committed observation. Publication,
+reconciliation, retention/reseed, full enabled recovery and every-path writer
+and encryption fencing remain open.
+
 ### October 3: owned peer candidate job source
 
 The [operator contract](../deployment/CHECKPOINT_PEER_CANDIDATES.md) describes

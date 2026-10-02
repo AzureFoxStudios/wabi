@@ -1,0 +1,77 @@
+{
+  "accepted": false,
+  "actualExitCode": 101,
+  "canonicalWriterPermitted": false,
+  "changedSourcesAtTerminalReadback": {},
+  "compilationActualExitCode": 0,
+  "compilationCommand": [
+    "cargo",
+    "+1.93",
+    "test",
+    "--offline",
+    "--locked",
+    "-p",
+    "wabi-server",
+    "--lib",
+    "--test",
+    "recovery_node_contract",
+    "--no-run",
+    "--message-format=json-render-diagnostics"
+  ],
+  "compilerPausedForThermalHandoff": true,
+  "executables": [
+    {
+      "bytes": 13543248,
+      "executedByContract": false,
+      "path": "/home/ironin/wabi/target/debug/deps/recovery_node_contract-96c522b341476a87",
+      "sha256": "d9b95313d8a347884e60e3961ca35ebf1713abc9ebcec33153e233c05257612f",
+      "targetName": "recovery_node_contract"
+    },
+    {
+      "bytes": 153848224,
+      "executedByContract": true,
+      "path": "/home/ironin/wabi/target/debug/wabi-server",
+      "sha256": "dddd3907a2d157722d0bc9c77f5cca54c9f150046176a7eaf251f199ad80196d",
+      "targetName": "wabi-server"
+    },
+    {
+      "bytes": 183728816,
+      "executedByContract": false,
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_server-3b7c014a0adeec4e",
+      "sha256": "e4c704b8e15ae6763118424c804c17cbcffe8e391e3d945d0daf3ffe7617ad03",
+      "targetName": "wabi_server"
+    }
+  ],
+  "fail": 2,
+  "finishedAtUtc": "2026-10-02T21:37:13.321120+00:00",
+  "fullInstanceReady": false,
+  "ignored": 0,
+  "mode": "standalone-recovery-node",
+  "name": "recovery-node-root-standalone1",
+  "newTargetTreeCreated": false,
+  "outcomes": [
+    {
+      "actualExitCode": 101,
+      "command": [
+        "/home/ironin/wabi/target/debug/deps/wabi_server-3b7c014a0adeec4e",
+        "recovery_node::tests::",
+        "--test-threads=1"
+      ],
+      "maximumPreTestTemperatureC": 31.75,
+      "targetName": "wabi_server"
+    }
+  ],
+  "pass": 2,
+  "rawLog": "/tmp/wabi-geographic-recovery-node-root-standalone1.log",
+  "rawLogSha256": "00ca81f60cc4a153a6af3f88200a05850a5e60c79c2b78369f9fc9dde61ab32d",
+  "resultGroups": 1,
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "runtimeExecuted": true,
+  "schemaVersion": 1,
+  "scope": "Four filtered private-config/lifecycle library units plus two actual binary CLI and loopback three-node shutdown/reopen contracts. No other library suites, doctests, export/publication, geographic uplinks or activation.",
+  "sourceFreezeSha256": "07dbf23065dc26f3f71cf051f45d00158d0550f64f0b6742c04f7996077f26fb",
+  "sourceInputs": 5196,
+  "startedAtUtc": "2026-10-02T21:07:49.952119+00:00",
+  "target": "/home/ironin/wabi/target",
+  "timedTestsThrottled": false
+}

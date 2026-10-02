@@ -1,0 +1,37 @@
+{
+  "name": "recovery-node-root-standalone2",
+  "nativeSessionId": 13400,
+  "verifiedAtUtc": "2026-10-02T21:55:41.532625+00:00",
+  "processes": [
+    {
+      "pid": 1245176,
+      "state": "T",
+      "ppid": 1245163,
+      "startTicks": 22414849,
+      "argv": [
+        "cargo",
+        "+1.93",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "wabi-server",
+        "--lib",
+        "--no-run",
+        "--message-format=json-render-diagnostics"
+      ]
+    },
+    {
+      "pid": 1245163,
+      "state": "T",
+      "ppid": 131862,
+      "startTicks": 22414651,
+      "argv": [
+        "python3",
+        "/tmp/wabi-geographic-recovery-node-acceptance2.py",
+        "recovery-node-root-standalone2"
+      ]
+    }
+  ],
+  "sourceFreezeSha256": "158638cbc9df7987cf7894e77021e2d20b0fed823abc2fbc836a50318f5c32ec"
+}

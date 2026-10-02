@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "scope": "five-path standalone recovery node source only",
+  "capturedAtUnix": 1790973622,
+  "paths": [
+    {
+      "path": "core/crates/wabi-server/src/recovery_node.rs",
+      "exists": false,
+      "bytes": 0,
+      "sha256": null
+    },
+    {
+      "path": "core/crates/wabi-server/src/recovery_node/tests.rs",
+      "exists": false,
+      "bytes": 0,
+      "sha256": null
+    },
+    {
+      "path": "core/crates/wabi-server/src/lib.rs",
+      "exists": true,
+      "bytes": 1170,
+      "sha256": "ae74eb77642355e1514d41e9f41956b21d5cec68170b15b098708f49d56178e5"
+    },
+    {
+      "path": "core/crates/wabi-server/src/main.rs",
+      "exists": true,
+      "bytes": 38861,
+      "sha256": "6608fce8853ce4fe21c75e9e59d83407a2ddf83bd2fd06f1c7511d8287b16372"
+    },
+    {
+      "path": "core/crates/wabi-server/tests/recovery_node_contract.rs",
+      "exists": false,
+      "bytes": 0,
+      "sha256": null
+    }
+  ],
+  "compilerReserved": false,
+  "publicationImplemented": false
+}

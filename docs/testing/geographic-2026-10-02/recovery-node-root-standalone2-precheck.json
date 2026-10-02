@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T22:06:59.545156+00:00",
+  "compilerPid": 1245176,
+  "compilerStartTicks": 22414849,
+  "compilerTerminalState": "Z",
+  "compiledLogReportsSuccess": true,
+  "sourceInputs": 5196,
+  "sourceFreezeSha256": "158638cbc9df7987cf7894e77021e2d20b0fed823abc2fbc836a50318f5c32ec",
+  "allSourceHashesUnchanged": true,
+  "executables": [
+    {
+      "targetName": "wabi_server",
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_server-3b7c014a0adeec4e",
+      "bytes": 183728712,
+      "sha256": "da16445580802742e5e941347d81c237bcf19972307886b509097f4764080f47"
+    },
+    {
+      "bytes": 13543248,
+      "path": "/home/ironin/wabi/target/debug/deps/recovery_node_contract-96c522b341476a87",
+      "sha256": "d9b95313d8a347884e60e3961ca35ebf1713abc9ebcec33153e233c05257612f",
+      "targetName": "recovery_node_contract",
+      "requiredByContract": false,
+      "reusedFromVerifiedCompile": "recovery-node-root-standalone1"
+    },
+    {
+      "bytes": 153848224,
+      "path": "/home/ironin/wabi/target/debug/wabi-server",
+      "sha256": "dddd3907a2d157722d0bc9c77f5cca54c9f150046176a7eaf251f199ad80196d",
+      "targetName": "wabi-server",
+      "requiredByContract": true,
+      "reusedFromVerifiedCompile": "recovery-node-root-standalone1"
+    }
+  ],
+  "maximumObservedTemperatureC": 30.625,
+  "actualFreeBytes": 13163315200,
+  "runnerPid": 1245163,
+  "runnerStartTicks": 22414651,
+  "timedTestsThrottled": false,
+  "testAcceptanceNotYetKnown": true,
+  "precheckScriptSha256": "22d3a34c73a1daadc1cf89c050c4be1a7c943769d95cff9729807576621fa5e3"
+}

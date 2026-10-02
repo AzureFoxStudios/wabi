@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "scope": "standalone recovery-node five-file source-only candidate",
+  "capturedAtUnix": 1790974718,
+  "paths": [
+    {
+      "path": "core/crates/wabi-server/src/recovery_node.rs",
+      "bytes": 12101,
+      "sha256": "be7044bc7b065fceedf28e4d49b199ebe0f4dc44f846b915b5a21aaab02eba09",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "core/crates/wabi-server/src/recovery_node/tests.rs",
+      "bytes": 6499,
+      "sha256": "02123fe706e24974581e113ea2197899c4159b5bf5ae2da0addae812b4a74325",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "core/crates/wabi-server/src/lib.rs",
+      "bytes": 1221,
+      "sha256": "78592bba239dd316ffc2f4fe9ee52cddbd1003488294e4debe05f729d8503dd1",
+      "baseExists": true,
+      "baseSha256": "ae74eb77642355e1514d41e9f41956b21d5cec68170b15b098708f49d56178e5"
+    },
+    {
+      "path": "core/crates/wabi-server/src/main.rs",
+      "bytes": 40162,
+      "sha256": "0b8cd1d6661bbfb26ddbe0e5d7bea0df4900a8cf595a50a1080bdaca3eda1fd2",
+      "baseExists": true,
+      "baseSha256": "6608fce8853ce4fe21c75e9e59d83407a2ddf83bd2fd06f1c7511d8287b16372"
+    },
+    {
+      "path": "core/crates/wabi-server/tests/recovery_node_contract.rs",
+      "bytes": 13510,
+      "sha256": "0174f4aa56afd2aac379d0c532d9c43e4d5bea350cd6ee76d7f62d9377915b50",
+      "baseExists": false,
+      "baseSha256": null
+    }
+  ],
+  "sourceFiles": 5,
+  "compilationExecuted": false,
+  "testsExecuted": false,
+  "compilerReserved": false,
+  "normalAuthorityStartsRecoveryNode": false,
+  "publicationImplemented": false,
+  "canonicalWriterPermitted": false,
+  "fullInstanceReady": false,
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "cargoLockSha256": "51945aa9a62b8bcb2be3dadd11ea044c201366d656782b3db705460c09f851bd",
+  "sourceArchive": {
+    "path": "docs/testing/geographic-2026-10-02/recovery-node-source3-exact.json.gz",
+    "bytes": 19302,
+    "sha256": "8d53eb0c98686818f5a780f6c34020f7117223384722ab253a293b68fa91dabb"
+  },
+  "repair": "Second independent precompile fixture review: conflict cases require pinned Clap usage exit2; environment refusals require the intended maintenance/dedicated-role reason, and missing config requires ownership refusal. Source1/2 never compiled/run.",
+  "previousSourceLedgerSha256": "7c410babd7b00f9e895821a34efbe52f621fde696bc52aa070ac8cb8be3b01bb"
+}

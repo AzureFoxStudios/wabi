@@ -1,0 +1,242 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T22:12:41.293077+00:00",
+  "checkpointBranch": "codex/geographic-checkpoint-integration-20261002",
+  "baseCommit": "232f9ddb1a66d63fd3168bbd999676fd618779ab",
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "files": [
+    {
+      "path": "core/crates/wabi-server/src/recovery_node.rs",
+      "bytes": 12101,
+      "sha256": "be7044bc7b065fceedf28e4d49b199ebe0f4dc44f846b915b5a21aaab02eba09",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "core/crates/wabi-server/src/recovery_node/tests.rs",
+      "bytes": 6609,
+      "sha256": "e27e0c55bef65ffd91b3d48d8a9c5899ee51405afefd9bd137dbf9d52ba0ae63",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "core/crates/wabi-server/src/lib.rs",
+      "bytes": 1221,
+      "sha256": "78592bba239dd316ffc2f4fe9ee52cddbd1003488294e4debe05f729d8503dd1",
+      "baseExists": true,
+      "baseSha256": "ae74eb77642355e1514d41e9f41956b21d5cec68170b15b098708f49d56178e5"
+    },
+    {
+      "path": "core/crates/wabi-server/src/main.rs",
+      "bytes": 40162,
+      "sha256": "0b8cd1d6661bbfb26ddbe0e5d7bea0df4900a8cf595a50a1080bdaca3eda1fd2",
+      "baseExists": true,
+      "baseSha256": "6608fce8853ce4fe21c75e9e59d83407a2ddf83bd2fd06f1c7511d8287b16372"
+    },
+    {
+      "path": "core/crates/wabi-server/tests/recovery_node_contract.rs",
+      "bytes": 13510,
+      "sha256": "0174f4aa56afd2aac379d0c532d9c43e4d5bea350cd6ee76d7f62d9377915b50",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/deployment/RECOVERY_CONTROL_RUNTIME.md",
+      "bytes": 11705,
+      "sha256": "0fbd2616f89bf3d65c4c34d2f1fc0eab38aa241b2ec3894c506c4fb46b87ead1",
+      "baseExists": true,
+      "baseSha256": "293cbce5030080f74b4c039eba0860963f1a7f44be500b7ac5c7ef06c9ba39ef"
+    },
+    {
+      "path": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "bytes": 23089,
+      "sha256": "86cd39f949a72fa35840dabe53310ed01bd1afe6743919d8820820ae0f2ec914",
+      "baseExists": true,
+      "baseSha256": "b2e07231f2c9f119cc6557d48957380232b6a49f400ed714638fd175db60b05c"
+    },
+    {
+      "path": "docs/PROJECT_STATUS.md",
+      "bytes": 89374,
+      "sha256": "4f3161b18184f0ddb98e707ad7a6971c032a8cdc19173009ec402720b0fe54ea",
+      "baseExists": true,
+      "baseSha256": "f6d50cf03084c66b7317c1f89589cb1de5fc07d51eadff9df37b7dc6347001f9"
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-baseline1.json",
+      "bytes": 1011,
+      "sha256": "a3b5dfffe468c2e29ad31fe52d2c28db8389f8da8998f32361e42ee0aefc734d",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-baseline1-exact.json.gz",
+      "bytes": 10939,
+      "sha256": "2584d9fcef54827a4e965a81f46b98264415cc08549e014b5cf417ff060c4d96",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-source3.json",
+      "bytes": 2406,
+      "sha256": "3ce145326de59beaa75b87e73baf81defff1d6b56957f5af6a455a6294cf7701",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-source3-exact.json.gz",
+      "bytes": 19302,
+      "sha256": "8d53eb0c98686818f5a780f6c34020f7117223384722ab253a293b68fa91dabb",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-source4.json",
+      "bytes": 2452,
+      "sha256": "ddb58d8a4e183e7e3631c144b52687bc62943457e6410043221586ad5edbb5ce",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-source4-exact.json.gz",
+      "bytes": 19344,
+      "sha256": "b04d2e506b379fc357acbde2aa5d351c206041ed52dbbcf1da59db0b7aa82be6",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-harness1.json",
+      "bytes": 852,
+      "sha256": "ce724975fb8e1acde7e21a3cc3d4a9e6ade1c60a4336379ca779c5f742f95065",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-harness1-exact.json.gz",
+      "bytes": 4724,
+      "sha256": "ea8915a427905904efaaf303a86cd83b44e6d7927ad2814b96a9b0f5f526de83",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-harness3.json",
+      "bytes": 1257,
+      "sha256": "39035dbfb0c8404436d63d41a91ac098b68e4f0cc760d0d77cc8a22b58d3c426",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-harness3-exact.json.gz",
+      "bytes": 5103,
+      "sha256": "fae465fe0e3fefc9cc017a65aa99bba25c38ea64dcf245a3c969c8e3f62b02a5",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-root-standalone1.json",
+      "bytes": 2606,
+      "sha256": "6966e10a91ee72933d9acf572a5b3a1699b58c53255eb70cac5517cd1f5430c1",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-root-standalone1.log.gz",
+      "bytes": 34765,
+      "sha256": "d23008c45ba1a5365b0871cabce5dede814b746114e51c91524fdfd83ddc63b8",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-root-standalone1-before.json.gz",
+      "bytes": 230205,
+      "sha256": "0bbd07300a2c07cda81afc4dd49e005a5305fa2f9dd88951a5a9db6c25635f94",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-root-standalone1-start.json",
+      "bytes": 1490,
+      "sha256": "e80cd7a2c4bf5a45b406798be60ff8ecef354380bc519988d4b69e6fba5081cd",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-root-standalone1-precheck.json",
+      "bytes": 1394,
+      "sha256": "85c1440dd1bf7041a28414f56171f108bf4d0299a8bfcd814c829f6182080471",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-standalone1-scope.json",
+      "bytes": 833,
+      "sha256": "f49162244a01099d29bcac4d5e636bd25ef5c8ae9d1be0e54f090d0902652165",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-root-standalone2.json",
+      "bytes": 3055,
+      "sha256": "1a43dd16dfe5e4c3798f759382ee9f6ee0b73cae457901d82f63fd6a38bf5aba",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-root-standalone2.log.gz",
+      "bytes": 32485,
+      "sha256": "93eda915c0473bc3de6bc568ff21ac1b3b989c8b43e5a4f9939394a956de2644",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-root-standalone2-before.json.gz",
+      "bytes": 230202,
+      "sha256": "a5a901813aee5703b361e4aa1ff3e43f7b4f25e5343fac56dfd67c042e6fb8b3",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-root-standalone2-start.json",
+      "bytes": 843,
+      "sha256": "4842f2f0c050895df5c01ba6c3241761a207f4cbab8e5420222307110f943304",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/recovery-node-root-standalone2-precheck.json",
+      "bytes": 1601,
+      "sha256": "f7da06c7f78ef9f30c193c489695bb737bcaadb92f913fa2c2196f346b6077e2",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-owned-cleanup12.json",
+      "bytes": 712,
+      "sha256": "2ba9acc7d8500a6c7e3c2ea0877c4afff8c1f8a04ed0dc40a736544b1970f377",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-owned-cleanup13.json",
+      "bytes": 720,
+      "sha256": "5c1506b78aa17286e2ebf1e9ff39a73a23a0fab6f9f86f2a573c6c6fa617cd0d",
+      "baseExists": false,
+      "baseSha256": null
+    }
+  ],
+  "fileCount": 31,
+  "totalBytes": 806072,
+  "acceptanceReceipt": "docs/testing/geographic-2026-10-02/recovery-node-root-standalone2.json",
+  "acceptedScope": "6 passing local private-config and actual binary lifecycle checks, no ignored; compile and both direct groups zero; no full recovery/publication/activation or physical uplink claim",
+  "originalFailedReceiptPreserved": true,
+  "source4OnlyUnitFixtureChangedSinceCompile1": true,
+  "projectStatusOnlyOwnedParagraphChanged": true,
+  "evidenceFlagsAreCaptureTimeNotCurrentStatus": true,
+  "excluded": [
+    "organizer archives",
+    "live data/keys/operator config",
+    "attachments",
+    "target",
+    "unlisted source/history"
+  ],
+  "gitMutationOwner": "Cleanup; no ordinary index/worktree mutation by this chat"
+}

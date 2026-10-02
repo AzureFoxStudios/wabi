@@ -1,0 +1,88 @@
+{
+  "accepted": true,
+  "actualContractExecuted": true,
+  "actualExitCode": 0,
+  "actualServerBinaryVerifiedByPassingContract": true,
+  "canonicalWriterPermitted": false,
+  "changedSourcesAtTerminalReadback": {},
+  "compilationActualExitCode": 0,
+  "compilationCommand": [
+    "cargo",
+    "+1.93",
+    "test",
+    "--offline",
+    "--locked",
+    "-p",
+    "wabi-server",
+    "--lib",
+    "--no-run",
+    "--message-format=json-render-diagnostics"
+  ],
+  "compilerPausedForThermalHandoff": true,
+  "executables": [
+    {
+      "bytes": 183728712,
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_server-3b7c014a0adeec4e",
+      "requiredByContract": false,
+      "sha256": "da16445580802742e5e941347d81c237bcf19972307886b509097f4764080f47",
+      "targetName": "wabi_server"
+    },
+    {
+      "bytes": 13543248,
+      "path": "/home/ironin/wabi/target/debug/deps/recovery_node_contract-96c522b341476a87",
+      "requiredByContract": false,
+      "reusedFromVerifiedCompile": "recovery-node-root-standalone1",
+      "sha256": "d9b95313d8a347884e60e3961ca35ebf1713abc9ebcec33153e233c05257612f",
+      "targetName": "recovery_node_contract"
+    },
+    {
+      "bytes": 153848224,
+      "path": "/home/ironin/wabi/target/debug/wabi-server",
+      "requiredByContract": true,
+      "reusedFromVerifiedCompile": "recovery-node-root-standalone1",
+      "sha256": "dddd3907a2d157722d0bc9c77f5cca54c9f150046176a7eaf251f199ad80196d",
+      "targetName": "wabi-server"
+    }
+  ],
+  "fail": 0,
+  "finishedAtUtc": "2026-10-02T22:07:08.662560+00:00",
+  "fullInstanceReady": false,
+  "ignored": 0,
+  "mode": "standalone-recovery-node",
+  "name": "recovery-node-root-standalone2",
+  "newTargetTreeCreated": false,
+  "outcomes": [
+    {
+      "actualExitCode": 0,
+      "command": [
+        "/home/ironin/wabi/target/debug/deps/wabi_server-3b7c014a0adeec4e",
+        "recovery_node::tests::",
+        "--test-threads=1"
+      ],
+      "maximumPreTestTemperatureC": 30.75,
+      "targetName": "wabi_server"
+    },
+    {
+      "actualExitCode": 0,
+      "command": [
+        "/home/ironin/wabi/target/debug/deps/recovery_node_contract-96c522b341476a87",
+        "--test-threads=1"
+      ],
+      "maximumPreTestTemperatureC": 30.875,
+      "targetName": "recovery_node_contract"
+    }
+  ],
+  "pass": 6,
+  "rawLog": "/tmp/wabi-geographic-recovery-node-root-standalone2.log",
+  "rawLogSha256": "bbb08c76e8dd85d1bccba2cd2da0ac31b3bc73ae18c8132e11a299c120187756",
+  "resultGroups": 2,
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "runtimeExecuted": true,
+  "schemaVersion": 1,
+  "scope": "Four filtered private-config/lifecycle library units plus two actual binary CLI and loopback three-node shutdown/reopen contracts. No other library suites, doctests, export/publication, geographic uplinks or activation.",
+  "sourceFreezeSha256": "158638cbc9df7987cf7894e77021e2d20b0fed823abc2fbc836a50318f5c32ec",
+  "sourceInputs": 5196,
+  "startedAtUtc": "2026-10-02T21:55:14.238575+00:00",
+  "target": "/home/ironin/wabi/target",
+  "timedTestsThrottled": false
+}

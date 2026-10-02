@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T21:41:27.658719+00:00",
+  "removedOwnedRawLog": "/tmp/wabi-geographic-recovery-node-root-standalone1.log",
+  "removedBytes": 416949,
+  "originalDev": 66306,
+  "originalInode": 4382767,
+  "rawLogSha256": "00ca81f60cc4a153a6af3f88200a05850a5e60c79c2b78369f9fc9dde61ab32d",
+  "exactPrivateGzipPreserved": "/home/ironin/wabi/docs/testing/geographic-2026-10-02/recovery-node-root-standalone1.log.gz",
+  "allOwnedProcessPidsAbsent": [
+    1228076,
+    1228062,
+    1229131
+  ],
+  "failedReceiptPreserved": true,
+  "scopeCorrectionPreserved": "/home/ironin/wabi/docs/testing/geographic-2026-10-02/recovery-node-standalone1-scope.json",
+  "noOtherDeletion": true
+}

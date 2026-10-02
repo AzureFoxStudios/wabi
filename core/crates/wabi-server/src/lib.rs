@@ -28,6 +28,8 @@ pub mod instance_checkpoint;
 pub mod checkpoint_jobs;
 #[cfg(target_os = "linux")]
 pub mod recovery_peer_jobs;
+#[cfg(target_os = "linux")]
+pub mod recovery_node;
 pub mod instance_archive;
 pub mod jobs;
 pub mod lan;

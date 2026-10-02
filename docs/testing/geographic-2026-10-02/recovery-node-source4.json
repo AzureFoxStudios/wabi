@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "scope": "standalone recovery-node five-file source-only candidate",
+  "capturedAtUnix": 1790977338,
+  "paths": [
+    {
+      "path": "core/crates/wabi-server/src/recovery_node.rs",
+      "bytes": 12101,
+      "sha256": "be7044bc7b065fceedf28e4d49b199ebe0f4dc44f846b915b5a21aaab02eba09",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "core/crates/wabi-server/src/recovery_node/tests.rs",
+      "bytes": 6609,
+      "sha256": "e27e0c55bef65ffd91b3d48d8a9c5899ee51405afefd9bd137dbf9d52ba0ae63",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "core/crates/wabi-server/src/lib.rs",
+      "bytes": 1221,
+      "sha256": "78592bba239dd316ffc2f4fe9ee52cddbd1003488294e4debe05f729d8503dd1",
+      "baseExists": true,
+      "baseSha256": "ae74eb77642355e1514d41e9f41956b21d5cec68170b15b098708f49d56178e5"
+    },
+    {
+      "path": "core/crates/wabi-server/src/main.rs",
+      "bytes": 40162,
+      "sha256": "0b8cd1d6661bbfb26ddbe0e5d7bea0df4900a8cf595a50a1080bdaca3eda1fd2",
+      "baseExists": true,
+      "baseSha256": "6608fce8853ce4fe21c75e9e59d83407a2ddf83bd2fd06f1c7511d8287b16372"
+    },
+    {
+      "path": "core/crates/wabi-server/tests/recovery_node_contract.rs",
+      "bytes": 13510,
+      "sha256": "0174f4aa56afd2aac379d0c532d9c43e4d5bea350cd6ee76d7f62d9377915b50",
+      "baseExists": false,
+      "baseSha256": null
+    }
+  ],
+  "sourceFiles": 5,
+  "compilationExecuted": false,
+  "testsExecuted": false,
+  "compilerReserved": false,
+  "normalAuthorityStartsRecoveryNode": false,
+  "publicationImplemented": false,
+  "canonicalWriterPermitted": false,
+  "fullInstanceReady": false,
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "cargoLockSha256": "51945aa9a62b8bcb2be3dadd11ea044c201366d656782b3db705460c09f851bd",
+  "sourceArchive": {
+    "path": "docs/testing/geographic-2026-10-02/recovery-node-source4-exact.json.gz",
+    "bytes": 19344,
+    "sha256": "b04d2e506b379fc357acbde2aa5d351c206041ed52dbbcf1da59db0b7aa82be6"
+  },
+  "repair": "standalone1 compile0/library2pass2fail: fixture parents inherited ambient tempfile permissions. cfg(test)-only roots now created explicitly0700 using pinned Builder, all production permission guards unchanged; intentional755 rejection remains. Source1/2 unrun; source3 failed result preserved.",
+  "previousSourceLedgerSha256": "3ce145326de59beaa75b87e73baf81defff1d6b56957f5af6a455a6294cf7701"
+}

@@ -485,7 +485,7 @@ passed seven checks with zero failures and one ignored physical-export entry on
 faults and copied-peer inactive core bridge now pass on the combined graph.
 Full enabled Office recovery acceptance and production recovery wiring remain pending.
 The October 3 [configured recovery runtime](deployment/RECOVERY_CONTROL_RUNTIME.md)
-is a locally accepted library candidate for owning real control/material stores,
+is a locally accepted library and standalone node candidate for owning real control/material stores,
 Raft, authenticated listeners and ingest/observation/shutdown jobs through
 restart. Its [frozen package run](testing/geographic-2026-10-02/availability-control-root-runtime1.json)
 compiled and passed 103 checks, zero failures and nine ignored entries across
@@ -493,7 +493,18 @@ six serial groups with 5,193 unchanged inputs. These overlapping package counts
 include prior regressions. New synthetic-byte runtime and lifetime checks cover
 restart, a two-voter historical commit, returning follower catch-up, preserved
 lock/key inodes and real snapshot/blocked-IO drain. The normal Authority does
-not start it. Production
+not start it. The later explicit `--recovery-node-config` entry point runs before
+Authority initialization and requires private bounded local configuration,
+preexisting identities and exactly three trusted voters. Its
+[local standalone retry](testing/geographic-2026-10-02/recovery-node-root-standalone2.json)
+compiled and passed six checks, zero failures and zero ignored entries across
+two serial groups on 5,196 unchanged inputs. These cover four private-config
+units and two actual-binary contracts, including three loopback processes
+draining and reopening original keys/locks/enrollment. Other library suites and
+doctests were excluded. The preserved first run failed two nonprivate test
+fixtures before its contract ran; only fixture permissions changed for the
+accepted retry. This is process lifecycle evidence, not physical-site or full
+Wabi recovery. Neither candidate is deployed. Production
 capture publication and original-operation journal/reconciliation remain open;
 this adds no activation or full-instance readiness permission.
 

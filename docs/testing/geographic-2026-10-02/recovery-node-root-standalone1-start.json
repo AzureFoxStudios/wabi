@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "name": "recovery-node-root-standalone1",
+  "recordedAtUtc": "2026-10-02T21:08:38.995912+00:00",
+  "processes": {
+    "cargo": {
+      "pid": 1228076,
+      "startTicks": 22130420,
+      "state": "T",
+      "parentPid": 1228062,
+      "argv": [
+        "cargo",
+        "+1.93",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "wabi-server",
+        "--lib",
+        "--test",
+        "recovery_node_contract",
+        "--no-run",
+        "--message-format=json-render-diagnostics"
+      ]
+    },
+    "runner": {
+      "pid": 1228062,
+      "startTicks": 22130240,
+      "state": "T",
+      "parentPid": 131862,
+      "argv": [
+        "python3",
+        "/tmp/wabi-geographic-recovery-node-acceptance.py",
+        "recovery-node-root-standalone1"
+      ]
+    }
+  },
+  "nativeSessionId": 51574,
+  "sourceInputs": 5196,
+  "sourceFreezeSha256": "07dbf23065dc26f3f71cf051f45d00158d0550f64f0b6742c04f7996077f26fb",
+  "compilerAndParentSeparatelyStopped": true,
+  "sourceLedgerSha256": "3ce145326de59beaa75b87e73baf81defff1d6b56957f5af6a455a6294cf7701",
+  "helpers": [
+    {
+      "path": "/tmp/wabi-geographic-recovery-node-acceptance.py",
+      "bytes": 8773,
+      "sha256": "232ef63f1b2b2707854495193b3d2c6b1f2faccee42c8224192aa66bf8ae02ed"
+    },
+    {
+      "path": "/tmp/wabi-geographic-recovery-node-precheck.py",
+      "bytes": 4794,
+      "sha256": "74e6b1c95e3a0a7668e983eda24bfaf05bbb77719d5ae305702675a2c1ba4317"
+    }
+  ]
+}
