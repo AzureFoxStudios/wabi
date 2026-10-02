@@ -1,0 +1,15 @@
+{
+  "files": [
+    {
+      "path": "core/crates/wabi-consensus/src/store.rs",
+      "sha256": "0bc8feee67a067a7c495f307907c4d6467ae84de9f0d3d7d03b9d9cb59808fd0",
+      "bytes": 43926
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/store/tests.rs",
+      "sha256": "67b24e2b340dbcca61abcf3604396327571fd5a5b7cc91fbf8ab74a4b2c091f5",
+      "bytes": 14051
+    }
+  ],
+  "scope": "exact two-path optional runtime lifetime hook source-only extension"
+}

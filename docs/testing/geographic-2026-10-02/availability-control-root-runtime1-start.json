@@ -1,0 +1,50 @@
+{
+  "recordedAtUtc": "2026-10-02T20:08:44.220051+00:00",
+  "processes": {
+    "runner": {
+      "pid": 1201527,
+      "startTicks": 21769366,
+      "state": "T",
+      "parentPid": 131862,
+      "cwd": "/home/ironin/wabi",
+      "args": [
+        "python3",
+        "/tmp/wabi-geographic-runtime-acceptance.py",
+        "consensus",
+        "availability-control-root-runtime1"
+      ]
+    },
+    "cargo": {
+      "pid": 1201539,
+      "startTicks": 21769530,
+      "state": "T",
+      "parentPid": 1201527,
+      "cwd": "/home/ironin/wabi",
+      "args": [
+        "cargo",
+        "+1.93",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "wabi-consensus",
+        "--tests",
+        "--no-run",
+        "--message-format=json-render-diagnostics"
+      ],
+      "selectedEnvironment": {
+        "CARGO_TARGET_DIR": "/home/ironin/wabi/target",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0"
+      }
+    }
+  },
+  "sourceInputs": 5193,
+  "sourceFreezeSha256": "f8e82d1febe4408d5caaed5d11b9ed28f860c8e2d70df544b4bfc9ba774824c0",
+  "beforeMapGzipSha256": "dbf4869af33f7095829e270e2cdd470236c28d5c6aadd696fe8c07b9577e03f0",
+  "acceptanceHelperSha256": "f3ab74fb29f32a9bd876be9da68f58be502e1a5d50199ffe8f4206293cbd7336",
+  "precheckHelperSha256": "840d1726943a941c3f49ccfa752a4317a2e1b0ffc4fb03ffe72ef202f1d22ae1",
+  "thermalControllerNotYetAttached": true,
+  "directTestsNotYetRun": true
+}

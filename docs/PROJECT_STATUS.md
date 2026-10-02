@@ -484,6 +484,19 @@ passed seven checks with zero failures and one ignored physical-export entry on
 5,187 unchanged source/graph/static inputs. The real encrypted capture, Raft/Noise
 faults and copied-peer inactive core bridge now pass on the combined graph.
 Full enabled Office recovery acceptance and production recovery wiring remain pending.
+The October 3 [configured recovery runtime](deployment/RECOVERY_CONTROL_RUNTIME.md)
+is a locally accepted library candidate for owning real control/material stores,
+Raft, authenticated listeners and ingest/observation/shutdown jobs through
+restart. Its [frozen package run](testing/geographic-2026-10-02/availability-control-root-runtime1.json)
+compiled and passed 103 checks, zero failures and nine ignored entries across
+six serial groups with 5,193 unchanged inputs. These overlapping package counts
+include prior regressions. New synthetic-byte runtime and lifetime checks cover
+restart, a two-voter historical commit, returning follower catch-up, preserved
+lock/key inodes and real snapshot/blocked-IO drain. The normal Authority does
+not start it. Production
+capture publication and original-operation journal/reconciliation remain open;
+this adds no activation or full-instance readiness permission.
+
 The October 3 [peer candidate job](deployment/CHECKPOINT_PEER_CANDIDATES.md)
 has default-off Linux runtime. Its repaired [frozen local run](testing/geographic-2026-10-02/availability-control-root-peer2.json)
 compiled and passed 11 checks, zero failures and one ignored physical-export

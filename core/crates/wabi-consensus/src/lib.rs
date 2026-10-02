@@ -8,6 +8,8 @@ pub mod availability_control;
 #[cfg(target_os = "linux")]
 pub mod material;
 pub mod model;
+#[cfg(target_os = "linux")]
+pub mod runtime;
 pub mod snapshot;
 pub mod source_context;
 pub mod store;

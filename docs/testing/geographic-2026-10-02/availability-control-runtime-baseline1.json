@@ -1,0 +1,32 @@
+{
+  "scope": "source-only four-file runtime reservation; no compiler slot",
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "checkpoint": "5d017d3a62f0e3beca7915acae75bb6567d4c00a",
+  "files": [
+    {
+      "path": "core/crates/wabi-consensus/src/runtime.rs",
+      "exists": false,
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/runtime/tests.rs",
+      "exists": false,
+      "sha256": null,
+      "bytes": 0
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/lib.rs",
+      "exists": true,
+      "sha256": "70214c8516d12589c0c736b521b15796bcd5d58dfd5570d9ee7d87920a2d60fc",
+      "bytes": 1225
+    },
+    {
+      "path": "core/crates/wabi-consensus/tests/runtime_contract.rs",
+      "exists": false,
+      "sha256": null,
+      "bytes": 0
+    }
+  ],
+  "cargoLockSha256": "51945aa9a62b8bcb2be3dadd11ea044c201366d656782b3db705460c09f851bd"
+}

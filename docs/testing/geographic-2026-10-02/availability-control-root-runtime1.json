@@ -1,0 +1,128 @@
+{
+  "accepted": true,
+  "actualExitCode": 0,
+  "canonicalWriterPermitted": false,
+  "changedSourcesAtTerminalReadback": [],
+  "compilationActualExitCode": 0,
+  "compilationCommand": [
+    "cargo",
+    "+1.93",
+    "test",
+    "--offline",
+    "--locked",
+    "-p",
+    "wabi-consensus",
+    "--tests",
+    "--no-run",
+    "--message-format=json-render-diagnostics"
+  ],
+  "compilerPausedForThermalHandoff": true,
+  "endedAtUtc": "2026-10-02T20:15:21.110763+00:00",
+  "executables": [
+    {
+      "bytes": 9117280,
+      "path": "/home/ironin/wabi/target/debug/deps/checkpoint_tcp_contract-eb8a76132423eb51",
+      "sha256": "8d9785a3f6e95464d765932f1e6b4a915556270cf9cd680a64ae5615779daa2e",
+      "targetName": "checkpoint_tcp_contract"
+    },
+    {
+      "bytes": 22273544,
+      "path": "/home/ironin/wabi/target/debug/deps/encrypted_tcp_contract-00738f49c217519b",
+      "sha256": "2f3958ece3a76e660cd219c20bf8b4127b995f5baf903a1e241a1e61b1ef17ab",
+      "targetName": "encrypted_tcp_contract"
+    },
+    {
+      "bytes": 21704928,
+      "path": "/home/ironin/wabi/target/debug/deps/runtime_contract-d19ab8ebc4e7f575",
+      "sha256": "35b6a9d1610415a7a70ae7347d2f0c9dfcd1bcd2ed94c339d7929322b23f69f2",
+      "targetName": "runtime_contract"
+    },
+    {
+      "bytes": 14238864,
+      "path": "/home/ironin/wabi/target/debug/deps/storage_contract-ee0891f528a91e62",
+      "sha256": "fcce9f2c486c50a86ad250fafff753d260d12aacb45be49046d9f451fadb984d",
+      "targetName": "storage_contract"
+    },
+    {
+      "bytes": 17566920,
+      "path": "/home/ironin/wabi/target/debug/deps/three_voter_contract-292744b09621c787",
+      "sha256": "041ec612fc604151f2cd0c2ff5d59a66ee7b0f289b1d8b826055563cd81a4df9",
+      "targetName": "three_voter_contract"
+    },
+    {
+      "bytes": 28333792,
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_consensus-22d83510d7fdf2f2",
+      "sha256": "c9a635d013bda988c1d6578c99bfdcf993c8567b5536921d1d747aa7e2929fae",
+      "targetName": "wabi_consensus"
+    }
+  ],
+  "fail": 0,
+  "fullInstanceReady": false,
+  "ignored": 9,
+  "newTargetTreeCreated": false,
+  "outcomes": [
+    {
+      "actualExitCode": 0,
+      "command": [
+        "/home/ironin/wabi/target/debug/deps/checkpoint_tcp_contract-eb8a76132423eb51",
+        "--test-threads=1"
+      ],
+      "targetName": "checkpoint_tcp_contract"
+    },
+    {
+      "actualExitCode": 0,
+      "command": [
+        "/home/ironin/wabi/target/debug/deps/encrypted_tcp_contract-00738f49c217519b",
+        "--test-threads=1"
+      ],
+      "targetName": "encrypted_tcp_contract"
+    },
+    {
+      "actualExitCode": 0,
+      "command": [
+        "/home/ironin/wabi/target/debug/deps/runtime_contract-d19ab8ebc4e7f575",
+        "--test-threads=1"
+      ],
+      "targetName": "runtime_contract"
+    },
+    {
+      "actualExitCode": 0,
+      "command": [
+        "/home/ironin/wabi/target/debug/deps/storage_contract-ee0891f528a91e62",
+        "--test-threads=1"
+      ],
+      "targetName": "storage_contract"
+    },
+    {
+      "actualExitCode": 0,
+      "command": [
+        "/home/ironin/wabi/target/debug/deps/three_voter_contract-292744b09621c787",
+        "--test-threads=1"
+      ],
+      "targetName": "three_voter_contract"
+    },
+    {
+      "actualExitCode": 0,
+      "command": [
+        "/home/ironin/wabi/target/debug/deps/wabi_consensus-22d83510d7fdf2f2",
+        "--test-threads=1"
+      ],
+      "targetName": "wabi_consensus"
+    }
+  ],
+  "pass": 103,
+  "rawLog": "/tmp/wabi-geographic-availability-control-root-runtime1.log",
+  "rawLogSha256": "0a2430091cda7b45a8423e9bba70dcfed22b1fcb735e97510c0c0ff90699a8c6",
+  "readerMaximumPreTestTemperatureC": null,
+  "resultGroups": 6,
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "runtimeExecuted": true,
+  "schemaVersion": 1,
+  "scope": "Current-root consensus library + five integration targets including managed runtime; synthetic opaque bytes only; no server publication journal, genuine runtime export, activation, physical full recovery or capacity; default ignored entries and doctests not executed",
+  "sourceFreezeSha256": "f8e82d1febe4408d5caaed5d11b9ed28f860c8e2d70df544b4bfc9ba774824c0",
+  "sourceInputs": 5193,
+  "startedAtUtc": "2026-10-02T20:07:41.048704+00:00",
+  "target": "/home/ironin/wabi/target",
+  "timedTestsThrottled": false,
+  "workspace": "/home/ironin/wabi"
+}

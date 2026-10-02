@@ -1,0 +1,58 @@
+{
+  "baseline": {
+    "scope": "source-only four-file runtime reservation; no compiler slot",
+    "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+    "checkpoint": "5d017d3a62f0e3beca7915acae75bb6567d4c00a",
+    "files": [
+      {
+        "path": "core/crates/wabi-consensus/src/runtime.rs",
+        "exists": false,
+        "sha256": null,
+        "bytes": 0
+      },
+      {
+        "path": "core/crates/wabi-consensus/src/runtime/tests.rs",
+        "exists": false,
+        "sha256": null,
+        "bytes": 0
+      },
+      {
+        "path": "core/crates/wabi-consensus/src/lib.rs",
+        "exists": true,
+        "sha256": "70214c8516d12589c0c736b521b15796bcd5d58dfd5570d9ee7d87920a2d60fc",
+        "bytes": 1225
+      },
+      {
+        "path": "core/crates/wabi-consensus/tests/runtime_contract.rs",
+        "exists": false,
+        "sha256": null,
+        "bytes": 0
+      }
+    ],
+    "cargoLockSha256": "51945aa9a62b8bcb2be3dadd11ea044c201366d656782b3db705460c09f851bd"
+  },
+  "files": [
+    {
+      "path": "core/crates/wabi-consensus/src/runtime.rs",
+      "bytes": 26565,
+      "sha256": "0eddd1c8a389a7365b0f1cefb59494dd8b631d0d1015db6b6b713ac2f7824f51"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/runtime/tests.rs",
+      "bytes": 9474,
+      "sha256": "778a5dc56cbf556f3c44143fa5d9c78131a622d432a5f3b6516d2e2d20d50070"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/lib.rs",
+      "bytes": 1270,
+      "sha256": "2809d740a93c8de298c740138e374c46b2af9ed3b3eea2de5755205d6fdba276"
+    },
+    {
+      "path": "core/crates/wabi-consensus/tests/runtime_contract.rs",
+      "bytes": 10702,
+      "sha256": "0f88a325a0ce0bc7890a32eea3392bf1a0757a3768ca9aeef03bb32f5897d874"
+    }
+  ],
+  "archiveSha256": "01e4deb22ac0a25f118f8e0cc4e70f3e65a2810507edb4620528d70199b45915",
+  "scope": "source only; not compiled or run; exact four cleared paths"
+}

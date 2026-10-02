@@ -1,0 +1,83 @@
+{
+  "baseline": {
+    "scope": "source-only four-file runtime reservation; no compiler slot",
+    "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+    "checkpoint": "5d017d3a62f0e3beca7915acae75bb6567d4c00a",
+    "files": [
+      {
+        "path": "core/crates/wabi-consensus/src/runtime.rs",
+        "exists": false,
+        "sha256": null,
+        "bytes": 0
+      },
+      {
+        "path": "core/crates/wabi-consensus/src/runtime/tests.rs",
+        "exists": false,
+        "sha256": null,
+        "bytes": 0
+      },
+      {
+        "path": "core/crates/wabi-consensus/src/lib.rs",
+        "exists": true,
+        "sha256": "70214c8516d12589c0c736b521b15796bcd5d58dfd5570d9ee7d87920a2d60fc",
+        "bytes": 1225
+      },
+      {
+        "path": "core/crates/wabi-consensus/tests/runtime_contract.rs",
+        "exists": false,
+        "sha256": null,
+        "bytes": 0
+      }
+    ],
+    "cargoLockSha256": "51945aa9a62b8bcb2be3dadd11ea044c201366d656782b3db705460c09f851bd"
+  },
+  "storeBaseline": {
+    "files": [
+      {
+        "path": "core/crates/wabi-consensus/src/store.rs",
+        "sha256": "0bc8feee67a067a7c495f307907c4d6467ae84de9f0d3d7d03b9d9cb59808fd0",
+        "bytes": 43926
+      },
+      {
+        "path": "core/crates/wabi-consensus/src/store/tests.rs",
+        "sha256": "67b24e2b340dbcca61abcf3604396327571fd5a5b7cc91fbf8ab74a4b2c091f5",
+        "bytes": 14051
+      }
+    ],
+    "scope": "exact two-path optional runtime lifetime hook source-only extension"
+  },
+  "files": [
+    {
+      "path": "core/crates/wabi-consensus/src/runtime.rs",
+      "bytes": 27263,
+      "sha256": "411c7ea53600e64d170f11f4772e1415fb33f6a3b888e89f55fb9e615f9f59a9"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/runtime/tests.rs",
+      "bytes": 11097,
+      "sha256": "fbd43b7051435d41571abe97e2417c39c498562fba7d5f39586727e0301cc61c"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/lib.rs",
+      "bytes": 1270,
+      "sha256": "2809d740a93c8de298c740138e374c46b2af9ed3b3eea2de5755205d6fdba276"
+    },
+    {
+      "path": "core/crates/wabi-consensus/tests/runtime_contract.rs",
+      "bytes": 10702,
+      "sha256": "0f88a325a0ce0bc7890a32eea3392bf1a0757a3768ca9aeef03bb32f5897d874"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/store.rs",
+      "bytes": 45536,
+      "sha256": "22139f6765b20025b1e23cbb159f112516f6505a112665bbe64e2f392086483d"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/store/tests.rs",
+      "bytes": 17376,
+      "sha256": "c7060143db2b65b5d2dc65782f916e62291325c8ca2d96b4fff5f5c4ef45c10e"
+    }
+  ],
+  "archiveSha256": "1302f6498e6fcf47fbe5d2b32171d04c746e4f0c3a79fa0ee12d996413de9eae",
+  "scope": "source2 six-file runtime lease/quiescence repair; source1 uncompiled/unrun retained; no build slot"
+}

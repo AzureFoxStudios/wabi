@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T20:19:20.919252+00:00",
+  "accepted": true,
+  "nativeSession": 36987,
+  "actualNativeTerminalExitCode": 0,
+  "receipt": "docs/testing/geographic-2026-10-02/availability-control-root-runtime1.json",
+  "pass": 103,
+  "fail": 0,
+  "ignored": 9,
+  "groups": 6,
+  "sourceInputs": 5193,
+  "sourceFreezeSha256": "f8e82d1febe4408d5caaed5d11b9ed28f860c8e2d70df544b4bfc9ba774824c0",
+  "source2MatchesExecutedFreeze": true,
+  "source1NeverCompiledOrRun": true,
+  "logGzipDecodedSha256": "0a2430091cda7b45a8423e9bba70dcfed22b1fcb735e97510c0c0ff90699a8c6",
+  "executables": [
+    {
+      "bytes": 9117280,
+      "path": "/home/ironin/wabi/target/debug/deps/checkpoint_tcp_contract-eb8a76132423eb51",
+      "sha256": "8d9785a3f6e95464d765932f1e6b4a915556270cf9cd680a64ae5615779daa2e",
+      "targetName": "checkpoint_tcp_contract"
+    },
+    {
+      "bytes": 22273544,
+      "path": "/home/ironin/wabi/target/debug/deps/encrypted_tcp_contract-00738f49c217519b",
+      "sha256": "2f3958ece3a76e660cd219c20bf8b4127b995f5baf903a1e241a1e61b1ef17ab",
+      "targetName": "encrypted_tcp_contract"
+    },
+    {
+      "bytes": 21704928,
+      "path": "/home/ironin/wabi/target/debug/deps/runtime_contract-d19ab8ebc4e7f575",
+      "sha256": "35b6a9d1610415a7a70ae7347d2f0c9dfcd1bcd2ed94c339d7929322b23f69f2",
+      "targetName": "runtime_contract"
+    },
+    {
+      "bytes": 14238864,
+      "path": "/home/ironin/wabi/target/debug/deps/storage_contract-ee0891f528a91e62",
+      "sha256": "fcce9f2c486c50a86ad250fafff753d260d12aacb45be49046d9f451fadb984d",
+      "targetName": "storage_contract"
+    },
+    {
+      "bytes": 17566920,
+      "path": "/home/ironin/wabi/target/debug/deps/three_voter_contract-292744b09621c787",
+      "sha256": "041ec612fc604151f2cd0c2ff5d59a66ee7b0f289b1d8b826055563cd81a4df9",
+      "targetName": "three_voter_contract"
+    },
+    {
+      "bytes": 28333792,
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_consensus-22d83510d7fdf2f2",
+      "sha256": "c9a635d013bda988c1d6578c99bfdcf993c8567b5536921d1d747aa7e2929fae",
+      "targetName": "wabi_consensus"
+    }
+  ],
+  "newTests": {
+    "runtimeUnit": 6,
+    "storeLifetimeUnit": 1,
+    "managedThreeNodeIntegration": 1,
+    "countsOverlapExistingPackage": true
+  },
+  "proven": [
+    "actual managed Raft/control/material/listener lifecycle",
+    "fixed-roster durable historical observation",
+    "complete runtime close/reopen and fresh stored-byte check",
+    "two-voter historical commit and returning follower catch-up",
+    "original key and lock inodes retained",
+    "caller cancellation retains owned work",
+    "actual blocked redb transaction drain",
+    "real snapshot builder holds shutdown until actual completion",
+    "runtime lease dropped after database and original lock"
+  ],
+  "notVerified": [
+    "normal Authority production startup/configuration",
+    "server capture publication/original-operation journal/reconciliation",
+    "genuine Wabi capture through managed runtime",
+    "restored permission-checked API/full enabled/external state",
+    "actual runtime startup/shutdown caller-cancellation matrix",
+    "runtime SIGKILL/listener failure/minority/forced snapshot fault matrix",
+    "complete writer/nonce fencing or activation",
+    "physical three independent sites or desktop/media/plainIP/Tailcat",
+    "regional owners/selective fanout/measured capacity/privacy"
+  ],
+  "fullInstanceReady": false,
+  "canonicalWriterPermitted": false,
+  "normalAuthorityStartsRuntime": false,
+  "deployed": false,
+  "allSharedBuildHoldsReleased": true,
+  "OfficeNextCompilerPriority": true,
+  "ownedProcessesAbsent": [
+    1201527,
+    1201539,
+    1202557
+  ]
+}

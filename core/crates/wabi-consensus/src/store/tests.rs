@@ -3,6 +3,99 @@ use openraft::storage::RaftLogStorage;
 use std::time::Duration;
 
 #[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runtime_lease_covers_cancelled_blocking_io_snapshot_owner_and_actual_lock_release() {
+    use openraft::{storage::RaftStateMachine, RaftSnapshotBuilder};
+    use std::{
+        os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
+        sync::atomic::{AtomicBool, Ordering},
+    };
+    struct Lease {
+        path: PathBuf,
+        inode: u64,
+        released_after_lock: Arc<AtomicBool>,
+    }
+    impl Drop for Lease {
+        fn drop(&mut self) {
+            let probe = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(0o400000)
+                .open(&self.path)
+                .unwrap();
+            assert_eq!(probe.metadata().unwrap().ino(), self.inode);
+            self.released_after_lock
+                .store(probe.try_lock_exclusive().unwrap(), Ordering::SeqCst);
+        }
+    }
+    let root = tempfile::tempdir().unwrap();
+    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    let initial = Store::open(
+        root.path(),
+        StoreBinding {
+            community_id: "ab".repeat(32),
+            partition_id: "community/control".into(),
+            node_id: 1,
+        },
+        StoreLimits {
+            min_free_bytes: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let path = root.path().join(".lock");
+    let inode = fs::metadata(&path).unwrap().ino();
+    let released = Arc::new(AtomicBool::new(false));
+    let store = Arc::new(
+        initial
+            .with_runtime_owner(Arc::new(Lease {
+                path: path.clone(),
+                inode,
+                released_after_lock: released.clone(),
+            }))
+            .unwrap(),
+    );
+    let mut state_machine = (*store).clone();
+    let mut snapshot = state_machine.get_snapshot_builder().await;
+    drop(state_machine);
+    let (entered, entered_rx) = tokio::sync::oneshot::channel();
+    let (release, released_rx) = std::sync::mpsc::channel();
+    let worker_store = store.clone();
+    let caller = tokio::spawn(async move {
+        worker_store
+            .run(move |inner| {
+                let tx = transaction(inner, 1024 * 1024)?;
+                put(&tx, "logBytes", &0u64)?;
+                entered.send(()).unwrap();
+                released_rx.recv().unwrap();
+                io(tx.commit())
+            })
+            .await
+    });
+    entered_rx.await.unwrap();
+    caller.abort();
+    assert!(caller.await.unwrap_err().is_cancelled());
+    let wait_store = store.clone();
+    let waiting = tokio::spawn(async move { wait_store.await_runtime_owners().await });
+    tokio::task::yield_now().await;
+    assert!(!waiting.is_finished());
+    assert!(!released.load(Ordering::SeqCst));
+    release.send(()).unwrap();
+    // The actual builder still owns the same Inner even after IO finishes.
+    snapshot.build_snapshot().await.unwrap();
+    assert!(!waiting.is_finished());
+    drop(snapshot);
+    waiting.await.unwrap().unwrap();
+    assert!(!released.load(Ordering::SeqCst));
+    drop(store);
+    assert!(
+        released.load(Ordering::SeqCst),
+        "runtime lease was released before original database lock"
+    );
+    assert_eq!(fs::metadata(&path).unwrap().ino(), inode);
+}
+
+#[cfg(target_os = "linux")]
 fn kill_ready() {
     use std::io::Write;
     println!("WABI_V2_STORAGE_BOUNDARY");

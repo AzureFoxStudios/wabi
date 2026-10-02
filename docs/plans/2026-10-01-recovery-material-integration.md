@@ -89,6 +89,26 @@ canonical writer permission or automatic recovery. See the
 
 ## Ordered work and ownership
 
+### October 3: locally accepted configured control runtime
+
+The narrowly released six-file consensus source now adds a
+[configured runtime owner](../deployment/RECOVERY_CONTROL_RUNTIME.md) for
+actual Raft/control/material/listener lifecycles, immutable private enrollment,
+explicit fixed-roster bootstrap and owned ingest/observation/shutdown jobs.
+Its [frozen local run](../testing/geographic-2026-10-02/availability-control-root-runtime1.json)
+compiled and passed **103 checks, zero failures and nine ignored entries**
+across six serial groups, on 5,193 unchanged Rust/graph/static inputs. Existing
+package counts overlap earlier acceptance. Review caught the first source's
+Core-versus-background-store shutdown gap before any compilation; the repaired
+source retains runtime ownership through every store/IO/snapshot owner and
+awaits actual drain on successful and fatal shutdown. Actual blocked IO,
+cancelled caller, snapshot lifetime, immediate reopen and original lock/key
+inodes are checked. The normal Authority does not start it. Its new checks
+use synthetic signed bytes; server capture
+publication, the original-operation journal, automatic restart reconciliation
+and genuine enabled-instance recovery remain open. This prerequisite leaves
+all writer/full-instance permission fields false and changes no WabiDB schema.
+
 ### October 3: owned peer candidate job source
 
 The [operator contract](../deployment/CHECKPOINT_PEER_CANDIDATES.md) describes

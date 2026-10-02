@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T20:13:18.551043+00:00",
+  "compilerPid": 1201539,
+  "compilerStartTicks": 21769530,
+  "compilerTerminalState": "Z",
+  "compiledLogReportsSuccess": true,
+  "sourceInputs": 5193,
+  "sourceFreezeSha256": "f8e82d1febe4408d5caaed5d11b9ed28f860c8e2d70df544b4bfc9ba774824c0",
+  "allSourceHashesUnchanged": true,
+  "executables": [
+    {
+      "targetName": "checkpoint_tcp_contract",
+      "path": "/home/ironin/wabi/target/debug/deps/checkpoint_tcp_contract-eb8a76132423eb51",
+      "bytes": 9117280,
+      "sha256": "8d9785a3f6e95464d765932f1e6b4a915556270cf9cd680a64ae5615779daa2e"
+    },
+    {
+      "targetName": "encrypted_tcp_contract",
+      "path": "/home/ironin/wabi/target/debug/deps/encrypted_tcp_contract-00738f49c217519b",
+      "bytes": 22273544,
+      "sha256": "2f3958ece3a76e660cd219c20bf8b4127b995f5baf903a1e241a1e61b1ef17ab"
+    },
+    {
+      "targetName": "runtime_contract",
+      "path": "/home/ironin/wabi/target/debug/deps/runtime_contract-d19ab8ebc4e7f575",
+      "bytes": 21704928,
+      "sha256": "35b6a9d1610415a7a70ae7347d2f0c9dfcd1bcd2ed94c339d7929322b23f69f2"
+    },
+    {
+      "targetName": "storage_contract",
+      "path": "/home/ironin/wabi/target/debug/deps/storage_contract-ee0891f528a91e62",
+      "bytes": 14238864,
+      "sha256": "fcce9f2c486c50a86ad250fafff753d260d12aacb45be49046d9f451fadb984d"
+    },
+    {
+      "targetName": "three_voter_contract",
+      "path": "/home/ironin/wabi/target/debug/deps/three_voter_contract-292744b09621c787",
+      "bytes": 17566920,
+      "sha256": "041ec612fc604151f2cd0c2ff5d59a66ee7b0f289b1d8b826055563cd81a4df9"
+    },
+    {
+      "targetName": "wabi_consensus",
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_consensus-22d83510d7fdf2f2",
+      "bytes": 28333792,
+      "sha256": "c9a635d013bda988c1d6578c99bfdcf993c8567b5536921d1d747aa7e2929fae"
+    }
+  ],
+  "maximumObservedTemperatureC": 31.875,
+  "actualFreeBytes": 13383331840,
+  "runnerPid": 1201527,
+  "runnerStartTicks": 21769366,
+  "timedTestsThrottled": false,
+  "testAcceptanceNotYetKnown": true,
+  "precheckScriptSha256": "840d1726943a941c3f49ccfa752a4317a2e1b0ffc4fb03ffe72ef202f1d22ae1"
+}

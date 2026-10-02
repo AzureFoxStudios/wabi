@@ -1,0 +1,189 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T20:19:21.113354+00:00",
+  "checkpointBranch": "codex/geographic-checkpoint-integration-20261002",
+  "baseCommit": "5d017d3a62f0e3beca7915acae75bb6567d4c00a",
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "files": [
+    {
+      "path": "core/crates/wabi-consensus/src/runtime.rs",
+      "bytes": 27263,
+      "sha256": "411c7ea53600e64d170f11f4772e1415fb33f6a3b888e89f55fb9e615f9f59a9",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/runtime/tests.rs",
+      "bytes": 11097,
+      "sha256": "fbd43b7051435d41571abe97e2417c39c498562fba7d5f39586727e0301cc61c",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/lib.rs",
+      "bytes": 1270,
+      "sha256": "2809d740a93c8de298c740138e374c46b2af9ed3b3eea2de5755205d6fdba276",
+      "baseExists": true,
+      "baseSha256": "70214c8516d12589c0c736b521b15796bcd5d58dfd5570d9ee7d87920a2d60fc"
+    },
+    {
+      "path": "core/crates/wabi-consensus/tests/runtime_contract.rs",
+      "bytes": 10702,
+      "sha256": "0f88a325a0ce0bc7890a32eea3392bf1a0757a3768ca9aeef03bb32f5897d874",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/store.rs",
+      "bytes": 45536,
+      "sha256": "22139f6765b20025b1e23cbb159f112516f6505a112665bbe64e2f392086483d",
+      "baseExists": true,
+      "baseSha256": "0bc8feee67a067a7c495f307907c4d6467ae84de9f0d3d7d03b9d9cb59808fd0"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/store/tests.rs",
+      "bytes": 17376,
+      "sha256": "c7060143db2b65b5d2dc65782f916e62291325c8ca2d96b4fff5f5c4ef45c10e",
+      "baseExists": true,
+      "baseSha256": "67b24e2b340dbcca61abcf3604396327571fd5a5b7cc91fbf8ab74a4b2c091f5"
+    },
+    {
+      "path": "docs/deployment/RECOVERY_CONTROL_RUNTIME.md",
+      "bytes": 7038,
+      "sha256": "293cbce5030080f74b4c039eba0860963f1a7f44be500b7ac5c7ef06c9ba39ef",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "bytes": 21161,
+      "sha256": "b2e07231f2c9f119cc6557d48957380232b6a49f400ed714638fd175db60b05c",
+      "baseExists": true,
+      "baseSha256": "4e0611bdfa91cd68a77d50b486d12a9c16aedbc070798b2273871cca232dadd4"
+    },
+    {
+      "path": "docs/PROJECT_STATUS.md",
+      "bytes": 88475,
+      "sha256": "f6d50cf03084c66b7317c1f89589cb1de5fc07d51eadff9df37b7dc6347001f9",
+      "baseExists": true,
+      "baseSha256": "f5259737bb3cfe12fc0578d6c351d934562631ac605a886418adc9558d3b2cdc"
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-runtime-baseline1.json",
+      "bytes": 914,
+      "sha256": "85ad32dc18e43a21e63395d3f6f04bb5436fa331e547207213f658d6742acd29",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-runtime-store-baseline1.json",
+      "bytes": 458,
+      "sha256": "4c0f052eece268d0b556e361a8376e59a8161f7d009ab487ffd061c7ed555f80",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-runtime-doc-baseline1.json",
+      "bytes": 548,
+      "sha256": "b330493520ecf5c47a36fa58e7622cef401e3e60243928facf4903772d8e8c87",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-runtime-source1.json",
+      "bytes": 1890,
+      "sha256": "ee6a9fbaa80d235e356ba5c0dc1d0019d31870f5cf8031ffc2693933132c2d46",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-runtime-source1-exact.json.gz",
+      "bytes": 11296,
+      "sha256": "01e4deb22ac0a25f118f8e0cc4e70f3e65a2810507edb4620528d70199b45915",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-runtime-source2.json",
+      "bytes": 2793,
+      "sha256": "57f8fd0924db31868448725cc703c3b77edd109dde73cab1aef52cedf8d38d0e",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-runtime-source2-exact.json.gz",
+      "bytes": 24013,
+      "sha256": "1302f6498e6fcf47fbe5d2b32171d04c746e4f0c3a79fa0ee12d996413de9eae",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-runtime-harness1-exact.json.gz",
+      "bytes": 5436,
+      "sha256": "d866e751390d0b5d0864ca4f8f0f2302ea85584e750d246ff8466814c5bdbe8d",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-runtime1.json",
+      "bytes": 4345,
+      "sha256": "5662e065e665e7e71da35bc44c10ede4d0fce846b9553d52d468c5d075f0dc71",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-runtime1.log.gz",
+      "bytes": 14141,
+      "sha256": "0248b8f8d8945383fda8ff9bef87eb471c002c78b8db96e5dc918e18b5e51dc6",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-runtime1-before.json.gz",
+      "bytes": 230068,
+      "sha256": "dbf4869af33f7095829e270e2cdd470236c28d5c6aadd696fe8c07b9577e03f0",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-runtime1-precheck.json",
+      "bytes": 2195,
+      "sha256": "48be18352a0d0b41d0514493d15abe2918d38ca348e6b4eddd70978e54705b17",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-runtime1-start.json",
+      "bytes": 1476,
+      "sha256": "1ca6b4cb168fb32b16fd7c0234acc2aa178ba763d6ca583c5341c7663ecf742b",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-owned-cleanup11.json",
+      "bytes": 529,
+      "sha256": "1a892cf71bb0c3ecc2814f13f715ad8e43eae2301268e2ce8b139a293a57c7b2",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-runtime-acceptance1.json",
+      "bytes": 3706,
+      "sha256": "869e6db2042e49247109d386570de2ee73a889535e2162ad00504d937eabdcc6",
+      "baseExists": false,
+      "baseSha256": null
+    }
+  ],
+  "fileCount": 24,
+  "totalBytes": 533726,
+  "acceptanceReceipt": "docs/testing/geographic-2026-10-02/availability-control-root-runtime1.json",
+  "allOriginalRuntimeAndStoreBaselinesPreserved": true,
+  "excluded": [
+    "organizer archives",
+    "live data/keys/operator config",
+    "attachments",
+    "target",
+    "unlisted historical evidence"
+  ],
+  "scope": "accepted managed-runtime library + truthful maturity/operator docs/exact proof; no main merge/deploy/full HA"
+}

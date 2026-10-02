@@ -1,0 +1,17 @@
+{
+  "recordedAtUtc": "2026-10-02T20:18:21.311490+00:00",
+  "deletedOwnedRawLog": "/tmp/wabi-geographic-availability-control-root-runtime1.log",
+  "bytesRemoved": 147257,
+  "sha256": "0a2430091cda7b45a8423e9bba70dcfed22b1fcb735e97510c0c0ff90699a8c6",
+  "dev": 66306,
+  "ino": 4382757,
+  "uid": 1000,
+  "mode": "0o600",
+  "compressedExactEvidencePreserved": true,
+  "ownedProcessesAbsent": [
+    1201527,
+    1201539,
+    1202557
+  ],
+  "scope": "only terminal owned runtime1 raw log; no keys/state/locks/cache/worktree removed"
+}

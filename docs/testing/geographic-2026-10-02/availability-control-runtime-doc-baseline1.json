@@ -1,0 +1,22 @@
+{
+  "files": [
+    {
+      "path": "docs/PROJECT_STATUS.md",
+      "exists": true,
+      "bytes": 87567,
+      "sha256": "f5259737bb3cfe12fc0578d6c351d934562631ac605a886418adc9558d3b2cdc"
+    },
+    {
+      "path": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "exists": true,
+      "bytes": 19829,
+      "sha256": "4e0611bdfa91cd68a77d50b486d12a9c16aedbc070798b2273871cca232dadd4"
+    },
+    {
+      "path": "docs/deployment/RECOVERY_CONTROL_RUNTIME.md",
+      "exists": false,
+      "bytes": 0,
+      "sha256": null
+    }
+  ]
+}

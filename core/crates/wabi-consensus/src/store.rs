@@ -165,6 +165,9 @@ struct Inner {
     root_identity: (u64, u64),
     #[cfg(unix)]
     database_identity: (u64, u64),
+    // Optional process-local lease. Destroy it AFTER redb and the original
+    // advisory lock, including when the last owner is a detached IO task.
+    _runtime_owner: Option<Arc<dyn Send + Sync>>,
 }
 #[derive(Clone)]
 pub struct Store {
@@ -466,6 +469,7 @@ impl Store {
             },
             #[cfg(unix)]
             database_identity,
+            _runtime_owner: None,
         });
         inner.verify_lock()?;
         if new {
@@ -569,6 +573,33 @@ impl Store {
     /// membership, availability or writer-permission verdict.
     pub fn binding(&self) -> &StoreBinding {
         &self.inner.binding
+    }
+    /// Attach only before this fresh store is cloned or supplied to Raft.
+    /// The lease must not contain a Store/Inner reference (ownership cycle).
+    /// Every log reader/snapshot builder and blocking IO already holds Inner.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn with_runtime_owner(mut self, owner: Arc<dyn Send + Sync>) -> Result<Self> {
+        let inner = Arc::get_mut(&mut self.inner).ok_or(StoreError::Ownership)?;
+        if inner._runtime_owner.is_some() {
+            return Err(StoreError::Ownership);
+        }
+        inner._runtime_owner = Some(owner);
+        Ok(self)
+    }
+    /// Runtime admission, listeners, local jobs and Raft Core MUST already be
+    /// stopped. No Store/Weak<Inner> escapes that owner. Count one then proves
+    /// only this original Store remains: actual SM/snapshot/log-reader owners
+    /// and cancelled callers' blocking Inner captures have all ceased.
+    /// Do not time out or release the lease while that work remains alive.
+    #[cfg(target_os = "linux")]
+    pub(crate) async fn await_runtime_owners(&self) -> Result<()> {
+        if self.inner._runtime_owner.is_none() {
+            return Err(StoreError::Ownership);
+        }
+        while Arc::strong_count(&self.inner) != 1 {
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+        self.inner.verify_lock()
     }
     async fn read_value<T: DeserializeOwned + Send + 'static>(
         &self,
