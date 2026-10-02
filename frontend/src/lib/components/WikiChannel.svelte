@@ -1,7 +1,7 @@
 <script lang="ts">
 	import ProfileMedia from './ProfileMedia.svelte';
 	import { mediaUrl } from '$lib/mediaUrl';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 	let readingPane: HTMLDivElement;
 	let expandedReading = false;
 	async function toggleReading() {
@@ -23,7 +23,7 @@
 	import { parseMessage } from '$lib/markdown';
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
 	import { forumAuthors } from '$lib/forumIdentity';
-	import { pendingNav, takePendingNav } from '$lib/pendingNav';
+	import { pendingNav, completePendingNavAfterRender } from '$lib/pendingNav';
 	import {
 		extractWikiHeadings,
 		formatWikiCitationMarkdown,
@@ -183,8 +183,10 @@
 		) {
 			const hit = allPages.find((p) => p.pageId === pending.pageId);
 			if (hit) {
-				takePendingNav('wiki_page', effectiveChannel);
-				selectPage(hit);
+                const channel = effectiveChannel, owner = draftOwner;
+                // Wait until the initial derived reader state has finished updating.
+                void completePendingNavAfterRender(pending, tick,
+                    () => mounted && effectiveChannel === channel && owner === draftOwner && !!owner?.current(), () => selectPage(hit));
 			}
 		}
 	}
@@ -198,14 +200,15 @@
 	$: displayRevisionCount = allRevisions.length;
 
 	function selectPage(page: WikiPage) {
-		if (draftOwner?.isSending()) return;
-		if (editIsDirty && !window.confirm('Discard unsaved wiki changes?')) return;
+		if (draftOwner?.isSending()) return false;
+		if (editIsDirty && !window.confirm('Discard unsaved wiki changes?')) return false;
 		editorEpoch += 1; imageUploading = false;
 		selectedPageId = page.pageId;
 		showTreeOnMobile = false;
 		editMode = false;
 		showHistory = false;
 		viewRevision = null;
+        return true;
 	}
 
 	function handleEdit() {
