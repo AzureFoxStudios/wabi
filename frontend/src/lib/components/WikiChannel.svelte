@@ -23,7 +23,7 @@
 	import { parseMessage } from '$lib/markdown';
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
 	import { forumAuthors } from '$lib/forumIdentity';
-	import { peekPendingNav, takePendingNav } from '$lib/pendingNav';
+	import { pendingNav, takePendingNav } from '$lib/pendingNav';
 	import {
 		extractWikiHeadings,
 		formatWikiCitationMarkdown,
@@ -175,8 +175,8 @@
 	}
 
 	// C2: deep-link handoff after pages load — peek first, take only on hit
-	$: if (effectiveChannel && allPages.length > 0) {
-		const pending = peekPendingNav();
+	$: if (draftSurface === 'center' && effectiveChannel && loadedChannelId === effectiveChannel && allPages.length > 0) {
+		const pending = $pendingNav;
 		if (
 			pending?.kind === 'wiki_page' &&
 			(!pending.channelId || pending.channelId === effectiveChannel)
