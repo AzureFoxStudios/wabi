@@ -1,0 +1,697 @@
+{
+  "app": {
+    "starting": "กำลังเริ่ม Wabi"
+  },
+  "common": {
+    "close": "ปิด",
+    "regenerate": "สร้างใหม่",
+    "cancel": "ยกเลิก",
+    "save": "บันทึก",
+    "on": "เปิด",
+    "off": "ปิด"
+  },
+  "settings": {
+    "title": "การตั้งค่า",
+    "language": "ภาษา",
+    "tabs": {
+      "games": "เกม",
+      "profile": "โปรไฟล์",
+      "audio": "เสียงและวิดีโอ",
+      "notifications": "การแจ้งเตือน",
+      "accessibility": "การเข้าถึง",
+      "appearance": "รูปลักษณ์",
+      "server": "เซิร์ฟเวอร์",
+      "addons": "ส่วนเสริม",
+      "emojis": "อิโมจิ",
+      "storage": "พื้นที่จัดเก็บ",
+      "admin": "ผู้ดูแลระบบ",
+      "about": "เกี่ยวกับ",
+      "logout": "ออกจากระบบ"
+    },
+    "sections": {
+      "display_name": "ชื่อที่แสดง",
+      "profile_picture": "รูปโปรไฟล์",
+      "audio": "เสียงและวิดีโอ",
+      "notifications": "การแจ้งเตือน",
+      "accessibility": "การเข้าถึง",
+      "appearance": "รูปลักษณ์",
+      "server_management": "การจัดการเซิร์ฟเวอร์",
+      "addons": "ส่วนเสริม",
+      "custom_emojis": "อิโมจิแบบกำหนดเอง",
+      "admin_panel": "แผงผู้ดูแลระบบ",
+      "about": "เกี่ยวกับ"
+    },
+    "actions": {
+      "clear_server": "ล้างเซิร์ฟเวอร์"
+    },
+    "confirm": {
+      "clear_local_title": "ล้างข้อมูลในเครื่อง",
+      "clear_local_message": "คุณแน่ใจหรือไม่ว่าต้องการล้างข้อมูลแชททั้งหมด? การกระทำนี้ย้อนกลับไม่ได้",
+      "clear_local_confirm": "ล้างข้อมูล",
+      "clear_server_title": "ล้างข้อความบนเซิร์ฟเวอร์",
+      "clear_server_message": "คุณแน่ใจหรือไม่ว่าต้องการลบข้อความทั้งหมดจากเซิร์ฟเวอร์? การกระทำนี้จะลบข้อความของผู้ใช้ทุกคนและย้อนกลับไม่ได้!",
+      "clear_server_confirm": "ลบทั้งหมด"
+    },
+    "language_learning": {
+      "label": "การทยอยเรียนรู้ภาษาใน UI",
+      "description": "ค่อย ๆ ผสมภาษาที่คุณเลือกเข้าไปใน UI ตามช่วงเวลา",
+      "target_percent": "สัดส่วนภาษาเป้าหมายใน UI: {percent}%",
+      "hint": "ค่าที่ต่ำจะคงภาษาอังกฤษไว้มากกว่า ค่อย ๆ เพิ่มขึ้นเมื่อคุณเรียนรู้มากขึ้น",
+      "select_non_english": "เลือกภาษาของแอปที่ไม่ใช่ภาษาอังกฤษเพื่อเปิดใช้การผสมภาษาแบบทยอย"
+    }
+  },
+  "login": {
+    "tabs": {
+      "guest": "ผู้เยี่ยมชม",
+      "login": "เข้าสู่ระบบ",
+      "register": "ลงทะเบียน"
+    },
+    "language": {
+      "label": "ภาษา"
+    },
+    "guest": {
+      "name_placeholder": "ใส่ชื่อของคุณ",
+      "joining": "กำลังเข้าร่วม...",
+      "join_button": "เข้าร่วมในฐานะผู้เยี่ยมชม",
+      "join_qr_button": "เข้าร่วมผ่าน QR Code",
+      "business_hub": "ศูนย์ธุรกิจ"
+    },
+    "auth": {
+      "username_or_handle_placeholder": "ชื่อผู้ใช้หรือ @handle",
+      "password_placeholder": "รหัสผ่าน",
+      "logging_in": "กำลังเข้าสู่ระบบ...",
+      "login_button": "เข้าสู่ระบบ",
+      "display_name_placeholder": "เลือกชื่อที่แสดง",
+      "handle_placeholder": "yourhandle",
+      "password_rules_placeholder": "รหัสผ่าน (8 ตัวอักษรขึ้นไป)",
+      "confirm_password_placeholder": "ยืนยันรหัสผ่าน",
+      "creating_account": "กำลังสร้างบัญชี...",
+      "create_account_button": "สร้างบัญชี",
+      "forgot_password": "ลืมรหัสผ่าน?",
+      "remember_me": "จำฉันไว้บนอุปกรณ์นี้",
+      "show_password": "แสดงรหัสผ่าน",
+      "hide_password": "ซ่อนรหัสผ่าน",
+      "create_account_prompt": "เพิ่งมาใช้งานใช่ไหม?",
+      "create_account_link": "สร้างบัญชีแบบลงทะเบียน",
+      "guest_access_heading": "การเข้าใช้แบบผู้เยี่ยมชม",
+      "guest_access_link": "ดำเนินการต่อในฐานะผู้เยี่ยมชม",
+      "change_server": "กำลังมองหาเซิร์ฟเวอร์อื่น?",
+      "change_server_link": "เปลี่ยน"
+    },
+    "errors": {
+      "username_min": "ชื่อผู้ใช้ต้องมีอย่างน้อย 2 ตัวอักษร",
+      "handle_invalid": "Handle ต้องขึ้นต้นด้วยตัวอักษร ยาว 2-32 ตัวอักษร ใช้ได้เฉพาะตัวอักษรพิมพ์เล็ก ตัวเลข และขีดล่าง",
+      "password_min": "รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร",
+      "password_mismatch": "รหัสผ่านไม่ตรงกัน",
+      "registration_failed": "ลงทะเบียนไม่สำเร็จ",
+      "username_password_required": "ต้องระบุชื่อผู้ใช้และรหัสผ่าน",
+      "login_failed": "เข้าสู่ระบบไม่สำเร็จ"
+    },
+    "qr": {
+      "open_modal": "เข้าร่วมผ่าน QR Code",
+      "title": "สแกนเพื่อเข้าร่วม",
+      "url_placeholder": "ชื่อห้อง (ไม่บังคับ เช่น kitchen)",
+      "close_modal_aria": "ปิดหน้าต่าง QR code",
+      "dialog_aria": "QR code สำหรับเข้าร่วมแชท"
+    },
+    "wizard": {
+      "welcome": "ยินดีต้อนรับสู่ Wabi",
+      "owner_subtitle": "สร้างบัญชีเจ้าของของคุณ บัญชีนี้จะเป็นผู้ดูแลระบบหลักของเซิร์ฟเวอร์",
+      "advanced_setup_note": "ต้องการการเข้าถึงจากภายนอก TURN เมช หรือการปรับแต่งหน้าล็อกอิน? ทำได้หลังเข้าสู่ระบบผ่านสคริปต์ติดตั้งหรือการตั้งค่า launch-page",
+      "join_title": "ใครเข้าร่วมเซิร์ฟเวอร์นี้ได้?",
+      "join_subtitle": "คุณเป็นเจ้าของเซิร์ฟเวอร์ — คุณเป็นคนตัดสินใจว่าคนใหม่จะเข้ามาได้อย่างไร",
+      "join_open_label": "เปิด",
+      "join_open_desc": "ทุกคนที่เข้าถึงเซิร์ฟเวอร์นี้สามารถสร้างบัญชีได้",
+      "join_closed_label": "ปิด",
+      "join_closed_desc": "ตอนนี้มีเพียงคุณเท่านั้นที่สร้างบัญชีได้ รหัสเชิญจะมาในภายหลัง",
+      "join_guest_label": "อนุญาตผู้เยี่ยมชม",
+      "join_guest_desc": "ให้ผู้ใช้เข้าร่วมเป็นผู้เยี่ยมชมชั่วคราวโดยไม่ต้องมีบัญชี",
+      "join_note": "คุณสามารถเปลี่ยนได้ภายหลังในการตั้งค่า",
+      "join_save_failed": "บันทึกการตั้งค่าการเข้าร่วมไม่สำเร็จ — แต่ยังคงดำเนินการต่อ คุณตั้งค่าได้ภายหลังในการตั้งค่า",
+      "finishing": "กำลังตั้งค่าขั้นสุดท้าย…",
+      "finish": "เสร็จสิ้นการตั้งค่า",
+      "step_account": "บัญชีเจ้าของ",
+      "step_network": "การตั้งค่าเครือข่าย",
+      "step_mesh": "เมชของเซิร์ฟเวอร์",
+      "step_branding": "แบรนด์",
+      "step_done": "เสร็จสิ้น",
+      "next": "ถัดไป",
+      "back": "ย้อนกลับ",
+      "skip": "ข้าม",
+      "network_title": "การตั้งค่าเครือข่าย",
+      "network_subtitle": "ทำให้ผู้อื่นเข้าถึงเซิร์ฟเวอร์ของคุณได้",
+      "portforward_label": "การฟอร์เวิร์ดพอร์ต (ค่าเริ่มต้น)",
+      "portforward_instructions": "หากต้องการให้เซิร์ฟเวอร์เข้าถึงได้จากสาธารณะ ให้ฟอร์เวิร์ดพอร์ตเหล่านี้บนเราเตอร์ของคุณ:",
+      "port_http": "80 — HTTP (การตรวจสอบใบรับรองของ Caddy)",
+      "port_https": "443 — HTTPS (ทราฟฟิกสาธารณะทั้งหมด)",
+      "port_turn": "3478 — TURN (การโทรเสียง/วิดีโอ, TCP+UDP)",
+      "public_address_label": "IP สาธารณะหรือโดเมนของเซิร์ฟเวอร์คุณ",
+      "public_address_placeholder": "เช่น wabi.example.com หรือ 203.0.113.10",
+      "restart_portforward": "หลังฟอร์เวิร์ดพอร์ตแล้ว ให้รีสตาร์ทด้วยคำสั่ง:",
+      "portforward_config_note": "หากต้องการที่อยู่สาธารณะจริง ให้รันสคริปต์ติดตั้งหรือแก้ไข .env ด้วย IP/โดเมนสาธารณะของคุณก่อนเปิดใช้โปรไฟล์ TURN ค่าเริ่มต้นของ quick-start จะยังใช้ localhost",
+      "tunnel_checkbox": "ฉันใช้ Cloudflare Tunnel / ตัวสร้างอุโมงค์",
+      "tunnel_token_label": "โทเคน Cloudflare Tunnel (จากแดชบอร์ด Zero Trust)",
+      "tunnel_token_placeholder": "วางโทเคนอุโมงค์ของคุณที่นี่",
+      "tunnel_no_token": "ยังไม่มีโทเคน? ใช้อุโมงค์แบบชั่วคราวสำหรับทดสอบ:",
+      "tunnel_with_token": "ถ้ามีโทเคน:",
+      "tunnel_turn_note": "การโทรเสียง/วิดีโอยังต้องฟอร์เวิร์ดพอร์ต 3478 สำหรับ TURN",
+      "mesh_title": "กำลังจะเข้าร่วมเมช Wabi ที่มีอยู่?",
+      "mesh_subtitle": "ถ้านี่เป็นเซิร์ฟเวอร์ที่สองที่เข้าร่วมการติดตั้งที่มีอยู่ เซิร์ฟเวอร์ทั้งสองต้องใช้การเชื่อมต่อ SpacetimeDB และโทเคนเมชเดียวกัน",
+      "mesh_stdb_url": "URL การเชื่อมต่อ STDB",
+      "mesh_token": "โทเคนใช้ร่วมของเมช",
+      "mesh_region": "ป้ายชื่อภูมิภาคของเซิร์ฟเวอร์",
+      "mesh_region_placeholder": "เช่น us-west, eu-central",
+      "mesh_restart_note": "การตั้งค่าจะมีผลหลังรีสตาร์ทครั้งถัดไปผ่านตัวแปรสภาพแวดล้อม STDB",
+      "branding_title": "ปรับแต่งหน้าล็อกอินของคุณ",
+      "branding_subtitle": "ให้เซิร์ฟเวอร์ของคุณมีเอกลักษณ์ของตัวเอง คุณแก้ไข data/launch-page.json ภายหลังเพื่อตัวเลือกเพิ่มเติมได้ตลอดเวลา",
+      "branding_name": "ชื่อเซิร์ฟเวอร์",
+      "branding_name_placeholder": "เช่น ชุมชนของฉัน",
+      "branding_accent": "สีเน้น",
+      "branding_bg_image": "URL รูปพื้นหลัง",
+      "branding_bg_image_placeholder": "https://example.com/my-background.jpg",
+      "branding_custom_css": "CSS แบบกำหนดเอง",
+      "branding_custom_css_placeholder": "/* Move the login card, change fonts, etc. */\n.login-card { ... }",
+      "done_title": "พร้อมใช้งานแล้ว!",
+      "done_subtitle": "คุณคือเจ้าของเซิร์ฟเวอร์",
+      "done_tip_admin": "ดูการตั้งค่าผู้ดูแลได้ที่ การตั้งค่า > ผู้ดูแลระบบ",
+      "done_tip_invite": "แชร์ URL ของเซิร์ฟเวอร์เพื่อเชิญผู้ใช้",
+      "done_enter": "เข้าสู่ Wabi"
+    }
+  },
+  "chat": {
+    "drag": {
+      "drop_to_upload": "ลากไฟล์มาวางที่นี่เพื่ออัปโหลด"
+    },
+    "dm": {
+      "badge": "ข้อความส่วนตัว",
+      "call": "โทร",
+      "video": "วิดีโอ",
+      "voice_call_title": "สายเสียงกับ {user}",
+      "video_call_title": "สายวิดีโอกับ {user}"
+    },
+    "typing": {
+      "one": "{user} กำลังพิมพ์...",
+      "two": "{user1} และ {user2} กำลังพิมพ์...",
+      "many": "มีหลายคนกำลังพิมพ์...",
+      "multi": "{users} และ {lastUser} กำลังพิมพ์..."
+    },
+    "search": {
+      "placeholder": "ค้นหา (by:username, has:image ฯลฯ)",
+      "results_one": "ผลลัพธ์ {count} รายการ",
+      "results_many": "ผลลัพธ์ {count} รายการ",
+      "loading_older": "กำลังโหลดประวัติเก่า...",
+      "full_history": "ค้นหาประวัติทั้งหมด",
+      "stop": "หยุด ({count})",
+      "status": {
+        "scanning": "กำลังสแกนประวัติทั้งหมด...",
+        "stopped": "หยุดแล้ว",
+        "changed": "คำค้นหาหรือช่องเปลี่ยนไป",
+        "loaded": "โหลดประวัติทั้งหมดของช่องนี้แล้ว",
+        "limit": "ถึงขีดจำกัดจำนวนหน้าแล้ว ลองจำกัดขอบเขตการค้นหาเพื่อดำเนินการต่อ"
+      }
+    },
+    "compose": {
+      "editing": "กำลังแก้ไขข้อความ",
+      "escape_to_cancel": "กด Escape เพื่อยกเลิก",
+      "replying_to": "กำลังตอบกลับ {user}:",
+      "attachment": "ไฟล์แนบ",
+      "placeholder": "พิมพ์ข้อความ... หรือ /help สำหรับคำสั่ง (Shift+Enter เพื่อขึ้นบรรทัดใหม่)",
+      "add_media": "เพิ่มสื่อ",
+      "upload_file": "อัปโหลดไฟล์",
+      "take_photo": "ถ่ายรูป",
+      "record_audio": "บันทึกเสียง",
+      "add_emoji": "เพิ่มอิโมจิ",
+      "send_message": "ส่งข้อความ"
+    },
+    "mentions": {
+      "kind_mention": "กล่าวถึง",
+      "kind_user": "ผู้ใช้"
+    },
+    "upload": {
+      "files_selected_one": "เลือกไว้ {count} ไฟล์",
+      "files_selected_many": "เลือกไว้ {count} ไฟล์",
+      "mark_spoiler": "ทำเครื่องหมายว่าเป็นสปอยเลอร์",
+      "spoiler_hint": "เนื้อหาที่ละเอียดอ่อนจะถูกซ่อนจนกว่าจะคลิก",
+      "upload_files_one": "อัปโหลด {count} ไฟล์",
+      "upload_files_many": "อัปโหลด {count} ไฟล์",
+      "uploading": "กำลังอัปโหลดไฟล์..."
+    }
+  },
+  "messages": {
+    "new_messages": "ข้อความใหม่",
+    "add_reaction": "เพิ่มรีแอคชัน",
+    "encrypted": "เข้ารหัสลับ",
+    "unknown_user": "ผู้ใช้ที่ไม่รู้จัก",
+    "file": "ไฟล์",
+    "message": "ข้อความ",
+    "actions": {
+      "reply": "ตอบกลับ",
+      "more": "เพิ่มเติม"
+    },
+    "errors": {
+      "cannot_decrypt_session": "ไม่สามารถถอดรหัสไฟล์แนบนี้ได้ในเซสชันปัจจุบัน",
+      "decrypt_failed": "ถอดรหัสไฟล์แนบไม่สำเร็จ"
+    },
+    "blend": {
+      "queued": "เพิ่มการนำเข้า Blend เข้าคิวแล้ว",
+      "queued_with_id": "เพิ่มการนำเข้า Blend เข้าคิวแล้ว: {id}",
+      "queue_failed": "เพิ่มการนำเข้า Blend เข้าคิวไม่สำเร็จ",
+      "import_settings": "นำเข้าการตั้งค่า",
+      "download": "ดาวน์โหลด .blend"
+    },
+    "media": {
+      "click_enlarge": "คลิกเพื่อขยาย",
+      "click_enlarge_with_options": "คลิกเพื่อขยาย คลิกขวาเพื่อดูตัวเลือก",
+      "audio_not_supported": "เบราว์เซอร์ของคุณไม่รองรับการเล่นเสียง",
+      "embedded_image_alt": "รูปภาพที่ฝังมา",
+      "model_fallback_name": "โมเดล 3 มิติ",
+      "open_3d_tab": "เปิดแท็บ 3D"
+    },
+    "zip_preview": {
+      "show": "ดูตัวอย่างเนื้อหา ZIP",
+      "hide": "ซ่อนเนื้อหา ZIP",
+      "loading": "กำลังอ่านข้อมูล ZIP...",
+      "retry": "ลองอีกครั้ง",
+      "entries": "{count} รายการ",
+      "uncompressed": "ขนาดเมื่อไม่บีบอัด: {size}",
+      "compressed": "ขนาดเมื่อบีบอัดแล้ว: {size}",
+      "filter_placeholder": "กรองรายการในแฟ้ม...",
+      "filter_results": "แสดง {shown} จาก {total} รายการ",
+      "no_matches": "ไม่มีรายการที่ตรงกับตัวกรองนี้",
+      "sort": {
+        "name_asc": "ชื่อ (A-Z)",
+        "name_desc": "ชื่อ (Z-A)",
+        "size_desc": "ขนาด (มากไปน้อย)",
+        "size_asc": "ขนาด (น้อยไปมาก)"
+      },
+      "preview": {
+        "show": "ดูตัวอย่าง",
+        "hide": "ซ่อนตัวอย่าง",
+        "loading": "กำลังโหลดตัวอย่าง...",
+        "unavailable": "ไม่สามารถดูตัวอย่างรายการนี้ได้"
+      },
+      "encrypted_entries": "มีรายการที่เข้ารหัสลับ {count} รายการ",
+      "empty": "แฟ้มนี้ไม่มีรายการ",
+      "truncated": "แสดง {count} รายการแรก",
+      "method_store": "จัดเก็บเท่านั้น",
+      "method_deflate": "บีบอัด Deflate",
+      "method_other": "วิธี {method}",
+      "errors": {
+        "failed": "โหลดตัวอย่าง ZIP ไม่สำเร็จ",
+        "timeout": "หมดเวลาดูตัวอย่าง ZIP",
+        "encrypted": "ไม่รองรับการดูตัวอย่าง ZIP ที่เข้ารหัสลับ",
+        "too_large": "ขีดจำกัดของตัวอย่าง ZIP คือ {limit}"
+      }
+    },
+    "pinned_title": "ข้อความที่ปักหมุด",
+    "edited_title": "แก้ไขแล้ว",
+    "edited": "แก้ไขแล้ว",
+    "translated_label": "แปลแล้ว",
+    "deletion": {
+      "scheduled_title": "ข้อความนี้ถูกตั้งเวลาให้ลบอัตโนมัติ",
+      "deleting": "กำลังลบ...",
+      "deletes_in": "จะลบในอีก {duration}"
+    },
+    "persistence": {
+      "failed": "ไม่ได้บันทึก",
+      "retrying": "กำลังลองบันทึกอีกครั้ง...",
+      "retry": "ลองอีกครั้ง"
+    },
+    "pagination": {
+      "loading": "กำลังโหลด...",
+      "show_older_loaded": "แสดงข้อความเก่าที่โหลดไว้",
+      "load_older": "โหลดข้อความเก่ากว่า",
+      "beginning": "จุดเริ่มต้นของการสนทนา"
+    },
+    "confirm": {
+      "delete_title": "ลบข้อความ",
+      "delete_message": "คุณแน่ใจหรือไม่ว่าต้องการลบข้อความนี้?",
+      "delete_message_with_uploads": "คุณแน่ใจหรือไม่ว่าต้องการลบข้อความนี้? การดำเนินการนี้จะลบไฟล์ที่อัปโหลด {count} ไฟล์ด้วย",
+      "delete_confirm": "ลบ"
+    },
+    "role_gate": {
+      "title": "Role Gate",
+      "hint": "กดรีแอคชันด้านล่างเพื่อเข้าร่วมหรือออกจากบทบาทการเข้าถึงนี้"
+    },
+    "viewer": {
+      "open_new_tab": "เปิดในแท็บใหม่",
+      "forward_share": "ส่งต่อ / แชร์",
+      "zoom_out": "ซูมออก",
+      "reset_zoom": "รีเซ็ตการซูม",
+      "zoom_in": "ซูมเข้า",
+      "more": "เพิ่มเติม",
+      "more_actions": "การกระทำเพิ่มเติม",
+      "copy_image_link": "คัดลอกลิงก์รูปภาพ",
+      "copy_image": "คัดลอกรูปภาพ",
+      "reverse_search": "ค้นหารูปภาพแบบย้อนกลับ",
+      "image_details": "รายละเอียดรูปภาพ",
+      "details_name": "ชื่อ",
+      "details_dimensions": "ขนาดภาพ",
+      "details_size": "ขนาดไฟล์",
+      "close": "ปิดตัวดูรูปภาพ",
+      "video_not_supported": "เบราว์เซอร์ของคุณไม่รองรับแท็กวิดีโอ",
+      "enlarged_alt": "ขยายแล้ว",
+      "previous": "ก่อนหน้า",
+      "next": "ถัดไป"
+    }
+  },
+  "context_menu": {
+    "aria_label": "การกระทำของข้อความ",
+    "reply": "ตอบกลับ",
+    "add_reaction": "เพิ่มรีแอคชัน",
+    "translate": "แปลภาษา",
+    "download": "ดาวน์โหลด",
+    "add_to_album": "เพิ่มในอัลบั้ม",
+    "forward": "ส่งต่อ",
+    "copy_quote": "คัดลอกคำพูด",
+    "copy_message_link": "คัดลอกลิงก์ข้อความ",
+    "edit_message": "แก้ไขข้อความ",
+    "pin_message": "ปักหมุดข้อความ",
+    "unpin_message": "เลิกปักหมุดข้อความ",
+    "quick_mention": "กล่าวถึงด่วน",
+    "pin_local_message": "ปักหมุดในเครื่อง",
+    "unpin_local_message": "เลิกปักหมุดในเครื่อง",
+    "copy_text": "คัดลอกข้อความ",
+    "delete_message": "ลบข้อความ",
+    "delete_message_uploads": "ลบข้อความ + ไฟล์แนบ",
+    "delete_message_uploads_hint": "ถาวร - ลบไฟล์ที่แนบมาด้วย",
+    "delete_message_unavailable_hint": "ลบได้เฉพาะข้อความของคุณเองเท่านั้น"
+  },
+  "forward_dialog": {
+    "title": "ส่งต่อข้อความ",
+    "description": "เลือกช่องที่จะส่งต่อข้อความนี้ไป:",
+    "close": "ปิด"
+  },
+  "camera": {
+    "title": "ถ่ายรูป",
+    "switch_camera": "สลับกล้อง",
+    "captured_alt": "รูปที่ถ่ายได้",
+    "accessing": "กำลังเข้าถึงกล้อง...",
+    "take_photo": "ถ่ายรูป",
+    "retake": "ถ่ายใหม่",
+    "send": "ส่ง",
+    "errors": {
+      "access_required": "ต้องได้รับอนุญาตให้เข้าถึงกล้อง โปรดเปิดใช้ในการตั้งค่าเบราว์เซอร์",
+      "not_found": "ไม่พบกล้องบนอุปกรณ์นี้",
+      "access_failed": "เข้าถึงกล้องไม่สำเร็จ โปรดลองอีกครั้ง",
+      "capture_failed": "ถ่ายรูปไม่สำเร็จ โปรดลองอีกครั้ง",
+      "photo_too_large": "รูปใหญ่เกินไป (สูงสุด 10MB) โปรดลองอีกครั้งด้วยความละเอียดที่ต่ำลง"
+    }
+  },
+  "audio": {
+    "title": "บันทึกข้อความเสียง",
+    "microphone_label": "ไมโครโฟน:",
+    "microphone_fallback": "ไมโครโฟน {index}",
+    "ready": "พร้อมบันทึก",
+    "recording_stopped": "หยุดบันทึกแล้ว",
+    "record": "บันทึกเสียง",
+    "stop": "หยุด",
+    "rerecord": "บันทึกใหม่",
+    "send": "ส่ง",
+    "errors": {
+      "access_required": "ต้องได้รับอนุญาตให้เข้าถึงไมโครโฟน โปรดเปิดใช้ในการตั้งค่าเบราว์เซอร์",
+      "not_found": "ไม่พบไมโครโฟนบนอุปกรณ์นี้",
+      "start_failed": "เริ่มการบันทึกไม่สำเร็จ โปรดลองอีกครั้ง",
+      "no_audio": "ไม่มีเสียงที่บันทึกไว้ โปรดลองอีกครั้ง",
+      "too_large": "ไฟล์เสียงใหญ่เกินไป (สูงสุด 10MB) โปรดบันทึกข้อความที่สั้นลง",
+      "cannot_switch_while_recording": "สลับไมโครโฟนขณะบันทึกไม่ได้ โปรดหยุดบันทึกก่อน"
+    }
+  },
+  "pinned": {
+    "summary": {
+      "title": "ข้อความที่ปักหมุด"
+    },
+    "modal": {
+      "title": "ข้อความที่ปักหมุดใน #{channel}",
+      "empty": "ไม่มีข้อความที่ปักหมุดในช่องนี้",
+      "hint": "คลิกขวาที่ข้อความแล้วเลือก \"ปักหมุดข้อความ\" เพื่อปักหมุดไว้ที่นี่"
+    },
+    "actions": {
+      "jump": "ไปที่",
+      "jump_title": "ไปที่ข้อความ",
+      "unpin": "เลิกปักหมุด",
+      "unpin_title": "เลิกปักหมุดข้อความ"
+    }
+  },
+  "emoji_picker": {
+    "search_gifs_placeholder": "ค้นหา GIF...",
+    "search_stickers_placeholder": "ค้นหาสติกเกอร์ (ชื่อ/ศิลปิน)...",
+    "search_emojis_placeholder": "ค้นหาอิโมจิ (ชื่อ/ศิลปิน)...",
+    "tabs": {
+      "emojis": "อิโมจิ",
+      "stickers": "สติกเกอร์",
+      "gifs": "GIF"
+    },
+    "filters": {
+      "all": "ทั้งหมด",
+      "default": "ค่าเริ่มต้น",
+      "openmoji": "OpenMoji",
+      "custom": "กำหนดเอง"
+    },
+    "loading": "กำลังโหลด...",
+    "no_gifs": "ไม่พบ GIF",
+    "no_stickers": "ไม่พบสติกเกอร์",
+    "no_emojis": "ไม่พบอิโมจิ",
+    "load_more": "โหลดเพิ่ม (เหลืออีก {remaining})"
+  },
+  "admin": {
+    "title": "แดชบอร์ดผู้ดูแล",
+    "you": "คุณ",
+    "subtitle": {
+      "manage": "จัดการบทบาท การเข้าถึงช่อง และระบบอัตโนมัติของบทบาทได้จากแผงเดียว",
+      "moderate": "มุมมองผู้ดูแล: เฝ้าดูผู้ใช้และเริ่ม DM เพื่องานกำกับดูแลได้อย่างรวดเร็ว",
+      "none": "ไม่พบสิทธิ์การกำกับดูแล"
+    },
+    "stats": {
+      "users": "ผู้ใช้",
+      "owners": "เจ้าของ",
+      "admins": "ผู้ดูแลระบบ",
+      "mods": "ผู้ดูแล",
+      "guests": "ผู้เยี่ยมชม"
+    },
+    "sections": {
+      "role_names": "ชื่อบทบาท",
+      "channel_access": "การเข้าถึงช่องตามบทบาท",
+      "role_gate_posts": "โพสต์ Role Gate",
+      "emoji_role_automation": "ระบบอัตโนมัติอิโมจิ-บทบาท",
+      "users": "ผู้ใช้"
+    },
+    "select": {
+      "channel": "เลือกช่อง",
+      "gate_channel": "เลือกช่อง gate",
+      "role_gate_message": "เลือกข้อความ role-gate",
+      "emoji": "เลือกอิโมจิ",
+      "role": "เลือกบทบาท"
+    },
+    "placeholders": {
+      "role_gate_title": "ชื่อ role gate (ตัวอย่าง: โซน 18+)",
+      "role_gate_description": "คำอธิบาย/คำแนะนำ (ไม่บังคับ)",
+      "search_users": "ค้นหาผู้ใช้ตามชื่อหรือ handle..."
+    },
+    "role_gate": {
+      "persist": "เก็บโพสต์ gate ไว้",
+      "create": "สร้างโพสต์ Gate",
+      "note": "มีเพียงรีแอคชันบนโพสต์ gate เฉพาะเหล่านี้เท่านั้นที่ให้หรือถอนบทบาทได้"
+    },
+    "emoji_rules": {
+      "remove_on_unreact": "ลบเมื่อยกเลิกรีแอคชัน",
+      "add_rule": "เพิ่มกฎ",
+      "reversible": "ย้อนกลับได้",
+      "empty": "ยังไม่มีกฎ role-gate"
+    },
+    "actions": {
+      "message": "ส่งข้อความ",
+      "make_admin": "มอบเป็นผู้ดูแลระบบ",
+      "remove_admin": "ถอดจากผู้ดูแลระบบ",
+      "make_mod": "มอบเป็นผู้ดูแล",
+      "remove_mod": "ถอดจากผู้ดูแล",
+      "reset": "รีเซ็ต",
+      "delete": "ลบ"
+    },
+    "empty": {
+      "search": "ไม่มีผู้ใช้ที่ตรงกับการค้นหาของคุณ"
+    }
+  },
+  "storage": {
+    "archiveBoundary": {
+      "title": "คลังแชทในเครื่องไม่พร้อมใช้งาน",
+      "explanation": "เวอร์ชันนี้ไม่บันทึกคลังประวัติแชทแบบออฟไลน์ ประวัติบนเซิร์ฟเวอร์เป็นไปตามการตั้งค่าการเก็บรักษาของแต่ละช่อง",
+      "preserved": "คลังในเครื่องเก่าไม่สามารถจับคู่กับบัญชีได้อย่างน่าเชื่อถือ ข้อมูลจะยังอยู่บนอุปกรณ์นี้ตามเดิม แต่จะไม่ถูกโหลด ส่งออก หรือผูกกับการเข้าสู่ระบบปัจจุบัน ไฟล์ที่คุณเคยส่งออกไว้จะไม่เปลี่ยนแปลง",
+      "native": "การบันทึกไฟล์แชทอัตโนมัติแบบเนทีฟไม่รองรับในบิลด์เดสก์ท็อปนี้ คิวขาออกที่ใช้ร่วมกันด้านล่างใช้ได้ทั้งในเบราว์เซอร์และไคลเอนต์เดสก์ท็อป",
+      "queueExplanation": "คิวนี้เก็บการกระทำขาออกที่ทำได้ ไม่ใช่สำเนาออฟไลน์ของบทสนทนาของคุณ การเปลี่ยนสมาชิกกลุ่มและการเข้าร่วมสายต้องมีการเชื่อมต่อจริง",
+      "queueUnavailable": "ยังไม่มีคิวขาออก โปรดรีเฟรชอีกครั้งหลังแอปเชื่อมต่อเสร็จ",
+      "retryMarked": "การกระทำที่ล้มเหลวซึ่งลองใหม่ได้ถูกทำเครื่องหมายไว้แล้ว การส่งต้องมีการเชื่อมต่อ ส่วนการกระทำที่ไม่แน่นอนหรือถูกเพิกถอนสิทธิ์จะลองใหม่ไม่ได้",
+      "refresh": "รีเฟรชคิว"
+    },
+    "tauri": {
+      "title": "พื้นที่จัดเก็บ Tauri Desktop",
+      "subtitle": "ข้อมูลของคุณถูกเก็บในไฟล์ sidecar ที่จัดระเบียบ ซึ่งคุณจัดการ สำรอง และส่งออกได้",
+      "enable_toggle": "เปิดใช้พื้นที่จัดเก็บ Tauri Desktop (บันทึกอัตโนมัติทุก 30 วินาที)",
+      "enable_hint": "เมื่อเปิดใช้ ข้อความของคุณจะถูกบันทึกอัตโนมัติทุก 30 วินาทีไปที่ %APPDATA%/Wabi เป็นไฟล์รายปีที่จัดระเบียบ คุณปิดได้ตลอดเวลาโดยไม่สูญเสียข้อมูลที่มีอยู่",
+      "exporting": "กำลังส่งออก...",
+      "export_zip": "ส่งออกเป็น ZIP",
+      "export_hint": "ดาวน์โหลดข้อความและไฟล์แนบทั้งหมดเป็นไฟล์ ZIP ที่พกพาสะดวก เหมาะกับการสำรองข้อมูล!",
+      "clear_all": "ล้างข้อมูล Tauri ทั้งหมด",
+      "clear_hint": "ลบข้อมูลในเครื่องทั้งหมด การกระทำนี้ย้อนกลับไม่ได้",
+      "clear_admin_only": "มีเฉพาะผู้ดูแลระบบและเจ้าของเท่านั้นที่ล้างข้อมูล sidecar ได้"
+    },
+    "browser": {
+      "title": "พื้นที่จัดเก็บในเบราว์เซอร์",
+      "subtitle": "ประวัติแชทของคุณถูกบันทึกบนอุปกรณ์ของคุณเท่านั้น เซิร์ฟเวอร์ไม่เก็บอะไรถาวร",
+      "save_toggle": "บันทึกประวัติแชทไว้ในเครื่อง",
+      "save_hint": "เมื่อเปิดใช้ ข้อความจะถูกเก็บในเบราว์เซอร์ของคุณ คุณเป็นผู้ควบคุมข้อมูลของคุณเอง",
+      "rotation_period": "รอบการหมุนเวียนคลัง",
+      "rotation_hint": "ความถี่ในการสร้างไฟล์คลังใหม่ (เหมือนการเปลี่ยนถ่าน)",
+      "keep_last": "เก็บล่าสุดไว้",
+      "archives_unit": "คลัง",
+      "keep_last_hint": "คลังที่เก่ากว่าจะถูกลบอัตโนมัติเพื่อประหยัดพื้นที่",
+      "archive_history": "ประวัติคลัง",
+      "archive_meta": "{size} • {count} ข้อความ",
+      "no_archives": "ยังไม่มีคลัง ข้อความจะถูกบันทึกเมื่อคุณแชท"
+    },
+    "rotation": {
+      "weekly": "รายสัปดาห์",
+      "monthly": "รายเดือน",
+      "half_year": "ทุก 6 เดือน",
+      "yearly": "รายปี"
+    },
+    "stats": {
+      "total_messages": "ข้อความทั้งหมด",
+      "storage_used": "พื้นที่ที่ใช้",
+      "archives": "คลัง"
+    },
+    "actions": {
+      "export_all": "ส่งออกทั้งหมด",
+      "export": "ส่งออก",
+      "delete": "ลบ",
+      "clear_all_history": "ล้างประวัติทั้งหมด"
+    },
+    "confirm": {
+      "disable_local_title": "ปิดพื้นที่จัดเก็บในเครื่อง",
+      "disable_local_message": "ปิดพื้นที่จัดเก็บในเครื่อง? ประวัติที่บันทึกไว้จะยังอยู่จนกว่าคุณจะลบเอง",
+      "disable_local_confirm": "ปิด",
+      "delete_archive_title": "ลบคลัง",
+      "delete_archive_message": "ลบคลัง \"{period}\"?",
+      "delete_archive_confirm": "ลบ",
+      "delete_all_title": "ลบประวัติทั้งหมด",
+      "delete_all_message": "ลบประวัติแชทที่บันทึกไว้ทั้งหมด? การกระทำนี้ย้อนกลับไม่ได้!",
+      "delete_all_confirm": "ลบทั้งหมด",
+      "clear_tauri_title": "ล้างข้อมูล Tauri",
+      "clear_tauri_message": "ลบข้อมูลในเครื่องทั้งหมด? รวมถึงข้อความและไฟล์แนบทุกรายการ การกระทำนี้ย้อนกลับไม่ได้!",
+      "clear_tauri_confirm": "ล้างทั้งหมด"
+    },
+    "alerts": {
+      "export_success": "ส่งออกข้อมูลสำเร็จ!\n\nตำแหน่ง: {path}",
+      "export_failed": "ส่งออกไม่สำเร็จ: {error}",
+      "tauri_clear_success": "ล้างข้อมูล Tauri สำเร็จแล้ว",
+      "clear_failed": "ล้างไม่สำเร็จ: {error}",
+      "tauri_enabled": "เปิดใช้พื้นที่จัดเก็บ Tauri แล้ว! ข้อมูลของคุณจะถูกบันทึกอัตโนมัติทุก 30 วินาที",
+      "tauri_disabled": "ปิดพื้นที่จัดเก็บ Tauri แล้ว ข้อมูลของคุณจะไม่ถูกบันทึกอัตโนมัติ",
+      "save_setting_failed": "บันทึกการตั้งค่าไม่สำเร็จ"
+    },
+    "offline": {
+      "title": "ออฟไลน์และการเชื่อมต่อ",
+      "subtitle": "จัดการพฤติกรรมออฟไลน์และการตั้งค่าการซิงก์ข้อมูลสำหรับ WabiDB",
+      "status": {
+        "connected": "เชื่อมต่อแล้ว",
+        "disconnected": "ออฟไลน์",
+        "recovering": "กำลังกู้คืนคิวออฟไลน์…"
+      },
+      "wabiDB": {
+        "status_label": "สถานะ WabiDB",
+        "open": "เปิด",
+        "closed": "ปิด",
+        "scope_label": "ขอบเขต",
+        "queue_label": "คิวขาออก",
+        "pending": "รอดำเนินการ",
+        "failed": "ล้มเหลว",
+        "synced": "ซิงก์แล้ว",
+        "usage_label": "การใช้งาน",
+        "estimating": "กำลังประมาณการ…"
+      },
+      "retry": {
+        "button": "ลองทำการกระทำที่ล้มเหลวอีกครั้ง",
+        "success": "ลองใหม่คิวออฟไลน์แล้ว",
+        "error": "ลองใหม่ไม่สำเร็จ"
+      },
+      "scopes": {
+        "title": "ขอบเขตออฟไลน์",
+        "corechat_desc": "ประวัติข้อความ ฉบับร่าง และคิวขาออกสำหรับ CoreChat",
+        "system_desc": "การตั้งค่าระบบ ธีม และข้อมูลเซสชัน",
+        "enable": "เปิดใช้",
+        "disable": "ปิดใช้",
+        "always_on": "เปิดตลอดเวลา",
+        "opt_in": "เลือกเปิดเอง",
+        "off": "ปิด"
+      },
+      "alerts": {
+        "retry_success": "ลองใหม่คิวออฟไลน์แล้ว",
+        "retry_failed": "ลองใหม่คิวไม่สำเร็จ",
+        "scope_enabled": "เปิดใช้ขอบเขตแล้ว",
+        "scope_disabled": "ปิดใช้ขอบเขตแล้ว"
+      }
+    }
+  },
+  "shell": {
+    "mobile": {
+      "chat": "แชท",
+      "channels": "ช่อง",
+      "browse": "เรียกดู",
+      "messages": "ข้อความ",
+      "you": "คุณ",
+      "users": "ผู้ใช้",
+      "hub": "ศูนย์กลาง"
+    },
+    "open_side_panel": "เปิดแผงด้านข้าง",
+    "unread_dms": "ข้อความส่วนตัวที่ยังไม่ได้อ่าน",
+    "open_group": "เปิด {name}",
+    "open_dm_with": "เปิด DM กับ {user}",
+    "user_fallback": "ผู้ใช้",
+    "call": {
+      "toggle_diagnostics": "สลับการวินิจฉัยสาย",
+      "voice_connected": "เชื่อมต่อเสียงแล้ว",
+      "in_voice": "อยู่ในห้องเสียง:",
+      "turn_on_camera": "เปิดกล้อง",
+      "turn_off_camera": "ปิดกล้อง",
+      "leave_voice": "ออกจากห้องเสียง"
+    }
+  },
+  "user": {
+    "online": "ออนไลน์ ({count})",
+    "you": "คุณ",
+    "start_dm": "เริ่ม DM",
+    "logout_change_name": "ออกจากระบบและเปลี่ยนชื่อ",
+    "voice_call": "สายเสียง",
+    "video_call": "สายวิดีโอ",
+    "screen_share": "แชร์หน้าจอ",
+    "status": {
+      "online": "ออนไลน์",
+      "away": "ไม่อยู่",
+      "busy": "ห้ามรบกวน",
+      "offline": "ออฟไลน์"
+    },
+    "errors": {
+      "voice_call_failed": "เริ่มสายเสียงไม่สำเร็จ โปรดตรวจสอบสิทธิ์ไมโครโฟน",
+      "video_call_failed": "เริ่มสายวิดีโอไม่สำเร็จ โปรดตรวจสอบสิทธิ์กล้องและไมโครโฟน",
+      "screen_share_failed": "เริ่มแชร์หน้าจอไม่สำเร็จ โปรดให้สิทธิ์การแชร์หน้าจอ"
+    },
+    "popout": {
+      "about_me": "เกี่ยวกับฉัน",
+      "note": "โน้ต",
+      "member_since": "เป็นสมาชิกตั้งแต่",
+      "last_message": "ข้อความล่าสุดที่นี่",
+      "no_recent_messages": "ไม่มีข้อความล่าสุดในช่องนี้",
+      "connections": "การเชื่อมต่อ",
+      "no_connections": "ไม่มีการเชื่อมต่อที่ผูกไว้",
+      "message": "ส่งข้อความ",
+      "edit_profile": "แก้ไขโปรไฟล์",
+      "view_full_profile": "ดูโปรไฟล์ทั้งหมด",
+      "mute": "ปิดเสียง",
+      "deafen": "ปิดเสียงทั้งหมด",
+      "settings": "การตั้งค่า",
+      "share_profile": "แชร์โปรไฟล์"
+    }
+  },
+  "gallery_upload": "อัปโหลดรูปภาพ",
+  "gallery_drop_hint": "วางรูปที่นี่"
+}
