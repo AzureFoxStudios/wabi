@@ -1,0 +1,200 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T23:42:12.543673+00:00",
+  "checkpointBranch": "codex/geographic-checkpoint-integration-20261002",
+  "baseCommit": "9fdb37d472fada36d75aab1719948a6da0865b9f",
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "files": [
+    {
+      "path": "core/crates/wabi-consensus/src/runtime.rs",
+      "bytes": 28543,
+      "sha256": "769aec5fd32b3297496c9a92245305782e2d67c1630dd48ac3fcc3209deeac93",
+      "baseExists": true,
+      "baseSha256": "411c7ea53600e64d170f11f4772e1415fb33f6a3b888e89f55fb9e615f9f59a9"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/runtime/tests.rs",
+      "bytes": 18312,
+      "sha256": "877fa6a97f8566ee5dc7493c0cdbcd18f96d61504b001f550aa8f96b67ca4d22",
+      "baseExists": true,
+      "baseSha256": "fbd43b7051435d41571abe97e2417c39c498562fba7d5f39586727e0301cc61c"
+    },
+    {
+      "path": "core/crates/wabi-server/src/instance_archive/source_context.rs",
+      "bytes": 16159,
+      "sha256": "d33ca3f5d2d8958439316fdeb3cd9a2c2ea07e2cc9e8201f6fe12e10f06fce6d",
+      "baseExists": true,
+      "baseSha256": "244528d4b600a188d1371c39370ef872bd0e63603cfab2e4e088df73ea4073ee"
+    },
+    {
+      "path": "core/crates/wabi-server/src/instance_archive/source_context_tests.rs",
+      "bytes": 15302,
+      "sha256": "fdc07a6c8fd545c3ca75b940f6c61828acb2815520d8926281957bd2ccaaf78b",
+      "baseExists": true,
+      "baseSha256": "9acd03c92b58bbf67bd8ff07d2719937c9f803725d68342a17dc6e39436c7fdb"
+    },
+    {
+      "path": "docs/deployment/RECOVERY_CONTROL_RUNTIME.md",
+      "bytes": 17346,
+      "sha256": "7bb7dbdd0f57c4000ae7fb6274ca05a298c0f82ddac3ed312ff72cd76d7fa35f",
+      "baseExists": true,
+      "baseSha256": "0b8feb4a950a20be9e114593a283898070d1e87d0cc427853d6b23052f3edd2a"
+    },
+    {
+      "path": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "bytes": 27604,
+      "sha256": "37e45ef3ea88280dc92ff51f1090214ebe409e07cf19cfeb871d91e3b5646024",
+      "baseExists": true,
+      "baseSha256": "4bb059fc8cb36207bc06315cc94c428f2f160318748503bad5d8f8c3fcac1f1b"
+    },
+    {
+      "path": "docs/PROJECT_STATUS.md",
+      "bytes": 91028,
+      "sha256": "a7acb8250e64aea766b8e7bdd5f6cc64d5acc86403d0fc01140fbc143bb83968",
+      "baseExists": true,
+      "baseSha256": "423dce4794b216583cd513960eeb44a28b9dba1e367d90e762ff6246816ef01d"
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-baseline1.json",
+      "bytes": 1237,
+      "sha256": "53d83653d41cb1f6f6d769f5748ac0030a1aaa9577e13fb58b26ac1517661628",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-baseline1-exact.json.gz",
+      "bytes": 22009,
+      "sha256": "495da5485f8c44ad61ec23406da9e89b9afbab1edc56b0f0f9e83490798856e1",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-source1.json",
+      "bytes": 3259,
+      "sha256": "cd58bf742cbb79430bda8de54b4eeded0d4ddadbc878f51c771926e3cdaea1eb",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-source1-exact.json.gz",
+      "bytes": 27478,
+      "sha256": "9c92e4ca1b0fb62429da1731f804bc576b1c0569a7e76c98a20c015fb495d629",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-source-review1.json",
+      "bytes": 668,
+      "sha256": "b1a4b4fa013cc04ebe321d7241bb9de9e09a21fb58283d986eb72467a85f4000",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-harness1.json",
+      "bytes": 2016,
+      "sha256": "c152df3da064befe61fccb60a800524ab8f5faaf1fe26cc53b48f8962859d1d9",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-harness1-exact.json.gz",
+      "bytes": 8465,
+      "sha256": "3a0ea7820d4e937c8dd35010c0802208717bee22d7243b5fdd4b87e84c8da8b1",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-harness2.json",
+      "bytes": 2481,
+      "sha256": "10ff12e093ff5b070658521523911a27d78a135132f89120d19e85ed7e5b5b4b",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-harness2-exact.json.gz",
+      "bytes": 8419,
+      "sha256": "af026c290820d594dd71179192d9aa07eb72f4be20636ceb7442aa3142119cfe",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-root-libraries1.json",
+      "bytes": 3119,
+      "sha256": "56d655acbcb5046d5bda60b909ccb30557b0a86b61d9c68cbab0c806be255cd1",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-root-libraries1.log.gz",
+      "bytes": 35127,
+      "sha256": "410759ada8c991f57e21161b6d2dea3261f921200d647ac5ab12f81a16f351be",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-root-libraries1-before.json.gz",
+      "bytes": 230195,
+      "sha256": "ab038894f73db9cf41ab05f0be7b7a76d09c38d129419f4c7f07dc8ca96d64ea",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-root-libraries1-start.json",
+      "bytes": 890,
+      "sha256": "3f848fec7ef0c7cf5c03121914ab160ce57c950bd452a5de6f0d2d78a06c1657",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-root-libraries1-precheck.json",
+      "bytes": 1161,
+      "sha256": "9a4da6c50a312c2a9dc1cfc558d77c0f3ebac05f46cd8981ff0ceb2b41557462",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-docs-baseline1.json",
+      "bytes": 1002,
+      "sha256": "59725030c03f1328e9e8ab6a118ebeeb009f13873fe0624d7ae4acfad70027a4",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-docs-baseline1-exact.json.gz",
+      "bytes": 64270,
+      "sha256": "4f772018ee6de42fc05cd9fdb5ed3a0d143bf775807c94cdc8da61d0aca8de80",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-terminal-readback1.json",
+      "bytes": 790,
+      "sha256": "071ab679873e29fb81eff06ff8a6358c3117b4d9ad0a33e69292ea18130119ce",
+      "baseExists": false,
+      "baseSha256": null
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-owned-cleanup15.json",
+      "bytes": 847,
+      "sha256": "42793e89c56698bbb3aa4c1db59173a4ed14b745bfbda91606c6da338f1d728c",
+      "baseExists": false,
+      "baseSha256": null
+    }
+  ],
+  "fileCount": 25,
+  "totalBytes": 627727,
+  "acceptanceReceipt": "docs/testing/geographic-2026-10-02/checkpoint-handle-root-libraries1.json",
+  "acceptedScope": "91/0/5 across TWO serial groups: fullconsensus84/0/4 and filtered server SourceDirectory7/0/1 including6 newadapterunits. Overlaps prior suites; other478serverunits/snapshotCLI/integration/doctests/genuineexport/physical excluded.",
+  "originalBaselinePreserved": true,
+  "projectStatusOnlyOwnedParagraphChanged": true,
+  "captureTimeFlagsAreHistorical": true,
+  "limitations": "Trusted runtime File lifetime shares reviewed dispatcher, no new direct File cancellation/lost-root IO race. Source accessor returns same held descriptor at zero but Ready/source and directory/name/admission ownership remain caller duties. Synthetic bytes and deterministic mutation/expiry cutpoints; no concurrentFIFO/mutation,genuinepublisher,journal,fullrecovery oractivation claims.",
+  "excluded": [
+    "organizer archives",
+    "live data/keys/operator config",
+    "attachments",
+    "target",
+    "unlisted source/history"
+  ],
+  "gitMutationOwner": "Cleanup; no ordinary index/worktree mutation by this chat"
+}

@@ -1,0 +1,32 @@
+{
+  "allFilesMatchCheckpointBase": true,
+  "capturedAtUtc": "2026-10-02T22:52:46.492323+00:00",
+  "cargoLockSha256": "51945aa9a62b8bcb2be3dadd11ea044c201366d656782b3db705460c09f851bd",
+  "checkpointBase": "9fdb37d472fada36d75aab1719948a6da0865b9f",
+  "compilerReserved": false,
+  "files": [
+    {
+      "bytes": 27263,
+      "path": "core/crates/wabi-consensus/src/runtime.rs",
+      "sha256": "411c7ea53600e64d170f11f4772e1415fb33f6a3b888e89f55fb9e615f9f59a9"
+    },
+    {
+      "bytes": 11097,
+      "path": "core/crates/wabi-consensus/src/runtime/tests.rs",
+      "sha256": "fbd43b7051435d41571abe97e2417c39c498562fba7d5f39586727e0301cc61c"
+    },
+    {
+      "bytes": 13152,
+      "path": "core/crates/wabi-server/src/instance_archive/source_context.rs",
+      "sha256": "244528d4b600a188d1371c39370ef872bd0e63603cfab2e4e088df73ea4073ee"
+    },
+    {
+      "bytes": 8224,
+      "path": "core/crates/wabi-server/src/instance_archive/source_context_tests.rs",
+      "sha256": "9acd03c92b58bbf67bd8ff07d2719937c9f803725d68342a17dc6e39436c7fdb"
+    }
+  ],
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "schemaVersion": 1,
+  "scope": "four-file owned runtime and verified archive handle adapters; source-only reservation"
+}

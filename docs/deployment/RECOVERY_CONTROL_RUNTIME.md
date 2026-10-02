@@ -129,9 +129,10 @@ an async caller is cancelled. This API's receipt covers held signed bytes; it
 does not certify an old path name. The separate path API retains its ancestor,
 name, no-follow and original-inode checks. Its nonblocking open also prevents
 a substituted FIFO from stalling before the held-file type check. The runtime's
-current `ingest_capture` still uses that path API. Trusted server/runtime handle
-wiring and capture publication are the next integration step; the primitive
-does not add an operator route or writer permission.
+original `ingest_capture` retains that path API. The later trusted-handle adapters
+below supply a separate supervised entry point and pinned source accessor;
+configured capture publication remains open. Neither API adds an operator route
+or writer permission.
 
 The [frozen library run](../testing/geographic-2026-10-02/checkpoint-file-root-library1.json)
 compiled and passed **82 checks, zero failures and four ignored entries in one
@@ -150,6 +151,51 @@ expire before reaching the held lane, so it proves late-receipt refusal rather
 than deterministic lock-wait coverage. FIFO substitution and concurrent
 mutation branches were inspected, not raced in this acceptance. Async ownership
 remains a caller obligation; this slice does not prove the future server job.
+
+### Runtime and pinned archive-handle adapters
+
+The runtime now supplies `ingest_capture_file(File, SignedSourceContext)` for a
+trusted local caller. It verifies the provisioned community and expected source,
+then shares the path API's single-job admission and supervised blocking owner.
+The original file, material store and runtime roots remain owned until actual
+IO finishes, even if the awaiting caller is cancelled. Both input paths recheck
+the runtime's owned roots after ingestion, including on input refusal. This API
+keeps store/Raft handles private and does not accept an HTTP-selected file path.
+
+On Linux, `SourceDirectory::verified_archive_file` checks a canonical capture ID,
+private regular current-owner/single-link input, exact bounded receipt length
+and hash, stable original held/name metadata, the pinned directory and elapsed
+deadline. It rewinds and returns the same original descriptor it verified;
+`verify_archive` keeps its existing unit-returning wrapper. A nonblocking
+no-follow open prevents a substituted FIFO from blocking before type checks.
+Unsupported platforms still refuse. The caller must retain source-directory,
+name and admission ownership after return and through actual ingestion; neither
+accessor certifies Ready-job admission or the source's Authority role.
+
+Both independent source reviews passed. The
+[frozen two-group run](../testing/geographic-2026-10-02/checkpoint-handle-root-libraries1.json)
+compiled and passed **91 checks, zero failures and five ignored entries**:
+84/0/4 in the full consensus library group and 7/0/1 in the filtered server
+source-directory group. All 5,196 Rust/graph/static inputs and both exact test
+programs stayed unchanged. Counts overlap earlier suites; six new units cover
+runtime signed binding/busy refusal/durable shutdown-reopen and source-file
+same-descriptor/unsafe-input/post-read mutation/expiry behavior. The other 478
+server units, snapshot CLI, integration binaries and doctests were excluded.
+
+These tests use synthetic signed opaque bytes. Post-read mutations and reached
+expiry use deterministic cut points. They do not exercise a new direct File
+cancellation/lost-runtime-root IO race, concurrent mutation/FIFO replacement or
+a genuine export-to-runtime publisher. Cancellation lifetime shares the earlier
+reviewed and tested dispatcher; it is not new direct File-race acceptance.
+The actual test runner and controller exited successfully and owned processes
+were independently verified absent before shared holds were released.
+
+The configured Authority publication job must still retain Ready/source
+admission and the pinned directory through actual runtime work. Persist the
+original operation before any publication and the exact prepared V2 command
+before consensus submission, then reconcile that same operation after restart.
+These accepted adapter interfaces do not supply that publisher/journal, a byte
+retention lease, full-instance readiness or writer activation.
 
 ### Runtime shutdown
 

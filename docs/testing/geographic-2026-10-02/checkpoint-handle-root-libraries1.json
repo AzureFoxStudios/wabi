@@ -1,0 +1,99 @@
+{
+  "accepted": true,
+  "actualExitCode": 0,
+  "allCompiledArtifactHashesUnchanged": true,
+  "canonicalWriterPermitted": false,
+  "changedSourcesAtTerminalReadback": {},
+  "compilationActualExitCode": 0,
+  "compilationCommand": [
+    "cargo",
+    "+1.93",
+    "test",
+    "--offline",
+    "--locked",
+    "-p",
+    "wabi-consensus",
+    "-p",
+    "wabi-server",
+    "--lib",
+    "--no-run",
+    "--message-format=json-render-diagnostics"
+  ],
+  "compilerPausedForThermalHandoff": true,
+  "executables": [
+    {
+      "bytes": 30020616,
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_consensus-6552898e181bb47e",
+      "sha256": "de6fcb2b59e9e1de09912e3a0ccf228009349c96a526ab7a32f3db15ed00af16",
+      "targetName": "wabi_consensus"
+    },
+    {
+      "bytes": 183825960,
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_server-3b7c014a0adeec4e",
+      "sha256": "809716810d8f0d9ee3651607dc7a9267849143330b1e9bd0681de43ddf5e379c",
+      "targetName": "wabi_server"
+    }
+  ],
+  "fail": 0,
+  "finishedAtUtc": "2026-10-02T23:35:13.245830+00:00",
+  "fullInstanceReady": false,
+  "ignored": 5,
+  "mode": "owned-checkpoint-handle-two-library-groups",
+  "name": "checkpoint-handle-root-libraries1",
+  "newTargetTreeCreated": false,
+  "outcomes": [
+    {
+      "accepted": true,
+      "actualExitCode": 0,
+      "command": [
+        "/home/ironin/wabi/target/debug/deps/wabi_consensus-6552898e181bb47e",
+        "--test-threads=1"
+      ],
+      "expectedCounts": [
+        84,
+        0,
+        4
+      ],
+      "maximumPreTestTemperatureC": 29.875,
+      "observedCounts": [
+        84,
+        0,
+        4
+      ],
+      "targetName": "wabi_consensus"
+    },
+    {
+      "accepted": true,
+      "actualExitCode": 0,
+      "command": [
+        "/home/ironin/wabi/target/debug/deps/wabi_server-3b7c014a0adeec4e",
+        "instance_archive::source_context::filesystem::tests::",
+        "--test-threads=1"
+      ],
+      "expectedCounts": [
+        7,
+        0,
+        1
+      ],
+      "maximumPreTestTemperatureC": 30.625,
+      "observedCounts": [
+        7,
+        0,
+        1
+      ],
+      "targetName": "wabi_server"
+    }
+  ],
+  "pass": 91,
+  "rawLog": "/tmp/wabi-geographic-checkpoint-handle-root-libraries1.log",
+  "rawLogSha256": "2e15c69b1943e466e6889a55b4942494de7bab3fb520e572a3a1c9e38ec586cb",
+  "resultGroups": 2,
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "schemaVersion": 1,
+  "scope": "Entire consensus library unit group including two new runtime handle units; filtered server library SourceDirectory filesystem tests including four new units. Synthetic signed bytes and deterministic post-read mutation/expiry cut points, not concurrent races or a new direct File cancellation race. No full server suite, snapshot CLI, integration binaries, doctests, genuine export/production publication, physical uplinks or activation.",
+  "sourceFreezeSha256": "d85bc4a566a881adb9b184e2f670ce78689a5d21b92d1552539adce1c26200f8",
+  "sourceInputs": 5196,
+  "startedAtUtc": "2026-10-02T23:20:46.915849+00:00",
+  "target": "/home/ironin/wabi/target",
+  "timedTestsThrottled": false
+}

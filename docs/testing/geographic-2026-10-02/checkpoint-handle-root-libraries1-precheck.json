@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T23:34:24.404921+00:00",
+  "compilerPid": 1282587,
+  "compilerStartTicks": 22928116,
+  "compilerTerminalState": "Z",
+  "compiledLogReportsSuccess": true,
+  "sourceInputs": 5196,
+  "sourceFreezeSha256": "d85bc4a566a881adb9b184e2f670ce78689a5d21b92d1552539adce1c26200f8",
+  "allSourceHashesUnchanged": true,
+  "executables": [
+    {
+      "targetName": "wabi_consensus",
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_consensus-6552898e181bb47e",
+      "bytes": 30020616,
+      "sha256": "de6fcb2b59e9e1de09912e3a0ccf228009349c96a526ab7a32f3db15ed00af16"
+    },
+    {
+      "targetName": "wabi_server",
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_server-3b7c014a0adeec4e",
+      "bytes": 183825960,
+      "sha256": "809716810d8f0d9ee3651607dc7a9267849143330b1e9bd0681de43ddf5e379c"
+    }
+  ],
+  "maximumObservedTemperatureC": 29.875,
+  "actualFreeBytes": 13109719040,
+  "runnerPid": 1282574,
+  "runnerStartTicks": 22927950,
+  "timedTestsThrottled": false,
+  "testAcceptanceNotYetKnown": true,
+  "precheckScriptSha256": "b5c4bd4c804d3ba069d6798b25cc01e279d852a862cebee7a2b4c3d6e31aea93"
+}

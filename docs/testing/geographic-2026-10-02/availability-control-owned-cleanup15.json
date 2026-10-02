@@ -1,0 +1,19 @@
+{
+  "afterReadbackAbsent": true,
+  "allEvidencePreserved": true,
+  "allOwnedProcessesAbsent": true,
+  "recordedAtUtc": "2026-10-02T23:41:01.672480+00:00",
+  "removed": [
+    {
+      "bytes": 410163,
+      "device": 66306,
+      "inode": 4382788,
+      "path": "/tmp/wabi-geographic-checkpoint-handle-root-libraries1.log",
+      "savedLog": "docs/testing/geographic-2026-10-02/checkpoint-handle-root-libraries1.log.gz",
+      "savedLogSha256": "410759ada8c991f57e21161b6d2dea3261f921200d647ac5ab12f81a16f351be",
+      "sha256": "2e15c69b1943e466e6889a55b4942494de7bab3fb520e572a3a1c9e38ec586cb"
+    }
+  ],
+  "schemaVersion": 1,
+  "scope": "only actual-terminal owned adapter raw log after exact gzip comparison and original private inode/owner/link checks plus owned-process absence; no shared target/cache/toolchain or other-chat file deletion"
+}

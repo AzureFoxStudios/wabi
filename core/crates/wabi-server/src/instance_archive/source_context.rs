@@ -83,7 +83,7 @@ mod filesystem {
     use sha2::{Digest, Sha256};
     use std::{
         fs::{self, File, OpenOptions},
-        io::{Read, Write},
+        io::{Read, Seek, Write},
         os::{
             fd::AsRawFd,
             unix::fs::{MetadataExt, OpenOptionsExt},
@@ -161,11 +161,13 @@ mod filesystem {
             );
             let file = OpenOptions::new()
                 .read(true)
-                .custom_flags(NOFOLLOW)
+                // A substituted FIFO must not block before held-type checks.
+                .custom_flags(NOFOLLOW | 0o4000)
                 .open(self.relative(name))?;
             let held = file.metadata()?;
             ensure!(
                 (named.dev(), named.ino()) == (held.dev(), held.ino())
+                    && held.is_file()
                     && held.nlink() == 1
                     && held.mode() & 0o077 == 0
                     && held.uid() == named.uid(),
@@ -277,16 +279,41 @@ mod filesystem {
             max_bytes: u64,
             timeout: Duration,
         ) -> Result<()> {
+            self.verified_archive_file(id, receipt, max_bytes, timeout)
+                .map(drop)
+        }
+        /// Return the same verified held archive at offset zero. The caller
+        /// retains directory/name provenance and admission after return; this
+        /// is not a Ready-job, source-role or writer certification.
+        pub(crate) fn verified_archive_file(
+            &self,
+            id: &str,
+            receipt: &LiveArchiveReceipt,
+            max_bytes: u64,
+            timeout: Duration,
+        ) -> Result<File> {
+            self.verified_archive_file_hook(id, receipt, max_bytes, timeout, |_, _| {})
+        }
+        fn verified_archive_file_hook(
+            &self,
+            id: &str,
+            receipt: &LiveArchiveReceipt,
+            max_bytes: u64,
+            timeout: Duration,
+            after_read: impl FnOnce(&File, Instant),
+        ) -> Result<File> {
             ensure!(valid_job_id(id), "invalid checkpoint job ID");
+            let deadline = Instant::now()
+                .checked_add(timeout)
+                .context("invalid verification deadline")?;
+            ensure!(Instant::now() < deadline, "archive verification timed out");
             let mut file = self.private_file(&format!("{id}.age"))?;
             let metadata = file.metadata()?;
+            self.check_archive_metadata(&metadata)?;
             ensure!(
                 metadata.len() == receipt.ciphertext_bytes && metadata.len() <= max_bytes,
                 "archive size differs"
             );
-            let deadline = Instant::now()
-                .checked_add(timeout)
-                .context("invalid verification deadline")?;
             let mut hash = Sha256::new();
             let mut total = 0u64;
             let mut bytes = [0; 64 * 1024];
@@ -307,15 +334,62 @@ mod filesystem {
                     && hex::encode(hash.finalize()) == receipt.encrypted_archive_sha256,
                 "archive digest differs"
             );
+            after_read(&file, deadline);
             let current = self.private_file(&format!("{id}.age"))?.metadata()?;
+            self.check_archive_metadata(&current)?;
             ensure!(
-                (metadata.dev(), metadata.ino(), metadata.len())
-                    == (current.dev(), current.ino(), current.len()),
-                "archive changed"
+                archive_metadata_unchanged(&metadata, &current),
+                "archive name changed"
             );
             self.verify()?;
+            file.rewind()?;
+            let held = file.metadata()?;
+            self.check_archive_metadata(&held)?;
+            ensure!(
+                archive_metadata_unchanged(&metadata, &held),
+                "held archive changed"
+            );
+            ensure!(Instant::now() < deadline, "archive verification timed out");
+            Ok(file)
+        }
+        fn check_archive_metadata(&self, metadata: &fs::Metadata) -> Result<()> {
+            ensure!(
+                metadata.is_file()
+                    && metadata.nlink() == 1
+                    && metadata.mode() & 0o077 == 0
+                    && metadata.uid() == fs::metadata("/proc/self")?.uid(),
+                "unsafe held archive"
+            );
             Ok(())
         }
+    }
+    fn archive_metadata_unchanged(original: &fs::Metadata, current: &fs::Metadata) -> bool {
+        // Access time may change while reading; mutation timestamps may not.
+        (
+            original.dev(),
+            original.ino(),
+            original.len(),
+            original.uid(),
+            original.mode(),
+            original.nlink(),
+        ) == (
+            current.dev(),
+            current.ino(),
+            current.len(),
+            current.uid(),
+            current.mode(),
+            current.nlink(),
+        ) && (
+            original.mtime(),
+            original.mtime_nsec(),
+            original.ctime(),
+            original.ctime_nsec(),
+        ) == (
+            current.mtime(),
+            current.mtime_nsec(),
+            current.ctime(),
+            current.ctime_nsec(),
+        )
     }
     #[cfg(test)]
     mod tests {
@@ -347,6 +421,15 @@ impl SourceDirectory {
         _: u64,
         _: std::time::Duration,
     ) -> Result<()> {
+        anyhow::bail!("unsupported platform")
+    }
+    pub(crate) fn verified_archive_file(
+        &self,
+        _: &str,
+        _: &LiveArchiveReceipt,
+        _: u64,
+        _: std::time::Duration,
+    ) -> Result<std::fs::File> {
         anyhow::bail!("unsupported platform")
     }
 }

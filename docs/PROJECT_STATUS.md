@@ -514,10 +514,21 @@ inputs; these counts overlap the earlier library checks and include six new
 units. Integration/server binaries and doctests were excluded. Caller path
 provenance and async ownership remain explicit responsibilities; the expiry
 test proves late-receipt refusal without guaranteeing arrival at the lane wait,
-and race branches were inspected. Trusted server/runtime handle wiring remains
-pending. Production
-capture publication and original-operation journal/reconciliation remain open;
-this adds no activation or full-instance readiness permission.
+and race branches were inspected. The later trusted runtime File and pinned
+source-directory adapters share signed binding/supervised IO, return the same
+verified descriptor at offset zero and recheck original ownership. Their
+[two-group acceptance](testing/geographic-2026-10-02/checkpoint-handle-root-libraries1.json)
+compiled and passed 91 checks, zero failures and five ignored entries: full
+consensus units 84/0/4 and filtered source-directory server units 7/0/1, including
+six new checks. All 5,196 inputs and both compiled test programs stayed unchanged;
+counts overlap earlier suites. Other 478 server units, snapshot CLI, integration
+binaries and doctests were excluded. Synthetic signed bytes and deterministic
+post-read mutation/expiry cut points do not establish a new direct File
+cancellation/lost-root IO or concurrent race acceptance. Caller Ready/source
+admission and pinned-directory/name ownership remain obligations through actual
+ingestion. Configured Authority publisher wiring and original-operation
+journal/reconciliation remain open; this adds no activation or full-instance
+readiness permission.
 
 The October 3 [peer candidate job](deployment/CHECKPOINT_PEER_CANDIDATES.md)
 has default-off Linux runtime. Its repaired [frozen local run](testing/geographic-2026-10-02/availability-control-root-peer2.json)

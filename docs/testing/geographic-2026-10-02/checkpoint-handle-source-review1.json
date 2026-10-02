@@ -1,0 +1,18 @@
+{
+  "actualNativeReviewMessagesObserved": true,
+  "capturedAtUtc": "2026-10-02T23:17:32.139237+00:00",
+  "compilationExecuted": false,
+  "rootReviewClear": true,
+  "schemaVersion": 1,
+  "scope": [
+    "Synthetic signed opaque bytes only",
+    "Deterministic mutation/expiry cut points rather than concurrent races",
+    "No direct new File cancellation/lost-runtime-root IO race or substituted FIFO race"
+  ],
+  "sourceLedger": {
+    "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-source1.json",
+    "sha256": "cd58bf742cbb79430bda8de54b4eeded0d4ddadbc878f51c771926e3cdaea1eb"
+  },
+  "testsExecuted": false,
+  "twoIndependentSourceReviewsClear": true
+}

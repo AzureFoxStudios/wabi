@@ -1,0 +1,27 @@
+{
+  "archive": {
+    "bytes": 64270,
+    "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-docs-baseline1-exact.json.gz",
+    "sha256": "4f772018ee6de42fc05cd9fdb5ed3a0d143bf775807c94cdc8da61d0aca8de80"
+  },
+  "capturedAtUtc": "2026-10-02T23:39:11.671200+00:00",
+  "files": [
+    {
+      "bytes": 14328,
+      "path": "docs/deployment/RECOVERY_CONTROL_RUNTIME.md",
+      "sha256": "0b8feb4a950a20be9e114593a283898070d1e87d0cc427853d6b23052f3edd2a"
+    },
+    {
+      "bytes": 25120,
+      "path": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "sha256": "4bb059fc8cb36207bc06315cc94c428f2f160318748503bad5d8f8c3fcac1f1b"
+    },
+    {
+      "bytes": 90148,
+      "path": "docs/PROJECT_STATUS.md",
+      "sha256": "423dce4794b216583cd513960eeb44a28b9dba1e367d90e762ff6246816ef01d"
+    }
+  ],
+  "schemaVersion": 1,
+  "scope": "three recovery docs; PROJECT_STATUS only existing recovery runtime paragraph; active after actual acceptance and independent shared-owner release"
+}

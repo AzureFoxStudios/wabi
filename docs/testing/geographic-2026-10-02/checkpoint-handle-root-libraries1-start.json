@@ -1,0 +1,30 @@
+{
+  "acceptanceScriptSha256": "37ee56e434c1095fc51b5112f067c6de0ff6e759f242c2f3eec7af5de3144035",
+  "cargoPid": 1282587,
+  "cargoStartTicks": 22928116,
+  "command": [
+    "cargo",
+    "+1.93",
+    "test",
+    "--offline",
+    "--locked",
+    "-p",
+    "wabi-consensus",
+    "-p",
+    "wabi-server",
+    "--lib",
+    "--no-run",
+    "--message-format=json-render-diagnostics"
+  ],
+  "compiledTestsNotYetKnown": true,
+  "compilerPaused": true,
+  "freeze": "d85bc4a566a881adb9b184e2f670ce78689a5d21b92d1552539adce1c26200f8",
+  "inputs": 5196,
+  "rawLog": "/tmp/wabi-geographic-checkpoint-handle-root-libraries1.log",
+  "recordedAtUtc": "2026-10-02T23:20:46.917140+00:00",
+  "runnerPid": 1282574,
+  "runnerStartTicks": 22927950,
+  "schemaVersion": 1,
+  "sourceLedgerSha256": "cd58bf742cbb79430bda8de54b4eeded0d4ddadbc878f51c771926e3cdaea1eb",
+  "started": "checkpoint-handle-root-libraries1"
+}

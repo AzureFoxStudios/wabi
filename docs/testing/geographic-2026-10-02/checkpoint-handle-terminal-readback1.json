@@ -1,0 +1,21 @@
+{
+  "actualAcceptanceExitCode": 0,
+  "actualPrecheckExitCode": 0,
+  "allCompiledInputsUnchanged": true,
+  "allOwnedProcessesAbsent": true,
+  "bothArtifactBytesAndHashesVerified": true,
+  "fullInstanceReady": false,
+  "logSavedExactly": true,
+  "newCompilerSlotGranted": false,
+  "receipt": {
+    "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-root-libraries1.json",
+    "sha256": "56d655acbcb5046d5bda60b909ccb30557b0a86b61d9c68cbab0c806be255cd1"
+  },
+  "rootControllerActualExitCode": 0,
+  "rootIndependentVerificationAndGlobalReleaseObserved": true,
+  "schemaVersion": 1,
+  "sourceFreezeSha256": "d85bc4a566a881adb9b184e2f670ce78689a5d21b92d1552539adce1c26200f8",
+  "sourceInputs": 5196,
+  "verifiedAtUtc": "2026-10-02T23:41:01.670329+00:00",
+  "writerPermission": false
+}

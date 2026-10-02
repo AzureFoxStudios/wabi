@@ -130,9 +130,10 @@ permission guards remain unchanged. Its existing compiled contract/server were
 reused after exact input and artifact verification. This acceptance supplies
 an explicit process lifecycle, not complete-instance or geographic recovery.
 
-Next production work still needs a verified owned archive-handle ingestion
-path, a journal saving the original operation before any publication, and the
-exact prepared consensus command before submission. A timeout cannot justify
+Next production work must connect the later accepted trusted archive-handle
+adapters to a configured publisher retaining source admission and directory
+ownership. It also needs a journal saving the original operation before any
+publication and the exact prepared consensus command before submission. A timeout cannot justify
 a new operation ID or a changed retry fingerprint. A control follower also
 needs separately reviewed authenticated forwarding or explicit unavailability;
 a remote acknowledgment is not a committed observation. Publication,
@@ -162,12 +163,47 @@ keeps the timing limit explicit: expiry may precede arrival at the lane wait;
 the check proves late-receipt refusal. Metadata changes after reads use a
 deterministic cut point; concurrent races and FIFO substitution were inspected.
 
-Next, wire a trusted pinned server archive handle through owned runtime jobs,
-retaining caller admission and directory/store ownership through actual IO.
-Then persist the original publication operation and exact prepared consensus
-command before admission, reconcile the same operation across restart, and
-complete retention/reseed, full enabled recovery and every-path fencing.
-This material primitive supplies no production publisher or automatic recovery.
+The later adapter slice below supplies the trusted runtime File entry point
+and same-descriptor source accessor. The configured production job must retain
+Ready/source admission and directory ownership through actual IO, persist the
+original publication operation and exact prepared consensus command before
+submission, and reconcile the same operation across restart. Retention/reseed,
+full enabled recovery and every-path fencing remain open. This material
+primitive supplies no production publisher or automatic recovery.
+
+### October 3: runtime and pinned archive-handle adapters
+
+The exact four-file runtime/source-directory adapter slice is locally accepted.
+`ingest_capture_file` shares signed community/expected-source validation,
+single-job admission and actual supervised blocking/store lifetime with the
+path API, and both inputs recheck runtime roots after success or refusal.
+The Linux source accessor returns the same verified held file at offset zero,
+with exact bounded digest, original private metadata/name/directory and deadline
+checks. Existing wrappers and unsupported-platform refusal remain. Caller
+Ready/source admission and directory/name ownership remain obligations after
+return; the normal Authority publisher is still unwired. See the
+[caller contract](../deployment/RECOVERY_CONTROL_RUNTIME.md#runtime-and-pinned-archive-handle-adapters).
+
+Two independent source reviews and the corrected bounded runner review passed.
+The [frozen acceptance](../testing/geographic-2026-10-02/checkpoint-handle-root-libraries1.json)
+compiled and passed **91/0/5 across two serial groups**: full consensus units
+84/0/4 and filtered server source-directory units 7/0/1. All 5,196 frozen inputs
+and both exact test programs stayed unchanged. Counts overlap earlier suites;
+six new units are included. Other 478 server units, snapshot CLI, integration
+binaries, doctests, genuine producer/publication and physical uplinks were
+excluded. The synthetic-byte tests use deterministic post-read mutation/expiry
+cut points; they do not add direct File cancellation/lost-root IO or concurrent
+mutation/FIFO race acceptance. Owned compiler/runner/controller completion and
+absence were independently verified before shared holds were released.
+
+Next: persist original operation identity before publication and the exact
+prepared consensus command before submission, with durable restart
+reconciliation that never changes an indeterminate operation's fingerprint.
+The configured job must retain source admission/directory ownership throughout
+actual work. Follower behavior needs authenticated forwarding or explicit
+unavailability; fresh ACKs still do not establish commitment. Publication,
+retention/reseed, full enabled restore, writer/encryption fencing and automatic
+geographic recovery remain open; writer/readiness permissions remain false.
 
 ### October 3: owned peer candidate job source
 

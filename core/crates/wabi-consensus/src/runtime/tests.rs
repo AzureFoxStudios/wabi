@@ -1,5 +1,10 @@
 use super::*;
-use std::os::unix::fs::{symlink, PermissionsExt};
+use p256::ecdsa::{signature::Signer, Signature, SigningKey};
+use sha2::{Digest, Sha256};
+use std::{
+    io::{Seek, SeekFrom},
+    os::unix::fs::{symlink, PermissionsExt},
+};
 
 fn private(path: &Path) {
     fs::create_dir(path).unwrap();
@@ -53,6 +58,200 @@ fn build_policy(root: &Path) -> RuntimePolicy {
         transport_limits: Limits::default(),
         work_timeout: Duration::from_secs(10),
     }
+}
+
+fn signed_capture_policy(root: &Path, context: &SignedSourceContext) -> RuntimePolicy {
+    let mut policy = build_policy(root);
+    policy.binding.community_id = context.claims.community_id.clone();
+    policy.source_node_id = context.claims.source_node_id.clone();
+    for peer in policy.peers.values_mut() {
+        peer.community_id = policy.binding.community_id.clone();
+    }
+    policy
+}
+async fn wait_finished_local_job(runtime: &RecoveryRuntime) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let done = runtime
+                .inner
+                .worker
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_none_or(JoinHandle::is_finished);
+            if done {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+}
+fn resign_fixture(context: &mut SignedSourceContext, key_byte: u8) {
+    let key = SigningKey::from_slice(&[key_byte; 32]).unwrap();
+    context.public_key = hex::encode(key.verifying_key().to_encoded_point(false).as_bytes());
+    context.claims.community_id =
+        hex::encode(Sha256::digest(hex::decode(&context.public_key).unwrap()));
+    let signature: Signature =
+        key.sign(&crate::source_context::signing_input(&context.claims).unwrap());
+    context.signature = hex::encode(signature.normalize_s().unwrap_or(signature).to_bytes());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn owned_capture_file_uses_signed_binding_and_reopens_durable_material_after_shutdown() {
+    let root = tempfile::Builder::new()
+        .permissions(fs::Permissions::from_mode(0o700))
+        .tempdir()
+        .unwrap();
+    // Current 64 KiB transfer chunks: exercise a complete and a partial chunk.
+    let bytes = vec![b'x'; 64 * 1024 + 31];
+    let context = crate::source_context::tests::fixture(&bytes);
+    let policy = signed_capture_policy(root.path(), &context);
+    let archive = root.path().join("capture.age");
+    fs::write(&archive, &bytes).unwrap();
+    fs::set_permissions(&archive, fs::Permissions::from_mode(0o600)).unwrap();
+    let directory = File::open(root.path()).unwrap();
+    let pinned = PathBuf::from(format!(
+        "/proc/self/fd/{}/capture.age",
+        directory.as_raw_fd()
+    ));
+    let mut file = File::open(&pinned).unwrap();
+    file.seek(SeekFrom::Start(bytes.len() as u64 + 17)).unwrap();
+    let runtime = RecoveryRuntime::start(policy.clone()).await.unwrap();
+    let lock = fs::metadata(policy.control_directory.join(OWNER_LOCK))
+        .unwrap()
+        .ino();
+    let material_lock = fs::metadata(policy.material_directory.join(".lock"))
+        .unwrap()
+        .ino();
+    let manifest = runtime
+        .ingest_capture_file(file, context.clone())
+        .await
+        .unwrap();
+    assert_eq!(manifest.source, context);
+    assert_eq!(manifest.objects.len(), 2);
+    assert!(!runtime.status().full_instance_ready);
+    assert!(!runtime.status().canonical_writer_permitted);
+    runtime.shutdown().await.unwrap();
+    let material = MaterialStore::open(
+        &policy.material_directory,
+        policy.binding.clone(),
+        policy.material_limits.clone(),
+    )
+    .unwrap();
+    let receipt = material
+        .checkpoint_receipt(&manifest.sha256().unwrap(), &policy.source_node_id)
+        .unwrap();
+    let view = serde_json::to_value(receipt).unwrap();
+    assert_eq!(view["requiredBytes"], bytes.len());
+    assert_eq!(view["fullInstanceReady"], false);
+    assert_eq!(view["canonicalWriterPermitted"], false);
+    assert_eq!(
+        fs::metadata(policy.material_directory.join(".lock"))
+            .unwrap()
+            .ino(),
+        material_lock
+    );
+    drop(material);
+    let reopened = RecoveryRuntime::start(policy.clone()).await.unwrap();
+    reopened.shutdown().await.unwrap();
+    assert_eq!(
+        fs::metadata(policy.control_directory.join(OWNER_LOCK))
+            .unwrap()
+            .ino(),
+        lock
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn owned_capture_file_refuses_bad_signature_unsafe_file_and_busy_job_without_escape() {
+    let root = tempfile::Builder::new()
+        .permissions(fs::Permissions::from_mode(0o700))
+        .tempdir()
+        .unwrap();
+    let context = crate::source_context::tests::fixture(b"opaque");
+    let policy = signed_capture_policy(root.path(), &context);
+    let archive = root.path().join("capture.age");
+    fs::write(&archive, b"opaque").unwrap();
+    fs::set_permissions(&archive, fs::Permissions::from_mode(0o600)).unwrap();
+    let runtime = Arc::new(RecoveryRuntime::start(policy.clone()).await.unwrap());
+    let mut bad = context.clone();
+    bad.signature.replace_range(
+        0..1,
+        if bad.signature.starts_with('0') {
+            "1"
+        } else {
+            "0"
+        },
+    );
+    assert_eq!(
+        runtime
+            .ingest_capture_file(File::open(&archive).unwrap(), bad)
+            .await,
+        Err(RuntimeError::Refused)
+    );
+    let mut wrong = context.clone();
+    wrong.claims.source_node_id = "another-source".into();
+    resign_fixture(&mut wrong, 7);
+    wrong
+        .verify(&wrong.claims.community_id, "another-source")
+        .unwrap();
+    assert_eq!(
+        runtime
+            .ingest_capture_file(File::open(&archive).unwrap(), wrong)
+            .await,
+        Err(RuntimeError::Refused)
+    );
+    let mut foreign = context.clone();
+    resign_fixture(&mut foreign, 8);
+    foreign
+        .verify(&foreign.claims.community_id, "node-1")
+        .unwrap();
+    assert_eq!(
+        runtime
+            .ingest_capture_file(File::open(&archive).unwrap(), foreign)
+            .await,
+        Err(RuntimeError::Refused)
+    );
+    fs::set_permissions(&archive, fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(
+        runtime
+            .ingest_capture_file(File::open(&archive).unwrap(), context.clone())
+            .await,
+        Err(RuntimeError::Refused)
+    );
+    wait_finished_local_job(&runtime).await;
+    assert!(runtime.status().accepting);
+    fs::set_permissions(&archive, fs::Permissions::from_mode(0o600)).unwrap();
+    let (entered, entered_rx) = oneshot::channel();
+    let (release, released) = oneshot::channel();
+    let owner = runtime.clone();
+    let held_job = tokio::spawn(async move {
+        owner
+            .run_job(async move {
+                entered.send(()).unwrap();
+                released.await.unwrap();
+                Ok(())
+            })
+            .await
+    });
+    entered_rx.await.unwrap();
+    assert_eq!(
+        runtime
+            .ingest_capture_file(File::open(&archive).unwrap(), context.clone())
+            .await,
+        Err(RuntimeError::Busy)
+    );
+    release.send(()).unwrap();
+    held_job.await.unwrap().unwrap();
+    wait_finished_local_job(&runtime).await;
+    runtime
+        .ingest_capture_file(File::open(archive).unwrap(), context)
+        .await
+        .unwrap();
+    let runtime = Arc::try_unwrap(runtime).ok().unwrap();
+    runtime.shutdown().await.unwrap();
 }
 
 #[test]

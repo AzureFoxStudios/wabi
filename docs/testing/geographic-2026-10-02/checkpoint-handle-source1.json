@@ -1,0 +1,52 @@
+{
+  "baselineLedgerSha256": "53d83653d41cb1f6f6d769f5748ac0030a1aaa9577e13fb58b26ac1517661628",
+  "capturedAtUtc": "2026-10-02T23:09:41.506586+00:00",
+  "cargoLockSha256": "51945aa9a62b8bcb2be3dadd11ea044c201366d656782b3db705460c09f851bd",
+  "checkpointBase": "9fdb37d472fada36d75aab1719948a6da0865b9f",
+  "compilationExecuted": false,
+  "compilerReserved": false,
+  "files": [
+    {
+      "baseSha256": "411c7ea53600e64d170f11f4772e1415fb33f6a3b888e89f55fb9e615f9f59a9",
+      "bytes": 28543,
+      "path": "core/crates/wabi-consensus/src/runtime.rs",
+      "sha256": "769aec5fd32b3297496c9a92245305782e2d67c1630dd48ac3fcc3209deeac93"
+    },
+    {
+      "baseSha256": "fbd43b7051435d41571abe97e2417c39c498562fba7d5f39586727e0301cc61c",
+      "bytes": 18312,
+      "path": "core/crates/wabi-consensus/src/runtime/tests.rs",
+      "sha256": "877fa6a97f8566ee5dc7493c0cdbcd18f96d61504b001f550aa8f96b67ca4d22"
+    },
+    {
+      "baseSha256": "244528d4b600a188d1371c39370ef872bd0e63603cfab2e4e088df73ea4073ee",
+      "bytes": 16159,
+      "path": "core/crates/wabi-server/src/instance_archive/source_context.rs",
+      "sha256": "d33ca3f5d2d8958439316fdeb3cd9a2c2ea07e2cc9e8201f6fe12e10f06fce6d"
+    },
+    {
+      "baseSha256": "9acd03c92b58bbf67bd8ff07d2719937c9f803725d68342a17dc6e39436c7fdb",
+      "bytes": 15302,
+      "path": "core/crates/wabi-server/src/instance_archive/source_context_tests.rs",
+      "sha256": "fdc07a6c8fd545c3ca75b940f6c61828acb2815520d8926281957bd2ccaaf78b"
+    }
+  ],
+  "fullInstanceReady": false,
+  "implementation": "Private input enum shares signed community/expected-source validation, single-job admission and owned supervisor/blocking store lifetime for path/File. Both inputs now recheck runtime-owned roots after ingestion so input refusal cannot hide lost runtime ownership. SourceDirectory returns same original held File, verifies current-owner/private/regular/single-link/length/hash and stable original name/held metadata incl mutation timestamps plus directory before rewind/deadline; wrapper/current caller behavior/platform refusal retained. Nonblocking private open prevents substituted FIFO blocking. Caller retains directory/name/admission obligations after return. Tests use synthetic signed opaque bytes, not genuine export or production publication. Runtime unit separately re-signs valid wrong-source and foreign-community contexts to isolate binding refusals; busy admission and full shutdown/reopen checked. Source-directory cut-point metadata/name/root/expiry tests are deterministic, not concurrent races; same actual descriptor checked and consumed by material API.",
+  "newTests": {
+    "consensusRuntime": 2,
+    "sourceDirectory": 4
+  },
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "schemaOrDependencyChanges": false,
+  "schemaVersion": 1,
+  "scope": "four-file trusted runtime ingestion and same verified held archive adapters; no publisher/journal/server startup wiring",
+  "sourceArchive": {
+    "bytes": 27478,
+    "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-source1-exact.json.gz",
+    "sha256": "9c92e4ca1b0fb62429da1731f804bc576b1c0569a7e76c98a20c015fb495d629"
+  },
+  "sourceOnlyFrozenForReview": true,
+  "testsExecuted": false,
+  "writerActivation": false
+}

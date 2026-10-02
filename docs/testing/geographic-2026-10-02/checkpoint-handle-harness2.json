@@ -1,0 +1,38 @@
+{
+  "archive": {
+    "bytes": 8419,
+    "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-harness2-exact.json.gz",
+    "sha256": "af026c290820d594dd71179192d9aa07eb72f4be20636ceb7442aa3142119cfe"
+  },
+  "capturedAtUtc": "2026-10-02T23:19:19.550622+00:00",
+  "change": "Only unexecuted helper refinement: verify exact bytes and SHA of ALL compiled artifacts before and after EACH group and at terminal readback; precheck expects new acceptance2 filename. Sources unchanged; helper1 and archive preserved unexecuted.",
+  "compilerReserved": false,
+  "executed": false,
+  "helperFiles": [
+    {
+      "bytes": 10345,
+      "path": "/tmp/wabi-geographic-checkpoint-handle-acceptance2.py",
+      "sha256": "37ee56e434c1095fc51b5112f067c6de0ff6e759f242c2f3eec7af5de3144035"
+    },
+    {
+      "bytes": 5657,
+      "path": "/tmp/wabi-geographic-checkpoint-handle-precheck2.py",
+      "sha256": "b5c4bd4c804d3ba069d6798b25cc01e279d852a862cebee7a2b4c3d6e31aea93"
+    }
+  ],
+  "proposal": "Pinned offline/locked two-package library --no-run in one Cargo; serial direct full consensus unit group expected84/0/4 and filtered server SourceDirectory filesystem unit group expected7/0/1. Expected91/0/5 across2groups overlaps prior suites and remains unexecuted. Stop Cargo group and separate runner; record actual process starts and root-owned Cargo-only thermal controller; resume only runner after actual terminal Cargo, exact whole Rust/manifest/lock/toolchain/config/static input map plus both ELF hashes, cool CPU and free disk. Shared target; no new build tree/static copy. No full server tests, snapshot CLI, integration, doctests, genuine producer, publication, physical sites or activation. New start receipt produced before parent stop; per-group terminal actual exit/count admission, exact source/ELF checks between groups.",
+  "schemaVersion": 1,
+  "scopeLimits": [
+    "Synthetic signed opaque bytes only",
+    "Deterministic mutation/expiry cut points rather than concurrent races",
+    "No direct new File cancellation/lost-runtime-root IO race or substituted FIFO race"
+  ],
+  "sourceLedger": {
+    "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-source1.json",
+    "sha256": "cd58bf742cbb79430bda8de54b4eeded0d4ddadbc878f51c771926e3cdaea1eb"
+  },
+  "supersedesUnexecutedProposal": {
+    "path": "docs/testing/geographic-2026-10-02/checkpoint-handle-harness1.json",
+    "sha256": "c152df3da064befe61fccb60a800524ab8f5faaf1fe26cc53b48f8962859d1d9"
+  }
+}

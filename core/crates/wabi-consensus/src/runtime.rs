@@ -58,6 +58,11 @@ pub enum RuntimeError {
 }
 pub type Result<T> = std::result::Result<T, RuntimeError>;
 
+enum CaptureInput {
+    Path(PathBuf),
+    File(File),
+}
+
 /// Trusted operator input, not a network payload. Roots must already exist;
 /// identity generation, enrollment changes and existing-store migration are
 /// deliberately not implicit. Initialize only once, on the lowest roster ID.
@@ -616,6 +621,25 @@ impl RecoveryRuntime {
         path: PathBuf,
         context: SignedSourceContext,
     ) -> Result<CheckpointManifest> {
+        self.ingest_capture_input(CaptureInput::Path(path), context)
+            .await
+    }
+    /// Trusted local handle only. Directory/name provenance belongs to the
+    /// caller; the runtime retains the File and actual blocking/store owners
+    /// until work completes, even if the awaiting caller is cancelled.
+    pub async fn ingest_capture_file(
+        &self,
+        input: File,
+        context: SignedSourceContext,
+    ) -> Result<CheckpointManifest> {
+        self.ingest_capture_input(CaptureInput::File(input), context)
+            .await
+    }
+    async fn ingest_capture_input(
+        &self,
+        input: CaptureInput,
+        context: SignedSourceContext,
+    ) -> Result<CheckpointManifest> {
         let source = context
             .verify(
                 &self.inner.opened.control.binding().community_id,
@@ -629,10 +653,20 @@ impl RecoveryRuntime {
             let owner = inner.clone();
             tokio::task::spawn_blocking(move || {
                 owner.opened.verify()?;
-                material
-                    .ingest_checkpoint(&path, &source, ChunkingLimits { timeout })
-                    .map(|(manifest, _)| manifest)
-                    .map_err(|_| RuntimeError::Refused)
+                let result = match input {
+                    CaptureInput::Path(path) => {
+                        material.ingest_checkpoint(&path, &source, ChunkingLimits { timeout })
+                    }
+                    CaptureInput::File(file) => {
+                        material.ingest_checkpoint_file(file, &source, ChunkingLimits { timeout })
+                    }
+                }
+                .map(|(manifest, _)| manifest)
+                .map_err(|_| RuntimeError::Refused);
+                // Input refusal must not hide loss of the runtime's own roots.
+                // This same final ownership check applies to both inputs.
+                owner.opened.verify()?;
+                result
             })
             .await
             .map_err(|_| RuntimeError::Closed)?
