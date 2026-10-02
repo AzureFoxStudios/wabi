@@ -307,7 +307,9 @@ async fn configured_workspace_addons(state: &AppState) -> Result<Vec<AddonCapabi
         out.push(AddonCapability {
             id: id.into(), name: name.into(), version: "0.1.0".into(),
             description: "Optional local-first workspace; client package and server sharing are independent".into(),
-            enabled: settings[id].as_bool().unwrap_or(false), backend_runtime: String::new(), cargo_feature: None, permissions: vec![],
+            enabled: settings[id].as_bool().unwrap_or(false), compiled: true,
+            backend_runtime: "rust".into(), cargo_feature: None,
+            runtime_env: None, runtime_switch: false, permissions: vec![],
             frontend: FrontendInfo { bundled: true, contributions: FrontendContributions {
                 channel_types: vec![], workspace_panels: vec![format!("workspace:{id}")], settings_pages: vec![id.into()], mobile_tabs: vec![format!("workspace:{id}")],
             } },

@@ -1,0 +1,769 @@
+{
+  "inventory_date": "2026-10-02",
+  "baseline_main": "db86954a4062c1401c7c0873476a509c60864697",
+  "checkpoint": "361437d4778b4f4a863fa37c00b40f0449d0eace",
+  "integration_branch": "codex/all-branches-integration-20261002",
+  "inventory_tip": "c5e24bff954f2852cec7fc659a932c88cdb7c076",
+  "tips": [
+    {
+      "ref": "origin/wip/peer-inflight-20260827",
+      "aliases": [
+        "origin/wip/peer-inflight-20260827"
+      ],
+      "sha": "500964b486b2b8dd61cf4de46b6d679c7b689a29",
+      "new": 1,
+      "equivalent": 1,
+      "delta": "251 files changed, 19120 insertions(+), 61 deletions(-)",
+      "date": "2026-08-27",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/docs-history",
+      "aliases": [
+        "docs-history",
+        "origin/docs-history"
+      ],
+      "sha": "5889b69b9ca60dc039e355beb0f47eeb300b31cb",
+      "unrelated": true,
+      "date": "2026-09-03",
+      "disposition": "archive-kept-separate",
+      "ancestor_of_candidate": false
+    },
+    {
+      "ref": "local-ui-polish-backup-20260909",
+      "aliases": [
+        "local-ui-polish-backup-20260909"
+      ],
+      "sha": "884a75a63c58576ba386fc1c043af8af72daa96e",
+      "new": 1,
+      "equivalent": 1,
+      "delta": "17 files changed, 742 insertions(+), 41 deletions(-)",
+      "date": "2026-09-09",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/feat/local-visual-effects-host",
+      "aliases": [
+        "origin/feat/local-visual-effects-host"
+      ],
+      "sha": "5ef7ce26328a76a21f79d1e52d1ef7f8fd4d8c6f",
+      "new": 15,
+      "equivalent": 0,
+      "delta": "8 files changed, 1068 insertions(+), 121 deletions(-)",
+      "date": "2026-09-10",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/fix/mouse-feeler-latency",
+      "aliases": [
+        "origin/fix/mouse-feeler-latency"
+      ],
+      "sha": "7f1e337541046fd1edb311b45afb02277f2438cc",
+      "new": 2,
+      "equivalent": 1,
+      "delta": "1 file changed, 41 insertions(+), 28 deletions(-)",
+      "date": "2026-09-10",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/integrate/candidate-34481098639",
+      "aliases": [
+        "origin/integrate/candidate-34481098639"
+      ],
+      "sha": "d1e13b76255ca765004c08bc8ce82f203d9ccb21",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "1 file changed, 6 insertions(+), 2 deletions(-)",
+      "date": "2026-09-10",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/integrate/open-prs-2026-09-10",
+      "aliases": [
+        "origin/integrate/open-prs-2026-09-10"
+      ],
+      "sha": "d014c438c2804ecff1af0dfe3e9bd7320bd8c821",
+      "new": 5,
+      "equivalent": 0,
+      "delta": "2 files changed, 392 insertions(+)",
+      "date": "2026-09-10",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/prototype/mouse-feeler",
+      "aliases": [
+        "origin/prototype/mouse-feeler"
+      ],
+      "sha": "35e3a009eadf2dd0f72eb543dac84a40c4c8c1b6",
+      "new": 8,
+      "equivalent": 0,
+      "delta": "4 files changed, 405 insertions(+), 1 deletion(-)",
+      "date": "2026-09-10",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/review/steam-games-2026-09-11",
+      "aliases": [
+        "origin/review/steam-games-2026-09-11"
+      ],
+      "sha": "dc1448095899f23aa7d2ba7f851246f35b2c4cdc",
+      "new": 3,
+      "equivalent": 0,
+      "delta": "2 files changed, 29 insertions(+)",
+      "date": "2026-09-11",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/fix/steam-release-2026-09-12",
+      "aliases": [
+        "origin/fix/steam-release-2026-09-12"
+      ],
+      "sha": "d9fa3ac6e3b6944ab8fa39b97c58a5814dd41016",
+      "new": 14,
+      "equivalent": 0,
+      "delta": "36 files changed, 1379 insertions(+), 681 deletions(-)",
+      "date": "2026-09-12",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/wip/dm-e2ee-reactivation",
+      "aliases": [
+        "origin/wip/dm-e2ee-reactivation"
+      ],
+      "sha": "8d4ede788a0fb64b1fd89452fd457a42cbea6c73",
+      "new": 3,
+      "equivalent": 0,
+      "delta": "16 files changed, 977 insertions(+), 46 deletions(-)",
+      "date": "2026-09-13",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/feat/reader-long-message-previews",
+      "aliases": [
+        "origin/feat/reader-long-message-previews"
+      ],
+      "sha": "8cfdc3728d9097e9573c28eb50b824ad81e3ef16",
+      "new": 8,
+      "equivalent": 0,
+      "delta": "7 files changed, 341 insertions(+), 17 deletions(-)",
+      "date": "2026-09-14",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/fix/e2ee-upload-boundary",
+      "aliases": [
+        "origin/fix/e2ee-upload-boundary"
+      ],
+      "sha": "2986d6d1716b9671407257b6e4e4853c16c4000b",
+      "new": 11,
+      "equivalent": 0,
+      "delta": "6 files changed, 252 insertions(+), 28 deletions(-)",
+      "date": "2026-09-14",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/fix/right-panel-folder-tabs",
+      "aliases": [
+        "origin/fix/right-panel-folder-tabs"
+      ],
+      "sha": "5813855d07bda61355739dc07c0e84081064de2c",
+      "new": 2,
+      "equivalent": 0,
+      "delta": "2 files changed, 60 insertions(+), 13 deletions(-)",
+      "date": "2026-09-14",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "feat/reader-code-navigation",
+      "aliases": [
+        "feat/reader-code-navigation"
+      ],
+      "sha": "e3c883830fe076e9420b2ca5cd1f8b315253a9a9",
+      "new": 19,
+      "equivalent": 0,
+      "delta": "12 files changed, 670 insertions(+), 55 deletions(-)",
+      "date": "2026-09-15",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/chore/re-land-dependency-bumps",
+      "aliases": [
+        "origin/chore/re-land-dependency-bumps"
+      ],
+      "sha": "5ce9bd1d978f57a7d20b605dd4c16d005a1ecc3a",
+      "new": 4,
+      "equivalent": 0,
+      "delta": "9 files changed, 178 insertions(+), 174 deletions(-)",
+      "date": "2026-09-15",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/codex/connected-pointer-worlds",
+      "aliases": [
+        "codex/connected-pointer-worlds",
+        "pr-217",
+        "origin/codex/connected-pointer-worlds"
+      ],
+      "sha": "6f349d52d491f5a8f79000a8337cf7da4c39cbba",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "28 files changed, 3251 insertions(+), 676 deletions(-)",
+      "date": "2026-09-15",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/feat/dm-code-workspace-ux",
+      "aliases": [
+        "feat/dm-code-workspace-ux",
+        "pr-184",
+        "origin/feat/dm-code-workspace-ux"
+      ],
+      "sha": "fc4cc59fa2dc3a4530a7a52afb10f6f6270c9488",
+      "new": 3,
+      "equivalent": 0,
+      "delta": "18 files changed, 1073 insertions(+), 2929 deletions(-)",
+      "date": "2026-09-15",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/feat/i18n-thai",
+      "aliases": [
+        "feat/i18n-thai",
+        "origin/feat/i18n-thai"
+      ],
+      "sha": "53d5c3f6c8b5bf8150401237d2780ce2f1a542c5",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "3 files changed, 809 insertions(+), 3 deletions(-)",
+      "date": "2026-09-15",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/feat/media-voice-policy-selective",
+      "aliases": [
+        "feat/media-voice-policy-selective",
+        "pr-207",
+        "origin/feat/media-voice-policy-selective"
+      ],
+      "sha": "cb9400893f3c765111c72643a2f80a631d9b870d",
+      "new": 48,
+      "equivalent": 0,
+      "delta": "34 files changed, 3559 insertions(+), 1420 deletions(-)",
+      "date": "2026-09-15",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/feat/mobile-first-2026-09-12",
+      "aliases": [
+        "origin/feat/mobile-first-2026-09-12"
+      ],
+      "sha": "090879038e7360baaca283a9146993a52b792298",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "101 files changed, 10441 insertions(+), 2979 deletions(-)",
+      "date": "2026-09-15",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/feat/reader-code-navigation",
+      "aliases": [
+        "origin/feat/reader-code-navigation"
+      ],
+      "sha": "b51912bf8d40a4c19d6aafab52924bfe9c57298b",
+      "new": 20,
+      "equivalent": 0,
+      "delta": "12 files changed, 673 insertions(+), 55 deletions(-)",
+      "date": "2026-09-15",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/feat/shared-media-node-advertisement",
+      "aliases": [
+        "feat/shared-media-node-advertisement",
+        "origin/feat/shared-media-node-advertisement"
+      ],
+      "sha": "074e517baaff0c291dd3d38d3a470b0f09eb2292",
+      "new": 0,
+      "equivalent": 0,
+      "delta": "4 files changed, 524 insertions(+), 22 deletions(-)",
+      "date": "2026-09-15",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/feat/shared-media-nodes",
+      "aliases": [
+        "origin/feat/shared-media-nodes"
+      ],
+      "sha": "b77047f86ec2b86667e05d21008358b64dcb893e",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "4 files changed, 524 insertions(+), 22 deletions(-)",
+      "date": "2026-09-15",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/feat/translator-assist-addon",
+      "aliases": [
+        "feat/translator-assist-addon",
+        "origin/feat/translator-assist-addon"
+      ],
+      "sha": "e716e8fb9d30e4447b37421de332a5250d788a93",
+      "new": 0,
+      "equivalent": 1,
+      "delta": "1 file changed, 8 insertions(+), 9 deletions(-)",
+      "date": "2026-09-15",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/feat/tui-overhaul-2026-09",
+      "aliases": [
+        "feat/tui-overhaul-2026-09",
+        "origin/feat/tui-overhaul-2026-09"
+      ],
+      "sha": "0362ad660ced19b2ed95053eab05090cc3fe73f8",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "7 files changed, 1059 insertions(+), 146 deletions(-)",
+      "date": "2026-09-15",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/feature/chat-backdrops-koi",
+      "aliases": [
+        "feature/chat-backdrops-koi",
+        "origin/feature/chat-backdrops-koi"
+      ],
+      "sha": "c84f4fdf8017d4510f29b9ee0a9a73760700ce77",
+      "new": 0,
+      "equivalent": 0,
+      "delta": "7 files changed, 892 insertions(+), 534 deletions(-)",
+      "date": "2026-09-15",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/fix/joker-shader-fidelity",
+      "aliases": [
+        "fix/joker-shader-fidelity",
+        "origin/fix/joker-shader-fidelity"
+      ],
+      "sha": "0ae7664702618a0cbc2bcc66d28b557f2ef10409",
+      "new": 15,
+      "equivalent": 0,
+      "delta": "7 files changed, 504 insertions(+), 18 deletions(-)",
+      "date": "2026-09-15",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/fix/mobile-native-green-2026-09-13",
+      "aliases": [
+        "fix/mobile-native-green-2026-09-13",
+        "origin/fix/mobile-native-green-2026-09-13"
+      ],
+      "sha": "b8b915d9668ce0c699832068e9e345f7634da1b3",
+      "new": 35,
+      "equivalent": 1,
+      "delta": "20 files changed, 3354 insertions(+), 1523 deletions(-)",
+      "date": "2026-09-15",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/polish/public-site-seo-legal",
+      "aliases": [
+        "polish/public-site-seo-legal",
+        "origin/polish/public-site-seo-legal"
+      ],
+      "sha": "7c93441febc74abe6069a903513db36b9de0ed5e",
+      "new": 7,
+      "equivalent": 0,
+      "delta": "7 files changed, 195 insertions(+), 2 deletions(-)",
+      "date": "2026-09-15",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/dependabot/cargo/base64-0.23.1",
+      "aliases": [
+        "origin/dependabot/cargo/base64-0.23.1"
+      ],
+      "sha": "7618434e3932c3cd2d9fd949e4051ae490e9de6c",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "2 files changed, 8 insertions(+), 2 deletions(-)",
+      "date": "2026-09-16",
+      "disposition": "history-reconciled-pins-retained",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/dependabot/cargo/reqwest-0.13.5",
+      "aliases": [
+        "origin/dependabot/cargo/reqwest-0.13.5"
+      ],
+      "sha": "c57a3cba0f656c7af089ff6282484f26812c11b7",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "1 file changed, 12 insertions(+), 6 deletions(-)",
+      "date": "2026-09-16",
+      "disposition": "history-reconciled-pins-retained",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/dependabot/cargo/serde-1.0.229",
+      "aliases": [
+        "origin/dependabot/cargo/serde-1.0.229"
+      ],
+      "sha": "53b27d5b21c74171e9efe6de469af3cc25b23fa6",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "1 file changed, 8 insertions(+), 7 deletions(-)",
+      "date": "2026-09-16",
+      "disposition": "history-reconciled-pins-retained",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/dependabot/cargo/toml-1.1.6spec-1.1.0",
+      "aliases": [
+        "origin/dependabot/cargo/toml-1.1.6spec-1.1.0"
+      ],
+      "sha": "d121c3eeb9ff68e81d70fabefad039a3e802d732",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "3 files changed, 25 insertions(+), 30 deletions(-)",
+      "date": "2026-09-16",
+      "disposition": "history-reconciled-pins-retained",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/dependabot/cargo/x25519-dalek-3.0.0",
+      "aliases": [
+        "origin/dependabot/cargo/x25519-dalek-3.0.0"
+      ],
+      "sha": "7c0903835b0f58fdbceecf6ec546c1fff66ebd4d",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "2 files changed, 14 insertions(+), 3 deletions(-)",
+      "date": "2026-09-16",
+      "disposition": "history-reconciled-pins-retained",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/dependabot/npm_and_yarn/frontend/codemirror/lang-markdown-6.5.2",
+      "aliases": [
+        "origin/dependabot/npm_and_yarn/frontend/codemirror/lang-markdown-6.5.2"
+      ],
+      "sha": "820038c2776e5b5bf3bb6458b1b0dc18dfd57079",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "2 files changed, 5 insertions(+), 5 deletions(-)",
+      "date": "2026-09-16",
+      "disposition": "history-reconciled-pins-retained",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/dependabot/npm_and_yarn/frontend/codemirror/state-6.7.4",
+      "aliases": [
+        "origin/dependabot/npm_and_yarn/frontend/codemirror/state-6.7.4"
+      ],
+      "sha": "a4db4383984afb25cc2c16ee9e60d4dd399f9cc1",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "2 files changed, 5 insertions(+), 5 deletions(-)",
+      "date": "2026-09-16",
+      "disposition": "history-reconciled-pins-retained",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/dependabot/npm_and_yarn/frontend/codemirror/view-6.43.11",
+      "aliases": [
+        "origin/dependabot/npm_and_yarn/frontend/codemirror/view-6.43.11"
+      ],
+      "sha": "53a0d677ef0f6a95620eea9c2427b858446ee78b",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "2 files changed, 6 insertions(+), 6 deletions(-)",
+      "date": "2026-09-16",
+      "disposition": "history-reconciled-pins-retained",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/dependabot/npm_and_yarn/frontend/katex-0.18.7",
+      "aliases": [
+        "origin/dependabot/npm_and_yarn/frontend/katex-0.18.7"
+      ],
+      "sha": "8053a4ca7787340bded252273a5f3fab0791091b",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "2 files changed, 15 insertions(+), 15 deletions(-)",
+      "date": "2026-09-16",
+      "disposition": "history-reconciled-pins-retained",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/dependabot/npm_and_yarn/frontend/marked-18.0.13",
+      "aliases": [
+        "origin/dependabot/npm_and_yarn/frontend/marked-18.0.13"
+      ],
+      "sha": "b784026c59477798896e85fbe2a282a018158851",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "2 files changed, 5 insertions(+), 5 deletions(-)",
+      "date": "2026-09-16",
+      "disposition": "history-reconciled-pins-retained",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/dependabot/npm_and_yarn/frontend/playwright-1.63.0",
+      "aliases": [
+        "origin/dependabot/npm_and_yarn/frontend/playwright-1.63.0"
+      ],
+      "sha": "14e3a11e6c160773fb1240248aba707b57d6bdc7",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "2 files changed, 9 insertions(+), 27 deletions(-)",
+      "date": "2026-09-16",
+      "disposition": "history-reconciled-pins-retained",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/dependabot/npm_and_yarn/frontend/svelte-5.57.0",
+      "aliases": [
+        "origin/dependabot/npm_and_yarn/frontend/svelte-5.57.0"
+      ],
+      "sha": "92646c419bab06d5cbae9b97daf90798d839368b",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "2 files changed, 7 insertions(+), 7 deletions(-)",
+      "date": "2026-09-16",
+      "disposition": "history-reconciled-pins-retained",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/dependabot/npm_and_yarn/frontend/sveltejs/adapter-node-5.5.7",
+      "aliases": [
+        "origin/dependabot/npm_and_yarn/frontend/sveltejs/adapter-node-5.5.7"
+      ],
+      "sha": "1f0113d150b0dbc44851ba65fdc4a49d4d238c5d",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "2 files changed, 28 insertions(+), 5 deletions(-)",
+      "date": "2026-09-16",
+      "disposition": "history-reconciled-pins-retained",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/dependabot/npm_and_yarn/frontend/types/bun-1.4.2",
+      "aliases": [
+        "origin/dependabot/npm_and_yarn/frontend/types/bun-1.4.2"
+      ],
+      "sha": "523cb8fb2b53c1bdafd80bfa9d10e99777ba8dfd",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "2 files changed, 9 insertions(+), 9 deletions(-)",
+      "date": "2026-09-16",
+      "disposition": "history-reconciled-pins-retained",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/dependabot/npm_and_yarn/frontend/vite-8.3.0",
+      "aliases": [
+        "origin/dependabot/npm_and_yarn/frontend/vite-8.3.0"
+      ],
+      "sha": "495a68183c1da2e00d84e71a70d4f67e6f2cbe10",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "2 files changed, 12 insertions(+), 12 deletions(-)",
+      "date": "2026-09-16",
+      "disposition": "history-reconciled-pins-retained",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/codex/desktop-host-mode-20260916",
+      "aliases": [
+        "pr-233",
+        "origin/codex/desktop-host-mode-20260916"
+      ],
+      "sha": "49f582bd233faaeb2b27d95d7348f6f94c10f538",
+      "new": 13,
+      "equivalent": 0,
+      "delta": "50 files changed, 3346 insertions(+), 195 deletions(-)",
+      "date": "2026-09-17",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/codex/workspace-addons-20260917",
+      "aliases": [
+        "origin/codex/workspace-addons-20260917"
+      ],
+      "sha": "693a7eccc3861ca9743fa0bdf72cad0ca7f667f9",
+      "new": 18,
+      "equivalent": 0,
+      "delta": "60 files changed, 3083 insertions(+), 250 deletions(-)",
+      "date": "2026-09-17",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/codex/workspace-docs-sheets-present-20260917",
+      "aliases": [
+        "origin/codex/workspace-docs-sheets-present-20260917"
+      ],
+      "sha": "3cc04d734a03069dfbcff7abad99c4da4b2bffdf",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "1 file changed, 45 insertions(+)",
+      "date": "2026-09-17",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/union/pr-intake-20260917",
+      "aliases": [
+        "union/pr-intake-20260917",
+        "origin/union/pr-intake-20260917"
+      ],
+      "sha": "d06a372005a043fdca2bd15e6c8fc1946ce4bd26",
+      "new": 10,
+      "equivalent": 0,
+      "delta": "2 files changed, 101 insertions(+), 96 deletions(-)",
+      "date": "2026-09-17",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/codex/docs-sheets-present-20260917",
+      "aliases": [
+        "origin/codex/docs-sheets-present-20260917"
+      ],
+      "sha": "1e1c6bc1197c27c8b64517ba5aaabf4b7783bcd3",
+      "new": 112,
+      "equivalent": 0,
+      "delta": "108 files changed, 8405 insertions(+), 1702 deletions(-)",
+      "date": "2026-09-18",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/codex/office-check-cleanup-20260918",
+      "aliases": [
+        "origin/codex/office-check-cleanup-20260918"
+      ],
+      "sha": "889cdba06e2e29371568813eed608b643b21d498",
+      "new": 95,
+      "equivalent": 0,
+      "delta": "84 files changed, 5121 insertions(+), 259 deletions(-)",
+      "date": "2026-09-18",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "codex/production-finish-20260919",
+      "aliases": [
+        "codex/production-finish-20260919"
+      ],
+      "sha": "b282db084bbd7af61b0e8baadf5ff7c74d6cf37e",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "13 files changed, 301 insertions(+), 11 deletions(-)",
+      "date": "2026-09-19",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/showcase/reproducible-demo",
+      "aliases": [
+        "showcase/reproducible-demo",
+        "origin/showcase/reproducible-demo"
+      ],
+      "sha": "906472d7c62a373ca384652293a4e980f6c47ca3",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "15 files changed, 1184 insertions(+), 5 deletions(-)",
+      "date": "2026-09-20",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/codex/profile-showcase-20260928",
+      "aliases": [
+        "codex/profile-showcase-20260928",
+        "origin/codex/profile-showcase-20260928"
+      ],
+      "sha": "58e1f3a36e74781f6fc046e33e8af3c2eddd8d01",
+      "new": 5,
+      "equivalent": 0,
+      "delta": "148 files changed, 5610 insertions(+), 1791 deletions(-)",
+      "date": "2026-09-28",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/arena/01a0ebbd-wabi",
+      "aliases": [
+        "origin/arena/01a0ebbd-wabi"
+      ],
+      "sha": "b46d97167de3f235dd4b06ecdab1375f59be4d92",
+      "new": 9,
+      "equivalent": 0,
+      "delta": "140 files changed, 16678 insertions(+)",
+      "date": "2026-09-29",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/codex/ai-workspace-publication-20260930",
+      "aliases": [
+        "codex/ai-workspace-publication-20260930",
+        "origin/codex/ai-workspace-publication-20260930"
+      ],
+      "sha": "c738d060ec6585e618d06793324bf30c1cc9bd31",
+      "new": 6,
+      "equivalent": 0,
+      "delta": "88 files changed, 4838 insertions(+), 175 deletions(-)",
+      "date": "2026-10-01",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    },
+    {
+      "ref": "origin/codex/security-boundary-hardening-20260930",
+      "aliases": [
+        "codex/security-boundary-hardening-20260930",
+        "origin/codex/security-boundary-hardening-20260930"
+      ],
+      "sha": "361437d4778b4f4a863fa37c00b40f0449d0eace",
+      "new": 1,
+      "equivalent": 0,
+      "delta": "698 files changed, 99638 insertions(+), 5586 deletions(-)",
+      "date": "2026-10-02",
+      "disposition": "included-in-integration-ancestry",
+      "ancestor_of_candidate": true
+    }
+  ]
+}

@@ -311,7 +311,8 @@
     "deletion": {
       "scheduled_title": "ข้อความนี้ถูกตั้งเวลาให้ลบอัตโนมัติ",
       "deleting": "กำลังลบ...",
-      "deletes_in": "จะลบในอีก {duration}"
+      "deletes_in": "จะลบในอีก {duration}",
+      "retention_lifetime": "ตัวจับเวลา {duration}"
     },
     "persistence": {
       "failed": "ไม่ได้บันทึก",
