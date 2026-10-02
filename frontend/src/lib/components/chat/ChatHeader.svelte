@@ -8,7 +8,7 @@
 	import { getAuthToken } from '$lib/authSession';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { hasAddonCapability } from '$lib/addonInventory';
-	import { getSocket, type User } from '$lib/socket';
+	import { getSocket, channels, type User } from '$lib/socket';
 	import { showToast } from '$lib/toast';
 	import { MESSAGE_RETENTION_LABELS } from '../../../../../shared/messageRetention.js';
 	import { communityRulesAvailable, communityRulesOpen } from '$lib/communityRulesUi';
@@ -133,6 +133,7 @@
 
 </script>
 
+{#if selectedWorkspaceView !== 'whiteboard'}
 <div class="chat-header" class:dm-channel={isDMChannel}>
 	<div class="chat-heading">
 		{#if workspaceSurfaceLabel}
@@ -148,18 +149,22 @@
 			<p class="channel-description">{workspaceHeaderSubtitle}</p>
 		{/if}
 		{#if selectedWorkspaceView === 'messages' && privacySummary}
+			{#if !['lore', 'planning', 'wiki', 'forum'].includes($channels.find(channel => channel.id === currentChannel)?.type ?? '')}
 			<span
 				class="retention-channel-badge"
 				title={privacySummary.retention === 'live'
 					? 'New messages are session-only. The server can still read them while they are live.'
 					: `New messages: ${retentionLabel(privacySummary.retention)}. Earlier messages keep the lifetime set when they were sent.`}
-			><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="5.75"/><path d="M8 4.5v3.7l2.35 1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>{retentionLabel(privacySummary.retention)}</span></span>
+			><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="5.75"/><path d="M8 4.5v3.7l2.35 1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Messages: {retentionLabel(privacySummary.retention)}</span></span>
+			{/if}
+			{#if privacySummary.e2ee || privacySummary.privateConversation}
 			<span
 				class="spoiler-channel-badge"
 				title={privacySummary.e2ee
                     ? 'Experimental encryption is enabled. The full path has not been independently verified; do not rely on it to hide content from the operator.'
                     : 'This conversation is server-readable. Retention does not hide content from the operator.'}
             >{privacySummary.e2ee ? 'Encryption · experimental' : 'Server-readable'}</span>
+			{/if}
 			{#if privacySummary.privateConversation}
 				<span
 					class="spoiler-channel-badge"
@@ -281,3 +286,5 @@
 		</div>
 	</div>
 </div>
+
+{/if}

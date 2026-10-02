@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { isTauriRuntime } from '$lib/tauri-platform';
 	import { _ } from '$lib/i18n';
 	import {
 		directionsAssistSettings,
@@ -44,14 +45,9 @@
 		{#if directionsGpsStatus}
 			<div class="runtime-note">{directionsGpsStatus}</div>
 		{/if}
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Business sync</span>
-				<span class="setting-description">Planner stays on this device. Use Export / Import to move your work between devices. Server sync is unavailable.</span>
-			</div>
-		</div>
+
 	</div>
 
-	<TailcatConnectionCard />
+	{#if isTauriRuntime()}<TailcatConnectionCard />{/if}
 	<VolunteerBoostCard />
 </div>

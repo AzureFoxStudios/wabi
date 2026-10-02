@@ -1,16 +1,15 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
-	import { deviceVisual, deviceVisualSymbol } from '$lib/deviceVisuals';
-	import { onDestroy, onMount } from 'svelte';
+		import { onDestroy, onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { _ as t } from '$lib/i18n';
-	import { audioProcessingRuntimeStatus, callTransportState, clearAudioPerformanceFallbackOverride, applyCurrentAudioProcessingToLocalTrack, refreshLocalAudioMuteState, refreshSpatialAudioRuntime, spatialAudioDiagnostics, spatialAudioRuntimeStatus } from '$lib/calling';
+	import { audioProcessingRuntimeStatus, clearAudioPerformanceFallbackOverride, applyCurrentAudioProcessingToLocalTrack, refreshLocalAudioMuteState, refreshSpatialAudioRuntime, spatialAudioRuntimeStatus } from '$lib/calling';
 	import { refreshCallRecordingMix } from '$lib/callRecording';
 	import { DESKTOP_HELPER_PROFILE_KEY, desktopHelperState, syncDesktopHelperService, type DesktopHelperProfileMode } from '$lib/desktopHelper';
 	import { getTauriPlatform } from '$lib/tauri-platform';
 	import { AudioCaptureOwner } from '$lib/audioCaptureOwner';
 	import { createAudioCaptureSession, disposeAudioCaptureSession } from '$lib/audioCapture';
-	import { getBoosterRelayEffectiveMode, getBoosterRelayRequestedMode, isTauriRuntime, loadEffectiveMediaSettingsSnapshot, setAudioProcessingMode, setCallMuteBehavior, setCallRecordingStemMode, setCallTransportMode, setMediaQualityMode, setScreenShareQualityPreset, setScreenShareBitrateKbps, setSpatialAudioDistanceScale, setSpatialAudioEnabled, setSpatialAudioMasterStrength, setSpatialAudioMode, setSpatialAudioQuickToggleVisible, setSpatialAudioWarningMuted, setSrtGatewayEnabled, getPreferredMicDeviceId, setPreferredMicDeviceId, getPreferredCameraDeviceId, setPreferredCameraDeviceId, type AudioProcessingMode, type BoosterRelayMode, type CallMuteBehavior, type CallRecordingStemMode, type CallTransportMode, type MediaQualityMode, type ServerMediaRuntimeResponse, type ScreenShareQualityPreset, type SpatialAudioMode } from '$lib/mediaRuntime';
+	import { isTauriRuntime, loadEffectiveMediaSettingsSnapshot, setAudioProcessingMode, setCallMuteBehavior, setCallRecordingStemMode, setCallTransportMode, setMediaQualityMode, setScreenShareQualityPreset, setScreenShareBitrateKbps, setSpatialAudioDistanceScale, setSpatialAudioEnabled, setSpatialAudioMasterStrength, setSpatialAudioMode, setSpatialAudioQuickToggleVisible, setSpatialAudioWarningMuted, setSrtGatewayEnabled, getPreferredMicDeviceId, setPreferredMicDeviceId, getPreferredCameraDeviceId, setPreferredCameraDeviceId, type AudioProcessingMode, type CallMuteBehavior, type CallRecordingStemMode, type CallTransportMode, type MediaQualityMode, type ServerMediaRuntimeResponse, type ScreenShareQualityPreset, type SpatialAudioMode } from '$lib/mediaRuntime';
 
 	let audioInputDevices = $state<MediaDeviceInfo[]>([]);
 	let videoInputDevices = $state<MediaDeviceInfo[]>([]);
@@ -50,14 +49,9 @@
 	let desktopHelperProfileMode = $state<DesktopHelperProfileMode>('off');
 	let desktopHelperProfileStatus = $state('');
 
-	const boosterRelayRequestedMode = $derived(getBoosterRelayRequestedMode(mediaRuntimeSnapshot));
-	const boosterRelayEffectiveMode = $derived(getBoosterRelayEffectiveMode(mediaRuntimeSnapshot));
 	$effect(() => { if ($desktopHelperState?.message && desktopLocalAppRuntime) desktopHelperProfileStatus = $desktopHelperState.message; });
 
-	function getBoosterRelayModeLabel(mode: BoosterRelayMode): string { switch (mode) { case 'turn-only': return 'TURN only'; case 'turn-sfu': return 'TURN + SFU'; case 'turn-sfu-gateway': return 'TURN + SFU + Gateway'; default: return 'Off'; } }
-	function getBoosterRelayComponentsSummary(runtime: ServerMediaRuntimeResponse | null): string { const components = runtime?.media?.boosterRelay?.components; if (!components) return 'No booster relay components advertised.'; return [`TURN ${components.turnConfigured ? 'ready' : 'off'}`, `SFU ${components.sfuConfigured ? 'ready' : 'off'}`, `Gateway ${components.gatewayConfigured ? components.gatewayHealthy && components.gatewayMediaPlaneReady ? 'ready' : 'starting' : 'off'}`].join(' | '); }
-	function getBoosterRelaySelfAdvertisementSummary(runtime: ServerMediaRuntimeResponse | null): string { const advertisement = runtime?.media?.boosterRelay?.selfAdvertisement; if (!advertisement) return 'Self-advertised relay node: unknown.'; if (!advertisement.advertised) return 'Self-advertised relay node: not registered.'; const location = advertisement.url || '(missing URL)'; const relayId = advertisement.relayId ? `, ID ${advertisement.relayId}` : ''; return `Self-advertised relay node: ${advertisement.status || 'unknown'} at ${location}${relayId}.`; }
-	function formatRuntimeTime(timestamp: number | null): string { if (!timestamp) return 'never'; return new Date(timestamp).toLocaleTimeString(); }
+
 	async function loadMediaDevices() { if (!browser || !navigator.mediaDevices?.enumerateDevices) return; try { const devices = await navigator.mediaDevices.enumerateDevices(); audioInputDevices = devices.filter((d) => d.kind === 'audioinput'); videoInputDevices = devices.filter((d) => d.kind === 'videoinput'); } catch {} }
 	function handleMicDeviceChange(deviceId: string) {
 		selectedMicDeviceId = deviceId;
@@ -187,7 +181,6 @@
 		<p class="runtime-note">Device access is controlled by your browser or operating system. Selecting a device does not turn it on.</p>
 			<div class="quality-mode-row">
 				<label for="mic-device-select">Microphone</label>
-				<span aria-hidden="true">{deviceVisualSymbol(deviceVisual('audioinput', audioInputDevices.find((device) => device.deviceId === selectedMicDeviceId)?.label || ''))}</span>
 				<select id="mic-device-select" class="theme-select" value={selectedMicDeviceId} onchange={(event) => handleMicDeviceChange(event.currentTarget.value)}>
 					<option value="">System Default</option>
 					{#each audioInputDevices as device, index}<option value={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>{/each}
@@ -195,7 +188,6 @@
 		</div>
 			<div class="quality-mode-row">
 				<label for="camera-device-select">Camera</label>
-				<span aria-hidden="true">{deviceVisualSymbol(deviceVisual('videoinput', ''))}</span>
 				<select id="camera-device-select" class="theme-select" value={selectedCameraDeviceId} onchange={(event) => handleCameraDeviceChange(event.currentTarget.value)}>
 					<option value="">System Default</option>
 					{#each videoInputDevices as device, index}<option value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>{/each}
@@ -237,12 +229,12 @@
 	<details class="audio-settings-group">
 		<summary>Spatial audio <span>{spatialAudioEnabled ? 'On' : 'Off'}</span></summary>
 		<div class="audio-details-body">
-			<div class="setting-item"><div class="setting-info"><span class="setting-label">Spatial audio</span><span class="setting-description">Position voices in stereo or a 3D seating layout.</span></div><button type="button" class="toggle-btn" role="switch" aria-label="Spatial audio" aria-checked={spatialAudioEnabled} class:active={spatialAudioEnabled} onclick={toggleSpatialAudio}></button></div>
+			<div class="setting-item"><div class="setting-info"><span class="setting-label">Spatial audio</span><span class="setting-description">Position voices in stereo or a 3D seating layout.</span></div><button type="button" class="toggle-btn settings-switch" role="switch" aria-label="Spatial audio" aria-checked={spatialAudioEnabled} class:active={spatialAudioEnabled} onclick={toggleSpatialAudio}></button></div>
 			<div class="quality-mode-row"><label for="spatial-audio-mode">Rendering</label><select id="spatial-audio-mode" class="theme-select" value={spatialAudioMode} onchange={(event) => updateSpatialAudioMode(event.currentTarget.value as SpatialAudioMode)} disabled={!spatialAudioEnabled}><option value="auto">Auto (Recommended)</option><option value="pan_distance">Stereo Pan + Distance</option><option value="full_3d">Full 3D (HRTF)</option><option value="off">Off</option></select></div>
 			<div class="setting-item-full"><div class="setting-info"><label class="setting-label" for="spatial-strength">Strength</label><span class="setting-description">{Math.round(spatialAudioStrength * 100)}%</span></div><input id="spatial-strength" type="range" min="0" max="1" step="0.05" bind:value={spatialAudioStrength} oninput={(event) => updateSpatialAudioStrength(parseFloat(event.currentTarget.value))} class="volume-slider" disabled={!spatialAudioEnabled} /></div>
 			<div class="setting-item-full"><div class="setting-info"><label class="setting-label" for="spatial-distance">Distance scale</label><span class="setting-description">{spatialAudioDistanceScale.toFixed(2)}×</span></div><input id="spatial-distance" type="range" min="0.4" max="4" step="0.1" bind:value={spatialAudioDistanceScale} oninput={(event) => updateSpatialAudioDistanceScale(parseFloat(event.currentTarget.value))} class="volume-slider" disabled={!spatialAudioEnabled} /></div>
-			<div class="setting-item"><div class="setting-info"><span class="setting-label">Mute spatial warnings</span><span class="setting-description">Hide notifications when spatial audio falls back.</span></div><button type="button" class="toggle-btn" role="switch" aria-label="Mute spatial warnings" aria-checked={spatialAudioWarningsMuted} class:active={spatialAudioWarningsMuted} onclick={toggleSpatialWarningsMuted}></button></div>
-			<div class="setting-item"><div class="setting-info"><span class="setting-label">Show in-call spatial toggle</span><span class="setting-description">Show the spatial-audio button on the call bar.</span></div><button type="button" class="toggle-btn" role="switch" aria-label="Show in-call spatial toggle" aria-checked={spatialAudioQuickToggleVisible} class:active={spatialAudioQuickToggleVisible} onclick={toggleSpatialQuickToggleVisible}></button></div>
+			<div class="setting-item"><div class="setting-info"><span class="setting-label">Mute spatial warnings</span><span class="setting-description">Hide notifications when spatial audio falls back.</span></div><button type="button" class="toggle-btn settings-switch" role="switch" aria-label="Mute spatial warnings" aria-checked={spatialAudioWarningsMuted} class:active={spatialAudioWarningsMuted} onclick={toggleSpatialWarningsMuted}></button></div>
+			<div class="setting-item"><div class="setting-info"><span class="setting-label">Show in-call spatial toggle</span><span class="setting-description">Show the spatial-audio button on the call bar.</span></div><button type="button" class="toggle-btn settings-switch" role="switch" aria-label="Show in-call spatial toggle" aria-checked={spatialAudioQuickToggleVisible} class:active={spatialAudioQuickToggleVisible} onclick={toggleSpatialQuickToggleVisible}></button></div>
 		</div>
 	</details>
 
@@ -273,27 +265,12 @@
 			<div class="quality-mode-row"><label for="call-transport-mode">Call mode</label><select id="call-transport-mode" class="theme-select" value={callTransportMode} onchange={(event) => updateCallTransportMode(event.currentTarget.value as CallTransportMode)}><option value="auto">Auto (Server relay, then P2P)</option><option value="p2p-only">P2P only (No fallback)</option><option value="sfu-preferred">SFU preferred (Relay, then P2P fallback)</option><option value="wabidb">Server relay only (No fallback)</option></select></div>
 			<p class="runtime-note">Auto tries the server's audio relay first. P2P connects participants directly or through TURN. SFU uses LiveKit when the host provides it. Server relay mode routes audio through this Wabi server.</p>
 			{#if mediaRuntimeSnapshot && !mediaRuntimeSnapshot.media?.turn?.configured}<p class="runtime-note">This server has no TURN relay configured. Direct P2P connections can fail across mobile or home-network boundaries; Auto can also use the server relay.</p>{/if}
-			<div class="setting-item"><div class="setting-info"><span class="setting-label">SRT gateway</span><span class="setting-description">{localAppRuntime ? 'Requires gateway workers provided by your host.' : 'Requires the desktop app and host-provided gateway workers.'}</span></div><button type="button" class="toggle-btn" role="switch" aria-label="SRT gateway" aria-checked={srtGatewayEnabled} class:active={srtGatewayEnabled} onclick={toggleSrtGateway} disabled={!localAppRuntime}></button></div>
-			<p class="runtime-note">Volunteer file boosting is available in Settings → Server → Boost this server. Operator media helpers remain separately configured by the server owner.</p>
-		</div>
-	</details>
-
-	<details class="audio-settings-group">
-		<summary>Connection diagnostics</summary>
-		<div class="audio-details-body">
-			<p class="runtime-note">Transport runtime: <strong>{$callTransportState.activeTransport.toUpperCase()}</strong></p>
-			{#if $spatialAudioRuntimeStatus.active || $spatialAudioRuntimeStatus.fallbackReason}<p class="runtime-note">Spatial runtime: <strong>{$spatialAudioRuntimeStatus.effectiveMode.toUpperCase()}</strong> {#if $spatialAudioRuntimeStatus.fallbackReason}({$spatialAudioRuntimeStatus.fallbackReason.replaceAll('_', ' ')}){/if}</p>{/if}
-			<p class="runtime-note">Spatial sources: <strong>{$spatialAudioDiagnostics.totalSources}</strong> (call {$spatialAudioDiagnostics.callSources}, share {$spatialAudioDiagnostics.shareSources})</p>
-			<p class="runtime-note">Spatial seats: call {$spatialAudioDiagnostics.callSeatSlots}, share {$spatialAudioDiagnostics.shareSeatSlots}. Last sync {formatRuntimeTime($spatialAudioDiagnostics.lastUpdatedAt)}.</p>
-			{#if mediaRuntimeSnapshot?.media?.boosterRelay}
-				<p class="runtime-note">Server booster relay: requested {getBoosterRelayModeLabel(boosterRelayRequestedMode)}, effective {getBoosterRelayModeLabel(boosterRelayEffectiveMode)}.</p>
-				<p class="runtime-note">{getBoosterRelayComponentsSummary(mediaRuntimeSnapshot)}</p>
-				<p class="runtime-note">{getBoosterRelaySelfAdvertisementSummary(mediaRuntimeSnapshot)}</p>
-				{#if mediaRuntimeSnapshot.media.boosterRelay.selfAdvertisement?.reason}<p class="runtime-note">{mediaRuntimeSnapshot.media.boosterRelay.selfAdvertisement.reason}</p>{/if}
-				{#if boosterRelayRequestedMode !== 'off' && boosterRelayRequestedMode !== boosterRelayEffectiveMode}<p class="runtime-note">The host requested relay components that this runtime does not expose. The server operator may need to start the matching deployment services.</p>{/if}
+			{#if localAppRuntime && mediaRuntimeSnapshot?.media?.boosterRelay?.components?.gatewayConfigured}
+			<div class="setting-item"><div class="setting-info"><span class="setting-label">SRT gateway</span><span class="setting-description">{localAppRuntime ? 'Requires gateway workers provided by your host.' : 'Requires the desktop app and host-provided gateway workers.'}</span></div><button type="button" class="toggle-btn settings-switch" role="switch" aria-label="SRT gateway" aria-checked={srtGatewayEnabled} class:active={srtGatewayEnabled} onclick={toggleSrtGateway} disabled={!localAppRuntime}></button></div>
 			{/if}
 		</div>
 	</details>
+
 </div>
 
 <style>
@@ -313,7 +290,6 @@
 	.audio-settings .runtime-note { line-height: 1.5; overflow-wrap: anywhere; text-wrap: pretty; }
 	.audio-settings audio { width: 100%; min-width: 0; }
 	.audio-settings .action-btn { min-height: 40px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.audio-settings .toggle-btn { box-sizing: content-box; border-block: 6px solid transparent !important; background-clip: padding-box !important; }
 	.audio-settings :is(button, select, input, summary):focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 	.audio-helper { display: grid; gap: 0.85rem; border-top: 1px solid var(--border-subtle); padding-top: 1rem; }
 	.mic-level { height: 8px; border-radius: var(--radius-sm); overflow: hidden; background: var(--surface-sunken); }
@@ -330,6 +306,5 @@
 	.mic-test-row audio { flex: 1 1 200px; min-width: 200px; }
 	@media (pointer: coarse) {
 		.audio-settings select, .audio-settings .action-btn { min-height: 44px; }
-		.audio-settings .toggle-btn { border-block-width: 8px !important; }
 	}
 </style>

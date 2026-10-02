@@ -14,7 +14,7 @@
 - Request ledger: `/tmp/wabi-files-gf07-BxqCxT/requests.jsonl`.
 - Execution log: `/tmp/files-gf07-run-2.log`.
 - `node --check scripts/files-workspace-browser-smoke.mjs`: exit 0.
-- Final aggregate re-read from JSON: 21 unique groups, 19 pass, 2 fail; 24 repository, 26 listing, 10 blob requests. Owned Vite port verified closed after cleanup; browser and Vite closed in `finally`.
+- Earlier failing-run aggregate (superseded by the 23/0 run above): 21 unique groups, 19 pass, 2 fail; 24 repository, 26 listing, 10 blob requests. Owned Vite port verified closed after cleanup; browser and Vite closed in `finally`.
 
 ## What this proves (and does not)
 
@@ -22,7 +22,7 @@ This is **controlled synthetic Lore HTTP fixture evidence, not external Lore int
 
 Only shell boundaries are virtual fixtures: channel stores, session/account/server identity, membership callbacks, socket lookup, and toast sink. Context transitions increment a synthetic generation and call the actual session's context listener. Identity strings have no authentication authority; there is no account registration or password entry. No Authority or external Lore process is launched. Requests are restricted to the owned origin. Random Vite port, disposable browser state, and isolated Vite cache are used; neither live `:3001` nor production/user data is touched.
 
-The fixture provides basic theme variables, not the complete production shell/global CSS. Desktop/mobile images are component-harness evidence, not full-shell visual acceptance. Uploads, mirror writes, permissions enforced by a real backend, server persistence, real login/logout wiring, cross-instance mounting, and external dependency installation are **NOT RUN**. Optional service absence is simulated using HTTP 503; absent repositories use HTTP 404. This distinction is retained in visible UI assertions.
+The fixture provides basic theme variables, not the complete production shell/global CSS. Desktop/mobile images are component-harness evidence, not full-shell visual acceptance. Real-service uploads, mirror writes, permissions enforced by a real backend, server persistence, real login/logout wiring, cross-instance mounting, and external dependency installation are **NOT RUN**. Optional service absence is simulated using HTTP 503; absent repositories use HTTP 404. This distinction is retained in visible UI assertions.
 
 ## Exact assertion groups
 
@@ -127,3 +127,7 @@ All below are from the final run and remain in `/tmp/wabi-files-gf07-BxqCxT/`:
 The initial run (`/tmp/wabi-files-gf07-CSurlv`, `/tmp/files-gf07-run.log`) reported 17/20 pass. One failure was a harness race: it checked whether the gated network request arrived immediately after the loading indicator appeared. The fixture now waits for gate arrival and waits for actual response completion before checking stale-preview suppression; that check passes. Added UTF-8 response charset, isolated Vite cache (parallel tester safety), richer failure DOM/picker evidence, and a separate second-Retry recovery check. The two remaining failures were not weakened or hidden. Product code was not edited.
 
 Only the browser fixture script and this review were added for this task. No commit, push, deployment, registration, or production integration was performed.
+
+## September 19 recheck
+
+Re-ran the unchanged fixture on main baseline `c723198416270c2ed40919107e2b4101eec99c6b` in the resume worktree: **23 pass, 0 fail, no uncaught page errors**. Synthetic upload success/failure/retry is covered; real Lore service behavior remains unverified. Portable assertion results: [files-results.json](evidence/2026-09-19-resume/files-results.json).

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "sessionId": 33439,
+  "actualExitCode": 0,
+  "rawLogSha256": "497a919048198d0679ae5691bc169c3f4afb609e4d4f2e48adeaa0ae35ad1de4",
+  "changedSourcesAtReadback": [],
+  "accepted": false,
+  "reason": "initial compile/guard result; full freeze attempt failed before launch"
+}

@@ -516,11 +516,11 @@
   },
   "storage": {
     "archiveBoundary": {
-      "title": "Local chat archives are unavailable",
-      "explanation": "This version does not save an offline chat-history archive. Server history follows each channel's retention setting.",
+      "title": "Chat history",
+      "explanation": "Chat history comes from the server. Each channel decides how long messages are kept. This version does not keep a separate offline copy on your device.",
       "preserved": "Older local archives cannot be matched reliably to an account. They remain untouched on this device, but are not loaded, exported, or assigned to your current login. Files you previously exported are unchanged.",
-      "native": "Native chat-file autosave is not supported in this desktop build. The shared outbound queue below is available in both browser and desktop clients.",
-      "queueExplanation": "The queue retains eligible outgoing actions; it is not an offline copy of your conversations. Group membership changes and call joins require a live connection.",
+      "native": "The desktop app also uses server history; it does not automatically save a local chat archive.",
+      "queueExplanation": "Keep supported outgoing messages and actions on this device until a connection is available. Joining calls and changing group membership still require you to be online.",
       "queueUnavailable": "The outbound queue is not available yet. Refresh after the app finishes connecting.",
       "retryMarked": "Eligible failed actions were marked for retry. Sending requires a connection; uncertain or revoked actions cannot be retried.",
       "refresh": "Refresh queue"
@@ -603,8 +603,8 @@
         "status_label": "WabiDB Status",
         "open": "Open",
         "closed": "Closed",
-        "scope_label": "Scopes",
-        "queue_label": "Outbound Queue",
+        "scope_label": "What to keep for sending",
+        "queue_label": "Send when reconnected",
         "pending": "pending",
         "failed": "failed",
         "synced": "synced",

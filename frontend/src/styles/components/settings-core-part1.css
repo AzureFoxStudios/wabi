@@ -810,6 +810,8 @@
 
 	.settings-section .action-btn,
 	.settings-content .action-btn {
+		background: var(--accent-primary);
+		color: var(--text-on-accent, #fff);
 		padding: var(--space-3) var(--space-4);
 		border-radius: var(--radius-md);
 		border: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);

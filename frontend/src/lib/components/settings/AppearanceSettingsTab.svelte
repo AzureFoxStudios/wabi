@@ -7,6 +7,7 @@
 	import UniformFontMode from '../UniformFontMode.svelte';
 	import EffectsTab from '$lib/effects/EffectsTab.svelte';
 	import ProfileAppearanceControls from '$lib/components/ProfileAppearanceControls.svelte';
+	import PointerEffectsTab from '$lib/effects/PointerEffectsTab.svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import {
 		homeLayout,
@@ -45,7 +46,9 @@
 
 	let savingTheme = false;
 	let ownMessagesOnRight = false;
-	let openingSurface: OpeningSurface = 'server';
+	let openingSurface: OpeningSurface = 'last-channel';
+	let showAllThemes = false;
+	let nativeApp = false;
 	let chatAvatarMode: ChatAvatarMode = 'all';
 	let appChromeOpacity = 1;
 	let videoCompressionEnabled = true;
@@ -64,6 +67,7 @@
 		videoCompressionPresetOptions.find((option) => option.id === defaultVideoCompressionPreset) || null;
 
 	onMount(() => {
+		nativeApp = isTauriRuntime();
 		const accessibilitySettings = getStoredAccessibilitySettings();
 		ownMessagesOnRight = accessibilitySettings.ownMessagesOnRight;
 		openingSurface = getOpeningSurface();
@@ -273,12 +277,12 @@
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Deletion timer</span>
-				<span class="setting-description">Countdown display for expiring messages.</span>
+				<span class="setting-description">Show when a message expires, or a continuously updating countdown.</span>
 			</div>
 			<div class="segmented">
 				<button type="button" class:active={deletionCountdownMode === 'off'} on:click={() => updateDeletionCountdownMode('off')}>Off</button>
-				<button type="button" class:active={deletionCountdownMode === 'static'} on:click={() => updateDeletionCountdownMode('static')}>Static</button>
-				<button type="button" class:active={deletionCountdownMode === 'live'} on:click={() => updateDeletionCountdownMode('live')}>Live</button>
+				<button type="button" class:active={deletionCountdownMode === 'static'} on:click={() => updateDeletionCountdownMode('static')}>Expiry label</button>
+				<button type="button" class:active={deletionCountdownMode === 'live'} on:click={() => updateDeletionCountdownMode('live')}>Countdown</button>
 			</div>
 		</div>
 	</div>
@@ -294,7 +298,8 @@
 				<span class="setting-description">Your starting page on this device, for this account and server.</span>
 			</div>
 			<div class="segmented">
-				<button type="button" class:active={openingSurface === 'server'} on:click={() => updateOpeningSurface('server')}>Reference Desk</button>
+				<button type="button" class:active={openingSurface === 'last-channel'} on:click={() => updateOpeningSurface('last-channel')}>Last channel</button>
+				<button type="button" class:active={openingSurface === 'server'} on:click={() => updateOpeningSurface('server')}>Server home</button>
 				<button type="button" class:active={openingSurface === 'messages'} on:click={() => updateOpeningSurface('messages')}>Messages</button>
 			</div>
 		</div>
@@ -310,22 +315,16 @@
 		</div>
 		<div class="setting-item">
 			<div class="setting-info">
-				<span class="setting-label">Conversation layout</span>
-				<span class="setting-description">Which sidebars are visible in chat.</span>
+				<span class="setting-label">Visible navigation</span>
+				<span class="setting-description">Choose whether to show the server switcher and channel list.</span>
 			</div>
 			<div class="segmented">
-				<button type="button" class:active={$homeLayout === 'server-browser'} on:click={() => updateHomeLayoutMode('server-browser')}>Full</button>
-				<button type="button" class:active={$homeLayout === 'dm-focused'} on:click={() => updateHomeLayoutMode('dm-focused')}>No server</button>
-				<button type="button" class:active={$homeLayout === 'dm-pure'} on:click={() => updateHomeLayoutMode('dm-pure')}>DMs</button>
+				<button type="button" class:active={$homeLayout === 'server-browser'} on:click={() => updateHomeLayoutMode('server-browser')}>Servers & channels</button>
+				<button type="button" class:active={$homeLayout === 'dm-focused'} on:click={() => updateHomeLayoutMode('dm-focused')}>Channels only</button>
+				<button type="button" class:active={$homeLayout === 'dm-pure'} on:click={() => updateHomeLayoutMode('dm-pure')}>Hide both</button>
 			</div>
 		</div>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Collapse nav</span>
-				<span class="setting-description">Minimize the server dock to icons.</span>
-			</div>
-			<button class="toggle-btn" class:active={$layoutStore.isNavCollapsed} on:click={toggleDockNavCollapsed} role="switch" aria-checked={$layoutStore.isNavCollapsed} aria-label="Collapse navigation"></button>
-		</div>
+		{#if nativeApp}
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Layout preset</span>
@@ -348,6 +347,7 @@
 				<button type="button" class="action-btn secondary" on:click={importWorkspaceJsonPrompt}>Import JSON</button>
 			</div>
 		</div>
+		{/if}
 		<div class="setting-item">
 			<div class="setting-info">
 				<span class="setting-label">Server rail density</span>
@@ -412,7 +412,7 @@
 	<h3>Theme</h3>
 	<div class="setting-item-full" style="padding:0;border:0;background:transparent;box-shadow:none">
 		<div class="theme-cards">
-			{#each Object.values(THEMES) as theme}
+			{#each Object.values(THEMES).filter((theme, index) => showAllThemes || index < 4 || theme.id === $themeStore.themeId) as theme}
 				<button
 					type="button"
 					class="theme-card"
@@ -445,6 +445,7 @@
 			{/each}
 		</div>
 	</div>
+	<button type="button" class="action-btn secondary" aria-expanded={showAllThemes} on:click={() => showAllThemes = !showAllThemes}>{showAllThemes ? 'Show fewer themes' : `Browse all ${Object.values(THEMES).length} themes`}</button>
 	{#if savingTheme}
 		<div class="save-indicator"><span class="spinner">...</span> Saving theme...</div>
 	{/if}
@@ -469,6 +470,9 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Pointer effects are device preferences, independent of theme tuning. -->
+<PointerEffectsTab />
 
 <!-- Performance -->
 <div class="settings-section">

@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-02T01:47:51.607218+00:00",
+  "attempts": [
+    {
+      "name": "expanded-lib-failed",
+      "sessionId": 5278,
+      "terminalExitCode": 101,
+      "sha256": "64281aeafa9fa10ccbc6d1da8ff823e047612b8682c24c5c245e896d680531d4",
+      "bytes": 4974,
+      "log": "expanded-lib-failed.log.gz",
+      "groups": [
+        {
+          "status": "FAILED",
+          "passed": 36,
+          "failed": 1,
+          "ignored": 2
+        }
+      ]
+    },
+    {
+      "name": "server-feature-compile-failed",
+      "sessionId": 44764,
+      "terminalExitCode": 101,
+      "sha256": "dbfb28e18e44ebfe9f206ac6dcd43e8e762b08cff5435c66d73b096abe274004",
+      "bytes": 9627,
+      "log": "server-feature-compile-failed.log.gz",
+      "groups": []
+    },
+    {
+      "name": "package-reopen-failed",
+      "sessionId": 24732,
+      "terminalExitCode": 101,
+      "sha256": "53d2285b822cee4e104dc62b9e3add66582ce3e4a3cadb71bfd7e9c0c81c8ef8",
+      "bytes": 5904,
+      "log": "package-reopen-failed.log.gz",
+      "groups": [
+        {
+          "status": "FAILED",
+          "passed": 37,
+          "failed": 1,
+          "ignored": 2
+        }
+      ]
+    },
+    {
+      "name": "reopen-isolated",
+      "sessionId": null,
+      "terminalExitCode": 0,
+      "sha256": "f54f375cb370449d42af7d6127ac4d384bc1e32fb1569761750728dd12eedeec",
+      "bytes": 388,
+      "log": "reopen-isolated.log.gz",
+      "groups": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "name": "package-before-strict-probe",
+      "sessionId": 88118,
+      "terminalExitCode": 0,
+      "sha256": "be82d19010f8a88e54c15972cb0f3e2340cb2bbdbafbdaed7ba72cc3bc3c11a5",
+      "bytes": 8669,
+      "log": "package-before-strict-probe.log.gz",
+      "groups": [
+        {
+          "status": "ok",
+          "passed": 39,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "status": "ok",
+          "passed": 10,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "status": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 1
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "Before latest strict lock-probe fixture correction",
+    "Server attempt failed before tests due unconnected shared notification module"
+  ]
+}

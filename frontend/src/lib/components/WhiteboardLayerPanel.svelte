@@ -1,4 +1,5 @@
 <script lang="ts">
+	import WhiteboardLayerThumbnail from './WhiteboardLayerThumbnail.svelte';
 	import { boardStore, layers, selection, activeLayerId } from '$lib/whiteboard/boardStore';
 	import { sortWhiteboardLayers, WHITEBOARD_BLEND_MODES, blendModeLabel } from '$lib/whiteboard/layers';
 
@@ -96,7 +97,7 @@
 	<header class="layer-panel-header">
 		<div>
 			<div class="layer-panel-title">Layers</div>
-			<div class="layer-panel-subtitle">{stackLayers.length} · front on top</div>
+			<div class="layer-panel-subtitle">{stackLayers.length} {stackLayers.length === 1 ? 'layer' : 'layers'}</div>
 		</div>
 		<div class="layer-add-actions" role="group" aria-label="Add layer">
 			<button type="button" class="layer-add-seg" on:click={() => createLayer('vector')}>+ Vector</button>
@@ -104,6 +105,39 @@
 		</div>
 	</header>
 
+	{#if activeLayer}
+		<section class="layer-inspector" aria-label="Selected layer">
+			<div class="inspector-topline">
+				<span class="inspector-name">{activeLayer.name}</span>
+				<span class="inspector-kind">{activeLayer.mode === 'raster' ? 'Paint' : 'Vector'}</span>
+			</div>
+			<label class="inspector-row">
+				<span>Opacity</span>
+				<input type="range" min="0" max="1" step="0.01" value={activeLayer.opacity} on:input={(e) => setLayerOpacity(activeLayer.id, Number((e.currentTarget as HTMLInputElement).value))} />
+				<input class="opacity-number" aria-label="Layer opacity percent" type="number" min="0" max="100" step="1" value={Math.round(activeLayer.opacity * 100)} on:change={(e) => { const value = (e.currentTarget as HTMLInputElement).valueAsNumber; if (Number.isFinite(value)) setLayerOpacity(activeLayer.id, Math.max(0, Math.min(100, value)) / 100); }} /><span>%</span>
+			</label>
+			<label class="inspector-row">
+				<span>Blend</span>
+				<select value={activeLayer.blendMode || 'source-over'} on:change={(e) => setLayerBlendMode(activeLayer.id, (e.currentTarget as HTMLSelectElement).value)}>
+					{#each WHITEBOARD_BLEND_MODES as mode}
+						<option value={mode}>{blendModeLabel(mode)}</option>
+					{/each}
+				</select>
+			</label>
+			<div class="layer-locks" role="group" aria-label="Layer editing locks">
+                <button type="button" aria-pressed={!!activeLayer.lockPosition} on:click={() => boardStore.updateLayer(activeLayer.id, { lockPosition: !activeLayer.lockPosition })} title="Keep objects in place; prevent move, resize and rotation">Position</button>
+                <button type="button" aria-pressed={!!activeLayer.lockPixels} on:click={() => boardStore.updateLayer(activeLayer.id, { lockPixels: !activeLayer.lockPixels })} title="Prevent painting, erasing and changing content">Content</button>
+                {#if activeLayer.mode === 'raster'}<button type="button" aria-pressed={!!activeLayer.lockAlpha} on:click={() => boardStore.updateLayer(activeLayer.id, { lockAlpha: !activeLayer.lockAlpha })} title="Paint inside existing pixels and preserve transparency">Transparency</button>{/if}
+            </div>
+			<div class="inspector-actions">
+				<button type="button" class:active={activeLayer.locked} aria-pressed={activeLayer.locked} on:click={() => toggleLayerLocked(activeLayer.id, !activeLayer.locked)}>{activeLayer.locked ? 'Unlock layer' : 'Lock layer'}</button>
+				<button type="button" on:click={() => moveLayerVisually(activeLayer.id, 'up')} title="Bring forward">↑</button>
+				<button type="button" on:click={() => moveLayerVisually(activeLayer.id, 'down')} title="Send backward">↓</button>
+				{#if selectedCount > 0}<button type="button" on:click={() => assignSelection(activeLayer.id)} title={`Move ${selectedCount} selected objects to ${activeLayer.name}`}>Move selection here</button>{/if}
+				<button type="button" class="danger" on:click={() => deleteLayer(activeLayer.id)} disabled={stackLayers.length <= 1} title="Delete layer">Delete</button>
+			</div>
+		</section>
+	{/if}
 	<div class="layer-list" role="list">
 		{#each stackLayers as layer (layer.id)}
 			<div
@@ -117,13 +151,7 @@
 			>
 				<button type="button" class="layer-select" on:click={() => selectLayer(layer.id)} aria-label={`Select ${layer.name}`}>
 					<span class="layer-row-handle" aria-hidden="true">⠿</span>
-					<span class="layer-type-icon" class:raster={layer.mode === 'raster'} aria-hidden="true">
-						{#if layer.mode === 'raster'}
-							<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h14v12H3z"/><path d="M6 13l2-2 2 2 3-4 3 4"/></svg>
-						{:else}
-							<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m10 3 7 4-7 4-7-4 7-4Z"/><path d="m3 11 7 4 7-4"/></svg>
-						{/if}
-					</span>
+					<WhiteboardLayerThumbnail {layer} />
 				</button>
 				{#if renamingLayerId === layer.id}
 					<input
@@ -138,7 +166,7 @@
 						}}
 					/>
 				{:else}
-					<button type="button" class="layer-name-btn" on:dblclick={() => startRename(layer)}>
+					<button type="button" class="layer-name-btn" title="Double-click to rename" on:click={() => selectLayer(layer.id)} on:dblclick={() => startRename(layer)}>
 						{layer.name}
 					</button>
 				{/if}
@@ -152,36 +180,12 @@
 		{/each}
 	</div>
 
-	{#if activeLayer}
-		<section class="layer-inspector" aria-label="Selected layer">
-			<div class="inspector-topline">
-				<span class="inspector-name">{activeLayer.name}</span>
-				<span class="inspector-kind">{activeLayer.mode === 'raster' ? 'Paint' : 'Vector'}</span>
-			</div>
-			<label class="inspector-row">
-				<span>Opacity</span>
-				<input type="range" min="0" max="1" step="0.01" value={activeLayer.opacity} on:input={(e) => setLayerOpacity(activeLayer.id, Number((e.currentTarget as HTMLInputElement).value))} />
-				<span class="tabular">{Math.round(activeLayer.opacity * 100)}</span>
-			</label>
-			<label class="inspector-row">
-				<span>Blend</span>
-				<select value={activeLayer.blendMode || 'source-over'} on:change={(e) => setLayerBlendMode(activeLayer.id, (e.currentTarget as HTMLSelectElement).value)}>
-					{#each WHITEBOARD_BLEND_MODES as mode}
-						<option value={mode}>{blendModeLabel(mode)}</option>
-					{/each}
-				</select>
-			</label>
-			<div class="inspector-actions">
-				<button type="button" on:click={() => moveLayerVisually(activeLayer.id, 'up')} title="Bring forward">↑</button>
-				<button type="button" on:click={() => moveLayerVisually(activeLayer.id, 'down')} title="Send backward">↓</button>
-				<button type="button" on:click={() => assignSelection(activeLayer.id)} disabled={selectedCount === 0} title="Move selection here">Move sel</button>
-				<button type="button" class="danger" on:click={() => deleteLayer(activeLayer.id)} disabled={stackLayers.length <= 1} title="Delete layer">Delete</button>
-			</div>
-		</section>
-	{/if}
 </div>
 
 <style>
+ .layer-locks { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+ .layer-locks button { border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 8px; background: var(--bg-secondary); color: var(--text-secondary); }
+ .layer-locks button[aria-pressed="true"] { background: var(--accent-primary); color: var(--text-heading); }
 	.layer-panel {
 		display: flex;
 		flex-direction: column;
@@ -456,4 +460,18 @@
 		opacity: 0.4;
 		cursor: default;
 	}
+
+ .layer-panel { background: var(--bg-primary); }
+ .layer-row { min-height: 56px; padding: 8px; gap: 8px; background: var(--bg-secondary); }
+ .layer-name-btn { text-align: left; background: transparent; color: var(--text-heading); border: 0; font-size: 13px; min-height: 36px; }
+ .layer-icon-btn { min-height: 32px; }
+ .layer-inspector { padding: 12px; background: var(--bg-secondary); border-radius: 10px; }
+ .inspector-row select, .layer-name-input { background: var(--bg-primary); color: var(--text-heading); border: 1px solid var(--border-subtle); border-radius: 6px; min-height: 32px; }
+ .inspector-row input[type=range] { min-height: 32px; height: 32px; background: transparent; background-image: linear-gradient(var(--border-subtle), var(--border-subtle)); background-size: 100% 4px; background-repeat: no-repeat; background-position: center; }
+ .inspector-row input[type=range]::-webkit-slider-thumb { width: 16px; height: 16px; border: 2px solid var(--text-heading); }
+ .inspector-row input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border: 2px solid var(--text-heading); }
+ .inspector-row .opacity-number { flex: 0 0 48px; width: 48px; min-height: 32px; padding: 4px; border-radius: 6px; border: 1px solid var(--border-subtle); background: var(--bg-primary); color: var(--text-heading); }
+ .inspector-actions { flex-wrap: wrap; }
+ .inspector-actions button.active { border-color: var(--accent-primary); }
+
 </style>

@@ -11,6 +11,7 @@ selectedTurnRelay.subscribe(value => { relayId = value?.relay_id ?? null; });
 const sessions = new Map<string, { token: string | null; generation: number; account: number }>();
 const clearListeners = new Set<(server: string) => void>();
 const storage = new Map<string, string>();
+const persistedServers: string[] = [];
 const originalFetch = globalThis.fetch;
 function fixtureFetch(handler: (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>): typeof fetch {
 	return Object.assign(handler, { preconnect: originalFetch.preconnect });
@@ -32,6 +33,7 @@ mock.module('../src/lib/authSession', () => ({
 	getStoredDbUserId: (server = active) => sessions.get(server)?.account ?? null,
 	authSessionGeneration: (server = active) => sessions.get(server)?.generation ?? 0,
 	onAuthSessionCleared: (listener: (server: string) => void) => { clearListeners.add(listener); return () => clearListeners.delete(listener); },
+	persistRememberedAuthAfterRefresh: (server: string) => { persistedServers.push(server); },
 }));
 const { prefetchTurnCredentials, buildRTCConfig } = await import('../src/lib/turnConfig');
 const { setRefreshToken } = await import('../src/lib/api/authRefresh');
@@ -43,7 +45,7 @@ const credentials = (server = 'coturn.alpha.test', useTurns = false) => Response
 } });
 function select(server: string) { active = server; activeServerUrl.set(server); }
 function reset() {
-	storage.clear();
+	storage.clear(); persistedServers.length = 0;
 	sessions.set(A, { token: access(1), generation: (sessions.get(A)?.generation ?? 0) + 1, account: 1 });
 	sessions.set(B, { token: access(2), generation: (sessions.get(B)?.generation ?? 0) + 1, account: 2 });
 	setRefreshToken('alpha-refresh', A); setRefreshToken('beta-refresh', B);
@@ -70,6 +72,7 @@ test('production 401 refresh is scoped, finite, and feeds renewed credentials in
 	await prefetchTurnCredentials();
 	expect(calls.map(call => call.url)).toEqual([A + '/api/media/turn-credentials', A + '/api/auth/refresh', A + '/api/media/turn-credentials']);
 	expect(calls[2].auth).toBe(`Bearer ${access(1, 'fresh')}`);
+	expect(persistedServers).toEqual([A]);
 	expect(buildRTCConfig().iceServers).toHaveLength(2);
 });
 

@@ -115,6 +115,9 @@ async fn run_app(
                         Ok(true) => {}
                         Err(e) => app.set_error(e.to_string()),
                     }
+                    if app.should_quit {
+                        break;
+                    }
                 }
             } else {
                 // Resize etc. — force paint

@@ -71,6 +71,8 @@ pub struct CommunityRosterStore {
     community_id: String,
     saved: Mutex<Option<SavedRoster>>,
     update_gate: tokio::sync::Mutex<()>,
+    #[cfg(test)]
+    update_started: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -137,11 +139,33 @@ impl CommunityRosterStore {
             community_id,
             saved: Mutex::new(saved),
             update_gate: tokio::sync::Mutex::new(()),
+            #[cfg(test)]
+            update_started: Mutex::new(None),
         })
     }
 
     pub fn community_id(&self) -> &str {
         &self.community_id
+    }
+
+    /// Typed checkpoint claims only, from a paused source plus its completed
+    /// export. Not a generic signing endpoint or permission to run a writer.
+    pub(crate) fn sign_checkpoint_source(
+        &self,
+        source: &crate::instance_archive::source_context::FrozenSourceIdentity,
+        receipt: &crate::instance_archive::LiveArchiveReceipt,
+    ) -> anyhow::Result<wabi_consensus::source_context::SignedSourceContext> {
+        let claims = source.claims(self.community_id(), receipt)?;
+        let input = wabi_consensus::source_context::signing_input(&claims)?;
+        let signature: Signature = self.key.sign(&input);
+        let signature = signature.normalize_s().unwrap_or(signature);
+        let signed = wabi_consensus::source_context::SignedSourceContext {
+            claims,
+            public_key: hex::encode(self.key.verifying_key().to_encoded_point(false).as_bytes()),
+            signature: hex::encode(signature.to_bytes()),
+        };
+        signed.verify(self.community_id(), &signed.claims.source_node_id)?;
+        Ok(signed)
     }
 
     pub fn signed(&self) -> Option<SignedRoster> {
@@ -199,6 +223,10 @@ impl CommunityRosterStore {
         engine: &WabiDbEngine,
         actor_user_id: u64,
     ) -> Result<SignedRoster, RosterError> {
+        #[cfg(test)]
+        if let Some(started) = self.update_started.lock().unwrap().take() {
+            let _ = started.send(());
+        }
         let _gate = self.update_gate.lock().await;
         self.load_db(engine)
             .map_err(|error| RosterError::Io(error.to_string()))?;
@@ -417,7 +445,332 @@ fn persist_roster(path: &PathBuf, roster: &SavedRoster) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        api::routes::create_api_router,
+        auth_extractor::{AuthUser, JwtClaims},
+        config::{LoreAddonConfig, ServerConfig, ServerRole},
+        error::AppError,
+        state::AppState,
+    };
+    use axum::{
+        body::{to_bytes, Body, Bytes},
+        http::{Request, StatusCode},
+        Router,
+    };
     use p256::ecdsa::{signature::Verifier, VerifyingKey};
+    use serde_json::{json, Value};
+    use std::{sync::Arc, time::Duration};
+    use tower::ServiceExt;
+    use wabidb::engine::wabi_store::WabiStore;
+
+    async fn owner_fixture() -> (tempfile::TempDir, Arc<AppState>, u64, u64) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path();
+        let state = Arc::new(
+            AppState::new(ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+                data_dir: path.to_string_lossy().into_owned(),
+                uploads_dir: path.join("uploads").to_string_lossy().into_owned(),
+                jwt_secret: "roster-admission-test-secret".into(),
+                turn_enabled: false,
+                turn_uri: None,
+                turn_secret: None,
+                node_id: "roster-admission-test".into(),
+                is_primary: true,
+                server_role: ServerRole::Authority,
+                authority_url: None,
+                admin_user_ids: vec![],
+                blacklist_file: path.join("blacklist").to_string_lossy().into_owned(),
+                max_body_size: None,
+                mesh_enabled: false,
+                mesh_peers: vec![],
+                lore: LoreAddonConfig::default(),
+            })
+            .await
+            .unwrap(),
+        );
+        let owner = state
+            .wdb
+            .create_user("roster-owner", None, "registered-hash")
+            .await
+            .unwrap();
+        let target = state
+            .wdb
+            .create_user("roster-next-owner", None, "registered-hash")
+            .await
+            .unwrap();
+        state.wdb.claim_owner(owner).await.unwrap();
+        *state.owner_user_id.write().await = Some(owner as i64);
+        (directory, state, owner, target)
+    }
+
+    fn proof(state: &AppState, uid: u64, stepup: bool) -> (String, JwtClaims) {
+        let now = chrono::Utc::now().timestamp();
+        let claims = JwtClaims {
+            sub: uid.to_string(),
+            username: format!("roster-user-{uid}"),
+            is_guest: false,
+            exp: now + if stepup { 600 } else { 3600 },
+            iat: now,
+            jti: uuid::Uuid::new_v4().to_string(),
+            stepup,
+            token_type: "access".into(),
+        };
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(state.config.jwt_secret.as_bytes()),
+        )
+        .unwrap();
+        (token, claims)
+    }
+
+    fn roster_update(version: u64) -> Value {
+        json!({"expectedVersion": version, "entries": [
+            {"nodeId":"authority", "role":"authority", "url":"https://roster.example"}
+        ]})
+    }
+
+    fn update_request(access: &str, stepup: &str, body: Body) -> Request<Body> {
+        Request::put("/community/roster")
+            .header("authorization", format!("Bearer {access}"))
+            .header("x-stepup-token", stepup)
+            .header("content-type", "application/json")
+            .body(body)
+            .unwrap()
+    }
+
+    async fn authority_change(
+        state: Arc<AppState>,
+        scope: &str,
+        access: JwtClaims,
+        stepup: JwtClaims,
+        stepup_token: String,
+        target: u64,
+    ) -> Result<(), AppError> {
+        match scope {
+            "transfer" => {
+                state
+                    .transfer_owner(
+                        AuthUser::from_claims(access).unwrap(),
+                        target as i64,
+                        stepup_token,
+                    )
+                    .await
+            }
+            "access-revoke" => state
+                .revoke_token_with_exp(access.jti, access.exp)
+                .await
+                .map_err(AppError::from),
+            "stepup-revoke" => state
+                .revoke_token_with_exp(stepup.jti, stepup.exp)
+                .await
+                .map_err(AppError::from),
+            _ => unreachable!(),
+        }
+    }
+
+    async fn positive_update(app: &Router, state: &AppState, uid: u64, version: u64) {
+        let (access, _) = proof(state, uid, false);
+        let (stepup, _) = proof(state, uid, true);
+        let response = app
+            .clone()
+            .oneshot(update_request(
+                &access,
+                &stepup,
+                Body::from(roster_update(version).to_string()),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap()["body"]["version"],
+            version + 1
+        );
+    }
+
+    #[tokio::test]
+    async fn queued_roster_keeps_owner_and_both_credentials_until_commit_after_caller_abort() {
+        for scope in ["transfer", "access-revoke", "stepup-revoke"] {
+            let (_directory, state, owner, target) = owner_fixture().await;
+            let app = create_api_router(state.clone()).with_state(state.clone());
+            let (access, access_claims) = proof(&state, owner, false);
+            let (stepup, stepup_claims) = proof(&state, owner, true);
+            let gate = state.community_roster.update_gate.lock().await;
+            let (started, started_rx) = tokio::sync::oneshot::channel();
+            *state.community_roster.update_started.lock().unwrap() = Some(started);
+            let request_app = app.clone();
+            let request =
+                update_request(&access, &stepup, Body::from(roster_update(0).to_string()));
+            let caller = tokio::spawn(async move { request_app.oneshot(request).await.unwrap() });
+            tokio::time::timeout(Duration::from_secs(5), started_rx)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(state.membership_gate.try_write().is_err());
+            assert!(state.revocations.try_write().is_err());
+            assert!(state.owner_user_id.try_write().is_err());
+            caller.abort();
+            assert!(caller.await.unwrap_err().is_cancelled());
+            let writer = state.clone();
+            let mut transition = tokio::spawn(async move {
+                authority_change(writer, scope, access_claims, stepup_claims, stepup, target).await
+            });
+            // A queued denial writer also closes admission to new readers. Its
+            // presence proves this is a race with an actual waiting transition.
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while state.revocations.try_read().is_ok() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert!(
+                !transition.is_finished(),
+                "{scope} overtook the queued roster"
+            );
+            assert!(state.community_roster.signed().is_none());
+            drop(gate);
+            tokio::time::timeout(Duration::from_secs(5), &mut transition)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let signed = state
+                .community_roster
+                .signed()
+                .expect("roster committed before transition");
+            assert_eq!(signed.body.version, 1);
+            assert_eq!(signed.body.entries[0].url, "https://roster.example");
+            assert_eq!(
+                *state.owner_user_id.read().await,
+                Some(if scope == "transfer" { target } else { owner } as i64),
+            );
+            positive_update(
+                &app,
+                &state,
+                if scope == "transfer" { target } else { owner },
+                1,
+            )
+            .await;
+            let checkpoint =
+                tokio::time::timeout(Duration::from_secs(5), state.instance_operations.quiesce())
+                    .await
+                    .unwrap()
+                    .unwrap();
+            drop(checkpoint);
+        }
+    }
+
+    #[tokio::test]
+    async fn roster_rechecks_owner_and_stepup_after_body_wait_without_publishing_stale_request() {
+        for scope in ["transfer", "access-revoke", "stepup-revoke"] {
+            let (_directory, state, owner, target) = owner_fixture().await;
+            let app = create_api_router(state.clone()).with_state(state.clone());
+            let (access, access_claims) = proof(&state, owner, false);
+            let (stepup, stepup_claims) = proof(&state, owner, true);
+            let (started, started_rx) = tokio::sync::oneshot::channel();
+            let (body_tx, body_rx) = tokio::sync::oneshot::channel::<Value>();
+            let stream = futures::stream::once(async move {
+                let _ = started.send(());
+                Ok::<Bytes, std::io::Error>(Bytes::from(body_rx.await.unwrap().to_string()))
+            });
+            let request = update_request(&access, &stepup, Body::from_stream(stream));
+            let request_app = app.clone();
+            let caller = tokio::spawn(async move { request_app.oneshot(request).await.unwrap() });
+            tokio::time::timeout(Duration::from_secs(5), started_rx)
+                .await
+                .unwrap()
+                .unwrap();
+            // Extraction accepted the original access proof, but no mutation
+            // has been admitted while the request body remains unfinished.
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                authority_change(
+                    state.clone(),
+                    scope,
+                    access_claims,
+                    stepup_claims,
+                    stepup,
+                    target,
+                ),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            let sequence = state.wdb.engine().projection_state().applied_commit_seq();
+            body_tx.send(roster_update(0)).unwrap();
+            let response = tokio::time::timeout(Duration::from_secs(5), caller)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{scope}");
+            assert!(
+                state.community_roster.signed().is_none(),
+                "{scope} published a stale roster"
+            );
+            assert_eq!(
+                state.wdb.engine().projection_state().applied_commit_seq(),
+                sequence
+            );
+            positive_update(
+                &app,
+                &state,
+                if scope == "transfer" { target } else { owner },
+                0,
+            )
+            .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn pending_roster_reader_rechecks_current_credential_after_membership_wait() {
+        let (_directory, state, owner, _) = owner_fixture().await;
+        let app = create_api_router(state.clone()).with_state(state.clone());
+        positive_update(&app, &state, owner, 0).await;
+        let (access, claims) = proof(&state, owner, false);
+        let request = || {
+            Request::get("/community/roster")
+                .header("authorization", format!("Bearer {access}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+        assert_eq!(
+            app.clone().oneshot(request()).await.unwrap().status(),
+            StatusCode::OK
+        );
+        let membership = state.membership_gate.write().await;
+        let mut response = Box::pin(app.clone().oneshot(request()));
+        assert!(
+            futures::poll!(response.as_mut()).is_pending(),
+            "roster read skipped membership admission"
+        );
+        state
+            .revoke_token_with_exp(claims.jti, claims.exp)
+            .await
+            .unwrap();
+        drop(membership);
+        let response = tokio::time::timeout(Duration::from_secs(5), response)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(state.community_roster.signed().unwrap().body.version, 1);
+        let (fresh, _) = proof(&state, owner, false);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get("/community/roster")
+                    .header("authorization", format!("Bearer {fresh}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
 
     #[test]
     fn signed_roster_is_stable_and_verifiable() {

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import {composerHandoff,takeComposerHandoff,dismissComposerHandoff,appendHandoffText} from '$lib/composerHandoff';
 	import { stopPropagation } from 'svelte/legacy';
 
 	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte';
@@ -36,7 +37,7 @@ import type { MediaAlbum } from '$lib/api';
 	import FileUploadPreview from './FileUploadPreview.svelte';
 	import MentionSuggestions from './MentionSuggestions.svelte';
 	import EmojiSuggestions from './EmojiSuggestions.svelte';
-	import { applyMentionToInput, computeMentionSuggestions } from './mentionSuggestions';
+	import { applyMentionToInput, computeMentionSuggestions, mentionDirectory } from './mentionSuggestions';
 	import { loadSharedGamesForMentions } from '$lib/games/mentions';
 	import type { GameSelection } from '$lib/games/model';
 	import { checkSendBurst, detectMessageKind, processAttachmentCaption, processOutgoingText } from './messageSend';
@@ -225,6 +226,17 @@ import type { MediaAlbum } from '$lib/api';
 	$effect(() => { const p = previewUnicodeEmojiConversion(messageInput, $emojis as unknown as Emoji[]); unicodeComposerPreview = p.convertedText; unicodeComposerPreviewTokens = p.convertedTokens; });
 	$effect(() => { const p = previewUnicodeEmojiConversion(gifCaptionInput, $emojis as unknown as Emoji[]); unicodeGifCaptionPreview = p.convertedText; unicodeGifCaptionPreviewTokens = p.convertedTokens; });
 
+	$effect(() => {
+		const pending = $composerHandoff;
+		if (!pending || pending.channelId !== draftChannel || draftSurface !== 'channel') return;
+		if (!pending.isCurrent()) { dismissComposerHandoff(pending.id); return; }
+		if (!operationCurrent() || isSending || editingMessage) return;
+		const next = appendHandoffText(messageInput, pending.text, composerInputMaxLength);
+		if (next === null) return;
+		if (takeComposerHandoff(pending.id, draftChannel) === null) return;
+		messageInput = next; syncComposerEntities(); draftOwner.save(snapshotDraft());
+		void tick().then(() => { if (operationCurrent()) { autoResizeTextarea(); textareaElement?.focus(); } });
+	});
 	function snapshotDraft(): ComposerDraft {
 		// Svelte's snapshot structured-clones Files. Keep these immutable browser
 		// objects by reference so a send can identify exactly which selection it
@@ -264,7 +276,7 @@ import type { MediaAlbum } from '$lib/api';
 			gameMentionsLoaded = false;
 		}
 		if (messageInput.startsWith('/')) { showCommandPalette = getMatchingCommands(messageInput).length > 0; showMentionSuggestions = false; }
-		else { showCommandPalette = false; const caret = textareaElement?.selectionStart ?? messageInput.length; if (!$placeRegistry.length) void loadPlaceRegistry(); if (/@game(?::[^\s]*)?$/i.test(messageInput.slice(0, caret))) void loadGameMentionChoices(); const result = computeMentionSuggestions(messageInput, caret, $users as User[], $currentUser?.id, $placeRegistry, sharedGameMentions); if (result.show) { mentionTokenStart = result.tokenStart; mentionSuggestions = result.suggestions; mentionSelectedIndex = 0; showMentionSuggestions = true; } else showMentionSuggestions = false; updateEmojiSuggestions(caret); }
+		else { showCommandPalette = false; const caret = textareaElement?.selectionStart ?? messageInput.length; if (!$placeRegistry.length) void loadPlaceRegistry(); if (/@game(?::[^\s]*)?$/i.test(messageInput.slice(0, caret))) void loadGameMentionChoices(); const result = computeMentionSuggestions(messageInput, caret, mentionDirectory($serverMembers as User[], $users as User[]), $currentUser?.id, $placeRegistry, sharedGameMentions); if (result.show) { mentionTokenStart = result.tokenStart; mentionSuggestions = result.suggestions; mentionSelectedIndex = 0; showMentionSuggestions = true; } else showMentionSuggestions = false; updateEmojiSuggestions(caret); }
 	}
 	async function loadGameMentionChoices(): Promise<void> {
 		if (gameMentionsLoading || gameMentionsLoaded) return;
@@ -277,7 +289,7 @@ import type { MediaAlbum } from '$lib/api';
 		gameMentionsLoaded = true;
 		sharedGameMentions = games;
 		const caret = textareaElement?.selectionStart ?? messageInput.length;
-		const result = computeMentionSuggestions(messageInput, caret, $users as User[], $currentUser?.id, $placeRegistry, sharedGameMentions);
+		const result = computeMentionSuggestions(messageInput, caret, mentionDirectory($serverMembers as User[], $users as User[]), $currentUser?.id, $placeRegistry, sharedGameMentions);
 		if (result.show) { mentionTokenStart = result.tokenStart; mentionSuggestions = result.suggestions; mentionSelectedIndex = 0; showMentionSuggestions = true; }
 	}
 	function updateEmojiSuggestions(caret: number): void {
@@ -660,6 +672,7 @@ import type { MediaAlbum } from '$lib/api';
 		if (sendCooldownTimer) { clearTimeout(sendCooldownTimer); sendCooldownTimer = null; }
 	});
 </script>
+{#if $composerHandoff?.channelId === draftChannel && draftSurface === 'channel'}<p role="status">A workspace reference is waiting. Finish editing or sending the current message, or make room to insert the link. <button type="button" onclick={()=>{if($composerHandoff)dismissComposerHandoff($composerHandoff.id);}}>Dismiss reference</button></p>{/if}
 
 <VideoCompressionController bind:this={videoCompressionController} />
 <EditReplyStatus {editingMessage} {replyingTo} onCancelEdit={cancelEdit} onCancelReply={cancelReply} />

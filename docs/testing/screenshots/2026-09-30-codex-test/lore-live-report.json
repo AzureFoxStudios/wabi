@@ -1,0 +1,83 @@
+{
+  "time": "2026-09-30T03:28:40.059Z",
+  "checks": [
+    {
+      "check": "mirror README equals upstream exact revision",
+      "passed": true
+    },
+    {
+      "check": "mirror refuses writes",
+      "status": 501,
+      "passed": true
+    },
+    {
+      "check": "refresh keeps README bytes",
+      "passed": true
+    },
+    {
+      "check": "mirror manifest reports exact source revision",
+      "passed": false
+    },
+    {
+      "check": "native byte readback",
+      "passed": true
+    },
+    {
+      "check": "native stale write refused",
+      "status": 409,
+      "passed": true
+    },
+    {
+      "check": "stale write preserves bytes",
+      "passed": true
+    },
+    {
+      "check": "native nonempty revision",
+      "passed": true
+    }
+  ],
+  "mirrorChannel": "ch_c93",
+  "mirrorNumericId": 3219,
+  "mirrorClass": {
+    "type": "mirror",
+    "upstream_url": "https://github.com/AzureFoxStudios/wabi.git"
+  },
+  "mirrorFileCount": 3009,
+  "mirrorHistory": [
+    {
+      "author": "William Porter",
+      "hash": "f088da430add22e8b21b6779f1b3bec974c39083",
+      "message": "Polish shared UI and preserve multitasking panel affordances",
+      "parent": null,
+      "revision_number": 4,
+      "timestamp": "1789870828"
+    }
+  ],
+  "mirrorReadmeSha256": "57976068e97c6715824433c2f15961e73f1f717f6d13cbd18f67ebb9bbcd80a1",
+  "mirrorTip": "f088da430add22e8b21b6779f1b3bec974c39083",
+  "upstreamReadmeSha256": "57976068e97c6715824433c2f15961e73f1f717f6d13cbd18f67ebb9bbcd80a1",
+  "mirrorManifestHead": "",
+  "nativeChannel": "ch_c9b",
+  "nativeSha256": "fc1c71a407141ae8170c03f183e861d9d5fb52cfd75783581ef8ac49976f36af",
+  "nativeHistory": [
+    {
+      "authorUserId": 2,
+      "hash": "2e9d540ea26d1286b0fdd2453d8d00e9fc80234752ef7b6fc8bf4f8e66adcafd",
+      "message": "Disposable Lore handshake proof",
+      "timestamp": 1790738935550
+    }
+  ],
+  "nativeManifest": {
+    "channelId": 3227,
+    "files": [
+      {
+        "etag": "fc1c71a407141ae8170c03f183e861d9d5fb52cfd75783581ef8ac49976f36af",
+        "path": "proof/handshake-20260930.txt",
+        "size": 175,
+        "status": "clean"
+      }
+    ],
+    "headRevision": "2e9d540ea26d1286b0fdd2453d8d00e9fc80234752ef7b6fc8bf4f8e66adcafd",
+    "readOnly": false
+  }
+}

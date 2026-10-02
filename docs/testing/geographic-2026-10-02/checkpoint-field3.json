@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "sessionId": 54424,
+  "actualExitCode": 0,
+  "recordedAtUtc": "2026-10-02T05:50:02.703063+00:00",
+  "sourceFreezeSha256": "9b052aebd52cd61443c4e2b70b1c15b195f9b99b26b14ea80a137c46f17f2aaf",
+  "changedSourcesAtReadback": [],
+  "groups": 6,
+  "pass": 75,
+  "fail": 0,
+  "ignored": 7,
+  "rawLogSha256": "b2087f50bd56fb0f1e7fdd326263ade6cd5978ce6dd274955fd497e907fea043",
+  "physicalAccepted": false,
+  "ignoredFixturesAreNotPhysicalAcceptance": true
+}

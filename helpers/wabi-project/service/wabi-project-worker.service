@@ -1,0 +1,19 @@
+[Unit]
+Description=Wabi Project API AI worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/wabi-project/worker.env
+ExecStart=%h/.local/bin/wabi-project-helper worker
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+UMask=0077
+
+[Install]
+WantedBy=default.target

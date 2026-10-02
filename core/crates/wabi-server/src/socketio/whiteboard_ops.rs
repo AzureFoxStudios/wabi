@@ -76,28 +76,18 @@ fn whiteboard_board_error(socket: &SocketRef, board_id: &str, code: &str, messag
 /// short client-derived hash and is validated here only as an opaque room key;
 /// channel membership remains the authorization boundary.
 fn board_to_channel_id(board_id: &str) -> String {
-    if let Some(channel_id) = board_id.strip_prefix("channel:") {
-        return channel_id.to_string();
-    }
-    if let Some(rest) = board_id.strip_prefix("cad-review:") {
-        if let Some((channel_id, asset_key)) = rest.split_once(':') {
-            let key_valid = !asset_key.is_empty()
-                && asset_key.len() <= 64
-                && asset_key
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'));
-            if !channel_id.is_empty()
-                && channel_id.len() <= 128
-                && !channel_id.contains(':')
-                && key_valid
-            {
-                return channel_id.to_string();
-            }
+    crate::api::whiteboard_policy::channel_id(board_id)
+}
+
+/// Revoke every collaboration board derived from this channel, including CAD
+/// reviews. Callers hold either the membership writer or the owning channel
+/// board gate, ordering this sweep against joins and publication.
+fn evict_channel_whiteboards(socket: &SocketRef, channel_id: &str) {
+    for room in socket.rooms() {
+        if room.strip_prefix("wb:").is_some_and(|board_id| board_to_channel_id(board_id) == channel_id) {
+            socket.leave(room);
         }
     }
-    // Unknown/malformed board ids intentionally fall through. The subsequent
-    // channel membership lookup fails closed instead of granting access.
-    board_id.to_string()
 }
 
 /// Whiteboard access check. Routes DM channels to `can_access_dm` like
@@ -160,19 +150,6 @@ fn doc_version(doc: &Value) -> u64 {
     doc.get("version").and_then(|v| v.as_u64()).unwrap_or(0)
 }
 
-fn authenticated_user_id(socket: &SocketRef, state: &SioState) -> i64 {
-    if let Some(id) = socket.extensions.get::<SioIdentity>() {
-        return id.user_id;
-    }
-    // Fallback for legacy connections without handshake identity.
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    user_id_from_token(&token, &state.app.config.jwt_secret).unwrap_or(-1)
-}
-
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -190,17 +167,20 @@ async fn on_whiteboard_join(socket: SocketRef, data: Value, state: SioState) {
         return;
     }
 
-    let user_id = authenticated_user_id(&socket, &state);
+    let Some(identity) = resolve_identity(&socket, &state).await else { return; };
+    let user_id = identity.user_id;
     if user_id <= 0 {
         whiteboard_board_error(&socket, &board_id, "UNAUTHORIZED", "Authentication required");
         return;
     }
 
+    let _board = crate::api::whiteboard_policy::write_gate(&state.app, &board_id).lock().await;
     if !can_access_board_channel(&state, user_id, &board_to_channel_id(&board_id)).await {
         whiteboard_board_error(&socket, &board_id, "UNAUTHORIZED", "No channel membership");
         return;
     }
 
+    // Join must not restore a stale version-map entry across a completed save.
     // Load the persisted document, or fall back to a fresh default.
     let (document, version) = match state.app.wdb.get_whiteboard_doc(&board_id).await {
         Ok(Some(raw)) => match serde_json::from_str::<Value>(&raw) {
@@ -237,7 +217,8 @@ async fn on_whiteboard_join(socket: SocketRef, data: Value, state: SioState) {
         return;
     }
 
-    let write = !(write_access == "desktop" && client_class != "tauri");
+    let write = !(write_access == "desktop" && client_class != "tauri")
+        && crate::api::whiteboard_policy::can_draw(&state.app, user_id, &document).await;
 
     let room = format!("wb:{}", board_id);
     let _ = socket.join(room);
@@ -284,11 +265,13 @@ async fn on_whiteboard_snapshot(socket: SocketRef, data: Value, state: SioState,
     }
 
     // Auth + membership.
-    let user_id = authenticated_user_id(&socket, &state);
+    let Some(identity) = resolve_identity(&socket, &state).await else { return; };
+    let user_id = identity.user_id;
     if user_id <= 0 {
         whiteboard_board_error(&socket, &board_id, "UNAUTHORIZED", "Authentication required");
         return;
     }
+    let _board = crate::api::whiteboard_policy::write_gate(&state.app, &board_id).lock().await;
     if !can_access_board_channel(&state, user_id, &board_to_channel_id(&board_id)).await {
         whiteboard_board_error(&socket, &board_id, "UNAUTHORIZED", "No channel membership");
         return;
@@ -300,6 +283,11 @@ async fn on_whiteboard_snapshot(socket: SocketRef, data: Value, state: SioState,
             _ => ("ACCESS_DENIED", "This board is unavailable to your account"),
         };
         whiteboard_board_error(&socket, &board_id, code, message);
+        return;
+    }
+
+    if let Err(error) = crate::api::whiteboard_policy::require_write(&state.app, user_id, &board_id, Some(&document)).await {
+        whiteboard_board_error(&socket, &board_id, "READ_ONLY", &error.to_string());
         return;
     }
 
@@ -368,11 +356,13 @@ async fn on_whiteboard_patch(socket: SocketRef, data: Value, state: SioState, io
     }
 
     // Auth + membership.
-    let user_id = authenticated_user_id(&socket, &state);
+    let Some(identity) = resolve_identity(&socket, &state).await else { return; };
+    let user_id = identity.user_id;
     if user_id <= 0 {
         whiteboard_board_error(&socket, &board_id, "UNAUTHORIZED", "Authentication required");
         return;
     }
+    let _board = crate::api::whiteboard_policy::write_gate(&state.app, &board_id).lock().await;
     if !can_access_board_channel(&state, user_id, &board_to_channel_id(&board_id)).await {
         whiteboard_board_error(&socket, &board_id, "UNAUTHORIZED", "No channel membership");
         return;
@@ -387,9 +377,15 @@ async fn on_whiteboard_patch(socket: SocketRef, data: Value, state: SioState, io
         return;
     }
 
-    // A patch must carry an op.
-    if patch.get("op").is_none() {
-        whiteboard_board_error(&socket, &board_id, "READ_ONLY", "Invalid patch: missing op");
+    if let Err(error) = crate::api::whiteboard_policy::require_write(&state.app, user_id, &board_id, None).await {
+        whiteboard_board_error(&socket, &board_id, "READ_ONLY", &error.to_string());
+        return;
+    }
+
+    // Full replacement stays local in the client and uses the owner-validated
+    // snapshot path. Never broadcast document/policy replacement as a patch.
+    if !matches!(patch.get("op").and_then(Value::as_str), Some("create" | "update" | "delete" | "reorder" | "layer:create" | "layer:update" | "layer:delete" | "layer:reorder" | "layer:select")) {
+        whiteboard_board_error(&socket, &board_id, "READ_ONLY", "Invalid live patch operation");
         return;
     }
 
@@ -433,6 +429,8 @@ async fn on_whiteboard_cursor(socket: SocketRef, data: Value, state: SioState, i
         return;
     }
 
+    if resolve_identity(&socket, &state).await.is_none() { return; }
+    let _board = crate::api::whiteboard_policy::write_gate(&state.app, &board_id).lock().await;
     let Some(identity) = require_socket_channel(&socket, &state, &board_to_channel_id(&board_id), "whiteboard:error").await else { return; };
     let user_id = identity.user_id;
 

@@ -46,6 +46,32 @@ fn config(path: &Path) -> ServerConfig {
         lore: LoreAddonConfig::default(),
     }
 }
+
+async fn reopen_server(path: &Path) -> AppState {
+    // The last state owner closes writer admission, but the disk workers keep
+    // the advisory lock until their admitted writes finish. Retry only that
+    // bounded teardown; retain its inode and surface every other startup error.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match AppState::new(config(path)).await {
+            Ok(state) => return state,
+            Err(error)
+                if error
+                    .downcast_ref::<wabidb::error::WabiError>()
+                    .is_some_and(|error| {
+                        matches!(error, wabidb::error::WabiError::AlreadyRunning)
+                    })
+                    && tokio::time::Instant::now() < deadline =>
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            Err(error) => {
+                panic!("could not reopen account fixture after writer teardown: {error:#}")
+            }
+        }
+    }
+}
+
 fn digest(code: &str) -> String {
     hex::encode(Sha256::digest(code.as_bytes()))
 }
@@ -154,7 +180,7 @@ async fn issued_and_consumed_codes_survive_replay_without_reimporting_a_stale_fi
     drop(state);
     std::fs::remove_file(dir.path().join("wabidb/projections/snapshot.json")).unwrap();
     std::fs::write(&file, "stale malformed source").unwrap();
-    let reopened = AppState::new(config(dir.path())).await.unwrap();
+    let reopened = reopen_server(dir.path()).await;
     assert_eq!(reopened.wdb.engine().barrier().current(), commit);
     assert!(!reopened
         .consume_recovery_code(legacy_code, 8)
@@ -198,7 +224,7 @@ async fn concurrent_requests_can_spend_a_code_only_once() {
     assert_eq!(state.wdb.engine().barrier().current(), before + 1);
     assert!(state.recovery_codes.read().await.is_empty());
     drop(state);
-    let reopened = AppState::new(config(dir.path())).await.unwrap();
+    let reopened = reopen_server(dir.path()).await;
     assert!(!reopened.consume_recovery_code(&code, uid).await.unwrap());
 }
 
@@ -272,7 +298,7 @@ async fn http_recovery_spends_the_code_restores_owner_and_revokes_sessions_in_on
     assert_eq!(state.wdb.engine().barrier().current(), before + 1);
     drop(state);
     std::fs::remove_file(dir.path().join("wabidb/projections/snapshot.json")).unwrap();
-    let reopened = AppState::new(config(dir.path())).await.unwrap();
+    let reopened = reopen_server(dir.path()).await;
     assert_eq!(reopened.wdb.engine().barrier().current(), before + 1);
     assert_eq!(*reopened.owner_user_id.read().await, Some(original_owner));
     assert!(
@@ -404,7 +430,7 @@ async fn instance_pause_holds_real_http_logout_until_release() {
     assert_eq!(state.wdb.engine().barrier().current(), before + 1);
     assert!(state.is_token_revoked(&claims.jti, uid, claims.iat).await);
     drop(state);
-    let reopened = AppState::new(config(dir.path())).await.unwrap();
+    let reopened = reopen_server(dir.path()).await;
     assert!(
         reopened
             .is_token_revoked(&claims.jti, uid, claims.iat)
@@ -483,7 +509,7 @@ async fn instance_pause_drains_an_owned_recovery_worker_after_http_cancellation(
     );
     drop(paused);
     drop(state);
-    let reopened = AppState::new(config(dir.path())).await.unwrap();
+    let reopened = reopen_server(dir.path()).await;
     assert_eq!(*reopened.owner_user_id.read().await, Some(uid));
     assert_eq!(reopened.revocations.read().await.epoch, epoch);
     assert!(!reopened.recover_owner_with_code(&code, uid).await.unwrap());
@@ -553,7 +579,7 @@ async fn instance_pause_drains_a_cancelled_http_handler_before_its_database_writ
         .any(|u| u.username == "completed-after-cancellation"));
     drop(paused);
     drop(state);
-    let reopened = AppState::new(config(dir.path())).await.unwrap();
+    let reopened = reopen_server(dir.path()).await;
     assert!(reopened
         .wdb
         .list_users()
@@ -614,7 +640,7 @@ async fn a_cancelled_recovery_request_still_publishes_all_committed_account_stat
         }
     );
     drop(state);
-    let reopened = AppState::new(config(dir.path())).await.unwrap();
+    let reopened = reopen_server(dir.path()).await;
     assert_eq!(*reopened.owner_user_id.read().await, Some(uid));
     assert_eq!(reopened.revocations.read().await.epoch, epoch);
     assert!(!reopened.recover_owner_with_code(&code, uid).await.unwrap());
@@ -662,7 +688,7 @@ async fn cancelled_issuance_and_consumption_keep_the_auth_view_in_sync() {
     }
     let expected = state.recovery_codes.read().await.clone();
     drop(state);
-    let reopened = AppState::new(config(dir.path())).await.unwrap();
+    let reopened = reopen_server(dir.path()).await;
     assert_eq!(*reopened.recovery_codes.read().await, expected);
     assert!(!reopened.consume_recovery_code(&code, uid).await.unwrap());
 }
@@ -707,7 +733,7 @@ async fn interrupted_legacy_import_resumes_in_bounded_batches_without_publishing
         .unwrap();
     assert!(db.engine().projection_state().get(INDEX, READY).is_none());
     drop(db);
-    let state = AppState::new(config(dir.path())).await.unwrap();
+    let state = reopen_server(dir.path()).await;
     assert_eq!(*state.recovery_codes.read().await, legacy);
     assert!(state
         .wdb
@@ -852,7 +878,7 @@ async fn cancelled_owner_assignment_still_publishes_the_durable_owner() {
         Some(other as u64)
     );
     drop(state);
-    let reopened = AppState::new(config(dir.path())).await.unwrap();
+    let reopened = reopen_server(dir.path()).await;
     assert_eq!(*reopened.owner_user_id.read().await, Some(other));
 }
 
@@ -896,7 +922,7 @@ async fn cancelled_first_owner_claim_still_publishes_its_durable_owner() {
     );
     assert!(!state.claim_ownership(uid, "first-owner").await.unwrap());
     drop(state);
-    let reopened = AppState::new(config(dir.path())).await.unwrap();
+    let reopened = reopen_server(dir.path()).await;
     assert_eq!(*reopened.owner_user_id.read().await, Some(uid));
     assert!(!reopened.needs_setup().await);
 }

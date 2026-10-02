@@ -1,7 +1,20 @@
 import type { Socket } from 'socket.io-client';
+import { isMuted } from './callingStateStores';
+import { rememberVoiceAdmission } from './voiceAdmissionState';
 
 type AdmissionSocket = Pick<Socket, 'id' | 'connected' | 'on' | 'off' | 'emit'>;
-type Reply = { channelId?: string; requestId?: string; error?: string; message?: string; established?: boolean };
+export type VoiceAdmissionReply = {
+  channelId?: string;
+  requestId?: string;
+  error?: string;
+  message?: string;
+  established?: boolean;
+  listeningOnly?: boolean;
+  mutedOnEntry?: boolean;
+  serverMuted?: boolean;
+  serverDeafened?: boolean;
+};
+type Reply = VoiceAdmissionReply;
 let nextRequest = 0;
 
 /** Control-plane admission must finish before either media transport starts.
@@ -13,9 +26,27 @@ export async function requestVoiceAdmission(
   ensureMembership: (channelId: string) => Promise<unknown>,
   signal?: AbortSignal,
   timeoutMs = 10_000,
-): Promise<void> {
-  await requestAdmission(socket, channelId, listeningOnly ? 'voice-channel-subscribe' : 'voice-channel-join',
-    'voice-channel-admitted', 'voice-channel-error', {}, ensureMembership, signal, timeoutMs);
+): Promise<VoiceAdmissionReply> {
+  const reply = await requestAdmission(
+    socket,
+    channelId,
+    listeningOnly ? 'voice-channel-subscribe' : 'voice-channel-join',
+    'voice-channel-admitted',
+    'voice-channel-error',
+    {},
+    ensureMembership,
+    signal,
+    timeoutMs,
+  );
+  const admission = rememberVoiceAdmission(channelId, reply);
+  // This is only the local initial control state. The Authority remains the
+  // security boundary and separately enforces publish/subscribe permissions.
+  // A muted-on-entry user may self-unmute; a server-muted/listen-only user may
+  // click controls but the transport grant remains fail-closed.
+  if (!listeningOnly && (admission.mutedOnEntry || admission.serverMuted || admission.listeningOnly)) {
+    isMuted.set(true);
+  }
+  return reply;
 }
 
 export function requestGroupCallAnswer(

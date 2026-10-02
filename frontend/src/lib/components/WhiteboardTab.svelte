@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { get } from 'svelte/store';
-	import { channels, currentUser } from '$lib/socket';
+	import { channels, currentUser, users, serverMembers } from '$lib/socket';
 	import {
 		getChannelBoardId,
 		type WhiteboardPresenceUser
 	} from '$lib/whiteboard/boardTypes';
 	import { createSyncSession, boardSyncError, type SyncSession } from '$lib/whiteboard/boardSync';
 	import { boardStore, policy, selection } from '$lib/whiteboard/boardStore';
+	import { boardRoleAllowsDrawing } from '$lib/whiteboard/boardRoleAccess';
 	import { recognizeStrokes } from '$lib/whiteboard/mathRecognition';
 	import {
 		extractStrokeSelection,
@@ -19,6 +20,8 @@
 	import { exportBoardAsJson, exportBoardAsPng } from '$lib/whiteboard/export';
 	import { queueWhiteboardImport } from '$lib/whiteboard/whiteboardSurface';
 	import { setWhiteboardPresence, clearWhiteboardPresence } from '$lib/presenceStore';
+	import ProfileMedia from './ProfileMedia.svelte';
+	import { mediaUrl } from '$lib/mediaUrl';
 	import WhiteboardCanvas from './WhiteboardCanvas.svelte';
 	import WhiteboardToolbar from './WhiteboardToolbar.svelte';
 	import WhiteboardMathRecognize from './WhiteboardMathRecognize.svelte';
@@ -67,6 +70,17 @@
 	let channelLabel = 'Whiteboard';
 	let importInput: HTMLInputElement | null = null;
 	let showGrid = true;
+	let paperPattern: 'grid' | 'dots' | 'lines' | 'none' = 'grid';
+	let paperColor = '';
+	let paperSpacing = 24;
+	let paperGuideColor = '#64748b';
+	let paperGuideOpacity = 0.3;
+	let boardShell: HTMLDivElement;
+	let fullscreen = false;
+	async function toggleFullscreen() {
+		try { if (document.fullscreenElement === boardShell) await document.exitFullscreen(); else await boardShell.requestFullscreen(); }
+		catch { showTransientError('Fullscreen is unavailable in this browser.'); }
+	}
 
 	let recognitionDraft: RecognitionDraft | null = null;
 	let selectedForRecognition: StrokeElement[] | null = null;
@@ -76,7 +90,8 @@
 
 	$: boardSyncErrorText = $boardSyncError;
 	$: desktopRequired = !!boardSyncErrorText && boardSyncErrorText.includes('desktop-only');
-	$: readOnly = !isDesktopClient && (($policy?.writeAccess === 'desktop') || (!!boardSyncErrorText && boardSyncErrorText.includes('read-only')));
+	$: roleCanDraw = boardRoleAllowsDrawing($policy, $currentUser);
+	$: readOnly = !roleCanDraw || !isDesktopClient && (($policy?.writeAccess === 'desktop') || (!!boardSyncErrorText && boardSyncErrorText.includes('read-only')));
 	// The sync store carries real failures ("Sync failed — reload the board",
 	// conflict re-sync notices) that were previously set but never displayed
 	// anywhere (only desktop/read-only were consumed). Surface them in the
@@ -289,7 +304,8 @@
 	});
 </script>
 
-<div class="whiteboard-shell">
+<svelte:document on:fullscreenchange={() => fullscreen = document.fullscreenElement === boardShell} />
+<div class="whiteboard-shell" bind:this={boardShell}>
 	<input
 		bind:this={importInput}
 		class="whiteboard-hidden-input"
@@ -312,7 +328,7 @@
 							class="jam-avatar"
 							style="--jam-color: {person.color || 'var(--accent-primary, #6366f1)'}"
 							title={person.username}
-						>{person.username.charAt(0).toUpperCase()}</span>
+						>{#if person.userId === $currentUser?.id && $currentUser?.profilePicture}<ProfileMedia src={mediaUrl($currentUser.profilePicture)} decorative style="width:100%;height:100%;object-fit:cover;display:block" />{:else}{@const profile = [...$users, ...$serverMembers].find(user => user.id === person.userId || `user-${user.dbUserId}` === person.userId)}{#if profile?.profilePicture}<ProfileMedia src={mediaUrl(profile.profilePicture)} decorative style="width:100%;height:100%;object-fit:cover;display:block" />{:else}{person.username.charAt(0).toUpperCase()}{/if}{/if}</span>
 					{/each}
 					{#if boardParticipantOverflow > 0}
 						<span class="jam-avatar jam-avatar-more" title="{boardParticipants.length} people">+{boardParticipantOverflow}</span>
@@ -336,15 +352,13 @@
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path></svg>
 				</button>
 			{/if}
-			<button
-				type="button"
-				class="whiteboard-grid-toggle"
-				class:active={showGrid}
-				onclick={() => (showGrid = !showGrid)}
-				aria-pressed={showGrid}
-			>
-				{showGrid ? 'Grid On' : 'Grid Off'}
-			</button>
+			<details class="paper-settings"><summary>Paper</summary><div>
+				<small>Appearance for your view</small>
+				<label>Background<select aria-label="Paper background" bind:value={paperColor}><option value="">Board default</option><option value="#ffffff">White</option><option value="#e5e7eb">Gray</option><option value="#172326">Dark</option><option value="#fff8e7">Cream</option><option value="#fce7f3">Blush</option></select></label><label>Custom background<input type="color" aria-label="Custom paper color" value={paperColor || '#ffffff'} oninput={event => paperColor = event.currentTarget.value} /></label>
+				<label>Pattern<select aria-label="Paper pattern" bind:value={paperPattern}><option value="grid">Grid</option><option value="dots">Dots</option><option value="lines">Ruled lines</option><option value="none">None</option></select></label>
+				<label>Guide spacing · {paperSpacing}px<input aria-label="Guide spacing" type="range" min="8" max="120" step="4" bind:value={paperSpacing}/></label><label>Guide color<input aria-label="Guide color" type="color" bind:value={paperGuideColor}/></label><label>Guide opacity · {Math.round(paperGuideOpacity * 100)}%<input aria-label="Guide opacity" type="range" min="0" max="1" step="0.05" bind:value={paperGuideOpacity}/></label>
+			</div></details>
+			<button type="button" class="whiteboard-grid-toggle" onclick={toggleFullscreen}>{fullscreen ? 'Exit fullscreen' : 'Fullscreen'}</button>
 			{#if selectedStrokeCount > 0 && !desktopRequired && !readOnly}
 				<button
 					type="button"
@@ -395,7 +409,7 @@
 					username={localUsername}
 					userColor={localUserColor}
 					{syncReady}
-					{showGrid}
+					showGrid={paperPattern !== 'none'} {paperPattern} {paperColor} {paperSpacing} {paperGuideColor} {paperGuideOpacity}
 					{readOnly}
 				/>
 				<WhiteboardToolbar
@@ -461,7 +475,7 @@
 		top: var(--wb-topbar-top);
 		left: 0.9rem;
 		right: 0.9rem;
-		z-index: 18;
+		z-index: 28;
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
@@ -889,4 +903,12 @@
 		.whiteboard-jam-call { transition: none; }
 		.whiteboard-settings-btn { transition: none; }
 	}
+
+	.whiteboard-shell:fullscreen { width: 100vw; height: 100vh; background: var(--surface-base); }
+	.paper-settings { position: relative; }
+	.paper-settings summary { cursor: pointer; padding: 8px 12px; }
+	.paper-settings > div { position: absolute; right: 0; top: 100%; z-index: 100; width: min(280px, calc(100vw - 40px)); max-height: 65vh; overflow: auto; padding: 16px; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--surface-raised); color: var(--text-heading); box-shadow: 0 8px 30px #0004; }
+	.paper-settings label { display: grid; gap: 6px; margin-top: 12px; }
+	.paper-settings select { min-height: 36px; background: var(--surface-base); color: var(--text-heading); }
+	.jam-avatar { overflow: hidden; }
 </style>

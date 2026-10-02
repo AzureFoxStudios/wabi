@@ -127,7 +127,7 @@
 	top: 100%;
 	right: 0;
 	min-width: 180px;
-	background: var(--surface-popover);
+	background: var(--surface-popover, var(--bg-secondary, #172326));
 	border: 1px solid var(--border-default);
 	border-radius: var(--radius-md);
 	box-shadow: var(--shadow-lg);

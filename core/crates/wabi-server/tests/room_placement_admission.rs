@@ -1,6 +1,9 @@
 //! A placement for another node must stop local chat writes before commit.
 //! This is a temporary-engine guard, not a room handoff or distributed lease.
 
+#[path = "fixtures/writer_drain.rs"]
+mod writer_drain;
+
 use wabi_server::adapter::{ProjectTaskFields, WdbAdapter};
 use wabi_server::upload_registry::{UploadKind, UploadRegistry};
 use wabidb::{
@@ -241,10 +244,15 @@ async fn direct_calls_keep_separate_placement_and_reject_remote_and_stale_owners
         .get(INDEX, unplaced_room.as_bytes())
         .is_none());
     drop(store);
+    let stopped = writer_drain::wait_for_stopped_engine(dir.path()).await;
     std::fs::remove_file(dir.path().join("projections/snapshot.json")).unwrap();
-    let store = WdbAdapter::open_with_config_and_node_id(config(), "site-a".into())
-        .await
-        .unwrap();
+    drop(stopped);
+    let store = writer_drain::retry(
+        || WdbAdapter::open_with_config_and_node_id(config(), "site-a".into()),
+        |error| matches!(error, wabidb::error::WabiError::AlreadyRunning),
+    )
+    .await
+    .unwrap();
     assert_eq!(store.get_call_session(scope).await.unwrap(), before);
     assert_eq!(
         decode(
@@ -1142,7 +1150,7 @@ async fn recorded_remote_owner_blocks_core_chat_mutations_before_commit() {
             "https://example.invalid/image",
             "image",
             None,
-            1,
+            None, None, 1,
         )
         .await
         .unwrap();
@@ -1246,7 +1254,7 @@ async fn recorded_remote_owner_blocks_core_chat_mutations_before_commit() {
             "https://example.invalid/other",
             "other",
             None,
-            1
+            None, None, 1
         )
         .await
         .is_err());
@@ -1351,7 +1359,7 @@ async fn recorded_remote_owner_blocks_core_chat_mutations_before_commit() {
             "https://example.invalid/local",
             "local",
             None,
-            1,
+            None, None, 1,
         )
         .await
         .unwrap();
@@ -1387,18 +1395,23 @@ async fn recorded_remote_owner_blocks_core_chat_mutations_before_commit() {
     );
 
     drop(store);
+    let stopped = writer_drain::wait_for_stopped_engine(dir.path()).await;
     let snapshot = dir.path().join("projections/snapshot.json");
     if snapshot.exists() {
         std::fs::remove_file(snapshot).unwrap();
     }
+    drop(stopped);
     let mut reopened_config = WabiDbConfig::new(
         dir.path().to_path_buf(),
         BootstrapSource::Provided([0xB7; 32]),
     );
     reopened_config.allow_init = true;
-    let reopened = WdbAdapter::open_with_config_and_node_id(reopened_config, "site-a".into())
-        .await
-        .unwrap();
+    let reopened = writer_drain::retry(
+        || WdbAdapter::open_with_config_and_node_id(reopened_config.clone(), "site-a".into()),
+        |error| matches!(error, wabidb::error::WabiError::AlreadyRunning),
+    )
+    .await
+    .unwrap();
     let remote_after_restart = decode(
         &reopened
             .engine()

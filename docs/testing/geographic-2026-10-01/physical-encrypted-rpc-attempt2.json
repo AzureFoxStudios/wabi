@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "scope": "Disposable three-physical-host encrypted recovery metadata coordination over private Tailscale IPs",
+  "artifact": {
+    "path": "target/debug/deps/encrypted_tcp_contract-ff7d8a7fc181c369",
+    "sha256": "52455067953e0d2d67f04dff308caca01cc2d4715a17f60828f6eee3a17dd3ec",
+    "bytes": 85751720
+  },
+  "artifactCompressedTransferBytesPerRemote": 23599998,
+  "physicalSitesIndependentlyCertified": false,
+  "placementEvidence": "Earlier three-exit observation and operator site report; no public-address check repeated",
+  "canonicalWriterPermitted": false,
+  "automaticWabiRecoveryTested": false,
+  "wabiAuthorityLaunched": false,
+  "publicRouterOrFirewallChanges": 0,
+  "phase": "initial_majority_write",
+  "status": "FAIL",
+  "errorType": "RuntimeError",
+  "completedOperations": [],
+  "boundedFailureReason": "physical_exact_receipt_deadline",
+  "cleanup": [
+    {
+      "event": "cleanup",
+      "node": 1,
+      "ownedThreadStopped": true,
+      "ownedNodeRootRemoved": true,
+      "ownedParentStageRemoved": true,
+      "supervisor": {
+        "schemaVersion": 1,
+        "result": "PASS",
+        "scope": "disposable_process_lifetime_cleanup",
+        "endReason": "controller_stop",
+        "synthetic": false,
+        "restartMode": true,
+        "workerRestarts": 0,
+        "ownedChildStopped": true,
+        "cleanupComplete": true,
+        "encryptedRpcTested": false,
+        "automaticWabiRecoveryTested": false
+      },
+      "processExitCode": 0,
+      "knownLocalTransportReaped": true
+    },
+    {
+      "event": "cleanup",
+      "node": 2,
+      "ownedThreadStopped": true,
+      "ownedNodeRootRemoved": true,
+      "ownedParentStageRemoved": true,
+      "supervisor": {
+        "schemaVersion": 1,
+        "result": "PASS",
+        "scope": "disposable_process_lifetime_cleanup",
+        "endReason": "controller_stop",
+        "synthetic": false,
+        "restartMode": true,
+        "workerRestarts": 0,
+        "ownedChildStopped": true,
+        "cleanupComplete": true,
+        "encryptedRpcTested": false,
+        "automaticWabiRecoveryTested": false
+      },
+      "processExitCode": 0,
+      "knownLocalTransportReaped": true
+    },
+    {
+      "event": "cleanup",
+      "node": 3,
+      "ownedThreadStopped": true,
+      "ownedNodeRootRemoved": true,
+      "ownedParentStageRemoved": true,
+      "supervisor": {
+        "schemaVersion": 1,
+        "result": "PASS",
+        "scope": "disposable_process_lifetime_cleanup",
+        "endReason": "controller_stop",
+        "synthetic": false,
+        "restartMode": true,
+        "workerRestarts": 0,
+        "ownedChildStopped": true,
+        "cleanupComplete": true,
+        "encryptedRpcTested": false,
+        "automaticWabiRecoveryTested": false
+      },
+      "processExitCode": 0,
+      "knownLocalTransportReaped": true
+    }
+  ],
+  "recordedAtUtc": "2026-10-01T13:22:05.163222+00:00",
+  "helperSourceDigests": {
+    "rpc-probe-controller.py": "cbb16bed861a55a6d978a006065e4cd6e9e57410f4ed669c5acf3f9db791eb9e",
+    "rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2"
+  },
+  "runnerSourceSha256": "dd8438891a862b290b179b2f702dc1d48daadb9dd04b5ac9a4aab4b25636b195",
+  "attempt": 2,
+  "diagnosis": "All three real frozen workers launched under accepted supervisors; initial exact original-command receipt convergence did not meet18second deadline. No completed operation or physical fault case claimed. All three real workers/root/stages stopped/removed with terminal0 cleanup.",
+  "verifiedArchivedStderr": [
+    {
+      "node": 1,
+      "path": "docs/testing/geographic-2026-10-01/physical-encrypted-rpc-attempt2-node1.stderr.gz",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "node": 2,
+      "path": "docs/testing/geographic-2026-10-01/physical-encrypted-rpc-attempt2-node2.stderr.gz",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "node": 3,
+      "path": "docs/testing/geographic-2026-10-01/physical-encrypted-rpc-attempt2-node3.stderr.gz",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "scope": "Read-only source map for the next actual recovery-material/distributed writer integration, not implementation or acceptance",
+  "executionComputer": "dotRonin",
+  "checkout": "/home/ironin/wabi",
+  "branch": "codex/security-boundary-hardening-20260930",
+  "head": "138abe39e08e400188d1812ed3bfd378df435315",
+  "recordedAtUtc": "2026-10-01T14:07:57.825135+00:00",
+  "dirtySharedCheckout": true,
+  "sourceDigests": {
+    "core/crates/wabi-consensus/src/model.rs": "8f5ef2274b893286c384e9d4ffd1088694e42cc1fe0de4f1b9231f3bddbd8b0a",
+    "core/crates/wabi-server/src/instance_archive/verify.rs": "ff6f02f601b5fdff406e9910c0acab23cc512d523a64aa78e2aa132a0c48257c",
+    "core/crates/wabidb/src/engine/offline_inspect.rs": "b873e70f852ab2a68a3a812811e29d0209c91fa4c176836ded37761ee3f59b8d",
+    "core/crates/wabidb/src/sequencer/types.rs": "9fd49d19b8116c6b3f8f6a3b970d7e6294ad425a7f66cccf31db589bcaa541e1",
+    "core/crates/wabidb/src/sequencer/mod.rs": "3e2fe0bcfef3b704bacd18cc25ab29082f025ff016af61bfdb450c1eb1d076c5",
+    "core/crates/wabidb/src/crypto/aes_gcm_record.rs": "4f1e9c7e0b05a5e849d0af814cb5677edabbc5c66d730f07dfa8f93f57f4424e",
+    "core/crates/wabi-server/src/instance_operations.rs": "a21ea71f7eac45f44fee27484aed070a673e3d4780ce27bed941af1219d365f5",
+    "core/crates/wabi-server/src/instance_checkpoint.rs": "bb60d610f0fea9ec1eb3ce2bb5b6d76577fd48b75b4f6b60fa94b77129aa5c71"
+  },
+  "sourcePathsHeldBySecurityOwner": true,
+  "canonicalWriterPermitted": false,
+  "actualDataQuorumAvailable": false,
+  "fullInstanceReady": false,
+  "currentControlFingerprintIsNotDataAvailabilityProof": true,
+  "localPauseIsNotDistributedFence": true,
+  "nonceCurrentFormat": "AES256GCM with perstream key and littleendian commit_seq nonce padded to12bytes",
+  "nonceIntegrationAndMigrationStillRequired": true
+}

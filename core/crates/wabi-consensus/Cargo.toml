@@ -1,0 +1,25 @@
+[package]
+name = "wabi-consensus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Experimental trusted recovery consensus; not an Authority writer permit"
+
+[dependencies]
+openraft = { version = "=0.9.25", features = ["serde", "storage-v2"] }
+redb = "=2.6.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "macros", "time", "io-util", "net"] }
+fs4 = { version = "=0.13.1", default-features = false, features = ["sync"] }
+thiserror = "2"
+sha2 = "0.10"
+hex = "0.4"
+p256 = { version = "=0.13.2", features = ["ecdsa"] }
+snow = { version = "=0.10.0", default-features = false, features = ["std", "default-resolver", "use-curve25519", "use-chacha20poly1305", "use-sha2", "use-getrandom"] }
+x25519-dalek = { version = "=2.0.1", features = ["static_secrets"] }
+zeroize = "=1.9.0"
+
+[dev-dependencies]
+tempfile = "3"

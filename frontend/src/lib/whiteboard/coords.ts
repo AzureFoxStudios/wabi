@@ -110,7 +110,7 @@ export function pickElement(
 	for (const el of elements) {
 		if (el.locked) continue;
 		const layer = layers.find((candidate) => candidate.id === el.layerId);
-		if (layer && layer.visible === false) continue;
+		if (layer && (layer.visible === false || layer.lockPosition || layer.lockPixels || layer.locked)) continue;
 		if (hitTestElement(el, px, py, tolerance) && el.zIndex > bestZ) {
 			best = el;
 			bestZ = el.zIndex;

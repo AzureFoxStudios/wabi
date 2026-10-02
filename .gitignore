@@ -73,6 +73,7 @@ spacetimedb/wabi_state_bridge/target/
 
 # Claude Code temporary files
 tmpclaude-*.cwd
+.claude/settings.local.json
 
 # TURN server files
 turn-server/certs/

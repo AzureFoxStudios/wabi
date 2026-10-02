@@ -85,3 +85,8 @@ export function galleryViewState(totalCount: number, filteredCount: number): Gal
 	if (filteredCount === 0) return 'no-match';
 	return 'results';
 }
+
+/** Keep every matching work, grouped by stable uploader even when identity is unavailable. */
+export function orderGalleryByUploader(items: GalleryItem[]): GalleryItem[] {
+ return [...items].sort((a, b) => a.uploadedBy - b.uploadedBy || b.uploadedAt - a.uploadedAt);
+}

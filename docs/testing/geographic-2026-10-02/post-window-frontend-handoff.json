@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "scope": "After geographic acceptance/source readback and organizer slot release; frontend owner continues separate release work",
+  "acceptedBackendSourceChanged": [],
+  "acceptedFrontendBuildId": "1305bddd7c8f3af6",
+  "acceptedFrontendIndexSha256": "366331ef3f743cfc94864654584b411bc4a62efec20e7e90f858fe24b7d33253",
+  "subsequentFrontendBuildId": "b58a9c31dc5f8b8e",
+  "subsequentFrontendIndexSha256": "2fdbecedd4fbc2fcbc900cf0717a7070128cde4a76bb09d3c5e146f004a8fb2e",
+  "ownerReportedFocusedFrontendRoleTestsPassed": 4,
+  "ownerReportedStaticBuildAndTypeCheckExit": 0,
+  "limits": "Later bundle is a separate release candidate, not retroactively the frontend tested by workspace84268; no deployment performed or verified by geographic chat"
+}

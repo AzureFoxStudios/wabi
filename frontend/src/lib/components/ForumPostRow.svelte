@@ -1,6 +1,9 @@
 <script lang="ts">
+	import ProfileMedia from './ProfileMedia.svelte';
+	import { mediaUrl } from '$lib/mediaUrl';
+	import { forumAuthors } from '$lib/forumIdentity';
 	import type { ForumPost } from '$lib/forumStore';
-	import { findAuthor, formatForumTime, categorizeThread, tagClass, extractForumAttachments, resolveForumFileUrl } from '$lib/forumStore';
+	import { formatForumTime, categorizeThread, tagClass, extractForumAttachments, resolveForumFileUrl } from '$lib/forumStore';
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
 	import RoleBadge from './RoleBadge.svelte';
 	import { slugify } from '$lib/objectRefRegistry';
@@ -10,7 +13,7 @@
 	export let onClick: () => void;
 	export let channelId: string;
 
-	$: author = findAuthor(thread.author_user_id);
+	$: author = $forumAuthors.get(thread.author_user_id);
 	$: category = categorizeThread(thread);
 	$: attachments = thread.attachments ?? extractForumAttachments(thread.body);
 	$: previewImages = attachments.slice(0, 3);
@@ -30,7 +33,7 @@
 	on:click={onClick}
 	role="button"
 	tabindex="0"
-	on:keydown={(e) => { if (e.key === 'Enter') onClick(); }}
+	on:keydown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onClick(); } }}
 >
 	<div class="forum-post-row-tags">
 		{#each thread.tags as tag}
@@ -67,22 +70,20 @@
 					class="forum-post-row-avatar"
 					style="background: {author.color || author.roleColor || 'var(--accent-primary)'};"
 				>
-					{author.username.charAt(0).toUpperCase()}
+					{#if author.profilePicture}<ProfileMedia src={mediaUrl(author.profilePicture)} alt={author.username} />{:else}{author.username.charAt(0).toUpperCase()}{/if}
 				</div>
 				<span>{author.username}</span>
 				<RoleBadge user={author} size="sm" />
 			{:else}
 				<div class="forum-post-row-avatar" style="background: var(--accent-primary);">?</div>
-				<span>User #{thread.author_user_id}</span>
+				<span title="This author is not present in the server member directory.">Member #{thread.author_user_id}</span>
 			{/if}
 		</div>
 		<span>·</span>
 		<span>{formatForumTime(thread.created_at_micros)}</span>
 		<div class="forum-post-row-stats">
-			<span>&#128065; {thread.votes_up + thread.votes_down}</span>
-			<span>&#128172; 0</span>
-			<span>&#9650; {thread.votes_up}</span>
+			<span>{thread.votes_up} {thread.votes_up === 1 ? 'upvote' : 'upvotes'}</span>
 		</div>
 	</div>
-	<ObjectShareMenu record={shareRecord} />
+	<div class="forum-post-row-share"><ObjectShareMenu record={shareRecord} /></div>
 </div>

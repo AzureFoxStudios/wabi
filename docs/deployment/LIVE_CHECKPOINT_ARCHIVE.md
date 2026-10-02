@@ -1,7 +1,7 @@
 # Encrypted live checkpoint archive candidate
 
 **Date:** 2026-09-28  
-**Status:** Internal main Wabi working-tree component. No operator-facing live export trigger, full-instance readiness certificate or promotion protocol is enabled.
+**Status:** Main Wabi working-tree component. The opt-in [local operator control](OPERATOR_CHECKPOINT_CONTROL.md) starts bounded core exports. No full-instance readiness certificate or promotion protocol is enabled.
 
 [Forty-five selected local checks](../testing/LIVE_CHECKPOINT_ARCHIVE_2026-09-28.md)
 cover the core archive, authenticated inbox round-trip, inactive CLI restore,
@@ -26,7 +26,7 @@ The explicit differences from source files are:
 
 | Source path | Archive treatment |
 |---|---|
-| `data/.lock`, `data/wabidb/.lock` | Omit process-local lock identities. The new restore directory has no process. |
+| `data/.lock`, `data/wabidb/.lock`, `data/.wabi-secret-publication.lock`, `data/wabidb/.wabi-secret-publication.lock` | Omit process-local coordination files. The new restore directory has no process. |
 | `data/tailcat/addr.txt` | Omit the listener's mutable runtime address; a future activated process must produce its own address. |
 | `data/jwt_secret` | Write the actual running signing secret into the encrypted archive, rather than copying an absent or stale persisted file. |
 | `data/wabidb/root_key` | Write the actual running engine bootstrap key into the encrypted archive, rather than copying an absent or stale persisted file. |
@@ -36,6 +36,11 @@ Export does not change source key files or transport settings. Keys whose
 configuration cannot round-trip through the persisted signing-key resolver are
 refused. The substitutions and runtime omissions are declared in the protected
 header; they are not an allowlist for the rest of the tree.
+
+Older V2 headers with the original three runtime exclusions remain readable.
+Current exports declare and omit the two additional secret-publication lock
+files. Unknown exclusion lists are refused; persistent record layouts are
+unchanged.
 
 ## Inventory and limits
 
@@ -87,6 +92,65 @@ with the live marker alone. The existing stopped-move activation commands
 refuse live checkpoint trees. Removing markers manually is not a promotion
 protocol. A passive engine can be inspected while keeping its write fence.
 
+## Inactive core verification candidate
+
+The current worktree adds `verify-inactive` to the snapshot CLI. It requires
+the original encrypted V2 archive, its private age identity and the receipt
+obtained through the trusted source's authenticated channel:
+
+```sh
+wabi-instance-snapshot verify-inactive \
+  --target-root /private/new-restore \
+  --input /private/checkpoint.age \
+  --identity-file /private/recovery-identity.txt \
+  --source-receipt /private/authenticated-source-receipt.json
+```
+
+This command keeps the stopped tree's persistent advisory lock and both live
+guards. It does not start an Authority or call the ordinary engine open/drop
+path, which can update persisted state even on a fenced engine. It independently
+replays the complete indexed history into a new in-memory projection view and
+compares every nonempty index, key, value and applied watermark with the saved
+projection. Missing/pruned history, mismatched prefix, malformed snapshots,
+duplicate decoded keys and unsupported filesystem entries refuse this profile.
+
+The verifier hashes the source ciphertext and checks its private header against
+the restored metadata. It also recomputes the source's exact ordered whole-root
+inventory, including unknown files and empty directories and the substituted
+active keys. This catches changed header/configuration, omitted components and
+changed bytes. The separately authenticated receipt establishes which source
+archive to check; knowledge of the public age recipient alone does not do so.
+
+Every canonical nonrevoked published upload must match its recorded metadata,
+size and SHA-256. Canonical upload denials must match the registry. An older
+nonrevoked registered upload without a canonical publication record refuses
+verification until the stopped source has a documented canonical backfill.
+Revoked historical bytes are not certified as physically erased. The whole
+restore tree is hashed before and after inspection, and inspection does not
+repair a registry, rewrite a snapshot or remove an inactive marker. Creating a
+missing persistent engine lock is the only intended filesystem mutation.
+
+The support profile is `inactive-live-core-complete-history-v1`. Enabled Lore
+(including a persisted addon switch), legacy mesh, runtime plugin directories
+and an external blacklist are refused. This checks the bounded captured core;
+it does not inspect operator environment files, deployment configuration,
+external stores or helper/client private state. Unknown bundled files are
+preserved and compared; that does not validate their application semantics.
+
+Default limits are 10,000 inventory/projection entries, 64 MiB whole-tree file
+bytes, 4 MiB projection JSON and 60 seconds. Hard ceilings are 100,000 entries,
+256 MiB files, 16 MiB projection JSON and 300 seconds. Ciphertext is limited to
+the file-byte budget plus 2 MiB for archive/encryption framing; depth is 64 and
+inventory path bytes are bounded at 4 MiB. The deadline is cooperative between
+filesystem operations. Individual synchronous I/O calls cannot be preempted.
+Large or pruned installations need a separately validated support profile.
+
+PASS reports aggregate positions/counts/digests and matching active-key/guard
+checks, with `externalStateVerified: false` and `fullInstanceReady: false`.
+REFUSED emits a fixed public reason and no private filenames, configuration,
+keys or parser errors. Neither outcome authorizes promotion. Existing V1/V2
+restore formats and stopped-move behavior are unchanged.
+
 ## Outstanding whole-instance work
 
 An external blacklist path is refused, even when currently empty. Enabled or
@@ -104,7 +168,7 @@ erasure merely because current history or upload access denies an item.
 
 The header explicitly keeps `externalStateVerified: false` and
 `fullInstanceReady: false`. This component does not complete Gate B. A durable
-operator trigger, authenticated transfer and receipt tracking, comprehensive
+complete-inventory validation, comprehensive clean
 restore validation, unavailable-source promotion/fencing/reseed and measured
 recovery objectives remain required. Gate C and D and capacity/privacy gates
 remain open.

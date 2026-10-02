@@ -1,20 +1,47 @@
 use axum::extract::{Path, State};
 use axum::Json;
 use serde::Deserialize;
-use std::sync::Arc;
 use serde_json::{json, Value};
+use std::sync::Arc;
 
 use crate::auth_extractor::AuthUser;
 use crate::error::AppError;
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
 
+async fn require_author_or_moderator(
+    state: &AppState,
+    auth: &AuthUser,
+    channel_id: &str,
+    author_user_id: u64,
+) -> Result<(), AppError> {
+    if author_user_id == auth.user_id as u64 {
+        return Ok(());
+    }
+    let channel = crate::channel_access::require_access(state, auth.user_id, channel_id).await?;
+    if !auth.is_guest
+        && auth.user_id > 0
+        && !crate::channel_access::is_conversation(channel.channel_kind)
+        && (state.is_admin(auth.user_id).await || state.has_role(auth.user_id, "Moderator").await)
+    {
+        return Ok(());
+    }
+    Err(AppError::Forbidden(
+        "Only the author or a moderator can change this content".into(),
+    ))
+}
+
 pub fn routes(state: Arc<AppState>) -> axum::Router<Arc<AppState>> {
     axum::Router::new()
-        .route("/{channel_id}/works", axum::routing::get(list_works).post(upload_work))
+        .route(
+            "/{channel_id}/works",
+            axum::routing::get(list_works).post(upload_work),
+        )
         .route(
             "/{channel_id}/works/{work_id}",
-            axum::routing::get(get_work).put(edit_work).delete(delete_work),
+            axum::routing::get(get_work)
+                .put(edit_work)
+                .delete(delete_work),
         )
         .route(
             "/{channel_id}/works/{work_id}/feedback",
@@ -24,7 +51,10 @@ pub fn routes(state: Arc<AppState>) -> axum::Router<Arc<AppState>> {
             "/{channel_id}/works/{work_id}/feedback/{feedback_id}",
             axum::routing::delete(delete_feedback),
         )
-        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::channel_access::require_channel))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::channel_access::require_channel_with_read_gate,
+        ))
         .with_state(state)
 }
 
@@ -53,25 +83,34 @@ async fn upload_work(
     Path(channel_id): Path<String>,
     Json(payload): Json<UploadWorkPayload>,
 ) -> Result<Json<Value>, AppError> {
-    let work_id = state
-        .wdb
-        .upload_gallery_work(
-            &channel_id,
-            &payload.title,
-            &payload.caption,
-            &payload.attachment_url,
-            &payload.mime_type,
-            &payload.category,
-            payload.is_wip,
-            auth.user_id as u64,
-        )
-        .await?;
-    let work = state
-        .wdb
-        .get_gallery_work(&channel_id, &work_id)
-        .await?
-        .ok_or_else(|| AppError::Internal("work created but not found in projection".into()))?;
-    Ok(Json(json!(work)))
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let work_id = state
+                .wdb
+                .upload_gallery_work(
+                    &channel_id,
+                    &payload.title,
+                    &payload.caption,
+                    &payload.attachment_url,
+                    &payload.mime_type,
+                    &payload.category,
+                    payload.is_wip,
+                    auth.user_id as u64,
+                )
+                .await?;
+            let work = state
+                .wdb
+                .get_gallery_work(&channel_id, &work_id)
+                .await?
+                .ok_or_else(|| {
+                    AppError::Internal("work created but not found in projection".into())
+                })?;
+            Ok(Json(json!(work)))
+        })
+        .await
 }
 
 async fn get_work(
@@ -101,27 +140,39 @@ async fn edit_work(
     Path((channel_id, work_id)): Path<(String, String)>,
     Json(payload): Json<EditWorkPayload>,
 ) -> Result<Json<Value>, AppError> {
-    state.wdb.get_gallery_work(&channel_id, &work_id).await?
-        .filter(|work| !work.is_deleted)
-        .ok_or_else(|| AppError::NotFound("gallery work not found".into()))?;
-    state
-        .wdb
-        .edit_gallery_work(
-            &channel_id,
-            &work_id,
-            &payload.title,
-            &payload.caption,
-            &payload.category,
-            payload.is_wip,
-            auth.user_id as u64,
-        )
-        .await?;
-    let work = state
-        .wdb
-        .get_gallery_work(&channel_id, &work_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound("gallery work not found".into()))?;
-    Ok(Json(json!(work)))
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let existing = state
+                .wdb
+                .get_gallery_work(&channel_id, &work_id)
+                .await?
+                .filter(|work| !work.is_deleted)
+                .ok_or_else(|| AppError::NotFound("gallery work not found".into()))?;
+            require_author_or_moderator(&state, &auth, &channel_id, existing.author_user_id)
+                .await?;
+            state
+                .wdb
+                .edit_gallery_work(
+                    &channel_id,
+                    &work_id,
+                    &payload.title,
+                    &payload.caption,
+                    &payload.category,
+                    payload.is_wip,
+                    auth.user_id as u64,
+                )
+                .await?;
+            let work = state
+                .wdb
+                .get_gallery_work(&channel_id, &work_id)
+                .await?
+                .ok_or_else(|| AppError::NotFound("gallery work not found".into()))?;
+            Ok(Json(json!(work)))
+        })
+        .await
 }
 
 async fn delete_work(
@@ -129,11 +180,26 @@ async fn delete_work(
     auth: AuthUser,
     Path((channel_id, work_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, AppError> {
-    state
-        .wdb
-        .delete_gallery_work(&channel_id, &work_id, auth.user_id as u64)
-        .await?;
-    Ok(Json(json!({ "deleted": true })))
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            let existing = state
+                .wdb
+                .get_gallery_work(&channel_id, &work_id)
+                .await?
+                .filter(|work| !work.is_deleted)
+                .ok_or_else(|| AppError::NotFound("gallery work not found".into()))?;
+            require_author_or_moderator(&state, &auth, &channel_id, existing.author_user_id)
+                .await?;
+            state
+                .wdb
+                .delete_gallery_work(&channel_id, &work_id, auth.user_id as u64)
+                .await?;
+            Ok(Json(json!({ "deleted": true })))
+        })
+        .await
 }
 
 async fn list_feedback(
@@ -141,7 +207,10 @@ async fn list_feedback(
     Path((channel_id, work_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, AppError> {
     resolve_feedback_work(&state, &channel_id, &work_id).await?;
-    let feedback = state.wdb.list_gallery_feedback(&channel_id, &work_id).await?;
+    let feedback = state
+        .wdb
+        .list_gallery_feedback(&channel_id, &work_id)
+        .await?;
     Ok(Json(json!({ "feedback": feedback })))
 }
 
@@ -159,21 +228,33 @@ async fn add_feedback(
     Path((channel_id, work_id)): Path<(String, String)>,
     Json(payload): Json<AddFeedbackPayload>,
 ) -> Result<Json<Value>, AppError> {
-    resolve_feedback_work(&state, &channel_id, &work_id).await?;
-    let feedback_id = state
-        .wdb
-        .add_gallery_feedback(
-            &channel_id,
-            &work_id,
-            &payload.comment,
-            payload.x_percent,
-            payload.y_percent,
-            auth.user_id as u64,
-        )
-        .await?;
-    // Return the feedback list after adding.
-    let feedback = state.wdb.list_gallery_feedback(&channel_id, &work_id).await?;
-    Ok(Json(json!({ "feedbackId": feedback_id, "feedback": feedback })))
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            resolve_feedback_work(&state, &channel_id, &work_id).await?;
+            let feedback_id = state
+                .wdb
+                .add_gallery_feedback(
+                    &channel_id,
+                    &work_id,
+                    &payload.comment,
+                    payload.x_percent,
+                    payload.y_percent,
+                    auth.user_id as u64,
+                )
+                .await?;
+            // Return the feedback list after adding.
+            let feedback = state
+                .wdb
+                .list_gallery_feedback(&channel_id, &work_id)
+                .await?;
+            Ok(Json(
+                json!({ "feedbackId": feedback_id, "feedback": feedback }),
+            ))
+        })
+        .await
 }
 
 async fn delete_feedback(
@@ -181,12 +262,28 @@ async fn delete_feedback(
     auth: AuthUser,
     Path((channel_id, work_id, feedback_id)): Path<(String, String, String)>,
 ) -> Result<Json<Value>, AppError> {
-    resolve_feedback_work(&state, &channel_id, &work_id).await?;
-    state
-        .wdb
-        .delete_gallery_feedback(&channel_id, &work_id, &feedback_id, auth.user_id as u64)
-        .await?;
-    Ok(Json(json!({ "deleted": true })))
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            resolve_feedback_work(&state, &channel_id, &work_id).await?;
+            let feedback = state
+                .wdb
+                .list_gallery_feedback(&channel_id, &work_id)
+                .await?
+                .into_iter()
+                .find(|item| item.feedback_id == feedback_id && !item.is_deleted)
+                .ok_or_else(|| AppError::NotFound("gallery feedback not found".into()))?;
+            require_author_or_moderator(&state, &auth, &channel_id, feedback.author_user_id)
+                .await?;
+            state
+                .wdb
+                .delete_gallery_feedback(&channel_id, &work_id, &feedback_id, auth.user_id as u64)
+                .await?;
+            Ok(Json(json!({ "deleted": true })))
+        })
+        .await
 }
 
 /// Split a gallery-list derived id (`album-{albumId}-item-{itemId}`) into its

@@ -33,6 +33,9 @@ export function resolveChannelId(ref: string): string | null {
 
 export async function navigateToRef(ref: NavRef): Promise<void> {
 	switch (ref.kind) {
+		case 'lore_file':
+			if (!get(channels).some(channel => channel.id === ref.channelId && channel.type === 'lore')) throw new Error('Lore project unavailable');
+			setPendingNav(ref); switchChannel(ref.channelId); break;
 		case 'user':
 			console.info(`[navigateToRef] User profile not yet implemented for userId: ${ref.userId}`);
 			break;

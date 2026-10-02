@@ -10,6 +10,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use socketioxide::{
     extract::{AckSender, Data, SocketRef, State},
+    handler::ConnectHandler,
     layer::SocketIoLayer,
     SocketIo,
 };
@@ -45,12 +46,19 @@ pub async fn connected_user_count() -> u64 {
 
 /// Remove an account from a channel's realtime room immediately after a
 /// persisted channel ban. Future joins still go through require_access.
-pub fn evict_channel_user(io: &SocketIo, channel_id: &str, user_id: i64) {
+pub async fn evict_channel_user(io: &SocketIo, state: &AppState, channel_id: &str, user_id: i64) {
+    // Some automatic bans hold only a membership reader. Order their completed
+    // eviction against receive admission/publication for this channel; those
+    // operations recheck access after acquiring this same gate.
+    let _channel = crate::channel_access::publication_gate(state, channel_id).lock().await;
     let media_room = format!("wabidb-call-channel:{channel_id}");
     for device in io.sockets() {
         if device.extensions.get::<SioIdentity>().is_some_and(|identity| identity.user_id == user_id) {
             let _ = device.leave(channel_id.to_string());
             let _ = device.leave(media_room.clone());
+            crate::api::voice_policy::remove_admission(&state.config.data_dir, channel_id, &device.id.to_string());
+            crate::api::voice_self_state::remove(channel_id, &device.id.to_string());
+            evict_channel_whiteboards(&device, channel_id);
             let _ = device.emit("channel-access-revoked", &json!({ "channelId": channel_id }));
         }
     }
@@ -67,6 +75,9 @@ pub async fn evict_channel_disallowed(io: &SocketIo, state: &AppState, channel_i
         }
         let _ = device.leave(channel_id.to_string());
         let _ = device.leave(media_room.clone());
+            crate::api::voice_policy::remove_admission(&state.config.data_dir, channel_id, &device.id.to_string());
+            crate::api::voice_self_state::remove(channel_id, &device.id.to_string());
+        evict_channel_whiteboards(&device, channel_id);
         let _ = device.emit("channel-access-revoked", &json!({ "channelId": channel_id }));
     }
 }
@@ -81,6 +92,28 @@ pub fn evict_server_user(io: &SocketIo, user_id: i64) {
     }
 }
 
+/// Revoke receive access too: an idle client must not retain private rooms
+/// merely because it never sends another guarded application event. Called
+/// after durable denial and its in-memory publication, outside the writer.
+pub async fn disconnect_revoked_sockets(
+    io: &SocketIo,
+    secret: &str,
+    revocations: &RwLock<crate::state::RevocationStore>,
+) {
+    let denied = {
+        let revocations = revocations.read().await;
+        io.sockets().into_iter().filter(|socket| {
+            let token = socket.extensions.get::<AuthToken>();
+            token.as_ref().is_none_or(|token|
+                socket_token_revoked_by(&token.0, secret, &revocations))
+        }).collect::<Vec<_>>()
+    };
+    for socket in denied {
+        let _ = socket.emit("auth-revoked", &json!({ "reason": "session revoked; please sign in again" }));
+        let _ = socket.disconnect();
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Per-socket auth token stored in socket extensions
 // ---------------------------------------------------------------------------
@@ -88,6 +121,46 @@ pub fn evict_server_user(io: &SocketIo, user_id: i64) {
 #[derive(Clone)]
 #[allow(dead_code)]
 pub(crate) struct AuthToken(pub String);
+
+/// Keep denial publication serialized with namespace insertion. Otherwise a
+/// revocation between middleware authorization and insertion can miss an idle
+/// newly connected socket. Released after connection handlers are installed.
+#[derive(Clone)]
+struct SioAdmissionGuard {
+    _revocations: Arc<tokio::sync::OwnedRwLockReadGuard<crate::state::RevocationStore>>,
+}
+
+async fn authorize_socket_connect(
+    socket: SocketRef,
+    Data(auth): Data<Value>,
+    State(state): State<SioState>,
+) -> Result<(), String> {
+    authorize_socket_identity(&socket, &auth, &state).await
+        .map_err(|reason| format!("auth-failed: {reason}"))
+}
+
+async fn authorize_socket_identity(
+    socket: &SocketRef,
+    auth: &Value,
+    state: &SioState,
+) -> Result<(), &'static str> {
+    let token = auth.get("token").and_then(Value::as_str).unwrap_or("").to_string();
+    let identity = validate_token_sync(&token, &state.app.config.jwt_secret)?;
+    let revocations = state.app.revocations.clone().read_owned().await;
+    if socket_token_revoked_by(&token, &state.app.config.jwt_secret, &revocations) {
+        return Err("session revoked; please sign in again");
+    }
+    crate::auth_extractor::ensure_active_principal(&state.app, identity.user_id)
+        .await.map_err(|_| "account access unavailable; please sign in again")?;
+    let blacklist = state.app.get_blacklist().await.ok_or("ban enforcement unavailable")?;
+    if blacklist.is_user_banned(identity.user_id).await.is_some() {
+        return Err("account banned from this server");
+    }
+    socket.extensions.insert(identity);
+    socket.extensions.insert(AuthToken(token));
+    socket.extensions.insert(SioAdmissionGuard { _revocations: Arc::new(revocations) });
+    Ok(())
+}
 
 /// Handshake-validated identity stored in socket extensions after JWT
 /// validation at connect time. Handlers read this instead of re-decoding
@@ -105,8 +178,8 @@ pub(crate) struct SioIdentity {
 
 /// Synchronous JWT validation for the handshake connect closure.
 /// Returns `Ok(SioIdentity)` for a signed, unexpired account access token;
-/// `Err(message)` otherwise. Revocation and ban checks are deferred to
-/// `resolve_identity` (async, per-event).
+/// `Err(message)` otherwise. Async middleware checks current principal,
+/// revocation and bans before namespace admission; events check them again.
 pub(crate) fn validate_token_sync(token: &str, secret: &str) -> Result<SioIdentity, &'static str> {
     use jsonwebtoken::{decode, DecodingKey, Validation};
 
@@ -430,13 +503,19 @@ pub async fn reap_disconnected_guests(state: &SioState) -> usize {
         return 0;
     };
 
-    let connected: std::collections::HashSet<i64> = state
+    let mut connected: std::collections::HashSet<i64> = state
         .connected_users
         .read()
         .await
         .values()
         .filter_map(|u| u.db_user_id)
         .collect();
+    // Presence snapshots can lag socket admission/cleanup. The namespace is
+    // the transport liveness authority, including idle signed guest sessions.
+    if let Some(io) = state.app.socket_io() {
+        connected.extend(io.sockets().iter().filter_map(|socket|
+            socket.extensions.get::<SioIdentity>().map(|identity| identity.user_id)));
+    }
 
     let mut reaped = 0;
     for user in users {
@@ -483,6 +562,13 @@ pub fn spawn_sweep_loop(state: SioState) -> tokio::task::JoinHandle<()> {
         loop {
             interval.tick().await;
             state.app.instance_operations.run(async {
+                if let Some(io) = state.app.socket_io() {
+                    let live: HashSet<_> = io.sockets().iter().map(|socket| socket.id.to_string()).collect();
+                    let now = now_micros();
+                    for (socket_id, user) in state.connected_users.write().await.iter_mut() {
+                        if live.contains(socket_id) { user.last_seen_micros = now; }
+                    }
+                }
                 let (u, v, g) = sweep_stale_state(
                     &state.connected_users,
                     &state.voice_channels,
@@ -542,6 +628,61 @@ pub struct SocketIdentity {
     pub is_guest: bool,
     pub jti: String,
     pub iat: i64,
+    // Also retain proof for direct/internal handler invocations. Production
+    // callbacks keep a shared copy in their owned event scope, including when
+    // a helper uses only `resolve_identity(...).is_some()`.
+    credential: Option<SocketCredentialProof>,
+}
+
+#[derive(Clone)]
+struct SocketCredentialProof {
+    store: Arc<RwLock<crate::state::RevocationStore>>,
+    reader: Arc<tokio::sync::OwnedRwLockReadGuard<crate::state::RevocationStore>>,
+}
+
+impl std::fmt::Debug for SocketCredentialProof {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("SocketCredentialProof(..)")
+    }
+}
+
+tokio::task_local! {
+    static SOCKET_EVENT_CREDENTIAL: Arc<tokio::sync::OnceCell<SocketCredentialProof>>;
+}
+
+/// Retain a single credential reader through the existing owned callback.
+/// Identity resolution happens after membership admission inside the future;
+/// repeated checks reuse this reader even when a denial writer is queued.
+async fn scoped_socket_event<F>(
+    operations: crate::instance_operations::InstanceOperations,
+    future: F,
+) -> F::Output
+where
+    F: std::future::Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    let context = SOCKET_EVENT_CREDENTIAL
+        .try_with(Arc::clone)
+        .unwrap_or_else(|_| Arc::new(tokio::sync::OnceCell::new()));
+    crate::instance_operations::scoped(operations, async move {
+        SOCKET_EVENT_CREDENTIAL.scope(context, future).await
+    })
+    .await
+}
+
+async fn socket_credential_reader(app: &AppState) -> Option<SocketCredentialProof> {
+    let context = SOCKET_EVENT_CREDENTIAL.try_with(Arc::clone).ok();
+    let acquire = || async {
+        SocketCredentialProof {
+            store: app.revocations.clone(),
+            reader: Arc::new(app.revocations.clone().read_owned().await),
+        }
+    };
+    let proof = match context {
+        Some(context) => context.get_or_init(acquire).await.clone(),
+        None => acquire().await,
+    };
+    Arc::ptr_eq(&proof.store, &app.revocations).then_some(proof)
 }
 
 /// Resolve the socket's identity from the handshake-validated `SioIdentity`
@@ -550,10 +691,23 @@ pub struct SocketIdentity {
 /// this emits `auth-revoked` and disconnects the socket before returning
 /// `None`.
 ///
-/// Token signature/expiry are already validated at handshake. This only
-/// performs the async checks (revocation + ban) that cannot run in the
-/// connect closure.
+/// Token signature/expiry and current principal are validated by handshake
+/// middleware. Established events check revocation, current account and bans
+/// again, without expiring an otherwise healthy long-lived call.
 pub async fn resolve_identity(socket: &SocketRef, state: &SioState) -> Option<SocketIdentity> {
+    let proof = socket_credential_reader(&state.app).await?;
+    let mut identity = resolve_identity_under(socket, state, &proof.reader).await?;
+    identity.credential = Some(proof);
+    Some(identity)
+}
+
+/// Account-denial callbacks supply their already-held writer here. They must
+/// not enter the ordinary callback reader scope or call resolve_identity.
+async fn resolve_identity_under(
+    socket: &SocketRef,
+    state: &SioState,
+    revocations: &crate::state::RevocationStore,
+) -> Option<SocketIdentity> {
     let sio = socket.extensions.get::<SioIdentity>().map(|x| x.clone());
 
     let (user_id, username, is_guest) = if let Some(ref id) = sio {
@@ -579,11 +733,17 @@ pub async fn resolve_identity(socket: &SocketRef, state: &SioState) -> Option<So
         .get::<AuthToken>()
         .map(|t| t.0.clone())
         .unwrap_or_default();
-    if socket_token_revoked(&state.app, &token).await {
+    if socket_token_revoked_by(&token, &state.app.config.jwt_secret, revocations) {
         let _ = socket.emit(
             "auth-revoked",
             &json!({ "reason": "session revoked; please sign in again" }),
         );
+        let _ = socket.clone().disconnect();
+        return None;
+    }
+
+    if crate::auth_extractor::ensure_active_principal(&state.app, user_id).await.is_err() {
+        let _ = socket.emit("auth-revoked", &json!({ "reason": "account access unavailable; please sign in again" }));
         let _ = socket.clone().disconnect();
         return None;
     }
@@ -606,6 +766,7 @@ pub async fn resolve_identity(socket: &SocketRef, state: &SioState) -> Option<So
         is_guest,
         jti: String::new(),
         iat: 0,
+        credential: None,
     })
 }
 
@@ -648,11 +809,6 @@ async fn message_in_channel(state: &SioState, channel_id: &str, message_id: &str
 /// Invalid signatures/claims fail closed; signed guest credentials use the same
 /// rule. Individual-jti entries remain subject to the existing exp+1h pruning
 /// limit; unlike user/global floors they are not retained indefinitely.
-async fn socket_token_revoked(app: &AppState, token: &str) -> bool {
-    let revocations = app.revocations.read().await;
-    socket_token_revoked_by(token, &app.config.jwt_secret, &revocations)
-}
-
 fn socket_token_revoked_by(token: &str, secret: &str, revocations: &crate::state::RevocationStore) -> bool {
     if token.is_empty() { return true; }
     use jsonwebtoken::{decode, DecodingKey, Validation};
@@ -887,6 +1043,315 @@ mod socket_revocation_tests {
 // ---------------------------------------------------------------------------
 // Protocol mapping helpers
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod socket_event_admission_tests {
+    use super::*;
+    use crate::{
+        api::routes::create_api_router,
+        auth_extractor::JwtClaims,
+        config::{LoreAddonConfig, ServerConfig, ServerRole},
+    };
+    use axum::{
+        body::{to_bytes, Body},
+        http::{Method, Request, StatusCode},
+        Router,
+    };
+    use tower::ServiceExt;
+    use wabidb::domain::{ChannelKind, MemberRole};
+
+    async fn transport(app: &Router, method: Method, path: &str, body: String) -> String {
+        let response = tokio::time::timeout(
+            Duration::from_secs(5),
+            app.clone().oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header("content-type", "text/plain;charset=UTF-8")
+                    .body(Body::from(body))
+                    .unwrap(),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        String::from_utf8(
+            to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap()
+    }
+
+    async fn fixture() -> (
+        tempfile::TempDir,
+        SioState,
+        SocketRef,
+        SocketIo,
+        String,
+        JwtClaims,
+    ) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path();
+        let app_state = Arc::new(
+            AppState::new(ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+                data_dir: path.to_string_lossy().into_owned(),
+                uploads_dir: path.join("uploads").to_string_lossy().into_owned(),
+                jwt_secret: "socket-event-admission-fixture".into(),
+                turn_enabled: false,
+                turn_uri: None,
+                turn_secret: None,
+                node_id: "socket-event-test".into(),
+                is_primary: true,
+                server_role: ServerRole::Authority,
+                authority_url: None,
+                admin_user_ids: vec![],
+                blacklist_file: path.join("blacklist").to_string_lossy().into_owned(),
+                max_body_size: None,
+                mesh_enabled: false,
+                mesh_peers: vec![],
+                lore: LoreAddonConfig::default(),
+            })
+            .await
+            .unwrap(),
+        );
+        let uid = app_state
+            .wdb
+            .create_user("event-owner", None, "registered-hash")
+            .await
+            .unwrap();
+        app_state.wdb.claim_owner(uid).await.unwrap();
+        *app_state.owner_user_id.write().await = Some(uid as i64);
+        let channel = app_state
+            .wdb
+            .create_channel("event-admission-canary", ChannelKind::Text, uid, false)
+            .await
+            .unwrap();
+        app_state
+            .wdb
+            .add_channel_member(&channel, uid, MemberRole::Member)
+            .await
+            .unwrap();
+        let now = chrono::Utc::now().timestamp();
+        let claims = JwtClaims {
+            sub: uid.to_string(),
+            username: "event-owner".into(),
+            is_guest: false,
+            exp: now + 3600,
+            iat: now,
+            jti: uuid::Uuid::new_v4().to_string(),
+            stepup: false,
+            token_type: "access".into(),
+        };
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(app_state.config.jwt_secret.as_bytes()),
+        )
+        .unwrap();
+        let app = create_api_router(app_state.clone())
+            .with_state(app_state.clone())
+            .layer(create_socket_layer(app_state.clone()));
+        let open = transport(
+            &app,
+            Method::GET,
+            "/socket.io/?EIO=4&transport=polling",
+            String::new(),
+        )
+        .await;
+        let handshake: Value = serde_json::from_str(open.strip_prefix('0').unwrap()).unwrap();
+        let path = format!(
+            "/socket.io/?EIO=4&transport=polling&sid={}",
+            handshake["sid"].as_str().unwrap()
+        );
+        transport(
+            &app,
+            Method::POST,
+            &path,
+            format!("40{}", json!({"token": token})),
+        )
+        .await;
+        let connected = transport(&app, Method::GET, &path, String::new()).await;
+        assert!(connected.starts_with("40"), "{connected}");
+        let io = app_state.socket_io().unwrap();
+        let socket = io.sockets().into_iter().next().unwrap();
+        assert!(socket.extensions.get::<SioAdmissionGuard>().is_none());
+        let state = SioState {
+            app: app_state,
+            connected_users: Arc::new(RwLock::new(HashMap::new())),
+            voice_channels: Arc::new(RwLock::new(HashMap::new())),
+            group_call_sessions: Arc::new(RwLock::new(HashMap::new())),
+            breakout_rooms: Arc::new(RwLock::new(HashMap::new())),
+            roster_cache: Arc::new(TokioMutex::new(None)),
+        };
+        (directory, state, socket, io, channel, claims)
+    }
+
+    #[tokio::test]
+    async fn message_waiting_on_retention_keeps_current_credential_until_actual_publication() {
+        let (_directory, state, socket, io, channel, _) = fixture().await;
+        let app = state.app.clone();
+        let _membership = app.membership_gate.clone().read_owned().await;
+        let policy = app.retention_policy_lock.lock().await;
+        // Match the production callback's credential context. The post-gate
+        // channel check must reuse its first proof behind a queued denial,
+        // rather than acquire a second fair reader while retaining the first.
+        let mut callback = Box::pin(SOCKET_EVENT_CREDENTIAL.scope(
+            Arc::new(tokio::sync::OnceCell::new()),
+            on_message(
+                socket,
+                json!({
+                    "channelId": channel, "text": "credential-canary", "clientMessageId": "credential-canary"
+                }),
+                state,
+                io,
+            ),
+        ));
+        // All preceding identity/channel lookups use ready projection state;
+        // this exact handler poll parks at the deliberately held policy mutex.
+        assert!(futures::poll!(callback.as_mut()).is_pending());
+        assert!(app
+            .wdb
+            .list_messages_typed(&channel, 100)
+            .await
+            .unwrap()
+            .is_empty());
+        let mut denial = Box::pin(app.revocations.clone().write_owned());
+        assert!(
+            futures::poll!(denial.as_mut()).is_pending(),
+            "revocation can finish while an authenticated message waits to publish"
+        );
+        drop(policy);
+        tokio::time::timeout(Duration::from_secs(5), callback)
+            .await
+            .unwrap();
+        let _denial = tokio::time::timeout(Duration::from_secs(5), denial)
+            .await
+            .unwrap();
+        let messages = app.wdb.list_messages_typed(&channel, 100).await.unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content, "credential-canary");
+    }
+
+    #[tokio::test]
+    async fn callback_reuses_one_credential_reader_behind_a_queued_denial_and_preserves_call_expiry_policy(
+    ) {
+        let (_directory, state, socket, _, _, mut claims) = fixture().await;
+        let app = state.app.clone();
+        // Model an already-admitted call whose original signed credential has
+        // aged past exp. Fresh handshakes still reject this same credential.
+        claims.iat = chrono::Utc::now().timestamp() - 7200;
+        claims.exp = chrono::Utc::now().timestamp() - 3600;
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(app.config.jwt_secret.as_bytes()),
+        )
+        .unwrap();
+        assert!(validate_token_sync(&token, &app.config.jwt_secret).is_err());
+        socket.extensions.insert(AuthToken(token));
+        scoped_socket_event(app.instance_operations.clone(), async move {
+            let _membership = state.app.membership_gate.clone().read_owned().await;
+            assert!(resolve_identity(&socket, &state).await.is_some());
+            // The temporary identity above has already dropped; the callback
+            // context must still own its proof and reuse it on the next check.
+            let mut denial = Box::pin(state.app.revocations.clone().write_owned());
+            assert!(futures::poll!(denial.as_mut()).is_pending());
+            assert!(
+                tokio::time::timeout(Duration::from_secs(5), resolve_identity(&socket, &state))
+                    .await
+                    .unwrap()
+                    .is_some(),
+                "nested reader waited behind its own denial writer"
+            );
+            drop(denial);
+        })
+        .await;
+        assert!(
+            app.revocations.try_write().is_ok(),
+            "callback leaked its credential reader"
+        );
+    }
+
+    #[tokio::test]
+    async fn aborted_callback_keeps_credential_and_membership_through_durable_message_before_revocation(
+    ) {
+        let (_directory, state, socket, io, channel, claims) = fixture().await;
+        let app = state.app.clone();
+        let operations = app.instance_operations.clone();
+        let (started, started_rx) = tokio::sync::oneshot::channel();
+        let (release, release_rx) = tokio::sync::oneshot::channel();
+        let message_channel = channel.clone();
+        let caller = tokio::spawn(async move {
+            scoped_socket_event(operations, async move {
+                let _membership = state.app.membership_gate.clone().read_owned().await;
+                assert!(resolve_identity(&socket, &state).await.is_some());
+                started.send(()).unwrap();
+                release_rx.await.unwrap();
+                // This re-enters identity resolution behind the queued denial
+                // writer before submitting the real durable message command.
+                on_message(
+                    socket,
+                    json!({"channelId": message_channel,
+                    "text":"owned-credential-canary", "clientMessageId":"owned-credential-canary"}),
+                    state,
+                    io,
+                )
+                .await;
+            })
+            .await;
+        });
+        tokio::time::timeout(Duration::from_secs(5), started_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(app.membership_gate.try_write().is_err());
+        let writer = app.clone();
+        let mut denial =
+            tokio::spawn(async move { writer.revoke_token_with_exp(claims.jti, claims.exp).await });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while app.revocations.try_read().is_ok() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(
+            !denial.is_finished(),
+            "revocation overtook the admitted callback"
+        );
+        caller.abort();
+        assert!(caller.await.unwrap_err().is_cancelled());
+        assert!(app.membership_gate.try_write().is_err());
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), &mut denial)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let messages = app.wdb.list_messages_typed(&channel, 100).await.unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content, "owned-credential-canary");
+        assert!(app
+            .session_messages
+            .read()
+            .await
+            .get(&channel)
+            .unwrap()
+            .iter()
+            .any(|message| message["text"] == "owned-credential-canary"));
+        let checkpoint =
+            tokio::time::timeout(Duration::from_secs(5), app.instance_operations.quiesce())
+                .await
+                .unwrap()
+                .unwrap();
+        drop(checkpoint);
+    }
+}
 
 #[allow(dead_code)]
 fn row_to_channel_view(row: &HashMap<String, Value>) -> Value {

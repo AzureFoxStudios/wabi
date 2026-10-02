@@ -1,11 +1,4 @@
-// WDB-compat shim: this file calls `state.app.wdb.X(...)` for
-// methods the WDB doesn't have equivalents for yet
-// (is_user_muted, get_channel_retention, mute_user, etc.).
-// The compat WdbClient in `db/` returns no-op defaults for all
-// of these. When WDB has the corresponding engine methods, this
-// file can be migrated to use `state.app.wdb.X(...)` instead.
-// The compat shim itself is a temporary layer and will be removed
-// once the last socketio file is migrated.
+// Voice policy adds entry defaults and capacity to current durable channel admission.
 
 #[allow(dead_code)]
 async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, _io: SocketIo) {
@@ -18,22 +11,25 @@ async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, 
     let Some(identity) = require_call_channel(&socket, &state, &channel_id,
         wabidb::domain::ChannelKind::Voice, "voice-channel-error", data.get("requestId")).await else { return; };
     let user_id_num = identity.user_id;
+    let _channel = crate::channel_access::publication_gate(&state.app, &channel_id).lock().await;
+    if require_call_channel(&socket, &state, &channel_id, wabidb::domain::ChannelKind::Voice, "voice-channel-error", data.get("requestId")).await.is_none() { return; }
+    let policy = match crate::api::voice_policy::get(&state.app.config.data_dir, &channel_id) {
+        Ok(policy) => policy,
+        Err(_) => { let _ = socket.emit("voice-channel-error", &json!({ "channelId": channel_id, "requestId": data.get("requestId"), "error": "Channel voice policy unavailable" })); return; }
+    };
+    let forced_listen_only = matches!(policy.entry_mode, crate::api::voice_policy::VoiceEntryMode::ListenOnly);
+    let muted_on_entry = matches!(policy.entry_mode, crate::api::voice_policy::VoiceEntryMode::Muted);
 
-    // Check if user is muted on this voice channel
-    if user_id_num > 0 {
-        if let Ok(true) = state.app.wdb.is_user_muted(&channel_id, user_id_num as u64).await {
-            warn!("[sio] user {} muted in voice channel {}", user_id_num, channel_id);
-            warn!("[sio] on_voice_channel_join called: channel_id={}, user_id_num={}", channel_id, user_id_num);
-            let _ = socket.emit("voice-channel-error", &json!({ "channelId": channel_id, "requestId": data.get("requestId"), "error": "You are muted in this channel" }));
-            warn!("[sio] on_voice_channel_join: user {} muted, returning", user_id_num);
-            return;
-        }
-    }
-
-	warn!("[sio] on_voice_channel_join called: channel_id={}, user_id_num={}", channel_id, user_id_num);
-
-    let is_deafened = if user_id_num > 0 {
-        state.app.wdb.is_user_deafened(&channel_id, user_id_num as u64).await.unwrap_or(false)
+    // Server mute is a publication restriction, not an eviction. Keep the
+    // participant present so they can hear, see moderation state and later be
+    // unmuted without rejoining the room.
+    let server_muted = if user_id_num > 0 {
+        match state.app.wdb.is_user_muted(&channel_id, user_id_num as u64).await { Ok(value) => value, Err(_) => { let _ = socket.emit("voice-channel-error", &json!({ "channelId": channel_id, "requestId": data.get("requestId"), "error": "Channel moderation state unavailable" })); return; } }
+    } else {
+        false
+    };
+    let server_deafened = if user_id_num > 0 {
+        match state.app.wdb.is_user_deafened(&channel_id, user_id_num as u64).await { Ok(value) => value, Err(_) => { let _ = socket.emit("voice-channel-error", &json!({ "channelId": channel_id, "requestId": data.get("requestId"), "error": "Channel moderation state unavailable" })); return; } }
     } else {
         false
     };
@@ -43,18 +39,14 @@ async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, 
     } else {
         socket.id.to_string()
     };
+    let socket_id = socket.id.to_string();
 
     let (username, color) = {
-    let connected = state.connected_users.read().await;
-    match connected.get(&socket.id.to_string()) {
-    Some(u) => (u.username.clone(), u.color.clone()),
-    // Presence map miss (join race): fall back to the handshake JWT
-    // identity rather than broadcasting "unknown".
-    None => match resolve_sio_identity(&socket) {
-    Some(identity) => (identity.username.clone(), "#98D8C8".to_string()),
-    None => ("unknown".to_string(), "#98D8C8".to_string()),
-    },
-    }
+        let connected = state.connected_users.read().await;
+        match connected.get(&socket_id) {
+            Some(u) => (u.username.clone(), u.color.clone()),
+            None => (identity.username.clone(), "#98D8C8".to_string()),
+        }
     };
 
     let profile_picture = if user_id_num > 0 {
@@ -67,14 +59,14 @@ async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, 
     };
 
     let participant = VoiceParticipant {
-        socket_id: socket.id.to_string(),
+        socket_id: socket_id.clone(),
         stable_id: stable_id.clone(),
         username: username.clone(),
         color: color.clone(),
-        is_muted: false,
-        is_deafened,
-        transmit_mode: "primary".to_string(),
-        is_listening_only: false,
+        is_muted: server_muted || muted_on_entry,
+        is_deafened: server_deafened,
+        transmit_mode: if forced_listen_only { "listening" } else { "primary" }.to_string(),
+        is_listening_only: forced_listen_only,
         profile_picture,
     };
 
@@ -82,32 +74,79 @@ async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, 
         let mut voice = state.voice_channels.write().await;
         if !voice_intent_current(&socket, &channel_id, false, epoch) { return; }
         let members = voice.entry(channel_id.clone()).or_default();
-        members.retain(|p| p.socket_id != socket.id.to_string());
+
+        // Capacity is an Authority decision. Count stable users under the same
+        // roster lock used for insertion so concurrent joins cannot over-admit.
+        if let Some(limit) = policy.user_limit {
+            let already_present = members.iter().any(|p| p.stable_id == stable_id);
+            let unique_count = members
+                .iter()
+                .map(|p| p.stable_id.as_str())
+                .collect::<std::collections::HashSet<_>>()
+                .len();
+            if !already_present && unique_count >= limit as usize {
+                drop(voice);
+                let _ = socket.emit("voice-channel-error", &json!({
+                    "channelId": channel_id,
+                    "requestId": data.get("requestId"),
+                    "code": "voice_full",
+                    "error": format!("Voice channel is full ({limit}/{limit})"),
+                }));
+                return;
+            }
+        }
+
+        members.retain(|p| p.socket_id != socket_id);
         members.push(participant.clone());
         members.iter().map(voice_participant_to_view).collect()
     };
 
+    // Exact-device admission is the bridge from Socket.IO control-plane consent
+    // to SFU/relay authorization. HTTP media-token requests must match this
+    // user+channel+socket tuple; another tab cannot borrow this permission.
+    crate::api::voice_policy::record_admission(&state.app.config.data_dir, &channel_id, crate::api::voice_policy::VoiceAdmission {
+        user_id: user_id_num,
+        channel_id: channel_id.clone(),
+        socket_id: socket_id.clone(),
+        listening_only: participant.is_listening_only,
+        policy_listening_only: forced_listen_only,
+        muted_on_entry,
+        server_muted,
+        server_deafened,
+    });
+    crate::api::voice_self_state::set(
+        &channel_id,
+        &socket_id,
+        crate::api::voice_self_state::SelfVoiceState {
+            muted: muted_on_entry,
+            deafened: false,
+        },
+    );
+
     let _ = socket.emit("voice-channel-admitted", &json!({
-        "channelId": channel_id, "requestId": data.get("requestId"), "listeningOnly": false,
+        "channelId": channel_id,
+        "requestId": data.get("requestId"),
+        "listeningOnly": participant.is_listening_only,
+        "mutedOnEntry": muted_on_entry,
+        "serverMuted": server_muted,
+        "serverDeafened": server_deafened,
     }));
     let _ = socket.emit(
         "voice-channel-state",
         &json!({
             "channelId": channel_id,
-            "members":   current_members,
+            "members": current_members,
         }),
     );
-    warn!("[sio] emitted voice-channel-state: channel_id={}, member_count={}", channel_id, current_members.len());
 
     let participant_view = voice_participant_to_view(&participant);
-
     let _ = socket
         .broadcast()
         .emit(
             "voice-channel-joined",
             &json!({
                 "channelId": channel_id,
-                "user":      participant_view,
+                "user": participant_view,
             }),
         )
         .await;
@@ -118,9 +157,9 @@ async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, 
             "voice-channel-user-joined",
             &json!({
                 "channelId": channel_id,
-                "userId":    stable_id,
-                "socketId":  socket.id.to_string(),
-                "username":  username,
+                "userId": stable_id,
+                "socketId": socket_id,
+                "username": username,
             }),
         )
         .await;
@@ -137,24 +176,26 @@ async fn on_voice_channel_subscribe(socket: SocketRef, data: Value, state: SioSt
     let Some(identity) = require_call_channel(&socket, &state, &channel_id,
         wabidb::domain::ChannelKind::Voice, "voice-channel-error", data.get("requestId")).await else { return; };
     let user_id_num = identity.user_id;
+    let _channel = crate::channel_access::publication_gate(&state.app, &channel_id).lock().await;
+    if require_call_channel(&socket, &state, &channel_id, wabidb::domain::ChannelKind::Voice, "voice-channel-error", data.get("requestId")).await.is_none() { return; }
+    let policy = match crate::api::voice_policy::get(&state.app.config.data_dir, &channel_id) {
+        Ok(policy) => policy,
+        Err(_) => { let _ = socket.emit("voice-channel-error", &json!({ "channelId": channel_id, "requestId": data.get("requestId"), "error": "Channel voice policy unavailable" })); return; }
+    };
 
     let stable_id = if user_id_num > 0 {
         format!("user-{}", user_id_num)
     } else {
         socket.id.to_string()
     };
+    let socket_id = socket.id.to_string();
 
     let (username, color) = {
-    let connected = state.connected_users.read().await;
-    match connected.get(&socket.id.to_string()) {
-    Some(u) => (u.username.clone(), u.color.clone()),
-    // Presence map miss (join race): fall back to the handshake JWT
-    // identity rather than broadcasting "unknown".
-    None => match resolve_sio_identity(&socket) {
-    Some(identity) => (identity.username.clone(), "#98D8C8".to_string()),
-    None => ("unknown".to_string(), "#98D8C8".to_string()),
-    },
-    }
+        let connected = state.connected_users.read().await;
+        match connected.get(&socket_id) {
+            Some(u) => (u.username.clone(), u.color.clone()),
+            None => (identity.username.clone(), "#98D8C8".to_string()),
+        }
     };
 
     let profile_picture = if user_id_num > 0 {
@@ -165,25 +206,56 @@ async fn on_voice_channel_subscribe(socket: SocketRef, data: Value, state: SioSt
     } else {
         None
     };
+    let server_muted = if user_id_num > 0 {
+        match state.app.wdb.is_user_muted(&channel_id, user_id_num as u64).await { Ok(value) => value, Err(_) => { let _ = socket.emit("voice-channel-error", &json!({ "channelId": channel_id, "requestId": data.get("requestId"), "error": "Channel moderation state unavailable" })); return; } }
+    } else {
+        false
+    };
+    let server_deafened = if user_id_num > 0 {
+        match state.app.wdb.is_user_deafened(&channel_id, user_id_num as u64).await { Ok(value) => value, Err(_) => { let _ = socket.emit("voice-channel-error", &json!({ "channelId": channel_id, "requestId": data.get("requestId"), "error": "Channel moderation state unavailable" })); return; } }
+    } else {
+        false
+    };
 
+    let mut actual_listening_only = true;
     let current_members: Vec<Value> = {
         let mut voice = state.voice_channels.write().await;
         if !voice_intent_current(&socket, &channel_id, true, epoch) { return; }
         let members = voice.entry(channel_id.clone()).or_default();
-        // If this socket is already a primary (transmitting) participant in the
-        // channel, do NOT demote it to a listen-only participant.
+        // If this socket is already a primary participant in the channel, a
+        // redundant subscribe must not demote its media admission.
         let already_primary = members
             .iter()
-            .any(|p| p.socket_id == socket.id.to_string() && !p.is_listening_only);
-        if !already_primary {
-            members.retain(|p| p.socket_id != socket.id.to_string());
+            .any(|p| p.socket_id == socket_id && !p.is_listening_only);
+        if already_primary {
+            actual_listening_only = false;
+        } else {
+            if let Some(limit) = policy.user_limit {
+                let already_present = members.iter().any(|p| p.stable_id == stable_id);
+                let unique_count = members
+                    .iter()
+                    .map(|p| p.stable_id.as_str())
+                    .collect::<std::collections::HashSet<_>>()
+                    .len();
+                if !already_present && unique_count >= limit as usize {
+                    drop(voice);
+                    let _ = socket.emit("voice-channel-error", &json!({
+                        "channelId": channel_id,
+                        "requestId": data.get("requestId"),
+                        "code": "voice_full",
+                        "error": format!("Voice channel is full ({limit}/{limit})"),
+                    }));
+                    return;
+                }
+            }
+            members.retain(|p| p.socket_id != socket_id);
             members.push(VoiceParticipant {
-                socket_id: socket.id.to_string(),
+                socket_id: socket_id.clone(),
                 stable_id: stable_id.clone(),
                 username: username.clone(),
                 color: color.clone(),
-                is_muted: false,
-                is_deafened: false,
+                is_muted: server_muted,
+                is_deafened: server_deafened,
                 transmit_mode: "listening".to_string(),
                 is_listening_only: true,
                 profile_picture: profile_picture.clone(),
@@ -192,17 +264,41 @@ async fn on_voice_channel_subscribe(socket: SocketRef, data: Value, state: SioSt
         members.iter().map(voice_participant_to_view).collect()
     };
 
+    // Preserve a primary admission when a legacy/redundant subscribe arrives.
+    // Otherwise this is an exact receive-only admission for this socket.
+    if actual_listening_only || crate::api::voice_policy::admission_for(&state.app.config.data_dir, &channel_id, user_id_num, &socket_id).is_none() {
+        crate::api::voice_policy::record_admission(&state.app.config.data_dir, &channel_id, crate::api::voice_policy::VoiceAdmission {
+            user_id: user_id_num,
+            channel_id: channel_id.clone(),
+            socket_id: socket_id.clone(),
+            listening_only: actual_listening_only,
+            policy_listening_only: false,
+            muted_on_entry: false,
+            server_muted,
+            server_deafened,
+        });
+    }
+    if actual_listening_only {
+        crate::api::voice_self_state::set(
+            &channel_id,
+            &socket_id,
+            crate::api::voice_self_state::SelfVoiceState::default(),
+        );
+    }
+
     let _ = socket.emit("voice-channel-admitted", &json!({
-        "channelId": channel_id, "requestId": data.get("requestId"), "listeningOnly": true,
+        "channelId": channel_id,
+        "requestId": data.get("requestId"),
+        "listeningOnly": actual_listening_only,
+        "serverMuted": server_muted,
+        "serverDeafened": server_deafened,
     }));
-    // Broadcast the full roster so every client (including the subscriber)
-    // sees the updated member list with the listen-only participant.
     let _ = io
         .emit(
             "voice-channel-state",
             &json!({
                 "channelId": channel_id,
-                "members":   current_members,
+                "members": current_members,
             }),
         )
         .await;
@@ -216,8 +312,9 @@ async fn on_voice_channel_unsubscribe(socket: SocketRef, data: Value, state: Sio
     };
 
     advance_voice_intent(&socket, &channel_id, true);
-    let identity = resolve_sio_identity(&socket);
-    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let Some(identity) = resolve_identity(&socket, &state).await else { return; };
+    let user_id_num = identity.user_id;
+    let _channel = crate::channel_access::publication_gate(&state.app, &channel_id).lock().await;
     let _stable_id = if user_id_num > 0 {
         format!("user-{}", user_id_num)
     } else {
@@ -244,6 +341,8 @@ async fn on_voice_channel_unsubscribe(socket: SocketRef, data: Value, state: Sio
     };
 
     if removed {
+        crate::api::voice_policy::remove_admission(&state.app.config.data_dir, &channel_id, &socket.id.to_string());
+        crate::api::voice_self_state::remove(&channel_id, &socket.id.to_string());
         let members: Vec<Value> = {
             let voice = state.voice_channels.read().await;
             voice
@@ -275,8 +374,9 @@ async fn on_voice_channel_leave(socket: SocketRef, data: Value, state: SioState,
     };
 
     advance_voice_intent(&socket, &channel_id, false);
-    let identity = resolve_sio_identity(&socket);
-    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let Some(identity) = resolve_identity(&socket, &state).await else { return; };
+    let user_id_num = identity.user_id;
+    let _channel = crate::channel_access::publication_gate(&state.app, &channel_id).lock().await;
     let stable_id = if user_id_num > 0 {
         format!("user-{}", user_id_num)
     } else {
@@ -292,7 +392,7 @@ async fn on_voice_channel_leave(socket: SocketRef, data: Value, state: SioState,
             // from whichever channel it is transmitting on.
             let is_primary = members
                 .iter()
-                .any(|p| p.socket_id == socket.id.to_string() && !p.is_listening_only);
+                .any(|p| p.socket_id == socket.id.to_string() && (!p.is_listening_only || crate::api::voice_policy::admission_for(&state.app.config.data_dir, &channel_id, user_id_num, &p.socket_id).is_some_and(|a| a.policy_listening_only)));
             if is_primary {
                 members.retain(|p| p.socket_id != socket.id.to_string());
             }
@@ -301,6 +401,8 @@ async fn on_voice_channel_leave(socket: SocketRef, data: Value, state: SioState,
     };
     // A stale primary leave must not announce that a surviving listener left.
     if !removed { return; }
+    crate::api::voice_policy::remove_admission(&state.app.config.data_dir, &channel_id, &socket.id.to_string());
+    crate::api::voice_self_state::remove(&channel_id, &socket.id.to_string());
 
     let _ = io
         .emit(
@@ -351,8 +453,8 @@ async fn on_set_voice_transmit_mode(socket: SocketRef, data: Value, state: SioSt
     }
     .to_string();
 
-    let identity = resolve_sio_identity(&socket);
-    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let Some(identity) = resolve_identity(&socket, &state).await else { return; };
+    let user_id_num = identity.user_id;
     let stable_id = if user_id_num > 0 {
         format!("user-{}", user_id_num)
     } else {
@@ -365,7 +467,8 @@ async fn on_set_voice_transmit_mode(socket: SocketRef, data: Value, state: SioSt
         for (channel_id, members) in voice.iter_mut() {
             let mut touched = false;
             for participant in members.iter_mut().filter(|p| p.socket_id == socket.id.to_string()) {
-                participant.transmit_mode = mode.clone();
+                let forced_listener = crate::api::voice_policy::admission_for(&state.app.config.data_dir, channel_id, user_id_num, &participant.socket_id).is_some_and(|a| a.policy_listening_only);
+                participant.transmit_mode = if forced_listener { "listening".into() } else { mode.clone() };
                 touched = true;
             }
             if touched {
@@ -399,10 +502,10 @@ async fn on_set_voice_transmit_mode(socket: SocketRef, data: Value, state: SioSt
     }
 }
 
-/// Client-authority self voice state (self-mute/self-deafen chips). The client
-/// owns its own mic state; this handler mirrors it into every shared roster so
-/// other members' tiles update without a server-side mute model. Mirrors the
-/// transmit-mode handler's shape exactly.
+/// Client-authority self voice state. Durable moderation is deliberately kept
+/// separate: a client cannot visually or transport-wise clear a server mute by
+/// emitting `muted:false`, and an admin unmute does not erase the user's own
+/// self-mute choice.
 #[allow(dead_code)]
 async fn on_voice_self_state(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
     let muted = data.get("muted").and_then(|v| v.as_bool());
@@ -411,26 +514,56 @@ async fn on_voice_self_state(socket: SocketRef, data: Value, state: SioState, io
         return;
     }
 
-    let identity = resolve_sio_identity(&socket);
-    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
-    let stable_id = if user_id_num > 0 {
-        format!("user-{}", user_id_num)
-    } else {
-        socket.id.to_string()
+    let Some(identity) = resolve_identity(&socket, &state).await else { return; };
+    let user_id_num = identity.user_id;
+    if user_id_num <= 0 { return; }
+    let socket_id = socket.id.to_string();
+
+    let channel_ids: Vec<String> = {
+        let voice = state.voice_channels.read().await;
+        voice
+            .iter()
+            .filter(|(_, members)| members.iter().any(|p| p.socket_id == socket_id))
+            .map(|(channel_id, _)| channel_id.clone())
+            .collect()
     };
+
+    let mut effective: HashMap<String, (bool, bool)> = HashMap::new();
+    for channel_id in &channel_ids {
+        let self_state = crate::api::voice_self_state::update(
+            channel_id,
+            &socket_id,
+            muted,
+            deafened,
+        );
+        let server_muted = state.app.wdb
+            .is_user_muted(channel_id, user_id_num as u64)
+            .await
+            .unwrap_or(true);
+        let server_deafened = state.app.wdb
+            .is_user_deafened(channel_id, user_id_num as u64)
+            .await
+            .unwrap_or(true);
+        effective.insert(
+            channel_id.clone(),
+            (self_state.muted || server_muted, self_state.deafened || server_deafened),
+        );
+        if let Some(mut admission) = crate::api::voice_policy::admission_for(&state.app.config.data_dir, channel_id, user_id_num, &socket_id) {
+            admission.server_muted = server_muted;
+            admission.server_deafened = server_deafened;
+            crate::api::voice_policy::record_admission(&state.app.config.data_dir, channel_id, admission);
+        }
+    }
 
     let updated_channels: Vec<(String, Vec<Value>)> = {
         let mut voice = state.voice_channels.write().await;
         let mut updated = Vec::new();
         for (channel_id, members) in voice.iter_mut() {
+            let Some((effective_muted, effective_deafened)) = effective.get(channel_id).copied() else { continue; };
             let mut touched = false;
-            for participant in members.iter_mut().filter(|p| p.socket_id == socket.id.to_string()) {
-                if let Some(m) = muted {
-                    participant.is_muted = m;
-                }
-                if let Some(d) = deafened {
-                    participant.is_deafened = d;
-                }
+            for participant in members.iter_mut().filter(|p| p.socket_id == socket_id) {
+                participant.is_muted = effective_muted;
+                participant.is_deafened = effective_deafened;
                 touched = true;
             }
             if touched {
@@ -491,6 +624,8 @@ async fn on_voice_channel_kick(socket: SocketRef, data: Value, state: SioState, 
         return;
     }
 
+    let _channel = crate::channel_access::publication_gate(&state.app, &channel_id).lock().await;
+    if require_call_channel(&socket, &state, &channel_id, wabidb::domain::ChannelKind::Voice, "voice-channel-kick-error", None).await.is_none() { return; }
     // Remove every socket of the target user from the channel roster — primary
     // and listen-only members alike.
     let removed: Vec<VoiceParticipant> = {
@@ -521,6 +656,10 @@ async fn on_voice_channel_kick(socket: SocketRef, data: Value, state: SioState, 
     }
 
     // Tell the kicked client(s) to tear down their media session.
+    for participant in &removed {
+        crate::api::voice_policy::remove_admission(&state.app.config.data_dir, &channel_id, &participant.socket_id);
+        crate::api::voice_self_state::remove(&channel_id, &participant.socket_id);
+    }
     for target in io.sockets().into_iter().filter(|s| removed.iter().any(|p| p.socket_id == s.id.to_string())) {
         // A socket ID is not automatically a room in socketioxide. Address
         // the connection directly; do not rely on a coincidentally joined room.

@@ -5,10 +5,15 @@
 //! - account links upsert/delete against the projection
 //! - policy rows (payments_access) persist
 
+#[path = "fixtures/writer_drain.rs"]
+mod writer_drain;
+
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 
 use axum::body::Body;
+use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use serde_json::Value;
 use tower::ServiceExt;
@@ -59,13 +64,17 @@ async fn fresh_server() -> (tempfile::TempDir, axum::Router) {
 
 fn register_request(username: &str) -> Request<Body> {
     let body = serde_json::json!({ "username": username, "password": "password123" }).to_string();
+    // Real listeners attach the peer address; oneshot fixtures must do so explicitly.
     Request::post("/auth/register")
+        .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 42001))))
         .header("content-type", "application/json")
+        // oneshot bypasses the live server's connection-info injection.
+        .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 3210))))
         .body(Body::from(body))
         .unwrap()
 }
 
-async fn register(app: &axum::Router, username: &str) -> String {
+async fn register_response(app: &axum::Router, username: &str) -> Value {
     let response = app
         .clone()
         .oneshot(register_request(username))
@@ -77,8 +86,11 @@ async fn register(app: &axum::Router, username: &str) -> String {
         .unwrap();
     let text = String::from_utf8_lossy(&bytes).to_string();
     assert_eq!(status, StatusCode::OK, "register {username}: {text}");
-    let json: Value = serde_json::from_str(&text).unwrap();
-    json["token"].as_str().unwrap().to_string()
+    serde_json::from_str(&text).unwrap()
+}
+
+async fn register(app: &axum::Router, username: &str) -> String {
+    register_response(app, username).await["token"].as_str().unwrap().to_string()
 }
 
 fn authed(method: &str, path: &str, token: &str, body: Option<Value>) -> Request<Body> {
@@ -101,6 +113,18 @@ async fn body_json(response: axum::response::Response) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
+async fn actor_user_id(app: &axum::Router, token: &str) -> i64 {
+    // Bootstrap seeding can consume IDs before the first registration. Use
+    // the real authenticated actor rather than assuming registration order.
+    let response = app
+        .clone()
+        .oneshot(authed("GET", "/payments/access", token, None))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    body_json(response).await["actor"]["userId"].as_i64().unwrap()
+}
+
 fn promptpay_create() -> Value {
     serde_json::json!({
         "provider": "promptpay",
@@ -114,8 +138,11 @@ fn promptpay_create() -> Value {
 #[tokio::test]
 async fn intent_created_listed_confirmed_and_persisted() {
     let (tmp, app) = fresh_server().await;
-    let owner = register(&app, "alice").await; // first registrant = owner/admin
+    let owner_registration = register_response(&app, "alice").await; // first registrant = owner/admin
+    let owner = owner_registration["token"].as_str().unwrap().to_string();
+    let owner_id = owner_registration["user"]["id"].as_i64().unwrap();
     let member = register(&app, "bob").await;
+    let owner_id = actor_user_id(&app, &owner).await;
 
     // Non-admin can create an intent…
     let create = app
@@ -176,7 +203,7 @@ async fn intent_created_listed_confirmed_and_persisted() {
     assert_eq!(confirm.status(), StatusCode::OK);
     let confirmed: Value = body_json(confirm).await;
     assert_eq!(confirmed["intent"]["status"], "completed");
-    assert_eq!(confirmed["intent"]["confirmedBy"], 1);
+    assert_eq!(confirmed["intent"]["confirmedBy"], owner_id);
 
     let re_confirm = app
         .clone()
@@ -194,7 +221,7 @@ async fn intent_created_listed_confirmed_and_persisted() {
     // must replay from the stream log into the projection (no JSONL).
     drop(app);
     let config = test_config(tmp.path());
-    let state = Arc::new(AppState::new(config).await.unwrap());
+    let state = Arc::new(writer_drain::app_state(&config).await.unwrap());
     let app = create_api_router(state.clone()).with_state(state);
     let list_after_restart = app
         .clone()
@@ -385,7 +412,7 @@ async fn payment_access_policy_persists() {
     // Restart: policy row must survive (event-sourced projection).
     drop(app);
     let config = test_config(tmp.path());
-    let state = Arc::new(AppState::new(config).await.unwrap());
+    let state = Arc::new(writer_drain::app_state(&config).await.unwrap());
     let app = create_api_router(state.clone()).with_state(state);
     let after: Value = body_json(
         app.clone()
@@ -533,6 +560,7 @@ async fn payment_user_blocks_admin_only() {
     let _ = &_tmp; // keep the temp data dir alive for the engine
     let owner = register(&app, "alice").await;
     let member = register(&app, "bob").await;
+    let member_id = actor_user_id(&app, &member).await;
 
     // Non-admin cannot block.
     let forbidden = app
@@ -541,7 +569,7 @@ async fn payment_user_blocks_admin_only() {
             "POST",
             "/payments/user-blocks",
             &member,
-            Some(serde_json::json!({ "userId": 2, "reason": "spam" })),
+            Some(serde_json::json!({ "userId": member_id, "reason": "spam" })),
         ))
         .await
         .unwrap();
@@ -553,13 +581,13 @@ async fn payment_user_blocks_admin_only() {
             "POST",
             "/payments/user-blocks",
             &owner,
-            Some(serde_json::json!({ "userId": 2, "reason": "spam" })),
+            Some(serde_json::json!({ "userId": member_id, "reason": "spam" })),
         ))
         .await
         .unwrap();
     assert_eq!(blocked.status(), StatusCode::OK);
     let blocked_json: Value = body_json(blocked).await;
-    assert_eq!(blocked_json["block"]["userId"], 2);
+    assert_eq!(blocked_json["block"]["userId"], member_id);
 
     let list: Value = body_json(
         app.clone()
@@ -574,7 +602,7 @@ async fn payment_user_blocks_admin_only() {
         .clone()
         .oneshot(authed(
             "DELETE",
-            "/payments/user-blocks/2",
+            &format!("/payments/user-blocks/{member_id}"),
             &owner,
             None,
         ))

@@ -1,4 +1,7 @@
 //! Friend relationships are authenticated, scoped and replayed from WabiDB.
+#[path = "fixtures/writer_drain.rs"]
+mod writer_drain;
+
 use axum::{
     body::{to_bytes, Body},
     http::{Method, Request, StatusCode},
@@ -109,7 +112,7 @@ async fn requests_acceptance_removal_and_restart_are_scoped_to_the_pair() {
         .create_user("friends_bot", None, "dummy-bot-hash")
         .await
         .unwrap();
-    state.bot_registry.create(bot).await;
+    state.bot_registry.create(bot).await.unwrap();
     let app = create_api_router(state.clone()).with_state(state.clone());
     let first_token = token(&state, first);
     let second_token = token(&state, second);
@@ -152,7 +155,7 @@ async fn requests_acceptance_removal_and_restart_are_scoped_to_the_pair() {
     );
     assert_eq!(
         call(&app, Method::GET, "/friends", &bot_token, json!(null)).await.0,
-        StatusCode::FORBIDDEN,
+        StatusCode::UNAUTHORIZED,
         "bots cannot use a forged account bearer token to access friends"
     );
     assert_eq!(
@@ -231,7 +234,7 @@ async fn requests_acceptance_removal_and_restart_are_scoped_to_the_pair() {
     let config = state.config.clone();
     drop(app);
     drop(state);
-    let reopened = Arc::new(AppState::new(config).await.unwrap());
+    let reopened = Arc::new(writer_drain::app_state(&config).await.unwrap());
     let app = create_api_router(reopened.clone()).with_state(reopened.clone());
     let (_, second_list) = call(&app, Method::GET, "/friends", &second_token, json!(null)).await;
     assert_eq!(

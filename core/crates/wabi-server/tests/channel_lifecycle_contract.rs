@@ -7,6 +7,9 @@
 //!   real id work
 //! - delete is idempotent
 
+#[path = "fixtures/writer_drain.rs"]
+mod writer_drain;
+
 use std::path::Path;
 use std::sync::Arc;
 
@@ -108,7 +111,7 @@ async fn deleted_channel_stays_deleted_across_restart() {
     // Reopen the same data dir: replay/snapshot must keep the channel gone.
     // (Before the channel_deleted event existed, the projection-only
     // overwrite was lost here and the channel resurrected — a zombie.)
-    let reopened = open(tmp.path()).await;
+    let reopened = Arc::new(writer_drain::app_state(&test_config(tmp.path())).await.unwrap());
     let channels = reopened.wdb.list_channels(None).await.unwrap();
     assert!(
         channels.iter().all(|c| c.name != "doomed"),

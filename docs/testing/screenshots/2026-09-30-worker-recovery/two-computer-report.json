@@ -1,0 +1,22 @@
+{
+  "passed": true,
+  "physicalHosts": {
+    "primary": "dotRonin",
+    "backup": "bazzite"
+  },
+  "checks": [
+    "real Authority and authentication",
+    "one saved card before primary process interruption",
+    "actual lease and contact expiry",
+    "backup resumed saved results",
+    "one automatic recovery",
+    "two recorded steps and one card",
+    "returning primary write rejected with 409"
+  ],
+  "limits": [
+    "deterministic provider stub; no model call",
+    "worker process termination, not physical power loss",
+    "not native Codex chat or repository recovery",
+    "isolated candidate; not deployed"
+  ]
+}

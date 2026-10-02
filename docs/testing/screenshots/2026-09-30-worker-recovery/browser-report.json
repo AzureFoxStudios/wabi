@@ -1,0 +1,18 @@
+{
+  "passed": true,
+  "checks": [
+    "Project-scoped worker roster",
+    "contact loss distinct from online claim",
+    "reported harness and model",
+    "explicit resume target",
+    "automatic recovery off by default",
+    "chosen backup and one-recovery policy",
+    "account-change clears roster",
+    "desktop/mobile no horizontal overflow"
+  ],
+  "limits": [
+    "fixture HTTP/account boundaries",
+    "not deployed",
+    "not a native Codex worker"
+  ]
+}

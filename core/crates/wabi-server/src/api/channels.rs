@@ -389,61 +389,118 @@ async fn delete_channel(
     Path(id): Path<String>,
     Query(query): Query<DeleteChannelQuery>,
 ) -> Result<Json<serde_json::Value>> {
-    if !state.is_admin(auth.user_id).await {
-        return Err(AppError::Unauthorized("only admins can delete channels".into()));
-    }
-    let all_channels = state.wdb.list_channels(None).await?;
-    let mut deleted_ids = vec![id.clone()];
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for channel in &all_channels {
-            if channel.is_active
-                && channel.parent_id.as_deref().is_some_and(|parent| deleted_ids.iter().any(|id| id == parent))
-                && !deleted_ids.iter().any(|id| id == &channel.channel_id)
-            {
-                deleted_ids.push(channel.channel_id.clone());
-                changed = true;
+    // Wait for admitted content operations before retiring their parent.
+    let membership = state.membership_gate.clone().write_owned().await;
+    let admission = auth.admit_current(&state).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            let _membership = membership;
+            if !state.is_admin(auth.user_id).await {
+                return Err(AppError::Unauthorized(
+                    "only admins can delete channels".into(),
+                ));
             }
-        }
-    }
-    for channel in all_channels.iter().filter(|c| deleted_ids.contains(&c.channel_id)) {
-        if crate::channel_access::is_conversation(channel.channel_kind) {
-            crate::channel_access::require_access(&state, auth.user_id, &channel.channel_id).await?;
-            return Err(AppError::BadRequest("Delete conversations through their dedicated flow".into()));
-        }
-    }
-    if query.preserve_children {
-        let mut root_position = all_channels.iter().filter(|channel| channel.is_active && channel.parent_id.is_none())
-            .map(|channel| channel.position).max().unwrap_or(0) + 1;
-        for channel_id in deleted_ids.iter().skip(1) {
-            state.wdb.update_channel(
-                channel_id,
-                &serde_json::json!({ "parent_id": null, "position": root_position }),
-                auth.user_id as u64,
-            ).await?;
-            root_position += 1;
-        }
-        deleted_ids.truncate(1);
-    }
-    for channel_id in &deleted_ids {
-        state.wdb.delete_channel(channel_id, auth.user_id as u64).await?;
-        let _ = crate::api::retention_policy::remove(&state.config.data_dir, channel_id);
-        state.channel_auto_delete_ms.write().await.remove(channel_id);
-        state.channel_auto_delete_label.write().await.remove(channel_id);
-        state.fast_retention_channels.write().await.remove(channel_id);
-    }
-    {
-        let mut session = state.session_messages.write().await;
-        for channel_id in &deleted_ids { session.remove(channel_id); }
-    }
-    for channel_id in &deleted_ids {
-        crate::socketio::remove_board_version(&format!("channel:{}", channel_id));
-    }
-    if let Some(io) = state.socket_io() {
-        let _ = io.broadcast().emit("channel-deleted", &serde_json::json!({ "channelId": &id, "channelIds": &deleted_ids })).await;
-    }
-    Ok(Json(serde_json::json!({ "deleted": id, "deletedIds": deleted_ids })))
+            let all_channels = state.wdb.list_channels(None).await?;
+            let mut deleted_ids = vec![id.clone()];
+            let mut changed = true;
+            while changed {
+                changed = false;
+                for channel in &all_channels {
+                    if channel.is_active
+                        && channel
+                            .parent_id
+                            .as_deref()
+                            .is_some_and(|parent| deleted_ids.iter().any(|id| id == parent))
+                        && !deleted_ids.iter().any(|id| id == &channel.channel_id)
+                    {
+                        deleted_ids.push(channel.channel_id.clone());
+                        changed = true;
+                    }
+                }
+            }
+            for channel in all_channels
+                .iter()
+                .filter(|c| deleted_ids.contains(&c.channel_id))
+            {
+                if crate::channel_access::is_conversation(channel.channel_kind) {
+                    crate::channel_access::require_access(
+                        &state,
+                        auth.user_id,
+                        &channel.channel_id,
+                    )
+                    .await?;
+                    return Err(AppError::BadRequest(
+                        "Delete conversations through their dedicated flow".into(),
+                    ));
+                }
+            }
+            if query.preserve_children {
+                let mut root_position = all_channels
+                    .iter()
+                    .filter(|channel| channel.is_active && channel.parent_id.is_none())
+                    .map(|channel| channel.position)
+                    .max()
+                    .unwrap_or(0)
+                    + 1;
+                for channel_id in deleted_ids.iter().skip(1) {
+                    state
+                        .wdb
+                        .update_channel(
+                            channel_id,
+                            &serde_json::json!({ "parent_id": null, "position": root_position }),
+                            auth.user_id as u64,
+                        )
+                        .await?;
+                    root_position += 1;
+                }
+                deleted_ids.truncate(1);
+            }
+            for channel_id in &deleted_ids {
+                state
+                    .wdb
+                    .delete_channel(channel_id, auth.user_id as u64)
+                    .await?;
+                let _ = crate::api::retention_policy::remove(&state.config.data_dir, channel_id);
+                state
+                    .channel_auto_delete_ms
+                    .write()
+                    .await
+                    .remove(channel_id);
+                state
+                    .channel_auto_delete_label
+                    .write()
+                    .await
+                    .remove(channel_id);
+                state
+                    .fast_retention_channels
+                    .write()
+                    .await
+                    .remove(channel_id);
+            }
+            {
+                let mut session = state.session_messages.write().await;
+                for channel_id in &deleted_ids {
+                    session.remove(channel_id);
+                }
+            }
+            for channel_id in &deleted_ids {
+                crate::socketio::remove_board_version(&format!("channel:{}", channel_id));
+            }
+            if let Some(io) = state.socket_io() {
+                let _ = io
+                    .broadcast()
+                    .emit(
+                        "channel-deleted",
+                        &serde_json::json!({ "channelId": &id, "channelIds": &deleted_ids }),
+                    )
+                    .await;
+            }
+            Ok(Json(
+                serde_json::json!({ "deleted": id, "deletedIds": deleted_ids }),
+            ))
+        })
+        .await
 }
 
 #[derive(Debug, Default, Deserialize)]

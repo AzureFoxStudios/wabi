@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "result": "PASS",
+  "workload": "disposable stopped V1 core restore",
+  "engineReplayTested": true,
+  "externalStateVerified": false,
+  "fullInstanceReady": false,
+  "authorityRecoveryTested": false,
+  "automaticFailoverTested": false,
+  "cleanup": {
+    "ownedProcessesStopped": true,
+    "ownedScratchRemoved": true
+  },
+  "artifact": {
+    "serverSha256": "49bd0749226b05e2cf443e9c7fba87b5275dba50e0c378a5e42fceaef9003f29",
+    "snapshotSha256": "2a524b1ca55021e1967a3fe33357696aafd7f58779e75fb3022d639b09295b64"
+  },
+  "stoppedComparison": {
+    "authorityRecoveryTested": false,
+    "changedEntries": 0,
+    "engineReplayTested": false,
+    "externalStateVerified": false,
+    "fullInstanceReady": false,
+    "inactiveGuardsChecked": false,
+    "leftEntries": 59,
+    "leftOnlyEntries": 0,
+    "projection": {
+      "entries": 26,
+      "indexes": 14,
+      "sha256": "f83f9168f15ce7634af0ff678b5bf394d3e5e8ef60586e28cfc2aba23e28852e",
+      "watermark": 16
+    },
+    "projectionMatch": true,
+    "result": "PASS",
+    "rightEntries": 59,
+    "rightOnlyEntries": 0,
+    "scannedFileBytes": 44220,
+    "schemaVersion": 1,
+    "scope": "stopped core filesystem comparison only"
+  },
+  "accountAndOwnerReadsPreserved": true,
+  "retainedMessageIdentityPreserved": true,
+  "retentionPolicyPreserved": true,
+  "revokedSessionStillDenied": true,
+  "uploadBytesPreserved": true,
+  "postRestoreWriteReplayTested": true,
+  "sourceRestartedAfterRestore": false,
+  "recordedAtUtc": "2026-10-01T03:13:28.776Z",
+  "logSha256": "76b0881b5a987651529d6e16bc48c213bf1e7386eac4604fc8f42cb9b1af6442",
+  "source": {
+    "baseCommit": "138abe39e08e400188d1812ed3bfd378df435315",
+    "branch": "codex/security-boundary-hardening-20260930",
+    "sharedUncommittedChanges": true,
+    "executionComputer": "dotRonin"
+  },
+  "scriptSha256": {
+    "scripts/geographic-acceptance/stopped-tree-audit.py": "e0da960dcb92a6ff2b4c1bb2354f058af42bebed31a6d29bab768c9290b2b463",
+    "scripts/geographic-acceptance/stopped-core-rehearsal.mjs": "10dbd7a0a05d8545579ebac8d8976397a2dcc6f212c8265ba0398e3a63654527"
+  }
+}

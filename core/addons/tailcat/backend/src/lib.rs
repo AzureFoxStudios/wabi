@@ -568,21 +568,23 @@ impl TailcatManager {
         self.store.read_audit(limit)
     }
 
-    /// Rate-limit key that distinguishes pipe clients from per-IP buckets.
-    /// Valid only when the request carries our unforgeable forwarder token;
-    /// anything else (including spoofed headers on the public path) falls
-    /// back to the plain peer IP.
+    /// Stable IP bucket for the authenticated loopback transport, scoped
+    /// separately from public ingress. The forwarder has no remote member
+    /// identity: its ephemeral source port must never reset a creation quota.
+    /// Untrusted or malformed tags fall back to the physical peer IP.
     pub fn rate_limit_key(&self, headers: &http::HeaderMap, peer: &std::net::SocketAddr) -> String {
-        let authenticated = headers
-            .get(forwarder::PIPE_AUTH_HEADER)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v == self.pipe_auth_token);
+        let authenticated = peer.ip().is_loopback()
+            && headers
+                .get(forwarder::PIPE_AUTH_HEADER)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| v == self.pipe_auth_token);
         if authenticated {
             if let Some(client) = headers
                 .get(forwarder::PIPE_CLIENT_HEADER)
                 .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<std::net::SocketAddr>().ok())
             {
-                return format!("pipe:{client}");
+                return format!("pipe:{}", client.ip());
             }
         }
         peer.ip().to_string()
@@ -592,7 +594,7 @@ impl TailcatManager {
     // existing state lock makes ownership validation and publication indivisible.
     async fn publish_listener_result(&self, generation: u64, address: Option<String>) {
         let mut inner = self.inner.write().await;
-        if !inner.running || inner.listener_generation != generation {
+        if !inner.wanted || !inner.running || inner.listener_generation != generation {
             return;
         }
         match address {
@@ -678,6 +680,26 @@ mod lifecycle_tests {
     use super::*;
 
     #[tokio::test]
+    async fn disabled_listener_rejects_publication_before_monitor_stops() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = TailcatManager::new(3001, dir.path());
+        {
+            let mut inner = manager.inner.write().await;
+            inner.binary_version_checked = true;
+            inner.running = true;
+            inner.wanted = false;
+            inner.listener_generation = 7;
+        }
+        manager.publish_listener_result(7, Some("tc-disabled".into())).await;
+        manager.publish_listener_result(7, None).await;
+        let status = manager.status().await;
+        assert!(status.running);
+        assert!(!status.enabled);
+        assert!(status.address.is_none());
+        assert!(status.last_error.is_none());
+    }
+
+    #[tokio::test]
     async fn stopped_and_replaced_listeners_reject_late_reader_publication() {
         let dir = tempfile::tempdir().unwrap();
         let manager = TailcatManager::new(3001, dir.path());
@@ -686,6 +708,7 @@ mod lifecycle_tests {
         for generation in 1..=100 {
             {
                 let mut inner = manager.inner.write().await;
+                inner.wanted = true;
                 inner.running = true;
                 inner.listener_generation = generation;
             }
@@ -709,6 +732,7 @@ mod lifecycle_tests {
             assert!(stopped.last_error.is_none());
             {
                 let mut inner = manager.inner.write().await;
+                inner.wanted = true;
                 inner.running = true;
                 inner.listener_generation = generation + 1;
             }

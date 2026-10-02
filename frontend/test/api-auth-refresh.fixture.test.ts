@@ -7,6 +7,7 @@ const B = 'https://refresh-beta.test';
 let active = A;
 const sessions = new Map<string, { generation: number; token: string | null }>();
 const storage = new Map<string, string>();
+const persistedServers: string[] = [];
 const originalGlobals = {
 	window: Object.getOwnPropertyDescriptor(globalThis, 'window'),
 	document: Object.getOwnPropertyDescriptor(globalThis, 'document'),
@@ -28,6 +29,7 @@ mock.module('../src/lib/authSession', () => ({
 	authSessionGeneration: (server = active) => sessions.get(server)?.generation ?? 0,
 	getStoredDbUserId: (server = active) => server === A ? 1 : 2,
 	onAuthSessionCleared: () => () => {},
+	persistRememberedAuthAfterRefresh: (server: string) => { persistedServers.push(server); },
 }));
 const { tryRefresh, setRefreshToken, getRefreshToken } = await import('../src/lib/api/authRefresh');
 const { fetchWithTimeout } = await import('../src/lib/api/utils');
@@ -41,7 +43,7 @@ afterAll(() => {
 
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 function reset() {
-	active = A; storage.clear(); sessions.clear();
+	active = A; storage.clear(); sessions.clear(); persistedServers.length = 0;
 	sessions.set(A, { generation: 1, token: 'alpha-access' }); sessions.set(B, { generation: 1, token: 'beta-access' });
 	setRefreshToken('alpha-refresh', A); setRefreshToken('beta-refresh', B);
 }
@@ -56,6 +58,7 @@ test('same-session concurrent calls share one refresh and keep explicit server o
 	expect(await first).toBe(true); expect(await second).toBe(true);
 	expect(sessions.get(A)!.token).toBe('alpha-fresh'); expect(getRefreshToken(A)).toBe('alpha-rotated');
 	expect(sessions.get(B)!.token).toBe('beta-access'); expect(getRefreshToken(B)).toBe('beta-refresh');
+	expect(persistedServers).toEqual([A]);
 });
 
 test('same-token logout/relogin cannot accept an old refresh or join its in-flight promise', async () => {
@@ -65,12 +68,14 @@ test('same-token logout/relogin cannot accept an old refresh or join its in-flig
 	sessions.get(A)!.generation++; // exact same credential bytes deliberately restored
 	const current = tryRefresh(A); await Promise.resolve(); expect(calls).toBe(2);
 	old.resolve(tokens('obsolete-access', 'obsolete-refresh')); expect(await previous).toBe(false);
+	expect(persistedServers).toEqual([]);
 	expect(sessions.get(A)!.token).toBe('alpha-access'); expect(getRefreshToken(A)).toBe('alpha-refresh');
 	// Old finalization must not remove the new session's coalescing entry.
 	const sibling = tryRefresh(A); await Promise.resolve(); expect(calls).toBe(2);
 	fresh.resolve(tokens('current-access', 'current-refresh'));
 	expect(await current).toBe(true); expect(await sibling).toBe(true);
 	expect(sessions.get(A)!.token).toBe('current-access'); expect(getRefreshToken(A)).toBe('current-refresh');
+	expect(persistedServers).toEqual([A]);
 });
 
 test('an old unauthorized refresh cannot erase a new session with identical credentials', async () => {
@@ -79,6 +84,7 @@ test('an old unauthorized refresh cannot erase a new session with identical cred
 	const pending = tryRefresh(A); await Promise.resolve(); sessions.get(A)!.generation++;
 	response.resolve(Response.json({ error: 'revoked' }, { status: 401 }));
 	expect(await pending).toBe(false); expect(sessions.get(A)!.token).toBe('alpha-access'); expect(getRefreshToken(A)).toBe('alpha-refresh');
+	expect(persistedServers).toEqual([]);
 });
 
 test('same-session refresh denial clears only that server and permits a later fresh login', async () => {

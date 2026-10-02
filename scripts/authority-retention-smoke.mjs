@@ -47,8 +47,8 @@ async function stop(instance) {
 	assert.equal(instance.child.exitCode, 0, 'clean shutdown before copying');
 	children.delete(instance.child); instance.log.end();
 }
-async function api(instance, path, method = 'GET', body, token) {
-	const response = await fetch(instance.origin + path, { method, headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
+async function api(instance, path, method = 'GET', body, token, authScheme = 'Bearer') {
+	const response = await fetch(instance.origin + path, { method, headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `${authScheme} ${token}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
 	assert.ok(response.ok, `${method} ${path}: ${response.status}`);
 	return response.json();
 }
@@ -112,6 +112,12 @@ try {
     assert.ok(finalHistory.some(message => message.id === old.id), 'forever history survives another restart');
     assert.ok(finalHistory.some(message => message.id === long.id), 'one-hour history survives another restart');
     const bot = await api(instance, '/api/bot/create', 'POST', { username: 'retention_bot' }, account.accessToken);
+    // This is a normal Text channel, whose authenticated join endpoint admits
+    // bot participants too. Reach the retention boundary with real membership
+    // rather than stopping at the earlier participation denial.
+    const botJoin = await api(instance, `/api/channels/${channelId}/join`, 'POST', undefined, bot.botToken, 'Bot');
+    assert.equal(botJoin.joined, true, 'bot joins through the authenticated channel API');
+    assert.equal(botJoin.channelId, channelId, 'bot membership belongs to the tested channel');
     await api(instance, `/api/channels/${channelId}/retention`, 'PUT', { retention: 'live' }, account.accessToken);
     const botLiveSend = await fetch(`${instance.origin}/api/bot/send-message`, {
         method: 'POST',
@@ -121,7 +127,22 @@ try {
     assert.equal(botLiveSend.status, 400, 'durable bot endpoint rejects Live rooms');
     assert.match(JSON.stringify(await botLiveSend.json()), /Live rooms/, 'Live rejection explains the storage boundary');
     assert.ok(!(await history()).some(message => message.content === 'bot-live-storage-canary'), 'rejected bot message never enters history');
+    // Live history may hide older durable messages. Return to a retained policy
+    // before checking stored history, then repeat the read after real restart.
+    await api(instance, `/api/channels/${channelId}/retention`, 'PUT', { retention: 'forever' }, account.accessToken);
+    assert.ok(!(await history()).some(message => message.content === 'bot-live-storage-canary'), 'rejected bot body is absent from durable history');
     await stop(instance);
+    instance = await start('instance');
+    assert.ok(!(await history()).some(message => message.content === 'bot-live-storage-canary'), 'rejected bot body is absent after durable replay');
+    await stop(instance);
+    async function checkStoppedData(directory) {
+        for (const entry of await readdir(directory, { withFileTypes: true })) {
+            const path = `${directory}/${entry.name}`;
+            if (entry.isDirectory()) await checkStoppedData(path);
+            else if (entry.isFile()) assert.ok(!(await readFile(path)).includes(Buffer.from('bot-live-storage-canary')), 'rejected bot body is absent from stopped data files');
+        }
+    }
+    await checkStoppedData(`${instance.root}/data`);
     const logs = [
         ...(await readdir(instance.root)).filter(name => name.startsWith('process-')).map(name => `${instance.root}/${name}`),
         ...(await readdir(`${instance.root}/logs`)).map(name => `${instance.root}/logs/${name}`),
@@ -130,7 +151,7 @@ try {
         const bytes = await readFile(path);
         assert.ok(!bytes.includes(Buffer.from('forever-history-canary')) && !bytes.includes(Buffer.from('timed-message-canary')) && !bytes.includes(Buffer.from('long-history-canary')) && !bytes.includes(Buffer.from('restart-retention-canary')) && !bytes.includes(Buffer.from('retained-upload-canary')) && !bytes.includes(Buffer.from('bot-live-storage-canary')), 'default logs do not contain fixture bodies');
     }
-    const report = { status: 'passed', binarySha256, defaultLogsExcludeCanaryBodies: true, exactPolicySurvivesRestart: true, shortTimerExpiresWithinNineSeconds: true, futureOnlyPolicySurvivesRepeatedChanges: true, realSweepRemovesNormalHistory: true, deletionSurvivesRestart: true, uploadedFileRemains: true, liveBotDurableSendRejected: true,
+    const report = { status: 'passed', binarySha256, defaultLogsExcludeCanaryBodies: true, exactPolicySurvivesRestart: true, shortTimerExpiresWithinNineSeconds: true, futureOnlyPolicySurvivesRepeatedChanges: true, realSweepRemovesNormalHistory: true, deletionSurvivesRestart: true, uploadedFileRemains: true, liveBotMembershipConfirmed: true, liveBotDurableSendRejected: true, liveBotCanaryAbsentAfterRestart: true, liveBotCanaryAbsentFromStoppedData: true,
         limits: ['Disposable data only', 'Uploaded file is separate from the text message', 'No report-evidence, browser cache, external backup or secure-erasure certification'] };
     await writeFile(`${scratch}/report.json`, JSON.stringify(report, null, 2), { mode: 0o600 });
     console.log(`PASS real timed retention, exact policy, restarts, Live bot rejection and independent upload lifecycle; report ${scratch}/report.json`);

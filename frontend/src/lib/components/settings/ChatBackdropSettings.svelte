@@ -1,4 +1,6 @@
 <script lang="ts">
+	import BackgroundImageEditorLegacy from '../BackgroundImageEditorLegacy.svelte';
+	import { themeStore, backgroundImageSetting, resolveEffectiveBackgroundImage } from '$lib/theme/themeStore';
 	import ChatBackdrop from '../chat/ChatBackdrop.svelte';
 	import {
 		defaultChatBackdropSettings,
@@ -9,7 +11,7 @@
 
 	let settings: BackdropSettings = { ...defaultChatBackdropSettings };
 
-	if (typeof window !== 'undefined') settings = loadChatBackdropSettings();
+	if (typeof window !== 'undefined') settings = loadChatBackdropSettings(!!resolveEffectiveBackgroundImage($backgroundImageSetting, $themeStore.customTheme));
 
 	function persist() {
 		settings = { ...settings };
@@ -27,7 +29,7 @@
 		<ChatBackdrop scene={settings.scene} motion={settings.motion} dim={settings.dim} frost={settings.frost} />
 		<div class="preview-copy">
 			<div class="preview-message"><strong>Wabi</strong><span>The background moves. The conversation stays readable.</span></div>
-			<div class="preview-message"><strong>You</strong><span>Koi behind frosted glass is exactly the point.</span></div>
+			<div class="preview-message"><strong>You</strong><span>Choose the backdrop that suits your conversation.</span></div>
 		</div>
 	</div>
 
@@ -35,26 +37,31 @@
 		<span>Scene</span>
 		<select bind:value={settings.scene} on:change={persist}>
 			<option value="none">None</option>
+			<option value="image">Image or video</option>
 			<option value="koi">Koi pond</option>
 		</select>
 	</label>
 
+	{#if settings.scene === 'image'}
+		<BackgroundImageEditorLegacy />
+	{:else if settings.scene === 'koi'}
 	<label>
 		<span>Motion <output>{Math.round(settings.motion * 100)}%</output></span>
-		<input type="range" min="0" max="1" step="0.05" bind:value={settings.motion} on:input={persist} disabled={settings.scene === 'none'} />
+		<input type="range" min="0" max="1" step="0.05" bind:value={settings.motion} on:input={persist} />
 	</label>
 
 	<label>
 		<span>Darken <output>{Math.round(settings.dim * 100)}%</output></span>
-		<input type="range" min="0" max="0.7" step="0.02" bind:value={settings.dim} on:input={persist} disabled={settings.scene === 'none'} />
+		<input type="range" min="0" max="0.7" step="0.02" bind:value={settings.dim} on:input={persist} />
 	</label>
 
 	<label>
 		<span>Frost <output>{Math.round(settings.frost * 100)}%</output></span>
-		<input type="range" min="0" max="0.9" step="0.02" bind:value={settings.frost} on:input={persist} disabled={settings.scene === 'none'} />
+		<input type="range" min="0" max="0.9" step="0.02" bind:value={settings.frost} on:input={persist} />
 	</label>
 
 	<p class="motion-note">Reduced-motion preferences automatically freeze animated scenes instead of removing the backdrop.</p>
+	{/if}
 </section>
 
 <style>

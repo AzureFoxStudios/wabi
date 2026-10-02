@@ -2,9 +2,20 @@ import { describe, expect, test } from 'bun:test';
 import {
 	formatMobileUnreadBadge,
 	nextMobileBackSurface,
+	reconcileMobileSurfaceStack,
 	shouldRenderMobileNavigation,
-	sumUnreadConversationCount
+	sumUnreadConversationCount,
+	type MobileSurfaceState
 } from './mobileShellModel';
+
+const closed: MobileSurfaceState = {
+	workspaceOpen: false,
+	conversationOpen: false,
+	browseOpen: false,
+	rightOverlayOpen: false,
+	serverSwitcherOpen: false,
+	settingsOpen: false
+};
 
 describe('mobile shell model', () => {
 	test('counts only DM and group unread messages', () => {
@@ -34,9 +45,42 @@ describe('mobile shell model', () => {
 		expect(shouldRenderMobileNavigation({ isMobile: false, isInCall: false })).toBe(false);
 	});
 
-	test('back closes transient surfaces before leaving the conversation', () => {
-		expect(nextMobileBackSurface({ settingsOpen: true, serverSwitcherOpen: true, browseOpen: true, rightOverlayOpen: true, conversationOpen: true })).toBe('settings');
-		expect(nextMobileBackSurface({ settingsOpen: false, serverSwitcherOpen: true, browseOpen: true, rightOverlayOpen: true, conversationOpen: true })).toBe('server-switcher');
-		expect(nextMobileBackSurface({ settingsOpen: false, serverSwitcherOpen: false, browseOpen: false, rightOverlayOpen: false, conversationOpen: true })).toBe('conversation');
+	test('Back follows actual opening order instead of fixed flag priority', () => {
+		let stack = reconcileMobileSurfaceStack([], { ...closed, workspaceOpen: true });
+		stack = reconcileMobileSurfaceStack(stack, { ...closed, workspaceOpen: true, settingsOpen: true });
+		stack = reconcileMobileSurfaceStack(stack, {
+			...closed,
+			workspaceOpen: true,
+			settingsOpen: true,
+			serverSwitcherOpen: true
+		});
+		expect(stack).toEqual(['workspace', 'settings', 'server-switcher']);
+		expect(nextMobileBackSurface(stack)).toBe('server-switcher');
+	});
+
+	test('discovers surfaces opened outside the root nav without losing existing order', () => {
+		let stack = reconcileMobileSurfaceStack([], { ...closed, conversationOpen: true });
+		stack = reconcileMobileSurfaceStack(stack, {
+			...closed,
+			conversationOpen: true,
+			rightOverlayOpen: true
+		});
+		expect(stack).toEqual(['conversation', 'overlay']);
+		expect(nextMobileBackSurface(stack)).toBe('overlay');
+	});
+
+	test('closing a surface removes it without disturbing older surfaces', () => {
+		const stack = reconcileMobileSurfaceStack(
+			['workspace', 'settings', 'server-switcher'],
+			{ ...closed, workspaceOpen: true, serverSwitcherOpen: true }
+		);
+		expect(stack).toEqual(['workspace', 'server-switcher']);
+		expect(nextMobileBackSurface(stack)).toBe('server-switcher');
+	});
+
+	test('full-screen workspaces participate in Back before the root destination', () => {
+		const stack = reconcileMobileSurfaceStack([], { ...closed, workspaceOpen: true });
+		expect(nextMobileBackSurface(stack)).toBe('workspace');
+		expect(nextMobileBackSurface([])).toBe('root');
 	});
 });

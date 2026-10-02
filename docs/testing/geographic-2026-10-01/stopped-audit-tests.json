@@ -1,0 +1,12 @@
+{
+  "result": "PASS",
+  "passedTests": 14,
+  "command": "PYTHONDONTWRITEBYTECODE=1 python3 scripts/geographic-acceptance/stopped-tree-audit.test.py -v",
+  "logSha256": "48f133decdb4c2dd4e8e7032c22248d21f10a9c6bdb33178e1db2b3a8a607bf3",
+  "fixture": "synthetic stopped trees; advisory crash test is a real killed process",
+  "fullInstanceReady": false,
+  "scriptSha256": {
+    "scripts/geographic-acceptance/stopped-tree-audit.py": "e0da960dcb92a6ff2b4c1bb2354f058af42bebed31a6d29bab768c9290b2b463",
+    "scripts/geographic-acceptance/stopped-tree-audit.test.py": "55238f888b4850c1364849464fe4d60383b65bd68bf163da971313ae654cef94"
+  }
+}

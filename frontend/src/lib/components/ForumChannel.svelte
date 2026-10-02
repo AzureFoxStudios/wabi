@@ -1,9 +1,13 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import ProfileMedia from './ProfileMedia.svelte';
+	import { mediaUrl } from '$lib/mediaUrl';
+	import ForumBody from './ForumBody.svelte';
+	import { forumAuthors, canManageForumPost } from '$lib/forumIdentity';
+	import { onDestroy, tick } from 'svelte';
 	import { currentChannel, channels, currentUser } from '$lib/socket';
 	import { createForumWorkspace, type ForumPost } from '$lib/forumStore';
 	const forumWorkspace = createForumWorkspace();
-	const { forumThreadsStore, forumPostsByThreadStore, forumLoadingStore, forumErrorStore, forumSelectedThreadIdStore, loadThreads, loadPosts, createThread, createPost, votePost, markSolution, renameForumCategory, findAuthor, formatForumTime, getDefaultCategories, categorizeThread, tagClass, extractForumAttachments, resolveForumFileUrl, stripForumImageMarkdown, formatForumFileSize } = forumWorkspace;
+	const { forumThreadsStore, forumPostsByThreadStore, forumLoadingStore, forumErrorStore, forumSelectedThreadIdStore, loadThreads, loadPosts, createThread, createPost, votePost, markSolution, renameForumCategory, deleteForumPost, formatForumTime, getDefaultCategories, categorizeThread, tagClass, extractForumAttachments, resolveForumFileUrl, stripForumImageMarkdown, formatForumFileSize } = forumWorkspace;
 
 	import ForumPostRow from './ForumPostRow.svelte';
 	import ForumReply from './ForumReply.svelte';
@@ -23,8 +27,19 @@
 	$: error = $forumErrorStore;
 	$: selectedThreadId = $forumSelectedThreadIdStore;
 
-	let activeCategory: string | null = null;
+	let deletingPostId: string | null = null;
+	async function handleDeletePost(post: ForumPost) {
+		if (deletingPostId || !canManageForumPost($currentUser, post.author_user_id)) return;
+		if (!window.confirm(!post.is_thread_starter ? 'Delete this reply?' : 'Remove this thread from the list? Its replies remain stored.')) return;
+		deletingPostId = post.post_id;
+		try { await deleteForumPost(effectiveChannel, post.thread_id, post.post_id); }
+		finally { deletingPostId = null; }
+	}
+
+	let selectedCategories: string[] = [];
+	$: activeCategory = selectedCategories[0] || null;
 	let searchQuery = '';
+	let categorySearch = '';
 	let showNewThread = false;
 	let showCategories = false;
 	let replyComposer: ForumComposer | undefined;
@@ -39,7 +54,7 @@
 				slug: slugify(thread.title),
 				title: thread.title,
 				channelId: effectiveChannel,
-				subtitle: findAuthor(thread.author_user_id)?.username || undefined,
+				subtitle: $forumAuthors.get(thread.author_user_id)?.username || undefined,
 				updatedAt: thread.created_at_micros > 1e12 ? Math.floor(thread.created_at_micros / 1000) : thread.created_at_micros,
 			});
 		}
@@ -118,7 +133,7 @@
 			customCategories = customCategories.map((c) => (c === from ? to : c));
 			saveCustomCategories();
 		}
-		if (activeCategory === from) activeCategory = to;
+		selectedCategories = selectedCategories.map(category => category === from ? to : category);
 		if (effectiveChannel) await renameForumCategory(effectiveChannel, from, to);
 	}
 
@@ -133,7 +148,7 @@
 		}
 	}
 	$: categorizedThreads = allThreads.filter((t) => {
-		if (activeCategory && activeCategory !== 'all' && categorizeThread(t) !== activeCategory) return false;
+		if (selectedCategories.length && !selectedCategories.includes(categorizeThread(t))) return false;
 		if (searchQuery) {
 			const q = searchQuery.toLowerCase();
 			if (
@@ -167,7 +182,7 @@
 	$: hasSolution = threadReplies.some((r) => r.is_solution);
 	$: canCurrentUserPost = Boolean($currentUser?.dbUserId);
 
-	$: threadStarterAuthor = threadStarter ? findAuthor(threadStarter.author_user_id) : undefined;
+	$: threadStarterAuthor = threadStarter ? $forumAuthors.get(threadStarter.author_user_id) : undefined;
 
 	function selectThread(thread: ForumPost) {
 		if (thread.post_id !== selectedThreadId && replyComposer && !replyComposer.confirmDiscard()) return;
@@ -197,7 +212,13 @@
 				allThreads.find((t) => t.thread_id === pending.postId);
 			if (hit) {
 				takePendingNav('forum_post', effectiveChannel);
-				selectThread(hit);
+				// Let the loaded thread list settle before changing the selection.
+				// Otherwise legacy reactive ordering can highlight the row while
+				// leaving the reading pane on its previous empty state.
+				const targetChannel = effectiveChannel;
+				void tick().then(() => {
+					if (effectiveChannel === targetChannel) selectThread(hit);
+				});
 			}
 		}
 	}
@@ -207,7 +228,7 @@
 	}
 
 	function handlePill(key: string) {
-		activeCategory = key === 'all' ? null : key;
+		selectedCategories = key === 'all' ? [] : [key];
 	}
 
 	function handleNewThread() {
@@ -233,7 +254,7 @@
 		if (post && submittingChannel === effectiveChannel) {
 			showNewThread = false;
 			showCategories = false;
-			if (category) activeCategory = category;
+			if (category) selectedCategories = [category];
 			selectThread(post);
 		}
 		return Boolean(post);
@@ -258,7 +279,7 @@
 		if (replyComposer && !replyComposer.confirmDiscard()) return;
 		showCategories = false;
 		forumSelectedThreadIdStore.set(null);
-		activeCategory = activeCategory === cat ? null : cat;
+		selectedCategories = cat === 'all' ? [] : selectedCategories.includes(cat) ? selectedCategories.filter(category => category !== cat) : [...selectedCategories, cat];
 	}
 
 	onDestroy(() => {
@@ -268,11 +289,12 @@
 
 <div class="forum-channel">
 	<nav class="forum-workspace-toolbar" aria-label="Forum navigation">
-		<button on:click={returnToThreads} disabled={showNewThread}>Threads</button>
-		<button aria-expanded={showCategories} on:click={() => { showCategories = !showCategories; }} disabled={showNewThread}>Categories</button>
+		{#if selectedThread || showCategories}<button on:click={returnToThreads}>← All threads</button>{/if}
+		<button class="forum-mobile-categories" aria-expanded={showCategories} on:click={() => { showCategories = !showCategories; }} disabled={showNewThread}>Categories</button>
 		{#if canCurrentUserPost}
 			<button class="forum-primary-action" on:click={handleNewThread} disabled={showNewThread}>New thread</button>
 		{/if}
+			{#each selectedCategories as category}<button class="forum-selected-category" on:click={() => handleFilterByCategory(category)} aria-label={`Remove ${category} filter`}>{category} ×</button>{/each}
 	</nav>
 
 	<div class="forum-body" class:reading={Boolean(selectedThread) || showNewThread} class:composing={showNewThread} class:categories-open={showCategories}>
@@ -287,6 +309,7 @@
 				<button class="ui-btn ui-btn-secondary" on:click={() => effectiveChannel && loadThreads(effectiveChannel)}>Retry</button>
 			</div>
 		{:else}
+			{#if error}<p class="forum-error" role="alert">{error}</p>{/if}
 			<div class="forum-category-pane">
 				<div class="forum-category-header">
 					<span>Categories</span>
@@ -300,6 +323,7 @@
 						{/if}
 					</div>
 				</div>
+				<input class="forum-category-search" type="search" bind:value={categorySearch} placeholder="Find categories…" aria-label="Find categories" />
 				<div class="forum-category-list">
 					<button
 						class="forum-category-item"
@@ -310,7 +334,7 @@
 						All
 						<span class="forum-category-count">{allThreads.length}</span>
 					</button>
-					{#each categories as cat}
+					{#each categories.filter(cat => cat.toLowerCase().includes(categorySearch.toLowerCase())) as cat}
 						<div class="forum-category-row">
 							{#if editingCategory === cat}
 								<input
@@ -328,7 +352,7 @@
 							{:else}
 								<button
 									class="forum-category-item"
-									class:active={activeCategory === cat}
+									class:active={selectedCategories.includes(cat)}
 									on:click={() => handleFilterByCategory(cat)}
 								>
 									<span
@@ -383,7 +407,7 @@
 
 			<div class="forum-post-list">
 				<div class="forum-post-list-header">
-					<span>{activeCategory || 'All'} Threads <span class="forum-post-list-header-count">{categorizedThreads.length}</span></span>
+					<span>{selectedCategories.length ? selectedCategories.join(' · ') : 'All'} Threads <span class="forum-post-list-header-count">{categorizedThreads.length}</span></span>
 
 				</div>
 				{#if categorizedThreads.length === 0}
@@ -448,7 +472,7 @@
 											class="forum-post-detail-avatar"
 											style="background: {threadStarterAuthor.color || threadStarterAuthor.roleColor || 'var(--accent-primary)'};"
 										>
-											{threadStarterAuthor.username.charAt(0).toUpperCase()}
+											{#if threadStarterAuthor.profilePicture}<ProfileMedia src={mediaUrl(threadStarterAuthor.profilePicture)} alt={threadStarterAuthor.username} />{:else}{threadStarterAuthor.username.charAt(0).toUpperCase()}{/if}
 										</div>
 										<span class="forum-post-detail-author">{threadStarterAuthor.username}</span>
 									{:else}
@@ -460,7 +484,7 @@
 									<span>·</span>
 									<span>&#128065; {threadStarter.votes_up + threadStarter.votes_down} views</span>
 								</div>
-								<div class="forum-post-detail-body">{starterText}</div>
+								<div class="forum-post-detail-body"><ForumBody text={starterText} /></div>
 								{#if starterAttachments.length > 0}
 									<div class="forum-files-gallery" class:has-more={starterAttachments.length > 4}>
 										{#each starterAttachments.slice(0, 4) as attachment, index}
@@ -508,6 +532,8 @@
 										&#9660; {threadStarter.votes_down}
 									</button>
 									<ObjectShareMenu
+										menuLabel="Thread actions"
+										extraActions={canManageForumPost($currentUser, threadStarter.author_user_id) && !deletingPostId ? [{label: 'Remove thread', run: () => void handleDeletePost(threadStarter)}] : []}
 										record={{
 											kind: 'forum_post',
 											id: threadStarter.post_id,
@@ -530,6 +556,8 @@
 										isSolution={reply.is_solution}
 										onVote={(direction) => handleVote(reply, direction)}
 										onMarkSolution={() => handleMarkSolution(reply)}
+										onDelete={() => void handleDeletePost(reply)}
+										deleting={deletingPostId === reply.post_id}
 										channelId={effectiveChannel}
 									/>
 								{/each}

@@ -17,8 +17,13 @@ use std::{
 };
 
 mod live;
+mod restore_limits;
+pub(crate) mod source_context;
+mod verify;
 pub(crate) use live::{export_frozen, FrozenExport};
 pub use live::{LiveArchiveReceipt, LiveCheckpointMetadata, LiveExportLimits};
+pub use restore_limits::RestoreLimits;
+pub use verify::{verify_inactive_live, InactiveVerificationReceipt};
 
 const MAGIC: &[u8] = b"WABI-INSTANCE-SNAPSHOT-V1\n";
 const MAX_ENTRIES: u64 = 10_000_000;
@@ -42,7 +47,7 @@ enum Command {
         #[arg(long)]
         identity_file: PathBuf,
     },
-    /// Export a stopped Authority; both WabiDB lock paths must be absent.
+    /// Export a stopped Authority while holding its advisory writer lock.
     Export {
         #[arg(long)]
         data_dir: PathBuf,
@@ -67,6 +72,39 @@ enum Command {
         /// Publish the restored copy with a durable WabiDB writer fence for a passive receiver.
         #[arg(long)]
         passive_replica: bool,
+        /// Maximum cumulative extracted file bytes (default 4 GiB).
+        #[arg(long, default_value_t = 4 * 1024 * 1024 * 1024)]
+        max_bytes: u64,
+        #[arg(long, default_value_t = 100_000)]
+        max_entries: u64,
+        #[arg(long, default_value_t = 16 * 1024 * 1024)]
+        max_path_bytes: u64,
+        #[arg(long, default_value_t = 300)]
+        timeout_seconds: u64,
+        /// Ciphertext digest from a separately authenticated source receipt.
+        #[arg(long)]
+        expected_sha256: Option<String>,
+    },
+    /// Replay a stopped live V2 restore into memory without activating it.
+    VerifyInactive {
+        #[arg(long)]
+        target_root: PathBuf,
+        /// Receipt object obtained through the trusted source's authenticated channel.
+        #[arg(long)]
+        source_receipt: PathBuf,
+        /// Original encrypted V2 archive whose digest is in the trusted receipt.
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(long)]
+        identity_file: PathBuf,
+        #[arg(long, default_value_t = 10_000)]
+        max_entries: u64,
+        #[arg(long, default_value_t = 64 * 1024 * 1024)]
+        max_bytes: u64,
+        #[arg(long, default_value_t = 4 * 1024 * 1024)]
+        max_snapshot_bytes: u64,
+        #[arg(long, default_value_t = 60)]
+        timeout_seconds: u64,
     },
     /// Durably retire a stopped Authority data tree after exporting its replacement.
     FenceStopped {
@@ -159,13 +197,67 @@ pub fn run_cli() -> Result<()> {
             target_root,
             controlled_move,
             passive_replica,
-        } => restore(
+            max_bytes,
+            max_entries,
+            max_path_bytes,
+            timeout_seconds,
+            expected_sha256,
+        } => restore_bounded(
             &input,
             &identity_file,
             &target_root,
             controlled_move,
             passive_replica,
+            RestoreLimits {
+                max_plaintext_bytes: max_bytes,
+                max_entries,
+                max_path_bytes,
+                timeout: std::time::Duration::from_secs(timeout_seconds),
+            },
+            expected_sha256.as_deref(),
         ),
+        Command::VerifyInactive {
+            target_root,
+            source_receipt,
+            input,
+            identity_file,
+            max_entries,
+            max_bytes,
+            max_snapshot_bytes,
+            timeout_seconds,
+        } => {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            let result = runtime.block_on(async {
+                let source = verify::read_source_receipt(&source_receipt)?;
+                verify_inactive_live(
+                    &target_root,
+                    &source,
+                    &input,
+                    &identity_file,
+                    wabidb::engine::offline_inspect::InspectionLimits {
+                        max_entries,
+                        max_file_bytes: max_bytes,
+                        max_snapshot_bytes,
+                        timeout: std::time::Duration::from_secs(timeout_seconds),
+                    },
+                )
+                .await
+            });
+            // Public diagnostics must never render raw engine/serde errors:
+            // private metadata includes configuration and signing secrets.
+            match result {
+                Ok(receipt) => {
+                    println!("{}", serde_json::to_string(&receipt)?);
+                    Ok(())
+                }
+                Err(_) => {
+                    println!("{{\"schemaVersion\":1,\"result\":\"REFUSED\",\"reason\":\"inactive_core_verification_failed\",\"fullInstanceReady\":false}}");
+                    bail!("inactive core verification refused; preserve guards and review the protected source/restore")
+                }
+            }
+        }
         Command::FenceStopped {
             data_dir,
             archive,
@@ -222,7 +314,7 @@ fn fence_stopped_with_receipt(data: &Path, archive: &Path, receipt_path: &Path) 
     }
     let archive_hash = archive_sha256(archive)?;
     let data = canonical_directory(data)?;
-    ensure_stopped(&data)?;
+    let _stopped = ensure_stopped(&data)?;
     let marker = data.join("wabidb").join(WRITER_FENCE_MARKER);
     let metadata = fs::symlink_metadata(&marker)
         .context("fence the stopped Authority before exporting a controlled-move archive")?;
@@ -249,7 +341,7 @@ fn fence_stopped_with_receipt(data: &Path, archive: &Path, receipt_path: &Path) 
 fn activate_restored(target_root: &Path, receipt_path: &Path) -> Result<()> {
     let root = canonical_directory(target_root)?;
     let data = canonical_directory(&root.join("data"))?;
-    ensure_stopped(&data)?;
+    let stopped = ensure_stopped(&data)?;
     ensure_persisted_keys(&data)?;
     refuse_live_activation(&data)?;
     let marker = data.join("wabidb").join(ACTIVATION_PENDING_MARKER);
@@ -278,7 +370,7 @@ fn activate_restored(target_root: &Path, receipt_path: &Path) -> Result<()> {
     mac.update(&hash);
     mac.verify_slice(&actual)
         .map_err(|_| anyhow::anyhow!("fence receipt proof is invalid"))?;
-    ensure_stopped(&data)?;
+    stopped.verify()?;
     fs::remove_file(&marker)?;
     sync_parent(&marker)?;
     println!("Controlled-move restore activated: {}", data.display());
@@ -456,12 +548,12 @@ fn seal_passive_move(data: &Path, uploads: &Path, receipt_path: &Path) -> Result
     if receipt_path.starts_with(&data) || receipt_path.starts_with(&uploads) {
         bail!("passive move receipt must be outside data and uploads trees");
     }
-    ensure_stopped(&data)?;
+    let stopped = ensure_stopped(&data)?;
     ensure_persisted_keys(&data)?;
     require_writer_fence(&data)?;
     ensure_no_pending_activation(&data)?;
     let claims = passive_move_claims(&data, &uploads)?;
-    ensure_stopped(&data)?;
+    stopped.verify()?;
     require_writer_fence(&data)?;
     let root_key = fs::read(data.join("wabidb/root_key"))?;
     let receipt = PassiveMoveReceipt {
@@ -489,7 +581,7 @@ fn activate_passive(
     }
     let root = canonical_directory(target_root)?;
     let data = canonical_directory(&root.join("data"))?;
-    ensure_stopped(&data)?;
+    let stopped = ensure_stopped(&data)?;
     ensure_persisted_keys(&data)?;
     refuse_live_activation(&data)?;
     require_writer_fence(&data)?;
@@ -522,7 +614,7 @@ fn activate_passive(
     if actual_claims != receipt.claims {
         bail!("passive copy differs from the stopped fenced Authority; activation refused (expected {:#?}, actual {:#?})", receipt.claims, actual_claims);
     }
-    ensure_stopped(&data)?;
+    stopped.verify()?;
     require_writer_fence(&data)?;
     let marker = data.join("wabidb").join(WRITER_FENCE_MARKER);
     fs::remove_file(&marker)?;
@@ -534,7 +626,7 @@ fn activate_passive(
 
 fn fence_stopped(data: &Path) -> Result<()> {
     let data = canonical_directory(data)?;
-    ensure_stopped(&data)?;
+    let stopped = ensure_stopped(&data)?;
     ensure_persisted_keys(&data)?;
     let marker = data.join("wabidb").join(WRITER_FENCE_MARKER);
     match fs::symlink_metadata(&marker) {
@@ -551,9 +643,9 @@ fn fence_stopped(data: &Path) -> Result<()> {
         }
         Err(error) => return Err(error.into()),
     }
-    // A concurrent server start cannot yield a successful fence command: it
-    // either observes the marker and refuses to serve, or holds a lock here.
-    ensure_stopped(&data).context("writer fence exists, but server startup may have raced; keep the host stopped and inspect its process and locks")?;
+    // Hold exclusion through publication: a concurrent server cannot start
+    // writing before the durable fence marker is visible.
+    stopped.verify().context("writer fence exists, but the process lock changed; keep the host stopped and inspect its process and locks")?;
     println!("Stopped Authority fenced: {}", data.display());
     println!("This data tree must not serve requests again. Keep the marker in place.");
     Ok(())
@@ -596,7 +688,7 @@ fn export(data: &Path, uploads: &Path, recipient_text: &str, output: &Path) -> R
     if output.exists() {
         bail!("snapshot output already exists: {}", output.display());
     }
-    ensure_stopped(&data)?;
+    let stopped = ensure_stopped(&data)?;
     ensure_persisted_keys(&data)?;
     let uploads_inside_data = uploads.starts_with(&data);
     let embedded_uploads = if uploads_inside_data {
@@ -636,7 +728,7 @@ fn export(data: &Path, uploads: &Path, recipient_text: &str, output: &Path) -> R
             writer.finish()?;
         }
         output_file.sync_all()?;
-        ensure_stopped(&data)?;
+        stopped.verify()?;
         let after = collect_instance(&data, &uploads, uploads_inside_data)?;
         if after != entries {
             bail!("source files changed while snapshotting; export was discarded");
@@ -663,6 +755,28 @@ fn restore(
     controlled_move: bool,
     passive_replica: bool,
 ) -> Result<()> {
+    restore_bounded(
+        input,
+        identity_path,
+        target_root,
+        controlled_move,
+        passive_replica,
+        RestoreLimits::default(),
+        None,
+    )
+}
+
+fn restore_bounded(
+    input: &Path,
+    identity_path: &Path,
+    target_root: &Path,
+    controlled_move: bool,
+    passive_replica: bool,
+    limits: RestoreLimits,
+    expected_sha256: Option<&str>,
+) -> Result<()> {
+    let mut budget = restore_limits::RestoreBudget::new(limits)?;
+    budget.validate_input(input, identity_path, expected_sha256)?;
     if controlled_move && passive_replica {
         bail!("controlled move and passive replica modes are mutually exclusive");
     }
@@ -686,19 +800,21 @@ fn restore(
         .map_err(|error| anyhow::anyhow!("invalid age identity: {error}"))?;
     let stage = target_parent.join(format!(".wabi-restore-{}", uuid::Uuid::new_v4()));
     let expected_archive_hash = if controlled_move {
-        Some(archive_sha256(input)?)
+        Some(budget.hash(input)?)
     } else {
         None
     };
     private_new_dir(&stage)?;
+    let mut cleanup = restore_limits::RestoreDirectory::new(stage.clone(), target.clone());
     let mut restored_live = false;
     let result = (|| -> Result<String> {
-        let encrypted = File::open(input)?;
+        let encrypted = budget.reader(File::open(input)?);
         let decryptor = Decryptor::new(encrypted)?;
         if decryptor.is_scrypt() {
             bail!("passphrase snapshots are unsupported");
         }
-        let mut reader = decryptor.decrypt(std::iter::once(&identity as &dyn age::Identity))?;
+        let mut reader =
+            budget.reader(decryptor.decrypt(std::iter::once(&identity as &dyn age::Identity))?);
         let mut magic = vec![0u8; MAGIC.len()];
         reader.read_exact(&mut magic)?;
         let live_metadata = if magic == live::LIVE_MAGIC {
@@ -713,13 +829,14 @@ fn restore(
         };
         let mut inventory = live::Inventory::default();
         let embedded_uploads = read_string(&mut reader)?;
+        budget.path(&embedded_uploads)?;
         if !embedded_uploads.is_empty() {
             validate_relative(&format!("data/{embedded_uploads}"), true)?;
         }
         let mut count_bytes = [0u8; 8];
         reader.read_exact(&mut count_bytes)?;
         let count = u64::from_le_bytes(count_bytes);
-        if count > MAX_ENTRIES {
+        if count > MAX_ENTRIES || count > budget.max_entries() {
             bail!("snapshot entry count exceeds limit");
         }
         let mut seen = HashSet::new();
@@ -730,6 +847,7 @@ fn restore(
                 bail!("invalid snapshot entry type");
             }
             let name = read_string(&mut reader)?;
+            budget.path(&name)?;
             let path = validate_relative(&name, embedded_uploads.is_empty())?;
             if !seen.insert(name.clone()) {
                 bail!("duplicate snapshot path");
@@ -742,6 +860,7 @@ fn restore(
                 let mut size_bytes = [0u8; 8];
                 reader.read_exact(&mut size_bytes)?;
                 let size = u64::from_le_bytes(size_bytes);
+                budget.file(size)?;
                 let mut file = private_new_file(&destination)?;
                 let mut hash = Sha256::new();
                 copy_exact_hashed(&mut reader, &mut file, size, &mut hash)?;
@@ -771,7 +890,7 @@ fn restore(
             restored_live = true;
         }
         if let Some(expected) = expected_archive_hash {
-            if archive_sha256(input)? != expected {
+            if budget.hash(input)? != expected {
                 bail!("encrypted archive changed during restore");
             }
             let old_fence = stage.join("data/wabidb").join(WRITER_FENCE_MARKER);
@@ -809,11 +928,20 @@ fn restore(
             }
         }
         sync_tree_directories(&stage)?;
+        budget.check()?;
+        if let Some(expected) = expected_sha256 {
+            if hex::encode(budget.hash(input)?) != expected.to_ascii_lowercase() {
+                bail!("encrypted archive changed from trusted source receipt during restore");
+            }
+        }
         if fs::symlink_metadata(&target).is_ok() {
             bail!("restore target appeared while extracting");
         }
         fs::rename(&stage, &target)?;
+        cleanup.published = true;
         sync_parent(&target)?;
+        budget.check()?;
+        cleanup.complete = true;
         Ok(embedded_uploads)
     })();
     if result.is_err() {
@@ -845,6 +973,26 @@ pub fn restore_inactive(input: &Path, identity_file: &Path, target_root: &Path) 
     restore(input, identity_file, target_root, false, true)
 }
 
+/// Resource-bounded inactive extraction. A digest authenticates the source only
+/// when the caller obtained that digest over its trusted control channel.
+pub fn restore_inactive_with_limits(
+    input: &Path,
+    identity_file: &Path,
+    target_root: &Path,
+    limits: RestoreLimits,
+    expected_sha256: Option<&str>,
+) -> Result<()> {
+    restore_bounded(
+        input,
+        identity_file,
+        target_root,
+        false,
+        true,
+        limits,
+        expected_sha256,
+    )
+}
+
 fn refuse_live_activation(data: &Path) -> Result<()> {
     match fs::symlink_metadata(data.join("wabidb").join(live::LIVE_MARKER)) {
         Ok(_) => bail!("live checkpoint cannot use stopped-move activation"),
@@ -864,18 +1012,84 @@ fn canonical_directory(path: &Path) -> Result<PathBuf> {
     Ok(canonical)
 }
 
-fn ensure_stopped(data: &Path) -> Result<()> {
-    for lock in [data.join(".lock"), data.join("wabidb/.lock")] {
-        match fs::symlink_metadata(&lock) {
-            Ok(_) => bail!(
-                "Authority lock exists at {}; stop the server and verify the lock before exporting",
-                lock.display()
-            ),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
+struct StoppedAuthority {
+    data: PathBuf,
+    lock: File,
+}
+
+impl StoppedAuthority {
+    fn verify(&self) -> Result<()> {
+        refuse_legacy_authority_lock(&self.data)?;
+        let path = self.data.join("wabidb/.lock");
+        let current = fs::symlink_metadata(&path)?;
+        if !current.is_file() || current.file_type().is_symlink() {
+            bail!("Authority process lock is no longer a regular file");
         }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let held = self.lock.metadata()?;
+            if (held.dev(), held.ino()) != (current.dev(), current.ino()) {
+                bail!("Authority process lock inode changed during the stopped operation");
+            }
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            if self.lock.metadata()?.creation_time() != current.creation_time() {
+                bail!("Authority process lock changed during the stopped operation");
+            }
+        }
+        Ok(())
     }
-    Ok(())
+}
+
+fn refuse_legacy_authority_lock(data: &Path) -> Result<()> {
+    // Older binaries used a PID file outside WabiDB and did not participate
+    // in advisory locking. Never infer their inactivity from a successful OS
+    // lock; the operator must stop those binaries and resolve this file.
+    let path = data.join(".lock");
+    match fs::symlink_metadata(&path) {
+        Ok(_) => bail!(
+            "legacy Authority lock exists at {}; stop all old server processes and resolve the legacy lock before continuing",
+            path.display()
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn ensure_stopped(data: &Path) -> Result<StoppedAuthority> {
+    use fs4::fs_std::FileExt;
+
+    refuse_legacy_authority_lock(data)?;
+    let path = data.join("wabidb/.lock");
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) if !metadata.is_file() || metadata.file_type().is_symlink() => {
+            bail!(
+                "Authority process lock is not a regular file: {}",
+                path.display()
+            );
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)?;
+    if !FileExt::try_lock_exclusive(&lock)? {
+        bail!("Authority is running; stop the server before accessing its data");
+    }
+    let stopped = StoppedAuthority {
+        data: data.to_owned(),
+        lock,
+    };
+    stopped.verify()?;
+    Ok(stopped)
 }
 
 fn ensure_persisted_keys(data: &Path) -> Result<()> {
@@ -912,6 +1126,19 @@ fn collect_tree(path: &Path, archive_path: &str, entries: &mut Vec<Entry>) -> Re
             "snapshot source contains a special file: {}",
             path.display()
         );
+    }
+    if metadata.is_file()
+        && matches!(
+            archive_path,
+            "data/.lock"
+                | "data/wabidb/.lock"
+                | "data/.wabi-secret-publication.lock"
+                | "data/wabidb/.wabi-secret-publication.lock"
+        )
+    {
+        // Process coordination inodes carry no community state. Their
+        // diagnostic PID differs between otherwise identical passive copies.
+        return Ok(());
     }
     entries.push(Entry {
         archive_path: archive_path.to_string(),
@@ -1134,6 +1361,102 @@ mod tests {
     }
 
     #[test]
+    fn bounded_restore_refuses_entry_path_and_plaintext_budgets_and_cleans_staging() {
+        let (temp, data, uploads, recipient, identity) = fixture();
+        let archive = temp.path().join("snapshot.age");
+        export(&data, &uploads, &recipient, &archive).unwrap();
+        for limits in [
+            RestoreLimits {
+                max_entries: 1,
+                ..RestoreLimits::default()
+            },
+            RestoreLimits {
+                max_path_bytes: 1,
+                ..RestoreLimits::default()
+            },
+            RestoreLimits {
+                max_plaintext_bytes: 1,
+                ..RestoreLimits::default()
+            },
+        ] {
+            let target = temp.path().join("denied");
+            assert!(
+                restore_inactive_with_limits(&archive, &identity, &target, limits, None).is_err()
+            );
+            assert!(!target.exists());
+            assert!(fs::read_dir(temp.path()).unwrap().all(|entry| {
+                !entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".wabi-restore-")
+            }));
+        }
+    }
+
+    #[test]
+    fn bounded_restore_binds_trusted_ciphertext_digest_before_extracting() {
+        let (temp, data, uploads, recipient, identity) = fixture();
+        let archive = temp.path().join("snapshot.age");
+        export(&data, &uploads, &recipient, &archive).unwrap();
+        let target = temp.path().join("restored");
+        assert!(restore_inactive_with_limits(
+            &archive,
+            &identity,
+            &target,
+            RestoreLimits::default(),
+            Some(&"0".repeat(64))
+        )
+        .is_err());
+        assert!(!target.exists());
+        let digest = hex::encode(archive_sha256(&archive).unwrap());
+        restore_inactive_with_limits(
+            &archive,
+            &identity,
+            &target,
+            RestoreLimits::default(),
+            Some(&digest),
+        )
+        .unwrap();
+        assert!(target.join("data/wabidb/writer-fenced-v1").exists());
+    }
+
+    #[test]
+    fn bounded_restore_rejects_invalid_limits_and_oversized_ciphertext_before_staging() {
+        let (temp, _, _, _, identity) = fixture();
+        let archive = temp.path().join("oversized.age");
+        File::create(&archive)
+            .unwrap()
+            .set_len(4 * 1024 * 1024)
+            .unwrap();
+        let target = temp.path().join("denied");
+        let limits = RestoreLimits {
+            max_plaintext_bytes: 1,
+            max_entries: 1,
+            max_path_bytes: 1,
+            timeout: std::time::Duration::from_secs(1),
+        };
+        assert!(
+            restore_inactive_with_limits(&archive, &identity, &target, limits.clone(), None)
+                .unwrap_err()
+                .to_string()
+                .contains("ciphertext byte budget")
+        );
+        assert!(restore_inactive_with_limits(
+            &archive,
+            &identity,
+            &target,
+            RestoreLimits {
+                timeout: std::time::Duration::ZERO,
+                ..limits
+            },
+            None
+        )
+        .is_err());
+        assert!(!target.exists());
+    }
+
+    #[test]
     fn passive_replica_restore_is_fenced_before_publication() {
         let (temp, data, uploads, recipient, identity) = fixture();
         let archive = temp.path().join("passive.age");
@@ -1162,8 +1485,15 @@ mod tests {
         let archive = temp.path().join("passive.age");
         let target = temp.path().join("passive-copy");
         let receipt = temp.path().join("passive-receipt.json");
+        fs::write(data.join("wabidb/.lock"), b"old-writer-pid").unwrap();
+        fs::write(data.join(".wabi-secret-publication.lock"), b"").unwrap();
         export(&data, &uploads, &recipient, &archive).unwrap();
         restore(&archive, &identity, &target, false, true).unwrap();
+        assert!(!target.join("data/wabidb/.lock").exists());
+        assert!(!target.join("data/.wabi-secret-publication.lock").exists());
+        // Runtime lock diagnostics on an independently run copy do not form
+        // part of its sealed community-state identity.
+        fs::write(target.join("data/wabidb/.lock"), b"receiver-pid").unwrap();
         assert!(seal_passive_move(&data, &uploads, &receipt).is_err());
         assert!(!receipt.exists());
         fence_stopped(&data).unwrap();
@@ -1216,12 +1546,54 @@ mod tests {
     }
 
     #[test]
-    fn export_refuses_a_live_or_stale_lock_until_operator_resolves_it() {
+    fn export_refuses_an_owned_advisory_lock_and_accepts_it_after_release() {
+        use fs4::fs_std::FileExt;
+
         let (temp, data, uploads, recipient, _) = fixture();
         let archive = temp.path().join("snapshot.age");
-        fs::write(data.join("wabidb/.lock"), b"1234").unwrap();
+        let path = data.join("wabidb/.lock");
+        let held = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        assert!(FileExt::try_lock_exclusive(&held).unwrap());
         assert!(export(&data, &uploads, &recipient, &archive).is_err());
         assert!(!archive.exists());
+        drop(held);
+        assert!(path.exists());
+        export(&data, &uploads, &recipient, &archive).unwrap();
+        assert!(archive.exists());
+    }
+
+    #[test]
+    fn stopped_guard_prevents_server_start_throughout_the_operation() {
+        use fs4::fs_std::FileExt;
+
+        let (_temp, data, _uploads, _recipient, _) = fixture();
+        let stopped = ensure_stopped(&data).unwrap();
+        let path = data.join("wabidb/.lock");
+        let contender = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        assert!(!FileExt::try_lock_exclusive(&contender).unwrap());
+        stopped.verify().unwrap();
+        drop(stopped);
+        assert!(FileExt::try_lock_exclusive(&contender).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stopped_guard_refuses_a_replaced_lock_inode() {
+        let (_temp, data, _uploads, _recipient, _) = fixture();
+        let stopped = ensure_stopped(&data).unwrap();
+        let path = data.join("wabidb/.lock");
+        fs::remove_file(&path).unwrap();
+        fs::write(&path, b"replacement").unwrap();
+        assert!(stopped.verify().is_err());
     }
 
     #[test]

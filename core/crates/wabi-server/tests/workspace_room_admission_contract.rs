@@ -1,4 +1,7 @@
 //! Real adapter encodings must pass the shared database workspace admission.
+#[path = "fixtures/writer_drain.rs"]
+mod writer_drain;
+
 use wabi_server::adapter::WdbAdapter;
 use wabidb::{
     crypto::bootstrap::BootstrapSource,
@@ -235,10 +238,15 @@ async fn forum_and_incident_adapters_keep_local_workflows_and_refuse_remote_muta
     let expected = rows(&state);
     drop(state);
     drop(store);
+    let stopped = writer_drain::wait_for_stopped_engine(dir.path()).await;
     ProjectionState::remove_snapshot(dir.path());
-    let reopened = WdbAdapter::open_with_config_and_node_id(config(dir.path()), "site-a".into())
-        .await
-        .unwrap();
+    drop(stopped);
+    let reopened = writer_drain::retry(
+        || WdbAdapter::open_with_config_and_node_id(config(dir.path()), "site-a".into()),
+        |error| matches!(error, wabidb::error::WabiError::AlreadyRunning),
+    )
+    .await
+    .unwrap();
     assert_eq!(reopened.engine().barrier().current(), watermark);
     assert_eq!(rows(&reopened.engine().projection_state()), expected);
     assert!(reopened.engine().is_healthy());

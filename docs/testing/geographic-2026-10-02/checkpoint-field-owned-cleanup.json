@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T06:31:51.973771+00:00",
+  "removedAfterExactGzipCompare": [
+    {
+      "path": "/tmp/wabi-geographic-checkpoint-field1.log",
+      "bytes": 678,
+      "rawSha256": "497a919048198d0679ae5691bc169c3f4afb609e4d4f2e48adeaa0ae35ad1de4",
+      "gzip": "docs/testing/geographic-2026-10-02/checkpoint-field1.log.gz"
+    },
+    {
+      "path": "/tmp/wabi-geographic-checkpoint-field2.log",
+      "bytes": 11262,
+      "rawSha256": "668fb629013a857c2f501a4d7d23da55bed47d513005c484fa3d965aec5b8bc5",
+      "gzip": "docs/testing/geographic-2026-10-02/checkpoint-field2.log.gz"
+    },
+    {
+      "path": "/tmp/wabi-geographic-checkpoint-field3.log",
+      "bytes": 10181,
+      "rawSha256": "b2087f50bd56fb0f1e7fdd326263ade6cd5978ce6dd274955fd497e907fea043",
+      "gzip": "docs/testing/geographic-2026-10-02/checkpoint-field3.log.gz"
+    },
+    {
+      "path": "/tmp/wabi-geographic-checkpoint-producer-field1.log",
+      "bytes": 36653,
+      "rawSha256": "909a656c43bc8066ff651d1b58ae5814bcbb6801180b3c13fcb526f7b2dd7e26",
+      "gzip": "docs/testing/geographic-2026-10-02/checkpoint-producer-field1.log.gz"
+    },
+    {
+      "path": "/tmp/wabi-geographic-checkpoint-export1.log",
+      "bytes": 36528,
+      "rawSha256": "74c084a91d5a60b8e759da7edfe8184cb94f03a3e49d6c50a77caf2747db18f6",
+      "gzip": "docs/testing/geographic-2026-10-02/checkpoint-export1.log.gz"
+    },
+    {
+      "path": "/tmp/wabi-geographic-checkpoint-host1.log",
+      "bytes": 109,
+      "rawSha256": "d60aee7fbbaf64d82555c896fe762e4d0da72d445ab0d2ce1ab14d951ad9d589",
+      "gzip": "docs/testing/geographic-2026-10-02/checkpoint-host1.log.gz"
+    },
+    {
+      "path": "/tmp/wabi-geographic-checkpoint-host2.log",
+      "bytes": 110,
+      "rawSha256": "50c9bd28b2855ce04db607cf9d903a1b596fe8f4993e9399378852568a7b4050",
+      "gzip": "docs/testing/geographic-2026-10-02/checkpoint-host2.log.gz"
+    },
+    {
+      "path": "/tmp/wabi-geographic-checkpoint-host3.log",
+      "bytes": 111,
+      "rawSha256": "20d7bd9924437f6e529139a106d33de0197d0827865368a772fd689e774f4e22",
+      "gzip": "docs/testing/geographic-2026-10-02/checkpoint-host3.log.gz"
+    },
+    {
+      "path": "/tmp/wabi-geographic-checkpoint-host4.log",
+      "bytes": 110,
+      "rawSha256": "170a732eb7199f408c5e7f890a5177aa6a12a492de627a5f1a608d995936ea3a",
+      "gzip": "docs/testing/geographic-2026-10-02/checkpoint-host4.log.gz"
+    },
+    {
+      "path": "/tmp/wabi-geographic-checkpoint-physical1.log",
+      "bytes": 175,
+      "rawSha256": "cc83440be1470a9e99b390ec34c583d692888e45b7ba6a3d48a0d99f1c590b7f",
+      "gzip": "docs/testing/geographic-2026-10-02/checkpoint-physical1.log.gz"
+    },
+    {
+      "path": "/tmp/wabi-geographic-checkpoint-physical2.log",
+      "bytes": 224,
+      "rawSha256": "38c22bf42665e1b35e3254a38e5949e0c9bab0ad82e8aee8b746e5856ebcb3cb",
+      "gzip": "docs/testing/geographic-2026-10-02/checkpoint-physical2.log.gz"
+    },
+    {
+      "path": "/tmp/wabi-geographic-checkpoint-physical3.log",
+      "bytes": 231,
+      "rawSha256": "7430829451c4bb12b92d43b0ba448dc71481eedfe3d1a56ace0773f71fa9b74e",
+      "gzip": "docs/testing/geographic-2026-10-02/checkpoint-physical3.log.gz"
+    }
+  ],
+  "bytesRemoved": 96372,
+  "retainedEncryptedStage": {
+    "record": "/tmp/wabi-geographic-checkpoint-field-stage.json",
+    "bytes": 175938,
+    "files": [
+      "ciphertext.age",
+      "export.json",
+      "manifest.json",
+      "owner.json"
+    ],
+    "decryptionIdentityPresent": false,
+    "reason": "bounded exact real-capture retry pending review guidance"
+  },
+  "sharedTargetOrLiveDataRemoved": false
+}

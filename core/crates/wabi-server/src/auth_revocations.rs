@@ -15,6 +15,17 @@ pub(crate) async fn commit(
     migration: bool,
     operations: Vec<Operation>,
 ) -> Result<()> {
+    commit_with_events(engine, migration, operations, Vec::new()).await
+}
+
+/// Credential changes join their existing-format user event and denial delta
+/// in one sequenced commit, so crash recovery cannot expose just one half.
+pub(crate) async fn commit_with_events(
+    engine: &WabiDbEngine,
+    migration: bool,
+    operations: Vec<Operation>,
+    mut events: Vec<EventToWrite>,
+) -> Result<()> {
     let payload = serde_json::to_vec(&Delta {
         schema_version: 1,
         migration,
@@ -26,7 +37,16 @@ pub(crate) async fn commit(
     })?;
     // The shared decoder enforces payload bounds before touching the stream.
     projection::decode(&payload)?;
-    engine.get_or_create_stream_key(projection::STREAM).await?;
+    events.push(EventToWrite {
+        stream_id: projection::STREAM.into(),
+        event_type: projection::EVENT.into(),
+        stream_kind: 6,
+        record_kind: RecordKind::Event,
+        plaintext: payload,
+    });
+    for event in &events {
+        engine.get_or_create_stream_key(&event.stream_id).await?;
+    }
     engine
         .run_command(CommandCommit {
             caller_user_id: 0,
@@ -36,13 +56,7 @@ pub(crate) async fn commit(
             room_owner_precondition: None,
             essential: true,
             response_tx: tokio::sync::oneshot::channel().0,
-            events: vec![EventToWrite {
-                stream_id: projection::STREAM.into(),
-                event_type: projection::EVENT.into(),
-                stream_kind: 6,
-                record_kind: RecordKind::Event,
-                plaintext: payload,
-            }],
+            events,
         })
         .await?;
     Ok(())

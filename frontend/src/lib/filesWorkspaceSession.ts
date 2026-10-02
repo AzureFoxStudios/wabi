@@ -494,32 +494,39 @@ export function createFilesWorkspaceSession(overrides?: Partial<FilesWorkspaceDe
 		spacesWarning.set(null);
 		const found: Record<number, SpaceRepo> = {};
 		const failures: string[] = [];
-		for (const ref of refs) {
+		async function lookup(ref: LoreChannelRef) {
 			const numeric = parseFilesChannelId(ref.id);
-			if (numeric === null) continue;
+			if (numeric === null) return;
 			let hasAccess: () => boolean;
 			try {
 				hasAccess = deps.captureAccess(ref.id);
 			} catch (err) {
 				failures.push(`${ref.name}: ${messageOf(err, 'Channel unavailable')}`);
-				continue;
+				return;
 			}
 			try {
 				const info = await deps.getRepo(scope.token, numeric);
 				if (disposed || my !== spacesSeq) return;
 				if (!sessionAlive(scope)) return;
-				if (!hasAccess()) continue;
+				if (!hasAccess()) return;
 				// Null means absent repo (404) — not an error, just no space here.
 				if (info) found[numeric] = { ...info, channelKey: ref.id, channelName: ref.name };
 			} catch (err) {
 				if (disposed || my !== spacesSeq) return;
 				if (!sessionAlive(scope)) return;
-				if (!hasAccess()) continue;
+				if (!hasAccess()) return;
 				failures.push(`${ref.name}: ${messageOf(err, 'Failed to load space')}`);
 			}
 		}
-		if (disposed || my !== spacesSeq) return;
-		if (!sessionAlive(scope)) return;
+		let next = 0;
+		async function worker() {
+			while (next < refs.length && my === spacesSeq && sessionAlive(scope)) {
+				const ref = refs[next++];
+				await lookup(ref);
+			}
+		}
+		await Promise.all(Array.from({ length: Math.min(3, refs.length) }, worker));
+		if (disposed || my !== spacesSeq || !sessionAlive(scope)) return;
 		spaces.set(found);
 		spacesLoaded.set(true);
 		const names = Object.keys(found).length;

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ScreenSharePreview from './ScreenSharePreview.svelte';
 	import { onMount } from 'svelte';
 	import { slide, fly } from 'svelte/transition';
 	import { flip } from 'svelte/animate';
@@ -131,6 +132,7 @@
 		socketId?: string;
 		username?: string;
 		profilePicture?: string;
+		screenShareEnabled?: boolean;
 	}
 
 	interface VoiceRow {
@@ -414,7 +416,7 @@
 					{:else}
 						<span class="voice-member-avatar voice-avatar-fallback" class:speaking={row?.isSelfSpeaking}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
 					{/if}
-					<span class="voice-member-name">{$currentUser.username}</span>
+					<span class="voice-member-name">{$currentUser.username}</span><ScreenSharePreview channelId={channel.id} userId={$currentUser.id} username={$currentUser.username} self />
 					{#if row?.selfRecording}
 						<span class="voice-recording-tag member">REC</span>
 					{/if}
@@ -439,7 +441,7 @@
 					{:else}
 						<span class="voice-member-avatar voice-avatar-fallback" class:speaking={row?.speakingIds.has(member.userId)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 					{/if}
-					<span class="voice-member-name">{member.username || member.userId}</span>
+					<span class="voice-member-name">{member.username || member.userId}</span><ScreenSharePreview channelId={channel.id} userId={member.userId} username={member.username || member.userId} announced={member.screenShareEnabled || false} />
 					{#if row?.recordingIds.has(member.userId)}
 						<span class="voice-recording-tag member">REC</span>
 					{/if}
@@ -524,7 +526,7 @@
 						{:else}
 							<span class="voice-member-avatar voice-avatar-fallback" class:speaking={breakoutRow?.isSelfSpeaking}>{($currentUser.username || '?').charAt(0).toUpperCase()}</span>
 						{/if}
-						<span class="voice-member-name">{$currentUser.username}</span>
+						<span class="voice-member-name">{$currentUser.username}</span><ScreenSharePreview channelId={channel.id} userId={$currentUser.id} username={$currentUser.username} self />
 						{#if breakoutRow?.selfRecording}
 							<span class="voice-recording-tag member">REC</span>
 						{/if}
@@ -549,7 +551,7 @@
 						{:else}
 							<span class="voice-member-avatar voice-avatar-fallback" class:speaking={breakoutRow?.speakingIds.has(member.userId)}>{(member.username || '?').charAt(0).toUpperCase()}</span>
 						{/if}
-						<span class="voice-member-name">{member.username || member.userId}</span>
+						<span class="voice-member-name">{member.username || member.userId}</span><ScreenSharePreview channelId={channel.id} userId={member.userId} username={member.username || member.userId} announced={member.screenShareEnabled || false} />
 						{#if breakoutRow?.recordingIds.has(member.userId)}
 							<span class="voice-recording-tag member">REC</span>
 						{/if}

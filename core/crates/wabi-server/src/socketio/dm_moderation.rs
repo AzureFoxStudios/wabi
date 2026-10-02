@@ -206,9 +206,9 @@ async fn on_ban_user(socket: SocketRef, data: Value, state: SioState, _io: Socke
     };
 
     // Auth check — must be admin
-    let identity = resolve_sio_identity(&socket);
-    let my_user_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
-    if !state.app.is_admin(my_user_id).await {
+    let Some(identity) = resolve_identity(&socket, &state).await else { return; };
+    let my_user_id = identity.user_id;
+    if identity.is_guest || !state.app.is_admin(my_user_id).await {
         let _ = socket.emit("ban-error", &json!({ "error": "Only admins can ban users" }));
         return;
     }

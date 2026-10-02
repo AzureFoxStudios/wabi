@@ -17,6 +17,8 @@
 	import { computeSpatialPosition, loadSpatialSeats, sortByUserId } from '$lib/callingSpatialRuntime';
 	import { mergeScreenShareEntries } from '$lib/callRenderModel';
 	import type { CallSession, CallSpatialPosition } from '$lib/callSessionTypes';
+	import { currentUser, users, serverMembers } from '$lib/socket';
+	import { mediaUrl } from '$lib/mediaUrl';
 	import VideoSink from './VideoSink.svelte';
 
 	function streamOwner(key: string): string {
@@ -36,7 +38,7 @@
 	let roster = $derived(
 		(session.channelId ? $voiceChannelMembers[session.channelId] : undefined) ?? []
 	);
-	let participants = $derived(
+	let rawParticipants = $derived(
 		roster.length > 0
 			? roster.map((m: any) => ({
 					userId: m.userId as string,
@@ -48,6 +50,11 @@
 				}))
 			: session.participants.map((p) => ({ ...p, isSpeaking: false, avatarUrl: null as string | null }))
 	);
+
+	let participants = $derived(rawParticipants.map(person => {
+		const profile = [$currentUser, ...$users, ...$serverMembers].find(user => user && (user.id === person.userId || `user-${user.dbUserId}` === person.userId));
+		return { ...person, avatarUrl: person.avatarUrl || profile?.profilePicture || null };
+	}));
 
 	// A participant may be present in several calls with different feeds.
 	let sessionVideo = $derived($wabidbRemoteVideoSessions.get(session.id) ?? new Map<string, MediaStream>());
@@ -182,9 +189,12 @@
 		manualSeats = next;
 		clearSpatialSeat(session.id, userId);
 	}
+ function dismissSeats(event: PointerEvent) { if (seatsOpen && !(event.target as Element)?.closest('.cstage-seatmap, .cstage-seat-toggle')) seatsOpen = false; }
 </script>
+<svelte:window onpointerdown={dismissSeats} onkeydown={event => { if (seatsOpen && event.key === 'Escape') { event.preventDefault(); seatsOpen = false; } }} />
 
 <div class="cstage">
+	{#if screenEntries.length === 0 && cameraEntries.length === 0 && !localCamera}
 	<div class="cstage-chips" aria-label="Call participants">
 		{#each participants as p (p.userId)}
 			<span
@@ -195,7 +205,7 @@
 				title={`${p.username || p.userId}${p.isListenOnly ? ' (listening)' : ''}`}
 			>
 				{#if p.avatarUrl}
-					<img class="cstage-chip-avatar" src={p.avatarUrl} alt={p.username || p.userId} />
+					<img class="cstage-chip-avatar" src={mediaUrl(p.avatarUrl)} alt={p.username || p.userId} />
 				{:else}
 					<span class="cstage-chip-initial">{initial(p.username || p.userId)}</span>
 				{/if}
@@ -205,11 +215,12 @@
 		{/each}
 	</div>
 
+	{/if}
 	<div class="cstage-body">
 		{#if screenEntries.length > 0}
 			<div class="cstage-hero">
 				{#each screenEntries as share (share.key)}
-					<div class="cstage-hero-item" class:own={share.isLocal}>
+					<div class="cstage-hero-item" class:own={share.isLocal} class:speaking={participants.some(p => p.userId === share.ownerId && p.isSpeaking)}>
 						<VideoSink stream={share.stream} />
 						<span class="cstage-tile-label"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> {share.label}</span>
 					</div>
@@ -232,10 +243,10 @@
 					<span class="cstage-tile-label">{who?.username || userId}</span>
 				</div>
 			{/each}
-			{#if cameraEntries.length === 0 && !localCamera}
+			{#if cameraEntries.length === 0 && !localCamera && screenEntries.length === 0}
 				<div class="cstage-empty">
 					<span class="cstage-empty-hint">
-						{participants.length} in call — no camera or screen share yet
+						Audio call · {participants.length} {participants.length === 1 ? 'person' : 'people'} connected
 					</span>
 				</div>
 			{/if}
@@ -248,10 +259,9 @@
 					class="cstage-seat-toggle"
 					class:active={seatsOpen}
 					onclick={() => (seatsOpen = !seatsOpen)}
-					title="Arrange the spatial hearing stage"
+					title="Arrange spatial audio" aria-label="Arrange spatial audio" aria-expanded={seatsOpen} aria-controls={`call-spatial-seats-${session.id}`}
 				>
 					<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1.6"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M8.46 8.46a5 5 0 0 0 0 7.07"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
-					Seats
 				</button>
 				{#if seatsOpen}
 					<span class="cstage-seat-hint">Drag avatars to position them in 3D space</span>
@@ -259,6 +269,7 @@
 			</div>
 			{#if seatsOpen}
 				<div
+					id={`call-spatial-seats-${session.id}`}
 					class="cstage-seatmap"
 					role="application"
 					aria-label="Spatial seating stage — drag avatars to position them"
@@ -281,11 +292,18 @@
 							aria-label={`Seat for ${p.username || p.userId}`}
 							onpointerdown={(e) => onSeatPointerDown(e, p.userId)}
 							ondblclick={() => resetSeat(p.userId)}
-							onkeydown={(e) => e.key === 'Enter' && resetSeat(p.userId)}
+							onkeydown={(e) => {
+								if (e.key === 'Enter' || e.key === 'Home') { e.preventDefault(); resetSeat(p.userId); }
+								if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
+									e.preventDefault(); const seat = seatFor(p.userId);
+									const position = { x: Math.max(-6, Math.min(6, seat.x + (e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0))), y: 0, z: Math.max(-6, Math.min(6, seat.z + (e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0))) };
+									manualSeats = { ...manualSeats, [p.userId]: position }; applySpatialSeat(session.id, p.userId, position);
+								}
+							}}
 							title={manualSeats[p.userId] ? 'Double-click to reset to auto-circle' : ''}
 						>
 							{#if p.avatarUrl}
-								<img class="cstage-chip-avatar" src={p.avatarUrl} alt={p.username || p.userId} />
+								<img class="cstage-chip-avatar" src={mediaUrl(p.avatarUrl)} alt={p.username || p.userId} />
 							{:else}
 								<span class="cstage-chip-initial">{initial(p.username || p.userId)}</span>
 							{/if}

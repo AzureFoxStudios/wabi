@@ -27,6 +27,9 @@
 		onSaved?: () => void; onDirtyChange?: (dirty: boolean) => void; actions?: Snippet;
 	}
 	let { filePath, fileContent, fileInfo, loading, onClose, mediaUrl = null, canEdit = false, token, channelId, onSaved, onDirtyChange, actions }: Props = $props();
+	let viewer = $state<HTMLElement>();
+	let expanded = $state(false);
+	async function toggleFullscreen() { try { if (document.fullscreenElement === viewer) await document.exitFullscreen(); else await viewer?.requestFullscreen(); } catch { error = 'Fullscreen is unavailable in this window.'; } }
 	let mode = $state<'read' | 'source' | 'edit'>('read');
 	let host = $state<HTMLDivElement>();
 	let editor: EditorView | undefined;
@@ -132,10 +135,12 @@
 </script>
 
 <svelte:window onbeforeunload={(event) => { if (dirty || busy) { event.preventDefault(); event.returnValue = ''; } }} />
-<section class="lore-file-viewer" aria-label={`File ${filePath}`}>
+<svelte:document onfullscreenchange={() => expanded = document.fullscreenElement === viewer} />
+<section bind:this={viewer} class="lore-file-viewer" aria-label={`File ${filePath}`}>
 	<header class="viewer-header">
 		<div class="viewer-filename"><LoreIcon name="file" /><span title={filePath}>{filePath}</span>{#if fileInfo}<small>{formatBytes(fileInfo.size)}</small>{/if}</div>
 		<div class="viewer-actions">
+			<button onclick={toggleFullscreen}>{expanded ? 'Exit fullscreen' : 'Fullscreen'}</button>
 			{#if actions}{@render actions()}{/if}
 			{#if mode === 'edit'}
 				<span class="viewer-save-state">{dirty ? 'Unsaved edits' : submittedContent === draft ? 'Submitted for review' : 'No unsaved edits'}</span>
@@ -168,6 +173,7 @@
 </section>
 
 <style>
+	.lore-file-viewer:fullscreen { width: 100vw; height: 100vh; background: var(--bg-primary, #172326); }
 	.lore-file-viewer { display:flex; flex-direction:column; height:100%; min-height:0; min-width:0; color:var(--text-primary, #e8eded); background:var(--bg-primary, #111b20); }
 	.viewer-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:12px 18px; border-bottom:1px solid var(--border-color, #334047); }
 	.viewer-filename { display:flex; align-items:center; gap:10px; min-width:0; flex:1; font-size:14px; }

@@ -1,0 +1,491 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T03:27:14.671901+00:00",
+  "session": 84268,
+  "actualExitCode": 0,
+  "resultGroups": 88,
+  "passed": 2663,
+  "failed": 0,
+  "ignored": 15,
+  "groupResults": [
+    {
+      "passed": 39,
+      "failed": 0,
+      "ignored": 2
+    },
+    {
+      "passed": 10,
+      "failed": 0,
+      "ignored": 2
+    },
+    {
+      "passed": 12,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 114,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 23,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 15,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 13,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 61,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 465,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 39,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 472,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 16,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 14,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 10,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 39,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 21,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 18,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 9,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "passed": 5,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "passed": 14,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 14,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 12,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 1015,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    }
+  ],
+  "ignoredEntries": [
+    "test material::checkpoint::tests::signed_checkpoint_crash_child ... ignored, owned signed-checkpoint publication crash child invoked by parent",
+    "test material::tests::material_process_crash_child ... ignored, owned child entrypoint invoked by process crash acceptance",
+    "test processes::separate_process_identity_bootstrap ... ignored, explicit owned private node-key bootstrap invoked by parent/operator only",
+    "test processes::separate_process_recovery_worker ... ignored, owned child process invoked by the parent contract only",
+    "test acknowledged_state_process_worker ... ignored, subprocess fixture; invoked only by the kill contract",
+    "test instance_archive::source_context::filesystem::tests::publication_crash_child ... ignored, owned subprocess invoked by actual_process_death_never_exposes_partial_context_as_valid",
+    "test instance_archive_tests::source_context::filesystem::tests::publication_crash_child ... ignored, owned subprocess invoked by actual_process_death_never_exposes_partial_context_as_valid",
+    "test instance_archive::source_context::filesystem::tests::publication_crash_child ... ignored, owned subprocess invoked by actual_process_death_never_exposes_partial_context_as_valid",
+    "test write_role_replay_fixture_child ... ignored, subprocess fixture invoked by role_assignment_survives_process_restart",
+    "test adapter_retry_child ... ignored, subprocess fixture with an isolated bootstrap environment",
+    "test profile_replay_fixture_child ... ignored, subprocess fixture invoked by profile_design_and_clears_survive_restart",
+    "test two_computer_recovery_fixture ... ignored, requires the external two-computer recovery harness",
+    "test write_service_fixture_child ... ignored",
+    "test engine::process_lock_tests::process_lock_subprocess_child ... ignored, subprocess helper invoked by process lock regression tests",
+    "test core/crates/wabi-server/src/mdns.rs - mdns::browse_wabi_helpers (line 84) ... ignored"
+  ],
+  "ignoredLimit": "Owned subprocess entrypoints are invoked by parents; external two-computer harness and ignored discovery doctest are not claimed accepted",
+  "sourceFreezeSha256": "a15c45f56be8097e65db49d7a6154b888d14b74ea611bba468fb0d0b48b14807",
+  "sourceFiles": 5163,
+  "sourceReadbackChanged": [],
+  "sourceReceipt": "producer-source-freeze3.json.gz",
+  "producerSourceContents": "producer-current-sources.json.gz",
+  "command": "CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 CARGO_PROFILE_TEST_DEBUG=0 cargo test --offline --locked --workspace --features wabi-server/addons,wabi-server/experimental-livekit-broker --no-fail-fast",
+  "toolchain": "Rust/Cargo1.93.1",
+  "rootManifestSha256": "a4a424c17f25224b17a01cf320e8339d97551081640b40898d35bbdfb773a051",
+  "cargoLockSha256": "2c31a8723232abaffc228fd9801cd444997211e5b2530d994072a7f7cd4b522a",
+  "preservedPackageIdentities": 638,
+  "frontendIndexSha256": "366331ef3f743cfc94864654584b411bc4a62efec20e7e90f858fe24b7d33253",
+  "frontendBuildId": "1305bddd7c8f3af6",
+  "logSha256": "ae7492de9b7e28e35a4524b8e337f67ea32c74a5b28c0492bb65d50527cc1176",
+  "compressedLog": "producer-workspace-final.log.gz",
+  "artifactInventory": "producer-workspace-artifacts.json",
+  "priorFailureReceipts": [
+    "producer-integration-compile-failed.json",
+    "producer-workspace-wrapper-compile-failed.json"
+  ],
+  "acceptanceScope": "Current main-Wabi source/build workspace and default-off signed checkpoint producer; no UI rendering/physical byte RPC/HA/writer activation/production deployment",
+  "transferDraft": "Two source files remain unreferenced/uncompiled"
+}

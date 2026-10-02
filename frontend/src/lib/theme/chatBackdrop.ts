@@ -1,4 +1,4 @@
-export type ChatBackdropScene = 'none' | 'koi';
+export type ChatBackdropScene = 'none' | 'image' | 'koi';
 
 export type ChatBackdropSettings = {
 	scene: ChatBackdropScene;
@@ -16,12 +16,14 @@ export const defaultChatBackdropSettings: ChatBackdropSettings = {
 	frost: 0.32
 };
 
-export function loadChatBackdropSettings(): ChatBackdropSettings {
+export function loadChatBackdropSettings(hasImage = false): ChatBackdropSettings {
 	if (typeof localStorage === 'undefined') return { ...defaultChatBackdropSettings };
 	try {
 		const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
 		return {
-			scene: parsed.scene === 'koi' ? 'koi' : 'none',
+			scene: parsed.scene === 'koi' || parsed.scene === 'image' || parsed.scene === 'none'
+				? parsed.scene === 'none' && parsed.version !== 2 && hasImage ? 'image' : parsed.scene
+				: hasImage ? 'image' : 'none',
 			motion: clamp(parsed.motion, defaultChatBackdropSettings.motion),
 			dim: clamp(parsed.dim, defaultChatBackdropSettings.dim),
 			frost: clamp(parsed.frost, defaultChatBackdropSettings.frost)
@@ -33,7 +35,7 @@ export function loadChatBackdropSettings(): ChatBackdropSettings {
 
 export function saveChatBackdropSettings(settings: ChatBackdropSettings) {
 	if (typeof localStorage === 'undefined') return;
-	localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+	localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...settings, version: 2 }));
 	window.dispatchEvent(new CustomEvent('wabi:chat-backdrop-change', { detail: settings }));
 }
 

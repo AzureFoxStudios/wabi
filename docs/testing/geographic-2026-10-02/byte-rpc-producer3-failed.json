@@ -1,0 +1,13 @@
+{
+  "session": 28923,
+  "actualExit": 101,
+  "passed": 5,
+  "failed": 1,
+  "ignored": 0,
+  "sourceFilesUnchanged": 33,
+  "freeze": "byte-rpc-freeze3.json.gz",
+  "logSha256": "2fa443f0e7ab5dfc057aa0cdfe3e019e2549063935808a32fb35724c66fefca1",
+  "logBytes": 37496,
+  "cause": "Test-only filesystem upload fixture lacked matching upload registry; actual safe Authority restart refused. Transfer/reseed statements before restart ran, but target acceptance FAILED. No production gate weakened.",
+  "recordedAtUtc": "2026-10-02T04:34:49.367023+00:00"
+}

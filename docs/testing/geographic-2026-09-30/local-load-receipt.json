@@ -1,0 +1,113 @@
+{
+  "result": "PASS",
+  "scope": "single-host loopback only",
+  "checks": [
+    "two-site auth",
+    "signed three-entry roster",
+    "shared message history",
+    "Engine.IO polling",
+    "two WebSocket sessions",
+    "bidirectional cross-Anchor live messages",
+    "site-origin HTTP and authenticated WebSocket writes visible across sites",
+    "byte-identical local versioned assets on both Anchors",
+    "upload cache miss/hit",
+    "single Anchor loss with surviving write",
+    "Authority loss returns 503 for API and cached file while a public app asset stays local"
+  ],
+  "localAssetBytesPerSite": 27277,
+  "remoteClientProbes": [
+    {
+      "role": "materials",
+      "clientLocation": "harness-host",
+      "elapsedMs": 2146,
+      "assetBytes": 27277,
+      "messageId": "msg_e76e9688745f43acb0e983d1638470bc",
+      "websocketMessageId": "msg_496ef576982f4149bf10ee4af6a70e9d",
+      "websocketAuthenticated": true,
+      "websocketHistoryMatched": true,
+      "websocketAcceptanceMatchedDelivery": true
+    },
+    {
+      "role": "authority",
+      "clientLocation": "harness-host",
+      "elapsedMs": 2166,
+      "assetBytes": 27277,
+      "messageId": "msg_f1f31b32206541bfbcb1aa561c55d1c0",
+      "websocketMessageId": "msg_fd1bd9b8abdf43beb02237f17f671c59",
+      "websocketAuthenticated": true,
+      "websocketHistoryMatched": true,
+      "websocketAcceptanceMatchedDelivery": true
+    }
+  ],
+  "staticOriginBytes": {
+    "materials": 0,
+    "equipment": 0
+  },
+  "cacheOriginBytes": {
+    "fileBytes": 262144,
+    "samples": [
+      {
+        "disposition": "miss",
+        "originToAnchorBytes": 263175,
+        "anchorToOriginBytes": 1099
+      },
+      {
+        "disposition": "hit",
+        "originToAnchorBytes": 504,
+        "anchorToOriginBytes": 550
+      }
+    ]
+  },
+  "loadEvidence": {
+    "schemaVersion": 1,
+    "result": "PASS",
+    "workload": "bounded single-room canary",
+    "configured": {
+      "clients": 6,
+      "messages": 20,
+      "payloadBytes": 512,
+      "messagesPerSecond": 2,
+      "deadlineSeconds": 90
+    },
+    "registeredAccountsMeasured": null,
+    "providedAccessCredentials": 2,
+    "attemptedClients": 6,
+    "connectedClients": 6,
+    "scheduledMessages": 20,
+    "acknowledgedMessages": 20,
+    "expectedDeliveries": 120,
+    "observedDeliveries": 120,
+    "missingDeliveries": 0,
+    "duplicateEvents": 0,
+    "inconsistentIdentities": 0,
+    "errors": 0,
+    "failureStage": null,
+    "elapsedMs": 10068,
+    "achievedMessagesPerSecond": 1.99,
+    "acknowledgmentLatencyMs": {
+      "p50": 24.06,
+      "p95": 38.08,
+      "p99": 40.82,
+      "max": 40.82
+    },
+    "deliveryLatencyMs": {
+      "p50": 25.2,
+      "p95": 36.72,
+      "p99": 40.67,
+      "max": 40.85
+    },
+    "applicationEnvelopeBytesSent": 12310,
+    "applicationEnvelopeBytesReceived": 124800,
+    "measuredNetworkBytes": null,
+    "mediaParticipantsTested": 0,
+    "recoveryAndReconnectTested": false,
+    "capacityCertification": false,
+    "cleanup": {
+      "ownedSocketCount": 6,
+      "disconnectRequestedForAll": true
+    }
+  },
+  "binarySha256": "c6dfed7e08dfa37bf522dacdde67f2419e87afbfb936caeb577f4619f8b66379",
+  "sourceBaseCommit": "138abe39e08e400188d1812ed3bfd378df435315",
+  "sourceHasConcurrentUncommittedChanges": true
+}

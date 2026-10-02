@@ -7,6 +7,7 @@
 // when that tree is absent on a remote host.
 // WABI_PASSIVE_MOVE_ONLY=1 exercises guarded activation of a caught-up receiver.
 import assert from 'node:assert/strict';
+import { runRoomLoad, validateOptions } from './geographic-acceptance/room-load.mjs';
 import { execFile, spawn } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
@@ -28,6 +29,9 @@ const replicaBinary = process.argv[4] ? resolve(process.argv[4]) : null;
 assert.ok(!replicaBinary || snapshotBinary, 'A replica receiver needs the snapshot binary');
 assert.ok(process.env.WABI_PASSIVE_MOVE_ONLY !== '1' || replicaBinary,
   'A passive move check needs the replica receiver binary');
+const loadOptions = process.env.WABI_THREE_SITE_LOAD_OPTIONS
+  ? validateOptions(JSON.parse(process.env.WABI_THREE_SITE_LOAD_OPTIONS)) : null;
+let loadEvidence = null;
 const fieldConfigPath = process.env.WABI_THREE_SITE_FIELD_CONFIG;
 const fieldSites = fieldConfigPath ? JSON.parse(await readFile(fieldConfigPath, 'utf8')).sites : null;
 if (fieldSites) {
@@ -744,6 +748,14 @@ try {
   });
   assert.ok(history.messages.some(item => item.id === ack.messageId), 'shared durable history');
   assert.ok(history.messages.some(item => item.id === reverseAck.messageId), 'reverse durable history');
+  if (loadOptions) {
+    loadEvidence = await runRoomLoad({
+      sites: [authority.origin, materials.origin, equipment.origin],
+      tokens: [owner.accessToken, member.accessToken], channelId, options: loadOptions,
+    });
+    assert.equal(loadEvidence.result, 'PASS', `Bounded room workload failed: ${JSON.stringify(loadEvidence)}`);
+  }
+
   {
     const remoteChecks = [
       ['materials', fieldSites?.materials, materials.origin, { username: 'site_member',
@@ -1309,7 +1321,7 @@ try {
     : 'single-host loopback only',
     checks,
     localAssetBytesPerSite: sourceAsset.length,
-    remoteClientProbes, staticOriginBytes, cacheOriginBytes, replicaEvidence }));
+    remoteClientProbes, staticOriginBytes, cacheOriginBytes, replicaEvidence, loadEvidence }));
 } finally {
   for (const socket of sockets) socket.close();
   if (liveReceiver) await stopReceiver(liveReceiver).catch(() => {});

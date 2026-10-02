@@ -27,7 +27,10 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/create", axum::routing::post(handle_create))
         .route("/rotate", axum::routing::post(handle_rotate))
         .route("/disable", axum::routing::post(handle_disable))
-        .route("/project-access", axum::routing::post(handle_project_access))
+        .route(
+            "/project-access",
+            axum::routing::post(handle_project_access),
+        )
         .route("/send-message", axum::routing::post(handle_send_message))
         .with_state(state)
 }
@@ -87,18 +90,20 @@ async fn handle_create(
     // Bots have no password: store a random bcrypt hash so password login
     // always fails and the account can never be used as a human login.
     let dummy_password = bcrypt::hash(&uuid::Uuid::new_v4().to_string(), bcrypt::DEFAULT_COST)?;
-    let user_id = state
-        .wdb
-        .create_user(&username, Some(&username.to_lowercase()), &dummy_password)
-        .await?;
-
-    let (bot_token, _record) = state.bot_registry.create(user_id).await;
-
-    Ok(Json(BotCreateResponse {
-        bot_user_id: user_id,
-        bot_token,
-        username,
-    }))
+    state
+        .owner_bot_operation(auth, move |state| async move {
+            let user_id = state
+                .wdb
+                .create_user(&username, Some(&username.to_lowercase()), &dummy_password)
+                .await?;
+            let (bot_token, _record) = state.bot_registry.create(user_id).await?;
+            Ok(Json(BotCreateResponse {
+                bot_user_id: user_id,
+                bot_token,
+                username,
+            }))
+        })
+        .await
 }
 
 /// POST /api/bot/rotate — invalidate a bot's current token and mint a new one.
@@ -109,16 +114,19 @@ async fn handle_rotate(
 ) -> Result<Json<BotRotateResponse>> {
     require_owner(&state, &auth).await?;
 
-    let bot_token = state
-        .bot_registry
-        .rotate(req.bot_user_id)
+    state
+        .owner_bot_operation(auth, move |state| async move {
+            let bot_token = state
+                .bot_registry
+                .rotate(req.bot_user_id)
+                .await?
+                .ok_or_else(|| AppError::NotFound(format!("Bot {} not found", req.bot_user_id)))?;
+            Ok(Json(BotRotateResponse {
+                bot_user_id: req.bot_user_id,
+                bot_token,
+            }))
+        })
         .await
-        .ok_or_else(|| AppError::NotFound(format!("Bot {} not found", req.bot_user_id)))?;
-
-    Ok(Json(BotRotateResponse {
-        bot_user_id: req.bot_user_id,
-        bot_token,
-    }))
 }
 
 /// POST /api/bot/disable — revoke a bot's token and disable the account.
@@ -129,14 +137,19 @@ async fn handle_disable(
 ) -> Result<Json<serde_json::Value>> {
     require_owner(&state, &auth).await?;
 
-    if !state.bot_registry.disable(req.bot_user_id).await {
-        return Err(AppError::NotFound(format!("Bot {} not found", req.bot_user_id)));
-    }
-
-    Ok(Json(json!({
-        "success": true,
-        "botUserId": req.bot_user_id,
-    })))
+    state
+        .owner_bot_operation(auth, move |state| async move {
+            if !state.bot_registry.disable(req.bot_user_id).await? {
+                return Err(AppError::NotFound(format!(
+                    "Bot {} not found",
+                    req.bot_user_id
+                )));
+            }
+            Ok(Json(
+                json!({ "success": true, "botUserId": req.bot_user_id }),
+            ))
+        })
+        .await
 }
 
 #[derive(Debug, Deserialize)]
@@ -156,7 +169,9 @@ async fn handle_project_access(
     require_owner(&state, &auth).await?;
     // Serialize Project admission changes with in-flight Project and wiki
     // writes, so a removed bot cannot commit after revocation completes.
-    let _membership = state.membership_gate.write().await;
+    let membership = state.membership_gate.clone().write_owned().await;
+    state.owner_bot_operation(auth, move |state| async move {
+    let _membership = membership;
     if !state.bot_registry.is_bot(req.bot_user_id).await {
         return Err(AppError::NotFound("Bot not found".into()));
     }
@@ -172,6 +187,7 @@ async fn handle_project_access(
         state.wdb.remove_channel_member(&req.channel_id, req.bot_user_id).await?;
     }
     Ok(Json(json!({ "botUserId": req.bot_user_id, "channelId": req.channel_id, "allowed": req.allow })))
+    }).await
 }
 
 /// POST /api/bot/send-message — send a message as the authenticated bot.
@@ -196,17 +212,31 @@ async fn handle_send_message(
     // Reuse the same WDB write path as REST /api/messages.
     let retention_guard = state.retention_policy_lock.lock().await;
     crate::channel_access::require_participation(&state, auth.user_id, &req.channel_id).await?;
-    let blacklist = state.get_blacklist().await
+    let blacklist = state
+        .get_blacklist()
+        .await
         .ok_or_else(|| AppError::Internal("Channel restriction enforcement unavailable".into()))?;
-    if blacklist.is_channel_timed_out(&req.channel_id, auth.user_id).await.is_some() {
-        return Err(AppError::Forbidden("Bot is timed out in this channel".into()));
+    if blacklist
+        .is_channel_timed_out(&req.channel_id, auth.user_id)
+        .await
+        .is_some()
+    {
+        return Err(AppError::Forbidden(
+            "Bot is timed out in this channel".into(),
+        ));
     }
     if crate::api::e2ee::room_blocks_server_content(&state.config.data_dir, &req.channel_id)? {
         return Err(AppError::BadRequest(
             "Bot sends are unavailable while private-room encryption is pending or enabled".into(),
         ));
     }
-    if state.channel_auto_delete_label.read().await.get(&req.channel_id).is_some_and(|label| label == "live") {
+    if state
+        .channel_auto_delete_label
+        .read()
+        .await
+        .get(&req.channel_id)
+        .is_some_and(|label| label == "live")
+    {
         return Err(AppError::BadRequest(
             "Bot sends are unavailable in Live rooms because this endpoint stores messages".into(),
         ));
@@ -289,23 +319,30 @@ pub async fn ensure_hermes_bot(state: &AppState) -> Result<String> {
         if state.bot_registry.is_bot(user.user_id).await {
             // Token is one-shot at creation; store in memory for internal use.
             // The token is never exposed via API — only the server process uses it.
-            tracing::info!("[bot:hermes] bot account already exists (id={})", user.user_id);
+            tracing::info!(
+                "[bot:hermes] bot account already exists (id={})",
+                user.user_id
+            );
             return Ok(format!("user-{}", user.user_id));
         }
     }
     // No existing bot — create one via the registry.
-    let dummy_password = bcrypt::hash(
-        &uuid::Uuid::new_v4().to_string(),
-        bcrypt::DEFAULT_COST,
-    )
-    .map_err(|e| AppError::Internal(format!("bcrypt error: {e}")))?;
+    let dummy_password = bcrypt::hash(&uuid::Uuid::new_v4().to_string(), bcrypt::DEFAULT_COST)
+        .map_err(|e| AppError::Internal(format!("bcrypt error: {e}")))?;
     let user_id = state
         .wdb
-        .create_user(HERMES_BOT_USERNAME, Some(&HERMES_BOT_USERNAME.to_lowercase()), &dummy_password)
+        .create_user(
+            HERMES_BOT_USERNAME,
+            Some(&HERMES_BOT_USERNAME.to_lowercase()),
+            &dummy_password,
+        )
         .await
         .map_err(|e| AppError::Internal(format!("create_user failed: {e}")))?;
-    let (_token, _) = state.bot_registry.create(user_id).await;
-    tracing::info!("[bot:hermes] registered hermes-bot account (id={})", user_id);
+    let (_token, _) = state.bot_registry.create(user_id).await?;
+    tracing::info!(
+        "[bot:hermes] registered hermes-bot account (id={})",
+        user_id
+    );
     Ok(format!("user-{}", user_id))
 }
 

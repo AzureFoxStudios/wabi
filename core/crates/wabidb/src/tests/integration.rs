@@ -188,9 +188,9 @@ async fn two_engines_cannot_share_a_data_dir() {
         "expected AlreadyRunning, got {err:?}"
     );
 
-    // Drop the first engine; lock file should be cleaned up.
+    // Drop the first engine; its writer tasks drain while keeping the inode.
     drop(engine1);
-    assert!(!dir.path().join(".lock").exists());
+    assert!(dir.path().join(".lock").exists());
 
     // Now a new engine can open the same dir.
     let config2 = WabiDbConfig {
@@ -202,7 +202,7 @@ async fn two_engines_cannot_share_a_data_dir() {
         sync_transport: None,
         test_boot_wallclock_override: None,
     };
-    let _engine2 = WabiDbEngine::open(config2).await.unwrap();
+    let _engine2 = super::reopen_after_drop(config2, None).await.unwrap();
 }
 
 // ---------------------------------------------------------------------------

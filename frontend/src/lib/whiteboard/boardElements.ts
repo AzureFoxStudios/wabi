@@ -1,3 +1,4 @@
+import { layerAllowsUpdate, layerAllowsNewContent } from './layerEditingLocks';
 import type { WhiteboardLayer } from './boardTypes';
 import type { BoardElement } from './elementTypes';
 import { generateElementId } from './elementTypes';
@@ -35,6 +36,8 @@ export function addElement(
 	el: BoardElement,
 	patchListener: PatchListener | null
 ): BoardState {
+	const selectedLayer = state.layers.find(layer => layer.id === (el.layerId || state.activeLayerId));
+	if (!layerAllowsNewContent(selectedLayer)) return state;
 	let committed: BoardElement | null = null;
 	const next = { ...state };
 	next.undoStack = pushUndo(state.elements, state.layers, state.activeLayerId, state.undoStack);
@@ -62,6 +65,7 @@ export function updateElement(
 	const { recordHistory = true, emitPatch = true } = options;
 	const idx = state.elements.findIndex((e) => e.id === id);
 	if (idx === -1) return state;
+	if (!layerAllowsUpdate(state.layers.find(layer => layer.id === state.elements[idx].layerId), partial)) return state;
 
 	const next: BoardState = {
 		...state,
@@ -91,7 +95,10 @@ export function updateElementsBatch(
 	const { recordHistory = true, emitPatch = true } = options;
 
 	const byId = new Map<string, Partial<BoardElement>>();
-	for (const entry of entries) byId.set(entry.id, entry.partial);
+	for (const entry of entries) {
+	 const element = state.elements.find(element => element.id === entry.id);
+	 if (element && layerAllowsUpdate(state.layers.find(layer => layer.id === element.layerId), entry.partial)) byId.set(entry.id, entry.partial);
+	}
 
 	// Skip the clone entirely if no targeted element exists in this state.
 	const exists = state.elements.some((e) => byId.has(e.id));
@@ -122,6 +129,8 @@ export function deleteElements(
 	patchListener: PatchListener | null
 ): BoardState {
 	if (ids.length === 0) return state;
+	ids = ids.filter(id => { const element = state.elements.find(element => element.id === id); const layer = state.layers.find(layer => layer.id === element?.layerId); return element && !element.locked && !layer?.locked && !layer?.lockPixels && !layer?.lockPosition; });
+	if (!ids.length) return state;
 	const idSet = new Set(ids);
 	const next: BoardState = {
 		...state,
@@ -179,7 +188,7 @@ export function duplicateElements(
 	let offset = 1;
 	for (const id of ids) {
 		const src = state.elements.find((e) => e.id === id);
-		if (!src) continue;
+		if (!src || !layerAllowsNewContent(state.layers.find(layer => layer.id === src.layerId))) continue;
 		const maxZ = state.elements
 			.filter((element) => element.layerId === src.layerId)
 			.reduce((m, e) => Math.max(m, e.zIndex), 0);
