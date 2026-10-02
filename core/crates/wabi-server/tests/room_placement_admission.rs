@@ -1150,7 +1150,7 @@ async fn recorded_remote_owner_blocks_core_chat_mutations_before_commit() {
             "https://example.invalid/image",
             "image",
             None,
-            1,
+            None, None, 1,
         )
         .await
         .unwrap();
@@ -1254,7 +1254,7 @@ async fn recorded_remote_owner_blocks_core_chat_mutations_before_commit() {
             "https://example.invalid/other",
             "other",
             None,
-            1
+            None, None, 1
         )
         .await
         .is_err());
@@ -1359,7 +1359,7 @@ async fn recorded_remote_owner_blocks_core_chat_mutations_before_commit() {
             "https://example.invalid/local",
             "local",
             None,
-            1,
+            None, None, 1,
         )
         .await
         .unwrap();
