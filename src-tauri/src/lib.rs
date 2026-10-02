@@ -11,13 +11,13 @@ pub fn run() {
         .manage(hosting::HostState::default())
         .manage(lore_local::LocalWorkspaceState::default())
         .manage(lore_local::detection::LocalDetectionState::default())
-        .plugin(tauri_plugin_dialog::init());
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init());
 
     // Preserve the original desktop plugins without pulling desktop shell
     // behavior into mobile initialization. Register each plugin exactly once.
     #[cfg(not(mobile))]
     let builder = builder
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_log::Builder::new().build());
@@ -52,6 +52,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            secure_auth::secure_auth_get,
+            secure_auth::secure_auth_set,
+            secure_auth::secure_auth_delete,
             personal_planner::personal_planner_request,
             hosting::host_status,
             hosting::host_start,
@@ -121,7 +124,12 @@ pub fn run() {
 mod commands;
 #[cfg(not(mobile))]
 mod desktop;
+#[cfg(not(mobile))]
 mod lore_local;
+#[cfg(mobile)]
+#[path = "lore_local_mobile.rs"]
+mod lore_local;
+mod secure_auth;
 mod recording;
 mod shell_commands;
 mod tailcat;

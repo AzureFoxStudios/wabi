@@ -203,7 +203,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 			const result = await login(username, password);
 					setAuthToken(result.accessToken);
 					setRefreshToken(result.refreshToken);
-					if (rememberMe) setPersistentAuthToken(result.accessToken);
+					setPersistentAuthToken(rememberMe ? result.accessToken : null);
 			if (result.user.id) { setStoredDbUserId(result.user.id); /* DM-strip: removed initE2E + retryDecryptLoadedDmMessages */ }
 			localStorage.setItem('wabi_has_logged_in', 'true');
 			dispatch('login', { username: result.user.username, token: result.accessToken, authMethod: 'registered', mustChangePassword: result.mustChangePassword === true });
