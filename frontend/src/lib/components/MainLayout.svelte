@@ -1,5 +1,8 @@
 <!-- frontend/src/lib/components/MainLayout.svelte -->
 <script lang="ts">
+	import { workspaceToolFromTab } from '$lib/workspaces/bridge';
+	import WorkspaceLinkHandler from '$lib/workspaces/WorkspaceLinkHandler.svelte';
+	import WorkspaceHost from '$lib/workspaces/WorkspaceHost.svelte';
 	import { fly } from 'svelte/transition';
 	import GamesHost from '$lib/games/GamesHost.svelte';
 	import { layoutStore } from '$lib/layoutStore';
@@ -461,6 +464,12 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				return;
 			case 'root':
 			default:
+				if (activeOfficeTool) {
+					selectWorkspaceView('messages');
+					if ($currentChannel) mobileTabQueue.setActiveChannel($currentChannel);
+					else mobileTabQueue.activeTabId.set(null);
+					return;
+				}
 				if (activeView === 'dm') activeView = 'chat';
 		}
 	}
@@ -1151,6 +1160,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	} else if (!mobileNavVisible) {
 		mobileNavVisible = true;
 	}
+	$: activeOfficeTool = workspaceToolFromTab($activeTabId);
 </script>
 
 <svelte:window
@@ -1163,6 +1173,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 />
 
 <AuthErrorBanner />
+	<WorkspaceLinkHandler />
 
 {#if $centerPanelView === 'admin'}
 	{#if AdminCenterStageCmp}
@@ -1422,6 +1433,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			<div class="chat-surface">
 				{#if activeView === 'server'}
 					<ServerHub on:profileSettings={() => showSettings = true} welcome={serverHubWelcome} on:complete={completeServerWelcome} on:back={returnFromServerHub} on:browse={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'chat'; }} on:openRoom={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'chat'; }} on:messages={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'dm'; }} on:members={() => layoutStore.openRightPanel('users')} on:settings={openServerSettings} on:manage={() => layoutStore.showAdminCenterStage()} />
+				{:else if activeOfficeTool}
+					<WorkspaceHost tool={activeOfficeTool} />
 				{:else if isModelViewportTabActive}
 					{#if ModelViewportTabCmp}
 						<svelte:component this={ModelViewportTabCmp} />
