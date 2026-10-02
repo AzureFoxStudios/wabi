@@ -8,6 +8,7 @@
     import ProjectConnections from './ProjectConnections.svelte';
     import { fetchPluginInventory } from '$lib/addonInventory';
     import { getServerUrl } from '$lib/serverUrl';
+    import { pendingNav } from '$lib/pendingNav';
     import { onMount } from 'svelte';
 	let { discussionActive = false, discussionAvailable = false, onDiscussionChange = () => {} }: {
 		discussionActive?: boolean;
@@ -33,6 +34,7 @@
 	let projects = $derived(($channels as ProjectChannel[]).filter(channel => channel.type === 'planning' || channel.type === 'lore'));
 	let selected = $derived(projects.find(channel => channel.id === $currentChannel)
 		?? projects.find(channel => channel.id === remembered) ?? projects[0]);
+	$effect(() => { if ($pendingNav?.kind === 'lore_file' && selected?.id === $pendingNav.channelId) { tab = 'files'; onDiscussionChange(false); } });
 	function choose(event: Event): void {
 		const id = (event.currentTarget as HTMLSelectElement).value;
 		remembered = id;

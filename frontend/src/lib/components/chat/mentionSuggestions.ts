@@ -9,6 +9,13 @@ import { applyGameMention, suggestSharedGames } from './gameMentionSuggestions';
 
 export type { MentionSuggestion } from './types';
 
+/** Keep offline members available and prefer current presence over roster snapshots. */
+export function mentionDirectory(members: User[], online: User[]): User[] {
+ const directory = new Map<string, User>();
+ for (const user of [...members, ...online]) directory.set(typeof user.dbUserId === 'number' && user.dbUserId > 0 ? `db:${user.dbUserId}` : `id:${user.id}`, user);
+ return [...directory.values()];
+}
+
 export interface MentionResult {
 	show: boolean;
 	tokenStart: number;
@@ -88,7 +95,7 @@ export function computeMentionSuggestions(
 		}
 		const suggestions: MentionSuggestion[] = users
 			.filter((u) => u.id !== currentUserId)
-			.filter((u) => u.username.toLowerCase().includes(query))
+			.filter((u) => (u.username.toLowerCase().includes(query) || u.handle?.toLowerCase().includes(query)))
 			.slice(0, 8)
 			.map((u) => ({
 				key: `user-${u.id}`,
