@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T18:27:37.326596+00:00",
+  "workspace": "/home/ironin/wabi",
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "source": [
+    {
+      "path": "core/crates/wabi-server/src/socketio/presence.rs",
+      "bytes": 35838,
+      "sha256": "9c2e82c59d39f91214b58b8ec9c880025cd3673aa9b0bb8bd5755f20a25a55b7"
+    },
+    {
+      "path": "core/crates/wabi-server/src/socketio/shared.rs",
+      "bytes": 69890,
+      "sha256": "f605ff7d2665a4e3020830d778c75307b9ddbf8dd66a39898b771785f1cfa411"
+    },
+    {
+      "path": "core/crates/wabi-server/src/adapter/mod.rs",
+      "bytes": 146059,
+      "sha256": "c532ebae9d53759a5165d78693a88d634e5a0f8d8bf053d5a7fb000282e92e32"
+    },
+    {
+      "path": "core/crates/wabidb/src/projections/query.rs",
+      "bytes": 4097,
+      "sha256": "b923cbeb3da5866741669c2a9b7882d95924b83948069f7cddfc2f5299bc1d2a"
+    },
+    {
+      "path": "core/crates/wabidb/src/projections/users.rs",
+      "bytes": 17775,
+      "sha256": "a34a7abc13a0a046ac494b17684068ecc0ccc9122bcd8caa9ff9051f225fbdae"
+    },
+    {
+      "path": "frontend/src/lib/socketConnectionCore.ts",
+      "bytes": 73153,
+      "sha256": "85afc43ec7ccba43f566b5e6a3bca6d0ccf9c92afc9f69547398dddc93099684"
+    },
+    {
+      "path": "frontend/src/lib/dmUserDirectory.ts",
+      "bytes": 2602,
+      "sha256": "55b8510b224327b77d7186cf2a3a5fc0f0c021845538d7ed298dabe6e073ce98"
+    },
+    {
+      "path": "frontend/src/lib/presenceIdentity.ts",
+      "bytes": 395,
+      "sha256": "e21dcc9b68f545be45f6687da574211eaffce9c3ef4b4d0ce325f7f027cdaf71"
+    },
+    {
+      "path": "frontend/src/lib/workspaces/ArtifactShell.svelte",
+      "bytes": 17272,
+      "sha256": "e6e19e4837f1b702954a67145e9482ef53de0e29a6e91a264a44734bba0453f2"
+    }
+  ],
+  "scope": "Read-only source inspection: full roster clone and join output, all-connected presence, full query collection before limit, frontend directory consumers. Illustrative formulas only.",
+  "loadBenchmarkExecuted": false,
+  "networkCapacityProven": false,
+  "fullInstanceReady": false,
+  "canonicalWriterPermitted": false
+}

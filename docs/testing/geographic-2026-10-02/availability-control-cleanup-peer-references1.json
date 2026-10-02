@@ -1,0 +1,1131 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T18:30:37.888717+00:00",
+  "base": "724db7447c3721ca0a0eb55077017654cb70ea1d",
+  "handoff": "availability-control-cleanup-peer-handoff1.json",
+  "scope": "Local Markdown file-link closure in six owned docs against integration base plus exact31 whitelist. Does not validate URLs/anchors or certify every implicit source reference.",
+  "edges": [
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/plans/2026-10-02-voice-policy-integration.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/operations/office-workspaces.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/SHARED_MEDIA_NODE_SETUP.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/plans/2026-09-30-authority-security-hardening.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/features/PROJECT_WORKSPACE.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/PROJECT_AI_WORKSPACE_ACCEPTANCE_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/plans/2026-09-27-ai-workspace-first-slice.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/PROJECT_ASSISTANT_ACCEPTANCE_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/features/PROJECT_ASSISTANT.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/plans/2026-09-28-project-assistant-and-cards.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/features/PROJECT_CONNECTIONS.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/PROJECT_WORKER_RECOVERY_2026-09-30.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/features/PROJECT_PLUGIN.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/MODERATION_POLICY_RECOVERY.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/plans/2026-09-27-moderation-and-arrival.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/plans/2026-09-25-friends-and-dm-rebuild.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/PRIVACY_STANCE.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/features/LOCAL_NOTES.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/features/NOTIFICATIONS.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/plans/2026-09-26-social-polish-wave.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/features/PROFILE_DESIGNS.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/features/PROFILE_ARTIST_GUIDE.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/features/SERVICE_ACCESS.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/TAILCAT_SERVICE_PORT_FIELD_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/features/LOCAL_PLANNER.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/PERSONAL_PLANNER_ACCEPTANCE_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/CODEX_AND_PERSONAL_ACCEPTANCE_2026-09-30.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/SELF-HOST-GUIDE.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/DESKTOP_HOSTING.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/BACKUP_AND_RECOVERY.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/plans/2026-09-27-local-field-communications-trial.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/BOOSTER_FIELD_TEST_2026-09-20.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/VOLUNTEER_BOOSTERS.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/NETWORK_BOOSTERS_2026-09-20.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/plans/2026-09-27-onboarding-reference-desk-reader.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/features/LOCAL_NOTES.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/plans/2026-10-01-annotated-ui-pass.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/features/LOCAL_PLANNER.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/plans/2026-09-15-production-finish-campaign.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/CODEX_AND_PERSONAL_ACCEPTANCE_2026-09-30.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/ROOM_LOAD_HARNESS_2026-10-02.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/architecture/CHECKPOINT_AVAILABILITY_PROPOSAL.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-producer2.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/plans/2026-10-02-checkpoint-availability-control-format.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-lib6.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-v1-reader3.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-producer2.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-root-adoption-1.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-root-consensus1.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-root-v1-reader1.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-root-producer1.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/CHECKPOINT_PEER_CANDIDATES.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-root-peer2.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/RECOVERY_MATERIAL_2026-10-01.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/DURABLE_CONSENSUS_2026-10-01.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/ENCRYPTED_RECOVERY_RPC_2026-10-01.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/PHYSICAL_ENCRYPTED_RECOVERY_RPC_2026-10-01.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/architecture/GEOGRAPHIC_WRITER_AUTHORITY.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/security-2026-10-01/acceptance.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/INACTIVE_CORE_VERIFY_2026-10-01.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/WORKSPACE_ROOM_ADMISSION.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/NODE_RUNTIME_IDENTITY.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/ROOM_PLACEMENT_FOUNDATION_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/MESSAGE_ID_LOOKUP.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/ROOM_PLACEMENT_FOUNDATION_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/ROOM_PLACEMENT_BACKFILL.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/REGIONAL_UPLOAD_CACHE_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/TRUSTED_HELPER_REGISTRY_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/NETWORKING.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/THREE_SITE_ACCESS_PREFLIGHT_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/THREE_SITE_REAL_AUTHORITY_PREFLIGHT_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/THREE_SITE_FIELD_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/THREE_SITE_FIELD_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/THREE_SITE_FIELD_2026-10-01.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/REGIONAL_UPLOAD_CACHE_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/THREE_SITE_REAL_AUTHORITY_PREFLIGHT_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/REGIONAL_UPLOAD_CACHE.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/DB_REPLICA_PROCESS_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/COMMUNITY_ENTRY_POINTS.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/TAILCAT_ENTRY_SWITCH_2026-09-26.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/CLIENT_ENTRY_POINT_ROTATION_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/geographic-2026-10-02/source-context-consensus-acceptance.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/geographic-2026-10-02/producer-focused-acceptance.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/geographic-2026-10-02/producer-workspace-acceptance.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/geographic-2026-10-02/byte-rpc-workspace-acceptance.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/OPERATOR_CHECKPOINT_CONTROL.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/FENCED_REPLICATION_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/DB_REPLICA_PROCESS_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/EXPERIMENTAL_DB_REPLICA.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/REPLICATION_TRANSPORT_INTEGRITY_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/REMOTE_FENCED_REPLICA_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/REPLICA_STATE_COMPARISON_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/SESSION_REVOCATION_RECOVERY_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/SESSION_REVOCATION_RECOVERY.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/ACCOUNT_RECOVERY_STATE.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/ACCOUNT_RECOVERY_STATE_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/RUNTIME_OPERATION_PAUSE.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/RUNTIME_OPERATION_PAUSE_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/CHECKPOINT_BOUNDARY.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/CHECKPOINT_BOUNDARY_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/LIVE_CHECKPOINT_ARCHIVE_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/OPERATOR_CHECKPOINT_CONTROL.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/GEOGRAPHIC_CHECKPOINT_ACCEPTANCE_2026-09-30.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/LIVE_CHECKPOINT_ARCHIVE.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/architecture/INSTANCE_RECOVERY_INVENTORY.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/BACKUP_AND_RECOVERY.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/INSTANCE_RECOVERY_2026-09-26.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/ENCRYPTED_INSTANCE_INBOX.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/ENCRYPTED_INSTANCE_INBOX_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/LOCAL_WRITER_FENCE_2026-09-26.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/CONTROLLED_MOVE_RECEIPT_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/REMOTE_CONTROLLED_MOVE_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/THREE_SITE_REAL_AUTHORITY_PREFLIGHT_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/REMOTE_CONTROLLED_MOVE_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/CONTROLLED_PASSIVE_MOVE_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/CONTROLLED_PASSIVE_MOVE_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/CONTROLLED_PASSIVE_MOVE_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/CONTROLLED_PASSIVE_MOVE_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/UPLOAD_REVOCATION_RECOVERY_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/deployment/LEGACY_UPLOAD_BACKFILL.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/PROJECT_STATUS.md",
+      "target": "docs/testing/DB_REPLICA_PROCESS_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/deployment/CHECKPOINT_PEER_CANDIDATES.md",
+      "target": "docs/deployment/CHECKPOINT_BOUNDARY.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/deployment/CHECKPOINT_PEER_CANDIDATES.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-root-peer2.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/deployment/CHECKPOINT_PEER_CANDIDATES.md",
+      "target": "docs/architecture/GEOGRAPHIC_WRITER_AUTHORITY.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/deployment/CHECKPOINT_PEER_CANDIDATES.md",
+      "target": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/architecture/SERVER_MESH_PLAN.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/PROJECT_STATUS.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/deployment/BACKUP_AND_RECOVERY.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/THREE_SITE_ACCESS_PREFLIGHT_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/REGIONAL_UPLOAD_CACHE_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/THREE_SITE_FIELD_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/SIGNED_CHECKPOINT_SOURCE_2026-10-02.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/plans/2026-10-02-checkpoint-byte-rpc-contract.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/plans/2026-10-02-checkpoint-availability-control-format.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-producer2.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-root-adoption-1.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-root-consensus1.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-root-v1-reader1.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-root-producer1.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/deployment/VOLUNTEER_BOOSTERS.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/BOOSTER_FIELD_TEST_2026-09-20.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/deployment/COMMUNITY_ENTRY_POINTS.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/deployment/LEGACY_UPLOAD_BACKFILL.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/deployment/RUNTIME_OPERATION_PAUSE.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/deployment/CHECKPOINT_BOUNDARY.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/CHECKPOINT_BOUNDARY_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/deployment/LIVE_CHECKPOINT_ARCHIVE.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/LIVE_CHECKPOINT_ARCHIVE_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/deployment/SESSION_REVOCATION_RECOVERY.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/deployment/ACCOUNT_RECOVERY_STATE.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/architecture/INSTANCE_RECOVERY_INVENTORY.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/INSTANCE_RECOVERY_2026-09-26.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/deployment/ENCRYPTED_INSTANCE_INBOX.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/DB_REPLICA_PROCESS_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/REMOTE_CONTROLLED_MOVE_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/REMOTE_FENCED_REPLICA_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/REPLICA_STATE_COMPARISON_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/REMOTE_CONTROLLED_MOVE_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/THREE_SITE_REAL_AUTHORITY_PREFLIGHT_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/REGIONAL_UPLOAD_CACHE_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/THREE_SITE_FIELD_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/ROOM_PLACEMENT_FOUNDATION_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/deployment/ROOM_PLACEMENT_BACKFILL.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/THREE_SITE_FIELD_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/THREE_SITE_FIELD_2026-09-28.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/TAILCAT_SERVICE_PORT_FIELD_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/deployment/ROOM_PLACEMENT_BACKFILL.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/CONTROLLED_PASSIVE_MOVE_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/deployment/MESSAGE_ID_LOOKUP.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/deployment/NODE_RUNTIME_IDENTITY.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/deployment/WORKSPACE_ROOM_ADMISSION.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/THREE_SITE_REAL_AUTHORITY_PREFLIGHT_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/REMOTE_CONTROLLED_MOVE_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/CLIENT_ENTRY_POINT_ROTATION_2026-09-27.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/INACTIVE_CORE_VERIFY_2026-10-01.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/ROOM_LOAD_HARNESS_2026-10-02.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/geographic-2026-10-02/rooms-load-acceptance2.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/GEOGRAPHIC_PROBE_SUPERVISOR_2026-10-01.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/ENCRYPTED_RECOVERY_RPC_PLAN.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/GEOGRAPHIC_PROBE_CONTROLLER_2026-10-01.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/geographic-2026-10-01/remote-python-helper-contracts.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/PHYSICAL_ENCRYPTED_RECOVERY_RPC_2026-10-01.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/RECOVERY_MATERIAL_2026-10-01.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/architecture/GEOGRAPHIC_WRITER_AUTHORITY.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/deployment/REGIONAL_UPLOAD_CACHE.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/plans/2026-10-02-checkpoint-byte-rpc-contract.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/geographic-2026-10-02/byte-rpc-producer4.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/architecture/CHECKPOINT_AVAILABILITY_PROPOSAL.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-producer2.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/deployment/CHECKPOINT_PEER_CANDIDATES.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-root-peer2.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "target": "docs/testing/COMMUNITY_ROSTER_CAPACITY_AUDIT_2026-10-03.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/testing/RECOVERY_MATERIAL_2026-10-01.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/testing/geographic-2026-10-02/source-context-consensus-acceptance.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/testing/geographic-2026-10-02/producer-focused-acceptance.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/testing/geographic-2026-10-02/producer-workspace-acceptance.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/plans/2026-10-02-checkpoint-byte-rpc-contract.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-producer2.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/architecture/CHECKPOINT_AVAILABILITY_PROPOSAL.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-producer2.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/plans/2026-10-02-checkpoint-availability-control-format.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/deployment/CHECKPOINT_PEER_CANDIDATES.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-root-peer2.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-root-adoption-1.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-root-producer1.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/testing/geographic-2026-10-02/availability-control-office-recovery-audit1.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/testing/geographic-2026-10-01/material-source-boundary-audit.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "target": "docs/architecture/GEOGRAPHIC_WRITER_AUTHORITY.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md",
+      "target": "docs/testing/geographic-2026-10-02/checkpoint-ssh-readiness1.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md",
+      "target": "docs/testing/geographic-2026-10-02/checkpoint-network-metadata1.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md",
+      "target": "docs/testing/geographic-2026-10-02/checkpoint-ssh-readiness2.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md",
+      "target": "docs/testing/geographic-2026-10-02/checkpoint-network-metadata2.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md",
+      "target": "docs/testing/geographic-2026-10-02/checkpoint-local1-readback.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md",
+      "target": "docs/testing/geographic-2026-10-02/checkpoint-readiness2.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md",
+      "target": "docs/testing/AUTHENTICATED_CHECKPOINT_BYTES_2026-10-02.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md",
+      "target": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/testing/COMMUNITY_ROSTER_CAPACITY_AUDIT_2026-10-03.md",
+      "target": "docs/testing/geographic-2026-10-02/community-roster-capacity-audit1.json",
+      "availableInBaseOrWhitelist": true
+    },
+    {
+      "from": "docs/testing/COMMUNITY_ROSTER_CAPACITY_AUDIT_2026-10-03.md",
+      "target": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "availableInBaseOrWhitelist": true
+    }
+  ],
+  "missing": [],
+  "passed": true
+}

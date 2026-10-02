@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T17:55:49.006996+00:00",
+  "sessionId": 32039,
+  "sourceInputs": 5189,
+  "sourceFreezeSha256": "4180af90a3813322d2b92171c155492a82bf2a7252d0feac9bf5385ff7998be2",
+  "processes": [
+    {
+      "pid": 1144627,
+      "startTicks": 20973493,
+      "state": "T",
+      "ppid": 131862,
+      "cwd": "/home/ironin/wabi",
+      "argv": [
+        "python3",
+        "/tmp/wabi-geographic-root-peer-acceptance.py",
+        "peer",
+        "availability-control-root-peer2"
+      ],
+      "approvedBuildEnvironment": {}
+    },
+    {
+      "pid": 1144647,
+      "startTicks": 20973677,
+      "state": "T",
+      "ppid": 1144627,
+      "cwd": "/home/ironin/wabi",
+      "argv": [
+        "cargo",
+        "+1.93",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "wabi-server",
+        "--test",
+        "checkpoint_operator_contract",
+        "--test",
+        "recovery_peer_operator_contract",
+        "--no-run",
+        "--message-format=json-render-diagnostics"
+      ],
+      "approvedBuildEnvironment": {
+        "CARGO_TARGET_DIR": "/home/ironin/wabi/target",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0"
+      }
+    }
+  ],
+  "acceptanceScriptSha256": "ebe5a87a7b9c2b7b7ce5fb2c1012eca195d1cdb97597e1150ed1b28ac7be662a",
+  "precheckScriptSha256": "f1496270d73b8dcf4dcf9b3abbdf074314a0071a4503c39d1b195f01b3c53b70"
+}

@@ -484,6 +484,18 @@ passed seven checks with zero failures and one ignored physical-export entry on
 5,187 unchanged source/graph/static inputs. The real encrypted capture, Raft/Noise
 faults and copied-peer inactive core bridge now pass on the combined graph.
 Enabled Office recovery acceptance and production recovery wiring remain pending.
+The October 3 [peer candidate job](deployment/CHECKPOINT_PEER_CANDIDATES.md)
+has default-off Linux runtime. Its repaired [frozen local run](testing/geographic-2026-10-02/availability-control-root-peer2.json)
+compiled and passed 11 checks, zero failures and one ignored physical-export
+entry, with 5,189 unchanged inputs. This covers genuine peer retrieval,
+private inactive-lock preservation, busy/refusal/healthy retry, shutdown drain,
+cleanup-failure admission closure and refusal of unresolved scratch on restart.
+The first publication failure and both exact source snapshots remain preserved;
+constructor deadline, worker panic and mid-publication crash faults are not all
+individually exercised. It retrieves an already published peer copy of a local
+Ready capture and retains a private inactive/fenced core candidate. Automatic
+capture publication, production consensus ownership, writer permission and
+recovery after loss of the current Authority are still unimplemented.
 Deployment has not happened; these checks do not certify full recovery or writer
 activation.
 

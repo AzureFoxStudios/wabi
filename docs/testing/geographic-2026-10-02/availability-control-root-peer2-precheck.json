@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T18:15:34.470525+00:00",
+  "compilerPid": 1144647,
+  "compilerStartTicks": 20973677,
+  "compilerTerminalState": "Z",
+  "compiledLogReportsSuccess": true,
+  "sourceInputs": 5189,
+  "sourceFreezeSha256": "4180af90a3813322d2b92171c155492a82bf2a7252d0feac9bf5385ff7998be2",
+  "allSourceHashesUnchanged": true,
+  "executables": [
+    {
+      "targetName": "checkpoint_operator_contract",
+      "path": "/home/ironin/wabi/target/debug/deps/checkpoint_operator_contract-aa64e5d3bc62b217",
+      "bytes": 157365512,
+      "sha256": "3f5e829bc22fe48e2cabcb9695feb5653c09758441a2bb6bbd2ad510137337b5"
+    },
+    {
+      "targetName": "recovery_peer_operator_contract",
+      "path": "/home/ironin/wabi/target/debug/deps/recovery_peer_operator_contract-3f6c52b41f98f111",
+      "bytes": 144290416,
+      "sha256": "76da728e3bb280f4c1f77766e8d2743b267e4c54a521f8db0fa9d42605276929"
+    }
+  ],
+  "maximumObservedTemperatureC": 33.0,
+  "actualFreeBytes": 13440929792,
+  "runnerPid": 1144627,
+  "runnerStartTicks": 20973493,
+  "timedTestsThrottled": false,
+  "testAcceptanceNotYetKnown": true,
+  "precheckScriptSha256": "f1496270d73b8dcf4dcf9b3abbdf074314a0071a4503c39d1b195f01b3c53b70"
+}

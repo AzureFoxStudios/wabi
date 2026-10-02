@@ -89,6 +89,41 @@ canonical writer permission or automatic recovery. See the
 
 ## Ordered work and ownership
 
+### October 3: owned peer candidate job source
+
+The [operator contract](../deployment/CHECKPOINT_PEER_CANDIDATES.md) describes
+new default-off Linux runtime source: approved Noise retrieval of an exact
+signed Ready capture, bounded download/inspection and retained private
+ciphertext plus an inactive/fenced core tree. Single-job admission, shutdown
+drain, pinned scratch cleanup and candidate quotas are wired without changing
+existing archive/job/receipt schemas or granting a writer. The repaired
+[frozen local run](../testing/geographic-2026-10-02/availability-control-root-peer2.json)
+compiled and passed 11 checks with zero failures and one ignored physical-export
+entry; all 5,189 inputs stayed unchanged. Automated capture
+publication, production consensus ownership, restart reconciliation, enabled
+Office/external inventory, nonce fences and full recovery remain open.
+
+Next focused gates for this source slice:
+
+1. Frozen two-target compile/direct checks are complete; actual terminal codes,
+   artifact/source identities, failed first run and repaired source are retained.
+2. Allocated scratch cleanup failure now proves admission closure and restart
+   remnant refusal before explicit retirement; ordinary refused peer data permits
+   a healthy retry. Dedicated constructor-deadline, worker-interruption and
+   mid-publication crash fault runs remain required.
+3. Seed real Office HTTP documents/sheets/native slides, deltas, grants,
+   revocations, reviews/protection and presentation records before a genuine
+   capture. After peer retrieval, use the existing `OfflineInspection` read
+   model to compare every canonical workspace record and decode CRDT content.
+   It has no durable mutation handle. Preserve both inactive guards and the
+   lock inode. Equal stored ACL fields are not restored-API authorization or
+   restarted presentation acceptance; those require separate safe checks.
+4. Coordinate and accept production publication/consensus ownership and
+   durable restart reconciliation before using these candidates for automatic
+   recovery. Retention/deletion and partial-publication retirement require an
+   explicit operator policy. Never clear guards merely to make an API fixture
+   run against the candidate.
+
 The accepted isolated V2 source has now passed
 [guarded adoption into the current root](../testing/geographic-2026-10-02/availability-control-root-adoption-1.json):
 all nineteen original/candidate hashes matched, and nonowned source, the current

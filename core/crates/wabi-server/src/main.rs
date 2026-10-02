@@ -30,6 +30,8 @@ mod instance_sidecars;
 mod instance_operations;
 mod instance_checkpoint;
 mod checkpoint_jobs;
+#[cfg(target_os = "linux")]
+mod recovery_peer_jobs;
 mod instance_archive;
 mod helper_client;
 mod jobs;
@@ -920,6 +922,7 @@ async fn main() -> anyhow::Result<()> {
                 tracing::warn!("Socket.IO close exceeded 5 seconds during shutdown");
             }
         }
+        shutdown_state.checkpoint_jobs.shutdown_peer_verification().await;
         shutdown_state.tailcat.shutdown().await;
     })
     .await?;

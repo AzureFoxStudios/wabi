@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T17:20:43.224439+00:00",
+  "workspace": "/home/ironin/wabi",
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "scope": "five-path default-off Linux peer-to-retained inactive core candidate; source-only, runtime acceptance pending",
+  "source": [
+    {
+      "path": "core/crates/wabi-server/src/recovery_peer_jobs.rs",
+      "bytes": 37096,
+      "sha256": "79a5464b88cf5334e127cc36dc9fc58a18e9b1ad022e7c8672bb664604abda4f",
+      "originalHeadSha256": null
+    },
+    {
+      "path": "core/crates/wabi-server/src/checkpoint_jobs.rs",
+      "bytes": 31211,
+      "sha256": "cc623624345b57ca454764a5bd0370b0ab964272490c0583320bce34d655761c",
+      "originalHeadSha256": "4782b4260edb4d7fe35f603bddf5cbd8da71551ed86bf2af9aeecc6b38b38e62"
+    },
+    {
+      "path": "core/crates/wabi-server/src/lib.rs",
+      "bytes": 1170,
+      "sha256": "ae74eb77642355e1514d41e9f41956b21d5cec68170b15b098708f49d56178e5",
+      "originalHeadSha256": "8eae1b89b348149627f44223c15f9cb0473705421e5f4e8960bfb30528d56411"
+    },
+    {
+      "path": "core/crates/wabi-server/src/main.rs",
+      "bytes": 38861,
+      "sha256": "6608fce8853ce4fe21c75e9e59d83407a2ddf83bd2fd06f1c7511d8287b16372",
+      "originalHeadSha256": "981864ff147b7c2124c50580d67a5a91c9c80c4639b0b8fae68920b353b3ae41"
+    },
+    {
+      "path": "core/crates/wabi-server/tests/recovery_peer_operator_contract.rs",
+      "bytes": 20402,
+      "sha256": "64ceb5c7ae2c0a37a6d58a4487dc9ac9e54e022cb1fa2334176c5e5d2d960522",
+      "originalHeadSha256": null
+    }
+  ],
+  "existingOriginals": "availability-control-peer-source1-originals.json.gz",
+  "archiveReceiptJobSchemasChanged": false,
+  "dependencyGraphChanged": false,
+  "fullInstanceReady": false,
+  "canonicalWriterPermitted": false,
+  "automaticFailover": false,
+  "compileSessionId": 25684,
+  "compileFreezeSha256": "ecd5ab48722170e835514476fb96a0375c208df20d8d8dea0d2dd2f7c8ea9d1f",
+  "runtimeAcceptancePending": true,
+  "acceptedEarlierCheckpointBranch": "codex/geographic-checkpoint-integration-20261002",
+  "acceptedEarlierCheckpointTip": "724db7447c3721ca0a0eb55077017654cb70ea1d"
+}

@@ -123,6 +123,8 @@ struct Inner {
     source_directory: Option<Arc<SourceDirectory>>,
     source_reads: Arc<tokio::sync::Semaphore>,
     jobs: Mutex<JobState>,
+    #[cfg(target_os = "linux")]
+    peer_verification: Mutex<Option<crate::recovery_peer_jobs::PeerVerificationJobs>>,
 }
 #[derive(Clone)]
 pub struct CheckpointJobs(Arc<Inner>);
@@ -197,6 +199,35 @@ impl CheckpointJobs {
 
     /// Separate startup opt-in; old V2/receipt/job schemas are unchanged.
     pub fn open_with_source_context(
+        policy: Option<CheckpointPolicy>,
+        config: &ServerConfig,
+        enabled: bool,
+    ) -> Result<Self> {
+        let manager = Self::open_core(policy, config, enabled)?;
+        #[cfg(target_os = "linux")]
+        {
+            let peers = crate::recovery_peer_jobs::PeerVerificationJobs::from_environment(config, enabled)?;
+            *manager.0.peer_verification.lock().unwrap_or_else(|e| e.into_inner()) = peers;
+        }
+        #[cfg(not(target_os = "linux"))]
+        ensure!(std::env::var_os("WABI_CHECKPOINT_PEER_VERIFY_CONFIG").is_none(),
+            "peer verification is supported only on Linux");
+        Ok(manager)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn open_with_peer_verification(
+        policy: Option<CheckpointPolicy>,
+        config: &ServerConfig,
+        peer_policy: crate::recovery_peer_jobs::PeerVerificationPolicy,
+    ) -> Result<Self> {
+        let manager = Self::open_core(policy, config, true)?;
+        let peers = crate::recovery_peer_jobs::PeerVerificationJobs::open(peer_policy, config)?;
+        *manager.0.peer_verification.lock().unwrap_or_else(|e| e.into_inner()) = Some(peers);
+        Ok(manager)
+    }
+
+    fn open_core(
         mut policy: Option<CheckpointPolicy>,
         config: &ServerConfig,
         enabled: bool,
@@ -278,6 +309,8 @@ impl CheckpointJobs {
             source_directory,
             source_reads: Arc::new(tokio::sync::Semaphore::new(1)),
             jobs: Mutex::new(jobs),
+            #[cfg(target_os = "linux")]
+            peer_verification: Mutex::new(None),
         })))
     }
 
@@ -299,6 +332,15 @@ impl CheckpointJobs {
         community: String,
         node: String,
     ) -> Result<wabi_consensus::source_context::SignedSourceContext> {
+        self.source_capture(id, community, node).await.map(|(context, _)| context)
+    }
+
+    async fn source_capture(
+        &self,
+        id: String,
+        community: String,
+        node: String,
+    ) -> Result<(wabi_consensus::source_context::SignedSourceContext, LiveArchiveReceipt)> {
         ensure!(valid_job_id(&id), "invalid checkpoint job ID");
         let directory = self
             .0
@@ -345,9 +387,18 @@ impl CheckpointJobs {
                 serde_json::to_vec(&directory.job(&id)?)? == serde_json::to_vec(&job)?,
                 "persisted checkpoint job changed"
             );
-            Ok(context)
+            Ok((context, receipt))
         })
         .await?
+    }
+
+    /// Stop admission and drain actual owned peer IO before runtime teardown.
+    pub async fn shutdown_peer_verification(&self) {
+        #[cfg(target_os = "linux")]
+        {
+            let peers = self.0.peer_verification.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            if let Some(peers) = peers { peers.shutdown().await; }
+        }
     }
 
     /// The ordinary spawned task deliberately inherits no admission task-local.
@@ -682,10 +733,58 @@ async fn source_context(
             .into_response(),
     }
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PeerVerificationRequest {
+    capture_job_id: String,
+    peer_node_id: u64,
+    manifest_sha256: String,
+}
+
+async fn peer_verification_status(
+    State(state): State<Arc<AppState>>, headers: HeaderMap, peer: ConnectInfo<SocketAddr>,
+) -> Response {
+    if let Err(response) = crate::api::operator::operator_auth(&headers, peer) { return response; }
+    #[cfg(target_os = "linux")]
+    {
+        let peers = state.checkpoint_jobs.0.peer_verification.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        Json(peers.map(|peers| peers.status()).unwrap_or_else(crate::recovery_peer_jobs::PeerVerificationStatus::disabled))
+            .into_response()
+    }
+    #[cfg(not(target_os = "linux"))]
+    { let _ = state; Json(serde_json::json!({"enabled":false,"accepting":false,"statusLifetime":"current_process",
+        "fullInstanceReady":false,"canonicalWriterPermitted":false,"jobs":[]})).into_response() }
+}
+
+async fn start_peer_verification(
+    State(state): State<Arc<AppState>>, headers: HeaderMap, peer: ConnectInfo<SocketAddr>,
+    Json(input): Json<PeerVerificationRequest>,
+) -> Response {
+    if let Err(response) = crate::api::operator::operator_auth(&headers, peer) { return response; }
+    #[cfg(target_os = "linux")]
+    {
+        let peers = state.checkpoint_jobs.0.peer_verification.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let Some(peers) = peers else { return (StatusCode::SERVICE_UNAVAILABLE, "Peer verification is disabled").into_response() };
+        let capture = state.checkpoint_jobs.source_capture(input.capture_job_id.clone(),
+            state.community_roster.community_id().into(), state.config.node_id.clone()).await;
+        let Ok((context, receipt)) = capture else { return (StatusCode::NOT_FOUND, "Ready checkpoint source is unavailable").into_response() };
+        match peers.start(input.capture_job_id, input.peer_node_id, input.manifest_sha256,
+            context, receipt, state.community_roster.community_id()) {
+            Ok(job) => (StatusCode::ACCEPTED, Json(job)).into_response(),
+            Err(crate::recovery_peer_jobs::StartError::Busy) => (StatusCode::CONFLICT, "Peer verification is already active").into_response(),
+            Err(crate::recovery_peer_jobs::StartError::Closed) => (StatusCode::SERVICE_UNAVAILABLE, "Peer verification is stopping").into_response(),
+            Err(crate::recovery_peer_jobs::StartError::Refused) => (StatusCode::BAD_REQUEST, "Peer verification binding refused").into_response(),
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    { let _ = (state, input); (StatusCode::NOT_IMPLEMENTED, "Peer verification requires Linux").into_response() }
+}
+
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/operator/checkpoints", get(status).post(start))
         .route("/api/operator/checkpoints/", get(status).post(start))
+        .route("/api/operator/checkpoints/peer-verifications", get(peer_verification_status).post(start_peer_verification))
         .route(
             "/api/operator/checkpoints/{id}/source-context",
             get(source_context),

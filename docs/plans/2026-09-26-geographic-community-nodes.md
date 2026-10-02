@@ -560,3 +560,34 @@ and removal of all three owned data roots and tool directories. It performed
 no SSH and does not supersede the failed physical result. The final physical
 retry, actual durable availability command, independent inactive bridge and
 the remaining writer/locality/capacity gates still need their own acceptance.
+
+### October 3: retained inactive peer candidates
+
+The [new operator job source](../deployment/CHECKPOINT_PEER_CANDIDATES.md) adds
+default-off approved-peer retrieval and independent bounded core inspection
+of an existing Ready capture, retaining encrypted bytes and a private fenced
+tree. The repaired [frozen local run](../testing/geographic-2026-10-02/availability-control-root-peer2.json)
+compiled and passed 11 checks with zero failures and one ignored physical-export
+entry on 5,189 unchanged inputs. Its first failure and exact failed/repaired
+sources remain preserved. This is a retrieval slice;
+automatic publication, enabled-state recovery, production writer fencing,
+single-node recovery, room locality and measured capacity remain required.
+
+Current [physical readiness](../testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md#october-3-readiness-refresh)
+again reaches Ronin and Iyoku by SSH. Three approved address checks found two
+distinct public IPv4 exits, with raw addresses kept out of saved evidence.
+Current independent site/uplink placement is unverified and requires operator
+confirmation; this does not upgrade the earlier failed checkpoint restart
+sequence or the desktop/media/three-uplink gates.
+
+### October 3: bounded member and presence initialization
+
+A [read-only current-source audit](../testing/COMMUNITY_ROSTER_CAPACITY_AUDIT_2026-10-03.md)
+found that each join clones/sends the entire member directory and builds the
+whole connected-socket presence list. The existing roster cache reduces rebuilds
+but does not bound output. Projection limits currently apply after full user
+collection. Bounded storage cursors/identity lookup, searchable directory,
+scoped presence and partial-loading People/DM/Office pickers are therefore
+required before largest-community capacity acceptance. Illustrative byte math
+is source analysis, not a measured 500,000-member result. Frontend ownership and
+a new compile slot must be coordinated before implementation.

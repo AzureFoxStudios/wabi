@@ -1,0 +1,263 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T18:29:39.371253+00:00",
+  "workspace": "/home/ironin/wabi",
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "integrationBase": "724db7447c3721ca0a0eb55077017654cb70ea1d",
+  "sourceAndDocsCount": 11,
+  "evidenceCount": 20,
+  "files": [
+    {
+      "path": "core/crates/wabi-server/src/recovery_peer_jobs.rs",
+      "bytes": 40371,
+      "sha256": "71bba3c777ef7274dd0052c5d94a3ca32ddf5d3ac3fb86d5c2b2d1e8ee87d427",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "core/crates/wabi-server/src/checkpoint_jobs.rs",
+      "bytes": 31211,
+      "sha256": "cc623624345b57ca454764a5bd0370b0ab964272490c0583320bce34d655761c",
+      "basePresent": true,
+      "baseSha256": "4782b4260edb4d7fe35f603bddf5cbd8da71551ed86bf2af9aeecc6b38b38e62",
+      "changedFromBase": true
+    },
+    {
+      "path": "core/crates/wabi-server/src/lib.rs",
+      "bytes": 1170,
+      "sha256": "ae74eb77642355e1514d41e9f41956b21d5cec68170b15b098708f49d56178e5",
+      "basePresent": true,
+      "baseSha256": "8eae1b89b348149627f44223c15f9cb0473705421e5f4e8960bfb30528d56411",
+      "changedFromBase": true
+    },
+    {
+      "path": "core/crates/wabi-server/src/main.rs",
+      "bytes": 38861,
+      "sha256": "6608fce8853ce4fe21c75e9e59d83407a2ddf83bd2fd06f1c7511d8287b16372",
+      "basePresent": true,
+      "baseSha256": "981864ff147b7c2124c50580d67a5a91c9c80c4639b0b8fae68920b353b3ae41",
+      "changedFromBase": true
+    },
+    {
+      "path": "core/crates/wabi-server/tests/recovery_peer_operator_contract.rs",
+      "bytes": 25135,
+      "sha256": "0290995e64ddd12d1f6ef2236ae7144c29dff8bb07003a0de226d45529542590",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/PROJECT_STATUS.md",
+      "bytes": 86845,
+      "sha256": "d535020966c700bc003e920bd8e4e82f337faf5d6f49c83cd56b114a3324fee2",
+      "basePresent": true,
+      "baseSha256": "ca84c7576300b4caeb8d37ad177076cd9b8d54e15ca1c60fcb0aa67f1d5849a4",
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/deployment/CHECKPOINT_PEER_CANDIDATES.md",
+      "bytes": 7077,
+      "sha256": "ba3a734238486e3020d64bf3e7b91ad60b4a8f1e97ac2f7464e23cb44a836469",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "bytes": 74383,
+      "sha256": "b6f0d0a63e17cb1d1ddd0896f18483eddcb54eaec3bf7f690135b97bc05cd376",
+      "basePresent": true,
+      "baseSha256": "3cfae2c51236f9da9bcd93817a214b00abc1da6e006988c6f21c211146e55abd",
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "bytes": 18864,
+      "sha256": "3544a8a03796ab14d893212e522adf45f4742988a8dcd7581f6441c1faf3bf7a",
+      "basePresent": true,
+      "baseSha256": "90eee9848cd987b0626fac5852c013295b6090567ee41011a0ce5943ede26560",
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md",
+      "bytes": 10296,
+      "sha256": "62b6035b7a967583332d99194388f9f002fe489662b19dda94c7491cdfe93e43",
+      "basePresent": true,
+      "baseSha256": "8ad0c054df738f96f02495cf8cf545fdb47c147f8e8a47819755b80944cf17df",
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/COMMUNITY_ROSTER_CAPACITY_AUDIT_2026-10-03.md",
+      "bytes": 3977,
+      "sha256": "2b1d11586a76c5dd94567e31cb540606eb82258b46c254a470b99c89295a53f8",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-peer-source1.json",
+      "bytes": 2158,
+      "sha256": "18cb637e12026e16498d5dd95f034dc592f93c2638c1f7b070dec4d559a9a8b3",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-peer-source1-exact.json.gz",
+      "bytes": 31513,
+      "sha256": "d2b1f6c06028839c431a08f1160d98176e75874e0fda2e8651a145aefdf47086",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-peer-source1-originals.json.gz",
+      "bytes": 17128,
+      "sha256": "27f2f4670e5e8658d06fd02a34728b942d53a0d0b8eac00c969051030fc4972e",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-peer-source2.json",
+      "bytes": 1579,
+      "sha256": "c0fe5e8a3142d5b6c27e26a04f3705bbab03d43479544ba3ca24720be09a4086",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-peer-source2-exact.json.gz",
+      "bytes": 33166,
+      "sha256": "8e440a599837e878157c0289a71ee3296b8a08a8c8a3b53870bc4e772b1c44a1",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-owned-cleanup7.json",
+      "bytes": 456,
+      "sha256": "f313bf1597eb4636d544fc2225bf570d82853f61ba5a600118f965be124e5a9f",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-owned-cleanup8.json",
+      "bytes": 455,
+      "sha256": "25d8c20c42a5f3691c1d57d32d9a07328c3c91637c0ee5937cf304a1350561fe",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-ssh-readiness2.json",
+      "bytes": 818,
+      "sha256": "5b181562fc7100d5f3ba4f2609797796c84e6b687c9c77162cb211cea9682120",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/checkpoint-network-metadata2.json",
+      "bytes": 823,
+      "sha256": "3b396aae6f516a6f75bdef485cb316acea6f27de96756f3cd55fe817d54b724f",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/community-roster-capacity-audit1.json",
+      "bytes": 2125,
+      "sha256": "68c9377225b109c69c03dfd87fc9487b8f21b7909b8036a7fe3704dc8b3b3896",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-peer1.json",
+      "bytes": 2564,
+      "sha256": "597864cafa1eb4a385086fa49566701213cf0cded91b4e3907d5580207516247",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-peer1.log.gz",
+      "bytes": 34782,
+      "sha256": "9d5d2c82e7558b676bd49310ad744c8b9cf0a5b70378a7be35dbb4f548ec1943",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-peer1-before.json.gz",
+      "bytes": 229879,
+      "sha256": "9c8f387176fba65a7789a3a0213e46e0e56f0d7571f747e3b89200dd956d378b",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-peer1-precheck.json",
+      "bytes": 1228,
+      "sha256": "fa129e5d606637198cd586407c3499776f0f7777ece26c1dcafeaaa075499dbe",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-peer1-start.json",
+      "bytes": 1435,
+      "sha256": "28b08ea2c3a62f359ec370881d36258adaa59f7c0a4036e6f5404701c3bdf08e",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-peer2.json",
+      "bytes": 2560,
+      "sha256": "03b1850448c0b49be08ff753cd060f2738fba7f3a318758709083d390680446c",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-peer2.log.gz",
+      "bytes": 34224,
+      "sha256": "32cb88520cf08c37613c011de6bf9e8b552a190e041a91cec0880845cc5dab14",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-peer2-before.json.gz",
+      "bytes": 229881,
+      "sha256": "e1d807810b658cb27b14ababc9a1eb7f9a180f7721d9ecba13c66e7a3d857315",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-peer2-precheck.json",
+      "bytes": 1228,
+      "sha256": "ac508a1fb555918c92f769256c9175806d316aa0a0d64266b027efa12c301c0b",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-peer2-start.json",
+      "bytes": 1457,
+      "sha256": "2b6bf79053e94fd5800e8cd340aefed9e69780eaa376ef5b76d4d12c7a8bec16",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    }
+  ],
+  "totalBytes": 967649,
+  "scope": "Exact accepted peer job source, truthful docs, preserved failed/repaired source and frozen run evidence; capacity audit is read-only. Excludes organizer archives, unrelated history, live data, keys, target and attachments. Reference closure separate.",
+  "fullInstanceReady": false,
+  "canonicalWriterPermitted": false
+}

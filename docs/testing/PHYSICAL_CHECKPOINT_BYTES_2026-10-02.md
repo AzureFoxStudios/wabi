@@ -78,6 +78,23 @@ comparison is therefore **unknown**, and the earlier reachability receipt is
 not a guarantee of continuing access. No public-address service was queried,
 and the local encrypted-checkpoint compile continued separately.
 
+### October 3 readiness refresh
+
+Fresh [bounded SSH hostname checks](geographic-2026-10-02/checkpoint-ssh-readiness2.json)
+returned actual exit 0 on Ronin (`bazzite`) and Iyoku (`192.168.1.11`), without
+another authentication requirement or host-key refusal. The local Tailscale
+daemon reports all four known computers online. No remote fixture, listener,
+file or firewall change was made. The earlier expired-auth observation remains
+historical evidence, rather than a current authentication blocker.
+
+The human-approved [one-time HTTPS address comparisons](geographic-2026-10-02/checkpoint-network-metadata2.json)
+also returned 0 on dotRonin, Ronin and Iyoku: three successful queries, two
+distinct public IPv4 exits. No raw public addresses were saved or printed.
+This does not prove how many physical uplinks/sites are in use: shared ISP,
+VPN or exit routing can affect the count. Current coarse site/connection
+placement has been requested from the operator. Three-site acceptance remains
+open; this is readiness metadata, not a completed restart or Wabi field run.
+
 Attempt 3 completed 14 recorded steps:
 
 1. Both remote computers bootstrapped their own private identities and claimed

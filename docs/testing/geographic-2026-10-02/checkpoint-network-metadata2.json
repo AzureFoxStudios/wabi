@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T18:04:18.545874+00:00",
+  "checks": [
+    {
+      "computer": "dotRonin",
+      "actualExitCode": 0,
+      "publicAddressAvailable": true
+    },
+    {
+      "computer": "Ronin",
+      "actualExitCode": 0,
+      "publicAddressAvailable": true
+    },
+    {
+      "computer": "Iyoku",
+      "actualExitCode": 0,
+      "publicAddressAvailable": true
+    }
+  ],
+  "successfulAddressChecks": 3,
+  "distinctPublicIPv4Exits": 2,
+  "rawPublicAddressesSavedOrPrinted": false,
+  "scope": "One previously human-approved HTTPS public address check per computer. Exit-address inequality does not itself establish geography, independent physical uplinks, latency or bandwidth.",
+  "physicalGeographyProven": false,
+  "fullInstanceReady": false,
+  "canonicalWriterPermitted": false
+}

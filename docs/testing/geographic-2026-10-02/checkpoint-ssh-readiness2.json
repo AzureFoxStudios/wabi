@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T18:09:38.881697+00:00",
+  "hostnameProbeExecSession": 98337,
+  "hostnameProbeActualExitCode": 0,
+  "checks": [
+    {
+      "computer": "Ronin",
+      "actualExitCode": 0,
+      "hostname": "bazzite",
+      "sshAuthRequired": false,
+      "hostKeyRefused": false
+    },
+    {
+      "computer": "Iyoku",
+      "actualExitCode": 0,
+      "hostname": "192.168.1.11",
+      "sshAuthRequired": false,
+      "hostKeyRefused": false
+    }
+  ],
+  "tailscaleBackendState": "Running",
+  "knownFourComputersOnline": true,
+  "source": "actual bounded SSH hostname commands and local daemon status; no remote fixture or file changes",
+  "newListenersOrFirewallChanges": false,
+  "physicalSitesProven": false,
+  "fullInstanceReady": false,
+  "canonicalWriterPermitted": false
+}
