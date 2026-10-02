@@ -1,0 +1,9 @@
+{
+  "session": 79528,
+  "actualExitCode": 101,
+  "testsRun": 0,
+  "failure": "Snapshot CLI test-only shared archive module requires existing library state/checkpoint_jobs aliases; new crash-child path must support both module roots",
+  "sourceFreezeSha256": "e0b4a8c3503b0245ad08518f0cdb7598899841c5f91e6cd7895f3510ca63e9bd",
+  "logSha256": "237642de7b400029fe962449c708c505b34f8ef47156cf751060d1872d4c622d",
+  "compressedLog": "producer-workspace-wrapper-compile-failed.log.gz"
+}

@@ -1082,8 +1082,11 @@
 		{/if}
 	</div>
 	{#if !isCompactSidebar}
-		<div class="server-copy"><strong class="server-name">{currentServerLabel}</strong><span class="server-tagline">Reference Desk{currentServerTagline ? ` · ${currentServerTagline}` : ''}</span></div>
+		<div class="server-copy"><strong class="server-name">{currentServerLabel}</strong><span class="server-tagline">Server home{currentServerTagline ? ` · ${currentServerTagline}` : ''}</span></div>
 	{/if}
+		</button>
+		<button type="button" class="server-switcher-button" aria-label="Switch or add saved servers" title="Saved servers" on:click={() => dispatch('openServerSwitcher')}>
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
 		</button>
 		{#if sidebarWidth < 170 && !isCompactSidebar}
 	<div class="header-buttons">
@@ -1099,40 +1102,22 @@
 		<button
 			class="messages-hub-btn"
 			type="button"
-			class:active={activeView === 'dm' && dmHubTab === 'messages'}
+			class:active={activeView === 'dm'}
 			on:click={openDmHub}
-			title={isCompactSidebar ? (dmUnreadCount > 0 ? `Messages (${dmUnreadCount} unread)` : 'Messages') : 'Direct messages & notes'}
-			aria-label={dmUnreadCount > 0 ? `Messages, ${dmUnreadCount} unread` : 'Messages'}
-			aria-current={activeView === 'dm' && dmHubTab === 'messages' ? 'page' : undefined}
+			title="Home · Messages and friends"
+			aria-label={`Home, ${dmUnreadCount} unread messages, ${friendRequestCount} friend requests`}
+			aria-current={activeView === 'dm' ? 'page' : undefined}
 		>
 			<span class="messages-hub-icon" aria-hidden="true">
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
 			</span>
 			{#if !isCompactSidebar}
-				<span class="messages-hub-label">Messages</span>
+				<span class="messages-hub-label">Home</span>
 			{/if}
 			{#if dmUnreadCount > 0}
 				<span class="messages-hub-badge">{dmUnreadCount > 99 ? '99+' : dmUnreadCount}</span>
 			{/if}
-		</button>
-		<button
-			class="messages-hub-btn"
-			type="button"
-			class:active={activeView === 'dm' && dmHubTab === 'friends'}
-			on:click={openFriendsHub}
-			title={friendRequestCount > 0 ? `Friends (${friendRequestCount} requests)` : 'Friends and requests'}
-			aria-label={friendRequestCount > 0 ? `Friends, ${friendRequestCount} requests waiting` : 'Friends and requests'}
-			aria-current={activeView === 'dm' && dmHubTab === 'friends' ? 'page' : undefined}
-		>
-			<span class="messages-hub-icon" aria-hidden="true">
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-			</span>
-			{#if !isCompactSidebar}
-				<span class="messages-hub-label">Friends</span>
-			{/if}
-			{#if friendRequestCount > 0}
-				<span class="messages-hub-badge">{friendRequestCount > 99 ? '99+' : friendRequestCount}</span>
-			{/if}
+			{#if friendRequestCount > 0}<span class="messages-hub-badge" title="Friend requests">{friendRequestCount}</span>{/if}
 		</button>
 	</div>
 

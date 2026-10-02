@@ -251,6 +251,8 @@ pub(crate) async fn recover(
     digest: String,
     user_id: i64,
     operations: InstanceOperations,
+    io: Option<socketioxide::SocketIo>,
+    secret: String,
 ) -> Result<bool> {
     operations
         .spawn(async move {
@@ -260,6 +262,7 @@ pub(crate) async fn recover(
             if codes.get(&digest) != Some(&user_id) {
                 return Ok(false);
             }
+            let revocation_state = revocations.clone();
             let mut revocations = revocations.write_owned().await;
             let mut owner = owner.write_owned().await;
             let base = (chrono::Utc::now().timestamp().max(0) as u64)
@@ -288,6 +291,12 @@ pub(crate) async fn recover(
             codes.remove(&digest);
             revocations.epoch = epoch;
             *owner = Some(user_id);
+            drop(owner);
+            drop(revocations);
+            drop(codes);
+            if let Some(io) = io {
+                crate::socketio::disconnect_revoked_sockets(&io, &secret, &revocation_state).await;
+            }
             Ok(true)
         })
         .await

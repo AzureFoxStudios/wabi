@@ -73,6 +73,7 @@ Composite keys use length-prefixed components (u64 length + bytes), enabling pre
 | messages, message_by_id_v1 | MessagesProjection | message_created, message_edited, message_deleted, channel_messages_cleared |
 | reactions | ReactionsProjection | reaction_added |
 | channel_members | ChannelMembersProjection | channel_member_added |
+| mutes, deafens | VoiceRestrictionsProjection | user_muted, user_unmuted, user_deafened, user_undeafened |
 | users | UsersProjection | user_registered |
 | emotes | EmotesProjection | emote_upserted |
 | webhooks | WebhooksProjection | webhook_upserted |
@@ -95,6 +96,29 @@ Composite keys use length-prefixed components (u64 length + bytes), enabling pre
 | (noop) | NoopProjection | reaction_removed, member_joined, member_left, channel_renamed |
 
 All projections registered in `engine/mod.rs::build_type_registry()`.
+
+## Per-channel voice restrictions and legacy repair
+
+`VoiceRestrictionsProjection` owns all four mute/deafen event types in both
+the registry and the dispatch table. It preserves the existing snake_case JSON
+event payloads; actor and timestamp metadata are optional for older events.
+The `mutes` and `deafens` indexes store the existing JSON domain records under
+length-prefixed channel ID and user ID keys. Removal events delete the exact
+row. Reads validate the record and its key: corruption is an error, not an
+unrestricted user. A mute expires when `until_micros <= now`; `i64::MAX` is
+explicitly indefinite. Deafen remains until its removal event.
+
+Older dispatchers acknowledged these events without updating either index.
+Their snapshots retained the last ignored payload per event type in `events`.
+At startup these markers activate a one-time repair before writer tasks or
+request admission. Because the markers cannot enumerate all affected pairs,
+replay recovers every indexed pre-checkpoint kind-1 stream, validates its
+complete history, then applies only moderation events in global commit/event
+order to scratch state. It replaces only the restriction indexes after
+successful reconstruction and removes the markers; the snapshot watermark
+and unrelated indexes remain intact. Missing or corrupt required history
+stops startup. No postcard schema is changed. See
+[upgrade recovery](../deployment/BACKUP_AND_RECOVERY.md#voice-moderation-upgrade-recovery).
 
 ## Tombstone compaction
 

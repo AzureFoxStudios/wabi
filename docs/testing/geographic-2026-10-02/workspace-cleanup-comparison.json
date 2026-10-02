@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "scope": "Cleanup candidates only; not proof of owner release and no shared artifact deletion performed",
+  "historicalInventory": "/tmp/wabi-security-19203-test-executable-inventory.json",
+  "historicalExecutables": 78,
+  "historicalBytes": 35294480240,
+  "currentExecutables": 78,
+  "currentBytes": 5223543400,
+  "oldPathsStillReferencedByCurrentRun": [],
+  "requires": "Exact historical owner release/current process/cache use check before removal; preserve current artifacts, rlibs/fingerprints and compressed receipts"
+}

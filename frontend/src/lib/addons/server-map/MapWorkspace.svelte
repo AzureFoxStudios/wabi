@@ -27,6 +27,7 @@
 		loadPlaceRegistry,
 		placeRegistry,
 		placeRegistryLoading,
+		placeRegistryLoaded,
 		resolvePlaceAssetUrl,
 		savePlaceDraft,
 		type PlaceDraft,
@@ -64,6 +65,7 @@
 	const MAX_ZOOM = 4;
 
 	let searchQuery = '';
+	let placesOpen = false;
 	let loading = false;
 	let loadError = '';
 	let lastRequestedInitialPlaceId: string | null = null;
@@ -831,8 +833,10 @@
 
 <svelte:window on:mousemove={handleWindowMouseMove} on:mouseup={handleWindowMouseUp} />
 
-<div class="map-workspace {variant}">
+<div class="map-workspace {variant}" class:map-first={editorMode === 'view' && !isCompactLayout}>
 	{#if !isCompactLayout}
+	<button class="places-toggle" type="button" aria-expanded={placesOpen} on:click={() => placesOpen = !placesOpen}>Places {visiblePlaces.length ? `(${visiblePlaces.length})` : ''}</button>
+	<div class="places-flyout" class:places-open={placesOpen || editorMode !== 'view'}>
 	<MapPlaceSidebar
 		{variant}
 		{searchQuery}
@@ -849,6 +853,7 @@
 		on:editPlace={beginEditingCurrentPlace}
 		on:selectPlace={(event) => void selectPlace(event.detail)}
 	/>
+	</div>
 	{/if}
 
 	<div class="map-stage">
@@ -1102,7 +1107,18 @@
 							</MapViewportDetails>
 					</div>
 			{:else}
-			<MapEmptyStage {isCompactLayout} {canManagePlaces} on:newPlace={beginNewPlace} />
+			<MapEmptyStage {isCompactLayout} {canManagePlaces} placesAvailable={$placeRegistryLoaded} placesLoading={loading || $placeRegistryLoading} on:retry={() => void hydrateWorkspace()} on:newPlace={beginNewPlace} />
 		{/if}
 	</div>
 </div>
+
+<style>
+ .map-workspace.map-first { display: flex; position: relative; background: var(--bg-primary); }
+ .map-first .map-stage { flex: 1; padding: 0; }
+ .places-toggle { display: none; }
+ .map-first .places-toggle { display: block; position: absolute; top: 16px; left: 16px; z-index: 6; min-height: 40px; padding: 8px 16px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--bg-primary); color: var(--text-heading); box-shadow: 0 4px 20px #0003; cursor: pointer; }
+ .map-first .places-flyout { display: none; position: absolute; top: 64px; left: 16px; bottom: 16px; width: min(320px, calc(100% - 80px)); overflow: auto; z-index: 6; border-radius: 12px; box-shadow: 0 8px 30px #0004; background: var(--bg-primary); }
+ .map-first .places-flyout.places-open { display: block; }
+ .map-first :global(.map-sidebar) { background: var(--bg-primary); }
+ .map-first :global(.stage-header) { padding-left: 130px; padding-right: 64px; }
+</style>

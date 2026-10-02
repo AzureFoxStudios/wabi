@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-01T09:02:29.176689+00:00",
+  "computer": "dotRonin",
+  "checkout": "/home/ironin/wabi",
+  "branch": "codex/security-boundary-hardening-20260930",
+  "baseCommit": "138abe39e08e400188d1812ed3bfd378df435315",
+  "sharedDirtyWorktree": true,
+  "scope": "Linux synthetic process lifetime and exactly owned cleanup only",
+  "command": "PYTHONDONTWRITEBYTECODE=1 python3 -W error::ResourceWarning scripts/geographic-acceptance/rpc-probe-supervisor.test.py -v",
+  "pythonVersion": "3.12.3",
+  "platform": "Linux x86_64",
+  "sourceDigests": {
+    "scripts/geographic-acceptance/rpc-probe-supervisor.py": "4711400013727136902fecd51d54a2b80505eea1f2da749a1df77dbf343964a2",
+    "scripts/geographic-acceptance/rpc-probe-supervisor.test.py": "109eb8c93a5f76e698c6e7a90066c081c1d89fb80ea776b6e5e4561e6b44b266"
+  },
+  "sourceBytes": {
+    "scripts/geographic-acceptance/rpc-probe-supervisor.py": 22910,
+    "scripts/geographic-acceptance/rpc-probe-supervisor.test.py": 21370
+  },
+  "result": {
+    "status": "PASS",
+    "exitCode": 0,
+    "testsPassed": 25,
+    "testsSkipped": 0,
+    "kernelAdvisoryLockExercised": true,
+    "actualControllerSigkillExercised": true,
+    "actualSupervisorSigkillAdoptionExercised": true,
+    "adoptionUsesPidfdAndBootStartExecutableIdentity": true,
+    "knownOrphanReapedInSubreaperTest": true,
+    "inheritedAdvisoryLockRegistrationWindowExercised": true,
+    "unrelatedProcessUnsignaled": true,
+    "suspendClockSelectionAndInjectedElapsedGapExercised": true,
+    "actualMachineSuspendTested": false,
+    "encryptedRpcTested": false,
+    "raftTestedByThisSlice": false,
+    "physicalThreeSiteProbeTested": false,
+    "automaticWabiRecoveryTested": false,
+    "canonicalWriterPermissionGranted": false
+  },
+  "logs": [
+    {
+      "label": "initial",
+      "path": "docs/testing/geographic-2026-10-01/rpc-supervisor-initial.log.gz",
+      "rawSha256": "728db68f7d2988d80fd7535dafc5a5f14af9561dcc419e042e0aedbf56b3c8a8",
+      "rawBytes": 2541,
+      "scope": "synthetic process supervision; not RPC acceptance"
+    },
+    {
+      "label": "second",
+      "path": "docs/testing/geographic-2026-10-01/rpc-supervisor-second.log.gz",
+      "rawSha256": "c43881c2e234f3531f498ff60d350161e00a66546e6fc49b465dcaa24d5cc5ef",
+      "rawBytes": 2541,
+      "scope": "synthetic process supervision; not RPC acceptance"
+    },
+    {
+      "label": "expanded",
+      "path": "docs/testing/geographic-2026-10-01/rpc-supervisor-expanded.log.gz",
+      "rawSha256": "f86778899f3a826fcf7effd84a5aa90e65d2160aa240b124b39c34290c1a8d37",
+      "rawBytes": 3697,
+      "scope": "synthetic process supervision; not RPC acceptance"
+    },
+    {
+      "label": "accepted",
+      "path": "docs/testing/geographic-2026-10-01/rpc-supervisor-accepted.log.gz",
+      "rawSha256": "c94db7b6a7c65c832bde12d0cd378dbddb7dba6217716a2177ab6c0698c67cca",
+      "rawBytes": 3697,
+      "scope": "synthetic process supervision; not RPC acceptance"
+    },
+    {
+      "label": "accepted25",
+      "path": "docs/testing/geographic-2026-10-01/rpc-supervisor-accepted25.log.gz",
+      "rawSha256": "33ab9ab40fc06b17c87b05cdbbd9703fbf4349bb48d2463f80da198e0737f0c1",
+      "rawBytes": 3840,
+      "scope": "synthetic process supervision; not RPC acceptance"
+    }
+  ],
+  "coordination": {
+    "limitedNewPythonScopeExplicitlyReleasedBySecurityOwner": true,
+    "compiledSourceManifestsLockCargoHoldPreserved": true,
+    "securityMediaScriptsUntouched": true
+  },
+  "unchangedPrerequisites": {
+    "pendingRustSourceDigestsMatch": true,
+    "acceptedDurableSourceDigestsMatch": true
+  },
+  "cleanup": {
+    "remainingOwnedTestRoots": [],
+    "ownedBytecodeCaches": [],
+    "knownSyntheticChildrenStoppedAndReapedByTests": true,
+    "newKeysCreated": 0,
+    "newRemoteFixturesOrServices": 0,
+    "temporaryLogRemovalPending": false,
+    "sharedTargetPreserved": true,
+    "removedOwnedTemporaryLogs": [
+      {
+        "name": "wabi-rpc-supervisor-attempt1-20261001.log",
+        "bytes": 2541
+      },
+      {
+        "name": "wabi-rpc-supervisor-attempt2-20261001.log",
+        "bytes": 2541
+      },
+      {
+        "name": "wabi-rpc-supervisor-final-20261001.log",
+        "bytes": 3697
+      },
+      {
+        "name": "wabi-rpc-supervisor-accepted-20261001.log",
+        "bytes": 3697
+      },
+      {
+        "name": "wabi-rpc-supervisor-accepted25-20261001.log",
+        "bytes": 3840
+      }
+    ]
+  },
+  "diskAvailableBytesAtSave": 142518792192,
+  "priorAcceptedSource": {
+    "testsPassed": 24,
+    "sourceDigests": {
+      "scripts/geographic-acceptance/rpc-probe-supervisor.py": "f4a81cf3a4f5a55e71b7a23740cbdaee3041f17d03239b3a215a969236da84db",
+      "scripts/geographic-acceptance/rpc-probe-supervisor.test.py": "8febbaf1fa0f6bfcba0055caa10d4165d9cdfe40f255dbc8e40c99f8a81b70cc"
+    },
+    "acceptedLog": {
+      "label": "accepted",
+      "path": "docs/testing/geographic-2026-10-01/rpc-supervisor-accepted.log.gz",
+      "rawSha256": "c94db7b6a7c65c832bde12d0cd378dbddb7dba6217716a2177ab6c0698c67cca",
+      "rawBytes": 3697,
+      "scope": "synthetic process supervision; not RPC acceptance"
+    }
+  },
+  "linuxCoreLockApiSourceChecked": "Pinned fs4 0.13.1 Unix implementation calls rustix::fs::flock; Python uses matching kernel flock. No new Rust interoperability runtime test by this slice."
+}

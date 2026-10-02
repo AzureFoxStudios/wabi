@@ -13,6 +13,7 @@ async fn on_group_call_leave(socket: SocketRef, data: Value, state: SioState, io
     // A leave may overtake the access lookup of a start/answer on this
     // connection. Invalidate that pending admission before waiting on state.
     advance_voice_intent(&socket, &channel_id, false);
+    if resolve_identity(&socket, &state).await.is_none() { return; }
 
     let (was_connected, recipients, pending_cancel) = {
         let mut sessions = state.group_call_sessions.write().await;
@@ -92,6 +93,7 @@ async fn on_group_call_leave(socket: SocketRef, data: Value, state: SioState, io
 
 #[allow(dead_code)]
 async fn on_group_call_stop_ringing(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
+    if resolve_identity(&socket, &state).await.is_none() { return; }
     let my_stable_id = get_my_stable_id(&socket, &state.app.config.jwt_secret);
     let channel_id = match data
         .get("channelId")

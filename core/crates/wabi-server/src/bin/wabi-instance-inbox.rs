@@ -26,7 +26,7 @@ use tokio::{
 
 const AGE_HEADER: &[u8] = b"age-encryption.org/v1";
 const HASH_HEADER: &str = "x-wabi-archive-sha256";
-const DEFAULT_MAX_BYTES: u64 = 100 * 1024 * 1024 * 1024;
+const DEFAULT_MAX_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
 #[derive(Parser)]
 #[command(about = "Transfer and store opaque encrypted instance archives; no promotion")]
@@ -50,6 +50,10 @@ enum Command {
         token_file: PathBuf,
         #[arg(long, default_value_t = DEFAULT_MAX_BYTES)]
         max_bytes: u64,
+        #[arg(long, default_value_t = 8 * 1024 * 1024 * 1024)]
+        max_stored_bytes: u64,
+        #[arg(long, default_value_t = 1024 * 1024 * 1024)]
+        min_free_bytes: u64,
     },
     /// Upload an encrypted archive; prints its immutable inbox ID.
     Send {
@@ -78,6 +82,12 @@ enum Command {
         /// Send the inbox token over operator-protected private HTTP (for example Tailcat).
         #[arg(long)]
         allow_private_http: bool,
+        /// Refuse a download beyond this ciphertext budget.
+        #[arg(long, default_value_t = DEFAULT_MAX_BYTES)]
+        max_bytes: u64,
+        /// Digest from the authenticated source checkpoint receipt.
+        #[arg(long)]
+        expected_sha256: Option<String>,
     },
 }
 
@@ -86,9 +96,65 @@ struct Inbox {
     root: PathBuf,
     token: Arc<str>,
     max_bytes: u64,
+    max_stored_bytes: u64,
+    min_free_bytes: u64,
+    upload_admission: Arc<tokio::sync::Semaphore>,
 }
 
 type ApiError = (StatusCode, &'static str);
+
+/// Own private staging before the first await. Async request cancellation can
+/// then unlink the temporary name even when a filesystem worker still holds
+/// the open file. Publication moves ownership into a blocking task so an abort
+/// cannot race a late hard-link against cleanup.
+struct StagedArchive {
+    temporary: PathBuf,
+    output: PathBuf,
+    published: bool,
+    complete: bool,
+}
+impl StagedArchive {
+    fn create(temporary: PathBuf, output: PathBuf) -> std::io::Result<(File, Self)> {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let file = options.open(&temporary)?;
+        Ok((
+            File::from_std(file),
+            Self {
+                temporary,
+                output,
+                published: false,
+                complete: false,
+            },
+        ))
+    }
+    async fn publish(mut self) -> std::io::Result<()> {
+        tokio::task::spawn_blocking(move || {
+            std::fs::hard_link(&self.temporary, &self.output)?;
+            self.published = true;
+            #[cfg(unix)]
+            std::fs::File::open(self.output.parent().unwrap_or(Path::new(".")))?.sync_all()?;
+            self.complete = true;
+            drop(self);
+            Ok(())
+        })
+        .await
+        .map_err(std::io::Error::other)?
+    }
+}
+impl Drop for StagedArchive {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.temporary);
+        if self.published && !self.complete {
+            let _ = std::fs::remove_file(&self.output);
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -99,9 +165,11 @@ async fn main() -> Result<()> {
             storage_dir,
             token_file,
             max_bytes,
+            max_stored_bytes,
+            min_free_bytes,
         } => {
-            if max_bytes == 0 {
-                bail!("max-bytes must be positive");
+            if max_bytes == 0 || max_stored_bytes < max_bytes {
+                bail!("max-bytes must be positive and within max-stored-bytes");
             }
             if !listen.ip().is_loopback() && !allow_remote_listen {
                 bail!("non-loopback inbox listening requires --allow-remote-listen and a protected transport");
@@ -112,6 +180,9 @@ async fn main() -> Result<()> {
                 root,
                 token: token.into(),
                 max_bytes,
+                max_stored_bytes,
+                min_free_bytes,
+                upload_admission: Arc::new(tokio::sync::Semaphore::new(1)),
             };
             let listener = tokio::net::TcpListener::bind(listen).await?;
             println!(
@@ -134,7 +205,20 @@ async fn main() -> Result<()> {
             token_file,
             output,
             allow_private_http,
-        } => fetch_archive(&id, &endpoint, &token_file, &output, allow_private_http).await,
+            max_bytes,
+            expected_sha256,
+        } => {
+            fetch_archive_bounded(
+                &id,
+                &endpoint,
+                &token_file,
+                &output,
+                allow_private_http,
+                max_bytes,
+                expected_sha256.as_deref(),
+            )
+            .await
+        }
     }
 }
 
@@ -231,23 +315,65 @@ async fn receive_archive(
     }
     let expected = expected_hash(&headers)
         .ok_or((StatusCode::BAD_REQUEST, "x-wabi-archive-sha256 required"))?;
+    let _admission = Arc::clone(&state.upload_admission)
+        .try_acquire_owned()
+        .map_err(|_| {
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                "an archive upload is already running",
+            )
+        })?;
     let final_path = state.root.join(format!("{id}.age"));
     if fs::symlink_metadata(&final_path).await.is_ok() {
         return Err((StatusCode::CONFLICT, "archive id already stored"));
     }
+    let budget_state = state.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut used = 0u64;
+        for (count, entry) in std::fs::read_dir(&budget_state.root)?.enumerate() {
+            anyhow::ensure!(count < 512, "inbox directory entry limit exceeded");
+            let metadata = std::fs::symlink_metadata(entry?.path())?;
+            anyhow::ensure!(
+                metadata.is_file() && !metadata.file_type().is_symlink(),
+                "unsupported inbox entry"
+            );
+            used = used
+                .checked_add(metadata.len())
+                .context("inbox size overflow")?;
+        }
+        anyhow::ensure!(
+            used.checked_add(budget_state.max_bytes)
+                .is_some_and(|bytes| bytes <= budget_state.max_stored_bytes),
+            "inbox storage budget exhausted"
+        );
+        anyhow::ensure!(
+            fs4::available_space(&budget_state.root)?
+                >= budget_state
+                    .max_bytes
+                    .checked_add(budget_state.min_free_bytes)
+                    .context("inbox headroom overflow")?,
+            "inbox disk headroom exhausted"
+        );
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INSUFFICIENT_STORAGE,
+            "inbox storage check failed",
+        )
+    })?
+    .map_err(|_| {
+        (
+            StatusCode::INSUFFICIENT_STORAGE,
+            "inbox storage budget unavailable",
+        )
+    })?;
     let temporary = state
         .root
         .join(format!(".{}.{}.tmp", id, uuid::Uuid::new_v4()));
-    let result = async {
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            options.mode(0o600);
-        }
-        let mut file = options
-            .open(&temporary)
-            .await
+    let result = tokio::time::timeout(std::time::Duration::from_secs(300), async {
+        let (mut file, staged) = StagedArchive::create(temporary.clone(), final_path.clone())
             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "inbox write failed"))?;
         let mut stream = body.into_data_stream();
         let mut total = 0u64;
@@ -279,20 +405,12 @@ async fn receive_archive(
         file.sync_all()
             .await
             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "inbox sync failed"))?;
-        fs::hard_link(&temporary, &final_path)
-            .await
-            .map_err(|error| {
-                if error.kind() == ErrorKind::AlreadyExists {
-                    (StatusCode::CONFLICT, "archive id already stored")
-                } else {
-                    (StatusCode::INTERNAL_SERVER_ERROR, "inbox publish failed")
-                }
-            })?;
-        sync_dir(&state.root).await.map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "inbox directory sync failed",
-            )
+        staged.publish().await.map_err(|error| {
+            if error.kind() == ErrorKind::AlreadyExists {
+                (StatusCode::CONFLICT, "archive id already stored")
+            } else {
+                (StatusCode::INTERNAL_SERVER_ERROR, "inbox publish failed")
+            }
         })?;
         let mut response = HeaderMap::new();
         response.insert(
@@ -304,9 +422,14 @@ async fn receive_archive(
             HeaderValue::from_str(&total.to_string()).expect("integer header"),
         );
         Ok((StatusCode::CREATED, response))
-    }
-    .await;
-    let _ = fs::remove_file(&temporary).await;
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::REQUEST_TIMEOUT,
+            "archive upload deadline elapsed",
+        )
+    })?;
     result
 }
 
@@ -377,18 +500,6 @@ async fn hash_file(path: &Path) -> Result<String> {
     Ok(hex::encode(hash.finalize()))
 }
 
-async fn sync_dir(path: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        File::open(path).await?.sync_all().await?;
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-    }
-    Ok(())
-}
-
 fn endpoint_url(endpoint: &str, id: &str, allow_private_http: bool) -> Result<String> {
     if !valid_id(id) {
         bail!("invalid archive id");
@@ -449,6 +560,8 @@ fn private_host(url: &reqwest::Url) -> bool {
 fn client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(300))
         .build()?)
 }
 
@@ -512,6 +625,7 @@ async fn send_archive(
     Ok(())
 }
 
+#[cfg(test)]
 async fn fetch_archive(
     id: &str,
     endpoint: &str,
@@ -519,6 +633,35 @@ async fn fetch_archive(
     output: &Path,
     allow_private_http: bool,
 ) -> Result<()> {
+    fetch_archive_bounded(
+        id,
+        endpoint,
+        token_file,
+        output,
+        allow_private_http,
+        DEFAULT_MAX_BYTES,
+        None,
+    )
+    .await
+}
+
+async fn fetch_archive_bounded(
+    id: &str,
+    endpoint: &str,
+    token_file: &Path,
+    output: &Path,
+    allow_private_http: bool,
+    max_bytes: u64,
+    trusted_sha256: Option<&str>,
+) -> Result<()> {
+    if max_bytes == 0 {
+        bail!("download byte budget must be positive");
+    }
+    if let Some(hash) = trusted_sha256 {
+        if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+            bail!("expected source digest must be 64 hexadecimal characters");
+        }
+    }
     let started = Instant::now();
     let url = endpoint_url(endpoint, id, allow_private_http)?;
     let token = read_token(token_file).await?;
@@ -531,19 +674,22 @@ async fn fetch_archive(
     }
     let expected =
         expected_hash(response.headers()).context("inbox response omitted archive hash")?;
+    if trusted_sha256.is_some_and(|hash| !hash.eq_ignore_ascii_case(&expected)) {
+        bail!("inbox digest differs from trusted source receipt");
+    }
+    if response
+        .content_length()
+        .is_some_and(|size| size > max_bytes)
+    {
+        bail!("download ciphertext byte budget exceeded");
+    }
     let parent = output
         .parent()
         .filter(|value| !value.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
     let temporary = parent.join(format!(".wabi-inbox-fetch-{}.tmp", uuid::Uuid::new_v4()));
     let result = async {
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            options.mode(0o600);
-        }
-        let mut file = options.open(&temporary).await?;
+        let (mut file, staged) = StagedArchive::create(temporary.clone(), output.to_owned())?;
         let mut stream = response.bytes_stream();
         let mut hash = Sha256::new();
         let mut prefix = Vec::with_capacity(AGE_HEADER.len());
@@ -553,6 +699,9 @@ async fn fetch_archive(
             total = total
                 .checked_add(chunk.len() as u64)
                 .context("downloaded archive byte count overflow")?;
+            if total > max_bytes {
+                bail!("download ciphertext byte budget exceeded");
+            }
             if prefix.len() < AGE_HEADER.len() {
                 let take = (AGE_HEADER.len() - prefix.len()).min(chunk.len());
                 prefix.extend_from_slice(&chunk[..take]);
@@ -564,14 +713,13 @@ async fn fetch_archive(
             bail!("downloaded archive failed age header or SHA-256 verification");
         }
         file.sync_all().await?;
-        fs::hard_link(&temporary, output)
+        staged
+            .publish()
             .await
             .context("publish downloaded archive")?;
-        sync_dir(parent).await?;
         Ok::<u64, anyhow::Error>(total)
     }
     .await;
-    let _ = fs::remove_file(&temporary).await;
     let total = result?;
     println!(
         "Downloaded encrypted archive: {} ({total} bytes, {:.2}s)",
@@ -607,6 +755,9 @@ mod tests {
             root: root.to_path_buf(),
             token: "1234567890abcdef1234567890abcdef".into(),
             max_bytes,
+            max_stored_bytes: 128 * 1024 * 1024,
+            min_free_bytes: 64 * 1024 * 1024,
+            upload_admission: Arc::new(tokio::sync::Semaphore::new(1)),
         }
     }
 
@@ -673,7 +824,140 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(fs::read(&recovered).await.unwrap(), bytes);
+        let denied = dir.path().join("denied.age");
+        assert!(fetch_archive_bounded(
+            "site-b-archive",
+            &endpoint,
+            &token_file,
+            &denied,
+            false,
+            1,
+            None
+        )
+        .await
+        .is_err());
+        assert!(fetch_archive_bounded(
+            "site-b-archive",
+            &endpoint,
+            &token_file,
+            &denied,
+            false,
+            1024 * 1024,
+            Some(&"0".repeat(64))
+        )
+        .await
+        .is_err());
+        assert!(!denied.exists());
+        let digest = hex::encode(Sha256::digest(&bytes));
+        fetch_archive_bounded(
+            "site-b-archive",
+            &endpoint,
+            &token_file,
+            &denied,
+            false,
+            1024 * 1024,
+            Some(&digest),
+        )
+        .await
+        .unwrap();
+        assert_eq!(fs::read(&denied).await.unwrap(), bytes);
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn cancelled_upload_removes_its_private_partial_without_publishing() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = router(state(dir.path(), 1024 * 1024));
+        let (sender, receiver) = tokio::sync::mpsc::channel::<Bytes>(1);
+        let stream = stream::unfold(receiver, |mut receiver| async {
+            receiver
+                .recv()
+                .await
+                .map(|chunk| (Ok::<_, std::io::Error>(chunk), receiver))
+        });
+        let request = axum::http::Request::builder()
+            .method("PUT")
+            .uri("/archives/cancelled")
+            .header("authorization", "Bearer 1234567890abcdef1234567890abcdef")
+            .header(HASH_HEADER, "0".repeat(64))
+            .body(Body::from_stream(stream))
+            .unwrap();
+        let task = tokio::spawn(app.clone().oneshot(request));
+        sender.send(Bytes::from_static(AGE_HEADER)).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if std::fs::read_dir(dir.path()).unwrap().any(|entry| {
+                    entry
+                        .unwrap()
+                        .metadata()
+                        .is_ok_and(|metadata| metadata.len() >= AGE_HEADER.len() as u64)
+                }) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let bytes = age_fixture();
+        let concurrent = app
+            .clone()
+            .oneshot(put_request(
+                "second",
+                "1234567890abcdef1234567890abcdef",
+                bytes.clone(),
+                hex::encode(Sha256::digest(&bytes)),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(concurrent.status(), StatusCode::TOO_MANY_REQUESTS);
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        drop(sender);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+        let retry = app
+            .oneshot(put_request(
+                "second",
+                "1234567890abcdef1234567890abcdef",
+                bytes.clone(),
+                hex::encode(Sha256::digest(&bytes)),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(retry.status(), StatusCode::CREATED);
+    }
+
+    #[tokio::test]
+    async fn storage_quota_refuses_before_allocating_a_partial() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("keep.age"), b"existing archive").unwrap();
+        let mut inbox = state(dir.path(), 1024 * 1024);
+        inbox.max_stored_bytes = 1;
+        let bytes = age_fixture();
+        let result = router(inbox)
+            .oneshot(put_request(
+                "denied",
+                "1234567890abcdef1234567890abcdef",
+                bytes.clone(),
+                hex::encode(Sha256::digest(&bytes)),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(result.status(), StatusCode::INSUFFICIENT_STORAGE);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+        assert_eq!(
+            std::fs::read(dir.path().join("keep.age")).unwrap(),
+            b"existing archive"
+        );
+    }
+
+    #[test]
+    fn staging_refuses_collision_without_removing_unowned_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let temporary = dir.path().join("existing");
+        std::fs::write(&temporary, b"preserve").unwrap();
+        assert!(StagedArchive::create(temporary.clone(), dir.path().join("output")).is_err());
+        assert_eq!(std::fs::read(temporary).unwrap(), b"preserve");
     }
 
     #[tokio::test]

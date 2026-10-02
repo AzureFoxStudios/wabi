@@ -1,5 +1,7 @@
 import { writable, get } from 'svelte/store';
-import { placeRegistry } from './placeStore';
+import { placeRegistry, placeRegistryScope } from './placeStore';
+import { groupMembership, groupContext } from './groupAccess';
+import { getServerUrl } from './serverUrl';
 
 export type ObjectRefKind = 'forum_post' | 'wiki_page' | 'gallery_work' | 'place';
 
@@ -18,12 +20,25 @@ export interface ObjectRefRecord {
 type RefKey = `${ObjectRefKind}:${string}`;
 
 export const objectRefStore = writable<Map<RefKey, ObjectRefRecord>>(new Map());
+let registryServer: string | null = null;
+let registryRealm: string | null = null;
+function fenceObjectRefContext(): void {
+ const realm = groupMembership.realm(), server = getServerUrl();
+ if (server !== registryServer || realm !== registryRealm) { registryServer = server; registryRealm = realm; clearObjectRefs(); }
+}
+
+function objectRefContextCurrent(): boolean {
+ const context = groupContext();
+ const realm = context ? JSON.stringify([context.server, context.account]) : null;
+ return getServerUrl() === registryServer && realm === registryRealm;
+}
 
 function refKey(kind: ObjectRefKind, id: string): RefKey {
 	return `${kind}:${id}`;
 }
 
 export function registerObjectRef(record: ObjectRefRecord): void {
+	fenceObjectRefContext();
 	if (!record?.kind || !record?.id) return;
 	const title = typeof record.title === 'string' ? record.title.trim() : '';
 	const slug = typeof record.slug === 'string' ? record.slug.trim() : '';
@@ -60,6 +75,7 @@ export function slugify(s: string): string {
 }
 
 export function searchObjectRefs(query: string, limit = 8): ObjectRefRecord[] {
+	if (!objectRefContextCurrent()) return [];
 	const q = query.trim().toLowerCase();
 	if (!q) return [];
 
@@ -99,6 +115,7 @@ export function resolveObjectRef(
 	| { status: 'unique'; record: ObjectRefRecord }
 	| { status: 'ambiguous'; candidates: ObjectRefRecord[] }
 	| { status: 'miss' } {
+	if (!objectRefContextCurrent()) return { status: 'miss' };
 	const trimmed = token.trim();
 	if (!trimmed) return { status: 'miss' };
 
@@ -138,7 +155,9 @@ export function resolveObjectRef(
 let _initialized = false;
 
 export function syncPlacesFromRegistry(): void {
-	const places = get(placeRegistry);
+	fenceObjectRefContext();
+	const scope = get(placeRegistryScope);
+	const places = scope?.server === getServerUrl() && scope.realm === groupMembership.realm() ? get(placeRegistry) : [];
 	const refs: ObjectRefRecord[] = places.map((place) => ({
 		kind: 'place' as ObjectRefKind,
 		id: place.id,
@@ -164,6 +183,8 @@ export function syncPlacesFromRegistry(): void {
 export function initObjectRefRegistry(): void {
 	if (_initialized) return;
 	_initialized = true;
+	groupMembership.onContextChanged(clearObjectRefs);
+	fenceObjectRefContext();
 
 	syncPlacesFromRegistry();
 

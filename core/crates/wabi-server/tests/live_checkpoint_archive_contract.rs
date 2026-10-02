@@ -80,6 +80,33 @@ fn fixture_path(path: &Path) -> &str {
     path.to_str().unwrap()
 }
 
+async fn inactive_refused(
+    target: &Path,
+    receipt: &wabi_server::instance_archive::LiveArchiveReceipt,
+    archive: &Path,
+    identity: &Path,
+) {
+    assert!(wabi_server::instance_archive::verify_inactive_live(
+        target, receipt, archive, identity,
+        wabidb::engine::offline_inspect::InspectionLimits::default(),
+    ).await.is_err(), "invalid inactive fixture was accepted");
+    assert_eq!(std::fs::read(target.join("data/wabidb/writer-fenced-v1")).unwrap(), b"fenced\n");
+    assert_eq!(std::fs::read(target.join("data/wabidb/live-checkpoint-v1")).unwrap(),
+        b"inactive live checkpoint; promotion requires a separate verified protocol\n");
+}
+
+async fn inactive_edit_refused(
+    path: &Path, replacement: &[u8], target: &Path,
+    receipt: &wabi_server::instance_archive::LiveArchiveReceipt,
+    archive: &Path, identity: &Path,
+) {
+    let original = std::fs::read(path).unwrap();
+    std::fs::write(path, replacement).unwrap();
+    inactive_refused(target, receipt, archive, identity).await;
+    assert_eq!(std::fs::read(path).unwrap(), replacement, "verification repaired private input");
+    std::fs::write(path, original).unwrap();
+}
+
 #[tokio::test]
 async fn encrypted_live_archive_preserves_active_keys_security_retained_state_and_unknown_files() {
     let temp = tempfile::tempdir().unwrap();
@@ -242,6 +269,92 @@ async fn encrypted_live_archive_preserves_active_keys_security_retained_state_an
         std::fs::read(restored_uploads.join("kept.bin")).unwrap(),
         b"retained upload fixture bytes"
     );
+    let offline = wabi_server::instance_archive::verify_inactive_live(
+        &target,
+        &receipt,
+        &output,
+        &key_file,
+        wabidb::engine::offline_inspect::InspectionLimits::default(),
+    )
+    .await
+    .unwrap();
+    assert!(offline.database.full_history_replayed);
+    assert!(offline.database.persisted_projection_matches);
+    assert_eq!(offline.database.applied_commit_seq, seq);
+    assert!(offline.active_bundle_keys_match && offline.inactive_guards_preserved);
+    assert!(offline.source_receipt_matched);
+    assert_eq!(offline.published_uploads_checked, 1);
+    assert_eq!(offline.upload_denials_checked, 1);
+    assert!(!offline.full_instance_ready && !offline.external_state_verified);
+    let public = serde_json::to_string(&offline).unwrap();
+    assert!(!public.contains(&state.config.jwt_secret));
+    assert!(!public.contains(&hex::encode(active_root)));
+    assert!(!public.contains(&data.to_string_lossy().to_string()));
+
+    // Reject source mismatches, private-header tampering, damaged publication
+    // and unknown state loss without repairing files or releasing live guards.
+    let mut wrong_receipt = receipt.clone();
+    wrong_receipt.commit_prefix_fingerprint = "00".repeat(32);
+    inactive_refused(&target, &wrong_receipt, &output, &key_file).await;
+    wrong_receipt = receipt.clone();
+    wrong_receipt.inventory_sha256 = "00".repeat(32);
+    inactive_refused(&target, &wrong_receipt, &output, &key_file).await;
+    wrong_receipt = receipt.clone();
+    wrong_receipt.encrypted_archive_sha256 = "00".repeat(32);
+    inactive_refused(&target, &wrong_receipt, &output, &key_file).await;
+    wrong_receipt = receipt.clone();
+    wrong_receipt.file_count += 1;
+    inactive_refused(&target, &wrong_receipt, &output, &key_file).await;
+    for (path, replacement) in [
+        (restored_data.join("jwt_secret"), b"invalid signing fixture".as_slice()),
+        (restored_data.join("unknown/new-component.json"), b"changed opaque fixture".as_slice()),
+        (restored_uploads.join("kept.bin"), b"different upload fixture bytes".as_slice()),
+        (restored_data.join("upload_registry.json"), b"{\"files\":{},\"revoked\":[]}".as_slice()),
+    ] {
+        inactive_edit_refused(&path, replacement, &target, &receipt, &output, &key_file).await;
+    }
+    let mut changed_metadata = serde_json::to_value(&metadata).unwrap();
+    changed_metadata["capturedAtUnixMs"] = serde_json::json!(metadata.captured_at_unix_ms + 1);
+    inactive_edit_refused(&target.join("live-checkpoint.json"),
+        &serde_json::to_vec(&changed_metadata).unwrap(), &target, &receipt, &output, &key_file).await;
+    std::fs::remove_dir(restored_data.join("unknown/empty")).unwrap();
+    inactive_refused(&target, &receipt, &output, &key_file).await;
+    std::fs::create_dir(restored_data.join("unknown/empty")).unwrap();
+    let addons = restored_data.join("addons.json");
+    let old_addons = std::fs::read(&addons).ok();
+    std::fs::write(&addons, b"{\"switches\":{\"lore\":true}}").unwrap();
+    inactive_refused(&target, &receipt, &output, &key_file).await;
+    if let Some(bytes) = old_addons { std::fs::write(&addons, bytes).unwrap(); }
+    else { std::fs::remove_file(&addons).unwrap(); }
+    std::fs::create_dir(target.join("plugins")).unwrap();
+    inactive_refused(&target, &receipt, &output, &key_file).await;
+    std::fs::remove_dir(target.join("plugins")).unwrap();
+
+    // Exercise the actual operator command, including redacted failure output.
+    let receipt_path = temp.path().join("source-receipt.json");
+    std::fs::write(&receipt_path, serde_json::to_vec(&receipt).unwrap()).unwrap();
+    let run_cli = || Command::new(env!("CARGO_BIN_EXE_wabi-instance-snapshot"))
+        .args(["verify-inactive", "--target-root", fixture_path(&target),
+            "--source-receipt", fixture_path(&receipt_path), "--input", fixture_path(&output),
+            "--identity-file", fixture_path(&key_file)])
+        .output().unwrap();
+    let cli = run_cli();
+    assert!(cli.status.success(), "inactive CLI fixture failed");
+    let cli_receipt: serde_json::Value = serde_json::from_slice(&cli.stdout).unwrap();
+    assert_eq!(cli_receipt["result"], "PASS");
+    assert_eq!(cli_receipt["sourceReceiptMatched"], true);
+    assert_eq!(cli_receipt["fullInstanceReady"], false);
+    std::fs::write(&receipt_path, b"private signing fixture, not JSON").unwrap();
+    let cli = run_cli();
+    assert!(!cli.status.success());
+    let refused: serde_json::Value = serde_json::from_slice(&cli.stdout).unwrap();
+    assert_eq!(refused["result"], "REFUSED");
+    for output in [&cli.stdout, &cli.stderr] {
+        let output = String::from_utf8_lossy(output);
+        assert!(!output.contains("private signing fixture"));
+        assert!(!output.contains(&state.config.jwt_secret));
+        assert!(!output.contains(&fixture_path(&target).to_string()));
+    }
     assert!(AppState::new(config(&restored_data, &restored_uploads))
         .await
         .is_err());

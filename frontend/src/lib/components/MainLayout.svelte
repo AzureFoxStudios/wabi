@@ -82,11 +82,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	let RightPanelCmp: typeof import('./RightPanel.svelte').default | null = null;
 
 	export let newlyRegistered = false;
-	export let activeView: 'chat' | 'business' | 'screen' | 'following' | 'dm' | 'server' = newlyRegistered || getOpeningSurface() === 'server' ? 'server' : 'dm';
+	export let activeView: 'chat' | 'business' | 'screen' | 'following' | 'dm' | 'server' = newlyRegistered || getOpeningSurface() === 'server' ? 'server' : getOpeningSurface() === 'messages' ? 'dm' : 'chat';
 	export let accountSecurityOpenRequest = 0;
 	let showSettings = false;
 	let requestedSettingsPaymentSurface: 'connections' | null = null;
-	let requestedSettingsTab: 'profile' | 'server' | 'notifications' | null = null;
+	let requestedSettingsTab: 'profile' | 'server' | 'notifications' | 'audio' | null = null;
 	let activityActionError = '';
 	let requestedSettingsPasswordChangeRequest = 0;
 	let lastHandledAccountSecurityOpenRequest = 0;
@@ -277,7 +277,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	onMount(() => {
 		const openDesktopSettings = (event: Event) => {
 			openSettings();
-			if ((event as CustomEvent<{ tab?: string }>).detail?.tab === 'profile') requestedSettingsTab = 'profile';
+			const tab = (event as CustomEvent<{ tab?: string }>).detail?.tab;
+			if (tab === 'profile' || tab === 'audio') requestedSettingsTab = tab;
 		};
 		const openDesktopServers = () => {
 			openServerSwitcher();
@@ -1285,10 +1286,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			class="nav-reopen-rail"
 			class:dock-right={$layoutStore.navDock === 'right'}
 			style:left={$layoutStore.navDock !== 'right'
-				? `${desktopServerRailOffset + ($layoutStore.stubSide === 'left' && $layoutStore.rightPanelMode === 'pinned' ? $layoutStore.rightPanelWidth : 0)}px`
+				? `${desktopServerRailOffset}px`
 				: null}
 			style:right={$layoutStore.navDock === 'right'
-				? `${desktopServerRailOffset + ($layoutStore.stubSide === 'right' && $layoutStore.rightPanelMode === 'pinned' ? $layoutStore.rightPanelWidth : 0)}px`
+				? `${desktopServerRailOffset}px`
 				: null}
 			on:click={layoutStore.expandNav}
 			on:mousedown|preventDefault={startChannelResizeFromClosed}
@@ -1416,11 +1417,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	<div class="main-content">
 		<div class="chat-stack">
 			{#if activeView !== 'server' && ((!$layoutStore.centerDmChannelId && activeView !== 'dm' && activeView !== 'following') || $activeWorkspaceView !== 'messages')}
-				<WorkspaceViewBar activeView={$activeWorkspaceView} onSelectView={handleWorkspaceViewSelect} canOpenWhiteboard={Boolean($currentChannel)} />
+				<WorkspaceViewBar {activityBadge} activeView={$activeWorkspaceView} onSelectView={handleWorkspaceViewSelect} canOpenWhiteboard={Boolean($currentChannel)} />
 			{/if}
 			<div class="chat-surface">
 				{#if activeView === 'server'}
-					<ServerHub welcome={serverHubWelcome} on:complete={completeServerWelcome} on:back={returnFromServerHub} on:browse={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'chat'; }} on:openRoom={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'chat'; }} on:messages={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'dm'; }} on:members={() => layoutStore.openRightPanel('users')} on:settings={openServerSettings} on:manage={() => layoutStore.showAdminCenterStage()} />
+					<ServerHub on:profileSettings={() => showSettings = true} welcome={serverHubWelcome} on:complete={completeServerWelcome} on:back={returnFromServerHub} on:browse={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'chat'; }} on:openRoom={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'chat'; }} on:messages={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'dm'; }} on:members={() => layoutStore.openRightPanel('users')} on:settings={openServerSettings} on:manage={() => layoutStore.showAdminCenterStage()} />
 				{:else if isModelViewportTabActive}
 					{#if ModelViewportTabCmp}
 						<svelte:component this={ModelViewportTabCmp} />
@@ -1487,7 +1488,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				{:else if ($layoutStore.centerDmChannelId || activeView === 'dm') && $activeWorkspaceView !== 'whiteboard'}
 					<div class="center-dm-layout" class:friends-directory={dmHubActiveTab === 'friends' && !$layoutStore.centerDmChannelId}>
 						<div class="center-dm-list">
-							<DmHub {friendsOpenRequest} {messagesOpenRequest} on:tabChange={(event) => (dmHubActiveTab = event.detail.tab)} />
+							<DmHub {friendsOpenRequest} {messagesOpenRequest} on:serverHome={openServerHub} on:tabChange={(event) => (dmHubActiveTab = event.detail.tab)} />
 						</div>
 						<div class="center-dm-thread">
 							{#if $layoutStore.centerDmChannelId}

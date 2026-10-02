@@ -1,4 +1,7 @@
 //! A project bot uses the ordinary wiki API and channel permission boundary.
+#[path = "fixtures/writer_drain.rs"]
+mod writer_drain;
+
 use std::{path::Path, sync::Arc};
 
 use axum::{
@@ -106,9 +109,13 @@ async fn fixture() -> (
 ) {
     let dir = tempfile::tempdir().unwrap();
     let state = server(dir.path()).await;
+    state
+        .set_addon_enabled("project-workers", true)
+        .await
+        .unwrap();
     let human = state.wdb.create_user("human", None, "hash").await.unwrap();
     let bot = state.wdb.create_user("worker", None, "hash").await.unwrap();
-    let (token, _) = state.bot_registry.create(bot).await;
+    let (token, _) = state.bot_registry.create(bot).await.unwrap();
     let channel = state
         .wdb
         .create_channel("Project", ChannelKind::Planning, human, false)
@@ -138,6 +145,584 @@ async fn start(app: &Router, channel: &str, human: &str, bot: u64, mode: &str) -
     let (s,r) = request(app, Method::POST, &format!("/projects/{channel}/runs"), human, json!({"operationId":uuid::Uuid::new_v4(),"botUserId":bot,"mode":mode,"prompt":"A bounded test","providerConsent":true})).await;
     assert_eq!(s, StatusCode::OK, "{r}");
     r
+}
+
+async fn enroll(app: &Router, channel: &str, bot: &str, id: &str) -> Value {
+    let (status, worker)=request(app,Method::POST,&format!("/projects/{channel}/workers"),bot,json!({"workerId":id,"name":"Test computer","harness":"api_worker","provider":"test","model":"test"})).await;
+    assert_eq!(status, StatusCode::OK, "{worker}");
+    worker
+}
+
+#[tokio::test]
+async fn worker_addon_is_opt_in_and_its_kill_switch_stops_registered_writes() {
+    let (_dir, state, app, h, b, _human, bot, channel) = fixture().await;
+    state
+        .set_addon_enabled("project-workers", false)
+        .await
+        .unwrap();
+    let (s, inventory) = request(
+        &app,
+        Method::GET,
+        &format!("/projects/{channel}/workers"),
+        &h,
+        json!({}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(inventory["enabled"], false);
+    assert!(inventory["workers"].as_array().unwrap().is_empty());
+    let id = uuid::Uuid::new_v4().to_string();
+    let registration = json!({"workerId":id,"name":"Computer","harness":"api_worker","provider":"test","model":"test"});
+    assert_eq!(
+        request(
+            &app,
+            Method::POST,
+            &format!("/projects/{channel}/workers"),
+            &b,
+            registration.clone()
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    state
+        .set_addon_enabled("project-workers", true)
+        .await
+        .unwrap();
+    assert_eq!(
+        request(
+            &app,
+            Method::POST,
+            &format!("/projects/{channel}/workers"),
+            &h,
+            registration
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    enroll(&app, &channel, &b, &id).await;
+    let (_,r)=request(&app,Method::POST,&format!("/projects/{channel}/runs"),&h,json!({"operationId":uuid::Uuid::new_v4(),"botUserId":bot,"mode":"chat","prompt":"Kill switch","providerConsent":true,"workerId":id})).await;
+    let (_, r) = request(
+        &app,
+        Method::POST,
+        &format!(
+            "/projects/{channel}/runs/{}/claim",
+            r["runId"].as_str().unwrap()
+        ),
+        &b,
+        json!({"expectedRevision":r["revision"],"workerId":id,"provider":"test","model":"test"}),
+    )
+    .await;
+    state
+        .set_addon_enabled("project-workers", false)
+        .await
+        .unwrap();
+    let mut complete = action(&r, "complete", json!({"reply":"Must not be accepted"}));
+    complete["workerId"] = json!(id);
+    assert_eq!(
+        request(
+            &app,
+            Method::POST,
+            &format!(
+                "/projects/{channel}/runs/{}/step",
+                r["runId"].as_str().unwrap()
+            ),
+            &b,
+            complete
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        state
+            .wdb
+            .project_run(&channel, r["runId"].as_str().unwrap())
+            .unwrap()
+            .unwrap()
+            .status,
+        "running"
+    );
+}
+
+#[tokio::test]
+async fn ordinary_members_cannot_remove_computers_and_bot_revocation_stops_contact() {
+    let (_dir, state, app, h, b, _human, bot, channel) = fixture().await;
+    let id = uuid::Uuid::new_v4().to_string();
+    enroll(&app, &channel, &b, &id).await;
+    let member = state.wdb.create_user("member", None, "hash").await.unwrap();
+    state
+        .wdb
+        .add_channel_member(&channel, member, MemberRole::Member)
+        .await
+        .unwrap();
+    let credential = jwt(&state, member);
+    let (s, roster) = request(
+        &app,
+        Method::GET,
+        &format!("/projects/{channel}/workers"),
+        &credential,
+        json!({}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(roster["workers"][0]["canRemove"], false);
+    assert_eq!(
+        request(
+            &app,
+            Method::DELETE,
+            &format!("/projects/{channel}/workers/{id}"),
+            &credential,
+            json!({})
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            Method::POST,
+            &format!("/projects/{channel}/workers/{id}/heartbeat"),
+            &h,
+            json!({})
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    state
+        .wdb
+        .remove_channel_member(&channel, bot)
+        .await
+        .unwrap();
+    assert_eq!(
+        request(
+            &app,
+            Method::POST,
+            &format!("/projects/{channel}/workers/{id}/heartbeat"),
+            &b,
+            json!({})
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    let (_, roster) = request(
+        &app,
+        Method::GET,
+        &format!("/projects/{channel}/workers"),
+        &h,
+        json!({}),
+    )
+    .await;
+    assert!(roster["workers"].as_array().unwrap().is_empty());
+}
+
+/// A disposable real Authority for the parameterized two-computer harness.
+/// No model is called and no production account/data is used. Never run this
+/// fixture against a live store or expose its loopback listener publicly.
+#[tokio::test]
+#[ignore = "requires the external two-computer recovery harness"]
+async fn two_computer_recovery_fixture() {
+    let output = std::path::PathBuf::from(
+        std::env::var("WABI_RECOVERY_FIXTURE_DIR").expect("fixture output directory"),
+    );
+    std::fs::create_dir_all(&output).unwrap();
+    let (_dir, state, app, h, b, _human, bot, channel) = fixture().await;
+    let a = uuid::Uuid::new_v4().to_string();
+    let backup = uuid::Uuid::new_v4().to_string();
+    for (id, name) in [
+        (&a, "Primary test computer"),
+        (&backup, "Backup test computer"),
+    ] {
+        let (s,r)=request(&app,Method::POST,&format!("/projects/{channel}/workers"),&b,json!({"workerId":id,"name":name,"harness":"api_worker","provider":"127.0.0.1","model":"fixture-no-model"})).await;
+        assert_eq!(s, StatusCode::OK, "{r}");
+    }
+    let (s,run)=request(&app,Method::POST,&format!("/projects/{channel}/runs"),&h,json!({"operationId":uuid::Uuid::new_v4(),"botUserId":bot,"mode":"work","prompt":"Create exactly one disposable card, then continue from the saved step after interruption.","providerConsent":true,"workerId":a,"recoveryPolicy":{"automatic":true,"backupWorkerIds":[backup],"maxRecoveries":1}})).await;
+    assert_eq!(s, StatusCode::OK, "{run}");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let serve_app = Router::new().nest("/api", app.clone());
+    let http = tokio::spawn(async move {
+        axum::serve(listener, serve_app).await.unwrap();
+    });
+    let config = json!({"wabi":format!("http://127.0.0.1:{port}"),"channel":channel,"botToken":b.strip_prefix("Bot ").unwrap(),"provider":"http://127.0.0.1:2","apiKey":"fixture-no-provider-key","model":"fixture-no-model","primaryId":a,"backupId":backup});
+    let config_path = output.join("connection.json");
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&config_path)
+            .unwrap();
+        file.write_all(config.to_string().as_bytes()).unwrap();
+    }
+    #[cfg(not(unix))]
+    std::fs::write(&config_path, config.to_string()).unwrap();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(420);
+    loop {
+        let current = state
+            .wdb
+            .project_run(&channel, run["runId"].as_str().unwrap())
+            .unwrap()
+            .unwrap();
+        if current.status == "completed" {
+            assert_eq!(current.worker_id.as_deref(), Some(backup.as_str()));
+            assert_eq!(current.recovery_count, 1);
+            assert_eq!(current.steps.len(), 2);
+            assert_eq!(state.wdb.list_project_tasks(&channel).unwrap().len(), 1);
+            // Also expose the current token for A's actual returning write probe.
+            std::fs::write(output.join("completed.json"),json!({"runId":current.run_id,"revision":current.revision,"attempt":current.attempt,"steps":current.steps.len(),"recoveryCount":current.recovery_count}).to_string()).unwrap();
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "two-computer fixture timed out"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
+    while !output.join("returning-worker-rejected").exists() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "returning worker did not probe stale write rejection"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+    assert_eq!(state.wdb.list_project_tasks(&channel).unwrap().len(), 1);
+    http.abort();
+    std::fs::remove_file(config_path).unwrap();
+}
+
+#[tokio::test]
+async fn registered_workers_recover_expired_attempts_only_with_explicit_policy() {
+    let (dir, state, app, h, b, human, bot, channel) = fixture().await;
+    let a = uuid::Uuid::new_v4().to_string();
+    let backup = uuid::Uuid::new_v4().to_string();
+    enroll(&app, &channel, &b, &a).await;
+    enroll(&app, &channel, &b, &backup).await;
+    let (s,r)=request(&app,Method::POST,&format!("/projects/{channel}/runs"),&h,json!({"operationId":uuid::Uuid::new_v4(),"botUserId":bot,"mode":"work","prompt":"Disposable recovery","providerConsent":true,"workerId":a,"recoveryPolicy":{"automatic":true,"backupWorkerIds":[backup],"maxRecoveries":1}})).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    let claim = format!(
+        "/projects/{channel}/runs/{}/claim",
+        r["runId"].as_str().unwrap()
+    );
+    let (s, started) = request(
+        &app,
+        Method::POST,
+        &claim,
+        &b,
+        json!({"expectedRevision":r["revision"],"provider":"test","model":"test","workerId":a}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{started}");
+    // A backup cannot take a live attempt, even with the same bot credential.
+    assert_eq!(request(&app,Method::POST,&claim,&b,json!({"expectedRevision":started["revision"],"provider":"test","model":"test","workerId":backup})).await.0,StatusCode::CONFLICT);
+    let step = format!(
+        "/projects/{channel}/runs/{}/step",
+        r["runId"].as_str().unwrap()
+    );
+    let mut create = action(
+        &started,
+        "create_card",
+        json!({"title":"Saved before interruption","status":"todo","priority":"medium"}),
+    );
+    create["workerId"] = json!(a);
+    let (s, saved) = request(&app, Method::POST, &step, &b, create).await;
+    assert_eq!(s, StatusCode::OK, "{saved}");
+    let mut expired = state
+        .wdb
+        .project_run(&channel, r["runId"].as_str().unwrap())
+        .unwrap()
+        .unwrap();
+    expired.lease_until_micros = 1;
+    state.wdb.save_project_run(&expired, human).await.unwrap();
+    // Lease expiry alone is insufficient while the computer still reports contact.
+    assert_eq!(request(&app,Method::POST,&claim,&b,json!({"expectedRevision":expired.revision,"provider":"test","model":"test","workerId":backup})).await.0,StatusCode::CONFLICT);
+    let mut missing = state.wdb.project_worker(&channel, &a).unwrap().unwrap();
+    missing.last_seen_micros = 1;
+    state
+        .wdb
+        .save_project_worker(&missing, human)
+        .await
+        .unwrap();
+    let (s,recovered)=request(&app,Method::POST,&claim,&b,json!({"expectedRevision":expired.revision,"provider":"test","model":"test","workerId":backup})).await;
+    assert_eq!(s, StatusCode::OK, "{recovered}");
+    assert_eq!(recovered["recoveryCount"], 1);
+    assert_eq!(recovered["workerId"], backup);
+    assert_eq!(recovered["steps"].as_array().unwrap().len(), 1);
+    // Returning A cannot write with either an old attempt or B's observed revision.
+    let mut stale = action(
+        &recovered,
+        "create_card",
+        json!({"title":"Must not exist","status":"todo","priority":"medium"}),
+    );
+    stale["workerId"] = json!(a);
+    assert_eq!(
+        request(&app, Method::POST, &step, &b, stale).await.0,
+        StatusCode::CONFLICT
+    );
+    let mut complete = action(
+        &recovered,
+        "complete",
+        json!({"reply":"Resumed saved work"}),
+    );
+    complete["workerId"] = json!(backup);
+    assert_eq!(
+        request(&app, Method::POST, &step, &b, complete).await.0,
+        StatusCode::OK
+    );
+    assert_eq!(state.wdb.list_project_tasks(&channel).unwrap().len(), 1);
+    let config = state.config.clone();
+    drop(app);
+    drop(state);
+    let state = Arc::new(writer_drain::app_state(&config).await.unwrap());
+    let recovered = state
+        .wdb
+        .project_run(&channel, r["runId"].as_str().unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(recovered.status, "completed");
+    assert_eq!(recovered.recovery_count, 1);
+    assert_eq!(state.wdb.project_workers(&channel).unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn manual_transfer_and_removed_registration_are_fenced() {
+    let (_dir, state, app, h, b, human, bot, channel) = fixture().await;
+    state.wdb.claim_owner(human).await.unwrap();
+    *state.owner_user_id.write().await = Some(human as i64);
+    let a = uuid::Uuid::new_v4().to_string();
+    let backup = uuid::Uuid::new_v4().to_string();
+    enroll(&app, &channel, &b, &a).await;
+    enroll(&app, &channel, &b, &backup).await;
+    let (_,r)=request(&app,Method::POST,&format!("/projects/{channel}/runs"),&h,json!({"operationId":uuid::Uuid::new_v4(),"botUserId":bot,"mode":"chat","prompt":"Manual recovery","providerConsent":true,"workerId":a})).await;
+    let claim = format!(
+        "/projects/{channel}/runs/{}/claim",
+        r["runId"].as_str().unwrap()
+    );
+    let (_, r) = request(
+        &app,
+        Method::POST,
+        &claim,
+        &b,
+        json!({"expectedRevision":r["revision"],"provider":"test","model":"test","workerId":a}),
+    )
+    .await;
+    let mut expired = state
+        .wdb
+        .project_run(&channel, r["runId"].as_str().unwrap())
+        .unwrap()
+        .unwrap();
+    expired.lease_until_micros = 1;
+    state.wdb.save_project_run(&expired, human).await.unwrap();
+    assert_eq!(request(&app,Method::POST,&claim,&b,json!({"expectedRevision":r["revision"],"provider":"test","model":"test","workerId":backup})).await.0,StatusCode::CONFLICT);
+    let (s, resumed) = request(
+        &app,
+        Method::POST,
+        &format!(
+            "/projects/{channel}/runs/{}/control",
+            r["runId"].as_str().unwrap()
+        ),
+        &h,
+        json!({"expectedRevision":r["revision"],"action":"resume","workerId":backup}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{resumed}");
+    let (s,r)=request(&app,Method::POST,&claim,&b,json!({"expectedRevision":resumed["revision"],"provider":"test","model":"test","workerId":backup})).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(
+        request(
+            &app,
+            Method::DELETE,
+            &format!("/projects/{channel}/workers/{backup}"),
+            &h,
+            json!({})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        request(
+            &app,
+            Method::POST,
+            &format!("/projects/{channel}/workers/{backup}/heartbeat"),
+            &b,
+            json!({})
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    let mut complete = action(&r, "complete", json!({"reply":"Must be refused"}));
+    complete["workerId"] = json!(backup);
+    assert_eq!(
+        request(
+            &app,
+            Method::POST,
+            &format!(
+                "/projects/{channel}/runs/{}/step",
+                r["runId"].as_str().unwrap()
+            ),
+            &b,
+            complete
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
+async fn independent_backup_services_require_the_pinned_model_safe_checkpoint_and_remaining_budget()
+{
+    let (_dir, state, app, h, b, human, bot, channel) = fixture().await;
+    let backup_bot = state
+        .wdb
+        .create_user("backup-service", None, "hash")
+        .await
+        .unwrap();
+    let (token, _) = state.bot_registry.create(backup_bot).await.unwrap();
+    let backup_auth = format!("Bot {token}");
+    state
+        .wdb
+        .add_channel_member(&channel, backup_bot, MemberRole::Member)
+        .await
+        .unwrap();
+    let a = uuid::Uuid::new_v4().to_string();
+    let backup = uuid::Uuid::new_v4().to_string();
+    let third = uuid::Uuid::new_v4().to_string();
+    enroll(&app, &channel, &b, &a).await;
+    enroll(&app, &channel, &backup_auth, &backup).await;
+    enroll(&app, &channel, &backup_auth, &third).await;
+    let (_,r)=request(&app,Method::POST,&format!("/projects/{channel}/runs"),&h,json!({"operationId":uuid::Uuid::new_v4(),"botUserId":bot,"workerId":a,"mode":"work","prompt":"Independent backup service","providerConsent":true,"recoveryPolicy":{"automatic":true,"backupWorkerIds":[backup,third],"maxRecoveries":1}})).await;
+    let claim = format!(
+        "/projects/{channel}/runs/{}/claim",
+        r["runId"].as_str().unwrap()
+    );
+    let (_, r) = request(
+        &app,
+        Method::POST,
+        &claim,
+        &b,
+        json!({"expectedRevision":r["revision"],"workerId":a,"provider":"test","model":"test"}),
+    )
+    .await;
+    let (_, visible) = request(
+        &app,
+        Method::GET,
+        &format!("/projects/{channel}/runs"),
+        &backup_auth,
+        json!({}),
+    )
+    .await;
+    assert_eq!(visible["runs"][0]["runId"], r["runId"]);
+    let mut stored = state
+        .wdb
+        .project_run(&channel, r["runId"].as_str().unwrap())
+        .unwrap()
+        .unwrap();
+    stored.lease_until_micros = 1;
+    let mut missing = state.wdb.project_worker(&channel, &a).unwrap().unwrap();
+    missing.last_seen_micros = 1;
+    state
+        .wdb
+        .save_project_worker(&missing, human)
+        .await
+        .unwrap();
+    stored.pending = Some(wabidb::projections::project_runs::RunStep {
+        operation_id: uuid::Uuid::new_v4().to_string(),
+        tool: "create_card".into(),
+        arguments: json!({"title":"Uncertain"}),
+        result: Value::Null,
+    });
+    state.wdb.save_project_run(&stored, human).await.unwrap();
+    let payload = json!({"expectedRevision":stored.revision,"workerId":backup,"provider":"test","model":"test"});
+    assert_eq!(
+        request(&app, Method::POST, &claim, &backup_auth, payload.clone())
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    stored.pending = None;
+    state.wdb.save_project_run(&stored, human).await.unwrap();
+    let mut wrong_model = payload.clone();
+    wrong_model["model"] = json!("different-model");
+    assert_eq!(
+        request(&app, Method::POST, &claim, &backup_auth, wrong_model)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    let (s, recovered) = request(&app, Method::POST, &claim, &backup_auth, payload.clone()).await;
+    assert_eq!(s, StatusCode::OK, "{recovered}");
+    assert_eq!(recovered["botUserId"], backup_bot);
+    assert_eq!(
+        request(&app, Method::POST, &claim, &backup_auth, payload)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    let original = state
+        .wdb
+        .project_run(&channel, r["runId"].as_str().unwrap())
+        .unwrap()
+        .unwrap();
+    let mut exhausted = original.clone();
+    exhausted.lease_until_micros = 1;
+    state.wdb.save_project_run(&exhausted, human).await.unwrap();
+    let mut missing = state
+        .wdb
+        .project_worker(&channel, &backup)
+        .unwrap()
+        .unwrap();
+    missing.last_seen_micros = 1;
+    state
+        .wdb
+        .save_project_worker(&missing, human)
+        .await
+        .unwrap();
+    assert_eq!(request(&app,Method::POST,&claim,&backup_auth,json!({"expectedRevision":exhausted.revision,"workerId":third,"provider":"test","model":"test"})).await.0,StatusCode::CONFLICT);
+    state.wdb.save_project_run(&original, human).await.unwrap();
+    assert_eq!(
+        request(
+            &app,
+            Method::POST,
+            &format!("/projects/{channel}/workers/{backup}/heartbeat"),
+            &backup_auth,
+            json!({})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let mut complete = action(
+        &recovered,
+        "complete",
+        json!({"reply":"Recovered by the explicitly allowed service"}),
+    );
+    complete["workerId"] = json!(backup);
+    assert_eq!(
+        request(
+            &app,
+            Method::POST,
+            &format!(
+                "/projects/{channel}/runs/{}/step",
+                r["runId"].as_str().unwrap()
+            ),
+            &backup_auth,
+            complete
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
 }
 async fn claim_run(app: &Router, channel: &str, bot: &str, r: &Value) -> Value {
     let (s, r) = request(
@@ -213,9 +798,10 @@ async fn human_estimates_are_hidden_protected_preserved_and_replayed() {
     )
     .await;
     assert_eq!(history["history"].as_array().unwrap().len(), 2);
+    let config = state.config.clone();
     drop(app);
     drop(state);
-    let state = server(dir.path()).await;
+    let state = Arc::new(writer_drain::app_state(&config).await.unwrap());
     let app = create_api_router(state.clone()).with_state(state);
     let (_, saved) = request(&app, Method::GET, &path, &h, Value::Null).await;
     assert_eq!(saved["humanEstimateMinutes"], 150);
@@ -378,9 +964,10 @@ async fn worker_tools_are_scoped_idempotent_fenced_and_survive_restart() {
     )
     .await;
     assert_eq!(pages["pages"].as_array().unwrap().len(), 1);
+    let config = state.config.clone();
     drop(app);
     drop(state);
-    let state = server(dir.path()).await;
+    let state = Arc::new(writer_drain::app_state(&config).await.unwrap());
     let saved = state
         .wdb
         .project_run(&channel, taken["runId"].as_str().unwrap())
@@ -486,9 +1073,10 @@ async fn pending_checkpoint_requires_review_after_restart() {
     });
     run.revision += 1;
     state.wdb.save_project_run(&run, bot).await.unwrap();
+    let config = state.config.clone();
     drop(app);
     drop(state);
-    let state = server(dir.path()).await;
+    let state = Arc::new(writer_drain::app_state(&config).await.unwrap());
     let app = create_api_router(state.clone()).with_state(state.clone());
     let cp = format!("/projects/{channel}/runs/{}/control", run.run_id);
     let (s, paused) = request(
@@ -618,4 +1206,259 @@ async fn step_budget_and_consent_are_enforced_by_the_server() {
     .await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(r["status"], "completed");
+}
+
+async fn assistant_security_snapshot(state: &AppState, channel: &str) -> Value {
+    json!({
+        "runs": state.wdb.project_runs(channel).unwrap(),
+        "workers": state.wdb.project_workers(channel).unwrap(),
+        "cards": state.wdb.list_project_tasks(channel).unwrap(),
+        "pages": state.wdb.list_wiki_pages(channel).await.unwrap(),
+    })
+}
+
+#[tokio::test]
+async fn assistant_mutations_recheck_original_credentials_after_complete_body() {
+    use axum::body::Bytes;
+    for kind in ["register", "create", "claim", "control", "step"] {
+        let (_dir, state, app, h, b, _human, bot, channel) = fixture().await;
+        let run = start(&app, &channel, &h, bot, "work").await;
+        let run = if kind == "step" {
+            claim_run(&app, &channel, &b, &run).await
+        } else {
+            run
+        };
+        let id = run["runId"].as_str().unwrap();
+        let (credential, path, payload) = match kind {
+            "register" => (
+                b,
+                format!("/projects/{channel}/workers"),
+                json!({"workerId":uuid::Uuid::new_v4(),"name":"Revoked computer","harness":"api_worker","provider":"test","model":"test"}),
+            ),
+            "create" => (
+                h,
+                format!("/projects/{channel}/runs"),
+                json!({"operationId":uuid::Uuid::new_v4(),"botUserId":bot,"mode":"work","prompt":"Revoked request","providerConsent":true}),
+            ),
+            "claim" => (
+                b,
+                format!("/projects/{channel}/runs/{id}/claim"),
+                json!({"expectedRevision":run["revision"],"provider":"test","model":"test-model"}),
+            ),
+            "control" => (
+                h,
+                format!("/projects/{channel}/runs/{id}/control"),
+                json!({"expectedRevision":run["revision"],"action":"pause"}),
+            ),
+            "step" => (
+                b,
+                format!("/projects/{channel}/runs/{id}/step"),
+                action(
+                    &run,
+                    "create_page",
+                    json!({"title":"Revoked worker canary","body":"Must never be published"}),
+                ),
+            ),
+            _ => unreachable!(),
+        };
+        let original = assistant_security_snapshot(&state, &channel).await;
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (body_tx, body_rx) = tokio::sync::oneshot::channel::<Value>();
+        let stream = futures::stream::once(async move {
+            let _ = started_tx.send(());
+            Ok::<Bytes, std::io::Error>(Bytes::from(body_rx.await.unwrap().to_string()))
+        });
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri(&path)
+            .header("authorization", &credential)
+            .header("content-type", "application/json")
+            .body(Body::from_stream(stream))
+            .unwrap();
+        let caller = tokio::spawn(async move { app.oneshot(req).await.unwrap().status() });
+        tokio::time::timeout(std::time::Duration::from_secs(5), started_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        if credential.starts_with("Bot ") {
+            assert!(state.bot_registry.disable(bot).await.unwrap());
+        } else {
+            let claims = wabi_server::auth_extractor::decode_token(
+                credential.strip_prefix("Bearer ").unwrap(),
+                &state.config.jwt_secret,
+            )
+            .await
+            .unwrap();
+            state
+                .revoke_token_with_exp(claims.jti, claims.exp)
+                .await
+                .unwrap();
+        }
+        let seq = state.wdb.engine().projection_state().applied_commit_seq();
+        body_tx.send(payload).unwrap();
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), caller)
+                .await
+                .unwrap()
+                .unwrap(),
+            StatusCode::UNAUTHORIZED,
+            "stale {kind} credential was admitted",
+        );
+        assert_eq!(
+            state.wdb.engine().projection_state().applied_commit_seq(),
+            seq
+        );
+        assert_eq!(
+            assistant_security_snapshot(&state, &channel).await,
+            original
+        );
+    }
+}
+
+#[tokio::test]
+async fn assistant_inventory_and_bodyless_mutations_recheck_after_membership_wait() {
+    for (kind, is_bot) in [
+        ("workers", false),
+        ("workers", true),
+        ("runs", false),
+        ("runs", true),
+        ("heartbeat", true),
+        ("remove", true),
+    ] {
+        let (_dir, state, app, h, b, _human, bot, channel) = fixture().await;
+        let worker = uuid::Uuid::new_v4().to_string();
+        enroll(&app, &channel, &b, &worker).await;
+        start(&app, &channel, &h, bot, "work").await;
+        let credential = if is_bot { b } else { h };
+        let (method, path) = match kind {
+            "workers" => (Method::GET, format!("/projects/{channel}/workers")),
+            "runs" => (Method::GET, format!("/projects/{channel}/runs")),
+            "heartbeat" => (
+                Method::POST,
+                format!("/projects/{channel}/workers/{worker}/heartbeat"),
+            ),
+            "remove" => (
+                Method::DELETE,
+                format!("/projects/{channel}/workers/{worker}"),
+            ),
+            _ => unreachable!(),
+        };
+        let original = assistant_security_snapshot(&state, &channel).await;
+        let membership = state.membership_gate.write().await;
+        let references = Arc::strong_count(&state.membership_gate);
+        let req = Request::builder()
+            .method(method)
+            .uri(&path)
+            .header("authorization", &credential)
+            .body(Body::empty())
+            .unwrap();
+        let caller = tokio::spawn(async move { app.oneshot(req).await.unwrap().status() });
+        // The owned reader is now waiting at admission, after extraction of
+        // the original credential, rather than merely a spawned HTTP future.
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while Arc::strong_count(&state.membership_gate) <= references {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        if is_bot {
+            assert!(state.bot_registry.disable(bot).await.unwrap());
+        } else {
+            let claims = wabi_server::auth_extractor::decode_token(
+                credential.strip_prefix("Bearer ").unwrap(),
+                &state.config.jwt_secret,
+            )
+            .await
+            .unwrap();
+            state
+                .revoke_token_with_exp(claims.jti, claims.exp)
+                .await
+                .unwrap();
+        }
+        let seq = state.wdb.engine().projection_state().applied_commit_seq();
+        drop(membership);
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), caller)
+                .await
+                .unwrap()
+                .unwrap(),
+            StatusCode::UNAUTHORIZED,
+            "{kind} bot={is_bot} bypassed current credentials",
+        );
+        assert_eq!(
+            state.wdb.engine().projection_state().applied_commit_seq(),
+            seq
+        );
+        assert_eq!(
+            assistant_security_snapshot(&state, &channel).await,
+            original
+        );
+    }
+}
+
+#[tokio::test]
+async fn cancelled_worker_step_retains_admission_through_tool_and_checkpoint() {
+    let (_dir, state, app, h, b, _human, bot, channel) = fixture().await;
+    let run = start(&app, &channel, &h, bot, "work").await;
+    let run = claim_run(&app, &channel, &b, &run).await;
+    let run_id = run["runId"].as_str().unwrap().to_string();
+    let path = format!("/projects/{channel}/runs/{run_id}/step");
+    let step = action(
+        &run,
+        "create_page",
+        json!({"title":"Owned completion","body":"Published before rotation"}),
+    );
+    let writer = state.wdb.project_run_gate().lock().await;
+    let caller = tokio::spawn(async move { request(&app, Method::POST, &path, &b, step).await });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while state.membership_gate.try_write().is_ok() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let rotation_state = state.clone();
+    let mut rotation = tokio::spawn(async move { rotation_state.bot_registry.rotate(bot).await });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let reader = state.bot_registry.is_bot(bot);
+            tokio::pin!(reader);
+            if futures::poll!(reader.as_mut()).is_pending() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        !rotation.is_finished(),
+        "rotation overtook the admitted tool"
+    );
+    caller.abort();
+    assert!(caller.await.unwrap_err().is_cancelled());
+    assert!(state.membership_gate.try_write().is_err());
+    assert!(state
+        .wdb
+        .list_wiki_pages(&channel)
+        .await
+        .unwrap()
+        .is_empty());
+    drop(writer);
+    tokio::time::timeout(std::time::Duration::from_secs(5), &mut rotation)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let saved = state.wdb.project_run(&channel, &run_id).unwrap().unwrap();
+    assert!(saved.pending.is_none());
+    assert_eq!(saved.steps.len(), 1);
+    assert_eq!(saved.steps[0].tool, "create_page");
+    assert_eq!(saved.revision, run["revision"].as_u64().unwrap() + 2);
+    let pages = state.wdb.list_wiki_pages(&channel).await.unwrap();
+    assert_eq!(pages.len(), 1);
+    assert_eq!(pages[0].body, "Published before rotation");
+    assert!(state.membership_gate.try_write().is_ok());
 }

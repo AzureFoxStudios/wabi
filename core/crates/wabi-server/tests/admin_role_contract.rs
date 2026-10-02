@@ -1,4 +1,7 @@
 //! Real Socket.IO → WabiStore → RBAC projection → receipt/roster contract.
+#[path = "fixtures/writer_drain.rs"]
+mod writer_drain;
+
 use std::{path::Path, sync::Arc, time::Duration};
 use axum::{body::{to_bytes, Body}, http::{Method, Request, StatusCode}, Router};
 use serde_json::{json, Value};
@@ -44,7 +47,7 @@ async fn seed(state: &AppState) -> (u64, u64, u64) {
     (owner, member, guest)
 }
 
-struct Client { app: Router, sid: String, events: Vec<Value> }
+struct Client { app: Router, sid: String, socket_id: String, events: Vec<Value> }
 impl Client {
     async fn transport(app: &Router, method: Method, path: &str, body: String) -> String {
         let response = tokio::time::timeout(Duration::from_secs(3), app.clone().oneshot(Request::builder()
@@ -57,10 +60,12 @@ impl Client {
     async fn connect(app: &Router, token: &str) -> Self {
         let open = Self::transport(app, Method::GET, "/socket.io/?EIO=4&transport=polling", String::new()).await;
         let handshake: Value = serde_json::from_str(open.strip_prefix('0').unwrap()).unwrap();
-        let mut client = Self { app: app.clone(), sid: handshake["sid"].as_str().unwrap().into(), events: vec![] };
+        let mut client = Self { app: app.clone(), sid: handshake["sid"].as_str().unwrap().into(), socket_id: String::new(), events: vec![] };
         Self::transport(app, Method::POST, &client.path(), format!("40{}", json!({"token":token}))).await;
         let connected = Self::transport(app, Method::GET, &client.path(), String::new()).await;
         assert!(connected.starts_with("40"), "{connected}");
+        let namespace: Value = serde_json::from_str(connected.split('\u{1e}').next().unwrap().strip_prefix("40").unwrap()).unwrap();
+        client.socket_id = namespace["sid"].as_str().unwrap().into();
         // Namespace acceptance is not the application's initialized state.
         // Match the real client: finish join/init before issuing admin commands.
         client.emit("join", json!("test client")).await;
@@ -69,6 +74,21 @@ impl Client {
     }
     async fn emit(&self, event: &str, payload: Value) {
         Self::transport(&self.app, Method::POST, &self.path(), format!("42{}", json!([event, payload]))).await;
+    }
+    async fn assert_evicted(&self, state: &AppState, event: &str, payload: Value) {
+        let io = state.socket_io().expect("Socket.IO fixture installed");
+        assert!(!io.sockets().iter().any(|socket| socket.id.to_string() == self.socket_id),
+            "revoked namespace must be removed before another event is sent");
+        let response = tokio::time::timeout(Duration::from_secs(3), self.app.clone().oneshot(
+            Request::post(self.path()).header("content-type", "text/plain;charset=UTF-8")
+                .body(Body::from(format!("42{}", json!([event, payload])))).unwrap(),
+        )).await.expect("closed socket timeout").unwrap();
+        // Engine.IO may acknowledge an already queued polling POST after the
+        // Socket.IO namespace has been disconnected. Authorization concerns
+        // the removed namespace and the unchanged application state below.
+        assert!(matches!(response.status(), StatusCode::OK | StatusCode::BAD_REQUEST),
+            "unexpected closed transport response: {}", response.status());
+        assert!(!io.sockets().iter().any(|socket| socket.id.to_string() == self.socket_id));
     }
     async fn event(&mut self, name: &str) -> Value {
         self.event_one_of(&[name]).await.1
@@ -263,8 +283,10 @@ async fn configured_administrator_cannot_be_reported_demoted_while_retaining_acc
     let (owner, member, _) = seed(&state).await;
     // Configure the actual persisted account, independently of bootstrap
     // control events that also consume sequencer IDs.
+    let mut config = state.config.clone();
+    config.admin_user_ids = vec![member as i64];
     drop(state);
-    let state = configured_server(dir.path(), vec![member as i64]).await;
+    let state = Arc::new(writer_drain::app_state(&config).await.unwrap());
     let app = router(&state); let mut client = Client::connect(&app, &token(&state, owner)).await;
     let before = state.wdb.engine().projection_state().applied_commit_seq();
     for role in ["member", "mod"] {
@@ -493,7 +515,10 @@ async fn dashboard_reports_degraded_when_projection_failure_stops_writes_but_rea
         caller_user_id: owner, caller_device_id:"test".into(), command_name:"dashboard-test-invalid".into(),
         idempotency_key:None, essential:true, response_tx:tokio::sync::oneshot::channel().0,
         events:vec![EventToWrite { stream_id:"dashboard-bad-event".into(), stream_kind:6,
-            event_type:"user_registered".into(), record_kind:RecordKind::Event, plaintext:vec![] }],
+            // Identity writes now reject invalid payloads before durability.
+            // A malformed audit payload still reaches its projection so this
+            // fixture exercises actual durable-but-unapplied engine failure.
+            event_type:"role_assigned".into(), record_kind:RecordKind::Event, plaintext:vec![] }],
     }).await.is_err());
     assert!(state.wdb.list_users().await.is_ok(), "serving old projections alone is not readiness");
     let (status, stats) = dashboard(&app, Some(&token(&state, owner))).await;
@@ -552,15 +577,13 @@ async fn badges_broadcast_authoritative_changes_and_revoked_admins_cannot_mutate
     }
     assert_eq!(state.wdb.engine().projection_state().applied_commit_seq(), before);
 
-    // Both sockets were authenticated before revocation. A cached handshake
-    // identity must not bypass the current account's revocation floor.
+    // Both sockets were authenticated before revocation. Successful durable
+    // denial now also evicts idle receivers before it returns to the caller.
     state.revoke_user(owner as i64).await.unwrap();
     let after_revocation = state.wdb.engine().projection_state().applied_commit_seq();
     assert!(after_revocation > before, "session denial is now a canonical commit");
-    assigning_admin.emit("assign-badge", json!({"targetUserId":member,"badgeId":"founder"})).await;
-    assigning_admin.event("auth-revoked").await;
-    removing_admin.emit("remove-badge", json!({"targetUserId":member,"badgeId":"supporter"})).await;
-    removing_admin.event("auth-revoked").await;
+    assigning_admin.assert_evicted(&state, "assign-badge", json!({"targetUserId":member,"badgeId":"founder"})).await;
+    removing_admin.assert_evicted(&state, "remove-badge", json!({"targetUserId":member,"badgeId":"supporter"})).await;
     let retained = state.wdb.list_user_badges(member).await.unwrap();
     assert_eq!(retained.len(), 1);
     assert_eq!(retained[0].badge_id, "supporter");

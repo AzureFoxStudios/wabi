@@ -571,6 +571,12 @@ export class SocketManager {
 		sock.on('connect_error', (error) => {
 			const msg = error?.message || String(error);
 			console.error('[SocketManager] Connect error:', msg);
+			// Namespace middleware denies admission before application events
+			// exist. Preserve the same bounded refresh path as auth-failed.
+			if (msg.startsWith('auth-failed:')) {
+				void handleAuthRejection('auth-failed', { reason: msg.slice('auth-failed:'.length).trim() });
+				return;
+			}
 
 			const errorInfo = classifyError(msg);
 
@@ -616,10 +622,10 @@ export class SocketManager {
 			}
 		});
 
-		// Server-side auth rejections. `auth-failed` arrives at handshake
-		// (invalid/expired/refresh-class token); `auth-revoked` mid-session
-		// (revoked jti / user floor). Both mean the socket token is dead even
-		// if the TCP layer is fine: try one silent refresh (which rotates the
+		// Server-side auth rejections. Handshake middleware uses the
+		// `auth-failed:` connect_error prefix; legacy auth-failed and auth-revoked
+		// application events use the same path (invalid/expired/revoked tokens).
+		// The socket token is dead even if the TCP layer is fine: try one silent refresh (which rotates the
 		// access token), then reconnect with the fresh credential. If refresh
 		// fails there is no valid session left — surface session-expired so
 		// the app routes to login instead of retry-looping.

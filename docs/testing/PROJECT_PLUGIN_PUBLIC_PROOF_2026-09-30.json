@@ -1,0 +1,18 @@
+{
+  "date": "2026-09-30T12:46:25.913Z",
+  "endpoint": "https://wabi.chat/mcp",
+  "botUserId": 3296,
+  "taskId": "task_05d1e43719874fecbfef432900a6831a",
+  "pageId": "page_ce4",
+  "checks": [
+    "dedicated_project_grant",
+    "public_oauth_pkce_consent",
+    "public_sdk_initialize_and_11_tools",
+    "public_profile_and_card_wiki_updates_readback",
+    "public_stale_edit_refused",
+    "public_oauth_revocation_401"
+  ],
+  "client": "standard_MCP_SDK_1.31.0_not_Dot",
+  "dotInstalled": false,
+  "passed": true
+}

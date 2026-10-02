@@ -330,8 +330,10 @@ async fn replay_preserves_remote_placement_without_granting_remote_write_identit
     place(&engine, "ch_remote", "site-b", 1).await;
     let before = engine.barrier().current();
     drop(engine);
+    let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
     ProjectionState::remove_snapshot(dir.path());
-    let reopened = WabiDbEngine::open_with_node_id(config(dir.path()), "site-a".into())
+    drop(stopped);
+    let reopened = crate::tests::reopen_after_drop(config(dir.path()), Some("site-a"))
         .await
         .unwrap();
     assert_eq!(reopened.local_node_id(), "site-a");

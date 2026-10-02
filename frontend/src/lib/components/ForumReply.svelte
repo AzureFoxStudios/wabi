@@ -1,6 +1,11 @@
 <script lang="ts">
+	import ProfileMedia from './ProfileMedia.svelte';
+	import { mediaUrl } from '$lib/mediaUrl';
+	import ForumBody from './ForumBody.svelte';
+	import { forumAuthors, canManageForumPost } from '$lib/forumIdentity';
+	import { currentUser } from '$lib/presenceIdentity';
 	import type { ForumPost } from '$lib/forumStore';
-	import { findAuthor, formatForumTime, extractForumAttachments, resolveForumFileUrl, stripForumImageMarkdown, formatForumFileSize } from '$lib/forumStore';
+	import { formatForumTime, extractForumAttachments, resolveForumFileUrl, stripForumImageMarkdown, formatForumFileSize } from '$lib/forumStore';
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
 	import { slugify } from '$lib/objectRefRegistry';
 
@@ -9,8 +14,10 @@
 	export let onVote: (direction: 'up' | 'down') => void;
 	export let onMarkSolution: () => void;
 	export let channelId: string;
+	export let onDelete: () => void = () => {};
+	export let deleting = false;
 
-	$: author = findAuthor(reply.author_user_id);
+	$: author = $forumAuthors.get(reply.author_user_id);
 	$: attachments = reply.attachments ?? extractForumAttachments(reply.body);
 	$: textBody = stripForumImageMarkdown(reply.body);
 	$: shareRecord = {
@@ -33,7 +40,7 @@
 				class="forum-reply-avatar"
 				style="background: {author.color || author.roleColor || 'var(--accent-primary)'};"
 			>
-				{author.username.charAt(0).toUpperCase()}
+				{#if author.profilePicture}<ProfileMedia src={mediaUrl(author.profilePicture)} alt={author.username} />{:else}{author.username.charAt(0).toUpperCase()}{/if}
 			</div>
 			<span class="forum-reply-author">{author.username}</span>
 		{:else}
@@ -43,7 +50,7 @@
 		<span>·</span>
 		<span>{formatForumTime(reply.created_at_micros)}</span>
 	</div>
-	<div class="forum-reply-body">{textBody}</div>
+	<div class="forum-reply-body"><ForumBody text={textBody} /></div>
 	{#if attachments.length > 0}
 		<div class="forum-files-gallery" class:has-more={attachments.length > 4}>
 			{#each attachments.slice(0, 4) as attachment, index}
@@ -83,6 +90,6 @@
 		{#if !isSolution}
 			<button class="forum-action-btn solution" on:click={onMarkSolution}>&#10003; Mark solution</button>
 		{/if}
-		<ObjectShareMenu record={shareRecord} />
+		<ObjectShareMenu record={shareRecord} menuLabel="Reply actions" extraActions={canManageForumPost($currentUser, reply.author_user_id) && !deleting ? [{label: 'Delete reply', run: onDelete}] : []} />
 	</div>
 </div>

@@ -1,7 +1,13 @@
 <script lang="ts">
+	import NoteInkEditor from './NoteInkEditor.svelte';
+	import { readNoteInk, saveNoteInk, noteWritingText, replaceNoteWriting, type NoteInk } from '$lib/notes/ink';
+	import BaseModal from './BaseModal.svelte';
+	import { portal } from '$lib/actions/portal';
 	import { untrack } from 'svelte';
 	import CodeMirrorEditor from '$lib/editor/CodeMirrorEditor.svelte';
 	import { exportPortableNotebook } from '$lib/notes/portable';
+	import { markdownNotebook } from '$lib/notes/markdownImport';
+	import { noteSnippet } from '$lib/notes/snippet';
 	import { renderNote } from '$lib/notes/render';
 	import { parseNoteLinks } from '$lib/notes/links';
 	import { noteCompletionExtension } from '$lib/notes/completion';
@@ -40,6 +46,14 @@
 	let incoming = $state<NotebookLink[]>([]);
 	let legacy = $state<LegacyNotePreview[]>([]);
 	let recoverOpen = $state(false);
+	let settingsOpen = $state(false);
+	let inkOpen = $state(false);
+	let inkTool = $state<'pen' | 'eraser' | 'line'>('pen');
+	let inkTarget = $state<NoteEditor | null>(null);
+	let inkInitial = $state<NoteInk | null>(null);
+	function openInk(tool: 'pen' | 'eraser' | 'line' = 'pen') { inkTool = tool; if (!editor) return; inkTarget = editor; inkInitial = readNoteInk(get(editor.state).text); inkOpen = true; }
+	function saveInk(ink: NoteInk, png: string) { if (!book?.owner.isCurrent() || editor !== inkTarget) { inkOpen = false; return; } const draft = get(editor!.state); editor!.update({ text: saveNoteInk(draft.text, ink, png) }); reading = true; inkOpen = false; }
+	function closeSettings() { settingsOpen = false; recoverOpen = false; importSequence++; }
 	let recoveredMessage = $state('');
 	let selectedLegacy = $state('');
 	let backupRaw = $state('');
@@ -64,7 +78,7 @@
 		const owner = $notebookOwner.owner;
 		untrack(() => {
 			editor?.dispose(); editor = null; notes = []; recoveryDrafts = []; recoveredDrafts = []; error = ''; loading = true;
-			backupPreview = null; backupRaw = ''; legacy = []; selectedLegacy = ''; recoveredMessage = ''; history = []; search = ''; recoverOpen = false; opening = false; importSequence++;
+			backupPreview = null; backupRaw = ''; legacy = []; selectedLegacy = ''; recoveredMessage = ''; history = []; search = ''; recoverOpen = false; settingsOpen = false; inkOpen = false; opening = false; importSequence++;
 			book = owner ? new LocalNotebook(owner) : null;
 			if (book) void refresh(book);
 		});
@@ -97,6 +111,7 @@
 	}
 
 	async function openNote(id: string, remember = true) {
+		inkOpen = false;
 		if (!book) return;
 		actionMenu?.removeAttribute('open');
 		const current = book;
@@ -250,6 +265,20 @@
 			backupPreview = parseNotebookBackup(raw); backupRaw = raw;
 		} catch (failure) { error = (failure as Error).message; }
 	}
+	async function previewMarkdown(event: Event) {
+		const ticket = ++importSequence, current = book;
+		const files = [...((event.currentTarget as HTMLInputElement).files || [])].filter(file => /\.(md|markdown)$/i.test(file.name));
+		backupPreview = null; backupRaw = '';
+		try {
+			if (files.length > 1000) throw new Error('Choose at most 1,000 Markdown files.');
+			if (files.reduce((size, file) => size + file.size, 0) > MAX_NOTEBOOK_BACKUP_BYTES) throw new Error('Choose Markdown files totaling less than 20 MB.');
+			const data = await Promise.all(files.map(async file => ({ name: file.webkitRelativePath || file.name, text: await file.text(), lastModified: file.lastModified })));
+			const raw = await markdownNotebook(data);
+			if (ticket !== importSequence || book !== current || !current?.owner.isCurrent()) return;
+			backupRaw = raw; backupPreview = parseNotebookBackup(raw);
+		} catch (error) { if (ticket === importSequence && book === current && current?.owner.isCurrent()) recoveredMessage = error instanceof Error ? error.message : 'Markdown import failed.'; }
+	}
+
 	async function importBackup() {
 		if (!book || !backupPreview || busy) return;
 		busy = true;
@@ -286,37 +315,51 @@
 				{#if !narrow || showList || !editor}
 					<aside class="note-list" aria-label="Notebook">
 						<div class="list-tools"><label class="sr-only" for={`notes-search-${contextChannelId || (compact ? 'panel' : 'center')}`}>Search notes</label><input id={`notes-search-${contextChannelId || (compact ? 'panel' : 'center')}`} type="search" bind:value={search} placeholder="Search notes"/><button onclick={createNote} disabled={busy || loading} aria-label="New note">+</button></div>
-						<div class="list-tabs"><button class:active={!trash} onclick={() => { trash = false; }}>Notes</button><button class:active={trash} onclick={() => { trash = true; }}>Trash</button></div>
+						<div class="list-tabs"><button class:active={!trash} onclick={() => { trash = false; }}>Notes</button><button class:active={trash} onclick={() => { trash = true; }} aria-label="Trash" title="Trash"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></svg></button></div>
 						<div class="note-rows">
 							{#if loading}<p class="list-empty">Opening local notes…</p>{:else if !visible.length}<div class="list-empty"><p>{trash ? 'Trash is empty.' : search ? 'No matching notes.' : emptyMessage}</p>{#if !trash && !search}<button onclick={createNote} disabled={busy}>Create your first note</button>{/if}</div>{/if}
-							{#each visible as note (note.id)}<button class="note-row" class:selected={$draftStore?.note.id === note.id} onclick={() => openNote(note.id)} style:border-left-color={note.color || 'transparent'}><strong>{note.pinned ? '• ' : ''}{note.title}</strong><span>{note.text.trim().slice(0, 90) || 'Empty note'}</span><small>{new Date(note.updatedAt).toLocaleDateString()}</small></button>{/each}
+							{#each visible as note (note.id)}<button class="note-row" class:selected={$draftStore?.note.id === note.id} onclick={() => openNote(note.id)} style:border-left-color={note.color || 'transparent'}><strong>{note.pinned ? '• ' : ''}{note.title}</strong><span>{noteSnippet(note.text) || 'Empty note'}</span><small>{new Date(note.updatedAt).toLocaleDateString()}</small></button>{/each}
 						</div>
-						<div class="notebook-transfer"><button onclick={() => exportNotebook()}>Back up saved notes</button><button onclick={() => exportNotebook(true)}>Export Markdown archive</button><button onclick={() => { recoverOpen = !recoverOpen; }}>Import and recovery</button></div>
+						<div class="notebook-settings"><button type="button" aria-haspopup="dialog" onclick={() => settingsOpen = true}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="m9 3-1 3-3 1-2 3 2 2-1 3 3 2 2-1 3 2 3-2 2 1 3-2-1-3 2-2-2-3-3-1-1-3Z"/></svg>Notes settings</button></div>
 					</aside>
 				{/if}
 				{#if !narrow}<!-- Keyboard-adjustable WAI-ARIA window splitter. -->
 				<!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
 				<div class="note-splitter" role="separator" aria-label="Resize note list" aria-orientation="vertical" aria-valuemin="160" aria-valuemax={Math.max(160, width - 280)} aria-valuenow={sidebarWidth} tabindex="0" onpointerdown={resizeSidebar} onkeydown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); sidebarWidth = Math.max(160, Math.min(width - 280, sidebarWidth + (event.key === 'ArrowRight' ? 20 : -20))); } }}></div>{/if}
 				{#if !narrow || (!showList && editor)}
-					<main class="note-editor" aria-label="Note editor" aria-busy={opening} inert={opening}>
+					<main class="note-editor" class:ink-open={inkOpen} aria-label="Note editor" aria-busy={opening} inert={opening}>
 						{#if editor && $draftStore}
-							<div class="editor-tools">{#if narrow}<button onclick={() => { showList = true; }}>All notes</button>{/if}{#if history.length}<button onclick={() => { const id = history.at(-1)!; history = history.slice(0, -1); void openNote(id, false); }}>Back</button>{/if}<button aria-pressed={reading} onclick={() => { reading = !reading; }}>{reading ? 'Edit note' : 'Read note'}</button><span class="save-status" role="status">{$draftStore.status === 'saved' ? 'Saved on this device' : $draftStore.status === 'saving' ? 'Saving…' : $draftStore.status === 'conflict' ? 'Conflicting changes' : $draftStore.status === 'failed' ? 'Could not save' : 'Unsaved changes'}</span><button onclick={() => download('note.md', editor!.downloadText())}>Download</button></div>
+							<div class="editor-tools">{#if narrow}<button onclick={() => { showList = true; }}>All notes</button>{/if}{#if history.length}<button onclick={() => { const id = history.at(-1)!; history = history.slice(0, -1); void openNote(id, false); }}>Back</button>{/if}<div class="note-ink-tools" role="group" aria-label="Note tools"><button onclick={() => openInk('pen')} disabled={busy || opening || $draftStore.note.trashedAt !== null} aria-pressed={inkOpen && inkTool === 'pen'}>Pen</button><button onclick={() => openInk('eraser')} disabled={busy || opening || $draftStore.note.trashedAt !== null} aria-pressed={inkOpen && inkTool === 'eraser'}>Eraser</button><button onclick={() => openInk('line')} disabled={busy || opening || $draftStore.note.trashedAt !== null} aria-pressed={inkOpen && inkTool === 'line'}>Shapes</button></div><button disabled={inkOpen} aria-pressed={reading} onclick={() => { reading = !reading; }}>{reading ? 'Edit' : 'Preview'}</button><button onclick={() => download('note.md', editor!.downloadText())} aria-label="Download note as Markdown" title="Download note as Markdown"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 17v4h14v-4"/></svg></button></div>
 							{#if $draftStore.error}<div class="notice" role="alert"><span>{$draftStore.error}</span><button disabled={busy} onclick={() => recoverDraft()}>Save recovery copy</button>{#if $draftStore.status === 'failed'}<button onclick={() => editor?.save()}>Retry save</button>{/if}<button onclick={async () => { if (window.confirm('Replace this draft with the saved version? Download or save a recovery copy first to keep your changes.')) try { await editor?.useSavedVersion(); } catch (failure) { error = (failure as Error).message; } }}>Use saved version</button></div>{/if}
 							{#if $draftStore.note.trashedAt !== null}<div class="notice"><span>This note is in Trash.</span><button onclick={() => changeNote('restore')}>Restore note</button><button onclick={() => changeNote('delete')}>Delete permanently</button></div>{/if}
-							<input class="note-title" aria-label="Note title" value={$draftStore.title} maxlength="200" disabled={busy || opening || $draftStore.note.trashedAt !== null} oninput={event => editor?.update({ title: event.currentTarget.value })}/>
-							<div class="note-text" class:reading>{#key editor?.id}<CodeMirrorEditor code={$draftStore.text} language="markdown" prose ariaLabel="Note text" readonly={busy || opening || $draftStore.note.trashedAt !== null} customExtensions={completion} onupdate={text => editor?.update({ text })} />{/key}</div>
+							<input class="note-title" aria-label="Note title" title="Edit note title" placeholder="Give this note a title" value={$draftStore.title} maxlength="200" disabled={busy || opening || $draftStore.note.trashedAt !== null} oninput={event => editor?.update({ title: event.currentTarget.value })}/>
+							{#if inkOpen && editor === inkTarget}<NoteInkEditor embedded initial={inkInitial} initialTool={inkTool} onsave={saveInk} oncancel={() => inkOpen = false}/>{/if}
+							<div class="note-text" class:reading>{#key editor?.id}<CodeMirrorEditor code={noteWritingText($draftStore.text)} language="markdown" prose ariaLabel="Note text" readonly={busy || opening || $draftStore.note.trashedAt !== null} customExtensions={completion} onupdate={text => editor?.update({ text: replaceNoteWriting(get(editor.state).text, text) })} />{/key}</div>
 							{#if reading}<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
 							<article class="note-reading" aria-label="Note reading view" onclick={followRenderedLink}>{@html renderedNote}</article>{/if}
-							<div class="note-links"><span>Link notes with [[Title]]</span>{#each outgoing as link}{@const target = notes.find(note => note.id === link.targetId)}<button disabled={!target || target.trashedAt !== null} onclick={() => target && openNote(target.id)}>{target?.title || link.normalizedTitle}{!target ? ' · missing' : target.trashedAt !== null ? ' · in Trash' : ''}</button>{#if !target && link.targetId === null}<button disabled={busy || opening || $draftStore.note.trashedAt !== null} onclick={() => createLinkedNote(link)}>Create {parseNoteLinks($draftStore.text).find(reference => reference.normalizedTitle === link.normalizedTitle)?.title ?? link.normalizedTitle}</button>{/if}{#if !target && link.targetId}{@const replacement = notes.find(note => note.normalizedTitle === link.normalizedTitle && note.trashedAt === null)}{#if replacement}<button disabled={busy || opening || $draftStore.note.trashedAt !== null} onclick={() => reconnectLink(link, replacement)}>Reconnect to {replacement.title}</button>{/if}{/if}{/each}{#if incoming.length}<span>Linked from</span>{#each incoming as link}{@const source = notes.find(note => note.id === link.sourceId)}{#if source && source.trashedAt === null}<button onclick={() => openNote(source.id)}>{source.title}</button>{/if}{/each}{/if}</div>
-							<footer><details class="note-actions" bind:this={actionMenu}><summary>Note actions</summary><div class="note-actions-menu"><button disabled={busy || opening || $draftStore.note.trashedAt !== null} onclick={() => changeNote('pin')}>{$draftStore.note.pinned ? 'Unpin' : 'Pin'}</button><select aria-label="Note color" value={$draftStore.note.color || ''} disabled={busy || opening || $draftStore.note.trashedAt !== null} onchange={event => changeNote('pin', event.currentTarget.value)}><option value="">No color</option>{#each NOTE_COLORS as color, index}<option value={color}>{colorNames[index]}</option>{/each}</select><button onclick={() => openReaderDocument($draftStore!.title, $draftStore!.text, 'markdown', 'notes', undefined, readerNoteSourceId(book!.owner.scopeId, $draftStore!.note.id))}>Open a copy in Reader</button><button disabled={busy || opening || $draftStore.note.trashedAt !== null} onclick={() => changeNote('trash')}>Move to Trash</button></div></details></footer>
+							<div class="note-links"><span>Type [[ to link another note · Preview to open links</span>{#each outgoing as link}{@const target = notes.find(note => note.id === link.targetId)}<button disabled={!target || target.trashedAt !== null} onclick={() => target && openNote(target.id)}>{target?.title || link.normalizedTitle}{!target ? ' · missing' : target.trashedAt !== null ? ' · in Trash' : ''}</button>{#if !target && link.targetId === null}<button disabled={busy || opening || $draftStore.note.trashedAt !== null} onclick={() => createLinkedNote(link)}>Create {parseNoteLinks($draftStore.text).find(reference => reference.normalizedTitle === link.normalizedTitle)?.title ?? link.normalizedTitle}</button>{/if}{#if !target && link.targetId}{@const replacement = notes.find(note => note.normalizedTitle === link.normalizedTitle && note.trashedAt === null)}{#if replacement}<button disabled={busy || opening || $draftStore.note.trashedAt !== null} onclick={() => reconnectLink(link, replacement)}>Reconnect to {replacement.title}</button>{/if}{/if}{/each}{#if incoming.length}<span>Linked from</span>{#each incoming as link}{@const source = notes.find(note => note.id === link.sourceId)}{#if source && source.trashedAt === null}<button onclick={() => openNote(source.id)}>{source.title}</button>{/if}{/each}{/if}</div>
+							<footer>{#if narrow}<button aria-label="Notes settings" aria-haspopup="dialog" onclick={() => settingsOpen = true}>Notes settings</button>{/if}<span class="save-status" role="status">{$draftStore.status === 'saved' ? 'Saved on this device' : $draftStore.status === 'saving' ? 'Saving…' : $draftStore.status === 'conflict' ? 'Conflicting changes' : $draftStore.status === 'failed' ? 'Could not save' : 'Unsaved changes'}</span><details class="note-actions" bind:this={actionMenu}><summary>Note actions</summary><div class="note-actions-menu"><button disabled={busy || opening || $draftStore.note.trashedAt !== null} onclick={() => changeNote('pin')}>{$draftStore.note.pinned ? 'Unpin' : 'Pin'}</button><select aria-label="Note color" value={$draftStore.note.color || ''} disabled={busy || opening || $draftStore.note.trashedAt !== null} onchange={event => changeNote('pin', event.currentTarget.value)}><option value="">No color</option>{#each NOTE_COLORS as color, index}<option value={color}>{colorNames[index]}</option>{/each}</select><button onclick={() => openReaderDocument($draftStore!.title, $draftStore!.text, 'markdown', 'notes', undefined, readerNoteSourceId(book!.owner.scopeId, $draftStore!.note.id))}>Open a copy in Reader</button><button disabled={busy || opening || $draftStore.note.trashedAt !== null} onclick={() => changeNote('trash')}>Move to Trash</button></div></details></footer>
 						{:else}<div class="notebook-empty"><h3>A place to think</h3><p>Open a note or start a new one. Your writing stays in this browser, separate from shared conversations.</p></div>{/if}
 					</main>
 				{/if}
 			</div>
-			{#if recoverOpen}<section class="recovery-panel" aria-label="Import and recovery"><h3>Import a notebook backup</h3><p>Copies notes into this account’s notebook. Existing notes stay intact. Conversation associations from other notebooks stay detached. Backups contain saved notes; download unsaved drafts separately.</p><label>Wabi notebook backup <input type="file" accept=".json,application/json" onchange={previewBackup}/></label>{#if backupPreview}<p>{backupPreview.notes.length} notes, including Trash. Conflicting titles receive a suffix.</p><button disabled={busy} onclick={importBackup}>Import into this notebook</button>{/if}{#if legacy.length}<h3>Recover older notes</h3><p>Older storage does not identify its server reliably. Choose a source you own to copy into this account’s local notebook. Conversation notes are recovered without assigning a conversation. Originals stay intact.</p><select aria-label="Older notes source" bind:value={selectedLegacy}><option value="">Choose a source</option>{#each legacy as source}<option value={source.key}>{source.key} · {source.rows.length} notes</option>{/each}</select>{#if legacySelection}<p>{legacySelection.rows.slice(0, 3).map(row => row.title).join(' · ')}</p>{#each legacySelection.issues as issue}<p>{issue}</p>{/each}<button onclick={() => download('original-notes.json', legacySelection!.raw, 'application/json')}>Download original</button><button disabled={busy || legacySelection.kind === 'profile'} onclick={importSelected}>Copy into this notebook</button>{/if}{/if}{#if recoveredMessage}<p role="status">{recoveredMessage}</p>{/if}<button onclick={() => { recoverOpen = false; }}>Close recovery</button></section>{/if}
+
 		{/if}
 	</div>
 </div>
+
+{#if settingsOpen}
+ <div use:portal>
+  <BaseModal isOpen={settingsOpen} title="Notes settings" subtitle="Settings for this notebook on this device" width="560px" overlayZIndex={1700} onClose={closeSettings}>
+   <div class="notes-settings-body">
+    <p>Backups include saved notes from this notebook. Export Markdown to use your writing in another notes app.</p>
+    <div class="notebook-transfer"><button onclick={() => exportNotebook()}>Back up saved notes</button><button onclick={() => exportNotebook(true)}>Export Markdown archive</button><button aria-expanded={recoverOpen} onclick={() => { recoverOpen = !recoverOpen; }}>Import and recovery</button></div>
+    {#if recoverOpen}<section class="recovery-panel" aria-label="Import and recovery"><h3>Import notes</h3><p>Bring Markdown files from Obsidian or another notes app. This copies saved files; it does not watch or synchronize your vault. Wiki links by title are retained. Images and app plugins are not imported.</p><label>Markdown files <input type="file" multiple accept=".md,.markdown" onchange={previewMarkdown}/></label><label>Markdown folder <input type="file" webkitdirectory multiple onchange={previewMarkdown}/></label><h4>Restore a Wabi backup</h4><p>Copies notes into this account’s notebook. Existing notes stay intact. Conversation associations from other notebooks stay detached. Backups contain saved notes; download unsaved drafts separately.</p><label>Wabi notebook backup <input type="file" accept=".json,application/json" onchange={previewBackup}/></label>{#if backupPreview}<p>{backupPreview.notes.length} notes, including Trash. Conflicting titles receive a suffix.</p><button disabled={busy} onclick={importBackup}>Import into this notebook</button>{/if}{#if legacy.length}<h3>Recover older notes</h3><p>Older storage does not identify its server reliably. Choose a source you own to copy into this account’s local notebook. Conversation notes are recovered without assigning a conversation. Originals stay intact.</p><select aria-label="Older notes source" bind:value={selectedLegacy}><option value="">Choose a source</option>{#each legacy as source}<option value={source.key}>{source.key} · {source.rows.length} notes</option>{/each}</select>{#if legacySelection}<p>{legacySelection.rows.slice(0, 3).map(row => row.title).join(' · ')}</p>{#each legacySelection.issues as issue}<p>{issue}</p>{/each}<button onclick={() => download('original-notes.json', legacySelection!.raw, 'application/json')}>Download original</button><button disabled={busy || legacySelection.kind === 'profile'} onclick={importSelected}>Copy into this notebook</button>{/if}{/if}{#if recoveredMessage}<p role="status">{recoveredMessage}</p>{/if}<button onclick={() => { recoverOpen = false; }}>Close recovery</button></section>{/if}
+   </div>
+  </BaseModal>
+ </div>
+{/if}
+
 
 <style>
 	.notes-host { height: 100%; min-height: 0; width: 100%; min-width: 0; }
@@ -339,13 +382,14 @@
 	.note-title { flex-shrink: 0; width: 100%; border: 0; border-radius: 0; background: transparent; padding: 14px 24px 12px; font-size: 1.6rem; font-weight: 650; color: var(--text-heading); }
 	.note-text.reading { display: none; }
 	.note-reading { flex: 1; min-height: 120px; overflow: auto; padding: 8px 24px 24px; line-height: 1.7; overflow-wrap: anywhere; }
+	.note-reading :global(img) { max-width:100%; height:auto; border-radius:8px; display:block; }
 	.note-reading :global(pre) { overflow: auto; padding: 12px; background: var(--surface-sunken); }
 	.note-reading :global(a) { color: color-mix(in srgb, var(--accent-primary-color) 30%, var(--text-primary)); text-decoration: underline; }
 	.note-reading :global(table) { border-collapse: collapse; }
 	.note-reading :global(td), .note-reading :global(th) { border: 1px solid var(--border-subtle); padding: 6px 10px; }
 	.note-text { display: flex; flex-direction: column; flex: 1; min-height: 120px; max-height: none; resize: none; width: 100%; border: 0; border-radius: 0; background: transparent; color: var(--text-primary); padding: 8px 24px 24px; font: 1rem/1.7 var(--font-sans, sans-serif); }
 	.note-links { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; max-height: 110px; overflow-y: auto; padding: 10px 18px; border-top: 1px solid var(--border-subtle); font-size: .75rem; color: var(--text-secondary); } footer { border-top: 1px solid var(--border-subtle); }
-	.note-actions { position: relative; } .note-actions summary { cursor: pointer; min-height: 36px; padding: 8px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); font-size: .8rem; } .note-actions summary:focus-visible { outline: 2px solid var(--accent-primary-color); } .note-actions-menu { position: absolute; bottom: calc(100% + 8px); left: 0; display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: min(250px, 75vw); padding: 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--surface-raised); box-shadow: var(--shadow-lg); z-index: var(--z-dropdown, 20); }
+	.note-actions { position: relative; } .note-actions summary { cursor: pointer; min-height: 36px; padding: 8px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); font-size: .8rem; } .note-actions summary:focus-visible { outline: 2px solid var(--accent-primary-color); } .note-actions-menu { position: absolute; bottom: calc(100% + 8px); right: 0; display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: min(250px, 75vw); max-height: min(380px, 65vh); overflow: auto; box-sizing: border-box; padding: 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--surface-raised); box-shadow: var(--shadow-lg); z-index: var(--z-dropdown, 20); }
 	.notebook-empty { margin: auto; padding: 32px; max-width: 450px; text-align: center; } .notebook-empty p { color: var(--text-secondary); margin-top: 12px; line-height: 1.6; } .notebook-empty button { margin-top: 16px; }
 	.list-empty { padding: 20px 12px; color: var(--text-secondary); font-size: .85rem; line-height: 1.6; } .list-empty button { margin-top: 12px; }
 	.notice { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 18px; background: var(--surface-raised); border-bottom: 1px solid var(--border-subtle); font-size: .85rem; line-height: 1.5; } .notice span { flex: 1 1 200px; }
@@ -353,4 +397,24 @@
 	.narrow header { padding: 12px 16px; } .narrow .note-list { flex: 1; min-width: 0; } .narrow .note-title { font-size: 1.25rem; padding: 12px 16px; } .narrow .note-text { padding: 8px 16px 16px; } .narrow .editor-tools, .narrow footer { padding: 8px 12px; } .narrow .note-actions summary { min-height: 44px; display: flex; align-items: center; } .narrow button, .narrow select { min-height: 44px; }
 	@media (min-width: 901px) { :global(.chat-surface) .notes-workspace { padding-inline-end: 48px; } }
 	.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+ header { padding: 10px 64px 10px 18px; min-height: 52px; }
+ header h2 { font-size: 16px; margin: 0; }
+ header p { font-size: 12px; margin: 2px 0 0; color: var(--text-secondary); }
+ .editor-tools { padding: 8px 64px 8px 18px; justify-content: space-between; }
+ .note-title { width: calc(100% - 36px); margin: 0 18px 10px; border: 1px solid var(--border-default); border-radius: 8px; padding: 10px 12px; background: var(--surface-raised); font-size: 1.4rem; }
+ .note-title:focus { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+ .notebook-settings { margin-top: auto; padding: 10px; border-top: 1px solid var(--border-subtle); font-size: 12px; }
+ .notebook-settings button { display:flex; gap:8px; align-items:center; width:100%; text-align:left; min-height:40px; }
+ .notes-settings-body { padding: 18px; max-height: 65vh; overflow-y:auto; color:var(--text-primary); }
+ .notes-settings-body > p { line-height:1.6; color:var(--text-secondary); font-size:13px; }
+ .notes-settings-body .recovery-panel { max-height:none; overflow:visible; padding:16px 0; }
+ .notes-settings-body .notebook-transfer { padding:14px 0; }
+ .notebook-settings p { line-height: 1.5; color: var(--text-secondary); }
+ .note-row > span { font-style: italic; line-height: 1.5; color: var(--text-secondary); }
+ footer { padding-inline-end: 64px; }
+ .note-ink-tools { display: flex; gap: 4px; }
+ .note-ink-tools button { min-width: 56px; }
+ .note-editor { min-width: 0; }
+.ink-open .note-text, .ink-open .note-reading, .ink-open .note-links { display: none; }
 </style>

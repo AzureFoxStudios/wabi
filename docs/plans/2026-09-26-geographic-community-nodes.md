@@ -22,6 +22,26 @@ The product needs separate, truthful claims:
 | Automatic survival of one node loss | Remaining nodes select one writer, redirect clients and continue within a measured recovery target | Not implemented; requires a quorum/fencing and routing design |
 | Concurrent writes to the same room during a partition | Two isolated regions both change one room and merge later | A separate conflict-resolution problem; not part of this release requirement |
 
+## October 2 checkpoint prerequisite
+
+The working tree now has a locally accepted, default-off signed checkpoint
+producer and a separate versioned encrypted-byte consumer/store. The real
+capture, protected decrypt, root-derived community identity and actual
+same-database Authority reconstruction checks pass. Final frozen workspace
+acceptance is **2,663 passed, 0 failed, 15 ignored**, with unchanged source and
+frontend hashes; ignored external fixtures are not claimed accepted.
+See [the exact source/outcome record](../testing/SIGNED_CHECKPOINT_SOURCE_2026-10-02.md).
+
+This is a prerequisite for recovery, not automatic survival or local room
+ownership. Allocation knowledge and every writer/quorum/full-instance permit
+remain unknown/false. The first signed-byte schema is limited to 64 MiB of
+logical ciphertext. The [next transfer contract](2026-10-02-checkpoint-byte-rpc-contract.md)
+requires authenticated voter/store binding, exact peer acknowledgments,
+retrieval/reseeding and owned storage work; its two draft files are still
+unreferenced and uncompiled. Committed tail/blob availability, full enabled
+state, safe writer allocation, client recovery, regional room ownership and
+large-community measurement remain mandatory gates below.
+
 ## Reference topology
 
 ```text
@@ -268,6 +288,96 @@ A focused [client reconnect rotation check](../testing/CLIENT_ENTRY_POINT_ROTATI
 
 ## Implementation order and verification gates
 
+### Remaining execution plan — resumed 2026-09-30
+
+The September 28 components are now consolidated in commit `138abe39` on
+`codex/friends-dm-rebuild-20260925`. The clean working tree is the starting point
+for this execution. Earlier evidence remains evidence for its recorded build;
+each changed contract needs fresh focused acceptance. Main Wabi owns all of the
+work below. ERP follows after these contracts are proven.
+
+| Order | Deliverable | Completion evidence | Status |
+|---|---|---|---|
+| 1 | Local operator checkpoint control: configured recipient/output root, one owned job at a time, bounded drain/copy, safe receipts/status, cancellation-safe work | Real full-router authorization/refusal tests, checkpoint produced through the running Authority, inactive restore preserves acknowledged state, ordinary writes resume | Local contract passed 2026-09-30; operator deployment not exercised |
+| 2 | Bounded restore and transfer: entry/byte/path/time budgets, authenticated source digest, crash/cancellation cleanup, explicit disk retention | Malformed/oversized archives cannot exhaust the destination; interrupted inbox requests leave no owned partial files; receipt survives restart and binds the fetched ciphertext | Limits/digest/cancellation/restart contracts passed 2026-09-30; physical crash remains open |
+| 3 | Whole-instance inventory and clean restore verifier | Explicit core-only support profile; every enabled external store/plugin/config/key is either coordinated and validated or refuses readiness. Clean-machine replay compares users, permissions, room policy, denials, retained messages, uploads and keys; source mismatch fails closed | October 1 stopped-tree/V1 replay and [inactive V2 complete-history core verification](../testing/INACTIVE_CORE_VERIFY_2026-10-01.md) passed, including matching replay on Ronin. Full enabled-instance inventory, comprehensive policy semantics and promotion remain open |
+| 4 | Trusted recovery membership and durable writer authority | Separately enrolled trusted recovery nodes, version/protocol checks, authenticated control transport, durable consensus log and membership. Vetted consensus implementation selected before automatic promotion; helper pairing is never voting membership | Open — isolated OpenRaft/redb/Noise passes 39 local checks and actual Rust/Python control. A later three-computer private-overlay trial passes four exact durable operations and each owned worker's kill/restart/majority-write/catch-up with cleanup. A further physical owned-proxy trial passes minority no-ACK/heal and actual purged metadata snapshot/second restart with32accepted operations. Whole-host/Wabi faults, dynamic enrollment/revocation and canonical writer integration remain open; no writer permit |
+| 5 | Writer fencing across every mutation path and manual recovery | Engine commits, session-only sends, upload/sidecar publication and queued work require current authority. Former writer cannot acknowledge after its authority expires/is superseded, even when unreachable. Verified checkpoint/catch-up promotion, old-node reseed, no acknowledged-state resurrection | Open |
+| 6 | Surviving entry-point discovery and client continuity | Available nodes return authenticated current routing; clients pin community identity and retain account/offline intent across entry points; expired roster and unavailable original address have explicit behavior | Open |
+| 7 | Automatic one-node recovery | Three processes exercise each node loss, 1-versus-2 partition, delayed messages, restart and old-writer return with one writer and measured RPO/RTO, then repeat across three actual networks | Open |
+| 8 | Regional room data plane and fenced moves | Separate room state/sequence domains, complete owner admission, local subscribers, authenticated remote routing, selective fanout, permission epochs, ordered catch-up and retention/deletion propagation. Room migration transfers a verified prefix and fences the old owner | Open |
+| 9 | Per-room recovery and explicit partition behavior | Concurrent different room owners, each owner's failure/recovery, WAN-isolated local work under the declared permission/durability policy, remote catch-up without duplicate or unauthorized delivery | Open |
+| 10 | Reusable failure and capacity harness | Configuration plus bounded workload, executable scenarios, passed/failed/blocked/not-run assertions, source/build/network provenance, traffic and latency evidence, owned-process cleanup | Bounded room workload implemented; local and three-uplink passes recorded September 30 / October 1. Linux helpers pass 33 supervisor and 25 controller checks locally and on each of Ronin/Iyoku. Actual local Rust/Python integration and a later three-computer encrypted metadata worker-loss trial pass exact receipts/restart/cleanup; physical minority/purged metadata snapshot/second restart also pass with complete cleanup; whole-host and full Wabi fault/capacity scenarios stay open |
+| 11 | Physical desktop, Tailcat/IP, file and media acceptance | Same desktop build on three uplinks; authenticated chat, attachments, reconnect and calls; Tailcat and operator IP path measured separately; no production interruptions | Open |
+| 12 | Capacity/privacy/operator release gates | Many-room and hot-room workloads, measured connection/write/fanout/file/media limits and backpressure, revocation/retention/trust review, recovery UI/runbook, exact release provenance | Open |
+
+Dependencies: 1–3 provide recovery material, 4–5 provide safe writer authority,
+and 6 permits clients to reach its replacement. All are prerequisites to 7.
+Room placement intent is not enough for 8–9: independent local storage and
+permission semantics must be implemented, then per-room authority uses the
+same proven fencing mechanism. The harness in 10 grows alongside each step.
+Steps 11–12 close the original physical-network and scale requirements; a
+successful loopback run never substitutes for them.
+
+The October 1 [probe-supervisor acceptance](../testing/GEOGRAPHIC_PROBE_SUPERVISOR_2026-10-01.md)
+covers actual local controller/supervisor death, PID/start/executable-checked
+adoption, lock-preserving cleanup and suspend-aware lifetime bounds. It uses
+synthetic children, not Wabi. It creates no
+node keys; the initial local slice creates no remote fixture. The [encrypted transport acceptance plan](../testing/ENCRYPTED_RECOVERY_RPC_PLAN.md)
+now records local compiled-worker acceptance; it still requires repeating
+authenticated RPC and failure/cleanup on all three physical sites before any
+writer or recovery gate can close.
+
+The [probe-controller acceptance](../testing/GEOGRAPHIC_PROBE_CONTROLLER_2026-10-01.md)
+adds bounded private Unix requests, worker identity checks and original-command
+fingerprint validation after a lost reply. Its 25 checks use synthetic peers;
+the corresponding Rust worker fingerprint and codec golden subsequently passed,
+as did real Rust replies through the controller and guarded local restart.
+Neither matching receipt counts nor epoch/log positions alone prove that the
+exact timed-out proposal was stored.
+
+The same four helper sources then passed all 58 synthetic checks separately
+on Ronin and Iyoku with Python 3.14.7, zero skips and verified disposal of their
+private stages and processes. See the
+[remote runtime receipt](../testing/geographic-2026-10-01/remote-python-helper-contracts.json).
+This qualifies helper behavior on those hosts, not Rust, encrypted interhost
+RPC, complete Wabi recovery or regional room ownership.
+
+The later [physical encrypted coordination acceptance](../testing/PHYSICAL_ENCRYPTED_RECOVERY_RPC_2026-10-01.md)
+uses the frozen Rust worker and unchanged helpers across all three computers.
+Four operations and every worker's loss/majority write/return pass exact receipt
+and full operation-state comparison. All owned roots/processes are cleaned.
+Tailscale ping/SSH did not imply application-port reachability: Iyoku rejected
+the random listener but its existing allowed unused private port 3000 passed
+all six actual TCP paths. No firewall or live service was changed. This does
+not activate Wabi, recover a complete instance or close Gates B, C or D.
+
+The subsequent [local opaque recovery-byte store](../testing/RECOVERY_MATERIAL_2026-10-01.md)
+adds exact manifest/object durability and bounded crash recovery. Eleven new
+parent checks pass, including eight SIGKILL publication cases; the package's
+same-source rerun passes 50 checks after one preserved existing leader-selection
+failure. It is not connected to recovery transport, a required-byte majority,
+real inactive Wabi verification or writer activation. Gates B/C/D stay open.
+
+Implementation rules:
+
+- Default single-Authority installations keep their current configuration and
+  data formats. Advanced recovery/regional mode is explicit and versioned.
+- No ad-hoc heartbeat election or marker deletion can stand in for consensus.
+  A writer that cannot prove authority refuses writes. The chosen lease/fencing
+  model must account for process pauses, clock behavior and queued publication.
+- Permission revocation and local work during WAN isolation need an explicit
+  consistency contract. An isolated owner cannot simultaneously promise
+  immediate remote revocation and unrestricted offline authorization.
+- Source checkpoints remain incomplete until inventory validation proves the
+  enabled deployment. No boolean operator acknowledgment invents a missing
+  external-store checkpoint.
+- Keep resource ceilings, disk headroom, artifact retention and cleanup in
+  every implementation and test. Record what ran and what is still blocked.
+
+This list is the remaining scope, not a replacement for Gates A–D below. Each
+gate stays open until its complete acceptance evidence exists.
+
 ### Gate A — truthful three-region access and scoped offload
 
 - Three physical networks can use one community and the same desktop client through Tailcat or operator-provided IP endpoints.
@@ -297,13 +407,20 @@ Only Gate C supports an **automatic one-node-failure survival** claim. It does n
 
 ### Gate D — local conversations and partitioned growth
 
-- Rooms have explicit owners and recovery replicas. Two members on the owner's local network can send, persist and receive in their room without crossing another region; packet traces and latency measurements demonstrate this.
+- Rooms have explicit owners and recovery replicas. Two members on the owner's local network use that region's room owner and local delivery path; client fanout does not transit an unrelated region. Packet traces separate local delivery, permission/control traffic and recovery replication. Canonical acknowledgments obey the published durability policy: with one voter at each of three sites, strict-majority persistence includes another site's durable acknowledgment. WAN-independent writes require a separately proven local authority/durability topology and its stated offsite loss window; they cannot be inferred from local delivery.
 - A remote participant receives only authorized room events, and a remote send reaches the room owner without duplicating or reordering accepted messages.
 - Global role/member changes, owner moves, deletions, retention, reconnect and inter-region partitions follow documented consistency rules. A local room's behavior during a partition is explicit and tested.
 - Multiple room owners operate concurrently without conflicting writers for any room. Failure and promotion tests cover each room owner, not only the original community Authority.
 - Load tests separately report registered accounts, concurrent connections, messages per second, attachment delivery and simultaneous call participants. No membership-count claim is inferred from an SFU benchmark.
 
 Passing Gate D supports a **regional conversation locality** claim. The full requested promise of local work **and** surviving a node loss requires Gate C and Gate D together, with per-room failover proven rather than assuming community-wide leader election covers every owner.
+
+For the initial three-site/three-machine pilot, use strict quorum durability and
+stop an isolated minority from acknowledging canonical writes. This preserves
+the node-loss goal while still measuring local fanout and origin upload relief.
+The earlier WAN-isolated conversation scenario is a later explicit policy/topology
+gate, not an implicit fallback when this quorum is unavailable. See the
+[delivery and recovery traffic contract](../architecture/GEOGRAPHIC_WRITER_AUTHORITY.md#delivery-locality-and-recovery-traffic-are-separate-measurements).
 
 ## Three-site acceptance scenario
 
@@ -334,3 +451,39 @@ Then disconnect each regional helper in turn; work must fall back without granti
 ## Engineering conclusion
 
 The current branch does not pass Gate B, C or D. Gate A can be advanced independently and gives real geographic value while the state, locality and failover work is built. For a 500,000-member single installation, Gate D, regional file/media delivery and the hot-room workload are essential capacity exercises; Gate C addresses node loss. Scale experiments must show how adding nodes increases throughput and where the next bottleneck moves. A helper, Anchor or experimental replication peer does not currently keep a community writable after the Authority fails, and a single distant writer does not make local conversations local.
+
+
+### October 2: authenticated checkpoint byte candidate
+
+After the UI owner completed its release and explicitly released the build slot,
+this geographic phase compiled an optional Linux-only byte service on the same
+fixed three-voter Noise roster. Configuration compares the actual opened store
+binding; the receiver verifies complete content-addressed bytes and a signed
+manifest. A separate strict wire receipt becomes an immutable peer acknowledgment
+only after the target and every source/content field match. It grants no quorum,
+writer, encryption-allocation or full-instance permission. Normal Authority
+startup does not enable these library entry points automatically.
+
+The whole consensus package passed 73 checks (zero failures, five ignored
+fixtures). Six producer/operator checks passed using a real encrypted capture,
+a registered 160 KiB upload and more than two ordered chunks: transfer, fresh
+readback, copy loss and reseeding on authenticated loopback endpoints, followed
+by actual Authority reconstruction. The initial unregistered test-upload fixture
+correctly failed safe startup; its failure is retained and only the test fixture
+was corrected to use the durable upload publisher. These counts describe
+separate receipts, not additional unique checks.
+
+See [the byte-RPC contract](2026-10-02-checkpoint-byte-rpc-contract.md) and
+[actual producer acceptance](../testing/geographic-2026-10-02/byte-rpc-producer4.json).
+Fresh frozen-workspace session 47619 passed 2,673 checks, zero failures and 15 ignored entries across 88 groups, with unchanged source/build hashes. Physical three-site byte transfer,
+committed availability, inactive verification, safe activation, automatic recovery,
+regional room ownership and capacity/privacy gates remain open.
+
+The subsequent [physical ciphertext fixture](../testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md)
+passed its local consensus/producer/export guards, copied the genuine encrypted
+capture to Ronin and Iyoku, and reseeded Ronin's deleted copy directly from
+Iyoku. The complete physical run remains failed because its final restarted
+listener request refused. All three test roots and tool directories were
+removed. A bounded listener-ready check is prepared; automatic approval review
+timed out before its final retry could execute. Current independent uplinks
+were not rechecked, and no writer activation or automatic recovery occurred.

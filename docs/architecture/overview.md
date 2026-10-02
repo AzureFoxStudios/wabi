@@ -157,10 +157,24 @@ The bot send endpoint rejects Live rooms because it only supports durable delive
 - **Standby**: `/standby` receives snapshots for warm-standby nodes.
 - **Mesh**: `/mesh` multi-node coordination; `core/addons/mesh/backend` is a workspace addon. Helper nodes via `/nodes`; media via `/media` + `/media-turn` (SFU assignment).
 
+### Optional Project worker coordination (development candidate)
+
+The Authority durably owns the optional `project-workers` addon roster and run
+attempts. `project_worker_updated_v1` is a schema-version-1 JSON channel event,
+registered in the actual-parent/local-owner workspace admission catalog and
+applied to `project_workers`. Additive worker/recovery fields on `project_runs`
+default for older JSON records; no persistent postcard layout changes. Workers
+are scoped bot clients, not state authorities or replication peers. The
+Authority serializes lease/contact-based recovery and fences stale attempts;
+pending side effects block automatic recovery. The default-off Project
+Connections UI is a scoped roster, not a private network inventory. See
+[the contract](../features/PROJECT_CONNECTIONS.md) for trust, revocation,
+compatibility and the unimplemented native repository-recovery boundary.
+
 ## 10. Ops
 
-- **Data dir**: `data/wabi-server/` — WabiDB files (`wabidb/` subdir) + `.lock`. **Two locks**: `data/wabi-server/.lock` and the engine lock `data/wabi-server/wabidb/.lock`. Remove BOTH on swap/restart.
-- **Deploy pattern**: build frontend (`STATIC_BUILD=1 bun run build`) → `cargo build --release -p wabi-server` → scp binary as `.new` → stop container → rm both locks → swap → chmod +x → up → verify: SHA match + new hashed CSS chunk (`0.<hash>.css`) served by the binary. Never redeploy the binary to fix Cloudflare-edge 502s; check for a rogue `cloudflared` on another host first.
+- **Data dir**: `data/wabi-server/` — WabiDB lives in `wabidb/`. The current engine holds an OS advisory lock on the persistent `wabidb/.lock` inode; its PID is diagnostic only. Background disk writers retain ownership while draining. Leave the file in place on restart. A root `.lock` is legacy; resolve it only after stopping every old process. Never mix old PID-based and new advisory-lock binaries against the same tree. See [backup/recovery](../deployment/BACKUP_AND_RECOVERY.md).
+- **Deploy pattern**: build frontend (`STATIC_BUILD=1 bun run build`) → `cargo build --release -p wabi-server` → scp binary as `.new` → stop container and verify old process exit → leave advisory lock inode in place → swap → chmod +x → up → verify: SHA match + new hashed CSS chunk (`0.<hash>.css`) served by the binary. Never redeploy the binary to fix Cloudflare-edge 502s; check for a rogue `cloudflared` on another host first.
 - **Health**: `/health`. SPA fallback serves `index.html` for all non-API routes.
 - **Dev**: 5173 Vite frontend, 3001 backend. Stale browser localStorage with an old token causes "infinite spinning on 5173" after a DB reset — clear storage or incognito.
 - **Secrets**: `WABIDB_ROOT_KEY` env (or from_passphrase) required; `data/jwt_secret` exists but is never committed.

@@ -34,11 +34,10 @@
 <div class="map-sidebar">
 	<div class="map-sidebar-header">
 		<div>
-			<h2>Server Map</h2>
-			<p>Places shared by this {brandName} server.</p>
+			<h2>Places</h2>
 		</div>
-		<button class="ghost-button" type="button" on:click={() => dispatch('refresh')} disabled={loading || $placeRegistryLoading}>
-			{loading || $placeRegistryLoading ? 'Refreshing...' : 'Refresh'}
+		<button class="ghost-button" type="button" aria-label="Refresh places" title="Refresh places" on:click={() => dispatch('refresh')} disabled={loading || $placeRegistryLoading}>
+			{loading || $placeRegistryLoading ? 'Refreshing...' : '↻'}
 		</button>
 	</div>
 

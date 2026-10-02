@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { portal } from '$lib/actions/portal';
 	import { onMount } from 'svelte';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getAuthToken } from '$lib/authSession';
@@ -193,7 +194,7 @@
 </script>
 
 <div
-	class="lore-connect-backdrop"
+	use:portal class="lore-connect-backdrop"
 	role="presentation"
 	onclick={handleBackdropClick}
 >

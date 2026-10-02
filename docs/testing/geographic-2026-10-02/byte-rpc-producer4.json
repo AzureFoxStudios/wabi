@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "session": 47056,
+  "actualExit": 0,
+  "passed": 6,
+  "failed": 0,
+  "ignored": 0,
+  "sourceFilesUnchanged": 33,
+  "freeze": "byte-rpc-freeze4.json.gz",
+  "logSha256": "307b8481f58a461a789482f1f819c893f44a83964b9176d0a0e7d214cf658475",
+  "logBytes": 36424,
+  "scope": "Actual encrypted producer capture with registered 160KiB upload, more than two ordered64KiB chunks, fixed-roster authenticated loopback transfer/fresh readback/copy loss/reseed, real Authority reconstruction/same lock inode; no physical three sites/quorum byte commit/writer activation",
+  "priorFailure": "byte-rpc-producer3-failed.json",
+  "recordedAtUtc": "2026-10-02T04:36:30.866562+00:00"
+}

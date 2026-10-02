@@ -568,21 +568,23 @@ impl TailcatManager {
         self.store.read_audit(limit)
     }
 
-    /// Rate-limit key that distinguishes pipe clients from per-IP buckets.
-    /// Valid only when the request carries our unforgeable forwarder token;
-    /// anything else (including spoofed headers on the public path) falls
-    /// back to the plain peer IP.
+    /// Stable IP bucket for the authenticated loopback transport, scoped
+    /// separately from public ingress. The forwarder has no remote member
+    /// identity: its ephemeral source port must never reset a creation quota.
+    /// Untrusted or malformed tags fall back to the physical peer IP.
     pub fn rate_limit_key(&self, headers: &http::HeaderMap, peer: &std::net::SocketAddr) -> String {
-        let authenticated = headers
-            .get(forwarder::PIPE_AUTH_HEADER)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v == self.pipe_auth_token);
+        let authenticated = peer.ip().is_loopback()
+            && headers
+                .get(forwarder::PIPE_AUTH_HEADER)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| v == self.pipe_auth_token);
         if authenticated {
             if let Some(client) = headers
                 .get(forwarder::PIPE_CLIENT_HEADER)
                 .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<std::net::SocketAddr>().ok())
             {
-                return format!("pipe:{client}");
+                return format!("pipe:{}", client.ip());
             }
         }
         peer.ip().to_string()

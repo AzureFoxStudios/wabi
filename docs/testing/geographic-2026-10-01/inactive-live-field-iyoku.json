@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "result": "PASS",
+  "workload": "live V2 inactive core verification",
+  "authorityActivated": false,
+  "automaticFailoverTested": false,
+  "externalStateVerified": false,
+  "fullInstanceReady": false,
+  "remote": {
+    "computer": "192.168.1.11",
+    "snapshotSha256": "fb946cc14d07fa1c24c82aef1863f15cea56bf823416d8feb365c909efd4475e",
+    "verification": {
+      "schemaVersion": 1,
+      "result": "PASS",
+      "supportProfile": "inactive-live-core-complete-history-v1",
+      "sourceArchiveSha256": "7b2d37ca4712e352f8bb8747096b1800621260e6c9672074d025252fbe348718",
+      "sourceReceiptMatched": true,
+      "database": {
+        "appliedCommitSeq": 16,
+        "commitPrefixFingerprint": "04cf46c87afda6359799f227f00d26ff6f7f03f78d06211df81b119af8f7eacc",
+        "projection": {
+          "watermark": 16,
+          "nonemptyIndexes": 14,
+          "entries": 26,
+          "recordBytes": 2831,
+          "blake3": "f33e7262051cfcc5c202cd838d0b75a8cc5231ce25649b8db14ea1b272e768be"
+        },
+        "indexedCommits": 16,
+        "observedHighSequence": 16,
+        "fullHistoryReplayed": true,
+        "persistedProjectionMatches": true
+      },
+      "fileCount": 28,
+      "directoryCount": 36,
+      "fileBytes": 23756,
+      "treeSha256": "ae864c52d695801ce1f03e8d0fdf068493b8b049c1de0c3f0266986983949a5e",
+      "activeBundleKeysMatch": true,
+      "inactiveGuardsPreserved": true,
+      "publishedUploadsChecked": 1,
+      "uploadDenialsChecked": 0,
+      "externalStateVerified": false,
+      "fullInstanceReady": false
+    }
+  },
+  "cleanup": {
+    "ownedProcessesStopped": true,
+    "remoteOwnedScratchRemoved": true,
+    "localOwnedScratchRemoved": true
+  },
+  "harnessSha256": "ba8f49348007558b22b1dcbfae29cdeca12013e68aa023dcf36d2635f249424d",
+  "inputArtifact": {
+    "serverSha256": "8154f967d042c03b272aafac0cdf85954405063d94e9149e9ba23b8c23644836",
+    "snapshotSha256": "f688eec00d2e6f03f706a504029891442b9c363d85de2feb1bfe32f927b61127"
+  },
+  "artifact": {
+    "serverSha256": "195b2bd9d841e4203a881704bca46fb13bf4656fbeb081d12cf0c009079e1dac",
+    "snapshotSha256": "fb946cc14d07fa1c24c82aef1863f15cea56bf823416d8feb365c909efd4475e",
+    "serverBytes": 122854096,
+    "snapshotBytes": 27823408,
+    "debugSymbolsRemovedFromOwnedCopies": true
+  },
+  "sourceWritesResumed": true,
+  "sourceStoppedBeforeVerification": true,
+  "local": {
+    "schemaVersion": 1,
+    "result": "PASS",
+    "supportProfile": "inactive-live-core-complete-history-v1",
+    "sourceArchiveSha256": "7b2d37ca4712e352f8bb8747096b1800621260e6c9672074d025252fbe348718",
+    "sourceReceiptMatched": true,
+    "database": {
+      "appliedCommitSeq": 16,
+      "commitPrefixFingerprint": "04cf46c87afda6359799f227f00d26ff6f7f03f78d06211df81b119af8f7eacc",
+      "projection": {
+        "watermark": 16,
+        "nonemptyIndexes": 14,
+        "entries": 26,
+        "recordBytes": 2831,
+        "blake3": "f33e7262051cfcc5c202cd838d0b75a8cc5231ce25649b8db14ea1b272e768be"
+      },
+      "indexedCommits": 16,
+      "observedHighSequence": 16,
+      "fullHistoryReplayed": true,
+      "persistedProjectionMatches": true
+    },
+    "fileCount": 28,
+    "directoryCount": 36,
+    "fileBytes": 23756,
+    "treeSha256": "ae864c52d695801ce1f03e8d0fdf068493b8b049c1de0c3f0266986983949a5e",
+    "activeBundleKeysMatch": true,
+    "inactiveGuardsPreserved": true,
+    "publishedUploadsChecked": 1,
+    "uploadDenialsChecked": 0,
+    "externalStateVerified": false,
+    "fullInstanceReady": false
+  },
+  "recordedAtUtc": "2026-10-01T04:28:59.682Z"
+}

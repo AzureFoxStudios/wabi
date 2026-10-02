@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { roleDefinitions } from '$lib/presenceStore';
+	import BaseModal from './BaseModal.svelte';
+	import { portal } from '$lib/actions/portal';
 	import { get } from 'svelte/store';
 	import { boardStore, policy } from '$lib/whiteboard/boardStore';
 	import type { WhiteboardPolicy } from '$lib/whiteboard/boardTypes';
@@ -6,17 +9,26 @@
 	export let open = false;
 	export let onClose: () => void = () => {};
 
+	let draftDrawRole: NonNullable<WhiteboardPolicy['drawRole']> = 'participants';
+	let draftRoles: string[] = [];
+	let roleSearch = '';
+	const assignableBoardRoles = new Set(['owner', 'admin', 'developer', 'mod', 'artist', 'member']);
+	$: availableRoles = $roleDefinitions.filter(role => assignableBoardRoles.has(role.roleName.toLowerCase()));
+	$: filteredRoles = availableRoles.filter(role => `${role.displayName} ${role.roleName}`.toLowerCase().includes(roleSearch.toLowerCase()));
 	let draftAccess: WhiteboardPolicy['access'] = 'open';
 	let draftWriteAccess: WhiteboardPolicy['writeAccess'] = 'anyone';
 
 	$: if (open) {
 		const current = get(policy);
+		draftRoles = [...(current?.drawRoles || [])];
+		roleSearch = '';
+		draftDrawRole = current?.drawRole || 'participants';
 		draftAccess = current?.access || 'open';
 		draftWriteAccess = current?.writeAccess || 'anyone';
 	}
 
 	function handleSave(): void {
-		boardStore.setWhiteboardPolicy({ access: draftAccess, writeAccess: draftWriteAccess });
+		boardStore.setWhiteboardPolicy({ access: draftAccess, writeAccess: draftWriteAccess, drawRole: draftDrawRole, drawRoles: draftDrawRole === 'custom' ? draftRoles : [] });
 		onClose();
 	}
 
@@ -31,24 +43,11 @@
 <svelte:window on:keydown={handleKeydown} />
 
 {#if open}
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div class="wb-settings-backdrop" on:click={onClose}></div>
-	<div
-		class="wb-settings-popover"
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="wb-settings-title"
-	>
-		<div class="wb-settings-head">
-			<h3 id="wb-settings-title" class="wb-settings-title">Board settings</h3>
-			<button type="button" class="wb-settings-close" aria-label="Close board settings" on:click={onClose}>
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-			</button>
-		</div>
-
+ <div use:portal={(document.fullscreenElement as HTMLElement) || document.body}>
+ <BaseModal isOpen={open} title="Board settings" {onClose} width="440px" overlayZIndex={1700}>
+ <div class="board-settings-body">
 		<div class="wb-settings-section">
-			<span class="wb-settings-label">Board access</span>
+			<span class="wb-settings-label">Client preference for viewing</span>
 			<div class="wb-settings-segmented" role="radiogroup" aria-label="Board access">
 				<button
 					type="button"
@@ -58,7 +57,7 @@
 					aria-checked={draftAccess === 'open'}
 					on:click={() => (draftAccess = 'open')}
 				>
-					Anyone with channel access
+					Web and desktop
 				</button>
 				<button
 					type="button"
@@ -74,13 +73,13 @@
 			<span class="wb-settings-description">
 				{draftAccess === 'open'
 					? 'View and edit from web or desktop.'
-					: 'Requires the Wabi desktop app to view or edit.'}
+					: 'Web clients show a desktop-app requirement. This is a client preference.'}
 			</span>
 		</div>
 
 		<div class="wb-settings-section">
-			<span class="wb-settings-label">Who can edit</span>
-			<div class="wb-settings-segmented" role="radiogroup" aria-label="Who can edit">
+			<span class="wb-settings-label">Client preference for drawing</span>
+			<div class="wb-settings-segmented" role="radiogroup" aria-label="Devices that can draw">
 				<button
 					type="button"
 					class:active={draftWriteAccess === 'anyone'}
@@ -89,7 +88,7 @@
 					aria-checked={draftWriteAccess === 'anyone'}
 					on:click={() => (draftWriteAccess = 'anyone')}
 				>
-					Anyone
+					Web and desktop
 				</button>
 				<button
 					type="button"
@@ -99,26 +98,41 @@
 					aria-checked={draftWriteAccess === 'desktop'}
 					on:click={() => (draftWriteAccess = 'desktop')}
 				>
-					Desktop only
+					Desktop app only
 				</button>
 			</div>
 			<span class="wb-settings-description">
 				{draftWriteAccess === 'anyone'
 					? 'Web and desktop users can draw.'
-					: 'Web users can view, only desktop users can draw.'}
+					: 'Web clients become view-only. Drawing permissions still apply to desktop users.'}
 			</span>
 		</div>
 
-		<div class="wb-settings-note">Changes sync to all users on the next save.</div>
-
+		<div class="wb-settings-section"><label class="wb-settings-label" for="board-draw-role">Who can draw <span tabindex="0" class="policy-help" aria-label="About drawing permissions" title="Channel permissions control who can open this board. Drawing is checked against current server roles. Only the server owner can change this policy. Device preferences are not a security boundary.">ⓘ</span></label><select id="board-draw-role" bind:value={draftDrawRole}><option value="participants">Everyone with channel access</option><option value="moderators">Moderators, admins and owner</option><option value="admins">Admins and owner</option><option value="owner">Owner only</option><option value="custom">Selected roles</option></select><p class="wb-settings-description">Everyone with channel access can view. Drawing uses each person's current server role.</p></div>
+        {#if draftDrawRole === 'custom'}
+         <div class="custom-roles">
+          <input type="search" aria-label="Search drawing roles" placeholder="Search server roles" bind:value={roleSearch} />
+          <div class="role-inventory">
+           {#each filteredRoles as role (role.roleName)}<label><input type="checkbox" checked={draftRoles.includes(role.roleName)} on:change={(event) => { draftRoles = event.currentTarget.checked ? [...new Set([...draftRoles,role.roleName])] : draftRoles.filter(name => name !== role.roleName); }} />{role.displayName}</label>{/each}
+           {#if !filteredRoles.length}<p>No matching assignable roles.</p>{/if}
+          </div>
+          {#each draftRoles.filter(name => !availableRoles.some(role => role.roleName.toLowerCase() === name.toLowerCase())) as name}<label><input type="checkbox" checked on:change={() => draftRoles = draftRoles.filter(role => role !== name)} />{name} · unavailable role</label>{/each}
+          <p>{draftRoles.length} selected · roles follow each member’s current server assignment. The owner can always manage this board.</p>
+          {#if !$roleDefinitions.length}<p class="role-help">No server roles have been received on this connection. Reconnect, then reopen these settings.</p>{/if}
+         </div>
+        {/if}
 		<div class="wb-settings-actions">
-			<button type="button" class="wb-settings-save" on:click={handleSave}>Save</button>
+			<button type="button" class="wb-settings-save" disabled={draftDrawRole === 'custom' && draftRoles.length === 0} on:click={handleSave}>Save</button>
 			<button type="button" class="wb-settings-cancel" on:click={onClose}>Cancel</button>
 		</div>
-	</div>
+	</div></BaseModal></div>
 {/if}
 
 <style>
+ .custom-roles { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+ .custom-roles input[type="search"] { background: var(--bg-secondary); color: var(--text-heading); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px; }
+ .role-inventory { max-height: 150px; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+ .custom-roles label { display: flex; gap: 8px; align-items: center; }
 	.wb-settings-backdrop {
 		position: absolute;
 		inset: 0;
@@ -298,4 +312,8 @@
 			animation: none;
 		}
 	}
+
+ .board-settings-body { padding: 0 20px 20px; }
+
+ select { width:100%; min-height:40px; padding:8px; color:var(--text-primary); background:var(--bg-primary); border:1px solid var(--border-subtle); border-radius:8px; }
 </style>

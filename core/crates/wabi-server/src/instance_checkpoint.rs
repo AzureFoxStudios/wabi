@@ -64,6 +64,18 @@ impl InstanceCheckpointBoundary {
         self.database.prefix_fingerprint()
     }
 
+    /// Read only, while both application and engine checkpoint guards remain
+    /// held. This applied prefix is not an encryption allocation high water.
+    pub(crate) fn source_identity(
+        &self,
+    ) -> crate::instance_archive::source_context::FrozenSourceIdentity {
+        crate::instance_archive::source_context::FrozenSourceIdentity::capture(
+            &self.state,
+            self.applied_seq(),
+            self.prefix_fingerprint(),
+        )
+    }
+
     /// Stream a V2 encrypted core snapshot without a plaintext staging tree.
     /// Caller must be outside normal admission and provide resource limits.
     /// Restores remain inactive; this never certifies external state or HA.
@@ -138,6 +150,8 @@ impl InstanceCheckpointBoundary {
                     excluded_runtime_paths: [
                         "data/.lock",
                         "data/wabidb/.lock",
+                        "data/.wabi-secret-publication.lock",
+                        "data/wabidb/.wabi-secret-publication.lock",
                         "data/tailcat/addr.txt",
                     ]
                     .into_iter()

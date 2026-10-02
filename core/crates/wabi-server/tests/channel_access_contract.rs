@@ -19,31 +19,54 @@ use wabidb::{
     engine::wabi_store::WabiStore,
 };
 
+fn server_config(path: &Path) -> ServerConfig {
+    ServerConfig {
+        host: "127.0.0.1".into(),
+        port: 0,
+        data_dir: path.to_string_lossy().into_owned(),
+        uploads_dir: path.join("uploads").to_string_lossy().into_owned(),
+        jwt_secret: "channel-access-test-only".into(),
+        turn_enabled: false,
+        turn_uri: None,
+        turn_secret: None,
+        node_id: "test".into(),
+        is_primary: true,
+        server_role: ServerRole::Authority,
+        authority_url: None,
+        admin_user_ids: vec![],
+        blacklist_file: path.join("blacklist").to_string_lossy().into_owned(),
+        max_body_size: None,
+        mesh_enabled: false,
+        mesh_peers: vec![],
+        lore: LoreAddonConfig::default(),
+    }
+}
 async fn server(path: &Path) -> Arc<AppState> {
-    Arc::new(
-        AppState::new(ServerConfig {
-            host: "127.0.0.1".into(),
-            port: 0,
-            data_dir: path.to_string_lossy().into_owned(),
-            uploads_dir: path.join("uploads").to_string_lossy().into_owned(),
-            jwt_secret: "channel-access-test-only".into(),
-            turn_enabled: false,
-            turn_uri: None,
-            turn_secret: None,
-            node_id: "test".into(),
-            is_primary: true,
-            server_role: ServerRole::Authority,
-            authority_url: None,
-            admin_user_ids: vec![],
-            blacklist_file: path.join("blacklist").to_string_lossy().into_owned(),
-            max_body_size: None,
-            mesh_enabled: false,
-            mesh_peers: vec![],
-            lore: LoreAddonConfig::default(),
-        })
-        .await
-        .unwrap(),
-    )
+    Arc::new(AppState::new(server_config(path)).await.unwrap())
+}
+async fn reopen_server(config: ServerConfig) -> Arc<AppState> {
+    // Store owners can finish before their disk workers release the advisory
+    // lock. Retry only that bounded drain; never unlink its inode or suppress
+    // another startup error before checking durable membership and history.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match AppState::new(config.clone()).await {
+            Ok(state) => return Arc::new(state),
+            Err(error)
+                if error
+                    .downcast_ref::<wabidb::error::WabiError>()
+                    .is_some_and(|error| {
+                        matches!(error, wabidb::error::WabiError::AlreadyRunning)
+                    })
+                    && tokio::time::Instant::now() < deadline =>
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            Err(error) => {
+                panic!("could not reopen channel fixture after writer teardown: {error:#}")
+            }
+        }
+    }
 }
 
 fn jwt(state: &AppState, uid: u64) -> String {
@@ -340,7 +363,7 @@ async fn shared_dm_notes_persist_for_members_and_reject_outsiders_or_peer_edits(
         0,
         "first Authority released its store before restart"
     );
-    let state = server(dir.path()).await;
+    let state = reopen_server(server_config(dir.path())).await;
     let app = create_api_router(state.clone()).with_state(state.clone());
     assert_eq!(
         request(&app, Method::GET, &path, &recipient_token, json!(null))
@@ -938,14 +961,40 @@ async fn channel_clear_commits_history_tombstones_before_live_view_changes() {
     client
         .emit("clear-channel-messages", json!({"channelId": channel_id}))
         .await;
-    assert_eq!(client.event("channel-messages-cleared").await["channelId"], channel_id);
-    assert!(state.wdb.list_messages_typed(&channel_id, 100).await.unwrap().is_empty());
-    assert!(state.wdb.get_message_typed(&earlier_id).await.unwrap().unwrap().is_deleted);
-    assert!(!state.session_messages.read().await.contains_key(&channel_id));
+    assert_eq!(
+        client.event("channel-messages-cleared").await["channelId"],
+        channel_id
+    );
+    assert!(state
+        .wdb
+        .list_messages_typed(&channel_id, 100)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(
+        state
+            .wdb
+            .get_message_typed(&earlier_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_deleted
+    );
+    assert!(!state
+        .session_messages
+        .read()
+        .await
+        .contains_key(&channel_id));
 
     let later_id = state
         .wdb
-        .send_message(&channel_id, owner, "keep this after failed clear", false, &[])
+        .send_message(
+            &channel_id,
+            owner,
+            "keep this after failed clear",
+            false,
+            &[],
+        )
         .await
         .unwrap();
     state.session_messages.write().await.insert(
@@ -959,8 +1008,24 @@ async fn channel_clear_commits_history_tombstones_before_live_view_changes() {
     let error = client.event("clear-channel-error").await;
     assert_eq!(error["channelId"], channel_id);
     assert_eq!(error["code"], "persistence_unconfirmed");
-    assert_eq!(state.wdb.list_messages_typed(&channel_id, 100).await.unwrap().len(), 1);
-    assert!(!state.wdb.get_message_typed(&later_id).await.unwrap().unwrap().is_deleted);
+    assert_eq!(
+        state
+            .wdb
+            .list_messages_typed(&channel_id, 100)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        !state
+            .wdb
+            .get_message_typed(&later_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_deleted
+    );
     assert!(state.session_messages.read().await[&channel_id]
         .iter()
         .any(|message| message["id"] == later_id));
@@ -974,7 +1039,13 @@ async fn durable_delete_waits_for_commit_but_live_delete_remains_session_only() 
     let channel_id = channel(&state, member, ChannelKind::Text).await;
     let durable_id = state
         .wdb
-        .send_message(&channel_id, member, "retain until deletion commits", false, &[])
+        .send_message(
+            &channel_id,
+            member,
+            "retain until deletion commits",
+            false,
+            &[],
+        )
         .await
         .unwrap();
     let live_id = "live_test_delete";
@@ -1000,13 +1071,15 @@ async fn durable_delete_waits_for_commit_but_live_delete_remains_session_only() 
     let error = client.event("delete-error").await;
     assert_eq!(error["messageId"], durable_id);
     assert_eq!(error["code"], "persistence_unconfirmed");
-    assert!(!state
-        .wdb
-        .get_message_typed(&durable_id)
-        .await
-        .unwrap()
-        .unwrap()
-        .is_deleted);
+    assert!(
+        !state
+            .wdb
+            .get_message_typed(&durable_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_deleted
+    );
     assert!(state.session_messages.read().await[&channel_id]
         .iter()
         .any(|message| message["id"] == durable_id));
@@ -1084,7 +1157,7 @@ async fn cached_roster_refreshes_after_registration_and_profile_update() {
         .create_user("roster_bot", Some("roster_bot"), "dummy-bot-hash")
         .await
         .unwrap();
-    state.bot_registry.create(bot).await;
+    state.bot_registry.create(bot).await.unwrap();
     let mut bot_client = SocketClient::handshake(&app, &jwt(&state, bot)).await;
     bot_client.emit("join", json!("roster_bot")).await;
     let bot_init = bot_client.event("init").await;
@@ -2215,7 +2288,7 @@ async fn exact_retention_loads_before_requests_and_corruption_cannot_change_live
     let original = std::fs::read(&policy_path).unwrap();
     let config = state.config.clone();
     drop(state);
-    let state = Arc::new(AppState::new(config.clone()).await.unwrap());
+    let state = reopen_server(config.clone()).await;
     assert_eq!(
         state
             .channel_auto_delete_label
@@ -2281,7 +2354,7 @@ async fn exact_retention_loads_before_requests_and_corruption_cannot_change_live
     assert!(AppState::new(config.clone()).await.is_err());
     assert_eq!(std::fs::read(&policy_path).unwrap(), b"{broken-policy");
     std::fs::write(&policy_path, original).unwrap();
-    let restored = AppState::new(config).await.unwrap();
+    let restored = reopen_server(config).await;
     assert_eq!(
         restored
             .channel_auto_delete_label

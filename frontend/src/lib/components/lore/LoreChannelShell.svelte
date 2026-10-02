@@ -7,7 +7,7 @@
 	import { getStoredDbUserId, onAuthSessionCleared } from '$lib/authSession';
 	import LoreProjectWorkspace from './LoreProjectWorkspace.svelte';
 
-	let { channelKey, projectPicker = false }: { channelKey?: string; projectPicker?: boolean } = $props();
+	let { channelKey, projectPicker = false, compactHeader = false }: { channelKey?: string; projectPicker?: boolean; compactHeader?: boolean } = $props();
 	let sessionEpoch = $state(0);
 	let remembered = $state<string | null>(null);
 	let projects = $derived($channels.filter(channel => (channel.type as string) === 'lore'));
@@ -30,7 +30,7 @@
 
 {#if chosen}
 	{#key context}
-		<LoreProjectWorkspace channelKey={chosen.id} projectName={chosen.name} serverUrl={server} accountId={account}
+		<LoreProjectWorkspace {compactHeader} channelKey={chosen.id} projectName={chosen.name} serverUrl={server} accountId={account}
 			roleName={$currentUser?.highestRole ?? ''} projects={projectPicker ? projects : []}
 			onSelectProject={projectPicker ? select : undefined} />
 	{/key}

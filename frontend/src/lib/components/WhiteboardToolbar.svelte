@@ -32,10 +32,10 @@
 	const tools: Array<{ id: ToolType | 'math'; label: string; shortcut: string; icon: string }> = [
 		{ id: 'select', label: 'Select', shortcut: 'V', icon: 'cursor' },
 		{ id: 'pen', label: 'Pen', shortcut: 'P', icon: 'pen' },
-		{ id: 'eraser', label: 'Eraser', shortcut: '', icon: 'eraser' },
+		{ id: 'eraser', label: 'Eraser', shortcut: 'E', icon: 'eraser' },
 		{ id: 'line', label: 'Line', shortcut: 'L', icon: 'line' },
 		{ id: 'rect', label: 'Rect', shortcut: 'R', icon: 'rect' },
-		{ id: 'ellipse', label: 'Ellipse', shortcut: 'E', icon: 'ellipse' },
+		{ id: 'ellipse', label: 'Ellipse', shortcut: 'O', icon: 'ellipse' },
 		{ id: 'arrow', label: 'Arrow', shortcut: 'A', icon: 'arrow' },
 		{ id: 'text', label: 'Text', shortcut: 'T', icon: 'text' },
 		{ id: 'math', label: 'Math', shortcut: '', icon: 'math' },
@@ -292,7 +292,7 @@
 	}
 
 	const colorSwatches = ['#111111', '#ffffff', '#e11d48', '#f59e0b', '#16a34a', '#2563eb', '#7c3aed'];
-	let toolbarPinned = false;
+	let toolbarPinned = true;
 	let toolbarHover = false;
 	$: toolbarOpen = toolbarPinned || toolbarHover;
 </script>
@@ -325,7 +325,7 @@
 				class:readonly-disabled={isToolDisabled(tool.id)}
 				on:click={() => setTool(tool.id)}
 				disabled={isToolDisabled(tool.id)}
-				title="{tool.label} ({tool.shortcut}){readOnly && drawingTools.has(tool.id) ? ' — disabled in view-only mode' : ''}"
+				aria-label={tool.label} title="{tool.label}{tool.shortcut ? ` (${tool.shortcut})` : ''}{readOnly && drawingTools.has(tool.id) ? ' — disabled in view-only mode' : ''}"
 			>
 				<span class="wb-tool-icon">
 					{#if tool.icon === 'cursor'}
@@ -378,14 +378,14 @@
 			class="wb-tool-btn"
 			on:click={() => onImportImages?.()}
 			disabled={readOnly || importDisabled || !onImportImages}
-			title="Import images"
+			title="Add images to the board" aria-label="Add images to the board"
 		>
 			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
 				<path d="M4 5.5A1.5 1.5 0 015.5 4h9A1.5 1.5 0 0116 5.5v9a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 014 14.5z"/>
 				<path d="M7 12l2-2 2 2 2.5-3 1.5 2"/>
 				<circle cx="8" cy="7.5" r="1"/>
 			</svg>
-		</button>
+		<span class="wb-export-label">Image</span></button>
 	</div>
 
 	<div class="wb-toolbar-divider"></div>
@@ -429,9 +429,9 @@
 			class="wb-tool-btn wb-export-btn"
 			on:click={() => onExportJson?.()}
 			disabled={exportBusy || !onExportJson}
-			title="Export JSON"
+			title="Download board backup (editable JSON)" aria-label="Download board backup"
 		>
-			<span class="wb-export-label">JSON</span>
+			<span class="wb-export-label">Backup</span>
 		</button>
 	</div>
 
@@ -1279,4 +1279,18 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+
+	.wb-tool-btn, .wb-width-btn { min-width: 40px; min-height: 40px; color: var(--text-heading); }
+	.wb-tool-btn svg { width: 20px; height: 20px; }
+	.wb-width-preview { background: currentColor; }
+	.context-settings .wb-brush-slider { width: 140px; min-height: 32px; }
+	.wb-brush-label, .wb-brush-value, .wb-export-label { font-size: 12px; }
+
+ .wb-toolbar { flex-wrap: wrap; max-width: min(100%, 1000px); background: var(--bg-secondary); overflow: visible; }
+ .wb-toolbar-section { flex-shrink: 0; }
+ .wb-tool-btn.wb-export-btn { width: auto; padding-inline: 10px; }
+ .wb-width-btn { color: var(--text-heading); }
+ .wb-tool-btn:focus-visible, .wb-width-btn:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+
+ .wb-tool-btn[aria-label="Add images to the board"] { width: auto; padding-inline: 10px; gap: 6px; }
 </style>

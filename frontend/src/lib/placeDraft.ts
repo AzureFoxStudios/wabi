@@ -1,7 +1,8 @@
 import { get } from 'svelte/store';
 import { getAuthToken } from './authSession';
 import { getServerUrl } from './serverUrl';
-import { placeRegistry, placeRegistryLoaded } from './placeStore';
+import { groupMembership } from './groupAccess';
+import { publishPlaceRegistry } from './placeStore';
 import type { PlaceRecord, PlaceDraft, PlacePoiDraft, PlaceMapLayerDraft, PlacePoiThemePreset, PlacePoiRecord, PlaceMapLayerRecord, PlacePoiIconPreset } from './placeRegistry';
 import { normalizeRegistryPayload, normalizeKey, normalizeRotationDegrees, clampNormalizedCoordinate, normalizePoiRenderMode, safeString, safeCoordinate } from './placeNormalization';
 
@@ -195,8 +196,9 @@ export function serializePlaceDraft(draft: PlaceDraft): Record<string, unknown> 
 export async function savePlaceDraft(draft: PlaceDraft): Promise<PlaceRecord[]> {
 	const token = getAuthToken();
 	if (!token) throw new Error('You must be logged in to manage places.');
+	const scope = { server: getServerUrl(), realm: groupMembership.realm() };
 
-	const response = await fetch(`${getServerUrl()}/api/places`, {
+	const response = await fetch(`${scope.server}/api/places`, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
@@ -211,16 +213,16 @@ export async function savePlaceDraft(draft: PlaceDraft): Promise<PlaceRecord[]> 
 	}
 
 	const normalized = normalizeRegistryPayload(payload?.places);
-	placeRegistry.set(normalized);
-	placeRegistryLoaded.set(true);
+	publishPlaceRegistry(normalized, scope);
 	return normalized;
 }
 
 export async function deletePlace(placeId: string): Promise<PlaceRecord[]> {
 	const token = getAuthToken();
 	if (!token) throw new Error('You must be logged in to manage places.');
+	const scope = { server: getServerUrl(), realm: groupMembership.realm() };
 
-	const response = await fetch(`${getServerUrl()}/api/places/${encodeURIComponent(placeId)}`, {
+	const response = await fetch(`${scope.server}/api/places/${encodeURIComponent(placeId)}`, {
 		method: 'DELETE',
 		headers: {
 			Authorization: `Bearer ${token}`
@@ -233,8 +235,7 @@ export async function deletePlace(placeId: string): Promise<PlaceRecord[]> {
 	}
 
 	const normalized = normalizeRegistryPayload(payload?.places);
-	placeRegistry.set(normalized);
-	placeRegistryLoaded.set(true);
+	publishPlaceRegistry(normalized, scope);
 	return normalized;
 }
 

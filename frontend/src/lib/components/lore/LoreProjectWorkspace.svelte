@@ -17,6 +17,7 @@
 	import LoreFileTree from './LoreFileTree.svelte';
 	import LoreFileViewer from './LoreFileViewer.svelte';
 	import LoreLocalChanges from './LoreLocalChanges.svelte';
+	import LorePushCalendar from './LorePushCalendar.svelte';
 	import LoreHistoryBrowser from './LoreHistoryBrowser.svelte';
 	import LoreRolesAdmin from './LoreRolesAdmin.svelte';
 	import LoreConnectModal from './LoreConnectModal.svelte';
@@ -27,9 +28,9 @@
 	import LoreActivityFeed from './LoreActivityFeed.svelte';
 	import './loreWorkspace.css';
 
-	let { channelKey, projectName, serverUrl, accountId, roleName, projects = [], onSelectProject }: {
+	let { channelKey, projectName, serverUrl, accountId, roleName, projects = [], onSelectProject, compactHeader = false }: {
 		channelKey: string; projectName: string; serverUrl: string; accountId: string; roleName: string;
-		projects?: { id: string; name: string }[]; onSelectProject?: (id: string) => void;
+		compactHeader?: boolean; projects?: { id: string; name: string }[]; onSelectProject?: (id: string) => void;
 	} = $props();
 	const session = authSessionGeneration(serverUrl);
 	const channelId = parseLoreChannelId(channelKey)!;
@@ -276,7 +277,7 @@
 </script>
 
 <section use:menuDismiss class="lore-workbench" aria-label={`${projectName} project workspace`}>
-	<header class="lw-project-header">
+	<header class="lw-project-header" class:compact={compactHeader}>
 		<div class="lw-project-identity"><span class="lw-project-mark"><LoreIcon name="folder" size={24} /></span><div><p class="lw-eyebrow">Project repository</p><h1>{repo?.repoName ?? projectName}</h1></div><span class="lw-badge">{readOnly ? 'Read-only mirror' : repo?.imported_from ? 'Imported' : 'Lore'}</span></div>
 		<div class="lw-header-actions">
 			{#if onSelectProject && projects.length > 1}<label class="lw-project-picker"><span class="lw-sr-only">Switch project</span><select value={channelKey} onchange={chooseProject} disabled={!!busy}>{#each projects as project (project.id)}<option value={project.id}>{project.name}</option>{/each}</select></label>{/if}
@@ -317,9 +318,9 @@
 				</div>
 			</section>
 			{#if localOpened}<section class="lw-panel lw-local" hidden={tab !== 'changes'} aria-label="Local changes">{#if accountId}<LoreLocalChanges channelId={channelKey} {projectName} {serverUrl} {accountId} onCounts={(value) => counts = value} />{:else}<p class="lw-empty-inline">Sign in to connect a local project folder.</p>{/if}</section>{/if}
-			{#if historyOpened}<section class="lw-panel" hidden={tab !== 'history'} aria-label="Repository history"><LoreHistoryBrowser {revisions} {files} {channelId} getToken={token} isActive={active} initialPath={historyPath} /></section>{/if}
+			{#if historyOpened}<section class="lw-panel" hidden={tab !== 'history'} aria-label="Repository history"><LorePushCalendar {revisions} /><LoreHistoryBrowser {revisions} {files} {channelId} getToken={token} isActive={active} initialPath={historyPath} /></section>{/if}
 			<section class="lw-panel lw-scroll" hidden={tab !== 'review'} aria-label="Review queue"><div class="lw-page"><p class="lw-eyebrow">Team workflow</p><h2>Review</h2><p class="lw-lead">Uploads waiting to become official. Approval and rejection are deliberate actions.</p>{#each reviewQueue as branch (branch.name)}<article class="lw-review-card"><div><span class="lw-badge">Awaiting review</span><h3>{branch.name.replace(/^uploads\//, '')}</h3><code>{branch.name}</code></div>{#if canEdit}<div class="lw-actions"><button class="lw-button" disabled={!!busy} onclick={() => { if (window.confirm(`Reject ${branch.name}?`)) void run('Rejecting upload', auth => reviewLoreBranch(auth, channelId, branch.name, 'reject')); }}>Reject…</button><button class="lw-button lw-primary" disabled={!!busy} onclick={() => { if (window.confirm(`Approve ${branch.name} and make its uploads official?`)) void run('Approving upload', auth => reviewLoreBranch(auth, channelId, branch.name, 'approve')); }}>Approve…</button></div>{/if}</article>{:else}<div class="lw-empty-card"><LoreIcon name="review" size={28} /><h3>No uploads awaiting review</h3><p>{repo.auto_branch_on_upload ? 'New uploads will appear here for approval.' : 'Review is optional for this repository. You can change its policy in Settings.'}</p></div>{/each}</div></section>
-			<section class="lw-panel lw-scroll" hidden={tab !== 'settings'} aria-label="Project settings"><div class="lw-page"><p class="lw-eyebrow">Project configuration</p><h2>Settings</h2><nav class="lw-settings-nav" aria-label="Settings sections"><button class="lw-button" aria-pressed={settingsSection === 'general'} onclick={() => settingsPane('general')}>General & workflow</button>{#if canManage}<button class="lw-button" aria-pressed={settingsSection === 'permissions'} onclick={() => settingsPane('permissions')}>Permissions</button>{/if}</nav>
+			<section class="lw-panel lw-scroll" hidden={tab !== 'settings'} aria-label="Project settings"><div class="lw-page"><p class="lw-eyebrow">Project configuration</p><h2>Settings</h2><nav class="lw-settings-nav" aria-label="Settings sections"><button class="lw-button" onclick={() => navigate('automation')}>Mirrors & scripts</button><button class="lw-button" aria-pressed={settingsSection === 'general'} onclick={() => settingsPane('general')}>General & workflow</button>{#if canManage}<button class="lw-button" aria-pressed={settingsSection === 'permissions'} onclick={() => settingsPane('permissions')}>Permissions</button>{/if}</nav>
 				{#if settingsSection === 'permissions'}<LoreRolesAdmin onClose={() => settingsPane('general')} onDirtyChange={(value) => permissionDirty = value} />{:else}
 					<section class="lw-settings-card"><h3>Repository</h3><dl><dt>Name</dt><dd>{repo.repoName}</dd><dt>Channel</dt><dd>{projectName}</dd><dt>Storage</dt><dd>{readOnly ? 'Read-only external mirror' : 'Versioned Lore repository'}</dd>{#if repo.imported_from}<dt>Imported from</dt><dd>{repo.imported_from}</dd>{/if}</dl><p class="lw-help">Repository settings apply to the shared project.</p></section>
 					<section class="lw-settings-card"><h3>Review policy</h3><label class="lw-setting-toggle"><input type="checkbox" checked={reviewDraft ?? !!repo.auto_branch_on_upload} disabled={!canEdit || readOnly || !!busy} onchange={(event) => reviewDraft = event.currentTarget.checked} /><span><strong>Require review for uploads</strong><small>New uploads go to a review branch instead of immediately becoming official.</small></span></label><div class="lw-form-footer"><span>{reviewDirty ? 'Unsaved policy change' : 'Current server policy'}</span><button class="lw-button" disabled={!reviewDirty || !!busy} onclick={() => reviewDraft = null}>Cancel</button><button class="lw-button lw-primary" disabled={!canEdit || !reviewDirty || !!busy} onclick={() => void run('Saving review policy', async auth => { await updateLoreRepoSettings(auth, channelId, { auto_branch_on_upload: !!reviewDraft }); if (active()) reviewDraft = null; })}>Save policy</button></div></section>

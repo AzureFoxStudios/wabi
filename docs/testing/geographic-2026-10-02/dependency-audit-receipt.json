@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "tool": "cargo-audit0.22.2",
+  "terminalExitCode": 0,
+  "command": "cargo-audit audit --no-fetch --no-yanked --stale --db /tmp/wabi-rustsec-advisory-db --file Cargo.lock --json",
+  "rustsecRevision": "9b3a3b73a7f42606494c943e95f8196e9994df46",
+  "snapshotDate": "2026-09-30",
+  "vulnerabilities": 0,
+  "unmaintainedWarnings": 4,
+  "unsoundTerminalLruWarnings": 2,
+  "reportSha256": "9aff05c395ee1576c3b9f9a15a15c558deea7161987cf4deb9d66661a300835d",
+  "cargoLockSha256": "2c31a8723232abaffc228fd9801cd444997211e5b2530d994072a7f7cd4b522a",
+  "limits": "Preserved advisory snapshot and 638-package graph; not a current or independent security assurance; later notification dependency change requires a new audit"
+}

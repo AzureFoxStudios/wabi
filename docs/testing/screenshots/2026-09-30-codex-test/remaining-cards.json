@@ -1,0 +1,50 @@
+[
+  {
+    "title": "Simplify AI setup and identify the connected harness",
+    "taskId": "task_51f4289dcb14ba7e5c5d8a81312564b2",
+    "status": "todo",
+    "revision": 1
+  },
+  {
+    "title": "Verify Lore repository and Git mirror end to end",
+    "taskId": "task_2aa2be693b81d232d7360ea29fdaeb63",
+    "status": "todo",
+    "revision": 1
+  },
+  {
+    "title": "Add shared Project calendar",
+    "taskId": "task_b65fba055c4d1d9bda0b1cf176c141be",
+    "status": "todo",
+    "revision": 1
+  },
+  {
+    "title": "Add shared Project journal with rich content",
+    "taskId": "task_0de4ea32e939655582fbc249e17cdfe0",
+    "status": "todo",
+    "revision": 1
+  },
+  {
+    "title": "Organize Projects and subprojects",
+    "taskId": "task_43704ce7752c4c52c3a8682e7b4f0cbc",
+    "status": "todo",
+    "revision": 1
+  },
+  {
+    "title": "Publish personal work to a chosen shared audience",
+    "taskId": "task_287e7219cadde8dacb538d56b2ba0513",
+    "status": "todo",
+    "revision": 1
+  },
+  {
+    "title": "Coordinate work across computers and recover interrupted workers",
+    "taskId": "task_885d0e28a8ca30f5660cc9a63c9c8a14",
+    "status": "todo",
+    "revision": 1
+  },
+  {
+    "title": "Preserve harness commands and connect Wabi requests explicitly",
+    "taskId": "task_3f351083bc7e460dd30a1035a9a4ecdd",
+    "status": "todo",
+    "revision": 1
+  }
+]

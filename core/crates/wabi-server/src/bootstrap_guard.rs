@@ -1,7 +1,21 @@
 //! Fail closed on incomplete existing databases before first-boot key generation.
-//! Only an empty directory (or a key published by an interrupted first boot) is
-//! a new database. We never remove files, locks, or generate replacement keys.
-use std::{fs, io, path::Path};
+//! Empty directories, regular coordination files and a key published by an
+//! interrupted first boot may precede a new database. We never remove files or
+//! locks, or generate replacement keys for existing community data.
+use std::{ffi::OsStr, fs, io, path::Path};
+
+/// Runtime coordination is not durable community content. Only exact regular
+/// files qualify; symlinks and directories must still fail closed.
+pub(crate) fn is_first_boot_coordination_file(name: &OsStr, kind: &fs::FileType) -> bool {
+    if !kind.is_file() {
+        return false;
+    }
+    match name.to_str() {
+        Some(".wabi-secret-publication.lock" | ".lock") => true,
+        Some(name) => name.starts_with(".wabi-secret-") && name.ends_with(".tmp"),
+        None => false,
+    }
+}
 
 pub fn check(data: &Path, external_key: bool) -> io::Result<()> {
     let entries = match fs::read_dir(data) {
@@ -16,14 +30,12 @@ pub fn check(data: &Path, external_key: bool) -> io::Result<()> {
         let entry = entry?;
         let name = entry.file_name();
         let kind = entry.file_type()?;
+        if is_first_boot_coordination_file(&name, &kind) {
+            continue;
+        }
         match name.to_str() {
             Some("root_key") if kind.is_file() => key = true,
             Some("storage-manifest.json") if kind.is_file() => manifest = true,
-            // Concurrent atomic first boots may have unpublished key files.
-            Some(name)
-                if kind.is_file()
-                    && name.starts_with(".wabi-secret-")
-                    && name.ends_with(".tmp") => {}
             _ => other = true,
         }
     }
@@ -102,9 +114,14 @@ mod tests {
         assert!(!t.0.join("storage-manifest.json").exists());
     }
     #[test]
-    fn lock_and_unrecognized_files_are_not_deleted() {
+    fn persistent_runtime_locks_are_allowed_but_unknown_files_still_fail_closed() {
         let t = Temp::new();
         t.file(".lock");
+        t.file(".wabi-secret-publication.lock");
+        check(&t.0, false).unwrap();
+        t.file("root_key");
+        check(&t.0, false).unwrap();
+        t.file("unknown-state");
         assert!(check(&t.0, false).is_err());
         assert_eq!(fs::read(t.0.join(".lock")).unwrap(), b"unchanged");
     }

@@ -49,20 +49,38 @@ fn breakout_room_view(room: &BreakoutRoomState) -> Value {
     })
 }
 
-/// Resolve the acting user's DB id from the handshake-validated identity (0 for guests).
-fn breakout_actor_user_id(socket: &SocketRef, state: &SioState) -> u64 {
-    if let Some(id) = socket.extensions.get::<SioIdentity>() {
-        return id.user_id.max(0) as u64;
+async fn breakout_moderator(socket: &SocketRef, state: &SioState, parent: &str) -> Option<SocketIdentity> {
+    let identity = require_call_channel(socket, state, parent,
+        wabidb::domain::ChannelKind::Voice, "breakout-rooms-error", None).await?;
+    if identity.is_guest || !(state.app.is_admin(identity.user_id).await
+        || state.app.has_role(identity.user_id, "Moderator").await) {
+        let _ = socket.emit("breakout-rooms-error", &json!({ "error": "You need at least the Moderator role to manage breakout rooms" }));
+        return None;
     }
-    // Fallback for legacy connections.
-    let token = socket
-        .extensions
-        .get::<AuthToken>()
-        .map(|t| t.0.clone())
-        .unwrap_or_default();
-    user_id_from_token(&token, &state.app.config.jwt_secret)
-        .unwrap_or(0)
-        .max(0) as u64
+    Some(identity)
+}
+
+async fn voice_relocation_allowed(socket: &SocketRef, state: &SioState, actor: &SocketIdentity, target: &str, destination: &str, error_event: &str) -> bool {
+    let Some(target_uid) = target.strip_prefix("user-").and_then(|id| id.parse::<i64>().ok())
+        .filter(|uid| *uid > 0 && target == format!("user-{uid}")) else { return false; };
+    let self_move = target_uid == actor.user_id;
+    let can_moderate = !actor.is_guest && (state.app.is_admin(actor.user_id).await
+        || state.app.has_role(actor.user_id, "Moderator").await);
+    let source_channels: Vec<_> = state.voice_channels.read().await.iter()
+        .filter(|(_, members)| members.iter().any(|member| member.stable_id == target && !member.is_listening_only))
+        .map(|(id, _)| id.clone()).collect();
+    let mut allowed = (self_move || can_moderate)
+        && crate::auth_extractor::ensure_active_principal(&state.app, target_uid).await.is_ok()
+        && can_access_channel(state, target_uid, destination).await;
+    if allowed && !self_move {
+        for source in source_channels {
+            if !can_access_channel(state, actor.user_id, &source).await { allowed = false; break; }
+        }
+    }
+    if !allowed {
+        let _ = socket.emit(error_event, &json!({ "error": "Voice relocation requires current channel access and permission to move this member" }));
+    }
+    allowed
 }
 
 /// Emit a fresh `voice-channel-state` roster for a channel to all clients.
@@ -236,6 +254,7 @@ async fn on_create_breakout_rooms(socket: SocketRef, data: Value, state: SioStat
 
     let parent_channel_id = payload.parent_channel_id;
     let room_count = payload.room_count.unwrap_or(2).clamp(2, 20);
+    let Some(identity) = breakout_moderator(&socket, &state, &parent_channel_id).await else { return; };
 
     let parent = match state.app.wdb.get_channel(&parent_channel_id).await {
         Ok(Some(ch)) => ch,
@@ -270,7 +289,11 @@ async fn on_create_breakout_rooms(socket: SocketRef, data: Value, state: SioStat
         return;
     }
 
-    let actor = breakout_actor_user_id(&socket, &state);
+    let actor = identity.user_id as u64;
+    let parent_members = match state.app.wdb.list_channel_members(&parent_channel_id).await {
+        Ok(members) => members,
+        Err(_) => { let _ = socket.emit("breakout-rooms-error", &json!({ "error": "Could not read parent room membership" })); return; }
+    };
 
     let mut created: Vec<BreakoutRoomState> = Vec::new();
     for i in 1..=room_count {
@@ -279,7 +302,7 @@ async fn on_create_breakout_rooms(socket: SocketRef, data: Value, state: SioStat
             match state
                 .app
                 .wdb
-                .create_channel(&name, wabidb::domain::ChannelKind::Voice, actor, false)
+                .create_voice_breakout(&name, &parent_channel_id, actor)
                 .await
             {
                 Ok(id) => id,
@@ -295,6 +318,22 @@ async fn on_create_breakout_rooms(socket: SocketRef, data: Value, state: SioStat
             breakout_index: i,
             created_at_micros: now_micros(),
         });
+    }
+
+    let children: Vec<_> = created.iter().map(|room| room.id.clone()).collect();
+    let mut prepared = crate::api::server_center::inherit_channel_gates(&state.app, &parent_channel_id, &children).await.is_ok();
+    if prepared {
+        for room in &created {
+            for member in &parent_members {
+                if state.app.wdb.add_channel_member(&room.id, member.user_id, member.role).await.is_err() { prepared = false; break; }
+            }
+            if !prepared { break; }
+        }
+    }
+    if !prepared {
+        for room in &created { let _ = state.app.wdb.delete_channel(&room.id, actor).await; }
+        let _ = socket.emit("breakout-rooms-error", &json!({ "error": "Could not initialize breakout access; no rooms were published" }));
+        return;
     }
 
     if created.is_empty() {
@@ -336,6 +375,7 @@ async fn on_create_breakout_rooms(socket: SocketRef, data: Value, state: SioStat
         let assignments = assign_breakout_round_robin(primary_members.len(), created.len());
         for (member, room_idx) in primary_members.iter().zip(assignments) {
             let Some(room) = created.get(room_idx) else { continue };
+            if !voice_relocation_allowed(&socket, &state, &identity, member, &room.id, "breakout-rooms-error").await { continue; }
             let (changed, moved) = move_voice_participant(&state, member, &room.id).await;
             if let Some(m) = &moved {
                 emit_voice_self_moved(&io, m, &room.id).await;
@@ -365,6 +405,7 @@ async fn on_close_breakout_rooms(socket: SocketRef, data: Value, state: SioState
     };
 
     let parent_channel_id = payload.parent_channel_id;
+    let Some(identity) = breakout_moderator(&socket, &state, &parent_channel_id).await else { return; };
 
     let rooms = {
         let mut sessions = state.breakout_rooms.write().await;
@@ -379,13 +420,24 @@ async fn on_close_breakout_rooms(socket: SocketRef, data: Value, state: SioState
     }
 
     {
+        let target_ids: HashSet<_> = state.voice_channels.read().await.iter()
+            .filter(|(id, _)| rooms.iter().any(|room| room.id == **id))
+            .flat_map(|(_, members)| members.iter().map(|member| member.stable_id.clone())).collect();
+        let mut allowed = HashSet::new();
+        for target in target_ids {
+            let uid = target.strip_prefix("user-").and_then(|id| id.parse::<i64>().ok()).unwrap_or(0);
+            if crate::auth_extractor::ensure_active_principal(&state.app, uid).await.is_ok()
+                && can_access_channel(&state, uid, &parent_channel_id).await { allowed.insert(target); }
+        }
         let mut returned: Vec<(String, VoiceParticipant)> = Vec::new();
+        let mut denied: Vec<(String, VoiceParticipant)> = Vec::new();
         {
             let mut voice = state.voice_channels.write().await;
             for room in &rooms {
                 if let Some(members) = voice.remove(&room.id) {
                     let parent_members = voice.entry(parent_channel_id.clone()).or_default();
                     for p in members {
+                        if !allowed.contains(&p.stable_id) { denied.push((room.id.clone(), p)); continue; }
                         parent_members.retain(|m| m.socket_id != p.socket_id);
                         parent_members.push(p.clone());
                         returned.push((room.id.clone(), p));
@@ -394,20 +446,18 @@ async fn on_close_breakout_rooms(socket: SocketRef, data: Value, state: SioState
             }
         }
         for (from_channel_id, p) in &returned {
-            let _ = io
-                .to(p.socket_id.clone())
-                .emit(
-                    "voice-self-moved",
-                    &json!({
-                        "fromChannelId": from_channel_id,
-                        "toChannelId": parent_channel_id,
-                    }),
-                )
-                .await;
+            emit_voice_self_moved(&io, &MovedParticipant { participant: p.clone(), from_channel_id: from_channel_id.clone() }, &parent_channel_id).await;
+        }
+        for (from_channel_id, participant) in denied {
+            if let Some(target) = io.sockets().into_iter().find(|socket| socket.id.to_string() == participant.socket_id) {
+                target.leave(format!("wabidb-call-channel:{from_channel_id}"));
+                wabidb_header_cache_forget_session_socket(&format!("channel:{from_channel_id}"), &participant.socket_id);
+                let _ = target.emit("voice-self-kicked", &json!({ "channelId": from_channel_id }));
+            }
         }
     }
 
-    let actor = breakout_actor_user_id(&socket, &state);
+    let actor = identity.user_id as u64;
     for room in &rooms {
         if let Err(e) = state.app.wdb.delete_channel(&room.id, actor).await {
             warn!("[sio] close-breakout-rooms failed to delete {}: {e}", room.id);
@@ -443,6 +493,9 @@ async fn on_move_user_to_breakout(socket: SocketRef, data: Value, state: SioStat
         }
     };
 
+    let Some(identity) = require_call_channel(&socket, &state, &payload.parent_channel_id,
+        wabidb::domain::ChannelKind::Voice, "breakout-rooms-error", None).await else { return; };
+
     let is_breakout = state
         .breakout_rooms
         .read()
@@ -461,6 +514,10 @@ async fn on_move_user_to_breakout(socket: SocketRef, data: Value, state: SioStat
         );
         return;
     }
+
+    if require_call_channel(&socket, &state, &payload.to_channel_id,
+        wabidb::domain::ChannelKind::Voice, "breakout-rooms-error", None).await.is_none() { return; }
+    if !voice_relocation_allowed(&socket, &state, &identity, &payload.target_user_id, &payload.to_channel_id, "breakout-rooms-error").await { return; }
 
     let (changed, moved) =
         move_voice_participant(&state, &payload.target_user_id, &payload.to_channel_id).await;
@@ -500,30 +557,9 @@ async fn on_move_user_to_voice_channel(socket: SocketRef, data: Value, state: Si
         }
     };
 
-    if require_call_channel(&socket, &state, &payload.to_channel_id,
-        wabidb::domain::ChannelKind::Voice, "move-user-to-voice-channel-error", None).await.is_none() { return; }
-
-    // Permission: dragging yourself is always allowed; moving other members
-    // requires at least the Moderator role (mirrors the frontend's
-    // `canDragVoiceMember` gate — enforced server-side, not just in the UI).
-    let actor_user_id = breakout_actor_user_id(&socket, &state);
-    let actor_stable_id = if actor_user_id > 0 {
-        format!("user-{}", actor_user_id)
-    } else {
-        socket.id.to_string()
-    };
-    if payload.target_user_id != actor_stable_id {
-        let is_moderator = actor_user_id > 0
-            && (state.app.is_admin(actor_user_id as i64).await
-                || state.app.has_role(actor_user_id as i64, "Moderator").await);
-        if !is_moderator {
-            let _ = socket.emit(
-                "move-user-to-voice-channel-error",
-                &json!({ "error": "You need at least the Moderator role to move voice members" }),
-            );
-            return;
-        }
-    }
+    let Some(identity) = require_call_channel(&socket, &state, &payload.to_channel_id,
+        wabidb::domain::ChannelKind::Voice, "move-user-to-voice-channel-error", None).await else { return; };
+    if !voice_relocation_allowed(&socket, &state, &identity, &payload.target_user_id, &payload.to_channel_id, "move-user-to-voice-channel-error").await { return; }
 
     let (changed, moved) =
         move_voice_participant(&state, &payload.target_user_id, &payload.to_channel_id).await;

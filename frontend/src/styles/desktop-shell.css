@@ -12,7 +12,7 @@
 :root[data-desktop-shell='true'] .server-rail-container .server-rail,
 :root[data-desktop-shell='true'] .right-panel-zone { height: var(--desktop-content-height); }
 :root[data-desktop-shell='true'] #wabi-boot-shell { top: var(--desktop-titlebar-height); }
-:root[data-desktop-shell='true'] :is(.modal-overlay, .reader-shell.reader-redesign.reader-focused, .right-panel-zone.peek, .right-panel-zone.closing) { top: var(--desktop-titlebar-height); }
+:root[data-desktop-shell='true'] :is(.modal-overlay, .reader-shell.reader-redesign.reader-focused, .right-panel-zone) { top: var(--desktop-titlebar-height); }
 :root[data-desktop-shell='true'] :is(.modal-overlay.full-screen, .modal-overlay.right-panel) .modal-content { height: var(--desktop-content-height); max-height: var(--desktop-content-height); }
 @media (max-width: 768px) {
  :root[data-desktop-shell='true'] .channel-sidebar { height: calc(var(--desktop-content-height) - 56px); }

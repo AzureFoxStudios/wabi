@@ -21,19 +21,29 @@ async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, 
 
     // Check if user is muted on this voice channel
     if user_id_num > 0 {
-        if let Ok(true) = state.app.wdb.is_user_muted(&channel_id, user_id_num as u64).await {
-            warn!("[sio] user {} muted in voice channel {}", user_id_num, channel_id);
-            warn!("[sio] on_voice_channel_join called: channel_id={}, user_id_num={}", channel_id, user_id_num);
-            let _ = socket.emit("voice-channel-error", &json!({ "channelId": channel_id, "requestId": data.get("requestId"), "error": "You are muted in this channel" }));
-            warn!("[sio] on_voice_channel_join: user {} muted, returning", user_id_num);
-            return;
+        match state.app.wdb.is_user_muted(&channel_id, user_id_num as u64).await {
+            Ok(false) => {},
+            Ok(true) => {
+                let _ = socket.emit("voice-channel-error", &json!({ "channelId": channel_id, "requestId": data.get("requestId"), "error": "You are muted in this channel" }));
+                return;
+            },
+            Err(_) => {
+                let _ = socket.emit("voice-channel-error", &json!({ "channelId": channel_id, "requestId": data.get("requestId"), "error": "Channel moderation state unavailable" }));
+                return;
+            },
         }
     }
 
 	warn!("[sio] on_voice_channel_join called: channel_id={}, user_id_num={}", channel_id, user_id_num);
 
     let is_deafened = if user_id_num > 0 {
-        state.app.wdb.is_user_deafened(&channel_id, user_id_num as u64).await.unwrap_or(false)
+        match state.app.wdb.is_user_deafened(&channel_id, user_id_num as u64).await {
+            Ok(deafened) => deafened,
+            Err(_) => {
+                let _ = socket.emit("voice-channel-error", &json!({ "channelId": channel_id, "requestId": data.get("requestId"), "error": "Channel moderation state unavailable" }));
+                return;
+            },
+        }
     } else {
         false
     };
@@ -216,8 +226,8 @@ async fn on_voice_channel_unsubscribe(socket: SocketRef, data: Value, state: Sio
     };
 
     advance_voice_intent(&socket, &channel_id, true);
-    let identity = resolve_sio_identity(&socket);
-    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let Some(identity) = resolve_identity(&socket, &state).await else { return; };
+    let user_id_num = identity.user_id;
     let _stable_id = if user_id_num > 0 {
         format!("user-{}", user_id_num)
     } else {
@@ -275,8 +285,8 @@ async fn on_voice_channel_leave(socket: SocketRef, data: Value, state: SioState,
     };
 
     advance_voice_intent(&socket, &channel_id, false);
-    let identity = resolve_sio_identity(&socket);
-    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let Some(identity) = resolve_identity(&socket, &state).await else { return; };
+    let user_id_num = identity.user_id;
     let stable_id = if user_id_num > 0 {
         format!("user-{}", user_id_num)
     } else {
@@ -351,8 +361,8 @@ async fn on_set_voice_transmit_mode(socket: SocketRef, data: Value, state: SioSt
     }
     .to_string();
 
-    let identity = resolve_sio_identity(&socket);
-    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let Some(identity) = resolve_identity(&socket, &state).await else { return; };
+    let user_id_num = identity.user_id;
     let stable_id = if user_id_num > 0 {
         format!("user-{}", user_id_num)
     } else {
@@ -411,8 +421,8 @@ async fn on_voice_self_state(socket: SocketRef, data: Value, state: SioState, io
         return;
     }
 
-    let identity = resolve_sio_identity(&socket);
-    let user_id_num = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
+    let Some(identity) = resolve_identity(&socket, &state).await else { return; };
+    let user_id_num = identity.user_id;
     let stable_id = if user_id_num > 0 {
         format!("user-{}", user_id_num)
     } else {
