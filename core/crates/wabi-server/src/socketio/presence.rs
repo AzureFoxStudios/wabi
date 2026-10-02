@@ -491,7 +491,7 @@ async fn on_disconnect(socket: SocketRef, state: SioState, io: SocketIo) {
     // Calling security cleanup (2026-08-25 Phase 1): drop the media rate
     // bucket and every DM call-signaling link this user held.
     media_rate_forget(&socket_id);
-    crate::api::voice_policy::remove_socket_admissions(&socket_id);
+    crate::api::voice_policy::remove_socket_admissions(&state.app.config.data_dir, &socket_id);
     crate::api::voice_self_state::remove_socket(&socket_id);
     wabidb_header_cache_forget_socket(&socket_id);
     let departed_stable = get_my_stable_id(&socket, &state.app.config.jwt_secret);

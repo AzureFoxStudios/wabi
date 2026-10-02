@@ -380,6 +380,13 @@ async fn workspace_channel_edits_require_membership_even_with_a_direct_grant() {
         .create_channel("office-room", ChannelKind::Text, owner, false)
         .await
         .unwrap();
+    // Adapter creation persists the channel; the caller must join explicitly.
+    // Artifact ownership alone does not grant access to its shared channel.
+    state
+        .wdb
+        .add_channel_member(&channel, owner, MemberRole::Owner)
+        .await
+        .unwrap();
     state
         .wdb
         .add_channel_member(&channel, editor, MemberRole::Member)

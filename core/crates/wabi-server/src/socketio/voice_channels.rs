@@ -104,7 +104,7 @@ async fn on_voice_channel_join(socket: SocketRef, data: Value, state: SioState, 
     // Exact-device admission is the bridge from Socket.IO control-plane consent
     // to SFU/relay authorization. HTTP media-token requests must match this
     // user+channel+socket tuple; another tab cannot borrow this permission.
-    crate::api::voice_policy::record_admission(&channel_id, crate::api::voice_policy::VoiceAdmission {
+    crate::api::voice_policy::record_admission(&state.app.config.data_dir, &channel_id, crate::api::voice_policy::VoiceAdmission {
         user_id: user_id_num,
         channel_id: channel_id.clone(),
         socket_id: socket_id.clone(),
@@ -266,8 +266,8 @@ async fn on_voice_channel_subscribe(socket: SocketRef, data: Value, state: SioSt
 
     // Preserve a primary admission when a legacy/redundant subscribe arrives.
     // Otherwise this is an exact receive-only admission for this socket.
-    if actual_listening_only || crate::api::voice_policy::admission_for(&channel_id, user_id_num, &socket_id).is_none() {
-        crate::api::voice_policy::record_admission(&channel_id, crate::api::voice_policy::VoiceAdmission {
+    if actual_listening_only || crate::api::voice_policy::admission_for(&state.app.config.data_dir, &channel_id, user_id_num, &socket_id).is_none() {
+        crate::api::voice_policy::record_admission(&state.app.config.data_dir, &channel_id, crate::api::voice_policy::VoiceAdmission {
             user_id: user_id_num,
             channel_id: channel_id.clone(),
             socket_id: socket_id.clone(),
@@ -341,7 +341,7 @@ async fn on_voice_channel_unsubscribe(socket: SocketRef, data: Value, state: Sio
     };
 
     if removed {
-        crate::api::voice_policy::remove_admission(&channel_id, &socket.id.to_string());
+        crate::api::voice_policy::remove_admission(&state.app.config.data_dir, &channel_id, &socket.id.to_string());
         crate::api::voice_self_state::remove(&channel_id, &socket.id.to_string());
         let members: Vec<Value> = {
             let voice = state.voice_channels.read().await;
@@ -392,7 +392,7 @@ async fn on_voice_channel_leave(socket: SocketRef, data: Value, state: SioState,
             // from whichever channel it is transmitting on.
             let is_primary = members
                 .iter()
-                .any(|p| p.socket_id == socket.id.to_string() && (!p.is_listening_only || crate::api::voice_policy::admission_for(&channel_id, user_id_num, &p.socket_id).is_some_and(|a| a.policy_listening_only)));
+                .any(|p| p.socket_id == socket.id.to_string() && (!p.is_listening_only || crate::api::voice_policy::admission_for(&state.app.config.data_dir, &channel_id, user_id_num, &p.socket_id).is_some_and(|a| a.policy_listening_only)));
             if is_primary {
                 members.retain(|p| p.socket_id != socket.id.to_string());
             }
@@ -401,7 +401,7 @@ async fn on_voice_channel_leave(socket: SocketRef, data: Value, state: SioState,
     };
     // A stale primary leave must not announce that a surviving listener left.
     if !removed { return; }
-    crate::api::voice_policy::remove_admission(&channel_id, &socket.id.to_string());
+    crate::api::voice_policy::remove_admission(&state.app.config.data_dir, &channel_id, &socket.id.to_string());
     crate::api::voice_self_state::remove(&channel_id, &socket.id.to_string());
 
     let _ = io
@@ -467,7 +467,7 @@ async fn on_set_voice_transmit_mode(socket: SocketRef, data: Value, state: SioSt
         for (channel_id, members) in voice.iter_mut() {
             let mut touched = false;
             for participant in members.iter_mut().filter(|p| p.socket_id == socket.id.to_string()) {
-                let forced_listener = crate::api::voice_policy::admission_for(channel_id, user_id_num, &participant.socket_id).is_some_and(|a| a.policy_listening_only);
+                let forced_listener = crate::api::voice_policy::admission_for(&state.app.config.data_dir, channel_id, user_id_num, &participant.socket_id).is_some_and(|a| a.policy_listening_only);
                 participant.transmit_mode = if forced_listener { "listening".into() } else { mode.clone() };
                 touched = true;
             }
@@ -548,10 +548,10 @@ async fn on_voice_self_state(socket: SocketRef, data: Value, state: SioState, io
             channel_id.clone(),
             (self_state.muted || server_muted, self_state.deafened || server_deafened),
         );
-        if let Some(mut admission) = crate::api::voice_policy::admission_for(channel_id, user_id_num, &socket_id) {
+        if let Some(mut admission) = crate::api::voice_policy::admission_for(&state.app.config.data_dir, channel_id, user_id_num, &socket_id) {
             admission.server_muted = server_muted;
             admission.server_deafened = server_deafened;
-            crate::api::voice_policy::record_admission(channel_id, admission);
+            crate::api::voice_policy::record_admission(&state.app.config.data_dir, channel_id, admission);
         }
     }
 
@@ -657,7 +657,7 @@ async fn on_voice_channel_kick(socket: SocketRef, data: Value, state: SioState, 
 
     // Tell the kicked client(s) to tear down their media session.
     for participant in &removed {
-        crate::api::voice_policy::remove_admission(&channel_id, &participant.socket_id);
+        crate::api::voice_policy::remove_admission(&state.app.config.data_dir, &channel_id, &participant.socket_id);
         crate::api::voice_self_state::remove(&channel_id, &participant.socket_id);
     }
     for target in io.sockets().into_iter().filter(|s| removed.iter().any(|p| p.socket_id == s.id.to_string())) {
