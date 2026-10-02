@@ -1,0 +1,75 @@
+{
+  "accepted": false,
+  "actualExitCode": 101,
+  "canonicalWriterPermitted": false,
+  "changedSourcesAtTerminalReadback": [],
+  "compilationActualExitCode": 0,
+  "compilationCommand": [
+    "cargo",
+    "+1.93",
+    "test",
+    "--offline",
+    "--locked",
+    "-p",
+    "wabi-server",
+    "--test",
+    "checkpoint_operator_contract",
+    "--test",
+    "recovery_peer_operator_contract",
+    "--no-run",
+    "--message-format=json-render-diagnostics"
+  ],
+  "compilerPausedForThermalHandoff": true,
+  "endedAtUtc": "2026-10-02T19:03:35.740866+00:00",
+  "executables": [
+    {
+      "bytes": 157365512,
+      "path": "/home/ironin/wabi/target/debug/deps/checkpoint_operator_contract-aa64e5d3bc62b217",
+      "sha256": "3f5e829bc22fe48e2cabcb9695feb5653c09758441a2bb6bbd2ad510137337b5",
+      "targetName": "checkpoint_operator_contract"
+    },
+    {
+      "bytes": 144722144,
+      "path": "/home/ironin/wabi/target/debug/deps/recovery_peer_operator_contract-3f6c52b41f98f111",
+      "sha256": "691e6547ef5557f433364a715024d3c449911e85bca842da4188dd5c597454bb",
+      "targetName": "recovery_peer_operator_contract"
+    }
+  ],
+  "fail": 2,
+  "fullInstanceReady": false,
+  "ignored": 1,
+  "newTargetTreeCreated": false,
+  "outcomes": [
+    {
+      "actualExitCode": 0,
+      "command": [
+        "/home/ironin/wabi/target/debug/deps/checkpoint_operator_contract-aa64e5d3bc62b217",
+        "--test-threads=1"
+      ],
+      "targetName": "checkpoint_operator_contract"
+    },
+    {
+      "actualExitCode": 101,
+      "command": [
+        "/home/ironin/wabi/target/debug/deps/recovery_peer_operator_contract-3f6c52b41f98f111",
+        "--test-threads=1"
+      ],
+      "targetName": "recovery_peer_operator_contract"
+    }
+  ],
+  "pass": 9,
+  "rawLog": "/tmp/wabi-geographic-availability-control-root-office1.log",
+  "rawLogSha256": "8c87111f0e21c2b466672f5835d45c553211e1cda6f4397fb8275a3cb2daa3a9",
+  "readerMaximumPreTestTemperatureC": null,
+  "resultGroups": 2,
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "runtimeExecuted": true,
+  "schemaVersion": 1,
+  "scope": "Default-off production operator peer-to-retained inactive/fenced core candidate plus previous producer regression; not production Raft publication, enabled Office, activation, physical or full failover",
+  "sourceFreezeSha256": "878f103b27b34bc0d1891668583acdd02f2d9da8cfaa36a45ca6f72381afef65",
+  "sourceInputs": 5190,
+  "startedAtUtc": "2026-10-02T18:59:55.080169+00:00",
+  "target": "/home/ironin/wabi/target",
+  "timedTestsThrottled": false,
+  "workspace": "/home/ironin/wabi"
+}

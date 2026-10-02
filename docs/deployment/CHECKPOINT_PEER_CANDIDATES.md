@@ -109,5 +109,9 @@ the persistent `.lock`. Scratch cleanup precedes admission release.
 These are historical proofs for one core capture, not a live byte majority,
 nonce-allocation proof, current permission state or writer lease. Enabled
 Office/external inventory, retention/deletion and full recovery remain open.
+The later [saved Office state gate](../testing/OFFICE_SAVED_STATE_RECOVERY_2026-10-03.md)
+does compare genuine enabled source documents/sheets/native deck records and
+decoded edits after peer retrieval, preserving all inactive guards. It does not
+certify restored API permissions or external Office service recovery.
 See [writer boundary](../architecture/GEOGRAPHIC_WRITER_AUTHORITY.md) and
 [full recovery plan](../plans/2026-10-01-recovery-material-integration.md).

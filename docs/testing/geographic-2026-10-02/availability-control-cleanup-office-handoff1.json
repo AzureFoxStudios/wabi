@@ -1,0 +1,247 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T19:16:18.185544+00:00",
+  "workspace": "/home/ironin/wabi",
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "integrationBase": "ddac3088b983587d6f23cb0531da6c164dfa640e",
+  "sourceAndDocsCount": 7,
+  "evidenceCount": 22,
+  "files": [
+    {
+      "path": "core/crates/wabi-server/tests/fixtures/checkpoint_office_verify.rs",
+      "bytes": 19523,
+      "sha256": "c009c39f3befe92099341bf3d34aaaed4f978efe0358b3658fa1191bc9a72e70",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "core/crates/wabi-server/tests/recovery_peer_operator_contract.rs",
+      "bytes": 25428,
+      "sha256": "9748ce31a737c60f2b10a3b082a97e9763696dc9233ddf3c37212960529fc902",
+      "basePresent": true,
+      "baseSha256": "0290995e64ddd12d1f6ef2236ae7144c29dff8bb07003a0de226d45529542590",
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/PROJECT_STATUS.md",
+      "bytes": 87567,
+      "sha256": "f5259737bb3cfe12fc0578d6c351d934562631ac605a886418adc9558d3b2cdc",
+      "basePresent": true,
+      "baseSha256": "d535020966c700bc003e920bd8e4e82f337faf5d6f49c83cd56b114a3324fee2",
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/deployment/CHECKPOINT_PEER_CANDIDATES.md",
+      "bytes": 7394,
+      "sha256": "4dca7c1f6d7463d3cf19afbf9afb9764b4f6de7940732b72e01447d343b0d590",
+      "basePresent": true,
+      "baseSha256": "ba3a734238486e3020d64bf3e7b91ad60b4a8f1e97ac2f7464e23cb44a836469",
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/plans/2026-09-26-geographic-community-nodes.md",
+      "bytes": 74918,
+      "sha256": "994712274556c8e136f10237c451291016d7f3359324b433697e2d100ae3a0e4",
+      "basePresent": true,
+      "baseSha256": "b6f0d0a63e17cb1d1ddd0896f18483eddcb54eaec3bf7f690135b97bc05cd376",
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/plans/2026-10-01-recovery-material-integration.md",
+      "bytes": 19829,
+      "sha256": "4e0611bdfa91cd68a77d50b486d12a9c16aedbc070798b2273871cca232dadd4",
+      "basePresent": true,
+      "baseSha256": "3544a8a03796ab14d893212e522adf45f4742988a8dcd7581f6441c1faf3bf7a",
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/OFFICE_SAVED_STATE_RECOVERY_2026-10-03.md",
+      "bytes": 4492,
+      "sha256": "ee1ec3be18c0dcce93ae159248af998bfeb4523c6b285edec3a0f3ac4ca5a7ea",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-office-fixture-baseline1.json",
+      "bytes": 824,
+      "sha256": "ca280abfc9c767ec4cdcea964e3ecad4a812bf319e724f75de4e254ba6181740",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-office-saved-state-acceptance1.json",
+      "bytes": 2049,
+      "sha256": "7cffb4a375de88f79472ea351f9810e0f869cdd11e395b658688b9fa1f2d8d88",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-owned-cleanup9.json",
+      "bytes": 458,
+      "sha256": "6eb152baa5b34d44d54e7483d1a945b65d3b212a9cd1b3a1baa883465b2727a8",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-owned-cleanup10.json",
+      "bytes": 457,
+      "sha256": "3d034ab2236f743adfc9844ff2e7a7052dacb1ec7944684f45514d4753c343be",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-office-fixture-source1.json",
+      "bytes": 1133,
+      "sha256": "f44f3486632bcba1c5aa91216fe69efeecdc760fc54a8d0e67ff584ecb130529",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-office-fixture-source1-exact.json.gz",
+      "bytes": 10963,
+      "sha256": "88105c4394f9bbb05ab5ce31abb36e9efe026092f14c57fac918c5fe400b3d58",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-office-fixture-source2.json",
+      "bytes": 1010,
+      "sha256": "fc62b32d17178193a5fccf41af8efecfa2c42e00448e415366562faa0fa24bd5",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-office-fixture-source2-exact.json.gz",
+      "bytes": 10974,
+      "sha256": "9dfdb2fa626d1e9fd7a4b2688200af9b341fcdcb11623a091553517cea08b163",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-office-fixture-source3.json",
+      "bytes": 1050,
+      "sha256": "dd85e90e977dfa9f60b350508d51aad3205dd17ec7f9ee05d11c10b145834d18",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-office-fixture-source3-exact.json.gz",
+      "bytes": 11063,
+      "sha256": "ca4ee032ac7e147fc92b2c035028199a294b90d4556e59838ff5db758aa2d429",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-office-fixture-source4.json",
+      "bytes": 1090,
+      "sha256": "cac4735ecf84d85a415eec87b2e2af35ddecc1e48b7b72535f099d950aa10f1d",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-office-fixture-source4-exact.json.gz",
+      "bytes": 11072,
+      "sha256": "641025f135d9e2a2d9a20b73754d12a4fab37c1b92ea7e2b3924a64fe8d65b28",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-office1.json",
+      "bytes": 2566,
+      "sha256": "eb0be47df87983a0bf992683d39137cf99f1808246cfbf320b399b3933a4db24",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-office1.log.gz",
+      "bytes": 34436,
+      "sha256": "68255b43568cf284c73b28946134591713b98d192f78373b91d87eb0bcdfcfce",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-office1-before.json.gz",
+      "bytes": 229923,
+      "sha256": "8d3248a25ee6826ac86901d9008c5a01cbfb5114ed9e6fd7fc5e96a20d2fa51c",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-office1-precheck.json",
+      "bytes": 1228,
+      "sha256": "7548fb098b2a7a4cf2f32bc1cb5a0d6c9089c036ee034c3f842715d4efda9053",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-office1-start.json",
+      "bytes": 1458,
+      "sha256": "76d31e2d3a203672dcde071f9fa96d9a0c919c520cb8d562c008175426ab7072",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-office2.json",
+      "bytes": 2562,
+      "sha256": "cf4fbda513008b09e003642b1db1839e6154661be6b5b758f2aed055ab6297e1",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-office2.log.gz",
+      "bytes": 34212,
+      "sha256": "9c1c900907e90ae1e152c8545a67b171268afd0c2539bbda5f2898a5ab7806bf",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-office2-before.json.gz",
+      "bytes": 229922,
+      "sha256": "b4935c7518c5521c5e579403a19fd3dd8fbbe5959dc72323873282a15793cd71",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-office2-precheck.json",
+      "bytes": 1230,
+      "sha256": "81f1a6384e148f7670b6ac2ccba9507d8485e1f8f2bc7b28c3ce88e9b2641d10",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-02/availability-control-root-office2-start.json",
+      "bytes": 1459,
+      "sha256": "e6a16910022682c5133df8f8ad7eff6d963f81b927b0388578dbd59ed836bc78",
+      "basePresent": false,
+      "baseSha256": null,
+      "changedFromBase": true
+    }
+  ],
+  "totalBytes": 830290,
+  "scope": "Only two accepted Office fixture files, truthful docs, exact tested source3 failure/source4 repair and earlier unrun source1/2, frozen executions, scoped acceptance, baseline and owned log retirement. Excludes runtime keys/data/attachments/organizer archives/unlisted history/target. Reference closure separate.",
+  "fullInstanceReady": false,
+  "canonicalWriterPermitted": false
+}

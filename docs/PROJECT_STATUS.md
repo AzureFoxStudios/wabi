@@ -483,7 +483,7 @@ endpoint. The subsequent [current-root genuine producer](testing/geographic-2026
 passed seven checks with zero failures and one ignored physical-export entry on
 5,187 unchanged source/graph/static inputs. The real encrypted capture, Raft/Noise
 faults and copied-peer inactive core bridge now pass on the combined graph.
-Enabled Office recovery acceptance and production recovery wiring remain pending.
+Full enabled Office recovery acceptance and production recovery wiring remain pending.
 The October 3 [peer candidate job](deployment/CHECKPOINT_PEER_CANDIDATES.md)
 has default-off Linux runtime. Its repaired [frozen local run](testing/geographic-2026-10-02/availability-control-root-peer2.json)
 compiled and passed 11 checks, zero failures and one ignored physical-export
@@ -496,6 +496,15 @@ individually exercised. It retrieves an already published peer copy of a local
 Ready capture and retains a private inactive/fenced core candidate. Automatic
 capture publication, production consensus ownership, writer permission and
 recovery after loss of the current Authority are still unimplemented.
+The later [saved Office state rerun](testing/OFFICE_SAVED_STATE_RECOVERY_2026-10-03.md)
+passes 11 checks with zero failures and one ignored entry on 5,190 unchanged
+inputs. Real source HTTP documents/sheets/native deck edits, grants/revocation,
+review/protection, capability switches and presentation records survive genuine
+capture and approved-peer retrieval: all five inactive workspace rows and three
+decoded artifact contents match with both guards/lock inode intact. Both
+capabilities are enabled at capture. The source router replacement checks lost
+controller behavior on the same engine, not a recovered process. Restored API
+permissions, external Office services and complete instance recovery remain open.
 Deployment has not happened; these checks do not certify full recovery or writer
 activation.
 

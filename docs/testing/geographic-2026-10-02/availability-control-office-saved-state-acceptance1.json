@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T19:12:25.107081+00:00",
+  "actualRun": "availability-control-root-office2.json",
+  "actualRunAccepted": true,
+  "totalTests": {
+    "pass": 11,
+    "fail": 0,
+    "ignored": 1
+  },
+  "scope": "Expanded four peer target checks include genuine enabled main Wabi Office source HTTP state and retained inactive replay; counts overlap existing peer target, not additional standalone tests. Generic harness scope does not certify full enabled Office/API recovery.",
+  "frozenInputs": 5190,
+  "sourceFreezeSha256": "5322519304627308a0fb162eb2546e84098c1850b52319a6e10e74f34e8c934a",
+  "exactTestSource": "availability-control-office-fixture-source4.json",
+  "genuineSource": {
+    "documents": true,
+    "sheets": true,
+    "nativeDecks": true,
+    "appendedCrdtDeltas": true,
+    "resolvedReview": true,
+    "accessRevocationAndStaleGenerationRefusals": true,
+    "protectedCellRefusalAndOwnerEdit": true,
+    "hiddenAudienceProjection": true,
+    "privateSpeakerNotesRejected": true,
+    "capabilityDisableRefusalsThenEnable": true,
+    "capturedFinalCapabilities": {
+      "sheets": true,
+      "present": true
+    },
+    "sourceRouterReplacementLosesController": true
+  },
+  "inactiveCandidate": {
+    "fullHistoryReplayed": true,
+    "allWorkspaceRecordsEqual": 5,
+    "decodedArtifactContentsEqual": 3,
+    "bothGuardBytesPreserved": true,
+    "lockInodePreserved": true,
+    "writerStarted": false,
+    "guardsCleared": false
+  },
+  "notVerified": [
+    "restored permission-checked HTTP API",
+    "whole-process recovered presentation runtime",
+    "Office conversion service/configuration/secrets/assets lifecycle",
+    "private-artifact regional ownership",
+    "production publisher/consensus/restart reconciliation",
+    "nonce continuity/writer activation",
+    "automatic full-instance recovery",
+    "physical three-site/capacity acceptance"
+  ],
+  "ownedRunProcessesAbsent": true,
+  "allSourceHashesUnchanged": true,
+  "fullInstanceReady": false,
+  "canonicalWriterPermitted": false
+}

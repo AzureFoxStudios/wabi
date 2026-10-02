@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T19:16:17.704140+00:00",
+  "path": "/tmp/wabi-geographic-availability-control-root-office2.log",
+  "bytes": 411649,
+  "dev": 66306,
+  "ino": 4382757,
+  "uid": 1000,
+  "mode": "0o600",
+  "nlink": 1,
+  "sha256": "1eb2ff0e171a354a9cd5545c4f982a465cd6161712a281e17c53f2321cc9f3b7",
+  "acceptedReceiptPreserved": true,
+  "gzipMatchesExactly": true,
+  "ownedProcessesAbsent": true,
+  "targetTouched": false
+}

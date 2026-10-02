@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T19:05:05.531847+00:00",
+  "source": [
+    {
+      "path": "core/crates/wabi-server/tests/fixtures/checkpoint_office_verify.rs",
+      "bytes": 19523,
+      "sha256": "c009c39f3befe92099341bf3d34aaaed4f978efe0358b3658fa1191bc9a72e70"
+    },
+    {
+      "path": "core/crates/wabi-server/tests/recovery_peer_operator_contract.rs",
+      "bytes": 25428,
+      "sha256": "9748ce31a737c60f2b10a3b082a97e9763696dc9233ddf3c37212960529fc902"
+    }
+  ],
+  "sourceArchive": "availability-control-office-fixture-source4-exact.json.gz",
+  "previousSource": "availability-control-office-fixture-source3.json",
+  "previousFailedRun": "availability-control-root-office1.json",
+  "scope": "Same owned helper, exactly one schema shape fix: include mandatory workbook structureEdits={} per real validator. Existing peer test unchanged. No production validator/auth changes or weaker assertions. Captured final sheets/present enabled.",
+  "compilationAndRuntimeAcceptancePending": true,
+  "fullInstanceReady": false,
+  "canonicalWriterPermitted": false
+}

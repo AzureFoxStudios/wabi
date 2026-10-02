@@ -573,6 +573,14 @@ sources remain preserved. This is a retrieval slice;
 automatic publication, enabled-state recovery, production writer fencing,
 single-node recovery, room locality and measured capacity remain required.
 
+The later [saved Office state gate](../testing/OFFICE_SAVED_STATE_RECOVERY_2026-10-03.md)
+passes the expanded peer fixture and existing checkpoint checks (11/0/1) on
+5,190 unchanged inputs. Genuine enabled main Wabi documents/sheets/native deck
+records, deltas, ACLs, review/protection and paused presentation state match the
+retained inactive history without clearing guards or starting a writer. Full
+permission-checked restored API, external inventory and automatic recovery
+remain required; this is not ERP or a completed Gate B.
+
 Current [physical readiness](../testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md#october-3-readiness-refresh)
 again reaches Ronin and Iyoku by SSH. Three approved address checks found two
 distinct public IPv4 exits, with raw addresses kept out of saved evidence.

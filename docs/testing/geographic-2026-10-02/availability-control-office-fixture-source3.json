@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T18:51:43.426656+00:00",
+  "source": [
+    {
+      "path": "core/crates/wabi-server/tests/fixtures/checkpoint_office_verify.rs",
+      "bytes": 19503,
+      "sha256": "7ea7923d402b4e7ce6a0e2e6c586555bd2b37131d148de29d1fe94799021d9ec"
+    },
+    {
+      "path": "core/crates/wabi-server/tests/recovery_peer_operator_contract.rs",
+      "bytes": 25428,
+      "sha256": "9748ce31a737c60f2b10a3b082a97e9763696dc9233ddf3c37212960529fc902"
+    }
+  ],
+  "sourceArchive": "availability-control-office-fixture-source3-exact.json.gz",
+  "previousSource": "availability-control-office-fixture-source2.json",
+  "scope": "Same two-file fixture; actual captured final capabilities sheets=true,present=true after intermediate disable checks for both. Tests genuine enabled main Wabi saved state instead of shrinking capture to disabled optional workspaces. Prior sources never compiled/run.",
+  "compilationAndRuntimeAcceptancePending": true,
+  "fullInstanceReady": false,
+  "canonicalWriterPermitted": false
+}

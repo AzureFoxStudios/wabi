@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T18:48:14.110738+00:00",
+  "source": [
+    {
+      "path": "core/crates/wabi-server/tests/fixtures/checkpoint_office_verify.rs",
+      "bytes": 18764,
+      "sha256": "7f8ffb72b3532703d9a832a4ff5d2d8dacc9ab1f764f526f9138880ff1b48656"
+    },
+    {
+      "path": "core/crates/wabi-server/tests/recovery_peer_operator_contract.rs",
+      "bytes": 25428,
+      "sha256": "9748ce31a737c60f2b10a3b082a97e9763696dc9233ddf3c37212960529fc902"
+    }
+  ],
+  "sourceArchive": "availability-control-office-fixture-source2-exact.json.gz",
+  "previousSource": "availability-control-office-fixture-source1.json",
+  "scope": "Same cleared two-file candidate; decode Yrs Any with serde_json::to_value (actual pinned inherent to_json requires a buffer); numeric literal compare uses as_f64 for JS/Yrs float representation. Source1 was never compiled/run.",
+  "compilationAndRuntimeAcceptancePending": true,
+  "fullInstanceReady": false,
+  "canonicalWriterPermitted": false
+}

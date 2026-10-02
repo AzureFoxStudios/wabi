@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T18:45:52.977403+00:00",
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "source": [
+    {
+      "path": "core/crates/wabi-server/tests/fixtures/checkpoint_office_verify.rs",
+      "bytes": 18745,
+      "sha256": "61afc0d12533a4a9e7a0fd31c753a4d8f66086f99e9a1759fab5bc13e958e241"
+    },
+    {
+      "path": "core/crates/wabi-server/tests/recovery_peer_operator_contract.rs",
+      "bytes": 25428,
+      "sha256": "9748ce31a737c60f2b10a3b082a97e9763696dc9233ddf3c37212960529fc902"
+    }
+  ],
+  "sourceArchive": "availability-control-office-fixture-source1-exact.json.gz",
+  "scope": "Only cleared two tests: genuine main Wabi documents/sheets/native present, HTTP grants/revocation/protection/reviews/capability switches, source router replacement loses presentation controller, local-notes rejection, all-five-record and decoded-CRDT guarded inactive comparison. Not whole-process restored API acceptance, external inventory or writer activation.",
+  "compilationAndRuntimeAcceptancePending": true,
+  "fullInstanceReady": false,
+  "canonicalWriterPermitted": false
+}

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T18:40:40.080850+00:00",
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "acceptedCheckpoint": "ddac3088b983587d6f23cb0531da6c164dfa640e",
+  "ownedSource": [
+    {
+      "path": "core/crates/wabi-server/tests/recovery_peer_operator_contract.rs",
+      "bytes": 25135,
+      "sha256": "0290995e64ddd12d1f6ef2236ae7144c29dff8bb07003a0de226d45529542590"
+    },
+    {
+      "path": "core/crates/wabi-server/tests/fixtures/checkpoint_office_verify.rs",
+      "absent": true
+    }
+  ],
+  "scope": "Two test files only, explicitly released by coordinated owners; genuine Office seed/inactive replay comparisons. No Cargo slot, shared wiring, graph or frontend changes.",
+  "testsExecuted": false,
+  "fullInstanceReady": false,
+  "canonicalWriterPermitted": false
+}

@@ -36,6 +36,9 @@ use wabi_server::{
 };
 use wabidb::engine::wabi_store::WabiStore;
 
+#[path = "fixtures/checkpoint_office_verify.rs"]
+mod office;
+
 const SECRET: &str = "disposable-peer-verification-fixture-secret";
 const ENDPOINT: &str = "/api/operator/checkpoints/peer-verifications";
 fn directory(path: &Path) {
@@ -318,6 +321,7 @@ async fn configured_peer_roundtrip(fail_cleanup: bool) {
         .claim_ownership(user as i64, "peer_fixture_owner")
         .await
         .unwrap();
+    let office_seed = office::seed(state.clone(), user).await;
     let mut seed = 0x7451_9819_9245_562bu64;
     let payload: Vec<u8> = (0..160 * 1024)
         .map(|_| {
@@ -577,6 +581,7 @@ async fn configured_peer_roundtrip(fail_cleanup: bool) {
         .unwrap();
         stop.send(()).unwrap();
         server.await.unwrap().unwrap();
+        drop(office_seed);
         drop(app);
         drop(state);
         let error = match PeerVerificationJobs::open(setup.policy.clone(), &cfg) {
@@ -643,6 +648,12 @@ async fn configured_peer_roundtrip(fail_cleanup: bool) {
     .unwrap();
     assert!(!repeated.full_instance_ready);
     assert!(repeated.database.full_history_replayed);
+    office::inspect(
+        &office_seed,
+        &candidate.join("inactive"),
+        capture.receipt.as_ref().unwrap(),
+    )
+    .await;
     let candidate_lock_after = fs::metadata(candidate.join("inactive/data/wabidb/.lock")).unwrap();
     assert_eq!(
         (candidate_lock.dev(), candidate_lock.ino()),

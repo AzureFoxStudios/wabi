@@ -105,19 +105,31 @@ Office/external inventory, nonce fences and full recovery remain open.
 
 Next focused gates for this source slice:
 
+The later two-file Office fixture now has [local saved-state acceptance](../testing/OFFICE_SAVED_STATE_RECOVERY_2026-10-03.md):
+the frozen rerun compiled and passed 11 checks with zero failures and one ignored
+entry on 5,190 unchanged inputs. Its first schema-refusal failure is preserved.
+It seeds genuine HTTP document/sheet/native deck records, appended CRDT deltas,
+reviews, grants/revocation, protected cells, capability switches and presentation
+audience/questions. The capture keeps both sheets and presentations enabled
+after checking intermediate disable/refusal behavior. It also replaces the source router to exercise lost
+controller state; that is not a whole-process recovered API test. The retained
+candidate is inspected through the existing read-only view, comparing all five
+workspace records and decoded content while preserving both guards and the
+lock inode. Full recovered API and external-instance acceptance remain open.
+
 1. Frozen two-target compile/direct checks are complete; actual terminal codes,
    artifact/source identities, failed first run and repaired source are retained.
 2. Allocated scratch cleanup failure now proves admission closure and restart
    remnant refusal before explicit retirement; ordinary refused peer data permits
    a healthy retry. Dedicated constructor-deadline, worker-interruption and
    mid-publication crash fault runs remain required.
-3. Seed real Office HTTP documents/sheets/native slides, deltas, grants,
-   revocations, reviews/protection and presentation records before a genuine
-   capture. After peer retrieval, use the existing `OfflineInspection` read
-   model to compare every canonical workspace record and decode CRDT content.
-   It has no durable mutation handle. Preserve both inactive guards and the
-   lock inode. Equal stored ACL fields are not restored-API authorization or
-   restarted presentation acceptance; those require separate safe checks.
+3. Genuine Office source HTTP records and guarded inactive comparison now pass
+   for settings, documents/sheets/native slides, deltas, grants/revocation,
+   review/protection and a paused presentation with a question. All five saved
+   rows and three decoded artifact contents match. Permission-checked restored
+   API, a captured active controller in a new process, external conversion and
+   asset/configuration recovery still need separate safe checks. Equal stored
+   ACL fields do not prove those behaviors; preserve both guards and lock inode.
 4. Coordinate and accept production publication/consensus ownership and
    durable restart reconciliation before using these candidates for automatic
    recovery. Retention/deletion and partial-publication retirement require an
