@@ -1,0 +1,100 @@
+{
+  "fixture": "Synthetic Lore HTTP, real FilesWorkspace/filesWorkspaceSession/api/lore; not external Lore integration",
+  "passed": 23,
+  "failed": 0,
+  "results": [
+    {
+      "name": "01 rendered listing and two synthetic spaces",
+      "status": "PASS"
+    },
+    {
+      "name": "02 nested folders and encoded path text preview",
+      "status": "PASS"
+    },
+    {
+      "name": "03 local filter and clear restore rows",
+      "status": "PASS"
+    },
+    {
+      "name": "04 rendered image decodes and close revokes blob URL",
+      "status": "PASS"
+    },
+    {
+      "name": "05 unsupported preview downloads actual matching bytes",
+      "status": "PASS"
+    },
+    {
+      "name": "06 preview error and rendered retry recover",
+      "status": "PASS"
+    },
+    {
+      "name": "07 listing error and retry recover without empty success",
+      "status": "PASS"
+    },
+    {
+      "name": "08 cross-space search renders both paths",
+      "status": "PASS"
+    },
+    {
+      "name": "09 cross-space search opens result in correct space",
+      "status": "PASS"
+    },
+    {
+      "name": "10 partial search warning and retry restore results",
+      "status": "PASS"
+    },
+    {
+      "name": "11 failed search and retry are distinct from no matches",
+      "status": "PASS"
+    },
+    {
+      "name": "12 cross-space no-match message",
+      "status": "PASS"
+    },
+    {
+      "name": "13 delayed old preview cannot replace new space",
+      "status": "PASS"
+    },
+    {
+      "name": "14 context transition clears visible old data and preview",
+      "status": "PASS"
+    },
+    {
+      "name": "15 context retry reloads same-channel files in new scope",
+      "status": "PASS"
+    },
+    {
+      "name": "15b single Retry fully recovers new-scope listing",
+      "status": "PASS"
+    },
+    {
+      "name": "16 optional dependency unavailable is an honest error",
+      "status": "PASS"
+    },
+    {
+      "name": "17 optional dependency recovery through Retry",
+      "status": "PASS"
+    },
+    {
+      "name": "18 absent repository shows connected-space guidance",
+      "status": "PASS"
+    },
+    {
+      "name": "19 mobile Files controls stay within viewport",
+      "status": "PASS"
+    },
+    {
+      "name": "20 upload completes and refreshed listing shows the file",
+      "status": "PASS"
+    },
+    {
+      "name": "20b failed upload keeps honest error and Retry completes",
+      "status": "PASS"
+    },
+    {
+      "name": "21 no uncaught browser exceptions",
+      "status": "PASS"
+    }
+  ],
+  "pageErrors": []
+}

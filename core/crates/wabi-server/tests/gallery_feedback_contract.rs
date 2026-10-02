@@ -137,7 +137,7 @@ async fn album_item(state: &AppState, channel: &str, member: u64) -> (String, St
         .unwrap();
     let item = state
         .wdb
-        .add_item(&album, "/uploads/pic.png", "pic.png", None, member)
+        .add_item(&album, "/uploads/pic.png", "pic.png", None, None, Some("image/png"), member)
         .await
         .unwrap();
     let derived = format!("album-{album}-item-{item}");

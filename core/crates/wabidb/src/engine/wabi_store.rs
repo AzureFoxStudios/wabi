@@ -584,6 +584,8 @@ pub trait WabiStore: Send + Sync {
         _url: &str,
         _name: &str,
         _caption: Option<&str>,
+        _size: Option<i64>,
+        _mime: Option<&str>,
         _user_id: u64,
     ) -> Result<String> {
         Ok(String::new())
