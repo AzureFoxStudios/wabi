@@ -256,7 +256,8 @@ function injectMessageEntityPlaceholders(
 			return;
 		}
 
-		const displayText = entity.displayText || text.slice(entity.start, entity.end) || entity.label;
+		const objectLabels: Record<string, string> = { gallery_work: 'Gallery', forum_post: 'Forum', wiki_page: 'Wiki', place: 'Map' };
+		const displayText = objectLabels[entity.kind] ? `${objectLabels[entity.kind]} · ${entity.label}` : entity.displayText || text.slice(entity.start, entity.end) || entity.label;
 		const token = `WABI_ENTITY_${index}_${entity.targetId.toUpperCase()}`;
 		const kind = entity.kind;
 

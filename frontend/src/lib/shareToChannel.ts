@@ -33,8 +33,8 @@ export function buildSharePayload(record: ObjectRefRecord): { text: string; enti
 				start,
 				end: start + token.length - 1,
 				targetId: record.id,
-				label: slug,
-				displayText: token.trim(),
+				label: record.title,
+				displayText: record.title,
 			},
 		],
 	};

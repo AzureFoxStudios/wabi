@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
 	filterGalleryItems,
+ orderGalleryByUploader,
 	splitGallerySections,
 	galleryViewState,
 	guessGalleryMediaKind,
@@ -126,4 +127,10 @@ describe('gallery filter helper (GF01)', () => {
 		expect(galleryViewState(12, 0)).toBe('no-match');
 		expect(galleryViewState(12, 3)).toBe('results');
 	});
+});
+
+test('all works includes recent uploads and groups unavailable uploaders without losing works', () => {
+ const works = [item({id:'a', uploadedBy:9, uploadedAt:3}), item({id:'b',uploadedBy:7,uploadedAt:1}), item({id:'c',uploadedBy:7,uploadedAt:4})];
+ expect(orderGalleryByUploader(works).map(work=>work.id)).toEqual(['c','b','a']);
+ expect(works.map(work=>work.id)).toEqual(['a','b','c']);
 });
