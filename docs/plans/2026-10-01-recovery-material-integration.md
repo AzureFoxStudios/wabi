@@ -139,6 +139,36 @@ a remote acknowledgment is not a committed observation. Publication,
 reconciliation, retention/reseed, full enabled recovery and every-path writer
 and encryption fencing remain open.
 
+### October 3: owned archive-file ingestion prerequisite
+
+The narrowly owned material module/test pair now accepts a trusted caller's
+owned `File`, rewinds it, validates private regular current-owner/single-link
+metadata and exact signed length before reads, and rechecks original metadata,
+digest and deadline before certification. The same bounded chunker serves the
+path API, preserving its independent ancestor/name/no-follow/inode guards.
+The handle receipt makes no path-name provenance claim. Failed partial chunks
+remain quota charged. Schema, dependencies and writer/readiness permissions are
+unchanged. See the [caller contract](../deployment/RECOVERY_CONTROL_RUNTIME.md#owned-archive-file-ingestion-prerequisite).
+
+Two source reviews passed. The
+[frozen library acceptance](../testing/geographic-2026-10-02/checkpoint-file-root-library1.json)
+compiled and passed **82 checks, zero failures and four ignored entries** in
+one serial unit group on 5,196 unchanged inputs. Counts overlap the prior
+76-check baseline; six new units cover owned-file metadata/offset/hash/budget
+and expiry alongside existing checkpoint/legacy/crash/runtime regressions.
+Integration/server binaries, doctests, genuine exports and physical uplinks
+were excluded. The [review scope](../testing/geographic-2026-10-02/checkpoint-file-source-review1.json)
+keeps the timing limit explicit: expiry may precede arrival at the lane wait;
+the check proves late-receipt refusal. Metadata changes after reads use a
+deterministic cut point; concurrent races and FIFO substitution were inspected.
+
+Next, wire a trusted pinned server archive handle through owned runtime jobs,
+retaining caller admission and directory/store ownership through actual IO.
+Then persist the original publication operation and exact prepared consensus
+command before admission, reconcile the same operation across restart, and
+complete retention/reseed, full enabled recovery and every-path fencing.
+This material primitive supplies no production publisher or automatic recovery.
+
 ### October 3: owned peer candidate job source
 
 The [operator contract](../deployment/CHECKPOINT_PEER_CANDIDATES.md) describes

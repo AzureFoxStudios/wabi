@@ -1,0 +1,40 @@
+{
+  "baselineLedgerSha256": "5a57bc988e6bab1e0e29a4d199dfe51fde15fb021d9451b544fc8e8a8a61de5b",
+  "capturedAtUtc": "2026-10-02T22:25:12.838699+00:00",
+  "cargoLockSha256": "51945aa9a62b8bcb2be3dadd11ea044c201366d656782b3db705460c09f851bd",
+  "checkpointBase": "c0430c35641216a35d84d6b846807a3d3bc410e9",
+  "compilationExecuted": false,
+  "compilerReserved": false,
+  "files": [
+    {
+      "baseSha256": "07309fd144bdd92719252bff9209f226742cc197ef3ae75a967d5d99086c6339",
+      "bytes": 20587,
+      "path": "core/crates/wabi-consensus/src/material/checkpoint.rs",
+      "sha256": "20e6d56c783a698b205ecbeb22f585e444d4acd42eaf8f711eaa8c29d640db34"
+    },
+    {
+      "baseSha256": "90e7e7950b9b4d9b66775ddf8a00ab7ee9a56d91c40c3997c3577d0bd9edf883",
+      "bytes": 28730,
+      "path": "core/crates/wabi-consensus/src/material/checkpoint/tests.rs",
+      "sha256": "fc6e50b3e32f58853d2594da7f4ee37c57c7042363ee2c37927eda41868eba02"
+    }
+  ],
+  "fullInstanceReady": false,
+  "heldFileClaimsNoPathProvenance": true,
+  "implementation": "Owned File consumed/rewound; regular current-owner private single-link signed length checks before reads; exact hash and stable held metadata including mutation timestamps before certification. Existing path API retains ancestors/name/no-follow/inode guards; O_NONBLOCK avoids FIFO substitution blocking. Same chunk/deadline/quota/certification path; no arbitrary Read. Six new units cover offset/output equivalence, pinned descriptor path with independent path refusal/name replacement, initial unsafe metadata, changed metadata after reads, hash/community/budgets/invalid deadlines, actual expired shared lane. Owner mismatch uses metadata-validator expectedUID test without privileged chown. Caller scheduling cannot restart the real deadline.",
+  "newTests": 6,
+  "partialFailedChunksRemainQuotaCharged": true,
+  "pathGuardsPreserved": true,
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "schemaOrDependencyChanges": false,
+  "schemaVersion": 1,
+  "scope": "two-file trusted owned checkpoint File API and shared guarded chunker, no runtime/server wiring",
+  "sourceArchive": {
+    "bytes": 16219,
+    "path": "docs/testing/geographic-2026-10-02/checkpoint-file-source1-exact.json.gz",
+    "sha256": "8efd683c421e216c16234ef8545ff6031fee955e68866315d96949c78ac7e146"
+  },
+  "sourceOnlyFrozenForReview": true,
+  "testsExecuted": false,
+  "writerActivation": false
+}

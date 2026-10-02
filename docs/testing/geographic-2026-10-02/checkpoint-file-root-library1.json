@@ -1,0 +1,58 @@
+{
+  "accepted": true,
+  "actualExitCode": 0,
+  "canonicalWriterPermitted": false,
+  "changedSourcesAtTerminalReadback": {},
+  "compilationActualExitCode": 0,
+  "compilationCommand": [
+    "cargo",
+    "+1.93",
+    "test",
+    "--offline",
+    "--locked",
+    "-p",
+    "wabi-consensus",
+    "--lib",
+    "--no-run",
+    "--message-format=json-render-diagnostics"
+  ],
+  "compilerPausedForThermalHandoff": true,
+  "executables": [
+    {
+      "bytes": 28453112,
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_consensus-22d83510d7fdf2f2",
+      "sha256": "45faf47136f3616246c3b46e5e1c14a1d11bbc67304cb532ce85efcafdcf2cde",
+      "targetName": "wabi_consensus"
+    }
+  ],
+  "fail": 0,
+  "finishedAtUtc": "2026-10-02T22:37:23.445340+00:00",
+  "fullInstanceReady": false,
+  "ignored": 4,
+  "mode": "owned-checkpoint-file-library",
+  "name": "checkpoint-file-root-library1",
+  "newTargetTreeCreated": false,
+  "outcomes": [
+    {
+      "actualExitCode": 0,
+      "command": [
+        "/home/ironin/wabi/target/debug/deps/wabi_consensus-22d83510d7fdf2f2",
+        "--test-threads=1"
+      ],
+      "maximumPreTestTemperatureC": 31.5,
+      "targetName": "wabi_consensus"
+    }
+  ],
+  "pass": 82,
+  "rawLog": "/tmp/wabi-geographic-checkpoint-file-root-library1.log",
+  "rawLogSha256": "db2a367607df43b23ded98753a9c03979f97457be8d158add22f21aa5b2cad90",
+  "resultGroups": 1,
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "schemaVersion": 1,
+  "scope": "Entire consensus library unit group, including six owned checkpoint file units and existing checkpoint/legacy/crash/runtime regressions. Integration binaries, server, doctests, export/publication, physical uplinks and activation excluded.",
+  "sourceFreezeSha256": "7b51f712e2ad6c9afdad06353bf9531bc1205a519fae660213e8927288112cc6",
+  "sourceInputs": 5196,
+  "startedAtUtc": "2026-10-02T22:33:19.522083+00:00",
+  "target": "/home/ironin/wabi/target",
+  "timedTestsThrottled": false
+}

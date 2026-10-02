@@ -1,0 +1,27 @@
+{
+  "archive": {
+    "bytes": 7163,
+    "path": "docs/testing/geographic-2026-10-02/checkpoint-file-harness1-exact.json.gz",
+    "sha256": "bcff2b71a9b8b080de99607fbf360d5ac1ec8ab921b80df1907db1d0f01392f5"
+  },
+  "compilerReserved": false,
+  "executed": false,
+  "helperFiles": [
+    {
+      "bytes": 7988,
+      "path": "/tmp/wabi-geographic-checkpoint-file-acceptance1.py",
+      "sha256": "d604d6389e8bbe628484171d8f772c50b624d72136988f46deea297633a67e6b"
+    },
+    {
+      "bytes": 4776,
+      "path": "/tmp/wabi-geographic-checkpoint-file-precheck1.py",
+      "sha256": "835db5fdc57ef0b468d0fe28e4fd909bc975457f36026b13c9acef6baec71b9e"
+    }
+  ],
+  "proposal": "Pinned offline/locked consensus --lib --no-run; one full library direct group expected82pass/4ignored, overlapping baseline76pass/4ignored plus6 newunits. Existing checkpoint/legacy/crash/runtime regressions; no integration/server/doctests. Staged separately stopped Cargo/parent, owned Cargo-only thermal controller, actualterminal/fullinputs/artifact/cool/free precheck resumesonlyparent; no new target/static copy.",
+  "schemaVersion": 1,
+  "sourceLedger": {
+    "path": "docs/testing/geographic-2026-10-02/checkpoint-file-source1.json",
+    "sha256": "03f6c0842981c5d504dc2dacb2609b02df79f04066eae7a4d21363ea26c64680"
+  }
+}

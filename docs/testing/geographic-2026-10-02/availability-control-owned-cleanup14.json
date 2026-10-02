@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T22:40:19.295256+00:00",
+  "reason": "Remove only accepted terminal raw log after exact private ownership/inode/hash/gzip/owned-process-absence verification",
+  "path": "/tmp/wabi-geographic-checkpoint-file-root-library1.log",
+  "bytesRemoved": 138629,
+  "sha256": "db2a367607df43b23ded98753a9c03979f97457be8d158add22f21aa5b2cad90",
+  "originalDevice": 66306,
+  "originalInode": 4382774,
+  "uid": 1000,
+  "mode": "0600",
+  "singleLink": true,
+  "terminalReceiptAccepted": true,
+  "preservedGzip": "checkpoint-file-root-library1.log.gz",
+  "ownedPidsAbsent": [
+    1262960,
+    1262875,
+    1264300
+  ],
+  "otherFilesRemoved": [],
+  "freeBytesAfter": 13151531008
+}

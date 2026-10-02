@@ -111,6 +111,48 @@ ID in `control_state`; do not create a different ID to turn a retry green.
 The runtime exposes durable records, but the server's pre-publication journal
 and automatic restart reconciliation have not been implemented by this module.
 
+### Owned archive-file ingestion prerequisite
+
+The material library now supplies `MaterialStore::ingest_checkpoint_file` for
+a trusted local caller holding an already opened archive `File`. It consumes
+the handle, rewinds to offset zero, and requires a regular file owned by the
+current user, private permissions, one link and the exact signed length before
+reading. The shared chunker checks the exact signed ciphertext digest, elapsed
+deadline and original held-file metadata before certification. Device/inode,
+length, owner, mode, link count and mutation timestamps must remain stable;
+reads may change access time. Valid partial chunks remain quota charged after
+failure, without a fabricated successful receipt.
+
+The caller owns directory/name provenance and retains admission, directory and
+store ownership until started synchronous IO actually finishes, including when
+an async caller is cancelled. This API's receipt covers held signed bytes; it
+does not certify an old path name. The separate path API retains its ancestor,
+name, no-follow and original-inode checks. Its nonblocking open also prevents
+a substituted FIFO from stalling before the held-file type check. The runtime's
+current `ingest_capture` still uses that path API. Trusted server/runtime handle
+wiring and capture publication are the next integration step; the primitive
+does not add an operator route or writer permission.
+
+The [frozen library run](../testing/geographic-2026-10-02/checkpoint-file-root-library1.json)
+compiled and passed **82 checks, zero failures and four ignored entries in one
+serial unit group**, with all 5,196 Rust/graph/static inputs unchanged. This
+overlaps the earlier 76-check library baseline and adds six owned-file units:
+offset/output equivalence, pinned-descriptor ingestion with independent path
+refusal, initial unsafe metadata, deterministic post-read metadata changes,
+hash/context/quotas/invalid deadlines, and expired shared ingestion work.
+Integration binaries, the server, doctests, real exports, physical uplinks and
+activation were excluded.
+
+Both independent source reviews passed before compilation. The
+[review limits](../testing/geographic-2026-10-02/checkpoint-file-source-review1.json)
+record that the expiry test establishes its deadline before signaling but may
+expire before reaching the held lane, so it proves late-receipt refusal rather
+than deterministic lock-wait coverage. FIFO substitution and concurrent
+mutation branches were inspected, not raced in this acceptance. Async ownership
+remains a caller obligation; this slice does not prove the future server job.
+
+### Runtime shutdown
+
 Dropping the owner requests supervisor shutdown. Explicit `shutdown` waits
 for the listener's admitted work, the local worker and Raft to finish, keeping
 stores and locks owned until then. Started filesystem IO is not forcibly

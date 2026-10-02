@@ -5,6 +5,7 @@ use crate::source_context::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    io::Seek,
     path::Component,
     time::{Duration, Instant},
 };
@@ -369,24 +370,14 @@ impl MaterialStore {
         source: &VerifiedSourceContext,
         limits: ChunkingLimits,
     ) -> Result<(CheckpointManifest, LocalCheckpointReceipt)> {
-        if limits.timeout.is_zero()
-            || limits.timeout > Duration::from_secs(300)
-            || !path.is_absolute()
+        let deadline = self.ingestion_deadline(source, limits)?;
+        if !path.is_absolute()
             || path
                 .components()
                 .any(|c| matches!(c, Component::ParentDir | Component::CurDir))
         {
             return Err(MaterialError::Format);
         }
-        if source.claims().community_id != self.inner.binding.community_id {
-            return Err(MaterialError::Context);
-        }
-        if source.claims().ciphertext_bytes > self.inner.limits.max_stored_bytes {
-            return Err(MaterialError::Budget);
-        }
-        let deadline = Instant::now()
-            .checked_add(limits.timeout)
-            .ok_or(MaterialError::Format)?;
         let mut ancestor = path.parent();
         while let Some(parent) = ancestor {
             if io(fs::symlink_metadata(parent))?.file_type().is_symlink() {
@@ -396,25 +387,72 @@ impl MaterialStore {
         }
         let named = io(fs::symlink_metadata(path))?;
         let uid = io(fs::metadata("/proc/self"))?.uid();
-        if !named.is_file()
-            || named.file_type().is_symlink()
-            || named.nlink() != 1
-            || named.mode() & 0o077 != 0
-            || named.uid() != uid
-        {
-            return Err(MaterialError::Ownership);
-        }
-        if named.len() != source.claims().ciphertext_bytes {
-            return Err(MaterialError::Format);
-        }
-        let mut input = io(OpenOptions::new()
+        checkpoint_input_metadata(&named, uid, source.claims().ciphertext_bytes)?;
+        let input = io(OpenOptions::new()
             .read(true)
-            .custom_flags(NOFOLLOW)
+            // O_NONBLOCK prevents a replaced FIFO from blocking open before
+            // the held-file metadata check. It has no effect on regular files.
+            .custom_flags(NOFOLLOW | 0o4000)
             .open(path))?;
         let held = io(input.metadata())?;
-        if (named.dev(), named.ino()) != (held.dev(), held.ino()) {
+        if !checkpoint_input_unchanged(&named, &held) {
             return Err(MaterialError::Ownership);
         }
+        self.ingest_checkpoint_opened(input, source, deadline, |_| {
+            // The path API independently retains its original name/inode
+            // ownership contract; descriptor ingestion is not a fallback.
+            let current = io(fs::symlink_metadata(path))?;
+            if !checkpoint_input_unchanged(&named, &current) {
+                return Err(MaterialError::Ownership);
+            }
+            checkpoint_input_metadata(&current, uid, source.claims().ciphertext_bytes)?;
+            Ok(())
+        })
+    }
+    /// Trusted local caller only: consume a private regular archive handle and
+    /// read from offset zero. The caller owns any directory/name provenance;
+    /// this API certifies exact signed bytes and held-file identity, not paths.
+    /// Async callers must retain admission and store ownership until this
+    /// synchronous work actually completes, including after cancellation.
+    pub fn ingest_checkpoint_file(
+        &self,
+        input: File,
+        source: &VerifiedSourceContext,
+        limits: ChunkingLimits,
+    ) -> Result<(CheckpointManifest, LocalCheckpointReceipt)> {
+        let deadline = self.ingestion_deadline(source, limits)?;
+        self.ingest_checkpoint_opened(input, source, deadline, |_| Ok(()))
+    }
+    fn ingestion_deadline(
+        &self,
+        source: &VerifiedSourceContext,
+        limits: ChunkingLimits,
+    ) -> Result<Instant> {
+        if limits.timeout.is_zero() || limits.timeout > Duration::from_secs(300) {
+            return Err(MaterialError::Format);
+        }
+        if source.claims().community_id != self.inner.binding.community_id {
+            return Err(MaterialError::Context);
+        }
+        if source.claims().ciphertext_bytes > self.inner.limits.max_stored_bytes {
+            return Err(MaterialError::Budget);
+        }
+        Instant::now()
+            .checked_add(limits.timeout)
+            .ok_or(MaterialError::Format)
+    }
+    fn ingest_checkpoint_opened(
+        &self,
+        mut input: File,
+        source: &VerifiedSourceContext,
+        deadline: Instant,
+        recheck_name: impl FnOnce(&fs::Metadata) -> Result<()>,
+    ) -> Result<(CheckpointManifest, LocalCheckpointReceipt)> {
+        check_deadline(Some(deadline))?;
+        let uid = io(fs::metadata("/proc/self"))?.uid();
+        let original = io(input.metadata())?;
+        checkpoint_input_metadata(&original, uid, source.claims().ciphertext_bytes)?;
+        io(input.rewind())?;
         let mut objects = Vec::new();
         let mut hash = Sha256::new();
         let mut total = 0u64;
@@ -425,6 +463,7 @@ impl MaterialStore {
             let mut bytes = vec![0u8; TRANSFER_OBJECT_BYTES];
             let mut used = 0;
             while used < bytes.len() {
+                check_deadline(Some(deadline))?;
                 let n = io(input.read(&mut bytes[used..]))?;
                 if n == 0 {
                     break;
@@ -457,17 +496,12 @@ impl MaterialStore {
         {
             return Err(MaterialError::Format);
         }
-        let current = io(fs::symlink_metadata(path))?;
+        recheck_name(&original)?;
         let held = io(input.metadata())?;
-        if (current.dev(), current.ino()) != (named.dev(), named.ino())
-            || (held.dev(), held.ino()) != (named.dev(), named.ino())
-            || current.len() != total
-            || current.nlink() != 1
-            || current.mode() & 0o077 != 0
-            || current.uid() != uid
-        {
+        if !checkpoint_input_unchanged(&original, &held) {
             return Err(MaterialError::Ownership);
         }
+        checkpoint_input_metadata(&held, uid, total)?;
         if Instant::now() >= deadline {
             return Err(MaterialError::Deadline);
         }
@@ -485,6 +519,48 @@ impl MaterialStore {
         )?;
         Ok((manifest, receipt))
     }
+}
+fn checkpoint_input_metadata(metadata: &fs::Metadata, uid: u32, bytes: u64) -> Result<()> {
+    if !metadata.is_file()
+        || metadata.nlink() != 1
+        || metadata.mode() & 0o077 != 0
+        || metadata.uid() != uid
+    {
+        return Err(MaterialError::Ownership);
+    }
+    if metadata.len() != bytes {
+        return Err(MaterialError::Format);
+    }
+    Ok(())
+}
+fn checkpoint_input_unchanged(original: &fs::Metadata, current: &fs::Metadata) -> bool {
+    // Reads may change atime. Size, ownership, permissions, links and mutation
+    // timestamps must remain stable even if a writer later restores the bytes.
+    (
+        original.dev(),
+        original.ino(),
+        original.len(),
+        original.uid(),
+        original.mode(),
+        original.nlink(),
+    ) == (
+        current.dev(),
+        current.ino(),
+        current.len(),
+        current.uid(),
+        current.mode(),
+        current.nlink(),
+    ) && (
+        original.mtime(),
+        original.mtime_nsec(),
+        original.ctime(),
+        original.ctime_nsec(),
+    ) == (
+        current.mtime(),
+        current.mtime_nsec(),
+        current.ctime(),
+        current.ctime_nsec(),
+    )
 }
 #[cfg(test)]
 mod tests;

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T22:33:39.918924+00:00",
+  "sourceLedger": "checkpoint-file-source1.json",
+  "independentReviews": 2,
+  "sourceReviewClear": true,
+  "harnessReviewClear": true,
+  "sourceRepairRequired": false,
+  "limits": [
+    "Owned File API accepts trusted local File only and does not certify directory or path-name provenance.",
+    "Existing path API retains its own guards. FIFO substitution and concurrent mutation branches were inspected, not raced in acceptance.",
+    "The shared-lane expiry test signals after a real deadline is created. Scheduling may expire before the worker reaches the held lane; this proves late receipt refusal, not deterministic lock-wait coverage.",
+    "Async admission/store ownership remains the callers responsibility. No runtime/server integration is included.",
+    "One full consensus library group is approved; integration/server/doctests, physical uplinks, publication and activation excluded."
+  ]
+}

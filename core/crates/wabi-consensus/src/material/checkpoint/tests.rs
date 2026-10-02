@@ -1,7 +1,7 @@
 use super::*;
 use crate::source_context::tests::fixture;
 use std::{
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, SeekFrom},
     os::unix::fs::{symlink, PermissionsExt},
     process::{Command, Stdio},
     sync::mpsc,
@@ -383,6 +383,260 @@ fn source_inputs_quota_and_deadline_contract_refuse_before_receipt() {
         MaterialError::Budget
     );
     assert_eq!(other.inner.inventory().unwrap().0, 0);
+}
+#[test]
+fn owned_file_rewinds_and_matches_path_manifest_and_receipt() {
+    let bytes: Vec<u8> = (0..TRANSFER_OBJECT_BYTES + 23)
+        .map(|n| (n % 251) as u8)
+        .collect();
+    let (_parent, path, store, source) = stage(&bytes);
+    let expected = store
+        .ingest_checkpoint(&path, &source, ChunkingLimits::default())
+        .unwrap();
+    let mut input = File::open(&path).unwrap();
+    input
+        .seek(SeekFrom::Start(bytes.len() as u64 + 17))
+        .unwrap();
+    let actual = store
+        .ingest_checkpoint_file(input, &source, ChunkingLimits::default())
+        .unwrap();
+    assert_eq!(actual, expected);
+    assert_eq!(store.inner.inventory().unwrap().0, 2);
+    assert_eq!(store.inner.inventory().unwrap().1, 1);
+    for field in [
+        "quorumAvailable",
+        "fullInstanceReady",
+        "canonicalWriterPermitted",
+    ] {
+        assert_eq!(
+            serde_json::to_value(actual.1.clone()).unwrap()[field],
+            false
+        );
+    }
+}
+#[test]
+fn owned_descriptor_ingests_without_relaxing_path_ancestor_or_name_checks() {
+    let (parent, path, store, source) = stage(b"opaque held descriptor");
+    let directory = File::open(parent.path()).unwrap();
+    let relative = PathBuf::from(format!(
+        "/proc/self/fd/{}/captured.age",
+        directory.as_raw_fd()
+    ));
+    assert_eq!(
+        store.ingest_checkpoint(&relative, &source, ChunkingLimits::default()),
+        Err(MaterialError::Ownership)
+    );
+    assert_eq!(store.inner.inventory().unwrap().0, 0);
+    let held = File::open(&relative).unwrap();
+    // Descriptor ingestion promises the held bytes, not ownership of an old
+    // path name. Establish this change before the API's metadata snapshot.
+    fs::rename(&path, parent.path().join("retained.age")).unwrap();
+    fs::write(&path, b"replacement wrong bytes").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    let (manifest, receipt) = store
+        .ingest_checkpoint_file(held, &source, ChunkingLimits::default())
+        .unwrap();
+    assert_eq!(manifest.source, *source.signed());
+    assert_eq!(
+        store
+            .checkpoint_receipt(receipt.manifest_sha256(), "node-1")
+            .unwrap(),
+        receipt
+    );
+    assert_eq!(
+        store
+            .ingest_checkpoint(&path, &source, ChunkingLimits::default())
+            .unwrap_err(),
+        MaterialError::Format
+    );
+}
+#[test]
+fn owned_file_rejects_nonprivate_nonregular_linked_and_wrong_size_before_chunks() {
+    for attack in 0..5 {
+        let (parent, path, store, source) = stage(b"opaque");
+        let input = if attack == 2 {
+            File::open(parent.path()).unwrap()
+        } else {
+            File::open(&path).unwrap()
+        };
+        match attack {
+            0 => fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap(),
+            1 => fs::hard_link(&path, parent.path().join("alias.age")).unwrap(),
+            2 => {}
+            3 => fs::remove_file(&path).unwrap(),
+            _ => fs::write(&path, b"longer archive").unwrap(),
+        }
+        assert_eq!(
+            store
+                .ingest_checkpoint_file(input, &source, ChunkingLimits::default())
+                .unwrap_err(),
+            if attack == 4 {
+                MaterialError::Format
+            } else {
+                MaterialError::Ownership
+            }
+        );
+        assert_eq!(store.inner.inventory().unwrap().0, 0);
+        assert_eq!(store.inner.inventory().unwrap().1, 0);
+    }
+    let (_parent, path, _store, source) = stage(b"opaque");
+    let metadata = File::open(path).unwrap().metadata().unwrap();
+    // Exercise owner comparison without requiring root or changing any file's
+    // owner. The production expected UID always comes from /proc/self.
+    assert_eq!(
+        checkpoint_input_metadata(
+            &metadata,
+            metadata.uid().wrapping_add(1),
+            source.claims().ciphertext_bytes
+        ),
+        Err(MaterialError::Ownership)
+    );
+}
+#[test]
+fn owned_file_metadata_changes_after_reads_leave_chunks_without_new_receipt() {
+    for attack in 0..6 {
+        let (parent, path, store, source) = stage(b"opaque");
+        let input = File::open(&path).unwrap();
+        let deadline = store
+            .ingestion_deadline(&source, ChunkingLimits::default())
+            .unwrap();
+        assert_eq!(
+            store.ingest_checkpoint_opened(input, &source, deadline, |_| {
+                match attack {
+                    0 => fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap(),
+                    1 => fs::hard_link(&path, parent.path().join("alias.age")).unwrap(),
+                    2 => fs::write(&path, b"longer after read").unwrap(),
+                    3 => fs::remove_file(&path).unwrap(),
+                    4 => {
+                        // Still private, but no longer the original metadata.
+                        fs::set_permissions(&path, fs::Permissions::from_mode(0o400)).unwrap();
+                    }
+                    _ => {
+                        // Same bytes and length do not hide a metadata change.
+                        File::open(&path)
+                            .unwrap()
+                            .set_times(
+                                fs::FileTimes::new()
+                                    .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(42)),
+                            )
+                            .unwrap();
+                    }
+                }
+                Ok(())
+            }),
+            Err(MaterialError::Ownership)
+        );
+        assert_eq!(store.inner.inventory().unwrap().0, 1);
+        assert_eq!(store.inner.inventory().unwrap().1, 0);
+    }
+}
+#[test]
+fn owned_file_hash_context_quota_and_invalid_deadlines_refuse_receipts() {
+    let (_parent, path, store, source) = stage(b"opaque");
+    fs::write(&path, b"mutant").unwrap();
+    assert_eq!(
+        store.ingest_checkpoint_file(
+            File::open(&path).unwrap(),
+            &source,
+            ChunkingLimits::default()
+        ),
+        Err(MaterialError::Format)
+    );
+    assert_eq!(store.inner.inventory().unwrap().1, 0);
+    for timeout in [Duration::ZERO, Duration::from_secs(301)] {
+        assert_eq!(
+            store.ingest_checkpoint_file(
+                File::open(&path).unwrap(),
+                &source,
+                ChunkingLimits { timeout }
+            ),
+            Err(MaterialError::Format)
+        );
+    }
+    let root = private_root();
+    let mut foreign = binding(source.signed());
+    foreign.community_id = "12".repeat(32);
+    let other = MaterialStore::open(root.path(), foreign, limits()).unwrap();
+    assert_eq!(
+        other.ingest_checkpoint_file(
+            File::open(&path).unwrap(),
+            &source,
+            ChunkingLimits::default()
+        ),
+        Err(MaterialError::Context)
+    );
+    assert_eq!(other.inner.inventory().unwrap().0, 0);
+    let root = private_root();
+    let mut limited = limits();
+    limited.max_object_bytes = 3;
+    limited.max_stored_bytes = 3;
+    let other = MaterialStore::open(root.path(), binding(source.signed()), limited).unwrap();
+    assert_eq!(
+        other.ingest_checkpoint_file(
+            File::open(&path).unwrap(),
+            &source,
+            ChunkingLimits::default()
+        ),
+        Err(MaterialError::Budget)
+    );
+    assert_eq!(other.inner.inventory().unwrap().0, 0);
+
+    let bytes = vec![b'a'; TRANSFER_OBJECT_BYTES + 1];
+    let (_parent, path, _store, source) = stage(&bytes);
+    let root = private_root();
+    let mut limited = limits();
+    limited.max_objects = 1;
+    let other = MaterialStore::open(root.path(), binding(source.signed()), limited).unwrap();
+    assert_eq!(
+        other.ingest_checkpoint_file(
+            File::open(&path).unwrap(),
+            &source,
+            ChunkingLimits::default()
+        ),
+        Err(MaterialError::Budget)
+    );
+    assert_eq!(other.inner.inventory().unwrap().0, 1);
+    assert_eq!(other.inner.inventory().unwrap().1, 0);
+}
+#[test]
+fn owned_file_actual_expiry_under_lane_contention_never_returns_receipt() {
+    let (parent, path, store, source) = stage(b"opaque expired held capture");
+    let input = File::open(path).unwrap();
+    let owned = store.clone();
+    let held = store.inner.lane.lock().unwrap();
+    let (started, ready) = mpsc::channel();
+    let task = std::thread::spawn(move || {
+        // Signal only after the real shared ingestion deadline exists. Caller
+        // scheduling cannot move its start past the parent's waiting period.
+        let deadline = owned
+            .ingestion_deadline(
+                &source,
+                ChunkingLimits {
+                    timeout: Duration::from_millis(20),
+                },
+            )
+            .unwrap();
+        started.send(deadline).unwrap();
+        owned.ingest_checkpoint_opened(input, &source, deadline, |_| Ok(()))
+    });
+    let started = ready.recv_timeout(Duration::from_secs(2));
+    if let Ok(deadline) = started {
+        std::thread::sleep(
+            deadline.saturating_duration_since(Instant::now()) + Duration::from_millis(10),
+        );
+    }
+    drop(held);
+    let result = task.join();
+    started.unwrap();
+    assert_eq!(result.unwrap(), Err(MaterialError::Deadline));
+    assert_eq!(store.inner.inventory().unwrap().1, 0);
+    assert!(fs::read_dir(parent.path().join("material"))
+        .unwrap()
+        .all(|entry| !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .ends_with(".checkpoint.json")));
 }
 #[test]
 fn legacy_receipts_remain_separate_and_unchanged() {

@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "name": "checkpoint-file-root-library1",
+  "nativeSessionId": 67503,
+  "verifiedAtUtc": "2026-10-02T22:34:10.592907+00:00",
+  "processes": [
+    {
+      "pid": 1262960,
+      "state": "T",
+      "ppid": 1262875,
+      "startTicks": 22643377,
+      "argv": [
+        "cargo",
+        "+1.93",
+        "test",
+        "--offline",
+        "--locked",
+        "-p",
+        "wabi-consensus",
+        "--lib",
+        "--no-run",
+        "--message-format=json-render-diagnostics"
+      ]
+    },
+    {
+      "pid": 1262875,
+      "state": "T",
+      "ppid": 131862,
+      "startTicks": 22643183,
+      "argv": [
+        "python3",
+        "/tmp/wabi-geographic-checkpoint-file-acceptance1.py",
+        "checkpoint-file-root-library1"
+      ]
+    }
+  ],
+  "sourceFreezeSha256": "7b51f712e2ad6c9afdad06353bf9531bc1205a519fae660213e8927288112cc6"
+}

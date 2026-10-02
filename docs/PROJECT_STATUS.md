@@ -504,7 +504,18 @@ draining and reopening original keys/locks/enrollment. Other library suites and
 doctests were excluded. The preserved first run failed two nonprivate test
 fixtures before its contract ran; only fixture permissions changed for the
 accepted retry. This is process lifecycle evidence, not physical-site or full
-Wabi recovery. Neither candidate is deployed. Production
+Wabi recovery. Neither candidate is deployed. The later material-library
+owned-file ingestion primitive consumes and rewinds a trusted local archive
+handle, checks private original metadata and exact signed bytes, and preserves
+the independent path API guards. Its
+[full unit group](testing/geographic-2026-10-02/checkpoint-file-root-library1.json)
+passed 82 checks, zero failures and four ignored entries on 5,196 unchanged
+inputs; these counts overlap the earlier library checks and include six new
+units. Integration/server binaries and doctests were excluded. Caller path
+provenance and async ownership remain explicit responsibilities; the expiry
+test proves late-receipt refusal without guaranteeing arrival at the lane wait,
+and race branches were inspected. Trusted server/runtime handle wiring remains
+pending. Production
 capture publication and original-operation journal/reconciliation remain open;
 this adds no activation or full-instance readiness permission.
 

@@ -1,0 +1,21 @@
+{
+  "capturedAtUtc": "2026-10-02T22:18:29.723977+00:00",
+  "cargoLockSha256": "51945aa9a62b8bcb2be3dadd11ea044c201366d656782b3db705460c09f851bd",
+  "checkpointBase": "c0430c35641216a35d84d6b846807a3d3bc410e9",
+  "compilerReserved": false,
+  "files": [
+    {
+      "bytes": 17648,
+      "path": "core/crates/wabi-consensus/src/material/checkpoint.rs",
+      "sha256": "07309fd144bdd92719252bff9209f226742cc197ef3ae75a967d5d99086c6339"
+    },
+    {
+      "bytes": 19127,
+      "path": "core/crates/wabi-consensus/src/material/checkpoint/tests.rs",
+      "sha256": "90e7e7950b9b4d9b66775ddf8a00ab7ee9a56d91c40c3997c3577d0bd9edf883"
+    }
+  ],
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "schemaVersion": 1,
+  "scope": "two-file trusted owned checkpoint file ingestion; source-only ownership; no compiler slot"
+}
