@@ -1,0 +1,48 @@
+TAP version 13
+# (node:604) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: HTTPS invitation roundtrip keeps its secret out of the request URL
+ok 1 - HTTPS invitation roundtrip keeps its secret out of the request URL
+  ---
+  duration_ms: 5.411618
+  type: 'test'
+  ...
+# Subtest: same-LAN invitation is explicit; localhost is not shareable
+ok 2 - same-LAN invitation is explicit; localhost is not shareable
+  ---
+  duration_ms: 1.563499
+  type: 'test'
+  ...
+# Subtest: rejects insecure internet, embedded credentials and ambiguous tokens
+ok 3 - rejects insecure internet, embedded credentials and ambiguous tokens
+  ---
+  duration_ms: 1.152529
+  type: 'test'
+  ...
+# Subtest: parsing rejects embedded credentials instead of silently discarding them
+ok 4 - parsing rejects embedded credentials instead of silently discarding them
+  ---
+  duration_ms: 0.613187
+  type: 'test'
+  ...
+# Subtest: invitations reject every loopback form and unspecified listener addresses
+ok 5 - invitations reject every loopback form and unspecified listener addresses
+  ---
+  duration_ms: 2.952166
+  type: 'test'
+  ...
+# Subtest: direct localhost access remains available without creating a guest invitation
+ok 6 - direct localhost access remains available without creating a guest invitation
+  ---
+  duration_ms: 0.416367
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 575.361575
