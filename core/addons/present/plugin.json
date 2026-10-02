@@ -1,0 +1,17 @@
+{
+  "id": "present",
+  "name": "Present",
+  "version": "0.1.0",
+  "description": "Optional native deck authoring, private speaker notes, and explicit audience-safe presentation. Audience viewing does not require this editor.",
+  "backend": null,
+  "frontend": {
+    "contributions": {
+      "channelTypes": [],
+      "workspacePanels": ["workspace-present"],
+      "settingsPages": ["present"],
+      "mobileTabs": ["workspace-present"]
+    },
+    "bundled": true
+  },
+  "permissions": []
+}

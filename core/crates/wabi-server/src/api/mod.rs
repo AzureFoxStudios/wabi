@@ -60,3 +60,6 @@ pub mod network_health;
 pub mod service_access;
 
 pub mod whiteboard_policy;
+pub mod workspace;
+mod workspace_crdt;
+mod workspace_present;

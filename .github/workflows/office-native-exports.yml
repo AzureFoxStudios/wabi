@@ -1,0 +1,113 @@
+name: Office native exports
+on:
+  pull_request:
+    paths:
+      - 'src-tauri/**'
+      - 'frontend/src/lib/workspaces/**'
+      - 'frontend/src/lib/tauri-platform.ts'
+      - '.github/workflows/office-native-exports.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: office-native-exports-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  disk:
+    name: Native export disk tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.93.1'
+      - name: Record tested version and exercise actual filesystem writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p native-export-evidence
+          git rev-parse HEAD > native-export-evidence/tested-commit.txt
+          rustc --edition=2021 --test src-tauri/src/workspace_export_io.rs -o native-export-tests.exe
+          ./native-export-tests.exe --nocapture 2>&1 | tee native-export-evidence/disk-tests.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: office-native-disk-${{ matrix.os }}
+          path: native-export-evidence
+          retention-days: 14
+          if-no-files-found: error
+  native-command:
+    name: Tauri command and export routing
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    env:
+      STATIC_BUILD: '1'
+      WABI_WORKSPACE_ADDONS: all
+      WABI_SKIP_VIEWER_TEST: '1'
+      RUSTUP_TOOLCHAIN: '1.93.1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.93.1'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'src-tauri -> target'
+      - name: Install existing native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Record version and install locked frontend dependencies
+        run: |
+          mkdir -p /tmp/native-export-evidence
+          git rev-parse HEAD > /tmp/native-export-evidence/tested-commit.txt
+          cd frontend
+          npm ci
+      - name: Frontend typecheck, receipt tests and expanded build
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run check > /tmp/native-export-evidence/typecheck.log 2>&1
+          bun test src/lib/workspaces/fileExportCore.test.ts > /tmp/native-export-evidence/export-tests.log 2>&1
+          npm run build > /tmp/native-export-evidence/frontend-build.log 2>&1
+      - name: Stage the existing checksum-pinned desktop sidecar
+        shell: bash
+        run: ./scripts/fetch-tailcat-sidecar.sh
+      - name: Compile real Tauri registrations and run native export tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib workspace_export -- --nocapture > /tmp/native-export-evidence/tauri-tests.log 2>&1
+          cargo check --manifest-path src-tauri/Cargo.toml --locked --bin wabi-desktop > /tmp/native-export-evidence/tauri-binary-check.log 2>&1
+      - name: Display observed results
+        if: always()
+        shell: bash
+        run: |
+          for file in /tmp/native-export-evidence/*.log; do
+            test -f "$file" || continue
+            echo "=== $file ==="
+            tail -n 60 "$file"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: office-native-command-evidence
+          path: /tmp/native-export-evidence
+          retention-days: 14
+          if-no-files-found: error
