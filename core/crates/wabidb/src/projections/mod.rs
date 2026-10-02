@@ -50,3 +50,5 @@ pub mod webhooks;
 pub mod whiteboard_docs;
 pub mod wiki;
 pub mod workspace_writes;
+
+pub mod workspace;

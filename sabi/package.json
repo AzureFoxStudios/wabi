@@ -1,0 +1,30 @@
+{
+  "name": "sabi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sabi — self-hosted work & ERP for small businesses (Thailand-first). Donor: Wabi.",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "test": "node --test --disable-warning=ExperimentalWarning 'packages/*/test/*.test.ts' 'apps/server/test/*.test.ts'",
+    "test:packages": "node --test --disable-warning=ExperimentalWarning 'packages/*/test/*.test.ts'",
+    "test:server": "node --test --disable-warning=ExperimentalWarning 'apps/server/test/*.test.ts'",
+    "build": "npm run build -w @sabi/web",
+    "dev:web": "npm run dev -w @sabi/web",
+    "start": "node --disable-warning=ExperimentalWarning apps/server/src/main.ts",
+    "demo": "node --disable-warning=ExperimentalWarning apps/server/src/main.ts --demo",
+    "sabi": "node --disable-warning=ExperimentalWarning apps/server/src/cli.ts",
+    "check": "npm run check -w @sabi/web && tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "22.19.1"
+  }
+}

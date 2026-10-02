@@ -21,6 +21,8 @@ const loadedAddons = new Map<string, AddonInstance>();
 const BUNDLED_ADDON_LOADERS: Record<string, () => Promise<unknown>> = {
     'project-workers': () => import('$lib/components/ProjectConnections.svelte'),
 	'name-styles': () => import('$lib/addons/nameStyles'),
+	'sheets': () => import('@wabi/workspace-sheets'),
+	'present': () => import('@wabi/workspace-present'),
 	'steam': () => import('$lib/games/GamesSettingsEntry.svelte'),
 	'youtube-sync': () => import('$lib/components/plugins/YouTubeWatchEmbed.svelte'),
 	'spotify-sync': () => import('$lib/components/plugins/SpotifyControlsEmbed.svelte'),
@@ -29,6 +31,8 @@ const BUNDLED_ADDON_LOADERS: Record<string, () => Promise<unknown>> = {
 
 const LOCAL_MANIFESTS: Record<string, AddonManifest> = {
 	'name-styles': { id:'name-styles',name:'Name Styles',version:'0.1.0',frontendEntry:'bundled:name-styles',dependencies:[] },
+	'sheets': { id: 'sheets', name: 'Sheets', version: '0.1.0', frontendEntry: 'bundled:sheets', dependencies: [] },
+	'present': { id: 'present', name: 'Present', version: '0.1.0', frontendEntry: 'bundled:present', dependencies: [] },
 	'steam': { id:'steam',name:'Steam',version:'0.1.0',frontendEntry:'bundled:steam',dependencies:[] },
 	'youtube-sync': {
 		id: 'youtube-sync',
@@ -219,6 +223,7 @@ export async function disableAddon(addonId: string): Promise<void> {
 			await instance.frontendModule.onDisable();
 		} catch (err) {
 			console.error(`[Addons] Disable error for ${addonId}:`, err);
+			if (addonId === 'sheets' || addonId === 'present') throw err;
 		}
 	}
 

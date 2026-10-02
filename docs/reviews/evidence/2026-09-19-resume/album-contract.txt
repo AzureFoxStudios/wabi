@@ -1,0 +1,35 @@
+Base: c723198416270c2ed40919107e2b4101eec99c6b plus this metadata patch
+Rust 1.93.1; cargo test -p wabi-server --test channel_access_contract
+running 31 tests
+test direct_relay_accepts_both_named_peers_with_legacy_ui_channel_hints_only ... ok
+test authorized_album_lifecycle_is_truthful_and_cannot_change_a_different_parent ... ok
+test damaged_server_defaults_reject_channel_creation_without_new_state ... ok
+test exact_retention_overrides_stale_database_day_count ... ok
+test failed_retention_write_preserves_policy_and_rolls_back_new_channel ... ok
+test denied_writes_do_not_reach_projections_or_live_cache ... ok
+test concurrent_retention_updates_leave_disk_and_runtime_in_agreement ... ok
+test album_ids_resolve_to_their_persisted_channel_before_access ... ok
+test conversation_events_reach_only_participants_and_legacy_changes_do_not_lie ... ok
+test group_readmission_can_rebuild_empty_runtime_state_without_ringing_members ... ok
+test dm_identity_uses_persisted_offline_name_and_recipient_specific_payload ... ok
+test group_answer_requires_current_membership_even_when_call_exists ... ok
+test group_revocation::in_flight_and_queued_admissions_cannot_outlive_revocation ... ok
+test group_consent_is_device_owned_and_old_disconnect_cannot_evict_a_replacement ... ok
+test album_item_media_metadata_survives_rest_write_and_restart ... ok
+test group_revocation::revoked_devices_cannot_write_via_adjacent_private_socket_surfaces ... ok
+test socket_policy_denies_removed_or_fabricated_membership_and_group_admin_override ... ok
+test nested_workspace_paths_cannot_alias_another_channels_records ... ok
+test group_revocation::owner_succession_last_leave_and_creation_retry_are_durable_not_duplicate_groups ... ok
+test group_revocation::removal_evicts_chat_boards_relay_and_call_consent_on_every_device_only_for_that_group ... ok
+test unsupported_group_avatar_upload_cannot_rewrite_group_or_store_a_file ... ok
+test group_revocation::only_current_group_owner_can_change_membership_and_competing_intents_conflict ... ok
+test socket_discovery_sync_and_message_mutations_obey_private_membership ... ok
+test socket_retention_persists_exact_modes_and_ignores_unrelated_updates ... ok
+test voice_admission_rejects_private_missing_and_nonmember_channels ... ok
+test private_conversations_cannot_be_discovered_or_self_joined_even_by_owner ... ok
+test exact_retention_loads_before_requests_and_corruption_cannot_change_live_mode ... ok
+test screen_and_peer_signaling_stay_in_one_call_and_reject_old_membership ... ok
+test voice_consent_is_device_owned_and_kick_revokes_only_that_channels_media ... ok
+test workspace_reads_require_authentication_and_channel_access ... ok
+test group_revocation::removal_invalidates_raw_subscriptions_and_readd_requires_new_consent ... ok
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s

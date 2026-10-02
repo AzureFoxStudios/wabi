@@ -866,7 +866,25 @@ async fn corrupt_voice_restrictions_refuse_admission_and_fanout_then_durable_pol
     }
     state.wdb.mute_user(&channel, owner, member, i64::MAX).await.unwrap();
     sender.emit("voice-channel-join", json!({"channelId": channel})).await;
-    assert_eq!(sender.event("voice-channel-error").await["error"], "You are muted in this channel");
+    let admission = sender.event("voice-channel-admitted").await;
+    assert_eq!(admission["serverMuted"], true);
+    let snapshot = sender.event("voice-channel-state").await;
+    let participant = snapshot["members"].as_array().unwrap().iter()
+        .find(|participant| participant["userId"] == format!("user-{member}")).unwrap();
+    assert_eq!(participant["isMuted"], true);
+    observer.emit("voice-channel-join", json!({"channelId":channel})).await;
+    observer.event("voice-channel-admitted").await;
+    for client in [&mut sender, &mut observer] {
+        client.emit("join-wabidb-call", json!({"channelId":channel,
+            "sessionId":format!("channel:{channel}"),"requestId":"muted-receive-consent"})).await;
+        client.event("wabidb-call-joined").await;
+    }
+    sender.emit("wabidb-media", json!({"sessionId":format!("channel:{channel}"),
+        "kind":"audio","payload":"DURABLE-MUTE-MUST-NOT-PUBLISH","seq":0})).await;
+    sender.barrier().await;
+    observer.barrier().await;
+    assert!(!observer.events.iter().any(|event| event[0] == "wabidb-media"
+        && event[1]["payload"] == "DURABLE-MUTE-MUST-NOT-PUBLISH"));
     state.wdb.unmute_user(&channel, owner, member).await.unwrap();
     state.wdb.deafen_user(&channel, owner, member).await.unwrap();
     sender.emit("voice-channel-join", json!({"channelId": channel})).await;
@@ -1135,20 +1153,31 @@ async fn new_livekit_permission_job(
     before: &[wabi_server::jobs::Job],
 ) -> wabi_server::jobs::Job {
     let jobs = state.job_queue.list_jobs(None).await;
-    assert_eq!(
-        jobs.len(),
-        before.len() + 1,
-        "moderation must queue exactly one update"
-    );
     let mut new: Vec<_> = jobs
         .into_iter()
         .filter(|job| !before.iter().any(|old| old.job_id == job.job_id))
         .collect();
-    assert_eq!(new.len(), 1);
-    let job = new.pop().unwrap();
-    assert_eq!(job.kind, wabi_server::jobs::JobKind::MediaRelay);
-    assert_eq!(job.payload["operation"], "update_participant_permissions");
-    job
+    assert_eq!(
+        new.len(),
+        2,
+        "moderation queues the admitted device plus legacy account identity"
+    );
+    for job in &new {
+        assert_eq!(job.kind, wabi_server::jobs::JobKind::MediaRelay);
+        assert_eq!(job.payload["operation"], "update_participant_permissions");
+    }
+    let account = new
+        .iter()
+        .position(|job| {
+            !job.payload["identity"]
+                .as_str()
+                .unwrap()
+                .contains(":device:")
+        })
+        .unwrap();
+    let legacy = new.remove(account);
+    assert_eq!(new[0].payload["grants"], legacy.payload["grants"]);
+    legacy
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -1700,4 +1729,139 @@ async fn live_relay_enforces_durable_mute_deafen_and_corrupt_policy_then_recover
     publish(&sender, &session, 4, "durable-deafen-repair-recovers").await;
     received(&mut healthy, "durable-deafen-repair-recovers").await;
     received(&mut restricted, "durable-deafen-repair-recovers").await;
+}
+
+// Each fixture owns a real Authority, namespace/socket layer, advertised helper
+// and active room. Deliberately repeated sequence IDs exercise ownership rather
+// than relying on random room names to hide a shared registry.
+async fn isolated_livekit_room(state: &Arc<AppState>, app: &Router, channel: &str) {
+    use wabi_server::nodes::{JoinNodeRequest, NodeCapability, NodeReachability};
+    let pairing = state
+        .node_registry
+        .create_pairing_token(
+            "moderation fixture".into(),
+            vec![NodeCapability::MediaRelay],
+            Duration::from_secs(60),
+        )
+        .await
+        .unwrap();
+    let node = state
+        .node_registry
+        .join_with_token(JoinNodeRequest {
+            token: pairing.token,
+            display_name: "moderation fixture".into(),
+            public_key: "fixture-key".into(),
+            reachability: NodeReachability::OutboundOnly,
+            endpoint: Some("https://media.example".into()),
+        })
+        .await
+        .unwrap();
+    let advertisement = Request::builder()
+        .method("POST")
+        .uri(format!("/nodes/{}/media-advertisement", node.node.node_id))
+        .header("x-wabi-node-secret", &node.node_secret)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({"provider":"livekit", "sfuEndpoint":"wss://media.example",
+                "acceptingNewRooms":true})
+            .to_string(),
+        ))
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(advertisement).await.unwrap().status(),
+        StatusCode::OK
+    );
+    let room = state
+        .media_registry
+        .create_room(channel.to_string(), 10)
+        .await
+        .unwrap();
+    state
+        .media_registry
+        .assign_room(
+            &room.room_id,
+            &node.node.node_id,
+            Some("wss://media.example".into()),
+        )
+        .await
+        .unwrap();
+    state
+        .media_registry
+        .mark_active(
+            &room.room_id,
+            &node.node.node_id,
+            "wss://media.example".into(),
+        )
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn voice_capacity_devices_and_permission_jobs_are_authority_scoped() {
+    use wabi_server::api::media_permissions::refresh_participant_permissions;
+    let first_dir = tempfile::tempdir().unwrap();
+    let second_dir = tempfile::tempdir().unwrap();
+    let first_state = server(first_dir.path()).await;
+    let second_state = server(second_dir.path()).await;
+    let (first_member, first_owner, _) = accounts(&first_state).await;
+    let (second_member, second_owner, _) = accounts(&second_state).await;
+    assert_eq!(first_member, second_member);
+    assert_eq!(first_owner, second_owner);
+    let first_channel = first_state.wdb.create_channel("scoped voice", ChannelKind::Voice, first_owner, false).await.unwrap();
+    let second_channel = second_state.wdb.create_channel("scoped voice", ChannelKind::Voice, second_owner, false).await.unwrap();
+    assert_eq!(first_channel, second_channel);
+    for (state, member, channel) in [(&first_state, first_member, &first_channel), (&second_state, second_member, &second_channel)] {
+        state.wdb.add_channel_member(channel, member, MemberRole::Member).await.unwrap();
+    }
+    let first_app = app(&first_state);
+    let second_app = app(&second_state);
+    isolated_livekit_room(&first_state, &first_app, &first_channel).await;
+    isolated_livekit_room(&second_state, &second_app, &second_channel).await;
+    let mut first = SocketClient::connect(&first_app, &jwt(&first_state, &claims(first_member, false))).await;
+    let mut second = SocketClient::connect(&second_app, &jwt(&second_state, &claims(second_member, false))).await;
+    let mut first_admin = SocketClient::connect(&first_app, &jwt(&first_state, &claims(first_owner, false))).await;
+    let mut second_admin = SocketClient::connect(&second_app, &jwt(&second_state, &claims(second_owner, false))).await;
+    for (state, app, owner, channel) in [(&first_state, &first_app, first_owner, &first_channel), (&second_state, &second_app, second_owner, &second_channel)] {
+        let response = app.clone().oneshot(Request::put(format!("/voice-policy/{channel}"))
+            .header("authorization", format!("Bearer {}", jwt(state, &claims(owner, false))))
+            .header("content-type", "application/json")
+            .body(Body::from(json!({"userLimit":1}).to_string())).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+    for (device, channel) in [(&mut first, &first_channel), (&mut second, &second_channel)] {
+        device.emit("voice-channel-join", json!({"channelId":channel})).await;
+        assert_eq!(device.event("voice-channel-admitted").await["channelId"], *channel);
+        let roster = device.event("voice-channel-state").await;
+        assert_eq!(roster["members"].as_array().unwrap().len(), 1);
+        assert_eq!(roster["members"][0]["socketId"], device.socket_id);
+    }
+    for (admin, channel) in [(&mut first_admin, &first_channel), (&mut second_admin, &second_channel)] {
+        admin.emit("voice-channel-join", json!({"channelId":channel})).await;
+        assert_eq!(admin.event("voice-channel-error").await["code"], "voice_full");
+    }
+    let before_first = first_state.job_queue.list_jobs(None).await;
+    let before_second = second_state.job_queue.list_jobs(None).await;
+    refresh_participant_permissions(&first_state, &first_channel, first_member as i64).await.unwrap();
+    refresh_participant_permissions(&second_state, &second_channel, second_member as i64).await.unwrap();
+    let new_jobs = |jobs: Vec<wabi_server::jobs::Job>, old: &[wabi_server::jobs::Job]| jobs.into_iter()
+        .filter(|job| !old.iter().any(|before| before.job_id == job.job_id)).collect::<Vec<_>>();
+    let first_jobs = new_jobs(first_state.job_queue.list_jobs(None).await, &before_first);
+    let second_jobs = new_jobs(second_state.job_queue.list_jobs(None).await, &before_second);
+    assert_eq!(first_jobs.len(), 2);
+    assert_eq!(second_jobs.len(), 2);
+    let device_identity = |jobs: &[wabi_server::jobs::Job]| jobs.iter().find(|job| job.payload["identity"].as_str().unwrap().contains(":device:"))
+        .unwrap().payload["identity"].as_str().unwrap().to_string();
+    let surviving_device = device_identity(&second_jobs);
+    assert_ne!(device_identity(&first_jobs), surviving_device);
+    first_admin.emit("voice-channel-kick", json!({"channelId":first_channel,"targetUserId":format!("user-{first_member}")})).await;
+    first.event("voice-self-kicked").await;
+    let before_first = first_state.job_queue.list_jobs(None).await;
+    let before_second = second_state.job_queue.list_jobs(None).await;
+    refresh_participant_permissions(&first_state, &first_channel, first_member as i64).await.unwrap();
+    refresh_participant_permissions(&second_state, &second_channel, second_member as i64).await.unwrap();
+    let first_jobs = new_jobs(first_state.job_queue.list_jobs(None).await, &before_first);
+    let second_jobs = new_jobs(second_state.job_queue.list_jobs(None).await, &before_second);
+    assert_eq!(first_jobs.len(), 1, "only the legacy identity remains after this Authority's eviction");
+    assert_eq!(second_jobs.len(), 2, "the other Authority retains its admitted device");
+    assert_eq!(device_identity(&second_jobs), surviving_device);
 }

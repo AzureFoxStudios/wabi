@@ -205,14 +205,13 @@ class MediaNodeControllerTests(unittest.TestCase):
             result = profile.mint_livekit_token(
                 {
                     "externalRoomName": "wabi-tenant-123-room-456",
-                    "identity": "user:42",
+                    "identity": "user:42:device:abc",
                     "displayName": "Alice",
                     "ttlSeconds": 900,
                     "grants": {
                         "canPublish": False,
                         "canSubscribe": True,
                         "canPublishData": True,
-                        # A muted caller cannot smuggle sources through the list.
                         "canPublishSources": ["microphone", "camera"],
                     },
                 }
@@ -220,7 +219,7 @@ class MediaNodeControllerTests(unittest.TestCase):
 
         claims = decode_jwt_payload(result["token"])
         self.assertEqual(claims["iss"], "test-key")
-        self.assertEqual(claims["sub"], "user:42")
+        self.assertEqual(claims["sub"], "user:42:device:abc")
         self.assertEqual(claims["name"], "Alice")
         self.assertEqual(claims["video"]["room"], "wabi-tenant-123-room-456")
         self.assertTrue(claims["video"]["roomJoin"])
@@ -231,6 +230,18 @@ class MediaNodeControllerTests(unittest.TestCase):
         self.assertLessEqual(claims["exp"], before + 905)
         self.assertEqual(result["roomName"], "wabi-tenant-123-room-456")
         self.assertEqual(result["url"], "wss://calls.example.test")
+
+    def test_permission_refresh_rejects_unknown_sources_before_http(self):
+        with mock.patch.dict(os.environ, {"LIVEKIT_API_KEY": "test-key", "LIVEKIT_API_SECRET": "test-secret"}):
+            profile = media_node.MediaProfile(self.profile_config())
+            with mock.patch.object(media_node, "build_opener") as request:
+                with self.assertRaises(media_node.ControllerError):
+                    profile.update_livekit_permissions({
+                        "externalRoomName": "opaque", "identity": "user:42:device:abc",
+                        "grants": {"canPublish": True, "canSubscribe": False, "canPublishData": True,
+                                   "canPublishSources": ["camera", "not-real"]},
+                    })
+                request.assert_not_called()
 
     def test_shared_livekit_node_rejects_placeholder_root_credentials(self):
         with mock.patch.dict(

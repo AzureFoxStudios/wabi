@@ -1,11 +1,12 @@
 /**
- * Mobile / PWA shell attributes on <html>.
+ * Mobile / installed shell attributes on <html>.
  * Sets data-shell + display-mode early so CSS can branch without FOUC thrash.
  */
 import { browser } from '$app/environment';
 import { get } from 'svelte/store';
 import { isMobile } from '$lib/layoutStoreStates';
 import { isStandaloneDisplay } from '$lib/pwa/platform';
+import { computeKeyboardInset, isKeyboardInsetOpen } from '$lib/mobileViewport';
 
 let started = false;
 let cleanupFns: Array<() => void> = [];
@@ -27,10 +28,14 @@ function bindKeyboardInset(): () => void {
 
 	const vv = window.visualViewport;
 	const update = () => {
-		const inset = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+		const inset = computeKeyboardInset({
+			layoutHeight: window.innerHeight,
+			viewportHeight: vv.height,
+			viewportOffsetTop: vv.offsetTop
+		});
 		const root = document.documentElement;
 		root.style.setProperty('--keyboard-inset', `${inset}px`);
-		if (inset > 80) {
+		if (isKeyboardInsetOpen(inset)) {
 			root.dataset.keyboardOpen = '1';
 		} else {
 			delete root.dataset.keyboardOpen;

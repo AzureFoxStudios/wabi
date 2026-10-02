@@ -174,6 +174,14 @@ async fn on_wabidb_media(socket: SocketRef, data: Value, state: SioState, io: So
     let groups = state.group_call_sessions.read().await;
     if authorize_wabidb_session_join(&format!("user-{}", identity.user_id),
         &socket.id.to_string(), &session_id, session_id.strip_prefix("channel:"), &voice, &groups).is_err() { return; }
+    if let Some(channel_id) = session_id.strip_prefix("channel:") {
+        if crate::api::voice_policy::admission_for(&state.app.config.data_dir, channel_id, identity.user_id, &socket.id.to_string()).is_some_and(|admission| admission.policy_listening_only) { return; }
+    }
+    if let Some(channel_id) = session_id.strip_prefix("channel:") {
+        if let Some(sender) = voice.get(channel_id).and_then(|members| members.iter().find(|p| p.socket_id == socket.id.to_string())) {
+            if !voice_media_publish_allowed(sender, &data) { return; }
+        }
+    }
     // Room membership is an admission proof: only sockets that passed
     // join-wabidb-call's checks for THIS session are in the room.
     if !socket.rooms().iter().any(|r| r.as_ref() == room_id.as_str()) {
@@ -234,6 +242,9 @@ async fn on_wabidb_media(socket: SocketRef, data: Value, state: SioState, io: So
                 || authorize_wabidb_session_join(&format!("user-{}", target.user_id),
                     &receiver.id.to_string(), &session_id, Some(channel_id), &voice, &groups).is_err() {
                 continue;
+            }
+            if let Some(participant) = voice.get(channel_id).and_then(|members| members.iter().find(|p| p.socket_id == receiver.id.to_string())) {
+                if !voice_media_receive_allowed(participant, &data) { continue; }
             }
             recipients.push(receiver.id.to_string());
         }

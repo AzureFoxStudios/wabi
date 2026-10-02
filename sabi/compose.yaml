@@ -1,0 +1,14 @@
+# docker compose up -d  → http://localhost:8080 (first visit creates the owner account)
+services:
+  sabi:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - sabi-data:/data
+    environment:
+      # Set SABI_DEMO: "1" to start with the demo workspace instead of an empty one.
+      SABI_DEMO: "0"
+volumes:
+  sabi-data:

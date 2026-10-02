@@ -139,7 +139,15 @@ try {
 		const encrypted = `${scratch}/encrypted-instance.age`;
 		await execFile(snapshotBinary, ['export', '--data-dir', `${scratch}/source/data`, '--uploads-dir', `${scratch}/source/uploads`, '--recipient', recipient, '--output', encrypted]);
 		await execFile(snapshotBinary, ['restore', '--input', encrypted, '--identity-file', identity, '--target-root', `${scratch}/encrypted-restored`]);
-		assert.deepEqual(await instanceFiles(`${scratch}/encrypted-restored`), sourceFiles, 'encrypted restore must preserve every source file');
+		// Match the archive's exact process-coordination exclusions. A restored
+		// instance creates fresh lock inodes; all community state stays byte-exact.
+		const runtimeLocks = new Set([
+			'data/.lock', 'data/wabidb/.lock',
+			'data/.wabi-secret-publication.lock', 'data/wabidb/.wabi-secret-publication.lock',
+		]);
+		const restoredFiles = await instanceFiles(`${scratch}/encrypted-restored`);
+		assert.ok(restoredFiles.every(file => !runtimeLocks.has(file.path)), 'encrypted restore omits runtime lock files before startup');
+		assert.deepEqual(restoredFiles, sourceFiles.filter(file => !runtimeLocks.has(file.path)), 'encrypted restore must preserve every persistent data and upload file');
 		const encryptedRestored = await start('encrypted-restored');
 		await verify(encryptedRestored, account, channelId, ['Before snapshot'], [], [firstUpload]);
 		await stop(encryptedRestored);

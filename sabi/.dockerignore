@@ -1,0 +1,6 @@
+**/node_modules
+data
+.cache
+apps/web/build
+apps/web/.svelte-kit
+docs/screenshots

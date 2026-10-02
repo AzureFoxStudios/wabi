@@ -1,3 +1,21 @@
+// Durable restrictions remain independent of each device's self mute/deafen.
+// The caller already holds the membership writer through accepted completion.
+async fn synchronize_voice_moderation_roster(state: &SioState, io: &SocketIo, channel_id: &str, user_id: i64) {
+    let muted = state.app.wdb.is_user_muted(channel_id, user_id as u64).await.unwrap_or(true);
+    let deafened = state.app.wdb.is_user_deafened(channel_id, user_id as u64).await.unwrap_or(true);
+    let members = {
+        let mut voice = state.voice_channels.write().await;
+        let Some(members) = voice.get_mut(channel_id) else { return; };
+        for participant in members.iter_mut().filter(|p| p.stable_id == format!("user-{user_id}")) {
+            let own = crate::api::voice_self_state::get(channel_id, &participant.socket_id);
+            participant.is_muted = muted || own.muted;
+            participant.is_deafened = deafened || own.deafened;
+        }
+        members.iter().map(voice_participant_to_view).collect::<Vec<Value>>()
+    };
+    let _ = io.emit("voice-channel-state", &json!({"channelId":channel_id,"members":members})).await;
+}
+
 // Commit canonical WabiDB restrictions before updating local voice state and
 // queueing optional LiveKit permission refreshes. Queueing is not a helper
 // enforcement receipt; failures preserve the saved restriction and report it.
@@ -40,6 +58,8 @@ async fn on_voice_mute(socket: SocketRef, data: Value, state: SioState, io: Sock
             members.retain(|p| p.stable_id != target_stable_id);
         }
     }
+
+    synchronize_voice_moderation_roster(&state, &io, &channel_id, target_user_id).await;
 
     if crate::api::media_permissions::refresh_participant_permissions(&state.app, &channel_id, target_user_id).await.is_err() {
         let _ = socket.emit("voice-mute-error", &json!({ "channelId": channel_id, "error": "Mute saved, but media permission refresh failed" }));
@@ -89,6 +109,8 @@ async fn on_voice_unmute(socket: SocketRef, data: Value, state: SioState, io: So
         let _ = socket.emit("voice-unmute-error", &json!({ "error": "Failed to unmute user" }));
         return;
     }
+
+    synchronize_voice_moderation_roster(&state, &io, &channel_id, target_user_id).await;
 
     if crate::api::media_permissions::refresh_participant_permissions(&state.app, &channel_id, target_user_id).await.is_err() {
         let _ = socket.emit("voice-unmute-error", &json!({ "channelId": channel_id, "error": "Unmute saved, but media permission refresh failed" }));
@@ -151,6 +173,8 @@ async fn on_voice_deafen(socket: SocketRef, data: Value, state: SioState, io: So
         }
     }
 
+    synchronize_voice_moderation_roster(&state, &io, &channel_id, target_user_id).await;
+
     if crate::api::media_permissions::refresh_participant_permissions(&state.app, &channel_id, target_user_id).await.is_err() {
         let _ = socket.emit("voice-deafen-error", &json!({ "channelId": channel_id, "error": "Deafen saved, but media permission refresh failed" }));
         return;
@@ -210,6 +234,8 @@ async fn on_voice_undeafen(socket: SocketRef, data: Value, state: SioState, io: 
             }
         }
     }
+
+    synchronize_voice_moderation_roster(&state, &io, &channel_id, target_user_id).await;
 
     if crate::api::media_permissions::refresh_participant_permissions(&state.app, &channel_id, target_user_id).await.is_err() {
         let _ = socket.emit("voice-undeafen-error", &json!({ "channelId": channel_id, "error": "Undeafen saved, but media permission refresh failed" }));

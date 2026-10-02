@@ -1,0 +1,10 @@
+{
+  "name": "sabi-browser-scripts",
+  "private": true,
+  "type": "module",
+  "description": "Headless-browser screenshots and a UI smoke flow against a running demo server. Not part of the workspaces; install separately.",
+  "dependencies": {
+    "@sparticuz/chromium": "*",
+    "puppeteer-core": "*"
+  }
+}

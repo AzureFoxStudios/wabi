@@ -1,0 +1,33 @@
+{
+  "patchId": "HOST-TEST-20260917-A",
+  "date": "2026-09-17",
+  "repository": "AzureFoxStudios/wabi",
+  "branch": "codex/desktop-host-mode-20260916",
+  "baseCommit": "cc7d9173e4a002ad95ce663433a51da365dc4197",
+  "verifiedBaseTree": "5c269841f28ec13d6e7dff85bedab6089a76e5a6",
+  "nodeVersion": "v22.16.0",
+  "checks": {
+    "handoffChecksums": "26 of 26 matched",
+    "patchApplication": "passed; all 17 output files matched before publication-only dossier edits",
+    "invitationParser": {
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    "foundationAndEvidence": {
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0
+    },
+    "javascriptSyntax": "passed",
+    "patchWhitespace": "passed"
+  },
+  "notVerified": {
+    "rustAndNativeBuild": "not-run; no Rust toolchain in local environment",
+    "installerWorkflow": "not-run-locally; check CI at published revision",
+    "freshPrivateInvitation": "blocked-incomplete-transport",
+    "physicalMedia": "not-run",
+    "nativeRestore": "not-run"
+  },
+  "limits": "Local checks only. Source publication is not a merge, deployment, installer, signature or native acceptance result."
+}
