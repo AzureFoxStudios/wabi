@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
-	import { get } from 'svelte/store';
+	import { createEventDispatcher, onDestroy } from 'svelte';
+	import { activeServerUrl } from '$lib/serverUrl';
+	import { currentRetentionFromPrivacy, explicitRetentionUpdate } from '$lib/retentionDisplay';
+import { get } from 'svelte/store';
 	import type { Channel, VoiceChannelSettings } from '$lib/socket';
 	import { currentUser, channels } from '$lib/socket';
 	import { getLoreBinding, setLoreBinding, deleteLoreBinding, parseLoreChannelId } from '$lib/api/lore';
@@ -10,7 +12,6 @@
 	import {
 		MESSAGE_RETENTION_LABELS,
 		MESSAGE_RETENTION_PRESETS,
-		DEFAULT_CHANNEL_RETENTION,
 		LIVE_RETENTION,
 		isLiveRetention,
 		type MessageRetentionDuration
@@ -19,19 +20,46 @@
 	// A retention selection is either a durable preset, null (keep forever),
 	// or the "live" sentinel (session-only, never persisted).
 	type RetentionChoice = MessageRetentionDuration | null | typeof LIVE_RETENTION;
-	type VoiceEntryChoice = 'open' | 'muted' | 'listen_only';
 
 	// Only workspace owners and admins may bulk-clear a channel's messages.
 	$: canClearMessages = ['owner', 'admin'].includes($currentUser?.highestRole || '');
 	$: canDeleteChannel = ['owner', 'admin'].includes($currentUser?.highestRole || '') && channel.id !== 'general' && channel.id !== 'voice';
 
-	/** Effective timer for UI: 'live' stays live; unset → default 24h; null only when keep-forever. */
-	$: effectiveAutoDelete =
-		isLiveRetention(channel.autoDeleteAfter)
-			? LIVE_RETENTION
-			: channel.autoDeleteAfter === undefined
-				? DEFAULT_CHANNEL_RETENTION
-				: channel.autoDeleteAfter;
+	let currentRetention: string | null = null;
+	let retentionReady = false;
+	let retentionError = '';
+	let retentionRequestKey = '';
+	let retentionAbort: AbortController | null = null;
+	$: {
+		const key = `${$activeServerUrl}|${channel.id}|${$currentUser?.dbUserId ?? 'guest'}|${String(channel.autoDeleteAfter)}`;
+		if (key !== retentionRequestKey) {
+			retentionRequestKey = key;
+			void loadCurrentRetention($activeServerUrl, channel.id, key);
+		}
+	}
+	$: effectiveAutoDelete = retentionReady
+		? currentRetention === 'forever' ? null : currentRetention
+		: undefined;
+	async function loadCurrentRetention(server: string, id: string, key: string): Promise<void> {
+		retentionAbort?.abort();
+		const abort = new AbortController(); retentionAbort = abort;
+		retentionReady = false; retentionError = '';
+		const token = getAuthToken(server);
+		if (!token) { retentionError = 'Sign in to verify the current message lifetime.'; return; }
+		try {
+			const response = await fetch(`${server}/api/privacy/channels/${encodeURIComponent(id)}`, {
+				headers: { Authorization: `Bearer ${token}` }, credentials: 'include', signal: abort.signal
+			});
+			if (!response.ok) throw new Error('Could not verify this room’s current message lifetime.');
+			const label = currentRetentionFromPrivacy(await response.json(), id);
+			if (abort.signal.aborted || retentionRequestKey !== key || getAuthToken(server) !== token || $activeServerUrl !== server) return;
+			if (label === null) throw new Error('This server returned an invalid message lifetime.');
+			currentRetention = label; retentionReady = true;
+		} catch (error) {
+			if (!abort.signal.aborted && retentionRequestKey === key) retentionError = error instanceof Error ? error.message : 'Could not verify the current message lifetime.';
+		}
+	}
+	onDestroy(() => retentionAbort?.abort());
 
 	async function clearAllMessages(): Promise<void> {
 		if (!canClearMessages || channel.type === 'dm') return;
@@ -88,6 +116,7 @@
 	}
 
 	function chooseRetention(next: RetentionChoice): void {
+		if (!retentionReady) return;
 		const prev = effectiveAutoDelete;
 		if (next === prev) return;
 		// Opt into Live (session-only, no persistence).
@@ -125,7 +154,7 @@
 		save: {
 			channelId: string;
 			updates: {
-				autoDeleteAfter: MessageRetentionDuration | null;
+				autoDeleteAfter?: MessageRetentionDuration | null;
 				persistMessages?: boolean;
 				description: string;
 				name: string;
@@ -239,7 +268,6 @@
 	let tempForceSpoiler = false;
 	let tempVoiceUserLimit = '';
 	let tempVoiceForceSolo = false;
-	let tempVoiceEntryMode: VoiceEntryChoice = 'open';
 	let tempLiveTtl = '';
 	let tempLiveCap = '';
 	let tempLiveGrace = '';
@@ -257,7 +285,6 @@
 		tempForceSpoiler = channel.forceSpoiler || false;
 		tempVoiceUserLimit = channel.voiceSettings?.userLimit ? String(channel.voiceSettings.userLimit) : '';
 		tempVoiceForceSolo = channel.voiceSettings?.forceSolo === true;
-		tempVoiceEntryMode = (channel.voiceSettings?.entryMode ?? 'open') as VoiceEntryChoice;
 		tempLiveTtl = '';
 		tempLiveCap = '';
 		tempLiveGrace = '';
@@ -326,7 +353,7 @@
 			return channel.voiceSettings;
 		}
 
-		const next: VoiceChannelSettings = { entryMode: tempVoiceEntryMode };
+		const next: VoiceChannelSettings = {};
 		const userLimit = parseVoiceUserLimitInput(tempVoiceUserLimit);
 		if (userLimit !== null) {
 			next.userLimit = userLimit;
@@ -337,12 +364,12 @@
 		if (channel.voiceSettings?.bitrateMode) {
 			next.bitrateMode = channel.voiceSettings.bitrateMode;
 		}
-		return next;
+		return Object.keys(next).length > 0 ? next : undefined;
 	}
 
-	function saveChannelSettings(autoDeleteAfter: RetentionChoice = channel.autoDeleteAfter === undefined ? DEFAULT_CHANNEL_RETENTION : channel.autoDeleteAfter): void {
+	function saveChannelSettings(autoDeleteAfter?: RetentionChoice): void {
 		const liveUpdates: Record<string, unknown> = {};
-		if (isLiveRetention(tempLiveTtl ? undefined : channel.autoDeleteAfter) || isLiveRetention(autoDeleteAfter)) {
+		if (isLiveRetention(tempLiveTtl ? undefined : effectiveAutoDelete) || isLiveRetention(autoDeleteAfter)) {
 			const ttlMs = parseDurationToMs(tempLiveTtl);
 			if (ttlMs !== null) liveUpdates.liveTtlMs = ttlMs;
 			const cap = parseNumberInput(tempLiveCap);
@@ -355,7 +382,7 @@
 		dispatch('save', {
 			channelId: channel.id,
 			updates: {
-				autoDeleteAfter: autoDeleteAfter as MessageRetentionDuration | null,
+				...explicitRetentionUpdate(autoDeleteAfter),
 				persistMessages: canTogglePersistMessages ? tempPersistMessages : channel.persistMessages,
 				description: tempDescription,
 				name: tempChannelName.trim() || channel.name,
@@ -440,12 +467,15 @@
 				<div class="setting-group">
 					<span class="setting-label">Message retention</span>
 					<p class="setting-description">
-						Changes apply to new messages. Earlier messages keep their original lifetime, but may be hidden while Live mode is active. Live is session only; timed defaults to 24 hours.
+						Changes apply to new messages. Earlier messages keep their original lifetime, but may be hidden while Live mode is active. Live is session only. This room’s current lifetime is read from the server.
 					</p>
 
+					{#if !retentionReady}<p class="setting-description" role="status">{retentionError || 'Checking current message lifetime…'}</p>{#if retentionError}<button type="button" on:click={() => loadCurrentRetention($activeServerUrl, channel.id, retentionRequestKey)}>Retry lifetime check</button>{/if}{/if}
+					{#if retentionReady}<p class="setting-description">Current lifetime: {currentRetention === 'forever' ? 'Keep forever' : currentRetention === 'live' ? 'Live session' : MESSAGE_RETENTION_LABELS[currentRetention as MessageRetentionDuration] || currentRetention}.</p>{/if}
 					<div class="auto-delete-options">
 						<button
 							class="auto-delete-btn live-retention-btn"
+							disabled={!retentionReady}
 							class:active={effectiveAutoDelete === LIVE_RETENTION}
 							on:click={() => chooseRetention(LIVE_RETENTION)}
 							type="button"
@@ -454,7 +484,7 @@
 							Live · session only
 						</button>
 						<button
-							class="auto-delete-btn"
+							class="auto-delete-btn" disabled={!retentionReady}
 							class:active={effectiveAutoDelete === null}
 							on:click={() => chooseRetention(null)}
 							type="button"
@@ -463,7 +493,7 @@
 						</button>
 						{#each MESSAGE_RETENTION_PRESETS as duration}
 							<button
-								class="auto-delete-btn"
+								class="auto-delete-btn" disabled={!retentionReady}
 								class:active={effectiveAutoDelete === duration}
 								on:click={() => chooseRetention(duration)}
 								type="button"
@@ -619,23 +649,8 @@
 
 				{#if channel.type === 'voice'}
 					<div class="setting-group">
-						<label for="voice-entry-mode" class="setting-label">Entry Mode</label>
-						<select id="voice-entry-mode" bind:value={tempVoiceEntryMode} disabled={!canManageVoiceSettings}>
-							<option value="open">Open — join ready to speak</option>
-							<option value="muted">Muted — join muted, may self-unmute</option>
-							<option value="listen_only">Listen only — no publishing</option>
-						</select>
-						<p class="setting-description">
-							This is Authority policy, not a cosmetic default. Listen-only members receive the room but are not granted microphone, camera or screen publication.
-						</p>
-						{#if !canManageVoiceSettings}
-							<p class="setting-description">Only workspace owners or admins can change voice entry policy.</p>
-						{/if}
-					</div>
-
-					<div class="setting-group">
 						<div class="setting-label">Voice Capacity</div>
-						<p class="setting-description">Leave blank for unlimited. The Authority enforces this limit atomically when users join.</p>
+						<p class="setting-description">Leave blank for unlimited. The sidebar will show current users as x/y when a limit is set.</p>
 						<input
 							type="number"
 							min="1"

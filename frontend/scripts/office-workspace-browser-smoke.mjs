@@ -109,7 +109,10 @@ try {
             if(process.env.WORKSPACE_OFFICE_CONVERTER_TEST==='1'){
                 for(const fixture of await compatibilityFixtures()){
                     let uploads=0;const track=request=>{if(request.url().endsWith('/api/workspace/conversion')&&request.method()==='POST')uploads++;};a.on('request',track);
-                    await a.locator('input[type="file"]').first().setInputFiles({name:fixture.name,mimeType:fixture.mimeType,buffer:fixture.buffer});
+                    // Await the Present library itself; another workspace’s hidden file input is not an Office import target.
+                    const importInput=a.locator('[data-workspace-tool="present"] .workspace-library input[type="file"]');
+                    await importInput.waitFor({state:'attached'});
+                    await importInput.setInputFiles({name:fixture.name,mimeType:fixture.mimeType,buffer:fixture.buffer});
                     await a.getByRole('heading',{name:'Convert a PowerPoint or OpenDocument presentation',exact:true}).waitFor();
                     assert.equal(uploads,0,'Selecting an Office file must not upload it');checks++;
                     const converting=a.waitForResponse(response=>response.url().endsWith('/api/workspace/conversion')&&response.request().method()==='POST');

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import {composerHandoff,takeComposerHandoff,dismissComposerHandoff,appendHandoffText} from '$lib/composerHandoff';
+	import MessageLifetimeNotice from './MessageLifetimeNotice.svelte';
 	import { stopPropagation } from 'svelte/legacy';
 
 	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte';
@@ -226,17 +226,6 @@ import type { MediaAlbum } from '$lib/api';
 	$effect(() => { const p = previewUnicodeEmojiConversion(messageInput, $emojis as unknown as Emoji[]); unicodeComposerPreview = p.convertedText; unicodeComposerPreviewTokens = p.convertedTokens; });
 	$effect(() => { const p = previewUnicodeEmojiConversion(gifCaptionInput, $emojis as unknown as Emoji[]); unicodeGifCaptionPreview = p.convertedText; unicodeGifCaptionPreviewTokens = p.convertedTokens; });
 
-	$effect(() => {
-		const pending = $composerHandoff;
-		if (!pending || pending.channelId !== draftChannel || draftSurface !== 'channel') return;
-		if (!pending.isCurrent()) { dismissComposerHandoff(pending.id); return; }
-		if (!operationCurrent() || isSending || editingMessage) return;
-		const next = appendHandoffText(messageInput, pending.text, composerInputMaxLength);
-		if (next === null) return;
-		if (takeComposerHandoff(pending.id, draftChannel) === null) return;
-		messageInput = next; syncComposerEntities(); draftOwner.save(snapshotDraft());
-		void tick().then(() => { if (operationCurrent()) { autoResizeTextarea(); textareaElement?.focus(); } });
-	});
 	function snapshotDraft(): ComposerDraft {
 		// Svelte's snapshot structured-clones Files. Keep these immutable browser
 		// objects by reference so a send can identify exactly which selection it
@@ -672,7 +661,6 @@ import type { MediaAlbum } from '$lib/api';
 		if (sendCooldownTimer) { clearTimeout(sendCooldownTimer); sendCooldownTimer = null; }
 	});
 </script>
-{#if $composerHandoff?.channelId === draftChannel && draftSurface === 'channel'}<p role="status">A workspace reference is waiting. Finish editing or sending the current message, or make room to insert the link. <button type="button" onclick={()=>{if($composerHandoff)dismissComposerHandoff($composerHandoff.id);}}>Dismiss reference</button></p>{/if}
 
 <VideoCompressionController bind:this={videoCompressionController} />
 <EditReplyStatus {editingMessage} {replyingTo} onCancelEdit={cancelEdit} onCancelReply={cancelReply} />
@@ -705,6 +693,7 @@ import type { MediaAlbum } from '$lib/api';
 	{#if isUploading}<div class="upload-progress-bar"><div class="upload-progress-info"><span>{uploadStatusLabel || $_('chat.upload.uploading')}</span><span>{uploadProgress}%</span></div><div class="progress-bar"><div class="progress-fill" style="width: {uploadProgress}%"></div></div></div>{/if}
 	<input type="file" bind:this={fileInput} onchange={handleFileSelect} multiple class="hidden" />
 	{#if sendCooldownMessage}<div class="composer-rate-limit-notice" role="status" aria-live="polite">{sendCooldownMessage}</div>{/if}
+	{#if effectiveChannel}<MessageLifetimeNotice channelId={effectiveChannel}/>{/if}
 	<div class="composer-e2ee-status" class:locked={e2eeIndicatorState.locked} title={e2eeIndicatorState.title} aria-live="polite">
 		<span class="composer-e2ee-icon" aria-hidden="true">{e2eeIndicatorState.icon}</span>
 		<span class="composer-e2ee-label">{e2eeIndicatorState.label}</span>
