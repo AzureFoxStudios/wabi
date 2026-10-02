@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { effectsRegistry } from './registry';
-	import MouseFeelerSettings from './MouseFeelerSettings.svelte';
 	import CRTSettings from './CRTSettings.svelte';
 	import { themeStore } from '$lib/theme/themeStore';
 	import { THEMES } from '$lib/theme/themes';
@@ -347,7 +346,6 @@
 </div>
 
 <CRTSettings />
-<MouseFeelerSettings />
 
 <style>
 	.color-picker {
