@@ -26,6 +26,7 @@ try {
 	// fixture inherits Kit's generated tsconfig, which needs a full app sync.
 	for (const relative of [
 		'src/lib/components/ReaderTabImpl.svelte', 'src/lib/components/ReaderImportSheet.svelte',
+		'src/lib/components/ReaderImageAnnotator.svelte', 'src/lib/readerDocumentScope.ts',
 		'src/lib/components/ReaderIcon.svelte', 'src/lib/components/readerTabHelpers.ts',
 		'src/lib/components/readerDocumentTools.ts', 'src/lib/components/readerCode.css',
 		'src/lib/readerWorkspace.ts', 'src/lib/readerLibrary.ts', 'src/lib/readerCode.ts',
@@ -38,6 +39,8 @@ try {
 		target: 'ES2022', module: 'ESNext', moduleResolution: 'bundler', skipLibCheck: true
 	} }));
 	await writeFile(path.join(fixture, 'environment.js'), 'export const browser = true; export const dev = true; export const building = false;');
+	await writeFile(path.join(fixture, 'serverUrl.js'), `import { writable } from 'svelte/store'; export const activeServerUrl = writable('');`);
+	await writeFile(path.join(fixture, 'authSession.js'), 'export const getAuthToken = () => null; export const getGuestSessionId = () => null; export const getStoredDbUserId = () => null;');
 	await writeFile(path.join(fixture, 'tabQueue.js'), 'export const mobileTabQueue = { openAddonTab() {} };');
 	await writeFile(path.join(fixture, 'channelStore.js'), `import { writable } from 'svelte/store'; export const currentChannel = writable('general'); export const channels = writable([]);`);
 	await writeFile(path.join(fixture, 'loreWorkspace.js'), 'export const openLoreSurface = () => {};');
@@ -67,6 +70,8 @@ try {
 		plugins: [svelte({ configFile: false })],
 		resolve: { dedupe: ['svelte'], alias: [
 			{ find: '$app/environment', replacement: path.join(fixture, 'environment.js') },
+			{ find: '$lib/serverUrl', replacement: path.join(fixture, 'serverUrl.js') },
+			{ find: '$lib/authSession', replacement: path.join(fixture, 'authSession.js') },
 			{ find: '$lib/mobileTabQueue', replacement: path.join(fixture, 'tabQueue.js') },
 			{ find: '$lib/channelStore', replacement: path.join(fixture, 'channelStore.js') },
 			{ find: '$lib/loreWorkspace', replacement: path.join(fixture, 'loreWorkspace.js') },

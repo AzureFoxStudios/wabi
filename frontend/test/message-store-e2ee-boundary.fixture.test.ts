@@ -30,11 +30,13 @@ mock.module('../src/lib/groupAccess', () => ({
 }));
 mock.module('../src/lib/authSession', () => ({
 	authSessionGeneration: () => 1,
+	getAuthToken: () => null,
 	getGuestSessionId: () => null,
 	onAuthSessionCleared: () => () => {}
 }));
 mock.module('../src/lib/serverUrl', () => ({
 	getServerUrl: () => 'http://example.invalid',
+	activeServerUrl: writable('http://example.invalid'),
 	normalizeServerUrl: (value: string) => value
 }));
 mock.module('../src/lib/messageDelivery', () => ({

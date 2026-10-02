@@ -64,7 +64,9 @@ async fn fresh_server() -> (tempfile::TempDir, axum::Router) {
 
 fn register_request(username: &str) -> Request<Body> {
     let body = serde_json::json!({ "username": username, "password": "password123" }).to_string();
+    // Real listeners attach the peer address; oneshot fixtures must do so explicitly.
     Request::post("/auth/register")
+        .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 42001))))
         .header("content-type", "application/json")
         // oneshot bypasses the live server's connection-info injection.
         .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 3210))))
@@ -72,7 +74,7 @@ fn register_request(username: &str) -> Request<Body> {
         .unwrap()
 }
 
-async fn register(app: &axum::Router, username: &str) -> String {
+async fn register_response(app: &axum::Router, username: &str) -> Value {
     let response = app
         .clone()
         .oneshot(register_request(username))
@@ -84,8 +86,11 @@ async fn register(app: &axum::Router, username: &str) -> String {
         .unwrap();
     let text = String::from_utf8_lossy(&bytes).to_string();
     assert_eq!(status, StatusCode::OK, "register {username}: {text}");
-    let json: Value = serde_json::from_str(&text).unwrap();
-    json["token"].as_str().unwrap().to_string()
+    serde_json::from_str(&text).unwrap()
+}
+
+async fn register(app: &axum::Router, username: &str) -> String {
+    register_response(app, username).await["token"].as_str().unwrap().to_string()
 }
 
 fn authed(method: &str, path: &str, token: &str, body: Option<Value>) -> Request<Body> {
@@ -133,7 +138,9 @@ fn promptpay_create() -> Value {
 #[tokio::test]
 async fn intent_created_listed_confirmed_and_persisted() {
     let (tmp, app) = fresh_server().await;
-    let owner = register(&app, "alice").await; // first registrant = owner/admin
+    let owner_registration = register_response(&app, "alice").await; // first registrant = owner/admin
+    let owner = owner_registration["token"].as_str().unwrap().to_string();
+    let owner_id = owner_registration["user"]["id"].as_i64().unwrap();
     let member = register(&app, "bob").await;
     let owner_id = actor_user_id(&app, &owner).await;
 
