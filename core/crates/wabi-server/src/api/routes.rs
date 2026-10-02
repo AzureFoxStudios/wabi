@@ -61,6 +61,7 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // Wiki page routes
         .nest("/wiki", wiki::routes(state.clone()))
         .nest("/projects", project_tasks::routes(state.clone()))
+        .nest("/workspace", super::workspace::routes(state.clone()))
         // Forum thread & post routes
         .nest("/forum", forum::routes(state.clone()))
         // Gallery work & feedback routes

@@ -4244,3 +4244,4 @@ mod breakout_channel_security_tests {
         assert_eq!(reopened.get_channel(&child).await.unwrap().unwrap().parent_id.as_deref(), Some(parent.as_str()));
     }
 }
+pub(crate) mod workspace;
