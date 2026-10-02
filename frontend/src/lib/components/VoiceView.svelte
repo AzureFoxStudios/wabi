@@ -27,8 +27,8 @@
 	import { callRecordingState, startCallRecording, stopCallRecording, formatRecordingElapsedForUi } from '$lib/callRecording';
 	import { getSocket } from '$lib/socketConnection';
 
-	let transportSwapBusy = false;
-	let recordBusy = false;
+	let transportSwapBusy = $state(false);
+	let recordBusy = $state(false);
 	const currentTransport = $derived($callTransportState.activeTransport);
 	const recording = $derived($callRecordingState.status === 'recording');
 	const recordElapsedLabel = $derived(
