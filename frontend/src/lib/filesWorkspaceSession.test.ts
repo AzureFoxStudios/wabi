@@ -271,6 +271,22 @@ if (process.env[FILES_WORKSPACE_FIXTURE] !== '1') {
 			session.dispose();
 		});
 
+		test('space discovery is bounded parallel and stops queued work after retirement', async () => {
+			const harness = makeHarness(), gates = new Map<number, ReturnType<typeof deferred<null>>>();
+			harness.repoHandler(async (_token, id) => { const gate = deferred<null>(); gates.set(id, gate); return gate.promise; });
+			const session = createFilesWorkspaceSession(harness.deps);
+			const pending = session.loadSpaces(Array.from({length: 6}, (_, index) => ({id: `ch_${index+1}`, name: `Space ${index+1}`})));
+			expect(gates.size).toBe(3);
+			gates.get(1)!.resolve(null);
+			await new Promise(resolve => setTimeout(resolve, 0));
+			expect(gates.size).toBe(4);
+			harness.generation(harness.generation()+1); harness.contextChanged();
+			for (const gate of gates.values()) gate.resolve(null);
+			await pending;
+			expect(gates.size).toBe(4);
+			expect(get(session.spaces)).toEqual({}); session.dispose();
+		});
+
 		test('spaces distinguish partial results from total failure', async () => {
 			const harness = makeHarness();
 			harness.repos.set(1, { channelId: 1, repoName: 'a', createdBy: 7, createdAt: 1 });

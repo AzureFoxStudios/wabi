@@ -122,6 +122,8 @@ async fn poll(
     State(state): State<Arc<AppState>>,
     Json(request): Json<PollRequest>,
 ) -> Result<Json<PollResponse>> {
+    let _membership = state.membership_gate.read().await;
+    let _authorization = auth.admit_current(&state).await?;
     if request.channels.len() > MAX_CHANNELS {
         return Err(AppError::BadRequest(
             "Too many followed channels in one poll".into(),

@@ -14,7 +14,7 @@
     "desktop:dev": "bunx tauri dev",
     "desktop:build": "bunx tauri build",
     "desktop:check": "cargo check --manifest-path src-tauri/Cargo.toml",
-    "desktop:android:init": "bunx tauri android init",
+    "desktop:android:init": "node scripts/tauri-android-init.mjs",
     "desktop:android:build": "bunx tauri android build",
     "desktop:ios:init": "bunx tauri ios init",
     "desktop:ios:build": "bunx tauri ios build",

@@ -1,4 +1,7 @@
 //! Group membership must be a durable aggregate, not a series of fake/live edits.
+#[path = "fixtures/writer_drain.rs"]
+mod writer_drain;
+
 use wabi_server::adapter::WdbAdapter;
 use wabidb::engine::wabi_store::WabiStore;
 use wabidb::projections::channel_members::ChannelMembersProjection;
@@ -89,7 +92,12 @@ async fn removal_retires_persisted_call_consent_atomically_without_touching_othe
                 .unwrap();
         }
         drop(store);
-        let store = WdbAdapter::open(dir.path()).await.unwrap();
+        let store = writer_drain::retry(
+            || WdbAdapter::open(dir.path()),
+            |error| matches!(error, wabidb::error::WabiError::AlreadyRunning),
+        )
+        .await
+        .unwrap();
         store
             .change_group_membership(2, group, Some(9), None, 2)
             .await
@@ -115,7 +123,12 @@ async fn removal_retires_persisted_call_consent_atomically_without_touching_othe
             .await
             .unwrap();
         drop(store);
-        let store = WdbAdapter::open(dir.path()).await.unwrap();
+        let store = writer_drain::retry(
+            || WdbAdapter::open(dir.path()),
+            |error| matches!(error, wabidb::error::WabiError::AlreadyRunning),
+        )
+        .await
+        .unwrap();
         assert!(
             !store
                 .get_call_session("channel:group-call-consent")
@@ -221,7 +234,12 @@ async fn group_creation_commits_owner_and_complete_membership_together() {
         commits[0].commit_seq
     );
     drop(store);
-    let reopened = WdbAdapter::open(dir.path()).await.unwrap();
+    let reopened = writer_drain::retry(
+        || WdbAdapter::open(dir.path()),
+        |error| matches!(error, wabidb::error::WabiError::AlreadyRunning),
+    )
+    .await
+    .unwrap();
     assert_eq!(
         reopened.get_channel("group-atomic").await.unwrap().unwrap(),
         group
@@ -277,7 +295,12 @@ async fn membership_delta_owner_succession_and_last_leave_replay_together() {
                 .unwrap();
         }
         drop(store);
-        let store = WdbAdapter::open(dir.path()).await.unwrap();
+        let store = writer_drain::retry(
+            || WdbAdapter::open(dir.path()),
+            |error| matches!(error, wabidb::error::WabiError::AlreadyRunning),
+        )
+        .await
+        .unwrap();
         let group = store
             .get_channel("group-succession")
             .await
@@ -314,7 +337,12 @@ async fn membership_delta_owner_succession_and_last_leave_replay_together() {
             .unwrap()
             .is_empty());
         drop(store);
-        let store = WdbAdapter::open(dir.path()).await.unwrap();
+        let store = writer_drain::retry(
+            || WdbAdapter::open(dir.path()),
+            |error| matches!(error, wabidb::error::WabiError::AlreadyRunning),
+        )
+        .await
+        .unwrap();
         assert!(store
             .get_channel(&group.channel_id)
             .await
@@ -454,7 +482,12 @@ async fn legacy_snapshot_repair_understands_batch_readds_without_resurrecting_re
     );
     projection.save_snapshot(dir.path()).unwrap();
     drop(store);
-    let store = WdbAdapter::open(dir.path()).await.unwrap();
+    let store = writer_drain::retry(
+        || WdbAdapter::open(dir.path()),
+        |error| matches!(error, wabidb::error::WabiError::AlreadyRunning),
+    )
+    .await
+    .unwrap();
     let ids = store
         .list_channel_members("group-legacy")
         .await

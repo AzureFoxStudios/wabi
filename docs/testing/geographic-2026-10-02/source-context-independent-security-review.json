@@ -1,0 +1,285 @@
+{
+  "schemaVersion": 1,
+  "clientDate": "2026-10-02",
+  "executionComputer": "dotRonin",
+  "checkout": "/home/ironin/wabi",
+  "branch": "codex/security-boundary-hardening-20260930",
+  "baseCommit": "138abe39e08e400188d1812ed3bfd378df435315",
+  "phase": "separate human-approved checkpoint source metadata",
+  "reviewStatus": "Accepted independent static review and runtime evidence for exact source3 backend/checkpoint metadata candidate; later rebuilt frontend is a separate release bundle.",
+  "reviewer": "Harden server trust boundaries, root with two read-only reviewers",
+  "implementationOwner": "Assess Tailscale-free testing",
+  "organizerCard": "task_1282d0135bc74301b99ed6a7c9713fd4",
+  "historicalSecurityAcceptance": {
+    "sourceReceiptSha256": "32c17860fe6f080eaa8dee6fef52dffa1dcd1e0ba9c80768f475caf2699007df",
+    "sessionId": 19203,
+    "exitCode": 0,
+    "passed": 2635,
+    "failed": 0,
+    "ignored": 11,
+    "groups": 88,
+    "newPhaseCovered": false
+  },
+  "reviewedContracts": [
+    "No identified current signature/community/node binding bypass or elevation to writer/recovery authority.",
+    "Actual held checkpoint boundary supplies immutable capture identity; completed export supplies exact ciphertext/inventory/size/applied-prefix claims.",
+    "Shared domain-separated P256 signer, canonical uncompressed point, low-S and immutable verified proof.",
+    "Existing actual loopback ConnectInfo plus operator secret, default-off opt-in, private/no-store redacted response.",
+    "Descriptor-pinned no-follow private bounded reads; exclusive0600 sidecar publication with file/directory fsync.",
+    "Durable job is compared with admitted Ready memory record before and after archive verification; owned read permit survives caller cancellation.",
+    "Strict filename classification prevents sidecars being parsed as old job JSON; added file/byte peak is reserved.",
+    "Old V2 archive, LiveArchiveReceipt and CheckpointJob wire shapes remain separate from source metadata."
+  ],
+  "reviewCorrections": [
+    {
+      "finding": "Every JSON file was parsed as a job on restart; sidecar publication adds quota entries/bytes.",
+      "status": "Classifier and explicit additional reserve statically reviewed."
+    },
+    {
+      "finding": "Temporary cleanup could unlink a pre-existing name after exclusive creation failed.",
+      "status": "Matching-created-inode cleanup and collision regression passed in source publication tests and full source3 workspace."
+    },
+    {
+      "finding": "GET admitted in-memory Ready state even when saved job was missing/corrupt/changed.",
+      "status": "Bounded saved-record comparison before/after archive checks and full-router missing/corrupt/changed/failed refusals passed after actual AppState reconstruction."
+    },
+    {
+      "finding": "Ingestion deadline did not reach final certification, allowing a late successful receipt.",
+      "status": "Certification-specific lane contention and late-publication regression checks passed in exact final consensus package session78716. Late durable bytes are preserved; unpreemptible syscalls/lane waits do not provide a hard wall-clock stop."
+    },
+    {
+      "finding": "Internally tagged serde unit allocation variant accepted extra fields despite deny_unknown_fields.",
+      "status": "Strict kind-only custom Deserialize independently reviewed; extra/duplicate allocation fields and canonical/invalid crypto cases passed in final consensus session78716. Earlier red evidence remains preserved. No writer permission was granted by the old typed Unknown result."
+    },
+    {
+      "finding": "Initial test-only retry accepted every generic Ownership error during reopen, which could mask unsafe filesystem state.",
+      "status": "Narrow actual-busy OS lock probe reviewed; existing inode/owner/mode/link shape checked, production open is called once after busy clears. Final package64/0/5 passed. Production store unchanged. Historical failure cause remains unproved."
+    }
+  ],
+  "runtimeAcceptancePending": [],
+  "limits": [
+    "Read-only implementation review; root performed no Cargo or implementation edits.",
+    "Snapshot is not a full-source freeze and must be compared with final acceptance sources.",
+    "No independent cryptographic assurance or real physical deployment acceptance.",
+    "Synchronous filesystem I/O and current lane waits cannot be forcibly preempted; late completion returns failure and may preserve durable immutable files.",
+    "Process-kill fixtures are publication-stage tests, not proof of full job power-loss recovery or writer activation.",
+    "Allocation remains Unknown; source role, encryption/replay/quorum/full-instance/writer authorization remain unproved.",
+    "Shared checkout changes, uploads and external Lore lifecycle work remain with their owners."
+  ],
+  "inspectedSources": {
+    "core/crates/wabi-server/src/checkpoint_jobs.rs": "4782b4260edb4d7fe35f603bddf5cbd8da71551ed86bf2af9aeecc6b38b38e62",
+    "core/crates/wabi-server/src/instance_checkpoint.rs": "f805d9e3cafd657c1fecb323fc456433357f9fbf059a869b81bad1edc786cfd9",
+    "core/crates/wabi-server/src/instance_archive/mod.rs": "665382007157b5821025173f12fcdb97e1b0e59ddb4ca3ea36f45ac42526fedb",
+    "core/crates/wabi-server/src/instance_archive/source_context.rs": "244528d4b600a188d1371c39370ef872bd0e63603cfab2e4e088df73ea4073ee",
+    "core/crates/wabi-server/src/instance_archive/source_context_tests.rs": "f8af39a90fd64de11f49d140c77771d30a549dbaeb1cfb2753cc9d435d9cc9fc",
+    "core/crates/wabi-server/src/community_roster.rs": "f9716d4332945f84cd6a3df8c94424d3649bb9a9d1311853c6a07f7fc479fb88",
+    "core/crates/wabi-server/src/api/operator.rs": "2ad5bc8d7c551af6eca32d771c344fcb78bc388e23639cae31f3e3e33b34bb1a",
+    "core/crates/wabi-server/src/instance_archive/live.rs": "678f4f09119824bd5f57e857e8862ced7d7cbb03d42cb2770740b27a62f312ef",
+    "core/crates/wabi-server/tests/checkpoint_operator_contract.rs": "d7e642b498cb83c8254a0abc6ed3fc4409565c75426a12cd64cf844bc0d3b9dd",
+    "core/crates/wabi-consensus/src/source_context.rs": "1edaa42830a860d204fffac3a6457e8b6ca25637e06fb8437b37eb19cdd82e27",
+    "core/crates/wabi-consensus/src/source_context/tests.rs": "5438fb0549bb461e544435378ce722828890f110873e22245fa74d4082d6813c",
+    "core/crates/wabi-consensus/src/material/checkpoint.rs": "67f18f168e1b6cb8d61f54beb266c612a1e21fceec46ec109d8ee176d363c627",
+    "core/crates/wabi-consensus/src/material/checkpoint/tests.rs": "dafca2c26b4f25f15fe900dd1a10c5b0335427371bf79419efa1bfa867d4dc1b"
+  },
+  "integrationCheckPending": {
+    "ownerReportedSession": 44764,
+    "ownerReportedExitCode": 101,
+    "ownerReportedTestsExecuted": 0,
+    "independentlyVerifiedCause": "New post-acceptance notify_private_message call sites reference api::push, but current api/mod.rs contains no declaration. Matching-feature cfg at call sites alone is not a valid all-feature correction.",
+    "coordination": "UI owner removed its two new uncompiled notification hooks; root independently verified both message files exactly match historical security source32c. No graph/module/state/router expansion. Fresh UI checks/build and server source-context tests remain pending; UI owns current Cargo slot.",
+    "historicalSecuritySnapshotChangedFiles": [
+      "core/crates/wabi-server/src/api/messages.rs",
+      "core/crates/wabi-server/src/socketio/messages.rs"
+    ],
+    "unchangedRegistrationFile": "core/crates/wabi-server/src/api/mod.rs",
+    "messageFilesRestoredToAcceptedSecurityBytes": true,
+    "verifiedCurrentHashes": {
+      "core/crates/wabi-server/src/api/messages.rs": "3444604fb0f0f25dcbd31bd62aba655f00002f87a7bfac107d9f489cb2f24a85",
+      "core/crates/wabi-server/src/socketio/messages.rs": "df72838a901d5cc322b6a594febcd583803abe88d0f532e337bf7eec08c5bb5b",
+      "core/crates/wabi-server/src/api/mod.rs": "99a38def9b348db0042f5febbc852452bbcd9bbe7d909216ee8b60b9f4908b84",
+      "Cargo.toml": "a4a424c17f25224b17a01cf320e8339d97551081640b40898d35bbdfb773a051",
+      "Cargo.lock": "2c31a8723232abaffc228fd9801cd444997211e5b2530d994072a7f7cd4b522a"
+    },
+    "status": "Resolved by owner hook removal; message files remain exact accepted security bytes. Fresh producer/full workspace compiled and passed."
+  },
+  "consensusRuntimeAcceptance": {
+    "record": "source-context-consensus-acceptance.json",
+    "sessionId": 78716,
+    "actualExitCode": 0,
+    "totals": {
+      "passed": 64,
+      "failed": 0,
+      "ignored": 5
+    },
+    "groups": 5,
+    "logSha256": "f53273fdc3f605f70f736f121245cbc3eb858cab1aca301c30374c532973d5d5",
+    "logBytes": 8669,
+    "sourceReceipt": "source-context-consensus-freeze.json",
+    "captureTiming": "during session78716 compilation; corrected receipt script representation, no consensus source edits after launch",
+    "independentVerification": "Root decompressed the archived terminal log, verified its hash/length/group totals, and compared all 25 recorded source/manifest files and Cargo.lock with current bytes.",
+    "scope": "local consensus/signed opaque storage; no server source producer, payload replay, quorum bytes or writer activation accepted"
+  },
+  "deferredUncompiledPushReview": {
+    "status": "Unregistered dormant feature; owner defers enabling it for the current release repair.",
+    "findings": [
+      "Arbitrary outbound endpoint lacks explicit SSRF, redirect, timeout and subscription-count controls.",
+      "Endpoint-keyed upsert can overwrite another account subscription.",
+      "Corrupt/unreadable key store falls back to regeneration; private atomic durable persistence is absent.",
+      "Initial credential checks are not retained through body/store waits.",
+      "Detached delivery/cleanup escapes checkpoint operation ownership and membership/publication boundaries.",
+      "Delivery does not recheck committed message deletion/original retention deadline or set a delivery TTL.",
+      "Byte slicing arbitrary endpoint text can panic; endpoint logs can expose bearer URL material."
+    ],
+    "scope": "Read-only findings concern uncompiled push code and new post-security-acceptance hooks; they do not invalidate historical source32c acceptance. No dependency defaults were inferred from unavailable crates."
+  },
+  "producerAcceptanceReview": {
+    "status": "Actual same-archive/root-key/historical/reconstructed-AppState/full-router/corruption/quota checks passed in focused and complete workspace runs.",
+    "sameArchiveChecksPresent": "The exact exported .age is restored inactive; protected node/bootstrap/applied/prefix claims and independently root-derived P256 public point/community are compared with the signed context.",
+    "historicalChecksPresent": "Actual later durable writes precede a re-fetch of the identical original signed JSON.",
+    "restartGap": "Existing manager-only status reload did not execute GET through reconstructed Ready/SourceDirectory. Owner agreed to test-only actual AppState reconstruction, using production checkpoint routes first to avoid detached Socket.IO state, then fresh full router for GET and corruption refusals.",
+    "restartScope": "Actual AppState reconstruction uses original production operator routes before Socket.IO setup, exact AlreadyRunning fixture drain, then the full router. Canonical community and persistent lock dev/inode preserved. This is local application-state restart, not a physical host reboot.",
+    "currentTestSourceSha256": "f003a5c3cef80688a6ed0d1f8b439fb31b75a3a0d17d574fdd49ca4d3f4af85f"
+  },
+  "plannedDiskSafeTestEnvironment": {
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "intent": "Omit debug symbols while retaining pinned test assertions/features/optlevel/unwind; exact fresh environment and source/build receipt required. No prior executable identity is implied.",
+    "sharedTargetCleanup": "No deletion. Historical log-referenced executable inventory is not proof of exclusive ownership or obsolescence."
+  },
+  "producerRuntimeAcceptance": {
+    "record": "producer-workspace-acceptance.json",
+    "sessionId": 84268,
+    "actualExitCode": 0,
+    "totals": {
+      "passed": 2663,
+      "failed": 0,
+      "ignored": 15
+    },
+    "groups": 88,
+    "command": "CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 CARGO_PROFILE_TEST_DEBUG=0 cargo test --offline --locked --workspace --features wabi-server/addons,wabi-server/experimental-livekit-broker --no-fail-fast",
+    "toolchain": "Rust/Cargo1.93.1",
+    "sourceReceipt": "producer-source-freeze3.json.gz",
+    "sourceReceiptSha256": "a15c45f56be8097e65db49d7a6154b888d14b74ea611bba468fb0d0b48b14807",
+    "sourceFiles": 5163,
+    "logSha256": "ae7492de9b7e28e35a4524b8e337f67ea32c74a5b28c0492bb65d50527cc1176",
+    "compressedLog": "producer-workspace-final.log.gz",
+    "independentVerification": "Root decompressed the final log and verified its hash, 88 result groups and 2663/0/15 totals. All current non-frontend-build receipt inputs match; all 638 package identities/checksums/versions and root manifest are preserved. Owner recorded unchanged 5163-file readback at test completion. Later bundle rebuilding is recorded separately below.",
+    "focusedEvidence": {
+      "sourcePublication": "producer-focused-acceptance.json:75668,3/0/1",
+      "integration": "producer-focused-acceptance.json:39884,16/0/0",
+      "snapshotCli": "producer-cli-acceptance.json:95047,39/0/1"
+    },
+    "ignoredLimit": "Owned subprocess entrypoints are invoked by parents; external two-computer harness and ignored discovery doctest are not claimed accepted",
+    "scope": "Current main-Wabi source/build workspace and default-off signed checkpoint producer; no UI rendering/physical byte RPC/HA/writer activation/production deployment",
+    "independentArtifactVerification": {
+      "inventory": "producer-workspace-artifacts.json",
+      "session": 84268,
+      "count": 78,
+      "bytes": 5223543400,
+      "result": "Every current recorded executable SHA256 matched independently; no changed artifacts."
+    }
+  },
+  "laterGeneratedFrontendDelta": {
+    "status": "Generated frontend bundle changed after the recorded completed-run readback; backend and other source inputs still match.",
+    "changedRecordedPaths": [
+      "frontend/build/_app/immutable/chunks/0IbRdqXw.js",
+      "frontend/build/_app/immutable/chunks/0Nqy0Tp_.js",
+      "frontend/build/_app/immutable/chunks/5JJnFxg7.js",
+      "frontend/build/_app/immutable/chunks/AfEP0J4y.js",
+      "frontend/build/_app/immutable/chunks/B-kjN_vD.js",
+      "frontend/build/_app/immutable/chunks/B24IwDa2.js",
+      "frontend/build/_app/immutable/chunks/BEGR4w1a.js",
+      "frontend/build/_app/immutable/chunks/BEijz_dC.js",
+      "frontend/build/_app/immutable/chunks/BFwfdmHp.js",
+      "frontend/build/_app/immutable/chunks/BGK_PPeu.js",
+      "frontend/build/_app/immutable/chunks/BPa7tBg0.js",
+      "frontend/build/_app/immutable/chunks/BPo1advi.js",
+      "frontend/build/_app/immutable/chunks/BZgNMB_M.js",
+      "frontend/build/_app/immutable/chunks/BacL-rQH.js",
+      "frontend/build/_app/immutable/chunks/BnnoqfV6.js",
+      "frontend/build/_app/immutable/chunks/BoSdF-oL.js",
+      "frontend/build/_app/immutable/chunks/Br9n0aeq.js",
+      "frontend/build/_app/immutable/chunks/C0-tpiw1.js",
+      "frontend/build/_app/immutable/chunks/C2uL0rNo.js",
+      "frontend/build/_app/immutable/chunks/C3MvxxbK.js",
+      "frontend/build/_app/immutable/chunks/CBlMF9Qi.js",
+      "frontend/build/_app/immutable/chunks/CL5FL8-5.js",
+      "frontend/build/_app/immutable/chunks/CMScwPM0.js",
+      "frontend/build/_app/immutable/chunks/CPh6Ivdy.js",
+      "frontend/build/_app/immutable/chunks/CRsaSBIs.js",
+      "frontend/build/_app/immutable/chunks/CSIBnAy2.js",
+      "frontend/build/_app/immutable/chunks/CTPFabhp.js",
+      "frontend/build/_app/immutable/chunks/CTbP7uCN.js",
+      "frontend/build/_app/immutable/chunks/CU-72Mih.js",
+      "frontend/build/_app/immutable/chunks/C_-sOvkn.js",
+      "frontend/build/_app/immutable/chunks/Ca6PU0Vy.js",
+      "frontend/build/_app/immutable/chunks/Caxpa7a7.js",
+      "frontend/build/_app/immutable/chunks/CcO7HYRQ.js",
+      "frontend/build/_app/immutable/chunks/Cdrs_ooV.js",
+      "frontend/build/_app/immutable/chunks/CewEkG4P.js",
+      "frontend/build/_app/immutable/chunks/CsB6EHQw.js",
+      "frontend/build/_app/immutable/chunks/CxosRLic.js",
+      "frontend/build/_app/immutable/chunks/CypfBcYe.js",
+      "frontend/build/_app/immutable/chunks/D0LExLrA.js",
+      "frontend/build/_app/immutable/chunks/D98MMPTC.js",
+      "frontend/build/_app/immutable/chunks/D99ePD56.js",
+      "frontend/build/_app/immutable/chunks/DBeK5hV4.js",
+      "frontend/build/_app/immutable/chunks/DCekKFf2.js",
+      "frontend/build/_app/immutable/chunks/DMWQrQhg.js",
+      "frontend/build/_app/immutable/chunks/DMkD891T.js",
+      "frontend/build/_app/immutable/chunks/DN9lSYrs.js",
+      "frontend/build/_app/immutable/chunks/DUpRH6Uw.js",
+      "frontend/build/_app/immutable/chunks/DWJVGH-h.js",
+      "frontend/build/_app/immutable/chunks/DWm0hCn4.js",
+      "frontend/build/_app/immutable/chunks/DfXDvKLz.js",
+      "frontend/build/_app/immutable/chunks/DxXcbPq_.js",
+      "frontend/build/_app/immutable/chunks/DzHvj66a.js",
+      "frontend/build/_app/immutable/chunks/DzR-hrlZ.js",
+      "frontend/build/_app/immutable/chunks/R-_zJOpn.js",
+      "frontend/build/_app/immutable/chunks/_V2xRzmg.js",
+      "frontend/build/_app/immutable/chunks/aphrn548.js",
+      "frontend/build/_app/immutable/chunks/hXzMel0l.js",
+      "frontend/build/_app/immutable/chunks/hoEp2mt6.js",
+      "frontend/build/_app/immutable/chunks/l7HdBCRk.js",
+      "frontend/build/_app/immutable/chunks/m_dgp1eV.js",
+      "frontend/build/_app/immutable/chunks/nrDgKk1I.js",
+      "frontend/build/_app/immutable/chunks/qAUwPjMi.js",
+      "frontend/build/_app/immutable/chunks/tZPH_68l.js",
+      "frontend/build/_app/immutable/chunks/xjKzIOSt.js",
+      "frontend/build/_app/immutable/entry/app.C1vuy4cW.js",
+      "frontend/build/_app/immutable/entry/start.Dc2VNDKs.js",
+      "frontend/build/_app/immutable/nodes/0.AvHnB5tr.js",
+      "frontend/build/_app/immutable/nodes/1.ASDkvaIS.js",
+      "frontend/build/_app/immutable/nodes/2.BGXIYcC5.js",
+      "frontend/build/_app/immutable/nodes/3.D5Zf8sb-.js",
+      "frontend/build/_app/immutable/nodes/5.P3upmOj2.js",
+      "frontend/build/_app/immutable/nodes/6.tUvfHrpJ.js",
+      "frontend/build/_app/immutable/nodes/7.DaUMGJMd.js",
+      "frontend/build/_app/immutable/nodes/8.JvA8ot2A.js",
+      "frontend/build/_app/version.json",
+      "frontend/build/index.html",
+      "frontend/build/precache-manifest.json",
+      "frontend/build/sw.js"
+    ],
+    "count": 78,
+    "acceptedIndexSha256": "366331ef3f743cfc94864654584b411bc4a62efec20e7e90f858fe24b7d33253",
+    "currentIndexSha256": "2fdbecedd4fbc2fcbc900cf0717a7070128cde4a76bb09d3c5e146f004a8fb2e",
+    "coordination": "UI and implementation owners notified. Fresh release artifact/rendering/runtime verification must bind to the later bundle. Root did not roll back, edit or delete it.",
+    "acceptedSnapshotPreserved": "Source3 hash receipt and exact runtime log remain historical evidence; current frontend byte identity is not claimed."
+  },
+  "newPhaseAcceptanceLimits": [
+    "No production deployment, automatic recovery, physical byte transfer, quorum/canonical writer activation or independent cryptographic assurance.",
+    "Allocation remains Unknown; default-off source context grants no new writer/nonce permission.",
+    "Two transport draft files remain unreferenced and uncompiled.",
+    "Fresh release rendering/binary/host gates belong to the release owner, including later generated frontend bundle.",
+    "Original security source32c and source3 are distinct receipts; results are not additive."
+  ],
+  "preservedSnapshotDependencyAudit": {
+    "receipt": "producer-final-audit-receipt.json",
+    "reportSha256": "9aff05c395ee1576c3b9f9a15a15c558deea7161987cf4deb9d66661a300835d",
+    "advisorySnapshot": "9b3a3b73a7f42606494c943e95f8196e9994df46, 2026-09-30",
+    "vulnerabilities": 0,
+    "maintenanceWarnings": 4,
+    "terminalLruUnsoundWarnings": 2,
+    "limit": "Preserved snapshot, not a current independent audit."
+  }
+}

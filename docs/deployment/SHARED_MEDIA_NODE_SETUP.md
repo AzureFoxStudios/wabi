@@ -1,7 +1,7 @@
 # Shared Wabi Media Node Setup
 
 **Status:** early implementation / operator testing  
-**Updated:** 2026-09-14
+**Updated:** 2026-10-01
 
 A shared Wabi Media Node lets one publicly reachable SFU serve several completely
 independent Wabi Authorities. This is infrastructure sharing, not federation.
@@ -24,6 +24,28 @@ The Wabi Authorities do not need public UDP and may remain behind NAT/CGNAT as
 long as the Media Node can reach their HTTPS API. The Authorities never receive
 the LiveKit root API secret: join tokens are minted on the Media Node and returned
 through the authenticated outbound job relationship.
+
+The Authority's LiveKit token broker is **off in default builds**. Operator
+trials must explicitly build with `--features experimental-livekit-broker`.
+The fenced route returns 503 before allocating a room or dispatching a token
+job; runtime discovery reports LiveKit disabled. This does not disable the
+normal Wabi call stack or TURN. Generic admin jobs cannot submit raw MediaRelay
+operations to bypass broker or moderation admission.
+
+Opted-in trials request 60-second initial join tokens. Real mute/deafen commands
+save Wabi policy and queue targeted `UpdateParticipant` jobs; the current
+controller uses a short-lived, exact-room `roomAdmin` token for that RPC, keeps
+root credentials on the node, refuses redirects, and checks the response.
+Corrupt restrictions queue deny-all and report an error. Queueing is not proof
+of delivery or packet enforcement; the queue currently does not propagate
+persistence failures. An older controller cannot apply the new operation.
+
+Self-hosted LiveKit does not invalidate old join tokens when permissions are
+changed. Initial token expiry also does not terminate an established call.
+Before removing this gate, acceptance must prove current-account and room
+policy on rejoin/reconnect, stale-job ordering, durable delivery/failure
+reporting, and actual two-client SFU packet enforcement. The local RPC fixtures
+do not establish those guarantees. See [LiveKit token semantics](https://docs.livekit.io/frontends/reference/tokens-grants/).
 
 ## 1. Create the config
 
@@ -103,7 +125,8 @@ For every configured Authority it independently:
 6. activates the Authority's tenant-scoped room at the configured SFU endpoint;
 7. mints short-lived LiveKit join tokens locally when the Authority requests
    `mint_token`;
-8. reports the result using that Authority's own node credential.
+8. applies exact-room participant-permission updates for admitted moderation;
+9. reports the result using that Authority's own node credential.
 
 After a successful first pairing, remove the consumed `pairingToken` from the
 config. The persisted pairing is sufficient on later starts. Pairing tokens are
@@ -196,3 +219,16 @@ See:
 - `../architecture/MEDIA_BACKEND_AND_CERTIFICATION.md`
 
 for the trust model, backend/version policy and certification gates.
+
+## October 2 voice policy integration candidate
+
+The integration branch binds broker requests to the exact admitted live
+Socket.IO device (`socketId`) and mints a matching per-device identity.
+Moderation queues updates for those devices and legacy `user:n` identities.
+Voice entry defaults and unique-account capacity are Authority decisions in
+`voice_policies.json`; malformed stored policies refuse admission on load.
+Entry-policy edits affect subsequent admissions. The broker remains off by
+default behind `experimental-livekit-broker`, and queued updates/old-token
+reconnects retain the revocation limits above. Durable mute/deafen enforcement
+has not been relaxed. See the [integration and pending acceptance
+record](../plans/2026-10-02-voice-policy-integration.md).

@@ -22,6 +22,7 @@
 	} = galleryWorkspace;
 	import {
 		filterGalleryItems,
+		orderGalleryByUploader,
 		splitGallerySections,
 		galleryViewState,
 		guessGalleryMediaKind,
@@ -31,7 +32,7 @@
 	import { initObjectRefRegistry, registerObjectRef, slugify } from '$lib/objectRefRegistry';
 	import { openShareModal } from '$lib/shareStore';
 	import { buildShareLink, buildShareRefText, copyToClipboard } from '$lib/shareToChannel';
-	import { peekPendingNav, takePendingNav } from '$lib/pendingNav';
+	import { pendingNav, takePendingNav } from '$lib/pendingNav';
 
 	export let channelId: string | undefined = undefined;
 	$: effectiveChannel = channelId || $currentChannel;
@@ -135,7 +136,7 @@
 		filteredItems,
 		GALLERY_RECENT_COUNT
 	));
-	$: mainItems = activeCreatorFilter ? filteredItems : olderItems;
+	$: mainItems = orderGalleryByUploader(filteredItems);
 	$: viewState = galleryViewState(allItems.length, filteredItems.length);
 	$: filtersActive =
 		searchQuery.trim() !== '' || activeTypeFilter !== 'all' || activeCreatorFilter !== null;
@@ -152,7 +153,7 @@
 
 	// C2: deep-link handoff after items load — peek first, take only on hit
 	$: if (effectiveChannel && allItems.length > 0) {
-		const pending = peekPendingNav();
+		const pending = $pendingNav;
 		if (
 			pending?.kind === 'gallery_work' &&
 			(!pending.channelId || pending.channelId === effectiveChannel)
@@ -541,6 +542,9 @@
 					{/if}
 					<div class="gallery-grid">
 						{#each mainItems as item, idx (item.id)}
+{#if idx === 0 || mainItems[idx - 1].uploadedBy !== item.uploadedBy}
+<h3 class="uploader-heading">{item.creator?.username || 'Unavailable uploader'} <small>{mainItems.filter(work => work.uploadedBy === item.uploadedBy).length} works</small></h3>
+{/if}
 							<div
 								class="gallery-card"
 								role="button"
@@ -624,7 +628,7 @@
 			<button class="filter-btn" class:active={activeTypeFilter === 'video'} on:click={() => setTypeFilter('video')}>Video</button>
 			<div class="filter-divider"></div>
 			<div class="filter-creators">
-				{#each allCreators.slice(0, 10) as creator}
+				{#each allCreators as creator}
 					<button
 						class="creator-chip"
 						class:active={activeCreatorFilter?.dbUserId === creator.dbUserId}
@@ -652,3 +656,7 @@
 	/>
 </div>
 
+<style>
+ .uploader-heading { grid-column: 1 / -1; margin: 1rem 0 .25rem; font-size: 1rem; }
+ .uploader-heading small { margin-left: .6rem; font-weight: 400; color: var(--text-secondary); }
+</style>

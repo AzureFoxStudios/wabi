@@ -4,9 +4,11 @@
 	import { currentSavedServer } from '$lib/savedServers';
 	import { getServerUrl } from '$lib/serverUrl';
 	import ReceptionBoard from './ReceptionBoard.svelte';
+	import UserListTab from './UserListTab.svelte';
+	let hubView: 'overview' | 'people' = 'overview';
 	export let welcome = false;
 
-	const dispatch = createEventDispatcher<{ back: void; browse: void; openRoom: void; messages: void; members: void; settings: void; manage: void; complete: void }>();
+	const dispatch = createEventDispatcher<{ back: void; browse: void; openRoom: void; messages: void; members: void; settings: void; profileSettings: void; manage: void; complete: void }>();
 	$: serverName = $currentSavedServer?.effectiveName || (() => {
 		try { return new URL(getServerUrl()).hostname; } catch { return 'This server'; }
 	})();
@@ -19,29 +21,42 @@
 
 <section class="server-hub" class:focused={welcome && $currentSavedServer?.frontendMetadata?.deskFocusedWelcome === true} aria-labelledby="server-hub-title">
 	<div class="server-hub-content">
-		<div class="server-hub-top"><h2 id="server-hub-title">{welcome ? 'Welcome' : 'Reference Desk'}</h2><button type="button" on:click={() => welcome ? finishWelcome() : dispatch('back')}>{welcome ? 'Explore Reference Desk' : 'Back to where I was'}</button></div>
-		<ReceptionBoard mode={welcome ? 'welcome' : 'desk'} on:openRoom={() => { finishWelcome(); dispatch('openRoom'); }} />
-		<nav class="server-hub-actions" aria-label={`${serverName} navigation`}>
-			<button type="button" class="server-hub-primary" on:click={() => { finishWelcome(); dispatch('browse'); }}>{welcome ? 'Explore first' : 'Browse channels'}</button>
-			<button type="button" on:click={() => { finishWelcome(); dispatch('messages'); }}>Messages</button>
-			<button type="button" on:click={() => { finishWelcome(); dispatch('members'); }}>Members</button>
-			<button type="button" on:click={() => { finishWelcome(); dispatch('settings'); }}>Server settings</button>
-			{#if canManage}<button type="button" on:click={() => { finishWelcome(); dispatch('manage'); }}>Manage server</button>{/if}
-		</nav>
+		<header class="server-hub-top">
+			<h2 id="server-hub-title">{welcome ? 'Welcome' : 'Server home'}</h2>
+			<div class="server-tools">
+				<button type="button" on:click={() => dispatch('settings')}>Server settings</button>
+				{#if canManage}<button type="button" on:click={() => dispatch('manage')}>Manage server</button>{/if}
+				{#if welcome}<button type="button" on:click={finishWelcome}>Explore server</button>{/if}
+			</div>
+		</header>
+		{#if !welcome}
+			<nav class="hub-tabs" aria-label={`${serverName} home views`}>
+				<button type="button" on:click={() => dispatch('messages')}>Messages &amp; friends</button>
+				<button type="button" class:active={hubView === 'overview'} aria-current={hubView === 'overview' ? 'page' : undefined} on:click={() => hubView = 'overview'}>Overview</button>
+				<button type="button" class:active={hubView === 'people'} aria-current={hubView === 'people' ? 'page' : undefined} on:click={() => hubView = 'people'}>People</button>
+			</nav>
+		{/if}
+		{#if welcome || hubView === 'overview'}
+			<ReceptionBoard mode={welcome ? 'welcome' : 'desk'} on:openRoom={() => { finishWelcome(); dispatch('openRoom'); }} />
+		{:else}
+			<div class="hub-people"><UserListTab on:openSettings={() => dispatch('profileSettings')} /></div>
+		{/if}
 	</div>
 </section>
 
 <style>
 	.server-hub { height: 100%; overflow: auto; color: var(--text-primary); }
 	.server-hub.focused { position: fixed; inset: 0; z-index: 10010; height: 100dvh; background: var(--surface-app); }
-	.server-hub-content { max-width: 1140px; margin-inline: auto; padding: clamp(16px, 3vw, 36px); }
-	.server-hub-top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 24px}
-	.server-hub-top h2{margin:0;font-size:.9rem;color:var(--text-secondary)}
-	.server-hub-top button{border:0;background:none;color:var(--accent-primary);font:inherit;cursor:pointer}
-	.server-hub-actions { display: flex; flex-wrap: wrap; gap: 10px; padding:0 24px 24px; }
-	.server-hub-actions button { min-height: 44px; padding: 9px 16px; border: 1px solid color-mix(in srgb, var(--text-muted) 22%, transparent); border-radius: var(--radius-md, 8px); background: var(--surface-base); color: var(--text-heading); font: inherit; cursor: pointer; transition: background-color 130ms ease, border-color 130ms ease; }
-	.server-hub-actions button:hover { background: var(--surface-raised); border-color: var(--accent-primary); }
-	.server-hub-actions button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
-	.server-hub-actions .server-hub-primary { background: var(--accent-primary); color: white; border-color: transparent; }
-	.server-hub-actions .server-hub-primary:hover { background: var(--accent-secondary); border-color: transparent; }
+	.server-hub-content { padding: clamp(16px, 2vw, 28px) clamp(16px, 2vw, 28px) 32px; padding-inline-end: max(56px, 2vw); }
+	.server-hub-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+	.server-hub-top h2 { margin: 0; font-size: 1rem; color: var(--text-secondary); }
+	.server-tools, .hub-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+	.server-tools button, .hub-tabs button { min-height: 44px; padding: 10px 14px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-base); color: var(--text-primary); font: inherit; cursor: pointer; }
+	.hub-tabs { margin-bottom: 20px; border-bottom: 1px solid var(--border-default); }
+	.hub-tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; }
+	.hub-tabs button.active { border-bottom-color: var(--accent-primary); color: var(--text-heading); }
+	button:hover { background: var(--surface-raised); }
+	button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+	.hub-people { min-height: 480px; max-width: 960px; }
+	@media (max-width: 600px) { .server-hub-content { padding: 16px; } }
 </style>

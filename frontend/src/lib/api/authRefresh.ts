@@ -1,5 +1,5 @@
 const browser: boolean = typeof window !== 'undefined' && typeof document !== 'undefined';
-import { getAuthToken, setAuthToken, clearAuthToken, authSessionGeneration } from '../authSession';
+import { getAuthToken, setAuthToken, clearAuthToken, authSessionGeneration, persistRememberedAuthAfterRefresh } from '../authSession';
 import { getServerUrl, normalizeServerUrl } from '../serverUrl';
 
 // Refresh tokens are stored server-scoped, session-scoped (cleared when the
@@ -111,6 +111,7 @@ export async function tryRefresh(serverUrl?: string | null): Promise<boolean> {
 			setAuthToken(newAccess, base);
 			// Rotate: a fresh refresh token comes back; if absent, keep the old.
 			if (data.refreshToken) setRefreshToken(data.refreshToken, base);
+			persistRememberedAuthAfterRefresh(base);
 			return true;
 		} catch {
 			// Network failure — don't clear tokens; caller can retry later.

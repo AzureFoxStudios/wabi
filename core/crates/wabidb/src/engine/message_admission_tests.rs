@@ -87,11 +87,15 @@ async fn open_backfills_message_id_lookup_from_legacy_snapshot() {
     );
     drop(engine);
 
+    let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
     let (legacy, watermark) = ProjectionState::load_snapshot(dir.path()).unwrap().unwrap();
     assert_eq!(watermark, outcome.commit_seq);
     legacy.remove(message_lookup::INDEX, &message_lookup::key("ch_a", "msg_a"));
     legacy.save_snapshot(dir.path()).unwrap();
-    let restarted = WabiDbEngine::open(config(dir.path())).await.unwrap();
+    drop(stopped);
+    let restarted = crate::tests::reopen_after_drop(config(dir.path()), None)
+        .await
+        .unwrap();
     let state = restarted.projection_state();
     assert_eq!(state.applied_commit_seq(), watermark);
     assert_eq!(message_lookup::get(&state, "msg_a").unwrap(), Some(row));
@@ -157,8 +161,12 @@ async fn queued_message_parent_survives_rebind_refusal_and_event_replay() {
     );
     drop(sender);
     drop(engine);
+    let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
     ProjectionState::remove_snapshot(dir.path());
-    let reopened = WabiDbEngine::open(config(dir.path())).await.unwrap();
+    drop(stopped);
+    let reopened = crate::tests::reopen_after_drop(config(dir.path()), None)
+        .await
+        .unwrap();
     assert_eq!(reopened.barrier().current(), last.commit_seq);
     assert_eq!(
         message_lookup::get(&reopened.projection_state(), "msg_a").unwrap(),
@@ -189,6 +197,7 @@ async fn corrupt_message_snapshot_refuses_open_without_replacing_it_or_leaking_l
             .await
             .unwrap();
         drop(engine);
+        let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
         let (damaged, watermark) = ProjectionState::load_snapshot(dir.path()).unwrap().unwrap();
         if wrong_pointer {
             // The lookup and primary counts still match; counts alone cannot
@@ -213,7 +222,10 @@ async fn corrupt_message_snapshot_refuses_open_without_replacing_it_or_leaking_l
         }
         damaged.save_snapshot(dir.path()).unwrap();
         let before = std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap();
-        let error = WabiDbEngine::open(config(dir.path())).await.unwrap_err();
+        drop(stopped);
+        let error = crate::tests::reopen_after_drop(config(dir.path()), None)
+            .await
+            .unwrap_err();
         assert!(
             matches!(error, WabiError::Corrupt { location, .. } if location == message_lookup::INDEX)
         );
@@ -221,7 +233,10 @@ async fn corrupt_message_snapshot_refuses_open_without_replacing_it_or_leaking_l
             std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap(),
             before
         );
-        assert!(!dir.path().join(".lock").exists());
+        assert!(dir.path().join(".lock").exists());
+        assert!(super::locks::try_acquire_process_lock(&dir.path().join(".lock"))
+            .unwrap()
+            .is_some());
     }
 }
 

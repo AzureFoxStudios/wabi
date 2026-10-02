@@ -8,7 +8,6 @@
 	} from '$lib/profileDesign';
 	import { saveProfilePatch } from '$lib/profileSave';
 	import ProfileName from '$lib/components/ProfileName.svelte';
-	import ProfileAppearanceControls from '$lib/components/ProfileAppearanceControls.svelte';
 
 	const families = ['Arial', 'Georgia', 'Times New Roman', 'Comic Sans MS', 'Courier New', 'Trebuchet MS', 'Verdana', 'Impact', 'Palatino', 'Helvetica'];
 	const sizes = [{ value: '0.9em', label: 'Small' }, { value: '1em', label: 'Medium' }, { value: '1.2em', label: 'Large' }, { value: '1.4em', label: 'Extra large' }];
@@ -101,7 +100,7 @@
 
 <section class="profile-design-studio" aria-labelledby="profile-design-heading">
 	<div class="studio-heading">
-		<div><p class="studio-kicker">Make it yours</p><h3 id="profile-design-heading" bind:this={studioHeading} tabindex="-1">Profile design studio</h3><p class="studio-hint">Create a name and nameplate, then share a design anyone can edit. Everyone controls how much they see.</p></div>
+		<div><p class="studio-kicker">Make it yours</p><h3 id="profile-design-heading" bind:this={studioHeading} tabindex="-1">Name style</h3><p class="studio-hint">Pick a preset, see it below, then save. Open customization to adjust every detail.</p></div>
 		<span class="studio-free-label">Free to create & share</span>
 	</div>
 	<div class="studio-presets" aria-label="Starting designs">
@@ -113,6 +112,16 @@
 		{/each}
 	</div>
 	<div class="studio-workbench">
+
+		<div class="studio-preview-stack" aria-label="Live design previews">
+			<p class="studio-kicker">Your draft in context</p>
+			<div class="studio-preview studio-chat"><span class="studio-avatar" aria-hidden="true">{previewName.charAt(0).toUpperCase()}</span><div><div class="studio-preview-name"><ProfileName username={previewName} {font} color={$currentUser?.color} preview={true} /><span class="studio-timestamp">12:34</span></div><p>A little personality, wherever you show up.</p><span class="studio-context">Messages</span></div></div>
+			<div class="studio-preview studio-person"><span class="studio-avatar" aria-hidden="true">{previewName.charAt(0).toUpperCase()}</span><div><ProfileName username={previewName} {font} color={$currentUser?.color} preview={true} /><span class="studio-context">People · Online</span></div></div>
+			<div class="studio-preview studio-profile"><span class="studio-avatar" aria-hidden="true">{previewName.charAt(0).toUpperCase()}</span><ProfileName username={previewName} {font} color={$currentUser?.color} preview={true} /><span class="studio-context">Profile card</span></div>
+			<p class="studio-hint">These previews show your design. Each viewer can show plain names, hide plates or pause motion. Your system’s reduced motion preference also pauses shimmer.</p>
+		</div>
+	</div>
+	<details class="studio-advanced"><summary>Customize design</summary>
 		<div class="studio-controls">
 			<label class="studio-wide">Design title<input maxlength="80" bind:value={title} aria-label="Design title" /></label>
 			<label>Font<select bind:value={family} onchange={typographyChanged}><option value="inherit">App default</option>{#each families as item}<option value={item}>{item}</option>{/each}</select></label>
@@ -134,18 +143,11 @@
 				<label class="studio-wide">Plate opacity <span>{Math.round(design.plateOpacity * 100)}%</span><input type="range" min="0" max="1" step="0.05" bind:value={design.plateOpacity} oninput={changed} /></label>
 			{/if}
 		</div>
-		<div class="studio-preview-stack" aria-label="Live design previews">
-			<p class="studio-kicker">Your draft in context</p>
-			<div class="studio-preview studio-chat"><span class="studio-avatar" aria-hidden="true">{previewName.charAt(0).toUpperCase()}</span><div><div class="studio-preview-name"><ProfileName username={previewName} {font} color={$currentUser?.color} preview={true} /><span class="studio-timestamp">12:34</span></div><p>A little personality, wherever you show up.</p><span class="studio-context">Messages</span></div></div>
-			<div class="studio-preview studio-person"><span class="studio-avatar" aria-hidden="true">{previewName.charAt(0).toUpperCase()}</span><div><ProfileName username={previewName} {font} color={$currentUser?.color} preview={true} /><span class="studio-context">People · Online</span></div></div>
-			<div class="studio-preview studio-profile"><span class="studio-avatar" aria-hidden="true">{previewName.charAt(0).toUpperCase()}</span><ProfileName username={previewName} {font} color={$currentUser?.color} preview={true} /><span class="studio-context">Profile card</span></div>
-			<p class="studio-hint">These previews show your design. Each viewer can show plain names, hide plates or pause motion. Your system’s reduced motion preference also pauses shimmer.</p>
-		</div>
-	</div>
-	<div class="studio-actions"><button type="button" class="action-btn" disabled={saving} onclick={saveDesign}>{saving ? 'Publishing…' : 'Publish design'}</button><button type="button" class="action-btn secondary" disabled={saving} onclick={resetDraft}>Start plain</button><button type="button" class="action-btn secondary" onclick={downloadDesign}>Export design</button><button type="button" class="action-btn secondary" onclick={() => importInput?.click()}>Import design</button><input bind:this={importInput} type="file" accept=".json,application/json" class="hidden-file-input" onchange={importDesign} /></div>
+		<div class="studio-actions"><button type="button" class="action-btn secondary" onclick={downloadDesign}>Export design</button><button type="button" class="action-btn secondary" onclick={() => importInput?.click()}>Import design</button><input bind:this={importInput} type="file" accept=".json,application/json" class="hidden-file-input" onchange={importDesign} /></div>
+	</details>
+	<div class="studio-actions"><button type="button" class="action-btn" disabled={saving} onclick={saveDesign}>{saving ? 'Saving…' : 'Save name style'}</button><button type="button" class="action-btn secondary" disabled={saving} onclick={resetDraft}>Start plain</button></div>
 	{#if feedback}<p class="studio-feedback" role="status">{feedback}</p>{/if}
 	{#if error}<p class="studio-error" role="alert">{error}</p>{/if}
-	<details class="studio-viewer-controls"><summary>How you see profiles</summary><ProfileAppearanceControls /></details>
 </section>
 
 <style>
@@ -190,4 +192,9 @@
 	.studio-viewer-grid label { display: flex; align-items: center; gap: 0.45rem; font-size: 0.78rem; color: var(--text-secondary); }
 	@media (max-width: 760px) { .studio-workbench { grid-template-columns: minmax(0, 1fr); } .studio-preview-stack { position: static; } .studio-heading { flex-direction: column; gap: 0.5rem; } }
 	@media (max-width: 420px) { .studio-viewer-grid { grid-template-columns: 1fr; } .studio-presets { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+	.studio-workbench { grid-template-columns: minmax(0, 1fr); }
+	.studio-preview-stack { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); position: static; }
+	.studio-preview-stack > .studio-kicker, .studio-preview-stack > .studio-hint { grid-column: 1 / -1; }
+	.studio-advanced summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: var(--text-heading); }
+	.studio-advanced .studio-controls { margin-top: 12px; }
 </style>

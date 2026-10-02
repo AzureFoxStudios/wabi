@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-02T02:06:44.752147+00:00",
+  "status": "UNREFERENCED_UNCOMPILED_UNACCEPTED",
+  "purpose": "Pending owned checkpoint storage dispatcher for authenticated transport integration",
+  "sources": {
+    "core/crates/wabi-consensus/src/transport/material.rs": "a90f85f5bbc05d9f82dd580cb79be909722492d5846fac91e1f6fe8a224898e0",
+    "core/crates/wabi-consensus/src/transport/material/tests.rs": "40893c258e120406a3950ab5fe17fd07dcb569b515bfd96aed83dc2ac9de3b8b"
+  },
+  "modLibRpcServerWiringChanged": false,
+  "cargoRun": false,
+  "pending": [
+    "Approved Config versus actual MaterialStore binding match",
+    "Fixed-roster Noise request/response integration and peer-ACK validation",
+    "Fresh read/reseed object RPC and bounded source manifest retrieval",
+    "Actual cancellation/timeout/shutdown/parser/fault tests",
+    "No majority/current-source-role/encryption/replay/readiness/writer claims"
+  ]
+}

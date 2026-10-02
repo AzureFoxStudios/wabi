@@ -64,6 +64,7 @@ pub struct AppState {
     pub started_at: std::time::Instant,
     pub network_health: crate::api::network_health::Sampler,
     pub instance_operations: crate::instance_operations::InstanceOperations,
+    pub checkpoint_jobs: crate::checkpoint_jobs::CheckpointJobs,
     pub boosters: crate::api::boosters::Boosters,
     /// WabiDB engine handle. The source of truth for all persistence.
     /// Concrete `WdbAdapter` (not the trait object) — `WabiStore` is not
@@ -146,6 +147,9 @@ pub struct AppState {
     /// Socket dispatch owns read guards; group lifecycle commands own writers.
     /// Helpers called inside either boundary must not acquire it recursively.
     pub membership_gate: Arc<RwLock<()>>,
+    /// Bounded channel locks serialize receive admission, board policy/version
+    /// writes, publication and completed eviction. See channel_access.
+    pub channel_publication_gates: [Mutex<()>; 64],
     /// Serialize each call's authorize/read/write/push boundary.
     pub call_session_locks: crate::call_access::SessionLocks,
     /// Channel that internal call-session handlers push (session_id, WsMessage) to.
@@ -254,7 +258,7 @@ impl RevocationStore {
         )
     }
 
-    fn next_user_floor(&self, user_id: i64, now: i64) -> u64 {
+    pub(crate) fn next_user_floor(&self, user_id: i64, now: i64) -> u64 {
         let (epoch, floor) = self.account_watermark(user_id);
         (now.max(0) as u64)
             .saturating_add(1)
@@ -382,7 +386,9 @@ impl AppState {
         let job_queue =
             JobQueue::new_persistent(PathBuf::from(&config.data_dir).join("job_queue.json"));
         let blob_registry = BlobRegistry::new_persistent(PathBuf::from(&config.data_dir));
-        let bot_registry = BotRegistry::new_persistent(PathBuf::from(&config.data_dir));
+        let bot_registry = BotRegistry::new_persistent_with_operations(
+            PathBuf::from(&config.data_dir), instance_operations.clone(),
+        )?;
         let upload_registry = UploadRegistry::new_for_authority(
             PathBuf::from(&config.data_dir),
             PathBuf::from(&config.uploads_dir),
@@ -491,11 +497,13 @@ impl AppState {
         // `server_role_catalog()`.
         let lore_roles = LoreRoleStore::open(&config.data_dir);
         crate::api::server_center::spawn_evidence_expiry_loop(&server_center, instance_operations.clone());
+        let checkpoint_jobs = crate::checkpoint_jobs::CheckpointJobs::from_environment(&config)?;
         Ok(Self {
             config,
             started_at,
             network_health: crate::api::network_health::Sampler::default(),
             instance_operations,
+            checkpoint_jobs,
             boosters,
             wdb,
             community_roster,
@@ -533,6 +541,7 @@ impl AppState {
             #[cfg(feature = "wabi-lore")]
             lore_service: RwLock::new(None),
             membership_gate: Default::default(),
+            channel_publication_gates: std::array::from_fn(|_| Mutex::new(())),
             call_session_locks: Default::default(),
             call_session_push: {
                 let (tx, _) = broadcast::channel(1024);
@@ -750,8 +759,10 @@ impl AppState {
         use wabidb::projections::auth_revocations::Operation;
         let revocations = Arc::clone(&self.revocations);
         let wdb = Arc::clone(&self.wdb);
+        let io = self.socket_io();
+        let secret = self.config.jwt_secret.clone();
         self.instance_operations.spawn(async move {
-            let mut guard = revocations.write_owned().await;
+            let mut guard = revocations.clone().write_owned().await;
             let Some(operation) = build(&guard) else { return Ok(()); };
             let cutoff = (chrono::Utc::now().timestamp().max(0) as u64).saturating_sub(3600);
             let updated_jti = match &operation { Operation::Token { jti, .. } => Some(jti.as_str()), _ => None };
@@ -763,20 +774,13 @@ impl AppState {
                 jti: jti.clone(), expires_at: *exp, cutoff,
             }));
             crate::auth_revocations::commit(wdb.engine(), false, operations).await?;
-            match operation {
-                Operation::Token { jti, expires_at } => { guard.jtis.insert(jti, expires_at); },
-                Operation::UserFloor { user_id, floor, exempt_jtis, clear_legacy } => {
-                    guard.user_iat_revoked.insert(user_id, floor);
-                    if exempt_jtis.is_empty() { guard.user_jti_exemptions.remove(&user_id); }
-                    else { guard.user_jti_exemptions.insert(user_id, exempt_jtis.into_iter().collect()); }
-                    if clear_legacy { guard.users.remove(&user_id); }
-                },
-                Operation::GlobalFloor { epoch } => guard.epoch = epoch,
-                Operation::ClearLegacyUser { user_id } => { guard.users.remove(&user_id); },
-                _ => unreachable!("Authority mutation builder only creates canonical revocation operations"),
-            }
+            crate::auth_credentials::publish_operation(&mut guard, operation);
             for (jti, exp) in expired {
                 if guard.jtis.get(&jti) == Some(&exp) { guard.jtis.remove(&jti); }
+            }
+            drop(guard);
+            if let Some(io) = io {
+                crate::socketio::disconnect_revoked_sockets(&io, &secret, &revocations).await;
             }
             Ok(())
         }).await.map_err(|error| wabidb::error::WabiError::InternalInvariantViolated {
@@ -888,7 +892,7 @@ impl AppState {
     /// in one ordered event. A failed write publishes none of those changes.
     pub async fn recover_owner_with_code(&self, code: &str, user_id: i64) -> wabidb::error::Result<bool> {
         crate::recovery_codes::recover(Arc::clone(&self.recovery_codes), Arc::clone(&self.revocations),
-            Arc::clone(&self.owner_user_id), Arc::clone(&self.wdb), crate::recovery_codes::hash_code(code), user_id, self.instance_operations.clone()).await
+            Arc::clone(&self.owner_user_id), Arc::clone(&self.wdb), crate::recovery_codes::hash_code(code), user_id, self.instance_operations.clone(), self.socket_io(), self.config.jwt_secret.clone()).await
     }
 }
 

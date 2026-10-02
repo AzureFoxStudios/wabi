@@ -1,0 +1,214 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-01T12:14:11.588889+00:00",
+  "executionComputer": "dotRonin",
+  "checkout": "/home/ironin/wabi",
+  "branch": "codex/security-boundary-hardening-20260930",
+  "baseCommit": "138abe39e08e400188d1812ed3bfd378df435315",
+  "scope": "Local experimental encrypted recovery coordination; no Authority wiring or writer permit",
+  "command": "CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 cargo test --offline --locked -p wabi-consensus -- --test-threads=1",
+  "terminalSession": "88546",
+  "exitCode": 0,
+  "testsPassed": 39,
+  "testsFailed": 0,
+  "ignoredChildEntrypoints": 3,
+  "ignoredEntrypointsInvokedByParents": true,
+  "testGroups": [
+    {
+      "status": "ok",
+      "passed": 14,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "status": "ok",
+      "passed": 10,
+      "failed": 0,
+      "ignored": 2
+    },
+    {
+      "status": "ok",
+      "passed": 12,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "status": "ok",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "status": "ok",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    }
+  ],
+  "sourceDigests": {
+    "core/crates/wabi-consensus/README.md": "9cd344df2f6f4053e40f06f430e715897c9e64084417328c3eebf76789a14066",
+    "core/crates/wabi-consensus/Cargo.toml": "38d14443d149535e1078291712898c7e20d8a476b44a831e11db6868fc1f5201",
+    "core/crates/wabi-consensus/tests/three_voter_contract.rs": "1afa64078575dac497c8c77b7cfc2edfcb03a03aaae0022138b246da55d89679",
+    "core/crates/wabi-consensus/tests/storage_contract.rs": "3439b1cce1e4fe1a18ac965a5fd7be548bcaeba9f5133cc856e074bec0cd2718",
+    "core/crates/wabi-consensus/tests/encrypted_tcp_contract.rs": "2f89ff5056790e810367a3cfd14cc37b7c46f6dee5252b4af4020fd75b94c754",
+    "core/crates/wabi-consensus/src/model.rs": "8f5ef2274b893286c384e9d4ffd1088694e42cc1fe0de4f1b9231f3bddbd8b0a",
+    "core/crates/wabi-consensus/src/trust.rs": "c11829fcf80f332e2e9245bd5038f0da9ee0242d53c05a46e33dc041e270619f",
+    "core/crates/wabi-consensus/src/lib.rs": "b7df872d26e7da5e32c88f7733465fd13e74b79bf60ff583f750085df802123e",
+    "core/crates/wabi-consensus/src/store.rs": "211396fa714c82dcfc52fd85007a2e525ebd6df5ee690231813149b599411d78",
+    "core/crates/wabi-consensus/src/snapshot.rs": "b4bead1b66f5316bdd8837d16397e10616af9b582f25d1198469be20933164f7",
+    "core/crates/wabi-consensus/src/transport/mod.rs": "86100408d022c76dc0d49d63ecee27c8136a1185ccc587bcc533cfba41ee6a0d",
+    "core/crates/wabi-consensus/src/transport/channel.rs": "72369058eb5b23ae5c30c5332d468c6a4e06ed5f0fa148b6a748bd053055b07d",
+    "core/crates/wabi-consensus/src/transport/tests.rs": "ad9bae5e1f358269e7fef5f1b74e0d9d2b2f74bf9a8597b0c6a0b3c9bec98a71",
+    "core/crates/wabi-consensus/src/transport/identity.rs": "4870926a019e877f4408739e71fa6920ca268850ab2ef6e2c8befce13312506e",
+    "core/crates/wabi-consensus/src/transport/rpc.rs": "acce9ed2c5d90b39715dbd385789bcf2ee52ae2cc136edc59d05ae25d5677123",
+    "core/crates/wabi-consensus/src/transport/server.rs": "61ed50ff37876d2f824e0eb4d4f1060336f431e7f5e9441963e2a8d3f947cfda",
+    "core/crates/wabi-consensus/src/store/tests.rs": "44ae366b4a2cc981e415b978d0fbf7049fb92f859ac400a52ed4ca1abcd13ab5",
+    "core/crates/wabi-consensus/src/transport/channel/tests.rs": "c12f23ffe9359f5c2eeb4fb0e4e396b3e2332c22da748d016b02b0345eb5f215"
+  },
+  "rootManifestUnchanged": true,
+  "rootCargoTomlSha256": "a4a424c17f25224b17a01cf320e8339d97551081640b40898d35bbdfb773a051",
+  "cargoLockSha256": "bad7c8e219bf2e58cfa802e296f8f0bc8c630918810b7c61e1b1fb4f0e16c9ff",
+  "oldPackageIdentitiesPreserved": 637,
+  "removedOrChangedPackageIdentities": [],
+  "addedPackageIdentities": [
+    {
+      "checksum": "599b506ccc4aff8cf7844bc42cf783009a434c1e26c964432560fb6d6ad02d82",
+      "name": "snow",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "version": "0.10.0"
+    }
+  ],
+  "acceptedFoundationSourceBehaviorRerun": true,
+  "sevenFoundationSourcesUnchanged": true,
+  "fetchedSnowManifestAndBuilderResolverSourceReviewed": true,
+  "snowBuildScriptScope": "Compiler-version metadata and warning only; no downloaded execution or runtime enrollment",
+  "snowStdImplicitDependencies": "std also enables existing ring and blake2 optional packages; use-ring-resolver/use-blake2 are not selected; fixed protocol remains KK/25519/ChaChaPoly/SHA256",
+  "advisoryScan": {
+    "tool": "cargo-audit0.22.2",
+    "databaseRevision": "9b3a3b73a7f42606494c943e95f8196e9994df46",
+    "databaseFetchPerformed": false,
+    "yankedScanPerformed": false,
+    "vulnerabilitySectionCount": 0,
+    "warnings": {
+      "unmaintained": [
+        {
+          "package": "atomic-polyfill",
+          "version": "1.0.3",
+          "id": "RUSTSEC-2023-0089"
+        },
+        {
+          "package": "backoff",
+          "version": "0.4.0",
+          "id": "RUSTSEC-2025-0012"
+        },
+        {
+          "package": "instant",
+          "version": "0.1.13",
+          "id": "RUSTSEC-2024-0384"
+        },
+        {
+          "package": "paste",
+          "version": "1.0.15",
+          "id": "RUSTSEC-2024-0436"
+        }
+      ],
+      "unsound": [
+        {
+          "package": "lru",
+          "version": "0.12.5",
+          "id": "RUSTSEC-2026-0002"
+        },
+        {
+          "package": "lru",
+          "version": "0.12.5",
+          "id": "RUSTSEC-2026-0253"
+        }
+      ]
+    },
+    "newSnowAdvisoryMatched": false,
+    "exitCode": 0
+  },
+  "artifacts": [
+    {
+      "path": "target/debug/deps/wabi_consensus-832812243e4d91e3",
+      "sha256": "b7f0ec112c031694d40908c1b4928385e2f67d866252439993e48dbe18fab6fc",
+      "bytes": 83092616
+    },
+    {
+      "path": "target/debug/deps/encrypted_tcp_contract-ff7d8a7fc181c369",
+      "sha256": "52455067953e0d2d67f04dff308caca01cc2d4715a17f60828f6eee3a17dd3ec",
+      "bytes": 85751720
+    },
+    {
+      "path": "target/debug/deps/storage_contract-3f46445d2b7e5bb4",
+      "sha256": "46553954ebb9e5c38cf3575e1aca2ec81c26890fb93966a8d32df9378def4141",
+      "bytes": 75594936
+    },
+    {
+      "path": "target/debug/deps/three_voter_contract-af1f23d314301a93",
+      "sha256": "3a9ec04d4c31b45fdc35b6e94545592c590ed379bcd1aaf9c5e8df850965fef5",
+      "bytes": 76407048
+    }
+  ],
+  "logs": [
+    {
+      "label": "fetch",
+      "path": "docs/testing/geographic-2026-10-01/encrypted-rpc-fetch.log.gz",
+      "rawBytes": 157,
+      "rawSha256": "76588eb767b636cfcc4a57b0153b793dfa990b22d24120784c01c79368938fca"
+    },
+    {
+      "label": "features",
+      "path": "docs/testing/geographic-2026-10-01/encrypted-rpc-features.log.gz",
+      "rawBytes": 44330,
+      "rawSha256": "74b3a08a851b0bf3765fd4a31d4aa6a2f9f070ffd215c0f1f436fae183a14126"
+    },
+    {
+      "label": "compile-refusal",
+      "path": "docs/testing/geographic-2026-10-01/encrypted-rpc-compile-refusal.log.gz",
+      "rawBytes": 1884,
+      "rawSha256": "9b5f6801905c67d352115615c48522b488cf30964d26fa62f650a7a36a3c320f"
+    },
+    {
+      "label": "accepted39",
+      "path": "docs/testing/geographic-2026-10-01/encrypted-rpc-accepted39.log.gz",
+      "rawBytes": 5902,
+      "rawSha256": "f17e16abb1beb5161bf28641d8a3471c2d3e1b34df8206d8d3a55c524dc7f1bd"
+    },
+    {
+      "label": "advisories",
+      "path": "docs/testing/geographic-2026-10-01/encrypted-rpc-advisories.log.gz",
+      "rawBytes": 8538,
+      "rawSha256": "9aff05c395ee1576c3b9f9a15a15c558deea7161987cf4deb9d66661a300835d"
+    }
+  ],
+  "compileRepair": "Explicit JoinSet<Result<()>>; no admission/resource/authentication guard removed",
+  "assertions": {
+    "encryptedActualTcpThreeVoters": true,
+    "eachVoterLossReturnFullRestart": true,
+    "minorityCannotAcknowledgeAndHealConverges": true,
+    "actualPurgedSnapshotCatchupAndRestart": true,
+    "actualIndependentWorkerSigkillReapStoreReopen": true,
+    "persistedOriginalCommandGoldenAndChangedRetryRefusal": true,
+    "rustPythonCommandFingerprintGoldenMatches": true,
+    "pythonControllerAgainstActualRustControlSocketTested": false,
+    "independentCreateOnlyNodeBootstrapAndTenInputRefusals": true,
+    "physicalWorkerTimingBoundsTested": true,
+    "physicalWanTimingValidated": false,
+    "physicalThreeHostNoiseRpcTested": false,
+    "automaticWabiRecoveryTested": false,
+    "canonicalWriterPermitted": false,
+    "wabiServerDependsOnConsensus": false
+  },
+  "cleanup": {
+    "sharedTargetPreserved": true,
+    "newTargetTrees": 0,
+    "physicalKeysOrServicesCreated": 0,
+    "passedFixtureParentsReapedOwnedChildrenAndClosedTempRoots": true,
+    "temporaryLogsRemoved": true,
+    "exactOwnedTemporaryLogFilesRemoved": 5,
+    "exactOwnedTemporaryLogBytesRemoved": 60811
+  },
+  "localAvailableDiskBytes": 98184454144,
+  "subsequentActualRustPythonControlAcceptance": "docs/testing/geographic-2026-10-01/rust-python-control-codec-contract.json"
+}

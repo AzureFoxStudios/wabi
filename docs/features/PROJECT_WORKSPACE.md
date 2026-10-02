@@ -36,6 +36,25 @@ Wiki pages use `GET/POST /api/wiki/CHANNEL_ID/pages`; edits use `PUT /api/wiki/C
 
 ## Acceptance evidence and release boundary
 
+A September 30 follow-up connected an actual Codex CLI session through the new
+local stdio [Project MCP connector](../../scripts/wabi-project-mcp.mjs) to a
+disposable Project on **wabi.chat**. It read/claimed a card, updated Notes and
+read revision 3 back; a human browser verified bot assignment and the unchanged
+human estimate. This demonstrates external Codex tools on the live board. The
+new in-app owner connection panel is a local candidate, not shipped. Automatic
+Wabi-to-Codex chat dispatch, comments and native coding-session recovery are
+still unimplemented. Optional bounded card/wiki worker recovery is documented
+in [Connections](PROJECT_CONNECTIONS.md). See [dated evidence](../testing/CODEX_AND_PERSONAL_ACCEPTANCE_2026-09-30.md).
+
+The connector accepts a private version-1 connection JSON with `serverUrl`,
+`channelId` and `botToken`, or the existing three WABI Project environment
+variables. Launch it with `wabi-project-helper mcp --connection FILE`.
+It exposes ten tools: `project_brief`, paged card/wiki indexes, card/wiki reads,
+card create/claim/update and wiki create/update. No personal or Lore content is included. Read `project_brief`
+first; writes require observed revisions or a stable create operation UUID.
+Keep credential files outside Git and use one admitted service per intended
+identity. A shared credential across chats does not identify independent workers.
+
 Three focused server tests pass, including stale wiki edits and deletion, malformed card rejection, duplicate-operation conflict, project bot grant/revoke, a controlled bot edit attempt held behind the membership gate while removal completes, bot ping/history, and board replay after restart. The revoked edit is forbidden and leaves the saved revision unchanged. On a disposable loopback Authority, two human accounts and an admitted bot used the same board/wiki. The narrow bridge created a bot-attributed card and page, moved a card, and sent an attributed ping visible in human history. In a real browser, one human created a Project card, read the bot page, saved a human wiki edit, and sent a message in the Project Discussion view. A second disposable human then signed in, moved that card to Done, and edited its description; the first human signed back in and saw the change and 33% progress. A separate API read matched the saved editor ID to the second human. Settings Logout was repaired in the layout wrapper and exercised during both account switches. With a pinned People panel, the board reflowed and retained its New card action; the card editor listed the admitted bot and human members as assignees. Hermes and OpenCode 1.18.32/2.0.18 each completed a bounded free-OpenRouter task: read the shared board/wiki and create exactly one card through the admitted bot bridge. Independent human and bot reads confirmed all three cards and their bot attribution. The open browser board picked up the new cards through periodic refresh. Hermes needed a separate temporary local-terminal profile after its saved SSH configuration failed; the user explicitly approved this test, and normal runtime settings were preserved.
 
 A disposable Iyoku Authority passed two-human/bot board and wiki access, attributed ping/reply history, stale-edit rejection, exact saved-state reads after restart, and bot revocation denying reads/writes without changing the saved human-readable card. The first debug binary lacked a self-contained frontend; the existing `field-embed` feature fixed that packaging issue. A real browser on Ronin then signed into Iyoku through an SSH tunnel and rendered the shared Project board and read the bot-created wiki page. The three focused tests also pass with `field-embed` enabled. Tim's live WabiDB Authority was audited read-only and was healthy; nothing was deployed or changed there.

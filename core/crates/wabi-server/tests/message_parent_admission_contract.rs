@@ -1,5 +1,8 @@
 //! Real adapter lookups and parent admission on disposable main Wabi storage.
 
+#[path = "fixtures/writer_drain.rs"]
+mod writer_drain;
+
 use wabi_server::adapter::WdbAdapter;
 use wabidb::{
     crypto::bootstrap::BootstrapSource,
@@ -75,10 +78,15 @@ async fn adapter_id_lookup_tracks_edits_clear_and_event_replay() {
         .is_empty());
     let before = store.engine().barrier().current();
     drop(store);
+    let stopped = writer_drain::wait_for_stopped_engine(dir.path()).await;
     ProjectionState::remove_snapshot(dir.path());
-    let reopened = WdbAdapter::open_with_config_and_node_id(config(dir.path()), "site-a".into())
-        .await
-        .unwrap();
+    drop(stopped);
+    let reopened = writer_drain::retry(
+        || WdbAdapter::open_with_config_and_node_id(config(dir.path()), "site-a".into()),
+        |error| matches!(error, wabidb::error::WabiError::AlreadyRunning),
+    )
+    .await
+    .unwrap();
     assert_eq!(reopened.engine().barrier().current(), before);
     assert_eq!(
         reopened.get_message_typed(&id).await.unwrap(),
@@ -109,9 +117,12 @@ async fn identity_is_selected_before_open_and_cannot_be_changed_by_adapter_build
     assert!(store.engine().is_healthy());
     assert_eq!(store.engine().barrier().current(), 0);
     assert!(store.with_local_node_id("site-b".into()).is_err());
-    let reopened = WdbAdapter::open_with_config_and_node_id(config(dir.path()), "site-a".into())
-        .await
-        .unwrap();
+    let reopened = writer_drain::retry(
+        || WdbAdapter::open_with_config_and_node_id(config(dir.path()), "site-a".into()),
+        |error| matches!(error, wabidb::error::WabiError::AlreadyRunning),
+    )
+    .await
+    .unwrap();
     assert_eq!(reopened.engine().local_node_id(), "site-a");
     assert!(reopened.engine().is_healthy());
     assert_eq!(reopened.engine().barrier().current(), 0);

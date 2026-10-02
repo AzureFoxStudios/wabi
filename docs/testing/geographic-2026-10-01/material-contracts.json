@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-01T14:59:40.624580+00:00",
+  "sourceDigests": {
+    "core/crates/wabi-consensus/README.md": "9cd344df2f6f4053e40f06f430e715897c9e64084417328c3eebf76789a14066",
+    "core/crates/wabi-consensus/Cargo.toml": "38d14443d149535e1078291712898c7e20d8a476b44a831e11db6868fc1f5201",
+    "core/crates/wabi-consensus/tests/three_voter_contract.rs": "1afa64078575dac497c8c77b7cfc2edfcb03a03aaae0022138b246da55d89679",
+    "core/crates/wabi-consensus/tests/storage_contract.rs": "3439b1cce1e4fe1a18ac965a5fd7be548bcaeba9f5133cc856e074bec0cd2718",
+    "core/crates/wabi-consensus/tests/encrypted_tcp_contract.rs": "2f89ff5056790e810367a3cfd14cc37b7c46f6dee5252b4af4020fd75b94c754",
+    "core/crates/wabi-consensus/src/model.rs": "8f5ef2274b893286c384e9d4ffd1088694e42cc1fe0de4f1b9231f3bddbd8b0a",
+    "core/crates/wabi-consensus/src/trust.rs": "c11829fcf80f332e2e9245bd5038f0da9ee0242d53c05a46e33dc041e270619f",
+    "core/crates/wabi-consensus/src/lib.rs": "3f1f498bfa7cdcb5130bf18bc2f9b382fea708d62602efeebc73e667ace19c89",
+    "core/crates/wabi-consensus/src/store.rs": "211396fa714c82dcfc52fd85007a2e525ebd6df5ee690231813149b599411d78",
+    "core/crates/wabi-consensus/src/snapshot.rs": "b4bead1b66f5316bdd8837d16397e10616af9b582f25d1198469be20933164f7",
+    "core/crates/wabi-consensus/src/transport/mod.rs": "86100408d022c76dc0d49d63ecee27c8136a1185ccc587bcc533cfba41ee6a0d",
+    "core/crates/wabi-consensus/src/transport/channel.rs": "72369058eb5b23ae5c30c5332d468c6a4e06ed5f0fa148b6a748bd053055b07d",
+    "core/crates/wabi-consensus/src/transport/tests.rs": "ad9bae5e1f358269e7fef5f1b74e0d9d2b2f74bf9a8597b0c6a0b3c9bec98a71",
+    "core/crates/wabi-consensus/src/transport/identity.rs": "4870926a019e877f4408739e71fa6920ca268850ab2ef6e2c8befce13312506e",
+    "core/crates/wabi-consensus/src/transport/rpc.rs": "acce9ed2c5d90b39715dbd385789bcf2ee52ae2cc136edc59d05ae25d5677123",
+    "core/crates/wabi-consensus/src/transport/server.rs": "61ed50ff37876d2f824e0eb4d4f1060336f431e7f5e9441963e2a8d3f947cfda",
+    "core/crates/wabi-consensus/src/store/tests.rs": "44ae366b4a2cc981e415b978d0fbf7049fb92f859ac400a52ed4ca1abcd13ab5",
+    "core/crates/wabi-consensus/src/transport/channel/tests.rs": "c12f23ffe9359f5c2eeb4fb0e4e396b3e2332c22da748d016b02b0345eb5f215",
+    "core/crates/wabi-consensus/src/material.rs": "387a53f828c02bc904b8826dcc94715a2750e762d5d48fa43fa0099307714960",
+    "core/crates/wabi-consensus/src/material/model.rs": "a4700943e8dc6946fbef70baa73f6c9fb47d5fd8eaa926a71dcd94a29161a69c",
+    "core/crates/wabi-consensus/src/material/tests.rs": "a8ec51b64c36a9d13a4959e698039256af36d47f2122c404085af4a6b7a4d5f6"
+  },
+  "existingSourceChanges": [
+    "core/crates/wabi-consensus/src/lib.rs"
+  ],
+  "unchangedExistingSources": 17,
+  "executionComputer": "dotRonin",
+  "checkout": "/home/ironin/wabi",
+  "branch": "codex/security-boundary-hardening-20260930",
+  "baseCommit": "138abe39e08e400188d1812ed3bfd378df435315",
+  "scope": "local bounded opaque recovery bytes, no Authority wiring",
+  "command": "CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 cargo test --offline --locked -p wabi-consensus -- --test-threads=1",
+  "runs": [
+    {
+      "path": "docs/testing/geographic-2026-10-01/material-acceptance.log.gz",
+      "uncompressedSha256": "fcf72d0d2e6efb47af5ab611da8f1d3e049f9317687fb2dfe7848328c725779e",
+      "uncompressedBytes": 7799,
+      "terminalSession": "41476",
+      "actualExitCode": 101,
+      "testGroups": [
+        {
+          "passed": 25,
+          "failed": 0,
+          "ignored": 1
+        },
+        {
+          "passed": 10,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 12,
+          "failed": 0,
+          "ignored": 1
+        },
+        {
+          "passed": 2,
+          "failed": 1,
+          "ignored": 0
+        }
+      ],
+      "passed": 49,
+      "failed": 1,
+      "ignoredChildEntrypoints": 4
+    },
+    {
+      "path": "docs/testing/geographic-2026-10-01/material-rerun.log.gz",
+      "uncompressedSha256": "7065105e791a9a9730c079e172a509593a3428cafcf234fdc4a8e0ea3d44587d",
+      "uncompressedBytes": 6944,
+      "terminalSession": "99714",
+      "actualExitCode": 0,
+      "testGroups": [
+        {
+          "passed": 25,
+          "failed": 0,
+          "ignored": 1
+        },
+        {
+          "passed": 10,
+          "failed": 0,
+          "ignored": 2
+        },
+        {
+          "passed": 12,
+          "failed": 0,
+          "ignored": 1
+        },
+        {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "passed": 50,
+      "failed": 0,
+      "ignoredChildEntrypoints": 4
+    }
+  ],
+  "sourceArchive": {
+    "path": "docs/testing/geographic-2026-10-01/material-accepted-sources.json.gz",
+    "uncompressedSha256": "cd80a0944ab0dc8b63818f5d769cb41ac6a8eba1c218a03881fbe319a94eee01"
+  },
+  "rootCargoTomlSha256": "a4a424c17f25224b17a01cf320e8339d97551081640b40898d35bbdfb773a051",
+  "cargoLockSha256": "cbfc64c2947a2f4ccb11f0b64c127a66b18b635b032d754f2b68beb7578da8a0",
+  "rootGraphChangedByThisStep": false,
+  "newParentTests": 11,
+  "realSigkillPublicationCases": 8,
+  "childEntrypointsInvokedByParents": true,
+  "firstFailure": "Unchanged three_voter_contract.rs:257 ForwardToLeader(Some(3)); same-source package rerun passed. Timing reliability is not proven by rerun.",
+  "newTcpArtifact": {
+    "path": "target/debug/deps/encrypted_tcp_contract-ff7d8a7fc181c369",
+    "bytes": 86295296,
+    "sha256": "fb3a471bc6da0fdcf46f1447f2ffe3770e43e6bffde04cfe5919a49e0d1cee84"
+  },
+  "historicalPhysicalArtifactSha256": "52455067953e0d2d67f04dff308caca01cc2d4715a17f60828f6eee3a17dd3ec",
+  "historicalArtifactPathRelinkedByCargo": true,
+  "sourceAuthenticityVerified": false,
+  "payloadEncryptionVerified": false,
+  "inactiveReplayVerified": false,
+  "quorumAvailable": false,
+  "fullInstanceReady": false,
+  "canonicalWriterPermitted": false,
+  "productionServiceChanged": false,
+  "physicalTrialRerun": false,
+  "localAvailableDiskBytes": 49402609664,
+  "temporaryLogCleanupPending": false,
+  "cleanup": {
+    "exactOwnedLogs": [
+      {
+        "path": "/tmp/wabi-geo-material-20261001-acceptance.log",
+        "bytes": 7799,
+        "absentAfterRemoval": true
+      },
+      {
+        "path": "/tmp/wabi-geo-material-20261001-rerun.log",
+        "bytes": 6944,
+        "absentAfterRemoval": true
+      }
+    ],
+    "removedBytes": 14743,
+    "sharedTargetsPreserved": true,
+    "newTargetTreeCreated": false
+  }
+}

@@ -136,8 +136,13 @@ async fn list_albums(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ListAlbumsQuery>,
 ) -> Result<Json<Value>> {
+    let _membership = state.membership_gate.read().await;
+    let _authorization = auth.admit_current(&state).await?;
     require_scope(&state, &auth, &query.scope_type, &query.scope_id).await?;
-    let albums = state.wdb.list_albums(&query.scope_type, &query.scope_id).await?;
+    let albums = state
+        .wdb
+        .list_albums(&query.scope_type, &query.scope_id)
+        .await?;
     let mut albums: Vec<wabidb::domain::Album> = albums;
     albums.sort_by(|a, b| b.updated_at_micros.cmp(&a.updated_at_micros));
     albums.truncate(query.limit as usize);
@@ -154,20 +159,32 @@ async fn create_album(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<CreateAlbumPayload>,
 ) -> Result<Json<Value>> {
-    require_scope(&state, &auth, &payload.scope_type, &payload.scope_id).await?;
-    crate::channel_access::require_participation(&state, auth.user_id, &payload.scope_id).await?;
-    let album_id = state
-        .wdb
-        .create_album(&payload.scope_type, &payload.scope_id, &payload.name, auth.user_id as u64)
-        .await?;
-    let album = state
-        .wdb
-        .get_album(&payload.scope_type, &payload.scope_id, &album_id)
-        .await?
-        .ok_or_else(|| wabidb::error::WabiError::InternalInvariantViolated {
-            invariant: "created album missing after projection acknowledgment".into(),
-        })?;
-    Ok(Json(json!({ "album": album_json(&album, 0, Vec::new()) })))
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            require_scope(&state, &auth, &payload.scope_type, &payload.scope_id).await?;
+            crate::channel_access::require_participation(&state, auth.user_id, &payload.scope_id)
+                .await?;
+            let album_id = state
+                .wdb
+                .create_album(
+                    &payload.scope_type,
+                    &payload.scope_id,
+                    &payload.name,
+                    auth.user_id as u64,
+                )
+                .await?;
+            let album = state
+                .wdb
+                .get_album(&payload.scope_type, &payload.scope_id, &album_id)
+                .await?
+                .ok_or_else(|| wabidb::error::WabiError::InternalInvariantViolated {
+                    invariant: "created album missing after projection acknowledgment".into(),
+                })?;
+            Ok(Json(json!({ "album": album_json(&album, 0, Vec::new()) })))
+        })
+        .await
 }
 
 async fn get_album(
@@ -175,9 +192,13 @@ async fn get_album(
     State(state): State<Arc<AppState>>,
     Path(album_id): Path<String>,
 ) -> Result<Json<Value>> {
+    let _membership = state.membership_gate.read().await;
+    let _authorization = auth.admit_current(&state).await?;
     let album = authorized_album(&state, &auth, &album_id).await?;
     let items = state.wdb.list_items(&album.album_id).await?;
-    Ok(Json(json!({ "album": album_json(&album, items.len(), preview_items(&items)) })))
+    Ok(Json(
+        json!({ "album": album_json(&album, items.len(), preview_items(&items)) }),
+    ))
 }
 
 async fn delete_album(
@@ -185,13 +206,31 @@ async fn delete_album(
     State(state): State<Arc<AppState>>,
     Path(album_id): Path<String>,
 ) -> Result<StatusCode> {
-    let album = authorized_album(&state, &auth, &album_id).await?;
-    if album.owner_user_id != auth.user_id as u64 && !state.is_admin(auth.user_id).await
-        && !state.has_role(auth.user_id, "Moderator").await {
-        return Err(AppError::Forbidden("Only the album owner or an administrator can delete it".into()));
-    }
-    state.wdb.delete_album(&album.scope_type, &album.scope_id, &album_id, auth.user_id as u64).await?;
-    Ok(StatusCode::NO_CONTENT)
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            let album = authorized_album(&state, &auth, &album_id).await?;
+            if album.owner_user_id != auth.user_id as u64
+                && !state.is_admin(auth.user_id).await
+                && !state.has_role(auth.user_id, "Moderator").await
+            {
+                return Err(AppError::Forbidden(
+                    "Only the album owner or an administrator can delete it".into(),
+                ));
+            }
+            state
+                .wdb
+                .delete_album(
+                    &album.scope_type,
+                    &album.scope_id,
+                    &album_id,
+                    auth.user_id as u64,
+                )
+                .await?;
+            Ok(StatusCode::NO_CONTENT)
+        })
+        .await
 }
 
 async fn list_items(
@@ -199,6 +238,8 @@ async fn list_items(
     State(state): State<Arc<AppState>>,
     Path(album_id): Path<String>,
 ) -> Result<Json<Value>> {
+    let _membership = state.membership_gate.read().await;
+    let _authorization = auth.admit_current(&state).await?;
     let album = authorized_album(&state, &auth, &album_id).await?;
     let items = state.wdb.list_items(&album_id).await?;
     let sorted = {
@@ -218,21 +259,37 @@ async fn add_item(
     Path(album_id): Path<String>,
     Json(payload): Json<AddItemPayload>,
 ) -> Result<Json<Value>> {
-    let album = authorized_album(&state, &auth, &album_id).await?;
-    crate::channel_access::require_participation(&state, auth.user_id, &album.scope_id).await?;
-    let item_id = state
-        .wdb
-        .add_item(
-            &album_id,
-            &payload.attachment_url,
-            &payload.attachment_name,
-            payload.caption.as_deref(),
-            auth.user_id as u64,
-        )
-        .await?;
-    let item = state.wdb.list_items(&album_id).await?.into_iter().find(|i| i.item_id == item_id)
-        .ok_or_else(|| AppError::Internal("Item missing after projection acknowledgment".into()))?;
-    Ok(Json(json!({ "item": item_json(&item) })))
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            let album = authorized_album(&state, &auth, &album_id).await?;
+            crate::channel_access::require_participation(&state, auth.user_id, &album.scope_id)
+                .await?;
+            let item_id = state
+                .wdb
+                .add_item(
+                    &album_id,
+                    &payload.attachment_url,
+                    &payload.attachment_name,
+                    payload.caption.as_deref(),
+                    payload.attachment_size,
+                    payload.attachment_mime.as_deref(),
+                    auth.user_id as u64,
+                )
+                .await?;
+            let item = state
+                .wdb
+                .list_items(&album_id)
+                .await?
+                .into_iter()
+                .find(|i| i.item_id == item_id)
+                .ok_or_else(|| {
+                    AppError::Internal("Item missing after projection acknowledgment".into())
+                })?;
+            Ok(Json(json!({ "item": item_json(&item) })))
+        })
+        .await
 }
 
 async fn delete_item(
@@ -240,12 +297,29 @@ async fn delete_item(
     State(state): State<Arc<AppState>>,
     Path((album_id, item_id)): Path<(String, String)>,
 ) -> Result<StatusCode> {
-    authorized_album(&state, &auth, &album_id).await?;
-    if !state.wdb.list_items(&album_id).await?.iter().any(|i| i.item_id == item_id) {
-        return Err(AppError::NotFound("Album item not found".into()));
-    }
-    state.wdb.delete_item(&album_id, &item_id, auth.user_id as u64).await?;
-    Ok(StatusCode::NO_CONTENT)
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            let album = authorized_album(&state, &auth, &album_id).await?;
+            crate::channel_access::require_participation(&state, auth.user_id, &album.scope_id)
+                .await?;
+            if !state
+                .wdb
+                .list_items(&album_id)
+                .await?
+                .iter()
+                .any(|i| i.item_id == item_id)
+            {
+                return Err(AppError::NotFound("Album item not found".into()));
+            }
+            state
+                .wdb
+                .delete_item(&album_id, &item_id, auth.user_id as u64)
+                .await?;
+            Ok(StatusCode::NO_CONTENT)
+        })
+        .await
 }
 
 async fn reorder_items(

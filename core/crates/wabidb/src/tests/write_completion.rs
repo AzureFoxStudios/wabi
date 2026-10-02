@@ -27,6 +27,12 @@ fn config_at(path: &std::path::Path) -> WabiDbConfig {
     }
 }
 
+async fn reopen_after_drop(path: &std::path::Path) -> WabiDbEngine {
+    super::reopen_after_drop(config_at(path), None)
+        .await
+        .unwrap()
+}
+
 fn command(events: Vec<EventToWrite>) -> CommandCommit {
     CommandCommit {
         room_owner_precondition: None,
@@ -72,7 +78,7 @@ async fn local_writer_fence_rejects_commits_and_survives_restart() {
     assert_eq!(engine.barrier().current(), first.commit_seq);
 
     drop(engine);
-    let reopened = WabiDbEngine::open(config_at(dir.path())).await.unwrap();
+    let reopened = reopen_after_drop(dir.path()).await;
     assert!(reopened.local_writer_fenced().await);
     assert!(matches!(
         reopened
@@ -316,7 +322,9 @@ async fn projection_failure_is_durable_but_never_successful_or_ready_on_restart(
         events: vec![EventToWrite {
             stream_id: "bad".into(),
             stream_kind: 6,
-            event_type: "user_registered".into(),
+            // User records are preflighted before commit; a malformed channel
+            // event reaches the dispatcher and tests a durable apply failure.
+            event_type: "channel_created".into(),
             record_kind: RecordKind::Event,
             plaintext: vec![],
         }],
@@ -333,13 +341,17 @@ async fn projection_failure_is_durable_but_never_successful_or_ready_on_restart(
         1
     );
     drop(engine);
+    let stopped = super::wait_for_stopped_engine(dir.path()).await;
     assert!(!ProjectionState::snapshot_path(dir.path()).exists());
+    drop(stopped);
     // A bad durable record must not turn into success merely by restarting.
     for _ in 0..2 {
-        let error = WabiDbEngine::open(config()).await.unwrap_err();
+        let error = super::reopen_after_drop(config(), None).await.unwrap_err();
         assert!(error.to_string().contains("replay failed"), "{error}");
         assert!(
-            !dir.path().join(".lock").exists(),
+            crate::engine::locks::try_acquire_process_lock(&dir.path().join(".lock"))
+                .unwrap()
+                .is_some(),
             "failed open leaked its lock"
         );
     }
@@ -365,8 +377,10 @@ async fn restart_preserves_event_order_within_a_multi_stream_commit() {
         );
     }
     drop(engine);
+    let stopped = super::wait_for_stopped_engine(dir.path()).await;
     ProjectionState::remove_snapshot(dir.path()); // force event-log replay
-    let reopened = WabiDbEngine::open(config_at(dir.path())).await.unwrap();
+    drop(stopped);
+    let reopened = reopen_after_drop(dir.path()).await;
     assert_eq!(
         reopened.projection_state().get("events", b"probe"),
         Some(b"after".to_vec())
@@ -418,10 +432,12 @@ async fn membership_removal_survives_snapshot_and_full_replay() {
             );
         }
         drop(engine);
+        let stopped = super::wait_for_stopped_engine(dir.path()).await;
         if replay {
             ProjectionState::remove_snapshot(dir.path());
         }
-        let engine = WabiDbEngine::open(config_at(dir.path())).await.unwrap();
+        drop(stopped);
+        let engine = reopen_after_drop(dir.path()).await;
         assert!(Members::get_member(engine.projection_state(), "ch_a", 1)
             .unwrap()
             .is_none());
@@ -489,12 +505,14 @@ async fn legacy_membership_snapshot_repair_preserves_rejoins_cascades_and_unrela
                 .unwrap();
         }
         drop(engine);
+        let stopped = super::wait_for_stopped_engine(dir.path()).await;
         std::fs::write(ProjectionState::snapshot_path(dir.path()), checkpoint).unwrap();
         // Unrelated pre-snapshot history can be absent (e.g. retention); this
         // must not turn a targeted permissions repair into a full DB rebuild.
         std::fs::remove_file(dir.path().join("streams/other/legacy/events/00000001.wseg")).unwrap();
+        drop(stopped);
         for _ in 0..2 {
-            let engine = WabiDbEngine::open(config_at(dir.path())).await.unwrap();
+            let engine = reopen_after_drop(dir.path()).await;
             let state = engine.projection_state();
             assert_eq!(
                 Members::get_member(state, "ch_a", 1).unwrap().is_some(),
@@ -546,13 +564,17 @@ async fn legacy_membership_repair_fails_closed_with_missing_history_and_preserve
         1,
     );
     drop(engine);
+    let stopped = super::wait_for_stopped_engine(dir.path()).await;
     let checkpoint = std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap();
     std::fs::remove_file(
         dir.path()
             .join("streams/channel/channel_members:ch_a/events/00000001.wseg"),
     )
     .unwrap();
-    let error = WabiDbEngine::open(config_at(dir.path())).await.unwrap_err();
+    drop(stopped);
+    let error = super::reopen_after_drop(config_at(dir.path()), None)
+        .await
+        .unwrap_err();
     assert!(
         error.to_string().contains("not all indexed events"),
         "{error}"
@@ -561,7 +583,9 @@ async fn legacy_membership_repair_fails_closed_with_missing_history_and_preserve
         std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap(),
         checkpoint
     );
-    assert!(!dir.path().join(".lock").exists());
+    assert!(crate::engine::locks::try_acquire_process_lock(&dir.path().join(".lock"))
+        .unwrap()
+        .is_some());
 }
 
 #[tokio::test]
@@ -575,10 +599,14 @@ async fn missing_indexed_event_refuses_startup_instead_of_restoring_partial_comm
         .await
         .unwrap();
     drop(engine);
+    let stopped = super::wait_for_stopped_engine(dir.path()).await;
     ProjectionState::remove_snapshot(dir.path());
     // Fault injection against this test's temporary segment only.
     std::fs::remove_file(dir.path().join("streams/other/b/events/00000001.wseg")).unwrap();
-    let error = WabiDbEngine::open(config_at(dir.path())).await.unwrap_err();
+    drop(stopped);
+    let error = super::reopen_after_drop(config_at(dir.path()), None)
+        .await
+        .unwrap_err();
     assert!(
         error.to_string().contains("not all indexed events"),
         "{error}"
@@ -601,8 +629,10 @@ async fn restart_accepts_shared_streams_used_by_different_workspace_surfaces() {
         .await
         .unwrap();
     drop(engine);
+    let stopped = super::wait_for_stopped_engine(dir.path()).await;
     ProjectionState::remove_snapshot(dir.path());
-    let reopened = WabiDbEngine::open(config_at(dir.path())).await.unwrap();
+    drop(stopped);
+    let reopened = reopen_after_drop(dir.path()).await;
     assert_eq!(
         reopened.projection_state().get("events", b"probe"),
         Some(b"workspace".to_vec())
@@ -654,7 +684,7 @@ async fn first_uncommitted_write_is_not_resurrected_and_its_nonce_is_not_reused(
     .unwrap()
     .is_empty());
     drop(engine);
-    let reopened = WabiDbEngine::open(config_at(dir.path())).await.unwrap();
+    let reopened = reopen_after_drop(dir.path()).await;
     assert_eq!(reopened.projection_state().get("events", b"probe"), None);
     assert_eq!(reopened.barrier().current(), 0);
     reopened.get_or_create_stream_key("a").await.unwrap();

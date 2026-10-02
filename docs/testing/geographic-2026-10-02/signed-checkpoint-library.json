@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-10-02T01:20:29.021202+00:00",
+  "phase": "signed checkpoint library; before server phase",
+  "logs": [
+    {
+      "name": "source-context-compile-failed",
+      "sessionId": 5112,
+      "terminalExitCode": 101,
+      "bytes": 1629,
+      "sha256": "e0d5025245efddadba21aeab4d0323e757c239022b11a7435c36b58336940ba6",
+      "log": "source-context-compile-failed.log.gz"
+    },
+    {
+      "name": "source-context-focused",
+      "sessionId": 22228,
+      "terminalExitCode": 0,
+      "bytes": 770,
+      "sha256": "5495fbc0879430ee5c7a4545b62dccc74b7ad28df58aec56df64bbc12c6bcd9b",
+      "log": "source-context-focused.log.gz"
+    },
+    {
+      "name": "signed-checkpoint-lib",
+      "sessionId": 83038,
+      "terminalExitCode": 0,
+      "bytes": 4097,
+      "sha256": "ded45830f31ec1921dc0c8f3a7bc2c0c60a189bbfdc1756cd9740ba3a57a856b",
+      "log": "signed-checkpoint-lib.log.gz"
+    }
+  ],
+  "focused": {
+    "passed": 4,
+    "failed": 0,
+    "ignored": 0
+  },
+  "library": {
+    "passed": 35,
+    "failed": 0,
+    "ignored": 2
+  },
+  "sources": {
+    "Cargo.lock": {
+      "sha256": "067bd3b44b5fd00a052b7cbf39f0fa50a330a52a20610ff11af9f20731c736f3",
+      "bytes": 160325
+    },
+    "Cargo.toml": {
+      "sha256": "a4a424c17f25224b17a01cf320e8339d97551081640b40898d35bbdfb773a051",
+      "bytes": 814
+    },
+    "core/crates/wabi-consensus/Cargo.toml": {
+      "sha256": "8375fd98e3d272bf6aa040d27ab72fa79d5b7fbb70452f8871f233d51a1c5d71",
+      "bytes": 967
+    },
+    "core/crates/wabi-consensus/README.md": {
+      "sha256": "9cd344df2f6f4053e40f06f430e715897c9e64084417328c3eebf76789a14066",
+      "bytes": 3857
+    },
+    "core/crates/wabi-consensus/src/lib.rs": {
+      "sha256": "ed18ffdca1c5d571a5a04f16010a36b7b40106e99717c44490cc93836d1218ed",
+      "bytes": 854
+    },
+    "core/crates/wabi-consensus/src/material/checkpoint/tests.rs": {
+      "sha256": "3a664fc41a521bcae183ff04d7a3742be7a649a7139c89f3067a92f1e22b7f64",
+      "bytes": 13614
+    },
+    "core/crates/wabi-consensus/src/material/checkpoint.rs": {
+      "sha256": "165c7af884460c72e4b9d4adac1e324316ad269df66015066a9dc7b6875c69b9",
+      "bytes": 13177
+    },
+    "core/crates/wabi-consensus/src/material/model.rs": {
+      "sha256": "a4700943e8dc6946fbef70baa73f6c9fb47d5fd8eaa926a71dcd94a29161a69c",
+      "bytes": 6199
+    },
+    "core/crates/wabi-consensus/src/material/tests.rs": {
+      "sha256": "a8ec51b64c36a9d13a4959e698039256af36d47f2122c404085af4a6b7a4d5f6",
+      "bytes": 17559
+    },
+    "core/crates/wabi-consensus/src/material.rs": {
+      "sha256": "f51d44855d02482f7f77540cf8a9d1c173f10df2c0e17a0f5d564015e0f616a0",
+      "bytes": 22174
+    },
+    "core/crates/wabi-consensus/src/model.rs": {
+      "sha256": "8f5ef2274b893286c384e9d4ffd1088694e42cc1fe0de4f1b9231f3bddbd8b0a",
+      "bytes": 9916
+    },
+    "core/crates/wabi-consensus/src/snapshot.rs": {
+      "sha256": "b4bead1b66f5316bdd8837d16397e10616af9b582f25d1198469be20933164f7",
+      "bytes": 2675
+    },
+    "core/crates/wabi-consensus/src/source_context/tests.rs": {
+      "sha256": "d91f3d46f5e10b910e178664f04aa6f10f4050c90790bd554b2d514decd7e88f",
+      "bytes": 4620
+    },
+    "core/crates/wabi-consensus/src/source_context.rs": {
+      "sha256": "a2492ea84f390693298b449b40e5b536967525c9eea2b47102216f11f7c9489c",
+      "bytes": 6440
+    },
+    "core/crates/wabi-consensus/src/store/tests.rs": {
+      "sha256": "44ae366b4a2cc981e415b978d0fbf7049fb92f859ac400a52ed4ca1abcd13ab5",
+      "bytes": 2130
+    },
+    "core/crates/wabi-consensus/src/store.rs": {
+      "sha256": "211396fa714c82dcfc52fd85007a2e525ebd6df5ee690231813149b599411d78",
+      "bytes": 36906
+    },
+    "core/crates/wabi-consensus/src/transport/channel/tests.rs": {
+      "sha256": "c12f23ffe9359f5c2eeb4fb0e4e396b3e2332c22da748d016b02b0345eb5f215",
+      "bytes": 5858
+    },
+    "core/crates/wabi-consensus/src/transport/channel.rs": {
+      "sha256": "72369058eb5b23ae5c30c5332d468c6a4e06ed5f0fa148b6a748bd053055b07d",
+      "bytes": 7435
+    },
+    "core/crates/wabi-consensus/src/transport/identity.rs": {
+      "sha256": "4870926a019e877f4408739e71fa6920ca268850ab2ef6e2c8befce13312506e",
+      "bytes": 4555
+    },
+    "core/crates/wabi-consensus/src/transport/mod.rs": {
+      "sha256": "86100408d022c76dc0d49d63ecee27c8136a1185ccc587bcc533cfba41ee6a0d",
+      "bytes": 5674
+    },
+    "core/crates/wabi-consensus/src/transport/rpc.rs": {
+      "sha256": "acce9ed2c5d90b39715dbd385789bcf2ee52ae2cc136edc59d05ae25d5677123",
+      "bytes": 9163
+    },
+    "core/crates/wabi-consensus/src/transport/server.rs": {
+      "sha256": "61ed50ff37876d2f824e0eb4d4f1060336f431e7f5e9441963e2a8d3f947cfda",
+      "bytes": 4099
+    },
+    "core/crates/wabi-consensus/src/transport/tests.rs": {
+      "sha256": "ad9bae5e1f358269e7fef5f1b74e0d9d2b2f74bf9a8597b0c6a0b3c9bec98a71",
+      "bytes": 22545
+    },
+    "core/crates/wabi-consensus/src/trust.rs": {
+      "sha256": "c11829fcf80f332e2e9245bd5038f0da9ee0242d53c05a46e33dc041e270619f",
+      "bytes": 1092
+    },
+    "core/crates/wabi-consensus/tests/encrypted_tcp_contract.rs": {
+      "sha256": "2f89ff5056790e810367a3cfd14cc37b7c46f6dee5252b4af4020fd75b94c754",
+      "bytes": 69612
+    },
+    "core/crates/wabi-consensus/tests/storage_contract.rs": {
+      "sha256": "3439b1cce1e4fe1a18ac965a5fd7be548bcaeba9f5133cc856e074bec0cd2718",
+      "bytes": 19889
+    },
+    "core/crates/wabi-consensus/tests/three_voter_contract.rs": {
+      "sha256": "8e02f84435b6b8c767460887a2c176da9d998b8b5ea9490775865a73acc7800c",
+      "bytes": 15479
+    },
+    "core/crates/wabi-server/Cargo.toml": {
+      "sha256": "157ad6b5de88935900b4e3c1ff4b01d70435519589f84a4d707df96ea65f721b",
+      "bytes": 4281
+    },
+    "core/crates/wabi-server/src/checkpoint_jobs.rs": {
+      "sha256": "7d1362ff0a98eea5c242726c3feba544c4ceea544579c8c9adc6dd045b5e1235",
+      "bytes": 20085
+    },
+    "core/crates/wabi-server/src/community_roster.rs": {
+      "sha256": "c1d4b96015198c221bdc9d931b7788b20869883a23ac48b626e7cf423ae590d7",
+      "bytes": 29953
+    },
+    "core/crates/wabi-server/src/instance_archive/mod.rs": {
+      "sha256": "be12b43fc6b3bc2832bd79db176a8897de949914179616e5d268ea3de593519e",
+      "bytes": 65729
+    },
+    "core/crates/wabi-server/src/instance_checkpoint.rs": {
+      "sha256": "bb60d610f0fea9ec1eb3ce2bb5b6d76577fd48b75b4f6b60fa94b77129aa5c71",
+      "bytes": 8850
+    }
+  },
+  "sourceArchiveSha256": "f48fcebd3712b9a00990b2d2e8825dd81f08643572fc31243a672a9ea56d4381",
+  "limits": [
+    "Synthetic opaque payload, not actual age export",
+    "Not deployed, no source producer or transfer yet",
+    "Allocation unknown; encryption/replay/quorum/writer/readiness not certified"
+  ]
+}

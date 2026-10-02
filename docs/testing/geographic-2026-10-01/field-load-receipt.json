@@ -1,0 +1,136 @@
+{
+  "result": "PASS",
+  "scope": "configured remote field transport; physical site count verified separately",
+  "checks": [
+    "two-site auth",
+    "signed three-entry roster",
+    "shared message history",
+    "Engine.IO polling",
+    "two WebSocket sessions",
+    "bidirectional cross-Anchor live messages",
+    "site-origin HTTP and authenticated WebSocket writes visible across sites",
+    "byte-identical local versioned assets on both Anchors",
+    "upload cache miss/hit",
+    "single Anchor loss with surviving write",
+    "Authority loss returns 503 for API and cached file while a public app asset stays local"
+  ],
+  "localAssetBytesPerSite": 27277,
+  "remoteClientProbes": [
+    {
+      "role": "materials",
+      "clientLocation": "remote-host",
+      "elapsedMs": 3039,
+      "assetBytes": 27277,
+      "messageId": "msg_4739312e45524d10a2a6f762994e9c17",
+      "websocketMessageId": "msg_2dc3e88ce0e243348ec0f2282369c3e6",
+      "websocketAuthenticated": true,
+      "websocketHistoryMatched": true,
+      "websocketAcceptanceMatchedDelivery": true
+    },
+    {
+      "role": "authority",
+      "clientLocation": "remote-host",
+      "elapsedMs": 1320,
+      "assetBytes": 27277,
+      "messageId": "msg_b0f0683511af4847bca6c678f8e2f456",
+      "websocketMessageId": "msg_76f4c189e016476593ab7f9894ed383a",
+      "websocketAuthenticated": true,
+      "websocketHistoryMatched": true,
+      "websocketAcceptanceMatchedDelivery": true
+    }
+  ],
+  "staticOriginBytes": {
+    "materials": 0,
+    "equipment": 0
+  },
+  "cacheOriginBytes": {
+    "fileBytes": 262144,
+    "samples": [
+      {
+        "disposition": "miss",
+        "originToAnchorBytes": 263175,
+        "anchorToOriginBytes": 1107
+      },
+      {
+        "disposition": "hit",
+        "originToAnchorBytes": 504,
+        "anchorToOriginBytes": 554
+      }
+    ]
+  },
+  "loadEvidence": {
+    "schemaVersion": 1,
+    "result": "PASS",
+    "workload": "bounded single-room canary",
+    "configured": {
+      "clients": 6,
+      "messages": 20,
+      "payloadBytes": 512,
+      "messagesPerSecond": 2,
+      "deadlineSeconds": 90
+    },
+    "registeredAccountsMeasured": null,
+    "providedAccessCredentials": 2,
+    "attemptedClients": 6,
+    "connectedClients": 6,
+    "scheduledMessages": 20,
+    "acknowledgedMessages": 20,
+    "expectedDeliveries": 120,
+    "observedDeliveries": 120,
+    "missingDeliveries": 0,
+    "duplicateEvents": 0,
+    "inconsistentIdentities": 0,
+    "errors": 0,
+    "failureStage": null,
+    "elapsedMs": 10145,
+    "achievedMessagesPerSecond": 1.97,
+    "acknowledgmentLatencyMs": {
+      "p50": 125.47,
+      "p95": 286.3,
+      "p99": 311.06,
+      "max": 311.06
+    },
+    "deliveryLatencyMs": {
+      "p50": 168.25,
+      "p95": 322.4,
+      "p99": 411.98,
+      "max": 412.97
+    },
+    "applicationEnvelopeBytesSent": 12310,
+    "applicationEnvelopeBytesReceived": 124800,
+    "measuredNetworkBytes": null,
+    "mediaParticipantsTested": 0,
+    "recoveryAndReconnectTested": false,
+    "capacityCertification": false,
+    "cleanup": {
+      "ownedSocketCount": 6,
+      "disconnectRequestedForAll": true
+    }
+  },
+  "artifact": {
+    "binarySha256": "4b4814f5db6e6056b4f30908354e2d5f1ba4173c305a378e3a5ccec5d69a0e45",
+    "binaryBytes": 153260768,
+    "buildFeatures": [
+      "default",
+      "field-embed"
+    ],
+    "optimization": "debug, debug symbols stripped in private copy",
+    "baseCommit": "138abe39e08e400188d1812ed3bfd378df435315",
+    "uncommittedConcurrentChanges": true,
+    "uplinkGroups": 3,
+    "transport": "Tailscale private IPv4; no new firewall rules",
+    "remoteHashVerified": [
+      "authority",
+      "materials"
+    ]
+  },
+  "recordedDate": "2026-10-01",
+  "sourceIsFrozenSeptember30Build": true,
+  "logSha256": "77b1fc75df7befa36f57708e1d984ce747c8d30c13a92c8074e5225289d33e96",
+  "networkQualification": {
+    "distinctObservedEgresses": 3,
+    "method": "api.ipify.org queried from each computer",
+    "recordedAtUtc": "2026-10-01T02:49:29.558205+00:00",
+    "addressesRetained": false
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "actualExitCode": 0,
+  "pass": 10,
+  "fail": 0,
+  "networkUsed": false,
+  "rawLogSha256": "d60aee7fbbaf64d82555c896fe762e4d0da72d445ab0d2ce1ab14d951ad9d589",
+  "sourceHashes": {
+    "scripts/geographic-acceptance/checkpoint-field-host.py": "95236fefe7d40ecf3d8f68a4c43aa60f9a261f8e77f4e8d92a89b83998a44cf1",
+    "scripts/geographic-acceptance/test_checkpoint_field_host.py": "0d574db7499e3f1210ee2742c70965164902c6e6691fcba34f273bc33c1dc369",
+    "scripts/geographic-acceptance/rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2"
+  },
+  "scope": "private fixture process/file/lock guards; synthetic /bin/true cannot produce acceptance"
+}

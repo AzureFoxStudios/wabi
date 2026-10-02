@@ -3,17 +3,19 @@ import { init, locale, addMessages, _ } from 'svelte-i18n';
 import { derived, writable } from 'svelte/store';
 import en from './locales/en.json';
 import es from './locales/es.json';
+import th from './locales/th.json';
 
 const LOCALE_STORAGE_KEY = 'wabi_locale';
 
 export const availableLocales = [
 	{ code: 'en', label: 'English' },
-	{ code: 'es', label: 'Español' }
+	{ code: 'es', label: 'Español' },
+	{ code: 'th', label: 'ไทย' }
 ] as const;
 
-export type LocaleCode = 'en' | 'es';
+export type LocaleCode = 'en' | 'es' | 'th';
 
-const localeSourceMap: Record<LocaleCode, typeof en> = { en, es };
+const localeSourceMap: Record<LocaleCode, typeof en> = { en, es, th };
 
 let initialized = false;
 
@@ -21,6 +23,7 @@ const appLocaleStore = writable<LocaleCode>('en');
 
 function normalizeLocale(input: string | null | undefined): LocaleCode {
 	if (input === 'es') return 'es';
+	if (input === 'th') return 'th';
 	return 'en';
 }
 
@@ -60,6 +63,9 @@ export function initI18n(): void {
 }
 
 function applyLocaleMessages(nextLocale: LocaleCode): void {
+	if (browser) {
+		document.documentElement.lang = nextLocale;
+	}
 	if (nextLocale === 'en') {
 		addMessages('en', en);
 		locale.set('en');

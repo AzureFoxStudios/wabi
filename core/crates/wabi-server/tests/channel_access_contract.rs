@@ -19,31 +19,54 @@ use wabidb::{
     engine::wabi_store::WabiStore,
 };
 
+fn server_config(path: &Path) -> ServerConfig {
+    ServerConfig {
+        host: "127.0.0.1".into(),
+        port: 0,
+        data_dir: path.to_string_lossy().into_owned(),
+        uploads_dir: path.join("uploads").to_string_lossy().into_owned(),
+        jwt_secret: "channel-access-test-only".into(),
+        turn_enabled: false,
+        turn_uri: None,
+        turn_secret: None,
+        node_id: "test".into(),
+        is_primary: true,
+        server_role: ServerRole::Authority,
+        authority_url: None,
+        admin_user_ids: vec![],
+        blacklist_file: path.join("blacklist").to_string_lossy().into_owned(),
+        max_body_size: None,
+        mesh_enabled: false,
+        mesh_peers: vec![],
+        lore: LoreAddonConfig::default(),
+    }
+}
 async fn server(path: &Path) -> Arc<AppState> {
-    Arc::new(
-        AppState::new(ServerConfig {
-            host: "127.0.0.1".into(),
-            port: 0,
-            data_dir: path.to_string_lossy().into_owned(),
-            uploads_dir: path.join("uploads").to_string_lossy().into_owned(),
-            jwt_secret: "channel-access-test-only".into(),
-            turn_enabled: false,
-            turn_uri: None,
-            turn_secret: None,
-            node_id: "test".into(),
-            is_primary: true,
-            server_role: ServerRole::Authority,
-            authority_url: None,
-            admin_user_ids: vec![],
-            blacklist_file: path.join("blacklist").to_string_lossy().into_owned(),
-            max_body_size: None,
-            mesh_enabled: false,
-            mesh_peers: vec![],
-            lore: LoreAddonConfig::default(),
-        })
-        .await
-        .unwrap(),
-    )
+    Arc::new(AppState::new(server_config(path)).await.unwrap())
+}
+async fn reopen_server(config: ServerConfig) -> Arc<AppState> {
+    // Store owners can finish before their disk workers release the advisory
+    // lock. Retry only that bounded drain; never unlink its inode or suppress
+    // another startup error before checking durable membership and history.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match AppState::new(config.clone()).await {
+            Ok(state) => return Arc::new(state),
+            Err(error)
+                if error
+                    .downcast_ref::<wabidb::error::WabiError>()
+                    .is_some_and(|error| {
+                        matches!(error, wabidb::error::WabiError::AlreadyRunning)
+                    })
+                    && tokio::time::Instant::now() < deadline =>
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            Err(error) => {
+                panic!("could not reopen channel fixture after writer teardown: {error:#}")
+            }
+        }
+    }
 }
 
 fn jwt(state: &AppState, uid: u64) -> String {
@@ -340,7 +363,7 @@ async fn shared_dm_notes_persist_for_members_and_reject_outsiders_or_peer_edits(
         0,
         "first Authority released its store before restart"
     );
-    let state = server(dir.path()).await;
+    let state = reopen_server(server_config(dir.path())).await;
     let app = create_api_router(state.clone()).with_state(state.clone());
     assert_eq!(
         request(&app, Method::GET, &path, &recipient_token, json!(null))
@@ -679,6 +702,8 @@ async fn album_ids_resolve_to_their_persisted_channel_before_access() {
             "/uploads/private-canary",
             "private file",
             None,
+            None,
+            None,
             member,
         )
         .await
@@ -793,6 +818,7 @@ async fn socket_policy_denies_removed_or_fabricated_membership_and_group_admin_o
         .unwrap();
     assert!(wabi_server::socketio::can_access_dm(&sio, member as i64, &dm).await);
     state.wdb.remove_channel_member(&dm, member).await.unwrap();
+    state.wdb.remove_channel_member(&dm, outsider).await.unwrap();
     assert!(
         !wabi_server::socketio::can_access_dm(&sio, member as i64, &dm).await,
         "empty membership must not restore the ID fallback"
@@ -824,7 +850,7 @@ async fn authorized_album_lifecycle_is_truthful_and_cannot_change_a_different_pa
         .unwrap();
     let other_item = state
         .wdb
-        .add_item(&other, "/uploads/other", "other", None, member)
+        .add_item(&other, "/uploads/other", "other", None, None, None, member)
         .await
         .unwrap();
     let app = create_api_router(state.clone()).with_state(state.clone());
@@ -938,14 +964,40 @@ async fn channel_clear_commits_history_tombstones_before_live_view_changes() {
     client
         .emit("clear-channel-messages", json!({"channelId": channel_id}))
         .await;
-    assert_eq!(client.event("channel-messages-cleared").await["channelId"], channel_id);
-    assert!(state.wdb.list_messages_typed(&channel_id, 100).await.unwrap().is_empty());
-    assert!(state.wdb.get_message_typed(&earlier_id).await.unwrap().unwrap().is_deleted);
-    assert!(!state.session_messages.read().await.contains_key(&channel_id));
+    assert_eq!(
+        client.event("channel-messages-cleared").await["channelId"],
+        channel_id
+    );
+    assert!(state
+        .wdb
+        .list_messages_typed(&channel_id, 100)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(
+        state
+            .wdb
+            .get_message_typed(&earlier_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_deleted
+    );
+    assert!(!state
+        .session_messages
+        .read()
+        .await
+        .contains_key(&channel_id));
 
     let later_id = state
         .wdb
-        .send_message(&channel_id, owner, "keep this after failed clear", false, &[])
+        .send_message(
+            &channel_id,
+            owner,
+            "keep this after failed clear",
+            false,
+            &[],
+        )
         .await
         .unwrap();
     state.session_messages.write().await.insert(
@@ -959,8 +1011,24 @@ async fn channel_clear_commits_history_tombstones_before_live_view_changes() {
     let error = client.event("clear-channel-error").await;
     assert_eq!(error["channelId"], channel_id);
     assert_eq!(error["code"], "persistence_unconfirmed");
-    assert_eq!(state.wdb.list_messages_typed(&channel_id, 100).await.unwrap().len(), 1);
-    assert!(!state.wdb.get_message_typed(&later_id).await.unwrap().unwrap().is_deleted);
+    assert_eq!(
+        state
+            .wdb
+            .list_messages_typed(&channel_id, 100)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        !state
+            .wdb
+            .get_message_typed(&later_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_deleted
+    );
     assert!(state.session_messages.read().await[&channel_id]
         .iter()
         .any(|message| message["id"] == later_id));
@@ -974,7 +1042,13 @@ async fn durable_delete_waits_for_commit_but_live_delete_remains_session_only() 
     let channel_id = channel(&state, member, ChannelKind::Text).await;
     let durable_id = state
         .wdb
-        .send_message(&channel_id, member, "retain until deletion commits", false, &[])
+        .send_message(
+            &channel_id,
+            member,
+            "retain until deletion commits",
+            false,
+            &[],
+        )
         .await
         .unwrap();
     let live_id = "live_test_delete";
@@ -1000,13 +1074,15 @@ async fn durable_delete_waits_for_commit_but_live_delete_remains_session_only() 
     let error = client.event("delete-error").await;
     assert_eq!(error["messageId"], durable_id);
     assert_eq!(error["code"], "persistence_unconfirmed");
-    assert!(!state
-        .wdb
-        .get_message_typed(&durable_id)
-        .await
-        .unwrap()
-        .unwrap()
-        .is_deleted);
+    assert!(
+        !state
+            .wdb
+            .get_message_typed(&durable_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_deleted
+    );
     assert!(state.session_messages.read().await[&channel_id]
         .iter()
         .any(|message| message["id"] == durable_id));
@@ -1084,7 +1160,7 @@ async fn cached_roster_refreshes_after_registration_and_profile_update() {
         .create_user("roster_bot", Some("roster_bot"), "dummy-bot-hash")
         .await
         .unwrap();
-    state.bot_registry.create(bot).await;
+    state.bot_registry.create(bot).await.unwrap();
     let mut bot_client = SocketClient::handshake(&app, &jwt(&state, bot)).await;
     bot_client.emit("join", json!("roster_bot")).await;
     let bot_init = bot_client.event("init").await;
@@ -2215,7 +2291,7 @@ async fn exact_retention_loads_before_requests_and_corruption_cannot_change_live
     let original = std::fs::read(&policy_path).unwrap();
     let config = state.config.clone();
     drop(state);
-    let state = Arc::new(AppState::new(config.clone()).await.unwrap());
+    let state = reopen_server(config.clone()).await;
     assert_eq!(
         state
             .channel_auto_delete_label
@@ -2281,7 +2357,7 @@ async fn exact_retention_loads_before_requests_and_corruption_cannot_change_live
     assert!(AppState::new(config.clone()).await.is_err());
     assert_eq!(std::fs::read(&policy_path).unwrap(), b"{broken-policy");
     std::fs::write(&policy_path, original).unwrap();
-    let restored = AppState::new(config).await.unwrap();
+    let restored = reopen_server(config).await;
     assert_eq!(
         restored
             .channel_auto_delete_label
@@ -2552,4 +2628,94 @@ async fn exact_retention_overrides_stale_database_day_count() {
             expected
         );
     }
+}
+
+#[tokio::test]
+async fn voice_policy_listener_capacity_and_mute_are_authority_decisions() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (member, outsider, owner) = users(&state).await;
+    let voice = channel(&state, member, ChannelKind::Voice).await;
+    state.wdb.add_channel_member(&voice, outsider, MemberRole::Member).await.unwrap();
+    let app = create_api_router(state.clone()).with_state(state.clone())
+        .layer(wabi_server::socketio::create_socket_layer(state.clone()));
+    let path = format!("/voice-policy/{voice}");
+    let (status, _) = request(&app, Method::PUT, &path, &jwt(&state, member), json!({"entryMode":"listen_only"})).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = request(&app, Method::PUT, &path, &jwt(&state, owner), json!({"entryMode":"listen_only","userLimit":1})).await;
+    assert_eq!(status, StatusCode::OK);
+    let mut first = SocketClient::connect(&app, &jwt(&state, member)).await;
+    let mut sibling = SocketClient::connect(&app, &jwt(&state, member)).await;
+    let mut second = SocketClient::connect(&app, &jwt(&state, outsider)).await;
+    for device in [&mut first, &mut sibling] {
+        device.emit("voice-channel-join", json!({"channelId":voice})).await;
+        assert_eq!(device.event("voice-channel-admitted").await["listeningOnly"], true);
+    }
+    second.emit("voice-channel-join", json!({"channelId":voice,"requestId":"full"})).await;
+    let denied = second.event("voice-channel-error").await;
+    assert_eq!(denied["code"], "voice_full");
+    first.emit("set-voice-transmit-mode", json!({"mode":"all-listening"})).await;
+    first.event("voice-transmit-mode-updated").await;
+    let mut roster = first.event("voice-channel-state").await;
+    // Earlier roster events may precede the current request, so drain until
+    // the transmitting-mode callback's full roster is seen.
+    for _ in 0..3 {
+        if roster["members"].as_array().unwrap().len() == 2 { break; }
+        roster = first.event("voice-channel-state").await;
+    }
+    for participant in roster["members"].as_array().unwrap() {
+        assert_eq!(participant["isListeningOnly"], true);
+        assert_eq!(participant["transmitMode"], "listening");
+    }
+    for device in [&mut first, &mut sibling] {
+        device.emit("join-wabidb-call", json!({"channelId":voice,"sessionId":format!("channel:{voice}"),"requestId":"listener-relay"})).await;
+        device.event("wabidb-call-joined").await;
+    }
+    first.emit("wabidb-media", json!({"sessionId":format!("channel:{voice}"),"kind":"audio","payload":"POLICY-LISTENER-MUST-NOT-PUBLISH","seq":0})).await;
+    first.emit("get-role-definitions", json!(null)).await;
+    first.event("role-definitions-updated").await;
+    sibling.emit("get-role-definitions", json!(null)).await;
+    sibling.event("role-definitions-updated").await;
+    assert!(!sibling.events.iter().any(|event| event[0] == "wabidb-media" && event[1]["payload"] == "POLICY-LISTENER-MUST-NOT-PUBLISH"));
+    first.emit("voice-channel-leave", json!({"channelId":voice})).await;
+    first.event("voice-channel-left").await;
+    // The second account is still fenced by its sibling's occupied slot.
+    second.emit("voice-channel-subscribe", json!({"channelId":voice})).await;
+    assert_eq!(second.event("voice-channel-error").await["code"], "voice_full");
+    sibling.emit("voice-channel-leave", json!({"channelId":voice})).await;
+    sibling.event("voice-channel-left").await;
+    let (status, _) = request(&app, Method::PUT, &path, &jwt(&state, owner), json!({"entryMode":"muted"})).await;
+    assert_eq!(status, StatusCode::OK);
+    second.emit("voice-channel-join", json!({"channelId":voice})).await;
+    let admitted = second.event("voice-channel-admitted").await;
+    assert_eq!(admitted["listeningOnly"], false);
+    assert_eq!(admitted["mutedOnEntry"], true);
+    state.wdb.mute_user(&voice, owner, outsider, i64::MAX).await.unwrap();
+    second.emit("voice-self-state", json!({"muted":false})).await;
+    // The durable restriction remains authoritative after a self-state event.
+    assert!(state.wdb.is_user_muted(&voice, outsider).await.unwrap());
+}
+
+#[tokio::test]
+
+async fn album_item_media_metadata_survives_rest_write_and_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (member, _, _) = users(&state).await;
+    let room = channel(&state, member, ChannelKind::Gallery).await;
+    let album = state.wdb.create_album("channel", &room, "Gallery", member).await.unwrap();
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let (status, body) = request(&app, Method::POST, &format!("/albums/{album}/items"), &jwt(&state, member),
+        json!({"attachmentUrl":"/uploads/pilot.png", "attachmentName":"pilot.png", "attachmentSize":1234, "attachmentMime":"image/png"})).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["item"]["attachment_size"], 1234);
+    assert_eq!(body["item"]["attachment_mime"], "image/png");
+    let config = state.config.clone();
+    drop(app);
+    drop(state);
+    let reopened = AppState::new(config).await.unwrap();
+    let items = reopened.wdb.list_items(&album).await.unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].size, Some(1234));
+    assert_eq!(items[0].mime.as_deref(), Some("image/png"));
 }

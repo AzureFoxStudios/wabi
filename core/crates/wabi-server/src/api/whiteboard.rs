@@ -317,6 +317,7 @@ async fn upload_whiteboard_image(
         return Ok(json_error_response(StatusCode::FORBIDDEN, "Access denied"));
     }
     crate::channel_access::require_participation(&state, user_id, &channel_id).await?;
+    crate::api::whiteboard_policy::require_write(&state, user_id, &board_id, None).await?;
 
     // Extract file from multipart
     let mut file_data: Vec<u8> = Vec::new();
@@ -363,59 +364,71 @@ async fn upload_whiteboard_image(
         ));
     }
 
-    // Create uploads dir if needed
-    let uploads_dir = &state.config.uploads_dir;
-    if !std::path::Path::new(uploads_dir).exists() {
-        tokio::fs::create_dir_all(uploads_dir).await?;
-    }
+    // Parsing is complete. Fence final admission through publication, without
+    // letting an unfinished client body hold up membership revocation.
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            let _board = crate::api::whiteboard_policy::write_gate(&state, &board_id).lock().await;
+            crate::channel_access::require_participation(&state, user_id, &channel_id).await?;
+            crate::api::whiteboard_policy::require_write(&state, user_id, &board_id, None).await?;
 
-    // Generate a scoped file ID.
-    let safe_file_name = sanitize_filename(&file_name);
-    let file_id = create_whiteboard_file_id(&board_id, &safe_file_name);
-    let room_owner_precondition = state
-        .wdb
-        .room_owner_precondition(&channel_id, "upload_whiteboard_image")?;
+            // Create uploads dir if needed
+            let uploads_dir = &state.config.uploads_dir;
+            if !std::path::Path::new(uploads_dir).exists() {
+                tokio::fs::create_dir_all(uploads_dir).await?;
+            }
 
-    state
-        .upload_registry
-        .publish_bytes(
-            std::path::Path::new(uploads_dir),
-            state.wdb.engine(),
-            &file_id,
-            &safe_file_name,
-            Some(channel_id.clone()),
-            Some(room_owner_precondition),
-            Some(user_id),
-            UploadKind::Whiteboard,
-            &file_data,
-        )
-        .await?;
+            // Generate a scoped file ID.
+            let safe_file_name = sanitize_filename(&file_name);
+            let file_id = create_whiteboard_file_id(&board_id, &safe_file_name);
+            let room_owner_precondition = state
+                .wdb
+                .room_owner_precondition(&channel_id, "upload_whiteboard_image")?;
 
-    let file_url = format!(
-        "/api/whiteboard/boards/{}/files/{}",
-        urlencoding::encode(&board_id),
-        urlencoding::encode(&file_id),
-    );
+            state
+                .upload_registry
+                .publish_bytes(
+                    std::path::Path::new(uploads_dir),
+                    state.wdb.engine(),
+                    &file_id,
+                    &safe_file_name,
+                    Some(channel_id.clone()),
+                    Some(room_owner_precondition),
+                    Some(user_id),
+                    UploadKind::Whiteboard,
+                    &file_data,
+                )
+                .await?;
 
-    tracing::info!(
-        "[Whiteboard] Image uploaded: {} ({} bytes) for board {}",
-        safe_file_name,
-        file_data.len(),
-        board_id,
-    );
+            let file_url = format!(
+                "/api/whiteboard/boards/{}/files/{}",
+                urlencoding::encode(&board_id),
+                urlencoding::encode(&file_id),
+            );
 
-    let response = WhiteboardImageUploadResponse {
-        success: true,
-        board_id: Some(board_id),
-        file_id: Some(file_id),
-        file_url: Some(file_url),
-        file_name: Some(safe_file_name),
-        file_size: Some(file_data.len() as u64),
-        mime_type: Some(mime_type),
-        error: None,
-    };
+            tracing::info!(
+                "[Whiteboard] Image uploaded: {} ({} bytes) for board {}",
+                safe_file_name,
+                file_data.len(),
+                board_id,
+            );
 
-    Ok(Json(response).into_response())
+            let response = WhiteboardImageUploadResponse {
+                success: true,
+                board_id: Some(board_id),
+                file_id: Some(file_id),
+                file_url: Some(file_url),
+                file_name: Some(safe_file_name),
+                file_size: Some(file_data.len() as u64),
+                mime_type: Some(mime_type),
+                error: None,
+            };
+
+            Ok(Json(response).into_response())
+        })
+        .await
 }
 
 /// POST /api/whiteboard/boards/:boardId/fonts
@@ -451,6 +464,7 @@ async fn upload_whiteboard_font(
         return Ok(json_error_response(StatusCode::FORBIDDEN, "Access denied"));
     }
     crate::channel_access::require_participation(&state, user_id, &channel_id).await?;
+    crate::api::whiteboard_policy::require_write(&state, user_id, &board_id, None).await?;
 
     let mut file_data: Vec<u8> = Vec::new();
     let mut file_name = "whiteboard-font.bin".to_string();
@@ -509,63 +523,73 @@ async fn upload_whiteboard_font(
         ));
     }
 
-    let uploads_dir = &state.config.uploads_dir;
-    if !std::path::Path::new(uploads_dir).exists() {
-        tokio::fs::create_dir_all(uploads_dir).await?;
-    }
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            let _board = crate::api::whiteboard_policy::write_gate(&state, &board_id).lock().await;
+            crate::channel_access::require_participation(&state, user_id, &channel_id).await?;
+            crate::api::whiteboard_policy::require_write(&state, user_id, &board_id, None).await?;
 
-    let file_id = create_whiteboard_font_file_id(&board_id, &safe_file_name);
-    let room_owner_precondition = state
-        .wdb
-        .room_owner_precondition(&channel_id, "upload_whiteboard_font")?;
+            let uploads_dir = &state.config.uploads_dir;
+            if !std::path::Path::new(uploads_dir).exists() {
+                tokio::fs::create_dir_all(uploads_dir).await?;
+            }
 
-    state
-        .upload_registry
-        .publish_bytes(
-            std::path::Path::new(uploads_dir),
-            state.wdb.engine(),
-            &file_id,
-            &safe_file_name,
-            Some(channel_id.clone()),
-            Some(room_owner_precondition),
-            Some(user_id),
-            UploadKind::Whiteboard,
-            &file_data,
-        )
-        .await?;
+            let file_id = create_whiteboard_font_file_id(&board_id, &safe_file_name);
+            let room_owner_precondition = state
+                .wdb
+                .room_owner_precondition(&channel_id, "upload_whiteboard_font")?;
 
-    let mime_type = std::path::Path::new(&safe_file_name)
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| mime_guess::from_ext(e).first_or_octet_stream().to_string())
-        .unwrap_or_else(|| "application/octet-stream".to_string());
+            state
+                .upload_registry
+                .publish_bytes(
+                    std::path::Path::new(uploads_dir),
+                    state.wdb.engine(),
+                    &file_id,
+                    &safe_file_name,
+                    Some(channel_id.clone()),
+                    Some(room_owner_precondition),
+                    Some(user_id),
+                    UploadKind::Whiteboard,
+                    &file_data,
+                )
+                .await?;
 
-    let family = font_family_from_filename(&safe_file_name);
+            let mime_type = std::path::Path::new(&safe_file_name)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| mime_guess::from_ext(e).first_or_octet_stream().to_string())
+                .unwrap_or_else(|| "application/octet-stream".to_string());
 
-    let file_url = format!(
-        "/api/whiteboard/boards/{}/files/{}",
-        urlencoding::encode(&board_id),
-        urlencoding::encode(&file_id),
-    );
+            let family = font_family_from_filename(&safe_file_name);
 
-    tracing::info!(
-        "[Whiteboard] Font uploaded: {} ({} bytes) for board {}",
-        safe_file_name,
-        file_data.len(),
-        board_id,
-    );
+            let file_url = format!(
+                "/api/whiteboard/boards/{}/files/{}",
+                urlencoding::encode(&board_id),
+                urlencoding::encode(&file_id),
+            );
 
-    let response = WhiteboardFontUploadResponse {
-        success: true,
-        font_id: file_id,
-        family,
-        file_name: safe_file_name,
-        file_size: file_data.len() as u64,
-        mime_type,
-        file_url,
-    };
+            tracing::info!(
+                "[Whiteboard] Font uploaded: {} ({} bytes) for board {}",
+                safe_file_name,
+                file_data.len(),
+                board_id,
+            );
 
-    Ok(Json(response).into_response())
+            let response = WhiteboardFontUploadResponse {
+                success: true,
+                font_id: file_id,
+                family,
+                file_name: safe_file_name,
+                file_size: file_data.len() as u64,
+                mime_type,
+                file_url,
+            };
+
+            Ok(Json(response).into_response())
+        })
+        .await
 }
 
 /// GET /api/whiteboard/boards/:boardId/fonts
@@ -576,6 +600,8 @@ async fn list_whiteboard_fonts(
     Path(board_id): Path<String>,
     auth: AuthUser,
 ) -> Result<impl IntoResponse> {
+    let _membership = state.membership_gate.read().await;
+    let _authorization = auth.admit_current(&state).await?;
     let user_id = auth.user_id;
 
     let board_id = board_id.trim().to_string();
@@ -641,11 +667,7 @@ async fn list_whiteboard_fonts(
                     urlencoding::encode(&board_id),
                     urlencoding::encode(&file_name_str),
                 );
-                let file_size = entry
-                    .metadata()
-                    .await
-                    .map(|m| m.len())
-                    .unwrap_or(0);
+                let file_size = entry.metadata().await.map(|m| m.len()).unwrap_or(0);
                 fonts.push(WhiteboardFontInfo {
                     font_id: file_name_str.clone(),
                     family,
@@ -685,6 +707,8 @@ async fn serve_whiteboard_file(
     Path((board_id, file_id)): Path<(String, String)>,
     auth: AuthUser,
 ) -> Result<impl IntoResponse> {
+    let _membership = state.membership_gate.read().await;
+    let _authorization = auth.admit_current(&state).await?;
     // Auth check — require a valid token. Guests cannot access whiteboard files.
     let user_id = auth.user_id;
 
@@ -769,6 +793,8 @@ async fn get_board_document(
     Path(board_id): Path<String>,
     auth: AuthUser,
 ) -> Result<impl IntoResponse> {
+    let _membership = state.membership_gate.read().await;
+    let _authorization = auth.admit_current(&state).await?;
     let user_id = auth.user_id;
 
     let board_id = board_id.trim().to_string();
@@ -831,8 +857,8 @@ async fn put_board_document(
         ));
     }
 
-    let parsed: serde_json::Value =
-        serde_json::from_slice(&body).map_err(|e| anyhow::anyhow!("invalid document JSON: {}", e))?;
+    let parsed: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|e| anyhow::anyhow!("invalid document JSON: {}", e))?;
     if !parsed.is_object() {
         return Ok(json_error_response(
             StatusCode::BAD_REQUEST,
@@ -857,58 +883,70 @@ async fn put_board_document(
         board_id.clone()
     };
 
-    if !can_access_channel(&state, Some(user_id), None, &channel_id).await {
-        return Ok(json_error_response(StatusCode::FORBIDDEN, "Access denied"));
-    }
-    crate::channel_access::require_participation(&state, user_id, &channel_id).await?;
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            let _board = crate::api::whiteboard_policy::write_gate(&state, &board_id).lock().await;
+            if !can_access_channel(&state, Some(user_id), None, &channel_id).await {
+                return Ok(json_error_response(StatusCode::FORBIDDEN, "Access denied"));
+            }
+            crate::channel_access::require_participation(&state, user_id, &channel_id).await?;
+            crate::api::whiteboard_policy::require_write(&state, user_id, &board_id, Some(&parsed)).await?;
 
-    // Version check: in-memory map first (shared with socket snapshot),
-    // then the persisted doc's version, else 0 for a fresh board.
-    let client_version = parsed.get("version").and_then(|v| v.as_u64()).unwrap_or(0);
-    let mapped = whiteboard_versions().lock().unwrap().get(&board_id).copied();
-    let current = match mapped {
-        Some(v) => v,
-        None => match state.wdb.get_whiteboard_doc(&board_id).await {
-            Ok(Some(doc)) => serde_json::from_str::<serde_json::Value>(&doc)
-                .ok()
-                .and_then(|d| d.get("version").and_then(|v| v.as_u64()))
-                .unwrap_or(0),
-            _ => 0,
-        },
-    };
-    if client_version != current {
-        return Ok(json_error_response(
-            StatusCode::CONFLICT,
-            &format!(
-                "Version mismatch: client {}, server {}",
-                client_version, current
-            ),
-        ));
-    }
-
-    let new_version = client_version + 1;
-    let mut doc = parsed;
-    doc["version"] = serde_json::json!(new_version);
-    let serialized = serde_json::to_string(&doc).unwrap_or_default();
-
-    match state.wdb.put_whiteboard_doc(&board_id, &serialized).await {
-        Ok(()) => {
-            whiteboard_versions()
+            // Version check: in-memory map first (shared with socket snapshot),
+            // then the persisted doc's version, else 0 for a fresh board.
+            let client_version = parsed.get("version").and_then(|v| v.as_u64()).unwrap_or(0);
+            let mapped = whiteboard_versions()
                 .lock()
                 .unwrap()
-                .insert(board_id.clone(), new_version);
-            Ok(Json(serde_json::json!({
-                "success": true,
-                "boardId": board_id,
-                "version": new_version,
-            }))
-            .into_response())
-        }
-        Err(e) => Ok(json_error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("Failed to persist board document: {}", e),
-        )),
-    }
+                .get(&board_id)
+                .copied();
+            let current = match mapped {
+                Some(v) => v,
+                None => match state.wdb.get_whiteboard_doc(&board_id).await {
+                    Ok(Some(doc)) => serde_json::from_str::<serde_json::Value>(&doc)
+                        .ok()
+                        .and_then(|d| d.get("version").and_then(|v| v.as_u64()))
+                        .unwrap_or(0),
+                    _ => 0,
+                },
+            };
+            if client_version != current {
+                return Ok(json_error_response(
+                    StatusCode::CONFLICT,
+                    &format!(
+                        "Version mismatch: client {}, server {}",
+                        client_version, current
+                    ),
+                ));
+            }
+
+            let new_version = client_version + 1;
+            let mut doc = parsed;
+            doc["version"] = serde_json::json!(new_version);
+            let serialized = serde_json::to_string(&doc).unwrap_or_default();
+
+            match state.wdb.put_whiteboard_doc(&board_id, &serialized).await {
+                Ok(()) => {
+                    whiteboard_versions()
+                        .lock()
+                        .unwrap()
+                        .insert(board_id.clone(), new_version);
+                    Ok(Json(serde_json::json!({
+                        "success": true,
+                        "boardId": board_id,
+                        "version": new_version,
+                    }))
+                    .into_response())
+                }
+                Err(e) => Ok(json_error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("Failed to persist board document: {}", e),
+                )),
+            }
+        })
+        .await
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-01T11:09:13.766021+00:00",
+  "runner": "dotRonin",
+  "scope": "Read-only Ronin/Iyoku supervisor/controller platform prerequisites",
+  "sshProcessExitCode": 0,
+  "results": [
+    {
+      "site": "Ronin",
+      "host": "bazzite",
+      "expectedHostMatches": true,
+      "architecture": "x86_64",
+      "python": "3.14.7",
+      "features": {
+        "linux": true,
+        "pidfdOpen": true,
+        "pidfdSignal": true,
+        "unixPeerCredentials": true,
+        "clockBoottime": true,
+        "procBootReadable": true,
+        "procSelfStatReadable": true,
+        "procSelfExeReadable": true
+      },
+      "pidfdOpenCloseActuallyExercised": true,
+      "privateUnixSocketPairActuallyCreatedAndClosed": true,
+      "pidfdSignalOnlyApiPresenceChecked": true,
+      "unixPeerCredentialsOnlyApiPresenceChecked": true,
+      "tmpAvailableBytes": 14460702720,
+      "status": "PASS"
+    },
+    {
+      "site": "Iyoku",
+      "host": "192.168.1.11",
+      "expectedHostMatches": true,
+      "architecture": "x86_64",
+      "python": "3.14.7",
+      "features": {
+        "linux": true,
+        "pidfdOpen": true,
+        "pidfdSignal": true,
+        "unixPeerCredentials": true,
+        "clockBoottime": true,
+        "procBootReadable": true,
+        "procSelfStatReadable": true,
+        "procSelfExeReadable": true
+      },
+      "pidfdOpenCloseActuallyExercised": true,
+      "privateUnixSocketPairActuallyCreatedAndClosed": true,
+      "pidfdSignalOnlyApiPresenceChecked": true,
+      "unixPeerCredentialsOnlyApiPresenceChecked": true,
+      "tmpAvailableBytes": 7711309824,
+      "status": "PASS"
+    }
+  ],
+  "limits": {
+    "newNodeKeys": 0,
+    "persistentRemoteFixtures": 0,
+    "tcpListeners": 0,
+    "remoteFixtureWorkers": 0,
+    "rustTestsExecuted": 0,
+    "remotePythonHelperSuiteExecuted": false,
+    "rustPythonCodecCompatibilityTested": false,
+    "noiseRpcTested": false,
+    "automaticWabiRecoveryTested": false,
+    "publicEgressChecksRepeated": false
+  },
+  "cleanup": {
+    "localScratchCreated": false,
+    "remotePersistentArtifactsCreated": false,
+    "ownedPidfdAndSocketDescriptorsClosed": true,
+    "transientSshPythonProcessesCompleted": true
+  }
+}

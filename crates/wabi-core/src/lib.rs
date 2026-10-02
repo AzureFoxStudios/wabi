@@ -38,5 +38,5 @@ pub use workspace::{
     UserLeftEvent, UserStatus, UserView, UsernameFont, VoiceBitrateMode,
     VoiceChannelParticipantView, VoiceChannelSettings, VoiceChannelStateEvent,
     VoiceChannelSubscriptionEvent, VoiceChannelUserJoinedEvent, VoiceChannelUserLeftEvent,
-    VoiceStateEvent,
+    VoiceEntryMode, VoiceStateEvent,
 };

@@ -1,0 +1,126 @@
+# All-branch integration — 2026-10-02
+
+Status: validated source consolidation. The checks below describe the combined
+integration source; merge, push and deployment remain distinct operations.
+
+The requested order is checkpoint/push accumulated source, consolidate non-main
+work on a reviewable branch, then merge the validated branch into main.
+
+## Checkpoint and branch coverage
+
+The initial 698-path checkpoint is `361437d4778b4f4a863fa37c00b40f0449d0eace`,
+pushed to `AzureFoxStudios/wabi` on
+`codex/security-boundary-hardening-20260930` after explicit destination/payload
+approval. The integration began at local main
+`db86954a4062c1401c7c0873476a509c60864697` and includes that checkpoint.
+
+The frozen primary-repository inventory has 57 distinct previously unmerged tips.
+All 56 application tips are ancestors of `codex/all-branches-integration-20261002`.
+`docs-history` has unrelated history and remains an archive, as the repository
+orientation requires. Exact tips and aliases are in
+[the machine-readable inventory](2026-10-02-branch-integration-inventory.json).
+The old `astrosnat/voidwabi` fork also has unrelated history: local `astrosnat` /
+`astrosnat/main` at `cc2300ead2cfdef2398d7b399fa7372103ca08cb`, and
+`astrosnat/feature/prettycss` at `2abcbae5a2fa7bb3e1da2175dc879c298ffa8e9c`.
+Those foreign-fork references remain separate; this was presented as the default
+while application validation proceeded.
+
+This covers the frozen source snapshot; ongoing original-checkout edits made by
+other chats after the checkpoint are preserved and are not implicitly included.
+
+History coverage does not mean every old branch snapshot was restored. Merge
+commits state their disposition. Newer consolidated source wins where old
+snapshots would restore retired workflows, weaker authorization, duplicated
+shells/storage paths, or obsolete runtime behavior. No branches are deleted and
+no history is rewritten.
+
+## Recovered and combined work
+
+- One active Yjs Documents/Sheets/Present implementation, with current channel,
+  credential and rules admission retained through accepted operations. The
+  alternative Office storage path and retired development workflows are kept
+  in history. Optional client packaging and server sharing remain independent.
+- Native credential persistence, mobile notification plumbing, chronological
+  mobile Back behavior, and viewport handling retain current session fences.
+  The incoming large native dependency refresh was replaced by a minimal OS
+  credential-store closure that retains all existing package versions.
+- Voice policy, account-counted room capacity, entry modes, and default-off
+  experimental broker device binding preserve the later durable mute/deafen,
+  consent, credential and fail-closed relay behavior. The old selective relay
+  facade is superseded; no immediate revocation or HA claim is made.
+- Combined execution exposed a process-global voice admission collision between
+  Authorities with matching IDs. Admission lookup, eviction and permission jobs
+  are now Authority-scoped, with independent-Authority capacity/device/job tests.
+  Office channel fixtures explicitly enroll creators, matching the real API.
+- The real native hosting gate exposed a stale PID/hardlink backup lease. Native
+  snapshot, restore and rollback now hold the current advisory lock through
+  copying and relocation, preserve its inode, and reject unresolved legacy root
+  locks. Seven regressions cover actual ownership, stale diagnostic bytes,
+  relocation, tampering and old snapshot publication-lock compatibility.
+- Album attachment size/MIME metadata passes through the current guarded write
+  path using fields already present on durable records. No postcard record
+  fields are reordered for this repair.
+- The completed UI-only gallery/reference followup `1eb7969d` is merged.
+  Later geographic work remains outside the integration.
+- Pointer controls, Thai translations, the loopback-only development showcase,
+  desktop evidence tools, TUI work, and the standalone Sabi subtree are retained.
+- A late Tailcat listener result cannot publish after disable intent; current
+  lifecycle and forwarder admission remain intact.
+- Isolated client fixtures now expose and assert the new native refresh
+  persistence seam; one SvelteKit init hook installs the showcase boundary and
+  awaits native credential hydration before session bootstrap.
+
+## Dependency disposition
+
+All 15 dependency proposal tips are represented in history, with current
+repository pins retained. This is **history reconciliation, not acceptance of
+those proposed upgrades**. It avoids importing an old whole-tree lock over the
+combined feature dependency graph. In particular, X25519 3 requires rand_core
+0.10 while the current handshake passes rand 0.8's ThreadRng (rand_core 0.6);
+that needs an explicit RNG/API migration and crypto tests. TOML 1.1 is a parser
+major, base64 0.23 crosses a breaking 0.x boundary, reqwest's proposal adds that
+base64 version, and serde's proposal changes its derive graph. None is claimed
+validated here. All ten npm proposal direct upgrades also remain unapplied.
+
+Required Office and mobile additions have reconciled lockfiles. Office changes
+include targeted parser/devalue/cookie/esbuild overrides and remove redundant
+nested esbuild packages; the mobile lock retains its existing 810 package
+versions/checksums and adds only its credential-store closure. Network fetches
+recovered with `CARGO_HTTP_MULTIPLEXING=false`.
+
+## Verification
+
+Checks use repository Rust 1.93, Node 22.22.3 and Bun 1.3.14. Builds and fixture
+state are isolated from the original checkout and live data. Rust builds are
+serialized and reuse the existing target with one job, no incremental test
+compilation and test debug info disabled to bound disk use.
+
+| Check | Candidate result |
+| --- | --- |
+| Frontend locked install | Passed |
+| Full isolated frontend suite | 1,260 passed, 3 skipped, 0 failed |
+| Svelte check | 0 errors, 128 warnings |
+| Locale key parity | Passed, Spanish and Thai |
+| Default static SPA | Passed; index.html and offline asset manifest emitted |
+| Python controller/packaging/runtime tests | 40 passed |
+| Node script contracts | 64 passed |
+| Core ts-rs generation on media union | 166 passed |
+| Sabi own locked tests/check/build | 30 passed; Svelte/TypeScript clean; static build passed |
+| Combined pinned Rust compilation | Passed, complete workspace test executables |
+| Initial combined Rust execution | 2,717 passed, 3 failed, 18 ignored; media isolation and fixture repairs made |
+| Final combined Rust execution | 2,723 passed, 0 failed, 18 ignored |
+| Enabled addons/experimental broker library and security contracts | 564 passed, 0 failed, 1 ignored; current-device helper reply and mismatched-identity rejection verified |
+| Native Linux library compilation/unit tests | Passed after advisory backup repair; 58 tests, 0 failed |
+| Optional Office static SPA | Passed after UI followup, all packages; 341 immutable assets |
+| Office real workers, Chromium and Firefox | Passed; 200,000-cell result, bounded burst, cancellation and cleanup |
+| Office editor/Authority browser contracts | 37 passed in Chromium and 37 in Firefox; converters not exercised |
+| Stopped-copy and encrypted Authority backup/restore | Passed; persistent bytes, keys, accounts, uploads and restart verified; encrypted archive omits runtime locks |
+| Timed retention with real Authority restart | Passed; exact policy/deadline, upload independence and authorized Live bot rejection verified; rejected body absent after replay and from stopped data files |
+| Independent project helper | 12 Rust tests and 42 real executable contracts passed; pinned binary build passed |
+| Independent native host safety | 39 passed; explicit real-Authority bootstrap/owner/restart/profile-lock/stopped-backup/live-restore-denial/restore gate also passed |
+
+Native keychain/JNI roundtrips, command IPC and export dialogs, physical mobile
+devices, real media/SFU providers and converters remain separate release gates
+where they cannot be exercised locally. A source merge
+must not be presented as deployment, physical-device acceptance, independently
+verified E2EE, or production replication/HA.

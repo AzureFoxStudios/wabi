@@ -15,7 +15,7 @@
 import { get } from 'svelte/store';
 import { callTransportState, callOfflineNotice } from './callingStateStores';
 import type { EffectiveCallTransport } from './mediaRuntime';
-// (type-only: erased at runtime — keeps tests free of mediaRuntime's \$app deps)
+// (type-only: erased at runtime — keeps tests free of mediaRuntime's $app deps)
 
 export type CallSurface = 'channel' | 'group' | 'direct';
 
@@ -40,9 +40,16 @@ export function chainForMode(mode: string): EffectiveCallTransport[] {
 
 /**
  * Surface- and size-aware chain adjustment.
- * - A p2p tail for a channel/group with more than MESH_MAX_PARTICIPANTS
- *   expected members is an outage, not a fallback: trim it and let exhaustion
- *   surface callOfflineNotice instead of N×N renegotiation hell.
+ *
+ * Community voice channels deliberately never fall through to direct P2P.
+ * Server mute/deafen/listen-only policy cannot be authoritatively enforced
+ * after browsers exchange direct RTP, so silently demoting an SFU/relay call
+ * to P2P would be a security downgrade. WabiDB and SFU transports remain
+ * observable/enforceable by the Authority. Direct/group calls may still use
+ * P2P where that trust model is appropriate.
+ *
+ * Group calls keep the historical small-mesh fallback, but trim it once the
+ * expected room exceeds MESH_MAX_PARTICIPANTS.
  */
 export function effectiveChain(
 	mode: string,
@@ -50,11 +57,11 @@ export function effectiveChain(
 	expectedParticipants: number
 ): EffectiveCallTransport[] {
 	const chain = chainForMode(mode).slice();
-	if (
-		(surface === 'channel' || surface === 'group') &&
-		expectedParticipants > MESH_MAX_PARTICIPANTS
-	) {
-		return chain.filter((t) => t !== 'p2p');
+	if (surface === 'channel') {
+		return chain.filter((transport) => transport !== 'p2p');
+	}
+	if (surface === 'group' && expectedParticipants > MESH_MAX_PARTICIPANTS) {
+		return chain.filter((transport) => transport !== 'p2p');
 	}
 	return chain;
 }
@@ -93,6 +100,14 @@ export async function connectWithFallback(opts: {
 		if (opts.stillWanted && !opts.stillWanted()) throw new DOMException('Call ended during transport setup', 'AbortError');
 	};
 	check();
+
+	if (chain.length === 0) {
+		const message = opts.surface === 'channel'
+			? 'Direct P2P is unavailable for community voice because it cannot enforce server mute/deafen. Choose Auto, WabiDB, or SFU.'
+			: 'No permitted call transport is available.';
+		callOfflineNotice.set(message);
+		throw new Error(message);
+	}
 
 	for (let i = 0; i < chain.length; i++) {
 		const transport = chain[i];

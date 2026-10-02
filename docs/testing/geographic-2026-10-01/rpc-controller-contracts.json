@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-01T10:45:20.419290+00:00",
+  "computer": "dotRonin",
+  "checkout": "/home/ironin/wabi",
+  "branch": "codex/security-boundary-hardening-20260930",
+  "baseCommit": "138abe39e08e400188d1812ed3bfd378df435315",
+  "sharedDirtyWorktree": true,
+  "scope": "Synthetic Linux private Unix worker control and exact original-command receipt validation",
+  "command": "PYTHONDONTWRITEBYTECODE=1 python3 -W error::ResourceWarning scripts/geographic-acceptance/rpc-probe-controller.test.py -v",
+  "pythonVersion": "3.12.3",
+  "sourceDigests": {
+    "scripts/geographic-acceptance/rpc-probe-controller.py": "cbb16bed861a55a6d978a006065e4cd6e9e57410f4ed669c5acf3f9db791eb9e",
+    "scripts/geographic-acceptance/rpc-probe-controller.test.py": "dfc4ea8fc0420f9815b9d56280f3ee5d455f3a49029354675c9f96ea39b58ab0"
+  },
+  "supervisorDependencyDigests": {
+    "scripts/geographic-acceptance/rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2",
+    "scripts/geographic-acceptance/rpc-probe-supervisor.test.py": "52578b172841e73cbd25f7af3659e1205b2a6553a71c03c7dd18659d4a5dabab"
+  },
+  "pendingRustWorkerSha256": "42397684bc66658ac6bdba45e245392e3fad734eaa749e34913101a72e9f10cc",
+  "result": {
+    "status": "PASS",
+    "exitCode": 0,
+    "testsPassed": 25,
+    "testsSkipped": 0,
+    "kernelUnixPeerCredentialsTested": true,
+    "actualSyntheticProposalResponseLostThenOriginalBoundReceiptRead": true,
+    "missingCommandProofRefused": true,
+    "sameIdChangedContentsCannotBorrowOriginalReceipt": true,
+    "nonblockingControllerLeaseTested": true,
+    "exactThreeVoterSyntheticReceiptConvergenceTested": true,
+    "rustCompilerResult": "NOT_RUN",
+    "rustTestsResult": "NOT_RUN",
+    "rustParserFormatResult": "PASS",
+    "rustPythonExecutableCodecCompatibilityTested": false,
+    "noiseTested": false,
+    "raftTestedByThisSlice": false,
+    "physicalThreeSiteTested": false,
+    "automaticWabiRecoveryTested": false,
+    "canonicalWriterPermitted": false
+  },
+  "coordination": {
+    "onlyTwoNewNoncompiledPythonFilesAndExistingNestedPendingRustReleased": true,
+    "compiledSourceManifestsLockCargoHoldPreserved": true
+  },
+  "logs": [
+    {
+      "label": "sandbox-refusal",
+      "path": "docs/testing/geographic-2026-10-01/rpc-controller-sandbox-refusal.log.gz",
+      "exitCode": 1,
+      "testsScheduled": 21,
+      "rawBytes": 12621,
+      "rawSha256": "db21fa4d4ef47764ed5dc5af9bb1c7a3ed4d33244cec3684e5c6d3f88d08198f",
+      "scope": "synthetic controller only; final source hashes cover accepted25 only"
+    },
+    {
+      "label": "accepted21",
+      "path": "docs/testing/geographic-2026-10-01/rpc-controller-accepted21.log.gz",
+      "exitCode": 0,
+      "testsScheduled": 21,
+      "rawBytes": 3084,
+      "rawSha256": "e8d0659b367f9cf9f61b42d3122f2c5756e19fd4aeae8a0f0d0253c3b75c495e",
+      "scope": "synthetic controller only; final source hashes cover accepted25 only"
+    },
+    {
+      "label": "accepted25",
+      "path": "docs/testing/geographic-2026-10-01/rpc-controller-accepted25.log.gz",
+      "exitCode": 0,
+      "testsScheduled": 25,
+      "rawBytes": 3630,
+      "rawSha256": "110a10d86e41b8c3de5e733da67145869f64c88663ba0e5fc66823f3386f8313",
+      "scope": "synthetic controller only; final source hashes cover accepted25 only"
+    }
+  ],
+  "sandboxObservation": {
+    "initialUnixSocketCreationRefusedBySandbox": true,
+    "rerunAuthorizedOutsideRestriction": true,
+    "testTcpListeners": 0,
+    "testRemoteConnections": 0
+  },
+  "cleanup": {
+    "remainingOwnedRoots": [],
+    "ownedBytecodeCaches": [],
+    "mockChildrenStoppedAndReaped": true,
+    "removedOwnedTemporaryLogs": [
+      {
+        "name": "wabi-rpc-controller-attempt1-20261001.log",
+        "bytes": 12621
+      },
+      {
+        "name": "wabi-rpc-controller-attempt2-20261001.log",
+        "bytes": 3084
+      },
+      {
+        "name": "wabi-rpc-controller-accepted25-20261001.log",
+        "bytes": 3630
+      }
+    ],
+    "newKeysCreated": 0,
+    "newRemoteFixturesOrServices": 0,
+    "sharedTargetPreserved": true
+  },
+  "unchangedPrerequisites": {
+    "previousSupervisorSourcesMatch": true,
+    "nineAcceptedDurableCrateSourcesMatch": true,
+    "sevenOtherUnwiredRustSourcesMatch": true
+  },
+  "diskAvailableBytesAtSave": 101262635008
+}

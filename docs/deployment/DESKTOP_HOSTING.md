@@ -83,17 +83,30 @@ same saved community, initially local-only. Launching another desktop process
 can show another client window, but the profile lock blocks a second owned
 Authority. Use the tray to reopen the existing window.
 
-Backups pause a cleanly stopped server and acquire the storage leases before
-copying all data and uploads. Hash manifests reject altered or extra files,
-symlinks and incomplete identity. Only the two known runtime `.lock` paths are
-excluded; uploads named `.lock` remain data. Failed/forced stop is not a backup
+Backups pause a cleanly stopped server and hold the actual WabiDB advisory lock
+before copying all data and uploads. The persistent `wabidb/.lock` inode remains
+in place; PID text and file presence do not establish ownership. A legacy root
+`data/.lock` fails closed until every old process is confirmed stopped and that
+legacy file is explicitly resolved. Hash manifests reject altered or extra
+data files, symlinks and incomplete identity. Four exact runtime coordination
+paths are excluded: `.lock`, `wabidb/.lock`, `.wabi-secret-publication.lock` and
+`wabidb/.wabi-secret-publication.lock`. Uploaded files with those names remain
+data. Older version-1 snapshots listing publication locks remain readable;
+these runtime entries are not installed. Failed/forced stop is not a backup
 boundary.
 
 Restore validates a chosen snapshot, rejects another community's identity,
-locks current storage before copying or moving it, stages a verified copy and
+locks current storage before copying or moving it, locks the staged replacement
+before publication, keeps both advisory descriptors through relocation and
 keeps `before-restore-…`. Startup failure retains the failed copy and restores
 the prior tree when it can safely acquire the required leases. A live CLI store
 cannot be renamed by the restore helper.
+
+Stopped operations verify that the held lock still names the same regular file.
+Unix verification compares device and inode, including after relocation; the
+integration's runtime gate uses Linux. Windows uses the canonical stopped-tool
+creation-time check and still requires its platform-specific runtime gate.
+Neither path deletes the persistent engine lock on completion or failure.
 
 Generated snapshots contain server `data/` and a manifest. They do **not**
 contain the desktop `host.json`. For disk-loss/profile recovery, stop hosting

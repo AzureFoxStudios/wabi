@@ -1,5 +1,8 @@
 //! Administrative UI → policy command → projection → access/creation contract.
 //! All policy files, accounts and fault injection belong to temporary engines.
+#[path = "fixtures/writer_drain.rs"]
+mod writer_drain;
+
 use axum::{
     body::{to_bytes, Body},
     http::{Request, StatusCode},
@@ -272,9 +275,10 @@ async fn both_admin_routes_share_default_save_enforcement_and_restart() {
         !tmp.path().join("admin_policies.json").exists(),
         "canonical saves must not create a second policy file"
     );
+    let config = state.config.clone();
     drop(app);
     drop(state);
-    let state = server(tmp.path()).await;
+    let state = Arc::new(writer_drain::app_state(&config).await.unwrap());
     let app = router(&state);
     assert_eq!(
         request(&app, "GET", ADMIN_PATH, &owner_token, None).await.1["config"],
@@ -337,9 +341,10 @@ async fn legacy_import_is_admin_owned_and_canonical_row_wins_forever() {
             .1["policy"],
         policy(false)
     );
+    let config = state.config.clone();
     drop(app);
     drop(state);
-    let state = server(tmp.path()).await;
+    let state = Arc::new(writer_drain::app_state(&config).await.unwrap());
     assert_eq!(
         request(&router(&state), "GET", ADMIN_PATH, &owner_token, None)
             .await
@@ -791,12 +796,9 @@ async fn permanent_password_reset_protects_owner_and_self_and_revokes_target_ses
         .await
         .unwrap();
     assign_role(&state, admin, "Admin").await;
-    let role_owner = state
-        .wdb
-        .create_user("role-owner", None, "registered-test-hash")
-        .await
-        .unwrap();
-    assign_role(&state, role_owner, "Owner").await;
+    // Owner role is meaningful only for the durable singleton seeded above;
+    // a legacy extra Owner row no longer creates another protected owner.
+    assign_role(&state, owner, "Owner").await;
     let admin_token = token(&state, admin);
     let member_claims = claims(member);
     state
@@ -808,7 +810,7 @@ async fn permanent_password_reset_protects_owner_and_self_and_revokes_target_ses
             .await,
         "own-password session is initially exempt"
     );
-    for target in [admin, owner, role_owner] {
+    for target in [admin, owner] {
         assert_eq!(
             request(
                 &app,

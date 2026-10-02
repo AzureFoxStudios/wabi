@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T06:53:22.813595+00:00",
+  "capturedBeforeRun": true,
+  "files": 33,
+  "sourceFreezeSha256": "4a289d520978b276a61f33ff622ce2a230303b4b44cc6f04c5e953ba2b290edb",
+  "scope": "all consensus crate sources + root/crate manifests, pinned lock/toolchain; no embedded frontend",
+  "graphChanged": false
+}

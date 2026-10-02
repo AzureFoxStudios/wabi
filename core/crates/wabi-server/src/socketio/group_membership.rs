@@ -406,6 +406,7 @@ async fn revoke_group_devices(
         ] {
             device.leave(room);
         }
+        evict_channel_whiteboards(device, id);
         wabidb_header_cache_forget_session_socket(&format!("channel:{id}"), &device.id.to_string());
         let _ = device.emit(
             "group-removed",

@@ -349,15 +349,10 @@ async fn on_update_profile(socket: SocketRef, data: Value, state: SioState, io: 
         fail("requestId must be a nonempty string of at most 128 bytes");
         return;
     }
-    let Some(identity) = resolve_sio_identity(&socket) else {
-        fail("authentication required");
+    let Some(identity) = resolve_identity(&socket, &state).await else {
+        fail("authentication required; please sign in again");
         return;
     };
-    let token = socket.extensions.get::<AuthToken>().map(|token| token.0.clone()).unwrap_or_default();
-    if socket_token_revoked(&state.app, &token).await {
-        fail("session revoked; please sign in again");
-        return;
-    }
     let db_user_id = identity.user_id;
     if db_user_id <= 0 {
         fail("authentication required");
@@ -445,7 +440,7 @@ async fn on_update_profile(socket: SocketRef, data: Value, state: SioState, io: 
 /// (active/away/busy/invisible) and broadcast the masked view. Invisible is
 /// emitted as "offline" so no observer can distinguish it from a real leave.
 async fn on_set_presence(socket: SocketRef, data: Value, state: SioState, io: SocketIo) {
-    let Some(identity) = resolve_sio_identity(&socket) else {
+    let Some(identity) = resolve_identity(&socket, &state).await else {
         let _ = socket.emit("presence-rejected", &json!({ "reason": "authentication required" }));
         return;
     };
@@ -485,7 +480,7 @@ async fn on_set_presence(socket: SocketRef, data: Value, state: SioState, io: So
     if presence == UserPresence::Invisible {
         view["statusMessage"] = Value::Null;
     }
-    let _ = io.emit("presence-changed", &view);
+    let _ = io.emit("presence-changed", &view).await;
 }
 
 #[allow(dead_code)]
@@ -496,6 +491,8 @@ async fn on_disconnect(socket: SocketRef, state: SioState, io: SocketIo) {
     // Calling security cleanup (2026-08-25 Phase 1): drop the media rate
     // bucket and every DM call-signaling link this user held.
     media_rate_forget(&socket_id);
+    crate::api::voice_policy::remove_socket_admissions(&state.app.config.data_dir, &socket_id);
+    crate::api::voice_self_state::remove_socket(&socket_id);
     wabidb_header_cache_forget_socket(&socket_id);
     let departed_stable = get_my_stable_id(&socket, &state.app.config.jwt_secret);
     let account_still_connected = io.sockets().iter().any(|other|
@@ -685,6 +682,10 @@ async fn on_join_channel(socket: SocketRef, channel_id: String, state: SioState)
         return;
     };
     let user_id = identity.user_id;
+
+    // A completed automatic ban must fence even a join already waiting here.
+    // Retain ordering through history publication as well as room insertion.
+    let _channel = crate::channel_access::publication_gate(&state.app, &channel_id).lock().await;
 
     // DM channel access → can_access_dm; regular channel → can_access_channel.
     // Point lookups (t_6bbbc52a): no full channel-table scans per join.

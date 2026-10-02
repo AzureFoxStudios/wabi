@@ -36,6 +36,7 @@ pub fn is_room_event(event_type: &str) -> bool {
             | "gallery_feedback_added"
             | "gallery_feedback_deleted"
             | "project_run_updated"
+            | "project_worker_updated_v1"
             | "project_task_created"
             | "project_task_updated"
     )
@@ -72,6 +73,7 @@ fn parent_room(event: &EventToWrite) -> Result<String> {
             gallery::decode_feedback_record(bytes)?.channel_id
         }
         "project_run_updated" => project_runs::decode(bytes)?.channel_id,
+        "project_worker_updated_v1" => project_runs::decode_worker(bytes)?.channel_id,
         "project_task_created" | "project_task_updated" => {
             project_tasks::decode_record(bytes)?.channel_id
         }
@@ -246,6 +248,14 @@ pub(crate) mod tests {
             checkpoint: String::new(),
             pending: None,
             steps: vec![],
+            worker_id: None,
+            target_worker_id: None,
+            recovery_policy: None,
+            recovery_count: 0,
+        });
+        let worker = project_runs::encode_worker(&project_runs::ProjectWorker {
+            schema_version:1,worker_id:"worker_a".into(),channel_id:room.into(),
+            bot_user_id:2,name:"Computer".into(),harness:"api_worker".into(),provider:"test".into(),model:"test".into(),last_seen_micros:1,enabled:true,
         });
         [
             ("wiki_page_created", &page),
@@ -270,6 +280,7 @@ pub(crate) mod tests {
             ("project_task_created", &task),
             ("project_task_updated", &task),
             ("project_run_updated", &run),
+            ("project_worker_updated_v1", &worker),
         ]
         .into_iter()
         .map(|(kind, bytes)| EventToWrite {
@@ -361,6 +372,7 @@ pub(crate) mod tests {
             Box::new(gallery::GalleryFeedbackProjection),
             Box::new(project_tasks::ProjectTaskProjection),
             Box::new(project_runs::ProjectRunProjection),
+            Box::new(project_runs::ProjectWorkerProjection),
         ];
         let mut registered: Vec<_> = handlers
             .iter()
@@ -374,7 +386,7 @@ pub(crate) mod tests {
             .collect();
         covered.sort();
         assert_eq!(registered, covered);
-        assert_eq!(covered.len(), 22);
+        assert_eq!(covered.len(), 23);
         assert!(covered.iter().all(|event| is_room_event(event)));
         assert!(!is_room_event("user_registered"));
     }

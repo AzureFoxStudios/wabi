@@ -55,9 +55,9 @@ impl Fixture {
                 "server_role": "authority",
                 "jwt_secret": "fixture-active-key"
             }),
-            excluded_runtime_paths: ["data/.lock", "data/wabidb/.lock", "data/tailcat/addr.txt"]
-                .into_iter()
-                .map(str::to_owned)
+            excluded_runtime_paths: LIVE_RUNTIME_PATHS
+                .iter()
+                .map(|path| (*path).to_owned())
                 .collect(),
             active_key_substitutions: ["data/jwt_secret", "data/wabidb/root_key"]
                 .into_iter()
@@ -523,4 +523,53 @@ fn exporter_refuses_existing_output_without_replacing_it() {
     fs::write(&output, b"keep existing").unwrap();
     assert!(fixture.export("existing.age", fixture.metadata()).is_err());
     assert_eq!(fs::read(output).unwrap(), b"keep existing");
+}
+
+#[test]
+fn legacy_runtime_exclusions_remain_readable_but_new_exports_require_current_paths() {
+    let fixture = Fixture::new();
+    fs::write(fixture.data.join(".wabi-secret-publication.lock"), b"").unwrap();
+    fs::write(
+        fixture.data.join("wabidb/.wabi-secret-publication.lock"),
+        b"",
+    )
+    .unwrap();
+    fixture.export("current.age", fixture.metadata()).unwrap();
+    let plaintext = fixture.decrypt(&fixture.temp.path().join("current.age"));
+    let old_header = rewrite_header(&plaintext, |header| {
+        header.excluded_runtime_paths = LEGACY_RUNTIME_PATHS
+            .iter()
+            .map(|path| (*path).to_owned())
+            .collect();
+    });
+    let legacy_archive = fixture.encrypt("legacy-readable.age", &old_header);
+    let target = fixture.temp.path().join("legacy-inactive");
+    restore(
+        &legacy_archive,
+        &fixture.identity_path,
+        &target,
+        false,
+        false,
+    )
+    .unwrap();
+    assert!(target.join("data/wabidb").join(LIVE_MARKER).is_file());
+    assert!(!target.join("data/.wabi-secret-publication.lock").exists());
+    assert!(!target
+        .join("data/wabidb/.wabi-secret-publication.lock")
+        .exists());
+    let mut metadata = fixture.metadata();
+    validate_metadata(&metadata).unwrap();
+    metadata.excluded_runtime_paths = LEGACY_RUNTIME_PATHS
+        .iter()
+        .map(|path| (*path).to_owned())
+        .collect();
+    validate_metadata(&metadata).unwrap();
+    assert!(fixture
+        .export("legacy-new-export.age", metadata.clone())
+        .is_err());
+    assert!(!fixture.temp.path().join("legacy-new-export.age").exists());
+    metadata
+        .excluded_runtime_paths
+        .push("data/arbitrary-secret".into());
+    assert!(validate_metadata(&metadata).is_err());
 }

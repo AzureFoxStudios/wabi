@@ -79,8 +79,8 @@ The internal [encrypted live archive candidate](LIVE_CHECKPOINT_ARCHIVE.md)
 now consumes this boundary, supplies bounded copying, streams both core roots
 to age ciphertext, records the active keys and resolved server configuration,
 and restores V2 archives inactive. Its inventory and key/prefix checks are
-component checks; no operator trigger or complete-instance readiness verdict
-is enabled. Explicit participant/path classification, external/operator/plugin
+component checks. The opt-in [local operator control](OPERATOR_CHECKPOINT_CONTROL.md)
+starts owned, bounded core exports; no complete-instance readiness verdict is enabled. Explicit participant/path classification, external/operator/plugin
 inventory and comprehensive clean restore acceptance remain required. A private staging
 copy must not be labeled recovery-ready until those checks pass. Manual
 unavailable-host promotion, durable distributed fencing and old-node reseeding

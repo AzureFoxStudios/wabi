@@ -1,0 +1,599 @@
+{
+  "schemaVersion": 1,
+  "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+  "artifactSha256": "678b9341b8d30e8a49be3abdcdacb472716a5091e5c5c196f836b263a9687c91",
+  "export": {
+    "schemaVersion": 1,
+    "purpose": "actual_disposable_wabi_checkpoint_ciphertext",
+    "owner": "96fb064bf8129b15f0f1e16f291c3ffc9c542b353f17a2769357a8f39cdf5770",
+    "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+    "ciphertextSha256": "3f804779a078880baf384edc59299153c9099585298406bef95a7f194f385b60",
+    "ciphertextBytes": 174102,
+    "requiredObjects": 3,
+    "canonicalWriterPermitted": false
+  },
+  "physicalAccepted": false,
+  "steps": [
+    {
+      "nodeId": 1,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "claimed": true
+      }
+    },
+    {
+      "nodeId": 2,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "claimed": true
+      }
+    },
+    {
+      "nodeId": 3,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "claimed": true
+      }
+    },
+    {
+      "nodeId": 1,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "actualExitCode": 0,
+        "outputSha256": "a31a6989f18ab188e403c0c7cea45f4df0382f7b2c1c843e333441448f7019c7",
+        "result": {
+          "schemaVersion": 1,
+          "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+          "nodeId": 1,
+          "action": "seed",
+          "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+          "receipt": {
+            "allocation": {
+              "kind": "unknown"
+            },
+            "appliedCommitSeq": 5,
+            "canonicalWriterPermitted": false,
+            "communityId": "19a399da2e4944b28c40e5da3eca64419e7d51a0b6989e5172c35f880e2be46f",
+            "communitySignatureVerified": true,
+            "fullInstanceReady": false,
+            "inactiveReplayVerified": false,
+            "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+            "nodeId": 1,
+            "partitionId": "community/root",
+            "payloadEncryptionVerified": false,
+            "quorumAvailable": false,
+            "requiredBytes": 174102,
+            "requiredObjects": 3,
+            "schemaVersion": 2,
+            "scope": "local_signed_checkpoint_bytes_only",
+            "sourceArchiveSha256": "3f804779a078880baf384edc59299153c9099585298406bef95a7f194f385b60",
+            "sourceContextSha256": "8e1e3ea79fa3beeacbf199dbc2b8c63b26ba3f3f7aa00fcf70b5e926edcb5b03",
+            "sourceInventorySha256": "baf68578ab69eefe866afdea721719aa66f073ffd4bb2cc68cf313259b6be71c",
+            "sourceRoleVerified": false
+          },
+          "canonicalWriterPermitted": false
+        }
+      }
+    },
+    {
+      "nodeId": 1,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "actualExitCode": 0,
+        "outputSha256": "bcd939a82108154926bf1ce7897ca098ea7e5dcb94dc53c6e487afb8b617098c",
+        "result": {
+          "schemaVersion": 1,
+          "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+          "nodeId": 1,
+          "action": "push",
+          "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+          "receipt": {
+            "receipt": {
+              "allocation": {
+                "kind": "unknown"
+              },
+              "appliedCommitSeq": 5,
+              "canonicalWriterPermitted": false,
+              "communityId": "19a399da2e4944b28c40e5da3eca64419e7d51a0b6989e5172c35f880e2be46f",
+              "communitySignatureVerified": true,
+              "fullInstanceReady": false,
+              "inactiveReplayVerified": false,
+              "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+              "nodeId": 2,
+              "partitionId": "community/root",
+              "payloadEncryptionVerified": false,
+              "quorumAvailable": false,
+              "requiredBytes": 174102,
+              "requiredObjects": 3,
+              "schemaVersion": 2,
+              "scope": "local_signed_checkpoint_bytes_only",
+              "sourceArchiveSha256": "3f804779a078880baf384edc59299153c9099585298406bef95a7f194f385b60",
+              "sourceContextSha256": "8e1e3ea79fa3beeacbf199dbc2b8c63b26ba3f3f7aa00fcf70b5e926edcb5b03",
+              "sourceInventorySha256": "baf68578ab69eefe866afdea721719aa66f073ffd4bb2cc68cf313259b6be71c",
+              "sourceRoleVerified": false
+            },
+            "rosterDigest": "89370a8e4739e7820868779c80da8a2db1e45299a0e62f9556f3ab6d430d98e4",
+            "targetNodeId": 2
+          },
+          "canonicalWriterPermitted": false
+        }
+      }
+    },
+    {
+      "nodeId": 1,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "actualExitCode": 0,
+        "outputSha256": "ff2ee9e9e9208197939fe515039208e4f2409a048a18e81a5107612b87ce4bf7",
+        "result": {
+          "schemaVersion": 1,
+          "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+          "nodeId": 1,
+          "action": "remote_receipt",
+          "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+          "receipt": {
+            "receipt": {
+              "allocation": {
+                "kind": "unknown"
+              },
+              "appliedCommitSeq": 5,
+              "canonicalWriterPermitted": false,
+              "communityId": "19a399da2e4944b28c40e5da3eca64419e7d51a0b6989e5172c35f880e2be46f",
+              "communitySignatureVerified": true,
+              "fullInstanceReady": false,
+              "inactiveReplayVerified": false,
+              "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+              "nodeId": 2,
+              "partitionId": "community/root",
+              "payloadEncryptionVerified": false,
+              "quorumAvailable": false,
+              "requiredBytes": 174102,
+              "requiredObjects": 3,
+              "schemaVersion": 2,
+              "scope": "local_signed_checkpoint_bytes_only",
+              "sourceArchiveSha256": "3f804779a078880baf384edc59299153c9099585298406bef95a7f194f385b60",
+              "sourceContextSha256": "8e1e3ea79fa3beeacbf199dbc2b8c63b26ba3f3f7aa00fcf70b5e926edcb5b03",
+              "sourceInventorySha256": "baf68578ab69eefe866afdea721719aa66f073ffd4bb2cc68cf313259b6be71c",
+              "sourceRoleVerified": false
+            },
+            "rosterDigest": "89370a8e4739e7820868779c80da8a2db1e45299a0e62f9556f3ab6d430d98e4",
+            "targetNodeId": 2
+          },
+          "canonicalWriterPermitted": false
+        }
+      }
+    },
+    {
+      "nodeId": 1,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "actualExitCode": 0,
+        "outputSha256": "1dbecb1bf64e4f18a00f8666d26b86deef94098d2843fcdb1ab4d7712a62c2d8",
+        "result": {
+          "schemaVersion": 1,
+          "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+          "nodeId": 1,
+          "action": "push",
+          "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+          "receipt": {
+            "receipt": {
+              "allocation": {
+                "kind": "unknown"
+              },
+              "appliedCommitSeq": 5,
+              "canonicalWriterPermitted": false,
+              "communityId": "19a399da2e4944b28c40e5da3eca64419e7d51a0b6989e5172c35f880e2be46f",
+              "communitySignatureVerified": true,
+              "fullInstanceReady": false,
+              "inactiveReplayVerified": false,
+              "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+              "nodeId": 3,
+              "partitionId": "community/root",
+              "payloadEncryptionVerified": false,
+              "quorumAvailable": false,
+              "requiredBytes": 174102,
+              "requiredObjects": 3,
+              "schemaVersion": 2,
+              "scope": "local_signed_checkpoint_bytes_only",
+              "sourceArchiveSha256": "3f804779a078880baf384edc59299153c9099585298406bef95a7f194f385b60",
+              "sourceContextSha256": "8e1e3ea79fa3beeacbf199dbc2b8c63b26ba3f3f7aa00fcf70b5e926edcb5b03",
+              "sourceInventorySha256": "baf68578ab69eefe866afdea721719aa66f073ffd4bb2cc68cf313259b6be71c",
+              "sourceRoleVerified": false
+            },
+            "rosterDigest": "89370a8e4739e7820868779c80da8a2db1e45299a0e62f9556f3ab6d430d98e4",
+            "targetNodeId": 3
+          },
+          "canonicalWriterPermitted": false
+        }
+      }
+    },
+    {
+      "nodeId": 1,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "actualExitCode": 0,
+        "outputSha256": "a47d5109cdb0e86edba495d378aed9f0a2ece6f1ab4c1eef6adc2b8e7ec92938",
+        "result": {
+          "schemaVersion": 1,
+          "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+          "nodeId": 1,
+          "action": "remote_receipt",
+          "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+          "receipt": {
+            "receipt": {
+              "allocation": {
+                "kind": "unknown"
+              },
+              "appliedCommitSeq": 5,
+              "canonicalWriterPermitted": false,
+              "communityId": "19a399da2e4944b28c40e5da3eca64419e7d51a0b6989e5172c35f880e2be46f",
+              "communitySignatureVerified": true,
+              "fullInstanceReady": false,
+              "inactiveReplayVerified": false,
+              "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+              "nodeId": 3,
+              "partitionId": "community/root",
+              "payloadEncryptionVerified": false,
+              "quorumAvailable": false,
+              "requiredBytes": 174102,
+              "requiredObjects": 3,
+              "schemaVersion": 2,
+              "scope": "local_signed_checkpoint_bytes_only",
+              "sourceArchiveSha256": "3f804779a078880baf384edc59299153c9099585298406bef95a7f194f385b60",
+              "sourceContextSha256": "8e1e3ea79fa3beeacbf199dbc2b8c63b26ba3f3f7aa00fcf70b5e926edcb5b03",
+              "sourceInventorySha256": "baf68578ab69eefe866afdea721719aa66f073ffd4bb2cc68cf313259b6be71c",
+              "sourceRoleVerified": false
+            },
+            "rosterDigest": "89370a8e4739e7820868779c80da8a2db1e45299a0e62f9556f3ab6d430d98e4",
+            "targetNodeId": 3
+          },
+          "canonicalWriterPermitted": false
+        }
+      }
+    },
+    {
+      "nodeId": 2,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "stoppedRecordedChild": true
+      }
+    },
+    {
+      "nodeId": 2,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "actualExitCode": 0,
+        "outputSha256": "ca4542aecdb364e029b6222bbcc9255a16ec6bc3f9cbce002d5dc012d4021d5b",
+        "result": {
+          "schemaVersion": 1,
+          "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+          "nodeId": 2,
+          "action": "receipt",
+          "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+          "receipt": {
+            "allocation": {
+              "kind": "unknown"
+            },
+            "appliedCommitSeq": 5,
+            "canonicalWriterPermitted": false,
+            "communityId": "19a399da2e4944b28c40e5da3eca64419e7d51a0b6989e5172c35f880e2be46f",
+            "communitySignatureVerified": true,
+            "fullInstanceReady": false,
+            "inactiveReplayVerified": false,
+            "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+            "nodeId": 2,
+            "partitionId": "community/root",
+            "payloadEncryptionVerified": false,
+            "quorumAvailable": false,
+            "requiredBytes": 174102,
+            "requiredObjects": 3,
+            "schemaVersion": 2,
+            "scope": "local_signed_checkpoint_bytes_only",
+            "sourceArchiveSha256": "3f804779a078880baf384edc59299153c9099585298406bef95a7f194f385b60",
+            "sourceContextSha256": "8e1e3ea79fa3beeacbf199dbc2b8c63b26ba3f3f7aa00fcf70b5e926edcb5b03",
+            "sourceInventorySha256": "baf68578ab69eefe866afdea721719aa66f073ffd4bb2cc68cf313259b6be71c",
+            "sourceRoleVerified": false
+          },
+          "canonicalWriterPermitted": false
+        }
+      }
+    },
+    {
+      "nodeId": 2,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "deletedCiphertextFiles": 3,
+        "requiredBytes": 174102,
+        "materialLockIdentity": [
+          58,
+          35250
+        ],
+        "keyAndBindingPreserved": true
+      }
+    },
+    {
+      "nodeId": 2,
+      "actualExitCode": 2,
+      "expectedSuccess": false,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": false,
+        "reason": "WORKER_REFUSED"
+      }
+    },
+    {
+      "nodeId": 2,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "actualExitCode": 0,
+        "outputSha256": "f3aba927a893768663ccb3aab71fcb3e3f7f6deed1a32776eb193121d8406b64",
+        "result": {
+          "schemaVersion": 1,
+          "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+          "nodeId": 2,
+          "action": "pull",
+          "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+          "receipt": {
+            "allocation": {
+              "kind": "unknown"
+            },
+            "appliedCommitSeq": 5,
+            "canonicalWriterPermitted": false,
+            "communityId": "19a399da2e4944b28c40e5da3eca64419e7d51a0b6989e5172c35f880e2be46f",
+            "communitySignatureVerified": true,
+            "fullInstanceReady": false,
+            "inactiveReplayVerified": false,
+            "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+            "nodeId": 2,
+            "partitionId": "community/root",
+            "payloadEncryptionVerified": false,
+            "quorumAvailable": false,
+            "requiredBytes": 174102,
+            "requiredObjects": 3,
+            "schemaVersion": 2,
+            "scope": "local_signed_checkpoint_bytes_only",
+            "sourceArchiveSha256": "3f804779a078880baf384edc59299153c9099585298406bef95a7f194f385b60",
+            "sourceContextSha256": "8e1e3ea79fa3beeacbf199dbc2b8c63b26ba3f3f7aa00fcf70b5e926edcb5b03",
+            "sourceInventorySha256": "baf68578ab69eefe866afdea721719aa66f073ffd4bb2cc68cf313259b6be71c",
+            "sourceRoleVerified": false
+          },
+          "canonicalWriterPermitted": false
+        }
+      }
+    },
+    {
+      "nodeId": 2,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "actualExitCode": 0,
+        "outputSha256": "ca4542aecdb364e029b6222bbcc9255a16ec6bc3f9cbce002d5dc012d4021d5b",
+        "result": {
+          "schemaVersion": 1,
+          "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+          "nodeId": 2,
+          "action": "receipt",
+          "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+          "receipt": {
+            "allocation": {
+              "kind": "unknown"
+            },
+            "appliedCommitSeq": 5,
+            "canonicalWriterPermitted": false,
+            "communityId": "19a399da2e4944b28c40e5da3eca64419e7d51a0b6989e5172c35f880e2be46f",
+            "communitySignatureVerified": true,
+            "fullInstanceReady": false,
+            "inactiveReplayVerified": false,
+            "manifestSha256": "a8c904bfec8831eecf073f77012b7a2e48cba9b96c7e7de83d6faf35950d3d8b",
+            "nodeId": 2,
+            "partitionId": "community/root",
+            "payloadEncryptionVerified": false,
+            "quorumAvailable": false,
+            "requiredBytes": 174102,
+            "requiredObjects": 3,
+            "schemaVersion": 2,
+            "scope": "local_signed_checkpoint_bytes_only",
+            "sourceArchiveSha256": "3f804779a078880baf384edc59299153c9099585298406bef95a7f194f385b60",
+            "sourceContextSha256": "8e1e3ea79fa3beeacbf199dbc2b8c63b26ba3f3f7aa00fcf70b5e926edcb5b03",
+            "sourceInventorySha256": "baf68578ab69eefe866afdea721719aa66f073ffd4bb2cc68cf313259b6be71c",
+            "sourceRoleVerified": false
+          },
+          "canonicalWriterPermitted": false
+        }
+      }
+    }
+  ],
+  "states": {
+    "1": {
+      "root": "/tmp/wabi-checkpoint-field-qachv2di",
+      "rootIdentity": [
+        66306,
+        4728979
+      ],
+      "tools": "/tmp/wabi-checkpoint-field-tools-e6_x4rg4",
+      "toolsIdentity": [
+        66306,
+        4728980
+      ],
+      "artifactSha256": "678b9341b8d30e8a49be3abdcdacb472716a5091e5c5c196f836b263a9687c91",
+      "owner": "2e7f5d799b383147364ca9c155fbf14f82d2f86762a22398f3d0d05e4cd8fea9",
+      "host": "dotRonin",
+      "freeBytes": 31704829952,
+      "identity": {
+        "nodeId": 1,
+        "publicKey": "05ddabaf5b6004765771264e0327e4f5004501a7e55e73ab3e9acd9a68e57d1a",
+        "schemaVersion": 1
+      },
+      "toolHashes": {
+        "checkpoint-field-host.py": "6b30536452644b0d0d5c12a406fb06f0767364641e8e4fb7cd85fcd5e16c12d3",
+        "rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2"
+      },
+      "claimed": true
+    },
+    "2": {
+      "root": "/tmp/wabi-checkpoint-field-ggwvpywi",
+      "rootIdentity": [
+        58,
+        35238
+      ],
+      "tools": "/tmp/wabi-checkpoint-field-tools-q6zhwflf",
+      "toolsIdentity": [
+        58,
+        35239
+      ],
+      "artifactSha256": "678b9341b8d30e8a49be3abdcdacb472716a5091e5c5c196f836b263a9687c91",
+      "owner": "833ef6cd5bca987465a12dea511d6a216250d98d76b57ef4d2515dd9762fffbe",
+      "host": "bazzite",
+      "freeBytes": 14460301312,
+      "identity": {
+        "nodeId": 2,
+        "publicKey": "e4415cef36e0245f1472fbbeb7dfb672396e0a8cff62444bed7bc59aeeb9bb28",
+        "schemaVersion": 1
+      },
+      "toolHashes": {
+        "checkpoint-field-host.py": "6b30536452644b0d0d5c12a406fb06f0767364641e8e4fb7cd85fcd5e16c12d3",
+        "rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2"
+      },
+      "claimed": true
+    },
+    "3": {
+      "root": "/tmp/wabi-checkpoint-field-28e70k4y",
+      "rootIdentity": [
+        45,
+        20966
+      ],
+      "tools": "/tmp/wabi-checkpoint-field-tools-ni_ybhb0",
+      "toolsIdentity": [
+        45,
+        20967
+      ],
+      "artifactSha256": "678b9341b8d30e8a49be3abdcdacb472716a5091e5c5c196f836b263a9687c91",
+      "owner": "c32dcf441f62dccc301330e2fc74eeac44ed3b3fc469ef18b4cbd66a712b0655",
+      "host": "192.168.1.11",
+      "freeBytes": 7711309824,
+      "identity": {
+        "nodeId": 3,
+        "publicKey": "764b9cada35abf83f554f0f2a68171b74d504d5cd30e754ed2380d2114efee2b",
+        "schemaVersion": 1
+      },
+      "toolHashes": {
+        "checkpoint-field-host.py": "6b30536452644b0d0d5c12a406fb06f0767364641e8e4fb7cd85fcd5e16c12d3",
+        "rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2"
+      },
+      "claimed": true
+    }
+  },
+  "cleanup": [
+    {
+      "nodeId": 1,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "ownedRootRemoved": true,
+        "entries": 15
+      },
+      "tools": {
+        "ownedToolDirectoryRemoved": true
+      }
+    },
+    {
+      "nodeId": 2,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "ownedRootRemoved": true,
+        "entries": 13
+      },
+      "tools": {
+        "ownedToolDirectoryRemoved": true
+      }
+    },
+    {
+      "nodeId": 3,
+      "actualExitCode": 0,
+      "expectedSuccess": true,
+      "reply": {
+        "schemaVersion": 1,
+        "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+        "ok": true,
+        "ownedRootRemoved": true,
+        "entries": 13
+      },
+      "tools": {
+        "ownedToolDirectoryRemoved": true
+      }
+    }
+  ],
+  "canonicalWriterPermitted": false,
+  "independentUplinksFreshlyVerified": false,
+  "stoppedNode2Server": {
+    "actualExitCode": 2,
+    "intentionalOwnedProcessStop": true,
+    "reply": {
+      "schemaVersion": 1,
+      "purpose": "wabi-disposable-checkpoint-ciphertext-v1",
+      "ok": false,
+      "reason": "WORKER_REFUSED"
+    },
+    "outputSha256": "3dc66f804f32599800efb9dfc9e49fffa879af831b5bc7b0dd8db894555bfe88"
+  },
+  "failure": "node1 unexpected run/remote_receipt outcome: {'schemaVersion': 1, 'purpose': 'wabi-disposable-checkpoint-ciphertext-v1', 'ok': False, 'reason': 'WORKER_REFUSED'}"
+}

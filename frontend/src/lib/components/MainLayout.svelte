@@ -1,5 +1,8 @@
 <!-- frontend/src/lib/components/MainLayout.svelte -->
 <script lang="ts">
+	import { workspaceToolFromTab } from '$lib/workspaces/bridge';
+	import WorkspaceLinkHandler from '$lib/workspaces/WorkspaceLinkHandler.svelte';
+	import WorkspaceHost from '$lib/workspaces/WorkspaceHost.svelte';
 	import { fly } from 'svelte/transition';
 	import GamesHost from '$lib/games/GamesHost.svelte';
 	import { layoutStore } from '$lib/layoutStore';
@@ -61,7 +64,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { quickScratchpadOpen, closeQuickScratchpad } from '$lib/notesStore';
 	import QuickScratchpad from '$lib/components/QuickScratchpad.svelte';
 	import InstallAppBanner from '$lib/components/pwa/InstallAppBanner.svelte';
-	import { formatMobileUnreadBadge, nextMobileBackSurface, sumUnreadConversationCount } from '$lib/mobileShellModel';
+	import { formatMobileUnreadBadge, nextMobileBackSurface, reconcileMobileSurfaceStack, sumUnreadConversationCount, type MobileBackSurface, type MobileSurfaceState } from '$lib/mobileShellModel';
 	import { showToast } from '$lib/toast';
 
 	// Phase 4 boot optimization: non-first-paint surfaces load on first
@@ -82,11 +85,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	let RightPanelCmp: typeof import('./RightPanel.svelte').default | null = null;
 
 	export let newlyRegistered = false;
-	export let activeView: 'chat' | 'business' | 'screen' | 'following' | 'dm' | 'server' = newlyRegistered || getOpeningSurface() === 'server' ? 'server' : 'dm';
+	export let activeView: 'chat' | 'business' | 'screen' | 'following' | 'dm' | 'server' = newlyRegistered || getOpeningSurface() === 'server' ? 'server' : getOpeningSurface() === 'messages' ? 'dm' : 'chat';
 	export let accountSecurityOpenRequest = 0;
 	let showSettings = false;
 	let requestedSettingsPaymentSurface: 'connections' | null = null;
-	let requestedSettingsTab: 'profile' | 'server' | 'notifications' | null = null;
+	let requestedSettingsTab: 'profile' | 'server' | 'notifications' | 'audio' | null = null;
 	let activityActionError = '';
 	let requestedSettingsPasswordChangeRequest = 0;
 	let lastHandledAccountSecurityOpenRequest = 0;
@@ -129,6 +132,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	let swipePreviewActive = false;
 	let swipePreviewTarget: 'none' | 'channels' | 'users' = 'none';
 	let swipePreviewOffsetX = 0;
+	let mobileSurfaceStack: MobileBackSurface[] = [];
 	// Right-panel peek retract: when the peek collapses, keep the zone mounted
 	// briefly to play the slide-out instead of yanking it from the DOM.
 	// (Legacy reactivity — this file is not runes-mode.)
@@ -277,7 +281,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	onMount(() => {
 		const openDesktopSettings = (event: Event) => {
 			openSettings();
-			if ((event as CustomEvent<{ tab?: string }>).detail?.tab === 'profile') requestedSettingsTab = 'profile';
+			const tab = (event as CustomEvent<{ tab?: string }>).detail?.tab;
+			if (tab === 'profile' || tab === 'audio') requestedSettingsTab = tab;
 		};
 		const openDesktopServers = () => {
 			openServerSwitcher();
@@ -299,6 +304,34 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		layoutStore.closeCenterDm();
 		selectWorkspaceView('notifications');
 	});
+	function syncMobileSurfaceStack(state: MobileSurfaceState): void {
+		const previous = mobileSurfaceStack;
+		const next = reconcileMobileSurfaceStack(previous, state);
+		if (next === previous) return;
+		mobileSurfaceStack = next;
+
+		const nextTop = nextMobileBackSurface(next);
+		if (nextTop !== 'root' && !previous.includes(nextTop)) {
+			try {
+				history.pushState({ wabiMobileSurface: nextTop }, '');
+			} catch {
+				/* History is best-effort; the in-app stack remains authoritative. */
+			}
+		}
+	}
+
+	$: if ($layoutStore.isMobile) {
+		syncMobileSurfaceStack({
+			workspaceOpen: $activeWorkspaceView !== 'messages',
+			conversationOpen: Boolean($layoutStore.centerDmChannelId),
+			browseOpen: $layoutStore.showMobileChannels,
+			rightOverlayOpen: $layoutStore.rightPanelMode !== 'none',
+			serverSwitcherOpen: showServerSwitcher,
+			settingsOpen: showSettings
+		});
+	} else if (mobileSurfaceStack.length) {
+		mobileSurfaceStack = [];
+	}
 
 	function openSettings(paymentSurface: 'connections' | null = null): void {
 		requestedSettingsPaymentSurface = paymentSurface;
@@ -324,17 +357,14 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		layoutStore.closeRightPanel();
 		activeView = 'chat';
 		layoutStore.closeDM();
+		selectWorkspaceView('messages');
+		mobileSurfaceStack = [];
 		scheduleMobileNavIdleHide();
 	}
 
 	function openMobileBrowse(): void {
 		layoutStore.closeRightPanel();
 		layoutStore.showMobileChannels.set(true);
-		try {
-			history.pushState({ wabiMobileSheet: 'browse' }, '');
-		} catch {
-			/* ignore */
-		}
 		scheduleMobileNavIdleHide();
 	}
 
@@ -393,11 +423,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
 		openSettings();
-		try {
-			history.pushState({ wabiMobileSheet: 'you' }, '');
-		} catch {
-			/* ignore */
-		}
 		scheduleMobileNavIdleHide();
 	}
 
@@ -433,13 +458,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 	function handleMobilePopState(): void {
 		if (!$layoutStore.isMobile) return;
-		const surface = nextMobileBackSurface({
-			settingsOpen: showSettings,
-			serverSwitcherOpen: showServerSwitcher,
-			browseOpen: $layoutStore.showMobileChannels,
-			rightOverlayOpen: $layoutStore.rightPanelMode !== 'none',
-			conversationOpen: Boolean($layoutStore.centerDmChannelId)
-		});
+		const surface = nextMobileBackSurface(mobileSurfaceStack);
 
 		switch (surface) {
 			case 'settings':
@@ -458,8 +477,17 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				layoutStore.closeCenterDm();
 				activeView = 'dm';
 				return;
+			case 'workspace':
+				selectWorkspaceView('messages');
+				return;
 			case 'root':
 			default:
+				if (activeOfficeTool) {
+					selectWorkspaceView('messages');
+					if ($currentChannel) mobileTabQueue.setActiveChannel($currentChannel);
+					else mobileTabQueue.activeTabId.set(null);
+					return;
+				}
 				if (activeView === 'dm') activeView = 'chat';
 		}
 	}
@@ -943,20 +971,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			return;
 		}
 
-		// Chat stage: preview opening whichever side user drags toward.
-		if (deltaX > 0) {
-			swipePreviewTarget = 'channels';
-			swipePreviewOffsetX = Math.max(0, Math.min(width, deltaX));
-			swipePreviewActive = true;
-			return;
-		}
-
-		if (deltaX < 0) {
-			swipePreviewTarget = 'users';
-			swipePreviewOffsetX = Math.max(-width, Math.min(0, deltaX));
-			swipePreviewActive = true;
-			return;
-		}
+		// Opening side panels is edge-only. Central horizontal drags belong to chat content.
 	}
 
 	function handleTouchEnd(event: TouchEvent): void {
@@ -983,12 +998,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 			if (!mobileNavVisible && startedNearBottom && swipeUp) {
 				mobileNavVisible = true;
-				resetTouchSwipe();
-				return;
-			}
-
-			if (mobileNavVisible && swipeDown) {
-				mobileNavVisible = false;
 				resetTouchSwipe();
 				return;
 			}
@@ -1036,23 +1045,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			return;
 		}
 
-		if (!channelsOpen && !usersOpen && swipeLeft) {
-			layoutStore.showUsersTab();
-			layoutStore.showMobileChannels.set(false);
-			resetTouchSwipe();
-			return;
-		}
-
 		if (usersOpen && swipeRight) {
 			layoutStore.closeRightPanel();
 			layoutStore.showMobileChannels.set(false);
-			resetTouchSwipe();
-			return;
-		}
-
-		if (!channelsOpen && !usersOpen && swipeRight) {
-			layoutStore.showMobileChannels.set(true);
-			layoutStore.closeRightPanel();
 			resetTouchSwipe();
 			return;
 		}
@@ -1150,6 +1145,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	} else if (!mobileNavVisible) {
 		mobileNavVisible = true;
 	}
+	$: activeOfficeTool = workspaceToolFromTab($activeTabId);
 </script>
 
 <svelte:window
@@ -1162,6 +1158,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 />
 
 <AuthErrorBanner />
+	<WorkspaceLinkHandler />
 
 {#if $centerPanelView === 'admin'}
 	{#if AdminCenterStageCmp}
@@ -1285,10 +1282,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			class="nav-reopen-rail"
 			class:dock-right={$layoutStore.navDock === 'right'}
 			style:left={$layoutStore.navDock !== 'right'
-				? `${desktopServerRailOffset + ($layoutStore.stubSide === 'left' && $layoutStore.rightPanelMode === 'pinned' ? $layoutStore.rightPanelWidth : 0)}px`
+				? `${desktopServerRailOffset}px`
 				: null}
 			style:right={$layoutStore.navDock === 'right'
-				? `${desktopServerRailOffset + ($layoutStore.stubSide === 'right' && $layoutStore.rightPanelMode === 'pinned' ? $layoutStore.rightPanelWidth : 0)}px`
+				? `${desktopServerRailOffset}px`
 				: null}
 			on:click={layoutStore.expandNav}
 			on:mousedown|preventDefault={startChannelResizeFromClosed}
@@ -1416,11 +1413,13 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	<div class="main-content">
 		<div class="chat-stack">
 			{#if activeView !== 'server' && ((!$layoutStore.centerDmChannelId && activeView !== 'dm' && activeView !== 'following') || $activeWorkspaceView !== 'messages')}
-				<WorkspaceViewBar activeView={$activeWorkspaceView} onSelectView={handleWorkspaceViewSelect} canOpenWhiteboard={Boolean($currentChannel)} />
+				<WorkspaceViewBar {activityBadge} activeView={$activeWorkspaceView} onSelectView={handleWorkspaceViewSelect} canOpenWhiteboard={Boolean($currentChannel)} />
 			{/if}
 			<div class="chat-surface">
 				{#if activeView === 'server'}
-					<ServerHub welcome={serverHubWelcome} on:complete={completeServerWelcome} on:back={returnFromServerHub} on:browse={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'chat'; }} on:openRoom={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'chat'; }} on:messages={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'dm'; }} on:members={() => layoutStore.openRightPanel('users')} on:settings={openServerSettings} on:manage={() => layoutStore.showAdminCenterStage()} />
+					<ServerHub on:profileSettings={() => showSettings = true} welcome={serverHubWelcome} on:complete={completeServerWelcome} on:back={returnFromServerHub} on:browse={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'chat'; }} on:openRoom={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'chat'; }} on:messages={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'dm'; }} on:members={() => layoutStore.openRightPanel('users')} on:settings={openServerSettings} on:manage={() => layoutStore.showAdminCenterStage()} />
+				{:else if activeOfficeTool}
+					<WorkspaceHost tool={activeOfficeTool} />
 				{:else if isModelViewportTabActive}
 					{#if ModelViewportTabCmp}
 						<svelte:component this={ModelViewportTabCmp} />
@@ -1487,7 +1486,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				{:else if ($layoutStore.centerDmChannelId || activeView === 'dm') && $activeWorkspaceView !== 'whiteboard'}
 					<div class="center-dm-layout" class:friends-directory={dmHubActiveTab === 'friends' && !$layoutStore.centerDmChannelId}>
 						<div class="center-dm-list">
-							<DmHub {friendsOpenRequest} {messagesOpenRequest} on:tabChange={(event) => (dmHubActiveTab = event.detail.tab)} />
+							<DmHub {friendsOpenRequest} {messagesOpenRequest} on:serverHome={openServerHub} on:tabChange={(event) => (dmHubActiveTab = event.detail.tab)} />
 						</div>
 						<div class="center-dm-thread">
 							{#if $layoutStore.centerDmChannelId}

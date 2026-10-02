@@ -147,8 +147,16 @@ async fn paused_guard_keeps_the_engine_and_its_process_lock_alive() {
     paused.with_projection_checkpoint(|| Ok(())).unwrap();
     drop(paused);
     assert!(weak.upgrade().is_none());
-    assert!(!dir.path().join(".lock").exists());
-    let reopened = open_engine(dir.path()).await;
+    assert!(dir.path().join(".lock").exists());
+    let reopened = Arc::new(
+        crate::tests::reopen_after_drop(config(dir.path()), None)
+            .await
+            .unwrap(),
+    );
+    reopened
+        .get_or_create_stream_key("checkpoint-fixture")
+        .await
+        .unwrap();
     assert_eq!(reopened.barrier().current(), 0);
 }
 
@@ -160,7 +168,9 @@ async fn failed_application_cannot_replace_the_last_good_checkpoint() {
     engine.projection_state.save_snapshot(dir.path()).unwrap();
     let before = std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap();
     let mut invalid = command(b"").0;
-    invalid.events[0].event_type = "user_registered".into();
+    // Invalid user records now fail admission before durability. Exercise an
+    // actual post-commit projection failure to preserve this checkpoint test.
+    invalid.events[0].event_type = "channel_created".into();
     assert!(engine.run_command(invalid).await.is_err());
     assert!(engine.pause_for_checkpoint().await.is_err());
     assert_eq!(

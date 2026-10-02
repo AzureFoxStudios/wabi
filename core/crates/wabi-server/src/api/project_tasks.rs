@@ -146,6 +146,9 @@ async fn history(
     auth: AuthUser,
     Path(channel_id): Path<String>,
 ) -> Result<Json<Value>> {
+    let _membership = state.membership_gate.read().await;
+    let _authorization = auth.admit_current(&state).await?;
+    crate::channel_access::require_access(&state, auth.user_id, &channel_id).await?;
     require_project(&state, &channel_id).await?;
     if auth.is_bot {
         return Err(AppError::Forbidden("Estimate history is for humans".into()));
@@ -195,6 +198,9 @@ async fn list_tasks(
     auth: AuthUser,
     Path(channel_id): Path<String>,
 ) -> Result<Json<Value>> {
+    let _membership = state.membership_gate.read().await;
+    let _authorization = auth.admit_current(&state).await?;
+    crate::channel_access::require_access(&state, auth.user_id, &channel_id).await?;
     require_project(&state, &channel_id).await?;
     Ok(Json(
         json!({ "tasks": state.wdb.list_project_tasks(&channel_id)?.into_iter().map(|v| task_json(v, auth.is_bot)).collect::<Vec<_>>() }),
@@ -203,8 +209,12 @@ async fn list_tasks(
 
 async fn list_members(
     State(state): State<Arc<AppState>>,
+    auth: AuthUser,
     Path(channel_id): Path<String>,
 ) -> Result<Json<Value>> {
+    let _membership = state.membership_gate.read().await;
+    let authorization = auth.admit_current(&state).await?;
+    crate::channel_access::require_access(&state, auth.user_id, &channel_id).await?;
     require_project(&state, &channel_id).await?;
     let mut members = Vec::new();
     for member in state.wdb.list_channel_members(&channel_id).await? {
@@ -213,7 +223,7 @@ async fn list_members(
                 members.push(json!({
                     "id": user.user_id,
                     "name": user.username,
-                    "isBot": state.bot_registry.is_bot(user.user_id).await,
+                    "isBot": authorization.is_bot_user(&state, user.user_id).await,
                 }));
             }
         }
@@ -227,6 +237,9 @@ async fn get_task(
     auth: AuthUser,
     Path((channel_id, task_id)): Path<(String, String)>,
 ) -> Result<Json<Value>> {
+    let _membership = state.membership_gate.read().await;
+    let _authorization = auth.admit_current(&state).await?;
+    crate::channel_access::require_access(&state, auth.user_id, &channel_id).await?;
     require_project(&state, &channel_id).await?;
     let task = state
         .wdb
@@ -249,21 +262,26 @@ async fn create_task(
     Path(channel_id): Path<String>,
     Json(mut payload): Json<CreateTaskPayload>,
 ) -> Result<Json<Value>> {
-    let _membership = state.membership_gate.read().await;
-    crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
-    require_project(&state, &channel_id).await?;
-    estimate_guard(&auth, &payload.fields)?;
-    validate(&mut payload.fields)?;
-    validate_assignee(&state, &channel_id, &payload.fields).await?;
-    let operation_id = uuid::Uuid::parse_str(&payload.operation_id)
-        .map_err(|_| AppError::BadRequest("operationId must be a UUID".into()))?;
-    let task_id = format!("task_{}", operation_id.simple());
-    let task = state
-        .wdb
-        .create_project_task(&channel_id, &task_id, payload.fields, auth.user_id as u64)
+    let authorization = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    authorization
+        .run(&operation_state, async move {
+            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            require_project(&state, &channel_id).await?;
+            estimate_guard(&auth, &payload.fields)?;
+            validate(&mut payload.fields)?;
+            validate_assignee(&state, &channel_id, &payload.fields).await?;
+            let operation_id = uuid::Uuid::parse_str(&payload.operation_id)
+                .map_err(|_| AppError::BadRequest("operationId must be a UUID".into()))?;
+            let task_id = format!("task_{}", operation_id.simple());
+            let task = state
+                .wdb
+                .create_project_task(&channel_id, &task_id, payload.fields, auth.user_id as u64)
+                .await
+                .map_err(write_error)?;
+            Ok(Json(task_json(task, auth.is_bot)))
+        })
         .await
-        .map_err(write_error)?;
-    Ok(Json(task_json(task, auth.is_bot)))
 }
 
 #[derive(Deserialize)]
@@ -280,24 +298,29 @@ async fn update_task(
     Path((channel_id, task_id)): Path<(String, String)>,
     Json(mut payload): Json<UpdateTaskPayload>,
 ) -> Result<Json<Value>> {
-    let _membership = state.membership_gate.read().await;
-    crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
-    require_project(&state, &channel_id).await?;
-    estimate_guard(&auth, &payload.fields)?;
-    validate(&mut payload.fields)?;
-    validate_assignee(&state, &channel_id, &payload.fields).await?;
-    let task = state
-        .wdb
-        .update_project_task(
-            &channel_id,
-            &task_id,
-            payload.expected_revision,
-            payload.fields,
-            auth.user_id as u64,
-        )
+    let authorization = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    authorization
+        .run(&operation_state, async move {
+            crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
+            require_project(&state, &channel_id).await?;
+            estimate_guard(&auth, &payload.fields)?;
+            validate(&mut payload.fields)?;
+            validate_assignee(&state, &channel_id, &payload.fields).await?;
+            let task = state
+                .wdb
+                .update_project_task(
+                    &channel_id,
+                    &task_id,
+                    payload.expected_revision,
+                    payload.fields,
+                    auth.user_id as u64,
+                )
+                .await
+                .map_err(write_error)?;
+            Ok(Json(task_json(task, auth.is_bot)))
+        })
         .await
-        .map_err(write_error)?;
-    Ok(Json(task_json(task, auth.is_bot)))
 }
 
 #[derive(Deserialize)]
@@ -311,13 +334,18 @@ async fn claim_task(
     Path((channel, id)): Path<(String, String)>,
     Json(p): Json<ClaimTask>,
 ) -> Result<Json<Value>> {
-    let _membership = state.membership_gate.read().await;
-    crate::channel_access::require_participation(&state, auth.user_id, &channel).await?;
-    require_project(&state, &channel).await?;
-    Ok(Json(task_json(
-        claim_task_internal(&state, &auth, &channel, &id, p.expected_revision).await?,
-        auth.is_bot,
-    )))
+    let authorization = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let operation_state = state.clone();
+    authorization
+        .run(&operation_state, async move {
+            crate::channel_access::require_participation(&state, auth.user_id, &channel).await?;
+            require_project(&state, &channel).await?;
+            Ok(Json(task_json(
+                claim_task_internal(&state, &auth, &channel, &id, p.expected_revision).await?,
+                auth.is_bot,
+            )))
+        })
+        .await
 }
 pub(crate) async fn claim_task_internal(
     state: &AppState,

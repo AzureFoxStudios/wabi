@@ -3,6 +3,9 @@
 //! - promote provenance records survive message deletion (lifecycle decoupling)
 //! - removing a binding is durable too
 
+#[path = "fixtures/writer_drain.rs"]
+mod writer_drain;
+
 use std::path::Path;
 use std::sync::Arc;
 
@@ -148,7 +151,7 @@ async fn bindings_and_promotes_survive_restart_and_message_deletion() {
     } // engine dropped → snapshot + shutdown flush
 
     // Reopen the same data dir: replay must restore binding + promote record.
-    let state = open(tmp.path()).await;
+    let state = Arc::new(writer_drain::app_state(&test_config(tmp.path())).await.unwrap());
     let got = state.wdb.lore_get_binding(chat_channel).await.unwrap().unwrap();
     assert_eq!(got.repo_channel_id, got.repo_channel_id);
     assert_eq!(got.mode, "hybrid");
@@ -193,7 +196,7 @@ async fn removed_binding_stays_removed_across_restart() {
             .unwrap();
         state.wdb.lore_remove_binding(chat_channel, 1).await.unwrap();
     }
-    let state = open(tmp.path()).await;
+    let state = Arc::new(writer_drain::app_state(&test_config(tmp.path())).await.unwrap());
     assert!(
         state.wdb.lore_get_binding(chat_channel).await.unwrap().is_none(),
         "removed binding resurrected after replay"

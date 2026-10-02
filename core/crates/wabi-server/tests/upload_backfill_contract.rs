@@ -1,11 +1,31 @@
-use std::{path::Path, process::Command};
+use std::{path::Path, process::Command, time::Duration};
 use wabi_server::{
     adapter::WdbAdapter,
     upload_registry::{UploadKind, UploadRegistry},
 };
 use wabidb::projections::upload_assets;
 
-fn run_backfill(data: &Path, uploads: &Path, apply: bool) -> std::process::Output {
+async fn run_backfill(data: &Path, uploads: &Path, apply: bool) -> std::process::Output {
+    // Dropping the adapter stops admission, but disk writers retain ownership
+    // while draining. Let them run on this test's current-thread runtime and
+    // prove the persistent lock is free before a blocking stopped-only CLI.
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(data.join("wabidb/.lock"))
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if fs4::fs_std::FileExt::try_lock_exclusive(&lock).unwrap() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("background writers must release ownership before stopped backfill");
+    drop(lock);
+
     let mut command = Command::new(env!("CARGO_BIN_EXE_wabi-upload-backfill"));
     command
         .arg("--data-dir")
@@ -40,7 +60,7 @@ async fn stopped_backfill_previews_commits_and_refuses_fenced_data() {
     std::fs::write(uploads.join("legacy.bin"), b"legacy").unwrap();
     drop(adapter);
 
-    let preview = run_backfill(&data, &uploads, false);
+    let preview = run_backfill(&data, &uploads, false).await;
     assert!(
         preview.status.success(),
         "{}",
@@ -58,7 +78,7 @@ async fn stopped_backfill_previews_commits_and_refuses_fenced_data() {
         .is_none());
     drop(adapter);
 
-    let applied = run_backfill(&data, &uploads, true);
+    let applied = run_backfill(&data, &uploads, true).await;
     assert!(
         applied.status.success(),
         "{}",
@@ -75,7 +95,7 @@ async fn stopped_backfill_previews_commits_and_refuses_fenced_data() {
     drop(adapter);
 
     std::fs::write(data.join("wabidb/writer-fenced-v1"), b"fenced\n").unwrap();
-    let fenced = run_backfill(&data, &uploads, true);
+    let fenced = run_backfill(&data, &uploads, true).await;
     assert!(!fenced.status.success());
     assert!(String::from_utf8_lossy(&fenced.stderr).contains("refusing to backfill"));
 }

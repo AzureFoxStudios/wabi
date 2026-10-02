@@ -1,18 +1,19 @@
 import { getStoredDbUserId, getStoredUsername } from './authSession';
 import { getServerUrl } from './serverUrl';
 
-export type OpeningSurface = 'server' | 'messages';
+import { accountPreferenceKey, parseOpeningSurface, type OpeningSurface } from './openingSurfacePreference';
+export type { OpeningSurface } from './openingSurfacePreference';
 
 function key(): string {
 	const account = getStoredDbUserId() || getStoredUsername() || 'guest';
-	return `wabi:opening-surface:${encodeURIComponent(getServerUrl())}:${encodeURIComponent(String(account))}`;
+	return accountPreferenceKey('opening-surface', getServerUrl(), account);
 }
 
 /** A device preference, isolated by Authority and account. */
 export function getOpeningSurface(): OpeningSurface {
-	if (typeof localStorage === 'undefined') return 'server';
-	try { return localStorage.getItem(key()) === 'messages' ? 'messages' : 'server'; }
-	catch { return 'server'; }
+	if (typeof localStorage === 'undefined') return 'last-channel';
+	try { return parseOpeningSurface(localStorage.getItem(key())); }
+	catch { return 'last-channel'; }
 }
 
 export function setOpeningSurface(surface: OpeningSurface): void {

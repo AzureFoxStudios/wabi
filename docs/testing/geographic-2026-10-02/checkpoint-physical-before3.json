@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T06:10:51.936363+00:00",
+  "capturedBeforeRun": true,
+  "files": {
+    "scripts/geographic-acceptance/checkpoint-field-host.py": "6b30536452644b0d0d5c12a406fb06f0767364641e8e4fb7cd85fcd5e16c12d3",
+    "scripts/geographic-acceptance/checkpoint-field-run.py": "e4a83d2f590abd5b253e88937dbbaf3b45ace9cad9638c37bea3eb6189a8a343",
+    "scripts/geographic-acceptance/test_checkpoint_field_host.py": "6679058c4e823dbfb0afa108fd0726fb3152c361e272160d62b9d83054d00a57",
+    "scripts/geographic-acceptance/rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2",
+    "target/debug/deps/checkpoint_tcp_contract-eb8a76132423eb51": "678b9341b8d30e8a49be3abdcdacb472716a5091e5c5c196f836b263a9687c91"
+  },
+  "artifactBytes": 8511720,
+  "consensusSourceFreeze": "checkpoint-field-freeze1.json.gz",
+  "producerSourceFreeze": "checkpoint-producer-field-freeze1.json.gz",
+  "status": "no physical acceptance before launch",
+  "priorAttempt": "checkpoint-physical2.json: all3hosts/bootstrap/claim; actual local seed ran, bytearray output parser refused ACK; all3roots/tool folders cleaned. No physical transfer accepted."
+}

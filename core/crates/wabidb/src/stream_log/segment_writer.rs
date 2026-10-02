@@ -102,6 +102,11 @@ impl SegmentWriter {
             let pad = vec![0u8; pad_len];
             self.file.write_all(&pad).await?;
         }
+        // Tokio writes may still be pending in its userspace buffer after
+        // write_all returns. Drain that buffer before claiming the record was
+        // appended, including at process-crash injection boundaries. This is
+        // not fsync: the sequencer still owns segment-before-index durability.
+        self.file.flush().await?;
 
         let record_size = body_len + pad_len;
         self.cursor += record_size as u64;
@@ -115,6 +120,14 @@ impl SegmentWriter {
     /// of appends to guarantee durability before acknowledging a commit.
     pub async fn flush(&mut self) -> Result<()> {
         self.file.sync_all().await?;
+        Ok(())
+    }
+
+    /// Complete Tokio's pending writes into the kernel cache without fsync.
+    /// This sets up pre-fsync test scenarios; it does not guarantee durability.
+    #[cfg(test)]
+    pub(crate) async fn drain_pending_writes_for_test(&mut self) -> Result<()> {
+        self.file.flush().await?;
         Ok(())
     }
 

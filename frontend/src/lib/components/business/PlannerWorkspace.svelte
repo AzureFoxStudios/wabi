@@ -44,10 +44,7 @@
 	{/if}
 	{#if $plannerStorage.loaded}
 		<div class="save-row">
-			<p class="save-state" role="status">{$plannerStorage.dirty ? 'Changes not yet saved' : $personalWorkspace ? 'Saved in your personal workspace' : 'Saved on this device for this account'}</p>
-			{#if !$personalWorkspace}
-				<a href="/personal" data-sveltekit-reload title="Open a separate Planner without a community account">Personal workspace ↗</a>
-			{/if}
+			<p class="save-state" role="status">{$plannerStorage.dirty ? 'Changes not yet saved' : $personalWorkspace ? 'Saved in your personal workspace' : 'My Planner · private to this account on this device'}</p>
 		</div>
 		{#key $plannerStorage.epoch}
 			<PlannerWorkspaceContent {variant} />
@@ -62,7 +59,7 @@
 	.storage-notice { padding: 0.75rem 1rem; background: var(--surface-raised); color: var(--text-primary); border-bottom: 1px solid var(--border-default); }
 	.storage-notice p { margin: 0 0 0.5rem; }
 	.storage-notice button { margin: 0.25rem 0.5rem 0.25rem 0; padding: 0.4rem 0.7rem; border-radius: var(--radius-md); background: var(--surface-base); color: var(--text-primary); border: 1px solid var(--border-default); }
-	.save-state { margin: 0; padding: 0.35rem 1rem; color: var(--text-secondary); font-size: 0.75rem; }
+	.save-state { margin: 0; padding: 0.2rem 1rem; font-style: italic; color: var(--text-secondary); font-size: 0.75rem; }
 	.save-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; }
-	.save-row a { padding: 0.5rem 1rem; color: var(--accent-primary); font-size: 0.75rem; }
+	.save-row a { padding: 0.2rem 1rem; color: var(--accent-primary); font-size: 0.75rem; }
 </style>

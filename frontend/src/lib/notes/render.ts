@@ -1,10 +1,11 @@
+import { inkPreview } from './ink';
 import { Marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { parseNoteLinks } from './links';
 
 const escape = (text: string) => text.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]!));
 // Independent instance: Notes must not reconfigure the shared chat renderer.
-const markdown = new Marked({ renderer: { image: ({ text }) => escape(text) } });
+const markdown = new Marked({ renderer: { image: ({ text, href }) => inkPreview(href) ? `<img src="${escape(href)}" alt="${escape(text)}"/>` : escape(text) } });
 /** Local wiki links are resolved by the workspace; Markdown cannot execute HTML. */
 export function renderNote(text: string): string {
 	if (typeof window === 'undefined') return '';
@@ -20,8 +21,8 @@ export function renderNote(text: string): string {
 		html = html.replaceAll(`${marker}${index}X`, `<a href="#wabi-note-${index}">${escape(link.label ?? link.title)}</a>`);
 	}
 	return DOMPurify.sanitize(html, {
-		ALLOWED_TAGS: ['p', 'br', 'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'del', 'blockquote', 'pre', 'code', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'a'],
-		ALLOWED_ATTR: ['href', 'title', 'start'],
+		ALLOWED_TAGS: ['p', 'br', 'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'del', 'blockquote', 'pre', 'code', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'a', 'img'],
+		ALLOWED_ATTR: ['href', 'title', 'start', 'src', 'alt'],
 		ALLOW_DATA_ATTR: false
 	});
 }

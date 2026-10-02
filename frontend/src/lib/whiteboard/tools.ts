@@ -486,7 +486,7 @@ export function createSelectTool(): ToolHandler {
 
 					// Check if clicking a resize/rotate handle on current selection
 					if (state.selection.size > 0) {
-						const selectedEls = state.elements.filter((el) => state.selection.has(el.id));
+						const selectedEls = state.elements.filter((el) => { const layer = state.layers.find(layer => layer.id === el.layerId); return state.selection.has(el.id) && !layer?.locked && !layer?.lockPosition && !layer?.lockPixels; });
 						const selBBox = getSelectionBBox(selectedEls);
 						if (selBBox) {
 							const handles = getSelectionHandles(selBBox, vp, 12);
@@ -807,7 +807,7 @@ function createRubberBandInteraction(startEvent: ToolPointerEvent): ToolInteract
 			const ids: string[] = [];
 			for (const el of state.elements) {
 				const layer = state.layers.find((candidate) => candidate.id === el.layerId);
-				if (el.locked || layer?.locked || layer?.visible === false) continue;
+				if (el.locked || layer?.locked || layer?.lockPosition || layer?.lockPixels || layer?.visible === false) continue;
 				const bb = getElementBBox(el);
 				if (
 					bb.x >= rect.x && bb.y >= rect.y &&

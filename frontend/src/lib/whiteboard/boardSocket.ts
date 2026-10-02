@@ -15,7 +15,7 @@ export interface WhiteboardJoinedPayload {
 	boardId: string;
 	channelId?: string;
 	document: WhiteboardDocument;
-	capability: string;
+	capability: { read: boolean; write: boolean } | string;
 }
 
 export interface WhiteboardLeftPayload {

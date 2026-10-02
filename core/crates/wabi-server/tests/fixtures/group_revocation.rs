@@ -295,7 +295,9 @@ async fn removal_evicts_chat_boards_relay_and_call_consent_on_every_device_only_
     for client in [&mut first, &mut second] {
         // Every device consents independently, including one not yet registered
         // in the optional presence directory. Membership removal evicts both.
-        client.emit("call-answer", json!({"channelId":id,"requestId":"device"})).await;
+        client
+            .emit("call-answer", json!({"channelId":id,"requestId":"device"}))
+            .await;
         client.event("group-call-admitted").await;
         client.emit("join-channel", json!(id)).await;
         client.event("channel-messages").await;

@@ -5,6 +5,9 @@
 //! - the tombstone is durable: after an engine close/reopen (event replay)
 //!   the deleted guest stays gone
 
+#[path = "fixtures/writer_drain.rs"]
+mod writer_drain;
+
 use std::path::Path;
 use std::sync::Arc;
 
@@ -109,7 +112,7 @@ async fn guest_tombstone_survives_engine_replay() {
     } // engine dropped → snapshot + shutdown flush
 
     // Reopen the same data dir: replay/snapshot must keep the guest gone.
-    let reopened = open(tmp.path()).await;
+    let reopened = Arc::new(writer_drain::app_state(&test_config(tmp.path())).await.unwrap());
     let users = reopened.wdb.list_users().await.unwrap();
     assert!(
         users.iter().all(|u| !u.username.starts_with("Guest_replay")),

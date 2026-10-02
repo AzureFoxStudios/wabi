@@ -1,0 +1,10 @@
+{
+  "sourceFiles": 5163,
+  "sourceFreezeSha256": "e0b4a8c3503b0245ad08518f0cdb7598899841c5f91e6cd7895f3510ca63e9bd",
+  "changedSinceFirstFreeze": [
+    "core/crates/wabi-server/tests/checkpoint_operator_contract.rs"
+  ],
+  "change": "test-only Hmac KeyInit constructor correction",
+  "capturedBeforeIntegrationRerun": true,
+  "compressedReceipt": "producer-source-freeze2.json.gz"
+}

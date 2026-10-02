@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "session": 99944,
+  "actualReportedShellExit": 143,
+  "cause": "Command interrupted by SIGTERM; originating signal source not verified",
+  "testResultGroupsObserved": 0,
+  "acceptance": false,
+  "sourceFilesUnchanged": 5182,
+  "actualProcessCheck": "No cargo/rustc process remains, including known730404/736065",
+  "freeze": "byte-rpc-full-freeze.json.gz",
+  "logSha256": "f966662459edf2ee58244c54db7eefd9c7c8deca5a20eed953f7a7a5ee82f396",
+  "logBytes": 52138,
+  "recordedAtUtc": "2026-10-02T04:49:02.941730+00:00"
+}

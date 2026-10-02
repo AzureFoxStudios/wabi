@@ -1,5 +1,7 @@
 # Wabi
 
+The separate [Sabi app](sabi/README.md) lives under `sabi/`. It is a self-hosted work-management and ERP project for small businesses, with its own build, tests, and deployment.
+
 > **A place to talk, create, and work together.**
 
 Wabi is a free, open-source, self-hosted communication and collaboration workspace for small communities. Bring conversations, calls, shared ideas, and creative review together in one place — for friends, studios, classrooms, and project groups.
