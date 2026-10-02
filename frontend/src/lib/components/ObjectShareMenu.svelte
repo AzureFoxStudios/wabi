@@ -21,7 +21,7 @@
 		menuLeft = Math.max(8, Math.min(rect.right - menuEl.offsetWidth, window.innerWidth - menuEl.offsetWidth - 8));
 		menuTop = rect.bottom + menuEl.offsetHeight + 8 > window.innerHeight
 			? Math.max(8, rect.top - menuEl.offsetHeight - 4) : rect.bottom + 4;
-		menuEl.querySelector<HTMLButtonElement>('button')?.focus();
+		menuEl.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
 	}
 	function dismissMenu() { open = false; }
 	function menuKeydown(e: KeyboardEvent) {

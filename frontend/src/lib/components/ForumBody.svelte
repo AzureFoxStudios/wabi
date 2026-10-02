@@ -50,6 +50,8 @@
 <span role="status">{navigationError}</span>
 {#if profileOpen}<UserPopout user={profile} bind:isOpen={profileOpen} anchorElement={anchor} isOwnProfile={profile?.dbUserId === $currentUser?.dbUserId} />{/if}
 <style>
+ .forum-rich-body :global(.mention-token-gallery_work), .forum-rich-body :global(.mention-token-forum_post), .forum-rich-body :global(.mention-token-wiki_page), .forum-rich-body :global(.mention-token-place) { display: inline-flex; padding: .3rem .55rem; margin: .12rem 0; border: 1px solid var(--border-default); border-radius: .45rem; background: var(--surface-base); font-weight: 500; }
+
  .forum-rich-body { overflow-wrap: anywhere; line-height: 1.65; }
  .forum-rich-body :global(p) { margin: 0 0 .8em; }
  .forum-rich-body :global(p:last-child) { margin-bottom: 0; }
