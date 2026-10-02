@@ -20,6 +20,7 @@ use std::{
 const META: TableDefinition<&str, &[u8]> = TableDefinition::new("control_metadata_v1");
 const LOGS: TableDefinition<u64, &[u8]> = TableDefinition::new("raft_log_v1");
 const FORMAT: &str = "wabi-control-v1/openraft-0.9.25-json";
+const FORMAT_V2: &str = "wabi-control-v2/openraft-0.9.25-json";
 const MAX_ENTRY_BYTES: usize = 1024 * 1024;
 const MAX_BATCH_ENTRIES: usize = 1024;
 const MAX_BATCH_BYTES: usize = 8 * 1024 * 1024;
@@ -29,11 +30,13 @@ const MAX_PARTITIONS: usize = 4096;
 fn entry_preflight(entry: &Entry) -> Result<()> {
     let bounded = match &entry.payload {
         EntryPayload::Blank => true,
-        EntryPayload::Normal(command) => {
+        EntryPayload::Normal(ControlData::Legacy(command)) => {
             command.operation_id.len() <= 32
                 && command.partition_id.len() <= 128
                 && command.checkpoint_inventory_sha256.len() <= 64
         }
+        #[cfg(target_os = "linux")]
+        EntryPayload::Normal(ControlData::Checkpoint(command)) => command.bounds(),
         EntryPayload::Membership(membership) => {
             membership.nodes().count() <= 64
                 && membership.get_joint_config().len() <= 2
@@ -133,6 +136,23 @@ struct EntryEnvelope {
     schema_version: u8,
     entry: Entry,
 }
+fn entry_schema(entry: &Entry) -> u8 {
+    match &entry.payload {
+        EntryPayload::Normal(data) => data.schema(),
+        _ => CONTROL_SCHEMA,
+    }
+}
+fn schema_supported(schema: u8) -> bool {
+    schema == CONTROL_SCHEMA || (cfg!(target_os = "linux") && schema == 2)
+}
+fn identity_valid(identity: &DatabaseIdentity, binding: &StoreBinding) -> bool {
+    identity.binding == *binding
+        && match identity.schema_version {
+            1 => identity.format == FORMAT,
+            2 => cfg!(target_os = "linux") && identity.format == FORMAT_V2,
+            _ => false,
+        }
+}
 
 struct Inner {
     db: Database,
@@ -176,15 +196,39 @@ fn read_state(inner: &Inner, transaction: &redb::ReadTransaction) -> Result<Cont
     if value.value().len() as u64 > inner.limits.max_snapshot_bytes {
         return Err(StoreError::Budget);
     }
-    let envelope: StateEnvelope = decode(value.value())?;
+    let envelope = decode_state(value.value())?;
     validate_state(inner, &envelope)?;
+    let identity: DatabaseIdentity = meta(transaction, "identity")?;
+    if !identity_valid(&identity, &inner.binding)
+        || envelope.schema_version > identity.schema_version
+    {
+        return Err(StoreError::Format);
+    }
     Ok(envelope.state)
 }
+fn decode_state(bytes: &[u8]) -> Result<StateEnvelope> {
+    let state: StateEnvelope = decode(bytes)?;
+    if state.schema_version == 2 && encode(&state)?.as_slice() != bytes {
+        return Err(StoreError::Format);
+    }
+    Ok(state)
+}
 fn validate_state(inner: &Inner, envelope: &StateEnvelope) -> Result<()> {
-    if envelope.schema_version != CONTROL_SCHEMA
+    let used = envelope.state.operations.len();
+    #[cfg(target_os = "linux")]
+    let used = used.saturating_add(envelope.state.checkpoints.len());
+    #[cfg(target_os = "linux")]
+    if (!envelope.state.checkpoints.is_empty() && envelope.schema_version != 2)
+        || !envelope
+            .state
+            .checkpoints_coherent(&inner.binding.community_id, &inner.binding.partition_id)
+    {
+        return Err(StoreError::Format);
+    }
+    if !schema_supported(envelope.schema_version)
         || envelope.community_id != inner.binding.community_id
         || envelope.partition_id != inner.binding.partition_id
-        || envelope.state.operations.len() > MAX_OPERATIONS
+        || used > MAX_OPERATIONS
         || envelope.state.intents.len() > MAX_PARTITIONS
         || !envelope.state.coherent()
         || envelope.state.operations.iter().any(|(id, record)| {
@@ -203,13 +247,73 @@ fn validate_state(inner: &Inner, envelope: &StateEnvelope) -> Result<()> {
     }
     Ok(())
 }
-fn envelope(inner: &Inner, state: ControlState) -> StateEnvelope {
+fn envelope(inner: &Inner, state: ControlState, schema: u8) -> StateEnvelope {
     StateEnvelope {
-        schema_version: CONTROL_SCHEMA,
+        schema_version: schema,
         community_id: inner.binding.community_id.clone(),
         partition_id: inner.binding.partition_id.clone(),
         state,
     }
+}
+fn current_schema(inner: &Inner) -> Result<u8> {
+    let identity: DatabaseIdentity = meta(&io(inner.db.begin_read())?, "identity")?;
+    if !identity_valid(&identity, &inner.binding) {
+        return Err(StoreError::Format);
+    }
+    Ok(identity.schema_version)
+}
+fn snapshot_id(schema: u8, bytes: &[u8]) -> String {
+    format!("v{schema}-{}", hex::encode(Sha256::digest(bytes)))
+}
+// Upgrade identity and any existing snapshot in the SAME transaction as the
+// first V2 log/state publication. Truncation never rolls the format back.
+fn upgrade_format(inner: &Inner, transaction: &redb::WriteTransaction, required: u8) -> Result<()> {
+    let mut identity: DatabaseIdentity = writable_meta(transaction, "identity")?;
+    if !identity_valid(&identity, &inner.binding) || !schema_supported(required) {
+        return Err(StoreError::Format);
+    }
+    if required <= identity.schema_version {
+        return Ok(());
+    }
+    let saved = {
+        let table = io(transaction.open_table(META))?;
+        let bytes = io(table.get("snapshotBytes"))?;
+        if bytes
+            .as_ref()
+            .is_some_and(|v| v.value().len() as u64 > inner.limits.max_snapshot_bytes)
+        {
+            return Err(StoreError::Budget);
+        }
+        let bytes = bytes.map(|v| v.value().to_vec());
+        let meta = io(table.get("snapshotMeta"))?.map(|v| v.value().to_vec());
+        (bytes, meta)
+    };
+    match saved {
+        (None, None) => (),
+        (Some(bytes), Some(meta)) => {
+            let mut state = decode_state(&bytes)?;
+            validate_state(inner, &state)?;
+            let mut metadata: SnapshotMeta<u64, RecoveryPeer> = decode(&meta)?;
+            if metadata.last_log_id != state.state.last_applied
+                || metadata.last_membership != state.state.membership
+                || metadata.snapshot_id != snapshot_id(state.schema_version, &bytes)
+            {
+                return Err(StoreError::Format);
+            }
+            state.schema_version = required;
+            let upgraded = encode(&state)?;
+            if upgraded.len() as u64 > inner.limits.max_snapshot_bytes {
+                return Err(StoreError::Budget);
+            }
+            metadata.snapshot_id = snapshot_id(required, &upgraded);
+            put(transaction, "snapshotMeta", &metadata)?;
+            io(io(transaction.open_table(META))?.insert("snapshotBytes", upgraded.as_slice()))?;
+        }
+        _ => return Err(StoreError::Format),
+    }
+    identity.schema_version = required;
+    identity.format = FORMAT_V2.into();
+    put(transaction, "identity", &identity)
 }
 fn transaction(inner: &Inner, reserve: u64) -> Result<redb::WriteTransaction> {
     inner.verify_lock()?;
@@ -382,7 +486,7 @@ impl Store {
             put(
                 &transaction,
                 "state",
-                &envelope(&inner, ControlState::default()),
+                &envelope(&inner, ControlState::default(), CONTROL_SCHEMA),
             )?;
             put(&transaction, "vote", &None::<Vote<u64>>)?;
             put(&transaction, "committed", &None::<LogId>)?;
@@ -395,10 +499,7 @@ impl Store {
         }
         let transaction = io(inner.db.begin_read())?;
         let identity: DatabaseIdentity = meta(&transaction, "identity")?;
-        if identity.schema_version != CONTROL_SCHEMA
-            || identity.format != FORMAT
-            || identity.binding != inner.binding
-        {
+        if !identity_valid(&identity, &inner.binding) {
             return Err(StoreError::Format);
         }
         read_state(&inner, &transaction)?;
@@ -419,7 +520,9 @@ impl Store {
             }
             let record: EntryEnvelope = decode(value.value())?;
             entry_preflight(&record.entry)?;
-            if record.schema_version != CONTROL_SCHEMA || record.entry.log_id.index != index.value()
+            if record.schema_version != entry_schema(&record.entry)
+                || record.schema_version > identity.schema_version
+                || record.entry.log_id.index != index.value()
             {
                 return Err(StoreError::Format);
             }
@@ -492,6 +595,10 @@ impl RaftLogReader<ConsensusTypes> for Store {
             let transaction = io(inner.db.begin_read())?;
             let table = io(transaction.open_table(LOGS))?;
             let mut result = Vec::new();
+            let identity: DatabaseIdentity = meta(&transaction, "identity")?;
+            if !identity_valid(&identity, &inner.binding) {
+                return Err(StoreError::Format);
+            }
             for entry in io(table.range(bounds))? {
                 let (index, bytes) = io(entry)?;
                 if bytes.value().len() > MAX_ENTRY_BYTES {
@@ -499,7 +606,8 @@ impl RaftLogReader<ConsensusTypes> for Store {
                 }
                 let record: EntryEnvelope = decode(bytes.value())?;
                 entry_preflight(&record.entry)?;
-                if record.schema_version != CONTROL_SCHEMA
+                if record.schema_version != entry_schema(&record.entry)
+                    || record.schema_version > identity.schema_version
                     || record.entry.log_id.index != index.value()
                 {
                     return Err(StoreError::Format);
@@ -601,7 +709,7 @@ impl openraft::storage::RaftLogStorage<ConsensusTypes> for Store {
             }
             let index = entry.log_id.index;
             let bytes = encode(&EntryEnvelope {
-                schema_version: CONTROL_SCHEMA,
+                schema_version: entry_schema(&entry),
                 entry,
             })
             .map_err(write_error)?;
@@ -624,6 +732,7 @@ impl openraft::storage::RaftLogStorage<ConsensusTypes> for Store {
                 let transaction =
                     transaction(inner, (total as u64).saturating_mul(4).max(1024 * 1024))?;
                 let mut count_bytes: u64 = writable_meta(&transaction, "logBytes")?;
+                let mut required_schema = CONTROL_SCHEMA;
                 {
                     let mut table = io(transaction.open_table(LOGS))?;
                     let purged: Option<LogId> = writable_meta(&transaction, "purged")?;
@@ -657,6 +766,8 @@ impl openraft::storage::RaftLogStorage<ConsensusTypes> for Store {
                         }
                     }
                     for (index, bytes) in prepared {
+                        required_schema =
+                            required_schema.max(decode::<EntryEnvelope>(&bytes)?.schema_version);
                         let prior = io(table.get(index))?;
                         if committed.is_some_and(|id| index <= id.index)
                             && prior
@@ -679,6 +790,7 @@ impl openraft::storage::RaftLogStorage<ConsensusTypes> for Store {
                         }
                     }
                 }
+                upgrade_format(inner, &transaction, required_schema)?;
                 put(&transaction, "logBytes", &count_bytes)?;
                 io(transaction.commit())
             })
@@ -747,14 +859,15 @@ impl RaftSnapshotBuilder<ConsensusTypes> for Store {
     ) -> std::result::Result<Snapshot<ConsensusTypes>, StorageError<u64>> {
         self.run(|inner| {
             let state = read_state(inner, &io(inner.db.begin_read())?)?;
-            let bytes = encode(&envelope(inner, state.clone()))?;
+            let schema = current_schema(inner)?;
+            let bytes = encode(&envelope(inner, state.clone(), schema))?;
             if bytes.len() as u64 > inner.limits.max_snapshot_bytes {
                 return Err(StoreError::Budget);
             }
             let meta = SnapshotMeta {
                 last_log_id: state.last_applied,
                 last_membership: state.membership,
-                snapshot_id: format!("v1-{}", hex::encode(Sha256::digest(&bytes))),
+                snapshot_id: snapshot_id(schema, &bytes),
             };
             let transaction = transaction(
                 inner,
@@ -809,7 +922,9 @@ impl openraft::storage::RaftStateMachine<ConsensusTypes> for Store {
         self.run(move |inner| {
             let mut state = read_state(inner, &io(inner.db.begin_read())?)?;
             let mut replies = Vec::with_capacity(prepared.len());
+            let mut schema = current_schema(inner)?;
             for entry in prepared {
+                schema = schema.max(entry_schema(&entry));
                 if state
                     .last_applied
                     .is_some_and(|prior| prior.index >= entry.log_id.index)
@@ -822,18 +937,27 @@ impl openraft::storage::RaftStateMachine<ConsensusTypes> for Store {
                         state.membership = Membership::new(Some(entry.log_id), membership);
                         ControlReply::default()
                     }
-                    EntryPayload::Normal(command) => state.apply_command(
+                    EntryPayload::Normal(ControlData::Legacy(command)) => state.apply_command(
                         command,
                         entry.log_id,
                         &inner.binding.community_id,
                         MAX_OPERATIONS,
                         MAX_PARTITIONS,
                     ),
+                    #[cfg(target_os = "linux")]
+                    EntryPayload::Normal(ControlData::Checkpoint(command)) => state
+                        .apply_checkpoint(
+                            command,
+                            entry.log_id,
+                            &inner.binding.community_id,
+                            &inner.binding.partition_id,
+                            MAX_OPERATIONS,
+                        ),
                 };
                 state.last_applied = Some(entry.log_id);
                 replies.push(reply);
             }
-            let next = envelope(inner, state);
+            let next = envelope(inner, state, schema);
             validate_state(inner, &next)?;
             let bytes = encode(&next)?;
             if bytes.len() as u64 > inner.limits.max_snapshot_bytes {
@@ -843,6 +967,7 @@ impl openraft::storage::RaftStateMachine<ConsensusTypes> for Store {
                 inner,
                 (bytes.len() as u64).saturating_mul(4).max(1024 * 1024),
             )?;
+            upgrade_format(inner, &transaction, schema)?;
             io(io(transaction.open_table(META))?.insert("state", bytes.as_slice()))?;
             io(transaction.commit())?;
             Ok(replies)
@@ -871,20 +996,36 @@ impl openraft::storage::RaftStateMachine<ConsensusTypes> for Store {
             if bytes.len() as u64 > inner.limits.max_snapshot_bytes {
                 return Err(StoreError::Budget);
             }
-            let state: StateEnvelope = decode(&bytes)?;
+            let state = decode_state(&bytes)?;
             validate_state(inner, &state)?;
             if state.state.last_applied != meta.last_log_id
                 || state.state.membership != meta.last_membership
-                || meta.snapshot_id != format!("v1-{}", hex::encode(Sha256::digest(&bytes)))
+                || meta.snapshot_id != snapshot_id(state.schema_version, &bytes)
             {
                 return Err(StoreError::Format);
             }
             let prior = read_state(inner, &io(inner.db.begin_read())?)?;
+            // A later snapshot may advance ownership, but it cannot erase or
+            // replace acknowledged outcomes in the global operation namespace.
+            if prior
+                .operations
+                .iter()
+                .any(|(id, receipt)| state.state.operations.get(id) != Some(receipt))
+            {
+                return Err(StoreError::Format);
+            }
+            #[cfg(target_os = "linux")]
+            if prior
+                .checkpoints
+                .iter()
+                .any(|(id, receipt)| state.state.checkpoints.get(id) != Some(receipt))
+            {
+                return Err(StoreError::Format);
+            }
             if prior.last_applied.is_some_and(|old| {
                 meta.last_log_id
                     .is_none_or(|new| new.index < old.index || new < old)
-            }) || (prior.last_applied == meta.last_log_id
-                && bytes != encode(&envelope(inner, prior))?)
+            }) || (prior.last_applied == meta.last_log_id && state.state != prior)
             {
                 return Err(StoreError::Format);
             }
@@ -892,6 +1033,15 @@ impl openraft::storage::RaftStateMachine<ConsensusTypes> for Store {
                 inner,
                 (bytes.len() as u64).saturating_mul(4).max(1024 * 1024),
             )?;
+            let schema = current_schema(inner)?.max(state.schema_version);
+            let state = StateEnvelope {
+                schema_version: schema,
+                ..state
+            };
+            let bytes = encode(&state)?;
+            let mut meta = meta;
+            meta.snapshot_id = snapshot_id(schema, &bytes);
+            upgrade_format(inner, &transaction, schema)?;
             put(&transaction, "state", &state)?;
             put(&transaction, "snapshotMeta", &meta)?;
             io(io(transaction.open_table(META))?.insert("snapshotBytes", bytes.as_slice()))?;
@@ -916,12 +1066,17 @@ impl openraft::storage::RaftStateMachine<ConsensusTypes> for Store {
                         return Err(StoreError::Budget);
                     }
                     let meta: SnapshotMeta<u64, RecoveryPeer> = decode(meta.value())?;
-                    let envelope: StateEnvelope = decode(bytes.value())?;
+                    let envelope = decode_state(bytes.value())?;
                     validate_state(inner, &envelope)?;
+                    let identity: DatabaseIdentity = self::meta(&transaction, "identity")?;
+                    if !identity_valid(&identity, &inner.binding)
+                        || envelope.schema_version > identity.schema_version
+                    {
+                        return Err(StoreError::Format);
+                    }
                     if envelope.state.last_applied != meta.last_log_id
                         || envelope.state.membership != meta.last_membership
-                        || meta.snapshot_id
-                            != format!("v1-{}", hex::encode(Sha256::digest(bytes.value())))
+                        || meta.snapshot_id != snapshot_id(envelope.schema_version, bytes.value())
                     {
                         return Err(StoreError::Format);
                     }

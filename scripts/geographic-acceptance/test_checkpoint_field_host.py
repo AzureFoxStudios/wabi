@@ -12,6 +12,9 @@ import unittest
 spec = importlib.util.spec_from_file_location("checkpoint_host", Path(__file__).with_name("checkpoint-field-host.py"))
 host_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(host_module)
+run_spec = importlib.util.spec_from_file_location("checkpoint_runner", Path(__file__).with_name("checkpoint-field-run.py"))
+run_module = importlib.util.module_from_spec(run_spec)
+run_spec.loader.exec_module(run_module)
 
 
 class HostGuards(unittest.TestCase):
@@ -156,6 +159,37 @@ class HostGuards(unittest.TestCase):
                 host_module.listener_ready(b'WABI_CHECKPOINT_LISTEN_V1 ' + json.dumps(changed).encode() + b'\n', 2, "c4" * 32)
         with self.assertRaises(host_module.guard.Refused):
             host_module.listener_ready(b'WABI_CHECKPOINT_LISTEN_V1 {"nodeId":2,"nodeId":2,"manifestSha256":"' + b'c4'*32 + b'"}\n', 2, "c4" * 32)
+
+    def test_local_rows_never_select_ssh_and_remain_separate_from_physical_rows(self):
+        rows = run_module.trial_rows(True)
+        self.assertEqual([row[0] for row in rows], [1, 2, 3])
+        self.assertEqual([row[2] for row in rows], ["127.0.0.1", "127.0.0.2", "127.0.0.3"])
+        for row in rows:
+            self.assertIsNone(row[3])
+            self.assertNotIn("ssh", run_module.command(row, "pass"))
+        self.assertEqual(run_module.trial_rows(False), run_module.ROWS)
+
+    def test_acceptance_requires_exact_distinct_nodes_and_complete_tool_cleanup(self):
+        cleanup = [{"nodeId": node, "reply": {"ownedRootRemoved": True},
+                    "tools": {"ownedToolDirectoryRemoved": True}} for node in (1, 2, 3)]
+        self.assertTrue(run_module.complete_cleanup({"cleanup": cleanup}))
+        for changed in [cleanup[:2], [cleanup[0], cleanup[0], cleanup[2]],
+                        [dict(cleanup[0], tools={}), *cleanup[1:]],
+                        [dict(cleanup[0], reply={}), *cleanup[1:]]]:
+            self.assertFalse(run_module.complete_cleanup({"cleanup": changed}))
+
+    def test_controller_ready_envelope_binds_exact_schema_node_and_manifest(self):
+        ready = {"schemaVersion": 1, "purpose": host_module.PURPOSE, "listening": True,
+                 "nodeId": 2, "manifestSha256": "c4" * 32}
+        self.assertEqual(run_module.decode_listener_ready(json.dumps(ready), 2, "c4" * 32), ready)
+        for changed in [dict(ready, schemaVersion=True), dict(ready, nodeId=True), dict(ready, nodeId=3),
+                        dict(ready, listening=False), dict(ready, purpose="other"),
+                        dict(ready, manifestSha256="d5"*32), dict(ready, writerPermitted=True)]:
+            with self.assertRaises(ValueError):
+                run_module.decode_listener_ready(json.dumps(changed), 2, "c4"*32)
+        duplicate = json.dumps(ready)[:-1] + ',"nodeId":2}'
+        with self.assertRaises(ValueError):
+            run_module.decode_listener_ready(duplicate, 2, "c4"*32)
 
 
 if __name__ == "__main__":

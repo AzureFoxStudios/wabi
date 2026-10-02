@@ -25,6 +25,38 @@ ROWS = [(1, "dotRonin", "100.80.172.12", None),
 SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=3"]
 
 
+def trial_rows(loopback_only):
+    if loopback_only:
+        return [(node, "local-loopback-" + str(node), "127.0.0." + str(node), None) for node in (1, 2, 3)]
+    return list(ROWS)
+
+
+def complete_cleanup(receipt):
+    return len(receipt["cleanup"]) == 3 and {item.get("nodeId") for item in receipt["cleanup"]} == {1, 2, 3} and all(
+        item.get("reply", {}).get("ownedRootRemoved") is True
+        and item.get("tools", {}).get("ownedToolDirectoryRemoved") is True for item in receipt["cleanup"])
+
+
+def unique_fields(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate listener-ready field")
+        value[key] = item
+    return value
+
+
+def decode_listener_ready(line, node, manifest):
+    value = json.loads(line, object_pairs_hook=unique_fields)
+    if not isinstance(value, dict) or set(value) != {"schemaVersion", "purpose", "listening", "nodeId", "manifestSha256"}:
+        raise ValueError("unexpected listener-ready shape")
+    if type(value["schemaVersion"]) is not int or value["schemaVersion"] != 1 or value["purpose"] != PURPOSE \
+            or value["listening"] is not True or type(value["nodeId"]) is not int or value["nodeId"] != node \
+            or value["manifestSha256"] != manifest:
+        raise ValueError("changed listener-ready binding")
+    return value
+
+
 def command(row, program):
     return [sys.executable, "-B", "-c", program] if row[3] is None else [*SSH, row[3], "python3 -B -c " + shlex.quote(program)]
 
@@ -193,7 +225,10 @@ def main():
     parser.add_argument("--artifact", required=True)
     parser.add_argument("--export-stage-record", required=True)
     parser.add_argument("--receipt", required=True)
+    parser.add_argument("--loopback-only", action="store_true",
+                        help="Run three owned local processes only; never invoke SSH or claim physical acceptance")
     args = parser.parse_args()
+    rows = trial_rows(args.loopback_only)
     stage = json.loads(Path(args.export_stage_record).read_text())
     export = Path(stage["root"])
     manifest = json.loads((export / "manifest.json").read_bytes())
@@ -205,6 +240,8 @@ def main():
     states, servers, steps = {}, {}, []
     receipt = {"schemaVersion": 1, "purpose": PURPOSE, "artifactSha256": artifact_sha,
                "export": export_receipt, "physicalAccepted": False, "steps": steps,
+               "executionMode": "local_loopback" if args.loopback_only else "three_physical_hosts",
+               "localLoopbackAccepted": False,
                "states": states, "cleanup": [], "canonicalWriterPermitted": False,
                "independentUplinksFreshlyVerified": False}
     path = Path(args.receipt)
@@ -213,16 +250,16 @@ def main():
         temporary.write_text(json.dumps(receipt, indent=2) + "\n")
         os.replace(temporary, path)
     try:
-        for row in ROWS:
+        for row in rows:
             states[str(row[0])] = allocate(row, artifact_sha, secrets.token_hex(32))
             save()
             prepare(row, states[str(row[0])], artifact, scripts)
             save()
         peers = {str(row[0]): {"protocol": 1, "communityId": claims["communityId"],
-                 "siteId": "physical-field-" + str(row[0]),
+                 "siteId": ("local-loopback-" if args.loopback_only else "physical-field-") + str(row[0]),
                  "publicKey": states[str(row[0])]["identity"]["publicKey"],
-                 "rpcAddress": row[2] + ":3000"} for row in ROWS}
-        for row in ROWS:
+                 "rpcAddress": row[2] + ":3000"} for row in rows}
+        for row in rows:
             state = states[str(row[0])]
             fixture = {"schemaVersion": 1, "purpose": PURPOSE, "owner": state["owner"],
                        "binding": {"communityId": claims["communityId"], "partitionId": "community/root", "nodeId": row[0]},
@@ -230,7 +267,7 @@ def main():
                        "manifestSha256": export_receipt["manifestSha256"], "lifetimeSeconds": 300}
             configure(row, state, fixture, export)
             steps.append(host_run(row, state, "claim"));state["claimed"] = True;save()
-        steps.append(host_run(ROWS[0], states["1"], "run", "seed"));save()
+        steps.append(host_run(rows[0], states["1"], "run", "seed"));save()
         def start(row):
             process = subprocess.Popen(host_command(row, states[str(row[0])], "run", "serve"),
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -249,34 +286,32 @@ def main():
                         if len(pending) > 4096:
                             raise RuntimeError("listener readiness output limit")
                         if b"\n" in pending:
-                            ready = json.loads(pending.split(b"\n", 1)[0])
-                            if ready.get("listening") is not True or ready.get("nodeId") != row[0] or ready.get("manifestSha256") != export_receipt["manifestSha256"]:
-                                raise RuntimeError(f"node{row[0]} listener refused: {ready}")
+                            decode_listener_ready(pending.split(b"\n", 1)[0], row[0], export_receipt["manifestSha256"])
                             os.set_blocking(process.stdout.fileno(), True)
                             return
             raise RuntimeError(f"node{row[0]} listener readiness deadline")
-        start(ROWS[1]);start(ROWS[2])
+        start(rows[1]);start(rows[2])
         for target in (2, 3):
-            steps.append(host_run(ROWS[0], states["1"], "run", "push", target));save()
-            steps.append(host_run(ROWS[0], states["1"], "run", "remote_receipt", target));save()
-        steps.append(host_run(ROWS[1], states["2"], "stop"));save()
+            steps.append(host_run(rows[0], states["1"], "run", "push", target));save()
+            steps.append(host_run(rows[0], states["1"], "run", "remote_receipt", target));save()
+        steps.append(host_run(rows[1], states["2"], "stop"));save()
         stopped_server = servers.pop(2)
         output, error = stopped_server.communicate(timeout=10)
         receipt["stoppedNode2Server"] = {"actualExitCode": stopped_server.returncode, "intentionalOwnedProcessStop": True,
                                        "reply": json.loads(output), "outputSha256": hashlib.sha256(output).hexdigest()}
-        steps.append(host_run(ROWS[1], states["2"], "run", "receipt"));save()
-        steps.append(host_run(ROWS[1], states["2"], "lose_copy"));save()
-        steps.append(host_run(ROWS[1], states["2"], "run", "receipt", expected=False));save()
-        steps.append(host_run(ROWS[1], states["2"], "run", "pull", 3));save()
-        steps.append(host_run(ROWS[1], states["2"], "run", "receipt"));save()
-        start(ROWS[1])
-        steps.append(host_run(ROWS[0], states["1"], "run", "remote_receipt", 2));save()
+        steps.append(host_run(rows[1], states["2"], "run", "receipt"));save()
+        steps.append(host_run(rows[1], states["2"], "lose_copy"));save()
+        steps.append(host_run(rows[1], states["2"], "run", "receipt", expected=False));save()
+        steps.append(host_run(rows[1], states["2"], "run", "pull", 3));save()
+        steps.append(host_run(rows[1], states["2"], "run", "receipt"));save()
+        start(rows[1])
+        steps.append(host_run(rows[0], states["1"], "run", "remote_receipt", 2));save()
         receipt["transferAndReseedAccepted"] = True
     except BaseException as error:
         receipt["failure"] = str(error)
         save()
     finally:
-        for row in ROWS:
+        for row in rows:
             state = states.get(str(row[0]))
             if state is None:
                 continue
@@ -290,12 +325,14 @@ def main():
             except BaseException as error:
                 receipt["cleanup"].append({"nodeId": row[0], "error": str(error), "ownedScratchRemains": True})
             save()
-        receipt["physicalAccepted"] = receipt.get("transferAndReseedAccepted", False) and len(receipt["cleanup"]) == 3 and all(
-            item.get("reply", {}).get("ownedRootRemoved") is True for item in receipt["cleanup"])
+        accepted = receipt.get("transferAndReseedAccepted", False) and complete_cleanup(receipt)
+        receipt["physicalAccepted"] = accepted and not args.loopback_only
+        receipt["localLoopbackAccepted"] = accepted and args.loopback_only
         save()
     print(json.dumps({"physicalAccepted": receipt["physicalAccepted"], "steps": len(steps),
+                      "localLoopbackAccepted": receipt["localLoopbackAccepted"],
                       "cleanup": len(receipt["cleanup"]), "failure": receipt.get("failure")}))
-    return 0 if receipt["physicalAccepted"] else 1
+    return 0 if receipt["physicalAccepted"] or receipt["localLoopbackAccepted"] else 1
 
 
 if __name__ == "__main__":

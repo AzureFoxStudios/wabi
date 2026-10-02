@@ -1,6 +1,6 @@
 # Wabi Project Status
 
-**Updated:** 2026-10-01
+**Updated:** 2026-10-02
 
 **Purpose:** canonical product-status boundary for operators, contributors, reviewers, and AI agents.
 
@@ -423,6 +423,69 @@ This candidate also contains the production-finish entry-page, mobile-panel and 
 These exist in source or active development but must not be advertised as completed production guarantees.
 
 ### Multi-node / availability
+
+The current-checkout [geographic workload observer correction](testing/ROOM_LOAD_HARNESS_2026-10-02.md)
+passes 18 single-room and 24 many-room in-memory harness checks after reproducing four false-pass cases for
+wrong-room events, repeated canonical IDs and altered message content. Future
+canaries require exact room/content/identity and retained-history checks;
+injected fixtures are labeled separately from network execution. A bounded
+two-to-four-room canary validates combined resource budgets, correlated
+cross-room traffic/history and shared identities, then drains all owned work.
+Pacing cannot produce catch-up bursts after a stall. This is harness acceptance
+only. No fresh physical workload, measured many-room/hot-room
+capacity, traffic, regional-locality or failover result is claimed.
+
+The October 2 [checkpoint availability proposal collector](architecture/CHECKPOINT_AVAILABILITY_PROPOSAL.md)
+now checks actual applied membership and fresh byte receipts, with 84 passing
+consensus-package checks and no failures. The proposal unit checks use synthetic
+peer ACKs. A subsequent [genuine-producer socket contract](testing/geographic-2026-10-02/availability-producer2.json)
+passed seven checks with no failures and unchanged source/static hashes; its
+membership is applied through the durable Store API as a fixture, not committed
+through a running Raft cluster. The collector does not commit an availability operation or grant any
+quorum, full-instance or writer permission. A separate genuine-ciphertext local
+three-process rehearsal passed transfer, copy loss, reseed and final restarted
+listener receipt, with complete owned cleanup. This is not a physical retry:
+the earlier Ronin final-restart failure remains unaccepted. Automatic Wabi
+recovery, regional room ownership and production HA remain open.
+
+The next [durable observation format](plans/2026-10-02-checkpoint-availability-control-format.md)
+is now a development candidate in the shared checkout, adopted from the
+preserved managed checkout. Its isolated focused consensus
+package passed 95 tests with zero failures and nine ignored, including an actual
+three-node opaque-payload commit with the third endpoint stopped, purged V2
+snapshot catch-up with two returning-store/actor restarts, and six SIGKILL
+transaction boundaries. A separately executed check passed positive V1
+membership/snapshot startup and actual old-binary V2 format refusal before any
+endpoint opened; canonical state and the persistent lock inode stayed intact.
+The later [library-only regression](testing/geographic-2026-10-02/availability-control-lib6.json)
+passed 69 checks with zero failures and four ignored on unchanged sources.
+Its separately executed [preserved-reader extension](testing/geographic-2026-10-02/availability-control-v1-reader3.json)
+also passed: the same actual V1 program reads a flat legacy command and stored
+result, then refuses the V2 upgrade. These overlapping counts are not additive.
+The [genuine encrypted Authority producer contract](testing/geographic-2026-10-02/availability-control-producer2.json)
+subsequently passed seven checks with zero failures and one ignored on 5,173
+unchanged inputs. It commits observations through real Raft, verifies a copied
+peer's reconstructed ciphertext through inactive core replay, and exercises
+corruption, reseed, majority and minority cases. The first failed fixture run is
+preserved; its repair creates a fresh service after permanent shutdown, without
+relaxing admission or quorum checks. This is local core-only evidence: no
+production recovery API, writer activation, physical three-site acceptance or
+full-instance failover follows from it. The
+[guarded 19-file adoption](testing/geographic-2026-10-02/availability-control-root-adoption-1.json)
+preserved the current root revision, nonowned source and dependency graph.
+The [current-root consensus run](testing/geographic-2026-10-02/availability-control-root-consensus1.json)
+now passed 95 tests with zero failures and nine ignored across five direct
+result groups; doctests were excluded. Its separately executed
+[actual preserved-reader gate](testing/geographic-2026-10-02/availability-control-root-v1-reader1.json)
+also passed on the same 539 unchanged source/graph hashes. The actual old
+program reads the flat legacy command/result, then refuses V2 before opening an
+endpoint. The subsequent [current-root genuine producer](testing/geographic-2026-10-02/availability-control-root-producer1.json)
+passed seven checks with zero failures and one ignored physical-export entry on
+5,187 unchanged source/graph/static inputs. The real encrypted capture, Raft/Noise
+faults and copied-peer inactive core bridge now pass on the combined graph.
+Enabled Office recovery acceptance and production recovery wiring remain pending.
+Deployment has not happened; these checks do not certify full recovery or writer
+activation.
 
 - **Experimental recovery coordination candidate:** October 1 adds the isolated `wabi-consensus` crate with pinned OpenRaft/redb, private transactional storage and durable idempotent ownership intents. The expanded local run passes 39 checks: the original durable foundation plus fixed-roster authenticated encrypted TCP, separate-process kill/restart, minority refusal/heal, purged snapshot catch-up, private create-only node bootstrap and timing/configuration bounds. The Python process/control helpers separately pass on Ronin and Iyoku. A later [local opaque-byte store](testing/RECOVERY_MATERIAL_2026-10-01.md) adds 11 passing material checks, including eight process-kill publication cases. The package rerun passes 50 checks after a preserved existing leader-selection failure; recovery bytes are not yet transported or quorum-certified, and source/encryption/inactive-state verification remain unwired. Every outcome sets `canonical_writer_permitted = false`; the Authority has no activation wiring. A later three-computer encrypted trial passes four exact durable operations and each owned worker's kill/restart/majority-write/catch-up with complete cleanup; existing Iyoku private port 3000 was used without firewall changes. A further owned-proxy physical trial passes minority no-ACK/heal and actual purged metadata snapshot catch-up with 32 accepted operations, second restart and cleanup. Dynamic enrollment/revocation/rotation, whole-host/Wabi fault tests, complete recovery and every-path publication/encryption fencing remain open. This is not independently audited transport or production HA. See [original durable acceptance](testing/DURABLE_CONSENSUS_2026-10-01.md), [expanded local acceptance and limits](testing/ENCRYPTED_RECOVERY_RPC_2026-10-01.md) [scoped physical acceptance](testing/PHYSICAL_ENCRYPTED_RECOVERY_RPC_2026-10-01.md) and [writer integration contract](architecture/GEOGRAPHIC_WRITER_AUTHORITY.md).
 

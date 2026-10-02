@@ -1,0 +1,60 @@
+{
+  "accepted": true,
+  "actualExitCode": 0,
+  "canonicalWriterPermitted": false,
+  "changedSourcesAtTerminalReadback": [],
+  "compilationActualExitCode": null,
+  "compilationCommand": null,
+  "compilerPausedForThermalHandoff": false,
+  "endedAtUtc": "2026-10-02T15:21:40.361647+00:00",
+  "executables": [
+    {
+      "bytes": 26673544,
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_consensus-22d83510d7fdf2f2",
+      "sha256": "8288b60c613faaccc6e1d6b841ce37cbf4ca8b217fb229a124b0b409ffb5773e",
+      "targetName": "wabi_consensus"
+    },
+    {
+      "bytes": 21231640,
+      "dev": 66306,
+      "ino": 4873388,
+      "path": "/tmp/wabi-geographic-v1-reader-oulaxic5/reader.bin",
+      "sha256": "9330025a18f7de9aca1451fa91a351276eb1d3e762c7108fc4c26c82662b0356",
+      "targetName": "preserved_v1_reader",
+      "uid": 1000
+    }
+  ],
+  "fail": 0,
+  "fullInstanceReady": false,
+  "ignored": 0,
+  "newTargetTreeCreated": false,
+  "outcomes": [
+    {
+      "actualExitCode": 0,
+      "command": [
+        "/home/ironin/wabi/target/debug/deps/wabi_consensus-22d83510d7fdf2f2",
+        "availability_control::tests::actual_preserved_v1_worker_accepts_same_v1_binding_and_refuses_v2_upgrade",
+        "--ignored",
+        "--exact",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "targetName": "preserved_reader_contract"
+    }
+  ],
+  "pass": 1,
+  "rawLog": "/tmp/wabi-geographic-availability-control-root-v1-reader1.log",
+  "rawLogSha256": "fc2cd04f8a6f1e1dbbfee87b90356a5c43554581756a5fb22a2ce78b8507f8cf",
+  "readerMaximumPreTestTemperatureC": 43.0,
+  "resultGroups": 1,
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "runtimeExecuted": true,
+  "schemaVersion": 1,
+  "scope": "Current-root actual preserved V1 flat command/result positive and V2 format refusal",
+  "sourceFreezeSha256": "15be1155be9900071586e405b02b8caf344513a8e9fdd6ba846356c2cd5fca08",
+  "sourceInputs": 539,
+  "startedAtUtc": "2026-10-02T15:21:35.498395+00:00",
+  "target": "/home/ironin/wabi/target",
+  "timedTestsThrottled": false,
+  "workspace": "/home/ironin/wabi"
+}

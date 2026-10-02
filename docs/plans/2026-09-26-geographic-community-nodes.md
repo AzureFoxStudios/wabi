@@ -37,8 +37,35 @@ ownership. Allocation knowledge and every writer/quorum/full-instance permit
 remain unknown/false. The first signed-byte schema is limited to 64 MiB of
 logical ciphertext. The [next transfer contract](2026-10-02-checkpoint-byte-rpc-contract.md)
 requires authenticated voter/store binding, exact peer acknowledgments,
-retrieval/reseeding and owned storage work; its two draft files are still
-unreferenced and uncompiled. Committed tail/blob availability, full enabled
+retrieval/reseeding and owned storage work. That opt-in byte service now has
+frozen local workspace and genuine-producer acceptance; the physical trial
+still failed its final restarted endpoint. The subsequent isolated
+[durable observation format](2026-10-02-checkpoint-availability-control-format.md)
+passed 95 consensus checks, including a healthy-majority commit after the third
+endpoint stopped, purged V2 snapshot catch-up through two reopened-store/actor
+restarts, and six SIGKILL transaction boundaries. Its separate old-program V1
+membership/snapshot startup and V2 rollback-refusal gate now passes. A later
+69-check library-only regression and the separately executed stronger
+flat-legacy-command/stored-result positive and V2 refusal also pass; these
+counts overlap. The later
+[genuine encrypted producer contract](../testing/geographic-2026-10-02/availability-control-producer2.json)
+passed seven local checks after repairing a closed-service generation in the
+fixture. It covers real observation commits, peer-copy reconstruction and
+inactive core verification, source/upload refusals, reseed and majority/minority
+cases. It is a test bridge, not an automatic full-instance recovery path or a
+physical three-site result. Its accepted nineteen source files now passed
+[guarded adoption into the shared checkout](../testing/geographic-2026-10-02/availability-control-root-adoption-1.json)
+without changing the current graph or nonowned source. The
+[current-root consensus run](../testing/geographic-2026-10-02/availability-control-root-consensus1.json)
+passed 95 checks, and the separate
+[actual preserved-reader gate](../testing/geographic-2026-10-02/availability-control-root-v1-reader1.json)
+passed on the same 539 unchanged inputs. The subsequent
+[current-root genuine producer](../testing/geographic-2026-10-02/availability-control-root-producer1.json)
+passed seven checks with zero failures and one ignored physical-export entry on
+5,187 unchanged inputs. Enabled-state acceptance and production recovery wiring
+remain pending; the temporarily assigned compiler slot has returned to Office.
+No checkpoint observation grants a Wabi writer.
+Committed tail/blob availability, full enabled
 state, safe writer allocation, client recovery, regional room ownership and
 large-community measurement remain mandatory gates below.
 
@@ -319,6 +346,27 @@ same proven fencing mechanism. The harness in 10 grows alongside each step.
 Steps 11–12 close the original physical-network and scale requirements; a
 successful loopback run never substitutes for them.
 
+The October 2 [room-load observer correction](../testing/ROOM_LOAD_HARNESS_2026-10-02.md)
+reproduces and closes four false-pass cases in the existing bounded canary:
+wrong-room delivery/acknowledgment, reused canonical IDs and altered text.
+Seventeen lightweight in-memory checks first passed, including retained-history
+content, duplicate events, identity agreement and both acknowledgment orders.
+Injected fixtures are labeled separately from actual network runs. The
+canary's ceilings and single outstanding send remain unchanged; this improves
+future acceptance evidence without completing many-room/hot-room capacity,
+regional locality or the physical matrix. Earlier field receipts retain their
+original observer scope.
+
+The subsequent bounded many-room harness now supplies concurrency across two
+to four rooms, a shared correlation/identity observer, aggregate ceilings,
+nonbursting pacing and owned sibling cancellation. Current focused acceptance
+passes 18 single-room and 24 many-room fixture checks with frozen source hashes;
+the isolated two-file run also passes, without adding those counts together.
+See [the exact receipt](../testing/geographic-2026-10-02/rooms-load-acceptance2.json).
+This prepares step 10's many-room workload but is not a network capacity or
+privacy/locality result. Step 12 still requires calibrated many-room/hot-room
+traffic, backpressure and actual server/network measurements.
+
 The October 1 [probe-supervisor acceptance](../testing/GEOGRAPHIC_PROBE_SUPERVISOR_2026-10-01.md)
 covers actual local controller/supervisor death, PID/start/executable-checked
 adoption, lock-preserving cleanup and suspend-aware lifetime bounds. It uses
@@ -487,3 +535,28 @@ listener request refused. All three test roots and tool directories were
 removed. A bounded listener-ready check is prepared; automatic approval review
 timed out before its final retry could execute. Current independent uplinks
 were not rechecked, and no writer activation or automatic recovery occurred.
+
+### October 2: availability proposal and restart rehearsal
+
+The [proposal collector](../architecture/CHECKPOINT_AVAILABILITY_PROPOSAL.md)
+now binds actual applied control membership, exact signed checkpoint context,
+distinct voters and fresh byte receipts. Expiry, reused operation IDs, changed
+membership and failed fresh rechecks refuse success. Full consensus session
+28154 passed 84 checks, zero failures and seven ignored fixture entry points;
+all 33 before-run inputs remained unchanged at terminal readback. Its nine
+proposal unit checks use synthetic peer ACKs. No availability command is
+committed and every activation/quorum/full-instance permission remains false.
+
+The subsequent [genuine-producer proposal contract](../testing/geographic-2026-10-02/availability-producer2.json)
+passed seven checks with zero failures and all 5,198 source/static hashes
+unchanged during the exclusive rerun. Fresh authenticated local/peer receipts
+and replacement of a failed peer observation are exercised against genuine
+encrypted capture bytes. Fixture membership uses the actual Store apply API;
+this does not yet commit a byte-availability command through real Raft.
+
+The revised physical controller passed a separate local-only three-process
+rehearsal with genuine ciphertext: 15 steps, final restarted-listener receipt,
+and removal of all three owned data roots and tool directories. It performed
+no SSH and does not supersede the failed physical result. The final physical
+retry, actual durable availability command, independent inactive bridge and
+the remaining writer/locality/capacity gates still need their own acceptance.

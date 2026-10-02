@@ -251,7 +251,7 @@ impl Cluster {
         tokio::time::timeout(Duration::from_secs(5), async {
             let mut target = leader;
             loop {
-                match self.nodes[&target].client_write(command.clone()).await {
+                match self.nodes[&target].client_write(command.clone().into()).await {
                     Ok(response) => return response.data,
                     Err(RaftError::APIError(ClientWriteError::ForwardToLeader(forward))) => {
                         tokio::time::sleep(Duration::from_millis(30)).await;
@@ -351,7 +351,7 @@ async fn one_versus_two_partition_prevents_minority_ack_and_rejoins_without_dive
     let new = cluster.leader(&majority).await;
     let minority = tokio::time::timeout(
         Duration::from_millis(500),
-        cluster.nodes[&old].client_write(command(99, 1, old)),
+        cluster.nodes[&old].client_write(command(99, 1, old).into()),
     )
     .await;
     assert!(

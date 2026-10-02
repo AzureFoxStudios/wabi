@@ -44,14 +44,93 @@ no failures and 15 ignored entries; every frozen source/build hash remains
 unchanged. The previous security acceptance covers its historical source
 snapshot only. See [current workspace receipt](../testing/geographic-2026-10-02/producer-workspace-acceptance.json).
 
-Authenticated checkpoint byte RPC, committed byte-majority availability and
-the supported independent inactive-verification bridge remain subsequent
-work. Every full-instance, quorum, source-role and writer verdict remains
-false; these local checks do not activate an Authority or establish HA.
-The [next byte-RPC contract](2026-10-02-checkpoint-byte-rpc-contract.md)
-specifies the separate source slot and transport acceptance.
+Authenticated checkpoint byte RPC subsequently passed a frozen workspace run
+with 2,673 checks and no failures. Its real producer fixture transfers multiple
+ordered encrypted chunks, removes one copy and reseeds it over authenticated
+loopback sockets. The [physical trial](../testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md)
+also transferred the genuine archive to Ronin and Iyoku and reseeded Ronin from
+Iyoku, but failed its final restarted-listener request. It is not complete
+physical acceptance. See the [byte-RPC contract](2026-10-02-checkpoint-byte-rpc-contract.md)
+for the implemented opt-in service and limits.
+
+The next collector now builds an **uncommitted availability proposal** from
+actual applied control membership and fresh local/Noise byte receipts. The
+full consensus package passes 84 checks with zero failures, including nine
+proposal checks; their peer acknowledgments are deliberately synthetic model
+fixtures. The separate genuine-producer socket fixture subsequently passed
+seven checks with zero failures and all 5,198 source/static hashes unchanged;
+see [its focused receipt](../testing/geographic-2026-10-02/availability-producer2.json).
+Its control membership is installed through the actual Store application API
+as a fixture; it does not commit an availability command through a running
+Raft cluster. See the [proposal contract](../architecture/CHECKPOINT_AVAILABILITY_PROPOSAL.md).
+Committed byte-majority availability and the supported independent inactive
+verification bridge remain subsequent work. Every full-instance, quorum,
+source-role and writer verdict remains false. These checks do not activate an
+Authority or establish HA.
+
+The isolated October 2 durable-observation package subsequently passed 95
+checks, including a real three-node commit with a stopped third endpoint,
+purged V2 snapshot catch-up, two reopened-store/actor restarts and six SIGKILL
+transaction boundaries. Its separately executed preserved old-reader check
+passes V1 membership/snapshot startup and actual V2 format refusal. The later
+library-only regression passed 69 checks; its separately executed preserved
+reader case also passed a flat legacy command/stored-result positive followed
+by V2 refusal. Counts overlap and are not additive. The genuine
+encrypted producer fixture now also has source for actual Raft commit/faults
+and copied-peer ciphertext reconstruction through the existing inactive-core
+verifier. Its first run failed a fresh peer receipt before initial Raft submission;
+the fixture-only fresh-service-generation repair subsequently passed
+[seven local producer checks](../testing/geographic-2026-10-02/availability-control-producer2.json)
+on unchanged inputs. Actual observation/fault behavior and the peer-to-inactive
+core bridge are now covered for this one genuine capture. This test bridge does
+not complete production wiring for steps 5–7, enabled/external inventory,
+canonical writer permission or automatic recovery. See the
+[durable-format plan](2026-10-02-checkpoint-availability-control-format.md).
 
 ## Ordered work and ownership
+
+The accepted isolated V2 source has now passed
+[guarded adoption into the current root](../testing/geographic-2026-10-02/availability-control-root-adoption-1.json):
+all nineteen original/candidate hashes matched, and nonowned source, the current
+dependency graph and root revision were preserved. After a temporary idle-slot
+handoff during Office's host outage, current-root consensus passed 95 checks
+and the actual preserved-reader gate passed separately on the same 539 unchanged
+inputs. A subsequent temporary single-build handoff passed
+[current-root genuine-producer acceptance](../testing/geographic-2026-10-02/availability-control-root-producer1.json):
+seven checks with zero failures and one ignored physical-export entry, on 5,187
+unchanged source/graph/static inputs. Compilation and direct timed execution both
+exited zero; tests ran without compiler throttling. The slot is released back to
+Office. Enabled-state server acceptance and production recovery wiring remain
+pending. This adoption adds no recovery job or writer permission.
+
+### Current shared graph: Office recovery coverage
+
+The October 2 [current-source audit](../testing/geographic-2026-10-02/availability-control-office-recovery-audit1.json)
+records thirteen unchanged source hashes at root `0b82cec7`. This is an inventory
+audit, not restored Office acceptance. The isolated seven-pass producer predates
+the merged Office implementation and does not cover its enabled state.
+
+Documents, Sheets and Present persist versioned workspace records through
+`workspace_record_replaced_v1` and `workspace_update_appended_v1`. The current
+engine registry includes both handlers, and inactive inspection uses that
+registry. Recovery acceptance must exercise actual documents, sheet protection,
+native slides, reviews, ownership/grants, access revisions, capability switches,
+audience editions and presentation questions through a genuine capture, inactive
+replay and the restored permission-checked API. Matching raw projection bytes
+alone does not prove those API semantics.
+
+Presentation leases and pointers live in memory. Current source pauses an active
+session, marks its controller lost and advances its generation after an instance
+change. Test that behavior during recovery before enabling clients; do not revive
+an old controller lease. Local originals, pending edits, drafts and private
+speaker notes remain client-owned and require their separate continuity contract.
+The optional converter's environment, credentials and external lifecycle need an
+explicit inventory participant; the Authority archive cannot certify them.
+
+Office artifact streams use `workspace:<key>` with no room-owner precondition;
+channel association supplies access policy. Future regional ownership must
+classify and fence these private objects explicitly. A channel's geographic home
+does not automatically make an associated artifact locally owned.
 
 | Step | Required source scope | Acceptance before proceeding |
 |---|---|---|

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T16:20:03.003260+00:00",
+  "entries": [
+    {
+      "path": "/tmp/wabi-geographic-availability-control-root-producer1.log",
+      "dev": 66306,
+      "ino": 4382742,
+      "uid": 1000,
+      "bytes": 420075,
+      "sha256": "8c2cf1d2d9a7a7afa429529c6d80dba3d1d641f73b3e7a4342419d3dfa8c2fdf",
+      "actualRecordedExitCode": 0,
+      "gzipExact": true,
+      "removed": true
+    }
+  ],
+  "removedRawBytes": 420075,
+  "compressedReceiptsPreserved": true,
+  "sharedTargetTouched": false,
+  "v1ReaderAndDirtyIsolatedCandidateRetained": true,
+  "furtherGeoCompilationStarted": false
+}

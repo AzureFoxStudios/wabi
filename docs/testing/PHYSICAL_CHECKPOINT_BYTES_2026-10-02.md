@@ -53,6 +53,31 @@ rules, install a service, deploy production Wabi or read live community data.
 Current independent internet uplinks were **not** freshly verified. No public
 IP address query was repeated.
 
+### Later host readiness check
+
+At 13:19 UTC on October 2, fresh read-only SSH probes reached both enrolled
+accounts successfully: Ronin identified `bazzite`, and Iyoku identified
+`192.168.1.11`. Their temporary storage reported about 13.5 GiB and 7.2 GiB
+free, respectively. Bounded Tailscale pings returned one direct-path sample
+each: 124 ms to Ronin and 60 ms to Iyoku. See
+[the exact readiness receipt](geographic-2026-10-02/checkpoint-ssh-readiness1.json).
+
+No files were copied, listeners started or firewall rules changed. No public
+address service was queried, and public endpoint addresses were not saved.
+These observations establish current SSH reachability, not independent
+three-site placement, a repeated checkpoint restart sequence, application
+acceptance, bandwidth calibration or failover. The shared UI compiler remained
+live; geographic Rust acceptance was still queued.
+
+A later [local-daemon network-metadata probe](geographic-2026-10-02/checkpoint-network-metadata1.json)
+read dotRonin and Ronin successfully, but Iyoku's newer SSH request returned
+255. A bounded hostname follow-up reported an additional Tailscale SSH
+authentication requirement and ended with a connection timeout. Authentication
+was requested from the user; no waiting probe remained. The three-endpoint
+comparison is therefore **unknown**, and the earlier reachability receipt is
+not a guarantee of continuing access. No public-address service was queried,
+and the local encrypted-checkpoint compile continued separately.
+
 Attempt 3 completed 14 recorded steps:
 
 1. Both remote computers bootstrapped their own private identities and claimed
@@ -101,6 +126,26 @@ tree. Completed raw logs are removed only after exact gzip comparison. Shared
 build caches, other chats' files and all live lock inodes remain untouched.
 
 ## Evidence
+
+### Local restart rehearsal after the failed physical trial
+
+The revised controller has an explicit `--loopback-only` mode: three separate
+owned worker processes on `127.0.0.1`, `.2` and `.3`, with no SSH invocation.
+It uses the same genuine encrypted export and exact rebuilt worker. Session
+39987 exited 0 and passed all 15 steps, including fresh remote receipts,
+stopped-copy persistence, missing-byte refusal, direct surviving-peer reseed
+and the final authenticated receipt after listener restart. All three private
+data roots and all three tool directories were removed. Before-run script,
+helper and executable hashes remained unchanged at terminal readback.
+
+This is a one-computer process rehearsal, not a physical retry or proof of the
+earlier remote failure's cause. `physicalAccepted` remains false; the separate
+`localLoopbackAccepted` field is true. Acceptance now requires distinct node
+cleanup records and successful tool-directory removal as well as data-root
+removal. Fifteen pure Python guard/routing/parser checks passed separately.
+See [local readback](geographic-2026-10-02/checkpoint-local1-readback.json),
+the complete `checkpoint-local1.json` step/cleanup record and
+[guard receipt](geographic-2026-10-02/checkpoint-readiness2.json).
 
 See `geographic-2026-10-02/checkpoint-field{1,2,3}.json`,
 `checkpoint-producer-field1.json`, `checkpoint-export1.json`,

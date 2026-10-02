@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T14:47:01.003083+00:00",
+  "rootHead": "0b82cec796061d274b22655d16f24ca29720c7c3",
+  "sourceFiles": [
+    {
+      "path": "core/crates/wabi-server/src/adapter/workspace.rs",
+      "rootSha256": "94df74bffe72fca16a062977aa8dd09b87208a8111f9f5b368774c4265d90261",
+      "isolatedSha256": null
+    },
+    {
+      "path": "core/crates/wabi-server/src/api/workspace.rs",
+      "rootSha256": "aad4ece1df68eed95430096651b4f1e26da2ad1077d0c90ba49a6ec9a74dd52c",
+      "isolatedSha256": null
+    },
+    {
+      "path": "core/crates/wabi-server/src/api/workspace_crdt.rs",
+      "rootSha256": "584be743116bd682d889f64f1ac7b07c568267d4163cbd688a2c4f963f42ddae",
+      "isolatedSha256": null
+    },
+    {
+      "path": "core/crates/wabi-server/src/api/workspace_present.rs",
+      "rootSha256": "d254646368449db5bae68c0c5fa3d86d76d585af268e49605e2a4fd5cf485cfe",
+      "isolatedSha256": null
+    },
+    {
+      "path": "core/crates/wabi-server/src/api/workspace_scene.rs",
+      "rootSha256": "972b38b1e71e70925edcf7140a4c4d6a73b42bf330aa7e16b6f12046b39c549c",
+      "isolatedSha256": null
+    },
+    {
+      "path": "core/crates/wabi-server/src/api/workspace_conversion.rs",
+      "rootSha256": "34bbcd4d673b04fb944a622968ad4bbd8ac0c65a716065a283d6157bae03e949",
+      "isolatedSha256": null
+    },
+    {
+      "path": "core/crates/wabidb/src/projections/workspace.rs",
+      "rootSha256": "2eb07536240781935a86ccf6d09e99a2b42924b169f11963e5df1333e9578325",
+      "isolatedSha256": null
+    },
+    {
+      "path": "core/crates/wabidb/src/engine/mod.rs",
+      "rootSha256": "5e933026be8e4c665557d83363356cea190b3608816d236a71ccef061223f070",
+      "isolatedSha256": "f036adf76f550dacb504af9d3765b0c233fc11563104939f609902e223066f5f"
+    },
+    {
+      "path": "core/crates/wabidb/src/engine/offline_inspect.rs",
+      "rootSha256": "b873e70f852ab2a68a3a812811e29d0209c91fa4c176836ded37761ee3f59b8d",
+      "isolatedSha256": "b873e70f852ab2a68a3a812811e29d0209c91fa4c176836ded37761ee3f59b8d"
+    },
+    {
+      "path": "core/crates/wabi-server/src/instance_archive/verify.rs",
+      "rootSha256": "ff6f02f601b5fdff406e9910c0acab23cc512d523a64aa78e2aa132a0c48257c",
+      "isolatedSha256": "ff6f02f601b5fdff406e9910c0acab23cc512d523a64aa78e2aa132a0c48257c"
+    },
+    {
+      "path": "core/crates/wabi-server/tests/checkpoint_operator_contract.rs",
+      "rootSha256": "7f5874d2ccbff7c15d6492b66b9bb86acfa559bf9ef42a627b5f23efc5b38898",
+      "isolatedSha256": "e3f11788026ddd6fcb88ab3b7c27008c80c8e72f2ab8a59f6ea35c0410eca65e"
+    },
+    {
+      "path": "frontend/src/lib/workspaces/session.ts",
+      "rootSha256": "282ea45be1e628ba582b35e736d9c99452188d7bc128f1dae533839314573f80",
+      "isolatedSha256": null
+    },
+    {
+      "path": "frontend/src/lib/workspaces/privateNotes.ts",
+      "rootSha256": "b14fe188c8352b22d6302f959ae7221fdc470448721cd138934c73f56a012026",
+      "isolatedSha256": null
+    }
+  ],
+  "scope": "Read-only current-source inventory and coverage audit. No Office, restore, runtime, regional, capacity or HA test executed.",
+  "findings": {
+    "canonicalRecords": [
+      "workspace_records_v1/settings",
+      "workspace_records_v1/artifact:<uuid>",
+      "workspace_records_v1/session:<uuid>"
+    ],
+    "durableEvents": [
+      "workspace_record_replaced_v1",
+      "workspace_update_appended_v1"
+    ],
+    "projectionReplay": "Current-root build_type_registry includes both events; offline_inspect calls that registry. Source relationship only; restored Office behavior unverified.",
+    "privateArtifactAuthority": "WdbAdapter commits workspace:<key>, stream kind6, room_owner_precondition=None. Channel association is ACL-only. Regional routing must classify object ownership explicitly.",
+    "durableArtifactPolicy": [
+      "owner and grants",
+      "channel association and role",
+      "access revision",
+      "generation and sequence",
+      "CRDT checkpoint and updates",
+      "review state",
+      "protected ranges"
+    ],
+    "presentationState": [
+      "audience edition/slides",
+      "current slide and questions",
+      "controller generation",
+      "paused/ended/lost state"
+    ],
+    "ephemeralPresentationState": [
+      "process instance UUID",
+      "in-memory controller lease and pointer"
+    ],
+    "restartBehavior": "load_current marks surviving active session paused/controller_lost and advances generation after process instance change; actual recovery acceptance missing.",
+    "clientOnlyState": [
+      "IndexedDB local artifact pending updates and originals",
+      "private speaker notes and drafts"
+    ],
+    "externalConversion": "WABI_OFFICE_CONVERTER_ENABLED/URL/USERNAME/PASSWORD read from environment, not established by data/upload archive; converter storage/retention/service recovery unverified.",
+    "acceptedIsolatedProducerCoversCurrentOffice": false
+  },
+  "requiredAcceptance": [
+    "Fresh current-root compile/consensus/old-reader/genuine producer",
+    "Genuine checkpoint with documents/sheets/native slides/reviews/grants/protected ranges/audience/questions",
+    "Inactive full-history replay matches snapshots and durable deltas",
+    "Restored API permissions/revocations/stale-generation refusals/content/capability switches",
+    "Controller remains paused/lost after restart; no revived lease/pointer",
+    "Private notes/originals/drafts stay client-only",
+    "Explicit converter participant/configuration/secret recovery classification",
+    "Define/fence private-artifact partition ownership for regional topology"
+  ],
+  "fullInstanceReady": false,
+  "canonicalWriterPermitted": false
+}

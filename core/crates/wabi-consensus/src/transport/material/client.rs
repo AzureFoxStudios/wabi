@@ -108,6 +108,10 @@ pub(super) fn synthetic_test_ack(
     deny_unknown_fields
 )]
 pub(in crate::transport) enum WireMaterialReply {
+    ControlFormat {
+        probe_version: u8,
+        maximum_control_schema: u8,
+    },
     Object(ObjectRef),
     Checkpoint(WireCheckpointReceipt),
     Manifest(CheckpointManifest),
@@ -212,6 +216,18 @@ impl CheckpointClient {
         match response {
             RemoteResponse::Material(reply) => Ok(reply),
             RemoteResponse::Refused => Err(Error::Refused),
+            _ => Err(Error::Protocol),
+        }
+    }
+    pub(super) async fn require_control_v2(&self) -> Result<()> {
+        match self
+            .request(MaterialRequest::ControlFormat { probe_version: 1 })
+            .await?
+        {
+            WireMaterialReply::ControlFormat {
+                probe_version: 1,
+                maximum_control_schema: 2,
+            } => Ok(()),
             _ => Err(Error::Protocol),
         }
     }
