@@ -32,6 +32,7 @@ sha2 = "0.10"
 notify = "8.2"
 anyhow = "1"
 base64 = "0.22"
+keyring-core = "=1.0.0"
 
 # Tailcat private access (tunnel + local forwarder for the webview)
 tokio = { version = "1", features = ["rt", "macros", "net", "io-util", "process", "time", "sync", "fs"] }
@@ -43,6 +44,23 @@ http-body = "1"
 http-body-util = "0.1"
 bytes = "1"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus-secret-service-keyring-store = { version = "=1.0.1", features = ["crypto-rust"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "=1.0.2", features = ["keychain"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+apple-native-keyring-store = { version = "=1.0.2", features = ["protected"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store = "=1.1.0"
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-native-keyring-store = "=1.0.0"
+jni = "0.21.1"
+ndk-context = "0.1.1"
 
 # The detached native 3D viewer is a desktop surface. Mobile uses the in-app
 # viewport, so do not pull wgpu/winit/gltf and their native window stack into

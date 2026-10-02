@@ -702,6 +702,8 @@ async fn album_ids_resolve_to_their_persisted_channel_before_access() {
             "/uploads/private-canary",
             "private file",
             None,
+            None,
+            None,
             member,
         )
         .await
@@ -848,7 +850,7 @@ async fn authorized_album_lifecycle_is_truthful_and_cannot_change_a_different_pa
         .unwrap();
     let other_item = state
         .wdb
-        .add_item(&other, "/uploads/other", "other", None, member)
+        .add_item(&other, "/uploads/other", "other", None, None, None, member)
         .await
         .unwrap();
     let app = create_api_router(state.clone()).with_state(state.clone());
@@ -2692,4 +2694,28 @@ async fn voice_policy_listener_capacity_and_mute_are_authority_decisions() {
     second.emit("voice-self-state", json!({"muted":false})).await;
     // The durable restriction remains authoritative after a self-state event.
     assert!(state.wdb.is_user_muted(&voice, outsider).await.unwrap());
+}
+
+#[tokio::test]
+
+async fn album_item_media_metadata_survives_rest_write_and_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (member, _, _) = users(&state).await;
+    let room = channel(&state, member, ChannelKind::Gallery).await;
+    let album = state.wdb.create_album("channel", &room, "Gallery", member).await.unwrap();
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let (status, body) = request(&app, Method::POST, &format!("/albums/{album}/items"), &jwt(&state, member),
+        json!({"attachmentUrl":"/uploads/pilot.png", "attachmentName":"pilot.png", "attachmentSize":1234, "attachmentMime":"image/png"})).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["item"]["attachment_size"], 1234);
+    assert_eq!(body["item"]["attachment_mime"], "image/png");
+    let config = state.config.clone();
+    drop(app);
+    drop(state);
+    let reopened = AppState::new(config).await.unwrap();
+    let items = reopened.wdb.list_items(&album).await.unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].size, Some(1234));
+    assert_eq!(items[0].mime.as_deref(), Some("image/png"));
 }

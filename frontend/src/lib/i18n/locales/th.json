@@ -96,7 +96,8 @@
       "guest_access_heading": "การเข้าใช้แบบผู้เยี่ยมชม",
       "guest_access_link": "ดำเนินการต่อในฐานะผู้เยี่ยมชม",
       "change_server": "กำลังมองหาเซิร์ฟเวอร์อื่น?",
-      "change_server_link": "เปลี่ยน"
+      "change_server_link": "เปลี่ยน",
+      "change_server_button": "เปลี่ยนเซิร์ฟเวอร์"
     },
     "errors": {
       "username_min": "ชื่อผู้ใช้ต้องมีอย่างน้อย 2 ตัวอักษร",

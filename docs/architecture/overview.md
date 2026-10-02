@@ -211,3 +211,20 @@ Realtime channel settings delegate retention changes to `api::channels::apply_ch
 ### Independent personal Planner (development candidate)
 
 The `/personal` app-level surface reuses Planner views with an identity independent of community authentication. Browser records use a distinct IndexedDB scope. Desktop records use the bundled `wabi-server --personal-planner` mode over private stdin/stdout IPC via an origin-checked main-window Tauri command. This mode exits before normal server logging, configuration, network listeners, helpers or Authority/WabiDB startup. It stores versioned JSON snapshots under the native app data `personal-planner` folder, with cross-process operation locking, revision conflict drafts and immutable synchronized commits. These are personal snapshot records, not new community projections, replication or federation. No old account records migrate automatically. See [Local Planner](../features/LOCAL_PLANNER.md) and [acceptance](../testing/PERSONAL_PLANNER_ACCEPTANCE_2026-09-28.md).
+
+### Office integration candidate (2026-10-02)
+
+Documents and optional Sheets/Present use one Yjs editor/session path. The new
+`workspace_records_v1` projection decodes versioned JSON, without modifying
+existing postcard records. `workspace_record_replaced_v1` and
+`workspace_update_appended_v1` commit on private `workspace:<key>` streams;
+channel sharing is an ACL association, not a channel-stream event or chat fanout.
+Adapter compare-and-swap checks revision/owner and confirms the applied read
+model before acknowledging. Reads and mutations re-admit the original credential
+under the membership guard; owned operations retain both through cancellation
+and durable completion. Channel-associated content mutations also require
+participation/rules acknowledgment. These object streams do not claim complete
+room-placement writer fencing, distributed leases, regional routing or HA.
+Sheets/Present packages are independently gated in Vite and addon inventory;
+center-stage routing reuses the existing addon queue and preserves optional
+right panels and separate drafts. See [Office workspaces](../operations/office-workspaces.md).

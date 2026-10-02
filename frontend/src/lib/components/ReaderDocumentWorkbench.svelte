@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { openWorkspace } from '$lib/workspaces/bridge';
+	import WorkspaceShortcuts from '$lib/workspaces/WorkspaceShortcuts.svelte';
 	import { onDestroy, onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { notebookOwner } from '$lib/notes/scope';
@@ -103,7 +105,7 @@
 		if (activeDocumentId) void flushReaderDocument(activeDocumentId);
 	});
 
-	function saveLabel(): string {
+	function saveLabel(activeDocument: ReaderLocalDocument | null, saveState: string, online: boolean): string {
 		if (!activeDocument) return 'Read only';
 		if (saveState === 'dirty' || saveState === 'saving') return 'Saving locally…';
 		if (saveState === 'error') return 'Local save needs attention';
@@ -256,11 +258,26 @@
 		});
 	}
 
-	function explainRemoteState(action: 'share' | 'live'): void {
-		remoteNotice = action === 'live'
-			? 'Live collaboration is not being faked: this V1 currently keeps the document private and local until the real replication transport is connected.'
-			: 'Sharing is intentionally gated until Reader has a real local-first replication transport. Nothing was uploaded or exposed.';
-	}
+	async function prepareWorkspaceSource() {
+        if (!activeDocumentId || !selection) return null;
+        const id = activeDocumentId, selected = selection.id, scope = get(readerDocumentScope);
+        await flushReaderDocument(id);
+        if (get(readerDocumentScope) !== scope || get(readerSelection)?.id !== selected) return null;
+        if (get(readerDocumentSaveState)[id] === 'error') { remoteNotice = 'Local save failed. Retry saving or download recovery before publishing.'; return null; }
+        const document = get(readerDocuments)[id];
+        if (!document) return null;
+        return { title: document.title, content: document.content, format: document.format, sourceKey: `reader:${document.documentId}:revision:${document.revision}` };
+    }
+    async function explainRemoteState(action: 'share' | 'live'): Promise<void> {
+        try {
+            const source = await prepareWorkspaceSource();
+            if (source) openWorkspace('documents', { source, shareMode: action === 'live' ? 'live' : 'snapshot' });
+        } catch (error) { remoteNotice = error instanceof Error ? error.message : 'Could not open the sharing workspace. Your Reader draft is retained.'; }
+    }
+    async function makePresentationFromReader(): Promise<void> {
+        try { const source = await prepareWorkspaceSource(); if (source) openWorkspace('present', { source }); }
+        catch (error) { remoteNotice = error instanceof Error ? error.message : 'Could not prepare a private presentation.'; }
+    }
 
 	function formatUpdated(timestamp: number): string {
 		const age = Math.max(0, Date.now() - timestamp);
@@ -298,6 +315,7 @@
 </script>
 
 <div class="reader-workbench" class:has-selection={Boolean(selection)}>
+	<WorkspaceShortcuts />
 	<div class="reader-document-bar" class:reader-document-bar--home={!selection}>
 		<div class="reader-document-identity">
 			{#if activeDocument}
@@ -328,7 +346,7 @@
 		<div class="reader-document-actions">
 			{#if canReturnToNote}<button type="button" class="reader-action-emphasis" on:click={returnToNote}>Return to note</button>{/if}
 			{#if activeDocument}
-				<span class="reader-local-save" class:error={saveState === 'error'}>{saveLabel()}</span>
+				<span class="reader-local-save" class:error={saveState === 'error'}>{saveLabel(activeDocument, saveState, online)}</span>
 				{#if activeDocument.kind === 'working-copy'}
 					<button type="button" class="reader-action-emphasis" on:click={promoteCurrentDocument}>Save as Wabi Document</button>
 					{#if showingLocalDraft}
@@ -339,7 +357,8 @@
 					<button type="button" class="reader-action-danger" on:click={discardCurrentWorkingCopy}>Discard draft</button>
 				{/if}
 				<button type="button" on:click={() => explainRemoteState('share')}>Share</button>
-				<button type="button" on:click={() => explainRemoteState('live')}>Go Live</button>
+				<button type="button" on:click={() => explainRemoteState('live')}>Collaborate</button>
+				<button type="button" on:click={makePresentationFromReader}>Make presentation</button>
 			{/if}
 			<div class="reader-documents-menu-wrap">
 				<button type="button" class:active={documentsOpen} on:click={() => (documentsOpen = !documentsOpen)}>
@@ -405,7 +424,7 @@
 					aria-label="Document content"
 				></textarea>
 				<div class="reader-editor-foot">
-					<span>{editorText.length.toLocaleString()} characters · {saveLabel()}</span>
+					<span>{editorText.length.toLocaleString()} characters · {saveLabel(activeDocument, saveState, online)}</span>
 					{#if mode === 'suggest' && activeSuggestionId}
 						<div class="reader-suggestion-actions">
 							<button type="button" class="reader-action-emphasis" on:click={() => applySuggestion(activeSuggestionId!)}>Apply suggestion</button>
