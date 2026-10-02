@@ -11,6 +11,8 @@ use crate::config::Config;
 
 const LOG_CAP: usize = 200;
 const MSG_LIMIT: u32 = 80;
+/// Minimum gap between outbound typing emits while composing.
+const TYPING_THROTTLE_MS: u64 = 3_000;
 
 #[derive(Debug)]
 pub enum BgMsg {
@@ -19,7 +21,26 @@ pub enum BgMsg {
     Users(Vec<RegisteredUser>),
     Stats(ServerStats),
     Health(String),
-    SendOk(String),
+    /// A send finished; `sent` is the server-confirmed message (None when the
+    /// response shape was unexpected — caller falls back to a reload).
+    SendOk {
+        channel_id: String,
+        local_id: String,
+        sent: Option<Message>,
+    },
+    /// A send failed — the optimistic row gets marked `[not sent]`.
+    SendFailed {
+        channel_id: String,
+        local_id: String,
+        error: String,
+    },
+    /// Member-visible privacy facts for a channel (None = unavailable).
+    ChannelPrivacy {
+        channel_id: String,
+        privacy: Option<crate::api::ChannelPrivacy>,
+    },
+    /// Server-wide privacy contract (None = endpoint unavailable).
+    PrivacySummary(Option<crate::api::PrivacySummary>),
     /// A lore channel was created (`:lore new`) — add it, select it on the
     /// Lore screen, and pull its repo state.
     LoreCreated(Channel),
@@ -130,6 +151,14 @@ pub struct LorePreview {
     pub lines: Vec<String>,
 }
 
+/// One display row of the channel sidebar.
+#[derive(Debug)]
+pub enum ChannelRow<'a> {
+    /// Section or category header — never selectable.
+    Header(&'a str),
+    Channel(&'a Channel),
+}
+
 #[derive(Debug)]
 pub struct App {
     pub config: Config,
@@ -182,6 +211,16 @@ pub struct App {
     pub lore_selected: usize,
     pub lore_file_cursor: usize,
     pub lore_preview: Option<LorePreview>,
+    /// Privacy facts for the active channel (retention label, E2EE flag).
+    pub channel_privacy: Option<crate::api::ChannelPrivacy>,
+    /// Server-wide privacy contract for the Server screen.
+    pub privacy_summary: Option<crate::api::PrivacySummary>,
+    /// The privacy summary endpoint was missing/errored (older server).
+    pub privacy_summary_unavailable: bool,
+    /// Set by `:q`/`:quit`; the run loop exits when it sees this.
+    pub should_quit: bool,
+    /// Last outbound typing emit (throttle window).
+    last_typing_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,6 +238,10 @@ pub struct Channel {
     pub channel_type: String,
     pub kind: ChannelKind,
     pub description: Option<String>,
+    /// Sidebar order (server-managed).
+    pub position: i32,
+    /// Parent category channel id, when filed under one.
+    pub parent_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -210,6 +253,44 @@ pub struct Message {
     pub text: String,
     pub timestamp: i64,
     pub message_type: String,
+    /// Server said this body is an E2EE ciphertext envelope (or it carries
+    /// the `wabi-e2ee-v1:` prefix). Rendered as an opaque placeholder.
+    pub encrypted: bool,
+    /// Optimistic row whose send failed — never shown as published.
+    pub failed: bool,
+    /// File attachment names from the message's `files` array.
+    pub file_names: Vec<String>,
+}
+
+impl Message {
+    /// What the UI shows for this message's body. Pure and total: ciphertext
+    /// is never echoed raw, uploads/attachments become `[file: …]` markers,
+    /// failed sends keep a visible `[not sent]` tag.
+    pub fn display_text(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        if self.failed {
+            parts.push("[not sent]".into());
+        }
+        if self.encrypted || crate::api::is_ciphertext(&self.text) {
+            parts.push(
+                "[encrypted message — readable in clients holding the room key]".into(),
+            );
+            return parts.join(" ");
+        }
+        if self.text.starts_with("/uploads/") {
+            let filename = std::path::Path::new(&self.text)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(&self.text);
+            parts.push(format!("[file: {filename}]"));
+        } else if !self.text.is_empty() {
+            parts.push(self.text.clone());
+        }
+        for name in &self.file_names {
+            parts.push(format!("[file: {name}]"));
+        }
+        parts.join(" ")
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -324,6 +405,11 @@ impl App {
             lore_selected: 0,
             lore_file_cursor: 0,
             lore_preview: None,
+            channel_privacy: None,
+            privacy_summary: None,
+            privacy_summary_unavailable: false,
+            should_quit: false,
+            last_typing_ms: 0,
         };
 
         if app.mode != AppMode::ServerSetup {
@@ -362,31 +448,20 @@ impl App {
     }
 
     pub fn filtered_channels(&self) -> Vec<&Channel> {
-        let q = self.channel_filter.to_lowercase();
-        let mut direct: Vec<&Channel> = Vec::new();
-        let mut rest: Vec<&Channel> = Vec::new();
-        for c in &self.channels {
-            // Category rows are containers, never selectable surfaces.
-            if matches!(c.kind, ChannelKind::Category) {
-                continue;
-            }
-            if !(q.is_empty()
-                || c.name.to_lowercase().contains(&q)
-                || c.channel_type.to_lowercase().contains(&q))
-            {
-                continue;
-            }
-            if matches!(c.kind, ChannelKind::Dm | ChannelKind::Group) {
-                direct.push(c);
-            } else {
-                rest.push(c);
-            }
-        }
-        // Stable order by name within each section; Direct pinned on top.
-        direct.sort_by(|a, b| a.name.cmp(&b.name));
-        rest.sort_by(|a, b| a.name.cmp(&b.name));
-        direct.extend(rest);
-        direct
+        channel_rows(&self.channels, &self.channel_filter)
+            .into_iter()
+            .filter_map(|row| match row {
+                ChannelRow::Channel(c) => Some(c),
+                ChannelRow::Header(_) => None,
+            })
+            .collect()
+    }
+
+    /// Display rows for the channel sidebar: `Direct` pinned on top, then
+    /// category headers (position order) each followed by their children,
+    /// then unfiled channels. Headers are not selectable.
+    pub fn channel_rows(&self) -> Vec<ChannelRow<'_>> {
+        channel_rows(&self.channels, &self.channel_filter)
     }
 
     pub fn filtered_users(&self) -> Vec<&RegisteredUser> {
@@ -434,6 +509,55 @@ impl App {
                 }
                 Err(e) => {
                     let _ = tx.send(BgMsg::Error(format!("Messages: {e}"))).await;
+                }
+            }
+        });
+    }
+
+    /// Single funnel for changing the active channel: resets scroll/unread,
+    /// joins the live room, reloads messages, and pulls the channel's
+    /// privacy facts (retention label + E2EE flag).
+    fn set_active_channel(&mut self, id: Option<String>) {
+        self.active_channel = id;
+        self.channel_privacy = None;
+        if let Some(ref ch_id) = self.active_channel {
+            self.unread.remove(ch_id);
+            self.msg_scroll = 0;
+            self.live.join_channel(ch_id);
+            self.spawn_load_messages(ch_id);
+            if self.config.token.is_some() {
+                self.spawn_channel_privacy(ch_id.clone());
+            }
+        }
+    }
+
+    fn spawn_channel_privacy(&self, channel_id: String) {
+        let api = self.api.clone();
+        let tx = self.bg_tx.clone();
+        tokio::spawn(async move {
+            match api.channel_privacy(&channel_id).await {
+                Ok(privacy) => {
+                    let _ = tx.send(BgMsg::ChannelPrivacy { channel_id, privacy }).await;
+                }
+                Err(e) => {
+                    // Older server or transient error — no badge, not an error popup.
+                    tracing::warn!("channel privacy unavailable: {e}");
+                }
+            }
+        });
+    }
+
+    pub fn spawn_privacy_summary(&self) {
+        let api = self.api.clone();
+        let tx = self.bg_tx.clone();
+        tokio::spawn(async move {
+            match api.privacy_summary().await {
+                Ok(s) => {
+                    let _ = tx.send(BgMsg::PrivacySummary(Some(s))).await;
+                }
+                Err(e) => {
+                    tracing::warn!("privacy summary unavailable: {e}");
+                    let _ = tx.send(BgMsg::PrivacySummary(None)).await;
                 }
             }
         });
@@ -901,11 +1025,8 @@ impl App {
                     };
                     self.log(format!("loaded {} channels", self.channels.len()));
                     if self.active_channel.is_none() {
-                        if let Some(ch) = self.channels.first() {
-                            let id = ch.id.clone();
-                            self.active_channel = Some(id.clone());
-                            self.spawn_load_messages(&id);
-                        }
+                        let first = self.channels.first().map(|c| c.id.clone());
+                        self.set_active_channel(first);
                     }
                     // First live connect once we have a room to join.
                     if self.config.token.is_some()
@@ -962,8 +1083,76 @@ impl App {
                     self.status = format!("Healthy · {}", self.config.server_url);
                     self.log("health refreshed");
                 }
-                BgMsg::SendOk(ch_id) => {
-                    self.spawn_load_messages(&ch_id);
+                BgMsg::SendOk {
+                    channel_id,
+                    local_id,
+                    sent,
+                } => {
+                    // Reconcile the optimistic row in place instead of
+                    // reloading history. A server-confirmed copy may already
+                    // have arrived via the live feed — then dropping the
+                    // local row is the dedupe (never keep both).
+                    let Some(buffer) = self.messages.get_mut(&channel_id) else {
+                        self.spawn_load_messages(&channel_id);
+                        continue;
+                    };
+                    let local_pos = buffer.iter().position(|m| m.id == local_id);
+                    let server_present = sent
+                        .as_ref()
+                        .is_some_and(|s| buffer.iter().any(|m| m.id == s.id));
+                    match (local_pos, sent) {
+                        (Some(pos), Some(confirmed)) if !server_present => {
+                            buffer[pos] = confirmed;
+                        }
+                        (Some(pos), _) => {
+                            buffer.remove(pos);
+                        }
+                        (None, Some(confirmed)) => {
+                            // Buffer was reloaded/rotated meanwhile; keep the
+                            // message as long as its server id isn't there.
+                            if !server_present {
+                                buffer.push(confirmed);
+                            }
+                        }
+                        (None, None) => {
+                            // Unexpected response shape — reload as fallback.
+                            drop(buffer);
+                            self.spawn_load_messages(&channel_id);
+                        }
+                    }
+                }
+                BgMsg::SendFailed {
+                    channel_id,
+                    local_id,
+                    error,
+                } => {
+                    // Keep the draft visible but never let it look published.
+                    if let Some(buffer) = self.messages.get_mut(&channel_id) {
+                        if let Some(m) = buffer.iter_mut().find(|m| m.id == local_id) {
+                            m.failed = true;
+                        }
+                    }
+                    self.log(format!("err: {error}"));
+                    self.set_error(error);
+                }
+                BgMsg::ChannelPrivacy { channel_id, privacy } => {
+                    if self.active_channel.as_deref() == Some(channel_id.as_str()) {
+                        self.channel_privacy = privacy;
+                    }
+                }
+                BgMsg::PrivacySummary(summary) => {
+                    match summary {
+                        Some(s) => {
+                            self.privacy_summary = Some(s);
+                            self.privacy_summary_unavailable = false;
+                        }
+                        None => self.privacy_summary_unavailable = true,
+                    }
+                    self.log(if self.privacy_summary_unavailable {
+                        "privacy contract unavailable".to_string()
+                    } else {
+                        "privacy contract refreshed".to_string()
+                    });
                 }
                 BgMsg::LoginOk {
                     request_id,
@@ -1249,6 +1438,7 @@ impl App {
             Screen::Server => {
                 self.spawn_health();
                 self.spawn_admin_stats();
+                self.spawn_privacy_summary();
             }
             Screen::Chat => {
                 if self.channels.is_empty() {
@@ -1278,6 +1468,7 @@ impl App {
             Screen::Server => {
                 self.spawn_health();
                 self.spawn_admin_stats();
+                self.spawn_privacy_summary();
             }
             Screen::Lore => {
                 self.spawn_load_channels();
@@ -1344,11 +1535,7 @@ impl App {
             .unwrap_or(0) as i32;
         let next = (idx + delta).clamp(0, list.len() as i32 - 1) as usize;
         let id = list[next].clone();
-        self.active_channel = Some(id.clone());
-        self.unread.remove(&id);
-        self.msg_scroll = 0;
-        self.live.join_channel(&id);
-        self.spawn_load_messages(&id);
+        self.set_active_channel(Some(id));
     }
 
     fn handle_users_keys(&mut self, key: KeyCode) -> Result<bool> {
@@ -1547,29 +1734,44 @@ impl App {
                             .duration_since(std::time::UNIX_EPOCH)
                             .map(|d| d.as_millis() as i64)
                             .unwrap_or(0);
+                        let local_id = format!("local-{now_ms}");
                         self.messages
                             .entry(ch_id.clone())
                             .or_default()
                             .push(Message {
-                                id: format!("local-{now_ms}"),
+                                id: local_id.clone(),
                                 channel_id: ch_id.clone(),
                                 sender_id: user_id,
                                 sender_name: display_name,
                                 text: text.clone(),
                                 timestamp: now_ms,
                                 message_type: "text".into(),
+                                encrypted: false,
+                                failed: false,
+                                file_names: Vec::new(),
                             });
                         self.msg_scroll = 0;
                         let api = self.api.clone();
                         let tx = self.bg_tx.clone();
                         tokio::spawn(async move {
                             match api.send_message(&ch_id, &text, false).await {
-                                Ok(()) => {
-                                    let _ = tx.send(BgMsg::SendOk(ch_id)).await;
+                                Ok(sent) => {
+                                    let _ = tx
+                                        .send(BgMsg::SendOk {
+                                            channel_id: ch_id,
+                                            local_id,
+                                            sent,
+                                        })
+                                        .await;
                                 }
                                 Err(e) => {
-                                    let _ =
-                                        tx.send(BgMsg::Error(format!("Send failed: {e}"))).await;
+                                    let _ = tx
+                                        .send(BgMsg::SendFailed {
+                                            channel_id: ch_id,
+                                            local_id,
+                                            error: format!("Send failed: {e}"),
+                                        })
+                                        .await;
                                 }
                             }
                         });
@@ -1582,13 +1784,37 @@ impl App {
                 self.mode = AppMode::Normal;
                 self.clear_error();
             }
-            KeyCode::Char(c) => self.input.push(c),
+            KeyCode::Char(c) => {
+                self.input.push(c);
+                self.maybe_send_typing();
+            }
             KeyCode::Backspace => {
                 self.input.pop();
+                self.maybe_send_typing();
             }
             _ => {}
         }
         Ok(true)
+    }
+
+    /// Announce typing while composing, at most once per throttle window —
+    /// the server broadcasts it to the channel room.
+    fn maybe_send_typing(&mut self) {
+        if self.config.token.is_none() {
+            return;
+        }
+        let Some(ref ch_id) = self.active_channel else {
+            return;
+        };
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        if now.saturating_sub(self.last_typing_ms) < TYPING_THROTTLE_MS {
+            return;
+        }
+        self.last_typing_ms = now;
+        self.live.send_typing(ch_id);
     }
 
     fn handle_command_key(&mut self, key: KeyCode) -> Result<bool> {
@@ -1617,8 +1843,8 @@ impl App {
         let head = parts.next().unwrap_or("").to_lowercase();
         match head.as_str() {
             "q" | "quit" => {
-                // handled by returning false from key — set a flag via status
-                self.status = "Press q again to quit".into();
+                self.should_quit = true;
+                self.status = "Bye".into();
             }
             "chat" => {
                 self.screen = Screen::Chat;
@@ -1662,8 +1888,7 @@ impl App {
                 {
                     let id = ch.id.clone();
                     self.screen = Screen::Chat;
-                    self.active_channel = Some(id.clone());
-                    self.spawn_load_messages(&id);
+                    self.set_active_channel(Some(id));
                 } else {
                     self.set_error(format!("No channel matching '{name}'"));
                 }
@@ -1896,6 +2121,77 @@ impl App {
     }
 }
 
+/// Build the sidebar display order: `Direct` (DM/group) pinned on top, then
+/// category headers — each followed by its visible children — in position
+/// order, then unfiled channels. Categories only appear when they have
+/// visible children (with a filter active, empty ones collapse). Headers are
+/// containers, never selectable surfaces. Pure so it stays unit-testable.
+pub fn channel_rows<'a>(channels: &'a [Channel], filter: &str) -> Vec<ChannelRow<'a>> {
+    let q = filter.to_lowercase();
+    let visible =
+        |c: &Channel| q.is_empty() || c.name.to_lowercase().contains(&q) || c.channel_type.to_lowercase().contains(&q);
+    let by_position = |a: &&Channel, b: &&Channel| {
+        a.position.cmp(&b.position).then_with(|| a.name.cmp(&b.name))
+    };
+
+    let mut rows: Vec<ChannelRow<'a>> = Vec::new();
+
+    let mut direct: Vec<&Channel> = channels
+        .iter()
+        .filter(|c| matches!(c.kind, ChannelKind::Dm | ChannelKind::Group) && visible(c))
+        .collect();
+    direct.sort_by(|a, b| a.name.cmp(&b.name));
+    if !direct.is_empty() {
+        rows.push(ChannelRow::Header("Direct"));
+        rows.extend(direct.into_iter().map(ChannelRow::Channel));
+    }
+
+    // Categories in position order; children inherit the category's slot.
+    let mut categories: Vec<&Channel> = channels
+        .iter()
+        .filter(|c| matches!(c.kind, ChannelKind::Category))
+        .collect();
+    categories.sort_by(by_position);
+    let category_ids: std::collections::HashSet<&str> =
+        categories.iter().map(|c| c.id.as_str()).collect();
+    for cat in &categories {
+        let mut children: Vec<&Channel> = channels
+            .iter()
+            .filter(|c| {
+                !matches!(c.kind, ChannelKind::Category)
+                    && c.parent_id.as_deref() == Some(cat.id.as_str())
+                    && visible(c)
+            })
+            .collect();
+        children.sort_by(by_position);
+        if children.is_empty() {
+            continue;
+        }
+        rows.push(ChannelRow::Header(cat.name.as_str()));
+        rows.extend(children.into_iter().map(ChannelRow::Channel));
+    }
+
+    // Everything unfiled (no parent, or parent isn't a known category).
+    let mut rest: Vec<&Channel> = channels
+        .iter()
+        .filter(|c| {
+            !matches!(c.kind, ChannelKind::Dm | ChannelKind::Group | ChannelKind::Category)
+                && visible(c)
+                && !c
+                    .parent_id
+                    .as_deref()
+                    .is_some_and(|p| category_ids.contains(p))
+        })
+        .collect();
+    rest.sort_by(by_position);
+    if !rest.is_empty() {
+        rows.push(ChannelRow::Header("Channels"));
+        rows.extend(rest.into_iter().map(ChannelRow::Channel));
+    }
+
+    rows
+}
+
 /// Collect files under `root` for `:lore push`, as (absolute path, repo
 /// path) pairs. Skips build artifacts, dependency trees, secrets, local
 /// state, and symlinks — the client-side mirror of the server's seeded
@@ -1959,4 +2255,157 @@ fn collect_push_files(root: &std::path::Path) -> std::io::Result<Vec<(std::path:
     }
     out.sort_by(|a, b| a.1.cmp(&b.1));
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ch(id: &str, name: &str, kind: ChannelKind, position: i32, parent: Option<&str>) -> Channel {
+        Channel {
+            id: id.into(),
+            name: name.into(),
+            channel_type: format!("{kind:?}").to_lowercase(),
+            kind,
+            description: None,
+            position,
+            parent_id: parent.map(str::to_string),
+        }
+    }
+
+    fn row_labels(rows: &[ChannelRow<'_>]) -> Vec<String> {
+        rows.iter()
+            .map(|r| match r {
+                ChannelRow::Header(h) => format!("#header:{h}"),
+                ChannelRow::Channel(c) => format!("ch:{}", c.id),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn channel_rows_group_categories_in_position_order() {
+        let channels = vec![
+            ch("c_a", "Cat A", ChannelKind::Category, 2, None),
+            ch("c_b", "Cat B", ChannelKind::Category, 1, None),
+            ch("g1", "general", ChannelKind::Text, 5, None),
+            ch("n1", "news", ChannelKind::Announcement, 0, Some("c_a")),
+            ch("d1", "dev", ChannelKind::Text, 3, Some("c_b")),
+            ch("dm1", "alice", ChannelKind::Dm, 9, None),
+        ];
+        let labels = row_labels(&channel_rows(&channels, ""));
+        assert_eq!(
+            labels,
+            vec![
+                "#header:Direct".to_string(),
+                "ch:dm1".to_string(),
+                // Categories by position (Cat B=1 before Cat A=2), children inside.
+                "#header:Cat B".to_string(),
+                "ch:d1".to_string(),
+                "#header:Cat A".to_string(),
+                "ch:n1".to_string(),
+                // Unfiled channels last, position order.
+                "#header:Channels".to_string(),
+                "ch:g1".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn channel_rows_filter_collapses_empty_categories_and_sections() {
+        let channels = vec![
+            ch("c_a", "Cat A", ChannelKind::Category, 1, None),
+            ch("n1", "news", ChannelKind::Announcement, 0, Some("c_a")),
+            ch("g1", "general", ChannelKind::Text, 2, None),
+            ch("dm1", "alice", ChannelKind::Dm, 3, None),
+        ];
+        // Only "dev" would match — nothing does.
+        assert!(channel_rows(&channels, "dev").is_empty());
+        // "general" matches: no Direct rows, Cat A has no visible children.
+        let labels = row_labels(&channel_rows(&channels, "general"));
+        assert_eq!(labels, vec!["#header:Channels".to_string(), "ch:g1".to_string()]);
+        // Filter on a category name alone shows nothing: headers follow
+        // children, they are not themselves searchable surfaces.
+        assert!(channel_rows(&channels, "Cat A").is_empty());
+    }
+
+    #[test]
+    fn channel_rows_orphan_parents_land_in_unfiled() {
+        let channels = vec![
+            ch("c_a", "Cat A", ChannelKind::Category, 1, None),
+            ch("x1", "orphan", ChannelKind::Text, 0, Some("missing")),
+        ];
+        let labels = row_labels(&channel_rows(&channels, ""));
+        assert_eq!(
+            labels,
+            vec!["#header:Channels".to_string(), "ch:x1".to_string()]
+        );
+    }
+
+    #[test]
+    fn channel_rows_skip_empty_category_rows() {
+        let channels = vec![
+            ch("c_a", "Cat A", ChannelKind::Category, 0, None),
+            ch("c_empty", "Empty", ChannelKind::Category, 1, None),
+            ch("g1", "general", ChannelKind::Text, 2, None),
+        ];
+        // Both categories have no children, so both collapse; only the
+        // unfiled section renders.
+        let labels = row_labels(&channel_rows(&channels, ""));
+        assert_eq!(
+            labels,
+            vec!["#header:Channels".to_string(), "ch:g1".to_string()]
+        );
+    }
+
+    fn msg(text: &str) -> Message {
+        Message {
+            id: "m1".into(),
+            channel_id: "ch_1".into(),
+            sender_id: 1,
+            sender_name: "avery".into(),
+            text: text.into(),
+            timestamp: 0,
+            message_type: "text".into(),
+            encrypted: false,
+            failed: false,
+            file_names: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn display_text_keeps_plain_text_verbatim() {
+        assert_eq!(msg("hello world").display_text(), "hello world");
+        assert_eq!(msg("").display_text(), "");
+    }
+
+    #[test]
+    fn display_text_marks_uploads_and_attachments() {
+        assert_eq!(msg("/uploads/7/notes.txt").display_text(), "[file: notes.txt]");
+        let mut m = msg("");
+        m.file_names = vec!["a.png".into(), "b.pdf".into()];
+        assert_eq!(m.display_text(), "[file: a.png] [file: b.pdf]");
+    }
+
+    #[test]
+    fn display_text_never_echoes_ciphertext() {
+        let cipher = "wabi-e2ee-v1:eyJhbGciOi超级secretbytes";
+        let mut m = msg(cipher);
+        assert!(m.display_text().starts_with("[encrypted message"));
+        assert!(!m.display_text().contains("secretbytes"));
+        // Server `encrypted` flag alone (no prefix) hides the body too.
+        m.encrypted = true;
+        m.text = "would-be plaintext".into();
+        assert!(m.display_text().starts_with("[encrypted message"));
+        assert!(!m.display_text().contains("plaintext"));
+    }
+
+    #[test]
+    fn display_text_tags_failed_sends() {
+        let mut m = msg("hello");
+        m.failed = true;
+        assert_eq!(
+            m.display_text(),
+            "[not sent] hello"
+        );
+    }
 }
