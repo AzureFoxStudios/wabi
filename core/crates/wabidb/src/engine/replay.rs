@@ -58,12 +58,24 @@ pub async fn replay_projections(
 ) -> Result<u64> {
     let mut membership_repair =
         super::membership_repair::MembershipRepair::from_snapshot(projection_state)?;
+    let mut voice_repair =
+        crate::projections::voice_restrictions::LegacyVoiceRepair::from_snapshot(projection_state)?;
     let streams_dir = data_dir.join("streams");
     // --- Load the committed seq set (Option B orphan filter) ---
     let commit_index_dir = data_dir.join("global").join("commit-index");
     let committed: HashMap<_, _> =
         crate::commit_index::batcher::read_all_entries(&commit_index_dir)
             .map(|entries| entries.into_iter().map(|e| (e.commit_seq, e)).collect())?;
+    if let Some(repair) = voice_repair.as_mut() {
+        // The legacy fallback retained only the last payload per event type,
+        // not an inventory of affected pairs. Include every historical
+        // kind-1 stream and require its complete indexed history.
+        for entry in committed.values().filter(|e| e.commit_seq <= snapshot_watermark) {
+            for reference in entry.event_refs.iter().filter(|r| r.stream_kind == 1) {
+                repair.include_stream(reference.stream_id_hash);
+            }
+        }
+    }
     let applied_seq = committed
         .keys()
         .copied()
@@ -77,6 +89,9 @@ pub async fn replay_projections(
                     || membership_repair
                         .as_ref()
                         .is_some_and(|repair| repair.includes(&r.stream_id_hash))
+                    || voice_repair
+                        .as_ref()
+                        .is_some_and(|repair| repair.includes(&r.stream_id_hash))
             })
         }) {
             return Err(crate::error::WabiError::Corrupt {
@@ -86,6 +101,9 @@ pub async fn replay_projections(
             });
         }
         if let Some(repair) = membership_repair {
+            repair.finish(projection_state)?;
+        }
+        if let Some(repair) = voice_repair {
             repair.finish(projection_state)?;
         }
         barrier.advance(applied_seq)?;
@@ -194,11 +212,14 @@ pub async fn replay_projections(
                     // must never be reused by a restarted sequencer.
                     highest_seq = highest_seq.max(commit_seq);
 
-                    // Old snapshots could acknowledge but ignore removals.
-                    // Recover only their membership streams; unrelated legacy
-                    // records remain covered by the snapshot, as before.
+                    // Old snapshots could acknowledge ignored membership or
+                    // voice restrictions. Recover their required history;
+                    // unrelated events remain covered by the snapshot.
                     if commit_seq <= snapshot_watermark
                         && !membership_repair
+                            .as_ref()
+                            .is_some_and(|repair| repair.includes(&rec.header.stream_id_hash))
+                        && !voice_repair
                             .as_ref()
                             .is_some_and(|repair| repair.includes(&rec.header.stream_id_hash))
                     {
@@ -312,6 +333,9 @@ pub async fn replay_projections(
                     || membership_repair
                         .as_ref()
                         .is_some_and(|repair| repair.includes(&r.stream_id_hash))
+                    || voice_repair
+                        .as_ref()
+                        .is_some_and(|repair| repair.includes(&r.stream_id_hash))
             })
             .count();
         if recovered_events
@@ -333,6 +357,17 @@ pub async fn replay_projections(
             .iter()
             .filter(|(_, e)| e.commit_seq <= snapshot_watermark)
         {
+            let hash: [u8; 16] = blake3::hash(event.stream_id.as_bytes()).as_bytes()[..16]
+                .try_into()
+                .unwrap();
+            if repair.includes(&hash) {
+                repair.observe(event)?;
+            }
+        }
+        repair.finish(projection_state)?;
+    }
+    if let Some(mut repair) = voice_repair.take() {
+        for (_, event) in collected.iter().filter(|(_, e)| e.commit_seq <= snapshot_watermark) {
             repair.observe(event)?;
         }
         repair.finish(projection_state)?;

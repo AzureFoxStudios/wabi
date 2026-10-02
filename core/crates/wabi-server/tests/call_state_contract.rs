@@ -19,31 +19,54 @@ use wabidb::{
     engine::wabi_store::WabiStore,
 };
 
+fn server_config(path: &Path) -> ServerConfig {
+    ServerConfig {
+        host: "127.0.0.1".into(),
+        port: 0,
+        data_dir: path.to_string_lossy().into(),
+        uploads_dir: path.join("uploads").to_string_lossy().into(),
+        jwt_secret: "call-state-test-only".into(),
+        turn_enabled: false,
+        turn_uri: None,
+        turn_secret: None,
+        node_id: "test".into(),
+        is_primary: true,
+        server_role: ServerRole::Authority,
+        authority_url: None,
+        admin_user_ids: vec![],
+        blacklist_file: path.join("blacklist").to_string_lossy().into(),
+        max_body_size: None,
+        mesh_enabled: false,
+        mesh_peers: vec![],
+        lore: LoreAddonConfig::default(),
+    }
+}
 async fn server(path: &Path) -> Arc<AppState> {
-    Arc::new(
-        AppState::new(ServerConfig {
-            host: "127.0.0.1".into(),
-            port: 0,
-            data_dir: path.to_string_lossy().into(),
-            uploads_dir: path.join("uploads").to_string_lossy().into(),
-            jwt_secret: "call-state-test-only".into(),
-            turn_enabled: false,
-            turn_uri: None,
-            turn_secret: None,
-            node_id: "test".into(),
-            is_primary: true,
-            server_role: ServerRole::Authority,
-            authority_url: None,
-            admin_user_ids: vec![],
-            blacklist_file: path.join("blacklist").to_string_lossy().into(),
-            max_body_size: None,
-            mesh_enabled: false,
-            mesh_peers: vec![],
-            lore: LoreAddonConfig::default(),
-        })
-        .await
-        .unwrap(),
-    )
+    Arc::new(AppState::new(server_config(path)).await.unwrap())
+}
+async fn reopen_server(path: &Path) -> Arc<AppState> {
+    // Admitted disk writes retain the advisory lock after the last state drops.
+    // Wait only for that bounded teardown, retaining the inode and surfacing
+    // every other startup error before the durable-history assertions run.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match AppState::new(server_config(path)).await {
+            Ok(state) => return Arc::new(state),
+            Err(error)
+                if error
+                    .downcast_ref::<wabidb::error::WabiError>()
+                    .is_some_and(|error| {
+                        matches!(error, wabidb::error::WabiError::AlreadyRunning)
+                    })
+                    && tokio::time::Instant::now() < deadline =>
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            Err(error) => {
+                panic!("could not reopen call fixture after writer teardown: {error:#}")
+            }
+        }
+    }
 }
 fn token(state: &AppState, user: u64, lifetime: i64, kind: &str) -> String {
     let now = chrono::Utc::now().timestamp();
@@ -585,7 +608,7 @@ async fn colon_key_signal_history_is_durable_ordered_and_recipient_scoped() {
     // Drop every owner normally; engine snapshots/releases its own lock.
     drop(app);
     drop(state);
-    let state = server(dir.path()).await;
+    let state = reopen_server(dir.path()).await;
     let app = Router::new()
         .nest(
             "/api",

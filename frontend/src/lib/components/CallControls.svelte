@@ -152,9 +152,9 @@
 			class:active={presenterOverlayVisible}
 			on:click={onTogglePresenterOverlay}
 			disabled={!presenterOverlayAvailable}
-			title="Toggle local presenter overlay"
+			title="Draw on presentation (local overlay)" aria-label="Draw on presentation"
 		>
-			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17c2.5-4 5.17-6 8-6 2.2 0 4.2 1.2 6 3.6"/><path d="M5 5l14 14"/><path d="M14 5H5v9"/></svg>
+			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 3 5 5-12 12-6 1 1-6L16 3Z"/><path d="m13 6 5 5"/></svg>
 		</button>
 
 		{#if canScreenShare}
@@ -196,7 +196,7 @@
 			class="control-btn"
 			class:active={devicePickerOpen}
 			on:click={toggleDevicePicker}
-			title="Audio & video settings"
+			title="Microphone and speaker devices" aria-label="Microphone and speaker devices"
 			aria-haspopup="dialog"
 			aria-expanded={devicePickerOpen}
 		>
@@ -212,11 +212,14 @@
 		<div
 			class="device-picker"
 			role="dialog"
-			aria-label="Audio and video device settings"
+			aria-label="Microphone and speaker devices"
 			bind:this={devicePickerEl}
 			on:keydown={handleKeydown}
 			tabindex="-1"
 		>
+			<h3>Call devices</h3>
+			<p>Choose your microphone and speakers for this call.</p>
+			<button type="button" class="device-option" on:click={() => { devicePickerOpen = false; window.dispatchEvent(new CustomEvent('wabi:open-settings', { detail: { tab: 'audio' } })); }}>Audio settings…</button>
 			{#if !devices}
 				<p class="device-picker-empty">Loading devices…</p>
 			{:else}

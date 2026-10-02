@@ -35,7 +35,7 @@
 	<header>
 		<div>
 			<strong>Board tokens</strong>
-			<small>Movable shared-object groundwork for STDB/WabiDB sync.</small>
+			<small>Experimental shared map markers.</small>
 		</div>
 		<span class="count">{visibleTokens.length}</span>
 	</header>

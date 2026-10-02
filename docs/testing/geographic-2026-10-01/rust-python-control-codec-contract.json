@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "scope": "Actual Rust/Python disposable local control interface and guarded restart",
+  "artifact": {
+    "path": "target/debug/deps/encrypted_tcp_contract-ff7d8a7fc181c369",
+    "sha256": "52455067953e0d2d67f04dff308caca01cc2d4715a17f60828f6eee3a17dd3ec",
+    "bytes": 85751720
+  },
+  "canonicalWriterPermitted": false,
+  "physicalThreeSiteTested": false,
+  "automaticWabiRecoveryTested": false,
+  "status": "PASS",
+  "realRustRepliesValidatedByPython": true,
+  "realThreeVoterReceiptConvergence": {
+    "result": "PASS",
+    "scope": "exact_disposable_control_receipt_convergence",
+    "voters": 3,
+    "canonicalWriterPermitted": false,
+    "automaticWabiRecoveryTested": false,
+    "physicalThreeSiteTested": false
+  },
+  "sameIdChangedContentsCannotBorrowOriginalReceipt": true,
+  "originalReceiptAfterActualWorkerSigkillAndRestart": true,
+  "originalStoreLockAndPrivateKeyInodesPreserved": true,
+  "rustPythonOriginalCommandSha256": "5c7ee9597c941f9f8cf1b3eb1400f815242cbbbc27824b86f2510b116f0f5b3a",
+  "independentPrivateNodeKeysCreatedInOwnedLocalFixtures": 3,
+  "nodeLabels": [
+    1,
+    2,
+    3
+  ],
+  "configSha256": {
+    "1": "9365de90edfd911b50e4104291db4633cda36eb6881ce943140631182bce48c8",
+    "2": "bdac5c62b3b0e3295210dd00c93e7a0f641b0785f948b428a1825135d762b63b",
+    "3": "ea26e1602d15eab02d7e06101eeb10278f014cf45ddf64e775d9bbdee92012b3"
+  },
+  "cleanup": {
+    "supervisorReceipts": {
+      "3": {
+        "schemaVersion": 1,
+        "result": "PASS",
+        "scope": "disposable_process_lifetime_cleanup",
+        "endReason": "controller_stop",
+        "synthetic": false,
+        "restartMode": true,
+        "workerRestarts": 0,
+        "ownedChildStopped": true,
+        "cleanupComplete": true,
+        "encryptedRpcTested": false,
+        "automaticWabiRecoveryTested": false
+      },
+      "1": {
+        "schemaVersion": 1,
+        "result": "PASS",
+        "scope": "disposable_process_lifetime_cleanup",
+        "endReason": "controller_stop",
+        "synthetic": false,
+        "restartMode": true,
+        "workerRestarts": 0,
+        "ownedChildStopped": true,
+        "cleanupComplete": true,
+        "encryptedRpcTested": false,
+        "automaticWabiRecoveryTested": false
+      },
+      "2": {
+        "schemaVersion": 1,
+        "result": "PASS",
+        "scope": "disposable_process_lifetime_cleanup",
+        "endReason": "controller_stop",
+        "synthetic": false,
+        "restartMode": true,
+        "workerRestarts": 1,
+        "ownedChildStopped": true,
+        "cleanupComplete": true,
+        "encryptedRpcTested": false,
+        "automaticWabiRecoveryTested": false
+      }
+    },
+    "supervisorErrorTypes": {},
+    "ownedThreadsRemaining": [],
+    "ownedNodeRootsRemaining": [],
+    "ownedParentStageRemoved": true,
+    "temporaryRunnerRemovedAfterArchiveVerification": true,
+    "exactTemporaryRunnerBytesRemoved": 9678
+  },
+  "recordedAtUtc": "2026-10-01T12:24:28.336278+00:00",
+  "sourceDigests": {
+    "scripts/geographic-acceptance/rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2",
+    "scripts/geographic-acceptance/rpc-probe-controller.py": "cbb16bed861a55a6d978a006065e4cd6e9e57410f4ed669c5acf3f9db791eb9e"
+  },
+  "runnerSourceSha256": "14f4e0a4cf8278e1b10aa025c7f0edad32a2c18fe1d9b0cde276b54583e599d3",
+  "terminalSession": "53515",
+  "exitCode": 0,
+  "localAvailableDiskBytes": 93464461312
+}

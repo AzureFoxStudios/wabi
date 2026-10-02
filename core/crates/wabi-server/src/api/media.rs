@@ -95,18 +95,60 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .with_state(state)
 }
 
+/// Keep channel/role admission and the original credential valid until a
+/// room operation finishes, even if the caller disconnects after dispatch.
+struct MediaAdmission {
+    _membership: tokio::sync::OwnedRwLockReadGuard<()>,
+    _credential: crate::auth_extractor::CurrentAuthorizationGuard,
+}
+
+async fn admit_media(state: &AppState, auth: &AuthUser) -> Result<MediaAdmission, MediaApiError> {
+    let membership = state.membership_gate.clone().read_owned().await;
+    let credential = auth
+        .admit_current(state)
+        .await
+        .map_err(|_| MediaApiError::Forbidden)?;
+    Ok(MediaAdmission {
+        _membership: membership,
+        _credential: credential,
+    })
+}
+
+impl MediaAdmission {
+    async fn run<T, Fut>(self, state: &AppState, operation: Fut) -> Result<T, MediaApiError>
+    where
+        T: Send + 'static,
+        Fut: std::future::Future<Output = Result<T, MediaApiError>> + Send + 'static,
+    {
+        state
+            .instance_operations
+            .spawn(async move {
+                let _authorization = self;
+                operation.await
+            })
+            .await
+            .map_err(|_| MediaApiError::Internal)?
+    }
+}
+
 async fn create_room(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Json(req): Json<CreateRoomRequest>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
-    // Media room creation is not a discovery endpoint. Prove current channel
-    // access before allocating shared-node resources.
-    crate::channel_access::require_access(&state, auth.user_id, &req.channel_id)
+    let authorization = admit_media(&state, &auth).await?;
+    let operation_state = state.clone();
+    authorization
+        .run(&operation_state, async move {
+            // Media room creation is not a discovery endpoint. Prove current channel
+            // access before allocating shared-node resources.
+            crate::channel_access::require_access(&state, auth.user_id, &req.channel_id)
+                .await
+                .map_err(|_| MediaApiError::Forbidden)?;
+            let room = ensure_media_room(&state, req.channel_id, req.max_participants).await?;
+            Ok(Json(RoomResponse { room }))
+        })
         .await
-        .map_err(|_| MediaApiError::Forbidden)?;
-    let room = ensure_media_room(&state, req.channel_id, req.max_participants).await?;
-    Ok(Json(RoomResponse { room }))
 }
 
 async fn ensure_media_room(
@@ -222,14 +264,18 @@ async fn submit_media_operation(
 
 async fn get_room(
     State(state): State<Arc<AppState>>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
+    let _authorization = admit_media(&state, &auth).await?;
     let room = state
         .media_registry
         .get_room(&room_id)
         .await
         .ok_or(MediaApiError::NotFound)?;
+    crate::channel_access::require_access(&state, auth.user_id, &room.channel_id)
+        .await
+        .map_err(|_| MediaApiError::Forbidden)?;
     Ok(Json(RoomResponse { room }))
 }
 
@@ -238,6 +284,7 @@ async fn find_by_channel(
     auth: AuthUser,
     Path(channel_id): Path<String>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
+    let _authorization = admit_media(&state, &auth).await?;
     crate::channel_access::require_access(&state, auth.user_id, &channel_id)
         .await
         .map_err(|_| MediaApiError::Forbidden)?;
@@ -255,16 +302,22 @@ async fn assign_room(
     Path(room_id): Path<String>,
     Json(req): Json<AssignRoomRequest>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
-    if !state.is_admin(auth.user_id).await {
-        return Err(MediaApiError::Forbidden);
-    }
-    let room = state
-        .media_registry
-        .assign_room(&room_id, &req.node_id, req.sfu_endpoint)
+    let authorization = admit_media(&state, &auth).await?;
+    let operation_state = state.clone();
+    authorization
+        .run(&operation_state, async move {
+            if auth.is_guest || auth.is_bot || !state.is_admin(auth.user_id).await {
+                return Err(MediaApiError::Forbidden);
+            }
+            let room = state
+                .media_registry
+                .assign_room(&room_id, &req.node_id, req.sfu_endpoint)
+                .await
+                .map_err(MediaApiError::from)?;
+            submit_media_operation(&state, &room, "activate_room", serde_json::json!({})).await?;
+            Ok(Json(RoomResponse { room }))
+        })
         .await
-        .map_err(MediaApiError::from)?;
-    submit_media_operation(&state, &room, "activate_room", serde_json::json!({})).await?;
-    Ok(Json(RoomResponse { room }))
 }
 
 async fn mark_active(
@@ -299,22 +352,29 @@ async fn close_room(
     auth: AuthUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<RoomResponse>, MediaApiError> {
-    if !state.is_admin(auth.user_id).await {
-        return Err(MediaApiError::Forbidden);
-    }
-    let room = state
-        .media_registry
-        .close_room(&room_id)
+    let authorization = admit_media(&state, &auth).await?;
+    let operation_state = state.clone();
+    authorization
+        .run(&operation_state, async move {
+            if auth.is_guest || auth.is_bot || !state.is_admin(auth.user_id).await {
+                return Err(MediaApiError::Forbidden);
+            }
+            let room = state
+                .media_registry
+                .close_room(&room_id)
+                .await
+                .map_err(MediaApiError::from)?;
+            Ok(Json(RoomResponse { room }))
+        })
         .await
-        .map_err(MediaApiError::from)?;
-    Ok(Json(RoomResponse { room }))
 }
 
 async fn list_rooms(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> Result<Json<Vec<MediaRoom>>, MediaApiError> {
-    if !state.is_admin(auth.user_id).await {
+    let _authorization = admit_media(&state, &auth).await?;
+    if auth.is_guest || auth.is_bot || !state.is_admin(auth.user_id).await {
         return Err(MediaApiError::Forbidden);
     }
     Ok(Json(state.media_registry.list_rooms().await))
@@ -322,9 +382,18 @@ async fn list_rooms(
 
 async fn get_endpoint(
     State(state): State<Arc<AppState>>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<EndpointResponse>, MediaApiError> {
+    let _authorization = admit_media(&state, &auth).await?;
+    let room = state
+        .media_registry
+        .get_room(&room_id)
+        .await
+        .ok_or(MediaApiError::NotFound)?;
+    crate::channel_access::require_access(&state, auth.user_id, &room.channel_id)
+        .await
+        .map_err(|_| MediaApiError::Forbidden)?;
     let endpoint = state.media_registry.active_endpoint(&room_id).await;
     let fallback_to_primary = endpoint.is_none();
     Ok(Json(EndpointResponse {
@@ -339,9 +408,19 @@ async fn create_livekit_token(
     auth: AuthUser,
     Json(req): Json<LivekitTokenRequest>,
 ) -> Result<Json<serde_json::Value>, MediaApiError> {
+    if !cfg!(feature = "experimental-livekit-broker") {
+        return Err(MediaApiError::Unavailable);
+    }
     if auth.user_id <= 0 || auth.is_bot {
         return Err(MediaApiError::Forbidden);
     }
+    // Body extraction may have waited behind a slow sender. Admission is based
+    // on current credentials and room policy at the time we dispatch the job.
+    let admission = state.membership_gate.read().await;
+    let credential = auth
+        .admit_current(&state)
+        .await
+        .map_err(|_| MediaApiError::Forbidden)?;
     let channel = crate::channel_access::require_access(&state, auth.user_id, &req.channel_id)
         .await
         .map_err(|_| MediaApiError::Forbidden)?;
@@ -349,7 +428,8 @@ async fn create_livekit_token(
         return Err(MediaApiError::Forbidden);
     }
 
-    let room = ensure_media_room(&state, req.channel_id.clone(), default_max_participants()).await?;
+    let room =
+        ensure_media_room(&state, req.channel_id.clone(), default_max_participants()).await?;
     let node_id = room
         .assigned_node_id
         .clone()
@@ -371,12 +451,12 @@ async fn create_livekit_token(
         .wdb
         .is_user_muted(&req.channel_id, auth.user_id as u64)
         .await
-        .unwrap_or(false);
+        .map_err(|_| MediaApiError::Internal)?;
     let server_deafened = state
         .wdb
         .is_user_deafened(&req.channel_id, auth.user_id as u64)
         .await
-        .unwrap_or(false);
+        .map_err(|_| MediaApiError::Internal)?;
     let can_publish = !server_muted;
     let can_subscribe = !server_deafened;
     let publish_sources = if can_publish {
@@ -402,7 +482,7 @@ async fn create_livekit_token(
         serde_json::json!({
             "identity": identity.clone(),
             "displayName": display_name,
-            "ttlSeconds": 600,
+            "ttlSeconds": 60,
             "grants": {
                 "canPublish": can_publish,
                 "canSubscribe": can_subscribe,
@@ -412,6 +492,8 @@ async fn create_livekit_token(
         }),
     )
     .await?;
+    drop(credential);
+    drop(admission);
 
     let deadline = Instant::now() + MEDIA_TOKEN_WAIT;
     loop {
@@ -426,6 +508,30 @@ async fn create_livekit_token(
             JobStatus::Completed => {
                 let result = current.result_payload.ok_or(MediaApiError::Internal)?;
                 validate_livekit_token_result(&result, &room, &identity)?;
+                // A helper can respond long after a kick, password reset, or
+                // moderation change. Do not return a previously minted grant
+                // to a caller who no longer qualifies for it.
+                let _admission = state.membership_gate.read().await;
+                let _credential = auth
+                    .admit_current(&state)
+                    .await
+                    .map_err(|_| MediaApiError::Forbidden)?;
+                crate::channel_access::require_access(&state, auth.user_id, &req.channel_id)
+                    .await
+                    .map_err(|_| MediaApiError::Forbidden)?;
+                let muted = state
+                    .wdb
+                    .is_user_muted(&req.channel_id, auth.user_id as u64)
+                    .await
+                    .map_err(|_| MediaApiError::Internal)?;
+                let deafened = state
+                    .wdb
+                    .is_user_deafened(&req.channel_id, auth.user_id as u64)
+                    .await
+                    .map_err(|_| MediaApiError::Internal)?;
+                if (can_publish && muted) || (can_subscribe && deafened) {
+                    return Err(MediaApiError::Forbidden);
+                }
                 return Ok(Json(result));
             }
             JobStatus::DeadLettered | JobStatus::Failed | JobStatus::Cancelled => {
@@ -608,7 +714,7 @@ async fn media_runtime_snapshot(
         .ok()
         .is_some_and(|output| output.status.success());
     let livekit_configured = configured_url.is_some() || local_binary;
-    let livekit_ready = configured_url.is_some();
+    let livekit_ready = configured_url.is_some() && cfg!(feature = "experimental-livekit-broker");
 
     Json(ServerMediaRuntimePayload {
         media: Some(ServerMediaRuntimeMediaPayload {
@@ -621,9 +727,13 @@ async fn media_runtime_snapshot(
             }),
             turn: Some(ServerMediaRuntimeTurnPayload {
                 configured: turn_configured,
-                server: turn_endpoint.as_ref().map(|endpoint| endpoint.server.clone()),
+                server: turn_endpoint
+                    .as_ref()
+                    .map(|endpoint| endpoint.server.clone()),
                 port: turn_endpoint.as_ref().map(|endpoint| endpoint.port),
-                use_turns: turn_endpoint.as_ref().is_some_and(|endpoint| endpoint.use_turns),
+                use_turns: turn_endpoint
+                    .as_ref()
+                    .is_some_and(|endpoint| endpoint.use_turns),
             }),
             gateway: Some(ServerMediaRuntimeGatewayPayload {
                 configured: false,
@@ -685,9 +795,10 @@ impl IntoResponse for MediaApiError {
             MediaApiError::Registry(MediaRoomError::AlreadyExists) => {
                 (StatusCode::CONFLICT, "room already exists")
             }
-            MediaApiError::Registry(MediaRoomError::InvalidState) => {
-                (StatusCode::CONFLICT, "room is not in a state that allows this action")
-            }
+            MediaApiError::Registry(MediaRoomError::InvalidState) => (
+                StatusCode::CONFLICT,
+                "room is not in a state that allows this action",
+            ),
             MediaApiError::Registry(MediaRoomError::InvalidNode) => {
                 (StatusCode::BAD_REQUEST, "invalid node for room")
             }
@@ -695,15 +806,14 @@ impl IntoResponse for MediaApiError {
                 tracing::error!("media room io error: {}", msg);
                 (StatusCode::INTERNAL_SERVER_ERROR, "registry io error")
             }
-            MediaApiError::Forbidden => {
-                (StatusCode::FORBIDDEN, "not authorized for media action")
-            }
+            MediaApiError::Forbidden => (StatusCode::FORBIDDEN, "not authorized for media action"),
             MediaApiError::Unavailable => {
                 (StatusCode::SERVICE_UNAVAILABLE, "media node unavailable")
             }
-            MediaApiError::Internal => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "invalid media-node response")
-            }
+            MediaApiError::Internal => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "invalid media-node response",
+            ),
         };
         (status, body).into_response()
     }

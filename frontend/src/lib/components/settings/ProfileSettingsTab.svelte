@@ -7,9 +7,9 @@
 	import { selectPresence, getStoredPresence, type PresenceState } from '$lib/presenceControl';
 	import { profileAppearance, setProfileAppearance, profileDecorationsVisible } from '$lib/profileAppearance';
 	import ProfileName from '$lib/components/ProfileName.svelte';
-	import { getAuthToken } from '$lib/authSession';
+	import { getAuthToken, authSessionGeneration } from '$lib/authSession';
 	import { paymentAccessStore } from '$lib/payments/paymentAccessStore';
-	import { getServerUrl } from '$lib/serverUrl';
+	import { activeServerUrl, getServerUrl } from '$lib/serverUrl';
 	import { changePassword, getUserSettings } from '$lib/api';
 	import { clearActiveCustomStatusPreset } from '$lib/customStatusPresets';
 	import {
@@ -177,11 +177,15 @@
 
 	// ── Overlay alignment editor (per-user scale + X/Y offset) ──
 	let overlayAlignMode = $state(false);
+	let overlayPendingUrl = $state('');
+	let overlayDraftOwner = $state('');
+	function overlayOwner() { return `${getServerUrl()}:${$currentUser?.dbUserId ?? $currentUser?.id ?? ''}:${authSessionGeneration(getServerUrl())}`; }
+	$effect(() => { void $activeServerUrl; void $currentUser?.id; if (overlayDraftOwner && overlayDraftOwner !== overlayOwner()) { overlayPendingUrl = ''; overlayAlignMode = false; overlayDraftOwner = ''; overlayDrag = null; } });
 	let overlayDraftScale = $state(1);
 	let overlayDraftX = $state(0);
 	let overlayDraftY = $state(0);
 	let overlayAlignSaving = $state(false);
-	const overlayPreviewUser = $derived(overlayAlignMode ? { overlayUrl: $currentUser?.overlayUrl, overlayScale: overlayDraftScale, overlayOffsetX: overlayDraftX, overlayOffsetY: overlayDraftY } : { overlayUrl: $currentUser?.overlayUrl, overlayScale: $currentUser?.overlayScale, overlayOffsetX: $currentUser?.overlayOffsetX, overlayOffsetY: $currentUser?.overlayOffsetY });
+	const overlayPreviewUser = $derived(overlayAlignMode ? { overlayUrl: overlayPendingUrl || $currentUser?.overlayUrl, overlayScale: overlayDraftScale, overlayOffsetX: overlayDraftX, overlayOffsetY: overlayDraftY } : { overlayUrl: $currentUser?.overlayUrl, overlayScale: $currentUser?.overlayScale, overlayOffsetX: $currentUser?.overlayOffsetX, overlayOffsetY: $currentUser?.overlayOffsetY });
 	let overlayDrag: { pointerId: number; startX: number; startY: number; baseX: number; baseY: number } | null = null;
 
 	function clampOverlayDrafts() {
@@ -191,6 +195,7 @@
 	}
 
 	function enterOverlayAlign() {
+		overlayDraftOwner = overlayOwner();
 		const u = $currentUser;
 		overlayDraftScale = typeof u?.overlayScale === 'number' && Number.isFinite(u.overlayScale) ? u.overlayScale : 1;
 		overlayDraftX = typeof u?.overlayOffsetX === 'number' && Number.isFinite(u.overlayOffsetX) ? u.overlayOffsetX : 0;
@@ -200,32 +205,39 @@
 	}
 
 	function cancelOverlayAlign() {
+		if (overlayAlignSaving) return;
+		overlayStatus = 'Overlay changes cancelled.';
 		overlayAlignMode = false;
+		overlayPendingUrl = '';
 		overlayDrag = null;
 	}
 
 	function resetOverlayAlign() {
+		if (overlayAlignSaving) return;
 		overlayDraftScale = 1;
 		overlayDraftX = 0;
 		overlayDraftY = 0;
 	}
 
 	function nudgeOverlayScale(delta: number) {
+		if (overlayAlignSaving) return;
 		overlayDraftScale = Math.round(Math.min(3, Math.max(0.5, overlayDraftScale + delta)) * 100) / 100;
 	}
 
 	async function saveOverlayAlign() {
 		if (overlayAlignSaving) return;
+		if (overlayDraftOwner !== overlayOwner()) { cancelOverlayAlign(); overlayStatus = 'Your account changed. Choose the overlay again.'; return; }
 		clampOverlayDrafts(); overlayAlignSaving = true; overlayStatus = 'Saving alignment…';
 		try {
-			await saveProfilePatch({ overlayScale: overlayDraftScale, overlayOffsetX: overlayDraftX, overlayOffsetY: overlayDraftY });
+			await saveProfilePatch({ ...(overlayPendingUrl ? { overlayUrl: overlayPendingUrl } : {}), overlayScale: overlayDraftScale, overlayOffsetX: overlayDraftX, overlayOffsetY: overlayDraftY });
+			overlayPendingUrl = '';
 			overlayStatus = 'Overlay alignment saved.'; overlayAlignMode = false;
 		} catch (error) { overlayStatus = error instanceof Error ? error.message : 'Could not save overlay alignment.'; }
 		finally { overlayAlignSaving = false; }
 	}
 
 	function onOverlayPointerDown(e: PointerEvent) {
-		if (!overlayAlignMode) return;
+		if (!overlayAlignMode || overlayAlignSaving) return;
 		(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
 		overlayDrag = {
 			pointerId: e.pointerId,
@@ -250,7 +262,7 @@
 	}
 
 	function onOverlayWheel(e: WheelEvent) {
-		if (!overlayAlignMode) return;
+		if (!overlayAlignMode || overlayAlignSaving) return;
 		e.preventDefault();
 		nudgeOverlayScale(e.deltaY < 0 ? 0.05 : -0.05);
 	}
@@ -308,23 +320,27 @@
 
 	async function uploadOverlay(file: File) {
 		if (!file) return;
+		const server = getServerUrl(), token = getAuthToken(), generation = authSessionGeneration(server);
 		overlayUploading = true;
 		overlayStatus = '';
 		try {
 			validateProfileMedia(file, true);
 			const fd = new FormData();
 			fd.append('file', file, file.name || 'overlay.png');
-			const res = await fetch(`${getServerUrl()}/api/upload-profile-media`, {
+			const res = await fetch(`${server}/api/upload-profile-media`, {
 				method: 'POST',
-				headers: { Authorization: `Bearer ${getAuthToken()}` },
+				headers: { Authorization: `Bearer ${token}` },
 				body: fd
 			});
 			const payload = await res.json().catch(() => ({}));
 			if (!res.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : `Upload failed (${res.status})`);
 			const url = typeof payload?.fileUrl === 'string' ? payload.fileUrl : '';
 			if (!url) throw new Error('No URL returned');
-			await saveProfilePatch({ overlayUrl: url });
-			overlayStatus = 'Overlay saved.';
+			if (server !== getServerUrl() || token !== getAuthToken() || generation !== authSessionGeneration(server)) return;
+			overlayDraftOwner = overlayOwner();
+			overlayPendingUrl = url;
+			overlayDraftScale = 1; overlayDraftX = 0; overlayDraftY = 0; overlayAlignMode = true;
+			overlayStatus = 'Position your new overlay, then save it. Your existing overlay stays published until you save.';
 		} catch (e) {
 			overlayStatus = e instanceof Error ? e.message : 'Overlay upload failed.';
 		} finally {
@@ -465,10 +481,7 @@
 	const previewJoined = $derived(
 		new Date($currentUser?.joinedAt || Date.now()).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
 	);
-	const previewStatus = $derived($currentUser?.status || 'offline');
-	const previewStatusLabel = $derived(
-		previewStatus === 'active' ? 'Online' : previewStatus === 'away' ? 'Away' : previewStatus === 'busy' ? 'Busy' : 'Offline'
-	);
+
 </script>
 
 <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" id="banner-file-input" class="hidden-file-input" onchange={onBannerFile} />
@@ -513,32 +526,25 @@
 							{previewName.charAt(0).toUpperCase()}
 						</span>
 					{/if}
-					{#if $currentUser?.overlayUrl && !disableAllBannersLocal}
+					{#if ($currentUser?.overlayUrl || overlayPendingUrl) && !disableAllBannersLocal}
 						<ProfileDecoration user={overlayPreviewUser} class="profile-preview-overlay" />
 					{/if}
-					<span
-						class="profile-preview-status"
-						class:away={previewStatus === 'away'}
-						class:busy={previewStatus === 'busy'}
-						class:offline={previewStatus === 'offline'}
-						title={previewStatusLabel}
-					></span>
+
 				</button>
-				<button
-					type="button"
-					class="profile-preview-overlay-btn"
-					class:has-overlay={!!$currentUser?.overlayUrl}
-					onclick={() => document.getElementById('overlay-file-input')?.click()}
-					disabled={overlayUploading}
-					title={overlayUploading ? 'Uploading…' : ($currentUser?.overlayUrl ? 'Replace avatar overlay' : 'Upload avatar overlay')}
-					aria-label="Upload avatar overlay"
-				>{#if $currentUser?.overlayUrl && !disableAllBannersLocal}<ProfileMedia src={mediaUrl($currentUser.overlayUrl)} class="profile-overlay-button-media" decorative={true} />{/if}</button>
+				<details class="profile-presence-picker">
+					<summary class="profile-preview-status" class:away={selectedPresence === 'away'} class:busy={selectedPresence === 'busy'} class:offline={selectedPresence === 'invisible'} aria-label={`Presence: ${selectedPresence}. Change presence`} title="Change presence"></summary>
+					<div class="profile-presence-menu" role="group" aria-label="Presence">
+						{#each ['active', 'away', 'busy', 'invisible'] as status}
+							<button type="button" aria-pressed={selectedPresence === status} onclick={(event) => { changeStatus(status as PresenceState); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{status === 'active' ? 'Online' : status === 'away' ? 'Away' : status === 'busy' ? 'Busy' : 'Invisible'}</button>
+						{/each}
+					</div>
+				</details>
 			</div>
-			{#if $currentUser?.overlayUrl && !overlayAlignMode}
-				<button type="button" class="action-btn secondary small" onclick={enterOverlayAlign}>
-					Adjust overlay
-				</button>
-			{/if}
+			<div class="profile-preview-edit-tools">
+				<button type="button" class="action-btn secondary small" onclick={() => dispatch('openAvatarEditor')}>Change avatar</button>
+				<button type="button" class="action-btn secondary small" onclick={() => document.getElementById('overlay-file-input')?.click()} disabled={overlayUploading || overlayAlignSaving}>{overlayUploading ? 'Uploading…' : 'Change overlay'}</button>
+				{#if $currentUser?.overlayUrl && !overlayAlignMode}<button type="button" class="action-btn secondary small" onclick={enterOverlayAlign}>Position overlay</button>{/if}
+			</div>
 			{#if overlayAlignMode}
 				<div class="overlay-align-editor" role="group" aria-label="Overlay alignment">
 					<p class="runtime-note">Drag the preview to move · scroll or use −/+ to scale.</p>
@@ -570,36 +576,6 @@
 	<div class="profile-editor-column">
 <div class="profile-mock">
 	<div class="profile-mock-body">
-		<div class="profile-mock-avatar-stack">
-			<button
-				type="button"
-				class="profile-mock-avatar-btn"
-				onclick={() => dispatch('openAvatarEditor')}
-				title="Change avatar"
-				aria-label="Change avatar"
-			>
-				{#if $currentUser?.profilePicture}
-					<ProfileMedia src={mediaUrl($currentUser.profilePicture)} class="profile-mock-avatar" decorative={true} />
-				{:else}
-					<span
-						class="profile-mock-avatar profile-mock-avatar-fallback"
-						style="--avatar-color: {$currentUser?.color || 'var(--accent-primary-color)'}"
-					>
-						{$currentUser?.username?.charAt(0).toUpperCase() || '?'}
-					</span>
-				{/if}
-				{#if $currentUser?.overlayUrl && !disableAllBannersLocal}
-					<ProfileDecoration user={overlayPreviewUser} class="profile-preview-overlay" />
-				{/if}
-				<span
-					class="profile-mock-status"
-					class:away={$currentUser?.status === 'away'}
-					class:busy={$currentUser?.status === 'busy'}
-					class:offline={!$currentUser || $currentUser.status === 'offline'}
-				></span>
-			</button>
-			<span class="profile-mock-media-label">Profile picture</span>
-		</div>
 
 		<div class="profile-mock-identity">
 			<div class="profile-mock-name-row">
@@ -629,20 +605,7 @@
 					Local account
 				{/if}
 			</p>
-			<div class="profile-mock-presence" role="group" aria-label="Presence">
-				<button type="button" class="presence-chip" class:active={selectedPresence === 'active'} onclick={() => changeStatus('active')}>
-					<span class="status-option-dot" style="background-color: var(--status-online)"></span> Active
-				</button>
-				<button type="button" class="presence-chip" class:active={selectedPresence === 'away'} onclick={() => changeStatus('away')}>
-					<span class="status-option-dot" style="background-color: var(--status-away)"></span> Away
-				</button>
-				<button type="button" class="presence-chip" class:active={selectedPresence === 'busy'} onclick={() => changeStatus('busy')}>
-					<span class="status-option-dot" style="background-color: var(--status-busy)"></span> Busy
-				</button>
-				<button type="button" class="presence-chip" class:active={selectedPresence === 'invisible'} onclick={() => changeStatus('invisible')}>
-					<span class="status-option-dot" style="background-color: var(--status-offline)"></span> Invisible
-				</button>
-			</div>
+
 			<label class="setting-label" for="profile-status-message">Status message</label>
 			<input id="profile-status-message" type="text" maxlength="120" bind:value={statusMessageDraft} placeholder="What are you up to?" class="profile-mock-bio" />
 			<div class="profile-bio-actions">
@@ -671,39 +634,15 @@
 		</div>
 	</div>
 
-	<div class="profile-art-actions" aria-label="Profile artwork">
-		{#if $currentUser?.profilePicture}<button type="button" class="action-btn secondary small" disabled={avatarRemoving} onclick={removeAvatar}>{avatarRemoving ? 'Removing avatar…' : 'Remove avatar'}</button>{/if}
-		<button type="button" class="action-btn secondary small" onclick={() => document.getElementById('banner-file-input')?.click()} disabled={bannerUploading}>{bannerUploading ? 'Saving banner…' : 'Upload banner'}</button>
-		<button type="button" class="action-btn secondary small" onclick={() => document.getElementById('overlay-file-input')?.click()} disabled={overlayUploading}>{overlayUploading ? 'Saving overlay…' : 'Upload overlay'}</button>
-		{#if $currentUser?.bannerUrl}<button type="button" class="action-btn secondary small" disabled={bannerUploading} onclick={() => removeProfileMedia('banner')}>Remove banner</button>{/if}
-		{#if $currentUser?.overlayUrl}<button type="button" class="action-btn secondary small" disabled={overlayUploading || overlayAlignSaving} onclick={() => removeProfileMedia('overlay')}>Remove overlay</button>{/if}
-	</div>
-	<details class="profile-art-guide">
-		<summary>Making artwork? Export sizes, templates & examples</summary>
-		<p><strong>Banner:</strong> 1200 × 400 px, 3:1. Export PNG, JPEG, GIF or WebP at 10 MiB or less. Keep key artwork inside the guide’s safe area; the avatar overlaps the lower left and smaller views may crop the edges.</p>
-		<p><strong>Avatar overlay:</strong> 512 × 512 px with a transparent center. Check the rounded square profile crop and circular message/People crops. PNG for still art; GIF or WebP for animation. Scale and position it with Adjust overlay.</p>
-		<p><strong>Animation:</strong> export a looping GIF or animated WebP at 10 MiB or less. A 3–6 second seamless loop at 12–24 fps is a useful starting point. Choose a calm still frame: viewers can pause artwork or use reduced motion. Videos and SVG uploads are not profile artwork formats.</p>
-		<div class="profile-guide-downloads"><a href="/profile-art/banner-guide.svg" download>Banner template · SVG</a><a href="/profile-art/avatar-overlay-guide.svg" download>Overlay template · SVG</a><a href="/profile-art/artist-guide.md" download>Full artist guide</a></div>
-		<ProfileArtExamples onUseDesign={(example) => nameDesignStudio?.loadExampleDraft(example)} />
-	</details>
-	<div class="profile-mock-toggles" role="group" aria-label="Banner and overlay visibility">
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Hide banners & overlays</span>
-				<span class="setting-description">Hide everyone’s banners and avatar overlays on this device. Your artwork stays saved.</span>
-			</div>
-			<button
-				type="button"
-				class="toggle-btn settings-switch"
-				class:active={disableAllBannersLocal}
-				onclick={() => setProfileAppearance({ decorations: !$profileAppearance.decorations })}
-				disabled={!$profileAppearance.showCosmetics}
-				role="switch"
-				aria-checked={disableAllBannersLocal}
-				aria-label="Hide banners and overlays"
-			></button>
+	<details class="profile-art-reset"><summary>Remove artwork</summary>
+		<div class="profile-art-actions">
+			{#if $currentUser?.profilePicture}<button type="button" class="action-btn secondary small" disabled={avatarRemoving} onclick={removeAvatar}>Remove avatar</button>{/if}
+			{#if $currentUser?.bannerUrl}<button type="button" class="action-btn secondary small" disabled={bannerUploading} onclick={() => removeProfileMedia('banner')}>Remove banner</button>{/if}
+			{#if $currentUser?.overlayUrl}<button type="button" class="action-btn secondary small" disabled={overlayUploading || overlayAlignSaving} onclick={() => removeProfileMedia('overlay')}>Remove overlay</button>{/if}
 		</div>
-	</div>
+	</details>
+
+
 </div>
 	</div>
 </section>
@@ -714,6 +653,16 @@
 			<UsernameFontCustomizer bind:this={nameDesignStudio} />
 		</div>
 	</div>
+</div>
+
+<div class="settings-section profile-art-resources">	<details class="profile-art-guide">
+		<summary>Artwork resources · Templates and examples</summary>
+		<p><strong>Banner:</strong> 1200 × 400 px, 3:1. Export PNG, JPEG, GIF or WebP at 10 MiB or less. Keep key artwork inside the guide’s safe area; the avatar overlaps the lower left and smaller views may crop the edges.</p>
+		<p><strong>Avatar overlay:</strong> 512 × 512 px with a transparent center. Check the rounded square profile crop and circular message/People crops. PNG for still art; GIF or WebP for animation. Scale and position it with Adjust overlay.</p>
+		<p><strong>Animation:</strong> export a looping GIF or animated WebP at 10 MiB or less. A 3–6 second seamless loop at 12–24 fps is a useful starting point. Choose a calm still frame: viewers can pause artwork or use reduced motion. Videos and SVG uploads are not profile artwork formats.</p>
+		<div class="profile-guide-downloads"><a href="/profile-art/banner-guide.svg" download>Banner template · SVG</a><a href="/profile-art/avatar-overlay-guide.svg" download>Overlay template · SVG</a><a href="/profile-art/artist-guide.md" download>Full artist guide</a></div>
+		<ProfileArtExamples onUseDesign={(example) => nameDesignStudio?.loadExampleDraft(example)} />
+	</details>
 </div>
 
 {#if $currentUser?.badges?.length}

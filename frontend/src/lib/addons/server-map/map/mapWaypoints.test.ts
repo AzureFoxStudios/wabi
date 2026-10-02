@@ -1,0 +1,4 @@
+import { expect, test } from 'bun:test';
+import { normalizeWaypoints, waypointVolumes } from './mapWaypoints';
+test('malformed and unbounded geographic pins are rejected', () => { expect(normalizeWaypoints([{id:'x',name:'x',latitude:90,longitude:0,height:10}])).toEqual([]); expect(normalizeWaypoints([{id:'x',name:'x',latitude:20,longitude:0,height:501}])).toEqual([]); });
+test('pin head sits at the requested real height, stalk connects to ground', () => { const pin = normalizeWaypoints([{id:'x',name:'Office',latitude:22,longitude:114,height:30}]); const volume = waypointVolumes(pin); expect(volume.features[0].properties).toMatchObject({base:0,top:30}); expect(volume.features[1].properties).toMatchObject({base:30,top:34}); expect(volume.features[1].geometry.coordinates[0][0]).toEqual(volume.features[1].geometry.coordinates[0][4]); });

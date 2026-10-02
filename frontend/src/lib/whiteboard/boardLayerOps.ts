@@ -1,3 +1,4 @@
+import { layerAllowsUpdate, layerAllowsNewContent } from './layerEditingLocks';
 import type { WhiteboardLayer } from './boardTypes';
 import type { BoardElement } from './elementTypes';
 import { createDefaultWhiteboardLayer, createLayerId, createRasterWhiteboardLayer, normalizeWhiteboardLayer, resolveWhiteboardLayerId, sortWhiteboardLayers } from './layers';
@@ -259,12 +260,13 @@ export function assignSelectionToLayer(
 	patchListener: PatchListener | null
 ): BoardState {
 	const targetLayerId = resolveWhiteboardLayerId(state.layers, layerId);
-	const selectionIds = [...state.selection];
+	if (!layerAllowsNewContent(state.layers.find(layer => layer.id === targetLayerId))) return state;
+	const selectionIds = [...state.selection].filter(id => { const element = state.elements.find(element => element.id === id); return element && layerAllowsUpdate(state.layers.find(layer => layer.id === element.layerId), { layerId: targetLayerId }); });
 	if (selectionIds.length === 0) return state;
 	const next: BoardState = {
 		...state,
 		elements: state.elements.map((element) =>
-			state.selection.has(element.id) ? { ...element, layerId: targetLayerId, updatedAt: Date.now() } : element
+			selectionIds.includes(element.id) ? { ...element, layerId: targetLayerId, updatedAt: Date.now() } : element
 		),
 		undoStack: pushUndo(state.elements, state.layers, state.activeLayerId, state.undoStack),
 		redoStack: [],

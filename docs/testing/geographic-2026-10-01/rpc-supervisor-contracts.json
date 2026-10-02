@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-01T09:16:49.552049+00:00",
+  "computer": "dotRonin",
+  "checkout": "/home/ironin/wabi",
+  "branch": "codex/security-boundary-hardening-20260930",
+  "baseCommit": "138abe39e08e400188d1812ed3bfd378df435315",
+  "sharedDirtyWorktree": true,
+  "scope": "Linux synthetic process lifetime, bounded same-store replacement and exactly owned cleanup only",
+  "command": "PYTHONDONTWRITEBYTECODE=1 python3 -W error::ResourceWarning scripts/geographic-acceptance/rpc-probe-supervisor.test.py -v",
+  "pythonVersion": "3.12.3",
+  "platform": "Linux x86_64",
+  "sourceDigests": {
+    "scripts/geographic-acceptance/rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2",
+    "scripts/geographic-acceptance/rpc-probe-supervisor.test.py": "52578b172841e73cbd25f7af3659e1205b2a6553a71c03c7dd18659d4a5dabab"
+  },
+  "sourceBytes": {
+    "scripts/geographic-acceptance/rpc-probe-supervisor.py": 24371,
+    "scripts/geographic-acceptance/rpc-probe-supervisor.test.py": 30799
+  },
+  "result": {
+    "status": "PASS",
+    "exitCode": 0,
+    "testsPassed": 33,
+    "testsSkipped": 0,
+    "kernelAdvisoryLockExercised": true,
+    "actualControllerSigkillExercised": true,
+    "actualSupervisorSigkillAdoptionExercised": true,
+    "adoptionUsesPidfdAndBootStartExecutableIdentity": true,
+    "knownOrphanReapedInSubreaperTest": true,
+    "inheritedAdvisoryLockRegistrationWindowExercised": true,
+    "unrelatedProcessUnsignaled": true,
+    "suspendClockSelectionAndInjectedElapsedGapExercised": true,
+    "actualMachineSuspendTested": false,
+    "encryptedRpcTested": false,
+    "raftTestedByThisSlice": false,
+    "physicalThreeSiteProbeTested": false,
+    "automaticWabiRecoveryTested": false,
+    "canonicalWriterPermissionGranted": false,
+    "sameStoreRestartModeTested": true,
+    "actualWorkerSigkillThenReopenSyntheticStoreTested": true,
+    "liveWorkerReplacementReapedBeforeReplacement": true,
+    "sameSyntheticDurableFileAndStoreLockInodesPreserved": true,
+    "maximumWorkerRestarts": 8,
+    "restartDoesNotRenewIdleOrAbsoluteDeadline": true,
+    "controllerSigkillWithDeadWorkerRestartModeTested": true,
+    "workerAndControllerTestsAreSyntheticOnly": true
+  },
+  "logs": [
+    {
+      "label": "restart31",
+      "path": "docs/testing/geographic-2026-10-01/rpc-supervisor-restart31.log.gz",
+      "rawSha256": "15e554d59b14993068da306813940785ac37b9e9c8acc1434e9fe5453665c181",
+      "rawBytes": 4752,
+      "testsPassed": 31,
+      "scope": "synthetic process supervision only; final source hashes cover accepted33, not superseded restart31"
+    },
+    {
+      "label": "accepted33",
+      "path": "docs/testing/geographic-2026-10-01/rpc-supervisor-accepted33.log.gz",
+      "rawSha256": "3a1ad8c5826f5b08fb38a1eaeab35d765d03603234a5469e99a78bc7b930283a",
+      "rawBytes": 5062,
+      "testsPassed": 33,
+      "scope": "synthetic process supervision only; final source hashes cover accepted33, not superseded restart31"
+    }
+  ],
+  "previousAcceptedReceipt": "docs/testing/geographic-2026-10-01/rpc-supervisor-contracts-25.json",
+  "coordination": {
+    "limitedNewPythonScopeExplicitlyReleasedBySecurityOwner": true,
+    "compiledSourceManifestsLockCargoHoldPreserved": true,
+    "securityMediaScriptsUntouched": true
+  },
+  "unchangedPrerequisites": {
+    "pendingRustSourceDigestsMatch": true,
+    "acceptedDurableSourceDigestsMatch": true
+  },
+  "cleanup": {
+    "remainingOwnedTestRoots": [],
+    "ownedBytecodeCaches": [],
+    "knownSyntheticChildrenStoppedAndReapedByTests": true,
+    "newKeysCreated": 0,
+    "newRemoteFixturesOrServices": 0,
+    "temporaryLogRemovalPending": false,
+    "sharedTargetPreserved": true,
+    "removedOwnedTemporaryLogs": [
+      {
+        "name": "wabi-rpc-supervisor-restart-20261001.log",
+        "bytes": 4752
+      },
+      {
+        "name": "wabi-rpc-supervisor-restart33-20261001.log",
+        "bytes": 5062
+      }
+    ]
+  },
+  "diskAvailableBytesAtSave": 141957378048,
+  "linuxCoreLockApiSourceChecked": "Pinned fs4 0.13.1 Unix implementation calls rustix::fs::flock; Python uses matching kernel flock. No new Rust interoperability runtime test by this slice."
+}

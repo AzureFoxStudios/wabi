@@ -67,7 +67,7 @@
 
 	/** How this add-on is attached: build-time feature and/or runtime switch. */
 	function attachMeta(addon: DetectedAddon): string {
-		const parts = [`id: ${addon.id}`, `version: ${addon.version}`];
+		const parts = [`version: ${addon.version}`];
 		parts.push(addon.cargoFeature ? `build: --features ${addon.cargoFeature}` : 'always compiled');
 		if (addon.runtimeEnv) parts.push(`runtime: ${addon.runtimeEnv}=1`);
 		parts.push(addon.runtimeSwitch ? 'switch: in-app' : 'switch: rebuild only');

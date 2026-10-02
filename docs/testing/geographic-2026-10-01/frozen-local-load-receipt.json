@@ -1,0 +1,124 @@
+{
+  "result": "PASS",
+  "scope": "single-host loopback only",
+  "checks": [
+    "two-site auth",
+    "signed three-entry roster",
+    "shared message history",
+    "Engine.IO polling",
+    "two WebSocket sessions",
+    "bidirectional cross-Anchor live messages",
+    "site-origin HTTP and authenticated WebSocket writes visible across sites",
+    "byte-identical local versioned assets on both Anchors",
+    "upload cache miss/hit",
+    "single Anchor loss with surviving write",
+    "Authority loss returns 503 for API and cached file while a public app asset stays local"
+  ],
+  "localAssetBytesPerSite": 27277,
+  "remoteClientProbes": [
+    {
+      "role": "materials",
+      "clientLocation": "harness-host",
+      "elapsedMs": 1689,
+      "assetBytes": 27277,
+      "messageId": "msg_c1ea03b410134e2f80a1b24fddf7d3a9",
+      "websocketMessageId": "msg_65653015b3924016b8a24dec7305d1d1",
+      "websocketAuthenticated": true,
+      "websocketHistoryMatched": true,
+      "websocketAcceptanceMatchedDelivery": true
+    },
+    {
+      "role": "authority",
+      "clientLocation": "harness-host",
+      "elapsedMs": 1635,
+      "assetBytes": 27277,
+      "messageId": "msg_9429af7b3ce84108a63f2a61089081d6",
+      "websocketMessageId": "msg_9aa453f6a7754e9e874db706bc501054",
+      "websocketAuthenticated": true,
+      "websocketHistoryMatched": true,
+      "websocketAcceptanceMatchedDelivery": true
+    }
+  ],
+  "staticOriginBytes": {
+    "materials": 0,
+    "equipment": 0
+  },
+  "cacheOriginBytes": {
+    "fileBytes": 262144,
+    "samples": [
+      {
+        "disposition": "miss",
+        "originToAnchorBytes": 263175,
+        "anchorToOriginBytes": 1099
+      },
+      {
+        "disposition": "hit",
+        "originToAnchorBytes": 504,
+        "anchorToOriginBytes": 550
+      }
+    ]
+  },
+  "loadEvidence": {
+    "schemaVersion": 1,
+    "result": "PASS",
+    "workload": "bounded single-room canary",
+    "configured": {
+      "clients": 6,
+      "messages": 20,
+      "payloadBytes": 512,
+      "messagesPerSecond": 2,
+      "deadlineSeconds": 90
+    },
+    "registeredAccountsMeasured": null,
+    "providedAccessCredentials": 2,
+    "attemptedClients": 6,
+    "connectedClients": 6,
+    "scheduledMessages": 20,
+    "acknowledgedMessages": 20,
+    "expectedDeliveries": 120,
+    "observedDeliveries": 120,
+    "missingDeliveries": 0,
+    "duplicateEvents": 0,
+    "inconsistentIdentities": 0,
+    "errors": 0,
+    "failureStage": null,
+    "elapsedMs": 10023,
+    "achievedMessagesPerSecond": 2,
+    "acknowledgmentLatencyMs": {
+      "p50": 17.82,
+      "p95": 18.6,
+      "p99": 18.9,
+      "max": 18.9
+    },
+    "deliveryLatencyMs": {
+      "p50": 17.94,
+      "p95": 18.91,
+      "p99": 19.5,
+      "max": 19.68
+    },
+    "applicationEnvelopeBytesSent": 12310,
+    "applicationEnvelopeBytesReceived": 124800,
+    "measuredNetworkBytes": null,
+    "mediaParticipantsTested": 0,
+    "recoveryAndReconnectTested": false,
+    "capacityCertification": false,
+    "cleanup": {
+      "ownedSocketCount": 6,
+      "disconnectRequestedForAll": true
+    }
+  },
+  "artifact": {
+    "binarySha256": "4b4814f5db6e6056b4f30908354e2d5f1ba4173c305a378e3a5ccec5d69a0e45",
+    "binaryBytes": 153260768,
+    "buildFeatures": [
+      "default",
+      "field-embed"
+    ],
+    "optimization": "debug, debug symbols stripped in private copy",
+    "baseCommit": "138abe39e08e400188d1812ed3bfd378df435315",
+    "uncommittedConcurrentChanges": true
+  },
+  "recordedDate": "2026-10-01",
+  "sourceIsFrozenSeptember30Build": true,
+  "logSha256": "2b7784b808dfbb0aef14c845309129dbbc4c019e6db11f63e6fc4a918399358c"
+}

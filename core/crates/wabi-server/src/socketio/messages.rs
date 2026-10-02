@@ -148,7 +148,7 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
                 }
                 crate::api::server_center::SafetyAction::Ban => {
                     match blacklist.restrict_channel(&channel_id, user_id_num, &reason, None).await {
-                        Ok(()) => { evict_channel_user(&io, &channel_id, user_id_num); fail("safety_ban", "rejected", &format!("Banned from this channel: {reason}")); },
+                        Ok(()) => { evict_channel_user(&io, &state.app, &channel_id, user_id_num).await; fail("safety_ban", "rejected", &format!("Banned from this channel: {reason}")); },
                         Err(error) => {
                             warn!("[safety] ban rule '{}' failed to ban user {}: {}", rule.name, user_id_num, error);
                             fail("safety_rule_failed", "rejected", "A server safety rule matched, but its action could not be completed.");
@@ -165,6 +165,10 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
         let connected = state.connected_users.read().await;
         connected.get(&socket.id.to_string()).map(|u| u.color.clone()).unwrap_or_else(|| "#98D8C8".to_string())
     };
+    // Do not acquire before the safety-ban path, which evicts under this gate.
+    // Recheck current access after waiting and retain it through publication.
+    let _channel = crate::channel_access::publication_gate(&state.app, &channel_id).lock().await;
+    if require_socket_channel(&socket, &state, &channel_id, "message-error").await.is_none() { return; }
     let message_id;
     // Policy transitions and message commits share one ordering boundary.
     // Otherwise a message can select an old mode but land in a new epoch.

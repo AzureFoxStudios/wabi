@@ -794,8 +794,10 @@ mod tests {
             before + 1
         );
         drop(engine);
+        let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
         std::fs::remove_file(dir.path().join("projections/snapshot.json")).unwrap();
-        let reopened = crate::engine::WabiDbEngine::open(config(dir.path()))
+        drop(stopped);
+        let reopened = crate::tests::reopen_after_drop(config(dir.path()), None)
             .await
             .unwrap();
         assert_eq!(reopened.barrier().current(), accepted.commit_seq);
@@ -846,11 +848,13 @@ mod tests {
     async fn queued_issuance_rechecks_a_preceding_owner_change_before_commit() {
         let dir = tempfile::tempdir().unwrap();
         let (engine, original) = engine(dir.path()).await;
+        let mut other_record = user_record();
+        other_record.username = "other-owner".into();
         let other = engine
             .run_command(raw_command(
                 "users",
                 "user_registered",
-                users::encode_record(&user_record()),
+                users::encode_record(&other_record),
             ))
             .await
             .unwrap()
@@ -999,8 +1003,10 @@ mod tests {
             .await
             .is_err());
         drop(receiver);
+        let stopped = crate::tests::wait_for_stopped_engine(receiver_dir.path()).await;
         std::fs::remove_file(receiver_dir.path().join("projections/snapshot.json")).unwrap();
-        let reopened = crate::engine::WabiDbEngine::open(config(receiver_dir.path()))
+        drop(stopped);
+        let reopened = crate::tests::reopen_after_drop(config(receiver_dir.path()), None)
             .await
             .unwrap();
         assert!(reopened.local_writer_fenced().await);
@@ -1081,7 +1087,12 @@ mod tests {
             )
             .unwrap()
             .len();
-            drop(source);
+            source.close_for_tests().await.unwrap();
+            // Prove all parent disk writers released ownership before the
+            // synchronous child wait stops this current-thread runtime.
+            assert!(crate::engine::locks::try_acquire_process_lock(&dir.path().join(".lock"))
+                .unwrap()
+                .is_some());
             let output = std::process::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",

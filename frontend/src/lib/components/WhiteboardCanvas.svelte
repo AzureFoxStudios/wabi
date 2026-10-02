@@ -3,8 +3,9 @@
 	import { get } from 'svelte/store';
 	import { boardStore, elements, layers, viewport, activeTool, selection, canUndo, canRedo, policy } from '$lib/whiteboard/boardStore';
 	import { hitTestHandle } from '$lib/whiteboard/coords';
+	import { renderPaperPattern } from '$lib/whiteboard/paperPattern';
 	import type { ToolType } from '$lib/whiteboard/boardStore';
-	import { renderElements, renderLayersWithBlend, renderGrid, renderSelectionBox, renderHandles, renderDrawPreview, renderSelectionRect, renderRemoteCursors, preloadImage } from '$lib/whiteboard/boardRenderer';
+	import { renderElements, renderLayersWithBlend, renderSelectionBox, renderHandles, renderDrawPreview, renderSelectionRect, renderRemoteCursors, preloadImage } from '$lib/whiteboard/boardRenderer';
 	import { screenToBoard, getSelectionBBox, getSelectionHandles } from '$lib/whiteboard/coords';
 	import type { BoardElement, CodeElement } from '$lib/whiteboard/elementTypes';
 	import { generateElementId } from '$lib/whiteboard/elementTypes';
@@ -27,6 +28,12 @@ import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 	export let userColor = '#6366f1';
 	export let syncReady = false;
 	export let showGrid = true;
+	export let paperPattern: 'grid' | 'dots' | 'lines' | 'none' = 'grid';
+	export let paperSpacing = 24;
+	export let paperGuideColor = '';
+	export let paperGuideOpacity = 1;
+	export let paperColor = '';
+
 	export let readOnly = false;
 
 	const drawingTools: ReadonlySet<string> = new Set(['pen', 'line', 'rect', 'ellipse', 'arrow', 'text']);
@@ -158,11 +165,11 @@ import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 		}
 		baseCtx.clearRect(0, 0, canvasWidth, canvasHeight);
 		// Canvas background color
-		if ($boardStore.canvasBgColor) {
-			baseCtx.fillStyle = $boardStore.canvasBgColor;
+		if (paperColor || $boardStore.canvasBgColor) {
+			baseCtx.fillStyle = paperColor || $boardStore.canvasBgColor;
 			baseCtx.fillRect(0, 0, canvasWidth, canvasHeight);
 		}
-		if (showGrid) renderGrid(baseCtx, vp, canvasWidth, canvasHeight, 24);
+		if (showGrid) renderPaperPattern(baseCtx, vp, canvasWidth, canvasHeight, paperPattern, paperColor === '#172326', { spacing: paperSpacing, color: paperGuideColor, opacity: paperGuideOpacity });
 		const currentLayers = get(layers);
 		if (currentLayers.length > 0) {
 			renderLayersWithBlend(baseCtx, els, vp, currentLayers, canvasWidth, canvasHeight, dpr);
@@ -234,7 +241,7 @@ import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 	$: channelId, void maybeProcessPendingImports();
 	$: boardId, void maybeProcessPendingImports();
 	$: syncReady, void maybeProcessPendingImports();
-	$: showGrid, requestRender();
+	$: showGrid, paperPattern, paperColor, paperSpacing, paperGuideColor, paperGuideOpacity, requestRender();
 	$: syncImportPreviews(pendingImportsForChannel);
 	$: importPreviewCards = pendingImportsForChannel.slice(0, 3).map((item, index) => ({ id: item.id, fileName: item.file.name, previewUrl: importPreviewUrls.get(item.id) || '', source: item.source, status: importBusy && index === 0 ? 'uploading' : 'queued' }));
 
@@ -313,7 +320,9 @@ import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 		}
 		if (e.button !== 0) return;
 		const toolType = isSpacePanning ? 'pan' : get(activeTool);
-		if (readOnly && drawingTools.has(toolType)) return;
+		if (readOnly && (drawingTools.has(toolType) || toolType === 'eraser')) return;
+		const editingLayer = get(boardStore).layers.find(layer => layer.id === get(boardStore).activeLayerId);
+		if ((drawingTools.has(toolType) || toolType === 'eraser') && (editingLayer?.locked || editingLayer?.lockPixels)) return;
 		const handler = getToolHandler(toolType);
 		currentInteraction = handler.onPointerDown(makeToolEvent(e));
 		// Pen/eraser only mutate the base canvas mid-stroke on RASTER layers
@@ -432,7 +441,7 @@ import { rasterCanUndo, rasterUndo } from '$lib/whiteboard/rasterLayers';
 	function handleKeyDown(e: KeyboardEvent) {
 		if (textEditing) { if (e.key === 'Escape') commitTextEdit(); return; }
 		const tag = (e.target as HTMLElement)?.tagName;
-		if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+		if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable || document.querySelector('[role=dialog]')) return;
 		const ctrl = e.ctrlKey || e.metaKey;
 		if (!ctrl && !e.altKey) {
 			const toolMap: Record<string, ToolType> = { v: 'select', s: 'select', p: 'pen', d: 'pen', e: 'eraser', l: 'line', r: 'rect', o: 'ellipse', a: 'arrow', t: 'text' };

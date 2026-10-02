@@ -13,6 +13,7 @@ use wabidb::domain::MemberRole;
 
 #[allow(dead_code)]
 pub async fn handle_get_emojis(socket: SocketRef, state: &SioState) {
+    if resolve_identity(&socket, state).await.is_none() { return; }
     match state.app.wdb.get_emotes().await {
         Ok(emotes) => {
             let _ = socket.emit("emojis-list", &json!(emotes));
@@ -43,9 +44,9 @@ pub async fn handle_delete_emoji(
         return;
     }
 
-    let identity = resolve_sio_identity(&socket);
-    let caller_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
-    if !state.app.is_admin(caller_id).await {
+    let Some(identity) = resolve_identity(&socket, state).await else { return; };
+    let caller_id = identity.user_id;
+    if identity.is_guest || !state.app.is_admin(caller_id).await {
         warn!("[sio] delete-emoji: user {} not authorized", caller_id);
         let _ = socket.emit("delete-emoji-error", &json!({ "error": "Only admins can delete emojis" }));
         return;
@@ -63,7 +64,8 @@ pub async fn handle_delete_emoji(
 }
 
 #[allow(dead_code)]
-pub async fn handle_get_role_definitions(socket: SocketRef, _io: &SocketIo, _state: &SioState) {
+pub async fn handle_get_role_definitions(socket: SocketRef, _io: &SocketIo, state: &SioState) {
+    if resolve_identity(&socket, state).await.is_none() { return; }
     let _ = socket.emit("role-definitions-updated", &server_role_catalog());
 }
 
@@ -381,7 +383,7 @@ pub async fn handle_assign_role(socket: SocketRef, data: Value, state: &SioState
     drop(socket.emit("assign-role-success", &json!({ "requestId": request_id, "targetUserId": target_user_id, "role": role_name })));
     for channel_id in crate::api::server_center::gated_channel_ids(&state.app).await {
         if !matches!(crate::channel_access::channel_role_allows(&state.app, target_user_id, &channel_id).await, Ok(true)) {
-            evict_channel_user(io, &channel_id, target_user_id);
+            evict_channel_user(io, &state.app, &channel_id, target_user_id).await;
         }
     }
     let _ = io.emit("channel-access-policy-updated", &json!({ "roleChangedUserId": target_user_id })).await;
@@ -403,27 +405,35 @@ pub async fn handle_admin_ban_user(socket: SocketRef, data: Value, state: &SioSt
         return;
     }
 
-    let Some(identity) = resolve_identity(&socket, state).await else { return; };
+    // Dispatch already holds membership WRITE. This callback publishes a
+    // credential denial, so validate and retain its caller under that writer
+    // instead of joining the ordinary retained-reader callback scope.
+    let mut revocations = state.app.revocations.clone().write_owned().await;
+    let Some(identity) = resolve_identity_under(&socket, state, &revocations).await else { return; };
     let caller_id = identity.user_id;
     if identity.is_guest || !state.app.is_admin(caller_id).await {
         warn!("[sio] admin-ban-user: user {} not authorized", caller_id);
+        drop(revocations);
         let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Only admins can ban users" }));
         return;
     }
 
     if !matches!(state.app.wdb.get_user(target_user_id as u64).await,
         Ok(Some(user)) if !user.password_hash.is_empty() && user.is_active) {
+        drop(revocations);
         let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Bans can only be applied to active registered members" }));
         return;
     }
 
     if target_user_id == caller_id {
+        drop(revocations);
         let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "You cannot ban yourself" }));
         return;
     }
 
     if state.app.is_owner(target_user_id).await {
         warn!("[sio] admin-ban-user: refusing to ban server owner {}", target_user_id);
+        drop(revocations);
         let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "The server owner cannot be banned" }));
         return;
     }
@@ -434,29 +444,43 @@ pub async fn handle_admin_ban_user(socket: SocketRef, data: Value, state: &SioSt
     // anyone else including admins.
     if !state.app.is_owner(caller_id).await && state.app.is_admin(target_user_id).await {
         warn!("[sio] admin-ban-user: non-owner admin {} tried to ban admin {}", caller_id, target_user_id);
+        drop(revocations);
         let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Only the server owner can ban another administrator" }));
         return;
     }
 
     let Some(blacklist) = state.app.get_blacklist().await else {
         warn!("[sio] admin-ban-user: blacklist manager unavailable");
+        drop(revocations);
         let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Ban enforcement is currently unavailable" }));
         return;
     };
     if let Err(error) = blacklist.add_user(target_user_id, &reason, None).await {
         warn!("[sio] could not persist ban for user {}: {}", target_user_id, error);
+        drop(revocations);
         let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id, "targetUserId": target_user_id, "error": "Ban could not be saved" }));
         return;
     }
 
-    // Full token revoke so outstanding sessions die on their next request.
-    if let Err(error) = state.app.revoke_user(target_user_id).await {
+    let operation = wabidb::projections::auth_revocations::Operation::UserFloor {
+        user_id: target_user_id,
+        floor: revocations.next_user_floor(target_user_id, chrono::Utc::now().timestamp()),
+        exempt_jtis: vec![],
+        clear_legacy: true,
+    };
+    if let Err(error) = crate::auth_revocations::commit(
+        state.app.wdb.engine(), false, vec![operation.clone()],
+    ).await {
         warn!("[sio] could not durably revoke banned user sessions: {}", error);
+        drop(revocations);
         crate::socketio::evict_server_user(&io, target_user_id);
         let _ = socket.emit("admin-ban-error", &json!({ "requestId": request_id,
             "targetUserId": target_user_id, "error": "Session revocation could not be saved" }));
         return;
     }
+    crate::auth_credentials::publish_operation(&mut revocations, operation);
+    drop(revocations);
+    disconnect_revoked_sockets(io, &state.app.config.jwt_secret, &state.app.revocations).await;
 
     // Reuse the established revoked-session mechanism (`auth-revoked` +
     // disconnect, cf. `resolve_identity` in shared.rs): evict every live
@@ -516,20 +540,16 @@ pub async fn handle_admin_unban_user(socket: SocketRef, data: Value, state: &Sio
 }
 
 pub async fn handle_toggle_reception(socket: SocketRef, data: Value, state: &SioState, io: &SocketIo) {
-    let identity = resolve_sio_identity(&socket);
-    let caller_id = identity.as_ref().map(|i| i.user_id).unwrap_or(0);
-    if !state.app.is_owner(caller_id).await {
+    let Some(identity) = resolve_identity(&socket, state).await else { return; };
+    let caller_id = identity.user_id;
+    if identity.is_guest || !state.app.is_owner(caller_id).await {
         warn!("[sio] toggle-reception: user {} not authorized", caller_id);
         let _ = socket.emit("toggle-reception-error", &json!({ "error": "Only the server owner can manage Reception" }));
         return;
     }
 
     let enabled = data.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-    if enabled {
-        let _ = io.emit("toggle-reception-success", &json!({ "enabled": true }));
-    } else {
-        let _ = io.emit("toggle-reception-success", &json!({ "enabled": false }));
-    }
+    let _ = io.emit("toggle-reception-success", &json!({ "enabled": enabled })).await;
 }
 
 #[allow(dead_code)]
@@ -582,7 +602,7 @@ pub async fn handle_remove_role(socket: SocketRef, data: Value, state: &SioState
     let _ = socket.emit("remove-role-success", &json!({ "targetUserId": target_user_id, "role": "Member" }));
     for channel_id in crate::api::server_center::gated_channel_ids(&state.app).await {
         if !matches!(crate::channel_access::channel_role_allows(&state.app, target_user_id, &channel_id).await, Ok(true)) {
-            evict_channel_user(io, &channel_id, target_user_id);
+            evict_channel_user(io, &state.app, &channel_id, target_user_id).await;
         }
     }
     let _ = io.emit("channel-access-policy-updated", &json!({ "roleChangedUserId": target_user_id })).await;

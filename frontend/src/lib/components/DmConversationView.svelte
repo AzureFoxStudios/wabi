@@ -324,7 +324,7 @@
       </span>
     {/if}
     <div class="dm-header-info">
-      <span class="dm-header-eyebrow">{isGroup ? 'Group conversation' : 'Direct message to'}</span>
+      {#if isGroup}<span class="dm-header-eyebrow">Group conversation</span>{/if}
       <span class="dm-header-name">{#if !isGroup && otherUser}<ProfileName username={channelDisplayName} font={otherUser.usernameFont} color={otherUser.color} />{:else}{channelDisplayName}{/if}</span>
       <div class="dm-header-meta">
         {#if isGroup}
@@ -335,7 +335,7 @@
         {/if}
         {#if !isGroup && !otherUser}<span role="status">Recipient details aren’t available. Reconnect to refresh this conversation.</span>{/if}
       </div>
-      <div class="dm-header-security">
+      <details class="dm-security-details"><summary aria-label="Message protection details"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d={e2eeEnabled ? 'M8 10V6a4 4 0 0 1 8 0v4' : 'M8 10V6a4 4 0 0 1 8 0'}/></svg>{e2eeEnabled ? 'Encrypted · experimental' : e2eeStatus?.pendingDefault ? 'Encryption pending' : e2eeStatus?.serverReadableSelected && !e2eeStatus.serverReadableAllowedByMe ? 'Confirmation needed' : !e2eeStatus ? 'Checking protection…' : 'Server-readable'}</summary><div class="dm-header-security">
         {#if e2eeEnabled}
           <span class="dm-header-pill dm-header-pill-secure" role="status" aria-label="New messages encrypted on participant devices. Earlier messages keep their previous protection. Experimental: device identities and the complete client are not independently verified." title="New messages are encrypted on participant devices. Earlier messages keep their previous protection. Experimental: device identities and the complete client are not independently verified.">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM12 17c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM15.1 8H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/></svg>
@@ -365,7 +365,7 @@
             {e2eeBusy ? 'Enabling…' : 'Encrypt new messages'}
           </button>
         {/if}
-      </div>
+      </div></details>
       {#if e2eeError}
         <div class="dm-e2ee-error" role="alert">{e2eeError}</div>
       {/if}
@@ -516,7 +516,7 @@
     border-bottom: 1px solid var(--color-border-primary, #302b63);
     background: var(--surface-raised, #302b63);
     flex-shrink: 0;
-    min-height: 88px;
+    min-height: 64px;
   }
 
   .dm-header-back {
@@ -555,8 +555,8 @@
   }
 
   .dm-header-avatar, .dm-header :global(.dm-header-avatar) {
-    width: 48px;
-    height: 48px;
+    width: 36px;
+    height: 36px;
     flex-shrink: 0;
     border-radius: var(--radius-full);
     object-fit: cover;
@@ -606,6 +606,7 @@
   .dm-header-presence.online { color: var(--color-success, #22c55e); }
   .dm-header-presence.away { color: var(--color-warning, #f59e0b); }
   .dm-header-presence.busy { color: var(--color-danger, #ef4444); }
+  .dm-security-details{position:relative;font-size:var(--text-xs,11px)}.dm-security-details summary{display:flex;align-items:center;gap:5px;cursor:pointer;list-style:none;color:var(--text-secondary)}.dm-security-details[open] .dm-header-security{position:absolute;top:100%;left:0;z-index:50;min-width:240px;max-width:350px;padding:1rem;background:var(--surface-base);border:1px solid var(--border-subtle);border-radius:var(--radius-md);box-shadow:var(--shadow-lg)}
   .dm-header-security { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1, 4px); min-width: 0; }
   .dm-header-wait { color: var(--text-secondary); font-size: var(--font-size-xs, 11px); line-height: 1.35; }
 

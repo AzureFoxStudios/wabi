@@ -70,7 +70,7 @@
       <h3 id="archive-boundary-title">{$_('storage.archiveBoundary.title')}</h3>
       <p class="subtitle">{$_('storage.archiveBoundary.explanation')}</p>
     </div>
-    <p class="hint">{$_('storage.archiveBoundary.preserved')}</p>
+    <details><summary>Older saved files</summary><p class="hint">{$_('storage.archiveBoundary.preserved')}</p></details>
     {#if isTauri}<p class="hint">{$_('storage.archiveBoundary.native')}</p>{/if}
   </section>
 
@@ -89,7 +89,7 @@
           <span class="label">{$_('storage.offline.wabiDB.scope_label')}</span>
           {#each scopes as scope (scope.scopeId)}
             <div class="scope-item">
-              <span class="scope-name">{scope.name}</span>
+              <span class="scope-name">{scope.scopeId === 'corechat' ? 'Chat messages' : scope.scopeId === 'system' ? 'App actions' : scope.name}{#if scope.scopeId === 'corechat'}<small>Allow supported chat sends to wait for a connection.</small>{:else if scope.scopeId === 'system'}<small>Required queue support for the app.</small>{/if}</span>
               {#if scope.userControl === 'always'}
                 <span class="badge">{$_('storage.offline.scopes.always_on')}</span>
               {:else}
@@ -123,6 +123,8 @@
   .queue-counts { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
   .scope-item, .storage-queue-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
   .scope-item { justify-content: space-between; margin-block: var(--space-2); }
+  .scope-name small { display:block;color:var(--text-secondary);margin-top:.3rem; }
+  summary {cursor:pointer;}
   .scope-name { overflow-wrap: anywhere; min-width: 0; }
   button { min-height: 44px; }
   [role='alert'] { color: var(--text-danger); }

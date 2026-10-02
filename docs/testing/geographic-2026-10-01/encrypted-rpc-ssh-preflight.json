@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "checkedAtUtc": "2026-10-01T06:45:54.415600+00:00",
+  "result": "PASS",
+  "scope": "read-only SSH host, temporary-space and prior-rehearsal cleanup preflight",
+  "executionComputer": "dotRonin",
+  "checkout": "/home/ironin/wabi",
+  "branch": "codex/security-boundary-hardening-20260930",
+  "baseRevision": "138abe39e08e400188d1812ed3bfd378df435315",
+  "nodes": [
+    {
+      "siteLabel": "Ronin",
+      "observedHostname": "bazzite",
+      "expectedHostMatches": true,
+      "machine": "x86_64",
+      "temporaryFreeBytes": 14462865408,
+      "previousInactiveRehearsalDirectoryCount": 0
+    },
+    {
+      "siteLabel": "Iyoku",
+      "observedHostname": "192.168.1.11",
+      "expectedHostMatches": true,
+      "machine": "x86_64",
+      "temporaryFreeBytes": 7673655296,
+      "previousInactiveRehearsalDirectoryCount": 0
+    }
+  ],
+  "localFreeBytesAtCheck": 80759865344,
+  "newRemoteFilesCreated": 0,
+  "newRemoteProcessesLaunched": 0,
+  "encryptedRpcTested": false,
+  "physicalUplinksQualified": false,
+  "canonicalWriterPermitted": false,
+  "automaticWabiRecoveryTested": false
+}

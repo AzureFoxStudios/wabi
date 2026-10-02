@@ -3,9 +3,13 @@
 //! - exactly one account may be created in the setup window (the owner)
 //! - once an owner exists, registration follows the normal auth policy
 
+#[path = "fixtures/writer_drain.rs"]
+mod writer_drain;
+
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::body::Body;
 use axum::extract::ConnectInfo;
@@ -59,6 +63,12 @@ async fn fresh_server() -> (tempfile::TempDir, axum::Router) {
     let state = Arc::new(AppState::new(config).await.unwrap());
     let app = create_api_router(state.clone()).with_state(state);
     (tmp, app)
+}
+
+async fn wait_for_writer_drain(data_dir: &Path) {
+    // Stopped-data subprocesses acquire the same persistent inode themselves.
+    // Release this test probe before invoking them.
+    drop(writer_drain::wait_for_stopped_engine(&data_dir.join("wabidb")).await);
 }
 
 fn register_request(username: &str) -> Request<Body> {
@@ -153,7 +163,7 @@ async fn authority_restores_canonical_upload_revocation_over_stale_registry() {
         br#"{"files":{},"revoked":[]}"#,
     )
     .unwrap();
-    let reopened = AppState::new(config).await.unwrap();
+    let reopened = writer_drain::app_state(&config).await.unwrap();
     assert!(reopened.upload_registry.is_revoked("private.bin").await);
     assert!(
         wabi_server::upload_registry::UploadRegistry::new_persistent(tmp.path())
@@ -186,7 +196,7 @@ async fn authority_rebuilds_stale_upload_metadata_only_from_matching_bytes() {
     drop(state);
     let registry_path = tmp.path().join("upload_registry.json");
     std::fs::write(&registry_path, br#"{"files":{},"revoked":[]}"#).unwrap();
-    let reopened = AppState::new(config.clone()).await.unwrap();
+    let reopened = writer_drain::app_state(&config).await.unwrap();
     assert_eq!(
         reopened
             .upload_registry
@@ -200,7 +210,7 @@ async fn authority_rebuilds_stale_upload_metadata_only_from_matching_bytes() {
 
     std::fs::write(&registry_path, br#"{"files":{},"revoked":[]}"#).unwrap();
     std::fs::write(tmp.path().join("uploads/recover.bin"), b"wrong").unwrap();
-    let error = match AppState::new(config).await {
+    let error = match writer_drain::app_state(&config).await {
         Ok(_) => panic!("Authority must reject restored upload bytes with the wrong digest"),
         Err(error) => error,
     };
@@ -259,7 +269,7 @@ async fn authority_finishes_verified_uploads_staged_at_publication_crash() {
     .unwrap();
     drop(state);
 
-    let reopened = AppState::new(config.clone()).await.unwrap();
+    let reopened = writer_drain::app_state(&config).await.unwrap();
     assert_eq!(
         std::fs::read(uploads.join(direct_name)).unwrap(),
         b"direct bytes"
@@ -303,7 +313,7 @@ async fn authority_refuses_mismatched_staged_upload_after_publication_crash() {
     std::fs::write(&stage, b"wrong").unwrap();
     drop(state);
 
-    let error = match AppState::new(config.clone()).await {
+    let error = match writer_drain::app_state(&config).await {
         Ok(_) => panic!("Authority must reject changed staged upload bytes"),
         Err(error) => error,
     };
@@ -338,7 +348,7 @@ async fn authority_does_not_publish_uncommitted_private_upload() {
         .unwrap();
     drop(state);
 
-    let reopened = AppState::new(config.clone()).await.unwrap();
+    let reopened = writer_drain::app_state(&config).await.unwrap();
     assert!(stage.exists());
     assert!(!uploads.join(filename).exists());
     drop(reopened);
@@ -367,7 +377,7 @@ async fn authority_refuses_changed_published_bytes_with_current_registry() {
     drop(state);
 
     std::fs::write(Path::new(&config.uploads_dir).join("changed.bin"), b"wrong").unwrap();
-    let error = match AppState::new(config).await {
+    let error = match writer_drain::app_state(&config).await {
         Ok(_) => panic!("Authority must reject changed canonical bytes with a current registry"),
         Err(error) => error,
     };
@@ -574,14 +584,14 @@ async fn legacy_roster_imports_once_and_database_wins_over_stale_sidecar() {
         .contains("old.example"));
     drop(state);
 
-    let reopened = AppState::new(config.clone()).await.unwrap();
+    let reopened = writer_drain::app_state(&config).await.unwrap();
     let restored = reopened.community_roster.signed().unwrap();
     assert_eq!(restored.body.version, 2);
     assert_eq!(restored.body.entries[0].url, "https://new.example");
     drop(reopened);
 
     std::fs::write(&sidecar, b"damaged legacy sidecar").unwrap();
-    let reopened = AppState::new(config).await.unwrap();
+    let reopened = writer_drain::app_state(&config).await.unwrap();
     assert_eq!(reopened.community_roster.signed().unwrap().body.version, 2);
 }
 
@@ -735,7 +745,7 @@ async fn bootstrap_channels_preserve_configured_live_default_after_restart() {
     }
     drop(app);
     drop(state);
-    let reopened = AppState::new(config).await.unwrap();
+    let reopened = writer_drain::app_state(&config).await.unwrap();
     for channel in &channels {
         assert_eq!(
             reopened
@@ -781,6 +791,24 @@ async fn managed_server(data: &Path) -> (Arc<AppState>, axum::Router) {
         AppState::new_with_desktop_bootstrap(
             test_config(data),
             Some(DESKTOP_BOOTSTRAP_TOKEN.into()),
+        )
+        .await
+        .unwrap(),
+    );
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    (state, app)
+}
+
+async fn reopen_managed_server(data: &Path) -> (Arc<AppState>, axum::Router) {
+    let state = Arc::new(
+        writer_drain::retry(
+            || {
+                AppState::new_with_desktop_bootstrap(
+                    test_config(data),
+                    Some(DESKTOP_BOOTSTRAP_TOKEN.into()),
+                )
+            },
+            writer_drain::is_already_running,
         )
         .await
         .unwrap(),
@@ -920,7 +948,7 @@ async fn desktop_bootstrap_requires_private_capability_and_preserves_owner_after
     let key = std::fs::read(dir.path().join("wabidb/root_key")).unwrap();
     drop(app);
     drop(state);
-    let (reopened, app) = managed_server(dir.path()).await;
+    let (reopened, app) = reopen_managed_server(dir.path()).await;
     assert!(!setup_required(&app).await);
     assert_eq!(
         *reopened.owner_user_id.read().await,
@@ -1010,7 +1038,7 @@ async fn desktop_invites_are_owner_only_one_use_and_revoke_survives_restart() {
     );
     drop(app);
     drop(state);
-    let (_state, app) = managed_server(dir.path()).await;
+    let (_state, app) = reopen_managed_server(dir.path()).await;
     for invalid in [token, new_grant["token"].as_str().unwrap()] {
         assert_eq!(app.clone().oneshot(api_request("/auth/register", serde_json::json!({"username":"charlie","password":"password123","inviteToken":invalid}), None)).await.unwrap().status(), StatusCode::FORBIDDEN);
     }
@@ -1072,7 +1100,7 @@ async fn incomplete_existing_database_is_preserved_without_replacement_key() {
     assert!(!manifest.exists());
     assert_eq!(std::fs::read(&key_path).unwrap(), original_key);
     std::fs::write(&manifest, original_manifest).unwrap();
-    AppState::new(config).await.unwrap();
+    writer_drain::app_state(&config).await.unwrap();
 }
 
 #[tokio::test]
@@ -1082,6 +1110,7 @@ async fn fenced_authority_refuses_to_boot_or_serve_sidecar_routes() {
     let state = AppState::new(config.clone()).await.unwrap();
     std::fs::write(dir.path().join("jwt_secret"), config.jwt_secret.as_bytes()).unwrap();
     drop(state);
+    wait_for_writer_drain(dir.path()).await;
     let fenced = std::process::Command::new(env!("CARGO_BIN_EXE_wabi-instance-snapshot"))
         .arg("fence-stopped")
         .arg("--data-dir")
@@ -1161,6 +1190,7 @@ async fn encrypted_stopped_move_preserves_community_id_and_retires_original() {
     )
     .unwrap();
     drop(state);
+    wait_for_writer_drain(&old_data).await;
 
     let snapshot_binary = env!("CARGO_BIN_EXE_wabi-instance-snapshot");
     let identity = root.path().join("recovery.agekey");
@@ -1336,6 +1366,7 @@ async fn encrypted_stopped_move_preserves_community_id_and_retires_original() {
     // never by removing the fence from its original data tree.
     drop(replacement);
     let new_data = restored_root.join("data");
+    wait_for_writer_drain(&new_data).await;
     let reseed_archive = root.path().join("reseed.age");
     let exported = std::process::Command::new(snapshot_binary)
         .arg("export")

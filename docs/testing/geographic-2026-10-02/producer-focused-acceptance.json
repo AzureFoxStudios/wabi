@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "scope": "Actual default producer unit and real checkpoint/archive/boundary integration acceptance; full workspace currently running, no HA or writer permit",
+  "runs": [
+    {
+      "session": 75668,
+      "actualExitCode": 0,
+      "results": [
+        {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 1
+        }
+      ],
+      "passed": 3,
+      "failed": 0,
+      "ignored": 1,
+      "sourceFreezeSha256": "94f816f16f97cf87cc407441519542669cab410962fb0fc98b21d69f16a9d0b8",
+      "sourceReadbackChanged": [],
+      "logSha256": "d05be445b254468bb00eee3216d6db7f8310a21072a0748be94d9c31968952a9",
+      "compressedLog": "producer-source-unit.log.gz",
+      "artifacts": [
+        {
+          "path": "target/debug/deps/wabi_server-6b01289c87985704",
+          "bytes": 157075344,
+          "sha256": "720718b8776cbaea473e7447c157ef400384e94e3e89ac3c95cbf9571ca1eefb"
+        }
+      ]
+    },
+    {
+      "session": 39884,
+      "actualExitCode": 0,
+      "results": [
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        }
+      ],
+      "passed": 16,
+      "failed": 0,
+      "ignored": 0,
+      "sourceFreezeSha256": "e0b4a8c3503b0245ad08518f0cdb7598899841c5f91e6cd7895f3510ca63e9bd",
+      "sourceReadbackChanged": [],
+      "logSha256": "91fffb834fa29d6c47cc3b5a0f273d0fe1723b0a92aec7a4f35cd9d5b6ac43d4",
+      "compressedLog": "producer-integration-rerun.log.gz",
+      "artifacts": [
+        {
+          "path": "target/debug/deps/checkpoint_operator_contract-8cb297ae643c4d18",
+          "bytes": 129010272,
+          "sha256": "78fba84ffb8fb48b1cbfb07d76d147df313af70a6f9961487e59fc6393fa4bda"
+        },
+        {
+          "path": "target/debug/deps/instance_checkpoint_contract-833e21db188f5a5c",
+          "bytes": 41888320,
+          "sha256": "14b5b45193cc979b67a443187007428db4b6d2bcd73a79bcf0584be2db44e92a"
+        },
+        {
+          "path": "target/debug/deps/live_checkpoint_archive_contract-e42ca53c04e83043",
+          "bytes": 50276216,
+          "sha256": "b0256d14d00614514371d5a26b078c3c14f6f9d114d546cf85474808acc34bce"
+        }
+      ]
+    }
+  ],
+  "knownPriorAttempt": "producer-integration-compile-failed.json",
+  "workspaceSession": 79528,
+  "workspaceTerminalResult": null
+}

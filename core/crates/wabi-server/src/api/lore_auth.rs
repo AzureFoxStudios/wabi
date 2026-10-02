@@ -113,8 +113,13 @@ async fn authenticate(
         .ok_or_else(invalid)?;
     if !user.is_active
         || user.password_hash.is_empty()
-        || app.get_blacklist().await.ok_or_else(invalid)?
-            .is_user_banned(record.user_id).await.is_some()
+        || app
+            .get_blacklist()
+            .await
+            .ok_or_else(invalid)?
+            .is_user_banned(record.user_id)
+            .await
+            .is_some()
     {
         return Err(invalid());
     }
@@ -149,8 +154,73 @@ async fn authenticate(
         is_guest: false,
         jti,
         exp: i64::MAX,
+        iat: record.created_at_micros / 1_000_000,
         is_bot: false,
     })
+}
+
+/// Recheck a scoped tool capability after body/membership admission. Call
+/// while channel_access's mutation guard retains membership and current
+/// credentials; token deletion takes its membership writer. Account and bot
+/// credentials already have their lifecycle proof and need no Lore lookup.
+pub(super) async fn validate_current_capability(
+    state: &AppState,
+    auth: &AuthUser,
+    channel_id: i64,
+    write: bool,
+) -> Result<(), AppError> {
+    let Some(hash) = auth.jti.strip_prefix("lore-token:") else {
+        return Ok(());
+    };
+    let invalid = || AppError::Unauthorized("invalid or revoked lore connect token".into());
+    if hash.len() != 64
+        || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || auth.is_bot
+        || auth.is_guest
+        || auth.user_id <= 0
+        || auth.iat < 0
+    {
+        return Err(invalid());
+    }
+    let record = state.wdb.lore_get_token(hash).await?.ok_or_else(invalid)?;
+    if record.token_hash != hash
+        || record.revoked
+        || record.user_id != auth.user_id
+        || record.channel_id <= 0
+        || record.created_at_micros <= 0
+        || record.created_at_micros / 1_000_000 != auth.iat
+    {
+        return Err(invalid());
+    }
+    let scope = TokenScope::parse(&record.scopes).ok_or_else(invalid)?;
+    if record.channel_id != channel_id {
+        return Err(AppError::Forbidden(
+            "connect token belongs to a different repository".into(),
+        ));
+    }
+    if write && scope != TokenScope::ReadWrite {
+        return Err(AppError::Forbidden(
+            "this connect token is read-only".into(),
+        ));
+    }
+    crate::auth_extractor::ensure_human_principal(state, auth.user_id).await?;
+    let user = state
+        .wdb
+        .get_user(auth.user_id as u64)
+        .await?
+        .ok_or_else(invalid)?;
+    if user.password_hash.is_empty() || !user.is_registered {
+        return Err(invalid());
+    }
+    let channel = format!("ch_{channel_id:x}");
+    if state.wdb.get_channel(&channel).await?.is_none()
+        || !crate::channel_access::is_member(state, auth.user_id, &channel).await?
+    {
+        return Err(AppError::Forbidden(
+            "connect token no longer has repository access".into(),
+        ));
+    }
+    Ok(())
 }
 
 impl<S> FromRequestParts<S> for LoreReadUser
@@ -190,5 +260,178 @@ where
         resolve(parts, state, false)
             .await
             .map(|auth| Self(Some(auth)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{LoreAddonConfig, ServerConfig, ServerRole};
+    use wabidb::{
+        domain::{ChannelKind, MemberRole},
+        projections::lore::{encode_token_record, LoreTokenRecord},
+    };
+
+    async fn fixture() -> (tempfile::TempDir, Arc<AppState>, AuthUser, LoreTokenRecord) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path();
+        let state = Arc::new(
+            AppState::new(ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+                data_dir: path.to_string_lossy().into_owned(),
+                uploads_dir: path.join("uploads").to_string_lossy().into_owned(),
+                jwt_secret: "lore-current-capability-fixture".into(),
+                turn_enabled: false,
+                turn_uri: None,
+                turn_secret: None,
+                node_id: "fixture".into(),
+                is_primary: true,
+                server_role: ServerRole::Authority,
+                authority_url: None,
+                admin_user_ids: vec![],
+                blacklist_file: path.join("blacklist.txt").to_string_lossy().into_owned(),
+                max_body_size: None,
+                mesh_enabled: false,
+                mesh_peers: vec![],
+                lore: LoreAddonConfig::default(),
+            })
+            .await
+            .unwrap(),
+        );
+        let uid = state
+            .wdb
+            .create_user("scoped-human", None, "fixture-hash")
+            .await
+            .unwrap();
+        let channel = state
+            .wdb
+            .create_channel("scoped-repo", ChannelKind::Lore, uid, false)
+            .await
+            .unwrap();
+        state
+            .wdb
+            .add_channel_member(&channel, uid, MemberRole::Member)
+            .await
+            .unwrap();
+        let channel_id = i64::from_str_radix(channel.strip_prefix("ch_").unwrap(), 16).unwrap();
+        let token = format!("wblore_{}", "d2".repeat(32));
+        let hash = hex::encode(Sha256::digest(token.as_bytes()));
+        state
+            .wdb
+            .lore_mint_token(&hash, channel_id, uid as i64, "read,write")
+            .await
+            .unwrap();
+        let auth = authenticate(&state, &token, channel_id, true)
+            .await
+            .unwrap();
+        let record = state.wdb.lore_get_token(&hash).await.unwrap().unwrap();
+        (directory, state, auth, record)
+    }
+
+    #[tokio::test]
+    async fn current_capability_reloads_deleted_revoked_rebound_and_downgraded_records() {
+        let (_directory, state, auth, original) = fixture().await;
+        let membership = state.membership_gate.clone().read_owned().await;
+        let admission = auth.admit_current(&state).await.unwrap();
+        validate_current_capability(&state, &auth, original.channel_id, true)
+            .await
+            .unwrap();
+        let projections = state.wdb.engine().projection_state();
+        for mutation in [
+            "revoked", "user", "channel", "issued", "scope", "hash", "missing",
+        ] {
+            let mut record = original.clone();
+            match mutation {
+                "revoked" => record.revoked = true,
+                "user" => record.user_id += 1,
+                "channel" => record.channel_id += 1,
+                "issued" => record.created_at_micros += 1_000_000,
+                "scope" => record.scopes = "read".into(),
+                "hash" => record.token_hash = "00".repeat(32),
+                "missing" => {
+                    projections.remove("lore_tokens", original.token_hash.as_bytes());
+                }
+                _ => unreachable!(),
+            }
+            if mutation != "missing" {
+                projections.insert(
+                    "lore_tokens",
+                    original.token_hash.as_bytes().to_vec(),
+                    encode_token_record(&record),
+                    0,
+                );
+            }
+            assert!(
+                validate_current_capability(&state, &auth, original.channel_id, true)
+                    .await
+                    .is_err(),
+                "accepted {mutation} capability"
+            );
+            if mutation == "scope" {
+                validate_current_capability(&state, &auth, original.channel_id, false)
+                    .await
+                    .unwrap();
+            }
+            projections.insert(
+                "lore_tokens",
+                original.token_hash.as_bytes().to_vec(),
+                encode_token_record(&original),
+                0,
+            );
+        }
+        drop(admission);
+        drop(membership);
+    }
+
+    #[tokio::test]
+    async fn scoped_admission_rechecks_legacy_short_token_denial_under_the_current_reader() {
+        let (_directory, state, auth, original) = fixture().await;
+        drop(auth.admit_current(&state).await.unwrap());
+        state
+            .revoke_token_with_exp(
+                format!("lore-token:{}", &original.token_hash[..12]),
+                i64::MAX,
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            auth.admit_current(&state).await,
+            Err(AppError::Unauthorized(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn current_capability_does_not_reacquire_a_reader_behind_a_queued_denial_writer() {
+        let (_directory, state, auth, record) = fixture().await;
+        let membership = state.membership_gate.clone().read_owned().await;
+        let admission = auth.admit_current(&state).await.unwrap();
+        let baseline = Arc::strong_count(&state.revocations);
+        let writer_state = state.clone();
+        let uid = auth.user_id;
+        let writer = tokio::spawn(async move {
+            writer_state.revoke_user(uid).await.unwrap();
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while Arc::strong_count(&state.revocations) <= baseline {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(!writer.is_finished());
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            validate_current_capability(&state, &auth, record.channel_id, true),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        drop(admission);
+        drop(membership);
+        tokio::time::timeout(std::time::Duration::from_secs(5), writer)
+            .await
+            .unwrap()
+            .unwrap();
     }
 }

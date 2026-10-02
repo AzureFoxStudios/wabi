@@ -1,0 +1,21 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "wabi-project",
+  "version": "0.1.0",
+  "description": "Manage shared Wabi Project cards and wiki with revision checks and clear completion records.",
+  "homepage": "https://github.com/AzureFoxStudios/wabi",
+  "repository": "https://github.com/AzureFoxStudios/wabi",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Wabi Project",
+        "shortDescription": "Organize shared cards and wiki in Wabi.",
+        "longDescription": "Read, claim and update cards, record results, and maintain Project wiki pages through a scoped Wabi connection.",
+        "developerName": "Wabi contributors",
+        "category": "Productivity",
+        "capabilities": ["Read", "Write"],
+        "defaultPrompt": ["Check my Wabi Project and help organize its remaining work."]
+      }
+    }
+  }
+}

@@ -11,6 +11,17 @@ function rule(selector: string): string {
 }
 
 describe('RightStubStrip folder-tab geometry', () => {
+	test('closed tabs expose the full target', () => {
+		expect(rule('.stub-strip')).toContain('width: 48px');
+		expect(rule('.stub-strip.side-left .stub')).toContain('margin-left: 0');
+	});
+	test('pinning overlays center stage', () => {
+		const layout = readFileSync(new URL('../styles/components/main-layout-part1.css', import.meta.url), 'utf8');
+		const panel = layout.match(/\.right-panel-zone\s*\{([^}]*max-width:[^}]*)\}/)?.[1];
+		expect(panel).toContain('position: fixed');
+		expect(panel).toContain('z-index:');
+		expect(layout).not.toContain('margin-left: 48px');
+	});
 	test('right-side floating strip follows the panel leading edge', () => {
 		const anchor = rule('.stub-strip.floating.side-right');
 		expect(anchor).toContain('left: 0');
@@ -27,6 +38,6 @@ describe('RightStubStrip folder-tab geometry', () => {
 
 		const stub = rule('.stub-strip.floating.side-left .stub');
 		expect(stub).toContain('margin-left: 0');
-		expect(stub).toContain('transform: translateX(24px)');
+		expect(stub).toContain('transform: translateX(48px)');
 	});
 });

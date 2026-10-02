@@ -26,6 +26,7 @@ pub mod lore;
 #[cfg(feature = "wabi-lore")]
 mod lore_auth;
 pub mod media;
+pub mod media_permissions;
 pub(crate) mod media_node_catalog;
 pub mod messages;
 pub mod nodes;
@@ -57,3 +58,5 @@ pub mod boosters;
 pub mod network_health;
 
 pub mod service_access;
+
+pub mod whiteboard_policy;

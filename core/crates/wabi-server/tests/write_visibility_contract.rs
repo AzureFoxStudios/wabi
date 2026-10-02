@@ -109,8 +109,16 @@ async fn successful_call_http_writes_publish_current_session_and_roster() {
     .unwrap();
     let app = build_app_router(state.clone());
     let mut pushes = state.call_session_push.subscribe();
-    let call_channel = state.wdb.create_channel("voice", wabidb::domain::ChannelKind::Voice, user_id, false).await.unwrap();
-    state.wdb.add_channel_member(&call_channel, user_id, wabidb::domain::MemberRole::Member).await.unwrap();
+    let call_channel = state
+        .wdb
+        .create_channel("voice", wabidb::domain::ChannelKind::Voice, user_id, false)
+        .await
+        .unwrap();
+    state
+        .wdb
+        .add_channel_member(&call_channel, user_id, wabidb::domain::MemberRole::Member)
+        .await
+        .unwrap();
     post(
         &app,
         &token,
@@ -165,8 +173,16 @@ async fn successful_call_http_writes_publish_current_session_and_roster() {
     );
     // The album route used to compensate for the same race with 20 polls.
     // Albums now require a real authorized parent, not an arbitrary scope ID.
-    let album_channel = state.wdb.create_channel("albums", wabidb::domain::ChannelKind::Text, user_id, false).await.unwrap();
-    state.wdb.add_channel_member(&album_channel, user_id, wabidb::domain::MemberRole::Member).await.unwrap();
+    let album_channel = state
+        .wdb
+        .create_channel("albums", wabidb::domain::ChannelKind::Text, user_id, false)
+        .await
+        .unwrap();
+    state
+        .wdb
+        .add_channel_member(&album_channel, user_id, wabidb::domain::MemberRole::Member)
+        .await
+        .unwrap();
     let album = post(
         &app,
         &token,
@@ -226,7 +242,9 @@ async fn health_and_readiness_fail_when_the_writer_has_stopped_but_reads_still_w
             events: vec![EventToWrite {
                 stream_id: "bad".into(),
                 stream_kind: 6,
-                event_type: "user_registered".into(),
+                // Malformed identity events are refused before durability. Use
+                // the audit projection to exercise durable application failure.
+                event_type: "role_assigned".into(),
                 record_kind: RecordKind::Event,
                 plaintext: vec![]
             }],

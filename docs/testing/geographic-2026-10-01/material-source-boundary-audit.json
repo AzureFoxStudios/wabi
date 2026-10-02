@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-01T15:19:29.870754+00:00",
+  "executionComputer": "dotRonin",
+  "checkout": "/home/ironin/wabi",
+  "scope": "read-only source-boundary audit, not implementation acceptance",
+  "sourceDigests": {
+    "core/crates/wabi-server/src/instance_archive/live.rs": "678f4f09119824bd5f57e857e8862ced7d7cbb03d42cb2770740b27a62f312ef",
+    "core/crates/wabi-server/src/instance_archive/verify.rs": "ff6f02f601b5fdff406e9910c0acab23cc512d523a64aa78e2aa132a0c48257c",
+    "core/crates/wabidb/src/engine/checkpoint.rs": "80734438b353b14d3252b15622deb4029d89643d057d1a42dd98f320acbc3e0d",
+    "core/crates/wabidb/src/engine/offline_inspect.rs": "b873e70f852ab2a68a3a812811e29d0209c91fa4c176836ded37761ee3f59b8d",
+    "core/crates/wabidb/src/engine/replay.rs": "3128e7a33f2627a9c1d96cfafd880cf487fafaf9204084804b35bec6935fcbde",
+    "core/crates/wabidb/src/sequencer/mod.rs": "3e2fe0bcfef3b704bacd18cc25ab29082f025ff016af61bfdb450c1eb1d076c5",
+    "core/crates/wabi-consensus/src/material/model.rs": "a4700943e8dc6946fbef70baa73f6c9fb47d5fd8eaa926a71dcd94a29161a69c",
+    "core/crates/wabi-server/src/community_roster.rs": "c1d4b96015198c221bdc9d931b7788b20869883a23ac48b626e7cf423ae590d7"
+  },
+  "findings": [
+    {
+      "boundary": "LiveArchiveReceipt",
+      "observed": "appliedCommitSeq, committed-prefix fingerprint, ciphertext/inventory hashes and byte count; no highest-ever-assigned encryption sequence or typed root/signing key-context proof",
+      "implication": "Cannot create a semantically truthful assignedSequenceHighWater from appliedCommitSeq alone."
+    },
+    {
+      "boundary": "LiveCheckpointMetadata / PausedEngine",
+      "observed": "applied boundary and prefix fingerprint, protected bootstrap fingerprint/config/active key substitutions; no highest-ever-assigned sequence",
+      "implication": "Need separately reviewed actual capture semantics, or explicitly represent allocation knowledge as unknown in a versioned storage-only manifest."
+    },
+    {
+      "boundary": "InspectionReceipt",
+      "observed": "observedHighSequence derives from replay_projections and the highest observed on-disk record, including orphans/skipped records",
+      "implication": "Observed on-disk high sequence is different from the highest-ever-assigned sequence and from permission to resume old keys while an earlier writer is unreachable."
+    },
+    {
+      "boundary": "sequencer::prepare_command",
+      "observed": "sequence allocation precedes encryption/segment durability/index publication/projection/ACK",
+      "implication": "Failed/burned sequence and old-writer continuation need their own distributed allocation/key contract. No archive watermark or overwriteable uncommitted Raft index is a safe replacement."
+    },
+    {
+      "boundary": "material::MaterialManifest",
+      "observed": "assignedSequenceHighWater is presently a required u64; current accepted fixtures supply synthetic positions only; all writer/readiness flags false",
+      "implication": "Next real-source bridge must not fabricate this field. An isolated schema change can represent unknown allocation facts; otherwise exact server/engine capture changes need a separate coordinated slot."
+    },
+    {
+      "boundary": "CommunityRosterStore::open_legacy",
+      "observed": "Canonical community ID is SHA256 of the uncompressed P256 public key derived from the database root key; it is a 64-character identity, not the configured node ID or the replica fingerprint. Current live receipt/protected metadata do not export this canonical community ID as a typed field.",
+      "implication": "Real-source bridge must derive or verify the actual canonical community identity from supported source proof, compare it to the approved recovery roster, and refuse a real foreign-community archive. Do not copy the configured voter binding or bootstrap fingerprint and call it source identity."
+    },
+    {
+      "boundary": "InactiveVerificationReceipt / source context",
+      "observed": "Verifier confirms protected bootstrap/root-key continuity and exact JWT signing bytes against captured config, but its result does not provide a typed canonical community/key-context binding or nonce authority. It refuses unsupported Lore/plugins/external blacklist and remains fullInstanceReady false.",
+      "implication": "Use the existing supported verification, add narrowly reviewed read-only source context derivation when released, and retain core-only readiness boundaries. Do not call a mutating roster open method on an inactive restored tree just to derive identity."
+    }
+  ],
+  "nextActionChanged": "Before wiring real archive receipts into the manifest, explicitly represent available source semantics and unknown allocation facts; do not start an Authority or claim nonce readiness. Then wire bounded authenticated ciphertext transfer, current fixed-roster byte availability and real inactive verification.",
+  "compiledFilesEdited": false,
+  "newCargoRun": false,
+  "canonicalWriterPermitted": false,
+  "fullInstanceReady": false,
+  "workspaceWait": {
+    "nativeThread": "01a0f015-6256-7d51-8509-f919ec168529",
+    "ownerSession": "14818",
+    "observedCargoPid": 550597,
+    "observedStartTicks": "11298707",
+    "observedState": "S",
+    "observedAtUtc": "2026-10-01T15:14:43.438340+00:00",
+    "arguments": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--workspace",
+      "--features",
+      "wabi-server/addons,wabi-server/experimental-livekit-broker",
+      "--no-fail-fast"
+    ],
+    "actualTerminalResult": "pending at observation",
+    "latestVerifiedObservation": {
+      "observedAtUtc": "2026-10-01T15:27:52.773134+00:00",
+      "pid": 550597,
+      "startTicks": "11298707",
+      "state": "S",
+      "sameVerifiedProcess": true,
+      "actualTerminalResult": "pending; owner reports server test executable compiling"
+    }
+  },
+  "unchangedSourceReadback": {
+    "materialSourcesChecked": 21,
+    "materialSourceMismatches": [],
+    "auditedSourcesChecked": 8,
+    "auditSourceMismatches": []
+  },
+  "organizer": {
+    "channelId": "ch_c72",
+    "taskId": "task_1282d0135bc74301b99ed6a7c9713fd4",
+    "revision": 31,
+    "status": "in_progress",
+    "exactNotesReadback": true,
+    "priorOversizedNotesUpdateApplied": false,
+    "historicalNotesArchive": "docs/testing/geographic-2026-10-01/organizer-history-r30.json"
+  }
+}

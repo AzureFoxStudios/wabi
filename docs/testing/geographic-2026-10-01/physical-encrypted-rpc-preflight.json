@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "scope": "Fresh private-interface and SSH preflight after local encrypted RPC acceptance",
+  "executionComputer": "dotRonin",
+  "terminalSession": "22198",
+  "exitCode": 0,
+  "selfTailscaleOnline": true,
+  "selfPrivateIPv4": "100.80.172.12",
+  "knownRemoteTailscalePeersOnline": true,
+  "nodes": [
+    {
+      "site": "Ronin",
+      "expectedHost": "bazzite",
+      "actualHost": "bazzite",
+      "privateIPv4": "100.87.255.66",
+      "sshExitCode": 0,
+      "architecture": "x86_64",
+      "python": "3.14.7",
+      "tmpAvailableBytes": 14460301312,
+      "privateInterfaceBindAndClosePassed": true
+    },
+    {
+      "site": "Iyoku",
+      "expectedHost": "192.168.1.11",
+      "actualHost": "192.168.1.11",
+      "privateIPv4": "100.104.166.42",
+      "sshExitCode": 0,
+      "architecture": "x86_64",
+      "python": "3.14.7",
+      "tmpAvailableBytes": 7711309824,
+      "privateInterfaceBindAndClosePassed": true
+    }
+  ],
+  "compiledConsensusSourceDigestsStillMatch": 18,
+  "rootLockSubsequentlyChangedBySecurityOwner": true,
+  "rootLockChangeReportedAs": "Direct http-body-util0.1.3 reference in held server manifest; existing locked package, not a package version change",
+  "publicAddressChecksRepeated": false,
+  "persistentRemoteFilesCreated": 0,
+  "tcpListenersCreated": 0,
+  "firewallOrRouterChanges": 0,
+  "physicalNoiseRpcTestedByThisPreflight": false,
+  "canonicalWriterPermitted": false,
+  "status": "PASS",
+  "recordedAtUtc": "2026-10-01T12:55:33.481176+00:00"
+}

@@ -125,7 +125,7 @@
 .stub-strip {
 	position: fixed;
 	top: calc(var(--app-chrome-height) + 16px);
-	width: 24px;
+	width: 48px;
 	display: flex;
 	flex-direction: column;
 	gap: 10px;
@@ -184,20 +184,7 @@
 		border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
-/* Geometry — folder-tab model:
-   - Standalone (panel closed, cabinet state): a 48px stub in the 24px-wide
-     lane at the viewport edge with NO transform protrudes exactly 24px (the
-     outer half is clipped off-viewport). Hover/focus slides it fully onscreen
-     TOWARD the content (side-right: -24px, side-left: +24px).
-   - Floating (panel open): the stub sits fully OUTSIDE the panel body on its
-     inner/leading edge. Because the strip is a child of the panel zone, the
-     peek animation physically carries the tab across the screen with the
-     panel. This keeps panel controls unobscured and makes the tab read like a
-     real folder tab being pulled from a cabinet.
-   These selectors must stay side-scoped: the plain `.stub:hover` form
-   (2 classes) loses to the side rules below (3 classes) and the reveal dies.
-   Rounded corners face the workspace; the border touching the panel is
-   dropped so the tab reads as attached to the panel edge. */
+/* Closed tabs expose the full target; floating tabs attach outside the panel. */
 .stub-strip.side-right .stub {
 	transform: translateX(0);
 	border-right: none;
@@ -205,7 +192,7 @@
 }
 
 .stub-strip.side-left .stub {
-	margin-left: -24px;
+	margin-left: 0;
 	transform: translateX(0);
 	border-left: none;
 	border-radius: 0 var(--radius-md, 8px) var(--radius-md, 8px) 0;
@@ -213,12 +200,12 @@
 
 .stub-strip.side-right .stub:hover,
 .stub-strip.side-right .stub:focus-visible {
-	transform: translateX(-24px);
+	transform: translateX(0);
 }
 
 .stub-strip.side-left .stub:hover,
 .stub-strip.side-left .stub:focus-visible {
-	transform: translateX(24px);
+	transform: translateX(0);
 }
 
 /* In floating mode the tab is fully outside the panel. At the first frame of
@@ -230,7 +217,7 @@
 
 .stub-strip.floating.side-left .stub {
 	margin-left: 0;
-	transform: translateX(24px);
+	transform: translateX(48px);
 }
 
 .stub:hover,
@@ -263,14 +250,13 @@
 	line-height: 1;
 }
 
-/* Keep the icon inside the visible half-tab while the panel is tucked away.
-   Revealed and floating tabs use the normal centered icon. */
+/* Full targets keep icons centered in closed and floating states. */
 .stub-strip:not(.floating).side-right .stub:not(:hover):not(:focus-visible) .stub-icon {
-	transform: translateX(-12px);
+	transform: translateX(0);
 }
 
 .stub-strip:not(.floating).side-left .stub:not(:hover):not(:focus-visible) .stub-icon {
-	transform: translateX(12px);
+	transform: translateX(0);
 }
 
 .stub-add {

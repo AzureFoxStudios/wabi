@@ -258,8 +258,8 @@
 <div class="settings-section emoji-settings-v2">
 	<div class="emoji-settings-heading">
 		<div>
-			<h3>{$t('settings.sections.custom_emojis')}</h3>
-			<p>Community emoji and stickers live in named folders. Keep everyday reactions together, character packs separate, and seasonal or meme packs out of the way.</p>
+			<h3>Server emoji &amp; stickers</h3>
+			<p>Uploads are saved to this Wabi server and shared with its members. They are available when you connect to the same server from another browser or the desktop app. Other Wabi servers keep separate libraries.</p><p>Built-in emoji are available in the picker. This page manages the server library; it does not create a private, device-only collection.</p>
 		</div>
 		<div class="emoji-library-stat"><strong>{customEntries.length}</strong><span>community assets</span></div>
 	</div>

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T06:05:36.462346+00:00",
+  "capturedBeforeRun": true,
+  "files": {
+    "scripts/geographic-acceptance/checkpoint-field-host.py": "3f8ea4952e9fe740fbabe8739fa5945f0ee0b8066171b0519f86f58330da831e",
+    "scripts/geographic-acceptance/checkpoint-field-run.py": "e4a83d2f590abd5b253e88937dbbaf3b45ace9cad9638c37bea3eb6189a8a343",
+    "scripts/geographic-acceptance/test_checkpoint_field_host.py": "63d592b4b0ccde414931b24da5485208f9e74a5dd9e22ffaebdacfb0da020cd4",
+    "scripts/geographic-acceptance/rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2",
+    "target/debug/deps/checkpoint_tcp_contract-eb8a76132423eb51": "678b9341b8d30e8a49be3abdcdacb472716a5091e5c5c196f836b263a9687c91"
+  },
+  "artifactBytes": 8511720,
+  "consensusSourceFreeze": "checkpoint-field-freeze1.json.gz",
+  "producerSourceFreeze": "checkpoint-producer-field-freeze1.json.gz",
+  "status": "no physical acceptance before launch",
+  "priorAttempt": "checkpoint-physical1.json: local bootstrap output-prefix refusal, own root/tools cleaned, no remote nodes touched"
+}

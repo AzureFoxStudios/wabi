@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T02:41:42.371555+00:00",
+  "computer": "dotRonin",
+  "checkout": "/home/ironin/wabi",
+  "branch": "codex/security-boundary-hardening-20260930",
+  "head": "138abe39e08e400188d1812ed3bfd378df435315",
+  "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+  "cargo": "cargo 1.93.1 (083ac5135 2025-12-15)",
+  "sourceFreezeCapturedBeforeSession": 75668,
+  "sourceFreezeSha256": "94f816f16f97cf87cc407441519542669cab410962fb0fc98b21d69f16a9d0b8",
+  "sourceFiles": 5163,
+  "sourceCompressedSha256": "918ce76f27888e2761ae2516a66513d3562171b29bdb8ebff397ae33ff9ef5cd",
+  "unreferencedUncompiledDrafts": [
+    "core/crates/wabi-consensus/src/transport/material.rs",
+    "core/crates/wabi-consensus/src/transport/material/tests.rs"
+  ],
+  "cargoLockSha256": "2c31a8723232abaffc228fd9801cd444997211e5b2530d994072a7f7cd4b522a",
+  "preservedPackageIdentities": 638,
+  "rootManifestSha256": "a4a424c17f25224b17a01cf320e8339d97551081640b40898d35bbdfb773a051",
+  "frontendIndexSha256": "366331ef3f743cfc94864654584b411bc4a62efec20e7e90f858fe24b7d33253",
+  "frontendBuildId": "1305bddd7c8f3af6",
+  "testEnvironment": {
+    "CARGO_BUILD_JOBS": "1",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0"
+  },
+  "scope": "Focused producer tests and subsequent same-source full workspace acceptance; no automatic recovery/writer activation/deployment",
+  "currentSession": 75668,
+  "terminalResult": null
+}

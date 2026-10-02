@@ -1,8 +1,8 @@
 use axum::extract::{Path, Query, State};
 use axum::Json;
 use serde::Deserialize;
-use std::sync::Arc;
 use serde_json::{json, Value};
+use std::sync::Arc;
 
 use crate::auth_extractor::AuthUser;
 use crate::error::AppError;
@@ -11,10 +11,15 @@ use wabidb::engine::wabi_store::WabiStore;
 
 pub fn routes(state: Arc<AppState>) -> axum::Router<Arc<AppState>> {
     axum::Router::new()
-        .route("/{channel_id}/pages", axum::routing::get(list_pages).post(create_page))
+        .route(
+            "/{channel_id}/pages",
+            axum::routing::get(list_pages).post(create_page),
+        )
         .route(
             "/{channel_id}/pages/{page_id}",
-            axum::routing::get(get_page).put(update_page).delete(delete_page),
+            axum::routing::get(get_page)
+                .put(update_page)
+                .delete(delete_page),
         )
         .route(
             "/{channel_id}/pages/{page_id}/revisions",
@@ -24,7 +29,10 @@ pub fn routes(state: Arc<AppState>) -> axum::Router<Arc<AppState>> {
             "/{channel_id}/pages/{page_id}/revisions/{revision_id}",
             axum::routing::get(get_revision),
         )
-        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::channel_access::require_channel))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::channel_access::require_channel_with_read_gate,
+        ))
         .with_state(state)
 }
 
@@ -67,26 +75,33 @@ async fn create_page(
     Path(channel_id): Path<String>,
     Json(payload): Json<CreatePagePayload>,
 ) -> Result<Json<Value>, AppError> {
-    let _membership = state.membership_gate.read().await;
+    let authorization = crate::channel_access::admit_mutation(&state, &auth).await?;
     crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
-    let page_id = state
-        .wdb
-        .create_wiki_page(
-            &channel_id,
-            &payload.title,
-            &payload.body,
-            auth.user_id as u64,
-            payload.parent_page_id.as_deref().unwrap_or(""),
-            payload.slug.as_deref().unwrap_or(""),
-            payload.order_index.unwrap_or(0),
-        )
-        .await?;
-    let page = state
-        .wdb
-        .get_wiki_page(&channel_id, &page_id)
-        .await?
-        .ok_or_else(|| AppError::Internal("page created but not found in projection".into()))?;
-    Ok(Json(json!(page)))
+    let operation_state = state.clone();
+    authorization
+        .run(&operation_state, async move {
+            let page_id = state
+                .wdb
+                .create_wiki_page(
+                    &channel_id,
+                    &payload.title,
+                    &payload.body,
+                    auth.user_id as u64,
+                    payload.parent_page_id.as_deref().unwrap_or(""),
+                    payload.slug.as_deref().unwrap_or(""),
+                    payload.order_index.unwrap_or(0),
+                )
+                .await?;
+            let page = state
+                .wdb
+                .get_wiki_page(&channel_id, &page_id)
+                .await?
+                .ok_or_else(|| {
+                    AppError::Internal("page created but not found in projection".into())
+                })?;
+            Ok(Json(json!(page)))
+        })
+        .await
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,37 +124,51 @@ async fn update_page(
     Path((channel_id, page_id)): Path<(String, String)>,
     Json(payload): Json<UpdatePagePayload>,
 ) -> Result<Json<Value>, AppError> {
-    let _membership = state.membership_gate.read().await;
+    let authorization = crate::channel_access::admit_mutation(&state, &auth).await?;
     crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
-    state
-        .wdb
-        .update_wiki_page_checked(
-            &channel_id,
-            &page_id,
-            payload.expected_updated_at_micros,
-            &payload.title,
-            &payload.body,
-            auth.user_id as u64,
-            payload.parent_page_id.as_deref(),
-            payload.slug.as_deref(),
-            payload.order_index,
-        )
-        .await.map_err(|error| match error {
-            crate::adapter::wiki_checks::WikiWriteError::Storage(error) => AppError::Wdb(error),
-            crate::adapter::wiki_checks::WikiWriteError::NotFound => AppError::NotFound("wiki page not found".into()),
-            crate::adapter::wiki_checks::WikiWriteError::Conflict => AppError::Conflict("Wiki page changed; reload before editing".into()),
-        })?;
-    let page = state
-        .wdb
-        .get_wiki_page(&channel_id, &page_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound("wiki page not found".into()))?;
-    Ok(Json(json!(page)))
+    let operation_state = state.clone();
+    authorization
+        .run(&operation_state, async move {
+            state
+                .wdb
+                .update_wiki_page_checked(
+                    &channel_id,
+                    &page_id,
+                    payload.expected_updated_at_micros,
+                    &payload.title,
+                    &payload.body,
+                    auth.user_id as u64,
+                    payload.parent_page_id.as_deref(),
+                    payload.slug.as_deref(),
+                    payload.order_index,
+                )
+                .await
+                .map_err(|error| match error {
+                    crate::adapter::wiki_checks::WikiWriteError::Storage(error) => {
+                        AppError::Wdb(error)
+                    }
+                    crate::adapter::wiki_checks::WikiWriteError::NotFound => {
+                        AppError::NotFound("wiki page not found".into())
+                    }
+                    crate::adapter::wiki_checks::WikiWriteError::Conflict => {
+                        AppError::Conflict("Wiki page changed; reload before editing".into())
+                    }
+                })?;
+            let page = state
+                .wdb
+                .get_wiki_page(&channel_id, &page_id)
+                .await?
+                .ok_or_else(|| AppError::NotFound("wiki page not found".into()))?;
+            Ok(Json(json!(page)))
+        })
+        .await
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct DeletePageQuery { expected_updated_at_micros: i64 }
+struct DeletePageQuery {
+    expected_updated_at_micros: i64,
+}
 
 async fn delete_page(
     State(state): State<Arc<AppState>>,
@@ -147,27 +176,41 @@ async fn delete_page(
     Path((channel_id, page_id)): Path<(String, String)>,
     Query(query): Query<DeletePageQuery>,
 ) -> Result<Json<Value>, AppError> {
-    let _membership = state.membership_gate.read().await;
+    let authorization = crate::channel_access::admit_mutation(&state, &auth).await?;
     crate::channel_access::require_participation(&state, auth.user_id, &channel_id).await?;
-    state
-        .wdb
-        .delete_wiki_page_checked(&channel_id, &page_id, query.expected_updated_at_micros, auth.user_id as u64)
-        .await.map_err(|error| match error {
-            crate::adapter::wiki_checks::WikiWriteError::Storage(error) => AppError::Wdb(error),
-            crate::adapter::wiki_checks::WikiWriteError::NotFound => AppError::NotFound("wiki page not found".into()),
-            crate::adapter::wiki_checks::WikiWriteError::Conflict => AppError::Conflict("Wiki page changed; reload before deleting".into()),
-        })?;
-    Ok(Json(json!({ "deleted": true })))
+    let operation_state = state.clone();
+    authorization
+        .run(&operation_state, async move {
+            state
+                .wdb
+                .delete_wiki_page_checked(
+                    &channel_id,
+                    &page_id,
+                    query.expected_updated_at_micros,
+                    auth.user_id as u64,
+                )
+                .await
+                .map_err(|error| match error {
+                    crate::adapter::wiki_checks::WikiWriteError::Storage(error) => {
+                        AppError::Wdb(error)
+                    }
+                    crate::adapter::wiki_checks::WikiWriteError::NotFound => {
+                        AppError::NotFound("wiki page not found".into())
+                    }
+                    crate::adapter::wiki_checks::WikiWriteError::Conflict => {
+                        AppError::Conflict("Wiki page changed; reload before deleting".into())
+                    }
+                })?;
+            Ok(Json(json!({ "deleted": true })))
+        })
+        .await
 }
 
 async fn list_revisions(
     State(state): State<Arc<AppState>>,
     Path((channel_id, page_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, AppError> {
-    let revisions = state
-        .wdb
-        .list_wiki_revisions(&channel_id, &page_id)
-        .await?;
+    let revisions = state.wdb.list_wiki_revisions(&channel_id, &page_id).await?;
     Ok(Json(json!({ "revisions": revisions })))
 }
 

@@ -568,7 +568,7 @@
 		<input type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac" bind:this={notificationSoundInput} on:change={handleNotificationSoundFileSelect} class="hidden" />
 		<div class="runtime-note">Active sound: {notificationSoundLabel}</div>
 		<div class="settings-row-actions">
-			<button class="action-btn" on:click={testNotificationSound}>Test Sound</button>
+			<button class="action-btn secondary" on:click={testNotificationSound}>Test Sound</button>
 			<button class="action-btn secondary" on:click={resetNotificationSoundToDefault}>Reset Default</button>
 		</div>
 	</div>
@@ -672,7 +672,7 @@
 		{/if}
 		<div class="runtime-note">Active ringtone: {callRingtoneLabel}</div>
 		<div class="settings-row-actions">
-			<button class="action-btn" on:click={testCallRingtone}>Test Ringtone</button>
+			<button class="action-btn secondary" on:click={testCallRingtone}>Test Ringtone</button>
 			{#if callRingtoneMode !== 'custom-audio'}
 				<button class="action-btn secondary" on:click={resetCallRingtoneToDefault}>Reset Default</button>
 			{/if}

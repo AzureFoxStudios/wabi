@@ -1,0 +1,8 @@
+{
+  "acceptedSourceFreeze": "docs/testing/geographic-2026-10-02/byte-rpc-full-freeze.json.gz",
+  "changedReleaseInputs": [],
+  "changedUncompiledIntegrationTests": [
+    "core/crates/wabi-server/tests/checkpoint_operator_contract.rs"
+  ],
+  "frontendBuildIntentionalChange": true
+}

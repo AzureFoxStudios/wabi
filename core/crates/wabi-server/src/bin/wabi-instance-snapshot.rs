@@ -5,5 +5,7 @@ fn main() -> anyhow::Result<()> {
 
 // Retain the established binary-test target as well as library regression tests.
 #[cfg(test)]
+use wabi_server::{addon_switches, checkpoint_jobs, config, state, upload_registry};
+#[cfg(test)]
 #[path = "../instance_archive/mod.rs"]
 mod instance_archive_tests;

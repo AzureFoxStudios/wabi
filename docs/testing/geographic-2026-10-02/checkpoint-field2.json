@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "sessionId": 29396,
+  "actualExitCode": 101,
+  "rawLogSha256": "668fb629013a857c2f501a4d7d23da55bed47d513005c484fa3d965aec5b8bc5",
+  "changedSourcesAtReadback": [],
+  "accepted": false,
+  "reason": "sandbox refused TCP bind with EPERM; 40pass/9fail/2ignored in first library group; no socket acceptance"
+}

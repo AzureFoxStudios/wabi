@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "result": "FAIL",
+  "workload": "live V2 inactive core verification",
+  "authorityActivated": false,
+  "automaticFailoverTested": false,
+  "externalStateVerified": false,
+  "fullInstanceReady": false,
+  "remote": null,
+  "cleanup": {
+    "ownedProcessesStopped": true,
+    "remoteOwnedScratchRemoved": true,
+    "localOwnedScratchRemoved": true
+  },
+  "artifact": {
+    "serverSha256": "8154f967d042c03b272aafac0cdf85954405063d94e9149e9ba23b8c23644836",
+    "snapshotSha256": "020e47d7a4e266ba21c371b2c4de35157e9b93c38f006700af728cb6165cb262"
+  },
+  "sourceWritesResumed": true,
+  "sourceStoppedBeforeVerification": true,
+  "local": {
+    "schemaVersion": 1,
+    "result": "PASS",
+    "supportProfile": "inactive-live-core-complete-history-v1",
+    "sourceArchiveSha256": "5e0cb7425e2174eb9326e4455ff3935a9c924580ecbf7841311259024cf2182b",
+    "sourceReceiptMatched": true,
+    "database": {
+      "appliedCommitSeq": 16,
+      "commitPrefixFingerprint": "27d4a1b2c5badb505f2d5b41e7cb345d527e7beab8512e4e06e3edc50c58bba5",
+      "projection": {
+        "watermark": 16,
+        "nonemptyIndexes": 14,
+        "entries": 26,
+        "recordBytes": 2831,
+        "blake3": "4daea6967e6893ce9f9e48101eeb727f6d2e3c929da5cbcdd68b3fa474839107"
+      },
+      "indexedCommits": 16,
+      "observedHighSequence": 16,
+      "fullHistoryReplayed": true,
+      "persistedProjectionMatches": true
+    },
+    "fileCount": 28,
+    "directoryCount": 36,
+    "fileBytes": 23756,
+    "treeSha256": "83b0cef42a1765a6c26cacb972ce368ed890a7ae70976aecce6c2f678ca61207",
+    "activeBundleKeysMatch": true,
+    "inactiveGuardsPreserved": true,
+    "publishedUploadsChecked": 1,
+    "uploadDenialsChecked": 0,
+    "externalStateVerified": false,
+    "fullInstanceReady": false
+  },
+  "failureStage": "private-remote-transfer",
+  "failureCode": "EPIPE",
+  "recordedAtUtc": "2026-10-01T04:18:12.489Z"
+}

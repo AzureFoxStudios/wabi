@@ -344,7 +344,7 @@ export function createSyncSession(
 				handlers.onReady?.();
 			}
 			boardSyncReady.set(true);
-			boardSyncError.set(null);
+			boardSyncError.set(typeof payload.capability === 'object' && !payload.capability.write ? 'This board is read-only for your role or device.' : null);
 		},
 		onLeft: (payload) => {
 			if (payload.boardId !== boardId) return;

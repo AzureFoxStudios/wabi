@@ -34,7 +34,7 @@ Links retain target UUIDs. Deleting a target and creating another note with the 
 
 ## Recovering older writing
 
-Choose **Import and recovery**. Existing Notes, DM-note and scratchpad sources are previewed and copied only after an explicit destination choice. Their old keys do not reliably identify a server/account. Numeric IDs alone are not evidence of ownership.
+Open **Notes settings**, then choose **Import and recovery**. Existing Notes, DM-note and scratchpad sources are previewed and copied only after an explicit destination choice. Their old keys do not reliably identify a server/account. Numeric IDs alone are not evidence of ownership.
 
 Recovery preserves the exact source bytes, imports valid rows from partially malformed lists, reports invalid rows, and records an idempotent receipt. Old localStorage values are not removed. Conversation notes are recovered without attaching an ambiguous channel ID. Original profile annotations remain separate until an explicit owner/person mapping is implemented; the profile UI explains this limitation.
 
@@ -49,6 +49,14 @@ This candidate supports a maximum **20 MB UTF-8 JSON backup**, 10,000 notes and 
 **Open a copy in Reader** copies the current text under a stable note source identity. Reader edits do not write back to the note. **Return to note** opens the original UUID in the same notebook; missing originals and unsaved Reader copies produce a visible notice. Reader upgrades preserve old document stores and migrate only verifiably scoped records. Ambiguous legacy writing stays available through explicit recovery downloads; failed device writes never become successful localStorage saves.
 
 **Export Markdown archive** downloads a `.tar` archive. Extract it to get active notes in `notes/`, retained Trash in `trash/`, relative Markdown links, and `notebook.json` for restoring Wabi metadata. Missing target identities remain unresolved. UUID suffixes keep filenames distinct and portable. Import the extracted JSON through Notes; archive import itself is not supported. The same saved-note backup limits apply.
+
+## Local handwriting candidate — October 1
+
+**Draw / write** opens a basic sketch sheet with pen colors/sizes, stroke eraser, Undo/Redo and a Scroll mode for moving the sheet on touch devices. Paper can be white, gray or dark, with lines, dots or no guides. Cancel discards sheet edits; Save drawing to note uses the existing notebook autosave and scope fences. Reopening Draw / write edits the saved strokes.
+
+One sheet is embedded in the note body as a bounded inline PNG preview and validated vector metadata in a Markdown comment. The ordinary text editor shows only prose and preserves the sheet when writing changes. Preview displays both. The image and metadata travel through the existing drafts, backups and Markdown exports. This does not enable remote image fetching or SVG previews. Metadata is editable in Wabi; other Markdown apps may show the image without editing its strokes. The existing 2 MB note limit applies, with at most 1,000 strokes and 60,000 points per sheet. Pressure sensitivity and multiple sheets are not implemented.
+
+The notebook-local **Notes settings** dialog contains backup, Markdown archive export and import/recovery controls. Markdown files or a folder can be imported as copies through the same validated additive restore path; titles and links are preserved where resolvable. This does not synchronize an external vault or import its plugins.
 
 ## Acceptance evidence
 

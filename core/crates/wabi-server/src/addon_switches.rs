@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Add-ons whose runtime state can be switched from the app.
-pub const SWITCHABLE_ADDONS: &[&str] = &["steam", "lore", "tailcat"];
+pub const SWITCHABLE_ADDONS: &[&str] = &["steam", "lore", "tailcat", "project-workers"];
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AddonSwitches {

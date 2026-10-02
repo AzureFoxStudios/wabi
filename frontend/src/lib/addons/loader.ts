@@ -19,6 +19,7 @@ const loadedAddons = new Map<string, AddonInstance>();
  * model-viewer stays off this map (three.js) so Tauri desktop does not pull it.
  */
 const BUNDLED_ADDON_LOADERS: Record<string, () => Promise<unknown>> = {
+    'project-workers': () => import('$lib/components/ProjectConnections.svelte'),
 	'name-styles': () => import('$lib/addons/nameStyles'),
 	'steam': () => import('$lib/games/GamesSettingsEntry.svelte'),
 	'youtube-sync': () => import('$lib/components/plugins/YouTubeWatchEmbed.svelte'),

@@ -178,15 +178,16 @@
 			</section>
 			<section class="reception-section">
 				<h2>Your community roles</h2>
+				<button type="button" class="rules-button" onclick={() => editingChoices = true}>Manage community roles and sidebar</button>
 				{#if myRoleIds.length}<p class="reception-hint">{roles.filter(role => myRoleIds.includes(role.id)).map(role => role.name).join(', ') || 'Your previous roles are no longer available.'}</p>{:else}<p class="reception-hint">You have not chosen any community roles.</p>{/if}
 			</section>
 			<section class="reception-section desk-room-section">
-				<h2>Your rooms</h2>
+				<h2>Rooms in your sidebar</h2><p class="reception-hint">Show or hide rooms here, then open them from the channel list.</p>
 				{#if $channels.filter(ch => !['dm', 'group', 'category', 'reception'].includes(ch.type)).length === 0}<p class="reception-hint">No rooms are available yet.</p>{/if}
 				<div class="room-list">
 					{#each $channels as ch (ch.id)}
 						{#if !['dm', 'group', 'category', 'reception'].includes(ch.type)}
-							<div class="room-row" class:room-row-off={isHidden(ch.id)}><span class="room-name">#{ch.name}{#if ch.description}<small>{ch.description}</small>{/if}</span><span class="room-status">{isHidden(ch.id) ? 'Off in your sidebar' : 'On in your sidebar'}</span><button type="button" class="room-open" onclick={() => openRoom(ch.id)}>Open room</button></div>
+							<div class="room-row" class:room-row-off={isHidden(ch.id)}><span class="room-name">#{ch.name}{#if ch.description}<small>{ch.description}</small>{/if}</span><button type="button" class="room-switch" role="switch" aria-checked={!isHidden(ch.id)} aria-label={`Show ${ch.name} in sidebar`} onclick={() => toggleRoom(ch.id)}><span class="switch-track" aria-hidden="true"></span><span>{isHidden(ch.id) ? 'Off' : 'On'}</span></button></div>
 						{/if}
 					{/each}
 				</div>
@@ -205,7 +206,6 @@
 				{#if resourceUrl}<a href={resourceUrl} target="_blank" rel="noopener noreferrer">{helpLabel}</a>{/if}
 				{#if $communityRulesAvailable}<button type="button" class="rules-button" onclick={() => communityRulesOpen.set(true)}>Open rules and help</button>{/if}
 			</section>
-			<button type="button" class="edit-choices" onclick={() => editingChoices = true}>Edit my choices</button>
 		</div>
 	{:else}
 	<div class="reception-body">
@@ -248,10 +248,11 @@
 							type="button"
 							class="room-row"
 							class:room-row-off={isHidden(ch.id)}
+							role="switch" aria-checked={!isHidden(ch.id)} aria-label={`Show ${ch.name} in sidebar`}
 							onclick={() => toggleRoom(ch.id)}
 						>
 							<span class="room-name">#{ch.name}{#if ch.description}<small>{ch.description}</small>{/if}</span>
-							<span class="room-status">{isHidden(ch.id) ? 'Off' : 'On'}</span>
+							<span class="switch-track" class:enabled={!isHidden(ch.id)} aria-hidden="true"></span><span class="room-status">{isHidden(ch.id) ? 'Off' : 'On'}</span>
 						</button>
 					{/if}
 				{/each}
@@ -273,14 +274,15 @@
 		container-type: inline-size;
 		grid-template-rows: auto 1fr auto;
 		min-height: 100%;
-		padding: 24px;
-		gap: 24px;
+		padding: 0;
+		gap: 32px;
 	}
 	.reception-header h1 {
 		margin: 0;
-		font-size: 28px;
+		font-size: clamp(32px, 5cqi, 64px);
+		line-height: 1.1;
 	}
-	.reception-header.with-artwork{position:relative;isolation:isolate;display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-end;min-height:clamp(220px,30vw,360px);padding:clamp(18px,3vw,32px);overflow:hidden;border-radius:var(--radius-lg);background:var(--surface-sunken)}
+	.reception-header.with-artwork{position:relative;isolation:isolate;display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-end;min-height:clamp(300px,45cqi,520px);padding:clamp(18px,3vw,32px);overflow:hidden;border-radius:var(--radius-lg);background:var(--surface-sunken)}
 	.reception-header.with-artwork::before{content:'';position:absolute;inset:0;z-index:-1;background:linear-gradient(0deg,rgba(0,0,0,.86),rgba(0,0,0,.34) 65%,rgba(0,0,0,.16))}
 	.server-banner{position:absolute;inset:0;z-index:-2;width:100%;height:100%;object-fit:cover}
 	.with-artwork :is(h1,.server-description,.reception-subtitle){color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.65)}
@@ -289,13 +291,12 @@
 	@media(max-width:700px){.poster-blocks{position:relative;inset:auto;display:grid;gap:8px;width:100%;pointer-events:auto;margin-top:14px}.poster-block{position:static;width:auto!important}.reception-header.with-artwork{min-height:220px}}
 	@container(max-width:700px){.reception-body,.desk-overview{grid-template-columns:1fr}.view-section,.desk-room-section{grid-column:auto}.poster-blocks{position:relative;inset:auto;display:grid;gap:8px;width:100%;pointer-events:auto;margin-top:14px}.poster-block{position:static;width:auto!important}}
 	.motion-button{position:absolute;top:12px;right:12px;z-index:1;padding:6px 10px;border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-base);color:var(--text-primary);font:inherit;cursor:pointer}
-	.desk{max-width:1100px;margin:0 auto}
+	.desk{width:100%;margin:0}
 	.desk-overview{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:18px;align-content:start}
 	.desk-room-section{grid-column:1/-1}
 	.rules-excerpt{white-space:pre-wrap;line-height:1.6;color:var(--text-primary);overflow-wrap:anywhere}
 	.edit-choices{grid-column:1/-1;justify-self:start;align-self:start;padding:10px 14px;border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-raised);color:var(--text-primary);font:inherit;cursor:pointer}
 	.desk-overview .room-row{border:1px solid var(--border-default);cursor:default}
-	.room-open{border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-raised);color:var(--text-primary);font:inherit;padding:7px 10px;cursor:pointer}
 	.server-icon{width:56px;height:56px;border-radius:15px;object-fit:cover;margin-bottom:12px}.server-icon-fallback{display:grid;place-items:center;background:var(--accent-primary);color:var(--text-on-accent,white);font-weight:700;font-size:1.5rem}
 	.server-description{margin:8px 0 0;color:var(--text-primary)}
 	.reception-subtitle {
@@ -321,8 +322,8 @@
 	.chip {
 		appearance: none;
 		border: 1px solid #4f545c;
-		background: #2f3136;
-		color: #dcddde;
+		background: var(--surface-base);
+		color: var(--text-primary);
 		padding: 8px 12px;
 		border-radius: 9999px;
 		cursor: pointer;
@@ -356,8 +357,8 @@
 		align-items: center;
 		padding: 10px 12px;
 		border-radius: 8px;
-		background: #2f3136;
-		color: #dcddde;
+		background: var(--surface-base);
+		color: var(--text-primary);
 		width: 100%;
 		text-align: left;
 		cursor: pointer;
@@ -385,4 +386,13 @@
 	}
 	.rules-button{appearance:none;border:1px solid #4f545c;border-radius:9px;background:#2f3136;color:#fff;padding:10px 13px;cursor:pointer}
 	@media(max-width:720px){.reception-body,.desk-overview{grid-template-columns:1fr}.view-section,.desk-room-section{grid-column:auto}.role-card{flex-direction:column}.role-card button{align-self:flex-start}}
+	.room-name { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+	.room-row { gap: 16px; border: 1px solid var(--border-default); }
+	.room-row-off { opacity: 1; }
+	.room-switch { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; flex: none; border: 0; background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; }
+	.switch-track { display: inline-block; width: 40px; height: 24px; flex: none; padding: 3px; box-sizing: border-box; border-radius: var(--radius-full); background: var(--text-muted); }
+	.switch-track::after { content: ''; display: block; width: 18px; height: 18px; border-radius: 50%; background: var(--surface-app); transition: transform 150ms ease; }
+	.room-switch[aria-checked="true"] .switch-track, .switch-track.enabled { background: var(--accent-primary); }
+	.room-switch[aria-checked="true"] .switch-track::after, .switch-track.enabled::after { transform: translateX(16px); background: var(--text-on-accent, white); }
+	.room-switch:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; border-radius: var(--radius-sm); }
 </style>

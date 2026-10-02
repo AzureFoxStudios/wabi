@@ -7,9 +7,19 @@ pub(super) const LIVE_MAGIC: &[u8] = b"WABI-INSTANCE-SNAPSHOT-V2\n";
 const MAX_HEADER_BYTES: usize = 1024 * 1024;
 const FOOTER_MAGIC: &[u8] = b"WABI-CHECKPOINT-INVENTORY-V1\n";
 pub(super) const LIVE_MARKER: &str = wabidb::engine::LIVE_CHECKPOINT_MARKER;
+const LEGACY_RUNTIME_PATHS: &[&str] = &["data/.lock", "data/wabidb/.lock", "data/tailcat/addr.txt"];
+pub(crate) const LIVE_RUNTIME_PATHS: &[&str] = &[
+    "data/.lock",
+    "data/wabidb/.lock",
+    "data/.wabi-secret-publication.lock",
+    "data/wabidb/.wabi-secret-publication.lock",
+    "data/tailcat/addr.txt",
+];
 const SKIPPED: &[&str] = &[
     "data/.lock",
     "data/wabidb/.lock",
+    "data/.wabi-secret-publication.lock",
+    "data/wabidb/.wabi-secret-publication.lock",
     "data/tailcat/addr.txt",
     "data/jwt_secret",
     "data/wabidb/root_key",
@@ -166,6 +176,53 @@ impl Inventory {
         }
         Ok(())
     }
+
+    fn matches_receipt(&self, receipt: &LiveArchiveReceipt) -> bool {
+        self.files == receipt.file_count
+            && self.directories == receipt.directory_count
+            && self.bytes == receipt.plaintext_file_bytes
+            && hex::encode(self.hash.clone().finalize()) == receipt.inventory_sha256
+    }
+}
+
+/// Reconstruct the exact V2 source inventory after inactive restore. Runtime
+/// files, the two new destination guards and root-level inspection metadata do
+/// not belong to the archived roots. Active keys retain their final export order.
+pub(super) fn verify_source_inventory(
+    data: &Path,
+    uploads: &Path,
+    receipt: &LiveArchiveReceipt,
+    limits: LiveExportLimits,
+) -> Result<()> {
+    let budget = Budget::new(limits)?;
+    let mut inventory = Inventory::default();
+    for entry in collect(data, uploads, uploads.starts_with(data), &budget)? {
+        if matches!(entry.archive_path.as_str(),
+            "data/wabidb/writer-fenced-v1" | "data/wabidb/live-checkpoint-v1") {
+            continue;
+        }
+        let digest = if entry.is_dir { [0u8; 32] } else {
+            file_digest(&entry, None, &budget)?
+        };
+        inventory.entry(&entry.archive_path, entry.is_dir, entry.size, &digest);
+    }
+    for (name, path) in [
+        ("data/jwt_secret", data.join("jwt_secret")),
+        ("data/wabidb/root_key", data.join("wabidb/root_key")),
+    ] {
+        let metadata = fs::symlink_metadata(&path)?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            bail!("source inventory active key is not a regular file");
+        }
+        let entry = Entry { archive_path: name.into(), source_path: path,
+            is_dir: false, size: metadata.len(), modified: metadata.modified().ok() };
+        let digest = file_digest(&entry, None, &budget)?;
+        inventory.entry(name, false, entry.size, &digest);
+    }
+    if !inventory.matches_receipt(receipt) {
+        bail!("inactive restore differs from the authenticated source inventory");
+    }
+    Ok(())
 }
 
 fn collect(data: &Path, uploads: &Path, embedded: bool, budget: &Budget) -> Result<Vec<Entry>> {
@@ -302,6 +359,10 @@ pub(crate) fn export_frozen(
 ) -> Result<LiveArchiveReceipt> {
     let budget = Budget::new(limits)?;
     validate_metadata(&input.metadata)?;
+    anyhow::ensure!(
+        input.metadata.excluded_runtime_paths == LIVE_RUNTIME_PATHS,
+        "new checkpoint metadata must declare current runtime exclusions"
+    );
     if input.jwt_secret.is_empty()
         || input.jwt_secret.trim() != input.jwt_secret
         || input.jwt_secret.len() > 64 * 1024
@@ -477,8 +538,8 @@ pub(super) fn validate_metadata(metadata: &LiveCheckpointMetadata) -> Result<()>
             .get("server_role")
             .and_then(|v| v.as_str())
             != Some("authority")
-        || metadata.excluded_runtime_paths
-            != ["data/.lock", "data/wabidb/.lock", "data/tailcat/addr.txt"]
+        || (metadata.excluded_runtime_paths != LIVE_RUNTIME_PATHS
+            && metadata.excluded_runtime_paths != LEGACY_RUNTIME_PATHS)
         || metadata.active_key_substitutions != ["data/jwt_secret", "data/wabidb/root_key"]
     {
         bail!("invalid live checkpoint metadata or unsupported readiness claim");

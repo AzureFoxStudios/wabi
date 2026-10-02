@@ -14,7 +14,7 @@ class RuntimeFilesTest(unittest.TestCase):
     def test_operator_state_and_nested_environment_files(self):
         for name in ['data/root_key', 'data/chat.db', 'uploads/a.png', 'nested/data/wabidb/00001.seg',
                      'jwt_secret', 'root_key', '.env', '.env.production', 'relay/relay.env',
-                     'relay/relay.env.local', 'server_owner.json']:
+                     'relay/relay.env.local', 'server_owner.json', '.claude/settings.local.json']:
             with self.subTest(name=name):
                 self.assertTrue(guard.is_runtime_file(name))
 

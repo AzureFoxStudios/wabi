@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "scope": "Final owned physical-slice evidence/reference/raw-temp audit, not Wabi recovery acceptance",
+  "recordedAtUtc": "2026-10-01T14:17:58.323008+00:00",
+  "organizerRevisionVerified": 28,
+  "physicalDirectRpcReceipt": "physical-encrypted-rpc-contracts.json",
+  "physicalEdgeReceipt": "physical-encrypted-rpc-edge-contracts.json",
+  "matchingLocalEvidenceReferences": 12,
+  "ownedRawPathsChecked": 19,
+  "ownedRawTemporaryPathsRemaining": [],
+  "savedEvidenceDirectoryBytes": 1109627,
+  "sharedBuildArtifactsPreserved": true,
+  "newCargoTargetTreesCreated": 0,
+  "firewallRouterOrLiveServiceChanges": 0,
+  "canonicalWriterPermitted": false,
+  "fullInstanceReady": false,
+  "automaticWabiRecoveryTested": false,
+  "loreConnectionRevisionVerified": false,
+  "backendSourceHoldAwaitingSecurityOwnerRelease": true,
+  "goalRemainsActive": true,
+  "availableDiskBytes": 49390788608
+}

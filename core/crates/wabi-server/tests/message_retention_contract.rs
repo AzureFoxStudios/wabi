@@ -1,4 +1,7 @@
 //! Logical deletion is not secure erasure. Only disposable state is used.
+#[path = "fixtures/writer_drain.rs"]
+mod writer_drain;
+
 use std::path::Path;
 use wabi_server::adapter::WdbAdapter;
 use wabidb::projections::messages::{FileAttachmentRecord, MessagesProjection};
@@ -63,9 +66,16 @@ async fn deleted_canary_stays_hidden_after_restart_but_record_attachment_and_bac
     .iter()
     .any(|record| record.message_id == message));
     drop(store);
+    let stopped = writer_drain::wait_for_stopped_engine(&live.path().join("wabidb")).await;
     copy_tree(live.path(), backup.path()); // Stopped consistent backup before deletion.
+    drop(stopped);
 
-    let store = WdbAdapter::open(&live.path().join("wabidb")).await.unwrap();
+    let store = writer_drain::retry(
+        || async { WdbAdapter::open(&live.path().join("wabidb")).await },
+        |error| matches!(error, wabidb::error::WabiError::AlreadyRunning),
+    )
+    .await
+    .unwrap();
     store.delete_message(&message, 1).await.unwrap();
     assert!(!store
         .list_messages_typed(&channel, 100)
@@ -84,7 +94,12 @@ async fn deleted_canary_stays_hidden_after_restart_but_record_attachment_and_bac
     .any(|record| record.message_id == message));
     drop(store);
 
-    let reopened = WdbAdapter::open(&live.path().join("wabidb")).await.unwrap();
+    let reopened = writer_drain::retry(
+        || async { WdbAdapter::open(&live.path().join("wabidb")).await },
+        |error| matches!(error, wabidb::error::WabiError::AlreadyRunning),
+    )
+    .await
+    .unwrap();
     let visible = reopened.list_messages_typed(&channel, 100).await.unwrap();
     assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].message_id, retained);

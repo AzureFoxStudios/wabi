@@ -25,26 +25,28 @@
 	}
 </script>
 
-{#if recordingState.status === 'recording' || recordingState.status === 'saving'}
+{#if recordingState.status === 'recording' || recordingState.status === 'saving' || recordingPresenceCopy}
 	<div class="recording-banner" role="status" aria-live="polite">
 		<span class="recording-pill" class:is-saving={recordingState.status === 'saving'}>
 			<span class="recording-dot"></span>
 			{#if recordingState.status === 'recording'}
 				REC {formatRecordingElapsedForUi(recordingState.elapsedMs)}
-			{:else}
+			{:else if recordingState.status === 'saving'}
 				Saving
+			{:else}
+				{recordingPillText || 'Recording in progress'}
 			{/if}
 		</span>
 		<span class="recording-copy">{recordingPresenceCopy}</span>
 		{#if recordingState.status === 'recording'}
 			<button type="button" class="recording-stop-btn" onclick={handleStop} disabled={stopping}>
-				{stopping ? 'Stopping…' : 'Stop'}
+				{stopping ? 'Stopping…' : 'Stop recording'}
 			</button>
 		{/if}
 	</div>
 {/if}
 
-{#if recordingLabel}
+{#if recordingLabel && recordingState.status !== 'recording' && recordingState.status !== 'saving'}
 	<div class="recording-status" class:is-error={recordingState.status === 'error'}>
 		{recordingLabel}
 	</div>
@@ -200,4 +202,10 @@
 			box-shadow: 0 0 0 0 rgba(var(--color-danger-rgb, 239, 68, 68), 0);
 		}
 	}
+
+	.recording-banner { background: var(--bg-secondary, #202f32); color: var(--text-heading); border-block: 1px solid var(--border-subtle); border-left: 3px solid var(--color-danger, #ef4444); }
+	.recording-copy { color: var(--text-body); text-align: left; flex: 1; }
+	.recording-pill { background: var(--bg-primary, #172326); color: var(--text-heading); font-variant-numeric: tabular-nums; }
+	.recording-stop-btn { min-height: 36px; border-radius: 8px; background: var(--color-danger, #b91c1c); color: white; }
+	@media (prefers-reduced-motion: reduce) { .recording-dot { animation: none; } }
 </style>

@@ -103,6 +103,7 @@
 </script>
 
 <div class="friends-panel">
+	<header class="friends-hero"><div><h2>Your people</h2><p>Keep in touch with friends and meet members of this server.</p></div><span>{$friendships.friends.length} friends</span></header>
 	{#if !canManageFriends}<p class="friends-empty">Sign in with a registered account to add friends.</p>{/if}
 
 	{#if $friendships.error}
@@ -151,13 +152,13 @@
 				{#each $friendships.outgoing as request (request.id)}
 					{@const profile = rosterById.get(request.user_id)}
 					{@const avatar = profile?.profilePicture || request.profile_picture}
-					<div class="friend-row">
+					<div class="friend-row friend-row-outgoing">
 						<div class="friend-avatar" style:background={request.color || 'var(--accent-primary)'}>
 							{#if avatar}<ProfileMedia src={mediaUrl(avatar)} decorative />{:else}{request.username[0]?.toUpperCase() || '?'}{/if}
 						</div>
 						<div class="friend-details"><strong><ProfileName username={request.username} font={profile?.usernameFont} color={profile?.color || request.color} /></strong><span>Waiting for a reply</span></div>
 						<div class="friend-actions">
-							<button type="button" disabled={Boolean(pendingAction)} on:click={() => runAction(`cancel-${request.id}`, () => dismissFriendship(request.id), 'Request cancelled.')}>{pendingAction === `cancel-${request.id}` ? 'Cancelling…' : 'Cancel'}</button>
+							<button type="button" class="cancel-request" aria-label={`Cancel friend request to ${request.username}`} title="Cancel friend request" disabled={Boolean(pendingAction)} on:click={() => runAction(`cancel-${request.id}`, () => dismissFriendship(request.id), 'Request cancelled.')}>{pendingAction === `cancel-${request.id}` ? '…' : '×'}</button>
 						</div>
 					</div>
 				{/each}
@@ -225,6 +226,7 @@
 </div>
 
 <style>
+.friends-hero{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.25rem;border:1px solid var(--border-subtle);border-radius:var(--radius-lg);background:var(--surface-raised)}.friends-hero h2{margin:0;color:var(--text-heading)}.friends-hero p{margin:.5rem 0 0;color:var(--text-secondary)}.friends-hero>span{white-space:nowrap;color:var(--text-secondary)}
 	.friends-panel { flex: 1; width: 100%; max-width: 800px; min-height: 0; margin-inline: auto; box-sizing: border-box; container: friends-panel / inline-size; overflow: auto; padding: var(--space-3, 12px); color: var(--text-heading); }
 	.friends-request-overview { display: grid; gap: var(--space-1, 4px); margin: var(--space-1, 4px) var(--space-1, 4px) var(--space-3, 12px); padding: var(--space-3, 12px); border: 1px solid var(--color-border-primary); border-radius: var(--radius-lg, 12px); background: var(--surface-raised); }
 	.friends-request-overview.has-requests { border-color: color-mix(in srgb, var(--accent-primary-color, var(--accent-primary)) 55%, var(--color-border-primary)); background: color-mix(in srgb, var(--accent-primary-color, var(--accent-primary)) 13%, var(--surface-base)); }
@@ -241,7 +243,7 @@
 	.friends-section h3 { display: flex; align-items: center; gap: var(--space-2, 8px); margin: 0 0 var(--space-1, 4px); padding: var(--space-2, 8px) var(--space-1, 4px); color: var(--text-secondary); font-size: var(--font-size-xs, 11px); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
 	.friends-section h3 span { color: var(--text-muted); font-weight: 600; }
 	.friends-empty { margin: 0; padding: var(--space-2, 8px) var(--space-1, 4px); color: var(--text-muted); font-size: var(--font-size-sm, 13px); line-height: 1.5; }
-	.friend-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: var(--space-2, 8px); align-items: center; padding: var(--space-2, 8px); border-radius: var(--radius-lg, 12px); }
+	.friend-row { border:1px solid var(--border-subtle);background:var(--surface-raised);margin-block:.5rem;display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: var(--space-2, 8px); align-items: center; padding: var(--space-2, 8px); border-radius: var(--radius-lg, 12px); }
 	.friend-row:hover { background: color-mix(in srgb, var(--text-heading) 5%, transparent); }
 	.friend-avatar { position: relative; display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: var(--radius-full, 9999px); color: white; font-weight: 700; overflow: visible; }
 	.friend-avatar :global(img), .friend-avatar :global(canvas) { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
@@ -258,4 +260,11 @@
 	.friends-feedback { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2, 8px); margin: var(--space-2, 8px) 0; padding: var(--space-2, 8px); border-radius: var(--radius-md, 8px); background: var(--surface-raised); color: var(--text-secondary); font-size: var(--font-size-sm, 13px); }
 	.friends-feedback.error { color: var(--color-danger, #ef4444); border: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 35%, transparent); }
 	@container friends-panel (max-width: 600px) { .friend-row { grid-template-columns: 44px minmax(0, 1fr); padding: var(--space-3, 12px) var(--space-2, 8px); } .friend-avatar { width: 44px; height: 44px; } .friend-actions { grid-column: 2; grid-row: 2; } .friend-actions button { min-height: 40px; } }
+
+	@container friends-panel (max-width: 600px) {
+		.friend-row.friend-row-outgoing { grid-template-columns: 32px minmax(0, 1fr) 36px; padding: 8px; }
+		.friend-row-outgoing .friend-avatar { width: 32px; height: 32px; }
+		.friend-row-outgoing .friend-actions { grid-column: 3; grid-row: 1; }
+	}
+	.friend-actions .cancel-request { width: 36px; height: 36px; padding: 0; font-size: 22px; }
 </style>

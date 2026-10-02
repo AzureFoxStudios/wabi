@@ -319,6 +319,11 @@ pub async fn run(
                 continue;
             }
 
+            if let Err(error) = crate::projections::users::preflight_command(&command.events, &projection_state) {
+                let _ = command.response_tx.send(Err(error));
+                continue;
+            }
+
             if let Err(error) = crate::projections::recovery_codes::preflight(
                 &command.events, &projection_state,
             ) {
@@ -404,6 +409,10 @@ fn has_room_control_event(command: &CommandCommit) -> bool {
             crate::projections::room_placement::EVENT
                 | crate::projections::room_placement::INIT_EVENT
                 | "call_session_created"
+                | "user_registered"
+                | "user_updated"
+                | "user_deleted"
+                | "owner_claimed"
                 | crate::projections::auth_revocations::EVENT
                 | crate::projections::recovery_codes::EVENT
         )
@@ -442,6 +451,12 @@ async fn prepare_command(
     // would reuse that (key, nonce). Reject before writing any bytes.
     let mut streams = std::collections::HashSet::new();
     for event in &command.events {
+        if !crate::stream_identity::is_safe_stream_id(&event.stream_id) {
+            return Err(WabiError::Validation {
+                command: command.command_name.clone(),
+                reason: "stream ID is not a bounded single directory component".into(),
+            });
+        }
         if !streams.insert(&event.stream_id) {
             return Err(WabiError::Validation {
                 command: command.command_name.clone(),
@@ -1184,16 +1199,15 @@ mod tests {
         // Occupancy proof: with the old submit+flush_now-per-command loop,
         // 24 concurrent commands produced 24 non-empty flushes. Group commit
         // must collapse them into strictly fewer.
-        let (flushes, last_batch) =
+        let (flushes, _last_batch) =
             crate::commit_index::batcher::flush_stats::get(&commit_index_dir);
         assert!(
             flushes < n as usize,
             "group commit failed: {n} commands caused {flushes} flushes (expected < {n})"
         );
-        assert!(
-            last_batch > 1 || flushes == 1 && last_batch >= 1,
-            "expected at least one multi-entry batch; last_batch={last_batch}"
-        );
+        // A final one-entry straggler says nothing about earlier windows.
+        // Fewer nonempty flushes than commands proves at least one shared
+        // fsync without assuming the scheduler's final batch occupancy.
     }
 
     // -----------------------------------------------------------------------

@@ -1,0 +1,475 @@
+{
+  "schemaVersion": 1,
+  "session": 84268,
+  "paths": [
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/account_credential_contract-159d13d267d0496d",
+      "bytes": 101858784,
+      "mtimeNs": 1790910056901570376,
+      "sha256": "5fa6ac878a93fd5128fda2705eb9bcb53a2309011bf8de3dfe6587d8e30da56b"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/account_recovery_contract-7064742c49f52158",
+      "bytes": 103745136,
+      "mtimeNs": 1790910266659764487,
+      "sha256": "de6ca44648d4198dc78be1175f96b3b620d595b5d145b856c507bd85f9fdf04a"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/admin_role_contract-30f4d8aed9750bfd",
+      "bytes": 133700608,
+      "mtimeNs": 1790910035298433872,
+      "sha256": "9e7cfbd52b1c12585f2c4ad1711041243ef98a79664cd1c3e775c3e566000d7e"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/auth_revocation_recovery_contract-c6a2f84b0e13602b",
+      "bytes": 102334560,
+      "mtimeNs": 1790910244162646354,
+      "sha256": "4fe1f5f8ec9eccaf5d517c29e838578246dc5984a58d75915359d13874e21ad3"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/boot_brand_injection-7d606cd7680c77cb",
+      "bytes": 140453456,
+      "mtimeNs": 1790910257367715947,
+      "sha256": "cca12b0caeedd5bfc7e05762fb095e4ddc1014e678c280d9fb092fc41170a226"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/call_state_contract-d0198338aaf2dbcd",
+      "bytes": 141611736,
+      "mtimeNs": 1790910314258007799,
+      "sha256": "56aca7b4beb97a3bcc8d5baad49ad6d7dd0e3117357aee7c3afd8a698e3cce8c"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/channel_access_contract-d25806d7b41a39ba",
+      "bytes": 135369024,
+      "mtimeNs": 1790910336104116633,
+      "sha256": "4db6a85fb789016e2cc7f7854a43b6e1a34adaeda0a34fc046bd6e82dc3237d8"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/channel_lifecycle_contract-ed6cdeb157c70c68",
+      "bytes": 39895528,
+      "mtimeNs": 1790910074880681809,
+      "sha256": "3a00800a6fa2379c70e1d5a832705cdb708c5bfe4889095a992b801bdb8670c1"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/checkpoint_operator_contract-0b115e215da66209",
+      "bytes": 141347936,
+      "mtimeNs": 1790909888286419355,
+      "sha256": "eacfdd4f42738861efcf03a872d1d4dad3a220c6f71612453d7a782ece1bb184"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/community_roster_contract-fdb3571d873b40a0",
+      "bytes": 101844000,
+      "mtimeNs": 1790910047812513298,
+      "sha256": "846f5060316a5c00b2139f663e0effac96694f383ca6de8ce6645da847de6dd9"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/compaction_regression-c7af718c489ac14a",
+      "bytes": 4778432,
+      "mtimeNs": 1790909884704392553,
+      "sha256": "e3df2cc5aa93ee60b0dfd3701abdd57ff5d8887c79a9d0c58d0426c70670873a"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/db_replica_process_contract-c7b52d1e03096871",
+      "bytes": 36553320,
+      "mtimeNs": 1790910317007021590,
+      "sha256": "35a4a85e88df0a4037377a6d0725b622676f774cc5037a3f67af427452e51cad"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/emoji_upload_contract-90463ef68229d12b",
+      "bytes": 101833840,
+      "mtimeNs": 1790910864245750731,
+      "sha256": "9bf45ec64ad72266466332feb6a0ab6942544e0f6ef9c527e6a1b2fc32e43a02"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/encrypted_tcp_contract-a703c8e6c76aec97",
+      "bytes": 20781560,
+      "mtimeNs": 1790911244271504744,
+      "sha256": "27b3e35decffa65d7476c39c7a8b15f4426643847688b5da28a35ffb1cb6dd77"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/field_pilot_contract-9cbff56ccc8ccaf2",
+      "bytes": 101933560,
+      "mtimeNs": 1790910279830832695,
+      "sha256": "2b99052733a9f1679bd01d9d2a41c67f253c2ff719e334b9b8af7b1549975bbe"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/first_boot_onboarding-ac990b8639b01546",
+      "bytes": 140819016,
+      "mtimeNs": 1790910362030243615,
+      "sha256": "70122fd8cd27aea43fa05f836330db00a8ec378d75d1ab77ac2fd4cb9bf9a876"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/friends_contract-2ca8bfafda58494d",
+      "bytes": 101822344,
+      "mtimeNs": 1790910319941036277,
+      "sha256": "6ce5414e1c7534e9dddb7391f35e01141c129895f7c465c99441f66d49b90da2"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/gallery_feedback_contract-55db465123a958b6",
+      "bytes": 101851336,
+      "mtimeNs": 1790910291530892712,
+      "sha256": "5de8ad0d07497544d7debe3acbfd1612ed5eb13201349b22e929b6656c90f535"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/game_profile_contract-cf7b3fda1ffecd57",
+      "bytes": 101981368,
+      "mtimeNs": 1790910365465260267,
+      "sha256": "7b3da1d2c262321fca4a05e831246e8cbf055cc60df6fb787e73a0457fd36f5c"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/group_membership_contract-0b3c6499175a4a3c",
+      "bytes": 21864448,
+      "mtimeNs": 1790910041407472768,
+      "sha256": "851adc4f622486cbd855898cf4b6b8fa09767a777579866fc1a917b085fd0099"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/guest_tombstone-589d3c81d8abefec",
+      "bytes": 39739072,
+      "mtimeNs": 1790910303635954252,
+      "sha256": "221e0cef741f8ff3c5bcc9d15a457eb85aa398be0311f9773dd9de126e8dc1e0"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/helper_admin_auth_contract-4f813811dee8d9f8",
+      "bytes": 103836592,
+      "mtimeNs": 1790910348387177082,
+      "sha256": "4a8e7968a7db0455fbb689507efa982f51be7d51663a5509ae7e1aa21a1997ba"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/helper_resource_security_contract-8f9323e3d2890e32",
+      "bytes": 102531696,
+      "mtimeNs": 1790910071886663386,
+      "sha256": "2048a31477a3826ff31c8325cab087abefbe9fd5f7476dc6a7c339823f6b2fde"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/instance_checkpoint_contract-8b6ea18e7453d824",
+      "bytes": 42824776,
+      "mtimeNs": 1790910369171278190,
+      "sha256": "f43ac2f0df6910e38a5698317f4172ce97cefc285ddf5d67786875c4e20f6040"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/instance_inbox_contract-a2a894d67cb94024",
+      "bytes": 1274896,
+      "mtimeNs": 1790910240878628933,
+      "sha256": "d727bc08002e66522116da4979ee187f2d3bc6c3d4ab3cef623728d0bf8e047d"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/live_checkpoint_archive_contract-f523a46d1387ba1e",
+      "bytes": 51149816,
+      "mtimeNs": 1790910356405216260,
+      "sha256": "5af5fd418cf8ba2c36d1e16182471f84f4d4b28c8e73e7f7779bf62e15b61cb0"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/live_session_room_contract-5615125fd80fa52f",
+      "bytes": 21256136,
+      "mtimeNs": 1790910351398191820,
+      "sha256": "6118d5ce894096fecee6651dd4697be786cebd9e6c659c0c16a5cd52a32e575a"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/lore_binding_promote_contract-782ce11d98f2f4ef",
+      "bytes": 39791976,
+      "mtimeNs": 1790910050432529803,
+      "sha256": "7f82c6a0b5419e309c02bdda8c3601ee6c2b07a6a1f4c6a3c566f6f6922e6298"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/lore_credential_contract-42851c2263f4e419",
+      "bytes": 102356352,
+      "mtimeNs": 1790910038930457026,
+      "sha256": "b6066dfe24fe2150e0b499a136bcbbce21bcaba0be6dca08db1a1f3421484cbc"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/lore_policy-e2e459b329751a3b",
+      "bytes": 7065160,
+      "mtimeNs": 1790911254332843056,
+      "sha256": "adf0f220e94965e70daa60c2ff23b1ed758414ebc29e86950ddeac3ebcfe216a"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/message_delivery_contract-908853aa2e97ce8b",
+      "bytes": 133965000,
+      "mtimeNs": 1790909892173448318,
+      "sha256": "875e39a14d4565d5cbf3b932f54ce7ec8d68f4f5c56db1b036b310efb9a3583e"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/message_parent_admission_contract-1e86e041d2d1bbf6",
+      "bytes": 21613480,
+      "mtimeNs": 1790910293943905024,
+      "sha256": "22e2122b105c0d09a7464db12a93eae2c8cec0ccf2850616e8d3236202d9538b"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/message_retention_contract-dff9c6f55cf5a7e3",
+      "bytes": 21524648,
+      "mtimeNs": 1790910301084941330,
+      "sha256": "537a5e0b8336d173ecf411cf520f623626ee36063828f79d65636ac2fedd03d0"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/message_types-11e2f457583d2abf",
+      "bytes": 2491624,
+      "mtimeNs": 1790911253500815236,
+      "sha256": "2b465adff4c788d0e648e1064b13a692b533f7fb9921ae5c602dd5f5f17c9df1"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/payment_access_contract-a1148ee52069d2ab",
+      "bytes": 102225088,
+      "mtimeNs": 1790910053851551278,
+      "sha256": "6bb4eda6800cb542ecfef5f6ecfcc635f4ced8571aed8a66f3b2bad7bc90064a"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/payments_projection_contract-c1494b568baf44cb",
+      "bytes": 101916096,
+      "mtimeNs": 1790910247313663026,
+      "sha256": "e8378863a550b3fd8a6031896184fa8aad21f93659947cfdc3e3ec1c280d30b1"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/payments_rails_contract-7c16552e8d4567e9",
+      "bytes": 1022616,
+      "mtimeNs": 1790910320872040932,
+      "sha256": "87bb6552bf6c655a31e1d2c6fd74696dce3a4e19289d78781f285e4f5f533647"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/process_lock_contract-f51f010aa487cf79",
+      "bytes": 21244000,
+      "mtimeNs": 1790910262203741254,
+      "sha256": "5ae1ec83de722d94a74d7c8d4777e14f8fb599db5196cf1e8ffb026673875a9b"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/profile_appearance_contract-d35e77ef79051a34",
+      "bytes": 133451416,
+      "mtimeNs": 1790910060399592208,
+      "sha256": "6c0c99ea7271617dee972124e1f7d29f276eb9ffa45beaaacf92150a176b81b1"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/project_assistant_contract-b229cf30d377a90e",
+      "bytes": 103002488,
+      "mtimeNs": 1790910240521627036,
+      "sha256": "9c39b07bc7fce15859062a9aab996712b0474a9c374dd63050446991cc470ad0"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/project_wiki_bot_contract-1fd539cac9b57618",
+      "bytes": 102310928,
+      "mtimeNs": 1790910283168849872,
+      "sha256": "b8d7c5a27d35ef6e7f6c1cd62612cbe2ca7ab048e9810640d93e733e1e51c599"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/realtime_security_contract-fef0bf2a7d0f1386",
+      "bytes": 134021472,
+      "mtimeNs": 1790910251614685716,
+      "sha256": "28f6038afab849f2bb096d589376ffc3b3c9c87e49c59ce2db67b55004363d5e"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/regional_upload_cache_contract-359eb974d7da92d7",
+      "bytes": 141786208,
+      "mtimeNs": 1790910288595877706,
+      "sha256": "a6702cf3e5948889ae5aa004cfb4cc130a5034e7a43f9bb50b5509878297a6c5"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/request_body_limit_contract-b913f30a665f7310",
+      "bytes": 140538528,
+      "mtimeNs": 1790910853026103346,
+      "sha256": "7662f1b68ba8add1d688be1253d3d98632804761e886aa46d5956d076f2e8822"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/resource_ownership_contract-aabb23553e58596f",
+      "bytes": 102575984,
+      "mtimeNs": 1790910064246616133,
+      "sha256": "5f152c6c9fb1391d1698a0d0befd92f4ea810d2caa9d8d2beb546f0a2a7cc4a9"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/resumable_upload_contract-41546f0b3e10fe0c",
+      "bytes": 140420728,
+      "mtimeNs": 1790910307401973285,
+      "sha256": "62e5a3b169d49548be2e2f6483dca573ebb9a7262a3b020b5f3ea2bc1181424b"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/room_placement_admission-dacbb08d65a7bacc",
+      "bytes": 102279712,
+      "mtimeNs": 1790910275679811273,
+      "sha256": "7fc8d2c11af89a20b56eaf1075da2b36792d8e9c6f87bee141eadb4c84560a90"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/service_access_contract-6afdd48b715527ab",
+      "bytes": 133892768,
+      "mtimeNs": 1790910339940135568,
+      "sha256": "1395952383328810a28e1caf254b73bd3efaea5a71bf77b9f4960a96f6d34a1c"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/storage_contract-d49f8431352c7494",
+      "bytes": 13335928,
+      "mtimeNs": 1790911248103634092,
+      "sha256": "ca26b6720c47ee1f9abe888debd6cf7ffc526443109b68e91862603cb8ae78bd"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/tailcat_private_access_contract-20d369a1feb38f15",
+      "bytes": 102618032,
+      "mtimeNs": 1790910044985495441,
+      "sha256": "bfe7d12ea3678ba7ec6c499c71834ba7006645ee08aca70e6d971c6e3be28208"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/three_voter_contract-657ba7544df8b519",
+      "bytes": 17045872,
+      "mtimeNs": 1790911252389778043,
+      "sha256": "0ac9818b888e61cfb4d2a5123ad4162071ae868da3630c7c4fc86f788dff2780"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/turn_configuration_contract-65aeb9e6e9f3f814",
+      "bytes": 101849992,
+      "mtimeNs": 1790910310187987331,
+      "sha256": "53fa0c71c8ef542df0fe8eeeeb93dd4d252a061745ae038b53349cbae90d45c0"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/upload_backfill_contract-9a4e837cb06fa318",
+      "bytes": 21777824,
+      "mtimeNs": 1790910285240860513,
+      "sha256": "1d2d9959e6275c596e1676f8f837ca851ac756bc9075cf5914c1ab3125e7efb0"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/voice_restriction_contract-807861de0ce49533",
+      "bytes": 21717952,
+      "mtimeNs": 1790910298595928697,
+      "sha256": "24b80787229e8c9064fda4d09a0de60f4ae34fdccd3128f65da59ecacdd30a26"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/volunteer_boosters_contract-8e087db24af72e51",
+      "bytes": 101874040,
+      "mtimeNs": 1790910272036792417,
+      "sha256": "febbaace9e82c94c57287ed113b46794124e4842dd8be60774ea867c0175b304"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_consensus-ea3b7bf9939a388b",
+      "bytes": 21442424,
+      "mtimeNs": 1790911274100495833,
+      "sha256": "8b718ab1b532a2e127ca9d74e55726b4f0dd0826280124d160e8fa8831e70032"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_core-5433ea22012e9868",
+      "bytes": 7612048,
+      "mtimeNs": 1790911260772057410,
+      "sha256": "85a01bee18a87a5b0586763abc5395053f22db18b23ccb8e07f83bbab80f03f7"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_db_replica_dev-109433986a3b1824",
+      "bytes": 1028984,
+      "mtimeNs": 1790910276912817644,
+      "sha256": "72b99322536c6d3640c77552548e6d76195cab87df83d6bcc10e387a1aee6d91"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_instance_inbox-9f977cbdd5f299dc",
+      "bytes": 22218544,
+      "mtimeNs": 1790910254515700978,
+      "sha256": "1a135c9910881cc0eea052f552d358c80774e877eae0c421616ff29b73e5200e"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_instance_snapshot-2e292b5d944ec852",
+      "bytes": 23811504,
+      "mtimeNs": 1790910857192345035,
+      "sha256": "fd3db9e5423000592f391e72ead4eefc8e6a826cca36b7845210deef5a4ef128"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_lore-72667d59d4e7aeb1",
+      "bytes": 30393904,
+      "mtimeNs": 1790911238251300312,
+      "sha256": "a25dcdb4c81ecb082dba91a9f2042a754d5447f187b46fa1bddab53d25cffd5f"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_payments_crypto-5e20f26b431ac979",
+      "bytes": 1310960,
+      "mtimeNs": 1790911274637513347,
+      "sha256": "87fc8d50c146426bd479dc1e28c79a6757b086b32294ecbafe98b9c600b393c9"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_payments_eu-2e688c0e7e832213",
+      "bytes": 1189280,
+      "mtimeNs": 1790911274887521502,
+      "sha256": "d8fa47f256317a77fd71dec5e18fbed2735e5498f95742a7cf024086aefe5191"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_payments_us-8c18fe7600dce85a",
+      "bytes": 1355024,
+      "mtimeNs": 1790911275154530204,
+      "sha256": "0c061c449ed5dde5585d11462594a3f4d9dbdd04b5faf8f74bffab883f1ace59"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_room_placement_backfill-c89a05c33cec72f9",
+      "bytes": 21678608,
+      "mtimeNs": 1790910325349063268,
+      "sha256": "6bbfeeec7d63a839275eac43b8d3293db911e67f52ba3d85f955d33e4798e293"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_server-07b65abc271f9a15",
+      "bytes": 169354024,
+      "mtimeNs": 1790911040671630692,
+      "sha256": "bdb721d940660e2efada605ae062f4478d93f3db1fb63b896bf0e8a210fd55e7"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_server-34539b87dc08d962",
+      "bytes": 168675496,
+      "mtimeNs": 1790911230000017649,
+      "sha256": "0fa83bcfb30b6c3e4d0b1d19ff53a016bc899449d4dfb6a175745febcb0e6eb4"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_sync-86ace41bdb959e99",
+      "bytes": 3023864,
+      "mtimeNs": 1790909859980204530,
+      "sha256": "aad7f4c608d8c23010cc82e71ee33d71ba8d34304895dbd16f7a453f79b63f26"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_tailcat-334f845e7e5b0652",
+      "bytes": 10433744,
+      "mtimeNs": 1790911264049165862,
+      "sha256": "5a7d06ada832e6d139af2905ddac1e4c68a85df41f1ed7db4070e097d7cfe89b"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_tui-a648aac457082a13",
+      "bytes": 1028960,
+      "mtimeNs": 1790909858934196457,
+      "sha256": "ab9ddbde4011d7a20848826124ee73ce681f3ec74dd588853eb27cd0610eb4a2"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_upload_backfill-1e08f185f3996216",
+      "bytes": 1022616,
+      "mtimeNs": 1790910304531958785,
+      "sha256": "1b8369b87ad45e0be4e8b51b3e339a990d40f34da7440d9c8a9d6b39c2b273b4"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_webhooks-ec085ad325db879c",
+      "bytes": 1028976,
+      "mtimeNs": 1790911274427506498,
+      "sha256": "7baad802cecb249ac917e146ca73ed0919ed31c6deb44c43358aa329db775767"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabidb-8ff545d408dc1682",
+      "bytes": 29532016,
+      "mtimeNs": 1790909883824385953,
+      "sha256": "17599ea369fa4017a30450d74fda2e037f3e13691e4d037451a4e2b5aefe9b79"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabidb_cli-e7ee53de49b5cb04",
+      "bytes": 1022592,
+      "mtimeNs": 1790909884247389126,
+      "sha256": "bbb79bb60662787b3c8a2c132ed54550d68938bb47b3a0f43a6f8a70d4ee8578"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/whiteboard_policy_security_contract-939427f0dd1b37bc",
+      "bytes": 133581856,
+      "mtimeNs": 1790910067965639178,
+      "sha256": "ed61571379630421fd5fdc79bae8872bd08885ce31c84cf7d367a3cf0769b0ef"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/workspace_room_admission_contract-635da1b7f5f6effa",
+      "bytes": 21430296,
+      "mtimeNs": 1790910259947729460,
+      "sha256": "781e0c4138ae741f1f7fad55299a29970163bc07cc798d2c6191dcfb3b5d2764"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/workspace_types-e40994d961b02206",
+      "bytes": 2220240,
+      "mtimeNs": 1790911254029832932,
+      "sha256": "eab69c8f9f4836d9c8c2fd2b299e90b3ef704d185258fbabff56e2fa1dde4c26"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/write_visibility_contract-4f8270a8f040dd23",
+      "bytes": 140438552,
+      "mtimeNs": 1790910861003564797,
+      "sha256": "d959dae5c32d8f57347a081c523651c9b61d66ac2dd1875c8acfeedfb3eb8e64"
+    }
+  ],
+  "totalBytes": 5223543400
+}

@@ -1,8 +1,10 @@
 <script lang="ts">
+	import ConnectionDiagnostics from './ConnectionDiagnostics.svelte';
 	import { _ } from '$lib/i18n';
 	import { brandConfig, brandName, selectBrandConfig } from '$lib/branding';
 	import { isNeutralBrandingEnabled } from '$lib/components/loginHelpers';
 	import { onMount } from 'svelte';
+	import { currentSavedServer } from '$lib/savedServers';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { parseServerBuildIdentity, type ServerBuildIdentity } from '$lib/buildIdentity';
 
@@ -88,7 +90,7 @@
 </script>
 
 <div class="settings-section">
-	<h3>{$_('settings.sections.about')}</h3>
+	<h3>About Wabi</h3>
 	<div class="about-card">
 		{#if activeBrand.logoSmallUrl || activeBrand.logoUrl}
 			<img
@@ -99,16 +101,23 @@
 			/>
 		{/if}
 		<div class="about-copy">
-			<p class="about-title"><strong>{aboutTitle}</strong></p>
-			<p class="about-blurb">{aboutBlurb}</p>
+			<p class="about-title"><strong>Wabi</strong></p>
+			<p class="about-blurb">Open-source, self-hosted communication and collaboration for small communities.</p>
 			{#if aboutFooter}
 				<p class="about-footer">{aboutFooter}</p>
 			{/if}
 			<p class="version">Client v{clientBuild.version}</p>
 			<p class="version">{clientBuild.sourceRevision ? `Source ${clientBuild.sourceRevision.slice(0, 12)}` : 'Client source revision unavailable'}</p>
-			<p class="version">{serverBuild ? `Server v${serverBuild.version}${serverBuild.sourceRevision ? ` · ${serverBuild.sourceRevision.slice(0, 12)}` : ' · source revision unavailable'}` : 'Server build information unavailable'}</p>
+
 		</div>
 	</div>
+	<section class="settings-group-card" aria-labelledby="connected-server-title">
+        <h3 id="connected-server-title">Connected server</h3>
+        <p><strong>{$currentSavedServer?.effectiveName || aboutTitle}</strong></p>
+        <p class="about-blurb">{aboutBlurb}</p>
+        <p class="version">{$activeServerUrl}</p>
+			<p class="version">{serverBuild ? `Server v${serverBuild.version}${serverBuild.sourceRevision ? ` · ${serverBuild.sourceRevision.slice(0, 12)}` : ' · source revision unavailable'}` : 'Server build information unavailable'}</p>
+    </section>
 	{#if isDevBuild}
 		<div class="setting-item">
 			<div class="setting-info">
@@ -135,3 +144,5 @@
 		{/if}
 	{/if}
 </div>
+
+<ConnectionDiagnostics />

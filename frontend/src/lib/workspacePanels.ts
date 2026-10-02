@@ -12,6 +12,8 @@ export type WorkspacePanelIcon =
 	| 'users'
 	| 'messages'
 	| 'notes'
+	| 'wiki'
+	| 'forum'
 	| 'layers'
 	| 'map'
 	| 'media'
@@ -255,7 +257,7 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 	{
 		id: 'wiki',
 		label: 'Wiki',
-		icon: 'notes',
+		icon: 'wiki',
 		component: 'wiki',
 		capabilities: ['channel-scoped', 'wiki-channel'],
 		defaultDock: 'right',
@@ -266,7 +268,7 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 	{
 		id: 'forum',
 		label: 'Forum',
-		icon: 'messages',
+		icon: 'forum',
 		component: 'forum',
 		capabilities: ['channel-scoped', 'forum-channel'],
 		defaultDock: 'right',

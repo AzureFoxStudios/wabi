@@ -1,0 +1,18 @@
+{
+  "recordedAtUtc": "2026-10-01T10:51:20.595402+00:00",
+  "taskId": "task_1282d0135bc74301b99ed6a7c9713fd4",
+  "lastVerifiedCardRevision": 20,
+  "remoteUpdateConfirmed": true,
+  "connectionError": "Wabi is unavailable; no data was read.",
+  "desiredStatus": "in_progress",
+  "pendingNotes": "Latest geographic controller prerequisite:25 synthetic Linux private Unix checks pass, exit0/0skip. Exact original-command fingerprints are required after a lost proposal reply; same ID with changed writer/checkpoint contents cannot borrow old receipt. Active supervisor lock, boot/start/executable and kernel Unix peer PID/UID checks; bounded requests/frames/deadlines/nonblocking lease; contradictory convergence and redacted CLI tested. Controller sources cbb16bed861a55a6d978a006065e4cd6e9e57410f4ed669c5acf3f9db791eb9e / dfc4ea8fc0420f9815b9d56280f3ee5d455f3a49029354675c9f96ea39b58ab0. Explicitly released nested unwired worker now hashes actual persisted OperationReceipt.command, stages cross-language golden/reused-ID/restart/snapshot assertions. Pending worker SHA42397684bc66658ac6bdba45e245392e3fad734eaa749e34913101a72e9f10cc; parser PASS, compiler/tests NOT_RUN. Other7pending Rust/9accepted durable/2supervisor sources unchanged. Evidence GEOGRAPHIC_PROBE_CONTROLLER_2026-10-01.md + rpc-controller-contracts.json;3compressed logs verified, own originals19335bytes removed;0roots/caches/keys/TCP/remotes/builds. About94GiB free. Compiled/manifest/lock/Cargo hold still owned by security chat; current focused run had a synthetic global header-cache collision being repaired. No full-suite pass or slot release. Organizer unavailable on fresh project_brief/read attempts: no remote card update confirmed. Full main-Wabi goal remains active; HA/room ownership/capacity/private physical acceptance still open. Lore binding/revision unverified; no publish/merge/push/deploy.",
+  "requiresFreshProjectBriefAndCardReadBeforeUpdate": true,
+  "confirmedCardRevision": 21,
+  "supersededByVerifiedOrganizerRevision": 24,
+  "subsequentEvidence": [
+    "remote-python-helper-contracts.json",
+    "encrypted-rpc-source-pending.json"
+  ],
+  "confirmedVia": "installed Wabi Project connector, verified same channel ch_c72 and task",
+  "confirmedAtUtc": "2026-10-01T11:02:03.803186+00:00"
+}

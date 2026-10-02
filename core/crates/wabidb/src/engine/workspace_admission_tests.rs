@@ -6,7 +6,7 @@ use crate::{
 };
 use tokio::sync::oneshot;
 
-const INDEXES: [&str; 9] = [
+const INDEXES: [&str; 10] = [
     "wiki_pages",
     "wiki_revisions",
     "forum_posts",
@@ -16,6 +16,7 @@ const INDEXES: [&str; 9] = [
     "project_tasks",
     "project_task_history",
     "project_runs",
+    "project_workers",
 ];
 
 fn config(path: &std::path::Path) -> WabiDbConfig {
@@ -166,19 +167,21 @@ async fn all_workspace_events_accept_local_and_legacy_writes_and_replay_same_sta
     }
     let before = engine.barrier().current();
     let expected = rows(&engine.projection_state());
-    assert_eq!(entries(dir.path()), 49); // One placement plus 2 × (22 events + 2 legacy task encodings).
+    assert_eq!(entries(dir.path()), 51); // One placement plus 2 × (23 events + 2 legacy task encodings).
     for index in INDEXES {
         assert!(engine.projection_state().index_len(index) >= 2, "{index}");
     }
     assert!(engine.is_healthy());
     drop(engine);
+    let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
     ProjectionState::remove_snapshot(dir.path());
-    let reopened = WabiDbEngine::open_with_node_id(config(dir.path()), "site-a".into())
+    drop(stopped);
+    let reopened = crate::tests::reopen_after_drop(config(dir.path()), Some("site-a"))
         .await
         .unwrap();
     assert_eq!(reopened.barrier().current(), before);
     assert_eq!(rows(&reopened.projection_state()), expected);
-    assert_eq!(entries(dir.path()), 49);
+    assert_eq!(entries(dir.path()), 51);
     assert!(reopened.is_healthy());
 }
 

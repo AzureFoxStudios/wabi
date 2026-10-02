@@ -30,6 +30,8 @@ use tokio_tungstenite::{
     tungstenite::{client::IntoClientRequest, Message as UpstreamMessage},
 };
 
+use crate::rate_limit::TrustedProxyConfig;
+
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub struct AnchorState {
@@ -38,6 +40,7 @@ pub struct AnchorState {
     upload_cache: Option<Arc<Mutex<UploadCache>>>,
     fill_gates: Arc<Vec<Mutex<()>>>,
     fill_permits: Arc<Semaphore>,
+    trusted_proxies: TrustedProxyConfig,
 }
 
 const MAX_UPLOAD_CACHE_MB: usize = 1024;
@@ -141,7 +144,19 @@ impl AnchorState {
                 .then(|| Arc::new(Mutex::new(UploadCache::new(cache_bytes)))),
             fill_gates: Arc::new((0..CACHE_FILL_SHARDS).map(|_| Mutex::new(())).collect()),
             fill_permits: Arc::new(Semaphore::new(8)),
+            trusted_proxies: TrustedProxyConfig::from_env(),
         })
+    }
+
+    fn forwarded_for(&self, headers: &HeaderMap, peer: SocketAddr) -> String {
+        let client = self.trusted_proxies.client_ip(headers, peer);
+        if client == peer.ip() {
+            peer.ip().to_string()
+        } else {
+            // Preserve only the authenticated proxy interpretation, then
+            // append the real peer. Never relay the client's arbitrary chain.
+            format!("{client}, {}", peer.ip())
+        }
     }
 }
 
@@ -232,31 +247,26 @@ async fn proxy_to_authority(
         if let Some(key) = cacheable_upload_key(&uri, &headers) {
             return match cached_upload(&state, &key, uri, headers, peer).await {
                 Ok(response) => response,
-                Err(error) => (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    Json(json!({
-                        "error": "authority unavailable",
-                        "role": "anchor",
-                        "detail": error.to_string()
-                    })),
-                )
-                    .into_response(),
+                Err(error) => authority_unavailable(error),
             };
         }
     }
 
     match forward(&state, method, uri, headers, peer, body).await {
         Ok(response) => response,
-        Err(error) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({
-                "error": "authority unavailable",
-                "role": "anchor",
-                "detail": error.to_string()
-            })),
-        )
-            .into_response(),
+        Err(error) => authority_unavailable(error),
     }
+}
+
+fn authority_unavailable(error: anyhow::Error) -> Response {
+    // Transport errors can include the private upstream origin and request
+    // URL. Keep their diagnostics in operator logs instead of public JSON.
+    tracing::warn!(%error, "Anchor Authority request failed");
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(json!({"error": "authority unavailable", "role": "anchor"})),
+    )
+        .into_response()
 }
 
 #[allow(dead_code)]
@@ -284,7 +294,7 @@ async fn forward(
         }
         request = request.header(name, value);
     }
-    request = request.header("x-forwarded-for", peer.ip().to_string());
+    request = request.header("x-forwarded-for", state.forwarded_for(&headers, peer));
 
     let upstream = request.send().await?;
     let status = StatusCode::from_u16(upstream.status().as_u16())?;
@@ -507,9 +517,10 @@ async fn websocket_to_authority(
             }
         }
 
-        request
-            .headers_mut()
-            .insert("x-forwarded-for", peer.ip().to_string().parse()?);
+        request.headers_mut().insert(
+            "x-forwarded-for",
+            state.forwarded_for(headers, peer).parse()?,
+        );
 
         let (upstream, response) =
             tokio::time::timeout(Duration::from_secs(10), connect_async(request)).await??;
@@ -531,6 +542,7 @@ async fn websocket_to_authority(
             .on_upgrade(move |downstream| bridge_websocket(downstream, upstream))
             .into_response(),
         Err(error) => {
+            tracing::warn!(%error, "Anchor Authority WebSocket request failed");
             let rejected_status = error
                 .downcast_ref::<tokio_tungstenite::tungstenite::Error>()
                 .and_then(|error| match error {
@@ -548,8 +560,7 @@ async fn websocket_to_authority(
                     } else {
                         "authority unavailable"
                     },
-                    "role": "anchor",
-                    "detail": error.to_string()
+                    "role": "anchor"
                 })),
             )
                 .into_response()
@@ -1106,23 +1117,207 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn trusted_proxy_anchor_authority_preserves_client_limits_without_forwarding_spoofs() {
+        let authority_policy = TrustedProxyConfig::from_trusted_proxies(vec![
+            "127.0.0.0/8".parse().unwrap(),
+            "10.0.0.0/8".parse().unwrap(),
+        ]);
+        let authority_limiter =
+            crate::rate_limit::RateLimitState::new(1, 1).from_trusted_proxies(vec![
+                "127.0.0.0/8".parse().unwrap(),
+                "10.0.0.0/8".parse().unwrap(),
+            ]);
+        let authority = Router::new()
+            .route(
+                "/api/users/{id}",
+                get(move |headers: HeaderMap, ConnectInfo(peer): ConnectInfo<SocketAddr>| {
+                    let policy = authority_policy.clone();
+                    async move {
+                        Json(json!({
+                            "client": policy.client_ip(&headers, peer).to_string(),
+                            "forwardedFor": headers["x-forwarded-for"].to_str().unwrap(),
+                            "forwarded": headers.get("forwarded").and_then(|value| value.to_str().ok()),
+                        }))
+                    }
+                }),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                authority_limiter,
+                crate::rate_limit::rate_limit_middleware,
+            ));
+        let (authority_url, authority_handle) = spawn_anchor_router(authority).await;
+        let mut state = AnchorState::new_with_cache_bytes(authority_url, 0).unwrap();
+        state.trusted_proxies =
+            TrustedProxyConfig::from_trusted_proxies(vec!["10.0.0.0/8".parse().unwrap()]);
+        let app = create_router(Arc::new(state));
+
+        for (path, peer, xff, expected, client, forwarded) in [
+            (
+                "/api/users/one",
+                "10.0.0.2:4567",
+                "198.51.100.99, 198.51.100.20, 10.0.0.1",
+                StatusCode::OK,
+                "198.51.100.20",
+                "198.51.100.20, 10.0.0.2",
+            ),
+            (
+                "/api/users/two",
+                "10.0.0.2:4567",
+                "198.51.100.98, 198.51.100.20, 10.0.0.1",
+                StatusCode::TOO_MANY_REQUESTS,
+                "",
+                "",
+            ),
+            (
+                "/api/users/three",
+                "10.0.0.2:4567",
+                "198.51.100.99, 198.51.100.21, 10.0.0.1",
+                StatusCode::OK,
+                "198.51.100.21",
+                "198.51.100.21, 10.0.0.2",
+            ),
+            (
+                "/api/users/four",
+                "192.0.2.50:4567",
+                "198.51.100.22",
+                StatusCode::OK,
+                "192.0.2.50",
+                "192.0.2.50",
+            ),
+            (
+                "/api/users/five",
+                "192.0.2.50:4567",
+                "198.51.100.23",
+                StatusCode::TOO_MANY_REQUESTS,
+                "",
+                "",
+            ),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    axum::http::Request::get(path)
+                        .header("x-forwarded-for", xff)
+                        .header("forwarded", "for=198.51.100.200")
+                        .extension(ConnectInfo(peer.parse::<SocketAddr>().unwrap()))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected);
+            if expected == StatusCode::OK {
+                let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+                let value: Value = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(value["client"], client);
+                assert_eq!(value["forwardedFor"], forwarded);
+                assert!(value["forwarded"].is_null());
+            }
+        }
+        // The alternative header family resolves to the same canonical
+        // identity and cannot provide a second budget for the first member.
+        for (client, expected) in [
+            ("198.51.100.20", StatusCode::TOO_MANY_REQUESTS),
+            ("198.51.100.22", StatusCode::OK),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    axum::http::Request::get("/api/users/forwarded")
+                        .header("forwarded", "for=198.51.100.99;proto=https")
+                        .header("forwarded", format!("for={client};proto=https"))
+                        .extension(ConnectInfo("10.0.0.2:4567".parse::<SocketAddr>().unwrap()))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected);
+            if expected == StatusCode::OK {
+                let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+                let value: Value = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(value["client"], client);
+                assert_eq!(value["forwardedFor"], format!("{client}, 10.0.0.2"));
+                assert!(value["forwarded"].is_null());
+            }
+        }
+        authority_handle.abort();
+    }
+
+    #[tokio::test]
     async fn anchor_returns_unavailable_when_authority_is_down() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         drop(listener);
-        let (anchor_url, anchor_handle) = spawn_anchor(format!("http://{}", addr)).await;
+        let authority_url = format!("http://{}", addr);
+        let (anchor_url, anchor_handle) = spawn_anchor_router(create_router(Arc::new(
+            AnchorState::new_with_cache_bytes(authority_url.clone(), 1024).unwrap(),
+        )))
+        .await;
 
-        let response = reqwest::Client::new()
-            .get(format!("{anchor_url}/api/channels"))
+        for path in ["/api/channels", "/uploads/art.bin"] {
+            let response = reqwest::Client::new()
+                .get(format!("{anchor_url}{path}"))
+                .send()
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            let text = response.text().await.unwrap();
+            let body: Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(body["error"], "authority unavailable");
+            assert!(body.get("detail").is_none());
+            assert!(!text.contains(&authority_url));
+            assert!(!text.contains(&addr.to_string()));
+        }
+
+        anchor_handle.abort();
+    }
+
+    #[tokio::test]
+    async fn anchor_does_not_follow_authority_redirects_with_forwarded_credentials() {
+        let redirected_calls = Arc::new(AtomicUsize::new(0));
+        let calls = redirected_calls.clone();
+        let (redirect_url, redirect_handle) = spawn_router(Router::new().fallback(move || {
+            let calls = calls.clone();
+            async move {
+                calls.fetch_add(1, Ordering::Relaxed);
+                "redirect was followed"
+            }
+        }))
+        .await;
+        let location = format!("{redirect_url}/private");
+        let upstream_location = location.clone();
+        let (authority_url, authority_handle) = spawn_router(Router::new().route(
+            "/redirect",
+            get(move || {
+                let location = upstream_location.clone();
+                async move {
+                    (
+                        StatusCode::TEMPORARY_REDIRECT,
+                        [(header::LOCATION, location)],
+                    )
+                }
+            }),
+        ))
+        .await;
+        let (anchor_url, anchor_handle) = spawn_anchor(authority_url).await;
+        let response = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap()
+            .get(format!("{anchor_url}/redirect"))
+            .bearer_auth("community-session")
+            .header(header::COOKIE, "session=private")
             .send()
             .await
             .unwrap();
-
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        let body: Value = response.json().await.unwrap();
-        assert_eq!(body["error"], "authority unavailable");
-
+        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(response.headers()[header::LOCATION], location);
+        assert_eq!(redirected_calls.load(Ordering::Relaxed), 0);
         anchor_handle.abort();
+        authority_handle.abort();
+        redirect_handle.abort();
     }
 
     #[tokio::test]
@@ -1251,6 +1446,9 @@ mod tests {
                 .and_then(|value| value.to_str().ok())
                 .unwrap_or_default()
                 .to_owned();
+            assert_eq!(headers["x-forwarded-for"], "127.0.0.1");
+            assert!(!headers.contains_key("forwarded"));
+            assert!(!headers.contains_key("x-real-ip"));
             let path = uri.path_and_query().unwrap().as_str().to_owned();
             ws.on_upgrade(move |mut socket| async move {
                 socket
@@ -1276,6 +1474,15 @@ mod tests {
         request
             .headers_mut()
             .insert(header::AUTHORIZATION, "Bearer test-token".parse().unwrap());
+        request
+            .headers_mut()
+            .insert("x-forwarded-for", "198.51.100.20".parse().unwrap());
+        request
+            .headers_mut()
+            .insert("forwarded", "for=198.51.100.20".parse().unwrap());
+        request
+            .headers_mut()
+            .insert("x-real-ip", "198.51.100.20".parse().unwrap());
         let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
         let greeting = socket.next().await.unwrap().unwrap();
         assert_eq!(
@@ -1389,7 +1596,7 @@ mod tests {
     async fn anchor_preserves_upstream_websocket_rejection_status() {
         let app = Router::new().route("/socket.io/", get(|| async { StatusCode::UNAUTHORIZED }));
         let (authority_url, authority_handle) = spawn_router(app).await;
-        let (anchor_url, anchor_handle) = spawn_anchor(authority_url).await;
+        let (anchor_url, anchor_handle) = spawn_anchor(authority_url.clone()).await;
         let request = format!(
             "ws://{}/socket.io/?EIO=4&transport=websocket",
             anchor_url.trim_start_matches("http://")
@@ -1398,12 +1605,44 @@ mod tests {
         match error {
             tokio_tungstenite::tungstenite::Error::Http(response) => {
                 assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+                let body = response.body().as_ref().expect("rejection has JSON body");
+                let text = String::from_utf8_lossy(body);
+                let body: Value = serde_json::from_slice(body).unwrap();
+                assert!(body.get("detail").is_none());
+                assert!(!text.contains(&authority_url));
             }
             other => panic!("expected upstream rejection, got {other}"),
         }
 
         anchor_handle.abort();
         authority_handle.abort();
+    }
+
+    #[tokio::test]
+    async fn anchor_websocket_unavailable_response_hides_private_upstream() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+        let authority_url = format!("http://{addr}");
+        let (anchor_url, anchor_handle) = spawn_anchor(authority_url.clone()).await;
+        let request = format!(
+            "ws://{}/socket.io/?EIO=4&transport=websocket",
+            anchor_url.trim_start_matches("http://")
+        );
+        match tokio_tungstenite::connect_async(request).await.unwrap_err() {
+            tokio_tungstenite::tungstenite::Error::Http(response) => {
+                assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+                let bytes = response.body().as_ref().expect("rejection has JSON body");
+                let text = String::from_utf8_lossy(bytes);
+                let body: Value = serde_json::from_slice(bytes).unwrap();
+                assert_eq!(body["error"], "authority unavailable");
+                assert!(body.get("detail").is_none());
+                assert!(!text.contains(&authority_url));
+                assert!(!text.contains(&addr.to_string()));
+            }
+            other => panic!("expected upstream failure, got {other}"),
+        }
+        anchor_handle.abort();
     }
 
     #[tokio::test]
