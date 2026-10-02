@@ -14,11 +14,17 @@ pushed to `AzureFoxStudios/wabi` on
 approval. The integration began at local main
 `db86954a4062c1401c7c0873476a509c60864697` and includes that checkpoint.
 
-The frozen inventory has 57 distinct previously unmerged tips. All 56 application
-tips are ancestors of `codex/all-branches-integration-20261002`.
+The frozen primary-repository inventory has 57 distinct previously unmerged tips.
+All 56 application tips are ancestors of `codex/all-branches-integration-20261002`.
 `docs-history` has unrelated history and remains an archive, as the repository
 orientation requires. Exact tips and aliases are in
 [the machine-readable inventory](2026-10-02-branch-integration-inventory.json).
+The old `astrosnat/voidwabi` fork also has unrelated history: local `astrosnat` /
+`astrosnat/main` at `cc2300ead2cfdef2398d7b399fa7372103ca08cb`, and
+`astrosnat/feature/prettycss` at `2abcbae5a2fa7bb3e1da2175dc879c298ffa8e9c`.
+Those foreign-fork references remain separate; this was presented as the default
+while application validation proceeded.
+
 This covers the frozen source snapshot; ongoing original-checkout edits made by
 other chats after the checkpoint are preserved and are not implicitly included.
 
@@ -42,9 +48,15 @@ no history is rewritten.
   experimental broker device binding preserve the later durable mute/deafen,
   consent, credential and fail-closed relay behavior. The old selective relay
   facade is superseded; no immediate revocation or HA claim is made.
+- Combined execution exposed a process-global voice admission collision between
+  Authorities with matching IDs. Admission lookup, eviction and permission jobs
+  are now Authority-scoped, with independent-Authority capacity/device/job tests.
+  Office channel fixtures explicitly enroll creators, matching the real API.
 - Album attachment size/MIME metadata passes through the current guarded write
   path using fields already present on durable records. No postcard record
   fields are reordered for this repair.
+- The completed UI-only gallery/reference followup `1eb7969d` is merged.
+  Later geographic work remains outside the integration.
 - Pointer controls, Thai translations, the loopback-only development showcase,
   desktop evidence tools, TUI work, and the standalone Sabi subtree are retained.
 - A late Tailcat listener result cannot publish after disable intent; current
@@ -81,7 +93,7 @@ compilation and test debug info disabled to bound disk use.
 | Check | Candidate result |
 | --- | --- |
 | Frontend locked install | Passed |
-| Full isolated frontend suite | 1,253 passed, 3 skipped, 0 failed |
+| Full isolated frontend suite | 1,260 passed, 3 skipped, 0 failed |
 | Svelte check | 0 errors, 128 warnings |
 | Locale key parity | Passed, Spanish and Thai |
 | Default static SPA | Passed; index.html and offline asset manifest emitted |
@@ -89,9 +101,13 @@ compilation and test debug info disabled to bound disk use.
 | Node script contracts | 64 passed |
 | Core ts-rs generation on media union | 166 passed |
 | Sabi own locked tests/check/build | 30 passed; Svelte/TypeScript clean; static build passed |
-| Combined pinned Rust compilation/tests | In progress |
+| Combined pinned Rust compilation | Passed, complete workspace test executables |
+| Initial combined Rust execution | 2,717 passed, 3 failed, 18 ignored; media isolation and fixture repairs made |
+| Final combined Rust execution | Pending rerun after repairs |
 | Native Linux compilation/tests | Pending serialized slot |
-| Optional Office bundle inventory/browser contracts | Pending |
+| Optional Office static SPA | Passed, all packages; 340 immutable assets |
+| Office real workers, Chromium and Firefox | Passed; 200,000-cell result, bounded burst, cancellation and cleanup |
+| Office editor/Authority browser contracts | 37 passed in Chromium and 37 in Firefox; converters not exercised |
 
 Browser/native/mobile-device, real SFU/provider and converter acceptance remain
 separate release gates where they cannot be exercised locally. A source merge

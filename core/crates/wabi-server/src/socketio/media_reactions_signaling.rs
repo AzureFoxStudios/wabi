@@ -175,7 +175,7 @@ async fn on_wabidb_media(socket: SocketRef, data: Value, state: SioState, io: So
     if authorize_wabidb_session_join(&format!("user-{}", identity.user_id),
         &socket.id.to_string(), &session_id, session_id.strip_prefix("channel:"), &voice, &groups).is_err() { return; }
     if let Some(channel_id) = session_id.strip_prefix("channel:") {
-        if crate::api::voice_policy::admission_for(channel_id, identity.user_id, &socket.id.to_string()).is_some_and(|admission| admission.policy_listening_only) { return; }
+        if crate::api::voice_policy::admission_for(&state.app.config.data_dir, channel_id, identity.user_id, &socket.id.to_string()).is_some_and(|admission| admission.policy_listening_only) { return; }
     }
     if let Some(channel_id) = session_id.strip_prefix("channel:") {
         if let Some(sender) = voice.get(channel_id).and_then(|members| members.iter().find(|p| p.socket_id == socket.id.to_string())) {

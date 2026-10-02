@@ -74,7 +74,9 @@ struct VoicePolicyFile {
 }
 
 type StoreCache = HashMap<PathBuf, VoicePolicyFile>;
-type AdmissionMap = HashMap<String, HashMap<String, VoiceAdmission>>;
+// The Authority data-directory namespace matches the policy cache. It is an
+// internal ownership key, not a credential or a shared cross-server identity.
+type AdmissionMap = HashMap<(String, String), HashMap<String, VoiceAdmission>>;
 
 fn cache() -> &'static RwLock<StoreCache> {
     static CACHE: OnceLock<RwLock<StoreCache>> = OnceLock::new();
@@ -86,49 +88,57 @@ fn admissions() -> &'static RwLock<AdmissionMap> {
     ADMISSIONS.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-pub fn record_admission(channel_id: &str, mut admission: VoiceAdmission) {
+pub fn record_admission(data_dir: &str, channel_id: &str, mut admission: VoiceAdmission) {
     admission.channel_id = channel_id.to_string();
     admissions()
         .write()
         .expect("voice admission registry")
-        .entry(channel_id.to_string())
+        .entry((data_dir.to_string(), channel_id.to_string()))
         .or_default()
         .insert(admission.socket_id.clone(), admission);
 }
 
-pub fn remove_admission(channel_id: &str, socket_id: &str) {
+pub fn remove_admission(data_dir: &str, channel_id: &str, socket_id: &str) {
     let mut guard = admissions().write().expect("voice admission registry");
-    if let Some(channel) = guard.get_mut(channel_id) {
+    if let Some(channel) = guard.get_mut(&(data_dir.to_string(), channel_id.to_string())) {
         channel.remove(socket_id);
         if channel.is_empty() {
-            guard.remove(channel_id);
+            guard.remove(&(data_dir.to_string(), channel_id.to_string()));
         }
     }
 }
 
-pub fn remove_socket_admissions(socket_id: &str) {
+pub fn remove_socket_admissions(data_dir: &str, socket_id: &str) {
     let mut guard = admissions().write().expect("voice admission registry");
-    guard.retain(|_, channel| {
+    guard.retain(|(scope, _), channel| {
+        if scope != data_dir {
+            return true;
+        }
         channel.remove(socket_id);
         !channel.is_empty()
     });
 }
 
-pub fn admission_for(channel_id: &str, user_id: i64, socket_id: &str) -> Option<VoiceAdmission> {
+pub fn admission_for(
+    data_dir: &str,
+    channel_id: &str,
+    user_id: i64,
+    socket_id: &str,
+) -> Option<VoiceAdmission> {
     admissions()
         .read()
         .expect("voice admission registry")
-        .get(channel_id)
+        .get(&(data_dir.to_string(), channel_id.to_string()))
         .and_then(|channel| channel.get(socket_id))
         .filter(|admission| admission.user_id == user_id && admission.channel_id == channel_id)
         .cloned()
 }
 
-pub fn account_admissions(channel_id: &str, user_id: i64) -> Vec<VoiceAdmission> {
+pub fn account_admissions(data_dir: &str, channel_id: &str, user_id: i64) -> Vec<VoiceAdmission> {
     admissions()
         .read()
         .expect("voice admission registry")
-        .get(channel_id)
+        .get(&(data_dir.to_string(), channel_id.to_string()))
         .map(|devices| {
             devices
                 .values()
@@ -405,12 +415,11 @@ fn persist(path: &Path, store: &VoicePolicyFile) -> Result<(), String> {
 }
 
 #[cfg(test)]
-pub fn clear_cache_for_tests() {
-    cache().write().expect("voice policy cache").clear();
-    admissions()
+pub fn clear_cache_for_tests(data_dir: &str) {
+    cache()
         .write()
-        .expect("voice admission registry")
-        .clear();
+        .expect("voice policy cache")
+        .remove(&store_path(data_dir));
 }
 
 #[cfg(test)]
@@ -436,7 +445,7 @@ mod tests {
         assert_eq!(stored.entry_mode, VoiceEntryMode::Muted);
         assert_eq!(stored.user_limit, Some(25));
 
-        clear_cache_for_tests();
+        clear_cache_for_tests(&dir);
         let reopened = get(&dir, "voice-a").unwrap();
         assert_eq!(reopened, stored);
         let _ = std::fs::remove_dir_all(root);
@@ -462,8 +471,9 @@ mod tests {
 
     #[test]
     fn admission_is_bound_to_exact_user_and_socket() {
-        clear_cache_for_tests();
+        remove_socket_admissions("authority-a", "sock-a");
         record_admission(
+            "authority-a",
             "voice-a",
             VoiceAdmission {
                 channel_id: "voice-a".into(),
@@ -476,12 +486,12 @@ mod tests {
                 server_deafened: false,
             },
         );
-        let admission = admission_for("voice-a", 7, "sock-a").expect("admission");
+        let admission = admission_for("authority-a", "voice-a", 7, "sock-a").expect("admission");
         assert_eq!(admission.channel_id, "voice-a");
-        assert!(admission_for("voice-a", 8, "sock-a").is_none());
-        assert!(admission_for("voice-a", 7, "sock-b").is_none());
-        remove_admission("voice-a", "sock-a");
-        assert!(admission_for("voice-a", 7, "sock-a").is_none());
+        assert!(admission_for("authority-a", "voice-a", 8, "sock-a").is_none());
+        assert!(admission_for("authority-a", "voice-a", 7, "sock-b").is_none());
+        remove_admission("authority-a", "voice-a", "sock-a");
+        assert!(admission_for("authority-a", "voice-a", 7, "sock-a").is_none());
     }
     #[test]
     fn malformed_policy_cannot_restore_open_defaults() {
@@ -513,5 +523,41 @@ mod tests {
         assert!(update_from_value(&dir, "voice", &json!({"entryMode":"open"})).is_err());
         assert_eq!(get(&dir, "voice").unwrap(), old);
         let _ = std::fs::remove_dir_all(root);
+    }
+    #[test]
+    fn authority_admissions_do_not_share_channel_or_account_identity() {
+        let channel = format!("scope-test-{}", uuid::Uuid::new_v4());
+        let admission = |listening_only| VoiceAdmission {
+            channel_id: channel.clone(),
+            user_id: 7,
+            socket_id: "same-device".into(),
+            listening_only,
+            policy_listening_only: listening_only,
+            muted_on_entry: false,
+            server_muted: false,
+            server_deafened: false,
+        };
+        record_admission("authority-one", &channel, admission(true));
+        record_admission("authority-two", &channel, admission(false));
+        assert!(
+            admission_for("authority-one", &channel, 7, "same-device")
+                .unwrap()
+                .listening_only
+        );
+        assert!(
+            !admission_for("authority-two", &channel, 7, "same-device")
+                .unwrap()
+                .listening_only
+        );
+        assert_eq!(account_admissions("authority-one", &channel, 7).len(), 1);
+        assert!(account_admissions("authority-three", &channel, 7).is_empty());
+        remove_admission("authority-one", &channel, "same-device");
+        assert!(admission_for("authority-one", &channel, 7, "same-device").is_none());
+        assert!(admission_for("authority-two", &channel, 7, "same-device").is_some());
+        record_admission("authority-one", &channel, admission(true));
+        remove_socket_admissions("authority-one", "same-device");
+        assert!(admission_for("authority-one", &channel, 7, "same-device").is_none());
+        assert!(admission_for("authority-two", &channel, 7, "same-device").is_some());
+        remove_admission("authority-two", &channel, "same-device");
     }
 }

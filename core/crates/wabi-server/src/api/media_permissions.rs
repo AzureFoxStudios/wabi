@@ -69,7 +69,28 @@ pub async fn refresh_participant_permissions(
     } else {
         serde_json::json!([])
     };
-    let devices = crate::api::voice_policy::account_admissions(channel_id, user_id);
+    // A registry entry alone cannot recover an expired connection's grant.
+    // Scope to this Authority and retain only its current live devices.
+    let live_devices = state
+        .socket_io()
+        .map(|io| {
+            io.sockets()
+                .into_iter()
+                .filter(|socket| {
+                    socket
+                        .extensions
+                        .get::<crate::socketio::SioIdentity>()
+                        .is_some_and(|identity| identity.user_id == user_id)
+                })
+                .map(|socket| socket.id.to_string())
+                .collect::<std::collections::HashSet<_>>()
+        })
+        .unwrap_or_default();
+    let devices =
+        crate::api::voice_policy::account_admissions(&state.config.data_dir, channel_id, user_id)
+            .into_iter()
+            .filter(|device| live_devices.contains(&device.socket_id))
+            .collect::<Vec<_>>();
     let identities =
         std::iter::once((format!("user:{user_id}"), false)).chain(devices.iter().map(|device| {
             (

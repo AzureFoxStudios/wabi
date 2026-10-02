@@ -447,9 +447,13 @@ async fn create_livekit_token(
     if !socket_matches {
         return Err(MediaApiError::Forbidden);
     }
-    let voice_admission =
-        crate::api::voice_policy::admission_for(&req.channel_id, auth.user_id, &req.socket_id)
-            .ok_or(MediaApiError::Forbidden)?;
+    let voice_admission = crate::api::voice_policy::admission_for(
+        &state.config.data_dir,
+        &req.channel_id,
+        auth.user_id,
+        &req.socket_id,
+    )
+    .ok_or(MediaApiError::Forbidden)?;
 
     let room =
         ensure_media_room(&state, req.channel_id.clone(), default_max_participants()).await?;
@@ -559,6 +563,7 @@ async fn create_livekit_token(
                     .await
                     .map_err(|_| MediaApiError::Internal)?;
                 let current_admission = crate::api::voice_policy::admission_for(
+                    &state.config.data_dir,
                     &req.channel_id,
                     auth.user_id,
                     &req.socket_id,

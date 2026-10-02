@@ -64,3 +64,14 @@ helper_resource_security_contract --test realtime_security_contract --test
 channel_access_contract` and the library's `voice_policy`,
 `voice_media_policy_tests`, and `media_permissions` tests. Also run the
 helper-resource default-build broker-off test.
+
+## Combined execution followup
+
+The full workspace run exposed a process-global admission registry collision
+between separate Authorities sharing sequenced IDs. Admission lookup and eviction
+now include the Authority data directory, and permission refresh filters for this
+Authority's current live sockets. Unit and real dual-Authority contracts cover
+capacity, exact device/legacy jobs and independent eviction. Policy-file lookup
+remains keyed by channel within its already scoped file; no persistent schema
+change is introduced. Muted admission fixtures now require server-muted state and
+blocked media publication, while corrupt-policy admission still fails closed.
