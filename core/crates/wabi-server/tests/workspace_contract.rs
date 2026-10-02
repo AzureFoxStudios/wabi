@@ -445,3 +445,27 @@ async fn workspace_channel_edits_require_membership_even_with_a_direct_grant() {
     apply(&retained, stored["delta"].as_str().unwrap());
     assert!(!body(&retained).contains("After removal"));
 }
+
+#[tokio::test]
+async fn optional_workspace_inventory_keeps_sharing_separate_from_compilation() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let owner = state.wdb.create_user("workspace-inventory", None, "hash").await.unwrap();
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let (status, before) = request(&app, Method::GET, "/addons", "", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    for id in ["sheets", "present"] {
+        let addon = before["addons"].as_array().unwrap().iter().find(|a| a["id"] == id).unwrap();
+        assert_eq!(addon["compiled"], true);
+        assert_eq!(addon["enabled"], false);
+        assert_eq!(addon["backendRuntime"], "rust");
+        assert_eq!(addon["runtimeSwitch"], false);
+        assert_eq!(addon["runtimeEnv"], Value::Null);
+    }
+    state.wdb.workspace_put(owner, "settings", 0, owner, json!({"sheets":true,"present":false})).await.unwrap();
+    let (status, after) = request(&app, Method::GET, "/addons", "", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    let addons = after["addons"].as_array().unwrap();
+    assert_eq!(addons.iter().find(|a| a["id"] == "sheets").unwrap()["enabled"], true);
+    assert_eq!(addons.iter().find(|a| a["id"] == "present").unwrap()["enabled"], false);
+}

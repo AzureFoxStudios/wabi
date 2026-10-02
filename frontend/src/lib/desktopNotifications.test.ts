@@ -14,8 +14,13 @@ if (process.env.WABI_NOTIFICATION_FIXTURE !== '1') {
   const sent: Array<[string, string]> = [];
   mock.module('$app/environment', () => ({ browser: true }));
   mock.module('$lib/branding', () => ({ brandName: 'Wabi' }));
-  mock.module('$lib/tauri-platform', () => ({ isDesktopTauri: () => desktop }));
-  mock.module('$lib/tauri-notifications', () => ({ sendTauriDesktopNotification: async (title: string, body: string) => { sent.push([title, body]); return true; } }));
+  mock.module('$lib/tauri-platform', () => ({
+    isDesktopTauri: () => desktop, isMobileTauri: () => false, isTauriRuntime: () => desktop
+  }));
+  const sendNativeNotification = async (title: string, body: string) => { sent.push([title, body]); return true; };
+  mock.module('$lib/tauri-notifications', () => ({
+    sendTauriDesktopNotification: sendNativeNotification, sendTauriNotification: sendNativeNotification
+  }));
   mock.module('./notificationSettings', () => ({
     getNotificationSound: () => '', getNotificationVolume: () => 0,
     getNotificationSquelchSettings: () => ({}), areNotificationsEnabled: () => true,
@@ -25,6 +30,9 @@ if (process.env.WABI_NOTIFICATION_FIXTURE !== '1') {
   }));
   mock.module('./notificationAudio', () => ({ playNotificationSound: () => {}, playCallRingtone: () => {} }));
   Object.defineProperty(globalThis, 'document', { configurable: true, value: { hidden: true } });
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: {
+    get Notification() { return globalThis.Notification; }
+  } });
   const { showNotification, showCallNotification } = await import('./notificationDisplay');
   test('native messages and calls work without the browser Notification object', () => {
     Object.defineProperty(globalThis, 'Notification', { configurable: true, value: undefined });
