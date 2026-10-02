@@ -5,6 +5,7 @@
   import { getAuthToken, authSessionGeneration } from '$lib/authSession';
   import { getServerUrl } from '$lib/serverUrl';
   import BaseModal from '$lib/components/BaseModal.svelte';
+  import { manualGame } from './manualGame';
   import { createGameClient } from './client';
   import { board, selections, privateSelection, safeAuthorizeUrl, steamAppId, steamLaunchUrl, steamStoreUrl,
     type GameBoard, type GameSelection, type GamePublicBoard, type SteamCapabilities, type LibraryGame, type LinkFlow, type Member } from './model';
@@ -30,9 +31,10 @@
     generation:authSessionGeneration(getServerUrl()),token:getAuthToken(getServerUrl()) }));
   const dirty = $derived(!!saved && (JSON.stringify(draft)!==JSON.stringify(saved.entries) || showLink!==saved.showSteamLink));
   const filtered = $derived(library.filter(g=>g.title.toLocaleLowerCase().includes(search.toLocaleLowerCase())).slice(0,100));
+  const titleSuggestions = $derived(newTitle.trim().length >= 2 ? library.filter(game=>game.title.toLocaleLowerCase().includes(newTitle.trim().toLocaleLowerCase())).slice(0,12) : []);
   const sharedCount = $derived(draft.filter(g=>g.visibility==='server').length);
   function fail(e: unknown) { if(alive && client.active()) error=e instanceof Error?e.message:'Could not complete this action.'; }
-  function apply(next: GameBoard) {saved=next;draft=structuredClone(next.entries);showLink=next.showSteamLink;}
+  function apply(next: GameBoard) {saved=next;draft=structuredClone($state.snapshot(next.entries));showLink=next.showSteamLink;}
   async function reload() {
     if(busy || (dirty && !window.confirm('Discard your unsaved game edits and reload?'))) return;
     loading=true;error='';notice='';library=[];
@@ -64,9 +66,10 @@
     try {draft=[...draft,privateSelection(game)];notice='Added to your private draft. Save when ready.';} catch(e) {fail(e);}
   }
   function addManual() {
-    const code=newId.trim();
-    const key=code?(/^[0-9]+$/.test(code)?`steam:${code}`:code):`local:${crypto.randomUUID()}`;
-    const before=draft.length;add({key,title:newTitle.trim()});if(draft.length>before) {newTitle='';newId='';}
+    try {
+      const game=manualGame(newTitle,newId,library);
+      const before=draft.length;add(game);if(draft.length>before) {newTitle='';newId='';}
+    } catch(e) {fail(e);}
   }
   async function save() {
     if(!saved) return;
@@ -135,10 +138,12 @@
       <fieldset class="editor-fields" disabled={busy}>
       {#if own}
         <form class="manual-entry" onsubmit={(e)=>{e.preventDefault();addManual();}}>
-          <label>Game title<input required maxlength="120" bind:value={newTitle} placeholder="Add any game" /></label>
-          <label>Shared game code / Steam AppID <span>(optional)</span><input bind:value={newId} placeholder="Paste a friend’s game code, or a Steam AppID" /></label>
+          <label>Game title<input required maxlength="120" bind:value={newTitle} placeholder="Add any game" list="available-game-titles" /></label>
+          <label>Game identifier <span>(optional)</span><input bind:value={newId} placeholder="Paste a Steam store link or a friend’s Wabi game code" /></label>
           <button class="primary" type="submit" disabled={busy || draft.length>=64}>Add game</button>
         </form>
+        <datalist id="available-game-titles">{#each titleSuggestions as game (game.key)}<option value={game.title}></option>{/each}</datalist>
+        <p class="muted">A title is enough. For a Steam game, paste its store address; Wabi finds the AppID for you. For other games, friends can use “Copy game code” on their Wabi game card.</p>
       {/if}
       <div class="game-grid">
         {#each draft as game (game.key)}
@@ -174,8 +179,9 @@
           <button class="primary" disabled={busy || !capabilities?.library} onclick={loadLibrary}>Load my Steam library</button>
           {#if !capabilities?.library}<p class="muted">Library import needs the addon enabled and a server-side Steam API key. Your game board still works.</p>{/if}
         {:else}
-          <button class="primary" onclick={startLink} disabled={busy || !capabilities?.linking || dirty}>Connect Steam</button>
-          {#if !capabilities?.linking}<p class="muted">The server operator needs to enable Steam and configure its public callback origin. Manual games work without Steam.</p>{/if}
+          <button class="primary" onclick={startLink} disabled={busy || !capabilities?.linking || dirty}><img src="/steam-sign-in.png" alt="Sign in through Steam" width="180" height="35" /></button>
+          {#if !capabilities?.linking}<p class="muted">Steam is not ready on this server. You can still add games by title.</p>
+          {#if $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin'}<button onclick={() => { if (dirty && !window.confirm('Discard unsaved game changes and open server settings?')) return; onclose(); window.dispatchEvent(new CustomEvent('wabi:open-settings',{detail:{tab:'addons'}})); }}>Set up Steam</button><p class="muted">Enable Steam in Addons settings. The host administrator must also configure this server’s public address for Steam sign-in.</p>{/if}{/if}
         {/if}
         {#if flow}
           <div class="handoff"><h4>Finish in your browser</h4><p>Sign in with Steam, then copy the returned connection code here. Wabi never asks for your Steam password.</p>
@@ -200,7 +206,7 @@
       {#if matches}<div class="match-results" aria-live="polite"><h4>{matches.length?`${matches.length} games in common`:'No common invitation choices'}</h4><p class="muted">Results expire after 30 seconds. Unshared games do not influence this result.</p>
         {#each matches as game (game.key)}<div class="match-row"><strong>{game.title}</strong><button onclick={()=>copy(`Anyone up for ${game.title}? ${steamStoreUrl(game.key)||game.key}`)}>Copy suggestion</button></div>{/each}</div>{/if}
     {/if}
-    {#if own && saved}<div class="save-bar"><span>{dirty?'You have unsaved changes.':'All game choices are saved.'}</span><button onclick={()=>{apply(saved!);error='';notice='Changes discarded.';}} disabled={!dirty || busy}>Discard</button><button class="primary" onclick={save} disabled={!dirty || busy}>{busy?'Working…':'Save changes'}</button></div>{/if}
+    {#if own && saved && dirty}<div class="save-bar"><span>{dirty?'You have unsaved changes.':'All game choices are saved.'}</span><button onclick={()=>{apply(saved!);error='';notice='Changes discarded.';}} disabled={!dirty || busy}>Discard</button><button class="primary" onclick={save} disabled={!dirty || busy}>{busy?'Working…':'Save changes'}</button></div>{/if}
   </section>
 </BaseModal>
 <style>
@@ -222,7 +228,8 @@
   .game-card footer {display:flex;gap:.5rem;flex-wrap:wrap;border-top:1px solid var(--border-subtle);padding-top:.8rem;align-items:center;}.game-card footer button {font-size:.75rem;padding:.3rem .55rem;}
   a {color:var(--accent-primary-color);font-size:.85rem;}.remove {justify-self:start;background:transparent;color:var(--text-secondary);}
   .chips {display:flex;gap:.35rem;flex-wrap:wrap;}.chips span {background:var(--surface-base);padding:.2rem .5rem;border-radius:6px;font-size:.8rem;}.game-note {white-space:pre-wrap;overflow-wrap:anywhere;}
-  .connection,.empty,.match-results {margin:1.2rem 0;padding:1.3rem;border:1px solid var(--border-subtle);border-radius:14px;background:var(--surface-raised);display:grid;gap:.8rem;}.connection>.primary {justify-self:start;}
+  .empty {margin:.6rem 0;padding:.6rem 0;}.empty h4,.empty p {margin:.25rem 0;}
+  .connection,.match-results {margin:1.2rem 0;padding:1.3rem;border:1px solid var(--border-subtle);border-radius:14px;background:var(--surface-raised);display:grid;gap:.8rem;}.connection>.primary {justify-self:start;}
   .linked {display:flex;align-items:center;gap:1rem;flex-wrap:wrap;}.handoff {display:grid;gap:.7rem;padding:1rem;border:1px solid var(--border-subtle);border-radius:10px;}.handoff .button {justify-self:start;}
   .library-search {margin:1rem 0;}.library-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.6rem;}.library-item {display:flex;flex-direction:column;align-items:flex-start;text-align:left;overflow-wrap:anywhere;}
   .editor-fields {border:0;padding:0;margin:0;min-width:0;}

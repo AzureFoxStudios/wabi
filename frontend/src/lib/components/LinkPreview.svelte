@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { getServerUrl } from '$lib/serverUrl';
 
 	export let url: string;
@@ -9,6 +9,9 @@
 	let error = false;
 	let playing = false;
 
+	let disposed = false;
+	const controller = new AbortController();
+	onDestroy(() => { disposed = true; controller.abort(); });
 	onMount(async () => {
 		try {
 			const serverUrl = getServerUrl();
@@ -20,7 +23,6 @@
 			}
 
 			// Add timeout to prevent infinite loading
-			const controller = new AbortController();
 			const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
 			const response = await fetch(`${serverUrl}/api/url-preview?url=${encodeURIComponent(url)}`, {
@@ -30,6 +32,7 @@
 
 			clearTimeout(timeoutId);
 
+			if (disposed || getServerUrl() !== serverUrl) return;
 			if (response.ok) {
 				preview = await response.json();
 			} else {
@@ -39,7 +42,7 @@
 			console.error('Link preview error:', err);
 			error = true;
 		} finally {
-			loading = false;
+			if (!disposed) loading = false;
 		}
 	});
 
@@ -59,7 +62,7 @@
 	</div>
 {:else if error}
 	<a href={url} target="_blank" rel="noopener noreferrer" class="preview-link">
-		{url}
+		<strong>{new URL(url).hostname}</strong><span>{url}</span>
 	</a>
 {:else if preview}
 	{#if preview.youtubeId}
@@ -141,6 +144,8 @@
 {/if}
 
 <style>
+	.preview-link {display:flex;flex-direction:column;gap:.3rem;padding:.8rem;border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-raised);color:var(--text-primary);margin:.8rem 0;text-decoration:none;overflow-wrap:anywhere;}
+	.preview-link span {font-size:.8rem;color:var(--text-secondary);}
 	.preview-skeleton {
 		background: var(--surface-base);
 		border-radius: 8px;
