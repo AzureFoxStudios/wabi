@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "sessionId": 28154,
+  "actualExitCode": 0,
+  "pass": 84,
+  "fail": 0,
+  "ignored": 7,
+  "resultGroups": 6,
+  "sourceFreeze": "availability-proposal-freeze2.json.gz",
+  "changedSourcesAtTerminalReadback": [],
+  "rawLogSha256": "dac5bc0ce50ab254fdf5b1852478452a982ffe39cf4a426a97b057760f3a21d1",
+  "scope": "full consensus package; new availability observations use synthetic peer acknowledgments in unit checks; actual network integration follows separately",
+  "committedAvailabilityAccepted": false,
+  "physicalAccepted": false,
+  "canonicalWriterPermitted": false
+}

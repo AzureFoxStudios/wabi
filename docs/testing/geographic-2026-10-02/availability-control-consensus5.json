@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "startedAtUtc": "2026-10-02T10:56:04.136025+00:00",
+  "endedAtUtc": "2026-10-02T10:58:15.619824+00:00",
+  "actualExitCode": 0,
+  "command": [
+    "cargo",
+    "+1.93",
+    "test",
+    "--offline",
+    "--locked",
+    "-p",
+    "wabi-consensus",
+    "--",
+    "--test-threads=1"
+  ],
+  "workspace": "/home/ironin/.codex/worktrees/geographic-checkpoint-control/wabi",
+  "target": "/home/ironin/wabi/target",
+  "sourceFreezeSha256": "35c6c8b43e710185db13eaf54dafd97601f5d5163c75f8341db3be7a43cd0db9",
+  "changedSourcesAtTerminalReadback": [],
+  "rawLog": "/tmp/wabi-geographic-availability-control-consensus5.log",
+  "rawLogSha256": "8d3d0bb4fa305cfe2adfa0b2f986fa4e68d227340116b182666f942938e36eb2",
+  "pass": 95,
+  "fail": 0,
+  "ignored": 9,
+  "resultGroups": 6,
+  "executables": [
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_consensus-22d83510d7fdf2f2",
+      "bytes": 26581368,
+      "sha256": "0e2e46402dd2820ea37b7628ce821b6c8c0673fe6290bb9ff796a6b45f65b2b9"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/checkpoint_tcp_contract-eb8a76132423eb51",
+      "bytes": 9108752,
+      "sha256": "39bffec51eff1c9f950ce975bd75e19ff7797a4c6dbf0b761f7f1753122aec16"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/encrypted_tcp_contract-00738f49c217519b",
+      "bytes": 22260480,
+      "sha256": "5e2a87faa126284e7e5f2818d51db42bf3f88458773987ed2d5eed1143c67b24"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/storage_contract-ee0891f528a91e62",
+      "bytes": 14226440,
+      "sha256": "3e23948785e893ff1885299f7ca40471ca69a5e538698e341bc5c0e35bac6770"
+    },
+    {
+      "path": "/home/ironin/wabi/target/debug/deps/three_voter_contract-292744b09621c787",
+      "bytes": 17555200,
+      "sha256": "d0c63efc5206bc1f2c735b5eb0547a177200be48d5ff540e238241f5a4f497e3"
+    }
+  ],
+  "scope": "isolated consensus; actual Noise/Raft opaque bytes, V2 purged-snapshot catch-up, reopened stores/actors and SIGKILL boundaries; not Authority producer/UI/physical/full-Wabi",
+  "preservedOldReaderRun": false,
+  "newTargetTreeCreated": false,
+  "canonicalWriterPermitted": false,
+  "accepted": true
+}

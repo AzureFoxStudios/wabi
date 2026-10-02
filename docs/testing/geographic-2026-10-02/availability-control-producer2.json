@@ -1,0 +1,50 @@
+{
+  "accepted": true,
+  "actualExitCode": 0,
+  "canonicalWriterPermitted": false,
+  "changedSourcesAtTerminalReadback": [],
+  "command": [
+    "/home/ironin/wabi/target/debug/deps/checkpoint_operator_contract-8cb297ae643c4d18",
+    "--test-threads=1"
+  ],
+  "compilationActualExitCode": 0,
+  "compilationCommand": [
+    "cargo",
+    "+1.93",
+    "test",
+    "--offline",
+    "--locked",
+    "-p",
+    "wabi-server",
+    "--test",
+    "checkpoint_operator_contract",
+    "--no-run",
+    "--message-format=json-render-diagnostics"
+  ],
+  "compilerPausedForThermalHandoff": true,
+  "endedAtUtc": "2026-10-02T14:13:12.417153+00:00",
+  "executables": [
+    {
+      "bytes": 147120840,
+      "path": "/home/ironin/wabi/target/debug/deps/checkpoint_operator_contract-8cb297ae643c4d18",
+      "sha256": "c259f39c97ee786b07d09fa563a69aaf81a594473d9a641aa8c9e0410001d73c"
+    }
+  ],
+  "fail": 0,
+  "fullInstanceReady": false,
+  "ignored": 1,
+  "inputs": 5173,
+  "newTargetTreeCreated": false,
+  "pass": 7,
+  "rawLog": "/tmp/wabi-geographic-availability-control-producer2.log",
+  "rawLogSha256": "5ae49a4b9f6452a24b19e3352610d599ca01f8716aa4513dff63ff9878ab1a4b",
+  "resultGroups": 1,
+  "runtimeExecuted": true,
+  "schemaVersion": 1,
+  "scope": "genuine encrypted Authority checkpoint, real Raft/Noise metadata/faults and copied peer inactive core verification; local only",
+  "sourceFreezeSha256": "099829c645856b67752f50716af8572bca29e10cf1055dba5b607ecce73e182c",
+  "startedAtUtc": "2026-10-02T14:09:03.355825+00:00",
+  "target": "/home/ironin/wabi/target",
+  "timedTestsThrottled": false,
+  "workspace": "/home/ironin/.codex/worktrees/geographic-checkpoint-control/wabi"
+}

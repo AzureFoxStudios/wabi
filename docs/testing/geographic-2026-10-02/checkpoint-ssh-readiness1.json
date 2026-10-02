@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T13:19:17Z",
+  "executionComputer": "dotRonin",
+  "checkout": "/home/ironin/wabi",
+  "rootRevision": "636f133b971288577cd402a8c71bfeb31772790a",
+  "scope": "Read-only physical-host SSH identity/free-space and bounded Tailscale ping; no Wabi application or recovery test",
+  "sshOptions": ["BatchMode=yes", "ConnectTimeout=8", "ServerAliveInterval=3", "ServerAliveCountMax=1"],
+  "sshObservationTimeoutSeconds": 16,
+  "remoteProbe": "python3: socket.gethostname(), os.getuid(), shutil.disk_usage('/tmp').free",
+  "tailnetBackend": "Running",
+  "hosts": [
+    {
+      "target": "Ronin@100.87.255.66",
+      "actualSshExitCode": 0,
+      "observedComputer": "bazzite",
+      "observedUid": 1000,
+      "temporaryFreeBytes": 14460301312,
+      "tailscalePing": {
+        "command": ["tailscale", "ping", "--timeout=5s", "--c=2", "100.87.255.66"],
+        "actualExitCode": 0,
+        "observedSamples": [{"path": "direct", "latencyMs": 124.0}],
+        "diagnosticSha256": "a345a5590d5d31ceca6f034fe796a47d4c79150561279c96be0d50669b002d16"
+      }
+    },
+    {
+      "target": "Iyoku@100.104.166.42",
+      "actualSshExitCode": 0,
+      "observedComputer": "192.168.1.11",
+      "observedUid": 1000,
+      "temporaryFreeBytes": 7711309824,
+      "tailscalePing": {
+        "command": ["tailscale", "ping", "--timeout=5s", "--c=2", "100.104.166.42"],
+        "actualExitCode": 0,
+        "observedSamples": [{"path": "direct", "latencyMs": 60.0}],
+        "diagnosticSha256": "9763f0ba64b19ccb3ce554504b7b1db4c3c5b7baba1d5cfefdf594870cc033ed"
+      }
+    }
+  ],
+  "publicEndpointAddressesPublished": false,
+  "publicAddressServiceQueried": false,
+  "remoteFilesWritten": false,
+  "testListenersStarted": false,
+  "firewallChanged": false,
+  "independentThreeSitesVerified": false,
+  "physicalCheckpointRestartAccepted": false,
+  "wabiApplicationAccepted": false,
+  "automaticFailoverAccepted": false,
+  "capacityCertification": false,
+  "limitations": [
+    "Reachability/free space are observations at one time, not a reservation or uptime guarantee.",
+    "Each ping returned one direct sample; this is not latency calibration or bandwidth measurement.",
+    "No public exit address or physical site was independently verified.",
+    "Diagnostic hashes identify transient output whose public endpoint text was intentionally not saved."
+  ]
+}

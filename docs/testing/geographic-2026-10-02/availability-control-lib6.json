@@ -1,0 +1,49 @@
+{
+  "accepted": true,
+  "actualExitCode": 0,
+  "canonicalWriterPermitted": false,
+  "changedSourcesAtTerminalReadback": [],
+  "command": [
+    "/home/ironin/wabi/target/debug/deps/wabi_consensus-22d83510d7fdf2f2",
+    "--test-threads=1"
+  ],
+  "compilationActualExitCode": 0,
+  "compilationCommand": [
+    "cargo",
+    "+1.93",
+    "test",
+    "--offline",
+    "--locked",
+    "-p",
+    "wabi-consensus",
+    "--lib",
+    "--no-run",
+    "--message-format=json-render-diagnostics"
+  ],
+  "compilerPausedForThermalHandoff": true,
+  "endedAtUtc": "2026-10-02T13:34:10.596636+00:00",
+  "executables": [
+    {
+      "bytes": 26673544,
+      "path": "/home/ironin/wabi/target/debug/deps/wabi_consensus-22d83510d7fdf2f2",
+      "sha256": "8288b60c613faaccc6e1d6b841ce37cbf4ca8b217fb229a124b0b409ffb5773e"
+    }
+  ],
+  "fail": 0,
+  "fullInstanceReady": false,
+  "ignored": 4,
+  "inputs": 61,
+  "newTargetTreeCreated": false,
+  "pass": 69,
+  "rawLog": "/tmp/wabi-geographic-availability-control-lib6.log",
+  "rawLogSha256": "63f61a7536b6793131bc16e8b0b585821db978c6d0cce94820d0b8ae0cec9bbd",
+  "resultGroups": 1,
+  "runtimeExecuted": true,
+  "schemaVersion": 1,
+  "scope": "consensus lib-only; stronger legacy reader compiled but ignored",
+  "sourceFreezeSha256": "2416e73fd1fb608be40fa83ddae0b2bb209b87ed678398129eda2692ba183b26",
+  "startedAtUtc": "2026-10-02T13:25:36.749933+00:00",
+  "target": "/home/ironin/wabi/target",
+  "timedTestsThrottled": false,
+  "workspace": "/home/ironin/.codex/worktrees/geographic-checkpoint-control/wabi"
+}

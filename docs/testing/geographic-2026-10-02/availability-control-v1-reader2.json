@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "startedAtUtc": "2026-10-02T10:59:35.124492+00:00",
+  "endedAtUtc": "2026-10-02T10:59:39.508336+00:00",
+  "actualExitCode": 0,
+  "command": [
+    "/home/ironin/wabi/target/debug/deps/wabi_consensus-22d83510d7fdf2f2",
+    "availability_control::tests::actual_preserved_v1_worker_accepts_same_v1_binding_and_refuses_v2_upgrade",
+    "--ignored",
+    "--exact",
+    "--nocapture",
+    "--test-threads=1"
+  ],
+  "executable": {
+    "path": "/home/ironin/wabi/target/debug/deps/wabi_consensus-22d83510d7fdf2f2",
+    "bytes": 26581368,
+    "sha256": "0e2e46402dd2820ea37b7628ce821b6c8c0673fe6290bb9ff796a6b45f65b2b9"
+  },
+  "preservedV1Artifact": {
+    "path": "/tmp/wabi-geographic-v1-reader-oulaxic5/reader.bin",
+    "dev": 66306,
+    "ino": 4873388,
+    "uid": 1000,
+    "bytes": 21231640,
+    "sha256": "9330025a18f7de9aca1451fa91a351276eb1d3e762c7108fc4c26c82662b0356"
+  },
+  "sourceFreezeSha256": "35c6c8b43e710185db13eaf54dafd97601f5d5163c75f8341db3be7a43cd0db9",
+  "changedSourcesAtTerminalReadback": [],
+  "newExecutableUnchanged": true,
+  "oldExecutableUnchanged": true,
+  "rawLog": "/tmp/wabi-geographic-availability-control-v1-reader2.log",
+  "rawLogSha256": "167af5527a41cecc06d07316c7c7c78690681f740446a70901a5d0c9fc2a1204",
+  "accepted": true,
+  "scope": "Exact preserved V1 worker positive same-binding V1 membership/snapshot open/status/stop, then V2 rollback refusal before endpoint creation, unchanged durable state and lock inode; local fixture only",
+  "canonicalWriterPermitted": false
+}

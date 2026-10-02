@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T14:18:03.354809+00:00",
+  "sourcePath": "core/crates/wabi-server/tests/fixtures/checkpoint_rpc.rs",
+  "sourceBytes": 24483,
+  "sourceSha256": "1f0899792b020dfd69137b7931c4d18d7a108b0063e99cf0e1902e9b9175ca15",
+  "archive": "availability-control-producer1-fixture.rs.gz",
+  "reconstructedFrom": "current fixture with only the exact fresh-generation repair removed; SHA equals frozen progress6 candidate",
+  "failedExecutableNotSeparatelyCopied": true,
+  "failedExecutableSha256RecordedIn": "availability-control-producer1.json",
+  "reason": "retain exact failing test source and compressed diagnostics without duplicating a147MB build executable"
+}

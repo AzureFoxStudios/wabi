@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "sessionId": 39987,
+  "actualExitCode": 0,
+  "sourceInputsChangedAtTerminalReadback": [],
+  "rawLogSha256": "8a1d9db45356eca787b3498b1bc37d2db2a436d0fb5ee5af4e0477e23dda3977",
+  "localLoopbackAccepted": true,
+  "physicalAccepted": false,
+  "acceptedSteps": 15,
+  "ownedRootsAndToolDirectoriesRemoved": 6,
+  "canonicalWriterPermitted": false,
+  "scope": "actual owned checkpoint worker processes on one computer; no SSH, new physical uplink proof or Wabi writer activation"
+}

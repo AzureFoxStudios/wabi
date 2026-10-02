@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "actualExitCode": 0,
+  "pass": 15,
+  "fail": 0,
+  "rawLogSha256": "1ba8db3345eefbee054e1a7ea2c9bc3f9fab45be7de235e5da2cab7df656db46",
+  "sourceHashesAtReadback": {
+    "scripts/geographic-acceptance/checkpoint-field-run.py": "cc73a48b9144d2e1de4b5d0471c3456bb7c03ecb1f59d5037585d9b04a82f878",
+    "scripts/geographic-acceptance/checkpoint-field-host.py": "0a43c252429e3552239782cace13645c6d26de295ba141dc997e0d42a578be6a",
+    "scripts/geographic-acceptance/rpc-probe-supervisor.py": "713cea7e45d5cd73abb2e7015e9dff02595bbe0bd7478fcffb939a5ca3b671b2",
+    "scripts/geographic-acceptance/test_checkpoint_field_host.py": "36589627e967a9315c10acdbd317119a6258c88d976f22a6f3276774cc011b00"
+  },
+  "scope": "guard/parser checks, local-only routing and complete distinct-node cleanup; no physical network acceptance"
+}

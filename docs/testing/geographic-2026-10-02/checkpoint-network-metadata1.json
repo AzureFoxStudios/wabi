@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T13:55:59Z",
+  "scope": "Read existing local Tailscale daemon metadata on the three authorized test computers; no Wabi application or checkpoint test",
+  "method": "Local tailscale status --json on dotRonin; bounded read-only SSH invocation of that same local-daemon query on Ronin and Iyoku",
+  "nodes": [
+    {
+      "label": "dotRonin",
+      "observedComputer": "dotRonin",
+      "online": true,
+      "backend": "Running",
+      "exitNodeSelected": false,
+      "advertisedGlobalV4Count": 1
+    },
+    {
+      "label": "Ronin",
+      "observedComputer": "bazzite",
+      "actualSshExitCode": 0,
+      "online": true,
+      "backend": "Running",
+      "exitNodeSelected": false,
+      "advertisedGlobalV4Count": 1
+    },
+    {
+      "label": "Iyoku",
+      "actualSshExitCode": 255,
+      "metadataObserved": false,
+      "advertisedGlobalV4Count": null
+    }
+  ],
+  "followupIyokuHostnameProbe": {
+    "actualExitCode": 255,
+    "tailscaleReportedAdditionalSshAuthenticationRequired": true,
+    "terminalResult": "Connection to peer port22 timed out",
+    "waitingProbeStillRunning": false,
+    "userAuthenticationRequested": true
+  },
+  "allThreeObserved": false,
+  "advertisedGlobalV4SetsPairwiseDisjoint": null,
+  "physicalSitesVerified": false,
+  "publicEndpointAddressesPublished": false,
+  "publicAddressServiceQueried": false,
+  "remoteFilesWritten": false,
+  "testListenersStarted": false,
+  "capacityCertification": false,
+  "limitations": [
+    "The three-endpoint comparison is unknown because Iyoku's newer probe could not authenticate.",
+    "Advertised Tailscale endpoints are not proof of physical-site separation or a current public exit address.",
+    "The successful earlier SSH/ping receipt remains valid only for its own observation time.",
+    "Local encrypted-checkpoint compilation continues independently of this authentication requirement."
+  ]
+}

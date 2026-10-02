@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T11:20:39.798047+00:00",
+  "executionComputer": "dotRonin",
+  "originalCheckout": "/home/ironin/wabi",
+  "originalHead": "9dd4c2672d56e30eed58f0bff06d333fe2024419",
+  "originMain": "f9e19e160048e418daafabc5f606144a502f417d",
+  "candidateCheckout": "/home/ironin/.codex/worktrees/geographic-checkpoint-control/wabi",
+  "candidateBase": "361437d4778b4f4a863fa37c00b40f0449d0eace",
+  "sourceInputs": [
+    {
+      "path": "core/crates/wabi-consensus/src/availability_control.rs",
+      "candidateSha256": "504c8d5248949aad3f2addc87576080e853477466d5e66a5f25240a00cdeaf41",
+      "acceptedBaselineSha256": null,
+      "originalNowSha256": null
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/availability_control/tests.rs",
+      "candidateSha256": "d512cbc676297aed66ef7f73e41d852b8abae73c983c24e92efac00b3bd553db",
+      "acceptedBaselineSha256": null,
+      "originalNowSha256": null
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/lib.rs",
+      "candidateSha256": "70214c8516d12589c0c736b521b15796bcd5d58dfd5570d9ee7d87920a2d60fc",
+      "acceptedBaselineSha256": "d3519c850f92d9f5e9e7c77a117cc72e853c9c2ab083e1b47520155cb623366e",
+      "originalNowSha256": "d3519c850f92d9f5e9e7c77a117cc72e853c9c2ab083e1b47520155cb623366e"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/model.rs",
+      "candidateSha256": "0c759632fb93e262115dedf337ee126cd7f1b01be81fa882722bbdcc4d55207e",
+      "acceptedBaselineSha256": "8f5ef2274b893286c384e9d4ffd1088694e42cc1fe0de4f1b9231f3bddbd8b0a",
+      "originalNowSha256": "8f5ef2274b893286c384e9d4ffd1088694e42cc1fe0de4f1b9231f3bddbd8b0a"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/store.rs",
+      "candidateSha256": "0bc8feee67a067a7c495f307907c4d6467ae84de9f0d3d7d03b9d9cb59808fd0",
+      "acceptedBaselineSha256": "75d1f2f42be80ab3720c2eed82fabde5acab54ace3df9db93e758cb8954d544c",
+      "originalNowSha256": "75d1f2f42be80ab3720c2eed82fabde5acab54ace3df9db93e758cb8954d544c"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/store/tests.rs",
+      "candidateSha256": "67b24e2b340dbcca61abcf3604396327571fd5a5b7cc91fbf8ab74a4b2c091f5",
+      "acceptedBaselineSha256": "44ae366b4a2cc981e415b978d0fbf7049fb92f859ac400a52ed4ca1abcd13ab5",
+      "originalNowSha256": "44ae366b4a2cc981e415b978d0fbf7049fb92f859ac400a52ed4ca1abcd13ab5"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/transport/material.rs",
+      "candidateSha256": "80a51078c6919b73a6edffb6b3dc23450185c7f5ff594f1819b3e711f1b32254",
+      "acceptedBaselineSha256": "0338488ba42382dd17e37430c860fd7dae04468c3a21fcd3a5fd9efe85a5ce16",
+      "originalNowSha256": "0338488ba42382dd17e37430c860fd7dae04468c3a21fcd3a5fd9efe85a5ce16"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/transport/material/availability.rs",
+      "candidateSha256": "4ee55ac3bca0d276be423e8fa2b8415256fc78737c52cdf434cd5f9682ccf7f6",
+      "acceptedBaselineSha256": "f5ffd36fc817df7cd1f4e062c8ea80ef6d2df19d63b10d414b51cf18a925f154",
+      "originalNowSha256": "f5ffd36fc817df7cd1f4e062c8ea80ef6d2df19d63b10d414b51cf18a925f154"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/transport/material/availability/tests.rs",
+      "candidateSha256": "cc0410c07c39126e88671054141c7c5e4c912bffe02cc56c111f86e5dd1ab95f",
+      "acceptedBaselineSha256": "b556c5d1a557da3ab136c20bcc8da4376ece9ccc785491bf9e05db53bc06028d",
+      "originalNowSha256": "b556c5d1a557da3ab136c20bcc8da4376ece9ccc785491bf9e05db53bc06028d"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/transport/material/client.rs",
+      "candidateSha256": "700cd305ebb7dbe96a407ff0863543a14d57b39a1d696d826b67eabcc4cd3acf",
+      "acceptedBaselineSha256": "0331db8cfa697454e855b55b16e66b84fe35fad457742969340e2f73ebf242fd",
+      "originalNowSha256": "0331db8cfa697454e855b55b16e66b84fe35fad457742969340e2f73ebf242fd"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/transport/mod.rs",
+      "candidateSha256": "17fdae13702a76b7d15f95ce5323883716bae392de2e74bcc8b24d1a298a12b6",
+      "acceptedBaselineSha256": "020a4ceb105f8930f76147192e6588da62e8d4904767752d64ba9995e0605206",
+      "originalNowSha256": "020a4ceb105f8930f76147192e6588da62e8d4904767752d64ba9995e0605206"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/transport/rpc.rs",
+      "candidateSha256": "c33149468e8974d7d511ec07b8b04a7597ac8f0da928d319cca0af40eaf69852",
+      "acceptedBaselineSha256": "03436c452ef473c30e7da73faa07666ed32d4eaba8ea41dcb9066869cf4bff7c",
+      "originalNowSha256": "03436c452ef473c30e7da73faa07666ed32d4eaba8ea41dcb9066869cf4bff7c"
+    },
+    {
+      "path": "core/crates/wabi-consensus/src/transport/tests.rs",
+      "candidateSha256": "1adb2a1531fd4a5792cdbef4711f309cb84307bc168220e5550c4347d41b1578",
+      "acceptedBaselineSha256": "8dfa73df1614aed3de9baa631abf1035c84cfff0fcf90fd81e4e6a8a1bf2e84b",
+      "originalNowSha256": "8dfa73df1614aed3de9baa631abf1035c84cfff0fcf90fd81e4e6a8a1bf2e84b"
+    },
+    {
+      "path": "core/crates/wabi-consensus/tests/encrypted_tcp_contract.rs",
+      "candidateSha256": "ccee4e97b818a33de39b5fb6e9ea1a1ce0f3de7846d306a5d3635a06ee074088",
+      "acceptedBaselineSha256": "2f89ff5056790e810367a3cfd14cc37b7c46f6dee5252b4af4020fd75b94c754",
+      "originalNowSha256": "2f89ff5056790e810367a3cfd14cc37b7c46f6dee5252b4af4020fd75b94c754"
+    },
+    {
+      "path": "core/crates/wabi-consensus/tests/storage_contract.rs",
+      "candidateSha256": "f004ffa39cc699e65560c6f36f17caba39508d797272612b144d723a32c49c6e",
+      "acceptedBaselineSha256": "3439b1cce1e4fe1a18ac965a5fd7be548bcaeba9f5133cc856e074bec0cd2718",
+      "originalNowSha256": "3439b1cce1e4fe1a18ac965a5fd7be548bcaeba9f5133cc856e074bec0cd2718"
+    },
+    {
+      "path": "core/crates/wabi-consensus/tests/three_voter_contract.rs",
+      "candidateSha256": "a31469fa6fedf9bc03ef4d66ab6c87c7c38784d202ebe0217a9f925f245dc61a",
+      "acceptedBaselineSha256": "8e02f84435b6b8c767460887a2c176da9d998b8b5ea9490775865a73acc7800c",
+      "originalNowSha256": "8e02f84435b6b8c767460887a2c176da9d998b8b5ea9490775865a73acc7800c"
+    },
+    {
+      "path": "core/crates/wabi-server/tests/fixtures/checkpoint_rpc.rs",
+      "candidateSha256": "1f0899792b020dfd69137b7931c4d18d7a108b0063e99cf0e1902e9b9175ca15",
+      "acceptedBaselineSha256": "280254da22cb2c00ba07f4c30c0e72b5bb818a551671cc895f5cf3af780adc20",
+      "originalNowSha256": "280254da22cb2c00ba07f4c30c0e72b5bb818a551671cc895f5cf3af780adc20"
+    },
+    {
+      "path": "core/crates/wabi-server/tests/checkpoint_operator_contract.rs",
+      "candidateSha256": "e3f11788026ddd6fcb88ab3b7c27008c80c8e72f2ab8a59f6ea35c0410eca65e",
+      "acceptedBaselineSha256": "7f5874d2ccbff7c15d6492b66b9bb86acfa559bf9ef42a627b5f23efc5b38898",
+      "originalNowSha256": "7f5874d2ccbff7c15d6492b66b9bb86acfa559bf9ef42a627b5f23efc5b38898"
+    },
+    {
+      "path": "core/crates/wabi-server/tests/fixtures/checkpoint_peer_verify.rs",
+      "candidateSha256": "ca4b68c0a32d6c41637e4357b1949c6088aac02cac67596dfddfe1c258ac90d3",
+      "acceptedBaselineSha256": null,
+      "originalNowSha256": null
+    }
+  ],
+  "originalBaselinesUnchanged": true,
+  "currentCandidateSha256": "6b75d9a623e754b263f9ba419eac39cf3c2639a3fc15b1b35cc8219bd211c142",
+  "passedPackageReceipt": "availability-control-consensus5.json",
+  "passedPackageFreeze": "35c6c8b43e710185db13eaf54dafd97601f5d5163c75f8341db3be7a43cd0db9",
+  "packagePass": 95,
+  "packageFail": 0,
+  "packageIgnored": 9,
+  "oldReaderReceipt": "availability-control-v1-reader2.json",
+  "oldReaderAccepted": true,
+  "uncompiledAfterPassingFreeze": [
+    "core/crates/wabi-consensus/src/availability_control/tests.rs",
+    "core/crates/wabi-server/tests/checkpoint_operator_contract.rs",
+    "core/crates/wabi-server/tests/fixtures/checkpoint_rpc.rs",
+    "core/crates/wabi-server/tests/fixtures/checkpoint_peer_verify.rs"
+  ],
+  "uncompiledRepair": "Stronger V1 legacy command positive case; genuine producer Raft/failure integration plus authenticated copied-peer ciphertext reconstruction/private inactive core verification, changed-source/upload refusals, valid retry and same guards/lock/owned-scratch cleanup",
+  "genuineAuthorityProducerCompiled": false,
+  "physicalAccepted": false,
+  "newTargetTreeCreated": false,
+  "rootSourceCopyback": false,
+  "canonicalWriterPermitted": false,
+  "fullWabiFailoverAccepted": false,
+  "buildSlot": "UI release Cargo969731/rustc969764 confirmed live; source-only candidate progress",
+  "oldReaderScope": "Actual preserved V1 matching membership/snapshot startup/status/stop then V2 format refusal before listener; canonical state and lock inode unchanged",
+  "purgedSnapshotAndReopenedStoreActorRestartAccepted": true
+}

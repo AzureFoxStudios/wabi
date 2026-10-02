@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T13:33:37.434477+00:00",
+  "compiledLogReportsSuccess": true,
+  "sourceInputs": 61,
+  "allSourceHashesUnchanged": true,
+  "executable": "/home/ironin/wabi/target/debug/deps/wabi_consensus-22d83510d7fdf2f2",
+  "executableBytes": 26673544,
+  "executableSha256": "8288b60c613faaccc6e1d6b841ce37cbf4ca8b217fb229a124b0b409ffb5773e",
+  "maximumObservedTemperatureC": 46.5,
+  "minimumRequiredFreeBytes": 8589934592,
+  "actualFreeBytes": 14575054848,
+  "runnerPid": 1028127,
+  "runnerStartTicks": 19357076,
+  "timedTestsThrottled": false,
+  "testAcceptanceNotYetKnown": true
+}

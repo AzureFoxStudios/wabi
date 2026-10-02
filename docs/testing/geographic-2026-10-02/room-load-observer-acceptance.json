@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T12:15:30.308598+00:00",
+  "command": [
+    "node",
+    "scripts/geographic-acceptance/room-load.test.mjs"
+  ],
+  "actualExitCode": 0,
+  "scope": "in-memory harness regression, no real sockets/network/load/build",
+  "nodeVersion": "v22.22.3",
+  "sourceHashes": {
+    "scripts/geographic-acceptance/room-load.mjs": "f94849477277c37297305b632e08b21ea48789622aded86979e19de86badf5df",
+    "scripts/geographic-acceptance/room-load.test.mjs": "6577c7f48d3d83638b432d0bd5e45ffbefd10acd7eaee2304476b9c341c1390d"
+  },
+  "sourceUnchanged": true,
+  "pass": 17,
+  "fail": 0,
+  "logSha256": "0216648194f9999e2225aeee11f82291936a1f249e38d544f57a54a4386e167f",
+  "accepted": true,
+  "capacityCertification": false,
+  "physicalAccepted": false,
+  "readinessChanged": false,
+  "newTargetTreeCreated": false,
+  "negativeChecks": [
+    "wrong delivery room",
+    "wrong acknowledgment room",
+    "reused canonical ID",
+    "changed body",
+    "nonstring/empty IDs",
+    "wrong type",
+    "delivery/ack ID mismatch",
+    "duplicate delivery/ack",
+    "missing/changed history"
+  ],
+  "positiveChecks": [
+    "valid original delivery-before-ack",
+    "ack-before-delivery",
+    "limits/latencies/pre-aborted cleanup"
+  ],
+  "runnerDiagnostic": "Initial node --test child-runner invocation returned a one-file root failure without subtest diagnostics; direct node:test command recorded here produced all individual results. No isolated child-runner acceptance claimed."
+}

@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T12:43:03.125175+00:00",
+  "nodeVersion": "v22.22.3",
+  "accepted": true,
+  "sourceHashes": {
+    "scripts/geographic-acceptance/room-load.mjs": "4de83cef58e9c78fbcc4af1dca745aa7011bb75e0fad7f947ceb0952991e0add",
+    "scripts/geographic-acceptance/room-load.test.mjs": "82f9d12c86743bc20ea47162d9feb66bf9183ac8f91e6cef55c091670a7595d4",
+    "scripts/geographic-acceptance/rooms-load.test.mjs": "a806d5f4d5881e4aea7236fcc4226e4626bc8876c1b97242e19fc4b32020cecd"
+  },
+  "sourceUnchanged": true,
+  "runs": [
+    {
+      "command": [
+        "node",
+        "scripts/geographic-acceptance/room-load.test.mjs"
+      ],
+      "actualExitCode": 0,
+      "durationMs": 366,
+      "pass": 18,
+      "fail": 0,
+      "logSha256": "92ab1014f2f10b3a27166841c4643928f23737e72da8fc3d4ef8ccde82badc36",
+      "scope": "individual in-memory harness checks"
+    },
+    {
+      "command": [
+        "node",
+        "scripts/geographic-acceptance/rooms-load.test.mjs"
+      ],
+      "actualExitCode": 0,
+      "durationMs": 359,
+      "pass": 24,
+      "fail": 0,
+      "logSha256": "f119021c89585554e7d268ba93c49481a7357c28ea5a09b482353f28013db564",
+      "scope": "individual in-memory harness checks"
+    },
+    {
+      "command": [
+        "node",
+        "--test",
+        "scripts/geographic-acceptance/room-load.test.mjs",
+        "scripts/geographic-acceptance/rooms-load.test.mjs"
+      ],
+      "actualExitCode": 0,
+      "durationMs": 552,
+      "pass": 2,
+      "fail": 0,
+      "logSha256": "82a87b3c5b7df9fd230cf204573d400106115a7a923a4bbe89fe05fa2d484832",
+      "scope": "isolated parent file groups"
+    }
+  ],
+  "individualPass": 42,
+  "individualFail": 0,
+  "parentFileGroupsPass": 2,
+  "countsAdditive": false,
+  "scope": "pure fake-transport and pacing/input/cancellation checks; no real sockets, traffic, Wabi runtime, build or capacity load",
+  "aggregateBudgets": {
+    "roomsMax": 4,
+    "clientsMax": 32,
+    "messagesMax": 95,
+    "messagesPerSecondMax": 20
+  },
+  "stalledRoomAllowsOtherRoomCompletion": true,
+  "capacityCertification": false,
+  "regionalLocalityTested": false,
+  "physicalAccepted": false,
+  "fullInstanceReady": false,
+  "newTargetTreeCreated": false,
+  "logSha256": "9136ad2d3fda508386ff02d6d50b56b845c01bd93e8c6f2b74f9889d9435c5fd"
+}

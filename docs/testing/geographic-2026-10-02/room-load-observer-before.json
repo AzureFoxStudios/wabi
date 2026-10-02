@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-02T12:10:34.539956+00:00",
+  "command": [
+    "node",
+    "scripts/geographic-acceptance/room-load.test.mjs"
+  ],
+  "actualExitCode": 1,
+  "scope": "in-memory harness regression, no real sockets/network/load/build",
+  "nodeVersion": "v22.22.3",
+  "sourceHashes": {
+    "scripts/geographic-acceptance/room-load.mjs": "0ef71c8bcf076df731c0f199ac16424c0453918ac4434fbb39f1a02a10e04ae5",
+    "scripts/geographic-acceptance/room-load.test.mjs": "6dd495daaca11183758c78ffccdb8a9906abb9cdd29e76ff5ba6fb3ac2221086"
+  },
+  "sourceUnchanged": true,
+  "pass": 4,
+  "fail": 4,
+  "logSha256": "7a6f8f8ad4e24eee275be3c29c293973e96da40529fa10f539ec50370910080c",
+  "failureMeaning": "Valid baseline and existing guards pass; wrong delivery room, wrong ACK room, repeated canonical ID and changed body each incorrectly return PASS",
+  "capacityCertification": false
+}
