@@ -7,6 +7,7 @@
 import { browser } from '$app/environment';
 import { getApiBase } from '$lib/api/utils';
 import { getAuthToken } from '$lib/authSession';
+import { fetchVapidKeyResult } from './pushDiagnostics';
 
 const DEVICE_ID_KEY = 'wabi.deviceId';
 
@@ -55,68 +56,54 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 }
 
 export async function fetchVapidPublicKey(): Promise<string | null> {
-	try {
-		const res = await fetch(`${getApiBase()}/api/push/vapid-public-key`, {
-			credentials: 'same-origin'
-		});
-		if (!res.ok) return null;
-		const data = (await res.json()) as { publicKey?: string };
-		return typeof data.publicKey === 'string' && data.publicKey.length > 0 ? data.publicKey : null;
-	} catch {
-		return null;
-	}
+    const result = await fetchVapidKeyResult(`${getApiBase()}/api/push/vapid-public-key`);
+    return result.ok ? result.publicKey : null;
 }
 
 export async function subscribeWebPush(): Promise<PushSubscribeResult> {
 	if (!browser) return { ok: false, reason: 'not_browser' };
-	if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-		return { ok: false, reason: 'push_unsupported' };
-	}
-	if (!('Notification' in window)) return { ok: false, reason: 'notification_unsupported' };
-
-	let permission = Notification.permission;
-	if (permission === 'default') {
-		permission = await Notification.requestPermission();
-	}
-	if (permission !== 'granted') return { ok: false, reason: 'permission_denied' };
-
-	const reg = await navigator.serviceWorker.ready;
-	const publicKey = await fetchVapidPublicKey();
-	if (!publicKey) return { ok: false, reason: 'no_vapid_key' };
-
-	let sub = await reg.pushManager.getSubscription();
-	if (!sub) {
-		sub = await reg.pushManager.subscribe({
-			userVisibleOnly: true,
-			applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource
-		});
-	}
-
-	const json = sub.toJSON();
 	const token = getAuthToken();
 	if (!token) return { ok: false, reason: 'not_authenticated' };
+	const apiBase = getApiBase();
+	const current = () => getAuthToken() === token && getApiBase() === apiBase;
+	if (!window.isSecureContext) return { ok: false, reason: 'insecure_context' };
+	if (!('serviceWorker' in navigator) || !('PushManager' in window)) return { ok: false, reason: 'push_unsupported' };
+	if (!('Notification' in window)) return { ok: false, reason: 'notification_unsupported' };
 
-	const res = await fetch(`${getApiBase()}/api/push/subscribe`, {
-		method: 'POST',
-		credentials: 'same-origin',
-		headers: {
-			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
-		},
-		body: JSON.stringify({
-			endpoint: json.endpoint,
-			keys: json.keys,
-			deviceId: getOrCreateDeviceId(),
-			platform: 'web',
-			userAgent: navigator.userAgent
-		})
-	});
-
-	if (!res.ok) {
-		const text = await res.text().catch(() => '');
-		return { ok: false, reason: `server_${res.status}:${text.slice(0, 120)}` };
+	let sub: PushSubscription | null;
+	try {
+		let permission = Notification.permission;
+		if (permission === 'default') permission = await Notification.requestPermission();
+		if (!current()) return { ok: false, reason: 'account_changed' };
+		if (permission !== 'granted') return { ok: false, reason: 'permission_denied' };
+		const reg = await navigator.serviceWorker.ready;
+		if (!current()) return { ok: false, reason: 'account_changed' };
+		const key = await fetchVapidKeyResult(`${apiBase}/api/push/vapid-public-key`);
+		if (!current()) return { ok: false, reason: 'account_changed' };
+		if (!key.ok) return key;
+		sub = await reg.pushManager.getSubscription();
+		if (!current()) return { ok: false, reason: 'account_changed' };
+		if (!sub) sub = await reg.pushManager.subscribe({
+			userVisibleOnly: true,
+			applicationServerKey: urlBase64ToUint8Array(key.publicKey) as BufferSource
+		});
+	} catch (error) {
+		const name = error instanceof Error ? error.name : '';
+		return { ok: false, reason: name === 'NotAllowedError' ? 'browser_subscription_denied' : name === 'InvalidStateError' ? 'browser_subscription_conflict' : 'browser_subscription_failed' };
 	}
-
+	if (!current()) return { ok: false, reason: 'account_changed' };
+	const json = sub.toJSON();
+	let res: Response;
+	try {
+		res = await fetch(`${apiBase}/api/push/subscribe`, {
+			method: 'POST', credentials: 'same-origin',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys, deviceId: getOrCreateDeviceId(), platform: 'web', userAgent: navigator.userAgent })
+		});
+	} catch { return { ok: false, reason: 'subscription_network_error' }; }
+	if (!current()) return { ok: false, reason: 'account_changed' };
+	// Response bodies can contain operator diagnostics. Expose only the status.
+	if (!res.ok) return { ok: false, reason: `subscription_http_${res.status}` };
 	return { ok: true, endpoint: json.endpoint || sub.endpoint };
 }
 

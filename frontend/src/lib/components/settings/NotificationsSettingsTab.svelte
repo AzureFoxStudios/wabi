@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { pushFailureMessage } from '$lib/pwa/pushDiagnostics';
 	import { onDestroy, onMount } from 'svelte';
 	import { _ as t } from '$lib/i18n';
 	import { isTauriRuntime } from '$lib/tauri-platform';
@@ -422,7 +423,7 @@
 		try {
 			const result = await subscribeWebPush();
 			await refreshPushState();
-			pushStatus = result.ok ? 'Push subscribed.' : `Failed: ${'reason' in result ? result.reason : 'failed'}`;
+			pushStatus = result.ok ? 'Push subscribed.' : pushFailureMessage('reason' in result ? result.reason : 'failed');
 			if (result.ok) {
 				notificationsEnabled = true;
 				localStorage.setItem('notificationsEnabled', 'true');
