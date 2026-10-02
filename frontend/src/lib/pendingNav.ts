@@ -9,6 +9,7 @@
 import { writable, get } from 'svelte/store';
 
 export type NavRef =
+	| { kind: 'lore_file'; channelId: string; filePath: string }
 	| { kind: 'user'; userId: string }
 	| { kind: 'channel'; channelId: string }
 	| { kind: 'forum_post'; channelId?: string; postId: string }
@@ -17,6 +18,7 @@ export type NavRef =
 	| { kind: 'place'; placeId: string; layerId?: string; poiId?: string };
 
 const pending = writable<NavRef | null>(null);
+export const pendingNav = { subscribe: pending.subscribe };
 
 export function setPendingNav(ref: NavRef): void {
 	pending.set(ref);

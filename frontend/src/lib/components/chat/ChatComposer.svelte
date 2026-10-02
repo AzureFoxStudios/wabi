@@ -36,7 +36,7 @@ import type { MediaAlbum } from '$lib/api';
 	import FileUploadPreview from './FileUploadPreview.svelte';
 	import MentionSuggestions from './MentionSuggestions.svelte';
 	import EmojiSuggestions from './EmojiSuggestions.svelte';
-	import { applyMentionToInput, computeMentionSuggestions } from './mentionSuggestions';
+	import { applyMentionToInput, computeMentionSuggestions, mentionDirectory } from './mentionSuggestions';
 	import { loadSharedGamesForMentions } from '$lib/games/mentions';
 	import type { GameSelection } from '$lib/games/model';
 	import { checkSendBurst, detectMessageKind, processAttachmentCaption, processOutgoingText } from './messageSend';
@@ -264,7 +264,7 @@ import type { MediaAlbum } from '$lib/api';
 			gameMentionsLoaded = false;
 		}
 		if (messageInput.startsWith('/')) { showCommandPalette = getMatchingCommands(messageInput).length > 0; showMentionSuggestions = false; }
-		else { showCommandPalette = false; const caret = textareaElement?.selectionStart ?? messageInput.length; if (!$placeRegistry.length) void loadPlaceRegistry(); if (/@game(?::[^\s]*)?$/i.test(messageInput.slice(0, caret))) void loadGameMentionChoices(); const result = computeMentionSuggestions(messageInput, caret, $users as User[], $currentUser?.id, $placeRegistry, sharedGameMentions); if (result.show) { mentionTokenStart = result.tokenStart; mentionSuggestions = result.suggestions; mentionSelectedIndex = 0; showMentionSuggestions = true; } else showMentionSuggestions = false; updateEmojiSuggestions(caret); }
+		else { showCommandPalette = false; const caret = textareaElement?.selectionStart ?? messageInput.length; if (!$placeRegistry.length) void loadPlaceRegistry(); if (/@game(?::[^\s]*)?$/i.test(messageInput.slice(0, caret))) void loadGameMentionChoices(); const result = computeMentionSuggestions(messageInput, caret, mentionDirectory($serverMembers as User[], $users as User[]), $currentUser?.id, $placeRegistry, sharedGameMentions); if (result.show) { mentionTokenStart = result.tokenStart; mentionSuggestions = result.suggestions; mentionSelectedIndex = 0; showMentionSuggestions = true; } else showMentionSuggestions = false; updateEmojiSuggestions(caret); }
 	}
 	async function loadGameMentionChoices(): Promise<void> {
 		if (gameMentionsLoading || gameMentionsLoaded) return;
@@ -277,7 +277,7 @@ import type { MediaAlbum } from '$lib/api';
 		gameMentionsLoaded = true;
 		sharedGameMentions = games;
 		const caret = textareaElement?.selectionStart ?? messageInput.length;
-		const result = computeMentionSuggestions(messageInput, caret, $users as User[], $currentUser?.id, $placeRegistry, sharedGameMentions);
+		const result = computeMentionSuggestions(messageInput, caret, mentionDirectory($serverMembers as User[], $users as User[]), $currentUser?.id, $placeRegistry, sharedGameMentions);
 		if (result.show) { mentionTokenStart = result.tokenStart; mentionSuggestions = result.suggestions; mentionSelectedIndex = 0; showMentionSuggestions = true; }
 	}
 	function updateEmojiSuggestions(caret: number): void {

@@ -25,3 +25,14 @@ test('copied forum, wiki, image and map references retain their target kinds', (
  const entities=forumReferenceEntities(text,token=>token in kinds?{kind:kinds[token as keyof typeof kinds],id:token,slug:token.split('/')[1],title:token,channelId:'channel'}:null);
  expect(entities.map(entity=>entity.kind)).toEqual(['forum_post','wiki_page','gallery_work','place']);
 });
+test('Lore file links keep authenticated project identity and path',()=>{
+ expect(forumShareNavigation('/?wabiNav=lore_file&channelId=ch_abc&path=proof%2Ffile.txt','https://wabi.chat')).toEqual({kind:'lore_file',channelId:'ch_abc',filePath:'proof/file.txt'});
+ for(const url of ['https://other.test/?wabiNav=lore_file&channelId=ch_abc&path=x','/?wabiNav=lore_file&channelId=ch_abc&path=../secret','/?wabiNav=lore_file&path=x']) expect(forumShareNavigation(url,'https://wabi.chat')).toBeNull();
+});
+
+test('copied references display the object title while keeping canonical source offsets', () => {
+ const text='See ^g/image';
+ const [ref]=forumReferenceEntities(text,()=>({kind:'gallery_work',id:'work',slug:'image',title:'My sketch.png',channelId:'gallery'}));
+ expect(ref.displayText).toBe('My sketch.png');
+ expect(text.slice(ref.start,ref.end)).toBe('^g/image');
+});

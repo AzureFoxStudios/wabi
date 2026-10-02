@@ -1,11 +1,15 @@
 /**
  * Deep-link targets from push notifications / notification clicks.
  */
+import { channels } from '$lib/channelStore';
+import { getServerUrl } from '$lib/serverUrl';
+import { navigateToRef } from '$lib/navigateToRef';
 import { browser } from '$app/environment';
 import { layoutStore } from '$lib/layoutStore';
 import { currentChannel, joinChannel } from '$lib/socket';
 
 export type WabiNavTarget =
+	| { kind: 'lore_file'; channelId: string; filePath: string }
 	| { kind: 'channel'; channelId: string; messageId?: string }
 	| { kind: 'dm'; channelId: string }
 	| { kind: 'call'; callId: string }
@@ -16,6 +20,7 @@ export function parseWabiNavFromSearch(search: string): WabiNavTarget | null {
 	const q = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
 	const kind = q.get('wabiNav');
 	if (!kind) return null;
+	if (kind === 'lore_file') { const channelId = q.get('channelId'), filePath = q.get('path'); return channelId && filePath && !filePath.split('/').includes('..') ? {kind, channelId, filePath} : null; }
 	if (kind === 'channel') {
 		const channelId = q.get('channelId') || q.get('id');
 		if (!channelId) return null;
@@ -64,6 +69,20 @@ export function parseWabiNavFromData(data: Record<string, unknown> | null | unde
 
 export function applyWabiNavTarget(target: WabiNavTarget): void {
 	if (!browser) return;
+	if (target.kind === 'lore_file') {
+  // A copied link may arrive before the authenticated channel snapshot.
+  const server = getServerUrl();
+  let complete = false;
+  let stop = () => {};
+  stop = channels.subscribe(list => {
+   if (complete) return;
+   if (getServerUrl() !== server) { complete = true; queueMicrotask(() => stop()); return; }
+   if (!list.some(channel => channel.id === target.channelId && channel.type === 'lore')) return;
+   complete = true;
+   queueMicrotask(() => { stop(); void navigateToRef(target).catch(() => {}); });
+  });
+  return;
+ }
 	if (target.kind === 'channel') {
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
@@ -110,7 +129,7 @@ export function consumeWabiNavFromLocation(): WabiNavTarget | null {
 	if (!target) return null;
 	try {
 		const url = new URL(window.location.href);
-		['wabiNav', 'channelId', 'messageId', 'callId', 'id', 'section'].forEach((k) =>
+		['wabiNav', 'channelId', 'messageId', 'callId', 'id', 'section', 'path'].forEach((k) =>
 			url.searchParams.delete(k)
 		);
 		window.history.replaceState({}, '', url.pathname + url.search + url.hash);

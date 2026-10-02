@@ -9,14 +9,16 @@ export function forumReferenceEntities(text: string, resolve: (token: string) =>
  for (const match of masked.matchAll(/(?<![\\\w])\^([fwgm]\/[-a-zA-Z0-9_]+)/g)) {
   const record = resolve(match[1]);
   if (!record) continue;
-  entities.push({ kind: record.kind, start: match.index!, end: match.index! + match[0].length, targetId: record.id, label: record.title, displayText: match[0] });
+  entities.push({ kind: record.kind, start: match.index!, end: match.index! + match[0].length, targetId: record.id, label: record.title, displayText: record.title });
  }
  return entities;
 }
 export function forumShareNavigation(href: string, server: string): NavRef | null {
  try {
   const base = new URL(server), url = new URL(href, base);
-  if (url.origin !== base.origin || !url.pathname.startsWith('/c/')) return null;
+  if (url.origin !== base.origin) return null;
+  if (url.pathname === '/' && url.searchParams.get('wabiNav') === 'lore_file') { const channelId = url.searchParams.get('channelId'), filePath = url.searchParams.get('path'); return channelId && filePath && !filePath.split('/').includes('..') ? {kind: 'lore_file', channelId, filePath} : null; }
+  if (!url.pathname.startsWith('/c/')) return null;
   const ref = url.searchParams.get('ref'); if (!ref) return null;
   const split = ref.indexOf(':'); if (split < 1) return null;
   const kind = ref.slice(0, split), id = ref.slice(split + 1); if (!id) return null;

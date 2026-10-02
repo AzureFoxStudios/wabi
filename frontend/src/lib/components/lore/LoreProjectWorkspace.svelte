@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { pendingNav, takePendingNav } from '$lib/pendingNav';
+	import { copyToClipboard } from '$lib/shareToChannel';
 	import { onMount, onDestroy } from 'svelte';
 	import { getSocket } from '$lib/socket';
 	import { getApiBase } from '$lib/api/utils';
@@ -119,6 +121,7 @@
 	let canEdit = $derived(canManage || roleName.toLowerCase() === 'developer');
 	let readOnly = $derived(isMirror(repo));
 	let canWrite = $derived(!readOnly && (canEdit || roleName.toLowerCase() === 'artist'));
+	$effect(() => { if (!loading && repo && $pendingNav?.kind === 'lore_file' && $pendingNav.channelId === channelKey) { const ref = takePendingNav('lore_file', channelKey); if (ref?.kind === 'lore_file') { if (files.some(file => file.path === ref.filePath)) void openFile(ref.filePath); else error = 'The linked file is not available in this project.'; } } });
 	let selectedFile = $derived(files.find(file => file.path === selectedPath) ?? null);
 	let reviewQueue = $derived(branches.filter(branch => branch.name.startsWith('uploads/')));
 	let changeCount = $derived(counts.outgoing + counts.incoming + counts.conflicts);
@@ -308,7 +311,7 @@
 					<aside class="lw-tree" hidden={!fileTreeVisible} aria-label="Project file browser"><LoreFileTree {files} {selectedPath} loading={loading && !files.length} onSelect={() => {}} onOpen={openFile} onContextMenu={(path, event, folder = false) => { event.preventDefault(); contextTarget = { path, folder }; }} /></aside>
 					<div class="lw-preview">
 						{#if selectedPath}
-							{#snippet fileActions()}<button class="lw-text-button" onclick={() => comparePath(selectedPath!)}>History & compare</button><details class="lw-tools"><summary>File actions<LoreIcon name="chevron" size={14} /></summary><div class="lw-menu"><button onclick={() => void navigator.clipboard.writeText(selectedPath!).catch(() => { error = 'Could not copy the path.'; })}>Copy path</button>{#if canWrite}<button onclick={() => void run('Updating lock', auth => selectedFile?.lockedBy ? unlockLoreFile(auth, channelId, selectedPath!) : lockLoreFile(auth, channelId, selectedPath!))}>{selectedFile?.lockedBy ? 'Unlock file' : 'Lock file'}</button><button class="lw-danger-text" onclick={() => confirmAction('file', selectedPath!)}>Delete file…</button>{/if}</div></details>{/snippet}
+							{#snippet fileActions()}<button class="lw-text-button" onclick={() => comparePath(selectedPath!)}>History & compare</button><details class="lw-tools"><summary>File actions<LoreIcon name="chevron" size={14} /></summary><div class="lw-menu"><button onclick={() => void copyToClipboard(`${serverUrl.replace(/\/$/, '')}/?${new URLSearchParams({ wabiNav: 'lore_file', channelId: channelKey, path: selectedPath! })}`).catch(() => { error = 'Could not copy the file link.'; })}>Copy file link</button><button onclick={() => void navigator.clipboard.writeText(selectedPath!).catch(() => { error = 'Could not copy the path.'; })}>Copy path</button>{#if canWrite}<button onclick={() => void run('Updating lock', auth => selectedFile?.lockedBy ? unlockLoreFile(auth, channelId, selectedPath!) : lockLoreFile(auth, channelId, selectedPath!))}>{selectedFile?.lockedBy ? 'Unlock file' : 'Lock file'}</button><button class="lw-danger-text" onclick={() => confirmAction('file', selectedPath!)}>Delete file…</button>{/if}</div></details>{/snippet}
 							{#if stalePreview}<p class="lw-notice">A newer server version may be available. <button class="lw-text-button" onclick={() => void openFile(selectedPath!)}>Reload preview</button></p>{/if}
 							{#if fileError}<p class="lw-alert" role="alert">{fileError}<button class="lw-button" onclick={() => void openFile(selectedPath!)}>Retry preview</button></p>{/if}
 							{#if selectedMedia && ['audio', 'video'].includes(previewKind(selectedPath))}<div class="lw-media">{@render fileActions()}<h2>{selectedPath.split('/').pop()}</h2>{#if previewKind(selectedPath) === 'audio'}<audio controls src={selectedMedia}></audio>{:else}<video controls src={selectedMedia}><track kind="captions" /></video>{/if}<button class="lw-button" onclick={() => void download(selectedPath!)}>Download file</button></div>
