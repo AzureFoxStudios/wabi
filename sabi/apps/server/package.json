@@ -1,0 +1,13 @@
+{
+  "name": "@sabi/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "bin": { "sabi": "./src/cli.ts" },
+  "dependencies": {
+    "@sabi/core": "*",
+    "@sabi/jurisdiction-th": "*",
+    "@sabi/pack-sheet-metal": "*"
+  }
+}
