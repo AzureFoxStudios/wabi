@@ -1,0 +1,45 @@
+# Explicit opt-in only:
+# docker compose -f docker-compose.yml -f docker-compose.office.yml --profile office-conversion up -d --build
+# Also enable Present in Wabi. The base compose file remains unchanged.
+services:
+  wabi-server:
+    environment:
+      WABI_OFFICE_CONVERTER_ENABLED: "1"
+      WABI_OFFICE_CONVERTER_URL: http://office-converter:3000
+    networks:
+      default: {}
+      office-conversion: {}
+
+  office-converter:
+    image: gotenberg/gotenberg:8.37.0
+    profiles: [office-conversion]
+    user: "1001:1001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 2g
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=536870912,uid=1001,gid=1001,mode=1770
+    # No published port, project volume, source tree, credentials or Docker socket.
+    networks:
+      office-conversion: {}
+    command:
+      - gotenberg
+      - --api-timeout=25s
+      - --api-body-limit=13MB
+      - --api-disable-download-from=true
+      - --webhook-disable=true
+      - --chromium-disable-routes=true
+      - --pdfengines-disable-routes=true
+      - --libreoffice-deny-list=.*
+      - --libreoffice-deny-private-ips=true
+      - --libreoffice-deny-public-ips=true
+      - --libreoffice-restart-after=1
+      - --libreoffice-max-queue-size=1
+    restart: unless-stopped
+
+networks:
+  office-conversion:
+    internal: true

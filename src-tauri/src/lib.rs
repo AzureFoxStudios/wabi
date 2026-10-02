@@ -71,6 +71,7 @@ pub fn run() {
             shell_commands::open_external_url,
             commands::open_model_viewer,
             recording::save_call_recording,
+            workspace_export::workspace_export_file,
             tailcat::tailcat_register_key,
             tailcat::tailcat_connect,
             tailcat::tailcat_disconnect,
@@ -130,3 +131,5 @@ mod viewer;
 
 mod hosting;
 mod personal_planner;
+
+mod workspace_export;

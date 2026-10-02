@@ -1,0 +1,17 @@
+{
+  "id": "sheets",
+  "name": "Sheets",
+  "version": "0.1.0",
+  "description": "Optional local-first spreadsheets with explicit shared editing through the existing Authority workspace service.",
+  "backend": null,
+  "frontend": {
+    "contributions": {
+      "channelTypes": [],
+      "workspacePanels": ["workspace-sheets"],
+      "settingsPages": ["sheets"],
+      "mobileTabs": ["workspace-sheets"]
+    },
+    "bundled": true
+  },
+  "permissions": []
+}
