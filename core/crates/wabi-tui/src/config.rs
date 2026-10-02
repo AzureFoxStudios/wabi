@@ -19,7 +19,8 @@ pub struct Config {
     /// Overridable via `WABI_TUI_POLL_SECS`.
     #[serde(default = "default_poll_secs")]
     pub poll_secs: f32,
-    /// Color theme. One of: indigo (default), ember, forest, mono, slate.
+    /// Color theme. One of: indigo (default), ember, forest, mono, slate,
+    /// violet.
     #[serde(default)]
     pub theme: String,
 }

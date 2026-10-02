@@ -17,7 +17,6 @@
 //! the main loop stays the single mutator of app state.
 
 use anyhow::{anyhow, Result};
-use rust_socketio::client::Client;
 use rust_socketio::{ClientBuilder, Event, Payload};
 use serde_json::{json, Value};
 use std::sync::mpsc::{channel, Sender};
@@ -128,7 +127,6 @@ impl LiveClient {
             })
             .on("auth-failed", {
                 let tx = tx.clone();
-                let health = health.clone();
                 move |payload: Payload, _client: rust_socketio::RawClient| {
                     let reason = payload_value(&payload)
                         .and_then(|v| {
@@ -297,7 +295,7 @@ fn parse_inbound_message(v: &Value) -> Option<(String, Message)> {
         .and_then(|x| x.as_str())
         .unwrap_or("text")
         .to_string();
-    if id.is_empty() || text.is_empty() {
+    if id.is_empty() {
         return None;
     }
     Some((
@@ -307,9 +305,12 @@ fn parse_inbound_message(v: &Value) -> Option<(String, Message)> {
             channel_id,
             sender_id,
             sender_name,
+            encrypted: crate::api::is_ciphertext(&text),
             text,
             timestamp,
             message_type,
+            failed: false,
+            file_names: Vec::new(),
         },
     ))
 }
@@ -330,4 +331,70 @@ fn now_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_user_num_strips_prefix_and_falls_back_to_guest() {
+        assert_eq!(parse_user_num("user-123"), Some(123));
+        assert_eq!(parse_user_num("45"), Some(45));
+        assert_eq!(parse_user_num("user-0"), Some(0));
+        // Unparseable ids resolve to guest 0 rather than dropping the event.
+        assert_eq!(parse_user_num("device-abc"), Some(0));
+    }
+
+    #[test]
+    fn parse_inbound_message_reads_the_wire_shape() {
+        let v = serde_json::json!({
+            "channelId": "ch_1",
+            "message": {
+                "id": "m1",
+                "text": "hello",
+                "user": "avery",
+                "userId": "user-9",
+                "timestamp": 1_700,
+                "type": "text",
+            }
+        });
+        let (ch, msg) = parse_inbound_message(&v).expect("parses");
+        assert_eq!(ch, "ch_1");
+        assert_eq!(msg.id, "m1");
+        assert_eq!(msg.sender_name, "avery");
+        assert_eq!(msg.sender_id, 9);
+        assert_eq!(msg.timestamp, 1_700);
+        assert!(!msg.encrypted);
+        assert!(!msg.failed);
+    }
+
+    #[test]
+    fn parse_inbound_message_accepts_born_at_and_marks_ciphertext() {
+        let v = serde_json::json!({
+            "channelId": "ch_2",
+            "message": {
+                "id": "m2",
+                "text": "wabi-e2ee-v1:opaque",
+                "user": "blake",
+                "userId": "user-3",
+                "bornAt": 1_800,
+            }
+        });
+        let (_, msg) = parse_inbound_message(&v).expect("parses");
+        assert_eq!(msg.timestamp, 1_800);
+        assert_eq!(msg.message_type, "text");
+        assert!(msg.encrypted);
+    }
+
+    #[test]
+    fn parse_inbound_message_rejects_missing_id_or_channel() {
+        let no_id = serde_json::json!({
+            "channelId": "ch_1",
+            "message": { "text": "x" }
+        });
+        assert!(parse_inbound_message(&no_id).is_none());
+        let no_channel = serde_json::json!({ "message": { "id": "m", "text": "x" } });
+        assert!(parse_inbound_message(&no_channel).is_none());
+    }
 }

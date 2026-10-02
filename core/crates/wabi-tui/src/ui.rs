@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use crate::api::ChannelKind;
-use crate::app::{App, AppMode, FocusPane, Screen};
+use crate::app::{App, AppMode, ChannelRow, FocusPane, Screen};
 
 // ─── Theme engine ───────────────────────────────────────────────────────────
 //
@@ -94,6 +94,22 @@ const SLATE: Palette = Palette {
     err: Color::Rgb(248, 113, 113),
 };
 
+/// Midnight violet — mapped from the 2026-09 web design brief's token table
+/// (bg #0D1024, surface #12162E, action #6F35D4, accent #B698FF, status
+/// #35D990/#F5BB56/#FF7189). Selection highlight pairs the pale lavender
+/// accent2 with near-black text, per the brief's no-white-on-lavender rule.
+const VIOLET: Palette = Palette {
+    bg: Color::Rgb(13, 16, 36),
+    panel: Color::Rgb(18, 22, 46),
+    accent: Color::Rgb(111, 53, 212),
+    accent2: Color::Rgb(182, 152, 255),
+    text: Color::Rgb(246, 245, 255),
+    muted: Color::Rgb(166, 167, 200),
+    ok: Color::Rgb(53, 217, 144),
+    warn: Color::Rgb(245, 187, 86),
+    err: Color::Rgb(255, 113, 137),
+};
+
 fn palette() -> &'static Palette {
     use std::sync::OnceLock;
     static PALETTE: OnceLock<Palette> = OnceLock::new();
@@ -102,6 +118,7 @@ fn palette() -> &'static Palette {
         Ok("forest") => FOREST,
         Ok("mono") => MONO,
         Ok("slate") => SLATE,
+        Ok("violet") => VIOLET,
         _ => INDIGO,
     })
 }
@@ -261,52 +278,47 @@ fn pane_border(focused: bool) -> Style {
 fn render_channels(frame: &mut Frame, app: &App, area: Rect) {
     let focused = app.focus == FocusPane::Left && app.screen == Screen::Chat;
     let visible = area.height.saturating_sub(2) as usize;
-    let list = app.filtered_channels();
 
-    // Build the display list with a "Direct" section header for DM/group
-    // channels pinned above everything else. Section headers are not
-    // selectable; track the active channel's display index for scrolling.
+    // Display rows come pre-ordered from the app: section/category headers
+    // are not selectable; track the active channel's display index for
+    // scrolling.
     let mut items: Vec<ListItem> = Vec::new();
     let mut active_display: Option<usize> = None;
-    let mut last_section: Option<u8> = None;
-    for ch in list.iter() {
-        let section: u8 = if matches!(ch.kind, ChannelKind::Dm | ChannelKind::Group) {
-            0
-        } else {
-            1
-        };
-        if last_section != Some(section) {
-            let label = if section == 0 { "Direct" } else { "Channels" };
-            items.push(ListItem::new(Line::from(Span::styled(
-                label,
-                Style::default().fg(c_muted()).add_modifier(Modifier::BOLD),
-            ))));
-            last_section = Some(section);
-        }
-        let active = Some(&ch.id) == app.active_channel.as_ref();
-        if active {
-            active_display = Some(items.len());
-        }
-        let style = if active {
-            Style::default().fg(c_accent2()).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(c_text())
-        };
-        let mark = if active { "▶ " } else { "  " };
-        let mut spans = vec![
-            Span::styled(mark, style),
-            Span::styled(ch.kind.badge(), Style::default().fg(c_muted())),
-            Span::styled(ch.name.clone(), style),
-        ];
-        if let Some(n) = app.unread.get(&ch.id) {
-            if *n > 0 {
-                spans.push(Span::styled(
-                    format!(" ({n})"),
-                    Style::default().fg(c_warn()).add_modifier(Modifier::BOLD),
-                ));
+    for row in app.channel_rows() {
+        match row {
+            ChannelRow::Header(label) => {
+                items.push(ListItem::new(Line::from(Span::styled(
+                    label,
+                    Style::default().fg(c_muted()).add_modifier(Modifier::BOLD),
+                ))));
+            }
+            ChannelRow::Channel(ch) => {
+                let active = Some(&ch.id) == app.active_channel.as_ref();
+                if active {
+                    active_display = Some(items.len());
+                }
+                let style = if active {
+                    Style::default().fg(c_accent2()).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(c_text())
+                };
+                let mark = if active { "▶ " } else { "  " };
+                let mut spans = vec![
+                    Span::styled(mark, style),
+                    Span::styled(ch.kind.badge(), Style::default().fg(c_muted())),
+                    Span::styled(ch.name.clone(), style),
+                ];
+                if let Some(n) = app.unread.get(&ch.id) {
+                    if *n > 0 {
+                        spans.push(Span::styled(
+                            format!(" ({n})"),
+                            Style::default().fg(c_warn()).add_modifier(Modifier::BOLD),
+                        ));
+                    }
+                }
+                items.push(ListItem::new(Line::from(spans)));
             }
         }
-        items.push(ListItem::new(Line::from(spans)));
     }
     let active_display = active_display.unwrap_or(0);
     let start = if active_display < visible {
@@ -349,6 +361,7 @@ fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
         if !ch.kind.is_text_like() {
             let (what, hint) = match ch.kind {
                 ChannelKind::Voice => ("Voice channel", "live audio runs in the web client — no terminal audio here"),
+                ChannelKind::Stage => ("Stage channel", "live audio runs in the web client — no terminal audio here"),
                 ChannelKind::Planning => ("Planner channel", "board view lives in the Planner workspace (web client)"),
                 ChannelKind::Lore => ("Lore channel", "versioned asset storage — press 5 or :lore for the repo browser in this TUI"),
                 ChannelKind::Whiteboard => ("Whiteboard channel", "canvas surface — open the Whiteboard workspace (web client)"),
@@ -403,14 +416,15 @@ fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
                 let time = chrono::DateTime::from_timestamp(msg.timestamp / 1000, 0)
                     .map(|dt| dt.format("%H:%M").to_string())
                     .unwrap_or_else(|| "??:??".into());
-                let text_display = if msg.text.starts_with("/uploads/") {
-                    let filename = std::path::Path::new(&msg.text)
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or(&msg.text);
-                    format!("[file: {filename}]")
+                let text_display = msg.display_text();
+                // Failed sends stay visible as failures; ciphertext is muted
+                // so raw envelope bytes never read as content.
+                let body_style = if msg.failed {
+                    Style::default().fg(c_err())
+                } else if msg.encrypted {
+                    Style::default().fg(c_muted()).add_modifier(Modifier::ITALIC)
                 } else {
-                    msg.text.clone()
+                    Style::default().fg(c_text())
                 };
                 Line::from(vec![
                     Span::styled(format!("[{time}] "), Style::default().fg(c_muted())),
@@ -418,7 +432,7 @@ fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
                         format!("{}: ", msg.sender_name),
                         Style::default().fg(c_ok()).add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(text_display, Style::default().fg(c_text())),
+                    Span::styled(text_display, body_style),
                 ])
             })
             .collect()
@@ -434,6 +448,13 @@ fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         String::new()
     };
+    // E2EE rooms get a persistent header mark — the badge comes from the
+    // server's privacy contract, not from guessing at message contents.
+    let e2ee_mark = if app.channel_privacy.as_ref().is_some_and(|p| p.e2ee) {
+        " · E2EE"
+    } else {
+        ""
+    };
 
     frame.render_widget(
         Paragraph::new(lines)
@@ -441,7 +462,7 @@ fn render_messages(frame: &mut Frame, app: &App, area: Rect) {
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(pane_border(focused))
-                    .title(format!(" #{channel_name}{scroll} "))
+                    .title(format!(" #{channel_name}{e2ee_mark}{scroll} "))
                     .style(Style::default().bg(c_panel())),
             )
             .wrap(Wrap { trim: false }),
@@ -471,6 +492,43 @@ fn render_chat_side(frame: &mut Frame, app: &App, area: Rect) {
                 lines.push(Line::from(Span::styled(
                     d.as_str(),
                     Style::default().fg(c_text()),
+                )));
+            }
+        }
+        // Retention/confidentiality labels straight from the server's
+        // privacy contract — labels, not confidentiality guarantees.
+        if let Some(p) = &app.channel_privacy {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "PRIVACY",
+                Style::default().fg(c_muted()).add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(format!(
+                "retention: {}",
+                if p.retention.is_empty() { "?" } else { &p.retention }
+            )));
+            // Prefer the server's own confidentiality wording; fall back to
+            // the E2EE flag if an older server sends it unlabeled.
+            let confidentiality = match p.confidentiality.as_str() {
+                "operator_blind_e2ee" => "operator-blind E2EE room".to_string(),
+                "server_readable" => "server-readable".to_string(),
+                "" => {
+                    if p.e2ee {
+                        "operator-blind E2EE room".to_string()
+                    } else {
+                        "server-readable".to_string()
+                    }
+                }
+                other => other.to_string(),
+            };
+            lines.push(Line::from(Span::styled(
+                confidentiality,
+                Style::default().fg(if p.e2ee { c_ok() } else { c_muted() }),
+            )));
+            if p.private_conversation {
+                lines.push(Line::from(Span::styled(
+                    "private conversation (DM/group)",
+                    Style::default().fg(c_muted()),
                 )));
             }
         }
@@ -597,7 +655,7 @@ fn render_server(frame: &mut Frame, app: &App, area: Rect) {
         .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
         .split(area);
 
-    let top = vec![
+    let mut top = vec![
         Line::from(Span::styled(
             "CONNECTION",
             Style::default().fg(c_muted()).add_modifier(Modifier::BOLD),
@@ -630,10 +688,64 @@ fn render_server(frame: &mut Frame, app: &App, area: Rect) {
         }),
         Line::from(""),
         Line::from(Span::styled(
-            "s switch server   o logout   r refresh",
-            Style::default().fg(c_muted()),
+            "PRIVACY CONTRACT",
+            Style::default().fg(c_muted()).add_modifier(Modifier::BOLD),
         )),
     ];
+    let top = match &app.privacy_summary {
+        Some(p) => {
+            let yes_no = |b: bool| if b { "yes" } else { "no" };
+            top.extend([
+                Line::from(format!("confidentiality  {}", p.confidentiality)),
+                Line::from(format!("e2ee rooms       {}", yes_no(p.e2ee_available))),
+                Line::from(format!(
+                    "content automation (private)  {}",
+                    yes_no(p.private_content_automation)
+                )),
+                Line::from(format!(
+                    "reports preserve evidence     {}",
+                    yes_no(p.reports_preserve_evidence)
+                )),
+                Line::from(format!(
+                    "analytics {} · external processing {}",
+                    if p.analytics_scope.is_empty() {
+                        "?"
+                    } else {
+                        &p.analytics_scope
+                    },
+                    if p.external_processing.is_empty() {
+                        "?"
+                    } else {
+                        &p.external_processing
+                    },
+                )),
+            ]);
+            top
+        }
+        None if app.privacy_summary_unavailable => {
+            top.push(Line::from(Span::styled(
+                "unavailable (older server?) — r to retry",
+                Style::default().fg(c_muted()),
+            )));
+            top
+        }
+        None => {
+            top.push(Line::from(Span::styled(
+                "loading…",
+                Style::default().fg(c_muted()),
+            )));
+            top
+        }
+    };
+    let top = {
+        let mut t = top;
+        t.push(Line::from(""));
+        t.push(Line::from(Span::styled(
+            "s switch server   o logout   r refresh",
+            Style::default().fg(c_muted()),
+        )));
+        t
+    };
 
     frame.render_widget(
         Paragraph::new(top).block(
@@ -1066,6 +1178,10 @@ fn render_help(frame: &mut Frame) {
         Line::from("  PgUp/PgDn   scroll history"),
         Line::from("  Space       cycle focus panes"),
         Line::from("  / or :filter name"),
+        Line::from(Span::styled(
+            "  E2EE rooms  messages show as placeholders — this TUI holds no room keys",
+            Style::default().fg(c_muted()),
+        )),
         Line::from(""),
         Line::from("USERS (admin/owner)"),
         Line::from("  j/k         select user"),
