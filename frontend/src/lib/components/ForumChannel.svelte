@@ -18,6 +18,7 @@
 
 	export let channelId: string | undefined = undefined;
 	export let draftSurface = 'center';
+	export let previewPostId: string | undefined = undefined;
 	$: effectiveChannel = channelId || $currentChannel;
 
 	$: activeChannel = $channels.find((ch) => ch.id === effectiveChannel) || null;
@@ -198,6 +199,11 @@
 		loadThreads(effectiveChannel);
 		// The draft drawer is scoped to the active forum channel.
 		showCategories = false;
+	}
+
+	$: if (draftSurface === 'glance' && previewPostId && allThreads.length) {
+		const hit = allThreads.find(thread => thread.post_id === previewPostId || thread.thread_id === previewPostId);
+		if (hit && selectedThreadId !== hit.post_id) void tick().then(() => { if (previewPostId === hit.post_id || previewPostId === hit.thread_id) selectThread(hit); });
 	}
 
 	// C2: deep-link handoff after threads load — peek first, take only on hit

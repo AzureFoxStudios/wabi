@@ -30,9 +30,9 @@
 	import LoreActivityFeed from './LoreActivityFeed.svelte';
 	import './loreWorkspace.css';
 
-	let { channelKey, projectName, serverUrl, accountId, roleName, projects = [], onSelectProject, compactHeader = false }: {
+	let { channelKey, projectName, serverUrl, accountId, roleName, projects = [], onSelectProject, compactHeader = false, preview = false, initialFilePath }: {
 		channelKey: string; projectName: string; serverUrl: string; accountId: string; roleName: string;
-		compactHeader?: boolean; projects?: { id: string; name: string }[]; onSelectProject?: (id: string) => void;
+		preview?: boolean; initialFilePath?: string; compactHeader?: boolean; projects?: { id: string; name: string }[]; onSelectProject?: (id: string) => void;
 	} = $props();
 	const session = authSessionGeneration(serverUrl);
 	const channelId = parseLoreChannelId(channelKey)!;
@@ -117,11 +117,11 @@
 	let contextTarget = $state<{ path: string; folder: boolean } | null>(null);
 	let initialReadmeOpened = false;
 	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-	let canManage = $derived(['owner', 'admin'].includes(roleName.toLowerCase()));
-	let canEdit = $derived(canManage || roleName.toLowerCase() === 'developer');
+	let canManage = $derived(!preview && ['owner', 'admin'].includes(roleName.toLowerCase()));
+	let canEdit = $derived(!preview && (canManage || roleName.toLowerCase() === 'developer'));
 	let readOnly = $derived(isMirror(repo));
-	let canWrite = $derived(!readOnly && (canEdit || roleName.toLowerCase() === 'artist'));
-	$effect(() => { if (!loading && repo && $pendingNav?.kind === 'lore_file' && $pendingNav.channelId === channelKey) { const ref = takePendingNav('lore_file', channelKey); if (ref?.kind === 'lore_file') { if (files.some(file => file.path === ref.filePath)) void openFile(ref.filePath); else error = 'The linked file is not available in this project.'; } } });
+	let canWrite = $derived(!preview && !readOnly && (canEdit || roleName.toLowerCase() === 'artist'));
+	$effect(() => { if (!preview && !loading && repo && $pendingNav?.kind === 'lore_file' && $pendingNav.channelId === channelKey) { const ref = takePendingNav('lore_file', channelKey); if (ref?.kind === 'lore_file') { if (files.some(file => file.path === ref.filePath)) void openFile(ref.filePath); else error = 'The linked file is not available in this project.'; } } });
 	let selectedFile = $derived(files.find(file => file.path === selectedPath) ?? null);
 	let reviewQueue = $derived(branches.filter(branch => branch.name.startsWith('uploads/')));
 	let changeCount = $derived(counts.outgoing + counts.incoming + counts.conflicts);
@@ -151,7 +151,7 @@
 			repo = nextRepo; files = nextFiles; revisions = nextHistory; branches = nextBranches; error = '';
 			if (!initialReadmeOpened && files.length) {
 				initialReadmeOpened = true;
-				const path = findReadmePath(files); if (path && !selectedPath && tab === 'files') void openFile(path);
+				const path = initialFilePath || findReadmePath(files); if (path && !selectedPath && tab === 'files') void openFile(path);
 			}
 		} catch (e) { if (active() && loads.current(request)) error = e instanceof Error ? e.message : 'Could not load repository data. Previous results have been retained.'; }
 		finally { if (loads.current(request)) loading = false; }
