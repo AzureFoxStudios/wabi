@@ -34,6 +34,7 @@
 
 	export let channelId: string | undefined = undefined;
 	export let draftSurface = 'center';
+	export let previewPageId: string | undefined = undefined;
 	$: effectiveChannel = channelId || $currentChannel;
 
 	$: allPages = $wikiPagesStore;
@@ -101,7 +102,7 @@
 		stopDraftEvents?.();
 		draftChannel = channel;
 		draftOwner = wikiDrafts.open(channel, captureGroupAccess(channel), draftSurface);
-		if (draftOwner.current()) restoreDraft(draftOwner.read());
+		if (draftOwner.current() && draftSurface !== 'glance') restoreDraft(draftOwner.read());
 		else restoreDraft();
 		const owner = draftOwner;
 		const applyPending = (pending: boolean) => {
@@ -172,6 +173,11 @@
 		if (loadedChannelId) { draftOwner?.save(snapshot()); retireDraft(); }
 		loadedChannelId = null;
 		wikiSearchQuery = '';
+	}
+
+	$: if (draftSurface === 'glance' && previewPageId && loadedChannelId === effectiveChannel && allPages.length) {
+		const hit = allPages.find(page => page.pageId === previewPageId);
+		if (hit && selectedPageId !== hit.pageId) void tick().then(() => { if (mounted && previewPageId === hit.pageId) selectPage(hit); });
 	}
 
 	// C2: deep-link handoff after pages load — peek first, take only on hit
@@ -471,7 +477,7 @@
 	<SurfaceToolbar
 		searchPlaceholder="Search wiki..."
 		onSearch={(query) => { wikiSearchQuery = query; }}
-		primaryLabel="+ New Page"
+		primaryLabel={draftSurface === 'glance' ? undefined : '+ New Page'}
 		onPrimary={handleOpenNewPage}
 	>
 		<button class="surface-pill" disabled={isLoading || saveState === 'saving'} on:click={() => effectiveChannel && loadWiki(effectiveChannel)} aria-label="Refresh pages" title="Reload pages from the server">↻</button>
@@ -483,7 +489,7 @@
 				pages={allPages}
 			activePageId={selectedPageId}
 			onSelect={selectPage}
-			onNewChild={handleNewChild}
+			onNewChild={draftSurface === 'glance' ? undefined : handleNewChild}
 			searchQuery={wikiSearchQuery}
 			emptyStateLabel={isLoading ? 'Loading pages…' : error ? 'Pages unavailable' : null}
 			/>
@@ -533,7 +539,7 @@
 					{#if !editMode}
 						<button type="button" class="wiki-content-toolbar-btn wiki-mobile-tree-toggle" on:click={() => { showTreeOnMobile = !showTreeOnMobile; }}>{showTreeOnMobile ? 'Hide page browser' : 'Browse pages'}</button>
 						<div class="wiki-page-actions">
-							<button class="wiki-content-toolbar-btn" on:click={handleEdit} title="Edit page" aria-label="Edit page"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m16 3 5 5L8 21H3v-5Z"/></svg></button>
+							{#if draftSurface !== 'glance'}<button class="wiki-content-toolbar-btn" on:click={handleEdit} title="Edit page" aria-label="Edit page"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m16 3 5 5L8 21H3v-5Z"/></svg></button>{/if}
 							<button class="wiki-content-toolbar-btn" on:click={toggleReading} title={expandedReading ? 'Exit fullscreen' : 'Fullscreen'} aria-label={expandedReading ? 'Exit fullscreen' : 'Fullscreen'}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button>
 							{#if shareRecord}<ObjectShareMenu record={shareRecord} menuLabel="Page actions" extraActions={[{label: 'Revision history', run: handleHistory}, {label: 'Copy page citation', run: () => void copyWikiCitation()}]} />{/if}
 						</div>

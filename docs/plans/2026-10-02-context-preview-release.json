@@ -353,7 +353,7 @@
       "wikiTimingCause": "Legacy reader derivation runs before the pending navigation effect changes selected page in the same update; defer to tick."
     }
   },
-  "finalAcceptancePending": true,
+  "finalAcceptancePending": false,
   "finalPass": {
     "binarySha256": "54170e5e85a0bd1e5a59a9412848f5d2779296c40ef4c25254ad72b1d29cf7db",
     "indexSha256": "06f4f89471ce48259de9a113bf362091f0ef1426e0970458a6dd0fcec1916ef9",
@@ -525,10 +525,12 @@
     "svelteExistingWarnings": 121,
     "cargoExit": 0,
     "artifactCopy": "/tmp/wabi-context-ui-server",
-    "status": "deployed; final authenticated Wiki reader acceptance pending expired live browser session",
+    "status": "deployed; authenticated live Wiki navigation confirmed by user",
     "browser": {
       "newFrontendActivated": true,
-      "remainingBlocker": "SocketManager auth-failed: token expired; live channel list empty after activation; user sign-in requested."
+      "wikiReaderTargetOpensImmediately": true,
+      "acceptanceEvidence": "User confirmed on 2026-10-03 that clicking The Glimmerfen Marsh Wiki card in Live reference verification \u2014 2 October 2026 opens the article immediately.",
+      "acceptanceMethod": "user-reported authenticated live browser check"
     }
   }
 }

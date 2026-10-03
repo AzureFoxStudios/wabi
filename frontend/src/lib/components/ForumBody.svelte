@@ -6,6 +6,7 @@
  import { forumAuthors } from '$lib/forumIdentity';
  import { currentUser } from '$lib/presenceIdentity';
  import { forumReferenceEntities, forumShareNavigation } from '$lib/forumReferences';
+ import { openGlance, openWebsiteGlance } from '$lib/glance';
  import { navigateToRef, type NavRef } from '$lib/navigateToRef';
  import { getServerUrl, activeServerUrl } from '$lib/serverUrl';
  import type { User } from '$lib/socket-types';
@@ -72,9 +73,9 @@
   $objectRefStore;
   return forumReferenceEntities(text, token => { const result=resolveObjectRef(token); return result.status==='unique'?result.record:null; }).map(entity => [...$objectRefStore.values()].find(record=>record.kind===entity.kind && record.id===entity.targetId)).filter((record,index,list)=>!!record && list.findIndex(other=>other?.id===record.id && other?.kind===record.kind)===index).slice(0,4);
  });
- async function openObject(record: NonNullable<(typeof objectCards)[number]>) {
+ async function openObject(event: MouseEvent, record: NonNullable<(typeof objectCards)[number]>) {
   const ref: NavRef | null = record.kind==='wiki_page'?{kind:record.kind,pageId:record.id,channelId:record.channelId}:record.kind==='gallery_work'?{kind:record.kind,workId:record.id,channelId:record.channelId}:record.kind==='forum_post'?{kind:record.kind,postId:record.id,channelId:record.channelId}:record.kind==='place'?{kind:'place',placeId:record.id}:null;
-  if(ref) try {await navigateToRef(ref);}catch{navigationError='Could not open this reference.';}
+  if(ref) try {if (event.altKey) { if (!openGlance(ref)) navigationError = 'Preview unavailable for this reference.'; return; } await navigateToRef(ref);}catch{navigationError='Could not open this reference.';}
  }
  async function activate(event: MouseEvent | KeyboardEvent) {
   if (!(event.target instanceof Element)) return;
@@ -92,7 +93,8 @@
   }
   if (target.dataset.placeId) ref = { kind: 'place', placeId: target.dataset.placeId, layerId: target.dataset.placeLayerId, poiId: target.dataset.placePoiId };
   if (target instanceof HTMLAnchorElement) ref = forumShareNavigation(target.href, getServerUrl() || location.origin);
-  if (ref) { event.preventDefault(); event.stopPropagation(); try { await navigateToRef(ref); } catch { navigationError = 'Could not open this reference. Try again.'; } return; }
+  if (ref) { event.preventDefault(); event.stopPropagation(); try { if (event.altKey) { if (!openGlance(ref)) navigationError = 'Preview unavailable for this reference.'; return; } await navigateToRef(ref); } catch { navigationError = 'Could not open this reference. Try again.'; } return; }
+  if (event.altKey && target instanceof HTMLAnchorElement && openWebsiteGlance(target.href)) { event.preventDefault(); event.stopPropagation(); return; }
   if (target.classList.contains('mention-token')) {
    const name = target.textContent?.replace(/^@/, '').trim().toLowerCase();
    const user = [...$forumAuthors.values()].find(item => item.username.toLowerCase() === name || item.handle?.toLowerCase() === name);
@@ -102,7 +104,7 @@
 </script>
 <!-- Sanitized by the shared chat renderer; navigation is delegated to Wabi. -->
 <div class="forum-rich-body markdown-content" bind:this={container} role="article" onclick={activate} onkeydown={(event) => { if ((event.key === 'Enter' || event.key === ' ') && event.target instanceof HTMLElement && event.target.matches('[data-ref-kind], .mention-token, .spoiler')) { event.preventDefault(); void activate(event); } }}>{@html html}</div>
-{#each objectCards as record (`${record?.kind}:${record?.id}`)}{#if record}<button class="object-card" type="button" onclick={()=>openObject(record)}>{#if record.thumbUrl}<img src={record.thumbUrl} alt="" loading="lazy" />{/if}<span><small>{record.kind==='wiki_page'?'Wiki page':record.kind==='gallery_work'?'Gallery work':record.kind==='forum_post'?'Forum thread':'Map place'}</small><strong>{record.title}</strong>{#if record.subtitle}<span>{record.subtitle}</span>{/if}</span></button>{/if}{/each}
+{#each objectCards as record (`${record?.kind}:${record?.id}`)}{#if record}<button class="object-card" type="button" onclick={(event)=>openObject(event,record)} title="Alt-click to preview">{#if record.thumbUrl}<img src={record.thumbUrl} alt="" loading="lazy" />{/if}<span><small>{record.kind==='wiki_page'?'Wiki page':record.kind==='gallery_work'?'Gallery work':record.kind==='forum_post'?'Forum thread':'Map place'}</small><strong>{record.title}</strong>{#if record.subtitle}<span>{record.subtitle}</span>{/if}</span></button>{/if}{/each}
 {#each lorePreviews as ref (`${ref.channelId}:${ref.filePath}`)}<ForumLorePreview channelId={ref.channelId} filePath={ref.filePath} />{/each}
 {#each previewUrls as url (url)}<LinkPreview {url} />{/each}
 <span role="status">{navigationError || referenceNotice}</span>

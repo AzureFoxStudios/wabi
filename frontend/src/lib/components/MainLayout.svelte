@@ -1,5 +1,6 @@
 <!-- frontend/src/lib/components/MainLayout.svelte -->
 <script lang="ts">
+	import GlanceHost from './GlanceHost.svelte';
 	import { workspaceToolFromTab } from '$lib/workspaces/bridge';
 	import WorkspaceLinkHandler from '$lib/workspaces/WorkspaceLinkHandler.svelte';
 	import WorkspaceHost from '$lib/workspaces/WorkspaceHost.svelte';
@@ -1147,6 +1148,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	}
 	$: activeOfficeTool = workspaceToolFromTab($activeTabId);
 </script>
+
+<GlanceHost />
 
 <svelte:window
 	on:mousemove={handleMouseMove}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { openGlance } from '$lib/glance';
 	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { confirmLeaveWhileRecording } from '$lib/callRecording';
 	import { fly, slide } from 'svelte/transition';
@@ -379,10 +380,8 @@
 		if (e.altKey) {
 			e.preventDefault();
 			e.stopPropagation();
-			const rect = (e.currentTarget as HTMLElement | null)?.getBoundingClientRect();
-			if (!rect) return;
-			if (glimpseChannelId === id) closeChannelGlimpse();
-			else openChannelGlimpse(id, rect);
+			glimpseChannelId = null;
+			openGlance({kind: 'channel', channelId: id});
 			return;
 		}
 		glimpseChannelId = null;

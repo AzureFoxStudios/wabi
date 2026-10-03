@@ -7,6 +7,7 @@
  import { channels } from '$lib/channelStore';
  import { activeServerUrl, getServerUrl } from '$lib/serverUrl';
  import { parseLoreChannelId, listLoreFiles, downloadLoreFileText } from '$lib/api/lore';
+ import { openGlance } from '$lib/glance';
  import { navigateToRef } from '$lib/navigateToRef';
  let { channelId, filePath }: { channelId:string; filePath:string } = $props();
  let content = $state(''), status = $state('Loading file preview…'), size = $state<number | null>(null);
@@ -35,10 +36,10 @@
   })();
   return () => {active=false;};
  });
- async function open() {try {await navigateToRef({kind:'lore_file',channelId,filePath});} catch {status='Could not open this file.';}}
+ async function open(event: MouseEvent) {if (event.altKey) {openGlance({kind:'lore_file',channelId,filePath});return;} try {await navigateToRef({kind:'lore_file',channelId,filePath});} catch {status='Could not open this file.';}}
 </script>
 <article class="lore-preview">
- <button type="button" onclick={open}><strong>{filename}</strong><span>{project} · {filePath}{#if size !== null} · {size.toLocaleString()} bytes{/if}</span></button>
+ <button type="button" onclick={open} title="Alt-click to preview"><strong>{filename}</strong><span>{project} · {filePath}{#if size !== null} · {size.toLocaleString()} bytes{/if}</span></button>
  {#if content}<pre><code>{content}</code></pre>{:else}<p role="status">{status}</p>{/if}
 </article>
 <style>

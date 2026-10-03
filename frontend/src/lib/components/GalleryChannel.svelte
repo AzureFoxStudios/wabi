@@ -35,6 +35,8 @@
 	import { pendingNav, takePendingNav } from '$lib/pendingNav';
 
 	export let channelId: string | undefined = undefined;
+	export let preview = false;
+	export let previewWorkId: string | undefined = undefined;
 	$: effectiveChannel = channelId || $currentChannel;
 
 	$: activeChannel = $channels.find((ch) => ch.id === effectiveChannel) || null;
@@ -151,8 +153,13 @@
 		? allCreators.find((c) => c.dbUserId === activeCreatorFilter.dbUserId) || null
 		: null;
 
+	$: if (preview && previewWorkId && allItems.length) {
+		const idx = allItems.findIndex(item => item.id === previewWorkId);
+		if (idx >= 0) openLightbox(idx, allItems);
+	}
+
 	// C2: deep-link handoff after items load — peek first, take only on hit
-	$: if (effectiveChannel && allItems.length > 0) {
+	$: if (!preview && effectiveChannel && allItems.length > 0) {
 		const pending = $pendingNav;
 		if (
 			pending?.kind === 'gallery_work' &&

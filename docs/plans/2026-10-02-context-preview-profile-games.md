@@ -1,6 +1,6 @@
 # Forum context previews, compact profiles, and Games follow-up
 
-Status: final Wiki render-order correction deployed (636f133b, frontend 1790941697326). Exact artifact and origin checks pass. Final authenticated Wiki reader acceptance awaits renewed browser sign-in after token expiry.
+Status: final Wiki render-order correction deployed (636f133b, frontend 1790941697326). Exact artifact and origin checks pass. The user confirmed authenticated live Wiki navigation on 2026-10-03: the referenced article opens immediately.
 
 The live annotations exposed a cold-session gap: copied Wiki/Gallery tokens only resolved after those workspaces mounted. Forum bodies now load the accessible matching workspace data through existing scoped clients and register references only while server/account/session ownership still matches. Code remains literal. Cards add Wiki excerpts and Gallery thumbnails alongside the title links.
 
