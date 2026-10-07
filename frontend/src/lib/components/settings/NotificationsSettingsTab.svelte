@@ -22,12 +22,16 @@
 		getPushSubscriptionState,
 		sendTestPush,
 		subscribeWebPush,
-		unsubscribeWebPush
+		unsubscribeWebPush,
+		getPushPreferences,
+		setPushPreferences,
+		type PushPreferences
 	} from '$lib/pwa/pushClient';
 
 	let notificationsEnabled = true;
 	// True when the app is running as an installed PWA (standalone display mode).
 	let isPwaStandalone = false;
+	let pushPreferences: PushPreferences = { directMessages: true, calls: true };
 	let suppressEveryoneHereMentions = false;
 	let suppressRoleMentions = false;
 	let notificationPreviewEnabled = false;
@@ -79,6 +83,7 @@
 		const state = await getPushSubscriptionState();
 		pushPermission = state.permission;
 		pushSubscribed = state.subscribed;
+		pushPreferences = await getPushPreferences();
 	}
 
 	onDestroy(() => {
@@ -455,6 +460,18 @@
 			pushBusy = false;
 		}
 	}
+
+	async function togglePushPreference(key: keyof PushPreferences): Promise<void> {
+		pushBusy = true;
+		try {
+			const next = { ...pushPreferences, [key]: !pushPreferences[key] };
+			if (await setPushPreferences(next)) {
+				pushPreferences = next;
+			}
+		} finally {
+			pushBusy = false;
+		}
+	}
 </script>
 
 <div class="settings-section">
@@ -515,6 +532,23 @@
 		<button class="action-btn" class:active={notificationsEnabled} on:click={requestNotificationPermission}>
 			{notificationsEnabled ? 'Enabled' : 'Enable'}
 		</button>
+	</div>
+	{/if}
+
+	{#if !isTauriRuntime() && pushSubscribed}
+	<div class="setting-item">
+		<div class="setting-info">
+			<span class="setting-label">Push: Direct messages</span>
+			<span class="setting-description">Notify me about new direct messages.</span>
+		</div>
+		<button class="toggle-btn" class:active={pushPreferences.directMessages} on:click={() => togglePushPreference('directMessages')} role="switch" aria-checked={pushPreferences.directMessages} aria-label="Push direct messages"></button>
+	</div>
+	<div class="setting-item">
+		<div class="setting-info">
+			<span class="setting-label">Push: Incoming calls</span>
+			<span class="setting-description">Notify me when someone calls.</span>
+		</div>
+		<button class="toggle-btn" class:active={pushPreferences.calls} on:click={() => togglePushPreference('calls')} role="switch" aria-checked={pushPreferences.calls} aria-label="Push incoming calls"></button>
 	</div>
 	{/if}
 

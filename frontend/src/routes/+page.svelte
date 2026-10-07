@@ -470,6 +470,11 @@
 
 		showTempPasswordPrompt = mustChangePassword === true;
 		pendingPostLoginProfileImportCheck = isRegistered;
+
+		// Auto-subscribe to push notifications after login (best-effort)
+		if (isRegistered) {
+			void import('$lib/pwa/pushClient').then((m) => m.autoSubscribePush()).catch(() => undefined);
+		}
 	}
 
 	function openAccountSecurityFromTempPasswordPrompt() {
