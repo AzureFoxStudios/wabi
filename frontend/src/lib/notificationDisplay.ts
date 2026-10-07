@@ -64,6 +64,34 @@ export function messageMentionsUser(message: Message, username?: string | null):
 	return userPattern.test(text);
 }
 
+type BrowserNotificationInit = NotificationOptions & { renotify?: boolean };
+
+/**
+ * Android Chrome (and installed PWAs) forbid `new Notification()` and throw
+ * "Illegal constructor": notifications there must come from the service worker
+ * registration. Use the constructor where it works (desktop, tests) and fall
+ * back to the registration, so a phone is never silently left without alerts.
+ * The service worker's `notificationclick` handler routes taps from `data`.
+ */
+function showBrowserNotification(title: string, options: BrowserNotificationInit): Notification | null {
+	try {
+		return new Notification(title, options);
+	} catch {
+		void showViaServiceWorker(title, options);
+		return null;
+	}
+}
+
+async function showViaServiceWorker(title: string, options: BrowserNotificationInit): Promise<void> {
+	try {
+		if (typeof navigator === 'undefined' || !navigator.serviceWorker) return;
+		const registration = await navigator.serviceWorker.ready;
+		await registration.showNotification(title, options);
+	} catch (error) {
+		console.warn('[notifications] service worker notification failed:', error);
+	}
+}
+
 export function showNotification(
 	message: Message | SimpleNotification,
 	isCurrentUser: boolean,
@@ -127,13 +155,12 @@ export function showNotification(
 			return;
 		}
 
-		const notification = new Notification(title, { body, icon });
-		if (options?.onClick) {
+		// No auto-close: a notification the user looks at after a few seconds
+		// must still be there. The OS (or the user) dismisses it.
+		const notification = showBrowserNotification(title, { body, icon, badge: icon });
+		if (notification && options?.onClick) {
 			notification.addEventListener('click', options.onClick);
 		}
-		setTimeout(() => {
-			notification.close();
-		}, 5000);
 		return;
 	}
 
@@ -190,24 +217,34 @@ export function showNotification(
 		return;
 	}
 
-	const notification = new Notification(title, {
+	const rawChannelId = (msg as unknown as { channelId?: unknown }).channelId;
+	const channelId = typeof rawChannelId === 'string' ? rawChannelId : '';
+	const messageId = typeof msg.id === 'string' ? msg.id : '';
+	const notification = showBrowserNotification(title, {
 		body,
 		icon,
 		badge: icon,
-		tag: `${options?.tagPrefix || 'message'}-${msg.id || fallbackTitle || 'activity'}`,
-		requireInteraction: false,
-		silent: false
+		// One notification per conversation, updated (and re-announced) by each
+		// new message, instead of a growing stack of per-message entries.
+		tag: `${options?.tagPrefix || 'message'}-${channelId || messageId || fallbackTitle || 'activity'}`,
+		renotify: true,
+		// Mentions stay until acted on (desktop honours this; Android ignores it).
+		requireInteraction: isMention,
+		silent: false,
+		data: {
+			...(channelId ? { wabiNav: 'channel', channelId } : {}),
+			...(messageId ? { messageId } : {})
+		}
 	});
+	if (!notification) return;
 
 	notification.onclick = () => {
 		window.focus();
 		options?.onClick?.();
 		notification.close();
 	};
-
-	setTimeout(() => {
-		notification.close();
-	}, 5000);
+	// Deliberately no auto-close timer: notifications that vanish after five
+	// seconds are not "sticking". The OS or the user dismisses them.
 }
 
 export function showCallNotification(
@@ -237,14 +274,19 @@ export function showCallNotification(
 		return null;
 	}
 
-	const notification = new Notification(title, {
+	// A ringing call must persist until answered or declined. CallModal closes
+	// the returned notification when the call ends or is answered.
+	const notification = showBrowserNotification(title, {
 		body,
 		icon,
 		badge: icon,
 		tag: `call-${callerName}`,
-		requireInteraction: false,
-		silent: false
+		renotify: true,
+		requireInteraction: true,
+		silent: false,
+		data: { wabiNav: 'messages' }
 	});
+	if (!notification) return null;
 
 	notification.onclick = () => {
 		window.focus();
