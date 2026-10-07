@@ -84,3 +84,18 @@ test('registers with current server after synthetic device subscription', async 
     expect(await subscribeWebPush()).toEqual({ ok: true, endpoint: 'https://synthetic-push.invalid' });
     expect(calls).toEqual(['https://synthetic.invalid/api/push/vapid-public-key', 'https://synthetic.invalid/api/push/subscribe']);
 });
+test('an expired access token is renewed once and the subscription retried', async () => {
+    let status = 401;
+    const postTokens: string[] = [];
+    globalValue('fetch', mock(async (url: string, init?: RequestInit) => {
+        calls.push(url);
+        if (url.endsWith('vapid-public-key')) return Response.json({ publicKey: syntheticKey });
+        postTokens.push(String((init?.headers as Record<string, string>).Authorization));
+        const response = Response.json({ ok: true }, { status });
+        status = 200;
+        return response;
+    }));
+    mock.module('$lib/api/authRefresh', () => ({ tryRefresh: async () => { token = 'renewed-account'; return true; } }));
+    expect(await subscribeWebPush()).toEqual({ ok: true, endpoint: 'https://synthetic-push.invalid' });
+    expect(postTokens).toEqual(['Bearer synthetic-account', 'Bearer renewed-account']);
+});

@@ -80,7 +80,9 @@ export async function subscribeWebPush(): Promise<PushSubscribeResult> {
 		if (!current()) return { ok: false, reason: 'account_changed' };
 		const key = await fetchVapidKeyResult(`${apiBase}/api/push/vapid-public-key`);
 		if (!current()) return { ok: false, reason: 'account_changed' };
-		if (!key.ok) return key;
+		// `=== false` (not `!key.ok`): the project's non-strict tsconfig does not
+		// narrow a negated boolean discriminant.
+		if (key.ok === false) return { ok: false, reason: key.reason };
 		sub = await reg.pushManager.getSubscription();
 		if (!current()) return { ok: false, reason: 'account_changed' };
 		if (!sub) sub = await reg.pushManager.subscribe({
@@ -93,15 +95,29 @@ export async function subscribeWebPush(): Promise<PushSubscribeResult> {
 	}
 	if (!current()) return { ok: false, reason: 'account_changed' };
 	const json = sub.toJSON();
+	const body = JSON.stringify({ endpoint: json.endpoint, keys: json.keys, deviceId: getOrCreateDeviceId(), platform: 'web', userAgent: navigator.userAgent });
+	const post = (bearer: string) => fetch(`${apiBase}/api/push/subscribe`, {
+		method: 'POST', credentials: 'same-origin',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
+		body
+	});
 	let res: Response;
+	let usedToken = token;
 	try {
-		res = await fetch(`${apiBase}/api/push/subscribe`, {
-			method: 'POST', credentials: 'same-origin',
-			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-			body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys, deviceId: getOrCreateDeviceId(), platform: 'web', userAgent: navigator.userAgent })
-		});
+		res = await post(token);
+		// The 15-minute access token may have lapsed while the user was in the
+		// permission prompt or the app was backgrounded: renew once and retry.
+		if (res.status === 401) {
+			const { tryRefresh } = await import('$lib/api/authRefresh');
+			if (await tryRefresh(apiBase)) {
+				const renewed = getAuthToken();
+				if (renewed) { usedToken = renewed; res = await post(renewed); }
+			}
+		}
 	} catch { return { ok: false, reason: 'subscription_network_error' }; }
-	if (!current()) return { ok: false, reason: 'account_changed' };
+	// A refresh legitimately rotates the token; a different account or server
+	// (anything but the credential this request actually used) still aborts.
+	if (getAuthToken() !== usedToken || getApiBase() !== apiBase) return { ok: false, reason: 'account_changed' };
 	// Response bodies can contain operator diagnostics. Expose only the status.
 	if (!res.ok) return { ok: false, reason: `subscription_http_${res.status}` };
 	return { ok: true, endpoint: json.endpoint || sub.endpoint };
