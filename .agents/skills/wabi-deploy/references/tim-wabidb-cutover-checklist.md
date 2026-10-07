@@ -1,5 +1,7 @@
 # Tim STDB → WabiDB cutover checklist (2026-07-15)
 
+> **WARNING (superseded lock guidance):** this file may tell you to delete `data/wabi-server/.lock` or `wabidb/.lock`. That predates the OS advisory-lock engine. Do **not** unlink `wabidb/.lock`; see `AGENTS.md` rule 9 and `docs/deployment/BACKUP_AND_RECOVERY.md`. A legacy root `data/wabi-server/.lock` may be removed only after every old Wabi process is confirmed stopped.
+
 Session-proven sequence. Re-probe before repeating; live state drifts.
 
 ## Signals Tim is still STDB-era
