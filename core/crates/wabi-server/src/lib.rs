@@ -34,6 +34,7 @@ pub mod mdns;
 pub mod media;
 pub mod metrics;
 pub mod nodes;
+pub mod push_store;
 pub mod rate_limit;
 pub mod replication_transport;
 pub mod secrets;
@@ -42,6 +43,7 @@ pub mod socketio_impl;
 pub mod standby;
 pub mod state;
 pub mod upload_registry;
+pub mod web_push;
 pub mod websocket;
 
 #[cfg(feature = "wabi-lore")]

@@ -193,6 +193,13 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
         }
 
         for invitee_id in invitees {
+            if let Some(recipient) = crate::api::push::user_id_from_stable(&invitee_id) {
+                crate::api::push::spawn_notify(
+                    state.app.clone(), recipient,
+                    crate::api::push::PushKind::IncomingCall { video: is_video },
+                    my_username.clone(), channel_id.clone(),
+                );
+            }
             let _ = io
                 .to(invitee_id)
                 .emit(
@@ -253,6 +260,13 @@ async fn on_call_initiate(socket: SocketRef, data: Value, state: SioState, io: S
             "requestId": data.get("requestId"),
         }));
 
+        if let Some(recipient) = target_user_id.map(|id| id as i64) {
+            crate::api::push::spawn_notify(
+                state.app.clone(), recipient,
+                crate::api::push::PushKind::IncomingCall { video: is_video_call },
+                my_username.clone(), my_stable_id.clone(),
+            );
+        }
         let _ = io
             .to(target_id)
             .emit(

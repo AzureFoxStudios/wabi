@@ -1,6 +1,6 @@
 # Activity and notifications candidate
 
-**Status:** working-tree candidate, not deployed or accepted on devices (2026-09-26).
+**Status:** working-tree candidate, not deployed or accepted on devices (2026-10-07).
 
 ## Experience
 
@@ -9,6 +9,7 @@
 - **Following** shows activity for channels the client has followed on saved servers. Following defaults to **Silent**. A user can choose Mentions or All Posts for system alerts on an inactive server. The Activity row remains available when those alerts are disabled.
 - **Friends** is server-local. Switching servers changes the friends directory; accepting a request does not grant channel access.
 - Notification settings control system alerts, message previews and sounds, mention suppression, and inactive-server followed-channel alerts. System notification permission and push subscription remain separate platform controls.
+- **Web Push** delivers background alerts to browsers and PWAs (RFC 8291/8292). Direct messages and incoming calls are on by default and can be turned off per-account. Payloads never contain message text. A per-account device cap bounds stored secrets.
 
 ## Data and trust boundaries
 
@@ -20,5 +21,6 @@ The center only shows data that is actually available. It cannot recover missed 
 
 1. Add an Authority-owned per-account notification/read-state feed for mentions, DM messages, friend requests and urgent incidents. Define cursor, deduplication, retention, permission revocation and account switch behavior before aggregating it across saved servers.
 2. Give priority and emergency events explicit authorization, rate limits and a distinct attention level. Emergency toast and sound must respect platform permission and user accessibility preferences; ordinary messages should remain quiet by default.
-3. Wire normal Web Push and native tray delivery to real server events. The current push API can send a test notification but does not dispatch regular message events.
+3. ~~Wire normal Web Push and native tray delivery to real server events.~~ **Done:** DMs and incoming calls dispatch to registered devices. Mentions and followed-channel activity are not yet wired.
 4. Verify keyboard, screen reader, mobile and native tray behavior on real rendered clients. Confirm account-scoped local follow preferences and migration before using them as a durable multi-account notification source.
+5. Wire UnifiedPush delivery for the Android APK (no Google dependency). The APK currently has local notifications only, which require the app process to be alive.

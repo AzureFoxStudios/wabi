@@ -24,14 +24,14 @@ use crate::state::AppState;
 const PREVIEW_MAX_BYTES: usize = 2 * 1024 * 1024; // 2 MB
 const IMAGE_PROXY_MAX_BYTES: usize = 10 * 1024 * 1024; // 10 MB
 
-struct OutboundTarget {
-    url: Url,
-    address: SocketAddr,
+pub(crate) struct OutboundTarget {
+    pub(crate) url: Url,
+    pub(crate) address: SocketAddr,
 }
 
 /// Validate the actual fetch destination and retain its approved address for
 /// the connection. A second DNS lookup must not undo this SSRF decision.
-async fn validate_outbound_url(raw_url: &str) -> Result<OutboundTarget> {
+pub(crate) async fn validate_outbound_url(raw_url: &str) -> Result<OutboundTarget> {
     let url = Url::parse(raw_url).map_err(|_| AppError::BadRequest("invalid URL".into()))?;
 
     let scheme = url.scheme();
@@ -83,7 +83,7 @@ fn is_public_ip(ip: IpAddr) -> bool {
     }
 }
 
-fn pinned_client(target: &OutboundTarget, timeout_ms: u64) -> Result<ClientBuilder> {
+pub(crate) fn pinned_client(target: &OutboundTarget, timeout_ms: u64) -> Result<ClientBuilder> {
     let host = target
         .url
         .host_str()

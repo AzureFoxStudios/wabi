@@ -164,6 +164,9 @@ pub struct AppState {
     /// Guest creation rate limiter (IP → count). WS-5b.
     pub guest_rate_limiter: Arc<RwLock<HashMap<String, (u32, i64)>>>,
     pub registration_rate_limiter: Arc<RwLock<HashMap<String, (u32, i64)>>>,
+    /// Web Push subscriptions, VAPID keys and per-account delivery preferences
+    /// (`<data_dir>/web_push.json`). See api/push.rs.
+    pub push_store: crate::push_store::WebPushStore,
     /// Tailcat private-access transport (unconditionally compiled, runtime-
     /// gated — disabled = no subprocess, zero footprint). See
     /// core/addons/tailcat/backend and docs/plans/2026-09-01-tailcat-private-access.md.
@@ -363,6 +366,7 @@ impl AppState {
         let started_at = std::time::Instant::now();
         let instance_operations = crate::instance_operations::InstanceOperations::default();
         let boosters = crate::api::boosters::Boosters::open(&config.data_dir)?;
+        let push_store = crate::push_store::WebPushStore::new_persistent(&config.data_dir);
         // Resolve exact storage policy before accepting requests or opening WabiDB.
         // A background hydration task can let the first Live message persist.
         let retention_labels = crate::api::retention_policy::all(&config.data_dir)?;
@@ -551,6 +555,7 @@ impl AppState {
             steam_http: crate::api::steam::shared_http_client(),
             guest_rate_limiter: Arc::new(RwLock::new(HashMap::new())),
             registration_rate_limiter: Arc::new(RwLock::new(HashMap::new())),
+            push_store,
             tailcat,
             lore_roles,
             profile_media_cache: Arc::new(RwLock::new(HashMap::new())),

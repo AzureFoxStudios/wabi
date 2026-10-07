@@ -194,3 +194,62 @@ export async function getPushSubscriptionState(): Promise<{
 		return { permission: Notification.permission, subscribed: false };
 	}
 }
+
+export type PushPreferences = {
+	directMessages: boolean;
+	calls: boolean;
+};
+
+export async function getPushPreferences(): Promise<PushPreferences> {
+	const token = getAuthToken();
+	if (!token) return { directMessages: true, calls: true };
+	try {
+		const res = await fetch(`${getApiBase()}/api/push/preferences`, {
+			credentials: 'same-origin',
+			headers: { Authorization: `Bearer ${token}` }
+		});
+		if (!res.ok) return { directMessages: true, calls: true };
+		const data = await res.json();
+		return {
+			directMessages: data.directMessages !== false,
+			calls: data.calls !== false
+		};
+	} catch {
+		return { directMessages: true, calls: true };
+	}
+}
+
+export async function setPushPreferences(prefs: PushPreferences): Promise<boolean> {
+	const token = getAuthToken();
+	if (!token) return false;
+	try {
+		const res = await fetch(`${getApiBase()}/api/push/preferences`, {
+			method: 'PUT',
+			credentials: 'same-origin',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify(prefs)
+		});
+		return res.ok;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Auto-subscribe to push after login. Best-effort: if the user hasn't granted
+ * notification permission yet, or the browser doesn't support push, this is a
+ * no-op. The settings tab can retry later.
+ */
+export async function autoSubscribePush(): Promise<void> {
+	if (!browser || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+	if (!('Notification' in window)) return;
+	if (Notification.permission !== 'granted') return;
+	try {
+		const reg = await navigator.serviceWorker.ready;
+		const sub = await reg.pushManager.getSubscription();
+		if (sub) return; // already subscribed
+		await subscribeWebPush();
+	} catch {
+		// Best-effort: user can retry from settings
+	}
+}
