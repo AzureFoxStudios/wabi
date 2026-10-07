@@ -1,5 +1,5 @@
 const browser: boolean = typeof window !== 'undefined' && typeof document !== 'undefined';
-import { getAuthToken, setAuthToken, clearAuthToken, authSessionGeneration, persistRememberedAuthAfterRefresh } from '../authSession';
+import { getAuthToken, setAuthToken, clearAuthToken, authSessionGeneration, persistRememberedAuthAfterRefresh, getPersistedRefreshToken } from '../authSession';
 import { getServerUrl, normalizeServerUrl } from '../serverUrl';
 
 // Refresh tokens are stored server-scoped, session-scoped (cleared when the
@@ -38,7 +38,12 @@ function safeSet(key: string, value: string | null): void {
 
 export function getRefreshToken(serverUrl?: string | null): string | null {
 	if (!browser) return null;
-	return normalize(safeGet(scopeKey(serverUrl)));
+	const session = normalize(safeGet(scopeKey(serverUrl)));
+	if (session) return session;
+	// Killed tab/PWA: sessionStorage is empty but "remember me" kept the pair.
+	const remembered = getPersistedRefreshToken(serverUrl);
+	if (remembered) safeSet(scopeKey(serverUrl), remembered);
+	return remembered;
 }
 
 export function setRefreshToken(token: string | null, serverUrl?: string | null): void {
@@ -123,4 +128,49 @@ export async function tryRefresh(serverUrl?: string | null): Promise<boolean> {
 	});
 	inFlight.set(key, pending);
 	return pending;
+}
+
+/** Milliseconds until the JWT `exp`, or null when it cannot be read. */
+export function accessTokenExpiresInMs(token: string | null | undefined, now = Date.now()): number | null {
+	if (!token) return null;
+	const body = token.split('.')[1];
+	if (!body) return null;
+	try {
+		const padded = body.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - body.length % 4) % 4);
+		const exp = JSON.parse(atob(padded))?.exp;
+		return typeof exp === 'number' && Number.isFinite(exp) ? exp * 1000 - now : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Renew the access token ahead of use when it is expired or about to expire.
+ *
+ * A remembered PWA that was killed while the user was in another app wakes up
+ * with an expired 15-minute access token. Refreshing here, before the socket
+ * connects, keeps that launch (or a return to a call) from ever showing a
+ * login screen. Offline/transient failures change nothing, so the existing
+ * socket and request 401 handling still gets its own retry. Bounded so boot is
+ * never held hostage by a dead network.
+ */
+export async function ensureFreshAccessToken(
+	serverUrl?: string | null,
+	options: { skewMs?: number; timeoutMs?: number } = {}
+): Promise<boolean> {
+	if (!browser) return false;
+	const base = normalizeServerUrl(serverUrl || getServerUrl());
+	if (!base) return false;
+	const remaining = accessTokenExpiresInMs(getAuthToken(base));
+	if (remaining === null || remaining > (options.skewMs ?? 60_000)) return true;
+	if (!getRefreshToken(base)) return false;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			tryRefresh(base),
+			new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), options.timeoutMs ?? 4000); })
+		]);
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
 }

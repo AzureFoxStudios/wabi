@@ -8,9 +8,19 @@ export function markNativeAuthRemembered(serverUrl: string): void {
 	nativeRememberedScopes.add(resolveServerScope(serverUrl));
 }
 
-/** Successful refresh rotates the remembered native pair as well. */
+/**
+ * Successful refresh rotates the remembered pair as well: the native
+ * credential store for installed apps, and web storage for browsers/PWAs.
+ * Without the web half, the remembered copy keeps a rotated-away refresh
+ * token and the 30-day inactivity window never renews.
+ */
 export function persistRememberedAuthAfterRefresh(serverUrl: string): void {
-	if (nativeRememberedScopes.has(resolveServerScope(serverUrl))) {
+	const scope = resolveServerScope(serverUrl);
+	if (nativeRememberedScopes.has(scope)) {
+		setPersistentAuthToken(getAuthToken(serverUrl), serverUrl);
+		return;
+	}
+	if (browser && !isTauriLikeRuntime() && safeLocalGet(persistentTokenKey(serverUrl))) {
 		setPersistentAuthToken(getAuthToken(serverUrl), serverUrl);
 	}
 }
@@ -30,6 +40,7 @@ const SESSION_AUTH_TOKEN_KEY_PREFIX = 'wabi_auth_token:';
 const SESSION_GUEST_SESSION_ID_KEY_PREFIX = 'wabi_guest_session_id:';
 const SESSION_TEMP_GUEST_KEY_PREFIX = 'wabi_temp_guest:';
 const PERSISTED_AUTH_TOKEN_KEY_PREFIX = 'wabi_persisted_auth_token:';
+const PERSISTED_REFRESH_TOKEN_KEY_PREFIX = 'wabi_persisted_refresh_token:';
 const STORED_USERNAME_KEY_PREFIX = 'wabi_username:';
 const STORED_DB_USER_ID_KEY_PREFIX = 'wabi_db_user_id:';
 
@@ -114,6 +125,24 @@ function safeLocalSet(key: string, value: string | null): void {
 
 function persistentTokenKey(serverUrl?: string | null): string {
 	return scopedKey(PERSISTED_AUTH_TOKEN_KEY_PREFIX, resolveServerScope(serverUrl));
+}
+
+function persistentRefreshKey(serverUrl?: string | null): string {
+	return scopedKey(PERSISTED_REFRESH_TOKEN_KEY_PREFIX, resolveServerScope(serverUrl));
+}
+
+/**
+ * Remembered browser/PWA refresh token. Web storage only; installed Tauri
+ * clients keep theirs in the OS credential store and never read this.
+ * A tab/PWA that was killed has an empty sessionStorage, so this is what lets
+ * the next launch renew an expired access token instead of asking for a login.
+ */
+export function getPersistedRefreshToken(serverUrl?: string | null): string | null {
+	if (!browser || isTauriLikeRuntime()) return null;
+	// Only honour it alongside a remembered access token, so logout and
+	// "remember me" off can never leave an orphaned refresh token live.
+	if (!safeLocalGet(persistentTokenKey(serverUrl))) return null;
+	return normalizeSecret(safeLocalGet(persistentRefreshKey(serverUrl)));
 }
 
 /** Native bootstrap uses this only to migrate old plaintext remember-me state. */
@@ -222,6 +251,9 @@ export function setPersistentAuthToken(token: string | null | undefined, serverU
 	}
 
 	safeLocalSet(scopedKey(PERSISTED_AUTH_TOKEN_KEY_PREFIX, scope), normalized);
+	// Remember the rotating refresh token with the access token (or drop both),
+	// so a killed PWA can renew its session on the next launch.
+	safeLocalSet(scopedKey(PERSISTED_REFRESH_TOKEN_KEY_PREFIX, scope), normalized ? getRefreshToken(scope) : null);
 }
 
 export function clearAuthToken(serverUrl?: string | null): void {

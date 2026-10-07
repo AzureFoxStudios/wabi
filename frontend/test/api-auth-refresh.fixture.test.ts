@@ -30,6 +30,7 @@ mock.module('../src/lib/authSession', () => ({
 	getStoredDbUserId: (server = active) => server === A ? 1 : 2,
 	onAuthSessionCleared: () => () => {},
 	persistRememberedAuthAfterRefresh: (server: string) => { persistedServers.push(server); },
+	getPersistedRefreshToken: () => null,
 }));
 const { tryRefresh, setRefreshToken, getRefreshToken } = await import('../src/lib/api/authRefresh');
 const { fetchWithTimeout } = await import('../src/lib/api/utils');
