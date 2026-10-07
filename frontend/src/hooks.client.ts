@@ -13,4 +13,7 @@ export const init: ClientInit = async () => {
 	await ensureFreshAccessToken().catch(() => false);
 	// Keep it fresh while the app runs and when it returns from the background.
 	installAuthKeepAlive();
+	// Call comfort for backgrounded PWAs (wake lock, media session, audio resume).
+	// Lazy so the call stores stay out of the boot path.
+	void import('$lib/callBackgroundSupport').then((m) => m.installCallBackgroundSupport()).catch(() => undefined);
 };

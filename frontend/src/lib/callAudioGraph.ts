@@ -76,7 +76,11 @@ export function ensureCallAudioGraph(): CallAudioGraphHandle | null {
  * audio" once instead of guessing.
  */
 export async function resumeCallAudioGraph(): Promise<boolean> {
-	if (!ctx || ctx.state !== 'suspended') return true;
+	// iOS Safari reports a non-standard 'interrupted' state after the app is
+	// backgrounded or a phone call/Siri takes the audio session; it needs the
+	// same resume() as 'suspended'.
+	const current: string | undefined = ctx?.state;
+	if (!ctx || (current !== 'suspended' && current !== 'interrupted')) return true;
 	try {
 		await ctx.resume();
 		// Widen through a local: TS keeps the earlier `state === 'suspended'`
