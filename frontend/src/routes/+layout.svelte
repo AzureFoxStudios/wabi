@@ -98,7 +98,9 @@ function isLocalPreviewHost(): boolean {
 		// no reason (loginHelpers is in the eager graph either way).
 		injectNeutralBranding(isNeutralBrandingEnabled());
 
-		void initEmojis();
+		// The bundled emoji catalog is loaded on first use (picker / reaction
+		// select) via ensureEmojisLoaded — not on every boot. Server custom
+		// emotes still merge in over the socket.
 
 		// Personal planning must not probe relays or replay community operations.
 		// Community initialization happens on a fresh navigation back to the app.
