@@ -143,3 +143,17 @@ export async function initEmojis(): Promise<void> {
 	const custom = existing.filter((e) => e.isCustom);
 	emojis.set([...bundled, ...custom]);
 }
+
+let emojiLoadPromise: Promise<void> | null = null;
+
+/**
+ * Load the bundled emoji catalog on first real use (picker / reaction select).
+ * Idempotent — concurrent callers share one fetch. Loading this eagerly on
+ * layout mount pulled a ~1MB JSON into every boot, including logged-out first
+ * paint; deferring it until a picker opens is the first concrete chunk cut.
+ * Server custom emotes still arrive independently over the socket.
+ */
+export function ensureEmojisLoaded(): Promise<void> {
+	if (!emojiLoadPromise) emojiLoadPromise = initEmojis();
+	return emojiLoadPromise;
+}

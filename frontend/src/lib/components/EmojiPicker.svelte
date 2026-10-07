@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
-	import { emojis } from '$lib/emoji-store';
+	import { emojis, ensureEmojisLoaded } from '$lib/emoji-store';
 	import type { Emoji } from '$lib/socket';
 	import { _ } from '$lib/i18n';
 	import {
@@ -76,6 +76,8 @@
 	$: emptyCopy = resolveEmptyCopy();
 
 	onMount(() => {
+		// The bundled catalog loads on first picker open, not on boot.
+		void ensureEmojisLoaded();
 		try {
 			const raw = localStorage.getItem(PREFS_KEY);
 			if (!raw) return;

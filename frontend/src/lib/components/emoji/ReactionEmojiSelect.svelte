@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { tick } from 'svelte';
-	import { emojis } from '$lib/emoji-store';
+	import { onMount, tick } from 'svelte';
+	import { emojis, ensureEmojisLoaded } from '$lib/emoji-store';
 	import { REACTION_EMOJI_PAGE_SIZE, filterReactionEmojis, getReactionEmojiLabel, type ReactionEmojiSource } from '$lib/reactionEmojiOptions';
 
 	let { value, disabled = false, onchange }: {
@@ -20,6 +20,11 @@
 	let selected = $derived($emojis.find((emoji) => emoji.id === value));
 	let filtered = $derived(filterReactionEmojis($emojis, query, source));
 	let visible = $derived(filtered.slice(0, limit));
+
+	onMount(() => {
+		// The bundled catalog loads when this control is reached, not on boot.
+		void ensureEmojisLoaded();
+	});
 
 	async function toggle() {
 		if (disabled) return;

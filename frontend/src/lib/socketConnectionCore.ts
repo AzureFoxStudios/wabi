@@ -528,6 +528,11 @@ export class SocketManager {
 			groupMembership.beginConnection();
 			console.log('[SocketManager] Connected, socket.id:', sock.id);
 
+			// Realtime gate for the boot rail (no-op once the shell is gone).
+			if (typeof window !== 'undefined') {
+				window.dispatchEvent(new CustomEvent('wabi:boot-gate', { detail: { gate: 'realtime' } }));
+			}
+
 			this.transition('connected');
 			this.lastConnected = Date.now();
 			this.fastReconnectCount = 0;

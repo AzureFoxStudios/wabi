@@ -248,8 +248,8 @@
 			// correct us when its response lands: a fresh/DB-reset server still
 			// forces the registration wizard over any stale localStorage.
 			const enterSetupWizard = () => {
-				const bootTitle = document.getElementById('wabi-boot-title');
-				if (bootTitle) bootTitle.textContent = 'Setting up Wabi';
+				const bootStatus = document.getElementById('wabi-boot-status');
+				if (bootStatus) bootStatus.textContent = 'Setting up Wabi';
 				localStorage.removeItem('wabi_has_logged_in');
 				disconnect();
 				loggedIn = false;
@@ -344,6 +344,12 @@
 				clearAuthSession();
 			}
 
+			// Local session decision is made — the boot rail can advance. The
+			// server only corrects it (getSetupStatus above), so this is not a
+			// blocking roundtrip. The shell's gate listener ignores this while
+			// reconnect mode is active.
+			window.dispatchEvent(new CustomEvent('wabi:boot-gate', { detail: { gate: 'session' } }));
+
 			const isRegistered = !!savedToken || !!getStoredDbUserId();
 			// Theme fetch can hit network; don't block startup path.
 			startupMark('page:theme:init:start');
@@ -379,6 +385,8 @@
 					startupMark('page:layout-module:await:end');
 					startupMeasure('page:layout-module', 'page:layout-module:await:start', 'page:layout-module:await:end');
 				}
+				// The workspace module is ready to render — advance the rail.
+				window.dispatchEvent(new CustomEvent('wabi:boot-gate', { detail: { gate: 'workspace' } }));
 			}
 			isBootstrapping = false;
 			dismissDocumentBootShell();
