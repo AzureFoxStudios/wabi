@@ -16,7 +16,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	import LaunchPanel from '$lib/components/login/LaunchPanel.svelte';
 	import LoginQRModal from '$lib/components/login/LoginQRModal.svelte';
 	import LoginConnectionPrompt from '$lib/components/login/LoginConnectionPrompt.svelte';
-	import { buildLaunchPageStyles, injectNeutralBranding } from '$lib/components/loginHelpers';
+	import { buildLaunchPageStyles, hasOperatorLaunchStyling, injectNeutralBranding } from '$lib/components/loginHelpers';
 	import type { StarterChannel } from '$lib/api/auth';
 	import './login.css';
 
@@ -86,18 +86,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	$: displayLogoUrl = logoFailed ? '/wabi-logo.png' : hostLogoUrl;
 	$: invertHostLogo = /(?:^|\/)(?:wabi-logo(?:-small)?\.(?:webp|png)|icon\.png)(?:\?|$)/i.test(hostLogoUrl);
 	$: atmosphereUrl = neutralBranding ? null : launchPageConfig?.backgroundImageUrl || null;
-	// The server always reports a palette; its stock accent (#5865F2) is a placeholder, not branding.
-	// Only an enabled launch page, an explicit colour, or a non-default accent restyles the login.
-	const STOCK_LAUNCH_ACCENT = '#5865f2';
-	$: operatorPalette = Boolean(
-		launchPageConfig &&
-			(launchPageConfig.enabled ||
-				launchPageConfig.palette?.backgroundTop ||
-				launchPageConfig.palette?.backgroundBottom ||
-				launchPageConfig.palette?.cardBackground ||
-				launchPageConfig.palette?.text ||
-				(launchPageConfig.palette?.accent && launchPageConfig.palette.accent.toLowerCase() !== STOCK_LAUNCH_ACCENT))
-	);
+	$: operatorPalette = hasOperatorLaunchStyling(launchPageConfig, neutralBranding);
 	$: launchStyles = launchPageConfig && operatorPalette && !neutralBranding
 		? buildLaunchPageStyles({
 				enabled: true,
