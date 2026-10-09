@@ -10,8 +10,8 @@
 
 <style>
 	.role-gates-unavailable { min-width: 0; gap: 12px; }
-	h4 { margin: 0; color: var(--text-heading); }
-	p { margin: 0; font-size: 0.875rem; color: var(--text-secondary); line-height: 1.6; text-wrap: pretty; overflow-wrap: anywhere; }
-	.role-gates-status { color: var(--text-heading); font-weight: 500; }
-	.role-gates-alternatives { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border-subtle); padding-top: 12px; }
+	h4 { margin: 0; color: var(--w-text); }
+	p { margin: 0; font-size: 0.875rem; color: var(--w-mute); line-height: 1.6; text-wrap: pretty; overflow-wrap: anywhere; }
+	.role-gates-status { color: var(--w-text); font-weight: 500; }
+	.role-gates-alternatives { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--w-line); padding-top: 12px; }
 </style>

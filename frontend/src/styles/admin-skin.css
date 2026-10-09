@@ -104,3 +104,42 @@
 :root .admin-workbench .server-tool-grid button strong { font: 600 calc(15px * var(--w-fs, 1))/1.3 var(--w-sans); }
 :root .admin-workbench .server-tool-grid button span { font: 400 calc(13px * var(--w-fs, 1))/1.45 var(--w-sans); color: var(--w-mute); }
 :root .admin-workbench .server-tool-grid button b { color: var(--w-accent); }
+
+/* ---------- shared form language for the Server Center panels ---------- */
+:root .admin-workbench :is(input[type='checkbox'], input[type='radio']) { accent-color: var(--w-accent); }
+:root .admin-workbench fieldset { border: var(--w-bw, 1px) solid var(--w-line); border-radius: calc(12px * var(--w-rs, 1)); background: var(--w-bg2); padding: 14px 16px 16px; }
+:root .admin-workbench fieldset > legend {
+	padding: 0 8px;
+	font: 600 calc(11px * var(--w-fs, 1))/1 var(--w-mono);
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--w-faint);
+}
+:root .admin-workbench .ui-btn {
+	min-height: 34px;
+	padding: 6px 14px;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(10px * var(--w-rs, 1));
+	background: transparent;
+	color: var(--w-text);
+	font: 600 calc(13px * var(--w-fs, 1))/1.2 var(--w-sans);
+}
+:root .admin-workbench .ui-btn:hover:not(:disabled) { background: var(--w-raise); border-color: var(--w-accent); }
+:root .admin-workbench .ui-btn-primary { background: var(--w-text); color: var(--w-bg); border-color: transparent; }
+:root .admin-workbench .ui-btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--w-text) 88%, var(--w-accent)); }
+:root .admin-workbench .ui-btn-ghost { border-color: transparent; color: var(--w-mute); }
+:root .admin-workbench .ui-btn-danger-ghost { border-color: color-mix(in srgb, var(--w-danger) 55%, transparent); color: var(--w-danger); }
+:root .admin-workbench .ui-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+:root .admin-workbench .payment-access-heading h3,
+:root .admin-workbench .admin-section > h4,
+:root .admin-workbench .infra-center h3,
+:root .admin-workbench .health-panel h3 { font: 600 calc(20px * var(--w-fs, 1))/1.25 var(--w-serif); letter-spacing: 0.01em; text-transform: none; color: var(--w-text); }
+:root .admin-workbench .payment-access-count,
+:root .admin-workbench .stamp,
+:root .admin-workbench .endpoint-role { font-family: var(--w-mono); font-size: calc(12px * var(--w-fs, 1)); color: var(--w-mute); }
+:root .admin-workbench table { border-collapse: collapse; width: 100%; font-size: calc(13px * var(--w-fs, 1)); }
+:root .admin-workbench th { font: 600 calc(11px * var(--w-fs, 1))/1.2 var(--w-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--w-faint); text-align: left; padding: 8px 10px; border-bottom: var(--w-bw, 1px) solid var(--w-line-strong); }
+:root .admin-workbench td { padding: 9px 10px; border-bottom: var(--w-bw, 1px) solid var(--w-line); font-family: var(--w-mono); color: var(--w-text); }
+:root .admin-workbench details > summary { cursor: pointer; font: 600 calc(13px * var(--w-fs, 1)) var(--w-sans); color: var(--w-mute); }
+:root .admin-workbench details > summary:hover { color: var(--w-text); }
+:root .admin-workbench .infra-center, :root .admin-workbench .health-panel, :root .admin-workbench .helper-panel { font-family: var(--w-sans); }
