@@ -118,6 +118,7 @@
 
 	$: kind = preview?.youtubeId ? 'video' : (preview?.kind as string | undefined) ?? 'link';
 	$: host = hostOf(url);
+	$: largeMedia = preview?.twitterCard === 'summary_large_image' || Boolean(preview?.video);
 	// A response with neither title nor text has nothing to show beyond the address.
 	$: empty = !!preview && !preview.title && !preview.description && !heroImage;
 </script>
@@ -163,11 +164,15 @@
 				{#if preview.published}<span class="lc-sep">·</span><span>{preview.published}</span>{/if}
 			</div>
 			<div class="lc-author">
-				<span class="lc-name">{preview.author || preview.title}</span>
-				{#if preview.authorHandle}<span class="lc-handle">{preview.authorHandle}</span>{/if}
+				<!-- A text post's Open Graph image is the author's portrait: show it as an avatar, not as media. -->
+				{#if heroImage && !largeMedia}<img class="lc-avatar" src={heroImage} alt="" loading="lazy" />{/if}
+				<span class="lc-who">
+					<span class="lc-name">{preview.author || preview.title}</span>
+					{#if preview.authorHandle}<span class="lc-handle">{preview.authorHandle}</span>{/if}
+				</span>
 			</div>
 			{#if preview.description}<p class="lc-text">{preview.description}</p>{/if}
-			{#if heroImage}<div class="lc-media"><img src={heroImage} alt="" loading="lazy" /></div>{/if}
+			{#if heroImage && largeMedia}<div class="lc-media"><img src={heroImage} alt="" loading="lazy" /></div>{/if}
 		</div>
 	{:else if kind === 'repo'}
 		<div class="lc lc-repo" role="link" tabindex="0" on:click={handleClick} on:keydown={onKey}>
@@ -217,13 +222,13 @@
 	.lc:hover { border-color: var(--w-line-strong); }
 	.lc:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
 
-	.lc-meta { display: flex; align-items: center; gap: 6px; font: 500 11.5px/1.3 var(--w-mono); color: var(--w-faint); min-width: 0; }
+	.lc-meta { display: flex; align-items: center; gap: 6px; font: 500 calc(11.5px * var(--w-fs, 1))/1.3 var(--w-mono); color: var(--w-faint); min-width: 0; }
 	.lc-site { color: var(--w-mute); text-transform: lowercase; }
 	.lc-sep { color: var(--w-line-strong); }
-	.lc-title { display: block; margin-top: 5px; font: 600 15px/1.35 var(--w-sans); color: var(--w-text); text-decoration: none; overflow-wrap: anywhere; }
+	.lc-title { display: block; margin-top: 5px; font: 600 calc(15px * var(--w-fs, 1))/1.35 var(--w-sans); color: var(--w-text); text-decoration: none; overflow-wrap: anywhere; }
 	a.lc-title:hover { color: var(--w-accent); }
-	.lc-mono { font-family: var(--w-mono); font-weight: 500; font-size: 14px; }
-	.lc-text { margin: 4px 0 0; font: 400 13.5px/1.55 var(--w-sans); color: var(--w-mute); overflow-wrap: anywhere; white-space: pre-line; }
+	.lc-mono { font-family: var(--w-mono); font-weight: 500; font-size: calc(14px * var(--w-fs, 1)); }
+	.lc-text { margin: 4px 0 0; font: 400 calc(13.5px * var(--w-fs, 1))/1.55 var(--w-sans); color: var(--w-mute); overflow-wrap: anywhere; white-space: pre-line; }
 	.lc-clamp-2, .lc-clamp-3 { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
 	.lc-clamp-2 { -webkit-line-clamp: 2; line-clamp: 2; }
 	.lc-clamp-3 { -webkit-line-clamp: 3; line-clamp: 3; }
@@ -233,14 +238,16 @@
 	.lc-bar { display: block; height: 8px; width: 70%; border-radius: 2px; background: var(--w-line); }
 	.lc-bar.short { width: 40%; }
 	.lc-plain { display: flex; flex-direction: column; gap: 3px; padding: 8px 12px; }
-	.lc-plain .lc-path { font: 400 12.5px/1.4 var(--w-mono); color: var(--w-mute); overflow-wrap: anywhere; }
+	.lc-plain .lc-path { font: 400 calc(12.5px * var(--w-fs, 1))/1.4 var(--w-mono); color: var(--w-mute); overflow-wrap: anywhere; }
 	.lc-plain:hover .lc-path { color: var(--w-accent); }
 
 	/* post */
-	.lc-author { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; min-width: 0; }
-	.lc-name { font: 600 14.5px/1.3 var(--w-sans); }
-	.lc-handle { font: 500 12px/1.3 var(--w-mono); color: var(--w-faint); }
-	.lc-post .lc-text { margin-top: 6px; font-size: 14.5px; line-height: 1.6; color: var(--w-text); }
+	.lc-author { display: flex; align-items: center; gap: 10px; margin-top: 8px; min-width: 0; }
+	.lc-avatar { flex: none; width: 36px; height: 36px; object-fit: cover; border-radius: var(--w-avr, 50%); border: var(--w-bw, 1px) solid var(--w-line); }
+	.lc-who { display: flex; flex-direction: column; min-width: 0; }
+	.lc-name { font: 600 calc(14.5px * var(--w-fs, 1))/1.3 var(--w-sans); }
+	.lc-handle { font: 500 calc(12px * var(--w-fs, 1))/1.3 var(--w-mono); color: var(--w-faint); }
+	.lc-post .lc-text { margin-top: 6px; font-size: calc(14.5px * var(--w-fs, 1)); line-height: 1.6; color: var(--w-text); }
 	.lc-media { margin-top: 8px; border-radius: calc(8px * var(--w-rs, 1)); overflow: hidden; border: var(--w-bw, 1px) solid var(--w-line); }
 	.lc-media img { display: block; width: 100%; max-height: 280px; object-fit: cover; }
 

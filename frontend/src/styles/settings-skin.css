@@ -23,9 +23,9 @@
 	border-bottom: var(--w-bw, 1px) solid var(--w-line);
 	padding: 16px 22px;
 }
-:root .wabi-settings-modal .modal-header h2 { font: 600 24px/1.2 var(--w-serif); letter-spacing: 0.01em; color: var(--w-text); }
+:root .wabi-settings-modal .modal-header h2 { font: 600 calc(24px * var(--w-fs, 1))/1.2 var(--w-serif); letter-spacing: 0.01em; color: var(--w-text); }
 :root .wabi-settings-modal .modal-header .header-icon { color: var(--w-mute); filter: none; width: 20px; height: 20px; }
-:root .wabi-settings-modal .header-locale-label { font: 500 11px/1 var(--w-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--w-faint); }
+:root .wabi-settings-modal .header-locale-label { font: 500 calc(11px * var(--w-fs, 1))/1 var(--w-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--w-faint); }
 :root .wabi-settings-modal .close-btn { color: var(--w-mute); border-radius: calc(9px * var(--w-rs, 1)); }
 :root .wabi-settings-modal .close-btn:hover { background: var(--w-raise); color: var(--w-text); }
 
@@ -37,7 +37,7 @@
 	border-radius: calc(10px * var(--w-rs, 1));
 	background: transparent;
 	color: var(--w-mute);
-	font: 500 14px/1.2 var(--w-sans);
+	font: 500 calc(14px * var(--w-fs, 1))/1.2 var(--w-sans);
 	box-shadow: none;
 	transform: none;
 }
@@ -56,7 +56,7 @@
 :root .wabi-settings-modal .settings-content { background: var(--w-bg); }
 :root .wabi-settings-modal .settings-content h2,
 :root .wabi-settings-modal .settings-content h3 { font-family: var(--w-serif); font-weight: 600; letter-spacing: 0.01em; color: var(--w-text); }
-:root .wabi-settings-modal .settings-content h3 { font-size: 20px; text-transform: none; letter-spacing: 0.01em; }
+:root .wabi-settings-modal .settings-content h3 { font-size: calc(20px * var(--w-fs, 1)); text-transform: none; letter-spacing: 0.01em; }
 
 /* group cards: flat panel, hairline rows */
 :root .settings-group-card,
@@ -71,9 +71,9 @@
 :root .settings-group-card > .setting-item:hover,
 :root .settings-group-card > .setting-item-full:hover { background: transparent !important; }
 :root .settings-content .setting-label,
-:root .settings-content .setting-item strong { font: 600 14.5px/1.3 var(--w-sans); color: var(--w-text); }
-:root .settings-content .setting-description { font: 400 13px/1.45 var(--w-sans); color: var(--w-mute); }
-:root .admin-block-title { font: 600 11px/1 var(--w-mono); letter-spacing: 0.12em; color: var(--w-faint); }
+:root .settings-content .setting-item strong { font: 600 calc(14.5px * var(--w-fs, 1))/1.3 var(--w-sans); color: var(--w-text); }
+:root .settings-content .setting-description { font: 400 calc(13px * var(--w-fs, 1))/1.45 var(--w-sans); color: var(--w-mute); }
+:root .admin-block-title { font: 600 calc(11px * var(--w-fs, 1))/1 var(--w-mono); letter-spacing: 0.12em; color: var(--w-faint); }
 
 /* ---------- switches: accent, never the seal colour (the seal marks security rows) ---------- */
 :root .toggle-btn,
@@ -104,7 +104,7 @@
 	border-radius: calc(10px * var(--w-rs, 1));
 	background: transparent;
 	color: var(--w-text);
-	font: 600 13.5px/1.2 var(--w-sans);
+	font: 600 calc(13.5px * var(--w-fs, 1))/1.2 var(--w-sans);
 	box-shadow: none;
 }
 :root .settings-content .action-btn:hover,
@@ -127,7 +127,7 @@
 	border: var(--w-bw, 1px) solid var(--w-line-strong);
 	border-radius: calc(10px * var(--w-rs, 1));
 	color: var(--w-text);
-	font: 400 14px/1.4 var(--w-sans);
+	font: 400 calc(14px * var(--w-fs, 1))/1.4 var(--w-sans);
 }
 :root .settings-content select:focus,
 :root .settings-content input:focus,
@@ -137,4 +137,4 @@
 :root .settings-content .sound-option.active,
 :root .settings-content .theme-card.active { border-color: var(--w-accent); box-shadow: inset 2px 0 0 var(--w-accent); }
 :root .settings-content input[type='range'] { accent-color: var(--w-accent); }
-:root .wabi-settings-modal .settings-content h2 { font-size: 26px; text-transform: none; letter-spacing: 0.01em; margin-bottom: 14px; }
+:root .wabi-settings-modal .settings-content h2 { font-size: calc(26px * var(--w-fs, 1)); text-transform: none; letter-spacing: 0.01em; margin-bottom: 14px; }

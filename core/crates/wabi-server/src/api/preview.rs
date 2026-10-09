@@ -487,7 +487,18 @@ fn classify_preview(raw: &str, preview: &mut UrlPreviewResponse) {
         .unwrap_or_default();
     let og_type = preview.r#type.clone().unwrap_or_default();
 
-    let kind = if host == "github.com" && segments.len() == 2 {
+    let kind = if is_x_status_url(raw) {
+        // The Open Graph title is "Name (@handle) on X"; the description is the post text.
+        if let Some(title) = preview.title.clone() {
+            if let Some((name, rest)) = title.split_once(" (@") {
+                if let Some((handle, _)) = rest.split_once(')') {
+                    preview.author = Some(name.to_string());
+                    preview.author_handle = Some(format!("@{handle}"));
+                }
+            }
+        }
+        "post"
+    } else if host == "github.com" && segments.len() == 2 {
         preview.author = Some(segments[0].to_string());
         "repo"
     } else if preview.video.is_some() || og_type.starts_with("video") {
@@ -509,7 +520,7 @@ fn classify_preview(raw: &str, preview: &mut UrlPreviewResponse) {
 /// Fetch a post through X's official oEmbed endpoint and pull out the text.
 async fn fetch_x_post(raw_url: &str) -> Result<UrlPreviewResponse> {
     let endpoint = format!(
-        "https://publish.twitter.com/oembed?omit_script=true&dnt=true&url={}",
+        "https://publish.x.com/oembed?omit_script=true&dnt=true&url={}",
         urlencoding::encode(raw_url)
     );
     let oembed = fetch_oembed(&endpoint).await?;
@@ -1186,6 +1197,17 @@ mod link_kind_tests {
         let (text, published) = parse_x_oembed_html(html);
         assert_eq!(text.as_deref(), Some("just setting up my twttr\nline two & more"));
         assert_eq!(published.as_deref(), Some("March 21, 2006"));
+    }
+
+    #[test]
+    fn open_graph_x_posts_become_post_cards_with_author_and_handle() {
+        let mut post = bare();
+        post.title = Some("jack (@jack) on X".into());
+        post.description = Some("just setting up my twttr".into());
+        classify_preview("https://x.com/jack/status/20", &mut post);
+        assert_eq!(post.kind.as_deref(), Some("post"));
+        assert_eq!(post.author.as_deref(), Some("jack"));
+        assert_eq!(post.author_handle.as_deref(), Some("@jack"));
     }
 
     #[test]

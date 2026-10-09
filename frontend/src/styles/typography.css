@@ -25,3 +25,6 @@
 body {
 	font-family: var(--w-sans);
 }
+
+/* The user's interface scale (Settings → Accessibility) multiplies every design size. */
+:root { --w-fs: var(--app-font-scale, 1); }
