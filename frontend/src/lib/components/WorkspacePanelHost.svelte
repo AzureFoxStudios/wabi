@@ -118,45 +118,15 @@
 {/if}
 
 <style>
-	.channel-picker {
-		display: flex;
-		flex-direction: column;
-		gap: 0.35rem;
-		padding: 0.75rem;
-		overflow-y: auto;
-	}
-	.channel-picker-heading {
-		color: var(--text-heading);
-		font-size: var(--font-size-sm);
-		font-weight: 600;
-	}
-	.channel-picker-sub {
-		color: var(--text-muted);
-		font-size: var(--font-size-xs);
-		margin-bottom: 0.25rem;
-	}
-	.channel-picker-item {
-		width: 100%;
-		text-align: left;
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-md);
-		background: transparent;
-		color: var(--text-secondary);
-		font-size: var(--font-size-sm);
-		padding: 0.5rem 0.6rem;
-		cursor: pointer;
-	}
-	.channel-picker-item:hover {
-		background: var(--surface-hover);
-		color: var(--text-heading);
-		border-color: var(--accent-primary);
-	}
-	.channel-picker-name {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		display: block;
-	}
+	.channel-picker { display: flex; flex-direction: column; gap: 0; padding: 14px 14px 10px; overflow-y: auto; }
+	.channel-picker-heading { font: 600 1.15rem/1.2 var(--w-serif, serif); color: var(--w-text); letter-spacing: .01em; }
+	.channel-picker-sub { color: var(--w-mute); font-size: .8rem; margin: 4px 0 12px; }
+	.channel-picker-item { width: 100%; text-align: left; border: 0; border-top: var(--w-bw, 1px) solid var(--w-line); border-radius: 0; background: transparent; color: var(--w-text); font: 500 .85rem var(--w-sans); padding: 10px 2px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+	.channel-picker-item::before { content: '#'; color: var(--w-deco); font-family: var(--w-mono); }
+	.channel-picker-item:last-child { border-bottom: var(--w-bw, 1px) solid var(--w-line); }
+	.channel-picker-item:hover { color: var(--w-accent); }
+	.channel-picker-item:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
+	.channel-picker-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 	.right-panel-embedded :global(.forum-body) {
 		display: flex;
 		flex-direction: column;
