@@ -81,7 +81,8 @@ export function peekAnimationGate(node: HTMLElement): { destroy: () => void } {
 	// retract a peek the user is actively hovering.
 	const settle = () => {
 		requestAnimationFrame(() => {
-			setPeekPointerInside(node.matches(':hover'));
+			// The rail is a separate element now; resting on it counts as being home.
+			setPeekPointerInside(node.matches(':hover') || Boolean(document.querySelector('.rail:hover')));
 			endPeekAnimation();
 		});
 	};

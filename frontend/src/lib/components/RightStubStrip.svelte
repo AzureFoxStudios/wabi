@@ -9,7 +9,7 @@
 		workspacePanelList,
 		type WorkspacePanelManifest
 	} from '$lib/workspacePanels';
-	import { armPeekDismiss, cancelPeekDismiss } from '$lib/rightPeekGestures';
+	import { armPeekDismiss, cancelPeekDismiss, setPeekPointerInside } from '$lib/rightPeekGestures';
 	import { portal } from '$lib/actions/portal';
 	import { railPeekKey, peekModifierHeld, peekKeyLabel, reorderIndexes } from '$lib/railPrefs';
 	import { panelActionIndex, positionPanelPopover } from '$lib/panelPopover';
@@ -332,8 +332,8 @@
 		class:side-right={$layoutStore.stubSide === 'right'}
 		role="group"
 		aria-label="Panel rail"
-		onmouseenter={cancelPeekDismiss}
-		onmouseleave={handleStubLeave}
+		onmouseenter={() => { setPeekPointerInside(true); cancelPeekDismiss(); }}
+		onmouseleave={() => { setPeekPointerInside(false); handleStubLeave(); }}
 	>
 		<div class="rail-list">
 			{#each stripPanels as panel, index (panel.id)}

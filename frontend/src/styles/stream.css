@@ -50,8 +50,41 @@
 	:root .messages .message .message-header .timestamp {
 		display: none;
 	}
-	:root .messages .message .compact-only-header {
-		display: none;
+}
+
+/* Compact density: IRC-style rows — [time][wick][name  message] on one line, no avatars.
+   ml-core.css owns the row padding with !important, so the grid gap is restated here. */
+@media (min-width: 820px) {
+	:root[data-message-density='compact'] .messages .message {
+		grid-template-columns: 62px 6px minmax(0, 1fr);
+		column-gap: 8px !important;
+		padding-left: 10px !important;
+		padding-right: 20px !important;
+	}
+	:root[data-message-density='compact'] .messages .message .msg-time {
+		padding-top: 2px;
+		font-size: 11px;
+	}
+	:root[data-message-density='compact'] .messages .message .msg-wick {
+		margin: 3px 2px;
+	}
+	:root[data-message-density='compact'] .messages .message .message-body {
+		grid-column: 3;
+		max-width: none;
+	}
+	:root[data-message-density='compact'] .messages .message .message-header .username,
+	:root[data-message-density='compact'] .messages .message .profile-name-text {
+		font-size: 13.5px;
+	}
+	:root[data-message-density='compact'] .messages .message .message-content,
+	:root[data-message-density='compact'] .messages .message .markdown-content,
+	:root[data-message-density='compact'] .messages .message .markdown-content p {
+		font-size: 14px;
+		line-height: 1.45;
+	}
+	/* every compact row names its author, so the continuation header stays */
+	:root[data-message-density='compact'] .messages .message .compact-only-header {
+		display: flex;
 	}
 }
 @media (max-width: 819px) {
