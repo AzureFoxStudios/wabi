@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { get } from 'svelte/store';
+	import { accessibilityReducedMotion } from '$lib/accessibility';
 	import { browser } from '$app/environment';
 	import { effectsRegistry } from './registry';
 	import { ConstellationsEffect } from './built-in/constellations';
@@ -210,22 +212,31 @@
 
 	let observer: MutationObserver | null = null;
 	let unlistenWindowState: (() => void) | null = null;
+	let stopAppReduced: (() => void) | null = null;
 
 	onMount(() => {
 		if (!browser) return;
+		// Honor both the OS preference and Wabi's own Accessibility > Reduce motion switch.
 		const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-		reducedMotion = mq.matches;
-		mq.addEventListener('change', (e) => {
-			reducedMotion = e.matches;
+		let osReduced = mq.matches;
+		let appReduced = get(accessibilityReducedMotion);
+		const applyReduced = () => {
+			const next = osReduced || appReduced;
+			if (next === reducedMotion) return;
+			reducedMotion = next;
 			if (reducedMotion) {
 				stopLoop();
 				const prev = effectsRegistry.get(currentEffectId);
 				if (prev) prev.destroy();
 				currentEffectId = '';
+				canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
 			} else {
 				switchEffect();
 			}
-		});
+		};
+		reducedMotion = osReduced || appReduced;
+		mq.addEventListener('change', (e) => { osReduced = e.matches; applyReduced(); });
+		stopAppReduced = accessibilityReducedMotion.subscribe((value) => { appReduced = value; applyReduced(); });
 
 		switchEffect();
 
@@ -275,6 +286,7 @@
 
 	onDestroy(() => {
 		if (!browser) return;
+		stopAppReduced?.();
 		stopLoop();
 		const effect = effectsRegistry.get(currentEffectId);
 		if (effect) effect.destroy();
