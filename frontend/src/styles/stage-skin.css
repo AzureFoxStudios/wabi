@@ -121,3 +121,20 @@
 }
 :root .messages .image-download-link:hover,
 :root .messages .video-download-link:hover { color: var(--w-accent); }
+
+/* People / right-panel filters and search */
+:root .right-panel select,
+:root .right-panel input[type='text'],
+:root .right-panel input[type='search'],
+:root .right-panel input:not([type]) {
+	min-height: 34px;
+	padding: 5px 10px;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(10px * var(--w-rs, 1));
+	background: var(--w-sink);
+	color: var(--w-text);
+	font: 400 calc(13.5px * var(--w-fs, 1)) var(--w-sans);
+}
+:root .right-panel select:focus,
+:root .right-panel input:focus { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
+:root .right-panel { font-family: var(--w-sans); }

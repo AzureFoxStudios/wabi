@@ -1,5 +1,10 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { initializeTheme } from '$lib/theme/initTheme';
 	import '../../styles/public-pages.css';
+
+	// Reading pages are reachable signed out; apply the viewer's saved theme so they match the app.
+	onMount(() => void initializeTheme(false));
 </script>
 
 <svelte:head>

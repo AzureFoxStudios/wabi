@@ -178,3 +178,16 @@
 	.public-mark { forced-color-adjust: none; background: CanvasText; }
 	.public-page .public-action-primary { border: 2px solid ButtonText; }
 }
+
+/* Editorial treatment on the theme roles (set once initializeTheme has run). */
+.public-page { background: var(--w-bg, var(--surface-sunken)); color: var(--w-text, var(--text-heading)); font-family: var(--w-sans, var(--font-sans)); }
+.public-header { border-bottom-color: var(--w-line, var(--border-strong)); }
+.public-home span:last-child { font-family: var(--w-serif, var(--font-sans)); font-weight: 600; font-size: 1.25rem; }
+.public-nav a, .public-footer a { color: var(--w-mute, var(--text-secondary)); font-size: 0.95rem; font-family: var(--w-mono, var(--font-sans)); }
+.public-nav a:hover, .public-footer a:hover { color: var(--w-accent, var(--text-heading)); }
+.public-nav a[aria-current='page'] { color: var(--w-text, var(--text-heading)); text-decoration-color: var(--w-accent, var(--accent-secondary)); }
+.public-reading h1 { font-family: var(--w-serif, inherit); font-weight: 600; color: var(--w-text, var(--text-heading)); }
+.public-reading h2 { font-family: var(--w-serif, inherit); font-weight: 600; color: var(--w-text, var(--text-heading)); }
+.public-effective { font-family: var(--w-mono, inherit); color: var(--w-mute, inherit); }
+.public-lede { color: var(--w-mute, var(--text-secondary)); }
+.public-reading p, .public-reading li { color: var(--w-mute, var(--text-secondary)); }
