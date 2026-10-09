@@ -1,6 +1,7 @@
 /**
  * Deep-link targets from push notifications / notification clicks.
  */
+import { loreLineRange } from '$lib/forumReferences';
 import { channels } from '$lib/channelStore';
 import { get } from 'svelte/store';
 import { getServerUrl } from '$lib/serverUrl';
@@ -10,7 +11,7 @@ import { layoutStore } from '$lib/layoutStore';
 import { currentChannel, joinChannel } from '$lib/socket';
 
 export type WabiNavTarget =
-	| { kind: 'lore_file'; channelId: string; filePath: string }
+	| { kind: 'lore_file'; channelId: string; filePath: string; lines?: { start: number; end: number } }
 	| { kind: 'channel'; channelId: string; messageId?: string }
 	| { kind: 'dm'; channelId: string }
 	| { kind: 'call'; callId: string }
@@ -21,7 +22,7 @@ export function parseWabiNavFromSearch(search: string): WabiNavTarget | null {
 	const q = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
 	const kind = q.get('wabiNav');
 	if (!kind) return null;
-	if (kind === 'lore_file') { const channelId = q.get('channelId'), filePath = q.get('path'); return channelId && filePath && !filePath.split('/').includes('..') ? {kind, channelId, filePath} : null; }
+	if (kind === 'lore_file') { const channelId = q.get('channelId'), filePath = q.get('path'); return channelId && filePath && !filePath.split('/').includes('..') ? {kind, channelId, filePath, ...loreLineRange(q.get('lines'))} : null; }
 	if (kind === 'channel') {
 		const channelId = q.get('channelId') || q.get('id');
 		if (!channelId) return null;

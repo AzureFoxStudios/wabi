@@ -121,7 +121,7 @@
 	let canEdit = $derived(!preview && (canManage || roleName.toLowerCase() === 'developer'));
 	let readOnly = $derived(isMirror(repo));
 	let canWrite = $derived(!preview && !readOnly && (canEdit || roleName.toLowerCase() === 'artist'));
-	$effect(() => { if (!preview && !loading && repo && $pendingNav?.kind === 'lore_file' && $pendingNav.channelId === channelKey) { const ref = takePendingNav('lore_file', channelKey); if (ref?.kind === 'lore_file') { if (files.some(file => file.path === ref.filePath)) void openFile(ref.filePath); else error = 'The linked file is not available in this project.'; } } });
+	$effect(() => { if (!preview && !loading && repo && $pendingNav?.kind === 'lore_file' && $pendingNav.channelId === channelKey) { const ref = takePendingNav('lore_file', channelKey); if (ref?.kind === 'lore_file') { if (files.some(file => file.path === ref.filePath)) void openFile(ref.filePath, ref.lines ?? null); else error = 'The linked file is not available in this project.'; } } });
 	let selectedFile = $derived(files.find(file => file.path === selectedPath) ?? null);
 	let reviewQueue = $derived(branches.filter(branch => branch.name.startsWith('uploads/')));
 	let changeCount = $derived(counts.outgoing + counts.incoming + counts.conflicts);
@@ -206,10 +206,11 @@
 		const input = event.currentTarget as HTMLSelectElement;
 		if (canLeave()) onSelectProject?.(input.value); else input.value = channelKey;
 	}
-	async function openFile(path: string) {
+	let linkedLines = $state<{ start: number; end: number } | null>(null);
+	async function openFile(path: string, lines: { start: number; end: number } | null = null) {
 		if (fileDirty && !window.confirm('Discard unsaved editor changes before opening this file?')) return;
 		const request = previews.begin();
-		previewKey++; selectedPath = path; selectedContent = null; selectedMedia = null; fileLoading = true; fileError = ''; fileDirty = false; stalePreview = false; navigate('files');
+		linkedLines = lines; previewKey++; selectedPath = path; selectedContent = null; selectedMedia = null; fileLoading = true; fileError = ''; fileDirty = false; stalePreview = false; navigate('files');
 		const info = files.find(file => file.path === path), kind = previewKind(path);
 		try {
 			const auth = token();
@@ -222,6 +223,11 @@
 			}
 		} catch (e) { if (active() && previews.current(request)) fileError = e instanceof Error ? e.message : 'Could not load this file.'; }
 		finally { if (previews.current(request)) fileLoading = false; }
+	}
+	function copyLineLink(start: number, end: number) {
+		if (!selectedPath) return;
+		const params = new URLSearchParams({ wabiNav: 'lore_file', channelId: channelKey, path: selectedPath, lines: start === end ? String(start) : `${start}-${end}` });
+		void copyToClipboard(`${serverUrl.replace(/\/$/, '')}/?${params}`).catch(() => { error = 'Could not copy the link.'; });
 	}
 	function closeFile() { previews.begin(); selectedPath = null; selectedContent = null; selectedMedia = null; fileDirty = false; fileLoading = false; fileError = ''; }
 	function comparePath(path: string) { historyPath = path; contextTarget = null; navigate('history'); }
@@ -315,7 +321,7 @@
 							{#if stalePreview}<p class="lw-notice">A newer server version may be available. <button class="lw-text-button" onclick={() => void openFile(selectedPath!)}>Reload preview</button></p>{/if}
 							{#if fileError}<p class="lw-alert" role="alert">{fileError}<button class="lw-button" onclick={() => void openFile(selectedPath!)}>Retry preview</button></p>{/if}
 							{#if selectedMedia && ['audio', 'video'].includes(previewKind(selectedPath))}<div class="lw-media">{@render fileActions()}<h2>{selectedPath.split('/').pop()}</h2>{#if previewKind(selectedPath) === 'audio'}<audio controls src={selectedMedia}></audio>{:else}<video controls src={selectedMedia}><track kind="captions" /></video>{/if}<button class="lw-button" onclick={() => void download(selectedPath!)}>Download file</button></div>
-							{:else}{#key previewKey}<LoreFileViewer filePath={selectedPath} fileContent={selectedContent} fileInfo={selectedFile} loading={fileLoading} mediaUrl={selectedMedia} canEdit={canWrite} token={getAuthToken(serverUrl) ?? undefined} {channelId} onClose={closeFile} onSaved={() => void reload()} onDirtyChange={(value) => fileDirty = value} actions={fileActions} />{/key}{/if}
+							{:else}{#key previewKey}<LoreFileViewer highlightLines={linkedLines} onLinkLines={copyLineLink} filePath={selectedPath} fileContent={selectedContent} fileInfo={selectedFile} loading={fileLoading} mediaUrl={selectedMedia} canEdit={canWrite} token={getAuthToken(serverUrl) ?? undefined} {channelId} onClose={closeFile} onSaved={() => void reload()} onDirtyChange={(value) => fileDirty = value} actions={fileActions} />{/key}{/if}
 						{:else}<div class="lw-setup"><LoreIcon name="file" size={36} /><h2>Choose a file</h2><p>Read documents, inspect code, and preview assets without leaving your project.</p></div>{/if}
 					</div>
 				</div>
