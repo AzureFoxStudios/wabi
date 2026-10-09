@@ -16,6 +16,8 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	import LaunchPanel from '$lib/components/login/LaunchPanel.svelte';
 	import LoginQRModal from '$lib/components/login/LoginQRModal.svelte';
 	import LoginConnectionPrompt from '$lib/components/login/LoginConnectionPrompt.svelte';
+	import { currentTheme } from '$lib/theme/themeStore';
+	import { communityDisplayFont } from '$lib/theme/displayFonts';
 	import { buildLaunchPageStyles, hasOperatorLaunchStyling, injectNeutralBranding } from '$lib/components/loginHelpers';
 	import type { StarterChannel } from '$lib/api/auth';
 	import './login.css';
@@ -102,6 +104,9 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 			})
 		: { launchContainerStyle: '', launchCardStyle: '', launchCustomCss: '' };
 	$: launchContainerStyle = launchStyles.launchContainerStyle;
+	// The operator's title font reaches the login too (curated ids only; the theme's own type outranks it).
+	$: communityFont = neutralBranding ? null : communityDisplayFont(launchPageConfig?.displayFont, $currentTheme?.character);
+	$: loginTitleFont = communityFont ? ` --w-serif: ${communityFont};` : '';
 	$: launchCardStyle = launchStyles.launchCardStyle;
 	$: launchCustomCss = launchStyles.launchCustomCss;
 
@@ -277,7 +282,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	<style>{launchCustomCss}</style>
 </svelte:head>
 
-<div class="login-container" class:has-atmosphere={!!atmosphereUrl} data-login-brand={invertHostLogo ? 'wabi' : 'custom'} style={launchContainerStyle}>
+<div class="login-container" class:has-atmosphere={!!atmosphereUrl} data-login-brand={invertHostLogo ? 'wabi' : 'custom'} style={launchContainerStyle + loginTitleFont}>
 	<div class="login-shell" class:has-launch={!!activeLaunchPageConfig}>
 		{#if activeLaunchPageConfig}
 			<LaunchPanel config={activeLaunchPageConfig} />
