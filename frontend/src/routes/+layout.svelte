@@ -9,6 +9,7 @@
 	import '../styles/login-skin.css';
 	import '../styles/controls-kit.css';
 	import '../styles/stage-skin.css';
+	import '../styles/settings-skin.css';
 	import '../styles/desktop-shell.css';
 	import DesktopTitlebar from '$lib/components/DesktopTitlebar.svelte';
 	// Phase 4 boot optimization: katex/prism CSS moved next to their JS usage
