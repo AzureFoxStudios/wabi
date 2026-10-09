@@ -1,4 +1,6 @@
-export type ChatBackdropScene = 'none' | 'image' | 'koi';
+export type ChatBackdropScene = 'none' | 'image' | 'koi' | 'ink' | 'dusk' | 'fireflies';
+
+export const ANIMATED_BACKDROP_SCENES: readonly ChatBackdropScene[] = ['koi', 'ink', 'dusk', 'fireflies'];
 
 export type ChatBackdropSettings = {
 	scene: ChatBackdropScene;
@@ -21,7 +23,7 @@ export function loadChatBackdropSettings(hasImage = false): ChatBackdropSettings
 	try {
 		const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
 		return {
-			scene: parsed.scene === 'koi' || parsed.scene === 'image' || parsed.scene === 'none'
+			scene: ['koi', 'image', 'none', 'ink', 'dusk', 'fireflies'].includes(parsed.scene)
 				? parsed.scene === 'none' && parsed.version !== 2 && hasImage ? 'image' : parsed.scene
 				: hasImage ? 'image' : 'none',
 			motion: clamp(parsed.motion, defaultChatBackdropSettings.motion),
