@@ -132,6 +132,12 @@ export function getFileIcon(fileName?: string): string {
 	return iconMap[ext] || '📎';
 }
 
+/** Short mono label for a file: its extension in capitals ("PDF", "BLEND"), or FILE when it has none. */
+export function fileExtLabel(fileName?: string): string {
+	const ext = fileName?.includes('.') ? fileName.split('.').pop() || '' : '';
+	return /^[a-z0-9]{1,5}$/i.test(ext) ? ext.toUpperCase() : 'FILE';
+}
+
 export function formatFileSize(bytes?: number): string {
 	if (!bytes) return '';
 	if (bytes < 1024) return bytes + ' B';
