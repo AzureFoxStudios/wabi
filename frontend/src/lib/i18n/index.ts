@@ -2,83 +2,90 @@ import { browser } from '$app/environment';
 import { init, locale, addMessages, _ } from 'svelte-i18n';
 import { derived, writable } from 'svelte/store';
 import en from './locales/en.json';
-import es from './locales/es.json';
-import th from './locales/th.json';
+import { BASE_LOCALE, getLanguagePack, listLanguagePacks } from './packs';
+
+export { registerLanguagePack } from './packs';
+export type { LanguagePack } from './packs';
 
 const LOCALE_STORAGE_KEY = 'wabi_locale';
 
-export const availableLocales = [
-	{ code: 'en', label: 'English' },
-	{ code: 'es', label: 'Español' },
-	{ code: 'th', label: 'ไทย' }
-] as const;
+export type LocaleCode = string;
 
-export type LocaleCode = 'en' | 'es' | 'th';
+/** English first, then every registered pack. Read at call time so addon packs appear. */
+export function getAvailableLocales(): { code: string; label: string }[] {
+	return [{ code: BASE_LOCALE, label: 'English' }, ...listLanguagePacks().map(({ code, label }) => ({ code, label }))];
+}
 
-const localeSourceMap: Record<LocaleCode, typeof en> = { en, es, th };
+/** Snapshot kept for existing call sites; prefer getAvailableLocales() in new code. */
+export const availableLocales = getAvailableLocales();
 
 let initialized = false;
+let switchGeneration = 0;
 
-const appLocaleStore = writable<LocaleCode>('en');
+const appLocaleStore = writable<string>(BASE_LOCALE);
 
-function normalizeLocale(input: string | null | undefined): LocaleCode {
-	if (input === 'es') return 'es';
-	if (input === 'th') return 'th';
-	return 'en';
+function normalizeLocale(input: string | null | undefined): string {
+	return input && getLanguagePack(input) ? input : BASE_LOCALE;
 }
 
-function getInitialLocale(): LocaleCode {
-	if (!browser) return 'en';
+function getInitialLocale(): string {
+	if (!browser) return BASE_LOCALE;
 	return normalizeLocale(localStorage.getItem(LOCALE_STORAGE_KEY));
-}
-
-function clampPercent(value: number): number {
-	if (!Number.isFinite(value)) return 100;
-	return Math.min(100, Math.max(0, value));
 }
 
 export function initI18n(): void {
 	if (initialized) return;
-	addMessages('en', en);
-	addMessages('es', es);
-
-	const initialLocale = getInitialLocale();
-
-	appLocaleStore.set(initialLocale);
-
-	init({
-		fallbackLocale: 'en',
-		initialLocale
-	});
-
-	applyLocaleMessages(initialLocale);
+	initialized = true;
+	addMessages(BASE_LOCALE, en);
+	// English renders immediately; a stored language replaces it as soon as its pack arrives.
+	init({ fallbackLocale: BASE_LOCALE, initialLocale: BASE_LOCALE });
+	appLocaleStore.set(BASE_LOCALE);
+	void setAppLocale(getInitialLocale());
 
 	if (browser) {
 		appLocaleStore.subscribe((value) => {
-			localStorage.setItem(LOCALE_STORAGE_KEY, normalizeLocale(value));
+			try {
+				localStorage.setItem(LOCALE_STORAGE_KEY, normalizeLocale(value));
+			} catch {
+				/* storage unavailable: the choice just won't persist */
+			}
 		});
 	}
-
-	initialized = true;
 }
 
-function applyLocaleMessages(nextLocale: LocaleCode): void {
-	if (browser) {
-		document.documentElement.lang = nextLocale;
-	}
-	if (nextLocale === 'en') {
-		addMessages('en', en);
-		locale.set('en');
+function applyDocumentLanguage(code: string, script: string): void {
+	if (!browser) return;
+	document.documentElement.lang = code;
+	document.documentElement.setAttribute('data-script', script);
+}
+
+/**
+ * Switch language. Downloads the pack and its fonts first, so the UI never flashes
+ * untranslated keys or the wrong typeface. An unknown or failing pack falls back to English.
+ */
+export async function setAppLocale(nextLocale: string): Promise<void> {
+	const generation = ++switchGeneration;
+	const pack = getLanguagePack(nextLocale);
+	if (!pack) {
+		locale.set(BASE_LOCALE);
+		appLocaleStore.set(BASE_LOCALE);
+		applyDocumentLanguage(BASE_LOCALE, 'latin');
 		return;
 	}
-	addMessages(nextLocale, localeSourceMap[nextLocale]);
-	locale.set(nextLocale);
-}
-
-export function setAppLocale(nextLocale: string): void {
-	const normalized = normalizeLocale(nextLocale);
-	appLocaleStore.set(normalized);
-	applyLocaleMessages(normalized);
+	try {
+		const [messages] = await Promise.all([pack.load(), pack.loadFonts?.()]);
+		if (generation !== switchGeneration) return; // a newer choice won
+		addMessages(pack.code, messages);
+		locale.set(pack.code);
+		appLocaleStore.set(pack.code);
+		applyDocumentLanguage(pack.code, pack.script);
+	} catch (error) {
+		console.warn(`[i18n] could not load language pack "${nextLocale}"`, error);
+		if (generation !== switchGeneration) return;
+		locale.set(BASE_LOCALE);
+		appLocaleStore.set(BASE_LOCALE);
+		applyDocumentLanguage(BASE_LOCALE, 'latin');
+	}
 }
 
 export const currentLocale = derived(appLocaleStore, (value) => value);

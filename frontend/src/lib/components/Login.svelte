@@ -7,7 +7,7 @@
 	import { clearAuthSession, setAuthToken, setPersistentAuthToken, setStoredDbUserId } from '$lib/authSession';
 import { setRefreshToken } from '$lib/api/authRefresh';
 		import { retryDecryptLoadedDmMessages } from '$lib/socket';
-	import { _, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
+	import { _, getAvailableLocales, currentLocale, setAppLocale } from '$lib/i18n';
 	import { getConfiguredServerUrl, getServerUrl, resolveServerUrl } from '$lib/serverUrl';
 	import { isCurrentTailcatProxy, restoreTailcatConnection } from '$lib/tailcatConnection';
 	import { isTauriRuntime } from '$lib/tauri-platform';
@@ -77,7 +77,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	);
 	$: activeLaunchPageConfig = showLaunchPanel ? launchPageConfig : null;
 	$: hostBrandName = neutralBranding ? '' : launchPageConfig?.brandName || fallbackBrand.name || brandName;
-	$: localeLabel = availableLocales.find((locale) => locale.code === selectedLocale)?.label || selectedLocale;
+	$: localeLabel = getAvailableLocales().find((locale) => locale.code === selectedLocale)?.label || selectedLocale;
 	$: hostLogoUrl = neutralBranding ? fallbackBrand.logoSmallUrl : launchPageConfig?.logoUrl || fallbackBrand.logoSmallUrl || '/wabi-logo.png';
 	$: if (lastHostLogoUrl !== hostLogoUrl) {
 		lastHostLogoUrl = hostLogoUrl;
@@ -521,7 +521,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 5h12M9 3v2M5 5c0 6 4 9 8 11M13 5c0 6-4 9-8 11M13 21l4-11 4 11M14.5 17h5"/></svg>
 					<span aria-hidden="true">{localeLabel}</span>
 					<select id="locale-picker" aria-label="Language" bind:value={selectedLocale} on:change={(event) => setAppLocale((event.currentTarget as HTMLSelectElement).value)}>
-						{#each availableLocales as localeOption}<option value={localeOption.code}>{localeOption.label}</option>{/each}
+						{#each getAvailableLocales() as localeOption}<option value={localeOption.code}>{localeOption.label}</option>{/each}
 					</select>
 				</label>
 				{#if !wizardMode && !showConnectionPrompt}

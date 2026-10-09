@@ -4,7 +4,7 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { openAdminSection } from '$lib/adminNavigationState';
 	import type { AdminSection } from '$lib/adminNavigation';
-	import { _ as t, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
+	import { _ as t, getAvailableLocales, currentLocale, setAppLocale } from '$lib/i18n';
 	import { currentUser, getSocket, updateProfile } from '$lib/socket';
 	import { getAuthToken } from '$lib/authSession';
 	import { uploadProfilePictureFile } from '$lib/profilePictureUpload';
@@ -274,7 +274,7 @@
 						value={$currentLocale || 'en'}
 						on:change={(event) => setAppLocale(event.currentTarget.value)}
 					>
-						{#each availableLocales as localeOption}
+						{#each getAvailableLocales() as localeOption}
 							<option value={localeOption.code}>{localeOption.label}</option>
 						{/each}
 					</select>

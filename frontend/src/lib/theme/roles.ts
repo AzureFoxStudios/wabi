@@ -81,11 +81,6 @@ export function assignAccents(theme: Theme): { line: string; seal: string } {
 		: { line: secondary, seal: primary };
 }
 
-const FONT_SANS =
-	'"Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
-const FONT_SERIF = '"Shippori Mincho", "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif';
-const FONT_MONO = '"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
-
 export function deriveRoles(theme: Theme): RoleTokens {
 	const c = theme.colors;
 	const { line: accent, seal } = assignAccents(theme);
@@ -113,9 +108,6 @@ export function deriveRoles(theme: Theme): RoleTokens {
 		'--w-online': c.statusOnline,
 		'--w-danger': c.colorDanger,
 		'--w-scrim': light ? 'rgba(240, 238, 232, 0.62)' : 'rgba(6, 8, 9, 0.58)',
-		'--w-serif': FONT_SERIF,
-		'--w-sans': FONT_SANS,
-		'--w-mono': FONT_MONO,
 	};
 }
 
