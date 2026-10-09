@@ -5,8 +5,8 @@
 	import { renderLoreDocument } from '$lib/lore/documentMarkdown';
 	import { formatBytes, SelectionEpoch } from '$lib/lore/workspacePresentation';
 	import { isMarkdownPath } from '$lib/lore/readmeDefault';
-	import { EditorState, type Extension } from '@codemirror/state';
-	import { EditorView, keymap, lineNumbers } from '@codemirror/view';
+	import { EditorState, RangeSetBuilder, type Extension } from '@codemirror/state';
+	import { Decoration, EditorView, keymap, lineNumbers } from '@codemirror/view';
 	import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 	import { oneDark } from '@codemirror/theme-one-dark';
 	import { javascript } from '@codemirror/lang-javascript';
@@ -25,8 +25,12 @@
 		filePath: string; fileContent: string | null; fileInfo: LoreFileInfo | null; loading: boolean;
 		onClose: () => void; mediaUrl?: string | null; canEdit?: boolean; token?: string; channelId?: number;
 		onSaved?: () => void; onDirtyChange?: (dirty: boolean) => void; actions?: Snippet;
+		/** Lines a post asked people to look at: scrolled into view and tinted. */
+		highlightLines?: { start: number; end: number } | null;
+		/** Called with the selected 1-based line range when the reader asks for a link to it. */
+		onLinkLines?: (start: number, end: number) => void;
 	}
-	let { filePath, fileContent, fileInfo, loading, onClose, mediaUrl = null, canEdit = false, token, channelId, onSaved, onDirtyChange, actions }: Props = $props();
+	let { filePath, fileContent, fileInfo, loading, onClose, mediaUrl = null, canEdit = false, token, channelId, onSaved, onDirtyChange, actions, highlightLines = null, onLinkLines }: Props = $props();
 	let viewer = $state<HTMLElement>();
 	let expanded = $state(false);
 	async function toggleFullscreen() { try { if (document.fullscreenElement === viewer) await document.exitFullscreen(); else await viewer?.requestFullscreen(); } catch { error = 'Fullscreen is unavailable in this window.'; } }
@@ -45,7 +49,7 @@
 	const requests = new SelectionEpoch();
 	let source = $derived(savedContent ?? fileContent);
 	let isMarkdown = $derived(isMarkdownPath(filePath));
-	let readable = $derived(isMarkdown && source !== null && source.length <= 512 * 1024);
+	let readable = $derived(isMarkdown && source !== null && source.length <= 512 * 1024 && !highlightLines);
 	let editable = $derived(canEdit && !!token && channelId !== undefined && source !== null && (fileInfo?.size ?? source.length) <= 1024 * 1024);
 	let dirty = $derived(mode === 'edit' && draft !== baseline && draft !== submittedContent);
 	$effect(() => { const value = dirty || busy; untrack(() => onDirtyChange?.(value)); });
@@ -76,11 +80,23 @@
 			EditorState.readOnly.of(!editing), EditorView.editable.of(editing),
 			EditorView.theme({ '&': { height: '100%', fontSize: '14px' }, '.cm-scroller': { overflow: 'auto' } })];
 		const grammar = language(path); if (grammar) extensions.push(grammar);
+		const range = untrack(() => highlightLines);
+		if (range && !editing) {
+			const doc = EditorState.create({ doc: content }).doc;
+			const builder = new RangeSetBuilder<Decoration>();
+			const from = Math.min(Math.max(1, range.start), doc.lines), to = Math.min(range.end, doc.lines);
+			for (let n = from; n <= to; n++) builder.add(doc.line(n).from, doc.line(n).from, Decoration.line({ class: 'cm-linked-line', attributes: { style: 'background: color-mix(in srgb, var(--w-sig, #d6ad5f) 18%, transparent); box-shadow: inset 2px 0 0 var(--w-sig, #d6ad5f);' } }));
+			extensions.push(EditorView.decorations.of(builder.finish()));
+		}
 		if (editing) extensions.push(history(), keymap.of([
 			{ key: 'Mod-s', run: () => { void saveRevision(); return true; }, preventDefault: true }, ...defaultKeymap, ...historyKeymap
 		]), EditorView.updateListener.of(update => { if (update.docChanged) draft = update.state.doc.toString(); }));
 		const view = new EditorView({ parent: node, state: EditorState.create({ doc: untrack(() => editing ? draft : content), extensions }) });
 		editor = view;
+		if (range && !editing) {
+			const line = view.state.doc.line(Math.min(Math.max(1, range.start), view.state.doc.lines));
+			requestAnimationFrame(() => view.dispatch({ selection: { anchor: line.from }, effects: EditorView.scrollIntoView(line.from, { y: 'start', yMargin: 48 }) }));
+		}
 		return () => { view.destroy(); if (editor === view) editor = undefined; };
 	});
 
@@ -122,6 +138,15 @@
 		if (busy || (dirty && !window.confirm('Discard your unsaved editor changes?'))) return;
 		mode = 'read'; conflict = null; error = '';
 	}
+	function linkSelectedLines() {
+		if (!editor || !onLinkLines) return;
+		const { from, to } = editor.state.selection.main;
+		const doc = editor.state.doc;
+		const start = doc.lineAt(from).number;
+		// A selection that ends at the very start of a line does not include that line.
+		const end = doc.lineAt(to > from && doc.lineAt(to).from === to ? to - 1 : to).number;
+		onLinkLines(start, Math.max(start, end));
+	}
 	function close() { if (!busy && (!dirty || window.confirm('Discard your unsaved editor changes and close this file?'))) onClose(); }
 	async function download() {
 		if (!token || channelId === undefined) return;
@@ -147,6 +172,7 @@
 				<button disabled={busy} onclick={finishEditing}>{dirty ? 'Discard edits' : 'Done'}</button>
 				<button class="viewer-primary" disabled={busy || !dirty || !!conflict} onclick={() => void saveRevision()}>{busy ? 'Saving…' : 'Save revision'}</button>
 			{:else}
+				{#if onLinkLines && source !== null && !(mode === 'read' && readable)}<button onclick={linkSelectedLines} title="Select some lines first; this copies a link that opens this file scrolled to them">Link selected lines</button>{/if}
 				{#if source !== null}<button onclick={() => void navigator.clipboard.writeText(source!).then(() => notice = 'Content copied.').catch(() => error = 'Could not copy content.')}>Copy</button>{/if}
 				{#if readable}<button aria-pressed={mode === 'source'} onclick={() => mode = mode === 'source' ? 'read' : 'source'}>{mode === 'source' ? 'Read document' : 'View source'}</button>{/if}
 				{#if editable}<button disabled={busy} onclick={() => void enterEdit()}>{busy ? 'Opening…' : 'Edit'}</button>{/if}
