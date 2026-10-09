@@ -3,6 +3,7 @@
 	import { switchChannel } from '$lib/channelStore';
 	import ProjectAssistant from './ProjectAssistant.svelte';
 	import SharedProjectBoard from './business/SharedProjectBoard.svelte';
+	import ProjectSchedule from './business/ProjectSchedule.svelte';
 	import WikiChannel from './WikiChannel.svelte';
 	import LoreWorkspace from './LoreWorkspace.svelte';
     import ProjectConnections from './ProjectConnections.svelte';
@@ -18,7 +19,7 @@
 
 	type ProjectChannel = { id: string; name: string; type?: string | null };
 	let remembered: string | null = $state(null);
-	let tab: 'plan' | 'wiki' | 'files' | 'assistant' | 'connections' = $state('plan');
+	let tab: 'plan' | 'schedule' | 'wiki' | 'files' | 'assistant' | 'connections' = $state('plan');
     let connectionsEnabled=$state(false);
     onMount(()=>{
         let disposed=false;
@@ -41,7 +42,7 @@
 		switchChannel(id);
 		if (projects.find(channel => channel.id === id)?.type !== 'lore' && tab === 'files') tab = 'plan';
 	}
-	function openView(view: 'plan' | 'wiki' | 'files' | 'assistant' | 'connections'): void {
+	function openView(view: 'plan' | 'schedule' | 'wiki' | 'files' | 'assistant' | 'connections'): void {
 		tab = view;
 		onDiscussionChange(false);
 	}
@@ -69,6 +70,7 @@
 		<div class="project-nav-row">
 			<nav class="project-tabs" aria-label="Project views">
 				<button type="button" class:active={!discussionActive && tab === 'plan'} aria-current={!discussionActive && tab === 'plan' ? 'page' : undefined} onclick={() => openView('plan')}><span aria-hidden="true">▦</span> Board</button>
+				<button type="button" class:active={!discussionActive && tab === 'schedule'} aria-current={!discussionActive && tab === 'schedule' ? 'page' : undefined} onclick={() => openView('schedule')}><span aria-hidden="true">≡</span> Schedule</button>
 				<button type="button" class:active={!discussionActive && tab === 'wiki'} aria-current={!discussionActive && tab === 'wiki' ? 'page' : undefined} onclick={() => openView('wiki')}><span aria-hidden="true">▤</span> Wiki</button>
 				<button type="button" class:active={!discussionActive && tab === 'assistant'} aria-current={!discussionActive && tab === 'assistant' ? 'page' : undefined} onclick={() => openView('assistant')}><span aria-hidden="true">✧</span> Assistant</button>
                 {#if connectionsEnabled}<button type="button" class:active={!discussionActive && tab==='connections'} aria-current={!discussionActive && tab==='connections'?'page':undefined} onclick={()=>openView('connections')}><span aria-hidden="true">◈</span> Connections</button>{/if}
@@ -81,6 +83,7 @@
 		{#if !discussionActive}<div class="project-content">
 			{#key selected.id}
 				{#if tab === 'plan'}<SharedProjectBoard channelId={selected.id} />
+				{:else if tab === 'schedule'}<ProjectSchedule channelId={selected.id} />
 				{:else if tab === 'assistant'}<ProjectAssistant channelId={selected.id} />
                 {:else if tab === 'connections' && connectionsEnabled}<ProjectConnections channelId={selected.id} />
 				{:else if tab === 'wiki'}<WikiChannel channelId={selected.id} draftSurface="project" />
