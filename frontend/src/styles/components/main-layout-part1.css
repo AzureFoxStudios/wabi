@@ -148,7 +148,7 @@
 	top: 0;
 	right: var(--w-rail-w, 46px);
 	bottom: 0;
-	z-index: calc(var(--z-popout, 1200) - 2);
+	z-index: 899; /* below modal overlays (--z-overlay 1000), above stage content */
 	box-shadow: none;
 	height: 100dvh;
 	min-width: 0;
@@ -201,7 +201,7 @@
 	top: 0;
 	right: var(--w-rail-w, 46px);
 	bottom: 0;
-	z-index: calc(var(--z-popout, 1200) - 2);
+	z-index: 899; /* below modal overlays (--z-overlay 1000), above stage content */
 	box-shadow: -10px 0 40px rgba(0, 0, 0, 0.4);
 	animation: peek-in-right 0.22s var(--ease-out, ease-out) both;
 }
@@ -240,7 +240,7 @@
 	top: 0;
 	right: var(--w-rail-w, 46px);
 	bottom: 0;
-	z-index: calc(var(--z-popout, 1200) - 2);
+	z-index: 899; /* below modal overlays (--z-overlay 1000), above stage content */
 	box-shadow: -10px 0 40px rgba(0, 0, 0, 0.4);
 	pointer-events: none;
 	animation: peek-out-right 0.2s var(--ease-in, ease-in) both;

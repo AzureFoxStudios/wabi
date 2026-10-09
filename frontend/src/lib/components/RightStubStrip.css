@@ -11,7 +11,7 @@
 	top: 0;
 	bottom: 0;
 	width: var(--w-rail-w);
-	z-index: calc(var(--z-popout, 1200) - 1);
+	z-index: 900; /* below modal overlays, above stage content */
 	display: flex;
 	flex-direction: column;
 	align-items: center;
