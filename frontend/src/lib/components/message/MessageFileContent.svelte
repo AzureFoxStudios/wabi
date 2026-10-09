@@ -12,7 +12,7 @@
 	import { promoteCacheStore } from '$lib/lorePromoteCache';
 	import {
 		formatFileSize,
-		getFileIcon,
+		fileExtLabel,
 		isAudio,
 		isBlendFile,
 		getMediaMimeType,
@@ -292,7 +292,7 @@
 											{$_('messages.media.open_3d_tab')}
 										</button>
 										<a href={getFileUrl(fileAttachment.fileUrl)} target="_blank" rel="noopener noreferrer" download={fileAttachment.fileName} class="image-download-link">
-											<span class="file-icon">{getFileIcon(fileAttachment.fileName)}</span>
+											<span class="file-icon file-ext">{fileExtLabel(fileAttachment.fileName)}</span>
 											{fileAttachment.fileName}
 											<span class="file-size-small">({formatFileSize(fileAttachment.fileSize)})</span>
 										</a>
@@ -304,7 +304,7 @@
 									</div>
 								{:else if isBlendFile(fileAttachment.fileName)}
 									<div class="gallery-file-item blend-item" class:last-item={index === 3 && message.files.length > 4}>
-										<div class="gallery-file-icon-large">{getFileIcon(fileAttachment.fileName)}</div>
+										<div class="gallery-file-icon-large file-ext">{fileExtLabel(fileAttachment.fileName)}</div>
 										<div class="gallery-file-overlay">
 											<span class="file-name-truncate">{fileAttachment.fileName}</span>
 											<span class="file-size-small">({formatFileSize(fileAttachment.fileSize)})</span>
@@ -329,7 +329,7 @@
 										class="gallery-file-item file-link"
 										on:click|preventDefault={() => onDownloadAttachment(fileAttachment.fileUrl, fileAttachment.fileName, fileAttachment.attachmentEncryption)}
 									>
-										<div class="gallery-file-icon-large">{getFileIcon(fileAttachment.fileName)}</div>
+										<div class="gallery-file-icon-large file-ext">{fileExtLabel(fileAttachment.fileName)}</div>
 										<div class="gallery-file-overlay">
 											<span class="file-name-truncate">{fileAttachment.fileName}</span>
 											<span class="file-size-small">({formatFileSize(fileAttachment.fileSize)})</span>
@@ -376,7 +376,7 @@
 								{$_('messages.media.open_3d_tab')}
 							</button>
 							<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="image-download-link">
-								<span class="file-icon">{getFileIcon(message.fileName)}</span>
+								<span class="file-icon file-ext">{fileExtLabel(message.fileName)}</span>
 								{message.fileName}
 								<span class="file-size">({formatFileSize(message.fileSize)})</span>
 							</a>
@@ -400,7 +400,7 @@
 								title={$_('messages.media.click_enlarge_with_options')}
 							/>
 							<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="image-download-link">
-								<span class="file-icon">{getFileIcon(message.fileName)}</span>
+								<span class="file-icon file-ext">{fileExtLabel(message.fileName)}</span>
 								{message.fileName}
 								<span class="file-size">({formatFileSize(message.fileSize)})</span>
 							</a>
@@ -433,7 +433,7 @@
 									message.fileUrl && message.fileName &&
 									onDownloadAttachment(message.fileUrl, message.fileName, message.attachmentEncryption)}
 							>
-								<span class="file-icon">{getFileIcon(message.fileName)}</span>
+								<span class="file-icon file-ext">{fileExtLabel(message.fileName)}</span>
 								{message.fileName}
 								<span class="file-size">({formatFileSize(message.fileSize)} · {$_('messages.encrypted')})</span>
 							</a>
@@ -461,7 +461,7 @@
 								{$_('messages.viewer.video_not_supported')}
 							</video>
 							<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="video-download-link">
-								<span class="file-icon">{getFileIcon(message.fileName)}</span>
+								<span class="file-icon file-ext">{fileExtLabel(message.fileName)}</span>
 								{message.fileName}
 								<span class="file-size">({formatFileSize(message.fileSize)})</span>
 							</a>
@@ -478,7 +478,7 @@
 								{$_('messages.media.audio_not_supported')}
 							</audio>
 							<div class="audio-file-info">
-								<span class="file-icon">{getFileIcon(message.fileName)}</span>
+								<span class="file-icon file-ext">{fileExtLabel(message.fileName)}</span>
 								{message.fileName}
 								<span class="file-size">({formatFileSize(message.fileSize)})</span>
 							</div>
@@ -486,7 +486,7 @@
 					{:else if isBlendFile(message.fileName) && !isEncryptedAttachment(message)}
 						<div class="blend-file-card">
 							<div class="blend-file-head">
-								<span class="file-icon">{getFileIcon(message.fileName)}</span>
+								<span class="file-icon file-ext">{fileExtLabel(message.fileName)}</span>
 								<div class="file-info">
 									<span class="file-name">{message.fileName}</span>
 									<span class="file-size">{formatFileSize(message.fileSize)}</span>
@@ -511,10 +511,10 @@
 							class="file-attachment"
 							on:click|preventDefault={() => message.fileUrl && message.fileName && onDownloadAttachment(message.fileUrl, message.fileName, message.attachmentEncryption)}
 						>
-							<span class="file-icon">{getFileIcon(message.fileName)}</span>
+							<span class="file-icon file-ext">{fileExtLabel(message.fileName)}</span>
 							<div class="file-info">
 								<span class="file-name">{message.fileName}</span>
-								<span class="file-size">{formatFileSize(message.fileSize)}{message.attachmentEncryption ? ` (${$_('messages.encrypted')})` : ''}</span>
+								<span class="file-size">{formatFileSize(message.fileSize)}{#if message.attachmentEncryption} <span class="file-sealed">{$_('messages.encrypted')}</span>{/if}</span>
 							</div>
 						</a>
 						{#if isZipFile(message.fileName)}

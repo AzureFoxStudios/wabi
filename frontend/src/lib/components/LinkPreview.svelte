@@ -160,7 +160,7 @@
 	{:else if kind === 'post'}
 		<div class="lc lc-post" role="link" tabindex="0" on:click={handleClick} on:keydown={onKey}>
 			<div class="lc-meta">
-				<span class="lc-site">{preview.siteName || host}</span>
+				<span class="lc-site">{(preview.siteName || host).replace(/\s*\(formerly twitter\)/i, '')}</span>
 				{#if preview.published}<span class="lc-sep">·</span><span>{preview.published}</span>{/if}
 			</div>
 			<div class="lc-author">
