@@ -138,3 +138,18 @@
 :root .settings-content .theme-card.active { border-color: var(--w-accent); box-shadow: inset 2px 0 0 var(--w-accent); }
 :root .settings-content input[type='range'] { accent-color: var(--w-accent); }
 :root .wabi-settings-modal .settings-content h2 { font-size: calc(26px * var(--w-fs, 1)); text-transform: none; letter-spacing: 0.01em; margin-bottom: 14px; }
+
+/* Legacy gradient buttons (pointer effects, imports…) fall in line with the kit. */
+:root .settings-content .action-btn,
+:root .settings-content .primary-upload,
+:root .settings-content button.primary {
+	background: transparent !important;
+	background-image: none !important;
+	color: var(--w-text) !important;
+	border: var(--w-bw, 1px) solid var(--w-line-strong) !important;
+	box-shadow: none !important;
+	text-shadow: none !important;
+}
+:root .settings-content .action-btn:hover:not(:disabled) { background: var(--w-raise) !important; border-color: var(--w-accent) !important; transform: none !important; }
+:root .settings-content .primary-upload,
+:root .settings-content button.primary { background: var(--w-text) !important; color: var(--w-bg) !important; border-color: transparent !important; }
