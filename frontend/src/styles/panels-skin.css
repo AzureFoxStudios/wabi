@@ -247,3 +247,14 @@
 :root .shared-project-board .board-scroll .column-labels h2 { font: 600 1.02rem var(--w-serif); }
 :root .shared-project-board .board-scroll .column-count { background: transparent; color: var(--w-mute); font: 600 .72rem var(--w-mono); padding: 0; }
 :root .shared-project-board .board-scroll .column-header { border-bottom: var(--w-bw, 1px) solid var(--w-line); }
+
+/* ---- forum: toolbar as quiet text controls, serif thread titles ---- */
+:root .forum-channel .forum-workspace-toolbar { gap: 8px; padding: 8px 12px; border-bottom: var(--w-bw, 1px) solid var(--w-line); background: transparent; }
+:root .forum-channel .forum-workspace-toolbar button { min-height: 30px; padding: 4px 11px; border: var(--w-bw, 1px) solid var(--w-line-strong); border-radius: calc(8px * var(--w-rs, 1)); background: transparent; color: var(--w-text); font: 600 .78rem var(--w-sans); }
+:root .forum-channel .forum-workspace-toolbar button:hover:not(:disabled) { border-color: var(--w-accent); color: var(--w-accent); }
+:root .forum-channel .forum-workspace-toolbar .forum-primary-action { margin-inline-start: auto; background: var(--w-text); color: var(--w-bg); border-color: var(--w-text); }
+:root .forum-channel .forum-workspace-toolbar .forum-primary-action:hover:not(:disabled) { background: var(--w-accent); border-color: var(--w-accent); color: var(--w-on-accent); }
+:root .forum-channel .forum-post-detail-title { font: 600 clamp(1.3rem, 1.1rem + 1vw, 1.8rem)/1.25 var(--w-serif); letter-spacing: .005em; }
+:root .right-panel-embedded .forum-workspace-toolbar { padding-inline-end: 12px; }
+:root .right-panel-embedded .forum-post-row { padding: 12px 14px; min-height: 0; }
+:root .right-panel-embedded .forum-post-row-title { font-size: 1rem; margin-bottom: 6px; }
