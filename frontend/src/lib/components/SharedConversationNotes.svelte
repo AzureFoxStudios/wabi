@@ -233,41 +233,41 @@
 </section>
 
 <style>
-	.shared-notes { height: 100%; min-height: 0; display: flex; flex-direction: column; container-type: inline-size; color: var(--text-primary); background: var(--surface-base); }
-	.notes-header { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--border-subtle); }
-	.notes-header h3 { margin: 0; font-size: 1rem; color: var(--text-heading); }
-	.notes-header p { margin: 3px 0 0; color: var(--text-secondary); font-size: .75rem; line-height: 1.35; }
+	.shared-notes { height: 100%; min-height: 0; display: flex; flex-direction: column; container-type: inline-size; color: var(--w-text); background: var(--w-bg2); }
+	.notes-header { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--w-line); }
+	.notes-header h3 { margin: 0; font-size: 1rem; color: var(--w-text); }
+	.notes-header p { margin: 3px 0 0; color: var(--w-mute); font-size: .75rem; line-height: 1.35; }
 	button, input, textarea { font: inherit; color: inherit; }
-	button { cursor: pointer; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-raised); padding: 7px 10px; }
-	button:hover:not(:disabled) { background: var(--surface-hover); }
+	button { cursor: pointer; border: 1px solid var(--w-line); border-radius: calc(10px * var(--w-rs, 1)); background: var(--w-raise); padding: 7px 10px; }
+	button:hover:not(:disabled) { background: var(--w-raise); }
 	button:disabled { opacity: .5; cursor: default; }
-	button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent-primary-color); outline-offset: 1px; }
-	.new-note, .save-note { color: var(--text-heading); border-color: var(--accent-primary-color); white-space: nowrap; }
+	button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 1px; }
+	.new-note, .save-note { color: var(--w-text); border-color: var(--w-accent); white-space: nowrap; }
 	.notes-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(150px, 36%) minmax(0, 1fr); }
-	.notes-list { min-width: 0; overflow-y: auto; border-right: 1px solid var(--border-subtle); background: var(--surface-sunken); padding: 8px; }
+	.notes-list { min-width: 0; overflow-y: auto; border-right: 1px solid var(--w-line); background: var(--w-sink); padding: 8px; }
 	.note-row { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 4px; width: 100%; border-color: transparent; background: transparent; margin-bottom: 4px; overflow-wrap: anywhere; }
-	.note-row.selected { border-color: var(--border-subtle); background: var(--surface-raised); }
-	.note-row strong { color: var(--text-heading); font-size: .84rem; }
-	.note-row span, .note-row small { color: var(--text-secondary); font-size: .7rem; }
-	.notes-empty { color: var(--text-secondary); font-size: .82rem; line-height: 1.5; padding: 14px 8px; margin: 0; }
+	.note-row.selected { border-color: var(--w-line); background: var(--w-raise); }
+	.note-row strong { color: var(--w-text); font-size: .84rem; }
+	.note-row span, .note-row small { color: var(--w-mute); font-size: .7rem; }
+	.notes-empty { color: var(--w-mute); font-size: .82rem; line-height: 1.5; padding: 14px 8px; margin: 0; }
 	.note-detail { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 	.detail-top { padding: 12px 16px 0; display: flex; gap: 8px; align-items: center; justify-content: space-between; }
-	.scope-label { color: var(--text-secondary); font-size: .73rem; }
-	.note-title { border: 0; border-bottom: 1px solid var(--border-subtle); background: transparent; padding: 12px 16px; font-size: 1.15rem; font-weight: 650; }
+	.scope-label { color: var(--w-mute); font-size: .73rem; }
+	.note-title { border: 0; border-bottom: 1px solid var(--w-line); background: transparent; padding: 12px 16px; font-size: 1.15rem; font-weight: 650; }
 	.note-detail textarea { flex: 1; min-height: 100px; width: 100%; resize: none; border: 0; background: transparent; padding: 14px 16px; line-height: 1.55; }
-	.note-detail footer { display: flex; gap: 8px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--border-subtle); }
-	.save-state { color: var(--text-secondary); font-size: .73rem; margin-right: auto; }
-	.remove-note { color: var(--text-secondary); }
+	.note-detail footer { display: flex; gap: 8px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--w-line); }
+	.save-state { color: var(--w-mute); font-size: .73rem; margin-right: auto; }
+	.remove-note { color: var(--w-mute); }
 	.note-empty { margin: auto; padding: 24px; text-align: center; max-width: 320px; }
-	.note-empty h4 { margin: 0 0 7px; color: var(--text-heading); }
-	.note-empty p { margin: 0; color: var(--text-secondary); line-height: 1.5; font-size: .82rem; }
-	.note-error, .note-status { margin: 0; padding: 8px 14px; font-size: .78rem; background: var(--surface-raised); }
-	.note-error { color: var(--text-danger, var(--text-primary)); }
+	.note-empty h4 { margin: 0 0 7px; color: var(--w-text); }
+	.note-empty p { margin: 0; color: var(--w-mute); line-height: 1.5; font-size: .82rem; }
+	.note-error, .note-status { margin: 0; padding: 8px 14px; font-size: .78rem; background: var(--w-raise); }
+	.note-error { color: var(--w-danger); }
 	.note-error button { margin-left: 8px; }
-	.privacy-hint { margin: 0; padding: 8px 14px; color: var(--text-secondary); border-top: 1px solid var(--border-subtle); font-size: .69rem; line-height: 1.4; }
+	.privacy-hint { margin: 0; padding: 8px 14px; color: var(--w-mute); border-top: 1px solid var(--w-line); font-size: .69rem; line-height: 1.4; }
 	@container (max-width: 520px) {
 		.notes-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-		.notes-list { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; max-height: 100px; border-right: 0; border-bottom: 1px solid var(--border-subtle); }
+		.notes-list { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; max-height: 100px; border-right: 0; border-bottom: 1px solid var(--w-line); }
 		.note-row { flex: 0 0 145px; }
 		.notes-empty { flex: 1; }
 	}

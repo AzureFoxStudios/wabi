@@ -665,5 +665,5 @@
 
 <style>
  .uploader-heading { grid-column: 1 / -1; margin: 1rem 0 .25rem; font-size: 1rem; }
- .uploader-heading small { margin-left: .6rem; font-weight: 400; color: var(--text-secondary); }
+ .uploader-heading small { margin-left: .6rem; font-weight: 400; color: var(--w-mute); }
 </style>

@@ -3,9 +3,9 @@
 		width: min(380px, calc(100vw - 16px));
 		max-height: min(680px, calc(100dvh - 16px));
 		background:
-			linear-gradient(180deg, color-mix(in srgb, var(--surface-base) 96%, transparent), color-mix(in srgb, var(--surface-app) 96%, transparent)),
-			var(--surface-base);
-		border: 1px solid color-mix(in srgb, var(--border-subtle) 78%, rgba(var(--accent-rgb), 0.18));
+			linear-gradient(180deg, color-mix(in srgb, var(--w-bg2) 96%, transparent), color-mix(in srgb, var(--w-bg) 96%, transparent)),
+			var(--w-bg2);
+		border: 1px solid color-mix(in srgb, var(--w-line) 78%, rgba(var(--accent-rgb), 0.18));
 		border-radius: 20px;
 		box-shadow: 0 24px 70px var(--shadow-lg, rgba(0, 0, 0, 0.46));
 		z-index: var(--z-popout);
@@ -37,7 +37,7 @@
 		height: 54px;
 		background:
 			radial-gradient(circle at 18% 18%, rgba(var(--text-inverse-rgb, 255, 255, 255), 0.28), transparent 24%),
-			linear-gradient(transparent, var(--surface-base));
+			linear-gradient(transparent, var(--w-bg2));
 	}
 
 	.popout-container .avatar-section {
@@ -54,7 +54,7 @@
 		width: 80px;
 		height: 80px;
 		border-radius: 26px;
-		background: var(--surface-base);
+		background: var(--w-bg2);
 		padding: 6px;
 		box-shadow: 0 14px 34px var(--shadow-md, rgba(0, 0, 0, 0.32));
 	}
@@ -86,7 +86,7 @@
 		height: 20px;
 		border-radius: 50%;
 		background: var(--status-color, var(--status-offline));
-		border: 4px solid var(--surface-base);
+		border: 4px solid var(--w-bg2);
 		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 		z-index: 2;
 		pointer-events: none;
@@ -138,10 +138,10 @@
 	.popout-container .profile-close {
 		position: absolute; top: 10px; right: 10px; z-index: 2;
 		width: 32px; height: 32px; padding: 0; border-radius: var(--radius-full);
-		border: 1px solid var(--border-subtle); background: var(--surface-base);
-		color: var(--text-heading); font-size: 1.4rem; cursor: pointer;
+		border: 1px solid var(--w-line); background: var(--w-bg2);
+		color: var(--w-text); font-size: 1.4rem; cursor: pointer;
 	}
-	.popout-container .profile-close:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+	.popout-container .profile-close:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
 
 	.popout-container .username-section {
 		display: flex;
@@ -156,17 +156,17 @@
 		font-size: 1.35rem;
 		font-weight: 800;
 		letter-spacing: -0.03em;
-		color: var(--text-heading);
+		color: var(--w-text);
 	}
 
 	.popout-container .username-tag {
 		font-size: 0.875rem;
-		color: var(--text-secondary);
+		color: var(--w-mute);
 	}
 
 	.popout-container .local-identity-note {
 		font-size: 0.72rem;
-		color: var(--text-secondary);
+		color: var(--w-mute);
 	}
 
 	.popout-container .popout-role-tags {
@@ -188,14 +188,14 @@
 		gap: 0.12rem;
 		padding: 0.58rem 0.62rem;
 		border-radius: 12px;
-		border: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
-		background: color-mix(in srgb, var(--surface-raised) 58%, transparent);
+		border: 1px solid color-mix(in srgb, var(--w-line) 72%, transparent);
+		background: color-mix(in srgb, var(--w-raise) 58%, transparent);
 		min-width: 0;
 	}
 	.popout-container .profile-detail-grid > div:only-child { grid-column: 1 / -1; }
 
 	.popout-container .profile-detail-grid span {
-		color: var(--text-muted);
+		color: var(--w-mute);
 		font-size: 0.64rem;
 		font-weight: 800;
 		letter-spacing: 0.06em;
@@ -203,7 +203,7 @@
 	}
 
 	.popout-container .profile-detail-grid strong {
-		color: var(--text-heading);
+		color: var(--w-text);
 		font-size: 0.82rem;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -225,7 +225,7 @@
 
 	.popout-container .status-label {
 		font-size: 0.8125rem;
-		color: var(--text-secondary);
+		color: var(--w-mute);
 	}
 
 	.popout-container .status-label-tooltip {
@@ -238,7 +238,7 @@
 
 	.popout-container .username-handle,
 	.popout-container .member-since-ghost {
-		color: color-mix(in srgb, var(--text-secondary) 58%, transparent);
+		color: color-mix(in srgb, var(--w-mute) 58%, transparent);
 		font-size: 0.72rem;
 	}
 
@@ -250,16 +250,16 @@
 
 	.popout-container .divider {
 		height: 1px;
-		background: color-mix(in srgb, var(--border-subtle) 82%, transparent);
+		background: color-mix(in srgb, var(--w-line) 82%, transparent);
 		margin: 12px 0;
 	}
 
 	.popout-container .section {
 		margin-bottom: 12px;
 		padding: 0.65rem;
-		border: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
+		border: 1px solid color-mix(in srgb, var(--w-line) 72%, transparent);
 		border-radius: 13px;
-		background: color-mix(in srgb, var(--surface-raised) 52%, transparent);
+		background: color-mix(in srgb, var(--w-raise) 52%, transparent);
 	}
 
 	.popout-container .section-title {
@@ -267,20 +267,20 @@
 		font-size: 0.75rem;
 		font-weight: 700;
 		text-transform: uppercase;
-		color: var(--text-secondary);
+		color: var(--w-mute);
 		letter-spacing: 0.02em;
 	}
 
 	.popout-container .section-content {
 		margin: 0;
 		font-size: 0.875rem;
-		color: var(--text-heading);
+		color: var(--w-text);
 		line-height: 1.4;
 	}
 
 	.popout-container .note-content {
 		font-style: italic;
-		color: var(--text-secondary);
+		color: var(--w-mute);
 	}
 
 	.popout-container .note-input {
@@ -288,9 +288,9 @@
 		min-height: 64px;
 		padding: 0.45rem 0.55rem;
 		border-radius: 8px;
-		border: 1px solid var(--border-subtle);
-		background: var(--surface-raised);
-		color: var(--text-heading);
+		border: 1px solid var(--w-line);
+		background: var(--w-raise);
+		color: var(--w-text);
 		font-size: 0.82rem;
 		line-height: 1.35;
 		resize: vertical;
@@ -298,9 +298,9 @@
 	}
 
 	.popout-container .note-input:focus {
-		outline: 1.5px solid var(--accent-primary-color);
+		outline: 1.5px solid var(--w-accent);
 		outline-offset: 1px;
-		border-color: var(--border-subtle);
+		border-color: var(--w-line);
 		box-shadow: none;
 	}
 
@@ -312,9 +312,9 @@
 	}
 
 	.popout-container .note-btn {
-		border: 1px solid var(--border-subtle);
-		background: var(--surface-raised);
-		color: var(--text-secondary);
+		border: 1px solid var(--w-line);
+		background: var(--w-raise);
+		color: var(--w-mute);
 		border-radius: 999px;
 		padding: 0.16rem 0.5rem;
 		font-size: 0.72rem;
@@ -322,7 +322,7 @@
 	}
 
 	.popout-container .note-btn.primary {
-		color: var(--text-heading);
+		color: var(--w-text);
 		background: rgba(var(--accent-rgb), 0.2);
 		border-color: rgba(var(--accent-rgb), 0.5);
 	}
@@ -335,13 +335,13 @@
 	.popout-container .note-count {
 		margin-left: auto;
 		font-size: 0.7rem;
-		color: var(--text-secondary);
+		color: var(--w-mute);
 	}
 
 	.popout-container .note-status {
 		margin: 0.32rem 0 0;
 		font-size: 0.72rem;
-		color: var(--text-secondary);
+		color: var(--w-mute);
 	}
 
 	.popout-container .connections-list {
@@ -363,14 +363,14 @@
 		font-weight: 700;
 		letter-spacing: 0.02em;
 		text-transform: uppercase;
-		color: var(--text-secondary);
+		color: var(--w-mute);
 		flex-shrink: 0;
 	}
 
 	.popout-container .connection-value,
 	.popout-container .connection-link {
 		font-size: 0.82rem;
-		color: var(--text-heading);
+		color: var(--w-text);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -378,7 +378,7 @@
 	}
 
 	.popout-container .connection-link:hover {
-		color: var(--accent-primary-color);
+		color: var(--w-accent);
 	}
 
 	.popout-container .actions {
@@ -404,7 +404,7 @@
 	}
 
 	.popout-container .action-btn.primary {
-		background: var(--accent-primary-color);
+		background: var(--w-accent);
 		color: white;
 	}
 
@@ -413,12 +413,12 @@
 	}
 
 	.popout-container .action-btn.secondary {
-		background: var(--surface-raised);
-		color: var(--text-heading);
+		background: var(--w-raise);
+		color: var(--w-text);
 	}
 
 	.popout-container .action-btn.secondary:hover {
-		background: var(--surface-hover);
+		background: var(--w-raise);
 	}
 
 	.popout-container .context-actions {
@@ -435,23 +435,23 @@
 		border: none;
 		border-radius: 4px;
 		font-size: 0.8125rem;
-		color: var(--text-secondary);
+		color: var(--w-mute);
 		text-align: left;
 		cursor: pointer;
 		transition: all 0.15s ease;
 	}
 
 	.popout-container .context-btn:hover {
-		background: var(--surface-raised);
-		color: var(--text-heading);
+		background: var(--w-raise);
+		color: var(--w-text);
 	}
 
 	.popout-container .context-btn.danger {
-		color: color-mix(in srgb, var(--color-danger, var(--color-danger, #ef4444)) 76%, var(--text-secondary));
+		color: color-mix(in srgb, var(--w-danger) 76%, var(--w-mute));
 	}
 
 	.popout-container .context-btn.danger:hover {
-		background: color-mix(in srgb, var(--color-danger, var(--color-danger, #ef4444)) 16%, var(--surface-raised));
+		background: color-mix(in srgb, var(--w-danger) 16%, var(--w-raise));
 		color: var(--accent-danger-soft, var(--accent-danger-soft, var(--accent-danger-soft, #fca5a5)));
 	}
 
@@ -475,8 +475,8 @@
 		font-weight: 500;
 		cursor: pointer;
 		transition: all 0.15s ease;
-		background: var(--surface-raised);
-		color: var(--text-secondary);
+		background: var(--w-raise);
+		color: var(--w-mute);
 	}
 
 	.popout-container .call-btn:hover {
@@ -488,7 +488,7 @@
 	}
 
 	.popout-container .call-btn.video-call:hover {
-		background: var(--accent-primary-color);
+		background: var(--w-accent);
 	}
 
 	.popout-container .call-btn.screen-share:hover {
@@ -566,20 +566,20 @@
 	padding: 8px 0;
 	border: none;
 	border-radius: 12px;
-	background: var(--surface-raised);
-	color: var(--text-secondary);
+	background: var(--w-raise);
+	color: var(--w-mute);
 	cursor: pointer;
 	transition: all 0.15s ease;
 }
 
 .popout-container .voice-btn:hover:not(:disabled) {
-	color: var(--text-heading);
-	background: var(--surface-hover);
+	color: var(--w-text);
+	background: var(--w-raise);
 }
 
 .popout-container .voice-btn.active {
-	background: color-mix(in srgb, var(--accent-primary-color) 20%, var(--surface-raised));
-	color: var(--accent-primary-color);
+	background: color-mix(in srgb, var(--w-accent) 20%, var(--w-raise));
+	color: var(--w-accent);
 }
 
 .popout-container .voice-btn:disabled {
@@ -597,8 +597,8 @@
 	margin-bottom: 8px;
 	border: none;
 	border-radius: 12px;
-	background: var(--surface-raised);
-	color: var(--text-heading);
+	background: var(--w-raise);
+	color: var(--w-text);
 	font-size: 0.875rem;
 	font-weight: 500;
 	cursor: pointer;
@@ -606,5 +606,5 @@
 }
 
 .popout-container .share-btn:hover {
-	background: var(--surface-hover);
+	background: var(--w-raise);
 }

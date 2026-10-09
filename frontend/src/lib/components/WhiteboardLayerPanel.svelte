@@ -184,15 +184,15 @@
 
 <style>
  .layer-locks { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
- .layer-locks button { border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 8px; background: var(--bg-secondary); color: var(--text-secondary); }
- .layer-locks button[aria-pressed="true"] { background: var(--accent-primary); color: var(--text-heading); }
+ .layer-locks button { border: 1px solid var(--w-line); border-radius: 6px; padding: 6px 8px; background: var(--bg-secondary); color: var(--w-mute); }
+ .layer-locks button[aria-pressed="true"] { background: var(--w-accent); color: var(--w-text); }
 	.layer-panel {
 		display: flex;
 		flex-direction: column;
 		gap: 0.65rem;
 		min-height: 0;
 		padding: 0.7rem;
-		color: var(--text-heading, #f4f4fb);
+		color: var(--w-text);
 	}
 
 	.layer-panel-header {
@@ -211,20 +211,20 @@
 	.layer-panel-subtitle {
 		margin-top: 0.15rem;
 		font-size: 0.68rem;
-		color: color-mix(in srgb, var(--text-heading, #fff) 62%, transparent);
+		color: color-mix(in srgb, var(--w-text) 62%, transparent);
 	}
 
 	.layer-add-actions {
 		display: inline-flex;
 		border-radius: 8px;
 		overflow: hidden;
-		border: 1px solid color-mix(in srgb, var(--text-heading, #fff) 14%, transparent);
+		border: 1px solid color-mix(in srgb, var(--w-text) 14%, transparent);
 	}
 
 	.layer-add-seg {
 		border: 0;
 		border-radius: 0;
-		background: color-mix(in srgb, var(--surface-raised, #302b63) 70%, transparent);
+		background: color-mix(in srgb, var(--w-raise) 70%, transparent);
 		color: inherit;
 		font-size: 0.7rem;
 		padding: 0.28rem 0.5rem;
@@ -233,13 +233,13 @@
 	}
 
 	.layer-add-seg + .layer-add-seg {
-		border-left: 1px solid color-mix(in srgb, var(--text-heading, #fff) 14%, transparent);
+		border-left: 1px solid color-mix(in srgb, var(--w-text) 14%, transparent);
 	}
 
 	.layer-add-seg:hover {
-		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-primary, #6366f1) 60%, transparent);
-		background: color-mix(in srgb, var(--accent-primary, #6366f1) 14%, transparent);
-		color: var(--accent-primary, #6366f1);
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--w-accent) 60%, transparent);
+		background: color-mix(in srgb, var(--w-accent) 14%, transparent);
+		color: var(--w-accent);
 	}
 
 	.layer-add-seg.raster {
@@ -259,9 +259,9 @@
 	}
 
 	.inspector-actions button {
-		border: 1px solid color-mix(in srgb, var(--text-heading, #fff) 14%, transparent);
+		border: 1px solid color-mix(in srgb, var(--w-text) 14%, transparent);
 		border-radius: 8px;
-		background: color-mix(in srgb, var(--surface-raised, #302b63) 70%, transparent);
+		background: color-mix(in srgb, var(--w-raise) 70%, transparent);
 		color: inherit;
 		font-size: 0.7rem;
 		padding: 0.28rem 0.5rem;
@@ -288,8 +288,8 @@
 	}
 
 	.layer-row.active {
-		background: color-mix(in srgb, var(--accent-primary, #818cf8) 16%, transparent);
-		border-color: color-mix(in srgb, var(--accent-primary, #818cf8) 34%, transparent);
+		background: color-mix(in srgb, var(--w-accent) 16%, transparent);
+		border-color: color-mix(in srgb, var(--w-accent) 34%, transparent);
 	}
 
 	.layer-select {
@@ -313,7 +313,7 @@
 		height: 1.15rem;
 		align-items: center;
 		justify-content: center;
-		color: color-mix(in srgb, var(--text-heading, #fff) 82%, transparent);
+		color: color-mix(in srgb, var(--w-text) 82%, transparent);
 	}
 
 	.layer-type-icon.raster {
@@ -345,7 +345,7 @@
 		border: 0;
 		border-radius: 6px;
 		background: transparent;
-		color: color-mix(in srgb, var(--text-heading, #fff) 88%, transparent);
+		color: color-mix(in srgb, var(--w-text) 88%, transparent);
 		cursor: pointer;
 	}
 
@@ -357,7 +357,7 @@
 		display: grid;
 		gap: 0.45rem;
 		padding-top: 0.55rem;
-		border-top: 1px solid color-mix(in srgb, var(--text-heading, #fff) 10%, transparent);
+		border-top: 1px solid color-mix(in srgb, var(--w-text) 10%, transparent);
 	}
 
 	.inspector-topline,
@@ -376,13 +376,13 @@
 	.inspector-kind {
 		font-size: 0.62rem;
 		text-transform: uppercase;
-		color: color-mix(in srgb, var(--text-heading, #fff) 58%, transparent);
+		color: color-mix(in srgb, var(--w-text) 58%, transparent);
 	}
 
 	.inspector-row span:first-child {
 		width: 3.4rem;
 		font-size: 0.68rem;
-		color: color-mix(in srgb, var(--text-heading, #fff) 68%, transparent);
+		color: color-mix(in srgb, var(--w-text) 68%, transparent);
 	}
 
 	.inspector-row input,
@@ -397,8 +397,8 @@
 		height: 4px;
 		border: 0;
 		padding: 0;
-		border-radius: var(--radius-sm, 4px);
-		background: color-mix(in srgb, var(--text-muted, #9999ff) 22%, transparent);
+		border-radius: calc(6px * var(--w-rs, 1));
+		background: color-mix(in srgb, var(--w-mute) 22%, transparent);
 		outline: none;
 		cursor: pointer;
 	}
@@ -409,7 +409,7 @@
 		width: 10px;
 		height: 10px;
 		border-radius: 50%;
-		background: var(--accent-primary, #6366f1);
+		background: var(--w-accent);
 		cursor: pointer;
 		transition: transform 0.12s;
 	}
@@ -423,7 +423,7 @@
 		height: 10px;
 		border: none;
 		border-radius: 50%;
-		background: var(--accent-primary, #6366f1);
+		background: var(--w-accent);
 		cursor: pointer;
 		transition: transform 0.12s;
 	}
@@ -463,15 +463,15 @@
 
  .layer-panel { background: var(--bg-primary); }
  .layer-row { min-height: 56px; padding: 8px; gap: 8px; background: var(--bg-secondary); }
- .layer-name-btn { text-align: left; background: transparent; color: var(--text-heading); border: 0; font-size: 13px; min-height: 36px; }
+ .layer-name-btn { text-align: left; background: transparent; color: var(--w-text); border: 0; font-size: 13px; min-height: 36px; }
  .layer-icon-btn { min-height: 32px; }
  .layer-inspector { padding: 12px; background: var(--bg-secondary); border-radius: 10px; }
- .inspector-row select, .layer-name-input { background: var(--bg-primary); color: var(--text-heading); border: 1px solid var(--border-subtle); border-radius: 6px; min-height: 32px; }
- .inspector-row input[type=range] { min-height: 32px; height: 32px; background: transparent; background-image: linear-gradient(var(--border-subtle), var(--border-subtle)); background-size: 100% 4px; background-repeat: no-repeat; background-position: center; }
- .inspector-row input[type=range]::-webkit-slider-thumb { width: 16px; height: 16px; border: 2px solid var(--text-heading); }
- .inspector-row input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border: 2px solid var(--text-heading); }
- .inspector-row .opacity-number { flex: 0 0 48px; width: 48px; min-height: 32px; padding: 4px; border-radius: 6px; border: 1px solid var(--border-subtle); background: var(--bg-primary); color: var(--text-heading); }
+ .inspector-row select, .layer-name-input { background: var(--bg-primary); color: var(--w-text); border: 1px solid var(--w-line); border-radius: 6px; min-height: 32px; }
+ .inspector-row input[type=range] { min-height: 32px; height: 32px; background: transparent; background-image: linear-gradient(var(--w-line), var(--w-line)); background-size: 100% 4px; background-repeat: no-repeat; background-position: center; }
+ .inspector-row input[type=range]::-webkit-slider-thumb { width: 16px; height: 16px; border: 2px solid var(--w-text); }
+ .inspector-row input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border: 2px solid var(--w-text); }
+ .inspector-row .opacity-number { flex: 0 0 48px; width: 48px; min-height: 32px; padding: 4px; border-radius: 6px; border: 1px solid var(--w-line); background: var(--bg-primary); color: var(--w-text); }
  .inspector-actions { flex-wrap: wrap; }
- .inspector-actions button.active { border-color: var(--accent-primary); }
+ .inspector-actions button.active { border-color: var(--w-accent); }
 
 </style>
