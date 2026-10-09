@@ -33,6 +33,8 @@ export interface FrontendAppMetadataPolicy {
   /** Server-wide identity marks shown for owner and staff roles. */
   ownerBadgeMark?: string | null;
   staffBadgeMark?: string | null;
+  /** Community title face: one of the ids in frontend/src/lib/theme/displayFonts.ts (stored as plain JSON). */
+  displayFont?: string | null;
 }
 
 export type AuthPolicyMode = 'open' | 'invite' | 'closed' | 'verified';

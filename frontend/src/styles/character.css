@@ -19,6 +19,9 @@
 	--w-rs: 0.7;
 }
 :root[data-char='pixel'] {
+	/* Joker: dot-matrix type for titles and digital strings. The theme's face outranks a community font. */
+	--w-serif: 'Pixelify Sans', 'Courier New', monospace;
+	--w-mono: 'Pixelify Sans', 'Courier New', monospace;
 	--w-rs: 0.2;
 	--w-bw: 2px;
 	--w-pill: 5px;

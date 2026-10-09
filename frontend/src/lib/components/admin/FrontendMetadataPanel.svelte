@@ -5,6 +5,7 @@
 	import { getAuthToken } from '$lib/authSession';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { channels } from '$lib/socket';
+	import { DISPLAY_FONTS } from '$lib/theme/displayFonts';
 	import { sanitizeAccentColor } from '$lib/cssSanitize';
 
 	let {
@@ -83,13 +84,16 @@
 	$effect(() => { accentInput = authoritativeAccent; });
 	const accentInvalid = $derived(accentInput.trim() !== '' && !sanitizeAccentColor(accentInput));
 	const deskBackgroundInvalid = $derived(Boolean(frontendAppMetadata.deskBackgroundUrl) && !frontendAppMetadata.deskStillUrl);
-	const keys: Array<keyof FrontendAppMetadataPolicy> = ['displayName', 'iconUrl', 'bannerUrl', 'deskBackgroundUrl', 'deskStillUrl', 'deskWelcomeText', 'deskHelpText', 'deskHelpUrl', 'deskHelpLabel', 'deskStartingRoomId', 'deskFocusedWelcome', 'accentColor', 'description', 'tagline', 'launchPageFallbackEnabled', 'ownerBadgeMark', 'staffBadgeMark'];
+	const keys: Array<keyof FrontendAppMetadataPolicy> = ['displayName', 'iconUrl', 'bannerUrl', 'deskBackgroundUrl', 'deskStillUrl', 'deskWelcomeText', 'deskHelpText', 'deskHelpUrl', 'deskHelpLabel', 'deskStartingRoomId', 'deskFocusedWelcome', 'accentColor', 'description', 'tagline', 'launchPageFallbackEnabled', 'ownerBadgeMark', 'staffBadgeMark', 'displayFont'];
 	const dirty = $derived(keys.some(key => frontendAppMetadata[key] !== publishedFrontendAppMetadata[key]) || JSON.stringify(frontendAppMetadata.deskPosterBlocks || []) !== JSON.stringify(publishedFrontendAppMetadata.deskPosterBlocks || []));
 	const busy = $derived(frontendMetadataLoading || frontendMetadataSaving || frontendMetadataUploadTarget !== null);
 	const editable = $derived(frontendMetadataLoaded && !busy);
 	const safeAccent = $derived(sanitizeAccentColor(frontendAppMetadata.accentColor) || 'var(--accent-primary)');
 	function setText(key: 'displayName' | 'description' | 'tagline' | 'iconUrl' | 'bannerUrl' | 'deskBackgroundUrl' | 'deskStillUrl' | 'deskWelcomeText' | 'deskHelpText' | 'deskHelpUrl' | 'deskHelpLabel', value: string): void {
 		onMetadataChange({ ...frontendAppMetadata, [key]: value || null });
+	}
+	function setDisplayFont(value: string): void {
+		onMetadataChange({ ...frontendAppMetadata, displayFont: value && value !== 'default' ? value : null });
 	}
 	function setBadgeMark(key: 'ownerBadgeMark' | 'staffBadgeMark', value: string): void {
 		onMetadataChange({ ...frontendAppMetadata, [key]: value.trim() ? value.slice(0, 16) : null });
@@ -137,6 +141,7 @@
 				<label>Signature color<input value={accentInput} placeholder="#6366f1" aria-invalid={accentInvalid ? 'true' : undefined} aria-describedby="branding-accent-help" oninput={event => editAccent(event.currentTarget.value)} /><small id="branding-accent-help">{accentInvalid ? 'Enter a valid hex, RGB or HSL color, or leave blank.' : 'Signature color: tints the sidebar banner, room titles and the server preview. Leave blank to follow each member’s theme.'}</small></label>
 				<label>Owner mark<input value={frontendAppMetadata.ownerBadgeMark ?? ''} placeholder="Default crown" maxlength="8" aria-label="Owner badge mark" oninput={event => setBadgeMark('ownerBadgeMark', event.currentTarget.value)} /><small>Shown beside owner names. Leave blank for the default crown.</small></label>
 				<label>Staff mark<input value={frontendAppMetadata.staffBadgeMark ?? ''} placeholder="Default gem" maxlength="8" aria-label="Staff badge mark" oninput={event => setBadgeMark('staffBadgeMark', event.currentTarget.value)} /><small>Shown beside staff names. Leave blank for the default gem.</small></label>
+				<label>Title font<select value={frontendAppMetadata.displayFont ?? 'default'} aria-label="Community title font" onchange={event => setDisplayFont(event.currentTarget.value)}>{#each DISPLAY_FONTS as font}<option value={font.id}>{font.label}</option>{/each}</select><small>Used for the server name, room titles and headings. A theme with its own type (like Joker) keeps its own.</small></label>
 				<label class="branding-wide">Description<input value={frontendAppMetadata.description ?? ''} placeholder="A short introduction to your server" oninput={event => setText('description', event.currentTarget.value)} /></label>
 				<label class="branding-wide">Tagline<input value={frontendAppMetadata.tagline ?? ''} placeholder="A few words that make this place yours" oninput={event => setText('tagline', event.currentTarget.value)} /></label>
 			</div>
