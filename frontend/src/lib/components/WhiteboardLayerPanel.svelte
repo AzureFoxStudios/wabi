@@ -184,7 +184,7 @@
 
 <style>
  .layer-locks { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
- .layer-locks button { border: 1px solid var(--w-line); border-radius: 6px; padding: 6px 8px; background: var(--bg-secondary); color: var(--w-mute); }
+ .layer-locks button { border: 1px solid var(--w-line); border-radius: calc(6px * var(--w-rs, 1)); padding: 6px 8px; background: var(--w-bg2); color: var(--w-mute); }
  .layer-locks button[aria-pressed="true"] { background: var(--w-accent); color: var(--w-text); }
 	.layer-panel {
 		display: flex;
@@ -216,7 +216,7 @@
 
 	.layer-add-actions {
 		display: inline-flex;
-		border-radius: 8px;
+		border-radius: calc(8px * var(--w-rs, 1));
 		overflow: hidden;
 		border: 1px solid color-mix(in srgb, var(--w-text) 14%, transparent);
 	}
@@ -243,13 +243,13 @@
 	}
 
 	.layer-add-seg.raster {
-		color: var(--color-info, #7dd3fc);
+		color: var(--w-accent);
 	}
 
 	.layer-add-seg.raster:hover {
-		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-info, #7dd3fc) 60%, transparent);
-		background: color-mix(in srgb, var(--color-info, #7dd3fc) 14%, transparent);
-		color: var(--color-info, #7dd3fc);
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--w-accent) 60%, transparent);
+		background: color-mix(in srgb, var(--w-accent) 14%, transparent);
+		color: var(--w-accent);
 	}
 
 	@media (prefers-reduced-motion: reduce) {
@@ -260,7 +260,7 @@
 
 	.inspector-actions button {
 		border: 1px solid color-mix(in srgb, var(--w-text) 14%, transparent);
-		border-radius: 8px;
+		border-radius: calc(8px * var(--w-rs, 1));
 		background: color-mix(in srgb, var(--w-raise) 70%, transparent);
 		color: inherit;
 		font-size: 0.7rem;
@@ -283,7 +283,7 @@
 		gap: 0.2rem;
 		min-height: 2.1rem;
 		padding: 0.15rem 0.25rem;
-		border-radius: 8px;
+		border-radius: calc(8px * var(--w-rs, 1));
 		border: 1px solid transparent;
 	}
 
@@ -317,7 +317,7 @@
 	}
 
 	.layer-type-icon.raster {
-		color: var(--color-info, #7dd3fc);
+		color: var(--w-accent);
 	}
 
 	.layer-type-icon svg,
@@ -343,7 +343,7 @@
 		width: 1.7rem;
 		height: 1.7rem;
 		border: 0;
-		border-radius: 6px;
+		border-radius: calc(6px * var(--w-rs, 1));
 		background: transparent;
 		color: color-mix(in srgb, var(--w-text) 88%, transparent);
 		cursor: pointer;
@@ -461,16 +461,16 @@
 		cursor: default;
 	}
 
- .layer-panel { background: var(--bg-primary); }
- .layer-row { min-height: 56px; padding: 8px; gap: 8px; background: var(--bg-secondary); }
+ .layer-panel { background: var(--w-bg); }
+ .layer-row { min-height: 56px; padding: 8px; gap: 8px; background: var(--w-bg2); }
  .layer-name-btn { text-align: left; background: transparent; color: var(--w-text); border: 0; font-size: 13px; min-height: 36px; }
  .layer-icon-btn { min-height: 32px; }
- .layer-inspector { padding: 12px; background: var(--bg-secondary); border-radius: 10px; }
- .inspector-row select, .layer-name-input { background: var(--bg-primary); color: var(--w-text); border: 1px solid var(--w-line); border-radius: 6px; min-height: 32px; }
+ .layer-inspector { padding: 12px; background: var(--w-bg2); border-radius: calc(10px * var(--w-rs, 1)); }
+ .inspector-row select, .layer-name-input { background: var(--w-bg); color: var(--w-text); border: 1px solid var(--w-line); border-radius: calc(6px * var(--w-rs, 1)); min-height: 32px; }
  .inspector-row input[type=range] { min-height: 32px; height: 32px; background: transparent; background-image: linear-gradient(var(--w-line), var(--w-line)); background-size: 100% 4px; background-repeat: no-repeat; background-position: center; }
  .inspector-row input[type=range]::-webkit-slider-thumb { width: 16px; height: 16px; border: 2px solid var(--w-text); }
  .inspector-row input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border: 2px solid var(--w-text); }
- .inspector-row .opacity-number { flex: 0 0 48px; width: 48px; min-height: 32px; padding: 4px; border-radius: 6px; border: 1px solid var(--w-line); background: var(--bg-primary); color: var(--w-text); }
+ .inspector-row .opacity-number { flex: 0 0 48px; width: 48px; min-height: 32px; padding: 4px; border-radius: calc(6px * var(--w-rs, 1)); border: 1px solid var(--w-line); background: var(--w-bg); color: var(--w-text); }
  .inspector-actions { flex-wrap: wrap; }
  .inspector-actions button.active { border-color: var(--w-accent); }
 
