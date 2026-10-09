@@ -248,9 +248,8 @@
 		activeCreatorFilter = null;
 	}
 
-	function hasKind(kind: string): boolean {
-		return allItems.some((item) => guessGalleryMediaKind(item.attachmentMime, item.attachmentName) === kind);
-	}
+	$: hasDocuments = allItems.some((item) => guessGalleryMediaKind(item.attachmentMime, item.attachmentName) === 'document');
+	$: hasModels = allItems.some((item) => guessGalleryMediaKind(item.attachmentMime, item.attachmentName) === 'model');
 
 	/** Photos and video open in the lightbox; models and documents hand off to the viewer that owns them. */
 	function openLightbox(index: number, items: GalleryItem[]) {
@@ -667,8 +666,8 @@
 			<button class="filter-btn" class:active={activeTypeFilter === 'all'} on:click={() => setTypeFilter('all')}>All</button>
 			<button class="filter-btn" class:active={activeTypeFilter === 'image'} on:click={() => setTypeFilter('image')}>Images</button>
 			<button class="filter-btn" class:active={activeTypeFilter === 'video'} on:click={() => setTypeFilter('video')}>Video</button>
-			{#if hasKind('document')}<button class="filter-btn" class:active={activeTypeFilter === 'document'} on:click={() => setTypeFilter('document')}>Documents</button>{/if}
-			{#if hasKind('model')}<button class="filter-btn" class:active={activeTypeFilter === 'model'} on:click={() => setTypeFilter('model')}>3D</button>{/if}
+			{#if hasDocuments}<button class="filter-btn" class:active={activeTypeFilter === 'document'} on:click={() => setTypeFilter('document')}>Documents</button>{/if}
+			{#if hasModels}<button class="filter-btn" class:active={activeTypeFilter === 'model'} on:click={() => setTypeFilter('model')}>3D</button>{/if}
 			<div class="filter-divider"></div>
 			<div class="filter-creators">
 				{#each allCreators as creator}

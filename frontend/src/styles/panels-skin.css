@@ -261,8 +261,11 @@
 :root .right-panel-embedded .forum-post-row-title { font: 600 1.05rem/1.35 var(--w-serif); }
 
 /* ---- gallery: documents and models as cover cards ---- */
-:root .doc-cover { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; padding: 14px; background: var(--w-bg2); border: var(--w-bw, 1px) solid var(--w-line); }
+:root .doc-cover { position: relative; width: 100%; min-height: 100%; aspect-ratio: 4 / 5; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; padding: 14px; background: var(--w-bg2); border: var(--w-bw, 1px) solid var(--w-line); }
 :root .doc-cover .doc-ext { align-self: flex-start; padding: 1px 7px; border: var(--w-bw, 1px) solid var(--w-line-strong); border-radius: calc(5px * var(--w-rs, 1)); font: 600 .68rem var(--w-mono); letter-spacing: .08em; color: var(--w-mute); }
 :root .doc-cover .doc-title { font: 600 clamp(1.05rem, .9rem + 1vw, 1.5rem)/1.2 var(--w-serif); color: var(--w-text); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; line-clamp: 4; -webkit-box-orient: vertical; word-break: break-word; }
 :root .doc-cover .doc-kind { font: 500 .66rem var(--w-mono); letter-spacing: .04em; color: var(--w-faint); }
 :root .doc-cover.model { background-image: linear-gradient(var(--w-line) 1px, transparent 1px), linear-gradient(90deg, var(--w-line) 1px, transparent 1px); background-size: 24px 24px; }
+:root .doc-cover { padding-bottom: 56px; }
+:root .doc-cover .doc-kind { display: none; }
+:root .recent-card-cover .doc-cover { aspect-ratio: 3 / 2; min-height: 0; height: 100%; }

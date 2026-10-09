@@ -319,3 +319,11 @@
 	:root .main-content .header-view-switch { display: block; margin-inline-end: 10px; padding-inline-end: 10px; border-inline-end: var(--w-bw, 1px) solid var(--w-line); }
 	:root .main-content .chat-stack:has(.header-view-switch) > .workspace-view-bar:not(.inline) { display: none; }
 }
+
+/* Header never overlaps itself: chips stay whole and the row grows when a room carries several. */
+:root .main-content .chat-header { height: auto; padding-block: 6px; }
+:root .main-content .chat-header .chat-heading { flex-wrap: wrap; row-gap: 4px; }
+:root .main-content .chat-header .spoiler-channel-badge,
+:root .main-content .chat-header .retention-channel-badge,
+:root .main-content .chat-header .privacy-badge { white-space: nowrap; flex: 0 0 auto; }
+:root .main-content .chat-header .header-actions { flex-wrap: wrap; justify-content: flex-end; row-gap: 4px; min-width: 0; }
