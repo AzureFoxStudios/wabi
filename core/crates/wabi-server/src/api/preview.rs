@@ -313,6 +313,17 @@ pub struct UrlPreviewResponse {
     pub twitter_card: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub twitter_player: Option<String>,
+    /// What the link points at, so the client can draw the right card:
+    /// post | video | repo | article | audio | link.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// Person or account behind the link (post author, repo owner, channel).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author_handle: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub published: Option<String>,
 }
 
 /// YouTube oEmbed response
@@ -320,6 +331,8 @@ pub struct UrlPreviewResponse {
 struct OembedResponse {
     title: Option<String>,
     author_name: Option<String>,
+    author_url: Option<String>,
+    html: Option<String>,
     #[allow(dead_code)]
     thumbnail_url: Option<String>,
 }
@@ -413,6 +426,26 @@ pub async fn url_preview(
     // tags, so a card reading "Post Not Found" is more truthful than a
     // failed preview. Only a non-HTML body has nothing to extract, and
     // that is an empty preview (the client falls back to the bare link).
+    let og = fetch_open_graph(target).await;
+
+    // X often refuses server addresses or serves a JavaScript shell without
+    // Open Graph tags. Its own oEmbed endpoint is the sanctioned fallback: no
+    // key, and no third-party relay sees the link.
+    if is_x_status_url(&query.url) {
+        let usable = matches!(&og, Ok(p) if p.description.is_some());
+        if !usable {
+            if let Ok(post) = fetch_x_post(&query.url).await {
+                return Ok(Json(post));
+            }
+        }
+    }
+
+    let mut preview = og?;
+    classify_preview(&query.url, &mut preview);
+    Ok(Json(preview))
+}
+
+async fn fetch_open_graph(target: OutboundTarget) -> Result<UrlPreviewResponse> {
     let (final_url, response) =
         get_following_redirects(target, PREVIEW_FETCH_TIMEOUT_MS, "text/html", validate_hop).await?;
 
@@ -427,7 +460,106 @@ pub async fn url_preview(
         String::new()
     };
 
-    Ok(Json(preview_metadata(&final_url, &html)))
+    Ok(preview_metadata(&final_url, &html))
+}
+
+fn is_x_status_url(raw: &str) -> bool {
+    let Ok(url) = Url::parse(raw) else { return false };
+    let host = url.host_str().unwrap_or_default().trim_start_matches("www.");
+    (host == "x.com" || host == "twitter.com") && url.path().contains("/status/")
+}
+
+/// Decide what kind of thing a link is, from the URL and the metadata found.
+fn classify_preview(raw: &str, preview: &mut UrlPreviewResponse) {
+    if preview.kind.is_some() {
+        return;
+    }
+    let url = Url::parse(raw).ok();
+    let host = url
+        .as_ref()
+        .and_then(|u| u.host_str())
+        .unwrap_or_default()
+        .trim_start_matches("www.")
+        .to_string();
+    let segments: Vec<&str> = url
+        .as_ref()
+        .map(|u| u.path().split('/').filter(|s| !s.is_empty()).collect())
+        .unwrap_or_default();
+    let og_type = preview.r#type.clone().unwrap_or_default();
+
+    let kind = if host == "github.com" && segments.len() == 2 {
+        preview.author = Some(segments[0].to_string());
+        "repo"
+    } else if preview.video.is_some() || og_type.starts_with("video") {
+        "video"
+    } else if og_type.starts_with("music")
+        || host.ends_with("spotify.com")
+        || host.ends_with("soundcloud.com")
+        || host.ends_with("bandcamp.com")
+    {
+        "audio"
+    } else if og_type == "article" {
+        "article"
+    } else {
+        "link"
+    };
+    preview.kind = Some(kind.to_string());
+}
+
+/// Fetch a post through X's official oEmbed endpoint and pull out the text.
+async fn fetch_x_post(raw_url: &str) -> Result<UrlPreviewResponse> {
+    let endpoint = format!(
+        "https://publish.twitter.com/oembed?omit_script=true&dnt=true&url={}",
+        urlencoding::encode(raw_url)
+    );
+    let oembed = fetch_oembed(&endpoint).await?;
+    let html = oembed.html.unwrap_or_default();
+    let (text, published) = parse_x_oembed_html(&html);
+    if text.is_none() {
+        return Err(AppError::BadRequest("empty post".into()));
+    }
+    let author_handle = oembed
+        .author_url
+        .as_deref()
+        .and_then(|u| u.trim_end_matches('/').rsplit('/').next())
+        .map(|h| format!("@{h}"));
+    Ok(UrlPreviewResponse {
+        title: oembed.author_name.clone(),
+        description: text,
+        image: None,
+        site_name: Some("X".to_string()),
+        r#type: Some("article".to_string()),
+        youtube_id: None,
+        channel_name: None,
+        video: None,
+        twitter_card: None,
+        twitter_player: None,
+        kind: Some("post".to_string()),
+        author: oembed.author_name,
+        author_handle,
+        published,
+    })
+}
+
+/// The oEmbed `html` is a blockquote: the post text is the first `<p>`, the
+/// date is the text of the trailing link.
+fn parse_x_oembed_html(html: &str) -> (Option<String>, Option<String>) {
+    let paragraph = regex::Regex::new(r"(?s)<p[^>]*>(.*?)</p>").ok();
+    let text = paragraph
+        .and_then(|re| re.captures(html).map(|c| c[1].to_string()))
+        .map(|inner| {
+            let with_breaks = inner.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n");
+            let stripped = regex::Regex::new(r"<[^>]+>")
+                .map(|re| re.replace_all(&with_breaks, "").to_string())
+                .unwrap_or(with_breaks);
+            decode_html_entities(stripped.trim())
+        })
+        .filter(|t| !t.is_empty());
+    let published = regex::Regex::new(r"(?s)</p>.*?<a[^>]*>([^<]+)</a>\s*</blockquote>")
+        .ok()
+        .and_then(|re| re.captures(html).map(|c| decode_html_entities(c[1].trim())))
+        .filter(|d| !d.is_empty());
+    (text, published)
 }
 
 /// Extract Open Graph / Twitter card metadata from a fetched page. Asset
@@ -482,6 +614,10 @@ fn preview_metadata(final_url: &Url, html: &str) -> UrlPreviewResponse {
         video,
         twitter_card,
         twitter_player,
+        kind: None,
+        author: None,
+        author_handle: None,
+        published: None,
     }
 }
 
@@ -525,6 +661,10 @@ async fn fetch_youtube_preview(raw_url: &str) -> Result<Json<UrlPreviewResponse>
         }),
         twitter_card: Some("player".to_string()),
         twitter_player: Some(format!("https://www.youtube.com/embed/{}", youtube_id)),
+        kind: Some("video".to_string()),
+        author: None,
+        author_handle: None,
+        published: None,
     }))
 }
 
@@ -1006,5 +1146,66 @@ mod tests {
             .into();
         let html = read_capped_text(response, PREVIEW_MAX_BYTES).await.unwrap();
         assert_eq!(html, "<title>Café</title>");
+    }
+}
+
+#[cfg(test)]
+mod link_kind_tests {
+    use super::*;
+
+    fn bare() -> UrlPreviewResponse {
+        UrlPreviewResponse {
+            title: None,
+            description: None,
+            image: None,
+            site_name: None,
+            r#type: None,
+            youtube_id: None,
+            channel_name: None,
+            video: None,
+            twitter_card: None,
+            twitter_player: None,
+            kind: None,
+            author: None,
+            author_handle: None,
+            published: None,
+        }
+    }
+
+    #[test]
+    fn x_status_urls_are_recognised_on_both_hosts() {
+        assert!(is_x_status_url("https://x.com/jack/status/20"));
+        assert!(is_x_status_url("https://www.twitter.com/jack/status/20?s=1"));
+        assert!(!is_x_status_url("https://x.com/jack"));
+        assert!(!is_x_status_url("https://example.com/a/status/1"));
+    }
+
+    #[test]
+    fn oembed_html_yields_text_and_date() {
+        let html = r#"<blockquote class="twitter-tweet"><p lang="en" dir="ltr">just setting up my twttr<br>line two &amp; more</p>&mdash; jack (@jack) <a href="https://twitter.com/jack/status/20?ref_src=twsrc%5Etfw">March 21, 2006</a></blockquote>"#;
+        let (text, published) = parse_x_oembed_html(html);
+        assert_eq!(text.as_deref(), Some("just setting up my twttr\nline two & more"));
+        assert_eq!(published.as_deref(), Some("March 21, 2006"));
+    }
+
+    #[test]
+    fn links_are_classified_by_what_they_point_at() {
+        let mut repo = bare();
+        classify_preview("https://github.com/rust-lang/rust", &mut repo);
+        assert_eq!(repo.kind.as_deref(), Some("repo"));
+        assert_eq!(repo.author.as_deref(), Some("rust-lang"));
+
+        let mut article = bare();
+        article.r#type = Some("article".into());
+        classify_preview("https://example.com/a", &mut article);
+        assert_eq!(article.kind.as_deref(), Some("article"));
+
+        let mut audio = bare();
+        classify_preview("https://open.spotify.com/track/1", &mut audio);
+        assert_eq!(audio.kind.as_deref(), Some("audio"));
+
+        let mut other = bare();
+        classify_preview("https://example.com/", &mut other);
+        assert_eq!(other.kind.as_deref(), Some("link"));
     }
 }
