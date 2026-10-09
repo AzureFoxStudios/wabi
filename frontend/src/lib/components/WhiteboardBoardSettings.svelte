@@ -227,31 +227,38 @@
 	.wb-settings-segmented {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.3rem;
+		gap: 0;
+		border: var(--w-bw, 1px) solid var(--w-line-strong, var(--border-default));
+		border-radius: calc(10px * var(--w-rs, 1));
+		overflow: hidden;
+		background: var(--w-bg2, var(--surface-base));
 	}
 
 	.wb-settings-seg-btn {
 		flex: 1 1 auto;
 		min-width: 0;
 		padding: 0.4rem 0.6rem;
-		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 20%, transparent);
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--surface-sunken, #0f0c29) 55%, transparent);
-		color: var(--text-secondary, #b3b3ff);
+		border: 0;
+		border-radius: 0;
+		background: transparent;
+		color: var(--w-mute, var(--text-secondary, #b3b3ff));
 		font-size: var(--font-size-sm, 0.8125rem);
 		font-weight: 600;
 		cursor: pointer;
 		transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 	}
 
+	.wb-settings-seg-btn + .wb-settings-seg-btn {
+		border-left: var(--w-bw, 1px) solid var(--w-line, transparent);
+	}
+
 	.wb-settings-seg-btn:hover {
-		background: color-mix(in srgb, var(--surface-base, #24243e) 60%, transparent);
+		color: var(--w-text, var(--text-heading, #e0e0ff));
 	}
 
 	.wb-settings-seg-btn.active {
-		background: color-mix(in srgb, var(--accent-primary, #6366f1) 22%, transparent);
-		border-color: color-mix(in srgb, var(--accent-primary, #6366f1) 40%, transparent);
-		color: var(--text-heading, #e0e0ff);
+		background: var(--w-accent, var(--accent-primary, #6366f1));
+		color: var(--w-on-accent, #fff);
 	}
 
 	.wb-settings-description {
@@ -279,7 +286,7 @@
 	.wb-settings-save,
 	.wb-settings-cancel {
 		padding: 0.42rem 0.95rem;
-		border-radius: 999px;
+		border-radius: calc(10px * var(--w-rs, 1));
 		font-size: var(--font-size-sm, 0.8125rem);
 		font-weight: 700;
 		cursor: pointer;
@@ -287,24 +294,24 @@
 	}
 
 	.wb-settings-save {
-		border: 1px solid color-mix(in srgb, var(--accent-primary, #6366f1) 34%, transparent);
-		background: color-mix(in srgb, var(--accent-primary, #6366f1) 82%, transparent);
-		color: var(--text-heading, #e0e0ff);
+		border: 0;
+		background: var(--w-text, var(--accent-primary, #6366f1));
+		color: var(--w-bg, var(--text-heading, #e0e0ff));
 	}
 
 	.wb-settings-save:hover {
-		background: var(--accent-primary, #6366f1);
+		background: color-mix(in srgb, var(--w-text, var(--accent-primary)) 88%, var(--w-accent, var(--accent-primary)));
 	}
 
 	.wb-settings-cancel {
-		border: 1px solid color-mix(in srgb, var(--text-muted, #9999ff) 24%, transparent);
+		border: var(--w-bw, 1px) solid var(--w-line-strong, var(--border-default));
 		background: transparent;
-		color: var(--text-secondary, #b3b3ff);
+		color: var(--w-text, var(--text-secondary, #b3b3ff));
 	}
 
 	.wb-settings-cancel:hover {
-		background: color-mix(in srgb, var(--text-muted, #9999ff) 12%, transparent);
-		color: var(--text-heading, #e0e0ff);
+		background: var(--w-raise, color-mix(in srgb, var(--text-muted, #9999ff) 12%, transparent));
+		border-color: var(--w-accent, var(--border-default));
 	}
 
 	@media (prefers-reduced-motion: reduce) {
@@ -315,5 +322,5 @@
 
  .board-settings-body { padding: 0 20px 20px; }
 
- select { width:100%; min-height:40px; padding:8px; color:var(--text-primary); background:var(--bg-primary); border:1px solid var(--border-subtle); border-radius:8px; }
+ select { width:100%; min-height:40px; padding:8px; color:var(--w-text, var(--text-primary)); background:var(--w-sink, var(--bg-primary)); border:var(--w-bw, 1px) solid var(--w-line-strong, var(--border-subtle)); border-radius:calc(10px * var(--w-rs, 1)); }
 </style>
