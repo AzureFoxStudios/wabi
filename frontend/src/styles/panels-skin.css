@@ -1,0 +1,60 @@
+/* Group DM settings and whiteboard board settings, on the control kit. */
+
+:root .group-settings { font-family: var(--w-sans); color: var(--w-text); }
+:root .group-settings .group-name { font: 600 calc(22px * var(--w-fs, 1))/1.2 var(--w-serif); color: var(--w-text); }
+:root .group-settings .member-count,
+:root .group-settings .avatar-note { font: 500 calc(12px * var(--w-fs, 1))/1.4 var(--w-mono); color: var(--w-mute); }
+:root .group-settings .section-header h3,
+:root .group-settings .section-header span { font: 600 calc(11.5px * var(--w-fs, 1))/1 var(--w-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--w-faint); }
+:root .group-settings .member-item {
+	border: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: calc(10px * var(--w-rs, 1));
+	background: var(--w-bg2);
+}
+:root .group-settings .member-name { font: 600 calc(14px * var(--w-fs, 1))/1.3 var(--w-sans); }
+:root .group-settings .add-member-btn {
+	min-height: 32px;
+	padding: 5px 12px;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(9px * var(--w-rs, 1));
+	background: transparent;
+	color: var(--w-text);
+	font: 600 calc(12.5px * var(--w-fs, 1))/1.2 var(--w-sans);
+}
+:root .group-settings .add-member-btn:hover { background: var(--w-raise); border-color: var(--w-accent); }
+:root .group-settings .add-search { background: var(--w-sink); border: var(--w-bw, 1px) solid var(--w-line-strong); border-radius: calc(10px * var(--w-rs, 1)); color: var(--w-text); }
+:root .group-settings .operation-error { color: var(--w-danger); font: 500 calc(13px * var(--w-fs, 1)) var(--w-sans); }
+
+/* whiteboard */
+:root .board-settings-body { font-family: var(--w-sans); color: var(--w-text); }
+:root .wb-settings-label { font: 600 calc(14px * var(--w-fs, 1))/1.3 var(--w-sans); color: var(--w-text); }
+:root .wb-settings-description { font: 400 calc(13px * var(--w-fs, 1))/1.5 var(--w-sans); color: var(--w-mute); }
+:root .wb-settings-segmented {
+	display: inline-flex;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(10px * var(--w-rs, 1));
+	overflow: hidden;
+	background: var(--w-bg2);
+}
+:root .wb-settings-seg-btn {
+	min-height: 32px;
+	padding: 5px 14px;
+	border: 0;
+	background: transparent;
+	color: var(--w-mute);
+	font: 600 calc(13px * var(--w-fs, 1))/1.2 var(--w-sans);
+}
+:root .wb-settings-seg-btn + .wb-settings-seg-btn { border-left: var(--w-bw, 1px) solid var(--w-line); }
+:root .wb-settings-seg-btn:hover { color: var(--w-text); }
+:root .wb-settings-seg-btn.active,
+:root .wb-settings-seg-btn[aria-checked='true'] { background: var(--w-accent); color: var(--w-on-accent); }
+:root .wb-settings-save,
+:root .wb-settings-cancel {
+	min-height: 34px;
+	padding: 6px 14px;
+	border-radius: calc(10px * var(--w-rs, 1));
+	font: 700 calc(13.5px * var(--w-fs, 1))/1.2 var(--w-sans);
+}
+:root .wb-settings-save { border: 0; background: var(--w-text); color: var(--w-bg); }
+:root .wb-settings-cancel { border: var(--w-bw, 1px) solid var(--w-line-strong); background: transparent; color: var(--w-text); }
+:root .wb-settings-cancel:hover { background: var(--w-raise); border-color: var(--w-accent); }
