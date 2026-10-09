@@ -149,9 +149,8 @@
 	.you-are-here { position: absolute; top: -1.35rem; font: 600 .62rem var(--w-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--w-sig); }
 	.stage-label { margin-top: .35rem; font: 600 .95rem var(--w-serif); }
 	.stage-count { font: 600 .8rem var(--w-mono); color: var(--w-mute); font-variant-numeric: tabular-nums; }
-	.map-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0; border: var(--w-bw, 1px) solid var(--w-line); border-radius: calc(8px * var(--w-rs, 1)); overflow: hidden; }
-	.map-card { padding: .8rem 1rem; border-right: var(--w-bw, 1px) solid var(--w-line); display: grid; align-content: start; gap: .3rem; min-width: 0; }
-	.map-card:last-child { border-right: 0; }
+	.map-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .75rem; }
+	.map-card { padding: .8rem 1rem; border: var(--w-bw, 1px) solid var(--w-line); border-radius: calc(8px * var(--w-rs, 1)); display: grid; align-content: start; gap: .3rem; min-width: 0; }
 	.map-card.call { box-shadow: inset 3px 0 0 var(--w-sig); }
 	.map-decision { all: unset; cursor: pointer; display: grid; gap: .15rem; padding: .25rem 0; border-bottom: var(--w-bw, 1px) solid var(--w-line); }
 	.map-decision:last-child { border-bottom: 0; }
@@ -167,5 +166,4 @@
 	.map-row em { font-style: normal; color: var(--w-mute); }
 	.mono { font: 500 .72rem var(--w-mono); color: var(--w-mute); white-space: nowrap; align-self: center; }
 	:is(.map-link, .map-row, .map-decision):focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
-	@media (max-width: 640px) { .map-card { border-right: 0; border-bottom: var(--w-bw, 1px) solid var(--w-line); } .map-card:last-child { border-bottom: 0; } }
 </style>
