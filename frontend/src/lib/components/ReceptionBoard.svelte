@@ -321,20 +321,20 @@
 	}
 	.chip {
 		appearance: none;
-		border: 1px solid #4f545c;
-		background: var(--surface-base);
+		border: 1px solid var(--w-line-strong, var(--border-default));
+		background: var(--w-bg2, var(--surface-base));
 		color: var(--text-primary);
 		padding: 8px 12px;
 		border-radius: 9999px;
 		cursor: pointer;
 	}
 	.chip-on {
-		background: #5865f2;
-		border-color: #5865f2;
-		color: white;
+		background: var(--w-accent, var(--accent-primary));
+		border-color: var(--w-accent, var(--accent-primary));
+		color: var(--w-on-accent, #fff);
 	}
 	.reception-empty {
-		color: #b9bbbe;
+		color: var(--w-mute, var(--text-secondary));
 		font-size: 13px;
 	}
 	.role-list{display:grid;gap:10px;margin-top:15px}
@@ -377,14 +377,14 @@
 	.primary {
 		appearance: none;
 		border: none;
-		background: #5865f2;
-		color: white;
+		background: var(--w-text, var(--text-heading));
+		color: var(--w-bg, var(--surface-base));
 		padding: 12px 18px;
 		border-radius: 8px;
 		cursor: pointer;
 		font-weight: 600;
 	}
-	.rules-button{appearance:none;border:1px solid #4f545c;border-radius:9px;background:#2f3136;color:#fff;padding:10px 13px;cursor:pointer}
+	.rules-button{appearance:none;border:1px solid var(--w-line-strong,var(--border-default));border-radius:9px;background:transparent;color:var(--w-text,var(--text-heading));padding:10px 13px;cursor:pointer}
 	@media(max-width:720px){.reception-body,.desk-overview{grid-template-columns:1fr}.view-section,.desk-room-section{grid-column:auto}.role-card{flex-direction:column}.role-card button{align-self:flex-start}}
 	.room-name { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 	.room-row { gap: 16px; border: 1px solid var(--border-default); }
