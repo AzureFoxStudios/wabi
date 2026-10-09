@@ -77,3 +77,41 @@
 	box-shadow: inset 2px 0 0 var(--w-seal);
 	font-family: var(--w-sans);
 }
+
+/* Create group / create DM side sheets (they use .modal rather than .modal-content) */
+:root .modal[role='dialog'] {
+	background: var(--w-bg);
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(14px * var(--w-rs, 1));
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+	font-family: var(--w-sans);
+}
+:root .modal[role='dialog'] .modal-header { background: var(--w-bg2); border-bottom: var(--w-bw, 1px) solid var(--w-line); }
+:root .modal[role='dialog'] .modal-header h2,
+:root .modal[role='dialog'] .modal-header h3 { font: 600 calc(20px * var(--w-fs, 1))/1.2 var(--w-serif); color: var(--w-text); }
+:root .modal[role='dialog'] .close-btn { color: var(--w-mute); border-radius: calc(9px * var(--w-rs, 1)); }
+:root .modal[role='dialog'] .close-btn:hover { background: var(--w-raise); color: var(--w-text); }
+:root .modal[role='dialog'] input {
+	background: var(--w-sink);
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(10px * var(--w-rs, 1));
+	color: var(--w-text);
+	font: 400 calc(14px * var(--w-fs, 1))/1.4 var(--w-sans);
+}
+:root .modal[role='dialog'] input:focus { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
+:root .modal[role='dialog'] .user-item { border-radius: calc(10px * var(--w-rs, 1)); color: var(--w-text); }
+:root .modal[role='dialog'] .user-item:hover { background: var(--w-raise); }
+:root .modal[role='dialog'] .handle { font: 500 calc(12px * var(--w-fs, 1))/1.3 var(--w-mono); color: var(--w-mute); }
+:root .modal[role='dialog'] .chip { border: var(--w-bw, 1px) solid var(--w-line-strong); border-radius: var(--w-pill, 999px); background: var(--w-bg2); color: var(--w-text); }
+:root .modal[role='dialog'] .modal-footer { border-top: var(--w-bw, 1px) solid var(--w-line); }
+:root .modal[role='dialog'] .create-btn {
+	min-height: 38px;
+	border: 0;
+	border-radius: calc(11px * var(--w-rs, 1));
+	background: var(--w-text);
+	color: var(--w-bg);
+	font: 700 calc(14px * var(--w-fs, 1))/1.2 var(--w-sans);
+}
+:root .modal[role='dialog'] .create-btn:disabled { background: var(--w-raise); color: var(--w-faint); }
+:root .modal[role='dialog'] .operation-error { color: var(--w-danger); }
