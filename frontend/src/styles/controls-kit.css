@@ -17,7 +17,7 @@
 	border-radius: calc(10px * var(--w-rs, 1));
 	background: transparent;
 	color: var(--w-text);
-	font: 600 13.5px/1.2 var(--w-sans);
+	font: 600 calc(13.5px * var(--w-fs, 1))/1.2 var(--w-sans);
 	cursor: pointer;
 	transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
@@ -42,7 +42,7 @@
 	border-radius: calc(10px * var(--w-rs, 1));
 	background: var(--w-sink);
 	color: var(--w-text);
-	font: 400 14.5px/1.4 var(--w-sans);
+	font: 400 calc(14.5px * var(--w-fs, 1))/1.4 var(--w-sans);
 }
 .w-field::placeholder { color: var(--w-faint); }
 .w-field:focus { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
@@ -90,7 +90,7 @@
 	border: 0;
 	background: transparent;
 	color: var(--w-mute);
-	font: 600 13px/1.2 var(--w-sans);
+	font: 600 calc(13px * var(--w-fs, 1))/1.2 var(--w-sans);
 	cursor: pointer;
 }
 .w-seg > button + button { border-left: var(--w-bw, 1px) solid var(--w-line); }
@@ -111,16 +111,16 @@
 	background: var(--w-bg2);
 }
 .w-row + .w-row { margin-top: 8px; }
-.w-row__label { font: 600 14.5px/1.3 var(--w-sans); color: var(--w-text); }
-.w-row__hint { margin-top: 2px; font: 400 13px/1.45 var(--w-sans); color: var(--w-mute); }
+.w-row__label { font: 600 calc(14.5px * var(--w-fs, 1))/1.3 var(--w-sans); color: var(--w-text); }
+.w-row__hint { margin-top: 2px; font: 400 calc(13px * var(--w-fs, 1))/1.45 var(--w-sans); color: var(--w-mute); }
 /* digital strings: ids, hosts, versions, counts */
 .w-mono { font-family: var(--w-mono); font-feature-settings: 'tnum'; }
 /* a row about security (encryption state, permissions, moderation) wears the seal */
 .w-row--seal { box-shadow: inset 2px 0 0 var(--w-seal); }
 
 /* ---------- section title + seal badge ---------- */
-.w-title { margin: 0 0 6px; font: 600 24px/1.2 var(--w-serif); letter-spacing: 0.01em; color: var(--w-text); }
-.w-subtitle { margin: 0 0 14px; font: 500 12.5px/1.4 var(--w-mono); color: var(--w-mute); }
+.w-title { margin: 0 0 6px; font: 600 calc(24px * var(--w-fs, 1))/1.2 var(--w-serif); letter-spacing: 0.01em; color: var(--w-text); }
+.w-subtitle { margin: 0 0 14px; font: 500 calc(12.5px * var(--w-fs, 1))/1.4 var(--w-mono); color: var(--w-mute); }
 .w-seal {
 	display: inline-flex;
 	align-items: center;
@@ -130,5 +130,5 @@
 	border-radius: var(--w-pill, 999px);
 	background: var(--w-seal-soft);
 	color: var(--w-text);
-	font: 600 11.5px/1.6 var(--w-sans);
+	font: 600 calc(11.5px * var(--w-fs, 1))/1.6 var(--w-sans);
 }

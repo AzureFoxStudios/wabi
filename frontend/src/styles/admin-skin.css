@@ -7,15 +7,15 @@
 :root .admin-workbench .admin-sidebar { background: var(--w-bg2); border-right: var(--w-bw, 1px) solid var(--w-line); }
 :root .admin-workbench .admin-identity strong,
 :root .admin-workbench .admin-sidebar-header + .admin-identity * { font-family: var(--w-serif); }
-:root .admin-workbench .admin-identity strong { font: 600 20px/1.2 var(--w-serif); color: var(--w-text); }
+:root .admin-workbench .admin-identity strong { font: 600 calc(20px * var(--w-fs, 1))/1.2 var(--w-serif); color: var(--w-text); }
 :root .admin-workbench .admin-identity small,
-:root .admin-workbench .admin-identity span { font: 500 11.5px/1.3 var(--w-mono); color: var(--w-mute); }
+:root .admin-workbench .admin-identity span { font: 500 calc(11.5px * var(--w-fs, 1))/1.3 var(--w-mono); color: var(--w-mute); }
 :root .admin-workbench .admin-sidebar-nav button,
 :root .admin-workbench .admin-sidebar-nav a {
 	border-radius: calc(10px * var(--w-rs, 1));
 	background: transparent;
 	color: var(--w-mute);
-	font: 500 14px/1.2 var(--w-sans);
+	font: 500 calc(14px * var(--w-fs, 1))/1.2 var(--w-sans);
 	border: 0;
 	box-shadow: none;
 }
@@ -31,10 +31,10 @@
 /* top bar + page title */
 :root .admin-workbench .admin-topbar { background: var(--w-bg); border-bottom: var(--w-bw, 1px) solid var(--w-line); }
 :root .admin-workbench .admin-topbar h1,
-:root .admin-workbench .admin-topbar h2 { font: 600 26px/1.15 var(--w-serif); letter-spacing: 0.01em; color: var(--w-text); }
-:root .admin-workbench .admin-topbar p { font: 400 13.5px/1.4 var(--w-sans); color: var(--w-mute); }
+:root .admin-workbench .admin-topbar h2 { font: 600 calc(26px * var(--w-fs, 1))/1.15 var(--w-serif); letter-spacing: 0.01em; color: var(--w-text); }
+:root .admin-workbench .admin-topbar p { font: 400 calc(13.5px * var(--w-fs, 1))/1.4 var(--w-sans); color: var(--w-mute); }
 :root .admin-workbench .admin-topbar time,
-:root .admin-workbench .admin-topbar small { font: 500 12px/1.3 var(--w-mono); color: var(--w-faint); }
+:root .admin-workbench .admin-topbar small { font: 500 calc(12px * var(--w-fs, 1))/1.3 var(--w-mono); color: var(--w-faint); }
 :root .admin-workbench .admin-refresh,
 :root .admin-workbench .admin-back-btn {
 	min-height: 34px;
@@ -43,7 +43,7 @@
 	border-radius: calc(10px * var(--w-rs, 1));
 	background: transparent;
 	color: var(--w-text);
-	font: 600 13.5px/1.2 var(--w-sans);
+	font: 600 calc(13.5px * var(--w-fs, 1))/1.2 var(--w-sans);
 }
 :root .admin-workbench .admin-refresh:hover,
 :root .admin-workbench .admin-back-btn:hover { background: var(--w-raise); border-color: var(--w-accent); }
@@ -51,15 +51,15 @@
 /* content */
 :root .admin-workbench .admin-section-label,
 :root .admin-workbench .card-kicker {
-	font: 600 11px/1 var(--w-mono);
+	font: 600 calc(11px * var(--w-fs, 1))/1 var(--w-mono);
 	letter-spacing: 0.12em;
 	text-transform: uppercase;
 	color: var(--w-faint);
 }
-:root .admin-workbench .server-center-hero h2 { font: 600 clamp(28px, 3vw, 38px)/1.12 var(--w-serif); letter-spacing: 0; color: var(--w-text); }
-:root .admin-workbench .server-center-hero p { font: 500 13px/1.5 var(--w-mono); color: var(--w-mute); }
-:root .admin-workbench .admin-home-card-header h2 { font: 600 20px/1.25 var(--w-serif); color: var(--w-text); }
-:root .admin-workbench .admin-home-description { font: 400 14px/1.6 var(--w-sans); color: var(--w-mute); }
+:root .admin-workbench .server-center-hero h2 { font: 600 calc(clamp(28px, 3vw, 38px) * var(--w-fs, 1))/1.12 var(--w-serif); letter-spacing: 0; color: var(--w-text); }
+:root .admin-workbench .server-center-hero p { font: 500 calc(13px * var(--w-fs, 1))/1.5 var(--w-mono); color: var(--w-mute); }
+:root .admin-workbench .admin-home-card-header h2 { font: 600 calc(20px * var(--w-fs, 1))/1.25 var(--w-serif); color: var(--w-text); }
+:root .admin-workbench .admin-home-description { font: 400 calc(14px * var(--w-fs, 1))/1.6 var(--w-sans); color: var(--w-mute); }
 
 :root .admin-workbench .server-center-hero,
 :root .admin-workbench .admin-home-card,
@@ -71,27 +71,27 @@
 	box-shadow: none;
 }
 :root .admin-workbench .admin-summary { background: var(--w-bg); }
-:root .admin-workbench .admin-summary > span { font: 500 12.5px/1.3 var(--w-sans); color: var(--w-mute); }
-:root .admin-workbench .admin-summary small { font: 500 11.5px/1.35 var(--w-mono); color: var(--w-faint); }
+:root .admin-workbench .admin-summary > span { font: 500 calc(12.5px * var(--w-fs, 1))/1.3 var(--w-sans); color: var(--w-mute); }
+:root .admin-workbench .admin-summary small { font: 500 calc(11.5px * var(--w-fs, 1))/1.35 var(--w-mono); color: var(--w-faint); }
 /* numbers are digital strings */
-:root .admin-workbench .admin-stat-value { font: 500 28px/1.1 var(--w-mono); font-feature-settings: 'tnum'; color: var(--w-text); }
-:root .admin-workbench .admin-stat-value.admin-stat-presence { font: 600 20px/1.2 var(--w-sans); }
+:root .admin-workbench .admin-stat-value { font: 500 calc(28px * var(--w-fs, 1))/1.1 var(--w-mono); font-feature-settings: 'tnum'; color: var(--w-text); }
+:root .admin-workbench .admin-stat-value.admin-stat-presence { font: 600 calc(20px * var(--w-fs, 1))/1.2 var(--w-sans); }
 
-:root .admin-workbench .admin-health-metrics dt { font: 500 12px/1.3 var(--w-sans); color: var(--w-mute); }
-:root .admin-workbench .admin-health-metrics dd { font: 500 15px/1.3 var(--w-mono); color: var(--w-text); }
+:root .admin-workbench .admin-health-metrics dt { font: 500 calc(12px * var(--w-fs, 1))/1.3 var(--w-sans); color: var(--w-mute); }
+:root .admin-workbench .admin-health-metrics dd { font: 500 calc(15px * var(--w-fs, 1))/1.3 var(--w-mono); color: var(--w-text); }
 :root .admin-workbench .admin-health-status {
 	padding: 1px 9px;
 	border: var(--w-bw, 1px) solid color-mix(in srgb, var(--w-online) 55%, transparent);
 	border-radius: var(--w-pill, 999px);
 	background: color-mix(in srgb, var(--w-online) 12%, transparent);
 	color: var(--w-text);
-	font: 600 11.5px/1.7 var(--w-sans);
+	font: 600 calc(11.5px * var(--w-fs, 1))/1.7 var(--w-sans);
 }
 :root .admin-workbench .server-center-health-dot {
 	border: var(--w-bw, 1px) solid var(--w-line-strong);
 	border-radius: var(--w-pill, 999px);
 	color: var(--w-text);
-	font: 500 13px var(--w-mono);
+	font: 500 calc(13px * var(--w-fs, 1)) var(--w-mono);
 }
 :root .admin-workbench .server-tool-grid button {
 	background: var(--w-bg);
@@ -101,6 +101,6 @@
 	text-align: left;
 }
 :root .admin-workbench .server-tool-grid button:hover { border-color: var(--w-accent); background: var(--w-raise); }
-:root .admin-workbench .server-tool-grid button strong { font: 600 15px/1.3 var(--w-sans); }
-:root .admin-workbench .server-tool-grid button span { font: 400 13px/1.45 var(--w-sans); color: var(--w-mute); }
+:root .admin-workbench .server-tool-grid button strong { font: 600 calc(15px * var(--w-fs, 1))/1.3 var(--w-sans); }
+:root .admin-workbench .server-tool-grid button span { font: 400 calc(13px * var(--w-fs, 1))/1.45 var(--w-sans); color: var(--w-mute); }
 :root .admin-workbench .server-tool-grid button b { color: var(--w-accent); }

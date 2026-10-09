@@ -81,6 +81,16 @@ export function assignAccents(theme: Theme): { line: string; seal: string } {
 		: { line: secondary, seal: primary };
 }
 
+/** Nudge `color` toward `toward` until it reaches `min` contrast on `surface` (or give up after 20 steps). */
+export function ensureContrast(color: string, surface: string, toward: string, min: number): string {
+	if (!parseColor(color) || contrastRatio(color, surface) >= min) return color;
+	for (let step = 1; step <= 20; step++) {
+		const next = mix(color, toward, step / 20);
+		if (contrastRatio(next, surface) >= min) return next;
+	}
+	return toward;
+}
+
 export function deriveRoles(theme: Theme): RoleTokens {
 	const c = theme.colors;
 	const { line: accent, seal } = assignAccents(theme);
@@ -96,8 +106,10 @@ export function deriveRoles(theme: Theme): RoleTokens {
 		'--w-sink': c.modalBg,
 		'--w-text': text,
 		'--w-mute': c.textSecondary,
-		// The faintest text level is decoration only; muted copy uses --w-mute.
-		'--w-faint': c.textTertiary,
+		// --w-faint is still small *text* (times, kickers, counts), so it is kept readable (>= 4.5:1).
+		// --w-deco is the theme's own faintest tone, for borders and glyphs that are purely decorative.
+		'--w-faint': ensureContrast(ensureContrast(c.textTertiary, c.bgSecondary, c.textPrimary, 4.5), c.bgTertiary, c.textPrimary, 4.5),
+		'--w-deco': c.textTertiary,
 		'--w-line': `color-mix(in srgb, ${text} ${lineMix}%, transparent)`,
 		'--w-line-strong': char === 'contrast' ? text : `color-mix(in srgb, ${text} 22%, transparent)`,
 		'--w-accent': accent,
