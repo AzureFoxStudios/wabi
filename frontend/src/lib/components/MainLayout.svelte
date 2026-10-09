@@ -1282,7 +1282,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		class:rail-on={!$layoutStore.isMobile && !$focusMode}
 		class:dock-pinned={$layoutStore.rightPanelMode === 'pinned'}
 		class:rail-left={$layoutStore.stubSide === 'left'}
-		style:--w-sig={$currentSavedServer?.effectiveAccentColor || null}
+		style:--w-sig={$currentSavedServer?.frontendMetadata?.accentColor || null}
 		style:--w-dock-w={$layoutStore.rightPanelMode === 'pinned' && !$layoutStore.isMobile
 			? `min(${Math.min($layoutStore.rightPanelWidth, 744)}px, 55vw)`
 			: '0px'}
