@@ -6,6 +6,7 @@
 	import type { KanbanColumn, Todo, TodoStatus } from '$lib/business/types';
 	import { projectBurndown, type BurnRevision } from '$lib/business/projectBurndown';
 	import KanbanBoardColumns from './KanbanBoardColumns.svelte';
+	import ProjectMap from './ProjectMap.svelte';
 
 	export let channelId: string;
 
@@ -242,6 +243,7 @@
 			<div class="pulse-progress"><span>{completionPercent}% complete</span><div class="progress-track" role="progressbar" aria-label="Cards done" aria-valuenow={completionPercent} aria-valuemin="0" aria-valuemax="100"><div style:width={`${completionPercent}%`}></div></div></div>
 		</div>
 	</div>
+	{#if !loading}<ProjectMap {tasks} nameOf={getAssigneeName} onOpen={(id) => handleCardClick({ id } as Todo)} />{/if}
 	{#if error}<p class="board-error" role="alert">{error}</p>{/if}
 	{#if loading}<p class="board-state" role="status">Loading shared board…</p>{:else}
 		<div class="board-section-bar"><div><span class="section-line"></span><h3>Board lanes</h3><span class="lane-count">{visibleColumns.length}</span></div><button type="button" class:pressed={showScrapped} onclick={() => showScrapped = !showScrapped}>{showScrapped ? 'Hide' : 'Show'} set aside <span>{scrappedCount}</span></button></div>
