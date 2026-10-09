@@ -692,11 +692,12 @@ import type { MediaAlbum } from '$lib/api';
 	{#if isUploading}<div class="upload-progress-bar"><div class="upload-progress-info"><span>{uploadStatusLabel || $_('chat.upload.uploading')}</span><span>{uploadProgress}%</span></div><div class="progress-bar"><div class="progress-fill" style="width: {uploadProgress}%"></div></div></div>{/if}
 	<input type="file" bind:this={fileInput} onchange={handleFileSelect} multiple class="hidden" />
 	{#if sendCooldownMessage}<div class="composer-rate-limit-notice" role="status" aria-live="polite">{sendCooldownMessage}</div>{/if}
-	<div class="composer-e2ee-status" class:locked={e2eeIndicatorState.locked} title={e2eeIndicatorState.title} aria-live="polite">
-		<span class="composer-e2ee-icon" aria-hidden="true">{e2eeIndicatorState.icon}</span>
-		<span class="composer-e2ee-label">{e2eeIndicatorState.label}</span>
-	</div>
 	<div class="input-container">
+		<!-- A legend tag on the composer's top edge: always honest, never a row of its own. -->
+		<div class="composer-e2ee-status" class:locked={e2eeIndicatorState.locked} title={e2eeIndicatorState.title} aria-live="polite">
+			<span class="composer-e2ee-icon" aria-hidden="true">{e2eeIndicatorState.locked ? '◆' : '◇'}</span>
+			<span class="composer-e2ee-label">{e2eeIndicatorState.locked ? 'Encrypted · experimental' : 'Server-readable'}</span>
+		</div>
 		<CommandPalette bind:this={commandPalette} bind:input={messageInput} bind:isVisible={showCommandPalette} bind:selectedIndex={commandPaletteSelectedIndex} onSelect={handleCommandSelect} />
 		<textarea bind:this={textareaElement} bind:value={messageInput} onpaste={handlePaste} oninput={() => { handleInput(); handleInputChange(); }} onkeydown={handleKeyDown} onfocus={() => { isTextareaFocused = true; composerVisible = true; }} onblur={() => { isTextareaFocused = false; }} placeholder={$isMobile ? 'Message...' : $_('chat.compose.placeholder')} maxlength={composerInputMaxLength} spellcheck={composerSpellcheckEnabled} rows="1"></textarea>
 		{#if composerCharCounterEnabled && composerCharCounterVisible}<span class="composer-char-counter" class:warn={composerCharCounterWarn} class:visible={composerCharCounterVisible}>{composerCharCount}/{composerInputMaxLength}</span>{/if}
