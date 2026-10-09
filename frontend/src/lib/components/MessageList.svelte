@@ -369,11 +369,35 @@
 		}
 	}
 
+	/**
+	 * Wick clock. `nowMs` deliberately stays still until a deadline passes (re-rendering every row each second
+	 * is wasteful), so the wick gets its own slow clock: it ticks about 150 times across the shortest lifetime on
+	 * screen, clamped to 1s–60s, and not at all while the tab is hidden.
+	 */
+	let wickNow = Date.now();
+	let wickTimer: ReturnType<typeof setTimeout> | undefined;
+	function wickIntervalMs(): number {
+		let shortest = Infinity;
+		for (const message of messages) {
+			const deadline = getMessageDeletionDeadline(message);
+			if (deadline && deadline > message.timestamp) shortest = Math.min(shortest, deadline - message.timestamp);
+		}
+		return Number.isFinite(shortest) ? Math.min(60_000, Math.max(1_000, shortest / 150)) : 0;
+	}
+	function scheduleWickTick(): void {
+		clearTimeout(wickTimer);
+		const interval = wickIntervalMs();
+		wickTimer = setTimeout(() => {
+			if (interval > 0 && !document.hidden) wickNow = Date.now();
+			scheduleWickTick();
+		}, interval || 10_000);
+	}
+
 	/** Fraction of a message's retention life that remains (1 = just sent, 0 = about to go), or null when it is not timed. */
-	function getMessageLife(message: Message): number | null {
+	function getMessageLife(message: Message, now: number): number | null {
 		const deadline = getMessageDeletionDeadline(message);
 		if (!deadline || deadline <= message.timestamp) return null;
-		return Math.min(1, Math.max(0, (deadline - nowMs) / (deadline - message.timestamp)));
+		return Math.min(1, Math.max(0, (deadline - now) / (deadline - message.timestamp)));
 	}
 
 	function getMessageDeletionLabel(message: Message): string | null {
@@ -1739,6 +1763,7 @@
 
 	onMount(() => {
 		void loadPlaceRegistry();
+		scheduleWickTick();
 		deletionCountdownMode = readDeletionCountdownModeFromDom();
 		const root = document.documentElement;
 		const observer = new MutationObserver(() => {
@@ -1770,6 +1795,7 @@
 		}, 1000);
 		return () => {
 			clearBurstAnimationReset();
+			clearTimeout(wickTimer);
 			observer.disconnect();
 			window.clearInterval(timer);
 		};
@@ -2002,7 +2028,7 @@
 	{@const groupedWithNext = isGroupedWithNext(index)}
 	{@const ownMessage = isOwnMessage(message)}
 	{@const deletionLabel = getMessageDeletionLabel(message)}
-	{@const retentionLife = getMessageLife(message)}
+	{@const retentionLife = getMessageLife(message, wickNow)}
 	{@const translatedText = translatedMessages[message.id]}
 	{@const translationLoading = translatingMessageIds.has(message.id)}
 		{@const filteredMessage = getFilteredIncomingMessage(message)}
