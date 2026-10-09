@@ -310,7 +310,6 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 			</div>
 
 			<div class="login-auth-panel">
-				<a href="/personal" data-sveltekit-reload class="auth-btn auth-btn-ghost">Open personal Planner</a>
 				<HostLink />
 				{#if privateTunnelActive}
 					<button type="button" class="login-change-server" on:click={leavePrivateTunnel} disabled={loading}>Leave private tunnel</button>
@@ -517,6 +516,8 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 			<nav class="login-footer-links" aria-label="Login resources">
 				<a href="/privacy">Privacy</a>
 				<a href="/terms">Terms</a>
+				<!-- Separate from any community account: stays on this device, no login. -->
+				<a href="/personal" data-sveltekit-reload title="A calendar, tasks and journal that stay on this device. No account needed.">Offline planner</a>
 				<label class="login-locale-control">
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 5h12M9 3v2M5 5c0 6 4 9 8 11M13 5c0 6-4 9-8 11M13 21l4-11 4 11M14.5 17h5"/></svg>
 					<span aria-hidden="true">{localeLabel}</span>
