@@ -1069,3 +1069,11 @@
 .wiki-content-body th, .wiki-content-body td { border: var(--w-bw, 1px) solid var(--w-line); padding: 8px 12px; }
 .wiki-content-body td { color: var(--w-text); }
 .wiki-content-body pre { background: var(--w-sink); border: var(--w-bw, 1px) solid var(--w-line); border-radius: calc(8px * var(--w-rs, 1)); font-family: var(--w-mono); }
+
+/* Schedules: any markdown table doubles as an itinerary. First column is the time/anchor. */
+.wiki-content-body table { display: block; max-width: 100%; overflow-x: auto; border: 0; }
+.wiki-content-body table thead, .wiki-content-body table tbody, .wiki-content-body table tr { max-width: 100%; }
+.wiki-content-body td:first-child, .wiki-content-body th:first-child { white-space: nowrap; font-family: var(--w-mono); font-variant-numeric: tabular-nums; }
+.wiki-content-body td:first-child { color: var(--w-sig); font-weight: 600; width: 1%; }
+.wiki-content-body tbody tr:hover td { background: var(--w-accent-soft); }
+.wiki-content-body tbody tr:last-child td { border-bottom-color: var(--w-line-strong); }

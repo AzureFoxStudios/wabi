@@ -608,6 +608,7 @@
 						/>
 						<div class="wiki-editor-toolbar" role="toolbar" aria-label="Markdown formatting">
 							<button type="button" on:click={() => insertEditMarkdown('**bold**')}>Bold</button>
+							<button type="button" title="Insert a schedule table: time, what, where, who" on:click={() => insertEditMarkdown('\n| Time | What | Where | Who |\n| --- | --- | --- | --- |\n| 08:00 | Meet at the gate | Main entrance | Everyone |\n| 09:00 |  |  |  |\n| 10:00 |  |  |  |\n')}>Schedule</button>
 							<button type="button" on:click={() => insertEditMarkdown('*italic*')}>Italic</button>
 							<button type="button" on:click={() => insertEditMarkdown('[link text](https://)')}>Link</button>
 							<button type="button" on:click={() => insertEditMarkdown('## Heading\n')}>Heading</button>
