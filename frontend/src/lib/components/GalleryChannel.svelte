@@ -33,6 +33,9 @@
 	import { openShareModal } from '$lib/shareStore';
 	import { buildShareLink, buildShareRefText, copyToClipboard } from '$lib/shareToChannel';
 	import { pendingNav, takePendingNav } from '$lib/pendingNav';
+	import { openModelAssetAt } from '$lib/modelOpenActions';
+	import { openReaderDocument } from '$lib/readerWorkspace';
+	import type { GalleryMediaTypeFilter } from '$lib/galleryFilter';
 
 	export let channelId: string | undefined = undefined;
 	export let preview = false;
@@ -46,7 +49,7 @@
 	$: error = $galleryErrorStore;
 	$: warning = $galleryWarningStore;
 
-	let activeTypeFilter: 'all' | 'image' | 'video' = 'all';
+	let activeTypeFilter: GalleryMediaTypeFilter = 'all';
 	let activeCreatorFilter: GalleryCreator | null = null;
 	let searchQuery = '';
 	let lightboxVisible = false;
@@ -229,7 +232,7 @@
 		applyVideoState(state);
 	}
 
-	function setTypeFilter(type: 'all' | 'image' | 'video') {
+	function setTypeFilter(type: GalleryMediaTypeFilter) {
 		activeTypeFilter = type;
 	}
 
@@ -245,7 +248,26 @@
 		activeCreatorFilter = null;
 	}
 
+	function hasKind(kind: string): boolean {
+		return allItems.some((item) => guessGalleryMediaKind(item.attachmentMime, item.attachmentName) === kind);
+	}
+
+	/** Photos and video open in the lightbox; models and documents hand off to the viewer that owns them. */
 	function openLightbox(index: number, items: GalleryItem[]) {
+		const picked = items[index];
+		const kind = picked ? guessGalleryMediaKind(picked.attachmentMime, picked.attachmentName) : 'image';
+		if (picked && kind === 'model') {
+			try { openModelAssetAt({ src: picked.attachmentUrl, fileName: picked.attachmentName, source: 'chat' }, { kind: 'workspace' }); } catch { /* the viewer reports its own errors */ }
+			return;
+		}
+		if (picked && kind === 'document') {
+			if (/\.(md|txt)$/i.test(picked.attachmentName)) {
+				void fetch(picked.attachmentUrl).then((response) => response.text()).then((text) => openReaderDocument(picked.attachmentName, text, /\.md$/i.test(picked.attachmentName) ? 'markdown' : 'text', 'generated')).catch(() => window.open(picked.attachmentUrl, '_blank', 'noopener'));
+			} else {
+				window.open(picked.attachmentUrl, '_blank', 'noopener');
+			}
+			return;
+		}
 		lightboxIndex = index;
 		lightboxItems = items;
 		lightboxVisible = true;
@@ -361,7 +383,7 @@
 			<input
 				class="gallery-upload-input"
 				type="file"
-				accept="image/*,video/*"
+				accept="image/*,video/*,application/pdf,.pdf,.md,.txt,.glb,.gltf,.obj,.stl"
 				multiple
 				bind:this={uploadInputElement}
 				on:change={handleUploadInputChange}
@@ -486,6 +508,12 @@
 										>
 											<track kind="captions" />
 										</video>
+									{:else if guessGalleryMediaKind(item.attachmentMime, item.attachmentName) === 'document' || guessGalleryMediaKind(item.attachmentMime, item.attachmentName) === 'model'}
+										<div class="doc-cover" class:model={guessGalleryMediaKind(item.attachmentMime, item.attachmentName) === 'model'}>
+											<span class="doc-ext">{(item.attachmentName.split('.').pop() || '').toUpperCase()}</span>
+											<strong class="doc-title">{item.attachmentName.replace(/\.[^.]+$/, '')}</strong>
+											<span class="doc-kind">{guessGalleryMediaKind(item.attachmentMime, item.attachmentName) === 'model' ? '3D model · opens in the viewer' : 'Document · opens in a new tab'}</span>
+										</div>
 									{:else}
 										<img src={item.attachmentUrl} alt={item.attachmentName} class="recent-media" loading="lazy" />
 									{/if}
@@ -582,6 +610,12 @@
 										>
 											<track kind="captions" />
 										</video>
+									{:else if guessGalleryMediaKind(item.attachmentMime, item.attachmentName) === 'document' || guessGalleryMediaKind(item.attachmentMime, item.attachmentName) === 'model'}
+										<div class="doc-cover" class:model={guessGalleryMediaKind(item.attachmentMime, item.attachmentName) === 'model'}>
+											<span class="doc-ext">{(item.attachmentName.split('.').pop() || '').toUpperCase()}</span>
+											<strong class="doc-title">{item.attachmentName.replace(/\.[^.]+$/, '')}</strong>
+											<span class="doc-kind">{guessGalleryMediaKind(item.attachmentMime, item.attachmentName) === 'model' ? '3D model · opens in the viewer' : 'Document · opens in a new tab'}</span>
+										</div>
 									{:else}
 										<img src={item.attachmentUrl} alt={item.attachmentName} class="card-media" loading="lazy" />
 									{/if}
@@ -633,6 +667,8 @@
 			<button class="filter-btn" class:active={activeTypeFilter === 'all'} on:click={() => setTypeFilter('all')}>All</button>
 			<button class="filter-btn" class:active={activeTypeFilter === 'image'} on:click={() => setTypeFilter('image')}>Images</button>
 			<button class="filter-btn" class:active={activeTypeFilter === 'video'} on:click={() => setTypeFilter('video')}>Video</button>
+			{#if hasKind('document')}<button class="filter-btn" class:active={activeTypeFilter === 'document'} on:click={() => setTypeFilter('document')}>Documents</button>{/if}
+			{#if hasKind('model')}<button class="filter-btn" class:active={activeTypeFilter === 'model'} on:click={() => setTypeFilter('model')}>3D</button>{/if}
 			<div class="filter-divider"></div>
 			<div class="filter-creators">
 				{#each allCreators as creator}

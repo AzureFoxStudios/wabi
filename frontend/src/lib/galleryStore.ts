@@ -579,7 +579,7 @@ export const {
 	refreshCreators
 } = createGalleryWorkspace();
 
-export function getGalleryItemKind(mime: string | null): 'image' | 'video' | 'unknown' {
+export function getGalleryItemKind(mime: string | null): ReturnType<typeof guessGalleryMediaKind> {
 	return guessGalleryMediaKind(mime, '');
 }
 
