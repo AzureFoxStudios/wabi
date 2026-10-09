@@ -124,24 +124,24 @@
 
 <style>
     .service-roles { min-width: 0; }
-    p { color: var(--text-secondary); line-height: 1.5; text-wrap: pretty; }
+    p { color: var(--w-mute); line-height: 1.5; text-wrap: pretty; }
     .roles { list-style: none; margin: var(--space-3) 0; padding: 0; }
-    li { border-bottom: 1px solid var(--border-subtle); padding: var(--space-2) 0; }
+    li { border-bottom: 1px solid var(--w-line); padding: var(--space-2) 0; }
     .row, .create, .rename, .feedback { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
     .row { position: relative; }
     .name { flex: 1 1 10rem; min-width: 0; overflow-wrap: anywhere; }
-    small { display: block; color: var(--text-muted); font-size: var(--font-size-xs); }
+    small { display: block; color: var(--w-mute); font-size: var(--font-size-xs); }
     button, summary, input:not([type=checkbox]) { min-height: 40px; }
-    input:not([type=checkbox]) { max-width: 100%; min-width: 0; padding: var(--space-2); background: var(--surface-sunken); color: var(--text-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
+    input:not([type=checkbox]) { max-width: 100%; min-width: 0; padding: var(--space-2); background: var(--w-sink); color: var(--w-text); border: 1px solid var(--w-line); border-radius: calc(10px * var(--w-rs, 1)); }
     .picker { position: relative; }
-    summary { cursor: pointer; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: var(--space-2); box-sizing: border-box; }
-    summary span { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
-    .choices { position: absolute; inset-inline-end: 0; top: calc(100% + var(--space-1)); z-index: var(--z-dropdown); width: min(20rem, 75vw); max-height: 18rem; overflow: auto; padding: var(--space-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--surface-raised); box-shadow: 0 8px 24px rgb(0 0 0 / 25%); }
+    summary { cursor: pointer; border: 1px solid var(--w-line); border-radius: calc(10px * var(--w-rs, 1)); padding: var(--space-2); box-sizing: border-box; }
+    summary span { font-variant-numeric: tabular-nums; color: var(--w-mute); }
+    .choices { position: absolute; inset-inline-end: 0; top: calc(100% + var(--space-1)); z-index: var(--z-dropdown); width: min(20rem, 75vw); max-height: 18rem; overflow: auto; padding: var(--space-2); border: 1px solid var(--w-line); border-radius: calc(14px * var(--w-rs, 1)); background: var(--w-raise); box-shadow: 0 8px 24px rgb(0 0 0 / 25%); }
     label { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; cursor: pointer; overflow-wrap: anywhere; }
     label input { flex-shrink: 0; }
     .hint { font-size: var(--font-size-sm); }
     .feedback { margin: var(--space-2) 0; }
     .feedback span { flex: 1 1 15rem; }
-    summary:focus-visible, input:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+    summary:focus-visible, input:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
     @media (max-width: 600px) { .name { flex-basis: 8rem; } .picker { position: static; } .choices { inset-inline-start: 0; inset-inline-end: auto; width: min(20rem, 100%); } button, summary, label { min-height: 44px; } }
 </style>

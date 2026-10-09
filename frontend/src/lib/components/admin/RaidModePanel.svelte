@@ -39,5 +39,5 @@
 </section>
 
 <style>
-	.join-controls{display:grid;gap:12px;margin-bottom:18px;padding:18px;border:1px solid var(--border-default);border-radius:16px;background:var(--surface-raised)}h2{margin:0 0 5px;font-size:1.1rem}.join-controls p{margin:0 0 8px;color:var(--text-secondary)}.join-controls strong{font-size:.87rem}.buttons{display:flex;flex-wrap:wrap;gap:8px}.buttons button{border:1px solid var(--border-default);border-radius:9px;background:var(--surface-base);color:var(--text-primary);padding:8px 12px;font:inherit;cursor:pointer}.buttons button:disabled{opacity:.5}.error{color:var(--danger)}
+	.join-controls{display:grid;gap:12px;margin-bottom:18px;padding:18px;border:1px solid var(--w-line-strong);border-radius:16px;background:var(--w-raise)}h2{margin:0 0 5px;font-size:1.1rem}.join-controls p{margin:0 0 8px;color:var(--w-mute)}.join-controls strong{font-size:.87rem}.buttons{display:flex;flex-wrap:wrap;gap:8px}.buttons button{border:1px solid var(--w-line-strong);border-radius:9px;background:var(--w-bg2);color:var(--w-text);padding:8px 12px;font:inherit;cursor:pointer}.buttons button:disabled{opacity:.5}.error{color:var(--w-danger)}
 </style>

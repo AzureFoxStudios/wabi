@@ -266,8 +266,8 @@
 </div>
 
 <style>
-    .service-access { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border-default); border-radius: var(--radius-md); }
-    .service-access input { max-width: 12rem; padding: var(--space-2); background: var(--surface-base); color: var(--text-heading); border: 1px solid var(--border-default); border-radius: var(--radius-md); }
+    .service-access { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--w-line-strong); border-radius: calc(10px * var(--w-rs, 1)); }
+    .service-access input { max-width: 12rem; padding: var(--space-2); background: var(--w-bg2); color: var(--w-text); border: 1px solid var(--w-line-strong); border-radius: calc(10px * var(--w-rs, 1)); }
 	.tailcat-panel {
 		display: flex;
 		flex-direction: column;
