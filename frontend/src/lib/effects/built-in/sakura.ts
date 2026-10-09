@@ -43,7 +43,7 @@ export class SakuraEffect implements AmbientEffect {
 		canvas.height = this.H * dpr;
 		this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		this.petals = [];
-		for (let i = 0; i < 30; i++) {
+		for (let i = 0; i < 44; i++) {
 			const p = this.make();
 			p.y = Math.random() * this.H;
 			this.petals.push(p);
@@ -54,7 +54,7 @@ export class SakuraEffect implements AmbientEffect {
 		return {
 			x: Math.random() * this.W,
 			y: -10 - Math.random() * 40,
-			size: 3 + Math.random() * 5,
+			size: 6 + Math.random() * 9,
 			rot: Math.random() * Math.PI * 2,
 			vr: (Math.random() - 0.5) * 0.03,
 			vy: 0.3 + Math.random() * 0.6,
@@ -72,6 +72,8 @@ export class SakuraEffect implements AmbientEffect {
 		const color = config.color || this.defaultConfig.color;
 		const sizeMult = (config.size ?? 1) * (config.intensity ? 0.6 + config.intensity * 0.6 : 1);
 		const speedMult = config.speed ?? 1;
+		// Petals must read on a translucent stage, not vanish into it: opacity follows the intensity setting.
+		const glow = 0.6 + (config.intensity ?? 0.55) * 0.8;
 
 		for (const p of this.petals) {
 			p.y += p.vy * speedMult;
@@ -92,11 +94,11 @@ export class SakuraEffect implements AmbientEffect {
 			ctx.scale(breathe, breathe);
 			ctx.fillStyle = color;
 			// Two overlapping ellipses form a petal shape.
-			ctx.globalAlpha = 0.2;
+			ctx.globalAlpha = Math.min(0.7, 0.55 * glow);
 			ctx.beginPath();
 			ctx.ellipse(-p.size * 0.2 * sizeMult, 0, p.size * 0.6 * sizeMult, p.size * 0.3 * sizeMult, 0.3, 0, Math.PI * 2);
 			ctx.fill();
-			ctx.globalAlpha = 0.15;
+			ctx.globalAlpha = Math.min(0.55, 0.4 * glow);
 			ctx.beginPath();
 			ctx.ellipse(p.size * 0.2 * sizeMult, 0, p.size * 0.6 * sizeMult, p.size * 0.3 * sizeMult, -0.3, 0, Math.PI * 2);
 			ctx.fill();
@@ -109,7 +111,7 @@ export class SakuraEffect implements AmbientEffect {
 		this.W = w;
 		this.H = h;
 		this.petals = [];
-		for (let i = 0; i < 30; i++) {
+		for (let i = 0; i < 44; i++) {
 			const p = this.make();
 			p.y = Math.random() * h;
 			this.petals.push(p);
