@@ -1,7 +1,7 @@
 /* Group DM settings and whiteboard board settings, on the control kit. */
 
 :root .group-settings { font-family: var(--w-sans); color: var(--w-text); }
-:root .group-settings .group-name { font: 600 calc(22px * var(--w-fs, 1))/1.2 var(--w-serif); color: var(--w-text); }
+:root .group-settings .group-name { text-transform: none; letter-spacing: 0.01em; font: 600 calc(22px * var(--w-fs, 1))/1.2 var(--w-serif); color: var(--w-text); }
 :root .group-settings .member-count,
 :root .group-settings .avatar-note { font: 500 calc(12px * var(--w-fs, 1))/1.4 var(--w-mono); color: var(--w-mute); }
 :root .group-settings .section-header h3,
