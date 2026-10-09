@@ -201,6 +201,7 @@ async fn get_launch_page(State(state): State<Arc<AppState>>) -> Result<Json<Valu
         "heroPrimaryCtaUrl": policy.get("heroPrimaryCtaUrl").cloned().unwrap_or(Value::Null),
         "highlights": policy.get("highlights").cloned().unwrap_or(Value::Array(vec![])),
         "footerNote": policy.get("footerNote").cloned().unwrap_or(Value::Null),
+        "displayFont": policy.get("displayFont").cloned().unwrap_or(Value::Null),
         "palette": { "accent": accent }
     })))
 }
