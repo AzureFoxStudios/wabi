@@ -9,7 +9,7 @@ use p256::pkcs8::{EncodePrivateKey, LineEnding};
 use p256::PublicKey;
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -28,12 +28,16 @@ pub struct PushSubscriptionRecord {
     pub updated_at_ms: i64,
 }
 
-/// Which events may push to this account's devices.
+/// Account-level switches: which kinds of event may push to this account's
+/// devices at all.
 ///
-/// Direct messages and calls default to on (a missed call or DM is the whole
-/// point of push) and can be turned off. Anything broader, such as mentions in
-/// shared channels or followed-channel activity, is opt-in and is added here
-/// only together with the dispatcher that honours it, so no toggle ever exists
+/// Server channels have no account-level switch: they are gated solely by the
+/// per-channel opt-in list in `push_channels` (see below), so `direct_messages`
+/// and `calls` act only on their own kinds — a DM follows this switch and
+/// ignores the channel list, a call rings from `calls` alone (a missed call is
+/// the whole point of push). Anything broader, such as mentions in shared
+/// channels or followed-channel activity, is opt-in and is added here only
+/// together with the dispatcher that honours it, so no toggle ever exists
 /// without working behind it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,6 +64,13 @@ struct WebPushFile {
     /// account id -> delivery preferences (absent = defaults)
     #[serde(default)]
     preferences: HashMap<i64, PushPreferences>,
+    /// account id -> server channels (anything but DMs) the account
+    /// explicitly turned message push on for. Opt-in: an absent entry means
+    /// that account gets no channel message push at all, which is the promise
+    /// the settings list makes. DMs never live here; they follow the
+    /// account-level switch.
+    #[serde(default)]
+    push_channels: HashMap<i64, BTreeSet<String>>,
     /// PKCS8 PEM private key
     vapid_private_pem: Option<String>,
     /// Uncompressed public key, URL-safe base64 (no pad) — browser applicationServerKey
@@ -223,6 +234,42 @@ impl WebPushStore {
             guard.preferences.remove(&user_id);
         } else {
             guard.preferences.insert(user_id, preferences);
+        }
+        self.persist_locked(&guard)?;
+        Ok(())
+    }
+
+    /// Server channels this account explicitly switched message push on for.
+    /// Opt-in: an account that never chose has none, so no channel pushes.
+    pub async fn push_channels_for(&self, user_id: i64) -> BTreeSet<String> {
+        self.inner
+            .read()
+            .await
+            .push_channels
+            .get(&user_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// True only when the account turned this specific channel on.
+    pub async fn push_channel_enabled(&self, user_id: i64, channel_id: &str) -> bool {
+        self.inner
+            .read()
+            .await
+            .push_channels
+            .get(&user_id)
+            .map(|channels| channels.contains(channel_id))
+            .unwrap_or(false)
+    }
+
+    /// Replace an account's opt-in list. An empty list drops the entry so an
+    /// account that turned everything back off leaves no stored state behind.
+    pub async fn set_push_channels(&self, user_id: i64, channels: BTreeSet<String>) -> anyhow::Result<()> {
+        let mut guard = self.inner.write().await;
+        if channels.is_empty() {
+            guard.push_channels.remove(&user_id);
+        } else {
+            guard.push_channels.insert(user_id, channels);
         }
         self.persist_locked(&guard)?;
         Ok(())
@@ -400,6 +447,45 @@ mod tests {
         assert!(reopened.preferences_for(6).await.direct_messages, "other accounts keep defaults");
         reopened.set_preferences(5, PushPreferences::default()).await.unwrap();
         assert!(!std::fs::read_to_string(dir.join("web_push.json")).unwrap().contains("\"5\""));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn message_push_is_opt_in_per_channel_and_collapses_back() {
+        let dir = test_dir("channels");
+        let store = WebPushStore::new_persistent(&dir);
+        assert!(
+            store.push_channels_for(5).await.is_empty(),
+            "an untouched account starts with nothing enabled"
+        );
+        assert!(!store.push_channel_enabled(5, "ch_general").await);
+
+        store
+            .set_push_channels(
+                5,
+                BTreeSet::from(["ch_general".into(), "group-a".into()]),
+            )
+            .await
+            .unwrap();
+        assert!(store.push_channel_enabled(5, "ch_general").await);
+        assert!(store.push_channel_enabled(5, "group-a").await);
+        assert!(
+            !store.push_channel_enabled(6, "ch_general").await,
+            "the opt-in is per account"
+        );
+
+        let reopened = WebPushStore::new_persistent(&dir);
+        assert!(
+            reopened.push_channel_enabled(5, "group-a").await,
+            "choices survive a restart"
+        );
+
+        reopened.set_push_channels(5, BTreeSet::new()).await.unwrap();
+        assert!(!reopened.push_channel_enabled(5, "group-a").await);
+        assert!(
+            !std::fs::read_to_string(dir.join("web_push.json")).unwrap().contains("\"5\""),
+            "an emptied choice drops the entry entirely"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -7,10 +7,19 @@
 //! - DELETE /subscribe     (auth)
 //! - GET    /preferences   (auth)
 //! - PUT    /preferences   (auth)
+//! - GET    /channels      (auth) — channels with message push on
+//! - PUT    /channels      (auth, registered accounts only)
 //! - POST   /test          (auth)
 //!
 //! Delivery uses `crate::web_push` (RFC 8291/8292) and works for both browser
 //! subscriptions and UnifiedPush endpoints, which speak the same protocol.
+//!
+//! Message push for server channels is opt-in per channel: an account only
+//! wakes for channels it explicitly switched on (PUT /channels). Direct
+//! messages ride the `direct_messages` account switch (default on) and calls
+//! the `calls` switch; neither consults the channel list. The test endpoint
+//! deliberately bypasses every gate so an operator can always tell delivery
+//! apart from configuration.
 //!
 //! Privacy: a push payload never contains message text. It carries who it is
 //! from and where to open, so encrypted DMs stay unreadable to the server's
@@ -20,16 +29,18 @@ use axum::{extract::State, Json, Router};
 use p256::ecdsa::SigningKey;
 use p256::pkcs8::DecodePrivateKey;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::auth_extractor::AuthUser;
 use crate::error::{AppError, Result};
 use crate::push_store::{now_ms, PushPreferences, PushSubscriptionRecord};
 use crate::state::AppState;
 use crate::web_push::{self, PushMessage, SendOutcome, Urgency};
+use wabidb::domain::ChannelKind;
+use wabidb::engine::wabi_store::WabiStore;
 
 const MAX_ENDPOINT_LEN: usize = 2048;
 const MAX_KEY_LEN: usize = 256;
@@ -41,6 +52,10 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/vapid-public-key", axum::routing::get(get_vapid_public_key))
         .route("/subscribe", axum::routing::post(subscribe).delete(unsubscribe))
         .route("/preferences", axum::routing::get(get_preferences).put(put_preferences))
+        .route(
+            "/channels",
+            axum::routing::get(get_push_channels).put(put_push_channels),
+        )
         .route("/test", axum::routing::post(test_push))
         .with_state(state)
 }
@@ -213,6 +228,71 @@ async fn put_preferences(
     Ok(Json(preferences))
 }
 
+/// Channels with message push switched on, in stable order.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PushChannelsResponse {
+    enabled: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PushChannelsBody {
+    #[serde(default)]
+    enabled: Vec<String>,
+}
+
+/// Bounds so one account cannot grow `web_push.json` without limit.
+const MAX_PUSH_CHANNELS: usize = 2_000;
+const MAX_CHANNEL_ID_LEN: usize = 128;
+
+async fn get_push_channels(
+    auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<PushChannelsResponse>> {
+    Ok(Json(PushChannelsResponse {
+        enabled: state
+            .push_store
+            .push_channels_for(auth.user_id)
+            .await
+            .into_iter()
+            .collect(),
+    }))
+}
+
+async fn put_push_channels(
+    auth: AuthUser,
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<PushChannelsBody>,
+) -> Result<Json<PushChannelsResponse>> {
+    if auth.is_bot || auth.is_guest {
+        return Err(AppError::Forbidden("Push notifications need a registered account".into()));
+    }
+    if body.enabled.len() > MAX_PUSH_CHANNELS {
+        return Err(AppError::BadRequest("too many channels".into()));
+    }
+    // The client replaces its whole list (the settings screen owns the UI),
+    // so validate every entry before anything is persisted. Membership is not
+    // checked here: delivery always re-checks that the account is a member of
+    // the channel, so a stray id can never wake anybody else's devices.
+    let mut enabled = BTreeSet::new();
+    for raw in body.enabled {
+        let channel_id = raw.trim();
+        if channel_id.is_empty() || channel_id.len() > MAX_CHANNEL_ID_LEN {
+            return Err(AppError::BadRequest("invalid channel id".into()));
+        }
+        enabled.insert(channel_id.to_string());
+    }
+    state
+        .push_store
+        .set_push_channels(auth.user_id, enabled.clone())
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    Ok(Json(PushChannelsResponse {
+        enabled: enabled.into_iter().collect(),
+    }))
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TestPushResponse {
@@ -250,6 +330,9 @@ async fn test_push(auth: AuthUser, State(state): State<Arc<AppState>>) -> Result
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PushKind {
     DirectMessage,
+    /// A message in a server channel or group chat. Opt-in per channel; the
+    /// channel list in settings is its only switch.
+    ChannelMessage,
     IncomingCall { video: bool },
 }
 
@@ -257,13 +340,16 @@ impl PushKind {
     fn allowed(self, preferences: &PushPreferences) -> bool {
         match self {
             PushKind::DirectMessage => preferences.direct_messages,
+            // The per-channel list is the switch for channels; there is no
+            // account-level ceiling above it (yet).
+            PushKind::ChannelMessage => true,
             PushKind::IncomingCall { .. } => preferences.calls,
         }
     }
     /// A call that rings out is worthless later; a message is not.
     fn ttl_secs(self) -> u32 {
         match self {
-            PushKind::DirectMessage => 24 * 60 * 60,
+            PushKind::DirectMessage | PushKind::ChannelMessage => 24 * 60 * 60,
             PushKind::IncomingCall { .. } => 45,
         }
     }
@@ -277,7 +363,7 @@ pub fn user_id_from_stable(stable_id: &str) -> Option<i64> {
         .filter(|id| *id > 0)
 }
 
-/// Build the payload for an event. No message text is ever included.
+/// Build the payload for a DM or call event. No message text is ever included.
 pub fn payload_for(kind: PushKind, from: &str, channel_id: &str) -> serde_json::Value {
     let from = from.trim();
     let from = if from.is_empty() { "Someone" } else { from };
@@ -289,6 +375,15 @@ pub fn payload_for(kind: PushKind, from: &str, channel_id: &str) -> serde_json::
             "tag": format!("dm-{channel_id}"),
             "kind": "dm",
             "wabiNav": "dm",
+            "channelId": channel_id,
+        }),
+        PushKind::ChannelMessage => serde_json::json!({
+            "title": from,
+            "body": "New message",
+            "icon": "/icon-192.png",
+            "tag": format!("ch-{channel_id}"),
+            "kind": "channel",
+            "wabiNav": "channel",
             "channelId": channel_id,
         }),
         PushKind::IncomingCall { video } => serde_json::json!({
@@ -304,7 +399,38 @@ pub fn payload_for(kind: PushKind, from: &str, channel_id: &str) -> serde_json::
     }
 }
 
-/// Minimum spacing between pushes for one (account, conversation, kind). A
+/// Payload for a message in a server channel or group. Carries the channel
+/// name and the sender, never the message text. Group chats open in the DM
+/// surface where they actually live, so they use the dm nav kind; every other
+/// channel opens as a channel.
+pub fn payload_for_channel(
+    channel_name: Option<&str>,
+    in_group: bool,
+    from: &str,
+    channel_id: &str,
+) -> serde_json::Value {
+    let from = from.trim();
+    let from = if from.is_empty() { "Someone" } else { from };
+    let name = channel_name.map(str::trim).filter(|name| !name.is_empty());
+    let (title, body) = match name {
+        Some(name) if in_group => (name.to_string(), format!("New message from {from}")),
+        Some(name) => (format!("#{name}"), format!("New message from {from}")),
+        // Channel deleted or unnamed: fall back to the sender so the
+        // notification still says something true.
+        None => (from.to_string(), "New message".to_string()),
+    };
+    serde_json::json!({
+        "title": title,
+        "body": body,
+        "icon": "/icon-192.png",
+        "tag": format!("ch-{channel_id}"),
+        "kind": if in_group { "dm" } else { "channel" },
+        "wabiNav": if in_group { "dm" } else { "channel" },
+        "channelId": channel_id,
+    })
+}
+
+/// Minimum spacing between pushes for one (account, channel, kind). A
 /// burst of messages should wake the device once; the topic header also lets
 /// the push service collapse anything still queued.
 const MIN_PUSH_GAP: Duration = Duration::from_secs(4);
@@ -330,8 +456,17 @@ fn take_gap(user_id: i64, key: String, now: Instant) -> bool {
     }
 }
 
+/// Channel messages fire only for channels the account switched on in
+/// settings (the per-channel opt-in list). DMs and calls ignore that list:
+/// they are gated by their account-level switches alone, so a DM or a ringing
+/// call can never depend on a row the user has to find first.
+fn may_notify_conversation(kind: PushKind, channel_enabled: bool) -> bool {
+    !matches!(kind, PushKind::ChannelMessage) || channel_enabled
+}
+
 /// Fire-and-forget: notify one account about an event without delaying the
-/// request that caused it. Honours the account's preferences.
+/// request that caused it. Honours the account's preferences and the
+/// per-channel opt-in for channel messages.
 pub fn spawn_notify(state: Arc<AppState>, user_id: i64, kind: PushKind, from: String, channel_id: String) {
     tokio::spawn(async move {
         notify_user(&state, user_id, kind, &from, &channel_id).await;
@@ -340,16 +475,49 @@ pub fn spawn_notify(state: Arc<AppState>, user_id: i64, kind: PushKind, from: St
 
 pub async fn notify_user(state: &AppState, user_id: i64, kind: PushKind, from: &str, channel_id: &str) {
     if user_id <= 0 {
+        debug!("push: skipped user={user_id} kind={kind:?} reason=not_a_registered_account");
         return;
     }
     let preferences = state.push_store.preferences_for(user_id).await;
     if !kind.allowed(&preferences) {
+        debug!("push: skipped user={user_id} kind={kind:?} channel={channel_id} reason=preferences_off");
+        return;
+    }
+    // Checked before the gap so a channel nobody switched on can never
+    // consume the send window of one that did.
+    let channel_enabled = if matches!(kind, PushKind::ChannelMessage) {
+        state.push_store.push_channel_enabled(user_id, channel_id).await
+    } else {
+        true
+    };
+    if !may_notify_conversation(kind, channel_enabled) {
+        debug!("push: skipped user={user_id} kind={kind:?} channel={channel_id} reason=channel_not_enabled");
         return;
     }
     if !take_gap(user_id, format!("{kind:?}:{channel_id}"), Instant::now()) {
+        debug!("push: skipped user={user_id} kind={kind:?} channel={channel_id} reason=within_min_gap");
         return;
     }
-    let payload = payload_for(kind, from, channel_id);
+    let payload = match kind {
+        PushKind::ChannelMessage => {
+            // One map lookup so the notification can say where the message
+            // landed; group chats tap into the DM surface.
+            let (name, in_group) = match state.wdb.get_channel(channel_id).await {
+                Ok(Some(channel)) => (
+                    channel.name,
+                    matches!(channel.channel_kind, ChannelKind::GroupDm),
+                ),
+                _ => (String::new(), false),
+            };
+            payload_for_channel(
+                if name.is_empty() { None } else { Some(&name) },
+                in_group,
+                from,
+                channel_id,
+            )
+        }
+        _ => payload_for(kind, from, channel_id),
+    };
     let topic = web_push::topic_for(&format!("{kind:?}:{channel_id}"));
     send_push_to_user(state, user_id, &payload, Urgency::High, kind.ttl_secs(), Some(&topic)).await;
 }
@@ -365,6 +533,7 @@ pub async fn send_push_to_user(
 ) -> (usize, usize) {
     let subs = state.push_store.list_for_user(user_id).await;
     if subs.is_empty() {
+        debug!("push: skipped user={user_id} reason=no_subscriptions");
         return (0, 0);
     }
     let (Some(private_pem), Some(public_b64)) = (
@@ -454,6 +623,12 @@ mod tests {
         assert_eq!(call["wabiNav"], "call");
         assert_eq!(call["callId"], "call-9");
         assert_eq!(call["requireInteraction"], true);
+        // The bare ChannelMessage arm never names the channel; notify_user
+        // routes it through payload_for_channel, and this fallback exists only
+        // if that lookup fails — still with no message text.
+        let ch = payload_for(PushKind::ChannelMessage, "Ada", "ch_9");
+        assert_eq!(ch["title"], "Ada");
+        assert_eq!(ch["wabiNav"], "channel");
         assert_eq!(payload_for(PushKind::DirectMessage, "  ", "x")["title"], "Someone");
     }
 
@@ -470,28 +645,72 @@ mod tests {
         let all_on = PushPreferences::default();
         assert!(PushKind::DirectMessage.allowed(&all_on));
         assert!(PushKind::IncomingCall { video: false }.allowed(&all_on));
+        assert!(PushKind::ChannelMessage.allowed(&all_on));
         let no_dm = PushPreferences { direct_messages: false, ..all_on };
         assert!(!PushKind::DirectMessage.allowed(&no_dm));
         assert!(PushKind::IncomingCall { video: false }.allowed(&no_dm));
+        // Channels have no account-level ceiling; the per-channel list alone gates them.
+        assert!(PushKind::ChannelMessage.allowed(&no_dm));
         let no_calls = PushPreferences { calls: false, ..all_on };
         assert!(PushKind::DirectMessage.allowed(&no_calls));
         assert!(!PushKind::IncomingCall { video: true }.allowed(&no_calls));
     }
 
     #[test]
-    fn a_ringing_call_expires_quickly_but_a_message_waits() {
-        assert!(PushKind::IncomingCall { video: false }.ttl_secs() <= 60);
-        assert!(PushKind::DirectMessage.ttl_secs() >= 60 * 60);
+    fn channel_messages_are_opt_in_but_dms_and_calls_are_not() {
+        assert!(!may_notify_conversation(PushKind::ChannelMessage, false), "an untouched channel stays silent");
+        assert!(may_notify_conversation(PushKind::ChannelMessage, true), "an opted-in channel may push");
+        // DMs follow their own account switch, never the channel list.
+        assert!(may_notify_conversation(PushKind::DirectMessage, false));
+        // A 1:1 call is identified by an account id, not a channel row, so the
+        // ringing path must ignore the list entirely.
+        assert!(may_notify_conversation(PushKind::IncomingCall { video: false }, false));
     }
 
     #[test]
-    fn bursts_are_coalesced_per_conversation_and_account() {
+    fn channel_payloads_say_where_and_tap_into_the_right_surface() {
+        let general = payload_for_channel(Some("general"), false, "Ada", "ch_1");
+        assert_eq!(general["title"], "#general");
+        assert_eq!(general["body"], "New message from Ada");
+        assert_eq!(general["wabiNav"], "channel");
+        assert_eq!(general["kind"], "channel");
+        assert_eq!(general["channelId"], "ch_1");
+        assert_eq!(general["tag"], "ch-ch_1");
+
+        // Group chats live in the DM surface, so their taps must too.
+        let squad = payload_for_channel(Some("Squad"), true, "Ada", "group-9");
+        assert_eq!(squad["title"], "Squad");
+        assert_eq!(squad["wabiNav"], "dm");
+        assert_eq!(squad["kind"], "dm");
+        assert_eq!(squad["channelId"], "group-9");
+
+        // Deleted or unnamed channel: say something true anyway.
+        let orphan = payload_for_channel(None, false, "Ada", "ch_2");
+        assert_eq!(orphan["title"], "Ada");
+        assert_eq!(orphan["body"], "New message");
+        // Sender and blank names fall back to the neutral wording.
+        assert_eq!(payload_for_channel(Some("   "), false, "Ada", "ch_3")["title"], "Ada");
+        assert_eq!(
+            payload_for_channel(Some("general"), false, "  ", "ch_4")["body"],
+            "New message from Someone"
+        );
+    }
+
+    #[test]
+    fn a_ringing_call_expires_quickly_but_a_message_waits() {
+        assert!(PushKind::IncomingCall { video: false }.ttl_secs() <= 60);
+        assert!(PushKind::DirectMessage.ttl_secs() >= 60 * 60);
+        assert!(PushKind::ChannelMessage.ttl_secs() >= 60 * 60);
+    }
+
+    #[test]
+    fn bursts_are_coalesced_per_channel_and_account() {
         let start = Instant::now();
         // Unique ids so parallel tests sharing the static table cannot collide.
         let (a, b) = (9_000_001, 9_000_002);
         assert!(take_gap(a, "DirectMessage:c1".into(), start));
         assert!(!take_gap(a, "DirectMessage:c1".into(), start + Duration::from_secs(1)));
-        assert!(take_gap(a, "DirectMessage:c2".into(), start), "another conversation is independent");
+        assert!(take_gap(a, "DirectMessage:c2".into(), start), "another channel is independent");
         assert!(take_gap(b, "DirectMessage:c1".into(), start), "another account is independent");
         assert!(take_gap(a, "DirectMessage:c1".into(), start + MIN_PUSH_GAP + Duration::from_millis(1)));
     }

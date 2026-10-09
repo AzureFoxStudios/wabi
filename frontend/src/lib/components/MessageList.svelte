@@ -75,6 +75,7 @@
 	import { isSpotifyUrl } from '$lib/spotifyControls';
 	import { animationPassStore, type AnimationPassPreset } from '$lib/animationPass';
 	import { getAuthToken as getSessionAuthToken } from '$lib/authSession';
+	import { decryptAttachmentBlob } from '$lib/e2ee';
 	import {
 		displayEnhancementSettingsStore,
 		formatTimestampForDisplay,
@@ -1582,25 +1583,29 @@
 			return;
 		}
 
-		const channel = $channels.find((ch) => ch.id === activeChannelId);
-		const otherDbUserId = channel?.type === 'dm' ? channel.otherUser?.dbUserId : undefined;
-		const authToken = getAuthToken();
-		if (!otherDbUserId || !authToken || !false) {
+		if (!activeChannelId) {
 			showToast(get(_)('messages.errors.cannot_decrypt_session'), 'error');
 			return;
 		}
 
 		const encryptedBuffer = await blobDownload.arrayBuffer();
-		const decrypted = await null;
+		let decrypted: Blob | null = null;
+		try {
+			decrypted = await decryptAttachmentBlob(
+				activeChannelId,
+				new Blob([encryptedBuffer]),
+				attachmentEncryption
+			);
+		} catch (error) {
+			console.error('Attachment decrypt failed:', error);
+			decrypted = null;
+		}
 		if (!decrypted) {
 			showToast(get(_)('messages.errors.decrypt_failed'), 'error');
 			return;
 		}
 
-		const blob = new Blob([decrypted], {
-			type: attachmentEncryption.mimeType || 'application/octet-stream'
-		});
-		const url = window.URL.createObjectURL(blob);
+		const url = window.URL.createObjectURL(decrypted);
 		const link = document.createElement('a');
 		link.href = url;
 		link.download = fileName;

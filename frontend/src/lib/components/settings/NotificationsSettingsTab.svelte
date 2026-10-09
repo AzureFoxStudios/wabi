@@ -8,6 +8,7 @@
 		getDefaultCustomSynthRingtonePreset,
 		playCallRingtone,
 		playNotificationSound,
+		requestNotificationPermission,
 		sanitizeCustomSynthRingtonePreset,
 		stopCallRingtone,
 		type CustomSynthRingtonePreset,
@@ -25,8 +26,14 @@
 		unsubscribeWebPush,
 		getPushPreferences,
 		setPushPreferences,
+		getPushChannelPrefs,
+		setPushChannelPrefs,
+		setPushOptOut,
 		type PushPreferences
 	} from '$lib/pwa/pushClient';
+	import { channels } from '$lib/channelStore';
+	import { buildPushChannelRows } from '$lib/pwa/pushChannels';
+	import { ensureChannelMembership } from '$lib/api/channelAccess';
 
 	let notificationsEnabled = true;
 	// True when the app is running as an installed PWA (standalone display mode).
@@ -52,6 +59,14 @@
 	let pushSubscribed = false;
 	let pushBusy = false;
 	let pushStatus = '';
+	// Per-channel message push: opt-in, so every channel row starts off until
+	// the account switched it on server-side. DMs are not in this list; they
+	// follow the account-level switch.
+	let pushChannelsEnabled: string[] = [];
+	// A failed read must not render as "all off" — that would let one save
+	// silently drop choices the server still holds.
+	let pushChannelsError = false;
+	$: pushChannelRows = buildPushChannelRows($channels);
 
 	onMount(() => {
 		notificationsEnabled = localStorage.getItem('notificationsEnabled') !== 'false';
@@ -84,6 +99,9 @@
 		pushPermission = state.permission;
 		pushSubscribed = state.subscribed;
 		pushPreferences = await getPushPreferences();
+		const enabled = await getPushChannelPrefs();
+		pushChannelsError = enabled === null;
+		if (enabled) pushChannelsEnabled = enabled;
 	}
 
 	onDestroy(() => {
@@ -381,70 +399,81 @@
 		}
 	}
 
-	async function requestNotificationPermission() {
-		if (!('Notification' in window)) {
-			alert('This browser does not support notifications');
-			return;
-		}
+	function desktopNotificationsOn(): boolean {
+		// Effective state = stored intent AND real permission. In Tauri the
+		// native permission is requested through the plugin on toggle-on.
+		return notificationsEnabled && (isTauriRuntime() || pushPermission === 'granted');
+	}
 
+	async function toggleDesktopNotifications(): Promise<void> {
+		if (pushBusy) return;
 		pushBusy = true;
 		pushStatus = '';
 		try {
-			const permission =
-				Notification.permission === 'granted'
-					? 'granted'
-					: await Notification.requestPermission();
-			if (permission === 'granted') {
-				notificationsEnabled = true;
-				localStorage.setItem('notificationsEnabled', 'true');
-				const sub = await subscribeWebPush();
-				await refreshPushState();
-				if (sub.ok) {
-					pushStatus = 'Push subscribed — background alerts enabled.';
-					new Notification('Wabi', {
-						body: "Notifications + Web Push enabled.",
-						icon: '/icon-192.png'
-					});
-				} else {
-					pushStatus = `Local notifications on; push: ${'reason' in sub ? sub.reason : 'failed'}`;
-					new Notification('Wabi', {
-						body: "Notifications enabled (push subscribe incomplete).",
-						icon: '/icon-192.png'
-					});
-				}
-			} else {
+			if (desktopNotificationsOn()) {
 				notificationsEnabled = false;
 				localStorage.setItem('notificationsEnabled', 'false');
-				pushStatus = 'Permission denied';
+				// Master switch: opting out also drops background push so the
+				// server stops delivering to this device.
+				if (!isTauriRuntime()) {
+					setPushOptOut(true);
+					if (pushSubscribed) await unsubscribeWebPush();
+				}
+				await refreshPushState();
+				pushStatus = 'Desktop notifications off.';
+				return;
 			}
+			if (!isTauriRuntime() && !('Notification' in window)) {
+				pushStatus = 'This browser does not support notifications.';
+				return;
+			}
+			// Click = user gesture, so the one-time permission prompt is allowed.
+			const permission = await requestNotificationPermission();
+			if (permission !== 'granted') {
+				// Leave the stored intent untouched: a blocked prompt must not
+				// silently rewrite an earlier choice.
+				pushStatus =
+					permission === 'denied'
+						? 'Notifications are blocked for this site. Allow them in your browser or device settings, then try again.'
+						: 'Permission not granted.';
+				return;
+			}
+			notificationsEnabled = true;
+			localStorage.setItem('notificationsEnabled', 'true');
+			if (isTauriRuntime()) {
+				await refreshPushState();
+				pushStatus = 'System notifications on.';
+				return;
+			}
+			setPushOptOut(false);
+			const sub = await subscribeWebPush();
+			await refreshPushState();
+			pushStatus = sub.ok
+				? 'Desktop notifications on — push subscribed.'
+				: `Desktop notifications on; push: ${pushFailureMessage('reason' in sub ? sub.reason : 'failed')}`;
 		} finally {
 			pushBusy = false;
 		}
 	}
 
-	async function handleEnablePush(): Promise<void> {
+	async function togglePushSubscription(): Promise<void> {
+		if (pushBusy) return;
 		pushBusy = true;
 		pushStatus = '';
 		try {
-			const result = await subscribeWebPush();
-			await refreshPushState();
-			pushStatus = result.ok ? 'Push subscribed.' : pushFailureMessage('reason' in result ? result.reason : 'failed');
-			if (result.ok) {
-				notificationsEnabled = true;
-				localStorage.setItem('notificationsEnabled', 'true');
+			if (pushSubscribed) {
+				setPushOptOut(true);
+				await unsubscribeWebPush();
+				await refreshPushState();
+				pushStatus = 'Push unsubscribed.';
+			} else {
+				setPushOptOut(false);
+				const result = await subscribeWebPush();
+				await refreshPushState();
+				pushStatus = result.ok
+					? 'Push subscribed — background alerts enabled.'
+					: pushFailureMessage('reason' in result ? result.reason : 'failed');
 			}
-		} finally {
-			pushBusy = false;
-		}
-	}
-
-	async function handleDisablePush(): Promise<void> {
-		pushBusy = true;
-		pushStatus = '';
-		try {
-			await unsubscribeWebPush();
-			await refreshPushState();
-			pushStatus = 'Push unsubscribed.';
 		} finally {
 			pushBusy = false;
 		}
@@ -472,6 +501,37 @@
 			pushBusy = false;
 		}
 	}
+
+	async function togglePushChannel(channelId: string): Promise<void> {
+		if (pushBusy) return;
+		pushBusy = true;
+		try {
+			const enabling = !pushChannelsEnabled.includes(channelId);
+			if (enabling) {
+				// Delivery reaches channel members, and opening a channel joins
+				// it — turning push on joins too, so a switched-on channel can
+				// never be a silent dead toggle. A channel you cannot join
+				// fails honestly here and nothing is saved.
+				try {
+					await ensureChannelMembership(channelId);
+				} catch {
+					pushStatus = "Couldn't join that channel — push wasn't turned on.";
+					return;
+				}
+			}
+			const next = enabling
+				? [...pushChannelsEnabled, channelId]
+				: pushChannelsEnabled.filter((id) => id !== channelId);
+			if (await setPushChannelPrefs(next)) {
+				pushChannelsEnabled = next;
+				pushStatus = '';
+			} else {
+				pushStatus = 'Could not save that channel choice — try again.';
+			}
+		} finally {
+			pushBusy = false;
+		}
+	}
 </script>
 
 <div class="settings-section">
@@ -484,42 +544,35 @@
 		{:else if pushPermission === 'unsupported'}
 			This browser does not support background notifications.
 		{:else if pushPermission === 'default'}
-			Notifications have not been requested yet. Use Enable to choose.
+			Notifications have not been requested yet. Turn Desktop Notifications on to allow them.
 		{:else}
 			Browser notifications are allowed. Sound tests still require one user interaction.
+		{/if}
+		{#if pushStatus}
+			<div class="setting-description" style="margin-top:0.35rem;">{pushStatus}</div>
 		{/if}
 	</div>
 	<div class="setting-item">
 		<div class="setting-info">
 			<span class="setting-label">Desktop Notifications</span>
-			<span class="setting-description">Allow supported alerts outside Wabi. Activity remains available when system alerts are off.</span>
+			<span class="setting-description">Allow supported alerts outside Wabi. Turning this off also stops background push on this device. Activity remains available when system alerts are off.</span>
 		</div>
-		<button class="action-btn" class:active={notificationsEnabled} disabled={pushBusy} on:click={requestNotificationPermission}>
-			{notificationsEnabled ? 'Enabled' : 'Enable'}
-		</button>
+		<button class="toggle-btn" class:active={desktopNotificationsOn()} disabled={pushBusy} on:click={toggleDesktopNotifications} role="switch" aria-checked={desktopNotificationsOn()} aria-label="Desktop notifications"></button>
 	</div>
 
 	{#if !isTauriRuntime() && isPwaStandalone}
 	<div class="setting-item">
 		<div class="setting-info">
-			<span class="setting-label">Background push (PWA)</span>
+			<span class="setting-label">Background push</span>
 			<span class="setting-description">
-				Push subscription and test delivery. Message push delivery is not connected yet. Permission: {pushPermission}.
+				Delivery while Wabi is closed: direct messages, the channels you switch on below, and incoming calls. Permission: {pushPermission}.
 				{pushSubscribed ? 'Subscribed.' : 'Not subscribed.'}
 			</span>
-			{#if pushStatus}
-				<span class="setting-description">{pushStatus}</span>
-			{/if}
 		</div>
-		<div style="display:flex;flex-direction:column;gap:0.35rem;min-width:7.5rem;">
-			<button class="action-btn" class:active={pushSubscribed} disabled={pushBusy} on:click={handleEnablePush}>
-				{pushSubscribed ? 'Resubscribe' : 'Enable push'}
-			</button>
+		<div style="display:flex;flex-direction:column;gap:0.35rem;min-width:7.5rem;align-items:center;">
+			<button class="toggle-btn" class:active={pushSubscribed} disabled={pushBusy} on:click={togglePushSubscription} role="switch" aria-checked={pushSubscribed} aria-label="Background push"></button>
 			<button class="action-btn" disabled={pushBusy || !pushSubscribed} on:click={handleTestPush}>
 				Test push
-			</button>
-			<button class="action-btn" disabled={pushBusy || !pushSubscribed} on:click={handleDisablePush}>
-				Disable push
 			</button>
 		</div>
 	</div>
@@ -529,9 +582,7 @@
 			<span class="setting-label">System notifications</span>
 			<span class="setting-description">Native alerts from the desktop app.</span>
 		</div>
-		<button class="action-btn" class:active={notificationsEnabled} on:click={requestNotificationPermission}>
-			{notificationsEnabled ? 'Enabled' : 'Enable'}
-		</button>
+		<button class="toggle-btn" class:active={notificationsEnabled} disabled={pushBusy} on:click={toggleDesktopNotifications} role="switch" aria-checked={notificationsEnabled} aria-label="System notifications"></button>
 	</div>
 	{/if}
 
@@ -539,16 +590,40 @@
 	<div class="setting-item">
 		<div class="setting-info">
 			<span class="setting-label">Push: Direct messages</span>
-			<span class="setting-description">Notify me about new direct messages.</span>
+			<span class="setting-description">Notify me about new direct messages. Group chats and channels use the list below.</span>
 		</div>
 		<button class="toggle-btn" class:active={pushPreferences.directMessages} on:click={() => togglePushPreference('directMessages')} role="switch" aria-checked={pushPreferences.directMessages} aria-label="Push direct messages"></button>
 	</div>
 	<div class="setting-item">
 		<div class="setting-info">
 			<span class="setting-label">Push: Incoming calls</span>
-			<span class="setting-description">Notify me when someone calls.</span>
+			<span class="setting-description">Notify me when someone calls. Calls ring regardless of the channel list below.</span>
 		</div>
 		<button class="toggle-btn" class:active={pushPreferences.calls} on:click={() => togglePushPreference('calls')} role="switch" aria-checked={pushPreferences.calls} aria-label="Push incoming calls"></button>
+	</div>
+	<div class="setting-item setting-item-stack">
+		<div class="setting-info">
+			<span class="setting-label">Push: Channels</span>
+			<span class="setting-description">Pick exactly which channels push while Wabi is closed. Each channel starts off — turn on the ones you need. Direct messages and calls use their own switches above.</span>
+			{#if !pushChannelsError}
+				<span class="setting-description">{pushChannelsEnabled.length} of {pushChannelRows.length} channels pushing.</span>
+			{/if}
+		</div>
+		{#if pushChannelsError}
+			<span class="setting-description">Couldn't load your choices — close and reopen settings to retry.</span>
+		{:else}
+			<div class="push-channel-list">
+				{#each pushChannelRows as row (row.id)}
+					<div class="push-channel-row">
+						<span class="push-channel-kind">{row.type}</span>
+						<span class="push-channel-name">{row.label}</span>
+						<button class="toggle-btn" class:active={pushChannelsEnabled.includes(row.id)} disabled={pushBusy} on:click={() => togglePushChannel(row.id)} role="switch" aria-checked={pushChannelsEnabled.includes(row.id)} aria-label={`Push notifications for ${row.label}`}></button>
+					</div>
+				{:else}
+					<span class="setting-description">No channels yet.</span>
+				{/each}
+			</div>
+		{/if}
 	</div>
 	{/if}
 
@@ -730,3 +805,43 @@
 		<input type="range" min="0" max="1" step="0.05" bind:value={callRingtoneVolume} on:input={(e) => updateCallRingtoneVolume(parseFloat(e.currentTarget.value))} class="volume-slider" />
 	</div>
 </div>
+
+<style>
+	.push-channel-list {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		max-height: 18rem;
+		overflow-y: auto;
+		padding: 0.2rem;
+	}
+	.push-channel-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		padding: 0.5rem 0.75rem;
+		background: color-mix(in srgb, var(--surface-sunken) 55%, transparent);
+		border: 1px solid color-mix(in srgb, var(--accent-primary-color) 10%, transparent);
+		border-radius: var(--radius-md);
+	}
+	.push-channel-row:hover {
+		border-color: color-mix(in srgb, var(--accent-primary-color) 24%, transparent);
+	}
+	.push-channel-kind {
+		font-size: var(--font-size-xs);
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--text-muted);
+		min-width: 4.5rem;
+		white-space: nowrap;
+	}
+	.push-channel-name {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--font-size-sm);
+		color: var(--text-heading);
+	}
+</style>

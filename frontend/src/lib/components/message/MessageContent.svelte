@@ -297,6 +297,7 @@
 	{:else if message.type === 'file'}
 		<MessageFileContent
 			{message}
+			currentChannel={currentChannel}
 			forceSpoiler={effectiveSpoiler}
 			{albumAnnouncement}
 			{albumAnnouncementUploadName}

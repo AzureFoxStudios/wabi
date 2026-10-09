@@ -5,7 +5,7 @@ let base = 'https://synthetic.invalid';
 mock.module('$app/environment', () => ({ browser: true }));
 mock.module('$lib/authSession', () => ({ getAuthToken: () => token }));
 mock.module('$lib/api/utils', () => ({ getApiBase: () => base }));
-const { subscribeWebPush } = await import('./pushClient');
+const { subscribeWebPush, autoSubscribePush, unsubscribeWebPush } = await import('./pushClient');
 const syntheticKey = btoa(String.fromCharCode(4) + '\0'.repeat(64)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const saved = new Map<string, PropertyDescriptor | undefined>();
 let calls: string[], subscribe: ReturnType<typeof mock>, permission: ReturnType<typeof mock>;
@@ -71,6 +71,77 @@ test('reports browser permission refusal as device failure', async () => {
 test('reports registration key conflict without hiding it as missing VAPID', async () => {
     subscribe.mockImplementation(async () => { throw new DOMException('sensitive key detail', 'InvalidStateError'); });
     expect(await subscribeWebPush()).toEqual({ ok: false, reason: 'browser_subscription_conflict' });
+});
+test('maps a push-service reachability abort to a structured network reason', async () => {
+    subscribe.mockImplementation(async () => { throw new DOMException('Registration failed - network error', 'AbortError'); });
+    expect(await subscribeWebPush()).toEqual({ ok: false, reason: 'browser_subscription_network' });
+});
+test('unknown browser registration failures stay generic without raw messages', async () => {
+    subscribe.mockImplementation(async () => { throw new TypeError('odd vendor failure'); });
+    expect(await subscribeWebPush()).toEqual({ ok: false, reason: 'browser_subscription_failed' });
+});
+function installLocalStorage(initial?: Record<string, string>) {
+    const store = new Map<string, string>(Object.entries(initial ?? {}));
+    globalValue('localStorage', {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => void store.set(key, value),
+        removeItem: (key: string) => void store.delete(key)
+    });
+    return store;
+}
+test('auto-subscribe never re-subscribes a device that opted out', async () => {
+    installLocalStorage({ 'wabi.pushOptOut': 'true' });
+    await autoSubscribePush();
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+});
+test('auto-subscribe waits for a granted notification permission', async () => {
+    installLocalStorage();
+    globalValue('Notification', { permission: 'default', requestPermission: permission });
+    await autoSubscribePush();
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+});
+test('auto-subscribe registers an opted-in device after login', async () => {
+    installLocalStorage();
+    await autoSubscribePush();
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual(['https://synthetic.invalid/api/push/vapid-public-key', 'https://synthetic.invalid/api/push/subscribe']);
+});
+test('auto-subscribe re-posts an existing browser subscription so the server rebinds it', async () => {
+    // The subscription lives in the browser but its server binding is per
+    // account: skipping the re-post because "already subscribed" leaves the
+    // previous account pushing into a device signed in as someone else.
+    installLocalStorage();
+    const existing = {
+        endpoint: 'https://synthetic-push.invalid',
+        toJSON: () => ({ endpoint: 'https://synthetic-push.invalid', keys: {} })
+    } as PushSubscription;
+    manager.getSubscription = async () => existing;
+    await autoSubscribePush();
+    expect(subscribe).not.toHaveBeenCalled(); // reuse the browser subscription
+    expect(calls).toEqual(['https://synthetic.invalid/api/push/vapid-public-key', 'https://synthetic.invalid/api/push/subscribe']);
+});
+test('unsubscribe at logout deletes the server binding with the captured bearer', async () => {
+    installLocalStorage();
+    const unsubscribeBrowser = mock(async () => true);
+    manager.getSubscription = async () =>
+        ({
+            endpoint: 'https://synthetic-push.invalid',
+            toJSON: () => ({ endpoint: 'https://synthetic-push.invalid', keys: {} }),
+            unsubscribe: unsubscribeBrowser
+        }) as unknown as PushSubscription;
+    const authHeaders: string[] = [];
+    globalValue('fetch', mock(async (url: string, init?: RequestInit) => {
+        calls.push(url);
+        authHeaders.push(String((init?.headers as Record<string, string>).Authorization));
+        return Response.json({ ok: true });
+    }));
+    token = null; // the session is already cleared by the time the import resolves
+    await unsubscribeWebPush('bearer-captured-at-logout');
+    expect(calls).toEqual(['https://synthetic.invalid/api/push/subscribe']);
+    expect(authHeaders).toEqual(['Bearer bearer-captured-at-logout']);
+    expect(unsubscribeBrowser).toHaveBeenCalledTimes(1);
 });
 test('server subscription refusal exposes status without raw operator response', async () => {
     globalValue('fetch', mock(async (url: string) => url.endsWith('vapid-public-key') ? Response.json({ publicKey: syntheticKey }) : new Response('private diagnostic', { status: 500 })));

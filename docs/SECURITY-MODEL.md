@@ -425,7 +425,9 @@ A defensive security review of wabi-server/socket.io/addons/Tauri was conducted
 ### WS-2 — Unauthenticated endpoints
 - SSRF validation (`validate_outbound_url`) for `url-preview` + `image-proxy`:
   http/https only, DNS resolution, rejects loopback/private/link-local/
-  multicast/unspecified.
+  multicast/unspecified. Both follow at most 5 redirects; every hop repeats
+  the full SSRF validation (fresh DNS, public address only) and stays pinned
+  to its approved address.
 - Auth-required on preview, image-proxy, LAN, mesh status/config.
 - Sync token auth (`x-wabi-sync-token`, constant-time compare, 503 when unset).
 - LAN route token uses real user_id + derived HMAC key.
