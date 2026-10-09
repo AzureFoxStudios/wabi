@@ -37,3 +37,13 @@
 		--w-grain: 0;
 	}
 }
+
+/* The legacy radius scale follows the theme character, so older components pick up
+   Joker's square corners (or the soft default) without being edited. */
+:root {
+	--radius-sm: calc(4px * var(--w-rs));
+	--radius-md: calc(8px * var(--w-rs));
+	--radius-lg: calc(12px * var(--w-rs));
+	--radius-xl: calc(16px * var(--w-rs));
+	--radius-2xl: calc(24px * var(--w-rs));
+}
