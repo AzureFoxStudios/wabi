@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use wabidb::error::WabiError;
 use wabidb::projections::project_tasks::{
-    encode_record, ChecklistItem, ProjectTaskProjection, ProjectTaskRecord,
+    encode_record, ChecklistItem, ProjectTaskProjection, ProjectTaskRecord, TaskDecision,
 };
 
 use super::{now_micros, WdbAdapter};
@@ -26,6 +26,23 @@ pub struct ProjectTaskFields {
     pub related_task_ids: Option<Vec<String>>,
     #[serde(default)]
     pub human_estimate_minutes: EstimateChange,
+    #[serde(default)]
+    pub blocked_reason: FieldChange<String>,
+    #[serde(default)]
+    pub decision: FieldChange<TaskDecision>,
+}
+
+/// Missing keeps the stored value; an explicit null clears it; a value sets it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub enum FieldChange<T> {
+    #[default]
+    Keep,
+    Set(Option<T>),
+}
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for FieldChange<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::Set(Option::<T>::deserialize(d)?))
+    }
 }
 
 /// Missing keeps the human estimate; explicit null clears it. Bot APIs reject either setter.
@@ -102,6 +119,16 @@ impl WdbAdapter {
                         EstimateChange::Keep => None,
                         EstimateChange::Set(v) => v,
                     }
+                && existing.blocked_reason
+                    == match fields.blocked_reason.clone() {
+                        FieldChange::Keep => None,
+                        FieldChange::Set(v) => v,
+                    }
+                && existing.decision
+                    == match fields.decision.clone() {
+                        FieldChange::Keep => None,
+                        FieldChange::Set(v) => v,
+                    }
             {
                 return Ok(existing);
             }
@@ -129,6 +156,14 @@ impl WdbAdapter {
             human_estimate_minutes: match fields.human_estimate_minutes {
                 EstimateChange::Keep => None,
                 EstimateChange::Set(v) => v,
+            },
+            blocked_reason: match fields.blocked_reason {
+                FieldChange::Keep => None,
+                FieldChange::Set(v) => v,
+            },
+            decision: match fields.decision {
+                FieldChange::Keep => None,
+                FieldChange::Set(v) => v,
             },
         };
         self.run(
@@ -177,6 +212,12 @@ impl WdbAdapter {
         }
         if let EstimateChange::Set(value) = fields.human_estimate_minutes {
             record.human_estimate_minutes = value;
+        }
+        if let FieldChange::Set(value) = fields.blocked_reason {
+            record.blocked_reason = value;
+        }
+        if let FieldChange::Set(value) = fields.decision {
+            record.decision = value;
         }
         record.is_archived = record.status == "archived";
         record.updated_by_user_id = actor_user_id;

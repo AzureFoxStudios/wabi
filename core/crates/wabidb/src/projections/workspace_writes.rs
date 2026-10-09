@@ -213,6 +213,8 @@ pub(crate) mod tests {
             checklist: vec![],
             related_task_ids: vec![],
             human_estimate_minutes: None,
+            blocked_reason: None,
+            decision: None,
             task_id: "task_a".into(),
             channel_id: room.into(),
             title: "Task".into(),
