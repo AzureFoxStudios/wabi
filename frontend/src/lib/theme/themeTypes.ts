@@ -112,6 +112,9 @@ export interface AmbientConfig {
 	frostBlur?: number;
 }
 
+/** Non-color personality of a theme: radius, border weight, shadow style, grain. */
+export type ThemeCharacter = 'soft' | 'ink' | 'pixel' | 'contrast';
+
 export interface Theme {
 	id: string;
 	name: string;
@@ -119,4 +122,6 @@ export interface Theme {
 	colors: ThemeColors;
 	gradients: ThemeGradients;
 	ambient?: AmbientConfig;
+	/** Defaults to 'soft'. See styles/character.css. */
+	character?: ThemeCharacter;
 }

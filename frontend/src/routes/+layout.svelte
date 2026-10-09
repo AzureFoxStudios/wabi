@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { isShowcaseMode } from '$lib/showcase/mode';
+	import '../styles/fonts.css';
 	import '../styles/styles.css';
+	import '../styles/character.css';
 	import '../styles/desktop-shell.css';
 	import DesktopTitlebar from '$lib/components/DesktopTitlebar.svelte';
 	// Phase 4 boot optimization: katex/prism CSS moved next to their JS usage

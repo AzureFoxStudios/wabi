@@ -7,6 +7,7 @@
  */
 
 import type { Theme } from './themes';
+import { applyRoles } from './roles';
 import type { BackgroundImage, CustomTheme } from '../../types/theme';
 import { applyAccessibilitySettings, getStoredAccessibilitySettings } from '../accessibility';
 
@@ -236,6 +237,9 @@ export function applyTheme(theme: Theme, backgroundImage?: BackgroundImage, unif
 		'--pfp-banner',
 		`linear-gradient(135deg, ${theme.colors.accentHex} 0%, ${theme.colors.accentSecondaryHex} 100%)`
 	);
+
+	// === 8b. Design roles (--w-*) + character (data-char) ===
+	applyRoles(theme, root);
 
 	// === 9. Data attribute + accessibility ===
 	root.setAttribute('data-theme', theme.id);
