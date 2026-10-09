@@ -1,5 +1,4 @@
 <script lang="ts">
-	import MessageLifetimeNotice from './MessageLifetimeNotice.svelte';
 	import { stopPropagation } from 'svelte/legacy';
 
 	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte';
@@ -693,7 +692,6 @@ import type { MediaAlbum } from '$lib/api';
 	{#if isUploading}<div class="upload-progress-bar"><div class="upload-progress-info"><span>{uploadStatusLabel || $_('chat.upload.uploading')}</span><span>{uploadProgress}%</span></div><div class="progress-bar"><div class="progress-fill" style="width: {uploadProgress}%"></div></div></div>{/if}
 	<input type="file" bind:this={fileInput} onchange={handleFileSelect} multiple class="hidden" />
 	{#if sendCooldownMessage}<div class="composer-rate-limit-notice" role="status" aria-live="polite">{sendCooldownMessage}</div>{/if}
-	{#if effectiveChannel}<MessageLifetimeNotice channelId={effectiveChannel}/>{/if}
 	<div class="composer-e2ee-status" class:locked={e2eeIndicatorState.locked} title={e2eeIndicatorState.title} aria-live="polite">
 		<span class="composer-e2ee-icon" aria-hidden="true">{e2eeIndicatorState.icon}</span>
 		<span class="composer-e2ee-label">{e2eeIndicatorState.label}</span>
