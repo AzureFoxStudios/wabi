@@ -8,7 +8,9 @@ use serde_json::{json, Value};
 use wabidb::domain::ChannelKind;
 use wabidb::engine::wabi_store::WabiStore;
 
-use crate::adapter::project_tasks::{EstimateChange, ProjectTaskFields, ProjectTaskWriteError};
+use crate::adapter::project_tasks::{
+    EstimateChange, FieldChange, ProjectTaskFields, ProjectTaskWriteError,
+};
 use crate::auth_extractor::AuthUser;
 use crate::error::{AppError, Result};
 use crate::state::AppState;
@@ -109,6 +111,33 @@ pub(crate) fn validate(fields: &mut ProjectTaskFields) -> Result<()> {
         return Err(AppError::BadRequest(
             "Estimate must be at most 10,000 hours".into(),
         ));
+    }
+    if let FieldChange::Set(Some(reason)) = &mut fields.blocked_reason {
+        *reason = reason.trim().to_owned();
+        if reason.chars().count() > 300 {
+            return Err(AppError::BadRequest("Blocked reason is too long".into()));
+        }
+    }
+    if matches!(&fields.blocked_reason, FieldChange::Set(Some(reason)) if reason.is_empty()) {
+        fields.blocked_reason = FieldChange::Set(None);
+    }
+    if let FieldChange::Set(Some(decision)) = &mut fields.decision {
+        decision.question = decision.question.trim().to_owned();
+        decision.fallback = decision.fallback.trim().to_owned();
+        if decision.question.is_empty() || decision.question.chars().count() > 300 {
+            return Err(AppError::BadRequest(
+                "A decision needs a question of 1–300 characters".into(),
+            ));
+        }
+        if decision.fallback.chars().count() > 300 {
+            return Err(AppError::BadRequest("Decision fallback is too long".into()));
+        }
+        if decision
+            .deadline_millis
+            .is_some_and(|due| !(0..=253_402_300_799_000).contains(&due))
+        {
+            return Err(AppError::BadRequest("Invalid decision deadline".into()));
+        }
     }
     if fields
         .related_task_ids
@@ -391,6 +420,8 @@ pub(crate) async fn claim_task_internal(
         checklist: None,
         related_task_ids: None,
         human_estimate_minutes: EstimateChange::Keep,
+        blocked_reason: FieldChange::Keep,
+        decision: FieldChange::Keep,
     };
     state
         .wdb

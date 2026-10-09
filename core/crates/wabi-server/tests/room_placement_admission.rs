@@ -1228,7 +1228,7 @@ async fn recorded_remote_owner_blocks_core_chat_mutations_before_commit() {
         .await
         .is_err());
     let task_fields = ProjectTaskFields {
-        notes: None, checklist: None, related_task_ids: None, human_estimate_minutes: Default::default(),
+        notes: None, checklist: None, related_task_ids: None, human_estimate_minutes: Default::default(), blocked_reason: Default::default(), decision: Default::default(),
         title: "Task".into(),
         description: String::new(),
         status: "todo".into(),

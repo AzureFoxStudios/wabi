@@ -32,6 +32,23 @@ pub struct ProjectTaskRecord {
     pub related_task_ids: Vec<String>,
     #[serde(default)]
     pub human_estimate_minutes: Option<u32>,
+    /// Why the card cannot move ("Waiting on live API keys"). Added after V2 shipped: absent in older rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocked_reason: Option<String>,
+    /// A question that needs a person's answer. Added after V2 shipped: absent in older rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision: Option<TaskDecision>,
+}
+
+/// "Needs your call": the question, what happens if nobody answers, and by when.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskDecision {
+    pub question: String,
+    #[serde(default)]
+    pub fallback: String,
+    #[serde(default)]
+    pub deadline_millis: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,6 +115,8 @@ pub fn decode_record(bytes: &[u8]) -> Result<ProjectTaskRecord> {
         checklist: vec![],
         related_task_ids: vec![],
         human_estimate_minutes: None,
+        blocked_reason: None,
+        decision: None,
     })
 }
 
@@ -196,5 +215,75 @@ impl Projection for ProjectTaskProjection {
             event.commit_seq,
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base() -> ProjectTaskRecord {
+        ProjectTaskRecord {
+            task_id: "t".into(),
+            channel_id: "c".into(),
+            title: "Book the coach".into(),
+            description: String::new(),
+            status: "todo".into(),
+            priority: "high".into(),
+            due_date_millis: None,
+            assignee_user_id: None,
+            created_by_user_id: 1,
+            updated_by_user_id: 1,
+            created_at_micros: 1,
+            updated_at_micros: 2,
+            revision: 1,
+            is_archived: false,
+            notes: String::new(),
+            checklist: vec![],
+            related_task_ids: vec![],
+            human_estimate_minutes: None,
+            blocked_reason: None,
+            decision: None,
+        }
+    }
+
+    #[test]
+    fn rows_written_before_blocked_reason_and_decision_still_decode() {
+        // A V2 row exactly as the previous release wrote it: no blockedReason, no decision keys.
+        let mut bytes = V2.to_vec();
+        bytes.extend(
+            serde_json::to_vec(&serde_json::json!({
+                "taskId": "t", "channelId": "c", "title": "Old", "description": "", "status": "todo",
+                "priority": "low", "dueDateMillis": null, "assigneeUserId": null,
+                "createdByUserId": 1, "updatedByUserId": 1, "createdAtMicros": 1, "updatedAtMicros": 2,
+                "revision": 3, "isArchived": false, "notes": "", "checklist": [], "relatedTaskIds": [],
+                "humanEstimateMinutes": null
+            }))
+            .unwrap(),
+        );
+        let row = decode_record(&bytes).unwrap();
+        assert_eq!(row.title, "Old");
+        assert_eq!(row.blocked_reason, None);
+        assert_eq!(row.decision, None);
+    }
+
+    #[test]
+    fn plain_cards_serialize_without_the_new_keys_so_older_binaries_read_them() {
+        let json = String::from_utf8(encode_record(&base())[V2.len()..].to_vec()).unwrap();
+        assert!(!json.contains("blockedReason"));
+        assert!(!json.contains("decision"));
+    }
+
+    #[test]
+    fn blocked_reason_and_decision_round_trip() {
+        let mut record = base();
+        record.blocked_reason = Some("Waiting on live API keys".into());
+        record.decision = Some(TaskDecision {
+            question: "Switch Stripe to live mode?".into(),
+            fallback: "Stay in test mode".into(),
+            deadline_millis: Some(1_700_000_000_000),
+        });
+        let back = decode_record(&encode_record(&record)).unwrap();
+        assert_eq!(back, record);
     }
 }
