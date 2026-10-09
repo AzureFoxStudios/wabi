@@ -74,7 +74,7 @@
 	$effect(() => { const server = $activeServerUrl; roles = []; channelRoles = {}; saved = ''; void refresh(server); });
 </script>
 
-<details class="community-roles">
+<details class="community-roles" open>
 	<summary><strong>Newcomer roles and rooms</strong><span>Members choose these roles themselves in Welcome.</span></summary>
 	<p>Describe each community role, then choose which rooms it opens. Staff roles remain separate and can only be assigned by staff. Linked room names and descriptions appear in Welcome to signed-in members before they choose a role.</p>
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -108,11 +108,25 @@
 </details>
 
 <style>
-	.community-roles{padding:18px;border:1px solid var(--border-default);border-radius:16px;background:var(--surface-raised);margin-bottom:18px}
-	summary{cursor:pointer;display:grid;gap:4px}summary span,p,small{color:var(--text-secondary);font-size:.84rem}
-	.role-list,.room-list{display:grid;gap:10px;margin:14px 0}.role-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) auto;gap:10px;align-items:end;padding:12px;border:1px solid var(--border-default);border-radius:10px}
-	label{display:grid;gap:5px;font-size:.84rem}input,select{min-width:0;padding:8px 10px;border:1px solid var(--border-default);border-radius:9px;background:var(--surface-base);color:var(--text-primary);font:inherit}
-	.room-list label{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--border-default)}.room-list small{display:block;margin-top:3px}.room-list select{min-width:190px}
-	button{padding:8px 12px;border:1px solid var(--border-default);border-radius:9px;background:var(--surface-base);color:var(--text-primary);cursor:pointer}.actions{display:flex;gap:10px;margin-top:10px}.save{background:var(--accent-primary);color:var(--text-on-accent,white);border:0}.error{color:var(--danger)}
-	@media(max-width:650px){.role-row{grid-template-columns:1fr}.room-list label{align-items:stretch;flex-direction:column}.room-list select{width:100%}}
+	.community-roles { padding: 18px; border: var(--w-bw, 1px) solid var(--w-line); border-radius: calc(14px * var(--w-rs, 1)); background: var(--w-bg2); margin-bottom: 18px; }
+	summary { cursor: pointer; display: grid; gap: 4px; }
+	summary strong { font: 600 calc(16px * var(--w-fs, 1)) var(--w-sans); color: var(--w-text); }
+	summary span, p, small { color: var(--w-mute); font: 400 calc(13px * var(--w-fs, 1))/1.5 var(--w-sans); }
+	h3 { margin: 18px 0 4px; font: 600 calc(17px * var(--w-fs, 1)) var(--w-serif); color: var(--w-text); text-transform: none; letter-spacing: 0.01em; }
+	.role-list, .room-list { display: grid; gap: 10px; margin: 14px 0; }
+	.role-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) auto; gap: 10px; align-items: end; padding: 12px; border: var(--w-bw, 1px) solid var(--w-line); border-radius: calc(10px * var(--w-rs, 1)); background: var(--w-bg); }
+	label { display: grid; gap: 5px; font: 600 calc(12px * var(--w-fs, 1)) var(--w-sans); color: var(--w-mute); }
+	input, select { min-width: 0; min-height: 36px; padding: 7px 10px; border: var(--w-bw, 1px) solid var(--w-line-strong); border-radius: calc(10px * var(--w-rs, 1)); background: var(--w-sink); color: var(--w-text); font: 400 calc(14px * var(--w-fs, 1)) var(--w-sans); }
+	input:focus, select:focus { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
+	.room-list label { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-top: var(--w-bw, 1px) solid var(--w-line); color: var(--w-text); font-weight: 500; }
+	.room-list small { display: block; margin-top: 3px; }
+	.room-list select { min-width: 190px; }
+	button { min-height: 34px; padding: 6px 13px; border: var(--w-bw, 1px) solid var(--w-line-strong); border-radius: calc(10px * var(--w-rs, 1)); background: transparent; color: var(--w-text); font: 600 calc(13px * var(--w-fs, 1)) var(--w-sans); cursor: pointer; }
+	button:hover:not(:disabled) { background: var(--w-raise); border-color: var(--w-accent); }
+	button:disabled { opacity: 0.45; cursor: not-allowed; }
+	.actions { display: flex; gap: 10px; margin-top: 10px; }
+	.save { background: var(--w-text); color: var(--w-bg); border-color: transparent; }
+	.save:hover:not(:disabled) { background: color-mix(in srgb, var(--w-text) 88%, var(--w-accent)); border-color: transparent; }
+	.error { color: var(--w-danger); }
+	@media (max-width: 650px) { .role-row { grid-template-columns: 1fr; } .room-list label { align-items: stretch; flex-direction: column; } .room-list select { width: 100%; } }
 </style>
