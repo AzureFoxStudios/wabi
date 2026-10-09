@@ -427,22 +427,34 @@ pub async fn url_preview(
     // failed preview. Only a non-HTML body has nothing to extract, and
     // that is an empty preview (the client falls back to the bare link).
     let og = fetch_open_graph(target).await;
+    let mut preview = resolve_preview(&query.url, og, |url| async move { fetch_x_post(&url).await }).await?;
+    classify_preview(&query.url, &mut preview);
+    Ok(Json(preview))
+}
 
-    // X often refuses server addresses or serves a JavaScript shell without
-    // Open Graph tags. Its own oEmbed endpoint is the sanctioned fallback: no
-    // key, and no third-party relay sees the link.
-    if is_x_status_url(&query.url) {
+/// Decide between the page's own Open Graph metadata and X's oEmbed.
+///
+/// X often refuses server addresses or serves a JavaScript shell without Open Graph tags. Its own oEmbed
+/// endpoint is the sanctioned fallback: no key, and no third-party relay sees the link. The fetcher is injected
+/// so the decision can be tested without the network.
+async fn resolve_preview<F, Fut>(
+    raw_url: &str,
+    og: Result<UrlPreviewResponse>,
+    fetch_x: F,
+) -> Result<UrlPreviewResponse>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = Result<UrlPreviewResponse>>,
+{
+    if is_x_status_url(raw_url) {
         let usable = matches!(&og, Ok(p) if p.description.is_some());
         if !usable {
-            if let Ok(post) = fetch_x_post(&query.url).await {
-                return Ok(Json(post));
+            if let Ok(post) = fetch_x(raw_url.to_string()).await {
+                return Ok(post);
             }
         }
     }
-
-    let mut preview = og?;
-    classify_preview(&query.url, &mut preview);
-    Ok(Json(preview))
+    og
 }
 
 async fn fetch_open_graph(target: OutboundTarget) -> Result<UrlPreviewResponse> {
@@ -1197,6 +1209,57 @@ mod link_kind_tests {
         let (text, published) = parse_x_oembed_html(html);
         assert_eq!(text.as_deref(), Some("just setting up my twttr\nline two & more"));
         assert_eq!(published.as_deref(), Some("March 21, 2006"));
+    }
+
+    fn post(text: &str) -> UrlPreviewResponse {
+        let mut p = bare();
+        p.kind = Some("post".into());
+        p.description = Some(text.into());
+        p
+    }
+
+    #[tokio::test]
+    async fn x_falls_back_to_oembed_when_the_page_fetch_fails_or_has_no_text() {
+        let url = "https://x.com/jack/status/20";
+        let failed = resolve_preview(url, Err(AppError::BadRequest("blocked".into())), |_| async { Ok(post("from oembed")) })
+            .await
+            .unwrap();
+        assert_eq!(failed.description.as_deref(), Some("from oembed"));
+        assert_eq!(failed.kind.as_deref(), Some("post"));
+
+        let shell = resolve_preview(url, Ok(bare()), |_| async { Ok(post("from oembed")) }).await.unwrap();
+        assert_eq!(shell.description.as_deref(), Some("from oembed"));
+    }
+
+    #[tokio::test]
+    async fn x_keeps_the_page_metadata_when_it_has_text_and_never_calls_oembed() {
+        let mut og = bare();
+        og.description = Some("from the page".into());
+        let kept = resolve_preview("https://x.com/jack/status/20", Ok(og), |_| async {
+            panic!("oEmbed must not be called when the page already has text");
+            #[allow(unreachable_code)]
+            Ok(bare())
+        })
+        .await
+        .unwrap();
+        assert_eq!(kept.description.as_deref(), Some("from the page"));
+    }
+
+    #[tokio::test]
+    async fn a_failed_oembed_leaves_the_original_result_and_other_sites_are_untouched() {
+        let url = "https://x.com/jack/status/20";
+        let still_empty = resolve_preview(url, Ok(bare()), |_| async { Err(AppError::BadRequest("nope".into())) })
+            .await
+            .unwrap();
+        assert!(still_empty.description.is_none());
+
+        let other = resolve_preview("https://example.com/a", Err(AppError::BadRequest("x".into())), |_| async {
+            panic!("oEmbed is only for X posts");
+            #[allow(unreachable_code)]
+            Ok(bare())
+        })
+        .await;
+        assert!(other.is_err());
     }
 
     #[test]
