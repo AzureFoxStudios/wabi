@@ -258,3 +258,4 @@
 :root .right-panel-embedded .forum-workspace-toolbar { padding-inline-end: 12px; }
 :root .right-panel-embedded .forum-post-row { padding: 12px 14px; min-height: 0; }
 :root .right-panel-embedded .forum-post-row-title { font-size: 1rem; margin-bottom: 6px; }
+:root .right-panel-embedded .forum-post-row-title { font: 600 1.05rem/1.35 var(--w-serif); }
