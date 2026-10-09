@@ -3,6 +3,8 @@ import {
 	peekPanel,
 	dismissPeek,
 	pinPanel,
+	unpinOne,
+	dockOrder,
 	closeRightPanel,
 	openRightPanel,
 	addStub,
@@ -15,6 +17,7 @@ import {
 	DEFAULT_STUB_STRIP,
 	stubStrip,
 	stubSide,
+	dockStack,
 	rightPanelMode,
 	pinnedPanelId,
 	activeRightTab,
@@ -40,6 +43,7 @@ import { get } from 'svelte/store';
 
 function resetState(mode: RightPanelMode = 'none', tab: string = 'users'): void {
 	rightPanelMode.set(mode);
+	dockStack.set([]);
 	pinnedPanelId.set(mode === 'pinned' ? tab : null);
 	activeRightTab.set(tab);
 	stubStrip.set([...DEFAULT_STUB_STRIP]);
@@ -110,6 +114,48 @@ describe('peek / pin / dismiss state machine', () => {
 		pinPanel('users');
 		expect(get(rightPanelMode)).toBe('none');
 		expect(get(pinnedPanelId)).toBeNull();
+	});
+
+	test('pinning a second panel stacks it beside the first; the last in is focused', () => {
+		resetState();
+		pinPanel('users');
+		pinPanel('notes');
+		expect(get(dockStack)).toEqual(['users', 'notes']);
+		expect(get(pinnedPanelId)).toBe('notes');
+		expect(get(rightPanelMode)).toBe('pinned');
+	});
+
+	test('the stack holds at most three; the oldest drops off', () => {
+		resetState();
+		for (const id of ['users', 'dms', 'notes', 'map']) pinPanel(id);
+		expect(get(dockStack)).toEqual(['dms', 'notes', 'map']);
+	});
+
+	test('unpinning one panel keeps the rest; unpinning the last closes the dock', () => {
+		resetState();
+		pinPanel('users');
+		pinPanel('notes');
+		unpinOne('notes');
+		expect(get(dockStack)).toEqual(['users']);
+		expect(get(rightPanelMode)).toBe('pinned');
+		expect(get(pinnedPanelId)).toBe('users');
+		unpinOne('users');
+		expect(get(rightPanelMode)).toBe('none');
+		expect(get(dockStack)).toEqual([]);
+	});
+
+	test('closeRightPanel clears the whole stack', () => {
+		resetState();
+		pinPanel('users');
+		pinPanel('notes');
+		closeRightPanel();
+		expect(get(dockStack)).toEqual([]);
+		expect(get(rightPanelMode)).toBe('none');
+	});
+
+	test('dock order follows the rail order, not pin order', () => {
+		expect(dockOrder(['notes', 'users'], ['users', 'dms', 'notes'])).toEqual(['users', 'notes']);
+		expect(dockOrder(['wiki', 'users'], ['users', 'notes'])).toEqual(['users', 'wiki']);
 	});
 
 	test('peek-over while pinned changes only the displayed tab, never the pin', () => {
