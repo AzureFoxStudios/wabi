@@ -213,3 +213,12 @@
 :root[data-mode='light'] .messages .message .username {
 	filter: brightness(0.6) saturate(1.25);
 }
+
+/* ---------- narrow screens ---------- */
+@media (max-width: 640px) {
+	:root .main-content .chat-header { padding: 10px 14px; min-height: 56px; }
+	:root .main-content .chat-header .chat-heading { flex-wrap: wrap; gap: 2px 10px; min-width: 0; row-gap: 4px; height: auto; }
+	:root .main-content .chat-header .channel-title { font-size: 21px; white-space: nowrap; }
+	:root .main-content .retention-channel-badge { margin-left: 0; padding: 2px 8px 2px 6px; font-size: 11px; }
+	:root .main-content .input-container { border-radius: calc(14px * var(--w-rs, 1)); }
+}
