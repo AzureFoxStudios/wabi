@@ -1,0 +1,11 @@
+/* Self-hosted type for the redesign (Tauri CSP is default-src 'self'; no CDN).
+   Latin subsets only. CJK is deliberately not bundled here: those faces are
+   megabytes, so they must be added as unicode-range slices loaded on demand. */
+@import '@fontsource/shippori-mincho/latin-400.css';
+@import '@fontsource/shippori-mincho/latin-600.css';
+@import '@fontsource/shippori-mincho/latin-700.css';
+@import '@fontsource/zen-kaku-gothic-new/latin-400.css';
+@import '@fontsource/zen-kaku-gothic-new/latin-500.css';
+@import '@fontsource/zen-kaku-gothic-new/latin-700.css';
+@import '@fontsource/ibm-plex-mono/latin-400.css';
+@import '@fontsource/ibm-plex-mono/latin-500.css';

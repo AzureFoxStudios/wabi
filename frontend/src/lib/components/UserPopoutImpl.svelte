@@ -31,6 +31,7 @@
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { _ } from '$lib/i18n';
 	import { currentSavedServer } from '$lib/savedServers';
+	import BadgeMark from '$lib/components/BadgeMark.svelte';
 	import { ownerBadgeMark, staffBadgeMark } from '$lib/badgeMarks';
 	import UserPopoutActions from './UserPopoutActions.svelte';
 	import RoleBadge from '$lib/components/RoleBadge.svelte';
@@ -615,11 +616,11 @@
 				<div class="popout-role-tags">
 					{#if $displayEnhancementSettingsStore.topRoleEverywhereEnabled && roleToneClass(popoutTopRoleName) === 'owner'}
 						<span class="popout-role-badge tone-owner role-mark" title="Owner" aria-label="Owner">
-							{ownerMark}
+							<BadgeMark kind="owner" mark={ownerMark} />
 						</span>
 					{/if}
 					{#if $displayEnhancementSettingsStore.staffTagEnabled && isStaffRole(popoutTopRoleName)}
-						<span class="popout-staff-tag role-mark" title="Staff" aria-label="Staff">{staffMark}</span>
+						<span class="popout-staff-tag role-mark" title="Staff" aria-label="Staff"><BadgeMark kind="staff" mark={staffMark} /></span>
 					{/if}
 					<RoleBadge user={liveUser!} size="md" mode="custom" />
 				</div>

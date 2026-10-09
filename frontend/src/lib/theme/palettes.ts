@@ -85,6 +85,7 @@ export const midnightBluePalette: BasePalette = {
 
 export const vscodeHighContrastPalette: BasePalette = {
 	id: 'high-contrast',
+	character: 'contrast',
 	name: 'High Contrast',
 	description: 'Pure black with electric amber. Maximum contrast for accessibility — no soft surfaces.',
 	bgBase: '#000000',
@@ -231,6 +232,7 @@ export const spacePalette: BasePalette = {
 
 export const jokerPalette: BasePalette = {
 	id: 'joker',
+	character: 'pixel',
 	name: 'Joker',
 	description: 'Joker energy — red and blue paint over black, chunky pixel vibe. Use the Balatro state toggle for title / blind / shop.',
 	bgBase: '#162325',
