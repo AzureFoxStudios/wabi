@@ -5,7 +5,7 @@
 
 import { get } from 'svelte/store';
 import { type WorkspacePanelId } from '$lib/docking/layoutSchema';
-import { rightPanelMode, pinnedPanelId, activeRightTab, stubStrip, stubSide, dockStack, MAX_DOCK_STACK, DEFAULT_STUB_STRIP } from './layoutStoreStates';
+import { rightPanelMode, pinnedPanelId, activeRightTab, stubStrip, stubSide, dockStack, dockStackLimit, clampDockStackLimit, DEFAULT_STUB_STRIP } from './layoutStoreStates';
 import { normalizePanelIdForRuntime } from './layoutStoreUtils';
 
 function displayedTab(): WorkspacePanelId {
@@ -56,7 +56,7 @@ export function dismissPeek(): void {
 }
 
 /**
- * Click on a rail item: pin it beside whatever is already pinned (up to MAX_DOCK_STACK, oldest drops off),
+ * Click on a rail item: pin it beside whatever is already pinned (up to the user's dock limit, oldest drops off),
  * or unpin it if it was already there. The last panel left pinned closes the dock.
  */
 export function pinPanel(panelId: WorkspacePanelId): void {
@@ -75,7 +75,7 @@ export function pinPanel(panelId: WorkspacePanelId): void {
 		return;
 	}
 	addStub(normalized);
-	const next = [...current, normalized].slice(-MAX_DOCK_STACK);
+	const next = [...current, normalized].slice(-clampDockStackLimit(get(dockStackLimit)));
 	dockStack.set(next);
 	rightPanelMode.set('pinned');
 	pinnedPanelId.set(normalized);
@@ -151,4 +151,18 @@ export function resetStubs(): void {
 
 export function setStubSide(side: 'left' | 'right'): void {
 	stubSide.set(side === 'left' ? 'left' : 'right');
+}
+
+/** Change how many panels may be pinned at once; a lower limit drops the oldest pins immediately. */
+export function setDockStackLimit(limit: number): void {
+	const next = clampDockStackLimit(limit);
+	dockStackLimit.set(next);
+	const stack = get(dockStack);
+	if (stack.length > next) {
+		const kept = stack.slice(-next);
+		dockStack.set(kept);
+		const focus = kept[kept.length - 1];
+		pinnedPanelId.set(focus);
+		activeRightTab.set(focus);
+	}
 }

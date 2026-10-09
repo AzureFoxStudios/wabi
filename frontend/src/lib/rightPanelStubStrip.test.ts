@@ -4,6 +4,7 @@ import {
 	dismissPeek,
 	pinPanel,
 	unpinOne,
+	setDockStackLimit,
 	dockOrder,
 	closeRightPanel,
 	openRightPanel,
@@ -18,6 +19,7 @@ import {
 	stubStrip,
 	stubSide,
 	dockStack,
+	dockStackLimit,
 	rightPanelMode,
 	pinnedPanelId,
 	activeRightTab,
@@ -129,6 +131,21 @@ describe('peek / pin / dismiss state machine', () => {
 		resetState();
 		for (const id of ['users', 'dms', 'notes', 'map']) pinPanel(id);
 		expect(get(dockStack)).toEqual(['dms', 'notes', 'map']);
+	});
+
+	test('the stack limit is a preference: raise it for more, lower it to drop the oldest', () => {
+		resetState();
+		setDockStackLimit(5);
+		for (const id of ['users', 'dms', 'notes', 'map', 'wiki']) pinPanel(id);
+		expect(get(dockStack)).toEqual(['users', 'dms', 'notes', 'map', 'wiki']);
+		setDockStackLimit(2);
+		expect(get(dockStack)).toEqual(['map', 'wiki']);
+		expect(get(pinnedPanelId)).toBe('wiki');
+		setDockStackLimit(999);
+		expect(get(dockStackLimit)).toBe(12);
+		setDockStackLimit(0);
+		expect(get(dockStackLimit)).toBe(1);
+		setDockStackLimit(3);
 	});
 
 	test('unpinning one panel keeps the rest; unpinning the last closes the dock', () => {

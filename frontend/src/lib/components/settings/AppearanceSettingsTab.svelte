@@ -10,6 +10,7 @@
 	import PointerEffectsTab from '$lib/effects/PointerEffectsTab.svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import { railPeekKey, type RailPeekKey } from '$lib/railPrefs';
+	import { dockStackLimit, MAX_DOCK_STACK_LIMIT } from '$lib/layoutStoreStates';
 	import {
 		homeLayout,
 		type HomeLayoutMode,
@@ -324,6 +325,13 @@
 					<button type="button" class:active={$railPeekKey === key} on:click={() => railPeekKey.set(key as RailPeekKey)}>{label}</button>
 				{/each}
 			</div>
+		</div>
+		<div class="setting-item">
+			<div class="setting-info">
+				<span class="setting-label">Panels pinned side by side</span>
+				<span class="setting-description">How many right-rail panels can stay open together in the dock (1–{MAX_DOCK_STACK_LIMIT}). Lowering it closes the oldest pins.</span>
+			</div>
+			<input type="number" class="w-field" style="max-width: 5.5rem" min="1" max={MAX_DOCK_STACK_LIMIT} step="1" value={$dockStackLimit} aria-label="Panels pinned side by side" on:change={(event) => layoutStore.setDockStackLimit(Number(event.currentTarget.value))} />
 		</div>
 		<div class="setting-item">
 			<div class="setting-info">
