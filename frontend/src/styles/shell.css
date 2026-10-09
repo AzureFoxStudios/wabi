@@ -249,7 +249,7 @@
 :root[data-ambient='true'] .right-panel-zone .panel-stack-content,
 :root[data-ambient='true'] .right-panel-zone .user-list-tab { background: transparent !important; }
 
-/* Community art: a quiet arc and a river line in the signature colour run down the left column
+/* Community art: a quiet arc in the signature colour sits behind the crest (the river line was removed: it read as a glitch behind the channel list)
    (the mock-up's identity art). It is a mask, so it follows --w-sig / the theme accent, and an
    operator banner still sits on top in the header. */
 :root .channel-sidebar-container .channel-sidebar { position: relative; isolation: isolate; }
@@ -261,8 +261,8 @@
 	pointer-events: none;
 	background: var(--w-sig, var(--w-accent));
 	opacity: 0.32;
-	-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 276 800' preserveAspectRatio='xMidYMin slice'%3E%3Ccircle cx='238' cy='38' r='96' fill='none' stroke='white' stroke-opacity='.55' stroke-width='18' stroke-dasharray='520 90' stroke-linecap='round'/%3E%3Cpath d='M252 140 L236 200 L262 262 L238 332 L256 410 L240 484 L258 570 L244 650 L250 800' fill='none' stroke='white' stroke-opacity='.8' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") top right / cover no-repeat;
-	mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 276 800' preserveAspectRatio='xMidYMin slice'%3E%3Ccircle cx='238' cy='38' r='96' fill='none' stroke='white' stroke-opacity='.55' stroke-width='18' stroke-dasharray='520 90' stroke-linecap='round'/%3E%3Cpath d='M252 140 L236 200 L262 262 L238 332 L256 410 L240 484 L258 570 L244 650 L250 800' fill='none' stroke='white' stroke-opacity='.8' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") top right / cover no-repeat;
+	-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 276 800' preserveAspectRatio='xMidYMin slice'%3E%3Ccircle cx='238' cy='38' r='96' fill='none' stroke='white' stroke-opacity='.55' stroke-width='18' stroke-dasharray='520 90' stroke-linecap='round'/%3E%3C/svg%3E") top right / cover no-repeat;
+	mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 276 800' preserveAspectRatio='xMidYMin slice'%3E%3Ccircle cx='238' cy='38' r='96' fill='none' stroke='white' stroke-opacity='.55' stroke-width='18' stroke-dasharray='520 90' stroke-linecap='round'/%3E%3C/svg%3E") top right / cover no-repeat;
 }
 :root[data-char='contrast'] .channel-sidebar-container .channel-sidebar::before { display: none; }
 
