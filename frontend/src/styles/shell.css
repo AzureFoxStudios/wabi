@@ -265,3 +265,39 @@
 	mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 276 800' preserveAspectRatio='xMidYMin slice'%3E%3Ccircle cx='238' cy='38' r='96' fill='none' stroke='white' stroke-opacity='.55' stroke-width='18' stroke-dasharray='520 90' stroke-linecap='round'/%3E%3Cpath d='M252 140 L236 200 L262 262 L238 332 L256 410 L240 484 L258 570 L244 650 L250 800' fill='none' stroke='white' stroke-opacity='.8' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") top right / cover no-repeat;
 }
 :root[data-char='contrast'] .channel-sidebar-container .channel-sidebar::before { display: none; }
+
+/* ---------- rooms: the mock-up's group labels, unread pills and LIVE tag ---------- */
+:root .channel-sidebar .category-row .category-name {
+	font: 600 calc(11.5px * var(--w-fs, 1))/1 var(--w-sans);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--w-mute);
+}
+:root .channel-sidebar .category-count { font: 500 calc(11px * var(--w-fs, 1)) var(--w-mono); color: var(--w-faint); background: none; border: 0; }
+:root .channel-sidebar .category-folder-icon { color: var(--w-faint); }
+/* unread: an inverted pill (text colour on the surface), like the mock-up */
+:root .channel-sidebar .unread-badge,
+:root .channel-sidebar .messages-hub-badge {
+	min-width: 20px;
+	padding: 0 7px;
+	border: 0;
+	border-radius: var(--w-pill, 999px);
+	background: var(--w-text);
+	color: var(--w-bg);
+	font: 700 calc(11.5px * var(--w-fs, 1))/1.55 var(--w-sans);
+	text-align: center;
+	box-shadow: none;
+}
+:root .channel-sidebar .live-tag,
+:root .channel-sidebar .live-pill {
+	padding: 0 6px;
+	border: 0;
+	border-radius: calc(5px * var(--w-rs, 1));
+	background: var(--w-danger);
+	color: var(--w-bg);
+	font: 700 calc(10.5px * var(--w-fs, 1))/1.6 var(--w-sans);
+	letter-spacing: 0.04em;
+}
+:root .channel-sidebar .live-dot { background: var(--w-danger); }
+:root .channel-sidebar .channel-item.unread .channel-btn,
+:root .channel-sidebar .channel-item.has-unread .channel-btn { color: var(--w-text); font-weight: 700; }
