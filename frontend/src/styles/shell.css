@@ -236,3 +236,15 @@
 	color: var(--w-text);
 	font: 600 calc(11.5px * var(--w-fs, 1))/1.5 var(--w-sans);
 }
+
+/* Themes with a living background (Joker, Matrix, Embers…) let it show through every column:
+   panels and the rail follow the theme's frost, instead of painting an opaque slab over the effect. */
+:root[data-ambient='true'] .right-panel-zone .right-panel-body,
+:root[data-ambient='true'] .rail {
+	background: color-mix(in srgb, var(--w-bg2) calc(var(--surface-frost-opacity, 1) * 100%), transparent);
+	-webkit-backdrop-filter: blur(var(--surface-frost-blur, 0px));
+	backdrop-filter: blur(var(--surface-frost-blur, 0px));
+}
+:root[data-ambient='true'] .right-panel-zone .right-panel,
+:root[data-ambient='true'] .right-panel-zone .panel-stack-content,
+:root[data-ambient='true'] .right-panel-zone .user-list-tab { background: transparent !important; }
