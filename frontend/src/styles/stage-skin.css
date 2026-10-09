@@ -156,3 +156,31 @@
 :root .main-content .wiki-tree-item-title { font-family: var(--w-sans); font-size: calc(13.5px * var(--w-fs, 1)); }
 :root .main-content .gallery-title { font: 600 calc(20px * var(--w-fs, 1))/1.2 var(--w-serif); }
 :root .main-content .project-subtitle { font: 400 calc(14px * var(--w-fs, 1))/1.5 var(--w-sans); color: var(--w-mute); }
+
+/* ---------- references inside text: @people, #rooms, wiki / forum / gallery / map refs ---------- */
+:root .mention-token {
+	display: inline-block;
+	padding: 0 6px;
+	border: var(--w-bw, 1px) solid transparent;
+	border-radius: calc(6px * var(--w-rs, 1));
+	background: var(--w-accent-soft);
+	color: var(--w-text);
+	font-weight: 600;
+	cursor: pointer;
+	transition: background 0.12s, border-color 0.12s;
+}
+:root .mention-token:hover { background: color-mix(in srgb, var(--w-accent) 26%, transparent); border-color: color-mix(in srgb, var(--w-accent) 45%, transparent); }
+:root .mention-token-user { color: var(--w-accent); }
+:root .mention-token-channel { color: var(--w-text); }
+:root .mention-token-wiki_page,
+:root .mention-token-forum_post,
+:root .mention-token-gallery_work,
+:root .mention-token-place {
+	background: transparent;
+	border-color: var(--w-line-strong);
+	font: 500 0.88em/1.5 var(--w-mono);
+}
+:root .mention-token-wiki_page:hover,
+:root .mention-token-forum_post:hover,
+:root .mention-token-gallery_work:hover,
+:root .mention-token-place:hover { border-color: var(--w-accent); background: var(--w-accent-soft); }
