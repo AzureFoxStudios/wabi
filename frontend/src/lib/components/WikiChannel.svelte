@@ -455,12 +455,22 @@
 		const key = raw.trim().toLocaleLowerCase();
 		return allPages.find((page) => page.title.trim().toLocaleLowerCase() === key || page.slug === key || slugify(page.title) === slugify(raw));
 	}
-	function withWikiLinks(markdown: string): string {
-		return markdown.replace(/\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]/g, (_match, title: string, label?: string) => {
+	// [[Title]] and [[Title|label]] become anchors AFTER markdown parsing: parseMessage treats a
+	// "#wikipage-…" destination as a channel reference and breaks the surrounding link.
+	function escapeWikiText(value: string): string {
+		return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+	}
+	function renderWikiBody(markdown: string): string {
+		const links: string[] = [];
+		const staged = markdown.replace(/\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]/g, (_match, title: string, label?: string) => {
 			const target = wikiLinkTarget(title);
-			const text = (label || title).trim();
-			return target ? `[${text}](#wikipage-${target.pageId})` : `[${text}](#wikipage-missing)`;
+			const text = escapeWikiText((label || title).trim());
+			links.push(target
+				? `<a href="#wikipage-${escapeWikiText(String(target.pageId))}" class="wiki-link">${text}</a>`
+				: `<a href="#wikipage-missing" class="wiki-link wiki-link-missing" title="No page with this title yet">${text}</a>`);
+			return `wabiwikilinkx${links.length - 1}x`;
 		});
+		return parseMessage(staged, [], { allowTables: true }).replace(/wabiwikilinkx(\d+)x/g, (_m, i: string) => links[Number(i)] ?? '');
 	}
 	let mentionedUser = null as User | null;
 	let mentionAnchor = null as HTMLElement | null;
@@ -488,7 +498,7 @@
 	$: backlinks = selectedPage
 		? allPages.filter((page) => page.pageId !== selectedPage!.pageId && new RegExp('\\[\\[\\s*' + selectedPage!.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*(\\||\\]\\])', 'i').test(page.body))
 		: [];
-	$: renderedBody = displayBody ? parseMessage(withWikiLinks(displayBody), [], { allowTables: true }) : '';
+	$: renderedBody = displayBody ? renderWikiBody(displayBody) : '';
 	$: editIsDirty = editMode && (editTitle !== editSavedTitle || editBody !== editSavedBody);
 	$: if (editMode && editIsDirty && (saveState === 'idle' || saveState === 'saved')) saveState = 'dirty';
 	$: if (editMode && !editIsDirty && saveState === 'dirty') saveState = 'idle';
