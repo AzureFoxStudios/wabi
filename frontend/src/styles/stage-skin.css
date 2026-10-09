@@ -143,3 +143,16 @@
 :root .dm-hub-title { font: 600 calc(24px * var(--w-fs, 1))/1.2 var(--w-serif); letter-spacing: 0.01em; color: var(--w-text); }
 :root .dm-hub-subtitle { font: 500 calc(12px * var(--w-fs, 1))/1.4 var(--w-mono); color: var(--w-mute); }
 :root .dm-hub-header { border-bottom: var(--w-bw, 1px) solid var(--w-line); }
+
+/* ---------- workspaces: wiki, forum, gallery, project boards ---------- */
+/* Page titles are serif; message markdown and the panels keep their own type. */
+:root .main-content :is(h1, h2):not(.markdown-content *):not(.chat-header *) {
+	font-family: var(--w-serif);
+	font-weight: 600;
+	letter-spacing: 0.01em;
+}
+:root .main-content h1:not(.markdown-content *) { font-size: calc(28px * var(--w-fs, 1)); line-height: 1.15; }
+:root .main-content .forum-post-row-title { font: 600 calc(17px * var(--w-fs, 1))/1.35 var(--w-serif); color: var(--w-text); }
+:root .main-content .wiki-tree-item-title { font-family: var(--w-sans); font-size: calc(13.5px * var(--w-fs, 1)); }
+:root .main-content .gallery-title { font: 600 calc(20px * var(--w-fs, 1))/1.2 var(--w-serif); }
+:root .main-content .project-subtitle { font: 400 calc(14px * var(--w-fs, 1))/1.5 var(--w-sans); color: var(--w-mute); }
