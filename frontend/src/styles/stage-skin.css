@@ -1,0 +1,34 @@
+/* Center-stage surfaces that predate the control kit, mapped onto it. */
+
+/* Server home */
+:root .server-hub { font-family: var(--w-sans); }
+:root .server-hub .server-hub-top h2 { font: 600 12px/1 var(--w-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--w-mute); }
+:root .server-hub .server-tools button,
+:root .server-hub .rules-button {
+	min-height: 36px;
+	padding: 7px 14px;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(10px * var(--w-rs, 1));
+	background: transparent;
+	color: var(--w-text);
+	font: 600 13.5px/1.2 var(--w-sans);
+}
+:root .server-hub .server-tools button:hover,
+:root .server-hub .rules-button:hover { background: var(--w-raise); border-color: var(--w-accent); }
+:root .server-hub .hub-tabs { border-bottom: var(--w-bw, 1px) solid var(--w-line); gap: 4px; }
+:root .server-hub .hub-tabs button { min-height: 40px; padding: 8px 12px; color: var(--w-mute); font: 600 14px var(--w-sans); border-radius: 0; }
+:root .server-hub .hub-tabs button:hover { background: transparent; color: var(--w-text); }
+:root .server-hub .hub-tabs button.active { color: var(--w-text); border-bottom-color: var(--w-accent); }
+
+:root .reception-board h1 { font: 600 clamp(30px, 3.4vw, 40px)/1.12 var(--w-serif); letter-spacing: 0; color: var(--w-text); }
+:root .reception-board .server-description { font: 400 15.5px/1.6 var(--w-sans); color: var(--w-mute); }
+:root .reception-board .reception-section h2 { font: 600 20px/1.25 var(--w-serif); color: var(--w-text); margin-bottom: 6px; }
+:root .reception-board .reception-hint { font: 400 14px/1.6 var(--w-sans); color: var(--w-mute); }
+:root .reception-board .server-icon { border-radius: calc(14px * var(--w-rs, 1)); }
+:root .reception-board .room-row {
+	border: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: calc(12px * var(--w-rs, 1));
+	background: var(--w-bg2);
+}
+:root .reception-board .room-name { font: 500 14px/1.3 var(--w-mono); color: var(--w-text); }
+:root .reception-board .room-switch { color: var(--w-mute); font: 600 12px var(--w-mono); }

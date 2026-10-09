@@ -1,0 +1,134 @@
+/* Control primitive kit — one button shape, one switch, one segmented control, one definition
+   row, one focus ring, one destructive pattern. New UI uses these classes directly; legacy
+   surfaces are mapped onto them in stage-skin.css / settings-skin.css so the whole app speaks
+   one language. Everything reads --w-* roles, so every theme restyles it. */
+
+:root { --w-ring: 0 0 0 3px var(--w-accent-soft); }
+
+/* ---------- buttons ---------- */
+.w-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	min-height: 36px;
+	padding: 7px 14px;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(10px * var(--w-rs, 1));
+	background: transparent;
+	color: var(--w-text);
+	font: 600 13.5px/1.2 var(--w-sans);
+	cursor: pointer;
+	transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.w-btn:hover { background: var(--w-raise); border-color: var(--w-accent); }
+.w-btn:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
+.w-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.w-btn--primary { background: var(--w-text); color: var(--w-bg); border-color: transparent; }
+.w-btn--primary:hover { background: color-mix(in srgb, var(--w-text) 88%, var(--w-accent)); border-color: transparent; }
+.w-btn--quiet { border-color: transparent; color: var(--w-mute); }
+.w-btn--quiet:hover { color: var(--w-text); border-color: transparent; }
+/* destructive: outlined in danger, fills only on hover */
+.w-btn--danger { border-color: color-mix(in srgb, var(--w-danger) 60%, transparent); color: var(--w-danger); }
+.w-btn--danger:hover { background: var(--w-danger); color: var(--w-bg); border-color: var(--w-danger); }
+
+/* ---------- field ---------- */
+.w-field {
+	width: 100%;
+	box-sizing: border-box;
+	min-height: 38px;
+	padding: 8px 12px;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(10px * var(--w-rs, 1));
+	background: var(--w-sink);
+	color: var(--w-text);
+	font: 400 14.5px/1.4 var(--w-sans);
+}
+.w-field::placeholder { color: var(--w-faint); }
+.w-field:focus { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
+
+/* ---------- switch (button[role=switch][aria-checked]) ---------- */
+.w-switch {
+	position: relative;
+	flex: none;
+	width: 38px;
+	height: 22px;
+	padding: 0;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: var(--w-pill, 999px);
+	background: var(--w-sink);
+	cursor: pointer;
+	transition: background 0.15s, border-color 0.15s;
+}
+.w-switch::after {
+	content: '';
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 16px;
+	height: 16px;
+	border-radius: var(--w-avr, 50%);
+	background: var(--w-mute);
+	transition: transform 0.15s, background 0.15s;
+}
+.w-switch[aria-checked='true'] { background: var(--w-accent); border-color: transparent; }
+.w-switch[aria-checked='true']::after { transform: translateX(16px); background: var(--w-on-accent); }
+.w-switch:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
+.w-switch:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ---------- segmented control ---------- */
+.w-seg {
+	display: inline-flex;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(10px * var(--w-rs, 1));
+	overflow: hidden;
+	background: var(--w-bg2);
+}
+.w-seg > button {
+	min-height: 32px;
+	padding: 5px 14px;
+	border: 0;
+	background: transparent;
+	color: var(--w-mute);
+	font: 600 13px/1.2 var(--w-sans);
+	cursor: pointer;
+}
+.w-seg > button + button { border-left: var(--w-bw, 1px) solid var(--w-line); }
+.w-seg > button:hover { color: var(--w-text); }
+.w-seg > button[aria-pressed='true'],
+.w-seg > button[aria-checked='true'] { background: var(--w-accent); color: var(--w-on-accent); }
+.w-seg > button:focus-visible { outline: 2px solid var(--w-accent); outline-offset: -2px; }
+
+/* ---------- definition row: label + hint left, control right ---------- */
+.w-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 12px 14px;
+	border: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: calc(12px * var(--w-rs, 1));
+	background: var(--w-bg2);
+}
+.w-row + .w-row { margin-top: 8px; }
+.w-row__label { font: 600 14.5px/1.3 var(--w-sans); color: var(--w-text); }
+.w-row__hint { margin-top: 2px; font: 400 13px/1.45 var(--w-sans); color: var(--w-mute); }
+/* digital strings: ids, hosts, versions, counts */
+.w-mono { font-family: var(--w-mono); font-feature-settings: 'tnum'; }
+/* a row about security (encryption state, permissions, moderation) wears the seal */
+.w-row--seal { box-shadow: inset 2px 0 0 var(--w-seal); }
+
+/* ---------- section title + seal badge ---------- */
+.w-title { margin: 0 0 6px; font: 600 24px/1.2 var(--w-serif); letter-spacing: 0.01em; color: var(--w-text); }
+.w-subtitle { margin: 0 0 14px; font: 500 12.5px/1.4 var(--w-mono); color: var(--w-mute); }
+.w-seal {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 1px 8px;
+	border: var(--w-bw, 1px) solid color-mix(in srgb, var(--w-seal) 70%, transparent);
+	border-radius: var(--w-pill, 999px);
+	background: var(--w-seal-soft);
+	color: var(--w-text);
+	font: 600 11.5px/1.6 var(--w-sans);
+}
