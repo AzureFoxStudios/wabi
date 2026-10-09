@@ -2,7 +2,8 @@
 	import { tick } from 'svelte';
 	import type { WorkspaceViewKey } from './chat/types';
 
-	let { activeView, onSelectView, canOpenWhiteboard = true, activityBadge = '' }: {
+	let { activeView, onSelectView, canOpenWhiteboard = true, activityBadge = '', inline = false }: {
+		inline?: boolean;
 		activeView: WorkspaceViewKey;
 		onSelectView: (view: WorkspaceViewKey) => void;
 		canOpenWhiteboard?: boolean;
@@ -22,6 +23,9 @@
 		{ id: 'model', label: '3D viewer', detail: 'Explore models' },
 		{ id: 'map', label: 'Map', detail: 'Places & directions' }
 	];
+	// In the channel header only the everyday views get an icon; "More" opens the full picker.
+	const PRIMARY: WorkspaceViewKey[] = ['messages', 'notifications', 'voice', 'lore', 'files', 'media'];
+	const stripViews = $derived(inline ? views.filter(view => PRIMARY.includes(view.id) || view.id === activeView) : views);
 	const pickerId = $props.id();
 	let open = $state(false);
 	let root: HTMLElement | undefined = $state();
@@ -31,7 +35,7 @@
 
 	function close(restoreFocus = false): void {
 		open = false;
-		if (restoreFocus) trigger?.focus({ preventScroll: true });
+		if (restoreFocus) (inline ? root?.querySelector<HTMLButtonElement>('.strip-more') : trigger)?.focus({ preventScroll: true });
 	}
 	async function toggle(): Promise<void> {
 		if (open) { close(true); return; }
@@ -49,7 +53,7 @@
 			event.preventDefault();
 			event.stopPropagation();
 			close(true);
-		} else if (event.target === trigger && event.key === 'ArrowDown') {
+		} else if ((event.target === trigger || (event.target as HTMLElement | null)?.classList?.contains('strip-more')) && event.key === 'ArrowDown') {
 			event.preventDefault();
 			if (!open) void toggle();
 		}
@@ -135,8 +139,24 @@
 
 <svelte:window onblur={() => close()} onkeydown={onKeydown} />
 
-<nav class="workspace-view-bar" class:picker-open={open} aria-label="Workspace" bind:this={root}
+<nav class="workspace-view-bar" class:inline class:picker-open={open} aria-label="Workspace" bind:this={root}
 	onfocusout={(event) => { if (!root?.contains(event.relatedTarget as Node)) close(); }}>
+	<!-- Desktop: every view one click away. The active view shows its name; the rest reveal theirs on hover or focus. -->
+	<div class="workspace-strip" role="toolbar" aria-label="Workspace views">
+		{#each stripViews as view (view.id)}
+			<button type="button" class="strip-item" class:active={activeView === view.id} aria-label={view.label} title={`${view.label} · ${view.detail}`}
+				aria-current={activeView === view.id ? 'page' : undefined} disabled={view.id === 'whiteboard' && !canOpenWhiteboard} onclick={() => select(view.id)}>
+				{@render workspaceIcon(view.id)}
+				<span class="strip-label">{view.label}</span>
+				{#if view.id === 'notifications' && activityBadge}<span class="activity-badge" aria-label={`${activityBadge} items need attention`}>{activityBadge}</span>{/if}
+			</button>
+		{/each}
+		{#if inline}
+			<button type="button" class="strip-item strip-more" aria-expanded={open} aria-controls={pickerId} aria-haspopup="dialog" aria-label="All workspaces" title="All workspaces" onclick={toggle}>
+				<svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+			</button>
+		{/if}
+	</div>
 	<button class="workspace-trigger" type="button" bind:this={trigger}
 		aria-expanded={open} aria-controls={pickerId} aria-haspopup="dialog"
 		aria-label={`Switch workspace: ${selected.label}`} onclick={toggle}>
@@ -210,6 +230,24 @@
 	/* Reserve the return slot so the picker/chevron never resize on selection. */
 	.workspace-return.unavailable { visibility: hidden; }
 	.workspace-view-bar :global(svg) { flex-shrink: 0; }
+	/* Strip on desktop, picker on small screens. */
+	.workspace-strip { display: none; }
+	@media (min-width: 900px) {
+		.workspace-strip { display: flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }
+		.workspace-trigger, .workspace-return { display: none; }
+		.workspace-view-bar { justify-content: flex-start; padding-block: 0; }
+		.strip-item { display: inline-flex; align-items: center; gap: 0; min-height: 38px; padding: 0 10px; border-radius: calc(8px * var(--w-rs, 1)); color: var(--w-mute, var(--text-secondary)); position: relative; }
+		.strip-item :global(svg) { width: 17px; height: 17px; stroke-width: 1.6; }
+		.strip-label { max-width: 0; overflow: hidden; white-space: nowrap; opacity: 0; font: 600 .78rem var(--w-sans, inherit); transition: max-width .22s ease, opacity .18s ease, margin .22s ease; }
+		.strip-item:hover .strip-label, .strip-item:focus-visible .strip-label, .strip-item.active .strip-label { max-width: 9rem; opacity: 1; margin-inline-start: 7px; }
+		.strip-item.active { color: var(--w-text, var(--text-heading)); background: transparent; }
+		.strip-item.active::after { content: ''; position: absolute; inset-inline: 10px; bottom: 0; height: 2px; background: var(--w-sig, var(--accent-primary-color)); }
+		.strip-item:hover:not(:disabled) { color: var(--w-text, var(--text-heading)); background: var(--w-raise, var(--surface-raised)); }
+		.strip-item .activity-badge { margin-inline-start: 6px; }
+	}
+	.workspace-view-bar.inline { border-bottom: 0; background: transparent; padding: 0; z-index: var(--z-dropdown); }
+	.workspace-view-bar.inline .workspace-picker { inset-inline-start: auto; inset-inline-end: 0; }
+	@media (prefers-reduced-motion: reduce) { .strip-label { transition: none; } }
 	.workspace-picker {
 		position: absolute;
 		top: calc(100% + var(--space-1));
