@@ -32,6 +32,8 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import { getDmDirectoryKey } from '$lib/dmUserDirectory';
 	import { findExistingDmChannel } from '$lib/dmConversations';
 	import { currentSavedServer } from '$lib/savedServers';
+	import { currentTheme } from '$lib/theme/themeStore';
+	import { communityDisplayFont } from '$lib/theme/displayFonts';
 	import RightStubStrip from '$lib/components/RightStubStrip.svelte';
 	import VoiceLiveStrip from '$lib/components/VoiceLiveStrip.svelte';
 	import { voiceViewOpen } from '$lib/voiceView';
@@ -1283,6 +1285,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		class:dock-pinned={$layoutStore.rightPanelMode === 'pinned'}
 		class:rail-left={$layoutStore.stubSide === 'left'}
 		style:--w-sig={$currentSavedServer?.frontendMetadata?.accentColor || null}
+		style:--w-serif={communityDisplayFont($currentSavedServer?.frontendMetadata?.displayFont, $currentTheme?.character)}
 		style:--w-dock-w={$layoutStore.rightPanelMode === 'pinned' && !$layoutStore.isMobile
 			? `min(${Math.min($layoutStore.rightPanelWidth, 744)}px, 55vw)`
 			: '0px'}

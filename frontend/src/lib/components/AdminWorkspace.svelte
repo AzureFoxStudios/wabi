@@ -88,7 +88,8 @@
 			tagline: null,
 			launchPageFallbackEnabled: true,
 			ownerBadgeMark: null,
-			staffBadgeMark: null
+			staffBadgeMark: null,
+			displayFont: null
 		};
 	}
 
@@ -679,7 +680,8 @@
 			left.tagline === right.tagline &&
 			left.launchPageFallbackEnabled === right.launchPageFallbackEnabled &&
 			left.ownerBadgeMark === right.ownerBadgeMark &&
-			left.staffBadgeMark === right.staffBadgeMark
+			left.staffBadgeMark === right.staffBadgeMark &&
+			left.displayFont === right.displayFont
 		);
 	}
 
