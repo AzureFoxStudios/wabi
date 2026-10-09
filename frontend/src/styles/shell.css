@@ -1,0 +1,189 @@
+/* Shell frame — left column, workspace bar, channel header, composer.
+   Restyles the existing components with design roles (--w-*). :root-prefixed to win over
+   component-scoped rules without !important. */
+
+/* ---------- left column ---------- */
+:root .channel-sidebar-container .channel-sidebar {
+	background: var(--w-bg2);
+	border-right: var(--w-bw, 1px) solid var(--w-line);
+	font-family: var(--w-sans);
+}
+
+/* community identity: a banner, not a toolbar */
+:root .channel-sidebar .top-section {
+	position: relative;
+	display: flex;
+	align-items: flex-end;
+	justify-content: space-between;
+	min-height: 92px;
+	padding: 14px 12px 12px 16px;
+	border-bottom: var(--w-bw, 1px) solid var(--w-line);
+	background:
+		var(--w-banner-image, none),
+		radial-gradient(160px 110px at 92% 0%, color-mix(in srgb, var(--w-accent) 30%, transparent), transparent 72%),
+		var(--w-raise);
+	background-size: cover;
+	background-position: center;
+}
+:root .channel-sidebar .top-section::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	background: linear-gradient(180deg, transparent 25%, var(--w-bg2) 130%);
+}
+:root .channel-sidebar .top-section > * { position: relative; z-index: 1; }
+:root .channel-sidebar .server-identity { gap: 12px; padding: 0; background: none; }
+:root .channel-sidebar .server-identity .logo,
+:root .channel-sidebar .server-identity .logo-img { width: 40px; height: 40px; border-radius: calc(10px * var(--w-rs, 1)); }
+:root .channel-sidebar .server-name {
+	font: 600 22px/1.1 var(--w-serif);
+	letter-spacing: 0.01em;
+	color: var(--w-text);
+}
+:root .channel-sidebar .server-tagline {
+	margin-top: 3px;
+	font: 500 11.5px/1.2 var(--w-mono);
+	color: var(--w-mute);
+	text-transform: none;
+	letter-spacing: 0;
+}
+:root .channel-sidebar .server-switcher-button {
+	align-self: flex-start;
+	color: var(--w-mute);
+	border-radius: calc(9px * var(--w-rs, 1));
+}
+:root .channel-sidebar .server-switcher-button:hover { background: var(--w-raise); color: var(--w-text); }
+
+/* home + search */
+:root .channel-sidebar .personal-nav { border-bottom: 0; padding: 8px 8px 2px; }
+:root .channel-sidebar .messages-hub-btn,
+:root .channel-sidebar .channel-btn {
+	border-radius: calc(10px * var(--w-rs, 1));
+	color: var(--w-mute);
+	font: 500 14.5px/1.3 var(--w-sans);
+}
+:root .channel-sidebar .messages-hub-btn:hover { background: var(--w-raise); color: var(--w-text); }
+:root .channel-sidebar .channel-search-row {
+	margin: 6px 10px 4px;
+	background: var(--w-sink);
+	border: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: calc(10px * var(--w-rs, 1));
+}
+:root .channel-sidebar .channel-search-input { font: 400 13.5px var(--w-sans); color: var(--w-text); }
+:root .channel-sidebar .channel-search-count { font: 500 11px var(--w-mono); color: var(--w-faint); }
+
+/* sections */
+:root .channel-sidebar .section-toggle { color: var(--w-mute); }
+:root .channel-sidebar .section-toggle-label {
+	font: 600 11.5px/1 var(--w-sans);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--w-mute);
+}
+:root .channel-sidebar .section-count {
+	font: 500 11px var(--w-mono);
+	color: var(--w-faint);
+	background: none;
+	border: 0;
+	padding: 0 4px;
+}
+
+/* rooms */
+:root .channel-sidebar .channel-item {
+	margin: 1px 8px;
+	border-radius: calc(10px * var(--w-rs, 1));
+	background: none;
+	border: 0;
+	box-shadow: none;
+}
+:root .channel-sidebar .channel-item:hover { background: var(--w-raise); }
+:root .channel-sidebar .channel-item.active {
+	background: var(--w-raise);
+	box-shadow: inset 2px 0 0 var(--w-accent);
+}
+:root .channel-sidebar .channel-item.active .channel-btn { color: var(--w-text); }
+:root .channel-sidebar .channel-btn .hash { color: var(--w-faint); font-weight: 700; }
+:root .channel-sidebar .channel-item.active .hash { color: var(--w-accent); }
+
+/* identity at the foot */
+:root .channel-sidebar .profile-card {
+	background: var(--w-bg2);
+	border-top: var(--w-bw, 1px) solid var(--w-line);
+}
+:root .channel-sidebar .user-tag { font: 500 11.5px/1.2 var(--w-mono); color: var(--w-mute); }
+:root .channel-sidebar .self-role-badge {
+	font: 700 10.5px/1.5 var(--w-sans);
+	letter-spacing: 0.04em;
+	color: var(--w-text);
+	background: var(--w-raise);
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(6px * var(--w-rs, 1));
+	padding: 0 6px;
+}
+:root .channel-sidebar .control-btn { color: var(--w-mute); border-radius: calc(8px * var(--w-rs, 1)); }
+:root .channel-sidebar .control-btn:hover { background: var(--w-raise); color: var(--w-text); }
+
+/* ---------- workspace bar + channel header ---------- */
+:root .main-content .workspace-view-bar {
+	background: var(--w-bg);
+	border-bottom: var(--w-bw, 1px) solid var(--w-line);
+}
+:root .main-content .workspace-eyebrow {
+	font: 500 10.5px/1 var(--w-mono);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--w-faint);
+}
+:root .main-content .workspace-current { font: 600 15px/1.2 var(--w-serif); color: var(--w-text); }
+:root .main-content .chat-header {
+	background: var(--w-bg);
+	border-bottom: var(--w-bw, 1px) solid var(--w-line);
+	padding: 14px 28px;
+	min-height: 64px;
+}
+:root .main-content .chat-header .channel-title {
+	font: 600 24px/1.15 var(--w-serif);
+	letter-spacing: 0.01em;
+	color: var(--w-text);
+}
+:root .main-content .chat-header .channel-title-hash::before { color: var(--w-accent); }
+:root .main-content .retention-channel-badge {
+	margin-left: 10px;
+	padding: 3px 10px 3px 8px;
+	border: var(--w-bw, 1px) solid var(--w-accent);
+	border-radius: var(--w-pill, 999px);
+	background: var(--w-accent-soft);
+	color: var(--w-text);
+	font: 500 12px/1.2 var(--w-mono);
+}
+:root .main-content .retention-channel-badge svg { color: var(--w-accent); }
+
+/* ---------- composer ---------- */
+:root .main-content .input-wrapper { background: var(--w-bg); }
+:root .main-content .input-container {
+	background: var(--w-raise);
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(16px * var(--w-rs, 1));
+	box-shadow: none;
+}
+:root .main-content .input-container:focus-within {
+	border-color: var(--w-accent);
+	box-shadow: 0 0 0 3px var(--w-accent-soft);
+}
+:root .main-content .input-container textarea { font: 400 15.5px/1.5 var(--w-sans); color: var(--w-text); }
+:root .main-content .input-container textarea::placeholder { color: var(--w-mute); }
+:root .main-content .input-icon-button { color: var(--w-mute); border-radius: calc(10px * var(--w-rs, 1)); }
+:root .main-content .input-icon-button:hover { color: var(--w-accent); background: var(--w-accent-soft); }
+:root .main-content .send-button {
+	background: var(--w-text);
+	color: var(--w-bg);
+	border-radius: calc(11px * var(--w-rs, 1));
+}
+:root .main-content .composer-e2ee-status {
+	font: 500 11.5px/1.2 var(--w-mono);
+	color: var(--w-mute);
+}
+
+/* scrollbars */
+:root .messages, :root .channel-list { scrollbar-width: thin; scrollbar-color: var(--w-line-strong) transparent; }

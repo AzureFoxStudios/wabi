@@ -369,6 +369,13 @@
 		}
 	}
 
+	/** Fraction of a message's retention life that remains (1 = just sent, 0 = about to go), or null when it is not timed. */
+	function getMessageLife(message: Message): number | null {
+		const deadline = getMessageDeletionDeadline(message);
+		if (!deadline || deadline <= message.timestamp) return null;
+		return Math.min(1, Math.max(0, (deadline - nowMs) / (deadline - message.timestamp)));
+	}
+
 	function getMessageDeletionLabel(message: Message): string | null {
 		if (deletionCountdownMode === 'off') return null;
 		const deadline = getMessageDeletionDeadline(message);
@@ -1995,6 +2002,7 @@
 	{@const groupedWithNext = isGroupedWithNext(index)}
 	{@const ownMessage = isOwnMessage(message)}
 	{@const deletionLabel = getMessageDeletionLabel(message)}
+	{@const retentionLife = getMessageLife(message)}
 	{@const translatedText = translatedMessages[message.id]}
 	{@const translationLoading = translatingMessageIds.has(message.id)}
 		{@const filteredMessage = getFilteredIncomingMessage(message)}
@@ -2021,6 +2029,7 @@
 			{groupedWithNext}
 			{ownMessage}
 			{deletionLabel}
+			{retentionLife}
 			{translatedText}
 			{translationLoading}
 			{filteredMessage}

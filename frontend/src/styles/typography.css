@@ -16,3 +16,12 @@
 :root {
 	--w-lh: 1.6;
 }
+
+/* Legacy typeface tokens follow the roles, so older components inherit the new faces. */
+:root {
+	--font-sans: var(--w-sans);
+	--font-mono: var(--w-mono);
+}
+body {
+	font-family: var(--w-sans);
+}
