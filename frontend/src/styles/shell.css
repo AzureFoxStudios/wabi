@@ -301,3 +301,6 @@
 :root .channel-sidebar .live-dot { background: var(--w-danger); }
 :root .channel-sidebar .channel-item.unread .channel-btn,
 :root .channel-sidebar .channel-item.has-unread .channel-btn { color: var(--w-text); font-weight: 700; }
+
+/* identity card: the owner crown / staff gem stands in for the role pill */
+:root .channel-sidebar .self-role-mark { display: inline-flex; align-items: center; color: var(--w-accent); font-size: calc(15px * var(--w-fs, 1)); }

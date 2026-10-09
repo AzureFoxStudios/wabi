@@ -9,7 +9,7 @@
 import { writable, get } from 'svelte/store';
 
 export type NavRef =
-	| { kind: 'lore_file'; channelId: string; filePath: string }
+	| { kind: 'lore_file'; channelId: string; filePath: string; lines?: { start: number; end: number } }
 	| { kind: 'user'; userId: string }
 	| { kind: 'channel'; channelId: string }
 	| { kind: 'forum_post'; channelId?: string; postId: string }
