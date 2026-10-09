@@ -35,6 +35,31 @@ export const darkPalette: BasePalette = {
 	ambient: { effect: 'constellations', color: '#B698FF', intensity: 0.28 },
 };
 
+export const wabiInkPalette: BasePalette = {
+	id: 'wabi-ink',
+	name: 'Wabi Ink',
+	description:
+		'Warm ink and brushed gold on near-black charcoal, with a vermilion seal. Quiet, paper-like, built for long reading.',
+	bgBase: '#101315',
+	bgRaised: '#1B2125',
+	bgSunken: '#0A0C0D',
+	bgPrimary: 'linear-gradient(160deg, #0A0C0D 0%, #101315 55%, #14181B 100%)',
+	textPrimary: '#E8E7E0',
+	textSecondary: '#9AA39D',
+	textMuted: '#6F7A74',
+	accent: '#D6AD5F',
+	accentSecondary: '#E0553F',
+	statusOnline: '#8FBB98',
+	statusAway: '#D6AD5F',
+	statusBusy: '#FF7189',
+	statusOffline: '#5F6A64',
+	success: '#8FBB98',
+	info: '#8FB4D6',
+	warning: '#D6AD5F',
+	danger: '#FF7189',
+	character: 'ink',
+};
+
 export const lightPalette: BasePalette = {
 	id: 'light',
 	name: 'Daylight',
@@ -502,6 +527,7 @@ export const diamondsPalette: BasePalette = {
 
 // ===== ALL PALETTES =====
 export const ALL_PALETTES: BasePalette[] = [
+	wabiInkPalette,
 	darkPalette,
 	lightPalette,
 	midnightBluePalette,
@@ -520,4 +546,4 @@ export const ALL_PALETTES: BasePalette[] = [
 	diamondsPalette,
 ];
 
-export const DEFAULT_PALETTE = darkPalette;
+export const DEFAULT_PALETTE = wabiInkPalette;

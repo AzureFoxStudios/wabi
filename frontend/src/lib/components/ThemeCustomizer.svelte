@@ -9,6 +9,7 @@
 	import type { CustomTheme, PanelColors, PanelColorOverride } from '$lib/types/theme';
 	import { getAuthToken } from '$lib/authSession';
 	import { ALL_PALETTES, DEFAULT_PALETTE } from '$lib/theme/palettes';
+	import { DEFAULT_THEME_ID } from '$lib/theme/themeTypes';
 
 	// Seed colors/gradients from a BasePalette so "Customize" starts from the
 	// currently selected theme instead of hardcoded purple.
@@ -39,7 +40,7 @@
 	}
 
 	function currentThemeSeed(): { colors: CustomTheme['colors']; gradients: CustomTheme['gradients'] } {
-		const themeId = $themeStore.themeId === 'custom' ? 'dark' : $themeStore.themeId;
+		const themeId = $themeStore.themeId === 'custom' ? DEFAULT_THEME_ID : $themeStore.themeId;
 		return paletteToCustomSeed(themeId);
 	}
 

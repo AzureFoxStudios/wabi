@@ -4,7 +4,7 @@
  */
 
 import { writable, derived, get } from 'svelte/store';
-import { DEFAULT_THEME, getThemeById, type Theme } from './themes';
+import { DEFAULT_THEME, DEFAULT_THEME_ID, getThemeById, type Theme } from './themes';
 import type { BackgroundImage, CustomTheme, ThemeAmbientOverride } from '../../types/theme';
 import { saveThemePreferences } from './themeApi';
 
@@ -24,7 +24,7 @@ interface ThemeState {
 
 // Initial state
 const initialState: ThemeState = {
-	themeId: 'dark',
+	themeId: DEFAULT_THEME_ID,
 	customTheme: null,
 	isLoading: false,
 	error: null,
@@ -57,7 +57,7 @@ function createThemeStore() {
 		setCustomTheme: (customTheme: CustomTheme | null) => {
 			update((state) => ({
 				...state,
-				themeId: customTheme ? 'custom' : 'dark',
+				themeId: customTheme ? 'custom' : DEFAULT_THEME_ID,
 				customTheme,
 				error: null
 			}));
@@ -82,7 +82,7 @@ function createThemeStore() {
 		load: (prefs: { theme_id: string; custom_theme?: CustomTheme | null; uniform_font_enabled?: number | boolean; uniform_font_family?: string; uniform_font_size?: string; uniform_font_weight?: string; uniform_font_style?: string; theme_ambient?: ThemeAmbientOverride | null }) => {
 			update((state) => ({
 				...state,
-				themeId: prefs.theme_id || 'dark',
+				themeId: prefs.theme_id || DEFAULT_THEME_ID,
 				customTheme: prefs.custom_theme || null,
 				uniformFontEnabled: Boolean(prefs.uniform_font_enabled),
 				uniformFontFamily: prefs.uniform_font_family || 'inherit',
