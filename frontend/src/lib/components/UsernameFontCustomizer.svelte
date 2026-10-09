@@ -106,8 +106,8 @@
 	<div class="studio-presets" aria-label="Starting designs">
 		{#each CREATOR_PRESETS as preset (preset.id)}
 			<button type="button" class="studio-preset" class:selected={isPresetSelected(preset)} aria-pressed={isPresetSelected(preset)} onclick={() => applyPreset(preset)} aria-label={`Use ${preset.label} design`} title={preset.description}>
-				<ProfileName username={preset.label} font={{ family: 'inherit', size: '1em', weight: '600', style: 'normal', preset: 'none', design: preset.design }} color={$currentUser?.color} preview={true} />
-				<span>Use {preset.label}</span>
+				<ProfileName username={previewName} font={{ family: 'inherit', size: '1em', weight: '600', style: 'normal', preset: 'none', design: preset.design }} color={$currentUser?.color} preview={true} />
+				<span>{preset.label}{#if isPresetSelected(preset)} · in use{/if}</span>
 			</button>
 		{/each}
 	</div>
@@ -157,11 +157,11 @@
 	.studio-kicker { margin: 0 0 0.45rem; color: var(--text-secondary); font-size: 0.7rem; font-weight: 750; text-transform: uppercase; letter-spacing: 0.07em; }
 	.studio-hint { margin: 0; color: var(--text-secondary); font-size: 0.8rem; line-height: 1.5; }
 	.studio-free-label { flex-shrink: 0; padding: 0.35rem 0.55rem; background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); color: var(--text-secondary); font-size: 0.7rem; }
-	.studio-presets { display: grid; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); gap: 0.5rem; }
-	.studio-preset { display: grid; gap: 0.7rem; justify-items: start; min-width: 0; min-height: 80px; padding: 0.8rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--text-heading); cursor: pointer; overflow: hidden; }
+	.studio-presets { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0; border: var(--w-bw, 1px) solid var(--w-line); border-radius: calc(8px * var(--w-rs, 1)); overflow: hidden; }
+	.studio-preset { display: grid; gap: 0.7rem; justify-items: start; min-width: 0; min-height: 80px; padding: 0.8rem; border: 0; border-right: var(--w-bw, 1px) solid var(--w-line); border-radius: 0; background: var(--surface-raised); color: var(--text-heading); cursor: pointer; overflow: hidden; }
 	.studio-preset:hover, .studio-preset.selected { border-color: var(--accent-primary-color); }
-	.studio-preset.selected { box-shadow: inset 0 0 0 1px var(--accent-primary-color); }
-	.studio-preset > span { color: var(--text-secondary); font-size: 0.68rem; }
+	.studio-preset.selected { box-shadow: inset 0 -2px 0 var(--w-sig); background: var(--w-accent-soft); }
+	.studio-preset > span { color: var(--w-mute); font: 500 0.66rem var(--w-mono); letter-spacing: .06em; text-transform: uppercase; }
 	.studio-workbench { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(230px, 0.9fr); gap: 1rem; align-items: start; }
 	.studio-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; }
 	.studio-controls label { display: grid; gap: 0.3rem; color: var(--text-secondary); font-size: 0.78rem; font-weight: 650; min-width: 0; }
