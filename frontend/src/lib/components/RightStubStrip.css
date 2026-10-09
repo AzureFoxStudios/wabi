@@ -44,6 +44,8 @@
 .stub:hover { background: var(--w-raise); color: var(--w-text); }
 .stub:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 1px; }
 .stub.active { background: var(--w-raise); color: var(--w-text); border-color: var(--w-line-strong); }
+/* every panel pinned in the dock is marked, the focused one a little stronger */
+.stub.pinned { color: var(--w-text); border-color: var(--w-accent); background: var(--w-accent-soft); }
 .rail-list .stub:not(.stub-add) {
 	display: flex;
 	flex-direction: column;

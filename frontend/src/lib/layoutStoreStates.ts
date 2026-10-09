@@ -50,6 +50,13 @@ export const centerPanelView = writable<CenterPanelView>('chat');
 export const activeRightTab = writable<RightPanelTab>(FALLBACK_WORKSPACE_PANEL_ID);
 /** Committed pin — survives peek-over (hovering another stub only changes activeRightTab). */
 export const pinnedPanelId = writable<WorkspacePanelId | null>(null);
+/**
+ * Panels pinned side by side in the dock, in pin order. Display order is the rail's order (stubStrip), so
+ * dragging on the rail also rearranges the dock. Empty while a single legacy pin is in use — read it
+ * through pinnedIds() in layoutStoreRightPanel.ts.
+ */
+export const dockStack = writable<WorkspacePanelId[]>([]);
+export const MAX_DOCK_STACK = 3;
 export const showMobileChannels = writable(false);
 
 export const channelSidebarWidth = writable(DEFAULT_NAV_WIDTH);

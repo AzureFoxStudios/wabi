@@ -5,7 +5,7 @@
 
 import { get } from 'svelte/store';
 import { normalizePanelDock, cloneWorkspace, FALLBACK_WORKSPACE_PANEL_ID, getNavTabset, getAuxTabset, buildPhase1Root, isValidWorkspacePanelId, createDefaultWorkspaceLayout, getWorkspace, type WorkspacePanelDockV1, type WorkspacePanelId, type WorkspaceLayoutV1 } from '$lib/docking/layoutSchema';
-import { activeWorkspace, navDock, channelSidebarWidth, rightPanelWidth, rightPanelMode, pinnedPanelId, activeRightTab, stubStrip, layoutState, layoutLoaded, setIsApplyingLayout, DEFAULT_CONSTANTS, isMobile } from './layoutStoreStates';
+import { activeWorkspace, navDock, channelSidebarWidth, rightPanelWidth, rightPanelMode, pinnedPanelId, dockStack, activeRightTab, stubStrip, layoutState, layoutLoaded, setIsApplyingLayout, DEFAULT_CONSTANTS, isMobile } from './layoutStoreStates';
 
 export function getDockActivePanelId(dock: WorkspacePanelDockV1): WorkspacePanelId {
 	const expandedStack = dock.stacks.find((stack) => !stack.collapsed && stack.tabs.includes(stack.activePanelId));
@@ -51,10 +51,12 @@ export function applyWorkspaceToRuntime(workspace: WorkspaceLayoutV1): void {
 		if (aux.collapsed) {
 			rightPanelMode.set('none');
 			pinnedPanelId.set(null);
+			dockStack.set([]);
 		} else {
 			// Boot restore sets mode/pin directly — must NOT mutate the stub strip.
 			rightPanelMode.set('pinned');
 			pinnedPanelId.set(activePanelId);
+			dockStack.set([activePanelId]);
 			activeRightTab.set(activePanelId);
 		}
 	}

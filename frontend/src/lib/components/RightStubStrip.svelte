@@ -320,7 +320,8 @@
 	}
 
 	function isPinned(panelId: string): boolean {
-		return $layoutStore.rightPanelMode === 'pinned' && $layoutStore.pinnedPanelId === panelId;
+		if ($layoutStore.rightPanelMode !== 'pinned') return false;
+		return $layoutStore.dockStack.length > 0 ? $layoutStore.dockStack.includes(panelId) : $layoutStore.pinnedPanelId === panelId;
 	}
 </script>
 
@@ -358,7 +359,7 @@
 					ondragend={endDrag}
 					aria-label={panel.label}
 					aria-pressed={isPinned(panel.id)}
-					data-tip={`${panel.label} · click to pin · ${peekHint}`}
+					data-tip={`${panel.label} · ${isPinned(panel.id) ? 'click to unpin' : 'click to pin beside others'} · ${peekHint}`}
 				>
 					<span class="stub-icon"><WorkspacePanelIcon icon={panel.icon} /></span>
 					<span class="stub-label">{panel.shortLabel || panel.label}</span>
