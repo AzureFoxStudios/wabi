@@ -16,6 +16,11 @@
 	export let ensureLinkPreviewLoaded: () => void;
 	export let onOpenModelInDedicatedTab: (src: string, fileName: string) => void;
 
+	// Load the preview card component as soon as the message has a link. This must live in script:
+	// a side effect inside a template {@const} is dropped by the production compiler, which left
+	// every link as a bare URL on built (non-dev) deployments.
+	$: if (messageText && !LinkPreviewComponent && extractUrls(messageText).length > 0) ensureLinkPreviewLoaded();
+
 	function isYouTubeQueueChannel(channelId: string): boolean {
 		const channel = channels.find((channelRecord) => channelRecord.id === channelId);
 		return Boolean(channel?.watchQueueEnabled);
@@ -29,7 +34,6 @@
 			{#if LinkPreviewComponent}
 				<svelte:component this={LinkPreviewComponent} {url} />
 			{:else}
-				{@const _linkPreviewRequested = (ensureLinkPreviewLoaded(), true)}
 				<a href={url} target="_blank" rel="noopener noreferrer" class="plain-link-fallback">{url}</a>
 			{/if}
 			{#if isYouTubeQueueChannel(currentChannel) && urlIndex === 0}
@@ -78,7 +82,6 @@
 			{:else if LinkPreviewComponent}
 				<svelte:component this={LinkPreviewComponent} {url} />
 			{:else}
-				{@const _linkPreviewRequested = (ensureLinkPreviewLoaded(), true)}
 				<a href={url} target="_blank" rel="noopener noreferrer" class="plain-link-fallback">{url}</a>
 			{/if}
 		{/if}

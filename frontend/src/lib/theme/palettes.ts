@@ -285,7 +285,7 @@ export const jokerPalette: BasePalette = {
 		intensity: 1,
 		size: 1,
 		speed: 1, // 1 = authentic in-game pace (calibrated in balatro.ts)
-		frostOpacity: 0.82,
+		frostOpacity: 0.6,
 		frostBlur: 10,
 	},
 };
