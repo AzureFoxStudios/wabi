@@ -7,9 +7,11 @@
 	type MapTask = {
 		taskId: string; title: string; status: string; priority: string;
 		dueDateMillis: number | null; assigneeUserId: number | null; updatedAtMicros: number; isArchived: boolean;
+		revision?: number; blockedReason?: string | null;
+		decision?: { question: string; fallback: string; deadlineMillis: number | null } | null;
 	};
-	let { tasks, nameOf, onOpen, now = Date.now() }: {
-		tasks: MapTask[]; nameOf: (id: number | undefined) => string; onOpen: (taskId: string) => void; now?: number;
+	let { tasks, history = [], nameOf, onOpen, now = Date.now() }: {
+		tasks: MapTask[]; history?: MapTask[]; nameOf: (id: number | undefined) => string; onOpen: (taskId: string) => void; now?: number;
 	} = $props();
 
 	const STAGES = [
@@ -39,10 +41,36 @@
 			|| (a.dueDateMillis ?? Infinity) - (b.dueDateMillis ?? Infinity)
 		)[0] ?? null
 	);
+	const calls = $derived(
+		live.filter((task) => task.status !== 'done' && task.decision)
+			.sort((a, b) => (a.decision!.deadlineMillis ?? Infinity) - (b.decision!.deadlineMillis ?? Infinity)).slice(0, 3)
+	);
 	const attention = $derived(
-		live.filter((task) => task.status !== 'done' && ((task.dueDateMillis != null && task.dueDateMillis < now) || task.priority === 'urgent'))
+		live.filter((task) => task.status !== 'done' && !task.decision && (task.blockedReason || (task.dueDateMillis != null && task.dueDateMillis < now) || task.priority === 'urgent'))
 			.sort((a, b) => (a.dueDateMillis ?? Infinity) - (b.dueDateMillis ?? Infinity)).slice(0, 4)
 	);
+	// What actually changed, read from consecutive saved revisions of each card (not just "last touched").
+	type Change = { taskId: string; title: string; text: string; at: number };
+	const changes = $derived.by((): Change[] => {
+		const byTask = new Map<string, MapTask[]>();
+		for (const row of history) byTask.set(row.taskId, [...(byTask.get(row.taskId) ?? []), row]);
+		const out: Change[] = [];
+		for (const rows of byTask.values()) {
+			rows.sort((a, b) => (a.revision ?? 0) - (b.revision ?? 0));
+			rows.forEach((row, index) => {
+				const prev = rows[index - 1];
+				const push = (text: string) => out.push({ taskId: row.taskId, title: row.title, text, at: row.updatedAtMicros });
+				if (!prev) { push(`added to ${LABEL[row.status] ?? row.status}`); return; }
+				if (prev.status !== row.status) push(`${LABEL[prev.status] ?? prev.status} → ${LABEL[row.status] ?? row.status}`);
+				if (!prev.blockedReason && row.blockedReason) push('blocked');
+				if (prev.blockedReason && !row.blockedReason) push('unblocked');
+				if (!prev.decision && row.decision) push('needs a decision');
+				if (prev.decision && !row.decision) push('decision settled');
+				if (prev.assigneeUserId !== row.assigneeUserId && row.assigneeUserId != null) push(`picked up by ${nameOf(row.assigneeUserId)}`);
+			});
+		}
+		return out.sort((a, b) => b.at - a.at).slice(0, 5);
+	});
 	const recent = $derived([...live].sort((a, b) => b.updatedAtMicros - a.updatedAtMicros).slice(0, 4));
 
 	function when(micros: number): string {
@@ -75,17 +103,35 @@
 				<p class="meta">{LABEL[next.status]}{#if next.assigneeUserId != null} · {nameOf(next.assigneeUserId)}{/if}{#if next.dueDateMillis != null} · due {due(next.dueDateMillis)}{/if}</p>
 			{:else}<p class="meta">Nothing queued. Add a card to start.</p>{/if}
 		</div>
+		{#if calls.length}
+			<div class="map-card call">
+				<p class="kicker">Needs your call</p>
+				{#each calls as task (task.taskId)}
+					<button type="button" class="map-decision" onclick={() => onOpen(task.taskId)}>
+						<strong>{task.decision!.question}</strong>
+						<span class="meta">{task.title}{#if task.decision!.deadlineMillis != null} · answer by {due(task.decision!.deadlineMillis)}{/if}</span>
+						{#if task.decision!.fallback}<span class="meta">No reply → {task.decision!.fallback}</span>{/if}
+					</button>
+				{/each}
+			</div>
+		{/if}
 		<div class="map-card" class:alert={attention.length > 0}>
 			<p class="kicker">Needs attention</p>
 			{#each attention as task (task.taskId)}
-				<button type="button" class="map-row" onclick={() => onOpen(task.taskId)}><span>{task.title}</span><span class="mono">{task.dueDateMillis != null && task.dueDateMillis < now ? `overdue · ${due(task.dueDateMillis)}` : 'urgent'}</span></button>
-			{:else}<p class="meta">Nothing overdue or urgent.</p>{/each}
+				<button type="button" class="map-row" onclick={() => onOpen(task.taskId)}><span>{task.title}{#if task.blockedReason} <em>· {task.blockedReason}</em>{/if}</span><span class="mono">{task.blockedReason ? 'blocked' : task.dueDateMillis != null && task.dueDateMillis < now ? `overdue · ${due(task.dueDateMillis)}` : 'urgent'}</span></button>
+			{:else}<p class="meta">Nothing blocked, overdue or urgent.</p>{/each}
 		</div>
 		<div class="map-card">
 			<p class="kicker">Changed recently</p>
-			{#each recent as task (task.taskId)}
-				<button type="button" class="map-row" onclick={() => onOpen(task.taskId)}><span>{task.title} <em>→ {LABEL[task.status] ?? task.status}</em></span><span class="mono">{when(task.updatedAtMicros)}</span></button>
-			{/each}
+			{#if changes.length}
+				{#each changes as change, index (change.taskId + change.at + index)}
+					<button type="button" class="map-row" onclick={() => onOpen(change.taskId)}><span>{change.title} <em>{change.text}</em></span><span class="mono">{when(change.at)}</span></button>
+				{/each}
+			{:else}
+				{#each recent as task (task.taskId)}
+					<button type="button" class="map-row" onclick={() => onOpen(task.taskId)}><span>{task.title} <em>→ {LABEL[task.status] ?? task.status}</em></span><span class="mono">{when(task.updatedAtMicros)}</span></button>
+				{/each}
+			{/if}
 		</div>
 	</div>
 </section>
@@ -106,6 +152,11 @@
 	.map-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0; border: var(--w-bw, 1px) solid var(--w-line); border-radius: calc(8px * var(--w-rs, 1)); overflow: hidden; }
 	.map-card { padding: .8rem 1rem; border-right: var(--w-bw, 1px) solid var(--w-line); display: grid; align-content: start; gap: .3rem; min-width: 0; }
 	.map-card:last-child { border-right: 0; }
+	.map-card.call { box-shadow: inset 3px 0 0 var(--w-sig); }
+	.map-decision { all: unset; cursor: pointer; display: grid; gap: .15rem; padding: .25rem 0; border-bottom: var(--w-bw, 1px) solid var(--w-line); }
+	.map-decision:last-child { border-bottom: 0; }
+	.map-decision strong { font: 600 1.05rem/1.3 var(--w-serif); }
+	.map-decision:hover strong { color: var(--w-accent); }
 	.map-card.alert { box-shadow: inset 3px 0 0 var(--w-danger); }
 	.kicker { margin: 0; font: 600 .64rem var(--w-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--w-mute); }
 	.meta { margin: 0; color: var(--w-mute); font-size: .8rem; }
@@ -115,6 +166,6 @@
 	.map-row:last-child { border-bottom: 0; }
 	.map-row em { font-style: normal; color: var(--w-mute); }
 	.mono { font: 500 .72rem var(--w-mono); color: var(--w-mute); white-space: nowrap; align-self: center; }
-	:is(.map-link, .map-row):focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
+	:is(.map-link, .map-row, .map-decision):focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
 	@media (max-width: 640px) { .map-card { border-right: 0; border-bottom: var(--w-bw, 1px) solid var(--w-line); } .map-card:last-child { border-bottom: 0; } }
 </style>

@@ -17,6 +17,7 @@
 		assigneeUserId: number | null; createdByUserId: number; updatedByUserId: number;
 		notes: string; checklist: { id: string; title: string; done: boolean }[]; relatedTaskIds: string[]; humanEstimateMinutes: number | null;
 		createdAtMicros: number; updatedAtMicros: number; revision: number; isArchived: boolean;
+		blockedReason?: string | null; decision?: { question: string; fallback: string; deadlineMillis: number | null } | null;
 	};
 	type ProjectMember = { id: number; name: string; isBot: boolean };
 	const columns: KanbanColumn[] = [
@@ -55,6 +56,11 @@
 	let status: TodoStatus = 'todo';
 	let priority: Priority = 'medium';
 	let dueDate = '';
+	let blockedReason = '';
+	let needsDecision = false;
+	let decisionQuestion = '';
+	let decisionFallback = '';
+	let decisionDeadline = '';
 	let assigneeUserId = '';
 	let dragOverColumn: TodoStatus | null = null;
 	let draggedId = '';
@@ -108,7 +114,7 @@
 			const data = await response.json();
 			if (epoch !== requestEpoch) return;
 			tasks = Array.isArray(data.tasks) ? data.tasks : [];
-			if (showBurn) void loadHistory();
+			void loadHistory();
 			error = '';
 		} catch (cause) {
 			if (epoch !== requestEpoch) return;
@@ -137,7 +143,7 @@
 	function openAddModal(column: TodoStatus): void {
 		void loadMembers();
 		editing = null; createOperationId = crypto.randomUUID(); title = ''; description = ''; status = column; priority = 'medium';
-		dueDate = ''; assigneeUserId = ''; notes = ''; checklist = []; relatedTaskIds = []; estimateHours = undefined; modalOpen = true; error = '';
+		dueDate = ''; blockedReason = ''; needsDecision = false; decisionQuestion = ''; decisionFallback = ''; decisionDeadline = ''; assigneeUserId = ''; notes = ''; checklist = []; relatedTaskIds = []; estimateHours = undefined; modalOpen = true; error = '';
 	}
 	function handleCardClick(todo: Todo): void {
 		void loadMembers();
@@ -147,13 +153,18 @@
 		status = task.status; priority = task.priority; notes = task.notes ?? ''; checklist = structuredClone(task.checklist ?? []); relatedTaskIds = [...(task.relatedTaskIds ?? [])]; estimateHours = task.humanEstimateMinutes == null ? undefined : task.humanEstimateMinutes / 60;
 		dueDate = task.dueDateMillis == null ? '' : new Date(task.dueDateMillis).toISOString().slice(0, 10);
 		assigneeUserId = task.assigneeUserId == null ? '' : String(task.assigneeUserId);
+		blockedReason = task.blockedReason ?? '';
+		needsDecision = Boolean(task.decision); decisionQuestion = task.decision?.question ?? ''; decisionFallback = task.decision?.fallback ?? '';
+		decisionDeadline = task.decision?.deadlineMillis == null ? '' : new Date(task.decision.deadlineMillis).toISOString().slice(0, 10);
 		modalOpen = true; error = '';
 	}
 	function fields(nextStatus: TodoStatus = status) {
 		return { title: title.trim(), description, status: nextStatus, priority,
 			dueDateMillis: dueDate ? new Date(`${dueDate}T12:00:00`).getTime() : null,
 			assigneeUserId: assigneeUserId ? Number(assigneeUserId) : null, notes, checklist, relatedTaskIds,
-			humanEstimateMinutes: estimateHours == null ? null : Math.round(estimateHours * 60) };
+			humanEstimateMinutes: estimateHours == null ? null : Math.round(estimateHours * 60),
+			blockedReason: blockedReason.trim() || null,
+			decision: needsDecision && decisionQuestion.trim() ? { question: decisionQuestion.trim(), fallback: decisionFallback.trim(), deadlineMillis: decisionDeadline ? new Date(`${decisionDeadline}T12:00:00`).getTime() : null } : null };
 	}
 	async function write(task: ProjectTask | null, body: Record<string, unknown>): Promise<boolean> {
 		saving = true;
@@ -243,7 +254,7 @@
 			<div class="pulse-progress"><span>{completionPercent}% complete</span><div class="progress-track" role="progressbar" aria-label="Cards done" aria-valuenow={completionPercent} aria-valuemin="0" aria-valuemax="100"><div style:width={`${completionPercent}%`}></div></div></div>
 		</div>
 	</div>
-	{#if !loading}<ProjectMap {tasks} nameOf={getAssigneeName} onOpen={(id) => handleCardClick({ id } as Todo)} />{/if}
+	{#if !loading}<ProjectMap {tasks} history={history as any} nameOf={getAssigneeName} onOpen={(id) => handleCardClick({ id } as Todo)} />{/if}
 	{#if error}<p class="board-error" role="alert">{error}</p>{/if}
 	{#if loading}<p class="board-state" role="status">Loading shared board…</p>{:else}
 		<div class="board-section-bar"><div><span class="section-line"></span><h3>Board lanes</h3><span class="lane-count">{visibleColumns.length}</span></div><button type="button" class:pressed={showScrapped} onclick={() => showScrapped = !showScrapped}>{showScrapped ? 'Hide' : 'Show'} set aside <span>{scrappedCount}</span></button></div>
@@ -276,6 +287,12 @@
 			<div class="editor-grid"><label>Status<select bind:value={status}>{#each columns as column}<option value={column.id}>{column.label}</option>{/each}</select></label>
 			<label>Priority<select bind:value={priority}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option></select></label></div>
 			<div class="editor-grid"><label>Due date<input type="date" bind:value={dueDate} /></label><label>Assignee<select bind:value={assigneeUserId}><option value="">Unassigned</option>{#each members as member (member.id)}<option value={String(member.id)}>{member.name}{member.isBot ? ' · bot' : ''}</option>{/each}</select></label></div>
+            <label>Blocked because<input maxlength="300" bind:value={blockedReason} placeholder="Leave blank if nothing is in the way (e.g. Waiting on live API keys)" /></label>
+            <fieldset class="decision-editor"><legend>Needs your call</legend>
+				<label class="decision-toggle"><input type="checkbox" bind:checked={needsDecision} /> This card is waiting on a decision from a person</label>
+				{#if needsDecision}<label>The question<input maxlength="300" bind:value={decisionQuestion} placeholder="e.g. Switch Stripe to live mode?" /></label>
+				<div class="editor-grid"><label>If nobody answers<input maxlength="300" bind:value={decisionFallback} placeholder="e.g. Stay in test mode" /></label><label>Answer by<input type="date" bind:value={decisionDeadline} /></label></div>{/if}
+			</fieldset>
             <label>Human estimate (hours)<input type="number" min="0" max="10000" step="0.25" bind:value={estimateHours} placeholder="Leave blank if unknown" /><small>Human planning only. Bots cannot read or change this field.</small></label>
             <fieldset class="checklist-editor"><legend>Checklist</legend><p>Small steps belong here. Work needing its own owner or review belongs on a linked card.</p>{#each checklist as item, index (item.id)}<div class="checklist-row"><input type="checkbox" bind:checked={item.done} aria-label={`Complete checklist item ${index + 1}`} /><input bind:value={item.title} maxlength="500" aria-label={`Checklist item ${index + 1}`} required /><button type="button" aria-label={`Remove checklist item ${index + 1}`} onclick={() => checklist = checklist.filter(i => i.id !== item.id)}>×</button></div>{/each}<button type="button" disabled={checklist.length >= 100} onclick={() => checklist = [...checklist, {id: crypto.randomUUID(), title:'', done:false}]}>＋ Add step</button></fieldset>
             <label>Notes<textarea bind:value={notes} maxlength="16000" rows="3" placeholder="Decisions, context, links, or handoff notes"></textarea></label>
@@ -371,6 +388,7 @@
 	.shared-task-editor label { display:grid; gap:.35rem; font-size:.78rem; font-weight:650; color:var(--text-secondary); }
 	.shared-task-editor input, .shared-task-editor textarea, .shared-task-editor select { width:100%; box-sizing:border-box; border:1px solid var(--border-default); border-radius:.6rem; padding:.7rem .8rem; background:var(--surface-raised); color:var(--text-primary); font:inherit; font-weight:400; }
 	.shared-task-editor input:focus, .shared-task-editor textarea:focus, .shared-task-editor select:focus { outline:2px solid color-mix(in srgb, var(--accent-primary, #9b6bff) 65%, transparent); outline-offset:1px; }
+	.decision-editor { border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:.75rem; display:grid; gap:.6rem; } .decision-toggle { display:flex; align-items:center; gap:.5rem; } .decision-toggle input { width:auto; }
 	.editor-grid { display:grid; grid-template-columns:1fr 1fr; gap:.75rem; }
 	.shared-task-editor footer { justify-content:flex-end; padding-top:.65rem; border-top:1px solid var(--border-subtle); }
 	.shared-task-editor footer button, .shared-task-editor header button { border:1px solid var(--border-default); background:var(--surface-raised); color:var(--text-primary); border-radius:.6rem; padding:.55rem .8rem; }
