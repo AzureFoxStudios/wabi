@@ -34,7 +34,7 @@
 	height: 36px;
 	flex: none;
 	padding: 0;
-	border: 0;
+	border: var(--w-bw, 1px) solid transparent;
 	border-radius: calc(10px * var(--w-rs, 1));
 	background: transparent;
 	color: var(--w-mute);
@@ -43,22 +43,25 @@
 }
 .stub:hover { background: var(--w-raise); color: var(--w-text); }
 .stub:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 1px; }
-.stub.active { background: var(--w-raise); color: var(--w-text); }
-/* the pinned panel gets an accent bar on the edge facing the stage */
-.stub.pinned { color: var(--w-accent); }
-.rail.side-right .stub.pinned::before,
-.rail.side-left .stub.pinned::before {
-	content: '';
-	position: absolute;
-	top: 8px;
-	bottom: 8px;
-	width: 2px;
-	border-radius: 2px;
-	background: var(--w-accent);
+.stub.active { background: var(--w-raise); color: var(--w-text); border-color: var(--w-line-strong); }
+.rail-list .stub:not(.stub-add) {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 7px;
+	width: 38px;
+	height: auto;
+	padding: 9px 0 10px;
 }
-.rail.side-right .stub.pinned::before { left: -5px; }
-.rail.side-left .stub.pinned::before { right: -5px; }
-
+/* the label runs up the rail like a folder tab: icon on top, text reading upward */
+.stub-label {
+	writing-mode: vertical-rl;
+	transform: rotate(180deg);
+	font: 600 calc(12.5px * var(--w-fs, 1))/1 var(--w-sans);
+	letter-spacing: 0.04em;
+	white-space: nowrap;
+}
 .stub-icon { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font: 400 calc(20px * var(--w-fs, 1))/1 var(--w-sans); }
 .stub-add { color: var(--w-faint); }
 .stub-add:hover { color: var(--w-text); }

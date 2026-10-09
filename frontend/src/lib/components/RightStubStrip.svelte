@@ -361,6 +361,7 @@
 					data-tip={`${panel.label} · click to pin · ${peekHint}`}
 				>
 					<span class="stub-icon"><WorkspacePanelIcon icon={panel.icon} /></span>
+					<span class="stub-label">{panel.shortLabel || panel.label}</span>
 					{#if badgeText(panel)}
 						<span class="stub-badge">{badgeText(panel)}</span>
 					{/if}
