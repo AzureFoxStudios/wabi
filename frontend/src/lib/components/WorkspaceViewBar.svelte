@@ -233,7 +233,7 @@
 	/* Strip on desktop, picker on small screens. */
 	.workspace-strip { display: none; }
 	@media (min-width: 900px) {
-		.workspace-strip { display: flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }
+		.workspace-strip { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 		.workspace-trigger, .workspace-return { display: none; }
 		.workspace-view-bar { justify-content: flex-start; padding-block: 0; }
 		.strip-item { display: inline-flex; align-items: center; gap: 0; min-height: 38px; padding: 0 10px; border-radius: calc(8px * var(--w-rs, 1)); color: var(--w-mute, var(--text-secondary)); position: relative; }
