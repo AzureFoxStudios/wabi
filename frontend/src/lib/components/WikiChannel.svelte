@@ -22,6 +22,9 @@
 	import { initObjectRefRegistry, registerObjectRef, slugify } from '$lib/objectRefRegistry';
 	import { parseMessage } from '$lib/markdown';
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
+	import UserPopout from './UserPopout.svelte';
+	import { users as presenceUsers, currentUser as presenceCurrentUser } from '$lib/presenceIdentity';
+	import type { User } from '$lib/socket-types';
 	import { forumAuthors } from '$lib/forumIdentity';
 	import { pendingNav, completePendingNavAfterRender } from '$lib/pendingNav';
 	import {
@@ -459,7 +462,21 @@
 			return target ? `[${text}](#wikipage-${target.pageId})` : `[${text}](#wikipage-missing)`;
 		});
 	}
+	let mentionedUser = null as User | null;
+	let mentionAnchor = null as HTMLElement | null;
+	let mentionOpen = false;
+	function openMention(token: HTMLElement): boolean {
+		const name = token.textContent?.replace(/^@/, '').trim().toLowerCase();
+		if (!name) return false;
+		const known = [...$forumAuthors.values(), ...$presenceUsers] as User[];
+		const user = known.find((item) => item.username?.toLowerCase() === name || item.handle?.toLowerCase() === name);
+		if (!user) return false;
+		mentionedUser = user; mentionAnchor = token; mentionOpen = true;
+		return true;
+	}
 	function handleBodyClick(event: MouseEvent) {
+		const mention = (event.target as HTMLElement | null)?.closest?.('.mention-token:not([data-ref-kind])') as HTMLElement | null;
+		if (mention && openMention(mention)) { event.preventDefault(); return; }
 		const anchor = (event.target as HTMLElement | null)?.closest?.('a[href^="#wikipage-"]') as HTMLAnchorElement | null;
 		if (!anchor) return;
 		event.preventDefault();
@@ -643,6 +660,7 @@
 					<div class="wiki-content-body" on:click={handleBodyClick}>
 						{@html renderedBody}
 					</div>
+					{#if mentionOpen}<UserPopout user={mentionedUser} bind:isOpen={mentionOpen} anchorElement={mentionAnchor} isOwnProfile={mentionedUser?.dbUserId === $presenceCurrentUser?.dbUserId} />{/if}
 					{#if backlinks.length > 0 && !viewRevision}
 						<aside class="wiki-backlinks" aria-label="Linked from">
 							<strong>Linked from</strong>
