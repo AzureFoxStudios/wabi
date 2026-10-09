@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
+	import { layoutStore } from '$lib/layoutStore';
 	let { mode = 'welcome' }: { mode?: 'welcome' | 'desk' } = $props();
 	const dispatch = createEventDispatcher<{ openRoom: void }>();
 	import { switchChannel, channels, currentUser } from '$lib/socket';
@@ -135,6 +136,10 @@
 		toggleServerMutedChannelId(channelId);
 	}
 
+	// A room literally called "Rules" is the community's de-facto rulebook until server rules are published.
+	const rulesChannel = $derived($channels.find((channel) => channel.type === 'text' && /^rules?$/i.test(channel.name.trim())));
+	const canWriteRules = $derived(['owner', 'admin'].includes($currentUser?.highestRole || ''));
+
 	function openGeneral() {
 		if (firstRoom?.id) {
 			openRoom(firstRoom.id);
@@ -173,7 +178,9 @@
 			{#if guideError}<p class="guide-error" role="alert">{guideError}</p>{/if}
 			<section class="reception-section">
 				<h2>Community rules</h2>
-				{#if rulesText}<p class="rules-excerpt">{rulesText.length > 320 ? `${rulesText.slice(0, 320).trimEnd()}…` : rulesText}</p>{:else}<p class="reception-hint">This server has not published rules yet.</p>{/if}
+				{#if rulesText}<p class="rules-excerpt">{rulesText.length > 320 ? `${rulesText.slice(0, 320).trimEnd()}…` : rulesText}</p>{:else}<p class="reception-hint">This server has not published rules yet.{#if rulesChannel} The <strong>#{rulesChannel.name}</strong> room is where members keep them for now.{/if}</p>{/if}
+				{#if !rulesText && rulesChannel}<button type="button" class="rules-button" onclick={() => openRoom(rulesChannel.id)}>Read #{rulesChannel.name}</button>{/if}
+				{#if !rulesText && canWriteRules}<button type="button" class="rules-button" onclick={() => layoutStore.showAdminCenterStage()}>Publish server rules</button>{/if}
 				{#if $communityRulesAvailable}<button type="button" class="rules-button" onclick={() => communityRulesOpen.set(true)}>Read all rules</button>{/if}
 			</section>
 			<section class="reception-section">
