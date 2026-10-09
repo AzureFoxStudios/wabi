@@ -462,7 +462,8 @@
 	}
 	function renderWikiBody(markdown: string): string {
 		const links: string[] = [];
-		const staged = markdown.replace(/\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]/g, (_match, title: string, label?: string) => {
+		// Code stays literal: only prose outside fences and inline code gets wiki links.
+		const stage = (prose: string) => prose.replace(/\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]/g, (_match, title: string, label?: string) => {
 			const target = wikiLinkTarget(title);
 			const text = escapeWikiText((label || title).trim());
 			links.push(target
@@ -470,6 +471,7 @@
 				: `<a href="#wikipage-missing" class="wiki-link wiki-link-missing" title="No page with this title yet">${text}</a>`);
 			return `wabiwikilinkx${links.length - 1}x`;
 		});
+		const staged = markdown.split(/(```[\s\S]*?```|`[^`\n]*`)/g).map((part, index) => (index % 2 === 1 ? part : stage(part))).join('');
 		return parseMessage(staged, [], { allowTables: true }).replace(/wabiwikilinkx(\d+)x/g, (_m, i: string) => links[Number(i)] ?? '');
 	}
 	let mentionedUser = null as User | null;
