@@ -1,7 +1,7 @@
 import type { GalleryItem } from './galleryStore';
 
-export type GalleryMediaTypeFilter = 'all' | 'image' | 'video';
-export type GalleryMediaKind = 'image' | 'video' | 'unknown';
+export type GalleryMediaTypeFilter = 'all' | 'image' | 'video' | 'document' | 'model';
+export type GalleryMediaKind = 'image' | 'video' | 'document' | 'model' | 'unknown';
 
 export interface GalleryFilterState {
 	query: string;
@@ -25,6 +25,9 @@ const IMAGE_EXTENSIONS = new Set([
 	'webp'
 ]);
 const VIDEO_EXTENSIONS = new Set(['avi', 'm4v', 'mkv', 'mov', 'mp4', 'ogv', 'webm']);
+/** Things with pages: they get a cover card and open in their own viewer, like a poster beside photos. */
+export const DOCUMENT_EXTENSIONS = new Set(['pdf', 'md', 'txt']);
+export const MODEL_EXTENSIONS = new Set(['glb', 'gltf', 'obj', 'stl']);
 
 function extensionOf(name: string): string | null {
 	const trimmed = (name || '').trim().toLowerCase();
@@ -39,9 +42,13 @@ export function guessGalleryMediaKind(mime: string | null, name: string): Galler
 	const normalized = (mime || '').trim().toLowerCase();
 	if (normalized.startsWith('image/')) return 'image';
 	if (normalized.startsWith('video/')) return 'video';
+	if (normalized === 'application/pdf') return 'document';
+	if (normalized.startsWith('model/')) return 'model';
 	const ext = extensionOf(name);
 	if (ext && IMAGE_EXTENSIONS.has(ext)) return 'image';
 	if (ext && VIDEO_EXTENSIONS.has(ext)) return 'video';
+	if (ext && DOCUMENT_EXTENSIONS.has(ext)) return 'document';
+	if (ext && MODEL_EXTENSIONS.has(ext)) return 'model';
 	return 'unknown';
 }
 

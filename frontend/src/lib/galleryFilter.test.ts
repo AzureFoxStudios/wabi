@@ -64,7 +64,12 @@ describe('gallery filter helper (GF01)', () => {
 		]);
 		expect(guessGalleryMediaKind(null, 'photo.JPG')).toBe('image');
 		expect(guessGalleryMediaKind(null, 'clip.webm')).toBe('video');
-		expect(guessGalleryMediaKind(null, 'notes.txt')).toBe('unknown');
+		expect(guessGalleryMediaKind(null, 'notes.xyz')).toBe('unknown');
+		// Documents and models are first-class gallery works with their own cover cards.
+		expect(guessGalleryMediaKind(null, 'notes.txt')).toBe('document');
+		expect(guessGalleryMediaKind('application/pdf', 'poster')).toBe('document');
+		expect(guessGalleryMediaKind(null, 'vase.GLB')).toBe('model');
+		expect(guessGalleryMediaKind('model/gltf-binary', 'x')).toBe('model');
 		expect(guessGalleryMediaKind('image/png', 'weird.bin')).toBe('image');
 	});
 
