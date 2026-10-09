@@ -24,6 +24,10 @@
 					document.documentElement.dataset.displayMode = standalone ? 'standalone' : 'browser';
 					if (compact) document.documentElement.classList.add('is-mobile-shell');
 					if (standalone) document.documentElement.classList.add('is-pwa-standalone');
+					try {
+						const saved = JSON.parse(localStorage.getItem('wabi-theme') || 'null');
+						if (saved && /^(light|paper-dawn|professional)$/.test(saved.theme_id || '')) document.documentElement.dataset.bootMode = 'light';
+					} catch (_) {}
 				} catch (_) {}
 			})();
 		</script>
@@ -383,6 +387,38 @@
 				}
 			}
 		</style>
+		<style>
+			/* Boot — Wabi Ink. Operator branding still wins: the server injects --boot-accent / the logo. */
+			:root { --boot-ink: #101315; --boot-text: #e8e7e0; --boot-mute: #9aa39d; --boot-line: rgba(232, 231, 224, 0.14); }
+			html[data-boot-mode='light'] { --boot-ink: #faf8f3; --boot-text: #1c1917; --boot-mute: #57534e; --boot-line: rgba(28, 25, 23, 0.16); }
+			html,
+			body { background: var(--boot-ink); }
+			#wabi-boot-shell {
+				--boot-accent: #d6ad5f;
+				background: radial-gradient(ellipse 46rem 30rem at 85% -10%, color-mix(in srgb, var(--boot-accent) 14%, transparent), transparent 62%), var(--boot-ink);
+			}
+			.wabi-boot-shell__glyph { color: var(--boot-text); }
+			.wabi-boot-shell__center { color: var(--boot-text); font-family: "Zen Kaku Gothic New", system-ui, -apple-system, "Segoe UI", sans-serif; }
+			.wabi-boot-shell__orbit { border-radius: 14px; border: 1px solid var(--boot-line); background: transparent; box-shadow: none; }
+			.wabi-boot-shell__orbit::after { background: conic-gradient(from 0deg, transparent 0 66%, var(--boot-accent) 86%, transparent 100%); }
+			.wabi-boot-shell__title { font-family: "Shippori Mincho", Georgia, serif; font-weight: 600; font-size: 1.9rem; letter-spacing: 0.01em; color: var(--boot-text); }
+			.wabi-boot-shell__status { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 0.8125rem; color: var(--boot-mute); }
+			.wabi-boot-shell__rail { height: 2px; border-radius: 2px; background: var(--boot-line); }
+			.wabi-boot-shell__rail > span { background: var(--boot-accent); }
+			.wabi-boot-shell__steps li { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 12px; color: var(--boot-mute); opacity: 0.7; }
+			.wabi-boot-shell__steps li.active { color: var(--boot-text); opacity: 1; }
+			.wabi-boot-shell__steps li.active .dot { background: color-mix(in srgb, var(--boot-accent) 22%, transparent); box-shadow: none; }
+			.wabi-boot-shell__steps li.active .dot::after { background: var(--boot-accent); }
+			.wabi-boot-shell__steps li.done { color: var(--boot-text); opacity: 0.85; }
+			.wabi-boot-shell__steps li.done .dot { background: color-mix(in srgb, var(--boot-accent) 18%, transparent); }
+			.wabi-boot-shell__steps li.done .dot::after { border-color: var(--boot-accent); }
+			.wabi-boot-shell__btn { border-radius: 10px; border: 1px solid var(--boot-line); background: transparent; color: var(--boot-text); }
+			.wabi-boot-shell__btn:hover { background: color-mix(in srgb, var(--boot-text) 8%, transparent); border-color: var(--boot-accent); }
+			.wabi-boot-shell__btn--primary { background: var(--boot-text); color: var(--boot-ink); }
+			.wabi-boot-shell__btn--primary:hover { background: var(--boot-text); opacity: 0.9; }
+			[data-boot-state='stalled'] .wabi-boot-shell__rail > span { background: #e0553f; }
+			html[data-boot-mode='light'] #wabi-boot-shell[data-boot-brand='wabi'] .wabi-boot-shell__logo { filter: none; }
+		</style>
 		<script>
 			// Server-stamped brand (Phase 1 boot optimization): wabi-server
 			// replaces the token below with its identity JSON at request time.
@@ -394,7 +430,7 @@
 			(() => {
 				try {
 					if (window.location.pathname.replace(/\/$/, '') === '/personal') {
-						window.__WABI_BOOT_BRAND__ = { brandName: 'Wabi', logoUrl: '/wabi-logo.png', accent: '#818cf8' };
+						window.__WABI_BOOT_BRAND__ = { brandName: 'Wabi', logoUrl: '/wabi-logo.png', accent: '#d6ad5f' };
 						return;
 					}
 					const NEUTRAL_SVG =
@@ -512,13 +548,13 @@
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="tap">
-		<div id="wabi-boot-shell" role="status" aria-live="polite" data-boot-brand="pending" data-boot-state="default" style="--boot-accent: #818cf8">
+		<div id="wabi-boot-shell" role="status" aria-live="polite" data-boot-brand="pending" data-boot-state="default" style="--boot-accent: #d6ad5f">
 			<div class="wabi-boot-shell__center">
 				<div class="wabi-boot-shell__stage" aria-hidden="true">
 					<span class="wabi-boot-shell__orbit"></span>
 					<svg class="wabi-boot-shell__glyph" viewBox="0 0 64 64" fill="none">
-						<path d="M14 18.5c0-4.1 3.4-7.5 7.5-7.5h21C46.6 11 50 14.4 50 18.5v16c0 4.1-3.4 7.5-7.5 7.5H33l-9.2 8.2c-.9.8-2.3.2-2.3-1V42h-0c-4.1 0-7.5-3.4-7.5-7.5v-16Z" fill="#f4f4fb"/>
-						<path d="M24 24.5h16M24 31h10" stroke="#1a1c33" stroke-width="2.4" stroke-linecap="round"/>
+						<path d="M46.5 18.2A21 21 0 1 0 52 33.5" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" opacity="0.92"/>
+						<path d="M44 15.6c3.1 1.6 5.6 4 7.3 6.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.45"/>
 					</svg>
 					<img id="wabi-boot-logo" alt="" class="wabi-boot-shell__logo" decoding="async" />
 				</div>
@@ -749,7 +785,7 @@
 							logo.alt = '';
 						}
 						if (snap.accent) shell.style.setProperty('--boot-accent', snap.accent);
-						else shell.style.setProperty('--boot-accent', '#818cf8');
+						else shell.style.setProperty("--boot-accent", "#d6ad5f");
 					}
 
 					window.__WABI_BOOT_BRAND__ = {
