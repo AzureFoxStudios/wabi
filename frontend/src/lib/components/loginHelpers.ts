@@ -117,6 +117,41 @@ export interface LaunchPageStyleConfig {
 	launchCustomCss: string;
 }
 
+/** The server always reports this accent for a community that never chose one; it is a placeholder, not branding. */
+export const STOCK_LAUNCH_ACCENT = '#5865f2';
+
+interface LaunchBrandingInput {
+	enabled?: boolean | null;
+	backgroundImageUrl?: string | null;
+	palette?: {
+		backgroundTop?: string | null;
+		backgroundBottom?: string | null;
+		accent?: string | null;
+		text?: string | null;
+		cardBackground?: string | null;
+	} | null;
+}
+
+/**
+ * Should the login take its look from the operator's launch settings instead of the viewer's theme?
+ * Yes when the launch page is enabled, or the operator set a colour/backdrop of their own. A disabled page that only
+ * carries the server's stock accent follows the theme. Neutral branding always follows the theme.
+ */
+export function hasOperatorLaunchStyling(config: LaunchBrandingInput | null | undefined, neutralBranding: boolean): boolean {
+	if (!config || neutralBranding) return false;
+	const palette = config.palette ?? {};
+	const accent = palette.accent?.trim().toLowerCase();
+	return Boolean(
+		config.enabled ||
+			config.backgroundImageUrl ||
+			palette.backgroundTop ||
+			palette.backgroundBottom ||
+			palette.cardBackground ||
+			palette.text ||
+			(accent && accent !== STOCK_LAUNCH_ACCENT)
+	);
+}
+
 export function buildLaunchPageStyles(config: {
 	enabled: boolean;
 	palette: {
@@ -132,14 +167,23 @@ export function buildLaunchPageStyles(config: {
 	if (!config.enabled) {
 		return { launchContainerStyle: '', launchCardStyle: '', launchCustomCss: '' };
 	}
-	const bgTop = sanitizeAccentColor(config.palette.backgroundTop) || '#0f172a';
-	const bgBottom = sanitizeAccentColor(config.palette.backgroundBottom) || '#020617';
-	const accent = sanitizeAccentColor(config.palette.accent) || '#2dd4bf';
-	const text = sanitizeAccentColor(config.palette.text) || '#f8fafc';
-	const cardBg = sanitizeAccentColor(config.palette.cardBackground) || 'rgba(15, 23, 42, 0.85)';
+	// Only the colours the operator actually set are emitted; anything else follows the viewer's theme
+	// (the stylesheet falls back to the --w-* roles), instead of a baked-in navy/teal.
+	const bgTop = sanitizeAccentColor(config.palette.backgroundTop);
+	const bgBottom = sanitizeAccentColor(config.palette.backgroundBottom);
+	const accent = sanitizeAccentColor(config.palette.accent);
+	const text = sanitizeAccentColor(config.palette.text);
+	const cardBg = sanitizeAccentColor(config.palette.cardBackground);
 	const safeBgUrl = sanitizeCssUrl(config.backgroundImageUrl || null);
-	const launchContainerStyle = `--launch-bg-top: ${bgTop}; --launch-bg-bottom: ${bgBottom}; --launch-accent: ${accent}; --launch-text: ${text};${safeBgUrl ? ` background-image: url(${safeBgUrl}); background-size: cover; background-position: center;` : ''}`;
-	const launchCardStyle = `--launch-card-bg: ${cardBg};`;
+	const declarations = [
+		bgTop && `--launch-bg-top: ${bgTop};`,
+		bgBottom && `--launch-bg-bottom: ${bgBottom};`,
+		accent && `--launch-accent: ${accent};`,
+		text && `--launch-text: ${text};`,
+		safeBgUrl && `background-image: url(${safeBgUrl}); background-size: cover; background-position: center;`
+	].filter(Boolean);
+	const launchContainerStyle = declarations.join(' ');
+	const launchCardStyle = cardBg ? `--launch-card-bg: ${cardBg};` : '';
 	const launchCustomCss = sanitizeCustomCss(config.customCss || '');
 	return { launchContainerStyle, launchCardStyle, launchCustomCss };
 }
