@@ -1278,6 +1278,12 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		class:mobile-nav-visible={mobileNavVisible && $layoutStore.isMobile && !$layoutStore.isInCall}
 		class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
 		class:obvious-grab-rails={$layoutStore.obviousGrabRails}
+		class:rail-on={!$layoutStore.isMobile && !$focusMode}
+		class:dock-pinned={$layoutStore.rightPanelMode === 'pinned'}
+		class:rail-left={$layoutStore.stubSide === 'left'}
+		style:--w-dock-w={$layoutStore.rightPanelMode === 'pinned' && !$layoutStore.isMobile
+			? `min(${Math.min($layoutStore.rightPanelWidth, 744)}px, 55vw)`
+			: '0px'}
 	>
 	{#if !$layoutStore.isMobile && $layoutStore.channelSidebarWidth === 0}
 		<button
@@ -1391,11 +1397,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 						<svelte:component this={RightPanelCmp} on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />
 					{/if}
 				</div>
-				<RightStubStrip floating />
 			</div>
-		{:else}
-			<RightStubStrip />
 		{/if}
+		<RightStubStrip />
 	{:else}
 		<!-- Mobile Right Panel Overlay -->
 		<div
