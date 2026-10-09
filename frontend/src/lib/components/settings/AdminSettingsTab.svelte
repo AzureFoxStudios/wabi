@@ -36,17 +36,20 @@
 {/if}
 
 <style>
-.admin-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem}.admin-summary-grid>div{display:grid;gap:.5rem;padding:1rem;border:1px solid var(--border-subtle);border-radius:var(--radius-lg);background:var(--surface-raised)}.admin-summary-grid strong{font-size:1.4rem;color:var(--text-heading)}.admin-summary-grid span{color:var(--text-secondary)}
-	.admin-settings-launcher { display: grid; gap: 1.25rem; color: var(--text-primary); }
-	.admin-launcher-heading h3 { margin: 0 0 0.5rem; font-size: 1.2rem; color: var(--text-heading); }
-	.admin-launcher-heading p { margin: 0; max-width: 56ch; color: var(--text-secondary); line-height: 1.6; text-wrap: pretty; }
-	.admin-destination-list { display: grid; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); overflow: hidden; }
-	.admin-destination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 76px; width: 100%; padding: 1rem; background: var(--surface-raised); border: 0; text-align: left; color: var(--text-primary); font: inherit; cursor: pointer; }
-	.admin-destination + .admin-destination { border-top: 1px solid var(--border-subtle); }
-	.admin-destination:hover { background: var(--surface-hover); }
-	.admin-destination > span { display: grid; gap: 0.35rem; min-width: 0; }
-	.admin-destination strong { font-weight: 600; color: var(--text-heading); }
-	.admin-destination span span { color: var(--text-secondary); font-size: 0.875rem; line-height: 1.5; text-wrap: pretty; }
-	.admin-destination svg { flex-shrink: 0; }
-	button:focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: -3px; }
+	.admin-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); border: var(--w-bw, 1px) solid var(--w-line); border-radius: calc(8px * var(--w-rs, 1)); overflow: hidden; }
+	.admin-summary-grid > div { display: grid; gap: .3rem; padding: .9rem 1rem; border-right: var(--w-bw, 1px) solid var(--w-line); background: transparent; }
+	.admin-summary-grid > div:last-child { border-right: 0; }
+	.admin-summary-grid strong { font: 600 1.5rem/1.1 var(--w-mono); color: var(--w-text); font-variant-numeric: tabular-nums; }
+	.admin-summary-grid span { color: var(--w-mute); font: 500 .68rem var(--w-mono); letter-spacing: .08em; text-transform: uppercase; }
+	.admin-settings-launcher { display: grid; gap: 1.25rem; color: var(--w-text); }
+	.admin-launcher-heading h3 { margin: 0 0 .4rem; font: 600 1.5rem/1.2 var(--w-serif); color: var(--w-text); }
+	.admin-launcher-heading p { margin: 0; max-width: 56ch; color: var(--w-mute); line-height: 1.6; text-wrap: pretty; }
+	.admin-destination-list { display: grid; border-top: var(--w-bw, 1px) solid var(--w-line); }
+	.admin-destination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 64px; width: 100%; padding: .85rem .25rem; background: transparent; border: 0; border-bottom: var(--w-bw, 1px) solid var(--w-line); text-align: left; color: inherit; cursor: pointer; }
+	.admin-destination:hover { background: var(--w-accent-soft); }
+	.admin-destination > span { display: grid; gap: .25rem; min-width: 0; }
+	.admin-destination strong { font: 600 1rem var(--w-serif); color: var(--w-text); }
+	.admin-destination span span { color: var(--w-mute); font-size: .85rem; line-height: 1.5; text-wrap: pretty; }
+	.admin-destination svg { flex-shrink: 0; color: var(--w-deco); }
+	button:focus-visible { outline: 2px solid var(--w-accent); outline-offset: -3px; }
 </style>
