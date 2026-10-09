@@ -87,5 +87,4 @@
 :root .login-container .login-change-server { font: 500 12.5px var(--w-mono); color: var(--w-mute); }
 :root .login-container .login-footer a:hover,
 :root .login-container .login-change-server:hover { color: var(--w-accent); }
-:root .login-container .login-auth-panel > .auth-btn-ghost { margin-bottom: 22px; }
 :root .login-container .login-auth-heading { margin-bottom: 4px; }
