@@ -4,6 +4,7 @@
  */
 
 import type { BackgroundImage, ThemePreferences } from '../../types/theme';
+import { DEFAULT_THEME_ID } from './themeTypes';
 import { getServerUrl } from '../serverUrl';
 import { authStore } from '../authStore';
 import { getAuthToken } from '../authSession';
@@ -236,7 +237,7 @@ export async function resetThemePreferences(): Promise<void> {
 
 function defaultThemePreferences(): ThemePreferences {
 	return {
-		theme_id: 'dark',
+		theme_id: DEFAULT_THEME_ID,
 		custom_theme: null,
 		uniform_font_enabled: 0,
 		uniform_font_family: null,
