@@ -143,3 +143,11 @@
 :root .admin-workbench details > summary { cursor: pointer; font: 600 calc(13px * var(--w-fs, 1)) var(--w-sans); color: var(--w-mute); }
 :root .admin-workbench details > summary:hover { color: var(--w-text); }
 :root .admin-workbench .infra-center, :root .admin-workbench .health-panel, :root .admin-workbench .helper-panel { font-family: var(--w-sans); }
+
+/* People panel header: one thin-lined stat strip, mono numbers, serif title */
+:root .admin-tab .admin-stats, :root .admin-stats { gap: 0; border: var(--w-bw, 1px) solid var(--w-line); border-radius: calc(8px * var(--w-rs, 1)); overflow: hidden; }
+:root .admin-stats .admin-stat { background: transparent; border: 0; border-right: var(--w-bw, 1px) solid var(--w-line); border-radius: 0; padding: .55rem .8rem; }
+:root .admin-stats .admin-stat:last-child { border-right: 0; }
+:root .admin-stats .admin-stat .k { font: 500 .64rem var(--w-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--w-mute); }
+:root .admin-stats .admin-stat .v { font: 600 1.15rem var(--w-mono); font-variant-numeric: tabular-nums; color: var(--w-text); }
+:root .admin-title-row h3 { font: 600 1.4rem/1.2 var(--w-serif); color: var(--w-text); }
