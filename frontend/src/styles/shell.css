@@ -315,7 +315,7 @@
 
 /* One top bar: the view switcher lives in the channel header on desktop, the standalone bar steps aside. */
 .header-view-switch { display: none; }
-@media (min-width: 900px) {
+@media (min-width: 1250px) {
 	:root .main-content .header-view-switch { display: block; margin-inline-end: 10px; padding-inline-end: 10px; border-inline-end: var(--w-bw, 1px) solid var(--w-line); }
 	:root .main-content .chat-stack:has(.header-view-switch) > .workspace-view-bar:not(.inline) { display: none; }
 }
@@ -326,4 +326,7 @@
 :root .main-content .chat-header .spoiler-channel-badge,
 :root .main-content .chat-header .retention-channel-badge,
 :root .main-content .chat-header .privacy-badge { white-space: nowrap; flex: 0 0 auto; }
-:root .main-content .chat-header .header-actions { flex-wrap: wrap; justify-content: flex-end; row-gap: 4px; min-width: 0; }
+:root .main-content .chat-header .header-actions { flex-wrap: wrap; justify-content: flex-end; row-gap: 4px; }
+:root .main-content .chat-header .header-view-switch { flex: 0 0 auto; }
+/* Below a roomy stage the strip is icons only (the active one keeps its underline); labels return on hover/focus. */
+@media (max-width: 1500px) { :root .main-content .header-view-switch .strip-item.active:not(:hover):not(:focus-visible) .strip-label { max-width: 0; opacity: 0; margin: 0; } }
