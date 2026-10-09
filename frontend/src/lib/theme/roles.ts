@@ -101,6 +101,8 @@ export function deriveRoles(theme: Theme): RoleTokens {
 		'--w-line': `color-mix(in srgb, ${text} ${lineMix}%, transparent)`,
 		'--w-line-strong': char === 'contrast' ? text : `color-mix(in srgb, ${text} 22%, transparent)`,
 		'--w-accent': accent,
+		// The community's signature color; MainLayout overrides it per server from branding.
+		'--w-sig': accent,
 		'--w-accent-soft': `color-mix(in srgb, ${accent} 16%, transparent)`,
 		'--w-on-accent': luminance(accent) > 0.35 ? '#101315' : '#ffffff',
 		'--w-seal': seal,

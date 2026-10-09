@@ -19,8 +19,8 @@
 	padding: 14px 12px 12px 16px;
 	border-bottom: var(--w-bw, 1px) solid var(--w-line);
 	background:
-		var(--w-banner-image, none),
-		radial-gradient(160px 110px at 92% 0%, color-mix(in srgb, var(--w-accent) 30%, transparent), transparent 72%),
+		var(--sidebar-banner-image, none),
+		radial-gradient(160px 110px at 92% 0%, color-mix(in srgb, var(--w-sig, var(--w-accent)) 34%, transparent), transparent 72%),
 		var(--w-raise);
 	background-size: cover;
 	background-position: center;
@@ -147,7 +147,7 @@
 	letter-spacing: 0.01em;
 	color: var(--w-text);
 }
-:root .main-content .chat-header .channel-title-hash::before { color: var(--w-accent); }
+:root .main-content .chat-header .channel-title-hash::before { color: var(--w-sig, var(--w-accent)); }
 :root .main-content .retention-channel-badge {
 	margin-left: 10px;
 	padding: 3px 10px 3px 8px;
@@ -187,3 +187,9 @@
 
 /* scrollbars */
 :root .messages, :root .channel-list { scrollbar-width: thin; scrollbar-color: var(--w-line-strong) transparent; }
+
+/* Chosen name colors are picked on dark surfaces; on a light theme they wash out. */
+:root[data-mode='light'] .profile-name-text,
+:root[data-mode='light'] .messages .message .username {
+	filter: brightness(0.6) saturate(1.25);
+}
