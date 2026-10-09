@@ -22,7 +22,7 @@
  import { createReferenceHydrator, type ReferenceSourceDescriptor } from '$lib/forumReferenceHydration';
  let referenceNotice = $state('');
  let previewUrls = $state<string[]>([]);
- let lorePreviews = $state<Array<{channelId:string;filePath:string}>>([]);
+ let lorePreviews = $state<Array<{channelId:string;filePath:string;lines?:{start:number;end:number}}>>([]);
  const hydration = createReferenceHydrator(() => `${getServerUrl()}:${get(currentUser)?.dbUserId}:${authSessionGeneration(getServerUrl())}`,registerObjectRef);
  onDestroy(() => hydration.dispose());
  $effect(() => {
@@ -54,7 +54,7 @@
  });
  $effect(() => {
   html; if (!container) return;
-  lorePreviews = [...new Map([...container.querySelectorAll<HTMLAnchorElement>('a[href]')].map(a=>forumShareNavigation(a.href,getServerUrl() || location.origin)).filter((ref): ref is Extract<NavRef,{kind:'lore_file'}> => ref?.kind === 'lore_file').map(ref=>[`${ref.channelId}:${ref.filePath}`,ref])).values()].slice(0,4);
+  lorePreviews = [...new Map([...container.querySelectorAll<HTMLAnchorElement>('a[href]')].map(a=>forumShareNavigation(a.href,getServerUrl() || location.origin)).filter((ref): ref is Extract<NavRef,{kind:'lore_file'}> => ref?.kind === 'lore_file').map(ref=>[`${ref.channelId}:${ref.filePath}:${ref.lines ? ref.lines.start + '-' + ref.lines.end : ''}`,ref])).values()].slice(0,4);
   previewUrls = [...new Set([...container.querySelectorAll<HTMLAnchorElement>('a[href]')].filter(a => !a.closest('code, pre') && !forumShareNavigation(a.href, getServerUrl() || location.origin)).map(a => a.href).filter(href => /^https?:\/\//.test(href)))].slice(0,4);
  });
  let { text }: { text: string } = $props();
@@ -105,7 +105,7 @@
 <!-- Sanitized by the shared chat renderer; navigation is delegated to Wabi. -->
 <div class="forum-rich-body markdown-content" bind:this={container} role="article" onclick={activate} onkeydown={(event) => { if ((event.key === 'Enter' || event.key === ' ') && event.target instanceof HTMLElement && event.target.matches('[data-ref-kind], .mention-token, .spoiler')) { event.preventDefault(); void activate(event); } }}>{@html html}</div>
 {#each objectCards as record (`${record?.kind}:${record?.id}`)}{#if record}<button class="object-card" type="button" onclick={(event)=>openObject(event,record)} title="Alt-click to preview">{#if record.thumbUrl}<img src={record.thumbUrl} alt="" loading="lazy" />{/if}<span><small>{record.kind==='wiki_page'?'Wiki page':record.kind==='gallery_work'?'Gallery work':record.kind==='forum_post'?'Forum thread':'Map place'}</small><strong>{record.title}</strong>{#if record.subtitle}<span>{record.subtitle}</span>{/if}</span></button>{/if}{/each}
-{#each lorePreviews as ref (`${ref.channelId}:${ref.filePath}`)}<ForumLorePreview channelId={ref.channelId} filePath={ref.filePath} />{/each}
+{#each lorePreviews as ref (`${ref.channelId}:${ref.filePath}:${ref.lines?.start ?? ''}-${ref.lines?.end ?? ''}`)}<ForumLorePreview channelId={ref.channelId} filePath={ref.filePath} lines={ref.lines} />{/each}
 {#each previewUrls as url (url)}<LinkPreview {url} />{/each}
 <span role="status">{navigationError || referenceNotice}</span>
 {#if profileOpen}<UserPopout user={profile} bind:isOpen={profileOpen} anchorElement={anchor} isOwnProfile={profile?.dbUserId === $currentUser?.dbUserId} />{/if}

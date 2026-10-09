@@ -42,6 +42,18 @@
   let cadPreviewActive = $state(false);
   let openMenu = $state<any>();
 
+  // "Hide preview" collapses the viewer to just the file, and the choice is remembered per file on this device.
+  const hiddenKey = (source: string) => `wabi:model-preview-hidden:${source}`;
+  let previewHidden = $state(false);
+  $effect(() => {
+    const source = src;
+    try { previewHidden = localStorage.getItem(hiddenKey(source)) === '1'; } catch { previewHidden = false; }
+  });
+  function setPreviewHidden(next: boolean): void {
+    previewHidden = next;
+    try { if (next) localStorage.setItem(hiddenKey(src), '1'); else localStorage.removeItem(hiddenKey(src)); } catch { /* remembered for this session only */ }
+  }
+
   const selectionKey = $derived(`${src}\u0000${fileName}`);
   const previewKind = $derived(modelPreviewKind(fileName));
   const supportMessage = $derived(missingModelSupport(fileName));
@@ -121,14 +133,21 @@
 
 <div class="model-launcher" class:full-bleed={fullBleed} oncontextmenu={handleContextMenu}>
   {#if !fullBleed && safeSrc}
+    <!-- Left-aligned on purpose: the message's hover actions float at the top right and used to cover these. -->
     <div class="model-file-toolbar">
-      <button class="model-workspace-open" type="button" onclick={openWorkspace}>{modelWorkspaceLabel(fileName)}</button>
-      <ModelOpenMenu bind:this={openMenu} {asset} showSourceLink />
+      <span class="model-file-name" title={fileName}><b>{ext.toUpperCase() || 'MODEL'}</b>{fileName}</span>
+      <span class="model-file-actions">
+        <button class="model-workspace-open" type="button" onclick={openWorkspace}>{modelWorkspaceLabel(fileName)}</button>
+        <button class="model-workspace-open" type="button" aria-pressed={!previewHidden} onclick={() => setPreviewHidden(!previewHidden)}>{previewHidden ? 'Show preview' : 'Hide preview'}</button>
+        <ModelOpenMenu bind:this={openMenu} {asset} showSourceLink />
+      </span>
     </div>
   {/if}
 
   {#if !safeSrc}
     <div class="model-support-card" role="alert"><strong>Preview unavailable</strong><p>This attachment does not have a safe model source.</p></div>
+  {:else if previewHidden && !fullBleed}
+    <!-- preview closed: the toolbar above is the whole attachment -->
   {:else if supportMessage}
     <div class="model-support-card">
       <span class="model-support-label">{family === 'cad' ? 'CAD IMPORTER REQUIRED' : family === 'mmd' ? 'MMD ADD-ON REQUIRED' : 'MODEL SUPPORT REQUIRED'}</span>
@@ -177,9 +196,14 @@
   .model-launcher { position:relative;min-width:0; }
   .model-launcher.full-bleed { flex:1;min-height:0;display:flex;flex-direction:column; }
   .model-launcher.full-bleed > :global(*) { flex:1;min-height:0; }
-  .model-file-toolbar { display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:6px 0; }
-  .model-workspace-open { border:1px solid var(--border-subtle,#35474e);border-radius:7px;background:var(--surface-raised,#24343b);color:var(--text-heading,#e8f1f2);font:inherit;font-size:11px;min-height:34px;padding:6px 10px;cursor:pointer; }
-  .model-workspace-open:hover { border-color:var(--accent-primary-color,#8fd5c4); }
+  .model-file-toolbar { display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:6px 14px;padding:6px 0; }
+  .model-file-name { display:inline-flex;align-items:center;gap:8px;min-width:0;max-width:100%;font:500 12px/1.3 var(--w-mono,monospace);color:var(--w-text,var(--text-heading,#e8f1f2));overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+  .model-file-name b { padding:1px 6px;border:var(--w-bw,1px) solid var(--w-line-strong,#35474e);border-radius:calc(5px * var(--w-rs,1));font:600 10.5px/1.5 var(--w-mono,monospace);letter-spacing:.06em;color:var(--w-mute,#a9b9bc); }
+  .model-file-actions { display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px; }
+  /* leave the corner free for the message's hover actions */
+  @media (hover:hover) { .model-file-toolbar { padding-right:176px; } }
+  .model-workspace-open { border:var(--w-bw,1px) solid var(--w-line-strong,#35474e);border-radius:calc(9px * var(--w-rs,1));background:transparent;color:var(--w-text,#e8f1f2);font:600 12px/1.2 var(--w-sans,inherit);min-height:32px;padding:5px 12px;cursor:pointer; }
+  .model-workspace-open:hover { background:var(--w-raise,#24343b);border-color:var(--w-accent,#8fd5c4); }
   /* The legacy chat renderer adds a sibling "Open 3D Tab" button. This launcher now owns the primary workspace action. */
   :global(.model-container:has(> .model-launcher) > .open-viewport-btn),
   :global(.gallery-file-item.model-item:has(.model-launcher) > .open-viewport-btn),
