@@ -304,3 +304,11 @@
 
 /* identity card: the owner crown / staff gem stands in for the role pill */
 :root .channel-sidebar .self-role-mark { display: inline-flex; align-items: center; color: var(--w-accent); font-size: calc(15px * var(--w-fs, 1)); }
+
+/* composer privacy tag: a small legend on the composer's top edge instead of its own row */
+:root .main-content .input-container { position: relative; }
+:root .main-content .input-container > .composer-e2ee-status { position: absolute; top: -9px; right: 14px; left: auto; width: auto; display: inline-flex; z-index: 3; margin: 0; padding: 1px 8px; gap: 5px; box-shadow: none; border: var(--w-bw, 1px) solid var(--w-line); border-radius: calc(5px * var(--w-rs, 1)); background: var(--w-bg); font: 500 10px/1.5 var(--w-mono); letter-spacing: .04em; color: var(--w-faint); cursor: help; }
+:root .main-content .input-container > .composer-e2ee-status .composer-e2ee-icon { color: var(--w-mute); font-size: 9px; }
+:root .main-content .input-container > .composer-e2ee-status.locked .composer-e2ee-icon { color: var(--w-seal); }
+:root .main-content .input-container > .composer-e2ee-status:hover { color: var(--w-text); }
+@media (max-width: 640px) { :root .main-content .input-container > .composer-e2ee-status .composer-e2ee-label { display: none; } }
