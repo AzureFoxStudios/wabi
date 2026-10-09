@@ -106,8 +106,8 @@
     gap: 0.75rem;
     margin-top: 0.375rem;
     padding: 0.5rem 0.75rem;
-    border-radius: var(--radius-md, 8px);
-    background: var(--surface-card, rgba(255, 255, 255, 0.04));
+    border-radius: calc(10px * var(--w-rs, 1));
+    background: var(--w-bg2);
     border-left: 3px solid var(--interactive-accent, #5865f2);
     cursor: pointer;
     max-width: 280px;
@@ -129,7 +129,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--text-muted, #8e9297);
+    color: var(--w-mute);
     line-height: 1.3;
   }
   .unfurl-card-title {
@@ -143,7 +143,7 @@
   }
   .unfurl-card-subtitle {
     font-size: 0.6875rem;
-    color: var(--text-muted, #8e9297);
+    color: var(--w-mute);
     line-height: 1.3;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -154,9 +154,9 @@
     font-size: 0.6rem;
     font-weight: 600;
     padding: 0.05rem 0.35rem;
-    border-radius: var(--radius-sm, 4px);
+    border-radius: calc(6px * var(--w-rs, 1));
     background: var(--bg-mod-subtle, rgba(255, 255, 255, 0.06));
-    color: var(--text-muted, #8e9297);
+    color: var(--w-mute);
     align-self: flex-start;
     margin-top: 0.125rem;
     text-transform: uppercase;
@@ -167,7 +167,7 @@
     flex-shrink: 0;
     width: 48px;
     height: 48px;
-    border-radius: var(--radius-sm, 4px);
+    border-radius: calc(6px * var(--w-rs, 1));
     overflow: hidden;
     align-self: center;
   }

@@ -37,9 +37,9 @@
 
 <style>
 	.profile-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
-	.profile-panel-empty { display: grid; gap: 0.75rem; padding: 1.25rem; color: var(--text-secondary); }
-	.profile-panel-empty h2 { margin: 0; color: var(--text-heading); font-size: var(--font-size-lg); }
+	.profile-panel-empty { display: grid; gap: 0.75rem; padding: 1.25rem; color: var(--w-mute); }
+	.profile-panel-empty h2 { margin: 0; color: var(--w-text); font-size: var(--font-size-lg); }
 	.profile-panel-empty p { margin: 0; line-height: 1.5; }
-	.profile-panel-empty button { min-height: 44px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 0.5rem 0.75rem; background: var(--surface-raised); color: var(--text-heading); cursor: pointer; }
-	.profile-panel-empty button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+	.profile-panel-empty button { min-height: 44px; border: 1px solid var(--w-line); border-radius: calc(10px * var(--w-rs, 1)); padding: 0.5rem 0.75rem; background: var(--w-raise); color: var(--w-text); cursor: pointer; }
+	.profile-panel-empty button:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
 </style>

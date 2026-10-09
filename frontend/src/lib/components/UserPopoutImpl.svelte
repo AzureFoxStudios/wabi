@@ -766,11 +766,11 @@
 
 <style>
 	.profile-tools {position:absolute;top:10px;right:48px;z-index:3;display:flex;gap:6px;}
-	.profile-tools button {display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:50%;background:var(--surface-raised);color:var(--text-primary);cursor:pointer;}
+	.profile-tools button {display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:50%;background:var(--w-raise);color:var(--w-text);cursor:pointer;}
 	.handle-copy {border:0;background:none;padding:0;cursor:pointer;}
 	.handle-copy:hover {text-decoration:underline;}
 	.popout-container .note-actions { flex-wrap: wrap; gap: 0.5rem; }
-	.popout-container .note-actions .note-btn { min-height: 36px; padding: 0.375rem 0.625rem; font-size: 0.8125rem; border-radius: var(--radius-md, 8px); }
+	.popout-container .note-actions .note-btn { min-height: 36px; padding: 0.375rem 0.625rem; font-size: 0.8125rem; border-radius: calc(10px * var(--w-rs, 1)); }
 	.popout-container .note-count { flex-basis: 100%; margin-left: 0; }
 	@media (pointer: coarse) { .popout-container .note-actions .note-btn { min-height: 44px; } }
 </style>

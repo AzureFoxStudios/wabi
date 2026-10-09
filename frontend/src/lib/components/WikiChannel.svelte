@@ -446,7 +446,32 @@
 		updatedAt: selectedPage.updatedAtMicros > 1e12 ? Math.floor(selectedPage.updatedAtMicros / 1000) : selectedPage.updatedAtMicros,
 	} : null;
 
-	$: renderedBody = displayBody ? parseMessage(displayBody, [], { allowTables: true }) : '';
+	// [[Page title]] and [[Page title|label]] link wiki pages to each other. Unknown titles stay visible as
+	// "missing" links so a typo or an unwritten page is obvious instead of silently plain text.
+	function wikiLinkTarget(raw: string): WikiPage | undefined {
+		const key = raw.trim().toLocaleLowerCase();
+		return allPages.find((page) => page.title.trim().toLocaleLowerCase() === key || page.slug === key || slugify(page.title) === slugify(raw));
+	}
+	function withWikiLinks(markdown: string): string {
+		return markdown.replace(/\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]/g, (_match, title: string, label?: string) => {
+			const target = wikiLinkTarget(title);
+			const text = (label || title).trim();
+			return target ? `[${text}](#wikipage-${target.pageId})` : `[${text}](#wikipage-missing)`;
+		});
+	}
+	function handleBodyClick(event: MouseEvent) {
+		const anchor = (event.target as HTMLElement | null)?.closest?.('a[href^="#wikipage-"]') as HTMLAnchorElement | null;
+		if (!anchor) return;
+		event.preventDefault();
+		const id = anchor.getAttribute('href')!.slice('#wikipage-'.length);
+		const page = allPages.find((candidate) => candidate.pageId === id);
+		if (page) selectPage(page);
+	}
+	/** Pages that link here with [[this title]]. */
+	$: backlinks = selectedPage
+		? allPages.filter((page) => page.pageId !== selectedPage!.pageId && new RegExp('\\[\\[\\s*' + selectedPage!.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*(\\||\\]\\])', 'i').test(page.body))
+		: [];
+	$: renderedBody = displayBody ? parseMessage(withWikiLinks(displayBody), [], { allowTables: true }) : '';
 	$: editIsDirty = editMode && (editTitle !== editSavedTitle || editBody !== editSavedBody);
 	$: if (editMode && editIsDirty && (saveState === 'idle' || saveState === 'saved')) saveState = 'dirty';
 	$: if (editMode && !editIsDirty && saveState === 'dirty') saveState = 'idle';
@@ -614,9 +639,18 @@
 							{/each}
 						</nav>
 					{/if}
-					<div class="wiki-content-body">
+					<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+					<div class="wiki-content-body" on:click={handleBodyClick}>
 						{@html renderedBody}
 					</div>
+					{#if backlinks.length > 0 && !viewRevision}
+						<aside class="wiki-backlinks" aria-label="Linked from">
+							<strong>Linked from</strong>
+							{#each backlinks as page (page.pageId)}
+								<button type="button" on:click={() => selectPage(page)}>{page.title}</button>
+							{/each}
+						</aside>
+					{/if}
 
 				{/if}
 			{/if}

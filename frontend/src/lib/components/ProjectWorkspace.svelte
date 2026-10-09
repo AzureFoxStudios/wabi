@@ -94,34 +94,34 @@
 </section>
 
 <style>
-	.project-workspace { flex:1; width:100%; height:100%; min-height:0; min-width:0; display:flex; flex-direction:column; color:var(--text-primary); background:var(--surface-base); }
+	.project-workspace { flex:1; width:100%; height:100%; min-height:0; min-width:0; display:flex; flex-direction:column; color:var(--w-text); background:var(--w-bg2); }
 	.project-workspace.discussion-active { flex:none; height:auto; }
-	.project-hero { position:relative; overflow:hidden; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:1rem 2rem; padding:1.35rem clamp(1rem, 3vw, 2.25rem); padding-right:4rem; border-bottom:1px solid var(--border-subtle); background:radial-gradient(circle at 92% 2%, color-mix(in srgb, var(--accent-primary, #9b6bff) 20%, transparent), transparent 42%), linear-gradient(125deg, color-mix(in srgb, var(--surface-raised) 76%, var(--surface-base)), var(--surface-base)); }
-	.project-hero::after { content:''; position:absolute; width:16rem; height:16rem; border:1px solid color-mix(in srgb, var(--accent-primary, #9b6bff) 12%, transparent); border-radius:50%; right:-5rem; top:-11rem; pointer-events:none; }
+	.project-hero { position:relative; overflow:hidden; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:1rem 2rem; padding:1.35rem clamp(1rem, 3vw, 2.25rem); padding-right:4rem; border-bottom:1px solid var(--w-line); background:radial-gradient(circle at 92% 2%, color-mix(in srgb, var(--w-accent) 20%, transparent), transparent 42%), linear-gradient(125deg, color-mix(in srgb, var(--w-raise) 76%, var(--w-bg2)), var(--w-bg2)); }
+	.project-hero::after { content:''; position:absolute; width:16rem; height:16rem; border:1px solid color-mix(in srgb, var(--w-accent) 12%, transparent); border-radius:50%; right:-5rem; top:-11rem; pointer-events:none; }
 	.project-identity { display:flex; align-items:center; gap:1rem; min-width:0; }
-	.project-mark { flex:none; display:grid; place-items:center; width:3.2rem; height:3.2rem; border-radius:1rem; color:var(--accent-primary, #b69cff); background:color-mix(in srgb, var(--accent-primary, #9b6bff) 16%, var(--surface-base)); border:1px solid color-mix(in srgb, var(--accent-primary, #9b6bff) 27%, transparent); box-shadow:0 10px 28px color-mix(in srgb, var(--accent-primary, #9b6bff) 12%, transparent); }
+	.project-mark { flex:none; display:grid; place-items:center; width:3.2rem; height:3.2rem; border-radius:1rem; color:var(--w-accent); background:color-mix(in srgb, var(--w-accent) 16%, var(--w-bg2)); border:1px solid color-mix(in srgb, var(--w-accent) 27%, transparent); box-shadow:0 10px 28px color-mix(in srgb, var(--w-accent) 12%, transparent); }
 	.project-mark svg { width:1.75rem; height:1.75rem; }
 	.project-title-block { min-width:0; }
-	.project-eyebrow { display:flex; align-items:center; gap:.42rem; margin:0 0 .28rem; color:var(--text-secondary); font-size:.68rem; font-weight:750; text-transform:uppercase; letter-spacing:.14em; }
+	.project-eyebrow { display:flex; align-items:center; gap:.42rem; margin:0 0 .28rem; color:var(--w-mute); font-size:.68rem; font-weight:750; text-transform:uppercase; letter-spacing:.14em; }
 	.project-presence { width:.42rem; height:.42rem; border-radius:50%; background:#62d6a8; box-shadow:0 0 0 3px #62d6a825; }
 	.project-title-block h1 { margin:0; overflow:hidden; text-overflow:ellipsis; font-size:clamp(1.45rem, 2.4vw, 2rem); font-weight:760; line-height:1.15; letter-spacing:-.035em; }
-	.project-subtitle { margin:.32rem 0 0; color:var(--text-secondary); font-size:.82rem; }
-	.project-picker { position:relative; z-index:1; display:grid; gap:.35rem; min-width:11rem; font-size:.72rem; font-weight:650; color:var(--text-secondary); }
-	.project-picker select { width:100%; max-width:16rem; padding:.56rem .7rem; border:1px solid var(--border-default); border-radius:.7rem; background:var(--surface-raised); color:var(--text-primary); font:inherit; font-size:.82rem; }
-	.project-nav-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.45rem 4rem 0 clamp(1rem, 3vw, 2.25rem); border-bottom:1px solid var(--border-subtle); }
+	.project-subtitle { margin:.32rem 0 0; color:var(--w-mute); font-size:.82rem; }
+	.project-picker { position:relative; z-index:1; display:grid; gap:.35rem; min-width:11rem; font-size:.72rem; font-weight:650; color:var(--w-mute); }
+	.project-picker select { width:100%; max-width:16rem; padding:.56rem .7rem; border:1px solid var(--w-line-strong); border-radius:.7rem; background:var(--w-raise); color:var(--w-text); font:inherit; font-size:.82rem; }
+	.project-nav-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.45rem 4rem 0 clamp(1rem, 3vw, 2.25rem); border-bottom:1px solid var(--w-line); }
 	.project-tabs { display:flex; align-items:center; gap:.25rem; min-width:0; overflow-x:auto; }
-	.project-tabs button { position:relative; display:inline-flex; align-items:center; gap:.5rem; min-height:2.7rem; padding:.55rem .85rem .75rem; border:0; background:transparent; color:var(--text-secondary); font:inherit; font-size:.85rem; font-weight:630; white-space:nowrap; cursor:pointer; }
+	.project-tabs button { position:relative; display:inline-flex; align-items:center; gap:.5rem; min-height:2.7rem; padding:.55rem .85rem .75rem; border:0; background:transparent; color:var(--w-mute); font:inherit; font-size:.85rem; font-weight:630; white-space:nowrap; cursor:pointer; }
 	.project-tabs button span { font-size:1rem; opacity:.7; }
-	.project-tabs button:hover, .project-tabs button.active { color:var(--text-primary); }
-	.project-tabs button.active::after { content:''; position:absolute; bottom:0; left:.65rem; right:.65rem; height:2px; border-radius:3px; background:var(--accent-primary, #9b6bff); box-shadow:0 0 12px color-mix(in srgb, var(--accent-primary, #9b6bff) 65%, transparent); }
-	.project-sync-note { display:flex; align-items:center; gap:.4rem; color:var(--text-muted, var(--text-secondary)); font-size:.72rem; white-space:nowrap; }
+	.project-tabs button:hover, .project-tabs button.active { color:var(--w-text); }
+	.project-tabs button.active::after { content:''; position:absolute; bottom:0; left:.65rem; right:.65rem; height:2px; border-radius:3px; background:var(--w-accent); box-shadow:0 0 12px color-mix(in srgb, var(--w-accent) 65%, transparent); }
+	.project-sync-note { display:flex; align-items:center; gap:.4rem; color:var(--w-mute); font-size:.72rem; white-space:nowrap; }
 	.project-sync-note span { color:#62d6a8; font-size:.5rem; }
 	.project-content { flex:1; width:100%; min-height:0; min-width:0; }
 	.project-content :global(.wiki-channel) { width:100%; min-width:0; }
-	.discussion-intro { display:flex; align-items:baseline; gap:.75rem; padding:.8rem clamp(1rem, 3vw, 2.25rem); border-bottom:1px solid var(--border-subtle); background:color-mix(in srgb, var(--surface-raised) 45%, var(--surface-base)); }
+	.discussion-intro { display:flex; align-items:baseline; gap:.75rem; padding:.8rem clamp(1rem, 3vw, 2.25rem); border-bottom:1px solid var(--w-line); background:color-mix(in srgb, var(--w-raise) 45%, var(--w-bg2)); }
 	.discussion-intro strong { font-size:.84rem; }
-	.discussion-intro span { color:var(--text-secondary); font-size:.76rem; }
+	.discussion-intro span { color:var(--w-mute); font-size:.76rem; }
 	.project-empty { max-width:40rem; margin:2rem auto; padding:1.25rem; }
-	.project-empty button { padding:.6rem .9rem; border:1px solid var(--border-default); border-radius:.5rem; background:var(--surface-raised); color:var(--text-primary); cursor:pointer; }
+	.project-empty button { padding:.6rem .9rem; border:1px solid var(--w-line-strong); border-radius:.5rem; background:var(--w-raise); color:var(--w-text); cursor:pointer; }
 	@media (max-width:700px) { .project-hero { align-items:flex-start; padding:1rem; } .project-mark { width:2.6rem; height:2.6rem; border-radius:.8rem; } .project-picker { width:100%; } .project-picker select { max-width:none; } .project-nav-row { padding-inline:.65rem; } .project-sync-note { display:none; } .discussion-intro { align-items:flex-start; flex-direction:column; gap:.15rem; padding-inline:1rem; } }
 </style>

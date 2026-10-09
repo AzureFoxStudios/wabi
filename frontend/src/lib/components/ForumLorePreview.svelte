@@ -43,8 +43,8 @@
  {#if content}<pre><code>{content}</code></pre>{:else}<p role="status">{status}</p>{/if}
 </article>
 <style>
- .lore-preview {margin:.8rem 0;border:1px solid var(--border-default);border-radius:var(--radius-md);overflow:hidden;background:var(--surface-raised);color:var(--text-primary);}
+ .lore-preview {margin:.8rem 0;border:1px solid var(--w-line-strong);border-radius:calc(10px * var(--w-rs, 1));overflow:hidden;background:var(--w-raise);color:var(--w-text);}
  button {display:flex;flex-direction:column;gap:.3rem;width:100%;text-align:left;padding:.8rem;border:0;background:none;color:inherit;cursor:pointer;}
- span,p {font-size:.8rem;color:var(--text-secondary);}p {padding:0 .8rem .8rem;margin:0;}
- pre {margin:0;padding:.8rem;overflow:auto;border-top:1px solid var(--border-subtle);background:var(--surface-base);font-size:.8rem;}
+ span,p {font-size:.8rem;color:var(--w-mute);}p {padding:0 .8rem .8rem;margin:0;}
+ pre {margin:0;padding:.8rem;overflow:auto;border-top:1px solid var(--w-line);background:var(--w-bg2);font-size:.8rem;}
 </style>

@@ -94,7 +94,7 @@
 {#if friendActionError}<p class="friend-action-error" role="alert">{friendActionError}</p>{/if}
 
 <style>
-	.friend-action-error { margin: 0.35rem 0.65rem; color: var(--color-danger, #ef4444); font-size: 0.75rem; }
+	.friend-action-error { margin: 0.35rem 0.65rem; color: var(--w-danger); font-size: 0.75rem; }
 	.manage-roles {
 		display: grid;
 		gap: 0.4rem;
@@ -105,7 +105,7 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
-		color: var(--text-muted, #8e9297);
+		color: var(--w-mute);
 	}
 	.manage-roles-buttons {
 		display: flex;
@@ -114,7 +114,7 @@
 	}
 	.manage-roles-status {
 		font-size: 0.72rem;
-		color: var(--text-secondary, #b9bbbe);
+		color: var(--w-mute);
 	}
 	.context-btn.active-role {
 		border-color: rgba(var(--accent-rgb), 0.5);

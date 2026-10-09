@@ -110,15 +110,15 @@
 <span role="status">{navigationError || referenceNotice}</span>
 {#if profileOpen}<UserPopout user={profile} bind:isOpen={profileOpen} anchorElement={anchor} isOwnProfile={profile?.dbUserId === $currentUser?.dbUserId} />{/if}
 <style>
- .object-card {display:flex;gap:.8rem;align-items:center;width:100%;padding:.8rem;margin:.8rem 0;text-align:left;border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-raised);color:var(--text-primary);cursor:pointer;}
- .object-card>span {display:flex;flex-direction:column;gap:.3rem;} .object-card small,.object-card span span {color:var(--text-secondary);font-size:.8rem;} .object-card img {width:72px;height:72px;object-fit:cover;border-radius:var(--radius-sm);}
- .forum-rich-body :global(.mention-token-gallery_work), .forum-rich-body :global(.mention-token-forum_post), .forum-rich-body :global(.mention-token-wiki_page), .forum-rich-body :global(.mention-token-place) { display: inline-flex; padding: .3rem .55rem; margin: .12rem 0; border: 1px solid var(--border-default); border-radius: .45rem; background: var(--surface-base); font-weight: 500; }
+ .object-card {display:flex;gap:.8rem;align-items:center;width:100%;padding:.8rem;margin:.8rem 0;text-align:left;border:1px solid var(--w-line-strong);border-radius:calc(10px * var(--w-rs, 1));background:var(--w-raise);color:var(--w-text);cursor:pointer;}
+ .object-card>span {display:flex;flex-direction:column;gap:.3rem;} .object-card small,.object-card span span {color:var(--w-mute);font-size:.8rem;} .object-card img {width:72px;height:72px;object-fit:cover;border-radius:calc(6px * var(--w-rs, 1));}
+ .forum-rich-body :global(.mention-token-gallery_work), .forum-rich-body :global(.mention-token-forum_post), .forum-rich-body :global(.mention-token-wiki_page), .forum-rich-body :global(.mention-token-place) { display: inline-flex; padding: .3rem .55rem; margin: .12rem 0; border: 1px solid var(--w-line-strong); border-radius: .45rem; background: var(--w-bg2); font-weight: 500; }
 
  .forum-rich-body { overflow-wrap: anywhere; line-height: 1.65; }
  .forum-rich-body :global(p) { margin: 0 0 .8em; }
  .forum-rich-body :global(p:last-child) { margin-bottom: 0; }
- .forum-rich-body :global(pre) { overflow: auto; padding: .8em; border-radius: var(--radius-md); background: var(--surface-base); }
- .forum-rich-body :global(a), .forum-rich-body :global(.mention-token) { color: var(--accent-primary); cursor: pointer; }
+ .forum-rich-body :global(pre) { overflow: auto; padding: .8em; border-radius: calc(10px * var(--w-rs, 1)); background: var(--w-bg2); }
+ .forum-rich-body :global(a), .forum-rich-body :global(.mention-token) { color: var(--w-accent); cursor: pointer; }
  .forum-rich-body :global(table) { display: block; overflow: auto; border-collapse: collapse; }
- .forum-rich-body :global(td), .forum-rich-body :global(th) { padding: .35em .6em; border: 1px solid var(--border-default); }
+ .forum-rich-body :global(td), .forum-rich-body :global(th) { padding: .35em .6em; border: 1px solid var(--w-line-strong); }
 </style>
