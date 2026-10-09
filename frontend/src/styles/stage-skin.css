@@ -138,3 +138,8 @@
 :root .right-panel select:focus,
 :root .right-panel input:focus { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
 :root .right-panel { font-family: var(--w-sans); }
+
+/* Messages hub (DM / friends) header */
+:root .dm-hub-title { font: 600 calc(24px * var(--w-fs, 1))/1.2 var(--w-serif); letter-spacing: 0.01em; color: var(--w-text); }
+:root .dm-hub-subtitle { font: 500 calc(12px * var(--w-fs, 1))/1.4 var(--w-mono); color: var(--w-mute); }
+:root .dm-hub-header { border-bottom: var(--w-bw, 1px) solid var(--w-line); }
