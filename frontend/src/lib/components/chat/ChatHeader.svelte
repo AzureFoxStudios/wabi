@@ -13,6 +13,8 @@
 	import { MESSAGE_RETENTION_LABELS } from '../../../../../shared/messageRetention.js';
 	import { communityRulesAvailable, communityRulesOpen } from '$lib/communityRulesUi';
 	import type { WorkspaceViewKey } from './types';
+	import WorkspaceViewBar from '../WorkspaceViewBar.svelte';
+	import { workspaceViewSelect, workspaceActivityBadge } from '$lib/workspaceViewBridge';
 
 	type ChannelPrivacySummary = {
 		channelId: string;
@@ -194,6 +196,9 @@
 		{/if}
 	</div>
 	<div class="header-actions">
+		{#if $workspaceViewSelect}
+			<div class="header-view-switch"><WorkspaceViewBar inline activityBadge={$workspaceActivityBadge} activeView={selectedWorkspaceView} onSelectView={$workspaceViewSelect} canOpenWhiteboard={Boolean(currentChannel)} /></div>
+		{/if}
 		{#if $communityRulesAvailable}<button type="button" class="btn-ghost btn-sm" on:click={() => communityRulesOpen.set(true)}>Rules</button>{/if}
 		<div class="header-action-group">
 			{#if isDMChannel && dmCallTargetUser}

@@ -70,6 +70,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import InstallAppBanner from '$lib/components/pwa/InstallAppBanner.svelte';
 	import { formatMobileUnreadBadge, nextMobileBackSurface, reconcileMobileSurfaceStack, sumUnreadConversationCount, type MobileBackSurface, type MobileSurfaceState } from '$lib/mobileShellModel';
 	import { showToast } from '$lib/toast';
+	import { workspaceViewSelect, workspaceActivityBadge } from '$lib/workspaceViewBridge';
 
 	// Phase 4 boot optimization: non-first-paint surfaces load on first
 	// activation. Only .svelte components go lazy; utility-module imports
@@ -223,6 +224,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		layoutStore.closeCenterDm();
 		selectWorkspaceView(view);
 	}
+
+	workspaceViewSelect.set(handleWorkspaceViewSelect);
+	$: workspaceActivityBadge.set(activityBadge);
+	onDestroy(() => workspaceViewSelect.set(null));
 
 	async function openFriendConversation(user: User): Promise<void> {
 		activityActionError = '';

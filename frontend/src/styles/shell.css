@@ -312,3 +312,10 @@
 :root .main-content .input-container > .composer-e2ee-status.locked .composer-e2ee-icon { color: var(--w-seal); }
 :root .main-content .input-container > .composer-e2ee-status:hover { color: var(--w-text); }
 @media (max-width: 640px) { :root .main-content .input-container > .composer-e2ee-status .composer-e2ee-label { display: none; } }
+
+/* One top bar: the view switcher lives in the channel header on desktop, the standalone bar steps aside. */
+.header-view-switch { display: none; }
+@media (min-width: 900px) {
+	:root .main-content .header-view-switch { display: block; margin-inline-end: 10px; padding-inline-end: 10px; border-inline-end: var(--w-bw, 1px) solid var(--w-line); }
+	:root .main-content .chat-stack:has(.header-view-switch) > .workspace-view-bar:not(.inline) { display: none; }
+}
