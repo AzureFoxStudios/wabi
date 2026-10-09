@@ -223,3 +223,27 @@
 
 /* ---- wiki landing in the panel ---- */
 :root .wiki-start h1, :root .wiki-start h2, :root .wiki-start h3 { font-family: var(--w-serif); font-weight: 600; letter-spacing: .01em; }
+
+/* ---- project view: editorial header, ledger board ---- */
+:root .project-workspace .project-hero { background: var(--w-bg); border-bottom: var(--w-bw, 1px) solid var(--w-line); padding-block: 1rem; }
+:root .project-workspace .project-hero::after { display: none; }
+:root .project-workspace .project-mark { width: 2.4rem; height: 2.4rem; border-radius: calc(8px * var(--w-rs, 1)); background: transparent; border: var(--w-bw, 1px) solid var(--w-line-strong); }
+:root .project-workspace .project-mark svg { width: 1.25rem; height: 1.25rem; }
+:root .project-workspace .project-eyebrow, :root .shared-project-board .board-eyebrow { font: 600 .66rem var(--w-mono); letter-spacing: .1em; color: var(--w-mute); }
+:root .project-workspace .project-presence { background: var(--w-online); box-shadow: none; }
+:root .project-workspace .project-title-block h1, :root .shared-project-board .board-heading h2 { font-family: var(--w-serif); font-weight: 600; letter-spacing: .005em; }
+:root .project-workspace .project-picker select { border-radius: calc(8px * var(--w-rs, 1)); }
+:root .project-workspace .project-tabs button.active::after { box-shadow: none; background: var(--w-sig); border-radius: 0; }
+:root .shared-project-board .board-overview { background: transparent; border-bottom: var(--w-bw, 1px) solid var(--w-line); }
+:root .shared-project-board .board-pulse { background: transparent; border-radius: calc(8px * var(--w-rs, 1)); border-color: var(--w-line); }
+:root .shared-project-board .pulse-stat :is(b, strong) { font-family: var(--w-mono); font-weight: 600; }
+:root .shared-project-board .progress-track { border-radius: 0; height: 3px; }
+:root .shared-project-board .section-line { border-radius: 0; background: var(--w-sig); }
+:root .shared-project-board .board-actions .new-card-button { background: var(--w-text); color: var(--w-bg); border-color: var(--w-text); border-radius: calc(8px * var(--w-rs, 1)); box-shadow: none; }
+
+:root .shared-project-board .board-actions button { border-radius: calc(8px * var(--w-rs, 1)); min-height: 2.2rem; }
+:root .shared-project-board .board-intro h2 { letter-spacing: .005em; }
+:root .shared-project-board .board-scroll .column-indicator { box-shadow: none; border-radius: 1px; width: .55rem; height: .55rem; }
+:root .shared-project-board .board-scroll .column-labels h2 { font: 600 1.02rem var(--w-serif); }
+:root .shared-project-board .board-scroll .column-count { background: transparent; color: var(--w-mute); font: 600 .72rem var(--w-mono); padding: 0; }
+:root .shared-project-board .board-scroll .column-header { border-bottom: var(--w-bw, 1px) solid var(--w-line); }
