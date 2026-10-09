@@ -34,8 +34,28 @@
 }
 :root .channel-sidebar .top-section > * { position: relative; z-index: 1; }
 :root .channel-sidebar .server-identity { gap: 12px; padding: 0; background: none; }
-:root .channel-sidebar .server-identity .logo,
-:root .channel-sidebar .server-identity .logo-img { width: 40px; height: 40px; border-radius: calc(10px * var(--w-rs, 1)); }
+/* The mark is shown as-is: no disc, ring or glow behind it. A transparent logo must sit
+   directly on the banner; an opaque square icon just gets softened corners. */
+:root .channel-sidebar .server-identity .logo {
+	width: 40px;
+	height: 40px;
+	flex-basis: 40px;
+	border-radius: 0;
+	background: none;
+	box-shadow: none;
+	overflow: hidden;
+}
+:root .channel-sidebar .server-identity .logo-img {
+	width: 40px;
+	height: 40px;
+	border-radius: calc(8px * var(--w-rs, 1));
+	background: none;
+	object-fit: contain;
+	filter: none;
+}
+:root .channel-sidebar .server-identity .server-logo-img { object-fit: contain; }
+/* The built-in mark is dark ink on transparent: flip it on dark surfaces. */
+:root[data-mode='dark'] .channel-sidebar .server-identity .brand-logo-img { filter: invert(1); }
 :root .channel-sidebar .server-name {
 	font: 600 22px/1.1 var(--w-serif);
 	letter-spacing: 0.01em;
