@@ -58,3 +58,22 @@
 :root .wb-settings-save { border: 0; background: var(--w-text); color: var(--w-bg); }
 :root .wb-settings-cancel { border: var(--w-bw, 1px) solid var(--w-line-strong); background: transparent; color: var(--w-text); }
 :root .wb-settings-cancel:hover { background: var(--w-raise); border-color: var(--w-accent); }
+
+/* Direct-message protection state is a security fact: it wears the seal. */
+:root .dm-tool-encryption-status {
+	display: inline-flex;
+	align-items: center;
+	padding: 1px 9px;
+	border: var(--w-bw, 1px) solid color-mix(in srgb, var(--w-seal) 70%, transparent);
+	border-radius: var(--w-pill, 999px);
+	background: var(--w-seal-soft);
+	color: var(--w-text);
+	font: 600 calc(11.5px * var(--w-fs, 1))/1.7 var(--w-sans);
+}
+:root .dm-encryption-gate {
+	border: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: calc(12px * var(--w-rs, 1));
+	background: var(--w-bg2);
+	box-shadow: inset 2px 0 0 var(--w-seal);
+	font-family: var(--w-sans);
+}
