@@ -34,6 +34,7 @@
 	import { buildShareLink, buildShareRefText, copyToClipboard } from '$lib/shareToChannel';
 	import { pendingNav, takePendingNav } from '$lib/pendingNav';
 	import { openModelAssetAt } from '$lib/modelOpenActions';
+	import { mediaUrl } from '$lib/mediaUrl';
 	import { openReaderDocument } from '$lib/readerWorkspace';
 	import type { GalleryMediaTypeFilter } from '$lib/galleryFilter';
 
@@ -255,15 +256,17 @@
 	function openLightbox(index: number, items: GalleryItem[]) {
 		const picked = items[index];
 		const kind = picked ? guessGalleryMediaKind(picked.attachmentMime, picked.attachmentName) : 'image';
+		// Relative /uploads paths must resolve against the Wabi server, not the page origin (desktop shell, multi-server).
+		const resolvedUrl = picked ? mediaUrl(picked.attachmentUrl) : '';
 		if (picked && kind === 'model') {
-			try { openModelAssetAt({ src: picked.attachmentUrl, fileName: picked.attachmentName, source: 'chat' }, { kind: 'workspace' }); } catch { /* the viewer reports its own errors */ }
+			try { openModelAssetAt({ src: resolvedUrl, fileName: picked.attachmentName, source: 'chat' }, { kind: 'workspace' }); } catch { /* the viewer reports its own errors */ }
 			return;
 		}
 		if (picked && kind === 'document') {
 			if (/\.(md|txt)$/i.test(picked.attachmentName)) {
-				void fetch(picked.attachmentUrl).then((response) => response.text()).then((text) => openReaderDocument(picked.attachmentName, text, /\.md$/i.test(picked.attachmentName) ? 'markdown' : 'text', 'generated')).catch(() => window.open(picked.attachmentUrl, '_blank', 'noopener'));
+				void fetch(resolvedUrl).then((response) => response.text()).then((text) => openReaderDocument(picked.attachmentName, text, /\.md$/i.test(picked.attachmentName) ? 'markdown' : 'text', 'generated')).catch(() => window.open(resolvedUrl, '_blank', 'noopener'));
 			} else {
-				window.open(picked.attachmentUrl, '_blank', 'noopener');
+				window.open(resolvedUrl, '_blank', 'noopener');
 			}
 			return;
 		}
