@@ -82,7 +82,7 @@ export function peekAnimationGate(node: HTMLElement): { destroy: () => void } {
 	const settle = () => {
 		requestAnimationFrame(() => {
 			// The rail is a separate element now; resting on it counts as being home.
-			setPeekPointerInside(node.matches(':hover') || (typeof document !== 'undefined' && Boolean(document.querySelector('.rail:hover'))));
+			setPeekPointerInside(node.matches(':hover') || (typeof document !== 'undefined' && typeof document.querySelector === 'function' && Boolean(document.querySelector('.rail:hover'))));
 			endPeekAnimation();
 		});
 	};
