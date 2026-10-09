@@ -159,7 +159,7 @@
 			{/if}
 			{#if privacySummary.e2ee || privacySummary.privateConversation}
 			<span
-				class="spoiler-channel-badge"
+				class="spoiler-channel-badge privacy-badge"
 				title={privacySummary.e2ee
                     ? 'Experimental encryption is enabled. The full path has not been independently verified; do not rely on it to hide content from the operator.'
                     : 'This conversation is server-readable. Retention does not hide content from the operator.'}
@@ -167,7 +167,7 @@
 			{/if}
 			{#if privacySummary.privateConversation}
 				<span
-					class="spoiler-channel-badge"
+					class="spoiler-channel-badge privacy-badge"
 					title={privacySummary.automatedContentRules
 						? 'This server has explicitly opted private conversations into local automated content rules.'
 						: 'Automated content rules do not inspect this private conversation. Participants can explicitly report messages to server staff.'}

@@ -226,3 +226,13 @@
 /* The seal marks what the server can and cannot read: the composer's encryption state. */
 :root .main-content .composer-e2ee-status { display: inline-flex; align-items: center; gap: 7px; padding-left: 8px; box-shadow: inset 2px 0 0 var(--w-seal); }
 :root .main-content .composer-e2ee-icon { color: var(--w-seal); }
+
+/* What the server can read is the seal's job: privacy chips in the channel header. */
+:root .main-content .chat-header .privacy-badge {
+	padding: 2px 9px;
+	border: var(--w-bw, 1px) solid color-mix(in srgb, var(--w-seal) 70%, transparent);
+	border-radius: var(--w-pill, 999px);
+	background: var(--w-seal-soft);
+	color: var(--w-text);
+	font: 600 calc(11.5px * var(--w-fs, 1))/1.5 var(--w-sans);
+}
