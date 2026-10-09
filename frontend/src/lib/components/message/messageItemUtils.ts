@@ -98,6 +98,23 @@ export function isEncryptedAttachment(attachment: { attachmentEncryption?: { sch
 	return attachment?.attachmentEncryption?.scheme === 'dm-e2ee-v1' && !!attachment?.attachmentEncryption?.iv;
 }
 
+/**
+ * Encrypted attachments are stored as `e2ee-*.wabi`, so extension checks can
+ * never recognise an image — the real type lives in the metadata, which rides
+ * on the message for exactly this reason.
+ */
+export function isEncryptedImageAttachment(attachment: {
+	attachmentEncryption?: { scheme?: string; iv?: string; mimeType?: string | null } | null;
+}): boolean {
+	const encryption = attachment?.attachmentEncryption;
+	return (
+		!!encryption &&
+		encryption.scheme === 'dm-e2ee-v1' &&
+		!!encryption.iv &&
+		!!encryption.mimeType?.toLowerCase().startsWith('image/')
+	);
+}
+
 export function getFileIcon(fileName?: string): string {
 	if (!fileName) return '📎';
 	const ext = fileName.toLowerCase().split('.').pop() || '';

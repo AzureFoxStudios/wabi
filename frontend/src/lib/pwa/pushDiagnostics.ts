@@ -35,6 +35,8 @@ export function pushFailureMessage(reason: string): string {
         permission_denied: 'Notifications are blocked. Allow them in this device’s browser or app settings.',
         browser_subscription_denied: 'The browser refused push registration. Check notification permission and, on iOS, use the Home Screen app.',
         browser_subscription_conflict: 'This device’s push registration uses a different server key. Disable push here, then enable it again.',
+        browser_subscription_network: 'The browser could not reach its push service. Check Wi-Fi or mobile data and try again — some phones without Google push services cannot receive browser push.',
+        browser_subscription_unsupported: 'This browser does not support Web Push for this site. Update the browser or try a different one.',
         browser_subscription_failed: 'The browser could not register push. Try again after checking the connection.',
         subscription_network_error: 'The device registered with its push service, but Wabi could not save the subscription. Try enabling push again.'
     };

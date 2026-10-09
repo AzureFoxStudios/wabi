@@ -10,6 +10,28 @@ import { getAuthToken } from '$lib/authSession';
 import { fetchVapidKeyResult } from './pushDiagnostics';
 
 const DEVICE_ID_KEY = 'wabi.deviceId';
+// Explicit per-device push opt-out. Distinct from the desktop-notification
+// master flag: a user may keep local toasts while refusing background push.
+const PUSH_OPT_OUT_KEY = 'wabi.pushOptOut';
+
+export function setPushOptOut(optedOut: boolean): void {
+	try {
+		if (optedOut) localStorage.setItem(PUSH_OPT_OUT_KEY, 'true');
+		else localStorage.removeItem(PUSH_OPT_OUT_KEY);
+	} catch {
+		// Storage unavailable: the flag just can't persist this session.
+	}
+}
+
+function isPushOptedOut(): boolean {
+	try {
+		return localStorage.getItem(PUSH_OPT_OUT_KEY) === 'true';
+	} catch {
+		// No readable storage means we cannot honor an opt-out — do not
+		// auto-subscribe; the settings toggle still works.
+		return true;
+	}
+}
 
 export type PushSubscribeResult =
 	| { ok: true; endpoint: string }
@@ -90,8 +112,24 @@ export async function subscribeWebPush(): Promise<PushSubscribeResult> {
 			applicationServerKey: urlBase64ToUint8Array(key.publicKey) as BufferSource
 		});
 	} catch (error) {
+		// Only structured DOMException names leave this block: raw vendor
+		// messages stay console-side (see pushSubscription.test.ts) but the
+		// reason still tells the user which class of failure they hit.
+		console.warn('[pwa] push subscription failed', error);
 		const name = error instanceof Error ? error.name : '';
-		return { ok: false, reason: name === 'NotAllowedError' ? 'browser_subscription_denied' : name === 'InvalidStateError' ? 'browser_subscription_conflict' : 'browser_subscription_failed' };
+		return {
+			ok: false,
+			reason:
+				name === 'NotAllowedError'
+					? 'browser_subscription_denied'
+					: name === 'InvalidStateError'
+						? 'browser_subscription_conflict'
+						: name === 'AbortError'
+							? 'browser_subscription_network'
+							: name === 'NotSupportedError'
+								? 'browser_subscription_unsupported'
+								: 'browser_subscription_failed'
+		};
 	}
 	if (!current()) return { ok: false, reason: 'account_changed' };
 	const json = sub.toJSON();
@@ -123,9 +161,12 @@ export async function subscribeWebPush(): Promise<PushSubscribeResult> {
 	return { ok: true, endpoint: json.endpoint || sub.endpoint };
 }
 
-export async function unsubscribeWebPush(): Promise<void> {
+export async function unsubscribeWebPush(explicitToken?: string | null): Promise<void> {
 	if (!browser || !('serviceWorker' in navigator)) return;
-	const token = getAuthToken();
+	// Logout captures the bearer before clearing the session: by the time this
+	// dynamic import resolves, getAuthToken() would already be null and the
+	// server binding would survive the logout it is supposed to remove.
+	const token = explicitToken !== undefined ? explicitToken : getAuthToken();
 	try {
 		const reg = await navigator.serviceWorker.ready;
 		const sub = await reg.pushManager.getSubscription();
@@ -236,6 +277,51 @@ export async function setPushPreferences(prefs: PushPreferences): Promise<boolea
 }
 
 /**
+ * Server channels the account switched message push on for (opt-in list).
+ * DMs never appear here; they follow the account-level switch.
+ *
+ * `null` means the read failed — callers must NOT render that as "all off",
+ * because a wrong all-off state would let one save silently drop choices the
+ * server still holds.
+ */
+export async function getPushChannelPrefs(): Promise<string[] | null> {
+	const token = getAuthToken();
+	if (!token) return null;
+	try {
+		const res = await fetch(`${getApiBase()}/api/push/channels`, {
+			credentials: 'same-origin',
+			headers: { Authorization: `Bearer ${token}` }
+		});
+		if (!res.ok) return null;
+		const data = await res.json();
+		if (!Array.isArray(data?.enabled)) return null;
+		return data.enabled.filter((value: unknown): value is string => typeof value === 'string');
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Replace the account's opt-in list (the settings screen owns the whole
+ * list, so the server takes one atomic snapshot rather than toggles).
+ */
+export async function setPushChannelPrefs(enabled: string[]): Promise<boolean> {
+	const token = getAuthToken();
+	if (!token) return false;
+	try {
+		const res = await fetch(`${getApiBase()}/api/push/channels`, {
+			method: 'PUT',
+			credentials: 'same-origin',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify({ enabled })
+		});
+		return res.ok;
+	} catch {
+		return false;
+	}
+}
+
+/**
  * Auto-subscribe to push after login. Best-effort: if the user hasn't granted
  * notification permission yet, or the browser doesn't support push, this is a
  * no-op. The settings tab can retry later.
@@ -244,10 +330,17 @@ export async function autoSubscribePush(): Promise<void> {
 	if (!browser || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
 	if (!('Notification' in window)) return;
 	if (Notification.permission !== 'granted') return;
+	// Opt-out must stick: turning push off in settings is a durable choice,
+	// not something the next login silently reverses.
+	if (isPushOptedOut()) return;
 	try {
-		const reg = await navigator.serviceWorker.ready;
-		const sub = await reg.pushManager.getSubscription();
-		if (sub) return; // already subscribed
+		// Re-registering on every login is intentional, not churn: the push
+		// subscription lives in the browser, but its server binding is per
+		// account. Re-posting the existing endpoint is an idempotent upsert
+		// that rebinds it to the account that just signed in — skipping this
+		// because "already subscribed" leaves the PREVIOUS account delivering
+		// into this browser (your own message buzzing a device now signed in
+		// as someone else).
 		await subscribeWebPush();
 	} catch {
 		// Best-effort: user can retry from settings

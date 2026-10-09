@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { getServerUrl } from '$lib/serverUrl';
+	import { getAuthToken } from '$lib/authSession';
 
 	export let url: string;
 
@@ -9,24 +10,37 @@
 	let error = false;
 	let playing = false;
 
+	// The preview endpoints require auth, so the card image is fetched with
+	// headers and shown as an object URL — an <img> cannot carry them.
+	let heroImage = '';
+	const objectUrls: string[] = [];
+
 	let disposed = false;
 	const controller = new AbortController();
-	onDestroy(() => { disposed = true; controller.abort(); });
+	onDestroy(() => {
+		disposed = true;
+		controller.abort();
+		for (const objectUrl of objectUrls) URL.revokeObjectURL(objectUrl);
+	});
+
+	function authHeaders(): Record<string, string> {
+		const headers: Record<string, string> = {};
+		const token = getAuthToken();
+		if (token) headers['Authorization'] = `Bearer ${token}`;
+		// Only needed when the backend is behind ngrok.
+		if (getServerUrl().includes('ngrok')) headers['ngrok-skip-browser-warning'] = 'true';
+		return headers;
+	}
+
 	onMount(async () => {
 		try {
 			const serverUrl = getServerUrl();
-			const headers: Record<string, string> = {};
-
-			// Only needed when the backend is behind ngrok.
-			if (serverUrl.includes('ngrok')) {
-				headers['ngrok-skip-browser-warning'] = 'true';
-			}
 
 			// Add timeout to prevent infinite loading
 			const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
 			const response = await fetch(`${serverUrl}/api/url-preview?url=${encodeURIComponent(url)}`, {
-				headers,
+				headers: authHeaders(),
 				signal: controller.signal
 			});
 
@@ -46,9 +60,31 @@
 		}
 	});
 
-	function proxyImage(imageUrl: string): string {
-		const serverUrl = getServerUrl();
-		return `${serverUrl}/api/image-proxy?url=${encodeURIComponent(imageUrl)}`;
+	$: void loadHeroImage(preview);
+
+	async function loadHeroImage(current: any): Promise<void> {
+		const candidate = !current
+			? ''
+			: current.image ||
+				(current.youtubeId ? `https://i.ytimg.com/vi/${current.youtubeId}/maxresdefault.jpg` : '');
+		if (!candidate) {
+			heroImage = '';
+			return;
+		}
+		try {
+			const response = await fetch(
+				`${getServerUrl()}/api/image-proxy?url=${encodeURIComponent(candidate)}`,
+				{ headers: authHeaders(), signal: controller.signal }
+			);
+			if (!response.ok) return;
+			const blob = await response.blob();
+			if (disposed || !current || current !== preview) return;
+			const objectUrl = URL.createObjectURL(blob);
+			objectUrls.push(objectUrl);
+			heroImage = objectUrl;
+		} catch {
+			// Text-only card is a fine fallback.
+		}
 	}
 
 	function handleClick() {
@@ -96,11 +132,13 @@
 					on:click={() => playing = true}
 					aria-label="Play video"
 				>
-					<img
-						src={proxyImage(preview.image || `https://i.ytimg.com/vi/${preview.youtubeId}/maxresdefault.jpg`)}
-						alt={preview.title || 'YouTube video'}
-						loading="lazy"
-					/>
+					{#if heroImage}
+						<img
+							src={heroImage}
+							alt={preview.title || 'YouTube video'}
+							loading="lazy"
+						/>
+					{/if}
 					<div class="play-button">
 						<svg viewBox="0 0 68 48" width="68" height="48">
 							<path d="M66.52 7.74c-.78-2.93-2.49-5.41-5.42-6.19C55.79.13 34 0 34 0S12.21.13 6.9 1.55C3.97 2.33 2.27 4.81 1.48 7.74.06 13.05 0 24 0 24s.06 10.95 1.48 16.26c.78 2.93 2.49 5.41 5.42 6.19C12.21 47.87 34 48 34 48s21.79-.13 27.1-1.55c2.93-.78 4.64-3.26 5.42-6.19C67.94 34.95 68 24 68 24s-.06-10.95-1.48-16.26z" fill="#FF0000"/>
@@ -123,9 +161,9 @@
 				}
 			}}
 		>
-			{#if preview.image}
+			{#if heroImage}
 				<div class="preview-image">
-					<img src={proxyImage(preview.image)} alt={preview.title || 'Preview'} loading="lazy" />
+					<img src={heroImage} alt={preview.title || 'Preview'} loading="lazy" />
 				</div>
 			{/if}
 			<div class="preview-content">

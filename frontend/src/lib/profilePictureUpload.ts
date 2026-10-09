@@ -68,13 +68,17 @@ function inferProfilePictureFileName(sourceUrl: string, contentType: string): st
 	return `profile-picture.${extension}`;
 }
 
-async function fetchBlobWithTimeout(url: string): Promise<Response> {
+async function fetchBlobWithTimeout(
+	url: string,
+	headers: Record<string, string> = {}
+): Promise<Response> {
 	const controller = new AbortController();
 	const timeoutId = window.setTimeout(() => controller.abort(), PROFILE_PICTURE_FETCH_TIMEOUT_MS);
 	try {
 		return await fetch(url, {
 			mode: 'cors',
-			signal: controller.signal
+			signal: controller.signal,
+			headers
 		});
 	} finally {
 		window.clearTimeout(timeoutId);
@@ -98,7 +102,13 @@ async function fetchRemoteProfilePictureBlob(sourceUrl: string): Promise<Blob> {
 async function fetchProfilePictureBlobViaProxy(sourceUrl: string): Promise<Blob> {
 	const serverUrl = getServerUrl();
 	const proxyUrl = `${serverUrl}/api/image-proxy?url=${encodeURIComponent(sourceUrl)}`;
-	const response = await fetchBlobWithTimeout(proxyUrl);
+	// Only our own proxy gets the session token; the direct source fetch
+	// above must never carry it to a third-party host.
+	const token = getAuthToken();
+	const response = await fetchBlobWithTimeout(
+		proxyUrl,
+		token ? { Authorization: `Bearer ${token}` } : {}
+	);
 	const payload = await response
 		.clone()
 		.json()

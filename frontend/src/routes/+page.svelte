@@ -280,6 +280,16 @@
 				startupMeasure('page:socket:init:call', 'page:socket:init:start', 'page:socket:init:end');
 				loggedIn = true;
 				syncFollowNotificationPoller(true);
+				// A restored session must also (re)register push, not just an
+				// explicit login: the browser subscription outlives sessions, so
+				// this is what rebinds it to whoever is signed in now. Without it,
+				// an account switch followed by a plain reload keeps delivering
+				// the previous account's pushes into this browser.
+				if (savedToken) {
+					void import('$lib/pwa/pushClient')
+						.then((m) => m.autoSubscribePush())
+						.catch(() => undefined);
+				}
 				// Initialize E2E in background so it doesn't block initial render and socket startup.
 				// DM-strip 2026-06-16: initE2E + retryDecryptLoadedDmMessages removed. E2E
 				// encryption was a DM-only concern; without DMs there's nothing to
@@ -494,6 +504,14 @@
 		disconnect();
 		syncFollowNotificationPoller(false);
 		void stopDesktopHelperService(true);
+		// Push subscriptions are account-scoped: capture the bearer while the
+		// session is still alive and tear the server binding down, or the
+		// signed-out browser keeps receiving this account's notifications.
+		// (The next login re-creates the browser subscription.)
+		const pushBearer = getAuthToken();
+		void import('$lib/pwa/pushClient')
+			.then((m) => m.unsubscribeWebPush(pushBearer))
+			.catch(() => undefined);
 		
 		loggedIn = false;
 		showTempPasswordPrompt = false;

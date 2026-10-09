@@ -17,15 +17,19 @@
 		isBlendFile,
 		getMediaMimeType,
 		isEncryptedAttachment,
+		isEncryptedImageAttachment,
 		isImage,
 		isModelFile,
 		isVideo,
 		isZipFile,
 		type AlbumAnnouncement
 	} from './messageItemUtils';
+	import E2eeImage from './E2eeImage.svelte';
 
 	export let message: Message;
 	export let forceSpoiler = false;
+	/** Channel this message was rendered from — the E2EE room key is per-room. */
+	export let currentChannel: string = '';
 
 	// Chat→Lore promote badge (spec 2026-08-28 P1.5). Populated on promote
 	// success or when the message's context menu opens; socket push is Phase 2.
@@ -215,7 +219,26 @@
 											</div>
 										{/if}
 									</div>
-									{:else if isVideo(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
+								{:else if isEncryptedImageAttachment(fileAttachment)}
+									<div class="gallery-file-item" class:last-item={index === 3 && message.files.length > 4}>
+										<E2eeImage
+											channelId={currentChannel}
+											url={getFileUrl(fileAttachment.fileUrl)}
+											encryption={fileAttachment.attachmentEncryption}
+											alt={fileAttachment.fileName}
+											label={fileAttachment.fileName}
+											imgClass="gallery-file-image {mediaIsSpoiled ? 'spoiler' : ''}"
+											spoiled={mediaIsSpoiled}
+											title={$_('messages.media.click_enlarge')}
+											onActivate={(objectUrl) => onEnlargeImage(objectUrl)}
+										/>
+										{#if index === 3 && message.files.length > 4}
+											<div class="more-overlay">
+												<span class="more-count">+{message.files.length - 4}</span>
+											</div>
+										{/if}
+									</div>
+								{:else if isVideo(fileAttachment.fileName) && !isEncryptedAttachment(fileAttachment)}
 									<!-- svelte-ignore a11y-media-has-caption -->
 									<!-- svelte-ignore a11y-click-events-have-key-events -->
 									<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
@@ -380,6 +403,39 @@
 								<span class="file-icon">{getFileIcon(message.fileName)}</span>
 								{message.fileName}
 								<span class="file-size">({formatFileSize(message.fileSize)})</span>
+							</a>
+						</div>
+					{:else if isEncryptedImageAttachment(message)}
+						<!-- Encrypted (E2EE) image: decrypted in the browser for display;
+						     the file itself downloads through the decrypting path. -->
+						<div class="image-container">
+							<E2eeImage
+								channelId={currentChannel}
+								url={getFileUrl(message.fileUrl)}
+								encryption={message.attachmentEncryption}
+								alt={message.fileName}
+								label={message.fileName}
+								imgClass="inline-image {mediaIsSpoiled ? 'spoiler' : ''}"
+								spoiled={mediaIsSpoiled}
+								title={$_('messages.media.click_enlarge_with_options')}
+								onActivate={(objectUrl) => {
+									if (mediaIsSpoiled) { spoilerRevealed = true; return; }
+									onEnlargeImage(objectUrl);
+								}}
+								onContextMenu={(e) => onImageContextMenu(e, message)}
+							/>
+							<a
+								href={getFileUrl(message.fileUrl)}
+								target="_blank"
+								rel="noopener noreferrer"
+								class="image-download-link"
+								on:click|preventDefault={() =>
+									message.fileUrl && message.fileName &&
+									onDownloadAttachment(message.fileUrl, message.fileName, message.attachmentEncryption)}
+							>
+								<span class="file-icon">{getFileIcon(message.fileName)}</span>
+								{message.fileName}
+								<span class="file-size">({formatFileSize(message.fileSize)} · {$_('messages.encrypted')})</span>
 							</a>
 						</div>
 					{:else if isVideo(message.fileName) && !isEncryptedAttachment(message)}
