@@ -1,5 +1,6 @@
 <!-- frontend/src/lib/components/MainLayout.svelte -->
 <script lang="ts">
+	import GlanceHost from './GlanceHost.svelte';
 	import { workspaceToolFromTab } from '$lib/workspaces/bridge';
 	import WorkspaceLinkHandler from '$lib/workspaces/WorkspaceLinkHandler.svelte';
 	import WorkspaceHost from '$lib/workspaces/WorkspaceHost.svelte';
@@ -30,6 +31,9 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import { NOTIFICATIONS_ADDON_ID } from '$lib/notificationsWorkspace';
 	import { getDmDirectoryKey } from '$lib/dmUserDirectory';
 	import { findExistingDmChannel } from '$lib/dmConversations';
+	import { currentSavedServer } from '$lib/savedServers';
+	import { currentTheme } from '$lib/theme/themeStore';
+	import { communityDisplayFont } from '$lib/theme/displayFonts';
 	import RightStubStrip from '$lib/components/RightStubStrip.svelte';
 	import VoiceLiveStrip from '$lib/components/VoiceLiveStrip.svelte';
 	import { voiceViewOpen } from '$lib/voiceView';
@@ -89,7 +93,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	export let accountSecurityOpenRequest = 0;
 	let showSettings = false;
 	let requestedSettingsPaymentSurface: 'connections' | null = null;
-	let requestedSettingsTab: 'profile' | 'server' | 'notifications' | 'audio' | null = null;
+	let requestedSettingsTab: 'profile' | 'server' | 'notifications' | 'audio' | 'addons' | null = null;
 	let activityActionError = '';
 	let requestedSettingsPasswordChangeRequest = 0;
 	let lastHandledAccountSecurityOpenRequest = 0;
@@ -282,7 +286,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		const openDesktopSettings = (event: Event) => {
 			openSettings();
 			const tab = (event as CustomEvent<{ tab?: string }>).detail?.tab;
-			if (tab === 'profile' || tab === 'audio') requestedSettingsTab = tab;
+			if (tab === 'profile' || tab === 'audio' || tab === 'addons') requestedSettingsTab = tab;
 		};
 		const openDesktopServers = () => {
 			openServerSwitcher();
@@ -1148,6 +1152,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	$: activeOfficeTool = workspaceToolFromTab($activeTabId);
 </script>
 
+<GlanceHost />
+
 <svelte:window
 	on:mousemove={handleMouseMove}
 	on:mouseup={stopResize}
@@ -1275,6 +1281,14 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		class:mobile-nav-visible={mobileNavVisible && $layoutStore.isMobile && !$layoutStore.isInCall}
 		class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
 		class:obvious-grab-rails={$layoutStore.obviousGrabRails}
+		class:rail-on={!$layoutStore.isMobile && !$focusMode}
+		class:dock-pinned={$layoutStore.rightPanelMode === 'pinned'}
+		class:rail-left={$layoutStore.stubSide === 'left'}
+		style:--w-sig={$currentSavedServer?.frontendMetadata?.accentColor || null}
+		style:--w-serif={communityDisplayFont($currentSavedServer?.frontendMetadata?.displayFont, $currentTheme?.character)}
+		style:--w-dock-w={$layoutStore.rightPanelMode === 'pinned' && !$layoutStore.isMobile
+			? `min(${Math.min($layoutStore.rightPanelWidth, 744)}px, 55vw)`
+			: '0px'}
 	>
 	{#if !$layoutStore.isMobile && $layoutStore.channelSidebarWidth === 0}
 		<button
@@ -1388,11 +1402,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 						<svelte:component this={RightPanelCmp} on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />
 					{/if}
 				</div>
-				<RightStubStrip floating />
 			</div>
-		{:else}
-			<RightStubStrip />
 		{/if}
+		<RightStubStrip />
 	{:else}
 		<!-- Mobile Right Panel Overlay -->
 		<div

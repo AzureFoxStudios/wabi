@@ -24,14 +24,14 @@ use crate::state::AppState;
 const PREVIEW_MAX_BYTES: usize = 2 * 1024 * 1024; // 2 MB
 const IMAGE_PROXY_MAX_BYTES: usize = 10 * 1024 * 1024; // 10 MB
 
-struct OutboundTarget {
-    url: Url,
-    address: SocketAddr,
+pub(crate) struct OutboundTarget {
+    pub(crate) url: Url,
+    pub(crate) address: SocketAddr,
 }
 
 /// Validate the actual fetch destination and retain its approved address for
 /// the connection. A second DNS lookup must not undo this SSRF decision.
-async fn validate_outbound_url(raw_url: &str) -> Result<OutboundTarget> {
+pub(crate) async fn validate_outbound_url(raw_url: &str) -> Result<OutboundTarget> {
     let url = Url::parse(raw_url).map_err(|_| AppError::BadRequest("invalid URL".into()))?;
 
     let scheme = url.scheme();
@@ -83,7 +83,7 @@ fn is_public_ip(ip: IpAddr) -> bool {
     }
 }
 
-fn pinned_client(target: &OutboundTarget, timeout_ms: u64) -> Result<ClientBuilder> {
+pub(crate) fn pinned_client(target: &OutboundTarget, timeout_ms: u64) -> Result<ClientBuilder> {
     let host = target
         .url
         .host_str()
@@ -95,6 +95,81 @@ fn pinned_client(target: &OutboundTarget, timeout_ms: u64) -> Result<ClientBuild
         .resolve(host, target.address)
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none()))
+}
+
+/// Bound on redirect hops: enough for real-site chains (www → canonical,
+/// http → https, twitter.com → x.com) without allowing a loop or a long
+/// relay tunnel. The transport itself never follows redirects; this loop
+/// re-validates every hop before it is fetched.
+const MAX_FETCH_REDIRECTS: usize = 5;
+
+/// A Location header resolves against the URL that produced it (absolute and
+/// relative forms are both common).
+fn redirect_target(current: &Url, location: &str) -> Result<Url> {
+    current
+        .join(location.trim())
+        .map_err(|_| AppError::BadRequest("invalid redirect location".into()))
+}
+
+/// Site HTML often uses root-relative asset URLs; resolve them against the
+/// URL that was actually fetched (after redirects).
+fn resolve_against(base: &Url, raw: &str) -> String {
+    base.join(raw)
+        .map(|url| url.to_string())
+        .unwrap_or_else(|_| raw.to_string())
+}
+
+type ValidateFuture =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<OutboundTarget>> + Send>>;
+
+/// Production hop validator: the exact same SSRF rules as the first request —
+/// scheme check, fresh DNS resolution, public-address-only, connection pin.
+fn validate_hop(raw: String) -> ValidateFuture {
+    Box::pin(async move { validate_outbound_url(&raw).await })
+}
+
+/// GET `target`, following up to [`MAX_FETCH_REDIRECTS`] redirects. Because
+/// the pinned transport never follows them itself, each Location goes through
+/// the full SSRF validation again — a redirect can never reach a private host,
+/// and the final request stays pinned to its approved address. Returns the
+/// final URL with the final (non-redirect) response.
+async fn get_following_redirects(
+    mut target: OutboundTarget,
+    timeout_ms: u64,
+    accept: &str,
+    validate: impl Fn(String) -> ValidateFuture,
+) -> Result<(Url, reqwest::Response)> {
+    for _ in 0..=MAX_FETCH_REDIRECTS {
+        let client = pinned_client(&target, timeout_ms)?.build()?;
+        let response = client
+            .get(target.url.clone())
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)",
+            )
+            .header("Accept", accept)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to fetch URL: {}", e))?;
+        let location = match response.status() {
+            reqwest::StatusCode::MOVED_PERMANENTLY
+            | reqwest::StatusCode::FOUND
+            | reqwest::StatusCode::SEE_OTHER
+            | reqwest::StatusCode::TEMPORARY_REDIRECT
+            | reqwest::StatusCode::PERMANENT_REDIRECT => response
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned),
+            _ => None,
+        };
+        let Some(location) = location else {
+            return Ok((target.url, response));
+        };
+        let next = redirect_target(&target.url, &location)?;
+        target = validate(next.to_string()).await?;
+    }
+    Err(anyhow::anyhow!("URL redirects too many times").into())
 }
 
 async fn read_capped_body(mut response: reqwest::Response, max_bytes: usize) -> Result<Vec<u8>> {
@@ -238,6 +313,17 @@ pub struct UrlPreviewResponse {
     pub twitter_card: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub twitter_player: Option<String>,
+    /// What the link points at, so the client can draw the right card:
+    /// post | video | repo | article | audio | link.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// Person or account behind the link (post author, repo owner, channel).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author_handle: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub published: Option<String>,
 }
 
 /// YouTube oEmbed response
@@ -245,6 +331,8 @@ pub struct UrlPreviewResponse {
 struct OembedResponse {
     title: Option<String>,
     author_name: Option<String>,
+    author_url: Option<String>,
+    html: Option<String>,
     #[allow(dead_code)]
     thumbnail_url: Option<String>,
 }
@@ -331,60 +419,205 @@ pub async fn url_preview(
         return fetch_youtube_preview(&query.url).await;
     }
 
-    let client = pinned_client(&target, PREVIEW_FETCH_TIMEOUT_MS)?.build()?;
-    // General OG metadata fetch
-    let response = client
-        .get(target.url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)",
-        )
-        .header("Accept", "text/html")
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to fetch URL: {}", e))?;
+    // General OG metadata fetch. Redirects (twitter.com → x.com, http →
+    // https, www → canonical) are followed with a fresh SSRF validation on
+    // every hop. The HTTP status is deliberately not a gate: X answers a
+    // deleted post with a 404 page that still carries honest Open Graph
+    // tags, so a card reading "Post Not Found" is more truthful than a
+    // failed preview. Only a non-HTML body has nothing to extract, and
+    // that is an empty preview (the client falls back to the bare link).
+    let og = fetch_open_graph(target).await;
+    let mut preview = resolve_preview(&query.url, og, |url| async move { fetch_x_post(&url).await }).await?;
+    classify_preview(&query.url, &mut preview);
+    Ok(Json(preview))
+}
 
-    if !response.status().is_success() {
-        return Err(anyhow::anyhow!("Failed to fetch URL").into());
+/// Decide between the page's own Open Graph metadata and X's oEmbed.
+///
+/// X often refuses server addresses or serves a JavaScript shell without Open Graph tags. Its own oEmbed
+/// endpoint is the sanctioned fallback: no key, and no third-party relay sees the link. The fetcher is injected
+/// so the decision can be tested without the network.
+async fn resolve_preview<F, Fut>(
+    raw_url: &str,
+    og: Result<UrlPreviewResponse>,
+    fetch_x: F,
+) -> Result<UrlPreviewResponse>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = Result<UrlPreviewResponse>>,
+{
+    if is_x_status_url(raw_url) {
+        let usable = matches!(&og, Ok(p) if p.description.is_some());
+        if !usable {
+            if let Ok(post) = fetch_x(raw_url.to_string()).await {
+                return Ok(post);
+            }
+        }
     }
+    og
+}
+
+async fn fetch_open_graph(target: OutboundTarget) -> Result<UrlPreviewResponse> {
+    let (final_url, response) =
+        get_following_redirects(target, PREVIEW_FETCH_TIMEOUT_MS, "text/html", validate_hop).await?;
 
     let content_type = response
         .headers()
         .get("content-type")
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default();
-    if !content_type.contains("text/html") {
-        return Err(anyhow::anyhow!("URL is not an HTML page").into());
+    let html = if content_type.contains("text/html") {
+        read_capped_text(response, PREVIEW_MAX_BYTES).await?
+    } else {
+        String::new()
+    };
+
+    Ok(preview_metadata(&final_url, &html))
+}
+
+fn is_x_status_url(raw: &str) -> bool {
+    let Ok(url) = Url::parse(raw) else { return false };
+    let host = url.host_str().unwrap_or_default().trim_start_matches("www.");
+    (host == "x.com" || host == "twitter.com") && url.path().contains("/status/")
+}
+
+/// Decide what kind of thing a link is, from the URL and the metadata found.
+fn classify_preview(raw: &str, preview: &mut UrlPreviewResponse) {
+    if preview.kind.is_some() {
+        return;
     }
+    let url = Url::parse(raw).ok();
+    let host = url
+        .as_ref()
+        .and_then(|u| u.host_str())
+        .unwrap_or_default()
+        .trim_start_matches("www.")
+        .to_string();
+    let segments: Vec<&str> = url
+        .as_ref()
+        .map(|u| u.path().split('/').filter(|s| !s.is_empty()).collect())
+        .unwrap_or_default();
+    let og_type = preview.r#type.clone().unwrap_or_default();
 
-    let html = read_capped_text(response, PREVIEW_MAX_BYTES).await?;
+    let kind = if is_x_status_url(raw) {
+        // The Open Graph title is "Name (@handle) on X"; the description is the post text.
+        if let Some(title) = preview.title.clone() {
+            if let Some((name, rest)) = title.split_once(" (@") {
+                if let Some((handle, _)) = rest.split_once(')') {
+                    preview.author = Some(name.to_string());
+                    preview.author_handle = Some(format!("@{handle}"));
+                }
+            }
+        }
+        "post"
+    } else if host == "github.com" && segments.len() == 2 {
+        preview.author = Some(segments[0].to_string());
+        "repo"
+    } else if preview.video.is_some() || og_type.starts_with("video") {
+        "video"
+    } else if og_type.starts_with("music")
+        || host.ends_with("spotify.com")
+        || host.ends_with("soundcloud.com")
+        || host.ends_with("bandcamp.com")
+    {
+        "audio"
+    } else if og_type == "article" {
+        "article"
+    } else {
+        "link"
+    };
+    preview.kind = Some(kind.to_string());
+}
 
-    let title = get_meta(&html, "og:title")
-        .or_else(|| get_meta(&html, "twitter:title"))
+/// Fetch a post through X's official oEmbed endpoint and pull out the text.
+async fn fetch_x_post(raw_url: &str) -> Result<UrlPreviewResponse> {
+    let endpoint = format!(
+        "https://publish.x.com/oembed?omit_script=true&dnt=true&url={}",
+        urlencoding::encode(raw_url)
+    );
+    let oembed = fetch_oembed(&endpoint).await?;
+    let html = oembed.html.unwrap_or_default();
+    let (text, published) = parse_x_oembed_html(&html);
+    if text.is_none() {
+        return Err(AppError::BadRequest("empty post".into()));
+    }
+    let author_handle = oembed
+        .author_url
+        .as_deref()
+        .and_then(|u| u.trim_end_matches('/').rsplit('/').next())
+        .map(|h| format!("@{h}"));
+    Ok(UrlPreviewResponse {
+        title: oembed.author_name.clone(),
+        description: text,
+        image: None,
+        site_name: Some("X".to_string()),
+        r#type: Some("article".to_string()),
+        youtube_id: None,
+        channel_name: None,
+        video: None,
+        twitter_card: None,
+        twitter_player: None,
+        kind: Some("post".to_string()),
+        author: oembed.author_name,
+        author_handle,
+        published,
+    })
+}
+
+/// The oEmbed `html` is a blockquote: the post text is the first `<p>`, the
+/// date is the text of the trailing link.
+fn parse_x_oembed_html(html: &str) -> (Option<String>, Option<String>) {
+    let paragraph = regex::Regex::new(r"(?s)<p[^>]*>(.*?)</p>").ok();
+    let text = paragraph
+        .and_then(|re| re.captures(html).map(|c| c[1].to_string()))
+        .map(|inner| {
+            let with_breaks = inner.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n");
+            let stripped = regex::Regex::new(r"<[^>]+>")
+                .map(|re| re.replace_all(&with_breaks, "").to_string())
+                .unwrap_or(with_breaks);
+            decode_html_entities(stripped.trim())
+        })
+        .filter(|t| !t.is_empty());
+    let published = regex::Regex::new(r"(?s)</p>.*?<a[^>]*>([^<]+)</a>\s*</blockquote>")
+        .ok()
+        .and_then(|re| re.captures(html).map(|c| decode_html_entities(c[1].trim())))
+        .filter(|d| !d.is_empty());
+    (text, published)
+}
+
+/// Extract Open Graph / Twitter card metadata from a fetched page. Asset
+/// URLs are resolved against the URL that was actually fetched after
+/// redirects, so root-relative og:image paths and moved hosts stay valid.
+fn preview_metadata(final_url: &Url, html: &str) -> UrlPreviewResponse {
+    let title = get_meta(html, "og:title")
+        .or_else(|| get_meta(html, "twitter:title"))
         .or_else(|| {
             regex::Regex::new(r"<title[^>]*>([^<]*)</title>")
                 .ok()?
-                .captures(&html)
+                .captures(html)
                 .map(|c| decode_html_entities(&c[1]))
         });
 
-    let description = get_meta(&html, "og:description")
-        .or_else(|| get_meta(&html, "twitter:description"))
-        .or_else(|| get_meta(&html, "description"));
+    let description = get_meta(html, "og:description")
+        .or_else(|| get_meta(html, "twitter:description"))
+        .or_else(|| get_meta(html, "description"));
 
-    let site_name = get_meta(&html, "og:site_name");
-    let r#type = get_meta(&html, "og:type");
-    let image = get_meta(&html, "og:image").or_else(|| get_meta(&html, "twitter:image"));
-    let video_url = get_meta(&html, "og:video:secure_url")
-        .or_else(|| get_meta(&html, "og:video:url"))
-        .or_else(|| get_meta(&html, "og:video"));
-    let video_type = get_meta(&html, "og:video:type");
+    let site_name = get_meta(html, "og:site_name");
+    let r#type = get_meta(html, "og:type");
+    let image = get_meta(html, "og:image")
+        .or_else(|| get_meta(html, "twitter:image"))
+        .map(|raw| resolve_against(final_url, &raw));
+    let video_url = get_meta(html, "og:video:secure_url")
+        .or_else(|| get_meta(html, "og:video:url"))
+        .or_else(|| get_meta(html, "og:video"))
+        .map(|raw| resolve_against(final_url, &raw));
+    let video_type = get_meta(html, "og:video:type");
     let video_width =
-        get_meta(&html, "og:video:width").or_else(|| get_meta(&html, "twitter:player:width"));
+        get_meta(html, "og:video:width").or_else(|| get_meta(html, "twitter:player:width"));
     let video_height =
-        get_meta(&html, "og:video:height").or_else(|| get_meta(&html, "twitter:player:height"));
-    let twitter_card = get_meta(&html, "twitter:card");
-    let twitter_player = get_meta(&html, "twitter:player");
+        get_meta(html, "og:video:height").or_else(|| get_meta(html, "twitter:player:height"));
+    let twitter_card = get_meta(html, "twitter:card");
+    let twitter_player = get_meta(html, "twitter:player");
 
     let video = video_url.map(|url| PreviewVideo {
         url,
@@ -393,7 +626,7 @@ pub async fn url_preview(
         height: video_height,
     });
 
-    Ok(Json(UrlPreviewResponse {
+    UrlPreviewResponse {
         title,
         description,
         image,
@@ -404,7 +637,11 @@ pub async fn url_preview(
         video,
         twitter_card,
         twitter_player,
-    }))
+        kind: None,
+        author: None,
+        author_handle: None,
+        published: None,
+    }
 }
 
 async fn fetch_youtube_preview(raw_url: &str) -> Result<Json<UrlPreviewResponse>> {
@@ -447,6 +684,10 @@ async fn fetch_youtube_preview(raw_url: &str) -> Result<Json<UrlPreviewResponse>
         }),
         twitter_card: Some("player".to_string()),
         twitter_player: Some(format!("https://www.youtube.com/embed/{}", youtube_id)),
+        kind: Some("video".to_string()),
+        author: None,
+        author_handle: None,
+        published: None,
     }))
 }
 
@@ -514,18 +755,10 @@ pub async fn image_proxy(
     Query(query): Query<ImageProxyQuery>,
 ) -> Result<axum::response::Response> {
     let target = validate_outbound_url(&query.url).await?;
-    let client = pinned_client(&target, IMAGE_PROXY_TIMEOUT_MS)?.build()?;
-
-    let response = client
-        .get(target.url)
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (compatible; WabiBot/1.0; +https://wabi.chat)",
-        )
-        .header("Accept", "image/*")
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to fetch image: {}", e))?;
+    // Hotlinked preview images often redirect (CDN canonicalisation); each
+    // hop is re-validated exactly like the first request.
+    let (_final_url, response) =
+        get_following_redirects(target, IMAGE_PROXY_TIMEOUT_MS, "image/*", validate_hop).await?;
 
     if !response.status().is_success() {
         return Err(anyhow::anyhow!("Failed to fetch image").into());
@@ -747,6 +980,129 @@ mod tests {
         task.abort();
     }
 
+    #[test]
+    fn redirect_locations_resolve_against_the_current_url() {
+        let base = Url::parse("https://x.com/gnu/status/123").unwrap();
+        assert_eq!(
+            redirect_target(&base, "https://x.com/gnu").unwrap().as_str(),
+            "https://x.com/gnu"
+        );
+        assert_eq!(
+            redirect_target(&base, "/gnu/status/9").unwrap().as_str(),
+            "https://x.com/gnu/status/9"
+        );
+        // Location headers sometimes carry stray whitespace.
+        assert_eq!(
+            redirect_target(&base, " media ").unwrap().as_str(),
+            "https://x.com/gnu/status/media"
+        );
+    }
+
+    #[test]
+    fn a_not_found_page_still_produces_preview_metadata() {
+        // X answers a deleted post with a 404 body that still carries
+        // Open Graph tags; rejecting non-2xx would turn that honest card
+        // into a failed preview.
+        let html = r#"<html><head>
+            <meta property="og:title" content="Post Not Found - X | 404 Error">
+            <meta property="og:description" content="The post may have been deleted.">
+            <meta property="og:image" content="/ssr/default/v2/og/image.png">
+            <meta property="og:site_name" content="X (formerly Twitter)">
+            <meta property="og:type" content="article">
+        </head><body>gone</body></html>"#;
+        let metadata =
+            preview_metadata(&Url::parse("https://x.com/gnu/status/1?s=20").unwrap(), html);
+        assert_eq!(
+            metadata.title.as_deref(),
+            Some("Post Not Found - X | 404 Error")
+        );
+        assert_eq!(
+            metadata.description.as_deref(),
+            Some("The post may have been deleted.")
+        );
+        assert_eq!(
+            metadata.image.as_deref(),
+            Some("https://x.com/ssr/default/v2/og/image.png")
+        );
+        assert_eq!(metadata.site_name.as_deref(), Some("X (formerly Twitter)"));
+        assert_eq!(metadata.r#type.as_deref(), Some("article"));
+    }
+
+    #[test]
+    fn a_non_html_body_produces_an_empty_preview() {
+        let metadata =
+            preview_metadata(&Url::parse("https://example.invalid/data.json").unwrap(), "");
+        assert!(metadata.title.is_none());
+        assert!(metadata.image.is_none());
+        assert!(metadata.video.is_none());
+        assert!(metadata.twitter_card.is_none());
+    }
+
+    #[tokio::test]
+    async fn redirects_are_followed_after_revalidating_every_hop() {
+        let app = Router::new()
+            .route(
+                "/start",
+                get(|| async {
+                    (
+                        StatusCode::TEMPORARY_REDIRECT,
+                        [(header::LOCATION, "/landed")],
+                    )
+                }),
+            )
+            .route(
+                "/landed",
+                get(|| async { "<html><meta property=\"og:title\" content=\"landed\"></html>" }),
+            );
+        let (address, task) = fixture(app).await;
+        let target = fixture_target(address, "/start");
+        // Stand-in for validate_outbound_url: the fixture addresses the
+        // loopback server through the pinned Host, never via DNS.
+        let (final_url, response) = get_following_redirects(target, 1000, "text/html", move |raw| {
+            let address = address;
+            Box::pin(async move {
+                let url = Url::parse(&raw).map_err(|_| AppError::BadRequest("invalid URL".into()))?;
+                Ok(fixture_target(address, url.path()))
+            })
+        })
+        .await
+        .unwrap();
+        assert_eq!(final_url.path(), "/landed");
+        assert!(response.status().is_success());
+        assert!(
+            read_capped_text(response, 1024)
+                .await
+                .unwrap()
+                .contains("landed")
+        );
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn redirect_loops_are_bounded() {
+        let app = Router::new().route(
+            "/loop",
+            get(|| async {
+                (
+                    StatusCode::TEMPORARY_REDIRECT,
+                    [(header::LOCATION, "/loop")],
+                )
+            }),
+        );
+        let (address, task) = fixture(app).await;
+        let target = fixture_target(address, "/loop");
+        let result = get_following_redirects(target, 1000, "text/html", move |raw| {
+            let address = address;
+            Box::pin(async move {
+                let url = Url::parse(&raw).map_err(|_| AppError::BadRequest("invalid URL".into()))?;
+                Ok(fixture_target(address, url.path()))
+            })
+        })
+        .await;
+        assert!(result.is_err());
+        task.abort();
+    }
+
     #[tokio::test]
     async fn refused_pinned_connection_does_not_fall_back_to_dns() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -813,5 +1169,128 @@ mod tests {
             .into();
         let html = read_capped_text(response, PREVIEW_MAX_BYTES).await.unwrap();
         assert_eq!(html, "<title>Café</title>");
+    }
+}
+
+#[cfg(test)]
+mod link_kind_tests {
+    use super::*;
+
+    fn bare() -> UrlPreviewResponse {
+        UrlPreviewResponse {
+            title: None,
+            description: None,
+            image: None,
+            site_name: None,
+            r#type: None,
+            youtube_id: None,
+            channel_name: None,
+            video: None,
+            twitter_card: None,
+            twitter_player: None,
+            kind: None,
+            author: None,
+            author_handle: None,
+            published: None,
+        }
+    }
+
+    #[test]
+    fn x_status_urls_are_recognised_on_both_hosts() {
+        assert!(is_x_status_url("https://x.com/jack/status/20"));
+        assert!(is_x_status_url("https://www.twitter.com/jack/status/20?s=1"));
+        assert!(!is_x_status_url("https://x.com/jack"));
+        assert!(!is_x_status_url("https://example.com/a/status/1"));
+    }
+
+    #[test]
+    fn oembed_html_yields_text_and_date() {
+        let html = r#"<blockquote class="twitter-tweet"><p lang="en" dir="ltr">just setting up my twttr<br>line two &amp; more</p>&mdash; jack (@jack) <a href="https://twitter.com/jack/status/20?ref_src=twsrc%5Etfw">March 21, 2006</a></blockquote>"#;
+        let (text, published) = parse_x_oembed_html(html);
+        assert_eq!(text.as_deref(), Some("just setting up my twttr\nline two & more"));
+        assert_eq!(published.as_deref(), Some("March 21, 2006"));
+    }
+
+    fn post(text: &str) -> UrlPreviewResponse {
+        let mut p = bare();
+        p.kind = Some("post".into());
+        p.description = Some(text.into());
+        p
+    }
+
+    #[tokio::test]
+    async fn x_falls_back_to_oembed_when_the_page_fetch_fails_or_has_no_text() {
+        let url = "https://x.com/jack/status/20";
+        let failed = resolve_preview(url, Err(AppError::BadRequest("blocked".into())), |_| async { Ok(post("from oembed")) })
+            .await
+            .unwrap();
+        assert_eq!(failed.description.as_deref(), Some("from oembed"));
+        assert_eq!(failed.kind.as_deref(), Some("post"));
+
+        let shell = resolve_preview(url, Ok(bare()), |_| async { Ok(post("from oembed")) }).await.unwrap();
+        assert_eq!(shell.description.as_deref(), Some("from oembed"));
+    }
+
+    #[tokio::test]
+    async fn x_keeps_the_page_metadata_when_it_has_text_and_never_calls_oembed() {
+        let mut og = bare();
+        og.description = Some("from the page".into());
+        let kept = resolve_preview("https://x.com/jack/status/20", Ok(og), |_| async {
+            panic!("oEmbed must not be called when the page already has text");
+            #[allow(unreachable_code)]
+            Ok(bare())
+        })
+        .await
+        .unwrap();
+        assert_eq!(kept.description.as_deref(), Some("from the page"));
+    }
+
+    #[tokio::test]
+    async fn a_failed_oembed_leaves_the_original_result_and_other_sites_are_untouched() {
+        let url = "https://x.com/jack/status/20";
+        let still_empty = resolve_preview(url, Ok(bare()), |_| async { Err(AppError::BadRequest("nope".into())) })
+            .await
+            .unwrap();
+        assert!(still_empty.description.is_none());
+
+        let other = resolve_preview("https://example.com/a", Err(AppError::BadRequest("x".into())), |_| async {
+            panic!("oEmbed is only for X posts");
+            #[allow(unreachable_code)]
+            Ok(bare())
+        })
+        .await;
+        assert!(other.is_err());
+    }
+
+    #[test]
+    fn open_graph_x_posts_become_post_cards_with_author_and_handle() {
+        let mut post = bare();
+        post.title = Some("jack (@jack) on X".into());
+        post.description = Some("just setting up my twttr".into());
+        classify_preview("https://x.com/jack/status/20", &mut post);
+        assert_eq!(post.kind.as_deref(), Some("post"));
+        assert_eq!(post.author.as_deref(), Some("jack"));
+        assert_eq!(post.author_handle.as_deref(), Some("@jack"));
+    }
+
+    #[test]
+    fn links_are_classified_by_what_they_point_at() {
+        let mut repo = bare();
+        classify_preview("https://github.com/rust-lang/rust", &mut repo);
+        assert_eq!(repo.kind.as_deref(), Some("repo"));
+        assert_eq!(repo.author.as_deref(), Some("rust-lang"));
+
+        let mut article = bare();
+        article.r#type = Some("article".into());
+        classify_preview("https://example.com/a", &mut article);
+        assert_eq!(article.kind.as_deref(), Some("article"));
+
+        let mut audio = bare();
+        classify_preview("https://open.spotify.com/track/1", &mut audio);
+        assert_eq!(audio.kind.as_deref(), Some("audio"));
+
+        let mut other = bare();
+        classify_preview("https://example.com/", &mut other);
+        assert_eq!(other.kind.as_deref(), Some("link"));
     }
 }

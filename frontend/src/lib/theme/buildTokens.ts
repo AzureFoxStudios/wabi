@@ -4,7 +4,7 @@
  * Backward compatible with existing themeManager.ts and component CSS
  */
 
-import type { Theme, ThemeColors, ThemeGradients, AmbientConfig } from './themeTypes';
+import type { Theme, ThemeColors, ThemeGradients, AmbientConfig, ThemeCharacter } from './themeTypes';
 
 // ============================================================================
 // Base Palette Definition
@@ -38,6 +38,8 @@ export interface BasePalette {
 	danger: string;
 	// Ambient effect config
 	ambient?: AmbientConfig;
+	// Non-color personality (radius, borders, shadow, grain)
+	character?: ThemeCharacter;
 	// Special overrides (for themes that don't follow standard patterns)
 	overrides?: { colors?: Partial<ThemeColors>; gradients?: Partial<ThemeGradients> };
 }
@@ -222,6 +224,7 @@ export function buildTheme(palette: BasePalette): Theme {
 		colors,
 		gradients,
 		ambient: palette.ambient,
+		character: palette.character,
 	};
 }
 

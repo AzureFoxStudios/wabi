@@ -1,0 +1,249 @@
+/* Group DM settings and whiteboard board settings, on the control kit. */
+
+:root .group-settings { font-family: var(--w-sans); color: var(--w-text); }
+:root .group-settings .group-name { text-transform: none; letter-spacing: 0.01em; font: 600 calc(22px * var(--w-fs, 1))/1.2 var(--w-serif); color: var(--w-text); }
+:root .group-settings .member-count,
+:root .group-settings .avatar-note { font: 500 calc(12px * var(--w-fs, 1))/1.4 var(--w-mono); color: var(--w-mute); }
+:root .group-settings .section-header h3,
+:root .group-settings .section-header span { font: 600 calc(11.5px * var(--w-fs, 1))/1 var(--w-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--w-faint); }
+:root .group-settings .member-item {
+	border: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: calc(10px * var(--w-rs, 1));
+	background: var(--w-bg2);
+}
+:root .group-settings .member-name { font: 600 calc(14px * var(--w-fs, 1))/1.3 var(--w-sans); }
+:root .group-settings .add-member-btn {
+	min-height: 32px;
+	padding: 5px 12px;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(9px * var(--w-rs, 1));
+	background: transparent;
+	color: var(--w-text);
+	font: 600 calc(12.5px * var(--w-fs, 1))/1.2 var(--w-sans);
+}
+:root .group-settings .add-member-btn:hover { background: var(--w-raise); border-color: var(--w-accent); }
+:root .group-settings .add-search { background: var(--w-sink); border: var(--w-bw, 1px) solid var(--w-line-strong); border-radius: calc(10px * var(--w-rs, 1)); color: var(--w-text); }
+:root .group-settings .operation-error { color: var(--w-danger); font: 500 calc(13px * var(--w-fs, 1)) var(--w-sans); }
+
+/* whiteboard */
+:root .board-settings-body { font-family: var(--w-sans); color: var(--w-text); }
+:root .wb-settings-label { font: 600 calc(14px * var(--w-fs, 1))/1.3 var(--w-sans); color: var(--w-text); }
+:root .wb-settings-description { font: 400 calc(13px * var(--w-fs, 1))/1.5 var(--w-sans); color: var(--w-mute); }
+:root .wb-settings-segmented {
+	display: inline-flex;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(10px * var(--w-rs, 1));
+	overflow: hidden;
+	background: var(--w-bg2);
+}
+:root .wb-settings-seg-btn {
+	min-height: 32px;
+	padding: 5px 14px;
+	border: 0;
+	background: transparent;
+	color: var(--w-mute);
+	font: 600 calc(13px * var(--w-fs, 1))/1.2 var(--w-sans);
+}
+:root .wb-settings-seg-btn + .wb-settings-seg-btn { border-left: var(--w-bw, 1px) solid var(--w-line); }
+:root .wb-settings-seg-btn:hover { color: var(--w-text); }
+:root .wb-settings-seg-btn.active,
+:root .wb-settings-seg-btn[aria-checked='true'] { background: var(--w-accent); color: var(--w-on-accent); }
+:root .wb-settings-save,
+:root .wb-settings-cancel {
+	min-height: 34px;
+	padding: 6px 14px;
+	border-radius: calc(10px * var(--w-rs, 1));
+	font: 700 calc(13.5px * var(--w-fs, 1))/1.2 var(--w-sans);
+}
+:root .wb-settings-save { border: 0; background: var(--w-text); color: var(--w-bg); }
+:root .wb-settings-cancel { border: var(--w-bw, 1px) solid var(--w-line-strong); background: transparent; color: var(--w-text); }
+:root .wb-settings-cancel:hover { background: var(--w-raise); border-color: var(--w-accent); }
+
+/* Direct-message protection state is a security fact: it wears the seal. */
+:root .dm-tool-encryption-status {
+	display: inline-flex;
+	align-items: center;
+	padding: 1px 9px;
+	border: var(--w-bw, 1px) solid color-mix(in srgb, var(--w-seal) 70%, transparent);
+	border-radius: var(--w-pill, 999px);
+	background: var(--w-seal-soft);
+	color: var(--w-text);
+	font: 600 calc(11.5px * var(--w-fs, 1))/1.7 var(--w-sans);
+}
+:root .dm-encryption-gate {
+	border: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: calc(12px * var(--w-rs, 1));
+	background: var(--w-bg2);
+	box-shadow: inset 2px 0 0 var(--w-seal);
+	font-family: var(--w-sans);
+}
+
+/* Create group / create DM side sheets (they use .modal rather than .modal-content) */
+:root .modal[role='dialog'] {
+	background: var(--w-bg);
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(14px * var(--w-rs, 1));
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+	font-family: var(--w-sans);
+}
+:root .modal[role='dialog'] .modal-header { background: var(--w-bg2); border-bottom: var(--w-bw, 1px) solid var(--w-line); }
+:root .modal[role='dialog'] .modal-header h2,
+:root .modal[role='dialog'] .modal-header h3 { font: 600 calc(20px * var(--w-fs, 1))/1.2 var(--w-serif); color: var(--w-text); }
+:root .modal[role='dialog'] .close-btn { color: var(--w-mute); border-radius: calc(9px * var(--w-rs, 1)); }
+:root .modal[role='dialog'] .close-btn:hover { background: var(--w-raise); color: var(--w-text); }
+:root .modal[role='dialog'] input {
+	background: var(--w-sink);
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(10px * var(--w-rs, 1));
+	color: var(--w-text);
+	font: 400 calc(14px * var(--w-fs, 1))/1.4 var(--w-sans);
+}
+:root .modal[role='dialog'] input:focus { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
+:root .modal[role='dialog'] .user-item { border-radius: calc(10px * var(--w-rs, 1)); color: var(--w-text); }
+:root .modal[role='dialog'] .user-item:hover { background: var(--w-raise); }
+:root .modal[role='dialog'] .handle { font: 500 calc(12px * var(--w-fs, 1))/1.3 var(--w-mono); color: var(--w-mute); }
+:root .modal[role='dialog'] .chip { border: var(--w-bw, 1px) solid var(--w-line-strong); border-radius: var(--w-pill, 999px); background: var(--w-bg2); color: var(--w-text); }
+:root .modal[role='dialog'] .modal-footer { border-top: var(--w-bw, 1px) solid var(--w-line); }
+:root .modal[role='dialog'] .create-btn {
+	min-height: 38px;
+	border: 0;
+	border-radius: calc(11px * var(--w-rs, 1));
+	background: var(--w-text);
+	color: var(--w-bg);
+	font: 700 calc(14px * var(--w-fs, 1))/1.2 var(--w-sans);
+}
+:root .modal[role='dialog'] .create-btn:disabled { background: var(--w-raise); color: var(--w-faint); }
+:root .modal[role='dialog'] .operation-error { color: var(--w-danger); }
+
+/* ---------- voice: the connected card in the sidebar ---------- */
+:root .voice-usercard {
+	margin: 8px;
+	padding: 10px 12px 12px;
+	border: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: calc(12px * var(--w-rs, 1));
+	background: var(--w-raise);
+	box-shadow: none;
+	color: var(--w-text);
+	font-family: var(--w-sans);
+}
+:root .voice-usercard .voice-usercard-title strong,
+:root .voice-usercard .voice-usercard-title b { font: 600 calc(14px * var(--w-fs, 1))/1.2 var(--w-serif); color: var(--w-text); }
+:root .voice-usercard .voice-online-dot { background: var(--w-online); box-shadow: 0 0 0 3px color-mix(in srgb, var(--w-online) 22%, transparent); }
+:root .voice-usercard small,
+:root .voice-usercard .voice-connection-badge { font: 500 calc(11.5px * var(--w-fs, 1))/1.3 var(--w-mono); color: var(--w-mute); }
+:root .voice-usercard .voice-chevron { color: var(--w-faint); font-family: var(--w-mono); }
+:root .voice-usercard .voice-route-controls label,
+:root .voice-usercard .voice-listen-title {
+	font: 600 calc(11px * var(--w-fs, 1))/1 var(--w-mono);
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--w-faint);
+}
+:root .voice-usercard select {
+	min-height: 30px;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(9px * var(--w-rs, 1));
+	background: var(--w-sink);
+	color: var(--w-text);
+	font: 500 calc(12.5px * var(--w-fs, 1)) var(--w-sans);
+}
+:root .voice-usercard .voice-listen-chip {
+	padding: 2px 10px;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: var(--w-pill, 999px);
+	background: transparent;
+	color: var(--w-mute);
+	font: 600 calc(11.5px * var(--w-fs, 1))/1.6 var(--w-sans);
+}
+:root .voice-usercard .voice-listen-chip.active { background: var(--w-accent-soft); border-color: var(--w-accent); color: var(--w-text); }
+:root .voice-usercard .voice-usercard-actions button {
+	min-width: 34px;
+	height: 34px;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(10px * var(--w-rs, 1));
+	background: transparent;
+	color: var(--w-mute);
+	font: 600 calc(12px * var(--w-fs, 1)) var(--w-sans);
+}
+:root .voice-usercard .voice-usercard-actions button:hover { background: var(--w-bg); color: var(--w-text); border-color: var(--w-accent); }
+:root .voice-usercard .voice-usercard-actions button.active { background: var(--w-accent-soft); border-color: var(--w-accent); color: var(--w-text); }
+:root .voice-usercard .record-btn.active { border-color: var(--w-danger); color: var(--w-danger); }
+:root .voice-usercard .leave-btn { border-color: color-mix(in srgb, var(--w-danger) 60%, transparent); color: var(--w-danger); }
+:root .voice-usercard .leave-btn:hover { background: var(--w-danger); color: var(--w-bg); border-color: var(--w-danger); }
+
+/* ---------- 3D / model viewer chrome ---------- */
+:root .mv-shell {
+	border: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: calc(12px * var(--w-rs, 1));
+	background: var(--w-bg2);
+	color: var(--w-text);
+	font-family: var(--w-sans);
+}
+:root .mv-shell .mv-heading,
+:root .mv-shell .mv-panel-title { font: 600 calc(14px * var(--w-fs, 1))/1.3 var(--w-sans); color: var(--w-text); }
+:root .mv-shell .mv-section-heading { font: 600 calc(11px * var(--w-fs, 1))/1 var(--w-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--w-faint); }
+:root .mv-shell .mv-stage,
+:root .mv-shell .mv-state-card { background: var(--w-sink); border-radius: calc(10px * var(--w-rs, 1)); }
+:root .mv-shell .mv-dimensions,
+:root .mv-shell .mv-diagnostics,
+:root .mv-shell .mv-range-label,
+:root .mv-shell .mv-small-badge { font-family: var(--w-mono); color: var(--w-mute); }
+:root .mv-shell .mv-button,
+:root .mv-shell .mv-icon-button {
+	min-height: 32px;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(9px * var(--w-rs, 1));
+	background: transparent;
+	color: var(--w-text);
+	font: 600 calc(12.5px * var(--w-fs, 1))/1.2 var(--w-sans);
+}
+:root .mv-shell .mv-button:hover,
+:root .mv-shell .mv-icon-button:hover { background: var(--w-raise); border-color: var(--w-accent); }
+:root .mv-shell .mv-button.mv-primary { background: var(--w-text); color: var(--w-bg); border-color: transparent; }
+:root .mv-shell .mv-segment { border: var(--w-bw, 1px) solid var(--w-line-strong); border-radius: calc(9px * var(--w-rs, 1)); background: var(--w-bg2); }
+:root .mv-shell .mv-segment button[aria-pressed='true'],
+:root .mv-shell .mv-segment .active { background: var(--w-accent); color: var(--w-on-accent); }
+:root .mv-shell .mv-status-dot { background: var(--w-online); }
+:root .mv-shell input[type='range'] { accent-color: var(--w-accent); }
+
+/* ---- notes list: tabs as a quiet underline pair, rows as ledger lines ---- */
+:root .notes-workspace .list-tabs { gap: 0; padding: 0 12px; border-bottom: var(--w-bw, 1px) solid var(--w-line); }
+:root .notes-workspace .list-tabs button { flex: 0 0 auto; min-height: 32px; padding: 4px 12px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--w-mute); font: 600 .72rem var(--w-mono); letter-spacing: .08em; text-transform: uppercase; }
+:root .notes-workspace .list-tabs button.active { background: transparent; color: var(--w-text); border-bottom-color: var(--w-sig); }
+:root .notes-workspace .list-tabs button:last-child { margin-left: auto; padding: 4px 8px; }
+:root .notes-workspace .note-row { margin: 0; border: 0; border-bottom: var(--w-bw, 1px) solid var(--w-line); border-left: 2px solid transparent; border-radius: 0; padding: 10px 12px; }
+:root .notes-workspace .note-row.selected { background: var(--w-accent-soft); border-left-color: var(--w-sig); }
+:root .notes-workspace .note-row strong { font: 600 .88rem var(--w-sans); }
+:root .notes-workspace .note-row > span { font-style: normal; }
+:root .notes-workspace .notebook-empty h3, :root .notes-workspace .list-empty p:first-child { font-family: var(--w-serif); }
+:root .notes-workspace .notebook-settings button { min-height: 32px; border: 0; background: transparent; color: var(--w-mute); }
+:root .notes-workspace .notebook-settings button:hover { color: var(--w-text); }
+:root .notes-workspace .note-title { font: 600 1.5rem/1.25 var(--w-serif); }
+
+/* ---- wiki landing in the panel ---- */
+:root .wiki-start h1, :root .wiki-start h2, :root .wiki-start h3 { font-family: var(--w-serif); font-weight: 600; letter-spacing: .01em; }
+
+/* ---- project view: editorial header, ledger board ---- */
+:root .project-workspace .project-hero { background: var(--w-bg); border-bottom: var(--w-bw, 1px) solid var(--w-line); padding-block: 1rem; }
+:root .project-workspace .project-hero::after { display: none; }
+:root .project-workspace .project-mark { width: 2.4rem; height: 2.4rem; border-radius: calc(8px * var(--w-rs, 1)); background: transparent; border: var(--w-bw, 1px) solid var(--w-line-strong); }
+:root .project-workspace .project-mark svg { width: 1.25rem; height: 1.25rem; }
+:root .project-workspace .project-eyebrow, :root .shared-project-board .board-eyebrow { font: 600 .66rem var(--w-mono); letter-spacing: .1em; color: var(--w-mute); }
+:root .project-workspace .project-presence { background: var(--w-online); box-shadow: none; }
+:root .project-workspace .project-title-block h1, :root .shared-project-board .board-heading h2 { font-family: var(--w-serif); font-weight: 600; letter-spacing: .005em; }
+:root .project-workspace .project-picker select { border-radius: calc(8px * var(--w-rs, 1)); }
+:root .project-workspace .project-tabs button.active::after { box-shadow: none; background: var(--w-sig); border-radius: 0; }
+:root .shared-project-board .board-overview { background: transparent; border-bottom: var(--w-bw, 1px) solid var(--w-line); }
+:root .shared-project-board .board-pulse { background: transparent; border-radius: calc(8px * var(--w-rs, 1)); border-color: var(--w-line); }
+:root .shared-project-board .pulse-stat :is(b, strong) { font-family: var(--w-mono); font-weight: 600; }
+:root .shared-project-board .progress-track { border-radius: 0; height: 3px; }
+:root .shared-project-board .section-line { border-radius: 0; background: var(--w-sig); }
+:root .shared-project-board .board-actions .new-card-button { background: var(--w-text); color: var(--w-bg); border-color: var(--w-text); border-radius: calc(8px * var(--w-rs, 1)); box-shadow: none; }
+
+:root .shared-project-board .board-actions button { border-radius: calc(8px * var(--w-rs, 1)); min-height: 2.2rem; }
+:root .shared-project-board .board-intro h2 { letter-spacing: .005em; }
+:root .shared-project-board .board-scroll .column-indicator { box-shadow: none; border-radius: 1px; width: .55rem; height: .55rem; }
+:root .shared-project-board .board-scroll .column-labels h2 { font: 600 1.02rem var(--w-serif); }
+:root .shared-project-board .board-scroll .column-count { background: transparent; color: var(--w-mute); font: 600 .72rem var(--w-mono); padding: 0; }
+:root .shared-project-board .board-scroll .column-header { border-bottom: var(--w-bw, 1px) solid var(--w-line); }

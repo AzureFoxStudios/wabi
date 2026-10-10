@@ -275,6 +275,21 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
         // Do not also emit to the channel room: that duplicates each message.
         match state.app.wdb.list_channel_members(&channel_id).await {
             Ok(members) => {
+                // Wake the other members' devices (browser push / UnifiedPush).
+                // Payload carries only the sender and conversation, never the
+                // text, and honours each account's push preferences.
+                if !e2ee || user_id_num > 0 {
+                    for member in &members {
+                        let recipient = member.user_id as i64;
+                        if recipient != user_id_num {
+                            crate::api::push::spawn_notify(
+                                state.app.clone(), recipient,
+                                crate::api::push::PushKind::DirectMessage,
+                                username.clone(), channel_id.clone(),
+                            );
+                        }
+                    }
+                }
                 let rooms: Vec<_> = members.into_iter().map(|member| format!("user-{}", member.user_id)).collect();
                 if let Err(error) = io.to(rooms).emit("message", &payload).await {
                     warn!("Failed to broadcast DM {}: {}", channel_id, error);
@@ -282,8 +297,32 @@ async fn on_message(socket: SocketRef, cmd: Value, state: SioState, io: SocketIo
             }
             Err(error) => warn!("Failed to load DM recipients for {}: {}", channel_id, error),
         }
-    } else if let Err(error) = io.to(channel_id).emit("message", &payload).await {
-        warn!("Failed to broadcast message: {}", error);
+    } else {
+        // Everything that is not a DM wakes devices: the per-channel list in
+        // settings is the switch, read per recipient inside notify_user, so
+        // members who did not switch this channel on never dispatch and the
+        // payload still carries no message text. Mentions / followed-channel
+        // push remain separate, unwired work.
+        if !e2ee || user_id_num > 0 {
+            match state.app.wdb.list_channel_members(&channel_id).await {
+                Ok(members) => {
+                    for member in &members {
+                        let recipient = member.user_id as i64;
+                        if recipient != user_id_num {
+                            crate::api::push::spawn_notify(
+                                state.app.clone(), recipient,
+                                crate::api::push::PushKind::ChannelMessage,
+                                username.clone(), channel_id.clone(),
+                            );
+                        }
+                    }
+                }
+                Err(error) => warn!("Failed to load channel push recipients for {}: {}", channel_id, error),
+            }
+        }
+        if let Err(error) = io.to(channel_id).emit("message", &payload).await {
+            warn!("Failed to broadcast message: {}", error);
+        }
     }
 }
 

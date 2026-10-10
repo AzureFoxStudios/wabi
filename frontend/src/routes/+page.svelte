@@ -248,8 +248,8 @@
 			// correct us when its response lands: a fresh/DB-reset server still
 			// forces the registration wizard over any stale localStorage.
 			const enterSetupWizard = () => {
-				const bootTitle = document.getElementById('wabi-boot-title');
-				if (bootTitle) bootTitle.textContent = 'Setting up Wabi';
+				const bootStatus = document.getElementById('wabi-boot-status');
+				if (bootStatus) bootStatus.textContent = 'Setting up Wabi';
 				localStorage.removeItem('wabi_has_logged_in');
 				disconnect();
 				loggedIn = false;
@@ -280,6 +280,16 @@
 				startupMeasure('page:socket:init:call', 'page:socket:init:start', 'page:socket:init:end');
 				loggedIn = true;
 				syncFollowNotificationPoller(true);
+				// A restored session must also (re)register push, not just an
+				// explicit login: the browser subscription outlives sessions, so
+				// this is what rebinds it to whoever is signed in now. Without it,
+				// an account switch followed by a plain reload keeps delivering
+				// the previous account's pushes into this browser.
+				if (savedToken) {
+					void import('$lib/pwa/pushClient')
+						.then((m) => m.autoSubscribePush())
+						.catch(() => undefined);
+				}
 				// Initialize E2E in background so it doesn't block initial render and socket startup.
 				// DM-strip 2026-06-16: initE2E + retryDecryptLoadedDmMessages removed. E2E
 				// encryption was a DM-only concern; without DMs there's nothing to
@@ -344,6 +354,12 @@
 				clearAuthSession();
 			}
 
+			// Local session decision is made — the boot rail can advance. The
+			// server only corrects it (getSetupStatus above), so this is not a
+			// blocking roundtrip. The shell's gate listener ignores this while
+			// reconnect mode is active.
+			window.dispatchEvent(new CustomEvent('wabi:boot-gate', { detail: { gate: 'session' } }));
+
 			const isRegistered = !!savedToken || !!getStoredDbUserId();
 			// Theme fetch can hit network; don't block startup path.
 			startupMark('page:theme:init:start');
@@ -379,6 +395,8 @@
 					startupMark('page:layout-module:await:end');
 					startupMeasure('page:layout-module', 'page:layout-module:await:start', 'page:layout-module:await:end');
 				}
+				// The workspace module is ready to render — advance the rail.
+				window.dispatchEvent(new CustomEvent('wabi:boot-gate', { detail: { gate: 'workspace' } }));
 			}
 			isBootstrapping = false;
 			dismissDocumentBootShell();
@@ -470,6 +488,11 @@
 
 		showTempPasswordPrompt = mustChangePassword === true;
 		pendingPostLoginProfileImportCheck = isRegistered;
+
+		// Auto-subscribe to push notifications after login (best-effort)
+		if (isRegistered) {
+			void import('$lib/pwa/pushClient').then((m) => m.autoSubscribePush()).catch(() => undefined);
+		}
 	}
 
 	function openAccountSecurityFromTempPasswordPrompt() {
@@ -481,6 +504,14 @@
 		disconnect();
 		syncFollowNotificationPoller(false);
 		void stopDesktopHelperService(true);
+		// Push subscriptions are account-scoped: capture the bearer while the
+		// session is still alive and tear the server binding down, or the
+		// signed-out browser keeps receiving this account's notifications.
+		// (The next login re-creates the browser subscription.)
+		const pushBearer = getAuthToken();
+		void import('$lib/pwa/pushClient')
+			.then((m) => m.unsubscribeWebPush(pushBearer))
+			.catch(() => undefined);
 		
 		loggedIn = false;
 		showTempPasswordPrompt = false;

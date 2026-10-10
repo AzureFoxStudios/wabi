@@ -28,4 +28,6 @@ export interface LaunchPageConfig {
 	footerNote: string | null;
 	palette: LaunchPagePalette;
 	brandProfile?: string | null;
+	/** Community title face id (see frontend/src/lib/theme/displayFonts.ts). */
+	displayFont?: string | null;
 }

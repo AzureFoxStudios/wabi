@@ -2,6 +2,7 @@
  * Deep-link targets from push notifications / notification clicks.
  */
 import { channels } from '$lib/channelStore';
+import { get } from 'svelte/store';
 import { getServerUrl } from '$lib/serverUrl';
 import { navigateToRef } from '$lib/navigateToRef';
 import { browser } from '$app/environment';
@@ -100,7 +101,14 @@ export function applyWabiNavTarget(target: WabiNavTarget): void {
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
 		void joinChannel(target.channelId);
-		layoutStore.openCenterDm(target.channelId, null);
+		// Group conversations live in the DM surface too, but they open with
+		// their channel object — a push tap must land on the actual group.
+		const channel = get(channels).find((entry) => entry.id === target.channelId);
+		if (channel && channel.type === 'group') {
+			layoutStore.openCenterGroupDm(target.channelId, channel);
+		} else {
+			layoutStore.openCenterDm(target.channelId, null);
+		}
 		window.dispatchEvent(
 			new CustomEvent('wabi:navigate', { detail: { view: 'dm', channelId: target.channelId } })
 		);

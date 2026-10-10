@@ -25,6 +25,7 @@ import {
 	centerPanelView,
 	activeRightTab,
 	pinnedPanelId,
+	dockStack,
 	showMobileChannels,
 	channelSidebarWidth,
 	rightPanelWidth,
@@ -55,6 +56,8 @@ import {
 	peekPanel,
 	dismissPeek,
 	pinPanel,
+	unpinOne,
+	setDockStackLimit,
 	unpinPanel,
 	closeRightPanel,
 	togglePinPanel,
@@ -124,7 +127,7 @@ channelSidebarWidth.subscribe(() => {
 // Persist the runtime snapshot, not the workspace left over from the last
 // navigation resize. Peek only changes activeRightTab and must not replace the
 // committed pin; boot/remote restoration must not write itself back as an edit.
-for (const store of [rightPanelWidth, rightPanelMode, pinnedPanelId]) {
+for (const store of [rightPanelWidth, rightPanelMode, pinnedPanelId, dockStack]) {
 	store.subscribe(() => {
 		queuePersist();
 		if (!isApplyingLayout) scheduleSyncWorkspace();
@@ -147,6 +150,7 @@ isMobile.subscribe((mobile) => {
 		setIsApplyingLayout(true);
 		rightPanelMode.set('none');
 		pinnedPanelId.set(null);
+		dockStack.set([]);
 		setIsApplyingLayout(false);
 	} else if (layoutLoaded) {
 		applyWorkspaceToRuntime(getWorkspace(get(layoutState)));
@@ -307,6 +311,7 @@ const layout = derived(
 		isInCall,
 		activeRightTab,
 		pinnedPanelId,
+		dockStack,
 		selectedDmChannelId,
 		centerDmChannelId,
 		centerDmOtherUser,
@@ -332,6 +337,7 @@ const layout = derived(
 		$isInCall,
 		$activeRightTab,
 		$pinnedPanelId,
+		$dockStack,
 		$selectedDmChannelId,
 		$centerDmChannelId,
 		$centerDmOtherUser,
@@ -356,6 +362,7 @@ const layout = derived(
 			rightPanelMode: $rightPanelMode,
 			activeRightTab: $activeRightTab,
 			pinnedPanelId: $pinnedPanelId,
+			dockStack: $dockStack,
 			showMobileChannels: $isMobile && $showMobileChannels,
 			showRightPanel,
 			channelSidebarWidth: $channelSidebarWidth,
@@ -421,6 +428,8 @@ export const layoutStore = {
 	peekPanel,
 	dismissPeek,
 	pinPanel,
+	unpinOne,
+	setDockStackLimit,
 	unpinPanel,
 	closeRightPanel,
 	togglePinPanel,

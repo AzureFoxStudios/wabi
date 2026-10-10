@@ -24,6 +24,10 @@
 					document.documentElement.dataset.displayMode = standalone ? 'standalone' : 'browser';
 					if (compact) document.documentElement.classList.add('is-mobile-shell');
 					if (standalone) document.documentElement.classList.add('is-pwa-standalone');
+					try {
+						const saved = JSON.parse(localStorage.getItem('wabi-theme') || 'null');
+						if (saved && /^(light|paper-dawn|professional)$/.test(saved.theme_id || '')) document.documentElement.dataset.bootMode = 'light';
+					} catch (_) {}
 				} catch (_) {}
 			})();
 		</script>
@@ -45,7 +49,7 @@
 				display: grid;
 				place-items: center;
 				overflow: hidden;
-				/* Soft wash — stays behind glass stage */
+				/* Soft wash — stays behind the glass stage */
 				background:
 					radial-gradient(ellipse 50rem 36rem at 50% 40%, rgba(99, 102, 241, 0.12), transparent 70%),
 					linear-gradient(165deg, rgba(15, 12, 41, 0.92) 0%, rgba(6, 11, 20, 0.96) 100%);
@@ -64,7 +68,7 @@
 				display: flex;
 				flex-direction: column;
 				align-items: center;
-				gap: 1.35rem;
+				gap: 1.1rem;
 				padding: 2rem;
 				text-align: center;
 				color: rgba(255, 255, 255, 0.9);
@@ -73,135 +77,89 @@
 					"SF Pro Display",
 					system-ui,
 					sans-serif;
+				width: min(420px, 100%);
 			}
 
-			.wabi-boot-shell__default {
-				display: flex;
-				flex-direction: column;
-				align-items: center;
-				gap: 1.25rem;
-			}
-
+			/* --- Stage: the inline mark. Painted immediately, never waits on an image. --- */
 			.wabi-boot-shell__stage {
 				position: relative;
 				display: grid;
 				place-items: center;
-				width: 148px;
-				height: 148px;
+				width: 92px;
+				height: 92px;
 			}
 
-			.wabi-boot-shell__halo,
-			.wabi-boot-shell__ring {
+			.wabi-boot-shell__orbit {
 				position: absolute;
-				border-radius: 999px;
-			}
-
-			.wabi-boot-shell__halo {
-				inset: 14px;
-				background: radial-gradient(
-					circle,
-					color-mix(in srgb, var(--boot-accent, #818cf8) 28%, transparent) 0%,
-					color-mix(in srgb, var(--boot-accent, #818cf8) 6%, transparent) 42%,
-					transparent 70%
-				);
-				filter: blur(10px);
-				animation: wabi-boot-halo-pulse 2.2s ease-in-out infinite;
-			}
-
-			.wabi-boot-shell__ring {
 				inset: 0;
-				border: 1px solid rgba(148, 163, 184, 0.16);
+				border-radius: 28px;
+				border: 1px solid rgba(199, 210, 254, 0.18);
+				background: linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
 				box-shadow:
 					inset 0 0 0 1px rgba(255, 255, 255, 0.04),
-					0 20px 48px rgba(0, 0, 0, 0.32);
+					0 18px 40px rgba(0, 0, 0, 0.28);
 			}
 
-			.wabi-boot-shell__ring::before {
-				content: '';
-				position: absolute;
-				inset: 8px;
-				border-radius: inherit;
-				border: 1px solid rgba(255, 255, 255, 0.04);
-			}
-
-			.wabi-boot-shell__ring::after {
+			.wabi-boot-shell__orbit::after {
 				content: '';
 				position: absolute;
 				inset: -1px;
 				border-radius: inherit;
-				border-top: 2px solid color-mix(in srgb, var(--boot-accent, #a5b4fc) 92%, white);
-				border-right: 2px solid color-mix(in srgb, var(--boot-accent, #6366f1) 80%, transparent);
-				border-bottom: 2px solid transparent;
-				border-left: 2px solid transparent;
-				animation: wabi-boot-spin 1.1s linear infinite;
+				padding: 1.5px;
+				background: conic-gradient(
+					from 0deg,
+					transparent 0 62%,
+					color-mix(in srgb, var(--boot-accent, #818cf8) 92%, white) 78%,
+					#ffffff 88%,
+					transparent 100%
+				);
+				-webkit-mask:
+					linear-gradient(#000 0 0) content-box,
+					linear-gradient(#000 0 0);
+				-webkit-mask-composite: xor;
+				mask-composite: exclude;
+				/* Rotate the element (not a custom property) so it animates everywhere. */
+				animation: wabi-boot-orbit-spin 1.35s linear infinite;
 			}
 
+			.wabi-boot-shell__glyph {
+				position: relative;
+				z-index: 1;
+				width: 60px;
+				height: 60px;
+			}
+
+			/* Custom / server logo overlays the inline mark once it has loaded.
+			   It never replaces the mark while still in flight — no blank stage. */
 			.wabi-boot-shell__logo {
-				width: 76px;
-				height: 76px;
+				position: absolute;
+				z-index: 2;
+				width: 64px;
+				height: 64px;
 				object-fit: contain;
-				filter: invert(1) drop-shadow(0 14px 30px rgba(0, 0, 0, 0.4));
-				/* Stay invisible until data-boot-ready — prevents Wabi→server flicker */
 				opacity: 0;
 				visibility: hidden;
-			}
-
-			#wabi-boot-shell[data-boot-ready='1'] .wabi-boot-shell__logo {
-				visibility: visible;
-				animation-name: wabi-boot-logo-in, wabi-boot-logo-breathe;
-				animation-duration: 0.45s, 2.4s;
-				animation-timing-function: ease-out, ease-in-out;
-				animation-iteration-count: 1, infinite;
-				animation-fill-mode: forwards, none;
-				animation-delay: 0s, 0.45s;
-			}
-
-			#wabi-boot-shell[data-boot-ready='1'] .wabi-boot-shell__mark {
-				animation: wabi-boot-logo-in 0.45s ease-out forwards, wabi-boot-logo-breathe 2.4s ease-in-out 0.45s infinite;
-			}
-
-			/* Neutral / custom logos that are already light shouldn't be inverted */
-			#wabi-boot-shell[data-boot-brand='neutral'] .wabi-boot-shell__logo,
-			#wabi-boot-shell[data-boot-brand='custom'] .wabi-boot-shell__logo {
 				filter: drop-shadow(0 14px 30px rgba(0, 0, 0, 0.4));
 			}
 
-			.wabi-boot-shell__mark {
-				display: none;
-				width: 72px;
-				height: 72px;
-				border-radius: 20px;
-				background: linear-gradient(145deg, #c8c8cf, #a1a1aa);
-				box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
-				position: relative;
+			#wabi-boot-shell[data-boot-ready='1'] .wabi-boot-shell__logo[src] {
+				visibility: visible;
+				animation: wabi-boot-logo-in 0.45s ease-out forwards;
 			}
 
-			.wabi-boot-shell__mark::after {
-				content: '';
-				position: absolute;
-				inset: 22% 18% 28% 18%;
-				border-radius: 10px;
-				background: #101012;
-				clip-path: polygon(0 0, 100% 0, 100% 62%, 58% 62%, 38% 100%, 38% 62%, 0 62%);
+			/* Default Wabi boot asset is dark — invert only for the default brand. */
+			#wabi-boot-shell[data-boot-brand='wabi'] .wabi-boot-shell__logo {
+				filter: invert(1) drop-shadow(0 14px 30px rgba(0, 0, 0, 0.4));
 			}
 
-			#wabi-boot-shell[data-boot-brand='neutral'] .wabi-boot-shell__logo {
-				display: none;
-			}
-
-			#wabi-boot-shell[data-boot-brand='neutral'] .wabi-boot-shell__mark {
-				display: none;
-			}
-			#wabi-boot-shell[data-boot-brand='neutral'][data-boot-ready='1'] .wabi-boot-shell__mark {
-				display: block;
-			}
-
+			/* --- Wordmark + status line --- */
 			.wabi-boot-shell__title {
-				font-size: 0.82rem;
-				font-weight: 700;
-				letter-spacing: 0.16em;
-				text-transform: uppercase;
-				color: rgba(255, 255, 255, 0.88);
+				margin: 0.15rem 0 0;
+				font-size: 1.7rem;
+				font-weight: 650;
+				letter-spacing: -0.03em;
+				line-height: 1.1;
+				color: rgba(255, 255, 255, 0.94);
 			}
 
 			.wabi-boot-shell__title[data-empty='true'] {
@@ -212,69 +170,116 @@
 				overflow: hidden;
 			}
 
-			.wabi-boot-shell__dots {
-				display: inline-flex;
-				align-items: center;
-				gap: 0.4rem;
+			.wabi-boot-shell__status {
+				margin: 0.15rem 0 0;
+				min-height: 1.4em;
+				color: rgba(246, 245, 255, 0.62);
+				font-size: 0.9375rem;
+				line-height: 1.4;
 			}
 
-			.wabi-boot-shell__dots span {
-				width: 0.38rem;
-				height: 0.38rem;
+			/* --- Progress rail: driven by real gates, not a timer --- */
+			.wabi-boot-shell__rail {
+				width: min(280px, 78%);
+				height: 3px;
+				margin: 0.7rem 0 0;
 				border-radius: 999px;
-				background: color-mix(in srgb, var(--boot-accent, #c7d2fe) 80%, white);
-				animation: wabi-boot-dot-pulse 1.2s ease-in-out infinite;
+				background: rgba(255, 255, 255, 0.08);
+				overflow: hidden;
+				position: relative;
 			}
 
-			.wabi-boot-shell__dots span:nth-child(2) {
-				animation-delay: 140ms;
+			.wabi-boot-shell__rail > span {
+				display: block;
+				height: 100%;
+				width: 0%;
+				border-radius: inherit;
+				background: linear-gradient(90deg, #6366f1, #c7d2fe);
+				transition: width 480ms cubic-bezier(0.2, 0.8, 0.2, 1);
 			}
 
-			.wabi-boot-shell__dots span:nth-child(3) {
-				animation-delay: 280ms;
+			/* --- Step list: appears only after a beat, so a fast boot never sees it --- */
+			.wabi-boot-shell__steps {
+				list-style: none;
+				padding: 0;
+				margin: 1.1rem 0 0;
+				width: min(320px, 100%);
+				display: grid;
+				gap: 8px;
+				opacity: 0;
+				visibility: hidden;
+				transition: opacity 300ms ease;
 			}
 
-			@keyframes wabi-boot-spin {
-				from { transform: rotate(0deg); }
-				to { transform: rotate(360deg); }
+			.wabi-boot-shell__steps.is-visible {
+				opacity: 1;
+				visibility: visible;
 			}
 
-			@keyframes wabi-boot-logo-in {
-				from { opacity: 0; transform: scale(0.92); }
-				to { opacity: 1; transform: scale(1); }
-			}
-
-			@keyframes wabi-boot-logo-breathe {
-				0%, 100% { transform: scale(1); }
-				50% { transform: scale(1.03); }
-			}
-
-			@keyframes wabi-boot-halo-pulse {
-				0%, 100% { opacity: 0.55; transform: scale(0.96); }
-				50% { opacity: 1; transform: scale(1.04); }
-			}
-
-			@keyframes wabi-boot-dot-pulse {
-				0%, 80%, 100% { opacity: 0.28; transform: translateY(0); }
-				40% { opacity: 1; transform: translateY(-2px); }
-			}
-
-			/* Reconnect state */
-			.wabi-boot-shell__reconnect {
-				display: none;
-				flex-direction: column;
+			.wabi-boot-shell__steps li {
+				display: flex;
 				align-items: center;
-				gap: 0.85rem;
+				gap: 10px;
+				font-size: 13px;
+				color: rgba(246, 245, 255, 0.38);
+				text-align: left;
 			}
-			.wabi-boot-shell__subtitle {
-				font-size: 0.8125rem;
-				opacity: 0.65;
-				max-width: 240px;
-				line-height: 1.45;
-				margin: 0;
+
+			.wabi-boot-shell__steps li .dot {
+				width: 16px;
+				height: 16px;
+				border-radius: 999px;
+				border: 1px solid rgba(255, 255, 255, 0.16);
+				display: grid;
+				place-items: center;
+				flex: none;
 			}
+
+			.wabi-boot-shell__steps li.active {
+				color: rgba(246, 245, 255, 0.96);
+			}
+			.wabi-boot-shell__steps li.active .dot {
+				border-color: transparent;
+				background: color-mix(in srgb, var(--boot-accent, #818cf8) 25%, transparent);
+				box-shadow: 0 0 0 4px color-mix(in srgb, var(--boot-accent, #818cf8) 12%, transparent);
+			}
+			.wabi-boot-shell__steps li.active .dot::after {
+				content: '';
+				width: 6px;
+				height: 6px;
+				border-radius: 99px;
+				background: #c7d2fe;
+			}
+
+			.wabi-boot-shell__steps li.done {
+				color: rgba(246, 245, 255, 0.78);
+			}
+			.wabi-boot-shell__steps li.done .dot {
+				border-color: transparent;
+				background: rgba(134, 239, 172, 0.18);
+			}
+			.wabi-boot-shell__steps li.done .dot::after {
+				content: '';
+				width: 7px;
+				height: 4px;
+				border-left: 1.5px solid #86efac;
+				border-bottom: 1.5px solid #86efac;
+				transform: rotate(-45deg) translate(0, -1px);
+			}
+
+			/* --- Recover: Try again + Work offline. Mark stays visible above it. --- */
+			.wabi-boot-shell__recover {
+				display: none;
+				gap: 8px;
+				margin-top: 0.6rem;
+			}
+
+			[data-boot-state='reconnect'] .wabi-boot-shell__recover,
+			[data-boot-state='stalled'] .wabi-boot-shell__recover {
+				display: flex;
+			}
+
 			.wabi-boot-shell__btn {
-				margin-top: 0.35rem;
 				padding: 0.55rem 1.25rem;
 				border-radius: 9999px;
 				border: 1px solid rgba(148, 163, 184, 0.28);
@@ -284,17 +289,42 @@
 				font-size: 0.8125rem;
 				font-weight: 600;
 				cursor: pointer;
-				transition: background 0.15s ease, border-color 0.15s ease;
+				transition:
+					background 0.15s ease,
+					border-color 0.15s ease;
 			}
 			.wabi-boot-shell__btn:hover {
 				background: rgba(255, 255, 255, 0.12);
 				border-color: rgba(148, 163, 184, 0.42);
 			}
-			[data-boot-state='reconnect'] .wabi-boot-shell__default {
-				display: none;
+			.wabi-boot-shell__btn--primary {
+				background: #f6f5ff;
+				color: #11131f;
+				border-color: transparent;
+				font-weight: 650;
 			}
-			[data-boot-state='reconnect'] .wabi-boot-shell__reconnect {
-				display: flex;
+			.wabi-boot-shell__btn--primary:hover {
+				background: #ffffff;
+				border-color: transparent;
+			}
+
+			/* --- Stall: rail freezes and warms, spin pauses, mark kept --- */
+			[data-boot-state='stalled'] .wabi-boot-shell__rail > span {
+				background: linear-gradient(90deg, #f59e0b, #fde68a);
+				transition: none;
+			}
+			[data-boot-state='stalled'] .wabi-boot-shell__orbit::after {
+				animation-play-state: paused;
+				opacity: 0.45;
+			}
+
+			/* --- Reconnect: keep the mark, freeze the rail, offer a way out --- */
+			[data-boot-state='reconnect'] .wabi-boot-shell__rail > span {
+				transition: none;
+			}
+			[data-boot-state='reconnect'] .wabi-boot-shell__orbit::after {
+				animation-play-state: paused;
+				opacity: 0.55;
 			}
 
 			/* Neutral palette on boot (early data-neutral-branding or data-boot-brand) */
@@ -306,19 +336,88 @@
 					linear-gradient(165deg, rgba(24, 24, 27, 0.94) 0%, rgba(9, 9, 11, 0.97) 100%);
 			}
 
+			/* Neutral must not leak the Wabi glyph or wordmark, but it must never
+			   be blank either — the orbit ring stays as the mark. The head script
+			   sets html[data-neutral-branding] before the body parses, so this
+			   holds from the very first paint. */
+			html[data-neutral-branding] .wabi-boot-shell__title,
+			html[data-neutral-branding] .wabi-boot-shell__glyph {
+				visibility: hidden;
+			}
+			html[data-neutral-branding] .wabi-boot-shell__title {
+				height: 0;
+				overflow: hidden;
+			}
+
+			#wabi-boot-shell[data-boot-brand='neutral'] .wabi-boot-shell__glyph {
+				visibility: hidden;
+			}
+
+			@keyframes wabi-boot-orbit-spin {
+				to {
+					transform: rotate(360deg);
+				}
+			}
+
+			@keyframes wabi-boot-logo-in {
+				from {
+					opacity: 0;
+					transform: scale(0.92);
+				}
+				to {
+					opacity: 1;
+					transform: scale(1);
+				}
+			}
+
 			@media (prefers-reduced-motion: reduce) {
-				.wabi-boot-shell__ring::after,
-				.wabi-boot-shell__halo,
-				.wabi-boot-shell__logo,
-				.wabi-boot-shell__mark,
-				.wabi-boot-shell__dots span {
+				.wabi-boot-shell__orbit::after {
 					animation: none !important;
 				}
-				#wabi-boot-shell[data-boot-ready='1'] .wabi-boot-shell__logo {
+				.wabi-boot-shell__rail > span {
+					transition: none;
+				}
+				.wabi-boot-shell__steps {
+					transition: none;
+				}
+				#wabi-boot-shell[data-boot-ready='1'] .wabi-boot-shell__logo[src] {
+					animation: none;
 					opacity: 1;
 					visibility: visible;
 				}
 			}
+		</style>
+		<style>
+			/* Boot — Wabi Ink. Operator branding still wins: the server injects --boot-accent / the logo. */
+			:root { --boot-ink: #101315; --boot-text: #e8e7e0; --boot-mute: #9aa39d; --boot-line: rgba(232, 231, 224, 0.14); }
+			html[data-boot-mode='light'] { --boot-ink: #faf8f3; --boot-text: #1c1917; --boot-mute: #57534e; --boot-line: rgba(28, 25, 23, 0.16); }
+			html,
+			body { background: var(--boot-ink); }
+			#wabi-boot-shell {
+				--boot-accent: #d6ad5f;
+				background: radial-gradient(ellipse 46rem 30rem at 85% -10%, color-mix(in srgb, var(--boot-accent) 14%, transparent), transparent 62%), var(--boot-ink);
+			}
+			.wabi-boot-shell__glyph { color: var(--boot-text); }
+			.wabi-boot-shell__center { color: var(--boot-text); font-family: "Zen Kaku Gothic New", system-ui, -apple-system, "Segoe UI", sans-serif; }
+			.wabi-boot-shell__orbit { border-radius: 14px; border: 1px solid var(--boot-line); background: transparent; box-shadow: none; }
+			.wabi-boot-shell__orbit::after { background: conic-gradient(from 0deg, transparent 0 66%, var(--boot-accent) 86%, transparent 100%); }
+			.wabi-boot-shell__title { font-family: "Shippori Mincho", Georgia, serif; font-weight: 600; font-size: 1.9rem; letter-spacing: 0.01em; color: var(--boot-text); }
+			.wabi-boot-shell__status { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 0.8125rem; color: var(--boot-mute); }
+			.wabi-boot-shell__rail { height: 2px; border-radius: 2px; background: var(--boot-line); }
+			.wabi-boot-shell__rail > span { background: var(--boot-accent); }
+			.wabi-boot-shell__steps li { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 12px; color: var(--boot-mute); opacity: 0.7; }
+			.wabi-boot-shell__steps li.active { color: var(--boot-text); opacity: 1; }
+			.wabi-boot-shell__steps li.active .dot { background: color-mix(in srgb, var(--boot-accent) 22%, transparent); box-shadow: none; }
+			.wabi-boot-shell__steps li.active .dot::after { background: var(--boot-accent); }
+			.wabi-boot-shell__steps li.done { color: var(--boot-text); opacity: 0.85; }
+			.wabi-boot-shell__steps li.done .dot { background: color-mix(in srgb, var(--boot-accent) 18%, transparent); }
+			.wabi-boot-shell__steps li.done .dot::after { border-color: var(--boot-accent); }
+			.wabi-boot-shell__btn { border-radius: 10px; border: 1px solid var(--boot-line); background: transparent; color: var(--boot-text); }
+			.wabi-boot-shell__btn:hover { background: color-mix(in srgb, var(--boot-text) 8%, transparent); border-color: var(--boot-accent); }
+			.wabi-boot-shell__btn--primary { background: var(--boot-text); color: var(--boot-ink); }
+			.wabi-boot-shell__btn--primary:hover { background: var(--boot-text); opacity: 0.9; }
+			[data-boot-state='stalled'] .wabi-boot-shell__rail > span { background: #e0553f; }
+			html[data-boot-mode='light'] #wabi-boot-shell[data-boot-brand='wabi'] .wabi-boot-shell__logo { filter: none; }
 		</style>
 		<script>
 			// Server-stamped brand (Phase 1 boot optimization): wabi-server
@@ -331,7 +430,7 @@
 			(() => {
 				try {
 					if (window.location.pathname.replace(/\/$/, '') === '/personal') {
-						window.__WABI_BOOT_BRAND__ = { brandName: 'Wabi', logoUrl: '/wabi-logo.png', accent: '#818cf8' };
+						window.__WABI_BOOT_BRAND__ = { brandName: 'Wabi', logoUrl: '/wabi-logo.png', accent: '#d6ad5f' };
 						return;
 					}
 					const NEUTRAL_SVG =
@@ -449,31 +548,30 @@
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="tap">
-		<div id="wabi-boot-shell" role="status" aria-live="polite" data-boot-brand="pending" style="--boot-accent: #818cf8">
-			<div class="wabi-boot-shell__center" data-boot-state="default">
-				<div class="wabi-boot-shell__default">
-					<div class="wabi-boot-shell__stage" aria-hidden="true">
-						<span class="wabi-boot-shell__halo"></span>
-						<span class="wabi-boot-shell__ring"></span>
-						<img
-							id="wabi-boot-logo"
-							alt=""
-							class="wabi-boot-shell__logo"
-							decoding="async"
-						/>
-						<span class="wabi-boot-shell__mark" aria-hidden="true"></span>
-					</div>
-					<div id="wabi-boot-title" class="wabi-boot-shell__title" data-empty="true">Starting</div>
-					<div class="wabi-boot-shell__dots" aria-hidden="true">
-						<span></span>
-						<span></span>
-						<span></span>
-					</div>
+		<div id="wabi-boot-shell" role="status" aria-live="polite" data-boot-brand="pending" data-boot-state="default" style="--boot-accent: #d6ad5f">
+			<div class="wabi-boot-shell__center">
+				<div class="wabi-boot-shell__stage" aria-hidden="true">
+					<span class="wabi-boot-shell__orbit"></span>
+					<svg class="wabi-boot-shell__glyph" viewBox="0 0 64 64" fill="none">
+						<path d="M46.5 18.2A21 21 0 1 0 52 33.5" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" opacity="0.92"/>
+						<path d="M44 15.6c3.1 1.6 5.6 4 7.3 6.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.45"/>
+					</svg>
+					<img id="wabi-boot-logo" alt="" class="wabi-boot-shell__logo" decoding="async" />
 				</div>
-				<div class="wabi-boot-shell__reconnect">
-					<div class="wabi-boot-shell__title">Reconnecting…</div>
-					<p class="wabi-boot-shell__subtitle">Unable to reach the server. Your session may still be valid.</p>
-					<button id="wabi-work-offline" class="wabi-boot-shell__btn" type="button">Work Offline</button>
+				<div class="wabi-boot-shell__body">
+					<div id="wabi-boot-title" class="wabi-boot-shell__title" data-empty="false">Wabi</div>
+					<p class="wabi-boot-shell__status" id="wabi-boot-status">Opening the shell</p>
+					<div class="wabi-boot-shell__rail" aria-hidden="true"><span id="wabi-boot-fill"></span></div>
+					<ol class="wabi-boot-shell__steps" id="wabi-boot-steps" aria-hidden="true">
+						<li data-step="0"><span class="dot"></span>Shell</li>
+						<li data-step="1"><span class="dot"></span>Session</li>
+						<li data-step="2"><span class="dot"></span>Workspace</li>
+						<li data-step="3"><span class="dot"></span>Realtime</li>
+					</ol>
+					<div class="wabi-boot-shell__recover">
+						<button id="wabi-boot-retry" class="wabi-boot-shell__btn wabi-boot-shell__btn--primary" type="button">Try again</button>
+						<button id="wabi-work-offline" class="wabi-boot-shell__btn" type="button">Work Offline</button>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -481,21 +579,128 @@
 		<script>
 			(() => {
 				const getShell = () => document.getElementById('wabi-boot-shell');
-				const getCenter = () => getShell()?.querySelector('.wabi-boot-shell__center');
+
+				// --- Real boot gates: shell → session → workspace → realtime ---
+				// The rail is driven by these, never by a timer. A fast boot flies
+				// through them; a slow one shows the gate that is actually late.
+				const GATE_STATUS = [
+					'Opening the shell',
+					'Checking your session',
+					'Loading the workspace',
+					'Connecting realtime'
+				];
+				const GATE_PCT = [18, 42, 70, 92];
+				let activeGate = 1; // shell is done the instant this script runs
+				let stallTimer = 0;
+				let stepsRevealed = false;
+				// shell(0) is done immediately; the rest complete in any order the
+				// network delivers them (the socket can beat the chunk download).
+				let gateDone = [true, false, false, false];
+				let gatesComplete = false;
+
+				const getSteps = () => document.getElementById('wabi-boot-steps');
+				const getStatus = () => document.getElementById('wabi-boot-status');
+				const getFill = () => document.getElementById('wabi-boot-fill');
+
+				const paintGate = (index) => {
+					const shell = getShell();
+					if (!shell || shell.classList.contains('is-hidden')) return;
+					activeGate = index;
+					const steps = getSteps();
+					if (steps) {
+						[...steps.children].forEach((li, n) => {
+							li.classList.toggle('done', n < index);
+							li.classList.toggle('active', n === index);
+						});
+					}
+					const status = getStatus();
+					if (status) status.textContent = GATE_STATUS[Math.min(index, GATE_STATUS.length - 1)];
+					const fill = getFill();
+					if (fill) fill.style.width = GATE_PCT[Math.min(index, GATE_PCT.length - 1)] + '%';
+				};
+
+				const completeGates = () => {
+					const shell = getShell();
+					if (!shell || shell.classList.contains('is-hidden')) return;
+					gatesComplete = true;
+					const steps = getSteps();
+					if (steps) {
+						[...steps.children].forEach((li) => {
+							li.classList.add('done');
+							li.classList.remove('active');
+						});
+					}
+					const status = getStatus();
+					if (status) status.textContent = 'Ready';
+					const fill = getFill();
+					if (fill) fill.style.width = '100%';
+				};
+
+				// Advance the rail to the lowest gate not yet done, so an
+				// out-of-order completion never jumps backwards.
+				const recomputeGate = () => {
+					if (gatesComplete) return;
+					let idx = 1;
+					while (idx <= 3 && gateDone[idx]) idx++;
+					if (idx > 3) {
+						completeGates();
+						return;
+					}
+					paintGate(idx);
+				};
+
+				const clearStall = () => {
+					if (stallTimer) {
+						window.clearTimeout(stallTimer);
+						stallTimer = 0;
+					}
+				};
+
+				// A stall keeps the mark, freezes the rail and offers a way out —
+				// it never replaces the shell with a failure card.
+				const enterStall = () => {
+					const shell = getShell();
+					if (!shell || shell.classList.contains('is-hidden')) return;
+					if (shell.dataset.bootState === 'reconnect') return;
+					shell.dataset.bootState = 'stalled';
+					const status = getStatus();
+					if (status) {
+						status.textContent =
+							activeGate >= 3
+								? "The server didn't answer. Your session may still be valid."
+								: GATE_STATUS[activeGate] + ' is taking longer than expected.';
+					}
+				};
+
+				const armStall = () => {
+					clearStall();
+					stallTimer = window.setTimeout(enterStall, 4000);
+				};
+
+				const revealStepsSoon = () => {
+					if (stepsRevealed) return;
+					stepsRevealed = true;
+					getSteps()?.classList.add('is-visible');
+				};
 
 				const hideBootShell = () => {
 					const shell = getShell();
 					if (!shell || shell.classList.contains('is-hidden')) return;
+					clearStall();
 					shell.classList.add('is-hidden');
 					window.setTimeout(() => shell.remove(), 300);
 				};
 
 				const enterReconnectMode = () => {
-					const center = getCenter();
-					if (center) center.dataset.bootState = 'reconnect';
+					const shell = getShell();
+					if (!shell) return;
+					clearStall();
+					shell.dataset.bootState = 'reconnect';
+					// Keep the mark and freeze the rail at the gate that failed.
+					paintGate(1);
+					const status = getStatus();
+					if (status) status.textContent = 'Unable to reach the server. Your session may still be valid.';
 				};
-
-				const DEFAULT_WABI_LOGO = '%sveltekit.assets%/wabi-logo-boot.webp';
 
 				/**
 				 * Apply brand once and lock. Later calls that try to flip
@@ -544,7 +749,7 @@
 						shell.style.setProperty('--boot-accent', snap.accent || '#a1a1aa');
 						document.documentElement.setAttribute('data-neutral-branding', '');
 						if (title) {
-							title.textContent = 'Starting';
+							title.textContent = '';
 							title.dataset.empty = 'true';
 						}
 						if (logo) {
@@ -555,7 +760,7 @@
 						shell.dataset.bootBrand = 'custom';
 						document.documentElement.removeAttribute('data-neutral-branding');
 						if (title) {
-							title.textContent = snap.brandName ? ('Starting ' + snap.brandName) : 'Starting';
+							title.textContent = snap.brandName || '';
 							title.dataset.empty = snap.brandName ? 'false' : 'true';
 						}
 						if (logo && snap.logoUrl) {
@@ -570,17 +775,17 @@
 						shell.dataset.bootBrand = 'wabi';
 						document.documentElement.removeAttribute('data-neutral-branding');
 						if (title) {
-							title.textContent = 'Starting Wabi';
+							title.textContent = 'Wabi';
 							title.dataset.empty = 'false';
 						}
+						// Default brand paints the inline glyph — it never waits on
+						// wabi-logo-boot.webp or an invert filter.
 						if (logo) {
-							if (logo.getAttribute('src') !== DEFAULT_WABI_LOGO) {
-								logo.src = DEFAULT_WABI_LOGO;
-							}
-							logo.alt = 'Wabi';
+							logo.removeAttribute('src');
+							logo.alt = '';
 						}
 						if (snap.accent) shell.style.setProperty('--boot-accent', snap.accent);
-						else shell.style.setProperty('--boot-accent', '#818cf8');
+						else shell.style.setProperty("--boot-accent", "#d6ad5f");
 					}
 
 					window.__WABI_BOOT_BRAND__ = {
@@ -610,10 +815,41 @@
 					applyBootBrand(event && event.detail ? event.detail : null);
 				});
 
+				// The app reports real gate completions; the rail follows them.
+				// Reconnect is its own terminal state — gates don't move it.
+				window.addEventListener('wabi:boot-gate', (event) => {
+					const shell = getShell();
+					if (!shell || shell.classList.contains('is-hidden')) return;
+					if (shell.dataset.bootState === 'reconnect') return;
+					if (gatesComplete) return;
+					const gate = event && event.detail ? event.detail.gate : '';
+					const gi = gate === 'session' ? 1 : gate === 'workspace' ? 2 : gate === 'realtime' ? 3 : -1;
+					if (gi === -1 || gateDone[gi]) return;
+					gateDone[gi] = true;
+					clearStall();
+					if (shell.dataset.bootState === 'stalled') shell.dataset.bootState = 'default';
+					recomputeGate();
+				});
+
 				document.getElementById('wabi-work-offline')?.addEventListener('click', () => {
 					window.__hideWabiBootShell();
 					window.dispatchEvent(new CustomEvent('wabi:work-offline'));
 				});
+
+				// Try again: let the app re-attempt the connection if it is listening,
+				// and clear the stall so the rail resumes if the socket recovers.
+				document.getElementById('wabi-boot-retry')?.addEventListener('click', () => {
+					const shell = getShell();
+					if (shell && shell.dataset.bootState === 'stalled') shell.dataset.bootState = 'default';
+					armStall();
+					window.dispatchEvent(new CustomEvent('wabi:boot-retry'));
+				});
+
+				// First real paint: shell gate already done, session active. Reveal the
+				// step list only after a beat so a fast boot never sees the sequence.
+				paintGate(1);
+				armStall();
+				window.setTimeout(revealStepsSoon, 500);
 			})();
 		</script>
 	</body>

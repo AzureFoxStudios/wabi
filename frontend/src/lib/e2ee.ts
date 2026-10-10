@@ -638,8 +638,15 @@ function safeDecryptedOptions(options: Record<string, unknown>): Partial<Message
 }
 
 export async function prepareIncomingE2eeMessage(channelId: string, message: Message): Promise<E2eePreparedMessage> {
-	const envelope = parseEnvelope(String(message.text || ''));
-	if (!envelope) return message;
+	const raw = String(message.text || '');
+	// Without the envelope prefix this message is not ours to hydrate.
+	if (!raw.startsWith(E2EE_MESSAGE_PREFIX)) return message;
+	const envelope = parseEnvelope(raw);
+	// A prefixed message whose envelope will not parse is still ciphertext
+	// headed for the screen: never hand the raw envelope back to the
+	// renderer. The store's contract is authenticated plaintext or a safe
+	// failure marker, never the encrypted bytes.
+	if (!envelope) return undecryptableMessage(message, 'envelope_did_not_parse');
 	try {
 		if (envelope.room !== channelId) throw new Error('Encrypted message room mismatch.');
 		const senderUserId = normalizeMessageUserId(message.userId);
@@ -688,16 +695,25 @@ export async function prepareIncomingE2eeMessage(channelId: string, message: Mes
 		};
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : 'Unable to decrypt message.';
-		return {
-			...message,
-			text: '[Unable to decrypt this end-to-end encrypted message on this device]',
-			type: 'text' as Message['type'],
-			encrypted: true,
-			e2ee: true,
-			e2eeVerified: false,
-			e2eeError: detail,
-		};
+		return undecryptableMessage(message, detail);
 	}
+}
+
+/**
+ * The one shape the renderer may see for an envelope we cannot open. A raw
+ * prefix on the text marks ciphertext, and ciphertext must never reach the
+ * screen, the search index, or a notification.
+ */
+function undecryptableMessage(message: Message, detail: string): E2eePreparedMessage {
+	return {
+		...message,
+		text: '[Unable to decrypt this end-to-end encrypted message on this device]',
+		type: 'text' as Message['type'],
+		encrypted: true,
+		e2ee: true,
+		e2eeVerified: false,
+		e2eeError: detail
+	};
 }
 
 function chunkIv(prefix: Uint8Array, index: number): Uint8Array {
@@ -750,7 +766,9 @@ export async function encryptAttachmentForChannel(
 }
 
 export async function decryptAttachmentBlob(
-	channelId: string, encrypted: Blob, metadata: E2eeAttachmentMeta,
+	// Input is the base protocol meta: receivers only know what rode on the
+	// message, and the runtime checks below reject anything incomplete.
+	channelId: string, encrypted: Blob, metadata: AttachmentEncryptionMeta,
 ): Promise<Blob> {
 	const epoch = Number(metadata.epoch || 0);
 	const originalSize = Number(metadata.originalSize || 0);

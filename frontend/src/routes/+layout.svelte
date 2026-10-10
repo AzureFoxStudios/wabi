@@ -1,6 +1,18 @@
 <script lang="ts">
 	import { isShowcaseMode } from '$lib/showcase/mode';
+	import '../styles/fonts.css';
 	import '../styles/styles.css';
+	import '../styles/character.css';
+	import '../styles/typography.css';
+	import '../styles/stream.css';
+	import '../styles/shell.css';
+	import '../styles/login-skin.css';
+	import '../styles/controls-kit.css';
+	import '../styles/stage-skin.css';
+	import '../styles/settings-skin.css';
+	import '../styles/admin-skin.css';
+	import '../styles/modal-skin.css';
+	import '../styles/panels-skin.css';
 	import '../styles/desktop-shell.css';
 	import DesktopTitlebar from '$lib/components/DesktopTitlebar.svelte';
 	// Phase 4 boot optimization: katex/prism CSS moved next to their JS usage
@@ -98,7 +110,9 @@ function isLocalPreviewHost(): boolean {
 		// no reason (loginHelpers is in the eager graph either way).
 		injectNeutralBranding(isNeutralBrandingEnabled());
 
-		void initEmojis();
+		// The bundled emoji catalog is loaded on first use (picker / reaction
+		// select) via ensureEmojisLoaded — not on every boot. Server custom
+		// emotes still merge in over the socket.
 
 		// Personal planning must not probe relays or replay community operations.
 		// Community initialization happens on a fresh navigation back to the app.

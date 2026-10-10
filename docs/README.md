@@ -24,6 +24,7 @@ The product is deliberately **not a federated network**: one client may know man
 | Document | Scope |
 |---|---|
 | [architecture/overview.md](architecture/overview.md) | Distilled contributor mental model |
+| [architecture/WABI_DESIGN_PHILOSOPHY.md](architecture/WABI_DESIGN_PHILOSOPHY.md) | Growth principles, values/responsibility stance, and rules that keep today's single Authority ready for multiple owners; direction, not a shipped-feature claim |
 | [architecture/WABI_ECOSYSTEM_DIRECTION.md](architecture/WABI_ECOSYSTEM_DIRECTION.md) | Optional ecosystem/control-plane direction, proven Tailcat evidence, authorization and privacy guardrails; not a shipped-feature claim |
 | [architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) | Full system reference; older sections should be read with PROJECT_STATUS when they discuss multi-node work |
 | [architecture/PERSISTENCE_MODEL.md](architecture/PERSISTENCE_MODEL.md) | WabiDB persistence/retention model |
@@ -74,6 +75,8 @@ The root [README](../README.md) is the public product front door. [PROJECT_STATU
 - [proposals/](proposals/) — proposed designs, not shipped behavior by default.
 
 Current proposals include [Wabi as an AI organizing center](proposals/multi-computer-ai-workers-and-kanban.md): AI DMs and channels, wiki playbooks and selective retrieval, scoped asset routing, optional Jev-assisted decisions, visible context/memory and run controls, authorized multi-computer agents, shared Kanban, project journals and live progress views. The described AI experience, shared Planner storage and worker execution remain unimplemented.
+
+[Storage volumes](proposals/STORAGE_VOLUMES.md) proposes attaching NAS shares and other storage to an Authority, with admin placement rules by room, kind, size and age. It is unimplemented; today all uploads live in one directory.
 
 The [AI workspace implementation handoff](plans/2026-09-27-ai-workspace-first-slice.md) defines the first bounded milestone and the evidence needed before expanding it.
 

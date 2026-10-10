@@ -2,6 +2,7 @@
 	import { resolvedBadges } from '$lib/badges';
 	import type { User } from '$lib/socket';
 	import { currentSavedServer } from '$lib/savedServers';
+	import BadgeMark from '$lib/components/BadgeMark.svelte';
 	import { ownerBadgeMark, staffBadgeMark } from '$lib/badgeMarks';
 
 	// RoleBadge — renders role-derived + assignable badges inline next to a
@@ -41,7 +42,7 @@
 				class:badge-role-mark={badge.kind === 'role'}
 			>
 				{#if badge.kind === 'role'}
-					<span aria-hidden="true">{badge.tone === 'owner' ? ownerMark : staffMark}</span>
+					<BadgeMark kind={badge.tone === 'owner' ? 'owner' : 'staff'} mark={badge.tone === 'owner' ? ownerMark : staffMark} />
 				{:else}
 					{#if badge.icon}<span class="badge-icon">{badge.icon}</span>{/if}
 					{badge.label}

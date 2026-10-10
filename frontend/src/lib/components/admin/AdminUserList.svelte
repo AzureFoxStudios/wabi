@@ -160,29 +160,29 @@
 
 <style>
 	.admin-people { display: grid; gap: 1rem; min-width: 0; }
-	.admin-badge-feedback, .admin-badge-pending, .admin-badge-status { margin: 0; color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; overflow-wrap: anywhere; }
-	.admin-badge-feedback { padding: 0.75rem 1rem; color: color-mix(in srgb, var(--text-primary) 70%, var(--text-danger)); background: var(--accent-danger-soft); border-inline-start: 3px solid var(--text-danger); border-radius: var(--radius-md); }
+	.admin-badge-feedback, .admin-badge-pending, .admin-badge-status { margin: 0; color: var(--w-mute); font-size: 0.875rem; line-height: 1.6; overflow-wrap: anywhere; }
+	.admin-badge-feedback { padding: 0.75rem 1rem; color: color-mix(in srgb, var(--w-text) 70%, var(--w-danger)); background: var(--accent-danger-soft); border-inline-start: 3px solid var(--w-danger); border-radius: calc(10px * var(--w-rs, 1)); }
 	.admin-people .admin-search { width: 100%; min-height: 44px; padding: 0.65rem 0.85rem; font: inherit; font-size: 1rem; }
 	.admin-people .admin-user-list { display: grid; gap: 0.75rem; min-width: 0; }
-	.admin-people .admin-user-item { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; min-width: 0; padding: 1rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--surface-raised); }
+	.admin-people .admin-user-item { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; min-width: 0; padding: 1rem; border: 1px solid var(--w-line); border-radius: calc(14px * var(--w-rs, 1)); background: var(--w-raise); }
 	.admin-people .admin-user-meta { display: flex; flex-wrap: wrap; align-items: center; flex: 1 1 12rem; gap: 0.5rem; min-width: 0; }
 	.admin-people .admin-user-name { max-width: 100%; font-size: 0.95rem; line-height: 1.5; overflow-wrap: anywhere; }
 	.admin-people .admin-payment-block-badge { height: auto; padding: 0.2rem 0.45rem; font-size: 0.75rem; line-height: 1.4; }
 	.admin-people .admin-actions { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 0.625rem; min-width: 0; }
-	.admin-people .admin-person-action { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; min-width: 44px; min-height: 44px; height: auto; padding: 0.55rem 0.7rem; background: var(--surface-raised); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: var(--radius-md); font: inherit; font-size: 0.875rem; line-height: 1.4; cursor: pointer; white-space: normal; }
-	.admin-people .admin-person-action:not(:disabled):hover { background: var(--surface-hover); }
+	.admin-people .admin-person-action { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; min-width: 44px; min-height: 44px; height: auto; padding: 0.55rem 0.7rem; background: var(--w-raise); color: var(--w-text); border: 1px solid var(--w-line-strong); border-radius: calc(10px * var(--w-rs, 1)); font: inherit; font-size: 0.875rem; line-height: 1.4; cursor: pointer; white-space: normal; }
+	.admin-people .admin-person-action:not(:disabled):hover { background: var(--w-raise); }
 	.admin-people .admin-person-action:disabled { opacity: 0.5; cursor: not-allowed; }
 	.admin-message-action svg { flex: 0 0 18px; }
-	.admin-people .admin-role-control { display: flex; flex-direction: row; align-items: center; gap: 0.5rem; margin: 0; color: var(--text-secondary); font-size: 0.875rem; }
-	.admin-people .admin-select { min-height: 44px; height: auto; max-width: 100%; padding: 0.55rem 0.65rem; background: var(--surface-sunken); color: var(--text-primary); border: 1px solid var(--border-default); border-radius: var(--radius-md); font: inherit; font-size: 0.875rem; line-height: 1.4; }
+	.admin-people .admin-role-control { display: flex; flex-direction: row; align-items: center; gap: 0.5rem; margin: 0; color: var(--w-mute); font-size: 0.875rem; }
+	.admin-people .admin-select { min-height: 44px; height: auto; max-width: 100%; padding: 0.55rem 0.65rem; background: var(--w-sink); color: var(--w-text); border: 1px solid var(--w-line-strong); border-radius: calc(10px * var(--w-rs, 1)); font: inherit; font-size: 0.875rem; line-height: 1.4; }
 	.admin-people .admin-select:disabled { opacity: 0.65; cursor: not-allowed; }
-	.admin-person-status { color: var(--text-secondary); font-size: 0.875rem; line-height: 1.5; }
+	.admin-person-status { color: var(--w-mute); font-size: 0.875rem; line-height: 1.5; }
 	.admin-person-badges { width: 100%; min-width: 0; }
-	.admin-person-badges summary { width: fit-content; min-height: 44px; padding: 0.65rem 0.25rem; box-sizing: border-box; color: var(--text-secondary); font-size: 0.875rem; line-height: 1.5; cursor: pointer; }
-	.admin-person-badges summary:hover { color: var(--text-primary); }
+	.admin-person-badges summary { width: fit-content; min-height: 44px; padding: 0.65rem 0.25rem; box-sizing: border-box; color: var(--w-mute); font-size: 0.875rem; line-height: 1.5; cursor: pointer; }
+	.admin-person-badges summary:hover { color: var(--w-text); }
 	.admin-badge-count { margin-inline-start: 0.5rem; font-variant-numeric: tabular-nums; }
 	.admin-people .admin-badge-control { display: flex; flex-wrap: wrap; gap: 0.5rem; padding-top: 0.25rem; min-width: 0; }
-	.admin-people .admin-badge-chip { background: var(--surface-sunken); }
-	.admin-people :is(button, input, select, summary):focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: 3px; }
+	.admin-people .admin-badge-chip { background: var(--w-sink); }
+	.admin-people :is(button, input, select, summary):focus-visible { outline: 2px solid var(--w-accent); outline-offset: 3px; }
 	@media (max-width: 600px) { .admin-people .admin-user-meta, .admin-people .admin-actions { width: 100%; flex-basis: 100%; } }
 </style>

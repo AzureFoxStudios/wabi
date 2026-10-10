@@ -31,6 +31,8 @@
 	export let groupedWithNext: boolean;
 	export let ownMessage: boolean;
 	export let deletionLabel: string | null;
+	/** Remaining share of retention life (1 -> 0); null when the room does not expire messages. */
+	export let retentionLife: number | null = null;
 	export let translatedText: string | undefined;
 	export let translationLoading: boolean;
 	export let filteredMessage: ChatFilterResult;
@@ -222,6 +224,14 @@
 			{onHandleUtilityPinToggle}
 			{onHandleUtilityEdit}
 		/>
+
+	<!-- Time column + retention wick (laid out by styles/stream.css; hidden on narrow screens) -->
+	<time class="msg-time" datetime={new Date(message.timestamp).toISOString()} title={formatTimeTooltip(message.timestamp)}>{formatTime(message.timestamp)}</time>
+	{#if retentionLife !== null}
+		<span class="msg-wick" class:soon={retentionLife < 0.15} style="--life: {retentionLife.toFixed(3)}" aria-hidden="true"></span>
+	{:else}
+		<span class="msg-wick-spacer" aria-hidden="true"></span>
+	{/if}
 
 	<!-- Profile Picture -->
 	{#if groupedWithPrevious}

@@ -5,6 +5,7 @@
 	import { getAuthToken } from '$lib/authSession';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { channels } from '$lib/socket';
+	import { DISPLAY_FONTS } from '$lib/theme/displayFonts';
 	import { sanitizeAccentColor } from '$lib/cssSanitize';
 
 	let {
@@ -83,13 +84,16 @@
 	$effect(() => { accentInput = authoritativeAccent; });
 	const accentInvalid = $derived(accentInput.trim() !== '' && !sanitizeAccentColor(accentInput));
 	const deskBackgroundInvalid = $derived(Boolean(frontendAppMetadata.deskBackgroundUrl) && !frontendAppMetadata.deskStillUrl);
-	const keys: Array<keyof FrontendAppMetadataPolicy> = ['displayName', 'iconUrl', 'bannerUrl', 'deskBackgroundUrl', 'deskStillUrl', 'deskWelcomeText', 'deskHelpText', 'deskHelpUrl', 'deskHelpLabel', 'deskStartingRoomId', 'deskFocusedWelcome', 'accentColor', 'description', 'tagline', 'launchPageFallbackEnabled', 'ownerBadgeMark', 'staffBadgeMark'];
+	const keys: Array<keyof FrontendAppMetadataPolicy> = ['displayName', 'iconUrl', 'bannerUrl', 'deskBackgroundUrl', 'deskStillUrl', 'deskWelcomeText', 'deskHelpText', 'deskHelpUrl', 'deskHelpLabel', 'deskStartingRoomId', 'deskFocusedWelcome', 'accentColor', 'description', 'tagline', 'launchPageFallbackEnabled', 'ownerBadgeMark', 'staffBadgeMark', 'displayFont'];
 	const dirty = $derived(keys.some(key => frontendAppMetadata[key] !== publishedFrontendAppMetadata[key]) || JSON.stringify(frontendAppMetadata.deskPosterBlocks || []) !== JSON.stringify(publishedFrontendAppMetadata.deskPosterBlocks || []));
 	const busy = $derived(frontendMetadataLoading || frontendMetadataSaving || frontendMetadataUploadTarget !== null);
 	const editable = $derived(frontendMetadataLoaded && !busy);
 	const safeAccent = $derived(sanitizeAccentColor(frontendAppMetadata.accentColor) || 'var(--accent-primary)');
 	function setText(key: 'displayName' | 'description' | 'tagline' | 'iconUrl' | 'bannerUrl' | 'deskBackgroundUrl' | 'deskStillUrl' | 'deskWelcomeText' | 'deskHelpText' | 'deskHelpUrl' | 'deskHelpLabel', value: string): void {
 		onMetadataChange({ ...frontendAppMetadata, [key]: value || null });
+	}
+	function setDisplayFont(value: string): void {
+		onMetadataChange({ ...frontendAppMetadata, displayFont: value && value !== 'default' ? value : null });
 	}
 	function setBadgeMark(key: 'ownerBadgeMark' | 'staffBadgeMark', value: string): void {
 		onMetadataChange({ ...frontendAppMetadata, [key]: value.trim() ? value.slice(0, 16) : null });
@@ -134,9 +138,10 @@
 			<legend class="branding-sr-only">Identity and artwork</legend>
 			<div class="branding-form-grid">
 				<label>Server name<input value={frontendAppMetadata.displayName ?? ''} placeholder="Your community" oninput={event => setText('displayName', event.currentTarget.value)} /></label>
-				<label>Accent color<input value={accentInput} placeholder="#6366f1" aria-invalid={accentInvalid ? 'true' : undefined} aria-describedby="branding-accent-help" oninput={event => editAccent(event.currentTarget.value)} /><small id="branding-accent-help">{accentInvalid ? 'Enter a valid hex, RGB or HSL color, or leave blank.' : 'Color used in the server preview.'}</small></label>
-				<label>Owner mark<input value={frontendAppMetadata.ownerBadgeMark ?? ''} placeholder="👑" maxlength="8" aria-label="Owner badge mark" oninput={event => setBadgeMark('ownerBadgeMark', event.currentTarget.value)} /><small>Shown beside owner names. Leave blank to use 👑.</small></label>
-				<label>Staff mark<input value={frontendAppMetadata.staffBadgeMark ?? ''} placeholder="💎" maxlength="8" aria-label="Staff badge mark" oninput={event => setBadgeMark('staffBadgeMark', event.currentTarget.value)} /><small>Shown beside staff names. Leave blank to use 💎.</small></label>
+				<label>Signature color<input value={accentInput} placeholder="#6366f1" aria-invalid={accentInvalid ? 'true' : undefined} aria-describedby="branding-accent-help" oninput={event => editAccent(event.currentTarget.value)} /><small id="branding-accent-help">{accentInvalid ? 'Enter a valid hex, RGB or HSL color, or leave blank.' : 'Signature color: tints the sidebar banner, room titles and the server preview. Leave blank to follow each member’s theme.'}</small></label>
+				<label>Owner mark<input value={frontendAppMetadata.ownerBadgeMark ?? ''} placeholder="Default crown" maxlength="8" aria-label="Owner badge mark" oninput={event => setBadgeMark('ownerBadgeMark', event.currentTarget.value)} /><small>Shown beside owner names. Leave blank for the default crown.</small></label>
+				<label>Staff mark<input value={frontendAppMetadata.staffBadgeMark ?? ''} placeholder="Default gem" maxlength="8" aria-label="Staff badge mark" oninput={event => setBadgeMark('staffBadgeMark', event.currentTarget.value)} /><small>Shown beside staff names. Leave blank for the default gem.</small></label>
+				<label>Title font<select value={frontendAppMetadata.displayFont ?? 'default'} aria-label="Community title font" onchange={event => setDisplayFont(event.currentTarget.value)}>{#each DISPLAY_FONTS as font}<option value={font.id}>{font.label}</option>{/each}</select><small>Used for the server name, room titles and headings. A theme with its own type (like Joker) keeps its own.</small></label>
 				<label class="branding-wide">Description<input value={frontendAppMetadata.description ?? ''} placeholder="A short introduction to your server" oninput={event => setText('description', event.currentTarget.value)} /></label>
 				<label class="branding-wide">Tagline<input value={frontendAppMetadata.tagline ?? ''} placeholder="A few words that make this place yours" oninput={event => setText('tagline', event.currentTarget.value)} /></label>
 			</div>
@@ -216,55 +221,83 @@
 </section>
 
 <style>
-	.branding-editor { display: grid; gap: 20px; padding: 22px; background: var(--surface-base); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); min-width: 0; }
+	.branding-editor { display: grid; gap: 20px; padding: 22px; background: var(--w-bg2); border: 1px solid var(--w-line); border-radius: calc(14px * var(--w-rs, 1)); min-width: 0; }
 	.branding-heading { display: flex; justify-content: space-between; align-items: start; gap: 16px; flex-wrap: wrap; }
 	h2 { margin: 0; font-size: 1rem; line-height: 1.4; }
-	.branding-heading p { margin: 6px 0 0; color: var(--text-secondary); font-size: .85rem; line-height: 1.5; }
+	.branding-heading p { margin: 6px 0 0; color: var(--w-mute); font-size: .85rem; line-height: 1.5; }
 	.branding-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-	button { min-height: 44px; padding: 10px 14px; border: 1px solid var(--border-default); border-radius: var(--radius-md); color: var(--text-primary); -webkit-text-fill-color: currentColor; background: var(--surface-raised); font: inherit; font-size: .85rem; cursor: pointer; }
-	button:hover:not(:disabled) { background: var(--surface-hover); }
+	button { min-height: 44px; padding: 10px 14px; border: 1px solid var(--w-line-strong); border-radius: calc(10px * var(--w-rs, 1)); color: var(--w-text); -webkit-text-fill-color: currentColor; background: var(--w-raise); font: inherit; font-size: .85rem; cursor: pointer; }
+	button:hover:not(:disabled) { background: var(--w-raise); }
 	button:disabled { opacity: .6; cursor: default; }
-	.branding-publish { color: var(--text-on-accent, white); background: var(--accent-primary); border-color: var(--accent-primary); }
-	.branding-publish:hover:not(:disabled) { background: var(--accent-secondary); }
-	.branding-notice, .branding-help { margin: 0; font-size: .85rem; line-height: 1.6; color: var(--text-secondary); }
-	.branding-error { margin: 0; padding: 12px 14px; border: 1px solid var(--text-danger); border-radius: var(--radius-md); color: color-mix(in srgb, var(--text-primary) 70%, var(--text-danger)); background: var(--accent-danger-soft); line-height: 1.6; }
+	.branding-publish { color: var(--w-on-accent); background: var(--w-accent); border-color: var(--w-accent); }
+	.branding-publish:hover:not(:disabled) { background: var(--w-accent); }
+	.branding-notice, .branding-help { margin: 0; font-size: .85rem; line-height: 1.6; color: var(--w-mute); }
+	.branding-error { margin: 0; padding: 12px 14px; border: 1px solid var(--w-danger); border-radius: calc(10px * var(--w-rs, 1)); color: color-mix(in srgb, var(--w-text) 70%, var(--w-danger)); background: var(--accent-danger-soft); line-height: 1.6; }
 	.branding-fields { display: grid; gap: 20px; min-width: 0; border: 0; padding: 0; margin: 0; }
 	.branding-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
-	label { display: grid; gap: 8px; font-size: .85rem; color: var(--text-primary); min-width: 0; }
-	label small { color: var(--text-secondary); font-size: .75rem; }
-	input:not([type="checkbox"]) { min-width: 0; width: 100%; min-height: 44px; box-sizing: border-box; padding: 10px 12px; font: inherit; color: var(--text-primary); background: var(--surface-sunken); border: 1px solid var(--border-default); border-radius: var(--radius-md); }
-	textarea{min-width:0;width:100%;box-sizing:border-box;padding:10px 12px;font:inherit;color:var(--text-primary);background:var(--surface-sunken);border:1px solid var(--border-default);border-radius:var(--radius-md);resize:vertical}
-	.poster-editor{display:grid;gap:12px;border-top:1px solid var(--border-default);padding-top:16px}.poster-editor p{color:var(--text-secondary)}.poster-block-fields{display:grid;gap:10px;padding:12px;border:1px solid var(--border-default);border-radius:var(--radius-md)}.poster-position{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.poster-preview{position:relative;min-height:250px;background-color:var(--surface-sunken);background-size:cover;background-position:center;border:1px solid var(--border-default);border-radius:var(--radius-md);overflow:hidden}.poster-preview.narrow{width:min(320px,100%);min-height:400px;display:grid;align-content:end;gap:6px;padding:10px;box-sizing:border-box}.poster-preview.narrow .poster-preview-block{position:static;width:auto!important}.poster-preview-block{position:absolute;display:block;cursor:move;touch-action:none;text-align:left;background:var(--surface-base);color:var(--text-primary);padding:4px;overflow:hidden;border:1px solid var(--accent-primary);border-radius:4px}.poster-block-fields select,.desk-branding select{min-height:44px;background:var(--surface-sunken);color:var(--text-primary);border:1px solid var(--border-default);border-radius:var(--radius-md)}
-	input::placeholder { color: var(--text-secondary); opacity: 1; }
+	label { display: grid; gap: 8px; font-size: .85rem; color: var(--w-text); min-width: 0; }
+	label small { color: var(--w-mute); font-size: .75rem; }
+	input:not([type="checkbox"]) { min-width: 0; width: 100%; min-height: 44px; box-sizing: border-box; padding: 10px 12px; font: inherit; color: var(--w-text); background: var(--w-sink); border: 1px solid var(--w-line-strong); border-radius: calc(10px * var(--w-rs, 1)); }
+	textarea{min-width:0;width:100%;box-sizing:border-box;padding:10px 12px;font:inherit;color:var(--w-text);background:var(--w-sink);border:1px solid var(--w-line-strong);border-radius:calc(10px * var(--w-rs, 1));resize:vertical}
+	.poster-editor{display:grid;gap:12px;border-top:1px solid var(--w-line-strong);padding-top:16px}.poster-editor p{color:var(--w-mute)}.poster-block-fields{display:grid;gap:10px;padding:12px;border:1px solid var(--w-line-strong);border-radius:calc(10px * var(--w-rs, 1))}.poster-position{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.poster-preview{position:relative;min-height:250px;background-color:var(--w-sink);background-size:cover;background-position:center;border:1px solid var(--w-line-strong);border-radius:calc(10px * var(--w-rs, 1));overflow:hidden}.poster-preview.narrow{width:min(320px,100%);min-height:400px;display:grid;align-content:end;gap:6px;padding:10px;box-sizing:border-box}.poster-preview.narrow .poster-preview-block{position:static;width:auto!important}.poster-preview-block{position:absolute;display:block;cursor:move;touch-action:none;text-align:left;background:var(--w-bg2);color:var(--w-text);padding:4px;overflow:hidden;border:1px solid var(--w-accent);border-radius:4px}.poster-block-fields select,.desk-branding select{min-height:44px;background:var(--w-sink);color:var(--w-text);border:1px solid var(--w-line-strong);border-radius:calc(10px * var(--w-rs, 1))}
+	input::placeholder { color: var(--w-mute); opacity: 1; }
 	.branding-wide { grid-column: 1 / -1; }
 	.branding-assets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 	.branding-asset { display: grid; gap: 8px; min-width: 0; align-content: start; }
-	.branding-upload { display: grid; justify-items: center; gap: 10px; padding: 18px; width: 100%; text-align: center; background: var(--surface-sunken); }
-	.branding-upload.dragging { border-color: var(--accent-primary); background: var(--surface-hover); }
-	.branding-upload > span:last-child { color: var(--text-secondary); font-size: .75rem; line-height: 1.5; }
-	.branding-asset-preview { display: flex; align-items: center; justify-content: center; width: 64px; height: 64px; overflow: hidden; background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); color: var(--text-secondary); }
+	.branding-upload { display: grid; justify-items: center; gap: 10px; padding: 18px; width: 100%; text-align: center; background: var(--w-sink); }
+	.branding-upload.dragging { border-color: var(--w-accent); background: var(--w-raise); }
+	.branding-upload > span:last-child { color: var(--w-mute); font-size: .75rem; line-height: 1.5; }
+	.branding-asset-preview { display: flex; align-items: center; justify-content: center; width: 64px; height: 64px; overflow: hidden; background: var(--w-raise); border: 1px solid var(--w-line); border-radius: calc(10px * var(--w-rs, 1)); color: var(--w-mute); }
 	.branding-asset-preview.banner { width: min(100%, 180px); }
 	.branding-asset-preview img { width: 100%; height: 100%; object-fit: cover; }
 	.branding-remove { justify-self: center; border: 0; background: transparent; }
-	.branding-advanced { border-top: 1px solid var(--border-subtle); padding-top: 16px; }
+	.branding-advanced { border-top: 1px solid var(--w-line); padding-top: 16px; }
 	summary { cursor: pointer; font-size: .85rem; padding: 8px 0; }
 	.branding-advanced .branding-form-grid { margin-top: 18px; }
 	.branding-checkbox { display: flex; align-items: start; gap: 12px; line-height: 1.6; }
-	.branding-checkbox input { margin-top: 4px; accent-color: var(--accent-primary); }
+	.branding-checkbox input { margin-top: 4px; accent-color: var(--w-accent); }
 	.branding-preview-section h3 { margin: 0 0 12px; font-size: .9rem; }
-	.branding-preview { border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); overflow: hidden; background: var(--surface-sunken); }
+	.branding-preview { border: 1px solid var(--w-line); border-radius: calc(14px * var(--w-rs, 1)); overflow: hidden; background: var(--w-sink); }
 	.branding-preview-banner { display: block; width: 100%; height: 120px; object-fit: cover; }
-	.desk-branding{display:grid;gap:12px;padding-top:18px;border-top:1px solid var(--border-subtle)}
-	.desk-branding h3,.desk-branding p{margin:0}.desk-branding p{color:var(--text-secondary);line-height:1.5}
-	.desk-branding-actions{display:flex;flex-wrap:wrap;gap:8px}.desk-branding-preview{width:100%;height:160px;object-fit:cover;border-radius:var(--radius-md)}
+	.desk-branding{display:grid;gap:12px;padding-top:18px;border-top:1px solid var(--w-line)}
+	.desk-branding h3,.desk-branding p{margin:0}.desk-branding p{color:var(--w-mute);line-height:1.5}
+	.desk-branding-actions{display:flex;flex-wrap:wrap;gap:8px}.desk-branding-preview{width:100%;height:160px;object-fit:cover;border-radius:calc(10px * var(--w-rs, 1))}
 	.branding-preview-copy { display: flex; align-items: center; gap: 16px; padding: 20px; min-width: 0; }
 	.branding-preview-copy > div:last-child { min-width: 0; overflow-wrap: anywhere; }
 	.branding-preview-copy strong { color: var(--branding-preview-accent); font-size: 1.1rem; }
-	.branding-preview-copy p { margin: 6px 0 0; color: var(--text-secondary); font-size: .85rem; line-height: 1.6; }
-	.branding-preview-copy small { display: block; margin-top: 6px; color: var(--text-secondary); line-height: 1.5; }
-	.branding-preview-avatar { display: flex; align-items: center; justify-content: center; width: 52px; height: 52px; flex-shrink: 0; border-radius: var(--radius-md); overflow: hidden; background: var(--surface-raised); border: 1px solid var(--border-subtle); }
+	.branding-preview-copy p { margin: 6px 0 0; color: var(--w-mute); font-size: .85rem; line-height: 1.6; }
+	.branding-preview-copy small { display: block; margin-top: 6px; color: var(--w-mute); line-height: 1.5; }
+	.branding-preview-avatar { display: flex; align-items: center; justify-content: center; width: 52px; height: 52px; flex-shrink: 0; border-radius: calc(10px * var(--w-rs, 1)); overflow: hidden; background: var(--w-raise); border: 1px solid var(--w-line); }
 	.branding-preview-avatar img { width: 100%; height: 100%; object-fit: cover; }
 	.branding-sr-only, .branding-file-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-	:is(button, input, summary):focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: 3px; }
+	:is(button, input, summary):focus-visible { outline: 2px solid var(--w-accent); outline-offset: 3px; }
 	@media (max-width: 640px) { .branding-editor { padding: 18px 16px; } .branding-form-grid, .branding-assets { grid-template-columns: 1fr; } .branding-heading, .branding-actions { width: 100%; } .branding-actions button { flex: 1 1 auto; } }
+
+	/* ---- layout: the live preview leads, the controls follow it ---- */
+	.branding-editor { background: var(--w-bg2); font-family: var(--w-sans); color: var(--w-text); }
+	.branding-heading { order: -3; }
+	.branding-error, .branding-notice { order: -2; }
+	.branding-preview-section { order: -1; }
+	h2 { font: 600 calc(24px * var(--w-fs, 1))/1.2 var(--w-serif); letter-spacing: 0.01em; }
+	h3 { font: 600 calc(17px * var(--w-fs, 1))/1.3 var(--w-serif); text-transform: none; letter-spacing: 0.01em; color: var(--w-text); }
+	.branding-preview-section h3 { font: 600 calc(11px * var(--w-fs, 1))/1 var(--w-mono); text-transform: uppercase; letter-spacing: 0.12em; color: var(--w-faint); }
+	.branding-preview { position: relative; border-radius: calc(16px * var(--w-rs, 1)); background: var(--w-bg); }
+	.branding-preview-banner { height: 170px; }
+	.branding-preview { min-height: 150px; display: flex; flex-direction: column; justify-content: flex-end; background: radial-gradient(260px 160px at 90% 0%, color-mix(in srgb, var(--branding-preview-accent, var(--w-accent)) 34%, transparent), transparent 72%), var(--w-bg); }
+	.branding-preview:has(.branding-preview-banner) .branding-preview-copy { margin-top: -34px; }
+	.branding-preview-copy { position: relative; padding: 22px; align-items: flex-end; }
+	.branding-preview-avatar { width: 64px; height: 64px; border: calc(3px * var(--w-bw-scale, 1)) solid var(--w-bg); border-radius: calc(14px * var(--w-rs, 1)); background: var(--w-raise); }
+	.branding-preview-copy strong { font: 600 calc(24px * var(--w-fs, 1))/1.15 var(--w-serif); }
+	label { font: 600 calc(12px * var(--w-fs, 1))/1.3 var(--w-sans); color: var(--w-mute); letter-spacing: 0.02em; }
+	input:not([type="checkbox"]), textarea, select { background: var(--w-sink); border: var(--w-bw, 1px) solid var(--w-line-strong); border-radius: calc(10px * var(--w-rs, 1)); color: var(--w-text); }
+	input:not([type="checkbox"]):focus, textarea:focus, select:focus { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
+	select { min-height: 44px; padding: 8px 10px; font: inherit; width: 100%; }
+	button { min-height: 36px; padding: 6px 14px; border: var(--w-bw, 1px) solid var(--w-line-strong); border-radius: calc(10px * var(--w-rs, 1)); background: transparent; color: var(--w-text); font: 600 calc(13px * var(--w-fs, 1)) var(--w-sans); }
+	button:hover:not(:disabled) { background: var(--w-raise); border-color: var(--w-accent); }
+	.branding-publish, .branding-publish:hover:not(:disabled) { background: var(--w-text); color: var(--w-bg); border-color: transparent; }
+	.branding-upload { border: var(--w-bw, 1px) dashed var(--w-line-strong); background: var(--w-sink); min-height: 160px; align-content: center; }
+	.branding-upload:hover { border-color: var(--w-accent); }
+	.branding-asset-preview { width: 76px; height: 76px; }
+	.branding-asset-preview.banner { width: min(100%, 220px); height: 76px; }
+	.desk-branding, .poster-editor { padding: 18px; border: var(--w-bw, 1px) solid var(--w-line); border-radius: calc(14px * var(--w-rs, 1)); background: var(--w-bg); }
 </style>

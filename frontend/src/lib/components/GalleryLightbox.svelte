@@ -613,7 +613,7 @@
 	.lightbox-more-by {
 		font-size: 11px;
 		font-weight: 600;
-		color: var(--accent-primary, #7c6af5);
+		color: var(--w-accent);
 		background: none;
 		border: none;
 		padding: 2px 0;

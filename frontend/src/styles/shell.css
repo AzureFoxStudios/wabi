@@ -1,0 +1,306 @@
+/* Shell frame — left column, workspace bar, channel header, composer.
+   Restyles the existing components with design roles (--w-*). :root-prefixed to win over
+   component-scoped rules without !important. */
+
+/* ---------- left column ---------- */
+:root .channel-sidebar-container .channel-sidebar {
+	background: var(--w-bg2);
+	border-right: var(--w-bw, 1px) solid var(--w-line);
+	font-family: var(--w-sans);
+}
+
+/* community identity: a banner, not a toolbar */
+:root .channel-sidebar .top-section {
+	position: relative;
+	display: flex;
+	align-items: flex-end;
+	justify-content: space-between;
+	min-height: 92px;
+	padding: 14px 12px 12px 16px;
+	border-bottom: var(--w-bw, 1px) solid var(--w-line);
+	background:
+		var(--sidebar-banner-image, none),
+		radial-gradient(160px 110px at 92% 0%, color-mix(in srgb, var(--w-sig, var(--w-accent)) 34%, transparent), transparent 72%),
+		var(--w-raise);
+	background-size: cover;
+	background-position: center;
+}
+:root .channel-sidebar .top-section::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	background: linear-gradient(180deg, transparent 25%, var(--w-bg2) 130%);
+}
+:root .channel-sidebar .top-section > * { position: relative; z-index: 1; }
+:root .channel-sidebar .server-identity { gap: 12px; padding: 0; background: none; }
+/* The mark is shown as-is: no disc, ring or glow behind it. A transparent logo must sit
+   directly on the banner; an opaque square icon just gets softened corners. */
+:root .channel-sidebar .server-identity .logo {
+	width: 40px;
+	height: 40px;
+	flex-basis: 40px;
+	border-radius: 0;
+	background: none;
+	box-shadow: none;
+	overflow: hidden;
+}
+:root .channel-sidebar .server-identity .logo-img {
+	width: 40px;
+	height: 40px;
+	border-radius: calc(8px * var(--w-rs, 1));
+	background: none;
+	object-fit: contain;
+	filter: none;
+}
+:root .channel-sidebar .server-identity .server-logo-img { object-fit: contain; }
+/* The built-in mark is dark ink on transparent: flip it on dark surfaces. */
+:root[data-mode='dark'] .channel-sidebar .server-identity .brand-logo-img { filter: invert(1); }
+:root .channel-sidebar .server-name {
+	font: 600 calc(22px * var(--w-fs, 1))/1.1 var(--w-serif);
+	letter-spacing: 0.01em;
+	color: var(--w-text);
+}
+:root .channel-sidebar .server-tagline {
+	margin-top: 3px;
+	font: 500 calc(11.5px * var(--w-fs, 1))/1.2 var(--w-mono);
+	color: var(--w-mute);
+	text-transform: none;
+	letter-spacing: 0;
+}
+:root .channel-sidebar .server-switcher-button {
+	align-self: flex-start;
+	color: var(--w-mute);
+	border-radius: calc(9px * var(--w-rs, 1));
+}
+:root .channel-sidebar .server-switcher-button:hover { background: var(--w-raise); color: var(--w-text); }
+
+/* home + search */
+:root .channel-sidebar .personal-nav { border-bottom: 0; padding: 8px 8px 2px; }
+:root .channel-sidebar .messages-hub-btn,
+:root .channel-sidebar .channel-btn {
+	border-radius: calc(10px * var(--w-rs, 1));
+	color: var(--w-mute);
+	font: 500 calc(14.5px * var(--w-fs, 1))/1.3 var(--w-sans);
+}
+:root .channel-sidebar .messages-hub-btn:hover { background: var(--w-raise); color: var(--w-text); }
+:root .channel-sidebar .channel-search-row {
+	margin: 6px 10px 4px;
+	background: var(--w-sink);
+	border: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: calc(10px * var(--w-rs, 1));
+}
+:root .channel-sidebar .channel-search-input { font: 400 calc(13.5px * var(--w-fs, 1)) var(--w-sans); color: var(--w-text); }
+:root .channel-sidebar .channel-search-count { font: 500 calc(11px * var(--w-fs, 1)) var(--w-mono); color: var(--w-faint); }
+
+/* sections */
+:root .channel-sidebar .section-toggle { color: var(--w-mute); }
+:root .channel-sidebar .section-toggle-label {
+	font: 600 calc(11.5px * var(--w-fs, 1))/1 var(--w-sans);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--w-mute);
+}
+:root .channel-sidebar .section-count {
+	font: 500 calc(11px * var(--w-fs, 1)) var(--w-mono);
+	color: var(--w-faint);
+	background: none;
+	border: 0;
+	padding: 0 4px;
+}
+
+/* rooms */
+:root .channel-sidebar .channel-item {
+	margin: 1px 8px;
+	border-radius: calc(10px * var(--w-rs, 1));
+	background: none;
+	border: 0;
+	box-shadow: none;
+}
+:root .channel-sidebar .channel-item:hover { background: var(--w-raise); }
+:root .channel-sidebar .channel-item.active {
+	background: var(--w-raise);
+	box-shadow: inset 2px 0 0 var(--w-accent);
+}
+:root .channel-sidebar .channel-item.active .channel-btn { color: var(--w-text); }
+:root .channel-sidebar .channel-btn .hash { color: var(--w-faint); font-weight: 700; }
+:root .channel-sidebar .channel-item.active .hash { color: var(--w-accent); }
+
+/* identity at the foot */
+:root .channel-sidebar .profile-card {
+	background: var(--w-bg2);
+	border-top: var(--w-bw, 1px) solid var(--w-line);
+}
+:root .channel-sidebar .user-tag { font: 500 calc(11.5px * var(--w-fs, 1))/1.2 var(--w-mono); color: var(--w-mute); }
+:root .channel-sidebar .self-role-badge {
+	font: 700 calc(10.5px * var(--w-fs, 1))/1.5 var(--w-sans);
+	letter-spacing: 0.04em;
+	color: var(--w-text);
+	background: var(--w-raise);
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(6px * var(--w-rs, 1));
+	padding: 0 6px;
+}
+:root .channel-sidebar .control-btn { color: var(--w-mute); border-radius: calc(8px * var(--w-rs, 1)); }
+:root .channel-sidebar .control-btn:hover { background: var(--w-raise); color: var(--w-text); }
+
+/* ---------- workspace bar + channel header ---------- */
+:root .main-content .workspace-view-bar {
+	background: var(--w-bg);
+	border-bottom: var(--w-bw, 1px) solid var(--w-line);
+}
+:root .main-content .workspace-eyebrow {
+	font: 500 calc(10.5px * var(--w-fs, 1))/1 var(--w-mono);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--w-faint);
+}
+:root .main-content .workspace-current { font: 600 calc(15px * var(--w-fs, 1))/1.2 var(--w-serif); color: var(--w-text); }
+:root .main-content .chat-header {
+	background: var(--w-bg);
+	border-bottom: var(--w-bw, 1px) solid var(--w-line);
+	padding: 14px 28px;
+	min-height: 64px;
+}
+:root .main-content .chat-header .channel-title {
+	font: 600 calc(24px * var(--w-fs, 1))/1.15 var(--w-serif);
+	letter-spacing: 0.01em;
+	color: var(--w-text);
+}
+:root .main-content .chat-header .channel-title-hash::before { color: var(--w-sig, var(--w-accent)); }
+:root .main-content .retention-channel-badge {
+	margin-left: 10px;
+	padding: 3px 10px 3px 8px;
+	border: var(--w-bw, 1px) solid var(--w-accent);
+	border-radius: var(--w-pill, 999px);
+	background: var(--w-accent-soft);
+	color: var(--w-text);
+	font: 500 calc(12px * var(--w-fs, 1))/1.2 var(--w-mono);
+}
+:root .main-content .retention-channel-badge svg { color: var(--w-accent); }
+
+/* ---------- composer ---------- */
+:root .main-content .input-wrapper { background: var(--w-bg); }
+:root .main-content .input-container {
+	background: var(--w-raise);
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(16px * var(--w-rs, 1));
+	box-shadow: none;
+}
+:root .main-content .input-container:focus-within {
+	border-color: var(--w-accent);
+	box-shadow: 0 0 0 3px var(--w-accent-soft);
+}
+:root .main-content .input-container textarea { font: 400 calc(15.5px * var(--w-fs, 1))/1.5 var(--w-sans); color: var(--w-text); }
+:root .main-content .input-container textarea::placeholder { color: var(--w-mute); }
+:root .main-content .input-icon-button { color: var(--w-mute); border-radius: calc(10px * var(--w-rs, 1)); }
+:root .main-content .input-icon-button:hover { color: var(--w-accent); background: var(--w-accent-soft); }
+:root .main-content .send-button {
+	background: var(--w-text);
+	color: var(--w-bg);
+	border-radius: calc(11px * var(--w-rs, 1));
+}
+:root .main-content .composer-e2ee-status {
+	font: 500 calc(11.5px * var(--w-fs, 1))/1.2 var(--w-mono);
+	color: var(--w-mute);
+}
+
+/* scrollbars */
+:root .messages, :root .channel-list { scrollbar-width: thin; scrollbar-color: var(--w-line-strong) transparent; }
+
+/* Chosen name colors are picked on dark surfaces; on a light theme they wash out. */
+:root[data-mode='light'] .profile-name-text,
+:root[data-mode='light'] .messages .message .username {
+	filter: brightness(0.6) saturate(1.25);
+}
+
+/* ---------- narrow screens ---------- */
+@media (max-width: 640px) {
+	:root .main-content .chat-header { padding: 10px 14px; min-height: 56px; }
+	:root .main-content .chat-header .chat-heading { flex-wrap: wrap; gap: 2px 10px; min-width: 0; row-gap: 4px; height: auto; }
+	:root .main-content .chat-header .channel-title { font-size: calc(21px * var(--w-fs, 1)); white-space: nowrap; }
+	:root .main-content .retention-channel-badge { margin-left: 0; padding: 2px 8px 2px 6px; font-size: calc(11px * var(--w-fs, 1)); }
+	:root .main-content .input-container { border-radius: calc(14px * var(--w-rs, 1)); }
+}
+
+/* The seal marks what the server can and cannot read: the composer's encryption state. */
+:root .main-content .composer-e2ee-status { display: inline-flex; align-items: center; gap: 7px; padding-left: 8px; box-shadow: inset 2px 0 0 var(--w-seal); }
+:root .main-content .composer-e2ee-icon { color: var(--w-seal); }
+
+/* What the server can read is the seal's job: privacy chips in the channel header. */
+:root .main-content .chat-header .privacy-badge {
+	padding: 2px 9px;
+	border: var(--w-bw, 1px) solid color-mix(in srgb, var(--w-seal) 70%, transparent);
+	border-radius: var(--w-pill, 999px);
+	background: var(--w-seal-soft);
+	color: var(--w-text);
+	font: 600 calc(11.5px * var(--w-fs, 1))/1.5 var(--w-sans);
+}
+
+/* Themes with a living background (Joker, Matrix, Embers…) let it show through every column:
+   panels and the rail follow the theme's frost, instead of painting an opaque slab over the effect. */
+:root[data-ambient='true'] .right-panel-zone .right-panel-body,
+:root[data-ambient='true'] .rail {
+	background: color-mix(in srgb, var(--w-bg2) calc(var(--surface-frost-opacity, 1) * 100%), transparent);
+	-webkit-backdrop-filter: blur(var(--surface-frost-blur, 0px));
+	backdrop-filter: blur(var(--surface-frost-blur, 0px));
+}
+:root[data-ambient='true'] .right-panel-zone .right-panel,
+:root[data-ambient='true'] .right-panel-zone .panel-stack-content,
+:root[data-ambient='true'] .right-panel-zone .user-list-tab { background: transparent !important; }
+
+/* Community art: a quiet arc and a river line in the signature colour run down the left column
+   (the mock-up's identity art). It is a mask, so it follows --w-sig / the theme accent, and an
+   operator banner still sits on top in the header. */
+:root .channel-sidebar-container .channel-sidebar { position: relative; isolation: isolate; }
+:root .channel-sidebar-container .channel-sidebar::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	pointer-events: none;
+	background: var(--w-sig, var(--w-accent));
+	opacity: 0.32;
+	-webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 276 800' preserveAspectRatio='xMidYMin slice'%3E%3Ccircle cx='238' cy='38' r='96' fill='none' stroke='white' stroke-opacity='.55' stroke-width='18' stroke-dasharray='520 90' stroke-linecap='round'/%3E%3Cpath d='M252 140 L236 200 L262 262 L238 332 L256 410 L240 484 L258 570 L244 650 L250 800' fill='none' stroke='white' stroke-opacity='.8' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") top right / cover no-repeat;
+	mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 276 800' preserveAspectRatio='xMidYMin slice'%3E%3Ccircle cx='238' cy='38' r='96' fill='none' stroke='white' stroke-opacity='.55' stroke-width='18' stroke-dasharray='520 90' stroke-linecap='round'/%3E%3Cpath d='M252 140 L236 200 L262 262 L238 332 L256 410 L240 484 L258 570 L244 650 L250 800' fill='none' stroke='white' stroke-opacity='.8' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") top right / cover no-repeat;
+}
+:root[data-char='contrast'] .channel-sidebar-container .channel-sidebar::before { display: none; }
+
+/* ---------- rooms: the mock-up's group labels, unread pills and LIVE tag ---------- */
+:root .channel-sidebar .category-row .category-name {
+	font: 600 calc(11.5px * var(--w-fs, 1))/1 var(--w-sans);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--w-mute);
+}
+:root .channel-sidebar .category-count { font: 500 calc(11px * var(--w-fs, 1)) var(--w-mono); color: var(--w-faint); background: none; border: 0; }
+:root .channel-sidebar .category-folder-icon { color: var(--w-faint); }
+/* unread: an inverted pill (text colour on the surface), like the mock-up */
+:root .channel-sidebar .unread-badge,
+:root .channel-sidebar .messages-hub-badge {
+	min-width: 20px;
+	padding: 0 7px;
+	border: 0;
+	border-radius: var(--w-pill, 999px);
+	background: var(--w-text);
+	color: var(--w-bg);
+	font: 700 calc(11.5px * var(--w-fs, 1))/1.55 var(--w-sans);
+	text-align: center;
+	box-shadow: none;
+}
+:root .channel-sidebar .live-tag,
+:root .channel-sidebar .live-pill {
+	padding: 0 6px;
+	border: 0;
+	border-radius: calc(5px * var(--w-rs, 1));
+	background: var(--w-danger);
+	color: var(--w-bg);
+	font: 700 calc(10.5px * var(--w-fs, 1))/1.6 var(--w-sans);
+	letter-spacing: 0.04em;
+}
+:root .channel-sidebar .live-dot { background: var(--w-danger); }
+:root .channel-sidebar .channel-item.unread .channel-btn,
+:root .channel-sidebar .channel-item.has-unread .channel-btn { color: var(--w-text); font-weight: 700; }
+
+/* identity card: the owner crown / staff gem stands in for the role pill */
+:root .channel-sidebar .self-role-mark { display: inline-flex; align-items: center; color: var(--w-accent); font-size: calc(15px * var(--w-fs, 1)); }

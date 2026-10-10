@@ -129,21 +129,35 @@
 	border-left: none;
 }
 
-/* Pin keeps the overlay open without resizing center stage. */
+/* The rail reserves its own column; a pinned panel makes room beside the stage (no overlap),
+   a peeked one floats over it. --w-dock-w is set on .app-container by MainLayout. */
+.app-container.rail-on {
+	padding-right: calc(var(--w-rail-w, 46px) + var(--w-dock-w, 0px));
+	box-sizing: border-box;
+	transition: padding 0.22s var(--ease-out, ease-out);
+}
+.app-container.rail-on.rail-left {
+	padding-right: 0;
+	padding-left: calc(var(--w-rail-w, 46px) + var(--w-dock-w, 0px));
+}
+.app-container.resizing.rail-on { transition: none; }
+
 .right-panel-zone {
 	flex: 0 0 auto;
 	position: fixed;
 	top: 0;
-	right: 0;
+	right: var(--w-rail-w, 46px);
 	bottom: 0;
-	z-index: calc(var(--z-popout, 1200) - 2);
-	box-shadow: -10px 0 40px rgba(0, 0, 0, 0.4);
+	z-index: 899; /* below modal overlays (--z-overlay 1000), above stage content */
+	box-shadow: none;
 	height: 100dvh;
 	min-width: 0;
 	max-width: min(744px, 55vw);
 }
 
-.right-panel-zone.stub-left { left: 0; right: auto; box-shadow: 10px 0 40px rgba(0, 0, 0, 0.4); }
+.right-panel-zone.stub-left { left: var(--w-rail-w, 46px); right: auto; }
+/* a peek floats above the stage, so it gets a shadow; a pinned panel sits beside it */
+.right-panel-zone.peek { box-shadow: var(--w-shadow, -10px 0 40px rgba(0, 0, 0, 0.4)); }
 
 .right-panel-body {
 	position: relative;
@@ -185,15 +199,15 @@
 .right-panel-zone.peek {
 	position: fixed;
 	top: 0;
-	right: 0;
+	right: var(--w-rail-w, 46px);
 	bottom: 0;
-	z-index: calc(var(--z-popout, 1200) - 2);
+	z-index: 899; /* below modal overlays (--z-overlay 1000), above stage content */
 	box-shadow: -10px 0 40px rgba(0, 0, 0, 0.4);
 	animation: peek-in-right 0.22s var(--ease-out, ease-out) both;
 }
 
 .right-panel-zone.peek.stub-left {
-	left: 0;
+	left: var(--w-rail-w, 46px);
 	right: auto;
 	box-shadow: 10px 0 40px rgba(0, 0, 0, 0.4);
 	animation-name: peek-in-left;
@@ -224,16 +238,16 @@
 .right-panel-zone.closing {
 	position: fixed;
 	top: 0;
-	right: 0;
+	right: var(--w-rail-w, 46px);
 	bottom: 0;
-	z-index: calc(var(--z-popout, 1200) - 2);
+	z-index: 899; /* below modal overlays (--z-overlay 1000), above stage content */
 	box-shadow: -10px 0 40px rgba(0, 0, 0, 0.4);
 	pointer-events: none;
 	animation: peek-out-right 0.2s var(--ease-in, ease-in) both;
 }
 
 .right-panel-zone.closing.stub-left {
-	left: 0;
+	left: var(--w-rail-w, 46px);
 	right: auto;
 	box-shadow: 10px 0 40px rgba(0, 0, 0, 0.4);
 	animation-name: peek-out-left;

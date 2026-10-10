@@ -9,7 +9,7 @@
 import { writable, get } from 'svelte/store';
 
 export type NavRef =
-	| { kind: 'lore_file'; channelId: string; filePath: string }
+	| { kind: 'lore_file'; channelId: string; filePath: string; lines?: { start: number; end: number } }
 	| { kind: 'user'; userId: string }
 	| { kind: 'channel'; channelId: string }
 	| { kind: 'forum_post'; channelId?: string; postId: string }
@@ -50,4 +50,14 @@ export function takePendingNav(kind: NavRef['kind'], channelId?: string | null):
 
 export function clearPendingNav(): void {
 	pending.set(null);
+}
+
+/** A legacy reader must finish its initial reactive pass before selecting. */
+export async function completePendingNavAfterRender(
+ ref: NavRef, rendered: () => Promise<void>, current: () => boolean, open: () => boolean
+): Promise<boolean> {
+ await rendered();
+ if (!current() || peekPendingNav() !== ref || !open()) return false;
+ if (peekPendingNav() === ref) pending.set(null);
+ return true;
 }

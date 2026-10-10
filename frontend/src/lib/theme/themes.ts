@@ -9,11 +9,13 @@
 import { buildTheme } from './buildTokens';
 import { ALL_PALETTES, DEFAULT_PALETTE } from './palettes';
 import type { Theme, ThemeColors, ThemeGradients } from './themeTypes';
+export { DEFAULT_THEME_ID } from './themeTypes';
 
 // Build all themes from compact palettes
 const allThemes = ALL_PALETTES.map(buildTheme);
 
 // Export individual themes for direct import
+export const wabiInkTheme = allThemes.find(t => t.id === 'wabi-ink')!;
 export const darkTheme = allThemes.find(t => t.id === 'dark')!;
 export const lightTheme = allThemes.find(t => t.id === 'light')!;
 export const blueTheme = allThemes.find(t => t.id === 'blue')!;
@@ -36,8 +38,8 @@ export const THEMES: Record<string, Theme> = Object.fromEntries(
 	allThemes.map(t => [t.id, t])
 );
 
-// Default theme: Nebula (dark)
-export const DEFAULT_THEME = darkTheme;
+// Default theme: Wabi Ink
+export const DEFAULT_THEME = wabiInkTheme;
 
 // Alias map for legacy/renamed theme IDs so old stored preferences still resolve.
 const THEME_ALIASES: Record<string, string> = {

@@ -1,0 +1,183 @@
+/* Message stream — "ledger" layout.
+   [time][wick][avatar][message]. The time sits in its own right-aligned mono column and
+   the wick beside it shows how much retention life the message has left. Below 820px the
+   original stacked layout (time in the header) is kept. Specificity is deliberately
+   :root-prefixed to win over the many generations of per-density rules in ml-core.css. */
+
+@media (min-width: 820px) {
+	:root:not([data-own-messages-right='true']) .messages .message {
+		display: grid;
+		grid-template-columns: 66px 8px 38px minmax(0, 1fr);
+		column-gap: 12px;
+		align-items: start;
+		padding: 3px 28px 3px 14px;
+		gap: 0 12px;
+	}
+	:root:not([data-own-messages-right='true']) .messages .message .msg-time {
+		grid-column: 1;
+		justify-self: end;
+		padding-top: 5px;
+		font: 500 calc(11.5px * var(--w-fs, 1))/1.2 var(--w-mono);
+		font-variant-numeric: tabular-nums;
+		color: var(--w-faint);
+		white-space: nowrap;
+		transition: color 0.15s;
+	}
+	:root:not([data-own-messages-right='true']) .messages .message:hover .msg-time {
+		color: var(--w-mute);
+	}
+	:root:not([data-own-messages-right='true']) .messages .message.continuation .msg-time {
+		opacity: 0;
+	}
+	:root:not([data-own-messages-right='true']) .messages .message.continuation:hover .msg-time {
+		opacity: 1;
+	}
+	:root:not([data-own-messages-right='true']) .messages .message .msg-wick,
+	:root:not([data-own-messages-right='true']) .messages .message .msg-wick-spacer {
+		grid-column: 2;
+	}
+	:root:not([data-own-messages-right='true']) .messages .message .message-avatar {
+		grid-column: 3;
+		width: 38px;
+		height: 38px;
+	}
+	:root:not([data-own-messages-right='true']) .messages .message .message-body {
+		grid-column: 4;
+		min-width: 0;
+		max-width: 720px;
+	}
+	/* the header timestamp is replaced by the time column */
+	:root:not([data-own-messages-right='true']) .messages .message .message-header .timestamp {
+		display: none;
+	}
+}
+
+/* Avatars off behaves like compact: no avatar column. */
+@media (min-width: 820px) {
+	:root:not([data-own-messages-right='true'])[data-chat-avatar-mode='off'] .messages .message {
+		grid-template-columns: 66px 8px minmax(0, 1fr);
+	}
+	:root:not([data-own-messages-right='true'])[data-chat-avatar-mode='off'] .messages .message .message-body { grid-column: 3; }
+}
+
+/* Compact density: IRC-style rows — [time][wick][name  message] on one line, no avatars.
+   ml-core.css owns the row padding with !important, so the grid gap is restated here. */
+@media (min-width: 820px) {
+	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message {
+		grid-template-columns: 62px 6px minmax(0, 1fr);
+		column-gap: 8px !important;
+		padding-left: 10px !important;
+		padding-right: 20px !important;
+	}
+	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .msg-time {
+		padding-top: 2px;
+		font-size: calc(11px * var(--w-fs, 1));
+	}
+	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .msg-wick {
+		margin: 3px 2px;
+	}
+	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .message-body {
+		grid-column: 3;
+		max-width: none;
+	}
+	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .message-header .username,
+	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .profile-name-text {
+		font-size: calc(13.5px * var(--w-fs, 1));
+	}
+	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .message-content,
+	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .markdown-content,
+	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .markdown-content p {
+		font-size: calc(14px * var(--w-fs, 1));
+		line-height: 1.45;
+	}
+	/* every compact row names its author, so the continuation header stays */
+	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .compact-only-header {
+		display: flex;
+	}
+}
+@media (max-width: 819px) {
+	.msg-time,
+	.msg-wick,
+	.msg-wick-spacer {
+		display: none;
+	}
+}
+
+/* 'Own messages on the right' needs the original flex rows, so the ledger columns step aside. */
+:root[data-own-messages-right='true'] .msg-time,
+:root[data-own-messages-right='true'] .msg-wick,
+:root[data-own-messages-right='true'] .msg-wick-spacer { display: none; }
+
+/* Retention wick */
+.msg-wick {
+	position: relative;
+	align-self: stretch;
+	width: 2px;
+	margin: 6px 3px;
+	background: var(--w-line);
+	border-radius: calc(2px * var(--w-rs, 1));
+	opacity: 0.45;
+	transition: opacity 0.2s;
+}
+.message:hover .msg-wick,
+.msg-wick.soon {
+	opacity: 1;
+}
+.msg-wick::after {
+	content: '';
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	height: calc(var(--life, 1) * 100%);
+	background: linear-gradient(to top, var(--w-line-strong), var(--w-accent));
+	border-radius: inherit;
+}
+.msg-wick::before {
+	content: '';
+	position: absolute;
+	left: -2px;
+	bottom: calc(var(--life, 1) * 100% - 3px);
+	width: 6px;
+	height: 6px;
+	border-radius: var(--w-avr, 50%);
+	background: var(--w-accent);
+	box-shadow: 0 0 8px var(--w-accent);
+	z-index: 1;
+}
+.msg-wick.soon::before {
+	animation: wick-ember 2.8s ease-in-out infinite;
+}
+@keyframes wick-ember {
+	0%, 100% { opacity: 0.55; box-shadow: 0 0 4px var(--w-accent); }
+	50% { opacity: 1; box-shadow: 0 0 12px var(--w-accent); }
+}
+@media (prefers-reduced-motion: reduce) {
+	.msg-wick.soon::before { animation: none; }
+}
+:root[data-char='contrast'] .msg-wick { opacity: 1; }
+:root[data-char='contrast'] .msg-wick::before { box-shadow: none; }
+
+/* Message typography (names keep their own font so the uniform-font setting still applies) */
+:root .messages .message .message-content,
+:root .messages .message .markdown-content {
+	font-family: var(--w-sans);
+	font-size: calc(15px * var(--w-fs, 1));
+	line-height: var(--w-lh, 1.6);
+	color: var(--w-text);
+}
+:root .messages .message .markdown-content pre {
+	background: var(--w-sink);
+	border: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: calc(8px * var(--w-rs, 1));
+	padding: 8px 12px;
+	font: 400 calc(13px * var(--w-fs, 1))/1.55 var(--w-mono);
+	color: var(--w-text);
+}
+:root .messages .message .markdown-content code {
+	font-family: var(--w-mono);
+	font-size: 0.9em;
+}
+:root .messages .message:hover {
+	background: color-mix(in srgb, var(--w-raise) 55%, transparent);
+}

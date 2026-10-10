@@ -2,6 +2,7 @@
 	import { _ } from '$lib/i18n';
 	import type { Message, User } from '$lib/socket';
 	import SteamStatusBadge from '$lib/components/SteamStatusBadge.svelte';
+	import BadgeMark from '$lib/components/BadgeMark.svelte';
 	import RoleBadge from '$lib/components/RoleBadge.svelte';
 	import { currentSavedServer } from '$lib/savedServers';
 	import { ownerBadgeMark, staffBadgeMark } from '$lib/badgeMarks';
@@ -48,10 +49,10 @@
 				<span class="username">{displayUsername}</span>
 			{/if}
 			{#if getTopRoleBadgeLabel(author) && getTopRoleBadgeTone(author) === 'owner'}
-				<span class="role-inline-badge tone-owner role-mark" title="Owner" aria-label="Owner">{ownerMark}</span>
+				<span class="role-inline-badge tone-owner role-mark" title="Owner" aria-label="Owner"><BadgeMark kind="owner" mark={ownerMark} /></span>
 			{/if}
 			{#if shouldShowStaffTag(author)}
-				<span class="staff-inline-tag role-mark" title="Staff" aria-label="Staff">{staffMark}</span>
+				<span class="staff-inline-tag role-mark" title="Staff" aria-label="Staff"><BadgeMark kind="staff" mark={staffMark} /></span>
 			{/if}
 			{#if author?.isBot || message.isBot}
 				<span class="bot-inline-badge" title="Bot account">BOT</span>
@@ -95,10 +96,10 @@
 				<span class="username">{displayUsername}</span>
 			{/if}
 			{#if getTopRoleBadgeLabel(author) && getTopRoleBadgeTone(author) === 'owner'}
-				<span class="role-inline-badge tone-owner role-mark" title="Owner" aria-label="Owner">{ownerMark}</span>
+				<span class="role-inline-badge tone-owner role-mark" title="Owner" aria-label="Owner"><BadgeMark kind="owner" mark={ownerMark} /></span>
 			{/if}
 			{#if shouldShowStaffTag(author)}
-				<span class="staff-inline-tag role-mark" title="Staff" aria-label="Staff">{staffMark}</span>
+				<span class="staff-inline-tag role-mark" title="Staff" aria-label="Staff"><BadgeMark kind="staff" mark={staffMark} /></span>
 			{/if}
 		</div>
 	</div>

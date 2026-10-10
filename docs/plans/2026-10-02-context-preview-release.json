@@ -1,0 +1,536 @@
+{
+  "firstPass": {
+    "binarySha256": "b012e207b958be3259091cf02a0b0bc6c34b26af1704962915c565798d8eb54d",
+    "indexSha256": "bd75e54b663b5ac808711cb45c3aa18d7934e73af75286c67634673bff4ac716",
+    "version": "1790937267556",
+    "lockInode": 6029360,
+    "checks": {
+      "/": 200,
+      "servedIndexSha256": "354a0545b2df8c810d6595a4da1e0ba211e80b54c6be566bea0f2191a4fff18a",
+      "/health": 200,
+      "/livez": 200,
+      "/readyz": 200,
+      "/api/setup/status": 200,
+      "/_app/version.json": 200,
+      "/api/addons": 200,
+      "addons": {
+        "addons": [
+          {
+            "id": "project-workers",
+            "name": "AI Worker Connections",
+            "version": "0.1.0",
+            "description": "Optional Project-scoped worker computers and bounded task recovery; no remote terminal or credential storage",
+            "enabled": false,
+            "compiled": true,
+            "backendRuntime": "rust",
+            "cargoFeature": null,
+            "runtimeEnv": "WABI_PROJECT_WORKERS_ENABLED",
+            "runtimeSwitch": true,
+            "permissions": [],
+            "frontend": {
+              "bundled": true,
+              "contributions": {
+                "channelTypes": [],
+                "workspacePanels": [],
+                "settingsPages": [],
+                "mobileTabs": []
+              }
+            }
+          },
+          {
+            "id": "steam",
+            "name": "Steam",
+            "version": "0.1.0",
+            "description": "Verified account linking and private, selective game import",
+            "enabled": false,
+            "compiled": true,
+            "backendRuntime": "rust",
+            "cargoFeature": null,
+            "runtimeEnv": "WABI_STEAM_ENABLED",
+            "runtimeSwitch": true,
+            "permissions": [
+              "network:outbound"
+            ],
+            "frontend": {
+              "bundled": true,
+              "contributions": {
+                "channelTypes": [],
+                "workspacePanels": [],
+                "settingsPages": [
+                  "steam"
+                ],
+                "mobileTabs": []
+              }
+            }
+          },
+          {
+            "id": "tailcat",
+            "name": "Tailcat Private Access",
+            "version": "0.1.0",
+            "description": "Token-dialed WireGuard pipes (tailscale/tailcat) so family/friend members reach a home-hosted server without port forwarding. Transport only - Wabi auth always gates membership.",
+            "enabled": true,
+            "compiled": true,
+            "backendRuntime": "rust",
+            "cargoFeature": null,
+            "runtimeEnv": null,
+            "runtimeSwitch": true,
+            "permissions": [
+              "network:outbound",
+              "process:spawn"
+            ],
+            "frontend": {
+              "bundled": false,
+              "contributions": {
+                "channelTypes": [],
+                "workspacePanels": [],
+                "settingsPages": [],
+                "mobileTabs": []
+              }
+            }
+          },
+          {
+            "id": "lore",
+            "name": "Lore",
+            "version": "0.1.0",
+            "description": "Version-controlled binary asset storage via Epic Games Lore - for CAD files, 3D models, and large binaries",
+            "enabled": true,
+            "compiled": true,
+            "backendRuntime": "rust",
+            "cargoFeature": "wabi-lore",
+            "runtimeEnv": "WABI_LORE_ENABLED",
+            "runtimeSwitch": true,
+            "permissions": [
+              "network:outbound",
+              "filesystem:read",
+              "filesystem:write"
+            ],
+            "frontend": {
+              "bundled": false,
+              "contributions": {
+                "channelTypes": [
+                  "lore"
+                ],
+                "workspacePanels": [],
+                "settingsPages": [],
+                "mobileTabs": []
+              }
+            }
+          },
+          {
+            "id": "webhooks",
+            "name": "Webhooks",
+            "version": "0.1.0",
+            "description": "Webhook service for Wabi - triggers webhooks on events",
+            "enabled": false,
+            "compiled": true,
+            "backendRuntime": "rust",
+            "cargoFeature": "wabi-webhooks",
+            "runtimeEnv": null,
+            "runtimeSwitch": false,
+            "permissions": [
+              "network:outbound"
+            ],
+            "frontend": {
+              "bundled": false,
+              "contributions": {
+                "channelTypes": [],
+                "workspacePanels": [],
+                "settingsPages": [],
+                "mobileTabs": []
+              }
+            }
+          }
+        ]
+      },
+      "/_app/immutable/entry/start.jscLAZBw.js": 200,
+      "/_app/immutable/entry/app.DOK-H8BA.js": 200,
+      "/steam-sign-in.png": 200,
+      "adminGate": 401
+    },
+    "sourceCommit": "9dd4c2672d56e30eed58f0bff06d333fe2024419",
+    "backup": "/home/tim/wabi-backups/ui-20261002T105559Z",
+    "localSmoke": {
+      "sha256": "b012e207b958be3259091cf02a0b0bc6c34b26af1704962915c565798d8eb54d",
+      "bytes": 87858648,
+      "checks": {
+        "/": 200,
+        "/health": 200,
+        "/livez": 200,
+        "/readyz": 200,
+        "/api/setup/status": 200,
+        "/_app/version.json": 200,
+        "/steam-sign-in.png": 200
+      },
+      "adminStatus": 401,
+      "addonMarker": true
+    },
+    "status": "first live pass; corrective source 825e693b packaging after browser findings",
+    "browser": {
+      "coldWikiAndGalleryResolution": true,
+      "loreFileExcerpt": true,
+      "websiteFallbackCard": true,
+      "profileTopIconsAndEmptySuppression": true,
+      "titleOnlyUnsavedDraftAndDiscard": true,
+      "idleSaveBarHidden": true,
+      "steamBranding": true,
+      "galleryExactImageNavigation": true,
+      "wikiExactPageNavigation": false,
+      "steamShortcutAddonsNavigation": false,
+      "handleCopyToast": true,
+      "browserClipboardRead": "returned earlier fixture value; live OS clipboard not independently verified"
+    }
+  },
+  "secondPass": {
+    "binarySha256": "9d459dcd2e48652efa49cdb3a0db090b966a0e1d5356782535ea08c9bfba3424",
+    "indexSha256": "2a0b59f9b5fddf132541e8495ed6210aea5f23b9c658119948c37e4054bea179",
+    "version": "1790939213230",
+    "lockInode": 6029360,
+    "checks": {
+      "/": 200,
+      "servedIndexSha256": "56977ef35c0f71ae97065814dfbb0dc085ee2b9fc5e43feb805f5609664e552e",
+      "/health": 200,
+      "/livez": 200,
+      "/readyz": 200,
+      "/api/setup/status": 200,
+      "/_app/version.json": 200,
+      "/api/addons": 200,
+      "addons": {
+        "addons": [
+          {
+            "id": "project-workers",
+            "name": "AI Worker Connections",
+            "version": "0.1.0",
+            "description": "Optional Project-scoped worker computers and bounded task recovery; no remote terminal or credential storage",
+            "enabled": false,
+            "compiled": true,
+            "backendRuntime": "rust",
+            "cargoFeature": null,
+            "runtimeEnv": "WABI_PROJECT_WORKERS_ENABLED",
+            "runtimeSwitch": true,
+            "permissions": [],
+            "frontend": {
+              "bundled": true,
+              "contributions": {
+                "channelTypes": [],
+                "workspacePanels": [],
+                "settingsPages": [],
+                "mobileTabs": []
+              }
+            }
+          },
+          {
+            "id": "steam",
+            "name": "Steam",
+            "version": "0.1.0",
+            "description": "Verified account linking and private, selective game import",
+            "enabled": false,
+            "compiled": true,
+            "backendRuntime": "rust",
+            "cargoFeature": null,
+            "runtimeEnv": "WABI_STEAM_ENABLED",
+            "runtimeSwitch": true,
+            "permissions": [
+              "network:outbound"
+            ],
+            "frontend": {
+              "bundled": true,
+              "contributions": {
+                "channelTypes": [],
+                "workspacePanels": [],
+                "settingsPages": [
+                  "steam"
+                ],
+                "mobileTabs": []
+              }
+            }
+          },
+          {
+            "id": "tailcat",
+            "name": "Tailcat Private Access",
+            "version": "0.1.0",
+            "description": "Token-dialed WireGuard pipes (tailscale/tailcat) so family/friend members reach a home-hosted server without port forwarding. Transport only - Wabi auth always gates membership.",
+            "enabled": true,
+            "compiled": true,
+            "backendRuntime": "rust",
+            "cargoFeature": null,
+            "runtimeEnv": null,
+            "runtimeSwitch": true,
+            "permissions": [
+              "network:outbound",
+              "process:spawn"
+            ],
+            "frontend": {
+              "bundled": false,
+              "contributions": {
+                "channelTypes": [],
+                "workspacePanels": [],
+                "settingsPages": [],
+                "mobileTabs": []
+              }
+            }
+          },
+          {
+            "id": "lore",
+            "name": "Lore",
+            "version": "0.1.0",
+            "description": "Version-controlled binary asset storage via Epic Games Lore - for CAD files, 3D models, and large binaries",
+            "enabled": true,
+            "compiled": true,
+            "backendRuntime": "rust",
+            "cargoFeature": "wabi-lore",
+            "runtimeEnv": "WABI_LORE_ENABLED",
+            "runtimeSwitch": true,
+            "permissions": [
+              "network:outbound",
+              "filesystem:read",
+              "filesystem:write"
+            ],
+            "frontend": {
+              "bundled": false,
+              "contributions": {
+                "channelTypes": [
+                  "lore"
+                ],
+                "workspacePanels": [],
+                "settingsPages": [],
+                "mobileTabs": []
+              }
+            }
+          },
+          {
+            "id": "webhooks",
+            "name": "Webhooks",
+            "version": "0.1.0",
+            "description": "Webhook service for Wabi - triggers webhooks on events",
+            "enabled": false,
+            "compiled": true,
+            "backendRuntime": "rust",
+            "cargoFeature": "wabi-webhooks",
+            "runtimeEnv": null,
+            "runtimeSwitch": false,
+            "permissions": [
+              "network:outbound"
+            ],
+            "frontend": {
+              "bundled": false,
+              "contributions": {
+                "channelTypes": [],
+                "workspacePanels": [],
+                "settingsPages": [],
+                "mobileTabs": []
+              }
+            }
+          }
+        ]
+      },
+      "/_app/immutable/entry/start.aDYZUoj2.js": 200,
+      "/_app/immutable/entry/app.BKzCawyW.js": 200,
+      "/steam-sign-in.png": 200,
+      "adminGate": 401
+    },
+    "sourceCommit": "825e693b",
+    "backup": "/home/tim/wabi-backups/ui-20261002T113230Z",
+    "localSmoke": {
+      "sha256": "9d459dcd2e48652efa49cdb3a0db090b966a0e1d5356782535ea08c9bfba3424",
+      "bytes": 87858672,
+      "checks": {
+        "/": 200,
+        "/health": 200,
+        "/livez": 200,
+        "/readyz": 200,
+        "/api/setup/status": 200,
+        "/_app/version.json": 200,
+        "/steam-sign-in.png": 200
+      },
+      "adminStatus": 401,
+      "addonMarker": true
+    },
+    "status": "second live pass; Wiki render timing correction 636f133b packaging",
+    "browser": {
+      "cleanWikiExcerpt": true,
+      "steamShortcutAddonsNavigation": true,
+      "wikiTreeReceivesTargetButReaderStaysOverview": true,
+      "wikiTimingCause": "Legacy reader derivation runs before the pending navigation effect changes selected page in the same update; defer to tick."
+    }
+  },
+  "finalAcceptancePending": false,
+  "finalPass": {
+    "binarySha256": "54170e5e85a0bd1e5a59a9412848f5d2779296c40ef4c25254ad72b1d29cf7db",
+    "indexSha256": "06f4f89471ce48259de9a113bf362091f0ef1426e0970458a6dd0fcec1916ef9",
+    "version": "1790941697326",
+    "lockInode": 6029360,
+    "checks": {
+      "/": 200,
+      "servedIndexSha256": "7bf4a184565e6c5b7e1b55e64f0239f396754f68ada445b935daa5101969d3be",
+      "/health": 200,
+      "/livez": 200,
+      "/readyz": 200,
+      "/api/setup/status": 200,
+      "/_app/version.json": 200,
+      "/api/addons": 200,
+      "addons": {
+        "addons": [
+          {
+            "id": "project-workers",
+            "name": "AI Worker Connections",
+            "version": "0.1.0",
+            "description": "Optional Project-scoped worker computers and bounded task recovery; no remote terminal or credential storage",
+            "enabled": false,
+            "compiled": true,
+            "backendRuntime": "rust",
+            "cargoFeature": null,
+            "runtimeEnv": "WABI_PROJECT_WORKERS_ENABLED",
+            "runtimeSwitch": true,
+            "permissions": [],
+            "frontend": {
+              "bundled": true,
+              "contributions": {
+                "channelTypes": [],
+                "workspacePanels": [],
+                "settingsPages": [],
+                "mobileTabs": []
+              }
+            }
+          },
+          {
+            "id": "steam",
+            "name": "Steam",
+            "version": "0.1.0",
+            "description": "Verified account linking and private, selective game import",
+            "enabled": false,
+            "compiled": true,
+            "backendRuntime": "rust",
+            "cargoFeature": null,
+            "runtimeEnv": "WABI_STEAM_ENABLED",
+            "runtimeSwitch": true,
+            "permissions": [
+              "network:outbound"
+            ],
+            "frontend": {
+              "bundled": true,
+              "contributions": {
+                "channelTypes": [],
+                "workspacePanels": [],
+                "settingsPages": [
+                  "steam"
+                ],
+                "mobileTabs": []
+              }
+            }
+          },
+          {
+            "id": "tailcat",
+            "name": "Tailcat Private Access",
+            "version": "0.1.0",
+            "description": "Token-dialed WireGuard pipes (tailscale/tailcat) so family/friend members reach a home-hosted server without port forwarding. Transport only - Wabi auth always gates membership.",
+            "enabled": true,
+            "compiled": true,
+            "backendRuntime": "rust",
+            "cargoFeature": null,
+            "runtimeEnv": null,
+            "runtimeSwitch": true,
+            "permissions": [
+              "network:outbound",
+              "process:spawn"
+            ],
+            "frontend": {
+              "bundled": false,
+              "contributions": {
+                "channelTypes": [],
+                "workspacePanels": [],
+                "settingsPages": [],
+                "mobileTabs": []
+              }
+            }
+          },
+          {
+            "id": "lore",
+            "name": "Lore",
+            "version": "0.1.0",
+            "description": "Version-controlled binary asset storage via Epic Games Lore - for CAD files, 3D models, and large binaries",
+            "enabled": true,
+            "compiled": true,
+            "backendRuntime": "rust",
+            "cargoFeature": "wabi-lore",
+            "runtimeEnv": "WABI_LORE_ENABLED",
+            "runtimeSwitch": true,
+            "permissions": [
+              "network:outbound",
+              "filesystem:read",
+              "filesystem:write"
+            ],
+            "frontend": {
+              "bundled": false,
+              "contributions": {
+                "channelTypes": [
+                  "lore"
+                ],
+                "workspacePanels": [],
+                "settingsPages": [],
+                "mobileTabs": []
+              }
+            }
+          },
+          {
+            "id": "webhooks",
+            "name": "Webhooks",
+            "version": "0.1.0",
+            "description": "Webhook service for Wabi - triggers webhooks on events",
+            "enabled": false,
+            "compiled": true,
+            "backendRuntime": "rust",
+            "cargoFeature": "wabi-webhooks",
+            "runtimeEnv": null,
+            "runtimeSwitch": false,
+            "permissions": [
+              "network:outbound"
+            ],
+            "frontend": {
+              "bundled": false,
+              "contributions": {
+                "channelTypes": [],
+                "workspacePanels": [],
+                "settingsPages": [],
+                "mobileTabs": []
+              }
+            }
+          }
+        ]
+      },
+      "/_app/immutable/entry/start.Dyyy53Op.js": 200,
+      "/_app/immutable/entry/app.DybTk46r.js": 200,
+      "/steam-sign-in.png": 200,
+      "adminGate": 401
+    },
+    "sourceCommit": "636f133b971288577cd402a8c71bfeb31772790a",
+    "backup": "/home/tim/wabi-backups/ui-20261002T132617Z",
+    "localSmoke": {
+      "sha256": "54170e5e85a0bd1e5a59a9412848f5d2779296c40ef4c25254ad72b1d29cf7db",
+      "bytes": 87857888,
+      "checks": {
+        "/": 200,
+        "/health": 200,
+        "/livez": 200,
+        "/readyz": 200,
+        "/api/setup/status": 200,
+        "/_app/version.json": 200,
+        "/steam-sign-in.png": 200
+      },
+      "adminStatus": 401,
+      "addonMarker": true
+    },
+    "backendFreezeDigest": "24043996c120814aedfd19afb5e29f41e0ad27904b8b15fd140007d8d0198cb8",
+    "focusedTests": 35,
+    "svelteErrors": 0,
+    "svelteExistingWarnings": 121,
+    "cargoExit": 0,
+    "artifactCopy": "/tmp/wabi-context-ui-server",
+    "status": "deployed; authenticated live Wiki navigation confirmed by user",
+    "browser": {
+      "newFrontendActivated": true,
+      "wikiReaderTargetOpensImmediately": true,
+      "acceptanceEvidence": "User confirmed on 2026-10-03 that clicking The Glimmerfen Marsh Wiki card in Live reference verification \u2014 2 October 2026 opens the article immediately.",
+      "acceptanceMethod": "user-reported authenticated live browser check"
+    }
+  }
+}

@@ -67,17 +67,17 @@
 
 <style>
 	.password-reset-form { display: grid; gap: 1rem; padding: 0.75rem 1.5rem 1.5rem; }
-	.password-reset-form p { margin: 0; color: var(--text-secondary); line-height: 1.6; overflow-wrap: anywhere; }
-	.password-reset-form label { display: grid; gap: 0.5rem; color: var(--text-heading); font-size: 0.9rem; }
-	.password-reset-form input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; padding: 0.65rem 0.75rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-sunken); color: var(--text-primary); font: inherit; }
+	.password-reset-form p { margin: 0; color: var(--w-mute); line-height: 1.6; overflow-wrap: anywhere; }
+	.password-reset-form label { display: grid; gap: 0.5rem; color: var(--w-text); font-size: 0.9rem; }
+	.password-reset-form input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; padding: 0.65rem 0.75rem; border: 1px solid var(--w-line-strong); border-radius: calc(10px * var(--w-rs, 1)); background: var(--w-sink); color: var(--w-text); font: inherit; }
 	.password-reset-hint { font-size: 0.8rem; }
-	.password-reset-form .password-reset-error { color: var(--color-danger); }
+	.password-reset-form .password-reset-error { color: var(--w-danger); }
 	.password-reset-form .password-reset-success { color: var(--color-success); }
 	.password-reset-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.75rem; margin-top: 0.25rem; }
-	.password-reset-actions button { min-height: 44px; padding: 0.65rem 1rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--text-primary); font: inherit; font-weight: 600; cursor: pointer; }
-	.password-reset-actions .reset-primary { background: var(--accent-primary); color: var(--text-on-accent, white); border-color: var(--accent-primary); }
-	.password-reset-actions button:not(:disabled):hover { background: var(--surface-hover); }
-	.password-reset-actions .reset-primary:not(:disabled):hover { background: var(--accent-secondary); }
+	.password-reset-actions button { min-height: 44px; padding: 0.65rem 1rem; border: 1px solid var(--w-line-strong); border-radius: calc(10px * var(--w-rs, 1)); background: var(--w-raise); color: var(--w-text); font: inherit; font-weight: 600; cursor: pointer; }
+	.password-reset-actions .reset-primary { background: var(--w-accent); color: var(--w-on-accent); border-color: var(--w-accent); }
+	.password-reset-actions button:not(:disabled):hover { background: var(--w-raise); }
+	.password-reset-actions .reset-primary:not(:disabled):hover { background: var(--w-accent); }
 	.password-reset-actions button:disabled { opacity: 0.6; cursor: wait; }
-	.password-reset-form :is(input, button):focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: 2px; }
+	.password-reset-form :is(input, button):focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
 </style>

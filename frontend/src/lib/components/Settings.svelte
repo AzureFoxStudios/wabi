@@ -4,7 +4,7 @@
 	import { layoutStore } from '$lib/layoutStore';
 	import { openAdminSection } from '$lib/adminNavigationState';
 	import type { AdminSection } from '$lib/adminNavigation';
-	import { _ as t, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
+	import { _ as t, getAvailableLocales, currentLocale, setAppLocale } from '$lib/i18n';
 	import { currentUser, getSocket, updateProfile } from '$lib/socket';
 	import { getAuthToken } from '$lib/authSession';
 	import { uploadProfilePictureFile } from '$lib/profilePictureUpload';
@@ -29,7 +29,7 @@
 
 	export let isOpen = false;
 	export let requestedPaymentSurface: 'connections' | null = null;
-	export let requestedTab: 'profile' | 'server' | 'notifications' | 'audio' | null = null;
+	export let requestedTab: 'profile' | 'server' | 'notifications' | 'audio' | 'addons' | null = null;
 	export let requestedPasswordChangeRequest = 0;
 
 	type SettingsTab =
@@ -73,7 +73,7 @@
 	];
 
 	let activeSettingsTab: SettingsTab = 'profile';
-	let lastHandledRequestedTab: 'profile' | 'server' | 'notifications' | 'audio' | null = null;
+	let lastHandledRequestedTab: 'profile' | 'server' | 'notifications' | 'audio' | 'addons' | null = null;
 	let lastHandledRequestedPaymentSurface: 'connections' | null = null;
 	let lastHandledRequestedPasswordChangeRequest = 0;
 	let showAvatarEditor = false;
@@ -274,7 +274,7 @@
 						value={$currentLocale || 'en'}
 						on:change={(event) => setAppLocale(event.currentTarget.value)}
 					>
-						{#each availableLocales as localeOption}
+						{#each getAvailableLocales() as localeOption}
 							<option value={localeOption.code}>{localeOption.label}</option>
 						{/each}
 					</select>

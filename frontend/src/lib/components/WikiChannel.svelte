@@ -1,7 +1,7 @@
 <script lang="ts">
 	import ProfileMedia from './ProfileMedia.svelte';
 	import { mediaUrl } from '$lib/mediaUrl';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 	let readingPane: HTMLDivElement;
 	let expandedReading = false;
 	async function toggleReading() {
@@ -22,8 +22,11 @@
 	import { initObjectRefRegistry, registerObjectRef, slugify } from '$lib/objectRefRegistry';
 	import { parseMessage } from '$lib/markdown';
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
+	import UserPopout from './UserPopout.svelte';
+	import { users as presenceUsers, currentUser as presenceCurrentUser } from '$lib/presenceIdentity';
+	import type { User } from '$lib/socket-types';
 	import { forumAuthors } from '$lib/forumIdentity';
-	import { peekPendingNav, takePendingNav } from '$lib/pendingNav';
+	import { pendingNav, completePendingNavAfterRender } from '$lib/pendingNav';
 	import {
 		extractWikiHeadings,
 		formatWikiCitationMarkdown,
@@ -34,6 +37,7 @@
 
 	export let channelId: string | undefined = undefined;
 	export let draftSurface = 'center';
+	export let previewPageId: string | undefined = undefined;
 	$: effectiveChannel = channelId || $currentChannel;
 
 	$: allPages = $wikiPagesStore;
@@ -101,7 +105,7 @@
 		stopDraftEvents?.();
 		draftChannel = channel;
 		draftOwner = wikiDrafts.open(channel, captureGroupAccess(channel), draftSurface);
-		if (draftOwner.current()) restoreDraft(draftOwner.read());
+		if (draftOwner.current() && draftSurface !== 'glance') restoreDraft(draftOwner.read());
 		else restoreDraft();
 		const owner = draftOwner;
 		const applyPending = (pending: boolean) => {
@@ -174,17 +178,24 @@
 		wikiSearchQuery = '';
 	}
 
+	$: if (draftSurface === 'glance' && previewPageId && loadedChannelId === effectiveChannel && allPages.length) {
+		const hit = allPages.find(page => page.pageId === previewPageId);
+		if (hit && selectedPageId !== hit.pageId) void tick().then(() => { if (mounted && previewPageId === hit.pageId) selectPage(hit); });
+	}
+
 	// C2: deep-link handoff after pages load — peek first, take only on hit
-	$: if (effectiveChannel && allPages.length > 0) {
-		const pending = peekPendingNav();
+	$: if (draftSurface === 'center' && effectiveChannel && loadedChannelId === effectiveChannel && allPages.length > 0) {
+		const pending = $pendingNav;
 		if (
 			pending?.kind === 'wiki_page' &&
 			(!pending.channelId || pending.channelId === effectiveChannel)
 		) {
 			const hit = allPages.find((p) => p.pageId === pending.pageId);
 			if (hit) {
-				takePendingNav('wiki_page', effectiveChannel);
-				selectPage(hit);
+                const channel = effectiveChannel, owner = draftOwner;
+                // Wait until the initial derived reader state has finished updating.
+                void completePendingNavAfterRender(pending, tick,
+                    () => mounted && effectiveChannel === channel && owner === draftOwner && !!owner?.current(), () => selectPage(hit));
 			}
 		}
 	}
@@ -198,14 +209,15 @@
 	$: displayRevisionCount = allRevisions.length;
 
 	function selectPage(page: WikiPage) {
-		if (draftOwner?.isSending()) return;
-		if (editIsDirty && !window.confirm('Discard unsaved wiki changes?')) return;
+		if (draftOwner?.isSending()) return false;
+		if (editIsDirty && !window.confirm('Discard unsaved wiki changes?')) return false;
 		editorEpoch += 1; imageUploading = false;
 		selectedPageId = page.pageId;
 		showTreeOnMobile = false;
 		editMode = false;
 		showHistory = false;
 		viewRevision = null;
+        return true;
 	}
 
 	function handleEdit() {
@@ -437,7 +449,56 @@
 		updatedAt: selectedPage.updatedAtMicros > 1e12 ? Math.floor(selectedPage.updatedAtMicros / 1000) : selectedPage.updatedAtMicros,
 	} : null;
 
-	$: renderedBody = displayBody ? parseMessage(displayBody, [], { allowTables: true }) : '';
+	// [[Page title]] and [[Page title|label]] link wiki pages to each other. Unknown titles stay visible as
+	// "missing" links so a typo or an unwritten page is obvious instead of silently plain text.
+	function wikiLinkTarget(raw: string): WikiPage | undefined {
+		const key = raw.trim().toLocaleLowerCase();
+		return allPages.find((page) => page.title.trim().toLocaleLowerCase() === key || page.slug === key || slugify(page.title) === slugify(raw));
+	}
+	// [[Title]] and [[Title|label]] become anchors AFTER markdown parsing: parseMessage treats a
+	// "#wikipage-…" destination as a channel reference and breaks the surrounding link.
+	function escapeWikiText(value: string): string {
+		return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+	}
+	function renderWikiBody(markdown: string): string {
+		const links: string[] = [];
+		const staged = markdown.replace(/\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]/g, (_match, title: string, label?: string) => {
+			const target = wikiLinkTarget(title);
+			const text = escapeWikiText((label || title).trim());
+			links.push(target
+				? `<a href="#wikipage-${escapeWikiText(String(target.pageId))}" class="wiki-link">${text}</a>`
+				: `<a href="#wikipage-missing" class="wiki-link wiki-link-missing" title="No page with this title yet">${text}</a>`);
+			return `wabiwikilinkx${links.length - 1}x`;
+		});
+		return parseMessage(staged, [], { allowTables: true }).replace(/wabiwikilinkx(\d+)x/g, (_m, i: string) => links[Number(i)] ?? '');
+	}
+	let mentionedUser = null as User | null;
+	let mentionAnchor = null as HTMLElement | null;
+	let mentionOpen = false;
+	function openMention(token: HTMLElement): boolean {
+		const name = token.textContent?.replace(/^@/, '').trim().toLowerCase();
+		if (!name) return false;
+		const known = [...$forumAuthors.values(), ...$presenceUsers] as User[];
+		const user = known.find((item) => item.username?.toLowerCase() === name || item.handle?.toLowerCase() === name);
+		if (!user) return false;
+		mentionedUser = user; mentionAnchor = token; mentionOpen = true;
+		return true;
+	}
+	function handleBodyClick(event: MouseEvent) {
+		const mention = (event.target as HTMLElement | null)?.closest?.('.mention-token:not([data-ref-kind])') as HTMLElement | null;
+		if (mention && openMention(mention)) { event.preventDefault(); return; }
+		const anchor = (event.target as HTMLElement | null)?.closest?.('a[href^="#wikipage-"]') as HTMLAnchorElement | null;
+		if (!anchor) return;
+		event.preventDefault();
+		const id = anchor.getAttribute('href')!.slice('#wikipage-'.length);
+		const page = allPages.find((candidate) => candidate.pageId === id);
+		if (page) selectPage(page);
+	}
+	/** Pages that link here with [[this title]]. */
+	$: backlinks = selectedPage
+		? allPages.filter((page) => page.pageId !== selectedPage!.pageId && new RegExp('\\[\\[\\s*' + selectedPage!.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*(\\||\\]\\])', 'i').test(page.body))
+		: [];
+	$: renderedBody = displayBody ? renderWikiBody(displayBody) : '';
 	$: editIsDirty = editMode && (editTitle !== editSavedTitle || editBody !== editSavedBody);
 	$: if (editMode && editIsDirty && (saveState === 'idle' || saveState === 'saved')) saveState = 'dirty';
 	$: if (editMode && !editIsDirty && saveState === 'dirty') saveState = 'idle';
@@ -468,7 +529,7 @@
 	<SurfaceToolbar
 		searchPlaceholder="Search wiki..."
 		onSearch={(query) => { wikiSearchQuery = query; }}
-		primaryLabel="+ New Page"
+		primaryLabel={draftSurface === 'glance' ? undefined : '+ New Page'}
 		onPrimary={handleOpenNewPage}
 	>
 		<button class="surface-pill" disabled={isLoading || saveState === 'saving'} on:click={() => effectiveChannel && loadWiki(effectiveChannel)} aria-label="Refresh pages" title="Reload pages from the server">↻</button>
@@ -480,7 +541,7 @@
 				pages={allPages}
 			activePageId={selectedPageId}
 			onSelect={selectPage}
-			onNewChild={handleNewChild}
+			onNewChild={draftSurface === 'glance' ? undefined : handleNewChild}
 			searchQuery={wikiSearchQuery}
 			emptyStateLabel={isLoading ? 'Loading pages…' : error ? 'Pages unavailable' : null}
 			/>
@@ -530,7 +591,7 @@
 					{#if !editMode}
 						<button type="button" class="wiki-content-toolbar-btn wiki-mobile-tree-toggle" on:click={() => { showTreeOnMobile = !showTreeOnMobile; }}>{showTreeOnMobile ? 'Hide page browser' : 'Browse pages'}</button>
 						<div class="wiki-page-actions">
-							<button class="wiki-content-toolbar-btn" on:click={handleEdit} title="Edit page" aria-label="Edit page"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m16 3 5 5L8 21H3v-5Z"/></svg></button>
+							{#if draftSurface !== 'glance'}<button class="wiki-content-toolbar-btn" on:click={handleEdit} title="Edit page" aria-label="Edit page"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m16 3 5 5L8 21H3v-5Z"/></svg></button>{/if}
 							<button class="wiki-content-toolbar-btn" on:click={toggleReading} title={expandedReading ? 'Exit fullscreen' : 'Fullscreen'} aria-label={expandedReading ? 'Exit fullscreen' : 'Fullscreen'}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button>
 							{#if shareRecord}<ObjectShareMenu record={shareRecord} menuLabel="Page actions" extraActions={[{label: 'Revision history', run: handleHistory}, {label: 'Copy page citation', run: () => void copyWikiCitation()}]} />{/if}
 						</div>
@@ -605,9 +666,19 @@
 							{/each}
 						</nav>
 					{/if}
-					<div class="wiki-content-body">
+					<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+					<div class="wiki-content-body" on:click={handleBodyClick}>
 						{@html renderedBody}
 					</div>
+					{#if mentionOpen}<UserPopout user={mentionedUser} bind:isOpen={mentionOpen} anchorElement={mentionAnchor} isOwnProfile={mentionedUser?.dbUserId === $presenceCurrentUser?.dbUserId} />{/if}
+					{#if backlinks.length > 0 && !viewRevision}
+						<aside class="wiki-backlinks" aria-label="Linked from">
+							<strong>Linked from</strong>
+							{#each backlinks as page (page.pageId)}
+								<button type="button" on:click={() => selectPage(page)}>{page.title}</button>
+							{/each}
+						</aside>
+					{/if}
 
 				{/if}
 			{/if}

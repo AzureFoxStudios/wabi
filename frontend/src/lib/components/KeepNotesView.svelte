@@ -56,10 +56,10 @@
 	.keep-notes-expand {
 		min-height: 40px;
 		padding: 0.25rem 0.55rem;
-		border-radius: var(--radius-md);
-		border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+		border-radius: calc(10px * var(--w-rs, 1));
+		border: 1px solid var(--w-line);
 		background: transparent;
-		color: var(--text-secondary, #94a3b8);
+		color: var(--w-mute);
 		font-size: 0.75rem;
 		font-weight: 500;
 		cursor: pointer;
@@ -68,8 +68,8 @@
 
 	.keep-notes-expand:hover,
 	.keep-notes-expand:focus-visible {
-		background: var(--surface-hover, rgba(255, 255, 255, 0.08));
-		color: var(--text-heading, #e8eef7);
+		background: var(--w-raise);
+		color: var(--w-text);
 	}
 
 	@media (pointer: coarse) {

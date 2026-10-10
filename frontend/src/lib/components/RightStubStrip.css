@@ -1,369 +1,198 @@
 /* ==========================================================================
-   RightStubStrip — Blender-style edge stubs
+   Right rail — a slim always-present column of panel icons.
+   Click pins a panel (the stage makes room); hold the peek key and hover to look
+   without committing; drag to reorder, top is first. Colors come from --w-* roles.
    ========================================================================== */
 
-/* Shared dock chrome reused from the old right-panel dock (moved here).
-   These class names are only used by this component now. */
+:root { --w-rail-w: 46px; }
+
+.rail {
+	position: fixed;
+	top: 0;
+	bottom: 0;
+	width: var(--w-rail-w);
+	z-index: 900; /* below modal overlays, above stage content */
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	padding: 10px 0;
+	background: var(--w-bg2);
+	box-sizing: border-box;
+}
+.rail.side-right { right: 0; border-left: var(--w-bw, 1px) solid var(--w-line); }
+.rail.side-left { left: 0; border-right: var(--w-bw, 1px) solid var(--w-line); }
+
+.rail-list { display: flex; flex: 1; min-height: 0; flex-direction: column; align-items: center; gap: 4px; overflow-y: auto; scrollbar-width: none; }
+.rail-list::-webkit-scrollbar { display: none; }
+.rail-foot { display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 8px; }
+
+.stub {
+	position: relative;
+	display: grid;
+	place-items: center;
+	width: 36px;
+	height: 36px;
+	flex: none;
+	padding: 0;
+	border: var(--w-bw, 1px) solid transparent;
+	border-radius: calc(10px * var(--w-rs, 1));
+	background: transparent;
+	color: var(--w-mute);
+	cursor: pointer;
+	transition: background 0.12s, color 0.12s;
+}
+.stub:hover { background: var(--w-raise); color: var(--w-text); }
+.stub:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 1px; }
+.stub.active { background: var(--w-raise); color: var(--w-text); border-color: var(--w-line-strong); }
+/* every panel pinned in the dock is marked, the focused one a little stronger */
+.stub.pinned { color: var(--w-text); border-color: var(--w-accent); background: var(--w-accent-soft); }
+.rail-list .stub:not(.stub-add) {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 7px;
+	width: 38px;
+	height: auto;
+	padding: 9px 0 10px;
+}
+/* the label runs up the rail like a folder tab: icon on top, text reading upward */
+.stub-label {
+	writing-mode: vertical-rl;
+	transform: rotate(180deg);
+	font: 600 calc(12.5px * var(--w-fs, 1))/1 var(--w-sans);
+	letter-spacing: 0.04em;
+	white-space: nowrap;
+}
+.stub-icon { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font: 400 calc(20px * var(--w-fs, 1))/1 var(--w-sans); }
+.stub-add { color: var(--w-faint); }
+.stub-add:hover { color: var(--w-text); }
+
+.stub-badge {
+	position: absolute;
+	top: 1px;
+	right: 0;
+	min-width: 15px;
+	height: 15px;
+	padding: 0 4px;
+	border-radius: var(--w-pill, 999px);
+	background: var(--w-accent);
+	color: var(--w-on-accent);
+	font: 700 calc(10px * var(--w-fs, 1))/15px var(--w-sans);
+	text-align: center;
+	pointer-events: none;
+}
+
+/* drag-to-reorder */
+.stub.dragging { opacity: 0.35; }
+.stub.drop-before::after,
+.stub.drop-after::after {
+	content: '';
+	position: absolute;
+	left: 4px;
+	right: 4px;
+	height: 2px;
+	border-radius: 2px;
+	background: var(--w-accent);
+}
+.stub.drop-before::after { top: -3px; }
+.stub.drop-after::after { bottom: -3px; }
+
+/* tooltips open toward the stage */
+.stub[data-tip]:hover::after,
+.stub[data-tip]:focus-visible::after {
+	content: attr(data-tip);
+	position: absolute;
+	top: 50%;
+	transform: translateY(-50%);
+	z-index: 5;
+	padding: 5px 9px;
+	white-space: nowrap;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(8px * var(--w-rs, 1));
+	background: var(--w-raise);
+	color: var(--w-text);
+	font: 500 calc(12px * var(--w-fs, 1))/1.3 var(--w-sans);
+	box-shadow: var(--w-shadow);
+	pointer-events: none;
+}
+.rail.side-right .stub[data-tip]:hover::after,
+.rail.side-right .stub[data-tip]:focus-visible::after { right: calc(100% + 10px); }
+.rail.side-left .stub[data-tip]:hover::after,
+.rail.side-left .stub[data-tip]:focus-visible::after { left: calc(100% + 10px); }
+.stub.dragging[data-tip]::after { display: none; }
+
+/* ---------- shared chrome: badge, drawer, context menu ---------- */
 .panel-badge {
 	min-width: 16px;
 	height: 16px;
 	padding: 0 4px;
-	border-radius: 999px;
-	background: var(--color-danger, #ef4444);
-	color: var(--text-inverse, #fff);
-	font-size: 0.65rem;
-	line-height: 16px;
+	border-radius: var(--w-pill, 999px);
+	background: var(--w-accent);
+	color: var(--w-on-accent);
+	font: 700 calc(10px * var(--w-fs, 1))/16px var(--w-sans);
 	text-align: center;
 }
 
-.panel-drawer {
-	display: flex;
-	flex-direction: column;
-	background: var(--surface-base);
-	border: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
-	border-radius: var(--radius-lg);
-	box-shadow: 0 12px 32px color-mix(in srgb, var(--surface-sunken) 40%, transparent), 0 2px 6px color-mix(in srgb, var(--surface-sunken) 25%, transparent);
-	overflow: hidden;
+.panel-drawer,
+.panel-context-menu {
+	background: var(--w-raise);
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(12px * var(--w-rs, 1));
+	box-shadow: var(--w-shadow);
+	font-family: var(--w-sans);
+	color: var(--w-text);
 }
-
-.panel-drawer-list {
-	display: flex;
-	flex-direction: column;
-	min-height: 0;
-	overflow-y: auto;
-	overscroll-behavior: contain;
-	padding: 0.3rem;
-}
-
+.panel-drawer { display: flex; flex-direction: column; overflow: hidden; }
+.panel-drawer-heading { padding: 12px 14px 6px; flex-shrink: 0; font: 600 calc(11.5px * var(--w-fs, 1))/1 var(--w-sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--w-mute); }
+.panel-drawer-list { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px; }
 .panel-drawer-item {
+	display: inline-flex;
+	align-items: center;
+	gap: 9px;
 	width: 100%;
 	min-width: 0;
-	min-height: 40px;
+	min-height: 36px;
 	flex-shrink: 0;
-	border-radius: var(--radius-md);
-	border: 1px solid transparent;
+	padding: 0 10px;
+	border: 0;
+	border-radius: calc(8px * var(--w-rs, 1));
 	background: transparent;
-	color: var(--text-secondary);
-	display: inline-flex;
-	align-items: center;
-	gap: 0.4rem;
-	padding: 0 0.5rem;
-	cursor: pointer;
-	font-size: var(--font-size-sm);
-	font-weight: 500;
+	color: var(--w-mute);
+	font: 500 calc(13.5px * var(--w-fs, 1))/1.2 var(--w-sans);
 	text-align: left;
+	cursor: pointer;
 }
-
 .panel-drawer-item:hover,
-.panel-drawer-item:focus-visible {
-	outline: none;
-	background: color-mix(in srgb, var(--surface-raised) 80%, transparent);
-	border-color: color-mix(in srgb, var(--border-subtle) 60%, transparent);
-	color: var(--text-heading);
-}
+.panel-drawer-item:focus-visible { outline: none; background: var(--w-accent-soft); color: var(--w-text); }
+.panel-drawer-item.active { color: var(--w-text); box-shadow: inset 2px 0 0 var(--w-accent); }
+.panel-tab-icon { display: inline-flex; width: 17px; height: 17px; flex-shrink: 0; align-items: center; justify-content: center; }
+.panel-tab-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-drawer-empty { padding: 10px 12px; color: var(--w-mute); font: 400 calc(12.5px * var(--w-fs, 1))/1.4 var(--w-sans); }
+.panel-drawer-footer { display: flex; flex-direction: column; flex-shrink: 0; padding: 4px; border-top: var(--w-bw, 1px) solid var(--w-line); }
 
-.panel-drawer-item:focus-visible {
-	outline: 2px solid var(--accent-primary);
-	outline-offset: -2px;
-}
+.stub-drawer { position: fixed; width: 260px; box-sizing: border-box; max-height: calc(100dvh - 16px); z-index: calc(var(--z-popout, 1200) + 1); }
 
-.panel-drawer-item.active {
-	background: rgba(var(--accent-rgb), 0.15);
-	border-color: rgba(var(--accent-rgb), 0.3);
-	color: var(--text-heading);
-}
-
-.panel-tab-icon {
-	width: 17px;
-	height: 17px;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	flex-shrink: 0;
-}
-
-.panel-tab-label {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	flex: 1;
-}
-
-.panel-context-menu {
-	position: fixed;
-	z-index: var(--z-popover, 500);
-	background: var(--surface-base);
-	border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent);
-	border-radius: 6px;
-	padding: 4px;
-	min-width: 160px;
-	box-shadow: 0 4px 16px color-mix(in srgb, var(--surface-app) 80%, transparent);
-}
-
+.panel-context-menu { position: fixed; z-index: calc(var(--z-popout, 1200) + 1); min-width: 170px; padding: 4px; }
 .context-menu-item {
 	display: flex;
 	align-items: center;
-	gap: 8px;
 	width: 100%;
-	padding: 8px 12px;
+	padding: 8px 10px;
+	border: 0;
+	border-radius: calc(8px * var(--w-rs, 1));
 	background: transparent;
-	border: none;
-	border-radius: 4px;
-	color: var(--text-heading);
-	font-size: 0.875rem;
-	cursor: pointer;
+	color: var(--w-text);
+	font: 500 calc(13.5px * var(--w-fs, 1))/1.2 var(--w-sans);
 	text-align: left;
-}
-
-.context-menu-item:hover,
-.context-menu-item:focus-visible {
-	outline: none;
-	background: var(--surface-raised);
-}
-
-.stub-strip {
-	position: fixed;
-	top: calc(var(--app-chrome-height) + 16px);
-	width: 48px;
-	display: flex;
-	flex-direction: column;
-	gap: 10px;
-	z-index: calc(var(--z-popout, 1200) - 1);
-	pointer-events: none;
-}
-
-/* Floating: the strip is mounted INSIDE the .right-panel-zone, so the stubs
-   ride the panel like folder tabs. The closed strip lives at the viewport
-   edge; once the panel peeks/pins, the floating strip moves to the panel's
-   INNER edge and protrudes toward the workspace instead of covering panel UI. */
-.stub-strip.floating {
-	position: absolute;
-}
-
-.stub-strip.side-right {
-	right: 0;
-}
-
-.stub-strip.side-left {
-	left: 0;
-}
-
-/* The generic side rules above are for the closed/cabinet state. Once the
-   strip is floating inside an open panel, anchor it to the panel's leading
-   edge: left edge for a right-side panel, right edge for a left-side panel. */
-.stub-strip.floating.side-right {
-	left: 0;
-	right: auto;
-}
-
-.stub-strip.floating.side-left {
-	right: 0;
-	left: auto;
-}
-
-.stub-strip > * {
-	pointer-events: auto;
-}
-
-.stub {
-	position: relative;
-	width: 48px;
-	height: 48px;
-	flex-shrink: 0;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	border: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
-	background: color-mix(in srgb, var(--surface-base) 94%, transparent);
-	color: var(--text-secondary);
 	cursor: pointer;
-	padding: 0;
-	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
-	transition: transform 0.16s ease, background 0.16s ease, color 0.16s ease,
-		border-color 0.16s ease, box-shadow 0.16s ease;
 }
+.context-menu-item:hover,
+.context-menu-item:focus-visible { outline: none; background: var(--w-accent-soft); }
+.stub-context-menu .context-menu-item:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* Closed tabs expose the full target; floating tabs attach outside the panel. */
-.stub-strip.side-right .stub {
-	transform: translateX(0);
-	border-right: none;
-	border-radius: var(--radius-md, 8px) 0 0 var(--radius-md, 8px);
-}
+@media (pointer: coarse) { .panel-drawer-item { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) { .stub { transition: none; } }
 
-.stub-strip.side-left .stub {
-	margin-left: 0;
-	transform: translateX(0);
-	border-left: none;
-	border-radius: 0 var(--radius-md, 8px) var(--radius-md, 8px) 0;
-}
-
-.stub-strip.side-right .stub:hover,
-.stub-strip.side-right .stub:focus-visible {
-	transform: translateX(0);
-}
-
-.stub-strip.side-left .stub:hover,
-.stub-strip.side-left .stub:focus-visible {
-	transform: translateX(0);
-}
-
-/* In floating mode the tab is fully outside the panel. At the first frame of
-   a peek this position matches the fully revealed closed stub, so the handle
-   appears to pull the panel in rather than teleporting back to the edge. */
-.stub-strip.floating.side-right .stub {
-	transform: translateX(-48px);
-}
-
-.stub-strip.floating.side-left .stub {
-	margin-left: 0;
-	transform: translateX(48px);
-}
-
-.stub:hover,
-.stub:focus-visible {
-	outline: none;
-	border-color: rgba(var(--accent-rgb), 0.4);
-	background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
-	color: var(--text-heading);
-	box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-}
-
-.stub.active {
-	border-color: rgba(var(--accent-rgb), 0.45);
-	background: rgba(var(--accent-rgb), 0.16);
-	color: var(--text-heading);
-}
-
-.stub.pinned {
-	border-color: rgba(var(--accent-rgb), 0.65);
-	background: rgba(var(--accent-rgb), 0.22);
-}
-
-.stub-icon {
-	width: 22px;
-	height: 22px;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	font-size: 1.15rem;
-	line-height: 1;
-}
-
-/* Full targets keep icons centered in closed and floating states. */
-.stub-strip:not(.floating).side-right .stub:not(:hover):not(:focus-visible) .stub-icon {
-	transform: translateX(0);
-}
-
-.stub-strip:not(.floating).side-left .stub:not(:hover):not(:focus-visible) .stub-icon {
-	transform: translateX(0);
-}
-
-.stub-add {
-	color: var(--text-muted);
-}
-
-.stub-add:hover,
-.stub-add:focus-visible {
-	color: var(--text-heading);
-}
-
-.stub-badge {
-	position: absolute;
-	top: 2px;
-	min-width: 16px;
-	height: 16px;
-	padding: 0 4px;
-	border-radius: 999px;
-	background: var(--color-danger, #ef4444);
-	color: var(--text-inverse, #fff);
-	font-size: 0.62rem;
-	font-weight: 700;
-	line-height: 16px;
-	text-align: center;
-	pointer-events: none;
-}
-
-.stub-strip.side-right .stub-badge {
-	left: 2px;
-}
-
-.stub-strip.side-left .stub-badge {
-	right: 2px;
-}
-
-.stub-dot {
-	position: absolute;
-	bottom: 3px;
-	width: 6px;
-	height: 6px;
-	border-radius: 999px;
-	background: var(--accent-primary-color, #6366f1);
-	pointer-events: none;
-}
-
-.stub-strip.side-right .stub-dot {
-	left: 3px;
-}
-
-.stub-strip.side-left .stub-dot {
-	right: 3px;
-}
-
-/* Context menu (reuses the .panel-context-menu pattern from the old dock).
-   Mounted INSIDE the strip, so `absolute` anchors to the strip: when
-   floating, the strip sits inside the transformed peek zone, whose persisted
-   transform would otherwise re-anchor viewport-`fixed` children to the zone. */
-.stub-context-menu {
-	position: absolute;
-	z-index: calc(var(--z-popout, 1200) - 1);
-}
-
-.stub-context-menu .context-menu-item:disabled {
-	opacity: 0.4;
-	cursor: not-allowed;
-}
-
-/* Add/drawer (reuses the .panel-drawer pattern) */
-.stub-drawer {
-	position: fixed;
-	width: 260px;
-	box-sizing: border-box;
-	max-height: calc(100dvh - 16px);
-	z-index: calc(var(--z-popout, 1200) - 1);
-}
-
-.panel-drawer-heading {
-	padding: 0.75rem 0.8rem 0.4rem;
-	color: var(--text-heading);
-	font-size: var(--font-size-sm);
-	font-weight: 600;
-	flex-shrink: 0;
-}
-
-.panel-drawer-empty {
-	padding: 0.6rem 0.75rem;
-	color: var(--text-muted);
-	font-size: 0.73rem;
-}
-
-.panel-drawer-footer {
-	border-top: 1px solid color-mix(in srgb, var(--border-subtle) 68%, transparent);
-	padding: 0.3rem;
-	display: flex;
-	flex-direction: column;
-	flex-shrink: 0;
-}
-
-@media (pointer: coarse) {
-	.panel-drawer-item { min-height: 44px; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-	.stub { transition: none; }
-}
-
-/* Hidden under focus mode (scaffold only — no UI reaches it yet). */
-:global(.app-container.focus-mode) .stub-strip {
-	display: none;
-}
+/* focus mode hides the rail */
+:global(.app-container.focus-mode) .rail { display: none; }

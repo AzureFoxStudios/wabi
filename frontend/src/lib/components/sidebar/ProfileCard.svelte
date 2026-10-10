@@ -11,6 +11,9 @@
 	import { FALLBACK_ROLE_LABELS } from './channelSidebarHelpers';
 	import { overlayStyle } from '$lib/overlayStyle';
 import { mediaUrl } from '$lib/mediaUrl';
+	import BadgeMark from '$lib/components/BadgeMark.svelte';
+	import { currentSavedServer } from '$lib/savedServers';
+	import { ownerBadgeMark, staffBadgeMark } from '$lib/badgeMarks';
 
 	export let sidebarWidth: number;
 
@@ -41,6 +44,15 @@ import { mediaUrl } from '$lib/mediaUrl';
 		const roleName = $currentUser.highestRole || ($currentUser.dbUserId ? 'member' : 'guest');
 		const roleDefinition = $roleDefinitions.find(role => role.roleName === roleName);
 		return roleDefinition?.displayName || FALLBACK_ROLE_LABELS[roleName] || roleName;
+	})();
+
+	// The owner is marked by the crown alone (and staff by the gem); the role name is not repeated as a pill.
+	// What each role means is reviewed under Server Center → Roles, not on every name.
+	$: roleMark = (() => {
+		const role = ($currentUser?.highestRole || '').toLowerCase();
+		if (role === 'owner') return { kind: 'owner' as const, mark: ownerBadgeMark($currentSavedServer?.frontendMetadata), label: 'Owner' };
+		if (role === 'admin' || role === 'mod' || role === 'moderator') return { kind: 'staff' as const, mark: staffBadgeMark($currentSavedServer?.frontendMetadata), label: currentUserRoleLabel };
+		return null;
 	})();
 
 	// R8: never render blank / literal "unknown" for self label in BL profile card.
@@ -132,7 +144,7 @@ import { mediaUrl } from '$lib/mediaUrl';
 			<div class="user-details">
 				<div class="username">
 					<span class="username-text"><ProfileName username={displayUsername} font={$currentUser.usernameFont} color={$currentUser.color} /></span>
-					<span class="self-role-badge">{currentUserRoleLabel}</span>
+					{#if roleMark}<span class="self-role-mark" title={roleMark.label} aria-label={roleMark.label}><BadgeMark kind={roleMark.kind} mark={roleMark.mark} /></span>{/if}
 				</div>
 				<div class="user-tag">@{displayHandle}</div>
 				{#if activeCustomStatus?.label}

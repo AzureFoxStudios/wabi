@@ -7,7 +7,7 @@
 	import { clearAuthSession, setAuthToken, setPersistentAuthToken, setStoredDbUserId } from '$lib/authSession';
 import { setRefreshToken } from '$lib/api/authRefresh';
 		import { retryDecryptLoadedDmMessages } from '$lib/socket';
-	import { _, availableLocales, currentLocale, setAppLocale } from '$lib/i18n';
+	import { _, getAvailableLocales, currentLocale, setAppLocale } from '$lib/i18n';
 	import { getConfiguredServerUrl, getServerUrl, resolveServerUrl } from '$lib/serverUrl';
 	import { isCurrentTailcatProxy, restoreTailcatConnection } from '$lib/tailcatConnection';
 	import { isTauriRuntime } from '$lib/tauri-platform';
@@ -16,7 +16,9 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	import LaunchPanel from '$lib/components/login/LaunchPanel.svelte';
 	import LoginQRModal from '$lib/components/login/LoginQRModal.svelte';
 	import LoginConnectionPrompt from '$lib/components/login/LoginConnectionPrompt.svelte';
-	import { buildLaunchPageStyles, injectNeutralBranding } from '$lib/components/loginHelpers';
+	import { currentTheme } from '$lib/theme/themeStore';
+	import { communityDisplayFont } from '$lib/theme/displayFonts';
+	import { buildLaunchPageStyles, hasOperatorLaunchStyling, injectNeutralBranding } from '$lib/components/loginHelpers';
 	import type { StarterChannel } from '$lib/api/auth';
 	import './login.css';
 
@@ -77,7 +79,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	);
 	$: activeLaunchPageConfig = showLaunchPanel ? launchPageConfig : null;
 	$: hostBrandName = neutralBranding ? '' : launchPageConfig?.brandName || fallbackBrand.name || brandName;
-	$: localeLabel = availableLocales.find((locale) => locale.code === selectedLocale)?.label || selectedLocale;
+	$: localeLabel = getAvailableLocales().find((locale) => locale.code === selectedLocale)?.label || selectedLocale;
 	$: hostLogoUrl = neutralBranding ? fallbackBrand.logoSmallUrl : launchPageConfig?.logoUrl || fallbackBrand.logoSmallUrl || '/wabi-logo.png';
 	$: if (lastHostLogoUrl !== hostLogoUrl) {
 		lastHostLogoUrl = hostLogoUrl;
@@ -86,7 +88,8 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	$: displayLogoUrl = logoFailed ? '/wabi-logo.png' : hostLogoUrl;
 	$: invertHostLogo = /(?:^|\/)(?:wabi-logo(?:-small)?\.(?:webp|png)|icon\.png)(?:\?|$)/i.test(hostLogoUrl);
 	$: atmosphereUrl = neutralBranding ? null : launchPageConfig?.backgroundImageUrl || null;
-	$: launchStyles = launchPageConfig && !neutralBranding
+	$: operatorPalette = hasOperatorLaunchStyling(launchPageConfig, neutralBranding);
+	$: launchStyles = launchPageConfig && operatorPalette && !neutralBranding
 		? buildLaunchPageStyles({
 				enabled: true,
 				palette: {
@@ -101,6 +104,9 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 			})
 		: { launchContainerStyle: '', launchCardStyle: '', launchCustomCss: '' };
 	$: launchContainerStyle = launchStyles.launchContainerStyle;
+	// The operator's title font reaches the login too (curated ids only; the theme's own type outranks it).
+	$: communityFont = neutralBranding ? null : communityDisplayFont(launchPageConfig?.displayFont, $currentTheme?.character);
+	$: loginTitleFont = communityFont ? ` --w-serif: ${communityFont};` : '';
 	$: launchCardStyle = launchStyles.launchCardStyle;
 	$: launchCustomCss = launchStyles.launchCustomCss;
 
@@ -276,7 +282,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	<style>{launchCustomCss}</style>
 </svelte:head>
 
-<div class="login-container" class:has-atmosphere={!!atmosphereUrl} data-login-brand={invertHostLogo ? 'wabi' : 'custom'} style={launchContainerStyle}>
+<div class="login-container" class:has-atmosphere={!!atmosphereUrl} data-login-brand={invertHostLogo ? 'wabi' : 'custom'} style={launchContainerStyle + loginTitleFont}>
 	<div class="login-shell" class:has-launch={!!activeLaunchPageConfig}>
 		{#if activeLaunchPageConfig}
 			<LaunchPanel config={activeLaunchPageConfig} />
@@ -310,7 +316,6 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 			</div>
 
 			<div class="login-auth-panel">
-				<a href="/personal" data-sveltekit-reload class="auth-btn auth-btn-ghost">Open personal Planner</a>
 				<HostLink />
 				{#if privateTunnelActive}
 					<button type="button" class="login-change-server" on:click={leavePrivateTunnel} disabled={loading}>Leave private tunnel</button>
@@ -517,11 +522,13 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 			<nav class="login-footer-links" aria-label="Login resources">
 				<a href="/privacy">Privacy</a>
 				<a href="/terms">Terms</a>
+				<!-- Separate from any community account: stays on this device, no login. -->
+				<a href="/personal" data-sveltekit-reload title="A calendar, tasks and journal that stay on this device. No account needed.">Offline planner</a>
 				<label class="login-locale-control">
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 5h12M9 3v2M5 5c0 6 4 9 8 11M13 5c0 6-4 9-8 11M13 21l4-11 4 11M14.5 17h5"/></svg>
 					<span aria-hidden="true">{localeLabel}</span>
 					<select id="locale-picker" aria-label="Language" bind:value={selectedLocale} on:change={(event) => setAppLocale((event.currentTarget as HTMLSelectElement).value)}>
-						{#each availableLocales as localeOption}<option value={localeOption.code}>{localeOption.label}</option>{/each}
+						{#each getAvailableLocales() as localeOption}<option value={localeOption.code}>{localeOption.label}</option>{/each}
 					</select>
 				</label>
 				{#if !wizardMode && !showConnectionPrompt}

@@ -50,6 +50,41 @@ export const centerPanelView = writable<CenterPanelView>('chat');
 export const activeRightTab = writable<RightPanelTab>(FALLBACK_WORKSPACE_PANEL_ID);
 /** Committed pin — survives peek-over (hovering another stub only changes activeRightTab). */
 export const pinnedPanelId = writable<WorkspacePanelId | null>(null);
+/**
+ * Panels pinned side by side in the dock, in pin order. Display order is the rail's order (stubStrip), so
+ * dragging on the rail also rearranges the dock. Empty while a single legacy pin is in use — read it
+ * through pinnedIds() in layoutStoreRightPanel.ts.
+ */
+export const dockStack = writable<WorkspacePanelId[]>([]);
+export const DEFAULT_DOCK_STACK_LIMIT = 3;
+/** Deliberately generous: this is a preference, not a guard rail. A tall monitor may want eight. */
+export const MAX_DOCK_STACK_LIMIT = 12;
+const DOCK_LIMIT_KEY = 'wabi:dock-stack-limit';
+
+export function clampDockStackLimit(value: unknown): number {
+	const n = Math.round(Number(value));
+	if (!Number.isFinite(n)) return DEFAULT_DOCK_STACK_LIMIT;
+	return Math.min(MAX_DOCK_STACK_LIMIT, Math.max(1, n));
+}
+
+function readDockLimit(): number {
+	try {
+		const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(DOCK_LIMIT_KEY);
+		return raw === null ? DEFAULT_DOCK_STACK_LIMIT : clampDockStackLimit(raw);
+	} catch {
+		return DEFAULT_DOCK_STACK_LIMIT;
+	}
+}
+
+/** How many panels may be pinned side by side in the dock. Per device. */
+export const dockStackLimit = writable<number>(readDockLimit());
+dockStackLimit.subscribe((value) => {
+	try {
+		if (typeof localStorage !== 'undefined') localStorage.setItem(DOCK_LIMIT_KEY, String(clampDockStackLimit(value)));
+	} catch {
+		/* preference just won't persist */
+	}
+});
 export const showMobileChannels = writable(false);
 
 export const channelSidebarWidth = writable(DEFAULT_NAV_WIDTH);

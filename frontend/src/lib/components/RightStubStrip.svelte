@@ -9,15 +9,18 @@
 		workspacePanelList,
 		type WorkspacePanelManifest
 	} from '$lib/workspacePanels';
-	import { armPeekDismiss, cancelPeekDismiss } from '$lib/rightPeekGestures';
+	import { armPeekDismiss, cancelPeekDismiss, setPeekPointerInside } from '$lib/rightPeekGestures';
 	import { portal } from '$lib/actions/portal';
+	import { railPeekKey, peekModifierHeld, peekKeyLabel, reorderIndexes } from '$lib/railPrefs';
 	import { panelActionIndex, positionPanelPopover } from '$lib/panelPopover';
 	import WorkspacePanelIcon from './WorkspacePanelIcon.svelte';
 	import './RightStubStrip.css';
 
-	let { floating = false }: { floating?: boolean } = $props();
 	let stripRef = $state<HTMLElement | null>(null);
 	let contextMenu = $state<{ panelId: string; x: number; y: number } | null>(null);
+	let hoveredId = $state<string | null>(null);
+	let dragId = $state<string | null>(null);
+	let dropIndex = $state<number | null>(null);
 	let drawerOpen = $state(false);
 	let drawerStyle = $state('');
 	let contextMenuRef = $state<HTMLElement | null>(null);
@@ -109,25 +112,42 @@
 				closeDrawer();
 			}
 		}
+		// Holding the peek modifier while already resting on an item peeks it.
+		function handleModifierDown(event: KeyboardEvent) {
+			if (!hoveredId || contextMenu || drawerOpen || dragId) return;
+			if (!['Shift', 'Alt', 'Control'].includes(event.key)) return;
+			if (!peekModifierHeld($railPeekKey, event)) return;
+			cancelPeekDismiss();
+			layoutStore.peekPanel(hoveredId);
+		}
 		function handleWindowBlur() {
 			hideContextMenu();
 			closeDrawer();
 		}
 		document.addEventListener('keydown', handleKeydown);
+		document.addEventListener('keydown', handleModifierDown);
 		document.addEventListener('click', handleClickOutside);
 		window.addEventListener('resize', positionDrawer);
 		window.addEventListener('blur', handleWindowBlur);
 		return () => {
 			document.removeEventListener('keydown', handleKeydown);
+			document.removeEventListener('keydown', handleModifierDown);
 			document.removeEventListener('click', handleClickOutside);
 			window.removeEventListener('resize', positionDrawer);
 			window.removeEventListener('blur', handleWindowBlur);
 		};
 	});
 
-	function handleStubEnter(panelId: string): void {
+	function handleStubEnter(panelId: string, event: MouseEvent): void {
+		hoveredId = panelId;
 		cancelPeekDismiss();
-		layoutStore.peekPanel(panelId);
+		if (dragId) return;
+		// Hover alone never opens a panel (unless the preference is 'none'); the
+		// peek modifier does. An already-open peek follows the pointer between items.
+		const peeking = $layoutStore.rightPanelMode !== 'none';
+		if (peekModifierHeld($railPeekKey, event) || (peeking && $layoutStore.rightPanelMode === 'peek')) {
+			layoutStore.peekPanel(panelId);
+		}
 	}
 
 	function handleStubFocus(panelId: string): void {
@@ -136,6 +156,7 @@
 	}
 
 	function handleStubLeave(): void {
+		hoveredId = null;
 		if (contextMenu || drawerOpen) return;
 		armPeekDismiss();
 	}
@@ -154,12 +175,12 @@
 		drawerOpen = false;
 		contextTrigger = event.currentTarget as HTMLButtonElement;
 		cancelPeekDismiss();
-		// Coordinates relative to the strip: the menu is absolute inside the
-		// strip, and the strip may be inside the transformed peek zone (which
-		// would otherwise re-anchor viewport `fixed` children).
+		// The rail hugs a screen edge, so the menu opens toward the content.
 		const stripRect = stripRef?.getBoundingClientRect();
-		const x = stripRect ? event.clientX - stripRect.left + 4 : event.clientX;
-		const y = stripRect ? event.clientY - stripRect.top + 4 : event.clientY;
+		const x = $layoutStore.stubSide === 'right'
+			? window.innerWidth - (stripRect?.left ?? event.clientX) + 6
+			: (stripRect?.right ?? event.clientX) + 6;
+		const y = Math.min(event.clientY, window.innerHeight - 140);
 		contextMenu = { panelId, x, y };
 	}
 
@@ -240,6 +261,11 @@
 		closeDrawer(true);
 	}
 
+	function cyclePeekKey(): void {
+		const order = ['shift', 'alt', 'ctrl', 'none'] as const;
+		railPeekKey.update((key) => order[(order.indexOf(key) + 1) % order.length]);
+	}
+
 	function toggleSide(): void {
 		layoutStore.setStubSide($layoutStore.stubSide === 'left' ? 'right' : 'left');
 		closeDrawer(true);
@@ -256,111 +282,149 @@
 		return count > 99 ? '99+' : String(count);
 	}
 
+	function handleDragStart(event: DragEvent, panelId: string): void {
+		dragId = panelId;
+		cancelPeekDismiss();
+		if (event.dataTransfer) {
+			event.dataTransfer.effectAllowed = 'move';
+			event.dataTransfer.setData('text/plain', panelId);
+		}
+	}
+
+	function handleDragOver(event: DragEvent, index: number): void {
+		if (!dragId) return;
+		event.preventDefault();
+		if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+		dropIndex = index;
+	}
+
+	function handleDrop(event: DragEvent, index: number): void {
+		event.preventDefault();
+		const from = dragId ? $layoutStore.stubStrip.indexOf(dragId) : -1;
+		const move = reorderIndexes($layoutStore.stubStrip.length, from, index);
+		if (move) layoutStore.reorderStub(move.from, move.to);
+		endDrag();
+	}
+
+	function endDrag(): void {
+		dragId = null;
+		dropIndex = null;
+	}
+
+	const peekHint = $derived(
+		$railPeekKey === 'none' ? 'hover to peek' : `hold ${peekKeyLabel($railPeekKey)} to peek`
+	);
+
 	function isDisplayed(panelId: string): boolean {
 		return $layoutStore.rightPanelMode !== 'none' && $layoutStore.activeRightTab === panelId;
 	}
 
 	function isPinned(panelId: string): boolean {
-		return $layoutStore.rightPanelMode === 'pinned' && $layoutStore.pinnedPanelId === panelId;
+		if ($layoutStore.rightPanelMode !== 'pinned') return false;
+		return $layoutStore.dockStack.length > 0 ? $layoutStore.dockStack.includes(panelId) : $layoutStore.pinnedPanelId === panelId;
 	}
 </script>
 
 {#if !$isMobile && !$focusMode}
 	<div
 		bind:this={stripRef}
-		class="stub-strip"
-		class:floating={floating}
+		class="rail"
 		class:side-left={$layoutStore.stubSide === 'left'}
 		class:side-right={$layoutStore.stubSide === 'right'}
 		role="group"
-		aria-label="Panel strip"
-		onmouseenter={cancelPeekDismiss}
-		onmouseleave={handleStubLeave}
+		aria-label="Panel rail"
+		onmouseenter={() => { setPeekPointerInside(true); cancelPeekDismiss(); }}
+		onmouseleave={() => { setPeekPointerInside(false); handleStubLeave(); }}
 	>
-		{#each stripPanels as panel (panel.id)}
+		<div class="rail-list">
+			{#each stripPanels as panel, index (panel.id)}
+				<button
+					type="button"
+					class="stub"
+					class:active={isDisplayed(panel.id)}
+					class:pinned={isPinned(panel.id)}
+					class:dragging={dragId === panel.id}
+					class:drop-before={dragId && dropIndex === index && $layoutStore.stubStrip.indexOf(dragId) > index}
+					class:drop-after={dragId && dropIndex === index && $layoutStore.stubStrip.indexOf(dragId) < index}
+					draggable="true"
+					onmouseenter={(event) => handleStubEnter(panel.id, event)}
+					onmouseleave={handleStubLeave}
+					onfocus={() => handleStubFocus(panel.id)}
+					onblur={handleStubBlur}
+					onclick={() => handleStubClick(panel.id)}
+					oncontextmenu={(event) => handleStubContextMenu(event, panel.id)}
+					ondragstart={(event) => handleDragStart(event, panel.id)}
+					ondragover={(event) => handleDragOver(event, index)}
+					ondrop={(event) => handleDrop(event, index)}
+					ondragend={endDrag}
+					aria-label={panel.label}
+					aria-pressed={isPinned(panel.id)}
+					data-tip={`${panel.label} · ${isPinned(panel.id) ? 'click to unpin' : 'click to pin beside others'} · ${peekHint}`}
+				>
+					<span class="stub-icon"><WorkspacePanelIcon icon={panel.icon} /></span>
+					<span class="stub-label">{panel.shortLabel || panel.label}</span>
+					{#if badgeText(panel)}
+						<span class="stub-badge">{badgeText(panel)}</span>
+					{/if}
+				</button>
+			{/each}
+		</div>
+		<div class="rail-foot">
 			<button
 				type="button"
-				class="stub"
-				class:active={isDisplayed(panel.id)}
-				class:pinned={isPinned(panel.id)}
-				onmouseenter={() => handleStubEnter(panel.id)}
+				class="stub stub-add"
+				bind:this={addStubRef}
+				onclick={toggleDrawer}
+				onkeydown={handleAddKeydown}
+				onmouseenter={cancelPeekDismiss}
 				onmouseleave={handleStubLeave}
-				onfocus={() => handleStubFocus(panel.id)}
-				onblur={handleStubBlur}
-				onclick={() => handleStubClick(panel.id)}
-				oncontextmenu={(event) => handleStubContextMenu(event, panel.id)}
-				aria-label={panel.label}
-				aria-pressed={isPinned(panel.id)}
-				title={panel.label}
+				aria-label="Add or manage panels"
+				aria-haspopup="dialog"
+				aria-expanded={drawerOpen}
+				aria-controls={drawerOpen ? drawerId : undefined}
+				data-tip="Add or arrange panels"
 			>
-				<span class="stub-icon"><WorkspacePanelIcon icon={panel.icon} /></span>
-				{#if badgeText(panel)}
-					<span class="stub-badge">{badgeText(panel)}</span>
-				{/if}
-				{#if isPinned(panel.id)}
-					<span class="stub-dot" aria-hidden="true"></span>
-				{/if}
+				<span class="stub-icon" aria-hidden="true">+</span>
 			</button>
-		{/each}
-		<button
-			type="button"
-			class="stub stub-add"
-			bind:this={addStubRef}
-			onclick={toggleDrawer}
-			onkeydown={handleAddKeydown}
-			onmouseenter={cancelPeekDismiss}
-			onmouseleave={handleStubLeave}
-			aria-label="Add or manage panels"
-			aria-haspopup="dialog"
-			aria-expanded={drawerOpen}
-			aria-controls={drawerOpen ? drawerId : undefined}
-			title="Add panels"
-		>
-			<span class="stub-icon" aria-hidden="true">+</span>
-		</button>
-
-		{#if contextMenu}
-			<div
-				class="panel-context-menu stub-context-menu"
-				style={$layoutStore.stubSide === 'right'
-					? `right: ${Math.max(4, 24 - contextMenu.x)}px; top: ${contextMenu.y}px;`
-					: `left: ${contextMenu.x}px; top: ${contextMenu.y}px;`}
-				bind:this={contextMenuRef}
-				role="menu"
-				tabindex="-1"
-				aria-label="Strip options"
-				oncontextmenu={(event) => event.preventDefault()}
-				onkeydown={handleActionKeys}
-			>
-				<button
-					type="button"
-					class="context-menu-item"
-					role="menuitem"
-					onclick={() => removeStub(contextMenu.panelId)}
-				>
-					Remove from strip
-				</button>
-				<button
-					type="button"
-					class="context-menu-item"
-					role="menuitem"
-					disabled={$layoutStore.stubStrip.indexOf(contextMenu.panelId) <= 0}
-					onclick={() => moveStub(-1)}
-				>
-					Move up
-				</button>
-				<button
-					type="button"
-					class="context-menu-item"
-					role="menuitem"
-					disabled={$layoutStore.stubStrip.indexOf(contextMenu.panelId) >= $layoutStore.stubStrip.length - 1}
-					onclick={() => moveStub(1)}
-				>
-					Move down
-				</button>
-			</div>
-		{/if}
+		</div>
 	</div>
+
+	{#if contextMenu}
+		<div
+			class="panel-context-menu stub-context-menu"
+			style={$layoutStore.stubSide === 'right'
+				? `right: ${contextMenu.x}px; top: ${contextMenu.y}px;`
+				: `left: ${contextMenu.x}px; top: ${contextMenu.y}px;`}
+			bind:this={contextMenuRef}
+			role="menu"
+			tabindex="-1"
+			aria-label="Rail options"
+			oncontextmenu={(event) => event.preventDefault()}
+			onkeydown={handleActionKeys}
+		>
+			<button type="button" class="context-menu-item" role="menuitem" onclick={() => removeStub(contextMenu.panelId)}>
+				Remove from rail
+			</button>
+			<button
+				type="button"
+				class="context-menu-item"
+				role="menuitem"
+				disabled={$layoutStore.stubStrip.indexOf(contextMenu.panelId) <= 0}
+				onclick={() => moveStub(-1)}
+			>
+				Move up
+			</button>
+			<button
+				type="button"
+				class="context-menu-item"
+				role="menuitem"
+				disabled={$layoutStore.stubStrip.indexOf(contextMenu.panelId) >= $layoutStore.stubStrip.length - 1}
+				onclick={() => moveStub(1)}
+			>
+				Move down
+			</button>
+		</div>
+	{/if}
 
 	{#if drawerOpen}
 		<div
@@ -394,15 +458,18 @@
 					</button>
 				{/each}
 				{#if drawerPanels.length === 0}
-					<div class="panel-drawer-empty">All available panels are already in the strip.</div>
+					<div class="panel-drawer-empty">All available panels are already on the rail.</div>
 				{/if}
 			</div>
 			<div class="panel-drawer-footer">
 				<button type="button" class="panel-drawer-item" onclick={resetStrip}>
 					Reset to defaults
 				</button>
+				<button type="button" class="panel-drawer-item" onclick={cyclePeekKey}>
+					Peek with: {$railPeekKey === 'none' ? 'hover only' : `hold ${peekKeyLabel($railPeekKey)}`}
+				</button>
 				<button type="button" class="panel-drawer-item" onclick={toggleSide}>
-					Move panel strip {$layoutStore.stubSide === 'left' ? 'right' : 'left'}
+					Move rail to the {$layoutStore.stubSide === 'left' ? 'right' : 'left'}
 				</button>
 			</div>
 		</div>

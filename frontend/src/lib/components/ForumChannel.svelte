@@ -14,10 +14,11 @@
 	import ForumComposer from './ForumComposer.svelte';
 	import { initObjectRefRegistry, registerObjectRef, slugify } from '$lib/objectRefRegistry';
 	import ObjectShareMenu from './ObjectShareMenu.svelte';
-	import { peekPendingNav, takePendingNav } from '$lib/pendingNav';
+	import { pendingNav, takePendingNav } from '$lib/pendingNav';
 
 	export let channelId: string | undefined = undefined;
 	export let draftSurface = 'center';
+	export let previewPostId: string | undefined = undefined;
 	$: effectiveChannel = channelId || $currentChannel;
 
 	$: activeChannel = $channels.find((ch) => ch.id === effectiveChannel) || null;
@@ -200,9 +201,14 @@
 		showCategories = false;
 	}
 
+	$: if (draftSurface === 'glance' && previewPostId && allThreads.length) {
+		const hit = allThreads.find(thread => thread.post_id === previewPostId || thread.thread_id === previewPostId);
+		if (hit && selectedThreadId !== hit.post_id) void tick().then(() => { if (previewPostId === hit.post_id || previewPostId === hit.thread_id) selectThread(hit); });
+	}
+
 	// C2: deep-link handoff after threads load — peek first, take only on hit
-	$: if (effectiveChannel && allThreads.length > 0) {
-		const pending = peekPendingNav();
+	$: if (draftSurface === 'center' && effectiveChannel && allThreads.length > 0) {
+		const pending = $pendingNav;
 		if (
 			pending?.kind === 'forum_post' &&
 			(!pending.channelId || pending.channelId === effectiveChannel)

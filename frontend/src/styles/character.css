@@ -1,0 +1,52 @@
+/* Theme character: the non-color half of a theme.
+   `data-char` is set on <html> by theme/roles.ts. Components read these tokens
+   instead of hard-coding radii, borders and shadows, so a theme like Joker can
+   change the whole feel (square corners, hard shadows) without touching components. */
+:root,
+:root[data-char='soft'] {
+	--w-rs: 1;
+	--w-bw: 1px;
+	--w-pill: 999px;
+	--w-avr: 50%;
+	--w-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+	--w-grain: 0.07;
+}
+:root[data-mode='light'] {
+	--w-shadow: 0 24px 60px rgba(40, 50, 44, 0.25);
+	--w-grain: 0.05;
+}
+:root[data-char='ink'] {
+	--w-rs: 0.7;
+}
+:root[data-char='pixel'] {
+	/* Joker: dot-matrix type for titles and digital strings. The theme's face outranks a community font. */
+	--w-serif: 'Pixelify Sans', 'Courier New', monospace;
+	--w-mono: 'Pixelify Sans', 'Courier New', monospace;
+	--w-rs: 0.2;
+	--w-bw: 2px;
+	--w-pill: 5px;
+	--w-avr: 6px;
+	--w-shadow: 4px 4px 0 var(--w-sink);
+	--w-grain: 0;
+}
+/* High Contrast: no glow, no grain, full-strength lines. */
+:root[data-char='contrast'] {
+	--w-rs: 0.5;
+	--w-shadow: none;
+	--w-grain: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+	:root {
+		--w-grain: 0;
+	}
+}
+
+/* The legacy radius scale follows the theme character, so older components pick up
+   Joker's square corners (or the soft default) without being edited. */
+:root {
+	--radius-sm: calc(4px * var(--w-rs));
+	--radius-md: calc(8px * var(--w-rs));
+	--radius-lg: calc(12px * var(--w-rs));
+	--radius-xl: calc(16px * var(--w-rs));
+	--radius-2xl: calc(24px * var(--w-rs));
+}

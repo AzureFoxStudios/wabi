@@ -9,7 +9,7 @@ use crate::state::AppState;
 use super::{
     addons, admin, albums, auth, blobs, bots, cad, calls, channels, conversation_notes, e2ee,
     community, emoji, field, following, forum, friends, gallery, incidents, jobs, lan, media, messages, nodes,
-    operator, payments, places, preview, privacy, project_tasks, public, server_center, standby, steam, sync,
+    operator, payments, places, preview, privacy, project_tasks, public, push, server_center, standby, steam, sync,
     upload, user, voice_policy, wiki,
 };
 // lore is nested inside addons::routes (feature-gated there) — do not import here.
@@ -61,6 +61,8 @@ pub fn create_api_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/albums", albums::routes(state.clone()))
         // Wiki page routes
         .nest("/wiki", wiki::routes(state.clone()))
+        // Web Push: VAPID key, subscribe/unsubscribe, preferences, test
+        .nest("/push", push::routes(state.clone()))
         .nest("/projects", project_tasks::routes(state.clone()))
         .nest("/workspace", super::workspace::routes(state.clone()))
         // Forum thread & post routes

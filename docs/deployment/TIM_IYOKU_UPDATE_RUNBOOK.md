@@ -1,5 +1,7 @@
 # Tim And Iyoku Update Runbook
 
+> **HISTORICAL / STALE:** this runbook describes the SpacetimeDB-era stack (separate backend/frontend/STDB containers, `docker compose up -d --build`, `rsync --delete` of the whole tree). It does not match the current single-binary WabiDB deployment. For current Tim updates read `.agents/skills/wabi-deploy/references/tim-update-runbook.md`, `AGENTS.md` and `docs/deployment/BACKUP_AND_RECOVERY.md`. Tim serves wabi.chat: get explicit operator approval before any stop, rebuild or sync.
+
 This runbook is the fastest reliable path for syncing the current Wabi tree to `tim` and `Iyoku`, and for rebuilding the live stack on `tim`.
 
 ## Hosts

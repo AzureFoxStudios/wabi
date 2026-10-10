@@ -40,13 +40,14 @@ ABI: current Dockerfile is **fedora:44**. Prefer build on Bazzite/Fedora. Only u
 
 ## 2. Ship binary (WabiDB host already on current compose)
 
-**Always clear the WabiDB lock on stop.** After SIGTERM the container can exit cleanly while `data/wabi-server/wabidb/.lock` remains; the next start then crash-loops with `Error: engine already running` (2026-07-17 Tim UI deploy). Make lock removal part of the swap, not a post-failure improvisation:
+**Do NOT delete `data/wabi-server/wabidb/.lock`.** Older versions of this runbook removed it on every swap. Current WabiDB holds an OS advisory lock on that persistent file; PID text is diagnostic only. Deleting it can admit a second writer, and pre-advisory and advisory binaries must never share one data tree (`AGENTS.md` rule 9, `docs/deployment/BACKUP_AND_RECOVERY.md`). Stop the container, confirm the process exited, swap the binary, start. A legacy root `data/wabi-server/.lock` may be removed only after confirming every old Wabi process is stopped. If a start fails with `Error: engine already running`, find the process that holds the lock; do not unlink the file.
+
+Stopping `wabi-server` on Tim is a **live outage** (Tim serves wabi.chat). Get explicit operator go-ahead first.
 
 ```bash
 scp target/release/wabi-server tim@100.96.11.45:~/Desktop/Wabi/target/release/wabi-server.new
 ssh tim@100.96.11.45 'cd ~/Desktop/Wabi && \
   docker compose stop wabi-server && \
-  rm -f data/wabi-server/wabidb/.lock && \
   mv -f target/release/wabi-server.new target/release/wabi-server && \
   chmod +x target/release/wabi-server && \
   docker compose up -d wabi-server'

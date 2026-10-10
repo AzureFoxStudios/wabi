@@ -53,6 +53,12 @@
 
 	export let variant: 'compact' | 'full' | 'detached' = 'full';
 	export let initialPlaceId: string | null = null;
+	export let preview = false;
+	export let previewLayerId: string | null = null;
+	export let previewPoiId: string | null = null;
+	let previewPlace: PlaceRecord | null = null;
+	$: requestedLayerId = preview ? previewLayerId : $focusedMapLayerId;
+	$: requestedPoiId = preview ? previewPoiId : $focusedMapPoiId;
 
 	type SurfaceMode = 'custom' | 'osm';
 
@@ -121,7 +127,7 @@
 			.toLowerCase();
 		return haystack.includes(normalizedQuery);
 	});
-	$: activePlace =
+	$: activePlace = preview ? (previewPlace || $placeRegistry.find(place => place.id === initialPlaceId || place.slug === initialPlaceId) || visiblePlaces[0] || null) :
 		($focusedMapPlace &&
 			visiblePlaces.find(
 				(place) => place.id === $focusedMapPlace?.id || place.slug === $focusedMapPlace?.slug
@@ -132,7 +138,7 @@
 	$: isCompactLayout = variant === 'compact';
 	$: compactPlaceSuggestions = normalizedQuery ? visiblePlaces.slice(0, 12) : [];
 	$: canManagePlaces =
-		variant !== 'compact' &&
+		!preview && variant !== 'compact' &&
 		($currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin');
 	$: draftPreviewPlace = buildDraftPreview(placeDraft, editorMode !== 'view');
 	$: stagePlace = editorMode === 'view' ? activePlace : draftPreviewPlace;
@@ -156,19 +162,19 @@
 			? allStagePois
 			: allStagePois.filter((poi) => !poi.layerId || poi.layerId === selectedLayerId);
 	$: {
-		const focusContextKey = `${editorMode}:${stagePlace?.id || 'none'}:${$focusedMapLayerId || 'none'}:${$focusedMapPoiId || 'none'}`;
+		const focusContextKey = `${editorMode}:${stagePlace?.id || 'none'}:${requestedLayerId || 'none'}:${requestedPoiId || 'none'}`;
 		if (editorMode !== 'view' || !stagePlace) {
 			lastAppliedFocusContextKey = '';
 		} else if (focusContextKey !== lastAppliedFocusContextKey) {
 			lastAppliedFocusContextKey = focusContextKey;
 			const focusedPoi =
-				$focusedMapPoiId ? allStagePois.find((poi) => poi.id === $focusedMapPoiId) || null : null;
+				requestedPoiId ? allStagePois.find((poi) => poi.id === requestedPoiId) || null : null;
 			const nextLayerId =
 				(focusedPoi?.layerId && stageMapLayers.some((layer) => layer.id === focusedPoi.layerId)
 					? focusedPoi.layerId
 					: null) ||
-				($focusedMapLayerId && stageMapLayers.some((layer) => layer.id === $focusedMapLayerId)
-					? $focusedMapLayerId
+				(requestedLayerId && stageMapLayers.some((layer) => layer.id === requestedLayerId)
+					? requestedLayerId
 					: null);
 			if (nextLayerId) {
 				selectedLayerId = nextLayerId;
@@ -321,7 +327,8 @@
 		loadError = '';
 		try {
 			await loadPlaceRegistry(true);
-			const focused = await ensureMapFocus(initialPlaceId);
+			const focused = preview ? ($placeRegistry.find(place => place.id === initialPlaceId || place.slug === initialPlaceId) || null) : await ensureMapFocus(initialPlaceId);
+			if (preview) previewPlace = focused;
 			if (editorMode === 'view') {
 				seedEditorFromPlace(focused);
 			}
@@ -335,7 +342,8 @@
 	async function focusInitialPlace(placeId: string | null): Promise<void> {
 		try {
 			await loadPlaceRegistry();
-			const focused = await ensureMapFocus(placeId);
+			const focused = preview ? ($placeRegistry.find(place => place.id === placeId || place.slug === placeId) || null) : await ensureMapFocus(placeId);
+			if (preview) previewPlace = focused;
 			if (editorMode === 'view') {
 				seedEditorFromPlace(focused);
 			}
@@ -347,7 +355,7 @@
 		if (!maybeDiscardDraft()) return;
 		loadError = '';
 		try {
-			await focusMapPlace(place.id);
+			if (preview) previewPlace = place; else await focusMapPlace(place.id);
 			editorMode = 'view';
 			seedEditorFromPlace(place);
 		} catch (error) {

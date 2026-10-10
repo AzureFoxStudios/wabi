@@ -1,0 +1,145 @@
+/* Server Center — editorial skin on the theme roles. No private typeface or raw accent
+   colours: everything reads --w-* so admin follows the viewer's theme like the rest. */
+
+:root .admin-center-stage.admin-workbench { font-family: var(--w-sans); background: var(--w-bg); color: var(--w-text); }
+
+/* sidebar */
+:root .admin-workbench .admin-sidebar { background: var(--w-bg2); border-right: var(--w-bw, 1px) solid var(--w-line); }
+:root .admin-workbench .admin-identity strong,
+:root .admin-workbench .admin-sidebar-header + .admin-identity * { font-family: var(--w-serif); }
+:root .admin-workbench .admin-identity strong { font: 600 calc(20px * var(--w-fs, 1))/1.2 var(--w-serif); color: var(--w-text); }
+:root .admin-workbench .admin-identity small,
+:root .admin-workbench .admin-identity span { font: 500 calc(11.5px * var(--w-fs, 1))/1.3 var(--w-mono); color: var(--w-mute); }
+:root .admin-workbench .admin-sidebar-nav button,
+:root .admin-workbench .admin-sidebar-nav a {
+	border-radius: calc(10px * var(--w-rs, 1));
+	background: transparent;
+	color: var(--w-mute);
+	font: 500 calc(14px * var(--w-fs, 1))/1.2 var(--w-sans);
+	border: 0;
+	box-shadow: none;
+}
+:root .admin-workbench .admin-sidebar-nav button:hover,
+:root .admin-workbench .admin-sidebar-nav a:hover { background: var(--w-raise); color: var(--w-text); }
+:root .admin-workbench .admin-sidebar-nav .active,
+:root .admin-workbench .admin-sidebar-nav [aria-current='page'] {
+	background: var(--w-raise);
+	color: var(--w-text);
+	box-shadow: inset 2px 0 0 var(--w-accent);
+}
+
+/* top bar + page title */
+:root .admin-workbench .admin-topbar { background: var(--w-bg); border-bottom: var(--w-bw, 1px) solid var(--w-line); }
+:root .admin-workbench .admin-topbar h1,
+:root .admin-workbench .admin-topbar h2 { font: 600 calc(26px * var(--w-fs, 1))/1.15 var(--w-serif); letter-spacing: 0.01em; color: var(--w-text); }
+:root .admin-workbench .admin-topbar p { font: 400 calc(13.5px * var(--w-fs, 1))/1.4 var(--w-sans); color: var(--w-mute); }
+:root .admin-workbench .admin-topbar time,
+:root .admin-workbench .admin-topbar small { font: 500 calc(12px * var(--w-fs, 1))/1.3 var(--w-mono); color: var(--w-faint); }
+:root .admin-workbench .admin-refresh,
+:root .admin-workbench .admin-back-btn {
+	min-height: 34px;
+	padding: 6px 13px;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(10px * var(--w-rs, 1));
+	background: transparent;
+	color: var(--w-text);
+	font: 600 calc(13.5px * var(--w-fs, 1))/1.2 var(--w-sans);
+}
+:root .admin-workbench .admin-refresh:hover,
+:root .admin-workbench .admin-back-btn:hover { background: var(--w-raise); border-color: var(--w-accent); }
+
+/* content */
+:root .admin-workbench .admin-section-label,
+:root .admin-workbench .card-kicker {
+	font: 600 calc(11px * var(--w-fs, 1))/1 var(--w-mono);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--w-faint);
+}
+:root .admin-workbench .server-center-hero h2 { font: 600 calc(clamp(28px, 3vw, 38px) * var(--w-fs, 1))/1.12 var(--w-serif); letter-spacing: 0; color: var(--w-text); }
+:root .admin-workbench .server-center-hero p { font: 500 calc(13px * var(--w-fs, 1))/1.5 var(--w-mono); color: var(--w-mute); }
+:root .admin-workbench .admin-home-card-header h2 { font: 600 calc(20px * var(--w-fs, 1))/1.25 var(--w-serif); color: var(--w-text); }
+:root .admin-workbench .admin-home-description { font: 400 calc(14px * var(--w-fs, 1))/1.6 var(--w-sans); color: var(--w-mute); }
+
+:root .admin-workbench .server-center-hero,
+:root .admin-workbench .admin-home-card,
+:root .admin-workbench .admin-summary,
+:root .admin-workbench .admin-card {
+	background: var(--w-bg2);
+	border: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: calc(14px * var(--w-rs, 1));
+	box-shadow: none;
+}
+:root .admin-workbench .admin-summary { background: var(--w-bg); }
+:root .admin-workbench .admin-summary > span { font: 500 calc(12.5px * var(--w-fs, 1))/1.3 var(--w-sans); color: var(--w-mute); }
+:root .admin-workbench .admin-summary small { font: 500 calc(11.5px * var(--w-fs, 1))/1.35 var(--w-mono); color: var(--w-faint); }
+/* numbers are digital strings */
+:root .admin-workbench .admin-stat-value { font: 500 calc(28px * var(--w-fs, 1))/1.1 var(--w-mono); font-feature-settings: 'tnum'; color: var(--w-text); }
+:root .admin-workbench .admin-stat-value.admin-stat-presence { font: 600 calc(20px * var(--w-fs, 1))/1.2 var(--w-sans); }
+
+:root .admin-workbench .admin-health-metrics dt { font: 500 calc(12px * var(--w-fs, 1))/1.3 var(--w-sans); color: var(--w-mute); }
+:root .admin-workbench .admin-health-metrics dd { font: 500 calc(15px * var(--w-fs, 1))/1.3 var(--w-mono); color: var(--w-text); }
+:root .admin-workbench .admin-health-status {
+	padding: 1px 9px;
+	border: var(--w-bw, 1px) solid color-mix(in srgb, var(--w-online) 55%, transparent);
+	border-radius: var(--w-pill, 999px);
+	background: color-mix(in srgb, var(--w-online) 12%, transparent);
+	color: var(--w-text);
+	font: 600 calc(11.5px * var(--w-fs, 1))/1.7 var(--w-sans);
+}
+:root .admin-workbench .server-center-health-dot {
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: var(--w-pill, 999px);
+	color: var(--w-text);
+	font: 500 calc(13px * var(--w-fs, 1)) var(--w-mono);
+}
+:root .admin-workbench .server-tool-grid button {
+	background: var(--w-bg);
+	border: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: calc(12px * var(--w-rs, 1));
+	color: var(--w-text);
+	text-align: left;
+}
+:root .admin-workbench .server-tool-grid button:hover { border-color: var(--w-accent); background: var(--w-raise); }
+:root .admin-workbench .server-tool-grid button strong { font: 600 calc(15px * var(--w-fs, 1))/1.3 var(--w-sans); }
+:root .admin-workbench .server-tool-grid button span { font: 400 calc(13px * var(--w-fs, 1))/1.45 var(--w-sans); color: var(--w-mute); }
+:root .admin-workbench .server-tool-grid button b { color: var(--w-accent); }
+
+/* ---------- shared form language for the Server Center panels ---------- */
+:root .admin-workbench :is(input[type='checkbox'], input[type='radio']) { accent-color: var(--w-accent); }
+:root .admin-workbench fieldset { border: var(--w-bw, 1px) solid var(--w-line); border-radius: calc(12px * var(--w-rs, 1)); background: var(--w-bg2); padding: 14px 16px 16px; }
+:root .admin-workbench fieldset > legend {
+	padding: 0 8px;
+	font: 600 calc(11px * var(--w-fs, 1))/1 var(--w-mono);
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--w-faint);
+}
+:root .admin-workbench .ui-btn {
+	min-height: 34px;
+	padding: 6px 14px;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(10px * var(--w-rs, 1));
+	background: transparent;
+	color: var(--w-text);
+	font: 600 calc(13px * var(--w-fs, 1))/1.2 var(--w-sans);
+}
+:root .admin-workbench .ui-btn:hover:not(:disabled) { background: var(--w-raise); border-color: var(--w-accent); }
+:root .admin-workbench .ui-btn-primary { background: var(--w-text); color: var(--w-bg); border-color: transparent; }
+:root .admin-workbench .ui-btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--w-text) 88%, var(--w-accent)); }
+:root .admin-workbench .ui-btn-ghost { border-color: transparent; color: var(--w-mute); }
+:root .admin-workbench .ui-btn-danger-ghost { border-color: color-mix(in srgb, var(--w-danger) 55%, transparent); color: var(--w-danger); }
+:root .admin-workbench .ui-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+:root .admin-workbench .payment-access-heading h3,
+:root .admin-workbench .admin-section > h4,
+:root .admin-workbench .infra-center h3,
+:root .admin-workbench .health-panel h3 { font: 600 calc(20px * var(--w-fs, 1))/1.25 var(--w-serif); letter-spacing: 0.01em; text-transform: none; color: var(--w-text); }
+:root .admin-workbench .payment-access-count,
+:root .admin-workbench .stamp,
+:root .admin-workbench .endpoint-role { font-family: var(--w-mono); font-size: calc(12px * var(--w-fs, 1)); color: var(--w-mute); }
+:root .admin-workbench table { border-collapse: collapse; width: 100%; font-size: calc(13px * var(--w-fs, 1)); }
+:root .admin-workbench th { font: 600 calc(11px * var(--w-fs, 1))/1.2 var(--w-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--w-faint); text-align: left; padding: 8px 10px; border-bottom: var(--w-bw, 1px) solid var(--w-line-strong); }
+:root .admin-workbench td { padding: 9px 10px; border-bottom: var(--w-bw, 1px) solid var(--w-line); font-family: var(--w-mono); color: var(--w-text); }
+:root .admin-workbench details > summary { cursor: pointer; font: 600 calc(13px * var(--w-fs, 1)) var(--w-sans); color: var(--w-mute); }
+:root .admin-workbench details > summary:hover { color: var(--w-text); }
+:root .admin-workbench .infra-center, :root .admin-workbench .health-panel, :root .admin-workbench .helper-panel { font-family: var(--w-sans); }

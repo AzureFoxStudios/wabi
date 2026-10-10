@@ -38,13 +38,16 @@
 		<select bind:value={settings.scene} on:change={persist}>
 			<option value="none">None</option>
 			<option value="image">Image or video</option>
+			<option value="ink">Ink in water</option>
+			<option value="dusk">Dusk</option>
+			<option value="fireflies">Fireflies</option>
 			<option value="koi">Koi pond</option>
 		</select>
 	</label>
 
 	{#if settings.scene === 'image'}
 		<BackgroundImageEditorLegacy />
-	{:else if settings.scene === 'koi'}
+	{:else if settings.scene !== 'none'}
 	<label>
 		<span>Motion <output>{Math.round(settings.motion * 100)}%</output></span>
 		<input type="range" min="0" max="1" step="0.05" bind:value={settings.motion} on:input={persist} />

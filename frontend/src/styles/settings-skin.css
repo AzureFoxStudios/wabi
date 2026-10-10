@@ -1,0 +1,155 @@
+/* App settings — shell and shared controls on the theme roles.
+   The older settings sheets use !important for switch geometry, so the few places that
+   must change colour are restated with it. Geometry (switch size, row padding) is kept. */
+
+/* ---------- frame ---------- */
+:root .modal-overlay.wabi-settings-overlay {
+	background: color-mix(in srgb, var(--w-sink) 78%, transparent);
+	backdrop-filter: blur(10px);
+	-webkit-backdrop-filter: blur(10px);
+}
+:root .modal-content.wabi-settings-modal {
+	background: var(--w-bg);
+	backdrop-filter: none;
+	-webkit-backdrop-filter: none;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(18px * var(--w-rs, 1));
+	box-shadow: var(--w-shadow);
+	font-family: var(--w-sans);
+}
+:root .wabi-settings-modal .modal-header {
+	background: var(--w-bg2);
+	backdrop-filter: none;
+	border-bottom: var(--w-bw, 1px) solid var(--w-line);
+	padding: 16px 22px;
+}
+:root .wabi-settings-modal .modal-header h2 { font: 600 calc(24px * var(--w-fs, 1))/1.2 var(--w-serif); letter-spacing: 0.01em; color: var(--w-text); }
+:root .wabi-settings-modal .modal-header .header-icon { color: var(--w-mute); filter: none; width: 20px; height: 20px; }
+:root .wabi-settings-modal .header-locale-label { font: 500 calc(11px * var(--w-fs, 1))/1 var(--w-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--w-faint); }
+:root .wabi-settings-modal .close-btn { color: var(--w-mute); border-radius: calc(9px * var(--w-rs, 1)); }
+:root .wabi-settings-modal .close-btn:hover { background: var(--w-raise); color: var(--w-text); }
+
+/* ---------- navigation ---------- */
+:root .wabi-settings-modal .settings-tabs { background: var(--w-bg2); border-right: var(--w-bw, 1px) solid var(--w-line); }
+:root .wabi-settings-modal .settings-tab {
+	min-height: 38px;
+	border: 0;
+	border-radius: calc(10px * var(--w-rs, 1));
+	background: transparent;
+	color: var(--w-mute);
+	font: 500 calc(14px * var(--w-fs, 1))/1.2 var(--w-sans);
+	box-shadow: none;
+	transform: none;
+}
+:root .wabi-settings-modal .settings-tab:hover { background: var(--w-raise); color: var(--w-text); transform: none; border: 0; }
+:root .wabi-settings-modal .settings-tab.active {
+	background: var(--w-raise);
+	color: var(--w-text);
+	box-shadow: inset 2px 0 0 var(--w-accent);
+	border: 0;
+}
+:root .wabi-settings-modal .settings-tab:focus-visible { outline: 2px solid var(--w-accent); outline-offset: -2px; box-shadow: none; }
+:root .wabi-settings-modal .settings-tab.logout-tab { color: var(--w-danger); }
+:root .wabi-settings-modal .settings-tab.logout-tab:hover { background: color-mix(in srgb, var(--w-danger) 12%, transparent); }
+
+/* ---------- content ---------- */
+:root .wabi-settings-modal .settings-content { background: var(--w-bg); }
+:root .wabi-settings-modal .settings-content h2,
+:root .wabi-settings-modal .settings-content h3 { font-family: var(--w-serif); font-weight: 600; letter-spacing: 0.01em; color: var(--w-text); }
+:root .wabi-settings-modal .settings-content h3 { font-size: calc(20px * var(--w-fs, 1)); text-transform: none; letter-spacing: 0.01em; }
+
+/* group cards: flat panel, hairline rows */
+:root .settings-group-card,
+:root .admin-block {
+	background: var(--w-bg2);
+	border: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: calc(14px * var(--w-rs, 1));
+	box-shadow: none;
+}
+:root .settings-group-card > .setting-item,
+:root .settings-group-card > .setting-item-full { border-bottom-color: var(--w-line) !important; }
+:root .settings-group-card > .setting-item:hover,
+:root .settings-group-card > .setting-item-full:hover { background: transparent !important; }
+:root .settings-content .setting-label,
+:root .settings-content .setting-item strong { font: 600 calc(14.5px * var(--w-fs, 1))/1.3 var(--w-sans); color: var(--w-text); }
+:root .settings-content .setting-description { font: 400 calc(13px * var(--w-fs, 1))/1.45 var(--w-sans); color: var(--w-mute); }
+:root .admin-block-title { font: 600 calc(11px * var(--w-fs, 1))/1 var(--w-mono); letter-spacing: 0.12em; color: var(--w-faint); }
+
+/* ---------- switches: accent, never the seal colour (the seal marks security rows) ---------- */
+:root .toggle-btn,
+:root button.settings-switch {
+	background: var(--w-sink) !important;
+	box-shadow: inset 0 0 0 var(--w-bw, 1px) var(--w-line-strong) !important;
+}
+:root .toggle-btn::after,
+:root button.settings-switch::after { background: var(--w-mute); box-shadow: none; }
+:root .toggle-btn.active,
+:root .toggle-btn.settings-switch.active,
+:root button.settings-switch.active {
+	background: var(--w-accent) !important;
+	box-shadow: none !important;
+}
+:root .toggle-btn.active::after,
+:root button.settings-switch.active::after { background: var(--w-on-accent); }
+:root .toggle-btn:focus-visible,
+:root button.settings-switch:focus-visible { box-shadow: 0 0 0 2px var(--w-bg), 0 0 0 4px var(--w-accent) !important; }
+
+/* ---------- buttons, fields ---------- */
+:root .settings-content .action-btn,
+:root .settings-content .btn-small,
+:root .settings-content .mic-test-btn {
+	min-height: 34px;
+	padding: 6px 13px;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(10px * var(--w-rs, 1));
+	background: transparent;
+	color: var(--w-text);
+	font: 600 calc(13.5px * var(--w-fs, 1))/1.2 var(--w-sans);
+	box-shadow: none;
+}
+:root .settings-content .action-btn:hover,
+:root .settings-content .btn-small:hover,
+:root .settings-content .mic-test-btn:hover { background: var(--w-raise); border-color: var(--w-accent); }
+:root .settings-content .action-btn:not(.secondary):not(.ghost),
+:root .settings-content .primary-upload {
+	background: var(--w-text);
+	color: var(--w-bg);
+	border-color: transparent;
+}
+:root .settings-content .theme-select,
+:root .settings-content select,
+:root .settings-content input[type='text'],
+:root .settings-content input[type='search'],
+:root .settings-content input[type='password'],
+:root .settings-content input:not([type]),
+:root .settings-content textarea {
+	background: var(--w-sink);
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(10px * var(--w-rs, 1));
+	color: var(--w-text);
+	font: 400 calc(14px * var(--w-fs, 1))/1.4 var(--w-sans);
+}
+:root .settings-content select:focus,
+:root .settings-content input:focus,
+:root .settings-content textarea:focus { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
+:root .settings-content .sound-option,
+:root .settings-content .theme-card { border: var(--w-bw, 1px) solid var(--w-line); border-radius: calc(12px * var(--w-rs, 1)); background: var(--w-bg2); color: var(--w-text); }
+:root .settings-content .sound-option.active,
+:root .settings-content .theme-card.active { border-color: var(--w-accent); box-shadow: inset 2px 0 0 var(--w-accent); }
+:root .settings-content input[type='range'] { accent-color: var(--w-accent); }
+:root .wabi-settings-modal .settings-content h2 { font-size: calc(26px * var(--w-fs, 1)); text-transform: none; letter-spacing: 0.01em; margin-bottom: 14px; }
+
+/* Legacy gradient buttons (pointer effects, imports…) fall in line with the kit. */
+:root .settings-content .action-btn,
+:root .settings-content .primary-upload,
+:root .settings-content button.primary {
+	background: transparent !important;
+	background-image: none !important;
+	color: var(--w-text) !important;
+	border: var(--w-bw, 1px) solid var(--w-line-strong) !important;
+	box-shadow: none !important;
+	text-shadow: none !important;
+}
+:root .settings-content .action-btn:hover:not(:disabled) { background: var(--w-raise) !important; border-color: var(--w-accent) !important; transform: none !important; }
+:root .settings-content .primary-upload,
+:root .settings-content button.primary { background: var(--w-text) !important; color: var(--w-bg) !important; border-color: transparent !important; }

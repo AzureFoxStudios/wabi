@@ -36,3 +36,17 @@ test('copied references display the object title while keeping canonical source 
  expect(ref.displayText).toBe('My sketch.png');
  expect(text.slice(ref.start,ref.end)).toBe('^g/image');
 });
+
+import { loreLineRange, MAX_LINKED_LINES } from './forumReferences';
+describe('linked code sections', () => {
+ test('a lines range rides on the lore link; no range means no key', () => {
+  expect(forumShareNavigation('/?wabiNav=lore_file&channelId=ch_abc&path=src%2Fa.ts&lines=40-72','https://wabi.chat')).toEqual({kind:'lore_file',channelId:'ch_abc',filePath:'src/a.ts',lines:{start:40,end:72}});
+  expect(forumShareNavigation('/?wabiNav=lore_file&channelId=ch_abc&path=src%2Fa.ts','https://wabi.chat')).toEqual({kind:'lore_file',channelId:'ch_abc',filePath:'src/a.ts'});
+ });
+ test('single lines, bad ranges and huge ranges are handled', () => {
+  expect(loreLineRange('12')).toEqual({lines:{start:12,end:12}});
+  for (const bad of ['0-3','9-2','a-b','', null, undefined, '1-2-3']) expect(loreLineRange(bad as any)).toEqual({});
+  expect(loreLineRange('1-99999').lines).toEqual({start:1,end:MAX_LINKED_LINES});
+ });
+});
+
