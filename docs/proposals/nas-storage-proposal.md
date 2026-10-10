@@ -1,7 +1,7 @@
 # NAS Storage: Plugin vs Core Decision
 
 **Date:** May 2026  
-**Status:** Decision Required  
+**Status:** Superseded by [STORAGE_VOLUMES.md](STORAGE_VOLUMES.md) (2026-10-10). Kept as design history.  
 **Author:** Wabi Architecture
 
 ---
