@@ -44,14 +44,256 @@ no failures and 15 ignored entries; every frozen source/build hash remains
 unchanged. The previous security acceptance covers its historical source
 snapshot only. See [current workspace receipt](../testing/geographic-2026-10-02/producer-workspace-acceptance.json).
 
-Authenticated checkpoint byte RPC, committed byte-majority availability and
-the supported independent inactive-verification bridge remain subsequent
-work. Every full-instance, quorum, source-role and writer verdict remains
-false; these local checks do not activate an Authority or establish HA.
-The [next byte-RPC contract](2026-10-02-checkpoint-byte-rpc-contract.md)
-specifies the separate source slot and transport acceptance.
+Authenticated checkpoint byte RPC subsequently passed a frozen workspace run
+with 2,673 checks and no failures. Its real producer fixture transfers multiple
+ordered encrypted chunks, removes one copy and reseeds it over authenticated
+loopback sockets. The [physical trial](../testing/PHYSICAL_CHECKPOINT_BYTES_2026-10-02.md)
+also transferred the genuine archive to Ronin and Iyoku and reseeded Ronin from
+Iyoku, but failed its final restarted-listener request. It is not complete
+physical acceptance. See the [byte-RPC contract](2026-10-02-checkpoint-byte-rpc-contract.md)
+for the implemented opt-in service and limits.
+
+The next collector now builds an **uncommitted availability proposal** from
+actual applied control membership and fresh local/Noise byte receipts. The
+full consensus package passes 84 checks with zero failures, including nine
+proposal checks; their peer acknowledgments are deliberately synthetic model
+fixtures. The separate genuine-producer socket fixture subsequently passed
+seven checks with zero failures and all 5,198 source/static hashes unchanged;
+see [its focused receipt](../testing/geographic-2026-10-02/availability-producer2.json).
+Its control membership is installed through the actual Store application API
+as a fixture; it does not commit an availability command through a running
+Raft cluster. See the [proposal contract](../architecture/CHECKPOINT_AVAILABILITY_PROPOSAL.md).
+Committed byte-majority availability and the supported independent inactive
+verification bridge remain subsequent work. Every full-instance, quorum,
+source-role and writer verdict remains false. These checks do not activate an
+Authority or establish HA.
+
+The isolated October 2 durable-observation package subsequently passed 95
+checks, including a real three-node commit with a stopped third endpoint,
+purged V2 snapshot catch-up, two reopened-store/actor restarts and six SIGKILL
+transaction boundaries. Its separately executed preserved old-reader check
+passes V1 membership/snapshot startup and actual V2 format refusal. The later
+library-only regression passed 69 checks; its separately executed preserved
+reader case also passed a flat legacy command/stored-result positive followed
+by V2 refusal. Counts overlap and are not additive. The genuine
+encrypted producer fixture now also has source for actual Raft commit/faults
+and copied-peer ciphertext reconstruction through the existing inactive-core
+verifier. Its first run failed a fresh peer receipt before initial Raft submission;
+the fixture-only fresh-service-generation repair subsequently passed
+[seven local producer checks](../testing/geographic-2026-10-02/availability-control-producer2.json)
+on unchanged inputs. Actual observation/fault behavior and the peer-to-inactive
+core bridge are now covered for this one genuine capture. This test bridge does
+not complete production wiring for steps 5–7, enabled/external inventory,
+canonical writer permission or automatic recovery. See the
+[durable-format plan](2026-10-02-checkpoint-availability-control-format.md).
 
 ## Ordered work and ownership
+
+### October 3: locally accepted configured control runtime
+
+The narrowly released six-file consensus source now adds a
+[configured runtime owner](../deployment/RECOVERY_CONTROL_RUNTIME.md) for
+actual Raft/control/material/listener lifecycles, immutable private enrollment,
+explicit fixed-roster bootstrap and owned ingest/observation/shutdown jobs.
+Its [frozen local run](../testing/geographic-2026-10-02/availability-control-root-runtime1.json)
+compiled and passed **103 checks, zero failures and nine ignored entries**
+across six serial groups, on 5,193 unchanged Rust/graph/static inputs. Existing
+package counts overlap earlier acceptance. Review caught the first source's
+Core-versus-background-store shutdown gap before any compilation; the repaired
+source retains runtime ownership through every store/IO/snapshot owner and
+awaits actual drain on successful and fatal shutdown. Actual blocked IO,
+cancelled caller, snapshot lifetime, immediate reopen and original lock/key
+inodes are checked. The normal Authority does not start it. Its new checks
+use synthetic signed bytes; server capture
+publication, the original-operation journal, automatic restart reconciliation
+and genuine enabled-instance recovery remain open. This prerequisite leaves
+all writer/full-instance permission fields false and changes no WabiDB schema.
+
+### October 3: standalone recovery-node entry point
+
+The narrowly owned five-file server slice adds explicit
+`--recovery-node-config` before Authority initialization. It loads a strict,
+private bounded operator file, requires preexisting identities and exactly three
+trusted voters, preserves enrollment and original lock inodes, and supervises
+status output, signal/stdin shutdown and fatal admission. It opens no community
+WabiDB and supplies no publisher, restore API or writer activation.
+See the [operator contract](../deployment/RECOVERY_CONTROL_RUNTIME.md).
+
+The [frozen local retry](../testing/geographic-2026-10-02/recovery-node-root-standalone2.json)
+compiled and passed **six checks, zero failures and zero ignored entries** on
+5,196 unchanged inputs: four configuration/lifecycle units and two real-binary
+contracts, including three loopback processes draining and reopening the same
+keys/locks/enrollment. The other library suites and doctests were excluded.
+The preserved first run compiled but failed two private-parent fixtures before
+the contract ran. Only those test fixtures changed for the accepted retry;
+permission guards remain unchanged. Its existing compiled contract/server were
+reused after exact input and artifact verification. This acceptance supplies
+an explicit process lifecycle, not complete-instance or geographic recovery.
+
+Next production work must connect the later accepted trusted archive-handle
+adapters to a configured publisher retaining source admission and directory
+ownership. It also needs a journal saving the original operation before any
+publication and the exact prepared consensus command before submission. A timeout cannot justify
+a new operation ID or a changed retry fingerprint. A control follower also
+needs separately reviewed authenticated forwarding or explicit unavailability;
+a remote acknowledgment is not a committed observation. Publication,
+reconciliation, retention/reseed, full enabled recovery and every-path writer
+and encryption fencing remain open.
+
+### October 3: owned archive-file ingestion prerequisite
+
+The narrowly owned material module/test pair now accepts a trusted caller's
+owned `File`, rewinds it, validates private regular current-owner/single-link
+metadata and exact signed length before reads, and rechecks original metadata,
+digest and deadline before certification. The same bounded chunker serves the
+path API, preserving its independent ancestor/name/no-follow/inode guards.
+The handle receipt makes no path-name provenance claim. Failed partial chunks
+remain quota charged. Schema, dependencies and writer/readiness permissions are
+unchanged. See the [caller contract](../deployment/RECOVERY_CONTROL_RUNTIME.md#owned-archive-file-ingestion-prerequisite).
+
+Two source reviews passed. The
+[frozen library acceptance](../testing/geographic-2026-10-02/checkpoint-file-root-library1.json)
+compiled and passed **82 checks, zero failures and four ignored entries** in
+one serial unit group on 5,196 unchanged inputs. Counts overlap the prior
+76-check baseline; six new units cover owned-file metadata/offset/hash/budget
+and expiry alongside existing checkpoint/legacy/crash/runtime regressions.
+Integration/server binaries, doctests, genuine exports and physical uplinks
+were excluded. The [review scope](../testing/geographic-2026-10-02/checkpoint-file-source-review1.json)
+keeps the timing limit explicit: expiry may precede arrival at the lane wait;
+the check proves late-receipt refusal. Metadata changes after reads use a
+deterministic cut point; concurrent races and FIFO substitution were inspected.
+
+The later adapter slice below supplies the trusted runtime File entry point
+and same-descriptor source accessor. The configured production job must retain
+Ready/source admission and directory ownership through actual IO, persist the
+original publication operation and exact prepared consensus command before
+submission, and reconcile the same operation across restart. Retention/reseed,
+full enabled recovery and every-path fencing remain open. This material
+primitive supplies no production publisher or automatic recovery.
+
+### October 3: runtime and pinned archive-handle adapters
+
+The exact four-file runtime/source-directory adapter slice is locally accepted.
+`ingest_capture_file` shares signed community/expected-source validation,
+single-job admission and actual supervised blocking/store lifetime with the
+path API, and both inputs recheck runtime roots after success or refusal.
+The Linux source accessor returns the same verified held file at offset zero,
+with exact bounded digest, original private metadata/name/directory and deadline
+checks. Existing wrappers and unsupported-platform refusal remain. Caller
+Ready/source admission and directory/name ownership remain obligations after
+return; the normal Authority publisher is still unwired. See the
+[caller contract](../deployment/RECOVERY_CONTROL_RUNTIME.md#runtime-and-pinned-archive-handle-adapters).
+
+Two independent source reviews and the corrected bounded runner review passed.
+The [frozen acceptance](../testing/geographic-2026-10-02/checkpoint-handle-root-libraries1.json)
+compiled and passed **91/0/5 across two serial groups**: full consensus units
+84/0/4 and filtered server source-directory units 7/0/1. All 5,196 frozen inputs
+and both exact test programs stayed unchanged. Counts overlap earlier suites;
+six new units are included. Other 478 server units, snapshot CLI, integration
+binaries, doctests, genuine producer/publication and physical uplinks were
+excluded. The synthetic-byte tests use deterministic post-read mutation/expiry
+cut points; they do not add direct File cancellation/lost-root IO or concurrent
+mutation/FIFO race acceptance. Owned compiler/runner/controller completion and
+absence were independently verified before shared holds were released.
+
+Next: persist original operation identity before publication and the exact
+prepared consensus command before submission, with durable restart
+reconciliation that never changes an indeterminate operation's fingerprint.
+The configured job must retain source admission/directory ownership throughout
+actual work. Follower behavior needs authenticated forwarding or explicit
+unavailability; fresh ACKs still do not establish commitment. Publication,
+retention/reseed, full enabled restore, writer/encryption fencing and automatic
+geographic recovery remain open; writer/readiness permissions remain false.
+
+### October 3: owned peer candidate job source
+
+The [operator contract](../deployment/CHECKPOINT_PEER_CANDIDATES.md) describes
+new default-off Linux runtime source: approved Noise retrieval of an exact
+signed Ready capture, bounded download/inspection and retained private
+ciphertext plus an inactive/fenced core tree. Single-job admission, shutdown
+drain, pinned scratch cleanup and candidate quotas are wired without changing
+existing archive/job/receipt schemas or granting a writer. The repaired
+[frozen local run](../testing/geographic-2026-10-02/availability-control-root-peer2.json)
+compiled and passed 11 checks with zero failures and one ignored physical-export
+entry; all 5,189 inputs stayed unchanged. Automated capture
+publication, production consensus ownership, restart reconciliation, enabled
+Office/external inventory, nonce fences and full recovery remain open.
+
+Next focused gates for this source slice:
+
+The later two-file Office fixture now has [local saved-state acceptance](../testing/OFFICE_SAVED_STATE_RECOVERY_2026-10-03.md):
+the frozen rerun compiled and passed 11 checks with zero failures and one ignored
+entry on 5,190 unchanged inputs. Its first schema-refusal failure is preserved.
+It seeds genuine HTTP document/sheet/native deck records, appended CRDT deltas,
+reviews, grants/revocation, protected cells, capability switches and presentation
+audience/questions. The capture keeps both sheets and presentations enabled
+after checking intermediate disable/refusal behavior. It also replaces the source router to exercise lost
+controller state; that is not a whole-process recovered API test. The retained
+candidate is inspected through the existing read-only view, comparing all five
+workspace records and decoded content while preserving both guards and the
+lock inode. Full recovered API and external-instance acceptance remain open.
+
+1. Frozen two-target compile/direct checks are complete; actual terminal codes,
+   artifact/source identities, failed first run and repaired source are retained.
+2. Allocated scratch cleanup failure now proves admission closure and restart
+   remnant refusal before explicit retirement; ordinary refused peer data permits
+   a healthy retry. Dedicated constructor-deadline, worker-interruption and
+   mid-publication crash fault runs remain required.
+3. Genuine Office source HTTP records and guarded inactive comparison now pass
+   for settings, documents/sheets/native slides, deltas, grants/revocation,
+   review/protection and a paused presentation with a question. All five saved
+   rows and three decoded artifact contents match. Permission-checked restored
+   API, a captured active controller in a new process, external conversion and
+   asset/configuration recovery still need separate safe checks. Equal stored
+   ACL fields do not prove those behaviors; preserve both guards and lock inode.
+4. Coordinate and accept production publication/consensus ownership and
+   durable restart reconciliation before using these candidates for automatic
+   recovery. Retention/deletion and partial-publication retirement require an
+   explicit operator policy. Never clear guards merely to make an API fixture
+   run against the candidate.
+
+The accepted isolated V2 source has now passed
+[guarded adoption into the current root](../testing/geographic-2026-10-02/availability-control-root-adoption-1.json):
+all nineteen original/candidate hashes matched, and nonowned source, the current
+dependency graph and root revision were preserved. After a temporary idle-slot
+handoff during Office's host outage, current-root consensus passed 95 checks
+and the actual preserved-reader gate passed separately on the same 539 unchanged
+inputs. A subsequent temporary single-build handoff passed
+[current-root genuine-producer acceptance](../testing/geographic-2026-10-02/availability-control-root-producer1.json):
+seven checks with zero failures and one ignored physical-export entry, on 5,187
+unchanged source/graph/static inputs. Compilation and direct timed execution both
+exited zero; tests ran without compiler throttling. The slot is released back to
+Office. Enabled-state server acceptance and production recovery wiring remain
+pending. This adoption adds no recovery job or writer permission.
+
+### Current shared graph: Office recovery coverage
+
+The October 2 [current-source audit](../testing/geographic-2026-10-02/availability-control-office-recovery-audit1.json)
+records thirteen unchanged source hashes at root `0b82cec7`. This is an inventory
+audit, not restored Office acceptance. The isolated seven-pass producer predates
+the merged Office implementation and does not cover its enabled state.
+
+Documents, Sheets and Present persist versioned workspace records through
+`workspace_record_replaced_v1` and `workspace_update_appended_v1`. The current
+engine registry includes both handlers, and inactive inspection uses that
+registry. Recovery acceptance must exercise actual documents, sheet protection,
+native slides, reviews, ownership/grants, access revisions, capability switches,
+audience editions and presentation questions through a genuine capture, inactive
+replay and the restored permission-checked API. Matching raw projection bytes
+alone does not prove those API semantics.
+
+Presentation leases and pointers live in memory. Current source pauses an active
+session, marks its controller lost and advances its generation after an instance
+change. Test that behavior during recovery before enabling clients; do not revive
+an old controller lease. Local originals, pending edits, drafts and private
+speaker notes remain client-owned and require their separate continuity contract.
+The optional converter's environment, credentials and external lifecycle need an
+explicit inventory participant; the Authority archive cannot certify them.
+
+Office artifact streams use `workspace:<key>` with no room-owner precondition;
+channel association supplies access policy. Future regional ownership must
+classify and fence these private objects explicitly. A channel's geographic home
+does not automatically make an associated artifact locally owned.
 
 | Step | Required source scope | Acceptance before proceeding |
 |---|---|---|

@@ -11,6 +11,15 @@ reference, updated same day), `docs/payments/PAYMENTS_NONCUSTODIAL_PLAN.md`
 
 ---
 
+> **2026-10-03 correction:** This historical audit contains withdrawn absolute
+> legal/privacy claims. No custody does not alone exclude payment-service,
+> marketplace or reporting obligations; “no transmitter, no TPSO, no PSI” and
+> “none of the intermediation exposure” are not established. Public-chain crypto
+> is not an anonymity guarantee. EPC QR is not universally supported and does
+> not guarantee an instant transfer. The active Rust runtime does not provide
+> Stripe/PayPal settlement. Use [current operations](../payments/DIRECT_TRANSFER_OPERATIONS.md)
+> and [official-source research](../research/payments-direct-transfer-options-2026-10-03.md).
+
 ## 0. Ground rules (unchanged, restated)
 
 - **Wabi never touches money.** No custody, no stored value, no internal ledger,

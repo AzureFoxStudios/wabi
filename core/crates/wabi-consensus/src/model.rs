@@ -85,6 +85,30 @@ impl ControlCommand {
     }
 }
 
+/// Legacy commands retain their exact flat JSON. The separate strict V2
+/// branch cannot decode as an old inventory-only ownership request.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ControlData {
+    Legacy(ControlCommand),
+    #[cfg(target_os = "linux")]
+    Checkpoint(crate::availability_control::CheckpointObservationCommand),
+}
+impl From<ControlCommand> for ControlData {
+    fn from(command: ControlCommand) -> Self {
+        Self::Legacy(command)
+    }
+}
+impl ControlData {
+    pub(crate) fn schema(&self) -> u8 {
+        match self {
+            Self::Legacy(_) => 1,
+            #[cfg(target_os = "linux")]
+            Self::Checkpoint(_) => 2,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
@@ -121,20 +145,23 @@ pub struct OwnershipIntent {
     pub committed_at: crate::LogId,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OperationReceipt {
     pub command: ControlCommand,
     pub reply: ControlReply,
 }
 
-#[derive(Clone, Default, Debug, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ControlState {
     pub last_applied: Option<crate::LogId>,
     pub membership: crate::Membership,
     pub intents: BTreeMap<String, OwnershipIntent>,
     pub operations: BTreeMap<String, OperationReceipt>,
+    #[cfg(target_os = "linux")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub checkpoints: BTreeMap<String, crate::availability_control::CheckpointOperationReceipt>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -232,6 +259,10 @@ impl ControlState {
         if !command.valid() {
             return refused;
         }
+        #[cfg(target_os = "linux")]
+        if self.checkpoints.contains_key(&command.operation_id) {
+            return refused;
+        }
         if let Some(prior) = self.operations.get(&command.operation_id) {
             return if prior.command == command {
                 prior.reply.clone()
@@ -239,7 +270,10 @@ impl ControlState {
                 refused
             };
         }
-        if self.operations.len() >= max_operations {
+        let used = self.operations.len();
+        #[cfg(target_os = "linux")]
+        let used = used.saturating_add(self.checkpoints.len());
+        if used >= max_operations {
             return refused;
         }
         let membership = self.membership.membership();

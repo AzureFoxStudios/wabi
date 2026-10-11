@@ -483,7 +483,7 @@ async fn actual_handler_rejects_authenticated_forged_sender_and_changed_membersh
                     expected_epoch: u64::MAX,
                     proposed_writer: 1,
                     checkpoint_inventory_sha256: "cd".repeat(32),
-                }),
+                }.into()),
             }],
         }),
         rpc::Request::Snapshot(openraft::raft::InstallSnapshotRequest {

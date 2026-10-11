@@ -1,6 +1,6 @@
 # Wabi Project Status
 
-**Updated:** 2026-10-01
+**Updated:** 2026-10-03
 
 **Purpose:** canonical product-status boundary for operators, contributors, reviewers, and AI agents.
 
@@ -424,6 +424,199 @@ These exist in source or active development but must not be advertised as comple
 
 ### Multi-node / availability
 
+The current-checkout [geographic workload observer correction](testing/ROOM_LOAD_HARNESS_2026-10-02.md)
+passes 18 single-room and 24 many-room in-memory harness checks after reproducing four false-pass cases for
+wrong-room events, repeated canonical IDs and altered message content. Future
+canaries require exact room/content/identity and retained-history checks;
+injected fixtures are labeled separately from network execution. A bounded
+two-to-four-room canary validates combined resource budgets, correlated
+cross-room traffic/history and shared identities, then drains all owned work.
+Pacing cannot produce catch-up bursts after a stall. This is harness acceptance
+only. No fresh physical workload, measured many-room/hot-room
+capacity, traffic, regional-locality or failover result is claimed.
+
+The October 2 [checkpoint availability proposal collector](architecture/CHECKPOINT_AVAILABILITY_PROPOSAL.md)
+now checks actual applied membership and fresh byte receipts, with 84 passing
+consensus-package checks and no failures. The proposal unit checks use synthetic
+peer ACKs. A subsequent [genuine-producer socket contract](testing/geographic-2026-10-02/availability-producer2.json)
+passed seven checks with no failures and unchanged source/static hashes; its
+membership is applied through the durable Store API as a fixture, not committed
+through a running Raft cluster. The collector does not commit an availability operation or grant any
+quorum, full-instance or writer permission. A separate genuine-ciphertext local
+three-process rehearsal passed transfer, copy loss, reseed and final restarted
+listener receipt, with complete owned cleanup. This is not a physical retry:
+the earlier Ronin final-restart failure remains unaccepted. Automatic Wabi
+recovery, regional room ownership and production HA remain open.
+
+The next [durable observation format](plans/2026-10-02-checkpoint-availability-control-format.md)
+is now a development candidate in the shared checkout, adopted from the
+preserved managed checkout. Its isolated focused consensus
+package passed 95 tests with zero failures and nine ignored, including an actual
+three-node opaque-payload commit with the third endpoint stopped, purged V2
+snapshot catch-up with two returning-store/actor restarts, and six SIGKILL
+transaction boundaries. A separately executed check passed positive V1
+membership/snapshot startup and actual old-binary V2 format refusal before any
+endpoint opened; canonical state and the persistent lock inode stayed intact.
+The later [library-only regression](testing/geographic-2026-10-02/availability-control-lib6.json)
+passed 69 checks with zero failures and four ignored on unchanged sources.
+Its separately executed [preserved-reader extension](testing/geographic-2026-10-02/availability-control-v1-reader3.json)
+also passed: the same actual V1 program reads a flat legacy command and stored
+result, then refuses the V2 upgrade. These overlapping counts are not additive.
+The [genuine encrypted Authority producer contract](testing/geographic-2026-10-02/availability-control-producer2.json)
+subsequently passed seven checks with zero failures and one ignored on 5,173
+unchanged inputs. It commits observations through real Raft, verifies a copied
+peer's reconstructed ciphertext through inactive core replay, and exercises
+corruption, reseed, majority and minority cases. The first failed fixture run is
+preserved; its repair creates a fresh service after permanent shutdown, without
+relaxing admission or quorum checks. This is local core-only evidence: no
+production recovery API, writer activation, physical three-site acceptance or
+full-instance failover follows from it. The
+[guarded 19-file adoption](testing/geographic-2026-10-02/availability-control-root-adoption-1.json)
+preserved the current root revision, nonowned source and dependency graph.
+The [current-root consensus run](testing/geographic-2026-10-02/availability-control-root-consensus1.json)
+now passed 95 tests with zero failures and nine ignored across five direct
+result groups; doctests were excluded. Its separately executed
+[actual preserved-reader gate](testing/geographic-2026-10-02/availability-control-root-v1-reader1.json)
+also passed on the same 539 unchanged source/graph hashes. The actual old
+program reads the flat legacy command/result, then refuses V2 before opening an
+endpoint. The subsequent [current-root genuine producer](testing/geographic-2026-10-02/availability-control-root-producer1.json)
+passed seven checks with zero failures and one ignored physical-export entry on
+5,187 unchanged source/graph/static inputs. The real encrypted capture, Raft/Noise
+faults and copied-peer inactive core bridge now pass on the combined graph.
+Full enabled Office recovery acceptance and production recovery wiring remain pending.
+The October 3 [configured recovery runtime](deployment/RECOVERY_CONTROL_RUNTIME.md)
+is a locally accepted library and standalone node candidate for owning real control/material stores,
+Raft, authenticated listeners and ingest/observation/shutdown jobs through
+restart. Its [frozen package run](testing/geographic-2026-10-02/availability-control-root-runtime1.json)
+compiled and passed 103 checks, zero failures and nine ignored entries across
+six serial groups with 5,193 unchanged inputs. These overlapping package counts
+include prior regressions. New synthetic-byte runtime and lifetime checks cover
+restart, a two-voter historical commit, returning follower catch-up, preserved
+lock/key inodes and real snapshot/blocked-IO drain. The normal Authority does
+not start it by default. The later explicit `--recovery-node-config` entry point runs before
+Authority initialization and requires private bounded local configuration,
+preexisting identities and exactly three trusted voters. Its
+[local standalone retry](testing/geographic-2026-10-02/recovery-node-root-standalone2.json)
+compiled and passed six checks, zero failures and zero ignored entries across
+two serial groups on 5,196 unchanged inputs. These cover four private-config
+units and two actual-binary contracts, including three loopback processes
+draining and reopening original keys/locks/enrollment. Other library suites and
+doctests were excluded. The preserved first run failed two nonprivate test
+fixtures before its contract ran; only fixture permissions changed for the
+accepted retry. This is process lifecycle evidence, not physical-site or full
+Wabi recovery. Neither candidate is deployed. The later material-library
+owned-file ingestion primitive consumes and rewinds a trusted local archive
+handle, checks private original metadata and exact signed bytes, and preserves
+the independent path API guards. Its
+[full unit group](testing/geographic-2026-10-02/checkpoint-file-root-library1.json)
+passed 82 checks, zero failures and four ignored entries on 5,196 unchanged
+inputs; these counts overlap the earlier library checks and include six new
+units. Integration/server binaries and doctests were excluded. Caller path
+provenance and async ownership remain explicit responsibilities; the expiry
+test proves late-receipt refusal without guaranteeing arrival at the lane wait,
+and race branches were inspected. The later trusted runtime File and pinned
+source-directory adapters share signed binding/supervised IO, return the same
+verified descriptor at offset zero and recheck original ownership. Their
+[two-group acceptance](testing/geographic-2026-10-02/checkpoint-handle-root-libraries1.json)
+compiled and passed 91 checks, zero failures and five ignored entries: full
+consensus units 84/0/4 and filtered source-directory server units 7/0/1, including
+six new checks. All 5,196 inputs and both compiled test programs stayed unchanged;
+counts overlap earlier suites. Other 478 server units, snapshot CLI, integration
+binaries and doctests were excluded. Synthetic signed bytes and deterministic
+post-read mutation/expiry cut points do not establish a new direct File
+cancellation/lost-root IO or concurrent race acceptance. Caller Ready/source
+admission and pinned-directory/name ownership remain obligations through actual
+ingestion. Those handle checks excluded configured Authority publication;
+automatic original-operation restart reconciliation remained open. They add no
+activation or full-instance readiness permission. The later private publication journal's
+[isolated Ronin acceptance](testing/geographic-2026-10-02/publication-runtime-remote-results1.json.gz)
+compiled the source4 candidate and passed **94 checks, zero failures and four
+ignored entries**: consensus units 92/0/4 and runtime contracts 2/0/0 on 550
+unchanged inputs. Counts overlap earlier suites. Original capture/manifest/
+prepared-command persistence and same-operation resume are library capabilities;
+the contracts use synthetic signed bytes and explicit test collector election.
+The Authority integration was excluded from that earlier library run. Its
+[five startup patches](testing/geographic-2026-10-02/publication-authority-startup-application1.json)
+and separately reviewed [operator publication patch](testing/geographic-2026-10-02/publication-authority-operator-application1.json)
+are applied and compiled, preserving payment changes, accepted library inputs
+and authentication before bounded request reading/admission. The initial
+[October 4 attempt](testing/geographic-2026-10-02/publication-authority-remote-acceptance1.json)
+failed before configured startup because an idle Socket.IO sweep retained the
+Authority. The fix now keeps weak idle ownership and retains strong ownership
+through admitted sweep work; both exact lifetime regressions passed.
+
+The default-off experimental Authority publisher in the
+[tested source snapshot](testing/geographic-2026-10-02/publication-authority-source6.json) passed the
+later [configured Ronin run](testing/geographic-2026-10-02/publication-authority-remote-acceptance7.json)
+with **35 checks passed, zero failures and one ignored helper** on 20 frozen
+source files: consensus publication units 10/0/0, server units 24/0/1 and the
+genuine configured contract 1/0/0. These counts overlap earlier suites. The
+contract uses genuine signed Ready exports and three encrypted loopback control
+voters. It verifies synced original intent before HTTP 202, same-operation
+historical retry across restart and without a live majority, fresh-operation
+refusal on a follower or minority, explicit fence refusal, and a three-second
+queued HTTP refusal that retains the original Authority and engine lock until
+actual owned drain. Sources stayed unchanged, full evidence was saved, and the
+[owned build workspace](testing/geographic-2026-10-02/publication-authority-remote-cleanup-actual7.json)
+was removed under its original build lock. This is configured publication
+acceptance, not deployment, whole-instance restore or automatic Authority
+failover; readiness and writer permission remain false.
+
+The subsequent pending inventory and normal-router scheduler in the frozen
+[source7 snapshot](testing/geographic-2026-10-02/publication-authority-source7.json)
+compiled and passed [38 checks, zero failures and two ignored helpers](testing/geographic-2026-10-02/publication-authority-remote-acceptance9.json).
+The isolated original-intent child passed through its parent and is not counted
+again. Intent synchronized in the same runtime before router attachment was
+automatically reconciled with matching follower state and original IDs/bytes/
+locks. Repeated attachment retained the same task; queued closure and repeated
+shutdown preserved owned drain. Run 9 evidence and locked cleanup are saved.
+
+The later [adopted test-only crash fixture](testing/geographic-2026-10-02/publication-authority-genuine-crash-adoption4.json)
+in the [source9 snapshot](testing/geographic-2026-10-02/publication-authority-source9.json)
+passed [39 checks, zero failures and three ignored helpers](testing/geographic-2026-10-02/publication-authority-remote-run-actual10.json).
+Counts overlap run 9; nested child checks are not added again. One actual
+collector was killed with SIGKILL after its synced local Capture intent and
+before router attachment or HTTP 202, while two control voters survived in the
+parent process. Reopening the original collector as a follower preserved the
+application message, source/archive/journal bytes and advisory lock inodes;
+an actual surviving control leader was observed and publication refused with
+HTTP 503. Full saved evidence was independently verified; the original locked
+build workspace cleanup receipt records 3.77 GB removed. The [explicit host-slot release](testing/geographic-2026-10-02/publication-authority-office-push-slot-release10.json)
+confirms fresh absence of the original root and 741 process identities, plus
+archival and removal of five owned local helpers. Office's reserved successor
+remains subject to its separate source, dependency and runner gates.
+
+Local work inventory is not live-quorum evidence. Manifest/Prepared crash cuts,
+permanent source or host loss, successful replacement Authority activation,
+physical uplinks, full-instance restore and every-path writer/key fencing
+remain unproven. The false complete-instance readiness and canonical-writer
+flags are gate labels, not proof of engine-wide permissions. This adds no
+deployment or production HA claim.
+
+The October 3 [peer candidate job](deployment/CHECKPOINT_PEER_CANDIDATES.md)
+has default-off Linux runtime. Its repaired [frozen local run](testing/geographic-2026-10-02/availability-control-root-peer2.json)
+compiled and passed 11 checks, zero failures and one ignored physical-export
+entry, with 5,189 unchanged inputs. This covers genuine peer retrieval,
+private inactive-lock preservation, busy/refusal/healthy retry, shutdown drain,
+cleanup-failure admission closure and refusal of unresolved scratch on restart.
+The first publication failure and both exact source snapshots remain preserved;
+constructor deadline, worker panic and mid-publication crash faults are not all
+individually exercised. It retrieves an already published peer copy of a local
+Ready capture and retains a private inactive/fenced core candidate. Automatic
+capture publication, production consensus ownership, writer permission and
+recovery after loss of the current Authority are still unimplemented.
+The later [saved Office state rerun](testing/OFFICE_SAVED_STATE_RECOVERY_2026-10-03.md)
+passes 11 checks with zero failures and one ignored entry on 5,190 unchanged
+inputs. Real source HTTP documents/sheets/native deck edits, grants/revocation,
+review/protection, capability switches and presentation records survive genuine
+capture and approved-peer retrieval: all five inactive workspace rows and three
+decoded artifact contents match with both guards/lock inode intact. Both
+capabilities are enabled at capture. The source router replacement checks lost
+controller behavior on the same engine, not a recovered process. Restored API
+permissions, external Office services and complete instance recovery remain open.
+Deployment has not happened; these checks do not certify full recovery or writer
+activation.
+
 - **Experimental recovery coordination candidate:** October 1 adds the isolated `wabi-consensus` crate with pinned OpenRaft/redb, private transactional storage and durable idempotent ownership intents. The expanded local run passes 39 checks: the original durable foundation plus fixed-roster authenticated encrypted TCP, separate-process kill/restart, minority refusal/heal, purged snapshot catch-up, private create-only node bootstrap and timing/configuration bounds. The Python process/control helpers separately pass on Ronin and Iyoku. A later [local opaque-byte store](testing/RECOVERY_MATERIAL_2026-10-01.md) adds 11 passing material checks, including eight process-kill publication cases. The package rerun passes 50 checks after a preserved existing leader-selection failure; recovery bytes are not yet transported or quorum-certified, and source/encryption/inactive-state verification remain unwired. Every outcome sets `canonical_writer_permitted = false`; the Authority has no activation wiring. A later three-computer encrypted trial passes four exact durable operations and each owned worker's kill/restart/majority-write/catch-up with complete cleanup; existing Iyoku private port 3000 was used without firewall changes. A further owned-proxy physical trial passes minority no-ACK/heal and actual purged metadata snapshot catch-up with 32 accepted operations, second restart and cleanup. Dynamic enrollment/revocation/rotation, whole-host/Wabi fault tests, complete recovery and every-path publication/encryption fencing remain open. This is not independently audited transport or production HA. See [original durable acceptance](testing/DURABLE_CONSENSUS_2026-10-01.md), [expanded local acceptance and limits](testing/ENCRYPTED_RECOVERY_RPC_2026-10-01.md) [scoped physical acceptance](testing/PHYSICAL_ENCRYPTED_RECOVERY_RPC_2026-10-01.md) and [writer integration contract](architecture/GEOGRAPHIC_WRITER_AUTHORITY.md).
 
 - **Inactive core verifier candidate:** October 1 selected checks add independent complete-history replay without starting a writer, authenticated source-archive/header and whole-root inventory comparison, active-key continuity, and canonical upload bytes/denials. Eight engine tests and one live V2 integration with negative cases pass. Separate real operator captures produced matching inactive verification on dotRonin, Ronin and Iyoku; both live guards stayed intact and owned scratch was removed. This restricted core profile refuses detected enabled Lore/plugins/external blacklist and incomplete history, keeps `fullInstanceReady: false`, and does not complete enabled-instance inventory, promotion or failover. A later frozen [security workspace acceptance](testing/security-2026-10-01/acceptance.json) explicitly passed all 36 snapshot-wrapper checks; its earlier interrupted build remains historical evidence. See [the exact evidence and limits](testing/INACTIVE_CORE_VERIFY_2026-10-01.md).
@@ -521,3 +714,24 @@ Use these labels consistently:
 - **Planned** — design or branch work only; do not describe it in present tense as a shipped capability.
 
 When a feature crosses one of these boundaries, update this file, the root `README.md`, and the relevant architecture/deployment document in the same change.
+
+## Direct payments — local audited candidate, provider settlement not integrated
+
+The 2026-10-03 local payment candidate preserves direct user-bank/wallet transfers
+and manual receipt, without custody, escrow or a transaction cut. It hardens
+recipient/session isolation, rail/currency/amount rendering, durable metadata
+admission and recipient-owned confirmation. Current account/role/owner proof is
+retained through accepted writes and cancellation, including older admin aliases.
+It also corrects PromptPay e-wallet proxy tags and refuses unsupported donation
+checkout and unsafe historical QR instructions. This is not a deployed or merged
+release. Current Rust routes have no Stripe/PayPal checkout, signed settlement
+callbacks, refunds or disputes. Older Node/plugin plans do not establish current
+provider support. Validation limitations and the remaining roadmap are recorded
+in [the payment audit](plans/2026-10-03-payments-audit-and-hardening.md); see
+[operator behavior](payments/DIRECT_TRANSFER_OPERATIONS.md) and
+[current provider research](research/payments-direct-transfer-options-2026-10-03.md).
+
+Local [packaged acceptance](testing/PAYMENTS_ACCEPTANCE_2026-10-03.md) passes all
+12 instruction methods, eight exported QR decodes and ten real session/recovery
+checks, including the corrected server-switch bootstrap race. Actual bank/wallet
+settlement and Stripe/PayPal checkout remain unverified.

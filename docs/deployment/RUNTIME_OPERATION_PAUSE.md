@@ -1,7 +1,9 @@
 # Runtime operation pause
 
-**Date:** 2026-09-28  
-**Status:** Main Wabi working-tree foundation. No live checkpoint exporter or promotion guarantee.
+**Date:** 2026-10-02
+
+**Status:** Experimental local boundary used by the opt-in core live-checkpoint
+exporter. Complete-instance recovery and promotion remain unproven.
 
 ## Purpose
 
@@ -47,7 +49,7 @@ made recoverable by this gate.
   other accepted work continues.
 - `quiesce()` must be called outside an admitted operation. Calling it from
   inside that instance's operation returns an error instead of waiting for its
-  own lease. A future privileged checkpoint controller needs a separate control
+  own lease. The opt-in privileged checkpoint controller uses a separate control
   path; an ordinary admitted API handler cannot pause itself.
 - Cancelling a queued pause removes its wait. Dropping an acquired guard resumes
   work. The local `waiting_operations()` count is an entry backlog, not proof
@@ -79,13 +81,18 @@ files, logs/cache/temp paths, external stores and the complete inventory still
 require coordination. The local interruption veto does not make unregistered
 blocking I/O or an error-returning partial workflow recoverable.
 
-Before enabling an exporter, complete the [instance inventory](../architecture/INSTANCE_RECOVERY_INVENTORY.md):
+The current [core live-checkpoint exporter](LIVE_CHECKPOINT_ARCHIVE.md) uses this
+pause through the coordinated boundary. Its [operator control](OPERATOR_CHECKPOINT_CONTROL.md)
+owns bounded export jobs; neither path reports complete-instance readiness.
+Before treating an enabled deployment as recoverable, complete the
+[instance inventory](../architecture/INSTANCE_RECOVERY_INVENTORY.md):
 freeze/drain all relevant database and file writers, record an applied database
 position, preserve unknown required files and key/config continuity, encrypt
 the full bundle, verify hashes, restore and exercise a matching Authority.
-Then prove safe manual promotion while the source is unavailable, old-node
-fencing and reseeding. None of those guarantees follows from acquiring this
-pause guard alone.
+Then prove safe promotion while the source is unavailable, distributed old-node
+fencing and reseeding. The current planned stopped-move workflow and local core
+restore checks do not establish that unavailable-source protocol. None of
+those guarantees follows from acquiring this pause guard alone.
 
 Focused disposable evidence is recorded in
 [the dated pause checks](../testing/RUNTIME_OPERATION_PAUSE_2026-09-28.md).

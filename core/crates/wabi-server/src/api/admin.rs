@@ -1130,12 +1130,19 @@ async fn get_policy(
     }
     let defaults = policy_default(&key);
     if key == "payments_access" {
-        return match crate::api::payments::load_access_policy(&state, true).await {
-            Ok(policy) => {
-                Json(json!({ "key": key, "config": policy, "defaults": defaults })).into_response()
-            }
-            Err(error) => crate::api::payments::access_unavailable(&error),
+        let admission = match crate::api::payments::admit_payment_admin(&headers, &state).await {
+            Ok(admission) => admission,
+            Err(response) => return response,
         };
+        let operation_state = state.clone();
+        return admission.run(&operation_state, async move {
+            match crate::api::payments::load_access_policy(&state, true).await {
+                Ok(policy) => {
+                    Json(json!({ "key": key, "config": policy, "defaults": defaults })).into_response()
+                }
+                Err(error) => crate::api::payments::access_unavailable(&error),
+            }
+        }).await;
     }
     let config: Value = {
         let guard: tokio::sync::RwLockReadGuard<'_, PolicyStore> = store.read().await;
@@ -1173,10 +1180,17 @@ async fn save_policy(
             Ok(policy) => policy,
             Err(message) => return json_error(StatusCode::BAD_REQUEST, message),
         };
-        return match crate::api::payments::save_access_policy(&state, &policy).await {
-            Ok(()) => Json(json!({ "config": policy })).into_response(),
-            Err(error) => crate::api::payments::access_unavailable(&error),
+        let admission = match crate::api::payments::admit_payment_admin(&headers, &state).await {
+            Ok(admission) => admission,
+            Err(response) => return response,
         };
+        let operation_state = state.clone();
+        return admission.run(&operation_state, async move {
+            match crate::api::payments::save_access_policy(&state, &policy).await {
+                Ok(()) => Json(json!({ "config": policy })).into_response(),
+                Err(error) => crate::api::payments::access_unavailable(&error),
+            }
+        }).await;
     }
     let mut merged: Value = {
         let defaults = policy_default(&key);
@@ -1390,23 +1404,27 @@ async fn list_payment_blocks(
     headers: axum::http::HeaderMap,
     Query(_query): Query<UserBlockQuery>,
 ) -> Response {
-    if let Err(resp) = admin_auth(&headers, &state).await {
-        return resp;
-    }
-    let blocks = match state
-        .wdb
-        .list_payment_user_blocks("default-workspace")
-        .await
-    {
-        Ok(blocks) => blocks,
-        Err(e) => {
-            return json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("failed to load payment blocks: {}", e),
-            )
-        }
+    let admission = match crate::api::payments::admit_payment_admin(&headers, &state).await {
+        Ok(admission) => admission,
+        Err(response) => return response,
     };
-    Json(json!({ "blocks": blocks })).into_response()
+    let operation_state = state.clone();
+    admission.run(&operation_state, async move {
+        let blocks = match state
+            .wdb
+            .list_payment_user_blocks("default-workspace")
+            .await
+        {
+            Ok(blocks) => blocks,
+            Err(e) => {
+                return json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("failed to load payment blocks: {}", e),
+                )
+            }
+        };
+        Json(json!({ "blocks": blocks })).into_response()
+    }).await
 }
 
 async fn create_payment_block(
@@ -1414,28 +1432,33 @@ async fn create_payment_block(
     headers: axum::http::HeaderMap,
     Json(input): Json<CreateBlockInput>,
 ) -> Response {
-    let admin_id = match admin_auth(&headers, &state).await {
-        Ok(id) => id,
+    let admission = match crate::api::payments::admit_payment_admin(&headers, &state).await {
+        Ok(admission) => admission,
         Err(response) => return response,
     };
-    let now = chrono::Utc::now().timestamp_millis();
-    let block = PaymentUserBlock {
-        user_id: input.user_id,
-        workspace_id: "default-workspace".to_string(),
-        reason: input.reason.clone(),
-        blocked_by_user_id: Some(admin_id),
-        blocked_by_username: None,
-        blocked_username: None,
-        blocked_at: now,
-        expires_at: input.expires_at,
-    };
-    if let Err(e) = state.wdb.upsert_payment_user_block(&block).await {
-        return json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to save payment block: {}", e),
-        );
-    }
-    Json(json!({ "block": block })).into_response()
+    let admin_id = admission.user_id;
+    let operation_state = state.clone();
+    admission.run(&operation_state, async move {
+        let _policy = state.payment_policy_lock.clone().lock_owned().await;
+        let now = chrono::Utc::now().timestamp_millis();
+        let block = PaymentUserBlock {
+            user_id: input.user_id,
+            workspace_id: "default-workspace".to_string(),
+            reason: input.reason.clone(),
+            blocked_by_user_id: Some(admin_id),
+            blocked_by_username: None,
+            blocked_username: None,
+            blocked_at: now,
+            expires_at: input.expires_at,
+        };
+        if let Err(e) = state.wdb.upsert_payment_user_block(&block).await {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("failed to save payment block: {}", e),
+            );
+        }
+        Json(json!({ "block": block })).into_response()
+    }).await
 }
 
 async fn clear_payment_block(
@@ -1443,20 +1466,25 @@ async fn clear_payment_block(
     headers: axum::http::HeaderMap,
     Path(blocked_user_id): Path<i64>,
 ) -> Response {
-    if let Err(response) = admin_auth(&headers, &state).await {
-        return response;
-    }
-    if let Err(e) = state
-        .wdb
-        .delete_payment_user_block("default-workspace", blocked_user_id)
-        .await
-    {
-        return json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to clear payment block: {}", e),
-        );
-    }
-    Json(json!({ "cleared": true })).into_response()
+    let admission = match crate::api::payments::admit_payment_admin(&headers, &state).await {
+        Ok(admission) => admission,
+        Err(response) => return response,
+    };
+    let operation_state = state.clone();
+    admission.run(&operation_state, async move {
+        let _policy = state.payment_policy_lock.clone().lock_owned().await;
+        if let Err(e) = state
+            .wdb
+            .delete_payment_user_block("default-workspace", blocked_user_id)
+            .await
+        {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("failed to clear payment block: {}", e),
+            );
+        }
+        Json(json!({ "cleared": true })).into_response()
+    }).await
 }
 
 // ─── Dashboard Stats Handler ────────────────────────────────────────────────

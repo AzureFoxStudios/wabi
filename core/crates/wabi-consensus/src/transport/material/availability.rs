@@ -1,10 +1,13 @@
-//! Fresh, fixed-roster byte observations for an UNCOMMITTED availability
-//! proposal. The durable command/application, replay and activation bridge
-//! remain separate. No serialized caller receipt can enter this collector.
+//! Fresh, fixed-roster observations and opt-in historical control submission.
+//! Independent replay and activation remain separate. No serialized caller
+//! receipt can enter this collector or grant current availability permission.
 use super::{
     client::manifest_context, MaterialIo, MaterialReply, MaterialRequest, MaterialService,
 };
 use crate::{
+    availability_control::{
+        CheckpointObservationCommand, Observation, ObservationOrigin, ProposalWire,
+    },
     material::CheckpointManifest,
     source_context::AllocationKnowledge,
     store::Store,
@@ -19,66 +22,27 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum ObservationOrigin {
-    LocalDurableRead,
-    AuthenticatedPeer,
-}
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Observation {
-    node_id: u64,
-    origin: ObservationOrigin,
-    receipt_sha256: String,
-}
 /// An immutable candidate for a subsequent durable consensus command. There
 /// is deliberately no Deserialize, committed log ID or activation permission.
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CheckpointAvailabilityProposal {
-    schema_version: u8,
-    scope: &'static str,
-    operation_id: String,
-    community_id: String,
-    partition_id: String,
-    membership_log_id: LogId,
-    roster_digest: String,
-    manifest_sha256: String,
-    source_context_sha256: String,
-    source_archive_sha256: String,
-    source_inventory_sha256: String,
-    applied_commit_seq: u64,
-    required_objects: usize,
-    required_bytes: u64,
-    observations: Vec<Observation>,
-    allocation: AllocationKnowledge,
-    committed: bool,
-    source_role_verified: bool,
-    payload_encryption_verified: bool,
-    inactive_replay_verified: bool,
-    quorum_available: bool,
-    full_instance_ready: bool,
-    canonical_writer_permitted: bool,
-}
+#[serde(transparent)]
+pub struct CheckpointAvailabilityProposal(pub(crate) ProposalWire);
 impl CheckpointAvailabilityProposal {
     pub fn operation_id(&self) -> &str {
-        &self.operation_id
+        &self.0.operation_id
     }
     pub fn manifest_sha256(&self) -> &str {
-        &self.manifest_sha256
+        &self.0.manifest_sha256
     }
     pub fn observed_voters(&self) -> Vec<u64> {
-        self.observations
+        self.0
+            .observations
             .iter()
             .map(|observation| observation.node_id)
             .collect()
     }
     pub fn sha256(&self) -> Result<String> {
-        let mut hash = Sha256::new();
-        hash.update(b"wabi-checkpoint-availability-proposal/v1\0");
-        hash.update(serde_json::to_vec(self).map_err(|_| Error::Protocol)?);
-        Ok(hex::encode(hash.finalize()))
+        self.0.sha256().ok_or(Error::Protocol)
     }
 }
 
@@ -147,7 +111,9 @@ impl CheckpointAvailabilityRound {
         let source = manifest_context(&config, &source_node, manifest)?;
         let state = control.control_state().await.map_err(|_| Error::Refused)?;
         let membership_log_id = membership_bound(&config, &state)?;
-        if state.operations.contains_key(&operation_id) {
+        if state.operations.contains_key(&operation_id)
+            || state.checkpoints.contains_key(&operation_id)
+        {
             return Err(Error::Refused);
         }
         let deadline = started.checked_add(timeout).ok_or(Error::Budget)?;
@@ -186,6 +152,7 @@ impl CheckpointAvailabilityRound {
         if state.membership != self.membership
             || membership_bound(&self.config, &state)? != self.membership_log_id
             || state.operations.contains_key(&self.operation_id)
+            || state.checkpoints.contains_key(&self.operation_id)
         {
             return Err(Error::Authentication);
         }
@@ -264,9 +231,9 @@ impl CheckpointAvailabilityRound {
             return Err(Error::Refused);
         }
         let claims = &self.manifest.source.claims;
-        Ok(CheckpointAvailabilityProposal {
+        Ok(CheckpointAvailabilityProposal(ProposalWire {
             schema_version: 1,
-            scope: "uncommitted_checkpoint_availability_proposal",
+            scope: "uncommitted_checkpoint_availability_proposal".into(),
             operation_id: self.operation_id,
             community_id: self.config.binding.community_id.clone(),
             partition_id: self.config.binding.partition_id.clone(),
@@ -285,6 +252,290 @@ impl CheckpointAvailabilityRound {
             source_role_verified: false,
             payload_encryption_verified: false,
             inactive_replay_verified: false,
+            quorum_available: false,
+            full_instance_ready: false,
+            canonical_writer_permitted: false,
+        }))
+    }
+}
+
+/// Immutable historical metadata outcome. Loss of bytes after observation
+/// invalidates any future readiness check; this receipt grants no serving or
+/// writer permission. MaterialStore has no automatic byte garbage collection.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommittedCheckpointObservation {
+    schema_version: u8,
+    scope: &'static str,
+    operation_id: String,
+    manifest_sha256: String,
+    command_fingerprint: String,
+    committed_at: LogId,
+    metadata_committed: bool,
+    quorum_available: bool,
+    full_instance_ready: bool,
+    canonical_writer_permitted: bool,
+}
+impl CommittedCheckpointObservation {
+    /// Internal readback from the runtime's actual durable control state.
+    /// Historical metadata remains historical even when current bytes vanish.
+    pub(crate) fn from_recorded(
+        command: &CheckpointObservationCommand,
+        state: &crate::model::ControlState,
+        config: &Config,
+        expected_source: &str,
+    ) -> Result<Self> {
+        if !command.valid()
+            || !command.config_matches(config)
+            || command
+                .manifest()
+                .source
+                .verify(&config.binding.community_id, expected_source)
+                .is_err()
+            || state.operations.contains_key(command.operation_id())
+        {
+            return Err(Error::Authentication);
+        }
+        let record = state
+            .checkpoints
+            .get(command.operation_id())
+            .ok_or(Error::Refused)?;
+        let position = record.reply.committed_at.ok_or(Error::Refused)?;
+        if &record.command != command
+            || record.reply.outcome != crate::model::Outcome::Accepted
+            || record.reply.epoch != 0
+            || record.reply.canonical_writer_permitted
+            || !state
+                .last_applied
+                .is_some_and(|last| position.index <= last.index && position <= last)
+            || position <= command.membership_log_id()
+        {
+            return Err(Error::Refused);
+        }
+        Ok(Self {
+            schema_version: 2,
+            scope: "committed_historical_checkpoint_observation",
+            operation_id: command.operation_id().into(),
+            manifest_sha256: command.manifest_sha256().into(),
+            command_fingerprint: command.fingerprint().ok_or(Error::Protocol)?,
+            committed_at: position,
+            metadata_committed: true,
+            quorum_available: false,
+            full_instance_ready: false,
+            canonical_writer_permitted: false,
+        })
+    }
+}
+impl CheckpointAvailabilityRound {
+    /// Refresh live observations, then submit through the actual local Raft.
+    /// A timeout is indeterminate: inspect the original operation ID before
+    /// deciding whether to retry. Never manufacture a new ID for that retry.
+    pub async fn commit_observation(
+        self,
+        raft: &openraft::Raft<crate::ConsensusTypes>,
+    ) -> Result<CommittedCheckpointObservation> {
+        tokio::time::timeout_at(self.deadline.into(), self.commit_inner(raft))
+            .await
+            .map_err(|_| Error::Deadline)?
+    }
+    async fn commit_inner(
+        self,
+        raft: &openraft::Raft<crate::ConsensusTypes>,
+    ) -> Result<CommittedCheckpointObservation> {
+        self.prepare_inner(raft).await?.submit(raft).await
+    }
+    /// Internal owned publisher boundary: persist command() exactly before
+    /// submit. The prepared value is not deserializable or a writer permit.
+    pub(crate) async fn prepare_for_publication(
+        self,
+        raft: &openraft::Raft<crate::ConsensusTypes>,
+    ) -> Result<PreparedCheckpointObservation> {
+        tokio::time::timeout_at(self.deadline.into(), self.prepare_inner(raft))
+            .await
+            .map_err(|_| Error::Deadline)?
+    }
+    /// Recheck original voters and gates, then require byte-for-byte command
+    /// identity. A changed observation/membership never creates a new retry.
+    pub(crate) async fn prepare_exact_publication_retry(
+        mut self,
+        command: &CheckpointObservationCommand,
+        raft: &openraft::Raft<crate::ConsensusTypes>,
+    ) -> Result<PreparedCheckpointObservation> {
+        if !command.valid()
+            || !command.config_matches(&self.config)
+            || command.collector_node_id() != self.config.node_id()
+            || command.operation_id() != self.operation_id
+            || command.manifest() != &self.manifest
+            || command.membership_log_id() != self.membership_log_id
+        {
+            return Err(Error::Authentication);
+        }
+        for observation in command.observations() {
+            if observation.node_id == self.config.node_id() {
+                self.refresh(observation.node_id).await?;
+            } else if let Err(error) = self.refresh(observation.node_id).await {
+                if Instant::now() >= self.deadline {
+                    return Err(Error::Deadline);
+                }
+                if !matches!(error, Error::Io | Error::Refused | Error::Deadline) {
+                    return Err(error);
+                }
+            }
+        }
+        if self.observations.len() < 2
+            || self.observations.values().any(|fresh| {
+                !command
+                    .observations()
+                    .iter()
+                    .any(|original| original == fresh)
+            })
+        {
+            return Err(Error::Authentication);
+        }
+        self.verify_format_gates(raft).await?;
+        self.current_membership().await?;
+        // Retain every original byte of the command. A missing third voter is
+        // not replaced with a changed observation list or retry fingerprint.
+        Ok(PreparedCheckpointObservation {
+            config: self.config,
+            control: self.control,
+            deadline: self.deadline,
+            command: command.clone(),
+        })
+    }
+    async fn verify_format_gates(
+        &self,
+        raft: &openraft::Raft<crate::ConsensusTypes>,
+    ) -> Result<()> {
+        self.current_membership().await?;
+        if raft.metrics().borrow().id != self.config.node_id() || self.observations.len() < 2 {
+            return Err(Error::Authentication);
+        }
+        let state = self
+            .control
+            .control_state()
+            .await
+            .map_err(|_| Error::Refused)?;
+        let transitioned = state.checkpoints.values().any(|record| {
+            record.reply.outcome == crate::model::Outcome::Accepted
+                && record.command.config_matches(&self.config)
+                && record.command.membership_log_id() == self.membership_log_id
+        });
+        for node in self.config.peers.keys().copied() {
+            if node != self.config.node_id()
+                && (!transitioned || self.observations.contains_key(&node))
+            {
+                CheckpointClient::new(self.config.clone(), node, self.source_node.clone())?
+                    .require_control_v2()
+                    .await?;
+                self.current_membership().await?;
+            }
+        }
+        Ok(())
+    }
+    async fn prepare_inner(
+        mut self,
+        raft: &openraft::Raft<crate::ConsensusTypes>,
+    ) -> Result<PreparedCheckpointObservation> {
+        // Sticky V2 transition still requires every enrolled code format the
+        // first time; existing observe behavior retains its refresh-all guard.
+        self.verify_format_gates(raft).await?;
+        for node in self.observations.keys().copied().collect::<Vec<_>>() {
+            self.refresh(node).await?;
+        }
+        let config = self.config.clone();
+        let control = self.control.clone();
+        let deadline = self.deadline;
+        let manifest = self.manifest.clone();
+        let proposal = self.finish().await?;
+        let command = CheckpointObservationCommand::collected(
+            config.node_id(),
+            config.peers.clone(),
+            proposal.0,
+            manifest,
+        )
+        .ok_or(Error::Protocol)?;
+        command.fingerprint().ok_or(Error::Protocol)?;
+        if Instant::now() >= deadline {
+            return Err(Error::Deadline);
+        }
+        Ok(PreparedCheckpointObservation {
+            config,
+            control,
+            deadline,
+            command,
+        })
+    }
+}
+/// Constructed only by the collector after fresh byte and format checks.
+/// Its stores are private; runtime supervision retains this owner across IO.
+pub(crate) struct PreparedCheckpointObservation {
+    config: Arc<Config>,
+    control: Store,
+    deadline: Instant,
+    command: CheckpointObservationCommand,
+}
+impl PreparedCheckpointObservation {
+    pub(crate) fn command(&self) -> &CheckpointObservationCommand {
+        &self.command
+    }
+    pub(crate) async fn submit(
+        self,
+        raft: &openraft::Raft<crate::ConsensusTypes>,
+    ) -> Result<CommittedCheckpointObservation> {
+        let Self {
+            config,
+            control,
+            deadline,
+            command,
+        } = self;
+        let fingerprint = command.fingerprint().ok_or(Error::Protocol)?;
+        let state = control.control_state().await.map_err(|_| Error::Refused)?;
+        if !command.valid()
+            || !command.config_matches(&config)
+            || raft.metrics().borrow().id != config.node_id()
+            || !command.matches_applied_membership(&state)
+            || state.operations.contains_key(command.operation_id())
+            || state.checkpoints.contains_key(command.operation_id())
+        {
+            return Err(Error::Authentication);
+        }
+        if Instant::now() >= deadline {
+            return Err(Error::Deadline);
+        }
+        let response = tokio::time::timeout_at(
+            deadline.into(),
+            raft.client_write(crate::model::ControlData::Checkpoint(command.clone())),
+        )
+        .await
+        .map_err(|_| Error::Deadline)?
+        .map_err(|_| Error::Refused)?;
+        if response.data.outcome != crate::model::Outcome::Accepted
+            || response.data.committed_at != Some(response.log_id)
+            || response.data.canonical_writer_permitted
+        {
+            return Err(Error::Refused);
+        }
+        let state = control.control_state().await.map_err(|_| Error::Refused)?;
+        if Instant::now() >= deadline {
+            return Err(Error::Deadline);
+        }
+        // A same-ID Raft attached to another store cannot produce success.
+        let record = state
+            .checkpoints
+            .get(command.operation_id())
+            .ok_or(Error::Refused)?;
+        if record.command != command || record.reply != response.data {
+            return Err(Error::Refused);
+        }
+        Ok(CommittedCheckpointObservation {
+            schema_version: 2,
+            scope: "committed_historical_checkpoint_observation",
+            operation_id: command.operation_id().into(),
+            manifest_sha256: command.manifest_sha256().into(),
+            command_fingerprint: fingerprint,
+            committed_at: response.log_id,
+            metadata_committed: true,
             quorum_available: false,
             full_instance_ready: false,
             canonical_writer_permitted: false,

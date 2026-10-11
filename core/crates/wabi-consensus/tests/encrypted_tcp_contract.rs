@@ -290,7 +290,7 @@ impl Cluster {
     async fn write(&self, leader: u64, request: ControlCommand) -> ControlReply {
         tokio::time::timeout(
             Duration::from_secs(5),
-            self.nodes[&leader].client_write(request),
+            self.nodes[&leader].client_write(request.into()),
         )
         .await
         .unwrap()
@@ -373,7 +373,7 @@ async fn encrypted_tcp_partition_cannot_ack_minority_and_heals_without_divergent
     let new = cluster.leader(&majority).await;
     let rejected = tokio::time::timeout(
         Duration::from_millis(700),
-        cluster.nodes[&old].client_write(command(99, 1, old)),
+        cluster.nodes[&old].client_write(command(99, 1, old).into()),
     )
     .await;
     assert!(!matches!(rejected, Ok(Ok(_))));
@@ -1001,7 +1001,7 @@ mod processes {
                         receipt_id = Some(command.operation_id.clone());
                         match tokio::time::timeout_at(
                             deadline.min(tokio::time::Instant::now() + Duration::from_secs(3)),
-                            raft.client_write(command),
+                            raft.client_write(command.into()),
                         )
                         .await
                         {

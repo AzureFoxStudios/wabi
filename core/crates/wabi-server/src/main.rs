@@ -30,6 +30,12 @@ mod instance_sidecars;
 mod instance_operations;
 mod instance_checkpoint;
 mod checkpoint_jobs;
+#[cfg(target_os = "linux")]
+mod recovery_peer_jobs;
+#[cfg(target_os = "linux")]
+mod recovery_node;
+#[cfg(target_os = "linux")]
+mod recovery_publication_jobs;
 mod instance_archive;
 mod helper_client;
 mod jobs;
@@ -71,6 +77,13 @@ use crate::secrets::resolve_jwt_secret;
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Wabi self-hosted server")]
 struct Args {
+    /// Run only experimental recovery control/material stores from a private operator file
+    #[arg(long, value_name = "FILE", conflicts_with_all = [
+        "personal_planner", "build_info", "helper_mode", "desktop_managed",
+        "primary_url", "pairing_token", "lan_reachable_at", "print_bound_address",
+        "host", "port", "data_dir"
+    ])]
+    recovery_node_config: Option<std::path::PathBuf>,
     /// Private desktop Planner operation over stdin/stdout; opens no network listener
     #[arg(long, conflicts_with_all = ["helper_mode", "desktop_managed", "build_info"])]
     personal_planner: bool,
@@ -245,6 +258,24 @@ async fn wait_for_shutdown(shutdown_on_stdin_close: bool) {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    // Dedicated opt-in before logging, maintenance, JWT, AppState/WabiDB and
+    // upload setup. Recovery peers never become another community Authority.
+    if let Some(path) = args.recovery_node_config {
+        anyhow::ensure!(std::env::var_os("WABI_PURGE_ORPHANS").is_none(),
+            "Recovery node mode cannot run Authority maintenance");
+        anyhow::ensure!(std::env::var_os("WABI_SERVER_ROLE").is_none(),
+            "Recovery node mode requires a dedicated role-free environment");
+        #[cfg(target_os = "linux")]
+        {
+            recovery_node::run(path, wait_for_shutdown(args.shutdown_on_stdin_close)).await?;
+            return Ok(());
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = path;
+            anyhow::bail!("Recovery node mode is supported only on Linux");
+        }
+    }
     if args.personal_planner {
         return personal_planner::run(std::path::Path::new(&args.data_dir));
     }
@@ -900,12 +931,18 @@ async fn main() -> anyhow::Result<()> {
     info!("🔧 Operator break-glass available on loopback (set WABI_OPERATOR_SECRET)");
 
     let shutdown_state = state.clone();
-    axum::serve(
+    let server_result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(async move {
         wait_for_shutdown(args.shutdown_on_stdin_close).await;
+        #[cfg(target_os = "linux")]
+        if let Some(publisher) = &shutdown_state.recovery_publication {
+            if let Err(error) = publisher.shutdown().await {
+                tracing::error!("Recovery publication drain failed: {error}");
+            }
+        }
         // SocketIo owns SioState, which owns AppState. Remove this back
         // reference so runtime task teardown can drop the engine and its
         // lock after requests drain; close alone leaves an Arc cycle.
@@ -922,9 +959,22 @@ async fn main() -> anyhow::Result<()> {
                 tracing::warn!("Socket.IO close exceeded 5 seconds during shutdown");
             }
         }
+        shutdown_state.checkpoint_jobs.shutdown_peer_verification().await;
         shutdown_state.tailcat.shutdown().await;
     })
-    .await?;
+    .await;
+
+    // Also drain after an unexpected serve error or a cancelled graceful
+    // waiter. Retained supervision returns the actual repeated terminal
+    // result; it must not report success merely because stop was requested.
+    #[cfg(target_os = "linux")]
+    let publication_result = match &state.recovery_publication {
+        Some(publisher) => publisher.shutdown().await,
+        None => Ok(()),
+    };
+    server_result?;
+    #[cfg(target_os = "linux")]
+    publication_result?;
 
     info!("Server shut down gracefully");
     Ok(())

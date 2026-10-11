@@ -1,0 +1,120 @@
+name: Direct payment acceptance
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/payments-acceptance.yml'
+      - 'frontend/src/lib/payments/**'
+      - 'frontend/src/lib/api/payment*.ts'
+      - 'frontend/src/lib/api/admin.ts'
+      - 'frontend/src/lib/adminPaymentPolicy*.ts'
+      - 'frontend/src/lib/components/settings/admin/*Payment*.svelte'
+      - 'frontend/src/lib/components/settings/admin/DonationConfig.svelte'
+      - 'frontend/src/lib/components/settings/ProfileSettingsTab.svelte'
+      - 'frontend/src/lib/components/AdminWorkspace.svelte'
+      - 'frontend/src/lib/components/DMMessageView.svelte'
+      - 'frontend/src/lib/authSession.ts'
+      - 'frontend/src/lib/apiRequest.ts'
+      - 'frontend/src/lib/presenceIdentity.ts'
+      - 'frontend/src/lib/serverUrl.ts'
+      - 'frontend/src/routes/+page.svelte'
+      - 'frontend/src/styles/components/payment-sheet.css'
+      - 'frontend/scripts/payments-*.mjs'
+      - 'frontend/test/payment*.ts'
+      - 'frontend/test/admin-policy-deadline.fixture.test.ts'
+      - 'frontend/package*.json'
+      - 'core/addons/payments-*/**'
+      - 'core/crates/wabi-server/src/api/payments/**'
+      - 'core/crates/wabi-server/src/api/admin.rs'
+      - 'core/crates/wabi-server/src/adapter/**'
+      - 'core/crates/wabi-server/src/auth_extractor.rs'
+      - 'core/crates/wabi-server/src/state.rs'
+      - 'core/crates/wabi-server/tests/payment*.rs'
+      - 'core/crates/wabi-server/Cargo.toml'
+      - 'core/crates/wabidb/src/projections/payments.rs'
+      - 'core/crates/wabidb/src/engine/wabi_store.rs'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'rust-toolchain.toml'
+      - 'scripts/payments/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: payments-acceptance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_BUILD_JOBS: '2'
+  WABI_SOURCE_REVISION: ${{ github.sha }}
+
+jobs:
+  direct-payments:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - uses: dtolnay/rust-toolchain@1.93
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: payments-rails
+      - name: Install committed frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Check payment models and full frontend types
+        working-directory: frontend
+        run: |
+          bun test --isolate src/lib/payments src/lib/adminPaymentPolicy.test.ts
+          bun test --isolate test/payment-reference-api.fixture.test.ts test/payment-access-store.fixture.test.ts test/admin-policy-deadline.fixture.test.ts
+          bun run check
+      - name: Build current static app for Authority embedding
+        working-directory: frontend
+        env:
+          STATIC_BUILD: '1'
+        run: bun run build
+      - name: Payment admission, receipt and durable replay contracts
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/payments -p 'test_*.py' -v
+          cargo test --locked -p wabidb payments
+          cargo test --locked -p wabi-server --features payments-rails,field-embed --test payment_access_contract --test payments_projection_contract --test payments_rails_contract --test payments_admission_contract
+          cargo test --locked -p wabi-server --features payments-rails,field-embed --lib api::payments
+          cargo test --locked -p wabi-payments-crypto -p wabi-payments-eu -p wabi-payments-us
+      - name: Build complete feature-enabled Authority
+        run: cargo build --locked -p wabi-server --features payments-rails,field-embed --bin wabi-server
+      - name: Install rendered browser environment
+        working-directory: frontend
+        run: |
+          npx playwright install --with-deps chromium
+          npm install --prefix "${{ runner.temp }}/payments-qr-qa" --ignore-scripts --no-audit --no-fund jsqr@1.4.0 pngjs@7.0.0
+      - name: Exercise real payment UI against disposable Authority data
+        working-directory: frontend
+        env:
+          WABI_PAYMENTS_STATIC: '1'
+          WABI_PAYMENTS_REQUIRE_RAILS: '1'
+          WABI_PAYMENTS_QR_QA: ${{ runner.temp }}/payments-qr-qa
+          WABI_SMOKE_SERVER_BINARY: ${{ github.workspace }}/target/debug/wabi-server
+        run: xvfb-run -a node scripts/payments-browser-smoke.mjs
+      # Only synthetic screenshots and result metadata are retained. Never upload
+      # the disposable data tree, its account secrets, or provider credentials.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: direct-payment-browser-evidence
+          path: |
+            /tmp/wabi-payments-browser-*/*.png
+            /tmp/wabi-payments-browser-*/result.json
+          if-no-files-found: ignore
+          retention-days: 7

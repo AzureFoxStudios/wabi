@@ -3,23 +3,106 @@
 //! authenticated administrator may import it; ordinary access checks never
 //! write. Import and explicit saves share one application-local lock.
 
-use std::path::Path;
+use std::{future::Future, path::Path, sync::Arc};
 
 use anyhow::{anyhow, Context};
 use axum::{
     http::{HeaderMap, StatusCode},
-    response::Response,
+    response::{IntoResponse, Response},
 };
 use serde_json::Value;
 use wabidb::engine::wabi_store::WabiStore;
 
 use super::{json_error, PaymentAccessPolicy};
 use crate::{
-    auth_extractor::{authenticate_access_token, AuthUser},
+    auth_extractor::{authenticate_access_token, AuthUser, CurrentAuthorizationGuard},
     state::AppState,
 };
 
 pub const ACCESS_POLICY_KEY: &str = "policy:payments_access";
+
+/// Current account, role and owner proof. Keep membership -> credentials ->
+/// owner order shared with role changes and ownership transfer. Never reacquire
+/// an owner/credential reader while these readers are held: a queued denial
+/// writer could otherwise deadlock the accepted operation.
+pub(crate) struct PaymentAdmission {
+    membership: tokio::sync::OwnedRwLockReadGuard<()>,
+    credential: CurrentAuthorizationGuard,
+    owner: tokio::sync::OwnedRwLockReadGuard<Option<i64>>,
+    pub(crate) user_id: i64,
+    pub(super) is_owner: bool,
+    pub(super) is_admin: bool,
+}
+
+pub(super) async fn admit_payment(
+    state: &Arc<AppState>,
+    auth: &AuthUser,
+) -> Result<PaymentAdmission, Response> {
+    let membership = state.membership_gate.clone().read_owned().await;
+    let credential = auth
+        .admit_current(state)
+        .await
+        .map_err(IntoResponse::into_response)?;
+    let owner = state.owner_user_id.clone().read_owned().await;
+    let role = state
+        .wdb
+        .get_user_role(super::DEFAULT_WORKSPACE_ID, auth.user_id as u64)
+        .await
+        .map_err(|error| access_unavailable(&error.into()))?;
+    let is_owner = *owner == Some(auth.user_id);
+    let is_admin = !auth.is_guest
+        && (is_owner
+            || state.config.admin_user_ids.contains(&auth.user_id)
+            || matches!(role.as_deref(), Some("Owner" | "Admin")));
+    Ok(PaymentAdmission {
+        membership,
+        credential,
+        owner,
+        user_id: auth.user_id,
+        is_owner,
+        is_admin,
+    })
+}
+
+impl PaymentAdmission {
+    /// Own admitted work until its durable command and projection finish,
+    /// including when the caller disconnects. Move policy guards into the
+    /// operation too when the action depends on mutable payment access.
+    pub(crate) async fn run<F>(self, state: &Arc<AppState>, operation: F) -> Response
+    where
+        F: Future<Output = Response> + Send + 'static,
+    {
+        let Self {
+            membership,
+            credential,
+            owner,
+            ..
+        } = self;
+        match credential
+            .run(state, async move {
+                let _membership = membership;
+                let _owner = owner;
+                Ok(operation.await)
+            })
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => error.into_response(),
+        }
+    }
+}
+
+pub(crate) async fn admit_payment_admin(
+    headers: &HeaderMap,
+    state: &Arc<AppState>,
+) -> Result<PaymentAdmission, Response> {
+    let auth = authenticate_account(headers, state).await?;
+    let admission = admit_payment(state, &auth).await?;
+    if !admission.is_admin {
+        return Err(json_error(StatusCode::FORBIDDEN, "Admin access required"));
+    }
+    Ok(admission)
+}
 
 /// Use the account boundary, not a second JWT decoder. Refresh, step-up,
 /// scoped external-tool and revoked credentials are not account credentials.
@@ -114,6 +197,14 @@ pub async fn load_access_policy(
     import_legacy: bool,
 ) -> anyhow::Result<PaymentAccessPolicy> {
     let _guard = state.payment_policy_lock.lock().await;
+    load_access_policy_locked(state, import_legacy).await
+}
+
+/// The caller retains payment_policy_lock through its dependent operation.
+pub(super) async fn load_access_policy_locked(
+    state: &AppState,
+    import_legacy: bool,
+) -> anyhow::Result<PaymentAccessPolicy> {
     if let Some(value) = state.wdb.get_payment_policy(ACCESS_POLICY_KEY).await? {
         return decode_saved_policy(value);
     }

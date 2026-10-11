@@ -12,7 +12,7 @@ pub use identity::Identity;
 #[cfg(target_os = "linux")]
 pub use material::{
     AuthenticatedCheckpointAck, CheckpointAvailabilityProposal, CheckpointAvailabilityRound,
-    CheckpointClient, MaterialService,
+    CheckpointClient, CommittedCheckpointObservation, MaterialService,
 };
 pub use rpc::Network;
 pub use server::{serve, ServerReport};
@@ -91,6 +91,17 @@ impl std::fmt::Debug for Config {
     }
 }
 impl Config {
+    #[cfg(target_os = "linux")]
+    pub(crate) fn checkpoint_roster_matches(
+        &self,
+        community: &str,
+        partition: &str,
+        peers: &BTreeMap<u64, RecoveryPeer>,
+    ) -> bool {
+        self.binding.community_id == community
+            && self.binding.partition_id == partition
+            && &self.peers == peers
+    }
     pub fn new(
         binding: StoreBinding,
         peers: BTreeMap<u64, RecoveryPeer>,
@@ -168,6 +179,11 @@ impl Config {
     }
     pub fn node_id(&self) -> u64 {
         self.binding.node_id
+    }
+    /// Read the immutable approved store identity from sibling runtime code.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn binding(&self) -> &StoreBinding {
+        &self.binding
     }
     pub fn roster_digest(&self) -> String {
         hex::encode(self.roster_digest)

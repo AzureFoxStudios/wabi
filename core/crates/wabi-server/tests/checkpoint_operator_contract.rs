@@ -32,6 +32,9 @@ const SECRET: &str = "isolated-checkpoint-contract-operator-secret";
 #[path = "fixtures/checkpoint_field_export.rs"]
 mod checkpoint_field_export;
 #[cfg(target_os = "linux")]
+#[path = "fixtures/checkpoint_peer_verify.rs"]
+mod checkpoint_peer_verify;
+#[cfg(target_os = "linux")]
 #[path = "fixtures/checkpoint_rpc.rs"]
 mod checkpoint_rpc;
 #[path = "fixtures/writer_drain.rs"]
@@ -616,7 +619,7 @@ async fn signed_source_capture(export: Option<&checkpoint_field_export::Output>)
             serde_json::to_value(local).unwrap()["canonicalWriterPermitted"],
             false
         );
-        checkpoint_rpc::transfer_reseed(temp.path(), &store, &manifest).await;
+        checkpoint_rpc::transfer_reseed(temp.path(), &store, &manifest, receipt, &identity).await;
         if let Some(output) = export {
             output.publish(&policy.directory.join(format!("{}.age", job.id)), &manifest);
         }

@@ -1,5 +1,12 @@
 # Western Bank-to-Bank Payments Research (2026) — "PromptPay for the West" Attempt 2
 
+> **Superseded findings, 2026-10-03:** The legal conclusions in §6 are not a
+> general exemption. No custody does not by itself eliminate regulated
+> payment-initiation or marketplace/reporting duties. EPC QR is not universally
+> supported or a guarantee of instant execution; public-chain crypto is not
+> anonymous. Refer to [current official-source research](payments-direct-transfer-options-2026-10-03.md)
+> and [runtime operations](../payments/DIRECT_TRANSFER_OPERATIONS.md).
+
 Status: Research, verified Aug 2026
 Owner: Payments (th-payments / western-payments / btc-payments)
 Related: `docs/payments/PAYMENTS_NONCUSTODIAL_PLAN.md`, `docs-history branch (archive/) PAYMENTS_IMPLEMENTATION.md`, `docs-history branch (archive/) PAYMENTS_ADAPTER_CONTRACT.md`

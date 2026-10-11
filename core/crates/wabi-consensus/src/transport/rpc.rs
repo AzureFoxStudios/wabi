@@ -80,10 +80,16 @@ impl Config {
                 for entry in &rpc.entries {
                     match &entry.payload {
                         EntryPayload::Blank => (),
-                        EntryPayload::Normal(command) => {
+                        EntryPayload::Normal(crate::model::ControlData::Legacy(command)) => {
                             if !command.valid()
                                 || !self.peers.contains_key(&command.proposed_writer)
                             {
+                                return Err(Error::Protocol);
+                            }
+                        }
+                        #[cfg(target_os = "linux")]
+                        EntryPayload::Normal(crate::model::ControlData::Checkpoint(command)) => {
+                            if !command.valid() || !command.config_matches(self) {
                                 return Err(Error::Protocol);
                             }
                         }

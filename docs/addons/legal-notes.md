@@ -1,77 +1,49 @@
-# Legal Notes
+# Payment design and operator responsibilities
 
-Wabi's legal model for payments and server operation.
+Updated: 2026-10-03. This describes boundaries, not a determination that an
+operator is exempt from regulation.
 
-## Core Principle
+Wabi creates receiving instructions and records manual receipt. The payer sends
+money in their own bank or wallet. Wabi holds no funds, stores no monetary
+balance, converts no currencies, takes no transaction cut and provides no escrow
+or purchase protection. The current Rust Authority has no Stripe/PayPal signed
+settlement callback. See [current operations](../payments/DIRECT_TRANSFER_OPERATIONS.md).
 
-**Wabi is infrastructure, not a financial service.**
+## Classification follows behavior
 
-Wabi provides communication and coordination. Users and server operators handle their own compliance.
+Calling Wabi a tool or saying “your bank to their bank” does not establish an
+exemption. Features, operator jurisdiction, counterparties and provider terms
+matter. No custody is not a blanket exclusion: EU payment-initiation services
+can be regulated without holding funds. Marketplace/reporting obligations also
+depend on scope and features. Displaying instructions differs from bank API
+initiation, and manual receipt is not authoritative settlement evidence.
 
-## Payment Model
+Orders, bank API initiation, fees and centralized checkout must be separately
+assessed. The [official-source research](../research/payments-direct-transfer-options-2026-10-03.md)
+explains technical-support exclusions and their limits. Earlier absolute
+“No custody ⇒ no transmitter, no TPSO, no PSI” claims are withdrawn.
 
-### What Wabi Does
+## Identity and commercial terms
 
-- Stores payment intent records (like storing messages)
-- Generates payment requests (QR codes, links)
-- Coordinates payment status updates via webhooks
-- Does NOT touch funds
+Wabi can avoid collecting extra identity documents. Banks and regulated
+processors may still require verification, including in Thailand. Stripe and
+PayPal offer no general KYC-free marketplace; hosted onboarding can keep
+verification documents at the provider rather than Wabi.
 
-### What Wabi Does NOT Do
+Use methods/account types permitted for goods and services. Personal-transfer
+modes cannot be advertised as universal commercial checkout or buyer protection.
+Public crypto ledgers are traceable; crypto is not an anonymity or legal exemption
+guarantee.
 
-- Hold user funds
-- Process transactions
-- Convert currencies
-- Manage accounts at payment providers
+## Records and privacy
 
-### Non-Custodial Design
+Wabi stores amount, currency, receiving instructions, status, timestamps and the
+manual-confirmation actor/note. Instructions can contain sensitive phone/identity
+proxies, payee names, IBANs, wallet addresses and bank-account details. Admins can
+inspect requests. Exports are coordination data, not bank statements. Deleting a
+saved reference removes its current view, not earlier durable events.
 
-Payments flow directly between users via external providers:
-
-```
-User A → Generates payment intent → Provider (Stripe, Bitcoin, etc.)
-User A → Pays provider directly
-Provider → Notifies Wabi via webhook
-User B → Receives funds from provider
-```
-
-Wabi never sees or handles money.
-
-## Server Operator Responsibilities
-
-Server operators are independent controllers:
-
-- Choose which addons to enable
-- Configure payment providers
-- Set server donation settings
-- Comply with local laws
-
-### Operator Checklist
-
-- [ ] Understand local regulations for chat apps
-- [ ] Understand regulations for payment facilitation
-- [ ] Obtain necessary licenses if required
-- [ ] Configure server donation disclosures
-- [ ] Enable server-auditor for compliance (optional)
-
-## User Responsibilities
-
-Users control their own:
-
-- Payment provider accounts
-- Donation settings
-- Export data requests
-
-## Data as Record
-
-Payment intents are records, not financial instruments:
-
-- Wabi stores intent metadata (amount, status, timestamps)
-- Not financial account data
-- User can export their payment history anytime
-
-This mirrors how email providers store message headers without touching money.
-
-## Disclaimer
-
-Wabi enables communication and coordination. Users and server operators are responsible for their own compliance with applicable laws.
+Operators must assess their actual deployment and enabled features. Sellers and
+payers retain their own provider accounts, verification, commercial permissions,
+tax responsibilities and external refund arrangements. A disclaimer does not
+replace that assessment.

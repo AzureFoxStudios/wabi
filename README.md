@@ -197,3 +197,7 @@ Start with:
 - **[Roadmap](docs/ROADMAP.md)** — current priorities and acceptance gates
 
 Historical documentation lives on the `docs-history` branch. Dated plans under `docs/plans/` record how work evolved; they are evidence/history, not automatically the current product contract.
+
+Payment behavior and limits are documented in [Direct transfer operations](docs/payments/DIRECT_TRANSFER_OPERATIONS.md).
+The current payment candidate records direct bank/wallet requests and manual
+receipt; it does not integrate Stripe/PayPal settlement or provide escrow.

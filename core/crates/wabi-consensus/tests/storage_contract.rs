@@ -67,7 +67,7 @@ fn command(id: u64, expected_epoch: u64) -> ControlCommand {
 fn data(index: u64, command: ControlCommand) -> Entry {
     Entry {
         log_id: log(index),
-        payload: EntryPayload::Normal(command),
+        payload: EntryPayload::Normal(command.into()),
     }
 }
 fn open(root: &std::path::Path, node: u64) -> Store {

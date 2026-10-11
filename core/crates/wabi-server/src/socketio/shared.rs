@@ -541,26 +541,59 @@ pub async fn reap_disconnected_guests(state: &SioState) -> usize {
     reaped
 }
 
+/// Idle sweep scheduling must not keep an otherwise stopped Authority alive.
+/// Each upgraded state remains strongly owned through the existing accepted
+/// instance operation; only the waits between complete sweeps are weak.
+struct SweepState {
+    app: std::sync::Weak<AppState>,
+    connected_users: ConnectedUsers,
+    voice_channels: VoiceChannels,
+    group_call_sessions: GroupCallSessions,
+    breakout_rooms: BreakoutRooms,
+    roster_cache: Arc<TokioMutex<Option<RosterSnapshot>>>,
+}
+impl SweepState {
+    fn new(state: SioState) -> Self {
+        let SioState { app, connected_users, voice_channels,
+            group_call_sessions, breakout_rooms, roster_cache } = state;
+        Self { app: Arc::downgrade(&app), connected_users, voice_channels,
+            group_call_sessions, breakout_rooms, roster_cache }
+    }
+    fn upgrade(&self) -> Option<SioState> {
+        Some(SioState { app: self.app.upgrade()?,
+            connected_users: self.connected_users.clone(),
+            voice_channels: self.voice_channels.clone(),
+            group_call_sessions: self.group_call_sessions.clone(),
+            breakout_rooms: self.breakout_rooms.clone(),
+            roster_cache: self.roster_cache.clone() })
+    }
+}
+
+async fn run_boot_sweep(owner: &SweepState) -> bool {
+    let Some(state) = owner.upgrade() else { return false; };
+    state.app.instance_operations.run(reap_disconnected_guests(&state)).await;
+    true
+}
+
 /// Spawn the periodic sweep task. Call from server startup.
-/// The JoinHandle is returned so shutdown can cancel the loop.
+/// The returned handle observes actual task completion. Idle scheduling uses a
+/// weak Authority reference; accepted work retains its original strong owner.
 #[allow(dead_code)]
 pub fn spawn_sweep_loop(state: SioState) -> tokio::task::JoinHandle<()> {
+    let owner = SweepState::new(state);
     tokio::spawn(async move {
         // Boot sweep: wait one interval so sockets reconnecting after a
         // restart land in connected_users first, then clear every guest
         // row left over from the previous process.
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-        state
-            .app
-            .instance_operations
-            .run(reap_disconnected_guests(&state))
-            .await;
+        if !run_boot_sweep(&owner).await { return; }
 
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
         // The boot sweep above already handled the startup pass.
         interval.tick().await;
         loop {
             interval.tick().await;
+            let Some(state) = owner.upgrade() else { return; };
             state.app.instance_operations.run(async {
                 if let Some(io) = state.app.socket_io() {
                     let live: HashSet<_> = io.sockets().iter().map(|socket| socket.id.to_string()).collect();
@@ -584,6 +617,127 @@ pub fn spawn_sweep_loop(state: SioState) -> tokio::task::JoinHandle<()> {
             }).await;
         }
     })
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod sweep_lifetime_tests {
+    use super::*;
+    use crate::config::{LoreAddonConfig, ServerConfig, ServerRole};
+    use std::fs::{File, OpenOptions};
+    use std::path::{Path, PathBuf};
+    use std::os::unix::fs::MetadataExt;
+
+    // The outer bounded runner removes this private fixture only after the
+    // actual test process is terminal, including on panic. No lock is unlinked
+    // to make an old Authority appear stopped.
+    async fn fixture() -> (PathBuf, Arc<AppState>, axum::Router) {
+        for name in ["WABIDB_ROOT_KEY", "WABIDB_PEER_ENDPOINT", "WABI_CHECKPOINT_DIR",
+            "WABI_CHECKPOINT_RECIPIENT", "WABI_CHECKPOINT_SOURCE_CONTEXT",
+            "WABI_CHECKPOINT_PEER_VERIFY_CONFIG", "WABI_RECOVERY_PUBLISHER_CONFIG"] {
+            assert!(std::env::var_os(name).is_none(), "isolated sweep fixture required: {name}");
+        }
+        let root = tempfile::tempdir().unwrap().keep();
+        let data = root.join("data");
+        let state = Arc::new(AppState::new(ServerConfig {
+            host: "127.0.0.1".into(), port: 0,
+            data_dir: data.to_string_lossy().into(),
+            uploads_dir: root.join("uploads").to_string_lossy().into(),
+            jwt_secret: uuid::Uuid::new_v4().simple().to_string(),
+            turn_enabled: false, turn_uri: None, turn_secret: None,
+            node_id: "sweep-lifetime-fixture".into(), is_primary: true,
+            server_role: ServerRole::Authority, authority_url: None,
+            admin_user_ids: vec![], blacklist_file: data.join("blacklist").to_string_lossy().into(),
+            max_body_size: None, mesh_enabled: false, mesh_peers: vec![],
+            lore: LoreAddonConfig::default(),
+        }).await.unwrap());
+        let router = crate::app_router::build_app_router(state.clone());
+        (root, state, router)
+    }
+    fn inode(path: &Path) -> (u64, u64) {
+        let m = std::fs::symlink_metadata(path).unwrap();
+        assert!(m.is_file() && !m.file_type().is_symlink());
+        (m.dev(), m.ino())
+    }
+    async fn original_engine_stopped(path: &Path, original: (u64, u64)) -> File {
+        assert_eq!(inode(path), original);
+        let file = OpenOptions::new().read(true).write(true).open(path).unwrap();
+        assert_eq!((file.metadata().unwrap().dev(), file.metadata().unwrap().ino()), original);
+        tokio::time::timeout(Duration::from_secs(20), async {
+            while !fs4::fs_std::FileExt::try_lock_exclusive(&file).unwrap() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await.expect("original engine owners must actually release the existing lock");
+        assert_eq!(inode(path), original);
+        file
+    }
+    async fn close_transport(state: &AppState) {
+        let io = state.sio.write().unwrap().take();
+        if let Some(io) = io { io.close().await; }
+        state.checkpoint_jobs.shutdown_peer_verification().await;
+        state.tailcat.shutdown().await;
+    }
+    async fn wait_retired(state: &std::sync::Weak<AppState>) {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while state.upgrade().is_some() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await.expect("idle full-router sweep must not retain an Authority");
+    }
+    fn sweep_owner(state: Arc<AppState>) -> SweepState {
+        SweepState::new(SioState {
+            app: state, connected_users: Arc::new(RwLock::new(HashMap::new())),
+            voice_channels: Arc::new(RwLock::new(HashMap::new())),
+            group_call_sessions: Arc::new(RwLock::new(HashMap::new())),
+            breakout_rooms: Arc::new(RwLock::new(HashMap::new())),
+            roster_cache: Arc::new(TokioMutex::new(None)),
+        })
+    }
+
+    #[tokio::test]
+    async fn full_router_idle_sweep_releases_authority_and_original_engine_lock() {
+        let (root, state, router) = fixture().await;
+        let lock = root.join("data/wabidb/.lock");
+        let original = inode(&lock);
+        let weak = Arc::downgrade(&state);
+        close_transport(&state).await;
+        drop(router);
+        drop(state);
+        // Two seconds is less than the actual sixty-second boot wait. The
+        // production full router is retained; no partial API router is used.
+        wait_retired(&weak).await;
+        let _stopped = original_engine_stopped(&lock, original).await;
+    }
+
+    #[tokio::test]
+    async fn admitted_boot_sweep_retains_authority_until_guarded_work_finishes() {
+        let (root, state, router) = fixture().await;
+        let lock = root.join("data/wabidb/.lock");
+        let original = inode(&lock);
+        let weak = Arc::downgrade(&state);
+        let operations = state.instance_operations.clone();
+        let pause = operations.quiesce().await.unwrap();
+        let owner = sweep_owner(state.clone());
+        // This is the exact boot-work function called by the production
+        // scheduler, queued behind its real instance-operation admission.
+        let task = tokio::spawn(async move { run_boot_sweep(&owner).await });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while operations.waiting_operations() == 0 {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        }).await.expect("actual boot sweep must reach the owned operation gate");
+        close_transport(&state).await;
+        drop(router);
+        drop(state);
+        assert!(weak.upgrade().is_some(), "accepted sweep must retain its Authority");
+        let probe = OpenOptions::new().read(true).write(true).open(&lock).unwrap();
+        assert!(!fs4::fs_std::FileExt::try_lock_exclusive(&probe).unwrap(),
+            "original engine lock must remain held while accepted work waits");
+        drop(probe);
+        drop(pause);
+        assert!(tokio::time::timeout(Duration::from_secs(5), task).await.unwrap().unwrap());
+        wait_retired(&weak).await;
+        let _stopped = original_engine_stopped(&lock, original).await;
+    }
 }
 
 // ---------------------------------------------------------------------------

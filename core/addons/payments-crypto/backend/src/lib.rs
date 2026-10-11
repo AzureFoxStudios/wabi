@@ -6,9 +6,9 @@
 //! pointer and renders URIs/QRs; it never custodies funds.
 //!
 //! Chains (method ids):
-//! - `usdc_base`   — USDC on Base (EIP-681 `ethereum:0x..@8453`)
+//! - `usdc_base`   — USDC on Base (EIP-681 token `transfer` request)
 //! - `usdc_solana` — USDC on Solana (`solana:..` with SPL mint param)
-//! - `usdt_tron`   — USDT on TRON / TRC-20 (`tron:..`)
+//! - `usdt_tron`   — USDT on TRON / TRC-20 (manual transfer pointer)
 //! - `btc`         — BTC BIP21 (`bitcoin:addr?amount=..&label=..`)
 //! - `lightning`   — LNURL-pay or BOLT 12 static offer (`lightning:..`)
 //! - `monero`      — Monero (`monero:addr?tx_amount=..`)
@@ -116,13 +116,8 @@ pub fn validate_pointer(chain: &str, pointer: &str) -> Result<(), String> {
         }
         "btc" => {
             let addr = raw.strip_prefix("bitcoin:").unwrap_or(raw);
-            if addr.contains('?') {
-                let addr = addr.split('?').next().unwrap_or("");
-                return if validate_btc_address(addr) {
-                    Ok(())
-                } else {
-                    Err("invalid Bitcoin address in BIP21 URI".into())
-                };
+            if addr.contains(['?', '#']) {
+                return Err("Use a Bitcoin receive address without URI parameters; Wabi adds the requested amount".into());
             }
             if validate_btc_address(addr) {
                 Ok(())
@@ -148,7 +143,9 @@ pub fn validate_pointer(chain: &str, pointer: &str) -> Result<(), String> {
         }
         "monero" => {
             let addr = raw.strip_prefix("monero:").unwrap_or(raw);
-            let addr = addr.split('?').next().unwrap_or(addr);
+            if addr.contains(['?', '#']) {
+                return Err("Use a Monero receive address without URI parameters; Wabi adds the requested amount".into());
+            }
             if (addr.len() == 95 || addr.len() == 106) && is_base58(addr) {
                 Ok(())
             } else {
@@ -208,21 +205,35 @@ pub struct RenderParams<'a> {
 
 /// Build the QR payload (a wallet URI) for a chain + pointer + amount.
 pub fn build_qr_payload(p: &RenderParams<'_>) -> Result<String, String> {
+    if p.amount_minor <= 0 {
+        return Err("amount must be positive".into());
+    }
     validate_pointer(p.chain, p.pointer)?;
     let chain = chain_info(p.chain).ok_or_else(|| format!("unknown chain: {}", p.chain))?;
     let raw = p.pointer.trim();
-    let amount = minor_to_amount(p.amount_minor.max(0), chain.decimals);
+    let amount = minor_to_amount(p.amount_minor, chain.decimals);
     let label = urlencode(p.merchant_name);
     match p.chain {
         "usdc_base" => {
             let addr = raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X")).unwrap_or(raw);
-            Ok(format!("ethereum:0x{}@8453", addr.to_ascii_lowercase()))
+            // Circle's native Base USDC contract (mainnet), checked against
+            // https://developers.circle.com/stablecoins/usdc-contract-addresses.
+            // ERC-681 requires the token contract as target and the recipient
+            // and atomic token amount as typed transfer arguments:
+            // https://eips.ethereum.org/EIPS/eip-681.
+            Ok(format!(
+                "ethereum:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913@8453/transfer?address=0x{}&uint256={}",
+                addr.to_ascii_lowercase(), p.amount_minor
+            ))
         }
         "usdc_solana" => Ok(format!(
             "solana:{raw}?amount={amount}&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
         )),
-        "usdt_tron" => Ok(format!("tron:{raw}")),
-        "btc" => Ok(format!("bitcoin:{raw}?amount={amount}&label={label}")),
+        "usdt_tron" => Err("USDT on TRON uses manual transfer instructions; no verified token payment URI is available".into()),
+        "btc" => {
+            let addr = raw.strip_prefix("bitcoin:").unwrap_or(raw);
+            Ok(format!("bitcoin:{addr}?amount={amount}&label={label}"))
+        }
         "lightning" => {
             let payload = raw.strip_prefix("lightning:").unwrap_or(raw);
             Ok(format!("lightning:{payload}"))
@@ -237,6 +248,21 @@ pub fn build_qr_payload(p: &RenderParams<'_>) -> Result<String, String> {
 
 /// Frontend presentation blob for the intent card: QR payload + copy block.
 pub fn presentation(p: &RenderParams<'_>) -> Result<Value, String> {
+    if p.amount_minor <= 0 {
+        return Err("amount must be positive".into());
+    }
+    if p.chain == "usdt_tron" || p.chain == "lightning" {
+        validate_pointer(p.chain, p.pointer)?;
+        let info = chain_info(p.chain).ok_or_else(|| format!("unknown chain: {}", p.chain))?;
+        return Ok(json!({
+            "mode": "app_switch",
+            "pointer": p.pointer.trim(),
+            "pointerLabel": info.label,
+            "chain": p.chain,
+            "referenceCode": p.reference_code,
+            "note": "Use your wallet to pay the requested asset, network and amount. This saved pointer does not encode or verify this request's amount. Check the wallet's final details before paying. The recipient records receipt manually; Wabi does not verify settlement.",
+        }));
+    }
     let qr_data = build_qr_payload(p)?;
     Ok(json!({
         "mode": "qr",
@@ -245,7 +271,7 @@ pub fn presentation(p: &RenderParams<'_>) -> Result<Value, String> {
         "chain": p.chain,
         "referenceCode": p.reference_code,
         "note": format!(
-            "{} Public chains are transparent — this rail is for pointers and QR only, never custody. Include the reference code in the transfer memo where supported.",
+            "{} Check the asset, network, destination and amount in your wallet before paying. Wabi checks address format only; wallet support and checksum validation are required. The recipient records receipt manually; Wabi does not verify settlement. Include the reference code in the transfer memo where supported.",
             chain_info(p.chain).map(|c| c.note).unwrap_or("")
         ),
     }))
@@ -311,7 +337,7 @@ mod tests {
             "btc",
             "bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4?amount=0.01&label=Wabi"
         )
-        .is_ok());
+        .is_err());
         assert!(validate_pointer("btc", "not-a-btc-address").is_err());
     }
 
@@ -341,7 +367,7 @@ mod tests {
         };
         assert_eq!(
             build_qr_payload(&p).unwrap(),
-            "ethereum:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913@8453"
+            "ethereum:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913@8453/transfer?address=0x833589fcd6edb6e08f4c7c32d4f71b54bda02913&uint256=1250000"
         );
 
         let p = RenderParams {
@@ -377,6 +403,44 @@ mod tests {
         assert_eq!(v["mode"], "qr");
         assert!(v["qrData"].as_str().unwrap().starts_with("solana:"));
         assert_eq!(v["copyText"], "So11111111111111111111111111111111111111112");
-        assert!(v["note"].as_str().unwrap().contains("never custody"));
+        assert!(v["note"].as_str().unwrap().contains("does not verify settlement"));
+    }
+
+    #[test]
+    fn prefixed_addresses_are_not_wrapped_twice() {
+        let p = RenderParams {
+            chain: "btc",
+            pointer: "bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+            amount_minor: 100_000,
+            reference_code: "WABI-7F3K",
+            merchant_name: "Wabi",
+        };
+        let uri = build_qr_payload(&p).unwrap();
+        assert!(uri.starts_with("bitcoin:bc1"));
+        assert!(!uri.contains("bitcoin:bitcoin:"));
+        assert_eq!(uri.matches('?').count(), 1);
+        let pointer = "monero:44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBEt7f2wfn3RVGQBEP3A?tx_amount=9";
+        assert!(validate_pointer("monero", pointer).is_err());
+    }
+
+    #[test]
+    fn pointers_without_a_verified_amount_uri_are_manual() {
+        for (chain, pointer) in [
+            ("usdt_tron", "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"),
+            ("lightning", "lno1pgq8ysxpar9q7hgz8dd0dq0rr3eqm4x3v"),
+        ] {
+            let p = RenderParams {
+                chain,
+                pointer,
+                amount_minor: 100_000,
+                reference_code: "WABI-7F3K",
+                merchant_name: "Wabi",
+            };
+            let rendered = presentation(&p).unwrap();
+            assert_eq!(rendered["mode"], "app_switch");
+            assert_eq!(rendered["pointer"], pointer);
+            assert!(rendered.get("qrData").is_none());
+            assert!(presentation(&RenderParams { amount_minor: 0, ..p }).is_err());
+        }
     }
 }
