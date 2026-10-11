@@ -2,8 +2,9 @@
 //! Phase 1 (roadmap 2026-08-18): intents moved out of JSONL into the WabiDB
 //! `payments` stream as `payment_intent_created` / `payment_intent_confirmed`
 //! / `payment_intent_rejected` events, replayed into the payment projection
-//! on restart. Admin manually confirms PromptPay (Thai banks don't webhook
-//! hobbyist servers). A one-shot migration replays any legacy `intents.jsonl`
+//! on restart. The request creator or an administrator records receipt
+//! manually; these records are not provider-verified settlement. A one-shot
+//! migration replays any legacy `intents.jsonl`
 //! file from the pre-Phase-1 overnight pass.
 //!
 //! Phases 2-4: `provider` selects a compile-time-optional rail addon
@@ -28,8 +29,8 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
+use super::json_error;
 use super::promptpay::{build_promptpay_qr_payload, PromptPayQrParams};
-use super::{account_user_id, evaluate_payment_access, is_admin_user, json_error};
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
 use wabidb::projections::payments::PaymentIntentRecord;
@@ -44,7 +45,7 @@ pub type PaymentIntent = PaymentIntentRecord;
 pub struct CreateIntentInput {
     pub amount_minor: i64,
     pub currency: Option<String>,
-    /// PromptPay phone or national ID of the *payee* (server operator).
+    /// Explicit PromptPay phone or national ID of the payee.
     pub promptpay_proxy_id: Option<String>,
     pub note: Option<String>,
     pub provider: Option<String>,
@@ -56,6 +57,8 @@ pub struct CreateIntentInput {
     /// Rail-specific payee pointer/account (wallet address, IBAN, $cashtag,
     /// ACH routing/account, …) — required for the payments-* rails.
     pub provider_ref: Option<String>,
+    /// Account holder name required for an EPC transfer to this payee.
+    pub payee_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,28 +68,19 @@ pub struct ConfirmIntentInput {
     pub reference_note: Option<String>,
 }
 
-/// WABI-XXXX reconciliation code from an unambiguous alphabet (no 0/O,
+/// WABI-XXXXXXXX reconciliation code from an unambiguous alphabet (no 0/O,
 /// 1/I, 8/B confusion) — the memo/remittance the payer must include so the
 /// seller can match the incoming transfer to the intent. Not a secret; a
-/// time+pid mix avoids pulling an RNG dependency into the server.
+/// UUID randomness keeps concurrent requests independent.
 fn reference_code() -> String {
     const ALPHABET: &[u8] = b"2345679ACDEFGHJKMNPQRSTUVWXYZ";
-    let mut code = String::with_capacity(9);
+    let mut code = String::with_capacity(13);
     code.push_str("WABI-");
-    for _ in 0..4 {
-        let idx = (rand_byte() as usize) % ALPHABET.len();
+    for byte in Uuid::new_v4().as_bytes().iter().take(8) {
+        let idx = (*byte as usize) % ALPHABET.len();
         code.push(ALPHABET[idx] as char);
     }
     code
-}
-
-fn rand_byte() -> u8 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
-    ((nanos ^ std::process::id()) >> 3) as u8
 }
 
 /// Default currency per payments-crypto chain when the request omits one.
@@ -107,7 +101,9 @@ fn default_chain_currency(chain: &str) -> &'static str {
 const LEGACY_JSONL_MARKER_SUFFIX: &str = ".migrated";
 
 fn legacy_intents_path(data_dir: &str) -> PathBuf {
-    PathBuf::from(data_dir).join("payments").join("intents.jsonl")
+    PathBuf::from(data_dir)
+        .join("payments")
+        .join("intents.jsonl")
 }
 
 /// One-shot migration of the pre-Phase-1 `intents.jsonl` file. Replays each
@@ -119,36 +115,82 @@ pub async fn migrate_legacy_intents(state: &Arc<AppState>) {
     if !path.exists() {
         return;
     }
-    let Ok(file) = fs::File::open(&path) else {
-        return;
+    let file = match fs::File::open(&path) {
+        Ok(file) => file,
+        Err(error) => {
+            tracing::error!("payments: cannot open legacy intents for migration: {error}");
+            return;
+        }
     };
-    let Ok(projection) = state.wdb.list_payment_intents(0, true).await else {
-        return;
+    let projection = match state.wdb.list_payment_intents(0, true).await {
+        Ok(projection) => projection,
+        Err(error) => {
+            tracing::error!("payments: cannot read current intents for legacy migration: {error}");
+            return;
+        }
     };
-    let known: std::collections::HashSet<String> =
-        projection.into_iter().map(|i| i.id).collect();
+    let known: std::collections::HashSet<String> = projection.into_iter().map(|i| i.id).collect();
 
     let mut migrated = 0usize;
-    for line in std::io::BufReader::new(file).lines().flatten() {
+    let mut failed = false;
+    for (index, line) in std::io::BufReader::new(file).lines().enumerate() {
+        let line = match line {
+            Ok(line) => line,
+            Err(error) => {
+                tracing::error!(
+                    "payments: cannot read legacy intent line {}: {error}",
+                    index + 1
+                );
+                failed = true;
+                break;
+            }
+        };
         if line.trim().is_empty() {
             continue;
         }
-        let Ok(intent) = serde_json::from_str::<PaymentIntentRecord>(&line) else {
-            continue;
+        let intent = match serde_json::from_str::<PaymentIntentRecord>(&line) {
+            Ok(intent) => intent,
+            Err(error) => {
+                tracing::error!(
+                    "payments: invalid legacy intent line {}: {error}",
+                    index + 1
+                );
+                failed = true;
+                continue;
+            }
         };
         if known.contains(&intent.id) {
             continue;
         }
-        if state.wdb.create_payment_intent(&intent).await.is_ok() {
-            migrated += 1;
+        match state.wdb.create_payment_intent(&intent).await {
+            Ok(()) => migrated += 1,
+            Err(error) => {
+                tracing::error!(
+                    "payments: failed to import legacy intent line {}: {error}",
+                    index + 1
+                );
+                failed = true;
+                break;
+            }
         }
+    }
+    if failed {
+        tracing::error!(
+            "payments: legacy intent migration incomplete; original JSONL preserved for recovery"
+        );
+        return;
     }
     let marker = path.with_file_name(format!(
         "intents.jsonl{}{}",
         LEGACY_JSONL_MARKER_SUFFIX,
         chrono::Utc::now().timestamp_millis()
     ));
-    let _ = fs::rename(&path, &marker);
+    if let Err(error) = fs::rename(&path, &marker) {
+        tracing::error!(
+            "payments: legacy intents imported but source could not be marked migrated: {error}"
+        );
+        return;
+    }
     if migrated > 0 {
         tracing::info!(
             "payments: migrated {} legacy intent(s) from intents.jsonl into the WabiDB projection",
@@ -175,12 +217,25 @@ pub async fn create_intent(
         Err(response) => return response,
     };
     let user_id = auth.user_id;
-    let policy = match super::load_access_policy(&state, false).await {
+    let admission = match super::access::admit_payment(&state, &auth).await {
+        Ok(admission) => admission,
+        Err(response) => return response,
+    };
+    let policy_guard = state.payment_policy_lock.clone().lock_owned().await;
+    let policy = match super::access::load_access_policy_locked(&state, false).await {
         Ok(policy) => policy,
         Err(error) => return super::access_unavailable(&error),
     };
     // WS-3: enforce the persisted payments access policy + user blocks.
-    let actor = match evaluate_payment_access(&state, &policy, user_id, auth.is_guest).await {
+    let actor = match super::evaluate_payment_access_with_owner(
+        &state,
+        &policy,
+        user_id,
+        auth.is_guest,
+        admission.is_owner,
+    )
+    .await
+    {
         Ok(actor) => actor,
         Err(error) => return super::access_unavailable(&error),
     };
@@ -194,10 +249,17 @@ pub async fn create_intent(
     if input.amount_minor <= 0 {
         return json_error(StatusCode::BAD_REQUEST, "amountMinor must be > 0");
     }
+    if input.amount_minor > 9_007_199_254_740_991 {
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            "amountMinor exceeds the supported exact integer limit",
+        );
+    }
     let provider = input
         .provider
         .as_deref()
         .unwrap_or("promptpay")
+        .trim()
         .to_ascii_lowercase();
     let method_id = input
         .method_id
@@ -215,6 +277,31 @@ pub async fn create_intent(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty());
+    let expected_currency = match provider.as_str() {
+        "promptpay" => "THB",
+        "payments-eu" => "EUR",
+        "payments-us" => "USD",
+        "payments-crypto" => default_chain_currency(method_id.unwrap_or_default()),
+        _ => "",
+    };
+    if input
+        .currency
+        .as_deref()
+        .is_some_and(|currency| !currency.trim().eq_ignore_ascii_case(expected_currency))
+    {
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            "currency must match the selected payment method",
+        );
+    }
+    if country_code.as_deref().is_some_and(|country| {
+        country.len() != 2 || !country.bytes().all(|byte| byte.is_ascii_alphabetic())
+    }) {
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            "countryCode must be two ASCII letters",
+        );
+    }
 
     let id = format!("pi_{}", Uuid::new_v4().simple());
     let now = chrono::Utc::now().timestamp_millis();
@@ -239,15 +326,20 @@ pub async fn create_intent(
 
     match provider.as_str() {
         "promptpay" => {
-            let proxy = input
-                .promptpay_proxy_id
-                .clone()
-                .or_else(|| std::env::var("WABI_PROMPTPAY_PROXY_ID").ok())
-                .unwrap_or_default();
+            if method_id.is_some_and(|method| method != "promptpay_qr") {
+                return json_error(StatusCode::BAD_REQUEST, "methodId must be promptpay_qr");
+            }
+            if country_code
+                .as_deref()
+                .is_some_and(|country| country != "TH")
+            {
+                return json_error(StatusCode::BAD_REQUEST, "PromptPay requires countryCode TH");
+            }
+            let proxy = input.promptpay_proxy_id.clone().unwrap_or_default();
             if proxy.trim().is_empty() {
                 return json_error(
                     StatusCode::BAD_REQUEST,
-                    "promptpayProxyId required (or set WABI_PROMPTPAY_PROXY_ID)",
+                    "promptpayProxyId required for the intended recipient",
                 );
             }
             let qr = match build_promptpay_qr_payload(PromptPayQrParams {
@@ -260,10 +352,7 @@ pub async fn create_intent(
                 Ok(p) => p,
                 Err(e) => return json_error(StatusCode::BAD_REQUEST, &e),
             };
-            intent.currency = input
-                .currency
-                .unwrap_or_else(|| "THB".into())
-                .to_ascii_uppercase();
+            intent.currency = "THB".into();
             intent.method_id = Some("promptpay_qr".into());
             intent.country_code = Some("TH".into());
             intent.promptpay_proxy_id = Some(proxy.trim().to_string());
@@ -301,15 +390,11 @@ pub async fn create_intent(
                     reference_code: &reference_code,
                     merchant_name: &merchant_name,
                 };
-                let presentation =
-                    match wabi_payments_crypto::presentation(&params) {
-                        Ok(p) => p,
-                        Err(e) => return json_error(StatusCode::BAD_REQUEST, &e),
-                    };
-                intent.currency = input
-                    .currency
-                    .unwrap_or_else(|| default_chain_currency(chain).into())
-                    .to_ascii_uppercase();
+                let presentation = match wabi_payments_crypto::presentation(&params) {
+                    Ok(p) => p,
+                    Err(e) => return json_error(StatusCode::BAD_REQUEST, &e),
+                };
+                intent.currency = default_chain_currency(chain).into();
                 intent.method_id = Some(chain.into());
                 intent.country_code = country_code;
                 intent.presentation_json = Some(presentation.to_string());
@@ -327,6 +412,9 @@ pub async fn create_intent(
             #[cfg(feature = "wabi-payments-eu")]
             {
                 use wabi_payments_eu::EpcQrParams;
+                if method_id.is_some_and(|method| method != "epc_qr") {
+                    return json_error(StatusCode::BAD_REQUEST, "methodId must be epc_qr");
+                }
                 let iban = match provider_ref {
                     Some(i) => i,
                     None => {
@@ -337,25 +425,32 @@ pub async fn create_intent(
                     }
                 };
                 let reference_code = reference_code();
-                let payee_name = env_or("WABI_EU_PAYEE_NAME", "WABI");
-                let bic = std::env::var("WABI_EU_BIC").ok();
-                let bic = bic.as_deref().filter(|b| !b.trim().is_empty());
+                // The name must belong to this destination account, rather
+                // than the operator's unrelated account or a made-up default.
+                let payee_name = match input.payee_name.as_deref().map(str::trim) {
+                    Some(name) if !name.is_empty() => name.to_owned(),
+                    _ => {
+                        return json_error(
+                            StatusCode::BAD_REQUEST,
+                            "payeeName required (the recipient's bank account name)",
+                        )
+                    }
+                };
                 let params = EpcQrParams {
                     payee_name: &payee_name,
                     iban,
-                    bic,
+                    bic: None,
                     amount_minor: input.amount_minor,
                     purpose: None,
-                    reference: Some(&reference_code),
-                    text: None,
+                    reference: None,
+                    text: Some(&reference_code),
                     info: None,
                 };
-                let presentation =
-                    match wabi_payments_eu::presentation(&params, &reference_code) {
-                        Ok(p) => p,
-                        Err(e) => return json_error(StatusCode::BAD_REQUEST, &e),
-                    };
-                intent.currency = input.currency.unwrap_or_else(|| "EUR".into());
+                let presentation = match wabi_payments_eu::presentation(&params, &reference_code) {
+                    Ok(p) => p,
+                    Err(e) => return json_error(StatusCode::BAD_REQUEST, &e),
+                };
+                intent.currency = "EUR".into();
                 intent.method_id = Some("epc_qr".into());
                 intent.country_code = country_code.or_else(|| Some("DE".into()));
                 intent.presentation_json = Some(presentation.to_string());
@@ -391,7 +486,16 @@ pub async fn create_intent(
                     }
                 };
                 let reference_code = reference_code();
-                let currency = input.currency.unwrap_or_else(|| "USD".into());
+                if country_code
+                    .as_deref()
+                    .is_some_and(|country| country != "US")
+                {
+                    return json_error(
+                        StatusCode::BAD_REQUEST,
+                        "US payment methods require countryCode US",
+                    );
+                }
+                let currency = "USD".to_owned();
                 let presentation = match wabi_payments_us::presentation(
                     rail,
                     pointer,
@@ -424,34 +528,47 @@ pub async fn create_intent(
         }
     }
 
-    if let Err(e) = state.wdb.create_payment_intent(&intent).await {
-        return json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to persist intent: {}", e),
-        );
-    }
-    Json(json!({ "success": true, "intent": intent })).into_response()
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            let _policy = policy_guard;
+            if let Err(e) = state.wdb.create_payment_intent(&intent).await {
+                return json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("failed to persist intent: {}", e),
+                );
+            }
+            Json(json!({ "success": true, "intent": intent })).into_response()
+        })
+        .await
 }
 
-pub async fn list_intents(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-) -> Response {
-    let user_id = match account_user_id(&headers, &state).await {
-        Ok(id) => id,
-        Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
+pub async fn list_intents(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    let auth = match super::authenticate_account(&headers, &state).await {
+        Ok(auth) => auth,
+        Err(response) => return response,
     };
-    let admin = is_admin_user(user_id, &state).await;
-    let intents = match state.wdb.list_payment_intents(user_id, admin).await {
-        Ok(intents) => intents,
-        Err(e) => {
-            return json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("failed to load intents: {}", e),
-            )
-        }
+    let user_id = auth.user_id;
+    let admission = match super::access::admit_payment(&state, &auth).await {
+        Ok(admission) => admission,
+        Err(response) => return response,
     };
-    Json(json!({ "success": true, "intents": intents })).into_response()
+    let admin = admission.is_admin;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            let intents = match state.wdb.list_payment_intents(user_id, admin).await {
+                Ok(intents) => intents,
+                Err(e) => {
+                    return json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        &format!("failed to load intents: {}", e),
+                    )
+                }
+            };
+            Json(json!({ "success": true, "intents": intents })).into_response()
+        })
+        .await
 }
 
 pub async fn confirm_intent(
@@ -460,13 +577,23 @@ pub async fn confirm_intent(
     AxumPath(id): AxumPath<String>,
     Json(input): Json<ConfirmIntentInput>,
 ) -> Response {
-    let admin_id = match account_user_id(&headers, &state).await {
-        Ok(id) => id,
-        Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
+    let auth = match super::authenticate_account(&headers, &state).await {
+        Ok(auth) => auth,
+        Err(response) => return response,
     };
-    if !is_admin_user(admin_id, &state).await {
-        return json_error(StatusCode::FORBIDDEN, "Admin access required");
+    if auth.is_guest {
+        return json_error(
+            StatusCode::FORBIDDEN,
+            "A registered account is required to record receipt",
+        );
     }
+    let admission = match super::access::admit_payment(&state, &auth).await {
+        Ok(admission) => admission,
+        Err(response) => return response,
+    };
+    let admin = admission.is_admin;
+    let operation_state = state.clone();
+    admission.run(&operation_state, async move {
     let existing = match state.wdb.get_payment_intent(&id).await {
         Ok(Some(i)) => i,
         Ok(None) => return json_error(StatusCode::NOT_FOUND, "Intent not found"),
@@ -477,14 +604,22 @@ pub async fn confirm_intent(
             )
         }
     };
+    // The request creator is the receiving party in this non-custodial
+    // handshake. Recording receipt is an assertion, never provider evidence.
+    if existing.user_id != auth.user_id && !admin {
+        return json_error(StatusCode::FORBIDDEN, "Only the request creator or an administrator can record receipt");
+    }
     if existing.status != "pending" {
         return json_error(StatusCode::CONFLICT, "Intent is not pending");
+    }
+    if input.actual_amount_minor.is_some_and(|amount| amount != existing.amount_minor) {
+        return json_error(StatusCode::BAD_REQUEST, "actualAmountMinor must match the original request; partial or excess payments require a separate record");
     }
     match state
         .wdb
         .confirm_payment_intent(
             &id,
-            admin_id,
+            auth.user_id,
             input.actual_amount_minor,
             input.reference_note,
         )
@@ -497,6 +632,7 @@ pub async fn confirm_intent(
             &format!("failed to confirm intent: {}", e),
         ),
     }
+    }).await
 }
 
 pub async fn reject_intent(
@@ -505,38 +641,59 @@ pub async fn reject_intent(
     AxumPath(id): AxumPath<String>,
     Json(input): Json<ConfirmIntentInput>,
 ) -> Response {
-    let admin_id = match account_user_id(&headers, &state).await {
-        Ok(id) => id,
-        Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
+    let auth = match super::authenticate_account(&headers, &state).await {
+        Ok(auth) => auth,
+        Err(response) => return response,
     };
-    if !is_admin_user(admin_id, &state).await {
-        return json_error(StatusCode::FORBIDDEN, "Admin access required");
+    if auth.is_guest {
+        return json_error(
+            StatusCode::FORBIDDEN,
+            "A registered account is required to close requests",
+        );
     }
-    let existing = match state.wdb.get_payment_intent(&id).await {
-        Ok(Some(i)) => i,
-        Ok(None) => return json_error(StatusCode::NOT_FOUND, "Intent not found"),
-        Err(e) => {
-            return json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("failed to load intent: {}", e),
-            )
-        }
+    let admission = match super::access::admit_payment(&state, &auth).await {
+        Ok(admission) => admission,
+        Err(response) => return response,
     };
-    if existing.status != "pending" {
-        return json_error(StatusCode::CONFLICT, "Intent is not pending");
-    }
-    match state
-        .wdb
-        .reject_payment_intent(&id, admin_id, input.reference_note)
+    let admin = admission.is_admin;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            let existing = match state.wdb.get_payment_intent(&id).await {
+                Ok(Some(i)) => i,
+                Ok(None) => return json_error(StatusCode::NOT_FOUND, "Intent not found"),
+                Err(e) => {
+                    return json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        &format!("failed to load intent: {}", e),
+                    )
+                }
+            };
+            if existing.user_id != auth.user_id && !admin {
+                return json_error(
+                    StatusCode::FORBIDDEN,
+                    "Only the request creator or an administrator can close requests",
+                );
+            }
+            if existing.status != "pending" {
+                return json_error(StatusCode::CONFLICT, "Intent is not pending");
+            }
+            match state
+                .wdb
+                .reject_payment_intent(&id, auth.user_id, input.reference_note)
+                .await
+            {
+                Ok(Some(intent)) => {
+                    Json(json!({ "success": true, "intent": intent })).into_response()
+                }
+                Ok(None) => json_error(StatusCode::CONFLICT, "Intent is not pending"),
+                Err(e) => json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("failed to reject intent: {}", e),
+                ),
+            }
+        })
         .await
-    {
-        Ok(Some(intent)) => Json(json!({ "success": true, "intent": intent })).into_response(),
-        Ok(None) => json_error(StatusCode::CONFLICT, "Intent is not pending"),
-        Err(e) => json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to reject intent: {}", e),
-        ),
-    }
 }
 
 #[cfg(test)]
@@ -549,7 +706,7 @@ mod tests {
             let code = reference_code();
             assert!(code.starts_with("WABI-"));
             let suffix = &code[5..];
-            assert_eq!(suffix.len(), 4);
+            assert_eq!(suffix.len(), 8);
             assert!(
                 suffix
                     .bytes()
@@ -566,5 +723,82 @@ mod tests {
         assert_eq!(default_chain_currency("btc"), "BTC");
         assert_eq!(default_chain_currency("monero"), "XMR");
         assert_eq!(default_chain_currency("nope"), "USD");
+    }
+
+    #[tokio::test]
+    async fn partial_legacy_migration_preserves_original_and_retry_marks_complete_import() {
+        use crate::config::{LoreAddonConfig, ServerConfig, ServerRole};
+        let temp = tempfile::TempDir::new().unwrap();
+        let data_dir = temp.path().to_string_lossy().into_owned();
+        let state = Arc::new(
+            AppState::new(ServerConfig {
+                host: "127.0.0.1".into(),
+                port: 0,
+                data_dir: data_dir.clone(),
+                uploads_dir: temp.path().join("uploads").to_string_lossy().into_owned(),
+                jwt_secret: "payment-migration-test".into(),
+                turn_enabled: false,
+                turn_uri: None,
+                turn_secret: None,
+                node_id: "payment-migration-test".into(),
+                is_primary: true,
+                server_role: ServerRole::Authority,
+                authority_url: None,
+                admin_user_ids: vec![],
+                blacklist_file: temp
+                    .path()
+                    .join("blacklist.txt")
+                    .to_string_lossy()
+                    .into_owned(),
+                max_body_size: None,
+                mesh_enabled: false,
+                mesh_peers: vec![],
+                lore: LoreAddonConfig {
+                    enabled: false,
+                    ..Default::default()
+                },
+            })
+            .await
+            .unwrap(),
+        );
+        let path = legacy_intents_path(&data_dir);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let valid = serde_json::json!({
+            "id": "pi_legacy_migration", "userId": 7, "provider": "promptpay",
+            "amountMinor": 100, "currency": "THB", "status": "pending",
+            "promptpayProxyId": "0812345678", "promptpayQrPayload": null,
+            "note": null, "createdAt": 1000, "updatedAt": 1000,
+            "confirmedBy": null, "confirmNote": null
+        })
+        .to_string();
+        let source = format!("{valid}\ninvalid legacy record\n");
+        fs::write(&path, &source).unwrap();
+        migrate_legacy_intents(&state).await;
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            source,
+            "incomplete import must retain source byte for byte"
+        );
+        assert!(state
+            .wdb
+            .get_payment_intent("pi_legacy_migration")
+            .await
+            .unwrap()
+            .is_some());
+        assert_eq!(
+            fs::read_dir(path.parent().unwrap()).unwrap().count(),
+            1,
+            "no migrated marker on partial import"
+        );
+        // Operator repairs the malformed source; existing accepted records
+        // are skipped, and the complete source is archived only now.
+        fs::write(&path, format!("{valid}\n")).unwrap();
+        migrate_legacy_intents(&state).await;
+        assert!(!path.exists());
+        assert_eq!(
+            state.wdb.list_payment_intents(0, true).await.unwrap().len(),
+            1
+        );
+        assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
     }
 }

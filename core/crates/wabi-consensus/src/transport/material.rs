@@ -17,12 +17,17 @@ const OBJECT_BYTES: usize = 64 * 1024;
 const MANIFEST_BYTES: usize = 256 * 1024;
 mod availability;
 pub(super) mod client;
-pub use availability::{CheckpointAvailabilityProposal, CheckpointAvailabilityRound};
+pub use availability::{
+    CheckpointAvailabilityProposal, CheckpointAvailabilityRound, CommittedCheckpointObservation,
+};
 pub use client::{AuthenticatedCheckpointAck, CheckpointClient};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum MaterialRequest {
+    ControlFormat {
+        probe_version: u8,
+    },
     PutCheckpointObject {
         object: ObjectRef,
         bytes_hex: String,
@@ -44,6 +49,10 @@ pub(super) enum MaterialRequest {
 #[derive(Debug, Serialize)]
 #[serde(tag = "operation", content = "payload", rename_all = "snake_case")]
 pub(super) enum MaterialReply {
+    ControlFormat {
+        probe_version: u8,
+        maximum_control_schema: u8,
+    },
     Object(ObjectRef),
     Checkpoint(LocalCheckpointReceipt),
     Manifest(CheckpointManifest),
@@ -55,6 +64,7 @@ pub(super) enum MaterialReply {
 
 /// Optional service configuration; construction compares the actual immutable
 /// disk binding, not a separately supplied description of that disk store.
+#[derive(Clone)]
 pub struct MaterialService {
     pub(super) io: MaterialIo,
     binding: crate::model::StoreBinding,
@@ -168,6 +178,20 @@ impl MaterialIo {
     }
     pub(super) async fn execute(&self, request: MaterialRequest) -> Result<MaterialReply> {
         match request {
+            MaterialRequest::ControlFormat { probe_version } => {
+                if probe_version != 1 {
+                    return Err(Error::Protocol);
+                }
+                // Code-format support only. This does not certify active
+                // voter status, retained bytes, or Authority readiness.
+                self.run(|_store| {
+                    Ok(MaterialReply::ControlFormat {
+                        probe_version: 1,
+                        maximum_control_schema: 2,
+                    })
+                })
+                .await
+            }
             MaterialRequest::PutCheckpointObject { object, bytes_hex } => {
                 let bytes = object_bytes(&object, &bytes_hex)?;
                 self.run(move |store| {

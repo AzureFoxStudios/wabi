@@ -1,7 +1,7 @@
 //! Payments Phase 1 contract (roadmap 2026-08-18):
 //! - intents are persisted as events (created → confirmed/rejected), NOT JSONL
 //! - intents survive a full engine restart (replay from the stream log)
-//! - non-admins can create intents but cannot confirm/reject
+//! - request creators can record manual receipt; other members cannot
 //! - account links upsert/delete against the projection
 //! - policy rows (payments_access) persist
 
@@ -142,6 +142,7 @@ async fn intent_created_listed_confirmed_and_persisted() {
     let owner = owner_registration["token"].as_str().unwrap().to_string();
     let owner_id = owner_registration["user"]["id"].as_i64().unwrap();
     let member = register(&app, "bob").await;
+    let other_member = register(&app, "charlie").await;
     let owner_id = actor_user_id(&app, &owner).await;
 
     // Non-admin can create an intent…
@@ -159,13 +160,13 @@ async fn intent_created_listed_confirmed_and_persisted() {
     assert_eq!(created["intent"]["amountMinor"], 20000);
     assert!(created["intent"]["promptpayQrPayload"].is_string());
 
-    // …but cannot confirm or reject.
+    // Another member cannot record receipt on somebody else's request.
     let member_confirm = app
         .clone()
         .oneshot(authed(
             "POST",
             &format!("/payments/intents/{intent_id}/confirm"),
-            &member,
+            &other_member,
             Some(serde_json::json!({ "referenceNote": "nope" })),
         ))
         .await
@@ -286,6 +287,65 @@ async fn reject_flow_and_unknown_intent() {
         .await
         .unwrap();
     assert_eq!(bad_amount.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn receiving_member_records_receipt_without_payer_authority_or_amount_changes() {
+    let (tmp, app) = fresh_server().await;
+    let _owner = register(&app, "operator").await;
+    let receiver = register(&app, "seller").await;
+    let payer = register(&app, "buyer").await;
+    let create = app.clone().oneshot(authed("POST", "/payments/intents", &receiver, Some(promptpay_create()))).await.unwrap();
+    assert_eq!(create.status(), StatusCode::OK);
+    let original = body_json(create).await["intent"].clone();
+    let id = original["id"].as_str().unwrap();
+    let confirm_path = format!("/payments/intents/{id}/confirm");
+    let reject_path = format!("/payments/intents/{id}/reject");
+    for path in [&confirm_path, &reject_path] {
+        let forbidden = app.clone().oneshot(authed("POST", path, &payer, Some(serde_json::json!({})))).await.unwrap();
+        assert_eq!(forbidden.status(), StatusCode::FORBIDDEN, "payer cannot claim receipt or close the seller's request");
+        let unauthenticated = app.clone().oneshot(authed("POST", path, "", Some(serde_json::json!({})))).await.unwrap();
+        assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+    }
+    let buyer_history = body_json(app.clone().oneshot(authed("GET", "/payments/intents", &payer, None)).await.unwrap()).await;
+    assert!(buyer_history["intents"].as_array().unwrap().is_empty(), "sharing instructions does not grant access to private request history");
+    for amount in [0, -1, 19999, 20001] {
+        let invalid = app.clone().oneshot(authed("POST", &confirm_path, &receiver, Some(serde_json::json!({ "actualAmountMinor": amount })))).await.unwrap();
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    }
+    let confirmed = app.clone().oneshot(authed("POST", &confirm_path, &receiver, Some(serde_json::json!({ "actualAmountMinor": 20000, "referenceNote": "I checked my own bank" })))).await.unwrap();
+    assert_eq!(confirmed.status(), StatusCode::OK, "receiving member does not need operator privileges");
+    let receipt = body_json(confirmed).await["intent"].clone();
+    assert_eq!(receipt["status"], "completed");
+    assert_eq!(receipt["confirmedBy"], original["userId"]);
+    assert_eq!(receipt["amountMinor"], original["amountMinor"]);
+    assert_eq!(receipt["promptpayQrPayload"], original["promptpayQrPayload"]);
+    assert!(receipt["updatedAt"].as_i64().unwrap() >= original["createdAt"].as_i64().unwrap());
+    assert!(receipt["updatedAt"].as_i64().unwrap() < original["createdAt"].as_i64().unwrap() + 60_000, "timestamps remain milliseconds");
+    let closed = app.clone().oneshot(authed("POST", &reject_path, &receiver, Some(serde_json::json!({})))).await.unwrap();
+    assert_eq!(closed.status(), StatusCode::CONFLICT, "a manual receipt cannot be rewritten as a rejection");
+    let id = id.to_owned();
+    drop(app);
+    let state = Arc::new(writer_drain::app_state(&test_config(tmp.path())).await.unwrap());
+    let app = create_api_router(state.clone()).with_state(state);
+    let replayed = body_json(app.clone().oneshot(authed("GET", "/payments/intents", &receiver, None)).await.unwrap()).await;
+    assert_eq!(replayed["intents"][0]["id"], id);
+    assert_eq!(replayed["intents"][0], receipt, "manual receipt and original instructions survive replay");
+}
+
+#[tokio::test]
+async fn concurrent_manual_finalizations_accept_only_one_outcome() {
+    let (_tmp, app) = fresh_server().await;
+    let _owner = register(&app, "operator").await;
+    let receiver = register(&app, "seller").await;
+    let create = body_json(app.clone().oneshot(authed("POST", "/payments/intents", &receiver, Some(promptpay_create()))).await.unwrap()).await;
+    let id = create["intent"]["id"].as_str().unwrap();
+    let confirm = app.clone().oneshot(authed("POST", &format!("/payments/intents/{id}/confirm"), &receiver, Some(serde_json::json!({}))));
+    let reject = app.clone().oneshot(authed("POST", &format!("/payments/intents/{id}/reject"), &receiver, Some(serde_json::json!({}))));
+    let (confirm, reject) = tokio::join!(confirm, reject);
+    let statuses = [confirm.unwrap().status(), reject.unwrap().status()];
+    assert_eq!(statuses.iter().filter(|s| **s == StatusCode::OK).count(), 1);
+    assert_eq!(statuses.iter().filter(|s| **s == StatusCode::CONFLICT).count(), 1);
 }
 
 #[tokio::test]

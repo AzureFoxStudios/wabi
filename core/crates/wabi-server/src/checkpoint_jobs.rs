@@ -28,6 +28,68 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+#[cfg(target_os = "linux")]
+pub(crate) struct HeldReadyCapture {
+    pub(crate) context: wabi_consensus::source_context::SignedSourceContext,
+    pub(crate) file: fs::File,
+    pub(crate) guard: ReadyCaptureGuard,
+}
+#[cfg(target_os = "linux")]
+pub(crate) struct ReadyCaptureGuard {
+    directory: Arc<SourceDirectory>,
+    archive: crate::instance_archive::source_context::ArchiveLease,
+    job: CheckpointJob,
+    context: wabi_consensus::source_context::SignedSourceContext,
+    community: String,
+    node: String,
+    // Release only after the actual owned publication and final checks drain.
+    _permit: tokio::sync::OwnedSemaphorePermit,
+}
+#[cfg(target_os = "linux")]
+impl ReadyCaptureGuard {
+    pub(crate) fn verify(&self) -> Result<()> {
+        self.archive.verify()?;
+        let result = (|| {
+            ensure!(
+                serde_json::to_vec(&self.directory.job(&self.job.id)?)?
+                    == serde_json::to_vec(&self.job)?,
+                "persisted Ready capture changed"
+            );
+            let context = self.directory.read(&self.job.id)?;
+            ensure!(context == self.context, "original source context changed");
+            validate_receipt(
+                &context,
+                self.job.receipt.as_ref().context("missing original export receipt")?,
+                &self.community,
+                &self.node,
+            )
+        })();
+        // Directory/name loss cannot be hidden by another record-read failure.
+        self.archive.verify()?;
+        result
+    }
+}
+
+/// Trusted publisher only. A missing UI-history entry may use the original
+/// private durable Ready record; a present entry remains authoritative and
+/// must agree exactly. This does not expand public history or operator routes.
+#[cfg(target_os = "linux")]
+fn held_ready_job(
+    id: &str, observed: Option<&CheckpointJob>, persisted: CheckpointJob,
+) -> Result<CheckpointJob> {
+    ensure!(valid_job_id(id) && persisted.schema_version == 1 && persisted.id == id,
+        "persisted capture identity differs");
+    if let Some(job) = observed {
+        ensure!(job.phase == CheckpointPhase::Ready && job.failure_code.is_none()
+            && job.receipt.is_some(), "observed checkpoint not ready");
+        ensure!(serde_json::to_vec(job)? == serde_json::to_vec(&persisted)?,
+            "persisted checkpoint job differs");
+    }
+    ensure!(persisted.phase == CheckpointPhase::Ready && persisted.failure_code.is_none()
+        && persisted.receipt.is_some(), "persisted checkpoint not ready");
+    Ok(persisted)
+}
+
 const HISTORY: usize = 16;
 const MAX_DIRECTORY_ENTRIES: usize = 512;
 const MAX_RECORD_BYTES: u64 = 64 * 1024;
@@ -123,6 +185,8 @@ struct Inner {
     source_directory: Option<Arc<SourceDirectory>>,
     source_reads: Arc<tokio::sync::Semaphore>,
     jobs: Mutex<JobState>,
+    #[cfg(target_os = "linux")]
+    peer_verification: Mutex<Option<crate::recovery_peer_jobs::PeerVerificationJobs>>,
 }
 #[derive(Clone)]
 pub struct CheckpointJobs(Arc<Inner>);
@@ -159,6 +223,11 @@ fn number(name: &str, default: u64) -> Result<u64> {
 }
 
 impl CheckpointJobs {
+    /// Configured support only; no admission, Ready or writer verdict.
+    pub(crate) fn source_publication_enabled(&self) -> bool {
+        self.0.policy.is_some() && self.0.source_directory.is_some()
+    }
+
     pub fn from_environment(config: &ServerConfig) -> Result<Self> {
         let directory = std::env::var_os("WABI_CHECKPOINT_DIR");
         let recipient = std::env::var("WABI_CHECKPOINT_RECIPIENT").ok();
@@ -197,6 +266,35 @@ impl CheckpointJobs {
 
     /// Separate startup opt-in; old V2/receipt/job schemas are unchanged.
     pub fn open_with_source_context(
+        policy: Option<CheckpointPolicy>,
+        config: &ServerConfig,
+        enabled: bool,
+    ) -> Result<Self> {
+        let manager = Self::open_core(policy, config, enabled)?;
+        #[cfg(target_os = "linux")]
+        {
+            let peers = crate::recovery_peer_jobs::PeerVerificationJobs::from_environment(config, enabled)?;
+            *manager.0.peer_verification.lock().unwrap_or_else(|e| e.into_inner()) = peers;
+        }
+        #[cfg(not(target_os = "linux"))]
+        ensure!(std::env::var_os("WABI_CHECKPOINT_PEER_VERIFY_CONFIG").is_none(),
+            "peer verification is supported only on Linux");
+        Ok(manager)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn open_with_peer_verification(
+        policy: Option<CheckpointPolicy>,
+        config: &ServerConfig,
+        peer_policy: crate::recovery_peer_jobs::PeerVerificationPolicy,
+    ) -> Result<Self> {
+        let manager = Self::open_core(policy, config, true)?;
+        let peers = crate::recovery_peer_jobs::PeerVerificationJobs::open(peer_policy, config)?;
+        *manager.0.peer_verification.lock().unwrap_or_else(|e| e.into_inner()) = Some(peers);
+        Ok(manager)
+    }
+
+    fn open_core(
         mut policy: Option<CheckpointPolicy>,
         config: &ServerConfig,
         enabled: bool,
@@ -278,6 +376,8 @@ impl CheckpointJobs {
             source_directory,
             source_reads: Arc::new(tokio::sync::Semaphore::new(1)),
             jobs: Mutex::new(jobs),
+            #[cfg(target_os = "linux")]
+            peer_verification: Mutex::new(None),
         })))
     }
 
@@ -299,6 +399,15 @@ impl CheckpointJobs {
         community: String,
         node: String,
     ) -> Result<wabi_consensus::source_context::SignedSourceContext> {
+        self.source_capture(id, community, node).await.map(|(context, _)| context)
+    }
+
+    async fn source_capture(
+        &self,
+        id: String,
+        community: String,
+        node: String,
+    ) -> Result<(wabi_consensus::source_context::SignedSourceContext, LiveArchiveReceipt)> {
         ensure!(valid_job_id(&id), "invalid checkpoint job ID");
         let directory = self
             .0
@@ -345,9 +454,77 @@ impl CheckpointJobs {
                 serde_json::to_vec(&directory.job(&id)?)? == serde_json::to_vec(&job)?,
                 "persisted checkpoint job changed"
             );
-            Ok(context)
+            Ok((context, receipt))
         })
         .await?
+    }
+
+    /// Trusted configured publisher only. The operator selects a Ready UUID;
+    /// source identity, path, receipt and key come from actual server state.
+    /// The returned guard must remain owned through publication and drain.
+    #[cfg(target_os = "linux")]
+    pub(crate) async fn held_ready_capture(
+        &self,
+        id: String,
+        community: String,
+        node: String,
+        max_capture_bytes: u64,
+        timeout: Duration,
+    ) -> Result<HeldReadyCapture> {
+        let deadline = std::time::Instant::now().checked_add(timeout)
+            .context("invalid source-read deadline")?;
+        ensure!(!timeout.is_zero() && timeout <= Duration::from_secs(30),
+            "invalid source-read deadline");
+        ensure!(valid_job_id(&id), "invalid checkpoint job ID");
+        ensure!(max_capture_bytes > 0, "invalid publication archive budget");
+        let directory = self.0.source_directory.clone().context("source context disabled")?;
+        let policy = self.0.policy.clone().context("checkpoints disabled")?;
+        let observed = self.0.jobs.lock().unwrap_or_else(|e| e.into_inner())
+            .history.iter().find(|job| job.id == id).cloned();
+        if let Some(job) = &observed {
+            ensure!(job.phase == CheckpointPhase::Ready && job.failure_code.is_none()
+                && job.receipt.is_some(), "checkpoint not ready");
+        }
+        let permit = self.0.source_reads.clone().try_acquire_owned()
+            .map_err(|_| anyhow::anyhow!("source read already active"))?;
+        // Cancellation drops the awaiting handle, never the actual blocking
+        // verification or its permit. An unobserved result releases its guard.
+        tokio::task::spawn_blocking(move || {
+            directory.verify_owned_root()?;
+            let result = (|| {
+            ensure!(std::time::Instant::now() < deadline, "source-read deadline elapsed");
+            let job = held_ready_job(&id, observed.as_ref(), directory.job(&id)?)?;
+            let receipt = job.receipt.clone().context("missing export receipt")?;
+            let context = directory.read(&id)?;
+            validate_receipt(&context, &receipt, &community, &node)?;
+            let (file, archive) = directory.verified_archive_with_lease(
+                &id,
+                &receipt,
+                policy.max_stored_bytes.min(max_capture_bytes),
+                policy.export_limits.copy_timeout.min(deadline
+                    .checked_duration_since(std::time::Instant::now())
+                    .context("source-read deadline elapsed")?),
+            )?;
+            let guard = ReadyCaptureGuard {
+                directory: directory.clone(), archive, job, context: context.clone(), community, node,
+                _permit: permit,
+            };
+            guard.verify()?;
+            Ok(HeldReadyCapture { context, file, guard })
+            })();
+            directory.verify_owned_root()?;
+            ensure!(std::time::Instant::now() < deadline, "source-read deadline elapsed");
+            result
+        }).await?
+    }
+
+    /// Stop admission and drain actual owned peer IO before runtime teardown.
+    pub async fn shutdown_peer_verification(&self) {
+        #[cfg(target_os = "linux")]
+        {
+            let peers = self.0.peer_verification.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            if let Some(peers) = peers { peers.shutdown().await; }
+        }
     }
 
     /// The ordinary spawned task deliberately inherits no admission task-local.
@@ -682,10 +859,159 @@ async fn source_context(
             .into_response(),
     }
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PeerVerificationRequest {
+    capture_job_id: String,
+    peer_node_id: u64,
+    manifest_sha256: String,
+}
+
+async fn peer_verification_status(
+    State(state): State<Arc<AppState>>, headers: HeaderMap, peer: ConnectInfo<SocketAddr>,
+) -> Response {
+    if let Err(response) = crate::api::operator::operator_auth(&headers, peer) { return response; }
+    #[cfg(target_os = "linux")]
+    {
+        let peers = state.checkpoint_jobs.0.peer_verification.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        Json(peers.map(|peers| peers.status()).unwrap_or_else(crate::recovery_peer_jobs::PeerVerificationStatus::disabled))
+            .into_response()
+    }
+    #[cfg(not(target_os = "linux"))]
+    { let _ = state; Json(serde_json::json!({"enabled":false,"accepting":false,"statusLifetime":"current_process",
+        "fullInstanceReady":false,"canonicalWriterPermitted":false,"jobs":[]})).into_response() }
+}
+
+async fn start_peer_verification(
+    State(state): State<Arc<AppState>>, headers: HeaderMap, peer: ConnectInfo<SocketAddr>,
+    Json(input): Json<PeerVerificationRequest>,
+) -> Response {
+    if let Err(response) = crate::api::operator::operator_auth(&headers, peer) { return response; }
+    #[cfg(target_os = "linux")]
+    {
+        let peers = state.checkpoint_jobs.0.peer_verification.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let Some(peers) = peers else { return (StatusCode::SERVICE_UNAVAILABLE, "Peer verification is disabled").into_response() };
+        let capture = state.checkpoint_jobs.source_capture(input.capture_job_id.clone(),
+            state.community_roster.community_id().into(), state.config.node_id.clone()).await;
+        let Ok((context, receipt)) = capture else { return (StatusCode::NOT_FOUND, "Ready checkpoint source is unavailable").into_response() };
+        match peers.start(input.capture_job_id, input.peer_node_id, input.manifest_sha256,
+            context, receipt, state.community_roster.community_id()) {
+            Ok(job) => (StatusCode::ACCEPTED, Json(job)).into_response(),
+            Err(crate::recovery_peer_jobs::StartError::Busy) => (StatusCode::CONFLICT, "Peer verification is already active").into_response(),
+            Err(crate::recovery_peer_jobs::StartError::Closed) => (StatusCode::SERVICE_UNAVAILABLE, "Peer verification is stopping").into_response(),
+            Err(crate::recovery_peer_jobs::StartError::Refused) => (StatusCode::BAD_REQUEST, "Peer verification binding refused").into_response(),
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    { let _ = (state, input); (StatusCode::NOT_IMPLEMENTED, "Peer verification requires Linux").into_response() }
+}
+
+// Original capture IDs only. The trusted startup file owns all policy.
+const MAX_PUBLICATION_REQUEST_BYTES: usize = 1024;
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PublicationRequest {
+    capture_job_id: String,
+}
+fn publication_request(bytes: &[u8]) -> std::result::Result<String, ()> {
+    if bytes.len() > MAX_PUBLICATION_REQUEST_BYTES { return Err(()); }
+    let input: PublicationRequest = serde_json::from_slice(bytes).map_err(|_| ())?;
+    if !valid_job_id(&input.capture_job_id) { return Err(()); }
+    Ok(input.capture_job_id)
+}
+fn disabled_publication_status() -> serde_json::Value {
+    serde_json::json!({
+        "scope": "experimental_checkpoint_publication",
+        "enabled": false, "accepting": false,
+        "statusLifetime": "current_process", "historyIsDurable": false,
+        "activeCaptureId": null, "jobs": [],
+        "fullInstanceReady": false, "canonicalWriterPermitted": false,
+    })
+}
+async fn publication_status(
+    State(state): State<Arc<AppState>>, headers: HeaderMap, peer: ConnectInfo<SocketAddr>,
+) -> Response {
+    if let Err(response) = crate::api::operator::operator_auth(&headers, peer) {
+        return response;
+    }
+    #[cfg(target_os = "linux")]
+    if let Some(publisher) = &state.recovery_publication {
+        let Ok(mut status) = serde_json::to_value(publisher.status()) else {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Publication status unavailable").into_response();
+        };
+        status["scope"] = "experimental_checkpoint_publication".into();
+        status["historyIsDurable"] = false.into();
+        return Json(status).into_response();
+    }
+    let _ = state;
+    Json(disabled_publication_status()).into_response()
+}
+#[cfg(target_os = "linux")]
+fn publication_refusal(error: crate::recovery_publication_jobs::StartError) -> Response {
+    use crate::recovery_publication_jobs::StartError;
+    match error {
+        StartError::Busy => (StatusCode::CONFLICT, "Publication is already active").into_response(),
+        StartError::Closed => (StatusCode::SERVICE_UNAVAILABLE, "Publication is stopping").into_response(),
+        StartError::Refused => (StatusCode::BAD_REQUEST, "Original publication binding refused").into_response(),
+        StartError::Indeterminate => (StatusCode::SERVICE_UNAVAILABLE, "Publication admission is indeterminate; inspect the original capture job").into_response(),
+    }
+}
+// This operator control bypasses the ordinary API timeout. Body reading
+// starts after auth, has its own deadline, and acquires no source/runtime job.
+async fn publication_body(
+    body: axum::body::Body, timeout: Duration,
+) -> std::result::Result<axum::body::Bytes, Response> {
+    match tokio::time::timeout(timeout, axum::body::to_bytes(body, MAX_PUBLICATION_REQUEST_BYTES)).await {
+        Ok(Ok(bytes)) => Ok(bytes),
+        Ok(Err(_)) => Err((StatusCode::PAYLOAD_TOO_LARGE,
+            "Publication body unavailable or exceeds limit").into_response()),
+        Err(_) => Err((StatusCode::REQUEST_TIMEOUT,
+            "Publication body deadline elapsed").into_response()),
+    }
+}
+async fn start_publication(
+    State(state): State<Arc<AppState>>, peer: ConnectInfo<SocketAddr>,
+    request: axum::extract::Request,
+) -> Response {
+    // Authenticate before reading/parsing the body, checking status, source
+    // acquisition, or queuing any runtime/admitted job.
+    if let Err(response) = crate::api::operator::operator_auth(request.headers(), peer) {
+        return response;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let Some(publisher) = &state.recovery_publication else {
+            return (StatusCode::SERVICE_UNAVAILABLE, "Publication is not configured").into_response();
+        };
+        if !request.headers().get(axum::http::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.split(';').next().unwrap_or("").trim()
+                .eq_ignore_ascii_case("application/json"))
+        {
+            return (StatusCode::UNSUPPORTED_MEDIA_TYPE, "Publication requires application/json").into_response();
+        }
+        let bytes = match publication_body(request.into_body(), Duration::from_secs(5)).await {
+            Ok(bytes) => bytes,
+            Err(response) => return response,
+        };
+        let Ok(capture) = publication_request(&bytes) else {
+            return (StatusCode::BAD_REQUEST, "Only an original canonical captureJobId is accepted").into_response();
+        };
+        match publisher.start(capture, Arc::clone(&state)).await {
+            Ok(job) => (StatusCode::ACCEPTED, Json(job)).into_response(),
+            Err(error) => publication_refusal(error),
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    { let _ = (state, request); (StatusCode::NOT_IMPLEMENTED, "Publication requires Linux").into_response() }
+}
+
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/operator/checkpoints", get(status).post(start))
         .route("/api/operator/checkpoints/", get(status).post(start))
+        .route("/api/operator/checkpoints/peer-verifications", get(peer_verification_status).post(start_peer_verification))
+        .route("/api/operator/checkpoints/publications", get(publication_status).post(start_publication))
         .route(
             "/api/operator/checkpoints/{id}/source-context",
             get(source_context),
@@ -700,4 +1026,207 @@ pub fn routes() -> Router<Arc<AppState>> {
                 response
             },
         ))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod held_ready_history_tests {
+    use super::*;
+
+    fn ready() -> CheckpointJob {
+        // Synthetic job/receipt eligibility fixture, not a signed source,
+        // genuine encrypted archive or publication acceptance.
+        CheckpointJob {
+            schema_version: 1,
+            id: "00112233-4455-6677-8899-aabbccddeeff".into(),
+            phase: CheckpointPhase::Ready, started_at_unix_ms: 1,
+            finished_at_unix_ms: Some(2), failure_code: None,
+            receipt: Some(LiveArchiveReceipt {
+                schema_version: 1, applied_commit_seq: 16,
+                commit_prefix_fingerprint: "ab".repeat(32),
+                file_count: 1, directory_count: 1, plaintext_file_bytes: 3,
+                ciphertext_bytes: 3, inventory_sha256: "cd".repeat(32),
+                encrypted_archive_sha256: "ef".repeat(32), full_instance_ready: false,
+            }),
+        }
+    }
+
+    #[test]
+    fn absent_bounded_history_uses_only_original_persisted_ready_record() {
+        let original = ready();
+        let job = held_ready_job(&original.id, None, original.clone()).unwrap();
+        assert_eq!(serde_json::to_vec(&job).unwrap(), serde_json::to_vec(&original).unwrap());
+        assert!(held_ready_job("11223344-5566-7788-99aa-bbccddeeff00", None, original).is_err());
+    }
+
+    #[test]
+    fn present_nonready_or_failed_history_cannot_be_bypassed_by_ready_disk_record() {
+        for phase in [CheckpointPhase::Queued, CheckpointPhase::Draining,
+            CheckpointPhase::Copying, CheckpointPhase::Failed] {
+            let persisted = ready();
+            let mut observed = persisted.clone(); observed.phase = phase;
+            assert!(held_ready_job(&persisted.id, Some(&observed), persisted.clone()).is_err());
+        }
+        let persisted = ready();
+        let mut observed = persisted.clone(); observed.failure_code = Some("failed".into());
+        assert!(held_ready_job(&persisted.id, Some(&observed), persisted.clone()).is_err());
+        observed = persisted.clone(); observed.receipt = None;
+        assert!(held_ready_job(&persisted.id, Some(&observed), persisted.clone()).is_err());
+    }
+
+    #[test]
+    fn present_ready_history_requires_unchanged_persisted_record_and_receipt() {
+        let observed = ready();
+        let mut persisted = observed.clone(); persisted.finished_at_unix_ms = Some(3);
+        assert!(held_ready_job(&observed.id, Some(&observed), persisted).is_err());
+        let mut persisted = observed.clone(); persisted.receipt.as_mut().unwrap().ciphertext_bytes += 1;
+        assert!(held_ready_job(&observed.id, Some(&observed), persisted).is_err());
+        assert!(held_ready_job(&observed.id, Some(&observed), observed.clone()).is_ok());
+    }
+
+    #[test]
+    fn persisted_fallback_refuses_failed_nonready_missing_receipt_or_unknown_schema() {
+        let id = ready().id;
+        for fault in 0..4 {
+            let mut persisted = ready();
+            match fault {
+                0 => persisted.phase = CheckpointPhase::Failed,
+                1 => persisted.failure_code = Some("failed".into()),
+                2 => persisted.receipt = None,
+                _ => persisted.schema_version = 2,
+            }
+            assert!(held_ready_job(&id, None, persisted).is_err());
+        }
+    }
+}
+
+#[cfg(test)]
+mod publication_operator_tests {
+    use super::*;
+
+    #[test]
+    fn publication_request_keeps_only_exact_canonical_original_identity() {
+        let id = "00112233-4455-6677-8899-aabbccddeeff";
+        let body = serde_json::json!({"captureJobId": id});
+        assert_eq!(publication_request(&serde_json::to_vec(&body).unwrap()).unwrap(), id);
+        for invalid in ["", "../capture", "00112233445566778899aabbccddeeff",
+            "00112233-4455-6677-8899-AABBCCDDEEFF"] {
+            assert!(publication_request(&serde_json::to_vec(&serde_json::json!({
+                "captureJobId": invalid,
+            })).unwrap()).is_err());
+        }
+    }
+
+    #[test]
+    fn publication_request_refuses_unknown_duplicate_missing_and_oversized_input() {
+        let id = "00112233-4455-6677-8899-aabbccddeeff";
+        for key in ["path", "policy", "peers", "nodeId", "manifestSha256", "identityDirectory"] {
+            let mut body = serde_json::json!({"captureJobId": id});
+            body[key] = serde_json::json!("untrusted");
+            assert!(publication_request(&serde_json::to_vec(&body).unwrap()).is_err());
+        }
+        let duplicate = format!("{{\"captureJobId\":\"{id}\",\"captureJobId\":\"{id}\"}}");
+        for bytes in [duplicate.as_bytes(), b"{}", b"[]", b"null", b"{bad"] {
+            assert!(publication_request(bytes).is_err());
+        }
+        assert!(publication_request(&vec![b' '; MAX_PUBLICATION_REQUEST_BYTES + 1]).is_err());
+    }
+
+    #[tokio::test]
+    async fn publication_body_refuses_actual_stalled_or_oversized_stream_before_admission() {
+        use axum::body::{Body, Bytes};
+        let stalled = Body::from_stream(futures::stream::pending::<
+            std::result::Result<Bytes, std::io::Error>>());
+        let response = tokio::time::timeout(Duration::from_secs(1),
+            publication_body(stalled, Duration::from_millis(1)))
+            .await.expect("actual body deadline must complete").unwrap_err();
+        assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
+        let response = publication_body(
+            Body::from(vec![b' '; MAX_PUBLICATION_REQUEST_BYTES + 1]), Duration::from_secs(1))
+            .await.unwrap_err();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let bytes = publication_body(Body::from("{}"), Duration::from_secs(1)).await.unwrap();
+        assert_eq!(bytes.as_ref(), b"{}");
+    }
+
+    #[test]
+    fn disabled_publication_is_truthfully_process_local_without_source_or_permissions() {
+        let status = disabled_publication_status();
+        assert_eq!(status["enabled"], false);
+        assert_eq!(status["accepting"], false);
+        assert_eq!(status["statusLifetime"], "current_process");
+        assert_eq!(status["historyIsDurable"], false);
+        assert_eq!(status["fullInstanceReady"], false);
+        assert_eq!(status["canonicalWriterPermitted"], false);
+        assert_eq!(status["jobs"], serde_json::json!([]));
+        for key in ["sourceContext", "identity", "directory", "policy", "secret", "peers"] {
+            assert!(status.get(key).is_none());
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn publication_admission_refusals_are_explicit_and_not_success() {
+        use crate::recovery_publication_jobs::StartError;
+        for (error, expected) in [(StartError::Busy, StatusCode::CONFLICT),
+            (StartError::Closed, StatusCode::SERVICE_UNAVAILABLE),
+            (StartError::Refused, StatusCode::BAD_REQUEST)] {
+            assert_eq!(publication_refusal(error).status(), expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn full_router_publication_denials_precede_body_and_job_admission_during_pause() {
+        use crate::config::{LoreAddonConfig, ServerRole};
+        use axum::{body::{to_bytes, Body}, http::Request};
+        use tower::ServiceExt;
+        // No environment mutation or live operator policy. This is an actual
+        // disposable AppState/router denial seam, not configured publication.
+        for variable in ["WABIDB_ROOT_KEY", "WABIDB_PEER_ENDPOINT", "WABI_CHECKPOINT_DIR",
+            "WABI_CHECKPOINT_RECIPIENT", "WABI_CHECKPOINT_SOURCE_CONTEXT",
+            "WABI_CHECKPOINT_PEER_VERIFY_CONFIG", "WABI_RECOVERY_PUBLISHER_CONFIG"] {
+            assert!(std::env::var_os(variable).is_none(), "isolated fixture requires absent {variable}");
+        }
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join("data");
+        let uploads = root.path().join("uploads");
+        std::fs::create_dir_all(&uploads).unwrap();
+        let state = Arc::new(AppState::new(ServerConfig {
+            host: "127.0.0.1".into(), port: 0,
+            data_dir: data.to_string_lossy().into(), uploads_dir: uploads.to_string_lossy().into(),
+            jwt_secret: "isolated-publication-operator-fixture-key".into(),
+            turn_enabled: false, turn_uri: None, turn_secret: None,
+            node_id: "publication-operator-fixture".into(), is_primary: true,
+            server_role: ServerRole::Authority, authority_url: None,
+            admin_user_ids: vec![], blacklist_file: data.join("blacklist.txt").to_string_lossy().into(),
+            max_body_size: None, mesh_enabled: false, mesh_peers: vec![],
+            lore: LoreAddonConfig::default(),
+        }).await.unwrap());
+        let app = crate::app_router::build_app_router(Arc::clone(&state));
+        let pause = state.instance_operations.quiesce().await.unwrap();
+        for (method, peer, secret) in [("GET", "127.0.0.1:33031", None),
+            ("POST", "127.0.0.1:33032", None),
+            ("GET", "100.87.255.66:33033", Some("fixture-denial")),
+            ("POST", "100.87.255.66:33034", Some("fixture-denial")),
+            ("POST", "[::1]:33035", None)] {
+            let mut request = Request::builder().method(method)
+                .uri("/api/operator/checkpoints/publications")
+                .header("content-type", "application/json");
+            if let Some(secret) = secret { request = request.header("x-operator-secret", secret); }
+            let mut request = request.body(Body::from("{malformed")).unwrap();
+            request.extensions_mut().insert(ConnectInfo(peer.parse::<SocketAddr>().unwrap()));
+            let response = tokio::time::timeout(Duration::from_secs(2), app.clone().oneshot(request))
+                .await.expect("operator controls must remain outside checkpoint pause").unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            assert_eq!(response.headers().get(axum::http::header::CACHE_CONTROL).unwrap(), "no-store, private");
+            let body = to_bytes(response.into_body(), 4096).await.unwrap();
+            assert!(!String::from_utf8_lossy(&body).contains("Publication body"));
+            assert!(state.checkpoint_jobs.status().active_job_id.is_none());
+        }
+        drop(pause);
+        let io = state.sio.write().unwrap().take();
+        if let Some(io) = io { io.close().await; }
+        state.checkpoint_jobs.shutdown_peer_verification().await;
+        state.tailcat.shutdown().await;
+        drop(app);
+    }
 }

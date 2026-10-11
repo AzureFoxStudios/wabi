@@ -1,7 +1,10 @@
 # Coordinated checkpoint boundary
 
-**Date:** 2026-09-28  
-**Status:** Main Wabi working-tree local ordering component. No operator-facing live exporter or promotion is enabled.
+**Date:** 2026-10-02
+
+**Status:** Experimental local ordering component used by the opt-in operator
+core live-checkpoint exporter. No complete-instance readiness or promotion
+permit is enabled.
 
 ## Ordering
 
@@ -63,7 +66,8 @@ The veto has no running-process reset. Reconstruct and validate the instance
 after restart before attempting a checkpoint. Ordinary operation admission is
 not globally disabled by this flag; it is a checkpoint safety decision.
 Successful completion of an error-returning handler also does not prove that
-all canonical files are restorable: the future exporter must validate them.
+all canonical files are restorable: the export and independent restore checks
+must validate the files required by their support profile.
 
 ## Remaining exporter and recovery gates
 

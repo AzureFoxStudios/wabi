@@ -34,7 +34,10 @@ fn test_config(data_dir: &Path) -> ServerConfig {
         server_role: ServerRole::Authority,
         authority_url: None,
         admin_user_ids: vec![],
-        blacklist_file: data_dir.join("blacklist.txt").to_string_lossy().into_owned(),
+        blacklist_file: data_dir
+            .join("blacklist.txt")
+            .to_string_lossy()
+            .into_owned(),
         max_body_size: None,
         mesh_enabled: false,
         mesh_peers: vec![],
@@ -60,12 +63,15 @@ async fn fresh_server() -> (tempfile::TempDir, axum::Router) {
 }
 
 async fn register(app: &axum::Router, username: &str) -> String {
-    let body =
-        serde_json::json!({ "username": username, "password": "password123" }).to_string();
+    let body = serde_json::json!({ "username": username, "password": "password123" }).to_string();
     let response = app
         .clone()
         .oneshot(
             Request::post("/auth/register")
+                .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                    [127, 0, 0, 1],
+                    42001,
+                ))))
                 .header("content-type", "application/json")
                 .body(Body::from(body))
                 .unwrap(),
@@ -100,6 +106,68 @@ async fn body_json(response: axum::response::Response) -> Value {
         .await
         .unwrap();
     serde_json::from_slice(&bytes).unwrap()
+}
+
+#[tokio::test]
+async fn promptpay_wallet_and_normalized_mobile_qrs_use_the_correct_proxy_namespace() {
+    let (_tmp, app) = fresh_server().await;
+    let bearer = register(&app, "promptpay-proxy-namespace").await;
+    let mut created = Vec::new();
+    for (proxy, expected) in [
+        ("0066812345678", "29370016A00000067701011101130066812345678"),
+        ("1101400091234", "29370016A00000067701011102131101400091234"),
+        (
+            "123456789012345",
+            "29390016A0000006770101110315123456789012345",
+        ),
+        (
+            "006681234567890",
+            "29390016A0000006770101110315006681234567890",
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(authed(
+                "POST",
+                "/payments/intents",
+                &bearer,
+                Some(
+                    serde_json::json!({ "provider": "promptpay", "amountMinor": 100,
+                "currency": "THB", "promptpayProxyId": proxy }),
+                ),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response).await;
+        let intent = &body["intent"];
+        assert_eq!(
+            intent["promptpayProxyId"], proxy,
+            "retain the supplied destination reference"
+        );
+        assert!(
+            intent["promptpayQrPayload"]
+                .as_str()
+                .unwrap()
+                .contains(expected),
+            "{proxy}: {intent}"
+        );
+        created.push(intent.clone());
+    }
+    let response = app
+        .clone()
+        .oneshot(authed("GET", "/payments/intents", &bearer, None))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let listed = body_json(response).await;
+    let intents = listed["intents"].as_array().unwrap();
+    for intent in created {
+        assert!(
+            intents.contains(&intent),
+            "the stored receiving namespace must match creation"
+        );
+    }
 }
 
 #[tokio::test]
@@ -157,7 +225,7 @@ async fn crypto_rail_intent_round_trip() {
     assert_eq!(presentation["mode"], "qr");
     assert_eq!(
         presentation["qrData"],
-        "ethereum:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913@8453"
+        "ethereum:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913@8453/transfer?address=0x833589fcd6edb6e08f4c7c32d4f71b54bda02913&uint256=250000"
     );
     assert!(presentation["referenceCode"]
         .as_str()
@@ -196,6 +264,7 @@ async fn eu_rail_intent_builds_epc_payload() {
                 "provider": "payments-eu",
                 "methodId": "epc_qr",
                 "providerRef": "DE33100205000001194700",
+                "payeeName": "Alice's Print Studio",
                 "amountMinor": 2700,
                 "currency": "EUR",
                 "countryCode": "DE"
@@ -213,13 +282,25 @@ async fn eu_rail_intent_builds_epc_payload() {
     assert_eq!(presentation["mode"], "qr");
     let qr_data = presentation["qrData"].as_str().unwrap();
     assert!(qr_data.starts_with("BCD\n002\n1\nSCT\n"), "qr: {qr_data}");
-    assert!(qr_data.contains("\nDE33100205000001194700\n"), "qr: {qr_data}");
-    assert!(qr_data.lines().any(|l| l == "EUR27"), "amount must be minimal-form: {qr_data}");
-    assert!(!qr_data.contains("EUR27.00"), "amount must be minimal-form: {qr_data}");
+    assert!(
+        qr_data.contains("\nDE33100205000001194700\n"),
+        "qr: {qr_data}"
+    );
+    assert!(
+        qr_data.lines().any(|l| l == "EUR27"),
+        "amount must be minimal-form: {qr_data}"
+    );
+    assert!(
+        !qr_data.contains("EUR27.00"),
+        "amount must be minimal-form: {qr_data}"
+    );
     assert!(
         qr_data.lines().last().unwrap().starts_with("WABI-"),
-        "structured reference is the last element: {qr_data}"
+        "unstructured reference is the last element: {qr_data}"
     );
+    assert_eq!(qr_data.lines().nth(5), Some("Alice's Print Studio"));
+    assert_eq!(qr_data.lines().nth(9), Some(""));
+    assert!(qr_data.lines().nth(10).unwrap().starts_with("WABI-"));
     assert!(presentation["referenceCode"]
         .as_str()
         .unwrap()
@@ -265,6 +346,133 @@ async fn us_rail_intent_carries_disclosure() {
         .as_str()
         .unwrap()
         .starts_with("WABI-"));
+}
+
+#[tokio::test]
+async fn rail_currency_method_and_recipient_validation_fail_before_write() {
+    let (_tmp, app) = fresh_server().await;
+    let owner = register(&app, "alice").await;
+    let valid = [
+        serde_json::json!({ "provider": "promptpay", "methodId": "promptpay_qr", "promptpayProxyId": "0812345678", "amountMinor": 100, "currency": "THB" }),
+        serde_json::json!({ "provider": "payments-crypto", "methodId": "usdc_base", "providerRef": "0x1111111111111111111111111111111111111111", "amountMinor": 100, "currency": "USDC" }),
+        serde_json::json!({ "provider": "payments-eu", "methodId": "epc_qr", "providerRef": "DE33100205000001194700", "payeeName": "Alice", "amountMinor": 100, "currency": "EUR" }),
+        serde_json::json!({ "provider": "payments-us", "methodId": "venmo_handle", "providerRef": "@alice", "amountMinor": 100, "currency": "USD" }),
+    ];
+    for request in valid {
+        let mut wrong_currency = request.clone();
+        wrong_currency["currency"] = serde_json::json!("JPY");
+        let denied = app
+            .clone()
+            .oneshot(authed(
+                "POST",
+                "/payments/intents",
+                &owner,
+                Some(wrong_currency),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), StatusCode::BAD_REQUEST);
+        let mut bad_country = request.clone();
+        bad_country["countryCode"] = serde_json::json!("garbage");
+        let denied = app
+            .clone()
+            .oneshot(authed(
+                "POST",
+                "/payments/intents",
+                &owner,
+                Some(bad_country),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), StatusCode::BAD_REQUEST);
+        let mut excessive = request.clone();
+        excessive["amountMinor"] = serde_json::json!(9_007_199_254_740_992i64);
+        let denied = app
+            .clone()
+            .oneshot(authed("POST", "/payments/intents", &owner, Some(excessive)))
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), StatusCode::BAD_REQUEST);
+    }
+    for wrong_method in [
+        serde_json::json!({ "provider": "promptpay", "methodId": "epc_qr", "promptpayProxyId": "0812345678", "amountMinor": 100 }),
+        serde_json::json!({ "provider": "payments-eu", "methodId": "promptpay_qr", "providerRef": "DE33100205000001194700", "payeeName": "Alice", "amountMinor": 100 }),
+        serde_json::json!({ "provider": "payments-eu", "methodId": "epc_qr", "providerRef": "DE33100205000001194700", "payeeName": "Alice\nMallory", "amountMinor": 100 }),
+    ] {
+        let denied = app
+            .clone()
+            .oneshot(authed(
+                "POST",
+                "/payments/intents",
+                &owner,
+                Some(wrong_method),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), StatusCode::BAD_REQUEST);
+    }
+    let list = body_json(
+        app.clone()
+            .oneshot(authed("GET", "/payments/intents", &owner, None))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        list["intents"].as_array().unwrap().is_empty(),
+        "invalid requests must not persist"
+    );
+}
+
+#[tokio::test]
+async fn unsupported_reference_metadata_does_not_poison_the_writer() {
+    let (_tmp, app) = fresh_server().await;
+    let owner = register(&app, "alice").await;
+    for metadata in [
+        serde_json::json!({"methodId": "usdc_base"}),
+        serde_json::json!("a value"),
+        serde_json::json!([1, 2]),
+        serde_json::json!(true),
+        serde_json::json!(7),
+    ] {
+        let denied = app.clone().oneshot(authed("POST", "/payments/account-links", &owner, Some(serde_json::json!({
+            "pluginId": "promptpay", "providerAccountRef": "0812345678", "metadata": metadata
+        })))).await.unwrap();
+        assert_eq!(denied.status(), StatusCode::BAD_REQUEST);
+    }
+    let before = body_json(
+        app.clone()
+            .oneshot(authed("GET", "/payments/account-links", &owner, None))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(before["links"].as_array().unwrap().is_empty());
+    let accepted = app
+        .clone()
+        .oneshot(authed(
+            "POST",
+            "/payments/account-links",
+            &owner,
+            Some(serde_json::json!({
+                "pluginId": "promptpay", "providerAccountRef": "0812345678", "metadata": null
+            })),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        accepted.status(),
+        StatusCode::OK,
+        "a later durable write must still succeed"
+    );
+    let after = body_json(
+        app.clone()
+            .oneshot(authed("GET", "/payments/account-links", &owner, None))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(after["links"].as_array().unwrap().len(), 1);
 }
 
 #[tokio::test]

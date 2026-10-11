@@ -1,10 +1,10 @@
 # Wabi Payments Plan (Non-Custodial, Plugin-Driven)
 
-Last updated: 2026-03-08
-Status: Core backend + frontend payment sheet + `th-payments` + `western-payments` contracted-adapter flows + `btc-payments` Bitcoin-first rail + signed-only rollout path implemented
+Last reviewed: 2026-10-03
+Status: Historical Node/plugin plan; current Rust Authority uses direct instruction rails and manual receipt. Stripe/PayPal settlement is not integrated.
 Owner: Core backend + plugin platform
 
-Current shipped behavior is documented in `PAYMENTS_IMPLEMENTATION.md on the docs-history branch`.
+Current runtime behavior is documented in [Direct transfer operations](DIRECT_TRANSFER_OPERATIONS.md). The remaining sections below describe historical work or planned capabilities; they are not acceptance evidence for the Rust Authority. Provider webhooks, refunds, disputes and automated verification remain unimplemented in that runtime.
 Verified-provider adapter shape is documented in `PAYMENTS_ADAPTER_CONTRACT.md on the docs-history branch`.
 
 ## 1) Goal

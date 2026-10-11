@@ -23,17 +23,17 @@ pub const RAILS: &[UsRail] = &[
     UsRail {
         id: "cashapp_pointer",
         label: "Cash App $cashtag",
-        disclosure: "Cash App shows your chosen display name and $cashtag to the payer — your legal name stays with Cash App (Block), not with the counterparty.",
+        disclosure: "Cash App may show your display name, $cashtag and other profile details. For goods or services, use an account and payment flow permitted by Cash App's current business terms. A display name does not guarantee anonymity.",
     },
     UsRail {
         id: "venmo_handle",
         label: "Venmo @handle",
-        disclosure: "Venmo shows your chosen display name and @handle — your legal name stays with Venmo (PayPal), not with the counterparty.",
+        disclosure: "Venmo may show your profile name, handle and transaction activity. For goods or services, use a business profile or an eligible payment identified as a purchase. Check the provider's current terms and privacy settings.",
     },
     UsRail {
         id: "zelle_pointer",
         label: "Zelle",
-        disclosure: "Zelle shows your bank-registered legal name and phone/email to the payer. This is the high-doxx rail — only choose it if you accept that exposure.",
+        disclosure: "Zelle may show your bank-registered legal name and phone/email to the payer. Goods or services require a supported business account where offered by your bank. Zelle does not provide purchase protection; use it only with people you trust.",
     },
     UsRail {
         id: "ach_details",
@@ -150,7 +150,10 @@ pub fn presentation(
 ) -> Result<Value, String> {
     validate_pointer(rail, pointer)?;
     let info = rail_info(rail).ok_or_else(|| format!("unknown US rail: {rail}"))?;
-    let amount = format!("{:.2}", amount_minor.max(0) as f64 / 100.0);
+    if amount_minor <= 0 || !currency.eq_ignore_ascii_case("USD") {
+        return Err("US payment instructions require a positive USD amount".into());
+    }
+    let amount = format!("{}.{:02}", amount_minor / 100, amount_minor % 100);
     Ok(json!({
         "mode": "app_switch",
         "pointer": pointer.trim(),
@@ -160,7 +163,7 @@ pub fn presentation(
         "amountMinor": amount_minor,
         "currency": currency.to_ascii_uppercase(),
         "note": format!(
-            "Pay {} {} to the pointer above and include the reference code {} as the memo. The seller confirms manually.",
+            "Pay {} {} to the pointer above and include the reference code {} as the memo where supported. The recipient records receipt manually; Wabi does not verify settlement or issue refunds.",
             amount,
             currency.to_ascii_uppercase(),
             reference_code
@@ -246,5 +249,13 @@ mod tests {
     fn unknown_rail_rejected() {
         assert!(validate_pointer("wero", "whatever").is_err());
         assert!(presentation("wero", "x", "WABI-AAAA", 1, "USD").is_err());
+    }
+
+    #[test]
+    fn amounts_and_currency_are_exact_and_validated() {
+        let rendered = presentation("venmo_handle", "@alice", "WABI-AAAA", 9_007_199_254_740_991, "USD").unwrap();
+        assert!(rendered["note"].as_str().unwrap().contains("90071992547409.91 USD"));
+        assert!(presentation("venmo_handle", "@alice", "WABI-AAAA", 0, "USD").is_err());
+        assert!(presentation("venmo_handle", "@alice", "WABI-AAAA", 100, "EUR").is_err());
     }
 }

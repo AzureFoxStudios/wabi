@@ -15,11 +15,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::state::AppState;
-pub(crate) use access::{access_unavailable, account_user_id, authenticate_account, load_access_policy, parse_access_policy, save_access_policy};
-use wabidb::engine::wabi_store::WabiStore;
-use wabidb::projections::payments::{
-    PaymentAccountLinkRecord, PaymentUserBlockRecord,
+pub(crate) use access::{
+    access_unavailable, account_user_id, admit_payment_admin, authenticate_account,
+    load_access_policy, parse_access_policy, save_access_policy,
 };
+use wabidb::engine::wabi_store::WabiStore;
+use wabidb::projections::payments::{PaymentAccountLinkRecord, PaymentUserBlockRecord};
 
 pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
     // One-shot migration of the pre-Phase-1 `payments/intents.jsonl` file.
@@ -57,14 +58,8 @@ pub fn routes(state: Arc<AppState>) -> Router<Arc<AppState>> {
             "/intents",
             get(intents::list_intents).post(intents::create_intent),
         )
-        .route(
-            "/intents/{id}/confirm",
-            post(intents::confirm_intent),
-        )
-        .route(
-            "/intents/{id}/reject",
-            post(intents::reject_intent),
-        )
+        .route("/intents/{id}/confirm", post(intents::confirm_intent))
+        .route("/intents/{id}/reject", post(intents::reject_intent))
         .with_state(state)
 }
 
@@ -197,6 +192,19 @@ pub async fn evaluate_payment_access(
     user_id: i64,
     is_guest: bool,
 ) -> anyhow::Result<Value> {
+    let is_owner = state.is_owner(user_id).await;
+    evaluate_payment_access_with_owner(state, policy, user_id, is_guest, is_owner).await
+}
+
+/// Use the owner snapshot retained by PaymentAdmission rather than acquiring
+/// another reader behind a waiting ownership-transfer writer.
+async fn evaluate_payment_access_with_owner(
+    state: &std::sync::Arc<AppState>,
+    policy: &PaymentAccessPolicy,
+    user_id: i64,
+    is_guest: bool,
+    is_owner: bool,
+) -> anyhow::Result<Value> {
     let now_ms = chrono::Utc::now().timestamp_millis();
     let blocked = state
         .wdb
@@ -204,27 +212,34 @@ pub async fn evaluate_payment_access(
         .await?
         .into_iter()
         .any(|b| {
-            b.user_id == user_id
-                && b.expires_at
-                    .map(|expires| expires > now_ms)
-                    .unwrap_or(true)
+            b.user_id == user_id && b.expires_at.map(|expires| expires > now_ms).unwrap_or(true)
         });
 
     let mut roles: Vec<String> = Vec::new();
     if !is_guest {
-        let role = state.wdb.get_user_role(DEFAULT_WORKSPACE_ID, user_id as u64).await?;
-        let owner = state.is_owner(user_id).await || role.as_deref() == Some("Owner");
+        let role = state
+            .wdb
+            .get_user_role(DEFAULT_WORKSPACE_ID, user_id as u64)
+            .await?;
+        let owner = is_owner || role.as_deref() == Some("Owner");
         if owner {
             roles.push("owner".into());
         }
-        if owner || state.config.admin_user_ids.contains(&user_id) || role.as_deref() == Some("Admin") {
+        if owner
+            || state.config.admin_user_ids.contains(&user_id)
+            || role.as_deref() == Some("Admin")
+        {
             roles.push("admin".into());
         }
         if role.as_deref() == Some("Moderator") {
             roles.push("mod".into());
         }
     }
-    roles.push(if is_guest { "guest".into() } else { "member".into() });
+    roles.push(if is_guest {
+        "guest".into()
+    } else {
+        "member".into()
+    });
 
     let role_allowed = policy
         .allowed_role_names
@@ -280,8 +295,12 @@ pub async fn upsert_policy(state: &AppState, key: &str, value: &Value) -> anyhow
     Ok(())
 }
 
-pub async fn upsert_account_link(state: &AppState, link: &PaymentAccountLink) {
+pub async fn upsert_account_link(
+    state: &AppState,
+    link: &PaymentAccountLink,
+) -> anyhow::Result<()> {
     // Phase 1: account links are persisted as `payment_account_link_upserted`
     // events and replayed into the projection on restart.
-    let _ = state.wdb.upsert_payment_account_link(link).await;
+    state.wdb.upsert_payment_account_link(link).await?;
+    Ok(())
 }

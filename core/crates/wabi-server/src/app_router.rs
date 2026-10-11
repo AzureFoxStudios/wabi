@@ -759,6 +759,8 @@ async fn json_body_budget_middleware(
 /// Build the full application router. Extracted from `main()` so tests can
 /// reach the fallback (`serve_static`).
 pub fn build_app_router(state: Arc<AppState>) -> Router {
+    #[cfg(target_os = "linux")]
+    if let Some(publisher) = &state.recovery_publication { publisher.attach(&state); }
     let max_body_bytes = state
         .config
         .max_body_size

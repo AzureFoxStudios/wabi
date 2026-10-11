@@ -55,6 +55,7 @@ pub struct WdbAdapter {
     pub(crate) project_run_write: tokio::sync::Mutex<()>,
     project_task_write: tokio::sync::Mutex<()>,
     wiki_write: tokio::sync::Mutex<()>,
+    payment_write: tokio::sync::Mutex<()>,
 }
 
 fn changes_roster(event_type: &str) -> bool {
@@ -138,6 +139,7 @@ impl WdbAdapter {
             project_run_write: tokio::sync::Mutex::new(()),
             project_task_write: tokio::sync::Mutex::new(()),
             wiki_write: tokio::sync::Mutex::new(()),
+            payment_write: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -3201,6 +3203,12 @@ impl WabiStore for WdbAdapter {
 
     async fn upsert_payment_account_link(&self, link: &PaymentAccountLinkRecord) -> Result<()> {
         use wabidb::projections::payments::encode_record;
+        if link.metadata.is_some() {
+            return Err(WabiError::Validation {
+                command: "upsert_payment_account_link".into(),
+                reason: "Account reference metadata is not supported by this storage version".into(),
+            });
+        }
         let payload = encode_record(link);
         self.run(
             link.user_id as u64,
@@ -3279,6 +3287,7 @@ impl WabiStore for WdbAdapter {
         reference_note: Option<String>,
     ) -> Result<Option<PaymentIntentRecord>> {
         use wabidb::projections::payments;
+        let _guard = self.payment_write.lock().await;
         let state = self.engine.projection_state();
         let Some(mut record) = payments::PaymentsProjection::get_intent_by_id(&state, intent_id)?
         else {
@@ -3287,16 +3296,17 @@ impl WabiStore for WdbAdapter {
         if record.status != "pending" {
             return Ok(None);
         }
-        let now = now_micros();
+        if actual_amount_minor.is_some_and(|amount| amount != record.amount_minor) {
+            return Err(WabiError::Validation {
+                command: "confirm_payment_intent".into(),
+                reason: "Confirmed amount must match the original request".into(),
+            });
+        }
+        let now = chrono::Utc::now().timestamp_millis();
         record.status = "completed".to_string();
         record.updated_at = now;
         record.confirmed_by = Some(admin_user_id);
         record.confirm_note = reference_note;
-        if let Some(amt) = actual_amount_minor {
-            if amt > 0 {
-                record.amount_minor = amt;
-            }
-        }
         let payload = payments::encode_record(&record);
         self.run(
             admin_user_id as u64,
@@ -3319,6 +3329,7 @@ impl WabiStore for WdbAdapter {
         reference_note: Option<String>,
     ) -> Result<Option<PaymentIntentRecord>> {
         use wabidb::projections::payments;
+        let _guard = self.payment_write.lock().await;
         let state = self.engine.projection_state();
         let Some(mut record) = payments::PaymentsProjection::get_intent_by_id(&state, intent_id)?
         else {
@@ -3328,7 +3339,7 @@ impl WabiStore for WdbAdapter {
             return Ok(None);
         }
         record.status = "rejected".to_string();
-        record.updated_at = now_micros();
+        record.updated_at = chrono::Utc::now().timestamp_millis();
         record.confirmed_by = Some(admin_user_id);
         record.confirm_note = reference_note;
         let payload = payments::encode_record(&record);

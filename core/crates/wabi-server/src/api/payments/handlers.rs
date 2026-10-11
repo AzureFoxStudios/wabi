@@ -9,9 +9,9 @@ use axum::{
 use serde_json::json;
 
 use super::{
-    account_user_id, get_policy_row, is_admin_user, json_error, upsert_policy,
-    AccountLinkInput, ListQuery, PaymentAccountLink, PaymentDonationConfig,
-    PaymentUserBlock, SaveAccessInput, SaveDonationInput, UserBlockInput, DEFAULT_WORKSPACE_ID,
+    get_policy_row, json_error, upsert_policy, AccountLinkInput, ListQuery, PaymentAccountLink,
+    PaymentDonationConfig, PaymentUserBlock, SaveAccessInput, SaveDonationInput, UserBlockInput,
+    DEFAULT_WORKSPACE_ID,
 };
 use crate::state::AppState;
 use wabidb::engine::wabi_store::WabiStore;
@@ -21,20 +21,48 @@ pub async fn get_payment_access(
     headers: axum::http::HeaderMap,
 ) -> Response {
     let auth = super::authenticate_account(&headers, &state).await.ok();
-    // Import is an administrator-owned migration; public/member reads only
-    // resolve the legacy value when no canonical row exists.
-    let import_legacy = match &auth {
-        Some(auth) if !auth.is_guest => state.is_admin(auth.user_id).await,
-        _ => false,
-    };
-    let policy = match super::load_access_policy(&state, import_legacy).await {
+    if let Some(auth) = auth {
+        let admission = match super::access::admit_payment(&state, &auth).await {
+            Ok(admission) => admission,
+            Err(response) => return response,
+        };
+        let is_owner = admission.is_owner;
+        let import_legacy = admission.is_admin;
+        let operation_state = state.clone();
+        return admission
+            .run(&operation_state, async move {
+                payment_access_response(state, Some(auth), is_owner, import_legacy).await
+            })
+            .await;
+    }
+    payment_access_response(state, None, false, false).await
+}
+
+async fn payment_access_response(
+    state: Arc<AppState>,
+    auth: Option<crate::auth_extractor::AuthUser>,
+    is_owner: bool,
+    import_legacy: bool,
+) -> Response {
+    // Creation, blocks and administrative policy writes use this same gate.
+    // An admin-owned import retains its credential until the durable write.
+    let _policy = state.payment_policy_lock.clone().lock_owned().await;
+    let policy = match super::access::load_access_policy_locked(&state, import_legacy).await {
         Ok(policy) => policy,
         Err(error) => return super::access_unavailable(&error),
     };
     // WS-3: the actor is now computed server-side from the persisted policy
     // and user blocks, matching the frontend PaymentAccessActorStatus contract.
     let actor = match auth {
-        Some(auth) => match super::evaluate_payment_access(&state, &policy, auth.user_id, auth.is_guest).await {
+        Some(auth) => match super::evaluate_payment_access_with_owner(
+            &state,
+            &policy,
+            auth.user_id,
+            auth.is_guest,
+            is_owner,
+        )
+        .await
+        {
             Ok(actor) => actor,
             Err(error) => return super::access_unavailable(&error),
         },
@@ -56,21 +84,23 @@ pub async fn save_payment_access(
     headers: axum::http::HeaderMap,
     Json(input): Json<SaveAccessInput>,
 ) -> Response {
-    let auth = match super::authenticate_account(&headers, &state).await {
-        Ok(auth) => auth,
-        Err(response) => return response,
-    };
-    if auth.is_guest || !is_admin_user(auth.user_id, &state).await {
-        return json_error(StatusCode::FORBIDDEN, "Admin access required");
-    }
     let sanitized = match super::parse_access_policy(&input.policy) {
         Ok(policy) => policy,
         Err(message) => return json_error(StatusCode::BAD_REQUEST, message),
     };
-    if let Err(error) = super::save_access_policy(&state, &sanitized).await {
-        return super::access_unavailable(&error);
-    }
-    Json(json!({ "success": true, "policy": sanitized })).into_response()
+    let admission = match super::admit_payment_admin(&headers, &state).await {
+        Ok(admission) => admission,
+        Err(response) => return response,
+    };
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            if let Err(error) = super::save_access_policy(&state, &sanitized).await {
+                return super::access_unavailable(&error);
+            }
+            Json(json!({ "success": true, "policy": sanitized })).into_response()
+        })
+        .await
 }
 
 pub async fn list_account_links(
@@ -78,24 +108,34 @@ pub async fn list_account_links(
     headers: axum::http::HeaderMap,
     Query(query): Query<ListQuery>,
 ) -> Response {
-    let user_id = match account_user_id(&headers, &state).await {
-        Ok(id) => id,
-        Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
+    let auth = match super::authenticate_account(&headers, &state).await {
+        Ok(auth) => auth,
+        Err(response) => return response,
     };
-    let _workspace_id = query
-        .workspace_id
-        .as_deref()
-        .unwrap_or(DEFAULT_WORKSPACE_ID);
-    let links = match state.wdb.list_payment_account_links(user_id).await {
-        Ok(links) => links,
-        Err(e) => {
-            return json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("failed to load account links: {}", e),
-            )
-        }
+    let user_id = auth.user_id;
+    let admission = match super::access::admit_payment(&state, &auth).await {
+        Ok(admission) => admission,
+        Err(response) => return response,
     };
-    Json(json!({ "success": true, "links": links })).into_response()
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            let _workspace_id = query
+                .workspace_id
+                .as_deref()
+                .unwrap_or(DEFAULT_WORKSPACE_ID);
+            let links = match state.wdb.list_payment_account_links(user_id).await {
+                Ok(links) => links,
+                Err(e) => {
+                    return json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        &format!("failed to load account links: {}", e),
+                    )
+                }
+            };
+            Json(json!({ "success": true, "links": links })).into_response()
+        })
+        .await
 }
 
 pub async fn create_account_link(
@@ -103,36 +143,55 @@ pub async fn create_account_link(
     headers: axum::http::HeaderMap,
     Json(input): Json<AccountLinkInput>,
 ) -> Response {
-    let user_id = match account_user_id(&headers, &state).await {
-        Ok(id) => id,
-        Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
+    let auth = match super::authenticate_account(&headers, &state).await {
+        Ok(auth) => auth,
+        Err(response) => return response,
     };
-    let plugin_id = input.plugin_id.trim().to_string();
-    let provider_account_ref = input.provider_account_ref.trim().to_string();
-    if plugin_id.is_empty() || provider_account_ref.is_empty() {
-        return json_error(
-            StatusCode::BAD_REQUEST,
-            "pluginId and providerAccountRef are required",
-        );
-    }
-    let now = chrono::Utc::now().timestamp_millis();
-    let link = PaymentAccountLink {
-        user_id,
-        workspace_id: DEFAULT_WORKSPACE_ID.to_string(),
-        plugin_id,
-        provider_account_ref,
-        display_label: input.display_label,
-        metadata: input.metadata,
-        linked_at: now,
-        updated_at: now,
+    let user_id = auth.user_id;
+    let admission = match super::access::admit_payment(&state, &auth).await {
+        Ok(admission) => admission,
+        Err(response) => return response,
     };
-    if let Err(e) = state.wdb.upsert_payment_account_link(&link).await {
-        return json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to save account link: {}", e),
-        );
-    }
-    Json(json!({ "success": true, "link": link })).into_response()
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            let plugin_id = input.plugin_id.trim().to_string();
+            let provider_account_ref = input.provider_account_ref.trim().to_string();
+            if plugin_id.is_empty() || provider_account_ref.is_empty() {
+                return json_error(
+                    StatusCode::BAD_REQUEST,
+                    "pluginId and providerAccountRef are required",
+                );
+            }
+            // The existing durable record uses postcard, whose decoder cannot read
+            // serde_json::Value. Refuse metadata before submitting a durable command:
+            // accepting it would fail projection application and poison replay.
+            if input.metadata.is_some() {
+                return json_error(
+                    StatusCode::BAD_REQUEST,
+                    "Account reference metadata is not supported by this storage version",
+                );
+            }
+            let now = chrono::Utc::now().timestamp_millis();
+            let link = PaymentAccountLink {
+                user_id,
+                workspace_id: DEFAULT_WORKSPACE_ID.to_string(),
+                plugin_id,
+                provider_account_ref,
+                display_label: input.display_label,
+                metadata: input.metadata,
+                linked_at: now,
+                updated_at: now,
+            };
+            if let Err(e) = state.wdb.upsert_payment_account_link(&link).await {
+                return json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("failed to save account link: {}", e),
+                );
+            }
+            Json(json!({ "success": true, "link": link })).into_response()
+        })
+        .await
 }
 
 pub async fn delete_account_link(
@@ -140,21 +199,31 @@ pub async fn delete_account_link(
     headers: axum::http::HeaderMap,
     Path(plugin_id): Path<String>,
 ) -> Response {
-    let user_id = match account_user_id(&headers, &state).await {
-        Ok(id) => id,
-        Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
+    let auth = match super::authenticate_account(&headers, &state).await {
+        Ok(auth) => auth,
+        Err(response) => return response,
     };
-    if let Err(e) = state
-        .wdb
-        .delete_payment_account_link(user_id, &plugin_id)
+    let user_id = auth.user_id;
+    let admission = match super::access::admit_payment(&state, &auth).await {
+        Ok(admission) => admission,
+        Err(response) => return response,
+    };
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            if let Err(e) = state
+                .wdb
+                .delete_payment_account_link(user_id, &plugin_id)
+                .await
+            {
+                return json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("failed to delete account link: {}", e),
+                );
+            }
+            Json(json!({ "success": true })).into_response()
+        })
         .await
-    {
-        return json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to delete account link: {}", e),
-        );
-    }
-    Json(json!({ "success": true })).into_response()
 }
 
 pub async fn get_donation_config(State(state): State<Arc<AppState>>) -> Response {
@@ -174,23 +243,26 @@ pub async fn save_donation_config(
     headers: axum::http::HeaderMap,
     Json(input): Json<SaveDonationInput>,
 ) -> Response {
-    let user_id = match account_user_id(&headers, &state).await {
-        Ok(id) => id,
-        Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
+    let admission = match super::admit_payment_admin(&headers, &state).await {
+        Ok(admission) => admission,
+        Err(response) => return response,
     };
-    if !is_admin_user(user_id, &state).await {
-        return json_error(StatusCode::FORBIDDEN, "Admin access required");
-    }
-    let config = sanitize_donation_config(&input.config);
-    if let Err(error) = upsert_policy(
-        &state,
-        "policy:payments_donations",
-        &serde_json::to_value(&config).unwrap(),
-    )
-    .await {
-        return super::access_unavailable(&error);
-    }
-    Json(json!({ "success": true, "config": config })).into_response()
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            let config = sanitize_donation_config(&input.config);
+            if let Err(error) = upsert_policy(
+                &state,
+                "policy:payments_donations",
+                &serde_json::to_value(&config).unwrap(),
+            )
+            .await
+            {
+                return super::access_unavailable(&error);
+            }
+            Json(json!({ "success": true, "config": config })).into_response()
+        })
+        .await
 }
 
 pub async fn list_user_blocks(
@@ -198,27 +270,29 @@ pub async fn list_user_blocks(
     headers: axum::http::HeaderMap,
     Query(query): Query<ListQuery>,
 ) -> Response {
-    let user_id = match account_user_id(&headers, &state).await {
-        Ok(id) => id,
-        Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
+    let admission = match super::admit_payment_admin(&headers, &state).await {
+        Ok(admission) => admission,
+        Err(response) => return response,
     };
-    if !is_admin_user(user_id, &state).await {
-        return json_error(StatusCode::FORBIDDEN, "Admin access required");
-    }
-    let workspace_id = query
-        .workspace_id
-        .as_deref()
-        .unwrap_or(DEFAULT_WORKSPACE_ID);
-    let blocks = match state.wdb.list_payment_user_blocks(workspace_id).await {
-        Ok(blocks) => blocks,
-        Err(e) => {
-            return json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("failed to load user blocks: {}", e),
-            )
-        }
-    };
-    Json(json!({ "success": true, "blocks": blocks })).into_response()
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            let workspace_id = query
+                .workspace_id
+                .as_deref()
+                .unwrap_or(DEFAULT_WORKSPACE_ID);
+            let blocks = match state.wdb.list_payment_user_blocks(workspace_id).await {
+                Ok(blocks) => blocks,
+                Err(e) => {
+                    return json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        &format!("failed to load user blocks: {}", e),
+                    )
+                }
+            };
+            Json(json!({ "success": true, "blocks": blocks })).into_response()
+        })
+        .await
 }
 
 pub async fn create_user_block(
@@ -226,35 +300,39 @@ pub async fn create_user_block(
     headers: axum::http::HeaderMap,
     Json(input): Json<UserBlockInput>,
 ) -> Response {
-    let admin_id = match account_user_id(&headers, &state).await {
-        Ok(id) => id,
-        Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
+    let admission = match super::admit_payment_admin(&headers, &state).await {
+        Ok(admission) => admission,
+        Err(response) => return response,
     };
-    if !is_admin_user(admin_id, &state).await {
-        return json_error(StatusCode::FORBIDDEN, "Admin access required");
-    }
-    let workspace_id = input
-        .workspace_id
-        .clone()
-        .unwrap_or_else(|| DEFAULT_WORKSPACE_ID.to_string());
-    let now = chrono::Utc::now().timestamp_millis();
-    let block = PaymentUserBlock {
-        user_id: input.user_id,
-        workspace_id: workspace_id.clone(),
-        reason: input.reason.clone(),
-        blocked_by_user_id: Some(admin_id),
-        blocked_by_username: None,
-        blocked_username: None,
-        blocked_at: now,
-        expires_at: input.expires_at,
-    };
-    if let Err(e) = state.wdb.upsert_payment_user_block(&block).await {
-        return json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to save user block: {}", e),
-        );
-    }
-    Json(json!({ "success": true, "block": block })).into_response()
+    let admin_id = admission.user_id;
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            let _policy = state.payment_policy_lock.clone().lock_owned().await;
+            let workspace_id = input
+                .workspace_id
+                .clone()
+                .unwrap_or_else(|| DEFAULT_WORKSPACE_ID.to_string());
+            let now = chrono::Utc::now().timestamp_millis();
+            let block = PaymentUserBlock {
+                user_id: input.user_id,
+                workspace_id: workspace_id.clone(),
+                reason: input.reason.clone(),
+                blocked_by_user_id: Some(admin_id),
+                blocked_by_username: None,
+                blocked_username: None,
+                blocked_at: now,
+                expires_at: input.expires_at,
+            };
+            if let Err(e) = state.wdb.upsert_payment_user_block(&block).await {
+                return json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("failed to save user block: {}", e),
+                );
+            }
+            Json(json!({ "success": true, "block": block })).into_response()
+        })
+        .await
 }
 
 pub async fn clear_user_block(
@@ -262,24 +340,27 @@ pub async fn clear_user_block(
     headers: axum::http::HeaderMap,
     Path(blocked_user_id): Path<i64>,
 ) -> Response {
-    let admin_id = match account_user_id(&headers, &state).await {
-        Ok(id) => id,
-        Err(_) => return json_error(StatusCode::UNAUTHORIZED, "Authentication required"),
+    let admission = match super::admit_payment_admin(&headers, &state).await {
+        Ok(admission) => admission,
+        Err(response) => return response,
     };
-    if !is_admin_user(admin_id, &state).await {
-        return json_error(StatusCode::FORBIDDEN, "Admin access required");
-    }
-    if let Err(e) = state
-        .wdb
-        .delete_payment_user_block(DEFAULT_WORKSPACE_ID, blocked_user_id)
+    let operation_state = state.clone();
+    admission
+        .run(&operation_state, async move {
+            let _policy = state.payment_policy_lock.clone().lock_owned().await;
+            if let Err(e) = state
+                .wdb
+                .delete_payment_user_block(DEFAULT_WORKSPACE_ID, blocked_user_id)
+                .await
+            {
+                return json_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("failed to clear user block: {}", e),
+                );
+            }
+            Json(json!({ "success": true })).into_response()
+        })
         .await
-    {
-        return json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to clear user block: {}", e),
-        );
-    }
-    Json(json!({ "success": true })).into_response()
 }
 
 fn sanitize_donation_config(raw: &serde_json::Value) -> PaymentDonationConfig {

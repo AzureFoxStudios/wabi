@@ -67,7 +67,38 @@ required-tail completeness, majority availability or inactive Wabi verification.
 All readiness and writer fields remain false. The table below still describes
 the complete required integration, rather than completed activation support.
 
-The October 2 [signed checkpoint consumer/storage acceptance](../testing/SIGNED_CHECKPOINT_SOURCE_2026-10-02.md) passes 64 local package checks. Its schema-2 allocation field remains explicitly unknown; only community-signature and exact local byte checks are proven. The real producer/operator route still awaits coherent shared server source and runtime acceptance. Authenticated byte transfer, committed majority and independent inactive recovery remain open.
+The October 2 [signed checkpoint consumer/storage acceptance](../testing/SIGNED_CHECKPOINT_SOURCE_2026-10-02.md) passes 64 local package checks. Its schema-2 allocation field remains explicitly unknown; only community-signature and exact local byte checks are proven. The real producer/operator route and later authenticated byte RPC passed separate frozen workspace runs with 2,663 and 2,673 checks. The physical ciphertext trial transferred and reseeded genuine bytes but failed its final restarted-listener check. A later [availability proposal collector](CHECKPOINT_AVAILABILITY_PROPOSAL.md) checks actual applied membership and fresh byte receipts, with 84 passing consensus-package checks. It does not log an availability command. Committed byte majority and independent inactive recovery remain open; these counts refer to distinct frozen scopes.
+
+The subsequent **isolated V2 control candidate** does log historical byte
+observations through actual Raft. Its [95-check package receipt](../testing/geographic-2026-10-02/availability-control-consensus5.json)
+covers opaque test bytes, a healthy two-voter commit after the third actor
+stops, purged-log snapshot catch-up and repeated store/actor restart. The
+separate [preserved V1-program gate](../testing/geographic-2026-10-02/availability-control-v1-reader3.json)
+passes matching V1 startup with a flat legacy command and stored result, then
+actual V2 format refusal; its preceding library-only regression passed 69
+checks. These overlapping scopes are not additive. The later
+[genuine encrypted producer contract](../testing/geographic-2026-10-02/availability-control-producer2.json)
+passes seven local checks: actual observation commits, authenticated copied-peer
+ciphertext reconstruction, bounded inactive core replay, changed-source/upload
+refusals, valid retry, majority/minority behavior and owned scratch cleanup.
+The first failed run and fixture-only fresh-service-generation repair are
+recorded separately. This proves one local core recovery fixture, not complete
+enabled-instance recovery, automatic activation or physical-site failover. See the
+[format implementation plan](../plans/2026-10-02-checkpoint-availability-control-format.md)
+for the exact source and acceptance boundary. The
+[guarded 19-file adoption](../testing/geographic-2026-10-02/availability-control-root-adoption-1.json)
+now places that source in the shared checkout while preserving its current
+graph and nonowned source. The
+[current-root consensus](../testing/geographic-2026-10-02/availability-control-root-consensus1.json)
+and [preserved-reader](../testing/geographic-2026-10-02/availability-control-root-v1-reader1.json)
+gates now pass on 539 unchanged inputs. The subsequent
+[current-root genuine producer](../testing/geographic-2026-10-02/availability-control-root-producer1.json)
+passes seven checks with zero failures and one ignored physical-export entry on
+5,187 unchanged source/graph/static inputs. Enabled-state acceptance, production
+recovery wiring, deployment and writer-admission integration remain unimplemented.
+Successful genuine core verification leaves allocation knowledge
+unknown and every writer/full-instance permission false until the remaining
+contracts below are implemented and accepted.
 
 | Current source boundary | Next concrete work | Required acceptance |
 |---|---|---|
@@ -96,8 +127,8 @@ ordinary plaintext events in the current unencrypted metadata store would
 require a separately reviewed storage design.
 
 The historical security source freeze has been released. Current compiled
-source/Cargo reservations are coordinated on the geographic Project card;
-its notification owner currently has the shared build slot. This mapping is a
+source/Cargo reservations are coordinated on the geographic Project card.
+This mapping is a
 source/design handoff, not implemented writer behavior. It creates no production migration and grants
 no activation permission. Source ownership and a serialized acceptance slot
 must be explicitly released before the above changes begin.

@@ -16,8 +16,8 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
 
     // Spawn the periodic sweep task for stale Socket.IO state. Safety
     // net for on_disconnect failures. WABI_AUDIT_REPORT.md #3-#5.
-    // JoinHandle is dropped — the task runs until process exit. Future
-    // work: store in AppState for graceful shutdown.
+    // Idle scheduling holds only a weak Authority reference. Each actual
+    // sweep retains its upgraded state through accepted-operation completion.
     let _sweep_handle = spawn_sweep_loop(state.clone());
 
     let (layer, io) = SocketIo::builder().with_state(state).build_layer();

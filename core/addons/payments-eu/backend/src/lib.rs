@@ -130,7 +130,8 @@ pub struct EpcQrParams<'a> {
     pub amount_minor: i64,
     /// SEPA purpose code (exactly 4 chars), optional.
     pub purpose: Option<&'a str>,
-    /// Structured remittance (ISO 11649, ≤35 chars) — the WABI-XXXX code.
+    /// Structured creditor reference (≤35 chars). Wabi's plain reconciliation
+    /// code belongs in `text`, not in this field.
     pub reference: Option<&'a str>,
     /// Unstructured remittance (≤140 chars) — XOR with `reference`.
     pub text: Option<&'a str>,
@@ -143,6 +144,9 @@ pub fn build_epc_qr_payload(p: &EpcQrParams<'_>) -> Result<String, String> {
     let name = p.payee_name.trim();
     if name.is_empty() || name.chars().count() > 70 {
         return Err("payee name is required, max 70 characters".into());
+    }
+    if name.chars().any(char::is_control) {
+        return Err("payee name must not contain control characters".into());
     }
     if p.amount_minor < 1 {
         return Err("amount must be at least EUR 0.01".into());
@@ -171,6 +175,15 @@ pub fn build_epc_qr_payload(p: &EpcQrParams<'_>) -> Result<String, String> {
         }
         _ => None,
     };
+    // EPC version 002 makes BIC optional for EEA transfers only. Personal
+    // requests without an explicit beneficiary BIC must refuse other IBANs.
+    const EEA_COUNTRIES: &[&str] = &[
+        "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IS",
+        "IE", "IT", "LV", "LI", "LT", "LU", "MT", "NL", "NO", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
+    ];
+    if bic.is_none() && !EEA_COUNTRIES.contains(&&iban[..2]) {
+        return Err("Non-EEA SEPA destinations require the recipient bank's BIC; this request flow currently supports EEA destinations".into());
+    }
     if let Some(purpose) = p.purpose {
         let purpose = purpose.trim();
         if !(purpose.len() == 4 && purpose.bytes().all(|b| b.is_ascii_alphanumeric())) {
@@ -238,9 +251,10 @@ pub fn presentation(p: &EpcQrParams<'_>, reference_code: &str) -> Result<Value, 
         "mode": "qr",
         "qrData": qr_data,
         "copyText": p.iban.trim(),
-        "rail": "sepa-instant",
+        "rail": "sepa-credit-transfer",
+        "payeeName": p.payee_name.trim(),
         "referenceCode": reference_code,
-        "note": "SEPA (EPC QR-067 v3.1): any EU banking app scans this QR and the money lands in seconds. The payer's banking app shows your account name — this is a legal-name rail.",
+        "note": "SEPA bank transfer instructions (EPC069-12 v3.1). QR support and transfer speed depend on the payer's bank. Check the recipient account name, IBAN and amount before paying. The bank may show the account holder's legal name. The recipient records receipt manually; Wabi does not verify settlement.",
     }))
 }
 
@@ -368,14 +382,14 @@ mod tests {
             bic: None,
             amount_minor: 100,
             purpose: None,
-            reference: Some("WABI-7F3K"),
-            text: None,
+            reference: None,
+            text: Some("WABI-7F3K"),
             info: None,
         })
         .unwrap();
         assert_eq!(
             qr,
-            "BCD\n002\n1\nSCT\n\nMika's Print Studio\nDE33100205000001194700\nEUR1\n\nWABI-7F3K"
+            "BCD\n002\n1\nSCT\n\nMika's Print Studio\nDE33100205000001194700\nEUR1\n\n\nWABI-7F3K"
         );
     }
 
@@ -398,6 +412,16 @@ mod tests {
     }
 
     #[test]
+    fn non_eea_destination_requires_beneficiary_bic() {
+        let p = EpcQrParams {
+            payee_name: "Alice", iban: "GB29NWBK60161331926819", bic: None,
+            amount_minor: 100, purpose: None, reference: None, text: None, info: None,
+        };
+        assert!(build_epc_qr_payload(&p).is_err());
+        assert!(build_epc_qr_payload(&EpcQrParams { bic: Some("NWBKGB2L"), ..p }).is_ok());
+    }
+
+    #[test]
     fn rejects_bad_input() {
         let base = EpcQrParams {
             payee_name: "X",
@@ -411,6 +435,7 @@ mod tests {
         };
         assert!(build_epc_qr_payload(&base).is_ok());
         assert!(build_epc_qr_payload(&EpcQrParams { payee_name: "", ..base }).is_err());
+        assert!(build_epc_qr_payload(&EpcQrParams { payee_name: "Bank\nName", ..base }).is_err());
         assert!(build_epc_qr_payload(&EpcQrParams { amount_minor: 0, ..base }).is_err());
         assert!(build_epc_qr_payload(&EpcQrParams { amount_minor: 100_000_000_000, ..base }).is_err());
         assert!(build_epc_qr_payload(&EpcQrParams {

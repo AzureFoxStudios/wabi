@@ -65,6 +65,8 @@ pub struct AppState {
     pub network_health: crate::api::network_health::Sampler,
     pub instance_operations: crate::instance_operations::InstanceOperations,
     pub checkpoint_jobs: crate::checkpoint_jobs::CheckpointJobs,
+    #[cfg(target_os = "linux")]
+    pub(crate) recovery_publication: Option<Arc<crate::recovery_publication_jobs::PublicationJobs>>,
     pub boosters: crate::api::boosters::Boosters,
     /// WabiDB engine handle. The source of truth for all persistence.
     /// Concrete `WdbAdapter` (not the trait object) — `WabiStore` is not
@@ -99,9 +101,10 @@ pub struct AppState {
     pub setup_claim_lock: tokio::sync::Mutex<()>,
     /// Private supervisor capability; never returned to browser clients or persisted.
     pub desktop_bootstrap_token: Option<String>,
-    /// Orders legacy payment-policy import against either administrative save
-    /// route. Runtime coordination only; WabiDB remains authoritative.
-    pub payment_policy_lock: tokio::sync::Mutex<()>,
+    /// Orders payment creation with access-policy/block changes and legacy
+    /// imports. Owned guards survive cancelled accepted HTTP writes.
+    /// Runtime coordination only; WabiDB remains authoritative.
+    pub payment_policy_lock: Arc<tokio::sync::Mutex<()>>,
     /// Token revocation state. A stolen/compromised JWT can be killed
     /// without rotating the signing secret: individual `jti`s, entire
     /// users, or all tokens issued before an `epoch` can be revoked.
@@ -502,12 +505,66 @@ impl AppState {
         let lore_roles = LoreRoleStore::open(&config.data_dir);
         crate::api::server_center::spawn_evidence_expiry_loop(&server_center, instance_operations.clone());
         let checkpoint_jobs = crate::checkpoint_jobs::CheckpointJobs::from_environment(&config)?;
+        // Default-off trusted operator policy. Requests cannot select this
+        // path, roots, identity, enrollment, bind address or retry policy.
+        let publication_policy = std::env::var_os("WABI_RECOVERY_PUBLISHER_CONFIG");
+        #[cfg(not(target_os = "linux"))]
+        anyhow::ensure!(publication_policy.is_none(), "recovery publication requires Linux");
+        #[cfg(target_os = "linux")]
+        let recovery_publication = if let Some(path) = publication_policy {
+            anyhow::ensure!(config.server_role == crate::config::ServerRole::Authority,
+                "recovery publication requires Authority role");
+            anyhow::ensure!(checkpoint_jobs.source_publication_enabled(),
+                "recovery publication requires configured checkpoint source support");
+            ensure_authority_not_fenced(&config.data_dir)?;
+            anyhow::ensure!(!wdb.engine().local_writer_fenced().await,
+                "recovery publication refuses fenced Authority");
+            let community = community_roster.community_id().to_owned();
+            let node = config.node_id.clone();
+            let path = PathBuf::from(path);
+            let lifetime = Arc::clone(&wdb);
+            let data_dir = config.data_dir.clone();
+            // Dropping the startup waiter never aborts the actual private
+            // policy read; publisher supervision owns the original Wdb lease
+            // through actual runtime drain even for an unobserved result.
+            let startup = tokio::spawn(async move {
+                let loader_lifetime = Arc::clone(&lifetime);
+                let policy = tokio::task::spawn_blocking(move || {
+                    let _authority_lifetime = loader_lifetime;
+                    crate::recovery_node::load(&path)
+                }).await.map_err(anyhow::Error::from)??;
+                ensure_authority_not_fenced(&data_dir)?;
+                anyhow::ensure!(!lifetime.engine().local_writer_fenced().await,
+                    "Authority became fenced during publisher policy load");
+                let publisher = crate::recovery_publication_jobs::PublicationJobs::open(
+                    policy, community, node, Arc::clone(&lifetime),
+                ).await?;
+                let admission = async {
+                    ensure_authority_not_fenced(&data_dir)?;
+                    anyhow::ensure!(!lifetime.engine().local_writer_fenced().await,
+                        "Authority became fenced during publisher startup");
+                    Ok::<_, anyhow::Error>(())
+                }.await;
+                if let Err(error) = admission {
+                    // Await the real terminal outcome before releasing either
+                    // startup ownership or the publisher's storage keepalive.
+                    publisher.shutdown().await?;
+                    return Err(error);
+                }
+                Ok::<_, anyhow::Error>(Arc::new(publisher))
+            });
+            Some(startup.await.map_err(anyhow::Error::from)??)
+        } else {
+            None
+        };
         Ok(Self {
             config,
             started_at,
             network_health: crate::api::network_health::Sampler::default(),
             instance_operations,
             checkpoint_jobs,
+            #[cfg(target_os = "linux")]
+            recovery_publication,
             boosters,
             wdb,
             community_roster,
@@ -525,7 +582,7 @@ impl AppState {
             owner_user_id,
             setup_claim_lock: tokio::sync::Mutex::new(()),
             desktop_bootstrap_token,
-            payment_policy_lock: tokio::sync::Mutex::new(()),
+            payment_policy_lock: Arc::new(tokio::sync::Mutex::new(())),
             revocation_file,
             revocations,
             recovery_file,
