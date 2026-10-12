@@ -81,27 +81,64 @@ export function assignAccents(theme: Theme): { line: string; seal: string } {
 		: { line: secondary, seal: primary };
 }
 
-/** Nudge `color` toward `toward` until it reaches `min` contrast on `surface` (or give up after 20 steps). */
-export function ensureContrast(color: string, surface: string, toward: string, min: number): string {
-	if (!parseColor(color) || contrastRatio(color, surface) >= min) return color;
+/**
+ * Nudge `color` toward `toward` until it reaches `min` contrast on every surface in `surfaces`
+ * (or give up after 20 steps). A role that sits on several surfaces must pass on all of them.
+ */
+export function ensureContrastOnAll(color: string, surfaces: string[], toward: string, min: number): string {
+	const meets = (candidate: string) => surfaces.every((surface) => contrastRatio(candidate, surface) >= min);
+	if (!parseColor(color) || meets(color)) return color;
 	for (let step = 1; step <= 20; step++) {
 		const next = mix(color, toward, step / 20);
-		if (contrastRatio(next, surface) >= min) return next;
+		if (meets(next)) return next;
 	}
 	return toward;
 }
 
+/** Nudge `color` toward `toward` until it reaches `min` contrast on `surface` (or give up after 20 steps). */
+export function ensureContrast(color: string, surface: string, toward: string, min: number): string {
+	return ensureContrastOnAll(color, [surface], toward, min);
+}
+
+/** Text for a filled control: the first of these that reads at 4.5:1 on the fill, otherwise the best of them. */
+const ON_FILL_CANDIDATES = ['#101315', '#000000', '#ffffff'];
+
+export function readableOn(fill: string): string {
+	let best = ON_FILL_CANDIDATES[0];
+	let bestRatio = 0;
+	for (const candidate of ON_FILL_CANDIDATES) {
+		const ratio = contrastRatio(candidate, fill);
+		if (ratio >= 4.5) return candidate;
+		if (ratio > bestRatio) {
+			best = candidate;
+			bestRatio = ratio;
+		}
+	}
+	return best;
+}
+
 export function deriveRoles(theme: Theme): RoleTokens {
 	const c = theme.colors;
-	const { line: accent, seal } = assignAccents(theme);
+	const { line, seal: sealColor } = assignAccents(theme);
 	const text = c.textPrimary;
 	const char = characterFor(theme);
 	const light = isLightTheme(theme);
 	const lineMix = char === 'contrast' ? 60 : 11;
+	const bg2 = mix(c.bgSecondary, c.bgTertiary, 0.5);
+	// Every surface a role can sit on: the page, the quiet panel, the raised panel and the sunken field well.
+	const surfaces = [c.bgSecondary, bg2, c.bgTertiary, c.modalBg];
+
+	// Text-grade colors (accent and danger can both be set as text) must read at 4.5:1 on every surface.
+	// Marks and control edges need 3:1 (WCAG 1.4.11). Each nudges toward the text color, the most legible neighbor.
+	const accent = ensureContrastOnAll(line, surfaces, text, 4.5);
+	const danger = ensureContrastOnAll(c.colorDanger, surfaces, text, 4.5);
+	const seal = ensureContrastOnAll(sealColor, surfaces, text, 3);
+	const online = ensureContrastOnAll(c.statusOnline, surfaces, text, 3);
+	const lineStrong = char === 'contrast' ? text : ensureContrastOnAll(mix(c.bgSecondary, text, 0.22), surfaces, text, 3);
 
 	return {
 		'--w-bg': c.bgSecondary,
-		'--w-bg2': mix(c.bgSecondary, c.bgTertiary, 0.5),
+		'--w-bg2': bg2,
 		'--w-raise': c.bgTertiary,
 		'--w-sink': c.modalBg,
 		'--w-text': text,
@@ -111,16 +148,16 @@ export function deriveRoles(theme: Theme): RoleTokens {
 		'--w-faint': ensureContrast(ensureContrast(c.textTertiary, c.bgSecondary, c.textPrimary, 4.5), c.bgTertiary, c.textPrimary, 4.5),
 		'--w-deco': c.textTertiary,
 		'--w-line': `color-mix(in srgb, ${text} ${lineMix}%, transparent)`,
-		'--w-line-strong': char === 'contrast' ? text : `color-mix(in srgb, ${text} 22%, transparent)`,
+		'--w-line-strong': lineStrong,
 		'--w-accent': accent,
 		// The community's signature color; MainLayout overrides it per server from branding.
 		'--w-sig': accent,
 		'--w-accent-soft': `color-mix(in srgb, ${accent} 16%, transparent)`,
-		'--w-on-accent': luminance(accent) > 0.35 ? '#101315' : '#ffffff',
+		'--w-on-accent': readableOn(accent),
 		'--w-seal': seal,
 		'--w-seal-soft': `color-mix(in srgb, ${seal} 14%, transparent)`,
-		'--w-online': c.statusOnline,
-		'--w-danger': c.colorDanger,
+		'--w-online': online,
+		'--w-danger': danger,
 		'--w-scrim': light ? 'rgba(240, 238, 232, 0.62)' : 'rgba(6, 8, 9, 0.58)',
 	};
 }
