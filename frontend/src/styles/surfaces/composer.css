@@ -1,0 +1,51 @@
+/* Composer skin — the input card, its controls and the privacy seal / legend on its edge.
+   Owner (wave 1): w1-composer. Holds no other package's rules.
+   Cascade: shell.css after stagebar.css — before login-skin, controls-kit and the stage /
+   settings / admin / modal / panels skins. Spec §11 puts surfaces after panels-skin.css; until
+   w2-retire-legacy-qa imports surfaces directly in that order, a rule added here loses
+   equal-specificity ties to every skin that loads later.
+   Note: older composer chrome with !important (.input-wrapper .input-container border, radius,
+   focus ring) still lives in chat-legacy.css, marked HELD FOR w1-composer. */
+
+/* ---------- composer ---------- */
+:root .main-content .input-wrapper { background: var(--w-bg); }
+:root .main-content .input-container {
+	background: var(--w-raise);
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(16px * var(--w-rs, 1));
+	box-shadow: none;
+}
+:root .main-content .input-container:focus-within {
+	border-color: var(--w-accent);
+	box-shadow: 0 0 0 3px var(--w-accent-soft);
+}
+:root .main-content .input-container textarea { font: 400 calc(15.5px * var(--w-fs, 1))/1.5 var(--w-sans); color: var(--w-text); }
+:root .main-content .input-container textarea::placeholder { color: var(--w-mute); }
+:root .main-content .input-icon-button { color: var(--w-mute); border-radius: calc(10px * var(--w-rs, 1)); }
+:root .main-content .input-icon-button:hover { color: var(--w-accent); background: var(--w-accent-soft); }
+:root .main-content .send-button {
+	background: var(--w-text);
+	color: var(--w-bg);
+	border-radius: calc(11px * var(--w-rs, 1));
+}
+:root .main-content .composer-e2ee-status {
+	font: 500 calc(11.5px * var(--w-fs, 1))/1.2 var(--w-mono);
+	color: var(--w-mute);
+}
+
+/* ---------- narrow screens ---------- */
+@media (max-width: 640px) {
+	:root .main-content .input-container { border-radius: calc(14px * var(--w-rs, 1)); }
+}
+
+/* The seal marks what the server can and cannot read: the composer's encryption state. */
+:root .main-content .composer-e2ee-status { display: inline-flex; align-items: center; gap: 7px; padding-left: 8px; box-shadow: inset 2px 0 0 var(--w-seal); }
+:root .main-content .composer-e2ee-icon { color: var(--w-seal); }
+
+/* composer privacy tag: a small legend on the composer's top edge instead of its own row */
+:root .main-content .input-container { position: relative; }
+:root .main-content .input-container > .composer-e2ee-status { position: absolute; top: -9px; right: 14px; left: auto; width: auto; display: inline-flex; z-index: 3; margin: 0; padding: 1px 8px; gap: 5px; box-shadow: none; border: var(--w-bw, 1px) solid var(--w-line); border-radius: calc(5px * var(--w-rs, 1)); background: var(--w-bg); font: 500 10px/1.5 var(--w-mono); letter-spacing: .04em; color: var(--w-faint); cursor: help; }
+:root .main-content .input-container > .composer-e2ee-status .composer-e2ee-icon { color: var(--w-mute); font-size: 9px; }
+:root .main-content .input-container > .composer-e2ee-status.locked .composer-e2ee-icon { color: var(--w-seal); }
+:root .main-content .input-container > .composer-e2ee-status:hover { color: var(--w-text); }
+@media (max-width: 640px) { :root .main-content .input-container > .composer-e2ee-status .composer-e2ee-label { display: none; } }
