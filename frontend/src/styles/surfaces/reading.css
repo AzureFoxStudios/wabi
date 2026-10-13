@@ -1,0 +1,76 @@
+/* Reading surfaces skin — wiki landing, forum toolbar and thread titles, gallery document
+   covers.
+   Owner (wave 1): w1-forum owns the forum toolbar and thread titles. Blocks marked HELD FOR
+   belong to another package and sit here only because they share this cascade slot; their
+   owner changes them by handoff or moves them out.
+   Cascade: panels-skin.css after calls.css — after modal-skin.css, before desktop-shell.css
+   (the only carved slot that follows modal-skin). */
+
+/* HELD FOR w1-dialogs-popouts (CreateDMModal / CreateGroupModal), not a reading rule: these
+   must follow modal-skin.css in the cascade, and this is the only carved file that does.
+   Move them with the dialogs work (modal-skin.css, owned by w0-dialogs-menus, or a dialogs
+   surface file). */
+/* Create group / create DM side sheets (they use .modal rather than .modal-content) */
+:root .modal[role='dialog'] {
+	background: var(--w-bg);
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(14px * var(--w-rs, 1));
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+	font-family: var(--w-sans);
+}
+:root .modal[role='dialog'] .modal-header { background: var(--w-bg2); border-bottom: var(--w-bw, 1px) solid var(--w-line); }
+:root .modal[role='dialog'] .modal-header h2,
+:root .modal[role='dialog'] .modal-header h3 { font: 600 calc(20px * var(--w-fs, 1))/1.2 var(--w-serif); color: var(--w-text); }
+:root .modal[role='dialog'] .close-btn { color: var(--w-mute); border-radius: calc(9px * var(--w-rs, 1)); }
+:root .modal[role='dialog'] .close-btn:hover { background: var(--w-raise); color: var(--w-text); }
+:root .modal[role='dialog'] input {
+	background: var(--w-sink);
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: calc(10px * var(--w-rs, 1));
+	color: var(--w-text);
+	font: 400 calc(14px * var(--w-fs, 1))/1.4 var(--w-sans);
+}
+:root .modal[role='dialog'] input:focus { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
+:root .modal[role='dialog'] .user-item { border-radius: calc(10px * var(--w-rs, 1)); color: var(--w-text); }
+:root .modal[role='dialog'] .user-item:hover { background: var(--w-raise); }
+:root .modal[role='dialog'] .handle { font: 500 calc(12px * var(--w-fs, 1))/1.3 var(--w-mono); color: var(--w-mute); }
+:root .modal[role='dialog'] .chip { border: var(--w-bw, 1px) solid var(--w-line-strong); border-radius: var(--w-pill, 999px); background: var(--w-bg2); color: var(--w-text); }
+:root .modal[role='dialog'] .modal-footer { border-top: var(--w-bw, 1px) solid var(--w-line); }
+:root .modal[role='dialog'] .create-btn {
+	min-height: 38px;
+	border: 0;
+	border-radius: calc(11px * var(--w-rs, 1));
+	background: var(--w-text);
+	color: var(--w-bg);
+	font: 700 calc(14px * var(--w-fs, 1))/1.2 var(--w-sans);
+}
+:root .modal[role='dialog'] .create-btn:disabled { background: var(--w-raise); color: var(--w-faint); }
+:root .modal[role='dialog'] .operation-error { color: var(--w-danger); }
+
+/* HELD FOR w1-wiki-notes (WikiChannel.svelte). */
+/* ---- wiki landing in the panel ---- */
+:root .wiki-start h1, :root .wiki-start h2, :root .wiki-start h3 { font-family: var(--w-serif); font-weight: 600; letter-spacing: .01em; }
+
+/* ---- forum: toolbar as quiet text controls, serif thread titles ---- */
+:root .forum-channel .forum-workspace-toolbar { gap: 8px; padding: 8px 12px; border-bottom: var(--w-bw, 1px) solid var(--w-line); background: transparent; }
+:root .forum-channel .forum-workspace-toolbar button { min-height: 30px; padding: 4px 11px; border: var(--w-bw, 1px) solid var(--w-line-strong); border-radius: calc(8px * var(--w-rs, 1)); background: transparent; color: var(--w-text); font: 600 .78rem var(--w-sans); }
+:root .forum-channel .forum-workspace-toolbar button:hover:not(:disabled) { border-color: var(--w-accent); color: var(--w-accent); }
+:root .forum-channel .forum-workspace-toolbar .forum-primary-action { margin-inline-start: auto; background: var(--w-text); color: var(--w-bg); border-color: var(--w-text); }
+:root .forum-channel .forum-workspace-toolbar .forum-primary-action:hover:not(:disabled) { background: var(--w-accent); border-color: var(--w-accent); color: var(--w-on-accent); }
+:root .forum-channel .forum-post-detail-title { font: 600 clamp(1.3rem, 1.1rem + 1vw, 1.8rem)/1.25 var(--w-serif); letter-spacing: .005em; }
+:root .right-panel-embedded .forum-workspace-toolbar { padding-inline-end: 12px; }
+:root .right-panel-embedded .forum-post-row { padding: 12px 14px; min-height: 0; }
+:root .right-panel-embedded .forum-post-row-title { font-size: 1rem; margin-bottom: 6px; }
+:root .right-panel-embedded .forum-post-row-title { font: 600 1.05rem/1.35 var(--w-serif); }
+
+/* HELD FOR the gallery skin — GalleryChannel.svelte has no wave-1 owner. */
+/* ---- gallery: documents and models as cover cards ---- */
+:root .doc-cover { position: relative; width: 100%; min-height: 100%; aspect-ratio: 4 / 5; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; padding: 14px; background: var(--w-bg2); border: var(--w-bw, 1px) solid var(--w-line); }
+:root .doc-cover .doc-ext { align-self: flex-start; padding: 1px 7px; border: var(--w-bw, 1px) solid var(--w-line-strong); border-radius: calc(5px * var(--w-rs, 1)); font: 600 .68rem var(--w-mono); letter-spacing: .08em; color: var(--w-mute); }
+:root .doc-cover .doc-title { font: 600 clamp(1.05rem, .9rem + 1vw, 1.5rem)/1.2 var(--w-serif); color: var(--w-text); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; line-clamp: 4; -webkit-box-orient: vertical; word-break: break-word; }
+:root .doc-cover .doc-kind { font: 500 .66rem var(--w-mono); letter-spacing: .04em; color: var(--w-faint); }
+:root .doc-cover.model { background-image: linear-gradient(var(--w-line) 1px, transparent 1px), linear-gradient(90deg, var(--w-line) 1px, transparent 1px); background-size: 24px 24px; }
+:root .doc-cover { padding-bottom: 56px; }
+:root .doc-cover .doc-kind { display: none; }
+:root .recent-card-cover .doc-cover { aspect-ratio: 3 / 2; min-height: 0; height: 100%; }
