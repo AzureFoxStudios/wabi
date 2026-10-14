@@ -3,8 +3,8 @@
 	seal chip by `PrivacyBadge.svelte`. Every word comes from `lib/privacy/privacyState.ts`.
 
 	- Kit `.w-pop`: title = the state word with its glyph in --w-seal; body = what the server
-	  operator can read; in DMs and groups the §9.2 explanation; facts Room / Kept / Encryption;
-	  footer link "How privacy works in Wabi" (/privacy).
+	  operator can read; facts Room / Kept / Encryption; under the rule, in DMs and groups the
+	  §9.2 explanation, then the link "How privacy works in Wabi" (/privacy).
 	- A non-modal dialog (role="dialog", named by its title, described by its body). Portaled to
 	  the body and placed with `position: fixed` next to its anchor (above by default for the
 	  colophon, below for a header chip), flipping when it does not fit and clamped to the
@@ -18,7 +18,6 @@
 </script>
 
 <script lang="ts">
-	import { tick } from 'svelte';
 	import { portal } from '$lib/actions/portal';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import {
@@ -113,7 +112,7 @@
 		};
 	}
 
-	// Place before paint, move focus in, and follow the anchor while open.
+	// Place before paint and follow the anchor while open; close when the anchor goes away.
 	$effect(() => {
 		const element = pop;
 		const target = anchor;
@@ -123,11 +122,6 @@
 		void retention;
 		void conversation;
 		place();
-		void tick().then(() => {
-			if (open && element.isConnected && !element.contains(document.activeElement)) {
-				element.focus({ preventScroll: true });
-			}
-		});
 
 		const follow = () => place();
 		const resize = new ResizeObserver(follow);
@@ -176,6 +170,19 @@
 		};
 	});
 
+	// Move focus into the dialog once per opening, so its title and body are announced and Tab
+	// reaches the link. Later re-placements (state or retention changes) never steal focus.
+	let entered = false;
+	$effect(() => {
+		if (!open || !pop) {
+			entered = false;
+			return;
+		}
+		if (entered) return;
+		entered = true;
+		pop.focus({ preventScroll: true });
+	});
+
 	function onFocusOut(event: FocusEvent) {
 		const next = event.relatedTarget as Node | null;
 		// Focus moving to the page (null) is a press somewhere else; that path closes it already.
@@ -206,18 +213,20 @@
 			<span>{words.word}</span>
 		</h2>
 		<p class="w-pop__body" id={bodyId}>{body}</p>
-		{#if conversation}
-			<p class="w-pop__body privacy-pop__about">{PRIVACY_EXPLANATION}</p>
-		{/if}
 		<dl class="w-pop__facts">
 			{#each facts as fact (fact.term)}
 				<dt>{fact.term}</dt>
 				<dd>{fact.value}</dd>
 			{/each}
 		</dl>
-		<p class="w-pop__foot">
+		<!-- This room first, then how privacy works everywhere: the §9.2 explanation sits with the
+		     link under the rule, as a footnote. -->
+		<div class="w-pop__foot privacy-pop__foot">
+			{#if conversation}
+				<p class="privacy-pop__about">{PRIVACY_EXPLANATION}</p>
+			{/if}
 			<a href={PRIVACY_LINK_HREF} onclick={() => close(false)}>{PRIVACY_LINK_LABEL}</a>
-		</p>
+		</div>
 	</div>
 {/if}
 
@@ -230,12 +239,15 @@
 		max-height: calc(100dvh - 16px);
 		overflow-y: auto;
 		overscroll-behavior: contain;
-		/* Measured before it is shown, so the first frame is already in place. */
-		visibility: hidden;
+		/* Measured before it is shown, so the first frame is already in place. Transparent rather
+		   than hidden, so it can take focus the moment it opens. */
+		opacity: 0;
+		pointer-events: none;
 		animation: none;
 	}
 	.privacy-pop--placed {
-		visibility: visible;
+		opacity: 1;
+		pointer-events: auto;
 	}
 	/* Entrance along the axis it comes from (§4.7); reduced motion is handled globally. */
 	.privacy-pop--placed[data-side='top'] {
@@ -258,8 +270,10 @@
 		margin: 0;
 	}
 	.privacy-pop__about {
-		margin-top: 6px;
+		margin: 0 0 10px;
 		color: var(--w-faint);
+		font: var(--w-t-small);
+		text-wrap: pretty;
 	}
 	.privacy-pop .w-pop__facts dd {
 		overflow-wrap: anywhere;
