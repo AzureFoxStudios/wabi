@@ -159,6 +159,9 @@
 
 .right-panel-zone.stub-left { left: var(--w-rail-w, 46px); right: auto; }
 
+/* Focus moves here when a peek opens over a stage that had focus; the ring sits inside the edge. */
+.right-panel-zone:focus-visible { outline: 2px solid var(--w-accent); outline-offset: -2px; }
+
 /* Plane 0 surface (§4.5): --w-bg2, no gradients, a --w-line hairline on the edge toward the stage. */
 .right-panel-body {
 	position: relative;
@@ -218,6 +221,9 @@
 	cursor: default;
 	animation: stage-scrim-in var(--w-dur-3) var(--w-ease) both;
 }
+
+/* The desktop app's titlebar sits above every fixed layer (desktop-shell.css). */
+:root[data-desktop-shell='true'] .stage-scrim { top: var(--desktop-titlebar-height); }
 
 .stage-scrim.closing {
 	pointer-events: none;

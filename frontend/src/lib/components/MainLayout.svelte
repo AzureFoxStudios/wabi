@@ -45,7 +45,7 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import { channelMessages, channelUnreadCounts, channels, currentChannel, currentUser, users, createDM, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, joinChannel, type Channel, type User } from '$lib/socket';
 	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, incomingCall, outgoingCall, isInCall, activeGroupCall, groupCallRingingTargets, isVideoOff, toggleVideo, channelCallPanelOpen, callOfflineNotice } from '$lib/calling';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 import { _ } from '$lib/i18n';
 import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { playNotificationSound } from '$lib/notifications';
@@ -165,9 +165,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	$: dockPeeking = !$layoutStore.isMobile && ($layoutStore.rightPanelMode === 'peek' || ($layoutStore.rightPanelMode === 'pinned' && dock.mode === 'peek'));
 	// A hover peek retracts on its own; a peek opened on purpose (or a pin with no room) gets the scrim.
 	$: stageScrim = dockPeeking && ($layoutStore.rightPanelMode === 'pinned' || $peekHeld);
-	// A closing peek keeps its edge and shadow while it leaves.
+	// A closing peek keeps its place, edge and shadow while it leaves.
 	let zoneWasPeek = false;
 	$: if ($layoutStore.rightPanelMode !== 'none') zoneWasPeek = dockPeeking;
+	$: zoneFloats = dockPeeking || (peekClosing && zoneWasPeek);
 	// The scrim stays through the peek's exit animation, then goes.
 	let scrimVisible = false;
 	$: updateScrimVisible(stageScrim, peekClosing);
@@ -175,25 +176,49 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		scrimVisible = scrim || (scrimVisible && closing);
 	}
 	onMount(measureRailWidth);
-	// The scrim covers exactly the stage: everything between the sidebar and the rail.
+	// The scrim covers exactly the stage (everything between the sidebar and the rail), and a peek
+	// hangs over the stage's edge on the rail side: past the sidebar when both share that side.
+	$: navOnStubSide = ($layoutStore.navDock === 'right') === ($layoutStore.stubSide !== 'left');
+	$: peekInset = dockRail + (navOnStubSide ? dockSidebar : 0);
 	$: scrimLeft = ($layoutStore.stubSide === 'left' ? dockRail : 0) + ($layoutStore.navDock === 'right' ? 0 : dockSidebar);
 	$: scrimRight = ($layoutStore.stubSide === 'left' ? 0 : dockRail) + ($layoutStore.navDock === 'right' ? dockSidebar : 0);
 
-	function closeStagePeek(): void {
-		// Keep keyboard focus somewhere sensible: back on the stub that opened the panel.
-		const zone = document.querySelector('.right-panel-zone');
-		const returnTo = zone?.contains(document.activeElement)
-			? document.querySelector<HTMLElement>('.rail .stub.active') ?? document.querySelector<HTMLElement>('.rail .stub')
-			: null;
-		layoutStore.closeRightPanel();
-		returnTo?.focus({ preventScroll: true });
+	// Under the scrim the stage is out of reach for the pointer, so it is inert for the keyboard too.
+	// Focus that was on the stage moves into the peek and returns when the peek closes; focus left
+	// inside a closing peek goes back to its stub on the rail.
+	let companionZone: HTMLElement | null = null;
+	let stageFocusReturn: HTMLElement | null = null;
+	let prevStageScrim = false;
+	$: guardStageFocus(stageScrim);
+	function guardStageFocus(scrim: boolean): void {
+		if (scrim === prevStageScrim || typeof document === 'undefined') return;
+		prevStageScrim = scrim;
+		if (scrim) {
+			const active = document.activeElement;
+			if (active instanceof HTMLElement && active.closest('.main-content')) {
+				stageFocusReturn = active;
+				void tick().then(() => companionZone?.focus({ preventScroll: true }));
+			}
+			return;
+		}
+		const opener = stageFocusReturn;
+		stageFocusReturn = null;
+		const panelId = $layoutStore.activeRightTab;
+		void tick().then(() => {
+			const active = document.activeElement;
+			const closed = $layoutStore.rightPanelMode === 'none';
+			const stranded = !active || active === document.body || (closed && Boolean(companionZone?.contains(active)));
+			if (!stranded) return;
+			const stub = document.querySelector<HTMLElement>(`.rail .stub[data-panel-id="${CSS.escape(panelId)}"]`);
+			(opener?.isConnected && closed ? opener : stub)?.focus({ preventScroll: true });
+		});
 	}
 
 	function handleStagePeekKeydown(event: KeyboardEvent): void {
 		if (!stageScrim || event.key !== 'Escape' || event.defaultPrevented) return;
 		if (event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
 		event.preventDefault();
-		closeStagePeek();
+		layoutStore.closeRightPanel();
 	}
 
 	/** Width from the pointer to the rail edge the panel hangs from, clamped to what fits. */
@@ -1448,7 +1473,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	       peek opened on purpose (or a pin with no room) puts the scrim over the stage. -->
 	{#if !$layoutStore.isMobile}
 		{#if scrimVisible}
-			<!-- Pointer-only affordance: Escape and the panel's own close button cover the keyboard. -->
+			<!-- Pointer-only affordance: Escape, the stub and the panel's own close button cover the keyboard. -->
 			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 			<div
 				class="stage-scrim"
@@ -1456,7 +1481,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				style:left="{scrimLeft}px"
 				style:right="{scrimRight}px"
 				aria-hidden="true"
-				on:click={closeStagePeek}
+				on:click={() => layoutStore.closeRightPanel()}
 			></div>
 		{/if}
 		{#if $layoutStore.rightPanelMode !== 'none' || peekClosing}
@@ -1464,13 +1489,19 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			     dismissal: stub mouseleave arms it, and the zone's mouseenter
 			     will not re-fire for a pointer that never left the zone. -->
 			<div
+				bind:this={companionZone}
 				class="right-panel-zone"
 				class:pinned={dockPinned}
-				class:peek={dockPeeking || (peekClosing && zoneWasPeek)}
+				class:peek={zoneFloats}
 				class:closing={peekClosing && $layoutStore.rightPanelMode === 'none'}
 				class:stub-right={$layoutStore.stubSide === 'right'}
 				class:stub-left={$layoutStore.stubSide === 'left'}
+				role="complementary"
+				aria-label="Side panel"
+				tabindex="-1"
 				style:width="{dock.width}px"
+				style:right={zoneFloats && $layoutStore.stubSide !== 'left' ? `${peekInset}px` : null}
+				style:left={zoneFloats && $layoutStore.stubSide === 'left' ? `${peekInset}px` : null}
 				use:peekAnimationGate
 				on:mouseenter={() => setPeekPointerInside(true)}
 				on:mouseleave={() => { setPeekPointerInside(false); armPeekDismiss(); }}
@@ -1521,8 +1552,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		</div>
 	{/if}
 
-	<!-- Main Content -->
-	<div class="main-content">
+	<!-- Main Content (inert while a peek's scrim covers it) -->
+	<div class="main-content" inert={stageScrim}>
 		<div class="chat-stack">
 			{#if activeView !== 'server' && ((!$layoutStore.centerDmChannelId && activeView !== 'dm' && activeView !== 'following') || $activeWorkspaceView !== 'messages')}
 				<WorkspaceViewBar {activityBadge} activeView={$activeWorkspaceView} onSelectView={handleWorkspaceViewSelect} canOpenWhiteboard={Boolean($currentChannel)} />
