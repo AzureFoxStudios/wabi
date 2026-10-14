@@ -1,20 +1,23 @@
 /* Typeface roles. Kept out of theme/roles.ts so the language (data-script) can swap
    them without fighting inline styles. English ships with the app; other scripts get
-   their faces from the language pack (see i18n/packs.ts). */
+   their faces from the language pack (see i18n/packs.ts).
+   'Wabi Ellipsis' (fonts.css) leads every serif stack: it supplies only U+2026, so a
+   truncated Shippori name ends in a Latin "…" instead of a centred CJK "···". */
 :root {
 	--w-sans: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-	--w-serif: 'Shippori Mincho', 'Hiragino Mincho ProN', 'Yu Mincho', Georgia, serif;
+	--w-serif: 'Wabi Ellipsis', 'Shippori Mincho', 'Hiragino Mincho ProN', 'Yu Mincho', Georgia, serif;
 	--w-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	--w-lh: 1.6;
+	/* Only the weights fonts.css loads may render (sans 400/500/700, serif 400/600, mono 400/500);
+	   a missing weight falls back to the nearest real face instead of a smeared fake bold. */
+	font-synthesis-weight: none;
 }
 /* Thai: Latin glyphs stay in the base faces; Thai glyphs come from Noto. Thai needs a
    little more line height for stacked marks. */
 :root[data-script='thai'] {
 	--w-sans: 'Zen Kaku Gothic New', 'Noto Sans Thai', system-ui, -apple-system, 'Segoe UI', sans-serif;
-	--w-serif: 'Shippori Mincho', 'Noto Serif Thai', Georgia, serif;
+	--w-serif: 'Wabi Ellipsis', 'Shippori Mincho', 'Noto Serif Thai', Georgia, serif;
 	--w-lh: 1.7;
-}
-:root {
-	--w-lh: 1.6;
 }
 
 /* Legacy typeface tokens follow the roles, so older components inherit the new faces. */
@@ -28,3 +31,53 @@ body {
 
 /* The user's interface scale (Settings → Accessibility) multiplies every design size. */
 :root { --w-fs: var(--app-font-scale, 1); }
+
+/* ==========================================================================
+   Type scale (design contract §4.1)
+   Each style is one `font` shorthand: weight, size / line height, family. Sizes and line
+   heights are whole pixels times the interface scale, so lines never land on a fraction
+   (fractional line boxes are what put scrollbars on single messages).
+   Serif names places, sans carries voices, mono counts.
+
+   A custom property resolves its var() references where it is declared, so the scale is
+   declared again on any element that re-points --w-serif inline (the community display
+   font on .app-container, the login title). Without that, titles inside a community with
+   its own display font would keep the default serif.
+   ========================================================================== */
+:root,
+[style*='--w-serif'] {
+	/* serif: places */
+	--w-t-display: 600 calc(32px * var(--w-fs)) / calc(40px * var(--w-fs)) var(--w-serif);
+	--w-t-title: 600 calc(22px * var(--w-fs)) / calc(28px * var(--w-fs)) var(--w-serif);
+	--w-t-heading: 600 calc(18px * var(--w-fs)) / calc(24px * var(--w-fs)) var(--w-serif);
+	--w-t-subhead: 600 calc(15px * var(--w-fs)) / calc(20px * var(--w-fs)) var(--w-serif);
+	/* sans: voices and controls */
+	--w-t-read: 400 calc(17px * var(--w-fs)) / calc(30px * var(--w-fs)) var(--w-sans);
+	--w-t-chat: 400 calc(15px * var(--w-fs)) / calc(24px * var(--w-fs)) var(--w-sans);
+	--w-t-label: 500 calc(14px * var(--w-fs)) / calc(20px * var(--w-fs)) var(--w-sans);
+	--w-t-label-sm: 500 calc(13px * var(--w-fs)) / calc(18px * var(--w-fs)) var(--w-sans);
+	--w-t-ui: 400 calc(14px * var(--w-fs)) / calc(20px * var(--w-fs)) var(--w-sans);
+	--w-t-small: 400 calc(13px * var(--w-fs)) / calc(18px * var(--w-fs)) var(--w-sans);
+	--w-t-caption: 500 calc(12px * var(--w-fs)) / calc(16px * var(--w-fs)) var(--w-sans);
+	/* mono: counts, times, handles, kickers */
+	--w-t-kicker: 500 calc(11px * var(--w-fs)) / calc(16px * var(--w-fs)) var(--w-mono);
+	--w-t-mono: 400 calc(12px * var(--w-fs)) / calc(16px * var(--w-fs)) var(--w-mono);
+	--w-t-micro: 400 calc(11px * var(--w-fs)) / calc(14px * var(--w-fs)) var(--w-mono);
+}
+
+/* Utilities: the token plus what a `font` shorthand cannot carry (tracking, case, figures,
+   wrapping). The shorthand resets font-variant-numeric, so tabular figures come after it. */
+.w-t-display { font: var(--w-t-display); letter-spacing: 0.005em; text-wrap: balance; }
+.w-t-title { font: var(--w-t-title); letter-spacing: 0.005em; }
+.w-t-heading { font: var(--w-t-heading); letter-spacing: 0; }
+.w-t-subhead { font: var(--w-t-subhead); letter-spacing: 0; }
+.w-t-read { font: var(--w-t-read); letter-spacing: 0; text-wrap: pretty; }
+.w-t-chat { font: var(--w-t-chat); letter-spacing: 0; text-wrap: pretty; }
+.w-t-label { font: var(--w-t-label); letter-spacing: 0; }
+.w-t-label-sm { font: var(--w-t-label-sm); letter-spacing: 0; }
+.w-t-ui { font: var(--w-t-ui); letter-spacing: 0; }
+.w-t-small { font: var(--w-t-small); letter-spacing: 0; }
+.w-t-caption { font: var(--w-t-caption); letter-spacing: 0; }
+.w-t-kicker { font: var(--w-t-kicker); letter-spacing: 0.12em; text-transform: uppercase; }
+.w-t-mono { font: var(--w-t-mono); letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.w-t-micro { font: var(--w-t-micro); letter-spacing: 0; font-variant-numeric: tabular-nums; }

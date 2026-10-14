@@ -1,6 +1,10 @@
 /* ==========================================================================
    SETTINGS — SHELL
-   Glass modal shell aligned with login/boot theme language.
+   Geometry of the app Settings dialog only. Every rule is scoped to the
+   settings overlay/dialog (Settings.svelte: .wabi-settings-overlay >
+   .wabi-settings-modal) so it never leaks into other .modal-content /
+   .modal-header dialogs. Colour, border, radius and the header type live in
+   styles/settings-skin.css on the theme roles.
    ========================================================================== */
 
 .modal-overlay.wabi-settings-overlay {
@@ -11,13 +15,7 @@
 	align-items: center;
 	justify-content: center;
 	padding: clamp(var(--space-3), 2.5vw, var(--space-6));
-	background:
-		radial-gradient(ellipse 48rem 32rem at 18% 8%, color-mix(in srgb, var(--accent-primary-color) 16%, transparent), transparent 62%),
-		radial-gradient(ellipse 40rem 28rem at 88% 92%, color-mix(in srgb, var(--accent-secondary-color) 12%, transparent), transparent 60%),
-		color-mix(in srgb, var(--surface-sunken) 72%, transparent);
-	backdrop-filter: blur(16px) saturate(1.12);
-	-webkit-backdrop-filter: blur(16px) saturate(1.12);
-	animation: settingsOverlayIn 0.22s var(--ease-out, ease-out);
+	animation: settingsOverlayIn var(--w-dur-2, 180ms) var(--w-ease, ease-out);
 }
 
 @keyframes settingsOverlayIn {
@@ -25,34 +23,20 @@
 	to { opacity: 1; }
 }
 
-.modal-content {
+.modal-content.wabi-settings-modal {
 	width: min(1120px, 96vw);
 	max-width: 1120px;
 	max-height: min(90vh, 940px);
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
-	border-radius: var(--radius-2xl);
-	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 16%, var(--border-subtle, rgba(255, 255, 255, 0.08)));
-	background:
-		linear-gradient(
-			180deg,
-			color-mix(in srgb, var(--surface-raised) 78%, transparent),
-			color-mix(in srgb, var(--surface-sunken) 68%, transparent)
-		),
-		color-mix(in srgb, var(--surface-base) 88%, transparent);
-	backdrop-filter: blur(22px) saturate(1.12);
-	-webkit-backdrop-filter: blur(22px) saturate(1.12);
-	box-shadow:
-		0 32px 90px rgba(0, 0, 0, 0.42),
-		0 2px 8px rgba(0, 0, 0, 0.2),
-		inset 0 1px 0 rgba(255, 255, 255, 0.08);
-	animation: settingsPanelIn 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+	animation: settingsPanelIn var(--w-dur-3, 240ms) var(--w-ease, ease-out);
 }
 
+/* Entrances: opacity plus a short translate, no scale (spec §4.7). */
 @keyframes settingsPanelIn {
-	from { opacity: 0; transform: translateY(12px) scale(0.985); }
-	to { opacity: 1; transform: translateY(0) scale(1); }
+	from { opacity: 0; transform: translateY(8px); }
+	to { opacity: 1; transform: translateY(0); }
 }
 
 /* Keep navigation and the close target stationary as settings tabs change. */
@@ -65,44 +49,18 @@
 
 .wabi-settings-modal > .modal-header {
 	flex-shrink: 0;
-}
-
-.modal-header {
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
 	gap: 1rem;
-	padding: 1.15rem 1.35rem;
-	border-bottom: 1px solid color-mix(in srgb, var(--accent-primary-color) 12%, transparent);
 	position: sticky;
 	top: 0;
 	z-index: var(--z-sticky, 10);
-	background:
-		radial-gradient(ellipse 28rem 12rem at 0% 0%, color-mix(in srgb, var(--accent-primary-color) 14%, transparent), transparent 70%),
-		color-mix(in srgb, var(--surface-base) 82%, transparent);
-	backdrop-filter: blur(12px);
-	-webkit-backdrop-filter: blur(12px);
 }
 
-.modal-header h2 {
+.wabi-settings-modal > .modal-header h2 {
 	margin: 0;
-	font-size: clamp(var(--font-size-lg), 2vw, var(--font-size-2xl));
-	font-weight: var(--font-weight-bold);
-	color: var(--text-heading);
 	display: flex;
 	align-items: center;
 	gap: 0.7rem;
-	letter-spacing: -0.01em;
-}
-
-.modal-header .header-icon {
-	color: var(--accent-secondary-color, var(--accent-primary-color));
-	filter: drop-shadow(0 0 12px color-mix(in srgb, var(--accent-secondary-color) 35%, transparent));
-}
-
-@media (prefers-reduced-motion: reduce) {
-	.modal-overlay.wabi-settings-overlay,
-	.modal-content {
-		animation: none;
-	}
 }

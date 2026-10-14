@@ -1,80 +1,20 @@
 /* ==========================================================================
-   MOTION — shared animation tokens (Polish Fork 789, Item 8)
-   Canonical home for app-wide motion primitives: live dots, reveal,
-   and the OS-only reduced-motion guard. Component CSS references these
-   global keyframes by name; do not redefine them per-component.
+   MOTION — shared motion primitives and the one reduced-motion rule
+   Durations and easing are the tokens in tokens.css (--w-dur-1/2/3, --w-ease;
+   spec §4.7). Entrances are opacity plus at most an 8px translate; nothing in
+   chrome loops forever (no pulsing badges, live dots or record dots).
    ========================================================================== */
 
-/* --- Token-driven live dot (green, pulsing) --- */
-/* Pulse opacity only — animating box-shadow radius/color forces a full
-   recompose every frame while any LIVE pill is on screen. */
+/* --- Live dot: a static mark (the "LIVE" word next to it carries the meaning). --- */
 .live-dot {
 	width: 5px;
 	height: 5px;
-	border-radius: 50%;
-	background: var(--color-success, #22c55e);
-	animation: wabi-live-pulse 1.8s ease-out infinite;
+	border-radius: var(--w-avr, 50%);
+	background: var(--w-online);
+	animation: none;
 }
 
-@keyframes wabi-live-pulse {
-	0%,
-	100% {
-		opacity: 1;
-	}
-	70% {
-		opacity: 0.45;
-	}
-}
-
-/* --- Admin status glow (opacity pulse) --- */
-@keyframes wabi-admin-pulse-glow {
-	0%,
-	100% {
-		opacity: 1;
-	}
-	50% {
-		opacity: 0.2;
-	}
-}
-
-/* --- Reveal: fade-up (cards, segments, rows) --- */
-.reveal {
-	opacity: 0;
-	transform: translateY(var(--reveal-distance, 8px));
-	animation: wabi-reveal var(--reveal-duration, 0.4s) var(--ease-out, ease-out) forwards;
-}
-
-@keyframes wabi-reveal {
-	from {
-		opacity: 0;
-		transform: translateY(var(--reveal-distance, 8px));
-	}
-	to {
-		opacity: 1;
-		transform: translateY(0);
-	}
-}
-
-/* --- Reveal with per-child stagger --- */
-.reveal-stagger > * {
-	opacity: 0;
-	animation: wabi-reveal var(--reveal-duration, 0.4s) var(--ease-out, ease-out) forwards;
-	animation-delay: calc(var(--reveal-index, 0) * var(--reveal-stagger, 40ms));
-}
-
-/* --- Admin card reveal (scale + fade-up) --- */
-@keyframes wabi-admin-card-reveal {
-	from {
-		opacity: 0;
-		transform: scale(0.95) translateY(8px);
-	}
-	to {
-		opacity: 1;
-		transform: scale(1) translateY(0);
-	}
-}
-
-/* --- Admin slide-in (horizontal) --- */
+/* --- Admin slide-in (horizontal entrance) --- */
 @keyframes wabi-admin-slide-in {
 	from {
 		opacity: 0;
@@ -86,33 +26,32 @@
 	}
 }
 
-/* --- Admin segment in (scale settle) --- */
-@keyframes wabi-admin-seg-in {
-	to {
-		opacity: 1;
-		transform: scale(1);
-	}
-}
-
-/* --- Admin fade-slide-in (vertical) --- */
-@keyframes wabi-admin-fade-slide-in {
-	from {
-		opacity: 0;
-		transform: translateY(12px);
-	}
-	to {
-		opacity: 1;
-		transform: translateY(0);
-	}
-}
-
-/* --- OS-only reduced motion: disable all shared motion --- */
+/* --- Reduced motion: one global rule ---
+   Applies for the system preference and for the in-app switch, which sets
+   data-motion='reduce' on <html> (data-reduce-motion='true' is the older
+   attribute from lib/accessibility.ts and is honoured too). Animations and
+   transitions finish at once, so entrance translates and fades are not seen;
+   loops run a single 0.01ms cycle. !important is required to win over
+   per-component durations. */
 @media (prefers-reduced-motion: reduce) {
-	.live-dot,
-	.reveal,
-	.reveal-stagger > * {
-		animation: none !important;
-		opacity: 1 !important;
-		transform: none !important;
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
 	}
+}
+
+:root[data-motion='reduce'] *,
+:root[data-motion='reduce'] *::before,
+:root[data-motion='reduce'] *::after,
+:root[data-reduce-motion='true'] *,
+:root[data-reduce-motion='true'] *::before,
+:root[data-reduce-motion='true'] *::after {
+	animation-duration: 0.01ms !important;
+	animation-iteration-count: 1 !important;
+	transition-duration: 0.01ms !important;
+	scroll-behavior: auto !important;
 }

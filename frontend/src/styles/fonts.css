@@ -11,3 +11,16 @@
 @import '@fontsource/ibm-plex-mono/latin-500.css';
 @import '@fontsource/pixelify-sans/latin-400.css';
 @import '@fontsource/pixelify-sans/latin-600.css';
+
+/* Wabi Ellipsis: Shippori Mincho draws U+2026 as a centred CJK "⋯", which made a truncated serif
+   name look broken ("Common Gr···"). This face lends Zen Kaku Gothic New's baseline Latin ellipsis
+   (the same latin-400 file the sans already loads) to that one code point; --w-serif lists it
+   first. It claims every weight so a 600 title never gets a faked bold dot. */
+@font-face {
+	font-family: 'Wabi Ellipsis';
+	font-style: normal;
+	font-weight: 100 900;
+	font-display: swap;
+	src: url('@fontsource/zen-kaku-gothic-new/files/zen-kaku-gothic-new-latin-400-normal.woff2') format('woff2');
+	unicode-range: U+2026;
+}

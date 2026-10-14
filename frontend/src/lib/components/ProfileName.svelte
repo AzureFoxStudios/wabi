@@ -2,13 +2,16 @@
 	import { safeNameStyle } from '$lib/addons/nameStyles';
 	import { profileNamesVisible, profilePlatesVisible, profileMotionAllowed } from '$lib/profileAppearance';
 	import { normalizeNameDesign, nameDesignPlateStyle, isDesignColor, type EditableUsernameFont } from '$lib/profileDesign';
+	import { identityFor } from '$lib/theme/identity';
 	let { username, font = null, color = '', preview = false }: {
 		username: string; font?: EditableUsernameFont | null; color?: string; preview?: boolean;
 	} = $props();
 	const design = $derived(normalizeNameDesign(font?.design));
 	const showName = $derived(preview || $profileNamesVisible);
 	const showPlate = $derived((preview || $profilePlatesVisible) && design?.plate !== 'none');
-	const textStyle = $derived((isDesignColor(color) ? `color:${color};` : '') + safeNameStyle(font, showName));
+	// A chosen color is identity data, never painted raw: --ink keeps its hue at 4.5:1 in the theme on screen.
+	const ink = $derived(isDesignColor(color) ? $identityFor(color)?.ink ?? '' : '');
+	const textStyle = $derived((ink ? `--ink:${ink};color:var(--ink);` : '') + safeNameStyle(font, showName));
 </script>
 
 <span class="profile-nameplate" class:decorated={showPlate && !!design} style={showPlate ? nameDesignPlateStyle(design) : ''}>

@@ -3,13 +3,61 @@
  * Right panel operations — edge stub system (peek / pin / strip)
  */
 
-import { get } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import { type WorkspacePanelId } from '$lib/docking/layoutSchema';
 import { rightPanelMode, pinnedPanelId, activeRightTab, stubStrip, stubSide, dockStack, dockStackLimit, clampDockStackLimit, DEFAULT_STUB_STRIP } from './layoutStoreStates';
 import { normalizePanelIdForRuntime } from './layoutStoreUtils';
 
 function displayedTab(): WorkspacePanelId {
 	return get(activeRightTab);
+}
+
+/**
+ * Center-stage guard (design contract §8.4, dockClamp.ts). MainLayout measures the shell and
+ * publishes whether a companion can pin beside the stage and still leave it 600px. When it cannot,
+ * opening a panel makes a held peek instead of a pin.
+ */
+export const dockCanPin = writable(true);
+
+/**
+ * A peek the person opened on purpose (click, tap, Enter) because pinning would crush the stage.
+ * Unlike a hover peek it does not retract when the pointer leaves; the stage scrim, Escape, the
+ * panel's close button or the same stub close it.
+ */
+export const peekHeld = writable(false);
+
+/** Open a held peek of one panel (replacing whatever was shown). */
+function holdPeek(panelId: WorkspacePanelId): void {
+	if (get(rightPanelMode) === 'pinned') {
+		// Pins that cannot sit beside the stage at this width are presented as a peek already;
+		// opening another panel replaces them with a single held peek.
+		pinnedPanelId.set(null);
+		dockStack.set([]);
+	}
+	addStub(panelId);
+	activeRightTab.set(panelId);
+	rightPanelMode.set('peek');
+	peekHeld.set(true);
+}
+
+/**
+ * A rail stub was clicked: pin it beside the stage when the clamp allows (pinPanel's toggle
+ * semantics), otherwise toggle a held peek of it. Hover and focus never come through here.
+ */
+export function openPanelFromRail(panelId: WorkspacePanelId): void {
+	const normalized = normalizePanelIdForRuntime(panelId);
+	if (get(dockCanPin)) {
+		pinPanel(normalized);
+		return;
+	}
+	// A hover peek of this stub is committed by the click; a held (or pinned-as-peek) one closes.
+	const mode = get(rightPanelMode);
+	const committed = mode === 'pinned' || (mode === 'peek' && get(peekHeld));
+	if (committed && get(activeRightTab) === normalized) {
+		closeRightPanel();
+		return;
+	}
+	holdPeek(normalized);
 }
 
 /** Everything pinned in the dock, in pin order. */
@@ -38,11 +86,14 @@ export function peekPanel(panelId: WorkspacePanelId): void {
 	const normalized = normalizePanelIdForRuntime(panelId);
 	activeRightTab.set(normalized);
 	if (get(rightPanelMode) === 'none') {
+		peekHeld.set(false);
 		rightPanelMode.set('peek');
 	}
 }
 
 export function dismissPeek(): void {
+	// A held peek stays until it is closed on purpose; only hover peeks retract on pointer leave.
+	if (get(peekHeld) && get(rightPanelMode) === 'peek') return;
 	if (get(rightPanelMode) === 'pinned') {
 		const committed = get(pinnedPanelId);
 		if (committed && get(activeRightTab) !== committed) {
@@ -77,6 +128,7 @@ export function pinPanel(panelId: WorkspacePanelId): void {
 	addStub(normalized);
 	const next = [...current, normalized].slice(-clampDockStackLimit(get(dockStackLimit)));
 	dockStack.set(next);
+	peekHeld.set(false);
 	rightPanelMode.set('pinned');
 	pinnedPanelId.set(normalized);
 	activeRightTab.set(normalized);
@@ -88,6 +140,7 @@ export function unpinOne(panelId: WorkspacePanelId): void {
 }
 
 export function unpinPanel(): void {
+	peekHeld.set(false);
 	rightPanelMode.set('none');
 	pinnedPanelId.set(null);
 	dockStack.set([]);
@@ -115,6 +168,11 @@ export function openRightPanel(panelId: WorkspacePanelId, opts?: { pin?: boolean
 	// Opening a conversation in an already-open panel must not toggle it shut.
 	if (isPinnedTo(normalized)) {
 		activeRightTab.set(normalized);
+		return;
+	}
+	// No room beside the stage: open (never toggle shut) a held peek instead of a pin.
+	if (!get(dockCanPin)) {
+		holdPeek(normalized);
 		return;
 	}
 	pinPanel(normalized);
