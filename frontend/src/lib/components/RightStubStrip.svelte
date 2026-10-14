@@ -379,6 +379,7 @@
 					ondragover={(event) => handleDragOver(event, index)}
 					ondrop={(event) => handleDrop(event, index)}
 					ondragend={endDrag}
+					data-panel-id={panel.id}
 					aria-label={panel.label}
 					aria-pressed={isOpen(panel.id)}
 					data-tip={stubTip(panel)}
