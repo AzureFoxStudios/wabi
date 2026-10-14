@@ -328,11 +328,17 @@ describe('truthful vocabulary (§9.2)', () => {
 	/** A component's code and markup, without its comments and styles. */
 	function componentCode(name: string): { source: string; code: string } {
 		const source = readFileSync(fileURLToPath(new URL(`../components/${name}`, import.meta.url)), 'utf8');
-		const code = source
-			.replace(/<!--[\s\S]*?-->/g, '')
-			.replace(/<style[\s\S]*?<\/style>/g, '')
-			.replace(/\/\*[\s\S]*?\*\//g, '')
-			.replace(/^\s*\/\/.*$/gm, '');
+		// Strip until nothing changes, so a removal can never leave a new comment or style opener behind.
+		let code = source;
+		let previous;
+		do {
+			previous = code;
+			code = code
+				.replace(/<!--[\s\S]*?-->/g, '')
+				.replace(/<style[\s\S]*?<\/style>/g, '')
+				.replace(/\/\*[\s\S]*?\*\//g, '')
+				.replace(/^\s*\/\/.*$/gm, '');
+		} while (code !== previous);
 		return { source, code };
 	}
 
