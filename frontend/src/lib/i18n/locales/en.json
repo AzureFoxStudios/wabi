@@ -7,8 +7,14 @@
     "regenerate": "Regenerate",
     "cancel": "Cancel",
     "save": "Save",
-    "on": "On",
-    "off": "Off"
+    "more": "More",
+    "open": "Open",
+    "retry": "Retry",
+    "dismiss": "Dismiss",
+    "discard": "Discard",
+    "search": "Search",
+    "loading": "Loading…",
+    "unsaved_changes": "Unsaved changes"
   },
   "settings": {
     "title": "Settings",
@@ -16,7 +22,7 @@
     "tabs": {
       "games": "Games",
       "profile": "Profile",
-      "audio": "Audio and Video",
+      "audio": "Audio & video",
       "notifications": "Notifications",
       "accessibility": "Accessibility",
       "appearance": "Appearance",
@@ -26,67 +32,81 @@
       "storage": "Storage",
       "admin": "Admin",
       "about": "About",
-      "logout": "Logout"
+      "logout": "Sign out",
+      "privacy": "Privacy & security"
     },
     "sections": {
-      "display_name": "Display Name",
-      "profile_picture": "Profile Picture",
-      "audio": "Audio and Video",
+      "display_name": "Display name",
+      "profile_picture": "Profile picture",
+      "audio": "Audio & video",
       "notifications": "Notifications",
       "accessibility": "Accessibility",
       "appearance": "Appearance",
-      "server_management": "Server Management",
+      "server_management": "Server management",
       "addons": "Add-ons",
-      "custom_emojis": "Custom Emojis",
-      "admin_panel": "Admin Panel",
+      "custom_emojis": "Custom emojis",
+      "admin_panel": "Admin panel",
       "about": "About"
     },
-    "actions": {
-      "clear_server": "Clear Server"
-    },
-    "confirm": {
-      "clear_local_title": "Clear Local Data",
-      "clear_local_message": "Are you sure you want to clear all chat data? This cannot be undone.",
-      "clear_local_confirm": "Clear Data",
-      "clear_server_title": "Clear Server Messages",
-      "clear_server_message": "Are you sure you want to delete ALL messages from the server? This will clear messages for all users and cannot be undone!",
-      "clear_server_confirm": "Delete All"
-    },
     "language_learning": {
-      "label": "Progressive UI Learning",
+      "label": "Progressive UI learning",
       "description": "Blend your selected language into the UI over time.",
       "target_percent": "Target language in UI: {percent}%",
       "hint": "Lower values keep more English. Raise gradually as you learn.",
       "select_non_english": "Select a non-English app language to enable progressive blending."
+    },
+    "search": "Search settings",
+    "groups": {
+      "account": "Account",
+      "this_device": "This device"
+    },
+    "sign_out_confirm": "Sign out of {server}?",
+    "appearance": {
+      "theme": "Theme",
+      "calm": "Calm",
+      "accessible_expressive": "Accessible & expressive",
+      "show_all_themes": "Show all {count} themes",
+      "character_dark": "dark",
+      "character_light": "light",
+      "character_pixel": "pixel",
+      "character_motion": "motion",
+      "reading": "Reading",
+      "text_size": "Text size",
+      "density": "Message density",
+      "cozy": "Cozy",
+      "compact": "Compact",
+      "own_right": "Your messages on the right",
+      "reduce_motion": "Reduce motion",
+      "chat_background": "Chat background"
     }
   },
   "login": {
     "tabs": {
       "guest": "Guest",
-      "login": "Login",
-      "register": "Register"
+      "login": "Sign in",
+      "register": "Create account"
     },
     "language": {
       "label": "Language"
     },
     "guest": {
       "name_placeholder": "Enter your name",
-      "joining": "Joining...",
-      "join_button": "Join as Guest",
-      "join_qr_button": "Join via QR Code",
-      "business_hub": "Business Hub"
+      "joining": "Joining…",
+      "join_button": "Join as guest",
+      "join_qr_button": "Join with a QR code",
+      "business_hub": "Business hub"
     },
     "auth": {
       "username_or_handle_placeholder": "Username or @handle",
       "password_placeholder": "Password",
-      "logging_in": "Logging in...",
-      "login_button": "Login",
+      "logging_in": "Signing in…",
+      "login_button": "Sign in",
       "display_name_placeholder": "Choose display name",
       "handle_placeholder": "yourhandle",
       "password_rules_placeholder": "Password (8+ characters)",
       "confirm_password_placeholder": "Confirm password",
-      "creating_account": "Creating account...",
-      "create_account_button": "Create Account",
+      "creating_account": "Creating account…",
+      "create_account_button": "Create account",
       "forgot_password": "Forgot password?",
       "remember_me": "Remember me on this device",
       "show_password": "Show password",
@@ -104,21 +124,21 @@
       "handle_invalid": "Handle must start with a letter, be 2-32 chars, lowercase letters/numbers/underscores only",
       "password_min": "Password must be at least 8 characters",
       "password_mismatch": "Passwords do not match",
-      "registration_failed": "Registration failed",
+      "registration_failed": "Couldn’t create the account",
       "username_password_required": "Username and password required",
-      "login_failed": "Login failed"
+      "login_failed": "Couldn’t sign in"
     },
     "qr": {
-      "open_modal": "Join via QR Code",
-      "title": "Scan to Join",
+      "open_modal": "Join with a QR code",
+      "title": "Scan to join",
       "url_placeholder": "Optional room name (e.g. kitchen)",
-      "close_modal_aria": "Close QR code modal",
+      "close_modal_aria": "Close QR code",
       "dialog_aria": "QR code to join chat"
     },
     "wizard": {
       "welcome": "Welcome to Wabi",
       "owner_subtitle": "Create your owner account. This will be the server's primary administrator.",
-      "advanced_setup_note": "Need public access, TURN, mesh, or login-page branding? Do that after sign-in with the setup scripts or launch-page config.",
+      "advanced_setup_note": "Need public access, TURN or a branded sign-in page? Set that up after you sign in, with the setup scripts or the launch-page config.",
       "join_title": "Who can join this server?",
       "join_subtitle": "You are the owner — decide how new people get in.",
       "join_open_label": "Open",
@@ -131,17 +151,16 @@
       "join_save_failed": "Couldn't save the join setting — continuing anyway. You can set it later in Settings.",
       "finishing": "Finishing up…",
       "finish": "Finish setup",
-      "step_account": "Owner Account",
-      "step_network": "Network Setup",
-      "step_mesh": "Server Mesh",
+      "step_account": "Owner account",
+      "step_network": "Network setup",
       "step_branding": "Branding",
       "step_done": "Done",
       "next": "Next",
       "back": "Back",
       "skip": "Skip",
-      "network_title": "Network Setup",
+      "network_title": "Network setup",
       "network_subtitle": "Make your server accessible to others.",
-      "portforward_label": "Port Forwarding (default)",
+      "portforward_label": "Port forwarding (default)",
       "portforward_instructions": "To make your server publicly accessible, forward these ports on your router:",
       "port_http": "80 — HTTP (Caddy certificate validation)",
       "port_https": "443 — HTTPS (all public traffic)",
@@ -156,14 +175,7 @@
       "tunnel_no_token": "No token? Use a quick tunnel for testing:",
       "tunnel_with_token": "With a token:",
       "tunnel_turn_note": "Voice/video calling still needs port 3478 forwarded for TURN.",
-      "mesh_title": "Joining an existing Wabi mesh?",
-      "mesh_subtitle": "If this is a second server joining an existing deployment, both servers need to share a SpacetimeDB connection and mesh token.",
-      "mesh_stdb_url": "STDB connection URL",
-      "mesh_token": "Mesh shared token",
-      "mesh_region": "Server region label",
-      "mesh_region_placeholder": "e.g. us-west, eu-central",
-      "mesh_restart_note": "Apply these on next restart with STDB env vars.",
-      "branding_title": "Customize Your Login Page",
+      "branding_title": "Customize your sign-in page",
       "branding_subtitle": "Give your server its own identity. You can always edit data/launch-page.json later for more options.",
       "branding_name": "Server name",
       "branding_name_placeholder": "e.g. My Community",
@@ -171,10 +183,10 @@
       "branding_bg_image": "Background image URL",
       "branding_bg_image_placeholder": "https://example.com/my-background.jpg",
       "branding_custom_css": "Custom CSS",
-      "branding_custom_css_placeholder": "/* Move the login card, change fonts, etc. */\n.login-card { ... }",
+      "branding_custom_css_placeholder": "/* Move the sign-in card, change fonts, etc. */\n.login-card '{' ... '}'",
       "done_title": "You're all set!",
       "done_subtitle": "You're the server owner.",
-      "done_tip_admin": "Find admin settings in Settings > Admin.",
+      "done_tip_admin": "Find admin settings in Settings › Admin.",
       "done_tip_invite": "Share your server URL to invite users.",
       "done_enter": "Enter Wabi"
     }
@@ -184,31 +196,31 @@
       "drop_to_upload": "Drop files here to upload"
     },
     "dm": {
-      "badge": "Direct Message",
+      "badge": "Direct message",
       "call": "Call",
       "video": "Video",
       "voice_call_title": "Voice call {user}",
       "video_call_title": "Video call {user}"
     },
     "typing": {
-      "one": "{user} is typing...",
-      "two": "{user1} and {user2} are typing...",
-      "many": "Many users are typing...",
-      "multi": "{users}, and {lastUser} are typing..."
+      "one": "{user} is writing",
+      "two": "{user1} and {user2} are writing",
+      "many": "Several people are writing",
+      "multi": "Several people are writing"
     },
     "search": {
-      "placeholder": "Search (by:username, has:image, etc.)",
+      "placeholder": "Search messages",
       "results_one": "{count} result",
       "results_many": "{count} results",
-      "loading_older": "Loading older history...",
-      "full_history": "Search Full History",
+      "loading_older": "Loading older history…",
+      "full_history": "Search full history",
       "stop": "Stop ({count})",
       "status": {
-        "scanning": "Scanning full history...",
+        "scanning": "Scanning full history…",
         "stopped": "Stopped.",
-        "changed": "Search query/channel changed.",
+        "changed": "The search or channel changed.",
         "loaded": "Full history loaded for this channel.",
-        "limit": "Reached safety page limit. Narrow search to continue."
+        "limit": "Stopped at the page limit. Narrow the search to continue."
       }
     },
     "compose": {
@@ -216,13 +228,17 @@
       "escape_to_cancel": "Press Escape to cancel",
       "replying_to": "Replying to {user}:",
       "attachment": "Attachment",
-      "placeholder": "Type a message... or /help for commands (Shift+Enter for new line)",
+      "placeholder": "Write a message",
       "add_media": "Add media",
       "upload_file": "Upload file",
       "take_photo": "Take photo",
       "record_audio": "Record audio",
       "add_emoji": "Add emoji",
-      "send_message": "Send message"
+      "send_message": "Send message",
+      "placeholder_channel": "Message #{channel}",
+      "placeholder_dm": "Message {name}",
+      "newline_hint": "Shift Enter for a new line",
+      "attach": "Attach a file"
     },
     "mentions": {
       "kind_mention": "Mention",
@@ -235,13 +251,13 @@
       "spoiler_hint": "Sensitive content will be hidden until clicked",
       "upload_files_one": "Upload {count} file",
       "upload_files_many": "Upload {count} files",
-      "uploading": "Uploading files..."
+      "uploading": "Uploading files…"
     }
   },
   "messages": {
-    "new_messages": "New Messages",
-    "add_reaction": "Add Reaction",
-    "encrypted": "encrypted",
+    "new_messages": "New messages",
+    "add_reaction": "Add reaction",
+    "encrypted": "Experimental encryption",
     "unknown_user": "Unknown user",
     "file": "File",
     "message": "Message",
@@ -250,14 +266,14 @@
       "more": "More"
     },
     "errors": {
-      "cannot_decrypt_session": "Cannot decrypt this attachment in the current session.",
-      "decrypt_failed": "Failed to decrypt attachment."
+      "cannot_decrypt_session": "This attachment can’t be decrypted in this session.",
+      "decrypt_failed": "Couldn’t decrypt this attachment."
     },
     "blend": {
       "queued": "Blend import queued",
       "queued_with_id": "Blend import queued: {id}",
       "queue_failed": "Failed to queue blend import",
-      "import_settings": "Import Settings",
+      "import_settings": "Import settings",
       "download": "Download .blend"
     },
     "media": {
@@ -266,17 +282,17 @@
       "audio_not_supported": "Your browser does not support the audio element.",
       "embedded_image_alt": "Embedded image",
       "model_fallback_name": "3D model",
-      "open_3d_tab": "Open 3D Tab"
+      "open_3d_tab": "Open in 3D viewer"
     },
     "zip_preview": {
       "show": "Preview ZIP contents",
       "hide": "Hide ZIP contents",
-      "loading": "Reading ZIP metadata...",
+      "loading": "Reading ZIP metadata…",
       "retry": "Try again",
       "entries": "{count} entries",
       "uncompressed": "Uncompressed: {size}",
       "compressed": "Compressed: {size}",
-      "filter_placeholder": "Filter archive entries...",
+      "filter_placeholder": "Filter archive entries",
       "filter_results": "Showing {shown} of {total} entries.",
       "no_matches": "No entries match that filter.",
       "sort": {
@@ -288,10 +304,10 @@
       "preview": {
         "show": "Preview",
         "hide": "Hide preview",
-        "loading": "Loading inline preview...",
+        "loading": "Loading inline preview…",
         "unavailable": "Inline preview unavailable for this entry."
       },
-      "encrypted_entries": "Contains {count} encrypted entries.",
+      "encrypted_entries": "Contains {count} password-protected entries.",
       "empty": "This archive has no entries.",
       "truncated": "Showing first {count} entries.",
       "method_store": "Stored",
@@ -299,8 +315,8 @@
       "method_other": "Method {method}",
       "errors": {
         "failed": "Could not load ZIP preview.",
-        "timeout": "ZIP preview timed out.",
-        "encrypted": "Encrypted ZIP previews are not supported.",
+        "timeout": "The ZIP preview took too long.",
+        "encrypted": "Password-protected ZIPs can’t be previewed.",
         "too_large": "ZIP preview limit is {limit}."
       }
     },
@@ -310,34 +326,34 @@
     "translated_label": "Translated",
     "deletion": {
       "scheduled_title": "This message keeps the timer set when it was sent. Changing the room timer affects new messages only; copies may remain in backups",
-      "deleting": "Leaving chat...",
+      "deleting": "Leaving chat…",
       "retention_lifetime": "{duration} timer",
       "deletes_in": "Leaves chat in {duration}"
     },
     "persistence": {
-      "failed": "Not saved",
-      "retrying": "Retrying save...",
+      "failed": "Not delivered",
+      "retrying": "Retrying…",
       "retry": "Retry"
     },
     "pagination": {
-      "loading": "Loading...",
-      "show_older_loaded": "Show Older Loaded Messages",
-      "load_older": "Load Older Messages",
+      "loading": "Loading…",
+      "show_older_loaded": "Show older loaded messages",
+      "load_older": "Load older messages",
       "beginning": "Beginning of conversation"
     },
     "confirm": {
-      "delete_title": "Delete Message",
-      "delete_message": "Are you sure you want to delete this message?",
-      "delete_message_with_uploads": "Are you sure you want to delete this message? This also removes {count} uploaded file(s).",
-      "delete_confirm": "Delete"
+      "delete_title": "Delete this message?",
+      "delete_message": "This can’t be undone.",
+      "delete_message_with_uploads": "This also deletes the files uploaded with it ({count}). This can’t be undone.",
+      "delete_confirm": "Delete message"
     },
     "role_gate": {
-      "title": "Role Gate",
+      "title": "Role gate",
       "hint": "React below to opt in/out of this access role."
     },
     "viewer": {
       "open_new_tab": "Open in new tab",
-      "forward_share": "Forward / Share",
+      "forward_share": "Forward or share",
       "zoom_out": "Zoom out",
       "reset_zoom": "Reset zoom",
       "zoom_in": "Zoom in",
@@ -355,40 +371,54 @@
       "enlarged_alt": "Enlarged",
       "previous": "Previous",
       "next": "Next"
-    }
+    },
+    "new_messages_label": "New messages since you last read",
+    "start_of": "Start of #{channel}",
+    "day_today": "Today",
+    "day_yesterday": "Yesterday",
+    "jump_latest": "Jump to latest",
+    "jump_latest_new": "{count} new",
+    "jump_latest_label": "Jump to latest, {count} new messages",
+    "show_more": "Show more",
+    "show_less": "Show less",
+    "pinned_kicker": "Pinned",
+    "pinned_on_device": "Pinned on this device",
+    "new_kicker": "New",
+    "sending": "Sending…",
+    "download_file": "Download {name}"
   },
   "context_menu": {
     "aria_label": "Message actions",
     "reply": "Reply",
-    "add_reaction": "Add Reaction",
+    "add_reaction": "Add reaction",
     "translate": "Translate",
     "download": "Download",
-    "add_to_album": "Add to Album",
+    "add_to_album": "Add to album",
     "forward": "Forward",
-    "copy_quote": "Copy Quote",
-    "copy_message_link": "Copy Message Link",
-    "edit_message": "Edit Message",
-    "pin_message": "Pin Message",
-    "unpin_message": "Unpin Message",
-    "quick_mention": "Quick Mention",
-    "pin_local_message": "Pin Locally",
-    "unpin_local_message": "Unpin Local Message",
-    "copy_text": "Copy Text",
-    "delete_message": "Delete Message",
-    "delete_message_uploads": "DELETE MESSAGE + UPLOADS",
-    "delete_message_uploads_hint": "Permanent - removes attached uploads",
+    "copy_quote": "Copy quote",
+    "copy_message_link": "Copy message link",
+    "edit_message": "Edit message",
+    "pin_message": "Pin message",
+    "unpin_message": "Unpin message",
+    "quick_mention": "Quick mention",
+    "pin_local_message": "Pin on this device",
+    "unpin_local_message": "Unpin on this device",
+    "copy_text": "Copy text",
+    "delete_message": "Delete message",
+    "delete_message_uploads": "Delete message and uploads…",
+    "delete_message_uploads_hint": "Also deletes the attached files",
     "delete_message_unavailable_hint": "Only your own messages can be deleted"
   },
   "forward_dialog": {
-    "title": "Forward Message",
-    "description": "Choose a channel to forward this message to:",
+    "title": "Forward message",
+    "description": "Choose a channel to forward this message to.",
     "close": "Close"
   },
   "camera": {
-    "title": "Take Photo",
+    "title": "Take photo",
     "switch_camera": "Switch camera",
     "captured_alt": "Captured photo",
-    "accessing": "Accessing camera...",
+    "accessing": "Opening camera…",
     "take_photo": "Take photo",
     "retake": "Retake",
     "send": "Send",
@@ -401,7 +431,7 @@
     }
   },
   "audio": {
-    "title": "Record Voice Message",
+    "title": "Record voice message",
     "microphone_label": "Microphone:",
     "microphone_fallback": "Microphone {index}",
     "ready": "Ready to record",
@@ -421,12 +451,12 @@
   },
   "pinned": {
     "summary": {
-      "title": "Pinned Messages"
+      "title": "Pinned messages"
     },
     "modal": {
-      "title": "Pinned Messages in #{channel}",
+      "title": "Pinned messages in #{channel}",
       "empty": "No pinned messages in this channel",
-      "hint": "Right-click a message and select \"Pin Message\" to pin it here."
+      "hint": "Right-click a message and choose “Pin message” to pin it here."
     },
     "actions": {
       "jump": "Jump to",
@@ -436,9 +466,9 @@
     }
   },
   "emoji_picker": {
-    "search_gifs_placeholder": "Search GIFs...",
-    "search_stickers_placeholder": "Search stickers (name/artist)...",
-    "search_emojis_placeholder": "Search emojis (name/artist)...",
+    "search_gifs_placeholder": "Search GIFs",
+    "search_stickers_placeholder": "Search stickers by name or artist",
+    "search_emojis_placeholder": "Search emojis by name or artist",
     "tabs": {
       "emojis": "Emojis",
       "stickers": "Stickers",
@@ -450,14 +480,14 @@
       "openmoji": "OpenMoji",
       "custom": "Custom"
     },
-    "loading": "Loading...",
+    "loading": "Loading…",
     "no_gifs": "No GIFs found",
     "no_stickers": "No stickers found",
     "no_emojis": "No emojis found",
     "load_more": "Load more ({remaining} remaining)"
   },
   "admin": {
-    "title": "Admin Dashboard",
+    "title": "Admin dashboard",
     "you": "You",
     "subtitle": {
       "manage": "Manage roles, channel access, and role automations from one panel.",
@@ -472,10 +502,10 @@
       "guests": "Guests"
     },
     "sections": {
-      "role_names": "Role Names",
-      "channel_access": "Channel Access by Role",
-      "role_gate_posts": "Role Gate Posts",
-      "emoji_role_automation": "Emoji Role Automation",
+      "role_names": "Role names",
+      "channel_access": "Channel access by role",
+      "role_gate_posts": "Role gate posts",
+      "emoji_role_automation": "Emoji role automation",
       "users": "Users"
     },
     "select": {
@@ -488,25 +518,25 @@
     "placeholders": {
       "role_gate_title": "Role gate title (example: 18+ Access)",
       "role_gate_description": "Optional description/instructions",
-      "search_users": "Search users by name or handle..."
+      "search_users": "Search users by name or handle"
     },
     "role_gate": {
       "persist": "Persist gate post",
-      "create": "Create Gate Post",
+      "create": "Create gate post",
       "note": "Only reactions on these dedicated gate posts can assign/remove roles."
     },
     "emoji_rules": {
       "remove_on_unreact": "Remove on unreact",
-      "add_rule": "Add Rule",
+      "add_rule": "Add rule",
       "reversible": "reversible",
       "empty": "No role-gate rules yet."
     },
     "actions": {
       "message": "Message",
-      "make_admin": "Make Admin",
-      "remove_admin": "Remove Admin",
-      "make_mod": "Make Mod",
-      "remove_mod": "Remove Mod",
+      "make_admin": "Make admin",
+      "remove_admin": "Remove admin",
+      "make_mod": "Make mod",
+      "remove_mod": "Remove mod",
       "reset": "Reset",
       "delete": "Delete"
     },
@@ -518,119 +548,28 @@
     "archiveBoundary": {
       "title": "Chat history",
       "explanation": "Chat history comes from the server. Each channel decides how long messages are kept. This version does not keep a separate offline copy on your device.",
-      "preserved": "Older local archives cannot be matched reliably to an account. They remain untouched on this device, but are not loaded, exported, or assigned to your current login. Files you previously exported are unchanged.",
+      "preserved": "Older local archives cannot be matched reliably to an account. They remain untouched on this device, but are not loaded, exported, or assigned to the account you are signed in with. Files you previously exported are unchanged.",
       "native": "The desktop app also uses server history; it does not automatically save a local chat archive.",
       "queueExplanation": "Keep supported outgoing messages and actions on this device until a connection is available. Joining calls and changing group membership still require you to be online.",
       "queueUnavailable": "The outbound queue is not available yet. Refresh after the app finishes connecting.",
       "retryMarked": "Eligible failed actions were marked for retry. Sending requires a connection; uncertain or revoked actions cannot be retried.",
       "refresh": "Refresh queue"
     },
-    "tauri": {
-      "title": "Tauri Desktop Storage",
-      "subtitle": "Your data is stored in organized sidecar files that you can manage, backup, and export.",
-      "enable_toggle": "Enable Tauri Desktop Storage (auto-save every 30s)",
-      "enable_hint": "When enabled, your messages are automatically saved to %APPDATA%/Wabi every 30 seconds in organized yearly files. You can disable this anytime without losing existing data.",
-      "exporting": "Exporting...",
-      "export_zip": "Export as ZIP",
-      "export_hint": "Download all your messages and attachments as a portable ZIP file. Perfect for backups!",
-      "clear_all": "Clear All Tauri Data",
-      "clear_hint": "Delete all locally stored data. This cannot be undone.",
-      "clear_admin_only": "Only admins and owners can clear sidecar data."
-    },
-    "browser": {
-      "title": "Browser Storage",
-      "subtitle": "Your chat history is saved only on your device. The server stores nothing permanently.",
-      "save_toggle": "Save chat history locally",
-      "save_hint": "When enabled, messages are stored in your browser. You control your data.",
-      "rotation_period": "Rotation Period",
-      "rotation_hint": "How often to create a new archive file (like changing batteries)",
-      "keep_last": "Keep Last",
-      "archives_unit": "archives",
-      "keep_last_hint": "Older archives are automatically deleted to save space",
-      "archive_history": "Archive History",
-      "archive_meta": "{size} • {count} messages",
-      "no_archives": "No archives yet. Messages will be saved as you chat."
-    },
-    "rotation": {
-      "weekly": "Weekly",
-      "monthly": "Monthly",
-      "half_year": "Every 6 Months",
-      "yearly": "Yearly"
-    },
-    "stats": {
-      "total_messages": "Total Messages",
-      "storage_used": "Storage Used",
-      "archives": "Archives"
-    },
-    "actions": {
-      "export_all": "Export All",
-      "export": "Export",
-      "delete": "Delete",
-      "clear_all_history": "Clear All History"
-    },
-    "confirm": {
-      "disable_local_title": "Disable Local Storage",
-      "disable_local_message": "Disable local storage? Your saved history will remain until you clear it manually.",
-      "disable_local_confirm": "Disable",
-      "delete_archive_title": "Delete Archive",
-      "delete_archive_message": "Delete archive \"{period}\"?",
-      "delete_archive_confirm": "Delete",
-      "delete_all_title": "Delete All History",
-      "delete_all_message": "Delete ALL saved chat history? This cannot be undone!",
-      "delete_all_confirm": "Delete All",
-      "clear_tauri_title": "Clear Tauri Data",
-      "clear_tauri_message": "Delete ALL locally stored data? This includes all messages and attachments. This cannot be undone!",
-      "clear_tauri_confirm": "Clear All"
-    },
-    "alerts": {
-      "export_success": "Data exported successfully!\n\nLocation: {path}",
-      "export_failed": "Export failed: {error}",
-      "tauri_clear_success": "Tauri data cleared successfully",
-      "clear_failed": "Clear failed: {error}",
-      "tauri_enabled": "Tauri storage enabled! Your data will auto-save every 30 seconds.",
-      "tauri_disabled": "Tauri storage disabled. Your data will not be auto-saved.",
-      "save_setting_failed": "Failed to save setting"
-    },
     "offline": {
-      "title": "Offline & Connectivity",
-      "subtitle": "Manage offline behavior and data sync settings for WabiDB.",
-      "status": {
-        "connected": "Connected",
-        "disconnected": "Offline",
-        "recovering": "Recovering offline queue…"
-      },
       "wabiDB": {
-        "status_label": "WabiDB Status",
-        "open": "Open",
-        "closed": "Closed",
         "scope_label": "What to keep for sending",
         "queue_label": "Send when reconnected",
         "pending": "pending",
         "failed": "failed",
-        "synced": "synced",
-        "usage_label": "Usage",
-        "estimating": "Estimating…"
+        "synced": "synced"
       },
       "retry": {
-        "button": "Retry failed actions",
-        "success": "Offline queue retried.",
-        "error": "Retry failed."
+        "button": "Retry failed actions"
       },
       "scopes": {
-        "title": "Offline Scopes",
-        "corechat_desc": "Message history, drafts, and outbound queue for CoreChat.",
-        "system_desc": "System preferences, themes, and session data.",
         "enable": "Enable",
         "disable": "Disable",
-        "always_on": "Always on",
-        "opt_in": "Opt-in",
-        "off": "Off"
-      },
-      "alerts": {
-        "retry_success": "Offline queue retried.",
-        "retry_failed": "Queue retry failed.",
-        "scope_enabled": "Scope enabled.",
-        "scope_disabled": "Scope disabled."
+        "always_on": "Always on"
       }
     }
   },
@@ -638,11 +577,18 @@
     "mobile": {
       "chat": "Chat",
       "channels": "Channels",
-      "browse": "Browse",
-      "messages": "Messages",
+      "browse": "Channels",
+      "messages": "DMs",
       "you": "You",
-      "users": "Users",
-      "hub": "Hub"
+      "dms": "DMs",
+      "activity": "Activity",
+      "nav_label": "Main",
+      "activity_unread_one": "Activity, {count} needs you",
+      "activity_unread_many": "Activity, {count} need you",
+      "workspace_button": "Workspace: {name}",
+      "workspaces": "Workspaces",
+      "people_online": "{count} online",
+      "search": "Search"
     },
     "open_side_panel": "Open side panel",
     "unread_dms": "Unread direct messages",
@@ -650,26 +596,30 @@
     "open_dm_with": "Open DM with {user}",
     "user_fallback": "user",
     "call": {
-      "toggle_diagnostics": "Toggle call diagnostics",
-      "voice_connected": "Voice Connected",
+      "toggle_diagnostics": "Connection details",
+      "voice_connected": "Voice connected",
       "in_voice": "In voice:",
       "turn_on_camera": "Turn on camera",
       "turn_off_camera": "Turn off camera",
       "leave_voice": "Leave voice"
+    },
+    "you": {
+      "servers": "Servers",
+      "all_settings": "All settings"
     }
   },
   "user": {
     "online": "Online ({count})",
     "you": "you",
     "start_dm": "Start a DM",
-    "logout_change_name": "Logout and change name",
+    "logout_change_name": "Sign out and change name",
     "voice_call": "Voice call",
     "video_call": "Video call",
     "screen_share": "Screen share",
     "status": {
       "online": "Online",
       "away": "Away",
-      "busy": "Do Not Disturb",
+      "busy": "Do not disturb",
       "offline": "Offline"
     },
     "errors": {
@@ -678,22 +628,414 @@
       "screen_share_failed": "Failed to start screen share. Please grant screen sharing permissions."
     },
     "popout": {
-      "about_me": "About Me",
+      "about_me": "About me",
       "note": "Note",
-      "member_since": "Member Since",
-      "last_message": "Last Message Here",
+      "member_since": "Member since",
+      "last_message": "Last message here",
       "no_recent_messages": "No recent messages in this channel",
       "connections": "Connections",
       "no_connections": "No linked connections",
       "message": "Message",
-      "edit_profile": "Edit Profile",
-      "view_full_profile": "View Full Profile",
+      "edit_profile": "Edit profile",
+      "view_full_profile": "View full profile",
       "mute": "Mute",
       "deafen": "Deafen",
       "settings": "Settings",
-      "share_profile": "Share Profile"
+      "share_profile": "Share profile"
     }
   },
   "gallery_upload": "Upload image",
-  "gallery_drop_hint": "Drop image here"
+  "gallery_drop_hint": "Drop image here",
+  "places": {
+    "server_home": "Server home",
+    "dms": "DMs",
+    "friends": "Friends",
+    "chat": "Chat",
+    "threads": "Threads",
+    "wiki": "Wiki",
+    "gallery": "Gallery",
+    "forum": "Forum",
+    "files": "Files",
+    "whiteboard": "Whiteboard",
+    "calls": "Calls",
+    "activity": "Activity",
+    "project": "Project",
+    "my_planner": "My Planner",
+    "notes": "Notes",
+    "documents": "Documents",
+    "sheets": "Sheets",
+    "present": "Present",
+    "presentation": "Presentation",
+    "media": "Media",
+    "reader": "Reader",
+    "model_viewer": "3D viewer",
+    "map": "Map",
+    "people": "People",
+    "scratchpad": "Scratchpad",
+    "conversations": "Conversations",
+    "transfers": "Transfers",
+    "models": "Models",
+    "settings": "Settings",
+    "you": "You"
+  },
+  "maturity": {
+    "preview": "Preview",
+    "preview_title": "Integration candidate, not a deployed feature",
+    "preview_hint": "preview",
+    "optional_addon": "Optional add-on",
+    "optional_addon_preview": "Optional add-on · Preview",
+    "experimental": "Experimental",
+    "experimental_title": "Experimental: not a production guarantee",
+    "off_on_device": "off on this device"
+  },
+  "privacy": {
+    "state": {
+      "server_readable": "Server-readable",
+      "server_readable_by_choice": "Server-readable by choice",
+      "encryption_pending": "Encryption pending",
+      "experimental_encryption": "Experimental encryption",
+      "checking": "Checking privacy…",
+      "checking_short": "Checking…"
+    },
+    "sentence": {
+      "server_readable": "The server operator can read messages in this channel.",
+      "server_readable_conversation": "The server operator can read messages in this conversation.",
+      "server_readable_by_choice": "You chose to send without encryption in this conversation.",
+      "encryption_pending": "Messages wait for everyone's devices. You can choose to send server-readable instead.",
+      "experimental_encryption": "Not independently verified."
+    },
+    "phone": {
+      "server_readable": "The operator can read this channel.",
+      "server_readable_conversation": "The operator can read this conversation.",
+      "server_readable_by_choice": "You chose server-readable.",
+      "encryption_pending": "Waiting for devices.",
+      "experimental_encryption": "Not independently verified."
+    },
+    "popover": {
+      "server_readable": "The server operator can read messages in this channel.",
+      "server_readable_conversation": "The server operator can read messages in this conversation.",
+      "server_readable_by_choice": "You chose to send without encryption in this conversation. The server operator can read messages sent this way.",
+      "encryption_pending": "Messages wait for everyone's devices. You can choose to send server-readable instead.",
+      "experimental_encryption": "New messages get experimental encryption on the sender's device before they reach the server. The server operator can still see who is in this conversation and when messages are sent. Earlier messages keep the protection they were sent with.",
+      "checking": "Checking this channel's privacy policy with the server."
+    },
+    "facts": {
+      "room": "Room",
+      "kept": "Kept",
+      "encryption": "Encryption",
+      "encryption_experimental": "Experimental · not independently verified",
+      "encryption_pending": "Pending · waiting for devices",
+      "encryption_off_by_choice": "Off · you chose server-readable",
+      "encryption_off_conversation": "Off in this conversation",
+      "encryption_channels": "Only for DMs and groups",
+      "encryption_checking": "Checking…"
+    },
+    "explanation": "New DMs and groups start encryption-pending and use experimental encryption once everyone's devices are ready. Sending server-readable instead needs each sender's choice. The encryption has not been independently verified, and it does not hide everything from the server operator.",
+    "link": "How privacy works in Wabi",
+    "details": "Privacy details",
+    "retention": {
+      "forever": "Kept until someone deletes them",
+      "live": "Live only · not saved",
+      "kept_for": "Kept {duration}",
+      "fact_forever": "Until someone deletes them",
+      "fact_live": "Live only · not saved",
+      "title_forever": "New messages are kept until someone deletes them.",
+      "title_live": "New messages are shown live and not saved. Not saving them does not hide them from the server operator.",
+      "title_duration": "New messages are kept {duration}. Earlier messages keep the lifetime they were sent with."
+    },
+    "duration": {
+      "second_one": "{count} second",
+      "second_many": "{count} seconds",
+      "minute_one": "{count} minute",
+      "minute_many": "{count} minutes",
+      "hour_one": "{count} hour",
+      "hour_many": "{count} hours",
+      "day_one": "{count} day",
+      "day_many": "{count} days"
+    }
+  },
+  "locality": {
+    "only_you_device": "Only you · this device",
+    "private_device": "Private · this device",
+    "local_draft": "Local draft",
+    "saved_on_device": "Saved on this device",
+    "saved_at": "Saved {time}",
+    "synced": "Synced to server",
+    "shared_role": "Shared · {role}",
+    "draft_kept": "Draft kept on this device",
+    "scope_device": "Saved on this device · not shared",
+    "scope_community": "Visible to members of {community}"
+  },
+  "states": {
+    "loading": "Loading…",
+    "opening": "Opening {name}…",
+    "retry": "Retry",
+    "export_recovery": "Export recovery",
+    "unchanged_draft": "Your draft and settings are unchanged.",
+    "unchanged": "Nothing was changed.",
+    "error_offline": "Couldn’t reach the server",
+    "error_load": "Couldn’t load this",
+    "error_save": "Couldn’t save",
+    "error_permission": "You don’t have permission to do that",
+    "nothing_matches": "Nothing matches “{query}”."
+  },
+  "sidebar": {
+    "search": "Search or jump to",
+    "switch_server": "Switch server",
+    "dms_label": "DMs and friends",
+    "dms_label_unread": "DMs and friends, {count} unread",
+    "channels": "Channels",
+    "voice": "Voice",
+    "channel_actions": "Channel actions",
+    "voice_actions": "Voice room actions",
+    "new_channel": "New channel",
+    "new_folder": "New folder",
+    "new_voice_room": "New voice room",
+    "mark_all_read": "Mark all read",
+    "unread_count": "{count} unread",
+    "and_more": "and {count} more",
+    "mic_here": "Mic here",
+    "listening": "Listening",
+    "listening_more": "listening to {count} more",
+    "connection_details": "Connection details",
+    "leave_voice": "Leave",
+    "mute": "Mute",
+    "unmute": "Unmute",
+    "deafen": "Deafen",
+    "undeafen": "Undeafen",
+    "set_status": "Set your status"
+  },
+  "servers": {
+    "saved": "Saved servers",
+    "own_account": "Each server keeps its own account.",
+    "add": "Add server",
+    "remove": "Remove server"
+  },
+  "stage": {
+    "search_channel": "Search messages in #{channel}",
+    "search_conversation": "Search messages with {name}",
+    "search_help": "Narrow results with by:name, has:image, has:video, has:file or has:link.",
+    "pinned": "Pinned messages",
+    "about_channel": "About this channel",
+    "more_actions": "More actions"
+  },
+  "folio": {
+    "label": "Workspaces",
+    "more": "More",
+    "pin_to_bar": "Pin to bar",
+    "remove_from_bar": "Remove from bar",
+    "open": "Open",
+    "open_beside": "Open beside",
+    "needs_you_one": "{count} needs you",
+    "needs_you_many": "{count} need you",
+    "groups": {
+      "this_channel": "In this channel",
+      "community": "Community",
+      "yours": "Just you",
+      "office": "Office",
+      "side_panels": "Side panels"
+    }
+  },
+  "jump": {
+    "label": "Jump to",
+    "placeholder": "Search or jump to",
+    "scopes": {
+      "everything": "Everything",
+      "channels": "Channels",
+      "people": "People",
+      "workspaces": "Workspaces",
+      "actions": "Actions"
+    },
+    "groups": {
+      "workspaces": "Workspaces",
+      "recent_documents": "Recent documents",
+      "channels": "Channels",
+      "people": "People",
+      "actions": "Actions"
+    },
+    "hint_move": "move",
+    "hint_open": "open",
+    "hint_next_scope": "next scope",
+    "count_one": "{count} result",
+    "count_many": "{count} results",
+    "empty_scope": "Nothing matches “{query}” in {scope}. Try Everything.",
+    "empty": "Nothing matches “{query}”."
+  },
+  "forum": {
+    "new_thread": "New thread",
+    "post_thread": "Post thread",
+    "post_reply": "Post reply",
+    "reply_to": "Reply to {name}…",
+    "write": "Write",
+    "preview": "Preview",
+    "mark_solution": "Mark as solution",
+    "solved": "Solved",
+    "upvote": "Upvote, {count} points",
+    "downvote": "Downvote, {count} points",
+    "original_version": "Original version",
+    "edited_times": "Edited {count} times",
+    "empty_title": "No threads in {channel} yet",
+    "empty_body": "Longer conversations live here, so they don’t scroll away."
+  },
+  "calls": {
+    "summary_rooms_one": "{count} room",
+    "summary_rooms_many": "{count} rooms",
+    "summary_mic_in": "mic in {room}",
+    "in_call": "In call",
+    "other_rooms": "Other rooms",
+    "listen": "Listen",
+    "join": "Join",
+    "joining": "Joining…",
+    "join_failed": "Couldn’t join {room}",
+    "leave": "Leave",
+    "leave_all": "Leave all",
+    "mic": "Mic",
+    "sound": "Sound",
+    "camera": "Camera",
+    "share_screen": "Share screen",
+    "record": "Record",
+    "recording": "Recording {time}",
+    "mic_here": "Mic here",
+    "listening": "Listening",
+    "silent": "Silent",
+    "speaking": "Speaking",
+    "muted": "Muted",
+    "in_call_count": "{count} in call",
+    "people_count": "{count} people",
+    "and_more": "and {count} more",
+    "silence_call": "Silence this call",
+    "volume_for": "Volume for {room}",
+    "connection_details": "Connection details",
+    "show_connection_details": "Show connection details during calls",
+    "troubleshooting": "Troubleshooting",
+    "route_server": "Through this server",
+    "route_direct": "Direct (peer-to-peer)",
+    "empty_title": "Not in a call",
+    "empty_body": "Join a voice room from the sidebar or from the list below."
+  },
+  "activity": {
+    "all": "All",
+    "mentions": "Mentions",
+    "follows": "Follows",
+    "accept": "Accept",
+    "decline": "Decline",
+    "empty": "Nothing needs you right now."
+  },
+  "panels": {
+    "scratchpad_show": "Show Scratchpad",
+    "scratchpad_hide": "Hide Scratchpad",
+    "scratchpad_resize": "Resize Scratchpad",
+    "open_in_stage": "Open in center stage",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "filter": "Filter",
+    "resize": "Resize panel",
+    "search_people": "Search people",
+    "search_dms": "Search DMs",
+    "search_notes": "Search notes",
+    "new_note": "New note",
+    "new_message": "New message",
+    "here_now": "Here now",
+    "away": "Away",
+    "offline": "Offline",
+    "in_room": "In {room}",
+    "show": "Show",
+    "everyone": "Everyone",
+    "group": "Group",
+    "by_place": "By place",
+    "by_role": "By role",
+    "sort": "Sort",
+    "by_name": "By name",
+    "unread": "Unread",
+    "groups": "Groups",
+    "add_panels": "Add panels",
+    "rail": "Rail",
+    "side": "Side",
+    "left": "Left",
+    "right": "Right",
+    "open_on_hover": "Open on hover",
+    "reset_rail": "Reset rail",
+    "move_up": "Move up",
+    "move_down": "Move down",
+    "remove_from_rail": "Remove from rail"
+  },
+  "office": {
+    "library": {
+      "truth_documents": "Private on this device until you share. Shared documents are server-readable.",
+      "truth_sheets": "Private on this device until you share. Shared spreadsheets are server-readable.",
+      "truth_present": "Private on this device until you share. Shared presentations are server-readable.",
+      "new_document": "New document",
+      "new_spreadsheet": "New spreadsheet",
+      "new_presentation": "New presentation",
+      "open_file": "Open file…",
+      "on_device": "On this device",
+      "shared_with_you": "Shared with you",
+      "refresh_shared": "Refresh shared",
+      "edited_at": "Edited {time}",
+      "empty_documents_title": "Nothing on this device yet",
+      "empty_documents_body": "Start a document. It stays on this device until you share it.",
+      "empty_sheets_title": "No spreadsheets on this device yet",
+      "empty_sheets_body": "Start a spreadsheet. It stays on this device until you share it.",
+      "empty_present_title": "No presentations on this device yet",
+      "empty_present_body": "Start a presentation. It stays on this device until you share it.",
+      "shared_empty": "Nothing shared with you yet",
+      "shared_error_title": "Couldn’t load shared documents",
+      "shared_error_body": "Documents on this device are unchanged."
+    },
+    "editor": {
+      "document_title": "Document title",
+      "write": "Write",
+      "read": "Read",
+      "edit": "Edit",
+      "present": "Present",
+      "present_locally": "Present locally",
+      "present_to_channel": "Present to channel…",
+      "share": "Share…",
+      "export": "Export",
+      "make_private_copy": "Make private copy",
+      "original_file": "Original file",
+      "private_drafts": "Private drafts ({count})",
+      "discuss_in_chat": "Discuss in chat…",
+      "create_private_task": "Create private task",
+      "turn_off": "Turn off {tool} on this device…",
+      "server_sharing_settings": "Server sharing settings",
+      "contents": "Contents",
+      "facts": "Facts",
+      "words": "Words",
+      "reading": "Reading",
+      "reading_minutes": "{count} min",
+      "edited": "Edited",
+      "format": "Format",
+      "started": "Started {date}",
+      "insert": "Insert",
+      "insert_block": "Insert block",
+      "block_paragraph": "Paragraph",
+      "block_heading_2": "Heading 2",
+      "block_heading_3": "Heading 3",
+      "block_bulleted_list": "Bulleted list",
+      "block_numbered_list": "Numbered list",
+      "block_checklist": "Checklist",
+      "block_quote": "Quote",
+      "block_divider": "Divider",
+      "block_code": "Code block",
+      "block_image": "Image…",
+      "bold": "Bold",
+      "italic": "Italic",
+      "strikethrough": "Strikethrough",
+      "link": "Link",
+      "inline_code": "Inline code",
+      "comment": "Comment"
+    },
+    "share": {
+      "add_people": "Add people by name",
+      "viewer": "Viewer",
+      "commenter": "Commenter",
+      "editor": "Editor",
+      "truth": "Publishes to {host}. The server operator can read this document. No public link is created.",
+      "share": "Share"
+    },
+    "gate": {
+      "turn_on": "Turn on {tool}"
+    }
+  }
 }
