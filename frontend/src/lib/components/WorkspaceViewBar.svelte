@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import type { WorkspaceViewKey } from './chat/types';
+	import Icon from './ui/Icon.svelte';
 
 	let { activeView, onSelectView, canOpenWhiteboard = true, activityBadge = '', inline = false }: {
 		inline?: boolean;
@@ -10,7 +11,7 @@
 		activityBadge?: string;
 	} = $props();
 	const views: { id: WorkspaceViewKey; label: string; detail: string }[] = [
-		{ id: 'messages', label: 'Messages', detail: 'Your current channel' },
+		{ id: 'messages', label: 'Chat', detail: 'Your current channel' },
 		{ id: 'notifications', label: 'Activity', detail: 'Alerts, follows & friends' },
 		{ id: 'voice', label: 'Calls', detail: 'Voice, video & sharing' },
 		{ id: 'whiteboard', label: 'Whiteboard', detail: 'A canvas for your channel' },
@@ -18,6 +19,10 @@
 		{ id: 'notes', label: 'Notes', detail: 'Your personal notes' },
 		{ id: 'lore', label: 'Project', detail: 'Shared Plan, Wiki & optional files' },
 		{ id: 'files', label: 'Files', detail: 'Browse files & transfers' },
+		// Office tools are an integration candidate: the detail carries the maturity word.
+		{ id: 'documents', label: 'Documents', detail: 'Private until you share · preview' },
+		{ id: 'sheets', label: 'Sheets', detail: 'Spreadsheets · optional add-on · preview' },
+		{ id: 'present', label: 'Present', detail: 'Slides and presenting · optional add-on · preview' },
 		{ id: 'media', label: 'Media', detail: 'Photos & albums' },
 		{ id: 'reader', label: 'Reader', detail: 'Documents & reading' },
 		{ id: 'model', label: '3D viewer', detail: 'Explore models' },
@@ -128,6 +133,12 @@
 			<path d="M3.27 6.96 12 12.01l8.73-5.05"></path>
 			<path d="M12 22.08V12"></path>
 		</svg>
+	{:else if view === 'documents'}
+		<Icon name="pages" size={20} />
+	{:else if view === 'sheets'}
+		<Icon name="sheet" size={20} />
+	{:else if view === 'present'}
+		<Icon name="present" size={20} />
 	{:else if view === 'map'}
 		<svg aria-hidden="true" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 			<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"></path>
@@ -165,9 +176,9 @@
 		{#if activityBadge}<span class="activity-badge" aria-label={`${activityBadge} items need attention in Activity`}>{activityBadge}</span>{/if}
 		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
 	</button>
-	<button class="workspace-return" class:unavailable={activeView === 'messages'} disabled={activeView === 'messages'} type="button" aria-label="Return to messages" onclick={() => select('messages')}>
+	<button class="workspace-return" class:unavailable={activeView === 'messages'} disabled={activeView === 'messages'} type="button" aria-label="Return to Chat" onclick={() => select('messages')}>
 		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m12 5-7 7 7 7M5 12h14" /></svg>
-		<span>Messages</span>
+		<span>Chat</span>
 	</button>
 	{#if open}
 		<div class="workspace-picker" id={pickerId} role="dialog" aria-label="Choose workspace" bind:this={panel}>

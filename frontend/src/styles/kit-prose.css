@@ -1,0 +1,423 @@
+/* ==========================================================================
+   PROSE KIT (design contract §8.7, §8.8, §7.17)
+   Loaded through controls-kit.css.
+   - .w-prose: one reading style for documents, wiki pages, forum posts and notes;
+   - .w-outline: a "Contents" list on a hairline rule, the current heading marked in --w-sig;
+   - .w-facts: a quiet term/value list (Words, Reading, Edited, Format);
+   - the three stream separators: day rule, unread rule, typing row. They render inside the
+     stream's keyed #each without changing message keys (AGENTS.md rule 3).
+
+   Markup cheatsheet:
+     <div class="w-prose">{@html rendered}</div>
+     <nav class="w-outline" aria-label="Contents"><p class="w-outline__title">Contents</p>
+       <ol><li><a href aria-current="location">…</a><ol><li><a>…</a></li></ol></li></ol></nav>
+     <dl class="w-facts"><dt>Words</dt><dd>412</dd>…</dl>
+     <div class="w-dayrule" role="separator" aria-label="Today, Monday 21 September">
+       <span><b>Today</b> · Monday 21 September</span></div>    (--sticky)
+     <div class="w-newrule" role="separator" aria-label="New messages since you last read"><span>New</span></div>
+     <div class="w-typing" aria-live="polite">{avatar}<span><b>Iris</b> is writing</span>
+       <span class="w-typing__dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
+   ========================================================================== */
+
+/* ---------- 8.7 prose ---------- */
+.w-prose {
+	max-width: 68ch;
+	color: var(--w-text);
+	font: var(--w-t-read);
+	/* Rendered HTML is never pre-wrapped: the source newlines between blocks would double the
+	   paragraph gaps (forum-wiki#1). Code blocks keep their own whitespace below. */
+	white-space: normal;
+	overflow-wrap: break-word;
+	text-wrap: pretty;
+}
+.w-prose > * {
+	margin-top: 0;
+	margin-bottom: 0;
+}
+.w-prose > * + * {
+	margin-top: 18px;
+}
+/* Empty blocks left by the editor or the renderer take no space. */
+.w-prose :is(p, h1, h2, h3, h4, h5, h6, li, blockquote):empty {
+	display: none;
+}
+.w-prose :is(h1, h2, h3, h4) {
+	color: var(--w-text);
+	text-wrap: balance;
+}
+.w-prose h1 {
+	font: 600 calc(28px * var(--w-fs)) / calc(36px * var(--w-fs)) var(--w-serif);
+	letter-spacing: 0.005em;
+}
+.w-prose > h1:not(:first-child) {
+	margin-top: 48px;
+}
+.w-prose h2 {
+	font: 600 calc(22px * var(--w-fs)) / calc(30px * var(--w-fs)) var(--w-serif);
+	letter-spacing: 0.005em;
+}
+.w-prose > h2:not(:first-child) {
+	margin-top: 40px;
+}
+.w-prose h3 {
+	font: var(--w-t-heading);
+}
+.w-prose > h3:not(:first-child) {
+	margin-top: 28px;
+}
+.w-prose h4 {
+	font: var(--w-t-subhead);
+	font-size: calc(16px * var(--w-fs));
+	line-height: calc(22px * var(--w-fs));
+}
+.w-prose > h4:not(:first-child) {
+	margin-top: 24px;
+}
+.w-prose :is(h5, h6) {
+	color: var(--w-faint);
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+.w-prose > :is(h1, h2, h3, h4, h5, h6) + * {
+	margin-top: 12px;
+}
+.w-prose p {
+	margin: 0;
+}
+.w-prose strong,
+.w-prose b {
+	font-weight: 700;
+}
+.w-prose :is(h1, h2, h3, h4) :is(strong, b) {
+	font-weight: inherit;
+}
+.w-prose a {
+	color: var(--w-accent);
+	text-decoration: underline;
+	text-decoration-color: color-mix(in srgb, var(--w-accent) 45%, transparent);
+	text-decoration-thickness: var(--w-bw);
+	text-underline-offset: 3px;
+	transition: text-decoration-color var(--w-dur-1) var(--w-ease);
+}
+.w-prose a:hover {
+	text-decoration-color: var(--w-accent);
+}
+.w-prose mark {
+	padding: 0 2px;
+	border-radius: var(--radius-sm);
+	background: var(--w-accent-soft);
+	color: inherit;
+}
+.w-prose ::selection {
+	background: color-mix(in srgb, var(--w-accent) 28%, transparent);
+}
+
+/* Lists: markers in mono --w-faint. */
+.w-prose :is(ul, ol) {
+	padding-left: 1.6em;
+}
+.w-prose ul {
+	list-style: disc;
+}
+.w-prose ol {
+	list-style: decimal;
+}
+.w-prose :is(ul, ol) :is(ul, ol) {
+	margin-top: 6px;
+}
+.w-prose li + li {
+	margin-top: 6px;
+}
+.w-prose li::marker {
+	color: var(--w-faint);
+	font-family: var(--w-mono);
+	font-size: 0.85em;
+	font-variant-numeric: tabular-nums;
+}
+/* Checklists from Markdown task items: the box sits where the bullet would, and the text
+   starts on the same edge as a bulleted item's text. */
+.w-prose li:has(> input[type='checkbox']) {
+	display: flex;
+	align-items: flex-start;
+	gap: calc(1.6em - 16px);
+	margin-left: -1.6em;
+	list-style: none;
+}
+/* The box itself is the kit checkbox (controls-kit.css), centred on the first line;
+   rendered task lists are read-only. */
+.w-prose li > input[type='checkbox'] {
+	margin-top: calc((30px * var(--w-fs) - 16px) / 2);
+}
+.w-prose li > input[type='checkbox']:disabled {
+	cursor: default;
+}
+.w-prose li:has(> input[type='checkbox']:checked) {
+	color: var(--w-mute);
+	text-decoration: line-through;
+	text-decoration-color: var(--w-line-strong);
+}
+
+/* Quotes: a 2px rule and the serif voice. No italic, no fill. */
+.w-prose blockquote {
+	margin-left: 0;
+	margin-right: 0;
+	padding: 2px 0 2px 22px;
+	border-left: 2px solid var(--w-line-strong);
+	background: none;
+	color: var(--w-text);
+	font: 400 calc(21px * var(--w-fs)) / calc(32px * var(--w-fs)) var(--w-serif);
+	font-style: normal;
+}
+.w-prose blockquote > * + * {
+	margin-top: 12px;
+}
+
+/* Code (§7.19). */
+.w-prose code {
+	padding: 1px 4px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-sm);
+	background: var(--w-sink);
+	font-family: var(--w-mono);
+	font-size: 0.88em;
+}
+.w-prose pre {
+	padding: 10px 12px;
+	overflow-x: auto;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+	font: 400 calc(13px * var(--w-fs)) / calc(20px * var(--w-fs)) var(--w-mono);
+	white-space: pre;
+}
+.w-prose pre code {
+	padding: 0;
+	border: 0;
+	background: none;
+	font-size: inherit;
+}
+
+/* Tables: hairlines only. */
+.w-prose table {
+	display: block;
+	max-width: 100%;
+	overflow-x: auto;
+	border-collapse: collapse;
+	font: var(--w-t-ui);
+}
+.w-prose :is(th, td) {
+	padding: 8px 16px 8px 0;
+	border-bottom: var(--w-bw) solid var(--w-line);
+	text-align: start;
+	vertical-align: top;
+}
+.w-prose th {
+	color: var(--w-text);
+	font: var(--w-t-label);
+	border-bottom-color: var(--w-line-strong);
+}
+.w-prose hr {
+	height: var(--w-bw);
+	margin-top: 32px;
+	margin-bottom: 32px;
+	border: 0;
+	background: var(--w-line);
+}
+.w-prose hr + * {
+	margin-top: 0;
+}
+.w-prose img {
+	display: block;
+	max-width: 100%;
+	height: auto;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+}
+
+/* ---------- 8.8 contents outline ---------- */
+.w-outline {
+	font: var(--w-t-small);
+}
+.w-outline__title {
+	display: block;
+	margin: 0 0 10px;
+	color: var(--w-faint);
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+.w-outline :is(ol, ul) {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.w-outline > :is(ol, ul) {
+	border-left: var(--w-bw) solid var(--w-line);
+}
+.w-outline li {
+	margin: 0;
+}
+.w-outline :is(a, button) {
+	position: relative;
+	display: block;
+	box-sizing: border-box;
+	width: 100%;
+	margin: 0;
+	padding: 5px 0 5px 14px;
+	border: 0;
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+	text-align: start;
+	text-decoration: none;
+	cursor: pointer;
+	transition: color var(--w-dur-1) var(--w-ease);
+}
+.w-outline :is(ol, ul) :is(ol, ul) :is(a, button) {
+	padding-left: 26px;
+}
+.w-outline :is(a, button):hover {
+	color: var(--w-text);
+	text-decoration: none;
+}
+.w-outline :is(a, button):focus-visible {
+	outline-offset: -2px;
+}
+.w-outline :is(a, button):is([aria-current='location'], [aria-current='true'], [aria-current='step']) {
+	color: var(--w-text);
+}
+/* The current heading: a 2px --w-sig mark laid on the rule. */
+.w-outline :is(a, button):is([aria-current='location'], [aria-current='true'], [aria-current='step'])::before {
+	content: '';
+	position: absolute;
+	top: 6px;
+	bottom: 6px;
+	left: calc(-1 * var(--w-bw) - (2px - var(--w-bw)) / 2);
+	width: 2px;
+	border-radius: var(--radius-sm);
+	background: var(--w-sig);
+}
+
+/* ---------- 8.8 facts ---------- */
+.w-facts {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	column-gap: 16px;
+	row-gap: 7px;
+	margin: 0;
+}
+.w-facts dt {
+	margin: 0;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+}
+.w-facts dd {
+	margin: 0;
+	color: var(--w-mute);
+	font: var(--w-t-mono);
+	line-height: calc(18px * var(--w-fs));
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+	overflow-wrap: anywhere;
+}
+
+/* ---------- 7.17 stream separators ---------- */
+/* Day rule: hairlines either side of a serif date; the relative word at 600 in --w-text.
+   The stream sets the inset (it starts at the avatar column). */
+.w-dayrule {
+	display: grid;
+	grid-template-columns: minmax(16px, 1fr) auto minmax(16px, 1fr);
+	align-items: center;
+	column-gap: 16px;
+	margin: 26px 0 2px;
+	color: var(--w-mute);
+	font: 400 calc(13px * var(--w-fs)) / calc(18px * var(--w-fs)) var(--w-serif);
+	letter-spacing: 0.02em;
+}
+.w-dayrule::before,
+.w-dayrule::after {
+	content: '';
+	height: var(--w-bw);
+	background: var(--w-line);
+}
+.w-dayrule > * {
+	white-space: nowrap;
+}
+.w-dayrule :is(b, strong) {
+	color: var(--w-text);
+	font-weight: 600;
+}
+/* Sticky while its day is in view. */
+.w-dayrule--sticky {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	margin-top: 14px;
+	padding: 12px 0 10px;
+	background: var(--w-bg);
+}
+
+/* Unread rule: an accent hairline that ends in the NEW kicker. Never danger. */
+.w-newrule {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: 12px;
+	margin: 18px 0 0;
+}
+.w-newrule::before {
+	content: '';
+	height: var(--w-bw);
+	background: color-mix(in srgb, var(--w-accent) 60%, transparent);
+}
+.w-newrule > * {
+	color: var(--w-accent);
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+
+/* Typing row: 24px, a 20px avatar, "Iris is writing", three 4px dots (static under reduced motion). */
+.w-typing {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	height: 24px;
+	margin: 10px 0 0;
+	color: var(--w-faint);
+	font: 400 calc(12px * var(--w-fs)) / calc(16px * var(--w-fs)) var(--w-sans);
+	white-space: nowrap;
+}
+.w-typing :is(b, strong) {
+	color: var(--w-mute);
+	font-weight: 500;
+}
+.w-typing__dots {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+}
+.w-typing__dots > * {
+	display: block;
+	width: 4px;
+	height: 4px;
+	border-radius: var(--w-avr);
+	background: var(--w-faint);
+	animation: w-typing 1.2s var(--w-ease) infinite;
+}
+.w-typing__dots > :nth-child(2) {
+	opacity: 0.7;
+	animation-delay: 0.15s;
+}
+.w-typing__dots > :nth-child(3) {
+	opacity: 0.45;
+	animation-delay: 0.3s;
+}
+@keyframes w-typing {
+	50% {
+		opacity: 0.2;
+	}
+}

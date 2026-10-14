@@ -1,103 +1,277 @@
-/* Channel / group / generic dialogs — same frame, header and controls as app settings. */
+/* ==========================================================================
+   LEGACY DIALOG SKIN (design contract §7.13, §8.9)
+   Dialogs that still render their own `.modal-overlay > .modal-content` (Channel settings,
+   Create group / DM, Forward, Pinned messages, the planner modals, call prompts…) get the kit
+   dialog frame, title row, fields and buttons from the --w-* roles only. Geometry (width,
+   padding, layout) stays with each component. New dialogs use BaseModal (.w-scrim + .w-dialog),
+   and the app Settings dialog has its own skin (settings-skin.css).
+
+   - Scrim: --w-scrim, no blur (no frost, §4.5). Frame: --w-bg, --w-line-strong edge,
+     --radius-xl, --w-shadow.
+   - Title row: no tinted band; serif title (--w-t-title), hairline under it, a quiet 32px close.
+   - Primary is ink on paper; danger is outlined until hover; Cancel is quiet.
+   - A danger zone is a hairline section, not a box, and never wears the seal: the seal is for
+     who can read something (§5.1), not for destructive actions.
+   ========================================================================== */
 
 :root .modal-overlay:not(.wabi-settings-overlay) {
-	background: color-mix(in srgb, var(--w-sink) 76%, transparent);
-	backdrop-filter: blur(8px);
-	-webkit-backdrop-filter: blur(8px);
+	background: var(--w-scrim);
+	backdrop-filter: none;
+	-webkit-backdrop-filter: none;
 }
+
 :root .modal-overlay:not(.wabi-settings-overlay) > .modal-content {
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-xl);
 	background: var(--w-bg);
 	backdrop-filter: none;
 	-webkit-backdrop-filter: none;
-	border: var(--w-bw, 1px) solid var(--w-line-strong);
-	border-radius: calc(16px * var(--w-rs, 1));
 	box-shadow: var(--w-shadow);
-	font-family: var(--w-sans);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+
+/* ---------- title row ---------- */
+:root .modal-overlay:not(.wabi-settings-overlay) .modal-header {
+	box-sizing: border-box;
+	min-height: 64px;
+	padding: 8px 16px 8px 24px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+	background: transparent;
+	backdrop-filter: none;
+	-webkit-backdrop-filter: none;
+}
+:root .modal-overlay:not(.wabi-settings-overlay) .modal-header :is(h2, h3) {
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-title);
+	letter-spacing: 0.005em;
+}
+/* The entry point already said what this is; the title row carries words only. */
+:root .modal-overlay:not(.wabi-settings-overlay) .modal-title-icon {
+	display: none;
+}
+:root .modal-overlay:not(.wabi-settings-overlay) :is(.close-btn, .modal-close) {
+	display: inline-grid;
+	place-items: center;
+	flex: none;
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
+}
+:root .modal-overlay:not(.wabi-settings-overlay) :is(.close-btn, .modal-close):hover {
+	background: var(--w-raise);
 	color: var(--w-text);
 }
-:root .modal-overlay:not(.wabi-settings-overlay) .modal-header {
-	background: var(--w-bg2);
-	backdrop-filter: none;
-	border-bottom: var(--w-bw, 1px) solid var(--w-line);
-	padding: 16px 22px;
+:root .modal-overlay:not(.wabi-settings-overlay) :is(.close-btn, .modal-close) svg {
+	width: 18px;
+	height: 18px;
 }
-:root .modal-overlay:not(.wabi-settings-overlay) .modal-header h2,
-:root .modal-overlay:not(.wabi-settings-overlay) .modal-header h3 { font: 600 calc(22px * var(--w-fs, 1))/1.2 var(--w-serif); letter-spacing: 0.01em; color: var(--w-text); }
-:root .modal-overlay:not(.wabi-settings-overlay) .modal-title-icon { color: var(--w-mute); filter: none; }
-:root .modal-overlay:not(.wabi-settings-overlay) .close-btn { color: var(--w-mute); border-radius: calc(9px * var(--w-rs, 1)); }
-:root .modal-overlay:not(.wabi-settings-overlay) .close-btn:hover { background: var(--w-raise); color: var(--w-text); }
 
-/* form language */
+/* ---------- body ---------- */
+:root .modal-overlay:not(.wabi-settings-overlay) .modal-body {
+	color: var(--w-mute);
+	font: var(--w-t-ui);
+}
+:root .modal-overlay:not(.wabi-settings-overlay) .modal-footer {
+	border-top-color: var(--w-line);
+	background: transparent;
+}
+
+/* ---------- form language ---------- */
+:root .modal-overlay .setting-section > h3 {
+	color: var(--w-text);
+	font: var(--w-t-heading);
+}
 :root .modal-overlay .setting-label,
-:root .modal-overlay .setting-group > label { font: 600 calc(14px * var(--w-fs, 1))/1.3 var(--w-sans); color: var(--w-text); }
-:root .modal-overlay .setting-description { font: 400 calc(13px * var(--w-fs, 1))/1.5 var(--w-sans); color: var(--w-mute); }
-:root .modal-overlay .setting-section > div:first-child { font: 500 calc(12.5px * var(--w-fs, 1))/1.3 var(--w-mono); color: var(--w-mute); }
-:root .modal-overlay input[type='text'],
-:root .modal-overlay input:not([type]),
+:root .modal-overlay .setting-group > label {
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+:root .modal-overlay .setting-description {
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+:root .modal-overlay :is(input[type='text'], input[type='search'], input[type='url'], input[type='number'], input:not([type])),
 :root .modal-overlay textarea,
 :root .modal-overlay select,
 :root .modal-overlay .description-input {
+	box-sizing: border-box;
+	min-height: 38px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
 	background: var(--w-sink);
-	border: var(--w-bw, 1px) solid var(--w-line-strong);
-	border-radius: calc(10px * var(--w-rs, 1));
 	color: var(--w-text);
-	font: 400 calc(14.5px * var(--w-fs, 1))/1.4 var(--w-sans);
+	font: var(--w-t-ui);
+	transition:
+		border-color var(--w-dur-1) var(--w-ease),
+		box-shadow var(--w-dur-1) var(--w-ease);
 }
-:root .modal-overlay input:focus,
-:root .modal-overlay textarea:focus,
-:root .modal-overlay select:focus { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
-:root .modal-overlay input[type='checkbox'] { accent-color: var(--w-accent); }
+:root .modal-overlay :is(input, textarea, select)::placeholder {
+	color: var(--w-faint);
+}
+:root .modal-overlay :is(input, textarea, select):focus {
+	outline: none;
+}
+:root .modal-overlay :is(input, textarea, select):focus-visible {
+	border-color: var(--w-accent);
+	box-shadow: var(--w-ring, 0 0 0 3px var(--w-accent-soft));
+}
+:root .modal-overlay :is(input[type='checkbox'], input[type='radio']) {
+	accent-color: var(--w-text);
+}
 
-/* buttons: one shape; primary is the text colour, never a bright fill */
-:root .modal-overlay .save-description-btn,
-:root .modal-overlay .save-btn {
-	min-height: 34px;
-	padding: 6px 14px;
-	border: 0;
-	border-radius: calc(10px * var(--w-rs, 1));
+/* ---------- buttons ---------- */
+:root .modal-overlay :is(.save-btn, .save-description-btn, .primary-btn, .btn-primary),
+:root .modal-overlay :is(.cancel-btn, .secondary-btn, .btn-secondary),
+:root .modal-overlay :is(.danger-btn, .clear-messages-btn, .delete-channel-btn) {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	box-sizing: border-box;
+	min-height: 32px;
+	padding: 0 12px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-label);
+	white-space: nowrap;
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		border-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
+}
+/* A bare <button> in a legacy dialog body ("Retry lifetime check") reads as a small default key.
+   "Bare" = no class of its own (Svelte may still add its scoping class). */
+:root .modal-overlay:not(.wabi-settings-overlay) .modal-body button:is(:not([class]), [class^='svelte-']:not([class*=' '])) {
+	display: inline-flex;
+	align-items: center;
+	min-height: 28px;
+	padding: 0 10px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-caption);
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+:root .modal-overlay:not(.wabi-settings-overlay) .modal-body button:is(:not([class]), [class^='svelte-']:not([class*=' '])):hover:not(:disabled) {
+	background: var(--w-raise);
+}
+/* Primary: ink on paper, never a bright fill. */
+:root .modal-overlay :is(.save-btn, .save-description-btn, .primary-btn, .btn-primary) {
+	border-color: var(--w-text);
 	background: var(--w-text);
 	color: var(--w-bg);
-	font: 700 calc(13.5px * var(--w-fs, 1))/1.2 var(--w-sans);
 }
-:root .modal-overlay .save-description-btn:hover,
-:root .modal-overlay .save-btn:hover { background: color-mix(in srgb, var(--w-text) 88%, var(--w-accent)); }
-
-/* retention choices: a quiet grid, the current one marked in accent */
-:root .modal-overlay .auto-delete-options { gap: 6px; }
-:root .modal-overlay .auto-delete-btn {
-	border: var(--w-bw, 1px) solid var(--w-line);
-	border-radius: calc(10px * var(--w-rs, 1));
-	background: var(--w-bg2);
+:root .modal-overlay :is(.save-btn, .save-description-btn, .primary-btn, .btn-primary):hover:not(:disabled) {
+	border-color: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+	background: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+}
+/* Cancel: quiet. */
+:root .modal-overlay :is(.cancel-btn, .secondary-btn, .btn-secondary) {
+	border-color: transparent;
 	color: var(--w-mute);
-	font: 500 calc(13px * var(--w-fs, 1))/1.3 var(--w-mono);
 }
-:root .modal-overlay .auto-delete-btn:hover:not(:disabled) { border-color: var(--w-accent); color: var(--w-text); }
-:root .modal-overlay .auto-delete-btn.active,
-:root .modal-overlay .auto-delete-btn[aria-pressed='true'] {
-	background: var(--w-accent-soft);
-	border-color: var(--w-accent);
+:root .modal-overlay :is(.cancel-btn, .secondary-btn, .btn-secondary):hover:not(:disabled) {
+	background: var(--w-raise);
 	color: var(--w-text);
-	box-shadow: inset 2px 0 0 var(--w-accent);
+}
+/* Danger: outlined until hover. */
+:root .modal-overlay :is(.danger-btn, .clear-messages-btn, .delete-channel-btn) {
+	border-color: color-mix(in srgb, var(--w-danger) 55%, transparent);
+	color: var(--w-danger);
+}
+:root .modal-overlay :is(.danger-btn, .clear-messages-btn, .delete-channel-btn):hover:not(:disabled) {
+	border-color: var(--w-danger);
+	background: var(--w-danger);
+	color: var(--w-on-danger, var(--w-bg));
+}
+/* "Local only" clears this device's cache: not destructive for anyone else. */
+:root .modal-overlay .clear-messages-btn.local-only {
+	border-color: var(--w-line-strong);
+	color: var(--w-text);
+}
+:root .modal-overlay .clear-messages-btn.local-only:hover:not(:disabled) {
+	border-color: var(--w-line-strong);
+	background: var(--w-raise);
+	color: var(--w-text);
+}
+:root .modal-overlay :is(.save-btn, .save-description-btn, .primary-btn, .btn-primary, .cancel-btn, .secondary-btn, .btn-secondary, .danger-btn, .clear-messages-btn, .delete-channel-btn):disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
 }
 
-/* destructive pattern: outlined in danger, fills only on hover */
+/* ---------- choice keys (retention) ---------- */
+/* One set of keys on a track; the chosen key is paper (§5.2), never an accent fill or a bar. */
+:root .modal-overlay .auto-delete-options {
+	gap: 2px;
+	padding: 2px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: calc(var(--radius-md) + 2px);
+	background: var(--w-bg2);
+}
+:root .modal-overlay .auto-delete-btn {
+	min-height: 30px;
+	padding: 4px 10px;
+	border: 0;
+	border-radius: var(--radius-inner);
+	background: transparent;
+	box-shadow: none;
+	color: var(--w-mute);
+	font: var(--w-t-label-sm);
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
+}
+:root .modal-overlay .auto-delete-btn:hover:not(:disabled) {
+	border-color: transparent;
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+	color: var(--w-text);
+}
+:root .modal-overlay :is(.auto-delete-btn.active, .auto-delete-btn[aria-pressed='true'], .auto-delete-btn[aria-checked='true']) {
+	background: var(--w-bg);
+	box-shadow:
+		0 0 0 var(--w-bw) var(--w-line-strong),
+		var(--w-shadow-1);
+	color: var(--w-text);
+}
+:root[data-mode='light'] .modal-overlay :is(.auto-delete-btn.active, .auto-delete-btn[aria-pressed='true'], .auto-delete-btn[aria-checked='true']) {
+	background: var(--w-lift);
+}
+:root .modal-overlay .auto-delete-btn:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+
+/* ---------- danger zone ---------- */
 :root .modal-overlay .danger-zone {
+	margin-top: 32px;
+	padding: 20px 0 0;
+	border: 0;
+	border-top: var(--w-bw) solid var(--w-line);
+	border-radius: 0;
 	background: transparent;
-	border: var(--w-bw, 1px) solid color-mix(in srgb, var(--w-danger) 45%, transparent);
-	border-radius: calc(12px * var(--w-rs, 1));
-	box-shadow: inset 2px 0 0 var(--w-seal);
+	box-shadow: none;
 }
-:root .modal-overlay .clear-messages-btn,
-:root .modal-overlay .danger-btn {
-	min-height: 34px;
-	padding: 6px 14px;
-	border: var(--w-bw, 1px) solid color-mix(in srgb, var(--w-danger) 65%, transparent);
-	border-radius: calc(10px * var(--w-rs, 1));
+:root .modal-overlay .danger-zone :is(h3, h4, .setting-label) {
+	color: var(--w-text);
+}
+
+/* High Contrast: every hairline is solid and the chosen key carries its ring in the strong line. */
+:root[data-char='contrast'] .modal-overlay .auto-delete-btn:hover:not(:disabled) {
 	background: transparent;
-	color: var(--w-danger);
-	font: 600 calc(13.5px * var(--w-fs, 1))/1.2 var(--w-sans);
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
 }
-:root .modal-overlay .clear-messages-btn:hover,
-:root .modal-overlay .danger-btn:hover { background: var(--w-danger); color: var(--w-bg); border-color: var(--w-danger); }
-:root .modal-overlay .clear-messages-btn.local-only { border-color: var(--w-line-strong); color: var(--w-text); }
-:root .modal-overlay .clear-messages-btn.local-only:hover { background: var(--w-raise); color: var(--w-text); border-color: var(--w-accent); }

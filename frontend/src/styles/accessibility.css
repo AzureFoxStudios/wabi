@@ -1,14 +1,10 @@
 /* ==========================================================================
    ACCESSIBILITY & THEME OVERRIDES
-   High contrast, uniform font, VS Code separators, Slate Signal frost.
+   Uniform font mode and ambient frost. High Contrast has no rules of its own
+   here: it is a theme whose roles (solid --w-line = --w-line-strong, amber
+   accent, vermilion seal) are drawn by every surface, so it never brings in a
+   second accent colour or glass effects.
    ========================================================================== */
-
-/* --- High contrast mode --- */
-@media (prefers-contrast: high) {
-	:root {
-		--color-border-primary: 1px solid var(--text-heading);
-	}
-}
 
 /* --- Uniform font mode --- */
 .user-name,
@@ -24,166 +20,54 @@
 }
 
 /* ==========================================================================
-   VS CODE HIGH CONTRAST — electric blue separators
-   ========================================================================== */
-
-:root[data-theme='high-contrast'] .channel-sidebar {
-	border-right: var(--border-width-md) solid var(--color-info);
-}
-
-:root[data-theme='high-contrast'] .channel-list {
-	border-top: var(--border-width-md) solid var(--color-info);
-}
-
-:root[data-theme='high-contrast'] .channel-item {
-	border-left: var(--border-width-md) solid transparent;
-	transition: border-left-color var(--duration-fast);
-}
-
-:root[data-theme='high-contrast'] .channel-item:hover,
-:root[data-theme='high-contrast'] .channel-item.active {
-	border-left-color: var(--color-info);
-}
-
-:root[data-theme='high-contrast'] .chat-header {
-	border-bottom: var(--border-width-md) solid var(--color-info);
-}
-
-:root[data-theme='high-contrast'] .dm-list-panel {
-	border-left: var(--border-width-md) solid var(--color-info);
-}
-
-:root[data-theme='high-contrast'] .panel-header {
-	border-bottom: var(--border-width-md) solid var(--color-info);
-}
-
-:root[data-theme='high-contrast'] .tab-switcher {
-	border-bottom: none;
-	margin-bottom: 0;
-}
-
-:root[data-theme='high-contrast'] .tab-switcher::after {
-	color: var(--color-info);
-	font-size: var(--font-size-3);
-}
-
-:root[data-theme='high-contrast'] .tab-btn {
-	font-size: var(--font-size-2);
-	color: var(--text-heading);
-}
-
-:root[data-theme='high-contrast'] .tab-btn.active {
-	color: var(--color-info);
-}
-
-:root[data-theme='high-contrast'] .tab-btn.active::after {
-	background: var(--color-info);
-}
-
-:root[data-theme='high-contrast'] .conversations-list,
-:root[data-theme='high-contrast'] .users-list {
-	border-top: var(--border-width-sm) solid var(--color-info);
-}
-
-:root[data-theme='high-contrast'] .conversation-item,
-:root[data-theme='high-contrast'] .user-item {
-	border-left: var(--border-width-md) solid transparent;
-	transition: border-left-color var(--duration-fast);
-}
-
-:root[data-theme='high-contrast'] .conversation-item:hover,
-:root[data-theme='high-contrast'] .user-item:hover {
-	border-left-color: var(--color-info);
-}
-
-/* ==========================================================================
-   AMBIENT FROSTED GLASS
+   AMBIENT FROST
    Whenever the active theme has a living background (any theme whose
-   ambient.effect != 'none', including custom themes — flagged by
-   [data-ambient='true'] set in themeManager), surfaces become translucent +
-   blurred so the ambient <canvas> sitting behind .app-content-layer blends
-   THROUGH instead of being hidden behind opaque panels. Opacity/blur are
-   driven by --surface-frost-* (0.85 / 12px when ambient is on, 1 / 0 off).
-   Themes without an effect keep data-ambient='false', so their surfaces
-   stay fully opaque.
+   ambient.effect != 'none', including custom themes — flagged on <html> by
+   [data-ambient='true'] in themeManager), the chrome surfaces become
+   translucent and blurred so the ambient <canvas> behind .app-content-layer
+   shows through instead of being hidden behind opaque panels. Opacity/blur
+   come from --surface-frost-* (0.6 / 6px by default when ambient is on, 1 / 0
+   off). The contrast character never gets frost: High Contrast stays solid.
+
+   The fills read --surface-base-rgb / --surface-raised-rgb on purpose:
+   lib/theme/panelColors.ts re-tints those per panel container, so a custom
+   panel colour still wins inside the frost. Selectors keep the original
+   (0,2,0) specificity (the contrast guard is in :where()) because
+   panelColors' explicit shell rules rely on out-ranking them.
    ========================================================================== */
 
-[data-ambient='true']
-  .channel-sidebar,
-[data-ambient='true']
-  .dm-panel,
-[data-ambient='true']
-  .user-panel,
-[data-ambient='true']
-  .right-panel-content,
-[data-ambient='true']
-  .chat-header,
-[data-ambient='true']
-  .panel-header,
-[data-ambient='true']
-  .modal-content,
-[data-ambient='true']
-  .incoming-call-modal,
-[data-ambient='true']
-  .call-shell .active-call-container {
-	/* Use the `background` shorthand (not background-color) so it also clears
-	   the component's own gradient image layers — otherwise those paint on
-	   top and keep the surface effectively opaque, hiding the canvas. */
+[data-ambient='true']:where(:not([data-char='contrast'])) .channel-sidebar,
+[data-ambient='true']:where(:not([data-char='contrast'])) .dm-panel,
+[data-ambient='true']:where(:not([data-char='contrast'])) .user-panel,
+[data-ambient='true']:where(:not([data-char='contrast'])) .right-panel-content,
+[data-ambient='true']:where(:not([data-char='contrast'])) .chat-header,
+[data-ambient='true']:where(:not([data-char='contrast'])) .panel-header,
+[data-ambient='true']:where(:not([data-char='contrast'])) .modal-content,
+[data-ambient='true']:where(:not([data-char='contrast'])) .incoming-call-modal,
+[data-ambient='true']:where(:not([data-char='contrast'])) .call-shell .active-call-container {
+	/* The `background` shorthand (not background-color) also clears the component's own
+	   gradient layers, which would otherwise paint over the canvas. */
 	background: rgba(var(--surface-base-rgb), var(--surface-frost-opacity, 1)) !important;
-	border-color: rgba(var(--border-rgb), 0.5) !important;
+	border-color: var(--w-line) !important;
+	-webkit-backdrop-filter: blur(var(--surface-frost-blur, 0px));
+	backdrop-filter: blur(var(--surface-frost-blur, 0px));
 }
 
-[data-ambient='true']
-  .chat-header,
-[data-ambient='true']
-  .panel-header,
-[data-ambient='true']
-  .input-wrapper {
+[data-ambient='true']:where(:not([data-char='contrast'])) .chat-header,
+[data-ambient='true']:where(:not([data-char='contrast'])) .panel-header {
 	background: rgba(var(--surface-raised-rgb), var(--surface-frost-opacity, 1)) !important;
 }
 
-[data-ambient='true']
-  .input-wrapper,
-[data-ambient='true']
-  .input-container {
+[data-ambient='true']:where(:not([data-char='contrast'])) .input-wrapper,
+[data-ambient='true']:where(:not([data-char='contrast'])) .input-container {
 	background: transparent !important;
 	box-shadow: none !important;
 }
 
-[data-ambient='true']
-  .chat-container,
-[data-ambient='true']
-  .main-content,
-[data-ambient='true']
-  .chat-content {
-	/* Surface color only — the background IMAGE now lives on
-	   .chat-container::before (see chat-core.css) so blur can apply to it;
-	   painting it here too would double the image. The frost wash sits
-	   beneath the blurred image layer. */
+[data-ambient='true']:where(:not([data-char='contrast'])) .chat-container,
+[data-ambient='true']:where(:not([data-char='contrast'])) .main-content,
+[data-ambient='true']:where(:not([data-char='contrast'])) .chat-content {
+	/* Surface colour only — the background image lives on .chat-container::before
+	   (chat-core.css) so blur can apply to it; painting it here too would double it. */
 	background-color: rgba(var(--surface-base-rgb), var(--surface-frost-opacity, 1)) !important;
-}
-
-@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-	[data-ambient='true']
-	  .channel-sidebar,
-	[data-ambient='true']
-	  .dm-panel,
-	[data-ambient='true']
-	  .user-panel,
-	[data-ambient='true']
-	  .right-panel-content,
-	[data-ambient='true']
-	  .chat-header,
-	[data-ambient='true']
-	  .panel-header,
-	[data-ambient='true']
-	  .modal-content,
-	[data-ambient='true']
-	  .incoming-call-modal,
-	[data-ambient='true']
-	  .call-shell .active-call-container {
-		backdrop-filter: blur(var(--surface-frost-blur, 0px)) saturate(1.12);
-		-webkit-backdrop-filter: blur(var(--surface-frost-blur, 0px)) saturate(1.12);
-		box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
-	}
 }
