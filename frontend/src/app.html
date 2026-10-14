@@ -26,10 +26,13 @@
 					if (standalone) document.documentElement.classList.add('is-pwa-standalone');
 					try {
 						// A saved Daylight theme boots on Daylight paper (and browser chrome) instead of Wabi Ink.
+						// The browser chrome follows only while it still holds the Wabi Ink default: an operator
+						// accent stamped in by the server keeps winning.
 						const saved = JSON.parse(localStorage.getItem('wabi-theme') || 'null');
 						if (saved && /^(light|paper-dawn|professional)$/.test(saved.theme_id || '')) {
 							document.documentElement.dataset.bootMode = 'light';
-							document.querySelector('meta[data-wabi-theme-color]')?.setAttribute('content', '#faf9f6');
+							const chrome = document.querySelector('meta[data-wabi-theme-color]');
+							if (chrome && chrome.getAttribute('content') === '#101315') chrome.setAttribute('content', '#faf9f6');
 						}
 					} catch (_) {}
 				} catch (_) {}
@@ -46,7 +49,7 @@
 				--boot-text: #e8e7e0;
 				--boot-mute: #9aa39d;
 				--boot-faint: #818983;
-				--boot-line: color-mix(in srgb, var(--boot-text) 12%, transparent);
+				--boot-line: color-mix(in srgb, var(--boot-text) 11%, transparent);
 				--boot-line-strong: #6a6b6a;
 				--boot-sig: #d6ad5f;
 				--boot-sans: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -143,6 +146,28 @@
 				width: 60px;
 				height: 60px;
 				color: var(--boot-accent);
+				transition: opacity 240ms var(--boot-ease);
+			}
+
+			/* The real ensō (contract §6: wabi-logo-small.webp as a mask in the sig color, never redrawn)
+			   takes over from the drawn placeholder above once the image has decoded, so the stage is
+			   never blank. Default brand only: a custom logo or neutral branding keeps its own mark. */
+			.wabi-boot-shell__enso {
+				position: absolute;
+				z-index: 1;
+				width: 60px;
+				height: 60px;
+				background: var(--boot-accent);
+				-webkit-mask: url('/wabi-logo-small.webp') center / contain no-repeat;
+				mask: url('/wabi-logo-small.webp') center / contain no-repeat;
+				opacity: 0;
+				transition: opacity 240ms var(--boot-ease);
+			}
+			#wabi-boot-shell[data-boot-brand='wabi'][data-boot-enso='1'] .wabi-boot-shell__enso {
+				opacity: 1;
+			}
+			#wabi-boot-shell[data-boot-brand='wabi'][data-boot-enso='1'] .wabi-boot-shell__glyph {
+				opacity: 0;
 			}
 
 			/* Custom / server logo overlays the inline mark once it has loaded.
@@ -360,7 +385,8 @@
 			   sets html[data-neutral-branding] before the body parses, so this
 			   holds from the very first paint. */
 			html[data-neutral-branding] .wabi-boot-shell__title,
-			html[data-neutral-branding] .wabi-boot-shell__glyph {
+			html[data-neutral-branding] .wabi-boot-shell__glyph,
+			html[data-neutral-branding] .wabi-boot-shell__enso {
 				visibility: hidden;
 			}
 			html[data-neutral-branding] .wabi-boot-shell__title {
@@ -396,6 +422,8 @@
 					opacity: 0;
 				}
 				#wabi-boot-shell,
+				.wabi-boot-shell__glyph,
+				.wabi-boot-shell__enso,
 				.wabi-boot-shell__rail > span,
 				.wabi-boot-shell__steps,
 				.wabi-boot-shell__btn {
@@ -545,6 +573,7 @@
 						<path d="M46.5 18.2A21 21 0 1 0 52 33.5" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" opacity="0.92"/>
 						<path d="M44 15.6c3.1 1.6 5.6 4 7.3 6.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.45"/>
 					</svg>
+					<span class="wabi-boot-shell__enso"></span>
 					<img id="wabi-boot-logo" alt="" class="wabi-boot-shell__logo" decoding="async" />
 				</div>
 				<div class="wabi-boot-shell__body">
@@ -801,6 +830,14 @@
 
 				// Apply any brand captured from localStorage in <head>
 				applyBootBrand(window.__WABI_BOOT_BRAND__);
+
+				// Swap the drawn placeholder for the real ensō once it has decoded (CSS keeps it to the default brand).
+				const enso = new Image();
+				enso.onload = () => {
+					const shell = getShell();
+					if (shell) shell.dataset.bootEnso = '1';
+				};
+				enso.src = '/wabi-logo-small.webp';
 
 				window.addEventListener('wabi:boot-hide', hideBootShell, { once: true });
 				window.addEventListener('wabi:boot-reconnect', enterReconnectMode, { once: true });
