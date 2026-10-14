@@ -18,7 +18,7 @@ sha2 = "0.10"
 hex = "0.4"
 p256 = { version = "=0.13.2", features = ["ecdsa"] }
 snow = { version = "=0.10.0", default-features = false, features = ["std", "default-resolver", "use-curve25519", "use-chacha20poly1305", "use-sha2", "use-getrandom"] }
-x25519-dalek = { version = "=2.0.1", features = ["static_secrets"] }
+x25519-dalek = { version = "=3.0.0", features = ["static_secrets"] }
 zeroize = "=1.9.0"
 
 [dev-dependencies]
