@@ -56,9 +56,16 @@ async function load(file: string): Promise<AnyComponent> {
 	return (await import(compileComponent(file))).default;
 }
 
-/** Server-rendered markup without the hydration comments. */
-const html = (component: AnyComponent, props: Record<string, unknown>) =>
-	render(component, { props }).body.replace(/<!--[^>]*-->/g, '');
+/** Server-rendered markup without the hydration comments (stripped until none remain). */
+const html = (component: AnyComponent, props: Record<string, unknown>) => {
+	let markup = render(component, { props }).body;
+	let previous;
+	do {
+		previous = markup;
+		markup = markup.replace(/<!--[^>]*-->/g, '');
+	} while (markup !== previous);
+	return markup;
+};
 
 beforeAll(async () => {
 	directory = mkdtempSync(join(tmpdir(), 'wabi-ui-'));
