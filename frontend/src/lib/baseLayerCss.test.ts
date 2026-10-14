@@ -84,7 +84,7 @@ function rules(source: string): Rule[] {
 }
 
 function decl(body: string, property: string): string | undefined {
-	const match = body.match(new RegExp(`(?:^|[;{\\s])${property.replace(/-/g, '\\-')}\\s*:\\s*([^;]+)`));
+	const match = body.match(new RegExp(`(?:^|[;{\\s])${property.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')}\\s*:\\s*([^;]+)`));
 	return match?.[1].trim();
 }
 
