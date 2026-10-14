@@ -69,6 +69,11 @@ dockCanPin.subscribe((canPin) => {
 	if (canPin && isHeldPeek()) pinPanel(get(activeRightTab));
 });
 
+// Whatever ends the peek (close, pin, the phone layout taking over) ends the hold with it.
+rightPanelMode.subscribe((mode) => {
+	if (mode !== 'peek' && get(peekHeld)) peekHeld.set(false);
+});
+
 /** Everything pinned in the dock, in pin order. */
 export function pinnedIds(): WorkspacePanelId[] {
 	if (get(rightPanelMode) !== 'pinned') return [];

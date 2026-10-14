@@ -192,7 +192,16 @@
 
 .right-panel-zone.peek .right-panel-body { border-left-color: var(--w-line-strong); }
 .right-panel-zone.peek.stub-left .right-panel-body { border-right-color: var(--w-line-strong); }
-:root[data-mode='light'] .right-panel-zone.peek .right-panel-body { background: var(--w-lift); }
+
+/* A peek covers stage text, so it is always opaque: themes with a living background frost the
+   pinned column (surfaces/panel.css), never a peek. Light mode lifts it to --w-lift. */
+:root[data-ambient] .right-panel-zone.peek .right-panel-body {
+	background: var(--w-bg2);
+	-webkit-backdrop-filter: none;
+	backdrop-filter: none;
+}
+:root[data-mode='light'] .right-panel-zone.peek .right-panel-body,
+:root[data-mode='light'][data-ambient] .right-panel-zone.peek .right-panel-body { background: var(--w-lift); }
 
 .right-panel-zone.peek.stub-left { animation-name: peek-in-left; }
 

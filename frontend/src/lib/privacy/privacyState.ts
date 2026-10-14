@@ -306,7 +306,7 @@ const BODY: Record<PrivacyState, string> = {
 		'You chose to send without encryption in this conversation. The server operator can read messages sent this way.',
 	'encryption-pending': "Messages wait for everyone's devices. You can choose to send server-readable instead.",
 	'experimental-encryption':
-		"New messages get experimental encryption on the sender's device before they reach the server. Earlier messages keep the protection they were sent with. The server operator can still see who is in this conversation and when messages are sent.",
+		"New messages get experimental encryption on the sender's device before they reach the server. The server operator can still see who is in this conversation and when messages are sent. Earlier messages keep the protection they were sent with.",
 	checking: "Checking this channel's privacy policy with the server."
 };
 

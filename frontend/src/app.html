@@ -9,7 +9,7 @@
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 		<meta name="mobile-web-app-capable" content="yes" />
-		<meta name="theme-color" content="#0D1024" data-wabi-theme-color />
+		<meta name="theme-color" content="#101315" data-wabi-theme-color />
 		<meta name="description" content="Open-source, self-hosted communication and collaboration for small communities, with chat, calls, shared workspaces, and creative review." />
 		<title data-wabi-brand-title>Wabi</title>
 		<script>
@@ -25,37 +25,65 @@
 					if (compact) document.documentElement.classList.add('is-mobile-shell');
 					if (standalone) document.documentElement.classList.add('is-pwa-standalone');
 					try {
+						// A saved Daylight theme boots on Daylight paper (and browser chrome) instead of Wabi Ink.
 						const saved = JSON.parse(localStorage.getItem('wabi-theme') || 'null');
-						if (saved && /^(light|paper-dawn|professional)$/.test(saved.theme_id || '')) document.documentElement.dataset.bootMode = 'light';
+						if (saved && /^(light|paper-dawn|professional)$/.test(saved.theme_id || '')) {
+							document.documentElement.dataset.bootMode = 'light';
+							document.querySelector('meta[data-wabi-theme-color]')?.setAttribute('content', '#faf9f6');
+						}
 					} catch (_) {}
 				} catch (_) {}
 			})();
 		</script>
 		<style>
+			/* Boot shell: Wabi Ink until the app's roles load (docs/design/DESIGN_CONTRACT.md).
+			   The app's role tokens do not exist yet, so the --boot-* names below mirror the
+			   resolved roles of Wabi Ink (--w-bg #101315 ...) and of Daylight for a saved light theme.
+			   Operator branding still wins: the server or a saved server injects --boot-accent and the logo. */
+			:root {
+				--boot-ink: #101315;
+				--boot-raise: #1b2125;
+				--boot-text: #e8e7e0;
+				--boot-mute: #9aa39d;
+				--boot-faint: #818983;
+				--boot-line: color-mix(in srgb, var(--boot-text) 12%, transparent);
+				--boot-line-strong: #6a6b6a;
+				--boot-sig: #d6ad5f;
+				--boot-sans: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+				--boot-serif: 'Shippori Mincho', 'Hiragino Mincho ProN', 'Yu Mincho', Georgia, serif;
+				--boot-ease: cubic-bezier(0.2, 0, 0, 1);
+			}
+
+			html[data-boot-mode='light'] {
+				--boot-ink: #faf9f6;
+				--boot-raise: #f2efe8;
+				--boot-text: #1c1917;
+				--boot-mute: #57534e;
+				--boot-faint: #6e6966;
+				--boot-line-strong: #84827f;
+				--boot-sig: #ac500a;
+			}
+
 			html,
 			body {
 				min-height: 100%;
 				margin: 0;
-				background:
-					radial-gradient(ellipse 70rem 42rem at 50% -10%, rgba(99, 102, 241, 0.14), transparent 62%),
-					radial-gradient(ellipse 48rem 34rem at 12% 92%, rgba(129, 140, 248, 0.1), transparent 60%),
-					linear-gradient(165deg, #0D1024 0%, #0A0D1E 55%, #070914 100%);
+				background: var(--boot-ink);
 			}
 
 			#wabi-boot-shell {
+				/* The mark color: the brand's sig unless the operator brand set its own accent inline. */
+				--boot-accent: var(--boot-sig);
 				position: fixed;
 				inset: 0;
 				z-index: 2147483647;
 				display: grid;
 				place-items: center;
 				overflow: hidden;
-				/* Soft wash — stays behind the glass stage */
-				background:
-					radial-gradient(ellipse 50rem 36rem at 50% 40%, rgba(99, 102, 241, 0.12), transparent 70%),
-					linear-gradient(165deg, rgba(15, 12, 41, 0.92) 0%, rgba(6, 11, 20, 0.96) 100%);
+				background: var(--boot-ink);
 				transition:
-					opacity 280ms ease,
-					visibility 280ms ease;
+					opacity 240ms var(--boot-ease),
+					visibility 240ms var(--boot-ease);
 			}
 
 			#wabi-boot-shell.is-hidden {
@@ -68,16 +96,13 @@
 				display: flex;
 				flex-direction: column;
 				align-items: center;
-				gap: 1.1rem;
-				padding: 2rem;
-				text-align: center;
-				color: rgba(255, 255, 255, 0.9);
-				font-family:
-					"Segoe UI",
-					"SF Pro Display",
-					system-ui,
-					sans-serif;
+				gap: 20px;
+				box-sizing: border-box;
 				width: min(420px, 100%);
+				padding: 32px 16px;
+				text-align: center;
+				color: var(--boot-text);
+				font-family: var(--boot-sans);
 			}
 
 			/* --- Stage: the inline mark. Painted immediately, never waits on an image. --- */
@@ -92,33 +117,23 @@
 			.wabi-boot-shell__orbit {
 				position: absolute;
 				inset: 0;
-				border-radius: 28px;
-				border: 1px solid rgba(199, 210, 254, 0.18);
-				background: linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
-				box-shadow:
-					inset 0 0 0 1px rgba(255, 255, 255, 0.04),
-					0 18px 40px rgba(0, 0, 0, 0.28);
+				border-radius: 8px;
+				border: 1px solid var(--boot-line);
 			}
 
+			/* The loading sweep around the mark. Rotate the element (not a custom property) so it animates everywhere. */
 			.wabi-boot-shell__orbit::after {
 				content: '';
 				position: absolute;
 				inset: -1px;
 				border-radius: inherit;
 				padding: 1.5px;
-				background: conic-gradient(
-					from 0deg,
-					transparent 0 62%,
-					color-mix(in srgb, var(--boot-accent, #818cf8) 92%, white) 78%,
-					#ffffff 88%,
-					transparent 100%
-				);
+				background: conic-gradient(from 0deg, transparent 0 66%, var(--boot-accent) 86%, transparent 100%);
 				-webkit-mask:
 					linear-gradient(#000 0 0) content-box,
 					linear-gradient(#000 0 0);
 				-webkit-mask-composite: xor;
 				mask-composite: exclude;
-				/* Rotate the element (not a custom property) so it animates everywhere. */
 				animation: wabi-boot-orbit-spin 1.35s linear infinite;
 			}
 
@@ -127,6 +142,7 @@
 				z-index: 1;
 				width: 60px;
 				height: 60px;
+				color: var(--boot-accent);
 			}
 
 			/* Custom / server logo overlays the inline mark once it has loaded.
@@ -139,27 +155,22 @@
 				object-fit: contain;
 				opacity: 0;
 				visibility: hidden;
-				filter: drop-shadow(0 14px 30px rgba(0, 0, 0, 0.4));
 			}
 
 			#wabi-boot-shell[data-boot-ready='1'] .wabi-boot-shell__logo[src] {
 				visibility: visible;
-				animation: wabi-boot-logo-in 0.45s ease-out forwards;
-			}
-
-			/* Default Wabi boot asset is dark — invert only for the default brand. */
-			#wabi-boot-shell[data-boot-brand='wabi'] .wabi-boot-shell__logo {
-				filter: invert(1) drop-shadow(0 14px 30px rgba(0, 0, 0, 0.4));
+				animation: wabi-boot-logo-in 240ms var(--boot-ease) forwards;
 			}
 
 			/* --- Wordmark + status line --- */
 			.wabi-boot-shell__title {
-				margin: 0.15rem 0 0;
-				font-size: 1.7rem;
-				font-weight: 650;
-				letter-spacing: -0.03em;
-				line-height: 1.1;
-				color: rgba(255, 255, 255, 0.94);
+				margin: 0;
+				font-family: var(--boot-serif);
+				font-size: 32px;
+				font-weight: 600;
+				line-height: 40px;
+				letter-spacing: 0.005em;
+				color: var(--boot-text);
 			}
 
 			.wabi-boot-shell__title[data-empty='true'] {
@@ -171,22 +182,23 @@
 			}
 
 			.wabi-boot-shell__status {
-				margin: 0.15rem 0 0;
-				min-height: 1.4em;
-				color: rgba(246, 245, 255, 0.62);
-				font-size: 0.9375rem;
-				line-height: 1.4;
+				margin: 4px 0 0;
+				min-height: 18px;
+				color: var(--boot-mute);
+				font-size: 13px;
+				line-height: 18px;
+				text-wrap: pretty;
 			}
 
 			/* --- Progress rail: driven by real gates, not a timer --- */
 			.wabi-boot-shell__rail {
-				width: min(280px, 78%);
-				height: 3px;
-				margin: 0.7rem 0 0;
-				border-radius: 999px;
-				background: rgba(255, 255, 255, 0.08);
-				overflow: hidden;
 				position: relative;
+				width: min(280px, 78%);
+				height: 2px;
+				margin: 14px auto 0;
+				border-radius: 2px;
+				background: var(--boot-line);
+				overflow: hidden;
 			}
 
 			.wabi-boot-shell__rail > span {
@@ -194,21 +206,21 @@
 				height: 100%;
 				width: 0%;
 				border-radius: inherit;
-				background: linear-gradient(90deg, #6366f1, #c7d2fe);
-				transition: width 480ms cubic-bezier(0.2, 0.8, 0.2, 1);
+				background: var(--boot-accent);
+				transition: width 480ms var(--boot-ease);
 			}
 
 			/* --- Step list: appears only after a beat, so a fast boot never sees it --- */
 			.wabi-boot-shell__steps {
 				list-style: none;
 				padding: 0;
-				margin: 1.1rem 0 0;
-				width: min(320px, 100%);
+				margin: 20px auto 0;
+				width: min(200px, 100%);
 				display: grid;
 				gap: 8px;
 				opacity: 0;
 				visibility: hidden;
-				transition: opacity 300ms ease;
+				transition: opacity 240ms var(--boot-ease);
 			}
 
 			.wabi-boot-shell__steps.is-visible {
@@ -221,57 +233,59 @@
 				align-items: center;
 				gap: 10px;
 				font-size: 13px;
-				color: rgba(246, 245, 255, 0.38);
+				line-height: 18px;
+				color: var(--boot-faint);
 				text-align: left;
 			}
 
 			.wabi-boot-shell__steps li .dot {
 				width: 16px;
 				height: 16px;
+				box-sizing: border-box;
 				border-radius: 999px;
-				border: 1px solid rgba(255, 255, 255, 0.16);
+				border: 1px solid var(--boot-line);
 				display: grid;
 				place-items: center;
 				flex: none;
 			}
 
 			.wabi-boot-shell__steps li.active {
-				color: rgba(246, 245, 255, 0.96);
+				color: var(--boot-text);
+				font-weight: 500;
 			}
 			.wabi-boot-shell__steps li.active .dot {
-				border-color: transparent;
-				background: color-mix(in srgb, var(--boot-accent, #818cf8) 25%, transparent);
-				box-shadow: 0 0 0 4px color-mix(in srgb, var(--boot-accent, #818cf8) 12%, transparent);
+				border-color: var(--boot-accent);
 			}
 			.wabi-boot-shell__steps li.active .dot::after {
 				content: '';
 				width: 6px;
 				height: 6px;
-				border-radius: 99px;
-				background: #c7d2fe;
+				border-radius: 999px;
+				background: var(--boot-accent);
 			}
 
 			.wabi-boot-shell__steps li.done {
-				color: rgba(246, 245, 255, 0.78);
+				color: var(--boot-mute);
 			}
 			.wabi-boot-shell__steps li.done .dot {
 				border-color: transparent;
-				background: rgba(134, 239, 172, 0.18);
+				background: color-mix(in srgb, var(--boot-accent) 18%, transparent);
 			}
 			.wabi-boot-shell__steps li.done .dot::after {
 				content: '';
 				width: 7px;
 				height: 4px;
-				border-left: 1.5px solid #86efac;
-				border-bottom: 1.5px solid #86efac;
+				border-left: 1.5px solid var(--boot-accent);
+				border-bottom: 1.5px solid var(--boot-accent);
 				transform: rotate(-45deg) translate(0, -1px);
 			}
 
 			/* --- Recover: Try again + Work offline. Mark stays visible above it. --- */
 			.wabi-boot-shell__recover {
 				display: none;
+				justify-content: center;
 				gap: 8px;
-				margin-top: 0.6rem;
+				margin-top: 20px;
 			}
 
 			[data-boot-state='reconnect'] .wabi-boot-shell__recover,
@@ -279,38 +293,46 @@
 				display: flex;
 			}
 
+			/* Default button: hairline edge, fills on hover. Primary: ink on paper (text fill, page label). */
 			.wabi-boot-shell__btn {
-				padding: 0.55rem 1.25rem;
-				border-radius: 9999px;
-				border: 1px solid rgba(148, 163, 184, 0.28);
-				background: rgba(255, 255, 255, 0.06);
-				color: rgba(255, 255, 255, 0.9);
-				font-family: inherit;
-				font-size: 0.8125rem;
-				font-weight: 600;
+				height: 32px;
+				padding: 0 12px;
+				border-radius: 6px;
+				border: 1px solid var(--boot-line-strong);
+				background: transparent;
+				color: var(--boot-text);
+				font: 500 14px/20px var(--boot-sans);
+				white-space: nowrap;
 				cursor: pointer;
 				transition:
-					background 0.15s ease,
-					border-color 0.15s ease;
+					background-color 120ms var(--boot-ease),
+					border-color 120ms var(--boot-ease);
 			}
 			.wabi-boot-shell__btn:hover {
-				background: rgba(255, 255, 255, 0.12);
-				border-color: rgba(148, 163, 184, 0.42);
+				background: var(--boot-raise);
+			}
+			.wabi-boot-shell__btn:focus-visible {
+				outline: 2px solid var(--boot-accent);
+				outline-offset: 2px;
 			}
 			.wabi-boot-shell__btn--primary {
-				background: #f6f5ff;
-				color: #11131f;
-				border-color: transparent;
-				font-weight: 650;
+				border-color: var(--boot-text);
+				background: var(--boot-text);
+				color: var(--boot-ink);
 			}
 			.wabi-boot-shell__btn--primary:hover {
-				background: #ffffff;
-				border-color: transparent;
+				background: color-mix(in srgb, var(--boot-text) 86%, var(--boot-ink));
+			}
+			@media (pointer: coarse) {
+				.wabi-boot-shell__btn {
+					height: 44px;
+					padding: 0 16px;
+				}
 			}
 
-			/* --- Stall: rail freezes and warms, spin pauses, mark kept --- */
+			/* --- Stall: the rail freezes and goes quiet, the sweep pauses, the mark is kept --- */
 			[data-boot-state='stalled'] .wabi-boot-shell__rail > span {
-				background: linear-gradient(90deg, #f59e0b, #fde68a);
+				background: var(--boot-mute);
 				transition: none;
 			}
 			[data-boot-state='stalled'] .wabi-boot-shell__orbit::after {
@@ -327,13 +349,10 @@
 				opacity: 0.55;
 			}
 
-			/* Neutral palette on boot (early data-neutral-branding or data-boot-brand) */
+			/* Neutral palette on boot (early data-neutral-branding or data-boot-brand): no Wabi gold. */
 			html[data-neutral-branding] #wabi-boot-shell,
 			#wabi-boot-shell[data-boot-brand='neutral'] {
 				--boot-accent: #a1a1aa;
-				background:
-					radial-gradient(ellipse 50rem 36rem at 50% 40%, rgba(161, 161, 170, 0.1), transparent 70%),
-					linear-gradient(165deg, rgba(24, 24, 27, 0.94) 0%, rgba(9, 9, 11, 0.97) 100%);
 			}
 
 			/* Neutral must not leak the Wabi glyph or wordmark, but it must never
@@ -362,22 +381,24 @@
 			@keyframes wabi-boot-logo-in {
 				from {
 					opacity: 0;
-					transform: scale(0.92);
+					transform: translateY(4px);
 				}
 				to {
 					opacity: 1;
-					transform: scale(1);
+					transform: none;
 				}
 			}
 
 			@media (prefers-reduced-motion: reduce) {
-				.wabi-boot-shell__orbit::after {
-					animation: none !important;
+				/* No sweep at all (a frozen sweep reads as a smudge, stalled or not); the gate rail carries progress. */
+				#wabi-boot-shell .wabi-boot-shell__orbit::after {
+					animation: none;
+					opacity: 0;
 				}
-				.wabi-boot-shell__rail > span {
-					transition: none;
-				}
-				.wabi-boot-shell__steps {
+				#wabi-boot-shell,
+				.wabi-boot-shell__rail > span,
+				.wabi-boot-shell__steps,
+				.wabi-boot-shell__btn {
 					transition: none;
 				}
 				#wabi-boot-shell[data-boot-ready='1'] .wabi-boot-shell__logo[src] {
@@ -386,38 +407,6 @@
 					visibility: visible;
 				}
 			}
-		</style>
-		<style>
-			/* Boot — Wabi Ink. Operator branding still wins: the server injects --boot-accent / the logo. */
-			:root { --boot-ink: #101315; --boot-text: #e8e7e0; --boot-mute: #9aa39d; --boot-line: rgba(232, 231, 224, 0.14); }
-			html[data-boot-mode='light'] { --boot-ink: #faf8f3; --boot-text: #1c1917; --boot-mute: #57534e; --boot-line: rgba(28, 25, 23, 0.16); }
-			html,
-			body { background: var(--boot-ink); }
-			#wabi-boot-shell {
-				--boot-accent: #d6ad5f;
-				background: radial-gradient(ellipse 46rem 30rem at 85% -10%, color-mix(in srgb, var(--boot-accent) 14%, transparent), transparent 62%), var(--boot-ink);
-			}
-			.wabi-boot-shell__glyph { color: var(--boot-text); }
-			.wabi-boot-shell__center { color: var(--boot-text); font-family: "Zen Kaku Gothic New", system-ui, -apple-system, "Segoe UI", sans-serif; }
-			.wabi-boot-shell__orbit { border-radius: 14px; border: 1px solid var(--boot-line); background: transparent; box-shadow: none; }
-			.wabi-boot-shell__orbit::after { background: conic-gradient(from 0deg, transparent 0 66%, var(--boot-accent) 86%, transparent 100%); }
-			.wabi-boot-shell__title { font-family: "Shippori Mincho", Georgia, serif; font-weight: 600; font-size: 1.9rem; letter-spacing: 0.01em; color: var(--boot-text); }
-			.wabi-boot-shell__status { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 0.8125rem; color: var(--boot-mute); }
-			.wabi-boot-shell__rail { height: 2px; border-radius: 2px; background: var(--boot-line); }
-			.wabi-boot-shell__rail > span { background: var(--boot-accent); }
-			.wabi-boot-shell__steps li { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 12px; color: var(--boot-mute); opacity: 0.7; }
-			.wabi-boot-shell__steps li.active { color: var(--boot-text); opacity: 1; }
-			.wabi-boot-shell__steps li.active .dot { background: color-mix(in srgb, var(--boot-accent) 22%, transparent); box-shadow: none; }
-			.wabi-boot-shell__steps li.active .dot::after { background: var(--boot-accent); }
-			.wabi-boot-shell__steps li.done { color: var(--boot-text); opacity: 0.85; }
-			.wabi-boot-shell__steps li.done .dot { background: color-mix(in srgb, var(--boot-accent) 18%, transparent); }
-			.wabi-boot-shell__steps li.done .dot::after { border-color: var(--boot-accent); }
-			.wabi-boot-shell__btn { border-radius: 10px; border: 1px solid var(--boot-line); background: transparent; color: var(--boot-text); }
-			.wabi-boot-shell__btn:hover { background: color-mix(in srgb, var(--boot-text) 8%, transparent); border-color: var(--boot-accent); }
-			.wabi-boot-shell__btn--primary { background: var(--boot-text); color: var(--boot-ink); }
-			.wabi-boot-shell__btn--primary:hover { background: var(--boot-text); opacity: 0.9; }
-			[data-boot-state='stalled'] .wabi-boot-shell__rail > span { background: #e0553f; }
-			html[data-boot-mode='light'] #wabi-boot-shell[data-boot-brand='wabi'] .wabi-boot-shell__logo { filter: none; }
 		</style>
 		<script>
 			// Server-stamped brand (Phase 1 boot optimization): wabi-server
@@ -430,7 +419,7 @@
 			(() => {
 				try {
 					if (window.location.pathname.replace(/\/$/, '') === '/personal') {
-						window.__WABI_BOOT_BRAND__ = { brandName: 'Wabi', logoUrl: '/wabi-logo.png', accent: '#d6ad5f' };
+						window.__WABI_BOOT_BRAND__ = { brandName: 'Wabi', logoUrl: '/wabi-logo.png', accent: '' };
 						return;
 					}
 					const NEUTRAL_SVG =
@@ -548,7 +537,7 @@
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="tap">
-		<div id="wabi-boot-shell" role="status" aria-live="polite" data-boot-brand="pending" data-boot-state="default" style="--boot-accent: #d6ad5f">
+		<div id="wabi-boot-shell" role="status" aria-live="polite" data-boot-brand="pending" data-boot-state="default">
 			<div class="wabi-boot-shell__center">
 				<div class="wabi-boot-shell__stage" aria-hidden="true">
 					<span class="wabi-boot-shell__orbit"></span>
@@ -570,7 +559,7 @@
 					</ol>
 					<div class="wabi-boot-shell__recover">
 						<button id="wabi-boot-retry" class="wabi-boot-shell__btn wabi-boot-shell__btn--primary" type="button">Try again</button>
-						<button id="wabi-work-offline" class="wabi-boot-shell__btn" type="button">Work Offline</button>
+						<button id="wabi-work-offline" class="wabi-boot-shell__btn" type="button">Work offline</button>
 					</div>
 				</div>
 			</div>
@@ -784,8 +773,12 @@
 							logo.removeAttribute('src');
 							logo.alt = '';
 						}
-						if (snap.accent) shell.style.setProperty('--boot-accent', snap.accent);
-						else shell.style.setProperty("--boot-accent", "#d6ad5f");
+						// The default brand draws with the boot palette's own sig (gold on Ink, burnt orange
+						// on Daylight). #6366f1 is the retired indigo default in brandConfig, not an operator
+						// choice, so it never repaints the Wabi mark.
+						const accent = snap.accent && snap.accent.toLowerCase() !== '#6366f1' ? snap.accent : '';
+						if (accent) shell.style.setProperty('--boot-accent', accent);
+						else shell.style.removeProperty('--boot-accent');
 					}
 
 					window.__WABI_BOOT_BRAND__ = {

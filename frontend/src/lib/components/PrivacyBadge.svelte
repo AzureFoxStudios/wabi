@@ -26,6 +26,7 @@
 	import Tooltip from '$lib/components/ui/Tooltip.svelte';
 	import PrivacyPopover from '$lib/components/PrivacyPopover.svelte';
 	import {
+		isPrivacyState,
 		isPrivateConversationType,
 		privacyStateFor,
 		privacyWords,
@@ -79,7 +80,10 @@
 	const popId = `privacy-badge-pop-${uid}`;
 	const sentenceId = `privacy-badge-sentence-${uid}`;
 
-	const current = $derived<PrivacyState>(givenState ?? privacyStateFor(input ?? {}));
+	// A given state that is not one of the five reads as Checking, never as a stronger claim.
+	const current = $derived<PrivacyState>(
+		givenState == null ? privacyStateFor(input ?? {}) : isPrivacyState(givenState) ? givenState : 'checking'
+	);
 	const channelType = $derived(input?.channelType ?? input?.channel?.type ?? null);
 	// Only DMs and groups can be pending, encrypted or server-readable by choice.
 	const inConversation = $derived(
@@ -127,7 +131,13 @@
 {/snippet}
 
 {#if variant === 'colophon'}
-	<div class="privacy-badge privacy-badge--colophon {className}" data-state={current} aria-live="polite" aria-atomic="true">
+	<div
+		class="privacy-badge privacy-badge--colophon pb-surface-{surface} {className}"
+		class:pb-no-sentence={!desktop.sentence && !phone.sentence}
+		data-state={current}
+		aria-live="polite"
+		aria-atomic="true"
+	>
 		<button
 			bind:this={trigger}
 			type="button"
@@ -196,21 +206,42 @@
 
 <style>
 	/* ---------- colophon (§7.20) ---------- */
+	/* A grid rather than a flex row: the sentence column has a zero minimum, so in any parent
+	   (flex, grid or block) the sentence is what gives way, with an ellipsis, while the state
+	   word and the retention chip keep their full width. */
 	.privacy-badge--colophon {
-		display: flex;
+		display: grid;
+		grid-template-columns: max-content minmax(0, max-content) max-content;
+		justify-content: start;
 		align-items: center;
-		gap: 10px;
+		gap: 4px 10px;
 		min-width: 0;
+		max-width: 100%;
 		min-height: 24px;
 		color: var(--w-mute);
 		font: var(--w-t-caption);
+	}
+	.privacy-badge--colophon.pb-no-sentence {
+		grid-template-columns: max-content max-content;
+	}
+	/* Phones: word and short sentence keep the first line to themselves (they must both stay
+	   readable, §7.20); a retention chip takes its own line under the glyph instead of
+	   squeezing the sentence. */
+	.pb-surface-phone .privacy-badge__kept {
+		grid-column: 1 / -1;
+		grid-row: 2;
+	}
+	@media (max-width: 768px) {
+		.pb-surface-auto .privacy-badge__kept {
+			grid-column: 1 / -1;
+			grid-row: 2;
+		}
 	}
 	.privacy-badge__key {
 		position: relative;
 		display: inline-flex;
 		align-items: center;
 		gap: 7px;
-		flex: none;
 		box-sizing: border-box;
 		height: 22px;
 		/* The glyph stays on the field's text inset; the hover fill reaches 6px past it. */
@@ -238,7 +269,6 @@
 		color: var(--w-seal);
 	}
 	.privacy-badge__sentence {
-		flex: 0 1 auto;
 		min-width: 0;
 		overflow: hidden;
 		color: var(--w-faint);
@@ -279,6 +309,7 @@
 	}
 	.privacy-badge__kept {
 		flex: none;
+		justify-self: start;
 	}
 
 	/* Focus (§4.6): one accent outline, never a stacked ring. */
