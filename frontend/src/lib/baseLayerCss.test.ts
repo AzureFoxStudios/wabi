@@ -154,12 +154,28 @@ describe('base.css focus and scrollbars', () => {
 	});
 
 	test('scrollbars use a --w-line-strong thumb on a transparent track, not the accent', () => {
-		const [all] = find(base, (r) => r.selectors.length === 1 && r.selectors[0] === '*');
-		expect(decl(all.body, 'scrollbar-color')).toBe('var(--w-line-strong) transparent');
 		const [thumb] = find(base, (r) => r.selectors.includes('::-webkit-scrollbar-thumb'));
 		expect(decl(thumb.body, 'background-color')).toBe('var(--w-line-strong)');
+		const [track] = find(base, (r) => r.selectors.includes('::-webkit-scrollbar-track'));
+		expect(decl(track.body, 'background')).toBe('transparent');
 		expect(code(base)).not.toContain('--accent-primary-color');
 		expect(code(base)).not.toContain('--accent-secondary-color');
+	});
+
+	test('standard scrollbar properties apply only where ::-webkit-scrollbar is unsupported', () => {
+		// Chromium 121+ drops every ::-webkit-scrollbar rule (and draws stepper arrows) on an
+		// element with scrollbar-width/-color set, so these must never apply unconditionally.
+		const universal = find(base, (r) => r.selectors.length === 1 && r.selectors[0] === '*');
+		const standard = universal.filter((r) => decl(r.body, 'scrollbar-width') || decl(r.body, 'scrollbar-color'));
+		const firefox = standard.find((r) => r.context.includes('@supports not selector(::-webkit-scrollbar)'));
+		expect(decl(firefox!.body, 'scrollbar-width')).toBe('thin');
+		expect(decl(firefox!.body, 'scrollbar-color')).toBe('var(--w-line-strong) transparent');
+		// In webkit engines the inherited scrollbar-color is reset per element, so a legacy
+		// container cannot switch the scrollers inside it back to native bars.
+		const webkit = standard.find((r) => r.context.includes('@supports selector(::-webkit-scrollbar)'));
+		expect(decl(webkit!.body, 'scrollbar-color')).toBe('auto');
+		expect(decl(webkit!.body, 'scrollbar-width')).toBeUndefined();
+		for (const rule of standard) expect(rule.context.length).toBe(1);
 	});
 
 	test('base.css paints only with roles: no raw hex or rgb colours', () => {
@@ -201,6 +217,15 @@ describe('no leaking global form or modal rules', () => {
 		expect(formRules.length).toBeGreaterThan(0);
 		for (const rule of formRules) {
 			for (const selector of rule.selectors) expect(selector).toMatch(/^:where\(\.todo-container, \.todo-task-modal\)/);
+		}
+	});
+
+	test('the Settings frame caps its height in dvh at every desktop width', () => {
+		const [frame] = find(settingsShell, (r) => r.selectors.includes('.modal-content.wabi-settings-modal') && r.context.length === 0);
+		expect(frame.body).toMatch(/max-height:\s*min\(90dvh, 940px\)/);
+		// A later, lower-specificity media rule must not be the one that carries the dvh cap.
+		for (const rule of find(settingsShell, (r) => r.context.some((c) => c.includes('min-width: 769px')))) {
+			expect(decl(rule.body, 'max-height')).toBeUndefined();
 		}
 	});
 
@@ -260,6 +285,15 @@ describe('polish, motion and accessibility layers', () => {
 		for (const rule of rules(accessibility)) {
 			for (const selector of rule.selectors) {
 				if (selector.includes('data-ambient')) expect(selector).toContain(":not([data-char='contrast'])");
+			}
+		}
+	});
+
+	test('ambient frost never makes a dialog see-through', () => {
+		// Dialogs sit on a scrim; a translucent frame only lets the page read through the form.
+		for (const rule of rules(accessibility)) {
+			for (const selector of rule.selectors) {
+				expect(selector).not.toMatch(/\.(modal-content|incoming-call-modal|wabi-settings-modal)\b/);
 			}
 		}
 	});

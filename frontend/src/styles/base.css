@@ -107,10 +107,26 @@ a:hover {
 	outline-offset: 2px;
 }
 
-/* Scrollbars — thin, a strong hairline thumb on a transparent track. */
-* {
-	scrollbar-width: thin;
-	scrollbar-color: var(--w-line-strong) transparent;
+/* Scrollbars — thin, a strong hairline thumb on a transparent track.
+   Chromium 121+ ignores every ::-webkit-scrollbar rule on an element that has
+   scrollbar-width/-color set, and then draws native bars with stepper arrows.
+   So the standard properties are only for engines without the webkit
+   pseudo-elements (Firefox); Chromium, Safari and WebKitGTK (Tauri) use the
+   pill thumb below. */
+@supports not selector(::-webkit-scrollbar) {
+	* {
+		scrollbar-width: thin;
+		scrollbar-color: var(--w-line-strong) transparent;
+	}
+}
+
+/* scrollbar-color is inherited, so one container that sets it would pass it to
+   every scroller inside and switch them all back to native bars. Each element
+   resets it here at zero specificity; a rule on the scroller itself still wins. */
+@supports selector(::-webkit-scrollbar) {
+	* {
+		scrollbar-color: auto;
+	}
 }
 
 ::-webkit-scrollbar {
