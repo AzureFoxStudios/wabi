@@ -83,7 +83,8 @@
 	border-radius: 4px;
 }
 
-form {
+/* Only the planner's own modal forms (header + form), not every <form> in the app. */
+:where(.modal > .modal-header) + form {
 	padding: 1.5rem;
 }
 

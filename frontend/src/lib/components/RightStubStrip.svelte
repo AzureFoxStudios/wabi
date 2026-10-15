@@ -10,6 +10,7 @@
 		type WorkspacePanelManifest
 	} from '$lib/workspacePanels';
 	import { armPeekDismiss, cancelPeekDismiss, setPeekPointerInside } from '$lib/rightPeekGestures';
+	import { dockCanPin, openPanelFromRail, peekHeld } from '$lib/layoutStoreRightPanel';
 	import { portal } from '$lib/actions/portal';
 	import { railPeekKey, peekModifierHeld, peekKeyLabel, reorderIndexes } from '$lib/railPrefs';
 	import { panelActionIndex, positionPanelPopover } from '$lib/panelPopover';
@@ -114,7 +115,7 @@
 		}
 		// Holding the peek modifier while already resting on an item peeks it.
 		function handleModifierDown(event: KeyboardEvent) {
-			if (!hoveredId || contextMenu || drawerOpen || dragId) return;
+			if (!hoveredId || contextMenu || drawerOpen || dragId || panelCommitted()) return;
 			if (!['Shift', 'Alt', 'Control'].includes(event.key)) return;
 			if (!peekModifierHeld($railPeekKey, event)) return;
 			cancelPeekDismiss();
@@ -138,21 +139,26 @@
 		};
 	});
 
+	/** A pinned panel or a held peek is on screen: hover and focus must never swap it (§7.22). */
+	function panelCommitted(): boolean {
+		const mode = $layoutStore.rightPanelMode;
+		return mode === 'pinned' || (mode === 'peek' && $peekHeld);
+	}
+
 	function handleStubEnter(panelId: string, event: MouseEvent): void {
 		hoveredId = panelId;
 		cancelPeekDismiss();
-		if (dragId) return;
+		if (dragId || panelCommitted()) return;
 		// Hover alone never opens a panel (unless the preference is 'none'); the
-		// peek modifier does. An already-open peek follows the pointer between items.
-		const peeking = $layoutStore.rightPanelMode !== 'none';
-		if (peekModifierHeld($railPeekKey, event) || (peeking && $layoutStore.rightPanelMode === 'peek')) {
+		// peek modifier does. An already-open hover peek follows the pointer between items.
+		if (peekModifierHeld($railPeekKey, event) || $layoutStore.rightPanelMode === 'peek') {
 			layoutStore.peekPanel(panelId);
 		}
 	}
 
-	function handleStubFocus(panelId: string): void {
+	// Focus shows the tooltip only; Enter or Space (a click) opens the panel.
+	function handleStubFocus(): void {
 		cancelPeekDismiss();
-		layoutStore.peekPanel(panelId);
 	}
 
 	function handleStubLeave(): void {
@@ -166,8 +172,10 @@
 		armPeekDismiss();
 	}
 
+	// Pin beside the stage when the clamp leaves it 600px; otherwise toggle a held peek (§8.4).
 	function handleStubClick(panelId: string): void {
-		layoutStore.pinPanel(panelId);
+		cancelPeekDismiss();
+		openPanelFromRail(panelId);
 	}
 
 	function handleStubContextMenu(event: MouseEvent, panelId: string): void {
@@ -319,9 +327,23 @@
 		return $layoutStore.rightPanelMode !== 'none' && $layoutStore.activeRightTab === panelId;
 	}
 
+	// Pinned in flow beside the stage (the folder tab). A pin that cannot fit is shown as a peek.
 	function isPinned(panelId: string): boolean {
-		if ($layoutStore.rightPanelMode !== 'pinned') return false;
+		if ($layoutStore.rightPanelMode !== 'pinned' || !$dockCanPin) return false;
 		return $layoutStore.dockStack.length > 0 ? $layoutStore.dockStack.includes(panelId) : $layoutStore.pinnedPanelId === panelId;
+	}
+
+	/** The panel is open on purpose (pinned, or a held peek): the stub reads as pressed. */
+	function isOpen(panelId: string): boolean {
+		if (isPinned(panelId)) return true;
+		return isDisplayed(panelId) && panelCommitted();
+	}
+
+	function stubTip(panel: WorkspacePanelManifest): string {
+		const action = isOpen(panel.id)
+			? isPinned(panel.id) ? 'click to unpin' : 'click to close'
+			: $dockCanPin ? 'click to pin beside others' : 'click to open over the page';
+		return `${panel.label} · ${action} · ${peekHint}`;
 	}
 </script>
 
@@ -349,7 +371,7 @@
 					draggable="true"
 					onmouseenter={(event) => handleStubEnter(panel.id, event)}
 					onmouseleave={handleStubLeave}
-					onfocus={() => handleStubFocus(panel.id)}
+					onfocus={handleStubFocus}
 					onblur={handleStubBlur}
 					onclick={() => handleStubClick(panel.id)}
 					oncontextmenu={(event) => handleStubContextMenu(event, panel.id)}
@@ -357,9 +379,10 @@
 					ondragover={(event) => handleDragOver(event, index)}
 					ondrop={(event) => handleDrop(event, index)}
 					ondragend={endDrag}
+					data-panel-id={panel.id}
 					aria-label={panel.label}
-					aria-pressed={isPinned(panel.id)}
-					data-tip={`${panel.label} · ${isPinned(panel.id) ? 'click to unpin' : 'click to pin beside others'} · ${peekHint}`}
+					aria-pressed={isOpen(panel.id)}
+					data-tip={stubTip(panel)}
 				>
 					<span class="stub-icon"><WorkspacePanelIcon icon={panel.icon} /></span>
 					<span class="stub-label">{panel.shortLabel || panel.label}</span>

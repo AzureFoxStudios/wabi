@@ -1,0 +1,808 @@
+/* ==========================================================================
+   OVERLAY AND STATE KIT (design contract §7.13-§7.16, §4.5, §4.7)
+   Loaded through controls-kit.css. Surfaces, edges and shadows follow the plane table:
+   - overlays (popover, menu, sheet): --w-bg2 (Daylight --w-lift), --w-line-strong, --w-shadow;
+   - dialogs: --w-bg, --w-line-strong, --w-shadow, over a sibling --w-scrim;
+   - small floating tools (hover toolbar, selection bubble): the overlay surface with NO shadow;
+   - inverse (tooltip, toast): --w-text fill with --w-bg text; only the toast has a shadow.
+   Placement of anchored overlays (menus, popovers, tooltips, tools) belongs to the component
+   that portals them; the kit only places what the contract fixes (dialog, scrim, sheet, toasts).
+   Entrances are opacity plus a translate of at most 8px, using the individual `translate`
+   property so they compose with any positioning transform; reduced motion is handled
+   globally in motion.css.
+
+   Markup cheatsheet:
+     .w-pop > .w-pop__title (svg + text) · .w-pop__body · dl.w-pop__facts · .w-pop__foot (link)
+     .w-menu (role=menu) > .w-menu__kicker · .w-menu__item (svg, .w-menu__label, trailing
+       .w-menu__check | .w-menu__key | .w-menu__hint | .w-tag--mat) · hr / .w-menu__sep
+       Items: --danger (last), --seal (moderation glyph); highlight = :hover, :focus-visible,
+       [data-highlighted]; aria-disabled dims.
+     .w-tool > .w-ibtn · .w-tool__quick (emoji) · .w-tool__sep; --bubble (30px keys)
+     .w-tip (+ .w-tip__key)
+     .w-toast-region > .w-toast > svg + .w-toast__msg + button.w-toast__action
+     .w-notice (danger) --info --warn > svg + .w-notice__title + .w-notice__text + .w-notice__actions
+     .w-empty (--enso) > svg | .w-empty__enso · .w-empty__title · .w-empty__text · .w-empty__actions
+     .w-skel (bar) --disc · .w-skel-row > .w-skel--disc + .w-skel-stack > .w-skel
+     .w-loadline (role=progressbar)
+     .w-scrim + .w-dialog (--sm --md --lg --settings) > .w-dialog__head (.w-dialog__title,
+       .w-dialog__note, .w-dialog__close) · .w-dialog__body · .w-dialog__foot (--rule, .w-dialog__foot-start)
+     .w-scrim + .w-sheet > .w-sheet__grabber · .w-sheet__title · .w-sheet__body (.w-sheet__row)
+   ========================================================================== */
+
+@keyframes w-enter {
+	from {
+		opacity: 0;
+		translate: 0 4px;
+	}
+}
+@keyframes w-enter-up {
+	from {
+		opacity: 0;
+		translate: 0 8px;
+	}
+}
+@keyframes w-fade {
+	from {
+		opacity: 0;
+	}
+}
+
+/* ---------- 7.14 popover ---------- */
+.w-pop {
+	box-sizing: border-box;
+	max-width: min(400px, calc(100vw - 16px));
+	padding: 16px 18px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-lg);
+	background: var(--w-bg2);
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	animation: w-enter var(--w-dur-2) var(--w-ease);
+}
+.w-pop__title {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-subhead);
+}
+:where(.w-pop__title) > :where(svg) {
+	flex: none;
+	width: 16px;
+	height: 16px;
+}
+.w-pop__body {
+	margin: 8px 0 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+	text-wrap: pretty;
+}
+.w-pop__facts {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	gap: 6px 14px;
+	margin: 14px 0 0;
+	font: var(--w-t-small);
+}
+.w-pop__facts dt {
+	margin: 0;
+	color: var(--w-faint);
+}
+.w-pop__facts dd {
+	margin: 0;
+	color: var(--w-text);
+}
+.w-pop__foot {
+	margin: 14px 0 0;
+	padding-top: 12px;
+	border-top: var(--w-bw) solid var(--w-line);
+	font: var(--w-t-small);
+}
+.w-pop__foot a,
+.w-pop__foot .w-pop__link {
+	color: var(--w-accent);
+	font: var(--w-t-caption);
+}
+
+/* ---------- 7.4 menu ---------- */
+.w-menu {
+	box-sizing: border-box;
+	min-width: 220px;
+	max-width: min(320px, calc(100vw - 16px));
+	margin: 0;
+	padding: 6px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-lg);
+	background: var(--w-bg2);
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	list-style: none;
+	animation: w-enter var(--w-dur-2) var(--w-ease);
+}
+.w-menu__kicker {
+	display: block;
+	margin: 0;
+	padding: 8px 10px 4px;
+	color: var(--w-faint);
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+.w-menu__item,
+.w-menu :is([role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option']) {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 32px;
+	margin: 0;
+	padding: 0 10px;
+	border: 0;
+	border-radius: var(--radius-inner);
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	text-align: start;
+	text-decoration: none;
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+/* The 16px icon slot is reserved, so labels line up whether or not an item has a glyph. */
+.w-menu__item:not(:has(> svg:first-child, > .w-menu__icon)) {
+	padding-left: 36px;
+}
+:where(.w-menu__item, .w-menu [role^='menuitem']) > :where(svg, .w-menu__icon) {
+	flex: none;
+	width: 16px;
+	height: 16px;
+	color: var(--w-mute);
+}
+.w-menu__label {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.w-menu__check,
+.w-menu__key,
+.w-menu__hint,
+.w-menu__item > .w-tag--mat,
+.w-menu__item > .w-kbd {
+	flex: none;
+	margin-left: auto;
+}
+:where(.w-menu__item) > :where(svg.w-menu__check) {
+	color: var(--w-sig);
+}
+.w-menu__check {
+	color: var(--w-sig);
+}
+:is([role='menuitemradio'], [role='menuitemcheckbox']):not([aria-checked='true']) .w-menu__check {
+	visibility: hidden;
+}
+.w-menu__key {
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+}
+.w-menu__hint {
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+}
+.w-menu__item:hover,
+.w-menu__item[data-highlighted],
+.w-menu__item:focus-visible,
+.w-menu :is([role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option']):is(:hover, [data-highlighted], [aria-selected='true'], :focus-visible) {
+	background: var(--w-raise);
+	text-decoration: none;
+}
+.w-menu__item:is(:hover, [data-highlighted], :focus-visible) > :where(svg:first-child) {
+	color: var(--w-text);
+}
+/* Keyboard focus inside a menu is an inset ring on the highlighted row, never a second fill. */
+.w-menu__item:focus-visible,
+.w-menu [role^='menuitem']:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+.w-menu__item--danger,
+.w-menu__item--danger > :where(svg) {
+	color: var(--w-danger);
+}
+.w-menu__item--danger:is(:hover, [data-highlighted], :focus-visible) > :where(svg:first-child) {
+	color: var(--w-danger);
+}
+.w-menu__item--seal > :where(svg:first-child),
+.w-menu__item--seal:is(:hover, [data-highlighted], :focus-visible) > :where(svg:first-child) {
+	color: var(--w-seal);
+}
+.w-menu__item:is(:disabled, [aria-disabled='true']),
+.w-menu [role^='menuitem'][aria-disabled='true'] {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+.w-menu__item:is(:disabled, [aria-disabled='true']):hover {
+	background: transparent;
+}
+.w-menu hr,
+.w-menu [role='separator'],
+.w-menu__sep {
+	display: block;
+	height: var(--w-bw);
+	margin: 6px 4px;
+	padding: 0;
+	border: 0;
+	background: var(--w-line);
+}
+
+/* ---------- 7.15 small floating tools: hover toolbar, selection bubble ---------- */
+/* Same surface as an overlay, but flat: --w-line-strong edge and no blur shadow (D19). */
+.w-tool {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	box-sizing: border-box;
+	padding: 2px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: var(--w-bg2);
+	box-shadow: none;
+	color: var(--w-mute);
+}
+.w-tool .w-ibtn,
+.w-tool__quick {
+	width: 28px;
+	height: 28px;
+	border-radius: var(--radius-inner);
+}
+:where(.w-tool .w-ibtn) > :where(svg) {
+	width: 16px;
+	height: 16px;
+}
+/* Quick reaction keys show the emoji itself. */
+.w-tool__quick {
+	display: inline-grid;
+	place-items: center;
+	flex: none;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	font-size: calc(15px * var(--w-fs));
+	line-height: 1;
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+.w-tool__quick:hover {
+	background: var(--w-raise);
+}
+.w-tool__sep {
+	flex: none;
+	width: var(--w-bw);
+	height: 16px;
+	margin: 0 3px;
+	background: var(--w-line);
+}
+.w-tool--bubble .w-ibtn {
+	width: 30px;
+	height: 30px;
+}
+
+/* ---------- 7.14 tooltip (inverse) ---------- */
+.w-tip {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 8px;
+	box-sizing: border-box;
+	max-width: 280px;
+	padding: 5px 9px;
+	border-radius: var(--radius-inner);
+	background: var(--w-text);
+	color: var(--w-bg);
+	font: var(--w-t-caption);
+	pointer-events: none;
+	z-index: var(--z-tooltip, 1700);
+	animation: w-fade var(--w-dur-2) var(--w-ease);
+}
+.w-tip__key {
+	font: var(--w-t-micro);
+	opacity: 0.7;
+}
+
+/* ---------- 7.14 toast (inverse) ---------- */
+.w-toast-region {
+	position: fixed;
+	left: 0;
+	right: 0;
+	bottom: var(--w-toast-bottom, calc(var(--w-foot, 80px) + 16px));
+	z-index: var(--z-toast, 2000);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	padding: 0 16px;
+	pointer-events: none;
+}
+.w-toast-region > * {
+	pointer-events: auto;
+}
+.w-toast {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	box-sizing: border-box;
+	width: 360px;
+	max-width: 100%;
+	min-height: 48px;
+	padding: 7px 8px 7px 16px;
+	border-radius: var(--radius-lg);
+	background: var(--w-text);
+	box-shadow: var(--w-shadow);
+	color: var(--w-bg);
+	font: var(--w-t-ui);
+	animation: w-enter-up var(--w-dur-2) var(--w-ease);
+}
+:where(.w-toast) > :where(svg) {
+	flex: none;
+	width: 16px;
+	height: 16px;
+	color: color-mix(in srgb, var(--w-bg) 72%, var(--w-text));
+}
+.w-toast__msg {
+	flex: 1;
+	min-width: 0;
+}
+.w-toast__action {
+	flex: none;
+	height: 32px;
+	margin: 0;
+	padding: 0 10px;
+	border: var(--w-bw) solid color-mix(in srgb, var(--w-bg) 45%, var(--w-text));
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-bg);
+	font: var(--w-t-label);
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+.w-toast__action:hover {
+	background: color-mix(in srgb, var(--w-bg) 14%, var(--w-text));
+}
+.w-toast__action:focus-visible {
+	outline-color: var(--w-bg);
+}
+
+/* ---------- 7.16 notices: error (default), info, warning ---------- */
+/* Rendered where the action happened, inside the visible area. role=alert (error) or status. */
+.w-notice {
+	display: grid;
+	grid-template-columns: 16px minmax(0, 1fr) auto;
+	column-gap: 12px;
+	row-gap: 2px;
+	align-items: start;
+	box-sizing: border-box;
+	padding: 12px 12px 12px 14px;
+	border: var(--w-bw) solid color-mix(in srgb, var(--w-danger) 45%, transparent);
+	border-radius: var(--radius-md);
+	background: color-mix(in srgb, var(--w-danger) 8%, var(--w-bg));
+	color: var(--w-text);
+	font: var(--w-t-small);
+}
+:where(.w-notice) > :where(svg:first-child) {
+	grid-column: 1;
+	grid-row: 1 / span 2;
+	width: 16px;
+	height: 16px;
+	margin-top: 2px;
+	color: var(--w-danger);
+}
+.w-notice__title {
+	grid-column: 2;
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+.w-notice__text {
+	grid-column: 2;
+	margin: 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+	text-wrap: pretty;
+}
+.w-notice__actions,
+.w-notice > .w-btn {
+	grid-column: 3;
+	grid-row: 1 / span 2;
+	align-self: center;
+}
+.w-notice__actions {
+	display: flex;
+	gap: 8px;
+}
+/* A notice with no consequence line is one row: glyph and actions centre on the title. */
+.w-notice:not(:has(> .w-notice__text)) {
+	align-items: center;
+}
+.w-notice:not(:has(> .w-notice__text)) > :is(svg:first-child, .w-notice__actions, .w-btn) {
+	grid-row: 1;
+	margin-top: 0;
+}
+.w-notice--info,
+.w-notice--warn {
+	border-color: var(--w-line-strong);
+	background: transparent;
+}
+.w-notice--info > :where(svg:first-child) {
+	color: var(--w-info);
+}
+.w-notice--warn > :where(svg:first-child) {
+	color: var(--w-warn);
+}
+
+/* ---------- 7.16 empty states ---------- */
+/* Left-aligned in the content column; never a box inside a box. */
+.w-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	box-sizing: border-box;
+	max-width: 520px;
+	padding: 48px 0;
+	text-align: start;
+}
+:where(.w-empty) > :where(svg:first-child) {
+	width: 28px;
+	height: 28px;
+	margin-bottom: 14px;
+	color: var(--w-faint);
+}
+/* Top-level surfaces (no channels, no documents): the ensō in --w-deco, a third of the way down. */
+.w-empty--enso {
+	padding-top: clamp(48px, 16vh, 160px);
+}
+.w-empty__enso {
+	display: block;
+	flex: none;
+	width: 48px;
+	height: 48px;
+	margin-bottom: 20px;
+	background: var(--w-deco);
+	-webkit-mask: url('/wabi-logo-small.webp') center / contain no-repeat;
+	mask: url('/wabi-logo-small.webp') center / contain no-repeat;
+}
+.w-empty__title {
+	margin: 0;
+	color: var(--w-text);
+	font: 600 calc(20px * var(--w-fs)) / calc(26px * var(--w-fs)) var(--w-serif);
+	letter-spacing: 0.005em;
+	text-wrap: balance;
+}
+.w-empty__text {
+	max-width: 46ch;
+	margin: 8px 0 0;
+	color: var(--w-mute);
+	font: var(--w-t-ui);
+	text-wrap: pretty;
+}
+.w-empty__actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 20px;
+}
+
+/* ---------- 7.16 loading: skeletons and the load line ---------- */
+/* Static bars shaped like the real layout; never a spinner, never an empty message. */
+.w-skel {
+	display: block;
+	width: 100%;
+	height: 10px;
+	border-radius: var(--w-pill);
+	background: color-mix(in srgb, var(--w-text) 8%, transparent);
+}
+.w-skel--disc {
+	flex: none;
+	width: 36px;
+	height: 36px;
+	border-radius: var(--w-avr);
+}
+:root[data-char='contrast'] .w-skel {
+	background: color-mix(in srgb, var(--w-text) 18%, transparent);
+}
+.w-skel-row {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	column-gap: 14px;
+	align-items: center;
+	padding: 10px 0;
+}
+.w-skel-stack {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	min-width: 0;
+}
+
+/* A 2px indeterminate accent line under the masthead. Under reduced motion the animation
+   finishes at once and the 34% segment rests where its base style puts it. */
+.w-loadline {
+	position: relative;
+	display: block;
+	width: 100%;
+	height: 2px;
+	overflow: hidden;
+	pointer-events: none;
+}
+.w-loadline::before {
+	content: '';
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 22%;
+	width: 34%;
+	background: var(--w-accent);
+	animation: w-loadline 1.6s var(--w-ease) infinite;
+}
+@keyframes w-loadline {
+	from {
+		translate: -165% 0;
+	}
+	to {
+		translate: 230% 0;
+	}
+}
+
+/* ---------- 7.13 scrim, dialog, sheet ---------- */
+.w-scrim {
+	position: fixed;
+	inset: 0;
+	z-index: var(--z-modal, 1500);
+	background: var(--w-scrim);
+	animation: w-fade var(--w-dur-3) var(--w-ease);
+}
+
+.w-dialog {
+	--w-dialog-w: 560px;
+	--w-dialog-px: 44px;
+	position: fixed;
+	inset: 0;
+	z-index: var(--z-modal-surface, 1501);
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	width: min(var(--w-dialog-w), calc(100vw - 32px));
+	max-width: none;
+	height: fit-content;
+	max-height: calc(100dvh - 64px);
+	margin: auto;
+	padding: 0;
+	overflow: hidden;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-xl);
+	background: var(--w-bg);
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	animation: w-enter-up var(--w-dur-3) var(--w-ease);
+}
+/* Confirm-sized dialogs keep a narrower inset so a 440px frame still reads as a page. */
+.w-dialog--sm {
+	--w-dialog-w: 440px;
+	--w-dialog-px: 28px;
+}
+.w-dialog--md {
+	--w-dialog-w: 560px;
+}
+.w-dialog--lg {
+	--w-dialog-w: 760px;
+}
+.w-dialog--settings {
+	--w-dialog-w: 1040px;
+	height: min(808px, calc(100dvh - 64px));
+}
+/* A closed <dialog> stays hidden: author display rules otherwise beat the UA's display: none. */
+dialog.w-dialog:not([open]) {
+	display: none;
+}
+dialog.w-dialog::backdrop {
+	background: var(--w-scrim);
+}
+/* Header row: 64px, title and scope note on one baseline, the close button centred. */
+.w-dialog__head {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-content: center;
+	align-items: baseline;
+	column-gap: 14px;
+	flex: none;
+	box-sizing: border-box;
+	min-height: 64px;
+	padding: 8px 16px 8px var(--w-dialog-px);
+}
+.w-dialog__head--rule {
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.w-dialog__title {
+	grid-column: 1;
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-title);
+	letter-spacing: 0.005em;
+	text-wrap: balance;
+}
+.w-dialog__note {
+	grid-column: 2;
+	min-width: 0;
+	margin: 0;
+	overflow: hidden;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.w-dialog__close {
+	grid-column: 3;
+	align-self: center;
+}
+.w-dialog__body {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: auto;
+	padding: 0 var(--w-dialog-px) 28px;
+	color: var(--w-mute);
+	font: var(--w-t-ui);
+	overscroll-behavior: contain;
+}
+.w-dialog__head--rule + .w-dialog__body {
+	padding-top: 28px;
+}
+.w-dialog__body > p {
+	margin: 0;
+}
+.w-dialog__body > p + p {
+	margin-top: 12px;
+}
+.w-dialog__foot {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+	flex: none;
+	padding: 0 var(--w-dialog-px) 24px;
+}
+/* Only when the body scrolls. */
+.w-dialog__foot--rule {
+	padding-top: 16px;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.w-dialog__foot-start {
+	margin-right: auto;
+}
+
+/* Bottom sheet: phones and the phone shell up to 768px. */
+.w-sheet {
+	position: fixed;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: var(--z-modal-surface, 1501);
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 640px;
+	max-height: calc(100dvh - 48px);
+	margin: 0 auto;
+	padding: 0 0 env(safe-area-inset-bottom, 0px);
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-bottom: 0;
+	border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+	background: var(--w-bg2);
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	animation: w-enter-up var(--w-dur-3) var(--w-ease);
+}
+.w-sheet__grabber {
+	flex: none;
+	width: 36px;
+	height: 4px;
+	margin: 8px auto 4px;
+	border-radius: var(--w-pill);
+	background: var(--w-line-strong);
+}
+.w-sheet__title {
+	flex: none;
+	margin: 0;
+	padding: 8px 20px 10px;
+	color: var(--w-text);
+	font: 600 calc(20px * var(--w-fs)) / calc(26px * var(--w-fs)) var(--w-serif);
+}
+.w-sheet__body {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: auto;
+	padding: 0 8px 8px;
+	overscroll-behavior: contain;
+}
+/* A menu rendered inside a sheet loses its own frame and grows to 52px rows. */
+.w-sheet .w-menu {
+	min-width: 0;
+	max-width: none;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	box-shadow: none;
+	animation: none;
+}
+.w-sheet__row,
+.w-sheet .w-menu__item,
+.w-sheet .w-menu [role^='menuitem'] {
+	min-height: 52px;
+}
+.w-sheet__row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	box-sizing: border-box;
+	width: 100%;
+	margin: 0;
+	padding: 0 12px;
+	border: 0;
+	border-radius: var(--radius-inner);
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	text-align: start;
+	cursor: pointer;
+}
+.w-sheet__row:hover {
+	background: var(--w-raise);
+}
+
+/* Daylight: overlays and floating tools are objects lifted off the paper. */
+:root[data-mode='light'] :is(.w-pop, .w-menu, .w-tool, .w-sheet) {
+	background: var(--w-lift);
+}
+:root[data-mode='light'] .w-sheet .w-menu {
+	background: transparent;
+}
+
+/* High Contrast: highlighted rows carry a ring, not just a fill (§5.2). */
+:root[data-char='contrast'] .w-menu__item:is(:hover, [data-highlighted]),
+:root[data-char='contrast'] .w-menu [role^='menuitem']:is(:hover, [data-highlighted]),
+:root[data-char='contrast'] .w-sheet__row:hover,
+:root[data-char='contrast'] .w-tool__quick:hover {
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+
+@media (pointer: coarse) {
+	.w-menu__item,
+	.w-menu [role^='menuitem'] {
+		min-height: 44px;
+	}
+	.w-sheet__row,
+	.w-sheet .w-menu__item,
+	.w-sheet .w-menu [role^='menuitem'] {
+		min-height: 52px;
+	}
+}
+@media (max-width: 599px) {
+	.w-toast-region {
+		--w-toast-bottom: calc(58px + max(14px, env(safe-area-inset-bottom, 0px)) + 16px);
+	}
+	/* A dialog that is not a sheet keeps a phone-sized inset, and its scope note drops under the
+	   title instead of being cut off. */
+	.w-dialog {
+		--w-dialog-px: 20px;
+	}
+	.w-dialog__note {
+		grid-column: 1 / 3;
+		grid-row: 2;
+		white-space: normal;
+	}
+}

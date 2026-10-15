@@ -16,34 +16,9 @@
 	}
 
 
-	.markdown-content {
-		max-height: min(22rem, 55vh);
-		overflow-y: auto;
-		scrollbar-width: thin;
-		scrollbar-color: color-mix(in srgb, var(--accent-primary-color) 24%, var(--border-subtle) 76%) transparent;
-	}
-
-
-	.markdown-content::-webkit-scrollbar,
-	.translated-text::-webkit-scrollbar,
-	.role-gate-description::-webkit-scrollbar {
-		width: 8px;
-	}
-
-
-	.markdown-content::-webkit-scrollbar-track,
-	.translated-text::-webkit-scrollbar-track,
-	.role-gate-description::-webkit-scrollbar-track {
-		background: transparent;
-	}
-
-
-	.markdown-content::-webkit-scrollbar-thumb,
-	.translated-text::-webkit-scrollbar-thumb,
-	.role-gate-description::-webkit-scrollbar-thumb {
-		background: color-mix(in srgb, var(--accent-primary-color) 24%, var(--border-subtle) 76%);
-		border-radius: var(--radius-full);
-	}
+	/* A message body is never its own scroller (spec §7.18): no max-height, no overflow.
+	   Long posts are promoted to LongMessagePreview (message/MessageContent.svelte) instead.
+	   Scrollbars elsewhere come from the one rule in base.css. */
 
 
 	.markdown-content p {
@@ -139,15 +114,6 @@
 		vertical-align: middle;
 		margin: 0 0.1em;
 	}
-
-
-.message .markdown-content,
-.message .markdown-content p,
-html[data-message-density='cozy'] .message .markdown-content,
-html[data-message-density='cozy'] .message .markdown-content p {
-	line-height: 1.42 !important;
-	margin: 0 !important;
-}
 
 
 html[data-message-density='compact'] .message .markdown-content,
