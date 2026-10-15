@@ -735,3 +735,6 @@ Local [packaged acceptance](testing/PAYMENTS_ACCEPTANCE_2026-10-03.md) passes al
 12 instruction methods, eight exported QR decodes and ten real session/recovery
 checks, including the corrected server-switch bootstrap race. Actual bank/wallet
 settlement and Stripe/PayPal checkout remain unverified.
+
+## In-progress: Game Sync addon (feature branch 2026-10-15)
+An experimental `game-sync` addon (under `core/addons/game-sync/`) adds a right-dock activity panel for shared real-time Go games in chat channels. v1 scope: Go 9x9/13x13/19x19, two players per channel, server-validated moves, in-memory sessions (not retained across restarts). Not merged or shipped; ratings, chess, analysis tools, and persistence are deferred (see `docs/plans/2026-10-15-game-sync-panel.md`). Governed by `WABI_GAME_SYNC_ENABLED` (off by default) and the in-app switch.
