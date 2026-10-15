@@ -19,4 +19,5 @@ include!("socketio/channel_ops.rs");
 include!("socketio/message_ops.rs");
 include!("socketio/breakout_ops.rs");
 include!("socketio/whiteboard_ops.rs");
+include!("socketio/game_ops.rs");
 include!("socketio/wiring.rs");

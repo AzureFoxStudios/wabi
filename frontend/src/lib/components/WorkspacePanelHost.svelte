@@ -19,6 +19,7 @@
 	import TaskPanel from './business/TaskPanel.svelte';
 	import WikiChannel from './WikiChannel.svelte';
 	import ForumChannel from './ForumChannel.svelte';
+	import GameSyncPanel from '$lib/game-sync/GameSyncPanel.svelte';
 	import { channels, currentChannel } from '$lib/socket';
 
 	export let panel: WorkspacePanelManifest;
@@ -92,6 +93,8 @@
 			<div class="channel-picker-sub">No wiki channels on this server yet.</div>
 			</div>
 	{/if}
+{:else if panel.component === 'game-sync'}
+	<GameSyncPanel />
 {:else if panel.component === 'forum'}
 	{#if forumPanelChannelId}
 		<div class="right-panel-embedded">

@@ -79,6 +79,7 @@ const BUNDLED_FRONTEND_IDS = new Set([
 	'youtube-sync',
 	'spotify-sync',
 	'steam',
+	'game-sync',
 	'translator-assist'
 ]);
 
