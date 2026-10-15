@@ -28,6 +28,9 @@
    shows through instead of being hidden behind opaque panels. Opacity/blur
    come from --surface-frost-* (0.6 / 6px by default when ambient is on, 1 / 0
    off). The contrast character never gets frost: High Contrast stays solid.
+   Dialogs (.modal-content, .incoming-call-modal) are never frosted: they sit
+   on a scrim, so translucency would only show the page behind through the
+   form (spec §4.5: dialogs are --w-bg with a --w-line-strong edge).
 
    The fills read --surface-base-rgb / --surface-raised-rgb on purpose:
    lib/theme/panelColors.ts re-tints those per panel container, so a custom
@@ -42,8 +45,6 @@
 [data-ambient='true']:where(:not([data-char='contrast'])) .right-panel-content,
 [data-ambient='true']:where(:not([data-char='contrast'])) .chat-header,
 [data-ambient='true']:where(:not([data-char='contrast'])) .panel-header,
-[data-ambient='true']:where(:not([data-char='contrast'])) .modal-content,
-[data-ambient='true']:where(:not([data-char='contrast'])) .incoming-call-modal,
 [data-ambient='true']:where(:not([data-char='contrast'])) .call-shell .active-call-container {
 	/* The `background` shorthand (not background-color) also clears the component's own
 	   gradient layers, which would otherwise paint over the canvas. */

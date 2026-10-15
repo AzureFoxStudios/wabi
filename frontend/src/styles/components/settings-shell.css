@@ -27,6 +27,7 @@
 	width: min(1120px, 96vw);
 	max-width: 1120px;
 	max-height: min(90vh, 940px);
+	max-height: min(90dvh, 940px);
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
@@ -39,11 +40,11 @@
 	to { opacity: 1; transform: translateY(0); }
 }
 
-/* Keep navigation and the close target stationary as settings tabs change. */
+/* Keep navigation and the close target stationary as settings tabs change.
+   The max-height lives on the base rule; settings-mobile.css owns <=768px. */
 @media (min-width: 769px) {
-	.wabi-settings-modal {
+	.modal-content.wabi-settings-modal {
 		height: min(90dvh, 940px);
-		max-height: min(90dvh, 940px);
 	}
 }
 
