@@ -15,6 +15,7 @@ export interface GameSessionState {
   status: GameStatus;
   winner: number | null;
   reason: string;
+  score?: { black: number; white: number } | null;
   revision: number;
   ko: { x: number; y: number } | null;
   createdAt?: number;

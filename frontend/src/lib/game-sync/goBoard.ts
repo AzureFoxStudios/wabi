@@ -28,10 +28,6 @@ export function starPoints(size: number): { x: number; y: number }[] {
 function coords(list: number[][]): { x: number; y: number }[] {
   return list.map(([x, y]) => ({ x, y }));
 }
-export function territoryColor(board: (number | null)[], size: number, idx: number): number | null {
-  if (board[idx] !== null && board[idx] !== -1) return null;
-  return null; // placeholder: scoring is server-side; kept for display hooks
-}
 export function formatCoord(x: number, y: number): string {
   const letters = 'ABCDEFGHJKLMNOPQRSTUVWXYZ';
   return (letters[x] ?? '?') + (y + 1);
