@@ -95,6 +95,8 @@ export interface PluginWorkspacePanelDeclaration {
 export interface WorkspacePanelPluginRecord {
 	id?: string;
 	name?: string;
+	/** Server inventory flag: false hides this add-on's panels entirely. */
+	enabled?: boolean;
 	frontendExtensions?: {
 		workspacePanels?: PluginWorkspacePanelDeclaration[];
 		mobileTabs?: PluginWorkspacePanelDeclaration[];
@@ -358,27 +360,48 @@ export function canAccessWorkspacePanel(manifest: WorkspacePanelManifest, user: 
 	});
 }
 
+/**
+ * Bundled add-ons declare panel ids as plain strings (plugin schema
+ * `workspacePanels: string[]`), so the component mapping cannot travel in the
+ * server inventory. This table is the trusted frontend half: panel id ->
+ * bundled component. Add an entry here when a bundled add-on ships a panel.
+ */
+const BUNDLED_PANEL_COMPONENTS: Record<string, { component: WorkspacePanelComponentKey; label: string; icon: WorkspacePanelIcon; sortOrder?: number }> = {
+	'game-sync:play': { component: 'game-sync', label: 'Play', icon: 'activity', sortOrder: 310 }
+};
+
 export function coercePluginWorkspacePanels(plugin: WorkspacePanelPluginRecord): WorkspacePanelManifest[] {
 	const pluginId = String(plugin.id || '').trim();
 	if (!pluginId) return [];
-	const declarations = [
-		...(plugin.frontendExtensions?.workspacePanels || []),
-		...(plugin.workspacePanels || [])
+	const declarations: unknown[] = [
+		// The inventory mapper fills both fields with the same array; dedupe so
+		// a panel is not coerced (and registered) twice.
+		...new Set([
+			...(plugin.frontendExtensions?.workspacePanels || []),
+			...(plugin.workspacePanels || [])
+		])
 	];
 
 	return declarations
-		.map((declaration, index): WorkspacePanelManifest | null => {
+		.map((rawDeclaration, index): WorkspacePanelManifest | null => {
+			// The server inventory sends plain ids; bundled allowlisted add-ons
+			// are the only ones that resolve to a real component.
+			const declaration: PluginWorkspacePanelDeclaration =
+				typeof rawDeclaration === 'string'
+					? { id: rawDeclaration }
+					: (rawDeclaration as PluginWorkspacePanelDeclaration);
 			const rawId = declaration.id ? `${pluginId}:${declaration.id}` : `${pluginId}:panel`;
 			if (!isValidWorkspacePanelId(rawId)) return null;
-			const label = String(declaration.label || plugin.name || pluginId).trim();
+			const bundled = BUNDLED_PANEL_COMPONENTS[rawId];
+			const label = String(bundled?.label || declaration.label || plugin.name || pluginId).trim();
 			if (!label) return null;
-			const requestedComponent = String(declaration.component || '').trim() as WorkspacePanelComponentKey;
+			const requestedComponent = String(declaration.component || bundled?.component || '').trim() as WorkspacePanelComponentKey;
 			const component = KNOWN_COMPONENT_KEYS.has(requestedComponent) ? requestedComponent : 'addon-fallback';
 			return {
 				id: rawId,
 				label,
 				shortLabel: declaration.shortLabel,
-				icon: declaration.icon || 'box',
+				icon: declaration.icon || bundled?.icon || 'box',
 				component,
 				capabilities: declaration.capabilities || [],
 				defaultDock: declaration.defaultDock || declaration.preferredDockArea || 'right',
@@ -393,7 +416,7 @@ export function coercePluginWorkspacePanels(plugin: WorkspacePanelPluginRecord):
 					title: `${label} is not available in this build`,
 					message: `The add-on declared a workspace panel, but ${brandName} does not have a trusted frontend component for it yet.`
 				},
-				sortOrder: declaration.sortOrder ?? 300 + index
+				sortOrder: declaration.sortOrder ?? bundled?.sortOrder ?? 300 + index
 			};
 		})
 		.filter((panel): panel is WorkspacePanelManifest => Boolean(panel));
@@ -401,6 +424,9 @@ export function coercePluginWorkspacePanels(plugin: WorkspacePanelPluginRecord):
 
 export function registerPluginWorkspacePanels(plugins: WorkspacePanelPluginRecord[]): void {
 	for (const plugin of plugins) {
+		// Disabled add-ons must not surface panels; the inventory's `enabled`
+		// flag is the runtime truth (env override / in-app switch).
+		if (plugin.enabled === false) continue;
 		for (const panel of coercePluginWorkspacePanels(plugin)) {
 			registerWorkspacePanel(panel);
 		}

@@ -34,8 +34,18 @@ pub struct GameSession {
     pub status: GameStatus,
     pub winner: Option<usize>,
     pub reason: String,
+    /// Final counted score in points when the game ended by scoring
+    /// (two passes). `None` for resignations / unfinished games.
+    pub score: Option<GoScore>,
     pub revision: u64,
     pub created_at: u64,
+}
+
+/// Display-ready area score with komi already applied to white.
+#[derive(Clone, Copy, Debug)]
+struct GoScore {
+    black: f64,
+    white: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -171,6 +181,14 @@ pub fn score_go(board: &[i8], size: u8) -> (i64, i64) {
     (b, w)
 }
 
+/// Area scoring uses doubled counts (every point counted twice) so the half
+/// point from 6.5 komi stays exact: `white_with_komi = w + 13`.
+fn decide_winner(black_half: i64, white_half_with_komi: i64) -> (usize, &'static str) {
+    if black_half > white_half_with_komi { (0, "area") }
+    else if white_half_with_komi > black_half { (1, "area") }
+    else { (1, "tie-komi") }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -182,6 +200,15 @@ fn game_now_micros() -> u64 {
 
 fn game_error(socket: &SocketRef, msg: &str) {
     let _ = socket.emit("game:error", &serde_json::json!({"error": msg}));
+}
+
+/// Runtime gate: the add-on switch / env var must be on before any game socket
+/// event is served. Mirrors the REST-side gate used by the steam add-on.
+async fn game_sync_enabled(state: &SioState) -> bool {
+    state
+        .app
+        .addon_enabled("game-sync", Some("WABI_GAME_SYNC_ENABLED"), false)
+        .await
 }
 
 fn session_json(sess: &GameSession) -> serde_json::Value {
@@ -205,6 +232,7 @@ fn session_json(sess: &GameSession) -> serde_json::Value {
         "status": status_str,
         "winner": sess.winner,
         "reason": sess.reason,
+        "score": sess.score.map(|s| serde_json::json!({"black": s.black, "white": s.white})),
         "revision": sess.revision,
         "ko": ko,
         "createdAt": sess.created_at,
@@ -232,6 +260,7 @@ pub fn evict_channel_games(channel_id: &str) {
 pub async fn on_game_join(socket: SocketRef, data: serde_json::Value, state: SioState) {
     let channel_id = data.get("channelId").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
     if channel_id.is_empty() { game_error(&socket, "missing channelId"); return; }
+    if !game_sync_enabled(&state).await { game_error(&socket, "Game Sync is disabled on this server"); return; }
     let Some(_ident) = require_socket_channel(&socket, &state, &channel_id, "game:error").await else { return; };
     socket.join(format!("game:{}", channel_id));
     if let Some(room) = get_room(&channel_id) {
@@ -255,6 +284,7 @@ pub async fn on_game_leave(socket: SocketRef, data: serde_json::Value, _state: S
 pub async fn on_game_create(socket: SocketRef, data: serde_json::Value, state: SioState, io: socketioxide::SocketIo) {
     let channel_id = data.get("channelId").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
     if channel_id.is_empty() { game_error(&socket, "missing channelId"); return; }
+    if !game_sync_enabled(&state).await { game_error(&socket, "Game Sync is disabled on this server"); return; }
     let Some(ident) = require_socket_channel(&socket, &state, &channel_id, "game:error").await else { return; };
     let size: u8 = data.get("size").and_then(serde_json::Value::as_u64).unwrap_or(19) as u8;
     let size = match size { 9 | 13 | 19 => size, _ => 19 };
@@ -280,6 +310,7 @@ pub async fn on_game_create(socket: SocketRef, data: serde_json::Value, state: S
         status: GameStatus::Waiting,
         winner: None,
         reason: String::new(),
+        score: None,
         revision: 0,
         created_at: game_now_micros(),
     };
@@ -293,6 +324,7 @@ pub async fn on_game_create(socket: SocketRef, data: serde_json::Value, state: S
 pub async fn on_game_claim(socket: SocketRef, data: serde_json::Value, state: SioState, io: socketioxide::SocketIo) {
     let channel_id = data.get("channelId").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
     if channel_id.is_empty() { game_error(&socket, "missing channelId"); return; }
+    if !game_sync_enabled(&state).await { game_error(&socket, "Game Sync is disabled on this server"); return; }
     let Some(ident) = require_socket_channel(&socket, &state, &channel_id, "game:error").await else { return; };
     let mut g = match rooms().lock() { Ok(g)=>g, Err(_)=>{ game_error(&socket,"lock"); return; } };
     let room = match g.get_mut(&channel_id) { Some(r)=>r, None=>{ drop(g); game_error(&socket,"no game"); return; } };
@@ -313,14 +345,20 @@ pub async fn on_game_claim(socket: SocketRef, data: serde_json::Value, state: Si
 pub async fn on_game_move(socket: SocketRef, data: serde_json::Value, state: SioState, io: socketioxide::SocketIo) {
     let channel_id = data.get("channelId").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
     if channel_id.is_empty() { game_error(&socket, "missing channelId"); return; }
+    if !game_sync_enabled(&state).await { game_error(&socket, "Game Sync is disabled on this server"); return; }
     let Some(ident) = require_socket_channel(&socket, &state, &channel_id, "game:error").await else { return; };
-    let x = match data.get("x").and_then(serde_json::Value::as_u64) { Some(v)=>v as u8, None=>{ game_error(&socket,"missing x"); return; } };
-    let y = match data.get("y").and_then(serde_json::Value::as_u64) { Some(v)=>v as u8, None=>{ game_error(&socket,"missing y"); return; } };
+    // Parse as u64; validate against the board size before casting to u8 so
+    // oversized values cannot wrap around into a legal coordinate.
+    let x_raw = match data.get("x").and_then(serde_json::Value::as_u64) { Some(v)=>v, None=>{ game_error(&socket,"missing x"); return; } };
+    let y_raw = match data.get("y").and_then(serde_json::Value::as_u64) { Some(v)=>v, None=>{ game_error(&socket,"missing y"); return; } };
 
     let mut g = match rooms().lock() { Ok(g)=>g, Err(_)=>{ game_error(&socket,"lock"); return; } };
     let room = match g.get_mut(&channel_id) { Some(r)=>r, None=>{ drop(g); game_error(&socket,"no game"); return; } };
     let sess = match room.session.as_mut() { Some(s)=>s, None=>{ drop(g); game_error(&socket,"no game"); return; } };
     if sess.status != GameStatus::Active { drop(g); game_error(&socket, "game not active"); return; }
+    if x_raw >= sess.size as u64 || y_raw >= sess.size as u64 { drop(g); game_error(&socket, "out of bounds"); return; }
+    let x = x_raw as u8;
+    let y = y_raw as u8;
     let seat = if sess.seats[0] == Some(ident.user_id) { 0usize }
         else if sess.seats[1] == Some(ident.user_id) { 1usize }
         else { drop(g); game_error(&socket, "not a player"); return; };
@@ -343,6 +381,7 @@ pub async fn on_game_move(socket: SocketRef, data: serde_json::Value, state: Sio
 pub async fn on_game_pass(socket: SocketRef, data: serde_json::Value, state: SioState, io: socketioxide::SocketIo) {
     let channel_id = data.get("channelId").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
     if channel_id.is_empty() { game_error(&socket, "missing channelId"); return; }
+    if !game_sync_enabled(&state).await { game_error(&socket, "Game Sync is disabled on this server"); return; }
     let Some(ident) = require_socket_channel(&socket, &state, &channel_id, "game:error").await else { return; };
     let mut g = match rooms().lock() { Ok(g)=>g, Err(_)=>{ game_error(&socket,"lock"); return; } };
     let room = match g.get_mut(&channel_id) { Some(r)=>r, None=>{ drop(g); game_error(&socket,"no game"); return; } };
@@ -355,13 +394,19 @@ pub async fn on_game_pass(socket: SocketRef, data: serde_json::Value, state: Sio
     sess.moves.push(GoMove { x: 0, y: 0, pass: true });
     sess.consecutive_passes += 1;
     sess.to_play = 1 - sess.to_play;
+    // A pass lifts the ko ban (it only binds the immediately following move).
+    sess.ko = None;
     if sess.consecutive_passes >= 2 {
         sess.status = GameStatus::Finished;
         let (b, w) = score_go(&sess.board, sess.size);
-        let wscore = w + 13;
-        if b > wscore { sess.winner = Some(0); sess.reason = "area".into(); }
-        else if wscore > b { sess.winner = Some(1); sess.reason = "area".into(); }
-        else { sess.winner = Some(1); sess.reason = "tie-komi".into(); }
+        let white_with_komi = w + 13; // doubled counts; 13 = 2 x komi 6.5
+        let (winner, reason) = decide_winner(b, white_with_komi);
+        sess.winner = Some(winner);
+        sess.reason = reason.into();
+        sess.score = Some(GoScore {
+            black: b as f64 / 2.0,
+            white: w as f64 / 2.0 + 6.5,
+        });
     }
     sess.revision += 1;
     let sess_clone = sess.clone();
@@ -372,6 +417,7 @@ pub async fn on_game_pass(socket: SocketRef, data: serde_json::Value, state: Sio
 pub async fn on_game_resign(socket: SocketRef, data: serde_json::Value, state: SioState, io: socketioxide::SocketIo) {
     let channel_id = data.get("channelId").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
     if channel_id.is_empty() { game_error(&socket, "missing channelId"); return; }
+    if !game_sync_enabled(&state).await { game_error(&socket, "Game Sync is disabled on this server"); return; }
     let Some(ident) = require_socket_channel(&socket, &state, &channel_id, "game:error").await else { return; };
     let mut g = match rooms().lock() { Ok(g)=>g, Err(_)=>{ game_error(&socket,"lock"); return; } };
     let room = match g.get_mut(&channel_id) { Some(r)=>r, None=>{ drop(g); game_error(&socket,"no game"); return; } };
@@ -447,5 +493,16 @@ mod game_ops_tests {
         let (bs, ws) = score_go(&b, 3);
         assert!(bs > 0);
         assert_eq!(ws, 0);
+    }
+
+    #[test]
+    fn komi_decides_half_point_games() {
+        // Doubled counts: black 8 pts -> 16 halves; white 1 pt + 6.5 komi -> 15.
+        assert_eq!(decide_winner(16, 15), (0, "area"));
+        // Black 7 pts -> 14 halves; white 1 pt + 6.5 komi -> 15: white by half.
+        assert_eq!(decide_winner(14, 15), (1, "area"));
+        // Exact equality is unreachable with half-point komi but must stay
+        // white-favoured, matching half-point komi semantics.
+        assert_eq!(decide_winner(20, 20), (1, "tie-komi"));
     }
 }

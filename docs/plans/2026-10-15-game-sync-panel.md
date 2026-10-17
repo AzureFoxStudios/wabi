@@ -61,8 +61,25 @@ Frontend (`$lib/game-sync/`):
 
 ## Verification
 - `cargo build -p wabi-server` passes.
-- `cargo test -p wabi-server --lib game_ops_tests` — 8/8 pass.
-- Frontend typecheck (`bun run check`) pending: local node_modules/.bin symlinks
-  are broken in this checkout; check to be run from a healthy frontend toolchain.
+- `cargo test -p wabi-server --lib game_ops_tests` — all pass, including
+  `komi_decides_half_point_games` (half-point komi both directions).
+- `bun run check` — 0 errors. (The checkout's `frontend/node_modules` was a
+  self-referencing symlink tracked on `main` since `ccf04aea`; it is untracked
+  on this branch and the ignore rule hardened, which is what the toolchain
+  repair requires.)
+- `bun test src/lib/game-sync` — 4/4 pass (`goBoard.test.ts`).
 - Visual/runtime acceptance by the operator in a real browser/Tauri window
-  (headless Chromium is known broken on this host).
+  (headless Chromium is known broken on this host): enable `game-sync` via
+  `WABI_GAME_SYNC_ENABLED=true` or Server Center → Add-ons, then check the
+  right-dock board at narrow widths, stone/last-move/ko markers, pass/resign,
+  the scored finish display, and that the panel is absent while disabled.
+
+### Review-round fixes (2026-10-17, commit on `feature/game-sync-panel`)
+- Server: every socket event gated behind the add-on switch; move coordinates
+  bounds-checked before the u8 cast; pass lifts the ko ban; scored finishes
+  serialize `score` {black, white} with komi applied so the panel can show it.
+- Frontend: string panel declarations normalize to `${pluginId}:${id}` and
+  bundled add-ons resolve via `BUNDLED_PANEL_COMPONENTS` (panel id is
+  `game-sync:play`); disabled add-ons no longer register panels; channel
+  selection survives chat switches once chosen manually; New-game button after
+  a finished game.
