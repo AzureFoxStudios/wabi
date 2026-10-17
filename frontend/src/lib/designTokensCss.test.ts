@@ -267,4 +267,18 @@ describe('legacy bridge (§11)', () => {
 		expect(bridge.get('--shadow-focus-ring')).toBe('0 0 0 3px var(--w-accent-soft)');
 		expect(bridge.get('--font-family-sans')).toBe('var(--w-sans)');
 	});
+
+	test('--w-on-accent only ever labels an accent fill', () => {
+		// It is chosen against --w-accent, so on the page or a tinted band (the pinned bar is 18%
+		// warning over the page) it can be white on pale amber. Text there is --w-text.
+		const onAccent = [...bridge].filter(([, value]) => value.includes('--w-on-accent')).map(([name]) => name);
+		expect(onAccent).toEqual(['--text-on-accent']);
+		expect(bridge.get('--pinned-text-dark')).toBe('var(--w-text)');
+	});
+
+	test('the dead indigo-era triplets are gone instead of bridged', () => {
+		expect(tokens).not.toMatch(/--color-(background|text|border|accent|status)-[\w-]*rgb\s*:/);
+		expect(tokens).not.toContain('129, 140, 248');
+		expect(tokens).not.toContain('99, 102, 241');
+	});
 });
