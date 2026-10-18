@@ -3,6 +3,7 @@ import { get } from 'svelte/store';
 import { THEMES } from './themes';
 import { applyRoles, contrastRatio, deriveRoles, hueGap, identityInk, isLightTheme, toOklch } from './roles';
 import { identityFor, identityStyle, identityTheme, inkFor } from './identity';
+import { themeStore } from './themeStore';
 
 /** The showcase people (fixtures): pastels picked on a dark theme, the hard case for Daylight. */
 const SHOWCASE: Record<string, string> = {
@@ -113,9 +114,17 @@ describe('identity ink (spec §5.5)', () => {
 		expect(contrastRatio(light.disc, bg2Light)).toBeLessThan(contrastRatio(light.disc, '#ff0000'));
 	});
 
+	test('short hex and rgb() colors are inked like their #rrggbb form', () => {
+		for (const theme of [THEMES.light, THEMES.dark, THEMES['high-contrast']]) {
+			expect(identityInk('#f0a', theme)).toEqual(identityInk('#ff00aa', theme));
+			expect(identityInk('rgb(152, 216, 200)', theme)).toEqual(identityInk('#98d8c8', theme));
+		}
+	});
+
 	test('unreadable colors yield nothing, and results are memoized per theme and color', () => {
 		expect(identityInk('var(--status-offline)', THEMES.light)).toBeNull();
 		expect(identityInk('', THEMES.light)).toBeNull();
+		expect(identityInk(0xff00aa as unknown as string, THEMES.light)).toBeNull();
 		expect(identityInk('#98D8C8', THEMES.light)).toBe(identityInk(' #98d8c8', THEMES.light));
 		expect(identityInk('#98d8c8', THEMES.light)).not.toBe(identityInk('#98d8c8', THEMES.dark));
 		// A recolored custom theme under the same id gets fresh ink, not the cached one.
@@ -126,9 +135,13 @@ describe('identity ink (spec §5.5)', () => {
 });
 
 describe('identity store', () => {
-	const realDocument = (globalThis as { document?: unknown }).document;
+	const scope = globalThis as { document?: unknown };
+	const hadDocument = 'document' in scope;
+	const realDocument = scope.document;
 	afterEach(() => {
-		(globalThis as { document?: unknown }).document = realDocument;
+		// Leave the global exactly as found: under bun there is no document, so remove the stand-in.
+		if (hadDocument) scope.document = realDocument;
+		else delete scope.document;
 	});
 
 	test('identityStyle emits scoped --ink, --disc and --on, or nothing', () => {
@@ -150,6 +163,31 @@ describe('identity store', () => {
 		expect(get(identityTheme).id).toBe('high-contrast');
 		expect(get(inkFor)('#98d8c8')).toBe(identityStyle('#98d8c8', THEMES['high-contrast']));
 		expect(get(inkFor)(null)).toBe('');
+	});
+
+	test('identity ink only re-derives when the ink would change', () => {
+		const root = { style: { setProperty: () => {} }, setAttribute: () => {} };
+		(globalThis as { document?: unknown }).document = { documentElement: root };
+		applyRoles(THEMES.light, root as unknown as HTMLElement);
+		const seen: string[] = [];
+		let inkRuns = 0;
+		const stopTheme = identityTheme.subscribe((theme) => seen.push(theme.id));
+		const stopInk = inkFor.subscribe(() => inkRuns++);
+		expect(seen).toEqual(['light']);
+		expect(inkRuns).toBe(1);
+		// A fresh copy of the same theme (how a custom theme arrives on every preference change) and a preference
+		// change that does not touch colors: the ink is the same, so no name on screen should re-run.
+		applyRoles({ ...THEMES.light, colors: { ...THEMES.light.colors } }, root as unknown as HTMLElement);
+		themeStore.setLoading(true);
+		themeStore.setLoading(false);
+		expect(seen).toEqual(['light']);
+		expect(inkRuns).toBe(1);
+		// A real change does re-derive, once.
+		applyRoles(THEMES.dark, root as unknown as HTMLElement);
+		expect(seen).toEqual(['light', 'dark']);
+		expect(inkRuns).toBe(2);
+		stopInk();
+		stopTheme();
 	});
 
 	test('a preview root does not move identity ink off the document theme', () => {

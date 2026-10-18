@@ -144,6 +144,41 @@ describe('seal, lift and status marks (spec §5.4)', () => {
 		expect(toHex(deriveRoles(grey)['--w-seal'])).toBe(SEAL_CANDIDATES[0].toLowerCase()); // a grey seal carries no hue
 	});
 
+	test('custom accents keep the seal apart after the final contrast nudge', () => {
+		// Mixing toward the text color moves the hue, and High Contrast mixes furthest (to 4.5:1). This pair
+		// once ended at 29.6°: its own seal stood apart at 3:1 and drifted under the gap at 4.5:1.
+		const hc = THEMES['high-contrast'];
+		const drifted: Theme = { ...hc, colors: { ...hc.colors, accentHex: '#5a064f', accentSecondaryHex: '#21103f' } };
+		const roles = deriveRoles(drifted);
+		expect(hueGap(roles['--w-seal'], roles['--w-accent'])).toBeGreaterThanOrEqual(SEAL_MIN_GAP);
+		expect(contrastRatio(roles['--w-seal'], roles['--w-bg'])).toBeGreaterThanOrEqual(4.5);
+
+		// Reproducible random accent pairs (mulberry32) on four bases, light, dark and contrast.
+		let a = 0x5ea1 >>> 0;
+		const next = () => {
+			a = (a + 0x6d2b79f5) >>> 0;
+			let t = a;
+			t = Math.imul(t ^ (t >>> 15), t | 1);
+			t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+			return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+		};
+		const hex = () => '#' + Math.floor(next() * 0x1000000).toString(16).padStart(6, '0');
+		for (const base of [THEMES['wabi-ink'], THEMES.light, THEMES.dark, hc]) {
+			for (let i = 0; i < 100; i++) {
+				const custom: Theme = { ...base, id: 'custom', colors: { ...base.colors, accentHex: hex(), accentSecondaryHex: hex() } };
+				const r = deriveRoles(custom);
+				const seal = r['--w-seal'];
+				const accent = r['--w-accent'];
+				const accentIsGrey = toOklch(accent)[1] < 0.03;
+				if (!accentIsGrey && hueGap(seal, accent) < SEAL_MIN_GAP) {
+					throw new Error(`${base.id} ${custom.colors.accentHex}/${custom.colors.accentSecondaryHex}: seal ${seal} is ${hueGap(seal, accent).toFixed(1)}° from ${accent}`);
+				}
+				const min = characterFor(custom) === 'contrast' ? 4.5 : 3;
+				for (const surface of surfacesOf(r)) expect(contrastRatio(seal, surface)).toBeGreaterThanOrEqual(min);
+			}
+		}
+	});
+
 	test('lift is the quiet panel in dark modes and a paper step above the page in light', () => {
 		for (const theme of themes) {
 			const roles = deriveRoles(theme);

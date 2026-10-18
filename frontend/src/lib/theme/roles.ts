@@ -196,12 +196,26 @@ function sealStandsApart(seal: string, accent: string): boolean {
 	return hueGap(seal, accent) >= SEAL_MIN_GAP;
 }
 
-/** Seal color for a theme: its own seal when that stands apart from the accent, else the first candidate that does. */
+/**
+ * Seal color for a theme: its own seal when that stands apart from the accent, else the first candidate that does.
+ * The gap is checked again after the final contrast nudge, because mixing toward the text color moves the hue and
+ * drains chroma (High Contrast nudges further, to 4.5:1). If no option survives, the one that ends furthest from
+ * the accent is used.
+ */
 function pickSeal(themeSeal: string, accent: string, surfaces: string[], text: string, min: number): string {
-	const own = ensureContrastOnAll(themeSeal, surfaces, text, 3);
-	if (sealStandsApart(own, accent)) return ensureContrastOnAll(own, surfaces, text, min);
-	const candidate = SEAL_CANDIDATES.find((c) => sealStandsApart(c, accent)) ?? SEAL_CANDIDATES[0];
-	return ensureContrastOnAll(candidate, surfaces, text, min);
+	const greyAccent = toOklch(accent)[1] < ACHROMATIC;
+	let fallback = '';
+	let fallbackGap = -Infinity;
+	for (const option of [ensureContrastOnAll(themeSeal, surfaces, text, 3), ...SEAL_CANDIDATES]) {
+		const seal = ensureContrastOnAll(option, surfaces, text, min);
+		if (sealStandsApart(option, accent) && sealStandsApart(seal, accent)) return seal;
+		const gap = toOklch(seal)[1] < ACHROMATIC ? -1 : greyAccent ? 180 : hueGap(seal, accent);
+		if (gap > fallbackGap) {
+			fallback = seal;
+			fallbackGap = gap;
+		}
+	}
+	return fallback;
 }
 
 /** The quiet panel (sidebar, companion, overlays): halfway between the page and the raised surface. */
@@ -293,12 +307,19 @@ function computeIdentityInk(source: string, theme: Theme): IdentityInk {
 	return { ink, disc, initial };
 }
 
+/** Everything identity ink depends on in a theme. Two themes with the same key give every color the same ink. */
+export function identityThemeKey(theme: Theme): string {
+	const c = theme.colors;
+	return [theme.id, characterFor(theme), c.bgSecondary, c.bgTertiary, c.textPrimary].join('|');
+}
+
 /** Memo per theme (keyed by everything the ink depends on, so a recolored custom theme gets fresh ink) and color. */
 const identityMemo = new Map<string, Map<string, IdentityInk | null>>();
 
 export function identityInk(color: string, theme: Theme): IdentityInk | null {
-	const c = theme.colors;
-	const themeKey = [theme.id, characterFor(theme), c.bgSecondary, c.bgTertiary, c.textPrimary].join('|');
+	// Colors arrive from profiles and roles over the wire; anything that is not a string is unreadable, not an error.
+	if (typeof color !== 'string') return null;
+	const themeKey = identityThemeKey(theme);
 	let byColor = identityMemo.get(themeKey);
 	if (!byColor) {
 		if (identityMemo.size >= 24) identityMemo.clear();
