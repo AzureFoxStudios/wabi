@@ -252,11 +252,21 @@ describe('ui primitives keep their ARIA contract', () => {
 		expect(html(LoadLine, { active: false })).not.toContain('w-loadline');
 	});
 
-	test('Tooltip: a hidden role=tooltip node until it opens', async () => {
+	test('Tooltip: its markup is only the wrapper; the bubble is built in script, never a moved template node', () => {
+		// A portaled template node can be the last node of the component's DOM range; unmounting
+		// it inside {#each}, {#key} or mount() then removed every later sibling. The bubble is now
+		// created in an effect, so the compiled templates hold no tooltip and nothing is portaled.
+		const source = readFileSync(new URL('./Tooltip.svelte', import.meta.url), 'utf8');
+		const client = compile(source, { generate: 'client', filename: 'Tooltip.svelte' }).js.code;
+		const templates = [...client.matchAll(/from_html\(`([^`]*)`/g)].map((match) => match[1]);
+		expect(templates).toHaveLength(1);
+		expect(templates[0]).toMatch(/^<span class="w-tip-anchor[^"]*"><!><\/span>$/);
+		expect(client).not.toMatch(/\bportal\b/);
+		expect(client).not.toContain('role="tooltip"');
+	});
+
+	test('Tooltip: renders nothing of its own on the server (the bubble needs a document)', async () => {
 		const Tooltip = await load('Tooltip.svelte');
-		const out = html(Tooltip, { text: 'Search messages', shortcut: 'Ctrl K' });
-		expect(out).toMatch(/<div[^>]*id="w-tip-[^"]+"[^>]*role="tooltip"[^>]*hidden/);
-		expect(out).toContain('Search messages');
-		expect(out).toMatch(/class="w-tip__key[^"]*">Ctrl K</);
+		expect(html(Tooltip, { text: 'Search messages', shortcut: 'Ctrl K' }).trim()).toBe('');
 	});
 });

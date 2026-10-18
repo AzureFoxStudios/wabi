@@ -114,9 +114,6 @@
 	.w-skeleton--member .w-skel-stack {
 		gap: 6px;
 	}
-	.w-skeleton--member .w-skel-stack > :last-child {
-		height: 8px;
-	}
 
 	/* List rows: 32px, 20px glyph column, gap 10 (§4.3). */
 	.w-skeleton--row .w-skel-row {
