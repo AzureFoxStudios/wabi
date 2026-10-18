@@ -30,12 +30,29 @@
 	overflow-wrap: break-word;
 	text-wrap: pretty;
 }
+/* Block rhythm: direct children only. Nothing below that can match a direct-child paragraph
+   may zero its top margin with a heavier selector (that is how p + p collapsed to 0). */
 .w-prose > * {
 	margin-top: 0;
 	margin-bottom: 0;
 }
 .w-prose > * + * {
 	margin-top: 18px;
+}
+/* Paragraphs nested in list items, quotes and cells drop the global p margins (base.css, plus
+   the UA's 1em). The `*` step means this never matches a direct child, so it cannot outweigh the
+   rhythm above; the quote rule below still spaces its own paragraphs. */
+.w-prose * :where(p) {
+	margin-top: 0;
+	margin-bottom: 0;
+}
+.w-prose li > p + p {
+	margin-top: 6px;
+}
+/* Paragraphs read on the reading line: the global `p` line height (1.5) beats inheritance and
+   would set 17/25.5 here, 21/31.5 in quotes (§4.1: line heights are integer pixels). */
+.w-prose :where(p) {
+	line-height: inherit;
 }
 /* Empty blocks left by the editor or the renderer take no space. */
 .w-prose :is(p, h1, h2, h3, h4, h5, h6, li, blockquote):empty {
@@ -79,11 +96,10 @@
 	letter-spacing: 0.12em;
 	text-transform: uppercase;
 }
+/* A heading sits close to what it introduces (about 16px between line boxes in the documents
+   mockup), further from what came before it (the heading rules above). */
 .w-prose > :is(h1, h2, h3, h4, h5, h6) + * {
-	margin-top: 12px;
-}
-.w-prose p {
-	margin: 0;
+	margin-top: 16px;
 }
 .w-prose strong,
 .w-prose b {
@@ -198,11 +214,11 @@
 	font-size: inherit;
 }
 
-/* Tables: hairlines only. */
+/* Tables: hairlines only. The table keeps display: table (display: block drops the table role in
+   WebKit, so screen readers stop announcing rows and columns); long cell content wraps anywhere
+   so the table fits the measure instead of scrolling. */
 .w-prose table {
-	display: block;
 	max-width: 100%;
-	overflow-x: auto;
 	border-collapse: collapse;
 	font: var(--w-t-ui);
 }
@@ -211,6 +227,7 @@
 	border-bottom: var(--w-bw) solid var(--w-line);
 	text-align: start;
 	vertical-align: top;
+	overflow-wrap: anywhere;
 }
 .w-prose th {
 	color: var(--w-text);
@@ -419,5 +436,32 @@
 @keyframes w-typing {
 	50% {
 		opacity: 0.2;
+	}
+}
+
+/* ---------- touch: outline entries reach 44px (§10) ---------- */
+@media (pointer: coarse) {
+	.w-outline :is(a, button) {
+		padding-top: 13px;
+		padding-bottom: 13px;
+	}
+	.w-outline :is(a, button):is([aria-current='location'], [aria-current='true'], [aria-current='step'])::before {
+		top: 14px;
+		bottom: 14px;
+	}
+}
+
+/* ---------- forced colors: marks drawn as backgrounds take system colors ---------- */
+@media (forced-colors: active) {
+	.w-outline :is(a, button):is([aria-current='location'], [aria-current='true'], [aria-current='step'])::before,
+	.w-newrule::before {
+		background: Highlight;
+	}
+	.w-dayrule::before,
+	.w-dayrule::after {
+		background: GrayText;
+	}
+	.w-typing__dots > * {
+		background: CanvasText;
 	}
 }

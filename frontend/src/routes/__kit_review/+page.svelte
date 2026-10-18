@@ -308,7 +308,7 @@
 					<dl class="w-pop__facts">
 						<dt>Room</dt><dd>#general · Common Ground</dd>
 						<dt>Kept</dt><dd>Until someone deletes them</dd>
-						<dt>Encryption</dt><dd>Only for DMs and groups</dd>
+						<dt>Encryption</dt><dd>Experimental, DMs and groups only</dd>
 					</dl>
 					<p class="w-pop__foot"><a href="/privacy">How privacy works in Wabi</a></p>
 				</div>
@@ -468,13 +468,22 @@
 		<article class="w-prose" id="kit-prose" aria-label="Prose specimen">
 			<h2>The places</h2>
 			<p>Eight stories, a fold-out map, and one page left blank on purpose. We are keeping it small enough to finish together, and honest enough to feel like ours. <a href="#kit-prose">Read the brief</a>.</p>
+			<p>Each page is one place and the person who loves it. Keep it to a few hundred words; the map ties the pages together.</p>
 			<p></p>
 			<ol>
 				<li><strong>The bench with the afternoon sun</strong> — Amara</li>
 				<li><strong>The bakery that remembers your order</strong> — Leo</li>
 			</ol>
 			<blockquote><p>Not the best places. Our places.</p></blockquote>
+			<table>
+				<thead><tr><th scope="col">Page</th><th scope="col">Writer</th><th scope="col">Words</th></tr></thead>
+				<tbody>
+					<tr><td>The bench</td><td>Amara</td><td>380</td></tr>
+					<tr><td>The bakery</td><td>Leo</td><td>412</td></tr>
+				</tbody>
+			</table>
 			<h3>Before Monday</h3>
+			<p>Two things to bring to the call:</p>
 			<ul>
 				<li>Draft one page each in <code>field-guide.md</code></li>
 				<li>Bring one photo of the place</li>
@@ -730,6 +739,7 @@
 		position: relative;
 		inset: auto;
 		z-index: auto;
+		width: min(var(--w-dialog-w), 100%);
 		margin: 0;
 	}
 	.kit-reading {

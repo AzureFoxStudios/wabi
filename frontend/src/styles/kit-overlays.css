@@ -660,8 +660,10 @@ dialog.w-dialog::backdrop {
 .w-dialog__head--rule + .w-dialog__body {
 	padding-top: 28px;
 }
+/* The body's --w-t-ui line, not the global p line height (1.5 would set 14/21). */
 .w-dialog__body > p {
 	margin: 0;
+	line-height: inherit;
 }
 .w-dialog__body > p + p {
 	margin-top: 12px;
@@ -772,11 +774,21 @@ dialog.w-dialog::backdrop {
 	background: transparent;
 }
 
-/* High Contrast: highlighted rows carry a ring, not just a fill (§5.2). */
-:root[data-char='contrast'] .w-menu__item:is(:hover, [data-highlighted]),
-:root[data-char='contrast'] .w-menu [role^='menuitem']:is(:hover, [data-highlighted]),
+/* High Contrast (§5.2): pointer hover is an inset ring instead of the fill; the keyboard
+   highlight and the selected option keep the fill and add the ring. An item that is both
+   hovered and highlighted takes the second rule (same weight, later). */
+:root[data-char='contrast'] .w-menu__item:hover,
+:root[data-char='contrast'] .w-menu [role^='menuitem']:hover,
+:root[data-char='contrast'] .w-menu [role='option']:hover,
 :root[data-char='contrast'] .w-sheet__row:hover,
 :root[data-char='contrast'] .w-tool__quick:hover {
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+:root[data-char='contrast'] .w-menu__item:is([data-highlighted], :focus-visible),
+:root[data-char='contrast'] .w-menu [role^='menuitem']:is([data-highlighted], :focus-visible),
+:root[data-char='contrast'] .w-menu [role='option']:is([data-highlighted], [aria-selected='true'], :focus-visible) {
+	background: var(--w-raise);
 	box-shadow: inset 0 0 0 1px var(--w-line-strong);
 }
 
@@ -789,6 +801,46 @@ dialog.w-dialog::backdrop {
 	.w-sheet .w-menu__item,
 	.w-sheet .w-menu [role^='menuitem'] {
 		min-height: 52px;
+	}
+	/* The toast keeps its 32px action; an invisible 44px hit area fits inside the toast's padding. */
+	.w-toast__action {
+		position: relative;
+	}
+	.w-toast__action::before {
+		content: '';
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		width: max(100%, 44px);
+		height: 44px;
+		translate: -50% -50%;
+	}
+}
+
+/* Forced colors: highlights, the load line and skeletons are backgrounds, which the UA repaints;
+   restate them in system colors so they stay visible (§10). */
+@media (forced-colors: active) {
+	.w-menu__item:is(:hover, [data-highlighted], :focus-visible),
+	.w-menu :is([role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option']):is(:hover, [data-highlighted], [aria-selected='true'], :focus-visible),
+	.w-sheet__row:hover {
+		/* Opt out, or the UA's Canvas text backplate hides the HighlightText label. */
+		forced-color-adjust: none;
+		background: Highlight;
+		color: HighlightText;
+	}
+	/* Glyphs, hints, keys and tags inside the highlighted row follow it onto Highlight (the
+	   opt-out above is inherited, so their theme colors would otherwise show). */
+	.w-menu__item:is(:hover, [data-highlighted], :focus-visible) > :where(*),
+	.w-menu :is([role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option']):is(:hover, [data-highlighted], [aria-selected='true'], :focus-visible) > :where(*),
+	.w-sheet__row:hover > :where(*) {
+		border-color: HighlightText;
+		color: HighlightText;
+	}
+	.w-loadline::before {
+		background: Highlight;
+	}
+	.w-skel {
+		background: GrayText;
 	}
 }
 @media (max-width: 599px) {

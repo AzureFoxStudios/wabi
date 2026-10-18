@@ -978,61 +978,114 @@ details[open] > summary.w-disclosure > svg:first-child {
 	border-top: var(--w-bw) solid var(--w-line);
 }
 
-/* ---------- legacy: boxed definition row and section titles ----------
-   Kept so the remaining callers render until they move to .w-srow (wave 2 deletes these). */
-.w-row {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 16px;
-	padding: 12px 14px;
-	border: var(--w-bw) solid var(--w-line);
-	border-radius: var(--radius-lg);
-	background: var(--w-bg2);
-}
-.w-row + .w-row {
-	margin-top: 8px;
-}
-.w-row__label {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	color: var(--w-text);
-	font: var(--w-t-label);
-}
-.w-row__hint {
-	margin-top: 2px;
-	color: var(--w-mute);
-	font: var(--w-t-small);
-}
-/* Seal glyph before the label instead of the old inset bar (no left bars, §5.2). */
-.w-row--seal .w-row__label > :where(svg) {
-	flex: none;
-	width: 14px;
-	height: 14px;
-	color: var(--w-seal);
-}
-.w-title {
-	margin: 0 0 6px;
-	color: var(--w-text);
-	font: var(--w-t-title);
-	letter-spacing: 0.005em;
-}
-.w-subtitle {
-	margin: 0 0 14px;
-	color: var(--w-mute);
-	font: var(--w-t-mono);
-}
+/* The boxed legacy .w-row / .w-title / .w-subtitle block had no callers left and is gone:
+   settings rows are .w-srow, and spec §7.11 gives the name .w-row to the 32px channel row. */
 
-/* ---------- High Contrast: hover and selection are rings, not fills (§5.2) ---------- */
-:root[data-char='contrast'] .w-btn--quiet:where(:not(:disabled, [aria-disabled='true'])):hover,
-:root[data-char='contrast'] .w-ibtn:where(:not(:disabled, [aria-disabled='true'])):hover,
-:root[data-char='contrast'] .w-ibtn[aria-pressed='true'],
-:root[data-char='contrast'] .w-ibtn[aria-expanded='true'] {
+/* ---------- High Contrast: hover is a ring instead of a fill; selection keeps its fill and adds
+   the ring (§5.2). --w-line equals --w-line-strong here, so controls that already wear an edge
+   get a second, inner ring on hover. ---------- */
+:root[data-char='contrast'] .w-btn:where(:not(.w-btn--primary, .w-btn--danger, :disabled, [aria-disabled='true'])):hover {
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+:root[data-char='contrast'] .w-btn--quiet:where(:not(:disabled, [aria-disabled='true'])):hover {
 	border-color: var(--w-line-strong);
+}
+:root[data-char='contrast'] .w-ibtn:where(:not(:disabled, [aria-disabled='true'])):hover {
+	border-color: var(--w-line-strong);
+	background: transparent;
+}
+:root[data-char='contrast'] .w-ibtn:is([aria-pressed='true'], [aria-expanded='true']) {
+	border-color: var(--w-line-strong);
+	background: var(--w-raise);
+}
+:root[data-char='contrast'] .w-select:where(:not(:disabled, [aria-disabled='true'])):hover,
+:root[data-char='contrast'] .w-select[aria-expanded='true'],
+:root[data-char='contrast'] .w-react:hover {
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
 }
 :root[data-char='contrast'] .w-seg > :hover:not([aria-pressed='true'], [aria-checked='true'], [aria-selected='true'], [aria-current='page']) {
 	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+
+/* ---------- forced colors (Windows High Contrast): the UA drops box-shadows and gradients and
+   repaints backgrounds, so every state drawn that way is restated in system colors (§10).
+   System colors are kept as written; nothing else in the kit may use them. ---------- */
+@media (forced-colors: active) {
+	.w-check,
+	:where(.w-prose li) > input[type='checkbox'],
+	.w-radio,
+	.w-switch {
+		border-color: CanvasText;
+		background: Canvas;
+	}
+	.w-check::before,
+	:where(.w-prose li) > input[type='checkbox']::before {
+		background: HighlightText;
+	}
+	.w-check:is(:checked, :indeterminate, [aria-checked='true'], [aria-checked='mixed']),
+	:where(.w-prose li) > input[type='checkbox']:checked,
+	.w-switch[aria-checked='true'] {
+		border-color: Highlight;
+		background: Highlight;
+	}
+	.w-radio:is(:checked, [aria-checked='true']) {
+		border-color: Highlight;
+	}
+	.w-radio::before {
+		background: Highlight;
+	}
+	.w-switch::after {
+		background: CanvasText;
+	}
+	.w-switch[aria-checked='true']::after {
+		background: HighlightText;
+	}
+	/* The selected key and pressed toggles read as the system selection. The :root selectors
+	   match the Daylight paper-key and High Contrast pressed rules' weight, so neither can win
+	   back the background. */
+	.w-seg > :is([aria-pressed='true'], [aria-checked='true'], [aria-selected='true'], [aria-current='page']),
+	:root[data-mode] .w-seg > :is([aria-pressed='true'], [aria-checked='true'], [aria-selected='true'], [aria-current='page']),
+	.w-ibtn:is([aria-pressed='true'], [aria-expanded='true']),
+	:root[data-char] .w-ibtn:is([aria-pressed='true'], [aria-expanded='true']) {
+		/* Opt out, or the UA's Canvas text backplate hides the HighlightText label. */
+		forced-color-adjust: none;
+		background: Highlight;
+		color: HighlightText;
+	}
+	.w-select:is(.w-select--applied, [data-applied='true']),
+	.w-react[aria-pressed='true'] {
+		border-color: Highlight;
+	}
+	/* The range keeps its drawn track and thumb: opt out of forced colors and paint them in
+	   system colors, so the filled part and the thumb stay visible. */
+	:root input[type='range'].w-range,
+	:root .settings-content input[type='range'],
+	:root .volume-slider {
+		forced-color-adjust: none;
+	}
+	:root input[type='range'].w-range::-webkit-slider-runnable-track,
+	:root .settings-content input[type='range']::-webkit-slider-runnable-track {
+		background: linear-gradient(to right, Highlight var(--w-range-fill, 0%), CanvasText var(--w-range-fill, 0%));
+	}
+	:root input[type='range'].w-range::-moz-range-track,
+	:root .settings-content input[type='range']::-moz-range-track {
+		background: CanvasText;
+	}
+	:root input[type='range'].w-range::-moz-range-progress,
+	:root .settings-content input[type='range']::-moz-range-progress {
+		background: Highlight;
+	}
+	:root input[type='range'].w-range::-webkit-slider-thumb,
+	:root .settings-content input[type='range']::-webkit-slider-thumb {
+		background: Highlight;
+		box-shadow: 0 0 0 2px Canvas;
+	}
+	:root input[type='range'].w-range::-moz-range-thumb,
+	:root .settings-content input[type='range']::-moz-range-thumb {
+		background: Highlight;
+		box-shadow: 0 0 0 2px Canvas;
+	}
 }
 
 /* ---------- touch: every target reaches 44px (§10) ---------- */
@@ -1055,12 +1108,30 @@ details[open] > summary.w-disclosure > svg:first-child {
 		height: 44px;
 	}
 	.w-seg > :is(button, a, [role='radio'], [role='tab']) {
-		height: 40px;
+		height: 44px;
 	}
 	.w-choice {
 		min-height: 44px;
 	}
 	.w-disclosure {
 		height: 44px;
+	}
+	:root input[type='range'].w-range {
+		height: 44px;
+	}
+	/* Small drawn controls keep their drawing; an invisible 44px hit area is centred on them.
+	   (A settings-row label is a <p>, so on phones the switch itself is the only target.) */
+	.w-react {
+		position: relative;
+	}
+	.w-switch::before,
+	.w-react::before {
+		content: '';
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		width: max(100%, 44px);
+		height: 44px;
+		translate: -50% -50%;
 	}
 }
