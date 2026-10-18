@@ -1,139 +1,682 @@
-/* Control primitive kit — one button shape, one switch, one segmented control, one definition
-   row, one focus ring, one destructive pattern. New UI uses these classes directly; legacy
-   surfaces are mapped onto them in stage-skin.css / settings-skin.css so the whole app speaks
-   one language. Everything reads --w-* roles, so every theme restyles it. */
+/* The overlay/state kit and the prose kit load with the controls (spec §7, §11). @import must come
+   before every rule, so their rules land ahead of the controls below; nothing in them depends on
+   winning a tie against a control class. */
+@import './kit-overlays.css';
+@import './kit-prose.css';
 
-:root { --w-ring: 0 0 0 3px var(--w-accent-soft); }
+/* ==========================================================================
+   CONTROL KIT (design contract §7.1-§7.9, §7.25)
+   One button, one icon button, one field, one select trigger, one segmented control, one switch,
+   one checkbox/radio, one range, and the small marks (tags, maturity tag, role word, seal chip,
+   badge, count, reaction), plus the settings row and disclosure. Every surface composes these
+   instead of drawing its own chrome.
 
-/* ---------- buttons ---------- */
+   Rules for this file:
+   - colors are --w-* roles or color-mix() of roles only; type is a --w-t-* token or
+     calc(Npx * var(--w-fs)); corners are --radius-* / --w-pill / --w-avr; edges are --w-bw;
+   - sans weights are 400/500/700 only (labels 500), serif 400/600, mono 400/500;
+   - hover changes color or fill, never size or position; transitions name their properties;
+   - glyph sizes are set with :where() so a component can still size its own icon.
+
+   Markup cheatsheet (the specimen page /__kit_review renders every class):
+     <button class="w-btn">            default · --primary · --quiet · --danger · --sm · --lg
+     <span class="w-split">            two primary halves: .w-btn + .w-btn.w-split__menu (32×32)
+     <span class="w-btn__swap">        busy label swap: <span>Join</span><span>Joining…</span>
+     <button class="w-ibtn" aria-label> --sm · --edge (hairline) · --dot (applied-filter dot)
+     <input class="w-field">           38px form field; --chrome is the 32px search field.
+     <label class="w-field">           wrapper form: <svg/> <input/> <kbd class="w-kbd"/>
+     .w-label · .w-field-foot > .w-field-error + .w-field-count
+     <button class="w-select">         .w-select__label + .w-select__value + chevron; --applied
+     <div class="w-seg" role="radiogroup"> buttons with aria-checked / aria-pressed; --vertical
+     <button class="w-switch" role="switch" aria-checked>
+     <input type="checkbox" class="w-check"> / <input type="radio" class="w-radio">, in a .w-choice label
+     <input type="range" class="w-range" style="--w-range-fill: 64%">
+     .w-tag (+ .w-dot) · .w-tag--mat · .w-role · .w-seal · .w-badge (--sm, --ring) · .w-count
+     <button class="w-react" aria-pressed> .w-react__emoji + count
+     .w-srows > .w-srow > .w-srow__text (.w-srow__label + .w-srow__hint) + control; .w-srow--seal
+     <button class="w-disclosure" aria-expanded> + .w-disclosure__body
+     .w-kicker · .w-kbd · .w-dot (--warn --ok --info --danger --online --off)
+   ========================================================================== */
+
+:root {
+	--w-ring: 0 0 0 3px var(--w-accent-soft);
+}
+
+/* ---------- small shared marks ---------- */
+
+/* Section kicker: CHANNELS, CONTENTS, IN STUDIO LOUNGE (§4.1). */
+.w-kicker {
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--w-faint);
+}
+
+/* Keycap: only in tooltips, menus, the palette, search fields and the shortcuts sheet (D13). */
+.w-kbd {
+	display: inline-flex;
+	align-items: center;
+	flex: none;
+	padding: 1px 5px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+	white-space: nowrap;
+}
+
+/* Status mark: a 7px dot that always sits next to a word (§5.3). */
+.w-dot {
+	display: inline-block;
+	flex: none;
+	width: 7px;
+	height: 7px;
+	border-radius: var(--w-avr);
+	background: currentColor;
+}
+.w-dot--warn { background: var(--w-warn); }
+.w-dot--ok { background: var(--w-ok); }
+.w-dot--info { background: var(--w-info); }
+.w-dot--danger { background: var(--w-danger); }
+.w-dot--online { background: var(--w-online); }
+.w-dot--accent { background: var(--w-accent); }
+.w-dot--off {
+	background: transparent;
+	box-shadow: inset 0 0 0 1.5px var(--w-faint);
+}
+
+/* digital strings: ids, hosts, versions, counts */
+.w-mono {
+	font-family: var(--w-mono);
+	font-feature-settings: 'tnum';
+}
+
+/* ---------- 7.1 button ---------- */
 .w-btn {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
 	gap: 8px;
-	min-height: 36px;
-	padding: 7px 14px;
-	border: var(--w-bw, 1px) solid var(--w-line-strong);
-	border-radius: calc(10px * var(--w-rs, 1));
+	flex: none;
+	box-sizing: border-box;
+	height: 32px;
+	min-width: 0;
+	margin: 0;
+	padding: 0 12px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
 	background: transparent;
 	color: var(--w-text);
-	font: 600 calc(13.5px * var(--w-fs, 1))/1.2 var(--w-sans);
+	font: var(--w-t-label);
+	letter-spacing: 0;
+	white-space: nowrap;
+	text-decoration: none;
 	cursor: pointer;
-	transition: background 0.12s, border-color 0.12s, color 0.12s;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		border-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
 }
-.w-btn:hover { background: var(--w-raise); border-color: var(--w-accent); }
-.w-btn:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
-.w-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.w-btn--primary { background: var(--w-text); color: var(--w-bg); border-color: transparent; }
-.w-btn--primary:hover { background: color-mix(in srgb, var(--w-text) 88%, var(--w-accent)); border-color: transparent; }
-.w-btn--quiet { border-color: transparent; color: var(--w-mute); }
-.w-btn--quiet:hover { color: var(--w-text); border-color: transparent; }
-/* destructive: outlined in danger, fills only on hover */
-.w-btn--danger { border-color: color-mix(in srgb, var(--w-danger) 60%, transparent); color: var(--w-danger); }
-.w-btn--danger:hover { background: var(--w-danger); color: var(--w-bg); border-color: var(--w-danger); }
+:where(.w-btn) > :where(svg) {
+	flex: none;
+	width: 16px;
+	height: 16px;
+}
+.w-btn:where(:not(:disabled, [aria-disabled='true'])):hover {
+	background: var(--w-raise);
+	color: var(--w-text);
+	text-decoration: none;
+}
+.w-btn:disabled,
+.w-btn[aria-disabled='true'] {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+.w-btn[aria-busy='true'] {
+	cursor: progress;
+}
 
-/* ---------- field ---------- */
-.w-field {
-	width: 100%;
+/* Primary: ink on paper. One per view; an accent fill is never "primary" (§2.4). */
+.w-btn--primary {
+	border-color: var(--w-text);
+	background: var(--w-text);
+	color: var(--w-bg);
+}
+.w-btn--primary:where(:not(:disabled, [aria-disabled='true'])):hover {
+	border-color: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+	background: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+	color: var(--w-bg);
+}
+
+/* Quiet: no edge until hovered. Cancel, toolbar verbs, "Sign out". */
+.w-btn--quiet {
+	border-color: transparent;
+	color: var(--w-mute);
+}
+.w-btn--quiet:where(:not(:disabled, [aria-disabled='true'])):hover {
+	color: var(--w-text);
+}
+
+/* Danger: outlined until hover; always last in a group. */
+.w-btn--danger {
+	border-color: color-mix(in srgb, var(--w-danger) 55%, transparent);
+	color: var(--w-danger);
+}
+.w-btn--danger:where(:not(:disabled, [aria-disabled='true'])):hover {
+	border-color: var(--w-danger);
+	background: var(--w-danger);
+	color: var(--w-on-danger, var(--w-bg));
+}
+
+.w-btn--sm {
+	height: 28px;
+	padding: 0 10px;
+	gap: 6px;
+	font: var(--w-t-caption);
+}
+:where(.w-btn--sm) > :where(svg) {
+	width: 14px;
+	height: 14px;
+}
+.w-btn--lg {
+	height: 40px;
+	padding: 0 16px;
+}
+
+/* Split button ("New task ▾"): two primary halves with a --w-bw gap that shows the page. */
+.w-split {
+	display: inline-flex;
+	flex: none;
+	gap: var(--w-bw);
+}
+.w-split > .w-btn:first-child {
+	border-start-end-radius: 0;
+	border-end-end-radius: 0;
+}
+.w-split > .w-btn:last-child {
+	border-start-start-radius: 0;
+	border-end-start-radius: 0;
+}
+.w-split > .w-split__menu {
+	width: 32px;
+	padding: 0;
+}
+
+/* Busy: the label becomes the verb in progress; both labels share one grid cell so the width
+   never changes. <button class="w-btn" aria-busy={busy}><span class="w-btn__swap">
+   <span>Join</span><span>Joining…</span></span></button> */
+.w-btn__swap {
+	display: inline-grid;
+}
+.w-btn__swap > * {
+	grid-area: 1 / 1;
+	text-align: center;
+}
+.w-btn__swap > :last-child,
+.w-btn[aria-busy='true'] .w-btn__swap > :first-child {
+	visibility: hidden;
+}
+.w-btn[aria-busy='true'] .w-btn__swap > :last-child {
+	visibility: visible;
+}
+
+/* ---------- 7.2 icon button ---------- */
+.w-ibtn {
+	position: relative;
+	display: inline-grid;
+	place-items: center;
+	flex: none;
 	box-sizing: border-box;
-	min-height: 38px;
-	padding: 8px 12px;
-	border: var(--w-bw, 1px) solid var(--w-line-strong);
-	border-radius: calc(10px * var(--w-rs, 1));
+	width: 32px;
+	height: 32px;
+	margin: 0;
+	padding: 0;
+	border: var(--w-bw) solid transparent;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-label);
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		border-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
+}
+:where(.w-ibtn) > :where(svg) {
+	width: 18px;
+	height: 18px;
+}
+.w-ibtn:where(:not(:disabled, [aria-disabled='true'])):hover,
+.w-ibtn[aria-pressed='true'],
+.w-ibtn[aria-expanded='true'] {
+	background: var(--w-raise);
+	color: var(--w-text);
+}
+.w-ibtn:disabled,
+.w-ibtn[aria-disabled='true'] {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+.w-ibtn--sm {
+	width: 28px;
+	height: 28px;
+}
+:where(.w-ibtn--sm) > :where(svg) {
+	width: 16px;
+	height: 16px;
+}
+/* Hairline edge: the companion's filter button, the composer's empty send key. */
+.w-ibtn--edge {
+	border-color: var(--w-line);
+}
+/* Applied filter: a 6px accent dot on the button's top-right. */
+.w-ibtn--dot::after {
+	content: '';
+	position: absolute;
+	top: 5px;
+	right: 5px;
+	width: 6px;
+	height: 6px;
+	border-radius: var(--w-avr);
+	background: var(--w-accent);
+	box-shadow: 0 0 0 2px var(--w-ibtn-ring, var(--w-bg2));
+}
+
+/* ---------- 7.3 field ---------- */
+/* Works on the control itself (<input class="w-field">) and as a wrapper around a leading glyph,
+   the input and an optional keycap (<label class="w-field"><svg/><input/><kbd/></label>). */
+.w-field {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	height: 38px;
+	margin: 0;
+	padding: 0 10px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
 	background: var(--w-sink);
 	color: var(--w-text);
-	font: 400 calc(14.5px * var(--w-fs, 1))/1.4 var(--w-sans);
+	font: var(--w-t-ui);
+	letter-spacing: 0;
+	transition:
+		border-color var(--w-dur-1) var(--w-ease),
+		box-shadow var(--w-dur-1) var(--w-ease);
 }
-.w-field::placeholder { color: var(--w-faint); }
-.w-field:focus { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
+:where(.w-field) > :where(svg) {
+	flex: none;
+	width: 16px;
+	height: 16px;
+	color: var(--w-faint);
+}
+.w-field > :is(input, textarea, select) {
+	flex: 1;
+	align-self: stretch;
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--w-text);
+	font: inherit;
+	outline: none;
+}
+.w-field::placeholder,
+.w-field ::placeholder {
+	color: var(--w-faint);
+	opacity: 1;
+}
+/* Fields show focus as an accent edge plus the soft ring, not the outline (§4.6). */
+.w-field:focus-within {
+	border-color: var(--w-accent);
+	box-shadow: var(--w-ring);
+	outline: none;
+}
+.w-field:focus-visible,
+.w-field :focus-visible {
+	outline: none;
+}
+.w-field:disabled,
+.w-field:has(> :disabled) {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+textarea.w-field {
+	display: block;
+	height: auto;
+	min-height: 76px;
+	padding: 8px 10px;
+	resize: vertical;
+}
+/* Chrome field (search in a masthead or panel): 32px on a hairline. */
+.w-field--chrome {
+	height: 32px;
+	border-color: var(--w-line);
+}
+/* Daylight's hairline is too faint to find a field at rest. :where() keeps this at the base
+   rule's weight, so the focus and error edges below still win. */
+:where(:root[data-mode='light']) .w-field--chrome {
+	border-color: color-mix(in srgb, var(--w-text) 16%, transparent);
+}
+.w-field--chrome:focus-within {
+	border-color: var(--w-accent);
+}
+.w-field[aria-invalid='true'],
+.w-field:has(> [aria-invalid='true']),
+.w-field--error {
+	border-color: var(--w-danger);
+}
+@media (forced-colors: active) {
+	.w-field:focus-within {
+		outline: 2px solid CanvasText;
+		outline-offset: 1px;
+	}
+}
 
-/* ---------- switch (button[role=switch][aria-checked]) ---------- */
+/* Label above a form field, and the line under it: an error on the left, a counter on the right. */
+.w-label {
+	display: block;
+	margin: 0 0 6px;
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+.w-field-foot {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+	min-height: 16px;
+	margin-top: 6px;
+}
+.w-field-error {
+	display: inline-flex;
+	align-items: flex-start;
+	gap: 6px;
+	color: var(--w-danger);
+	font: 400 calc(12px * var(--w-fs)) / calc(16px * var(--w-fs)) var(--w-sans);
+}
+:where(.w-field-error) > :where(svg) {
+	flex: none;
+	width: 14px;
+	height: 14px;
+	margin-top: 1px;
+}
+.w-field-hint {
+	color: var(--w-faint);
+	font: 400 calc(12px * var(--w-fs)) / calc(16px * var(--w-fs)) var(--w-sans);
+}
+.w-field-count {
+	margin-left: auto;
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+/* ---------- 7.4 select trigger (the menu is .w-menu in kit-overlays.css) ---------- */
+.w-select {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	flex: none;
+	box-sizing: border-box;
+	max-width: 100%;
+	height: 32px;
+	margin: 0;
+	padding: 0 8px 0 12px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: var(--w-lift);
+	box-shadow: var(--w-shadow-1);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	white-space: nowrap;
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		border-color var(--w-dur-1) var(--w-ease);
+}
+:where(.w-select) > :where(svg) {
+	flex: none;
+	width: 16px;
+	height: 16px;
+	color: var(--w-mute);
+}
+.w-select__label {
+	color: var(--w-mute);
+}
+.w-select__value {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.w-select:where(:not(:disabled, [aria-disabled='true'])):hover,
+.w-select[aria-expanded='true'] {
+	border-color: var(--w-line-strong);
+}
+.w-select:disabled,
+.w-select[aria-disabled='true'] {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+/* Applied filter: the select says "this narrows what you see". */
+.w-select--applied,
+.w-select[data-applied='true'] {
+	border-color: color-mix(in srgb, var(--w-accent) 45%, transparent);
+	background: var(--w-accent-soft);
+}
+.w-select--applied:where(:not(:disabled)):hover,
+.w-select[data-applied='true']:where(:not(:disabled)):hover {
+	border-color: var(--w-accent);
+}
+
+/* ---------- 7.5 segmented control ---------- */
+/* The selected key is paper laid on the track: --w-bg (Daylight: --w-lift), ink label, a
+   line-strong ring. Never an accent fill (§5.2). */
+.w-seg {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	flex: none;
+	box-sizing: border-box;
+	padding: 2px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: calc(var(--radius-md) + 2px);
+	background: var(--w-bg2);
+}
+.w-seg > :is(button, a, [role='radio'], [role='tab']) {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	box-sizing: border-box;
+	height: 26px;
+	margin: 0;
+	padding: 0 12px;
+	border: 0;
+	border-radius: var(--radius-inner);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-label-sm);
+	white-space: nowrap;
+	text-decoration: none;
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		box-shadow var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
+}
+.w-seg > :hover {
+	color: var(--w-text);
+	text-decoration: none;
+}
+.w-seg > :is([aria-pressed='true'], [aria-checked='true'], [aria-selected='true'], [aria-current='page']) {
+	background: var(--w-bg);
+	color: var(--w-text);
+	box-shadow: 0 0 0 var(--w-bw) var(--w-line-strong), var(--w-shadow-1);
+}
+:root[data-mode='light'] .w-seg > :is([aria-pressed='true'], [aria-checked='true'], [aria-selected='true'], [aria-current='page']) {
+	background: var(--w-lift);
+}
+.w-seg > :focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+.w-seg > :disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+:where(.w-seg) > * > :where(svg) {
+	width: 14px;
+	height: 14px;
+}
+.w-seg--vertical {
+	flex-direction: column;
+	align-items: stretch;
+}
+.w-seg--vertical > :is(button, a, [role='radio'], [role='tab']) {
+	justify-content: flex-start;
+	height: 32px;
+}
+
+/* ---------- 7.6 switch: button[role=switch][aria-checked] ---------- */
 .w-switch {
 	position: relative;
+	display: inline-block;
 	flex: none;
-	width: 38px;
-	height: 22px;
+	box-sizing: border-box;
+	width: 36px;
+	height: 20px;
+	margin: 0;
 	padding: 0;
-	border: var(--w-bw, 1px) solid var(--w-line-strong);
-	border-radius: var(--w-pill, 999px);
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--w-pill);
 	background: var(--w-sink);
+	vertical-align: middle;
 	cursor: pointer;
-	transition: background 0.15s, border-color 0.15s;
+	transition:
+		background-color var(--w-dur-2) var(--w-ease),
+		border-color var(--w-dur-2) var(--w-ease);
 }
 .w-switch::after {
 	content: '';
 	position: absolute;
-	top: 2px;
-	left: 2px;
+	/* 3px from the outer edge whatever the edge width, so the thumb travels 16px. */
+	top: calc(3px - var(--w-bw));
+	left: calc(3px - var(--w-bw));
+	width: 14px;
+	height: 14px;
+	border-radius: var(--w-avr);
+	background: var(--w-mute);
+	transition:
+		transform var(--w-dur-2) var(--w-ease),
+		background-color var(--w-dur-2) var(--w-ease);
+}
+.w-switch[aria-checked='true'] {
+	border-color: var(--w-accent);
+	background: var(--w-accent);
+}
+.w-switch[aria-checked='true']::after {
+	transform: translateX(16px);
+	background: var(--w-on-accent);
+}
+.w-switch:disabled,
+.w-switch[aria-disabled='true'] {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+/* ---------- 7.7 checkbox and radio ---------- */
+/* Rendered Markdown task items (.w-prose) use the same box. The prose selector is wrapped in
+   :where() so it weighs no more than .w-check, and kit-prose.css can still place it. */
+.w-check,
+:where(.w-prose li) > input[type='checkbox'],
+.w-radio {
+	-webkit-appearance: none;
+	appearance: none;
+	display: inline-grid;
+	place-content: center;
+	flex: none;
+	box-sizing: border-box;
 	width: 16px;
 	height: 16px;
-	border-radius: var(--w-avr, 50%);
-	background: var(--w-mute);
-	transition: transform 0.15s, background 0.15s;
-}
-.w-switch[aria-checked='true'] { background: var(--w-accent); border-color: transparent; }
-.w-switch[aria-checked='true']::after { transform: translateX(16px); background: var(--w-on-accent); }
-.w-switch:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
-.w-switch:disabled { opacity: 0.45; cursor: not-allowed; }
-
-/* ---------- segmented control ---------- */
-.w-seg {
-	display: inline-flex;
-	border: var(--w-bw, 1px) solid var(--w-line-strong);
-	border-radius: calc(10px * var(--w-rs, 1));
-	overflow: hidden;
-	background: var(--w-bg2);
-}
-.w-seg > button {
-	min-height: 32px;
-	padding: 5px 14px;
-	border: 0;
+	margin: 0;
+	padding: 0;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-sm);
 	background: transparent;
-	color: var(--w-mute);
-	font: 600 calc(13px * var(--w-fs, 1))/1.2 var(--w-sans);
+	color: var(--w-text);
+	vertical-align: middle;
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		border-color var(--w-dur-1) var(--w-ease);
+}
+.w-radio {
+	border-radius: var(--w-pill);
+}
+.w-check::before,
+:where(.w-prose li) > input[type='checkbox']::before,
+.w-radio::before {
+	content: '';
+	visibility: hidden;
+}
+/* A 12px check drawn as a shape, so it takes --w-bg without an image. */
+.w-check::before,
+:where(.w-prose li) > input[type='checkbox']::before {
+	width: 12px;
+	height: 12px;
+	background: var(--w-bg);
+	clip-path: polygon(24% 45%, 41% 62%, 80% 20%, 95% 33%, 42% 91%, 10% 59%);
+}
+.w-radio::before {
+	width: 8px;
+	height: 8px;
+	border-radius: inherit;
+	background: var(--w-text);
+}
+.w-check:is(:checked, :indeterminate, [aria-checked='true'], [aria-checked='mixed']),
+:where(.w-prose li) > input[type='checkbox']:checked {
+	border-color: var(--w-text);
+	background: var(--w-text);
+}
+.w-check:is(:checked, :indeterminate, [aria-checked='true'], [aria-checked='mixed'])::before,
+:where(.w-prose li) > input[type='checkbox']:checked::before,
+.w-radio:is(:checked, [aria-checked='true'])::before {
+	visibility: visible;
+}
+/* Mixed: a short bar instead of the check. */
+.w-check:is(:indeterminate, [aria-checked='mixed'])::before {
+	height: 2px;
+	width: 8px;
+	clip-path: none;
+}
+.w-radio:is(:checked, [aria-checked='true']) {
+	border-color: var(--w-text);
+}
+.w-check:disabled,
+.w-radio:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+/* The label is the hit area: 32px tall (44 on touch). */
+.w-choice {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 32px;
+	color: var(--w-text);
+	font: var(--w-t-ui);
 	cursor: pointer;
 }
-.w-seg > button + button { border-left: var(--w-bw, 1px) solid var(--w-line); }
-.w-seg > button:hover { color: var(--w-text); }
-.w-seg > button[aria-pressed='true'],
-.w-seg > button[aria-checked='true'] { background: var(--w-accent); color: var(--w-on-accent); }
-.w-seg > button:focus-visible { outline: 2px solid var(--w-accent); outline-offset: -2px; }
 
-/* ---------- definition row: label + hint left, control right ---------- */
-.w-row {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 16px;
-	padding: 12px 14px;
-	border: var(--w-bw, 1px) solid var(--w-line);
-	border-radius: calc(12px * var(--w-rs, 1));
-	background: var(--w-bg2);
-}
-.w-row + .w-row { margin-top: 8px; }
-.w-row__label { font: 600 calc(14.5px * var(--w-fs, 1))/1.3 var(--w-sans); color: var(--w-text); }
-.w-row__hint { margin-top: 2px; font: 400 calc(13px * var(--w-fs, 1))/1.45 var(--w-sans); color: var(--w-mute); }
-/* digital strings: ids, hosts, versions, counts */
-.w-mono { font-family: var(--w-mono); font-feature-settings: 'tnum'; }
-/* a row about security (encryption state, permissions, moderation) wears the seal */
-.w-row--seal { box-shadow: inset 2px 0 0 var(--w-seal); }
-
-/* ---------- section title + seal badge ---------- */
-.w-title { margin: 0 0 6px; font: 600 calc(24px * var(--w-fs, 1))/1.2 var(--w-serif); letter-spacing: 0.01em; color: var(--w-text); }
-.w-subtitle { margin: 0 0 14px; font: 500 calc(12.5px * var(--w-fs, 1))/1.4 var(--w-mono); color: var(--w-mute); }
-.w-seal {
-	display: inline-flex;
-	align-items: center;
-	gap: 6px;
-	padding: 1px 8px;
-	border: var(--w-bw, 1px) solid color-mix(in srgb, var(--w-seal) 70%, transparent);
-	border-radius: var(--w-pill, 999px);
-	background: var(--w-seal-soft);
-	color: var(--w-text);
-	font: 600 calc(11.5px * var(--w-fs, 1))/1.6 var(--w-sans);
-}
-
-/* ---------- range slider: a visible hairline track, an accent thumb ---------- */
+/* ---------- 7.8 range ---------- */
+/* 2px track, accent fill up to --w-range-fill (set it from the value: style="--w-range-fill: 64%"),
+   14px accent thumb ringed in the surface color (--w-range-ring). No scale on hover.
+   The track fill is a hard color stop, not a decorative gradient. The legacy settings and volume
+   sliders are mapped here until their surfaces adopt .w-range. */
 :root input[type='range'].w-range,
 :root .settings-content input[type='range'],
 :root .volume-slider {
@@ -147,24 +690,448 @@
 	background: transparent;
 	cursor: pointer;
 }
-:root .settings-content input[type='range']::-webkit-slider-runnable-track,
-:root input[type='range'].w-range::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: var(--w-line-strong); }
-:root .settings-content input[type='range']::-moz-range-track,
-:root input[type='range'].w-range::-moz-range-track { height: 4px; border-radius: 4px; background: var(--w-line-strong); }
-:root .settings-content input[type='range']::-webkit-slider-thumb,
-:root input[type='range'].w-range::-webkit-slider-thumb {
+:root input[type='range'].w-range::-webkit-slider-runnable-track,
+:root .settings-content input[type='range']::-webkit-slider-runnable-track {
+	height: 2px;
+	border-radius: var(--w-pill);
+	background: linear-gradient(to right, var(--w-accent) var(--w-range-fill, 0%), var(--w-line-strong) var(--w-range-fill, 0%));
+}
+:root input[type='range'].w-range::-moz-range-track,
+:root .settings-content input[type='range']::-moz-range-track {
+	height: 2px;
+	border-radius: var(--w-pill);
+	background: var(--w-line-strong);
+}
+:root input[type='range'].w-range::-moz-range-progress,
+:root .settings-content input[type='range']::-moz-range-progress {
+	height: 2px;
+	border-radius: var(--w-pill);
+	background: var(--w-accent);
+}
+:root input[type='range'].w-range::-webkit-slider-thumb,
+:root .settings-content input[type='range']::-webkit-slider-thumb {
 	-webkit-appearance: none;
 	appearance: none;
+	width: 14px;
+	height: 14px;
+	margin-top: -6px;
+	border: 0;
+	border-radius: var(--w-avr);
+	background: var(--w-accent);
+	box-shadow: 0 0 0 2px var(--w-range-ring, var(--w-bg));
+}
+:root input[type='range'].w-range::-moz-range-thumb,
+:root .settings-content input[type='range']::-moz-range-thumb {
+	width: 14px;
+	height: 14px;
+	border: 0;
+	border-radius: var(--w-avr);
+	background: var(--w-accent);
+	box-shadow: 0 0 0 2px var(--w-range-ring, var(--w-bg));
+}
+:root input[type='range'].w-range:disabled,
+:root .settings-content input[type='range']:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+/* ---------- 7.9 tags, chips, badges, counts, reactions ---------- */
+
+/* Tag: locality ("Private · this device"), status ("Away" + warn dot), retention (clock glyph). */
+.w-tag {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	flex: none;
+	box-sizing: border-box;
+	height: 22px;
+	padding: 0 9px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--w-pill);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-caption);
+	white-space: nowrap;
+}
+:where(.w-tag) > :where(svg) {
+	flex: none;
+	width: 12px;
+	height: 12px;
+}
+.w-tag > .w-dot {
+	width: 6px;
+	height: 6px;
+}
+
+/* Maturity tag: PREVIEW, EXPERIMENTAL, OPTIONAL ADD-ON (§9). The title attribute explains it. */
+.w-tag--mat {
+	gap: 0;
+	height: 18px;
+	padding: 0 6px;
+	border-color: var(--w-line-strong);
+	border-radius: var(--radius-sm);
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+	font-size: calc(10px * var(--w-fs));
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+}
+
+/* Role word: ADMIN, MOD, BOT after a name. No box, never accent or seal (D5). */
+.w-role {
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+	font-size: calc(10px * var(--w-fs));
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	white-space: nowrap;
+}
+
+/* Seal chip: who can read it, where the colophon is not visible (DM headers, thread lists,
+   the Share sheet, palette results). */
+.w-seal {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	flex: none;
+	box-sizing: border-box;
+	height: 22px;
+	padding: 0 9px 0 7px;
+	border: var(--w-bw) solid color-mix(in srgb, var(--w-seal) 60%, transparent);
+	border-radius: var(--w-pill);
+	background: var(--w-seal-soft);
+	color: var(--w-text);
+	font: var(--w-t-caption);
+	white-space: nowrap;
+}
+:where(.w-seal) > :where(svg) {
+	flex: none;
+	width: 13px;
+	height: 13px;
+	color: var(--w-seal);
+}
+
+/* Badge: ink pill with mono numerals; 1-99 then "99+"; aria-label="N unread"; never animated. */
+.w-badge {
+	display: inline-grid;
+	place-items: center;
+	flex: none;
+	box-sizing: border-box;
+	min-width: 18px;
+	height: 18px;
+	padding: 0 5px;
+	border-radius: var(--w-pill);
+	background: var(--w-text);
+	color: var(--w-bg);
+	font: 500 calc(11px * var(--w-fs)) / 1 var(--w-mono);
+	font-feature-settings: 'tnum';
+	white-space: nowrap;
+}
+.w-badge--sm {
+	min-width: 16px;
+	height: 16px;
+	padding: 0 4px;
+	font-size: calc(10px * var(--w-fs));
+}
+/* Over an icon: a 2px ring in the surface color (set --w-badge-ring on the host). */
+.w-badge--ring {
+	box-shadow: 0 0 0 2px var(--w-badge-ring, var(--w-bg));
+}
+
+/* Count: bare numerals for occupancy, totals and section counts. */
+.w-count {
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+/* Reaction: emoji + count; yours is aria-pressed. Width never changes on hover. */
+.w-react {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	flex: none;
+	box-sizing: border-box;
+	height: 26px;
+	margin: 0;
+	padding: 0 9px 0 7px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--w-pill);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-mono);
+	font-variant-numeric: tabular-nums;
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		border-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
+}
+.w-react__emoji {
+	font-size: calc(15px * var(--w-fs));
+	line-height: 1;
+}
+/* An emoji the client cannot draw shows its :shortcode: rather than disappearing. */
+.w-react__code {
+	color: var(--w-mute);
+	font: var(--w-t-micro);
+}
+.w-react:hover {
+	border-color: var(--w-line-strong);
+	color: var(--w-text);
+}
+.w-react[aria-pressed='true'] {
+	border-color: color-mix(in srgb, var(--w-accent) 55%, transparent);
+	background: var(--w-accent-soft);
+	color: var(--w-text);
+}
+
+/* ---------- 7.25 settings row and disclosure ---------- */
+/* Rows are divided by rules, never boxed: a top rule on the group, a bottom rule per row. */
+.w-srows {
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.w-srow {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: 24px;
+	box-sizing: border-box;
+	min-height: 68px;
+	padding: 12px 0;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.w-srow__text {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+.w-srow__label {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+.w-srow__hint {
+	margin: 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+.w-srow__control {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+}
+/* A row about who can read something wears the seal glyph before its label. */
+.w-srow--seal .w-srow__label > :where(svg) {
+	flex: none;
+	width: 14px;
+	height: 14px;
+	color: var(--w-seal);
+}
+
+/* Disclosure: replaces <details> triangles. The chevron turns 90° when open. */
+.w-disclosure {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	box-sizing: border-box;
+	width: 100%;
+	height: 40px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-label);
+	text-align: start;
+	list-style: none;
+	cursor: pointer;
+}
+.w-disclosure::-webkit-details-marker {
+	display: none;
+}
+:where(.w-disclosure) > :where(svg:first-child) {
+	flex: none;
 	width: 16px;
 	height: 16px;
-	margin-top: -6px;
-	border: 2px solid var(--w-bg);
-	border-radius: var(--w-avr, 50%);
-	background: var(--w-accent);
-	box-shadow: 0 0 0 1px var(--w-accent);
-	transition: transform 0.12s;
+	color: var(--w-mute);
+	transition: transform var(--w-dur-2) var(--w-ease);
 }
-:root .settings-content input[type='range']::-moz-range-thumb,
-:root input[type='range'].w-range::-moz-range-thumb { width: 12px; height: 12px; border: 2px solid var(--w-bg); border-radius: var(--w-avr, 50%); background: var(--w-accent); }
-:root .settings-content input[type='range']:hover::-webkit-slider-thumb { transform: scale(1.15); }
-:root .settings-content input[type='range']:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 3px; border-radius: 4px; }
+.w-disclosure[aria-expanded='true'] > svg:first-child,
+details[open] > summary.w-disclosure > svg:first-child {
+	transform: rotate(90deg);
+}
+.w-disclosure:hover > svg:first-child {
+	color: var(--w-text);
+}
+.w-disclosure:focus-visible {
+	outline-offset: -2px;
+}
+.w-disclosure__body {
+	padding: 4px 0 8px;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+
+/* The boxed legacy .w-row / .w-title / .w-subtitle block had no callers left and is gone:
+   settings rows are .w-srow, and spec §7.11 gives the name .w-row to the 32px channel row. */
+
+/* ---------- High Contrast: hover is a ring instead of a fill; selection keeps its fill and adds
+   the ring (§5.2). --w-line equals --w-line-strong here, so controls that already wear an edge
+   get a second, inner ring on hover. ---------- */
+:root[data-char='contrast'] .w-btn:where(:not(.w-btn--primary, .w-btn--danger, :disabled, [aria-disabled='true'])):hover {
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+:root[data-char='contrast'] .w-btn--quiet:where(:not(:disabled, [aria-disabled='true'])):hover {
+	border-color: var(--w-line-strong);
+}
+:root[data-char='contrast'] .w-ibtn:where(:not(:disabled, [aria-disabled='true'])):hover {
+	border-color: var(--w-line-strong);
+	background: transparent;
+}
+:root[data-char='contrast'] .w-ibtn:is([aria-pressed='true'], [aria-expanded='true']) {
+	border-color: var(--w-line-strong);
+	background: var(--w-raise);
+}
+:root[data-char='contrast'] .w-select:where(:not(:disabled, [aria-disabled='true'])):hover,
+:root[data-char='contrast'] .w-select[aria-expanded='true'],
+:root[data-char='contrast'] .w-react:hover {
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+:root[data-char='contrast'] .w-seg > :hover:not([aria-pressed='true'], [aria-checked='true'], [aria-selected='true'], [aria-current='page']) {
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+
+/* ---------- forced colors (Windows High Contrast): the UA drops box-shadows and gradients and
+   repaints backgrounds, so every state drawn that way is restated in system colors (§10).
+   System colors are kept as written; nothing else in the kit may use them. ---------- */
+@media (forced-colors: active) {
+	.w-check,
+	:where(.w-prose li) > input[type='checkbox'],
+	.w-radio,
+	.w-switch {
+		border-color: CanvasText;
+		background: Canvas;
+	}
+	.w-check::before,
+	:where(.w-prose li) > input[type='checkbox']::before {
+		background: HighlightText;
+	}
+	.w-check:is(:checked, :indeterminate, [aria-checked='true'], [aria-checked='mixed']),
+	:where(.w-prose li) > input[type='checkbox']:checked,
+	.w-switch[aria-checked='true'] {
+		border-color: Highlight;
+		background: Highlight;
+	}
+	.w-radio:is(:checked, [aria-checked='true']) {
+		border-color: Highlight;
+	}
+	.w-radio::before {
+		background: Highlight;
+	}
+	.w-switch::after {
+		background: CanvasText;
+	}
+	.w-switch[aria-checked='true']::after {
+		background: HighlightText;
+	}
+	/* The selected key and pressed toggles read as the system selection. The :root selectors
+	   match the Daylight paper-key and High Contrast pressed rules' weight, so neither can win
+	   back the background. */
+	.w-seg > :is([aria-pressed='true'], [aria-checked='true'], [aria-selected='true'], [aria-current='page']),
+	:root[data-mode] .w-seg > :is([aria-pressed='true'], [aria-checked='true'], [aria-selected='true'], [aria-current='page']),
+	.w-ibtn:is([aria-pressed='true'], [aria-expanded='true']),
+	:root[data-char] .w-ibtn:is([aria-pressed='true'], [aria-expanded='true']) {
+		/* Opt out, or the UA's Canvas text backplate hides the HighlightText label. */
+		forced-color-adjust: none;
+		background: Highlight;
+		color: HighlightText;
+	}
+	.w-select:is(.w-select--applied, [data-applied='true']),
+	.w-react[aria-pressed='true'] {
+		border-color: Highlight;
+	}
+	/* The range keeps its drawn track and thumb: opt out of forced colors and paint them in
+	   system colors, so the filled part and the thumb stay visible. */
+	:root input[type='range'].w-range,
+	:root .settings-content input[type='range'],
+	:root .volume-slider {
+		forced-color-adjust: none;
+	}
+	:root input[type='range'].w-range::-webkit-slider-runnable-track,
+	:root .settings-content input[type='range']::-webkit-slider-runnable-track {
+		background: linear-gradient(to right, Highlight var(--w-range-fill, 0%), CanvasText var(--w-range-fill, 0%));
+	}
+	:root input[type='range'].w-range::-moz-range-track,
+	:root .settings-content input[type='range']::-moz-range-track {
+		background: CanvasText;
+	}
+	:root input[type='range'].w-range::-moz-range-progress,
+	:root .settings-content input[type='range']::-moz-range-progress {
+		background: Highlight;
+	}
+	:root input[type='range'].w-range::-webkit-slider-thumb,
+	:root .settings-content input[type='range']::-webkit-slider-thumb {
+		background: Highlight;
+		box-shadow: 0 0 0 2px Canvas;
+	}
+	:root input[type='range'].w-range::-moz-range-thumb,
+	:root .settings-content input[type='range']::-moz-range-thumb {
+		background: Highlight;
+		box-shadow: 0 0 0 2px Canvas;
+	}
+}
+
+/* ---------- touch: every target reaches 44px (§10) ---------- */
+@media (pointer: coarse) {
+	.w-btn,
+	.w-btn--sm,
+	.w-btn--lg {
+		height: 44px;
+	}
+	.w-split > .w-split__menu {
+		width: 44px;
+	}
+	.w-ibtn,
+	.w-ibtn--sm {
+		width: 44px;
+		height: 44px;
+	}
+	.w-field--chrome,
+	.w-select {
+		height: 44px;
+	}
+	.w-seg > :is(button, a, [role='radio'], [role='tab']) {
+		height: 44px;
+	}
+	.w-choice {
+		min-height: 44px;
+	}
+	.w-disclosure {
+		height: 44px;
+	}
+	:root input[type='range'].w-range {
+		height: 44px;
+	}
+	/* Small drawn controls keep their drawing; an invisible 44px hit area is centred on them.
+	   (A settings-row label is a <p>, so on phones the switch itself is the only target.) */
+	.w-react {
+		position: relative;
+	}
+	.w-switch::before,
+	.w-react::before {
+		content: '';
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		width: max(100%, 44px);
+		height: 44px;
+		translate: -50% -50%;
+	}
+}

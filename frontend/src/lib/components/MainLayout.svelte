@@ -10,6 +10,8 @@
 	import { get } from 'svelte/store';
 	import { centerPanelView, centerDmOtherUser, centerGroupChannel, focusMode } from '$lib/layoutStoreStates';
 	import { armPeekDismiss, cancelPeekDismiss, peekAnimationGate, setPeekPointerInside } from '$lib/rightPeekGestures';
+	import { dockCanPin, peekHeld } from '$lib/layoutStoreRightPanel';
+	import { DOCK_DEFAULT_PANEL, DOCK_MIN_PANEL, dockWidthFor, resizeKeyWidth } from '$lib/dockClamp';
 	import { registerPluginWorkspacePanels } from '$lib/workspacePanels';
 	import { fetchPluginInventory } from '$lib/addonInventory';
 	import Chat from '$lib/components/Chat.svelte';
@@ -43,7 +45,7 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import { channelMessages, channelUnreadCounts, channels, currentChannel, currentUser, users, createDM, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, joinChannel, type Channel, type User } from '$lib/socket';
 	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, incomingCall, outgoingCall, isInCall, activeGroupCall, groupCallRingingTargets, isVideoOff, toggleVideo, channelCallPanelOpen, callOfflineNotice } from '$lib/calling';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 import { _ } from '$lib/i18n';
 import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { playNotificationSound } from '$lib/notifications';
@@ -145,6 +147,100 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	let peekClosingTimer: ReturnType<typeof setTimeout> | null = null;
 	let prevRightPanelMode: 'none' | 'peek' | 'pinned' | null = null;
 	$: trackRightPanelMode($layoutStore.rightPanelMode);
+	// Center-stage guard (§8.4, dockClamp.ts): a companion pins in flow only while the stage keeps
+	// 600px; otherwise it is presented as a peek over the stage with a scrim. The stage width never
+	// changes for a peek. Widths are measured here and the verdict is published for the rail.
+	let viewportWidth = typeof window === 'undefined' ? 1536 : window.innerWidth;
+	let railWidth = 44;
+	function measureRailWidth(): void {
+		if (typeof window === 'undefined') return;
+		const value = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--w-rail-w'));
+		if (Number.isFinite(value) && value > 0) railWidth = value;
+	}
+	$: dockRail = !$layoutStore.isMobile && !$focusMode ? railWidth : 0;
+	$: dockSidebar = $layoutStore.isMobile ? 0 : Math.max(0, $layoutStore.channelSidebarWidth) + desktopServerRailOffset;
+	$: dock = dockWidthFor({ viewport: viewportWidth, sidebar: dockSidebar, rail: dockRail, requested: $layoutStore.rightPanelWidth });
+	$: dockCanPin.set(dock.mode === 'pin');
+	$: dockPinned = !$layoutStore.isMobile && $layoutStore.rightPanelMode === 'pinned' && dock.mode === 'pin';
+	$: dockPeeking = !$layoutStore.isMobile && ($layoutStore.rightPanelMode === 'peek' || ($layoutStore.rightPanelMode === 'pinned' && dock.mode === 'peek'));
+	// A hover peek retracts on its own; a peek opened on purpose (or a pin with no room) gets the scrim.
+	$: stageScrim = dockPeeking && ($layoutStore.rightPanelMode === 'pinned' || $peekHeld);
+	// A closing peek keeps its place, edge and shadow while it leaves.
+	let zoneWasPeek = false;
+	$: if ($layoutStore.rightPanelMode !== 'none') zoneWasPeek = dockPeeking;
+	$: zoneFloats = dockPeeking || (peekClosing && zoneWasPeek);
+	// The scrim stays through the peek's exit animation, then goes.
+	let scrimVisible = false;
+	$: updateScrimVisible(stageScrim, peekClosing);
+	function updateScrimVisible(scrim: boolean, closing: boolean): void {
+		scrimVisible = scrim || (scrimVisible && closing);
+	}
+	onMount(measureRailWidth);
+	// The scrim covers exactly the stage (everything between the sidebar and the rail), and a peek
+	// hangs over the stage's edge on the rail side: past the sidebar when both share that side.
+	$: navOnStubSide = ($layoutStore.navDock === 'right') === ($layoutStore.stubSide !== 'left');
+	$: peekInset = dockRail + (navOnStubSide ? dockSidebar : 0);
+	$: scrimLeft = ($layoutStore.stubSide === 'left' ? dockRail : 0) + ($layoutStore.navDock === 'right' ? 0 : dockSidebar);
+	$: scrimRight = ($layoutStore.stubSide === 'left' ? 0 : dockRail) + ($layoutStore.navDock === 'right' ? dockSidebar : 0);
+
+	// Under the scrim the stage is out of reach for the pointer, so it is inert for the keyboard too.
+	// Focus that was on the stage moves into the peek and returns when the peek closes; focus left
+	// inside a closing peek goes back to its stub on the rail.
+	let companionZone: HTMLElement | null = null;
+	let stageFocusReturn: HTMLElement | null = null;
+	let prevStageScrim = false;
+	$: guardStageFocus(stageScrim);
+	function guardStageFocus(scrim: boolean): void {
+		if (scrim === prevStageScrim || typeof document === 'undefined') return;
+		prevStageScrim = scrim;
+		if (scrim) {
+			const active = document.activeElement;
+			if (active instanceof HTMLElement && active.closest('.main-content')) {
+				stageFocusReturn = active;
+				void tick().then(() => companionZone?.focus({ preventScroll: true }));
+			}
+			return;
+		}
+		const opener = stageFocusReturn;
+		stageFocusReturn = null;
+		const panelId = $layoutStore.activeRightTab;
+		void tick().then(() => {
+			const active = document.activeElement;
+			const closed = $layoutStore.rightPanelMode === 'none';
+			const stranded = !active || active === document.body || (closed && Boolean(companionZone?.contains(active)));
+			if (!stranded) return;
+			const stub = document.querySelector<HTMLElement>(`.rail .stub[data-panel-id="${CSS.escape(panelId)}"]`);
+			(opener?.isConnected && closed ? opener : stub)?.focus({ preventScroll: true });
+		});
+	}
+
+	function handleStagePeekKeydown(event: KeyboardEvent): void {
+		if (!stageScrim || event.key !== 'Escape' || event.defaultPrevented) return;
+		if (event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+		event.preventDefault();
+		layoutStore.closeRightPanel();
+	}
+
+	/** Width from the pointer to the rail edge the panel hangs from, clamped to what fits. */
+	function dockWidthAtPointer(clientX: number): number {
+		const fromEdge = $layoutStore.stubSide === 'left' ? clientX : window.innerWidth - clientX;
+		return Math.min(Math.max(DOCK_MIN_PANEL, dock.max), Math.max(DOCK_MIN_PANEL, Math.round(fromEdge - dockRail)));
+	}
+
+	function handleDockSeparatorKeydown(event: KeyboardEvent): void {
+		const next = resizeKeyWidth(event.key, dock.width, {
+			shift: event.shiftKey,
+			towardStage: $layoutStore.stubSide === 'left' ? 'ArrowRight' : 'ArrowLeft',
+			max: dock.max
+		});
+		if (next === null) return;
+		event.preventDefault();
+		layoutStore.rightPanelWidth.set(next);
+	}
+
+	function resetDockWidth(): void {
+		layoutStore.rightPanelWidth.set(DOCK_DEFAULT_PANEL);
+	}
 	function trackRightPanelMode(mode: 'none' | 'peek' | 'pinned') {
 		if (mode !== 'none') {
 			if (peekClosingTimer) {
@@ -154,10 +250,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			peekClosing = false;
 		} else if (prevRightPanelMode === 'peek' || prevRightPanelMode === 'pinned') {
 			peekClosing = true;
+			// Matches the exit animation in main-layout-part1.css (0.75 x --w-dur-3).
 			peekClosingTimer = setTimeout(() => {
 				peekClosingTimer = null;
 				peekClosing = false;
-			}, 210);
+			}, 190);
 		}
 		prevRightPanelMode = mode;
 	}
@@ -786,10 +883,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			layoutStore.channelSidebarWidth.set(Math.max(0, Math.min(width, window.innerWidth)));
 		}
 		if (resizingRight) {
-			// Measure from the viewport edge the strip sits on (spec: stub-side-aware).
-			const onLeft = $layoutStore.stubSide === 'left';
-			const newWidth = onLeft ? e.clientX : window.innerWidth - e.clientX;
-			layoutStore.rightPanelWidth.set(Math.max(0, newWidth));
+			// Measured from the rail edge the panel hangs from (stub-side-aware), and clamped so
+			// the stored width is the width you see: 240px up to what leaves the stage 600px.
+			layoutStore.rightPanelWidth.set(dockWidthAtPointer(e.clientX));
 		}
 	}
 
@@ -1160,6 +1256,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 <GlanceHost />
 
 <svelte:window
+	bind:innerWidth={viewportWidth}
+	on:resize={measureRailWidth}
+	on:keydown={handleStagePeekKeydown}
 	on:mousemove={handleMouseMove}
 	on:mouseup={stopResize}
 	on:touchstart={handleTouchStart}
@@ -1287,13 +1386,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
 		class:obvious-grab-rails={$layoutStore.obviousGrabRails}
 		class:rail-on={!$layoutStore.isMobile && !$focusMode}
-		class:dock-pinned={$layoutStore.rightPanelMode === 'pinned'}
+		class:dock-pinned={dockPinned}
 		class:rail-left={$layoutStore.stubSide === 'left'}
 		style:--w-sig={$currentSavedServer?.frontendMetadata?.accentColor || null}
 		style:--w-serif={communityDisplayFont($currentSavedServer?.frontendMetadata?.displayFont, $currentTheme?.character)}
-		style:--w-dock-w={$layoutStore.rightPanelMode === 'pinned' && !$layoutStore.isMobile
-			? `min(${Math.min($layoutStore.rightPanelWidth, 744)}px, 55vw)`
-			: '0px'}
+		style:--w-dock-w={dockPinned ? `${dock.width}px` : '0px'}
 	>
 	{#if !$layoutStore.isMobile && $layoutStore.channelSidebarWidth === 0}
 		<button
@@ -1370,39 +1467,68 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		</div>
 	{/if}
 
-	<!-- Right Panel — single mode-driven node (peek = fixed overlay, pinned = flex child).
-	       One DOM node for both modes so the panel never remounts on peek↔pin (spec §6).
-	       The stub strip mounts INSIDE the zone so the stubs ride the panel like folder
-	       tabs (peek slide-in carries them with it); a standalone strip serves the
-	       closed (mode = none) cabinet state. -->
+	<!-- Right Panel — one mode-driven node for pin and peek, so the panel never remounts when it
+	       switches between them. Pinned: in flow beside the stage (.app-container reserves
+	       --w-dock-w), clamped so the stage keeps 600px. Peek: floats over the stage's edge, and a
+	       peek opened on purpose (or a pin with no room) puts the scrim over the stage. -->
 	{#if !$layoutStore.isMobile}
+		{#if scrimVisible}
+			<!-- Pointer-only affordance: Escape, the stub and the panel's own close button cover the keyboard. -->
+			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+			<div
+				class="stage-scrim"
+				class:closing={!stageScrim}
+				style:left="{scrimLeft}px"
+				style:right="{scrimRight}px"
+				aria-hidden="true"
+				on:click={() => layoutStore.closeRightPanel()}
+			></div>
+		{/if}
 		{#if $layoutStore.rightPanelMode !== 'none' || peekClosing}
 			<!-- Pointer moving anywhere inside the zone cancels a pending
 			     dismissal: stub mouseleave arms it, and the zone's mouseenter
 			     will not re-fire for a pointer that never left the zone. -->
 			<div
+				bind:this={companionZone}
 				class="right-panel-zone"
-				class:peek={$layoutStore.rightPanelMode === 'peek'}
+				class:pinned={dockPinned}
+				class:peek={zoneFloats}
 				class:closing={peekClosing && $layoutStore.rightPanelMode === 'none'}
 				class:stub-right={$layoutStore.stubSide === 'right'}
 				class:stub-left={$layoutStore.stubSide === 'left'}
-				style:width="{$layoutStore.rightPanelWidth}px"
-				style:flex-basis="{$layoutStore.rightPanelWidth}px"
-				style:max-width="min(744px, 55vw)"
+				role="complementary"
+				aria-label="Side panel"
+				tabindex="-1"
+				style:width="{dock.width}px"
+				style:right={zoneFloats && $layoutStore.stubSide !== 'left' ? `${peekInset}px` : null}
+				style:left={zoneFloats && $layoutStore.stubSide === 'left' ? `${peekInset}px` : null}
 				use:peekAnimationGate
 				on:mouseenter={() => setPeekPointerInside(true)}
 				on:mouseleave={() => { setPeekPointerInside(false); armPeekDismiss(); }}
 				on:pointermove={cancelPeekDismiss}
 			>
-				<div class="right-panel-body">
-					{#if $layoutStore.rightPanelMode === 'pinned'}
-						<button
-							type="button"
-							class="resize-handle resize-handle-right"
-							aria-label="Resize right panel"
-							on:mousedown|preventDefault={() => layoutStore.isResizingRight.set(true)}
-						></button>
-					{/if}
+				{#if dockPinned}
+					<!-- The resize edge straddles the panel's inner hairline, outside the clipped body.
+					     A focusable separator is an interactive widget (WAI-ARIA window splitter). -->
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
+					<div
+						class="resize-handle resize-handle-right"
+						class:dragging={resizingRight}
+						role="separator"
+						tabindex="0"
+						aria-orientation="vertical"
+						aria-label="Resize side panel"
+						aria-controls="companion-panel-body"
+						aria-valuenow={dock.width}
+						aria-valuemin={DOCK_MIN_PANEL}
+						aria-valuemax={Math.max(DOCK_MIN_PANEL, dock.max)}
+						title="Drag or use the arrow keys to resize. Double-click to reset."
+						on:mousedown|preventDefault={() => layoutStore.isResizingRight.set(true)}
+						on:dblclick={resetDockWidth}
+						on:keydown={handleDockSeparatorKeydown}
+					></div>
+				{/if}
+				<div class="right-panel-body" id="companion-panel-body">
 					{#if RightPanelCmp}
 						<svelte:component this={RightPanelCmp} on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />
 					{/if}
@@ -1426,8 +1552,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		</div>
 	{/if}
 
-	<!-- Main Content -->
-	<div class="main-content">
+	<!-- Main Content (inert while a peek's scrim covers it) -->
+	<div class="main-content" inert={stageScrim}>
 		<div class="chat-stack">
 			{#if activeView !== 'server' && ((!$layoutStore.centerDmChannelId && activeView !== 'dm' && activeView !== 'following') || $activeWorkspaceView !== 'messages')}
 				<WorkspaceViewBar {activityBadge} activeView={$activeWorkspaceView} onSelectView={handleWorkspaceViewSelect} canOpenWhiteboard={Boolean($currentChannel)} />
