@@ -16,7 +16,7 @@
 import { derived, type Readable } from 'svelte/store';
 import type { Theme } from './themeTypes';
 import { currentTheme } from './themeStore';
-import { appliedTheme, identityInk, type IdentityInk } from './roles';
+import { appliedTheme, identityInk, identityThemeKey, type IdentityInk } from './roles';
 
 export type { IdentityInk } from './roles';
 
@@ -30,8 +30,22 @@ export function identityStyle(color: string | null | undefined, theme: Theme): s
 /**
  * The theme identity colors are computed for: the one applied to the document, falling back to the saved
  * preference before anything has been applied (first paint, tests).
+ *
+ * It only emits when the ink would change. Both sources re-emit far more often than that: every preference
+ * change (loading flags, font toggles) re-derives `currentTheme`, a custom theme arrives as a fresh object each
+ * time, and a store holding an object always notifies. Without this guard each of those would re-run every
+ * name on screen for the same result.
  */
-export const identityTheme: Readable<Theme> = derived([currentTheme, appliedTheme], ([$current, $applied]) => $applied ?? $current);
+export const identityTheme: Readable<Theme> = (() => {
+	let key: string | undefined;
+	return derived([currentTheme, appliedTheme], ([$current, $applied], set: (theme: Theme) => void) => {
+		const theme = $applied ?? $current;
+		const next = identityThemeKey(theme);
+		if (next === key) return;
+		key = next;
+		set(theme);
+	});
+})();
 
 /** `$identityFor(color)` → `{ ink, disc, initial }` for the theme on screen, or null. Memoized in roles.ts. */
 export const identityFor: Readable<(color: string | null | undefined) => IdentityInk | null> = derived(
