@@ -62,7 +62,6 @@
 
 	const GLYPHS: Record<Tone, IconName> = { danger: 'alert', info: 'info', warn: 'warn' };
 	const glyph = $derived(icon ?? GLYPHS[tone]);
-	const hasText = $derived(Boolean(children || text));
 	const hasActions = $derived(Boolean(actions || onretry || ondismiss));
 
 	let logged: unknown = undefined;
@@ -75,7 +74,7 @@
 
 <div
 	{id}
-	class={['w-notice', tone !== 'danger' && `w-notice--${tone}`, !hasText && 'w-notice--single', className]}
+	class={['w-notice', tone !== 'danger' && `w-notice--${tone}`, className]}
 	role={tone === 'danger' ? 'alert' : 'status'}
 >
 	<Icon name={glyph} size={16} />
@@ -101,14 +100,3 @@
 	{/if}
 </div>
 
-<style>
-	/* A notice without a consequence line is one row: the glyph and actions centre on the title. */
-	.w-notice--single {
-		align-items: center;
-	}
-	.w-notice--single > :global(svg:first-child),
-	.w-notice--single > .w-notice__actions {
-		grid-row: 1;
-		margin-top: 0;
-	}
-</style>

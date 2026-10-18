@@ -127,6 +127,67 @@ describe('toast queue', () => {
 		expect(shown()?.leaving).toBe(true);
 	});
 
+	test('an action toast only merges with one that runs the same callback', () => {
+		const { queue, shown, waiting, advance } = setup();
+		const undone: string[] = [];
+		const restoreA = () => undone.push('a');
+		const first = queue.push('Message deleted', { action: 'Undo', onAction: restoreA });
+		const second = queue.push('Message deleted', { action: 'Undo', onAction: () => undone.push('b') });
+		expect(second.id).not.toBe(first.id);
+		expect(waiting()).toEqual(['Message deleted']);
+		// The same callback again is the same change: restart, do not stack.
+		expect(queue.push('Message deleted', { action: 'Undo', onAction: restoreA }).id).toBe(first.id);
+
+		queue.act(first.id);
+		advance(TOAST_EXIT_MS);
+		expect(shown()?.id).toBe(second.id);
+		queue.act(second.id);
+		expect(undone).toEqual(['a', 'b']);
+	});
+
+	test('held until the host is on screen: the first toast gets its full time from release', () => {
+		const { queue, shown, waiting, advance } = setup();
+		queue.hold();
+		queue.push('One');
+		queue.push('Two');
+		expect(shown()?.message).toBe('One');
+		// The host is still loading (or the tab is hidden): nothing runs down.
+		advance(60_000);
+		expect(shown()?.message).toBe('One');
+		expect(shown()?.leaving).toBe(false);
+		expect(waiting()).toEqual(['Two']);
+
+		queue.release();
+		// Readable for the full minimum before the waiting one may replace it.
+		advance(TOAST_MIN_VISIBLE_MS - 1);
+		expect(shown()?.leaving).toBe(false);
+		advance(1);
+		expect(shown()?.leaving).toBe(true);
+		advance(TOAST_EXIT_MS);
+		expect(shown()?.message).toBe('Two');
+		advance(TOAST_TIMEOUT - 1);
+		expect(shown()?.leaving).toBe(false);
+		advance(1);
+		expect(shown()?.leaving).toBe(true);
+
+		// Releasing again, or with nothing showing, changes nothing.
+		queue.release();
+		advance(TOAST_EXIT_MS);
+		expect(shown()).toBeNull();
+	});
+
+	test('a toast repeated while held does not start its clock early', () => {
+		const { queue, shown, advance } = setup();
+		queue.hold();
+		const handle = queue.push('Reconnecting');
+		expect(queue.push('Reconnecting').id).toBe(handle.id);
+		advance(60_000);
+		expect(shown()?.leaving).toBe(false);
+		queue.release();
+		advance(TOAST_TIMEOUT);
+		expect(shown()?.leaving).toBe(true);
+	});
+
 	test('dismiss closes the visible toast, or drops a waiting one silently', () => {
 		const { queue, shown, waiting, advance } = setup();
 		const a = queue.push('A');
