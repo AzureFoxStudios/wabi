@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import type { Component } from 'svelte';
-import { compile } from 'svelte/compiler';
+import { compile, parse } from 'svelte/compiler';
 import { render } from 'svelte/server';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -252,17 +252,49 @@ describe('ui primitives keep their ARIA contract', () => {
 		expect(html(LoadLine, { active: false })).not.toContain('w-loadline');
 	});
 
-	test('Tooltip: its markup is only the wrapper; the bubble is built in script, never a moved template node', () => {
+	test('Tooltip: its markup is only the display:contents wrapper; the bubble is built in script', () => {
 		// A portaled template node can be the last node of the component's DOM range; unmounting
 		// it inside {#each}, {#key} or mount() then removed every later sibling. The bubble is now
-		// created in an effect, so the compiled templates hold no tooltip and nothing is portaled.
+		// created in an effect, so the markup holds nothing that is moved. Read through Svelte's
+		// public AST rather than the compiled output, so compiler internals cannot break this.
+		// (A behavioural DOM test belongs here once the repo has a DOM test environment.)
 		const source = readFileSync(new URL('./Tooltip.svelte', import.meta.url), 'utf8');
-		const client = compile(source, { generate: 'client', filename: 'Tooltip.svelte' }).js.code;
-		const templates = [...client.matchAll(/from_html\(`([^`]*)`/g)].map((match) => match[1]);
-		expect(templates).toHaveLength(1);
-		expect(templates[0]).toMatch(/^<span class="w-tip-anchor[^"]*"><!><\/span>$/);
-		expect(client).not.toMatch(/\bportal\b/);
-		expect(client).not.toContain('role="tooltip"');
+		const nodes: Array<{ type: string; name?: string; value?: unknown }> = [];
+		const walk = (node: unknown): void => {
+			if (!node || typeof node !== 'object') return;
+			if (Array.isArray(node)) return node.forEach(walk);
+			const record = node as Record<string, unknown>;
+			if (typeof record.type === 'string') nodes.push(record as { type: string; name?: string; value?: unknown });
+			for (const [key, value] of Object.entries(record)) if (key !== 'parent' && key !== 'metadata') walk(value);
+		};
+		walk(parse(source, { modern: true }).fragment);
+
+		const MARKUP = new Set(['RegularElement', 'SvelteElement', 'Component', 'SvelteComponent', 'SvelteSelf', 'SvelteBody', 'SvelteDocument', 'SvelteWindow', 'SvelteHead', 'SvelteBoundary', 'SlotElement', 'TitleElement', 'HtmlTag']);
+		expect(nodes.filter((node) => MARKUP.has(node.type)).map((node) => `${node.type}:${node.name ?? ''}`)).toEqual(['RegularElement:span']);
+		expect(nodes.filter((node) => node.type === 'UseDirective' || node.type === 'AttachTag')).toEqual([]);
+		const classes = nodes
+			.filter((node) => node.type === 'Attribute' && node.name === 'class' && Array.isArray(node.value))
+			.flatMap((node) => (node.value as Array<{ data?: string }>).map((part) => part.data ?? ''));
+		expect(classes).toEqual(['w-tip-anchor']);
+		expect(source).not.toMatch(/\$lib\/actions\/portal/);
+	});
+
+	test('Tooltip: inside a dialog the bubble keeps body text settings, not the dialog\'s', () => {
+		const source = readFileSync(new URL('./Tooltip.svelte', import.meta.url), 'utf8');
+		const rule = parse(source, { modern: true }).css?.children.find(
+			(node) => node.type === 'Rule' && source.slice(node.prelude.start, node.prelude.end).trim() === ':global(.w-tip[data-w-tooltip])'
+		);
+		const declarations = Object.fromEntries(
+			(rule?.type === 'Rule' ? rule.block.children : []).flatMap((item) => (item.type === 'Declaration' ? [[item.property, item.value.trim()]] : []))
+		);
+		expect(declarations).toMatchObject({
+			'text-align': 'start',
+			'letter-spacing': 'normal',
+			'word-spacing': 'normal',
+			'text-transform': 'none',
+			'text-indent': '0',
+			'white-space': 'normal'
+		});
 	});
 
 	test('Tooltip: renders nothing of its own on the server (the bubble needs a document)', async () => {

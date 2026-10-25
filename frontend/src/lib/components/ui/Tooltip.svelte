@@ -460,8 +460,22 @@
 		/* Reachable by the pointer so it can be read without closing (WCAG 1.4.13). */
 		pointer-events: auto;
 		width: max-content;
+		/* Inside a modal dialog the bubble inherits from that dialog: its text settings start
+		   from the body's instead (colour and font are set by the kit's .w-tip itself). */
+		text-align: start;
+		letter-spacing: normal;
+		word-spacing: normal;
+		text-transform: none;
+		text-indent: 0;
+		text-shadow: none;
+		white-space: normal;
 		/* Two-line detail tooltips never end on a single orphaned word. */
 		text-wrap: pretty;
+	}
+	/* A shortcut is one key chord: the line wraps, "Ctrl Enter" does not. */
+	:global(.w-tip[data-w-tooltip] .w-tip__key) {
+		flex: none;
+		white-space: nowrap;
 	}
 	:global(.w-tip[data-w-tooltip][hidden]) {
 		display: none;
