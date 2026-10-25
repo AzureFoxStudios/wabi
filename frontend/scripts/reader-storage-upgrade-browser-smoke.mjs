@@ -21,7 +21,7 @@ const record = (scopeId, documentId, content = 'Original prose') => ({
 	suggestions: [], comments: []
 });
 try {
-	execFileSync('npm', ['exec', '--yes', '--package=bun@1.3.14', '--', 'bun', 'build', 'src/lib/readerDocuments.ts', '--target', 'browser', '--outfile', join(directory, 'reader.js')], { cwd: root, stdio: 'pipe' });
+	execFileSync('npm', ['exec', '--yes', '--package=bun@1.4.4', '--', 'bun', 'build', 'src/lib/readerDocuments.ts', '--target', 'browser', '--outfile', join(directory, 'reader.js')], { cwd: root, stdio: 'pipe' });
 	const bundle = await readFile(join(directory, 'reader.js'));
 	server = createServer((req, res) => {
 		res.setHeader('Content-Type', req.url === '/reader.js' ? 'text/javascript' : 'text/html');

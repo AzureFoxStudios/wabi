@@ -6,7 +6,7 @@
 // propagation.
 //
 // Usage (frontend dir, pinned toolchain):
-//   npm exec --yes --package=bun@1.3.14 -- bun run scripts/gallery-lifecycle-regression.mjs
+//   npm exec --yes --package=bun@1.4.4 -- bun run scripts/gallery-lifecycle-regression.mjs
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 

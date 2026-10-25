@@ -4,7 +4,7 @@ The native shell lives in repository-root `src-tauri/`; `frontend/` contains its
 
 ## Toolchain and dependencies
 
-Use the repository-pinned Rust toolchain (1.93, currently patch 1.93.1), Node 22, Bun 1.3.14 and Tauri CLI 2.11.4. Install frontend dependencies from the committed npm lockfile:
+Use the repository-pinned Rust toolchain (1.93, currently patch 1.93.1), Node 22, Bun 1.4.4 and Tauri CLI 2.11.4. Install frontend dependencies from the committed npm lockfile:
 
 ```bash
 cd frontend

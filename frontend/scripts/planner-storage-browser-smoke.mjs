@@ -13,7 +13,7 @@ let server, browser;
 const data = title => ({ todos: [{ id: '1', title, status: 'todo', priority: 'medium', createdAt: 1, updatedAt: 1, createdBy: '1' }], calendarEvents: [], diaryEntries: [], projects: [], sprints: [], kanbanColumns: [], resources: [], tags: [], graphEdges: [] });
 try {
 	await writeFile(join(scratch, 'entry.ts'), `export { plannerPersistence } from '${root}src/lib/business/persistence.ts';\nexport { PlannerSession } from '${root}src/lib/business/session.ts';`);
-	execFileSync('npm', ['exec', '--yes', '--package=bun@1.3.14', '--', 'bun', 'build', join(scratch, 'entry.ts'), '--target', 'browser', '--outfile', join(scratch, 'planner.js')], { cwd: root, stdio: 'pipe' });
+	execFileSync('npm', ['exec', '--yes', '--package=bun@1.4.4', '--', 'bun', 'build', join(scratch, 'entry.ts'), '--target', 'browser', '--outfile', join(scratch, 'planner.js')], { cwd: root, stdio: 'pipe' });
 	const bundle = await readFile(join(scratch, 'planner.js'));
 	server = createServer((req, res) => { res.setHeader('Content-Type', req.url === '/planner.js' ? 'text/javascript' : 'text/html'); res.end(req.url === '/planner.js' ? bundle : '<!doctype html><title>Planner storage test</title>Planner storage fixture'); });
 	await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));

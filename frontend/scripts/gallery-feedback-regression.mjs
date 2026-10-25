@@ -5,7 +5,7 @@
 // registry. Exit code propagates; output streams through unchanged.
 //
 // Usage (frontend dir, pinned toolchain):
-//   npm exec --yes --package=bun@1.3.14 -- bun run scripts/gallery-feedback-regression.mjs
+//   npm exec --yes --package=bun@1.4.4 -- bun run scripts/gallery-feedback-regression.mjs
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
