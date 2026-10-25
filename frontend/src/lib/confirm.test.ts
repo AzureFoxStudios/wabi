@@ -1,5 +1,9 @@
-import { afterEach, describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { compile } from 'svelte/compiler';
 import { confirmAction, isConfirmOpen, setConfirmMount, type ConfirmDialogProps } from './confirm';
 import { modalFocus } from './actions/modalFocus';
 
@@ -181,5 +185,91 @@ describe('confirmAction with the real modal focus owner', () => {
 		expect(modalSource).toMatch(/<div class="w-scrim base-modal-scrim" on:click=\{handleScrimClick\}><\/div>/);
 		expect(modalSource).toContain('use:portal');
 		expect(modalSource).not.toContain('#0f0c29');
+	});
+});
+
+/**
+ * The menu grammar lives in the module script of context-menu/ContextMenu.svelte (the one menu the
+ * confirm flows are opened from). Compile it for the server, with its few imports pointed at real
+ * files, so its exported helpers can be tested without a bundler.
+ */
+describe('menu grammar (context-menu/ContextMenu.svelte)', () => {
+	type Row = { label: string; danger: boolean; disabled: boolean; role: string; checked?: boolean; nav: number };
+	type Group = { kicker: string | null; rule: boolean; rows: Row[] };
+	let sentenceCaseLabel: (label: string) => string;
+	let arrangeMenu: (items: Record<string, unknown>[]) => Group[];
+	let directory = '';
+
+	const fileUrl = (relative: string) => pathToFileURL(new URL(relative, import.meta.url).pathname).href;
+	function compileTo(file: string, relative: string, replacements: [RegExp, string][]): string {
+		const source = readFileSync(new URL(relative, import.meta.url), 'utf8');
+		let code = compile(source, { generate: 'server', filename: file }).js.code.replace(
+			/(from|import) ['"](svelte(?:\/[^'"]*)?)['"]/g,
+			(_match, keyword, specifier) => `${keyword} ${JSON.stringify(import.meta.resolve(specifier))}`
+		);
+		for (const [pattern, target] of replacements) code = code.replace(pattern, `from ${JSON.stringify(target)}`);
+		const path = join(directory, file.replace(/\.svelte$/, '.mjs'));
+		writeFileSync(path, code);
+		return pathToFileURL(path).href;
+	}
+
+	beforeAll(async () => {
+		directory = mkdtempSync(join(tmpdir(), 'wabi-menu-'));
+		const icons = fileUrl('./components/ui/icons.ts');
+		const icon = compileTo('Icon.svelte', './components/ui/Icon.svelte', [[/from ['"]\.\/icons['"]/g, icons]]);
+		const menu = compileTo('ContextMenu.svelte', './components/context-menu/ContextMenu.svelte', [
+			[/from ['"]\$lib\/components\/ui\/icons['"]/g, icons],
+			[/from ['"]\$lib\/actions\/portal['"]/g, fileUrl('./actions/portal.ts')],
+			[/from ['"]\$lib\/components\/ui\/Icon\.svelte['"]/g, icon]
+		]);
+		({ sentenceCaseLabel, arrangeMenu } = await import(menu));
+	});
+
+	afterAll(() => {
+		if (directory) rmSync(directory, { recursive: true, force: true });
+	});
+
+	test('sentence-cases legacy Title Case and ALL CAPS labels made of UI words', () => {
+		expect(sentenceCaseLabel('View My Profile')).toBe('View my profile');
+		expect(sentenceCaseLabel('Accept Friend Request')).toBe('Accept friend request');
+		expect(sentenceCaseLabel('Set Local Nickname')).toBe('Set local nickname');
+		expect(sentenceCaseLabel('Follow Channel With Alerts')).toBe('Follow channel with alerts');
+		expect(sentenceCaseLabel('DELETE MESSAGE + UPLOADS')).toBe('Delete message + uploads');
+		expect(sentenceCaseLabel('Open OS Window')).toBe('Open OS window');
+	});
+
+	test('never half-cases a label that carries a name, a place or an acronym', () => {
+		expect(sentenceCaseLabel('Message Alice')).toBe('Message Alice');
+		expect(sentenceCaseLabel('Make Gardener')).toBe('Make Gardener');
+		expect(sentenceCaseLabel('Open Notes')).toBe('Open Notes');
+		expect(sentenceCaseLabel('Promote to Lore…')).toBe('Promote to Lore…');
+		expect(sentenceCaseLabel('Open in OS window')).toBe('Open in OS window');
+		expect(sentenceCaseLabel('DM')).toBe('DM');
+	});
+
+	test('arranges rows: danger last, stray separators dropped, kickers start groups', () => {
+		const groups = arrangeMenu([
+			{ id: 'sep-top', type: 'separator' },
+			{ id: 'delete', label: 'Delete Channel', danger: true },
+			{ id: 'feed', label: 'Open Follow Feed', disabled: true },
+			{ id: 'thread', label: 'Create Thread' },
+			{ id: 'sep', type: 'separator' },
+			{ id: 'sep-2', type: 'separator' },
+			{ id: 'k', label: 'Move to folder', leading: '▸' },
+			{ id: 'f1', label: 'Zines', leading: '●' },
+			{ id: 'f2', label: 'Garden Notes', leading: '◦' },
+			{ id: 'hidden', label: 'Hidden', hidden: true }
+		]);
+		expect(groups.map((group) => group.kicker)).toEqual([null, 'Move to folder', null]);
+		expect(groups[0].rule).toBe(false);
+		expect(groups[0].rows.map((row) => row.label)).toEqual(['Open follow feed', 'Create thread']);
+		expect(groups[0].rows[0].disabled).toBe(true);
+		// Folder names are user data: radio rows keep their case.
+		expect(groups[1].rows.map((row) => [row.label, row.role, row.checked])).toEqual([
+			['Zines', 'menuitemradio', true],
+			['Garden Notes', 'menuitemradio', false]
+		]);
+		expect(groups[2]).toMatchObject({ rule: true, rows: [{ label: 'Delete channel', danger: true }] });
+		expect(groups.flatMap((group) => group.rows.map((row) => row.nav))).toEqual([0, 1, 2, 3, 4]);
 	});
 });
