@@ -323,14 +323,30 @@
 		$railPeekKey === 'none' ? 'hover to peek' : `hold ${peekKeyLabel($railPeekKey)} to peek`
 	);
 
-	function isDisplayed(panelId: string): boolean {
-		return $layoutStore.rightPanelMode !== 'none' && $layoutStore.activeRightTab === panelId;
+	/** A panel is on screen: a stowed pin (no room beside the stage) is not, unless a held peek shows it. */
+	function panelOnScreen(): boolean {
+		const mode = $layoutStore.rightPanelMode;
+		if (mode === 'none') return false;
+		return mode !== 'pinned' || $dockCanPin || $peekHeld;
 	}
 
-	// Pinned in flow beside the stage (the folder tab). A pin that cannot fit is shown as a peek.
-	function isPinned(panelId: string): boolean {
-		if ($layoutStore.rightPanelMode !== 'pinned' || !$dockCanPin) return false;
+	function isDisplayed(panelId: string): boolean {
+		return panelOnScreen() && $layoutStore.activeRightTab === panelId;
+	}
+
+	function inPinnedSet(panelId: string): boolean {
+		if ($layoutStore.rightPanelMode !== 'pinned') return false;
 		return $layoutStore.dockStack.length > 0 ? $layoutStore.dockStack.includes(panelId) : $layoutStore.pinnedPanelId === panelId;
+	}
+
+	// Pinned in flow beside the stage (the folder tab).
+	function isPinned(panelId: string): boolean {
+		return $dockCanPin && inPinnedSet(panelId);
+	}
+
+	// Pinned, but stowed off screen until the stage has room for it again.
+	function isStowed(panelId: string): boolean {
+		return !$dockCanPin && inPinnedSet(panelId);
 	}
 
 	/** The panel is open on purpose (pinned, or a held peek): the stub reads as pressed. */
@@ -343,7 +359,8 @@
 		const action = isOpen(panel.id)
 			? isPinned(panel.id) ? 'click to unpin' : 'click to close'
 			: $dockCanPin ? 'click to pin beside others' : 'click to open over the page';
-		return `${panel.label} · ${action} · ${peekHint}`;
+		const stowed = isStowed(panel.id) ? ' · pinned, shown when there is room' : '';
+		return `${panel.label}${stowed} · ${action} · ${peekHint}`;
 	}
 </script>
 

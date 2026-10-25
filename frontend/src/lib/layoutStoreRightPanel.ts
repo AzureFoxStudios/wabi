@@ -23,25 +23,39 @@ export const dockCanPin = writable(true);
  * A peek the person opened on purpose (click, tap, Enter) because pinning would crush the stage.
  * Unlike a hover peek it does not retract when the pointer leaves; the stage scrim, Escape, the
  * panel's close button or the same stub close it. It becomes a pin once the stage has room.
+ * Over a stowed pin (below) it shows a panel without touching the pin: rightPanelMode stays
+ * 'pinned' and peekHeld is what puts the panel on screen.
  */
 export const peekHeld = writable(false);
 
-/** Open a held peek of one panel (replacing whatever was shown). */
+/**
+ * A committed pin that has no room beside the stage (the window narrowed, the sidebar widened, a
+ * pin restored on a small screen) stays pinned, because it is the person's saved layout, but it is
+ * off screen and the stage keeps its width. It comes back in flow once the stage can keep 600px.
+ * Nothing about it changes on its own: no scrim, no focus move, no takeover of the stage.
+ * Phones show every panel as a sheet, so nothing is stowed there.
+ */
+export function pinStowed(): boolean {
+	return get(rightPanelMode) === 'pinned' && !get(dockCanPin) && !get(isMobile);
+}
+
+/** Open a held peek of one panel (replacing whatever peek was shown; a stowed pin is kept). */
 function holdPeek(panelId: WorkspacePanelId): void {
-	if (get(rightPanelMode) === 'pinned') {
-		// Pins that cannot sit beside the stage at this width are presented as a peek already;
-		// opening another panel replaces them with a single held peek.
-		pinnedPanelId.set(null);
-		dockStack.set([]);
-	}
 	addStub(panelId);
 	activeRightTab.set(panelId);
 	peekHeld.set(true);
-	rightPanelMode.set('peek');
+	if (get(rightPanelMode) !== 'pinned') rightPanelMode.set('peek');
 }
 
-function isHeldPeek(): boolean {
-	return get(rightPanelMode) === 'peek' && get(peekHeld);
+/** End a held peek: over a stowed pin the pin stays and the displayed tab returns to it. */
+function endHeldPeek(): void {
+	if (get(rightPanelMode) !== 'pinned') {
+		unpinPanel();
+		return;
+	}
+	peekHeld.set(false);
+	const committed = get(pinnedPanelId);
+	if (committed) activeRightTab.set(committed);
 }
 
 /**
@@ -50,14 +64,13 @@ function isHeldPeek(): boolean {
  */
 export function openPanelFromRail(panelId: WorkspacePanelId): void {
 	const normalized = normalizePanelIdForRuntime(panelId);
-	const showing = get(rightPanelMode) !== 'none' && get(activeRightTab) === normalized;
-	// The panel already open on purpose (a held peek, or a pin shown as a peek) closes again.
-	if (showing && (isHeldPeek() || (get(rightPanelMode) === 'pinned' && !get(dockCanPin)))) {
-		closeRightPanel();
+	if (get(dockCanPin) || get(isMobile)) {
+		pinPanel(normalized);
 		return;
 	}
-	if (get(dockCanPin)) {
-		pinPanel(normalized);
+	// No room: the panel already open on purpose closes again (a stowed pin is left as it is).
+	if (get(peekHeld) && get(rightPanelMode) !== 'none' && get(activeRightTab) === normalized) {
+		endHeldPeek();
 		return;
 	}
 	// A hover peek of this stub is committed by the click; another panel replaces what is shown.
@@ -65,13 +78,22 @@ export function openPanelFromRail(panelId: WorkspacePanelId): void {
 }
 
 // A held peek is a pin waiting for room: once the stage can keep 600px beside it, it pins.
+// Over a stowed pin, the pin comes back in flow and a peek of another panel joins it.
 dockCanPin.subscribe((canPin) => {
-	if (canPin && isHeldPeek()) pinPanel(get(activeRightTab));
+	if (!canPin || !get(peekHeld)) return;
+	const mode = get(rightPanelMode);
+	const shown = get(activeRightTab);
+	if (mode === 'pinned' && pinnedIds().includes(shown)) peekHeld.set(false);
+	else if (mode !== 'none') pinPanel(shown);
 });
 
-// Whatever ends the peek (close, pin, the phone layout taking over) ends the hold with it.
+// Whatever ends the peek (close, a pin restored over it, the phone layout taking over) ends the hold.
+let lastRightPanelMode = get(rightPanelMode);
 rightPanelMode.subscribe((mode) => {
-	if (mode !== 'peek' && get(peekHeld)) peekHeld.set(false);
+	const from = lastRightPanelMode;
+	lastRightPanelMode = mode;
+	if (!get(peekHeld)) return;
+	if (mode === 'none' || (mode === 'pinned' && from !== 'pinned')) peekHeld.set(false);
 });
 
 /** Everything pinned in the dock, in pin order. */
@@ -107,7 +129,7 @@ export function peekPanel(panelId: WorkspacePanelId): void {
 
 export function dismissPeek(): void {
 	// A held peek stays until it is closed on purpose; only hover peeks retract on pointer leave.
-	if (get(peekHeld) && get(rightPanelMode) === 'peek') return;
+	if (get(peekHeld) && get(rightPanelMode) !== 'none') return;
 	if (get(rightPanelMode) === 'pinned') {
 		const committed = get(pinnedPanelId);
 		if (committed && get(activeRightTab) !== committed) {
@@ -162,6 +184,11 @@ export function unpinPanel(): void {
 
 export function closeRightPanel(): void {
 	if (get(rightPanelMode) === 'none') return;
+	// Closing never discards a pin the person cannot see: over a stowed pin it only ends the peek.
+	if (pinStowed()) {
+		if (get(peekHeld)) endHeldPeek();
+		return;
+	}
 	unpinPanel();
 }
 
@@ -179,22 +206,29 @@ export function openRightPanel(panelId: WorkspacePanelId, opts?: { pin?: boolean
 		peekPanel(normalized);
 		return;
 	}
-	// Opening a conversation in an already-open panel must not toggle it shut.
-	if (isPinnedTo(normalized)) {
-		activeRightTab.set(normalized);
-		return;
-	}
 	// No room beside the stage (desktop): open, never toggle shut, a held peek instead of a pin.
+	// A stowed pin of this panel is shown the same way; the pin itself is kept.
 	// Phones show every panel as a sheet, so the guard does not apply there.
 	if (!get(dockCanPin) && !get(isMobile)) {
 		holdPeek(normalized);
+		return;
+	}
+	// Opening a conversation in an already-open panel must not toggle it shut.
+	if (isPinnedTo(normalized)) {
+		activeRightTab.set(normalized);
 		return;
 	}
 	pinPanel(normalized);
 }
 
 export function setDisplayedPanel(panelId: WorkspacePanelId): void {
-	activeRightTab.set(normalizePanelIdForRuntime(panelId));
+	const normalized = normalizePanelIdForRuntime(panelId);
+	// A stowed pin is off screen, so displaying one of its panels shows it as a held peek.
+	if (pinStowed()) {
+		holdPeek(normalized);
+		return;
+	}
+	activeRightTab.set(normalized);
 }
 
 export function addStub(panelId: WorkspacePanelId): void {

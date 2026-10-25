@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { get } from 'svelte/store';
 import { armPeekDismiss, peekAnimationGate } from './rightPeekGestures';
-import { closeRightPanel, dismissPeek, dockCanPin, openPanelFromRail, openRightPanel, peekHeld, peekPanel, pinPanel } from './layoutStoreRightPanel';
+import { closeRightPanel, dismissPeek, dockCanPin, openPanelFromRail, openRightPanel, peekHeld, peekPanel, pinPanel, pinStowed, setDisplayedPanel, unpinPanel } from './layoutStoreRightPanel';
 import { activeRightTab, dockStack, pinnedPanelId, rightPanelMode } from './layoutStoreStates';
 
 const originalFrame = globalThis.requestAnimationFrame;
 afterEach(() => {
 	globalThis.requestAnimationFrame = originalFrame;
-	closeRightPanel();
+	unpinPanel();
 	dockCanPin.set(true);
 });
 
@@ -84,18 +84,90 @@ describe('opening a companion when the stage has no room to spare', () => {
 		expect(get(peekHeld)).toBe(true);
 	});
 
-	test('a pin shown as a peek (no room) closes from its stub and is replaced by another', () => {
+	test('a pin that loses its room is stowed, not turned into a peek: nothing covers the stage', () => {
+		pinPanel('users');
+		dockCanPin.set(false);
+		expect(pinStowed()).toBe(true);
+		expect(get(rightPanelMode)).toBe('pinned');
+		expect(get(peekHeld)).toBe(false);
+		expect(get(pinnedPanelId)).toBe('users');
+		// Room again: the same pin is back in flow.
+		dockCanPin.set(true);
+		expect(pinStowed()).toBe(false);
+		expect(get(rightPanelMode)).toBe('pinned');
+		expect(get(pinnedPanelId)).toBe('users');
+	});
+
+	test('a stowed pin opens from its stub as a held peek and closes again without losing the pin', () => {
+		pinPanel('users');
+		pinPanel('notes');
+		dockCanPin.set(false);
+		openPanelFromRail('users');
+		expect(get(peekHeld)).toBe(true);
+		expect(get(activeRightTab)).toBe('users');
+		openPanelFromRail('users');
+		expect(get(peekHeld)).toBe(false);
+		expect(get(rightPanelMode)).toBe('pinned');
+		expect(get(dockStack)).toEqual(['users', 'notes']);
+		expect(get(activeRightTab)).toBe('notes');
+	});
+
+	test('another stub peeks over a stowed pin; scrim, Escape and close end the peek and keep the pin', () => {
 		pinPanel('users');
 		dockCanPin.set(false);
 		openPanelFromRail('dms');
-		expect(get(rightPanelMode)).toBe('peek');
-		expect(get(pinnedPanelId)).toBeNull();
-		expect(get(dockStack)).toEqual([]);
+		expect(get(peekHeld)).toBe(true);
+		expect(get(activeRightTab)).toBe('dms');
+		expect(get(pinnedPanelId)).toBe('users');
+		expect(get(dockStack)).toEqual(['users']);
 		closeRightPanel();
+		expect(get(peekHeld)).toBe(false);
+		expect(get(rightPanelMode)).toBe('pinned');
+		expect(get(pinnedPanelId)).toBe('users');
+		expect(get(activeRightTab)).toBe('users');
+	});
+
+	test('closing with nothing on screen never discards a stowed pin (stray Escape, navigation)', () => {
+		pinPanel('users');
+		dockCanPin.set(false);
+		closeRightPanel();
+		expect(get(rightPanelMode)).toBe('pinned');
+		expect(get(pinnedPanelId)).toBe('users');
+	});
+
+	test('when room returns, a peek over a stowed pin joins the dock; a peek of the pin just re-pins', () => {
 		pinPanel('users');
 		dockCanPin.set(false);
 		openPanelFromRail('users');
-		expect(get(rightPanelMode)).toBe('none');
+		dockCanPin.set(true);
+		expect(get(peekHeld)).toBe(false);
+		expect(get(dockStack)).toEqual(['users']);
+		dockCanPin.set(false);
+		openPanelFromRail('notes');
+		dockCanPin.set(true);
+		expect(get(peekHeld)).toBe(false);
+		expect(get(dockStack)).toEqual(['users', 'notes']);
+		expect(get(activeRightTab)).toBe('notes');
+	});
+
+	test('openRightPanel and setDisplayedPanel show a stowed pin as a held peek instead of a no-op', () => {
+		pinPanel('users');
+		dockCanPin.set(false);
+		openRightPanel('users');
+		expect(get(peekHeld)).toBe(true);
+		closeRightPanel();
+		setDisplayedPanel('users');
+		expect(get(peekHeld)).toBe(true);
+		expect(get(pinnedPanelId)).toBe('users');
+	});
+
+	test('a hover retract never ends a held peek over a stowed pin', () => {
+		pinPanel('users');
+		dockCanPin.set(false);
+		openPanelFromRail('dms');
+		dismissPeek();
+		expect(get(peekHeld)).toBe(true);
+		expect(get(activeRightTab)).toBe('dms');
 	});
 
 	test('a held peek pins itself once the stage has room again', () => {

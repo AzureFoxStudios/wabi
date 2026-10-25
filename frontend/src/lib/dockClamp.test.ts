@@ -68,7 +68,18 @@ describe('dockWidthFor: pinned panels never crush center stage', () => {
 		expect(dockWidthFor({ viewport: Number.NaN, ...shell, requested: 304 })).toEqual({ mode: 'peek', width: 0, max: 0 });
 		expect(dockWidthFor({ viewport: 1536, ...shell, requested: Number.NaN }).width).toBe(DOCK_DEFAULT_PANEL);
 		expect(stageWithoutPanel({ viewport: 500, sidebar: 600, rail: 44 })).toBe(0);
-		expect(peekWidthFor(0)).toBe(0);
+		expect(peekWidthFor(0, 0)).toBe(0);
+	});
+
+	test('a sidebar that leaves no stage still gets a usable peek, never a 0px sliver', () => {
+		// 1000 window, 900 sidebar: no stage at all, but 956px beside the rail.
+		expect(dockWidthFor({ viewport: 1000, sidebar: 900, rail: 44, requested: 304 })).toEqual({ mode: 'peek', width: DOCK_MIN_PANEL, max: 0 });
+		// A tiny window gives the peek what there is beside the rail.
+		expect(dockWidthFor({ viewport: 200, sidebar: 300, rail: 44, requested: 304 }).width).toBe(156);
+		expect(peekWidthFor(0)).toBe(DOCK_MIN_PANEL);
+		// The floor only lifts a peek that 72% would make narrower than a panel.
+		expect(peekWidthFor(300)).toBe(DOCK_MIN_PANEL);
+		expect(peekWidthFor(392)).toBe(282);
 	});
 });
 

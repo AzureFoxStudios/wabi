@@ -159,8 +159,32 @@
 
 .right-panel-zone.stub-left { left: var(--w-rail-w, 46px); right: auto; }
 
-/* Focus moves here when a peek opens over a stage that had focus; the ring sits inside the edge. */
-.right-panel-zone:focus-visible { outline: 2px solid var(--w-accent); outline-offset: -2px; }
+/* Focus moves here when a held peek opens over a stage that had focus. The opaque body would
+   paint over an inset outline on the zone, so the ring is drawn by a layer above the content. */
+.right-panel-zone:focus-visible { outline: none; }
+.right-panel-zone:focus-visible::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	z-index: calc(var(--z-sticky) + 1); /* above the panel body and its sticky heads */
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+	pointer-events: none;
+}
+
+/* The lazily loaded panel's first open: the kit load line under the masthead plus skeleton rows. */
+.companion-loading {
+	box-sizing: border-box;
+	padding-top: calc(var(--w-mast, 96px) - 2px);
+}
+.companion-loading-rows { padding: 8px 16px; }
+.companion-loading-rows .w-skel-stack .w-skel:first-child { width: 46%; }
+.companion-loading-rows .w-skel-stack .w-skel:last-child { width: 72%; }
+.companion-loading-rows .w-skel-row:nth-child(even) .w-skel-stack .w-skel:first-child { width: 34%; }
+
+/* The stage content a held peek's scrim covers (MainLayout makes it inert). It adds no box: the
+   workspace bar, surface and voice strip stay flex items of .chat-stack. The call layer is outside. */
+.stage-covered { display: contents; }
 
 /* Plane 0 surface (§4.5): --w-bg2, no gradients, a --w-line hairline on the edge toward the stage. */
 .right-panel-body {
@@ -242,7 +266,7 @@
 @keyframes stage-scrim-in { from { opacity: 0; } }
 @keyframes stage-scrim-out { to { opacity: 0; } }
 
-/* Resize edges (§7.21): an 8px hit area centred on the column hairline. Invisible at rest; a 2px
+/* Resize edges (§7.21): an 8px hit area on the column hairline. Invisible at rest; a 2px
    --w-accent line on hover, keyboard focus and while dragging. The companion's edge is a
    focusable role=separator (arrow keys resize; see MainLayout). */
 .resize-handle {
@@ -280,20 +304,23 @@
 
 .resize-handle-channel { right: -4px; }
 
-/* Sits on the zone (not inside the clipped body) so it can straddle the inner hairline. */
+/* Sits on the zone (not inside the clipped body), its hit area wholly on the panel side of the
+   hairline so it never overlaps the stage's scrollbar at the 600px clamp. Its line covers the hairline. */
 .resize-handle-right {
-	left: -4px;
+	left: 0;
 	z-index: 1;
 }
+.resize-handle-right::before { left: 0; }
 
 .right-panel-zone.stub-left .resize-handle-right {
 	left: auto;
-	right: -4px;
+	right: 0;
 }
+.right-panel-zone.stub-left .resize-handle-right::before { left: auto; right: 0; }
 
-/* "Obvious grab rails" preference: the edges show a quiet line at rest. */
+/* "Obvious grab rails" preference: the edges keep a plainly visible --w-mute line at rest. */
 .app-container.obvious-grab-rails .resize-handle:not(:hover, :focus-visible, .dragging)::before {
-	background: var(--w-line-strong);
+	background: var(--w-mute);
 }
 
 .app-container.nav-right .resize-handle-channel {
