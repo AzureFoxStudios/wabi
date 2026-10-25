@@ -132,3 +132,17 @@ test('the shortcut is Ctrl K or ⌘K without Shift or Alt, and not while composi
 	expect(isPaletteShortcut(key({ ctrlKey: true, isComposing: true }))).toBe(false);
 	expect(isPaletteShortcut(key({ ctrlKey: true, key: 'j' }))).toBe(false);
 });
+
+test('the shortcut follows the physical K key on non-Latin layouts, never a moved Latin letter', () => {
+	const key = (init: Partial<KeyboardEvent>) => ({ key: 'k', code: 'KeyK', ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, ...init });
+	expect(isPaletteShortcut(key({ key: 'л' }))).toBe(true); // Russian
+	expect(isPaletteShortcut(key({ key: 'κ' }))).toBe(true); // Greek
+	expect(isPaletteShortcut(key({ key: 'Л', metaKey: true, ctrlKey: false }))).toBe(true);
+	expect(isPaletteShortcut(key({ key: 'л', shiftKey: true }))).toBe(false);
+	expect(isPaletteShortcut(key({ key: 'л', ctrlKey: false }))).toBe(false);
+	// Dvorak: the physical K key types "t", and "k" lives on the physical V key.
+	expect(isPaletteShortcut(key({ key: 't' }))).toBe(false);
+	expect(isPaletteShortcut(key({ key: 'k', code: 'KeyV' }))).toBe(true);
+	// A non-Latin letter on another key is not the shortcut.
+	expect(isPaletteShortcut(key({ key: 'д', code: 'KeyL' }))).toBe(false);
+});

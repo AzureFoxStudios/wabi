@@ -3,9 +3,21 @@ import { get, writable } from 'svelte/store';
 mock.module('$lib/notes/scope', () => ({ notebookOwner:writable({owner:null}),captureNotebookOwner:async()=>({scopeId:'account',isCurrent:()=>true}) }));
 mock.module('$lib/serverUrl', () => ({getServerUrl:()=> 'https://community.test',activeServerUrl:writable('https://community.test')}));
 mock.module('$lib/authSession', () => ({getAuthToken:()=> 'token',onAuthSessionCleared:()=>()=>{}}));
-const { openWorkspace, targets, workspaceToolFromTab, ensureWorkspaceTab, workspaceTabId, OFFICE_TOOL_VIEW, OFFICE_TAB_LABEL } = await import('./bridge');
+const { openWorkspace, targets, workspaceToolFromTab, ensureWorkspaceTab, enterWorkspaceTab, workspaceTabId, OFFICE_TOOL_VIEW, OFFICE_TAB_LABEL } = await import('./bridge');
 const { mobileTabQueue } = await import('../mobileTabQueue');
 const { createWorkspaceNavigation } = await import('../workspaceNavigation');
+
+/** The app's wiring (workspaceNavigationState.ts) over the real bridge and queue. */
+function officeNavigation(){
+    return createWorkspaceNavigation({
+        addonIds:{notifications:'notifications',reader:'reader',model:'model-viewport',map:'server-map',media:'media-albums',planner:'planner',notes:'notes',lore:'lore',files:'files',
+            documents:workspaceTabId('documents'),sheets:workspaceTabId('sheets'),present:workspaceTabId('present')},
+        addonAliases:{[workspaceTabId('audience')]:OFFICE_TOOL_VIEW.audience},
+        prepareAddonTab:view=>{if(view==='documents'||view==='sheets'||view==='present')enterWorkspaceTab(view);},
+        queue:mobileTabQueue,channel:writable('general'),voice:writable(false),surface:writable<'messages'|'whiteboard'>('messages'),setSurface:()=>{}
+    });
+}
+const readerHandoff={source:{title:'Field notes',content:'Private Reader text',format:'markdown',sourceKey:'reader:notes'},shareMode:'live' as const};
 
 function captureNavigation(run:()=>void):CustomEvent[] {
     const before=globalThis.window;
@@ -58,22 +70,56 @@ test('ensureWorkspaceTab registers an absent tab once without navigating or acti
     expect(events).toHaveLength(0);
     expect(get(mobileTabQueue.activeTabId)).toBe('channel:general');
     expect(get(mobileTabQueue.addonTabs).filter(tab=>tab.id==='workspace-sheets')).toHaveLength(1);
-    // Registration is not a navigation target: an editor keeps whatever it last opened.
+    // Registration alone leaves targets alone; the nav entry is enterWorkspaceTab.
     expect(get(targets)).toBe(before);
+});
+test('enterWorkspaceTab clears only that tool’s one-shot handoff and registers without navigating',()=>{
+    captureNavigation(()=>{openWorkspace('documents',readerHandoff);openWorkspace('present',{source:readerHandoff.source});});
+    mobileTabQueue.unregisterAddonTab('workspace-documents');
+    mobileTabQueue.setActiveChannel('general');
+    const events=captureNavigation(()=>expect(enterWorkspaceTab('documents')).toBe('workspace-documents'));
+    expect(events).toHaveLength(0);
+    expect(get(mobileTabQueue.activeTabId)).toBe('channel:general');
+    expect(get(mobileTabQueue.addonTabs).filter(tab=>tab.id==='workspace-documents')).toHaveLength(1);
+    expect(get(targets).documents).toEqual({});
+    expect(get(targets).present).toEqual({source:readerHandoff.source});
+});
+test('entering an office view from the nav never replays the last handoff, and re-selecting keeps an open editor',()=>{
+    const navigation=officeNavigation();
+    // A Reader "share" handoff opens Documents with a share dialog preset; the user moves on.
+    captureNavigation(()=>openWorkspace('documents',readerHandoff));
+    expect(get(targets).documents).toBe(readerHandoff);
+    navigation.select('messages');
+    // Choosing Documents again mounts a new editor: it must open the library, not the handoff.
+    const events=captureNavigation(()=>navigation.select('documents'));
+    expect(events).toHaveLength(0);
+    expect(get(mobileTabQueue.activeTabId)).toBe('addon:workspace-documents');
+    expect(get(targets).documents).toEqual({});
+    // Already in Documents: nothing is reset, so the open editor keeps its document.
+    captureNavigation(()=>openWorkspace('documents',{id:'artifact'}));
+    const opened=get(targets).documents;
+    navigation.select('documents');
+    expect(get(targets).documents).toBe(opened);
+    // Present and Sheets behave the same way (no import preview or stale artifact on entry).
+    for(const tool of ['present','sheets'] as const){
+        captureNavigation(()=>openWorkspace(tool,tool==='present'?{source:readerHandoff.source}:{id:'sheet-artifact'}));
+        navigation.select('messages');
+        navigation.select(tool);
+        expect(get(targets)[tool]).toEqual({});
+    }
 });
 test('a joined presentation (audience) resolves to the Present view',()=>{
     expect(OFFICE_TOOL_VIEW).toEqual({documents:'documents',sheets:'sheets',present:'present',audience:'present'});
-    const navigation=createWorkspaceNavigation({
-        addonIds:{notifications:'notifications',reader:'reader',model:'model-viewport',map:'server-map',media:'media-albums',planner:'planner',notes:'notes',lore:'lore',files:'files',
-            documents:workspaceTabId('documents'),sheets:workspaceTabId('sheets'),present:workspaceTabId('present')},
-        addonAliases:{[workspaceTabId('audience')]:OFFICE_TOOL_VIEW.audience},
-        ensureAddonTab:view=>{if(view==='documents'||view==='sheets'||view==='present')ensureWorkspaceTab(view);},
-        queue:mobileTabQueue,channel:writable('general'),voice:writable(false),surface:writable<'messages'|'whiteboard'>('messages'),setSurface:()=>{}
-    });
+    const navigation=officeNavigation();
     captureNavigation(()=>openWorkspace('audience',{sessionId:'room'}));
     expect(get(mobileTabQueue.activeTabId)).toBe('addon:workspace-audience');
     expect(workspaceToolFromTab(get(mobileTabQueue.activeTabId))).toBe('audience');
     expect(get(navigation.activeView)).toBe('present');
+    // Choosing Present while in the room keeps the room and its session target.
+    const room=get(targets).audience;
+    navigation.select('present');
+    expect(get(mobileTabQueue.activeTabId)).toBe('addon:workspace-audience');
+    expect(get(targets).audience).toBe(room);
     captureNavigation(()=>openWorkspace('documents'));
     expect(get(navigation.activeView)).toBe('documents');
     // The folio path: registering through the bridge, opening once, no second navigation.

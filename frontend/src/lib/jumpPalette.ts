@@ -123,7 +123,13 @@ export function parsePaletteInput(raw: string, scope: PaletteScope): { scope: Pa
 	return { scope, query: raw };
 }
 
-/** Ctrl K (⌘K on macOS), without Shift or Alt, so Ctrl Shift K stays free. */
-export function isPaletteShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'> & { isComposing?: boolean }): boolean {
-	return (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && !event.isComposing && event.key.toLowerCase() === 'k';
+/**
+ * Ctrl K (⌘K on macOS), without Shift or Alt, so Ctrl Shift K stays free. The physical K key
+ * also counts when the layout types no Latin letter there (Cyrillic `л`, Greek `κ`), so the
+ * shortcut works on every layout; a Latin layout that moves K (Dvorak) keeps its own letter.
+ */
+export function isPaletteShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'> & { code?: string; isComposing?: boolean }): boolean {
+	if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.isComposing) return false;
+	const key = event.key.toLowerCase();
+	return key === 'k' || (event.code === 'KeyK' && !/^[a-z]$/.test(key));
 }

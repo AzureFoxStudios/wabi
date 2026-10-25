@@ -10,7 +10,8 @@
 		canOpenWhiteboard?: boolean;
 		activityBadge?: string;
 	} = $props();
-	const views: { id: WorkspaceViewKey; label: string; detail: string }[] = [
+	// `preview` marks an integration candidate: menus add a lowercase mono "preview" hint (§9.1).
+	const views: { id: WorkspaceViewKey; label: string; detail: string; preview?: boolean }[] = [
 		{ id: 'messages', label: 'Chat', detail: 'Your current channel' },
 		{ id: 'notifications', label: 'Activity', detail: 'Alerts, follows & friends' },
 		{ id: 'voice', label: 'Calls', detail: 'Voice, video & sharing' },
@@ -19,10 +20,9 @@
 		{ id: 'notes', label: 'Notes', detail: 'Your personal notes' },
 		{ id: 'lore', label: 'Project', detail: 'Shared Plan, Wiki & optional files' },
 		{ id: 'files', label: 'Files', detail: 'Browse files & transfers' },
-		// Office tools are an integration candidate: the detail carries the maturity word.
-		{ id: 'documents', label: 'Documents', detail: 'Private until you share · preview' },
-		{ id: 'sheets', label: 'Sheets', detail: 'Spreadsheets · optional add-on · preview' },
-		{ id: 'present', label: 'Present', detail: 'Slides and presenting · optional add-on · preview' },
+		{ id: 'documents', label: 'Documents', detail: 'Private until you share', preview: true },
+		{ id: 'sheets', label: 'Sheets', detail: 'Spreadsheets · optional add-on', preview: true },
+		{ id: 'present', label: 'Present', detail: 'Slides & presenting · optional add-on', preview: true },
 		{ id: 'media', label: 'Media', detail: 'Photos & albums' },
 		{ id: 'reader', label: 'Reader', detail: 'Documents & reading' },
 		{ id: 'model', label: '3D viewer', detail: 'Explore models' },
@@ -31,16 +31,25 @@
 	// In the channel header only the everyday views get an icon; "More" opens the full picker.
 	const PRIMARY: WorkspaceViewKey[] = ['messages', 'notifications', 'voice', 'lore', 'files', 'media'];
 	const stripViews = $derived(inline ? views.filter(view => PRIMARY.includes(view.id) || view.id === activeView) : views);
+	/** Tooltip: "Documents · private until you share · preview" (§7.10). */
+	const tooltip = (view: (typeof views)[number]): string =>
+		`${view.label} · ${view.detail.charAt(0).toLowerCase()}${view.detail.slice(1)}${view.preview ? ' · preview' : ''}`;
 	const pickerId = $props.id();
 	let open = $state(false);
 	let root: HTMLElement | undefined = $state();
+	let strip: HTMLDivElement | undefined = $state();
+	let more: HTMLButtonElement | undefined = $state();
 	let trigger: HTMLButtonElement | undefined = $state();
 	let panel: HTMLDivElement | undefined = $state();
 	const selected = $derived(views.find(view => view.id === activeView)!);
 
+	/** The control that opens the picker at this width: "All workspaces" beside the strip, else the trigger. */
+	function pickerButton(): HTMLButtonElement | undefined {
+		return more?.getClientRects().length ? more : trigger;
+	}
 	function close(restoreFocus = false): void {
 		open = false;
-		if (restoreFocus) (inline ? root?.querySelector<HTMLButtonElement>('.strip-more') : trigger)?.focus({ preventScroll: true });
+		if (restoreFocus) pickerButton()?.focus({ preventScroll: true });
 	}
 	async function toggle(): Promise<void> {
 		if (open) { close(true); return; }
@@ -49,20 +58,50 @@
 		(panel?.querySelector<HTMLButtonElement>('[aria-current="page"]') ??
 			panel?.querySelector<HTMLButtonElement>('button:not(:disabled)'))?.focus();
 	}
-	function select(view: WorkspaceViewKey): void {
+	// Focus goes back to the picker button only when the picker held it; a strip tab keeps focus.
+	function select(view: WorkspaceViewKey, restoreFocus = open): void {
 		onSelectView(view);
-		close(true);
+		close(restoreFocus);
 	}
 	function onKeydown(event: KeyboardEvent): void {
 		if (event.key === 'Escape' && open) {
 			event.preventDefault();
 			event.stopPropagation();
 			close(true);
-		} else if ((event.target === trigger || (event.target as HTMLElement | null)?.classList?.contains('strip-more')) && event.key === 'ArrowDown') {
+		} else if ((event.target === trigger || event.target === more) && event.key === 'ArrowDown') {
 			event.preventDefault();
 			if (!open) void toggle();
 		}
 	}
+	/**
+	 * The strip scrolls without a scrollbar, so never leave "where you are" clipped: reveal the
+	 * active tab when the view changes, once its label has grown, and when the bar narrows
+	 * (a panel opens). A tab the user scrolled to by hand is left alone otherwise.
+	 */
+	function revealActive(): void {
+		const item = strip?.querySelector<HTMLElement>('.strip-item.active');
+		if (!strip || !item || strip.scrollWidth <= strip.clientWidth) return;
+		const box = strip.getBoundingClientRect(), rect = item.getBoundingClientRect();
+		if (rect.left < box.left) strip.scrollLeft -= box.left - rect.left;
+		else if (rect.right > box.right) strip.scrollLeft += rect.right - box.right;
+	}
+	$effect(() => {
+		void activeView;
+		const el = strip;
+		if (!el) return;
+		const frame = requestAnimationFrame(revealActive);
+		const onLabelGrown = (event: TransitionEvent) => {
+			if (event.propertyName === 'max-width' && (event.target as Element | null)?.closest('.strip-item.active')) revealActive();
+		};
+		el.addEventListener('transitionend', onLabelGrown);
+		let width = root?.clientWidth ?? 0;
+		const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => {
+			const next = root?.clientWidth ?? 0;
+			if (next !== width) { width = next; revealActive(); }
+		});
+		if (root) observer?.observe(root);
+		return () => { cancelAnimationFrame(frame); el.removeEventListener('transitionend', onLabelGrown); observer?.disconnect(); };
+	});
 	$effect(() => {
 		if (!open) return;
 		const onOutsidePress = (event: PointerEvent) => {
@@ -153,21 +192,20 @@
 <nav class="workspace-view-bar" class:inline class:picker-open={open} aria-label="Workspace" bind:this={root}
 	onfocusout={(event) => { if (!root?.contains(event.relatedTarget as Node)) close(); }}>
 	<!-- Desktop: every view one click away. The active view shows its name; the rest reveal theirs on hover or focus. -->
-	<div class="workspace-strip" role="toolbar" aria-label="Workspace views">
+	<div class="workspace-strip" role="toolbar" aria-label="Workspace views" bind:this={strip}>
 		{#each stripViews as view (view.id)}
-			<button type="button" class="strip-item" class:active={activeView === view.id} aria-label={view.label} title={`${view.label} · ${view.detail}`}
+			<button type="button" class="strip-item" class:active={activeView === view.id} aria-label={view.label} title={tooltip(view)}
 				aria-current={activeView === view.id ? 'page' : undefined} disabled={view.id === 'whiteboard' && !canOpenWhiteboard} onclick={() => select(view.id)}>
 				{@render workspaceIcon(view.id)}
 				<span class="strip-label">{view.label}</span>
 				{#if view.id === 'notifications' && activityBadge}<span class="activity-badge" aria-label={`${activityBadge} items need attention`}>{activityBadge}</span>{/if}
 			</button>
 		{/each}
-		{#if inline}
-			<button type="button" class="strip-item strip-more" aria-expanded={open} aria-controls={pickerId} aria-haspopup="dialog" aria-label="All workspaces" title="All workspaces" onclick={toggle}>
-				<svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
-			</button>
-		{/if}
 	</div>
+	<!-- Outside the scrolling strip so every view stays reachable when the strip is clipped. -->
+	<button type="button" class="strip-item strip-more" bind:this={more} aria-expanded={open} aria-controls={pickerId} aria-haspopup="dialog" aria-label="All workspaces" title="All workspaces" onclick={toggle}>
+		<svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+	</button>
 	<button class="workspace-trigger" type="button" bind:this={trigger}
 		aria-expanded={open} aria-controls={pickerId} aria-haspopup="dialog"
 		aria-label={`Switch workspace: ${selected.label}`} onclick={toggle}>
@@ -176,7 +214,7 @@
 		{#if activityBadge}<span class="activity-badge" aria-label={`${activityBadge} items need attention in Activity`}>{activityBadge}</span>{/if}
 		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
 	</button>
-	<button class="workspace-return" class:unavailable={activeView === 'messages'} disabled={activeView === 'messages'} type="button" aria-label="Return to Chat" onclick={() => select('messages')}>
+	<button class="workspace-return" class:unavailable={activeView === 'messages'} disabled={activeView === 'messages'} type="button" aria-label="Return to Chat" onclick={() => select('messages', true)}>
 		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m12 5-7 7 7 7M5 12h14" /></svg>
 		<span>Chat</span>
 	</button>
@@ -185,10 +223,10 @@
 			<p class="workspace-picker-heading">Choose a workspace</p>
 			<div class="workspace-options">
 				{#each views as view (view.id)}
-					<button type="button" class="workspace-option" aria-label={view.label} aria-describedby={`${pickerId}-${view.id}-detail`} aria-current={activeView === view.id ? 'page' : undefined}
+					<button type="button" class="workspace-option" aria-label={view.label} aria-describedby={`${pickerId}-${view.id}-detail${view.preview ? ` ${pickerId}-${view.id}-hint` : ''}`} aria-current={activeView === view.id ? 'page' : undefined}
 						disabled={view.id === 'whiteboard' && !canOpenWhiteboard} onclick={() => select(view.id)}>
 						{@render workspaceIcon(view.id)}
-						<span><span class="workspace-option-label">{view.label}{#if view.id === 'notifications' && activityBadge} <span class="activity-badge">{activityBadge}</span>{/if}</span><span class="workspace-option-detail" id={`${pickerId}-${view.id}-detail`}>{view.detail}</span></span>
+						<span><span class="workspace-option-label">{view.label}{#if view.preview}<span class="workspace-option-hint" id={`${pickerId}-${view.id}-hint`}>preview</span>{/if}{#if view.id === 'notifications' && activityBadge} <span class="activity-badge">{activityBadge}</span>{/if}</span><span class="workspace-option-detail" id={`${pickerId}-${view.id}-detail`}>{view.detail}</span></span>
 					</button>
 				{/each}
 			</div>
@@ -242,12 +280,14 @@
 	.workspace-return.unavailable { visibility: hidden; }
 	.workspace-view-bar :global(svg) { flex-shrink: 0; }
 	/* Strip on desktop, picker on small screens. */
-	.workspace-strip { display: none; }
+	.workspace-strip, .strip-more { display: none; }
 	@media (min-width: 900px) {
-		.workspace-strip { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+		.workspace-strip { display: flex; flex: 0 1 auto; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 		.workspace-trigger, .workspace-return { display: none; }
 		.workspace-view-bar { justify-content: flex-start; padding-block: 0; }
-		.strip-item { display: inline-flex; align-items: center; gap: 0; min-height: 38px; padding: 0 10px; border-radius: calc(8px * var(--w-rs, 1)); color: var(--w-mute, var(--text-secondary)); position: relative; }
+		.workspace-view-bar.inline { gap: 2px; }
+		.strip-more { flex: none; }
+		.strip-item { display: inline-flex; flex: none; align-items: center; gap: 0; min-height: 38px; padding: 0 10px; border-radius: calc(8px * var(--w-rs, 1)); color: var(--w-mute, var(--text-secondary)); position: relative; }
 		.strip-item :global(svg) { width: 17px; height: 17px; stroke-width: 1.6; }
 		.strip-label { max-width: 0; overflow: hidden; white-space: nowrap; opacity: 0; font: 600 .78rem var(--w-sans, inherit); transition: max-width .22s ease, opacity .18s ease, margin .22s ease; }
 		.strip-item:hover .strip-label, .strip-item:focus-visible .strip-label, .strip-item.active .strip-label { max-width: 9rem; opacity: 1; margin-inline-start: 7px; }
@@ -280,6 +320,7 @@
 	.workspace-option > span { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
 	.workspace-option-label { font-size: var(--text-base); font-weight: var(--font-weight-medium); color: var(--text-heading); }
 	.workspace-option-detail { font-size: var(--text-xs); line-height: 1.4; color: var(--text-secondary); }
+	.workspace-option-hint { margin-inline-start: var(--space-2); font: var(--w-t-micro); color: var(--w-faint, var(--text-secondary)); white-space: nowrap; }
 	.workspace-option[aria-current="page"] { border-color: var(--accent-primary-color); background: var(--surface-raised); }
 	/* Mobile: the picker becomes a bottom sheet with a dimming backdrop.
 	   Clicks pass through the backdrop to the document outside-press handler. */
