@@ -53,8 +53,12 @@
 	let dragStart = $state<number | null>(null);
 	let dragY = $state(0);
 
-	const portalTarget =
-		typeof document !== 'undefined' ? ((document.fullscreenElement as HTMLElement | null) ?? document.body) : undefined;
+	// Read each time the sheet opens, so a sheet opened over a fullscreen element portals into it.
+	const portalTarget = $derived(
+		open && typeof document !== 'undefined'
+			? ((document.fullscreenElement as HTMLElement | null) ?? document.body)
+			: undefined
+	);
 
 	function close() {
 		if (!open) return;
@@ -152,6 +156,11 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	/* The body scrolls, so a row's focus ring is inset or its top edge would be clipped (§4.6). */
+	.sheet :global(.w-sheet__row:focus-visible) {
+		outline: 2px solid var(--w-accent);
+		outline-offset: -2px;
 	}
 	.sheet__foot {
 		display: flex;

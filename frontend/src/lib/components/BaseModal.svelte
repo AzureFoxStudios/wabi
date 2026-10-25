@@ -64,10 +64,12 @@
 	$: sizeClass = size ? `w-dialog--${size}` : width ? '' : 'w-dialog--md';
 	$: widthStyle = !size && width ? `--w-dialog-w: ${width};` : '';
 	$: zStyle = overlayZIndex != null && overlayZIndex !== '' ? `--base-modal-z: ${overlayZIndex};` : '';
-	$: portalTarget =
-		typeof document !== 'undefined'
-			? ((document.fullscreenElement as HTMLElement | null) ?? document.body)
-			: undefined;
+	// Read each time the dialog opens (most callers keep this component mounted and toggle
+	// `isOpen`), so a dialog opened over a fullscreen element portals into it.
+	let portalTarget: HTMLElement | undefined;
+	$: if (isOpen && typeof document !== 'undefined') {
+		portalTarget = (document.fullscreenElement as HTMLElement | null) ?? document.body;
+	}
 
 	function handleScrimClick() {
 		if (closeOnScrim) onClose();

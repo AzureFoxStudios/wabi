@@ -154,7 +154,6 @@
 	anchor={rect}
 	{align}
 	{menuId}
-	minWidth={160}
 	ariaLabel={heading ?? label ?? ariaLabel ?? 'Options'}
 	headerLabel={null}
 	initialFocus="checked"

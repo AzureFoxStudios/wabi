@@ -106,37 +106,52 @@
 
 	/**
 	 * UI words that legacy Title Case / ALL CAPS labels use ("Follow Channel With Alerts",
-	 * "DELETE MESSAGE + UPLOADS"). Only these are re-cased, so names, acronyms (DM, OS) and place
-	 * names that keep their capital (Documents, Notes, Calls, People, Lore…) are never touched.
+	 * "DELETE MESSAGE + UPLOADS", "View My Profile"). Place names that keep their capital
+	 * (Documents, Notes, Calls, People, Lore…) are deliberately absent.
 	 */
 	const UI_WORDS = new Set(
 		(
-			'a add alert alerts album all an and as at audio back block bookmark bookmarks breakout by call ' +
-			'camera categories category change channel channels clear close code conversation conversations ' +
-			'copy create cycle delete details direct download duplicate edit emoji end event export feed file ' +
-			'files floating folder follow for forward from group groups hide history image import in info ' +
-			'invite join kick leave level link local locally main mark member members mention message ' +
-			'messages microphone move mute name new note of off on open or panel password payment ' +
-			'permissions pin pinned profile quick quote reaction reactions read remove rename reply report ' +
-			'request ringing role roles room rooms screen send server settings share show side silent start ' +
-			'status stop text the thread threads to top translate unblock unfollow unmute unpin unread ' +
-			'upload uploads user video view voice window with'
+			'a accept add again alert alerts album all an and as at audio back ban block bookmark bookmarks ' +
+			'breakout by call camera cancel categories category change channel channels clear close code ' +
+			'conversation conversations copy create cycle decline delete details direct download duplicate ' +
+			'edit emoji end event export feed file files floating folder follow for forward friend friends ' +
+			'from group groups hide history image import in info invite join kick leave level link local ' +
+			'locally main make mark member members mention message messages microphone move mute my name new ' +
+			'nickname note of off on open or panel password payment permissions pin pinned profile quick ' +
+			'quote reaction reactions read remove rename reply report request reset ringing role roles room ' +
+			'rooms screen send server settings share show side silent start status stop text the thread ' +
+			'threads to top track translate unban unblock unfollow unmute unpin unread upload uploads user ' +
+			'video view voice window with'
 		).split(' ')
 	);
 
-	/** Sentence case for chrome labels (§9.6), touching only known UI words. */
+	/**
+	 * Sentence case for chrome labels (§9.6). All or nothing: a Title Case / ALL CAPS label is
+	 * re-cased only when every word it would lower is a known UI word, so a label that carries a
+	 * name ("Message Alice", "Make Gardener", "Open Notes") stays exactly as the caller wrote it
+	 * instead of coming out half-cased. Acronyms inside mixed-case labels (DM, OS) are kept.
+	 */
 	export function sentenceCaseLabel(label: string): string {
+		const shoutedLabel = !/[a-z]/.test(label) && /[A-Z]{2}/.test(label);
 		let index = 0;
-		return label.replace(/[A-Za-z]+/g, (word) => {
+		let blocked = false;
+		const recased = label.replace(/[A-Za-z]+/g, (word) => {
 			const first = index === 0;
 			index += 1;
 			const lower = word.toLowerCase();
-			if (!UI_WORDS.has(lower)) return word;
 			const titled = word[0] === word[0].toUpperCase() && word.slice(1) === word.slice(1).toLowerCase();
 			const shouted = word.length > 1 && word === word.toUpperCase();
+			if (shouted && !shoutedLabel) return word; // an acronym in an ordinary label
+			if (first) {
+				if (!shouted) return word;
+				if (!UI_WORDS.has(lower)) blocked = true;
+				return lower[0].toUpperCase() + lower.slice(1);
+			}
 			if (!titled && !shouted) return word;
-			return first ? lower[0].toUpperCase() + lower.slice(1) : lower;
+			if (!UI_WORDS.has(lower)) blocked = true;
+			return lower;
 		});
+		return blocked ? label : recased;
 	}
 
 	function iconFor(entry: MenuEntry): IconName | null {
@@ -231,7 +246,7 @@
 </script>
 
 <script lang="ts">
-	import { createEventDispatcher, onDestroy, tick } from 'svelte';
+	import { createEventDispatcher, flushSync, onDestroy, tick } from 'svelte';
 	import { portal } from '$lib/actions/portal';
 	import Icon from '$lib/components/ui/Icon.svelte';
 
@@ -271,15 +286,15 @@
 	let typeaheadTimer: ReturnType<typeof setTimeout> | null = null;
 	let wasOpen = false;
 	let mediaQuery: MediaQueryList | null = null;
+	/** Read when the menu opens, so a menu opened over a fullscreen element portals into it. */
+	let portalTarget: HTMLElement | undefined;
+	/** Bumped on every open, so a focus attempt left over from an earlier open does nothing. */
+	let openToken = 0;
 
 	$: id = menuId ?? autoId;
 	$: groups = arrangeMenu(items);
 	$: rows = groups.flatMap((group) => group.rows);
 	$: sheetTitle = headerLabel ?? (ariaLabel && ariaLabel !== 'Context menu' ? ariaLabel : null);
-	$: portalTarget =
-		typeof document !== 'undefined'
-			? ((document.fullscreenElement as HTMLElement | null) ?? document.body)
-			: undefined;
 
 	$: handleOpenChange(open);
 	$: if (open && !sheetMode) {
@@ -296,6 +311,7 @@
 		if (typeof window === 'undefined') return;
 		if (isOpen) {
 			opener = returnFocus ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+			portalTarget = (document.fullscreenElement as HTMLElement | null) ?? document.body;
 			mediaQuery = window.matchMedia(SHEET_QUERY);
 			sheetMode = mediaQuery.matches;
 			mediaQuery.addEventListener('change', handleMediaChange);
@@ -368,28 +384,63 @@
 		return Array.from(menuElement.querySelectorAll<HTMLElement>('[data-menu-row]'));
 	}
 
-	function focusRow(index: number) {
+	/** `scroll` is for keyboard moves; pointer hover never scrolls rows under a still pointer. */
+	function focusRow(index: number, scroll = true) {
 		const elements = rowElements();
 		if (index < 0 || index >= elements.length) return;
 		focusedIndex = index;
-		elements[index]?.focus({ preventScroll: false });
+		elements[index]?.focus({ preventScroll: !scroll });
+	}
+
+	/** Where focus lands on open: the chosen option, or the first / last row that can act. */
+	function initialTarget(): number {
+		if (!rows.length) return -1;
+		const firstEnabled = Math.max(0, rows.findIndex((row) => !row.disabled));
+		if (initialFocus === 'checked') {
+			const checkedIndex = rows.findIndex((row) => row.checked);
+			return checkedIndex >= 0 ? checkedIndex : firstEnabled;
+		}
+		if (initialFocus === 'last') {
+			const lastEnabled = rows.findLastIndex((row) => !row.disabled);
+			return lastEnabled >= 0 ? lastEnabled : rows.length - 1;
+		}
+		if (initialFocus === 'first' || lastInput === 'keyboard') return firstEnabled;
+		return -1;
+	}
+
+	function applyInitialFocus(): boolean {
+		if (!menuElement) return false;
+		const target = initialTarget();
+		if (target >= 0) focusRow(target);
+		else {
+			focusedIndex = -1;
+			menuElement.focus({ preventScroll: true });
+		}
+		return menuElement.contains(document.activeElement);
 	}
 
 	async function focusInitial() {
-		await tick();
-		if (!sheetMode) place();
-		await tick();
-		const checkedIndex = rows.findIndex((row) => row.checked);
-		let target = -1;
-		if (initialFocus === 'checked') target = checkedIndex >= 0 ? checkedIndex : 0;
-		else if (initialFocus === 'first') target = 0;
-		else if (initialFocus === 'last') target = rows.length - 1;
-		else if (lastInput === 'keyboard') target = 0;
-		if (target >= 0 && rows.length) focusRow(target);
-		else {
-			focusedIndex = -1;
-			menuElement?.focus({ preventScroll: true });
+		const token = ++openToken;
+		const current = () => open && token === openToken;
+		// The surface is rendered in the flush that opened the menu; wait until it is bound.
+		for (let attempt = 0; attempt < 3 && current() && !menuElement; attempt += 1) await tick();
+		if (!current() || !menuElement) return;
+		if (!sheetMode) {
+			place();
+			// Commit the placement (left/top, `.menu-surface--placed`) before focusing, so the
+			// focused row is already where it will be painted.
+			flushSync();
 		}
+		if (applyInitialFocus()) return;
+		// Something still refused focus (a late layout pass): try once more on the next frame.
+		requestAnimationFrame(() => {
+			if (!current()) return;
+			if (!sheetMode) {
+				place();
+				flushSync();
+			}
+			applyInitialFocus();
+		});
 	}
 
 	function closeMenu(restore = false) {
@@ -429,11 +480,14 @@
 	function move(key: string) {
 		const count = rows.length;
 		if (!count) return;
+		// Nothing highlighted yet: the first arrow lands on the first (or last) row that can act.
+		const firstEnabled = Math.max(0, rows.findIndex((row) => !row.disabled));
+		const lastEnabled = rows.findLastIndex((row) => !row.disabled);
 		let next = focusedIndex;
 		if (key === 'Home') next = 0;
 		else if (key === 'End') next = count - 1;
-		else if (key === 'ArrowDown') next = focusedIndex < 0 ? 0 : (focusedIndex + 1) % count;
-		else if (key === 'ArrowUp') next = focusedIndex < 0 ? count - 1 : (focusedIndex - 1 + count) % count;
+		else if (key === 'ArrowDown') next = focusedIndex < 0 ? firstEnabled : (focusedIndex + 1) % count;
+		else if (key === 'ArrowUp') next = focusedIndex < 0 ? (lastEnabled >= 0 ? lastEnabled : count - 1) : (focusedIndex - 1 + count) % count;
 		focusRow(next);
 	}
 
@@ -452,32 +506,56 @@
 		}
 	}
 
+	function isEditable(element: Element | null): boolean {
+		return (
+			element instanceof HTMLElement &&
+			(element.isContentEditable || element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.tagName === 'SELECT')
+		);
+	}
+
+	/**
+	 * Keys go to the menu while focus is in it, and also while focus is still on the opener (or
+	 * nowhere): a trigger keeps focus for a moment after opening, and a right-clicked row can keep
+	 * it. Esc closes an open menu wherever focus is, as the old menu did.
+	 */
 	function handleMenuKeydown(event: KeyboardEvent) {
-		if (!open) return;
+		if (!open || !menuElement) return;
 		const active = document.activeElement;
-		const inside = !!menuElement && (menuElement.contains(active) || active === document.body || !active);
-		if (!inside) return;
+		const inMenu = !!active && menuElement.contains(active);
+		const atOpener = !active || active === document.body || active === opener || active === returnFocus;
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			closeMenu(inMenu || atOpener);
+			return;
+		}
+		if (!inMenu && !atOpener) return;
+		// A text field that opened the menu keeps its own caret keys and typing.
+		const editable = !inMenu && isEditable(active);
 		switch (event.key) {
 			case 'ArrowDown':
 			case 'ArrowUp':
 			case 'Home':
 			case 'End':
+				if (editable) return;
 				event.preventDefault();
 				event.stopPropagation();
 				move(event.key);
 				break;
-			case 'Escape':
-				event.preventDefault();
-				event.stopImmediatePropagation();
-				closeMenu(true);
-				break;
 			case 'Tab':
-				event.preventDefault();
-				closeMenu(true);
+				if (inMenu) {
+					event.preventDefault();
+					closeMenu(true);
+				} else {
+					// Focus never entered the menu: close it and let Tab move on from the opener.
+					closeMenu(false);
+				}
 				break;
 			default:
+				if (editable) return;
 				if (event.key.length === 1 && event.key !== ' ' && !event.ctrlKey && !event.metaKey && !event.altKey) {
 					event.preventDefault();
+					event.stopPropagation();
 					runTypeahead(event.key);
 				}
 		}
@@ -509,7 +587,16 @@
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div class="w-scrim menu-scrim" on:click={() => closeMenu(false)}></div>
-			<div class="w-sheet menu-sheet">
+			<!-- The sheet is modal for assistive tech; Tab, Esc and the scrim all close it, so focus
+			     cannot wander behind it. (No modalFocus here: its focus restore on destroy would pull
+			     focus back to the opener after an item action moved it somewhere else.) -->
+			<div
+				class="w-sheet menu-sheet"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby={sheetTitle ? `${id}-title` : undefined}
+				aria-label={sheetTitle ? undefined : ariaLabel}
+			>
 				<div class="w-sheet__grabber" aria-hidden="true"></div>
 				{#if sheetTitle}
 					<p class="w-sheet__title menu-sheet__title" id="{id}-title">{sheetTitle}</p>
@@ -614,7 +701,7 @@
 								tabindex={highlighted ? 0 : -1}
 								on:focus={() => (focusedIndex = row.nav)}
 								on:pointerenter={(event) => {
-									if (event.pointerType !== 'touch') focusRow(row.nav);
+									if (event.pointerType !== 'touch') focusRow(row.nav, false);
 								}}
 								on:click={() => selectRow(row)}
 							>
@@ -658,10 +745,15 @@
 		overflow-y: auto;
 		overscroll-behavior: contain;
 		outline: none;
-		visibility: hidden;
+		transition: none;
 	}
-	.context-menu-surface.menu-surface--placed {
-		visibility: visible;
+	/* Unplaced (normally never painted: it is placed in the microtask after it renders) the
+	   surface is transparent and ignores the pointer. Not `visibility: hidden`: the reduced-motion
+	   rules give every element a 0.01ms `all` transition, so the rows would inherit `hidden` for a
+	   frame after placement and refuse focus. */
+	.context-menu-surface:not(.menu-surface--sheet):not(.menu-surface--placed) {
+		opacity: 0;
+		pointer-events: none;
 	}
 
 	/* The object the menu acts on, named once above the rows: serif, like every place name. */
@@ -703,8 +795,19 @@
 		white-space: normal;
 		text-wrap: pretty;
 	}
+	/* Danger rows are --w-danger, label included: the kit's role selector (0,2,0) would otherwise
+	   keep the label in --w-text and leave only the glyph red. */
+	.menu-item.danger {
+		color: var(--w-danger);
+	}
 	.w-menu__item--danger .menu-sub {
 		color: color-mix(in srgb, var(--w-danger) 70%, var(--w-faint));
+	}
+	@media (forced-colors: active) {
+		.menu-item.danger:is(:hover, [data-highlighted], :focus-visible),
+		.menu-item:is(:hover, [data-highlighted], :focus-visible) .menu-sub {
+			color: HighlightText;
+		}
 	}
 
 	/* Sheet: z-order above app chrome, the title and its one-line context. */
