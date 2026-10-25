@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { parse } from 'svelte/compiler';
 import { get } from 'svelte/store';
 import {
 	createToastQueue,
@@ -306,5 +308,100 @@ describe('toast() and showToast()', () => {
 		expect(get(toasts).current?.tone).toBe('info');
 		expect(get(toasts).current?.timeout).toBe(3000);
 		toasts.clear();
+	});
+});
+
+describe('Toast.svelte keeps the kit look under any ancestor', () => {
+	// toast.ts moves the host into the top-most open modal dialog, so the toast becomes a
+	// descendant of that dialog and its descendant rules reach it (the office dialogs'
+	// `.workspace-dialog button` painted a raised fill under the inverse Undo label). Toast.svelte
+	// restates the kit's look under the region class to outrank such rules; these tests keep that
+	// guard complete and equal to the kit, so a kit change cannot be silently masked.
+	type Rules = Map<string, Record<string, string>>;
+	const squash = (text: string) => text.replace(/\s+/g, ' ').trim();
+
+	/** Top-level rules as selector -> declarations, read with Svelte's CSS parser. */
+	function rulesOf(source: string): Rules {
+		const rules: Rules = new Map();
+		for (const node of parse(source, { modern: true }).css?.children ?? []) {
+			if (node.type !== 'Rule') continue;
+			const declarations: Record<string, string> = {};
+			for (const item of node.block.children) {
+				if (item.type === 'Declaration') declarations[item.property] = squash(item.value);
+			}
+			const selector = squash(source.slice(node.prelude.start, node.prelude.end));
+			if (!rules.has(selector)) rules.set(selector, declarations);
+		}
+		return rules;
+	}
+	const stylesheet = (relative: string) => rulesOf(`<style>${readFileSync(new URL(relative, import.meta.url), 'utf8')}</style>`);
+
+	const kit = stylesheet('../styles/kit-overlays.css');
+	const base = stylesheet('../styles/base.css');
+	const own = rulesOf(readFileSync(new URL('./components/ui/Toast.svelte', import.meta.url), 'utf8'));
+
+	/** Kit rule -> the guarded rule that restates it in Toast.svelte. */
+	const PAIRS: Array<[string, string]> = [
+		['.w-toast', '.w-toast-region .w-toast'],
+		[':where(.w-toast) > :where(svg)', '.w-toast-region .w-toast > :global(svg)'],
+		['.w-toast__msg', '.w-toast-region .w-toast__msg'],
+		['.w-toast__action', '.w-toast-region .w-toast__action'],
+		['.w-toast__action:hover', '.w-toast-region .w-toast__action:hover']
+	];
+	/** What the guard may add where the kit leaves a property at its initial (or inherited) value. */
+	const INITIAL: Record<string, string[]> = {
+		margin: ['0'],
+		border: ['0'],
+		width: ['auto'],
+		'min-height': ['0'],
+		'box-shadow': ['none'],
+		color: ['inherit'],
+		font: ['inherit']
+	};
+
+	test('every guarded declaration equals the kit value', () => {
+		const drift: string[] = [];
+		for (const [kitSelector, ownSelector] of PAIRS) {
+			const reference = kit.get(kitSelector);
+			const guard = own.get(ownSelector);
+			if (!reference) drift.push(`kit-overlays.css has no "${kitSelector}" rule`);
+			if (!guard) drift.push(`Toast.svelte has no "${ownSelector}" rule`);
+			if (!reference || !guard) continue;
+			for (const [property, value] of Object.entries(guard)) {
+				const expected = reference[property];
+				const ok = expected === undefined ? INITIAL[property]?.includes(value) : expected === value;
+				if (!ok) drift.push(`${ownSelector} { ${property}: ${value} } but the kit has ${expected ?? 'no value'}`);
+			}
+		}
+		expect(drift).toEqual([]);
+	});
+
+	test('the action restates everything an ancestor button rule sets, and its own focus ring', () => {
+		const action = own.get('.w-toast-region .w-toast__action') ?? {};
+		const missing = ['background', 'border', 'border-radius', 'padding', 'margin', 'color', 'font', 'height', 'min-height', 'width', 'box-shadow', 'cursor'].filter(
+			(property) => !(property in action)
+		);
+		expect(missing).toEqual([]);
+
+		// A dialog's `button:focus-visible { outline: 2px solid <accent> }` must not recolour or
+		// resize the ring: it is the app ring (base.css) in the kit's inverse colour.
+		const ring = base.get(':focus-visible') ?? {};
+		const inverse = kit.get('.w-toast__action:focus-visible')?.['outline-color'];
+		expect(ring.outline).toContain('var(--w-accent)');
+		expect(inverse).toBeDefined();
+		const focus = own.get('.w-toast-region .w-toast__action:focus-visible') ?? {};
+		expect(focus.outline).toBe(ring.outline.replace('var(--w-accent)', inverse ?? ''));
+		expect(focus['outline-offset']).toBe(ring['outline-offset']);
+	});
+
+	test('inherited text settings start from the body, not the dialog around the host', () => {
+		expect(own.get('.w-toast-region')).toMatchObject({
+			'text-align': 'start',
+			'letter-spacing': 'normal',
+			'word-spacing': 'normal',
+			'text-transform': 'none',
+			'text-indent': '0',
+			'white-space': 'normal'
+		});
 	});
 });

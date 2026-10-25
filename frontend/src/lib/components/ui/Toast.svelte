@@ -226,6 +226,65 @@
 		background: none;
 		pointer-events: none;
 	}
+	/* The toast keeps its own look whatever toast.ts moves the host into. Inside a modal dialog
+	   it is a descendant of that dialog, so the dialog's descendant rules reach it: the office
+	   dialogs' `.workspace-dialog button` (0,1,1) would paint a raised fill under the inverse
+	   Undo label and `.wabi-workspace button:focus-visible` (0,2,1) would recolour its ring.
+	   Keyed on the region, these rules (0,4,0; 0,5,0 with a state) outrank such ancestor rules.
+	   The values are the kit's (kit-overlays.css §7.14); toast.test.ts fails if they drift. */
+	.w-toast-region {
+		/* Inherited text settings start from the body's, not from the dialog around the host. */
+		text-align: start;
+		letter-spacing: normal;
+		word-spacing: normal;
+		text-transform: none;
+		text-indent: 0;
+		text-shadow: none;
+		white-space: normal;
+		overflow-wrap: break-word;
+	}
+	.w-toast-region .w-toast {
+		margin: 0;
+		border: 0;
+		padding: 7px 8px 7px 16px;
+		border-radius: var(--radius-lg);
+		background: var(--w-text);
+		box-shadow: var(--w-shadow);
+		color: var(--w-bg);
+		font: var(--w-t-ui);
+	}
+	.w-toast-region .w-toast > :global(svg) {
+		flex: none;
+		width: 16px;
+		height: 16px;
+		color: color-mix(in srgb, var(--w-bg) 72%, var(--w-text));
+	}
+	.w-toast-region .w-toast__msg {
+		margin: 0;
+		color: inherit;
+		font: inherit;
+	}
+	.w-toast-region .w-toast__action {
+		width: auto;
+		height: 32px;
+		min-height: 0;
+		margin: 0;
+		padding: 0 10px;
+		border: var(--w-bw) solid color-mix(in srgb, var(--w-bg) 45%, var(--w-text));
+		border-radius: var(--radius-md);
+		background: transparent;
+		box-shadow: none;
+		color: var(--w-bg);
+		font: var(--w-t-label);
+		cursor: pointer;
+	}
+	.w-toast-region .w-toast__action:hover {
+		background: color-mix(in srgb, var(--w-bg) 14%, var(--w-text));
+	}
+	.w-toast-region .w-toast__action:focus-visible {
+		outline: 2px solid var(--w-bg);
+		outline-offset: 2px;
+	}
 	/* Exit: opacity plus a 4px drop at 0.75× the entrance duration (§4.7). Reduced motion is
 	   handled globally (motion.css), and the queue removes the node after TOAST_EXIT_MS. */
 	.w-toast {
