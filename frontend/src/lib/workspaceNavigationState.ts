@@ -12,7 +12,7 @@ import { NOTES_ADDON_ID } from './notesWorkspace';
 import { LORE_ADDON_ID } from './loreWorkspace';
 import { FILES_ADDON_ID } from './filesWorkspace';
 import { NOTIFICATIONS_ADDON_ID } from './notificationsWorkspace';
-import { OFFICE_TOOL_VIEW, ensureWorkspaceTab, workspaceTabId, type OfficeView } from './workspaces/bridge';
+import { OFFICE_TOOL_VIEW, enterWorkspaceTab, workspaceTabId, type OfficeView } from './workspaces/bridge';
 
 const isOfficeView = (view: string): view is OfficeView => view === 'documents' || view === 'sheets' || view === 'present';
 
@@ -27,8 +27,9 @@ const navigation = createWorkspaceNavigation({
 	} satisfies Record<WorkspaceAddonView, string>,
 	// A joined presentation owns center stage as part of Present.
 	addonAliases: { [workspaceTabId('audience')]: OFFICE_TOOL_VIEW.audience },
-	// Office tabs register on first use; the folio already navigated, so only register.
-	ensureAddonTab: (view) => { if (isOfficeView(view)) ensureWorkspaceTab(view); },
+	// Entering an office tool from the nav equals openWorkspace(tool) without a second
+	// navigation: register its tab on first use and clear the one-shot handoff target.
+	prepareAddonTab: (view) => { if (isOfficeView(view)) enterWorkspaceTab(view); },
 	queue: mobileTabQueue,
 	channel: currentChannel,
 	voice: voiceViewOpen,

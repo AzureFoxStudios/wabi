@@ -25,10 +25,12 @@ export function createWorkspaceNavigation(deps: {
 	 */
 	addonAliases?: Record<string, WorkspaceAddonView>;
 	/**
-	 * Register an on-demand addon tab before it is opened. Office tools register their tab
-	 * lazily; this must only register, never navigate (the caller already owns the center).
+	 * Prepare a fresh entry into an addon view just before its tab opens. Office tools register
+	 * their tab lazily here and clear their one-shot handoff target. It must never navigate or
+	 * activate anything (the navigation owns the center), and it is skipped when the view is
+	 * already active, so an open editor keeps its document.
 	 */
-	ensureAddonTab?: (view: WorkspaceAddonView) => void;
+	prepareAddonTab?: (view: WorkspaceAddonView) => void;
 	queue: Pick<typeof mobileTabQueue, 'activeTabId' | 'openAddonTab' | 'setActiveChannel' | 'toAddonTabId'>;
 	channel: Readable<string>;
 	voice: Writable<boolean>;
@@ -72,7 +74,7 @@ export function createWorkspaceNavigation(deps: {
 		// Already there: selecting the current view keeps its tab, so choosing Present
 		// while in a joined presentation does not drop the room for the deck library.
 		if (viewForTab(get(deps.queue.activeTabId)) === view) return;
-		deps.ensureAddonTab?.(view);
+		deps.prepareAddonTab?.(view);
 		deps.queue.openAddonTab(addonId);
 	}
 

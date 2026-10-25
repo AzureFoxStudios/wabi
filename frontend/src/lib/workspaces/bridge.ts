@@ -42,13 +42,24 @@ export const OFFICE_TAB_LABEL: Readonly<Record<Tool, string>> = {documents:'Docu
 export function workspaceTabId(tool:Tool):`workspace-${Tool}` {return `workspace-${tool}`;}
 /**
  * Register a tool's addon tab when it is absent and return its addon id. It neither
- * navigates nor activates the tab: the workspace navigation calls this before opening
- * the tab itself, so selecting Documents from the folio does not navigate twice.
+ * navigates, activates the tab nor touches `targets`.
  */
 export function ensureWorkspaceTab(tool:Tool):string {
     const id=workspaceTabId(tool);
     if(!get(mobileTabQueue.addonTabs).some(tab=>tab.id===id))mobileTabQueue.registerAddonTab({id,label:OFFICE_TAB_LABEL[tool],shortLabel:OFFICE_TAB_LABEL[tool]});
     return id;
+}
+/**
+ * Prepare a fresh entry into a tool from the workspace navigation and return its addon id:
+ * exactly `openWorkspace(tool)` minus the `wabi:navigate` dispatch and the activation, which
+ * the navigation owns (so choosing Documents from the folio does not navigate twice).
+ * The editor mounts anew on every entry and applies `targets[tool]`; a handoff target is
+ * one-shot, so it is cleared here. Otherwise the last handoff would replay: a Share dialog
+ * opening by itself, an import preview, a deleted Reader document re-created.
+ */
+export function enterWorkspaceTab(tool:Tool):string {
+    targets.update(value=>({...value,[tool]:{}}));
+    return ensureWorkspaceTab(tool);
 }
 export function openWorkspace(tool:Tool,target:Target={}) {
     window.dispatchEvent(new CustomEvent('wabi:navigate',{detail:{view:'chat',preserveRightPanel:true}}));

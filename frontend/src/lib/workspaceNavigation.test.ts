@@ -16,8 +16,8 @@ const surface = derived([channel, boards], ([id, boards]) => boards[id] ?? 'mess
 const ensured: WorkspaceAddonView[] = [];
 const navigation = createWorkspaceNavigation({ addonIds, queue: mobileTabQueue, channel, voice, surface,
 	addonAliases: { 'workspace-audience': 'present' },
-	// Mirrors bridge.ensureWorkspaceTab: register only when absent, never navigate.
-	ensureAddonTab: (view) => {
+	// Mirrors bridge.enterWorkspaceTab: register only when absent, never navigate.
+	prepareAddonTab: (view) => {
 		ensured.push(view);
 		const label = officeLabels[view];
 		if (label && !get(mobileTabQueue.addonTabs).some(tab => tab.id === addonIds[view])) {
@@ -109,7 +109,17 @@ test('selecting an office view registers its tab once, with its own name, then o
 	expect(get(navigation.activeView)).toBe('sheets');
 });
 
-test('the registration hook decides what to register; built-in views stay registered by the shell', () => {
+test('re-selecting the active view does not prepare a fresh entry, so an open editor keeps its document', () => {
+	navigation.select('documents');
+	navigation.select('documents');
+	expect(ensured).toEqual(['documents']);
+	expect(get(mobileTabQueue.activeTabId)).toBe('addon:workspace-documents');
+	navigation.select('messages');
+	navigation.select('documents');
+	expect(ensured).toEqual(['documents', 'documents']);
+});
+
+test('the preparation hook decides what to register; built-in views stay registered by the shell', () => {
 	navigation.select('files');
 	navigation.select('planner');
 	expect(ensured).toEqual(['files', 'planner']);
