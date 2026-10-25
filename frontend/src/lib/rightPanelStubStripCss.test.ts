@@ -83,6 +83,30 @@ describe('right rail geometry', () => {
 		expect(active).toContain('background: var(--w-accent)');
 	});
 
+	test('the companion edge sits on the panel side of the hairline, never over the stage scrollbar', () => {
+		expect(rule(layout, '.resize-handle-right')).toContain('left: 0');
+		expect(rule(layout, '.resize-handle-right::before')).toContain('left: 0');
+		expect(rule(layout, '.right-panel-zone.stub-left .resize-handle-right')).toContain('right: 0');
+		expect(rule(layout, '.right-panel-zone.stub-left .resize-handle-right::before')).toContain('right: 0');
+	});
+
+	test('"Obvious grab rails" keeps a plainly visible line at rest', () => {
+		expect(rule(layout, '.app-container.obvious-grab-rails .resize-handle:not(:hover, :focus-visible, .dragging)::before')).toContain('background: var(--w-mute)');
+	});
+
+	test('the focused zone draws its ring above the opaque panel body', () => {
+		expect(rule(layout, '.right-panel-zone:focus-visible')).toContain('outline: none');
+		const ring = rule(layout, '.right-panel-zone:focus-visible::after');
+		expect(ring).toContain('outline: 2px solid var(--w-accent)');
+		expect(ring).toContain('outline-offset: -2px');
+		expect(ring).toContain('pointer-events: none');
+		expect(ring).toMatch(/z-index:/);
+	});
+
+	test('the inert part of the stage adds no box, so the stage layout is unchanged', () => {
+		expect(rule(layout, '.stage-covered')).toContain('display: contents');
+	});
+
 	test('items can be reordered by drag and show where they will land', () => {
 		expect(css).toContain('.stub.dragging');
 		expect(css).toContain('.stub.drop-before::after');

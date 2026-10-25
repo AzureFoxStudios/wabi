@@ -6,7 +6,8 @@
  * only while the stage keeps at least `minStage` px. Its width is the person's chosen width,
  * clamped to what is left over. When even `minPanel` px will not fit, the panel opens as a peek
  * instead: it floats over the stage's right edge at min(340px, 72% of the stage) and the stage
- * width does not change.
+ * width does not change. (A committed pin with no room is kept but stowed off screen until the
+ * stage has room again; see layoutStoreRightPanel.ts.)
  *
  * Pure: MainLayout measures the shell and feeds the numbers in; tests cover the breakpoints.
  */
@@ -55,9 +56,15 @@ export function stageWithoutPanel(input: Pick<DockClampInput, 'viewport' | 'side
 	return Math.max(0, finite(input.viewport, 0) - Math.max(0, finite(input.sidebar, 0)) - Math.max(0, finite(input.rail, 0)));
 }
 
-/** Peek width: min(340px, 72% of the stage), never wider than the stage itself. */
-export function peekWidthFor(stage: number): number {
-	return Math.max(0, Math.round(Math.min(PEEK_MAX, stage * PEEK_STAGE_RATIO)));
+/**
+ * Peek width: min(340px, 72% of the stage). When the stage is so narrow that 72% would leave less
+ * than a usable panel (a very wide sidebar), the peek keeps `minPanel` px, or whatever the window
+ * has beside the rail, so it never collapses to an invisible sliver.
+ */
+export function peekWidthFor(stage: number, available = Number.POSITIVE_INFINITY, minPanel = DOCK_MIN_PANEL): number {
+	const ratio = Math.max(0, finite(stage, 0)) * PEEK_STAGE_RATIO;
+	const floor = Math.min(minPanel, Number.isNaN(available) ? 0 : Math.max(0, available));
+	return Math.round(Math.min(PEEK_MAX, Math.max(ratio, floor)));
 }
 
 /**
@@ -70,7 +77,10 @@ export function dockWidthFor(input: DockClampInput): DockClamp {
 	const maxPanel = input.maxPanel ?? DOCK_MAX_PANEL;
 	const stage = stageWithoutPanel(input);
 	const room = Math.floor(stage - minStage);
-	if (room < minPanel) return { mode: 'peek', width: peekWidthFor(stage), max: 0 };
+	if (room < minPanel) {
+		const beside = finite(input.viewport, 0) - Math.max(0, finite(input.rail, 0));
+		return { mode: 'peek', width: peekWidthFor(stage, beside, minPanel), max: 0 };
+	}
 	const max = Math.min(maxPanel, room);
 	const requested = Math.round(finite(input.requested, DOCK_DEFAULT_PANEL));
 	return { mode: 'pin', width: Math.min(max, Math.max(minPanel, requested)), max };
