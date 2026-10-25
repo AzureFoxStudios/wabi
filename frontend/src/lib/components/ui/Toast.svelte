@@ -168,16 +168,16 @@
 	<div
 		class="w-toast"
 		class:leaving={item.leaving}
-		onpointerenter={() => queue.pause(item.id, 'hover')}
-		onpointerleave={() => queue.resume(item.id, 'hover')}
-		onfocusin={(event) => onFocusIn(event, item.id)}
-		onfocusout={(event) => onFocusOut(event, item.id)}
-		onkeydown={(event) => onKeydown(event, item.id)}
+		onpointerenter={() => item && queue.pause(item.id, 'hover')}
+		onpointerleave={() => item && queue.resume(item.id, 'hover')}
+		onfocusin={(event) => item && onFocusIn(event, item.id)}
+		onfocusout={(event) => item && onFocusOut(event, item.id)}
+		onkeydown={(event) => item && onKeydown(event, item.id)}
 	>
 		{#if icon}<Icon name={icon} size={16} />{/if}
 		<span class="w-toast__msg">{item.message}</span>
 		{#if item.action}
-			<button type="button" class="w-toast__action" onclick={(event) => close(event, item.id, queue.act)}>{item.action}</button>
+			<button type="button" class="w-toast__action" onclick={(event) => item && close(event, item.id, queue.act)}>{item.action}</button>
 		{/if}
 	</div>
 {/snippet}
@@ -230,7 +230,8 @@
 	   it is a descendant of that dialog, so the dialog's descendant rules reach it: the office
 	   dialogs' `.workspace-dialog button` (0,1,1) would paint a raised fill under the inverse
 	   Undo label and `.wabi-workspace button:focus-visible` (0,2,1) would recolour its ring.
-	   Keyed on the region, these rules (0,4,0; 0,5,0 with a state) outrank such ancestor rules.
+	   Keyed on the region, these rules (0,3,0 once compiled, 0,4,0 with a state; Svelte wraps the
+	   second scoping class in :where()) outrank such ancestor rules.
 	   The values are the kit's (kit-overlays.css §7.14); toast.test.ts fails if they drift. */
 	.w-toast-region {
 		/* Inherited text settings start from the body's, not from the dialog around the host. */

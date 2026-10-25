@@ -405,3 +405,24 @@ describe('Toast.svelte keeps the kit look under any ancestor', () => {
 		});
 	});
 });
+
+describe('Toast.svelte handlers survive teardown', () => {
+	test('every handler that reads item.id checks item first, since focusout fires while a focused toast is removed', () => {
+		const source = readFileSync(new URL('./components/ui/Toast.svelte', import.meta.url), 'utf8');
+		const handlers: string[] = [];
+		const seen = new Set<object>();
+		const visit = (node: unknown) => {
+			if (!node || typeof node !== 'object' || seen.has(node)) return;
+			seen.add(node);
+			const n = node as { type?: string; name?: string; start?: number; end?: number };
+			if (n.type === 'Attribute' && n.name?.startsWith('on') && n.start !== undefined && n.end !== undefined) {
+				const text = source.slice(n.start, n.end);
+				if (text.includes('item.id')) handlers.push(text);
+			}
+			for (const value of Object.values(node)) visit(value);
+		};
+		visit(parse(source, { modern: true }).fragment);
+		expect(handlers.length).toBeGreaterThanOrEqual(6);
+		for (const text of handlers) expect(text).toContain('item && ');
+	});
+});
