@@ -8,7 +8,7 @@ The one-page map. Every value, component, surface and exact wording lives in the
 
 **Wabi reads like a well-set book that a small community writes in together.** The sidebar is the table of contents (channels anchor where you are), center stage is the page (the one task you are doing), the companion panel is a margin note (optional, beside the page, never instead of it), the workspace tabs are folio words at the page edge, and the colophon under the composer says in plain words who can read this. Structure comes from type, measure and hairline rules, not boxes. Color appears only when it means something, and chrome stays quiet until you reach for it.
 
-## Roles, not colours
+## Roles, not colors
 
 `frontend/src/lib/theme/roles.ts` turns every theme (17 built in, plus custom ones) into `--w-*` role tokens, applied by `themeManager.applyTheme`. Components read roles, `color-mix()` of roles, and per-person identity ink. They never use hex, `rgba()`, named colors or the legacy `--surface-*` / `--accent-primary-*` / `--text-*` tokens.
 
@@ -31,7 +31,7 @@ A person's color is user data. It is never used raw: names use `identityInk(colo
 
 ## Type
 
-Serif names places, sans carries voices, mono counts. **Shippori Mincho** is used for communities, channels, rooms, documents, titles and date rules. **Zen Kaku Gothic New** is used for everything people say and do. **IBM Plex Mono** is used for times, counts, handles, sizes and maturity tags. The styles are `--w-t-display`, `title`, `heading`, `subhead`, `read`, `chat`, `label`, `label-sm`, `ui`, `small`, `caption`, `kicker`, `mono` and `micro` (`styles/typography.css`, with matching `.w-t-*` classes). Each one scales with `--w-fs` and has integer line heights. Loaded weights are sans 400/500/700, serif 400/600 and mono 400/500, with an 11px floor. Fonts are self-hosted (the desktop CSP forbids CDNs). English is the base language; other languages are packs (`lib/i18n/packs.ts`) that bring their script's fonts and set `data-script`.
+Serif names places, sans carries voices, mono counts. **Shippori Mincho** is used for communities, channels, rooms, documents, titles and date rules. **Zen Kaku Gothic New** is used for everything people say and do. **IBM Plex Mono** is used for times, counts, handles, sizes and maturity tags. The styles are `--w-t-display`, `title`, `heading`, `subhead`, `read`, `chat`, `label`, `label-sm`, `ui`, `small`, `caption`, `kicker`, `mono` and `micro` (`styles/typography.css`, with matching `.w-t-*` classes). Each one scales with `--w-fs` and has integer line heights. Use only sans 400/500/700, serif 400/600 and mono 400/500 (never mono 600), with an 11px floor except the 10px maturity tag, role word and small badge numerals. Fonts are self-hosted (the desktop CSP forbids CDNs). English is the base language; other languages are packs (`lib/i18n/packs.ts`) that bring their script's fonts and set `data-script`.
 
 ## Kit
 

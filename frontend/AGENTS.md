@@ -40,7 +40,11 @@ Sources of truth, in order: the code on the branch you are changing, then `../do
   - `kit-prose.css` holds reading: `.w-prose`, `.w-dayrule`, `.w-newrule`, `.w-typing`, `.w-outline` and `.w-facts`.
   - Svelte wrappers live in `src/lib/components/ui/`. Glyphs come only from the `Icon` registry (`ui/icons.ts`): a 24 grid with stroke 1.75.
 - **Layers** (`src/routes/+layout.svelte`), in order: `fonts.css` → `styles.css` (base, legacy sheets) → `character.css` → `typography.css` → `stream.css` → `shell.css` → `login-skin.css` → `controls-kit.css` → `stage-skin.css` → `settings-skin.css` → `admin-skin.css` → `modal-skin.css` → `panels-skin.css` → `desktop-shell.css`. Each surface has its own skin in `src/styles/surfaces/`, imported by the skin it was carved from. A surface package empties the legacy rules it replaces instead of adding override layers.
-- **Boot shell** (`src/app.html`). It paints before any role exists, so its `--boot-*` values mirror the resolved Wabi Ink roles, or Daylight's when a light theme is saved. The theme-color is `#101315`. Operator branding (server-stamped accent and logo) still wins.
+- **Boot shell** (`src/app.html`). It paints before any role exists, so its `--boot-*` values mirror the resolved Wabi Ink roles, or Daylight's when a light theme is saved.
+  - **Server markers.** Keep `content="#101315" data-wabi-theme-color`, `data-wabi-brand-title` and the `data-wabi-favicon` href exactly as they are: the Rust server rewrites them at boot.
+  - **Theme-color.** The meta ships as `#101315`. At boot a saved Daylight theme switches it to `#faf9f6`, but only while it still holds that default, so a server-stamped operator accent wins. It does not yet follow a runtime theme switch, because `themeManager.applyTheme` does not write it.
+  - **Mark.** The default brand shows the masked ensō. An operator logo replaces it only once the logo has loaded. A custom brand without a usable logo shows its initial, and neutral branding shows the neutral chat mark.
+  - **Motion.** Nothing loops: the gate-driven rail is the only progress indicator. The mark and the name stay in place when the stall and recover rows appear.
 
 ### Golden rules (contract §2, §5, §9)
 
@@ -85,34 +89,74 @@ Sources of truth, in order: the code on the branch you are changing, then `../do
 
 ## Audit findings (full-site audit, 2026-07) — status October 2026
 
+Item numbers are the original audit's. Each status was re-checked against the code; re-check again before relying on it.
+
 Resolved:
 
 1. ~~`src/app.css` dead but the only source of `--text-*`~~ — `app.css` is gone; `--text-xs…xl` live in `tokens.css` and follow `--w-fs`.
 2. ~~Two conflicting scales in `tokens.css`~~ — merged. One `--z-*` scale; legacy color names are now the bridge to roles.
-3. ~~Undefined tokens (`--accent-color`, `--color-*-hover`, `--modal-text-*`, `--pinned-*`, `--color-glass-black-25`, `--accent-blue/green/purple/red`)~~ — all are defined in `tokens.css` on roles.
 6. ~~Dead sheets in `styles/components/` and served `.bak` files~~ — deleted.
-10. ~~`100vh` stragglers~~ — the remaining `100vh` is a fallback before `100dvh`.
 11. ~~a11y gaps in CreateDM/CreateGroup close buttons, Settings, PinnedMessages, Incoming/Outgoing call overlays~~ — labelled; dialogs use `role="dialog"` + `aria-modal`.
-- ~~Docs, boot color and scrollbars still follow the old indigo brand~~ (foundation#19) — this file and `docs/design/` describe the role system; `app.html` boots on Wabi Ink `#101315`; scrollbars use `--w-line-strong` (`base.css`).
 
-Still open (fold each into the surface package that owns the file):
+Partly resolved:
 
-4. Legacy color names and raw hex in DM and Lore surfaces: `DMTab.svelte`, `DMMessageView.svelte`, `DmHub.svelte`, `FollowingFeed.svelte`, `LoreChannel.svelte`. The bridge keeps them themed; move them to `--w-*` roles.
-5. `admin-center-stage.css`: the Space Grotesk/Space Mono fonts are gone, but about 80 raw hex literals remain.
-7. Duplicates: `lib/components/StorageSettings.css` is not imported (dead; `styles/components/storage-settings.css` is live). `BaseModal.svelte` still scopes its own modal frame; the contract moves it onto `.w-dialog`. (The ServerRail pair is resolved.)
-8. Off-scale radii: four literals remain in `UserListTabImpl.css`. Use the `--radius-*` codemod (contract §4.4).
-9. Raw z-index: `ModeTabsDrawer.css` still uses 1999/2000. The other listed files use `--z-*` tokens.
-12. Font-size drift: `FollowingFeed.svelte` still has hardcoded rem sizes. Use `--w-t-*` tokens.
+3. **Undefined tokens.** Every name the audit listed is now defined, or, for `--modal-text-muted`, no longer referenced; it is still undefined, so don't reintroduce it. `--accent-color`, `--pinned-*` and `--modal-text-secondary` resolve to roles. These are still raw literals that do not follow the theme:
+   - `--accent-blue/green/purple/red`, which are hex, and `--color-glass-black-25`, which is `rgba`. Users: `settings-appearance.css`, `notesStore.ts` and `admin/ui/StatusDot.svelte`.
+   - `--color-*-hover`, which mixes toward `#ffffff` with raw hex fallbacks.
+
+   Don't reuse these names. Move their users to roles.
+7. **Duplicates.**
+   - `BaseModal.svelte` now renders the kit `.w-scrim` + `.w-dialog` frame, and the ServerRail pair is gone.
+   - Still open: `lib/components/StorageSettings.css` is not imported. It is dead; `styles/components/storage-settings.css` is the live copy.
+10. **`100vh` stragglers.** The listed ones (`reader-tab.css`, `user-popout.css`, `call-view.css`) are fixed, and most other uses now have a `100dvh` line after them. `:fullscreen` rules use `100vh` on purpose. Still bare `100vh`, with no `100dvh`:
+    - `ModeTabsDrawer.css:50`
+    - `EmojiPicker.svelte:553-554`
+    - `ReportMessageDialog.svelte`, at `calc(100vh - 36px)`
+    - `routes/business/businessPage.css:14`
+    - `routes/business/+page.svelte:31`
+    - the dev review routes `__annotated_review` and `__forum_review`
+- **Old indigo brand** (foundation#19). Done:
+  - This file and `docs/design/` describe the role system.
+  - `app.html` boots on Wabi Ink `#101315`.
+  - Scrollbars use `--w-line-strong` (`base.css`).
+
+  Still indigo:
+  - `static/manifest.webmanifest`: `background_color` and `theme_color` are both `#0D1024`.
+  - `static/offline.html`: theme-color `#0f0c29`, indigo and sky radial gradients, an inverted logo and `font-weight: 650`.
+  - The theme-color meta does not follow a runtime theme switch (see Boot shell above).
+
+Still open. Fold each into the surface package that owns the file:
+
+4. **Legacy color names and raw hex** in the DM and Lore surfaces: `DMTab.svelte`, `DMMessageView.svelte`, `DmHub.svelte`, `FollowingFeed.svelte` and `LoreChannel.svelte`. The bridge keeps them themed; move them to `--w-*` roles.
+5. **`admin-center-stage.css`.** The Space Grotesk/Space Mono fonts are gone, but about 80 raw hex literals remain.
+8. **Off-scale radii and the `ml-core` duplicate.**
+   - Four radius literals remain in `UserListTabImpl.css` (6px and 10px). Use the `--radius-*` codemod (contract §4.4).
+   - `styles/components/ml-core.css` still defines `.message` twice: the base rule at line 46, then a second unscoped "Cozy default" block at line 580 that overrides it. The density blocks after it use `!important`.
+9. **Raw z-index.** `ModeTabsDrawer.css` still uses 1999/2000. The other listed files use `--z-*` tokens, or small local values inside their own stacking context.
+12. **Font-size drift.** Hardcoded `rem` sizes remain:
+    - `FollowingFeed.svelte`: six of them, 0.7–1.2rem.
+    - `DmHub.svelte:570` (`.85rem`) and `:575` (`1.25rem`).
+
+    Use `--w-t-*` tokens.
 
 ## Plan
 
-The 2026-07 five-pass polish plan is superseded by the redesign waves in DESIGN_CONTRACT.md §14:
+The redesign waves in DESIGN_CONTRACT.md §14 supersede the 2026-07 five-pass polish plan:
 
 - **Wave 0, foundation:** roles, tokens, kit, primitives, privacy state, layout guard, docs.
 - **Wave 1, surfaces:** one package per surface.
 - **Wave 2:** phone and tablet, beta and dev sweep, dead-code purge, legacy retirement.
 
-Passes 0, 2, 3 and 4 of the old plan are effectively done (see the resolved items above). Pass 1 (re-tokenize surfaces) and pass 5 (taste) continue as the wave 1 surface packages.
+No pass of the old plan is fully closed. The open and partly resolved items above are what remains of each pass. They fold into the wave packages that own those files:
+
+| Old pass | Remaining items |
+|---|---|
+| Pass 0, foundation | item 3 (raw literals) |
+| Pass 1, re-tokenize surfaces | items 4, 5, 8 and 12 |
+| Pass 2, z-index | item 9 |
+| Pass 3, a11y and viewport | item 10 |
+| Pass 4, dead CSS | item 7 |
+| Pass 5, taste | continues in the wave 1 surface packages |
 
 ## Token-efficiency practices (apply every session)
 
