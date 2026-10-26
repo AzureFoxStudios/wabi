@@ -12,12 +12,14 @@ import {
 	privacyPopoverBody,
 	privacyStateFor,
 	privacyWords,
+	resolvePrivacySubject,
 	retentionChipVisible,
 	retentionFact,
 	retentionLabel,
 	retentionTitle,
 	type PrivacyPolicy,
-	type PrivacyState
+	type PrivacyState,
+	type PrivacySubject
 } from './privacyState';
 
 /** §7.20 table and §9.2, verbatim (channel wording; DMs say "this conversation"). */
@@ -84,8 +86,10 @@ describe('privacyStateFor', () => {
 			expect(at({ enabled: false, pendingDefault: true, serverReadableSelected: false })).toBe('encryption-pending');
 			expect(at({ enabled: true, pendingDefault: false, serverReadableSelected: false })).toBe('experimental-encryption');
 			expect(at({ enabled: true }, true)).toBe('experimental-encryption');
-			// The sender turned encryption off in a room whose policy is encrypted.
-			expect(at({ enabled: true }, false)).toBe('server-readable-by-choice');
+			// An encrypted room always encrypts and cannot be downgraded on this branch, so a stale
+			// or default `encryptSend: false` never turns it into a choice this member did not make.
+			expect(at({ enabled: true }, false)).toBe('experimental-encryption');
+			expect(at({ e2ee: true, privateConversation: true }, false)).toBe('experimental-encryption');
 			// This member made the server-readable choice.
 			expect(at({ enabled: false, serverReadableSelected: true, serverReadableAllowedByMe: true })).toBe(
 				'server-readable-by-choice'
@@ -206,6 +210,64 @@ describe('privacyWords', () => {
 		expect(words.word).toBe('Checking privacy…');
 		expect(privacyPopoverBody('secure' as PrivacyState)).toBe(privacyPopoverBody('checking'));
 		expect(privacyFacts('secure' as PrivacyState).at(-1)).toEqual({ term: 'Encryption', value: 'Checking…' });
+	});
+});
+
+describe('resolvePrivacySubject (what a badge words)', () => {
+	test('state-only use on conversation surfaces keeps conversation wording', () => {
+		// The DM header, DM list rows and palette results pass a ready state for an older DM.
+		const subject = resolvePrivacySubject({ state: 'server-readable', conversation: true });
+		expect(subject).toEqual({ state: 'server-readable', conversation: true });
+		expect(privacyWords(subject.state, subject).sentence).toBe('The server operator can read messages in this conversation.');
+		expect(privacyWords(subject.state, { ...subject, surface: 'phone' }).sentence).toBe('The operator can read this conversation.');
+		expect(privacyPopoverBody(subject.state, subject)).toBe('The server operator can read messages in this conversation.');
+		expect(privacyFacts(subject.state, subject).at(-1)).toEqual({ term: 'Encryption', value: 'Off in this conversation' });
+		// The same state in a community channel.
+		const channel = resolvePrivacySubject({ state: 'server-readable', conversation: false });
+		expect(privacyFacts(channel.state, channel).at(-1)).toEqual({ term: 'Encryption', value: 'Only for DMs and groups' });
+	});
+
+	test('the raw input derives both the state and the conversation wording', () => {
+		const olderDm = resolvePrivacySubject({ input: { channelType: 'dm', policy: { enabled: false, pendingDefault: false, serverReadableSelected: false } } });
+		expect(olderDm).toEqual({ state: 'server-readable', conversation: true });
+		expect(resolvePrivacySubject({ input: { channel: { type: 'group' }, policy: null } })).toEqual({ state: 'checking', conversation: true });
+		expect(resolvePrivacySubject({ input: { channelType: 'text', policy: { enabled: true } } })).toEqual({
+			state: 'server-readable',
+			conversation: false
+		});
+		// A given state wins over the input; an explicit conversation wins over the channel kind.
+		expect(resolvePrivacySubject({ state: 'encryption-pending', input: { channelType: 'dm' } })).toEqual({
+			state: 'encryption-pending',
+			conversation: true
+		});
+		expect(resolvePrivacySubject({ input: { channelType: 'text' }, conversation: true }).conversation).toBe(true);
+	});
+
+	test('untyped callers never get a stronger claim', () => {
+		expect(resolvePrivacySubject()).toEqual({ state: 'checking', conversation: false });
+		expect(resolvePrivacySubject({ state: 'secure' as PrivacyState })).toEqual({ state: 'checking', conversation: false });
+		// States that only exist in DMs and groups word themselves as a conversation.
+		for (const state of ['encryption-pending', 'experimental-encryption', 'server-readable-by-choice'] as const) {
+			expect(resolvePrivacySubject({ state }).conversation).toBe(true);
+		}
+		// Checking is worded the same whether or not the caller knows it is a DM.
+		expect(privacyPopoverBody('checking', { conversation: true })).toBe(privacyPopoverBody('checking', { conversation: false }));
+	});
+
+	test('the badge props type demands conversation with a ready state, and a channel kind with input', () => {
+		// svelte-check (bun run check) fails if any of these stops being a type error.
+		// @ts-expect-error a state alone would word an older DM as a channel
+		const stateOnly: PrivacySubject = { state: 'server-readable' };
+		// @ts-expect-error the channel kind must be stated, even while it is unknown (null)
+		const noKind: PrivacySubject = { input: { policy: { enabled: false } } };
+		const accepted: PrivacySubject[] = [
+			{ state: 'server-readable', conversation: true },
+			{ state: null, conversation: false },
+			{ input: { channelType: 'dm', policy: null } },
+			{ input: { channelType: null } },
+			{ input: { channel: { type: 'text' } } }
+		];
+		expect([stateOnly, noKind, ...accepted].length).toBe(7);
 	});
 });
 
@@ -355,6 +417,35 @@ describe('truthful vocabulary (§9.2)', () => {
 			// Colors only through roles (§5).
 			expect(source).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i);
 		}
+	});
+
+	test('the badge words rooms through resolvePrivacySubject and the typed subject', () => {
+		const { source } = componentCode('PrivacyBadge.svelte');
+		expect(source).toContain('resolvePrivacySubject(');
+		expect(source).toMatch(/type Props = PrivacySubject &/);
+	});
+
+	test('no truth label is cut: no ellipsis, chips never shrink, the colophon fits by width', () => {
+		const { source } = componentCode('PrivacyBadge.svelte');
+		const style = /<style>([\s\S]*?)<\/style>/.exec(source)?.[1] ?? '';
+		expect(style).not.toMatch(/text-overflow\s*:\s*ellipsis/);
+		// The phone/desktop word choice is the room the row gives, not a viewport breakpoint.
+		expect(style).not.toMatch(/@media[^{]*max-width/);
+		expect(source).toContain('ResizeObserver');
+		const group = /\.privacy-badge--group\s*\{([^}]*)\}/.exec(style)?.[1] ?? '';
+		expect(group).toMatch(/flex:\s*none/);
+		expect(group).not.toMatch(/min-width:\s*0/);
+	});
+
+	test('the popover scales with the text size, keeps body copy legible and joins open modals', () => {
+		const { source } = componentCode('PrivacyPopover.svelte');
+		const style = /<style>([\s\S]*?)<\/style>/.exec(source)?.[1] ?? '';
+		expect(style).toMatch(/width:\s*min\(calc\(360px \* var\(--w-fs\)\)/);
+		const about = /\.privacy-pop__about\s*\{([^}]*)\}/.exec(style)?.[1] ?? '';
+		expect(about).toMatch(/color:\s*var\(--w-mute\)/);
+		expect(source).toContain('use:portal={layerFor(anchor)}');
+		// Every close (including the trigger's own toggle through bind:open) reaches onclose.
+		expect(source).toMatch(/\$effect\(\(\) => \{\s*if \(open\) \{\s*wasOpen = true;/);
 	});
 
 	test('the colophon and the header chip open the popover as a dialog', () => {
