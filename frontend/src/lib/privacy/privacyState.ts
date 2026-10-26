@@ -172,6 +172,11 @@ export function resolvePrivacySubject(
 	if (typeof conversation === 'boolean') return { state, conversation };
 	const channelType = input?.channelType ?? input?.channel?.type ?? null;
 	if (channelType) return { state, conversation: isPrivateConversationType(channelType) };
+	// The channel kind is still loading. The policy can still tell: the summary says whether the
+	// room is private, and only DMs and groups have an E2EE room status at all.
+	const policy = input?.policy;
+	if (typeof policy?.privateConversation === 'boolean') return { state, conversation: policy.privateConversation };
+	if (policy && hasRoomStatus(policy)) return { state, conversation: true };
 	return {
 		state,
 		conversation:
