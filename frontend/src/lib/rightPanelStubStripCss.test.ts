@@ -1,8 +1,95 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const css = readFileSync(new URL('./components/RightStubStrip.css', import.meta.url), 'utf8');
 const layout = readFileSync(new URL('../styles/components/main-layout-part1.css', import.meta.url), 'utf8');
+const mainLayout = readFileSync(new URL('./components/MainLayout.svelte', import.meta.url), 'utf8');
+
+type MarkupTag = { name: string; attrs: string; depth: number };
+const VOID_ELEMENTS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+
+/**
+ * The element tags of a Svelte template from `from` on, with their depth below the element that
+ * opens there (that element is depth 0, its children 1). Svelte blocks ({#if}) add no element, so
+ * they are skipped; attribute expressions may contain '>' (arrow functions) and are skipped whole.
+ */
+function markupTags(source: string, from: number): MarkupTag[] {
+	const found: MarkupTag[] = [];
+	const open: string[] = [];
+	let index = from;
+	while (index < source.length) {
+		const lt = source.indexOf('<', index);
+		if (lt < 0) break;
+		if (source.startsWith('<!--', lt)) {
+			index = source.indexOf('-->', lt) + 3;
+			continue;
+		}
+		const head = /^<(\/?)([A-Za-z][\w.:-]*)/.exec(source.slice(lt, lt + 120));
+		if (!head) {
+			index = lt + 1;
+			continue;
+		}
+		let end = lt + head[0].length;
+		let braces = 0;
+		let quote: string | null = null;
+		for (; end < source.length; end += 1) {
+			const char = source[end];
+			if (quote) {
+				if (char === quote && source[end - 1] !== '\\') quote = null;
+			} else if (char === '"' || char === "'" || char === '`') quote = char;
+			else if (char === '{') braces += 1;
+			else if (char === '}') braces -= 1;
+			else if (char === '>' && braces === 0) break;
+		}
+		const [, closing, name] = head;
+		const attrs = source.slice(lt + head[0].length, end);
+		index = end + 1;
+		if (closing) {
+			expect(open.pop(), `unbalanced </${name}>`).toBe(name);
+			if (open.length === 0) break;
+			continue;
+		}
+		found.push({ name, attrs, depth: open.length });
+		if (!attrs.trimEnd().endsWith('/') && !VOID_ELEMENTS.has(name)) open.push(name);
+	}
+	expect(open, 'the element never closes').toEqual([]);
+	return found;
+}
+
+function classesOf(attrs: string): string[] {
+	return (/(?:^|\s)class="([^"{]*)/.exec(attrs)?.[1] ?? '').split(/\s+/).filter(Boolean);
+}
+
+/** The classes a direct child adds to the DOM: an element's own, or a component's root element's. */
+function childClasses(tag: MarkupTag): string[] {
+	if (!/^[A-Z]/.test(tag.name)) return classesOf(tag.attrs);
+	const component = readFileSync(new URL(`./components/${tag.name}.svelte`, import.meta.url), 'utf8');
+	// The template after the scripts, without snippet definitions (they render only where used).
+	// Removed until none is left, so a nested or re-formed block cannot survive one pass.
+	let template = component.slice(component.lastIndexOf('</script>') + '</script>'.length);
+	for (let previous = ''; previous !== template; ) {
+		previous = template;
+		template = template.replace(/\{#snippet[\s\S]*?\{\/snippet\}/g, '');
+	}
+	const first = template.search(/<(?!svelte:|style\b|!--)[A-Za-z]/);
+	expect(first, `${tag.name} has no root element`).toBeGreaterThan(-1);
+	return classesOf(markupTags(template, first)[0].attrs);
+}
+
+/** The direct children of the element whose opening tag starts with `openTag` in MainLayout. */
+function directChildren(openTag: string): MarkupTag[] {
+	const start = mainLayout.indexOf(openTag);
+	expect(start, `missing ${openTag}`).toBeGreaterThan(-1);
+	return markupTags(mainLayout, start).filter((tag) => tag.depth === 1);
+}
+
+function stylesheets(dir: URL): string[] {
+	const root = fileURLToPath(dir);
+	return (readdirSync(root, { recursive: true }) as string[])
+		.filter((file) => file.endsWith('.css'))
+		.map((file) => readFileSync(`${root}/${file}`, 'utf8'));
+}
 
 function rule(source: string, selector: string): string {
 	const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -103,8 +190,39 @@ describe('right rail geometry', () => {
 		expect(ring).toMatch(/z-index:/);
 	});
 
-	test('the inert part of the stage adds no box, so the stage layout is unchanged', () => {
-		expect(rule(layout, '.stage-covered')).toContain('display: contents');
+	// Regression (layout guard round 1): an inert wrapper around the stage parts stopped stagebar.css
+	// from hiding the standalone workspace bar at 1250px and wider, so desktop showed two top bars.
+	test('the stage parts stay direct children of .chat-stack (inert goes on each part, not a wrapper)', () => {
+		const children = directChildren('<div class="chat-stack"');
+		const names = children.map((tag) => tag.name);
+		expect(names).toContain('WorkspaceViewBar');
+		expect(names).toContain('VoiceLiveStrip');
+		expect(children.some((tag) => classesOf(tag.attrs).includes('chat-surface'))).toBe(true);
+		expect(children.every((tag) => tag.name !== 'div' || classesOf(tag.attrs).length > 0)).toBe(true);
+		expect(mainLayout).not.toContain('stage-covered');
+		expect(mainLayout).toMatch(/const STAGE_PARTS = '\.workspace-view-bar, \.chat-surface, \.voice-live-strip'/);
+	});
+
+	test('every rule that targets a .chat-stack child with a child combinator still matches one', () => {
+		const sheets = [...stylesheets(new URL('../styles/', import.meta.url)), ...stylesheets(new URL('./components/', import.meta.url))];
+		const targets = new Set(sheets.flatMap((sheet) => [...sheet.matchAll(/\.chat-stack(?:[:.][^\s,{>]*(?:\([^)]*\))?)*\s*>\s*\.([\w-]+)/g)].map((match) => match[1])));
+		const present = new Set(directChildren('<div class="chat-stack"').flatMap(childClasses));
+		expect(present.has('workspace-view-bar')).toBe(true);
+		for (const target of targets) expect(present.has(target), `.chat-stack > .${target} no longer matches`).toBe(true);
+	});
+
+	test('a stowed pin keeps its zone mounted, but not drawn, hit or reachable', () => {
+		expect(mainLayout).toContain("$: zoneMounted = $layoutStore.rightPanelMode !== 'none';");
+		expect(mainLayout).toContain('{#if zoneMounted || peekClosing}');
+		expect(mainLayout).toContain('inert={zoneHidden}');
+		const stowed = rule(layout, '.right-panel-zone.stowed');
+		expect(stowed).toContain('opacity: 0');
+		expect(stowed).toContain('content-visibility: hidden');
+		expect(stowed).toContain('pointer-events: none');
+		// Reduced motion gives every property a 0.01ms transition: nothing inherited may hide the zone,
+		// and the zone itself comes back at once.
+		expect(stowed).not.toMatch(/(^|[^-])visibility:/);
+		expect(rules(layout, '.right-panel-zone')).toContain('transition: none');
 	});
 
 	test('items can be reordered by drag and show where they will land', () => {

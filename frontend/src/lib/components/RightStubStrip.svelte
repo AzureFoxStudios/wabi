@@ -10,7 +10,7 @@
 		type WorkspacePanelManifest
 	} from '$lib/workspacePanels';
 	import { armPeekDismiss, cancelPeekDismiss, setPeekPointerInside } from '$lib/rightPeekGestures';
-	import { dockCanPin, openPanelFromRail, peekHeld } from '$lib/layoutStoreRightPanel';
+	import { dockCanPin, openPanelFromRail, peekHeld, peekPanelFromRail } from '$lib/layoutStoreRightPanel';
 	import { portal } from '$lib/actions/portal';
 	import { railPeekKey, peekModifierHeld, peekKeyLabel, reorderIndexes } from '$lib/railPrefs';
 	import { panelActionIndex, positionPanelPopover } from '$lib/panelPopover';
@@ -29,6 +29,7 @@
 	let addStubRef = $state<HTMLButtonElement | null>(null);
 	let contextTrigger: HTMLButtonElement | null = null;
 	const drawerId = $props.id();
+	const stowedNoteId = `${drawerId}-stowed`;
 
 	const availablePanels = $derived(
 		$workspacePanelList.filter((panel) => canAccessWorkspacePanel(panel, $currentUser))
@@ -71,7 +72,7 @@
 
 	$effect(() => {
 		if (contextMenu) {
-			const firstItem = contextMenuRef?.querySelector('button');
+			const firstItem = contextMenuRef?.querySelector<HTMLButtonElement>('button:not(:disabled)');
 			if (firstItem) firstItem.focus();
 		}
 	});
@@ -97,9 +98,8 @@
 			if (drawerOpen) {
 				event.preventDefault();
 				closeDrawer(true);
-				return;
 			}
-			layoutStore.closeRightPanel();
+			// Escape elsewhere ends a peek in MainLayout (endPeek) and never unpins anything.
 		}
 		function handleClickOutside(event: MouseEvent) {
 			const target = event.target as Node | null;
@@ -119,7 +119,7 @@
 			if (!['Shift', 'Alt', 'Control'].includes(event.key)) return;
 			if (!peekModifierHeld($railPeekKey, event)) return;
 			cancelPeekDismiss();
-			layoutStore.peekPanel(hoveredId);
+			peekPanelFromRail(hoveredId);
 		}
 		function handleWindowBlur() {
 			hideContextMenu();
@@ -152,7 +152,7 @@
 		// Hover alone never opens a panel (unless the preference is 'none'); the
 		// peek modifier does. An already-open hover peek follows the pointer between items.
 		if (peekModifierHeld($railPeekKey, event) || $layoutStore.rightPanelMode === 'peek') {
-			layoutStore.peekPanel(panelId);
+			peekPanelFromRail(panelId);
 		}
 	}
 
@@ -188,8 +188,17 @@
 		const x = $layoutStore.stubSide === 'right'
 			? window.innerWidth - (stripRect?.left ?? event.clientX) + 6
 			: (stripRect?.right ?? event.clientX) + 6;
-		const y = Math.min(event.clientY, window.innerHeight - 140);
+		const y = Math.min(event.clientY, window.innerHeight - 180);
 		contextMenu = { panelId, x, y };
+	}
+
+	// The menu's first item (§7.22): Unpin a pinned panel, in flow or stowed (the only way to drop a
+	// pin you cannot see), or Pin one beside the stage when the stage keeps 600px.
+	function togglePinFromMenu(panelId: string): void {
+		if (inPinnedSet(panelId)) layoutStore.unpinOne(panelId);
+		else if ($dockCanPin) layoutStore.pinPanel(panelId);
+		else return;
+		hideContextMenu(true);
 	}
 
 	function hideContextMenu(restoreFocus = false): void {
@@ -323,6 +332,8 @@
 		$railPeekKey === 'none' ? 'hover to peek' : `hold ${peekKeyLabel($railPeekKey)} to peek`
 	);
 
+	const STOWED_NOTE = 'Pinned, shown when there is room';
+
 	/** A panel is on screen: a stowed pin (no room beside the stage) is not, unless a held peek shows it. */
 	function panelOnScreen(): boolean {
 		const mode = $layoutStore.rightPanelMode;
@@ -359,7 +370,7 @@
 		const action = isOpen(panel.id)
 			? isPinned(panel.id) ? 'click to unpin' : 'click to close'
 			: $dockCanPin ? 'click to pin beside others' : 'click to open over the page';
-		const stowed = isStowed(panel.id) ? ' · pinned, shown when there is room' : '';
+		const stowed = isStowed(panel.id) ? ` · ${STOWED_NOTE.toLowerCase()}` : '';
 		return `${panel.label}${stowed} · ${action} · ${peekHint}`;
 	}
 </script>
@@ -382,6 +393,7 @@
 					class="stub"
 					class:active={isDisplayed(panel.id)}
 					class:pinned={isPinned(panel.id)}
+					class:stowed={isStowed(panel.id)}
 					class:dragging={dragId === panel.id}
 					class:drop-before={dragId && dropIndex === index && $layoutStore.stubStrip.indexOf(dragId) > index}
 					class:drop-after={dragId && dropIndex === index && $layoutStore.stubStrip.indexOf(dragId) < index}
@@ -399,6 +411,7 @@
 					data-panel-id={panel.id}
 					aria-label={panel.label}
 					aria-pressed={isOpen(panel.id)}
+					aria-describedby={isStowed(panel.id) ? stowedNoteId : undefined}
 					data-tip={stubTip(panel)}
 				>
 					<span class="stub-icon"><WorkspacePanelIcon icon={panel.icon} /></span>
@@ -409,6 +422,8 @@
 				</button>
 			{/each}
 		</div>
+		<!-- The stowed state for assistive tech (the tooltip is CSS only). -->
+		<span id={stowedNoteId} class="sr-only">{STOWED_NOTE}</span>
 		<div class="rail-foot">
 			<button
 				type="button"
@@ -442,9 +457,15 @@
 			oncontextmenu={(event) => event.preventDefault()}
 			onkeydown={handleActionKeys}
 		>
-			<button type="button" class="context-menu-item" role="menuitem" onclick={() => removeStub(contextMenu.panelId)}>
-				Remove from rail
-			</button>
+			{#if inPinnedSet(contextMenu.panelId)}
+				<button type="button" class="context-menu-item" role="menuitem" onclick={() => contextMenu && togglePinFromMenu(contextMenu.panelId)}>
+					Unpin
+				</button>
+			{:else}
+				<button type="button" class="context-menu-item" role="menuitem" disabled={!$dockCanPin} onclick={() => contextMenu && togglePinFromMenu(contextMenu.panelId)}>
+					{$dockCanPin ? 'Pin' : 'Pin · needs a wider window'}
+				</button>
+			{/if}
 			<button
 				type="button"
 				class="context-menu-item"
@@ -462,6 +483,9 @@
 				onclick={() => moveStub(1)}
 			>
 				Move down
+			</button>
+			<button type="button" class="context-menu-item" role="menuitem" onclick={() => contextMenu && removeStub(contextMenu.panelId)}>
+				Remove from rail
 			</button>
 		</div>
 	{/if}

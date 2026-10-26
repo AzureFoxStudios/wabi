@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { get } from 'svelte/store';
 import { armPeekDismiss, peekAnimationGate } from './rightPeekGestures';
-import { closeRightPanel, dismissPeek, dockCanPin, openPanelFromRail, openRightPanel, peekHeld, peekPanel, pinPanel, pinStowed, setDisplayedPanel, unpinPanel } from './layoutStoreRightPanel';
+import { closeRightPanel, dismissPeek, dockCanPin, endPeek, openPanelFromRail, openRightPanel, peekHeld, peekPanel, peekPanelFromRail, peekRequested, pinPanel, pinStowed, setDisplayedPanel, unpinOne, unpinPanel } from './layoutStoreRightPanel';
 import { activeRightTab, dockStack, pinnedPanelId, rightPanelMode } from './layoutStoreStates';
 
 const originalFrame = globalThis.requestAnimationFrame;
@@ -112,7 +112,7 @@ describe('opening a companion when the stage has no room to spare', () => {
 		expect(get(activeRightTab)).toBe('notes');
 	});
 
-	test('another stub peeks over a stowed pin; scrim, Escape and close end the peek and keep the pin', () => {
+	test('another stub peeks over a stowed pin; the scrim and Escape (endPeek) end the peek and keep the pin', () => {
 		pinPanel('users');
 		dockCanPin.set(false);
 		openPanelFromRail('dms');
@@ -120,19 +120,61 @@ describe('opening a companion when the stage has no room to spare', () => {
 		expect(get(activeRightTab)).toBe('dms');
 		expect(get(pinnedPanelId)).toBe('users');
 		expect(get(dockStack)).toEqual(['users']);
-		closeRightPanel();
+		expect(endPeek()).toBe(true);
 		expect(get(peekHeld)).toBe(false);
 		expect(get(rightPanelMode)).toBe('pinned');
 		expect(get(pinnedPanelId)).toBe('users');
 		expect(get(activeRightTab)).toBe('users');
 	});
 
-	test('closing with nothing on screen never discards a stowed pin (stray Escape, navigation)', () => {
+	test('endPeek with no peek on screen leaves every pin alone, in flow or stowed (a stray Escape)', () => {
 		pinPanel('users');
+		expect(endPeek()).toBe(false);
+		expect(get(rightPanelMode)).toBe('pinned');
 		dockCanPin.set(false);
-		closeRightPanel();
+		expect(endPeek()).toBe(false);
 		expect(get(rightPanelMode)).toBe('pinned');
 		expect(get(pinnedPanelId)).toBe('users');
+	});
+
+	test('endPeek closes a plain peek, held or hover', () => {
+		dockCanPin.set(false);
+		openPanelFromRail('users');
+		expect(endPeek()).toBe(true);
+		expect(get(rightPanelMode)).toBe('none');
+		peekPanel('calls');
+		expect(endPeek()).toBe(true);
+		expect(get(rightPanelMode)).toBe('none');
+	});
+
+	// Callers that close the panel as part of an action (navigation, deep links, "show in center
+	// stage") get one result whatever the window width: nothing is left to come back later.
+	for (const room of [true, false]) {
+		test(`closeRightPanel closes every pin ${room ? 'in flow' : 'stowed for lack of room'}, peek included`, () => {
+			pinPanel('users');
+			pinPanel('model-viewport');
+			dockCanPin.set(room);
+			if (!room) openPanelFromRail('dms');
+			closeRightPanel();
+			expect(get(rightPanelMode)).toBe('none');
+			expect(get(pinnedPanelId)).toBeNull();
+			expect(get(dockStack)).toEqual([]);
+			expect(get(peekHeld)).toBe(false);
+			dockCanPin.set(true);
+			expect(get(rightPanelMode)).toBe('none');
+		});
+	}
+
+	test('the rail menu can unpin a stowed pin; it does not come back when room returns', () => {
+		pinPanel('users');
+		pinPanel('notes');
+		dockCanPin.set(false);
+		unpinOne('notes');
+		expect(get(dockStack)).toEqual(['users']);
+		unpinOne('users');
+		expect(get(rightPanelMode)).toBe('none');
+		dockCanPin.set(true);
+		expect(get(rightPanelMode)).toBe('none');
 	});
 
 	test('when room returns, a peek over a stowed pin joins the dock; a peek of the pin just re-pins', () => {
@@ -155,7 +197,7 @@ describe('opening a companion when the stage has no room to spare', () => {
 		dockCanPin.set(false);
 		openRightPanel('users');
 		expect(get(peekHeld)).toBe(true);
-		closeRightPanel();
+		endPeek();
 		setDisplayedPanel('users');
 		expect(get(peekHeld)).toBe(true);
 		expect(get(pinnedPanelId)).toBe('users');
@@ -194,6 +236,40 @@ describe('opening a companion when the stage has no room to spare', () => {
 		closeRightPanel();
 		peekPanel('notes');
 		expect(get(peekHeld)).toBe(false);
+	});
+});
+
+// The scrim is for peeks the person asked for (§8.4); MainLayout reads peekHeld || peekRequested.
+describe('which peeks the person asked for', () => {
+	test('a peek the app opens on its own (the Calls peek on joining a call) is not asked for', () => {
+		peekPanel('calls');
+		expect(get(rightPanelMode)).toBe('peek');
+		expect(get(peekRequested)).toBe(false);
+		expect(get(peekHeld)).toBe(false);
+	});
+
+	test('a rail hover peek is asked for, also when it takes over a summoned peek', () => {
+		peekPanelFromRail('users');
+		expect(get(peekRequested)).toBe(true);
+		closeRightPanel();
+		expect(get(peekRequested)).toBe(false);
+		peekPanel('calls');
+		peekPanelFromRail('dms');
+		expect(get(activeRightTab)).toBe('dms');
+		expect(get(peekRequested)).toBe(true);
+	});
+
+	test('a rail hover never marks a pin, and the mark ends with the peek', () => {
+		pinPanel('users');
+		peekPanelFromRail('notes');
+		expect(get(peekRequested)).toBe(false);
+		unpinPanel();
+		peekPanelFromRail('notes');
+		dismissPeek();
+		expect(get(rightPanelMode)).toBe('none');
+		expect(get(peekRequested)).toBe(false);
+		peekPanel('calls');
+		expect(get(peekRequested)).toBe(false);
 	});
 });
 
