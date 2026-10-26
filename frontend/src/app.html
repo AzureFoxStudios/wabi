@@ -96,9 +96,11 @@
 			}
 
 			/* The mark and the name hold the optical center (row 2). Status, rail, steps and the
-			   recover row hang below them (row 3), so a longer status line or the recover row
-			   appearing never moves the mark (contract §2.7: nothing moves under the pointer).
-			   Only a viewport too short for the hanging rows lifts the mark to keep them visible. */
+			   recover row hang below them (row 3), and the hanging rows keep one height in every
+			   state: the recover row keeps its place while hidden and the status line keeps room for
+			   the longest stall message. So a stall or reconnect never moves the mark (contract §2.7:
+			   nothing moves under the pointer). A viewport too short for the hanging rows lifts the
+			   mark to keep them visible, by the same amount in every state. */
 			.wabi-boot-shell__center {
 				display: grid;
 				grid-template-rows: minmax(0, 1fr) auto minmax(min-content, 1.25fr);
@@ -140,22 +142,22 @@
 				height: 72px;
 			}
 
+			/* A mark that stops matching has no transition, so it is gone at once; only the incoming
+			   mark fades in. Two marks never show together, and nothing shows through a logo. */
 			.wabi-boot-shell__mark {
 				grid-area: 1 / 1;
 				opacity: 0;
 				visibility: hidden;
-				transition:
-					opacity 240ms var(--boot-ease),
-					visibility 240ms var(--boot-ease);
 			}
 
 			#wabi-boot-shell[data-boot-mark='glyph'] .wabi-boot-shell__glyph,
 			#wabi-boot-shell[data-boot-mark='enso'] .wabi-boot-shell__enso,
-			#wabi-boot-shell[data-boot-mark='logo'][data-boot-ready='1'] .wabi-boot-shell__logo,
+			#wabi-boot-shell[data-boot-mark='logo'] .wabi-boot-shell__logo,
 			#wabi-boot-shell[data-boot-mark='mono'] .wabi-boot-shell__mono,
 			#wabi-boot-shell[data-boot-mark='plain'] .wabi-boot-shell__plain {
 				opacity: 1;
 				visibility: visible;
+				transition: opacity 240ms var(--boot-ease);
 			}
 
 			.wabi-boot-shell__glyph {
@@ -214,13 +216,22 @@
 				display: none;
 			}
 
+			/* The live text and a hidden strut holding the longest stall message share one cell, so
+			   the line is as tall as its longest message at this width before that message arrives. */
 			.wabi-boot-shell__status {
+				display: grid;
 				margin: 4px 0 0;
 				min-height: 18px;
 				color: var(--boot-mute);
 				font-size: 13px;
 				line-height: 18px;
 				text-wrap: pretty;
+			}
+			.wabi-boot-shell__status > span {
+				grid-area: 1 / 1;
+			}
+			.wabi-boot-shell__strut {
+				visibility: hidden;
 			}
 
 			/* --- Progress rail: driven by real gates, not a timer. It is the only progress
@@ -314,17 +325,20 @@
 				transform: rotate(-45deg) translate(0, -1px);
 			}
 
-			/* --- Recover: Try again + Work offline, last in the hanging rows. --- */
+			/* --- Recover: Try again + Work offline, last in the hanging rows. It keeps its place
+			   while hidden; visibility keeps the hidden buttons out of the tab order and the
+			   accessibility tree. --- */
 			.wabi-boot-shell__recover {
-				display: none;
+				display: flex;
 				justify-content: center;
 				gap: 8px;
 				margin-top: 20px;
+				visibility: hidden;
 			}
 
 			[data-boot-state='reconnect'] .wabi-boot-shell__recover,
 			[data-boot-state='stalled'] .wabi-boot-shell__recover {
-				display: flex;
+				visibility: visible;
 			}
 
 			/* Default button: hairline edge, fills on hover. Primary: ink on paper (text fill, page label). */
@@ -401,7 +415,7 @@
 
 			@media (prefers-reduced-motion: reduce) {
 				#wabi-boot-shell,
-				.wabi-boot-shell__mark,
+				#wabi-boot-shell[data-boot-mark] .wabi-boot-shell__mark,
 				.wabi-boot-shell__rail > span,
 				.wabi-boot-shell__steps,
 				.wabi-boot-shell__btn {
@@ -442,6 +456,15 @@
 						}
 					} catch (_) { /* corrupt storage */ }
 
+					// The launch page reports #5865F2 for a community that never chose an accent
+					// (STOCK_LAUNCH_ACCENT in lib/components/loginHelpers.ts): a placeholder, not branding,
+					// so the boot palette keeps its own sig. Only accents read from a launch page go
+					// through this; a server-stamped accent is the operator's own choice and is kept.
+					const launchAccent = (value) => {
+						const accent = typeof value === 'string' ? value.trim() : '';
+						return accent.toLowerCase() === '#5865f2' ? '' : accent;
+					};
+
 					// Neutral is the operator's per-server opt-in and always wins:
 					// it governs HOW identity is rendered locally, not what it is.
 					const neutral = entry?.useNeutralBranding === true;
@@ -476,7 +499,7 @@
 							(meta && typeof meta.logoUrl === 'string' && meta.logoUrl.trim()) ||
 							'';
 						const accent =
-							(launch && launch.palette && typeof launch.palette.accent === 'string' && launch.palette.accent) ||
+							(launch && launch.palette && launchAccent(launch.palette.accent)) ||
 							(meta && typeof meta.accentColor === 'string' && meta.accentColor) ||
 							'';
 
@@ -497,7 +520,7 @@
 							if (!launch || typeof launch !== 'object') return;
 							const brandName = typeof launch.brandName === 'string' ? launch.brandName.trim() : '';
 							const logoUrl = typeof launch.logoUrl === 'string' ? launch.logoUrl.trim() : '';
-							const accent = typeof launch.palette?.accent === 'string' ? launch.palette.accent : '';
+							const accent = launchAccent(launch.palette?.accent);
 							if (!brandName && !logoUrl && !accent) return;
 							const snapshot = { brandName, logoUrl, accent, force: true };
 							window.__WABI_BOOT_BRAND__ = snapshot;
@@ -550,7 +573,7 @@
 					<div id="wabi-boot-title" class="wabi-boot-shell__title" data-empty="false">Wabi</div>
 				</div>
 				<div class="wabi-boot-shell__body">
-					<p class="wabi-boot-shell__status" id="wabi-boot-status">Opening the shell</p>
+					<p class="wabi-boot-shell__status"><span id="wabi-boot-status">Opening the shell</span><span id="wabi-boot-strut" class="wabi-boot-shell__strut" aria-hidden="true"></span></p>
 					<div class="wabi-boot-shell__rail" aria-hidden="true"><span id="wabi-boot-fill"></span></div>
 					<ol class="wabi-boot-shell__steps" id="wabi-boot-steps" aria-hidden="true">
 						<li data-step="0"><span class="dot"></span>Shell</li>
@@ -580,6 +603,16 @@
 					'Connecting realtime'
 				];
 				const GATE_PCT = [18, 42, 70, 92];
+				const SLOW_SUFFIX = ' is taking longer than expected.';
+				const SERVER_SILENT = "The server didn't answer. Your session may still be valid.";
+				const UNREACHABLE = 'Unable to reach the server. Your session may still be valid.';
+				// The strut under the status line holds the longest stall message, so the line
+				// (and with it everything that hangs below the mark) is already as tall as it will get.
+				const strut = document.getElementById('wabi-boot-strut');
+				if (strut) {
+					strut.textContent = [SERVER_SILENT, UNREACHABLE, ...GATE_STATUS.slice(1).map((gate) => gate + SLOW_SUFFIX)]
+						.reduce((longest, line) => (line.length > longest.length ? line : longest), '');
+				}
 				let activeGate = 1; // shell is done the instant this script runs
 				let stallTimer = 0;
 				let stepsRevealed = false;
@@ -655,10 +688,7 @@
 					shell.dataset.bootState = 'stalled';
 					const status = getStatus();
 					if (status) {
-						status.textContent =
-							activeGate >= 3
-								? "The server didn't answer. Your session may still be valid."
-								: GATE_STATUS[activeGate] + ' is taking longer than expected.';
+						status.textContent = activeGate >= 3 ? SERVER_SILENT : GATE_STATUS[activeGate] + SLOW_SUFFIX;
 					}
 				};
 
@@ -689,7 +719,7 @@
 					// Keep the mark and freeze the rail at the gate that failed.
 					paintGate(1);
 					const status = getStatus();
-					if (status) status.textContent = 'Unable to reach the server. Your session may still be valid.';
+					if (status) status.textContent = UNREACHABLE;
 				};
 
 				// --- The mark: exactly one of glyph / enso / logo / mono / plain (see the stage CSS) ---
@@ -709,8 +739,9 @@
 						mark = 'plain';
 					} else if (brand === 'custom') {
 						// An operator logo replaces every other mark, so nothing shows through its
-						// transparent parts. While it is still in its first 400ms nothing stands in.
-						if (logoState === 'loaded') mark = 'logo';
+						// transparent parts. While it is still in its first 400ms nothing stands in,
+						// and it waits for the frame after the brand is applied (data-boot-ready).
+						if (logoState === 'loaded') mark = shell.dataset.bootReady === '1' ? 'logo' : '';
 						else if (logoState !== 'loading') mark = shell.dataset.bootMono === '1' ? 'mono' : 'plain';
 					}
 					shell.dataset.bootMark = mark;
@@ -808,6 +839,7 @@
 						// Same brand family — ignore no-op churn
 						if (current === next) {
 							shell.dataset.bootReady = '1';
+							updateMark();
 							return;
 						}
 					}
@@ -850,7 +882,8 @@
 						// waits on wabi-logo-boot.webp or an invert filter.
 						setLogo('');
 						// The boot palette's own sig (gold on Ink, burnt orange on Daylight) unless the
-						// server or a saved server stamped an operator accent.
+						// server or a saved server stamped an operator accent. The launch page's stock
+						// #5865F2 never arrives here as an accent (see launchAccent in the head).
 						setAccent(snap.accent);
 						loadEnso();
 					}
@@ -866,6 +899,7 @@
 					// Reveal on next frame so src swap isn't painted mid-change
 					requestAnimationFrame(() => {
 						shell.dataset.bootReady = '1';
+						updateMark();
 					});
 				};
 
