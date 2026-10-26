@@ -144,7 +144,7 @@
       "join_open_label": "Open",
       "join_open_desc": "Anyone who reaches this server can create an account.",
       "join_closed_label": "Closed",
-      "join_closed_desc": "Only you can create accounts for now; invite codes are coming later.",
+      "join_closed_desc": "No one else can create an account on this server.",
       "join_guest_label": "Allow guest access",
       "join_guest_desc": "Let people join as temporary guests without an account.",
       "join_note": "You can change this later in Settings.",
@@ -325,7 +325,7 @@
     "edited": "edited",
     "translated_label": "Translated",
     "deletion": {
-      "scheduled_title": "This message keeps the timer set when it was sent. Changing the room timer affects new messages only; copies may remain in backups",
+      "scheduled_title": "This message keeps the timer set when it was sent. Changing the room timer affects new messages only; copies may remain in backups.",
       "deleting": "Leaving chat…",
       "retention_lifetime": "{duration} timer",
       "deletes_in": "Leaves chat in {duration}"
@@ -630,12 +630,14 @@
     "popout": {
       "about_me": "About me",
       "note": "Note",
+      "note_placeholder": "Add a private note · only you see this",
       "member_since": "Member since",
       "last_message": "Last message here",
       "no_recent_messages": "No recent messages in this channel",
       "connections": "Connections",
       "no_connections": "No linked connections",
       "message": "Message",
+      "call": "Call",
       "edit_profile": "Edit profile",
       "view_full_profile": "View full profile",
       "mute": "Mute",
@@ -717,7 +719,7 @@
       "server_readable_by_choice": "You chose to send without encryption in this conversation. The server operator can read messages sent this way.",
       "encryption_pending": "Messages wait for everyone's devices. You can choose to send server-readable instead.",
       "experimental_encryption": "New messages get experimental encryption on the sender's device before they reach the server. The server operator can still see who is in this conversation and when messages are sent. Earlier messages keep the protection they were sent with.",
-      "checking": "Checking this channel's privacy policy with the server."
+      "checking": "Asking the server who can read messages here."
     },
     "facts": {
       "room": "Room",
@@ -789,6 +791,7 @@
     "channel_actions": "Channel actions",
     "voice_actions": "Voice room actions",
     "new_channel": "New channel",
+    "create_channel": "Create channel",
     "new_folder": "New folder",
     "new_voice_room": "New voice room",
     "mark_all_read": "Mark all read",
@@ -834,6 +837,11 @@
       "yours": "Just you",
       "office": "Office",
       "side_panels": "Side panels"
+    },
+    "detail": {
+      "documents": "Documents · private until you share · preview",
+      "sheets": "Sheets · private until you share · preview",
+      "present": "Present · private until you share · preview"
     }
   },
   "jump": {
@@ -876,6 +884,27 @@
     "edited_times": "Edited {count} times",
     "empty_title": "No threads in {channel} yet",
     "empty_body": "Longer conversations live here, so they don’t scroll away."
+  },
+  "wiki": {
+    "pages": "Pages",
+    "new_page": "New page",
+    "on_this_page": "On this page"
+  },
+  "planner": {
+    "new_task": "New task",
+    "add_task": "Add task",
+    "add_task_to": "Add task to {lane}",
+    "move_task": "Move task…",
+    "delete_task": "Delete task",
+    "columns": "Columns",
+    "edit_columns": "Edit columns…",
+    "time_estimate": "Time estimate",
+    "file_link_placeholder": "Paste a link to a file or document",
+    "new_sprint": "New sprint",
+    "add_on_date": "Add on {date}",
+    "more_count": "+{count} more",
+    "overdue_on": "Overdue · {date}",
+    "done_on": "Done · {date}"
   },
   "calls": {
     "summary_rooms_one": "{count} room",
@@ -934,6 +963,8 @@
     "search_dms": "Search DMs",
     "search_notes": "Search notes",
     "new_note": "New note",
+    "note_actions": "Note actions",
+    "ink": "Ink",
     "new_message": "New message",
     "here_now": "Here now",
     "away": "Away",
@@ -1025,6 +1056,19 @@
       "link": "Link",
       "inline_code": "Inline code",
       "comment": "Comment"
+    },
+    "sheets": {
+      "filter_my_view": "Filter my view",
+      "apply_row_order": "Apply row order to everyone",
+      "protected": "Protected",
+      "export_xlsx": "XLSX · supported subset",
+      "export_ods": "ODS · supported subset",
+      "export_csv": "CSV · active sheet",
+      "export_tsv": "TSV · active sheet"
+    },
+    "present": {
+      "private_notes": "Private notes · this device",
+      "only_you_marks": "Only you see these marks"
     },
     "share": {
       "add_people": "Add people by name",

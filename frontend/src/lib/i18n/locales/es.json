@@ -144,7 +144,7 @@
       "join_open_label": "Abierto",
       "join_open_desc": "Cualquiera que llegue a este servidor puede crear una cuenta.",
       "join_closed_label": "Cerrado",
-      "join_closed_desc": "Por ahora solo tú puedes crear cuentas; los códigos de invitación llegarán más adelante.",
+      "join_closed_desc": "Nadie más puede crear una cuenta en este servidor.",
       "join_guest_label": "Permitir acceso de invitados",
       "join_guest_desc": "Permite que la gente entre como invitados temporales sin cuenta.",
       "join_note": "Puedes cambiarlo más adelante en Ajustes.",
@@ -273,7 +273,7 @@
       "queued": "Importación de Blend en cola",
       "queued_with_id": "Importación de Blend en cola: {id}",
       "queue_failed": "No se pudo poner en cola la importación de Blend",
-      "import_settings": "Ajustes de importación",
+      "import_settings": "Importar ajustes",
       "download": "Descargar .blend"
     },
     "media": {
@@ -325,7 +325,7 @@
     "edited": "editado",
     "translated_label": "Traducido",
     "deletion": {
-      "scheduled_title": "Este mensaje conserva el plazo que tenía al enviarse. Cambiar el plazo de la sala solo afecta a los mensajes nuevos; pueden quedar copias en respaldos",
+      "scheduled_title": "Este mensaje conserva el plazo que tenía al enviarse. Cambiar el plazo de la sala solo afecta a los mensajes nuevos; pueden quedar copias en respaldos.",
       "deleting": "Saliendo del chat…",
       "retention_lifetime": "Plazo de {duration}",
       "deletes_in": "Sale del chat en {duration}"
@@ -630,12 +630,14 @@
     "popout": {
       "about_me": "Sobre mí",
       "note": "Nota",
+      "note_placeholder": "Agrega una nota privada · solo tú la ves",
       "member_since": "Miembro desde",
       "last_message": "Último mensaje aquí",
       "no_recent_messages": "Sin mensajes recientes en este canal",
       "connections": "Conexiones",
       "no_connections": "Sin conexiones vinculadas",
       "message": "Mensaje",
+      "call": "Llamar",
       "edit_profile": "Editar perfil",
       "view_full_profile": "Ver perfil completo",
       "mute": "Silenciar",
@@ -717,7 +719,7 @@
       "server_readable_by_choice": "Elegiste enviar sin cifrado en esta conversación. El operador del servidor puede leer los mensajes enviados así.",
       "encryption_pending": "Los mensajes esperan a los dispositivos de todos. Puedes elegir enviarlos legibles por el servidor.",
       "experimental_encryption": "Los mensajes nuevos reciben cifrado experimental en el dispositivo de quien los envía antes de llegar al servidor. El operador del servidor aún puede ver quién está en esta conversación y cuándo se envían los mensajes. Los mensajes anteriores conservan la protección con la que se enviaron.",
-      "checking": "Comprobando con el servidor la política de privacidad de este canal."
+      "checking": "Preguntando al servidor quién puede leer los mensajes aquí."
     },
     "facts": {
       "room": "Sala",
@@ -789,6 +791,7 @@
     "channel_actions": "Acciones de canales",
     "voice_actions": "Acciones de salas de voz",
     "new_channel": "Nuevo canal",
+    "create_channel": "Crear canal",
     "new_folder": "Nueva carpeta",
     "new_voice_room": "Nueva sala de voz",
     "mark_all_read": "Marcar todo como leído",
@@ -834,6 +837,11 @@
       "yours": "Solo tú",
       "office": "Oficina",
       "side_panels": "Paneles laterales"
+    },
+    "detail": {
+      "documents": "Documentos · privados hasta que los compartas · vista previa",
+      "sheets": "Hojas · privadas hasta que las compartas · vista previa",
+      "present": "Presentar · privado hasta que lo compartas · vista previa"
     }
   },
   "jump": {
@@ -876,6 +884,27 @@
     "edited_times": "Editado {count} veces",
     "empty_title": "Aún no hay hilos en {channel}",
     "empty_body": "Aquí viven las conversaciones largas, para que no se pierdan al desplazarse."
+  },
+  "wiki": {
+    "pages": "Páginas",
+    "new_page": "Nueva página",
+    "on_this_page": "En esta página"
+  },
+  "planner": {
+    "new_task": "Nueva tarea",
+    "add_task": "Agregar tarea",
+    "add_task_to": "Agregar tarea a {lane}",
+    "move_task": "Mover tarea…",
+    "delete_task": "Eliminar tarea",
+    "columns": "Columnas",
+    "edit_columns": "Editar columnas…",
+    "time_estimate": "Estimación de tiempo",
+    "file_link_placeholder": "Pega un enlace a un archivo o documento",
+    "new_sprint": "Nuevo sprint",
+    "add_on_date": "Agregar el {date}",
+    "more_count": "+{count} más",
+    "overdue_on": "Vencida · {date}",
+    "done_on": "Hecha · {date}"
   },
   "calls": {
     "summary_rooms_one": "{count} sala",
@@ -934,6 +963,8 @@
     "search_dms": "Buscar DM",
     "search_notes": "Buscar notas",
     "new_note": "Nueva nota",
+    "note_actions": "Acciones de la nota",
+    "ink": "Tinta",
     "new_message": "Nuevo mensaje",
     "here_now": "Aquí ahora",
     "away": "Ausente",
@@ -1025,6 +1056,19 @@
       "link": "Enlace",
       "inline_code": "Código en línea",
       "comment": "Comentar"
+    },
+    "sheets": {
+      "filter_my_view": "Filtrar mi vista",
+      "apply_row_order": "Aplicar el orden de filas para todos",
+      "protected": "Protegido",
+      "export_xlsx": "XLSX · subconjunto compatible",
+      "export_ods": "ODS · subconjunto compatible",
+      "export_csv": "CSV · hoja activa",
+      "export_tsv": "TSV · hoja activa"
+    },
+    "present": {
+      "private_notes": "Notas privadas · este dispositivo",
+      "only_you_marks": "Solo tú ves estas marcas"
     },
     "share": {
       "add_people": "Agregar personas por nombre",
