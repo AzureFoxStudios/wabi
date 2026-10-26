@@ -43,8 +43,9 @@ Sources of truth, in order: the code on the branch you are changing, then `../do
 - **Boot shell** (`src/app.html`). It paints before any role exists, so its `--boot-*` values mirror the resolved Wabi Ink roles, or Daylight's when a light theme is saved.
   - **Server markers.** Keep `content="#101315" data-wabi-theme-color`, `data-wabi-brand-title` and the `data-wabi-favicon` href exactly as they are: the Rust server rewrites them at boot.
   - **Theme-color.** The meta ships as `#101315`. At boot a saved Daylight theme switches it to `#faf9f6`, but only while it still holds that default, so a server-stamped operator accent wins. It does not yet follow a runtime theme switch, because `themeManager.applyTheme` does not write it.
-  - **Mark.** The default brand shows the masked ensō. An operator logo replaces it only once the logo has loaded. A custom brand without a usable logo shows its initial, and neutral branding shows the neutral chat mark.
-  - **Motion.** Nothing loops: the gate-driven rail is the only progress indicator. The mark and the name stay in place when the stall and recover rows appear.
+  - **Mark.** The default brand shows the masked ensō. An operator logo replaces it only once the logo has loaded. A custom brand without a usable logo shows its initial, and neutral branding shows the neutral chat mark. Only one mark shows at a time: the outgoing one goes at once and only the incoming one fades in.
+  - **Accent.** The mark, rail and step dots use the boot sig unless the operator set an accent. The launch page's `#5865F2` (any case) is the stock placeholder (`STOCK_LAUNCH_ACCENT`), not an operator accent, so the boot shell ignores it when it reads a saved `launchPageBranding` or the fetched launch page. A server-stamped accent is always kept, `#5865F2` included.
+  - **Motion.** Nothing loops: the gate-driven rail is the only progress indicator. The rows below the name keep one height in every state: the recover row keeps its place while hidden (`visibility`, so its buttons stay out of the tab order) and the status line reserves room for the longest stall message. So the mark and the name stay in place when a stall or reconnect begins, at any viewport size.
 
 ### Golden rules (contract §2, §5, §9)
 
