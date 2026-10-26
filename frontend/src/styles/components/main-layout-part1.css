@@ -155,9 +155,22 @@
 	box-shadow: none;
 	height: 100dvh;
 	min-width: 0;
+	/* Its motion is the keyframe entrance and exit below; a stowed pin comes back at once. */
+	transition: none;
 }
 
 .right-panel-zone.stub-left { left: var(--w-rail-w, 46px); right: auto; }
+
+/* A stowed pin (no room beside the stage) stays mounted so the panel keeps its own state, but it is
+   not drawn and takes no pointer; MainLayout also makes it inert, so nothing in it can be focused or
+   read. content-visibility skips the contents' rendering and keeps their state (scroll positions
+   included). Not visibility: it is inherited, and under reduced motion every descendant would run
+   its own 0.01ms transition of it, so a returning pin would stay unfocusable for a frame. */
+.right-panel-zone.stowed {
+	opacity: 0;
+	content-visibility: hidden;
+	pointer-events: none;
+}
 
 /* Focus moves here when a held peek opens over a stage that had focus. The opaque body would
    paint over an inset outline on the zone, so the ring is drawn by a layer above the content. */
@@ -181,10 +194,6 @@
 .companion-loading-rows .w-skel-stack .w-skel:first-child { width: 46%; }
 .companion-loading-rows .w-skel-stack .w-skel:last-child { width: 72%; }
 .companion-loading-rows .w-skel-row:nth-child(even) .w-skel-stack .w-skel:first-child { width: 34%; }
-
-/* The stage content a held peek's scrim covers (MainLayout makes it inert). It adds no box: the
-   workspace bar, surface and voice strip stay flex items of .chat-stack. The call layer is outside. */
-.stage-covered { display: contents; }
 
 /* Plane 0 surface (§4.5): --w-bg2, no gradients, a --w-line hairline on the edge toward the stage. */
 .right-panel-body {

@@ -10,7 +10,7 @@
 	import { get } from 'svelte/store';
 	import { centerPanelView, centerDmOtherUser, centerGroupChannel, focusMode } from '$lib/layoutStoreStates';
 	import { armPeekDismiss, cancelPeekDismiss, peekAnimationGate, setPeekPointerInside } from '$lib/rightPeekGestures';
-	import { dockCanPin, peekHeld } from '$lib/layoutStoreRightPanel';
+	import { dockCanPin, endPeek, peekHeld, peekRequested } from '$lib/layoutStoreRightPanel';
 	import { DOCK_DEFAULT_PANEL, DOCK_MIN_PANEL, dockWidthFor, resizeKeyWidth } from '$lib/dockClamp';
 	import { registerPluginWorkspacePanels } from '$lib/workspacePanels';
 	import { fetchPluginInventory } from '$lib/addonInventory';
@@ -167,9 +167,14 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	$: dockPeeking = !$layoutStore.isMobile && ($layoutStore.rightPanelMode === 'peek' || (dockStowed && $peekHeld));
 	$: zoneOpen = $layoutStore.rightPanelMode !== 'none' && !(dockStowed && !$peekHeld);
 	$: trackZoneOpen(zoneOpen);
-	// Every peek gets the full scrim; a click on it closes the peek (§8.4, D11). A peek opened on
-	// purpose also takes the covered stage out of keyboard reach; a hover glance never touches focus.
-	$: stageScrim = dockPeeking;
+	// A stowed pin keeps its zone mounted, hidden and inert, so the panel's own state (search text,
+	// a channel picked inside it, a loaded viewer, scroll) survives a resize. Only a close unmounts it.
+	$: zoneMounted = $layoutStore.rightPanelMode !== 'none';
+	$: zoneHidden = !zoneOpen && !peekClosing;
+	// A peek the person asked for gets the full scrim; a click on it ends the peek (§8.4, D11). A peek
+	// the app opened on its own (the Calls peek on joining a call) never dims the stage. A peek opened
+	// on purpose also takes the covered stage out of keyboard reach; a hover glance never touches focus.
+	$: stageScrim = dockPeeking && ($peekHeld || $peekRequested);
 	$: stageInert = dockPeeking && $peekHeld;
 	// A closing peek keeps its place, edge and shadow while it leaves.
 	let zoneWasPeek = false;
@@ -192,28 +197,87 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	// Under a held peek's scrim the covered stage (workspace bar, surface, voice strip) is out of
 	// reach for the pointer, so it is inert for the keyboard too. The call layer is not covered: it
 	// paints above the scrim and stays live (an incoming call can always be answered).
+	// The covered parts stay direct children of .chat-stack and each gets `inert` (coverStage): a
+	// wrapper would break the child-combinator rules written for them, such as stagebar.css hiding
+	// the standalone workspace bar at 1250px and wider (`.chat-stack:has(...) > .workspace-view-bar`).
+	const STAGE_PARTS = '.workspace-view-bar, .chat-surface, .voice-live-strip';
+	let chatStack: HTMLElement | null = null;
+	function inCoveredStage(element: Element): boolean {
+		return Array.from(chatStack?.children ?? []).some((part) => part.matches(STAGE_PARTS) && part.contains(element));
+	}
+	/** Svelte action for .chat-stack: makes its stage parts inert while covered, including parts mounted meanwhile. */
+	function coverStage(node: HTMLElement, covered: boolean) {
+		const madeInert = new Set<Element>();
+		let observer: MutationObserver | null = null;
+		const apply = () => {
+			for (const part of Array.from(node.children)) {
+				if (!part.matches(STAGE_PARTS) || part.hasAttribute('inert')) continue;
+				part.setAttribute('inert', '');
+				madeInert.add(part);
+			}
+		};
+		const release = () => {
+			observer?.disconnect();
+			observer = null;
+			for (const part of madeInert) part.removeAttribute('inert');
+			madeInert.clear();
+		};
+		const update = (next: boolean) => {
+			if (!next) {
+				release();
+				return;
+			}
+			apply();
+			if (!observer && typeof MutationObserver !== 'undefined') {
+				observer = new MutationObserver(apply);
+				observer.observe(node, { childList: true });
+			}
+		};
+		update(covered);
+		return { update, destroy: release };
+	}
+
 	// Focus that was on the covered stage moves into the peek and returns when the scrim clears.
 	// Focus stranded on the zone, or inside a panel that leaves the screen, goes back to the stage
 	// element it came from or to the panel's stub. Focus the person put anywhere else stays put.
+	// Focus inside a pin that gets stowed waits on the panel's stub and goes back to where it was
+	// once the pin is in flow again, unless the person has moved it in the meantime.
 	let companionZone: HTMLElement | null = null;
-	let stageCovered: HTMLElement | null = null;
 	let stageFocusReturn: HTMLElement | null = null;
+	let stowedFocus: { target: HTMLElement; parking: Element | null } | null = null;
 	let shownPanelId: string = $layoutStore.activeRightTab;
 	$: if (zoneOpen) shownPanelId = $layoutStore.activeRightTab;
 	let prevStageInert = false;
 	let prevZoneOpenForFocus = false;
-	$: guardCompanionFocus(stageInert, zoneOpen);
-	function guardCompanionFocus(inert: boolean, open: boolean): void {
+	let prevInFlowForFocus = false;
+	$: guardCompanionFocus(stageInert, zoneOpen, dockPinned, zoneMounted);
+	function guardCompanionFocus(inert: boolean, open: boolean, inFlow: boolean, mounted: boolean): void {
 		if (typeof document === 'undefined') return;
 		const inertChanged = inert !== prevStageInert;
 		const openChanged = open !== prevZoneOpenForFocus;
+		const wasInFlow = prevInFlowForFocus;
 		prevStageInert = inert;
 		prevZoneOpenForFocus = open;
+		prevInFlowForFocus = inFlow;
 		if (!inertChanged && !openChanged) return;
+		if (open && openChanged) {
+			// Back on screen. A pin back in flow gets the focus it had when it was stowed.
+			const kept = stowedFocus;
+			stowedFocus = null;
+			if (kept && inFlow && !inert) {
+				void tick().then(() => {
+					const active = document.activeElement;
+					const untouched = !active || active === document.body || active === kept.parking;
+					if (untouched && kept.target.isConnected && companionZone?.contains(kept.target) && !kept.target.closest('[inert]')) {
+						kept.target.focus({ preventScroll: true });
+					}
+				});
+			}
+		}
 		if (inert) {
 			if (!inertChanged) return;
 			const active = document.activeElement;
-			if (active instanceof HTMLElement && stageCovered?.contains(active)) {
+			if (active instanceof HTMLElement && inCoveredStage(active)) {
 				stageFocusReturn = active;
 				void tick().then(() => companionZone?.focus({ preventScroll: true }));
 			}
@@ -225,23 +289,26 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		const panelId = shownPanelId;
 		const current = document.activeElement;
 		if (!opener && !(current && companionZone?.contains(current))) return;
+		// A pin in flow that was just stowed stays mounted: remember the control that had focus in it.
+		const keep = !open && mounted && wasInFlow && current instanceof HTMLElement && current !== companionZone && Boolean(companionZone?.contains(current));
 		void tick().then(() => {
 			const active = document.activeElement;
 			const stranded = !active || active === document.body || active === companionZone || (!open && Boolean(companionZone?.contains(active)));
 			if (!stranded) return;
 			if (opener?.isConnected && !opener.closest('[inert]')) {
 				opener.focus({ preventScroll: true });
-				return;
+			} else {
+				document.querySelector<HTMLElement>(`.rail .stub[data-panel-id="${CSS.escape(panelId)}"]`)?.focus({ preventScroll: true });
 			}
-			document.querySelector<HTMLElement>(`.rail .stub[data-panel-id="${CSS.escape(panelId)}"]`)?.focus({ preventScroll: true });
+			if (keep) stowedFocus = { target: current as HTMLElement, parking: document.activeElement };
 		});
 	}
 
+	// Escape ends a peek and nothing else: it never unpins (endPeek). Menus and dialogs own it first.
 	function handleStagePeekKeydown(event: KeyboardEvent): void {
 		if (!dockPeeking || event.key !== 'Escape' || event.defaultPrevented) return;
 		if (event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
-		event.preventDefault();
-		layoutStore.closeRightPanel();
+		if (endPeek()) event.preventDefault();
 	}
 
 	/** Width from the pointer to the rail edge the panel hangs from, clamped to what fits. */
@@ -1492,8 +1559,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 	<!-- Right Panel — one mode-driven node for pin and peek, so the panel never remounts when it
 	       switches between them. Pinned: in flow beside the stage (.app-container reserves
-	       --w-dock-w), clamped so the stage keeps 600px; with no room it is stowed (not rendered)
-	       until the room comes back. Peek: floats over the stage's edge with the scrim under it. -->
+	       --w-dock-w), clamped so the stage keeps 600px; with no room it is stowed (mounted, hidden
+	       and inert) until the room comes back. Peek: floats over the stage's edge; a peek the
+	       person asked for has the scrim under it. -->
 	{#if !$layoutStore.isMobile}
 		{#if scrimVisible}
 			<!-- Pointer-only affordance: Escape, the stub and the panel's own close button cover the keyboard. -->
@@ -1504,10 +1572,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				style:left="{scrimLeft}px"
 				style:right="{scrimRight}px"
 				aria-hidden="true"
-				on:click={() => layoutStore.closeRightPanel()}
+				on:click={() => endPeek()}
 			></div>
 		{/if}
-		{#if zoneOpen || peekClosing}
+		{#if zoneMounted || peekClosing}
 			<!-- Pointer moving anywhere inside the zone cancels a pending
 			     dismissal: stub mouseleave arms it, and the zone's mouseenter
 			     will not re-fire for a pointer that never left the zone. -->
@@ -1517,11 +1585,13 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				class:pinned={dockPinned}
 				class:peek={zoneFloats}
 				class:closing={peekClosing && !zoneOpen}
+				class:stowed={zoneHidden}
 				class:stub-right={$layoutStore.stubSide === 'right'}
 				class:stub-left={$layoutStore.stubSide === 'left'}
 				role="complementary"
 				aria-label="Side panel"
 				tabindex="-1"
+				inert={zoneHidden}
 				style:width="{dock.width}px"
 				style:right={zoneFloats && $layoutStore.stubSide !== 'left' ? `${peekInset}px` : null}
 				style:left={zoneFloats && $layoutStore.stubSide === 'left' ? `${peekInset}px` : null}
@@ -1584,11 +1654,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		</div>
 	{/if}
 
-	<!-- Main Content. Under a held peek's scrim the covered part (.stage-covered, display: contents)
-	     is inert; the call layer below it paints above the scrim and stays live. -->
+	<!-- Main Content. Under a held peek's scrim the stage parts (workspace bar, surface, voice strip)
+	     are inert (coverStage); they stay direct children of .chat-stack. The call layer below them
+	     paints above the scrim and stays live. -->
 	<div class="main-content">
-		<div class="chat-stack">
-			<div class="stage-covered" bind:this={stageCovered} inert={stageInert}>
+		<div class="chat-stack" bind:this={chatStack} use:coverStage={stageInert}>
 			{#if activeView !== 'server' && ((!$layoutStore.centerDmChannelId && activeView !== 'dm' && activeView !== 'following') || $activeWorkspaceView !== 'messages')}
 				<WorkspaceViewBar {activityBadge} activeView={$activeWorkspaceView} onSelectView={handleWorkspaceViewSelect} canOpenWhiteboard={Boolean($currentChannel)} />
 			{/if}
@@ -1694,7 +1764,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				{/if}
 			</div>
 			<VoiceLiveStrip />
-			</div>
 			{#if CallModalCmp}
 				<svelte:component this={CallModalCmp} />
 			{:else if callUiActive}

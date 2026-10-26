@@ -21,19 +21,30 @@ export const dockCanPin = writable(true);
 
 /**
  * A peek the person opened on purpose (click, tap, Enter) because pinning would crush the stage.
- * Unlike a hover peek it does not retract when the pointer leaves; the stage scrim, Escape, the
- * panel's close button or the same stub close it. It becomes a pin once the stage has room.
+ * Unlike a hover peek it does not retract when the pointer leaves; the stage scrim, Escape
+ * (endPeek) or the same stub put it away. It becomes a pin once the stage has room.
  * Over a stowed pin (below) it shows a panel without touching the pin: rightPanelMode stays
  * 'pinned' and peekHeld is what puts the panel on screen.
  */
 export const peekHeld = writable(false);
 
 /**
+ * The hover peek on screen was asked for from the rail (the peek modifier, hover-to-peek, or a peek
+ * following the pointer along the rail). A peek the app opens on its own, such as the Calls peek on
+ * joining a call (calling_impl_core summonCallsStubOnJoin), is not: it never scrims the stage.
+ * A held peek is always asked for; peekHeld says so.
+ */
+export const peekRequested = writable(false);
+
+/**
  * A committed pin that has no room beside the stage (the window narrowed, the sidebar widened, a
  * pin restored on a small screen) stays pinned, because it is the person's saved layout, but it is
  * off screen and the stage keeps its width. It comes back in flow once the stage can keep 600px.
- * Nothing about it changes on its own: no scrim, no focus move, no takeover of the stage.
- * Phones show every panel as a sheet, so nothing is stowed there.
+ * Nothing about it changes on its own: no scrim, no takeover of the stage. MainLayout keeps its
+ * zone mounted, hidden and inert, so the panel's own state (search text, picked channel, scroll)
+ * survives; focus that was inside waits on the panel's stub and goes back when the pin returns.
+ * Only an explicit close or unpin removes it. Phones show every panel as a sheet, so nothing is
+ * stowed there.
  */
 export function pinStowed(): boolean {
 	return get(rightPanelMode) === 'pinned' && !get(dockCanPin) && !get(isMobile);
@@ -92,6 +103,7 @@ let lastRightPanelMode = get(rightPanelMode);
 rightPanelMode.subscribe((mode) => {
 	const from = lastRightPanelMode;
 	lastRightPanelMode = mode;
+	if (mode !== 'peek') peekRequested.set(false);
 	if (!get(peekHeld)) return;
 	if (mode === 'none' || (mode === 'pinned' && from !== 'pinned')) peekHeld.set(false);
 });
@@ -123,8 +135,15 @@ export function peekPanel(panelId: WorkspacePanelId): void {
 	activeRightTab.set(normalized);
 	if (get(rightPanelMode) === 'none') {
 		peekHeld.set(false);
+		peekRequested.set(false);
 		rightPanelMode.set('peek');
 	}
+}
+
+/** A hover peek the person asked for on the rail: the same peek, and the stage gets the scrim. */
+export function peekPanelFromRail(panelId: WorkspacePanelId): void {
+	peekPanel(panelId);
+	if (get(rightPanelMode) === 'peek') peekRequested.set(true);
 }
 
 export function dismissPeek(): void {
@@ -170,7 +189,7 @@ export function pinPanel(panelId: WorkspacePanelId): void {
 	activeRightTab.set(normalized);
 }
 
-/** Unpin one panel from the dock stack (the section's × button). */
+/** Unpin one panel from the dock stack (a stacked section's ×, the rail menu's Unpin), stowed or not. */
 export function unpinOne(panelId: WorkspacePanelId): void {
 	if (isPinnedTo(normalizePanelIdForRuntime(panelId))) pinPanel(panelId);
 }
@@ -182,14 +201,33 @@ export function unpinPanel(): void {
 	dockStack.set([]);
 }
 
+/**
+ * Close the companion: every pin and any peek go, with the same result at every window width (a
+ * stowed pin too). Code that closes the panel as part of an action (navigation, "show in center
+ * stage") can rely on it. Escape and the stage scrim mean "put the peek away" and use endPeek().
+ */
 export function closeRightPanel(): void {
 	if (get(rightPanelMode) === 'none') return;
-	// Closing never discards a pin the person cannot see: over a stowed pin it only ends the peek.
-	if (pinStowed()) {
-		if (get(peekHeld)) endHeldPeek();
-		return;
-	}
 	unpinPanel();
+}
+
+/**
+ * Escape and the stage scrim: end the peek on screen and nothing else. A plain peek closes; a
+ * held peek over a stowed pin goes and the pin stays. A pin in flow, or a stowed pin with nothing
+ * over it, is left alone (unpinning is explicit: the rail menu's Unpin, a section's ×).
+ * Returns whether a peek was ended.
+ */
+export function endPeek(): boolean {
+	const mode = get(rightPanelMode);
+	if (mode === 'peek') {
+		unpinPanel();
+		return true;
+	}
+	if (mode === 'pinned' && get(peekHeld)) {
+		endHeldPeek();
+		return true;
+	}
+	return false;
 }
 
 export function togglePinPanel(): void {
