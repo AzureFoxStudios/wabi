@@ -13,6 +13,10 @@
  *   experimental encryption, or (older rooms without a new-room policy) server-readable. Until
  *   that status is known the state is Checking: a missing or failed policy request never becomes
  *   an encryption claim.
+ * - "Server-readable by choice" comes only from this member's own server-readable choice. The
+ *   §7.20 row "the sender turned encryption off in a room whose policy is encrypted" cannot
+ *   happen on this branch: an encrypted room always encrypts (`encryptMessageForChannel`) and the
+ *   server refuses to downgrade it, so a stale `encryptSend: false` never outranks the room.
  * - Retention is never evidence of confidentiality. "Live only" rooms are still server-readable;
  *   retention gets its own words (`retentionLabel`) and is never part of the privacy word.
  * - A device-local DM mode preference (`dmPrivacyMode.ts`) is not room policy and never changes
@@ -121,14 +125,58 @@ export function privacyStateFor(input: PrivacyInput = {}): PrivacyState {
 		// are held, and what the room holds is plainly server-readable.
 		return policy.serverReadableAllowedByMe === true ? 'server-readable-by-choice' : 'server-readable';
 	}
-	if (policySaysEncrypted(policy)) {
-		// The sender turned encryption off in an encrypted room.
-		return encryptSend === false ? 'server-readable-by-choice' : 'experimental-encryption';
-	}
+	// The room policy wins over the composer flag: an encrypted room cannot send plaintext (the
+	// send path always encrypts and the server refuses a downgrade), so `encryptSend: false` here
+	// is only a stale or default flag, never this member's choice.
+	if (policySaysEncrypted(policy)) return 'experimental-encryption';
 	// The room status says it is not encrypted, pending or by choice: an older room.
 	if (hasRoomStatus(policy)) return 'server-readable';
 	// A summary alone cannot tell an older plaintext room from a pending or by-choice one.
 	return 'checking';
+}
+
+// ---------------------------------------------------------------------------- subject
+
+/**
+ * Raw facts a badge derives from. The channel kind must be stated (null while it is unknown), so
+ * a caller cannot forget it and leave a community channel on "Checking privacy…" for good.
+ */
+export type PrivacySubjectInput = PrivacyInput &
+	({ channelType: string | null | undefined } | { channel: { type?: string | null } | null | undefined });
+
+/**
+ * What a badge or popover needs to word a room: its state, and whether it is a DM or group
+ * ("this conversation"). Pass the raw `input` and both are derived from it, or pass a ready
+ * `state` together with `conversation`. A state alone is not enough: an older DM and a community
+ * channel are both Server-readable, and only `conversation` tells "this channel" from "this
+ * conversation".
+ */
+export type PrivacySubject =
+	| { input: PrivacySubjectInput; state?: PrivacyState | null; conversation?: boolean }
+	| { state: PrivacyState | null; conversation: boolean; input?: null };
+
+export type ResolvedPrivacySubject = { state: PrivacyState; conversation: boolean };
+
+/**
+ * The state and conversation flag a badge words. A given `state` wins over `input` (a value
+ * that is not one of the five reads as Checking); an explicit `conversation` wins over the
+ * input's channel kind. Untyped callers that give neither still get a truthful answer: only DMs
+ * and groups can be pending, encrypted or server-readable by choice.
+ */
+export function resolvePrivacySubject(
+	subject: { state?: PrivacyState | null; input?: PrivacyInput | null; conversation?: boolean | null } = {}
+): ResolvedPrivacySubject {
+	const { state: given, input, conversation } = subject;
+	const state: PrivacyState =
+		given == null ? privacyStateFor(input ?? {}) : isPrivacyState(given) ? given : 'checking';
+	if (typeof conversation === 'boolean') return { state, conversation };
+	const channelType = input?.channelType ?? input?.channel?.type ?? null;
+	if (channelType) return { state, conversation: isPrivateConversationType(channelType) };
+	return {
+		state,
+		conversation:
+			state === 'encryption-pending' || state === 'experimental-encryption' || state === 'server-readable-by-choice'
+	};
 }
 
 // ---------------------------------------------------------------------------- words
@@ -307,7 +355,8 @@ const BODY: Record<PrivacyState, string> = {
 	'encryption-pending': "Messages wait for everyone's devices. You can choose to send server-readable instead.",
 	'experimental-encryption':
 		"New messages get experimental encryption on the sender's device before they reach the server. The server operator can still see who is in this conversation and when messages are sent. Earlier messages keep the protection they were sent with.",
-	checking: "Checking this channel's privacy policy with the server."
+	// Neutral on purpose: while checking, the caller may not know yet whether this is a DM.
+	checking: 'Asking the server who can read messages here.'
 };
 
 /** The popover body: what the server operator can read in this state. */

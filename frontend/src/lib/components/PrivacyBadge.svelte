@@ -1,55 +1,57 @@
 <!--
 	PrivacyBadge (design contract §7.9, §7.20, §9.2, §9.5): the one way the app shows who can
-	read a room. Every word comes from `lib/privacy/privacyState.ts`; pass the derived `state`
-	or the raw `input` ({ channelType, encryptSend, dmMode, policy }) and let it derive it.
+	read a room. Every word comes from `lib/privacy/privacyState.ts`. Give it either the raw
+	`input` ({ channelType, encryptSend, dmMode, policy }: state and "this conversation" are both
+	derived), or a ready `state` plus `conversation` (required then: a state alone cannot tell an
+	older DM from a community channel, both are Server-readable).
 
 	Variants
 	- `colophon`: the row under the composer field. A button (aria-haspopup="dialog") with the
 	  14px privacy glyph in --w-seal and the state word in --w-t-caption --w-mute, then the plain
 	  sentence in --w-faint 400, then the retention chip when messages are not kept until deleted.
-	  The composer adds its own "Shift Enter for a new line" hint after it. The button opens
-	  `PrivacyPopover`.
+	  It takes the width its row gives it and picks the words that fit there (`data-fit`): the
+	  desktop sentence (`full`), else the short one (`short`), else the short one with the
+	  retention chip under it (`wrap`), else the sentence and chip on their own line under the key
+	  (`stack`). Nothing is cut to an ellipsis. The composer puts its "Shift Enter for a new line"
+	  hint after it. The button opens `PrivacyPopover`.
 	- `chip`: the static `.w-seal` chip for places the colophon is not visible and the row itself
 	  is the control (thread lists, palette results, the Share sheet). The sentence is its title.
+	  It never shrinks; the row's own text gives way.
 	- `popover-trigger`: the same chip as a button that opens the popover (DM and group headers).
 
-	Phones (`surface="phone"`, or "auto" under the 768px phone shell) use the short sentences.
-	The state word is never dropped and never shrinks to a bare glyph.
+	Phones (`surface="phone"`, or "auto" under the 768px phone shell) always use the short
+	sentence. The state word is never dropped, cut or reduced to a bare glyph.
 
-	<PrivacyBadge variant="colophon" input={{ channelType: 'text' }} room="#general · Common Ground"
-	              retention={summary} />
-	<PrivacyBadge variant="popover-trigger" state={privacyStateFor({ channelType: 'dm', policy })}
-	              conversation room="Theo Park" />
+	<PrivacyBadge variant="colophon" input={{ channelType: 'text', policy: summary }}
+	              room="#general · Common Ground" />
+	<PrivacyBadge variant="popover-trigger" input={{ channelType: 'dm', policy: e2eeStatus }}
+	              retention={summary} room="Theo Park" showRetention />
+	<PrivacyBadge variant="chip" state={rowState} conversation />
 -->
 <script lang="ts">
+	import { MediaQuery } from 'svelte/reactivity';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import Tooltip from '$lib/components/ui/Tooltip.svelte';
 	import PrivacyPopover from '$lib/components/PrivacyPopover.svelte';
 	import {
-		isPrivacyState,
-		isPrivateConversationType,
-		privacyStateFor,
 		privacyWords,
+		resolvePrivacySubject,
 		retentionChipVisible,
 		retentionLabel,
 		retentionTitle,
-		type PrivacyInput,
 		type PrivacyPolicy,
-		type PrivacyState
+		type PrivacyState,
+		type PrivacySubject
 	} from '$lib/privacy/privacyState';
 
 	type Variant = 'colophon' | 'chip' | 'popover-trigger';
+	/** Colophon words for the width it has (see the header comment). */
+	type Fit = 'full' | 'short' | 'wrap' | 'stack';
 
-	interface Props {
+	type Props = PrivacySubject & {
 		variant?: Variant;
-		/** The derived state. When omitted it is derived from `input`. */
-		state?: PrivacyState | null;
-		/** Raw facts to derive the state from (`privacyStateFor`). */
-		input?: PrivacyInput | null;
-		/** 'auto' follows the phone shell (≤768px) with CSS, so server and client render the same. */
+		/** 'auto' follows the phone shell (≤768px); 'phone' always uses the short sentence. */
 		surface?: 'desktop' | 'phone' | 'auto';
-		/** DMs and groups ("this conversation"). Defaults from the input's channel type. */
-		conversation?: boolean;
 		/** Popover Room fact: "#general · Common Ground", "Theo Park". */
 		room?: string | null;
 		/** Retention for the chip and the Kept fact: a policy or a label ('24h', 'live',
@@ -60,7 +62,7 @@
 		/** Side the popover prefers. Colophon: above; header chip: below. */
 		placement?: 'top' | 'bottom';
 		class?: string;
-	}
+	};
 
 	let {
 		variant = 'colophon',
@@ -80,28 +82,69 @@
 	const popId = `privacy-badge-pop-${uid}`;
 	const sentenceId = `privacy-badge-sentence-${uid}`;
 
-	// A given state that is not one of the five reads as Checking, never as a stronger claim.
-	const current = $derived<PrivacyState>(
-		givenState == null ? privacyStateFor(input ?? {}) : isPrivacyState(givenState) ? givenState : 'checking'
-	);
-	const channelType = $derived(input?.channelType ?? input?.channel?.type ?? null);
-	// Only DMs and groups can be pending, encrypted or server-readable by choice.
-	const inConversation = $derived(
-		conversation ??
-			(isPrivateConversationType(channelType) ||
-				current === 'encryption-pending' ||
-				current === 'experimental-encryption' ||
-				current === 'server-readable-by-choice')
-	);
+	const subject = $derived(resolvePrivacySubject({ state: givenState, input, conversation }));
+	const current = $derived<PrivacyState>(subject.state);
+	const inConversation = $derived(subject.conversation);
 	const desktop = $derived(privacyWords(current, { surface: 'desktop', conversation: inConversation }));
 	const phone = $derived(privacyWords(current, { surface: 'phone', conversation: inConversation }));
-	const showDesktop = $derived(surface !== 'phone');
-	const showPhone = $derived(surface !== 'desktop');
+
+	const phoneShell = new MediaQuery('max-width: 768px', false);
+	const shortOnly = $derived(surface === 'phone' || (surface === 'auto' && phoneShell.current));
+	const word = $derived(shortOnly ? phone.word : desktop.word);
 
 	const keptSource = $derived(retention === undefined ? (input?.policy ?? null) : retention);
 	const keptShown = $derived((showRetention ?? variant === 'colophon') && retentionChipVisible(keptSource));
 	const kept = $derived(keptShown ? retentionLabel(keptSource) : null);
 	const keptTitle = $derived(keptShown ? retentionTitle(keptSource) : null);
+
+	// ---- colophon fit: measured on the width the row gives it, never on the viewport.
+	let rest = $state<HTMLElement | null>(null);
+	let measureFull = $state<HTMLElement | null>(null);
+	let measureShort = $state<HTMLElement | null>(null);
+	let measured = $state<Fit | null>(null);
+	const fit = $derived<Fit>(measured ?? (shortOnly ? 'short' : 'full'));
+	const sentence = $derived(fit === 'full' ? desktop.sentence : phone.sentence);
+	const hasRest = $derived(Boolean(desktop.sentence || phone.sentence || kept));
+
+	$effect(() => {
+		const box = rest;
+		const full = shortOnly ? null : measureFull;
+		const short = measureShort;
+		if (!box || !short) {
+			measured = null;
+			return;
+		}
+		// The measures are invisible one-line copies of "sentence + chip" in each wording. They sit
+		// in the cell beside the key whatever is shown, so that cell's width never depends on the
+		// wording chosen and the choice cannot flip back and forth.
+		const width = (element: Element | null) => (element ? element.getBoundingClientRect().width : 0);
+		const decide = () => {
+			const room = width(box) + 0.5;
+			if (full && width(full) <= room) measured = 'full';
+			else if (width(short) <= room) measured = 'short';
+			else {
+				const sentenceFits = width(short.querySelector('.privacy-badge__sentence')) <= room;
+				const chipFits = width(short.querySelector('.privacy-badge__kept')) <= room;
+				measured = sentenceFits && chipFits ? 'wrap' : 'stack';
+			}
+		};
+		decide();
+		const observer = new ResizeObserver(decide);
+		observer.observe(box);
+		observer.observe(short);
+		if (full) observer.observe(full);
+		return () => observer.disconnect();
+	});
+
+	// Screen readers hear a change of state once, not every re-fit of the words.
+	let announcement = $state('');
+	let announced: PrivacyState | null = null;
+	$effect(() => {
+		const now = current;
+		const title = desktop.title;
+		if (announced !== null && announced !== now) announcement = title;
+		announced = now;
+	});
 
 	let trigger = $state<HTMLButtonElement | null>(null);
 	let open = $state(false);
@@ -110,16 +153,6 @@
 		open = !open;
 	}
 </script>
-
-{#snippet word()}
-	{#if showDesktop && showPhone && desktop.word !== phone.word}
-		<span class="privacy-badge__word pb-desktop">{desktop.word}</span><span class="privacy-badge__word pb-phone"
-			>{phone.word}</span
-		>
-	{:else}
-		<span class="privacy-badge__word">{showDesktop ? desktop.word : phone.word}</span>
-	{/if}
-{/snippet}
 
 {#snippet keptChip()}
 	{#if kept}
@@ -130,13 +163,17 @@
 	{/if}
 {/snippet}
 
+{#snippet measure(text: string)}
+	{#if text}<span class="privacy-badge__sentence">{text}</span>{/if}
+	{@render keptChip()}
+{/snippet}
+
 {#if variant === 'colophon'}
 	<div
-		class="privacy-badge privacy-badge--colophon pb-surface-{surface} {className}"
-		class:pb-no-sentence={!desktop.sentence && !phone.sentence}
+		class="privacy-badge privacy-badge--colophon {className}"
+		class:privacy-badge--key-only={!hasRest}
 		data-state={current}
-		aria-live="polite"
-		aria-atomic="true"
+		data-fit={fit}
 	>
 		<button
 			bind:this={trigger}
@@ -145,22 +182,31 @@
 			aria-haspopup="dialog"
 			aria-expanded={open}
 			aria-controls={open ? popId : undefined}
-			aria-describedby={desktop.sentence || phone.sentence ? sentenceId : undefined}
+			aria-describedby={sentence ? sentenceId : undefined}
 			onclick={toggle}
 		>
 			<Icon name={desktop.glyph} size={14} class="privacy-badge__glyph" />
-			{@render word()}
+			<span class="privacy-badge__word">{word}</span>
 		</button>
-		{#if desktop.sentence || phone.sentence}
-			<span class="privacy-badge__sentence" id={sentenceId}>
-				{#if showDesktop && showPhone && desktop.sentence !== phone.sentence}
-					<span class="pb-desktop">{desktop.sentence}</span><span class="pb-phone">{phone.sentence}</span>
-				{:else}
-					{showDesktop ? desktop.sentence : phone.sentence}
+		{#if hasRest}
+			<span class="privacy-badge__line">
+				{#if sentence}
+					<span class="privacy-badge__sentence" id={sentenceId}>{sentence}</span>
 				{/if}
+				{@render keptChip()}
+			</span>
+			<span class="privacy-badge__rest" aria-hidden="true" bind:this={rest}>
+				{#if !shortOnly}
+					<span class="privacy-badge__measure" bind:this={measureFull}>
+						{@render measure(desktop.sentence)}
+					</span>
+				{/if}
+				<span class="privacy-badge__measure" bind:this={measureShort}>
+					{@render measure(phone.sentence)}
+				</span>
 			</span>
 		{/if}
-		{@render keptChip()}
+		<span class="sr-only" aria-live="polite">{announcement}</span>
 	</div>
 {:else if variant === 'popover-trigger'}
 	<span class="privacy-badge privacy-badge--group {className}" data-state={current}>
@@ -174,7 +220,7 @@
 			onclick={toggle}
 		>
 			<Icon name={desktop.glyph} size={13} />
-			{@render word()}
+			<span class="privacy-badge__word">{word}</span>
 		</button>
 		{@render keptChip()}
 	</span>
@@ -185,7 +231,7 @@
 	<span class="privacy-badge privacy-badge--group {className}" data-state={current}>
 		<span class="w-seal privacy-badge__chip" title={desktop.title}>
 			<Icon name={desktop.glyph} size={13} />
-			{@render word()}
+			<span class="privacy-badge__word">{word}</span>
 		</span>
 		{@render keptChip()}
 	</span>
@@ -206,36 +252,27 @@
 
 <style>
 	/* ---------- colophon (§7.20) ---------- */
-	/* A grid rather than a flex row: the sentence column has a zero minimum, so in any parent
-	   (flex, grid or block) the sentence is what gives way, with an ellipsis, while the state
-	   word and the retention chip keep their full width. */
+	/* Key, then the line (sentence + retention chip). The second column has a zero minimum, so in
+	   any parent the badge is never wider than its row; the words are chosen to fit that column
+	   (`data-fit`), so nothing overflows into the composer hint and nothing is cut. */
 	.privacy-badge--colophon {
+		position: relative;
 		display: grid;
-		grid-template-columns: max-content minmax(0, max-content) max-content;
+		grid-template-columns: max-content minmax(0, max-content);
 		justify-content: start;
-		align-items: center;
-		gap: 4px 10px;
+		align-items: start;
+		align-content: center;
+		gap: 2px 10px;
+		flex: 0 1 auto;
+		box-sizing: border-box;
 		min-width: 0;
 		max-width: 100%;
-		min-height: 24px;
+		min-height: calc(24px * var(--w-fs));
 		color: var(--w-mute);
 		font: var(--w-t-caption);
 	}
-	.privacy-badge--colophon.pb-no-sentence {
-		grid-template-columns: max-content max-content;
-	}
-	/* Phones: word and short sentence keep the first line to themselves (they must both stay
-	   readable, §7.20); a retention chip takes its own line under the glyph instead of
-	   squeezing the sentence. */
-	.pb-surface-phone .privacy-badge__kept {
-		grid-column: 1 / -1;
-		grid-row: 2;
-	}
-	@media (max-width: 768px) {
-		.pb-surface-auto .privacy-badge__kept {
-			grid-column: 1 / -1;
-			grid-row: 2;
-		}
+	.privacy-badge--key-only {
+		grid-template-columns: max-content;
 	}
 	.privacy-badge__key {
 		position: relative;
@@ -243,7 +280,7 @@
 		align-items: center;
 		gap: 7px;
 		box-sizing: border-box;
-		height: 22px;
+		min-height: calc(22px * var(--w-fs));
 		/* The glyph stays on the field's text inset; the hover fill reaches 6px past it. */
 		margin: 0 0 0 -6px;
 		padding: 0 6px;
@@ -266,32 +303,95 @@
 		color: var(--w-text);
 	}
 	.privacy-badge__key :global(.privacy-badge__glyph) {
+		flex: none;
 		color: var(--w-seal);
 	}
-	.privacy-badge__sentence {
+	/* The invisible measures, always in the cell beside the key: they give that column its
+	   natural width in any parent, and are clipped so a measure wider than the row never becomes
+	   page overflow. */
+	.privacy-badge__rest {
+		grid-area: 1 / 2;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		align-self: start;
 		min-width: 0;
+		height: 0;
+		overflow: clip;
+	}
+	.privacy-badge__line,
+	.privacy-badge__measure {
+		display: flex;
+		align-items: center;
+		column-gap: 10px;
+		row-gap: 2px;
+		min-height: calc(22px * var(--w-fs));
+		white-space: nowrap;
+	}
+	.privacy-badge__line {
+		grid-area: 1 / 2;
+		justify-self: start;
+		min-width: 0;
+		max-width: 100%;
+	}
+	.privacy-badge__measure {
+		grid-area: 1 / 1;
+		justify-self: start;
+		width: max-content;
+		height: 0;
+		min-height: 0;
 		overflow: hidden;
+		visibility: hidden;
+		pointer-events: none;
+	}
+	.privacy-badge__sentence {
+		/* Centres a one-line sentence on the key; a wrapped one keeps its first line there. */
+		padding-block: calc(3px * var(--w-fs));
 		color: var(--w-faint);
 		font: var(--w-t-caption);
 		font-weight: 400;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+	}
+	/* The short sentence and the chip do not fit on one line: the chip goes under the sentence;
+	   when even that is too narrow, sentence and chip take their own line under the key and wrap
+	   there (never an ellipsis). */
+	[data-fit='wrap'] .privacy-badge__line,
+	[data-fit='stack'] .privacy-badge__line {
+		flex-wrap: wrap;
+		white-space: normal;
+	}
+	/* Spans the row under the key without sizing the columns (zero contribution, then the full
+	   area), so the key column and the measured column keep the widths every fit is chosen on. */
+	[data-fit='stack'] .privacy-badge__line {
+		grid-area: 2 / 1 / 3 / -1;
+		width: 0;
+		min-width: 100%;
+		max-width: none;
+	}
+	[data-fit='stack'] .privacy-badge__line > .privacy-badge__sentence {
+		flex: 0 1 auto;
+		min-width: 0;
+		text-wrap: pretty;
 	}
 
 	/* ---------- chips (§7.9 seal chip, retention chip) ---------- */
+	/* A truth label never shrinks (Principle 8): the group keeps its full width and the row's
+	   own text gives way. Only when the row is narrower than seal chip + retention chip (large
+	   text on a phone) does the retention chip move under the seal chip. */
 	.privacy-badge--group {
 		display: inline-flex;
+		flex: none;
+		flex-wrap: wrap;
 		align-items: center;
-		gap: 6px;
-		min-width: 0;
-		vertical-align: middle;
-	}
-	.privacy-badge__chip {
+		gap: 4px 6px;
 		max-width: 100%;
+		vertical-align: middle;
+		white-space: nowrap;
 	}
-	.privacy-badge__chip > .privacy-badge__word {
-		overflow: hidden;
-		text-overflow: ellipsis;
+	.privacy-badge__chip,
+	.privacy-badge__kept {
+		flex: none;
+		/* The kit chips are 22px; at larger text sizes they grow with the words. */
+		height: auto;
+		min-height: calc(22px * var(--w-fs));
 	}
 	.privacy-badge__chip--button {
 		position: relative;
@@ -307,10 +407,6 @@
 		border-color: var(--w-seal);
 		background: color-mix(in srgb, var(--w-seal) 22%, transparent);
 	}
-	.privacy-badge__kept {
-		flex: none;
-		justify-self: start;
-	}
 
 	/* Focus (§4.6): one accent outline, never a stacked ring. */
 	.privacy-badge__key:focus-visible,
@@ -319,7 +415,8 @@
 		outline-offset: 2px;
 	}
 
-	/* High Contrast: hover and open carry a ring, not just a fill (§5.2). */
+	/* High Contrast: hover and open are an inset ring instead of a fill (§5.2). The chip keeps
+	   its own seal fill and edge. */
 	:global(:root[data-char='contrast']) .privacy-badge__key:hover,
 	:global(:root[data-char='contrast']) .privacy-badge__key[aria-expanded='true'] {
 		background: transparent;
@@ -327,29 +424,18 @@
 	}
 	:global(:root[data-char='contrast']) .privacy-badge__chip--button:hover,
 	:global(:root[data-char='contrast']) .privacy-badge__chip--button[aria-expanded='true'] {
-		box-shadow: 0 0 0 1px var(--w-line-strong);
+		border-color: color-mix(in srgb, var(--w-seal) 60%, transparent);
+		background: var(--w-seal-soft);
+		box-shadow: inset 0 0 0 1px var(--w-line-strong);
 	}
 
-	/* Touch: 44px targets without changing the 22px row (§10). */
+	/* Touch: 44px targets without changing the row (§10). */
 	@media (pointer: coarse) {
 		.privacy-badge__key::after,
 		.privacy-badge__chip--button::after {
 			content: '';
 			position: absolute;
 			inset: -11px -4px;
-		}
-	}
-
-	/* "auto": the phone shell (≤768px) shows the short words; desktop shows the full ones. */
-	.pb-phone {
-		display: none;
-	}
-	@media (max-width: 768px) {
-		.pb-desktop {
-			display: none;
-		}
-		.pb-phone {
-			display: inline;
 		}
 	}
 </style>
