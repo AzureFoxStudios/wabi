@@ -205,7 +205,8 @@ describe('right rail geometry', () => {
 
 	test('every rule that targets a .chat-stack child with a child combinator still matches one', () => {
 		const sheets = [...stylesheets(new URL('../styles/', import.meta.url)), ...stylesheets(new URL('./components/', import.meta.url))];
-		const targets = new Set(sheets.flatMap((sheet) => [...sheet.matchAll(/\.chat-stack(?:[:.][^\s,{>]*(?:\([^)]*\))?)*\s*>\s*\.([\w-]+)/g)].map((match) => match[1])));
+		// Each compound part runs to the next '.', ':' or '(', so a selector splits only one way.
+		const targets = new Set(sheets.flatMap((sheet) => [...sheet.matchAll(/\.chat-stack(?:[:.][^\s,{>:.(]*(?:\([^)]*\))?)*\s*>\s*\.([\w-]+)/g)].map((match) => match[1])));
 		const present = new Set(directChildren('<div class="chat-stack"').flatMap(childClasses));
 		expect(present.has('workspace-view-bar')).toBe(true);
 		for (const target of targets) expect(present.has(target), `.chat-stack > .${target} no longer matches`).toBe(true);
