@@ -189,7 +189,7 @@
 }
 .context-menu-item:hover,
 .context-menu-item:focus-visible { outline: none; background: var(--w-accent-soft); }
-.stub-context-menu .context-menu-item:disabled { opacity: 0.4; cursor: not-allowed; }
+.stub-context-menu .context-menu-item:is(:disabled, [aria-disabled='true']) { opacity: 0.4; cursor: not-allowed; }
 
 @media (pointer: coarse) { .panel-drawer-item { min-height: 44px; } }
 @media (prefers-reduced-motion: reduce) { .stub { transition: none; } }
