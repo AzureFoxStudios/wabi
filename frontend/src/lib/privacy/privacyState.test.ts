@@ -243,6 +243,21 @@ describe('resolvePrivacySubject (what a badge words)', () => {
 		expect(resolvePrivacySubject({ input: { channelType: 'text' }, conversation: true }).conversation).toBe(true);
 	});
 
+	test('an older DM whose channel kind is still loading is worded as a conversation', () => {
+		const roomStatus = { enabled: false, pendingDefault: false, serverReadableSelected: false };
+		expect(resolvePrivacySubject({ input: { channelType: null, policy: roomStatus } })).toEqual({
+			state: 'server-readable',
+			conversation: true
+		});
+		expect(resolvePrivacySubject({ input: { channel: null, policy: { privateConversation: true } } }).conversation).toBe(true);
+		expect(resolvePrivacySubject({ input: { channelType: null, policy: { privateConversation: false } } })).toEqual({
+			state: 'server-readable',
+			conversation: false
+		});
+		// A retention-only summary says nothing about the room kind.
+		expect(resolvePrivacySubject({ input: { channelType: null, policy: { retention: '24h' } } }).conversation).toBe(false);
+	});
+
 	test('untyped callers never get a stronger claim', () => {
 		expect(resolvePrivacySubject()).toEqual({ state: 'checking', conversation: false });
 		expect(resolvePrivacySubject({ state: 'secure' as PrivacyState })).toEqual({ state: 'checking', conversation: false });
