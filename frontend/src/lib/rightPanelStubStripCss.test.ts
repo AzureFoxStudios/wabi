@@ -236,3 +236,23 @@ describe('right rail geometry', () => {
 		expect(css).toContain('.app-container.focus-mode) .rail');
 	});
 });
+
+describe('rail menu and stowed note for assistive tech', () => {
+	const strip = readFileSync(new URL('./components/RightStubStrip.svelte', import.meta.url), 'utf8');
+	const menu = strip.slice(strip.indexOf('aria-label="Rail options"'), strip.indexOf('{#if drawerOpen}'));
+
+	test('the stowed note is read only as a stub description, never as loose rail text', () => {
+		expect(strip).toContain('<span id={stowedNoteId} hidden>{STOWED_NOTE}</span>');
+	});
+
+	test('unavailable rail menu items stay reachable by arrow keys and explain themselves', () => {
+		expect(menu.length).toBeGreaterThan(0);
+		// aria-disabled keeps an item focusable (WAI-ARIA menu pattern); native disabled would skip it.
+		expect(menu).not.toMatch(/\sdisabled=\{/);
+		expect(menu).toContain("aria-disabled={!$dockCanPin}");
+		expect(menu).toContain("{$dockCanPin ? 'Pin' : 'Pin · needs a wider window'}");
+		expect(css).toContain(".context-menu-item:is(:disabled, [aria-disabled='true'])");
+		// The edges guard themselves, since a focusable unavailable item can still be activated.
+		expect(strip).toMatch(/if \(index < 0 \|\| target < 0 \|\| target >= \$layoutStore\.stubStrip\.length\) return;/);
+	});
+});

@@ -72,7 +72,7 @@
 
 	$effect(() => {
 		if (contextMenu) {
-			const firstItem = contextMenuRef?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+			const firstItem = contextMenuRef?.querySelector<HTMLButtonElement>("button:not(:disabled, [aria-disabled='true'])");
 			if (firstItem) firstItem.focus();
 		}
 	});
@@ -266,8 +266,10 @@
 	function moveStub(delta: number): void {
 		if (!contextMenu) return;
 		const index = $layoutStore.stubStrip.indexOf(contextMenu.panelId);
-		if (index < 0) return;
-		layoutStore.reorderStub(index, index + delta);
+		const target = index + delta;
+		// The item stays focusable while unavailable (aria-disabled), so the click must check the edge.
+		if (index < 0 || target < 0 || target >= $layoutStore.stubStrip.length) return;
+		layoutStore.reorderStub(index, target);
 		hideContextMenu(true);
 	}
 
@@ -422,8 +424,9 @@
 				</button>
 			{/each}
 		</div>
-		<!-- The stowed state for assistive tech (the tooltip is CSS only). -->
-		<span id={stowedNoteId} class="sr-only">{STOWED_NOTE}</span>
+		<!-- The stowed state for assistive tech (the tooltip is CSS only). Hidden, so it is read only as
+		     the description of a stowed stub, never as loose text in the rail. -->
+		<span id={stowedNoteId} hidden>{STOWED_NOTE}</span>
 		<div class="rail-foot">
 			<button
 				type="button"
@@ -462,7 +465,7 @@
 					Unpin
 				</button>
 			{:else}
-				<button type="button" class="context-menu-item" role="menuitem" disabled={!$dockCanPin} onclick={() => contextMenu && togglePinFromMenu(contextMenu.panelId)}>
+				<button type="button" class="context-menu-item" role="menuitem" aria-disabled={!$dockCanPin} onclick={() => contextMenu && togglePinFromMenu(contextMenu.panelId)}>
 					{$dockCanPin ? 'Pin' : 'Pin · needs a wider window'}
 				</button>
 			{/if}
@@ -470,7 +473,7 @@
 				type="button"
 				class="context-menu-item"
 				role="menuitem"
-				disabled={$layoutStore.stubStrip.indexOf(contextMenu.panelId) <= 0}
+				aria-disabled={$layoutStore.stubStrip.indexOf(contextMenu.panelId) <= 0}
 				onclick={() => moveStub(-1)}
 			>
 				Move up
@@ -479,7 +482,7 @@
 				type="button"
 				class="context-menu-item"
 				role="menuitem"
-				disabled={$layoutStore.stubStrip.indexOf(contextMenu.panelId) >= $layoutStore.stubStrip.length - 1}
+				aria-disabled={$layoutStore.stubStrip.indexOf(contextMenu.panelId) >= $layoutStore.stubStrip.length - 1}
 				onclick={() => moveStub(1)}
 			>
 				Move down
