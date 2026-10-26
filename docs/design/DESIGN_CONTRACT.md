@@ -315,7 +315,7 @@ All primitives live in `styles/controls-kit.css` (controls) and the new `styles/
   - Group labels are kickers; separators hairlines with 6px margins. Danger items last, `--w-danger`. Seal-colored glyph for moderation items.
   - `role=menu` / `menuitemradio` / `menuitemcheckbox`; arrows, Home/End, typeahead; Esc returns focus to the trigger.
 - **Phones:** menus open as bottom sheets (§7.13) with 52px rows.
-- Built on the existing `context-menu/ContextMenu.svelte`; one component serves right-click and button menus.
+- Built on the existing `lib/components/context-menu/ContextMenu.svelte`; one component serves right-click and button menus.
 
 ### 7.5 Segmented `.w-seg`
 Track `--w-bg2`, hairline, 2px padding, radius `--radius-md + 2px`. Options 26px tall, padding 0 12, `--w-t-label-sm`, `--w-mute`, radius `--radius-inner`. Selected = paper (§5.2). 2–5 options only; more use a select. `role=radiogroup` + `aria-checked`, or `aria-pressed` for view switches. Focus ring inset.
@@ -538,7 +538,7 @@ Sidebar, top to bottom:
 - **Remove from member UI:** "Connected" as a button, transport and lifecycle enums (`connected`, `WABIDB`, `P2P`, `/ idle`), "Swap to WabiDB", "Diag", "Spatial Debug", the floating Calling Debug overlay, the duplicated CHANNELS list, ASCII chevrons, the six-button global footer.
 - Call surfaces get one role-token skin file `styles/surfaces/calls.css`; `voice-view.css`, `call-stage.css`, `call-modal-part1/2.css` lose all hex literals.
 
-### 8.6 My Planner (board in the planner critique captures; values here)
+### 8.6 My Planner (no checked-in reference image; the values here are the target)
 - Masthead row A per §7.23 (view seg, split "New task ▾", ⋯ with Export / Import JSON and the locality explanation). Delete the italic save strip, the duplicate "Planner" title band, the stat pills and the colored menu dots.
 - **Tools row (52, no band):** selects Project (All), Priority (Any), Assignee (Anyone) with the applied-filter state; then summary filter buttons in `--w-t-mono` ("10 tasks · 4 due this week · 1 overdue · 1 event"), each a real filter, shown only when non-zero, "overdue" in `--w-danger`; right-aligned quiet "Columns" (menu of lane switches + "Edit columns…"). No keycap legend bar.
 - **Board:** lanes per §7.27 in a grid `repeat(N, minmax(240px, 1fr))`, gap 24, horizontal scroll beyond with an alpha-mask fade at the scrolling edge; lanes are never full-height wells.
@@ -728,7 +728,7 @@ Layer order today (`routes/+layout.svelte`): `fonts.css` → `styles.css` (token
 | Office (§8.8) | `lib/workspaces/*.svelte`, `lib/workspaces/workspace.css` (rewrite on roles, unminified), `lib/workspaces/sheets/*.svelte`, `lib/workspaces/present/*.svelte`, `AudienceWorkspace.svelte`, `AudienceSlide.svelte`, `SceneView.svelte`, `WorkspaceShortcuts.svelte`, `ReaderDocumentWorkbench.svelte` | |
 | Settings and dialogs (§8.9) | `Settings.svelte`, `lib/components/settings/*.svelte`, `ProfileAppearanceControls.svelte`, `styles/settings-skin.css`, `styles/modal-skin.css`, `settings-*.css`, `lib/components/sidebar/ChannelSettingsModal.svelte`, `lib/components/sidebar/CreateChannelForm.svelte`, `UserPopoutImpl.svelte`, `user-popout.css`, `Login.svelte`, `lib/components/login/*.svelte`, `styles/login-skin.css` | |
 | Phone/tablet (§8.12–8.13) | `MainLayout.svelte` (bottom nav, voice strip), `mobile-shell.css`, `mobile-breakpoints.css`, `styles/mobile.css`, `chat-mobile.css`, `sidebar-mobile.css`, `sidebar-profile.css`, `settings-mobile.css`, `ModeTabsDrawer.svelte/.css`, `layoutStoreStates.ts`, `mobileShellModel.ts`, new `styles/surfaces/mobile.css` | |
-| Docs | `docs/design/DESIGN_CONTRACT.md` (this file), `docs/design/DESIGN_LANGUAGE.md` (one-page summary), `docs/design/reference/*.png`, `frontend/AGENTS.md` "Design language" section, `frontend/src/app.html` (theme-color and boot shell on Wabi Ink `#101315`) | The boot shell runs before the role tokens exist, so `app.html` mirrors the resolved Wabi Ink and Daylight roles as `--boot-*` values |
+| Docs | `docs/design/DESIGN_CONTRACT.md` (this file), `docs/design/DESIGN_LANGUAGE.md` (one-page summary), `docs/design/reference/*.png`, `frontend/AGENTS.md` "Design language" section, `frontend/src/app.html` (theme-color and boot shell on Wabi Ink `#101315`) | The boot shell runs before the role tokens exist, so `app.html` mirrors the resolved Wabi Ink and Daylight roles as `--boot-*` values. It follows §4.7 (nothing loops; the gate-driven rail is the only progress) and §6 (the masked ensō only for the default brand; otherwise the operator logo once loaded, the brand's initial, or the neutral mark) |
 
 ---
 
@@ -801,4 +801,4 @@ Rules for every package:
 2. Do not edit `lib/i18n/locales/*.json` outside the strings packages (W0 and W2). Use existing keys or literal English (the dominant pattern); W2 moves new literals into the packs.
 3. Message identity is untouched (AGENTS.md rule 3); day/unread/typing rows render inside the keyed `#each`.
 4. Svelte 5 runes in touched components; follow the file's existing pattern when only a small change is made.
-5. Every package ends with: its bun tests, `bun run check` (no new errors beyond the 4 baseline `xlsx` errors), its acceptance captures in `wabi-ink`, `light` and `high-contrast`, and `"overflow": false` in each capture's JSON.
+5. Every package ends with: its bun tests, `bun run check` (no new errors beyond the 4 baseline `xlsx` errors), its acceptance captures in `wabi-ink`, `light` and `high-contrast` (§12), and no horizontal page scroll in any of them (the §12 overflow check).
