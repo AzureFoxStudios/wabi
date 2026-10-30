@@ -130,26 +130,28 @@
 }
 
 /* ---------- stacked mode: several pins at once, ordered like the rail ----------
-   Each section has a 40px header (serif 15 title, count, collapse chevron) and an Unpin icon.
-   Reordering lives only on the rail (drag and its menu). */
+   Each section has a 40px header (serif 15 title, count, collapse chevron), plus "Open in center
+   stage" where the panel has one. No ↑ ↓ ×: reorder and Unpin live on the rail (click, drag, its
+   menu). Rows come from RightPanel.svelte: an open section is minmax(120px, auto), a folded one
+   max-content. So a section takes its content up to an equal share of the column: a short list
+   (a few DMs) is shown whole and the long one (People) gets the rest, instead of a 50/50 split
+   that cuts a roster mid-row above an empty section. Leftover room goes to the open sections. */
 .dock-stack {
 	flex: 1;
 	min-height: 0;
-	display: flex;
-	flex-direction: column;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	overflow: hidden;
 }
 .dock-section {
-	flex: 1 1 0;
-	min-height: 120px;
+	min-width: 0;
+	min-height: 0;
 	display: flex;
 	flex-direction: column;
+	overflow: hidden;
 	border-top: var(--w-bw) solid var(--w-line);
 }
 .dock-section:first-child { border-top: 0; }
-.dock-section.collapsed {
-	flex: none;
-	min-height: 0;
-}
 .w-panel__sec {
 	flex: none;
 	box-sizing: border-box;

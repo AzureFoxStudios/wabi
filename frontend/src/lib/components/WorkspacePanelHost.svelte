@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, tick } from 'svelte';
 	import type { WorkspacePanelManifest } from '$lib/workspacePanels';
 	import type { Channel } from '$lib/socket-types';
 	import UserListTab from './UserListTab.svelte';
@@ -22,7 +22,13 @@
 	import ForumChannel from './ForumChannel.svelte';
 	import Icon from './ui/Icon.svelte';
 	import { channels, currentChannel } from '$lib/socket';
-	import { choosePanelChannel, panelChannelChoice, resolvePanelChannel } from '$lib/workspacePanels';
+	import {
+		choosePanelChannel,
+		panelChannelChoice,
+		panelChannelPicking,
+		resolvePanelChannel,
+		showPanelChannelPicker
+	} from '$lib/workspacePanels';
 
 	export let panel: WorkspacePanelManifest;
 
@@ -31,13 +37,30 @@
 	// frame's "Open in center stage" opens the same channel and a re-mounted panel keeps it.
 	$: wikiChannels = $channels.filter((ch) => ch.type === 'wiki');
 	$: forumChannels = $channels.filter((ch) => ch.type === 'forum');
-	$: wikiPanelChannelId = resolvePanelChannel($panelChannelChoice.wiki, wikiChannels, $currentChannel);
-	$: forumPanelChannelId = resolvePanelChannel($panelChannelChoice.forum, forumChannels, $currentChannel);
-	// Latch what the panel opened on, so moving around the stage does not change what it reads.
-	$: if (panel.component === 'wiki' && wikiPanelChannelId && !$panelChannelChoice.wiki) choosePanelChannel('wiki', wikiPanelChannelId);
-	$: if (panel.component === 'forum' && forumPanelChannelId && !$panelChannelChoice.forum) choosePanelChannel('forum', forumPanelChannelId);
+	$: wikiPanelChannelId = resolvePanelChannel($panelChannelChoice.wiki, wikiChannels, $currentChannel, $panelChannelPicking.wiki);
+	$: forumPanelChannelId = resolvePanelChannel($panelChannelChoice.forum, forumChannels, $currentChannel, $panelChannelPicking.forum);
+	// Latch what the panel shows (the stage's channel, the only one, or a replacement for a channel
+	// that is gone), so moving around the stage does not change what it reads. "All wikis" asks for
+	// the picker: it resolves to null and nothing is latched until the person chooses.
+	$: if (panel.component === 'wiki' && wikiPanelChannelId && wikiPanelChannelId !== $panelChannelChoice.wiki) choosePanelChannel('wiki', wikiPanelChannelId);
+	$: if (panel.component === 'forum' && forumPanelChannelId && forumPanelChannelId !== $panelChannelChoice.forum) choosePanelChannel('forum', forumPanelChannelId);
 	$: wikiPanelChannel = wikiChannels.find((ch) => ch.id === wikiPanelChannelId) ?? null;
 	$: forumPanelChannel = forumChannels.find((ch) => ch.id === forumPanelChannelId) ?? null;
+
+	let companionEl: HTMLElement | null = null;
+
+	// The control that was pressed goes away (list ⇄ channel), so focus moves to what replaced it.
+	async function backToPicker(kind: 'wiki' | 'forum'): Promise<void> {
+		showPanelChannelPicker(kind);
+		await tick();
+		companionEl?.querySelector<HTMLButtonElement>('.channel-picker-item')?.focus({ preventScroll: true });
+	}
+
+	async function pickChannel(kind: 'wiki' | 'forum', channelId: string): Promise<void> {
+		choosePanelChannel(kind, channelId);
+		await tick();
+		companionEl?.querySelector<HTMLButtonElement>('.panel-channel-back')?.focus({ preventScroll: true });
+	}
 
 	const dispatch = createEventDispatcher<{
 		openSettings: { paymentSurface?: 'connections' } | undefined;
@@ -55,7 +78,7 @@
 				<span class="panel-channel-label">{open?.name ?? noun}</span>
 			</span>
 			{#if ofKind.length > 1}
-				<button type="button" class="w-btn w-btn--quiet w-btn--sm panel-channel-back" on:click={() => choosePanelChannel(kind, null)}>
+				<button type="button" class="w-btn w-btn--quiet w-btn--sm panel-channel-back" on:click={() => void backToPicker(kind)}>
 					<Icon name="chevLeft" size={14} />
 					{kind === 'wiki' ? 'All wikis' : 'All forums'}
 				</button>
@@ -75,7 +98,7 @@
 		<ul class="channel-picker" aria-label={kind === 'wiki' ? 'Wiki channels' : 'Forum channels'}>
 			{#each ofKind as ch (ch.id)}
 				<li>
-					<button type="button" class="channel-picker-item" on:click={() => choosePanelChannel(kind, ch.id)}>
+					<button type="button" class="channel-picker-item" on:click={() => void pickChannel(kind, ch.id)}>
 						<Icon name={glyph} size={18} />
 						<span class="channel-picker-name">{ch.name}</span>
 					</button>
@@ -129,11 +152,11 @@
 {:else if panel.component === 'planner-tasks'}
 	<TaskPanel compact />
 {:else if panel.component === 'wiki'}
-	<div class="channel-companion">
+	<div class="channel-companion" bind:this={companionEl}>
 		{@render channelCompanion('wiki', wikiChannels, wikiPanelChannelId, wikiPanelChannel)}
 	</div>
 {:else if panel.component === 'forum'}
-	<div class="channel-companion">
+	<div class="channel-companion" bind:this={companionEl}>
 		{@render channelCompanion('forum', forumChannels, forumPanelChannelId, forumPanelChannel)}
 	</div>
 {:else}

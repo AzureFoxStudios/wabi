@@ -35,6 +35,7 @@
 	const drawerHeadingId = `${drawerId}-heading`;
 	const sideLabelId = `${drawerId}-side`;
 	const hoverLabelId = `${drawerId}-hover`;
+	const hoverNoteId = `${drawerId}-hover-note`;
 
 	const availablePanels = $derived(
 		$workspacePanelList.filter((panel) => canAccessWorkspacePanel(panel, $currentUser))
@@ -68,12 +69,11 @@
 			layoutStore.addStub('forum');
 		}
 	});
-	const transferBadgeCount = $derived(
-		$incomingFileOffers.length +
-			$activeTransfers.filter(
-				(t) => t.status !== 'complete' && t.status !== 'cancelled' && t.status !== 'failed'
-			).length
+	const transferOffers = $derived($incomingFileOffers.length);
+	const transfersRunning = $derived(
+		$activeTransfers.filter((t) => t.status !== 'complete' && t.status !== 'cancelled' && t.status !== 'failed').length
 	);
+	const transferBadgeCount = $derived(transferOffers + transfersRunning);
 	// The DMs stub carries the same unread total as the sidebar's DMs row.
 	const dmUnread = $derived(
 		$channels
@@ -281,14 +281,18 @@
 		drawerStyle = `top: ${placement.top}px; left: ${placement.left}px; max-width: ${placement.maxWidth}px; max-height: ${placement.maxHeight}px;`;
 	}
 
-	// ↑/↓ move between the drawer's rows; a segmented control keeps its own arrows.
+	// ↑/↓ (and Home/End) move between the popover's rows, from every row: list navigation never
+	// changes a setting. This runs in the capture phase, ahead of a segmented control's own keys,
+	// so a Side or Open on hover segment keeps only ←/→ for choosing (radio-group arrows).
+	const ROW_KEYS = new Set(['ArrowDown', 'ArrowUp', 'Home', 'End']);
 	function handleActionKeys(event: KeyboardEvent): void {
-		if (event.defaultPrevented) return;
+		if (event.defaultPrevented || !ROW_KEYS.has(event.key)) return;
 		const root = event.currentTarget as HTMLElement;
 		const buttons = Array.from(root.querySelectorAll<HTMLButtonElement>("button:not(:disabled):not([tabindex='-1'])"));
 		const index = panelActionIndex(event.key, buttons.indexOf(document.activeElement as HTMLButtonElement), buttons.length);
 		if (index === null) return;
 		event.preventDefault();
+		if (event.target instanceof Element && event.target.closest('[role="radiogroup"]')) event.stopPropagation();
 		buttons[index]?.focus();
 	}
 
@@ -324,6 +328,20 @@
 		// The rail moved to the other edge: the popover follows its add button.
 		await tick();
 		positionDrawer();
+	}
+
+	/** The stub's accessible name: the badge said in words that are true for that panel. */
+	function stubName(panel: WorkspacePanelManifest, badge: string | null): string {
+		if (!badge) return panel.label;
+		if (panel.id === 'dms') return `${panel.label}, ${badge} unread`;
+		if (panel.id === 'transfers') {
+			const parts = [
+				transferOffers ? `${transferOffers} incoming` : '',
+				transfersRunning ? `${transfersRunning} in progress` : ''
+			].filter(Boolean);
+			if (parts.length) return `${panel.label}, ${parts.join(', ')}`;
+		}
+		return `${panel.label}, ${badge} updates`;
 	}
 
 	function badgeText(panel: WorkspacePanelManifest): string | null {
@@ -409,13 +427,15 @@
 	// hairline of its own on that side (the panel's edge toward the stage is the column rule).
 	const joined = $derived(!$isMobile && $dockCanPin && $layoutStore.rightPanelMode === 'pinned');
 
-	// One line: the name, its state when it has one, what a click does, and how to peek.
+	// One line: the name, its state when it has one, what a click does, and how to peek. The peek
+	// hint is left out while a pinned panel or a held peek is on screen: hover and the peek key do
+	// nothing then (§7.22), so the tooltip never promises a gesture that cannot happen.
 	function stubTip(panel: WorkspacePanelManifest): string {
 		const action = isOpen(panel.id)
 			? isPinned(panel.id) ? 'click to unpin' : 'click to close'
 			: $dockCanPin ? 'click to pin' : 'click to open over the page';
 		const stowed = isStowed(panel.id) ? ` · ${STOWED_NOTE.toLowerCase()}` : '';
-		const peek = isOpen(panel.id) ? '' : ` · ${peekHint}`;
+		const peek = isOpen(panel.id) || panelCommitted() ? '' : ` · ${peekHint}`;
 		return `${panel.label}${stowed} · ${action}${peek}`;
 	}
 
@@ -434,7 +454,7 @@
 		onmouseenter={() => { setPeekPointerInside(true); cancelPeekDismiss(); }}
 		onmouseleave={() => { setPeekPointerInside(false); handleStubLeave(); }}
 	>
-		<div class="rail-list">
+		<div class="w-rail__list">
 			{#each stripPanels as panel, index (panel.id)}
 				{@const badge = badgeText(panel)}
 				<Tooltip text={stubTip(panel)} placement={tipSide} disabled={dragId !== null || contextMenu !== null}>
@@ -461,7 +481,7 @@
 						ondrop={(event) => handleDrop(event, index)}
 						ondragend={endDrag}
 						data-panel-id={panel.id}
-						aria-label={badge ? `${panel.label}, ${badge} unread` : panel.label}
+						aria-label={stubName(panel, badge)}
 						aria-pressed={isOpen(panel.id)}
 					>
 						<span class="stub-icon"><WorkspacePanelIcon icon={panel.icon} /></span>
@@ -475,7 +495,7 @@
 		</div>
 		<!-- The footer band: its top hairline is the footer rule shared with the sidebar foot, the
 		     composer and the Scratchpad tray (y = 100% - --w-foot). -->
-		<div class="rail-foot">
+		<div class="w-rail__foot">
 			<Tooltip text="Add or arrange panels" placement={tipSide} disabled={drawerOpen}>
 				<button
 					type="button"
@@ -517,7 +537,7 @@
 			role="dialog"
 			aria-labelledby={drawerHeadingId}
 			tabindex="-1"
-			onkeydown={handleActionKeys}
+			onkeydowncapture={handleActionKeys}
 			onfocusout={handleDrawerFocusOut}
 			onmouseenter={cancelPeekDismiss}
 		>
@@ -559,9 +579,12 @@
 					/>
 				</div>
 				<div class="rail-pref">
-					<span class="rail-pref-label" id={hoverLabelId}>Open on hover</span>
+					<span class="rail-pref-text">
+						<span class="rail-pref-label" id={hoverLabelId}>Open on hover</span>
+						<span class="rail-pref-note" id={hoverNoteId}>Only while no panel is pinned</span>
+					</span>
 					<Segmented
-						labelledby={hoverLabelId}
+						labelledby={`${hoverLabelId} ${hoverNoteId}`}
 						options={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]}
 						value={openOnHover}
 						onchange={(value) => setOpenOnHover(value as 'on' | 'off')}

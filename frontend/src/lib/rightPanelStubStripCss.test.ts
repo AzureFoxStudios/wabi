@@ -313,9 +313,27 @@ describe('stub rail (§7.22)', () => {
 	});
 
 	test('"Add panels" sits in the 80px footer band under the footer rule', () => {
-		const foot = rule(css, '.rail-foot');
+		const foot = rule(css, '.w-rail__foot');
 		expect(foot).toContain('height: var(--w-foot, 80px)');
 		expect(foot).toContain('border-top: var(--w-bw) solid var(--w-line)');
+	});
+
+	// Regression (review round 1): the stub list was `.rail-list`, a class the server rail also uses.
+	// server-rail.css's padding pushed the folder tab 3px below the y = 96 rule, and this global sheet
+	// restyled the server rail's list in turn.
+	test('the stub list and footer have their own class names, shared with no other rail', () => {
+		const strip = readFileSync(new URL('./components/RightStubStrip.svelte', import.meta.url), 'utf8');
+		const serverRail = readFileSync(new URL('./components/ServerRail.svelte', import.meta.url), 'utf8');
+		expect(strip).toContain('<div class="w-rail__list">');
+		expect(strip).toContain('<div class="w-rail__foot">');
+		expect(strip).not.toMatch(/class="rail-(list|foot)"/);
+		expect(css).not.toMatch(/(^|[\s,}])\.rail-(list|foot)\b/m);
+		expect(serverRail).not.toMatch(/w-rail__/);
+		const list = rule(css, '.w-rail__list');
+		expect(list).toContain('padding: 0');
+		expect(list).toContain('gap: 2px');
+		// The first stub starts 8px down the rail, so an 88px folder tab ends on the masthead rule.
+		expect(rule(css, '.rail')).toContain('padding: 8px 0 0');
 	});
 
 	test('tooltips are the portaled kit tooltip, never a clipped ::after', () => {
@@ -359,6 +377,26 @@ describe('companion panel frame (§7.21)', () => {
 		expect(panelSvelte).not.toContain('closeRightPanel');
 	});
 
+	// Regression (review round 1): "Open in center stage" removes this panel only. The DM route
+	// asked MainLayout for nothing, so it closed every pin, a stowed one under the peek included.
+	test('Open in center stage keeps the other pins: every route asks to keep the companion', () => {
+		const open = panelSvelte.slice(panelSvelte.indexOf('function openInStage'), panelSvelte.indexOf('function toggleSection'));
+		expect(open.length).toBeGreaterThan(0);
+		const navigations = [...open.matchAll(/view: '(dm|chat)'[^}]*\}/g)].map((match) => match[0]);
+		expect(navigations.length).toBe(3);
+		for (const detail of navigations) expect(detail).toContain('preserveRightPanel: true');
+		expect(open).toContain('if (pinned) layoutStore.unpinOne(panel.id);');
+		expect(open).toContain('if (!endPeek() && !pinned) dismissPeek();');
+	});
+
+	// Regression (review round 1): the Wiki/Forum action used the raw stored choice, so a deleted
+	// channel kept "Open in center stage" and navigated to a dead id.
+	test('Open in center stage uses the channel the companion shows, not the stored choice', () => {
+		const stage = panelSvelte.slice(panelSvelte.indexOf('function stageChannelFor'), panelSvelte.indexOf('function canOpenInStage'));
+		expect(stage).toContain('panelChannelShown(panel.component, $panelChannelChoice, $panelChannelPicking, $channels, $currentChannel)');
+		expect(stage).not.toMatch(/\$panelChannelChoice\.(wiki|forum)/);
+	});
+
 	test('stacked mode: 40px section headers that collapse, no ↑ ↓ × text glyphs', () => {
 		expect(rule(panelCss, '.w-panel__sec')).toContain('height: 40px');
 		expect(rules(panelCss, '.w-panel__sec-toggle')).toContain('font: 600 calc(15px * var(--w-fs))');
@@ -366,6 +404,28 @@ describe('companion panel frame (§7.21)', () => {
 		expect(rule(panelCss, '.dock-section:first-child .w-panel__sec')).toContain('height: var(--w-head-a, 56px)');
 		expect(panelSvelte).toContain('aria-expanded={!folded}');
 		expect(panelSvelte).not.toMatch(/>[↑↓×]</);
+	});
+
+	// §7.21: a section header is title + count + chevron. Unpin lives on the rail; a section offers
+	// Open in center stage like the panel's own row A; a stack held open as a peek gets a Close that
+	// ends the peek and keeps the pins (its × used to unpin saved pins).
+	test('stacked headers: no Unpin ×, Open in center stage where offered, Close only for a peek', () => {
+		const stacked = panelSvelte.slice(panelSvelte.indexOf('{#if view.stacked}'), panelSvelte.indexOf('{:else if view.panel}'));
+		expect(stacked.length).toBeGreaterThan(0);
+		expect(stacked).not.toContain('Unpin');
+		expect(stacked).not.toContain('unpinOne');
+		expect(stacked).toContain("iconAction('Open in center stage', 'expand', () => openInStage(panel))");
+		expect(stacked).toMatch(/\{#if index === 0 && stackShownAsPeek\}\s*(<!--[^>]*-->\s*)?\{@render iconAction\(stackCloseLabel, 'x', \(\) => endPeek\(\)\)\}/);
+		expect(panelSvelte).toContain('const stackShownAsPeek = $derived(peeking && !$dockCanPin && otherPanel === null);');
+	});
+
+	// Review round 1: the sections split 50/50 and cut People mid-row above a mostly empty DMs section.
+	test('stacked sections take their content up to an equal share, not a fixed split', () => {
+		const stack = rule(panelCss, '.dock-stack');
+		expect(stack).toContain('display: grid');
+		expect(rule(panelCss, '.dock-section')).not.toMatch(/flex:\s*1 1 0/);
+		expect(panelSvelte).toContain("collapsed.includes(panel.id) ? 'max-content' : 'minmax(120px, auto)'");
+		expect(panelSvelte).toContain('style:grid-template-rows={stackRows}');
 	});
 
 	test('pins under a peek of another panel stay mounted, hidden', () => {
@@ -377,6 +437,16 @@ describe('companion panel frame (§7.21)', () => {
 		const head = panelSkin.slice(0, panelSkin.indexOf('/* HELD FOR'));
 		expect(head).toContain(":not(.w-field, .w-field *, .w-select, .w-select *, .modal-overlay *, [role='dialog'] *)");
 		expect(head).not.toMatch(/backdrop-filter|!important|data-ambient/);
+	});
+
+	// §7.3: a chrome field (panel search) sits on the --w-line edge, like the kit's .w-field--chrome;
+	// --w-line-strong is the form edge. Daylight uses the kit's 16% text mix so it reads at rest.
+	test('legacy panel fields use the chrome edge, with the Daylight mix', () => {
+		const head = panelSkin.slice(0, panelSkin.indexOf('/* HELD FOR'));
+		expect(rule(head, ':root .right-panel')).toContain('--panel-field-edge: var(--w-line)');
+		expect(rule(head, ":root[data-mode='light'] .right-panel")).toContain('--panel-field-edge: color-mix(in srgb, var(--w-text) 16%, transparent)');
+		expect(head).toContain('border: var(--w-bw) solid var(--panel-field-edge);');
+		expect(head).not.toContain('solid var(--w-line-strong)');
 	});
 });
 
@@ -404,6 +474,35 @@ describe('rail menu and stowed note for assistive tech', () => {
 		expect(menu).toContain("hint: $dockCanPin ? undefined : 'Needs a wider window'");
 		// The edges guard themselves, since a focusable unavailable item can still be activated.
 		expect(strip).toMatch(/if \(index < 0 \|\| target < 0 \|\| target >= \$layoutStore\.stubStrip\.length\) return;/);
+	});
+
+	// Review round 1: with a panel pinned, hover and the peek key do nothing (§7.22), so the tooltip
+	// must not promise a peek; the Rail group says when "Open on hover" applies.
+	test('the peek hint is left out while a pinned panel or a held peek is on screen', () => {
+		const tip = strip.slice(strip.indexOf('function stubTip'), strip.indexOf('const tipSide'));
+		expect(tip).toContain("const peek = isOpen(panel.id) || panelCommitted() ? '' : ` · ${peekHint}`;");
+		expect(strip).toContain('>Only while no panel is pinned</span>');
+		expect(strip).toContain('labelledby={`${hoverLabelId} ${hoverNoteId}`}');
+	});
+
+	// Review round 1: every badge was announced as "N unread", Transfers included.
+	test('a stub badge is named in words true for its panel', () => {
+		const name = strip.slice(strip.indexOf('function stubName'), strip.indexOf('function badgeText'));
+		expect(strip).toContain('aria-label={stubName(panel, badge)}');
+		expect(name).toContain("if (panel.id === 'dms') return `${panel.label}, ${badge} unread`;");
+		expect(name).toContain('incoming');
+		expect(name).toContain('in progress');
+		expect(name.match(/unread/g)?.length).toBe(1);
+	});
+
+	// Review round 1: ↓ from the last panel row landed on a segmented control, whose own arrows
+	// then moved the rail to the other edge or turned hover-peek on.
+	test('↑/↓ in the Add panels popover move between rows and never change a setting', () => {
+		expect(strip).toContain('onkeydowncapture={handleActionKeys}');
+		expect(strip).not.toMatch(/\sonkeydown=\{handleActionKeys\}/);
+		const keys = strip.slice(strip.indexOf('function handleActionKeys'), strip.indexOf('function handleDrawerFocusOut'));
+		expect(keys).toContain("event.target.closest('[role=\"radiogroup\"]')) event.stopPropagation();");
+		expect(strip).toContain("const ROW_KEYS = new Set(['ArrowDown', 'ArrowUp', 'Home', 'End']);");
 	});
 
 	test('right-click and focus never swap the panel on screen', () => {

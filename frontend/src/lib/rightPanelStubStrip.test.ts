@@ -41,9 +41,12 @@ import {
 	choosePanelChannel,
 	coercePluginWorkspacePanels,
 	panelChannelChoice,
+	panelChannelPicking,
+	panelChannelShown,
 	panelFrameCounts,
 	resolvePanelChannel,
-	setPanelFrameCount
+	setPanelFrameCount,
+	showPanelChannelPicker
 } from '$lib/workspacePanels';
 import { ICON_NAMES } from '$lib/components/ui/icons';
 import { get } from 'svelte/store';
@@ -384,5 +387,41 @@ describe('companion frame state', () => {
 		choosePanelChannel('wiki', null);
 		choosePanelChannel('forum', null);
 		expect(get(panelChannelChoice)).toEqual({ wiki: null, forum: null });
+	});
+
+	// Regression (review round 1): "All wikis" while the stage read a wiki of that kind re-chose the
+	// stage channel at once, so the picker never showed and no other wiki could be read beside it.
+	test('"All wikis" shows the picker even while the stage reads a wiki, until one is chosen', () => {
+		const several = [{ id: 'guide' }, { id: 'handbook' }];
+		choosePanelChannel('wiki', 'guide');
+		showPanelChannelPicker('wiki');
+		expect(get(panelChannelChoice).wiki).toBeNull();
+		expect(get(panelChannelPicking)).toEqual({ wiki: true, forum: false });
+		// The stage is on 'guide' (a wiki): the picker still wins.
+		expect(resolvePanelChannel(null, several, 'guide', get(panelChannelPicking).wiki)).toBeNull();
+		choosePanelChannel('wiki', 'handbook');
+		expect(get(panelChannelPicking).wiki).toBe(false);
+		expect(resolvePanelChannel(get(panelChannelChoice).wiki, several, 'guide', get(panelChannelPicking).wiki)).toBe('handbook');
+		// With a single channel there is no list to choose from: it opens directly.
+		showPanelChannelPicker('wiki');
+		expect(resolvePanelChannel(null, [{ id: 'guide' }], 'guide', true)).toBe('guide');
+		choosePanelChannel('wiki', null);
+		expect(get(panelChannelPicking).wiki).toBe(false);
+	});
+
+	test('panelChannelShown answers from every channel, by kind, ignoring a stale choice', () => {
+		const all = [
+			{ id: 'general', type: 'text' },
+			{ id: 'guide', type: 'wiki' },
+			{ id: 'handbook', type: 'wiki' },
+			{ id: 'help', type: 'forum' }
+		];
+		const none = { wiki: false, forum: false };
+		expect(panelChannelShown('wiki', { wiki: 'handbook', forum: null }, none, all, 'general')).toBe('handbook');
+		// A chosen channel that was deleted: the stage's wiki, else the picker (never the dead id).
+		expect(panelChannelShown('wiki', { wiki: 'gone', forum: null }, none, all, 'guide')).toBe('guide');
+		expect(panelChannelShown('wiki', { wiki: 'gone', forum: null }, none, all, 'general')).toBeNull();
+		expect(panelChannelShown('wiki', { wiki: 'handbook', forum: null }, { wiki: true, forum: false }, all, 'guide')).toBeNull();
+		expect(panelChannelShown('forum', { wiki: null, forum: 'gone' }, none, all, 'general')).toBe('help');
 	});
 });
