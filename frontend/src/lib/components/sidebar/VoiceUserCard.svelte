@@ -1,11 +1,14 @@
 <!--
 	The sidebar voice status row (design contract §8.1 item 7), only while you are in a voice room:
 	a 56px row above the foot with the live dot, the room your mic goes to, and one line saying
-	where your mic goes and how many more rooms you hear ("Mic here · listening to 2 more"), then
-	a 28px ⋯ (Connection details and call options) and a 28px Leave.
+	where your mic goes and how many more rooms you hear ("Mic here · listening to 2 more", or
+	"Mic in all rooms I hear" under "Send my mic to: All rooms I hear"), then a 28px ⋯ (Call
+	options) and a 28px Leave. Where the mic goes follows the audio path (`micGoesTo` in
+	lib/callSessionTypes.ts), never the session focus alone.
 
 	- The ⋯ menu holds what used to be raw selects and chips: where your mic goes ("This room" /
-	  "All rooms I hear"), the rooms you listen to (uncheck to stop listening), the time-in-call
+	  "All rooms I hear"), the rooms you listen to (the same session list the line counts; uncheck
+	  to stop listening), the time-in-call
 	  setting, the camera and screen share, and "Connection details", which open on the Calls page
 	  (one surface for route, latency and packet loss; §9.5).
 	- Recording lives in one control (the Calls masthead and the call dock), not here.
@@ -19,12 +22,12 @@
 	import { _ } from '$lib/i18n';
 	import {
 		callMode,
-		listeningVoiceChannels,
 		voiceTransmitMode,
 		isVideoOff,
 		isSharing,
 		canScreenShare,
 		isMuted as callMuted,
+		isDeafened as callDeafened,
 		toggleVideo,
 		startScreenShare,
 		stopScreenShare
@@ -71,20 +74,30 @@
 
 	$: copy = makeCopy($_);
 	$: connectionLabel = copy('calls.connection_details');
+	$: optionsLabel = 'Call options';
 
-	$: status = voiceStatusLine([...$callSessions.values()], { micMuted: $callMuted, t: copy });
+	$: sessionList = [...$callSessions.values()];
+	$: status = voiceStatusLine(sessionList, { micMuted: $callMuted, deafened: $callDeafened, transmitMode: $voiceTransmitMode, t: copy });
 	// The legacy primary-channel state, for a join the session model has not registered yet.
 	$: legacyActive = $callMode === 'channel' && Boolean(runtimeActiveVoiceChannelId);
 	$: visible = Boolean(status) || legacyActive;
 	$: roomName = status ? sessionName(status.session, voiceChannels) : resolveChannelName(runtimeActiveVoiceChannelId, voiceChannels);
-	$: line = status ? status.line : $callMuted ? copy('calls.muted') : copy('sidebar.mic_here');
+	$: line = status
+		? status.line
+		: $voiceTransmitMode === 'all-listening'
+			? 'Mic in all rooms I hear'
+			: $callMuted
+				? copy('calls.muted')
+				: copy('sidebar.mic_here');
 	$: pending = status?.pending ?? false;
 	$: leaveLabel = roomName ? `${copy('calls.leave')} ${roomName}` : $_('shell.call.leave_voice');
 
-	// Rooms you listen to besides your mic room: unchecking one stops listening there.
-	$: listenedRooms = $listeningVoiceChannels
-		.filter((id) => id !== runtimeActiveVoiceChannelId)
-		.map((id) => ({ id, name: resolveChannelName(id, voiceChannels) }));
+	// The other rooms the line counts ("listening to 2 more"), from the same session list:
+	// unchecking one stops listening there. The primary room is left with Leave instead.
+	$: listenedRooms = sessionList
+		.filter((session) => session.kind === 'channel' && session.id !== status?.session.id)
+		.map((session) => ({ id: session.channelId ?? session.id, name: sessionName(session, voiceChannels) }))
+		.filter((room) => room.id !== runtimeActiveVoiceChannelId);
 
 	function chooseTransmit(mode: 'primary' | 'all-listening') {
 		// The sidebar's handler reads the chosen value from the event target (it served a select).
@@ -110,8 +123,9 @@
 	}
 
 	function handleLeave() {
-		// Leave the room this row names; before the session model has it, leave the primary room.
-		if (status) leaveCall(status.session);
+		// Leave the room this row names (a failure says so in a toast); before the session model has
+		// it, leave the primary room through the sidebar, which reports failures the same way.
+		if (status) leaveCall(status.session, roomName);
 		else void onLeaveVoice();
 	}
 
@@ -154,9 +168,9 @@
 		</div>
 		<Menu
 			items={menuItems}
-			label="Call options"
-			triggerLabel={connectionLabel}
-			title={connectionLabel}
+			label={optionsLabel}
+			triggerLabel={optionsLabel}
+			title={optionsLabel}
 			heading={roomName}
 			align="end"
 			class="w-ibtn w-ibtn--sm voice-status__more"
