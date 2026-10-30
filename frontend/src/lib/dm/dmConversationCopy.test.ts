@@ -168,8 +168,10 @@ describe('message lifetime', () => {
 		expect(dmRetentionPhrase(DM_RETENTION_FOREVER)).toBe('Kept until someone deletes them');
 		expect(dmRetentionPhrase('24h')).toBe('Kept 24 hours');
 		expect(dmRetentionPhrase('7d')).toBe('Kept 7 days');
-		expect(dmRetentionControlLabel('24h')).toBe('Keep new messages for: 24 hours');
-		expect(dmRetentionControlLabel(DM_RETENTION_FOREVER)).toBe('Keep new messages for: until someone deletes them');
+		// The accessible name starts with the visible words (WCAG 2.5.3 label in name).
+		expect(dmRetentionControlLabel('24h')).toBe('Kept 24 hours. Change how long new messages are kept');
+		expect(dmRetentionControlLabel(DM_RETENTION_FOREVER)).toBe('Kept until someone deletes them. Change how long new messages are kept');
+		expect(dmRetentionControlLabel('24h').startsWith(dmRetentionPhrase('24h'))).toBe(true);
 		for (const option of dmRetentionOptions()) {
 			expect(dmRetentionPhrase(option.value)).not.toMatch(/private|secure|encrypt/i);
 		}
@@ -187,6 +189,13 @@ describe('dmCallStartError: the cause in plain words', () => {
 		const words = dmCallStartError(new Error('No connection to server. Calls require an active connection to the Wabi server.'), true);
 		expect(words).toContain('Not connected');
 		expect(words).not.toMatch(/camera|permission/i);
+	});
+
+	test('the group-call path offline errors also read as not connected', () => {
+		// calling_impl_core rejects a group call with these two messages when the socket is down.
+		for (const raw of ['Calls require an active server connection', 'Reconnect to refresh group membership before joining a call']) {
+			expect(dmCallStartError(new Error(raw), false)).toContain('Not connected');
+		}
 	});
 
 	test('a refused or missing device names the device for the call kind', () => {
