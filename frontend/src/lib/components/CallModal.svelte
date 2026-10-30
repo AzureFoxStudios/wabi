@@ -96,9 +96,11 @@
 	} from '$lib/calling/presenterOverlay';
 	import PresenterOverlayCanvas from './PresenterOverlayCanvas.svelte';
 	import CallParticipantGrid from './CallParticipantGrid.svelte';
+	import { followStreamBottom, streamScrollerFor } from './chat/composerGeometry';
 	import CallStage from './CallStage.svelte';
 	import { callSessions, focusedCallSessionId } from '$lib/callSessionManager';
-	import { leaveCall as leaveViewedCall } from '$lib/callSurfaces';
+	import { callConnectionDetailsOpen, leaveCall as leaveViewedCall, openConnectionDetails } from '$lib/callSurfaces';
+	import { activeWorkspaceView } from '$lib/workspaceNavigationState';
 	import CallControls from './CallControls.svelte';
 	import CallRecordingPanel from './CallRecordingPanel.svelte';
 	import IncomingCallModal from './IncomingCallModal.svelte';
@@ -108,9 +110,13 @@
 	import Tooltip from './ui/Tooltip.svelte';
 	import type { MenuEntry } from './context-menu/ContextMenu.svelte';
 	import {
+		CAPTURE_FAILED_WORDS,
 		connectionWords,
+		followPlaceUnderCall,
+		minimizedCallLabel,
 		peopleCountLabel,
 		recordingReadout,
+		recordingResultWords,
 		sessionConnectionState
 	} from '$lib/callShell';
 	import { onDestroy, afterUpdate, onMount } from 'svelte';
@@ -246,6 +252,7 @@
 			? (($voiceChannelMembers[$activeVoiceChannel.id] ?? []).length || 1 + $activeCalls.length)
 			: 1 + $activeCalls.length;
 	$: callPeopleLabel = peopleCountLabel(callPeopleCount);
+	$: dockedRegionLabel = minimizedCallLabel(callTitle);
 	$: callStatusWords = connectionWords(
 		stageChannelId && stageSession && !$isInCall ? sessionConnectionState(stageSession.lifecycle) : $connectionState
 	);
@@ -278,6 +285,14 @@
 			onSelect: () => {
 				window.dispatchEvent(new CustomEvent('wabi:open-settings', { detail: { tab: 'audio' } }));
 			}
+		},
+		{
+			// Route, latency and packet loss live on the Calls page (one surface, §8.5, §9.5); opening
+			// them docks the call so that page is what center stage shows.
+			id: 'connection-details',
+			label: 'Connection details',
+			icon: 'signal',
+			onSelect: openConnectionDetails
 		},
 		{ id: 'dev', type: 'kicker', label: 'Developer', hidden: !isDevBuild },
 		{
@@ -340,20 +355,10 @@
 	$: tileById = new Map(renderTiles.map((tile) => [tile.id, tile]));
 	$: captureAvailable = shares.length > 0;
 	$: activeSpeakerLevels = buildActiveSpeakerLevels(participants, $activeCalls, $isLocalSpeaking, $isMuted, $isDeafened);
-	$: recordingLabel =
-		$callRecordingState.status === 'recording'
-			? `Recording ${formatRecordingElapsed($callRecordingState.elapsedMs)}`
-			: $callRecordingState.status === 'saving'
-				? 'Saving recording...'
-				: $callRecordingState.savedFileCount > 1
-					? `Saved ${$callRecordingState.savedFileCount} files`
-				: $callRecordingState.savedPath
-					? `Saved: ${$callRecordingState.savedPath}`
-					: $callRecordingState.savedFileCount === 1
-						? 'Saved 1 file'
-					: $callRecordingState.lastError
-						? `Recording error: ${$callRecordingState.lastError}`
-						: '';
+	// After a recording: plain words, never the file path or the raw error (§7.16); the error is
+	// logged once instead.
+	$: recordingLabel = recordingResultWords($callRecordingState);
+	$: logRecordingError($callRecordingState.status === 'error' ? $callRecordingState.lastError : null);
 	$: selfStableUserId =
 		typeof $currentUser?.dbUserId === 'number'
 			? `user-${$currentUser.dbUserId}`
@@ -397,7 +402,7 @@
 			: activeRecordingCount > 0
 				? formatRecordingPresenceCopy(activeScopeRecordingParticipants, selfStableUserId)
 				: $callRecordingState.status === 'recording'
-					? 'Recording is starting. Everyone in this call will see the badge.'
+					? 'Recording is starting. Everyone in this call can see it.'
 					: '';
 
 	$: {
@@ -530,6 +535,16 @@
 		}
 		wasChannelPanelOpen = $channelCallPanelOpen;
 	}
+
+	// Center stage owns the selected workspace: while the call covers the stage, choosing another
+	// place (a folio word, Ctrl K, a channel, a DM in center stage, Open whiteboard) docks the call,
+	// so the stage shows what the masthead now names. The sidebar voice room (second click), the
+	// live strip and the minimized card's Open bring it back.
+	$: stagePlace = `${$activeWorkspaceView}|${$currentChannel ?? ''}|${$layoutStore.centerDmChannelId ?? ''}`;
+	$: followStagePlace(showCallShell, stagePlace);
+	// Connection details live on the Calls page (one surface, §9.5): opening them, from the call's
+	// options, the Calls masthead or the sidebar voice status, uncovers that page.
+	$: followConnectionDetails($callConnectionDetailsOpen);
 
 	$: {
 		const incomingToken = $incomingCall
@@ -892,9 +907,8 @@
 			);
 			setCaptureFeedback('Captured frame queued for the whiteboard.');
 		} catch (error) {
-			setCaptureFeedback(
-				error instanceof Error ? error.message : 'Failed to capture the current frame.'
-			);
+			console.warn('[CallModal] capture to whiteboard failed:', error);
+			setCaptureFeedback(CAPTURE_FAILED_WORDS);
 		} finally {
 			captureBusy = false;
 		}
@@ -923,6 +937,72 @@
 		callViewportMode = 'docked';
 		dismissChannelCallPanel();
 		hatchOpen = false;
+	}
+
+	// The place center stage showed when the call came up over it (see followPlaceUnderCall).
+	let placeUnderCall: string | null = null;
+	function followStagePlace(covering: boolean, place: string): void {
+		const next = followPlaceUnderCall(placeUnderCall, place, covering);
+		placeUnderCall = next.remembered;
+		if (next.dock) minimizeToDocked();
+	}
+
+	let connectionDetailsWereOpen = false;
+	function followConnectionDetails(open: boolean): void {
+		if (open && !connectionDetailsWereOpen && showCallShell) minimizeToDocked();
+		connectionDetailsWereOpen = open;
+	}
+
+	let loggedRecordingError: string | null = null;
+	function logRecordingError(error: string | null | undefined): void {
+		if (error && error !== loggedRecordingError) console.warn('[CallModal] recording failed:', error);
+		loggedRecordingError = error ?? null;
+	}
+
+	/**
+	 * The call foot takes its height from the workspace above it; a stream that was showing its
+	 * newest message keeps showing it (the composer's own rule for a growing field).
+	 */
+	function keepStreamAtLatest(node: HTMLElement) {
+		const composer = node.parentElement?.querySelector(':scope > .chat-surface .composer');
+		const scroller = streamScrollerFor(composer);
+		if (scroller) followStreamBottom(scroller, node.offsetHeight);
+		return {};
+	}
+
+	/**
+	 * The embedded call and the minimized call foot are part of center stage. Under a held peek's
+	 * scrim MainLayout makes the stage parts inert (both paint under that scrim too), so they follow
+	 * the workspace beside them: inert while `.chat-surface` is. Full window is never covered.
+	 */
+	function followStageInert(node: HTMLElement, embedded: boolean) {
+		let observer: MutationObserver | null = null;
+		const surface = (): Element | null => node.parentElement?.querySelector(':scope > .chat-surface') ?? null;
+		const sync = () => {
+			if (embedded && surface()?.hasAttribute('inert')) node.setAttribute('inert', '');
+			else node.removeAttribute('inert');
+		};
+		const watch = () => {
+			observer?.disconnect();
+			observer = null;
+			const target = surface();
+			if (embedded && target && typeof MutationObserver !== 'undefined') {
+				observer = new MutationObserver(sync);
+				observer.observe(target, { attributes: true, attributeFilter: ['inert'] });
+			}
+			sync();
+		};
+		watch();
+		return {
+			update(next: boolean) {
+				embedded = next;
+				watch();
+			},
+			destroy() {
+				observer?.disconnect();
+				node.removeAttribute('inert');
+			}
+		};
 	}
 
 	/** Full window fills the app window above every column; pressing it again returns to the stage. */
@@ -1096,9 +1176,16 @@
 {/if}
 
 {#if showDockedBar}
-	<!-- The minimized DM / group call: one small card with the call's name, its people and the
-	     controls you reach for without opening it (§7.26). -->
-	<div class="docked-bar" role="region" aria-label={`Call: ${callTitle}`}>
+	<!-- The minimized DM / group call: the stage's call foot. It sits in the stage's flow below the
+	     workspace (never over the newest message or the composer), with the call's name, its
+	     people and the controls you reach for without opening it (§7.26). -->
+	<div
+		class="docked-bar"
+		role="region"
+		aria-label={dockedRegionLabel}
+		use:followStageInert={true}
+		use:keepStreamAtLatest
+	>
 		<div class="docked-status">
 			<span class="docked-live" aria-hidden="true"></span>
 			<div class="docked-info">
@@ -1106,7 +1193,7 @@
 				<span class="docked-meta">{callPeopleLabel}{#if callStatusWords} · {callStatusWords}{/if}</span>
 			</div>
 			{#if recordingPillText}
-				<span class="recording-pill" class:is-saving={$callRecordingState.status === 'saving'} role="status">
+				<span class="recording-pill" class:is-saving={$callRecordingState.status === 'saving'}>
 					<span class="recording-dot" aria-hidden="true"></span>
 					{recordingPillText}
 				</span>
@@ -1119,15 +1206,15 @@
 				class="w-ibtn docked-mic"
 				aria-label="Mute microphone"
 				aria-pressed={$isMuted}
-				title="Mute microphone"
+				title={$isMuted ? 'Unmute microphone' : 'Mute microphone'}
 				on:click={handleToggleMute}
 			><Icon name={$isMuted ? 'micOff' : 'mic'} /></button>
 			<button
 				type="button"
-				class="w-ibtn"
+				class="w-ibtn docked-sound"
 				aria-label="Deafen"
 				aria-pressed={$isDeafened}
-				title="Deafen"
+				title={$isDeafened ? 'Turn sound back on' : 'Deafen'}
 				on:click={handleToggleDeafen}
 			><Icon name={$isDeafened ? 'headphonesOff' : 'headphones'} /></button>
 			<button type="button" class="w-btn w-btn--danger w-btn--sm docked-leave" on:click={handleEndCall}>
@@ -1146,6 +1233,7 @@
 		class:mode-focus={callViewportMode === 'focus'}
 		class:hatch-open={callViewportMode === 'focus' && hatchOpen}
 		style={`--hatch-left: ${focusHatchInsetLeft}px; --hatch-right: ${focusHatchInsetRight}px;`}
+		use:followStageInert={callViewportMode === 'embedded'}
 	>
 		{#if callViewportMode === 'focus' && hatchOpen}
 			<button
@@ -1157,10 +1245,6 @@
 		{/if}
 
 		<section class="call-room" aria-labelledby="call-head-title">
-			{#if showRecordingPresenceBanner}
-				<CallRecordingPanel recordingState={$callRecordingState} {recordingPresenceCopy} {recordingPillText} />
-			{/if}
-
 			<header class="call-head">
 				<div class="call-head__lead">
 					<span class="call-head__live" aria-hidden="true"></span>
@@ -1168,6 +1252,14 @@
 					<span class="call-head__meta">{callPeopleLabel}</span>
 					{#if callStatusWords}
 						<span class="call-head__status" role="status">{callStatusWords}</span>
+					{/if}
+					{#if recordingPillText}
+						<!-- The one recording readout, the same words as the minimized card (§9.5). It ticks
+						     every second, so it is not a live region; the note below says who records. -->
+						<span class="recording-pill call-head__recording" class:is-saving={$callRecordingState.status === 'saving'}>
+							<span class="recording-dot" aria-hidden="true"></span>
+							{recordingPillText}
+						</span>
 					{/if}
 				</div>
 				<div class="call-head__actions">
@@ -1195,6 +1287,10 @@
 					</Tooltip>
 				</div>
 			</header>
+
+			{#if showRecordingPresenceBanner && recordingPresenceCopy}
+				<p class="call-recording-note" role="status">{recordingPresenceCopy}</p>
+			{/if}
 
 			{#if $callMode === 'group' && $groupCallRingingTargets.length > 0}
 				<div class="ringing-targets-panel">

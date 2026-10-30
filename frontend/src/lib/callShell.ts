@@ -91,6 +91,47 @@ export function visibleStamps<T>(
 	return { shown, more: people.length - shown.length };
 }
 
+/**
+ * Center stage owns the selected workspace (layout contract). While the call covers the stage
+ * (embedded below the masthead, or full window), the place it opened over is remembered; choosing
+ * another one (a folio word, Ctrl K, a channel, Open whiteboard) docks the call so the stage shows
+ * what was chosen instead of the folio naming one workspace while the call hides it.
+ * `place` is any stable key for what center stage shows (workspace view, channel, DM).
+ */
+export function followPlaceUnderCall(
+	remembered: string | null,
+	place: string,
+	covering: boolean
+): { remembered: string | null; dock: boolean } {
+	if (!covering) return { remembered: null, dock: false };
+	if (remembered === null || remembered === place) return { remembered: place, dock: false };
+	return { remembered: null, dock: true };
+}
+
+/** The minimized call's region name, without saying "Call" twice ("Call with Theo Park"). */
+export function minimizedCallLabel(title: string): string {
+	return /\bcall\b/i.test(title) ? title : `Call: ${title}`;
+}
+
+/** What a finished recording left, in plain words: never a file path or a raw error (§7.16). */
+export function recordingResultWords(state: {
+	status: 'idle' | 'recording' | 'saving' | 'error';
+	savedFileCount?: number;
+	savedPath?: string | null;
+	lastError?: string | null;
+}): string {
+	if (state.status === 'recording') return '';
+	if (state.status === 'saving') return 'Saving recording…';
+	if (state.status === 'error') return 'Recording failed. Nothing was saved.';
+	const files = state.savedFileCount ?? 0;
+	if (files > 1) return `Recording saved on this device · ${files} files`;
+	if (files === 1 || state.savedPath) return 'Recording saved on this device';
+	return '';
+}
+
+/** A failed "Capture frame to whiteboard": the cause and what is unchanged (§7.16). */
+export const CAPTURE_FAILED_WORDS = "Couldn't capture the frame. Nothing was added to the whiteboard.";
+
 /** "Recording 02:14" for your own recording, "Recording" when someone else records (§8.5, §9.5). */
 export function recordingReadout(
 	status: 'idle' | 'recording' | 'saving' | 'error',
@@ -174,7 +215,8 @@ export function dockMoreItems(state: DockMenuState, actions: DockMenuActions): D
 	items.push({
 		id: 'draw',
 		label: 'Draw on shared screen',
-		icon: 'pencil',
+		// Not 'pencil': next to Open whiteboard's pencil-and-line glyph the two read as one (§6).
+		icon: 'palette',
 		role: 'menuitemcheckbox',
 		checked: state.presenterOverlayVisible,
 		disabled: !state.presenterOverlayAvailable,
