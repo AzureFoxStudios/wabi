@@ -8,10 +8,105 @@ export const FALLBACK_ROLE_LABELS: Record<string, string> = {
 	guest: 'Guest'
 };
 
+/**
+ * Unread badge numerals (spec §7.9): the plain count from 1 to 99, then "99+". Anything that is
+ * not a positive count (0, negative, NaN, Infinity) renders no badge at all.
+ */
 export function formatBadge(count: number): string {
-	if (count === 0) return '';
-	if (count <= 10) return `+${count}`;
-	return '*';
+	if (!Number.isFinite(count) || count < 1) return '';
+	const whole = Math.floor(count);
+	return whole > 99 ? '99+' : String(whole);
+}
+
+/** The words a screen reader hears for a badge ("3 unread"); '' when there is no badge. */
+export function unreadLabel(count: number): string {
+	const badge = formatBadge(count);
+	return badge ? `${badge} unread` : '';
+}
+
+/**
+ * Accessible name of the DMs row (spec §8.1): "DMs and friends", then what is waiting.
+ * "DMs and friends, 2 unread" · "DMs and friends, 1 friend request" · both, comma-separated.
+ */
+export function dmRowLabel(unread: number, friendRequests: number): string {
+	const parts = ['DMs and friends'];
+	const unreadWords = unreadLabel(unread);
+	if (unreadWords) parts.push(unreadWords);
+	const requests = Number.isFinite(friendRequests) ? Math.max(0, Math.floor(friendRequests)) : 0;
+	if (requests > 0) parts.push(`${requests} friend request${requests === 1 ? '' : 's'}`);
+	return parts.join(', ');
+}
+
+/**
+ * Widths at or below this render the compact rail (spec §8.1: 60px tiles). The drag handle can
+ * leave the column anywhere between "collapsed" (0) and full width, so compact is a range, not
+ * the single magic value 60: a 90px column shows tiles, never half-clipped names.
+ */
+export const COMPACT_SIDEBAR_MAX_WIDTH = 120;
+
+export function isCompactSidebarWidth(width: number): boolean {
+	return Number.isFinite(width) && width > 0 && width <= COMPACT_SIDEBAR_MAX_WIDTH;
+}
+
+/** Center-stage views that belong to the selected channel (folio group "This channel", §7.10). */
+const CHANNEL_WORKSPACE_VIEWS = new Set(['messages', 'whiteboard', 'files']);
+
+/**
+ * Which sidebar entry is "where you are" (spec §5.2, §7.11; exactly one aria-current):
+ *  - 'server':  Server home is open → the community block is current;
+ *  - 'dm':      the DMs hub is open → the DMs row is current;
+ *  - 'channel': the channel's own view (Chat, Files, Whiteboard) is in center stage → its row is
+ *               the current page (raise fill, sig glyph);
+ *  - 'context': another workspace owns center stage (My Planner, Notes, Calls, Documents…) →
+ *               the channel you came from keeps only its sig glyph and is not the page.
+ */
+export type SidebarPlace = 'server' | 'dm' | 'channel' | 'context';
+
+export function resolveSidebarPlace(activeView: string, workspaceView: string | null | undefined): SidebarPlace {
+	if (activeView === 'server') return 'server';
+	if (activeView === 'dm') return 'dm';
+	if (activeView === 'chat' && CHANNEL_WORKSPACE_VIEWS.has(workspaceView || 'messages')) return 'channel';
+	return 'context';
+}
+
+/** Voice rooms list at most this many people before "and N more" (spec §7.11). */
+export const VOICE_PARTICIPANT_LIMIT = 5;
+
+export function splitVoiceParticipants<T>(people: T[], expanded: boolean, limit = VOICE_PARTICIPANT_LIMIT): { shown: T[]; hidden: number } {
+	if (expanded || people.length <= limit) return { shown: people, hidden: 0 };
+	return { shown: people.slice(0, limit), hidden: people.length - limit };
+}
+
+/** The 14px state glyph after a voice participant's name and the word it stands for. */
+export type VoiceMemberState = { icon: 'mic' | 'micOff' | 'headphones' | 'headphonesOff'; label: string };
+
+export function voiceMemberState(member: {
+	speaking?: boolean;
+	isMuted?: boolean;
+	isDeafened?: boolean;
+	isListenOnly?: boolean;
+}): VoiceMemberState {
+	if (member.isDeafened) return { icon: 'headphonesOff', label: 'Deafened' };
+	if (member.isListenOnly) return { icon: 'headphones', label: 'Listening' };
+	if (member.isMuted) return { icon: 'micOff', label: 'Muted' };
+	if (member.speaking) return { icon: 'mic', label: 'Speaking' };
+	return { icon: 'mic', label: 'Mic on' };
+}
+
+/**
+ * Split the mixed root into the CHANNELS and VOICE sections (spec §8.1). Voice rooms at the top
+ * level read under VOICE; a voice room inside a folder stays in its folder, because folders may
+ * hold any mix of kinds. Order inside each section is the root order, so reordering still means
+ * the same thing.
+ */
+export function splitRootSections(items: MixedRootItem[]): { channels: MixedRootItem[]; voice: MixedRootItem[] } {
+	const channels: MixedRootItem[] = [];
+	const voice: MixedRootItem[] = [];
+	for (const item of items) {
+		if (item.kind === 'channel' && (item.channel.type as string | undefined) === 'voice') voice.push(item);
+		else channels.push(item);
+	}
+	return { channels, voice };
 }
 
 export function summarizeGlimpseMessage(message: Message): string {
