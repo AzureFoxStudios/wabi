@@ -11,10 +11,14 @@
 	  tabs never grow, never scroll and never move; the row is the same in every workspace.
 	- Tiers are container queries on the stage (stagebar.css, `@container stage`): ≥1000 all;
 	  880–999 Whiteboard and Project go to More; 700–879 also Files, Sheets and Present;
-	  <700 also Activity and Notes (and <560, a guard for tablets, the office group). More ▾ (right-aligned) lists exactly what the bar does not
-	  show, with kicker groups, a --w-sig check on the current view, hints ("preview",
-	  "off on this device") and a "Pin to bar" group. When the current view lives in More, More
-	  carries the underline.
+	  <700 also Activity and Notes (and <560, a guard for tablets, the office group). The tiers
+	  are drawn for 100% text: when the row is still wider than the stage (a larger interface
+	  scale, longer words in another language), a measured fit pass moves more tabs to More in
+	  `folioFitOrder`, so the row never overlaps More or runs under the rail. A view pinned from
+	  More stays on the bar at every tier; only the fit pass can move it, and then its Pin row
+	  says so. More ▾ (right-aligned) lists exactly what the bar does not show, with kicker
+	  groups, a --w-sig check on the current view, hints ("preview", "off on this device") and a
+	  "Pin to bar" group. When the current view lives in More, More carries the underline.
 	- role=tablist with a roving tabindex: ←/→ move, Home/End jump, Enter/Space open. Each tab has a
 	  tooltip with its detail line. Right-click (or the context-menu key): Open · Open beside
 	  (views with a companion panel) · Remove from bar / Pin to bar. Bar choices are kept per
@@ -34,7 +38,8 @@
 	export interface FolioView {
 		id: WorkspaceViewKey;
 		group: FolioGroupId;
-		/** Stage width below which the view leaves the bar for More (0: never). */
+		/** Stage width below which the view leaves the bar for More (0: no tier moves it). Views
+		 *  off the bar by default are 0, so a view the person pinned shows at every tier. */
 		tier: FolioTier;
 		/** On the bar unless the person removed it; the others live in More until pinned. */
 		bar: boolean;
@@ -42,20 +47,20 @@
 		addon?: 'sheets' | 'present';
 	}
 
-	/** Bar order is this order. A view pinned from More collapses first (tier 1000). */
+	/** Bar order is this order; a pinned view takes its place in its group. */
 	export const FOLIO_VIEWS: readonly FolioView[] = Object.freeze([
 		{ id: 'messages', group: 'channel', tier: 0, bar: true },
 		{ id: 'files', group: 'channel', tier: 880, bar: true },
 		{ id: 'whiteboard', group: 'channel', tier: 1000, bar: true },
-		{ id: 'media', group: 'channel', tier: 1000, bar: false },
+		{ id: 'media', group: 'channel', tier: 0, bar: false },
 		{ id: 'voice', group: 'community', tier: 0, bar: true },
 		{ id: 'notifications', group: 'community', tier: 700, bar: true },
 		{ id: 'lore', group: 'community', tier: 1000, bar: true },
-		{ id: 'map', group: 'community', tier: 1000, bar: false },
+		{ id: 'map', group: 'community', tier: 0, bar: false },
 		{ id: 'planner', group: 'yours', tier: 0, bar: true },
 		{ id: 'notes', group: 'yours', tier: 700, bar: true },
-		{ id: 'reader', group: 'yours', tier: 1000, bar: false },
-		{ id: 'model', group: 'yours', tier: 1000, bar: false },
+		{ id: 'reader', group: 'yours', tier: 0, bar: false },
+		{ id: 'model', group: 'yours', tier: 0, bar: false },
 		{ id: 'documents', group: 'office', tier: 560, bar: true, preview: true },
 		{ id: 'sheets', group: 'office', tier: 880, bar: true, preview: true, addon: 'sheets' },
 		{ id: 'present', group: 'office', tier: 880, bar: true, preview: true, addon: 'present' }
@@ -73,6 +78,24 @@
 			if (view.id === 'messages') return true;
 			return view.bar ? !choices.removed.includes(view.id) : choices.pinned.includes(view.id);
 		}).map((view) => view.id);
+	}
+
+	/**
+	 * The order in which shown tabs leave for More when the row is still wider than the stage
+	 * after the tiers (larger interface text, longer words). First the default tabs a tier moves:
+	 * the ones a narrower stage keeps go last, and within a tier right to left. Then the views the
+	 * person pinned, so a pin displaces default tabs before it goes itself. Then the tabs no tier
+	 * moves. Chat never leaves the bar.
+	 */
+	export function folioFitOrder(shown: readonly WorkspaceViewKey[]): WorkspaceViewKey[] {
+		const rank = (view: FolioView) => (!view.bar ? 1 : view.tier > 0 ? 0 : 2);
+		return shown
+			.flatMap((id, index) => {
+				const view = FOLIO_VIEWS.find((entry) => entry.id === id);
+				return view && view.id !== 'messages' ? [{ view, index }] : [];
+			})
+			.sort((a, b) => rank(a.view) - rank(b.view) || b.view.tier - a.view.tier || b.index - a.index)
+			.map((entry) => entry.view.id);
 	}
 
 	const STORAGE_PREFIX = 'wabi:folio-bar:v1:';
@@ -103,6 +126,7 @@
 	import { _ } from '$lib/i18n';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { hydrateWorkspaceAddons, workspaceAddonEnabled } from '$lib/workspaces/addonState';
+	import { businessSyncAvailable } from '$lib/business/sync';
 	import { openRightPanel } from '$lib/layoutStoreRightPanel';
 	import type { WorkspacePanelId } from '$lib/docking/layoutSchema';
 	import ContextMenu, { type MenuAnchor, type MenuEntry } from './context-menu/ContextMenu.svelte';
@@ -164,7 +188,6 @@
 		voice: 'voice, video & sharing',
 		notifications: 'alerts, follows & friends',
 		lore: 'shared plan, wiki & optional files',
-		planner: 'personal tasks, journal & calendar',
 		notes: 'your personal notes',
 		media: 'photos & albums',
 		reader: 'documents & reading',
@@ -173,6 +196,8 @@
 	};
 
 	function detailOf(id: WorkspaceViewKey): string {
+		// My Planner states its locality here, once (§8.12, §9.3): it syncs only when the server can.
+		if (id === 'planner') return $businessSyncAvailable === true ? 'Synced to server' : 'Only you · this device';
 		return DETAIL[id] ?? '';
 	}
 
@@ -221,12 +246,10 @@
 	const barGroups = $derived(
 		FOLIO_GROUPS.map((group) => {
 			const views = barViews.filter((view) => view.group === group);
-			// A pinned view collapses first; the group stays while any of its tabs is shown.
-			const tiers = views.map((view) => (view.bar ? view.tier : 1000));
-			return { id: group, views, tier: tiers.length ? Math.min(...tiers) : 1000 };
+			// The group stays while any of its tabs is shown (the fit pass hides an emptied group).
+			return { id: group, views, tier: views.length ? Math.min(...views.map((view) => view.tier)) : 1000 };
 		}).filter((group) => group.views.length > 0)
 	);
-	const tierOf = (view: FolioView): FolioTier => (view.bar ? view.tier : 1000);
 
 	function saveChoices(next: FolioChoices): void {
 		choices = next;
@@ -245,7 +268,9 @@
 
 	// ---------------------------------------------------------------- what the bar hides at this width
 	let root = $state<HTMLElement | null>(null);
-	let hiddenByTier = $state<WorkspaceViewKey[]>([]);
+	let moreWrap = $state<HTMLElement | null>(null);
+	/** Bar tabs not shown right now: moved by a tier rule or by the fit pass. */
+	let hiddenNow = $state<WorkspaceViewKey[]>([]);
 
 	function measureHidden(): void {
 		if (!root) return;
@@ -253,22 +278,60 @@
 		for (const tab of root.querySelectorAll<HTMLElement>('[role="tab"][data-view]')) {
 			if (!tab.getClientRects().length) hidden.push(tab.dataset.view as WorkspaceViewKey);
 		}
-		if (hidden.join() !== hiddenByTier.join()) hiddenByTier = hidden;
+		if (hidden.join() !== hiddenNow.join()) hiddenNow = hidden;
+	}
+
+	const shows = (element: Element) => element.getClientRects().length > 0;
+
+	/**
+	 * The tiers assume 100% text. When the strip is still wider than the room it has (a larger
+	 * interface scale, longer words), move tabs to More in `folioFitOrder` until it fits; an
+	 * emptied group goes with its rule and its PREVIEW tag. `data-fit` is owned here, not by the
+	 * template: every pass starts from the tiers alone, so a wider stage brings tabs back.
+	 */
+	function fit(): void {
+		const strip = root?.querySelector<HTMLElement>('.w-folio__tabs');
+		if (!strip) return;
+		for (const element of strip.querySelectorAll<HTMLElement>('[data-fit]')) element.removeAttribute('data-fit');
+		const overflows = () => strip.scrollWidth > strip.clientWidth;
+		if (overflows()) {
+			const tabs = new Map<string, HTMLElement>();
+			for (const tab of strip.querySelectorAll<HTMLElement>('[role="tab"][data-view]')) {
+				if (shows(tab)) tabs.set(tab.dataset.view ?? '', tab);
+			}
+			for (const id of folioFitOrder([...tabs.keys()] as WorkspaceViewKey[])) {
+				const tab = tabs.get(id);
+				if (!tab) continue;
+				tab.setAttribute('data-fit', 'out');
+				const group = tab.closest<HTMLElement>('.w-folio__group');
+				if (group && !Array.from(group.querySelectorAll('[role="tab"]')).some(shows)) group.setAttribute('data-fit', 'out');
+				if (!overflows()) break;
+			}
+		}
+		measureHidden();
 	}
 
 	$effect(() => {
 		const element = root;
+		const more = moreWrap;
+		// Words change width without resizing the stage: the bar, the Activity count, the channel
+		// kind and the language all re-run the fit.
 		void barIds;
+		void activityBadge;
+		void channelKind;
+		void $_;
 		if (!element) return;
-		untrack(measureHidden);
+		untrack(fit);
 		if (typeof ResizeObserver === 'undefined') return;
-		// Runs after layout, so the container-query tiers have already applied.
-		const observer = new ResizeObserver(() => measureHidden());
+		// Runs after layout, so the container-query tiers have already applied. The stage width
+		// resizes the folio; the interface scale resizes More (its words follow --w-fs).
+		const observer = new ResizeObserver(() => fit());
 		observer.observe(element);
+		if (more) observer.observe(more);
 		return () => observer.disconnect();
 	});
 
-	const shownIds = $derived(barIds.filter((id) => !hiddenByTier.includes(id)));
+	const shownIds = $derived(barIds.filter((id) => !hiddenNow.includes(id)));
 	const inMore = $derived(FOLIO_VIEWS.filter((view) => !shownIds.includes(view.id)));
 	const currentInMore = $derived(!shownIds.includes(activeView));
 	// Activity's count stays in sight when a narrow stage moves Activity into More.
@@ -383,8 +446,9 @@
 				});
 			}
 		}
-		// Bar choices: the views the person can add to (or take off) the bar.
-		const customizable = FOLIO_VIEWS.filter((view) => view.id !== 'messages' && !(view.addon && !addons[view.addon]) && (!view.bar || choices.removed.includes(view.id)));
+		// Bar choices: the views the person can add to (or take off) the bar. A row stays while
+		// the menu is open, so checking a removed default view ticks it instead of dropping it.
+		const customizable = FOLIO_VIEWS.filter((view) => isCustomizable(view) || pinRows.includes(view.id));
 		if (customizable.length) {
 			items.push({ id: 'k-pin', type: 'kicker', label: $_('folio.pin_to_bar') });
 			for (const view of customizable) {
@@ -396,6 +460,8 @@
 					keepCase: true,
 					role: 'menuitemcheckbox',
 					checked: onBar,
+					// On the bar by choice but out of room at this width: say where it shows.
+					hint: onBar && hiddenNow.includes(view.id) ? 'shows on a wider stage' : undefined,
 					keepOpen: true,
 					onSelect: () => setOnBar(view.id, !onBar)
 				});
@@ -403,6 +469,17 @@
 		}
 		return items;
 	});
+
+	function isCustomizable(view: FolioView): boolean {
+		if (view.id === 'messages' || (view.addon && !addons[view.addon])) return false;
+		return !view.bar || choices.removed.includes(view.id);
+	}
+
+	/** Pin rows listed when More opened; kept until it closes. */
+	let pinRows = $state<WorkspaceViewKey[]>([]);
+	function onMoreOpenChange(open: boolean): void {
+		pinRows = open ? FOLIO_VIEWS.filter(isCustomizable).map((view) => view.id) : [];
+	}
 
 	// ---------------------------------------------------------------- phone: Workspaces sheet
 	let sheetOpen = $state(false);
@@ -481,7 +558,7 @@
 								role="tab"
 								class="w-folio__tab"
 								data-view={view.id}
-								data-tier={tierOf(view)}
+								data-tier={view.tier}
 								aria-selected={activeView === view.id}
 								aria-current={activeView === view.id ? 'page' : undefined}
 								aria-disabled={disabled(view.id) || undefined}
@@ -505,13 +582,14 @@
 				</div>
 			{/each}
 		</div>
-		<span class="w-folio__more-wrap">
+		<span class="w-folio__more-wrap" bind:this={moreWrap}>
 			<Menu
 				label={$_('folio.more')}
 				class="w-folio__more"
 				align="end"
 				items={moreItems}
 				bind:open={moreOpen}
+				onopenchange={onMoreOpenChange}
 				data-current={currentInMore ? 'true' : undefined}
 				triggerLabel={currentInMore || activityInMore ? moreLabel : undefined}
 			>

@@ -4,16 +4,30 @@
 	when no workspace has described row A through `stageHeader`.
 
 	- Channel: `#` (or the kind glyph) in --w-sig + the name in --w-t-title; the topic as one line
-	  that opens "About this channel"; display chips as words. Actions: search, pinned, More.
+	  that opens "About this channel"; the retention chip ("Kept 24 hours", "Live only · not
+	  saved") when messages are not kept until deleted; display chips as words. Actions: search,
+	  pinned, More.
 	- DM / group: avatar 28 + name + the seal chip (PrivacyBadge, which owns every privacy word)
 	  with the retention chip; actions: search, call, video, More.
+	- Phone bar (52px, §8.12): avatar + name (96px floor, ellipsis) + "Chat ▾" + search + More.
+	  The avatar steps aside first when the stage has no room for it at the current text size.
+	  The seal chip, Voice call and Video call have no room there, so More carries them: its
+	  first row is the privacy state (glyph, word, short sentence; every word from
+	  privacyState.ts) and opens the same privacy popover. The privacy state is never dropped.
+	- The content-rules tag ("Reports only", "Local rules on") is also the More menu's one-line
+	  context, so it stays reachable where the row has no room for it (stages under 880, phones).
 	- One fixed 56px row: nothing wraps; the topic and chips give way first.
 	- Search is a quiet icon that expands into a 280px kit field. The query lives in `chatSearch`
 	  so the stream (Chat.svelte) filters by it; Chat.svelte publishes the result facts through
 	  `chatStageInfo`. Operator syntax help sits in the results dropdown, not in the placeholder.
+	  On the phone bar an open search takes row A: the lead keeps only its glyph (the avatar or
+	  `#`; the name stays in the heading for assistive tech), "Chat ▾" steps aside, and the field
+	  fills the row up to its Close button and More. Closing it restores the bar.
 	- Channel privacy is the colophon's job (§8.10): the channel row carries no privacy chip.
-	  The member privacy summary is still fetched here and published as `stagePrivacySummary`
-	  for surfaces that word retention; it fails closed (null) and never invents a policy.
+	  Retention stays here until the colophon carries its own chip (a truthful label is never
+	  removed before its replacement exists). The member privacy summary is published as
+	  `stagePrivacySummary` (with its channelId) for surfaces that word retention; it fails
+	  closed (null), never invents a policy and is cleared when this header unmounts.
 -->
 <script module lang="ts">
 	import { writable, type Readable } from 'svelte/store';
@@ -78,7 +92,16 @@
 	import { get } from 'svelte/store';
 	import { _ } from '$lib/i18n';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
-	import { activeServerSpoilAll, activeServerUnspoilAll, isServerChannelMuted, toggleServerMutedChannelId } from '$lib/serverSettings';
+	import { activeServerSettings, activeServerSpoilAll, activeServerUnspoilAll, toggleServerMutedChannelId } from '$lib/serverSettings';
+	import {
+		privacyWords,
+		resolvePrivacySubject,
+		retentionChipVisible,
+		retentionFact,
+		retentionLabel,
+		retentionTitle
+	} from '$lib/privacy/privacyState';
+	import { isMobile } from '$lib/layoutStoreStates';
 	import { getLoreBinding, parseLoreChannelId, type LoreChannelBinding } from '$lib/api/lore';
 	import { getAuthToken } from '$lib/authSession';
 	import { activeServerUrl } from '$lib/serverUrl';
@@ -111,6 +134,7 @@
 	import Menu from '$lib/components/ui/Menu.svelte';
 	import Tooltip from '$lib/components/ui/Tooltip.svelte';
 	import PrivacyBadge from '$lib/components/PrivacyBadge.svelte';
+	import PrivacyPopover from '$lib/components/PrivacyPopover.svelte';
 	import GroupAvatar from '$lib/components/GroupAvatar.svelte';
 	import type { WorkspaceViewKey } from './types';
 
@@ -121,7 +145,8 @@
 	}: {
 		channelId?: string;
 		view?: WorkspaceViewKey;
-		/** Rendered right after the name (the phone's "Chat ▾" workspace button). */
+		/** Rendered right after the name, outside the clipped lead so its 44px touch band survives
+		 *  (the phone's "Chat ▾" workspace button). */
 		trail?: Snippet;
 	} = $props();
 
@@ -140,7 +165,14 @@
 	// ---------------------------------------------------------------- privacy summary (fail closed)
 	let privacySummary = $state<ChannelPrivacySummary | null>(null);
 	let privacyRequestKey = '';
-	$effect(() => privacySummaryStore.set(privacySummary));
+	$effect(() => {
+		const value = privacySummary;
+		privacySummaryStore.set(value);
+		// Unmounted (Planner, Files, the DM hub): no room is in the masthead, so publish none.
+		return () => {
+			if (get(privacySummaryStore) === value) privacySummaryStore.set(null);
+		};
+	});
 
 	async function refreshPrivacySummary(id: string, requestKey: string): Promise<void> {
 		privacySummary = null;
@@ -190,14 +222,22 @@
 		}
 		e2eeStatus = cachedE2eeStatus(id);
 		let live = true;
-		// Display only: a failed request leaves the chip on "Checking privacy…", never a claim.
-		refreshE2eeStatus(id)
-			.then((status) => {
-				if (live) e2eeStatus = status;
-			})
-			.catch(() => {});
+		let retry: ReturnType<typeof setTimeout> | undefined;
+		// Display only: a failed request leaves the chip on "Checking privacy…", never a claim,
+		// and asks again (2 s, 4 s, 8 s; then on the next window focus) instead of giving up.
+		const ask = (attempt: number) => {
+			refreshE2eeStatus(id)
+				.then((status) => {
+					if (live) e2eeStatus = status;
+				})
+				.catch(() => {
+					if (live && attempt < 3) retry = setTimeout(() => ask(attempt + 1), 2000 * 2 ** attempt);
+				});
+		};
+		ask(0);
 		return () => {
 			live = false;
+			clearTimeout(retry);
 		};
 	});
 
@@ -259,9 +299,19 @@
 		if ($activeServerUnspoilAll) list.push({ id: 'server-unspoiled', label: 'Unspoiled on this server · your view', title: 'You have Unspoil All enabled for this server: every message here is revealed, even spoilers (your view only).' });
 		return list;
 	});
-	// At most two chips in the row; the rest are named in one "+N" tag so the row never wraps.
-	const shownChips = $derived(chips.slice(0, 2));
-	const extraChips = $derived(chips.slice(2));
+	// Retention is a truth chip of its own (never folded into "+N", never a privacy claim, no
+	// lock): shown in the channel view when messages are not kept until deleted.
+	const RETENTION_ELSEWHERE = new Set(['lore', 'planning', 'wiki', 'forum']);
+	const retention = $derived(
+		!conversation && view === 'messages' && !RETENTION_ELSEWHERE.has(kind) && retentionChipVisible(privacySummary)
+			? { label: retentionLabel(privacySummary), title: retentionTitle(privacySummary) }
+			: null
+	);
+	// At most two chips in the row (one beside retention); the rest are named in one "+N" tag so
+	// the row never wraps.
+	const chipRoom = $derived(retention ? 1 : 2);
+	const shownChips = $derived(chips.slice(0, chipRoom));
+	const extraChips = $derived(chips.slice(chipRoom));
 	const rulesTag = $derived(
 		conversation && privacySummary?.privateConversation
 			? privacySummary.automatedContentRules
@@ -274,6 +324,8 @@
 	const callActive = $derived(($isInCall && $callMode === 'direct') || Boolean($outgoingCall));
 	const callPending = $derived(Boolean($outgoingCall) && !$isInCall && $callMode === 'direct');
 
+	const callWord = $derived(callActive ? (callPending ? 'Calling…' : 'Call active') : undefined);
+
 	async function startDmCall(video: boolean): Promise<void> {
 		const live = get(socket);
 		if (!live || !peer || callActive) return;
@@ -282,6 +334,24 @@
 		} catch (error) {
 			console.warn(`[Call] DM ${video ? 'video' : 'voice'} call failed to start:`, error);
 		}
+	}
+
+	// ---------------------------------------------------------------- the phone conversation bar
+	// One input for the header chip and the phone's More row, so both always say the same state.
+	const phone = $derived($isMobile);
+	const privacyInput = $derived({ channelType: isGroup ? 'group' : 'dm', policy: e2eeStatus });
+	const privacy = $derived(conversation ? resolvePrivacySubject({ input: privacyInput }).state : null);
+	let privacyOpen = $state(false);
+	let privacyAnchor = $state<HTMLElement | null>(null);
+	const privacyPopId = `stage-privacy-${uid}`;
+	$effect(() => {
+		// The popover belongs to the phone bar's More row; the desktop chip owns its own.
+		if (!phone || !conversation) privacyOpen = false;
+	});
+
+	function openPrivacy(): void {
+		privacyAnchor = moreTrigger();
+		privacyOpen = true;
 	}
 
 	// ---------------------------------------------------------------- search
@@ -300,7 +370,13 @@
 	let searchField = $state<HTMLInputElement | null>(null);
 	let searchButton = $state<HTMLButtonElement | null>(null);
 	let searchFocused = $state(false);
-	const dropVisible = $derived(expanded && (searchFocused || query.trim() !== ''));
+	// With the better search page on, the drop only carries the operator help line; the count and
+	// the Search on Web / full-history actions live in the stream's results toolbar right under the
+	// bar. So the help shows only while the field is focused and empty, and never covers that
+	// toolbar once a query is typed (on phones the drop spans the bar).
+	const dropVisible = $derived(
+		expanded && (betterSearch ? searchFocused && query.trim() === '' : searchFocused || query.trim() !== '')
+	);
 
 	async function openSearch(): Promise<void> {
 		chatSearch.update((state) => ({ ...state, expanded: true }));
@@ -436,7 +512,10 @@
 	// A channel switch closes what was open about the previous one.
 	$effect(() => {
 		void channelId;
-		untrack(() => closePop(false));
+		untrack(() => {
+			closePop(false);
+			privacyOpen = false;
+		});
 	});
 
 	function onPopFocusOut(event: FocusEvent): void {
@@ -446,7 +525,6 @@
 	}
 
 	// ---------------------------------------------------------------- More menu
-	let menuSeed = $state(0);
 	/** A popover opened from More anchors to its own control when that is on screen (a narrow
 	 *  stage hides the topic; the phone bar hides Pinned), else to the More button. */
 	function shown(element: HTMLElement | null): HTMLElement | null {
@@ -456,11 +534,23 @@
 		return moreButton?.querySelector<HTMLElement>('button') ?? null;
 	}
 	const isBookmarked = $derived(Boolean($currentUser?.id && channel?.pinnedBy?.includes($currentUser.id)));
+	// The store value, not the helper: the mute label must follow the sidebar's MUTED word.
+	const muted = $derived($activeServerSettings.mutedChannelIds?.includes(channelId) === true);
 	const moreItems = $derived.by<MenuEntry[]>(() => {
-		void menuSeed;
 		if (!channelId) return [];
-		const muted = isServerChannelMuted(channelId);
 		const items: MenuEntry[] = [];
+		if (conversation && phone && privacy) {
+			// The phone bar has no room for the seal chip: the state is the first row (§9.2 words).
+			const words = privacyWords(privacy, { conversation: true });
+			const short = privacyWords(privacy, { surface: 'phone', conversation: true });
+			items.push({ id: 'privacy', label: words.word, icon: words.glyph, seal: true, keepCase: true, hint: short.sentence || undefined, onSelect: () => void tick().then(openPrivacy) });
+			if (isDM && peer) {
+				const user = peer.username;
+				items.push({ id: 'voice-call', label: $_('chat.dm.voice_call_title', { values: { user } }), icon: 'phone', keepCase: true, disabled: callActive, hint: callWord, onSelect: () => void startDmCall(false) });
+				items.push({ id: 'video-call', label: $_('chat.dm.video_call_title', { values: { user } }), icon: 'video', keepCase: true, disabled: callActive, hint: callWord, onSelect: () => void startDmCall(true) });
+			}
+			items.push({ id: 'phone-sep', type: 'separator' });
+		}
 		if (!conversation) {
 			items.push({ id: 'about', label: $_('stage.about_channel'), icon: 'info', onSelect: () => void tick().then(() => openPop('about', shown(topicButton) ?? moreTrigger())) });
 			if (searchable) items.push({ id: 'pinned', label: pinnedLabel, icon: 'pin', hint: pinned.length ? String(pinned.length) : undefined, onSelect: () => void tick().then(() => openPop('pinned', shown(pinnedButton) ?? moreTrigger())) });
@@ -480,6 +570,8 @@
 		return items;
 	});
 	const kindWord = $derived(KIND_WORDS[kind] ?? 'Channel');
+	// About states how long messages are kept too, so the phone bar (no chip room) can reach it.
+	const keptFact = $derived(!conversation && !RETENTION_ELSEWHERE.has(kind) ? retentionFact(privacySummary) : null);
 </script>
 
 {#snippet searchControl()}
@@ -504,6 +596,12 @@
 						onblur={() => (searchFocused = false)}
 					/>
 				</label>
+				{#if phone}
+					<!-- The phone has no Esc key, and a press outside keeps a typed query: this is the way back. -->
+					<button type="button" class="w-ibtn stage-search__close" aria-label={$_('common.close')} onclick={() => void closeSearch(true)}>
+						<Icon name="x" />
+					</button>
+				{/if}
 				{#if dropVisible}
 					<div class="stage-search__drop" id={dropId}>
 						{#if query.trim() && info && !betterSearch}
@@ -552,10 +650,8 @@
 				class="w-ibtn"
 				align="end"
 				heading={conversation ? name : `#${name}`}
+				subheading={rulesTag ? `${rulesTag.label} · ${rulesTag.title}` : null}
 				items={moreItems}
-				onopenchange={(next) => {
-					if (next) menuSeed += 1;
-				}}
 			>
 				<Icon name="more" />
 			</Menu>
@@ -564,7 +660,7 @@
 {/snippet}
 
 {#if conversation}
-	<div class="stage-a__lead stage-a__lead--dm">
+	<div class="stage-a__lead stage-a__lead--dm" class:stage-a__lead--searching={expanded}>
 		{#if isGroup && channel}
 			<span class="stage-a__avatar stage-a__avatar--group" aria-hidden="true"><GroupAvatar {channel} size={28} /></span>
 		{:else if peer?.profilePicture}
@@ -573,23 +669,25 @@
 			<span class="stage-a__avatar stage-a__avatar--stamp" style={$inkFor(peer?.roleColor || peer?.color)} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</span>
 		{/if}
 		<h2 class="stage-a__title"><span class="stage-a__name">{name}</span></h2>
-		{@render trail?.()}
-		<PrivacyBadge
-			variant="popover-trigger"
-			input={{ channelType: isGroup ? 'group' : 'dm', policy: e2eeStatus }}
-			retention={privacySummary}
-			showRetention
-			room={name}
-			placement="bottom"
-		/>
-		{#if rulesTag}<span class="w-tag stage-a__chip" title={rulesTag.title}>{rulesTag.label}</span>{/if}
+		{#if !phone}
+			<PrivacyBadge
+				variant="popover-trigger"
+				input={privacyInput}
+				retention={privacySummary}
+				showRetention
+				room={name}
+				placement="bottom"
+			/>
+			{#if rulesTag}<span class="w-tag stage-a__chip stage-a__rules" title={rulesTag.title}>{rulesTag.label}</span>{/if}
+		{/if}
 	</div>
-	<div class="stage-a__actions">
+	{@render trail?.()}
+	<div class="stage-a__actions" class:stage-a__actions--searching={expanded}>
 		{#if isDM && peer && callActive}
-			<span class="w-tag stage-a__call" role="status" aria-live="polite"><span class="w-dot w-dot--online"></span>{callPending ? 'Calling…' : 'Call active'}</span>
+			<span class="w-tag stage-a__call" role="status" aria-live="polite"><span class="w-dot w-dot--online"></span>{callWord}</span>
 		{/if}
 		{@render searchControl()}
-		{#if isDM && peer}
+		{#if isDM && peer && !phone}
 			<Tooltip text={$_('chat.dm.voice_call_title', { values: { user: peer.username } })} placement="bottom">
 				<button type="button" class="w-ibtn" aria-label={$_('chat.dm.voice_call_title', { values: { user: peer.username } })} disabled={callActive} onclick={() => void startDmCall(false)}>
 					<Icon name="phone" />
@@ -604,11 +702,10 @@
 		{@render moreMenu()}
 	</div>
 {:else}
-	<div class="stage-a__lead">
+	<div class="stage-a__lead" class:stage-a__lead--searching={expanded}>
 		<h2 class="stage-a__title">
 			{#if glyph}<Icon name={glyph} size={18} class="stage-a__glyph-icon" />{:else}<span class="stage-a__glyph" aria-hidden="true">#</span>{/if}<span class="stage-a__name">{name}</span>
 		</h2>
-		{@render trail?.()}
 		{#if topic}
 			<button
 				bind:this={topicButton}
@@ -621,14 +718,16 @@
 				onclick={() => void openPop('about', topicButton)}
 			>{topic}</button>
 		{/if}
-		{#if shownChips.length}
+		{#if retention || shownChips.length}
 			<span class="stage-a__chips">
+				{#if retention}<span class="w-tag stage-a__chip stage-a__kept" title={retention.title}><Icon name="clock" size={12} />{retention.label}</span>{/if}
 				{#each shownChips as chip (chip.id)}<span class="w-tag stage-a__chip" title={chip.title}>{chip.label}</span>{/each}
 				{#if extraChips.length}<span class="w-tag stage-a__chip" title={extraChips.map((chip) => chip.label).join(' · ')}>+{extraChips.length}</span>{/if}
 			</span>
 		{/if}
 	</div>
-	<div class="stage-a__actions">
+	{@render trail?.()}
+	<div class="stage-a__actions" class:stage-a__actions--searching={expanded}>
 		{@render searchControl()}
 		{#if searchable}
 			<Tooltip text={pinned.length ? `${pinnedLabel} · ${pinned.length}` : pinnedLabel} placement="bottom">
@@ -648,6 +747,19 @@
 		{/if}
 		{@render moreMenu()}
 	</div>
+{/if}
+
+{#if conversation && phone && privacy}
+	<PrivacyPopover
+		bind:open={privacyOpen}
+		anchor={privacyAnchor}
+		id={privacyPopId}
+		state={privacy}
+		conversation
+		room={name}
+		retention={privacySummary}
+		placement="bottom"
+	/>
 {/if}
 
 {#if pop}
@@ -672,6 +784,10 @@
 			<dl class="w-pop__facts">
 				<dt>Kind</dt>
 				<dd>{kindWord}</dd>
+				{#if keptFact}
+					<dt>Messages kept</dt>
+					<dd>{keptFact}</dd>
+				{/if}
 			</dl>
 		{:else}
 			<p class="w-pop__title" id={`${popId}-title`}><Icon name="pin" size={16} />{pinnedLabel}{#if pinned.length}<span class="w-count">{pinned.length}</span>{/if}</p>

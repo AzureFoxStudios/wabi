@@ -40,7 +40,8 @@
 }
 
 /* The lead gives way first: topic, then chips, then the name (ellipsis). Its 4px padding keeps
-   the focus rings of the topic and the seal chip clear of the clip. */
+   the focus rings of the topic and the seal chip clear of the clip. The phone's workspace
+   button sits after the lead, outside this clip, so its 44px touch band survives. */
 .stage-bar .stage-a__lead {
 	flex: 1 1 auto;
 	display: flex;
@@ -62,7 +63,10 @@
 	flex: 0 1 auto;
 	display: flex;
 	align-items: baseline;
+	/* The name keeps 96px while the row shrinks, but a shorter name keeps only its own width
+	   (no hole before the next tag). Engines without calc-size() keep the plain 96px floor. */
 	min-width: min(96px, 100%);
+	min-width: calc-size(max-content, min(96px, size));
 	margin: 0;
 	color: var(--w-text);
 	font: var(--w-t-title);
@@ -128,9 +132,15 @@
 /* Office crumb and the viewers' "Reader › title" crumb. */
 .stage-bar .stage-a__crumb {
 	flex: none;
+	display: inline-flex;
+	align-items: center;
 	align-self: center;
 	color: var(--w-mute);
 	font: var(--w-t-label);
+}
+.stage-bar .stage-a__crumb-glyph,
+.stage-bar .stage-a__scope-dot {
+	display: none;
 }
 .stage-bar .stage-a__crumb-sep {
 	flex: none;
@@ -190,6 +200,12 @@
 }
 .stage-bar .stage-search__field {
 	width: min(280px, 40cqi);
+}
+/* A narrow field ends its placeholder ("Search messages in #small-discoveries") with an
+   ellipsis instead of cutting a word. */
+.stage-bar .stage-search__field > input,
+.stage-bar .stage-search__field > input::placeholder {
+	text-overflow: ellipsis;
 }
 .stage-bar .stage-search__drop {
 	position: absolute;
@@ -431,6 +447,38 @@
 	.stage-bar .w-folio [data-tier='880'] {
 		display: none;
 	}
+	/* The DM's content-rules tag gives way to the seal and retention chips; ⋯ names it. */
+	.stage-bar .stage-a__rules {
+		display: none;
+	}
+}
+/* Below 760 (§7.23) the crumb collapses to its tool glyph and a scope tag to its dot. The words
+   stay in the title tooltip and for assistive tech (visually hidden, not removed). */
+@container stage (max-width: 759.98px) {
+	.stage-bar .stage-a__crumb-glyph {
+		display: block;
+	}
+	.stage-bar .stage-a__crumb-words,
+	.stage-bar .stage-a__scope-words {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+	.stage-bar .stage-a__scope {
+		justify-content: center;
+		width: 22px;
+		padding: 0;
+		border-color: transparent;
+	}
+	.stage-bar .stage-a__scope-dot {
+		display: inline-block;
+		width: 6px;
+		height: 6px;
+		color: var(--w-mute);
+	}
 }
 @container stage (max-width: 699.98px) {
 	.stage-bar .w-folio [data-tier='700'] {
@@ -447,6 +495,11 @@
 		display: none;
 	}
 }
+/* The measured fit pass (WorkspaceViewBar.svelte): the tiers are drawn for 100% text, so a larger
+   interface scale or longer words move further tabs, never overlapping More or the rail. */
+.stage-bar .w-folio [data-fit='out'] {
+	display: none;
+}
 
 /* ---------- phone shell (≤768px): one 52px bar, no folio row ---------- */
 .stage-bar.stage-bar--phone {
@@ -454,12 +507,91 @@
 	height: calc(52px + env(safe-area-inset-top, 0px));
 	padding: env(safe-area-inset-top, 0px) 16px 0;
 }
+/* At a larger interface text size the row's gaps give a little first (12px at 100%, 6px from
+   150%), so the name's 96px, a whole "Chat" and search + ⋯ still fit a 320 phone. */
+.stage-bar--phone .stage-a {
+	gap: clamp(6px, 12px - (var(--w-fs) - 1) * 12px, 12px);
+}
 .stage-bar--phone .stage-a__title {
 	font: 600 calc(20px * var(--w-fs)) / calc(26px * var(--w-fs)) var(--w-serif);
 }
 .stage-bar--phone .stage-a__lead {
+	flex: 0 1000000 auto;
 	align-items: center;
 	gap: 10px;
+}
+/* The name keeps its 96px (ellipsis, §8.12), with the DM avatar beside it: the lead gives way
+   first (flex-shrink 10⁶, so the "Chat ▾" button's share of a long name's overflow stays under a
+   layout unit; at 1000 a long name at large text took a fraction of a pixel from it and its
+   label read "Ch…") but never below that floor, or below its own width when it is
+   narrower; only then does the "Chat ▾" label give way. Nothing focusable sits in these leads
+   on the phone (the topic, chips and seal chip are not shown there), so they need no
+   focus-ring padding. Engines without calc-size() keep the plain shrink. */
+.stage-bar--phone .stage-a__lead:not(.stage-a__lead--component) {
+	min-width: calc-size(max-content, min(size, var(--stage-lead-floor, 96px)));
+	margin: 0;
+	padding: 0;
+}
+/* The DM avatar steps aside when the stage cannot hold it beside the name's 96px, "Chat ▾" and
+   search + ⋯ at the current text size: 32 gutters + 38 avatar and gap + 96 name + 12 + 40 trigger
+   frame + 12 + 92 actions = 322px, plus 2.5em of --w-t-label-sm (13px × --w-fs) for "Chat". (The
+   two 12px gaps narrow at larger text, so there the step is on the safe side.)
+   A container query cannot read --w-fs, so the step is a clamp on the avatar's width: 28px with
+   room, 0 without (× 1000 turns the ramp into a step). The floor follows the avatar. */
+.stage-bar--phone .stage-a__lead--dm {
+	--stage-avatar: clamp(0px, (100cqi - 322px - 32.5px * var(--w-fs)) * 1000, 28px);
+	--stage-lead-floor: calc(var(--stage-avatar) * 38 / 28 + 96px);
+	gap: 0;
+}
+.stage-bar--phone .stage-a__lead--dm > .stage-a__avatar {
+	width: var(--stage-avatar);
+	margin-inline-end: calc(var(--stage-avatar) * 10 / 28);
+	overflow: hidden;
+}
+
+/* An open search takes row A (the field is the task now): the lead keeps only its glyph (the
+   avatar or #; the name stays in the heading for assistive tech), "Chat ▾" steps aside, and the
+   field fills the row up to its Close button and ⋯. No floor is left to fight the field, so the
+   row never overflows and the page never scrolls sideways to reach the caret. Closing the
+   search removes these classes and the bar is back as it was. */
+.stage-bar--phone .stage-a__lead.stage-a__lead--searching {
+	flex: none;
+	min-width: auto;
+	gap: 0;
+}
+.stage-bar--phone .stage-a__lead--searching .stage-a__name {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+.stage-bar--phone .stage-a__lead--searching > .stage-a__avatar {
+	width: 28px;
+	margin-inline-end: 0;
+}
+.stage-bar--phone .stage-a__lead--searching + .w-folio-trigger {
+	display: none;
+}
+.stage-bar--phone .stage-a__actions--searching,
+.stage-bar--phone .stage-a__actions--searching > .stage-search {
+	flex: 1 1 0;
+	min-width: 0;
+}
+.stage-bar--phone .stage-a__actions--searching > .stage-search {
+	position: static;
+	gap: 4px;
+}
+/* The call state stays a live region on the phone; ⋯ names it beside Voice call and Video call. */
+.stage-bar--phone .stage-a__call {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
 }
 .stage-bar--phone .stage-a__topic,
 .stage-bar--phone .stage-a__chips,
@@ -472,17 +604,27 @@
 	height: 44px;
 }
 .stage-bar--phone .stage-search__field {
-	width: min(220px, 56cqi);
+	flex: 1 1 0;
+	width: auto;
+}
+/* The results card spans the phone bar (it is placed against .stage-bar, under the 52px row). */
+.stage-bar--phone .stage-search__drop {
+	right: 16px;
+	left: 16px;
+	width: auto;
 }
 
-/* The "Chat ▾" workspace button: 30px drawn, 44px to touch. */
+/* The "Chat ▾" workspace button: 30px drawn, 44px to touch (row A is 52, nothing clips it).
+   It gives way after the lead's floor: the label takes an ellipsis (the full name stays in its
+   aria-label), the chevron and 2em of words stay. */
 .stage-bar .w-folio-trigger {
 	position: relative;
 	display: inline-flex;
 	align-items: center;
 	gap: 6px;
-	flex: none;
+	flex: 0 1 auto;
 	box-sizing: border-box;
+	min-width: calc(40px + 2em);
 	height: 30px;
 	margin: 0;
 	padding: 0 8px 0 10px;
@@ -498,7 +640,8 @@
 .stage-bar .w-folio-trigger::before {
 	content: '';
 	position: absolute;
-	inset: -7px -2px;
+	/* Measured from inside the border: 7px past the 30px box on each side makes 44. */
+	inset: calc(-7px - var(--w-bw)) calc(-2px - var(--w-bw));
 }
 .stage-bar .w-folio-trigger:hover,
 .stage-bar .w-folio-trigger[aria-expanded='true'] {
@@ -509,7 +652,13 @@
 	outline-offset: 2px;
 }
 .stage-bar .w-folio-trigger > svg {
+	flex: none;
 	color: var(--w-mute);
+}
+.stage-bar .w-folio-trigger__label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 /* Workspaces sheet (portaled with the kit sheet). */
