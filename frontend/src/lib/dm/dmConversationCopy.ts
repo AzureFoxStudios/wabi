@@ -221,9 +221,10 @@ export function dmRetentionPhrase(value: string): string {
 	return value === DM_RETENTION_FOREVER ? 'Kept until someone deletes them' : `Kept ${presetLabel(value)}`;
 }
 
-/** The control's accessible name: what it sets, then the current choice. */
+/** The control's accessible name. It starts with the visible words ("Kept 24 hours") so voice
+ *  control can target what it sees (WCAG 2.5.3), then says what choosing does. */
 export function dmRetentionControlLabel(value: string): string {
-	return `Keep new messages for: ${value === DM_RETENTION_FOREVER ? 'until someone deletes them' : presetLabel(value)}`;
+	return `${dmRetentionPhrase(value)}. Change how long new messages are kept`;
 }
 
 // ---------------------------------------------------------------------------- calls
@@ -239,7 +240,13 @@ export function dmCallStartError(error: unknown, withVideo: boolean): string {
 	if (message.includes('already active') || message.includes('ringing')) {
 		return 'You’re already in a call. Leave it, then start this one.';
 	}
-	if (message.includes('no connection') || message.includes('offline') || message.includes('not connected')) {
+	if (
+		message.includes('no connection') ||
+		message.includes('offline') ||
+		message.includes('not connected') ||
+		message.includes('active server connection') ||
+		message.includes('reconnect')
+	) {
 		return 'Not connected to the server. Calls start once you’re back online.';
 	}
 	const device = withVideo ? 'camera and microphone' : 'microphone';

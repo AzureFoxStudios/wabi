@@ -54,6 +54,10 @@
   export let channelProp: Channel | null = null;
 
   let lastJoinedChannelId = '';
+  /** Below a 720px conversation the Shared notes / Group settings words hide (see the
+   *  container rule), so their tooltips switch on to name the glyph. */
+  let conversationWidth = 0;
+  $: toolWordsHidden = conversationWidth > 0 && conversationWidth < 720;
 
   $: channelId = channelIdProp ?? $selectedDmChannelId;
   $: channel = (channelId ? ($channels || []).find((c: { id: string }) => c.id === channelId) || null : null) ?? channelProp;
@@ -447,7 +451,7 @@
   ];
 </script>
 
-<div class="dm-conversation" class:phone>
+<div class="dm-conversation" class:phone bind:clientWidth={conversationWidth}>
   <header class="dm-header" class:dm-header--phone={phone}>
     <div class="dm-header-a">
       <Tooltip text={context === 'center' ? 'Back to conversations' : 'Close DM'} placement="bottom">
@@ -546,13 +550,17 @@
               </Menu>
             </Tooltip>
           {/if}
-          <button type="button" class="w-btn w-btn--quiet w-btn--sm dm-notes-action" aria-pressed={showNotes} on:click={toggleSharedNotes}>
-            <Icon name="note" size={14} /><span class="dm-tool-label">Shared notes</span>
-          </button>
-          {#if isGroup}
-            <button type="button" class="w-btn w-btn--quiet w-btn--sm dm-group-action" aria-pressed={showGroupSettings} on:click={toggleGroupSettings}>
-              <Icon name="users" size={14} /><span class="dm-tool-label">Group settings</span>
+          <Tooltip text="Shared notes" placement="bottom" disabled={!toolWordsHidden}>
+            <button type="button" class="w-btn w-btn--quiet w-btn--sm dm-notes-action" aria-pressed={showNotes} on:click={toggleSharedNotes}>
+              <Icon name="note" size={14} /><span class="dm-tool-label">Shared notes</span>
             </button>
+          </Tooltip>
+          {#if isGroup}
+            <Tooltip text="Group settings" placement="bottom" disabled={!toolWordsHidden}>
+              <button type="button" class="w-btn w-btn--quiet w-btn--sm dm-group-action" aria-pressed={showGroupSettings} on:click={toggleGroupSettings}>
+                <Icon name="users" size={14} /><span class="dm-tool-label">Group settings</span>
+              </button>
+            </Tooltip>
           {/if}
         </div>
       </div>
