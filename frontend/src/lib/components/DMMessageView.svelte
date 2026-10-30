@@ -1,5 +1,16 @@
+<!--
+	A DM or group conversation in the DMs companion panel (design contract §7.21, §8.10). DMTab's
+	row B names it; this view is the stream, one quiet tools row and the composer.
+	- Tools row: the message lifetime select ("Kept 24 hours"), Shared notes, and ⋯ for the map,
+	  a payment request and "Encrypt new messages" when encryption can start. Its top 4px stay
+	  padding: DMTab's row B touch targets reach over them under coarse pointers.
+	- The privacy state is said once: by the composer's colophon, or, while sending is paused, by
+	  the row that replaces the composer (lib/dm/dmConversationCopy.ts). No privacy pills here,
+	  and a failed request is a notice in plain words, never the raw error and never "E2EE".
+-->
 <script lang="ts">
 	import { afterUpdate, createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
+	import { get } from 'svelte/store';
 	import { getAuthToken } from '$lib/authSession';
 	import { pushLocalDirectionsCard } from '$lib/directionsAssist';
 	import { cachedE2eeStatus, chooseServerReadable, prepareNewConversationEncryption, rekeyE2ee, turnOnE2ee } from '$lib/dm/dmE2eeState';
@@ -10,13 +21,15 @@
 	import { channelMessagesStore, channelHasMoreHistory, channelHistoryLoading, channels, currentUser, users, serverMembers, getSocket, joinChannel, loadHistory, loadOlderHistory, markChannelAsRead, sendMessage, syncNewerMessages, updateChannelSettings, type Channel, type Message, type User } from '$lib/socket';
 	import { missingDeviceParticipantLabel } from '$lib/dmPresentation';
 	import { showToast } from '$lib/toast';
-	import {
-		DEFAULT_DM_RETENTION,
-		normalizeMessageRetentionDuration
-	} from '../../../../shared/messageRetention.js';
+	import { normalizeMessageRetentionDuration } from '../../../../shared/messageRetention.js';
+	import { dmEncryptionError, dmRetentionChoice, dmRetentionOptions, dmSendGate, type DmActionError, type DmEncryptionAction, type DmSendGateActionId } from '$lib/dm/dmConversationCopy';
+	import type { MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
+	import Icon from '$lib/components/ui/Icon.svelte';
+	import Menu from '$lib/components/ui/Menu.svelte';
+	import Select from '$lib/components/ui/Select.svelte';
+	import Tooltip from '$lib/components/ui/Tooltip.svelte';
 	import ChatComposer from './chat/ChatComposer.svelte';
 	import ChatMessagesPane from './chat/ChatMessagesPane.svelte';
-	import DmRetentionControl from './DmRetentionControl.svelte';
 	import { filterMessages } from './chat/search';
 	import { formatTypingUsers } from './chat/typing';
 	import { channelPaneInTransition, channelPaneOutTransition } from './chat/transitions';
@@ -43,7 +56,7 @@
 	let e2eeStatus: E2eeRoomStatus | null = null;
 	let e2eeBusy = false;
 	let e2eeChecking = false;
-	let e2eeError = '';
+	let e2eeError: DmActionError | null = null;
 	let mounted = true;
 	let followLatest = true;
 	let showJumpToLatest = false;
@@ -57,9 +70,38 @@
 	$: messages = $messagesForChannel || [];
 	$: filteredMessages = filterMessages(messages, '', Number.POSITIVE_INFINITY);
 	$: pinnedMessages = messages.filter((message: Message) => message.isPinned);
-	$: selectedRetention = activeChannel?.autoDeleteAfter === null || String(activeChannel?.autoDeleteAfter) === 'forever'
-		? ''
-		: activeChannel?.autoDeleteAfter || DEFAULT_DM_RETENTION;
+	$: selectedRetention = dmRetentionChoice(activeChannel);
+	// The select shows the server-confirmed lifetime: a choice that fails to save snaps back.
+	let retentionValue = '';
+	$: retentionValue = selectedRetention;
+	const retentionOptions = dmRetentionOptions();
+	$: sendGate = dmSendGate(e2eeStatus, missingDeviceLabel);
+	$: canEncrypt = Boolean(e2eeStatus && !e2eeStatus.enabled && !e2eeStatus.pendingDefault && e2eeStatus.missingUserIds.length === 0 && (!e2eeStatus.serverReadableSelected || e2eeStatus.serverReadableAllowedByMe));
+	$: waitingForDevices = Boolean(e2eeStatus && !e2eeStatus.enabled && !e2eeStatus.pendingDefault && !e2eeStatus.serverReadableSelected && e2eeStatus.missingUserIds.length > 0);
+	let toolItems: MenuEntry[] = [];
+	$: toolItems = [
+		{ id: 'map', label: 'Open map', icon: 'map', onSelect: () => void openPreferredMapSurface() },
+		{ id: 'pay', label: 'Request a payment', icon: 'send', disabled: !paymentButtonEnabled, hint: paymentButtonEnabled ? undefined : 'Registered accounts only', onSelect: () => openPaymentSheet() },
+		...(canEncrypt
+			? [{ id: 'encrypt', label: e2eeBusy ? 'Turning on…' : 'Encrypt new messages', icon: 'lock', seal: true, disabled: e2eeBusy, hint: 'Experimental', onSelect: () => void enableE2ee() } as MenuEntry]
+			: [])
+	];
+
+	/** Plain words on screen; the raw cause goes to the log only. */
+	function failed(action: DmEncryptionAction, error: unknown): DmActionError {
+		if (error) console.warn(`[DM] ${action} failed:`, error);
+		return dmEncryptionError(action, error);
+	}
+
+	function runGateAction(id: DmSendGateActionId): void {
+		if (id === 'rekey') void updateEncryptionKeys();
+		else if (id === 'server-readable') void useServerReadable();
+		else void loadE2eeStatus(channelId);
+	}
+
+	function gateActionBusy(id: DmSendGateActionId): boolean {
+		return id === 'check' ? e2eeChecking : e2eeBusy;
+	}
 	$: paymentButtonEnabled = Boolean($currentUser?.dbUserId) && Boolean(getAuthToken()) && $paymentAccessStore.loaded && $paymentAccessStore.canCreate;
 	$: lineDmProfile = getLineDmResolvedProfile(channelId, $lineDmAddonStore);
 	$: missingDeviceLabel = missingDeviceParticipantLabel(e2eeStatus?.missingUserIds || [], [...$serverMembers, ...$users]);
@@ -79,7 +121,7 @@
 		const requestedChannelId = channelId;
 		statusChannelId = requestedChannelId;
 		e2eeStatus = cachedE2eeStatus(requestedChannelId);
-		e2eeError = '';
+		e2eeError = null;
 		void loadE2eeStatus(requestedChannelId);
 	}
 
@@ -87,9 +129,9 @@
 		e2eeChecking = true;
 		try {
 			const status = await prepareNewConversationEncryption(targetChannelId);
-			if (mounted && channelId === targetChannelId) { e2eeStatus = status; e2eeError = ''; }
+			if (mounted && channelId === targetChannelId) { e2eeStatus = status; e2eeError = null; }
 		} catch (error) {
-			if (mounted && channelId === targetChannelId) e2eeError = error instanceof Error ? error.message : 'Could not check encryption. Try again.';
+			if (mounted && channelId === targetChannelId) e2eeError = failed('check', error);
 		} finally {
 			if (mounted && channelId === targetChannelId) e2eeChecking = false;
 		}
@@ -99,12 +141,12 @@
 		if (!channelId || e2eeBusy) return;
 		const targetChannelId = channelId;
 		e2eeBusy = true;
-		e2eeError = '';
+		e2eeError = null;
 		try {
 			const status = await chooseServerReadable(targetChannelId);
 			if (mounted && channelId === targetChannelId) e2eeStatus = status;
 		} catch (error) {
-			if (mounted && channelId === targetChannelId) e2eeError = error instanceof Error ? error.message : 'Could not change conversation mode.';
+			if (mounted && channelId === targetChannelId) e2eeError = failed('server-readable', error);
 		} finally {
 			if (mounted) e2eeBusy = false;
 		}
@@ -114,28 +156,28 @@
 		if (!channelId || e2eeBusy) return;
 		const targetChannelId = channelId;
 		e2eeBusy = true;
-		e2eeError = '';
+		e2eeError = null;
 		try {
 			const status = await rekeyE2ee(targetChannelId);
 			if (mounted && channelId === targetChannelId) {
 				if (status) e2eeStatus = status;
-				else e2eeError = 'Could not update encryption keys. Check participant devices and try again.';
+				else e2eeError = failed('rekey', null);
 			}
 		} catch (error) {
-			if (mounted && channelId === targetChannelId) e2eeError = error instanceof Error ? error.message : 'Could not update encryption keys. Try again.';
+			if (mounted && channelId === targetChannelId) e2eeError = failed('rekey', error);
 		} finally {
 			if (mounted) e2eeBusy = false;
 		}
 	}
 
-	function handleRetentionChange(event: Event): void {
-		const select = event.currentTarget as HTMLSelectElement;
+	async function setRetention(value: string): Promise<void> {
 		if (!activeChannel) return;
-		const next = normalizeMessageRetentionDuration(select.value);
-		// The control reflects the server-confirmed policy, not a speculative
-		// selection that might fail to persist while this device is offline.
-		select.value = selectedRetention;
-		void updateChannelSettings(activeChannel.id, { autoDeleteAfter: next });
+		const id = activeChannel.id;
+		await updateChannelSettings(id, { autoDeleteAfter: normalizeMessageRetentionDuration(value) });
+		// The control reflects the server-confirmed policy, not a speculative selection that
+		// might fail to persist while this device is offline.
+		await tick();
+		if (mounted) retentionValue = dmRetentionChoice(get(channels).find((entry) => entry.id === id) ?? activeChannel);
 	}
 
 	function openPaymentSheet(prefill: { amountInput?: string | null; description?: string | null; customerRef?: string | null } = {}): void {
@@ -152,14 +194,14 @@
 		if (e2eeBusy || !channelId) return;
 		const targetChannelId = channelId;
 		e2eeBusy = true;
-		e2eeError = '';
+		e2eeError = null;
 		try {
 			const status = await turnOnE2ee(targetChannelId);
 			if (!mounted || targetChannelId !== channelId) return;
 			if (status) e2eeStatus = status;
-			else e2eeError = 'Could not enable encryption on this device. Try again after reconnecting.';
+			else e2eeError = failed('enable', null);
 		} catch (error) {
-			if (mounted && channelId === targetChannelId) e2eeError = error instanceof Error ? error.message : 'Could not enable encryption. Try again.';
+			if (mounted && channelId === targetChannelId) e2eeError = failed('enable', error);
 		} finally {
 			if (mounted) e2eeBusy = false;
 		}
@@ -292,30 +334,30 @@
 	style:--dm-wallpaper-repeat={lineDmProfile.wallpaperRepeat}
 >
 	<div class="dm-conversation-tools">
-		<DmRetentionControl value={selectedRetention} onChange={handleRetentionChange} compact />
-		<div class="dm-tool-actions">
-			{#if e2eeStatus && !e2eeStatus.enabled && !e2eeStatus.pendingDefault && e2eeStatus.missingUserIds.length === 0}
-				<button type="button" class="dm-tool-button" on:click={() => void enableE2ee()} disabled={e2eeBusy} title="Turn on experimental encryption for new messages. Device identities and the complete client are not independently verified.">
-					{e2eeBusy ? 'Enabling…' : 'Encrypt new messages'}
-				</button>
+		<div class="dm-tool-row">
+			{#if activeChannel}
+				<Tooltip text="Applies to new messages. Earlier messages keep their own lifetime." placement="bottom">
+					<Select class="dm-tool-kept" label="Kept" heading="Keep new messages for" options={retentionOptions} bind:value={retentionValue} onchange={(value) => void setRetention(value)} />
+				</Tooltip>
 			{/if}
-			{#if e2eeStatus && !e2eeStatus.enabled && !e2eeStatus.pendingDefault && !e2eeStatus.serverReadableSelected && e2eeStatus.missingUserIds.length > 0}<span class="dm-tool-wait" role="status">Waiting for participant devices: {missingDeviceLabel}. New messages remain server-readable until encryption starts.</span>{/if}
-			{#if e2eeStatus?.serverReadableSelected && e2eeStatus.serverReadableAllowedByMe}<span class="dm-tool-encryption-status">Server-readable by choice</span>{/if}
-			{#if e2eeStatus?.enabled}<span class="dm-tool-encryption-status" title="New messages are encrypted. Earlier messages keep their previous protection. Device identities and the complete client have not been independently verified.">New messages encrypted · experimental</span>{/if}
-			{#if e2eeStatus?.pendingDefault}<span class="dm-tool-encryption-status">Encryption pending</span>{/if}
-			{#if e2eeStatus?.serverReadableSelected && !e2eeStatus.serverReadableAllowedByMe}<span class="dm-tool-encryption-status">Your confirmation needed</span>{/if}
-			<button type="button" class="dm-tool-button" on:click={() => void openPreferredMapSurface()} title="Open map">Map</button>
-			<button type="button" class="dm-tool-button" on:click={() => openPaymentSheet()} disabled={!paymentButtonEnabled} title="Create payment request">Pay</button>
-			<button type="button" class="dm-tool-button" class:active={showNotes} aria-pressed={showNotes} on:click={toggleSharedNotes}>Shared notes</button>
+			<span class="dm-tool-spacer"></span>
+			<button type="button" class="w-btn w-btn--quiet w-btn--sm dm-tool-notes" aria-pressed={showNotes} on:click={toggleSharedNotes}>
+				<Icon name="note" size={14} />Shared notes
+			</button>
+			<Menu items={toolItems} label="Conversation tools" triggerLabel="More tools" class="w-ibtn w-ibtn--sm" align="end" heading={displayName}>
+				<Icon name="more" size={16} />
+			</Menu>
 		</div>
+		{#if waitingForDevices}
+			<p class="dm-tool-wait" role="status">Encryption starts when {missingDeviceLabel || 'every participant'} {missingDeviceLabel.includes(',') ? 'have' : 'has'} an updated device. Until then new messages stay server-readable.</p>
+		{/if}
 	</div>
-	{#if e2eeError}<div class="dm-tool-error" role="alert">{e2eeError}</div>{/if}
 
 	<div class="dm-conversation-content" class:with-notes={showNotes}>
 		<div class="dm-conversation-main">
 			<div class="dm-conversation-messages" bind:this={messagesContainer} on:scroll={handleScroll}>
 				{#if $channelHasMoreHistory[channelId]}
-					<button type="button" class="dm-load-earlier" disabled={$channelHistoryLoading[channelId]} on:click={loadEarlier}>
+					<button type="button" class="w-btn w-btn--quiet w-btn--sm dm-load-earlier" aria-busy={$channelHistoryLoading[channelId]} disabled={$channelHistoryLoading[channelId]} on:click={loadEarlier}>
 						{$channelHistoryLoading[channelId] ? 'Loading earlier messages…' : 'Load earlier messages'}
 					</button>
 				{/if}
@@ -349,10 +391,22 @@
 				/>
 			</div>
 			{#if showJumpToLatest}
-				<button type="button" class="dm-jump-latest" on:click={() => void scrollToLatest()}>↓ New messages</button>
+				<button type="button" class="dm-jump-latest" aria-label="Jump to the latest messages" on:click={() => void scrollToLatest()}>
+					Latest<Icon name="chevDown" size={16} />
+				</button>
 			{/if}
 			<div class="dm-conversation-composer">
-				{#if e2eeStatus && !e2eeStatus.pendingDefault && !e2eeStatus.needsRekey && (!e2eeStatus.serverReadableSelected || e2eeStatus.serverReadableAllowedByMe)}
+				{#if e2eeError && !(sendGate?.kind === 'checking' && e2eeError.action === 'check')}
+					<div class="w-notice dm-notice" role="alert">
+						<Icon name="alert" size={16} />
+						<p class="w-notice__title">{e2eeError.title}</p>
+						<p class="w-notice__text">{e2eeError.text}</p>
+						<div class="w-notice__actions">
+							<button type="button" class="w-ibtn w-ibtn--sm" aria-label="Dismiss" on:click={() => (e2eeError = null)}><Icon name="x" size={16} /></button>
+						</div>
+					</div>
+				{/if}
+				{#if !sendGate}
 				{#key `${$currentUser?.dbUserId || $currentUser?.id || ''}:${channelId}`}
 					<ChatComposer
 						bind:this={chatComposer}
@@ -370,27 +424,22 @@
 					/>
 				{/key}
 				{:else}
-					<div class="dm-encryption-gate" role="status">
-						{#if e2eeStatus?.enabled && e2eeStatus.needsRekey}
-							<strong>Encryption keys need an update.</strong>
-							<span>Membership or devices changed. Review the participant devices before trusting the new key. Earlier encrypted messages may be unavailable on newly added devices.</span>
-							<button type="button" on:click={() => void updateEncryptionKeys()} disabled={e2eeBusy}>Trust current devices · update keys</button>
-						{:else if e2eeStatus?.pendingDefault}
-							<strong>Encryption is waiting for participant devices.</strong>
-							<span>{e2eeStatus.missingUserIds.length ? `Device setup is still needed for ${missingDeviceLabel}.` : 'Participant devices are ready; encryption is starting.'} Messages cannot be sent until encryption starts or someone chooses server-readable chat.</span>
-							<div class="dm-encryption-actions">
-								<button type="button" on:click={() => void loadE2eeStatus(channelId)} disabled={e2eeChecking}>Check again</button>
-								<button type="button" on:click={() => void useServerReadable()} disabled={e2eeBusy}>Use server-readable messages</button>
-							</div>
-						{:else if e2eeStatus?.serverReadableSelected && !e2eeStatus.serverReadableAllowedByMe}
-							<strong>This conversation is server-readable.</strong>
-							<span>Another participant chose this mode. Confirm it on your own account before sending; you can enable encryption later when participant devices are ready.</span>
-							<button type="button" on:click={() => void useServerReadable()} disabled={e2eeBusy}>I understand · send server-readable</button>
-						{:else}
-							<strong>Checking conversation encryption…</strong>
-							<span>Sending is paused until this device can confirm the conversation mode.</span>
-							<button type="button" on:click={() => void loadE2eeStatus(channelId)} disabled={e2eeChecking}>Retry</button>
-						{/if}
+					{@const failedCheck = sendGate.kind === 'checking' && e2eeError?.action === 'check' ? e2eeError : null}
+					<div class="w-notice dm-gate" class:w-notice--info={!failedCheck} class:dm-gate--failed={failedCheck} role={failedCheck ? 'alert' : 'status'} data-gate={sendGate.kind}>
+						<Icon name={failedCheck ? 'alert' : sendGate.glyph} size={16} />
+						<p class="w-notice__title">{failedCheck ? failedCheck.title : sendGate.title}</p>
+						<p class="w-notice__text">{#if failedCheck}{failedCheck.text}{:else}{sendGate.text}{#if sendGate.detail} <span class="dm-gate-detail">{sendGate.detail}</span>{/if}{/if}</p>
+						<div class="w-notice__actions">
+							{#each sendGate.actions as action (action.id)}
+								<button
+									type="button"
+									class="w-btn w-btn--sm"
+									aria-busy={gateActionBusy(action.id)}
+									disabled={gateActionBusy(action.id)}
+									on:click={() => runGateAction(action.id)}
+								>{gateActionBusy(action.id) ? action.busyLabel : action.label}</button>
+							{/each}
+						</div>
 					</div>
 				{/if}
 			</div>
@@ -420,12 +469,7 @@
 />
 
 <style>
-	.dm-encryption-gate { display: grid; gap: 0.35rem; padding: 0.75rem 1rem; color: var(--text-secondary); font-size: var(--text-sm); }
-	.dm-encryption-gate strong { color: var(--text-primary); font-weight: 600; }
-	.dm-encryption-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.25rem; }
-	.dm-encryption-gate button { width: fit-content; padding: 0.35rem 0.65rem; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-hover); color: var(--text-primary); cursor: pointer; }
-	.dm-encryption-gate button:disabled { opacity: 0.55; cursor: default; }
-	.dm-tool-encryption-status { color: var(--text-secondary); font-size: var(--text-xs); }
+	/* DMs companion conversation (§7.21, §8.10). Roles, type tokens and kit classes only. */
 	.dm-message-view {
 		position: relative;
 		display: flex;
@@ -436,8 +480,10 @@
 		min-width: 0;
 		min-height: 0;
 		overflow: hidden;
-		background: var(--surface-base);
+		background: var(--w-bg2);
+		color: var(--w-text);
 	}
+	/* The LINE-style DM add-on's wallpaper, when it is on. */
 	.dm-message-view::before {
 		content: '';
 		position: absolute;
@@ -450,88 +496,157 @@
 		opacity: 0;
 		pointer-events: none;
 	}
-	.dm-message-view.wallpaper-enabled::before { opacity: var(--dm-wallpaper-opacity); }
+	.dm-message-view.wallpaper-enabled::before {
+		opacity: var(--dm-wallpaper-opacity);
+	}
 	.dm-conversation-tools,
-	.dm-conversation-content,
-	.dm-tool-error { position: relative; }
+	.dm-conversation-content {
+		position: relative;
+	}
+
+	/* One quiet tools row under DMTab's row B. The top 4px stay padding (DMTab's coarse-pointer
+	   row B targets reach over them). */
 	.dm-conversation-tools {
+		flex: none;
+		padding: 4px 12px 4px 16px;
+		border-bottom: var(--w-bw) solid var(--w-line);
+	}
+	.dm-tool-row {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
-		flex-wrap: wrap;
-		padding: var(--space-2) var(--space-3);
-		border-bottom: 1px solid var(--border-subtle);
-		background: color-mix(in srgb, var(--surface-base) 94%, transparent);
+		gap: 4px;
+		min-height: 36px;
+		min-width: 0;
 	}
-	.dm-tool-actions { display: flex; align-items: center; gap: var(--space-2); }
-	.dm-tool-actions { flex-wrap: wrap; }
-	.dm-tool-wait { flex: 1 1 100%; color: var(--text-secondary); font-size: var(--font-size-xs, 11px); line-height: 1.35; }
-	.dm-tool-button {
-		min-height: 32px;
-		padding: 0 var(--space-2);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-md);
-		background: var(--surface-base);
-		color: var(--text-secondary);
-		font: inherit;
-		font-size: var(--text-xs);
-		cursor: pointer;
+	.dm-tool-row :global(.dm-tool-kept) {
+		height: 28px;
+		min-width: 0;
+		font: var(--w-t-caption);
 	}
-	.dm-tool-button:hover:not(:disabled),
-	.dm-tool-button.active { border-color: var(--accent-primary); color: var(--text-heading); background: var(--surface-hover); }
-	.dm-tool-button:disabled { opacity: 0.5; cursor: default; }
-	.dm-tool-error { padding: var(--space-2) var(--space-3); color: var(--text-danger); font-size: var(--text-xs); }
+	.dm-tool-spacer {
+		flex: 1 1 auto;
+	}
+	.dm-tool-notes[aria-pressed='true'] {
+		background: var(--w-raise);
+		color: var(--w-text);
+	}
+	.dm-tool-wait {
+		margin: 2px 0 6px;
+		color: var(--w-mute);
+		font: var(--w-t-small);
+		text-wrap: pretty;
+	}
+
 	.dm-conversation-content {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
 		flex: 1;
 		min-height: 0;
 	}
-	.dm-conversation-content.with-notes { grid-template-columns: minmax(0, 1fr) minmax(260px, 38%); }
-	.dm-conversation-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
+	.dm-conversation-content.with-notes {
+		grid-template-columns: minmax(0, 1fr) minmax(260px, 38%);
+	}
+	.dm-conversation-main {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		min-height: 0;
+	}
 	.dm-conversation-messages {
 		flex: 1;
 		min-height: 0;
-		overflow: auto;
-		padding: var(--space-2);
-		background: color-mix(in srgb, var(--surface-base) 84%, transparent);
+		overflow-x: hidden;
+		overflow-y: auto;
 	}
 	.dm-load-earlier {
-		display: block; min-height: 36px; margin: var(--space-1) auto var(--space-3); padding: 0 var(--space-3);
-		border: 1px solid var(--border-subtle); border-radius: var(--radius-full);
-		background: var(--surface-raised); color: var(--text-secondary); font: inherit; cursor: pointer;
+		display: flex;
+		margin: 8px auto 12px;
 	}
-	.dm-load-earlier:hover:not(:disabled) { color: var(--text-heading); background: var(--surface-hover); }
-	.dm-load-earlier:disabled { opacity: .65; cursor: wait; }
-	.dm-conversation-composer { flex-shrink: 0; min-width: 0; }
-	.dm-conversation-notes { min-width: 0; min-height: 0; border-left: 1px solid var(--border-subtle); }
-	.dm-conversation-notes.hidden { display: none; }
+	.dm-conversation-composer {
+		flex-shrink: 0;
+		min-width: 0;
+	}
+	.dm-conversation-notes {
+		min-width: 0;
+		min-height: 0;
+		border-left: var(--w-bw) solid var(--w-line);
+	}
+	.dm-conversation-notes.hidden {
+		display: none;
+	}
 	.dm-jump-latest {
 		position: absolute;
-		bottom: calc(var(--app-chrome-height) + var(--space-3));
-		left: 50%;
-		transform: translateX(-50%);
-		min-height: 36px;
-		padding: 0 var(--space-3);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-full);
-		background: var(--surface-raised);
-		color: var(--text-heading);
-		box-shadow: var(--shadow-md);
+		right: 16px;
+		bottom: calc(var(--w-foot, 80px) + 12px);
+		z-index: 1;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		box-sizing: border-box;
+		height: 32px;
+		padding: 0 10px 0 14px;
+		border: var(--w-bw) solid var(--w-line-strong);
+		border-radius: var(--w-pill);
+		background: var(--w-bg2);
+		box-shadow: var(--w-shadow);
+		color: var(--w-text);
+		font: var(--w-t-label-sm);
 		cursor: pointer;
 	}
+	.dm-jump-latest:hover {
+		background: var(--w-raise);
+	}
+	.dm-jump-latest:focus-visible {
+		outline: 2px solid var(--w-accent);
+		outline-offset: 2px;
+	}
+
+	/* The row that replaces the composer while sending is paused; the glyph is the seal. */
+	.dm-gate,
+	.dm-notice {
+		margin: 0 12px 12px;
+	}
+	.dm-notice {
+		margin-top: 8px;
+	}
+	.dm-gate {
+		min-height: 52px;
+	}
+	.dm-gate > :global(svg:first-child) {
+		color: var(--w-seal);
+	}
+	.dm-gate--failed > :global(svg:first-child) {
+		color: var(--w-danger);
+	}
+	.dm-gate-detail {
+		color: var(--w-faint);
+	}
+	/* The panel is narrow: the actions go under the words. */
+	.dm-gate :global(.w-notice__actions) {
+		grid-column: 2 / span 2;
+		grid-row: auto;
+		flex-wrap: wrap;
+		justify-self: start;
+		margin-top: 8px;
+	}
+
 	@container dm-conversation (max-width: 600px) {
 		.dm-conversation-content.with-notes { display: flex; flex-direction: column; }
 		.dm-conversation-content.with-notes .dm-conversation-main { display: none; }
 		.dm-conversation-content.with-notes .dm-conversation-notes { flex: 1; height: 100%; border-left: 0; }
 	}
-	@container dm-conversation (max-width: 420px) {
-		.dm-conversation-tools { align-items: stretch; }
-		.dm-tool-actions { width: 100%; }
-		.dm-tool-button { min-height: 40px; }
-		.dm-conversation-messages { padding: var(--space-1); }
-		.dm-conversation-composer :global(.input-container) { flex-wrap: wrap; justify-content: flex-end; }
-		.dm-conversation-composer :global(.input-container textarea) { flex: 1 0 100%; width: 100%; }
+	/* Touch and the phone shell: every target in the panel reaches 44px. */
+	@media (pointer: coarse), (max-width: 768px) {
+		.dm-tool-row {
+			min-height: 44px;
+		}
+		.dm-gate :global(.w-btn),
+		.dm-tool-row :global(:is(.w-btn, .w-select, .w-ibtn)) {
+			min-height: 44px;
+		}
+		.dm-tool-row :global(.w-ibtn) {
+			min-width: 44px;
+		}
 	}
 </style>

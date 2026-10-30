@@ -1,2 +1,550 @@
-@import './server-switcher-part1.css';
-@import './server-switcher-part2.css';
+/* ==========================================================================
+   Saved servers switcher (design contract §8.1, §7.11 rows, §7.13 sheet).
+   ServerSwitcherPanel.svelte. Roles, type tokens and kit classes only.
+
+   - Desktop: an overlay on the sidebar at the sidebar's own width (never over center stage):
+     --w-bg2, a --w-line-strong edge toward the stage and --w-shadow. Its footer band sits on
+     the shared 80px footer rule.
+   - Phones: a kit bottom sheet (.w-sheet) over a sibling .w-scrim.
+   - Rows: 52px, selection grammar (§5.2): the current server is a --w-raise row whose ensō is
+     --w-sig; hover is the 70% raise mix; High Contrast rings both. No left bars, no glow.
+   Cascade: styles.css (legacy slot), before the skins and the kit. Every rule here is scoped to
+   .server-switcher and carries more weight than the kit rule it refines.
+   ========================================================================== */
+
+/* MainLayout sizes the overlay to max(sidebar, 320px) (+ the server rail). The panel keeps to
+   the sidebar's own width (--switcher-excess is the difference), and the empty rest of the
+   overlay lets the pointer through to the stage underneath. */
+.server-switcher-overlay:not(.mobile) {
+	pointer-events: none;
+}
+
+.server-switcher {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 0;
+	width: calc(100% - var(--switcher-excess, 0px));
+	pointer-events: auto;
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+.server-switcher.dock-right {
+	left: auto;
+	right: 0;
+}
+
+.server-switcher:not(.mobile) .switcher-panel {
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	height: 100%;
+	min-height: 0;
+	border-right: var(--w-bw) solid var(--w-line-strong);
+	background: var(--w-bg2);
+	box-shadow: var(--w-shadow);
+	animation: switcher-enter var(--w-dur-3) var(--w-ease) both;
+}
+.server-switcher.dock-right:not(.mobile) .switcher-panel {
+	border-right: 0;
+	border-left: var(--w-bw) solid var(--w-line-strong);
+	animation-name: switcher-enter-right;
+}
+.server-switcher .switcher-panel:focus,
+.server-switcher .switcher-panel:focus-visible {
+	outline: none;
+}
+
+@keyframes switcher-enter {
+	from { opacity: 0; translate: -8px 0; }
+	to { opacity: 1; translate: 0 0; }
+}
+@keyframes switcher-enter-right {
+	from { opacity: 0; translate: 8px 0; }
+	to { opacity: 1; translate: 0 0; }
+}
+
+/* ---------- head: kicker, current server, host, the one-account line ---------- */
+.server-switcher .switcher-head {
+	flex: none;
+	padding: 0 12px 16px 20px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.server-switcher .switcher-head-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	height: 48px;
+	margin-right: -2px;
+}
+.server-switcher .switcher-current {
+	margin: 0;
+	padding-right: 8px;
+	overflow: hidden;
+	color: var(--w-text);
+	font: var(--w-t-heading);
+	letter-spacing: 0.005em;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.server-switcher .switcher-host {
+	margin: 2px 0 0;
+	padding-right: 8px;
+	overflow: hidden;
+	color: var(--w-faint);
+	font: var(--w-t-mono);
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.server-switcher .switcher-note {
+	margin: 10px 0 0;
+	padding-right: 8px;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+
+/* ---------- body: the list, the move notice, shortcuts ---------- */
+.server-switcher .switcher-body {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	min-height: 0;
+}
+.server-switcher .switcher-move {
+	flex: none;
+	margin: 12px 12px 0;
+}
+.server-switcher .switcher-move > svg:first-child {
+	color: var(--w-accent);
+}
+.server-switcher .switcher-list {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-x: hidden;
+	overflow-y: auto;
+	padding: 8px 0 12px;
+	overscroll-behavior: contain;
+}
+.server-switcher .switcher-group {
+	position: relative;
+}
+.server-switcher .switcher-group.in-folder + .switcher-group,
+.server-switcher .switcher-group + .switcher-group.in-folder {
+	margin-top: 8px;
+}
+
+/* Folder: a 28px disclosure row with a kicker-style name and its count. */
+.server-switcher .switcher-folder {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	height: 28px;
+	margin: 4px 8px 2px;
+	padding: 0 4px 0 12px;
+}
+.server-switcher .switcher-folder-toggle {
+	display: flex;
+	flex: 1 1 auto;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	height: 28px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--w-faint);
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	text-align: start;
+	cursor: pointer;
+}
+.server-switcher .switcher-folder-toggle--static {
+	cursor: default;
+}
+.server-switcher .switcher-folder-toggle:hover:not(.switcher-folder-toggle--static) {
+	color: var(--w-text);
+}
+.server-switcher .switcher-folder-toggle:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+.server-switcher .switcher-folder-toggle > svg {
+	flex: none;
+	transition: transform var(--w-dur-2) var(--w-ease);
+}
+.server-switcher .switcher-folder-toggle[aria-expanded='true'] > svg {
+	transform: rotate(90deg);
+}
+.server-switcher .switcher-folder-name {
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.server-switcher .switcher-folder .w-count {
+	letter-spacing: 0;
+}
+
+/* ---------- 52px server rows ---------- */
+.server-switcher .switcher-row {
+	--switcher-row-surface: var(--w-bg2);
+	position: relative;
+	margin: 0 8px;
+	border-radius: var(--radius-md);
+}
+.server-switcher .switcher-row-main {
+	display: grid;
+	grid-template-columns: 28px minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: 12px;
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 52px;
+	margin: 0;
+	/* The trailing 40px is the ⋯ tray's own slot, so the badge never sits under it. */
+	padding: 0 44px 0 12px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-text);
+	font: inherit;
+	text-align: start;
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		box-shadow var(--w-dur-1) var(--w-ease);
+}
+.server-switcher .switcher-row:hover > .switcher-row-main {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+}
+.server-switcher .switcher-row.active > .switcher-row-main {
+	background: var(--w-raise);
+}
+.server-switcher .switcher-row-main:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+:root[data-char='contrast'] .server-switcher .switcher-row:not(.active):hover > .switcher-row-main {
+	background: transparent;
+}
+:root[data-char='contrast'] .server-switcher .switcher-row:hover > .switcher-row-main,
+:root[data-char='contrast'] .server-switcher .switcher-row.active > .switcher-row-main {
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+
+.server-switcher .switcher-avatar {
+	display: grid;
+	place-items: center;
+	width: 28px;
+	height: 28px;
+	overflow: hidden;
+	border-radius: var(--radius-inner);
+}
+.server-switcher .switcher-avatar img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+/* The shipped ensō as a mask: --w-sig on the server you are on, --w-mute on the others. */
+.server-switcher .switcher-enso {
+	display: block;
+	width: 24px;
+	height: 24px;
+	background: var(--w-mute);
+	-webkit-mask: url('/wabi-logo-small.webp') center / contain no-repeat;
+	mask: url('/wabi-logo-small.webp') center / contain no-repeat;
+}
+.server-switcher .switcher-row.active .switcher-enso {
+	background: var(--w-sig);
+}
+.server-switcher .switcher-initial {
+	display: grid;
+	place-items: center;
+	box-sizing: border-box;
+	width: 28px;
+	height: 28px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-inner);
+	background: var(--w-bg);
+	color: var(--w-text);
+	font: 600 calc(12px * var(--w-fs)) / 1 var(--w-serif);
+}
+
+.server-switcher .switcher-row-text {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	min-width: 0;
+}
+.server-switcher .switcher-row-name {
+	overflow: hidden;
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.server-switcher .switcher-row.active .switcher-row-name {
+	font: var(--w-t-label);
+}
+.server-switcher .switcher-row-host {
+	overflow: hidden;
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.server-switcher .switcher-row-badge {
+	align-self: center;
+}
+
+/* ⋯ tray: in its own trailing slot; it shows on hover and keyboard focus (always on touch). */
+.server-switcher .switcher-row-tray {
+	position: absolute;
+	top: 0;
+	right: 8px;
+	display: flex;
+	align-items: center;
+	height: 52px;
+	opacity: 0;
+	transition: opacity var(--w-dur-1) var(--w-ease);
+}
+.server-switcher .switcher-row:hover > .switcher-row-tray,
+.server-switcher .switcher-row:focus-within > .switcher-row-tray,
+.server-switcher .switcher-row.editing > .switcher-row-tray,
+.server-switcher .switcher-row-tray:has([aria-expanded='true']) {
+	opacity: 1;
+}
+.server-switcher .switcher-more:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+
+/* Rename on this device / folder name: a quiet inline form under the row. */
+.server-switcher .switcher-editor {
+	display: grid;
+	gap: 8px;
+	padding: 8px 12px 14px;
+}
+.server-switcher .switcher-group > .switcher-editor {
+	margin: 0 8px;
+}
+.server-switcher .switcher-editor .w-label,
+.server-switcher .switcher-add .w-label {
+	margin: 0;
+}
+.server-switcher .switcher-check {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: 32px;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+	cursor: pointer;
+}
+.server-switcher .switcher-editor-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+/* Phone move mode: drop places as accent rules and rings, never coloured slabs. */
+.server-switcher .switcher-move-targets {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	padding: 6px 20px 8px;
+}
+.server-switcher .switcher-move-targets--row {
+	padding: 0 12px 10px 52px;
+}
+.server-switcher .switcher-row.move-selected > .switcher-row-main,
+.server-switcher .switcher-group.move-selected {
+	background: var(--w-accent-soft);
+}
+.server-switcher .switcher-group.move-selected,
+.server-switcher .switcher-group.drop-join {
+	border-radius: var(--radius-md);
+}
+.server-switcher .switcher-group.drop-join,
+.server-switcher .switcher-row.drop-make-folder > .switcher-row-main {
+	box-shadow: inset 0 0 0 2px var(--w-accent);
+}
+.server-switcher :is(.switcher-row, .switcher-group):is(.drop-before, .drop-after)::before {
+	content: '';
+	position: absolute;
+	left: 12px;
+	right: 12px;
+	height: 2px;
+	border-radius: var(--w-pill);
+	background: var(--w-accent);
+	pointer-events: none;
+}
+.server-switcher :is(.switcher-row, .switcher-group).drop-before::before {
+	top: -1px;
+}
+.server-switcher :is(.switcher-row, .switcher-group).drop-after::before {
+	bottom: -1px;
+}
+
+.server-switcher .switcher-empty {
+	padding: 24px 20px;
+}
+
+/* Shortcuts (recent and followed channels): a disclosure, closed until asked for. */
+.server-switcher .switcher-shortcuts {
+	flex: none;
+	padding: 0 12px 0 20px;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.server-switcher .switcher-shortcuts-toggle {
+	border-radius: var(--radius-sm);
+}
+.server-switcher .switcher-shortcuts-hint {
+	min-width: 0;
+	margin-left: auto;
+	overflow: hidden;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.server-switcher .switcher-shortcuts-body {
+	max-height: min(40vh, 360px);
+	margin-right: -12px;
+	padding-right: 12px;
+	overflow-y: auto;
+}
+
+/* ---------- footer band: "Add server" on the 80px footer rule ---------- */
+.server-switcher .switcher-foot {
+	flex: none;
+	display: flex;
+	align-items: center;
+	box-sizing: border-box;
+	min-height: var(--w-foot, 80px);
+	padding: 0 12px 0 20px;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.server-switcher .switcher-foot.expanded {
+	align-items: stretch;
+	padding-block: 14px 16px;
+}
+.server-switcher .switcher-add-btn {
+	width: 100%;
+}
+.server-switcher .switcher-add {
+	display: grid;
+	gap: 8px;
+	width: 100%;
+	margin: 0;
+}
+.server-switcher .switcher-add-hint {
+	margin: 0;
+	color: var(--w-faint);
+	font: 400 calc(12px * var(--w-fs)) / calc(16px * var(--w-fs)) var(--w-sans);
+}
+
+/* ---------- phones: a bottom sheet over a scrim ---------- */
+.server-switcher.mobile {
+	position: fixed;
+	inset: 0;
+	width: auto;
+	z-index: var(--z-modal, 1500);
+}
+.server-switcher.mobile .switcher-scrim {
+	z-index: 0;
+}
+/* The phone's bottom nav stays in front of the overlay, so the sheet sits on it, not under it. */
+.server-switcher.mobile .switcher-panel {
+	z-index: 1;
+	bottom: var(--mobile-nav-height, 0px);
+	max-height: calc(100dvh - var(--mobile-nav-height, 0px) - 48px);
+	padding-bottom: 0;
+}
+:root[data-keyboard-open='1'] .server-switcher.mobile .switcher-panel {
+	bottom: 0;
+	max-height: calc(100dvh - 48px);
+	padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+:root[data-mode='light'] .server-switcher.mobile .switcher-panel {
+	background: var(--w-lift);
+}
+.server-switcher.mobile .switcher-head {
+	padding: 0 8px 14px 20px;
+}
+.server-switcher.mobile .switcher-head-row {
+	height: 44px;
+}
+.server-switcher.mobile .switcher-close,
+.server-switcher.mobile .switcher-more {
+	width: 44px;
+	height: 44px;
+}
+.server-switcher.mobile .switcher-row-main {
+	padding-right: 52px;
+}
+.server-switcher.mobile .switcher-row-tray {
+	right: 4px;
+	opacity: 1;
+}
+.server-switcher.mobile .switcher-folder,
+.server-switcher.mobile .switcher-folder-toggle {
+	height: 44px;
+}
+.server-switcher.mobile .switcher-foot {
+	min-height: 72px;
+}
+.server-switcher.mobile .switcher-foot :is(.w-btn, .w-field) {
+	height: 44px;
+}
+
+@media (pointer: coarse) {
+	.server-switcher .switcher-row-tray {
+		opacity: 1;
+	}
+	.server-switcher .switcher-row-main {
+		min-height: 56px;
+	}
+	.server-switcher .switcher-row-tray {
+		height: 56px;
+	}
+}
+
+/* Dragging on a phone: the one object that lifts. */
+.server-switcher .switcher-drag-ghost {
+	position: fixed;
+	left: 0;
+	top: 0;
+	z-index: 2;
+	display: grid;
+	gap: 2px;
+	min-width: 132px;
+	max-width: 220px;
+	padding: 10px 14px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: var(--w-bg2);
+	box-shadow: var(--w-shadow);
+	transform: translate(calc(var(--drag-x) - 50%), calc(var(--drag-y) - 62%));
+	pointer-events: none;
+}
+.server-switcher .switcher-drag-ghost strong {
+	overflow: hidden;
+	color: var(--w-text);
+	font: var(--w-t-label);
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.server-switcher .switcher-panel {
+		animation: none;
+	}
+}
+:root[data-motion='reduce'] .server-switcher .switcher-panel {
+	animation: none;
+}
