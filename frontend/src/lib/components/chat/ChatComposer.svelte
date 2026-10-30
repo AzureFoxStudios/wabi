@@ -46,15 +46,35 @@ import type { MediaAlbum } from '$lib/api';
 	import type { FilePreview } from './fileHandlers';
 	import type { MentionSuggestion } from './types';
 	import type { E2eeRoomStatus } from '$lib/e2ee';
+	import Icon from '../ui/Icon.svelte';
+	import Menu from '../ui/Menu.svelte';
+	import Tooltip from '../ui/Tooltip.svelte';
+	import PrivacyBadge from '../PrivacyBadge.svelte';
+	import type { MenuEntry } from '../context-menu/ContextMenu.svelte';
+	import { stagePrivacySummary } from './ChatHeader.svelte';
+	import { cachedE2eeStatus, refreshE2eeStatus } from '$lib/dm/dmE2eeState';
+	import { isPrivateConversationType, type PrivacyPolicy } from '$lib/privacy/privacyState';
+	import { currentSavedServer } from '$lib/savedServers';
+	import { getSocket } from '$lib/socket';
+	import { composerChannelType, composerFieldLabel, composerPrivacyInput, composerReadsRoomStatus, composerRetention, composerRoomFact, holdComposerColophon } from './composerPrivacy';
 
 	interface Props {
 		isDMChannel?: boolean;
 		channelId?: string | null;
+		/** The room's kind ('text', 'dm', 'group', …); null while it is unknown. Omitted: read from the channel store. */
+		channelType?: string | null;
 		draftSurface?: string;
 		paymentButtonEnabled?: boolean;
-		/** E2EE: on send, wrap the payload text in an encrypted envelope instead of sending plaintext. */
+		/** The host knows the room will encrypt (display only: the send path asks the server's room status itself). */
 		encryptSend?: boolean;
+		/** The DM/group E2EE room status the host already holds. Omitted: the composer reads it for DMs and groups. */
 		e2eeStatus?: E2eeRoomStatus | null;
+		/** Retention for the colophon chip. Omitted: the masthead's privacy summary for this channel. */
+		retention?: PrivacyPolicy | string | null;
+		/** The privacy popover's Room fact. Omitted: "#general · Common Ground" or the conversation's name. */
+		roomLabel?: string | null;
+		/** The colophon under the field (privacy state, retention chip, newline hint). */
+		showColophon?: boolean;
 		replyingTo?: Message | null;
 		composerVisible?: boolean;
 		isTextareaFocused?: boolean;
@@ -65,7 +85,11 @@ import type { MediaAlbum } from '$lib/api';
 	let {
 		isDMChannel = false,
 		encryptSend = false,
-		e2eeStatus = null,
+		e2eeStatus,
+		channelType,
+		retention,
+		roomLabel,
+		showColophon = true,
 		channelId = null,
 		draftSurface = 'channel',
 		paymentButtonEnabled = false,
@@ -75,36 +99,6 @@ import type { MediaAlbum } from '$lib/api';
 		onExecuteCommand,
 		onOpenPaymentSheet
 	}: Props = $props();
-
-	/** E2EE indicator: plaintext shows a muted "Server-readable" note; encrypted messages show a lock. */
-	let e2eeIndicator = $derived.by(() => {
-		if (!encryptSend) {
-			return {
-				icon: '⚠',
-				label: 'Server-readable',
-				title: 'Messages are readable by the server operator. Turn on end-to-end encryption from the DM header to encrypt them.',
-				locked: false
-			};
-		}
-		return {
-			icon: '🔒',
-			label: 'End-to-end encrypted',
-			title: 'Messages are encrypted on this device (experimental — not independently verified).',
-			locked: true
-		};
-	});
-
-	/** Mirror the derived indicator into state so the template can read it. */
-	let e2eeIndicatorState = $state<{ icon: string; label: string; title: string; locked: boolean }>({
-		icon: '⚠',
-		label: 'Server-readable',
-		title: '',
-		locked: false
-	});
-
-	$effect(() => {
-		e2eeIndicatorState = e2eeIndicator;
-	});
 
 	const dispatch = createEventDispatcher();
 	type SendChatMessage = (
@@ -140,7 +134,6 @@ import type { MediaAlbum } from '$lib/api';
 	let emojiPickerLoadFailed = $state(false);
 	let emojiPickerLoadPromise: Promise<void> | null = null;
 	let showMediaMenu = $state(false);
-	let mediaMenuContainer: HTMLElement | null = $state(null);
 	let showCommandPalette = $state(false);
 	let commandPaletteSelectedIndex = $state(0);
 	let commandPalette: CommandPalette = $state();
@@ -190,7 +183,9 @@ import type { MediaAlbum } from '$lib/api';
 	const SEND_BURST_WINDOW_MS = 2500;
 	const SEND_BURST_LIMIT = 5;
 	const SEND_BURST_COOLDOWN_MS = 3000;
-	const COMPOSER_MAX_HEIGHT = 160;
+	/** The field grows upward to at most 40% of the stage (§7.20); never less than this. */
+	const COMPOSER_MIN_MAX_HEIGHT = 160;
+	const SEND_COOLDOWN_WORDS = 'Sending paused for a moment. Your message is still here.';
 	const MAX_UPLOAD_FILE_BYTES = 1024 * 1024 * 1024;
 	const MAX_GIF_CAPTION_LENGTH = 280;
 	const MAX_FILE_PREVIEW_IMAGES = 8;
@@ -215,6 +210,91 @@ import type { MediaAlbum } from '$lib/api';
 	$effect(() => {
 		if (channelForceSpoiler) markAsSpoiler = true;
 	});
+
+	// ---- the room this field writes into: its name and who can read it (§7.20, §9.2)
+	const roomChannel = $derived($channels.find((ch) => ch.id === effectiveChannel) ?? null);
+	const roomType = $derived(composerChannelType(channelType, roomChannel?.type, isDMChannel));
+	const inConversation = $derived(isPrivateConversationType(roomType));
+	const roomName = $derived.by(() => {
+		if (!roomChannel) return null;
+		if (roomChannel.type === 'dm') return getDMOtherUser(roomChannel, $currentUser, $userLookup)?.username || roomChannel.name || null;
+		return roomChannel.name || null;
+	});
+	const fieldLabel = $derived(composerFieldLabel((key, options) => $_(key, options), { name: roomName, conversation: inConversation }));
+	const roomFact = $derived(roomLabel !== undefined ? roomLabel : composerRoomFact({ name: roomName, conversation: inConversation, community: $currentSavedServer?.effectiveName }));
+	// A DM or group opened in the channel stream has no host holding its E2EE status: read it
+	// here, for the colophon only. A failed request leaves it on "Checking privacy…" and asks
+	// again (2 s, 4 s, 8 s); a room update from the server asks at once.
+	const hostGaveStatus = $derived(e2eeStatus !== undefined);
+	let ownStatus = $state<E2eeRoomStatus | null>(null);
+	$effect(() => {
+		const id = effectiveChannel;
+		if (!id || !composerReadsRoomStatus(roomType, hostGaveStatus)) {
+			ownStatus = null;
+			return;
+		}
+		ownStatus = cachedE2eeStatus(id);
+		let live = true;
+		let retry: ReturnType<typeof setTimeout> | undefined;
+		const ask = (attempt: number) => {
+			refreshE2eeStatus(id)
+				.then((status) => {
+					if (live) ownStatus = status;
+				})
+				.catch(() => {
+					if (live && attempt < 3) retry = setTimeout(() => ask(attempt + 1), 2000 * 2 ** attempt);
+				});
+		};
+		ask(0);
+		const sock = getSocket();
+		const onRoomUpdate = (payload: { channelId?: string } | undefined) => {
+			if (payload?.channelId === id) {
+				clearTimeout(retry);
+				ask(3);
+			}
+		};
+		sock?.on?.('e2ee-room-updated', onRoomUpdate);
+		return () => {
+			live = false;
+			clearTimeout(retry);
+			sock?.off?.('e2ee-room-updated', onRoomUpdate);
+		};
+	});
+	const privacyInput = $derived(composerPrivacyInput({ channelType: roomType, encryptSend, hostStatus: e2eeStatus, ownStatus, hostGaveStatus }));
+	const keptSource = $derived(composerRetention(retention, $stagePrivacySummary, effectiveChannel));
+	// While this colophon is on screen it says the channel's retention, so the masthead does not.
+	$effect(() => {
+		const id = effectiveChannel;
+		if (!showColophon || !id) return;
+		return holdComposerColophon(id);
+	});
+	// "Shift Enter for a new line" only while the field is focused and empty (§7.20).
+	const composerUid = $props.id();
+	const hintId = `composer-hint-${composerUid}`;
+	const newlineHintShown = $derived(isTextareaFocused && messageInput.length === 0);
+	const sendReady = $derived((selectedFiles.length > 0 || Boolean(messageInput.trim())) && !isUploading && !isSending && !commandBusy && sendCooldownUntil <= Date.now());
+	const sendLabel = $derived(selectedFiles.length > 0 ? 'Send selected media' : $_('chat.compose.send_message'));
+	const canCapture = typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia);
+	const attachItems = $derived.by<MenuEntry[]>(() => {
+		const items: MenuEntry[] = [{ id: 'file', label: $_('chat.compose.upload_file'), icon: 'upload', onSelect: () => fileInput?.click() }];
+		if (canCapture) {
+			items.push({ id: 'photo', label: $_('chat.compose.take_photo'), icon: 'image', onSelect: () => { showCameraCapture = true; } });
+			items.push({ id: 'audio', label: $_('chat.compose.record_audio'), icon: 'mic', onSelect: () => { showAudioRecorder = true; } });
+		}
+		// Phones have no emoji key in the field (the keyboard has emoji); the picker's GIFs stay here.
+		// Opened after the click that chose it, so the outside-click close does not catch that click.
+		if ($isMobile) items.push({ id: 'emoji', label: $_('chat.compose.add_emoji'), icon: 'smile', onSelect: () => { setTimeout(openEmojiPicker, 0); } });
+		if (paymentButtonEnabled) {
+			items.push({ id: 'payment-sep', type: 'separator' });
+			items.push({ id: 'payment', label: 'Create payment request', icon: 'transfers', onSelect: () => onOpenPaymentSheet() });
+		}
+		return items;
+	});
+	function openEmojiPicker(): void {
+		showEmojiPicker = true;
+		showMediaMenu = false;
+		ensureEmojiPickerLoaded();
+	}
 	let composerCharCounterWarn = $derived(composerInputMaxLength > 0 && composerCharCount / composerInputMaxLength >= 0.9);
 	let gifCaptionDraftLength = $derived(gifCaptionInput.trim().length);
 	let gifCaptionDraftWarn = $derived(gifCaptionDraftLength > 0 && gifCaptionDraftLength / MAX_GIF_CAPTION_LENGTH >= 0.9);
@@ -255,7 +335,13 @@ import type { MediaAlbum } from '$lib/api';
 	function syncComposerEntities() { composerEntities = reconcileMessageEntities(previousComposerInput, messageInput, composerEntities); previousComposerInput = messageInput; }
 	function resetComposerEntityState() { composerEntities = []; previousComposerInput = messageInput; }
 	function resolveOutgoingPlaceEntities(text: string): MessageEntity[] { if (!composerEntities.length || !text) return []; return rebaseMessageEntitiesForText(text, composerEntities); }
-	function autoResizeTextarea() { if (!textareaElement) return; textareaElement.style.height = 'auto'; textareaElement.style.height = `${Math.min(textareaElement.scrollHeight, COMPOSER_MAX_HEIGHT)}px`; }
+	function composerMaxHeight(): number {
+		const stage = textareaElement?.closest('.chat-container, .dm-conversation, .right-panel') as HTMLElement | null;
+		const height = stage?.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 0);
+		// 40% of the stage for the whole field; the textarea is the field less its 12px padding.
+		return Math.max(COMPOSER_MIN_MAX_HEIGHT, Math.floor(height * 0.4) - 12);
+	}
+	function autoResizeTextarea() { if (!textareaElement) return; textareaElement.style.height = 'auto'; textareaElement.style.height = `${Math.min(textareaElement.scrollHeight, composerMaxHeight())}px`; }
 	function handleInput() { autoResizeTextarea(); const now = Date.now(); if (now - lastTypingEmit >= TYPING_THROTTLE_MS) { sendTyping(true, effectiveChannel); lastTypingEmit = now; } if (typingTimeout) clearTimeout(typingTimeout); typingTimeout = setTimeout(() => sendTyping(false, effectiveChannel), 1000) as unknown as number; }
 	function handleInputChange() {
 		syncComposerEntities();
@@ -351,7 +437,7 @@ import type { MediaAlbum } from '$lib/api';
 		const hasText = Boolean(messageInput.trim());
 		if (!hasFiles && !hasText) return;
 		if (sendCooldownUntil > Date.now()) {
-			sendCooldownMessage = 'Hold on buster. Give chat a second before sending more.';
+			sendCooldownMessage = SEND_COOLDOWN_WORDS;
 			return;
 		}
 		if (hasFiles) {
@@ -384,7 +470,7 @@ import type { MediaAlbum } from '$lib/api';
 		manualSendTimestamps = burst.updatedTimestamps;
 		if (!burst.allowed) {
 			sendCooldownUntil = now + SEND_BURST_COOLDOWN_MS;
-			sendCooldownMessage = 'Hold on buster. Give chat a second before sending more.';
+			sendCooldownMessage = SEND_COOLDOWN_WORDS;
 			if (sendCooldownTimer) clearTimeout(sendCooldownTimer);
 			sendCooldownTimer = setTimeout(() => {
 				sendCooldownUntil = 0;
@@ -627,8 +713,8 @@ import type { MediaAlbum } from '$lib/api';
 	async function handlePhotoCapture(event: CustomEvent<Blob>) { const blob = event.detail; const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' }); if (file.size > 10 * 1024 * 1024) { showToast('Photo too large (max 10MB). Please try again.', 'error'); return; } clearFilePreviews(); selectedFiles = [file]; filePreviews = buildPreviewEntries([file]); await uploadSelectedFiles(); showCameraCapture = false; showMediaMenu = false; }
 	async function handleAudioSend(event: CustomEvent<Blob>) { const blob = event.detail; const ext = blob.type.includes('webm') ? 'weba' : 'm4a'; const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type }); if (file.size > 10 * 1024 * 1024) { showToast('Audio too large (max 10MB). Please try again.', 'error'); return; } clearFilePreviews(); selectedFiles = [file]; filePreviews = buildPreviewEntries([file]); await uploadSelectedFiles(); showAudioRecorder = false; showMediaMenu = false; }
 	function ensureEmojiPickerLoaded(): void { if (EmojiPickerComponent || emojiPickerLoadPromise) return; emojiPickerLoadFailed = false; emojiPickerLoadPromise = import('../EmojiPicker.svelte').then(mod => { EmojiPickerComponent = mod.default; }).catch(err => { console.error('Failed to load EmojiPicker:', err); emojiPickerLoadFailed = true; }).finally(() => { emojiPickerLoadPromise = null; }); }
-	function supportsMediaCapture(): boolean { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia); }
-	function handleGlobalClick(event: MouseEvent) { const target = event.target as Node | null; if (target && emojiPickerContainer?.contains(target)) return; if (target && mediaMenuContainer?.contains(target)) return; if (target && mentionMenuContainer?.contains(target)) return; showMediaMenu = false; showEmojiPicker = false; showMentionSuggestions = false; }
+	// The attach menu (ui/Menu) closes itself on an outside click, Esc or Tab.
+	function handleGlobalClick(event: MouseEvent) { const target = event.target as Node | null; if (target && emojiPickerContainer?.contains(target)) return; if (target && mentionMenuContainer?.contains(target)) return; showEmojiPicker = false; showMentionSuggestions = false; }
 	onMount(() => {
 		// An already-issued handoff may settle between construction and mount.
 		const latestDraft = draftOwner.read();
@@ -662,57 +748,94 @@ import type { MediaAlbum } from '$lib/api';
 </script>
 
 <VideoCompressionController bind:this={videoCompressionController} />
-<EditReplyStatus {editingMessage} {replyingTo} onCancelEdit={cancelEdit} onCancelReply={cancelReply} />
 
 <CameraCapture isOpen={showCameraCapture} on:close={() => (showCameraCapture = false)} on:capture={handlePhotoCapture} />
 <AudioRecorder isOpen={showAudioRecorder} on:close={() => (showAudioRecorder = false)} on:send={handleAudioSend} />
 
-<div class="input-wrapper" class:hidden={$isMobile && !composerVisible}>
-	{#if showEmojiPicker}
-		<!-- 2026-08-27: this container used to render at composer-root level with
-			 NO positioning CSS — an inline block that pushed the whole message list
-			 up when opened. Now anchored inside .input-wrapper (position:relative)
-			 as an overlay popover, matching MentionSuggestions. -->
-		<div class="emoji-picker-container" bind:this={emojiPickerContainer}>
-			{#if EmojiPickerComponent}
-				<EmojiPickerComponent on:select={handleEmojiSelect} on:gif={handleGifSelect} on:close={() => (showEmojiPicker = false)} />
-			{:else if emojiPickerLoadFailed}
-				<div class="emoji-picker-loading error" role="alert">
-					<span>Failed to load the emoji/GIF panel.</span>
-					<button type="button" onclick={stopPropagation(ensureEmojiPickerLoaded)}>Retry</button>
-				</div>
-			{:else}
-				<div class="emoji-picker-loading">{$_('emoji_picker.loading')}</div>
-			{/if}
-		</div>
-	{/if}
-	{#if showMentionSuggestions && mentionSuggestions.length > 0}<MentionSuggestions suggestions={mentionSuggestions} selectedIndex={mentionSelectedIndex} bind:container={mentionMenuContainer} onApply={applyMentionSuggestion} />{/if}
-	{#if showEmojiSuggestions}<EmojiSuggestions suggestions={emojiSuggestions} selectedIndex={emojiSuggestionSelectedIndex} onApply={applyEmojiSuggestion} />{/if}
-	{#if filePreviews.length > 0 && !isUploading}		<FileUploadPreview {filePreviews} bind:markAsSpoiler spoilerLocked={channelForceSpoiler} {albumEligibleSelection} {createAlbumFromUpload} bind:uploadAlbumName albums={uploadAlbums} bind:targetAlbumId={uploadTargetAlbumId} onAlbumTargetChange={(id) => (uploadTargetAlbumId = id)} buildDefaultUploadAlbumName={() => buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput)} onAlbumUploadToggle={handleAlbumUploadToggle} onCancelUpload={clearFilePreviews} onRemoveFile={removeFile} onUploadSelectedFiles={uploadSelectedFiles} />{/if}
-	{#if isUploading}<div class="upload-progress-bar"><div class="upload-progress-info"><span>{uploadStatusLabel || $_('chat.upload.uploading')}</span><span>{uploadProgress}%</span></div><div class="progress-bar"><div class="progress-fill" style="width: {uploadProgress}%"></div></div></div>{/if}
-	<input type="file" bind:this={fileInput} onchange={handleFileSelect} multiple class="hidden" />
-	{#if sendCooldownMessage}<div class="composer-rate-limit-notice" role="status" aria-live="polite">{sendCooldownMessage}</div>{/if}
-	<div class="input-container">
-		<!-- A legend tag on the composer's top edge: always honest, never a row of its own. -->
-		<div class="composer-e2ee-status" class:locked={e2eeIndicatorState.locked} title={e2eeIndicatorState.title} aria-live="polite">
-			<span class="composer-e2ee-icon" aria-hidden="true">{e2eeIndicatorState.locked ? '◆' : '◇'}</span>
-			<span class="composer-e2ee-label">{e2eeIndicatorState.locked ? 'Encrypted · experimental' : 'Server-readable'}</span>
-		</div>
-		<CommandPalette bind:this={commandPalette} bind:input={messageInput} bind:isVisible={showCommandPalette} bind:selectedIndex={commandPaletteSelectedIndex} onSelect={handleCommandSelect} />
-		<textarea bind:this={textareaElement} bind:value={messageInput} onpaste={handlePaste} oninput={() => { handleInput(); handleInputChange(); }} onkeydown={handleKeyDown} onfocus={() => { isTextareaFocused = true; composerVisible = true; }} onblur={() => { isTextareaFocused = false; }} placeholder={$isMobile ? 'Message...' : $_('chat.compose.placeholder')} maxlength={composerInputMaxLength} spellcheck={composerSpellcheckEnabled} rows="1"></textarea>
-		{#if composerCharCounterEnabled && composerCharCounterVisible}<span class="composer-char-counter" class:warn={composerCharCounterWarn} class:visible={composerCharCounterVisible}>{composerCharCount}/{composerInputMaxLength}</span>{/if}
-		<button bind:this={emojiPickerButton} class="input-icon-button" onclick={stopPropagation(() => { showEmojiPicker = !showEmojiPicker; if (showEmojiPicker) { ensureEmojiPickerLoaded(); showMediaMenu = false; } })} title={$_('chat.compose.add_emoji')} aria-label={$_('chat.compose.add_emoji')}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg></button>
-		<div class="input-buttons-right">
-			{#if paymentButtonEnabled}
-				<button class="input-icon-button" onclick={() => onOpenPaymentSheet()} title="Create payment request" aria-label="Create payment request"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2"></rect><path d="M2.5 10h19"></path><path d="M7.5 15h4"></path></svg></button>
-			{/if}
-			<div class="media-menu-container" bind:this={mediaMenuContainer}>
-				<button class="input-icon-button add-button" onclick={stopPropagation(() => { showMediaMenu = !showMediaMenu; if (showMediaMenu) showEmojiPicker = false; })} title={$_('chat.compose.add_media')} aria-label={$_('chat.compose.add_media')}><span aria-hidden="true">+</span></button>
-				{#if showMediaMenu}<div class="media-menu"><button class="media-menu-item" onclick={() => { showMediaMenu = false; fileInput?.click(); }}>{$_('chat.compose.upload_file')}</button>{#if supportsMediaCapture()}<button class="media-menu-item" onclick={() => { showMediaMenu = false; showCameraCapture = true; }}>{$_('chat.compose.take_photo')}</button><button class="media-menu-item" onclick={() => { showMediaMenu = false; showAudioRecorder = true; }}>{$_('chat.compose.record_audio')}</button>{/if}</div>{/if}
+<!-- The footer band (§7.20, D20, D21): the field's top edge sits on the footer rule and spans the
+     stream's avatar column to its page edge; the colophon says who can read this room. Anything
+     the draft needs above the field (reply, files, progress) stacks upward from it. -->
+<div class="composer" class:composer--hidden={$isMobile && !composerVisible}>
+	<div class="composer__page">
+		{#if showEmojiPicker}
+			<!-- Anchored inside the page (position: relative) as an overlay popover, like the
+				 mention suggestions, so opening it never pushes the message list. -->
+			<div class="emoji-picker-container" bind:this={emojiPickerContainer}>
+				{#if EmojiPickerComponent}
+					<EmojiPickerComponent on:select={handleEmojiSelect} on:gif={handleGifSelect} on:close={() => (showEmojiPicker = false)} />
+				{:else if emojiPickerLoadFailed}
+					<div class="emoji-picker-loading error" role="alert">
+						<span>The emoji and GIF panel didn't load.</span>
+						<button type="button" class="w-btn w-btn--sm" onclick={stopPropagation(ensureEmojiPickerLoaded)}>Retry</button>
+					</div>
+				{:else}
+					<div class="emoji-picker-loading">{$_('emoji_picker.loading')}</div>
+				{/if}
+			</div>
+		{/if}
+		{#if showMentionSuggestions && mentionSuggestions.length > 0}<MentionSuggestions suggestions={mentionSuggestions} selectedIndex={mentionSelectedIndex} bind:container={mentionMenuContainer} onApply={applyMentionSuggestion} />{/if}
+		{#if showEmojiSuggestions}<EmojiSuggestions suggestions={emojiSuggestions} selectedIndex={emojiSuggestionSelectedIndex} onApply={applyEmojiSuggestion} />{/if}
+		<EditReplyStatus {editingMessage} {replyingTo} onCancelEdit={cancelEdit} onCancelReply={cancelReply} />
+		{#if filePreviews.length > 0 && !isUploading}<FileUploadPreview {filePreviews} bind:markAsSpoiler spoilerLocked={channelForceSpoiler} {albumEligibleSelection} {createAlbumFromUpload} bind:uploadAlbumName albums={uploadAlbums} bind:targetAlbumId={uploadTargetAlbumId} onAlbumTargetChange={(id) => (uploadTargetAlbumId = id)} buildDefaultUploadAlbumName={() => buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput)} onAlbumUploadToggle={handleAlbumUploadToggle} onCancelUpload={clearFilePreviews} onRemoveFile={removeFile} onUploadSelectedFiles={uploadSelectedFiles} />{/if}
+		{#if isUploading}
+			<div class="composer__progress" role="status" aria-live="polite">
+				<span class="composer__progress-words"><span>{uploadStatusLabel || $_('chat.upload.uploading')}</span><span class="composer__progress-count">{uploadProgress}%</span></span>
+				<span class="composer__progress-track" aria-hidden="true"><span class="composer__progress-fill" style:width={`${uploadProgress}%`}></span></span>
+			</div>
+		{/if}
+		<input type="file" bind:this={fileInput} onchange={handleFileSelect} multiple hidden />
+		{#if sendCooldownMessage}<div class="composer__notice" role="status" aria-live="polite"><Icon name="clock" size={14} /><span>{sendCooldownMessage}</span></div>{/if}
+		{#if unicodeEmojisEnabled && unicodeComposerPreviewTokens > 0 && unicodeComposerPreview !== messageInput}<div class="composer__aside unicode-conversion-hint">Unicode preview: {unicodeComposerPreview}</div>{/if}
+		{#if gifCaptionerEnabled && gifCaptionerDedicatedCaptionFieldEnabled}<div class="gif-caption-draft-row"><input type="text" class="w-field gif-caption-draft-input" bind:value={gifCaptionInput} maxlength={MAX_GIF_CAPTION_LENGTH} placeholder="GIF caption (used when sending from the GIF picker)" aria-label="GIF caption" /><span class="gif-caption-draft-count" class:warn={gifCaptionDraftWarn}>{gifCaptionDraftLength} / {MAX_GIF_CAPTION_LENGTH}</span></div>{#if unicodeEmojisEnabled && unicodeGifCaptionPreviewTokens > 0 && unicodeGifCaptionPreview !== gifCaptionInput}<div class="composer__aside unicode-conversion-hint">GIF caption preview: {unicodeGifCaptionPreview}</div>{/if}{/if}
+		<div class="composer__field" data-toast-anchor>
+			<CommandPalette bind:this={commandPalette} bind:input={messageInput} bind:isVisible={showCommandPalette} bind:selectedIndex={commandPaletteSelectedIndex} onSelect={handleCommandSelect} />
+			<textarea class="composer__input" bind:this={textareaElement} bind:value={messageInput} onpaste={handlePaste} oninput={() => { handleInput(); handleInputChange(); }} onkeydown={handleKeyDown} onfocus={() => { isTextareaFocused = true; composerVisible = true; }} onblur={() => { isTextareaFocused = false; }} placeholder={fieldLabel} aria-label={fieldLabel} aria-describedby={showColophon && newlineHintShown ? hintId : undefined} maxlength={composerInputMaxLength} spellcheck={composerSpellcheckEnabled} enterkeyhint="send" rows="1"></textarea>
+			{#if composerCharCounterEnabled && composerCharCounterVisible}<span class="composer__counter" class:composer__counter--warn={composerCharCounterWarn}>{composerCharCount} / {composerInputMaxLength}</span>{/if}
+			<div class="composer__tools">
+				<Tooltip text={$_('chat.compose.attach')}>
+					<Menu
+						items={attachItems}
+						label={$_('chat.compose.add_media')}
+						triggerLabel={$_('chat.compose.attach')}
+						class="w-ibtn composer__tool"
+						align="end"
+						heading={$isMobile ? $_('chat.compose.add_media') : null}
+						bind:open={showMediaMenu}
+						onopenchange={(open) => { if (open) showEmojiPicker = false; }}
+					>
+						<Icon name="clip" />
+					</Menu>
+				</Tooltip>
+				{#if !$isMobile}
+					<Tooltip text={$_('chat.compose.add_emoji')}>
+						<button
+							bind:this={emojiPickerButton}
+							type="button"
+							class="w-ibtn composer__tool"
+							aria-label={$_('chat.compose.add_emoji')}
+							aria-haspopup="dialog"
+							aria-expanded={showEmojiPicker}
+							onclick={stopPropagation(() => { if (showEmojiPicker) showEmojiPicker = false; else openEmojiPicker(); })}
+						><Icon name="smile" /></button>
+					</Tooltip>
+				{/if}
+				<Tooltip text={sendLabel} shortcut={sendReady && selectedFiles.length === 0 ? 'Enter' : undefined}>
+					<button
+						type="button"
+						class="w-ibtn composer__send"
+						class:composer__send--ready={sendReady}
+						aria-label={sendLabel}
+						aria-disabled={!sendReady}
+						onclick={() => { if (sendReady) void handleSubmit(); }}
+					><Icon name="send" /></button>
+				</Tooltip>
 			</div>
 		</div>
-		<button class="send-button" onclick={handleSubmit} disabled={(selectedFiles.length === 0 && !messageInput.trim()) || sendCooldownUntil > Date.now() || isUploading || isSending} title={selectedFiles.length > 0 ? 'Send selected media' : $_('chat.compose.send_message')} aria-label={selectedFiles.length > 0 ? 'Send selected media' : $_('chat.compose.send_message')}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg></button>
+		{#if showColophon}
+			<div class="composer__colophon">
+				<PrivacyBadge variant="colophon" input={privacyInput} room={roomFact} retention={keptSource} />
+				<span class="composer__hint" class:composer__hint--shown={newlineHintShown} id={hintId}>{$_('chat.compose.newline_hint')}</span>
+			</div>
+		{/if}
 	</div>
-	{#if unicodeEmojisEnabled && unicodeComposerPreviewTokens > 0 && unicodeComposerPreview !== messageInput}<div class="unicode-conversion-hint">Unicode preview: {unicodeComposerPreview}</div>{/if}
-	{#if gifCaptionerEnabled && gifCaptionerDedicatedCaptionFieldEnabled}<div class="gif-caption-draft-row"><input type="text" class="gif-caption-draft-input input input-sm" bind:value={gifCaptionInput} maxlength={MAX_GIF_CAPTION_LENGTH} placeholder="GIF caption (used when sending from GIF picker)" /><span class="gif-caption-draft-count" class:warn={gifCaptionDraftWarn}>{gifCaptionDraftLength}/{MAX_GIF_CAPTION_LENGTH}</span></div>{#if unicodeEmojisEnabled && unicodeGifCaptionPreviewTokens > 0 && unicodeGifCaptionPreview !== gifCaptionInput}<div class="unicode-conversion-hint">GIF caption preview: {unicodeGifCaptionPreview}</div>{/if}{/if}
 </div>

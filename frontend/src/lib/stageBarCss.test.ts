@@ -544,10 +544,13 @@ describe('row A for channels and DMs (chat/ChatHeader.svelte)', () => {
 		expect(chatHeader).not.toMatch(/Encryption · experimental|'Server-readable'/);
 	});
 
-	test('channel retention keeps its chip (clock + words, never "private", never folded into +N)', () => {
+	test('channel retention is said once per screen: the composer colophon where it shows the channel, else this chip', () => {
 		const imported = between(chatHeader, 'import {\n\t\tprivacyWords,', "} from '$lib/privacy/privacyState';");
 		for (const name of ['retentionChipVisible', 'retentionFact', 'retentionLabel', 'retentionTitle']) expect(imported).toContain(name);
-		expect(chatHeader).toContain('retentionChipVisible(privacySummary)');
+		// w1-composer: a mounted composer colophon holds its channel; row A then leaves retention to it.
+		expect(chatHeader).toContain("import { composerColophons } from './composerPrivacy';");
+		expect(chatHeader).toContain('const colophonCarriesRetention = $derived(($composerColophons[channelId] ?? 0) > 0);');
+		expect(chatHeader).toContain('!colophonCarriesRetention && retentionChipVisible(privacySummary)');
 		expect(chatHeader).toContain('{ label: retentionLabel(privacySummary), title: retentionTitle(privacySummary) }');
 		const chip = between(chatHeader, '{#if retention}', '{/if}');
 		expect(chip).toContain('<Icon name="clock" size={12} />');
@@ -556,6 +559,11 @@ describe('row A for channels and DMs (chat/ChatHeader.svelte)', () => {
 		// About this channel carries it too, so the phone bar (no chip room) can reach it.
 		expect(chatHeader).toContain('<dt>Messages kept</dt>');
 		expect(chatHeader).toContain('const chipRoom = $derived(retention ? 1 : 2);');
+		// The colophon reads the summary this header publishes, only for its own channel.
+		const composer = read('./components/chat/ChatComposer.svelte');
+		expect(composer).toContain('return holdComposerColophon(id);');
+		expect(composer).toContain('composerRetention(retention, $stagePrivacySummary, effectiveChannel)');
+		expect(composer).toContain('<PrivacyBadge variant="colophon" input={privacyInput} room={roomFact} retention={keptSource} />');
 	});
 
 	test('phone DM bar: the name keeps its 96px; the seal, Voice call and Video call move into ⋯', () => {

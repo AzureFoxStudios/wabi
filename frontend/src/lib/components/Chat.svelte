@@ -439,6 +439,7 @@
 				bind:this={chatComposer}
 				{isDMChannel}
 				channelId={$currentChannel}
+				channelType={currentChannelData?.type ?? null}
 				{paymentButtonEnabled}
 				bind:replyingTo
 				bind:composerVisible
