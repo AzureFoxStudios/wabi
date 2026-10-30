@@ -1,168 +1,48 @@
 /* ==========================================================================
-   CHAT — SEARCH STYLES
-   Extracted from chat.css
+   CHAT — SEARCH STYLES (legacy)
+   The masthead search field and its results dropdown live in styles/surfaces/stagebar.css.
+   What remains is the in-stream results toolbar ChatMessagesPane shows when the
+   "better search page" display option is on.
    ========================================================================== */
 
+.search-results-toolbar {
+	position: sticky;
+	top: 0;
+	z-index: var(--z-sticky);
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	padding: 6px 8px;
+	margin: -6px -4px 8px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: var(--w-bg);
+}
 
+.search-toolbar-meta {
+	color: var(--w-mute);
+	font: var(--w-t-caption);
+	white-space: nowrap;
+}
 
-	.search-container {
-		display: flex;
-		gap: 0.5rem;
-		align-items: center;
-		overflow: hidden;
-		position: relative;
-	}
+.search-toolbar-btn {
+	padding: 2px 8px;
+	border: 0;
+	border-radius: var(--radius-inner);
+	background: var(--w-raise);
+	color: var(--w-mute);
+	font: var(--w-t-caption);
+	white-space: nowrap;
+	cursor: pointer;
+	transition: color var(--w-dur-1) var(--w-ease);
+}
 
+.search-toolbar-btn:hover {
+	color: var(--w-text);
+}
 
-	.search-icon {
-		position: absolute;
-		top: 50%;
-		left: 18px;
-		transform: translate(-50%, -50%);
-		color: color-mix(in srgb, var(--text-heading) 78%, var(--text-secondary));
-		pointer-events: none;
-		z-index: var(--z-sticky);
-		transition: left var(--duration-normal) ease, color var(--duration-fast) ease;
-	}
-
-
-	.search-icon svg {
-		width: 15px;
-		height: 15px;
-	}
-
-
-	.search-container.expanded .search-icon {
-		left: 12px;
-		color: var(--text-heading);
-	}
-
-
-	.search-input {
-		width: 36px;
-		height: 34px;
-		padding: 0;
-		padding-left: 0;
-		padding-right: 0.35rem;
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-md);
-		background: var(--surface-base);
-		color: var(--text-heading);
-		font-size: var(--text-base);
-		min-width: 0;
-		cursor: pointer;
-		opacity: 0.95;
-		transition:
-			width var(--duration-slow) var(--ease-bounce),
-			opacity var(--duration-fast) ease,
-			padding var(--duration-normal) ease,
-			border-color var(--duration-fast) ease;
-	}
-
-
-	.search-container.expanded .search-input {
-		width: clamp(140px, 22vw, 280px);
-		padding-left: 1.75rem;
-		padding-right: 0.75rem;
-		cursor: text;
-		opacity: 1;
-	}
-
-	@media (max-width: 900px) {
-		.search-container.expanded .search-input {
-			width: clamp(120px, 30vw, 220px);
-		}
-	}
-
-	@media (max-width: 700px) {
-		.search-container.expanded .search-input {
-			width: 100%;
-			max-width: 100%;
-		}
-	}
-
-
-	.search-input::placeholder {
-		color: transparent;
-	}
-
-
-	.search-container.expanded .search-input::placeholder {
-		color: var(--text-secondary);
-	}
-
-
-	.search-input:focus {
-		outline: none;
-		border-color: var(--accent-primary-color);
-		background: var(--surface-raised);
-	}
-
-
-
-	.search-results {
-		font-size: var(--text-sm);
-		color: var(--text-secondary);
-		white-space: nowrap;
-		padding: 0 0.5rem;
-	}
-
-
-	.search-history-btn {
-		border: none;
-		border-radius: var(--radius-md);
-		padding: 0.2rem 0.55rem;
-		font-size: var(--text-xs);
-		color: var(--text-secondary);
-		background: var(--surface-raised);
-		cursor: pointer;
-		white-space: nowrap;
-	}
-
-
-	.search-history-btn:hover {
-		background: var(--surface-hover);
-		color: var(--text-heading);
-	}
-
-
-	.search-results-toolbar {
-		position: sticky;
-		top: 0;
-		z-index: var(--z-sticky);
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 0.45rem;
-		padding: 0.4rem 0.55rem;
-		margin: -0.35rem -0.2rem 0.45rem;
-		border: 1px solid rgba(var(--border-rgb), var(--opacity-light));
-		border-radius: var(--radius-md);
-		background: color-mix(in srgb, var(--surface-base) 90%, transparent);
-		backdrop-filter: blur(6px);
-	}
-
-
-	.search-toolbar-meta {
-		font-size: var(--text-xs);
-		color: var(--text-secondary);
-		white-space: nowrap;
-	}
-
-
-	.search-toolbar-btn {
-		border: none;
-		border-radius: var(--radius-md);
-		padding: 0.2rem 0.55rem;
-		font-size: var(--text-xs);
-		color: var(--text-secondary);
-		background: var(--surface-raised);
-		cursor: pointer;
-		white-space: nowrap;
-	}
-
-
-	.search-toolbar-btn:hover {
-		background: var(--surface-hover);
-		color: var(--text-heading);
-	}
+.search-toolbar-btn:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}

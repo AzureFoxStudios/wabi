@@ -55,7 +55,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { MEDIA_ALBUMS_ADDON_ID } from '$lib/mediaAlbumsWorkspace';
 	import { PLANNER_ADDON_ID } from '$lib/plannerWorkspace';
 	import { NOTES_ADDON_ID } from '$lib/notesWorkspace';
-	import WorkspaceViewBar from '$lib/components/WorkspaceViewBar.svelte';
+	import StageBar from '$lib/components/StageBar.svelte';
 	import {
 		getServerScopedUserKey,
 		getTrackedPersonKeyForUser,
@@ -194,13 +194,12 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	$: scrimLeft = ($layoutStore.stubSide === 'left' ? dockRail : 0) + ($layoutStore.navDock === 'right' ? 0 : dockSidebar);
 	$: scrimRight = ($layoutStore.stubSide === 'left' ? 0 : dockRail) + ($layoutStore.navDock === 'right' ? dockSidebar : 0);
 
-	// Under a held peek's scrim the covered stage (workspace bar, surface, voice strip) is out of
+	// Under a held peek's scrim the covered stage (masthead, surface, voice strip) is out of
 	// reach for the pointer, so it is inert for the keyboard too. The call layer is not covered: it
 	// paints above the scrim and stays live (an incoming call can always be answered).
-	// The covered parts stay direct children of .chat-stack and each gets `inert` (coverStage): a
-	// wrapper would break the child-combinator rules written for them, such as stagebar.css hiding
-	// the standalone workspace bar at 1250px and wider (`.chat-stack:has(...) > .workspace-view-bar`).
-	const STAGE_PARTS = '.workspace-view-bar, .chat-surface, .voice-live-strip';
+	// The covered parts stay direct children of .chat-stack and each gets `inert` (coverStage), so
+	// no wrapper sits between the stage container and its parts.
+	const STAGE_PARTS = '.stage-bar, .chat-surface, .voice-live-strip';
 	let chatStack: HTMLElement | null = null;
 	function inCoveredStage(element: Element): boolean {
 		return Array.from(chatStack?.children ?? []).some((part) => part.matches(STAGE_PARTS) && part.contains(element));
@@ -303,6 +302,24 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			if (keep) stowedFocus = { target: current as HTMLElement, parking: document.activeElement };
 		});
 	}
+
+	// While a pin is stowed, the focus it had is only kept until the person acts somewhere else: a
+	// press or focus outside the zone (stage text, the sidebar, the stub) drops it, so the room
+	// coming back never pulls focus into the panel out from under them.
+	onMount(() => {
+		const dropStowedFocus = (event: Event) => {
+			if (!stowedFocus) return;
+			const target = event.target;
+			if (target instanceof Node && companionZone?.contains(target)) return;
+			stowedFocus = null;
+		};
+		document.addEventListener('pointerdown', dropStowedFocus, true);
+		document.addEventListener('focusin', dropStowedFocus, true);
+		return () => {
+			document.removeEventListener('pointerdown', dropStowedFocus, true);
+			document.removeEventListener('focusin', dropStowedFocus, true);
+		};
+	});
 
 	// Escape ends a peek and nothing else: it never unpins (endPeek). Menus and dialogs own it first.
 	function handleStagePeekKeydown(event: KeyboardEvent): void {
@@ -1380,7 +1397,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		</button>
 	{/if}
 	<!-- Mobile Bottom Navigation Bar -->
-	<nav class="mobile-bottom-nav" class:visible={mobileNavVisible}>
+	<nav class="mobile-bottom-nav" class:visible={mobileNavVisible} data-toast-anchor>
 		<button
 			type="button"
 			class:active={
@@ -1654,13 +1671,16 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		</div>
 	{/if}
 
-	<!-- Main Content. Under a held peek's scrim the stage parts (workspace bar, surface, voice strip)
+	<!-- Main Content. Under a held peek's scrim the stage parts (masthead, surface, voice strip)
 	     are inert (coverStage); they stay direct children of .chat-stack. The call layer below them
-	     paints above the scrim and stays live. -->
+	     paints above the scrim and stays live.
+	     The masthead (StageBar, §7.23 / §8.2) is mounted once above every center-stage workspace,
+	     so switching workspaces never moves or unmounts the folio. Server home and the DM hub have
+	     their own headers. -->
 	<div class="main-content">
 		<div class="chat-stack" bind:this={chatStack} use:coverStage={stageInert}>
 			{#if activeView !== 'server' && ((!$layoutStore.centerDmChannelId && activeView !== 'dm' && activeView !== 'following') || $activeWorkspaceView !== 'messages')}
-				<WorkspaceViewBar {activityBadge} activeView={$activeWorkspaceView} onSelectView={handleWorkspaceViewSelect} canOpenWhiteboard={Boolean($currentChannel)} />
+				<StageBar {activityBadge} onSelectView={handleWorkspaceViewSelect} />
 			{/if}
 			<div class="chat-surface">
 				{#if activeView === 'server'}

@@ -1,41 +1,36 @@
-/* Companion panel skin — panel fields, ambient frost, DM group settings and protection state,
-   whiteboard board settings, notes list.
-   Owner (wave 1): w1-rail-frame owns the panel field skin and the ambient frost. Blocks marked
-   HELD FOR belong to another package and sit here only because they share this cascade slot;
-   their owner changes them by handoff or moves them out.
+/* Companion panel skin — legacy field skin inside the panel, DM group settings and protection
+   state, whiteboard board settings, notes list.
+   Owner (wave 1): w1-rail-frame owns the panel field skin. Blocks marked HELD FOR belong to
+   another package and sit here only because they share this cascade slot; their owner changes
+   them by handoff or moves them out.
    Cascade: stage-skin.css after stream-skin.css — after controls-kit.css, before
-   settings-skin, admin-skin, modal-skin and panels-skin. Keep the .right-panel field rules
-   ahead of modal-skin.css: dialogs opened from the panel (e.g. TodoTaskModal from Tasks)
-   rely on modal-skin winning the tie (14.5px inputs, not 13.5px). */
+   settings-skin, admin-skin, modal-skin and panels-skin. The field rules skip dialogs opened
+   from the panel (e.g. TodoTaskModal from Tasks), so modal-skin's 14.5px inputs stand.
+   The frame itself (row A, row B, stacked sections) is RightPanel.css; the zone surface is
+   main-layout-part1.css; the rail is RightStubStrip.css. */
 
-/* People / right-panel filters and search */
-:root .right-panel select,
-:root .right-panel input[type='text'],
-:root .right-panel input[type='search'],
-:root .right-panel input:not([type]) {
-	min-height: 34px;
-	padding: 5px 10px;
-	border: var(--w-bw, 1px) solid var(--w-line-strong);
-	border-radius: calc(10px * var(--w-rs, 1));
+/* Legacy inputs and selects that panels still render without the kit: the chrome field look
+   (§7.3) on roles. Kit controls (.w-field, .w-select) and anything inside a dialog keep their own. */
+:root .right-panel :is(select, input[type='text'], input[type='search'], input:not([type])):not(.w-field, .w-field *, .w-select, .w-select *, .modal-overlay *, [role='dialog'] *) {
+	box-sizing: border-box;
+	min-height: 32px;
+	padding: 0 10px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
 	background: var(--w-sink);
 	color: var(--w-text);
-	font: 400 calc(13.5px * var(--w-fs, 1)) var(--w-sans);
+	font: var(--w-t-ui);
 }
-:root .right-panel select:focus,
-:root .right-panel input:focus { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
-:root .right-panel { font-family: var(--w-sans); }
+:root .right-panel :is(select, input):not(.w-field, .w-field *, .w-select, .w-select *, .modal-overlay *, [role='dialog'] *):focus {
+	outline: none;
+	border-color: var(--w-accent);
+	box-shadow: var(--w-ring);
+}
+:root .right-panel :is(input, textarea):not(.modal-overlay *, [role='dialog'] *)::placeholder { color: var(--w-faint); }
 
-/* Themes with a living background (Joker, Matrix, Embers…) let it show through every column:
-   panels and the rail follow the theme's frost, instead of painting an opaque slab over the effect. */
-:root[data-ambient='true'] .right-panel-zone .right-panel-body,
-:root[data-ambient='true'] .rail {
-	background: color-mix(in srgb, var(--w-bg2) calc(var(--surface-frost-opacity, 1) * 100%), transparent);
-	-webkit-backdrop-filter: blur(var(--surface-frost-blur, 0px));
-	backdrop-filter: blur(var(--surface-frost-blur, 0px));
-}
-:root[data-ambient='true'] .right-panel-zone .right-panel,
-:root[data-ambient='true'] .right-panel-zone .panel-stack-content,
-:root[data-ambient='true'] .right-panel-zone .user-list-tab { background: transparent !important; }
+/* No frost (§4.5): the pinned column and the rail stay solid --w-bg2 / --w-bg in themes with a
+   living background, like the peek (main-layout-part1.css). The old translucent fills and the
+   forced-transparent layers inside the panel that let the effect through are gone. */
 
 /* HELD FOR w1-switcher-dms + w1-people-scratchpad — GroupSettingsPanel.svelte (no owner) is
    rendered by DmConversationView.svelte on center stage and by DMTab.svelte in the panel. */

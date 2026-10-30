@@ -1,30 +1,53 @@
+<script context="module" lang="ts">
+	let peopleListCounter = 0;
+	/** People lists on screen: a stacked re-render mounts the new list before the old one leaves. */
+	let livePeopleLists = 0;
+</script>
+
 <script lang="ts">
 	import './UserListTabImpl.css';
 	import { get, type Readable } from 'svelte/store';
-	import { createEventDispatcher, onMount } from 'svelte';
-	import { users, serverMembers, currentUser, currentChannel, channels, createDM, joinChannel, socket, roleDefinitions } from '$lib/socket';
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+	import { users, serverMembers, currentUser, currentChannel, channels, createDM, joinChannel, socket, roleDefinitions, voiceChannelMembers, typingUsers } from '$lib/socket';
 	import { attachUserBanListeners, bannedUserIds } from '$lib/presenceStore';
 	import { showToast } from '$lib/toast';
 	import { layoutStore } from '$lib/layoutStore';
 	import { activeRightTab, activeWorkspace, centerDmChannelId, centerPanelView, rightPanelMode, selectedDmChannelId } from '$lib/layoutStoreStates';
-	import type { User } from '$lib/socket';
+	import type { Channel, User } from '$lib/socket';
 	import { resolveDmEntry } from '$lib/dmEntry';
-	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
+	import ContextMenu, { type MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
 	import UserPopout from '$lib/components/UserPopout.svelte';
-	import RoleBadge from '$lib/components/RoleBadge.svelte';
 	import ProfileName from '$lib/components/ProfileName.svelte';
 	import ProfileMedia from '$lib/components/ProfileMedia.svelte';
 	import ProfileDecoration from '$lib/components/ProfileDecoration.svelte';
+	import Icon from '$lib/components/ui/Icon.svelte';
+	import Menu from '$lib/components/ui/Menu.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import type { IconName } from '$lib/components/ui/icons';
 	import { profileDecorationsVisible } from '$lib/profileAppearance';
-	import type { ContextMenuItem } from '$lib/context-menu/types';
 	import { resolveUserDisplayColor } from '$lib/accessibility';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { rememberPeople } from '$lib/peopleTracker';
 	import { getAuthToken } from '$lib/authSession';
 	import { canFriendUser, friendshipRelation } from '$lib/friendshipRelation';
 	import { acceptFriendship, dismissFriendship, friendships, removeFriendship, requestFriendship, startFriendshipSync } from '$lib/friendships';
-	import { getStatusColor } from './userPanelHelpers';
-	import { overlayStyle } from '$lib/overlayStyle';
+	import { roleBadgeLabel } from '$lib/badges';
+	import { inkFor } from '$lib/theme/identity';
+	import {
+		PEOPLE_SHOW_LABELS,
+		buildPeopleEntries,
+		buildPeopleGroups,
+		personAriaLabel,
+		personKey,
+		personSubline,
+		writingChannelFor,
+		type PeopleGroup,
+		type PeopleGrouping,
+		type PeopleShow,
+		type PeopleVoiceRoom,
+		type PersonEntry,
+		type PersonSubline
+	} from './userPanelHelpers';
 	import {
 		MAX_LOCAL_NICKNAME_LENGTH,
 		clearLocalNicknameForUser,
@@ -38,9 +61,7 @@
 		buildRoleLabelMap,
 		getRoleLabel,
 		isCurrentUserEntry,
-		sortUsersList,
 		matchesSearch,
-		matchesPresenceFilter,
 		buildUserMenuItems,
 		queuePayment,
 		requestLiveRoleChange,
@@ -48,6 +69,57 @@
 		type BuildMenuContext
 	} from './userListHelpers';
 	import { mediaUrl } from '$lib/mediaUrl';
+	import { setPanelFrameCount } from '$lib/workspacePanels';
+
+	type PersonRow = {
+		key: string;
+		user: User;
+		name: string;
+		initial: string;
+		/** Identity color for the name ink and the stamp; '' inherits (away and offline rows). */
+		nameColor: string;
+		ink: string;
+		presence: PersonEntry['presence'];
+		speaking: boolean;
+		subline: PersonSubline | null;
+		roleWord: string | null;
+		roleTitle: string | null;
+		ariaLabel: string;
+	};
+	type GroupView = Omit<PeopleGroup, 'entries'> & { headingId: string; rows: PersonRow[] };
+
+	const listId = `people-${++peopleListCounter}`;
+	const ROLE_TITLES: Record<string, string> = {
+		Owner: 'Community owner',
+		Admin: 'Community admin',
+		Mod: 'Community moderator',
+		Bot: 'Bot account'
+	};
+	// Chrome labels in sentence case (spec §9.6); role names keep the caller's casing.
+	const MENU_LABELS: Record<string, string> = {
+		'View My Profile': 'View my profile',
+		'View Profile': 'View profile',
+		'Remove Friend': 'Remove friend',
+		'Accept Friend Request': 'Accept friend request',
+		'Cancel Friend Request': 'Cancel friend request',
+		'Add Friend': 'Add friend',
+		'Request Payment': 'Request payment',
+		'Voice Call': 'Voice call',
+		'Video Call': 'Video call',
+		'Stop Status Alerts': 'Stop status alerts',
+		'Track Status Alerts': 'Track status alerts',
+		'Set Local Nickname': 'Set local nickname',
+		'Clear Local Nickname': 'Clear local nickname',
+		'Reset to Member': 'Reset to member'
+	};
+	const MENU_ICONS: Record<string, IconName> = {
+		'track-status': 'bell',
+		'nickname-set': 'pencil',
+		'nickname-clear': 'pencil',
+		'reset-member': 'shield',
+		'ban-user': 'shield',
+		'unban-user': 'shield'
+	};
 
 	let contextMenuUser: User | null = null;
 	let contextMenuAnchor: HTMLElement | null = null;
@@ -59,10 +131,9 @@
 	let friendActionBusy = false;
 	const dispatch = createEventDispatcher<{ openSettings: void }>();
 	let friendSearchQuery = '';
-	let friendPresenceFilter: 'all' | 'active' | 'away' | 'busy' | 'offline' = 'all';
-	let friendSortMode: 'role' | 'name' | 'status' = 'role';
+	let peopleShow: PeopleShow = 'all';
+	let peopleGrouping: PeopleGrouping = 'place';
 	let offlineSectionExpanded = false;
-
 
 	function dismissOnNavigationChange<T>(store: Readable<T>): () => void {
 		let seenInitial = false;
@@ -93,6 +164,7 @@
 
 	$: rolePriority = buildRolePriority($roleDefinitions);
 	$: roleLabelMap = buildRoleLabelMap($roleDefinitions);
+	// BetterFriendList add-on: search, show and group controls in row B.
 	$: isEnhanced = $displayEnhancementSettingsStore.betterFriendListEnabled;
 	$: localNickEnabled = $displayEnhancementSettingsStore.localNicknamesEnabled;
 
@@ -106,18 +178,20 @@
 		return getLocalNickname(user) || user.username;
 	}
 
-	function getUserRowKey(user: User, group: string, index: number): string {
-		return getUserIdentityKey(user) || `${group}:${user.username || 'guest'}:${index}`;
+	/** The person's identity color (role color when the role-color setting asks for it), never a CSS variable. */
+	function getDisplayColor(user: User): string {
+		const color = resolveUserDisplayColor(user.roleColor, user.color);
+		return color.startsWith('var(') ? '' : color;
 	}
 
-	function uniqueUsers(usersToNormalize: User[]): User[] {
-		const seen = new Set<string>();
-		return usersToNormalize.filter((user, index) => {
-			const key = getUserIdentityKey(user) || `guest:${user.username || 'unknown'}:${index}`;
-			if (seen.has(key)) return false;
-			seen.add(key);
-			return true;
-		});
+	function roleWordFor(user: User): string | null {
+		if (user.isBot) return 'Bot';
+		return roleBadgeLabel(user);
+	}
+
+	function initialOf(name: string): string {
+		const first = Array.from(name.trim())[0];
+		return first ? first.toLocaleUpperCase() : '?';
 	}
 
 	function promptSetContextLocalNickname(): void {
@@ -135,48 +209,112 @@
 		closeContextMenu();
 	}
 
-	$: onlineOtherUsers = sortUsersList(
-		uniqueUsers($users).filter((user) => {
-			if (!matchesSearch(user, friendSearchQuery, isEnhanced, getDisplayName)) return false;
-			return matchesPresenceFilter(user, friendPresenceFilter, false, isEnhanced);
-		}),
-		friendSortMode,
-		rolePriority,
-		isEnhanced
-	);
 	$: rememberPeople($users);
 	$: rememberPeople($serverMembers);
 
-	$: groupedUsers = (() => {
-		const groups: Record<string, User[]> = {};
-		for (const user of onlineOtherUsers) {
-			const role = user.highestRole || 'member';
-			if (!groups[role]) groups[role] = [];
-			groups[role].push(user);
-		}
-		for (const role of Object.keys(groups)) {
-			groups[role] = sortUsersList(groups[role], friendSortMode, rolePriority, isEnhanced);
-		}
-		return groups;
-	})();
+	// Everyone connected (the viewer always counts as here) and every member of the community.
+	$: onlinePeople = $currentUser ? [$currentUser, ...$users] : $users;
+	$: voiceRooms = $channels
+		.filter((channel) => channel.type === 'voice')
+		.map((channel): PeopleVoiceRoom => ({ id: channel.id, name: channel.name, members: $voiceChannelMembers[channel.id] || [] }));
+	$: peopleCount = buildPeopleEntries({ online: onlinePeople, members: $serverMembers, self: $currentUser, rooms: [] }).length;
+	// The frame's title row shows how many people the community has (row A: "People 8").
+	$: setPanelFrameCount('users', peopleCount);
+	livePeopleLists += 1;
+	onDestroy(() => {
+		livePeopleLists -= 1;
+		if (livePeopleLists === 0) setPanelFrameCount('users', null);
+	});
 
-	$: sortedRoles = Object.keys(groupedUsers).sort((a, b) => (rolePriority[b] || 0) - (rolePriority[a] || 0));
+	// Every input the rows read is named in this statement, so Svelte re-derives the rows when any
+	// of them changes (helpers called from the template would not track stores read inside them).
+	$: peopleGroups = buildPeopleGroups({
+		online: onlinePeople,
+		members: $serverMembers,
+		self: $currentUser,
+		rooms: voiceRooms,
+		show: isEnhanced ? peopleShow : 'all',
+		grouping: isEnhanced ? peopleGrouping : 'place',
+		matches: (user) => matchesSearch(user, friendSearchQuery, isEnhanced, (candidate) => (localNickEnabled ? $localNicknamesStore[getUserIdentityKey(candidate) || ''] || candidate.username : candidate.username)),
+		displayName: getDisplayName,
+		rolePriority,
+		roleLabel: (role) => getRoleLabel(role, roleLabelMap)
+	});
+	$: groupViews = buildGroupViews(peopleGroups, $inkFor, $typingUsers, $channels, $currentChannel, $localNicknamesStore, localNickEnabled);
+	$: offlineOpen = offlineSectionExpanded || peopleShow === 'offline' || friendSearchQuery.trim() !== '';
+	$: filterApplied = isEnhanced && peopleShow !== 'all';
 
-	$: offlineUsers = (() => {
-		const onlineDbIds = new Set($users.map(u => u.dbUserId).filter(Boolean));
-		return uniqueUsers($serverMembers)
-			.filter(m => !onlineDbIds.has(m.dbUserId))
-			.filter((user) => matchesSearch(user, friendSearchQuery, isEnhanced, getDisplayName))
-			.filter((user) => matchesPresenceFilter(user, friendPresenceFilter, true, isEnhanced))
-			.sort((a, b) => a.username.localeCompare(b.username));
-	})();
+	function buildGroupViews(
+		groups: PeopleGroup[],
+		ink: (color: string | null | undefined) => string,
+		typing: Record<string, string[]>,
+		channelList: Channel[],
+		currentChannelId: string | null,
+		_nicknames: unknown,
+		_nicknamesOn: boolean
+	): GroupView[] {
+		return groups.map(({ entries, ...group }) => ({
+			...group,
+			headingId: `${listId}-${group.id.replace(/[^A-Za-z0-9_-]/g, '_')}`,
+			rows: entries.map((entry) => {
+				const name = getDisplayName(entry.user);
+				const quiet = entry.presence === 'away' || entry.presence === 'offline';
+				const color = getDisplayColor(entry.user);
+				const writing = entry.isSelf ? null : writingChannelFor(entry.user, typing, channelList, currentChannelId);
+				const subline = personSubline(entry, writing);
+				const roleWord = roleWordFor(entry.user);
+				return {
+					key: `${group.id}:${personKey(entry.user)}`,
+					user: entry.user,
+					name,
+					initial: initialOf(name),
+					nameColor: quiet ? '' : color,
+					ink: ink(color),
+					presence: entry.presence,
+					speaking: entry.voice === 'speaking',
+					subline,
+					roleWord,
+					roleTitle: roleWord ? ROLE_TITLES[roleWord] ?? roleWord : null,
+					ariaLabel: personAriaLabel(name, entry, subline, roleWord)
+				};
+			})
+		}));
+	}
 
-	function handleUserClick(user: User) {
-		if (isCurrentUserEntry(user, $currentUser)) {
-			layoutStore.openNotes();
+	$: filterMenuItems = [
+		{ id: 'k-show', type: 'kicker', label: 'Show' },
+		...(['all', 'here', 'away', 'offline'] as const).map((value) => ({
+			id: `show:${value}`,
+			label: PEOPLE_SHOW_LABELS[value],
+			role: 'menuitemradio' as const,
+			checked: peopleShow === value
+		})),
+		{ id: 'k-group', type: 'kicker', label: 'Group' },
+		{ id: 'group:place', label: 'By place', role: 'menuitemradio', checked: peopleGrouping === 'place' },
+		{ id: 'group:role', label: 'By role', role: 'menuitemradio', checked: peopleGrouping === 'role' },
+		{ id: 'k-sort', type: 'kicker', label: 'Sort' },
+		{ id: 'sort:name', label: 'By name', role: 'menuitemradio', checked: true }
+	] satisfies MenuEntry[];
+
+	function handleFilterSelect(id: string): void {
+		const [kind, value] = id.split(':');
+		if (kind === 'show' && (value === 'all' || value === 'here' || value === 'away' || value === 'offline')) peopleShow = value;
+		if (kind === 'group' && (value === 'place' || value === 'role')) peopleGrouping = value;
+	}
+
+	function clearSearch(): void {
+		friendSearchQuery = '';
+	}
+
+	function openProfileFor(user: User, anchor: HTMLElement): void {
+		closeContextMenu();
+		if (showProfile && profileUser && profileAnchor === anchor && personKey(profileUser) === personKey(user)) {
+			closeProfile();
 			return;
 		}
-		openDirectConversationWithUser(user);
+		profileUser = user;
+		profileAnchor = anchor;
+		showProfile = true;
 	}
 
 	function openContextMenu(user: User, anchor: HTMLElement, x: number, y: number) {
@@ -378,7 +516,7 @@
 		bannedUserIds: $bannedUserIds,
 		roleDefinitions: $roleDefinitions
 	} satisfies BuildMenuContext);
-	$: userMenuItems = rawMenuItems.map((item: ContextMenuItem) => {
+	$: userMenuItems = rawMenuItems.map((item): MenuEntry => {
 		const handlers: Record<string, () => void> = {
 			profile: handleContextProfile,
 			message: handleContextMessage,
@@ -392,151 +530,184 @@
 			'ban-user': handleBanContextUser,
 			'unban-user': handleUnbanContextUser
 		};
-		if (handlers[item.id]) return { ...item, onSelect: handlers[item.id] };
+		const isRoleRow = item.id.startsWith('make-role:') || item.id.startsWith('remove-role:');
+		// Moderation rows wear the seal glyph (spec §7.4); role names stay exactly as written.
+		const moderation = isRoleRow || item.id === 'reset-member' || item.id === 'ban-user' || item.id === 'unban-user';
+		const entry: MenuEntry = {
+			...item,
+			label: item.label ? MENU_LABELS[item.label] ?? item.label : item.label,
+			icon: isRoleRow ? 'shield' : MENU_ICONS[item.id] ?? item.icon,
+			seal: moderation || undefined,
+			keepCase: isRoleRow || undefined
+		};
+		if (handlers[item.id]) return { ...entry, onSelect: handlers[item.id] };
 		// Live role entries from the role catalog (`make-role:<id>` grants,
 		// `remove-role:<id>` reverts to member).
 		if (item.id.startsWith('make-role:')) {
 			const roleName = item.id.slice('make-role:'.length);
-			return { ...item, onSelect: () => handleAssignContextRole(roleName) };
+			return { ...entry, onSelect: () => handleAssignContextRole(roleName) };
 		}
 		if (item.id.startsWith('remove-role:')) {
-			return { ...item, onSelect: () => handleRemoveContextRole() };
+			return { ...entry, onSelect: () => handleRemoveContextRole() };
 		}
-		return item;
+		return entry;
 	});
 
-	function getDisplayColor(user: User): string {
-		return resolveUserDisplayColor(user.roleColor, user.color);
-	}
+	$: profileKey = showProfile && profileUser ? personKey(profileUser) : null;
 </script>
 
 <div class="user-list-tab">
-	{#if $displayEnhancementSettingsStore.betterFriendListEnabled}
-		<div class="friend-toolbar">
-			<input
-				type="text"
-				class="friend-search"
-				placeholder="Search people..."
-				bind:value={friendSearchQuery}
-			/>
-			<div class="friend-toolbar-row">
-				<select class="friend-select" bind:value={friendPresenceFilter}>
-					<option value="all">All</option>
-					<option value="active">Online</option>
-					<option value="away">Away</option>
-					<option value="busy">Busy</option>
-					<option value="offline">Offline</option>
-				</select>
-				<select class="friend-select" bind:value={friendSortMode}>
-					<option value="role">Role</option>
-					<option value="name">Name</option>
-					<option value="status">Status</option>
-				</select>
-			</div>
+	{#if isEnhanced}
+		<div class="people-rowb">
+			<label class="w-field w-field--chrome people-find">
+				<Icon name="search" size={16} />
+				<input
+					type="search"
+					bind:value={friendSearchQuery}
+					placeholder="Search people"
+					aria-label="Search people"
+					autocomplete="off"
+					spellcheck="false"
+				/>
+			</label>
+			<Menu
+				items={filterMenuItems}
+				label="Show and group people"
+				triggerLabel={filterApplied ? `Filter people, showing ${PEOPLE_SHOW_LABELS[peopleShow].toLowerCase()}` : 'Filter people'}
+				class={filterApplied ? 'w-ibtn w-ibtn--edge w-ibtn--dot people-filter' : 'w-ibtn w-ibtn--edge people-filter'}
+				align="end"
+				heading="People"
+				onselect={handleFilterSelect}
+			>
+				<Icon name="sliders" />
+			</Menu>
 		</div>
-	{/if}
-
-	{#each sortedRoles as role}
-		<div class="role-group">
-			<div class="role-header">
-				{getRoleLabel(role, roleLabelMap)} - {groupedUsers[role].length}
-			</div>
-			{#each groupedUsers[role] as user, i (getUserRowKey(user, role, i))}
-				<div class="user-row-shell">
-					<button
-						class="user-row"
-						aria-label={isCurrentUserEntry(user, $currentUser) ? 'Open Notes' : `Message ${getDisplayName(user)}`}
-						on:click={() => handleUserClick(user)}
-						on:contextmenu={(e) => handleRightClick(e, user)}
-					>
-					<div class="user-avatar-wrap">
-						{#if user.profilePicture}
-							<ProfileMedia src={mediaUrl(user.profilePicture)} alt={getDisplayName(user)} class="user-avatar" />
-						{:else}
-							<div class="user-avatar-placeholder" style="--avatar-color: {user.color}">
-								{getDisplayName(user).charAt(0).toUpperCase()}
-							</div>
-						{/if}
-						{#if user.overlayUrl && $profileDecorationsVisible}
-							<ProfileDecoration {user} class="avatar-overlay-badge" />
-						{/if}
-						<span class="presence-dot" class:active={user.status === 'active'} class:away={user.status === 'away'} class:busy={user.status === 'busy'} style="--status-color: {getStatusColor(user.status)}"></span>
-					</div>
-					<div class="user-info">
-						<span class="user-name-row">
-							<span class="user-display-name" style="color: {getDisplayColor(user)}">
-								<ProfileName username={getDisplayName(user)} font={user.usernameFont} color={getDisplayColor(user)} />
-							</span>
-							<RoleBadge {user} size="sm" />
-						</span>
-						{#if user.handle}
-							<span class="user-handle">@{user.handle}</span>
-						{/if}
-					</div>
+		{#if filterApplied}
+			<div class="people-chips">
+				<span class="w-tag people-chip">
+					{PEOPLE_SHOW_LABELS[peopleShow]} only
+					<button type="button" class="people-chip-clear" aria-label="Show everyone" on:click={() => (peopleShow = 'all')}>
+						<Icon name="x" size={12} />
 					</button>
-					<button type="button" class="user-row-actions" aria-label={`Actions for ${getDisplayName(user)}`} title={`Actions for ${getDisplayName(user)}`} on:click={(e) => handleMoreClick(e, user)} on:contextmenu={(e) => handleRightClick(e, user)}>⋯</button>
-				</div>
-			{/each}
-		</div>
-	{/each}
+				</span>
+			</div>
+		{/if}
+	{/if}
 
-	{#if offlineUsers.length > 0}
-		<div class="role-group">
-			<button class="role-header offline-toggle" on:click={() => (offlineSectionExpanded = !offlineSectionExpanded)}>
-				<span class="offline-chevron" class:expanded={offlineSectionExpanded}>›</span>
-				Offline — {offlineUsers.length}
-			</button>
-			{#if offlineSectionExpanded}
-				{#each offlineUsers as user, i (getUserRowKey(user, 'offline', i))}
-					<div class="user-row-shell">
+	<div class="people-body">
+		{#each groupViews as group (group.id)}
+			<div class="people-group" role="group" aria-labelledby={group.headingId}>
+				{#if group.kind === 'offline'}
+					<h3 class="people-head">
 						<button
-							class="user-row offline"
-							aria-label={isCurrentUserEntry(user, $currentUser) ? 'Open Notes' : `Message ${getDisplayName(user)}`}
-							on:click={() => handleUserClick(user)}
-							on:contextmenu={(e) => handleRightClick(e, user)}
+							type="button"
+							class="people-head-toggle"
+							aria-expanded={offlineOpen}
+							aria-controls={`${group.headingId}-rows`}
+							on:click={() => (offlineSectionExpanded = !offlineOpen)}
 						>
-						<div class="user-avatar-wrap">
-							{#if user.profilePicture}
-								<ProfileMedia src={mediaUrl(user.profilePicture)} alt={getDisplayName(user)} class="user-avatar" />
-							{:else}
-								<div class="user-avatar-placeholder" style="--avatar-color: {user.color}">
-									{getDisplayName(user).charAt(0).toUpperCase()}
-								</div>
-							{/if}
-							{#if user.overlayUrl && $profileDecorationsVisible}
-								<ProfileDecoration {user} class="avatar-overlay-badge" />
-						{/if}
-						<span class="presence-dot" style="--status-color: {getStatusColor('offline')}"></span>
-						</div>
-						<div class="user-info">
-							<span class="user-name-row">
-								<span class="user-display-name" style="color: {getDisplayColor(user)}">
-									<ProfileName username={getDisplayName(user)} font={user.usernameFont} color={getDisplayColor(user)} />
-								</span>
-								<RoleBadge {user} size="sm" />
-							</span>
-							{#if user.handle}
-								<span class="user-handle">@{user.handle}</span>
-							{/if}
-						</div>
+							<span class="w-kicker" id={group.headingId}>{group.label}</span>
+							<span class="people-rule" aria-hidden="true"></span>
+							<span class="w-count" aria-label={`${group.rows.length} offline`}>{group.rows.length}</span>
+							<Icon name={offlineOpen ? 'chevUp' : 'chevDown'} size={14} />
 						</button>
-						<button type="button" class="user-row-actions" aria-label={`Actions for ${getDisplayName(user)}`} title={`Actions for ${getDisplayName(user)}`} on:click={(e) => handleMoreClick(e, user)} on:contextmenu={(e) => handleRightClick(e, user)}>⋯</button>
+					</h3>
+				{:else}
+					<h3 class="people-head">
+						<span class="w-kicker" id={group.headingId}>{group.label}</span>
+						<span class="people-rule" aria-hidden="true"></span>
+						<span class="w-count" aria-label={`${group.rows.length} ${group.rows.length === 1 ? 'person' : 'people'}`}>{group.rows.length}</span>
+					</h3>
+				{/if}
+				{#if group.kind !== 'offline' || offlineOpen}
+					<div class="people-rows" id={`${group.headingId}-rows`}>
+						{#each group.rows as row (row.key)}
+							<div
+								class="prow-shell"
+								class:is-away={row.presence === 'away'}
+								class:is-offline={row.presence === 'offline'}
+								style={row.ink}
+							>
+								<button
+									type="button"
+									class="prow"
+									data-member-row
+									aria-label={row.ariaLabel}
+									aria-haspopup="dialog"
+									aria-expanded={profileKey === personKey(row.user) && profileAnchor !== null}
+									on:click={(event) => openProfileFor(row.user, event.currentTarget)}
+									on:contextmenu={(event) => handleRightClick(event, row.user)}
+								>
+									<span class="prow-av" class:is-speaking={row.speaking}>
+										{#if row.user.profilePicture}
+											<ProfileMedia src={mediaUrl(row.user.profilePicture)} decorative class="prow-pic" />
+										{:else}
+											<span class="prow-stamp" aria-hidden="true">{row.initial}</span>
+										{/if}
+										{#if row.user.overlayUrl && $profileDecorationsVisible}
+											<ProfileDecoration user={row.user} class="avatar-overlay-badge" />
+										{/if}
+										<span class="prow-presence" data-presence={row.presence} aria-hidden="true"></span>
+									</span>
+									<span class="prow-text">
+										<span class="prow-name"><ProfileName username={row.name} font={row.user.usernameFont} color={row.nameColor} /></span>
+										{#if row.subline}
+											<span class="prow-sub" class:is-handle={row.subline.tone === 'handle'} class:is-speaking={row.subline.tone === 'speaking'}>
+												{#if row.subline.glyph}<Icon name={row.subline.glyph} size={12} />{/if}
+												<span class="prow-sub-text">{row.subline.text}</span>
+											</span>
+										{/if}
+									</span>
+									{#if row.roleWord}
+										<span class="w-role prow-role" title={row.roleTitle}>{row.roleWord}</span>
+									{/if}
+								</button>
+								<button
+									type="button"
+									class="w-ibtn w-ibtn--sm prow-more"
+									aria-label={`Actions for ${row.name}`}
+									aria-haspopup="menu"
+									on:click={(event) => handleMoreClick(event, row.user)}
+									on:contextmenu={(event) => handleRightClick(event, row.user)}
+								>
+									<Icon name="more" size={16} />
+								</button>
+							</div>
+						{/each}
 					</div>
-				{/each}
-			{/if}
-		</div>
-	{/if}
+				{/if}
+			</div>
+		{/each}
 
-	{#if sortedRoles.length === 0 && offlineUsers.length === 0}
-		<div class="empty-state">No people match the current filters.</div>
-	{/if}
+		{#if groupViews.length === 0}
+			{#if friendSearchQuery.trim() || filterApplied}
+				<EmptyState
+					class="people-empty"
+					as="p"
+					icon="users"
+					title="No one matches"
+					text={friendSearchQuery.trim() ? 'Try another name or handle.' : `No one is ${PEOPLE_SHOW_LABELS[peopleShow].toLowerCase()} right now.`}
+					action={friendSearchQuery.trim() ? 'Clear search' : 'Show everyone'}
+					onaction={() => (friendSearchQuery.trim() ? clearSearch() : (peopleShow = 'all'))}
+				/>
+			{:else}
+				<EmptyState
+					class="people-empty"
+					as="p"
+					icon="users"
+					title="No one here yet"
+					text="People appear here as soon as they join this community."
+				/>
+			{/if}
+		{/if}
+	</div>
 
 	<ContextMenu
 		open={showContextMenu && !!contextMenuUser}
 		x={contextMenuPosition.x}
 		y={contextMenuPosition.y}
 		items={userMenuItems}
-		ariaLabel="User list actions"
+		ariaLabel="Member actions"
 		headerLabel={contextMenuUser ? getDisplayName(contextMenuUser) : null}
 		on:close={closeContextMenu}
 	/>

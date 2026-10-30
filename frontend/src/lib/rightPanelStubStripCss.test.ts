@@ -5,6 +5,12 @@ import { fileURLToPath } from 'node:url';
 const css = readFileSync(new URL('./components/RightStubStrip.css', import.meta.url), 'utf8');
 const layout = readFileSync(new URL('../styles/components/main-layout-part1.css', import.meta.url), 'utf8');
 const mainLayout = readFileSync(new URL('./components/MainLayout.svelte', import.meta.url), 'utf8');
+const panelCss = readFileSync(new URL('./components/RightPanel.css', import.meta.url), 'utf8');
+const panelSvelte = readFileSync(new URL('./components/RightPanel.svelte', import.meta.url), 'utf8');
+const panelSkin = readFileSync(new URL('../styles/surfaces/panel.css', import.meta.url), 'utf8');
+const tokens = readFileSync(new URL('../styles/tokens.css', import.meta.url), 'utf8');
+/** `var(--w-rail-w)`, with or without a fallback (MainLayout's sheet may still carry one). */
+const RAIL_W = String.raw`var\(--w-rail-w(?:, \d+px)?\)`;
 
 type MarkupTag = { name: string; attrs: string; depth: number };
 const VOID_ELEMENTS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
@@ -119,19 +125,19 @@ describe('right rail geometry', () => {
 
 	test('the stage reserves rail + pinned dock width, so a pinned panel never covers it', () => {
 		const reserve = rule(layout, '.app-container.rail-on');
-		expect(reserve).toContain('padding-right: calc(var(--w-rail-w, 46px) + var(--w-dock-w, 0px))');
-		expect(rule(layout, '.app-container.rail-on.rail-left')).toContain('padding-left: calc(var(--w-rail-w, 46px) + var(--w-dock-w, 0px))');
+		expect(reserve).toMatch(new RegExp(String.raw`padding-right: calc\(${RAIL_W} \+ var\(--w-dock-w, 0px\)\)`));
+		expect(rule(layout, '.app-container.rail-on.rail-left')).toMatch(new RegExp(String.raw`padding-left: calc\(${RAIL_W} \+ var\(--w-dock-w, 0px\)\)`));
 	});
 
 	test('the panel zone hangs from the rail; its width comes from the clamp, not a CSS cap', () => {
 		const zone = rules(layout, '.right-panel-zone');
 		expect(zone).toContain('position: fixed');
-		expect(zone).toContain('right: var(--w-rail-w, 46px)');
+		expect(zone).toMatch(new RegExp(`right: ${RAIL_W}`));
 		expect(zone).toContain('box-shadow: none');
 		// dockClamp.ts decides pin vs peek and the width; a viewport cap here would fight it.
 		expect(zone).not.toContain('max-width');
 		expect(layout).not.toContain('55vw');
-		expect(rules(layout, '.right-panel-zone.stub-left')).toContain('left: var(--w-rail-w, 46px)');
+		expect(rules(layout, '.right-panel-zone.stub-left')).toMatch(new RegExp(`left: ${RAIL_W}`));
 	});
 
 	test('pinned is plane 0: flat --w-bg2 with a --w-line hairline, no gradients or accent tint', () => {
@@ -195,12 +201,13 @@ describe('right rail geometry', () => {
 	test('the stage parts stay direct children of .chat-stack (inert goes on each part, not a wrapper)', () => {
 		const children = directChildren('<div class="chat-stack"');
 		const names = children.map((tag) => tag.name);
-		expect(names).toContain('WorkspaceViewBar');
+		// The stage masthead (StageBar, §7.23) is one of the parts: it is mounted once above every workspace.
+		expect(names).toContain('StageBar');
 		expect(names).toContain('VoiceLiveStrip');
 		expect(children.some((tag) => classesOf(tag.attrs).includes('chat-surface'))).toBe(true);
 		expect(children.every((tag) => tag.name !== 'div' || classesOf(tag.attrs).length > 0)).toBe(true);
 		expect(mainLayout).not.toContain('stage-covered');
-		expect(mainLayout).toMatch(/const STAGE_PARTS = '\.workspace-view-bar, \.chat-surface, \.voice-live-strip'/);
+		expect(mainLayout).toMatch(/const STAGE_PARTS = '\.stage-bar, \.chat-surface, \.voice-live-strip'/);
 	});
 
 	test('every rule that targets a .chat-stack child with a child combinator still matches one', () => {
@@ -208,7 +215,7 @@ describe('right rail geometry', () => {
 		// Each compound part runs to the next '.', ':' or '(', so a selector splits only one way.
 		const targets = new Set(sheets.flatMap((sheet) => [...sheet.matchAll(/\.chat-stack(?:[:.][^\s,{>:.(]*(?:\([^)]*\))?)*\s*>\s*\.([\w-]+)/g)].map((match) => match[1])));
 		const present = new Set(directChildren('<div class="chat-stack"').flatMap(childClasses));
-		expect(present.has('workspace-view-bar')).toBe(true);
+		expect(present.has('stage-bar')).toBe(true);
 		for (const target of targets) expect(present.has(target), `.chat-stack > .${target} no longer matches`).toBe(true);
 	});
 
@@ -233,26 +240,187 @@ describe('right rail geometry', () => {
 	});
 
 	test('the rail is hidden in focus mode', () => {
-		expect(css).toContain('.app-container.focus-mode) .rail');
+		// A plain stylesheet: Svelte's :global() would make the whole rule invalid here.
+		expect(rule(css, '.app-container.focus-mode .rail')).toContain('display: none');
+		expect(css).not.toContain(':global(');
+		expect(panelCss).not.toContain(':global(');
+	});
+});
+
+// Contract §7.22: 44px on --w-bg, vertical sans labels, the pinned stub a folder tab joined to the panel.
+describe('stub rail (§7.22)', () => {
+	test('the rail is 44px from tokens.css: no later override of --w-rail-w', () => {
+		expect(tokens).toMatch(/--w-rail-w:\s*44px/);
+		expect(css).not.toMatch(/--w-rail-w\s*:/);
+		expect(css).not.toContain('46px');
+	});
+
+	test('the rail is page plane --w-bg with a hairline toward the stage, none where a pin joins it', () => {
+		expect(rule(css, '.rail')).toContain('background: var(--w-bg)');
+		expect(rule(css, '.rail.side-right')).toContain('box-shadow: inset var(--w-bw) 0 0 var(--w-line)');
+		expect(rule(css, '.rail.side-left')).toContain('box-shadow: inset calc(-1 * var(--w-bw)) 0 0 var(--w-line)');
+		expect(rule(css, '.rail.joined')).toContain('box-shadow: none');
+	});
+
+	test('stubs: 18px glyph over a vertical sans 500 11px label, padding 12 0 14, --w-mute', () => {
+		const stub = rule(css, '.stub');
+		expect(stub).toContain('padding: 12px 0 14px');
+		expect(stub).toContain('color: var(--w-mute)');
+		expect(stub).not.toMatch(/transition:\s*all/);
+		const icon = rule(css, '.stub-icon');
+		expect(icon).toContain('width: 18px');
+		expect(icon).toContain('height: 18px');
+		const label = rule(css, '.stub-label');
+		expect(label).toContain('writing-mode: vertical-rl');
+		expect(label).toContain('font: 500 calc(11px * var(--w-fs)) / 1 var(--w-sans)');
+		expect(label).toContain('letter-spacing: 0.06em');
+		expect(label).not.toContain('rotate');
+		expect(rule(css, '.stub:hover')).toContain('background: color-mix(in srgb, var(--w-raise) 60%, transparent)');
+		expect(rule(css, '.stub:focus-visible')).toContain('outline-offset: -2px');
+	});
+
+	test('the pinned stub is a folder tab: --w-bg2 fill, three outer hairlines, outer radius, --w-sig glyph', () => {
+		expect(rules(css, '.stub.pinned,\n.stub.pinned:hover')).toContain('background: var(--w-bg2)');
+		const right = rule(css, '.rail.side-right .stub.pinned');
+		expect(right).toContain('inset 0 var(--w-bw) 0 var(--w-line)');
+		expect(right).toContain('inset 0 calc(-1 * var(--w-bw)) 0 var(--w-line)');
+		expect(right).toContain('inset calc(-1 * var(--w-bw)) 0 0 var(--w-line)');
+		expect(right).not.toMatch(/inset var\(--w-bw\) 0 0/);
+		expect(rule(css, '.rail.side-left .stub.pinned')).toContain('inset var(--w-bw) 0 0 var(--w-line)');
+		expect(rule(css, '.stub')).toContain('border-radius: 0 var(--radius-md) var(--radius-md) 0');
+		expect(rule(css, '.stub.pinned .stub-icon')).toContain('color: var(--w-sig)');
+		// No accent ring or accent-soft pill: accent means state, the tab means place.
+		expect(css).not.toContain('--w-accent-soft');
+	});
+
+	test('a peeked stub is a --w-raise fill with no tab join; a stowed pin has a quiet cue', () => {
+		const peeked = rule(css, '.stub.peeked');
+		expect(peeked).toContain('background: var(--w-raise)');
+		expect(peeked).not.toContain('box-shadow');
+		expect(rule(css, '.stub.stowed::before')).toContain('dashed var(--w-line-strong)');
+	});
+
+	test('High Contrast rings hover instead of filling it', () => {
+		expect(rule(css, ":root[data-char='contrast'] .stub:not(.pinned):hover")).toContain('box-shadow: inset 0 0 0 1px var(--w-line-strong)');
+	});
+
+	test('badges are the kit small ink badge with a ring in the surface colour', () => {
+		const strip = readFileSync(new URL('./components/RightStubStrip.svelte', import.meta.url), 'utf8');
+		expect(strip).toContain('class="stub-badge w-badge w-badge--sm w-badge--ring"');
+		expect(rule(css, '.stub-badge')).toContain('--w-badge-ring: var(--w-bg)');
+		expect(rule(css, '.stub.pinned .stub-badge')).toContain('--w-badge-ring: var(--w-bg2)');
+		expect(css).not.toContain('--w-on-accent');
+	});
+
+	test('"Add panels" sits in the 80px footer band under the footer rule', () => {
+		const foot = rule(css, '.rail-foot');
+		expect(foot).toContain('height: var(--w-foot, 80px)');
+		expect(foot).toContain('border-top: var(--w-bw) solid var(--w-line)');
+	});
+
+	test('tooltips are the portaled kit tooltip, never a clipped ::after', () => {
+		const strip = readFileSync(new URL('./components/RightStubStrip.svelte', import.meta.url), 'utf8');
+		expect(css).not.toContain('attr(data-tip)');
+		expect(strip).not.toContain('data-tip=');
+		expect(strip).toContain("import Tooltip from './ui/Tooltip.svelte'");
+		expect(strip).toMatch(/<Tooltip text=\{stubTip\(panel\)\} placement=\{tipSide\}/);
+	});
+
+	test('rail chrome is on roles only: no raw colours, legacy tokens or gradients', () => {
+		expect(css).not.toMatch(/rgba?\(|#[0-9a-f]{3,8}\b|gradient\(/i);
+		expect(css).not.toMatch(/--(surface|text|accent-primary|border)-/);
+	});
+});
+
+// Contract §7.21: one frame for every companion.
+describe('companion panel frame (§7.21)', () => {
+	test('row A is 56px with a serif heading title and a mono count; row B is 40px with the masthead rule', () => {
+		const rowA = rule(panelCss, '.w-panel__a');
+		expect(rowA).toContain('height: var(--w-head-a, 56px)');
+		expect(rule(panelCss, '.w-panel__title')).toContain('font: var(--w-t-heading)');
+		expect(rule(panelCss, '.w-panel__count')).toContain('font: var(--w-t-mono)');
+		const rowB = rule(panelCss, '.w-panel__b');
+		expect(rowB).toContain('height: var(--w-head-b, 40px)');
+		expect(rowB).toContain('border-bottom: var(--w-bw) solid var(--w-line)');
+	});
+
+	test('the frame paints no surface of its own: no gradients, glows or legacy tokens', () => {
+		expect(panelCss).not.toMatch(/gradient\(|rgba?\(|#[0-9a-f]{3,8}\b/i);
+		expect(panelCss).not.toMatch(/--(surface|text|accent-primary|border)-|--accent-rgb/);
+		expect(rule(panelCss, '.right-panel')).not.toContain('background');
+	});
+
+	test('row A holds Open in center stage, Pin (peek with room) and Unpin/Close as icon buttons', () => {
+		expect(panelSvelte).toContain("iconAction('Open in center stage', 'expand'");
+		expect(panelSvelte).toContain("iconAction('Pin beside the page', 'pin'");
+		expect(panelSvelte).toContain("iconAction(closeLabel(panel), 'x'");
+		// The × of a peek ends the peek; an explicit Unpin takes only that panel (never closeRightPanel).
+		expect(panelSvelte).toMatch(/if \(shownAsPeek\(panel\)\) endPeek\(\);\s*else layoutStore\.unpinOne\(panel\.id\);/);
+		expect(panelSvelte).not.toContain('closeRightPanel');
+	});
+
+	test('stacked mode: 40px section headers that collapse, no ↑ ↓ × text glyphs', () => {
+		expect(rule(panelCss, '.w-panel__sec')).toContain('height: 40px');
+		expect(rules(panelCss, '.w-panel__sec-toggle')).toContain('font: 600 calc(15px * var(--w-fs))');
+		// The top section's header is row A (56): the masthead rule stays at y = 96 in a stack too.
+		expect(rule(panelCss, '.dock-section:first-child .w-panel__sec')).toContain('height: var(--w-head-a, 56px)');
+		expect(panelSvelte).toContain('aria-expanded={!folded}');
+		expect(panelSvelte).not.toMatch(/>[↑↓×]</);
+	});
+
+	test('pins under a peek of another panel stay mounted, hidden', () => {
+		expect(panelSvelte).toContain('hidden={view.hidden}');
+		expect(rule(panelCss, '.w-panel__view[hidden]')).toContain('display: none');
+	});
+
+	test('panel field skin skips kit fields and dialogs opened from the panel; no frost', () => {
+		const head = panelSkin.slice(0, panelSkin.indexOf('/* HELD FOR'));
+		expect(head).toContain(":not(.w-field, .w-field *, .w-select, .w-select *, .modal-overlay *, [role='dialog'] *)");
+		expect(head).not.toMatch(/backdrop-filter|!important|data-ambient/);
 	});
 });
 
 describe('rail menu and stowed note for assistive tech', () => {
 	const strip = readFileSync(new URL('./components/RightStubStrip.svelte', import.meta.url), 'utf8');
-	const menu = strip.slice(strip.indexOf('aria-label="Rail options"'), strip.indexOf('{#if drawerOpen}'));
+	const menu = strip.slice(strip.indexOf('const menuItems = $derived.by('), strip.indexOf('const menuPanel'));
 
-	test('the stowed note is read only as a stub description, never as loose rail text', () => {
-		expect(strip).toContain('<span id={stowedNoteId} hidden>{STOWED_NOTE}</span>');
+	test('the stowed state is said in words in the stub tooltip, which describes the stub', () => {
+		expect(strip).toContain("const STOWED_NOTE = 'Pinned, shown when there is room';");
+		expect(strip).toContain('const stowed = isStowed(panel.id) ? ` · ${STOWED_NOTE.toLowerCase()}` : \'\';');
 	});
 
-	test('unavailable rail menu items stay reachable by arrow keys and explain themselves', () => {
+	test('the rail menu is the one kit menu: Pin / Unpin first, then Move up / Move down / Remove', () => {
+		expect(strip).toContain("import ContextMenu, { type MenuEntry } from './context-menu/ContextMenu.svelte'");
+		expect(strip).toContain('ariaLabel="Rail options"');
+		const order = ["id: 'unpin'", "id: 'pin'", "id: 'up'", "id: 'down'", "id: 'remove'"].map((id) => menu.indexOf(id));
+		expect(order.every((index) => index > -1)).toBe(true);
+		expect([...order].sort((a, b) => a - b)).toEqual(order);
+	});
+
+	test('unavailable rail menu items stay reachable and explain themselves', () => {
 		expect(menu.length).toBeGreaterThan(0);
-		// aria-disabled keeps an item focusable (WAI-ARIA menu pattern); native disabled would skip it.
-		expect(menu).not.toMatch(/\sdisabled=\{/);
-		expect(menu).toContain("aria-disabled={!$dockCanPin}");
-		expect(menu).toContain("{$dockCanPin ? 'Pin' : 'Pin · needs a wider window'}");
-		expect(css).toContain(".context-menu-item:is(:disabled, [aria-disabled='true'])");
+		// ContextMenu keeps disabled rows focusable (aria-disabled) and shows their hint.
+		expect(menu).toContain('disabled: !$dockCanPin');
+		expect(menu).toContain("hint: $dockCanPin ? undefined : 'Needs a wider window'");
 		// The edges guard themselves, since a focusable unavailable item can still be activated.
 		expect(strip).toMatch(/if \(index < 0 \|\| target < 0 \|\| target >= \$layoutStore\.stubStrip\.length\) return;/);
+	});
+
+	test('right-click and focus never swap the panel on screen', () => {
+		const focus = strip.slice(strip.indexOf('function handleStubFocus'), strip.indexOf('function handleStubLeave'));
+		expect(focus).not.toMatch(/peekPanel|openPanelFromRail|setDisplayedPanel/);
+		const context = strip.slice(strip.indexOf('function handleStubContextMenu'), strip.indexOf('function togglePinFromMenu'));
+		expect(context).not.toMatch(/peekPanel|openPanelFromRail|setDisplayedPanel|activeRightTab/);
+		const enter = strip.slice(strip.indexOf('function handleStubEnter'), strip.indexOf('function handleStubFocus'));
+		expect(enter).toContain('if (dragId || panelCommitted()) return;');
+	});
+
+	test('Add panels: rows with descriptions, then a Rail group with Side and Open on hover segments and Reset rail', () => {
+		expect(strip).toContain('class="panel-tab-desc"');
+		expect(strip).toContain('>Rail</h3>');
+		expect(strip).toContain("options={[{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }]}");
+		expect(strip).toContain("options={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]}");
+		expect(strip).toContain('>Reset rail</button>');
+		expect(rule(css, '.panel-drawer-item')).toContain('min-height: 40px');
 	});
 });

@@ -36,6 +36,16 @@ import {
 	getDockActivePanelId
 } from '$lib/layoutStoreUtils';
 import { getWorkspace, createDefaultLayoutState } from '$lib/docking/layoutSchema';
+import {
+	BUILTIN_WORKSPACE_PANELS,
+	choosePanelChannel,
+	coercePluginWorkspacePanels,
+	panelChannelChoice,
+	panelFrameCounts,
+	resolvePanelChannel,
+	setPanelFrameCount
+} from '$lib/workspacePanels';
+import { ICON_NAMES } from '$lib/components/ui/icons';
 import { get } from 'svelte/store';
 
 // The store modules guard every localStorage/window access, so they are safe
@@ -298,5 +308,81 @@ describe('pinned-panel persistence (syncWorkspaceFromRuntime → applyWorkspaceT
 		applyWorkspaceToRuntime(workspace);
 		expect(get(rightPanelMode)).toBe('none');
 		expect(get(pinnedPanelId)).toBeNull();
+	});
+});
+
+describe('companion manifests (§7.22, §9.4, §9.6)', () => {
+	const byId = new Map(BUILTIN_WORKSPACE_PANELS.map((panel) => [panel.id, panel] as const));
+
+	test('one unabbreviated name per place: DMs, Transfers, Models', () => {
+		expect(byId.get('dms')?.label).toBe('DMs');
+		expect(byId.get('transfers')?.label).toBe('Transfers');
+		expect(byId.get('model-viewport')?.label).toBe('Models');
+		const railWords = BUILTIN_WORKSPACE_PANELS.map((panel) => panel.shortLabel || panel.label);
+		for (const retired of ['Xfers', 'CAD', 'CAD & 3D', 'Messages']) expect(railWords).not.toContain(retired);
+	});
+
+	test('Calls uses the voice glyph; headphones mean Listening (§6)', () => {
+		expect(byId.get('calls')?.icon).toBe('voice');
+		expect(BUILTIN_WORKSPACE_PANELS.some((panel) => panel.icon === 'headphones')).toBe(false);
+	});
+
+	test('every built-in panel has a one-line description for Add panels and its frame', () => {
+		for (const panel of BUILTIN_WORKSPACE_PANELS) {
+			expect(panel.description, panel.id).toBeTruthy();
+			expect(panel.description!.length, panel.id).toBeLessThanOrEqual(42);
+			expect(panel.description, panel.id).not.toMatch(/\.$/);
+		}
+	});
+
+	test('the panels that draw their own row B, and the ones that open in center stage', () => {
+		const own = BUILTIN_WORKSPACE_PANELS.filter((panel) => panel.ownsToolbar).map((panel) => panel.id).sort();
+		expect(own).toEqual(['dms', 'forum', 'notes', 'users', 'wiki']);
+		const stage = BUILTIN_WORKSPACE_PANELS.filter((panel) => panel.opensInStage).map((panel) => panel.id).sort();
+		expect(stage).toEqual(['dms', 'forum', 'notes', 'wiki']);
+	});
+
+	test('panel glyph names resolve to the registry or the panel vocabulary', () => {
+		const vocabulary = ['users', 'messages', 'notes', 'wiki', 'forum', 'layers', 'map', 'media', 'admin', 'box', 'activity', 'tasks', 'settings', 'transfers', 'headphones'];
+		for (const panel of BUILTIN_WORKSPACE_PANELS) {
+			expect(vocabulary.includes(panel.icon) || (ICON_NAMES as readonly string[]).includes(panel.icon), panel.id).toBe(true);
+		}
+	});
+
+	test('add-on panels carry their declared description', () => {
+		const [panel] = coercePluginWorkspacePanels({ id: 'demo', workspacePanels: [{ id: 'one', label: 'Demo', description: '  Shows a demo  ' }] });
+		expect(panel.description).toBe('Shows a demo');
+		const [bare] = coercePluginWorkspacePanels({ id: 'demo', workspacePanels: [{ id: 'two', label: 'Bare' }] });
+		expect(bare.description).toBeUndefined();
+	});
+});
+
+describe('companion frame state', () => {
+	test('a panel publishes its count; null clears it', () => {
+		setPanelFrameCount('users', 8);
+		expect(get(panelFrameCounts).users).toBe(8);
+		setPanelFrameCount('users', null);
+		expect('users' in get(panelFrameCounts)).toBe(false);
+	});
+
+	test('Wiki/Forum: one channel opens directly; several show the picker until one is chosen', () => {
+		const one = [{ id: 'w1' }];
+		const several = [{ id: 'w1' }, { id: 'w2' }];
+		expect(resolvePanelChannel(null, one, null)).toBe('w1');
+		expect(resolvePanelChannel(null, several, null)).toBeNull();
+		expect(resolvePanelChannel(null, several, 'w2')).toBe('w2');
+		expect(resolvePanelChannel('w1', several, 'w2')).toBe('w1');
+		// A chosen channel that is gone falls back instead of showing a dead page.
+		expect(resolvePanelChannel('gone', several, null)).toBeNull();
+		expect(resolvePanelChannel(null, [], null)).toBeNull();
+	});
+
+	test('the chosen channel is kept per kind', () => {
+		choosePanelChannel('wiki', 'w2');
+		choosePanelChannel('forum', 'f1');
+		expect(get(panelChannelChoice)).toEqual({ wiki: 'w2', forum: 'f1' });
+		choosePanelChannel('wiki', null);
+		choosePanelChannel('forum', null);
+		expect(get(panelChannelChoice)).toEqual({ wiki: null, forum: null });
 	});
 });
