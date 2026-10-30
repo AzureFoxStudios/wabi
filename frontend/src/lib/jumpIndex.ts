@@ -11,7 +11,7 @@
  *   the `PREVIEW` maturity tag, and Sheets/Present say "off on this device" while their add-on is
  *   off here (§9.1). Nothing says "Beta", "New" or "Available".
  * - A recent office document is a "Local draft" until it has server metadata; once shared it gets
- *   the seal chip "Server-readable" and its role in the subtitle ("Shared · Editor", §9.3).
+ *   the tag "Shared · <role>" and the seal chip "Server-readable" (§9.3).
  * - A DM or group carries its privacy state only when the room status is known; an unknown status
  *   is left unsaid rather than guessed (`privacyStateFor` owns the words, §9.2). Community channels
  *   are never labelled encrypted.
@@ -61,13 +61,14 @@ export const PREVIEW_TITLE = 'Integration candidate, not a deployed feature';
 /** §9.2 office share wording: who can read a shared document. */
 export const SHARED_DOCUMENT_TITLE = 'Published to this server. The server operator can read this document.';
 export const LOCAL_DRAFT_TITLE = 'Only on this device until you share it';
+export const SHARED_TAG_TITLE = 'Published to this server; your role on it';
 
 export type JumpTruth =
 	/** `.w-tag--mat` PREVIEW. */
 	| { kind: 'maturity'; label: 'PREVIEW'; title: string }
 	/** Lowercase micro hint: "off on this device". */
 	| { kind: 'hint'; label: string }
-	/** Locality tag: "Local draft". */
+	/** Locality tag: "Local draft", or "Shared · <role>" for a shared office document. */
 	| { kind: 'locality'; label: string; title: string }
 	/** Seal chip for a shared office document: "Server-readable". */
 	| { kind: 'seal'; label: 'Server-readable'; title: string }
@@ -87,6 +88,11 @@ export type OfficeTool = 'documents' | 'sheets' | 'present';
  * or not known yet (its setting has not been read). Only a known "off" says "off on this device".
  */
 export type OfficeAddonState = 'on' | 'off' | 'unavailable' | 'unknown';
+/**
+ * Actions are verbs that do what they say (§9.6). "New task" opens My Planner's board with focus on
+ * its New task button (one Enter from the form): My Planner cannot yet be asked to open the form
+ * from outside, and its subtitle says where it lands.
+ */
 export type JumpActionId = 'new-document' | 'new-task' | 'mark-all-read' | 'open-settings';
 
 export type JumpTarget =
@@ -98,6 +104,44 @@ export type JumpTarget =
 	| { type: 'person'; personId: string }
 	| { type: 'document'; documentId: string; tool: OfficeTool }
 	| { type: 'action'; action: JumpActionId };
+
+/**
+ * One shell step of a jump; the palette runs them in order. `view` is the shell's workspace picker
+ * (it also closes a center DM), `dm` is the DM view (`wabi:navigate`), `planner-board` is
+ * My Planner's board deep link, read when the planner mounts.
+ */
+export type JumpStep =
+	| { kind: 'channel'; channelId: string }
+	| { kind: 'view'; view: WorkspaceViewKey }
+	| { kind: 'dm'; channelId?: string }
+	| { kind: 'planner-board' };
+
+/**
+ * How the shell gets to a target. A center DM shows only while Chat holds center stage, so DMs
+ * and conversations first hand center stage back to Chat: from Calls or My Planner the DM view on
+ * its own lights the DMs row and leaves the old workspace on stage. The picker closes a center DM,
+ * so it runs before the DM opens. People, documents and the other actions need no shell step.
+ */
+export function jumpSteps(target: JumpTarget, activeView: WorkspaceViewKey | null = null): JumpStep[] {
+	switch (target.type) {
+		case 'view':
+			return [{ kind: 'view', view: target.view }];
+		case 'dms':
+			return [{ kind: 'view', view: 'messages' }, { kind: 'dm' }];
+		case 'conversation':
+			return [{ kind: 'view', view: 'messages' }, { kind: 'dm', channelId: target.channelId }];
+		case 'channel':
+			return [{ kind: 'channel', channelId: target.channelId }, { kind: 'view', view: 'messages' }];
+		case 'voice':
+			return [{ kind: 'view', view: 'voice' }];
+		case 'action':
+			if (target.action !== 'new-task') return [];
+			// An open planner has read its deep link already and keeps the view you chose there.
+			return activeView === 'planner' ? [{ kind: 'view', view: 'planner' }] : [{ kind: 'planner-board' }, { kind: 'view', view: 'planner' }];
+		default:
+			return [];
+	}
+}
 
 export interface JumpPersonTile {
 	/** The person's chosen color (user data; the palette passes it through identity ink). */
@@ -127,6 +171,10 @@ export interface JumpItem {
 	unread?: number;
 	/** Where you are: the current channel or workspace (glyph in `--w-sig`). */
 	current?: boolean;
+	/** A live voice room (people in it): the 6px `--w-online` mark after the name (§7.11). */
+	live?: boolean;
+	/** Listed but not runnable right now ("Mark all read" with nothing unread). */
+	disabled?: boolean;
 	target: JumpTarget;
 	/** Tie-breaker and the order when nothing is typed: unread, here now, recency. */
 	boost: number;
@@ -264,7 +312,8 @@ export function presenceOf(status: string | null | undefined): JumpPersonTile['p
 
 function initialOf(name: string): string {
 	const first = Array.from(name.trim())[0] ?? '?';
-	return first.toLocaleUpperCase();
+	// Locale-free on purpose: the same name gets the same initial in every runtime locale.
+	return first.toUpperCase();
 }
 
 function joinParts(...parts: (string | null | undefined | false)[]): string {
@@ -287,7 +336,8 @@ export function formatEdited(updatedAt: number, now: number = Date.now(), locale
 	if (sameDay(at, today)) {
 		when = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(at);
 	} else if (now - updatedAt < 6 * 86400000 && now > updatedAt) {
-		when = new Intl.DateTimeFormat(locale, { weekday: 'short', day: 'numeric' }).format(at);
+		// Within the week the weekday alone is unambiguous (and en-US would print "20 Sun").
+		when = new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(at);
 	} else if (at.getFullYear() === today.getFullYear()) {
 		when = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }).format(at);
 	} else {
@@ -335,20 +385,24 @@ export function buildJumpIndex(input: JumpIndexInput = {}): JumpItem[] {
 	documents.forEach((doc, index) => {
 		const kind = DOCUMENT_KIND[doc.kind];
 		const role = doc.role ? ROLE_WORD[doc.role] ?? null : null;
+		// §9.3: a shared office document is the tag "Shared · <role>" plus the seal chip.
+		const truths: JumpTruth[] = doc.shared
+			? [{ kind: 'locality', label: role ? `Shared · ${role}` : 'Shared', title: SHARED_TAG_TITLE }, SERVER_READABLE_DOC]
+			: [LOCAL_DRAFT];
 		items.push({
 			id: `document:${doc.kind}:${doc.id}`,
 			group: 'documents',
 			title: doc.title.trim() || 'Untitled',
-			subtitle: joinParts(kind.word, doc.shared && (role ? `Shared · ${role}` : 'Shared'), formatEdited(doc.updatedAt, now, input.locale)),
+			subtitle: joinParts(kind.word, formatEdited(doc.updatedAt, now, input.locale)),
 			keywords: [kind.word.toLowerCase(), doc.kind === 'document' ? 'doc' : doc.kind],
 			icon: kind.icon,
-			truths: [doc.shared ? SERVER_READABLE_DOC : LOCAL_DRAFT],
+			truths,
 			target: { type: 'document', documentId: doc.id, tool: kind.tool },
 			boost: 1 - index / Math.max(1, documents.length)
 		});
 	});
 
-	// Channels and conversations, in the order given (sidebar order).
+	// Channels and conversations, in the order given (the palette passes sidebar order).
 	const channels = input.channels ?? [];
 	const names = new Map(channels.map((channel) => [channel.id, channel.name]));
 	for (const channel of channels) {
@@ -385,6 +439,7 @@ export function buildJumpIndex(input: JumpIndexInput = {}): JumpItem[] {
 			truths,
 			unread: unread || undefined,
 			current: Boolean(channel.current),
+			live: voice && (channel.occupancy ?? 0) > 0 ? true : undefined,
 			target: conversation
 				? { type: 'conversation', channelId: channel.id }
 				: voice
@@ -415,15 +470,17 @@ export function buildJumpIndex(input: JumpIndexInput = {}): JumpItem[] {
 
 	// Actions.
 	const unreadChannels = Math.max(0, Math.floor(input.unreadChannels ?? 0));
-	const actions: { id: JumpActionId; title: string; subtitle: string; icon: IconName; keywords: string[]; truths?: JumpTruth[] }[] = [
+	const actions: { id: JumpActionId; title: string; subtitle: string; icon: IconName; keywords: string[]; truths?: JumpTruth[]; disabled?: boolean }[] = [
 		{ id: 'new-document', title: 'New document', subtitle: 'Starts as a local draft on this device', icon: 'plus', keywords: ['create', 'write', 'doc', 'draft'], truths: [PREVIEW] },
-		{ id: 'new-task', title: 'New task', subtitle: 'Opens My Planner', icon: 'checkSquare', keywords: ['create', 'todo', 'planner', 'add'] },
+		{ id: 'new-task', title: 'New task', subtitle: 'Opens the My Planner board at New task', icon: 'checkSquare', keywords: ['add task', 'create', 'todo', 'planner', 'board'] },
 		{
 			id: 'mark-all-read',
 			title: 'Mark all read',
-			subtitle: unreadChannels === 0 ? 'Nothing is unread' : unreadChannels === 1 ? '1 channel unread' : `${unreadChannels} channels unread`,
+			// Same rule as the sidebar menu: nothing unread, nothing to run.
+			subtitle: unreadChannels === 0 ? 'Nothing unread' : unreadChannels === 1 ? '1 channel unread' : `${unreadChannels} channels unread`,
 			icon: 'check',
-			keywords: ['unread', 'clear', 'read', 'badges']
+			keywords: ['unread', 'clear', 'read', 'badges'],
+			disabled: unreadChannels === 0
 		},
 		{ id: 'open-settings', title: 'Open settings', subtitle: 'Profile, appearance, notifications and privacy', icon: 'gear', keywords: ['preferences', 'settings', 'theme', 'appearance', 'profile', 'privacy'] }
 	];
@@ -436,6 +493,7 @@ export function buildJumpIndex(input: JumpIndexInput = {}): JumpItem[] {
 			keywords: action.keywords,
 			icon: action.icon,
 			truths: action.truths ?? [],
+			disabled: action.disabled || undefined,
 			target: { type: 'action', action: action.id },
 			boost: 0
 		});
@@ -475,7 +533,9 @@ function fold(source: string): Folded {
 	let offset = 0;
 	let previousIsWord = false;
 	for (const char of source) {
-		const folded = char.normalize('NFD').replace(COMBINING_MARK, '').toLocaleLowerCase();
+		// Locale-free lower-casing: under a Turkish runtime `toLocaleLowerCase` turns "I" into "ı",
+		// and a typed "iris" would never find "Iris". Accents go first, so "İ" folds to "i".
+		const folded = char.normalize('NFD').replace(COMBINING_MARK, '').toLowerCase();
 		const isWord = WORD_CHAR.test(char);
 		for (let unit = 0; unit < folded.length; unit++) {
 			text += folded[unit];
@@ -645,10 +705,16 @@ const BROWSE_LIMITS: Readonly<Record<JumpGroup, number>> = { workspaces: 4, docu
 const QUERY_LIMITS: Readonly<Record<JumpGroup, number>> = { workspaces: 4, documents: 4, channels: 6, people: 5, actions: 4 };
 /** A single scope lists all of it. */
 const SCOPED_LIMIT = 60;
+/**
+ * A scope with nothing typed reads like the table of contents: sidebar order for channels, folio
+ * order for workspaces, newest first for documents. People keep "here now first" (their boost).
+ */
+const CONTENTS_ORDER: ReadonlySet<JumpGroup> = new Set<JumpGroup>(['workspaces', 'documents', 'channels', 'actions']);
 
 /**
  * Rank `items` for `query` in `scope` and group them. With nothing typed, sections keep the
- * contract order and rows their `boost` order. With a query, rows rank by match score, then boost,
+ * contract order; Everything shows a taste of each in `boost` order (unread and here now first,
+ * where you are last) and a single scope lists its rows in contents order. With a query, rows rank by match score, then boost,
  * then input order, and sections follow their best row (fixed order breaks ties), so the first row
  * is always the best match.
  */
@@ -664,7 +730,8 @@ export function searchJump(items: readonly JumpItem[], query: string, scope: Pal
 			const match = typed ? matchJump(item.title, query, item.keywords) : { score: 0, ranges: [] };
 			if (match) ranked.push({ item, score: match.score, ranges: match.ranges, order });
 		});
-		ranked.sort((a, b) => b.score - a.score || b.item.boost - a.item.boost || a.order - b.order);
+		if (!typed && scope !== 'all' && CONTENTS_ORDER.has(group)) ranked.sort((a, b) => a.order - b.order);
+		else ranked.sort((a, b) => b.score - a.score || b.item.boost - a.item.boost || a.order - b.order);
 		const results = ranked.slice(0, Math.max(0, limit)).map(({ item, score, ranges }) => ({ item, score, ranges }));
 		if (results.length) sections.push({ group, results });
 	}
@@ -687,8 +754,16 @@ export interface PaletteKeyContext {
 	open: boolean;
 	/** The app shell is mounted, so a result has somewhere to go. */
 	appReady: boolean;
-	/** Another modal dialog is open; the palette does not open over it. */
-	modalOpen?: boolean;
+	/**
+	 * Another modal dialog is open; the palette does not open over it. A function is called only
+	 * once the key is known to be Ctrl K, so ordinary typing never queries the document.
+	 */
+	modalOpen?: boolean | (() => boolean);
+	/**
+	 * macOS: Ctrl K in a text field is the system "delete to the end of the line", so there only
+	 * ⌘K opens the palette. Ctrl K still opens it from anywhere else.
+	 */
+	mac?: boolean;
 }
 
 type ShortcutEvent = Parameters<typeof isPaletteShortcut>[0] & {
@@ -704,15 +779,61 @@ function keepsShortcut(target: EventTarget | null | undefined): boolean {
 	return Boolean(element && typeof element.closest === 'function' && element.closest(`[${KEEPS_PALETTE_SHORTCUT}]`));
 }
 
+/** Input types that edit a line of text (where macOS binds Ctrl K). */
+const TEXT_INPUT_TYPES: ReadonlySet<string> = new Set(['', 'text', 'search', 'email', 'url', 'tel', 'password', 'number']);
+
+/** A field the caret types into: a textarea, a text-like input, or editable content. */
+export function isTextEntry(target: EventTarget | null | undefined): boolean {
+	const element = target as { tagName?: string; type?: string; isContentEditable?: boolean } | null | undefined;
+	if (!element || typeof element !== 'object') return false;
+	if (element.isContentEditable) return true;
+	const tag = typeof element.tagName === 'string' ? element.tagName.toUpperCase() : '';
+	if (tag === 'TEXTAREA') return true;
+	return tag === 'INPUT' && TEXT_INPUT_TYPES.has(String(element.type ?? '').toLowerCase());
+}
+
 /**
  * What a keydown means for the palette: 'toggle' or null. Ctrl K works everywhere, text fields
  * included, and gives way only where the key is already taken: a focused editor that handled it
- * (`defaultPrevented`) or declares it (`data-keeps-ctrl-k`).
+ * (`defaultPrevented`) or declares it (`data-keeps-ctrl-k`), and a macOS text field, where Ctrl K
+ * deletes to the end of the line (⌘K is the palette there).
  */
 export function paletteKeyAction(event: ShortcutEvent, context: PaletteKeyContext): 'toggle' | null {
 	if (!isPaletteShortcut(event)) return null;
 	if (event.defaultPrevented || keepsShortcut(event.target)) return null;
 	if (context.open) return 'toggle';
-	if (!context.appReady || context.modalOpen) return null;
-	return 'toggle';
+	if (context.mac && event.ctrlKey && !event.metaKey && isTextEntry(event.target)) return null;
+	if (!context.appReady) return null;
+	const modal = typeof context.modalOpen === 'function' ? context.modalOpen() : context.modalOpen;
+	return modal ? null : 'toggle';
+}
+
+// ------------------------------------------------------------------------------------- key buffer
+
+/** A key pressed while the palette was open but did not hold focus (its code still loading). */
+export interface PendingPaletteKey {
+	key: string;
+	shiftKey: boolean;
+}
+
+/** Keys the palette acts on besides the characters typed into its query. */
+const PALETTE_KEYS: ReadonlySet<string> = new Set(['Backspace', 'Enter', 'Tab', 'ArrowDown', 'ArrowUp', 'PageDown', 'PageUp']);
+
+type BufferEvent = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'> & {
+	isComposing?: boolean;
+	defaultPrevented?: boolean;
+};
+
+/**
+ * While the palette is open but focus is elsewhere (its code is still loading, or focus slipped
+ * out of the dialog), what a keydown should do, decided in the capture phase so the page never
+ * sees it: 'close' for Esc, 'queue' for what the palette replays once its field has focus (typed
+ * characters, Backspace, Enter, Tab and the moving keys), or null to leave the key alone.
+ */
+export function bufferedPaletteKey(event: BufferEvent, context: { open: boolean; paletteHasFocus: boolean }): 'close' | 'queue' | null {
+	if (!context.open || context.paletteHasFocus) return null;
+	if (event.isComposing || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return null;
+	if (event.key === 'Escape') return 'close';
+	if (event.key.length === 1 || PALETTE_KEYS.has(event.key)) return 'queue';
+	return null;
 }

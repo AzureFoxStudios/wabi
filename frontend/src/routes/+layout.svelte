@@ -43,9 +43,9 @@
 		listenForServiceWorkerNavigation
 	} from '$lib/pwa/deepLink';
 	import type { Component } from 'svelte';
-	import { get } from 'svelte/store';
-	import { closePalette, openPalette, palette, parsePaletteInput, togglePalette } from '$lib/jumpPalette';
-	import { paletteKeyAction } from '$lib/jumpIndex';
+	import { get, writable, type Writable } from 'svelte/store';
+	import { closePalette, palette, togglePalette } from '$lib/jumpPalette';
+	import { bufferedPaletteKey, paletteKeyAction, type PendingPaletteKey } from '$lib/jumpIndex';
 	import { workspaceViewSelect } from '$lib/workspaceViewBridge';
 
 	initI18n();
@@ -90,7 +90,7 @@ function isLocalPreviewHost(): boolean {
 	// Jump palette (Ctrl K, design contract §7.24): mounted once, here, and loaded lazily so standalone
 	// pages and the sign-in screen never pull in the channel and people stores. It is preloaded once
 	// the app shell has mounted, so the first Ctrl K opens it at once.
-	let JumpPalette: Component | null = null;
+	let JumpPalette: Component<{ pendingKeys?: Writable<PendingPaletteKey[]> }> | null = null;
 	let jumpPaletteLoad: Promise<void> | null = null;
 	let jumpPalettePreload = false;
 
@@ -120,41 +120,63 @@ function isLocalPreviewHost(): boolean {
 	function otherModalOpen(): boolean {
 		for (const element of document.querySelectorAll<HTMLElement>('[aria-modal="true"], dialog[open]')) {
 			if (element.closest('[data-jump-palette]')) continue;
-			if (element instanceof HTMLDialogElement && !element.matches(':modal')) continue;
+			if (element instanceof HTMLDialogElement && !isModalDialog(element)) continue;
 			if (element.getClientRects().length > 0) return true;
 		}
 		return false;
 	}
 
+	/** `:modal` throws on older WebKit (Tauri webkit2gtk); an open dialog then counts as modal. */
+	function isModalDialog(element: HTMLDialogElement): boolean {
+		try {
+			return element.matches(':modal');
+		} catch {
+			return true;
+		}
+	}
+
+	/** macOS keeps Ctrl K for "delete to the end of the line" in text fields (⌘K is the palette). */
+	const applePlatform =
+		typeof navigator !== 'undefined' &&
+		/mac|iphone|ipad|ipod/i.test(
+			(navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform || navigator.platform || ''
+		);
+
 	/**
-	 * Typing straight after Ctrl K, before the palette's code has arrived, goes to the palette's
-	 * query instead of the page (the composer would otherwise swallow the first letters).
+	 * Keys pressed while the palette is open but its field does not have focus yet (its code is
+	 * still loading) or no longer has it. They are taken in the capture phase, so the composer
+	 * never sees them (no sent draft, no lost letters), and the palette replays them in order.
 	 */
+	const pendingPaletteKeys = writable<PendingPaletteKey[]>([]);
+	// A closed palette has nothing to replay (Ctrl K may close it again before its code arrives).
+	$: if (!$palette.open && get(pendingPaletteKeys).length) pendingPaletteKeys.set([]);
+
 	function bufferPaletteKey(event: KeyboardEvent): void {
 		const state = get(palette);
-		if (!state.open || JumpPalette || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
-		if (event.key === 'Escape') {
-			event.preventDefault();
+		if (!state.open) return;
+		const layer = document.querySelector('[data-jump-palette]');
+		const focused = document.activeElement;
+		const action = bufferedPaletteKey(event, { open: true, paletteHasFocus: Boolean(layer && focused && layer.contains(focused)) });
+		if (!action) return;
+		event.preventDefault();
+		event.stopPropagation();
+		if (action === 'close') {
+			pendingPaletteKeys.set([]);
 			closePalette();
-		} else if (event.key === 'Backspace' || event.key.length === 1) {
-			event.preventDefault();
-			const next = parsePaletteInput(event.key === 'Backspace' ? state.query.slice(0, -1) : state.query + event.key, state.scope);
-			openPalette(next.scope, { query: next.query });
+			return;
 		}
+		pendingPaletteKeys.update((keys) => [...keys, { key: event.key, shiftKey: event.shiftKey }].slice(-64));
 	}
 
 	// Bubble phase on purpose: an editor that binds Ctrl K itself handles (or marks) it first.
 	function handlePaletteShortcut(event: KeyboardEvent): void {
-		const open = get(palette).open;
 		const action = paletteKeyAction(event, {
-			open,
+			open: get(palette).open,
 			appReady: Boolean(get(workspaceViewSelect)),
-			modalOpen: !open && otherModalOpen()
+			modalOpen: otherModalOpen,
+			mac: applePlatform
 		});
-		if (action !== 'toggle') {
-			bufferPaletteKey(event);
-			return;
-		}
+		if (action !== 'toggle') return;
 		event.preventDefault();
 		togglePalette();
 	}
@@ -333,7 +355,7 @@ function isLocalPreviewHost(): boolean {
 	<meta name="twitter:image" content="https://wabi.chat/screenshot-wide.png" />
 </svelte:head>
 
-<svelte:window on:keydown={handlePaletteShortcut} />
+<svelte:window on:keydown={handlePaletteShortcut} on:keydown|capture={bufferPaletteKey} />
 
 <DesktopTitlebar />
 <AmbientBackground />
@@ -371,7 +393,7 @@ function isLocalPreviewHost(): boolean {
 <LocalVisualEffectsHost />
 
 {#if JumpPalette}
-	<svelte:component this={JumpPalette} />
+	<svelte:component this={JumpPalette} pendingKeys={pendingPaletteKeys} />
 {/if}
 
 <style>

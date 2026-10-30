@@ -12,13 +12,23 @@
 	  @ People, / Workspaces, > Actions; typing a prefix switches scope, Tab / Shift Tab walk them,
 	  Backspace on an empty query returns to Everything), 44px option rows grouped under kickers,
 	  footer hints with keycaps (keycaps live only in the palette, never as persistent legends).
-	- Opening a result closes without restoring focus (the destination takes it); Esc, the scrim and
-	  Ctrl K return focus to where the palette was opened from.
-	- Loading shows skeleton rows where recent documents will land; an empty result names the scope.
+	- Focus stays in the field while the palette is open: pointing at any part of it keeps the caret
+	  there, and focus that slips out is brought back. Keys pressed before the field has focus (the
+	  palette's code still loading) are replayed in order (`pendingKeys`, from the layout).
+	- Opening a result lands focus in its destination: the composer of a channel or DM (not on
+	  phones; else the DM's name), the DMs hub's tab, the opened panel, the dialog, else the stage
+	  title. If nothing is there to take it,
+	  focus returns to where the palette was opened from, as Esc, the scrim, Ctrl K and in-place
+	  actions (Mark all read) do.
+	- On phones every jump closes the Channels drawer first, so the result is what you see. DMs and
+	  conversations hand center stage back to Chat before the DM view opens (`jumpSteps`), so they
+	  work from any workspace. New task opens the My Planner board with focus on its New Task button.
+	- Loading shows skeleton rows in the Recent documents slot; a failed read says so there; an empty
+	  result names the scope and offers Everything.
 -->
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
-	import { get } from 'svelte/store';
+	import { get, type Writable } from 'svelte/store';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { portal } from '$lib/actions/portal';
 	import Icon from '$lib/components/ui/Icon.svelte';
@@ -36,12 +46,14 @@
 		type PaletteScope
 	} from '$lib/jumpPalette';
 	import {
+		JUMP_GROUPS,
 		JUMP_GROUP_KEY,
 		JUMP_GROUP_LABEL,
 		SCOPE_GROUPS,
 		buildJumpIndex,
 		flattenSections,
 		highlightParts,
+		jumpSteps,
 		presenceOf,
 		searchJump,
 		type JumpActionId,
@@ -49,8 +61,11 @@
 		type JumpDocumentInput,
 		type JumpPersonInput,
 		type JumpResult,
-		type OfficeAddonState
+		type JumpStep,
+		type OfficeAddonState,
+		type PendingPaletteKey
 	} from '$lib/jumpIndex';
+	import { buildMixedRoot, splitRootSections } from '$lib/components/sidebar/channelSidebarHelpers';
 	import { channels, currentChannel, switchChannel } from '$lib/channelStore';
 	import { channelUnreadCounts, markChannelAsRead, markMessagesAsRead } from '$lib/messageStore';
 	import { currentUser, serverMembers, users, voiceChannelMembers } from '$lib/presenceStore';
@@ -69,6 +84,12 @@
 	import { inkFor } from '$lib/theme/identity';
 	import { mediaUrl } from '$lib/mediaUrl';
 
+	interface Props {
+		/** Keys the layout took while the palette's field did not have focus; replayed in order. */
+		pendingKeys?: Writable<PendingPaletteKey[]> | null;
+	}
+	let { pendingKeys = null }: Props = $props();
+
 	const uid = $props.id();
 	const listId = `jump-${uid}-list`;
 	const helpId = `jump-${uid}-help`;
@@ -79,9 +100,15 @@
 	const phone = new MediaQuery('max-width: 599px', false);
 
 	let input = $state<HTMLInputElement | null>(null);
+	let layer = $state<HTMLElement | null>(null);
+	let body = $state<HTMLElement | null>(null);
 	let query = $state('');
 	let active = $state(0);
 	let session = -1;
+	/** The field has taken focus for this opening; queued keys can be replayed. */
+	let ready = false;
+	/** Where focus was when this opening began: the fallback after a jump. */
+	let origin: HTMLElement | null = null;
 
 	// Recent office documents are read from this device's workspace store on every opening.
 	let documents = $state<JumpDocumentInput[]>([]);
@@ -120,7 +147,48 @@
 		return String(user.dbUserId ?? user.id);
 	}
 
-	const order = (channel: Channel) => channel.position ?? channel.sortOrder ?? Number.MAX_SAFE_INTEGER;
+	const isConversation = (channel: Channel) => channel.type === 'dm' || channel.type === 'group';
+	const isThread = (channel: Channel) => channel.type === 'thread_public' || channel.type === 'thread_private';
+	/** Threads and breakout rooms sit under their parent in the sidebar. */
+	const isChild = (channel: Channel) => Boolean(channel.parentChannelId) && (isThread(channel) || (channel.type === 'voice' && Boolean(channel.isBreakout)));
+
+	/**
+	 * The sidebar's table of contents (`buildMixedRoot` + `splitRootSections`, the helpers the
+	 * sidebar renders from): folders and root channels by position, then voice rooms; threads and
+	 * breakout rooms after their parent; DMs and groups after every channel.
+	 */
+	function sidebarOrder(all: readonly Channel[]): Channel[] {
+		const listed = all.filter((channel) => channel?.id && channel.type !== 'category');
+		const root = splitRootSections(buildMixedRoot([...all], listed.filter((channel) => !isConversation(channel) && !isChild(channel))));
+		const children = new Map<string, Channel[]>();
+		for (const channel of listed) {
+			if (!isChild(channel)) continue;
+			const parent = String(channel.parentChannelId);
+			children.set(parent, [...(children.get(parent) ?? []), channel]);
+		}
+		for (const list of children.values()) {
+			list.sort((a, b) =>
+				a.isBreakout && b.isBreakout
+					? (a.breakoutIndex ?? 0) - (b.breakoutIndex ?? 0)
+					: (b.threadLastActivityAt || b.createdAt || 0) - (a.threadLastActivityAt || a.createdAt || 0)
+			);
+		}
+		const ordered: Channel[] = [];
+		const seen = new Set<string>();
+		const place = (channel: Channel) => {
+			if (seen.has(channel.id)) return;
+			seen.add(channel.id);
+			ordered.push(channel);
+			for (const child of children.get(channel.id) ?? []) place(child);
+		};
+		for (const item of [...root.channels, ...root.voice]) {
+			if (item.kind === 'folder') item.children.forEach(place);
+			else place(item.channel);
+		}
+		for (const channel of listed) if (!isConversation(channel)) place(channel);
+		for (const channel of listed) if (isConversation(channel)) place(channel);
+		return ordered;
+	}
 
 	const channelInputs = $derived.by((): JumpChannelInput[] => {
 		const me = $currentUser;
@@ -132,14 +200,10 @@
 		const view = $activeWorkspaceView;
 		void open; // re-read the privacy cache on every opening
 		const anchoredToChannel = view === 'messages' || view === 'whiteboard';
-		const conversation = (channel: Channel) => channel.type === 'dm' || channel.type === 'group';
-		return [...$channels]
-			.filter((channel) => channel?.id && channel.type !== 'category')
-			.sort((a, b) => Number(conversation(a)) - Number(conversation(b)) || order(a) - order(b))
-			.map((channel): JumpChannelInput => {
+		return sidebarOrder($channels).map((channel): JumpChannelInput => {
 				const type = channel.type || 'text';
 				const other = type === 'dm' ? resolveDmOtherUser(channel, me, live, members) : null;
-				const policy = conversation(channel) ? cachedE2eeStatus(channel.id) : null;
+				const policy = isConversation(channel) ? cachedE2eeStatus(channel.id) : null;
 				return {
 					id: channel.id,
 					name: channel.name,
@@ -226,6 +290,17 @@
 	/** Skeleton rows while recent documents are still on their way (after a short delay). */
 	const showSkeleton = $derived(documentsInScope && documentsState === 'loading' && slowDocuments && (!typed || flat.length === 0));
 	const documentsFailed = $derived(documentsInScope && documentsState === 'error' && !typed);
+	/**
+	 * Where the loading or failed state of recent documents renders: the Recent documents slot
+	 * (after the sections that come before it), so it is in view and rows don't jump when the
+	 * documents arrive. -1 when there is nothing to show there.
+	 */
+	const documentsSlot = $derived.by(() => {
+		if (!showSkeleton && !documentsFailed) return -1;
+		if (sections.some((section) => section.group === 'documents')) return -1;
+		const rank = JUMP_GROUPS.indexOf('documents');
+		return sections.filter((section) => JUMP_GROUPS.indexOf(section.group) < rank).length;
+	});
 
 	const countText = $derived(
 		flat.length === 1 ? tr('jump.count_one', '1 result', { count: 1 }) : tr('jump.count_many', `${flat.length} results`, { count: flat.length })
@@ -237,6 +312,10 @@
 					query: query.trim(),
 					scope: scopeLabel(scope)
 				})
+	);
+	/** What happens next when nothing matches in Everything (§9.6). */
+	const emptyHint = $derived(
+		tr('jump.empty_hint', 'Check the spelling or type fewer letters. This finds channels, people, workspaces and actions by name; it does not search messages.')
 	);
 
 	// ---------------------------------------------------------------- opening a session
@@ -290,50 +369,79 @@
 		}
 	}
 
+	/** The element focus can return to: not the page body, not the palette itself. */
+	function returnable(element: Element | null): HTMLElement | null {
+		if (!(element instanceof HTMLElement) || element === document.body || element.closest('[data-jump-palette]')) return null;
+		return element;
+	}
+
 	$effect(() => {
 		const state = $palette;
 		if (!state.open || state.session === session) return;
 		session = state.session;
+		ready = false;
+		origin = returnable(document.activeElement);
+		// Text typed ahead may start with a prefix ("#" typed into the sidebar field): it switches
+		// scope here exactly as it would in the field.
+		const initial = parsePaletteInput(state.query, state.scope);
 		untrack(() => {
-			query = state.query;
+			if (initial.scope !== state.scope) setPaletteScope(initial.scope);
+			query = initial.query;
 			active = 0;
 			failedPictures = {};
 			void loadDocuments(state.session);
 			void loadOffice();
 		});
 		void tick().then(() => {
-			if (!input) return;
-			input.value = state.query;
+			if (!input || session !== state.session || !get(palette).open) return;
+			input.value = initial.query;
 			input.focus({ preventScroll: true });
-			input.select();
+			// Text typed ahead (the sidebar field's first letter) keeps going: caret at the end,
+			// never selected, so the next key adds to it instead of replacing it.
+			const end = input.value.length;
+			input.setSelectionRange(end, end);
+			ready = true;
+			replayPendingKeys();
 		});
 	});
 
-	// Keep the highlighted row in view as the arrows move it.
+	// Keys the layout queued while the field did not have focus: replay them once it has.
 	$effect(() => {
-		if (!open || activeIndex < 0) return;
-		const id = optionId(activeIndex);
-		void tick().then(() => document.getElementById(id)?.scrollIntoView({ block: 'nearest' }));
+		const queue = pendingKeys;
+		if (!queue) return;
+		return queue.subscribe((keys) => {
+			if (keys.length && ready) replayPendingKeys();
+		});
 	});
 
 	// One polite announcement after typing settles: count and scope.
 	$effect(() => {
 		if (!open) return;
-		const text = `${countText}, ${scopeLabel(scope)}`;
+		const failed = documentsFailed ? '. Recent documents could not be read on this device' : '';
+		const text = `${countText}, ${scopeLabel(scope)}${failed}`;
 		const timer = setTimeout(() => (announcement = text), 400);
 		return () => clearTimeout(timer);
 	});
 
 	// ---------------------------------------------------------------- input
 
+	/** Keep the highlighted row in view after a keyboard move (never on hover: nothing moves under the pointer). */
+	function revealActive(): void {
+		void tick().then(() => {
+			if (activeIndex >= 0) document.getElementById(optionId(activeIndex))?.scrollIntoView({ block: 'nearest' });
+		});
+	}
+
 	function setQuery(value: string): void {
+		const changed = value !== query;
 		query = value;
 		active = 0;
 		if (input && input.value !== value) input.value = value;
+		if (changed && body) body.scrollTop = 0;
 	}
 
-	function onInput(event: Event & { currentTarget: HTMLInputElement }): void {
-		const value = event.currentTarget.value;
+	/** A new field value: a leading # @ / > switches scope and is not part of the query. */
+	function applyValue(value: string): void {
 		const parsed = parsePaletteInput(value, scope);
 		if (parsed.query !== value || parsed.scope !== scope) {
 			setPaletteScope(parsed.scope);
@@ -343,15 +451,21 @@
 		setQuery(value);
 	}
 
+	function onInput(event: Event & { currentTarget: HTMLInputElement }): void {
+		applyValue(event.currentTarget.value);
+	}
+
 	function chooseScope(next: PaletteScope): void {
 		setPaletteScope(next);
 		active = 0;
+		if (body) body.scrollTop = 0;
 		input?.focus({ preventScroll: true });
 	}
 
 	function move(step: number): void {
 		if (!flat.length) return;
 		active = (activeIndex + step + flat.length) % flat.length;
+		revealActive();
 	}
 
 	function onKeydown(event: KeyboardEvent): void {
@@ -368,15 +482,19 @@
 			case 'PageDown':
 				event.preventDefault();
 				if (flat.length) active = Math.min(flat.length - 1, activeIndex + 5);
+				revealActive();
 				break;
 			case 'PageUp':
 				event.preventDefault();
 				if (flat.length) active = Math.max(0, activeIndex - 5);
+				revealActive();
 				break;
 			case 'Enter': {
 				event.preventDefault();
 				const result = flat[activeIndex];
 				if (result) openResult(result);
+				// Nothing in this scope: Enter does what the empty state offers (search Everything).
+				else if (typed && scope !== 'all') chooseScope('all');
 				break;
 			}
 			case 'Tab':
@@ -397,9 +515,68 @@
 		}
 	}
 
-	/** Keep focus in the input while pointing at chips and rows. */
-	function keepFocus(event: MouseEvent): void {
+	/** One key taken by the layout before the field had focus, applied as if typed into it. */
+	function replayKey({ key, shiftKey }: PendingPaletteKey): void {
+		if (!input) return;
+		const start = input.selectionStart ?? input.value.length;
+		const end = input.selectionEnd ?? start;
+		if (key.length === 1) {
+			input.setRangeText(key, start, end, 'end');
+			applyValue(input.value);
+		} else if (key === 'Backspace') {
+			if (!input.value && scope !== 'all') chooseScope('all');
+			else if (start !== end || start > 0) {
+				input.setRangeText('', start === end ? start - 1 : start, end, 'end');
+				applyValue(input.value);
+			}
+		} else {
+			onKeydown(new KeyboardEvent('keydown', { key, shiftKey, cancelable: true }));
+		}
+	}
+
+	function replayPendingKeys(): void {
+		const queue = pendingKeys;
+		if (!queue || !input) return;
+		const keys = get(queue);
+		if (!keys.length) return;
+		queue.set([]);
+		if (document.activeElement !== input) input.focus({ preventScroll: true });
+		for (const key of keys) {
+			if (!get(palette).open) break;
+			replayKey(key);
+		}
+	}
+
+	// ---------------------------------------------------------------- focus stays in the dialog
+
+	/**
+	 * Pointing anywhere in the palette (chips, rows, kickers, footer, padding, the scrim) keeps the
+	 * caret in the field, so Esc, the arrows and Enter keep working. The results scroller itself is
+	 * left alone so its scrollbar still drags; focus that lands there comes back (below).
+	 */
+	function holdFocus(event: MouseEvent): void {
+		if (event.target === input || event.target === body) return;
 		event.preventDefault();
+	}
+
+	/** The dialog is modal: focus that slips out of it (a script, a scrollbar click) comes back. */
+	function onFocusOut(event: FocusEvent): void {
+		const next = event.relatedTarget;
+		if (next instanceof Node && layer?.contains(next)) return;
+		requestAnimationFrame(() => {
+			if (!get(palette).open || !input?.isConnected) return;
+			const now = document.activeElement;
+			if (now && now !== document.body && layer?.contains(now)) return;
+			input.focus({ preventScroll: true });
+		});
+	}
+
+	/** Esc from anything inside the dialog that is not the field (the field handles its own keys). */
+	function onLayerKeydown(event: KeyboardEvent): void {
+		if (event.target === input || event.key !== 'Escape' || event.isComposing) return;
+		event.preventDefault();
+		event.stopPropagation();
+		closePalette();
 	}
 
 	// ---------------------------------------------------------------- jumping
@@ -415,27 +592,228 @@
 		window.dispatchEvent(new CustomEvent('wabi:navigate', { detail }));
 	}
 
-	/** After a jump into a conversation the composer takes focus (not on phones: no surprise keyboard). */
-	function focusComposerSoon(): void {
-		if (phone.current) return;
-		requestAnimationFrame(() =>
-			requestAnimationFrame(() => {
-				const field = document.querySelector<HTMLElement>('.input-container textarea, textarea[aria-label^="Message "]');
-				if (field && field.getClientRects().length) field.focus({ preventScroll: true });
-			})
-		);
+	/** My Planner's view deep link (read once when it mounts; /business and the showcase use it too). */
+	const PLANNER_DEEP_LINK = 'plannerDeepLinkView';
+
+	/** One shell step of a jump (`jumpSteps` gives them in the order they must run). */
+	function runStep(step: JumpStep): void {
+		switch (step.kind) {
+			case 'channel':
+				switchChannel(step.channelId);
+				break;
+			case 'view':
+				selectView(step.view);
+				break;
+			case 'dm':
+				navigate(step.channelId ? { view: 'dm', channelId: step.channelId } : { view: 'dm' });
+				break;
+			case 'planner-board':
+				try {
+					sessionStorage.setItem(PLANNER_DEEP_LINK, 'board');
+				} catch {
+					// Storage blocked: the planner opens on its last view and focus lands on its Board tab.
+				}
+				break;
+		}
 	}
 
-	function runAction(action: JumpActionId): void {
+	/** Center stage: the composer and title of the destination live here, never in a docked panel. */
+	const STAGE = '.main-content';
+	const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
+	function shown(element: Element | null | undefined): element is HTMLElement {
+		return element instanceof HTMLElement && element.isConnected && element.getClientRects().length > 0 && !element.closest('[inert], [aria-hidden="true"]');
+	}
+
+	function firstShown(selector: string, root: ParentNode = document): HTMLElement | null {
+		for (const element of root.querySelectorAll<HTMLElement>(selector)) if (shown(element)) return element;
+		return null;
+	}
+
+	/** Focus an element; a heading or region gets a temporary tabindex that leaves with the focus. */
+	function land(element: HTMLElement): boolean {
+		if (!element.matches('a[href], button, input, select, textarea, [tabindex], [contenteditable="true"]')) {
+			element.setAttribute('tabindex', '-1');
+			element.addEventListener('blur', () => element.removeAttribute('tabindex'), { once: true });
+		}
+		element.focus({ preventScroll: true });
+		return document.activeElement === element;
+	}
+
+	/** Where focus lands after a jump, tried in order; `after` is the first frame it is tried on. */
+	interface Landing {
+		find: () => HTMLElement | null;
+		after: number;
+	}
+
+	/** The destination's composer (desktop: on phones focus would raise the keyboard unasked). */
+	const composerLanding: Landing = {
+		after: 2,
+		find: () => (phone.current ? null : firstShown(`${STAGE} .input-container textarea, ${STAGE} textarea[aria-label^="Message "]`))
+	};
+	/** The stage title (StageBar row A, a DM's own header), never a heading inside an editor. */
+	const stageLanding = (after: number): Landing => ({
+		after,
+		find: () => {
+			const title = firstShown(`${STAGE} .stage-bar .stage-a__title`);
+			if (title) return title;
+			for (const heading of document.querySelectorAll<HTMLElement>(`${STAGE} h1, ${STAGE} h2`)) {
+				if (shown(heading) && !heading.closest('[contenteditable], .ProseMirror, .cm-editor')) return heading;
+			}
+			return null;
+		}
+	});
+	/**
+	 * A workspace you jumped to: its active folio control, which names it ("My Planner ▾" on the
+	 * phone bar, the selected folio tab on desktop; the stage title can be the channel's name).
+	 */
+	const workspaceLanding = (after = 2): Landing => ({
+		after,
+		find: () => firstShown(`${STAGE} .stage-bar .w-folio-trigger`) ?? firstShown(`${STAGE} .stage-bar [role="tab"][aria-selected="true"]`)
+	});
+	/** The opened companion panel (a profile): its title. */
+	const panelLanding: Landing = {
+		after: 2,
+		find: () => firstShown('.right-panel [id$="-title-profile"]') ?? firstShown('.right-panel .w-panel__view:not([hidden]) .w-panel__title')
+	};
+	/** A dialog the action opened (Settings), when it has not taken focus itself. */
+	const dialogLanding: Landing = {
+		after: 4,
+		find: () => {
+			for (const dialog of document.querySelectorAll<HTMLElement>('[aria-modal="true"], dialog[open]')) {
+				if (dialog.closest('[data-jump-palette]') || !shown(dialog)) continue;
+				return firstShown(FOCUSABLE, dialog) ?? dialog;
+			}
+			return null;
+		}
+	};
+	/** The DMs hub (it has no stage title): its pressed destination tab (Messages, Friends), else its name. */
+	const hubLanding: Landing = {
+		after: 2,
+		find: () => firstShown(`${STAGE} .center-dm-list .dm-hub-tab[aria-pressed="true"]`) ?? firstShown(`${STAGE} .center-dm-list .dm-hub-title`)
+	};
+	/**
+	 * A conversation without its composer (phones, or sending paused while its encryption is
+	 * checked): the person or group name in its header. Later than the composer, which may follow.
+	 */
+	const conversationLanding = (after: number): Landing => ({
+		after,
+		find: () => firstShown(`${STAGE} .center-dm-thread .dm-header-name`)
+	});
+	/** My Planner's primary New control while its board shows ("New Task"). */
+	const newTaskLanding: Landing = {
+		after: 2,
+		find: () => firstShown(`${STAGE} .planner-new-primary[aria-label="Add board task"]`)
+	};
+	/** My Planner already open on another view: its Board tab, one Enter from New task. */
+	const boardTabLanding: Landing = {
+		after: 2,
+		find: () => {
+			for (const tab of document.querySelectorAll<HTMLElement>(`${STAGE} .planner-tabs [role="tab"]`)) {
+				if (shown(tab) && tab.textContent?.trim() === 'Board') return tab;
+			}
+			return null;
+		}
+	};
+	/** A voice room in Calls, when Calls marks its rooms (`data-voice-room`). */
+	const roomLanding = (channelId: string): Landing => ({
+		after: 2,
+		find: () => {
+			const room = firstShown(`${STAGE} [data-voice-room="${CSS.escape(channelId)}"]`);
+			room?.scrollIntoView({ block: 'nearest' });
+			return room;
+		}
+	});
+
+	/**
+	 * How long to wait for a destination that loads lazily (a first panel or workspace; a cold
+	 * load can take a few seconds) before falling back. Time, not frames: frame rates vary.
+	 */
+	const SETTLE_MS = 6000;
+
+	/**
+	 * After a jump, let the destination place focus; if it has not after a couple of frames, land
+	 * on the first `landings` target that exists (a lazily loaded panel may take a while). A later
+	 * target in the list stands in for the earlier ones: until the person presses a key or points,
+	 * an earlier target that appears in time (New Task once My Planner has loaded, the composer once
+	 * sending resumes) takes focus over from it. If none appears, return to where the palette was
+	 * opened from, else to the stage title. Focus never stays on the page body.
+	 */
+	let landingRun = 0;
+	function settleFocus(landings: Landing[], from: HTMLElement | null): void {
+		const run = ++landingRun;
+		let frame = 0;
+		const started = performance.now();
+		/** Where focus was landed, and that target's place in `landings` (0 is the one wanted). */
+		let placed: HTMLElement | null = null;
+		let placedRank = landings.length;
+		// The person acting (a key, a pointer) ends the wait for a better target.
+		const acted = new AbortController();
+		const stop = () => acted.abort();
+		/** Land on the first target that exists among the ones ranked before `limit`. */
+		const tryLand = (limit: number): boolean => {
+			for (let rank = 0; rank < limit; rank++) {
+				const landing = landings[rank];
+				if (frame < landing.after) continue;
+				const target = landing.find();
+				if (target && land(target)) {
+					placed = target;
+					placedRank = rank;
+					return true;
+				}
+			}
+			return false;
+		};
+		/** Keep looking for a better target while one may still appear. */
+		const keepLooking = () => {
+			if (placedRank > 0 && performance.now() - started < SETTLE_MS) requestAnimationFrame(step);
+			else stop();
+		};
+		const step = () => {
+			// A new opening (or a newer jump) owns focus now.
+			if (run !== landingRun || get(palette).open || acted.signal.aborted) return stop();
+			frame += 1;
+			if (placed) {
+				// Focus moved on from the stand-in: leave it where it is.
+				if (document.activeElement !== placed) return stop();
+				tryLand(placedRank);
+				return keepLooking();
+			}
+			const now = document.activeElement;
+			if (frame >= 2 && now instanceof HTMLElement && now !== document.body && now.isConnected && !now.closest('[data-jump-palette]')) return stop();
+			if (tryLand(landings.length)) {
+				if (placedRank > 0) {
+					window.addEventListener('keydown', stop, { capture: true, signal: acted.signal });
+					window.addEventListener('pointerdown', stop, { capture: true, signal: acted.signal });
+				}
+				return keepLooking();
+			}
+			if (performance.now() - started < SETTLE_MS) {
+				requestAnimationFrame(step);
+				return;
+			}
+			stop();
+			if (from && shown(from)) from.focus({ preventScroll: true });
+			else {
+				const title = stageLanding(0).find();
+				if (title) land(title);
+			}
+		};
+		requestAnimationFrame(step);
+	}
+
+	function runAction(action: JumpActionId, from: HTMLElement | null): void {
 		switch (action) {
 			case 'new-document':
 				// A blank private draft in Documents; the unique source key makes it a new one each time.
 				openWorkspace('documents', {
 					source: { title: 'Untitled document', content: '', format: 'markdown', sourceKey: `palette:new:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}` }
 				});
+				settleFocus([workspaceLanding(), stageLanding(8)], from);
 				break;
 			case 'new-task':
-				selectView('planner');
+				// The shell steps opened My Planner (on its board unless it was already open).
+				settleFocus([newTaskLanding, boardTabLanding, workspaceLanding(12), stageLanding(16)], from);
 				break;
 			case 'mark-all-read':
 				for (const [id, count] of Object.entries(get(channelUnreadCounts))) if (count > 0) markChannelAsRead(id);
@@ -443,43 +821,57 @@
 				break;
 			case 'open-settings':
 				window.dispatchEvent(new CustomEvent('wabi:open-settings'));
+				settleFocus([dialogLanding], from);
 				break;
 		}
 	}
 
 	function openResult(result: JumpResult): void {
-		const target = result.item.target;
+		const item = result.item;
+		if (item.disabled) return;
+		const target = item.target;
+		const from = origin;
+		// In place: you stay where you were, and so does focus.
+		if (target.type === 'action' && target.action === 'mark-all-read') {
+			closePalette();
+			runAction(target.action, from);
+			return;
+		}
 		closePalette({ restoreFocus: false });
+		// Phones: the Channels drawer is where the palette is usually opened from; every jump
+		// closes it first, so the result is what you see.
+		layoutStore.showMobileChannels.set(false);
+		// Center stage first: a DM hands it back to Chat before the DM view opens.
+		for (const step of jumpSteps(target, get(activeWorkspaceView))) runStep(step);
 		switch (target.type) {
 			case 'view':
-				selectView(target.view);
+				settleFocus([workspaceLanding(), stageLanding(8)], from);
 				break;
 			case 'dms':
-				navigate({ view: 'dm' });
+				settleFocus([hubLanding, stageLanding(8)], from);
 				break;
 			case 'channel':
-				switchChannel(target.channelId);
-				selectView('messages');
-				layoutStore.showMobileChannels.set(false);
-				focusComposerSoon();
+				// A channel without a composer (wiki, forum, gallery) lands on its title.
+				settleFocus([composerLanding, stageLanding(12)], from);
 				break;
 			case 'voice':
-				selectView('voice');
+				settleFocus([roomLanding(target.channelId), workspaceLanding(12), stageLanding(16)], from);
 				break;
 			case 'conversation':
-				navigate({ view: 'dm', channelId: target.channelId });
-				focusComposerSoon();
+				settleFocus([composerLanding, conversationLanding(24), stageLanding(30)], from);
 				break;
 			case 'person': {
 				const user = directory.get(target.personId);
 				if (user) openProfilePanel(user);
+				settleFocus([panelLanding], from);
 				break;
 			}
 			case 'document':
 				openWorkspace(target.tool, { id: target.documentId });
+				settleFocus([workspaceLanding(), stageLanding(8)], from);
 				break;
 			case 'action':
-				runAction(target.action);
+				runAction(target.action, from);
 				break;
 		}
 	}
@@ -494,12 +886,41 @@
 	}
 </script>
 
+{#snippet documentsStatus()}
+	{#if showSkeleton}
+		<div class="jump__group" aria-hidden="true">
+			<div class="w-kicker jump__kicker">{groupLabel('documents')}</div>
+			{#each [0, 1] as row (row)}
+				<div class="jump__row jump__row--skel">
+					<span class="w-skel jump__skel-tile"></span>
+					<span class="w-skel-stack jump__skel-text">
+						<span class="w-skel jump__skel-title"></span>
+						<span class="w-skel jump__skel-sub"></span>
+					</span>
+				</div>
+			{/each}
+		</div>
+	{:else if documentsFailed}
+		<div role="group" aria-labelledby={kickerId('documents-state')} class="jump__group">
+			<div role="presentation" id={kickerId('documents-state')} class="w-kicker jump__kicker">{groupLabel('documents')}</div>
+			<!-- Announced once by the polite count line, so no alert role here. -->
+			<div class="w-notice jump__notice">
+				<Icon name="alert" size={16} />
+				<p class="w-notice__title">Recent documents could not be read on this device.</p>
+				<p class="w-notice__text">Your drafts are unchanged. Workspaces, channels and people still work.</p>
+			</div>
+		</div>
+	{/if}
+{/snippet}
+
 {#if open}
-	<div class="jump-layer" use:portal data-jump-palette>
+	<!-- Pointer presses anywhere in the layer keep focus in the field (holdFocus); keys are the field's. -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="jump-layer" use:portal data-jump-palette bind:this={layer} onmousedown={holdFocus} onkeydown={onLayerKeydown}>
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="w-scrim jump-scrim" aria-hidden="true" onclick={() => closePalette()}></div>
-		<div class="jump" role="dialog" aria-modal="true" aria-label={tr('jump.label', 'Jump to')}>
+		<div class="jump" role="dialog" aria-modal="true" aria-label={tr('jump.label', 'Jump to')} onfocusout={onFocusOut}>
 			<div class="jump__head">
 				<Icon name="search" size={20} class="jump__search" />
 				<input
@@ -530,23 +951,17 @@
 
 			<div class="jump__scopes" role="group" aria-label="Search in">
 				{#each PALETTE_SCOPES as option (option)}
-					<button
-						type="button"
-						class="jump__scope"
-						tabindex="-1"
-						aria-pressed={scope === option}
-						onmousedown={keepFocus}
-						onclick={() => chooseScope(option)}
-					>
+					<button type="button" class="jump__scope" tabindex="-1" aria-pressed={scope === option} onclick={() => chooseScope(option)}>
 						{#if option !== 'all'}<kbd class="w-kbd jump__prefix" aria-hidden="true">{PALETTE_SCOPE_PREFIX[option]}</kbd>{/if}
 						{scopeLabel(option)}
 					</button>
 				{/each}
 			</div>
 
-			<div class="jump__body">
+			<div class="jump__body" bind:this={body}>
 				<div id={listId} role="listbox" aria-label={scopeLabel(scope)} class="jump__list">
-					{#each sections as section (section.group)}
+					{#each sections as section, sectionIndex (section.group)}
+						{#if sectionIndex === documentsSlot}{@render documentsStatus()}{/if}
 						<div role="group" aria-labelledby={kickerId(section.group)} class="jump__group">
 							<div role="presentation" id={kickerId(section.group)} class="w-kicker jump__kicker">{groupLabel(section.group)}</div>
 							{#each section.results as result (result.item.id)}
@@ -559,9 +974,10 @@
 									id={optionId(index)}
 									class="jump__row"
 									class:is-current={item.current}
+									class:is-disabled={item.disabled}
 									aria-selected={index === activeIndex}
+									aria-disabled={item.disabled ? 'true' : undefined}
 									tabindex="-1"
-									onmousedown={keepFocus}
 									onpointermove={() => {
 										if (active !== index) active = index;
 									}}
@@ -583,7 +999,10 @@
 									{/if}
 									<span class="jump__text">
 										<span class="jump__title"
-											>{#each highlightParts(item.title, result.ranges) as part, partIndex (partIndex)}{#if part.hit}<mark>{part.text}</mark>{:else}{part.text}{/if}{/each}{#if item.current}<span class="jump__sr">, you are here</span>{/if}</span
+											>{#each highlightParts(item.title, result.ranges) as part, partIndex (partIndex)}{#if part.hit}<mark>{part.text}</mark>{:else}{part.text}{/if}{/each}{#if item.live}<span
+													class="jump__live"
+													aria-hidden="true"
+												></span>{/if}{#if item.current}<span class="jump__sr">, you are here</span>{/if}</span
 										>
 										{#if item.subtitle}<span class="jump__sub">{item.subtitle}</span>{/if}
 									</span>
@@ -611,28 +1030,22 @@
 							{/each}
 						</div>
 					{/each}
+					{#if documentsSlot >= sections.length}{@render documentsStatus()}{/if}
 				</div>
-
-				{#if showSkeleton}
-					<div class="jump__group" aria-hidden="true">
-						<div class="w-kicker jump__kicker">{groupLabel('documents')}</div>
-						{#each [0, 1] as row (row)}
-							<div class="jump__row jump__row--skel">
-								<span class="w-skel jump__skel-tile"></span>
-								<span class="w-skel-stack jump__skel-text">
-									<span class="w-skel jump__skel-title"></span>
-									<span class="w-skel jump__skel-sub"></span>
-								</span>
-							</div>
-						{/each}
-					</div>
-					<span class="jump__sr" role="status">Loading recent documents</span>
-				{:else if documentsFailed}
-					<p class="jump__note" role="status">Recent documents could not be read on this device.</p>
-				{/if}
+				{#if showSkeleton}<span class="jump__sr" role="status">Loading recent documents</span>{/if}
 
 				{#if flat.length === 0 && !showSkeleton && typed}
-					<p class="jump__empty" role="status">{emptyText}</p>
+					<div class="jump__empty" role="status">
+						<p class="jump__empty-text">{emptyText}</p>
+						{#if scope === 'all'}
+							<p class="jump__empty-hint">{emptyHint}</p>
+						{:else}
+							<button type="button" class="w-btn w-btn--quiet w-btn--sm jump__empty-act" tabindex="-1" onclick={() => chooseScope('all')}>
+								<Icon name="search" size={16} />
+								{tr('jump.search_everything', `Search ${scopeLabel('all')}`)}
+							</button>
+						{/if}
+					</div>
 				{/if}
 			</div>
 
@@ -791,8 +1204,7 @@
 		overflow-y: auto;
 		overscroll-behavior: contain;
 	}
-	.jump__group + .jump__group,
-	.jump__list:not(:empty) + .jump__group {
+	.jump__group + .jump__group {
 		margin-top: 4px;
 	}
 	.jump__kicker {
@@ -816,6 +1228,17 @@
 	}
 	:global(:root[data-char='contrast']) .jump__row[aria-selected='true'] {
 		box-shadow: inset 0 0 0 1px var(--w-line-strong);
+	}
+	/* Listed but nothing to run (Mark all read with nothing unread): quieter, not clickable. */
+	.jump__row.is-disabled {
+		cursor: default;
+	}
+	.jump__row.is-disabled .jump__title {
+		color: var(--w-mute);
+		font-weight: 400;
+	}
+	.jump__row.is-disabled .jump__tile {
+		color: var(--w-faint);
 	}
 
 	.jump__tile {
@@ -919,6 +1342,16 @@
 		color: var(--w-faint);
 		font: var(--w-t-mono);
 	}
+	/* Live voice room: the 6px --w-online mark after the name (§7.11); the subline says how many. */
+	.jump__live {
+		display: inline-block;
+		width: 6px;
+		height: 6px;
+		margin-left: 8px;
+		border-radius: 50%;
+		background: var(--w-online);
+		vertical-align: middle;
+	}
 
 	.jump__truths {
 		display: inline-flex;
@@ -952,15 +1385,25 @@
 		width: 28%;
 		height: 8px;
 	}
-	.jump__empty,
-	.jump__note {
-		margin: 0;
+	.jump__notice {
+		margin: 4px 2px 0;
+	}
+	/* Nothing matches: what is missing, then what to do next (§9.6, §7.16). */
+	.jump__empty {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 8px;
 		padding: 20px 10px 16px;
+	}
+	.jump__empty-text,
+	.jump__empty-hint {
+		margin: 0;
 		color: var(--w-mute);
 		font: var(--w-t-ui);
+		text-wrap: pretty;
 	}
-	.jump__note {
-		padding: 8px 10px;
+	.jump__empty-hint {
 		color: var(--w-faint);
 		font: var(--w-t-small);
 	}
@@ -1037,7 +1480,7 @@
 			height: 44px;
 		}
 		.jump__scopes {
-			height: 48px;
+			height: 52px;
 			padding: 0 12px;
 			mask-image: linear-gradient(to right, var(--w-text) calc(100% - 24px), transparent);
 		}
@@ -1046,8 +1489,11 @@
 			flex: none;
 			width: 12px;
 		}
-		.jump__scope {
-			height: 36px;
+		/* The chips are the main way to change scope on a phone keyboard: 44px targets (§8.12). */
+		.jump__scope,
+		.jump__empty-act {
+			height: 44px;
+			min-height: 44px;
 		}
 		.jump__body {
 			max-height: none;
@@ -1074,6 +1520,15 @@
 			flex: none;
 			width: 44px;
 			height: 44px;
+		}
+		/* Touch at any width: 44px chips in a 52px row (§10). */
+		.jump__scopes {
+			height: 52px;
+		}
+		.jump__scope,
+		.jump__empty-act {
+			height: 44px;
+			min-height: 44px;
 		}
 	}
 
