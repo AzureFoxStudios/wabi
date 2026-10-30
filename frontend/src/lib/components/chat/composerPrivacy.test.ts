@@ -37,6 +37,7 @@ function code(source: string): string {
 }
 
 const composer = code(read('./ChatComposer.svelte'));
+const pane = code(read('./ChatMessagesPane.svelte'));
 const chat = code(read('../Chat.svelte'));
 const messageStore = code(read('../../messageStore.ts'));
 const e2ee = code(read('../../e2ee.ts'));
@@ -145,6 +146,21 @@ describe('retention: its own chip, from the masthead summary for this channel on
 		expect(composerRetention(null, { channelId: 'general', retention: 'live' }, 'general')).toBeNull();
 	});
 
+	test('a DM in the desktop channel stream leaves retention to the masthead seal chip (said once)', () => {
+		const summary = { channelId: 'dm-1', retention: '24h' };
+		expect(composerRetention(undefined, summary, 'dm-1', { mastheadSaysIt: true })).toBeNull();
+		expect(composerRetention(undefined, summary, 'dm-1', { mastheadSaysIt: false })).toBe('24h');
+		// A host's own value is its statement and always shows.
+		expect(composerRetention('live', summary, 'dm-1', { mastheadSaysIt: true })).toBe('live');
+		// The masthead shows the DM seal chip with retention only on desktop (ChatHeader `!phone`),
+		// and only for the stage's own conversation (no host-given status).
+		expect(composer).toContain('const mastheadSaysRetention = $derived(inConversation && !hostGaveStatus && !$isMobile);');
+		expect(composer).toContain('composerRetention(retention, $stagePrivacySummary, effectiveChannel, { mastheadSaysIt: mastheadSaysRetention })');
+		const header = code(read('./ChatHeader.svelte'));
+		const dmSeal = header.slice(header.indexOf('{#if !phone}\n\t\t\t<PrivacyBadge\n\t\t\t\tvariant="popover-trigger"'));
+		expect(dmSeal.slice(0, 400)).toContain('showRetention');
+	});
+
 	test('each mounted colophon holds its channel once, so the masthead chip steps aside only while one is shown', () => {
 		const first = holdComposerColophon('general');
 		const second = holdComposerColophon('general');
@@ -213,6 +229,28 @@ describe('ChatComposer markup (§7.20)', () => {
 		expect(send).not.toMatch(/(?<![-\w])disabled=\{/);
 	});
 
+	test('a DM in the stream keeps its status fresh through the watcher (poll, socket, focus, after a send)', () => {
+		expect(composer).toContain("import { watchComposerRoomStatus, type RoomStatusSocket, type RoomStatusWatch } from './composerRoomStatus';");
+		const effect = composer.slice(composer.indexOf('if (!id || !composerReadsRoomStatus(roomType, hostGaveStatus)) {'), composer.indexOf('function recheckRoomPrivacy(): void {'));
+		for (const part of ['watchComposerRoomStatus<E2eeRoomStatus>({', 'refresh: refreshE2eeStatus,', 'cached: cachedE2eeStatus,', 'socket: () => getSocket()', 'focusTarget:', 'watch.dispose();']) {
+			expect(effect).toContain(part);
+		}
+		// No one-shot socket capture left behind.
+		expect(composer).not.toMatch(/const sock = getSocket\(\)/);
+		// The field asks before the member writes; every send path asks after it hands off.
+		expect(composer).toContain('onfocus={() => { isTextareaFocused = true; composerVisible = true; recheckRoomPrivacy(); }}');
+		expect(composer.match(/finally \{ transaction\.finish\(\); recheckRoomPrivacy\(\); \}/g)?.length).toBe(3);
+	});
+
+	test('upload progress announces its words once; the percentage is a progressbar value, not live', () => {
+		const progress = composer.slice(composer.indexOf('<div class="composer__progress">'), composer.indexOf('<input type="file"'));
+		expect(progress).not.toContain('aria-live');
+		expect(progress).toContain('<span role="status">{uploadStatusLabel');
+		expect(progress).toContain('<span class="composer__progress-count" aria-hidden="true">{uploadProgress}%</span>');
+		expect(progress).toContain('role="progressbar"');
+		expect(progress).toContain('aria-valuenow={uploadProgress}');
+	});
+
 	test('the field is the toast anchor, and nothing uses the retired legacy classes', () => {
 		expect(composer).toContain('<div class="composer__field" data-toast-anchor>');
 		for (const legacy of ['input-wrapper', 'input-container', 'input-icon-button', 'send-button', 'media-menu', 'add-button']) {
@@ -260,10 +298,100 @@ describe('composer CSS (roles only, no override layers)', () => {
 		expect(body).not.toMatch(/composer__colophon[^{]*\{[^}]*height:\s*\d/);
 	});
 
+	test('the emoji container is an anchor, not a frame: the panel sizes it and is never clipped (r1 blocker)', () => {
+		const body = rulesOf(skin);
+		const block = (selector: string) => {
+			const at = body.indexOf(`${selector} {`);
+			expect(at).toBeGreaterThan(-1);
+			return body.slice(at, body.indexOf('}', at));
+		};
+		const container = block('.composer .emoji-picker-container');
+		for (const frame of ['overflow', 'max-height', 'border', 'background', 'box-shadow']) expect(container).not.toContain(frame);
+		expect(container).toContain('right: 0;');
+		// The panel sits in its anchor's flow on every width (EmojiPicker's own absolute/fixed
+		// positioning would collapse the anchor, or cover the field on phones).
+		const panel = block('.composer .emoji-picker-container > .emoji-picker');
+		for (const decl of ['position: relative;', 'inset: auto;', 'width: min(480px, calc(100vw - 24px));']) expect(panel).toContain(decl);
+		expect(body).toContain('.composer .emoji-picker-container > :is(.emoji-picker, .emoji-picker-loading),');
+		// No rule frames or clips the container anywhere else.
+		expect(body).not.toMatch(/emoji-picker-container\s*(,|\{)[^}]*(overflow|\bborder\s*:|max-height|box-shadow)/);
+	});
+
+	test('one line keeps the field at 48px for any edge width, and the band at 80px up to 125% text', () => {
+		const body = rulesOf(skin);
+		expect(body).toContain('--composer-line-box: 34px;');
+		expect(body).toContain('min-height: var(--composer-line-box);');
+		expect(body).toContain('padding: max(0px, calc((var(--composer-line-box) - 24px * var(--w-fs)) / 2)) 8px max(0px, calc((var(--composer-line-box) - 24px * var(--w-fs)) / 2)) 0;');
+		expect(body).toContain('padding: 0 0 max(0px, calc(30px - 24px * var(--w-fs)));');
+		// The field's vertical padding gives back what a thicker edge takes: the 34px keys and
+		// the 34px line keep the field at 48 (desktop) and the 38px keys at 44 (phone).
+		expect(body).toContain('padding: calc(7px - var(--w-bw)) 6px calc(7px - var(--w-bw)) var(--composer-inset);');
+		expect(body).toContain('padding: calc(3px - var(--w-bw)) 2px calc(3px - var(--w-bw)) 14px;');
+		for (const bw of [1, 2]) {
+			expect(34 + 2 * (7 - bw) + 2 * bw).toBe(48);
+			expect(38 + 2 * (3 - bw) + 2 * bw).toBe(44);
+		}
+		// One line at up to ~140% text still fits the 34px line box.
+		for (const fs of [1, 1.25, 1.4]) expect(24 * fs + 2 * Math.max(0, (34 - 24 * fs) / 2)).toBeLessThanOrEqual(34);
+		// Band: 48 field + 2 gap + 24*fs colophon + max(0, 30 - 24*fs) = 80 while fs <= 1.25.
+		for (const fs of [1, 1.1, 1.25]) expect(48 + 2 + 24 * fs + Math.max(0, 30 - 24 * fs)).toBeCloseTo(80);
+		// The textarea keeps the kit's pill scrollbar (scrollbar-width switches Chromium to native bars).
+		expect(body.slice(body.indexOf('.composer .composer__input {'), body.indexOf('}', body.indexOf('.composer .composer__input {')))).not.toContain('scrollbar-width');
+	});
+
+	test('keys reach 44px under a coarse pointer at every drawn size (34, 36, 38)', () => {
+		const body = rulesOf(skin);
+		const coarse = body.slice(body.indexOf('@media (pointer: coarse) {'));
+		expect(coarse).toContain('inset: -5px;');
+		for (const drawn of [34, 36, 38]) expect(drawn + 2 * 5).toBeGreaterThanOrEqual(44);
+	});
+
+	test('the upload card rules are scoped to the card, never GalleryChannel (.gallery-header, .gallery-grid)', () => {
+		const body = rulesOf(upload);
+		const selectors = body.split('{').slice(0, -1).map((chunk) => chunk.split('}').pop()!.trim()).filter((sel) => sel && !sel.startsWith('@') && !/^(from|to)$/.test(sel));
+		for (const selector of selectors) {
+			for (const part of selector.split(',').map((p) => p.trim())) {
+				if (/^\.drag-(overlay|overlay-content|icon|text)$/.test(part)) continue;
+				expect(part.startsWith('.file-gallery ')).toBe(true);
+			}
+		}
+	});
+
 	test('the held !important composer chrome is retired and the legacy composer sheet is empty', () => {
 		const legacyRules = rulesOf(legacy);
 		expect(legacyRules).not.toContain('.input-wrapper .input-container');
 		expect(legacyRules).not.toMatch(/\.composer\b/);
 		expect(rulesOf(retired).trim()).toBe('');
+	});
+});
+
+describe('ChatMessagesPane: real states, one announcement each', () => {
+	test('a channel still fetching its history shows skeleton rows, not "No messages yet"', () => {
+		expect(pane).toContain('$: historyLoading = Boolean(currentChannel && $channelHistoryLoading[currentChannel]);');
+		const loading = pane.indexOf('{#if roomEmpty && historyLoading}');
+		const empty = pane.indexOf('{:else if roomEmpty}');
+		expect(loading).toBeGreaterThan(-1);
+		expect(empty).toBeGreaterThan(loading);
+		expect(pane.slice(loading, empty)).toContain('<Skeleton variant="message"');
+	});
+
+	test('the empty room has one primary action', () => {
+		expect(pane).toContain('<button class="w-btn w-btn--primary w-btn--sm" type="button" on:click={focusComposer}>');
+	});
+
+	test('the search count is said once; no live region holds a button; the renamed toggle is a plain button', () => {
+		const toolbar = pane.slice(pane.indexOf('<div class="search-results-toolbar"'), pane.indexOf('{#key'));
+		expect(toolbar).toContain('<div class="search-results-toolbar">');
+		expect(toolbar).not.toContain('aria-live');
+		expect(toolbar).not.toContain('aria-pressed');
+		// Each live region is a span of words.
+		for (const region of toolbar.match(/<span[^>]*role="status"[^>]*>[\s\S]*?<\/span>/g) ?? []) expect(region).not.toContain('<button');
+		const emptySearch = pane.slice(pane.indexOf('stream-start--search'), pane.indexOf('<MessageList'));
+		expect(emptySearch).not.toContain('role="status"');
+		expect(emptySearch).not.toContain('chat.search.results_many');
+	});
+
+	test('the typing stamp re-inks when the member list arrives (the stores are arguments)', () => {
+		expect(pane).toContain('findPerson(visibleTypingUsers[0], $serverMembers as User[], $users as User[])');
 	});
 });

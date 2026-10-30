@@ -25,7 +25,10 @@
 	box-sizing: border-box;
 	min-height: var(--w-foot);
 	margin: 0;
-	padding: 0 0 6px;
+	/* 48 field + 2 gap + 24 colophon + 6 = the 80px band. Larger text grows the colophon row;
+	   the bottom padding gives that room back first, so the field stays on the footer rule up
+	   to 125% text. */
+	padding: 0 0 max(0px, calc(30px - 24px * var(--w-fs)));
 	background: transparent;
 	transition:
 		transform var(--w-dur-3) var(--w-ease),
@@ -44,7 +47,9 @@
 	box-sizing: border-box;
 	min-width: 0;
 	max-width: var(--composer-page);
-	margin: 0 var(--w-gutter) 0 var(--composer-lead);
+	/* --composer-scrollbar: the stream scroller's scrollbar (ChatComposer measures it), so the
+	   field ends where the rules inside that scroller end. */
+	margin: 0 calc(var(--w-gutter) + var(--composer-scrollbar, 0px)) 0 var(--composer-lead);
 }
 
 /* ---------- the field (§7.20) ---------- */
@@ -57,7 +62,9 @@
 	min-width: 0;
 	min-height: 48px;
 	margin: 0;
-	padding: 6px 6px 6px var(--composer-inset);
+	/* 48 = 34px keys (and one line of text) + this padding + two edges, at a 1px edge and at
+	   Joker's 2px alike. */
+	padding: calc(7px - var(--w-bw)) 6px calc(7px - var(--w-bw)) var(--composer-inset);
 	border: var(--w-bw) solid var(--w-line-strong);
 	border-radius: var(--radius-lg);
 	background: var(--w-lift);
@@ -75,9 +82,13 @@
 	flex: 1 1 auto;
 	box-sizing: border-box;
 	min-width: 0;
-	min-height: calc(24px * var(--w-fs) + 10px);
+	/* One line is as tall as the keys (34px), so the field is 48px at any edge width. The line
+	   sits in the middle; at larger text the padding goes first, so one line keeps the field at
+	   48px up to about 140% text. */
+	--composer-line-box: 34px;
+	min-height: var(--composer-line-box);
 	margin: 0;
-	padding: 5px 8px 5px 0;
+	padding: max(0px, calc((var(--composer-line-box) - 24px * var(--w-fs)) / 2)) 8px max(0px, calc((var(--composer-line-box) - 24px * var(--w-fs)) / 2)) 0;
 	border: 0;
 	border-radius: 0;
 	outline: none;
@@ -89,7 +100,6 @@
 	font: var(--w-t-chat);
 	resize: none;
 	overflow-y: auto;
-	scrollbar-width: thin;
 }
 .composer .composer__input::placeholder {
 	color: var(--w-faint);
@@ -351,6 +361,7 @@
 }
 
 /* ---------- overlays the draft opens (plane 2: --w-bg2, light --w-lift, --w-shadow) ---------- */
+/* Every overlay opens upward from the field and never pushes the stream. */
 .composer .emoji-picker-container,
 .composer .mention-suggestions,
 :root .composer .emoji-suggestions {
@@ -358,22 +369,40 @@
 	bottom: calc(100% + 8px);
 	z-index: var(--z-popout);
 	box-sizing: border-box;
+}
+/* The frame. The emoji container is only an anchor (no frame, no clipping), so the panel it
+   holds, or the panel's loading/error line, draws the frame and the container is exactly as
+   large as that. */
+.composer .emoji-picker-container > :is(.emoji-picker, .emoji-picker-loading),
+.composer .mention-suggestions,
+:root .composer .emoji-suggestions {
 	border: var(--w-bw) solid var(--w-line-strong);
 	border-radius: var(--radius-lg);
 	background: var(--w-bg2);
 	box-shadow: var(--w-shadow);
 	color: var(--w-text);
 }
-:root[data-mode='light'] .composer :is(.emoji-picker-container, .mention-suggestions, .emoji-suggestions) {
+:root[data-mode='light'] .composer :is(.emoji-picker-container > .emoji-picker, .emoji-picker-container > .emoji-picker-loading, .mention-suggestions, .emoji-suggestions) {
 	background: var(--w-lift);
 }
+
+/* The emoji and GIF panel, above the field's right end on every width. EmojiPicker positions
+   itself (absolute on desktop, fixed to the viewport bottom on phones, which would cover the
+   field); here it sits in its anchor's flow instead and keeps its own inner layout. */
 .composer .emoji-picker-container {
 	right: 0;
-	max-width: calc(100vw - 16px);
-	max-height: min(420px, 60vh);
-	overflow: auto;
+	display: block;
 }
-.composer .emoji-picker-container .emoji-picker-loading {
+.composer .emoji-picker-container > .emoji-picker {
+	position: relative;
+	inset: auto;
+	z-index: auto;
+	width: min(480px, calc(100vw - 24px));
+	height: min(520px, calc(100dvh - 240px));
+	min-height: min(320px, 70dvh);
+	max-height: none;
+}
+.composer .emoji-picker-container > .emoji-picker-loading {
 	display: flex;
 	align-items: center;
 	gap: 10px;
@@ -381,8 +410,9 @@
 	padding: 14px 16px;
 	color: var(--w-mute);
 	font: var(--w-t-ui);
+	white-space: nowrap;
 }
-.composer .emoji-picker-container .emoji-picker-loading.error {
+.composer .emoji-picker-container > .emoji-picker-loading.error {
 	color: var(--w-text);
 }
 
@@ -518,7 +548,7 @@
 @container composer (max-width: 559.98px) {
 	.composer .composer__page {
 		max-width: none;
-		margin: 0 12px;
+		margin: 0 calc(12px + var(--composer-scrollbar, 0px)) 0 12px;
 	}
 }
 
@@ -533,9 +563,10 @@
 	:root[data-keyboard-open='1'] .composer {
 		padding-bottom: env(safe-area-inset-bottom, 0px);
 	}
+	/* 44 = 38px keys + this padding + two edges, at any edge width. */
 	.composer .composer__field {
 		min-height: 44px;
-		padding: 2px 2px 2px 14px;
+		padding: calc(3px - var(--w-bw)) 2px calc(3px - var(--w-bw)) 14px;
 	}
 	.composer .composer__tool {
 		width: 38px;
@@ -549,7 +580,7 @@
 	/* 16px inside the field so iOS does not zoom; the placeholder keeps the chat size. */
 	.composer .composer__input {
 		min-height: 38px;
-		padding: 7px 6px 7px 0;
+		padding: max(0px, calc((38px - 23px * var(--w-fs)) / 2)) 6px max(0px, calc((38px - 23px * var(--w-fs)) / 2)) 0;
 		font-size: max(16px, calc(15px * var(--w-fs)));
 		line-height: calc(23px * var(--w-fs));
 	}
@@ -568,12 +599,13 @@
 	}
 }
 
-/* Touch targets (§10): keys stay their drawn size and reach 44px. */
+/* Touch targets (§7.2, §10): keys stay their drawn size and reach 44px: a 34px key on a
+   touch tablet gets 5px all round (44), the phone's 38 and 36px keys more. */
 @media (pointer: coarse) {
 	.composer :is(.composer__tool, .composer__send)::after {
 		content: '';
 		position: absolute;
-		inset: -4px;
+		inset: -5px;
 	}
 }
 

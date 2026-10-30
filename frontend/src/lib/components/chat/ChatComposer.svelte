@@ -57,6 +57,8 @@ import type { MediaAlbum } from '$lib/api';
 	import { currentSavedServer } from '$lib/savedServers';
 	import { getSocket } from '$lib/socket';
 	import { composerChannelType, composerFieldLabel, composerPrivacyInput, composerReadsRoomStatus, composerRetention, composerRoomFact, holdComposerColophon } from './composerPrivacy';
+	import { watchComposerRoomStatus, type RoomStatusSocket, type RoomStatusWatch } from './composerRoomStatus';
+	import { followStreamBottom, streamScrollerFor, streamScrollbarInset } from './composerGeometry';
 
 	interface Props {
 		isDMChannel?: boolean;
@@ -134,6 +136,9 @@ import type { MediaAlbum } from '$lib/api';
 	let emojiPickerLoadFailed = $state(false);
 	let emojiPickerLoadPromise: Promise<void> | null = null;
 	let showMediaMenu = $state(false);
+	let composerRoot: HTMLElement | null = $state(null);
+	/** The stream scroller's scrollbar width, added to the field's right margin. */
+	let streamScrollbar = $state(0);
 	let showCommandPalette = $state(false);
 	let commandPaletteSelectedIndex = $state(0);
 	let commandPalette: CommandPalette = $state();
@@ -223,45 +228,42 @@ import type { MediaAlbum } from '$lib/api';
 	const fieldLabel = $derived(composerFieldLabel((key, options) => $_(key, options), { name: roomName, conversation: inConversation }));
 	const roomFact = $derived(roomLabel !== undefined ? roomLabel : composerRoomFact({ name: roomName, conversation: inConversation, community: $currentSavedServer?.effectiveName }));
 	// A DM or group opened in the channel stream has no host holding its E2EE status: read it
-	// here, for the colophon only. A failed request leaves it on "Checking privacy…" and asks
-	// again (2 s, 4 s, 8 s); a room update from the server asks at once.
+	// here, for the colophon only, and keep it fresh (composerRoomStatus: the shared cache, a
+	// 5 s poll while pending, room and policy updates, a rebound socket, window and field focus,
+	// after a send). A failed request leaves it on "Checking privacy…", never a guess.
 	const hostGaveStatus = $derived(e2eeStatus !== undefined);
 	let ownStatus = $state<E2eeRoomStatus | null>(null);
+	let roomStatusWatch: RoomStatusWatch | null = null;
 	$effect(() => {
 		const id = effectiveChannel;
 		if (!id || !composerReadsRoomStatus(roomType, hostGaveStatus)) {
 			ownStatus = null;
 			return;
 		}
-		ownStatus = cachedE2eeStatus(id);
-		let live = true;
-		let retry: ReturnType<typeof setTimeout> | undefined;
-		const ask = (attempt: number) => {
-			refreshE2eeStatus(id)
-				.then((status) => {
-					if (live) ownStatus = status;
-				})
-				.catch(() => {
-					if (live && attempt < 3) retry = setTimeout(() => ask(attempt + 1), 2000 * 2 ** attempt);
-				});
-		};
-		ask(0);
-		const sock = getSocket();
-		const onRoomUpdate = (payload: { channelId?: string } | undefined) => {
-			if (payload?.channelId === id) {
-				clearTimeout(retry);
-				ask(3);
-			}
-		};
-		sock?.on?.('e2ee-room-updated', onRoomUpdate);
+		ownStatus = null;
+		const watch = untrack(() => watchComposerRoomStatus<E2eeRoomStatus>({
+			channelId: id,
+			refresh: refreshE2eeStatus,
+			cached: cachedE2eeStatus,
+			socket: () => getSocket() as unknown as RoomStatusSocket | null,
+			onStatus: (status) => { ownStatus = status; },
+			focusTarget: typeof window !== 'undefined' ? window : null
+		}));
+		roomStatusWatch = watch;
 		return () => {
-			live = false;
-			clearTimeout(retry);
-			sock?.off?.('e2ee-room-updated', onRoomUpdate);
+			watch.dispose();
+			if (roomStatusWatch === watch) roomStatusWatch = null;
 		};
 	});
+	/** Ask the room again before the member writes and after a send (no-op once it is settled). */
+	function recheckRoomPrivacy(): void {
+		roomStatusWatch?.refresh();
+	}
 	const privacyInput = $derived(composerPrivacyInput({ channelType: roomType, encryptSend, hostStatus: e2eeStatus, ownStatus, hostGaveStatus }));
-	const keptSource = $derived(composerRetention(retention, $stagePrivacySummary, effectiveChannel));
+	// A DM or group in the channel stream: on desktop the masthead's seal chip already says how
+	// long it is kept (ChatHeader), so the colophon does not say it again.
+	const mastheadSaysRetention = $derived(inConversation && !hostGaveStatus && !$isMobile);
+	const keptSource = $derived(composerRetention(retention, $stagePrivacySummary, effectiveChannel, { mastheadSaysIt: mastheadSaysRetention }));
 	// While this colophon is on screen it says the channel's retention, so the masthead does not.
 	$effect(() => {
 		const id = effectiveChannel;
@@ -586,7 +588,7 @@ import type { MediaAlbum } from '$lib/api';
 				if (typingTimeout) clearTimeout(typingTimeout);
 				textareaElement?.focus();
 			}
-		} finally { transaction.finish(); }
+		} finally { transaction.finish(); recheckRoomPrivacy(); }
 	}
 	async function handleGifSelect(event: CustomEvent<string>) {
 		if (isSending || isUploading || !operationCurrent()) return;
@@ -630,7 +632,7 @@ import type { MediaAlbum } from '$lib/api';
 		if (typingTimeout) clearTimeout(typingTimeout);
 		if (textareaElement) textareaElement.style.height = 'auto';
 		textareaElement?.focus();
-		} finally { transaction.finish(); }
+		} finally { transaction.finish(); recheckRoomPrivacy(); }
 	}
 	function handleEmojiSelect(event: CustomEvent<{ emoji: Emoji }>) {
 		const { emoji } = event.detail;
@@ -707,7 +709,7 @@ import type { MediaAlbum } from '$lib/api';
 					return;
 				}
 				textareaElement?.focus();
-			} finally { transaction.finish(); }
+			} finally { transaction.finish(); recheckRoomPrivacy(); }
 		} catch (error) { if (operationCurrent()) { console.error('Upload error:', error); showToast('Failed to upload files. Please try again.', 'error'); } } finally { isUploading = false; uploadStatusLabel = ''; uploadProgress = 0; }
 	}
 	async function handlePhotoCapture(event: CustomEvent<Blob>) { const blob = event.detail; const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' }); if (file.size > 10 * 1024 * 1024) { showToast('Photo too large (max 10MB). Please try again.', 'error'); return; } clearFilePreviews(); selectedFiles = [file]; filePreviews = buildPreviewEntries([file]); await uploadSelectedFiles(); showCameraCapture = false; showMediaMenu = false; }
@@ -736,8 +738,31 @@ import type { MediaAlbum } from '$lib/api';
 			}
 		});
 		autoResizeTextarea(); document.addEventListener('click', handleGlobalClick); void loadPlaceRegistry();
-		return () => { unsubscribeSend(); document.removeEventListener('click', handleGlobalClick); };
+		const stopTrackingStream = trackStream();
+		return () => { unsubscribeSend(); document.removeEventListener('click', handleGlobalClick); stopTrackingStream(); };
 	});
+	// The stream this field writes under (composerGeometry): end where its rules end (its
+	// scrollbar included) and keep its newest message in view while the field grows.
+	function trackStream(): () => void {
+		const root = composerRoot;
+		const scroller = streamScrollerFor(root);
+		if (!root || !scroller || typeof ResizeObserver === 'undefined') return () => {};
+		let height = root.offsetHeight;
+		const measure = () => { streamScrollbar = streamScrollbarInset(scroller); };
+		const observer = new ResizeObserver((entries) => {
+			for (const entry of entries) {
+				if (entry.target !== root) continue;
+				const next = root.offsetHeight;
+				followStreamBottom(scroller, next - height);
+				height = next;
+			}
+			measure();
+		});
+		observer.observe(root);
+		observer.observe(scroller);
+		measure();
+		return () => observer.disconnect();
+	}
 	onDestroy(() => {
 		draftOwner.save(snapshotDraft());
 		mounted = false;
@@ -755,7 +780,7 @@ import type { MediaAlbum } from '$lib/api';
 <!-- The footer band (§7.20, D20, D21): the field's top edge sits on the footer rule and spans the
      stream's avatar column to its page edge; the colophon says who can read this room. Anything
      the draft needs above the field (reply, files, progress) stacks upward from it. -->
-<div class="composer" class:composer--hidden={$isMobile && !composerVisible}>
+<div class="composer" class:composer--hidden={$isMobile && !composerVisible} bind:this={composerRoot} style:--composer-scrollbar={streamScrollbar > 0 ? `${streamScrollbar}px` : null}>
 	<div class="composer__page">
 		{#if showEmojiPicker}
 			<!-- Anchored inside the page (position: relative) as an overlay popover, like the
@@ -778,9 +803,18 @@ import type { MediaAlbum } from '$lib/api';
 		<EditReplyStatus {editingMessage} {replyingTo} onCancelEdit={cancelEdit} onCancelReply={cancelReply} />
 		{#if filePreviews.length > 0 && !isUploading}<FileUploadPreview {filePreviews} bind:markAsSpoiler spoilerLocked={channelForceSpoiler} {albumEligibleSelection} {createAlbumFromUpload} bind:uploadAlbumName albums={uploadAlbums} bind:targetAlbumId={uploadTargetAlbumId} onAlbumTargetChange={(id) => (uploadTargetAlbumId = id)} buildDefaultUploadAlbumName={() => buildDefaultUploadAlbumName($channels.find(ch => ch.id === effectiveChannel)?.name || effectiveChannel, messageInput)} onAlbumUploadToggle={handleAlbumUploadToggle} onCancelUpload={clearFilePreviews} onRemoveFile={removeFile} onUploadSelectedFiles={uploadSelectedFiles} />{/if}
 		{#if isUploading}
-			<div class="composer__progress" role="status" aria-live="polite">
-				<span class="composer__progress-words"><span>{uploadStatusLabel || $_('chat.upload.uploading')}</span><span class="composer__progress-count">{uploadProgress}%</span></span>
-				<span class="composer__progress-track" aria-hidden="true"><span class="composer__progress-fill" style:width={`${uploadProgress}%`}></span></span>
+			<!-- The words are announced once when the upload starts; the percentage is a progressbar
+			     value assistive tech can read on demand, never a live region that speaks every tick. -->
+			<div class="composer__progress">
+				<span class="composer__progress-words"><span role="status">{uploadStatusLabel || $_('chat.upload.uploading')}</span><span class="composer__progress-count" aria-hidden="true">{uploadProgress}%</span></span>
+				<span
+					class="composer__progress-track"
+					role="progressbar"
+					aria-label={uploadStatusLabel || $_('chat.upload.uploading')}
+					aria-valuemin={0}
+					aria-valuemax={100}
+					aria-valuenow={uploadProgress}
+				><span class="composer__progress-fill" style:width={`${uploadProgress}%`}></span></span>
 			</div>
 		{/if}
 		<input type="file" bind:this={fileInput} onchange={handleFileSelect} multiple hidden />
@@ -789,7 +823,7 @@ import type { MediaAlbum } from '$lib/api';
 		{#if gifCaptionerEnabled && gifCaptionerDedicatedCaptionFieldEnabled}<div class="gif-caption-draft-row"><input type="text" class="w-field gif-caption-draft-input" bind:value={gifCaptionInput} maxlength={MAX_GIF_CAPTION_LENGTH} placeholder="GIF caption (used when sending from the GIF picker)" aria-label="GIF caption" /><span class="gif-caption-draft-count" class:warn={gifCaptionDraftWarn}>{gifCaptionDraftLength} / {MAX_GIF_CAPTION_LENGTH}</span></div>{#if unicodeEmojisEnabled && unicodeGifCaptionPreviewTokens > 0 && unicodeGifCaptionPreview !== gifCaptionInput}<div class="composer__aside unicode-conversion-hint">GIF caption preview: {unicodeGifCaptionPreview}</div>{/if}{/if}
 		<div class="composer__field" data-toast-anchor>
 			<CommandPalette bind:this={commandPalette} bind:input={messageInput} bind:isVisible={showCommandPalette} bind:selectedIndex={commandPaletteSelectedIndex} onSelect={handleCommandSelect} />
-			<textarea class="composer__input" bind:this={textareaElement} bind:value={messageInput} onpaste={handlePaste} oninput={() => { handleInput(); handleInputChange(); }} onkeydown={handleKeyDown} onfocus={() => { isTextareaFocused = true; composerVisible = true; }} onblur={() => { isTextareaFocused = false; }} placeholder={fieldLabel} aria-label={fieldLabel} aria-describedby={showColophon && newlineHintShown ? hintId : undefined} maxlength={composerInputMaxLength} spellcheck={composerSpellcheckEnabled} enterkeyhint="send" rows="1"></textarea>
+			<textarea class="composer__input" bind:this={textareaElement} bind:value={messageInput} onpaste={handlePaste} oninput={() => { handleInput(); handleInputChange(); }} onkeydown={handleKeyDown} onfocus={() => { isTextareaFocused = true; composerVisible = true; recheckRoomPrivacy(); }} onblur={() => { isTextareaFocused = false; }} placeholder={fieldLabel} aria-label={fieldLabel} aria-describedby={showColophon && newlineHintShown ? hintId : undefined} maxlength={composerInputMaxLength} spellcheck={composerSpellcheckEnabled} enterkeyhint="send" rows="1"></textarea>
 			{#if composerCharCounterEnabled && composerCharCounterVisible}<span class="composer__counter" class:composer__counter--warn={composerCharCounterWarn}>{composerCharCount} / {composerInputMaxLength}</span>{/if}
 			<div class="composer__tools">
 				<Tooltip text={$_('chat.compose.attach')}>
