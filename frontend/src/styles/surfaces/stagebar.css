@@ -1,77 +1,559 @@
-/* Stage masthead skin — workspace bar, channel header, header privacy chips, view switch.
-   Owner (wave 1): w1-stagebar. Holds no other package's rules.
-   Cascade: shell.css after sidebar.css — before login-skin, controls-kit and the stage /
-   settings / admin / modal / panels skins. Spec §11 puts surfaces after panels-skin.css; until
-   w2-retire-legacy-qa imports surfaces directly in that order, a rule added here loses
-   equal-specificity ties to every skin that loads later. */
+/* Stage masthead skin: StageBar row A (channel / DM / workspace header), the folio in row B,
+   the masthead search, the About and Pinned popovers, and the phone bar with its Workspaces
+   sheet (design contract §7.10, §7.23, §8.2, §8.12).
+   Owner (wave 1): w1-stagebar. Role tokens only (--w-*), type tokens and kit classes.
+   Cascade: shell.css after sidebar.css, before controls-kit and the later skins, so rules here
+   carry one more class than the kit rule they refine. */
 
-/* ---------- workspace bar + channel header ---------- */
-:root .main-content .workspace-view-bar {
-	background: var(--w-bg);
-	border-bottom: var(--w-bw, 1px) solid var(--w-line);
+/* ---------- the stage is the container every stage-width rule measures ---------- */
+:root .main-content .chat-stack {
+	container: stage / inline-size;
 }
-:root .main-content .workspace-eyebrow {
-	font: 500 calc(10.5px * var(--w-fs, 1))/1 var(--w-mono);
-	letter-spacing: 0.06em;
-	text-transform: uppercase;
+
+/* ---------- masthead frame: one hairline at y = --w-mast ---------- */
+.stage-bar {
+	position: relative;
+	z-index: var(--z-dropdown);
+	flex: none;
+	box-sizing: border-box;
+	display: grid;
+	grid-template-rows: var(--w-head-a) minmax(0, 1fr);
+	height: var(--w-mast);
+	min-width: 0;
+	padding: 0 var(--w-gutter);
+	border-bottom: var(--w-bw) solid var(--w-line);
+	background: var(--w-bg);
+	color: var(--w-text);
+}
+
+.stage-bar__b {
+	display: flex;
+	min-width: 0;
+}
+
+/* ---------- row A ---------- */
+.stage-bar .stage-a {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	min-width: 0;
+}
+
+/* The lead gives way first: topic, then chips, then the name (ellipsis). Its 4px padding keeps
+   the focus rings of the topic and the seal chip clear of the clip. */
+.stage-bar .stage-a__lead {
+	flex: 1 1 auto;
+	display: flex;
+	align-items: baseline;
+	gap: 14px;
+	min-width: 0;
+	margin: -4px;
+	padding: 4px;
+	overflow: hidden;
+	white-space: nowrap;
+}
+.stage-bar .stage-a__lead--dm,
+.stage-bar .stage-a__lead--component {
+	align-items: center;
+	gap: 10px;
+}
+
+.stage-bar .stage-a__title {
+	flex: 0 1 auto;
+	display: flex;
+	align-items: baseline;
+	min-width: min(96px, 100%);
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-title);
+	letter-spacing: 0.005em;
+	white-space: nowrap;
+}
+.stage-bar .stage-a__name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.stage-bar .stage-a__glyph {
+	flex: none;
+	margin-inline-end: 1px;
+	color: var(--w-sig);
+	font-weight: 400;
+}
+.stage-bar .stage-a__glyph-icon {
+	flex: none;
+	align-self: center;
+	margin-inline-end: 8px;
+	color: var(--w-sig);
+}
+
+.stage-bar .stage-a__topic {
+	flex: 0 1000 auto;
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: none;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+	text-align: start;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: color var(--w-dur-1) var(--w-ease);
+}
+.stage-bar .stage-a__topic:hover,
+.stage-bar .stage-a__topic[aria-expanded='true'] {
+	color: var(--w-text);
+}
+.stage-bar .stage-a__topic:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+
+.stage-bar .stage-a__chips {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	align-self: center;
+}
+.stage-bar .stage-a__chip {
+	flex: none;
+	align-self: center;
+}
+
+/* Office crumb and the viewers' "Reader › title" crumb. */
+.stage-bar .stage-a__crumb {
+	flex: none;
+	align-self: center;
+	color: var(--w-mute);
+	font: var(--w-t-label);
+}
+.stage-bar .stage-a__crumb-sep {
+	flex: none;
+	align-self: center;
+	margin-inline: -6px;
 	color: var(--w-faint);
 }
-:root .main-content .workspace-current { font: 600 calc(15px * var(--w-fs, 1))/1.2 var(--w-serif); color: var(--w-text); }
-:root .main-content .chat-header {
-	background: var(--w-bg);
-	border-bottom: var(--w-bw, 1px) solid var(--w-line);
-	padding: 14px 28px;
-	min-height: 64px;
+.stage-bar .stage-a__status {
+	flex: none;
+	align-self: center;
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+	font-variant-numeric: tabular-nums;
 }
-:root .main-content .chat-header .channel-title {
-	font: 600 calc(24px * var(--w-fs, 1))/1.15 var(--w-serif);
-	letter-spacing: 0.01em;
+
+/* DM and group identity: a serif initial stamp on the person's identity disc. */
+.stage-bar .stage-a__avatar {
+	flex: none;
+	box-sizing: border-box;
+	width: 28px;
+	height: 28px;
+	border-radius: var(--w-avr);
+	object-fit: cover;
+}
+.stage-bar .stage-a__avatar--stamp {
+	display: grid;
+	place-items: center;
+	background: var(--disc, var(--w-raise));
+	color: var(--on, var(--w-text));
+	font: 600 calc(12px * var(--w-fs)) / 1 var(--w-serif);
+}
+.stage-bar .stage-a__avatar--group {
+	display: grid;
+	place-items: center;
+	overflow: hidden;
+}
+
+.stage-bar .stage-a__actions {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin-inline-start: auto;
+}
+.stage-bar .stage-a__menu {
+	display: contents;
+}
+.stage-bar .stage-a__call {
+	margin-inline-end: 4px;
+}
+
+/* ---------- masthead search: a quiet icon that opens a 280px kit field ---------- */
+.stage-bar .stage-search {
+	position: relative;
+	display: flex;
+	align-items: center;
+}
+.stage-bar .stage-search__field {
+	width: min(280px, 40cqi);
+}
+.stage-bar .stage-search__drop {
+	position: absolute;
+	top: calc(100% + 8px);
+	right: 0;
+	z-index: var(--z-dropdown);
+	box-sizing: border-box;
+	width: min(320px, 80cqi);
+	padding: 12px 14px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-lg);
+	background: var(--w-bg2);
+	box-shadow: var(--w-shadow);
+	animation: w-enter var(--w-dur-2) var(--w-ease);
+}
+:root[data-mode='light'] .stage-bar .stage-search__drop {
+	background: var(--w-lift);
+}
+.stage-bar .stage-search__count {
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+.stage-bar .stage-search__busy,
+.stage-bar .stage-search__status {
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+.stage-bar .stage-search__status {
+	margin: 6px 0 0;
+}
+.stage-bar .stage-search__actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin: 8px -10px 0;
+}
+.stage-bar .stage-search__help {
+	margin: 0;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+	white-space: normal;
+}
+.stage-bar .stage-search__count ~ .stage-search__help,
+.stage-bar .stage-search__actions ~ .stage-search__help,
+.stage-bar .stage-search__status ~ .stage-search__help {
+	margin-top: 10px;
+	padding-top: 10px;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+
+/* ---------- About this channel, Pinned messages (portaled, fixed) ---------- */
+.stage-pop {
+	position: fixed;
+	z-index: var(--z-popover);
+	width: min(360px, calc(100vw - 16px));
+	outline: none;
+}
+.stage-pop__hash {
+	margin-inline-end: -6px;
+	color: var(--w-sig);
+	font-weight: 400;
+}
+.stage-pop__topic {
+	white-space: pre-line;
+}
+.stage-pop .w-pop__title .w-count {
+	margin-inline-start: 2px;
+}
+.stage-pop__pins {
+	display: grid;
+	gap: 2px;
+	max-height: min(360px, 50vh);
+	margin: 10px -10px 0;
+	padding: 0;
+	overflow: auto;
+	list-style: none;
+}
+.stage-pop__pin {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: start;
+	gap: 4px;
+	padding: 2px;
+	border-radius: var(--radius-md);
+}
+.stage-pop__pin:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+}
+.stage-pop__jump {
+	display: grid;
+	gap: 2px;
+	min-width: 0;
+	margin: 0;
+	padding: 6px 8px;
+	border: 0;
+	border-radius: var(--radius-inner);
+	background: none;
+	color: var(--w-text);
+	text-align: start;
+	cursor: pointer;
+}
+.stage-pop__jump:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+.stage-pop__meta {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+}
+.stage-pop__who {
+	font: var(--w-t-label);
+}
+.stage-pop__text {
+	display: -webkit-box;
+	overflow: hidden;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	-webkit-box-orient: vertical;
+}
+:root[data-char='contrast'] .stage-pop__pin:hover {
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+
+/* ---------- row B: the folio ---------- */
+/* Tabs carry 6px of padding each side, so labels sit 18px apart and the first label meets the
+   gutter; the 2px --w-sig underline of the current view lies on the masthead rule. Hover is a
+   colour change only: tabs never grow, the strip never scrolls. */
+.stage-bar .w-folio {
+	display: flex;
+	align-items: stretch;
+	flex: 1 1 auto;
+	min-width: 0;
+	margin-inline: -6px;
+}
+.stage-bar .w-folio__tabs {
+	display: flex;
+	align-items: stretch;
+	flex: 0 1 auto;
+	min-width: 0;
+	outline: none;
+}
+.stage-bar .w-folio__group {
+	display: flex;
+	align-items: stretch;
+	gap: 6px;
+}
+/* Group rule: 16px tall, 20px clear of the labels on both sides. */
+.stage-bar .w-folio__group + .w-folio__group::before {
+	content: '';
+	flex: none;
+	align-self: center;
+	width: var(--w-bw);
+	height: 16px;
+	margin-inline: 14px 8px;
+	background: var(--w-line);
+}
+.stage-bar .w-folio__tab,
+.stage-bar .w-folio__more {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	flex: none;
+	box-sizing: border-box;
+	height: 100%;
+	margin: 0;
+	padding: 0 6px;
+	border: 0;
+	border-radius: 0;
+	background: none;
+	color: var(--w-mute);
+	font: var(--w-t-label);
+	white-space: nowrap;
+	cursor: pointer;
+	transition: color var(--w-dur-1) var(--w-ease);
+}
+.stage-bar .w-folio__tab:hover,
+.stage-bar .w-folio__more:hover,
+.stage-bar .w-folio__more[aria-expanded='true'],
+.stage-bar .w-folio__tab[aria-selected='true'],
+.stage-bar .w-folio__more[data-current='true'] {
 	color: var(--w-text);
 }
-:root .main-content .chat-header .channel-title-hash::before { color: var(--w-sig, var(--w-accent)); }
-:root .main-content .retention-channel-badge {
-	margin-left: 10px;
-	padding: 3px 10px 3px 8px;
-	border: var(--w-bw, 1px) solid var(--w-accent);
-	border-radius: var(--w-pill, 999px);
-	background: var(--w-accent-soft);
+.stage-bar .w-folio__tab[aria-selected='true']::after,
+.stage-bar .w-folio__more[data-current='true']::after {
+	content: '';
+	position: absolute;
+	inset-inline: 6px;
+	bottom: calc(-1 * var(--w-bw));
+	height: 2px;
+	border-radius: 2px 2px 0 0;
+	background: var(--w-sig);
+}
+/* Inside the strip the ring is inset (§4.6), so nothing around the row can clip it. */
+.stage-bar .w-folio__tab:focus-visible,
+.stage-bar .w-folio__more:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+	border-radius: var(--radius-inner);
+}
+.stage-bar .w-folio__tab[aria-disabled='true'] {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+.stage-bar .w-folio__tab .w-badge {
+	align-self: center;
+}
+/* PREVIEW: once, 8px after the last office tab shown. */
+.stage-bar .w-folio__mat {
+	align-self: center;
+	margin-inline-start: -4px;
+}
+.stage-bar .w-folio__more-wrap {
+	display: flex;
+	align-items: stretch;
+	flex: none;
+	margin-inline-start: auto;
+	padding-inline-start: 12px;
+}
+.stage-bar .w-folio__more {
+	gap: 4px;
+}
+:root[data-char='contrast'] .stage-bar .w-folio__group + .w-folio__group::before {
+	background: var(--w-line-strong);
+}
+
+/* ---------- tiers, measured on the stage ---------- */
+@container stage (max-width: 999.98px) {
+	.stage-bar .w-folio [data-tier='1000'] {
+		display: none;
+	}
+}
+@container stage (max-width: 879.98px) {
+	.stage-bar .w-folio [data-tier='880'] {
+		display: none;
+	}
+}
+@container stage (max-width: 699.98px) {
+	.stage-bar .w-folio [data-tier='700'] {
+		display: none;
+	}
+	.stage-bar .stage-a__topic {
+		display: none;
+	}
+}
+/* Guard below the contract's tiers (a tablet stage before the sidebar folds to its compact rail):
+   the office group goes to More with its PREVIEW, so the row never clips. */
+@container stage (max-width: 559.98px) {
+	.stage-bar .w-folio [data-tier='560'] {
+		display: none;
+	}
+}
+
+/* ---------- phone shell (≤768px): one 52px bar, no folio row ---------- */
+.stage-bar.stage-bar--phone {
+	grid-template-rows: 52px;
+	height: calc(52px + env(safe-area-inset-top, 0px));
+	padding: env(safe-area-inset-top, 0px) 16px 0;
+}
+.stage-bar--phone .stage-a__title {
+	font: 600 calc(20px * var(--w-fs)) / calc(26px * var(--w-fs)) var(--w-serif);
+}
+.stage-bar--phone .stage-a__lead {
+	align-items: center;
+	gap: 10px;
+}
+.stage-bar--phone .stage-a__topic,
+.stage-bar--phone .stage-a__chips,
+.stage-bar--phone .stage-a__status,
+.stage-bar--phone .stage-a__pinned {
+	display: none;
+}
+.stage-bar--phone .stage-a__actions .w-ibtn {
+	width: 44px;
+	height: 44px;
+}
+.stage-bar--phone .stage-search__field {
+	width: min(220px, 56cqi);
+}
+
+/* The "Chat ▾" workspace button: 30px drawn, 44px to touch. */
+.stage-bar .w-folio-trigger {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	flex: none;
+	box-sizing: border-box;
+	height: 30px;
+	margin: 0;
+	padding: 0 8px 0 10px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: transparent;
 	color: var(--w-text);
-	font: 500 calc(12px * var(--w-fs, 1))/1.2 var(--w-mono);
+	font: var(--w-t-label-sm);
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease);
 }
-:root .main-content .retention-channel-badge svg { color: var(--w-accent); }
-
-/* ---------- narrow screens ---------- */
-@media (max-width: 640px) {
-	:root .main-content .chat-header { padding: 10px 14px; min-height: 56px; }
-	:root .main-content .chat-header .chat-heading { flex-wrap: wrap; gap: 2px 10px; min-width: 0; row-gap: 4px; height: auto; }
-	:root .main-content .chat-header .channel-title { font-size: calc(21px * var(--w-fs, 1)); white-space: nowrap; }
-	:root .main-content .retention-channel-badge { margin-left: 0; padding: 2px 8px 2px 6px; font-size: calc(11px * var(--w-fs, 1)); }
+.stage-bar .w-folio-trigger::before {
+	content: '';
+	position: absolute;
+	inset: -7px -2px;
+}
+.stage-bar .w-folio-trigger:hover,
+.stage-bar .w-folio-trigger[aria-expanded='true'] {
+	background: var(--w-raise);
+}
+.stage-bar .w-folio-trigger:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+.stage-bar .w-folio-trigger > svg {
+	color: var(--w-mute);
 }
 
-/* What the server can read is the seal's job: privacy chips in the channel header. */
-:root .main-content .chat-header .privacy-badge {
-	padding: 2px 9px;
-	border: var(--w-bw, 1px) solid color-mix(in srgb, var(--w-seal) 70%, transparent);
-	border-radius: var(--w-pill, 999px);
-	background: var(--w-seal-soft);
+/* Workspaces sheet (portaled with the kit sheet). */
+.w-folio-sheet__kicker {
+	margin: 0;
+	padding: 14px 12px 6px;
+}
+.w-folio-sheet__row {
+	width: 100%;
+	border: 0;
+	background: none;
 	color: var(--w-text);
-	font: 600 calc(11.5px * var(--w-fs, 1))/1.5 var(--w-sans);
+	text-align: start;
+	cursor: pointer;
 }
-
-/* One top bar: the view switcher lives in the channel header on desktop, the standalone bar steps aside. */
-.header-view-switch { display: none; }
-@media (min-width: 1250px) {
-	:root .main-content .header-view-switch { display: block; margin-inline-end: 10px; padding-inline-end: 10px; border-inline-end: var(--w-bw, 1px) solid var(--w-line); }
-	:root .main-content .chat-stack:has(.header-view-switch) > .workspace-view-bar:not(.inline) { display: none; }
+.w-folio-sheet__row[aria-current='page'] {
+	background: var(--w-raise);
 }
-
-/* Header never overlaps itself: chips stay whole and the row grows when a room carries several. */
-:root .main-content .chat-header { height: auto; padding-block: 6px; }
-:root .main-content .chat-header .chat-heading { flex-wrap: wrap; row-gap: 4px; }
-:root .main-content .chat-header .spoiler-channel-badge,
-:root .main-content .chat-header .retention-channel-badge,
-:root .main-content .chat-header .privacy-badge { white-space: nowrap; flex: 0 0 auto; }
-:root .main-content .chat-header .header-actions { flex-wrap: wrap; justify-content: flex-end; row-gap: 4px; }
-:root .main-content .chat-header .header-view-switch { flex: 0 0 auto; }
-/* Below a roomy stage the strip is icons only (the active one keeps its underline); labels return on hover/focus. */
-@media (max-width: 1500px) { :root .main-content .header-view-switch .strip-item.active:not(:hover):not(:focus-visible) .strip-label { max-width: 0; opacity: 0; margin: 0; } }
+.w-folio-sheet__row[aria-disabled='true'] {
+	opacity: 0.45;
+}
+.w-folio-sheet__words {
+	display: grid;
+	flex: 1 1 auto;
+	gap: 2px;
+	min-width: 0;
+}
+.w-folio-sheet__label {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font: var(--w-t-label);
+}
+.w-folio-sheet__detail {
+	overflow: hidden;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.w-folio-sheet__check {
+	flex: none;
+	color: var(--w-sig);
+}
+:root[data-char='contrast'] .w-folio-sheet__row[aria-current='page'] {
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}

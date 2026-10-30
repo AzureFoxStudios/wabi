@@ -1,55 +1,224 @@
+/* ==========================================================================
+   Companion panel frame `.w-panel` (design contract §7.21, §8.4).
+   The zone body (main-layout-part1.css) is the flat --w-bg2 surface, or --w-lift for a light
+   peek; the frame paints no background of its own, no gradients and no glow.
+   Masthead: row A (56) title + count + actions, row B (40) the panel's search and filter (drawn
+   by the panel itself when its manifest says ownsToolbar) or its one-line description. Row B's
+   bottom hairline is the masthead rule at y = 96, the same y as the sidebar's and the stage's.
+   ========================================================================== */
+
 .right-panel {
 	display: flex;
 	flex-direction: column;
 	height: 100%;
 	min-height: 0;
-	background: radial-gradient(circle at top right, rgba(var(--accent-rgb), 0.12), transparent 34%), linear-gradient(180deg, color-mix(in srgb, var(--surface-base) 98%, transparent), color-mix(in srgb, var(--surface-app) 94%, transparent));
+	color: var(--w-text);
+	font-family: var(--w-sans);
 }
 
+/* One view per pinned set or peeked panel; a hidden view (pins under a peek of another panel)
+   stays mounted so its state survives. */
+.w-panel__view {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+.w-panel__view[hidden] { display: none; }
+
+/* ---------- row A ---------- */
+.w-panel__a {
+	flex: none;
+	box-sizing: border-box;
+	height: var(--w-head-a, 56px);
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 0 10px 0 20px;
+}
+.w-panel__title {
+	flex: 0 1 auto;
+	min-width: 0;
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-heading);
+	white-space: nowrap;
+}
+.w-panel__name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.w-panel__count {
+	flex: none;
+	color: var(--w-faint);
+	font: var(--w-t-mono);
+	font-variant-numeric: tabular-nums;
+}
+.w-panel__tag {
+	flex: 0 1 auto;
+	min-width: 0;
+	margin-left: 6px;
+	max-width: 50%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.w-panel__acts {
+	flex: none;
+	margin-left: auto;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+
+/* ---------- row B: the panel's toolbar, or the frame's description line ----------
+   A panel that draws its own row B uses this class on its first child (40px, hairline under). */
+.w-panel__b {
+	flex: none;
+	box-sizing: border-box;
+	height: var(--w-head-b, 40px);
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	/* Centred on the same axis as a 32px field sitting at the top of the band. */
+	padding: 0 12px 8px 20px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.w-panel__desc {
+	min-width: 0;
+	margin: 0;
+	overflow: hidden;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* ---------- body ---------- */
 .panel-stack-content {
 	flex: 1;
 	min-height: 0;
 	display: flex;
+	flex-direction: column;
 	overflow: hidden;
 }
-
 .panel-stack-content > * {
 	flex: 1;
 	min-width: 0;
 	min-height: 0;
 }
 
+/* Truthful empty state (§7.16): what is missing, in words, left-aligned in the column. */
 .dock-empty {
 	flex: 1;
+	padding: calc(var(--w-mast, 96px) + 16px) 20px 32px;
+}
+.dock-empty-title {
+	margin: 0;
+	color: var(--w-text);
+	font: 600 calc(20px * var(--w-fs)) / calc(26px * var(--w-fs)) var(--w-serif);
+}
+.dock-empty-text {
+	margin: 6px 0 0;
+	color: var(--w-mute);
+	font: var(--w-t-ui);
+	text-wrap: pretty;
+}
+
+/* ---------- stacked mode: several pins at once, ordered like the rail ----------
+   Each section has a 40px header (serif 15 title, count, collapse chevron) and an Unpin icon.
+   Reordering lives only on the rail (drag and its menu). */
+.dock-stack {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+.dock-section {
+	flex: 1 1 0;
+	min-height: 120px;
+	display: flex;
+	flex-direction: column;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.dock-section:first-child { border-top: 0; }
+.dock-section.collapsed {
+	flex: none;
+	min-height: 0;
+}
+.w-panel__sec {
+	flex: none;
+	box-sizing: border-box;
+	height: 40px;
 	display: flex;
 	align-items: center;
-	justify-content: center;
-	gap: 0.5rem;
-	padding: 0.8rem;
-	color: var(--text-secondary);
-	background: transparent;
-	border: none;
-	font-weight: 700;
+	gap: 4px;
+	padding: 0 10px 0 12px;
+	border-bottom: var(--w-bw) solid var(--w-line);
 }
-
-/* Peek mode: readable over chat content — elevation + slight translucency,
-   NOT a dimming scrim (spec §6). */
-.right-panel.is-peek {
-	background: radial-gradient(circle at top right, rgba(var(--accent-rgb), 0.12), transparent 34%), linear-gradient(180deg, color-mix(in srgb, var(--surface-base) 96%, transparent), color-mix(in srgb, var(--surface-app) 92%, transparent));
+.dock-section.collapsed .w-panel__sec { border-bottom: 0; }
+/* The top section's header is the masthead's row A (56): its title reads as the frame title and,
+   with the panel's row B under it, the masthead rule stays at y = 96. */
+.dock-section:first-child .w-panel__sec {
+	height: var(--w-head-a, 56px);
+	border-bottom: 0;
 }
-
-.mobile-workspace .panel-stack-content {
+.dock-section:first-child .w-panel__sec-toggle { font: var(--w-t-heading); line-height: 32px; }
+.dock-section:first-child.collapsed .w-panel__sec { border-bottom: var(--w-bw) solid var(--w-line); }
+.w-panel__sec-title {
 	flex: 1;
+	min-width: 0;
+	margin: 0;
+	font: inherit;
 }
-/* ---------- stacked dock: several pinned panels at once, ordered like the rail ---------- */
-.dock-stack { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.dock-section { flex: 1 1 0; min-height: 120px; display: flex; flex-direction: column; border-top: var(--w-bw, 1px) solid var(--w-line); }
-.dock-section:first-child { border-top: 0; }
-.dock-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px 6px 14px; flex: none; background: var(--w-bg2); border-bottom: var(--w-bw, 1px) solid var(--w-line); }
-.dock-section-title { font: 600 calc(12px * var(--w-fs, 1))/1 var(--w-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--w-mute); }
-.dock-section-actions { display: flex; gap: 2px; }
-.dock-btn { width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: calc(6px * var(--w-rs, 1)); background: transparent; color: var(--w-mute); font: 600 calc(14px * var(--w-fs, 1)) var(--w-sans); cursor: pointer; }
-.dock-btn:hover:not(:disabled) { background: var(--w-raise); color: var(--w-text); }
-.dock-btn:disabled { opacity: 0.3; cursor: default; }
-.dock-section-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
-.dock-section-body > :global(*) { flex: 1; min-height: 0; }
+.w-panel__sec-toggle {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	height: 32px;
+	margin: 0;
+	padding: 0 8px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-text);
+	font: 600 calc(15px * var(--w-fs)) / calc(32px * var(--w-fs)) var(--w-serif);
+	text-align: start;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+.w-panel__sec-toggle:hover { background: color-mix(in srgb, var(--w-raise) 70%, transparent); }
+.w-panel__sec-toggle:focus-visible { outline: 2px solid var(--w-accent); outline-offset: -2px; }
+.w-panel__sec-toggle .w-panel__count { font: var(--w-t-micro); }
+.w-panel__sec-toggle .w-panel__chev {
+	align-self: center;
+	margin-left: auto;
+	color: var(--w-faint);
+}
+:root[data-char='contrast'] .w-panel__sec-toggle:hover {
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+.dock-section-body {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	display: flex;
+	flex-direction: column;
+}
+.dock-section-body[hidden] { display: none; }
+.dock-section-body > :not(.w-panel__b) {
+	flex: 1;
+	min-height: 0;
+}
+
+/* Phones show the companion as a sheet; the frame keeps its rows. */
+.mobile-workspace .panel-stack-content { flex: 1; }

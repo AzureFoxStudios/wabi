@@ -1,282 +1,406 @@
-	.user-list-tab {
-		flex: 1;
-		overflow-y: auto;
-		padding: 0.4rem 0.35rem 0.7rem;
-		text-align: left;
-	}
+/* People companion (design contract §7.11 member row, §7.12 stamp, §7.21 panel frame, §8.4).
+   Roles and kit tokens only. Row B (search + filter) is this panel's own 40px masthead row: its
+   hairline is the masthead rule at y = 96 under the frame's 56px title row. */
 
-	.friend-toolbar {
-		display: flex;
-		flex-direction: column;
-		gap: 0.38rem;
-		padding: 0.35rem 0.45rem 0.55rem;
-		border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
-		margin-bottom: 0.3rem;
-	}
+.user-list-tab {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	height: 100%;
+	min-height: 0;
+	overflow: hidden;
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	text-align: start;
+}
 
-	.friend-search,
-	.friend-select {
-		width: 100%;
-		height: 30px;
-		border-radius: 6px;
-		border: 1px solid var(--border-subtle);
-		background: var(--surface-raised);
-		color: var(--text-heading);
-		padding: 0 0.55rem;
-		font-size: 0.76rem;
-	}
+/* ---------- row B: search + filter ---------- */
+.user-list-tab .people-rowb {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	box-sizing: border-box;
+	height: var(--w-head-b);
+	/* The frame's row B geometry (.w-panel__b): the 32px field sits at the top of the band. */
+	padding: 0 12px 8px 20px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.user-list-tab .people-find {
+	flex: 1 1 auto;
+	cursor: text;
+}
+/* The panel's legacy field skin targets every input in the companion; inside the kit field the
+   input is bare and the label draws the edge and the focus ring. */
+:root .user-list-tab .people-find > input[type='search'] {
+	min-height: 0;
+	height: 100%;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	color: var(--w-text);
+	font: inherit;
+	outline: none;
+	appearance: none;
+}
+:root .user-list-tab .people-find > input[type='search']::-webkit-search-cancel-button {
+	appearance: none;
+}
+.user-list-tab .people-filter {
+	--w-ibtn-ring: var(--w-bg2);
+}
+.user-list-tab .people-filter:focus-visible,
+.user-list-tab .people-chip-clear:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
 
-	.friend-toolbar-row {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-		gap: 0.35rem;
-	}
+/* Applied filter: a removable chip under row B (§7.21). */
+.user-list-tab .people-chips {
+	display: flex;
+	flex: none;
+	flex-wrap: wrap;
+	gap: 6px;
+	padding: 8px 16px 0;
+}
+.user-list-tab .people-chip {
+	gap: 4px;
+	padding-inline-end: 3px;
+	color: var(--w-text);
+}
+.user-list-tab .people-chip-clear {
+	display: inline-grid;
+	place-items: center;
+	width: 18px;
+	height: 18px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: var(--w-pill);
+	background: transparent;
+	color: var(--w-mute);
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease), color var(--w-dur-1) var(--w-ease);
+}
+.user-list-tab .people-chip-clear:hover {
+	background: var(--w-raise);
+	color: var(--w-text);
+}
 
-	.empty-state {
-		padding: var(--space-8) var(--space-4);
-		text-align: center;
-		color: var(--text-secondary);
-		font-size: var(--font-size-base);
-	}
+/* ---------- body and group headers ---------- */
+.user-list-tab .people-body {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 6px 0 16px;
+}
+.user-list-tab .people-group {
+	margin-top: 12px;
+}
+/* Kicker + flexible hairline + count. */
+.user-list-tab .people-head {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	box-sizing: border-box;
+	height: 24px;
+	margin: 0 0 4px;
+	padding: 0 20px;
+	font: inherit;
+}
+.user-list-tab .people-head .w-kicker {
+	flex: none;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	max-width: 75%;
+}
+.user-list-tab .people-rule {
+	flex: 1 1 auto;
+	min-width: 12px;
+	height: var(--w-bw);
+	background: var(--w-line);
+}
+.user-list-tab .people-head-toggle {
+	display: flex;
+	flex: 1 1 auto;
+	align-items: center;
+	gap: 12px;
+	align-self: stretch;
+	min-width: 0;
+	margin: 0 -8px;
+	padding: 0 8px;
+	border: 0;
+	border-radius: var(--radius-inner);
+	background: transparent;
+	color: var(--w-faint);
+	font: inherit;
+	cursor: pointer;
+	transition: color var(--w-dur-1) var(--w-ease);
+}
+.user-list-tab .people-head-toggle > svg {
+	flex: none;
+	margin-inline-start: -6px;
+}
+.user-list-tab .people-head-toggle:hover,
+.user-list-tab .people-head-toggle:hover .w-kicker,
+.user-list-tab .people-head-toggle:hover .w-count {
+	color: var(--w-mute);
+}
+.user-list-tab .people-head-toggle:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
 
-	.role-group {
-		margin-bottom: 0.55rem;
-	}
+/* ---------- member row (§7.11): 46px, stamp 28, name over a 12/16 subline, trailing role word ---------- */
+.user-list-tab .prow-shell {
+	--prow-surface: var(--w-bg2);
+	position: relative;
+	margin: 0 8px;
+}
+.user-list-tab .prow {
+	display: grid;
+	grid-template-columns: 28px minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: 12px;
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 46px;
+	margin: 0;
+	padding: 5px 12px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-text);
+	font: inherit;
+	letter-spacing: 0;
+	text-align: start;
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease), box-shadow var(--w-dur-1) var(--w-ease);
+}
+.user-list-tab .prow-shell:hover {
+	--prow-surface: color-mix(in srgb, var(--w-raise) 70%, var(--w-bg2));
+}
+.user-list-tab .prow-shell:hover .prow {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+}
+/* The row whose profile card is open reads as selected. */
+.user-list-tab .prow-shell:has(> .prow[aria-expanded='true']) {
+	--prow-surface: var(--w-raise);
+}
+.user-list-tab .prow[aria-expanded='true'] {
+	background: var(--w-raise);
+}
+.user-list-tab .prow:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+:root[data-char='contrast'] .user-list-tab .prow-shell:hover {
+	--prow-surface: var(--w-bg2);
+}
+:root[data-char='contrast'] .user-list-tab .prow-shell:hover .prow {
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+:root[data-char='contrast'] .user-list-tab .prow[aria-expanded='true'] {
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
 
-	.role-header {
-		padding: 0.45rem 0.3rem 0.3rem;
-		font-size: 0.7rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		color: var(--text-secondary);
-		letter-spacing: 0.04em;
-		text-align: left;
-	}
+/* Stamp (§7.12): serif initial on the person's identity disc; a profile picture replaces it. */
+.user-list-tab .prow-av {
+	position: relative;
+	display: block;
+	width: 28px;
+	height: 28px;
+	border-radius: var(--w-avr);
+}
+.user-list-tab .prow-stamp,
+.user-list-tab .prow-pic {
+	display: grid;
+	place-items: center;
+	box-sizing: border-box;
+	width: 28px;
+	height: 28px;
+	border-radius: var(--w-avr);
+	object-fit: cover;
+}
+.user-list-tab .prow-stamp {
+	background: var(--disc, var(--w-raise));
+	color: var(--on, var(--w-text));
+	font: 600 calc(12px * var(--w-fs)) / 1 var(--w-serif);
+	user-select: none;
+}
+.user-list-tab .prow-av.is-speaking {
+	box-shadow: 0 0 0 2px var(--prow-surface), 0 0 0 3.5px var(--w-online);
+}
+.user-list-tab .prow-shell.is-offline .prow-stamp,
+.user-list-tab .prow-shell.is-offline .prow-pic {
+	opacity: 0.6;
+}
+/* Presence: 10px dot with a 2px ring in the surface color; away warn, busy danger, offline a hollow ring. */
+.user-list-tab .prow-presence {
+	position: absolute;
+	right: -2px;
+	bottom: -2px;
+	z-index: 2;
+	box-sizing: border-box;
+	width: 10px;
+	height: 10px;
+	border-radius: var(--w-avr);
+	background: var(--w-online);
+	box-shadow: 0 0 0 2px var(--prow-surface);
+}
+.user-list-tab .prow-presence[data-presence='away'] {
+	background: var(--w-warn);
+}
+.user-list-tab .prow-presence[data-presence='busy'] {
+	background: var(--w-danger);
+}
+.user-list-tab .prow-presence[data-presence='offline'] {
+	background: var(--prow-surface);
+	box-shadow: inset 0 0 0 1.5px var(--w-faint), 0 0 0 2px var(--prow-surface);
+}
+.user-list-tab .prow-av .avatar-overlay-badge {
+	pointer-events: none;
+}
 
-	.offline-toggle {
-		display: flex;
-		align-items: center;
-		gap: 0.35rem;
-		width: 100%;
-		background: none;
-		border: none;
-		cursor: pointer;
-		border-radius: 6px;
-		transition: color 0.15s, background 0.15s;
-		padding: 0.45rem 0.3rem 0.3rem;
-	}
+.user-list-tab .prow-text {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+/* A flex line box: the name plate is an inline-flex box, and as an inline it would add a strut
+   and grow the row past 46px. */
+.user-list-tab .prow-name {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+	height: calc(20px * var(--w-fs));
+	overflow: hidden;
+	color: var(--w-text);
+	font: var(--w-t-label);
+	white-space: nowrap;
+}
+.user-list-tab .prow-name > .profile-nameplate {
+	min-width: 0;
+}
+.user-list-tab .prow-shell.is-away .prow-name,
+.user-list-tab .prow-shell.is-offline .prow-name {
+	color: var(--w-mute);
+	font-weight: 400;
+}
+.user-list-tab .prow-sub {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	min-width: 0;
+	color: var(--w-faint);
+	font: 400 calc(12px * var(--w-fs)) / calc(16px * var(--w-fs)) var(--w-sans);
+}
+.user-list-tab .prow-sub > svg {
+	flex: none;
+	width: 12px;
+	height: 12px;
+}
+.user-list-tab .prow-sub.is-speaking {
+	color: var(--w-mute);
+}
+.user-list-tab .prow-sub.is-speaking > svg {
+	color: var(--w-online);
+}
+.user-list-tab .prow-sub.is-handle {
+	font: var(--w-t-mono);
+	font-size: calc(12px * var(--w-fs));
+}
+.user-list-tab .prow-sub-text {
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.user-list-tab .prow-role {
+	align-self: start;
+	margin-top: 2px;
+	line-height: calc(16px * var(--w-fs));
+}
 
-	.offline-toggle:hover {
-		color: var(--text-heading);
-		background: color-mix(in srgb, var(--accent-primary-color) 6%, transparent);
-	}
+/* Hover tray: the actions button sits over the trailing slot and takes no width; the role word
+   steps aside while it shows (on hover and on keyboard focus inside the row). */
+.user-list-tab .prow-more {
+	position: absolute;
+	top: 50%;
+	right: 8px;
+	translate: 0 -50%;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity var(--w-dur-1) var(--w-ease), background-color var(--w-dur-1) var(--w-ease), color var(--w-dur-1) var(--w-ease);
+}
+.user-list-tab .prow-shell:hover .prow-more,
+.user-list-tab .prow-shell:focus-within .prow-more {
+	opacity: 1;
+	pointer-events: auto;
+}
+.user-list-tab .prow-shell:hover .prow-role,
+.user-list-tab .prow-shell:focus-within .prow-role {
+	visibility: hidden;
+}
+.user-list-tab .prow-more:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
 
-	.offline-chevron {
-		font-size: 0.9rem;
-		line-height: 1;
-		display: inline-block;
-		transition: transform 0.18s ease;
-		transform: rotate(0deg);
-	}
+.user-list-tab .people-empty {
+	padding: 32px 20px;
+}
 
-	.offline-chevron.expanded {
-		transform: rotate(90deg);
+/* Touch: rows and the actions button reach 44px+, and the actions button is always there. */
+@media (pointer: coarse) {
+	.user-list-tab .prow {
+		min-height: 52px;
+		padding-inline-end: 52px;
 	}
-
-	.user-row {
-		display: flex;
-		align-items: center;
-		justify-content: flex-start;
-		gap: 0.5rem;
-		padding: 0.48rem 0.35rem;
-		width: 100%;
-		background: transparent;
-		border: none;
-		color: var(--text-heading);
-		cursor: pointer;
-		text-align: left;
-		border-radius: 10px;
-		transition:
-			background 0.15s,
-			transform 0.15s;
-		margin-bottom: 0.08rem;
-	}
-
-	.user-row-shell {
-		display: flex;
-		align-items: center;
-		width: 100%;
-		border-radius: 10px;
-	}
-
-	.user-row-shell .user-row {
-		flex: 1;
-		min-width: 0;
-	}
-
-	.user-row-actions {
-		flex: 0 0 30px;
-		min-width: 30px;
-		min-height: 30px;
-		margin-right: 0.2rem;
-		border: 0;
-		border-radius: 8px;
-		background: transparent;
-		color: var(--text-secondary);
-		font: inherit;
-		font-size: 1.2rem;
-		line-height: 1;
-		cursor: pointer;
-		opacity: 0;
-		transition: opacity 0.15s, background 0.15s;
-	}
-
-	.user-row-shell:hover .user-row,
-	.user-row-shell:focus-within .user-row {
-		background: color-mix(in srgb, var(--accent-primary-color) 8%, transparent);
-	}
-
-	.user-row-shell:hover .user-row-actions,
-	.user-row-shell:focus-within .user-row-actions {
+	.user-list-tab .prow-more {
+		width: 44px;
+		height: 44px;
+		right: 4px;
 		opacity: 1;
+		pointer-events: auto;
 	}
-
-	.user-row-actions:hover,
-	.user-row-actions:focus-visible {
-		background: var(--surface-hover, var(--surface-raised));
-		color: var(--text-heading);
+	.user-list-tab .prow-shell:is(:hover, :focus-within) .prow-role {
+		visibility: visible;
 	}
-
-	.user-row-actions:focus-visible {
-		outline: 2px solid var(--accent-primary-color, var(--accent-primary));
-		outline-offset: 1px;
+	.user-list-tab .people-filter {
+		width: 44px;
+		height: 44px;
 	}
+}
 
-	.user-row:hover {
-		background: color-mix(in srgb, var(--accent-primary-color) 8%, transparent);
-		transform: translateY(-1px);
+@media (max-width: 768px) {
+	.user-list-tab .people-rowb {
+		height: auto;
+		min-height: var(--w-head-b);
+		padding-block: 4px;
 	}
-
-	.user-row.offline {
-		opacity: 0.58;
+	/* 16px inside the field keeps iOS from zooming on focus. */
+	:root .user-list-tab .people-find > input[type='search'] {
+		font-size: max(16px, calc(14px * var(--w-fs)));
 	}
+}
 
-	.user-avatar-wrap {
-		position: relative;
-		flex-shrink: 0;
-		width: 32px;
-		height: 32px;
+@media (prefers-reduced-motion: reduce) {
+	.user-list-tab .prow,
+	.user-list-tab .prow-more,
+	.user-list-tab .people-head-toggle,
+	.user-list-tab .people-chip-clear {
+		transition: none;
 	}
-
-	.user-avatar,
-	.user-avatar-placeholder {
-		width: 32px;
-		height: 32px;
-		border-radius: 50%;
-		object-fit: cover;
-	}
-
-	.user-avatar-placeholder {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 0.8rem;
-		font-weight: 600;
-		color: white;
-	}
-
-	.presence-dot {
-		position: absolute;
-		bottom: -2px;
-		right: -2px;
-		width: 14px;
-		height: 14px;
-		border-radius: 50%;
-		border: 3px solid var(--surface-base, #1a1a2e);
-		background: var(--status-offline, #6b7280);
-		box-sizing: border-box;
-		z-index: 2;
-		transition: transform 0.15s ease;
-	}
-
-	.presence-dot.active {
-		background: var(--status-online, #22c55e);
-		/* Keep online presence visible without a perpetual repaint while idle. */
-		box-shadow: 0 0 0 2px rgba(var(--status-online-rgb, 34, 197, 94), 0.25);
-	}
-
-	.presence-dot.away { background: var(--status-away, #f59e0b); }
-	.presence-dot.busy { background: var(--status-busy, #ef4444); }
-
-	.user-info {
-		display: flex;
-		flex-direction: column;
-		min-width: 0;
-		gap: 1px;
-	}
-
-	.user-name-row {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.3rem;
-		min-width: 0;
-	}
-
-	.user-display-name {
-		font-size: 0.875rem;
-		font-weight: 600;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.user-handle {
-		font-size: 0.7rem;
-		color: var(--text-secondary);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	@media (max-width: 768px) {
-		.user-row-actions { flex-basis: 44px; min-width: 44px; min-height: 44px; margin-right: 0.35rem; opacity: 1; }
-		.friend-search,
-		.friend-select {
-			font-size: 16px;
-		}
-
-		.user-row {
-			padding: 0.625rem 0.75rem;
-			min-height: 52px;
-		}
-
-		.user-avatar-wrap {
-			width: 36px;
-			height: 36px;
-		}
-
-		.user-avatar,
-		.user-avatar-placeholder {
-			width: 36px;
-			height: 36px;
-		}
-
-		.user-display-name { font-size: 1rem; }
-		.user-handle { font-size: 0.8rem; }
-
-	}
-
-	@media (pointer: coarse) {
-		.user-row-actions { min-width: 44px; min-height: 44px; opacity: 1; }
-	}
-
-	.user-avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary-color)); }
-
-	@media (prefers-reduced-motion: reduce) {
-		.user-row {
-			transition: background 0.15s;
-		}
-		.user-row:hover {
-			transform: none;
-		}
-	}
+}
+:root[data-motion='reduce'] .user-list-tab .prow,
+:root[data-motion='reduce'] .user-list-tab .prow-more,
+:root[data-motion='reduce'] .user-list-tab .people-head-toggle,
+:root[data-motion='reduce'] .user-list-tab .people-chip-clear {
+	transition: none;
+}
