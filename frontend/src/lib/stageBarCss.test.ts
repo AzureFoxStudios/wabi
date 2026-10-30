@@ -562,7 +562,7 @@ describe('row A for channels and DMs (chat/ChatHeader.svelte)', () => {
 		// The colophon reads the summary this header publishes, only for its own channel.
 		const composer = read('./components/chat/ChatComposer.svelte');
 		expect(composer).toContain('return holdComposerColophon(id);');
-		expect(composer).toContain('composerRetention(retention, $stagePrivacySummary, effectiveChannel)');
+		expect(composer).toContain('composerRetention(retention, $stagePrivacySummary, effectiveChannel, ');
 		expect(composer).toContain('<PrivacyBadge variant="colophon" input={privacyInput} room={roomFact} retention={keptSource} />');
 	});
 

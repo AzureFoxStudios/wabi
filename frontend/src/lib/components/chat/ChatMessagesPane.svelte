@@ -2,12 +2,13 @@
 	import { onDestroy } from 'svelte';
 	import { _ } from '$lib/i18n';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
-	import { channels, serverMembers, users, type Message, type User } from '$lib/socket';
+	import { channelHistoryLoading, channels, serverMembers, users, type Message, type User } from '$lib/socket';
 	import { inkFor } from '$lib/theme/identity';
 	import { isPrivateConversationType } from '$lib/privacy/privacyState';
 	import MessageList from '../MessageList.svelte';
 	import PinnedMessages from '../PinnedMessages.svelte';
 	import Icon from '../ui/Icon.svelte';
+	import Skeleton from '../ui/Skeleton.svelte';
 	import type { ChannelPaneAnimation } from './types';
 	import { createTypingAnnouncer, typingSegments } from './typingRow';
 
@@ -57,16 +58,21 @@
 	$: roomIsConversation = isPrivateConversationType(roomChannel?.type ?? null) || emptyStateIcon !== '#';
 	$: roomName = channelDisplayName || roomChannel?.name || currentChannel;
 	$: roomTopic = roomIsConversation ? '' : (roomChannel?.description || '').trim();
+	// The first history fetch is not an empty room: skeleton rows until it answers (§7.16).
+	$: historyLoading = Boolean(currentChannel && $channelHistoryLoading[currentChannel]);
+	$: roomEmpty = filteredMessages.length === 0 && pinnedMessages.length === 0 && !searchInput;
 
 	// ---- typing row (§7.17): a 20px stamp, "Iris is writing", three dots; one polite
 	// announcement per 10 seconds, read from words the row does not repeat to assistive tech.
-	function findPerson(name: string): User | undefined {
+	// The directories are arguments, so the stamp's ink updates when members load after typing
+	// starts (a legacy `$:` only tracks the stores it names).
+	function findPerson(name: string, members: User[], known: User[]): User | undefined {
 		const key = name.toLowerCase();
-		return ($serverMembers as User[]).find((user) => user.username?.toLowerCase() === key)
-			|| ($users as User[]).find((user) => user.username?.toLowerCase() === key);
+		return members.find((user) => user.username?.toLowerCase() === key)
+			|| known.find((user) => user.username?.toLowerCase() === key);
 	}
 	$: typingParts = typingSegments(visibleTypingUsers, (key, options) => $_(key, options));
-	$: typingLead = visibleTypingUsers[0] ? findPerson(visibleTypingUsers[0]) : undefined;
+	$: typingLead = visibleTypingUsers[0] ? findPerson(visibleTypingUsers[0], $serverMembers as User[], $users as User[]) : undefined;
 	$: typingInitial = (visibleTypingUsers[0] || '').trim().charAt(0).toUpperCase();
 	let typingAnnouncement = '';
 	const typingAnnouncer = createTypingAnnouncer({ announce: (text) => (typingAnnouncement = text) });
@@ -75,8 +81,10 @@
 </script>
 
 {#if $displayEnhancementSettingsStore.betterSearchPageEnabled && searchInput}
-	<div class="search-results-toolbar" role="status" aria-live="polite">
-		<span class="search-toolbar-meta">
+	<!-- One live region per fact, holding only words: the count (ChatHeader shows none while this
+	     toolbar is on) and the full-history status. The buttons sit outside them. -->
+	<div class="search-results-toolbar">
+		<span class="search-toolbar-meta" role="status">
 			{filteredMessages.length === 1
 				? $_('chat.search.results_one', { values: { count: filteredMessages.length } })
 				: $_('chat.search.results_many', { values: { count: filteredMessages.length } })}
@@ -91,10 +99,11 @@
 			</button>
 		{/if}
 		{#if currentChannelPersistMessages}
+			<!-- The label says what a press does ("Search full history" / "Stop (3)"), so this is a
+			     plain button: a pressed toggle would need a name that never changes. -->
 			<button
 				type="button"
 				class="w-btn w-btn--sm w-btn--quiet"
-				aria-pressed={isFullHistorySearchRunning}
 				on:click={onToggleFullHistorySearchBackfill}
 			>
 				{isFullHistorySearchRunning
@@ -102,9 +111,9 @@
 					: $_('chat.search.full_history')}
 			</button>
 		{/if}
-		{#if fullHistorySearchStatus}
-			<span class="search-toolbar-meta">{fullHistorySearchStatus}</span>
-		{/if}
+		<!-- Present before it has anything to say, so the first status is announced; out of the
+		     row's flow while empty. -->
+		<span class="search-toolbar-meta" class:sr-only={!fullHistorySearchStatus} role="status">{fullHistorySearchStatus}</span>
 	</div>
 {/if}
 
@@ -117,9 +126,13 @@
 		{#if !searchInput}
 			<PinnedMessages {pinnedMessages} />
 		{/if}
-		{#if filteredMessages.length === 0 && pinnedMessages.length === 0 && !searchInput}
+		{#if roomEmpty && historyLoading}
+			<div class="stream-older stream-older--first">
+				<Skeleton variant="message" rows={3} label={$_('messages.pagination.loading')} />
+			</div>
+		{:else if roomEmpty}
 			<!-- The start-of-channel block MessageList draws above the first message, for a room
-			     that has none yet: the room's name, then what happens next. -->
+			     that has none yet: the room's name, then what happens next, then its one action. -->
 			<div class="stream-start stream-start--empty">
 				{#if roomIsConversation}
 					<p class="stream-start__kicker">{$_('messages.pagination.beginning')}</p>
@@ -131,15 +144,16 @@
 				{/if}
 				<p class="stream-start__desc stream-start__next">{emptyStateSubtitle}</p>
 				<div class="stream-start__actions">
-					<button class="w-btn w-btn--sm" type="button" on:click={focusComposer}>
+					<button class="w-btn w-btn--primary w-btn--sm" type="button" on:click={focusComposer}>
 						<Icon name="pencil" />
 						{emptyStateActionLabel}
 					</button>
 				</div>
 			</div>
 		{:else if filteredMessages.length === 0 && searchInput}
-			<div class="stream-start stream-start--empty stream-start--search" role="status">
-				<p class="stream-start__kicker">{$_('chat.search.results_many', { values: { count: 0 } })}</p>
+			<!-- The count is said (and announced) once, by the search toolbar or the masthead's
+			     search; this block says what to try next. -->
+			<div class="stream-start stream-start--empty stream-start--search">
 				<h2 class="stream-start__title stream-start__title--quiet">No messages match “{searchInput}”</h2>
 				<p class="stream-start__desc">{$_('stage.search_help')}</p>
 			</div>

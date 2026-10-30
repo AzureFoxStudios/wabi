@@ -85,13 +85,19 @@ export type ChannelRetentionSummary = { channelId?: string | null; retention?: s
 /**
  * Retention for the colophon's chip: what the host passed, else the masthead's summary when it
  * describes this channel. Null when nothing authoritative is known (no chip, never a guess).
+ *
+ * `mastheadSaysIt`: the masthead already shows this summary's retention on screen (the desktop
+ * DM/group seal chip in ChatHeader), so the colophon does not repeat it: retention is said once
+ * per screen. A host-given value is the host's own statement and always shows.
  */
 export function composerRetention(
 	given: PrivacyPolicy | string | null | undefined,
 	summary: ChannelRetentionSummary,
-	channelId: string | null | undefined
+	channelId: string | null | undefined,
+	options: { mastheadSaysIt?: boolean } = {}
 ): PrivacyPolicy | string | null {
 	if (given !== undefined) return given;
+	if (options.mastheadSaysIt) return null;
 	if (!summary || !channelId || summary.channelId !== channelId) return null;
 	return typeof summary.retention === 'string' ? summary.retention : null;
 }

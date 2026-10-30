@@ -2,10 +2,11 @@
    CHAT — UPLOAD (selected files above the composer, the drop target)
    Owner (wave 1): w1-composer. Roles (--w-*), type tokens and radii only (design contract
    §4.5, §7.19). The card around these (.file-gallery) is drawn in surfaces/composer.css as an
-   object in flow: --w-lift, a hairline, --w-shadow-1.
+   object in flow: --w-lift, a hairline, --w-shadow-1. Every rule is scoped to that card: the
+   generic names (.gallery-header, .gallery-grid, .gallery-item…) are also GalleryChannel's.
    ========================================================================== */
 
-.gallery-header {
+.file-gallery .gallery-header {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -13,12 +14,12 @@
 	margin-bottom: 10px;
 }
 
-.gallery-count {
+.file-gallery .gallery-count {
 	color: var(--w-text);
 	font: var(--w-t-label);
 }
 
-.cancel-gallery {
+.file-gallery .cancel-gallery {
 	display: inline-grid;
 	flex: none;
 	place-items: center;
@@ -35,12 +36,12 @@
 		color var(--w-dur-1) var(--w-ease);
 }
 
-.cancel-gallery:hover {
+.file-gallery .cancel-gallery:hover {
 	background: var(--w-raise);
 	color: var(--w-text);
 }
 
-.gallery-grid {
+.file-gallery .gallery-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(104px, 112px));
 	align-items: start;
@@ -51,7 +52,7 @@
 	overflow-y: auto;
 }
 
-.gallery-item {
+.file-gallery .gallery-item {
 	position: relative;
 	width: 104px;
 	height: 104px;
@@ -63,13 +64,13 @@
 	transition: border-color var(--w-dur-1) var(--w-ease);
 }
 
-.gallery-item:hover,
-.gallery-item:focus-within {
+.file-gallery .gallery-item:hover,
+.file-gallery .gallery-item:focus-within {
 	border-color: var(--w-line-strong);
 }
 
-.gallery-preview,
-.gallery-file-icon {
+.file-gallery .gallery-preview,
+.file-gallery .gallery-file-icon {
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -78,7 +79,7 @@
 }
 
 /* Transparent images keep a backing (§7.19): the sink, no checkerboard. */
-.gallery-preview {
+.file-gallery .gallery-preview {
 	box-sizing: border-box;
 	max-width: 100%;
 	max-height: 100%;
@@ -88,13 +89,13 @@
 	user-select: none;
 }
 
-.gallery-video-preview {
+.file-gallery .gallery-video-preview {
 	padding: 0;
 	background: var(--w-sink);
 	object-fit: contain;
 }
 
-.gallery-audio-preview {
+.file-gallery .gallery-audio-preview {
 	box-sizing: border-box;
 	display: flex;
 	flex-direction: column;
@@ -108,18 +109,18 @@
 	color: var(--w-mute);
 }
 
-.gallery-audio-preview audio {
+.file-gallery .gallery-audio-preview audio {
 	width: 100%;
 	max-width: 100%;
 }
 
-.gallery-file-icon {
+.file-gallery .gallery-file-icon {
 	color: var(--w-mute);
 	font: 400 calc(22px * var(--w-fs)) / 1 var(--w-sans);
 }
 
 /* Name and size on a solid strip of the card's own surface, readable over any image. */
-.gallery-file-info {
+.file-gallery .gallery-file-info {
 	position: absolute;
 	right: 0;
 	bottom: 0;
@@ -135,19 +136,19 @@
 	pointer-events: none;
 }
 
-.gallery-file-name,
-.gallery-file-size {
+.file-gallery .gallery-file-name,
+.file-gallery .gallery-file-size {
 	overflow: hidden;
 	white-space: nowrap;
 	text-overflow: ellipsis;
 }
 
-.gallery-file-size {
+.file-gallery .gallery-file-size {
 	color: var(--w-faint);
 	font-feature-settings: 'tnum';
 }
 
-.remove-file {
+.file-gallery .remove-file {
 	position: absolute;
 	top: 4px;
 	right: 4px;
@@ -170,18 +171,18 @@
 		background-color var(--w-dur-1) var(--w-ease);
 }
 
-.gallery-item:hover .remove-file,
-.gallery-item:focus-within .remove-file,
-.remove-file:focus-visible {
+.file-gallery .gallery-item:hover .remove-file,
+.file-gallery .gallery-item:focus-within .remove-file,
+.file-gallery .remove-file:focus-visible {
 	opacity: 1;
 }
 
-.remove-file:hover {
+.file-gallery .remove-file:hover {
 	background: var(--w-raise);
 }
 
 /* The one primary action of the card: ink on paper (§2.4), never a gradient. */
-.upload-files-btn {
+.file-gallery .upload-files-btn {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -202,13 +203,13 @@
 		border-color var(--w-dur-1) var(--w-ease);
 }
 
-.upload-files-btn:hover {
+.file-gallery .upload-files-btn:hover {
 	border-color: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
 	background: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
 }
 
 /* Album options: a group of rows under a hairline, not a tinted box (§2.1). */
-.upload-album-row {
+.file-gallery .upload-album-row {
 	display: grid;
 	gap: 10px;
 	margin: 0 0 10px;
@@ -216,7 +217,7 @@
 	border-top: var(--w-bw) solid var(--w-line);
 }
 
-.spoiler-checkbox-container {
+.file-gallery .spoiler-checkbox-container {
 	display: flex;
 	flex: 1;
 	align-items: center;
@@ -224,35 +225,35 @@
 	min-width: 0;
 }
 
-.spoiler-label-text {
+.file-gallery .spoiler-label-text {
 	color: var(--w-text);
 	font: var(--w-t-ui);
 }
 
-.spoiler-hint {
+.file-gallery .spoiler-hint {
 	color: var(--w-faint);
 	font: var(--w-t-small);
 	cursor: help;
 }
 
-.gallery-footer {
+.file-gallery .gallery-footer {
 	display: flex;
 	align-items: center;
 	gap: 12px;
 	padding-top: 2px;
 }
 
-.gallery-footer .spoiler-checkbox-container {
+.file-gallery .gallery-footer .spoiler-checkbox-container {
 	justify-content: flex-start;
 }
 
 @media (hover: none) {
-	.remove-file {
+	.file-gallery .remove-file {
 		opacity: 1;
 	}
 }
 
-.upload-album-toggle {
+.file-gallery .upload-album-toggle {
 	display: inline-flex;
 	align-items: center;
 	gap: 8px;
@@ -260,22 +261,22 @@
 	font: var(--w-t-ui);
 }
 
-.upload-album-toggle input {
+.file-gallery .upload-album-toggle input {
 	margin: 0;
 	accent-color: var(--w-accent);
 }
 
-.upload-album-field {
+.file-gallery .upload-album-field {
 	display: grid;
 	gap: 6px;
 }
 
-.upload-album-field span {
+.file-gallery .upload-album-field span {
 	color: var(--w-mute);
 	font: var(--w-t-caption);
 }
 
-.upload-album-name {
+.file-gallery .upload-album-name {
 	box-sizing: border-box;
 	height: 32px;
 	padding: 0 10px;
@@ -286,13 +287,13 @@
 	font: var(--w-t-ui);
 }
 
-.upload-album-name:focus {
+.file-gallery .upload-album-name:focus {
 	outline: none;
 	border-color: var(--w-accent);
 	box-shadow: var(--w-ring);
 }
 
-.upload-album-hint {
+.file-gallery .upload-album-hint {
 	color: var(--w-faint);
 	font: var(--w-t-small);
 }
