@@ -159,6 +159,23 @@ describe('a pending room is asked again until it settles', () => {
 		expect(roomStatusSettled(null)).toBe(false);
 	});
 
+	test('server-readable chosen by another member keeps asking until this member confirms', async () => {
+		// Recheck finding (w1-composer r1): the room read as settled, so a confirmation made on
+		// this member's phone never reached the colophon.
+		const CHOSEN_BY_OTHER: Status = { enabled: false, pendingDefault: false, serverReadableSelected: true, serverReadableAllowedByMe: false, tag: 'held' };
+		expect(roomStatusSettled(CHOSEN_BY_OTHER)).toBe(false);
+		const s = setup(CHOSEN_BY_OTHER);
+		await flush();
+		expect(colophonFor(s.seen.at(-1))).toBe('server-readable');
+		s.server.set(BY_CHOICE);
+		await s.clock.advance(5_000);
+		expect(colophonFor(s.seen.at(-1))).toBe('server-readable-by-choice');
+		const before = s.server.requests;
+		await s.clock.advance(30_000);
+		expect(s.server.requests).toBe(before);
+		s.watch.dispose();
+	});
+
 	test('a newer answer another surface put in the shared cache is adopted without a request', async () => {
 		let cache: Status | null = null;
 		const s = setup(PENDING, { cached: () => cache });

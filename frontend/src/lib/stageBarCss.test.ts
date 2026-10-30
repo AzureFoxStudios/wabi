@@ -714,9 +714,17 @@ describe('row A for channels and DMs (chat/ChatHeader.svelte)', () => {
 		expect(chatHeader).not.toContain('menuSeed');
 	});
 
-	test('a failed DM privacy request is asked again instead of leaving "Checking privacy…" for good', () => {
-		expect(chatHeader).toContain('retry = setTimeout(() => ask(attempt + 1), 2000 * 2 ** attempt);');
-		expect(chatHeader).toContain('clearTimeout(retry);');
+	test('the DM seal follows the same room-status watcher as the composer colophon', () => {
+		// A failed request is asked again (2 s, 4 s, 8 s) instead of leaving "Checking privacy…" for
+		// good, and a server-readable choice made elsewhere reaches the seal within one poll, so
+		// the masthead never says "Encryption pending" under a colophon that says otherwise
+		// (w1-composer recheck). The watcher's timing is tested in composerRoomStatus.test.ts.
+		expect(chatHeader).toContain("import { watchComposerRoomStatus, type RoomStatusSocket } from './composerRoomStatus';");
+		expect(chatHeader).toContain('watchComposerRoomStatus<E2eeRoomStatus>({');
+		expect(chatHeader).toContain('refresh: refreshE2eeStatus,');
+		expect(chatHeader).toContain('cached: cachedE2eeStatus,');
+		expect(chatHeader).toContain('return () => watch.dispose();');
+		expect(chatHeader).not.toContain('e2eeRefresh');
 	});
 
 	test('search: a quiet icon that opens a 280px field named for the room; syntax help in the dropdown', () => {
