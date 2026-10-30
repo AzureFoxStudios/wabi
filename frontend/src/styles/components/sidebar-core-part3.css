@@ -8,7 +8,10 @@
    (MessageItemContent, GroupAvatar, LiveEmptyState), .status-indicator (UserPopout, Create DM /
    group), .status-dot, .username (MessageHeader, CreateGroupModal), .control-btn (CallControls),
    the generic .modal-* frame geometry and the channel-settings form rows (ChannelSettingsModal,
-   settings tabs). Their owners retire them; see the w1-sidebar handoffs.
+   settings tabs). They are restated on roles so they follow every theme; each owner scopes its
+   own and the legacy-retirement package deletes them (see the w1-sidebar handoffs).
+   Dialog layout (fixed title row, scrolling body, §7.13) belongs to modal-skin.css and BaseModal,
+   not to this sheet.
    ========================================================================== */
 
 	:root .channel-sidebar .voice-usercard-actions button svg {
@@ -55,69 +58,72 @@
 
 
 	.avatar-placeholder {
-		color: var(--text-heading);
-		font-weight: 600;
-		font-size: var(--text-base);
+		background-color: var(--avatar-color, var(--w-raise));
+		color: var(--w-text);
+		font-weight: 500;
+		font-size: calc(14px * var(--w-fs, 1));
 	}
 
 
-	/* R11: token-sized BL presence (was 18px — oversized vs avatar) */
+	/* A presence mark (§5.3): online, away (warn) and busy (danger) dots; offline is a hollow
+	   faint ring. Callers that pass their own color inline keep it. */
 	.status-indicator {
 		position: absolute;
 		bottom: 0;
 		right: -1px;
 		width: 10px;
 		height: 10px;
-		border-radius: 50%;
-		border: 2px solid var(--surface-base, #1a1a2e);
-		background: var(--status-offline, #6b7280);
+		border-radius: var(--w-avr, 50%);
+		border: 2px solid var(--w-bg);
+		background: var(--w-faint);
 		box-sizing: border-box;
 		z-index: var(--z-base, 0);
 	}
 
 
 	.status-indicator.online {
-		background: var(--status-online, #22c55e);
+		background: var(--w-online);
 	}
 
 
 	.status-indicator.away {
-		background: var(--status-away, #f59e0b);
+		background: var(--w-warn);
 	}
 
 
 	.status-indicator.busy {
-		background: var(--status-busy, #ef4444);
+		background: var(--w-danger);
 	}
 
 
 	.status-indicator.offline {
-		background: var(--status-offline, #6b7280);
+		background: var(--w-bg);
+		box-shadow: inset 0 0 0 1.5px var(--w-faint);
 	}
 
 
 	.username {
-		font-size: var(--text-base);
-		font-weight: 600;
-		color: var(--text-heading);
+		font-size: calc(14px * var(--w-fs, 1));
+		font-weight: 500;
+		color: var(--w-text);
 		display: flex;
 		align-items: center;
 		gap: 0.35rem;
 		cursor: pointer;
-		transition: color var(--duration-fast, 150ms);
+		transition: color var(--w-dur-1) var(--w-ease);
 		min-width: 0;
 	}
 
 
 	.username:hover {
-		color: var(--accent-primary-color);
+		color: var(--w-accent);
 	}
 
 
 	.status-dot {
 		width: 10px;
 		height: 10px;
-		border-radius: 50%;
+		border-radius: var(--w-avr, 50%);
 		flex-shrink: 0;
 	}
 
@@ -125,16 +131,18 @@
 	.control-btn {
 		width: 32px;
 		height: 32px;
-		border-radius: var(--radius-full, 9999px);
+		border-radius: 50%;
 		background: transparent;
 		border: none;
-		color: var(--text-secondary);
-		font-size: var(--font-size-lg, 1rem);
+		color: var(--w-mute);
+		font-size: calc(16px * var(--w-fs, 1));
 		cursor: pointer;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		transition: all var(--duration-fast, 150ms);
+		transition:
+			background-color var(--w-dur-1) var(--w-ease),
+			color var(--w-dur-1) var(--w-ease);
 		flex-shrink: 0;
 		padding: 0;
 	}
@@ -144,30 +152,27 @@
 		width: 18px;
 		height: 18px;
 		stroke: currentColor;
-		stroke-width: 2;
+		stroke-width: 1.75;
 	}
 
 
 	.control-btn:hover {
-		background: var(--surface-base);
-		color: var(--text-heading);
-		box-shadow: inset 0 0 6px var(--surface-hover, rgba(255, 255, 255, 0.1));
+		background: var(--w-raise);
+		color: var(--w-text);
 	}
 
 
+	/* Legacy global pressed state. It is unscoped, so it also reaches CallControls' camera, share and
+	   presenter "on" states: keep it neutral (raise fill, text ink). Danger glyphs for muted/deafened
+	   are set by the scoped owners (.profile-card .profile-controls, the call surfaces). */
 	.control-btn.active {
-		background: var(--color-danger);
-		color: var(--text-heading);
+		background: var(--w-raise);
+		color: var(--w-text);
 	}
 
 
-	.control-btn.active:hover {
-		box-shadow: inset 0 0 6px var(--shadow-sm, rgba(0, 0, 0, 0.2));
-	}
-
-
-	/* Generic legacy dialog frame (.modal-overlay > .modal-content): geometry only here;
-	   modal-skin.css paints the frame on roles (§7.13). */
+	/* Generic legacy dialog frame (.modal-overlay > .modal-content). modal-skin.css paints the
+	   overlay frame on roles (§7.13) and owns its layout; this is the base box only. */
 	.modal-overlay {
 		position: fixed;
 		top: 0;
@@ -184,7 +189,7 @@
 
 	.modal-content {
 		background: var(--w-bg);
-		border-radius: var(--radius-xl);
+		border-radius: var(--radius-md);
 		max-width: 600px;
 		width: 90%;
 		max-height: 80dvh;
@@ -192,40 +197,23 @@
 		box-shadow: var(--w-shadow);
 	}
 
-	/* §7.13: a dialog made only of a title row, a body and an optional footer keeps the title
-	   and close button fixed while the body scrolls (Channel settings and its siblings). Any
-	   other content shape keeps the whole-frame scroll above, so nothing gets clipped. */
-	.modal-content:has(> .modal-header):has(> .modal-body):not(:has(> :not(.modal-header, .modal-body, .modal-footer))) {
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-	}
-	.modal-content:has(> .modal-header):has(> .modal-body):not(:has(> :not(.modal-header, .modal-body, .modal-footer))) > :is(.modal-header, .modal-footer) {
-		flex: none;
-	}
-	.modal-content:has(> .modal-header):has(> .modal-body):not(:has(> :not(.modal-header, .modal-body, .modal-footer))) > .modal-body {
-		flex: 1 1 auto;
-		min-height: 0;
-		overflow-y: auto;
-	}
-
 
 	.modal-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 1.5rem;
+		padding: 24px;
 		border-bottom: var(--w-bw, 1px) solid var(--w-line);
 	}
 
 
 	.modal-header h2 {
 		margin: 0;
-		font-size: var(--text-xl);
-		color: var(--text-heading);
+		font: var(--w-t-heading);
+		color: var(--w-text);
 		display: inline-flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 8px;
 	}
 
 
@@ -239,122 +227,126 @@
 	.close-btn {
 		background: none;
 		border: none;
-		font-size: var(--font-size-2xl, 1.5rem);
-		color: var(--text-secondary);
+		font-size: calc(24px * var(--w-fs, 1));
+		color: var(--w-mute);
 		cursor: pointer;
 		width: 32px;
 		height: 32px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 4px;
-		transition: all var(--duration-fast, 150ms);
+		border-radius: var(--radius-md);
+		transition:
+			background-color var(--w-dur-1) var(--w-ease),
+			color var(--w-dur-1) var(--w-ease);
 	}
 
 
 	.close-btn:hover {
-		background: var(--surface-base);
-		color: var(--text-heading);
+		background: var(--w-raise);
+		color: var(--w-text);
 	}
 
 
 	.modal-body {
-		padding: 1.5rem;
+		padding: 24px;
 	}
 
 
 	.setting-section h3 {
-		margin: 0 0 1rem 0;
-		color: var(--text-heading);
-		font-size: var(--text-lg);
+		margin: 0 0 16px 0;
+		color: var(--w-text);
+		font: var(--w-t-subhead);
 	}
 
 
 	.setting-group {
-		margin-top: 1.5rem;
+		margin-top: 24px;
 	}
 
 
 	.setting-group label,
 	.setting-group .setting-label {
 		display: block;
-		font-weight: 600;
-		color: var(--text-heading);
-		margin-bottom: 0.5rem;
+		font: var(--w-t-label);
+		color: var(--w-text);
+		margin-bottom: 8px;
 	}
 
 
 	.setting-description {
-		color: var(--text-secondary);
-		font-size: var(--text-base);
-		margin-bottom: 1rem;
+		color: var(--w-mute);
+		font: var(--w-t-ui);
+		margin-bottom: 16px;
 	}
 
 
 	.auto-delete-options {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-		gap: 0.5rem;
+		gap: 8px;
 	}
 
 
+	/* Retention choices are keys: the chosen one is paper on a strong edge (§5.2), never an
+	   accent fill. */
 	.auto-delete-btn {
-		padding: 0.75rem 1rem;
-		background: var(--surface-base);
-		border: 2px solid transparent;
-		border-radius: var(--radius-sm, 4px);
-		color: var(--text-heading);
-		font-size: var(--text-base);
-		font-weight: 500;
+		padding: 12px 16px;
+		background: var(--w-bg2);
+		border: var(--w-bw, 1px) solid var(--w-line);
+		border-radius: var(--radius-md);
+		color: var(--w-text);
+		font: var(--w-t-label);
 		cursor: pointer;
-		transition: all var(--duration-fast, 150ms);
+		transition:
+			background-color var(--w-dur-1) var(--w-ease),
+			border-color var(--w-dur-1) var(--w-ease);
 	}
 
 
 	.auto-delete-btn:hover {
-		background: var(--surface-raised);
-		border-color: var(--accent-primary-color);
+		background: color-mix(in srgb, var(--w-raise) 70%, var(--w-bg2));
+		border-color: var(--w-line-strong);
 	}
 
 
 	.auto-delete-btn.active {
-		background: var(--accent-primary-color);
-		color: var(--w-on-accent);
-		border-color: var(--accent-primary-color);
+		background: var(--w-raise);
+		border-color: var(--w-line-strong);
+		color: var(--w-text);
+		box-shadow: var(--w-shadow-1);
 	}
 
 
 	.description-input {
 		width: 100%;
-		padding: 0.75rem;
-		border-radius: var(--radius-sm, 4px);
-		border: 1px solid var(--border-subtle);
-		background: var(--surface-app);
-		color: var(--text-heading);
-		font-size: var(--text-base);
+		padding: 12px;
+		border-radius: var(--radius-md);
+		border: var(--w-bw, 1px) solid var(--w-line-strong);
+		background: var(--w-sink);
+		color: var(--w-text);
+		font: var(--w-t-ui);
 		box-sizing: border-box;
 	}
 
 
+	/* The view's one primary action: ink on paper (§2.4). */
 	.save-description-btn {
-		padding: 0.625rem 1.25rem;
-		background: var(--accent-primary-color);
+		padding: 10px 20px;
+		background: var(--w-text);
 		border: none;
-		border-radius: var(--radius-sm, 4px);
-		color: var(--w-on-accent);
-		font-weight: 500;
+		border-radius: var(--radius-md);
+		color: var(--w-bg);
+		font: var(--w-t-label);
 		cursor: pointer;
-		transition: all var(--duration-fast, 150ms);
-		margin-top: 0.5rem;
+		transition: opacity var(--w-dur-1) var(--w-ease);
+		margin-top: 8px;
 	}
 
 
 	.save-description-btn:hover {
 		opacity: 0.9;
 	}
-
-
-	.avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary-color)); }
 
 
 	/* Still used by chat-upload.css and lib/components/userPanel.css. */

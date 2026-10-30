@@ -16,9 +16,16 @@ import {
 	splitVoiceParticipants,
 	VOICE_PARTICIPANT_LIMIT,
 	voiceMemberState,
-	splitRootSections
+	splitRootSections,
+	sidebarWidthTier,
+	NARROW_SIDEBAR_MAX_WIDTH,
+	communityUnreadIds,
+	planSidebarFoot,
+	FOOT_LAYOUT,
+	channelNoun,
+	deleteConfirmCopy
 } from './channelSidebarHelpers';
-import type { DragAnchor } from './channelSidebarHelpers';
+import type { DragAnchor, FootControl } from './channelSidebarHelpers';
 import type { Channel } from '$lib/socket';
 
 function ch(partial: Partial<Channel> & Pick<Channel, 'id' | 'name'>): Channel {
@@ -141,6 +148,19 @@ describe('resolveDropGap', () => {
 		expect(result.gap).toEqual({ scope: 'root', anchorId: 'general', pos: 'before' });
 	});
 
+	test('a voice-room drag only goes INTO a folder: its header edges never mean "around it"', () => {
+		// A top-level voice room renders under VOICE, so "before/after the folder" in CHANNELS
+		// would draw the line where the room never lands.
+		for (const y of [240 + 1, 255, 270 - 1]) {
+			const result = resolveDropGap(anchors, y, false, containerTop, scrollTop, 400, true);
+			expect(result.gap).toEqual({ scope: 'folder', categoryId: 'art', anchorId: null, pos: 'before' });
+			expect(result.indented).toBe(true);
+		}
+		// Rows still split before/after as usual.
+		const row = resolveDropGap(anchors, 330, false, containerTop, scrollTop, 400, true);
+		expect(row.gap).toEqual({ scope: 'root', anchorId: 'voice', pos: 'after' });
+	});
+
 	test('empty list still offers the root tail gap', () => {
 		const result = resolveDropGap([], 300, false, containerTop, scrollTop, 320);
 		expect(result.gap).toEqual({ scope: 'root', anchorId: null, pos: 'after' });
@@ -189,6 +209,8 @@ describe('isCompactSidebarWidth', () => {
 	test('compact is a range of narrow widths, not only exactly 60', () => {
 		expect(isCompactSidebarWidth(60)).toBe(true);
 		expect(isCompactSidebarWidth(90)).toBe(true);
+		// 121-160 used to keep the full foot, whose Settings button ran past the column edge.
+		expect(isCompactSidebarWidth(150)).toBe(true);
 		expect(isCompactSidebarWidth(COMPACT_SIDEBAR_MAX_WIDTH)).toBe(true);
 		expect(isCompactSidebarWidth(COMPACT_SIDEBAR_MAX_WIDTH + 1)).toBe(false);
 		expect(isCompactSidebarWidth(280)).toBe(false);
@@ -198,6 +220,124 @@ describe('isCompactSidebarWidth', () => {
 		expect(isCompactSidebarWidth(0)).toBe(false);
 		expect(isCompactSidebarWidth(-10)).toBe(false);
 		expect(isCompactSidebarWidth(Number.NaN)).toBe(false);
+	});
+});
+
+describe('sidebarWidthTier', () => {
+	test('compact rail, then a narrow column, then the full layout', () => {
+		expect(sidebarWidthTier(60, false)).toBe('compact');
+		expect(sidebarWidthTier(COMPACT_SIDEBAR_MAX_WIDTH, false)).toBe('compact');
+		expect(sidebarWidthTier(COMPACT_SIDEBAR_MAX_WIDTH + 1, false)).toBe('narrow');
+		expect(sidebarWidthTier(200, false)).toBe('narrow');
+		expect(sidebarWidthTier(NARROW_SIDEBAR_MAX_WIDTH, false)).toBe('narrow');
+		expect(sidebarWidthTier(NARROW_SIDEBAR_MAX_WIDTH + 1, false)).toBe('full');
+		expect(sidebarWidthTier(264, false)).toBe('full');
+	});
+
+	test('the phone drawer is always full, whatever desktop width is stored', () => {
+		expect(sidebarWidthTier(60, true)).toBe('full');
+		expect(sidebarWidthTier(150, true)).toBe('full');
+		expect(sidebarWidthTier(190, true)).toBe('full');
+	});
+});
+
+describe('planSidebarFoot (nothing clipped at the column edge)', () => {
+	const fine = { inCall: false, coarse: false };
+	const fineCall = { inCall: true, coarse: false };
+	const touch = { inCall: false, coarse: true };
+	const touchCall = { inCall: true, coarse: true };
+
+	/** Width the planned foot takes (mirrors the .sb-foot rules in surfaces/sidebar.css). */
+	function used(plan: ReturnType<typeof planSidebarFoot>, coarse: boolean): number {
+		const key = coarse ? 44 : 32;
+		const n = plan.inline.length;
+		const keys = n === 0 ? 0 : FOOT_LAYOUT.gap + n * key + (n - 1) * FOOT_LAYOUT.keyGap;
+		const name = plan.name ? FOOT_LAYOUT.gap + FOOT_LAYOUT.minName : 0;
+		return FOOT_LAYOUT.padStart + FOOT_LAYOUT.avatar + FOOT_LAYOUT.padEnd + name + keys;
+	}
+
+	test('the default column shows the whole foot (spec §8.1: name, Mute, Deafen, Settings)', () => {
+		expect(planSidebarFoot(264, fine)).toEqual({ name: true, inline: ['mute', 'deafen', 'settings'], overflow: [] });
+		expect(planSidebarFoot(280, fineCall)).toEqual({ name: true, inline: ['mute', 'end', 'deafen', 'settings'], overflow: [] });
+	});
+
+	test('Settings, then Deafen, move into the avatar menu before the name goes', () => {
+		expect(planSidebarFoot(264, fineCall)).toEqual({ name: true, inline: ['mute', 'end', 'deafen'], overflow: ['settings'] });
+		expect(planSidebarFoot(200, fine)).toEqual({ name: true, inline: ['mute'], overflow: ['deafen', 'settings'] });
+	});
+
+	test('the narrowest full column drops the name and keeps what fits', () => {
+		expect(planSidebarFoot(COMPACT_SIDEBAR_MAX_WIDTH + 1, fine)).toEqual({ name: false, inline: ['mute', 'deafen'], overflow: ['settings'] });
+		expect(planSidebarFoot(COMPACT_SIDEBAR_MAX_WIDTH + 1, fineCall)).toEqual({ name: false, inline: ['mute', 'end'], overflow: ['deafen', 'settings'] });
+	});
+
+	test('44px touch keys are planned at their real size', () => {
+		expect(planSidebarFoot(264, touch)).toEqual({ name: true, inline: ['mute', 'deafen'], overflow: ['settings'] });
+		expect(planSidebarFoot(252, touchCall).inline).toEqual(['mute', 'end']);
+		// The phone drawer (min(88vw, 360px) or the full 389px) has room for everything.
+		expect(planSidebarFoot(343, touchCall)).toEqual({ name: true, inline: ['mute', 'end', 'deafen', 'settings'], overflow: [] });
+	});
+
+	test('the planned foot never runs past the column, at any width the drag handle allows', () => {
+		for (const opts of [fine, fineCall, touch, touchCall]) {
+			for (let width = COMPACT_SIDEBAR_MAX_WIDTH + 1; width <= 744; width++) {
+				const plan = planSidebarFoot(width, opts);
+				expect(used(plan, opts.coarse)).toBeLessThanOrEqual(width);
+				const every: FootControl[] = opts.inCall ? ['mute', 'end', 'deafen', 'settings'] : ['mute', 'deafen', 'settings'];
+				expect([...plan.inline, ...plan.overflow].sort()).toEqual(every.sort());
+			}
+		}
+	});
+
+	test('the rail (or an unmeasured foot) puts every control in the avatar menu', () => {
+		expect(planSidebarFoot(60, fineCall)).toEqual({ name: false, inline: [], overflow: ['mute', 'end', 'deafen', 'settings'] });
+		expect(planSidebarFoot(Number.NaN, fine).inline).toEqual([]);
+	});
+});
+
+describe('channelNoun + deleteConfirmCopy (the confirm names what is deleted)', () => {
+	test('one noun per kind', () => {
+		expect(channelNoun('voice')).toBe('voice room');
+		expect(channelNoun('group')).toBe('group');
+		expect(channelNoun('category')).toBe('folder');
+		expect(channelNoun('text')).toBe('channel');
+		expect(channelNoun(undefined)).toBe('channel');
+	});
+
+	test('a voice room or group is never called a channel', () => {
+		const room = deleteConfirmCopy('voice room', 'Studio lounge', 0);
+		expect(room.title).toBe('Delete this voice room?');
+		expect(room.message).toBe('“Studio lounge” and its messages are removed for everyone. This can’t be undone.');
+		expect(room.confirm).toBe('Delete voice room');
+		expect(`${room.title} ${room.message} ${room.confirm}`).not.toMatch(/channel|#/);
+		expect(deleteConfirmCopy('group', 'Weekend crew', 0).confirm).toBe('Delete group');
+	});
+
+	test('channels keep the # name; folders offer to keep their channels', () => {
+		expect(deleteConfirmCopy('channel', 'general', 0).message).toBe('#general and its messages are removed for everyone. This can’t be undone.');
+		const folder = deleteConfirmCopy('folder', 'Field projects', 2);
+		expect(folder.secondary).toBe('Delete folder, keep channels');
+		expect(folder.message).toContain('holds 2 channels');
+		expect(deleteConfirmCopy('folder', 'Empty', 0).secondary).toBeNull();
+	});
+});
+
+describe('communityUnreadIds (CHANNELS > Mark all read)', () => {
+	const list = [
+		{ id: 'general', type: 'text' },
+		{ id: 'lounge', type: 'voice' },
+		{ id: 'notes', type: undefined },
+		{ id: 'dm-1', type: 'dm' },
+		{ id: 'group-1', type: 'group' }
+	] as Array<Pick<Channel, 'id' | 'type'>>;
+
+	test('clears community channels only, never DMs or group DMs', () => {
+		const ids = communityUnreadIds({ general: 3, lounge: 0, notes: 2, 'dm-1': 4, 'group-1': 1 }, list);
+		expect(ids).toEqual(['general', 'notes']);
+	});
+
+	test('ignores ids the channel list does not know and non-counts', () => {
+		expect(communityUnreadIds({ 'unknown-dm': 5, general: Number.NaN, notes: -1 }, list)).toEqual([]);
 	});
 });
 
@@ -227,12 +367,16 @@ describe('splitVoiceParticipants', () => {
 	const people = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
 
 	test(`lists at most ${VOICE_PARTICIPANT_LIMIT}, then counts the rest`, () => {
-		expect(splitVoiceParticipants(people, false)).toEqual({ shown: ['a', 'b', 'c', 'd', 'e'], hidden: 2 });
+		expect(splitVoiceParticipants(people, false)).toEqual({ shown: ['a', 'b', 'c', 'd', 'e'], hidden: 2, collapsible: false });
 	});
 
-	test('expanded or short rooms list everyone', () => {
-		expect(splitVoiceParticipants(people, true)).toEqual({ shown: people, hidden: 0 });
-		expect(splitVoiceParticipants(['a', 'b'], false)).toEqual({ shown: ['a', 'b'], hidden: 0 });
+	test('an opened long room lists everyone and can fold back ("Show less")', () => {
+		expect(splitVoiceParticipants(people, true)).toEqual({ shown: people, hidden: 0, collapsible: true });
+	});
+
+	test('short rooms list everyone with no toggle at all', () => {
+		expect(splitVoiceParticipants(['a', 'b'], false)).toEqual({ shown: ['a', 'b'], hidden: 0, collapsible: false });
+		expect(splitVoiceParticipants(['a', 'b'], true)).toEqual({ shown: ['a', 'b'], hidden: 0, collapsible: false });
 		expect(splitVoiceParticipants(people.slice(0, VOICE_PARTICIPANT_LIMIT), false).hidden).toBe(0);
 	});
 });
@@ -269,6 +413,7 @@ describe('sidebar stylesheets stay on roles (spec §2.5, §4.7)', () => {
 		'surfaces/sidebar.css',
 		'components/sidebar-core-part1.css',
 		'components/sidebar-core-part2.css',
+		'components/sidebar-core-part3.css',
 		'components/sidebar-channels.css',
 		'components/sidebar-compact.css'
 	];
@@ -306,5 +451,44 @@ describe('sidebar stylesheets stay on roles (spec §2.5, §4.7)', () => {
 		expect(css).toContain('grid-template-columns: 20px minmax(0, 1fr) auto;');
 		expect(css).toContain('height: var(--w-foot);');
 		expect(css).toContain('height: var(--w-mast);');
+	});
+
+	/** The bodies of every `@media <query> {…}` block, matched by brace depth (no regex strip). */
+	function mediaBodies(css: string, query: string): string {
+		const opener = `@media ${query} {`;
+		const bodies: string[] = [];
+		let from = css.indexOf(opener);
+		while (from !== -1) {
+			let depth = 1;
+			let at = from + opener.length;
+			while (at < css.length && depth > 0) {
+				if (css[at] === '{') depth++;
+				else if (css[at] === '}') depth--;
+				at++;
+			}
+			bodies.push(css.slice(from + opener.length, at - 1));
+			from = css.indexOf(opener, at);
+		}
+		return bodies.join('\n');
+	}
+
+	test('touch keeps the masthead rule: the search stays 32px with a 44px hit extender, no keycap', () => {
+		const css = stripComments(readFileSync(join(stylesDir, 'surfaces/sidebar.css'), 'utf8'));
+		const coarse = mediaBodies(css, '(pointer: coarse)');
+		expect(coarse).toMatch(/\.sb-search\s*\{\s*height:\s*32px;/);
+		expect(coarse).toMatch(/\.sb-search::after\s*\{[^}]*inset:\s*-7px -1px;/);
+		expect(coarse).toMatch(/\.sb-search \.w-kbd\s*\{\s*display:\s*none;/);
+		// The section head grows with its 44px add key (touch and the drawer).
+		const touchOrDrawer = mediaBodies(css, '(pointer: coarse), (max-width: 768px)');
+		expect(touchOrDrawer).toMatch(/\.sb-sec\s*\{\s*height:\s*44px;/);
+		// The phone drawer has no column beside it, so its masthead grows to hold a 44px field.
+		const drawer = mediaBodies(css, '(max-width: 768px)');
+		expect(drawer).toMatch(/\.sb-mast\s*\{\s*height:\s*calc\(var\(--w-head-a\) \+ 52px\);/);
+		expect(drawer).toMatch(/\.sb-search\s*\{\s*height:\s*44px;/);
+	});
+
+	test('the sidebar sheets hold no dialog layout for other surfaces (modal-skin.css owns it)', () => {
+		const part3 = stripComments(readFileSync(join(stylesDir, 'components/sidebar-core-part3.css'), 'utf8'));
+		expect(part3).not.toMatch(/\.modal-content:has\(/);
 	});
 });

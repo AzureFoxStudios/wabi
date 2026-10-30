@@ -55,15 +55,19 @@
 	import UnifiedChannelList from './sidebar/UnifiedChannelList.svelte';
 	import {
 		buildMixedRoot,
+		channelNoun,
+		communityUnreadIds,
+		deleteConfirmCopy,
 		dmRowLabel,
 		formatBadge,
 		formatGlimpseTime,
-		isCompactSidebarWidth,
 		resolveDropGap,
 		resolveSidebarPlace,
+		sidebarWidthTier,
 		splitRootSections,
 		summarizeGlimpseMessage
 	} from './sidebar/channelSidebarHelpers';
+	import type { ChannelNoun } from './sidebar/channelSidebarHelpers';
 	import type { DragAnchor, DropGap } from './sidebar/channelSidebarHelpers';
 	import VoiceUserCard from './sidebar/VoiceUserCard.svelte';
 	import ProfileCard from './sidebar/ProfileCard.svelte';
@@ -117,7 +121,7 @@
 	let showDeleteConfirm = false;
 	let channelToDelete = '';
 	let channelToDeleteName = '';
-	let channelToDeleteIsCategory = false;
+	let channelToDeleteNoun: ChannelNoun = 'channel';
 	let channelToDeleteChildCount = 0;
 	let deletingChannel = false;
 	let deleteChannelError = '';
@@ -187,8 +191,10 @@
 	let voiceDropTargetChannelId: string | null = null;
 
 	$: sidebarWidth = $layoutStore.channelSidebarWidth;
-	// A real compact rail (spec §8.1): any narrow desktop column renders 40px glyph tiles.
-	$: isCompactSidebar = !$layoutStore.isMobile && isCompactSidebarWidth(sidebarWidth);
+	// A real compact rail (spec §8.1): any narrow desktop column renders 40px glyph tiles; a
+	// narrow (but not compact) column drops the search keycap. The phone drawer is always full.
+	$: widthTier = sidebarWidthTier(sidebarWidth, $layoutStore.isMobile);
+	$: isCompactSidebar = widthTier === 'compact';
 	// Exactly one "you are here" entry: Server home, DMs, or the channel (page or context).
 	$: sidebarPlace = resolveSidebarPlace(activeView, $activeWorkspaceView);
 	$: runtimeActiveVoiceChannelId = $callActiveVoiceChannel?.id || $socketActiveVoiceChannel || null;
@@ -265,7 +271,8 @@
 	].filter(ch => (ch.type as string | undefined) !== 'category');
 	$: mixedRootItems = buildMixedRoot($channels, unifiedSidebarChannels);
 	$: rootSections = splitRootSections(mixedRootItems);
-	$: totalUnreadNotifications = Object.values($channelUnreadCounts).reduce((s, v) => s + (Number.isFinite(v) ? v : 0), 0);
+	/** Community channels with unread messages: what CHANNELS › Mark all read clears (never DMs). */
+	$: communityUnread = communityUnreadIds($channelUnreadCounts, $channels);
 	/** Unread across DM + group DM channels only — badge for Messages hub. */
 	$: dmUnreadCount = $channels
 		.filter((ch) => ch.type === 'dm' || ch.type === 'group')
@@ -381,7 +388,16 @@
 		void tick().then(() => { if (glimpseMessagesEl) glimpseMessagesEl.scrollTop = glimpseMessagesEl.scrollHeight; });
 	}
 
-	function clearAllUnreadNotifications() { for (const id of Object.keys($channelUnreadCounts)) markChannelAsRead(id); markMessagesAsRead(); }
+	/** CHANNELS › Mark all read: the community's channels only; DMs and groups keep their own state. */
+	function markCommunityRead() { for (const id of communityUnread) markChannelAsRead(id); }
+	/** Unread entries a channel's menu "Mark as read" clears: the channel, or a folder's channels. */
+	function unreadIdsFor(ch: Channel, counts: Record<string, number>): string[] {
+		const ids = (ch.type as string | undefined) === 'category'
+			? $channels.filter((item) => item.parentId === ch.id).map((item) => item.id)
+			: [ch.id];
+		return ids.filter((id) => Number(counts[id]) > 0);
+	}
+	function markEntriesRead(ids: string[]) { for (const id of ids) markChannelAsRead(id); }
 	function openFollowingView() { activeView = 'following'; glimpseChannelId = null; dispatch('close'); }
 	function openDmHub() { activeView = 'dm'; glimpseChannelId = null; dispatch('openMessages'); dispatch('close'); }
 	function openFriendsHub() { activeView = 'dm'; glimpseChannelId = null; dispatch('openFriends'); dispatch('close'); }
@@ -496,7 +512,8 @@
 	/** Insertion-line position in scroll-content coordinates; null hides it. */
 	let dropLine: { y: number; x: number } | null = null;
 	const ROOT_LINE_X = 4;
-	const FOLDER_LINE_X = 18;
+	/** Folder children sit 12px in (sidebar.css .category-channels), so their line does too. */
+	const FOLDER_LINE_X = 30;
 
 	let dragFrameHandle: number | null = null;
 	let lastPointer = { x: 0, y: 0 };
@@ -600,15 +617,19 @@
 		else if (distanceDown < 0) listEl.scrollTop -= Math.max(4, Math.min(18, -distanceDown / 3));
 
 		// The tail gap ("end of the list") sits under the section the row will render in.
-		const tailSection = isDraggingVoiceRoom() ? voiceSectionEl : channelSectionEl;
+		const voiceDrag = isDraggingVoiceRoom();
+		const tailSection = voiceDrag ? voiceSectionEl : channelSectionEl;
 		const tailY = tailSection ? Math.min(tailSection.getBoundingClientRect().bottom, containerRect.bottom) : containerRect.bottom;
+		// A voice room dropped "before/after a folder" would land at the top level, which renders
+		// under VOICE, so for a voice room a folder header only means "into this folder".
 		const resolved = resolveDropGap(
 			collectAnchors(),
 			lastPointer.y,
 			Boolean(draggedCategoryId),
 			containerRect.top,
 			listEl.scrollTop,
-			tailY
+			tailY,
+			voiceDrag
 		);
 
 		// Collapsed-folder dwell: hovering a collapsed folder's interior target
@@ -969,11 +990,13 @@
 		createFolderChoice = 'none';
 		createNewFolderName = '';
 	}
+	/** The confirm names what is deleted: "Delete this voice room?", never "channel" for a room. */
+	$: deleteCopy = deleteConfirmCopy(channelToDeleteNoun, channelToDeleteName || channelToDelete, channelToDeleteChildCount);
 	function handleDeleteChannel(id: string) {
 		const channel = $channels.find((item) => item.id === id);
 		channelToDelete = id;
 		channelToDeleteName = channel?.name || id;
-		channelToDeleteIsCategory = (channel?.type as string | undefined) === 'category';
+		channelToDeleteNoun = channelNoun(channel?.type as string | undefined);
 		channelToDeleteChildCount = $channels.filter((item) => item.parentId === id).length;
 		showDeleteConfirm = true;
 	}
@@ -1026,21 +1049,22 @@
 	// Built when the menu opens; the reactive inputs are passed in so a mute or follow change
 	// while it is open re-renders the rows.
 	$: channelMenuItems = contextMenuChannel
-		? buildChannelMenuItems(contextMenuChannel, { muted: mutedChannelIds, followed: followedChannelIds, unread: totalUnreadNotifications })
+		? buildChannelMenuItems(contextMenuChannel, { muted: mutedChannelIds, followed: followedChannelIds, unreadCounts: $channelUnreadCounts })
 		: [];
 	/**
 	 * Channel menu (spec §7.4, §9.6): sentence case at the source, kicker groups (Open, Follow,
 	 * Organize, Move to folder), one glyph per meaning (star = bookmark, pin = pinned messages),
-	 * folders as menuitemradio rows, and the destructive row last.
+	 * folders as menuitemradio rows, and the destructive row last. Toggles keep one label and
+	 * report their state through `checked` ("Mute channel", checked), never a flipped verb.
 	 */
 	function buildChannelMenuItems(
 		ch: Channel,
-		state: { muted: Set<string>; followed: Set<string>; unread: number }
+		state: { muted: Set<string>; followed: Set<string>; unreadCounts: Record<string, number> }
 	): MenuEntry[] {
 		const sup = ch.type === 'text' || ch.type === 'public' || ch.type === 'group' || !ch.type;
 		const isCategory = (ch.type as string | undefined) === 'category';
 		const isVoiceRoom = ch.type === 'voice';
-		const noun = isCategory ? 'folder' : ch.type === 'group' ? 'group' : isVoiceRoom ? 'voice room' : 'channel';
+		const noun = channelNoun(ch.type as string | undefined);
 		const followed = sup && state.followed.has(ch.id);
 		const muted = state.muted.has(ch.id);
 		const items: MenuEntry[] = [];
@@ -1051,6 +1075,10 @@
 				{ id: 'open-floating-panel', label: 'Open in a floating panel', icon: 'chat', onSelect: () => openChannelFloatingPanel(ch) },
 				{ id: 'open-os-window', label: 'Open in a new window', icon: 'externalLink', onSelect: () => openDetachedPanel({ kind: 'channel-chat', channelId: ch.id, channelName: ch.name }) }
 			);
+			// The hover tray's whiteboard key, reachable on touch too (the tray is hidden there).
+			if (isVoiceRoom) {
+				items.push({ id: 'open-whiteboard', label: 'Open whiteboard', icon: 'whiteboard', onSelect: () => openVoiceChannelWhiteboard(ch.id) });
+			}
 			if (ch.type === 'text' || ch.type === 'public' || !ch.type) {
 				items.push({ id: 'create-thread', label: 'New thread', icon: 'reply', onSelect: () => handleCreateThread(ch) });
 			}
@@ -1060,7 +1088,7 @@
 			const followCount = $currentServerFollowedChannels.length;
 			items.push(
 				{ id: 'follow-kicker', type: 'kicker', label: 'Follow' },
-				{ id: 'toggle-follow', label: followed ? `Unfollow ${noun}` : `Follow ${noun}`, icon: 'bell', role: 'menuitemcheckbox', checked: followed, onSelect: () => toggleChannelFollowState(ch.id) },
+				{ id: 'toggle-follow', label: `Follow ${noun}`, icon: 'bell', role: 'menuitemcheckbox', checked: followed, onSelect: () => toggleChannelFollowState(ch.id) },
 				{ id: 'follow-alerts', label: followed ? 'Change follow alerts' : `Follow ${noun} with alerts`, icon: 'flag', hint: FOLLOW_ALERT_LEVEL_LABELS[followedChannelPreferences.get(ch.id)?.alertLevel || 'off'], onSelect: () => cycleFollowAlert(ch.id) },
 				{ id: 'follow-feed', label: 'Open follow feed', icon: 'list', hint: followCount > 0 ? `${followCount} followed` : 'None followed yet', disabled: followCount === 0, onSelect: openFollowingView }
 			);
@@ -1073,11 +1101,20 @@
 				{ id: 'pinned-messages', label: 'Pinned messages', icon: 'pin', onSelect: () => handleShowPinnedMessages(ch.id) }
 			);
 		}
-		items.push(
-			{ id: 'toggle-mute-channel', label: muted ? `Unmute ${noun}` : `Mute ${noun}`, icon: 'eyeOff', role: 'menuitemcheckbox', checked: muted, onSelect: () => toggleServerMutedChannelId(ch.id) },
-			{ id: 'mark-all-read', label: 'Mark all read', icon: 'check', disabled: state.unread === 0, hint: state.unread === 0 ? 'Nothing unread' : undefined, onSelect: clearAllUnreadNotifications },
-			{ id: 'channel-settings', label: isCategory ? 'Folder settings' : `${noun[0].toUpperCase()}${noun.slice(1)} settings`, icon: 'gear', onSelect: () => handleOpenChannelSettings(ch) }
-		);
+		items.push({ id: 'toggle-mute-channel', label: `Mute ${noun}`, icon: 'eyeOff', role: 'menuitemcheckbox', checked: muted, onSelect: () => toggleServerMutedChannelId(ch.id) });
+		// This entry only (a folder: its channels). Mark all read lives in the CHANNELS menu.
+		if (!isVoiceRoom) {
+			const unreadHere = unreadIdsFor(ch, state.unreadCounts);
+			items.push({
+				id: 'mark-read',
+				label: isCategory ? 'Mark folder as read' : 'Mark as read',
+				icon: 'check',
+				disabled: unreadHere.length === 0,
+				hint: unreadHere.length === 0 ? 'Nothing unread' : undefined,
+				onSelect: () => markEntriesRead(unreadHere)
+			});
+		}
+		items.push({ id: 'channel-settings', label: `${noun[0].toUpperCase()}${noun.slice(1)} settings`, icon: 'gear', onSelect: () => handleOpenChannelSettings(ch) });
 		if (!isCategory && canCreateChannel) {
 			items.push({ id: 'create-category', label: 'New folder', icon: 'folder', onSelect: openCreateFormForCategory });
 		}
@@ -1142,9 +1179,9 @@
 			id: 'mark-all-read',
 			label: $_('sidebar.mark_all_read'),
 			icon: 'check',
-			disabled: totalUnreadNotifications === 0,
-			hint: totalUnreadNotifications === 0 ? 'Nothing unread' : undefined,
-			onSelect: clearAllUnreadNotifications
+			disabled: communityUnread.length === 0,
+			hint: communityUnread.length === 0 ? 'Nothing unread' : undefined,
+			onSelect: markCommunityRead
 		}
 	] satisfies MenuEntry[];
 
@@ -1180,31 +1217,77 @@
 <nav
 	class="channel-sidebar"
 	class:compact={isCompactSidebar}
+	class:narrow={widthTier === 'narrow'}
 	class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
 	style:width={$layoutStore.isMobile ? '100%' : `${$layoutStore.channelSidebarWidth}px`}
 	aria-label={currentServerLabel}
 >
+	<!--
+		Names show in tooltips only in the 60px rail, so a Tooltip (its bubble, observers and
+		listeners) is mounted only there; the full column renders the bare controls.
+	-->
+	{#snippet homeButton()}
+		<button
+			type="button"
+			class="server-identity sb-home"
+			class:active={sidebarPlace === 'server'}
+			aria-label={`${currentServerLabel}, ${$_('places.server_home')}`}
+			aria-current={sidebarPlace === 'server' ? 'page' : undefined}
+			on:click={() => { dispatch('openServerHub'); dispatch('close'); }}
+		>
+			{#if serverIdentityIconUrl && !serverIdentityImageFailed}
+				<img src={serverIdentityIconUrl} alt="" class="sb-mark sb-mark--image" on:error={() => (serverIdentityImageFailed = true)} />
+			{:else}
+				<span class="sb-mark sb-enso" aria-hidden="true"></span>
+			{/if}
+			<span class="server-name">{currentServerLabel}</span>
+		</button>
+	{/snippet}
+	{#snippet searchButton()}
+		<button
+			type="button"
+			class="w-field w-field--chrome sb-search"
+			aria-label={$_('sidebar.search')}
+			aria-haspopup="dialog"
+			aria-keyshortcuts="Control+K"
+			on:click={openSearch}
+			on:keydown={handleSearchKeydown}
+		>
+			<Icon name="search" size={16} />
+			<span class="sb-search-label">{$_('sidebar.search')}</span>
+			<kbd class="w-kbd">Ctrl K</kbd>
+		</button>
+	{/snippet}
+	{#snippet dmsButton()}
+		<button
+			class="channel-btn messages-hub-btn"
+			type="button"
+			class:active={sidebarPlace === 'dm'}
+			class:unread={dmUnreadCount > 0}
+			on:click={openDmHub}
+			aria-label={dmRowLabel(dmUnreadCount, friendRequestCount)}
+			aria-current={sidebarPlace === 'dm' ? 'page' : undefined}
+		>
+			<span class="row-glyph" aria-hidden="true"><Icon name="dm" size={18} /></span>
+			<span class="row-name">{$_('places.dms')}</span>
+			<span class="row-trail" aria-hidden="true">
+				{#if friendRequestCount > 0}
+					<span class="row-mark row-mark--count" title="Friend requests"><Icon name="userPlus" size={14} /><span class="w-count">{formatBadge(friendRequestCount)}</span></span>
+				{/if}
+				{#if dmUnreadCount > 0}<span class="w-badge">{formatBadge(dmUnreadCount)}</span>{/if}
+			</span>
+		</button>
+	{/snippet}
+
 	<!-- Masthead: row A (community, Switch server) + row B (search), one hairline at --w-mast. -->
 	<header class="sb-mast">
 		<div class="sb-head">
 			<button type="button" class="mobile-close-btn w-ibtn" aria-label="Close channels" on:click={() => dispatch('close')}><Icon name="x" size={20} /></button>
-			<Tooltip text={currentServerLabel} placement="right" disabled={!isCompactSidebar} describe={false}>
-				<button
-					type="button"
-					class="server-identity sb-home"
-					class:active={sidebarPlace === 'server'}
-					aria-label={`${currentServerLabel}, ${$_('places.server_home')}`}
-					aria-current={sidebarPlace === 'server' ? 'page' : undefined}
-					on:click={() => { dispatch('openServerHub'); dispatch('close'); }}
-				>
-					{#if serverIdentityIconUrl && !serverIdentityImageFailed}
-						<img src={serverIdentityIconUrl} alt="" class="sb-mark sb-mark--image" on:error={() => (serverIdentityImageFailed = true)} />
-					{:else}
-						<span class="sb-mark sb-enso" aria-hidden="true"></span>
-					{/if}
-					<span class="server-name">{currentServerLabel}</span>
-				</button>
-			</Tooltip>
+			{#if isCompactSidebar}
+				<Tooltip text={currentServerLabel} placement="right" describe={false}>{@render homeButton()}</Tooltip>
+			{:else}
+				{@render homeButton()}
+			{/if}
 			<button
 				type="button"
 				class="w-ibtn sb-switch"
@@ -1214,21 +1297,11 @@
 			><Icon name="chevUpDown" size={18} /></button>
 		</div>
 		<div class="sb-search-row">
-			<Tooltip text={$_('sidebar.search')} shortcut="Ctrl K" placement="right" disabled={!isCompactSidebar} describe={false}>
-				<button
-					type="button"
-					class="w-field w-field--chrome sb-search"
-					aria-label={$_('sidebar.search')}
-					aria-haspopup="dialog"
-					aria-keyshortcuts="Control+K"
-					on:click={openSearch}
-					on:keydown={handleSearchKeydown}
-				>
-					<Icon name="search" size={16} />
-					<span class="sb-search-label">{$_('sidebar.search')}</span>
-					<kbd class="w-kbd">Ctrl K</kbd>
-				</button>
-			</Tooltip>
+			{#if isCompactSidebar}
+				<Tooltip text={$_('sidebar.search')} shortcut="Ctrl K" placement="right" describe={false}>{@render searchButton()}</Tooltip>
+			{:else}
+				{@render searchButton()}
+			{/if}
 		</div>
 	</header>
 
@@ -1241,24 +1314,11 @@
 	>
 		<!-- DMs: the personal destination (spec D6: one name, "DMs"). -->
 		<div class="personal-nav">
-			<Tooltip text={$_('places.dms')} placement="right" disabled={!isCompactSidebar} describe={false}>
-				<button
-					class="channel-btn messages-hub-btn"
-					type="button"
-					class:active={sidebarPlace === 'dm'}
-					class:unread={dmUnreadCount > 0}
-					on:click={openDmHub}
-					aria-label={dmRowLabel(dmUnreadCount, friendRequestCount)}
-					aria-current={sidebarPlace === 'dm' ? 'page' : undefined}
-				>
-					<span class="row-glyph" aria-hidden="true"><Icon name="dm" size={18} /></span>
-					<span class="row-name">{$_('places.dms')}</span>
-					<span class="row-trail" aria-hidden="true">
-						{#if friendRequestCount > 0}<span class="row-mark" title="Friend requests"><Icon name="userPlus" size={14} /></span>{/if}
-						{#if dmUnreadCount > 0}<span class="w-badge">{formatBadge(dmUnreadCount)}</span>{/if}
-					</span>
-				</button>
-			</Tooltip>
+			{#if isCompactSidebar}
+				<Tooltip text={$_('places.dms')} placement="right" describe={false}>{@render dmsButton()}</Tooltip>
+			{:else}
+				{@render dmsButton()}
+			{/if}
 		</div>
 
 		<!-- CHANNELS -->
@@ -1267,7 +1327,8 @@
 				<span class="w-kicker">{$_('sidebar.channels')}</span>
 				<span class="sb-sec-chevron" aria-hidden="true"><Icon name="chevDown" size={12} /></span>
 			</button>
-			<Menu class="w-ibtn sb-sec-add" label={$_('sidebar.channel_actions')} triggerLabel={canCreateChannel ? 'New channel or folder' : $_('sidebar.channel_actions')} align="end" items={channelsMenuItems}>
+			<!-- The menu also holds Mark all read, so its name is the whole set, not "New channel". -->
+			<Menu class="w-ibtn sb-sec-add" label={$_('sidebar.channel_actions')} triggerLabel={$_('sidebar.channel_actions')} align="end" items={channelsMenuItems}>
 				<Icon name={canCreateChannel ? 'plus' : 'more'} size={14} />
 			</Menu>
 		</div>
@@ -1288,7 +1349,7 @@
 			on:contextmenu={(e) => handleChannelRightClick(e, item.channel)}
 			use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, item.channel) }}
 		>
-			<Tooltip text={item.channel.name} placement="right" disabled={!isCompactSidebar} describe={false}>
+			{#snippet folderToggle()}
 				<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(item.id)} on:click={() => toggleCategory(item.id)}>
 					<span class="category-chevron" aria-hidden="true"><Icon name="chevRight" size={14} /></span>
 					<span class="category-folder-icon" aria-hidden="true"><Icon name="folder" size={16} /></span>
@@ -1296,7 +1357,12 @@
 					<span class="w-count category-count" aria-hidden="true">{item.children.length}</span>
 					<span class="sr-only">, folder, {item.children.length} {item.children.length === 1 ? 'channel' : 'channels'}</span>
 				</button>
-			</Tooltip>
+			{/snippet}
+			{#if isCompactSidebar}
+				<Tooltip text={item.channel.name} placement="right" describe={false}>{@render folderToggle()}</Tooltip>
+			{:else}
+				{@render folderToggle()}
+			{/if}
 		</div>
 		{#if !collapsedCategories.has(item.id)}
 			<div
@@ -1443,14 +1509,10 @@
 <BreakoutRoomsModal open={showBreakoutModal} channelName={breakoutTargetChannel?.name || ''} memberCount={breakoutTargetChannel ? getVoiceMembers(breakoutTargetChannel.id).length : 0} onCreate={confirmCreateBreakoutRooms} onClose={() => { showBreakoutModal = false; }} />
 <ConfirmDialog
 	isOpen={showDeleteConfirm}
-	title={channelToDeleteIsCategory ? 'Delete this folder?' : 'Delete this channel?'}
-	message={channelToDeleteIsCategory
-		? channelToDeleteChildCount > 0
-			? `“${channelToDeleteName || channelToDelete}” holds ${channelToDeleteChildCount} channel${channelToDeleteChildCount === 1 ? '' : 's'}. You can keep them at the top level or delete them with the folder.`
-			: `“${channelToDeleteName || channelToDelete}” is removed for everyone. This can’t be undone.`
-		: `#${channelToDeleteName || channelToDelete} and its messages are removed for everyone. This can’t be undone.`}
-	confirmText={deletingChannel ? 'Deleting…' : channelToDeleteIsCategory ? (channelToDeleteChildCount > 0 ? 'Delete folder and channels' : 'Delete folder') : 'Delete channel'}
-	secondaryText={channelToDeleteIsCategory && channelToDeleteChildCount > 0 ? 'Delete folder, keep channels' : null}
+	title={deleteCopy.title}
+	message={deleteCopy.message}
+	confirmText={deletingChannel ? 'Deleting…' : deleteCopy.confirm}
+	secondaryText={deleteCopy.secondary}
 	variant="danger"
 	onConfirm={confirmDeleteChannel}
 	onSecondary={() => void confirmDeleteChannelPreserveChildren()}
