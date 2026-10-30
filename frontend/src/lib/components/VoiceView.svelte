@@ -402,6 +402,8 @@
 				// (keyed on aria-pressed), not from a variant that would also shrink it.
 				id: 'record',
 				label: recordLabel,
+				// The readout changes every second; the toggle's name does not (pressed says it is on).
+				accessibleName: t('calls.record'),
 				variant: 'default',
 				pressed: recording,
 				disabled: recordBusy || savingRecording,
