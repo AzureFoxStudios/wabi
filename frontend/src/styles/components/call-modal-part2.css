@@ -1,682 +1,454 @@
-	/* Scope: call tile pin/unpin pill. Do NOT promote to a bare `.pin-btn`
-   selector — `pin-btn` is also used by TextChannelList channel rows for
-   "view pinned messages", and a global rule here leaks across surfaces
-   (imported after sidebar-channels.css in styles.css). The matching
-   scoped version in CallParticipantTile.svelte <style> is the canonical
-   source for this style; this global block is kept only for any legacy
-   tile variants that still rely on the global stylesheet. */
-	.media-tile .pin-btn,
-	.bubble-tile .pin-btn {
-		position: absolute;
-		top: 0.45rem;
-		right: 0.45rem;
-		z-index: 3;
-		padding: 0.2rem 0.4rem;
-		border-radius: 999px;
-		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.24);
-		background: var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.56)));
-		color: var(--text-inverse, var(--text-inverse, #fff));
-		font-size: 0.64rem;
-		font-weight: 700;
-		cursor: pointer;
-	}
-
-	.bubble-stage {
-		position: relative;
-		height: 100%;
-		background: radial-gradient(circle at 20% 15%, rgba(var(--color-info-rgb, 56, 189, 248), 0.16), transparent 45%),
-			radial-gradient(circle at 80% 75%, rgba(var(--color-info-rgb, 59, 130, 246), 0.16), transparent 45%),
-			var(--surface-app, #0b1020);
-		overflow: hidden;
-	}
-
-	.bubble-stage.single-bubble {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.avatar-circle-image {
-		width: 100%;
-		height: 100%;
-		border-radius: 50%;
-		object-fit: cover;
-	}
-
-	.bubble-tile {
-		position: absolute;
-		transform: translate(-50%, -50%);
-		display: grid;
-		place-items: center;
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--surface-base, #111827) 86%, black 14%);
-		border: 2px solid transparent;
-		padding: 0.35rem;
-	}
-
-	.bubble-stage.single-bubble .bubble-tile {
-		position: relative;
-		left: auto;
-		top: auto;
-		transform: none;
-	}
-
-	.bubble-tile.speaking {
-		border-color: rgba(var(--status-online-rgb, 34, 197, 94), 0.9);
-		box-shadow: 0 0 0 2px rgba(var(--status-online-rgb, 34, 197, 94), 0.28);
-	}
-
-	.bubble-tile.pinned {
-		border-color: rgba(var(--color-warning-rgb, 250, 204, 21), 0.92);
-	}
-
-	.bubble-avatar {
-		width: 100%;
-		height: 100%;
-		border-radius: 999px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 1.35rem;
-		font-weight: 700;
-		color: var(--text-inverse, var(--text-inverse, #fff));
-		background: linear-gradient(145deg, rgba(var(--accent-primary-rgb, 88, 101, 242), 0.92), rgba(var(--accent-primary-rgb, 67, 56, 202), 0.9));
-	}
-
-	.bubble-avatar-image {
-		width: 100%;
-		height: 100%;
-		border-radius: 50%;
-		object-fit: cover;
-	}
-
-	.bubble-label {
-		position: absolute;
-		bottom: -1.15rem;
-		left: 50%;
-		transform: translateX(-50%);
-		font-size: 0.68rem;
-		font-weight: 600;
-		color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.88);
-		white-space: nowrap;
-	}
-
-	.tile-status {
-		position: absolute;
-		left: 0.55rem;
-		top: 0.55rem;
-		background: var(--color-danger, rgba(185, 28, 28, 0.85));
-		color: var(--text-inverse, var(--text-inverse, #fff));
-		padding: 0.14rem 0.36rem;
-		border-radius: 6px;
-		font-size: 0.62rem;
-		font-weight: 700;
-	}
-
-	.call-controls {
-		display: flex;
-		flex-direction: column;
-		justify-content: center;
-		align-items: center;
-		gap: 0.9rem;
-		padding: 0.8rem;
-		padding-bottom: calc(0.8rem + env(safe-area-inset-bottom, 0px));
-		background: color-mix(in srgb, var(--surface-base, #111827) 90%, black 10%);
-		border-top: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.08);
-		position: relative;
-	}
-
-	.control-actions {
-		display: flex;
-		gap: 0.5rem;
-		align-items: center;
-	}
-
-	.control-btn {
-		width: 40px;
-		height: 40px;
-		border-radius: 999px;
-		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.14);
-		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.08);
-		color: var(--text-inverse, var(--text-inverse, #fff));
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0;
-		flex-shrink: 0;
-	}
-
-	.control-btn svg {
-		width: 17px;
-		height: 17px;
-		stroke: currentColor;
-		flex-shrink: 0;
-	}
-
-	.control-btn.active {
-		background: color-mix(in srgb, var(--accent, var(--accent-primary, var(--accent-primary-color))) 35%, transparent);
-		border-color: color-mix(in srgb, var(--accent, var(--accent-primary, var(--accent-primary-color))) 65%, transparent);
-	}
-
-	.control-btn.record {
-		background: rgba(var(--color-danger-rgb, 127, 29, 29), 0.22);
-		border-color: rgba(var(--color-danger-rgb, 248, 113, 113), 0.36);
-		color: var(--accent-danger-soft, var(--accent-danger-soft, #fecaca));
-	}
-
-	.control-btn.record.active {
-		background: rgba(var(--color-danger-rgb, 220, 38, 38), 0.46);
-		border-color: rgba(var(--color-danger-rgb, 248, 113, 113), 0.72);
-		color: var(--accent-danger-soft, var(--text-inverse, #fff));
-	}
-
-	.control-btn.record.is-saving {
-		background: var(--color-warning, rgba(161, 98, 7, 0.26));
-		border-color: rgba(var(--color-warning-rgb, 250, 204, 21), 0.52);
-		color: var(--accent-warning-soft, #fef3c7);
-	}
-
-	.control-btn.end {
-		background: var(--accent-danger-soft, rgba(var(--color-danger-rgb, 239, 68, 68), 0.2));
-		border-color: rgba(var(--color-danger-rgb, 239, 68, 68), 0.5);
-		color: var(--color-danger, #fda4af);
-	}
-
-	.presenter-overlay-toolbar {
-		width: min(100%, 980px);
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		justify-content: center;
-		gap: 0.65rem;
-		padding: 0.75rem 0.9rem;
-		border-radius: 18px;
-		background: rgba(var(--surface-app-rgb, 15, 23, 42), 0.88);
-		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.08);
-		box-shadow: 0 20px 45px rgba(var(--surface-app-rgb, 2, 6, 23), 0.28);
-		backdrop-filter: blur(12px);
-	}
-
-	.presenter-overlay-group {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		justify-content: center;
-		gap: 0.45rem;
-	}
-
-	.presenter-overlay-group--tools {
-		margin-right: 0.2rem;
-	}
-
-	.presenter-overlay-group--actions {
-		margin-left: 0.2rem;
-	}
-
-	.presenter-overlay-label {
-		font-size: 0.68rem;
-		font-weight: 700;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.76);
-	}
-
-	.presenter-overlay-target-pill {
-		padding: 0.28rem 0.62rem;
-		border-radius: 999px;
-		background: var(--surface-overlay, rgba(248, 250, 252, 0.08));
-		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.14);
-		color: var(--text-inverse, var(--text-inverse, #f8fafc));
-		font-size: 0.72rem;
-		font-weight: 700;
-		max-width: 200px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.presenter-overlay-btn,
-	.presenter-overlay-width {
-		padding: 0.42rem 0.7rem;
-		border-radius: 999px;
-		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.14);
-		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.06);
-		color: rgba(var(--text-inverse-rgb, 241, 245, 249), 0.94);
-		font-size: 0.72rem;
-		font-weight: 700;
-		text-transform: capitalize;
-		cursor: pointer;
-		transition: background 120ms ease, border-color 120ms ease, color 120ms ease,
-			transform 120ms ease;
-	}
-
-	.presenter-overlay-btn:hover:not(:disabled),
-	.presenter-overlay-width:hover:not(:disabled),
-	.presenter-overlay-swatch:hover:not(:disabled) {
-		transform: translateY(-1px);
-	}
-
-	.presenter-overlay-btn.is-active,
-	.presenter-overlay-width.is-active {
-		background: color-mix(in srgb, var(--accent, var(--accent-primary, var(--accent-primary-color))) 28%, rgba(var(--surface-app-rgb, 15, 23, 42), 0.82));
-		border-color: color-mix(in srgb, var(--accent, var(--accent-primary, var(--accent-primary-color))) 64%, transparent);
-		color: var(--text-inverse, var(--text-inverse, #fff));
-	}
-
-	.presenter-overlay-btn.danger {
-		color: var(--accent-danger-soft, var(--accent-danger-soft, #fecaca));
-		border-color: rgba(var(--color-danger-rgb, 248, 113, 113), 0.32);
-		background: rgba(var(--color-danger-rgb, 127, 29, 29), 0.22);
-	}
-
-	.presenter-overlay-btn:disabled,
-	.presenter-overlay-width:disabled {
-		cursor: not-allowed;
-		opacity: 0.45;
-		transform: none;
-	}
-
-	.presenter-overlay-group--colors {
-		gap: 0.35rem;
-	}
-
-	.presenter-overlay-swatch {
-		width: 28px;
-		height: 28px;
-		border-radius: 999px;
-		border: 2px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.18);
-		background: var(--overlay-color, var(--text-inverse, var(--text-inverse, #f8fafc)));
-		cursor: pointer;
-		box-shadow: inset 0 0 0 1px rgba(var(--surface-app-rgb, 15, 23, 42), 0.26);
-		transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
-	}
-
-	.presenter-overlay-swatch.is-active {
-		border-color: var(--text-inverse, var(--text-inverse, #fff));
-		box-shadow: 0 0 0 2px rgba(var(--text-inverse-rgb, 255, 255, 255), 0.16);
-	}
-
-	.presenter-overlay-swatch:disabled {
-		cursor: not-allowed;
-		opacity: 0.5;
-		transform: none;
-	}
-
-	.connection-status {
-		position: absolute;
-		top: 0.6rem;
-		left: 50%;
-		transform: translateX(-50%);
-		background: var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.62)));
-		padding: 0.35rem 0.6rem;
-		border-radius: 8px;
-		font-size: 0.7rem;
-		font-weight: 700;
-		text-transform: capitalize;
-		z-index: 3;
-	}
-
-	.route-status {
-		position: absolute;
-		top: 2.2rem;
-		left: 50%;
-		transform: translateX(-50%);
-		background: var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.56)));
-		padding: 0.25rem 0.52rem;
-		border-radius: 8px;
-		font-size: 0.66rem;
-		font-weight: 600;
-		color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.88);
-		z-index: 3;
-		white-space: nowrap;
-	}
-
-	.recording-status {
-		position: absolute;
-		top: 3.9rem;
-		left: 50%;
-		transform: translateX(-50%);
-		max-width: min(92vw, 900px);
-		background: var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.56)));
-		padding: 0.25rem 0.52rem;
-		border-radius: 8px;
-		font-size: 0.66rem;
-		font-weight: 600;
-		color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.88);
-		z-index: 3;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.recording-status.is-error {
-		color: var(--accent-danger-soft, var(--accent-danger-soft, #fecaca));
-		background: rgba(var(--color-danger-rgb, 127, 29, 29), 0.62);
-	}
-
-	@keyframes recording-pulse {
-		0% {
-			box-shadow: 0 0 0 0 rgba(var(--color-danger-rgb, 239, 68, 68), 0.5);
-		}
-		70% {
-			box-shadow: 0 0 0 8px rgba(var(--color-danger-rgb, 239, 68, 68), 0);
-		}
-		100% {
-			box-shadow: 0 0 0 0 rgba(var(--color-danger-rgb, 239, 68, 68), 0);
-		}
-	}
-
-	/* Absorbed from CallView overlay: transport/spatial diagnostics + debug. */
-	.call-stage {
-		position: relative;
-	}
-
-	.call-status-row {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		justify-content: center;
-		gap: 0.5rem;
-		padding: 0.4rem 0.6rem;
-		background: color-mix(in srgb, var(--surface-base, #111827) 92%, black 8%);
-		border-top: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.08);
-	}
-
-	.transport-badge {
-		padding: 0.35rem 0.65rem;
-		border-radius: 999px;
-		font-size: 0.72rem;
-		font-weight: 700;
-		letter-spacing: 0.02em;
-		text-transform: uppercase;
-		background: rgba(var(--color-success-rgb, 0, 255, 127), 0.18);
-		color: var(--accent-success-soft, #00ff7f);
-		border: 1px solid rgba(var(--color-success-rgb, 0, 255, 127), 0.45);
-	}
-
-	.transport-badge.degraded {
-		background: rgba(245, 158, 11, 0.2);
-		border-color: rgba(245, 158, 11, 0.55);
-		color: var(--text-inverse, #ffffff);
-	}
-
-	.transport-note {
-		margin-left: 0.35rem;
-		font-weight: 600;
-		text-transform: none;
-	}
-
-	.dock-btn.debug-toggle.active {
-		background: var(--color-info, #0ea5e9);
-		border-color: rgba(14, 165, 233, 0.7);
-		color: var(--text-inverse, #ffffff);
-	}
-
-	.spatial-debug-overlay {
-		position: absolute;
-		left: 1rem;
-		bottom: 1rem;
-		width: min(320px, calc(100% - 2rem));
-		background: rgba(9, 14, 28, 0.88);
-		border: 1px solid rgba(var(--text-muted-rgb, 153, 153, 255), 0.32);
-		border-radius: 12px;
-		padding: 0.6rem;
-		backdrop-filter: blur(8px);
-		z-index: 4;
-	}
-
-	.spatial-debug-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		font-size: 0.75rem;
-		color: var(--text-info, #00bfff);
-		margin-bottom: 0.45rem;
-	}
-
-	.spatial-debug-map {
-		position: relative;
-		aspect-ratio: 1 / 1;
-		width: 100%;
-		border-radius: 10px;
-		border: 1px dashed rgba(var(--text-muted-rgb, 153, 153, 255), 0.35);
-		background: radial-gradient(circle at 50% 50%, rgba(var(--surface-base-rgb, 30, 41, 59), 0.9), rgba(var(--surface-app-rgb, 15, 23, 42), 0.75));
-		margin-bottom: 0.45rem;
-	}
-
-	.spatial-debug-center {
-		position: absolute;
-		left: 50%;
-		top: 50%;
-		width: 10px;
-		height: 10px;
-		border-radius: 50%;
-		background: var(--text-inverse, #ffffff);
-		border: 1px solid var(--surface-base, #24243e);
-		transform: translate(-50%, -50%);
-	}
-
-	.spatial-seat {
-		position: absolute;
-		transform: translate(-50%, -50%);
-		width: 24px;
-		height: 24px;
-		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 0.72rem;
-		font-weight: 700;
-		color: var(--text-inverse, #ffffff);
-		background: var(--color-info, #00bfff);
-		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.7);
-	}
-
-	.spatial-seat.share {
-		background: var(--color-warning, #ffd700);
-	}
-
-	.spatial-seat.speaking {
-		box-shadow: 0 0 0 2px rgba(var(--color-success-rgb, 0, 255, 127), 0.85);
-	}
-
-	.spatial-debug-list {
-		display: grid;
-		gap: 0.2rem;
-		max-height: 96px;
-		overflow: auto;
-	}
-
-	.spatial-debug-row {
-		display: grid;
-		grid-template-columns: 44px 1fr auto;
-		gap: 0.5rem;
-		font-size: 0.72rem;
-		color: var(--text-inverse, #ffffff);
-	}
-
-	.spatial-debug-type {
-		text-transform: uppercase;
-		letter-spacing: 0.03em;
-		color: var(--text-muted, #9999ff);
-	}
-
-	@media (max-width: 900px) {
-		.call-shell.mode-focus.hatch-open .active-call-container {
-			inset: 0.45rem;
-			border-radius: 14px;
-		}
-
-		.template-screen-hero .media-tile:not(.hero),
-		.template-single-hero .media-tile:not(.hero) {
-			grid-column: span 4;
-		}
-	}
-
-	@media (max-width: 640px) {
-		.docked-bar {
-			left: 0.6rem;
-			right: 0.6rem;
-			bottom: 0.6rem;
-			flex-direction: column;
-			align-items: stretch;
-		}
-
-		.docked-actions {
-			justify-content: space-between;
-		}
-
-		.hatch-toggle {
-			top: 0.7rem;
-			right: 0.7rem;
-		}
-
-		.tile-layout {
-			grid-template-columns: 1fr !important;
-		}
-
-		.template-hero-stack .media-tile.hero {
-			grid-row: auto;
-			aspect-ratio: 16 / 9;
-		}
-
-		.presenter-overlay-toolbar {
-			padding: 0.65rem 0.7rem;
-			gap: 0.55rem;
-		}
-
-		.presenter-overlay-group--tools {
-			width: 100%;
-		}
-
-		.presenter-overlay-target-pill {
-			max-width: min(100%, 160px);
-		}
-	}
-
-	/* tile status chips */
-	.tile-status-chips {
-		display: flex;
-		gap: 0.3rem;
-		position: absolute;
-		left: 0.55rem;
-		bottom: 2.15rem;
-		z-index: 3;
-		pointer-events: none;
-	}
-
-	.status-chip {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 22px;
-		height: 22px;
-		border-radius: 6px;
-		background: var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.56)));
-		color: var(--text-inverse, #fff);
-		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.2);
-	}
-
-	.status-chip svg {
-		width: 14px;
-		height: 14px;
-		stroke: currentColor;
-	}
-
-	.bubble-tile .tile-status-chips {
-		left: 0.2rem;
-		bottom: 0.2rem;
-	}
-
-	/* device picker */
-	.device-picker {
-		position: absolute;
-		bottom: calc(100% - 0.4rem);
-		left: 50%;
-		transform: translateX(-50%);
-		z-index: 40;
-		width: min(280px, calc(100vw - 2rem));
-		max-height: 320px;
-		overflow-y: auto;
-		display: flex;
-		flex-direction: column;
-		gap: 0.6rem;
-		padding: 0.8rem;
-		border-radius: 14px;
-		background: var(--surface-raised, #302b63);
-		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.12);
-		box-shadow: 0 20px 45px rgba(var(--surface-app-rgb, 2, 6, 23), 0.42);
-		backdrop-filter: blur(12px);
-	}
-
-	.device-group {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-	}
-
-	.device-group-title {
-		margin: 0 0 0.25rem;
-		font-size: 0.66rem;
-		font-weight: 700;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.76);
-	}
-
-	.device-picker-empty {
-		margin: 0;
-		font-size: 0.74rem;
-		color: var(--text-muted, #9999ff);
-	}
-
-	.device-option {
-		display: flex;
-		align-items: center;
-		gap: 0.55rem;
-		width: 100%;
-		padding: 0.5rem 0.6rem;
-		border-radius: 10px;
-		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.1);
-		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.04);
-		color: var(--text-inverse, #fff);
-		font-size: 0.78rem;
-		text-align: left;
-		cursor: pointer;
-		transition: background 120ms ease, border-color 120ms ease;
-	}
-
-	.device-option:hover {
-		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.09);
-	}
-
-	.device-option.is-selected {
-		background: color-mix(in srgb, var(--accent, var(--accent-primary, var(--accent-primary-color))) 28%, transparent);
-		border-color: color-mix(in srgb, var(--accent, var(--accent-primary, var(--accent-primary-color))) 64%, transparent);
-	}
-
-	.device-radio {
-		flex-shrink: 0;
-		width: 14px;
-		height: 14px;
-		border-radius: 999px;
-		border: 2px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.4);
-	}
-
-	.device-option.is-selected .device-radio {
-		border-color: var(--text-inverse, #fff);
-		background: radial-gradient(circle, var(--text-inverse, #fff) 0 36%, transparent 42%);
-	}
-
-	.device-label {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
- .active-call-container > .call-stage { flex: 1; min-height: 0; overflow: auto; }
- .call-context-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 12px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-subtle); color: var(--text-heading); }
- .call-context-row .connection-status, .call-context-row .route-status { position: static; transform: none; background: transparent; padding: 0; font-size: 12px; color: var(--text-body); }
- .call-diagnostics { padding: 6px 16px; background: var(--bg-secondary); color: var(--text-muted); font-size: 12px; }
- .call-diagnostics summary { cursor: pointer; padding: 8px; }
+/* Call shell, part 2 (design contract §7.26, §7.14, §7.15, §8.12). Owner (wave 1): w1-call-shell.
+   The call dock (CallControls): one floating pill, 40px keys (44 on touch and phones), a hairline,
+   then the labelled danger "Leave"; above it the feedback line, the drawing tools and the
+   Microphone and speakers popover. Then the developer-only spatial debug overlay (dev builds).
+   Role tokens, type tokens and kit classes only; no raw colors. */
+
+/* ---------- placement: bottom centre of the call, 16px above the footer rule ---------- */
+.call-dock-wrap {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: var(--call-dock-bottom, 16px);
+	z-index: 2;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	box-sizing: border-box;
+	padding: 0 16px;
+	pointer-events: none;
+}
+
+.call-dock-wrap > * {
+	pointer-events: auto;
+}
+
+/* ---------- the dock ---------- */
+.call-dock {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	box-sizing: border-box;
+	max-width: 100%;
+	padding: 6px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--w-pill);
+	background: var(--w-bg2);
+	box-shadow: var(--w-shadow);
+	color: var(--w-mute);
+}
+
+:root[data-mode='light'] .call-dock {
+	background: var(--w-lift);
+}
+
+.call-dock .call-dock__btn {
+	width: 40px;
+	height: 40px;
+	border-radius: var(--w-pill);
+	--w-ibtn-ring: var(--w-bg2);
+}
+
+:root[data-mode='light'] .call-dock .call-dock__btn {
+	--w-ibtn-ring: var(--w-lift);
+}
+
+/* A muted mic or silenced sound reads as "off" in --w-danger; camera on / sharing reads "on". */
+.call-dock .call-dock__btn[aria-pressed='true'] {
+	color: var(--w-accent);
+}
+
+.call-dock .call-dock__mic[aria-pressed='true'],
+.call-dock .call-dock__sound[aria-pressed='true'] {
+	color: var(--w-danger);
+}
+
+/* The "something in More is on" dot sits on the round key's shoulder. */
+.call-dock .call-dock__btn.w-ibtn--dot::after {
+	top: 8px;
+	right: 8px;
+}
+
+.call-dock__sep {
+	flex: none;
+	width: var(--w-bw);
+	height: 24px;
+	margin: 0 6px;
+	background: var(--w-line);
+}
+
+.call-dock .call-dock__leave {
+	height: 40px;
+	padding: 0 16px 0 14px;
+	border-radius: var(--w-pill);
+}
+
+/* One line of feedback from a dock action, read once as status. */
+.call-dock-feedback {
+	max-width: min(480px, 100%);
+	margin: 0;
+	padding: 6px 12px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--w-pill);
+	background: var(--w-bg2);
+	color: var(--w-text);
+	font: var(--w-t-small);
+	text-align: center;
+	animation: w-enter-up var(--w-dur-2) var(--w-ease);
+}
+
+:root[data-mode='light'] .call-dock-feedback {
+	background: var(--w-lift);
+}
+
+/* ---------- drawing tools (a small floating tool: hairline edge, no shadow) ---------- */
+.presenter-overlay-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	box-sizing: border-box;
+	max-width: 100%;
+	padding: 6px 8px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-lg);
+	background: var(--w-bg2);
+	color: var(--w-mute);
+}
+
+:root[data-mode='light'] .presenter-overlay-toolbar {
+	background: var(--w-lift);
+}
+
+.presenter-overlay-swatches {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 0 4px;
+}
+
+/* Drawing colors are drawing data, set per swatch; the ring around them is a role. */
+.presenter-overlay-swatch {
+	width: 22px;
+	height: 22px;
+	margin: 0;
+	padding: 0;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--w-avr);
+	background: var(--overlay-color, var(--w-text));
+	cursor: pointer;
+	transition: box-shadow var(--w-dur-1) var(--w-ease);
+}
+
+.presenter-overlay-swatch[aria-checked='true'] {
+	box-shadow:
+		0 0 0 2px var(--w-bg2),
+		0 0 0 4px var(--w-text);
+}
+
+.presenter-overlay-sep {
+	flex: none;
+	width: var(--w-bw);
+	height: 20px;
+	background: var(--w-line);
+}
+
+/* ---------- Microphone and speakers: a popover above the dock (§7.14) ---------- */
+.device-picker {
+	box-sizing: border-box;
+	width: min(320px, 100%);
+	max-height: min(420px, 60vh);
+	overflow-y: auto;
+	padding: 12px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-lg);
+	background: var(--w-bg2);
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	animation: w-enter-up var(--w-dur-2) var(--w-ease);
+}
+
+:root[data-mode='light'] .device-picker {
+	background: var(--w-lift);
+}
+
+.device-picker:focus-visible {
+	outline-offset: -2px;
+}
+
+.device-picker__head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin: -4px -4px 8px 4px;
+}
+
+.device-picker__title {
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-subhead);
+}
+
+.device-group {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 4px 0 8px;
+}
+
+.device-group + .device-group {
+	border-top: var(--w-bw) solid var(--w-line);
+	padding-top: 10px;
+}
+
+.device-group-title {
+	margin: 0 4px 4px;
+}
+
+.device-picker-empty {
+	margin: 0 4px;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+}
+
+.device-option {
+	display: grid;
+	grid-template-columns: 16px minmax(0, 1fr) 16px;
+	align-items: center;
+	gap: 10px;
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 32px;
+	margin: 0;
+	padding: 6px 8px;
+	border: 0;
+	border-radius: var(--radius-inner);
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	text-align: left;
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+
+.device-option > :first-child {
+	color: var(--w-mute);
+}
+
+.device-option:hover {
+	background: var(--w-raise);
+}
+
+.device-option:focus-visible {
+	outline-offset: -2px;
+}
+
+.device-label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.device-check {
+	display: inline-grid;
+	color: var(--w-sig);
+	visibility: hidden;
+}
+
+.device-option[aria-checked='true'] .device-check {
+	visibility: visible;
+}
+
+.device-picker__foot {
+	display: flex;
+	justify-content: flex-end;
+	margin: 4px -4px -4px;
+	padding-top: 8px;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+
+:root[data-char='contrast'] .device-option:hover {
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+
+/* ---------- phones and touch: 44px keys; the dock is the only bar (§8.12) ---------- */
+@media (max-width: 768px), (pointer: coarse) {
+	.call-dock .call-dock__btn {
+		width: 44px;
+		height: 44px;
+	}
+
+	.call-dock .call-dock__leave {
+		height: 44px;
+	}
+}
+
+@media (max-width: 768px) {
+	.call-dock-wrap {
+		padding: 0 12px;
+	}
+
+	.call-dock {
+		gap: 6px;
+	}
+
+	.call-dock__sep {
+		margin: 0 2px;
+	}
+}
+
+/* ---------- DM / group tiles: the shared-screen hero edge and the tile status marks ----------
+   CallParticipantTile / CallParticipantGrid own the rest of their look in scoped styles; these
+   two global rules were always this file's, now on roles. */
+.call-room .media-tile.hero {
+	border-color: var(--w-line-strong);
+}
+
+:is(.media-tile, .bubble-tile) .tile-status-chips {
+	position: absolute;
+	left: 8px;
+	bottom: 34px;
+	z-index: 3;
+	display: flex;
+	gap: 4px;
+	pointer-events: none;
+}
+
+.bubble-tile .tile-status-chips {
+	left: 4px;
+	bottom: 4px;
+}
+
+:is(.media-tile, .bubble-tile) .status-chip {
+	display: inline-grid;
+	place-items: center;
+	box-sizing: border-box;
+	width: 22px;
+	height: 22px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--w-avr);
+	background: var(--w-bg2);
+	color: var(--w-mute);
+}
+
+:is(.media-tile, .bubble-tile) .status-chip svg {
+	width: 14px;
+	height: 14px;
+	stroke: currentColor;
+}
+
+/* ---------- developer instrument: spatial seats and relay counters (dev builds only) ---------- */
+.spatial-debug-overlay {
+	position: absolute;
+	top: 16px;
+	left: var(--w-gutter);
+	z-index: 3;
+	box-sizing: border-box;
+	width: min(320px, calc(100% - 2 * var(--w-gutter)));
+	padding: 12px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-lg);
+	background: var(--w-bg2);
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+	font: var(--w-t-small);
+}
+
+.spatial-debug-header {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	margin-bottom: 8px;
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+}
+
+.spatial-debug-map {
+	position: relative;
+	aspect-ratio: 1 / 1;
+	width: 100%;
+	margin-bottom: 8px;
+	border: var(--w-bw) dashed var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+}
+
+.spatial-debug-center {
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: 10px;
+	height: 10px;
+	border-radius: var(--w-avr);
+	background: var(--w-sig);
+	translate: -50% -50%;
+}
+
+.spatial-seat {
+	position: absolute;
+	display: grid;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--w-avr);
+	background: var(--w-raise);
+	color: var(--w-text);
+	font: 500 calc(11px * var(--w-fs)) / 1 var(--w-sans);
+	translate: -50% -50%;
+}
+
+.spatial-seat.share {
+	border-style: dashed;
+}
+
+.spatial-seat.speaking {
+	box-shadow:
+		0 0 0 2px var(--w-sink),
+		0 0 0 3.5px var(--w-online);
+}
+
+.spatial-debug-list {
+	display: grid;
+	gap: 2px;
+	max-height: 96px;
+	overflow: auto;
+}
+
+.spatial-debug-row {
+	display: grid;
+	grid-template-columns: 48px minmax(0, 1fr) auto;
+	gap: 8px;
+	color: var(--w-text);
+	font: var(--w-t-micro);
+}
+
+.spatial-debug-type {
+	color: var(--w-faint);
+}
+
+.spatial-debug-facts {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	gap: 4px 12px;
+	margin: 8px 0 0;
+	padding-top: 8px;
+	border-top: var(--w-bw) solid var(--w-line);
+	font: var(--w-t-micro);
+}
+
+.spatial-debug-facts dt {
+	color: var(--w-faint);
+}
+
+.spatial-debug-facts dd {
+	margin: 0;
+	overflow-wrap: anywhere;
+	color: var(--w-text);
+}
