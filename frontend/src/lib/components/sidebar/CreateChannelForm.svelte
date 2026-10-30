@@ -1,8 +1,8 @@
 <!--
 	New channel / New folder dialog (spec §7.13, §8.9; critique settings#12), opened from the
 	CHANNELS and VOICE menus, a folder's context menu and the `wabi:create-channel` event.
-	- One kind radio list: each kind has its registry glyph (text channels a typeset '#') and a
-	  one-line hint. Project files stays listed when the Lore add-on is off, disabled with the
+	- One kind radio list: each kind has its own glyph (text channels alone get the typeset '#')
+	  and a one-line hint. Project files stays listed when the Lore add-on is off, disabled with the
 	  reason, so the option is never silently missing.
 	- The name field carries the kind's prefix ('#' for text channels); one primary action,
 	  "Create channel" (or "Create folder"); quiet Cancel.
@@ -63,7 +63,8 @@
 		{ id: 'gallery', label: 'Gallery', hint: 'Photos and media albums', icon: 'image', prefix: null, placeholder: 'gallery' },
 		{ id: 'planning', label: 'Project', hint: 'Shared board and wiki', icon: 'columns', prefix: null, placeholder: 'planning-board' },
 		{ id: 'lore', label: 'Project files', hint: 'Versioned files · Lore add-on', icon: 'box', prefix: null, placeholder: 'code-repo' },
-		{ id: 'reception', label: 'Welcome', hint: 'Arrival page with the rules', icon: null, prefix: '#', placeholder: 'welcome' },
+		// One glyph per kind (§6): '#' is Text's alone, so the arrival page has its own.
+		{ id: 'reception', label: 'Welcome', hint: 'Arrival page with the rules', icon: 'home', prefix: null, placeholder: 'welcome' },
 		{ id: 'category', label: 'Folder', hint: 'Groups channels in the list', icon: 'folder', prefix: null, placeholder: 'folder-name' }
 	];
 	const LORE_UNAVAILABLE_HINT = 'Needs the Lore add-on';

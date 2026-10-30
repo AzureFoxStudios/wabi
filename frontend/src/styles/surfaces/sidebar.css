@@ -103,8 +103,13 @@
 	padding: 0 12px;
 }
 :root .channel-sidebar .sb-search {
+	position: relative;
 	cursor: pointer;
 	text-align: left;
+}
+/* A narrow column keeps its room for the words: the keycap goes first. */
+:root .channel-sidebar.narrow .sb-search .w-kbd {
+	display: none;
 }
 :root .channel-sidebar .sb-search:hover {
 	border-color: var(--w-line-strong);
@@ -282,6 +287,15 @@
 	display: inline-grid;
 	color: var(--w-faint);
 }
+/* A glyph with its number (friend requests on the DMs row). */
+:root .channel-sidebar .row-mark--count {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+}
+:root .channel-sidebar .row-mark--count .w-count {
+	color: var(--w-mute);
+}
 /* A live voice room: a 6px online dot after the name. */
 :root .channel-sidebar .channel-item.live .row-name::after {
 	content: '';
@@ -447,6 +461,11 @@
 	white-space: nowrap;
 	text-overflow: ellipsis;
 }
+/* A folder's channels sit one small step in, so the root rows after a folder read as root rows
+   (the folder row itself is a kicker-style name, like CHANNELS and VOICE). */
+:root .channel-sidebar .category-channels {
+	padding-left: 12px;
+}
 :root .channel-sidebar .category-channels.drop-target {
 	border-radius: var(--radius-md);
 	background: var(--w-accent-soft);
@@ -468,7 +487,7 @@
 		left 90ms var(--w-ease);
 }
 :root .channel-sidebar .drop-indicator-overlay.indented {
-	left: 18px;
+	left: 30px;
 }
 
 /* ---------- voice participants: 28px quiet rows (.w-vp, §7.11) ---------- */
@@ -547,13 +566,15 @@
 :root .channel-sidebar .voice-member-kick:hover {
 	color: var(--w-danger);
 }
+/* "and N more" continues the roster: it starts where the names start (40 + 20 stamp + 10 gap),
+   not under the stamps. */
 :root .channel-sidebar .voice-member-more {
 	display: block;
 	box-sizing: border-box;
 	width: 100%;
 	height: 28px;
 	margin: 0;
-	padding: 0 10px 0 40px;
+	padding: 0 10px 0 70px;
 	border: 0;
 	border-radius: var(--radius-md);
 	background: transparent;
@@ -951,12 +972,37 @@
 	:root .channel-sidebar .voice-member-item {
 		height: 36px;
 	}
+	/* The section head grows with its 44px add key, so the key never overlaps the first row. */
+	:root .channel-sidebar:not(.compact) .sb-sec {
+		height: 44px;
+		margin-top: 8px;
+	}
+	:root .channel-sidebar:not(.compact) .sb-sec-toggle {
+		height: 44px;
+	}
+	:root .channel-sidebar:not(.compact) .sb-sec .sb-sec-add {
+		width: 44px;
+		height: 44px;
+	}
 }
 @media (pointer: coarse) {
-	:root .channel-sidebar .sb-sec .sb-sec-add,
 	:root .channel-sidebar .row-tray .w-ibtn {
 		width: 44px;
 		height: 44px;
+	}
+	/* Row B keeps the y = --w-mast rule that runs across every column (tablets, touch laptops):
+	   the field stays 32px and an invisible extender makes its target 44px (§10). */
+	:root .channel-sidebar .sb-search {
+		height: 32px;
+	}
+	:root .channel-sidebar .sb-search::after {
+		content: '';
+		position: absolute;
+		inset: -7px -1px;
+	}
+	/* No keyboard to press it with. */
+	:root .channel-sidebar .sb-search .w-kbd {
+		display: none;
 	}
 	/* No hover on touch: the tray stays out of the way (long-press opens the row menu). */
 	:root .channel-sidebar .row-tray {
@@ -967,7 +1013,8 @@
 	}
 }
 
-/* Phone and the phone shell up to 768px: the sidebar is the Channels drawer. */
+/* Phone and the phone shell up to 768px: the sidebar is the Channels drawer. No other column
+   sits beside it, so row B grows to hold a real 44px field (§8.12) and the rule moves with it. */
 @media (max-width: 768px) {
 	:root .channel-sidebar .mobile-close-btn {
 		display: inline-grid;
@@ -975,6 +1022,18 @@
 	}
 	:root .channel-sidebar .sb-head {
 		padding: 0 8px 0 4px;
+	}
+	:root .channel-sidebar .sb-mast {
+		height: calc(var(--w-head-a) + 52px);
+	}
+	:root .channel-sidebar .sb-search-row {
+		height: 52px;
+	}
+	:root .channel-sidebar .sb-search {
+		height: 44px;
+	}
+	:root .channel-sidebar .sb-search::after {
+		content: none;
 	}
 }
 
@@ -1068,6 +1127,19 @@
 }
 :root .channel-sidebar.compact .breakout-channel-item {
 	margin-left: auto;
+}
+/* In the rail a folder is its folder tile, its channels' tiles, then a short closing hairline,
+   so the tiles after it read as top level again. */
+:root .channel-sidebar.compact .category-channels {
+	padding-left: 0;
+}
+:root .channel-sidebar.compact .category-channels::after {
+	content: '';
+	display: block;
+	width: 12px;
+	height: var(--w-bw, 1px);
+	margin: 6px auto 4px;
+	background: var(--w-line-strong);
 }
 /* Section heads become short hairlines between groups of tiles. */
 :root .channel-sidebar.compact .sb-sec {

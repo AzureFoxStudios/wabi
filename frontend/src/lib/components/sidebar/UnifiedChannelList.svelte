@@ -128,6 +128,8 @@
 			case 'lore': return 'box';
 			case 'planning': return 'columns';
 			case 'group': return 'users';
+			// Welcome (the arrival page) is not a text channel: it gets its own glyph, not '#'.
+			case 'reception': return 'home';
 			default: return null;
 		}
 	}
@@ -361,12 +363,16 @@
 		return map;
 	})();
 
-	/** Rooms whose "and N more" was opened (local view state only). */
+	/** Rooms whose "and N more" was opened (local view state only); the same toggle folds back. */
 	let expandedRooms = new Set<string>();
-	function expandRoom(channelId: string) {
-		expandedRooms.add(channelId);
+	function toggleRoom(channelId: string) {
+		if (expandedRooms.has(channelId)) expandedRooms.delete(channelId);
+		else expandedRooms.add(channelId);
 		expandedRooms = expandedRooms;
 	}
+
+	type Roster = { shown: VoicePerson[]; hidden: number; collapsible: boolean };
+	const EMPTY_ROSTER: Roster = { shown: [], hidden: 0, collapsible: false };
 
 	/** Pure duration formatter — `nowMs` arrives as a tracked argument. */
 	function formatVoiceDuration(startMs: number | null, now: number): string {
@@ -381,6 +387,69 @@
 	}
 </script>
 
+<!--
+	The voice roster under a room (spec §7.11 .w-vp): at most five people, then a toggle that reads
+	"and N more" and, once opened, "Show less". The toggle sits after the list, not inside it.
+-->
+{#snippet voiceRoster(room: Channel, roster: Roster)}
+	<div role="list" aria-label={`In ${room.name}`}>
+		{#each roster.shown as person (person.key)}
+			<div
+				class="voice-member-item"
+				class:speaking={person.speaking}
+				class:voice-member-draggable={!person.self && canDragVoiceMember(person.userId)}
+				role="listitem"
+				draggable={!person.self && canDragVoiceMember(person.userId)}
+				on:dragstart={(event) => onVoiceMemberDragStart(event, room.id, person.userId)}
+				on:dragend={onVoiceMemberDragEnd}
+				in:fly={memberIn}
+				out:fly={memberOut}
+			>
+				{#if person.picture}
+					<img class="voice-member-avatar" src={person.picture} alt="" />
+				{:else}
+					<span class="voice-member-avatar voice-avatar-fallback" style={person.inkStyle} aria-hidden="true">{person.initial}</span>
+				{/if}
+				<span class="voice-member-name">{person.name}{#if person.self}<span class="sr-only"> (you)</span>{/if}</span>
+				<span class="voice-member-extra">
+					{#if person.self}
+						<ScreenSharePreview channelId={room.id} userId={person.userId} username={person.name} self />
+					{:else}
+						<ScreenSharePreview channelId={room.id} userId={person.userId} username={person.name} announced={person.screenShareEnabled} />
+					{/if}
+					{#if person.recording}
+						<span class="row-tag row-tag--rec"><span class="w-dot w-dot--danger" aria-hidden="true"></span>Rec</span>
+					{/if}
+					{#if voiceDurationMode === 'all' || (voiceDurationMode === 'others' && !person.self)}
+						<span class="w-count voice-member-duration">{formatVoiceDuration(person.presenceStart, nowMs)}</span>
+					{/if}
+					{#if !person.self && canKickVoiceMember(person.userId)}
+						<button
+							type="button"
+							class="w-ibtn w-ibtn--sm voice-member-kick"
+							on:click={(e) => { e.stopPropagation(); onKickVoiceMember(room.id, person.userId); }}
+							title={`Remove ${person.name} from voice`}
+							aria-label={`Remove ${person.name} from voice`}
+						><Icon name="logout" size={14} /></button>
+					{/if}
+				</span>
+				<span class="voice-member-state" title={person.state.label}>
+					<Icon name={person.state.icon} size={14} />
+					<span class="sr-only">{person.state.label}</span>
+				</span>
+			</div>
+		{/each}
+	</div>
+	{#if roster.hidden > 0 || roster.collapsible}
+		<button
+			type="button"
+			class="voice-member-more"
+			aria-expanded={roster.collapsible}
+			on:click={() => toggleRoom(room.id)}
+		>{roster.collapsible ? $_('messages.show_less') : $_('sidebar.and_more', { values: { count: roster.hidden } })}</button>
+	{/if}
+{/snippet}
+
 {#each channels as channel (channel.id)}
 	{@const isVoice = isVoiceLike(channel)}
 	{@const glyph = channelGlyph(channel)}
@@ -391,8 +460,10 @@
 	{@const isContext = isSelected && currentPlace === 'context'}
 	{@const unread = isVoice ? 0 : unreadFor($channelUnreadCounts, channel.id, selectedChannelId)}
 	{@const occupancy = row ? row.members.length : 0}
-	{@const roster = row ? splitVoiceParticipants(row.people, expandedRooms.has(channel.id)) : { shown: [], hidden: 0 }}
+	{@const roster = row ? splitVoiceParticipants(row.people, expandedRooms.has(channel.id)) : EMPTY_ROSTER}
 	{@const followed = followedChannelIds.has(channel.id)}
+	{@const bookmarked = !isVoice && bookmarkedIds.has(channel.id)}
+	{@const whiteboardLive = liveWhiteboardChannelIds.has(channel.id)}
 	<div class="unified-channel-wrap" animate:flip={rowFlipParams}>
 	<div
 		class="channel-item unified-channel-item"
@@ -419,7 +490,7 @@
 		on:drop={(e) => { if (isVoice) onVoiceChannelDrop(e, channel.id); }}
 		on:dragend={onChannelDragEnd}
 	>
-		<Tooltip text={channel.name} placement="right" disabled={!compact} describe={false}>
+		{#snippet channelButton()}
 			<button
 				type="button"
 				class="channel-btn"
@@ -438,7 +509,8 @@
 				<span class="row-name">{channel.name}</span>
 				<span class="row-trail">
 					{#if isLiveRetention(channel.autoDeleteAfter)}
-						<span class="row-tag" title={retentionLabel('live') ?? undefined}>Live</span>
+						<!-- Retention words (§9.2), shortened: "Live" alone would read as a live voice room. -->
+						<span class="row-tag" title={retentionLabel('live') ?? undefined} aria-hidden="true">Not saved</span>
 					{/if}
 					{#if nsfwTagsOn && isNsfwTaggedChannel(channel)}
 						<span class="row-tag">NSFW</span>
@@ -446,11 +518,11 @@
 					{#if mutedIds.has(channel.id)}
 						<span class="row-tag">Muted</span>
 					{/if}
-					{#if !isVoice && bookmarkedIds.has(channel.id)}
-						<span class="row-mark" title="Bookmarked for the quick switcher"><Icon name="star" size={14} /></span>
+					{#if bookmarked}
+						<span class="row-mark" title="Bookmarked for the quick switcher" aria-hidden="true"><Icon name="star" size={14} /></span>
 					{/if}
-					{#if liveWhiteboardChannelIds.has(channel.id)}
-						<span class="row-mark" title="Someone is on this whiteboard"><Icon name="whiteboard" size={14} /></span>
+					{#if whiteboardLive}
+						<span class="row-mark" title="Someone is on this whiteboard" aria-hidden="true"><Icon name="whiteboard" size={14} /></span>
 					{/if}
 					{#if isVoice && row && row.recordingCount > 0}
 						<span class="row-tag row-tag--rec" title={`${row.recordingCount} recording in this call`}><span class="w-dot w-dot--danger" aria-hidden="true"></span>Rec</span>
@@ -462,22 +534,22 @@
 						<span class="w-count" title={getVoiceOccupancyTitle(channel, occupancy)} aria-hidden="true">{formatVoiceOccupancy(channel, occupancy)}</span>
 					{/if}
 				</span>
+				{#if isLiveRetention(channel.autoDeleteAfter)}<span class="sr-only">, {retentionLabel('live')}</span>{/if}
+				{#if bookmarked}<span class="sr-only">, bookmarked</span>{/if}
+				{#if whiteboardLive}<span class="sr-only">, whiteboard in use</span>{/if}
 				{#if unread > 0}<span class="sr-only">, {unreadLabel(unread)}</span>{/if}
 				{#if isVoice && occupancy > 0}<span class="sr-only">, {getVoiceOccupancyTitle(channel, occupancy)}</span>{/if}
 				{#if channelIsConnected}<span class="sr-only">, connected</span>{/if}
 			</button>
-		</Tooltip>
-		{#if !compact}
+		{/snippet}
+		<!-- The rail shows names in tooltips; the full column shows the names, so no tooltip is mounted. -->
+		{#if compact}
+			<Tooltip text={channel.name} placement="right" describe={false}>{@render channelButton()}</Tooltip>
+		{:else}
+			{@render channelButton()}
 			<div class="row-tray">
-				<button
-					type="button"
-					class="w-ibtn w-ibtn--sm"
-					aria-pressed={followed}
-					aria-label={followed ? `Following ${channel.name}` : `Follow ${channel.name}`}
-					title={followed ? 'Following' : 'Follow'}
-					on:click|stopPropagation={(event) => onToggleChannelFollow(channel.id, event)}
-				><Icon name="bell" size={16} /></button>
 				{#if isVoice}
+					<!-- Voice rooms cannot be followed (the follow feed is about messages), so no bell. -->
 					<button
 						type="button"
 						class="w-ibtn w-ibtn--sm"
@@ -489,85 +561,43 @@
 					<button
 						type="button"
 						class="w-ibtn w-ibtn--sm"
+						aria-pressed={followed}
+						aria-label={`Follow ${channel.name}`}
+						title="Follow"
+						on:click|stopPropagation={(event) => onToggleChannelFollow(channel.id, event)}
+					><Icon name="bell" size={16} /></button>
+					<button
+						type="button"
+						class="w-ibtn w-ibtn--sm"
 						aria-label={`Pinned messages in ${channel.name}`}
 						title="Pinned messages"
 						on:click|stopPropagation={() => onShowPinnedMessages(channel.id)}
 					><Icon name="pin" size={16} /></button>
-					<button
-						type="button"
-						class="w-ibtn w-ibtn--sm"
-						aria-label={`${channel.name} settings`}
-						title="Channel settings"
-						on:click|stopPropagation={() => onOpenChannelSettings(channel)}
-					><Icon name="gear" size={16} /></button>
 				{/if}
+				<button
+					type="button"
+					class="w-ibtn w-ibtn--sm"
+					aria-label={`${channel.name} settings`}
+					title={isVoice ? 'Voice room settings' : 'Channel settings'}
+					on:click|stopPropagation={() => onOpenChannelSettings(channel)}
+				><Icon name="gear" size={16} /></button>
 			</div>
 		{/if}
 	</div>
 	{#if isVoice && row?.showMembers && !compact}
-		<div class="voice-member-list" role="list" aria-label={`In ${channel.name}`} transition:slide={rosterSlide}>
-			{#each roster.shown as person (person.key)}
-				<div
-					class="voice-member-item"
-					class:speaking={person.speaking}
-					class:voice-member-draggable={!person.self && canDragVoiceMember(person.userId)}
-					role="listitem"
-					draggable={!person.self && canDragVoiceMember(person.userId)}
-					on:dragstart={(event) => onVoiceMemberDragStart(event, channel.id, person.userId)}
-					on:dragend={onVoiceMemberDragEnd}
-					in:fly={memberIn}
-					out:fly={memberOut}
-				>
-					{#if person.picture}
-						<img class="voice-member-avatar" src={person.picture} alt="" />
-					{:else}
-						<span class="voice-member-avatar voice-avatar-fallback" style={person.inkStyle} aria-hidden="true">{person.initial}</span>
-					{/if}
-					<span class="voice-member-name">{person.name}{#if person.self}<span class="sr-only"> (you)</span>{/if}</span>
-					<span class="voice-member-extra">
-						{#if person.self}
-							<ScreenSharePreview channelId={channel.id} userId={person.userId} username={person.name} self />
-						{:else}
-							<ScreenSharePreview channelId={channel.id} userId={person.userId} username={person.name} announced={person.screenShareEnabled} />
-						{/if}
-						{#if person.recording}
-							<span class="row-tag row-tag--rec"><span class="w-dot w-dot--danger" aria-hidden="true"></span>Rec</span>
-						{/if}
-						{#if voiceDurationMode === 'all' || (voiceDurationMode === 'others' && !person.self)}
-							<span class="w-count voice-member-duration">{formatVoiceDuration(person.presenceStart, nowMs)}</span>
-						{/if}
-						{#if !person.self && canKickVoiceMember(person.userId)}
-							<button
-								type="button"
-								class="w-ibtn w-ibtn--sm voice-member-kick"
-								on:click={(e) => { e.stopPropagation(); onKickVoiceMember(channel.id, person.userId); }}
-								title={`Remove ${person.name} from voice`}
-								aria-label={`Remove ${person.name} from voice`}
-							><Icon name="logout" size={14} /></button>
-						{/if}
-					</span>
-					<span class="voice-member-state" title={person.state.label}>
-						<Icon name={person.state.icon} size={14} />
-						<span class="sr-only">{person.state.label}</span>
-					</span>
-				</div>
-			{/each}
-			{#if roster.hidden > 0}
-				<button type="button" class="voice-member-more" on:click={() => expandRoom(channel.id)}>{$_('sidebar.and_more', { values: { count: roster.hidden } })}</button>
-			{/if}
+		<div class="voice-member-list" transition:slide={rosterSlide}>
+			{@render voiceRoster(channel, roster)}
 		</div>
 	{/if}
 	{#each breakoutChannelsByParent[channel.id] || [] as breakout (breakout.id)}
 		{@const breakoutRow = voiceRowsById.get(breakout.id)}
 		{@const breakoutIsConnected = breakoutRow?.isConnected ?? false}
 		{@const breakoutOccupancy = breakoutRow ? breakoutRow.members.length : 0}
-		{@const breakoutRoster = breakoutRow ? splitVoiceParticipants(breakoutRow.people, expandedRooms.has(breakout.id)) : { shown: [], hidden: 0 }}
-		{@const breakoutFollowed = followedChannelIds.has(breakout.id)}
+		{@const breakoutRoster = breakoutRow ? splitVoiceParticipants(breakoutRow.people, expandedRooms.has(breakout.id)) : EMPTY_ROSTER}
 		<div
 			class="channel-item voice-channel-item breakout-channel-item"
 			class:connected={breakoutIsConnected}
 			class:live={breakoutOccupancy > 0}
-			class:followed={breakoutFollowed}
 			class:voice-drop-target={voiceDropTargetChannelId === breakout.id}
 			role="group"
 			on:dragover={(event) => onVoiceChannelDragOver(event, breakout.id)}
@@ -576,7 +606,7 @@
 			on:contextmenu={(e) => onChannelRightClick(e, breakout)}
 			use:longpress={{ onLongPress: (e) => onChannelLongPress(e, breakout) }}
 		>
-			<Tooltip text={breakout.name} placement="right" disabled={!compact} describe={false}>
+			{#snippet breakoutButton()}
 				<button type="button" class="channel-btn" on:click={(e) => onVoiceChannelClick(breakout.id, e)}>
 					<span class="row-glyph" aria-hidden="true"><Icon name="voice" size={16} /></span>
 					<span class="row-name">{breakout.name}</span>
@@ -590,17 +620,12 @@
 					</span>
 					<span class="sr-only">, breakout room{#if breakoutOccupancy > 0}, {getVoiceOccupancyTitle(breakout, breakoutOccupancy)}{/if}{#if breakoutIsConnected}, connected{/if}</span>
 				</button>
-			</Tooltip>
-			{#if !compact}
+			{/snippet}
+			{#if compact}
+				<Tooltip text={breakout.name} placement="right" describe={false}>{@render breakoutButton()}</Tooltip>
+			{:else}
+				{@render breakoutButton()}
 				<div class="row-tray">
-					<button
-						type="button"
-						class="w-ibtn w-ibtn--sm"
-						aria-pressed={breakoutFollowed}
-						aria-label={breakoutFollowed ? `Following ${breakout.name}` : `Follow ${breakout.name}`}
-						title={breakoutFollowed ? 'Following' : 'Follow'}
-						on:click|stopPropagation={(event) => onToggleChannelFollow(breakout.id, event)}
-					><Icon name="bell" size={16} /></button>
 					<button
 						type="button"
 						class="w-ibtn w-ibtn--sm"
@@ -612,56 +637,8 @@
 			{/if}
 		</div>
 		{#if breakoutRow?.showMembers && !compact}
-			<div class="voice-member-list breakout-member-list" role="list" aria-label={`In ${breakout.name}`} transition:slide={rosterSlide}>
-				{#each breakoutRoster.shown as person (person.key)}
-					<div
-						class="voice-member-item"
-						class:speaking={person.speaking}
-						class:voice-member-draggable={!person.self && canDragVoiceMember(person.userId)}
-						role="listitem"
-						draggable={!person.self && canDragVoiceMember(person.userId)}
-						on:dragstart={(event) => onVoiceMemberDragStart(event, breakout.id, person.userId)}
-						on:dragend={onVoiceMemberDragEnd}
-						in:fly={memberIn}
-						out:fly={memberOut}
-					>
-						{#if person.picture}
-							<img class="voice-member-avatar" src={person.picture} alt="" />
-						{:else}
-							<span class="voice-member-avatar voice-avatar-fallback" style={person.inkStyle} aria-hidden="true">{person.initial}</span>
-						{/if}
-						<span class="voice-member-name">{person.name}{#if person.self}<span class="sr-only"> (you)</span>{/if}</span>
-						<span class="voice-member-extra">
-							{#if person.self}
-								<ScreenSharePreview channelId={breakout.id} userId={person.userId} username={person.name} self />
-							{:else}
-								<ScreenSharePreview channelId={breakout.id} userId={person.userId} username={person.name} announced={person.screenShareEnabled} />
-							{/if}
-							{#if person.recording}
-								<span class="row-tag row-tag--rec"><span class="w-dot w-dot--danger" aria-hidden="true"></span>Rec</span>
-							{/if}
-							{#if voiceDurationMode === 'all' || (voiceDurationMode === 'others' && !person.self)}
-								<span class="w-count voice-member-duration">{formatVoiceDuration(person.presenceStart, nowMs)}</span>
-							{/if}
-							{#if !person.self && canKickVoiceMember(person.userId)}
-								<button
-									type="button"
-									class="w-ibtn w-ibtn--sm voice-member-kick"
-									on:click={(e) => { e.stopPropagation(); onKickVoiceMember(breakout.id, person.userId); }}
-									title={`Remove ${person.name} from voice`}
-									aria-label={`Remove ${person.name} from voice`}
-								><Icon name="logout" size={14} /></button>
-							{/if}
-						</span>
-						<span class="voice-member-state" title={person.state.label}>
-							<Icon name={person.state.icon} size={14} />
-							<span class="sr-only">{person.state.label}</span>
-						</span>
-					</div>
-				{/each}
-				{#if breakoutRoster.hidden > 0}
-					<button type="button" class="voice-member-more" on:click={() => expandRoom(breakout.id)}>{$_('sidebar.and_more', { values: { count: breakoutRoster.hidden } })}</button>
-				{/if}
+			<div class="voice-member-list breakout-member-list" transition:slide={rosterSlide}>
+				{@render voiceRoster(breakout, breakoutRoster)}
 			</div>
 		{/if}
 	{/each}
