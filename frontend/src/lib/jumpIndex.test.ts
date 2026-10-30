@@ -4,9 +4,12 @@ import {
 	PREVIEW_TITLE,
 	SCOPE_GROUPS,
 	buildJumpIndex,
+	bufferedPaletteKey,
 	flattenSections,
 	formatEdited,
 	highlightParts,
+	isTextEntry,
+	jumpSteps,
 	matchJump,
 	paletteKeyAction,
 	presenceOf,
@@ -102,14 +105,20 @@ test('an add-on state that is not known yet says nothing, and one missing from t
 	expect(byId(fixture({ office: { sheets: 'on' } }), 'document:sheets:s1').target).toEqual({ type: 'document', documentId: 's1', tool: 'sheets' });
 });
 
-test('recent documents say Local draft or, once shared, Server-readable with the role', () => {
+test('recent documents say Local draft or, once shared, the tag Shared · <role> and the seal chip', () => {
 	const items = fixture();
 	const local = byId(items, 'document:document:d1');
 	expect(local.truths).toEqual([{ kind: 'locality', label: 'Local draft', title: expect.any(String) }]);
 	expect(local.subtitle).toBe('Documents · edited 09:41');
 	const shared = byId(items, 'document:document:d2');
-	expect(shared.truths).toEqual([{ kind: 'seal', label: 'Server-readable', title: expect.stringContaining('server operator can read') }]);
-	expect(shared.subtitle).toBe('Documents · Shared · Editor · edited Sat 19');
+	// §9.3: seal chip "Server-readable" + tag "Shared · <role>", not a subtitle phrase.
+	expect(shared.truths).toEqual([
+		{ kind: 'locality', label: 'Shared · Editor', title: expect.any(String) },
+		{ kind: 'seal', label: 'Server-readable', title: expect.stringContaining('server operator can read') }
+	]);
+	expect(shared.subtitle).toBe('Documents · edited Sat');
+	const roleless = buildJumpIndex({ documents: [{ id: 'x', kind: 'document', title: 'Notes', updatedAt: NOW, shared: true }] });
+	expect(byId(roleless, 'document:document:x').truths.map((truth) => (truth.kind === 'privacy' ? truth.state : truth.label))).toEqual(['Shared', 'Server-readable']);
 	expect(shared.target).toEqual({ type: 'document', documentId: 'd2', tool: 'documents' });
 	// Sheets drafts hide while the Sheets add-on is off; Present drafts show while it is on.
 	expect(items.some((item) => item.id === 'document:sheets:s1')).toBe(false);
@@ -122,7 +131,8 @@ test('recent documents say Local draft or, once shared, Server-readable with the
 
 test('edited times follow the locale: time today, weekday this week, date otherwise', () => {
 	expect(formatEdited(new Date(2026, 8, 21, 7, 5).getTime(), NOW, 'en-GB')).toBe('edited 07:05');
-	expect(formatEdited(new Date(2026, 8, 19, 7, 5).getTime(), NOW, 'en-GB')).toBe('edited Sat 19');
+	expect(formatEdited(new Date(2026, 8, 19, 7, 5).getTime(), NOW, 'en-GB')).toBe('edited Sat');
+	expect(formatEdited(new Date(2026, 8, 19, 7, 5).getTime(), NOW, 'en-US')).toBe('edited Sat');
 	expect(formatEdited(new Date(2026, 7, 2).getTime(), NOW, 'en-GB')).toBe('edited 2 Aug');
 	expect(formatEdited(new Date(2025, 7, 2).getTime(), NOW, 'en-GB')).toBe('edited 2 Aug 2025');
 	expect(formatEdited(0, NOW, 'en-GB')).toBe('');
@@ -136,7 +146,10 @@ test('channels: kinds, unread, voice rooms, folders skipped, conversations open 
 	expect(general.target).toEqual({ type: 'channel', channelId: 'general' });
 	expect(byId(items, 'channel:small-discoveries').unread).toBe(3);
 	expect(byId(items, 'channel:community-guide')).toMatchObject({ icon: 'book', subtitle: 'Wiki' });
-	expect(byId(items, 'channel:studio-lounge')).toMatchObject({ subtitle: 'Voice room · 3 in the room', target: { type: 'voice', channelId: 'studio-lounge' } });
+	expect(byId(items, 'channel:studio-lounge')).toMatchObject({ subtitle: 'Voice room · 3 in the room', live: true, target: { type: 'voice', channelId: 'studio-lounge' } });
+	const empty = buildJumpIndex({ channels: [{ id: 'quiet', name: 'Quiet coworking', type: 'voice', occupancy: 0 }] });
+	expect(byId(empty, 'channel:quiet').live).toBeUndefined();
+	expect(byId(items, 'channel:general').live).toBeUndefined();
 	expect(byId(items, 'channel:dm-theo')).toMatchObject({ title: 'Theo Park', subtitle: 'DM', target: { type: 'conversation', channelId: 'dm-theo' } });
 	expect(byId(items, 'channel:group-1')).toMatchObject({ subtitle: 'Group · Theo, Nora +2 more', target: { type: 'conversation', channelId: 'group-1' } });
 });
@@ -163,14 +176,54 @@ test('people: handle and where they are, here now first when nothing is typed', 
 	expect(presenceOf(undefined)).toBe('offline');
 });
 
-test('actions: new document is a local draft and a preview; mark all read counts unread channels', () => {
+test('actions: new document is a local draft and a preview; new task says where it lands; mark all read counts unread channels', () => {
 	const items = fixture();
 	expect(items.filter((item) => item.group === 'actions').map((item) => item.title)).toEqual(['New document', 'New task', 'Mark all read', 'Open settings']);
 	expect(byId(items, 'action:new-document')).toMatchObject({ subtitle: 'Starts as a local draft on this device' });
+	// Not "Opens My Planner": it lands on the board's New task button, one Enter from the form.
+	expect(byId(items, 'action:new-task')).toMatchObject({ subtitle: 'Opens the My Planner board at New task', target: { type: 'action', action: 'new-task' } });
+	expect(byId(items, 'action:new-task').truths).toEqual([]);
 	expect(byId(items, 'action:new-document').truths.map((truth) => truth.kind)).toEqual(['maturity']);
-	expect(byId(items, 'action:mark-all-read').subtitle).toBe('1 channel unread');
-	expect(byId(fixture({ unreadChannels: 0 }), 'action:mark-all-read').subtitle).toBe('Nothing is unread');
+	expect(byId(items, 'action:mark-all-read')).toMatchObject({ subtitle: '1 channel unread' });
+	expect(byId(items, 'action:mark-all-read').disabled).toBeUndefined();
+	// Same rule as the sidebar menu: with nothing unread it is listed but not runnable.
+	expect(byId(fixture({ unreadChannels: 0 }), 'action:mark-all-read')).toMatchObject({ subtitle: 'Nothing unread', disabled: true });
 	expect(byId(fixture({ unreadChannels: 4 }), 'action:mark-all-read').subtitle).toBe('4 channels unread');
+	// "new task" and "add task" find the action first; "tasks" still finds where tasks live.
+	expect(titles(items, 'new task')[0]).toBe('New task');
+	expect(titles(items, 'add task')[0]).toBe('New task');
+	expect(titles(items, 'tasks')).toContain('My Planner');
+});
+
+test('jump steps: DMs and conversations hand center stage back to Chat before the DM view opens', () => {
+	// The workspace picker closes a center DM, so it must run first; the DM view alone left Calls
+	// or My Planner on stage with only the DMs row lit.
+	expect(jumpSteps({ type: 'dms' })).toEqual([{ kind: 'view', view: 'messages' }, { kind: 'dm' }]);
+	expect(jumpSteps({ type: 'conversation', channelId: 'dm-theo' }, 'voice')).toEqual([
+		{ kind: 'view', view: 'messages' },
+		{ kind: 'dm', channelId: 'dm-theo' }
+	]);
+	for (const target of [{ type: 'dms' }, { type: 'conversation', channelId: 'dm-theo' }] as const) {
+		const steps = jumpSteps(target, 'planner');
+		expect(steps.findIndex((step) => step.kind === 'view' && step.view === 'messages')).toBe(0);
+		expect(steps.findIndex((step) => step.kind === 'dm')).toBe(steps.length - 1);
+	}
+	// A channel switches first, then Chat takes center stage; workspaces and voice rooms pick their view.
+	expect(jumpSteps({ type: 'channel', channelId: 'general' })).toEqual([{ kind: 'channel', channelId: 'general' }, { kind: 'view', view: 'messages' }]);
+	expect(jumpSteps({ type: 'view', view: 'planner' })).toEqual([{ kind: 'view', view: 'planner' }]);
+	expect(jumpSteps({ type: 'voice', channelId: 'studio' })).toEqual([{ kind: 'view', view: 'voice' }]);
+	// People, documents and the other actions need no shell step.
+	expect(jumpSteps({ type: 'person', personId: 'u-theo' })).toEqual([]);
+	expect(jumpSteps({ type: 'document', documentId: 'doc-1', tool: 'documents' })).toEqual([]);
+	expect(jumpSteps({ type: 'action', action: 'new-document' })).toEqual([]);
+	expect(jumpSteps({ type: 'action', action: 'mark-all-read' })).toEqual([]);
+});
+
+test('jump steps: new task opens My Planner on its board, and leaves an open planner on its view', () => {
+	expect(jumpSteps({ type: 'action', action: 'new-task' }, 'messages')).toEqual([{ kind: 'planner-board' }, { kind: 'view', view: 'planner' }]);
+	expect(jumpSteps({ type: 'action', action: 'new-task' })).toEqual([{ kind: 'planner-board' }, { kind: 'view', view: 'planner' }]);
+	// An open planner has read its deep link already; a stale one would move a later visit.
+	expect(jumpSteps({ type: 'action', action: 'new-task' }, 'planner')).toEqual([{ kind: 'view', view: 'planner' }]);
 });
 
 test('match tiers: exact, prefix, word start, word-start runs, then substring', () => {
@@ -204,6 +257,27 @@ test('matching ignores case and accents and maps ranges back onto the original t
 	const decomposed = 'Résumé';
 	expect(matchJump(decomposed, 'res')!.ranges).toEqual([[0, 4]]);
 	expect(matchJump('ŞEHİR', 'sehir')).not.toBeNull();
+});
+
+test('folding does not depend on the runtime locale (a Turkish runtime still finds "Iris")', () => {
+	const lower = String.prototype.toLocaleLowerCase;
+	const upper = String.prototype.toLocaleUpperCase;
+	// Emulate a Turkish host: dotless ı for I, dotted İ for i.
+	String.prototype.toLocaleLowerCase = function (this: string) {
+		return this.replace(/I/g, 'ı').toLowerCase();
+	} as typeof lower;
+	String.prototype.toLocaleUpperCase = function (this: string) {
+		return this.replace(/i/g, 'İ').toUpperCase();
+	} as typeof upper;
+	try {
+		expect(matchJump('Iris Wong', 'iris')!.ranges).toEqual([[0, 4]]);
+		expect(matchJump('Inbox', 'inb')).not.toBeNull();
+		const person = buildJumpIndex({ people: [{ id: 'u', name: 'iris wong' }] });
+		expect(byId(person, 'person:u').person?.initial).toBe('I');
+	} finally {
+		String.prototype.toLocaleLowerCase = lower;
+		String.prototype.toLocaleUpperCase = upper;
+	}
 });
 
 test('multi-word queries need every word, in the title or its keywords', () => {
@@ -247,7 +321,31 @@ test('with nothing typed: contract section order, a taste of each, where you are
 	expect(channels[0]).toBe('channel:small-discoveries');
 	expect(channels).not.toContain('channel:general');
 	expect(channels.length).toBe(5);
-	expect(searchJump(items, '', 'channels')[0].results.at(-1)!.item.id).toBe('channel:general');
+});
+
+test('a scope with nothing typed reads like the table of contents: input (sidebar / folio) order, where you are kept in place', () => {
+	const items = fixture({ activeView: 'planner' });
+	const channels = flattenSections(searchJump(items, '', 'channels')).map((result) => result.item.id);
+	// The palette passes sidebar order: channels, then voice, then conversations. Nothing is re-ranked.
+	expect(channels).toEqual([
+		'channel:general',
+		'channel:small-discoveries',
+		'channel:community-guide',
+		'channel:conversations',
+		'channel:studio-lounge',
+		'channel:dm-theo',
+		'channel:dm-nora',
+		'channel:group-1'
+	]);
+	expect(byId(items, 'channel:general').current).toBe(true);
+	// Workspaces in folio order, the current one (My Planner) in its place.
+	expect(searchJump(items, '', 'workspaces')[0].results.map((result) => result.item.title).slice(0, 9)).toEqual([
+		'Chat', 'Files', 'Whiteboard', 'Calls', 'Activity', 'Project', 'DMs', 'My Planner', 'Notes'
+	]);
+	// People keep here now first.
+	expect(titles(items, '', 'people')[0]).toBe('Theo Park');
+	// Typing ranks again.
+	expect(titles(items, 'gen', 'channels')).toEqual(['general']);
 });
 
 test('scopes: each chip lists only its sections; Workspaces includes recent documents', () => {
@@ -288,4 +386,56 @@ test('Ctrl K toggles everywhere, text fields included, but never steals a key an
 	expect(paletteKeyAction(key(), { open: false, appReady: false })).toBeNull();
 	expect(paletteKeyAction(key(), { open: false, appReady: true, modalOpen: true })).toBeNull();
 	expect(paletteKeyAction(key(), { open: true, appReady: false, modalOpen: true })).toBe('toggle');
+});
+
+test('the modal check runs only for Ctrl K, never for ordinary typing', () => {
+	let calls = 0;
+	const modalOpen = () => {
+		calls += 1;
+		return false;
+	};
+	const key = (init: Record<string, unknown> = {}) => ({ key: 'k', code: 'KeyK', ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, ...init });
+	for (const letter of ['a', 'b', 'k']) paletteKeyAction(key({ key: letter, ctrlKey: false }), { open: false, appReady: true, modalOpen });
+	expect(calls).toBe(0);
+	expect(paletteKeyAction(key(), { open: false, appReady: true, modalOpen })).toBe('toggle');
+	expect(calls).toBe(1);
+	expect(paletteKeyAction(key(), { open: false, appReady: true, modalOpen: () => true })).toBeNull();
+});
+
+test('macOS: Ctrl K in a text field stays "delete to end of line"; ⌘K and Ctrl K elsewhere open the palette', () => {
+	const key = (init: Record<string, unknown> = {}) => ({ key: 'k', code: 'KeyK', ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, ...init });
+	const textarea = { tagName: 'TEXTAREA', closest: () => null };
+	const field = { tagName: 'INPUT', type: 'text', closest: () => null };
+	const editor = { tagName: 'DIV', isContentEditable: true, closest: () => null };
+	const button = { tagName: 'BUTTON', closest: () => null };
+	const mac = { open: false, appReady: true, mac: true };
+	expect(paletteKeyAction(key({ target: textarea }), mac)).toBeNull();
+	expect(paletteKeyAction(key({ target: field }), mac)).toBeNull();
+	expect(paletteKeyAction(key({ target: editor }), mac)).toBeNull();
+	expect(paletteKeyAction(key({ target: button }), mac)).toBe('toggle');
+	expect(paletteKeyAction(key({ target: textarea, ctrlKey: false, metaKey: true }), mac)).toBe('toggle');
+	// The palette's own field: Ctrl K still closes it.
+	expect(paletteKeyAction(key({ target: field }), { ...mac, open: true })).toBe('toggle');
+	// Elsewhere Ctrl K works in text fields too.
+	expect(paletteKeyAction(key({ target: textarea }), { open: false, appReady: true })).toBe('toggle');
+	expect(isTextEntry({ tagName: 'INPUT', type: 'checkbox' } as unknown as EventTarget)).toBe(false);
+	expect(isTextEntry({ tagName: 'input', type: 'search' } as unknown as EventTarget)).toBe(true);
+	expect(isTextEntry(null)).toBe(false);
+});
+
+test('keys pressed before the palette holds focus are queued (Enter, Tab and arrows too), Esc closes', () => {
+	const key = (init: Record<string, unknown> = {}) => ({ key: 'g', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...init });
+	const waiting = { open: true, paletteHasFocus: false };
+	for (const name of ['g', ' ', 'Backspace', 'Enter', 'Tab', 'ArrowDown', 'ArrowUp', 'PageDown', 'PageUp']) {
+		expect(bufferedPaletteKey(key({ key: name }), waiting)).toBe('queue');
+	}
+	expect(bufferedPaletteKey(key({ key: 'Escape' }), waiting)).toBe('close');
+	// Modifiers, Shift alone, IME composition and keys already handled are left alone.
+	expect(bufferedPaletteKey(key({ key: 'k', ctrlKey: true }), waiting)).toBeNull();
+	expect(bufferedPaletteKey(key({ key: 'Shift' }), waiting)).toBeNull();
+	expect(bufferedPaletteKey(key({ isComposing: true }), waiting)).toBeNull();
+	expect(bufferedPaletteKey(key({ defaultPrevented: true }), waiting)).toBeNull();
+	// Once the palette's field has focus it handles its own keys; a closed palette takes nothing.
+	expect(bufferedPaletteKey(key(), { open: true, paletteHasFocus: true })).toBeNull();
+	expect(bufferedPaletteKey(key(), { open: false, paletteHasFocus: false })).toBeNull();
 });
