@@ -18,28 +18,9 @@
 	padding: var(--space-1) 0 var(--space-4);
 }
 
-/* HELD FOR w1-composer — !important composer chrome; composer.css cannot override it without
-   !important, so retire or move this block with the composer work. */
-/* ----- Composer (live DOM: .input-wrapper > .input-container) ----- */
-.composer,
-.chat-composer,
-.composer-shell,
-.message-composer,
-.input-wrapper .input-container {
-	background: var(--surface-base) !important;
-	border: 1px solid transparent !important;
-	border-radius: var(--radius-lg) !important;
-	transition: border-color var(--duration-fast) ease, box-shadow var(--duration-fast) ease, background var(--duration-fast) ease !important;
-}
-
-.composer:focus-within,
-.chat-composer:focus-within,
-.composer-shell:focus-within,
-.input-wrapper .input-container:focus-within {
-	border-color: color-mix(in srgb, var(--accent-primary-color, var(--accent-primary)) 55%, transparent) !important;
-	box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary-color, var(--accent-primary)) 18%, transparent) !important;
-	background: color-mix(in srgb, var(--surface-raised) 35%, var(--surface-base)) !important;
-}
+/* Retired by w1-composer: the !important composer chrome (.composer, .chat-composer,
+   .composer-shell, .message-composer, .input-wrapper .input-container). The composer is styled
+   on roles in surfaces/composer.css. */
 
 /* HELD FOR w0-dialogs-menus (ConfirmDialog.svelte). */
 /* Delete confirm uses ConfirmDialog — ensure danger btn readable */

@@ -4,9 +4,10 @@
 	when no workspace has described row A through `stageHeader`.
 
 	- Channel: `#` (or the kind glyph) in --w-sig + the name in --w-t-title; the topic as one line
-	  that opens "About this channel"; the retention chip ("Kept 24 hours", "Live only · not
-	  saved") when messages are not kept until deleted; display chips as words. Actions: search,
-	  pinned, More.
+	  that opens "About this channel"; display chips as words. Actions: search, pinned, More.
+	  Retention ("Kept 24 hours", "Live only · not saved") is said once per screen: by the composer
+	  colophon's chip where a composer shows this channel, else by a chip here (live channels,
+	  galleries, a stream with no composer). About this channel keeps it as a fact.
 	- DM / group: avatar 28 + name + the seal chip (PrivacyBadge, which owns every privacy word)
 	  with the retention chip; actions: search, call, video, More.
 	- Phone bar (52px, §8.12): avatar + name (96px floor, ellipsis) + "Chat ▾" + search + More.
@@ -24,10 +25,9 @@
 	  `#`; the name stays in the heading for assistive tech), "Chat ▾" steps aside, and the field
 	  fills the row up to its Close button and More. Closing it restores the bar.
 	- Channel privacy is the colophon's job (§8.10): the channel row carries no privacy chip.
-	  Retention stays here until the colophon carries its own chip (a truthful label is never
-	  removed before its replacement exists). The member privacy summary is published as
-	  `stagePrivacySummary` (with its channelId) for surfaces that word retention; it fails
-	  closed (null), never invents a policy and is cleared when this header unmounts.
+	  The member privacy summary is published as `stagePrivacySummary` (with its channelId) for
+	  the composer colophon's retention chip; it fails closed (null), never invents a policy and
+	  is cleared when this header unmounts.
 -->
 <script module lang="ts">
 	import { writable, type Readable } from 'svelte/store';
@@ -101,6 +101,7 @@
 		retentionLabel,
 		retentionTitle
 	} from '$lib/privacy/privacyState';
+	import { composerColophons } from './composerPrivacy';
 	import { isMobile } from '$lib/layoutStoreStates';
 	import { getLoreBinding, parseLoreChannelId, type LoreChannelBinding } from '$lib/api/lore';
 	import { getAuthToken } from '$lib/authSession';
@@ -300,10 +301,12 @@
 		return list;
 	});
 	// Retention is a truth chip of its own (never folded into "+N", never a privacy claim, no
-	// lock): shown in the channel view when messages are not kept until deleted.
+	// lock), said once per screen: the composer colophon carries it wherever a composer shows
+	// this channel; this chip says it only where none does (live channels, galleries).
 	const RETENTION_ELSEWHERE = new Set(['lore', 'planning', 'wiki', 'forum']);
+	const colophonCarriesRetention = $derived(($composerColophons[channelId] ?? 0) > 0);
 	const retention = $derived(
-		!conversation && view === 'messages' && !RETENTION_ELSEWHERE.has(kind) && retentionChipVisible(privacySummary)
+		!conversation && view === 'messages' && !RETENTION_ELSEWHERE.has(kind) && !colophonCarriesRetention && retentionChipVisible(privacySummary)
 			? { label: retentionLabel(privacySummary), title: retentionTitle(privacySummary) }
 			: null
 	);

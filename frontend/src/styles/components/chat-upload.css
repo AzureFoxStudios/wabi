@@ -1,329 +1,343 @@
 /* ==========================================================================
-   CHAT — UPLOAD STYLES
-   Extracted from chat.css
+   CHAT — UPLOAD (selected files above the composer, the drop target)
+   Owner (wave 1): w1-composer. Roles (--w-*), type tokens and radii only (design contract
+   §4.5, §7.19). The card around these (.file-gallery) is drawn in surfaces/composer.css as an
+   object in flow: --w-lift, a hairline, --w-shadow-1.
    ========================================================================== */
 
+.gallery-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin-bottom: 10px;
+}
 
+.gallery-count {
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
 
-	.gallery-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 0.75rem;
-	}
+.cancel-gallery {
+	display: inline-grid;
+	flex: none;
+	place-items: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: var(--w-bw) solid transparent;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
+}
 
-	.gallery-count {
-		font-weight: 600;
-		font-size: var(--text-sm);
-		color: var(--text-heading);
-		letter-spacing: 0.01em;
-	}
+.cancel-gallery:hover {
+	background: var(--w-raise);
+	color: var(--w-text);
+}
 
-	.cancel-gallery {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 26px;
-		height: 26px;
-		min-width: 26px;
-		padding: 0;
-		border: none;
-		border-radius: var(--radius-full);
-		background: transparent;
-		color: var(--text-secondary);
-		cursor: pointer;
-		transition: background 0.15s ease, color 0.15s ease;
-	}
+.gallery-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(104px, 112px));
+	align-items: start;
+	gap: 8px;
+	max-height: 172px;
+	margin-bottom: 10px;
+	padding: 2px;
+	overflow-y: auto;
+}
 
-	.cancel-gallery:hover {
-		background: color-mix(in srgb, var(--text-muted) 16%, transparent);
-		color: var(--text-heading);
-	}
+.gallery-item {
+	position: relative;
+	width: 104px;
+	height: 104px;
+	min-width: 0;
+	overflow: hidden;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+	transition: border-color var(--w-dur-1) var(--w-ease);
+}
 
+.gallery-item:hover,
+.gallery-item:focus-within {
+	border-color: var(--w-line-strong);
+}
 
-	.gallery-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(104px, 124px));
-		gap: 0.55rem;
-		margin-bottom: 0.65rem;
-		max-height: 168px;
-		overflow-y: auto;
-		align-items: start;
-		padding: 2px;
-	}
+.gallery-preview,
+.gallery-file-icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	height: 100%;
+}
 
+/* Transparent images keep a backing (§7.19): the sink, no checkerboard. */
+.gallery-preview {
+	box-sizing: border-box;
+	max-width: 100%;
+	max-height: 100%;
+	padding: 4px;
+	background: var(--w-sink);
+	object-fit: contain;
+	user-select: none;
+}
 
-	.gallery-item {
-		position: relative;
-		width: 112px;
-		height: 112px;
-		flex: 0 0 112px;
-		border-radius: var(--radius-lg);
-		overflow: hidden;
-		min-width: 0;
-		background: var(--surface-sunken);
-		border: 1px solid var(--border-subtle);
-		transition: border-color 0.15s ease, box-shadow 0.15s ease;
-	}
+.gallery-video-preview {
+	padding: 0;
+	background: var(--w-sink);
+	object-fit: contain;
+}
 
-	.gallery-item:hover {
-		border-color: color-mix(in srgb, var(--accent-primary-color) 45%, var(--border-subtle));
-		box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
-	}
+.gallery-audio-preview {
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	width: 100%;
+	height: 100%;
+	padding: 6px;
+	background: var(--w-sink);
+	color: var(--w-mute);
+}
 
-	.gallery-preview,
-	.gallery-file-icon {
-		width: 100%;
-		height: 100%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
+.gallery-audio-preview audio {
+	width: 100%;
+	max-width: 100%;
+}
 
-	.gallery-preview {
-		max-width: 100%;
-		max-height: 100%;
-		user-select: none;
-		object-fit: contain;
-		background:
-			repeating-conic-gradient(color-mix(in srgb, var(--text-muted) 7%, transparent) 0% 25%, transparent 0% 50%)
-				0 0 / 14px 14px,
-			var(--surface-sunken);
-		padding: 0.35rem;
-		box-sizing: border-box;
-	}
+.gallery-file-icon {
+	color: var(--w-mute);
+	font: 400 calc(22px * var(--w-fs)) / 1 var(--w-sans);
+}
 
-	.gallery-video-preview {
-		object-fit: contain;
-		background: #050505;
-	}
+/* Name and size on a solid strip of the card's own surface, readable over any image. */
+.gallery-file-info {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	padding: 4px 6px;
+	border-top: var(--w-bw) solid var(--w-line);
+	background: color-mix(in srgb, var(--w-bg2) 92%, transparent);
+	color: var(--w-text);
+	font: var(--w-t-micro);
+	pointer-events: none;
+}
 
-	.gallery-audio-preview {
-		width: 100%;
-		height: 100%;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 0.35rem;
-		padding: 0.35rem;
-		background: var(--surface-raised);
-	}
+.gallery-file-name,
+.gallery-file-size {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
 
-	.gallery-audio-preview audio {
-		width: 100%;
-		max-width: 100%;
-	}
+.gallery-file-size {
+	color: var(--w-faint);
+	font-feature-settings: 'tnum';
+}
 
-	.gallery-file-icon {
-		font-size: var(--text-2xl);
-		background: color-mix(in srgb, var(--surface-raised) 60%, transparent);
-	}
+.remove-file {
+	position: absolute;
+	top: 4px;
+	right: 4px;
+	display: inline-grid;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	min-width: 24px;
+	padding: 0;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--w-avr);
+	background: var(--w-bg2);
+	color: var(--w-text);
+	font-size: 0;
+	line-height: 1;
+	cursor: pointer;
+	opacity: 0;
+	transition:
+		opacity var(--w-dur-1) var(--w-ease),
+		background-color var(--w-dur-1) var(--w-ease);
+}
 
-	.gallery-file-info {
-		position: absolute;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		padding: 0.35rem 0.45rem 0.3rem;
-		background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.72));
-		color: white;
-		font-size: 0.6875rem;
-		line-height: 1.2;
-		pointer-events: none;
-		display: flex;
-		flex-direction: column;
-		gap: 0.1rem;
-	}
+.gallery-item:hover .remove-file,
+.gallery-item:focus-within .remove-file,
+.remove-file:focus-visible {
+	opacity: 1;
+}
 
-	.gallery-file-name,
-	.gallery-file-size {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
+.remove-file:hover {
+	background: var(--w-raise);
+}
 
+/* The one primary action of the card: ink on paper (§2.4), never a gradient. */
+.upload-files-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	height: 32px;
+	min-width: 0;
+	margin-left: auto;
+	padding: 0 12px;
+	border: var(--w-bw) solid var(--w-text);
+	border-radius: var(--radius-md);
+	background: var(--w-text);
+	color: var(--w-bg);
+	font: var(--w-t-label);
+	white-space: nowrap;
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		border-color var(--w-dur-1) var(--w-ease);
+}
+
+.upload-files-btn:hover {
+	border-color: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+	background: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+}
+
+/* Album options: a group of rows under a hairline, not a tinted box (§2.1). */
+.upload-album-row {
+	display: grid;
+	gap: 10px;
+	margin: 0 0 10px;
+	padding: 10px 0 0;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+
+.spoiler-checkbox-container {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+}
+
+.spoiler-label-text {
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+
+.spoiler-hint {
+	color: var(--w-faint);
+	font: var(--w-t-small);
+	cursor: help;
+}
+
+.gallery-footer {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding-top: 2px;
+}
+
+.gallery-footer .spoiler-checkbox-container {
+	justify-content: flex-start;
+}
+
+@media (hover: none) {
 	.remove-file {
-		position: absolute;
-		top: 0.35rem;
-		right: 0.35rem;
-		width: 20px;
-		height: 20px;
-		min-width: 20px;
-		padding: 0;
-		border: none;
-		border-radius: var(--radius-full);
-		background: rgba(0, 0, 0, 0.55);
-		color: white;
-		font-size: 0;
-		line-height: 1;
-		cursor: pointer;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		opacity: 0;
-		transition: opacity 0.15s ease, background 0.15s ease;
-	}
-
-	.gallery-item:hover .remove-file,
-	.gallery-item:focus-within .remove-file {
 		opacity: 1;
 	}
+}
 
-	.remove-file:hover {
-		background: rgba(0, 0, 0, 0.82);
+.upload-album-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+
+.upload-album-toggle input {
+	margin: 0;
+	accent-color: var(--w-accent);
+}
+
+.upload-album-field {
+	display: grid;
+	gap: 6px;
+}
+
+.upload-album-field span {
+	color: var(--w-mute);
+	font: var(--w-t-caption);
+}
+
+.upload-album-name {
+	box-sizing: border-box;
+	height: 32px;
+	padding: 0 10px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+
+.upload-album-name:focus {
+	outline: none;
+	border-color: var(--w-accent);
+	box-shadow: var(--w-ring);
+}
+
+.upload-album-hint {
+	color: var(--w-faint);
+	font: var(--w-t-small);
+}
+
+/* Drop target over the stream (Chat.svelte): the page dims to the stage surface and says what a
+   drop does. No loop (§4.7): the mark does not pulse. */
+.drag-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: var(--z-overlay);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: color-mix(in srgb, var(--w-bg) 86%, transparent);
+	animation: chat-drop-in var(--w-dur-2) var(--w-ease) both;
+}
+
+.drag-overlay-content {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+	padding: 28px 40px;
+	border: 2px dashed var(--w-line-strong);
+	border-radius: var(--radius-xl);
+	background: var(--w-lift);
+	pointer-events: none;
+}
+
+.drag-icon {
+	color: var(--w-mute);
+	font: 400 calc(28px * var(--w-fs)) / 1 var(--w-sans);
+	animation: none;
+}
+
+.drag-text {
+	color: var(--w-text);
+	font: var(--w-t-heading);
+}
+
+@keyframes chat-drop-in {
+	from {
+		opacity: 0;
 	}
-
-	.upload-files-btn {
-		width: auto;
-		min-width: 150px;
-		height: 36px;
-		padding: 0 1.25rem;
-		border: none;
-		border-radius: 999px;
-		background: linear-gradient(135deg, var(--accent-secondary-color), var(--accent-primary-color));
-		color: white;
-		font-weight: 600;
-		font-size: var(--text-sm);
-		cursor: pointer;
-		transition: opacity 0.15s ease, transform 0.15s ease;
-		box-shadow: 0 2px 8px color-mix(in srgb, var(--accent-primary-color) 28%, transparent);
+	to {
+		opacity: 1;
 	}
-
-	.upload-files-btn:hover {
-		opacity: 0.92;
-		transform: translateY(-1px);
-	}
-
-	.upload-files-btn:active {
-		transform: translateY(0);
-	}
-
-
-	.upload-album-row {
-		display: grid;
-		gap: 0.55rem;
-		margin: -0.15rem 0 0.9rem;
-		padding: 0.75rem 0.85rem;
-		border-radius: var(--radius-lg);
-		border: 1px solid rgba(var(--accent-rgb), 0.18);
-		background: rgba(var(--accent-rgb), 0.06);
-	}
-
-	.spoiler-checkbox-container {
-		display: flex;
-		align-items: center;
-		gap: 0.6rem;
-		flex: 1;
-		min-width: 0;
-	}
-
-	.spoiler-label-text {
-		font-size: var(--text-base);
-		color: var(--text-heading);
-		font-weight: 500;
-	}
-
-	.spoiler-hint {
-		font-size: var(--text-sm);
-		cursor: help;
-	}
-
-	.gallery-footer {
-		display: flex;
-		align-items: center;
-		gap: 0.85rem;
-		padding-top: 0.15rem;
-	}
-
-	.gallery-footer .spoiler-checkbox-container {
-		justify-content: space-between;
-	}
-
-	@media (hover: none) {
-		.remove-file {
-			opacity: 1;
-		}
-	}
-
-
-	.upload-album-toggle {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.5rem;
-		font-size: var(--text-base);
-		color: var(--text-heading);
-	}
-
-
-	.upload-album-field {
-		display: grid;
-		gap: 0.35rem;
-	}
-
-
-	.upload-album-field span {
-		font-size: var(--text-sm);
-		font-weight: 600;
-		color: var(--text-secondary);
-	}
-
-
-	.upload-album-toggle input {
-		margin: 0;
-	}
-
-
-	.upload-album-name {
-		height: 36px;
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-md);
-		background: var(--surface-app);
-		color: var(--text-heading);
-		padding: 0 0.75rem;
-		font: inherit;
-	}
-
-
-	.upload-album-hint {
-		font-size: var(--text-xs);
-		color: var(--text-secondary);
-	}
-
-
-	/* Drag & Drop Overlay - smooth fade effect */
-	.drag-overlay {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: var(--surface-modal-overlay, var(--surface-modal-overlay, rgba(0, 0, 0, 0.5)));
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: var(--z-overlay, 1000);
-		animation: fadeIn 0.2s ease-in-out forwards;
-	}
-
-
-	.drag-overlay-content {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 1rem;
-		pointer-events: none;
-	}
-
-
-	.drag-icon {
-		font-size: 3rem;
-		animation: pulse 1s ease-in-out infinite;
-	}
-
-
-	.drag-text {
-		color: white;
-		font-size: 1.2rem;
-		font-weight: 600;
-	}
+}
