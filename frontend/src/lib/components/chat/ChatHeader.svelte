@@ -126,6 +126,7 @@
 	import { startCall } from '$lib/calling';
 	import { getUserIdentityKey } from '$lib/localNicknames';
 	import { cachedE2eeStatus, refreshE2eeStatus } from '$lib/dm/dmE2eeState';
+	import { watchComposerRoomStatus, type RoomStatusSocket } from './composerRoomStatus';
 	import type { E2eeRoomStatus } from '$lib/e2ee';
 	import { mediaUrl } from '$lib/mediaUrl';
 	import { inkFor } from '$lib/theme/identity';
@@ -212,34 +213,31 @@
 	});
 
 	// ---------------------------------------------------------------- DM / group encryption status
+	// Display only: the send path asks the server on every send. The seal chip uses the same watcher
+	// as the composer colophon, so the two never disagree for longer than one poll: it re-asks while
+	// the room is not settled (5 s), on room and policy events, on window focus and after a failed
+	// request (2 s, 4 s, 8 s). A failure keeps what it had ("Checking privacy…"), never a claim.
 	let e2eeStatus = $state<E2eeRoomStatus | null>(null);
-	let e2eeRefresh = $state(0);
 	$effect(() => {
 		const id = channelId;
-		void e2eeRefresh;
 		if (!conversation || !id) {
 			e2eeStatus = null;
 			return;
 		}
-		e2eeStatus = cachedE2eeStatus(id);
-		let live = true;
-		let retry: ReturnType<typeof setTimeout> | undefined;
-		// Display only: a failed request leaves the chip on "Checking privacy…", never a claim,
-		// and asks again (2 s, 4 s, 8 s; then on the next window focus) instead of giving up.
-		const ask = (attempt: number) => {
-			refreshE2eeStatus(id)
-				.then((status) => {
-					if (live) e2eeStatus = status;
-				})
-				.catch(() => {
-					if (live && attempt < 3) retry = setTimeout(() => ask(attempt + 1), 2000 * 2 ** attempt);
-				});
-		};
-		ask(0);
-		return () => {
-			live = false;
-			clearTimeout(retry);
-		};
+		e2eeStatus = null;
+		const watch = untrack(() =>
+			watchComposerRoomStatus<E2eeRoomStatus>({
+				channelId: id,
+				refresh: refreshE2eeStatus,
+				cached: cachedE2eeStatus,
+				socket: () => getSocket() as unknown as RoomStatusSocket | null,
+				onStatus: (status) => {
+					e2eeStatus = status;
+				},
+				focusTarget: typeof window !== 'undefined' ? window : null
+			})
+		);
+		return () => watch.dispose();
 	});
 
 	onMount(() => {
@@ -251,19 +249,13 @@
 		const onPolicyUpdated = () => {
 			// Policy changes are not silent: refresh the visible contract now and say so.
 			requestPrivacySummary(true);
-			e2eeRefresh += 1;
 			showToast('Server privacy policy changed. The room privacy labels have been refreshed.', 'info');
-		};
-		const onFocus = () => {
-			if (conversation) e2eeRefresh += 1;
 		};
 		live?.on('channel-updated', onChannelUpdated);
 		live?.on('privacy-policy-updated', onPolicyUpdated);
-		window.addEventListener('focus', onFocus);
 		return () => {
 			live?.off('channel-updated', onChannelUpdated);
 			live?.off('privacy-policy-updated', onPolicyUpdated);
-			window.removeEventListener('focus', onFocus);
 		};
 	});
 

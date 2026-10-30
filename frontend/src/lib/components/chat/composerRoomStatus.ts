@@ -27,6 +27,7 @@ export type ComposerRoomStatus = {
 	enabled?: boolean | null;
 	pendingDefault?: boolean | null;
 	serverReadableSelected?: boolean | null;
+	serverReadableAllowedByMe?: boolean | null;
 };
 
 export type RoomStatusSocket = {
@@ -73,9 +74,12 @@ export const ROOM_STATUS_POLL_MS = 5000;
 const ROOM_STATUS_MIN_GAP_MS = 1500;
 const RETRY_DELAYS_MS = [2000, 4000, 8000];
 
-/** Encrypted or explicitly server-readable: only the server's own events change it from here. */
+/** Encrypted, or server-readable by this member's own choice: only the server's own events change it from here. */
 export function roomStatusSettled(status: ComposerRoomStatus | null | undefined): boolean {
-	return Boolean(status && (status.enabled === true || status.serverReadableSelected === true));
+	// Server-readable is settled only once this member confirmed it. When another member chose it,
+	// this member's sends are held ('server-readable') until they confirm, possibly on another
+	// device, so keep asking until the colophon can say 'server-readable by choice'.
+	return Boolean(status && (status.enabled === true || (status.serverReadableSelected === true && status.serverReadableAllowedByMe === true)));
 }
 
 const defaultTimers: Timers = {
