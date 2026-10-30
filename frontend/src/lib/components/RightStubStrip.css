@@ -29,17 +29,22 @@
    the stage, and the colour change (--w-bg2 to --w-bg) is the edge between them. */
 .rail.joined { box-shadow: none; }
 
-.rail-list {
+/* The stub list. Its own class name: the server rail's global `.rail-list` (server-rail.css) must
+   never reach it (its padding pushed the folder tab off the y = 96 masthead rule), and this sheet
+   is global too, so it must never restyle that one. */
+.w-rail__list {
 	flex: 1;
 	min-height: 0;
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
+	margin: 0;
+	padding: 0;
 	overflow-x: hidden;
 	overflow-y: auto;
 	scrollbar-width: none;
 }
-.rail-list::-webkit-scrollbar { display: none; }
+.w-rail__list::-webkit-scrollbar { display: none; }
 
 /* ---------- stub: 18px glyph over a vertical label ---------- */
 .stub {
@@ -178,7 +183,7 @@
 .stub.drop-after::after { bottom: -2px; }
 
 /* ---------- footer band: "Add panels" on the footer rule ---------- */
-.rail-foot {
+.w-rail__foot {
 	flex: none;
 	box-sizing: border-box;
 	height: var(--w-foot, 80px);
@@ -186,10 +191,10 @@
 	place-items: center;
 	border-top: var(--w-bw) solid var(--w-line);
 }
-.rail-foot .stub-add { color: var(--w-faint); }
-.rail-foot .stub-add:hover,
-.rail-foot .stub-add[aria-expanded='true'] { color: var(--w-text); }
-.rail-foot .stub-add:focus-visible {
+.w-rail__foot .stub-add { color: var(--w-faint); }
+.w-rail__foot .stub-add:hover,
+.w-rail__foot .stub-add[aria-expanded='true'] { color: var(--w-text); }
+.w-rail__foot .stub-add:focus-visible {
 	outline: 2px solid var(--w-accent);
 	outline-offset: 2px;
 }
@@ -320,10 +325,20 @@
 	min-height: 36px;
 	padding: 0 4px 0 10px;
 }
+.rail-pref-text {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
 .rail-pref-label {
 	min-width: 0;
 	color: var(--w-text);
 	font: var(--w-t-ui);
+}
+/* When the preference applies: hover and the peek key open nothing while a panel is pinned. */
+.rail-pref-note {
+	color: var(--w-faint);
+	font: 400 calc(12px * var(--w-fs)) / calc(16px * var(--w-fs)) var(--w-sans);
 }
 .rail-reset {
 	align-self: flex-start;

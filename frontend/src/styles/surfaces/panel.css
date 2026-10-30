@@ -10,12 +10,17 @@
    main-layout-part1.css; the rail is RightStubStrip.css. */
 
 /* Legacy inputs and selects that panels still render without the kit: the chrome field look
-   (§7.3) on roles. Kit controls (.w-field, .w-select) and anything inside a dialog keep their own. */
+   (§7.3) on roles, like the kit's .w-field--chrome search in People and DMs. Chrome fields sit on
+   a --w-line edge (--w-line-strong is the form edge); Daylight's hairline is too faint to find a
+   field at rest, so there it is a 16% text mix. Kit controls (.w-field, .w-select) and anything
+   inside a dialog keep their own. */
+:root .right-panel { --panel-field-edge: var(--w-line); }
+:root[data-mode='light'] .right-panel { --panel-field-edge: color-mix(in srgb, var(--w-text) 16%, transparent); }
 :root .right-panel :is(select, input[type='text'], input[type='search'], input:not([type])):not(.w-field, .w-field *, .w-select, .w-select *, .modal-overlay *, [role='dialog'] *) {
 	box-sizing: border-box;
 	min-height: 32px;
 	padding: 0 10px;
-	border: var(--w-bw) solid var(--w-line-strong);
+	border: var(--w-bw) solid var(--panel-field-edge);
 	border-radius: var(--radius-md);
 	background: var(--w-sink);
 	color: var(--w-text);

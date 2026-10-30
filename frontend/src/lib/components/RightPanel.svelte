@@ -3,12 +3,14 @@
 	import { get } from 'svelte/store';
 	import { layoutStore } from '$lib/layoutStore';
 	import { activeRightTab, selectedDmChannelId } from '$lib/layoutStoreStates';
-	import { dockCanPin, dockOrder, endPeek, peekHeld } from '$lib/layoutStoreRightPanel';
-	import { channels, channelUnreadCounts, currentUser } from '$lib/socket';
+	import { dismissPeek, dockCanPin, dockOrder, endPeek, peekHeld } from '$lib/layoutStoreRightPanel';
+	import { channels, channelUnreadCounts, currentChannel, currentUser } from '$lib/socket';
 	import { openNotesSurface } from '$lib/notesWorkspace';
 	import {
 		canAccessWorkspacePanel,
 		panelChannelChoice,
+		panelChannelPicking,
+		panelChannelShown,
 		panelFrameCounts,
 		workspacePanelList,
 		type WorkspacePanelManifest
@@ -86,6 +88,14 @@
 		return peeking && (otherPanel?.id === panel.id || $layoutStore.rightPanelMode === 'peek' || !$dockCanPin);
 	}
 
+	// The pinned stack held open as a peek (no room beside the stage): its row A gets a Close that
+	// only puts the peek away; the pins stay saved (§8.4).
+	const stackShownAsPeek = $derived(peeking && !$dockCanPin && otherPanel === null);
+	const stackCloseLabel = $derived.by(() => {
+		const names = stackPanels.map((panel) => panel.label);
+		return `Close ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] ?? 'panels')}`;
+	});
+
 	function closeLabel(panel: WorkspacePanelManifest): string {
 		return shownAsPeek(panel) ? `Close ${panel.label}` : `Unpin ${panel.label}`;
 	}
@@ -101,10 +111,10 @@
 		layoutStore.pinPanel(panel.id);
 	}
 
+	// The channel the companion shows (what WorkspacePanelHost renders), never a stale stored choice.
 	function stageChannelFor(panel: WorkspacePanelManifest): string | null {
-		if (panel.component === 'wiki') return $panelChannelChoice.wiki;
-		if (panel.component === 'forum') return $panelChannelChoice.forum;
-		return null;
+		if (panel.component !== 'wiki' && panel.component !== 'forum') return null;
+		return panelChannelShown(panel.component, $panelChannelChoice, $panelChannelPicking, $channels, $currentChannel);
 	}
 
 	function canOpenInStage(panel: WorkspacePanelManifest): boolean {
@@ -114,21 +124,32 @@
 	}
 
 	// The companion moves to the page: center stage opens the same thing and this panel leaves.
+	// Only this panel: other pins (in flow or stowed) stay where they are, so every route asks
+	// MainLayout to keep the companion and the frame removes just this one.
 	function openInStage(panel: WorkspacePanelManifest): void {
-		const wasPeek = shownAsPeek(panel);
+		const pinned = stackIds.includes(panel.id);
 		if (panel.component === 'notes') {
 			openNotesSurface();
 		} else if (panel.component === 'dms') {
 			const channelId = get(selectedDmChannelId);
-			window.dispatchEvent(new CustomEvent('wabi:navigate', { detail: channelId ? { view: 'dm', channelId } : { view: 'dm' } }));
+			const detail = channelId ? { view: 'dm', channelId, preserveRightPanel: true } : { view: 'dm', preserveRightPanel: true };
+			window.dispatchEvent(new CustomEvent('wabi:navigate', { detail }));
 		} else {
 			const channelId = stageChannelFor(panel);
 			if (!channelId) return;
 			window.dispatchEvent(new CustomEvent('wabi:navigate', { detail: { view: 'chat', channelId, preserveRightPanel: true } }));
 		}
-		if (wasPeek) endPeek();
-		else layoutStore.unpinOne(panel.id);
+		// A pin of this panel goes (stowed or in flow); a peek still on screen is put away, and a
+		// passing look at another panel over a pin returns to the pin.
+		if (pinned) layoutStore.unpinOne(panel.id);
+		if (!endPeek() && !pinned) dismissPeek();
 	}
+
+	// One grid row per stacked section (RightPanel.css): an open section takes its content up to an
+	// equal share of the column (at least 120px); a folded one is just its header.
+	const stackRows = $derived(
+		stackPanels.map((panel) => (collapsed.includes(panel.id) ? 'max-content' : 'minmax(120px, auto)')).join(' ')
+	);
 
 	function toggleSection(id: string): void {
 		collapsed = collapsed.includes(id) ? collapsed.filter((item) => item !== id) : [...collapsed, id];
@@ -197,7 +218,7 @@
 >
 	{#each views as view (view.key)}
 		{#if view.stacked}
-			<div class="dock-stack w-panel__view" hidden={view.hidden}>
+			<div class="dock-stack w-panel__view" hidden={view.hidden} style:grid-template-rows={stackRows}>
 				{#each stackPanels as panel, index (panel.id)}
 					{@const folded = collapsed.includes(panel.id)}
 					{@const count = countFor(panel)}
@@ -216,7 +237,18 @@
 									<Icon name={folded ? 'chevRight' : 'chevDown'} size={14} class="w-panel__chev" />
 								</button>
 							</h3>
-							{@render iconAction(`Unpin ${panel.label}`, 'x', () => layoutStore.unpinOne(panel.id))}
+							<!-- No ↑ ↓ × here (§7.21): reordering and unpinning live on the rail (click, drag, its menu). -->
+							{#if canOpenInStage(panel) || (index === 0 && stackShownAsPeek)}
+								<div class="w-panel__acts">
+									{#if canOpenInStage(panel)}
+										{@render iconAction('Open in center stage', 'expand', () => openInStage(panel))}
+									{/if}
+									{#if index === 0 && stackShownAsPeek}
+										<!-- Held open as a peek: Close puts the peek away and keeps every pin. -->
+										{@render iconAction(stackCloseLabel, 'x', () => endPeek())}
+									{/if}
+								</div>
+							{/if}
 						</header>
 						<div class="dock-section-body" id={`${uid}-body-${panel.id}`} hidden={folded}>
 							{#if index === 0 && !panel.ownsToolbar}

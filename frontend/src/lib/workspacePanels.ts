@@ -464,28 +464,63 @@ export function setPanelFrameCount(panelId: WorkspacePanelId, count: number | st
 }
 
 /**
- * The channel a Wiki or Forum companion is reading (null: its picker). Kept here so the frame's
- * "Open in center stage" opens the same channel, and a stowed or re-mounted panel keeps it.
+ * The channel a Wiki or Forum companion is reading (null: none chosen yet). Kept here so the
+ * frame's "Open in center stage" opens the same channel, and a stowed or re-mounted panel keeps it.
  */
 export type ChannelCompanionKind = 'wiki' | 'forum';
 const companionChannels = writable<Record<ChannelCompanionKind, string | null>>({ wiki: null, forum: null });
 export const panelChannelChoice = { subscribe: companionChannels.subscribe };
 
+/**
+ * The person asked for the list ("All wikis" / "All forums"): the picker shows even while the stage
+ * reads a channel of that kind, until they choose one. Without this the stage channel would be
+ * picked again at once and the list could never be reached.
+ */
+const companionPicking = writable<Record<ChannelCompanionKind, boolean>>({ wiki: false, forum: false });
+export const panelChannelPicking = { subscribe: companionPicking.subscribe };
+
+/** Point the companion at a channel (null forgets the choice). Ends a requested picker. */
 export function choosePanelChannel(kind: ChannelCompanionKind, channelId: string | null): void {
 	companionChannels.update((choice) => (choice[kind] === channelId ? choice : { ...choice, [kind]: channelId }));
+	companionPicking.update((picking) => (picking[kind] ? { ...picking, [kind]: false } : picking));
+}
+
+/** "All wikis" / "All forums": forget the choice and show the picker until one is chosen. */
+export function showPanelChannelPicker(kind: ChannelCompanionKind): void {
+	companionChannels.update((choice) => (choice[kind] === null ? choice : { ...choice, [kind]: null }));
+	companionPicking.update((picking) => (picking[kind] ? picking : { ...picking, [kind]: true }));
 }
 
 /**
  * Which channel a Wiki/Forum companion shows (§8.4): the one it was pointed at while that channel
  * still exists, else the channel open on the stage when it is of that kind, else the only channel
- * of the kind. With several and none chosen it shows the picker (null).
+ * of the kind. With several and none chosen, or while the person asked for the list, it shows the
+ * picker (null). A single channel always opens directly: there is no list to choose from.
  */
 export function resolvePanelChannel(
 	chosen: string | null,
 	ofKind: readonly { id: string }[],
-	stageChannelId: string | null
+	stageChannelId: string | null,
+	picking = false
 ): string | null {
+	if (ofKind.length === 1) return ofKind[0].id;
+	if (picking) return null;
 	if (chosen && ofKind.some((channel) => channel.id === chosen)) return chosen;
 	if (stageChannelId && ofKind.some((channel) => channel.id === stageChannelId)) return stageChannelId;
-	return ofKind.length === 1 ? ofKind[0].id : null;
+	return null;
+}
+
+/**
+ * The channel the Wiki/Forum companion of this kind shows right now, from every channel the
+ * client knows: the same answer the panel renders, so the frame never acts on a stale choice.
+ */
+export function panelChannelShown(
+	kind: ChannelCompanionKind,
+	choice: Readonly<Record<ChannelCompanionKind, string | null>>,
+	picking: Readonly<Record<ChannelCompanionKind, boolean>>,
+	channels: readonly { id: string; type?: string }[],
+	stageChannelId: string | null
+): string | null {
+	const ofKind = channels.filter((channel) => channel.type === kind);
+	return resolvePanelChannel(choice[kind], ofKind, stageChannelId, picking[kind]);
 }
