@@ -1,10 +1,12 @@
 <!--
 	Saved servers (design contract §8.1, §7.13): the switcher overlays the sidebar at the sidebar's
-	width and never covers center stage; on phones it is a bottom sheet over a scrim.
+	width (never below a usable 280px), beside the server rail, and never covers center stage
+	beyond that floor; on phones it is a bottom sheet over a scrim.
 
-	- Head: kicker "SAVED SERVERS", the current server in serif 18 and its host in mono without
-	  the scheme, then "Each server keeps its own account." (multi-server is not federation:
-	  every row is its own server with its own sign-in).
+	- Head (96px, ending on the shared masthead rule): kicker "SAVED SERVERS", the current server
+	  in serif 18 and its host in mono without the scheme. Under the rule: "Each server keeps its
+	  own account." (multi-server is not federation: every row is its own server with its own
+	  sign-in).
 	- Rows are 52px: the server icon (or the ensō, or an initial under neutral branding) 28, the
 	  name over the host, an ink badge for unread followed channels. The current server takes the
 	  selection grammar (--w-raise, aria-current="page"). Rename, take-out-of-folder and remove
@@ -23,6 +25,7 @@
 	import { confirmAction, isConfirmOpen } from '$lib/confirm';
 	import { layoutStore } from '$lib/layoutStore';
 	import { serverHostLabel, serverUnreadBadge, serverUnreadLabel } from '$lib/serverSwitcherLabels';
+	import { desktopServerRailWidth, switcherPanelGeometry } from '$lib/serverSwitcherLayout';
 	import type { MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import Menu from '$lib/components/ui/Menu.svelte';
@@ -126,10 +129,10 @@
 	const shortcutsId = `switcher-shortcuts-${uid}`;
 	const addInputId = `switcher-add-${uid}`;
 
-	// MainLayout sizes the overlay to max(sidebar, 320px); the panel itself keeps to the sidebar's
-	// own width, so it never covers the stage's leading edge (critique shell#2).
-	const MIN_OVERLAY_WIDTH = 320;
-	$: overlayExcess = Math.max(0, MIN_OVERLAY_WIDTH - Math.max(0, $layoutStore.channelSidebarWidth || 0));
+	// The panel places itself: beside the server rail, at the sidebar's own width with a usable
+	// floor (lib/serverSwitcherLayout.ts). It does not rely on how MainLayout sizes the overlay
+	// element around it; the rest of that overlay lets the pointer through.
+	$: geometry = switcherPanelGeometry($layoutStore.channelSidebarWidth, $desktopServerRailWidth);
 
 	function close(): void {
 		dispatch('close');
@@ -190,12 +193,6 @@
 			switchToSavedServer(server.url);
 		}
 		dispatch('close');
-	}
-
-	function handleServerRowKeydown(event: KeyboardEvent, server: SavedServerView): void {
-		if (event.key !== 'Enter' && event.key !== ' ') return;
-		event.preventDefault();
-		handleServerRowSelect(server);
 	}
 
 	async function removeServer(server: SavedServerView): Promise<void> {
@@ -757,7 +754,8 @@
 	class="server-switcher"
 	class:mobile
 	class:dock-right={dockSide === 'right'}
-	style:--switcher-excess={mobile ? null : `${overlayExcess}px`}
+	style:--switcher-offset={mobile ? null : `${geometry.offset}px`}
+	style:--switcher-width={mobile ? null : `${geometry.width}px`}
 >
 	{#if mobile}
 		<!-- Pointer-only affordance: Esc and the close button cover the keyboard. -->
@@ -786,11 +784,14 @@
 			{#if showcaseServer}
 				<p class="switcher-host w-mono" title={showcaseServer.url}>{serverHostLabel(showcaseServer.url)}</p>
 			{/if}
-			<p class="switcher-note">Each server keeps its own account.</p>
-			<HostLink />
 		</header>
 
 		<div class="switcher-body">
+			<!-- Under the masthead rule, so the head ends on the shared 96px line. -->
+			<div class="switcher-intro">
+				<p class="switcher-note">Each server keeps its own account.</p>
+				<HostLink />
+			</div>
 			{#if mobile && mobileMove}
 				<div class="w-notice w-notice--info switcher-move" role="status">
 					<Icon name="grip" size={16} />
@@ -949,7 +950,6 @@
 												class="w-ibtn w-ibtn--sm switcher-more"
 												align="end"
 												heading={server.effectiveName}
-												subheading={serverHostLabel(server.url)}
 											>
 												<Icon name="more" size={16} />
 											</Menu>

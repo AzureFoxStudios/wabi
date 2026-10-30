@@ -5,8 +5,10 @@
     hub's search and the split "New message ▾" primary (DMs are not inside a channel, so there is
     no folio here). No "Server home" pseudo-tab: Server home is reached from the community block.
   - Rows are 52px with the person's identity disc, presence, name ink, the last message and an
-    ink badge; the open conversation takes the selection grammar (--w-raise, aria-current).
+    ink badge; the open conversation takes the selection grammar (--w-raise, aria-current). A
+    row's accessible name is its visible words plus visually hidden kind, presence and unread.
   - Leaving several groups is a selection mode with one confirm.
+  - "New message" in the masthead is the view's one primary; empty-state actions are default.
 -->
 <script lang="ts">
   import { createEventDispatcher, onMount, tick } from 'svelte';
@@ -52,7 +54,6 @@
   let pendingDmError = '';
   let batchMode = false;
   let selectedGroupIds: string[] = [];
-  let reviewBatchLeave = false;
   let batchBusy = false;
   let batchStatus = '';
   let hubQuery = '';
@@ -133,12 +134,10 @@
     selectedGroupIds = selectedGroupIds.includes(channelId)
       ? selectedGroupIds.filter((id) => id !== channelId)
       : [...selectedGroupIds, channelId];
-    reviewBatchLeave = false;
   }
 
   function exitBatchMode(): void {
     batchMode = false;
-    reviewBatchLeave = false;
     selectedGroupIds = [];
   }
 
@@ -169,7 +168,6 @@
       exitBatchMode();
     } else {
       selectedGroupIds = result.failedIds;
-      reviewBatchLeave = false;
       batchStatus = `Left ${result.leftIds.length} of ${result.attempted} groups. ${result.failedIds.length} could not be confirmed; review and retry them.`;
     }
   }
@@ -288,13 +286,18 @@
   $: listChannels = batchMode ? groupChannels : dmChannels;
   $: shownChannels = hubQuery.trim() ? listChannels.filter((channel) => conversationMatches(hubQuery, nameOf(channel))) : listChannels;
 
-  function rowLabel(channel: Channel, unread: number, presence: string): string {
-    const parts = [conversationLabel(channel)];
+  /**
+   * What the row says to assistive tech beyond its visible words (kind, presence, unread),
+   * read right after the name. The visible name, time and last message stay in the row's
+   * accessible name: this adds to them and never replaces them.
+   */
+  function rowExtras(channel: Channel, unread: number, presence: string): string {
+    const parts: string[] = [];
     if (channel.type === 'group') parts.push('group');
     if (presence === 'active') parts.push('online');
     else if (presence === 'away' || presence === 'busy') parts.push(presence);
     if (unread > 0) parts.push(`${unread} unread`);
-    return parts.join(', ');
+    return parts.length ? `, ${parts.join(', ')},` : ',';
   }
 
   function upsertLocalDmPlaceholder(channel: Channel): Channel {
@@ -521,15 +524,18 @@
 
     <div class="dm-hub-scroll">
       {#if listChannels.length === 0}
+        <!-- The masthead's "New message" is this view's one primary, so these actions are default buttons. -->
         <EmptyState
           class="dm-hub-empty"
           as="p"
           icon="dm"
           title={batchMode ? 'No groups to leave' : 'No conversations yet'}
           text={batchMode ? 'You are not in any group conversations on this server.' : 'Start one with anyone in this community. It appears here.'}
-          action={batchMode ? 'Done' : 'New message'}
-          onaction={() => { if (batchMode) exitBatchMode(); else showPeoplePicker = true; }}
-        />
+        >
+          {#snippet actions()}
+            <button type="button" class="w-btn" on:click={() => { if (batchMode) exitBatchMode(); else showPeoplePicker = true; }}>{batchMode ? 'Done' : 'New message'}</button>
+          {/snippet}
+        </EmptyState>
       {:else if shownChannels.length === 0}
         <EmptyState
           class="dm-hub-empty"
@@ -537,9 +543,11 @@
           icon="search"
           title="No conversations match"
           text={`Nothing here is called “${hubQuery.trim()}”. Try another name.`}
-          action="Clear search"
-          onaction={() => { hubQuery = ''; searchInput?.focus(); }}
-        />
+        >
+          {#snippet actions()}
+            <button type="button" class="w-btn" on:click={() => { hubQuery = ''; searchInput?.focus(); }}>Clear search</button>
+          {/snippet}
+        </EmptyState>
       {:else}
         {#each shownChannels as channel (channel.id)}
           {@const other = resolveDmOtherUser(channel, $currentUser, $users, $serverMembers)}
@@ -555,14 +563,13 @@
             data-dm-channel-id={channel.id}
             aria-pressed={batchMode ? selected : undefined}
             aria-current={!batchMode && selected ? 'page' : undefined}
-            aria-label={rowLabel(channel, unread, presence)}
             class:active={selected}
             class:unread={unread > 0}
             on:click={() => batchMode ? toggleGroupSelection(channel.id) : openInCenter(channel)}
             on:contextmenu={(e) => { if (!batchMode) handleContextMenu(channel, e); }}
           >
             {#if batchMode}<span class="w-check dm-hub-check" aria-hidden="true" aria-checked={selected}></span>{/if}
-            <span class="dm-hub-avatar-wrap">
+            <span class="dm-hub-avatar-wrap" aria-hidden="true">
               {#if channel.type === 'group'}
                 <GroupAvatar {channel} size={32} />
               {:else if avatar}
@@ -576,7 +583,7 @@
             </span>
             <span class="dm-hub-body">
               <span class="dm-hub-top">
-                <span class="dm-hub-name">{#if channel.type === 'dm' && other}<ProfileName username={other.handle || other.username} font={other.usernameFont} color={other.roleColor || other.color} />{:else}{conversationLabel(channel)}{/if}</span>
+                <span class="dm-hub-name">{#if channel.type === 'dm' && other}<ProfileName username={other.handle || other.username} font={other.usernameFont} color={other.roleColor || other.color} />{:else}{conversationLabel(channel)}{/if}</span><span class="sr-only">{rowExtras(channel, unread, presence)}</span>
                 {#if lastMessageTime(previewMessages)}
                   <span class="dm-hub-time">{lastMessageTime(previewMessages)}</span>
                 {/if}

@@ -2,21 +2,28 @@
 	Saved-servers rail (design contract §8.1): shown left of the sidebar only while more than one
 	server is saved. Roles and kit only.
 
-	- Tiles are 52px: the server's icon (or the ensō, or its initial) on the rail's --w-bg. The
-	  server you are on takes the selection grammar: a --w-raise tile with aria-current="page"
-	  (High Contrast adds the inset ring); hover is the 70% raise mix. Nothing moves or reshapes
-	  under the pointer.
+	- Tiles are 52px: the server's icon, or its serif initial stamp, on the rail's --w-bg. The
+	  tiles carry no names, so a server without an icon is told apart by its initial (the ensō
+	  is Wabi's mark: it stays in the sidebar masthead and the named switcher rows). The server
+	  you are on takes the selection grammar: a --w-raise tile with aria-current="page" (High
+	  Contrast adds the inset ring); hover is the 70% raise mix. Nothing moves or reshapes under
+	  the pointer.
+	- Row A is the rail's kicker over the shared masthead rule; the sidebar's "Switch server" and
+	  the foot's "Add or switch servers" open the saved-servers panel, so there is no second
+	  ensō button here.
 	- Unread followed channels show as an 8px ink dot at the tile's top-right with a ring in the
 	  rail's colour; the count is in the tile's name and tooltip, never colour alone.
 	- Folders are a 2×2 stamp grid; the open folder is a kit popover.
-	- The foot band (80px, on the shared footer rule) holds Admin dashboard and Add or switch
-	  servers as icon buttons.
+	- The foot band (80px, on the shared footer rule) holds Admin dashboard (a shield, so it is
+	  never mistaken for the sidebar foot's Settings gear) and Add or switch servers.
+	- The rail reports its rendered width (lib/serverSwitcherLayout.ts) so the switcher opens
+	  beside it instead of over it.
 -->
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onDestroy } from 'svelte';
 	import { longpress } from '$lib/actions/longpress';
-	import { brandName } from '$lib/branding';
 	import { serverUnreadLabel } from '$lib/serverSwitcherLabels';
+	import { desktopServerRailWidth } from '$lib/serverSwitcherLayout';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import Tooltip from '$lib/components/ui/Tooltip.svelte';
 	import {
@@ -64,6 +71,11 @@
 	let openFolderId: string | null = null;
 	let suppressTapUntil = 0;
 	let brokenImageUrls = new Set<string>();
+	let renderedWidth = 0;
+
+	// The switcher sits beside the rail; a hidden or phone rail takes no room.
+	$: desktopServerRailWidth.set(mobile ? 0 : renderedWidth);
+	onDestroy(() => desktopServerRailWidth.set(0));
 
 	$: activeMobileFolder =
 		mobile && openFolderId
@@ -74,8 +86,8 @@
 			: null;
 
 	function avatarText(server: SavedServerView | null): string {
-		if (!server?.effectiveName) return 'W';
-		return server.effectiveName.charAt(0).toUpperCase();
+		const name = server?.effectiveName?.trim();
+		return name ? name.charAt(0).toUpperCase() : '?';
 	}
 
 	function canRenderServerImage(url: string | null | undefined): boolean {
@@ -236,19 +248,10 @@
 	}
 </script>
 
-<aside class="server-rail" class:mobile class:density-full={$railDensity === 'full'} class:density-icons-only={$railDensity === 'icons-only'} class:density-hidden={$railDensity === 'hidden'} class:rail-right={$railSide === 'right'} aria-label="Saved servers">
+<aside class="server-rail" class:mobile class:density-full={$railDensity === 'full'} class:density-icons-only={$railDensity === 'icons-only'} class:density-hidden={$railDensity === 'hidden'} class:rail-right={$railSide === 'right'} aria-label="Saved servers" bind:offsetWidth={renderedWidth}>
 	<div class="rail-primary" class:mobile>
 		<div class="rail-head">
-			<Tooltip text={`${brandName} · saved servers`} placement={$railSide === 'right' ? 'left' : 'right'}>
-				<button
-					type="button"
-					class="rail-home"
-					aria-label={`${brandName}: open saved servers`}
-					on:click={() => dispatch('manage')}
-				>
-					<span class="rail-enso" aria-hidden="true"></span>
-				</button>
-			</Tooltip>
+			<span class="w-kicker rail-kicker" aria-hidden="true">Servers</span>
 		</div>
 
 		<div class="rail-list">
@@ -283,10 +286,8 @@
 											class="server-avatar-image"
 											on:error={() => markImageBroken(item.server.effectiveIconUrl)}
 										/>
-									{:else if item.server.useNeutralBranding}
-										<span class="server-avatar-fallback" aria-hidden="true">{avatarText(item.server)}</span>
 									{:else}
-										<span class="server-avatar-enso" aria-hidden="true"></span>
+										<span class="server-avatar-fallback" aria-hidden="true">{avatarText(item.server)}</span>
 									{/if}
 								</span>
 								{#if unread > 0}
@@ -433,7 +434,7 @@
 		<div class="rail-foot">
 			<Tooltip text="Admin dashboard" placement={$railSide === 'right' ? 'left' : 'right'}>
 				<button type="button" class="w-ibtn rail-manage" aria-label="Admin dashboard" on:click={() => centerPanelView.set('admin')}>
-					<Icon name="gear" />
+					<Icon name="shield" />
 				</button>
 			</Tooltip>
 			<Tooltip text="Add or switch servers" placement={$railSide === 'right' ? 'left' : 'right'}>

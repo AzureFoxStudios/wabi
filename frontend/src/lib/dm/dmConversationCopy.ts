@@ -1,7 +1,8 @@
 /**
  * Words and states for a DM or group conversation's own chrome (design contract §7.16, §8.10,
  * §9.2): the composer-replacement row shown while sending is paused, plain-word errors for the
- * encryption actions, the message-lifetime choices and the DMs hub search.
+ * encryption actions, the message-lifetime choices, a call that did not start and the DMs hub
+ * search.
  *
  * The privacy *state* is never worded here: the header chip and the colophon come from
  * privacyState.ts through PrivacyBadge, and the titles below reuse those exact words. This module
@@ -100,6 +101,23 @@ export function dmSendGate(status: E2eeRoomStatus | null | undefined, missing = 
 	};
 }
 
+export interface DmGateActionView {
+	id: DmSendGateActionId;
+	/** The verb in progress while its request runs, else the action's own label. */
+	label: string;
+	busy: boolean;
+}
+
+/**
+ * One paused-row button as it should render now. "Check again" follows the status check; the
+ * other actions follow the encryption request in flight. Components call this from a reactive
+ * statement that names both flags, so a request that ends (or fails) re-enables the button.
+ */
+export function dmGateActionView(action: DmSendGateAction, state: { checking: boolean; busy: boolean }): DmGateActionView {
+	const busy = action.id === 'check' ? state.checking : state.busy;
+	return { id: action.id, label: busy ? action.busyLabel : action.label, busy };
+}
+
 // ---------------------------------------------------------------------------- action errors
 
 export type DmEncryptionAction = 'check' | 'server-readable' | 'rekey' | 'enable';
@@ -178,15 +196,60 @@ export function dmRetentionChoice(channel: { autoDeleteAfter?: unknown } | null 
 	return typeof value === 'string' && value ? value : DEFAULT_DM_RETENTION;
 }
 
-/** The kit Select options, read after a "Kept" prefix: "Kept until deleted", "Kept 24 hours". */
+const FOREVER_CHOICE = 'Until someone deletes them';
+
+function presetLabel(value: string): string {
+	return (MESSAGE_RETENTION_LABELS as Record<string, string>)[value] ?? value;
+}
+
+/**
+ * The "Keep new messages for" choices, as menu rows (sentence case): "Until someone deletes
+ * them", "5 seconds" … "90 days". The same rows serve the desktop menu and the phone sheet.
+ */
 export function dmRetentionOptions(): DmRetentionOption[] {
 	return [
-		{ value: DM_RETENTION_FOREVER, label: 'until deleted' },
-		...MESSAGE_RETENTION_PRESETS.map((value: string) => ({
-			value,
-			label: (MESSAGE_RETENTION_LABELS as Record<string, string>)[value] ?? value
-		}))
+		{ value: DM_RETENTION_FOREVER, label: FOREVER_CHOICE },
+		...MESSAGE_RETENTION_PRESETS.map((value: string) => ({ value, label: presetLabel(value) }))
 	];
+}
+
+/**
+ * The lifetime said as the retention chip says it (§9.2): "Kept until someone deletes them",
+ * "Kept 24 hours". Never a privacy claim.
+ */
+export function dmRetentionPhrase(value: string): string {
+	return value === DM_RETENTION_FOREVER ? 'Kept until someone deletes them' : `Kept ${presetLabel(value)}`;
+}
+
+/** The control's accessible name: what it sets, then the current choice. */
+export function dmRetentionControlLabel(value: string): string {
+	return `Keep new messages for: ${value === DM_RETENTION_FOREVER ? 'until someone deletes them' : presetLabel(value)}`;
+}
+
+// ---------------------------------------------------------------------------- calls
+
+/**
+ * Plain words for a call that did not start, by cause: another call in progress, no connection,
+ * a refused or missing microphone/camera, or anything else. The raw message is logged by the
+ * caller and never shown.
+ */
+export function dmCallStartError(error: unknown, withVideo: boolean): string {
+	const name = error && typeof error === 'object' && 'name' in error ? String((error as { name?: unknown }).name) : '';
+	const message = rawMessage(error).toLowerCase();
+	if (message.includes('already active') || message.includes('ringing')) {
+		return 'You’re already in a call. Leave it, then start this one.';
+	}
+	if (message.includes('no connection') || message.includes('offline') || message.includes('not connected')) {
+		return 'Not connected to the server. Calls start once you’re back online.';
+	}
+	const device = withVideo ? 'camera and microphone' : 'microphone';
+	if (name === 'NotAllowedError' || name === 'SecurityError' || message.includes('permission') || message.includes('denied')) {
+		return `Couldn’t use your ${device}. Allow access in your browser, then try again.`;
+	}
+	if (name === 'NotFoundError' || name === 'NotReadableError' || message.includes('device not found') || message.includes('could not start')) {
+		return `No ${device} is available. Connect one, then try again.`;
+	}
+	return withVideo ? 'Couldn’t start the video call. Try again in a moment.' : 'Couldn’t start the call. Try again in a moment.';
 }
 
 // ---------------------------------------------------------------------------- hub search

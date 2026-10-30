@@ -2,9 +2,10 @@
    Saved servers switcher (design contract §8.1, §7.11 rows, §7.13 sheet).
    ServerSwitcherPanel.svelte. Roles, type tokens and kit classes only.
 
-   - Desktop: an overlay on the sidebar at the sidebar's own width (never over center stage):
-     --w-bg2, a --w-line-strong edge toward the stage and --w-shadow. Its footer band sits on
-     the shared 80px footer rule.
+   - Desktop: an overlay on the sidebar at the sidebar's own width, beside the server rail
+     (never on top of it) and never narrower than 280px: --w-bg2, a --w-line-strong edge toward
+     the stage and --w-shadow. Its head ends on the shared 96px masthead rule and its footer
+     band sits on the shared 80px footer rule.
    - Phones: a kit bottom sheet (.w-sheet) over a sibling .w-scrim.
    - Rows: 52px, selection grammar (§5.2): the current server is a --w-raise row whose ensō is
      --w-sig; hover is the 70% raise mix; High Contrast rings both. No left bars, no glow.
@@ -12,9 +13,10 @@
    .server-switcher and carries more weight than the kit rule it refines.
    ========================================================================== */
 
-/* MainLayout sizes the overlay to max(sidebar, 320px) (+ the server rail). The panel keeps to
-   the sidebar's own width (--switcher-excess is the difference), and the empty rest of the
-   overlay lets the pointer through to the stage underneath. */
+/* The panel places itself (ServerSwitcherPanel: --switcher-offset is the rail's width,
+   --switcher-width the sidebar's, floored at 280px), whatever width MainLayout gives the overlay
+   element around it. The rest of that overlay lets the pointer through to the rail and the
+   stage underneath. */
 .server-switcher-overlay:not(.mobile) {
 	pointer-events: none;
 }
@@ -23,15 +25,15 @@
 	position: absolute;
 	top: 0;
 	bottom: 0;
-	left: 0;
-	width: calc(100% - var(--switcher-excess, 0px));
+	left: var(--switcher-offset, 0px);
+	width: var(--switcher-width, 280px);
 	pointer-events: auto;
 	color: var(--w-text);
 	font: var(--w-t-ui);
 }
 .server-switcher.dock-right {
 	left: auto;
-	right: 0;
+	right: var(--switcher-offset, 0px);
 }
 
 .server-switcher:not(.mobile) .switcher-panel {
@@ -64,10 +66,14 @@
 	to { opacity: 1; translate: 0 0; }
 }
 
-/* ---------- head: kicker, current server, host, the one-account line ---------- */
+/* ---------- head: kicker, current server, host; it ends on the 96px masthead rule ---------- */
 .server-switcher .switcher-head {
 	flex: none;
-	padding: 0 12px 16px 20px;
+	box-sizing: border-box;
+	min-height: var(--w-mast, 96px);
+	/* 4 + 40 (kicker row) + 24 (name) + 18 (host) leaves the rest of the 96px to min-height, so
+	   the rule lands on the masthead line; a larger --w-fs grows it downward instead of clipping. */
+	padding: 4px 12px 0 20px;
 	border-bottom: var(--w-bw) solid var(--w-line);
 }
 .server-switcher .switcher-head-row {
@@ -75,7 +81,7 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: 8px;
-	height: 48px;
+	height: 40px;
 	margin-right: -2px;
 }
 .server-switcher .switcher-current {
@@ -97,9 +103,12 @@
 	white-space: nowrap;
 	text-overflow: ellipsis;
 }
+.server-switcher .switcher-intro {
+	flex: none;
+	padding: 12px 20px 0;
+}
 .server-switcher .switcher-note {
-	margin: 10px 0 0;
-	padding-right: 8px;
+	margin: 0;
 	color: var(--w-mute);
 	font: var(--w-t-small);
 }
@@ -474,10 +483,15 @@
 	background: var(--w-lift);
 }
 .server-switcher.mobile .switcher-head {
-	padding: 0 8px 14px 20px;
+	min-height: 0;
+	padding: 0 8px 12px 20px;
 }
 .server-switcher.mobile .switcher-head-row {
 	height: 44px;
+}
+/* The sheet's title is 20px serif (§7.13). */
+.server-switcher.mobile .switcher-current {
+	font: 600 calc(20px * var(--w-fs)) / calc(26px * var(--w-fs)) var(--w-serif);
 }
 .server-switcher.mobile .switcher-close,
 .server-switcher.mobile .switcher-more {
