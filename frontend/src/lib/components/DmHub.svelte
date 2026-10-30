@@ -1,3 +1,13 @@
+<!--
+  DMs hub (design contract §8.10, D6): center stage when the DMs destination is open.
+  - Masthead (96, the shared rule at y = 96): row A is the serif title "DMs" and the segmented
+    Conversations | Friends (the friend-request count as an ink badge on Friends); row B is the
+    hub's search and the split "New message ▾" primary (DMs are not inside a channel, so there is
+    no folio here). No "Server home" pseudo-tab: Server home is reached from the community block.
+  - Rows are 52px with the person's identity disc, presence, name ink, the last message and an
+    ink badge; the open conversation takes the selection grammar (--w-raise, aria-current).
+  - Leaving several groups is a selection mode with one confirm.
+-->
 <script lang="ts">
   import { createEventDispatcher, onMount, tick } from 'svelte';
   import { layoutStore } from '$lib/layoutStore';
@@ -19,9 +29,20 @@
   import { livePresenceForUser } from '$lib/dmPresentation';
 
   import { openDetachedPanel } from '$lib/detachedPanels';
+  import { _ } from '$lib/i18n';
+  import { confirmAction } from '$lib/confirm';
+  import { inkFor } from '$lib/theme/identity';
+  import { conversationMatches } from '$lib/dm/dmConversationCopy';
+  import type { MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
+  import Icon from '$lib/components/ui/Icon.svelte';
+  import Menu from '$lib/components/ui/Menu.svelte';
+  import EmptyState from '$lib/components/ui/EmptyState.svelte';
+  import GroupAvatar from './GroupAvatar.svelte';
 
   export let friendsOpenRequest = 0;
   export let messagesOpenRequest = 0;
+  // `serverHome` is kept for MainLayout's listener; the hub no longer offers a "Server home"
+  // pseudo-tab (spec D6: Server home is reached from the community block only).
   const dispatch = createEventDispatcher<{ tabChange: { tab: 'messages' | 'friends' }; serverHome: void }>();
 
   let showPeoplePicker = false;
@@ -34,6 +55,8 @@
   let reviewBatchLeave = false;
   let batchBusy = false;
   let batchStatus = '';
+  let hubQuery = '';
+  let searchInput: HTMLInputElement | null = null;
 
 
   onMount(() => {
@@ -119,6 +142,21 @@
     selectedGroupIds = [];
   }
 
+  async function reviewLeaveSelectedGroups(): Promise<void> {
+    if (batchBusy || selectedGroups.length === 0) return;
+    const names = selectedGroups.map((channel) => conversationLabel(channel));
+    const shown = names.slice(0, 5).join(', ');
+    const more = names.length > 5 ? ` and ${names.length - 5} more` : '';
+    const count = selectedGroups.length;
+    const leave = await confirmAction({
+      title: `Leave ${count} group ${count === 1 ? 'conversation' : 'conversations'}?`,
+      body: `${shown}${more}. You may lose access to ${count === 1 ? 'it' : 'them'} on this server; other servers are not affected.`,
+      confirm: count === 1 ? 'Leave group' : 'Leave groups',
+      danger: true
+    });
+    if (leave) await leaveSelectedGroups();
+  }
+
   async function leaveSelectedGroups(): Promise<void> {
     if (batchBusy || selectedGroups.length === 0) return;
     const targetIds = selectedGroups.map((channel) => channel.id);
@@ -153,10 +191,11 @@
   }
 
   function lastMessagePreview(msgs: Message[] | undefined): string {
-    if (!msgs) return 'Open to load conversation';
-    if (msgs.length === 0) return 'No messages to show';
+    if (!msgs) return 'Open to load the conversation';
+    if (msgs.length === 0) return 'No messages yet';
     const last = msgs[msgs.length - 1];
-    if (last.encrypted || last.text?.startsWith(E2EE_MESSAGE_PREFIX)) return 'Encrypted message';
+    // An envelope this device has not opened yet: say what to do, never a privacy claim.
+    if (last.encrypted || last.text?.startsWith(E2EE_MESSAGE_PREFIX)) return 'Open to read the latest message';
     if (last.type === 'file') return last.fileName || '[File]';
     if (last.type === 'gif') return '[GIF]';
     if (last.type === 'emoji') return '[Emoji]';
@@ -222,13 +261,41 @@
     contextMenuOpen = true;
   }
 
+  let contextMenuItems: MenuEntry[] = [];
   $: contextMenuItems = contextMenuChannel
     ? [
-        { id: 'open-center', label: 'Open in main view', leading: '▣', onSelect: () => openInCenter(contextMenuChannel!) },
-        { id: 'open-side', label: 'Open in side panel', leading: '▥', onSelect: () => openInSidePanel(contextMenuChannel!) },
-        { id: 'open-window', label: 'Open in OS window', leading: '⧉', onSelect: () => openDetachedPanel({ kind: 'channel-chat', channelId: contextMenuChannel!.id, channelName: conversationLabel(contextMenuChannel!) }) }
+        { id: 'open-center', label: 'Open in center stage', icon: 'expand', onSelect: () => openInCenter(contextMenuChannel!) },
+        { id: 'open-side', label: 'Open in side panel', icon: 'sidebarRight', onSelect: () => openInSidePanel(contextMenuChannel!) },
+        { id: 'open-window', label: 'Open in a new window', icon: 'externalLink', onSelect: () => openDetachedPanel({ kind: 'channel-chat', channelId: contextMenuChannel!.id, channelName: conversationLabel(contextMenuChannel!) }) }
       ]
     : [];
+
+  // The split "New message ▾" menu: the other ways to start, and the group batch tool.
+  let newMenuItems: MenuEntry[] = [];
+  $: newMenuItems = [
+    { id: 'new-group', label: 'New group', icon: 'users', onSelect: () => { showCreateGroup = true; } },
+    ...(groupChannels.length
+      ? [{ id: 'manage-groups', label: 'Leave several groups…', icon: 'logout', onSelect: () => { batchMode = true; batchStatus = ''; selectTab('messages'); } } as MenuEntry]
+      : [])
+  ];
+
+  function nameOf(channel: Channel): string[] {
+    if (channel.type === 'group') return [channel.name || channel.id];
+    const other = otherUserFor(channel);
+    return [other?.handle, other?.username, other?.handle ? `@${other.handle}` : null].filter((value): value is string => Boolean(value));
+  }
+
+  $: listChannels = batchMode ? groupChannels : dmChannels;
+  $: shownChannels = hubQuery.trim() ? listChannels.filter((channel) => conversationMatches(hubQuery, nameOf(channel))) : listChannels;
+
+  function rowLabel(channel: Channel, unread: number, presence: string): string {
+    const parts = [conversationLabel(channel)];
+    if (channel.type === 'group') parts.push('group');
+    if (presence === 'active') parts.push('online');
+    else if (presence === 'away' || presence === 'busy') parts.push(presence);
+    if (unread > 0) parts.push(`${unread} unread`);
+    return parts.join(', ');
+  }
 
   function upsertLocalDmPlaceholder(channel: Channel): Channel {
     channels.update((allChannels) => {
@@ -275,9 +342,11 @@
     }
 
     pendingDmUser = null;
+    // Plain words; the server's own text goes to the log, never the screen.
+    if (!result.ok) console.warn('[DMs] Could not start a conversation:', (result as { ok: false; error: string }).error);
     pendingDmError = result.ok
-      ? 'DM created, but the conversation was not returned by the server.'
-      : (result as { ok: false; error: string }).error;
+      ? 'The conversation was created but has not arrived yet. It appears in the list in a moment.'
+      : 'Couldn’t start the conversation. Nothing was sent. Try again in a moment.';
     showPeoplePicker = true;
   }
 
@@ -359,130 +428,174 @@
 </script>
 
 <div class="dm-hub">
-    <div class="dm-hub-header">
-      <div class="dm-hub-title-wrap">
-        <span class="dm-hub-title">Home</span>
-        <span class="dm-hub-subtitle">{activeTab === 'friends' ? 'People on this server' : 'Your conversations'}</span>
+  <header class="dm-hub-mast">
+    <div class="dm-hub-a">
+      <h2 class="dm-hub-title">{$_('places.dms')}</h2>
+      <div class="w-seg dm-hub-seg" role="group" aria-label="Show">
+        <button type="button" class="dm-hub-tab" aria-pressed={activeTab === 'messages'} on:click={() => selectTab('messages')}>{$_('places.conversations')}</button>
+        <button
+          type="button"
+          class="dm-hub-tab"
+          aria-pressed={activeTab === 'friends'}
+          aria-label={$friendships.incoming.length > 0 ? `${$_('places.friends')}, ${$friendships.incoming.length} friend ${$friendships.incoming.length === 1 ? 'request' : 'requests'}` : undefined}
+          on:click={() => selectTab('friends')}
+        >
+          {$_('places.friends')}{#if $friendships.incoming.length > 0}<span class="w-badge w-badge--sm dm-hub-request-badge" aria-hidden="true">{$friendships.incoming.length > 99 ? '99+' : $friendships.incoming.length}</span>{/if}
+        </button>
       </div>
+    </div>
+    <div class="dm-hub-b">
       {#if activeTab === 'messages'}
-      <div class="dm-hub-actions">
-        {#if groupChannels.length && !batchMode}<button class="dm-hub-manage-btn" type="button" on:click={() => { batchMode = true; batchStatus = ''; }} title="Leave multiple group conversations">Manage groups</button>{/if}
-        <button type="button" class="dm-hub-group-btn" on:click={() => (showCreateGroup = true)} title="Create group" aria-label="Create group">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a6 6 0 0 1 12 0v1"/><circle cx="18" cy="9" r="2"/><path d="M18 15a4 4 0 0 1 4 4v1"/></svg>
-          <span>New group</span>
-        </button>
-        <button type="button" class="dm-hub-new-btn" on:click={() => (showPeoplePicker = !showPeoplePicker)} title="New direct message" aria-label="New direct message" aria-expanded={showPeoplePicker}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-        </button>
-      </div>
+        <label class="w-field w-field--chrome dm-hub-find">
+          <Icon name="search" size={16} />
+          <input
+            type="search"
+            bind:this={searchInput}
+            bind:value={hubQuery}
+            placeholder="Search DMs"
+            aria-label="Search DMs"
+            autocomplete="off"
+            spellcheck="false"
+            on:keydown={(event) => { if (event.key === 'Escape' && hubQuery) { event.preventDefault(); hubQuery = ''; } }}
+          />
+        </label>
+        <div class="w-split dm-hub-new">
+          <button
+            type="button"
+            class="w-btn w-btn--primary dm-hub-new-btn"
+            aria-expanded={showPeoplePicker}
+            on:click={() => (showPeoplePicker = !showPeoplePicker)}
+          >New message</button>
+          <Menu
+            items={newMenuItems}
+            label="More ways to start"
+            triggerLabel="More ways to start a conversation"
+            class="w-btn w-btn--primary w-split__menu"
+            align="end"
+            heading="New conversation"
+          >
+            <Icon name="chevDown" size={16} />
+          </Menu>
+        </div>
+      {:else}
+        <p class="dm-hub-b-note">People on this server{#if $friendships.outgoing.length > 0}<span class="w-count">{$friendships.outgoing.length} sent</span>{/if}</p>
       {/if}
     </div>
+  </header>
 
-    <nav class="dm-hub-tabs" aria-label="Home destinations">
-      <button type="button" class="dm-hub-tab" on:click={() => dispatch('serverHome')}>Server home</button>
-      <button type="button" class="dm-hub-tab" class:active={activeTab === 'messages'} aria-pressed={activeTab === 'messages'} on:click={() => selectTab('messages')}>Messages</button>
-      <button type="button" class="dm-hub-tab" class:active={activeTab === 'friends'} aria-pressed={activeTab === 'friends'} on:click={() => selectTab('friends')}>
-        Friends{#if $friendships.incoming.length > 0}<span class="dm-hub-request-badge" aria-label={`${$friendships.incoming.length} pending friend requests`}>{$friendships.incoming.length}</span>{:else if $friendships.outgoing.length > 0}<span class="dm-hub-sent-count" aria-label={`${$friendships.outgoing.length} sent friend requests`}>{$friendships.outgoing.length} sent</span>{/if}
-      </button>
-    </nav>
-
-    {#if activeTab === 'messages'}
+  {#if activeTab === 'messages'}
     {#if showPeoplePicker}
-      <div class="dm-hub-picker">
+      <section class="dm-hub-picker" aria-label="New message">
+        <div class="dm-hub-picker-head">
+          <span class="w-kicker">New message</span>
+          <button type="button" class="w-ibtn w-ibtn--sm" aria-label="Close new message" on:click={() => { showPeoplePicker = false; pendingDmError = ''; }}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
         <PeoplePicker on:select={async (e) => handlePersonSelected(e.detail)} on:close={() => (showPeoplePicker = false)} />
         {#if pendingDmError}
-          <div class="dm-hub-error" role="alert">{pendingDmError}</div>
+          <div class="w-notice dm-hub-notice" role="alert">
+            <Icon name="alert" size={16} />
+            <p class="w-notice__title">Couldn’t open the conversation</p>
+            <p class="w-notice__text">{pendingDmError}</p>
+          </div>
         {/if}
-      </div>
+      </section>
     {/if}
 
     {#if pendingDmUser}
-      <div class="dm-hub-pending" role="status">Opening conversation with {pendingDmUser.username}…</div>
+      <p class="dm-hub-status" role="status">Opening the conversation with {pendingDmUser.username}…</p>
     {/if}
-    {#if batchStatus}<p class="dm-hub-batch-status" role="status">{batchStatus}</p>{/if}
+    {#if batchStatus}<p class="dm-hub-status" role="status">{batchStatus}</p>{/if}
     {#if batchMode}
-      <div class="dm-hub-batch-actions">
-        <p>Select group conversations to leave. Unread and pinned groups stay unselected. Activity is shown only when it is loaded on this device.</p>
-        <div><button type="button" on:click={exitBatchMode} disabled={batchBusy}>Cancel</button>
-          <button type="button" on:click={() => (reviewBatchLeave = true)} disabled={selectedGroups.length === 0 || batchBusy}>Review {selectedGroups.length} selected</button></div>
-      </div>
-      {#if reviewBatchLeave}
-        <div class="dm-hub-batch-review" role="group" aria-label="Review groups to leave">
-          <strong>Leave {selectedGroups.length} group {selectedGroups.length === 1 ? 'conversation' : 'conversations'}?</strong>
-          <ul>{#each selectedGroups as group (group.id)}<li>{conversationLabel(group)}</li>{/each}</ul>
-          <p>You may lose access to these conversations. This applies only to the current server.</p>
-          <div><button type="button" on:click={() => (reviewBatchLeave = false)} disabled={batchBusy}>Back</button>
-            <button type="button" class="dm-hub-leave-btn" on:click={leaveSelectedGroups} disabled={batchBusy}>{batchBusy ? 'Leaving…' : 'Leave selected groups'}</button></div>
+      <div class="dm-hub-batch" role="group" aria-label="Leave several groups">
+        <p class="dm-hub-batch-text">Choose the groups to leave. Unread and pinned groups start unselected; activity shows only when it is loaded on this device.</p>
+        <div class="dm-hub-batch-actions">
+          <button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={exitBatchMode} disabled={batchBusy}>Cancel</button>
+          <button type="button" class="w-btn w-btn--danger w-btn--sm" aria-busy={batchBusy} on:click={() => void reviewLeaveSelectedGroups()} disabled={selectedGroups.length === 0 || batchBusy}>
+            {batchBusy ? 'Leaving…' : selectedGroups.length ? `Leave ${selectedGroups.length} selected` : 'Leave selected'}
+          </button>
         </div>
-      {/if}
+      </div>
     {/if}
 
     <div class="dm-hub-scroll">
-      {#if (batchMode ? groupChannels : dmChannels).length === 0}
-        <div class="dm-hub-empty">
-          <p>No conversations yet.</p>
-          <button class="dm-hub-empty-btn ui-btn ui-btn-primary" on:click={() => (showPeoplePicker = true)}>
-            Start a conversation
-          </button>
-        </div>
+      {#if listChannels.length === 0}
+        <EmptyState
+          class="dm-hub-empty"
+          as="p"
+          icon="dm"
+          title={batchMode ? 'No groups to leave' : 'No conversations yet'}
+          text={batchMode ? 'You are not in any group conversations on this server.' : 'Start one with anyone in this community. It appears here.'}
+          action={batchMode ? 'Done' : 'New message'}
+          onaction={() => { if (batchMode) exitBatchMode(); else showPeoplePicker = true; }}
+        />
+      {:else if shownChannels.length === 0}
+        <EmptyState
+          class="dm-hub-empty"
+          as="p"
+          icon="search"
+          title="No conversations match"
+          text={`Nothing here is called “${hubQuery.trim()}”. Try another name.`}
+          action="Clear search"
+          onaction={() => { hubQuery = ''; searchInput?.focus(); }}
+        />
       {:else}
-        {#each (batchMode ? groupChannels : dmChannels) as channel (channel.id)}
+        {#each shownChannels as channel (channel.id)}
           {@const other = resolveDmOtherUser(channel, $currentUser, $users, $serverMembers)}
           {@const avatar = channel.type === 'group' ? channel.avatar : other?.profilePicture}
           {@const presence = livePresenceForUser(other, $users, $connected)}
           {@const unread = $channelUnreadCounts[channel.id] || 0}
           {@const previewMessages = $channelMessages[channel.id]}
+          {@const selected = batchMode ? selectedGroupIds.includes(channel.id) : $centerDmChannelId === channel.id}
           <button
+            type="button"
             class="dm-hub-conversation"
+            style={channel.type === 'dm' && other ? $inkFor(other.roleColor || other.color) : null}
             data-dm-channel-id={channel.id}
-            aria-pressed={batchMode ? selectedGroupIds.includes(channel.id) : $centerDmChannelId === channel.id}
-            class:active={batchMode ? selectedGroupIds.includes(channel.id) : $centerDmChannelId === channel.id}
+            aria-pressed={batchMode ? selected : undefined}
+            aria-current={!batchMode && selected ? 'page' : undefined}
+            aria-label={rowLabel(channel, unread, presence)}
+            class:active={selected}
             class:unread={unread > 0}
             on:click={() => batchMode ? toggleGroupSelection(channel.id) : openInCenter(channel)}
             on:contextmenu={(e) => { if (!batchMode) handleContextMenu(channel, e); }}
           >
-            {#if batchMode}<span class="dm-hub-select-indicator" aria-hidden="true">{selectedGroupIds.includes(channel.id) ? '☑' : '☐'}</span>{/if}
-            <div class="dm-hub-avatar-wrap">
-              {#if avatar}
-                {#if channel.type === 'dm'}
-                  <ProfileMedia class="dm-hub-avatar" src={mediaUrl(avatar)} decorative />
-                {:else}
-                  <img class="dm-hub-avatar" src={mediaUrl(avatar)} alt="" />
-                {/if}
+            {#if batchMode}<span class="w-check dm-hub-check" aria-hidden="true" aria-checked={selected}></span>{/if}
+            <span class="dm-hub-avatar-wrap">
+              {#if channel.type === 'group'}
+                <GroupAvatar {channel} size={32} />
+              {:else if avatar}
+                <ProfileMedia class="dm-hub-stamp" src={mediaUrl(avatar)} decorative />
               {:else}
-                <div class="dm-hub-avatar dm-hub-avatar-placeholder">
-                  {(conversationLabel(channel) || '?')[0]}
-                </div>
+                <span class="dm-hub-stamp" aria-hidden="true">{(conversationLabel(channel) || '?').charAt(0).toUpperCase()}</span>
               {/if}
               {#if presence === 'active' || presence === 'away' || presence === 'busy'}
-                <span class="dm-hub-status-dot" class:away={presence === 'away'} class:busy={presence === 'busy'} title={`${other?.username || 'Recipient'} is ${presence === 'active' ? 'online' : presence}`} aria-label={`${other?.username || 'Recipient'} is ${presence === 'active' ? 'online' : presence}`}></span>
+                <span class="dm-hub-status-dot" data-presence={presence} aria-hidden="true"></span>
               {/if}
-            </div>
-            <div class="dm-hub-body">
-              <div class="dm-hub-top">
-                <span class="dm-hub-name">{#if channel.type === 'dm' && other}<ProfileName username={other.handle || other.username} font={other.usernameFont} color={other.color} />{:else}{conversationLabel(channel)}{/if}</span>
+            </span>
+            <span class="dm-hub-body">
+              <span class="dm-hub-top">
+                <span class="dm-hub-name">{#if channel.type === 'dm' && other}<ProfileName username={other.handle || other.username} font={other.usernameFont} color={other.roleColor || other.color} />{:else}{conversationLabel(channel)}{/if}</span>
                 {#if lastMessageTime(previewMessages)}
                   <span class="dm-hub-time">{lastMessageTime(previewMessages)}</span>
                 {/if}
-              </div>
-              <div class="dm-hub-bottom">
+              </span>
+              <span class="dm-hub-bottom">
                 <span class="dm-hub-preview">{lastMessagePreview(previewMessages)}</span>
                 {#if unread > 0}
-                  <span class="dm-hub-badge">{unread > 99 ? '99+' : unread}</span>
+                  <span class="w-badge w-badge--sm dm-hub-badge" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>
                 {/if}
-              </div>
-            </div>
+              </span>
+            </span>
           </button>
         {/each}
       {/if}
     </div>
-    {:else}
-      <FriendsPanel on:message={(event) => handlePersonSelected(event.detail)} />
-    {/if}
-  </div>
+  {:else}
+    <FriendsPanel on:message={(event) => handlePersonSelected(event.detail)} />
+  {/if}
+</div>
 
 <ContextMenu
   open={contextMenuOpen}
@@ -497,6 +610,7 @@
 <CreateGroupModal bind:isOpen={showCreateGroup} onCreated={openCreatedGroup} />
 
 <style>
+  /* DMs hub (§8.10). Roles, type tokens and kit classes only. */
   .dm-hub {
     display: flex;
     flex-direction: column;
@@ -504,325 +618,304 @@
     height: 100%;
     min-height: 0;
     overflow: hidden;
-    background: var(--surface-base, #24243e);
+    background: var(--w-bg);
+    color: var(--w-text);
+    font: var(--w-t-ui);
   }
 
-  .dm-hub-tabs {
-    display: flex;
-    gap: var(--space-1, 4px);
-    padding: var(--space-1, 4px) var(--space-3, 12px) 0;
-    border-bottom: 1px solid var(--color-border-primary, #302b63);
-    flex-shrink: 0;
+  /* ---------- masthead: row A 56 + row B 40, one hairline at y = --w-mast ---------- */
+  .dm-hub-mast {
+    flex: none;
+    box-sizing: border-box;
+    height: var(--w-mast);
+    padding: 0 12px;
+    border-bottom: var(--w-bw) solid var(--w-line);
   }
-
-  .dm-hub-request-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 18px;
-    height: 18px;
-    margin-left: var(--space-2, 8px);
-    padding: 0 var(--space-1, 4px);
-    border-radius: var(--radius-full, 9999px);
-    background: var(--accent-primary-color, var(--accent-primary));
-    color: var(--text-on-accent, #fff);
-    font-size: var(--font-size-xs, 11px);
-    line-height: 1;
-  }
-
-  .dm-hub-sent-count {
-    margin-left: var(--space-2, 8px);
-    color: var(--text-secondary);
-    font-size: var(--font-size-xs, 11px);
-  }
-
-  .dm-hub-tab {
-    padding: var(--space-2, 8px) var(--space-3, 12px);
-    border: none;
-    border-bottom: 2px solid transparent;
-    background: transparent;
-    color: var(--text-muted, #9999ff);
-    font-size: var(--font-size-sm, 13px);
-    font-weight: var(--font-weight-medium, 500);
-    cursor: pointer;
-    border-radius: var(--radius-sm, 4px) var(--radius-sm, 4px) 0 0;
-    transition: background var(--duration-fast, 150ms), color var(--duration-fast, 150ms);
-  }
-  .dm-hub-tab:hover {
-    color: var(--text-heading, #e0e0ff);
-    background: color-mix(in srgb, var(--text-heading) 6%, transparent);
-  }
-  .dm-hub-tab.active {
-    color: var(--text-heading, #e0e0ff);
-    font-weight: var(--font-weight-semibold, 600);
-    border-bottom-color: var(--accent-primary-color, #6366f1);
-  }
-  .dm-hub-header {
+  .dm-hub-a {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--space-4, 16px) var(--space-6, 24px);
-    border-bottom: 1px solid var(--color-border-primary, #302b63);
-    flex-shrink: 0;
-  }
-
-  .dm-hub-manage-btn, .dm-hub-batch-actions button, .dm-hub-batch-review button { border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--text-heading); padding: .45rem .65rem; cursor: pointer; }
-  .dm-hub-batch-actions, .dm-hub-batch-review, .dm-hub-batch-status { margin: .6rem 1rem; padding: .7rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); color: var(--text-secondary); font-size: .85rem; }
-  .dm-hub-batch-actions p, .dm-hub-batch-review p { margin: 0 0 .6rem; }
-  .dm-hub-batch-actions > div, .dm-hub-batch-review > div { display: flex; gap: .5rem; flex-wrap: wrap; }
-  .dm-hub-batch-review ul { max-height: 7rem; overflow: auto; margin: .5rem 0; }
-  .dm-hub-batch-review .dm-hub-leave-btn { color: var(--color-danger, #ef4444); }
-  .dm-hub-select-indicator { color: var(--accent-primary-color); font-size: 1.25rem; }
-
-  .dm-hub-title-wrap {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1, 4px);
+    gap: 10px;
+    height: var(--w-head-a);
+    min-width: 0;
   }
   .dm-hub-title {
-    font-size: var(--font-size-xl, 20px);
-    font-weight: 700;
-    color: var(--text-heading, #e0e0ff);
-    letter-spacing: 0.2px;
+    flex: none;
+    margin: 0;
+    color: var(--w-text);
+    font: var(--w-t-title);
+    letter-spacing: 0.005em;
   }
-  .dm-hub-subtitle {
-    font-size: var(--font-size-sm, 13px);
-    color: var(--text-muted, #9999ff);
+  .dm-hub-seg > :global(button) {
+    padding: 0 10px;
+  }
+  .dm-hub-request-badge {
+    margin-inline-start: -1px;
+  }
+  .dm-hub-b {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    height: var(--w-head-b);
+    min-width: 0;
+  }
+  .dm-hub-find {
+    flex: 1 1 auto;
+    min-width: 96px;
+    cursor: text;
+  }
+  .dm-hub-find > input[type='search'] {
+    min-height: 0;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    color: var(--w-text);
+    font: inherit;
+    text-overflow: ellipsis;
+    outline: none;
+    appearance: none;
+  }
+  .dm-hub-find > input[type='search']::-webkit-search-cancel-button {
+    display: none;
+  }
+  .dm-hub-new {
+    flex: none;
+  }
+  .dm-hub-b-note {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin: 0;
+    padding-top: 6px;
+    color: var(--w-mute);
+    font: var(--w-t-small);
   }
 
-  .dm-hub-actions { display: flex; align-items: center; gap: var(--space-2, 8px); flex-shrink: 0; }
-  .dm-hub-group-btn {
-    display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2, 8px);
-    min-height: 40px; padding: 0 var(--space-3, 12px);
-    border: 1px solid var(--color-border-primary, #302b63); border-radius: var(--radius-md, 8px);
-    background: var(--surface-raised, rgba(255, 255, 255, 0.04)); color: var(--text-secondary, #b3b3ff);
-    font: inherit; font-size: var(--font-size-sm, 13px); font-weight: 600; cursor: pointer;
+  /* ---------- new message, batch mode and quiet status lines ---------- */
+  .dm-hub-picker {
+    flex: none;
+    display: grid;
+    gap: 8px;
+    padding: 12px 12px 14px;
+    border-bottom: var(--w-bw) solid var(--w-line);
   }
-  .dm-hub-group-btn:hover { background: color-mix(in srgb, var(--text-heading) 8%, transparent); color: var(--text-heading, #e0e0ff); }
-  .dm-hub-group-btn:focus-visible { outline: 2px solid var(--accent-primary-color, #6366f1); outline-offset: 2px; }
-
-  @container dm-hub (max-width: 360px) {
-    .dm-hub-header { padding-inline: var(--space-3, 12px); flex-wrap: wrap; gap: var(--space-2, 8px); }
-    .dm-hub-actions { width: 100%; justify-content: flex-end; }
-    .dm-hub-group-btn { width: 40px; padding: 0; }
-    .dm-hub-group-btn span { display: none; }
-  }
-
-  .dm-hub-new-btn {
+  .dm-hub-picker-head {
     display: flex;
     align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    flex-shrink: 0;
-    border: 1px solid var(--color-border-primary, #302b63);
-    border-radius: var(--radius-md, 8px);
-    background: var(--surface-raised, rgba(255, 255, 255, 0.04));
-    color: var(--text-secondary, #b3b3ff);
-    cursor: pointer;
-    padding: 0;
-    transition: background var(--duration-instant, 100ms), color var(--duration-instant, 100ms);
+    justify-content: space-between;
+    padding-left: 8px;
   }
-  .dm-hub-new-btn:hover {
-    background: color-mix(in srgb, var(--text-heading) 8%, transparent);
-    color: var(--text-heading, #e0e0ff);
+  .dm-hub-notice {
+    margin-top: 4px;
   }
-
-  .dm-hub-picker {
-    padding: var(--space-3, 12px) var(--space-6, 24px);
-    border-bottom: 1px solid var(--color-border-primary, #302b63);
+  .dm-hub-status {
+    flex: none;
+    margin: 0;
+    padding: 10px 20px 0;
+    color: var(--w-mute);
+    font: var(--w-t-small);
   }
-
-  .dm-hub-pending,
-  .dm-hub-error {
-    margin: var(--space-3, 12px) var(--space-6, 24px) 0;
-    padding: var(--space-2, 8px) var(--space-3, 12px);
-    border-radius: var(--radius-md, 8px);
-    font-size: var(--font-size-sm, 13px);
+  .dm-hub-batch {
+    flex: none;
+    display: grid;
+    gap: 10px;
+    padding: 12px 20px;
+    border-bottom: var(--w-bw) solid var(--w-line);
   }
-
-  .dm-hub-pending {
-    color: var(--text-secondary, #b3b3ff);
-    background: color-mix(in srgb, var(--accent-primary-color, #6366f1) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--accent-primary-color, #6366f1) 24%, transparent);
+  .dm-hub-batch-text {
+    margin: 0;
+    color: var(--w-mute);
+    font: var(--w-t-small);
+    text-wrap: pretty;
+  }
+  .dm-hub-batch-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
   }
 
-  .dm-hub-error {
-    color: var(--color-danger, #ef4444);
-    background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 28%, transparent);
-  }
-
+  /* ---------- the list: 52px rows on the selection grammar ---------- */
   .dm-hub-scroll {
     flex: 1 1 auto;
     min-height: 0;
-    overflow-y: auto;
     overflow-x: hidden;
-    padding: var(--space-3, 12px) var(--space-4, 16px) var(--space-4, 16px);
-    max-width: 720px;
-    width: 100%;
-    margin: 0 auto;
+    overflow-y: auto;
+    padding: 8px 0 16px;
   }
-
-  .dm-hub-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-3, 12px);
-    height: 100%;
-    padding: var(--space-3, 12px);
-    text-align: center;
-    color: var(--text-muted, #9999ff);
-    font-size: var(--font-size-lg, 16px);
+  .dm-hub-scroll :global(.dm-hub-empty) {
+    padding: 32px 20px;
   }
-
-	.dm-hub-empty-btn {
-		min-height: 40px;
-	}
-
   .dm-hub-conversation {
-    display: flex;
+    --dm-hub-surface: var(--w-bg);
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr);
     align-items: center;
-    gap: var(--space-3, 12px);
-    width: 100%;
-    padding: var(--space-2, 8px) var(--space-3, 12px);
-    border: 1px solid transparent;
-    border-radius: var(--radius-lg, 12px);
+    column-gap: 12px;
+    box-sizing: border-box;
+    width: calc(100% - 16px);
+    min-height: 52px;
+    margin: 0 8px;
+    padding: 6px 12px;
+    border: 0;
+    border-radius: var(--radius-md);
     background: transparent;
-    color: inherit;
+    color: var(--w-text);
+    font: inherit;
+    text-align: start;
     cursor: pointer;
-    text-align: left;
-    transition: background var(--duration-instant, 100ms), border-color var(--duration-instant, 100ms);
+    transition: background-color var(--w-dur-1) var(--w-ease), box-shadow var(--w-dur-1) var(--w-ease);
+  }
+  .dm-hub-conversation:has(.dm-hub-check) {
+    grid-template-columns: 16px 32px minmax(0, 1fr);
   }
   .dm-hub-conversation:hover {
-    background: color-mix(in srgb, var(--text-heading) 3%, transparent);
-    border-color: var(--color-border-primary, #302b63);
+    --dm-hub-surface: color-mix(in srgb, var(--w-raise) 70%, var(--w-bg));
+    background: color-mix(in srgb, var(--w-raise) 70%, transparent);
   }
   .dm-hub-conversation.active {
-    background: color-mix(in srgb, var(--accent-primary-color) 12%, transparent);
-    border-color: color-mix(in srgb, var(--accent-primary-color) 40%, transparent);
+    --dm-hub-surface: var(--w-raise);
+    background: var(--w-raise);
+  }
+  .dm-hub-conversation:focus-visible {
+    outline: 2px solid var(--w-accent);
+    outline-offset: -2px;
+  }
+  :global(:root[data-char='contrast']) .dm-hub-conversation:not(.active):hover {
+    --dm-hub-surface: var(--w-bg);
+    background: transparent;
+  }
+  :global(:root[data-char='contrast']) .dm-hub-conversation:hover,
+  :global(:root[data-char='contrast']) .dm-hub-conversation.active {
+    box-shadow: inset 0 0 0 1px var(--w-line-strong);
   }
 
   .dm-hub-avatar-wrap {
     position: relative;
-    flex-shrink: 0;
-  }
-  .dm-hub-avatar, .dm-hub-avatar-wrap :global(.dm-hub-avatar) {
+    display: block;
     width: 32px;
     height: 32px;
-    border-radius: var(--radius-full, 9999px);
-    object-fit: cover;
   }
-	.dm-hub-avatar-placeholder {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: var(--accent-primary-color, #6366f1);
-		color: var(--text-on-accent, #fff);
-		font-size: var(--font-size-sm, 13px);
-		font-weight: var(--font-weight-semibold, 600);
-		width: 32px;
-		height: 32px;
-	}
+  .dm-hub-avatar-wrap :global(.dm-hub-stamp),
+  .dm-hub-stamp {
+    display: grid;
+    place-items: center;
+    box-sizing: border-box;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--w-avr);
+    background: var(--disc, var(--w-raise));
+    color: var(--on, var(--w-text));
+    font: 600 calc(14px * var(--w-fs)) / 1 var(--w-serif);
+    object-fit: cover;
+    user-select: none;
+  }
   .dm-hub-status-dot {
     position: absolute;
-    bottom: -1px;
-    right: -1px;
-    width: var(--space-2, 8px);
-    height: var(--space-2, 8px);
-    border-radius: 50%;
-    border: 2px solid var(--surface-base, #24243e);
-    background: var(--color-success, #22c55e);
+    right: -2px;
+    bottom: -2px;
+    box-sizing: border-box;
+    width: 10px;
+    height: 10px;
+    border-radius: var(--w-avr);
+    background: var(--w-online);
+    box-shadow: 0 0 0 2px var(--dm-hub-surface);
   }
-  .dm-hub-status-dot.away { background: var(--color-warning, #f59e0b); }
-  .dm-hub-status-dot.busy { background: var(--color-danger, #ef4444); }
+  .dm-hub-status-dot[data-presence='away'] {
+    background: var(--w-warn);
+  }
+  .dm-hub-status-dot[data-presence='busy'] {
+    background: var(--w-danger);
+  }
 
   .dm-hub-body {
-    flex: 1;
-    min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-1, 4px);
+    gap: 2px;
+    min-width: 0;
   }
-  .dm-hub-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2, 8px);
-  }
-  .dm-hub-name {
-    font-size: var(--font-size-lg, 16px);
-    font-weight: var(--font-weight-medium, 500);
-    color: var(--text-heading, #e0e0ff);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .dm-hub-conversation.unread .dm-hub-name {
-    font-weight: var(--font-weight-semibold, 600);
-  }
-  .dm-hub-time {
-    font-size: var(--font-size-xs, 11px);
-    color: var(--text-muted, #9999ff);
-    flex-shrink: 0;
-  }
+  .dm-hub-top,
   .dm-hub-bottom {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2, 8px);
-  }
-  .dm-hub-preview {
-    font-size: var(--font-size-sm, 13px);
-    color: var(--text-secondary, #b3b3ff);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    gap: 6px;
     min-width: 0;
   }
+  .dm-hub-name {
+    display: flex;
+    flex: 0 1 auto;
+    align-items: center;
+    min-width: 0;
+    height: calc(20px * var(--w-fs));
+    overflow: hidden;
+    font: var(--w-t-label);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .dm-hub-conversation.unread .dm-hub-name {
+    font-weight: 700;
+  }
+  .dm-hub-time {
+    flex: none;
+    margin-left: auto;
+    color: var(--w-faint);
+    font: var(--w-t-micro);
+    font-variant-numeric: tabular-nums;
+  }
+  .dm-hub-preview {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--w-faint);
+    font: var(--w-t-small);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
   .dm-hub-conversation.unread .dm-hub-preview {
-    color: var(--text-heading, #e0e0ff);
+    color: var(--w-mute);
   }
   .dm-hub-badge {
-    flex-shrink: 0;
-    min-width: var(--space-5, 20px);
-    height: var(--space-5, 20px);
-    padding: 0 var(--space-2, 8px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--radius-full, 9999px);
-    background: var(--accent-primary-color, #6366f1);
-    color: #fff;
-    font-size: var(--font-size-xs, 11px);
-    font-weight: var(--font-weight-semibold, 600);
-    line-height: 1;
+    flex: none;
   }
 
-	/* Mobile: roomier rows and thumb-sized targets */
-	@media (max-width: 768px) {
-		.dm-hub-header { padding: var(--space-3, 12px) var(--space-4, 16px); }
-		.dm-hub-picker { padding: var(--space-3, 12px) var(--space-4, 16px); }
-		.dm-hub-new-btn { width: 44px; height: 44px; }
-		.dm-hub-group-btn { min-height: 44px; }
-		.dm-hub-scroll { padding: var(--space-3, 12px); }
-		.dm-hub-conversation { padding: var(--space-3, 12px); }
-		.dm-hub-avatar, .dm-hub-avatar-wrap :global(.dm-hub-avatar),
-		.dm-hub-avatar-placeholder { width: 44px; height: 44px; }
-		.dm-hub-avatar-placeholder { font-size: var(--font-size-base, 14px); }
-		.dm-hub-status-dot { width: 10px; height: 10px; }
-		.dm-hub-empty-btn {
-			min-height: 44px;
-			padding: var(--space-2, 8px) var(--space-5, 20px);
-			font-size: var(--font-size-base, 14px);
-			border-radius: var(--radius-lg, 12px);
-		}
-		.dm-hub-tab { min-height: 40px; }
-	}
-	@media (max-width: 520px) { .dm-hub-group-btn { width: 44px; padding: 0; } .dm-hub-group-btn span { display: none; } }
+  /* Phones and coarse pointers: 44px targets, 56px rows; the masthead keeps its 96px rule. */
+  @media (pointer: coarse) {
+    .dm-hub-conversation {
+      min-height: 56px;
+    }
+  }
+  @media (max-width: 768px) {
+    .dm-hub-mast {
+      padding: 0 16px;
+    }
+    .dm-hub-title {
+      font: 600 calc(20px * var(--w-fs)) / calc(26px * var(--w-fs)) var(--w-serif);
+    }
+    .dm-hub-seg > :global(button) {
+      height: 36px;
+      padding: 0 12px;
+    }
+    .dm-hub-b {
+      align-items: center;
+      height: auto;
+      min-height: var(--w-head-b);
+      padding-bottom: 4px;
+    }
+    .dm-hub-find,
+    .dm-hub-new :global(.w-btn) {
+      height: 36px;
+    }
+    .dm-hub-mast {
+      height: auto;
+      min-height: var(--w-mast);
+    }
+  }
 
-	@media (prefers-reduced-motion: reduce) {
-		.dm-hub-new-btn, .dm-hub-group-btn, .dm-hub-conversation, .dm-hub-tab, .dm-hub-empty-btn { transition: none; }
-	}
+  @media (prefers-reduced-motion: reduce) {
+    .dm-hub-conversation {
+      transition: none;
+    }
+  }
 </style>

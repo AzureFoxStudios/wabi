@@ -38,31 +38,79 @@
    forced-transparent layers inside the panel that let the effect through are gone. */
 
 /* HELD FOR w1-switcher-dms + w1-people-scratchpad — GroupSettingsPanel.svelte (no owner) is
-   rendered by DmConversationView.svelte on center stage and by DMTab.svelte in the panel. */
-:root .group-settings { font-family: var(--w-sans); color: var(--w-text); }
-:root .group-settings .group-name { text-transform: none; letter-spacing: 0.01em; font: 600 calc(22px * var(--w-fs, 1))/1.2 var(--w-serif); color: var(--w-text); }
-:root .group-settings .member-count,
-:root .group-settings .avatar-note { font: 500 calc(12px * var(--w-fs, 1))/1.4 var(--w-mono); color: var(--w-mute); }
-:root .group-settings .section-header h3,
-:root .group-settings .section-header span { font: 600 calc(11.5px * var(--w-fs, 1))/1 var(--w-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--w-faint); }
+   rendered by DmConversationView.svelte on center stage and by DMTab.svelte in the panel.
+   Restyled here on roles (wave 1b): sections are rules, not boxes; section heads are kickers;
+   Owner / You are role words; Leave is the kit danger button. These (0,3,0) outrank the
+   component's own scoped rules (0,2,0). The inline member colours are user data the component
+   still paints raw; GroupSettingsPanel's owner moves them to identity ink. */
+:root .group-settings { gap: 0; padding: 4px 0 16px; color: var(--w-text); font: var(--w-t-ui); }
+:root .group-settings .settings-section { padding: 16px 20px; border-bottom: var(--w-bw, 1px) solid var(--w-line); border-radius: 0; background: transparent; }
+:root .group-settings .leave-section { border-bottom: 0; }
+:root .group-settings .group-name { margin: 0; text-transform: none; letter-spacing: 0.005em; font: var(--w-t-heading); color: var(--w-text); }
+:root .group-settings .member-count { font: var(--w-t-mono); color: var(--w-faint); }
+:root .group-settings .avatar-note { margin: 0; font: var(--w-t-small); color: var(--w-mute); }
+:root .group-settings .section-header { margin-bottom: 6px; }
+:root .group-settings .section-header :is(h3, h4, span) { margin: 0; font: var(--w-t-kicker); letter-spacing: 0.12em; text-transform: uppercase; color: var(--w-faint); }
+:root .group-settings .member-list { gap: 0; }
 :root .group-settings .member-item {
-	border: var(--w-bw, 1px) solid var(--w-line);
-	border-radius: calc(10px * var(--w-rs, 1));
-	background: var(--w-bg2);
+	min-height: 46px;
+	padding: 0 8px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
 }
-:root .group-settings .member-name { font: 600 calc(14px * var(--w-fs, 1))/1.3 var(--w-sans); }
+:root .group-settings :is(.member-item, .add-user-item):hover { background: color-mix(in srgb, var(--w-raise) 70%, transparent); }
+:root[data-char='contrast'] .group-settings :is(.member-item, .add-user-item):hover { background: transparent; box-shadow: inset 0 0 0 1px var(--w-line-strong); }
+:root .group-settings .member-name { font: var(--w-t-label); color: var(--w-text); }
+:root .group-settings :is(.role-badge, .you-badge) {
+	padding: 0;
+	border-radius: 0;
+	background: transparent;
+	color: var(--w-faint);
+	font: 400 calc(10px * var(--w-fs, 1)) / 1 var(--w-mono);
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+}
 :root .group-settings .add-member-btn {
-	min-height: 32px;
-	padding: 5px 12px;
+	min-height: 28px;
+	padding: 0 10px;
+	gap: 6px;
 	border: var(--w-bw, 1px) solid var(--w-line-strong);
-	border-radius: calc(9px * var(--w-rs, 1));
+	border-radius: var(--radius-md);
 	background: transparent;
 	color: var(--w-text);
-	font: 600 calc(12.5px * var(--w-fs, 1))/1.2 var(--w-sans);
+	font: var(--w-t-caption);
 }
-:root .group-settings .add-member-btn:hover { background: var(--w-raise); border-color: var(--w-accent); }
-:root .group-settings .add-search { background: var(--w-sink); border: var(--w-bw, 1px) solid var(--w-line-strong); border-radius: calc(10px * var(--w-rs, 1)); color: var(--w-text); }
-:root .group-settings .operation-error { color: var(--w-danger); font: 500 calc(13px * var(--w-fs, 1)) var(--w-sans); }
+:root .group-settings .add-member-btn:hover:not(:disabled) { background: var(--w-raise); }
+:root .group-settings .add-search {
+	box-sizing: border-box;
+	min-height: 32px;
+	padding: 0 10px;
+	border: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+:root[data-mode='light'] .group-settings .add-search { border-color: color-mix(in srgb, var(--w-text) 16%, transparent); }
+:root .group-settings .add-search:focus { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
+:root .group-settings .add-search::placeholder { color: var(--w-faint); }
+:root .group-settings .add-user-item { border-radius: var(--radius-md); color: var(--w-text); font: var(--w-t-ui); }
+:root .group-settings .no-users { color: var(--w-mute); font: var(--w-t-small); }
+:root .group-settings .kick-btn { border-radius: var(--radius-md); color: var(--w-mute); opacity: 1; }
+:root .group-settings .kick-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--w-danger) 10%, transparent); color: var(--w-danger); }
+:root .group-settings .leave-btn {
+	min-height: 32px;
+	padding: 0 12px;
+	border: var(--w-bw, 1px) solid color-mix(in srgb, var(--w-danger) 55%, transparent);
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-danger);
+	font: var(--w-t-label);
+}
+:root .group-settings .leave-btn:hover:not(:disabled) { border-color: var(--w-danger); background: var(--w-danger); color: var(--w-on-danger, var(--w-bg)); }
+:root .group-settings button:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
+:root .group-settings .operation-error { margin: 12px 20px 0; color: var(--w-danger); font: var(--w-t-small); }
 
 /* HELD FOR the dialogs work (w0-dialogs-menus / w1-dialogs-popouts) — WhiteboardBoardSettings
    .svelte is a BaseModal dialog over the whiteboard on center stage, not a panel; no wave-1
@@ -101,28 +149,9 @@
 :root .wb-settings-cancel { border: var(--w-bw, 1px) solid var(--w-line-strong); background: transparent; color: var(--w-text); }
 :root .wb-settings-cancel:hover { background: var(--w-raise); border-color: var(--w-accent); }
 
-/* HELD FOR w1-switcher-dms — DMMessageView.svelte (center-stage DM view). Natural home is
-   styles/components/dm-message-view.css; moving it changes order against the component's
-   scoped .dm-tool-encryption-status / .dm-encryption-gate rules (equal specificity), so
-   verify the seal still wins after a move. */
-/* Direct-message protection state is a security fact: it wears the seal. */
-:root .dm-tool-encryption-status {
-	display: inline-flex;
-	align-items: center;
-	padding: 1px 9px;
-	border: var(--w-bw, 1px) solid color-mix(in srgb, var(--w-seal) 70%, transparent);
-	border-radius: var(--w-pill, 999px);
-	background: var(--w-seal-soft);
-	color: var(--w-text);
-	font: 600 calc(11.5px * var(--w-fs, 1))/1.7 var(--w-sans);
-}
-:root .dm-encryption-gate {
-	border: var(--w-bw, 1px) solid var(--w-line);
-	border-radius: calc(12px * var(--w-rs, 1));
-	background: var(--w-bg2);
-	box-shadow: inset 2px 0 0 var(--w-seal);
-	font-family: var(--w-sans);
-}
+/* (The DM protection pills and the left-barred encryption gate that sat here are gone: the
+   conversation views say the privacy state through PrivacyBadge and their own sending-paused
+   row, in their own scoped styles. w1-switcher-dms, wave 1b.) */
 
 /* HELD FOR w1-wiki-notes — NotesWorkspace.svelte (shown on center stage and in the panel). */
 /* ---- notes list: tabs as a quiet underline pair, rows as ledger lines ---- */
