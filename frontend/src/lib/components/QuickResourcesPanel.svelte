@@ -11,10 +11,14 @@
 		selectedDmChannelId,
 		dmOtherUser
 	} from '$lib/layoutStoreStates';
-	import { channelMessages, currentUser, sendMessage, joinChannel, type Message, type User } from '$lib/socket';
+	import { channelMessages, channels, currentUser, sendMessage, joinChannel, type Message, type User } from '$lib/socket';
+	import { cachedE2eeStatus, refreshE2eeStatus } from '$lib/dm/dmE2eeState';
+	import type { E2eeRoomStatus } from '$lib/e2ee';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
+	import PrivacyBadge from './PrivacyBadge.svelte';
 	import QuickScratchpad from './QuickScratchpad.svelte';
+	import { openNotesSurface } from '$lib/notesWorkspace';
 
 	/*
 	 * The Scratchpad tray (design contract §7.21, §8.4): the companion's 80px footer band, on the
@@ -45,6 +49,20 @@
 	let resizeStartHeight = TRAY_DEFAULT_HEIGHT;
 	let activeView: TrayView = 'notes';
 	let scratchStatus = '';
+	let toggleButton: HTMLButtonElement | null = null;
+
+	// The editor mounts the first time the Scratchpad view is opened, not with the panel: opening it
+	// finds or creates the "Scratchpad" note, which must never happen without the person asking.
+	// Until then the band states where the scratchpad lives; once it exists the band shows its real
+	// save state, collapsed or not.
+	const SAVED_HERE = 'Saved on this device';
+	const FAILED_STATES = new Set(['Could not save', 'Conflicting changes', 'Not available']);
+	let scratchpadOpened = false;
+	$: if (!collapsed && !showingDm) scratchpadOpened = true;
+	$: bandStatus = scratchpadOpened ? scratchStatus || SAVED_HERE : SAVED_HERE;
+	// Autosave flips between "Saving…" and "Saved" as someone types: only a failure is announced,
+	// and only while collapsed (expanded, the editor's own notice is the alert).
+	$: bandAlert = collapsed && FAILED_STATES.has(scratchStatus) ? `Scratchpad: ${scratchStatus}` : '';
 
 	$: maxHeight = Math.max(TRAY_MIN_HEIGHT, Math.floor(parentHeight * TRAY_MAX_RATIO));
 	$: shownHeight = Math.max(TRAY_MIN_HEIGHT, Math.min(maxHeight, trayHeight));
@@ -75,6 +93,30 @@
 	let dmDraft = '';
 	let dmListEl: HTMLDivElement | null = null;
 
+	// Who can read this conversation, and whether it can take a message now: the same rules as the
+	// DMs companion's composer (DMMessageView), from the room's own E2EE status. Until that status
+	// is known the state is Checking and sending waits (fail closed).
+	let dmPolicy: E2eeRoomStatus | null = null;
+	let dmPolicyFor: string | null = null;
+	// Asked again each time the conversation view opens, so a room that became ready is not held.
+	$: if (collapsed || !showingDm) dmPolicyFor = null;
+	$: if (showingDm && !collapsed && microDmChannelId && dmPolicyFor !== microDmChannelId) void loadDmPolicy(microDmChannelId);
+	$: microDmChannelType = (microDmChannelId ? $channels.find((channel) => channel.id === microDmChannelId)?.type : null) || 'dm';
+	$: dmCanSend = Boolean(
+		dmPolicy && !dmPolicy.pendingDefault && !dmPolicy.needsRekey && (!dmPolicy.serverReadableSelected || dmPolicy.serverReadableAllowedByMe)
+	);
+
+	async function loadDmPolicy(channelId: string): Promise<void> {
+		dmPolicyFor = channelId;
+		dmPolicy = cachedE2eeStatus(channelId);
+		try {
+			const status = await refreshE2eeStatus(channelId);
+			if (dmPolicyFor === channelId) dmPolicy = status;
+		} catch (error) {
+			console.warn('[scratchpad] conversation status unavailable', error);
+		}
+	}
+
 	async function scrollDmToBottom(): Promise<void> {
 		await tick();
 		if (dmListEl) dmListEl.scrollTop = dmListEl.scrollHeight;
@@ -84,12 +126,21 @@
 		void scrollDmToBottom();
 	}
 
-	function sendMicroDm(): void {
+	let dmSendError = '';
+
+	async function sendMicroDm(): Promise<void> {
 		const text = dmDraft.trim();
-		if (!text || !microDmChannelId) return;
-		void sendMessage(microDmChannelId, text, 'text');
+		const channelId = microDmChannelId;
+		if (!text || !channelId || !dmCanSend) return;
 		dmDraft = '';
+		dmSendError = '';
 		void scrollDmToBottom();
+		const result = await sendMessage(channelId, text, 'text');
+		// A message that did not leave keeps its words in the field.
+		if (result.ok === false && result.reason !== 'empty') {
+			if (!dmDraft) dmDraft = text;
+			dmSendError = 'Not sent. Your message is still in the field.';
+		}
 	}
 
 	function handleDmKeydown(event: KeyboardEvent): void {
@@ -100,7 +151,8 @@
 	}
 
 	function openFullNotes(): void {
-		scratchpad?.openFull();
+		if (scratchpad) scratchpad.openFull();
+		else openNotesSurface();
 	}
 
 	function openFullDms(): void {
@@ -159,7 +211,9 @@
 		else if (event.key === 'End') next = maxHeight;
 		else if (event.key === 'Enter') {
 			event.preventDefault();
+			// The separator leaves with the expanded tray: focus moves to the chevron that reopens it.
 			collapse();
+			void tick().then(() => toggleButton?.focus());
 			return;
 		}
 		if (next === null) return;
@@ -234,9 +288,11 @@
 				{/if}
 			</div>
 		{/if}
-		<!-- The scratchpad stays mounted while collapsed so the band reports its real save state. -->
+		<!-- Once opened, the scratchpad stays mounted while collapsed so the band reports its real save state. -->
 		<div class="scratch-pane" hidden={showingDm}>
-			<QuickScratchpad bind:this={scratchpad} bind:status={scratchStatus} showFull={false} showStatus={false} embedded />
+			{#if scratchpadOpened}
+				<QuickScratchpad bind:this={scratchpad} bind:status={scratchStatus} showFull={false} showStatus={false} embedded />
+			{/if}
 		</div>
 		{#if showingDm && microDmOther}
 			<section class="micro-dm" aria-label={`Conversation with ${microDmOther.username}`}>
@@ -252,25 +308,37 @@
 						{/each}
 					{/if}
 				</div>
-				<div class="micro-dm-compose">
-					<label class="w-field w-field--chrome micro-dm-field">
-						<input
-							type="text"
-							bind:value={dmDraft}
-							placeholder={`Message ${microDmOther.username}`}
-							aria-label={`Message ${microDmOther.username}`}
-							on:keydown={handleDmKeydown}
-						/>
-					</label>
-					<button
-						type="button"
-						class="w-ibtn w-ibtn--sm w-ibtn--edge micro-dm-send"
-						aria-label="Send"
-						aria-disabled={!dmDraft.trim()}
-						on:click={sendMicroDm}
-					>
-						<Icon name="send" size={16} />
-					</button>
+				{#if dmCanSend}
+					<div class="micro-dm-compose">
+						<label class="w-field w-field--chrome micro-dm-field">
+							<input
+								type="text"
+								bind:value={dmDraft}
+								placeholder={`Message ${microDmOther.username}`}
+								aria-label={`Message ${microDmOther.username}`}
+								aria-describedby={dmSendError ? `${trayId}-dm-error` : undefined}
+								on:keydown={handleDmKeydown}
+							/>
+						</label>
+						<button
+							type="button"
+							class="w-ibtn w-ibtn--sm w-ibtn--edge micro-dm-send"
+							aria-label="Send"
+							aria-disabled={!dmDraft.trim()}
+							on:click={sendMicroDm}
+						>
+							<Icon name="send" size={16} />
+						</button>
+					</div>
+					{#if dmSendError}<p class="micro-dm-error" id={`${trayId}-dm-error`} role="alert">{dmSendError}</p>{/if}
+				{:else}
+					<div class="micro-dm-paused" role="status">
+						<p class="micro-dm-paused-text">Sending is paused here until this conversation is ready.</p>
+						<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={openFullDms}>Open in DMs</button>
+					</div>
+				{/if}
+				<div class="micro-dm-colophon">
+					<PrivacyBadge variant="colophon" input={{ channelType: microDmChannelType, policy: dmPolicy }} room={microDmOther.username} />
 				</div>
 			</section>
 		{/if}
@@ -285,7 +353,7 @@
 				{#if showingDm}
 					<span class="scratch-status">{$pinnedDmChannelId === microDmChannelId ? 'Pinned conversation' : 'Open in DMs'}</span>
 				{:else}
-					<span class="scratch-status" role="status">{scratchStatus || 'Saved on this device'}</span>
+					<span class="scratch-status">{bandStatus}</span>
 				{/if}
 			</span>
 		</label>
@@ -300,7 +368,9 @@
 				<Icon name="expand" size={16} />
 			</button>
 		{/if}
+		<span class="sr-only" role="alert">{bandAlert}</span>
 		<button
+			bind:this={toggleButton}
 			type="button"
 			id={`${trayId}-toggle`}
 			class="w-ibtn w-ibtn--sm scratch-toggle"
@@ -517,6 +587,37 @@
 	.micro-dm-send[aria-disabled='true'] {
 		opacity: 0.45;
 		cursor: not-allowed;
+	}
+	.micro-dm-error {
+		margin: 0;
+		padding: 0 16px 4px;
+		color: var(--w-danger);
+		font: var(--w-t-small);
+	}
+	.micro-dm-paused {
+		display: flex;
+		flex: none;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 4px 8px;
+		padding: 6px 12px 6px 16px;
+	}
+	.micro-dm-paused-text {
+		flex: 1 1 160px;
+		margin: 0;
+		color: var(--w-mute);
+		font: var(--w-t-small);
+	}
+	.micro-dm-paused .w-btn:focus-visible {
+		outline: 2px solid var(--w-accent);
+		outline-offset: 2px;
+	}
+	/* Who can read this conversation: the composer's colophon (§7.20), under the field. */
+	.micro-dm-colophon {
+		flex: none;
+		min-width: 0;
+		padding: 0 12px 8px 16px;
 	}
 
 	@media (pointer: coarse) {

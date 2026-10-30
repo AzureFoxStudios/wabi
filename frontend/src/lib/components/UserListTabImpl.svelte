@@ -7,7 +7,7 @@
 <script lang="ts">
 	import './UserListTabImpl.css';
 	import { get, type Readable } from 'svelte/store';
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { users, serverMembers, currentUser, currentChannel, channels, createDM, joinChannel, socket, roleDefinitions, voiceChannelMembers, typingUsers } from '$lib/socket';
 	import { attachUserBanListeners, bannedUserIds } from '$lib/presenceStore';
 	import { showToast } from '$lib/toast';
@@ -38,6 +38,7 @@
 		buildPeopleEntries,
 		buildPeopleGroups,
 		personAriaLabel,
+		personDescription,
 		personKey,
 		personSubline,
 		writingChannelFor,
@@ -69,19 +70,23 @@
 		type BuildMenuContext
 	} from './userListHelpers';
 	import { mediaUrl } from '$lib/mediaUrl';
-	import { setPanelFrameCount } from '$lib/workspacePanels';
+	import { getWorkspacePanelManifest, setPanelFrameCount } from '$lib/workspacePanels';
 
 	type PersonRow = {
 		key: string;
+		/** One person, whichever group they are in: the profile popout re-anchors by it. */
+		personKey: string;
 		user: User;
 		name: string;
 		initial: string;
-		/** Identity color for the name ink and the stamp; '' inherits (away and offline rows). */
-		nameColor: string;
+		/** The stamp's identity disc (--disc/--on). Names stay --w-text: ink is the stamp's (§7.11). */
 		ink: string;
 		presence: PersonEntry['presence'];
 		speaking: boolean;
 		subline: PersonSubline | null;
+		sublineId: string;
+		/** Status message, bio or handle: the row's description, not part of its name. */
+		description: string | null;
 		roleWord: string | null;
 		roleTitle: string | null;
 		ariaLabel: string;
@@ -89,6 +94,9 @@
 	type GroupView = Omit<PeopleGroup, 'entries'> & { headingId: string; rows: PersonRow[] };
 
 	const listId = `people-${++peopleListCounter}`;
+	// Row B without the BetterFriendList add-on: the panel's one-line description, so the masthead
+	// rule still runs under it at y = 96 (the frame leaves row B to this panel).
+	const PEOPLE_DESCRIPTION = getWorkspacePanelManifest('users')?.description ?? 'Who is here, grouped by where they are';
 	const ROLE_TITLES: Record<string, string> = {
 		Owner: 'Community owner',
 		Admin: 'Community admin',
@@ -128,6 +136,7 @@
 	let profileUser: User | null = null;
 	let profileAnchor: HTMLElement | null = null;
 	let showProfile = false;
+	let listRoot: HTMLElement | null = null;
 	let friendActionBusy = false;
 	const dispatch = createEventDispatcher<{ openSettings: void }>();
 	let friendSearchQuery = '';
@@ -178,7 +187,7 @@
 		return getLocalNickname(user) || user.username;
 	}
 
-	/** The person's identity color (role color when the role-color setting asks for it), never a CSS variable. */
+	/** The person's identity color for the stamp (role color when the setting asks for it), never a CSS variable. */
 	function getDisplayColor(user: User): string {
 		const color = resolveUserDisplayColor(user.roleColor, user.color);
 		return color.startsWith('var(') ? '' : color;
@@ -241,7 +250,10 @@
 		roleLabel: (role) => getRoleLabel(role, roleLabelMap)
 	});
 	$: groupViews = buildGroupViews(peopleGroups, $inkFor, $typingUsers, $channels, $currentChannel, $localNicknamesStore, localNickEnabled);
-	$: offlineOpen = offlineSectionExpanded || peopleShow === 'offline' || friendSearchQuery.trim() !== '';
+	// A search or the Offline filter shows the offline people whatever the toggle says; the header
+	// is then a plain heading, since there is nothing to fold.
+	$: offlineForced = (isEnhanced && peopleShow === 'offline') || friendSearchQuery.trim() !== '';
+	$: offlineOpen = offlineSectionExpanded || offlineForced;
 	$: filterApplied = isEnhanced && peopleShow !== 'all';
 
 	function buildGroupViews(
@@ -253,32 +265,64 @@
 		_nicknames: unknown,
 		_nicknamesOn: boolean
 	): GroupView[] {
-		return groups.map(({ entries, ...group }) => ({
-			...group,
-			headingId: `${listId}-${group.id.replace(/[^A-Za-z0-9_-]/g, '_')}`,
-			rows: entries.map((entry) => {
-				const name = getDisplayName(entry.user);
-				const quiet = entry.presence === 'away' || entry.presence === 'offline';
-				const color = getDisplayColor(entry.user);
-				const writing = entry.isSelf ? null : writingChannelFor(entry.user, typing, channelList, currentChannelId);
-				const subline = personSubline(entry, writing);
-				const roleWord = roleWordFor(entry.user);
-				return {
-					key: `${group.id}:${personKey(entry.user)}`,
-					user: entry.user,
-					name,
-					initial: initialOf(name),
-					nameColor: quiet ? '' : color,
-					ink: ink(color),
-					presence: entry.presence,
-					speaking: entry.voice === 'speaking',
-					subline,
-					roleWord,
-					roleTitle: roleWord ? ROLE_TITLES[roleWord] ?? roleWord : null,
-					ariaLabel: personAriaLabel(name, entry, subline, roleWord)
-				};
-			})
-		}));
+		return groups.map(({ entries, ...group }) => {
+			const headingId = `${listId}-${domSafe(group.id)}`;
+			return {
+				...group,
+				headingId,
+				rows: entries.map((entry) => {
+					const name = getDisplayName(entry.user);
+					const key = personKey(entry.user);
+					const writing = entry.isSelf ? null : writingChannelFor(entry.user, typing, channelList, currentChannelId);
+					const subline = personSubline(entry, writing);
+					const roleWord = roleWordFor(entry.user);
+					return {
+						key: `${group.id}:${key}`,
+						personKey: key,
+						user: entry.user,
+						name,
+						initial: initialOf(name),
+						ink: ink(getDisplayColor(entry.user)),
+						presence: entry.presence,
+						speaking: entry.voice === 'speaking',
+						subline,
+						sublineId: `${headingId}-${domSafe(key)}-sub`,
+						description: personDescription(subline),
+						roleWord,
+						roleTitle: roleWord ? ROLE_TITLES[roleWord] ?? roleWord : null,
+						ariaLabel: personAriaLabel(name, entry, subline, roleWord)
+					};
+				})
+			};
+		});
+	}
+
+	function domSafe(value: string): string {
+		return value.replace(/[^A-Za-z0-9_-]/g, '_');
+	}
+
+	function countWords(count: number): string {
+		return `${count} ${count === 1 ? 'person' : 'people'}`;
+	}
+
+	function rowFor(key: string): HTMLElement | null {
+		if (!listRoot) return null;
+		for (const element of listRoot.querySelectorAll<HTMLElement>('[data-person-key]')) {
+			if (element.dataset.personKey === key) return element;
+		}
+		return null;
+	}
+
+	// A row is rebuilt when its person moves to another group (Away → Here now, joining a room).
+	// The open profile card follows them to the new row; with no row left it closes.
+	$: if (groupViews && showProfile) void reanchorProfile();
+
+	async function reanchorProfile(): Promise<void> {
+		await tick();
+		if (!showProfile || !profileUser || !profileAnchor || profileAnchor.isConnected) return;
+		const next = rowFor(personKey(profileUser));
+		if (next) profileAnchor = next;
+		else closeProfile();
 	}
 
 	$: filterMenuItems = [
@@ -363,9 +407,10 @@
 		// The selected menu item is outside the profile card. Open after its
 		// click has bubbled, or the card's outside-click listener closes it.
 		setTimeout(() => {
-			if (!anchor.isConnected) return;
+			const row = anchor.isConnected ? anchor : rowFor(personKey(target));
+			if (!row) return;
 			profileUser = target;
-			profileAnchor = anchor;
+			profileAnchor = row;
 			showProfile = true;
 		}, 0);
 	}
@@ -556,7 +601,7 @@
 	$: profileKey = showProfile && profileUser ? personKey(profileUser) : null;
 </script>
 
-<div class="user-list-tab">
+<div class="user-list-tab" bind:this={listRoot}>
 	{#if isEnhanced}
 		<div class="people-rowb">
 			<label class="w-field w-field--chrome people-find">
@@ -592,23 +637,28 @@
 				</span>
 			</div>
 		{/if}
+	{:else}
+		<div class="people-rowb">
+			<p class="w-panel__desc">{PEOPLE_DESCRIPTION}</p>
+		</div>
 	{/if}
 
 	<div class="people-body">
 		{#each groupViews as group (group.id)}
 			<div class="people-group" role="group" aria-labelledby={group.headingId}>
-				{#if group.kind === 'offline'}
+				{#if group.kind === 'offline' && !offlineForced}
 					<h3 class="people-head">
 						<button
 							type="button"
 							class="people-head-toggle"
 							aria-expanded={offlineOpen}
 							aria-controls={`${group.headingId}-rows`}
-							on:click={() => (offlineSectionExpanded = !offlineOpen)}
+							on:click={() => (offlineSectionExpanded = !offlineSectionExpanded)}
 						>
 							<span class="w-kicker" id={group.headingId}>{group.label}</span>
 							<span class="people-rule" aria-hidden="true"></span>
-							<span class="w-count" aria-label={`${group.rows.length} offline`}>{group.rows.length}</span>
+							<span class="w-count" aria-hidden="true">{group.rows.length}</span>
+							<span class="sr-only">{countWords(group.rows.length)}</span>
 							<Icon name={offlineOpen ? 'chevUp' : 'chevDown'} size={14} />
 						</button>
 					</h3>
@@ -616,7 +666,8 @@
 					<h3 class="people-head">
 						<span class="w-kicker" id={group.headingId}>{group.label}</span>
 						<span class="people-rule" aria-hidden="true"></span>
-						<span class="w-count" aria-label={`${group.rows.length} ${group.rows.length === 1 ? 'person' : 'people'}`}>{group.rows.length}</span>
+						<span class="w-count" aria-hidden="true">{group.rows.length}</span>
+						<span class="sr-only">{countWords(group.rows.length)}</span>
 					</h3>
 				{/if}
 				{#if group.kind !== 'offline' || offlineOpen}
@@ -632,9 +683,11 @@
 									type="button"
 									class="prow"
 									data-member-row
+									data-person-key={row.personKey}
 									aria-label={row.ariaLabel}
+									aria-describedby={row.description ? row.sublineId : undefined}
 									aria-haspopup="dialog"
-									aria-expanded={profileKey === personKey(row.user) && profileAnchor !== null}
+									aria-expanded={profileKey === row.personKey && profileAnchor !== null}
 									on:click={(event) => openProfileFor(row.user, event.currentTarget)}
 									on:contextmenu={(event) => handleRightClick(event, row.user)}
 								>
@@ -650,9 +703,9 @@
 										<span class="prow-presence" data-presence={row.presence} aria-hidden="true"></span>
 									</span>
 									<span class="prow-text">
-										<span class="prow-name"><ProfileName username={row.name} font={row.user.usernameFont} color={row.nameColor} /></span>
+										<span class="prow-name"><ProfileName username={row.name} font={row.user.usernameFont} /></span>
 										{#if row.subline}
-											<span class="prow-sub" class:is-handle={row.subline.tone === 'handle'} class:is-speaking={row.subline.tone === 'speaking'}>
+											<span class="prow-sub" id={row.sublineId} class:is-handle={row.subline.tone === 'handle'} class:is-speaking={row.subline.tone === 'speaking'}>
 												{#if row.subline.glyph}<Icon name={row.subline.glyph} size={12} />{/if}
 												<span class="prow-sub-text">{row.subline.text}</span>
 											</span>

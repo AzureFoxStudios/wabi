@@ -42,6 +42,7 @@
 	box-shadow: none;
 	color: var(--w-text);
 	font: inherit;
+	text-overflow: ellipsis;
 	outline: none;
 	appearance: none;
 }
@@ -71,6 +72,7 @@
 	color: var(--w-text);
 }
 .user-list-tab .people-chip-clear {
+	position: relative;
 	display: inline-grid;
 	place-items: center;
 	width: 18px;
@@ -87,6 +89,16 @@
 .user-list-tab .people-chip-clear:hover {
 	background: var(--w-raise);
 	color: var(--w-text);
+}
+/* The drawn circle stays 18px; its target is 24px (WCAG 2.5.8), 44px under a coarse pointer. */
+.user-list-tab .people-chip-clear::before {
+	content: '';
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 24px;
+	height: 24px;
+	translate: -50% -50%;
 }
 
 /* ---------- body and group headers ---------- */
@@ -187,24 +199,25 @@
 .user-list-tab .prow-shell:hover .prow {
 	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
 }
-/* The row whose profile card is open reads as selected. */
+/* The row whose profile card is open reads as selected, hovered or not. */
 .user-list-tab .prow-shell:has(> .prow[aria-expanded='true']) {
 	--prow-surface: var(--w-raise);
 }
-.user-list-tab .prow[aria-expanded='true'] {
+.user-list-tab .prow-shell .prow[aria-expanded='true'] {
 	background: var(--w-raise);
 }
 .user-list-tab .prow:focus-visible {
 	outline: 2px solid var(--w-accent);
 	outline-offset: -2px;
 }
-:root[data-char='contrast'] .user-list-tab .prow-shell:hover {
+/* High Contrast: hover is a ring, not a fill; the selected row keeps its fill under the ring. */
+:root[data-char='contrast'] .user-list-tab .prow-shell:hover:not(:has(> .prow[aria-expanded='true'])) {
 	--prow-surface: var(--w-bg2);
 }
-:root[data-char='contrast'] .user-list-tab .prow-shell:hover .prow {
+:root[data-char='contrast'] .user-list-tab .prow-shell:hover .prow:not([aria-expanded='true']) {
 	background: transparent;
-	box-shadow: inset 0 0 0 1px var(--w-line-strong);
 }
+:root[data-char='contrast'] .user-list-tab .prow-shell:hover .prow,
 :root[data-char='contrast'] .user-list-tab .prow[aria-expanded='true'] {
 	box-shadow: inset 0 0 0 1px var(--w-line-strong);
 }
@@ -259,7 +272,8 @@
 .user-list-tab .prow-presence[data-presence='busy'] {
 	background: var(--w-danger);
 }
-.user-list-tab .prow-presence[data-presence='offline'] {
+/* Offline, and the viewer's own Invisible (everyone else sees them offline). */
+.user-list-tab .prow-presence:is([data-presence='offline'], [data-presence='invisible']) {
 	background: var(--prow-surface);
 	box-shadow: inset 0 0 0 1.5px var(--w-faint), 0 0 0 2px var(--prow-surface);
 }
@@ -322,8 +336,7 @@
 	text-overflow: ellipsis;
 }
 .user-list-tab .prow-role {
-	align-self: start;
-	margin-top: 2px;
+	align-self: center;
 	line-height: calc(16px * var(--w-fs));
 }
 
@@ -372,18 +385,44 @@
 	.user-list-tab .prow-shell:is(:hover, :focus-within) .prow-role {
 		visibility: visible;
 	}
+	/* Row B keeps the frame's 40px geometry (the masthead rule stays at y = 96): the field and the
+	   filter button stay 32px tall, and each reaches 44px with an invisible target that runs from
+	   the top of row B to 4px under its rule, where the list has only padding (the panel body
+	   clips anything above row B). Offsets are from the padding box, inside the button's 1px
+	   edge, so the filter's target is 44 × 44. */
+	.user-list-tab .people-find,
 	.user-list-tab .people-filter {
+		position: relative;
+		height: 32px;
+	}
+	.user-list-tab .people-filter {
+		width: 32px;
+	}
+	.user-list-tab .people-filter::before {
+		content: '';
+		position: absolute;
+		top: calc(-1 * var(--w-bw));
+		bottom: calc(-12px - var(--w-bw));
+		left: calc(-6px - var(--w-bw));
+		right: calc(-6px - var(--w-bw));
+	}
+	/* The field's extra reach is only the strip under it, so a tap in the text still places the
+	   caret where it lands. */
+	.user-list-tab .people-find::before {
+		content: '';
+		position: absolute;
+		top: 100%;
+		bottom: calc(-12px - var(--w-bw));
+		left: calc(-1 * var(--w-bw));
+		right: calc(-1 * var(--w-bw));
+	}
+	.user-list-tab .people-chip-clear::before {
 		width: 44px;
 		height: 44px;
 	}
 }
 
 @media (max-width: 768px) {
-	.user-list-tab .people-rowb {
-		height: auto;
-		min-height: var(--w-head-b);
-		padding-block: 4px;
-	}
 	/* 16px inside the field keeps iOS from zooming on focus. */
 	:root .user-list-tab .people-find > input[type='search'] {
 		font-size: max(16px, calc(14px * var(--w-fs)));
