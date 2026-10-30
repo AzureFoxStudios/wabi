@@ -56,21 +56,61 @@ export function forumVersionNote(post: Pick<ForumPost, 'edited_at_micros'>, form
 	return post.edited_at_micros ? `Edited ${formatTime(post.edited_at_micros)}` : 'Original version';
 }
 
+/** The actions whose failure the forum says in its own words, beside the action (§7.16). */
+export type ForumAction = 'vote' | 'solution' | 'delete-reply' | 'remove-thread' | 'load-threads' | 'load-thread';
+
 /**
- * A store error in plain words (§7.16): the cause in one line and what is unchanged. The raw
- * message ("Failed to vote: Bad Request") is for the console, never the page.
+ * A failure in plain words: the cause in one line and what is known about the result. The raw
+ * message ("Failed to vote: Bad Request") is for the console, never the page. The copy never
+ * claims nothing changed where the request may have reached the server: a dropped connection
+ * can still have deleted a reply.
  */
-export function forumErrorCopy(raw: string | null | undefined): { title: string; text: string } | null {
-	if (!raw) return null;
-	const message = raw.toLowerCase();
-	if (message.includes('vote')) return { title: 'Your vote was not counted', text: 'The score is unchanged. Try again in a moment.' };
-	if (message.includes('solution')) return { title: 'Could not mark the solution', text: 'The thread is unchanged. Try again in a moment.' };
-	if (message.includes('delete')) return { title: 'Could not remove that post', text: 'It is still in the thread. Try again in a moment.' };
-	if (message.includes('update')) return { title: 'Could not save that change', text: 'The thread is unchanged. Try again in a moment.' };
-	if (message.includes('create')) return { title: 'Could not post that', text: 'Your draft is still here. Try again in a moment.' };
-	if (message.includes('posts')) return { title: 'Could not load this thread', text: 'The thread list is unchanged. Try again in a moment.' };
-	if (message.includes('thread')) return { title: 'Could not load threads', text: 'Check your connection, then try again.' };
-	return { title: 'Something did not go through', text: 'Nothing was changed. Try again in a moment.' };
+export function forumActionCopy(action: ForumAction): { title: string; text: string } {
+	switch (action) {
+		case 'vote':
+			return { title: 'Your vote was not confirmed', text: 'The score shown is the last one the server sent. Reload the thread before you vote again.' };
+		case 'solution':
+			return { title: 'Could not mark the solution', text: 'The server did not confirm it. Reload the thread to check before you try again.' };
+		case 'delete-reply':
+			return { title: 'Could not delete the reply', text: 'It may still be in the thread. Reload the thread to check before you try again.' };
+		case 'remove-thread':
+			return { title: 'Could not remove the thread', text: 'It may still be in the list. Reload the forum to check before you try again.' };
+		case 'load-thread':
+			return { title: 'Could not load this thread', text: 'Its replies may be missing here. Try again in a moment.' };
+		case 'load-threads':
+			return { title: 'Could not load threads', text: 'Check your connection, then try again.' };
+	}
+}
+
+/**
+ * A category rename moves one thread at a time, so a failure can land part-way. The copy says
+ * how many threads already carry the new name, read back from the list after the attempt.
+ */
+export function forumRenameCopy(from: string, to: string, moved: number, total: number): { title: string; text: string } {
+	if (moved <= 0) return { title: `Could not rename ${from}`, text: `Every thread is still in ${from}. Try again in a moment.` };
+	const rest = total - moved;
+	return {
+		title: `Could not move every thread to ${to}`,
+		text: `${moved} of ${total} ${total === 1 ? 'thread' : 'threads'} moved; ${rest === 1 ? 'one is' : `${rest} are`} still in ${from}. Rename ${from} again to move the rest.`
+	};
+}
+
+/**
+ * Who is offered "Mark as solution" on a reply: the thread's author or a moderator (`canPick`),
+ * and never on a reply they wrote themselves (forum-wiki#8). A moderator may still mark the
+ * thread author's own answer.
+ */
+export function forumCanMarkSolution(canPick: boolean, viewerId: number | undefined, replyAuthorId: number): boolean {
+	return canPick && viewerId !== undefined && viewerId !== replyAuthorId;
+}
+
+/**
+ * A vote button's state. The server adds every vote and cannot take one back or switch it, so a
+ * vote cast from this view locks both buttons: the one cast stays pressed, the other is
+ * unavailable, and pressing either again sends nothing. While the request runs both wait.
+ */
+export function forumVoteState(direction: 'up' | 'down', myVote: 'up' | 'down' | undefined, voting: boolean): { pressed: boolean; locked: boolean } {
+	return { pressed: myVote === direction, locked: voting || myVote !== undefined };
 }
 
 /**

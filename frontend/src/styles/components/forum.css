@@ -36,6 +36,8 @@
 	overflow: hidden;
 	background: var(--w-bg);
 	color: var(--w-text);
+	/* The UI type here is also the toolbar's measure: its steps are in em (see below). */
+	font: var(--w-t-ui);
 }
 /* The forum's own headings, lines and lists; the prose inside posts keeps the kit's rhythm. */
 .forum-list-head,
@@ -72,6 +74,14 @@
 .forum-channel .forum-search {
 	flex: 0 1 280px;
 	min-width: 132px;
+}
+/* A category name is the reader's own data: it never pushes the toolbar wider than its step. */
+.forum-channel .forum-category-select .w-select__value {
+	max-width: 10em;
+}
+/* Sort's own glyph shows only once it folds to a key (under 36em). */
+.forum-channel .forum-sort .forum-sort-glyph {
+	display: none;
 }
 .forum-search input::-webkit-search-decoration {
 	-webkit-appearance: none;
@@ -118,9 +128,10 @@
 }
 
 /* ---------- panes ---------- */
-.forum-body {
+.forum-panes {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: minmax(0, 1fr);
 	flex: 1;
 	min-height: 0;
 	overflow: hidden;
@@ -165,16 +176,32 @@
 }
 
 @container forum (min-width: 1050px) {
-	.forum-body {
+	.forum-panes {
 		grid-template-columns: clamp(280px, 34%, 400px) minmax(0, 1fr);
+		grid-template-rows: minmax(0, 1fr) var(--w-foot, 80px);
 	}
 	.forum-post-list,
 	.forum-channel.is-reading .forum-post-list {
 		display: flex;
+		grid-area: 1 / 1 / 2 / 2;
 		border-right: var(--w-bw) solid var(--w-line);
 	}
 	.forum-reading-pane {
 		display: flex;
+		grid-area: 1 / 2 / 3 / 3;
+	}
+	/* The list column ends on the footer rule (§2.2): the reply dock's top rule runs on under the
+	   list, and with no dock (no thread open) it runs across the whole forum. */
+	.forum-panes::after {
+		content: '';
+		grid-area: 2 / 1 / 3 / 2;
+		border-top: var(--w-bw) solid var(--w-line);
+		border-right: var(--w-bw) solid var(--w-line);
+		pointer-events: none;
+	}
+	.forum-channel:not(.has-dock) .forum-panes::after {
+		grid-column: 1 / 3;
+		border-right: 0;
 	}
 	.forum-channel.is-reading .forum-filters {
 		display: flex;
@@ -183,36 +210,36 @@
 		display: none;
 	}
 	/* Writing a new thread takes the whole forum; the crumb leads back (the draft is kept). */
-	.forum-channel.is-composing .forum-body {
+	.forum-channel.is-composing .forum-panes {
 		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: minmax(0, 1fr);
 	}
-	.forum-channel.is-composing .forum-post-list {
+	.forum-channel.is-composing .forum-post-list,
+	.forum-channel.is-composing .forum-panes::after {
 		display: none;
+	}
+	.forum-channel.is-composing .forum-reading-pane {
+		grid-area: 1 / 1 / 2 / 2;
 	}
 }
 
-/* Narrow (the companion panel, phones): a 16px gutter, the sort select steps aside, and
-   "New thread" keeps its name for assistive tech while showing only its glyph. */
-@container forum (max-width: 519.98px) {
-	.forum-toolbar,
-	.forum-category-editor,
-	.forum-body {
-		--forum-gutter: 16px;
-	}
-	.forum-toolbar .forum-sort {
+/* The toolbar steps down by measure, in em of the forum's UI type, so a larger --w-fs (or a
+   long category name, capped at 10em) steps sooner instead of painting one control over
+   another. Under 52em both selects drop their prefixes and "New thread" folds to its glyph
+   where the filters show (its name stays for assistive tech and in its tooltip). */
+@container forum (max-width: 51.99em) {
+	.forum-channel .forum-filters .w-select__label {
 		display: none;
 	}
 	.forum-channel .forum-search {
 		flex: 1 1 auto;
-		min-width: 0;
-	}
-	.forum-channel .forum-category-select .w-select__label {
-		display: none;
+		min-width: 96px;
 	}
 	.forum-channel.in-panel .forum-new,
 	.forum-channel:not(.is-reading, .is-composing) .forum-new {
-		width: 32px;
+		aspect-ratio: 1;
 		padding: 0;
+		justify-content: center;
 	}
 	.forum-channel.in-panel .forum-new-label,
 	.forum-channel:not(.is-reading, .is-composing) .forum-new-label {
@@ -222,6 +249,53 @@
 		overflow: hidden;
 		clip-path: inset(50%);
 		white-space: nowrap;
+	}
+}
+/* Beside the list the filters show while reading too (only at a large --w-fs is 1050px < 52em). */
+@container forum (min-width: 1050px) and (max-width: 51.99em) {
+	.forum-channel.is-reading .forum-new {
+		aspect-ratio: 1;
+		padding: 0;
+		justify-content: center;
+	}
+	.forum-channel.is-reading .forum-new-label {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+}
+/* Under 36em (phones, the companion panel) Sort folds to a key with its glyph: still there,
+   named "Sort: Newest" by its label and tooltip. */
+@container forum (max-width: 35.99em) {
+	.forum-channel .forum-category-select .w-select__value {
+		max-width: 7em;
+	}
+	.forum-channel .forum-sort {
+		aspect-ratio: 1;
+		padding: 0;
+		justify-content: center;
+	}
+	.forum-channel .forum-sort :is(.w-select__value, .forum-select-chev) {
+		display: none;
+	}
+	.forum-channel .forum-sort .forum-sort-glyph {
+		display: block;
+	}
+	.forum-channel .forum-search {
+		min-width: 64px;
+	}
+}
+
+/* Narrow (the companion panel, phones): a 16px gutter. */
+@container forum (max-width: 519.98px) {
+	.forum-toolbar,
+	.forum-category-editor,
+	.forum-category-notice,
+	.forum-panes {
+		--forum-gutter: 16px;
 	}
 	.forum-reading-empty {
 		padding: 24px 16px 0;
@@ -484,6 +558,7 @@
 	border-radius: var(--w-pill);
 }
 .forum-vote-btn {
+	position: relative;
 	display: inline-grid;
 	place-items: center;
 	flex: none;
@@ -499,7 +574,13 @@
 	cursor: pointer;
 	transition: background-color var(--w-dur-1) var(--w-ease), color var(--w-dur-1) var(--w-ease);
 }
-.forum-vote-btn:where(:not(:disabled)):hover {
+/* The key is 28px inside the 32px pill; its target reaches the pill's edge (32px, §10). */
+.forum-vote-btn::before {
+	content: '';
+	position: absolute;
+	inset: -2px;
+}
+.forum-vote-btn:where(:not(:disabled, [aria-disabled='true'])):hover {
 	background: var(--w-raise);
 	color: var(--w-text);
 }
@@ -516,6 +597,18 @@
 .forum-vote-btn:disabled {
 	cursor: not-allowed;
 	opacity: 0.45;
+}
+/* The server cannot switch or take back a vote, so one vote cast here locks both keys: the cast
+   one stays pressed, the other is unavailable. They stay focusable (aria-disabled, not
+   disabled), so a keyboard vote keeps its place. While the request runs neither dims. */
+.forum-vote-btn[aria-disabled='true'] {
+	cursor: default;
+}
+.forum-vote:not([aria-busy='true']) .forum-vote-btn[aria-disabled='true']:not([aria-pressed='true']) {
+	opacity: 0.45;
+}
+.forum-vote[aria-busy='true'] .forum-vote-btn {
+	cursor: progress;
 }
 .forum-vote-score {
 	min-width: 2ch;
@@ -687,6 +780,10 @@
 	padding: 12px var(--forum-gutter);
 	border-top: var(--w-bw) solid var(--w-line);
 	background: var(--w-bg);
+	/* The same gutter as the reading column above, so the field and the article share edges at
+	   every width, not only once both reach 720 and center. */
+	overflow: hidden;
+	scrollbar-gutter: stable both-edges;
 }
 .forum-reply-open {
 	display: flex;
@@ -906,6 +1003,15 @@
 .forum-channel .forum-notice--inline {
 	padding: 24px 0 0;
 }
+/* A failed vote, solution or delete: under the post's actions, so nothing above moves. */
+.forum-post-notice {
+	margin-top: 12px;
+}
+.forum-category-notice {
+	flex: none;
+	padding: 8px var(--forum-gutter);
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
 .forum-channel .forum-skeleton {
 	padding: 16px var(--forum-gutter);
 }
@@ -932,18 +1038,11 @@
 	.forum-toolbar {
 		height: 56px;
 	}
-	.forum-vote {
-		height: 44px;
-	}
-	.forum-vote-btn {
-		width: 40px;
-		height: 40px;
-	}
 	.forum-channel .forum-post-row .forum-more {
 		opacity: 1;
 	}
 	.forum-post-row-open {
-		padding-right: 52px;
+		padding-right: 56px;
 	}
 	.forum-reply-open {
 		height: 48px;
@@ -951,6 +1050,30 @@
 	.forum-attach-remove {
 		width: 32px;
 		height: 32px;
+	}
+}
+
+/* Touch and phones: the vote keys reach 44px (40px keys in a 44px pill, plus the 2px reach). */
+@media (pointer: coarse), (max-width: 599.98px) {
+	.forum-vote {
+		height: 44px;
+	}
+	.forum-vote-btn {
+		width: 40px;
+		height: 40px;
+	}
+}
+/* Phones with a fine pointer too (§10: 44px on phones); touch gets these from the kit. */
+@media (max-width: 599.98px) {
+	.forum-channel .forum-more {
+		width: 44px;
+		height: 44px;
+	}
+	.forum-channel .forum-mark-solution {
+		height: 44px;
+	}
+	.forum-post-row-open {
+		padding-right: 56px;
 	}
 }
 
@@ -980,6 +1103,16 @@
 	.forum-post-row.active,
 	.forum-vote-btn[aria-pressed='true'] {
 		outline: 2px solid Highlight;
+		outline-offset: -2px;
+	}
+	/* Focus stays an outline (§10): the field-button's edge and ring are dropped here, and a
+	   pressed vote key's focus must differ from its pressed state. */
+	.forum-reply-open:focus-visible {
+		outline: 2px solid CanvasText;
+		outline-offset: 2px;
+	}
+	.forum-vote-btn:focus-visible {
+		outline: 2px solid CanvasText;
 		outline-offset: -2px;
 	}
 }
