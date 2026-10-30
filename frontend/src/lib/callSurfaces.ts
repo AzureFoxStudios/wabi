@@ -4,7 +4,7 @@
  * the button semantics identical in one place.
  */
 
-import { get } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import {
 	callSessionManager
 } from './callSessionManager';
@@ -12,6 +12,8 @@ import { sessionBadge, type CallSession } from './callSessionTypes';
 import { confirmLeaveWhileRecording } from './callRecording';
 import { getSocket } from './socketConnection';
 import { revokeGroupCall } from './calling_impl_core';
+import { CallJoinOfflineError, createCallJoinTracker, type CallJoinMode } from './callJoinState';
+import { selectWorkspaceView } from './workspaceNavigationState';
 import {
 	joinVoiceChannel,
 	leaveVoiceChannel,
@@ -26,12 +28,51 @@ import {
 
 export { sessionBadge };
 
-export function joinVoice(channelId: string): void {
-	const socket = getSocket();
-	if (!socket?.connected) return;
-	void joinVoiceChannel(socket, channelId).catch((err) =>
-		console.warn('[VoiceView] join failed:', err)
-	);
+const joins = createCallJoinTracker((channelId, error) => console.warn(`[Calls] join ${channelId} failed:`, error));
+
+/**
+ * Join and Listen in progress and the failures they left, per room (§8.5): the Calls page shows
+ * "Joining…" (aria-busy) on the button that was pressed and an inline notice with Retry under
+ * that row when it fails.
+ */
+export const callJoinAttempts = joins.attempts;
+
+/**
+ * Join a voice room ("Join": your mic goes there) or listen in ("Listen": receive only).
+ * Resolves true once joined. A failure is recorded in `callJoinAttempts` (and logged), never
+ * thrown, so a button handler can fire and forget.
+ *
+ * "Join" while your mic is in another call also moves the mic here, exactly like the card's
+ * "Speak here"; "Listen" never moves it.
+ */
+export function joinVoice(channelId: string, mode: CallJoinMode = 'join'): Promise<boolean> {
+	return joins.run(channelId, mode, async () => {
+		const socket = getSocket();
+		if (!socket?.connected) throw new CallJoinOfflineError();
+		await joinVoiceChannel(socket, channelId, mode === 'listen' ? { listenOnly: true } : {});
+		if (mode === 'join') {
+			const session = callSessionManager.get(channelId);
+			if (session && session.focus !== 'focused') callSessionManager.setFocus(channelId);
+		}
+	});
+}
+
+/** Close a join failure notice. */
+export function dismissJoinFailure(channelId: string): void {
+	joins.dismiss(channelId);
+}
+
+/**
+ * The Calls page's Connection details section (§8.5, §9.5: one surface). Opened from the Calls
+ * masthead ⋯ and from the sidebar voice status row's options; it lives on the Calls page so
+ * route, latency and packet loss are described in one place.
+ */
+export const callConnectionDetailsOpen = writable(false);
+
+/** Show Connection details on the Calls page (opening Calls in center stage when needed). */
+export function openConnectionDetails(): void {
+	callConnectionDetailsOpen.set(true);
+	selectWorkspaceView('voice');
 }
 
 export function leaveCall(session: CallSession): boolean {

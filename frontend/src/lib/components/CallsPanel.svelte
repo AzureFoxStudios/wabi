@@ -1,115 +1,162 @@
 <script lang="ts">
 	/**
-	 * Phase 4 — the right-panel calls controller (figure 2): one compact card
-	 * per connected call with status badge, transport, participant avatars,
-	 * per-call controls and volume. Available from anywhere via the panel
-	 * system, exactly like People/Messages.
+	 * Calls in the companion panel (design contract §7.21, §8.5 "Right-panel Calls"): compact rows
+	 * for the calls you are in, beside whatever owns center stage. The frame's row A already names
+	 * the panel ("Calls" + count), so this body draws no title of its own.
+	 *
+	 * Each row: the room, your state word in the same vocabulary as the Calls page ("Mic here",
+	 * "Listening", "Silent"), the people as real stamps, then "Silence this call", the volume
+	 * ("Volume for <room>"), "Speak here" and "Leave". The panel never takes over center stage:
+	 * "Open Calls" is an explicit choice.
 	 */
+	import { onDestroy } from 'svelte';
+	import { _ } from '$lib/i18n';
 	import { callSessions } from '$lib/callSessionManager';
-	import { sessionBadge, sessionBadgeLabel } from '$lib/callSessionTypes';
+	import { callStateWord, sessionState, type CallCopy, type CallSession } from '$lib/callSessionTypes';
 	import { channels } from '$lib/channelStore';
-	import { activeCalls } from '$lib/calling';
-	import {
-		leaveCall,
-		focusCall,
-		setCallVolume,
-		toggleCallSpeaker
-	} from '$lib/callSurfaces';
+	import { voiceChannelMembers } from '$lib/presenceStore';
+	import { users, serverMembers } from '$lib/socket';
+	import { activeCalls, isMuted, speakingUsers } from '$lib/calling';
+	import { leaveCall, focusCall, setCallVolume, toggleCallSpeaker } from '$lib/callSurfaces';
+	import { setPanelFrameCount } from '$lib/workspacePanels';
+	import { selectWorkspaceView } from '$lib/workspaceNavigationState';
+	import { inkFor } from '$lib/theme/identity';
+	import { mediaUrl } from '$lib/mediaUrl';
+	import Icon from './ui/Icon.svelte';
 
-	let sessions = $derived([...$callSessions.values()].sort((a, b) => {
-		if (a.focus === 'focused') return -1;
-		if (b.focus === 'focused') return 1;
-		return b.joinedAt - a.joinedAt;
-	}));
+	/** Stamps in a row before "+N" (the 304px panel keeps them on one line). */
+	const FACES = 5;
 
-	function initial(username: string): string {
-		return (username || '?').trim().charAt(0).toUpperCase();
-	}
+	const t: CallCopy = (key, values) => $_(key, values ? { values } : undefined);
 
-	// Sessions register with `name: channelId` as a placeholder — resolve the
-	// real channel name reactively at render time.
+	let sessions = $derived(
+		[...$callSessions.values()].sort((a, b) => {
+			if (a.focus === 'focused') return -1;
+			if (b.focus === 'focused') return 1;
+			return b.joinedAt - a.joinedAt;
+		})
+	);
+
+	// The frame's row A shows the count; no count while there is nothing to count.
+	$effect(() => {
+		setPanelFrameCount('calls', sessions.length > 0 ? sessions.length : null);
+	});
+	onDestroy(() => setPanelFrameCount('calls', null));
+
+	// Sessions register with `name: channelId` as a placeholder: resolve the real channel name.
 	function displayName(session: { id: string; name?: string | null; channelId?: string | null }): string {
-		return (
-			(session.channelId ? $channels.find((c) => c.id === session.channelId)?.name : undefined) ??
-			session.name ??
-			session.id
-		);
+		return (session.channelId ? $channels.find((c) => c.id === session.channelId)?.name : undefined) ?? session.name ?? session.id;
 	}
 
-	// DM/group sessions have no channel roster — their participants live in
-	// the p2p call list (review F4).
-	function avatarPeople(session: { kind: string; participants: Array<{ userId: string; username: string }> }): Array<{ userId: string; username: string }> {
-		if (session.kind !== 'channel' && session.participants.length === 0) {
-			return $activeCalls.map((call) => ({ userId: call.userId, username: call.username ?? call.userId }));
+	const memberColors = $derived.by(() => {
+		const map = new Map<string, string>();
+		for (const person of [...$serverMembers, ...$users]) {
+			if (!person?.color) continue;
+			if (person.id) map.set(person.id, person.color);
+			if (person.dbUserId != null) map.set(`user-${person.dbUserId}`, person.color);
 		}
-		return session.participants;
+		return map;
+	});
+
+	interface Face {
+		userId: string;
+		name: string;
+		initial: string;
+		picture: string | null;
+		ink: string;
+		speaking: boolean;
+	}
+
+	function face(member: { userId: string; username?: string | null; profilePicture?: string | null; isSpeaking?: boolean }): Face {
+		const name = member.username || member.userId;
+		return {
+			userId: member.userId,
+			name,
+			initial: (name.trim().charAt(0) || '?').toUpperCase(),
+			picture: member.profilePicture ? mediaUrl(member.profilePicture) : null,
+			ink: $inkFor(memberColors.get(member.userId)),
+			speaking: Boolean(member.isSpeaking) || $speakingUsers.has(member.userId)
+		};
+	}
+
+	// A channel's roster carries pictures; DM/group sessions fall back to the live call list (review F4).
+	function sessionFaces(session: CallSession): Face[] {
+		const roster = session.channelId ? ($voiceChannelMembers[session.channelId] ?? null) : null;
+		if (roster && roster.length > 0) return roster.map((m) => face(m));
+		if (session.kind !== 'channel' && session.participants.length === 0) {
+			return $activeCalls.map((call) => face({ userId: call.userId, username: call.username ?? call.userId }));
+		}
+		return session.participants.map((p) => face(p));
 	}
 </script>
 
-<div class="cpanel">
-	<header class="cpanel-head">
-		<span class="cpanel-title">Calls</span>
-		<span class="cpanel-count">
-			{sessions.length === 0 ? 'no active calls' : `${sessions.length} active call${sessions.length === 1 ? '' : 's'}`}
-		</span>
-	</header>
-
+<div class="calls-panel">
 	{#if sessions.length === 0}
-		<div class="cpanel-empty">Not connected to any call.</div>
+		<div class="calls-panel__empty">
+			<Icon name="voice" size={28} />
+			<p class="calls-panel__empty-title">{t('calls.empty_title')}</p>
+			<p class="calls-panel__empty-text">Join a voice room from the sidebar. Every room is listed in Calls.</p>
+			<button type="button" class="w-btn w-btn--sm" onclick={() => selectWorkspaceView('voice')}>Open Calls</button>
+		</div>
 	{:else}
-		{#each sessions as session (session.id)}
-			{@const badge = sessionBadge(session)}
-			<section class="cpanel-card" data-badge={badge}>
-				<header class="cpanel-card-head">
-					<span class="cpanel-name">{displayName(session)}</span>
-					{#if badge !== 'focused'}
-						<span class="vv-badge" data-badge={badge}>{sessionBadgeLabel(badge)}</span>
-					{/if}
-				</header>
-				<div class="cpanel-meta">
-					<span class="cpanel-transport" title={`Transport: ${session.transport ?? session.lifecycle}`}>
-						{session.transport ? session.transport.toUpperCase() : session.lifecycle}
-					</span>
-					<span class="cpanel-participants">
-						{#each avatarPeople(session).slice(0, 5) as p (p.userId)}
-							<span class="vv-avatar small" title={p.username || p.userId}>{initial(p.username || p.userId)}</span>
-						{/each}
-						{#if avatarPeople(session).length > 5}
-							<span class="vv-avatar small overflow">+{avatarPeople(session).length - 5}</span>
-						{/if}
-					</span>
-				</div>
-				<div class="cpanel-controls">
-					<button type="button" class:active={session.muted} onclick={() => toggleCallSpeaker(session.id)} title="Mute this call's audio" aria-label="Mute this call's audio">
-						{#if session.muted}
-							<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
-						{:else}
-							<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-						{/if}
-					</button>
-					{#if badge !== 'focused'}
-						<button type="button" onclick={() => focusCall(session.id)} title="Make this the call your mic transmits to" aria-label="Speak here">
-							<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+		<ul class="calls-panel__list">
+			{#each sessions as session (session.id)}
+				{@const state = sessionState(session, { micMuted: $isMuted })}
+				{@const here = state.key === 'mic-here' || state.key === 'muted'}
+				{@const faces = sessionFaces(session)}
+				{@const room = displayName(session)}
+				<li class="calls-row" class:calls-row--here={here} data-state={state.key} aria-label={`${room}, ${callStateWord(state, t)}`}>
+					<div class="calls-row__head">
+						<span class="calls-row__name">{room}</span>
+						<span class="call-pill call-pill--sm" data-state={state.key} title={state.hint}>
+							<Icon name={state.icon} size={12} />{callStateWord(state, t)}
+						</span>
+					</div>
+					<div class="calls-row__people">
+						<span class="calls-row__faces" aria-hidden="true">
+							{#each faces.slice(0, FACES) as person (person.userId)}
+								<span class="call-av call-av--sm" class:call-av--speaking={person.speaking} style={person.ink} title={person.name}>
+									{#if person.picture}<img src={person.picture} alt="" />{:else}<span class="call-av__initial">{person.initial}</span>{/if}
+								</span>
+							{/each}
+							{#if faces.length > FACES}<span class="call-av call-av--sm call-av--more">+{faces.length - FACES}</span>{/if}
+						</span>
+						<span class="calls-row__count">{t('calls.in_call_count', { count: faces.length })}</span>
+					</div>
+					<div class="calls-row__controls" style={`--w-range-fill: ${session.volume}%`}>
+						<button
+							type="button"
+							class="w-ibtn w-ibtn--sm"
+							aria-pressed={session.muted}
+							aria-label={t('calls.silence_call')}
+							title={t('calls.silence_call')}
+							onclick={() => toggleCallSpeaker(session.id)}
+						>
+							<Icon name={session.muted ? 'headphonesOff' : 'voice'} />
 						</button>
-					{/if}
-					<button type="button" class="danger" onclick={() => leaveCall(session)} title="Hang up" aria-label="Hang up">
-						<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07C9.44 17.28 8.17 16 7.05 14.68A19.79 19.79 0 0 1 4 6.05 2 2 0 0 1 5.99 4h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L10.68 11.68"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
-					</button>
-					<label class="cpanel-volume">
-						<span>You</span>
 						<input
 							type="range"
+							class="w-range"
 							min="0"
 							max="100"
 							step="5"
 							value={session.volume}
 							oninput={(e) => setCallVolume(session.id, Number((e.currentTarget as HTMLInputElement).value))}
-							aria-label={`Volume for ${displayName(session)}`}
+							aria-label={t('calls.volume_for', { room })}
+							aria-valuetext={`${session.volume}%`}
 						/>
-						<span class="cpanel-volume-value">{session.volume}%</span>
-					</label>
-				</div>
-			</section>
-		{/each}
+						<span class="calls-row__level" aria-hidden="true">{session.volume}%</span>
+						{#if !here}
+							<button type="button" class="w-ibtn w-ibtn--sm" aria-label={`Speak here: send your mic to ${room}`} title="Speak here" onclick={() => focusCall(session.id)}>
+								<Icon name="mic" />
+							</button>
+						{/if}
+						<button type="button" class="w-btn w-btn--danger w-btn--sm" aria-label={`${t('calls.leave')} ${room}`} onclick={() => leaveCall(session)}>
+							{t('calls.leave')}
+						</button>
+					</div>
+				</li>
+			{/each}
+		</ul>
 	{/if}
 </div>
