@@ -1,8 +1,7 @@
-/* Reading surfaces skin — wiki landing, forum toolbar and thread titles, gallery document
-   covers.
-   Owner (wave 1): w1-forum owns the forum toolbar and thread titles. Blocks marked HELD FOR
-   belong to another package and sit here only because they share this cascade slot; their
-   owner changes them by handoff or moves them out.
+/* Reading surfaces skin — wiki landing, forum titles, gallery document covers.
+   Owner (wave 1): w1-forum owns the forum block (the article title, the list titles and the
+   prose headings). Blocks marked HELD FOR belong to another package and sit here only because
+   they share this cascade slot; their owner changes them by handoff or moves them out.
    Cascade: panels-skin.css after calls.css — after modal-skin.css, before desktop-shell.css
    (the only carved slot that follows modal-skin). */
 
@@ -52,17 +51,29 @@
 /* ---- wiki landing in the panel ---- */
 :root .wiki-start h1, :root .wiki-start h2, :root .wiki-start h3 { font-family: var(--w-serif); font-weight: 600; letter-spacing: .01em; }
 
-/* ---- forum: toolbar as quiet text controls, serif thread titles ---- */
-:root .forum-channel .forum-workspace-toolbar { gap: 8px; padding: 8px 12px; border-bottom: var(--w-bw, 1px) solid var(--w-line); background: transparent; }
-:root .forum-channel .forum-workspace-toolbar button { min-height: 30px; padding: 4px 11px; border: var(--w-bw, 1px) solid var(--w-line-strong); border-radius: calc(8px * var(--w-rs, 1)); background: transparent; color: var(--w-text); font: 600 .78rem var(--w-sans); }
-:root .forum-channel .forum-workspace-toolbar button:hover:not(:disabled) { border-color: var(--w-accent); color: var(--w-accent); }
-:root .forum-channel .forum-workspace-toolbar .forum-primary-action { margin-inline-start: auto; background: var(--w-text); color: var(--w-bg); border-color: var(--w-text); }
-:root .forum-channel .forum-workspace-toolbar .forum-primary-action:hover:not(:disabled) { background: var(--w-accent); border-color: var(--w-accent); color: var(--w-on-accent); }
-:root .forum-channel .forum-post-detail-title { font: 600 clamp(1.3rem, 1.1rem + 1vw, 1.8rem)/1.25 var(--w-serif); letter-spacing: .005em; }
-:root .right-panel-embedded .forum-workspace-toolbar { padding-inline-end: 12px; }
-:root .right-panel-embedded .forum-post-row { padding: 12px 14px; min-height: 0; }
-:root .right-panel-embedded .forum-post-row-title { font-size: 1rem; margin-bottom: 6px; }
-:root .right-panel-embedded .forum-post-row-title { font: 600 1.05rem/1.35 var(--w-serif); }
+/* ---- forum (w1-forum): the article title, the list titles and the prose headings ----
+   surfaces/headings.css sizes every h1 in center stage at 28px / 1.15 at (0,3,1) and the list
+   titles at 17px / 1.35 at (0,3,0). The forum article title is serif 30/38, list titles 17/24
+   (integer line heights, §4.1) and the prose keeps the kit's line heights, so these rules match
+   that weight one slot later. Once headings.css drops its forum line and the h1 line height,
+   they can go. Everything else in the forum lives in styles/components/forum.css. */
+:root .forum-channel h1.forum-article-title {
+	font: 600 calc(30px * var(--w-fs, 1)) / calc(38px * var(--w-fs, 1)) var(--w-serif);
+	letter-spacing: 0.005em;
+}
+@container forum (max-width: 519.98px) {
+	:root .forum-channel h1.forum-article-title {
+		font-size: calc(24px * var(--w-fs, 1));
+		line-height: calc(32px * var(--w-fs, 1));
+	}
+}
+:root .forum-channel .w-prose h1 {
+	font-size: calc(28px * var(--w-fs, 1));
+	line-height: calc(36px * var(--w-fs, 1));
+}
+:root .forum-channel .forum-post-row-title {
+	line-height: calc(24px * var(--w-fs, 1));
+}
 
 /* HELD FOR the gallery skin — GalleryChannel.svelte has no wave-1 owner. */
 /* ---- gallery: documents and models as cover cards ---- */
