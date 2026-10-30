@@ -298,8 +298,8 @@
 										>
 											{$_('messages.media.open_3d_tab')}
 										</button>
-										<a href={getFileUrl(fileAttachment.fileUrl)} target="_blank" rel="noopener noreferrer" download={fileAttachment.fileName} class="media-meta" aria-label={$_('messages.download_file', { values: { name: fileAttachment.fileName || $_('messages.file') } })}>
-											{fileMeta(fileAttachment.fileName, fileAttachment.fileSize, true)}
+										<a href={getFileUrl(fileAttachment.fileUrl)} target="_blank" rel="noopener noreferrer" download={fileAttachment.fileName} class="media-meta">
+											<span class="sr-only">{$_('context_menu.download')} </span>{fileMeta(fileAttachment.fileName, fileAttachment.fileSize, true)}
 										</a>
 										{#if index === 3 && message.files.length > 4}
 											<div class="more-overlay">
@@ -379,8 +379,8 @@
 							>
 								{$_('messages.media.open_3d_tab')}
 							</button>
-							<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="media-meta" aria-label={$_('messages.download_file', { values: { name: message.fileName || $_('messages.file') } })}>
-								{fileMeta(message.fileName, message.fileSize, true)}
+							<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="media-meta">
+								<span class="sr-only">{$_('context_menu.download')} </span>{fileMeta(message.fileName, message.fileSize, true)}
 							</a>
 						</div>
 						{:else if isImage(message.fileName) && !isEncryptedAttachment(message)}
@@ -401,8 +401,8 @@
 								on:contextmenu={(e) => onImageContextMenu(e, message)}
 								title={$_('messages.media.click_enlarge_with_options')}
 							/>
-							<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="media-meta" aria-label={$_('messages.download_file', { values: { name: message.fileName || $_('messages.file') } })}>
-								{fileMeta(message.fileName, message.fileSize, true)}
+							<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="media-meta">
+								<span class="sr-only">{$_('context_menu.download')} </span>{fileMeta(message.fileName, message.fileSize, true)}
 							</a>
 						</div>
 					{:else if isEncryptedImageAttachment(message)}
@@ -429,12 +429,11 @@
 								target="_blank"
 								rel="noopener noreferrer"
 								class="media-meta"
-								aria-label={$_('messages.download_file', { values: { name: message.fileName || $_('messages.file') } })}
 								on:click|preventDefault={() =>
 									message.fileUrl && message.fileName &&
 									onDownloadAttachment(message.fileUrl, message.fileName, message.attachmentEncryption)}
 							>
-								{fileMeta(message.fileName, message.fileSize, true)}<span class="file-sealed">{$_('messages.encrypted')}</span>
+								<span class="sr-only">{$_('context_menu.download')} </span>{fileMeta(message.fileName, message.fileSize, true)} <span class="file-sealed">{$_('messages.encrypted')}</span>
 							</a>
 						</div>
 					{:else if isVideo(message.fileName) && !isEncryptedAttachment(message)}
@@ -459,8 +458,8 @@
 								<source src={getFileUrl(message.fileUrl)} type={getMediaMimeType(message.fileName) || undefined} />
 								{$_('messages.viewer.video_not_supported')}
 							</video>
-							<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="media-meta" aria-label={$_('messages.download_file', { values: { name: message.fileName || $_('messages.file') } })}>
-								{fileMeta(message.fileName, message.fileSize, true)}
+							<a href={getFileUrl(message.fileUrl)} target="_blank" rel="noopener noreferrer" download={message.fileName} class="media-meta">
+								<span class="sr-only">{$_('context_menu.download')} </span>{fileMeta(message.fileName, message.fileSize, true)}
 							</a>
 						</div>
 					{:else if isAudio(message.fileName) && !isEncryptedAttachment(message)}

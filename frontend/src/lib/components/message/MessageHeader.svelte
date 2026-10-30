@@ -38,6 +38,9 @@
 	}
 
 	$: role = roleWord(author, Boolean(author?.isBot || message.isBot));
+	// Compact is the clock the gutter already shows; Complete and Detailed carry the date as well,
+	// so that stamp is shown after the name at every width (styles/stream.css).
+	$: fullStamp = Boolean(displayEnhancementSettingsStore?.timestampDisplayMode && displayEnhancementSettingsStore.timestampDisplayMode !== 'compact');
 	$: pinnedWord = message.isPinned ? $_('messages.pinned_kicker') : isPersonalPinned ? $_('messages.pinned_on_device') : '';
 </script>
 
@@ -67,9 +70,9 @@
 			{#if pinnedWord}
 				<span class="message-kicker">{pinnedWord}</span>
 			{/if}
-			<span class="timestamp" title={formatTimeTooltip(message.timestamp)}>
+			<time class="timestamp" class:timestamp--full={fullStamp} datetime={new Date(message.timestamp).toISOString()} title={formatTimeTooltip(message.timestamp)}>
 				{formatTime(message.timestamp)}
-			</span>
+			</time>
 			{#if deletionLabel}
 				<span class="deletion-timer" title={$_('messages.deletion.scheduled_title')}>
 					<Icon name="clock" size={12} />
