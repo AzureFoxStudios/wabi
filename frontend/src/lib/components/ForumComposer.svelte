@@ -1,5 +1,7 @@
 <script lang="ts">
 	import ForumBody from './ForumBody.svelte';
+	import ProfileMedia from './ProfileMedia.svelte';
+	import { mediaUrl } from '$lib/mediaUrl';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { forumDrafts, type ForumDraft } from '$lib/forumDraftState';
 	import { captureGroupAccess } from '$lib/groupAccess';
@@ -27,6 +29,8 @@
 	export let draftKey = 'new';
 	export let onSubmit: (body: string, title?: string, category?: string) => Promise<boolean>;
 	export let onCancel: (() => void) | undefined = undefined;
+	/** The reply dock opened or folded: while it is open its "Post reply" is the view's primary. */
+	export let onExpandedChange: ((expanded: boolean) => void) | undefined = undefined;
 
 	const MAX_FORUM_IMAGES = 8;
 	const MAX_FORUM_IMAGE_BYTES = 25 * 1024 * 1024;
@@ -68,6 +72,8 @@
 	$: busyLabel = isUploading ? 'Uploading…' : 'Posting…';
 	$: me = $currentUser;
 	$: draftShown = bodyValue.trim().length > 0 || titleValue.trim().length > 0 || selectedFiles.length > 0;
+	$: onExpandedChange?.(expanded);
+	$: meInitial = ((me?.username || '?').trim().charAt(0) || '?').toUpperCase();
 
 	function hasContent(): boolean {
 		return Boolean(bodyValue.trim() || titleValue.trim() || selectedFiles.length);
@@ -252,7 +258,8 @@
 				transaction.settle(() => ({ body: '', title: '', category: '', files: [], uploaded: [] }));
 				if (mounted && draftOwner.current()) {
 					resetComposer();
-					if (!showTitle) expanded = false;
+					// The posted reply is in the thread; focus goes back to the dock's field-button.
+					if (!showTitle) void collapse();
 				}
 			}
 			else uploadError = 'The post was not confirmed. Your draft is still here; check the thread before you try again.';
@@ -333,7 +340,10 @@
 {#if !expanded}
 	<div class="forum-reply-dock">
 		<button type="button" class="forum-reply-open" bind:this={openButton} on:click={() => void expand()}>
-			<span class="forum-av forum-av--24" style={$inkFor(me?.color || me?.roleColor)} aria-hidden="true">{((me?.username || '?').trim().charAt(0) || '?').toUpperCase()}</span>
+			<!-- The same stamp as the byline and the replies: the picture when there is one. -->
+			<span class="forum-av forum-av--24" style={$inkFor(me?.color || me?.roleColor)} aria-hidden="true">
+				{#if me?.profilePicture}<ProfileMedia src={mediaUrl(me.profilePicture)} alt="" />{:else}{meInitial}{/if}
+			</span>
 			<span class="forum-reply-open-text">{replyTo ? `Reply to ${replyTo}…` : 'Write a reply…'}</span>
 		</button>
 	</div>

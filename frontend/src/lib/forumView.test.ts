@@ -1,15 +1,19 @@
 import { describe, expect, test } from 'bun:test';
 import {
 	FORUM_SORT_OPTIONS,
-	forumErrorCopy,
+	forumActionCopy,
+	forumCanMarkSolution,
 	forumFilterCategories,
 	forumMillis,
 	forumPoints,
+	forumRenameCopy,
 	forumRowsShowCategory,
 	forumScore,
 	forumVersionNote,
 	forumVoteLabel,
-	sortForumThreads
+	forumVoteState,
+	sortForumThreads,
+	type ForumAction
 } from './forumView';
 import type { ForumPost } from './forumStore';
 
@@ -102,22 +106,67 @@ describe('list rows show a category only when it tells rows apart', () => {
 	});
 });
 
-describe('store errors become plain words', () => {
-	test('no error, no notice', () => {
-		expect(forumErrorCopy(null)).toBeNull();
-		expect(forumErrorCopy('')).toBeNull();
+describe('failures are said in plain words, per action (§7.16)', () => {
+	const actions: ForumAction[] = ['vote', 'solution', 'delete-reply', 'remove-thread', 'load-thread', 'load-threads'];
+
+	test('every action has a one-line cause and a consequence line', () => {
+		for (const action of actions) {
+			const copy = forumActionCopy(action);
+			expect(copy.title.length, action).toBeGreaterThan(8);
+			expect(copy.text.length, action).toBeGreaterThan(10);
+			expect(copy.text.endsWith('.'), action).toBe(true);
+		}
 	});
 
-	test('the raw message is never shown, and each copy says what is unchanged', () => {
-		const raw = ['Failed to vote: Bad Request', 'Failed to mark solution: 500', 'Failed to delete post', 'Failed to update thread', 'Failed to create post', 'Failed to load posts', 'Failed to load threads', 'Something odd: 418'];
-		for (const message of raw) {
-			const copy = forumErrorCopy(message);
-			expect(copy).not.toBeNull();
-			expect(`${copy?.title} ${copy?.text}`).not.toContain(message);
-			expect(copy?.text.length).toBeGreaterThan(10);
+	test('a delete that may have reached the server never claims nothing changed', () => {
+		for (const action of ['delete-reply', 'remove-thread'] as const) {
+			const { title, text } = forumActionCopy(action);
+			expect(`${title} ${text}`).not.toMatch(/unchanged|nothing (was )?changed|still in the thread\./i);
+			expect(text).toContain('may still be');
+			expect(text).toMatch(/Reload/);
 		}
-		expect(forumErrorCopy('Failed to vote: Bad Request')?.title).toBe('Your vote was not counted');
-		expect(forumErrorCopy('Failed to create post')?.text).toContain('draft is still here');
+	});
+
+	test('a vote is not retried blindly: the server adds every vote it receives', () => {
+		const { title, text } = forumActionCopy('vote');
+		expect(title).toBe('Your vote was not confirmed');
+		expect(text).toContain('Reload the thread before you vote again');
+	});
+
+	test('a rename that fails part-way says how far it got', () => {
+		expect(forumRenameCopy('Ideas', 'Plans', 0, 3)).toEqual({ title: 'Could not rename Ideas', text: 'Every thread is still in Ideas. Try again in a moment.' });
+		const partial = forumRenameCopy('Ideas', 'Plans', 2, 3);
+		expect(partial.title).toBe('Could not move every thread to Plans');
+		expect(partial.text).toBe('2 of 3 threads moved; one is still in Ideas. Rename Ideas again to move the rest.');
+		expect(forumRenameCopy('Ideas', 'Plans', 1, 4).text).toContain('3 are still in Ideas');
+		expect(`${partial.title} ${partial.text}`).not.toMatch(/unchanged/i);
+	});
+});
+
+describe('who may mark a solution', () => {
+	test('the thread author or a moderator, on other people\'s replies (forum-wiki#8)', () => {
+		expect(forumCanMarkSolution(true, 1, 2)).toBe(true);
+	});
+	test('never on a reply the viewer wrote, the thread author\'s own answer included', () => {
+		expect(forumCanMarkSolution(true, 1, 1)).toBe(false);
+	});
+	test('nobody else, and nobody without an account id', () => {
+		expect(forumCanMarkSolution(false, 1, 2)).toBe(false);
+		expect(forumCanMarkSolution(true, undefined, 2)).toBe(false);
+	});
+});
+
+describe('a vote cannot be switched or taken back', () => {
+	test('before voting both keys are free and unpressed', () => {
+		expect(forumVoteState('up', undefined, false)).toEqual({ pressed: false, locked: false });
+	});
+	test('while the request runs both keys wait', () => {
+		expect(forumVoteState('up', undefined, true)).toEqual({ pressed: false, locked: true });
+		expect(forumVoteState('down', undefined, true)).toEqual({ pressed: false, locked: true });
+	});
+	test('after a vote the cast key stays pressed and both are locked', () => {
+		expect(forumVoteState('up', 'up', false)).toEqual({ pressed: true, locked: true });
+		expect(forumVoteState('down', 'up', false)).toEqual({ pressed: false, locked: true });
 	});
 });
 

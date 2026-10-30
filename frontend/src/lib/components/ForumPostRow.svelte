@@ -64,7 +64,7 @@
 		</span>
 	</button>
 	<div class="forum-post-row-tools">
-		<Menu class="w-ibtn w-ibtn--sm forum-more" label="Thread actions" triggerLabel={`Actions for ${thread.title}`} align="end" items={menuItems}>
+		<Menu class="w-ibtn forum-more" label="Thread actions" triggerLabel={`Actions for ${thread.title}`} align="end" items={menuItems}>
 			<Icon name="more" />
 		</Menu>
 	</div>

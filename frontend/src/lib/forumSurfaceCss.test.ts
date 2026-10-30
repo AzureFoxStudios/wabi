@@ -148,7 +148,40 @@ describe('forum.css draws only with roles and tokens', () => {
 describe('layout (§8.7)', () => {
 	test('a 44px toolbar, and the list beside the reading pane from 1050px of forum width', () => {
 		expect(value('.forum-toolbar', 'height')).toBe('44px');
-		expect(value('.forum-body', 'grid-template-columns', '@container forum (min-width: 1050px)')).toBe('clamp(280px, 34%, 400px) minmax(0, 1fr)');
+		expect(value('.forum-panes', 'grid-template-columns', '@container forum (min-width: 1050px)')).toBe('clamp(280px, 34%, 400px) minmax(0, 1fr)');
+	});
+
+	test('the panes are a grid of one row that fills the forum, whatever host flexes around it', () => {
+		// The companion panel's stale `.right-panel-embedded .forum-body` flex-column rule (owned by
+		// WorkspacePanelHost) floated the dock under short threads and stacked the two panes.
+		expect(markup(channel)).toContain('<div class="forum-panes">');
+		expect(markup(channel)).not.toContain('class="forum-body"');
+		expect(value('.forum-panes', 'display')).toBe('grid');
+		expect(value('.forum-panes', 'grid-template-rows')).toBe('minmax(0, 1fr)');
+	});
+
+	test('the list column ends on the footer rule beside the reply dock (§2.2)', () => {
+		const wide = '@container forum (min-width: 1050px)';
+		expect(value('.forum-panes', 'grid-template-rows', wide)).toBe('minmax(0, 1fr) var(--w-foot, 80px)');
+		expect(value('.forum-panes::after', 'border-top', wide)).toBe('var(--w-bw) solid var(--w-line)');
+		expect(value('.forum-panes::after', 'grid-area', wide)).toBe('2 / 1 / 3 / 2');
+		expect(value('.forum-reading-pane', 'grid-area', wide)).toBe('1 / 2 / 3 / 3');
+		expect(value('.forum-channel:not(.has-dock) .forum-panes::after', 'grid-column', wide)).toBe('1 / 3');
+		expect(channel).toContain('class:has-dock=');
+	});
+
+	test('the toolbar steps by measure in em, so nothing paints over the search at mid widths', () => {
+		const compact = '@container forum (max-width: 51.99em)';
+		const narrow = '@container forum (max-width: 35.99em)';
+		expect(value('.forum-channel', 'font')).toBe('var(--w-t-ui)');
+		expect(value('.forum-channel .forum-filters .w-select__label', 'display', compact)).toBe('none');
+		expect(value('.forum-channel:not(.is-reading, .is-composing) .forum-new-label', 'clip-path', compact)).toBe('inset(50%)');
+		expect(value('.forum-channel .forum-category-select .w-select__value', 'max-width')).toBe('10em');
+		expect(value('.forum-channel .forum-sort .forum-sort-glyph', 'display', narrow)).toBe('block');
+		// Sort is offered at every width (it used to vanish under 520px).
+		for (const rule of forumRules.filter((r) => r.selectors.some((sel) => /\.forum-sort\b(?![-\w])/.test(sel) && !sel.includes(' :is(') && !sel.includes('forum-sort-glyph')))) {
+			expect(declarations(rule)).not.toContainEqual({ property: 'display', value: 'none' });
+		}
 	});
 
 	test('the article, the replies and both composers share one 720 column', () => {
@@ -171,6 +204,12 @@ describe('layout (§8.7)', () => {
 		expect(value('.forum-reply-dock', 'height')).toBe('var(--w-foot, 80px)');
 		expect(value('.forum-reply-dock', 'border-top')).toBe('var(--w-bw) solid var(--w-line)');
 		expect(value('.forum-reply-open', 'height')).toBe('56px');
+	});
+
+	test('the dock and the reading column reserve the same scrollbar gutter, so their edges meet', () => {
+		expect(value('.forum-reading-content', 'scrollbar-gutter')).toBe('stable both-edges');
+		expect(value('.forum-reply-dock', 'scrollbar-gutter')).toBe('stable both-edges');
+		expect(value('.forum-reply-dock', 'overflow')).toBe('hidden');
 	});
 
 	test('list titles serif 17/24 and the article title serif 30/38, matched past headings.css', () => {
@@ -204,7 +243,7 @@ describe('selection, hover and focus (§5.2, §4.6, §2.7)', () => {
 	});
 
 	test('focus is a 2px accent outline (inset on rows and inside the vote pill); never a box-shadow ring', () => {
-		const focus = forumRules.filter((rule) => rule.selectors.some((selector) => selector.includes(':focus-visible')));
+		const focus = forumRules.filter((rule) => rule.selectors.some((selector) => selector.includes(':focus-visible')) && !rule.context.includes('@media (forced-colors: active)'));
 		expect(focus.length).toBeGreaterThan(0);
 		for (const rule of focus) {
 			const decls = declarations(rule);
@@ -218,6 +257,22 @@ describe('selection, hover and focus (§5.2, §4.6, §2.7)', () => {
 		}
 		expect(value('.forum-post-row-open:focus-visible', 'outline-offset')).toBe('-2px');
 		expect(value('.forum-vote-btn:focus-visible', 'outline-offset')).toBe('-2px');
+	});
+
+	test('forced colors keep a focus outline where the field-button drew an edge and a ring (§10)', () => {
+		const forced = '@media (forced-colors: active)';
+		expect(value('.forum-reply-open:focus-visible', 'outline', forced)).toBe('2px solid CanvasText');
+		expect(value('.forum-vote-btn:focus-visible', 'outline', forced)).toBe('2px solid CanvasText');
+	});
+
+	test('targets: vote keys reach 32px in the pill, 44px on touch and phones (§10)', () => {
+		expect(value('.forum-vote', 'height')).toBe('32px');
+		expect(value('.forum-vote-btn::before', 'inset')).toBe('-2px');
+		const touch = '@media (pointer: coarse), (max-width: 599.98px)';
+		expect(value('.forum-vote', 'height', touch)).toBe('44px');
+		expect(value('.forum-vote-btn', 'width', touch)).toBe('40px');
+		expect(value('.forum-channel .forum-more', 'height', '@media (max-width: 599.98px)')).toBe('44px');
+		for (const source of [reply, row]) expect(markup(source)).not.toMatch(/w-ibtn--sm forum-more|w-btn--sm forum-mark-solution/);
 	});
 
 	test('row and reply tools stay in place and appear on hover or focus', () => {
@@ -249,6 +304,15 @@ describe('markup: words over glyphs, true labels (§2.6, §9)', () => {
 		expect(channel).toContain('forumVersionNote(threadStarter, formatForumTime)');
 	});
 
+	test('a vote keeps keyboard focus: the keys lock with aria-disabled, never disabled mid-request', () => {
+		for (const source of [markup(channel), markup(reply)]) {
+			expect(source).not.toMatch(/disabled=\{[^}]*(voting|votingIds)/);
+			expect(source.split("aria-disabled={").length - 1).toBeGreaterThanOrEqual(2);
+			expect(source).toContain('A vote cannot be changed or taken back.');
+		}
+		expect(channel).toContain('myVotes[post.post_id]) return;');
+	});
+
 	test('votes are one labelled pill: aria-pressed and "Upvote, N points" on each button (forum-wiki#8)', () => {
 		for (const source of [markup(channel), markup(reply)]) {
 			expect(source).toContain('class="forum-vote" role="group"');
@@ -260,9 +324,9 @@ describe('markup: words over glyphs, true labels (§2.6, §9)', () => {
 	});
 
 	test('the solution: a quiet "Mark as solution" for the thread author or a moderator, "Solved" as mark plus word', () => {
-		expect(markup(reply)).toContain('w-btn w-btn--quiet w-btn--sm forum-mark-solution');
+		expect(markup(reply)).toContain('w-btn w-btn--quiet forum-mark-solution');
 		expect(markup(reply)).toContain('Mark as solution');
-		expect(channel).toContain('canMarkSolution={canPickSolution}');
+		expect(channel).toContain('forumCanMarkSolution(canPickSolution, $currentUser?.dbUserId, reply.author_user_id)');
 		expect(channel).toContain('canManageForumPost($currentUser, threadStarter.author_user_id)');
 		for (const source of [channel, row, reply]) expect(markup(source)).toContain('<Icon name="checkCircle" size={14} />Solved');
 	});
@@ -293,14 +357,45 @@ describe('markup: words over glyphs, true labels (§2.6, §9)', () => {
 		expect(composer).toContain('confirmAction(');
 	});
 
-	test('a failure is said where it was asked, in plain words (§7.16)', () => {
+	test('a failure is said where it was asked, in view, in plain words (§7.16)', () => {
 		const html = markup(channel);
-		// No thread open (a category rename): beside the list, which is visible at every width.
-		expect(html).toContain('{#if errorCopy && !selectedThread && !showNewThread}');
-		// A thread open (a vote, a solution): above the article.
-		expect(html).toContain('<div class="forum-notice forum-notice--inline">');
-		expect(html.split('error={error}').length - 1).toBeGreaterThanOrEqual(3);
+		// A vote, solution or delete: under that post's actions, revealed in the scroller.
+		expect(html).toContain('{#if postNotice && postNotice.postId === threadStarter.post_id}');
+		expect(html).toContain('<div class="forum-post-notice" use:reveal>');
+		expect(markup(reply)).toContain('<div class="forum-post-notice" use:reveal>');
+		expect(html).toContain('notice={postNotice && postNotice.postId === reply.post_id ? postNotice : null}');
+		// A rename: in the strip under the toolbar where it was asked.
+		expect(html).toContain('<div class="forum-category-notice">');
+		// Only a load failure reaches the store's notice above the article; actions claim theirs.
+		expect(channel).toContain('$: if (actionsInFlight === 0) loadError = storeError;');
+		for (const action of ['votePost', 'markSolution', 'deleteForumPost', 'createPost', 'createThread', 'renameForumCategory']) {
+			expect(channel, action).toContain(`runAction(() => ${action}(`);
+		}
 		expect(html).not.toContain('{error}</');
+		expect(html).not.toContain('{loadError}</');
+	});
+
+	test('the forum is named as the masthead names it, without "#"', () => {
+		expect(channel).toContain("$: channelName = activeChannel?.name || 'this forum';");
+		expect(channel).not.toContain('`#${activeChannel.name}`');
+	});
+
+	test('icon-only controls carry a tooltip; an open reply dock takes the one primary (§2.4, §7.2)', () => {
+		const html = markup(channel);
+		expect(html).toContain('<Tooltip text="New thread" disabled={!newIconOnly}>');
+		expect(html).toContain('<Tooltip text={`Sort: ${sortLabel}`} disabled={!sortIconOnly}>');
+		expect(html).toContain('class:w-btn--primary={!inPanel && !dockOpen}');
+		expect(composer).toContain('$: onExpandedChange?.(expanded);');
+	});
+
+	test('focus comes back after a reply posts and after the category strip closes', () => {
+		expect(composer).toContain('if (!showTitle) void collapse();');
+		expect(channel).toContain("closeCategoryEditor(true)");
+		expect(channel).toContain(".querySelector<HTMLElement>('.forum-category-select')?.focus()");
+	});
+
+	test('the dock draws the same stamp as the byline: the picture when there is one', () => {
+		expect(markup(composer)).toContain('{#if me?.profilePicture}<ProfileMedia src={mediaUrl(me.profilePicture)} alt="" />');
 	});
 
 	test('every post renders through the one prose style', () => {
