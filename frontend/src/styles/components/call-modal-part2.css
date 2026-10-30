@@ -142,7 +142,7 @@
 	transition: box-shadow var(--w-dur-1) var(--w-ease);
 }
 
-.presenter-overlay-swatch[aria-checked='true'] {
+.presenter-overlay-swatch[aria-pressed='true'] {
 	box-shadow:
 		0 0 0 2px var(--w-bg2),
 		0 0 0 4px var(--w-text);
@@ -260,7 +260,7 @@
 	visibility: hidden;
 }
 
-.device-option[aria-checked='true'] .device-check {
+.device-option[aria-pressed='true'] .device-check {
 	visibility: visible;
 }
 

@@ -3,12 +3,16 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+	CAPTURE_FAILED_WORDS,
 	connectionWords,
 	deviceIcon,
 	dockBarControls,
 	dockMoreItems,
+	followPlaceUnderCall,
+	minimizedCallLabel,
 	peopleCountLabel,
 	recordingReadout,
+	recordingResultWords,
 	sessionConnectionState,
 	stampColumns,
 	visibleStamps,
@@ -78,6 +82,51 @@ describe('call header words', () => {
 		expect(recordingReadout('idle', '00:00', 0)).toBe('');
 		expect(recordingReadout('recording', '02:14', 0)).not.toMatch(/REC/);
 	});
+
+	test('after a recording: plain words, never the file path or the raw error', () => {
+		const path = '/home/mira/Recordings/call-2026-10-30.webm';
+		expect(recordingResultWords({ status: 'idle', savedFileCount: 1, savedPath: path })).toBe('Recording saved on this device');
+		expect(recordingResultWords({ status: 'idle', savedFileCount: 0, savedPath: path })).toBe('Recording saved on this device');
+		expect(recordingResultWords({ status: 'idle', savedFileCount: 3, savedPath: path })).toBe('Recording saved on this device · 3 files');
+		const failed = recordingResultWords({ status: 'error', lastError: 'NotAllowedError: Permission denied', savedPath: path });
+		expect(failed).toBe('Recording failed. Nothing was saved.');
+		for (const words of [failed, recordingResultWords({ status: 'idle', savedFileCount: 1, savedPath: path })]) {
+			expect(words).not.toContain(path);
+			expect(words).not.toMatch(/Error|Permission/);
+		}
+		expect(recordingResultWords({ status: 'saving', savedFileCount: 0 })).toBe('Saving recording…');
+		expect(recordingResultWords({ status: 'recording', savedFileCount: 0 })).toBe('');
+		expect(recordingResultWords({ status: 'idle', savedFileCount: 0 })).toBe('');
+		expect(CAPTURE_FAILED_WORDS).toMatch(/Nothing was added to the whiteboard/);
+	});
+
+	test('the minimized call is named without saying "Call" twice', () => {
+		expect(minimizedCallLabel('Call with Theo Park')).toBe('Call with Theo Park');
+		expect(minimizedCallLabel('Group call')).toBe('Group call');
+		expect(minimizedCallLabel('Book club')).toBe('Call: Book club');
+	});
+});
+
+describe('center stage owns the selected workspace', () => {
+	test('the place the call opened over is remembered while it covers the stage', () => {
+		expect(followPlaceUnderCall(null, 'voice|general|', true)).toEqual({ remembered: 'voice|general|', dock: false });
+		expect(followPlaceUnderCall('voice|general|', 'voice|general|', true)).toEqual({ remembered: 'voice|general|', dock: false });
+	});
+
+	test('choosing another workspace, channel or DM docks the call', () => {
+		// Folio "Chat" while the call covers Calls, "My Planner", a sidebar channel, a DM in center stage.
+		for (const next of ['messages|general|', 'planner|general|', 'voice|random|', 'voice|general|dm-1']) {
+			expect(followPlaceUnderCall('voice|general|', next, true)).toEqual({ remembered: null, dock: true });
+		}
+	});
+
+	test('a docked or closed call forgets the place, so reopening it over any workspace keeps it open', () => {
+		expect(followPlaceUnderCall('voice|general|', 'planner|general|', false)).toEqual({ remembered: null, dock: false });
+		// Reopened (sidebar voice room, second click) while My Planner is on stage: it stays.
+		const reopened = followPlaceUnderCall(null, 'planner|general|', true);
+		expect(reopened).toEqual({ remembered: 'planner|general|', dock: false });
+		expect(followPlaceUnderCall(reopened.remembered, 'planner|general|', true).dock).toBe(false);
+	});
 });
 
 describe('audio stage', () => {
@@ -133,6 +182,10 @@ describe('call dock', () => {
 		expect(record?.role).toBe('menuitemcheckbox');
 		expect(record?.checked).toBe(false);
 		for (const item of items) if (item.icon) expect(isIconName(item.icon)).toBe(true);
+		// One meaning per glyph (§6): drawing on the screen and the whiteboard do not share a glyph.
+		const glyphs = items.filter((item) => item.icon).map((item) => item.icon);
+		expect(new Set(glyphs).size).toBe(glyphs.length);
+		expect(items.find((item) => item.id === 'draw')?.icon).not.toBe('pencil');
 	});
 
 	test('unavailable tools stay listed, disabled, with the reason', () => {
@@ -189,8 +242,61 @@ describe('call shell markup (member UI)', () => {
 		expect(controls).toMatch(/aria-pressed=\{isDeafened\}/);
 		expect(controls).toMatch(/aria-pressed=\{!isVideoOff\}/);
 		expect(controls).toMatch(/aria-pressed=\{isSharing\}/);
-		expect(controls).toMatch(/class="w-btn w-btn--danger call-dock__leave"[\s\S]{0,200}>Leave</);
+		expect(controls).toMatch(/class="w-btn w-btn--danger call-dock__leave[^"]*"[\s\S]{0,200}>Leave</);
 		expect(controls).not.toMatch(/text-inverse/);
+	});
+
+	test('the audio smoke harness finds the real Leave control', () => {
+		const harness = read('../../test/call-panel-browser-harness.ts');
+		expect(controls).toMatch(/<button[^>]*class="[^"]*\bcall-dock__leave\b[^"]*"[^>]*data-call-leave/);
+		if (harness.includes('.call-controls button.end')) {
+			// Back-compat hooks until the harness clicks [data-call-leave].
+			expect(controls).toMatch(/class="call-dock call-controls"/);
+			expect(controls).toMatch(/class="w-btn w-btn--danger call-dock__leave end"/);
+		}
+	});
+
+	test('choice groups follow the ARIA pattern: kit segmented controls or toggle buttons', () => {
+		// No hand-rolled role=radio keys (every key its own Tab stop, no arrow keys).
+		expect(controls).not.toMatch(/role="radio"/);
+		expect(controls).toMatch(/<Segmented\s+label="Tool"/);
+		expect(controls).toMatch(/<Segmented\s+label="Line width"/);
+		expect(controls).toMatch(/aria-pressed=\{presenterOverlayColor === color\}/);
+		expect(controls).toMatch(/aria-pressed=\{selectedAudioInputId === device\.deviceId\}/);
+		expect(controls).toMatch(/aria-pressed=\{selectedAudioOutputId === device\.deviceId\}/);
+	});
+
+	test('choosing another place docks the call; Connection details are one tap from Call options', () => {
+		expect(modal).toMatch(/import \{ activeWorkspaceView \} from '\$lib\/workspaceNavigationState'/);
+		expect(modal).toMatch(/\$: stagePlace = `\$\{\$activeWorkspaceView\}\|\$\{\$currentChannel/);
+		expect(modal).toMatch(/\$: followStagePlace\(showCallShell, stagePlace\)/);
+		expect(modal).toMatch(/if \(next\.dock\) minimizeToDocked\(\)/);
+		expect(modal).toMatch(/\$: followConnectionDetails\(\$callConnectionDetailsOpen\)/);
+		expect(modal).toMatch(/id: 'connection-details',\s*label: 'Connection details',\s*icon: 'signal',\s*onSelect: openConnectionDetails/);
+	});
+
+	test('the call follows the stage under a held peek (inert with .chat-surface)', () => {
+		expect(modal).toMatch(/use:followStageInert=\{callViewportMode === 'embedded'\}/);
+		expect(modal).toMatch(/class="docked-bar"[^>]*use:followStageInert=\{true\}/);
+		expect(modal).toMatch(/attributeFilter: \['inert'\]/);
+	});
+
+	test('one recording readout, plain-word results, no raw errors or paths', () => {
+		// The header shows the same readout as the minimized card; the legacy REC banner is not used.
+		expect(modal).toMatch(/class="recording-pill call-head__recording"[\s\S]{0,200}\{recordingPillText\}/);
+		expect(modal).not.toMatch(/<CallRecordingPanel[^>]*recordingPresenceCopy/);
+		expect(modal).toMatch(/\$: recordingLabel = recordingResultWords\(\$callRecordingState\)/);
+		expect(modal).not.toMatch(/Saved: \$\{/);
+		expect(modal).not.toMatch(/Recording error: \$\{/);
+		expect(modal).not.toMatch(/setCaptureFeedback\(\s*error instanceof Error \? error\.message/);
+		expect(modal).toMatch(/setCaptureFeedback\(CAPTURE_FAILED_WORDS\)/);
+	});
+
+	test('the minimized card keys say what pressing them does', () => {
+		expect(modal).toMatch(/title=\{\$isMuted \? 'Unmute microphone' : 'Mute microphone'\}/);
+		expect(modal).toMatch(/title=\{\$isDeafened \? 'Turn sound back on' : 'Deafen'\}/);
+		expect(modal).toMatch(/aria-label=\{dockedRegionLabel\}/);
+		expect(modal).not.toMatch(/aria-label=\{`Call: \$\{callTitle\}`\}/);
 	});
 
 	test('the embedded header is in flow: minimize and full window are header buttons, not fixed hatches', () => {
@@ -223,6 +329,24 @@ describe('call CSS is on roles', () => {
 	test('the embedded shell sits below the masthead, not over it', () => {
 		const part1 = read('../styles/components/call-modal-part1.css');
 		expect(part1).toMatch(/\.stage-bar ~ \.call-shell\.mode-embedded\s*\{[^}]*top:\s*var\(--w-mast\)/);
+	});
+
+	test('the minimized call is in the stage flow (never floated over the stream) at the footer band height', () => {
+		const part1 = read('../styles/components/call-modal-part1.css');
+		const rules = [...part1.matchAll(/(^|\n)([^{}\n]*\.docked-bar[^{}]*)\{([^}]*)\}/g)];
+		expect(rules.length).toBeGreaterThan(0);
+		for (const [, , , body] of rules) expect(body).not.toMatch(/position:\s*(absolute|fixed)/);
+		const base = rules.find(([, , selector]) => selector.trim() === '.docked-bar');
+		expect(base?.[3]).toMatch(/flex:\s*none/);
+		expect(base?.[3]).toMatch(/height:\s*var\(--w-foot\)/);
+		expect(base?.[3]).toMatch(/border-top:\s*var\(--w-bw\) solid var\(--w-line\)/);
+	});
+
+	test('phones: the call header starts on the 16px gutter (no hanging live dot)', () => {
+		const part1 = read('../styles/components/call-modal-part1.css');
+		const phone = part1.slice(part1.indexOf('@media (max-width: 768px)'));
+		expect(phone).toMatch(/\.call-head \{[^}]*padding: 0 8px 0 16px/);
+		expect(phone).toMatch(/\.call-head__live,\s*\.docked-live \{\s*display: none;/);
 	});
 
 	test('nothing in the shell is position: fixed except the full-window mode and the call dialog', () => {

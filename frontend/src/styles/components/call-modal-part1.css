@@ -249,28 +249,27 @@
 	background: var(--w-lift);
 }
 
-/* ---------- minimized DM / group call: one small card at the stage's bottom edge ---------- */
+/* ---------- minimized DM / group call: the stage's call foot ----------
+   In the stage's flow, after the workspace (.chat-stack is a column and .chat-surface takes what
+   remains), so it never covers the newest message, the composer or anything else on the page.
+   On desktop it is the sidebar foot's 80px, so its hairline continues the footer rule across the
+   columns; the composer's band sits right above it. */
 .docked-bar {
-	position: absolute;
-	right: 16px;
-	bottom: calc(var(--w-foot) + 16px);
-	z-index: var(--z-call-docked);
+	position: relative;
+	flex: none;
 	display: flex;
 	align-items: center;
+	justify-content: space-between;
 	gap: 16px;
 	box-sizing: border-box;
-	max-width: calc(100% - 32px);
-	padding: 8px 8px 8px 14px;
-	border: var(--w-bw) solid var(--w-line-strong);
-	border-radius: var(--radius-lg);
-	background: var(--w-bg2);
-	box-shadow: var(--w-shadow);
+	height: var(--w-foot);
+	min-width: 0;
+	/* The live dot hangs in the gutter so the call's name lines up with the masthead title. */
+	padding: 0 calc(var(--w-gutter) - 8px) 0 calc(var(--w-gutter) - 16px);
+	border-top: var(--w-bw) solid var(--w-line);
+	background: var(--w-bg);
 	color: var(--w-text);
-	animation: w-enter-up var(--w-dur-3) var(--w-ease);
-}
-
-:root[data-mode='light'] .docked-bar {
-	background: var(--w-lift);
+	animation: w-enter var(--w-dur-2) var(--w-ease);
 }
 
 .docked-status {
@@ -295,7 +294,6 @@
 }
 
 .docked-channel {
-	max-width: 220px;
 	overflow: hidden;
 	color: var(--w-text);
 	font: var(--w-t-label);
@@ -304,7 +302,6 @@
 }
 
 .docked-meta {
-	max-width: 260px;
 	overflow: hidden;
 	color: var(--w-faint);
 	font: var(--w-t-micro);
@@ -313,12 +310,13 @@
 }
 
 .docked-actions {
+	flex: none;
 	display: flex;
 	align-items: center;
 	gap: 4px;
 }
 
-.docked-actions .docked-mic[aria-pressed='true'] {
+.docked-actions :is(.docked-mic, .docked-sound)[aria-pressed='true'] {
 	color: var(--w-danger);
 }
 
@@ -502,6 +500,19 @@
 	gap: 4px;
 }
 
+.call-head .call-head__recording {
+	align-self: center;
+}
+
+/* Who is recording, said once under the header (the readout itself is in the header). */
+.call-recording-note {
+	flex: none;
+	margin: -4px 0 0;
+	padding: 0 var(--w-gutter) 12px;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+
 /* The stage between the header and the dock; it scrolls rather than slide under the dock. */
 .call-room > .call-stage {
 	position: relative;
@@ -524,9 +535,16 @@
 		--call-dock-h: 58px;
 	}
 
+	/* No gutter left to hang the live dot in: the room name starts on the 16px phone gutter, like
+	   the phone bar's title above it. */
 	.call-head {
 		gap: 8px;
 		padding: 0 8px 0 16px;
+	}
+
+	.call-head__live,
+	.docked-live {
+		display: none;
 	}
 
 	.call-head__actions {
@@ -539,21 +557,13 @@
 	}
 
 	.docked-bar {
-		left: 8px;
-		right: 8px;
-		bottom: 8px;
-		max-width: none;
-		flex-wrap: wrap;
 		gap: 8px;
+		height: 60px;
+		padding: 0 8px 0 16px;
 	}
 
-	.docked-status {
-		flex: 1 1 100%;
-	}
-
-	.docked-actions {
-		flex: 1 1 100%;
-		justify-content: flex-end;
+	.call-recording-note {
+		padding-inline: 16px;
 	}
 
 	.docked-actions .w-ibtn {

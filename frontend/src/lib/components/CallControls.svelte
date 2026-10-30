@@ -22,6 +22,7 @@
 	import { deviceIcon, dockBarControls, dockMoreItems } from '$lib/callShell';
 	import Icon from './ui/Icon.svelte';
 	import Menu from './ui/Menu.svelte';
+	import Segmented from './ui/Segmented.svelte';
 	import Tooltip from './ui/Tooltip.svelte';
 
 	/** The phone dock: only Mic, Sound, More and Leave sit on the bar. */
@@ -78,13 +79,14 @@
 
 	const dockId = `call-dock-${++dockCounter}`;
 	const moreTriggerId = `${dockId}-more`;
-	const presenterOverlayTools: PresenterOverlayTool[] = ['pen', 'arrow', 'rect', 'ellipse'];
-	const toolLabels: Record<PresenterOverlayTool, string> = {
-		pen: 'Pen',
-		arrow: 'Arrow',
-		rect: 'Box',
-		ellipse: 'Ellipse'
-	};
+	// The drawing tool and line width are kit segmented controls (one Tab stop, ←/→ choose).
+	const toolOptions: { value: PresenterOverlayTool; label: string }[] = [
+		{ value: 'pen', label: 'Pen' },
+		{ value: 'arrow', label: 'Arrow' },
+		{ value: 'rect', label: 'Box' },
+		{ value: 'ellipse', label: 'Ellipse' }
+	];
+	const widthOptions = PRESENTER_OVERLAY_WIDTHS.map((width) => ({ value: width, label: `${width} px` }));
 
 	let devicePickerOpen = false;
 	let devicePickerEl: HTMLDivElement | null = null;
@@ -170,33 +172,24 @@
 
 	{#if presenterOverlayVisible && presenterOverlayAvailable}
 		<div class="presenter-overlay-toolbar" role="group" aria-label="Drawing tools, only on your screen">
-			<div class="w-seg" role="radiogroup" aria-label="Tool">
-				{#each presenterOverlayTools as nextTool}
-					<button
-						type="button"
-						role="radio"
-						aria-checked={presenterOverlayTool === nextTool}
-						on:click={() => onPresenterOverlayToolChange(nextTool)}
-					>{toolLabels[nextTool]}</button>
-				{/each}
-			</div>
-			<div class="w-seg" role="radiogroup" aria-label="Line width">
-				{#each PRESENTER_OVERLAY_WIDTHS as width}
-					<button
-						type="button"
-						role="radio"
-						aria-checked={presenterOverlayStrokeWidth === width}
-						on:click={() => onPresenterOverlayStrokeWidthChange(width)}
-					>{width} px</button>
-				{/each}
-			</div>
-			<div class="presenter-overlay-swatches" role="radiogroup" aria-label="Color">
+			<Segmented
+				label="Tool"
+				options={toolOptions}
+				value={presenterOverlayTool}
+				onchange={onPresenterOverlayToolChange}
+			/>
+			<Segmented
+				label="Line width"
+				options={widthOptions}
+				value={presenterOverlayStrokeWidth}
+				onchange={onPresenterOverlayStrokeWidthChange}
+			/>
+			<div class="presenter-overlay-swatches" role="group" aria-label="Color">
 				{#each PRESENTER_OVERLAY_COLORS as color, index}
 					<button
 						type="button"
-						role="radio"
 						class="presenter-overlay-swatch"
-						aria-checked={presenterOverlayColor === color}
+						aria-pressed={presenterOverlayColor === color}
 						aria-label={`Color ${index + 1}`}
 						style={`--overlay-color: ${color};`}
 						on:click={() => onPresenterOverlayColorChange(color)}
@@ -246,7 +239,9 @@
 			{#if !devices}
 				<p class="device-picker-empty" role="status">Looking for devices…</p>
 			{:else}
-				<div class="device-group" role="radiogroup" aria-labelledby={`${dockId}-mics`}>
+				<!-- Toggle buttons (aria-pressed): choosing a row switches the device, so arrow keys must
+				     not switch it while you browse. -->
+				<div class="device-group" role="group" aria-labelledby={`${dockId}-mics`}>
 					<span class="device-group-title w-kicker" id={`${dockId}-mics`}>Microphone</span>
 					{#if devices.audioin.length === 0}
 						<p class="device-picker-empty">No microphone found</p>
@@ -254,9 +249,8 @@
 						{#each devices.audioin as device, index (device.deviceId)}
 							<button
 								type="button"
-								role="radio"
 								class="device-option"
-								aria-checked={selectedAudioInputId === device.deviceId}
+								aria-pressed={selectedAudioInputId === device.deviceId}
 								on:click={() => handleDeviceClick('audioinput', device.deviceId)}
 							>
 								<Icon name={deviceIcon(deviceVisual(device.kind, device.label))} size={16} />
@@ -267,7 +261,7 @@
 					{/if}
 				</div>
 
-				<div class="device-group" role="radiogroup" aria-labelledby={`${dockId}-outs`}>
+				<div class="device-group" role="group" aria-labelledby={`${dockId}-outs`}>
 					<span class="device-group-title w-kicker" id={`${dockId}-outs`}>Speakers</span>
 					{#if devices.audioout.length === 0}
 						<p class="device-picker-empty">No choice of speakers on this device</p>
@@ -275,9 +269,8 @@
 						{#each devices.audioout as device, index (device.deviceId)}
 							<button
 								type="button"
-								role="radio"
 								class="device-option"
-								aria-checked={selectedAudioOutputId === device.deviceId}
+								aria-pressed={selectedAudioOutputId === device.deviceId}
 								on:click={() => handleDeviceClick('audiooutput', device.deviceId)}
 							>
 								<Icon name={deviceIcon(deviceVisual(device.kind, device.label))} size={16} />
@@ -294,7 +287,10 @@
 		</div>
 	{/if}
 
-	<div class="call-dock" id={dockId} role="group" aria-label="Call controls">
+	<!-- `call-controls` and the Leave key's `end` class are the hooks the audio smoke harness
+	     (test/call-panel-browser-harness.ts) clicks; data-call-leave is the stable one. No style
+	     uses them. -->
+	<div class="call-dock call-controls" id={dockId} role="group" aria-label="Call controls">
 		{#each barControls as control (control)}
 			{#if control === 'mic'}
 				<Tooltip text={isMuted ? 'Unmute microphone' : 'Mute microphone'} placement="top">
@@ -352,7 +348,7 @@
 		</Menu>
 		</Tooltip>
 		<span class="call-dock__sep" aria-hidden="true"></span>
-		<button type="button" class="w-btn w-btn--danger call-dock__leave" on:click={onEndCall}
+		<button type="button" class="w-btn w-btn--danger call-dock__leave end" data-call-leave on:click={onEndCall}
 			><Icon name="phoneOff" />Leave</button
 		>
 	</div>
