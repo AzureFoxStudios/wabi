@@ -1,6 +1,21 @@
+<!--
+	New channel / New folder dialog (spec §7.13, §8.9; critique settings#12), opened from the
+	CHANNELS and VOICE menus, a folder's context menu and the `wabi:create-channel` event.
+	- One kind radio list: each kind has its registry glyph (text channels a typeset '#') and a
+	  one-line hint. Project files stays listed when the Lore add-on is off, disabled with the
+	  reason, so the option is never silently missing.
+	- The name field carries the kind's prefix ('#' for text channels); one primary action,
+	  "Create channel" (or "Create folder"); quiet Cancel.
+	The parent (ChannelSidebar) owns every value; this component only renders and reports.
+-->
 <script lang="ts">
 	import { tick } from 'svelte';
 	import type { CreateableChannelType } from '$lib/channelStore';
+	import BaseModal from '$lib/components/BaseModal.svelte';
+	import Icon from '$lib/components/ui/Icon.svelte';
+	import Select, { type SelectOption } from '$lib/components/ui/Select.svelte';
+	import type { IconName } from '$lib/components/ui/icons';
+	import { _ } from '$lib/i18n';
 
 	export let showCreateInput: boolean;
 	export let newChannelName: string;
@@ -29,185 +44,170 @@
 
 	let inputEl: HTMLInputElement | null = null;
 
-	type TypeOption = {
+	type KindOption = {
 		id: CreateableChannelType;
 		label: string;
 		hint: string;
-		icon: 'hash' | 'folder' | 'mic' | 'image' | 'forum' | 'book' | 'kanban' | 'box';
+		/** Registry glyph; null = the typeset '#' of a text channel. */
+		icon: IconName | null;
+		/** Name-field prefix shown before what you type. */
+		prefix: string | null;
+		placeholder: string;
 	};
 
-	$: typeOptions = (
-		[
-			{ id: 'reception', label: 'Welcome', hint: 'Server arrival and rules', icon: 'hash' },
-			{ id: 'text', label: 'Text', hint: 'Chat stream', icon: 'hash' },
-			{ id: 'voice', label: 'Voice', hint: 'Live call room', icon: 'mic' },
-			{ id: 'forum', label: 'Forum', hint: 'Threads & posts', icon: 'forum' },
-			{ id: 'gallery', label: 'Gallery', hint: 'Media albums', icon: 'image' },
-			{ id: 'wiki', label: 'Wiki', hint: 'Pages & revisions', icon: 'book' },
-			{ id: 'planning', label: 'Project', hint: 'Shared board & wiki', icon: 'kanban' },
-			{ id: 'category', label: 'Folder', hint: 'Group channels', icon: 'folder' },
-			{ id: 'lore', label: 'Project files', hint: 'Versioned files & repo · Lore addon', icon: 'box' }
-		] as TypeOption[]
-	);
+	const KINDS: KindOption[] = [
+		{ id: 'text', label: 'Text', hint: 'Conversation in one stream', icon: null, prefix: '#', placeholder: 'channel-name' },
+		{ id: 'voice', label: 'Voice', hint: 'Drop-in room for talking', icon: 'voice', prefix: null, placeholder: 'voice-room' },
+		{ id: 'forum', label: 'Forum', hint: 'Threads people reply to', icon: 'forum', prefix: null, placeholder: 'forum-board' },
+		{ id: 'wiki', label: 'Wiki', hint: 'Pages with revision history', icon: 'book', prefix: null, placeholder: 'wiki-pages' },
+		{ id: 'gallery', label: 'Gallery', hint: 'Photos and media albums', icon: 'image', prefix: null, placeholder: 'gallery' },
+		{ id: 'planning', label: 'Project', hint: 'Shared board and wiki', icon: 'columns', prefix: null, placeholder: 'planning-board' },
+		{ id: 'lore', label: 'Project files', hint: 'Versioned files · Lore add-on', icon: 'box', prefix: null, placeholder: 'code-repo' },
+		{ id: 'reception', label: 'Welcome', hint: 'Arrival page with the rules', icon: null, prefix: '#', placeholder: 'welcome' },
+		{ id: 'category', label: 'Folder', hint: 'Groups channels in the list', icon: 'folder', prefix: null, placeholder: 'folder-name' }
+	];
+	const LORE_UNAVAILABLE_HINT = 'Needs the Lore add-on';
 
-	$: selectedType = typeOptions.find((t) => t.id === newChannelType) ?? typeOptions[0];
+	$: selectedKind = KINDS.find((kind) => kind.id === newChannelType) ?? KINDS[0];
 	$: isFolderType = newChannelType === 'category';
-	// Code is selectable only when the lore addon capability resolved true.
-	// The chip stays VISIBLE when unavailable (disabled + hint) so the option
-	// isn't silently missing — a flaky first capability probe no longer hides
-	// the entire channel type from the creator.
+	// Project files is selectable only when the lore addon capability resolved true.
+	// The option stays VISIBLE when unavailable (disabled + reason) so the kind isn't
+	// silently missing — a flaky first capability probe no longer hides it.
 	$: loreDisabled = newChannelType === 'lore' && !loreAvailable;
-	$: namePlaceholder =
-		newChannelType === 'reception'
-			? 'welcome'
-		: newChannelType === 'voice'
-			? 'voice-room'
-					: newChannelType === 'lore'
-					? 'code-repo'
-				: newChannelType === 'forum'
-					? 'forum-board'
-					: newChannelType === 'wiki'
-						? 'wiki-pages'
-						: newChannelType === 'gallery'
-							? 'gallery'
-							: newChannelType === 'planning'
-								? 'planning-board'
-								: newChannelType === 'category'
-									? 'folder-name'
-									: 'channel-name';
+	$: open = showCreateInput && canCreate;
+	$: title = isFolderType ? $_('sidebar.new_folder') : $_('sidebar.new_channel');
+	$: submitLabel = isFolderType ? 'Create folder' : $_('sidebar.create_channel');
+	$: canSubmit = !creatingChannel && Boolean(newChannelName.trim()) && !loreDisabled;
 
-	$: if (showCreateInput) {
+	$: folderOptions = [
+		{ value: 'none', label: 'No folder' },
+		...categories.map((category) => ({ value: category.id, label: category.name, icon: 'folder' as const })),
+		{ value: '__new__', label: 'New folder…', icon: 'plus' as const }
+	] satisfies SelectOption[];
+
+	$: if (open) {
 		void tick().then(() => inputEl?.focus());
 	}
 
 	// If lore is unavailable, keep the selection (don't silently reset) —
-	// the chip renders disabled and the submit button is gated instead.
+	// the option renders disabled and the submit button is gated instead.
 	$: if (isFolderType && folderChoice !== 'none') {
 		onFolderChoiceChange('none');
 	}
 
-	function getChannelTypeLabel(type: string): string {
-		return typeOptions.find((t) => t.id === type)?.label ?? 'Text';
+	function submitOnEnter(event: KeyboardEvent) {
+		if (event.key === 'Enter' && canSubmit) {
+			event.preventDefault();
+			void onSubmit();
+		}
 	}
 </script>
 
-{#if showCreateInput && canCreate}
-	<div class="create-channel" role="form" aria-label="Create channel">
-		<header class="create-channel-header">
-			<div class="create-channel-title-wrap">
-				<span class="create-channel-kicker">New</span>
-				<strong class="create-channel-title">{isFolderType ? 'Folder' : 'Channel'}</strong>
-			</div>
-			<button type="button" class="create-channel-close" on:click={onCancel} aria-label="Cancel" title="Cancel">
-				×
-			</button>
-		</header>
-
-		<label class="create-field">
-			<span class="create-field-label">Name</span>
+<BaseModal isOpen={open} onClose={onCancel} size="md" {title} padded panelClass="create-channel-dialog">
+	<form class="new-channel-form" aria-label={title} on:submit|preventDefault={() => { if (canSubmit) void onSubmit(); }}>
+		<label class="w-label" for="create-channel-name">Name</label>
+		<div class="w-field create-name">
+			{#if selectedKind.prefix}
+				<span class="create-name-prefix" aria-hidden="true">{selectedKind.prefix}</span>
+			{:else if selectedKind.icon}
+				<Icon name={selectedKind.icon} size={16} />
+			{/if}
 			<input
+				id="create-channel-name"
 				bind:this={inputEl}
-				class="create-field-input"
 				type="text"
 				value={newChannelName}
 				on:input={(e) => onNameChange((e.currentTarget as HTMLInputElement).value)}
-				placeholder={namePlaceholder}
+				placeholder={selectedKind.placeholder}
 				autocomplete="off"
-				on:keydown={(e) => e.key === 'Enter' && !creatingChannel && onSubmit()}
+				spellcheck="false"
+				on:keydown={submitOnEnter}
 			/>
-		</label>
-
-		<label class="create-field">
-			<span class="create-field-label">Description <span class="create-optional">optional</span></span>
-			<input
-				class="create-field-input"
-				type="text"
-				value={newChannelDescription}
-				on:input={(e) => onDescriptionChange((e.currentTarget as HTMLInputElement).value)}
-				placeholder="What is this for?"
-				autocomplete="off"
-				on:keydown={(e) => e.key === 'Enter' && !creatingChannel && onSubmit()}
-			/>
-		</label>
-
-		<div class="create-field">
-			<span class="create-field-label">Type</span>
-			<div class="create-type-grid" role="listbox" aria-label="Channel type">
-				{#each typeOptions as opt (opt.id)}
-					{@const chipDisabled = opt.id === 'lore' && !loreAvailable}
-					<button
-						type="button"
-						class="create-type-chip"
-						class:active={newChannelType === opt.id}
-						class:unavailable={chipDisabled}
-						role="option"
-						aria-selected={newChannelType === opt.id}
-						aria-disabled={chipDisabled}
-						on:click={() => { if (!chipDisabled) onTypeChange(opt.id); }}
-						title={chipDisabled ? 'Project channels unavailable — lore addon not enabled on this server' : opt.hint}
-					>
-						<span class="create-type-icon" data-icon={opt.icon} aria-hidden="true"></span>
-						<span class="create-type-text">
-							<span class="create-type-name">{opt.label}</span>
-							<span class="create-type-hint">{chipDisabled ? 'Addon unavailable' : opt.hint}</span>
-						</span>
-					</button>
-				{/each}
-			</div>
-			{#if selectedType}
-				<p class="create-channel-hint">{selectedType.hint}{#if selectedType.id === 'category'} — drag channels onto it anytime.{/if}</p>
-			{/if}
 		</div>
 
+		<label class="w-label create-gap" for="create-channel-description">Description <span class="create-optional">optional</span></label>
+		<input
+			id="create-channel-description"
+			class="w-field"
+			type="text"
+			value={newChannelDescription}
+			on:input={(e) => onDescriptionChange((e.currentTarget as HTMLInputElement).value)}
+			placeholder="What is this for?"
+			autocomplete="off"
+			on:keydown={submitOnEnter}
+		/>
+
+		<fieldset class="create-kinds create-gap">
+			<legend class="w-label">Kind</legend>
+			<div class="create-kind-list">
+				{#each KINDS as kind (kind.id)}
+					{@const unavailable = kind.id === 'lore' && !loreAvailable}
+					<label class="create-kind" class:selected={newChannelType === kind.id} class:unavailable>
+						<input
+							class="w-radio"
+							type="radio"
+							name="create-channel-kind"
+							value={kind.id}
+							checked={newChannelType === kind.id}
+							disabled={unavailable}
+							on:change={() => { if (!unavailable) onTypeChange(kind.id); }}
+						/>
+						<span class="create-kind-glyph" aria-hidden="true">
+							{#if kind.icon}<Icon name={kind.icon} size={18} />{:else}<span class="create-kind-hash">#</span>{/if}
+						</span>
+						<span class="create-kind-text">
+							<span class="create-kind-name">{kind.label}</span>
+							<span class="create-kind-hint">{unavailable ? LORE_UNAVAILABLE_HINT : kind.hint}</span>
+						</span>
+					</label>
+				{/each}
+			</div>
+		</fieldset>
+
 		{#if !isFolderType}
-			<div class="create-field">
-				<span class="create-field-label">Folder</span>
-				<select
-					class="create-field-select"
-					value={folderChoice}
-					on:change={(e) => onFolderChoiceChange((e.currentTarget as HTMLSelectElement).value)}
-				>
-					<option value="none">No folder (top level)</option>
-					{#each categories as cat (cat.id)}
-						<option value={cat.id}>{cat.name}</option>
-					{/each}
-					<option value="__new__">+ New folder…</option>
-				</select>
+			<div class="create-gap">
+				<span class="w-label" id="create-channel-folder-label">Folder</span>
+				<Select options={folderOptions} value={folderChoice} ariaLabel="Folder" onchange={(value) => onFolderChoiceChange(value)} />
 				{#if folderChoice === '__new__'}
 					<input
-						class="create-field-input create-field-input-nested"
+						class="w-field create-nested"
 						type="text"
+						aria-label="New folder name"
 						value={newFolderName}
 						on:input={(e) => onNewFolderNameChange((e.currentTarget as HTMLInputElement).value)}
 						placeholder="New folder name"
 						autocomplete="off"
-						on:keydown={(e) => e.key === 'Enter' && !creatingChannel && onSubmit()}
+						on:keydown={submitOnEnter}
 					/>
-					<p class="create-channel-hint">Creates the folder first, then puts this channel inside it.</p>
-				{:else if folderChoice !== 'none'}
-					<p class="create-channel-hint">Channel will appear under this folder after create.</p>
+					<p class="w-field-hint create-hint">Creates the folder first, then puts this channel inside it.</p>
 				{/if}
 			</div>
 		{/if}
 
-		<label class="create-channel-spoiler">
+		<label class="w-choice create-gap create-spoiler">
 			<input
+				class="w-check"
 				type="checkbox"
 				checked={forceSpoiler}
 				on:change={(e) => onForceSpoilerChange((e.currentTarget as HTMLInputElement).checked)}
 			/>
-			<span>Spoiler channel — hide all messages by default</span>
+			<span>Spoiler channel: hide every message until someone reveals it</span>
 		</label>
 
 		{#if createError}
-			<p class="create-channel-error" role="alert">{createError}</p>
+			<p class="create-channel-error" role="alert"><Icon name="alert" size={14} />{createError}</p>
 		{/if}
-
-		<div class="create-channel-actions">
-			<button type="button" class="create-btn-ghost" on:click={onCancel} disabled={creatingChannel}>Cancel</button>
-			<button type="button" class="create-btn-primary" on:click={onSubmit} disabled={creatingChannel || !newChannelName.trim() || loreDisabled}>
-				{creatingChannel ? 'Creating…' : `Create ${getChannelTypeLabel(newChannelType)}`}
-			</button>
-		</div>
+	</form>
+	<div slot="footer" class="w-dialog__foot">
+		<button type="button" class="w-btn w-btn--quiet" on:click={onCancel} disabled={creatingChannel}>Cancel</button>
+		<button
+			type="button"
+			class="w-btn w-btn--primary"
+			aria-busy={creatingChannel}
+			aria-disabled={!canSubmit}
+			on:click={() => { if (canSubmit) void onSubmit(); }}
+		>
+			<span class="w-btn__swap"><span>{submitLabel}</span><span>Creating…</span></span>
+		</button>
 	</div>
-{/if}
+</BaseModal>

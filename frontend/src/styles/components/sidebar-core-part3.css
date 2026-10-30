@@ -1,99 +1,49 @@
+/* ==========================================================================
+   SIDEBAR — LEGACY SHARED RULES
+   The sidebar foot, rows, badges and close button are styled in styles/surfaces/sidebar.css
+   (design contract §8.1); their legacy rules here are deleted (critique shell#4, #12), including
+   the infinite `pulse` on .unread-badge.
+   Still here because other surfaces lean on these unscoped names (each listed with its users):
+   the Voice connected card's actions (VoiceUserCard), .avatar / .avatar-placeholder
+   (MessageItemContent, GroupAvatar, LiveEmptyState), .status-indicator (UserPopout, Create DM /
+   group), .status-dot, .username (MessageHeader, CreateGroupModal), .control-btn (CallControls),
+   the generic .modal-* frame geometry and the channel-settings form rows (ChannelSettingsModal,
+   settings tabs). Their owners retire them; see the w1-sidebar handoffs.
+   ========================================================================== */
 
-	.voice-usercard-actions button svg {
+	:root .channel-sidebar .voice-usercard-actions button svg {
 		width: 16px;
 		height: 16px;
 		stroke: currentColor;
 		flex-shrink: 0;
 	}
 
-
-	.voice-usercard-actions button.active {
-		background: color-mix(in srgb, var(--accent-primary-color) 26%, transparent);
-		border-color: color-mix(in srgb, var(--accent-primary-color) 58%, transparent);
+	:root .channel-sidebar .voice-usercard-actions button.active {
+		border-color: color-mix(in srgb, var(--w-accent) 55%, transparent);
+		background: var(--w-accent-soft);
+		color: var(--w-text);
 	}
 
+	:root .channel-sidebar .voice-usercard-actions .leave-btn {
+		border-color: color-mix(in srgb, var(--w-danger) 55%, transparent);
+		color: var(--w-danger);
+	}
 
-	.voice-usercard-actions .leave-btn {
-		background: color-mix(in srgb, var(--color-danger) 15%, transparent);
-		border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
-		color: var(--text-danger, #fda4af);
+	:root .channel-sidebar .voice-usercard-actions .leave-btn:hover {
+		border-color: var(--w-danger);
+		background: var(--w-danger);
+		color: var(--w-on-danger, var(--w-bg));
 	}
 
 	/* Record control ported from the removed channel docked bar (P2.1). */
-	.voice-usercard-actions .record-btn {
-		font-size: 0.68rem;
-		font-weight: 700;
-		letter-spacing: 0.02em;
-		padding: 0 8px;
-		height: 26px;
-		border-radius: 6px;
+	:root .channel-sidebar .voice-usercard-actions .record-btn {
+		width: auto;
+		padding: 0 10px;
+		font: var(--w-t-caption);
 	}
 
-	.voice-usercard-actions .record-btn.active {
-		color: var(--color-danger, #f87171);
-	}
-
-
-	/* Scope: channel-row pin button. The same class name is used by
-   CallParticipantTile for call tile pin, so we must scope to avoid
-   cross-surface contamination (sidebar-core is loaded before call-modal in
-   styles.css). */
-	.text-channel-actions .pin-btn {
-		width: 24px;
-		height: 24px;
-		border-radius: 4px;
-		background: none;
-		border: none;
-		color: var(--text-secondary);
-		font-size: var(--font-size-lg, 1rem);
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: all var(--duration-fast, 150ms);
-		padding: 0;
-	}
-
-
-	.text-channel-actions .pin-btn svg,
-	.text-channel-actions .settings-btn svg {
-		width: 16px;
-		height: 16px;
-		stroke: currentColor;
-		stroke-width: 2;
-	}
-
-
-	.text-channel-actions .pin-btn:hover {
-		background: var(--pinned-border);
-		color: var(--text-heading);
-	}
-
-
-	.profile-info {
-		flex: 1;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		min-width: 80px;
-		overflow: hidden;
-	}
-
-
-	.avatar-container {
-		position: relative;
-		flex-shrink: 0;
-		cursor: pointer;
-		background: transparent;
-		border: none;
-		padding: 0;
-		border-radius: 50%;
-		transition: opacity var(--duration-fast, 150ms);
-	}
-
-
-	.avatar-container:hover {
-		opacity: 0.8;
+	:root .channel-sidebar .voice-usercard-actions .record-btn.active {
+		color: var(--w-danger);
 	}
 
 
@@ -123,16 +73,11 @@
 		background: var(--status-offline, #6b7280);
 		box-sizing: border-box;
 		z-index: var(--z-base, 0);
-		transition: transform var(--duration-fast, 150ms) ease;
-		box-shadow: 0 0 0 1px rgba(224, 242, 254, 0.2);
 	}
 
 
 	.status-indicator.online {
 		background: var(--status-online, #22c55e);
-		box-shadow:
-			0 0 0 1px rgba(224, 242, 254, 0.25),
-			0 0 6px rgba(var(--status-online-rgb, 34, 197, 94), 0.42);
 	}
 
 
@@ -151,46 +96,6 @@
 	}
 
 
-	/* Presence picker trigger on the BL profile avatar. Sized to the same
-	   visual scale as the popup's .status-dot family (14px incl. border on a
-	   36px avatar) instead of the old tiny 10px pin. The ::after extends the
-	   click target without changing the visual size. */
-	.status-indicator.presence-toggle {
-		width: 14px;
-		height: 14px;
-		right: -2px;
-		bottom: -2px;
-		cursor: pointer;
-	}
-
-	.status-indicator.presence-toggle::after {
-		content: '';
-		position: absolute;
-		inset: -5px;
-		border-radius: 50%;
-	}
-
-	.status-indicator.presence-toggle:hover {
-		transform: scale(1.15);
-	}
-
-	.status-indicator.presence-toggle:focus-visible {
-		outline: 2px solid var(--accent-primary, #6366f1);
-		outline-offset: 2px;
-	}
-
-	.status-option.selected {
-		background: var(--surface-hover);
-		font-weight: 600;
-	}
-
-	.status-option .status-check {
-		margin-left: auto;
-		color: var(--accent-primary, #6366f1);
-		font-size: var(--text-base);
-	}
-
-
 	.username {
 		font-size: var(--text-base);
 		font-weight: 600;
@@ -204,51 +109,8 @@
 	}
 
 
-	.username-text {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-
-	.self-role-badge {
-		font-size: var(--font-size-xs, 0.6875rem);
-		line-height: 1;
-		padding: 0.15rem 0.35rem;
-		border-radius: var(--radius-full, 9999px);
-		background: var(--surface-base);
-		border: 1px solid var(--border-subtle);
-		color: var(--text-secondary);
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.02em;
-		flex-shrink: 0;
-	}
-
-
 	.username:hover {
 		color: var(--accent-primary-color);
-	}
-
-
-	.status-option {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 8px 12px;
-		background: transparent;
-		border: none;
-		border-radius: var(--radius-sm, 4px);
-		color: var(--text-heading);
-		cursor: pointer;
-		transition: background var(--duration-fast, 150ms);
-		text-align: left;
-		font-size: var(--text-base);
-	}
-
-
-	.status-option:hover {
-		background: var(--surface-hover);
 	}
 
 
@@ -257,15 +119,6 @@
 		height: 10px;
 		border-radius: 50%;
 		flex-shrink: 0;
-	}
-
-
-	.user-tag {
-		font-size: var(--text-xs);
-		color: var(--text-secondary);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 
 
@@ -313,14 +166,15 @@
 	}
 
 
-	/* Channel Settings Modal */
+	/* Generic legacy dialog frame (.modal-overlay > .modal-content): geometry only here;
+	   modal-skin.css paints the frame on roles (§7.13). */
 	.modal-overlay {
 		position: fixed;
 		top: 0;
 		left: 0;
 		right: 0;
 		bottom: 0;
-		background-color: var(--shadow-md, var(--surface-modal-overlay, rgba(0, 0, 0, 0.5)));
+		background-color: var(--w-scrim);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -329,13 +183,30 @@
 
 
 	.modal-content {
-		background: var(--surface-modal);
-		border-radius: var(--radius-md, 8px);
+		background: var(--w-bg);
+		border-radius: var(--radius-xl);
 		max-width: 600px;
 		width: 90%;
 		max-height: 80dvh;
 		overflow-y: auto;
-		box-shadow: 0 4px 20px var(--shadow-lg, rgba(0, 0, 0, 0.3));
+		box-shadow: var(--w-shadow);
+	}
+
+	/* §7.13: a dialog made only of a title row, a body and an optional footer keeps the title
+	   and close button fixed while the body scrolls (Channel settings and its siblings). Any
+	   other content shape keeps the whole-frame scroll above, so nothing gets clipped. */
+	.modal-content:has(> .modal-header):has(> .modal-body):not(:has(> :not(.modal-header, .modal-body, .modal-footer))) {
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+	}
+	.modal-content:has(> .modal-header):has(> .modal-body):not(:has(> :not(.modal-header, .modal-body, .modal-footer))) > :is(.modal-header, .modal-footer) {
+		flex: none;
+	}
+	.modal-content:has(> .modal-header):has(> .modal-body):not(:has(> :not(.modal-header, .modal-body, .modal-footer))) > .modal-body {
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow-y: auto;
 	}
 
 
@@ -344,7 +215,7 @@
 		justify-content: space-between;
 		align-items: center;
 		padding: 1.5rem;
-		border-bottom: 1px solid var(--border-subtle);
+		border-bottom: var(--w-bw, 1px) solid var(--w-line);
 	}
 
 
@@ -448,7 +319,7 @@
 
 	.auto-delete-btn.active {
 		background: var(--accent-primary-color);
-		color: var(--text-heading);
+		color: var(--w-on-accent);
 		border-color: var(--accent-primary-color);
 	}
 
@@ -470,8 +341,8 @@
 		background: var(--accent-primary-color);
 		border: none;
 		border-radius: var(--radius-sm, 4px);
-		color: white;
-		font-weight: 600;
+		color: var(--w-on-accent);
+		font-weight: 500;
 		cursor: pointer;
 		transition: all var(--duration-fast, 150ms);
 		margin-top: 0.5rem;
@@ -483,87 +354,10 @@
 	}
 
 
-	/* Channel-row settings: tray owns show/hide via parent opacity.
-	   Do NOT set opacity:0 here — that fights .text-channel-actions > button.
-	   Must match part1 box (part3 loads last and would otherwise clobber size). */
-	.text-channel-actions .settings-btn {
-		background: transparent;
-		border: none;
-		font-size: inherit;
-		width: 28px;
-		height: 28px;
-		min-width: 28px;
-		min-height: 28px;
-		color: var(--text-secondary);
-		cursor: pointer;
-		border-radius: var(--radius-sm, 4px);
-		padding: 0;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		line-height: 1;
-		box-sizing: border-box;
-		transition: color var(--duration-fast, 150ms) ease, background var(--duration-fast, 150ms) ease;
-	}
-
-	.text-channel-actions .settings-btn svg {
-		width: 16px;
-		height: 16px;
-		min-width: 16px;
-		min-height: 16px;
-		stroke: currentColor;
-		stroke-width: 2;
-		flex: 0 0 16px;
-	}
-
-	.text-channel-actions .settings-btn:hover {
-		background: var(--surface-base);
-		color: var(--text-heading);
-	}
-
-
-	/* Unread badge styling */
-	.unread-badge {
-		background: var(--color-danger);
-		color: var(--text-heading);
-		font-size: var(--font-size-xs, 0.6875rem);
-		font-weight: bold;
-		padding: 2px 6px;
-		border-radius: var(--radius-full, 9999px);
-		margin-left: auto;
-		min-width: 20px;
-		text-align: center;
-		animation: pulse 2s infinite;
-	}
-
-
-	/* Mobile close button - hidden by default */
-	.mobile-close-btn {
-		display: none;
-		background: none;
-		border: none;
-		font-size: var(--font-size-3xl, 2rem);
-		color: var(--text-secondary);
-		cursor: pointer;
-		padding: 0;
-		line-height: 1;
-		min-width: 44px;
-		min-height: 44px;
-	}
-
 	.avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary-color)); }
 
 
-	@keyframes voice-ring-pulse {
-		0% {
-			box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55);
-		}
-		100% {
-			box-shadow: 0 0 0 5px rgba(34, 197, 94, 0);
-		}
-	}
-
-
+	/* Still used by chat-upload.css and lib/components/userPanel.css. */
 	@keyframes pulse {
 		0%, 100% { opacity: 1; }
 		50% { opacity: 0.7; }
