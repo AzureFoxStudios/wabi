@@ -3,12 +3,19 @@
 	 * Calls, the center-stage workspace (design contract §7.26, §8.5).
 	 *
 	 * - Row A of the masthead is described through `setStageHeader`: "Calls" + a micro summary
-	 *   ("3 rooms · mic in Studio lounge"). The global controls live there and only while a call
-	 *   is connected: Mic, Sound, Record (one control: "Recording 02:14" while it runs), "Leave
-	 *   all", ⋯ (Connection details, camera). There is no footer button bar.
+	 *   ("In 1 of 3 rooms · mic in Studio lounge"). The global controls live there and only while
+	 *   a call is connected: Mic, Sound, Record (one control: "Recording 02:14" while it runs),
+	 *   "Leave all", ⋯ (Call options: Connection details, camera). On a stage narrower than 760px
+	 *   Record and Leave all move into ⋯ and the recording readout sits above the cards. There is
+	 *   no footer button bar.
 	 * - Body: "IN CALL" call cards that say where your mic goes ("Mic here" / "Muted",
 	 *   "Listening", "Silent"), then "OTHER ROOMS" as hairline rows with Listen and Join. One list
 	 *   of rooms: a room you are in is a card, never also a row.
+	 * - Where your mic goes follows the audio path (`micGoesTo`: the focused call that transmits,
+	 *   or every call under "All rooms I hear"), never the session focus alone. No control here
+	 *   relabels the mic without moving it: "Join" is offered only while your mic is in no other
+	 *   call (calling_impl_core joins a second room listen-only), and there is no "Speak here"
+	 *   until the runtime can really move the mic.
 	 * - Joining shows "Joining…" (aria-busy) on the pressed button; a failure leaves an inline
 	 *   notice with Retry under that row. Recording and route changes report failures the same way.
 	 * - Connection details (route, latency, packet loss; no privacy claim) are one section here,
@@ -17,7 +24,17 @@
 	import { onDestroy } from 'svelte';
 	import { _ } from '$lib/i18n';
 	import { callSessions } from '$lib/callSessionManager';
-	import { callStateWord, callsSummary, sessionState, type CallCopy, type CallSession } from '$lib/callSessionTypes';
+	import {
+		callStateWord,
+		callsSummary,
+		focusedSession,
+		micGoesTo,
+		sessionSilenced,
+		sessionState,
+		type CallAudioContext,
+		type CallCopy,
+		type CallSession
+	} from '$lib/callSessionTypes';
 	import { joinFailureText, type CallJoinMode } from '$lib/callJoinState';
 	import { voiceChannelMembers } from '$lib/presenceStore';
 	import { channels } from '$lib/channelStore';
@@ -29,7 +46,6 @@
 		callJoinAttempts,
 		callConnectionDetailsOpen,
 		leaveCall,
-		focusCall,
 		setCallVolume,
 		toggleCallSpeaker,
 		muteAllMic,
@@ -44,6 +60,9 @@
 		isDeafened,
 		isVideoOff,
 		activeCalls,
+		activeVoiceChannel,
+		activeCallSessionId,
+		voiceTransmitMode,
 		speakingUsers,
 		callTransportState,
 		callConnectionDiagnostics,
@@ -71,19 +90,28 @@
 	const CARD_FACES = 5;
 	/** Faces in an other-room row's 20px stack. */
 	const ROW_FACES = 5;
+	/** Below this stage width Record and Leave all fold into ⋯ (principle 9: sized by the stage). */
+	const COMPACT_STAGE = 760;
 
 	const t: CallCopy = (key, values) => $_(key, values ? { values } : undefined);
 
 	// ---------- sessions and rooms ----------
 
+	/** Your own audio: where the mic goes, whether it is muted, whether you hear anything. */
+	const audio = $derived<CallAudioContext>({ micMuted: $isMuted, deafened: $isDeafened, transmitMode: $voiceTransmitMode });
+
+	// The calls your mic goes to first, then the focused stage, then the most recent.
 	let sessions = $derived(
 		[...$callSessions.values()].sort((a, b) => {
-			if (a.focus === 'focused') return -1;
-			if (b.focus === 'focused') return 1;
+			const mic = Number(micGoesTo(b, audio)) - Number(micGoesTo(a, audio));
+			if (mic !== 0) return mic;
+			if (a.focus !== b.focus) return a.focus === 'focused' ? -1 : 1;
 			return b.joinedAt - a.joinedAt;
 		})
 	);
 	const inCall = $derived(sessions.length > 0);
+	/** The call the stage shows: your own screen preview sits on its card (or the first card). */
+	const stageSessionId = $derived(sessions.find((session) => session.focus === 'focused')?.id ?? sessions[0]?.id ?? null);
 
 	let voiceChannels = $derived(
 		[...$channels].filter((ch) => ch.type === 'voice').sort((a, b) => (a.name ?? a.id).localeCompare(b.name ?? b.id))
@@ -97,7 +125,22 @@
 		return (session.channelId ? $channels.find((c) => c.id === session.channelId)?.name : undefined) ?? session.name ?? session.id;
 	}
 
-	const summary = $derived(callsSummary(sessions, { nameOf: displayName, roomCount: voiceChannels.length, t }));
+	const summary = $derived(callsSummary(sessions, { nameOf: displayName, roomCount: voiceChannels.length, t, audio }));
+
+	/**
+	 * A new room can take your mic only while it is in no other call: with a primary room or a
+	 * direct/group call, calling_impl_core joins listen-only, so "Join" would mean "Listen".
+	 */
+	const joinListensOnly = $derived(Boolean($activeVoiceChannel) || Boolean($activeCallSessionId));
+	const micCall = $derived(focusedSession(sessions, audio));
+	/** What pressing Listen does to your mic, said on the button's tooltip. */
+	const listenHint = $derived(
+		$voiceTransmitMode === 'all-listening'
+			? 'Your mic goes to every room you hear, this one too.'
+			: micCall
+				? `You hear this room. Your mic stays in ${micCall.kind === 'direct' ? `your call with ${displayName(micCall)}` : displayName(micCall)}.`
+				: 'You hear this room. Your mic does not go there.'
+	);
 
 	// ---------- people ----------
 
@@ -277,6 +320,10 @@
 	let moreOpen = $state(false);
 	let moreAnchor = $state<HTMLElement | null>(null);
 	const cameraOn = $derived(!$isVideoOff);
+	/** The stage width (this page fills center stage); 0 until measured. */
+	let stageWidth = $state(0);
+	/** Phone, or a stage narrowed by a pinned panel: Mic, Sound and ⋯ only. */
+	const compact = $derived($isMobile || (stageWidth > 0 && stageWidth < COMPACT_STAGE));
 
 	const recordLabel = $derived(
 		recording ? t('calls.recording', { time: recordElapsed }) : savingRecording ? 'Saving recording…' : t('calls.record')
@@ -293,7 +340,7 @@
 
 	const moreItems = $derived.by<MenuEntry[]>(() => {
 		const items: MenuEntry[] = [];
-		if ($isMobile) {
+		if (compact) {
 			items.push({
 				id: 'record',
 				label: recording ? 'Stop recording' : savingRecording ? 'Saving recording…' : t('calls.record'),
@@ -309,7 +356,7 @@
 			onSelect: () => callConnectionDetailsOpen.update((open) => !open)
 		});
 		if (cameraOn) items.push({ id: 'camera-off', label: $_('shell.call.turn_off_camera'), icon: 'videoOff', onSelect: cameraOff });
-		if ($isMobile) {
+		if (compact) {
 			items.push({ id: 'sep', type: 'separator' });
 			items.push({ id: 'leave-all', label: t('calls.leave_all'), icon: 'phoneOff', danger: true, onSelect: leaveAllCalls });
 		}
@@ -318,7 +365,6 @@
 
 	const headerActions = $derived.by<StageHeaderAction[]>(() => {
 		if (!inCall) return [];
-		const phone = $isMobile;
 		// Mic and Sound keep one name and report their state with aria-pressed, exactly like the
 		// sidebar foot's Mute and Deafen (spec §7.2, §8.1 item 8).
 		const mic: StageHeaderAction = {
@@ -339,7 +385,7 @@
 		};
 		const more: StageHeaderAction = {
 			id: 'more',
-			label: phone ? 'Call options' : t('calls.connection_details'),
+			label: 'Call options',
 			icon: 'more',
 			iconOnly: true,
 			onSelect: (anchor) => {
@@ -347,14 +393,16 @@
 				moreOpen = !moreOpen;
 			}
 		};
-		if (phone) return [mic, sound, more];
+		if (compact) return [mic, sound, more];
 		return [
 			mic,
 			sound,
 			{
+				// One control in one size: the danger words while recording come from calls.css
+				// (keyed on aria-pressed), not from a variant that would also shrink it.
 				id: 'record',
 				label: recordLabel,
-				variant: recording ? 'danger' : 'default',
+				variant: 'default',
 				pressed: recording,
 				disabled: recordBusy || savingRecording,
 				onSelect: () => void handleToggleRecord()
@@ -371,6 +419,17 @@
 
 	$effect(() => {
 		if (!inCall) moreOpen = false;
+	});
+
+	// The ⋯ trigger is a different button in the compact set: close and re-anchor on a switch.
+	let lastCompact: boolean | null = null;
+	$effect(() => {
+		const now = compact;
+		if (lastCompact !== null && lastCompact !== now) {
+			moreOpen = false;
+			moreAnchor = null;
+		}
+		lastCompact = now;
 	});
 
 	// ---------- rows: Join and Listen ----------
@@ -390,7 +449,18 @@
 	}
 </script>
 
-<div class="calls">
+<div class="calls" bind:clientWidth={stageWidth}>
+	{#if inCall && compact && (recording || savingRecording)}
+		<!-- The recording readout stays visible text on a narrow stage too (§8.5, §4.7). -->
+		<div class="calls-recbar" role="group" aria-label={t('calls.record')}>
+			<span class="calls-recbar__dot" aria-hidden="true"></span>
+			<span class="calls-recbar__time">{recording ? t('calls.recording', { time: recordElapsed }) : 'Saving recording…'}</span>
+			{#if recording}
+				<button type="button" class="w-btn w-btn--sm" disabled={recordBusy} onclick={() => void handleToggleRecord()}>Stop recording</button>
+			{/if}
+		</div>
+	{/if}
+
 	{#if inCall && $callConnectionDetailsOpen}
 		<section class="calls-conn" aria-labelledby={`${uid}-conn`}>
 			<header class="calls-conn__head">
@@ -427,7 +497,9 @@
 						/>
 					{/key}
 					<p class="calls-conn__hint" aria-live="polite">
-						{routeBusy ? 'Changing the route…' : 'Through this server, your Wabi server relays the audio. Direct, the audio goes between devices.'}
+						{routeBusy
+							? 'Changing the route…'
+							: 'Through this server: your Wabi server relays the audio. Direct: devices connect to each other when the network allows; a relay may still carry the audio.'}
 					</p>
 				</div>
 			{/if}
@@ -460,8 +532,10 @@
 			</h3>
 			<div class="calls-cards" class:calls-cards--single={sessions.length === 1}>
 				{#each sessions as session (session.id)}
-					{@const state = sessionState(session, { micMuted: $isMuted })}
-					{@const here = state.key === 'mic-here' || state.key === 'muted'}
+					{@const state = sessionState(session, audio)}
+					{@const here = session.lifecycle !== 'failed' && micGoesTo(session, audio)}
+					{@const ownScreen = session.id === stageSessionId ? ownScreenStream : null}
+					{@const silenced = sessionSilenced(session)}
 					{@const faces = sessionFaces(session)}
 					{@const recorders = recordersIn(session, faces)}
 					{@const videos = sessionVideos(session)}
@@ -484,11 +558,11 @@
 							<p class="call-card__rec"><span class="w-dot w-dot--danger" aria-hidden="true"></span>Recording · {recorders.join(', ')}</p>
 						{/if}
 
-						{#if videos.length > 0 || (here && ownScreenStream)}
+						{#if videos.length > 0 || ownScreen}
 							<div class="call-card__videos">
-								{#if here && ownScreenStream}
+								{#if ownScreen}
 									<div class="call-tile call-tile--screen">
-										<VideoSink stream={ownScreenStream} />
+										<VideoSink stream={ownScreen} />
 										<span class="call-tile__label"><Icon name="screen" size={12} />Your screen</span>
 									</div>
 								{/if}
@@ -532,16 +606,18 @@
 							<span class="call-card__count">{t('calls.in_call_count', { count: faces.length })}</span>
 						</div>
 
-						<div class="call-card__volume" style={`--w-range-fill: ${session.volume}%`}>
+						<!-- Row 3 (§7.26): Silence this call, the volume, Leave. One silence: the toggle reads
+						     pressed whenever the call is silent, by the toggle or at volume 0. -->
+						<div class="call-card__volume" data-silenced={silenced || undefined} style={`--w-range-fill: ${silenced ? 0 : session.volume}%`}>
 							<button
 								type="button"
 								class="w-ibtn w-ibtn--sm call-card__speaker"
-								aria-pressed={session.muted}
+								aria-pressed={silenced}
 								aria-label={t('calls.silence_call')}
 								title={t('calls.silence_call')}
 								onclick={() => toggleCallSpeaker(session.id)}
 							>
-								<Icon name={session.muted ? 'headphonesOff' : 'voice'} />
+								<Icon name={silenced ? 'headphonesOff' : 'voice'} />
 							</button>
 							<input
 								type="range"
@@ -552,18 +628,10 @@
 								value={session.volume}
 								oninput={(e) => setCallVolume(session.id, Number((e.currentTarget as HTMLInputElement).value))}
 								aria-label={t('calls.volume_for', { room })}
-								aria-valuetext={`${session.volume}%`}
+								aria-valuetext={silenced ? `${session.volume}%, silenced` : `${session.volume}%`}
 							/>
-							<span class="call-card__level" aria-hidden="true">{session.volume}%</span>
-						</div>
-
-						<div class="call-card__actions">
-							{#if !here}
-								<button type="button" class="w-btn w-btn--sm" onclick={() => focusCall(session.id)} title={`Send your mic to ${room}`}>
-									<Icon name="mic" />Speak here
-								</button>
-							{/if}
-							<button type="button" class="w-btn w-btn--danger w-btn--sm call-card__leave" onclick={() => leaveCall(session)} aria-label={`${t('calls.leave')} ${room}`}>
+							<span class="call-card__level" aria-hidden="true">{silenced ? 'Off' : `${session.volume}%`}</span>
+							<button type="button" class="w-btn w-btn--danger w-btn--sm call-card__leave" onclick={() => leaveCall(session, room)} aria-label={`${t('calls.leave')} ${room}`}>
 								{t('calls.leave')}
 							</button>
 						</div>
@@ -595,6 +663,7 @@
 					{@const people = roomFaces(ch.id)}
 					{@const attempt = attemptFor(ch.id)}
 					{@const joining = attempt?.status === 'joining'}
+					{@const showJoin = !joinListensOnly || busyLabel('join', ch.id)}
 					{@const name = ch.name ?? ch.id}
 					<li class="calls-room" data-voice-room={ch.id}>
 						<div class="calls-room__row">
@@ -612,26 +681,30 @@
 							{/if}
 							{#if people.length > 0}<span class="calls-room__count">{t('calls.in_call_count', { count: people.length })}</span>{/if}
 							<span class="calls-room__actions">
+								<!-- While busy the visible "Joining…" is the name (aria-busy says the rest). -->
 								<button
 									type="button"
-									class="w-btn w-btn--quiet"
+									class={showJoin ? 'w-btn w-btn--quiet' : 'w-btn'}
 									aria-busy={busyLabel('listen', ch.id)}
 									aria-disabled={joining && !busyLabel('listen', ch.id) ? 'true' : undefined}
-									aria-label={`${t('calls.listen')} to ${name}`}
+									aria-label={joining ? undefined : `${t('calls.listen')} to ${name}`}
+									title={listenHint}
 									onclick={() => !joining && void joinVoice(ch.id, 'listen')}
 								>
 									<span class="w-btn__swap"><span>{t('calls.listen')}</span><span>{t('calls.joining')}</span></span>
 								</button>
-								<button
-									type="button"
-									class="w-btn"
-									aria-busy={busyLabel('join', ch.id)}
-									aria-disabled={joining && !busyLabel('join', ch.id) ? 'true' : undefined}
-									aria-label={`${t('calls.join')} ${name}`}
-									onclick={() => !joining && void joinVoice(ch.id, 'join')}
-								>
-									<span class="w-btn__swap"><span>{t('calls.join')}</span><span>{t('calls.joining')}</span></span>
-								</button>
+								{#if showJoin}
+									<button
+										type="button"
+										class="w-btn"
+										aria-busy={busyLabel('join', ch.id)}
+										aria-disabled={joining && !busyLabel('join', ch.id) ? 'true' : undefined}
+										aria-label={joining ? undefined : `${t('calls.join')} ${name}`}
+										onclick={() => !joining && void joinVoice(ch.id, 'join')}
+									>
+										<span class="w-btn__swap"><span>{t('calls.join')}</span><span>{t('calls.joining')}</span></span>
+									</button>
+								{/if}
 							</span>
 						</div>
 						{#if attempt?.status === 'failed'}
@@ -650,6 +723,7 @@
 	{/if}
 </div>
 
-{#if inCall}
+<!-- Anchored to the masthead ⋯ only: without an anchor Menu would draw its own unnamed trigger. -->
+{#if inCall && moreAnchor}
 	<Menu items={moreItems} label="Call options" anchor={moreAnchor} bind:open={moreOpen} align="end" />
 {/if}

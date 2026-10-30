@@ -300,12 +300,13 @@
 	white-space: nowrap;
 }
 
-/* ---------- volume and actions ---------- */
+/* ---------- row 3: Silence this call, the volume, Leave (§7.26) ---------- */
 .call-card__volume {
 	display: flex;
 	align-items: center;
 	gap: 10px;
 	min-width: 0;
+	margin-top: auto;
 }
 .call-card__volume > .w-range {
 	flex: 1 1 auto;
@@ -319,19 +320,23 @@
 	font-variant-numeric: tabular-nums;
 	text-align: end;
 }
-.call-card__actions {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	margin-top: auto;
-}
 .call-card__leave {
-	margin-inline-start: auto;
+	margin-inline-start: 2px;
 }
 /* A silenced call's speaker key reads as on (pressed), with the not-hearing glyph. */
 .call-card__speaker[aria-pressed='true'],
 .calls-row__controls .w-ibtn[aria-pressed='true'] {
 	color: var(--w-text);
+}
+/* Silenced: the range keeps its position but loses the accent (the fill is set to 0 inline). */
+:root :is(.call-card__volume, .calls-row__controls)[data-silenced] input.w-range::-webkit-slider-thumb {
+	background: var(--w-faint);
+}
+:root :is(.call-card__volume, .calls-row__controls)[data-silenced] input.w-range::-moz-range-thumb {
+	background: var(--w-faint);
+}
+:root :is(.call-card__volume, .calls-row__controls)[data-silenced] input.w-range::-moz-range-progress {
+	background: transparent;
 }
 :root[data-char='contrast'] :is(.call-card, .calls-row) .w-ibtn:is(:hover, [aria-pressed='true']) {
 	box-shadow: inset 0 0 0 var(--w-bw) var(--w-line-strong);
@@ -410,6 +415,37 @@
 }
 .calls > .calls-notice {
 	max-width: 560px;
+}
+
+/* Narrow stage or phone: the recording readout stays visible text above the cards (§8.5). */
+.calls-recbar {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	box-sizing: border-box;
+	max-width: 560px;
+	min-height: 40px;
+	padding: 6px 6px 6px 14px;
+	border: var(--w-bw) solid color-mix(in srgb, var(--w-danger) 45%, transparent);
+	border-radius: var(--radius-md);
+	background: color-mix(in srgb, var(--w-danger) 8%, var(--w-bg));
+	color: var(--w-danger);
+	font: var(--w-t-label);
+}
+.calls-recbar__dot {
+	flex: none;
+	width: 7px;
+	height: 7px;
+	border-radius: var(--w-avr);
+	background: var(--w-danger);
+}
+.calls-recbar__time {
+	flex: 1 1 auto;
+	min-width: 0;
+	font-variant-numeric: tabular-nums;
+}
+:root[data-char='contrast'] .calls-recbar {
+	border-color: var(--w-danger);
 }
 
 /* ---------- connection details: the one surface (§8.5, §9.5) ---------- */
@@ -500,8 +536,16 @@
 /* ==========================================================================
    Masthead row A while in a call: the record readout and the off-state glyphs
    ========================================================================== */
-/* Record is the only text action with a toggle state: a static danger dot before the word
-   ("Record", then "Recording 02:14" in danger). No pulse, also under reduced motion. */
+/* Record: one control in one size. The row's text actions share the sm height of "Leave all";
+   while it runs it reads "Recording 02:14" in danger with a static dot before it. No pulse,
+   also under reduced motion. Record is the only text action with a toggle state. */
+.stage-bar[data-view='voice'] .stage-a__actions > .w-btn[aria-pressed] {
+	height: 28px;
+	padding: 0 10px;
+	gap: 6px;
+	font: var(--w-t-caption);
+	font-variant-numeric: tabular-nums;
+}
 .stage-bar[data-view='voice'] .stage-a__actions > .w-btn[aria-pressed]::before {
 	content: '';
 	flex: none;
@@ -510,11 +554,21 @@
 	border-radius: var(--w-avr);
 	background: var(--w-danger);
 }
-.stage-bar[data-view='voice'] .stage-a__actions > .w-btn--danger[aria-pressed='true'] {
-	font-variant-numeric: tabular-nums;
+.stage-bar[data-view='voice'] .stage-a__actions > .w-btn[aria-pressed='true'],
+.stage-bar[data-view='voice'] .stage-a__actions > .w-btn[aria-pressed='true']:hover {
+	border-color: color-mix(in srgb, var(--w-danger) 55%, transparent);
+	color: var(--w-danger);
 }
-.stage-bar[data-view='voice'] .stage-a__actions > .w-btn--danger[aria-pressed='true']:hover::before {
-	background: currentColor;
+:root[data-char='contrast'] .stage-bar[data-view='voice'] .stage-a__actions > .w-btn[aria-pressed='true'] {
+	border-color: var(--w-danger);
+}
+/* The summary ("In 1 of 3 rooms · mic in Studio lounge") yields to the actions with an ellipsis. */
+.stage-bar[data-view='voice'] .stage-a__status {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 /* Mute microphone / Deafen pressed: the off glyph in danger, like the call dock. */
 .stage-bar[data-view='voice'] .stage-a__actions .w-ibtn[aria-pressed='true'] > svg {
@@ -616,27 +670,9 @@
 	margin-inline-start: 4px;
 }
 
-.calls-panel__empty {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-	padding: 32px 0;
-}
-.calls-panel__empty > svg {
-	width: 28px;
-	height: 28px;
-	margin-bottom: 12px;
-	color: var(--w-faint);
-}
-.calls-panel__empty-title {
-	margin: 0;
-	color: var(--w-text);
-	font: var(--w-t-subhead);
-}
-.calls-panel__empty-text {
-	margin: 6px 0 16px;
-	color: var(--w-mute);
-	font: var(--w-t-small);
+/* The kit empty state (§7.16), with the panel's tighter top. */
+.calls-panel__empty.w-empty {
+	padding: 24px 0;
 }
 
 /* ==========================================================================
@@ -688,8 +724,9 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
-/* Secondary line: 12/16 (§4.1 small, secondary lines). */
+/* Secondary line: 12/16 (§4.1 small, secondary lines), on the room name's edge (dot 6 + gap 8). */
 :root .channel-sidebar .voice-status__line {
+	padding-inline-start: 14px;
 	color: var(--w-faint);
 	font: 400 calc(12px * var(--w-fs)) / calc(16px * var(--w-fs)) var(--w-sans);
 }

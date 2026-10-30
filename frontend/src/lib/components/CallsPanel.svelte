@@ -5,21 +5,30 @@
 	 * the panel ("Calls" + count), so this body draws no title of its own.
 	 *
 	 * Each row: the room, your state word in the same vocabulary as the Calls page ("Mic here",
-	 * "Listening", "Silent"), the people as real stamps, then "Silence this call", the volume
-	 * ("Volume for <room>"), "Speak here" and "Leave". The panel never takes over center stage:
-	 * "Open Calls" is an explicit choice.
+	 * "Listening", "Silent"; where the mic goes follows the audio path, `micGoesTo`), the people as
+	 * real stamps, then "Silence this call", the volume ("Volume for <room>") and "Leave". The panel
+	 * never takes over center stage: "Open Calls" is an explicit choice, offered only while Calls is
+	 * not already there.
 	 */
 	import { onDestroy } from 'svelte';
 	import { _ } from '$lib/i18n';
 	import { callSessions } from '$lib/callSessionManager';
-	import { callStateWord, sessionState, type CallCopy, type CallSession } from '$lib/callSessionTypes';
+	import {
+		callStateWord,
+		micGoesTo,
+		sessionSilenced,
+		sessionState,
+		type CallAudioContext,
+		type CallCopy,
+		type CallSession
+	} from '$lib/callSessionTypes';
 	import { channels } from '$lib/channelStore';
 	import { voiceChannelMembers } from '$lib/presenceStore';
 	import { users, serverMembers } from '$lib/socket';
-	import { activeCalls, isMuted, speakingUsers } from '$lib/calling';
-	import { leaveCall, focusCall, setCallVolume, toggleCallSpeaker } from '$lib/callSurfaces';
+	import { activeCalls, isMuted, isDeafened, voiceTransmitMode, speakingUsers } from '$lib/calling';
+	import { leaveCall, setCallVolume, toggleCallSpeaker } from '$lib/callSurfaces';
 	import { setPanelFrameCount } from '$lib/workspacePanels';
-	import { selectWorkspaceView } from '$lib/workspaceNavigationState';
+	import { activeWorkspaceView, selectWorkspaceView } from '$lib/workspaceNavigationState';
 	import { inkFor } from '$lib/theme/identity';
 	import { mediaUrl } from '$lib/mediaUrl';
 	import Icon from './ui/Icon.svelte';
@@ -29,10 +38,15 @@
 
 	const t: CallCopy = (key, values) => $_(key, values ? { values } : undefined);
 
+	/** Your own audio: where the mic goes, whether it is muted, whether you hear anything. */
+	const audio = $derived<CallAudioContext>({ micMuted: $isMuted, deafened: $isDeafened, transmitMode: $voiceTransmitMode });
+
+	// The calls your mic goes to first (same order as the Calls page).
 	let sessions = $derived(
 		[...$callSessions.values()].sort((a, b) => {
-			if (a.focus === 'focused') return -1;
-			if (b.focus === 'focused') return 1;
+			const mic = Number(micGoesTo(b, audio)) - Number(micGoesTo(a, audio));
+			if (mic !== 0) return mic;
+			if (a.focus !== b.focus) return a.focus === 'focused' ? -1 : 1;
 			return b.joinedAt - a.joinedAt;
 		})
 	);
@@ -92,17 +106,25 @@
 
 <div class="calls-panel">
 	{#if sessions.length === 0}
-		<div class="calls-panel__empty">
+		<!-- §7.16 list empty state; "Open Calls" only while Calls is not already in center stage. -->
+		<div class="w-empty calls-panel__empty">
 			<Icon name="voice" size={28} />
-			<p class="calls-panel__empty-title">{t('calls.empty_title')}</p>
-			<p class="calls-panel__empty-text">Join a voice room from the sidebar. Every room is listed in Calls.</p>
-			<button type="button" class="w-btn w-btn--sm" onclick={() => selectWorkspaceView('voice')}>Open Calls</button>
+			<p class="w-empty__title">{t('calls.empty_title')}</p>
+			{#if $activeWorkspaceView === 'voice'}
+				<p class="w-empty__text">Join a voice room from the sidebar or from Calls.</p>
+			{:else}
+				<p class="w-empty__text">Join a voice room from the sidebar. Every room is listed in Calls.</p>
+				<div class="w-empty__actions">
+					<button type="button" class="w-btn" onclick={() => selectWorkspaceView('voice')}>Open Calls</button>
+				</div>
+			{/if}
 		</div>
 	{:else}
 		<ul class="calls-panel__list">
 			{#each sessions as session (session.id)}
-				{@const state = sessionState(session, { micMuted: $isMuted })}
-				{@const here = state.key === 'mic-here' || state.key === 'muted'}
+				{@const state = sessionState(session, audio)}
+				{@const here = session.lifecycle !== 'failed' && micGoesTo(session, audio)}
+				{@const silenced = sessionSilenced(session)}
 				{@const faces = sessionFaces(session)}
 				{@const room = displayName(session)}
 				<li class="calls-row" class:calls-row--here={here} data-state={state.key} aria-label={`${room}, ${callStateWord(state, t)}`}>
@@ -123,16 +145,16 @@
 						</span>
 						<span class="calls-row__count">{t('calls.in_call_count', { count: faces.length })}</span>
 					</div>
-					<div class="calls-row__controls" style={`--w-range-fill: ${session.volume}%`}>
+					<div class="calls-row__controls" data-silenced={silenced || undefined} style={`--w-range-fill: ${silenced ? 0 : session.volume}%`}>
 						<button
 							type="button"
 							class="w-ibtn w-ibtn--sm"
-							aria-pressed={session.muted}
+							aria-pressed={silenced}
 							aria-label={t('calls.silence_call')}
 							title={t('calls.silence_call')}
 							onclick={() => toggleCallSpeaker(session.id)}
 						>
-							<Icon name={session.muted ? 'headphonesOff' : 'voice'} />
+							<Icon name={silenced ? 'headphonesOff' : 'voice'} />
 						</button>
 						<input
 							type="range"
@@ -143,15 +165,10 @@
 							value={session.volume}
 							oninput={(e) => setCallVolume(session.id, Number((e.currentTarget as HTMLInputElement).value))}
 							aria-label={t('calls.volume_for', { room })}
-							aria-valuetext={`${session.volume}%`}
+							aria-valuetext={silenced ? `${session.volume}%, silenced` : `${session.volume}%`}
 						/>
-						<span class="calls-row__level" aria-hidden="true">{session.volume}%</span>
-						{#if !here}
-							<button type="button" class="w-ibtn w-ibtn--sm" aria-label={`Speak here: send your mic to ${room}`} title="Speak here" onclick={() => focusCall(session.id)}>
-								<Icon name="mic" />
-							</button>
-						{/if}
-						<button type="button" class="w-btn w-btn--danger w-btn--sm" aria-label={`${t('calls.leave')} ${room}`} onclick={() => leaveCall(session)}>
+						<span class="calls-row__level" aria-hidden="true">{silenced ? 'Off' : `${session.volume}%`}</span>
+						<button type="button" class="w-btn w-btn--danger w-btn--sm" aria-label={`${t('calls.leave')} ${room}`} onclick={() => leaveCall(session, room)}>
 							{t('calls.leave')}
 						</button>
 					</div>
