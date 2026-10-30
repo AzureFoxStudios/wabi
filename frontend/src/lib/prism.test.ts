@@ -93,7 +93,7 @@ describe('prism theme stylesheet (spec §7.19)', () => {
 	test('every rule is scoped to a code block: no global inline-code or token rule', () => {
 		expect(selectors.length).toBeGreaterThan(0);
 		for (const selector of selectors) {
-			expect(selector.startsWith(':where(.code-block, .markdown-content pre, .code-preview) ')).toBe(true);
+			expect(selector.startsWith(":where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) ")).toBe(true);
 		}
 	});
 
@@ -101,6 +101,12 @@ describe('prism theme stylesheet (spec §7.19)', () => {
 		expect(code).not.toMatch(/#[0-9a-f]{3,8}\b/i);
 		expect(code).not.toMatch(/\brgba?\(/i);
 		expect(code).toContain('var(--w-accent)');
+	});
+
+	test('parseMessage blocks outside message markdown (Wiki, Diary) keep their token colours', () => {
+		// markdown.ts renders <pre class="language-x"><code class="language-x">; .wiki-content-body
+		// and .journal-markdown are not .markdown-content, so the scope must name the pre itself.
+		expect(code).toContain("pre[class*='language-']) .token:is(.keyword");
 	});
 
 	test('markdown typography no longer lives in the highlighting sheet', () => {

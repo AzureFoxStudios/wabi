@@ -1,12 +1,13 @@
 /* Prism syntax token colours (spec §7.19), on theme roles so code reads in every theme.
    Scoped to code blocks only: rendered message / forum markdown (`.markdown-content pre`),
-   blocks that carry `.code-block`, and the code-block editor preview (`.code-preview`).
+   blocks that carry `.code-block`, the code-block editor preview (`.code-preview`), and any
+   `pre.language-x` that parseMessage() renders elsewhere (Wiki pages, Diary entries).
    There is no global code rule here: inline code and block chrome (sink, hairline, mono 13/20)
    are styled by styles/components/ml-markdown.css and by each editor.
    Palette: keywords take the accent; strings, numbers and names are accent/text mixes that keep
    text-grade contrast on the sink; comments are faint; punctuation is muted. */
 
-:where(.code-block, .markdown-content pre, .code-preview) code[class*='language-'] {
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) code[class*='language-'] {
 	color: var(--w-text);
 	background: none;
 	text-shadow: none;
@@ -19,44 +20,44 @@
 	hyphens: none;
 }
 
-:where(.code-block, .markdown-content pre, .code-preview) .token:is(.comment, .prolog, .doctype, .cdata) {
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token:is(.comment, .prolog, .doctype, .cdata) {
 	color: var(--w-faint);
 	font-style: italic;
 }
 
-:where(.code-block, .markdown-content pre, .code-preview) .token:is(.punctuation, .operator, .entity, .url) {
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token:is(.punctuation, .operator, .entity, .url) {
 	color: var(--w-mute);
 }
 
-:where(.code-block, .markdown-content pre, .code-preview) .token:is(.keyword, .atrule, .important, .rule) {
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token:is(.keyword, .atrule, .important, .rule) {
 	color: var(--w-accent);
 }
 
-:where(.code-block, .markdown-content pre, .code-preview) .token:is(.string, .char, .attr-value, .inserted, .regex) {
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token:is(.string, .char, .attr-value, .inserted, .regex) {
 	color: color-mix(in srgb, var(--w-accent) 45%, var(--w-text));
 }
 
-:where(.code-block, .markdown-content pre, .code-preview) .token:is(.number, .boolean, .constant, .symbol, .deleted) {
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token:is(.number, .boolean, .constant, .symbol, .deleted) {
 	color: color-mix(in srgb, var(--w-accent) 70%, var(--w-text));
 }
 
-:where(.code-block, .markdown-content pre, .code-preview) .token:is(.function, .class-name, .builtin) {
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token:is(.function, .class-name, .builtin) {
 	color: var(--w-text);
 	font-weight: 500;
 }
 
-:where(.code-block, .markdown-content pre, .code-preview) .token:is(.property, .tag, .selector, .attr-name, .variable, .namespace) {
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token:is(.property, .tag, .selector, .attr-name, .variable, .namespace) {
 	color: color-mix(in srgb, var(--w-text) 78%, var(--w-mute));
 }
 
-:where(.code-block, .markdown-content pre, .code-preview) .token:is(.bold, .important) {
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token:is(.bold, .important) {
 	font-weight: 500;
 }
 
-:where(.code-block, .markdown-content pre, .code-preview) .token.italic {
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token.italic {
 	font-style: italic;
 }
 
-:where(.code-block, .markdown-content pre, .code-preview) .token.entity {
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token.entity {
 	cursor: help;
 }

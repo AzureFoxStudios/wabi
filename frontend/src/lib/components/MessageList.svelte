@@ -53,6 +53,7 @@
 		import { MODEL_VIEWPORT_ADDON_ID, openModelViewport } from '$lib/modelViewportTab';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { layoutStore } from '$lib/layoutStore';
+	import { isMobile } from '$lib/layoutStoreStates';
 	import { showToast } from '$lib/toast';
 	import { confirmAction } from '$lib/confirm';
 	import { _, currentLocale } from '$lib/i18n';
@@ -1941,8 +1942,18 @@
 	$: streamChannelName = activeMessageChannel?.name || '';
 	$: streamChannelTopic = (activeMessageChannel?.topic || activeMessageChannel?.description || '').trim();
 
+	// The rows sit in .ml-stream. Inside a pane (ChatMessagesPane) it has no box of its own; a
+	// host without one (the Alt-click glance preview) gets the pane from it, so the row grammar in
+	// styles/stream.css applies there too.
+	let standaloneStream = false;
+	function attachStreamList(node: HTMLElement) {
+		standaloneStream = !node.parentElement?.closest('.messages-pane');
+		return {};
+	}
+
 	// Jump to latest (§8.3): only the channel stage's scroller gets the pill (the DM views draw
-	// their own). Counts rows that arrive while the reader is up in the history.
+	// their own). Counts rows that arrive while the reader is up in the history. Phones keep
+	// Chat.svelte's own jump control there, so the pill stays off in the phone shell (one control).
 	const JUMP_DISTANCE_PX = 240;
 	let streamScroller: HTMLElement | null = null;
 	let awayFromLatest = false;
@@ -2060,6 +2071,7 @@
 	on:keydown={handleDeletionModeKeydown}
 />
 
+<div class="ml-stream" class:messages-pane={standaloneStream} use:attachStreamList>
 {#if canUseDeletionMode && deletionModeEnabled}
 	<div class="moderation-delete-toolbar active" role="region" aria-label="Deletion mode active">
 		<span class="moderation-delete-dot" aria-hidden="true"></span>
@@ -2226,7 +2238,7 @@
 {/each}
 
 <div class="stream-jump" use:attachStreamScroller>
-	{#if awayFromLatest && visibleMessages.length > 0}
+	{#if awayFromLatest && visibleMessages.length > 0 && !$isMobile}
 		<button
 			type="button"
 			class="stream-jump__btn"
@@ -2237,6 +2249,7 @@
 			<Icon name="chevDown" size={16} />
 		</button>
 	{/if}
+</div>
 </div>
 
 <input

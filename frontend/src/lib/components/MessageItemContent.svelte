@@ -114,15 +114,7 @@
 		return labels;
 	})();
 
-	function formatTime(timestamp: number): string {
-		return formatTimestampForDisplay(timestamp, displayEnhancementSettingsStore.timestampDisplayMode);
-	}
-
-	function formatTimeTooltip(timestamp: number): string {
-		return new Date(timestamp).toLocaleString();
-	}
-
-	/** The time gutter shows the clock only, in the reader's locale (the day rule carries the date). */
+	/** The clock, in the reader's locale: the time gutter, and the phone row's header in Compact mode. */
 	function formatGutterTime(timestamp: number, locale: string | null | undefined): string {
 		const date = new Date(timestamp);
 		if (!Number.isFinite(date.getTime())) return '';
@@ -131,6 +123,23 @@
 		} catch {
 			return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 		}
+	}
+
+	// The header stamp follows Settings › Chat › CompleteTimestamps. Compact uses the gutter's
+	// formatter, so the clock reads the same at every width; Complete and Detailed add the date
+	// in the reader's locale. Reassigned when the mode or locale changes, so the header re-renders.
+	$: formatTime = (timestamp: number): string => {
+		const mode = displayEnhancementSettingsStore?.timestampDisplayMode;
+		if (!mode || mode === 'compact') return formatGutterTime(timestamp, $currentLocale);
+		try {
+			return formatTimestampForDisplay(timestamp, mode, $currentLocale || undefined);
+		} catch {
+			return formatTimestampForDisplay(timestamp, mode);
+		}
+	};
+
+	function formatTimeTooltip(timestamp: number): string {
+		return new Date(timestamp).toLocaleString($currentLocale || undefined);
 	}
 
 	function getUserColor(user: User | undefined, username: string): string {

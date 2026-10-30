@@ -6,14 +6,21 @@
    the page becomes the stacked phone row: avatar 32, name + role word + time on one line.
 
    Scope: every rule is under .messages-pane, the root of ChatMessagesPane, which hosts the stream
-   in the channel stage and in both DM views. The pane's scroller is the `stream` container, so
-   the layout follows the width the stream really has, not the viewport (§2.9).
+   in the channel stage and in both DM views. MessageList wraps its rows in .ml-stream, which is
+   transparent inside a pane and becomes the pane itself where a host gives none (the Alt-click
+   glance preview). The pane's scroller is the `stream` container, so the layout follows the
+   width the stream really has, not the viewport (§2.9).
    Message identity is not a styling concern: day and NEW rules are siblings drawn inside the
    keyed #each in MessageList.svelte and never change keys. */
 
 /* ---------- the page ---------- */
-:where(.messages, .dm-messages, .dm-conversation-messages):has(> .messages-pane) {
+:where(.messages, .dm-messages, .dm-conversation-messages):has(> .messages-pane),
+:has(> .ml-stream.messages-pane) {
 	container: stream / inline-size;
+}
+/* MessageList's root: no box of its own inside a pane, the pane where its host has none. */
+.ml-stream:not(.messages-pane) {
+	display: contents;
 }
 /* The channel scroller hands its padding to the pane, so the page starts at the gutter. */
 :root .messages:has(> .messages-pane) {
@@ -29,9 +36,12 @@
 	--stream-page: calc(var(--stream-text-x) + var(--w-measure));
 	--stream-surface: var(--w-bg);
 	box-sizing: border-box;
+	/* The pane grows with its rows (min-height 100% still bottom-anchors a short conversation).
+	   Shrunk to one scroller height, it would confine the sticky day rule to the first screen. */
+	flex-shrink: 0;
 	padding: 0 var(--w-gutter) 6px calc(var(--w-gutter) - 8px);
 }
-:is(.right-panel, .dm-conversation-messages) .messages-pane {
+:is(.right-panel, .dm-conversation-messages, .glance-page) .messages-pane {
 	--stream-surface: var(--w-bg2);
 }
 
@@ -45,12 +55,17 @@
 	align-items: baseline;
 	box-sizing: border-box;
 	max-width: var(--stream-page);
-	margin: 18px 0 0;
+	margin: 0;
 	padding: 0;
 	border: 0;
 	border-radius: 0;
 	background: transparent;
 	box-shadow: none;
+}
+/* Group start. The :not() matches the legacy phone rule `.message + .message:not(.continuation)`
+   (ml-mobile.css), so the stream's spacing wins at every width. */
+.messages-pane .message:not(.continuation) {
+	margin-top: 18px;
 }
 .messages-pane .message.continuation {
 	margin-top: 2px;
@@ -189,6 +204,7 @@
 	grid-row: 1;
 	position: relative;
 	min-width: 0;
+	padding: 0;
 }
 .messages-pane .message .message-header {
 	display: flex;
@@ -220,13 +236,19 @@
 	text-decoration-thickness: var(--w-bw);
 	text-underline-offset: 3px;
 }
-/* the header time is the phone's; the ledger reads its time from the gutter */
+/* The ledger reads the clock from the gutter, so the header repeats it only on the phone row.
+   A Complete or Detailed stamp (Settings › Chat) is more than the gutter holds: it shows after
+   the name at every width (.timestamp--full). */
 .messages-pane .message .message-header .timestamp {
-	display: none;
+	margin: 0;
 	font: var(--w-t-micro);
 	font-variant-numeric: tabular-nums;
 	color: var(--w-faint);
+	opacity: 1;
 	white-space: nowrap;
+}
+.messages-pane .message .message-header .timestamp:not(.timestamp--full) {
+	display: none;
 }
 .messages-pane .message .message-kicker {
 	font: var(--w-t-kicker);
@@ -574,11 +596,15 @@
 /* Compact density (§7.18): 52 | 120 name | text, no avatars; the name cell is empty on
    continuation rows, whose time shows on hover as in cozy. */
 @container stream (min-width: 560px) {
+	/* the text column starts after the name cell, so the rules and the jump pill end with it */
+	:root[data-message-density='compact'] .messages-pane {
+		--stream-text-x: calc(var(--stream-lead) + 120px * var(--w-fs) + var(--stream-gap));
+	}
 	:root[data-message-density='compact'] .messages-pane .message {
 		grid-template-columns: [time] var(--stream-time) [name] calc(120px * var(--w-fs)) [text] minmax(0, var(--w-measure));
 		grid-auto-flow: row dense;
 		align-items: baseline;
-		max-width: calc(var(--stream-lead) + 120px * var(--w-fs) + var(--stream-gap) + var(--w-measure));
+		max-width: var(--stream-page);
 		margin-top: 6px;
 	}
 	:root[data-message-density='compact'] .messages-pane .message.continuation {
@@ -604,6 +630,10 @@
 		justify-content: flex-end;
 		max-width: 100%;
 	}
+	/* the 120px name cell has no room for a dated stamp; the gutter tooltip carries it */
+	:root[data-message-density='compact'] .messages-pane .message .message-header .timestamp {
+		display: none;
+	}
 	:root[data-message-density='compact'] .messages-pane .message .reactions {
 		margin-top: 2px;
 	}
@@ -627,10 +657,9 @@
 	.messages-pane .message {
 		grid-template-columns: [avatar] var(--stream-av) [text] minmax(0, 1fr);
 		max-width: none;
-		margin-top: 22px;
 	}
-	.messages-pane .message.continuation {
-		margin-top: 2px;
+	.messages-pane .message:not(.continuation) {
+		margin-top: 22px;
 	}
 	.messages-pane .message::before {
 		inset: -4px -6px;
@@ -638,7 +667,7 @@
 	.messages-pane .message :is(.msg-time, .msg-wick, .msg-pin) {
 		display: none;
 	}
-	.messages-pane .message .message-header .timestamp {
+	.messages-pane .message .message-header .timestamp:not(.timestamp--full) {
 		display: inline;
 	}
 	.messages-pane .message .message-content,
