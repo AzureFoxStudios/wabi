@@ -221,6 +221,12 @@ describe('voiceStatusLine', () => {
 		expect(voiceStatusLine([session('cowork', { muted: true }), session('listen', { volume: 0 })], { t })?.line).toBe('Silent · 2 rooms');
 	});
 
+	it('with no mic room, "Listening · N rooms" counts only the rooms you hear (w1-calls recheck)', () => {
+		expect(voiceStatusLine([session('cowork'), session('listen'), session('quiet', { volume: 0 })], { t })?.line).toBe('Listening · 2 rooms · 1 silent');
+		expect(voiceStatusLine([session('cowork'), session('quiet', { muted: true })], { t })?.line).toBe('Listening · 1 room · 1 silent');
+		expect(voiceStatusLine([session('cowork'), session('listen')], { t })?.line).toBe('Listening · 2 rooms');
+	});
+
 	it('does not say listening while deafened', () => {
 		expect(voiceStatusLine([session('lounge', micRoom), session('cowork'), session('listen')], { t, deafened: true })?.line).toBe('Mic here · 2 more rooms');
 		expect(voiceStatusLine([session('cowork'), session('listen')], { t, deafened: true })?.line).toBe('Deafened · 2 rooms');

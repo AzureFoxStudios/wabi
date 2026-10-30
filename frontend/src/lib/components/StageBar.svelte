@@ -141,6 +141,7 @@
 					<button
 						type="button"
 						class={actionClass(action)}
+						aria-label={action.accessibleName}
 						aria-pressed={action.pressed}
 						disabled={action.disabled}
 						onclick={(event) => action.onSelect(event.currentTarget)}

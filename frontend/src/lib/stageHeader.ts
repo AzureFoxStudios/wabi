@@ -49,6 +49,12 @@ export interface StageHeaderAction {
 	iconOnly?: boolean;
 	/** Toggle state (`aria-pressed`), e.g. Pinned. Omit for plain actions. */
 	pressed?: boolean;
+	/**
+	 * A fixed accessible name for a text action whose visible words change while it stays the
+	 * same control, e.g. Record reading "Recording 02:14" (the name stays "Record"; `pressed`
+	 * says it is on). Start the visible words with it. Omit to name the button by its label.
+	 */
+	accessibleName?: string;
 	disabled?: boolean;
 	/** Shortcut shown in the tooltip, e.g. "Ctrl F". */
 	shortcut?: string;

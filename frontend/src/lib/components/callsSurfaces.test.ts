@@ -19,6 +19,7 @@ const liveStrip = read('VoiceLiveStrip.svelte');
 const skin = read('..', '..', 'styles', 'surfaces', 'calls.css');
 const legacySheet = read('..', '..', 'styles', 'components', 'voice-view.css');
 const surfaces = read('..', 'callSurfaces.ts');
+const stageBarSource = read('StageBar.svelte');
 
 describe('Calls workspace (VoiceView)', () => {
 	test('describes masthead row A instead of drawing its own title band or footer bar', () => {
@@ -79,6 +80,13 @@ describe('Calls workspace (VoiceView)', () => {
 		expect(voiceView).toContain('bind:clientWidth={stageWidth}');
 		expect(voiceView).toContain('if (compact) return [mic, sound, more];');
 		expect(voiceView).toContain('class="calls-recbar"');
+	});
+
+	test('Record keeps one accessible name while its readout ticks (w1-calls recheck)', () => {
+		// The visible words read "Recording 02:14"; the toggle stays "Record" and aria-pressed
+		// says it is on, so screen readers do not hear a new control every second.
+		expect(voiceView).toContain("accessibleName: t('calls.record'),");
+		expect(stageBarSource).toContain('aria-label={action.accessibleName}');
 	});
 
 	test('row 3 of a card holds Silence this call, the volume and Leave (§7.26)', () => {

@@ -266,8 +266,16 @@ export function voiceStatusLine(sessions: readonly CallSession[], opts: CallAudi
 	}
 	if (mic.length === 0) {
 		const heard = rooms.filter((room) => !sessionSilenced(room)).length;
-		const head = opts.deafened ? 'Deafened' : heard > 0 ? opts.t('sidebar.listening') : opts.t('calls.silent');
-		return { session: named, line: rooms.length > 1 ? `${head} · ${roomsWord(rooms.length, opts.t)}` : head, pending };
+		if (opts.deafened || heard === 0) {
+			const head = opts.deafened ? 'Deafened' : opts.t('calls.silent');
+			return { session: named, line: rooms.length > 1 ? `${head} · ${roomsWord(rooms.length, opts.t)}` : head, pending };
+		}
+		// Count only the rooms you hear, as the mic-room line does; silenced rooms are named apart.
+		const silent = rooms.length - heard;
+		let line = opts.t('sidebar.listening');
+		if (rooms.length > 1) line += ` · ${roomsWord(heard, opts.t)}`;
+		if (silent > 0) line += ` · ${silent} silent`;
+		return { session: named, line, pending };
 	}
 	const head = opts.micMuted ? opts.t('calls.muted') : opts.t('sidebar.mic_here');
 	const others = rooms.filter((room) => room !== named);
