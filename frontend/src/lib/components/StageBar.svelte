@@ -46,8 +46,12 @@
 	// The channel views keep the channel's own row A (§7.10 group "This channel").
 	const channelView = $derived(view === 'messages' || view === 'whiteboard');
 	const header = $derived($stageHeader);
+	// Below a 760px stage a scope tag collapses to its dot only when row A has a ⋯ to carry its
+	// words (§7.23; the ⋯ owner lists them, see StageHeaderTag.title). Without one the words stay
+	// in the row: a truth label never shrinks to a bare glyph (Principle 8).
+	const scopeCollapses = $derived(Boolean(header?.actions.some((action) => action.icon === 'more')));
 
-	type DefaultHeader = { title: string; crumb?: string; preview?: boolean };
+	type DefaultHeader = { title: string; crumb?: string; crumbIcon?: IconName; preview?: boolean };
 	const fallback = $derived.by<DefaultHeader>(() => {
 		switch (view) {
 			case 'planner': return { title: $_('places.my_planner') };
@@ -58,13 +62,17 @@
 			case 'lore': return { title: $_('places.project') };
 			case 'media': return { title: $_('places.media') };
 			case 'reader':
-				return $readerSelection?.title ? { crumb: $_('places.reader'), title: $readerSelection.title } : { title: $_('places.reader') };
+				return $readerSelection?.title
+					? { crumb: $_('places.reader'), crumbIcon: 'bookOpen', title: $readerSelection.title }
+					: { title: $_('places.reader') };
 			case 'model':
 				return $modelViewportSelection?.fileName
-					? { crumb: $_('places.model_viewer'), title: $modelViewportSelection.fileName }
+					? { crumb: $_('places.model_viewer'), crumbIcon: 'box', title: $modelViewportSelection.fileName }
 					: { title: $_('places.model_viewer') };
 			case 'map':
-				return $focusedMapPlace?.name ? { crumb: $_('places.map'), title: $focusedMapPlace.name } : { title: $_('places.map') };
+				return $focusedMapPlace?.name
+					? { crumb: $_('places.map'), crumbIcon: 'map', title: $focusedMapPlace.name }
+					: { title: $_('places.map') };
 			case 'documents':
 			case 'sheets':
 			case 'present': {
@@ -103,6 +111,9 @@
 			<span class="w-seal stage-a__chip" title={tag.title}><Icon name={sealGlyph(tag)} />{tag.label}</span>
 		{:else if tag.kind === 'maturity'}
 			<span class="w-tag w-tag--mat stage-a__chip" title={tag.title ?? $_('maturity.preview_title')}>{tag.label}</span>
+		{:else if scopeCollapses}
+			<!-- Below a 760px stage this tag collapses to its dot; the words stay in the tooltip, in ⋯ and for assistive tech. -->
+			<span class="w-tag stage-a__chip stage-a__scope" title={tag.title ?? tag.label}><span class="w-dot stage-a__scope-dot" aria-hidden="true"></span><span class="stage-a__scope-words">{tag.label}</span></span>
 		{:else}
 			<span class="w-tag stage-a__chip" title={tag.title}>{tag.label}</span>
 		{/if}
@@ -148,16 +159,16 @@
 			{@const HeaderComponent = header.component}
 			<div class="stage-a__lead stage-a__lead--component">
 				<HeaderComponent {...header.props} />
-				{@render workspaceButton()}
 			</div>
+			{@render workspaceButton()}
 			{@render actions(header.actions)}
 		{:else if header}
 			<div class="stage-a__lead">
 				<h2 class="stage-a__title"><span class="stage-a__name">{header.title}</span></h2>
-				{@render workspaceButton()}
 				{@render tags(header.scope)}
 				{#if header.status}<span class="stage-a__status" role="status">{header.status}</span>{/if}
 			</div>
+			{@render workspaceButton()}
 			{@render actions(header.actions)}
 		{:else if (channelView || phone) && $currentChannel}
 			<!-- The phone bar always names the channel; its "Chat ▾" button names the workspace (§8.12). -->
@@ -165,13 +176,17 @@
 		{:else}
 			<div class="stage-a__lead">
 				{#if fallback.crumb}
-					<span class="stage-a__crumb">{fallback.crumb}</span>
+					<!-- Below a 760px stage the crumb collapses to its glyph; the words stay in the tooltip and for assistive tech. -->
+					<span class="stage-a__crumb" title={fallback.crumb}>
+						{#if fallback.crumbIcon}<Icon name={fallback.crumbIcon} size={16} class="stage-a__crumb-glyph" />{/if}
+						<span class="stage-a__crumb-words">{fallback.crumb}</span>
+					</span>
 					<Icon name="chevRight" size={14} class="stage-a__crumb-sep" />
 				{/if}
 				<h2 class="stage-a__title"><span class="stage-a__name">{fallback.title}</span></h2>
 				{#if fallback.preview}<span class="w-tag w-tag--mat stage-a__chip" title={$_('maturity.preview_title')}>{$_('maturity.preview')}</span>{/if}
-				{@render workspaceButton()}
 			</div>
+			{@render workspaceButton()}
 		{/if}
 	</div>
 	{#if !phone}

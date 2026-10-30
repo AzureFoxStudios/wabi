@@ -2,7 +2,8 @@
    CHAT — SEARCH STYLES (legacy)
    The masthead search field and its results dropdown live in styles/surfaces/stagebar.css.
    What remains is the in-stream results toolbar ChatMessagesPane shows when the
-   "better search page" display option is on.
+   "better search page" display option is on: a rule, not a box, with its words on the stage
+   gutter like the masthead's.
    ========================================================================== */
 
 .search-results-toolbar {
@@ -13,10 +14,9 @@
 	align-items: center;
 	flex-wrap: wrap;
 	gap: 8px;
-	padding: 6px 8px;
-	margin: -6px -4px 8px;
-	border: var(--w-bw) solid var(--w-line);
-	border-radius: var(--radius-md);
+	margin: 0 0 8px;
+	padding: 8px var(--w-gutter);
+	border-bottom: var(--w-bw) solid var(--w-line);
 	background: var(--w-bg);
 }
 

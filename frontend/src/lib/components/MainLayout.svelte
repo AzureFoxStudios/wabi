@@ -654,7 +654,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		if (detail.view === 'dm' || detail.view === 'messages') {
 			activeView = 'dm';
 			layoutStore.showMobileChannels.set(false);
-			layoutStore.closeRightPanel();
+			if (detail.preserveRightPanel !== true) layoutStore.closeRightPanel();
 			if (typeof detail.channelId === 'string' && detail.channelId) {
 				layoutStore.openCenterDm(detail.channelId, null);
 				void joinChannel(detail.channelId);
