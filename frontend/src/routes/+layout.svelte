@@ -42,6 +42,11 @@
 		consumeWabiNavFromLocation,
 		listenForServiceWorkerNavigation
 	} from '$lib/pwa/deepLink';
+	import type { Component } from 'svelte';
+	import { get } from 'svelte/store';
+	import { closePalette, openPalette, palette, parsePaletteInput, togglePalette } from '$lib/jumpPalette';
+	import { paletteKeyAction } from '$lib/jumpIndex';
+	import { workspaceViewSelect } from '$lib/workspaceViewBridge';
 
 	initI18n();
 	startSocketErrorToasts();
@@ -81,6 +86,78 @@ function isLocalPreviewHost(): boolean {
 	}
 	return hostname.endsWith('.localhost') || hostname.endsWith('.local');
 }
+
+	// Jump palette (Ctrl K, design contract §7.24): mounted once, here, and loaded lazily so standalone
+	// pages and the sign-in screen never pull in the channel and people stores. It is preloaded once
+	// the app shell has mounted, so the first Ctrl K opens it at once.
+	let JumpPalette: Component | null = null;
+	let jumpPaletteLoad: Promise<void> | null = null;
+	let jumpPalettePreload = false;
+
+	function loadJumpPalette(): Promise<void> {
+		jumpPaletteLoad ??= import('$lib/components/JumpPalette.svelte')
+			.then((module) => {
+				JumpPalette = module.default;
+			})
+			.catch((error) => {
+				jumpPaletteLoad = null;
+				console.warn('[Layout] Jump palette failed to load:', error);
+				closePalette();
+			});
+		return jumpPaletteLoad;
+	}
+
+	$: if ($palette.open && !JumpPalette) void loadJumpPalette();
+	$: if ($workspaceViewSelect && !jumpPalettePreload && typeof window !== 'undefined') {
+		jumpPalettePreload = true;
+		const preload = () => void loadJumpPalette();
+		const idle = (window as Window & { requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number }).requestIdleCallback;
+		if (idle) idle(preload, { timeout: 3000 });
+		else window.setTimeout(preload, 1200);
+	}
+
+	/** Another visible modal dialog (Settings, a confirm): the palette does not open over it. */
+	function otherModalOpen(): boolean {
+		for (const element of document.querySelectorAll<HTMLElement>('[aria-modal="true"], dialog[open]')) {
+			if (element.closest('[data-jump-palette]')) continue;
+			if (element instanceof HTMLDialogElement && !element.matches(':modal')) continue;
+			if (element.getClientRects().length > 0) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Typing straight after Ctrl K, before the palette's code has arrived, goes to the palette's
+	 * query instead of the page (the composer would otherwise swallow the first letters).
+	 */
+	function bufferPaletteKey(event: KeyboardEvent): void {
+		const state = get(palette);
+		if (!state.open || JumpPalette || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			closePalette();
+		} else if (event.key === 'Backspace' || event.key.length === 1) {
+			event.preventDefault();
+			const next = parsePaletteInput(event.key === 'Backspace' ? state.query.slice(0, -1) : state.query + event.key, state.scope);
+			openPalette(next.scope, { query: next.query });
+		}
+	}
+
+	// Bubble phase on purpose: an editor that binds Ctrl K itself handles (or marks) it first.
+	function handlePaletteShortcut(event: KeyboardEvent): void {
+		const open = get(palette).open;
+		const action = paletteKeyAction(event, {
+			open,
+			appReady: Boolean(get(workspaceViewSelect)),
+			modalOpen: !open && otherModalOpen()
+		});
+		if (action !== 'toggle') {
+			bufferPaletteKey(event);
+			return;
+		}
+		event.preventDefault();
+		togglePalette();
+	}
 
 	function scheduleNonCritical(task: () => void, timeout = 1500): void {
 		if (typeof window === 'undefined') return;
@@ -256,6 +333,8 @@ function isLocalPreviewHost(): boolean {
 	<meta name="twitter:image" content="https://wabi.chat/screenshot-wide.png" />
 </svelte:head>
 
+<svelte:window on:keydown={handlePaletteShortcut} />
+
 <DesktopTitlebar />
 <AmbientBackground />
 <div class="app-content-layer">
@@ -290,6 +369,10 @@ function isLocalPreviewHost(): boolean {
 
 <!-- User-owned local effects live behind one root host. -->
 <LocalVisualEffectsHost />
+
+{#if JumpPalette}
+	<svelte:component this={JumpPalette} />
+{/if}
 
 <style>
 	/* Keep the ambient effect canvas painted behind all app UI.
