@@ -70,7 +70,12 @@ export function extractUserFromEventStub(
 export type PeopleShow = 'all' | 'here' | 'away' | 'offline';
 /** How the list is grouped (the filter menu's "Group" group). */
 export type PeopleGrouping = 'place' | 'role';
-export type PeoplePresence = 'active' | 'away' | 'busy' | 'offline';
+/**
+ * 'invisible' is only ever the viewer's own row: the server masks Invisible as "offline" for
+ * everyone (the viewer's own stores included), so another person who reads "offline" is listed as
+ * offline even while connected; only the viewer is told the real state.
+ */
+export type PeoplePresence = 'active' | 'away' | 'busy' | 'offline' | 'invisible';
 export type PeopleVoiceState = 'speaking' | 'listening' | 'muted' | 'deafened';
 
 export const PEOPLE_SHOW_LABELS: Record<PeopleShow, string> = {
@@ -148,8 +153,14 @@ export function voiceStateOf(participant: VoiceChannelParticipant): PeopleVoiceS
 	return 'listening';
 }
 
-function presenceOf(user: User, online: boolean): PeoplePresence {
+/**
+ * Where a person is, as far as observers may know. Invisible reaches every client as the status
+ * "offline" (presence.rs masks it, so no one can tell it from a real leave): a connected person
+ * whose status is "offline" is shown offline, never "Here now". The viewer sees their own truth.
+ */
+export function presenceOf(user: User, online: boolean, isSelf = false): PeoplePresence {
 	if (!online) return 'offline';
+	if (user.status === 'offline') return isSelf ? 'invisible' : 'offline';
 	if (user.status === 'away' || user.status === 'busy') return user.status;
 	return 'active';
 }
@@ -171,7 +182,7 @@ function showsEntry(entry: PersonEntry, show: PeopleShow): boolean {
 	if (show === 'all') return true;
 	if (show === 'offline') return entry.presence === 'offline';
 	if (show === 'away') return entry.presence === 'away';
-	return entry.presence === 'active' || entry.presence === 'busy';
+	return entry.presence === 'active' || entry.presence === 'busy' || entry.presence === 'invisible';
 }
 
 /**
@@ -185,16 +196,20 @@ export function buildPeopleEntries(input: Pick<BuildPeopleGroupsInput, 'online' 
 	const self = input.self;
 	const entries: PersonEntry[] = [];
 	for (const user of online) {
+		const isSelf = isCurrentUserEntry(user, self);
+		const presence = presenceOf(user, true, isSelf);
 		let room: PersonEntry['room'] = null;
 		let voice: PeopleVoiceState | null = null;
-		for (const candidate of input.rooms) {
+		// Someone shown offline (Invisible, masked by the server) is offline here too: no room, no
+		// voice state, so the row never says more than a real leave would.
+		for (const candidate of presence === 'offline' ? [] : input.rooms) {
 			const participant = candidate.members.find((member) => participantMatchesUser(member, user));
 			if (!participant) continue;
 			room = { id: candidate.id, name: candidate.name };
 			voice = voiceStateOf(participant);
 			break;
 		}
-		entries.push({ user, presence: presenceOf(user, true), room, voice, isSelf: isCurrentUserEntry(user, self) });
+		entries.push({ user, presence, room, voice, isSelf });
 	}
 	for (const user of offline) {
 		entries.push({ user, presence: 'offline', room: null, voice: null, isSelf: isCurrentUserEntry(user, self) });
@@ -257,8 +272,12 @@ export const VOICE_STATE_LABELS: Record<PeopleVoiceState, string> = {
 
 export type PersonSublineGlyph = 'voice' | 'headphones' | 'micOff' | 'headphonesOff';
 
+/** What the second line says: the row's accessible name carries only the short kinds. */
+export type PersonSublineKind = 'voice' | 'self' | 'activity' | 'status' | 'bio' | 'handle';
+
 export interface PersonSubline {
 	text: string;
+	kind: PersonSublineKind;
 	glyph: PersonSublineGlyph | null;
 	/** 'handle' is set in mono; 'speaking' tints the glyph --w-online. */
 	tone: 'plain' | 'handle' | 'speaking';
@@ -284,17 +303,18 @@ export function personSubline(entry: PersonEntry, writingIn: string | null = nul
 		const state = VOICE_STATE_LABELS[entry.voice];
 		return {
 			text: entry.isSelf ? `You · ${state}` : state,
+			kind: 'voice',
 			glyph: VOICE_GLYPHS[entry.voice],
 			tone: entry.voice === 'speaking' ? 'speaking' : 'plain'
 		};
 	}
-	if (entry.isSelf) return { text: 'You', glyph: null, tone: 'plain' };
-	if (writingIn && entry.presence !== 'offline') return { text: `Writing in ${writingIn}`, glyph: null, tone: 'plain' };
+	if (entry.isSelf) return { text: entry.presence === 'invisible' ? 'You · invisible' : 'You', kind: 'self', glyph: null, tone: 'plain' };
+	if (writingIn && entry.presence !== 'offline') return { text: `Writing in ${writingIn}`, kind: 'activity', glyph: null, tone: 'plain' };
 	const status = firstLine(entry.user.statusMessage);
-	if (status) return { text: status, glyph: null, tone: 'plain' };
+	if (status) return { text: status, kind: 'status', glyph: null, tone: 'plain' };
 	const bio = firstLine(entry.user.bio);
-	if (bio) return { text: bio, glyph: null, tone: 'plain' };
-	if (entry.user.handle) return { text: `@${entry.user.handle}`, glyph: null, tone: 'handle' };
+	if (bio) return { text: bio, kind: 'bio', glyph: null, tone: 'plain' };
+	if (entry.user.handle) return { text: `@${entry.user.handle}`, kind: 'handle', glyph: null, tone: 'handle' };
 	return null;
 }
 
@@ -302,10 +322,15 @@ const PRESENCE_WORDS: Record<PeoplePresence, string> = {
 	active: 'here now',
 	away: 'away',
 	busy: 'busy',
-	offline: 'offline'
+	offline: 'offline',
+	invisible: 'invisible'
 };
 
-/** "Theo Park, in Studio lounge, listening" (spec §7.11); the role word and activity follow. */
+/**
+ * "Theo Park, in Studio lounge, listening" (spec §7.11): who, where, voice state, "you", what
+ * they are doing right now, then the role word. Free text the person wrote (status message, bio)
+ * and the handle are not part of the name: they are the row's description (personDescription).
+ */
 export function personAriaLabel(name: string, entry: PersonEntry, subline: PersonSubline | null, roleWord: string | null): string {
 	const parts = [name];
 	if (entry.room) parts.push(`in ${entry.room.name}`);
@@ -313,9 +338,15 @@ export function personAriaLabel(name: string, entry: PersonEntry, subline: Perso
 	if (entry.room && entry.presence !== 'active') parts.push(PRESENCE_WORDS[entry.presence]);
 	if (entry.voice) parts.push(VOICE_STATE_LABELS[entry.voice].toLowerCase());
 	if (entry.isSelf) parts.push('you');
-	else if (subline && !entry.voice) parts.push(subline.text);
+	else if (subline?.kind === 'activity') parts.push(subline.text);
 	if (roleWord) parts.push(roleWord.toLowerCase());
 	return parts.join(', ');
+}
+
+/** The subline a row's aria-describedby points at: status message, bio or handle; else null. */
+export function personDescription(subline: PersonSubline | null): string | null {
+	if (!subline) return null;
+	return subline.kind === 'status' || subline.kind === 'bio' || subline.kind === 'handle' ? subline.text : null;
 }
 
 /** Typing indicators name people by username or id; only shared channels count as activity. */

@@ -49,7 +49,6 @@
 		name: string;
 		initial: string;
 		color: string;
-		ink: string;
 		presence: 'active' | 'away' | 'busy' | 'offline' | 'unavailable';
 		preview: string;
 		time: string;
@@ -57,6 +56,8 @@
 		pinned: boolean;
 		selected: boolean;
 		actions: ConversationAction[];
+		/** The row's style: identity ink, plus how many buttons the hover tray holds. */
+		style: string;
 		ariaLabel: string;
 	};
 
@@ -196,6 +197,10 @@
 			const isPinned = pinned.has(channel.id);
 			const time = relativeTime(messages, channel.id);
 			const memberCount = channel.members?.length || 0;
+			const actions = getInlineActions(channel, other);
+			// The hover tray holds every non-danger action plus More.
+			const trayButtons = actions.filter((action) => !action.danger).length + 1;
+			const inkStyle = ink(color);
 			rows.push({
 				id: channel.id,
 				channel,
@@ -204,14 +209,14 @@
 				name,
 				initial: initialOf(name),
 				color,
-				ink: ink(color),
 				presence,
 				preview: isGroup && memberCount ? `${memberCount} members · ${preview}` : preview,
 				time,
 				unread,
 				pinned: isPinned,
 				selected: selectedId === channel.id,
-				actions: getInlineActions(channel, other),
+				actions,
+				style: `${inkStyle}${inkStyle && !inkStyle.trimEnd().endsWith(';') ? ';' : ''}--dm-tray-n: ${trayButtons}`,
 				ariaLabel: [
 					isGroup ? `${name}, group` : name,
 					unread ? `${unread} unread` : null,
@@ -692,7 +697,7 @@
 					<div
 						class="dm-row-shell"
 						class:is-selected={row.selected}
-						style={row.ink}
+						style={row.style}
 						use:longpress={{ onLongPress: (e) => handleConversationLongPress(e, row.channel, row.other) }}
 					>
 						<button
@@ -822,13 +827,18 @@
 		box-shadow: none;
 		color: var(--w-text);
 		font: inherit;
+		text-overflow: ellipsis;
 		outline: none;
 		appearance: none;
 	}
 	.dm-tab :global(.dm-ibtn) {
 		--w-ibtn-ring: var(--w-bg2);
 	}
-	.dm-tab :global(.w-ibtn:focus-visible),
+	/* DMTab's own icon buttons only: the conversation, its composer and Group settings inside
+	   this panel keep their own focus and touch rules. */
+	.dm-rowb :global(.w-ibtn:focus-visible),
+	.dm-new-head :global(.w-ibtn:focus-visible),
+	.dm-row-tray :global(.w-ibtn:focus-visible),
 	.dm-chip-clear:focus-visible {
 		outline: 2px solid var(--w-accent);
 		outline-offset: 2px;
@@ -858,6 +868,7 @@
 		color: var(--w-text);
 	}
 	.dm-chip-clear {
+		position: relative;
 		display: inline-grid;
 		place-items: center;
 		width: 18px;
@@ -873,6 +884,16 @@
 	.dm-chip-clear:hover {
 		background: var(--w-raise);
 		color: var(--w-text);
+	}
+	/* The drawn circle stays 18px; its target is 24px (WCAG 2.5.8), 44px under a coarse pointer. */
+	.dm-chip-clear::before {
+		content: '';
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		width: 24px;
+		height: 24px;
+		translate: -50% -50%;
 	}
 
 	.dm-tab-messages {
@@ -1010,14 +1031,15 @@
 		outline: 2px solid var(--w-accent);
 		outline-offset: -2px;
 	}
-	:global(:root[data-char='contrast']) .dm-row-shell:hover .dm-row {
+	/* High Contrast: hover is a ring, not a fill; the selected row keeps its fill under the ring. */
+	:global(:root[data-char='contrast']) .dm-row-shell:not(.is-selected):hover .dm-row {
 		background: transparent;
-		box-shadow: inset 0 0 0 1px var(--w-line-strong);
 	}
+	:global(:root[data-char='contrast']) .dm-row-shell:hover .dm-row,
 	:global(:root[data-char='contrast']) .dm-row-shell.is-selected .dm-row {
 		box-shadow: inset 0 0 0 1px var(--w-line-strong);
 	}
-	:global(:root[data-char='contrast']) .dm-row-shell:hover {
+	:global(:root[data-char='contrast']) .dm-row-shell:not(.is-selected):hover {
 		--dm-surface: var(--w-bg2);
 	}
 
@@ -1113,17 +1135,19 @@
 		flex: none;
 	}
 
-	/* Hover tray over the trailing slot: call, video, more. It takes no width and hides the time. */
+	/* Hover tray over the trailing slot: call, video, more. It takes no width. It runs the row's
+	   full height on the row's own surface and stops a hairline short of the row's top and bottom,
+	   so High Contrast's hover ring stays whole. */
 	.dm-row-tray {
 		position: absolute;
-		top: 50%;
+		top: var(--w-bw);
+		bottom: var(--w-bw);
 		right: 8px;
 		display: flex;
+		align-items: center;
 		gap: 2px;
 		padding-left: 8px;
-		border-radius: var(--radius-md);
 		background: var(--dm-surface);
-		translate: 0 -50%;
 		opacity: 0;
 		pointer-events: none;
 		transition: opacity var(--w-dur-1) var(--w-ease);
@@ -1132,6 +1156,18 @@
 	.dm-row-shell:focus-within .dm-row-tray {
 		opacity: 1;
 		pointer-events: auto;
+	}
+	/* While the tray shows, the name and the last message end in an ellipsis at its left edge
+	   (never sliced glyphs under it); the time and the badge it covers step out. Nothing moves:
+	   the text only stops earlier. The tray is 30px per button + 6px (8px lead, 28px keys, 2px
+	   gaps); the text column already ends 12px in and the tray 8px in. Touch has no tray. */
+	@media not all and (pointer: coarse) {
+		.dm-row-shell:is(:hover, :focus-within) .dm-row-text {
+			padding-inline-end: calc(var(--dm-tray-n, 3) * 30px + 2px);
+		}
+		.dm-row-shell:is(:hover, :focus-within) :is(.dm-row-time, .dm-row-badge) {
+			display: none;
+		}
 	}
 
 	.dm-tab :global(.dm-empty) {
@@ -1146,7 +1182,60 @@
 		.dm-row-tray {
 			display: none;
 		}
-		.dm-tab :global(.w-ibtn) {
+		/* Row B keeps the frame's 40px geometry (the masthead rule stays at y = 96): its field and
+		   icon buttons stay 32px, and each reaches 44px with an invisible target that runs from
+		   the top of row B to 4px under its rule (the panel body clips anything above row B).
+		   Offsets are from the padding box, inside the button's 1px edge. Buttons sit 12px apart,
+		   so each keeps at least 44px of its own. */
+		.dm-rowb {
+			gap: 12px;
+		}
+		/* In an open conversation, the conversation's tools strip starts at the rule and paints
+		   over that 4px reach; row B stacks above it (the strip has only padding there). Menus and
+		   tooltips are portaled, so this layer caps nothing. */
+		.dm-active-head {
+			position: relative;
+			z-index: 1;
+			gap: 12px;
+			padding-left: 18px;
+		}
+		.dm-find,
+		.dm-rowb :global(.w-ibtn) {
+			position: relative;
+			height: 32px;
+		}
+		.dm-rowb :global(.w-ibtn) {
+			width: 32px;
+		}
+		.dm-rowb :global(.w-ibtn)::before {
+			content: '';
+			position: absolute;
+			top: calc(-1 * var(--w-bw));
+			bottom: calc(-12px - var(--w-bw));
+			left: calc(-6px - var(--w-bw));
+			right: calc(-6px - var(--w-bw));
+		}
+		/* The field's extra reach is only the strip under it, so a tap in the text still places
+		   the caret where it lands. */
+		.dm-find::before {
+			content: '';
+			position: absolute;
+			top: 100%;
+			bottom: calc(-12px - var(--w-bw));
+			left: calc(-1 * var(--w-bw));
+			right: calc(-1 * var(--w-bw));
+		}
+		.dm-new-panel .dm-find {
+			height: 44px;
+		}
+		.dm-new-panel .dm-find::before {
+			content: none;
+		}
+		.dm-new-head {
+			height: auto;
+			min-height: 28px;
+		}
+		.dm-chip-clear::before {
 			width: 44px;
 			height: 44px;
 		}

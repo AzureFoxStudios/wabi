@@ -7,7 +7,9 @@ import {
 	getStatusColor,
 	participantMatchesUser,
 	personAriaLabel,
+	personDescription,
 	personSubline,
+	presenceOf,
 	voiceStateOf,
 	writingChannelFor,
 	type PeopleVoiceRoom
@@ -112,14 +114,14 @@ describe('Member row words (spec §7.11)', () => {
 	const entry = (name: string) => entries.find((candidate) => candidate.user.username === name)!;
 
 	test('sublines: voice state, You, writing, status message, first line of bio, then handle', () => {
-		expect(personSubline(entry('Amara Okafor'))).toEqual({ text: 'Speaking', glyph: 'voice', tone: 'speaking' });
+		expect(personSubline(entry('Amara Okafor'))).toEqual({ text: 'Speaking', kind: 'voice', glyph: 'voice', tone: 'speaking' });
 		expect(personSubline(entry('Theo Park'))?.text).toBe('Listening');
-		expect(personSubline(entry('Jun Sato'))).toEqual({ text: 'Muted', glyph: 'micOff', tone: 'plain' });
+		expect(personSubline(entry('Jun Sato'))).toEqual({ text: 'Muted', kind: 'voice', glyph: 'micOff', tone: 'plain' });
 		expect(personSubline(entry('Mira'))?.text).toBe('You');
 		expect(personSubline(entry('Iris Wong'), '#general')?.text).toBe('Writing in #general');
 		expect(personSubline(entry('Sofia Reyes'))?.text).toBe('Back after lunch');
 		expect(personSubline(entry('Nora Ellis'))?.text).toBe('Collecting little discoveries.');
-		expect(personSubline(entry('Leo Martin'))).toEqual({ text: '@leo', glyph: null, tone: 'handle' });
+		expect(personSubline(entry('Leo Martin'))).toEqual({ text: '@leo', kind: 'handle', glyph: null, tone: 'handle' });
 	});
 
 	test('the row names the person, where they are and what they are doing', () => {
@@ -127,8 +129,23 @@ describe('Member row words (spec §7.11)', () => {
 		expect(personAriaLabel('Theo Park', theoEntry, personSubline(theoEntry), null)).toBe('Theo Park, in Studio lounge, listening');
 		const miraEntry = entry('Mira');
 		expect(personAriaLabel('Mira', miraEntry, personSubline(miraEntry), 'Admin')).toBe('Mira, here now, you, admin');
+		const irisEntry = entry('Iris Wong');
+		expect(personAriaLabel('Iris Wong', irisEntry, personSubline(irisEntry, '#general'), null)).toBe('Iris Wong, here now, Writing in #general');
+	});
+
+	test('free text and handles describe the row instead of joining its name', () => {
 		const sofiaEntry = entry('Sofia Reyes');
-		expect(personAriaLabel('Sofia Reyes', sofiaEntry, personSubline(sofiaEntry), null)).toBe('Sofia Reyes, away, Back after lunch');
+		const sofiaLine = personSubline(sofiaEntry);
+		expect(personAriaLabel('Sofia Reyes', sofiaEntry, sofiaLine, null)).toBe('Sofia Reyes, away');
+		expect(personDescription(sofiaLine)).toBe('Back after lunch');
+		const long = person(20, 'Bartholomew Long', { bio: 'A very long biography line that should truncate in the row and never be read as part of the name' });
+		const longEntry = buildPeopleEntries({ online: [long], members: [long], self: mira, rooms: [] })[0];
+		const longLine = personSubline(longEntry);
+		expect(personAriaLabel('Bartholomew Long', longEntry, longLine, 'Admin')).toBe('Bartholomew Long, here now, admin');
+		expect(personDescription(longLine)).toBe(long.bio!);
+		expect(personDescription(personSubline(entry('Leo Martin')))).toBe('@leo');
+		expect(personDescription(personSubline(entry('Theo Park')))).toBeNull();
+		expect(personDescription(personSubline(entry('Iris Wong'), '#general'))).toBeNull();
 	});
 
 	test('voice participants match by stable id, bare account id or socket id', () => {
@@ -154,5 +171,52 @@ describe('Member row words (spec §7.11)', () => {
 		expect(getStatusColor('away')).toBe('var(--w-warn)');
 		expect(getStatusColor('busy')).toBe('var(--w-danger)');
 		expect(getStatusColor('offline')).toBe('transparent');
+	});
+});
+
+describe('Invisible stays invisible (presence.rs masks it as "offline")', () => {
+	const ghost = person(30, 'Ghost Writer', { status: 'offline' });
+
+	test('a connected person whose status reads offline is listed as offline, never Here now', () => {
+		const groups = buildPeopleGroups({ online: [mira, ghost], members: [mira, ghost], self: mira, rooms: [], show: 'all', grouping: 'place' });
+		expect(groups.map((group) => [group.id, group.entries.map((entry) => [entry.user.username, entry.presence])])).toEqual([
+			['here', [['Mira', 'active']]],
+			['offline', [['Ghost Writer', 'offline']]]
+		]);
+		const ghostEntry = groups[1].entries[0];
+		expect(personAriaLabel('Ghost Writer', ghostEntry, personSubline(ghostEntry), null)).toBe('Ghost Writer, offline');
+		expect(buildPeopleGroups({ online: [mira, ghost], members: [mira, ghost], self: mira, rooms: [], show: 'here', grouping: 'place' }).flatMap((group) => group.entries.map((entry) => entry.user.username))).toEqual(['Mira']);
+		expect(buildPeopleGroups({ online: [mira, ghost], members: [mira, ghost], self: mira, rooms: [], show: 'offline', grouping: 'place' }).flatMap((group) => group.entries.map((entry) => entry.user.username))).toEqual(['Ghost Writer']);
+	});
+
+	test('a masked person in a voice room is not listed in it: no room, no voice state', () => {
+		const room: PeopleVoiceRoom = { id: 'studio-lounge', name: 'Studio lounge', members: [participant('user-30'), participant('user-2')] };
+		const groups = buildPeopleGroups({ online: [mira, theo, ghost], members: [mira, theo, ghost], self: mira, rooms: [room], show: 'all', grouping: 'place' });
+		expect(groups.map((group) => [group.id, group.entries.map((entry) => entry.user.username)])).toEqual([
+			['room:studio-lounge', ['Theo Park']],
+			['here', ['Mira']],
+			['offline', ['Ghost Writer']]
+		]);
+		const ghostEntry = groups[2].entries[0];
+		expect([ghostEntry.room, ghostEntry.voice]).toEqual([null, null]);
+		expect(personSubline(ghostEntry)).toBeNull();
+		expect(personAriaLabel('Ghost Writer', ghostEntry, personSubline(ghostEntry), null)).toBe('Ghost Writer, offline');
+	});
+
+	test('the masked person is offline when grouped by role too', () => {
+		const groups = buildPeopleGroups({ online: [mira, ghost], members: [mira, ghost], self: mira, rooms: [], show: 'all', grouping: 'role' });
+		expect(groups.at(-1)?.entries.map((entry) => entry.user.username)).toEqual(['Ghost Writer']);
+	});
+
+	test('the viewer who went invisible keeps their place and is told the real state', () => {
+		const me = { ...mira, status: 'offline' } as User;
+		const groups = buildPeopleGroups({ online: [me, theo], members: [me, theo], self: me, rooms: [], show: 'all', grouping: 'place' });
+		expect(groups[0].id).toBe('here');
+		const meEntry = groups[0].entries[0];
+		expect(meEntry.presence).toBe('invisible');
+		expect(personSubline(meEntry)?.text).toBe('You · invisible');
+		expect(personAriaLabel('Mira', meEntry, personSubline(meEntry), 'Admin')).toBe('Mira, invisible, you, admin');
+		expect(presenceOf(me, true, false)).toBe('offline');
+		expect(presenceOf(me, false, true)).toBe('offline');
 	});
 });
