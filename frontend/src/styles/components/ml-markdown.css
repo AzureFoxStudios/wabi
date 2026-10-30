@@ -1,124 +1,159 @@
 /* ==========================================================================
    ML — MARKDOWN STYLES
-   Extracted from messagelist.css
+   Typography of rendered message markdown (and the forum body, which shares the renderer).
+   Moved here from lib/prism-theme.css, which now holds only syntax token colours.
+   A message body is never its own scroller (spec §7.18): no max-height, no overflow. Long
+   bodies are clamped by .message-text in stream.css or promoted to LongMessagePreview.
+   Line heights come from the type tokens (whole pixels), never a competing multiplier.
    ========================================================================== */
 
+.markdown-content p {
+	margin: 0;
+}
+.markdown-content p + p {
+	margin-top: 6px;
+}
 
+.markdown-content strong {
+	font-weight: 700;
+	color: var(--w-text);
+}
+.markdown-content em {
+	font-style: italic;
+}
+.markdown-content :is(del, s) {
+	color: var(--w-mute);
+	text-decoration: line-through;
+	text-decoration-thickness: var(--w-bw);
+}
 
-	.message.continuation .markdown-content {
-		line-height: 1.25;
-	}
+/* links: accent, thin underline, full strength on hover */
+.markdown-content a {
+	color: var(--w-accent);
+	text-decoration: underline;
+	text-decoration-thickness: var(--w-bw);
+	text-underline-offset: 2px;
+	text-decoration-color: color-mix(in srgb, var(--w-accent) 45%, transparent);
+	overflow-wrap: anywhere;
+}
+.markdown-content a:hover {
+	text-decoration-color: currentColor;
+}
+.markdown-content a:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+	border-radius: var(--radius-sm);
+}
+/* the person reading is mentioned: same chip, a firmer edge */
+.markdown-content .mention-token-user[data-ref-id='current-user'] {
+	border-color: color-mix(in srgb, var(--w-accent) 55%, transparent);
+}
 
+/* headings are places in the text: serif, no rules under them */
+.markdown-content :is(h1, h2, h3, h4, h5, h6) {
+	margin: 10px 0 4px;
+	padding: 0;
+	border: 0;
+	color: var(--w-text);
+	font-family: var(--w-serif);
+	font-weight: 600;
+	letter-spacing: 0;
+}
+.markdown-content h1 {
+	font-size: calc(18px * var(--w-fs));
+	line-height: calc(24px * var(--w-fs));
+}
+.markdown-content h2 {
+	font-size: calc(16px * var(--w-fs));
+	line-height: calc(22px * var(--w-fs));
+}
+.markdown-content :is(h3, h4, h5, h6) {
+	font-size: calc(15px * var(--w-fs));
+	line-height: calc(20px * var(--w-fs));
+}
+.markdown-content > :is(h1, h2, h3, h4, h5, h6):first-child {
+	margin-top: 0;
+}
 
-	.message.continuation .markdown-content p {
-		line-height: 1.25;
-		margin: 0 !important;
-	}
+.markdown-content blockquote {
+	margin: 6px 0;
+	padding-left: 12px;
+	border-left: 2px solid var(--w-line-strong);
+	color: var(--w-mute);
+	font-style: normal;
+}
 
+.markdown-content :is(ul, ol) {
+	margin: 6px 0;
+	padding-left: 22px;
+}
+.markdown-content li + li {
+	margin-top: 2px;
+}
+.markdown-content li::marker {
+	color: var(--w-faint);
+}
 
-	/* A message body is never its own scroller (spec §7.18): no max-height, no overflow.
-	   Long posts are promoted to LongMessagePreview (message/MessageContent.svelte) instead.
-	   Scrollbars elsewhere come from the one rule in base.css. */
+.markdown-content hr {
+	margin: 12px 0;
+	border: 0;
+	border-top: var(--w-bw) solid var(--w-line);
+}
 
+/* inline code: mono 0.88em on the sink, a hairline, small corners; words wrap normally */
+.markdown-content :not(pre) > code {
+	padding: 1px 4px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-sm);
+	background: var(--w-sink);
+	color: var(--w-text);
+	font-family: var(--w-mono);
+	font-size: 0.88em;
+	overflow-wrap: anywhere;
+	word-break: normal;
+}
 
-	.markdown-content p {
-		margin: 0;
-		line-height: 1.5;
-	}
+/* code blocks: sink, hairline, md corners, mono 13/20; only the block scrolls sideways */
+.markdown-content pre {
+	box-sizing: border-box;
+	max-width: 100%;
+	margin: 6px 0;
+	padding: 10px 12px;
+	overflow-x: auto;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+	color: var(--w-text);
+	font: 400 calc(13px * var(--w-fs)) / calc(20px * var(--w-fs)) var(--w-mono);
+	white-space: pre;
+	tab-size: 4;
+}
+.markdown-content pre code {
+	display: block;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	white-space: inherit;
+	word-break: normal;
+}
+.markdown-content pre:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+:root[data-char='contrast'] .markdown-content :is(pre, :not(pre) > code) {
+	border-color: var(--w-line-strong);
+}
 
-
-	.markdown-content p:not(:last-child) {
-		margin-bottom: 0.2rem;
-	}
-
-
-	.markdown-content strong {
-		font-weight: 600;
-	}
-
-
-	.markdown-content em {
-		font-style: italic;
-	}
-
-
-	.markdown-content a {
-		color: var(--color-info);
-		text-decoration: underline;
-	}
-
-
-	.markdown-content a:hover {
-		color: var(--color-info-hover);
-	}
-
-
-	.markdown-content .mention-token {
-		display: inline-block;
-		padding: 0.05rem 0.34rem;
-		border-radius: var(--radius-md);
-		background: color-mix(in srgb, var(--accent-primary-color) 20%, transparent);
-		color: color-mix(in srgb, var(--accent-primary-color) 70%, var(--text-heading) 30%);
-		font-weight: 600;
-		cursor: pointer;
-		transition: background var(--duration-fast) ease;
-	}
-
-
-	.markdown-content .mention-token:hover {
-		background: color-mix(in srgb, var(--accent-primary-color) 28%, transparent);
-	}
-
-	.markdown-content .mention-token-user,
-	.markdown-content .mention-token-user[data-ref-id] {
-		background: color-mix(in srgb, var(--accent-primary-color) 26%, transparent);
-		color: var(--accent-primary-color);
-	}
-
-	.markdown-content .mention-token-user[data-ref-id="current-user"] {
-		background: color-mix(in srgb, var(--color-warning, #f59e0b) 30%, transparent);
-		color: var(--color-warning, #f59e0b);
-	}
-
-
-	.markdown-content code {
-		word-wrap: break-word;
-		word-break: break-all;
-		overflow-wrap: break-word;
-	}
-
-
-	.markdown-content pre {
-		word-wrap: break-word;
-		word-break: break-word;
-		overflow-wrap: break-word;
-		white-space: pre-wrap;
-	}
-
-
-	.markdown-content pre code {
-		word-wrap: break-word;
-		word-break: break-word;
-		overflow-wrap: break-word;
-		white-space: pre-wrap;
-	}
-
-
-	/* Emote styles */
-	.markdown-content .emote {
-		display: inline-block;
-		height: 1.5em;
-		width: auto;
-		max-width: 128px;
-		max-height: 128px;
-		vertical-align: middle;
-		margin: 0 0.1em;
-	}
-
-
-html[data-message-density='compact'] .message .markdown-content,
-html[data-message-density='compact'] .message .markdown-content p {
-	line-height: 1.22 !important;
-	font-size: calc(var(--text-base, 14px) * var(--chat-font-scale, 1) * 0.96) !important;
-	margin: 0 !important;
+/* emotes inline with the text */
+.markdown-content .emote {
+	display: inline-block;
+	width: auto;
+	height: 1.5em;
+	max-width: 128px;
+	max-height: 128px;
+	margin: 0 0.1em;
+	vertical-align: middle;
 }

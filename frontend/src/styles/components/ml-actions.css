@@ -1,174 +1,95 @@
 /* ==========================================================================
    ML — ACTIONS STYLES
-   Extracted from messagelist.css
+   The message hover toolbar is the kit's small floating tool (.w-tool, §7.15): bg2 (light:
+   lift), a line-strong edge, md corners, no shadow, 28px keys with 16px glyphs. It is anchored
+   to the page's right edge at top: -18px, so it straddles the row's top edge instead of
+   covering the text it belongs to, and shows on hover and :focus-within. Touch opens it by
+   long-press (.mobile-visible, ml-mobile.css).
    ========================================================================== */
 
-/* Reaction picker anchored to the clicked message's action bar. The wrapper
-   is fixed at the click point; the picker inside becomes a compact popover
-   instead of the composer-anchored bottom-right variant. */
+/* Reaction picker anchored to the clicked key. The wrapper is fixed at the click point; the
+   picker inside becomes a compact popover. */
 .reaction-picker-anchor {
 	position: fixed;
 	z-index: var(--z-popover, 500);
 	transform: translate(-50%, 8px);
 }
-
 .reaction-picker-anchor .emoji-picker {
 	position: static;
 	bottom: auto;
 	right: auto;
 	width: 340px;
 	height: 380px;
-	box-shadow: 0 12px 40px var(--shadow-lg, rgba(0, 0, 0, 0.45));
-	border: 1px solid var(--border-subtle);
+	border: var(--w-bw) solid var(--w-line-strong);
+	box-shadow: var(--w-shadow);
 }
-
-
 
 .message-actions {
 	position: absolute;
-	top: 4px;
-	right: 12px;
-	display: flex;
-	align-items: center;
-	background: var(--surface-popover);
-	border: 1px solid var(--border-subtle);
-	border-radius: var(--radius-md);
-	box-shadow: 0 2px 10px color-mix(in srgb, var(--surface-app) 60%, transparent);
-	z-index: var(--z-sticky, 100);
+	top: -18px;
+	right: 0;
+	z-index: 3;
 	opacity: 0;
 	visibility: hidden;
 	pointer-events: none;
-	transform: translateY(2px) scale(0.98);
-	transition: opacity var(--duration-fast) ease-out, visibility var(--duration-fast) ease-out, transform var(--duration-fast) ease-out;
-	padding: 0 var(--space-1);
-	height: 32px;
+	transition:
+		opacity var(--w-dur-1) var(--w-ease),
+		visibility var(--w-dur-1) var(--w-ease);
 }
-
-/* WhatsApp/LINE-style right-side own messages: mirror the hover action
-   bar to the row's LEFT edge so it never overlaps the right-aligned
-   content, and keep the strip divider on the outward-facing side. */
-html[data-own-messages-right='true'] .message.own-message .message-actions {
+/* Own messages on the right: the tool sits at the start of the text column instead. */
+:root[data-own-messages-right='true'] .messages-pane .message.own-message .message-actions {
 	right: auto;
-	left: 12px;
+	left: var(--stream-text-x, 0px);
+}
+:root[data-chat-avatar-mode='off'][data-own-messages-right='true'] .messages-pane .message.own-message .message-actions {
+	left: var(--stream-lead, 0px);
 }
 
-html[data-own-messages-right='true'] .message.own-message .message-actions .quick-reactions-strip {
-	margin-right: 0;
-	padding-right: 0;
-	border-right: none;
-	margin-left: 4px;
-	padding-left: 4px;
-	border-left: 1px solid var(--border-subtle);
-	order: 2;
-}
-
-/* Message actions are progressive-disclosure controls in both channels and DMs. */
 .message:hover .message-actions,
 .message:focus-within .message-actions,
 .message-actions.mobile-visible {
 	opacity: 1;
 	visibility: visible;
 	pointer-events: auto;
-	transform: translateY(0) scale(1);
 }
-
 
 .quick-reactions-strip {
-	display: flex;
+	display: inline-flex;
 	align-items: center;
 	gap: 2px;
-	margin-right: 4px;
-	padding-right: 4px;
-	border-right: 1px solid var(--border-subtle);
 }
 
-
+/* Quick reaction keys show the emoji; an emoji without art shows its character or :shortcode:. */
 .quick-reaction-btn {
-	background: none;
-	border: none;
-	color: var(--text-secondary);
-	cursor: pointer;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	padding: 2px;
-		border-radius: var(--radius-sm);
-		transition: background-color var(--duration-fast) ease, transform var(--duration-instant) ease;
-		font-size: var(--text-lg);
-		line-height: 1;
-	}
-
-.quick-reaction-btn:hover {
-	background-color: var(--surface-raised);
-	transform: scale(1.15);
+	color: var(--w-text);
+	border-radius: var(--radius-inner);
 }
-
+.quick-reaction-btn:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
 .quick-reaction-emoji {
-	width: 20px;
-	height: 20px;
-	object-fit: contain;
-}
-
-
-	:where(.message-actions) .timestamp-action {
-		font-size: var(--text-xs);
-		color: var(--text-secondary);
-		white-space: nowrap;
-		margin-right: var(--space-1); /* Space between timestamp and first button */
-		/* Added for better visibility against background */
-		background-color: var(--surface-base);
-		padding: 0 var(--space-1);
-		border-radius: var(--radius-sm);
-	}
-
-
-:where(.message-actions) .action-btn {
-	background: none;
-	border: none;
-	color: var(--text-secondary);
-	padding: 0.25rem; /* Adjusted padding for smaller buttons */
-	cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: var(--text-lg);
-		transition: color var(--duration-fast) ease, background-color var(--duration-fast) ease;
-	height: 28px; /* Fixed height for icon */
-	width: 28px; /* Fixed width for icon */
-	border-radius: var(--radius-sm);
-}
-
-
-	:where(.message-actions) .utility-btn {
-		font-size: var(--text-sm);
-		font-weight: 700;
-	}
-
-
-:where(.message-actions) .action-btn:hover {
-	color: var(--accent-primary-color);
-	background-color: var(--surface-raised);
-}
-
-:where(.message-actions) .action-btn:focus-visible {
-	outline: 2px solid color-mix(in srgb, var(--accent-primary-color) 70%, transparent);
-	outline-offset: 1px;
-}
-
-:where(.message-actions) .action-btn svg {
+	display: block;
 	width: 18px;
 	height: 18px;
-	stroke-width: 2;
+	object-fit: contain;
 }
-
-/* 2026-08-27: text fallback shown when a custom quick-reaction emoji image
-   404s — keeps the button usable instead of a broken-image box. */
 .quick-reaction-fallback {
-	font-size: var(--text-xs, 0.75rem);
-	font-weight: 600;
-	color: var(--text-secondary);
-	max-width: 48px;
+	display: block;
+	max-width: 56px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	font-size: calc(15px * var(--w-fs));
+	line-height: 1;
+}
+.quick-reaction-btn:has(.quick-reaction-fallback) {
+	width: auto;
+	min-width: 28px;
+	padding: 0 4px;
+}
+
+.message-actions .action-btn:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
 }

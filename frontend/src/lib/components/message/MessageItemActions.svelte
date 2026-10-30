@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Message, Emoji } from '$lib/socket';
 	import { _ } from '$lib/i18n';
+	import Icon from '$lib/components/ui/Icon.svelte';
 
 	export let message: Message;
 	export let ownMessage: boolean;
@@ -15,71 +16,99 @@
 	export let onQuickReact: (messageId: string, emojiId: string) => void;
 	export let onHandleUtilityPinToggle: (message: Message) => void;
 	export let onHandleUtilityEdit: (message: Message) => void;
+
+	/** Hover toolbar order (§7.15): 3 quick reactions | Add reaction, Reply, Forward | More. */
+	const QUICK_LIMIT = 3;
+	$: quick = quickReactionEmojis.slice(0, QUICK_LIMIT);
+
+	// An emoji whose image cannot load (no bundled art, a deleted server emoji, a CDN hiccup)
+	// shows the character it stands for, or its :shortcode:, so the key keeps working.
+	let broken: Record<string, true> = {};
+	function emojiText(emoji: Emoji): string {
+		const sequence = /^[0-9a-f]{2,6}(?:-[0-9a-f]{2,6})*$/i.test(emoji.id)
+			? emoji.id
+			: (emoji.url.match(/\/([0-9a-f]{2,6}(?:-[0-9a-f]{2,6})*)\.(?:png|svg|webp|gif)(?:[?#].*)?$/i)?.[1] ?? '');
+		if (sequence && !emoji.isCustom) {
+			try {
+				return String.fromCodePoint(...sequence.split('-').map((part) => Number.parseInt(part, 16)));
+			} catch {
+				// fall through to the shortcode
+			}
+		}
+		if (/\p{Extended_Pictographic}/u.test(emoji.id)) return emoji.id;
+		return `:${emoji.displayName || emoji.name}:`;
+	}
+	function quickLabel(emoji: Emoji): string {
+		return `Quick react: ${emoji.displayName || emoji.name}`;
+	}
 </script>
 
-<div class="message-actions" class:mobile-visible={mobileActionsMessageId === message.id}>
-	{#if quickReactionEmojis.length > 0}
-	<div class="quick-reactions-strip">
-			{#each quickReactionEmojis as quickEmoji (quickEmoji.id)}
+<div class="message-actions w-tool" class:mobile-visible={mobileActionsMessageId === message.id}>
+	{#if quick.length > 0}
+		<div class="quick-reactions-strip">
+			{#each quick as quickEmoji (quickEmoji.id)}
 				<button
-					class="quick-reaction-btn"
-					title={`Quick react: ${quickEmoji.displayName || quickEmoji.name}`}
+					type="button"
+					class="quick-reaction-btn w-tool__quick"
+					title={quickLabel(quickEmoji)}
+					aria-label={quickLabel(quickEmoji)}
 					on:click|stopPropagation={() => onQuickReact(message.id, quickEmoji.id)}
 				>
-					<img
-						src={quickEmoji.url}
-						alt={quickEmoji.displayName || quickEmoji.name}
-						class="quick-reaction-emoji"
-						loading="lazy"
-						decoding="async"
-							on:error={(e) => {
-								// Dead emoji URL (server emoji deleted / CDN hiccup): swap
-								// the broken image for a text glyph so the button still works
-								// ("symbols poofed/unlinked", 2026-08-27).
-								const img = e.currentTarget as HTMLImageElement;
-								if (img.dataset.fallbackApplied) return;
-								img.dataset.fallbackApplied = '1';
-								img.style.display = 'none';
-								const fallback = document.createElement('span');
-								fallback.textContent = `:${quickEmoji.displayName || quickEmoji.name}:`;
-								fallback.className = 'quick-reaction-fallback';
-								img.parentElement?.appendChild(fallback);
-							}}
-					/>
+					{#if broken[quickEmoji.id]}
+						<span class="quick-reaction-fallback" aria-hidden="true">{emojiText(quickEmoji)}</span>
+					{:else}
+						<img
+							src={quickEmoji.url}
+							alt=""
+							class="quick-reaction-emoji"
+							loading="lazy"
+							decoding="async"
+							on:error={() => (broken = { ...broken, [quickEmoji.id]: true })}
+						/>
+					{/if}
 				</button>
 			{/each}
-	</div>
+		</div>
+		<span class="w-tool__sep" aria-hidden="true"></span>
 	{/if}
 
-	<button class="action-btn" title={$_('messages.add_reaction')} on:click={(event) => onOpenReactionPicker(event, message.id)}>
-		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
+	<button type="button" class="action-btn w-ibtn" title={$_('messages.add_reaction')} aria-label={$_('messages.add_reaction')} on:click={(event) => onOpenReactionPicker(event, message.id)}>
+		<Icon name="smilePlus" size={16} />
 	</button>
 
-	<button class="action-btn" title={$_('messages.actions.reply')} on:click={() => onReply(message)}>
-		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>
+	<button type="button" class="action-btn w-ibtn" title={$_('messages.actions.reply')} aria-label={$_('messages.actions.reply')} on:click={() => onReply(message)}>
+		<Icon name="reply" size={16} />
 	</button>
 
-	<button class="action-btn" title="Forward" on:click={() => onForward(message)}>
-		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 0 1 4-4h12"/></svg>
+	<button type="button" class="action-btn w-ibtn" title={$_('context_menu.forward')} aria-label={$_('context_menu.forward')} on:click={() => onForward(message)}>
+		<Icon name="forward" size={16} />
 	</button>
 
 	{#if displayEnhancementSettingsStore.messageUtilitiesEnabled}
 		{#if displayEnhancementSettingsStore.quickMentionEnabled && !ownMessage}
-			<button class="action-btn utility-btn" title={$_('context_menu.quick_mention')} on:click={() => onQuickMention(message)}>
-				@
+			<button type="button" class="action-btn utility-btn w-ibtn" title={$_('context_menu.quick_mention')} aria-label={$_('context_menu.quick_mention')} on:click={() => onQuickMention(message)}>
+				<Icon name="at" size={16} />
 			</button>
 		{/if}
-		<button class="action-btn utility-btn" title={message.isPinned ? $_('context_menu.unpin_message') : $_('context_menu.pin_message')} on:click={() => onHandleUtilityPinToggle(message)}>
-			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg>
+		<button
+			type="button"
+			class="action-btn utility-btn w-ibtn"
+			title={message.isPinned ? $_('context_menu.unpin_message') : $_('context_menu.pin_message')}
+			aria-label={message.isPinned ? $_('context_menu.unpin_message') : $_('context_menu.pin_message')}
+			aria-pressed={Boolean(message.isPinned)}
+			on:click={() => onHandleUtilityPinToggle(message)}
+		>
+			<Icon name="pin" size={16} />
 		</button>
 		{#if ownMessage}
-			<button class="action-btn utility-btn" title={$_('context_menu.edit_message')} on:click={() => onHandleUtilityEdit(message)}>
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path></svg>
+			<button type="button" class="action-btn utility-btn w-ibtn" title={$_('context_menu.edit_message')} aria-label={$_('context_menu.edit_message')} on:click={() => onHandleUtilityEdit(message)}>
+				<Icon name="pencil" size={16} />
 			</button>
 		{/if}
 	{/if}
 
-	<button class="action-btn" title={$_('messages.actions.more')} on:click={(event) => onContextMenu(event, message)}>
-		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
+	<span class="w-tool__sep" aria-hidden="true"></span>
+	<button type="button" class="action-btn w-ibtn" title={$_('messages.actions.more')} aria-label={$_('messages.actions.more')} aria-haspopup="menu" on:click={(event) => onContextMenu(event, message)}>
+		<Icon name="more" size={16} />
 	</button>
 </div>
