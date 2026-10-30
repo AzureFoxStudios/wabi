@@ -1,8 +1,8 @@
 <!--
 	A DM or group conversation in the DMs companion panel (design contract §7.21, §8.10). DMTab's
 	row B names it; this view is the stream, one quiet tools row and the composer.
-	- Tools row: the message lifetime select ("Kept 24 hours"), Shared notes, and ⋯ for the map,
-	  a payment request and "Encrypt new messages" when encryption can start. Its top 4px stay
+	- Tools row: the message lifetime menu ("Kept 24 hours"), Shared notes, and ⋯ for the map,
+	  a payment request and "Turn on experimental encryption" when encryption can start. Its top 4px stay
 	  padding: DMTab's row B touch targets reach over them under coarse pointers.
 	- The privacy state is said once: by the composer's colophon, or, while sending is paused, by
 	  the row that replaces the composer (lib/dm/dmConversationCopy.ts). No privacy pills here,
@@ -22,11 +22,10 @@
 	import { missingDeviceParticipantLabel } from '$lib/dmPresentation';
 	import { showToast } from '$lib/toast';
 	import { normalizeMessageRetentionDuration } from '../../../../shared/messageRetention.js';
-	import { dmEncryptionError, dmRetentionChoice, dmRetentionOptions, dmSendGate, type DmActionError, type DmEncryptionAction, type DmSendGateActionId } from '$lib/dm/dmConversationCopy';
+	import { dmEncryptionError, dmGateActionView, dmRetentionChoice, dmRetentionControlLabel, dmRetentionOptions, dmRetentionPhrase, dmSendGate, type DmActionError, type DmEncryptionAction, type DmSendGateActionId } from '$lib/dm/dmConversationCopy';
 	import type { MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import Menu from '$lib/components/ui/Menu.svelte';
-	import Select from '$lib/components/ui/Select.svelte';
 	import Tooltip from '$lib/components/ui/Tooltip.svelte';
 	import ChatComposer from './chat/ChatComposer.svelte';
 	import ChatMessagesPane from './chat/ChatMessagesPane.svelte';
@@ -71,11 +70,22 @@
 	$: filteredMessages = filterMessages(messages, '', Number.POSITIVE_INFINITY);
 	$: pinnedMessages = messages.filter((message: Message) => message.isPinned);
 	$: selectedRetention = dmRetentionChoice(activeChannel);
-	// The select shows the server-confirmed lifetime: a choice that fails to save snaps back.
+	// The control shows the server-confirmed lifetime: a choice that fails to save snaps back.
 	let retentionValue = '';
 	$: retentionValue = selectedRetention;
 	const retentionOptions = dmRetentionOptions();
+	let retentionItems: MenuEntry[] = [];
+	$: retentionItems = retentionOptions.map((option) => ({
+		id: `kept-${option.value || 'forever'}`,
+		label: option.label,
+		role: 'menuitemradio',
+		checked: option.value === retentionValue,
+		keepCase: true,
+		onSelect: () => void setRetention(option.value)
+	}) as MenuEntry);
 	$: sendGate = dmSendGate(e2eeStatus, missingDeviceLabel);
+	// Both flags are named here, so the buttons re-render when a request ends or fails.
+	$: gateActions = (sendGate?.actions ?? []).map((action) => dmGateActionView(action, { checking: e2eeChecking, busy: e2eeBusy }));
 	$: canEncrypt = Boolean(e2eeStatus && !e2eeStatus.enabled && !e2eeStatus.pendingDefault && e2eeStatus.missingUserIds.length === 0 && (!e2eeStatus.serverReadableSelected || e2eeStatus.serverReadableAllowedByMe));
 	$: waitingForDevices = Boolean(e2eeStatus && !e2eeStatus.enabled && !e2eeStatus.pendingDefault && !e2eeStatus.serverReadableSelected && e2eeStatus.missingUserIds.length > 0);
 	let toolItems: MenuEntry[] = [];
@@ -83,7 +93,7 @@
 		{ id: 'map', label: 'Open map', icon: 'map', onSelect: () => void openPreferredMapSurface() },
 		{ id: 'pay', label: 'Request a payment', icon: 'send', disabled: !paymentButtonEnabled, hint: paymentButtonEnabled ? undefined : 'Registered accounts only', onSelect: () => openPaymentSheet() },
 		...(canEncrypt
-			? [{ id: 'encrypt', label: e2eeBusy ? 'Turning on…' : 'Encrypt new messages', icon: 'lock', seal: true, disabled: e2eeBusy, hint: 'Experimental', onSelect: () => void enableE2ee() } as MenuEntry]
+			? [{ id: 'encrypt', label: e2eeBusy ? 'Turning on…' : 'Turn on experimental encryption', icon: 'lock', seal: true, disabled: e2eeBusy, keepCase: true, onSelect: () => void enableE2ee() } as MenuEntry]
 			: [])
 	];
 
@@ -99,9 +109,6 @@
 		else void loadE2eeStatus(channelId);
 	}
 
-	function gateActionBusy(id: DmSendGateActionId): boolean {
-		return id === 'check' ? e2eeChecking : e2eeBusy;
-	}
 	$: paymentButtonEnabled = Boolean($currentUser?.dbUserId) && Boolean(getAuthToken()) && $paymentAccessStore.loaded && $paymentAccessStore.canCreate;
 	$: lineDmProfile = getLineDmResolvedProfile(channelId, $lineDmAddonStore);
 	$: missingDeviceLabel = missingDeviceParticipantLabel(e2eeStatus?.missingUserIds || [], [...$serverMembers, ...$users]);
@@ -171,8 +178,9 @@
 	}
 
 	async function setRetention(value: string): Promise<void> {
-		if (!activeChannel) return;
+		if (!activeChannel || value === retentionValue) return;
 		const id = activeChannel.id;
+		retentionValue = value;
 		await updateChannelSettings(id, { autoDeleteAfter: normalizeMessageRetentionDuration(value) });
 		// The control reflects the server-confirmed policy, not a speculative selection that
 		// might fail to persist while this device is offline.
@@ -337,7 +345,9 @@
 		<div class="dm-tool-row">
 			{#if activeChannel}
 				<Tooltip text="Applies to new messages. Earlier messages keep their own lifetime." placement="bottom">
-					<Select class="dm-tool-kept" label="Kept" heading="Keep new messages for" options={retentionOptions} bind:value={retentionValue} onchange={(value) => void setRetention(value)} />
+					<Menu items={retentionItems} label="Keep new messages for" triggerLabel={dmRetentionControlLabel(retentionValue)} class="w-select dm-tool-kept" heading="Keep new messages for">
+						<Icon name="clock" size={14} /><span class="w-select__value">{dmRetentionPhrase(retentionValue)}</span><Icon name="chevDown" size={16} />
+					</Menu>
 				</Tooltip>
 			{/if}
 			<span class="dm-tool-spacer"></span>
@@ -395,7 +405,7 @@
 					Latest<Icon name="chevDown" size={16} />
 				</button>
 			{/if}
-			<div class="dm-conversation-composer">
+			<div class="dm-conversation-composer" class:gated={Boolean(sendGate)}>
 				{#if e2eeError && !(sendGate?.kind === 'checking' && e2eeError.action === 'check')}
 					<div class="w-notice dm-notice" role="alert">
 						<Icon name="alert" size={16} />
@@ -430,14 +440,14 @@
 						<p class="w-notice__title">{failedCheck ? failedCheck.title : sendGate.title}</p>
 						<p class="w-notice__text">{#if failedCheck}{failedCheck.text}{:else}{sendGate.text}{#if sendGate.detail} <span class="dm-gate-detail">{sendGate.detail}</span>{/if}{/if}</p>
 						<div class="w-notice__actions">
-							{#each sendGate.actions as action (action.id)}
+							{#each gateActions as action (action.id)}
 								<button
 									type="button"
 									class="w-btn w-btn--sm"
-									aria-busy={gateActionBusy(action.id)}
-									disabled={gateActionBusy(action.id)}
+									aria-busy={action.busy}
+									disabled={action.busy}
 									on:click={() => runGateAction(action.id)}
-								>{gateActionBusy(action.id) ? action.busyLabel : action.label}</button>
+								>{action.label}</button>
 							{/each}
 						</div>
 					</div>
@@ -519,9 +529,11 @@
 		min-width: 0;
 	}
 	.dm-tool-row :global(.dm-tool-kept) {
+		flex: 0 1 auto;
 		height: 28px;
 		min-width: 0;
 		font: var(--w-t-caption);
+		cursor: pointer;
 	}
 	.dm-tool-spacer {
 		flex: 1 1 auto;
@@ -566,6 +578,15 @@
 	.dm-conversation-composer {
 		flex-shrink: 0;
 		min-width: 0;
+	}
+	/* The paused row stands in the 80px footer band with its top edge on the footer rule (D21);
+	   its actions sit under the words here, so it grows upward from there. */
+	.dm-conversation-composer.gated {
+		display: flex;
+		flex-direction: column;
+		justify-content: flex-start;
+		box-sizing: border-box;
+		min-height: var(--w-foot, 80px);
 	}
 	.dm-conversation-notes {
 		min-width: 0;

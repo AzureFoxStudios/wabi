@@ -3,9 +3,13 @@ import type { E2eeRoomStatus } from '../e2ee';
 import { privacyWords } from '../privacy/privacyState';
 import {
 	conversationMatches,
+	dmCallStartError,
 	dmEncryptionError,
+	dmGateActionView,
 	dmRetentionChoice,
+	dmRetentionControlLabel,
 	dmRetentionOptions,
+	dmRetentionPhrase,
 	dmSendGate,
 	DM_RETENTION_FOREVER,
 	type DmEncryptionAction
@@ -69,6 +73,21 @@ describe('dmSendGate: the composer shows only when this member may send', () => 
 	test('an encrypted room with changed membership asks for a key update; an unencrypted one keeps checking', () => {
 		expect(dmSendGate(status({ enabled: true, needsRekey: true }))?.kind).toBe('rekey');
 		expect(dmSendGate(status({ enabled: false, needsRekey: true }))?.kind).toBe('checking');
+	});
+
+	test('a paused-row button follows its own request: a failed check re-enables "Check again"', () => {
+		const pending = dmSendGate(status({ pendingDefault: true, missingUserIds: [2] }), 'Theo');
+		const [check, readable] = pending?.actions ?? [];
+		expect(dmGateActionView(check, { checking: true, busy: false })).toEqual({ id: 'check', label: 'Checking…', busy: true });
+		// The check ended (in success or failure): the button is usable again and says so.
+		expect(dmGateActionView(check, { checking: false, busy: false })).toEqual({ id: 'check', label: 'Check again', busy: false });
+		// A switch in flight does not lock "Check again", and vice versa.
+		expect(dmGateActionView(check, { checking: false, busy: true }).busy).toBe(false);
+		expect(dmGateActionView(readable, { checking: false, busy: true })).toEqual({ id: 'server-readable', label: 'Switching…', busy: true });
+		expect(dmGateActionView(readable, { checking: true, busy: false })).toEqual({ id: 'server-readable', label: 'Send server-readable', busy: false });
+		const rekey = dmSendGate(status({ enabled: true, needsRekey: true }))?.actions[0];
+		expect(rekey && dmGateActionView(rekey, { checking: false, busy: true }).label).toBe('Updating keys…');
+		expect(rekey && dmGateActionView(rekey, { checking: false, busy: false }).label).toBe('Trust devices and update keys');
 	});
 
 	test('no gate wording claims more than experimental encryption', () => {
@@ -136,12 +155,55 @@ describe('message lifetime', () => {
 		expect(dmRetentionChoice(null)).toBe('24h');
 	});
 
-	test('the options keep every preset and read after "Kept"', () => {
+	test('the choices keep every preset and are sentence-case menu rows', () => {
 		const options = dmRetentionOptions();
-		expect(options[0]).toEqual({ value: '', label: 'until deleted' });
+		expect(options[0]).toEqual({ value: '', label: 'Until someone deletes them' });
 		expect(options.find((option) => option.value === '24h')?.label).toBe('24 hours');
 		expect(options.length).toBe(15);
 		expect(new Set(options.map((option) => option.value)).size).toBe(options.length);
+		for (const option of options) expect(option.label.charAt(0)).not.toMatch(/[a-z]/);
+	});
+
+	test('the control says the lifetime in the §9.2 words, the same on desktop and phone', () => {
+		expect(dmRetentionPhrase(DM_RETENTION_FOREVER)).toBe('Kept until someone deletes them');
+		expect(dmRetentionPhrase('24h')).toBe('Kept 24 hours');
+		expect(dmRetentionPhrase('7d')).toBe('Kept 7 days');
+		expect(dmRetentionControlLabel('24h')).toBe('Keep new messages for: 24 hours');
+		expect(dmRetentionControlLabel(DM_RETENTION_FOREVER)).toBe('Keep new messages for: until someone deletes them');
+		for (const option of dmRetentionOptions()) {
+			expect(dmRetentionPhrase(option.value)).not.toMatch(/private|secure|encrypt/i);
+		}
+	});
+});
+
+describe('dmCallStartError: the cause in plain words', () => {
+	test('another call in progress is not blamed on permissions', () => {
+		const words = dmCallStartError(new Error('A call is already active or ringing'), false);
+		expect(words).toContain('already in a call');
+		expect(words).not.toMatch(/microphone|permission/i);
+	});
+
+	test('no connection says so', () => {
+		const words = dmCallStartError(new Error('No connection to server. Calls require an active connection to the Wabi server.'), true);
+		expect(words).toContain('Not connected');
+		expect(words).not.toMatch(/camera|permission/i);
+	});
+
+	test('a refused or missing device names the device for the call kind', () => {
+		const refused = Object.assign(new Error('Permission denied'), { name: 'NotAllowedError' });
+		expect(dmCallStartError(refused, false)).toContain('microphone');
+		expect(dmCallStartError(refused, false)).not.toContain('camera');
+		expect(dmCallStartError(refused, true)).toContain('camera and microphone');
+		const missing = Object.assign(new Error('Requested device not found'), { name: 'NotFoundError' });
+		expect(dmCallStartError(missing, false)).toContain('No microphone');
+	});
+
+	test('anything else is a plain retry, never the raw message', () => {
+		const raw = 'socket hang up at transport 0x1f';
+		const words = dmCallStartError(new Error(raw), false);
+		expect(words).toBe('Couldn’t start the call. Try again in a moment.');
+		expect(dmCallStartError(null, true)).toBe('Couldn’t start the video call. Try again in a moment.');
+		expect(words).not.toContain(raw);
 	});
 });
 

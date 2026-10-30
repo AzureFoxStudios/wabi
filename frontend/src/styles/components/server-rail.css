@@ -2,10 +2,12 @@
    Saved-servers rail (design contract §8.1, §5.2 selection grammar, §5.3 status marks).
    ServerRail.svelte. Roles, type tokens and kit classes only.
 
-   Page plane (--w-bg) with a column hairline toward the sidebar. 52px tiles: hover is the 70%
-   raise mix, the current server a --w-raise tile (High Contrast adds the inset ring). Unread
-   is an 8px ink dot with a ring in the rail's colour. Nothing grows, lifts or reshapes under
-   the pointer. The foot band is 80px on the shared footer rule.
+   Page plane (--w-bg) with a column hairline toward the sidebar. Row A is the rail's kicker over
+   the shared 96px masthead rule. 52px tiles: the server's icon or its serif initial stamp
+   (tiles have no names, so servers must not all share one mark); hover is the 70% raise mix,
+   the current server a --w-raise tile (High Contrast adds the inset ring). Unread is an 8px ink
+   dot with a ring in the rail's colour. Nothing grows, lifts or reshapes under the pointer. The
+   foot band is 80px on the shared footer rule.
    Cascade: styles.css (legacy slot). The stub rail (RightStubStrip.css) has its own class
    names; nothing here may reach it.
    ========================================================================== */
@@ -38,18 +40,22 @@
 	min-height: 0;
 }
 
-/* Row A: the ensō home tile, then the masthead rule at y = --w-mast. */
+/* Row A: the kicker, centred on row A's line, then the masthead rule at y = --w-mast. */
 .server-rail .rail-head {
 	display: flex;
 	flex: none;
-	align-items: center;
+	align-items: flex-start;
 	justify-content: center;
 	box-sizing: border-box;
 	height: var(--w-mast, 96px);
+	padding-top: calc((var(--w-head-a, 56px) - 16px) / 2);
 	border-bottom: var(--w-bw) solid var(--w-line);
 }
+.server-rail .rail-kicker {
+	color: var(--w-faint);
+	white-space: nowrap;
+}
 
-.server-rail .rail-home,
 .server-rail .server-pill,
 .server-rail .folder-member {
 	position: relative;
@@ -68,12 +74,10 @@
 		background-color var(--w-dur-1) var(--w-ease),
 		box-shadow var(--w-dur-1) var(--w-ease);
 }
-.server-rail .rail-home,
 .server-rail .server-pill {
 	width: 52px;
 	height: 52px;
 }
-.server-rail .rail-home:hover,
 .server-rail .server-pill:hover,
 .server-rail .folder-member:hover {
 	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
@@ -83,35 +87,16 @@
 .server-rail .folder-member.active {
 	background: var(--w-raise);
 }
-.server-rail :is(.rail-home, .server-pill, .folder-member):focus-visible {
+.server-rail :is(.server-pill, .folder-member):focus-visible {
 	outline: 2px solid var(--w-accent);
 	outline-offset: -2px;
 }
-:root[data-char='contrast'] .server-rail :is(.rail-home, .server-pill, .folder-member):not(.active):hover {
+:root[data-char='contrast'] .server-rail :is(.server-pill, .folder-member):not(.active):hover {
 	background: transparent;
 }
-:root[data-char='contrast'] .server-rail :is(.rail-home, .server-pill, .folder-member):hover,
+:root[data-char='contrast'] .server-rail :is(.server-pill, .folder-member):hover,
 :root[data-char='contrast'] .server-rail :is(.server-pill, .folder-member).active {
 	box-shadow: inset 0 0 0 1px var(--w-line-strong);
-}
-
-/* The shipped ensō as a mask in --w-sig: never redrawn, inverted or inked. */
-.server-rail .rail-enso,
-.server-rail .server-avatar-enso {
-	display: block;
-	width: 30px;
-	height: 30px;
-	background: var(--w-sig);
-	-webkit-mask: url('/wabi-logo-small.webp') center / contain no-repeat;
-	mask: url('/wabi-logo-small.webp') center / contain no-repeat;
-}
-.server-rail .server-avatar-enso {
-	width: 26px;
-	height: 26px;
-	background: var(--w-mute);
-}
-.server-rail .server-pill.active .server-avatar-enso {
-	background: var(--w-sig);
 }
 
 .server-rail .server-mark {
@@ -133,6 +118,7 @@
 	height: 100%;
 	object-fit: cover;
 }
+/* The initial stamp: one serif initial on paper (D26), the same for every theme. */
 .server-rail .server-avatar-fallback {
 	display: grid;
 	place-items: center;
@@ -142,8 +128,13 @@
 	border: var(--w-bw) solid var(--w-line);
 	border-radius: inherit;
 	background: var(--w-bg2);
+	color: var(--w-mute);
+	font: 600 calc(16px * var(--w-fs)) / 1 var(--w-serif);
+}
+/* The server you are on: its stamp in ink on a firmer edge, inside the raised tile. */
+.server-rail :is(.server-pill, .folder-member).active .server-avatar-fallback {
+	border-color: var(--w-line-strong);
 	color: var(--w-text);
-	font: 600 calc(15px * var(--w-fs)) / 1 var(--w-serif);
 }
 .server-rail .server-mark--sm .server-avatar-fallback {
 	font: 500 calc(11px * var(--w-fs)) / 1 var(--w-sans);
@@ -311,7 +302,7 @@
 .server-rail.density-icons-only {
 	width: 48px;
 }
-.server-rail.density-icons-only :is(.rail-home, .server-pill) {
+.server-rail.density-icons-only .server-pill {
 	width: 40px;
 	height: 40px;
 }
@@ -319,9 +310,8 @@
 	width: 28px;
 	height: 28px;
 }
-.server-rail.density-icons-only .rail-enso {
-	width: 24px;
-	height: 24px;
+.server-rail.density-icons-only .rail-kicker {
+	display: none;
 }
 .server-rail.density-hidden {
 	width: 0;

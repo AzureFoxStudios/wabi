@@ -3,9 +3,9 @@
   - Masthead 96 (the shared rule at y = 96, level with the DMs hub): row A is back, the avatar
     28, the name in --w-t-title and the seal chip (PrivacyBadge, which owns every privacy word),
     then call, video and "Move to side panel"; row B is presence or the members, then the
-    conversation's tools: Encrypt new messages (when it can start), the message lifetime select
-    ("Kept 24 hours") and Shared notes / Group settings. Phones keep one 52px bar; row B's tools
-    move into its ⋯ menu.
+    conversation's tools: Turn on experimental encryption (when it can start), the message
+    lifetime menu ("Kept 24 hours") and Shared notes / Group settings. Phones keep one 52px bar;
+    row B's tools move into its ⋯ sheet, where the lifetime is one row that opens its own sheet.
   - Stream and composer as in chat. While sending is paused the composer is replaced by one row
     that names the state and the one thing to do (lib/dm/dmConversationCopy.ts); a failed request
     is a notice in plain words, never the raw error and never "E2EE".
@@ -20,16 +20,15 @@
   import { channelMessages, channelHasMoreHistory, channelHistoryLoading, currentUser, channels, users, serverMembers, connected, getSocket, joinChannel, loadHistory, loadOlderHistory, markChannelAsRead, sendMessage, socket, updateChannelSettings } from '$lib/socket';
   import { normalizeMessageRetentionDuration } from '../../../../shared/messageRetention.js';
   import { brandName } from '$lib/branding';
-  import { callMode, isInCall, outgoingCall } from '$lib/callingStateStores';
+  import { callMode, incomingCall, isInCall, outgoingCall } from '$lib/callingStateStores';
   import { startCall, startGroupCall, type GroupCallRingingTarget } from '$lib/calling';
   import { getUserIdentityKey } from '$lib/localNicknames';
   import { showToast } from '$lib/toast';
   import { inkFor } from '$lib/theme/identity';
-  import { dmEncryptionError, dmRetentionChoice, dmRetentionOptions, dmSendGate, type DmActionError, type DmEncryptionAction, type DmSendGateActionId } from '$lib/dm/dmConversationCopy';
+  import { dmCallStartError, dmEncryptionError, dmGateActionView, dmRetentionChoice, dmRetentionControlLabel, dmRetentionOptions, dmRetentionPhrase, dmSendGate, type DmActionError, type DmEncryptionAction, type DmSendGateActionId } from '$lib/dm/dmConversationCopy';
   import type { MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
   import Icon from '$lib/components/ui/Icon.svelte';
   import Menu from '$lib/components/ui/Menu.svelte';
-  import Select from '$lib/components/ui/Select.svelte';
   import Tooltip from '$lib/components/ui/Tooltip.svelte';
   import PrivacyBadge from './PrivacyBadge.svelte';
   import GroupAvatar from './GroupAvatar.svelte';
@@ -81,19 +80,45 @@
   $: pinnedMessages = messages.filter((m: Message) => m.isPinned);
   $: channelDisplayName = isGroup ? (channel?.name || 'Group message') : (otherUser?.username || otherUser?.handle || 'Recipient unavailable');
   $: selectedRetention = dmRetentionChoice(channel);
-  // The select shows the server-confirmed lifetime: a choice that fails to save snaps back.
+  // The control shows the server-confirmed lifetime: a choice that fails to save snaps back.
   let retentionValue = '';
   $: retentionValue = selectedRetention;
+  $: retentionWords = dmRetentionPhrase(retentionValue);
   // The popover's Kept fact only when the room says (never a guessed default).
   $: retentionKnown = Boolean(channel) && channel?.autoDeleteAfter !== undefined;
   $: retentionPolicy = retentionKnown ? (selectedRetention || 'forever') : null;
   const retentionOptions = dmRetentionOptions();
 
   async function setRetention(value: string): Promise<void> {
-    if (!channelId || !channel) return;
+    if (!channelId || !channel || value === retentionValue) return;
+    retentionValue = value;
     await updateChannelSettings(channelId, { autoDeleteAfter: normalizeMessageRetentionDuration(value) });
     await tick();
     retentionValue = dmRetentionChoice(get(channels).find((entry) => entry.id === channelId) ?? channel);
+  }
+
+  // "Keep new messages for": one radio menu, the same rows on desktop and in the phone sheet.
+  let retentionItems: MenuEntry[] = [];
+  $: retentionItems = retentionOptions.map((option) => ({
+    id: `kept-${option.value || 'forever'}`,
+    label: option.label,
+    role: 'menuitemradio',
+    checked: option.value === retentionValue,
+    keepCase: true,
+    onSelect: () => void setRetention(option.value)
+  }) as MenuEntry);
+
+  // Phones: the ⋯ sheet has one "Kept 24 hours" row that opens the choices as their own sheet.
+  let headerActions: HTMLDivElement | undefined;
+  let keptSheetAnchor: HTMLElement | null = null;
+  let keptSheetOpen = false;
+
+  function openKeptSheet(): void {
+    keptSheetAnchor = headerActions?.querySelector<HTMLElement>('.dm-header-more') ?? headerActions ?? null;
+    // After the ⋯ sheet has closed and handed focus back, so the two sheets never overlap.
+    window.setTimeout(() => {
+      keptSheetOpen = true;
+    }, 0);
   }
 
   $: phone = $isMobile;
@@ -136,9 +161,8 @@
     else void loadE2eeStatus(channelId);
   }
 
-  function gateActionBusy(id: DmSendGateActionId): boolean {
-    return id === 'check' ? e2eeChecking : e2eeBusy;
-  }
+  // Both flags are named here, so the buttons re-render when a request ends or fails.
+  $: gateActions = (sendGate?.actions ?? []).map((action) => dmGateActionView(action, { checking: e2eeChecking, busy: e2eeBusy }));
 
   async function loadE2eeStatus(targetChannelId: string | null): Promise<void> {
     if (!targetChannelId) {
@@ -362,14 +386,18 @@
   }
 
   // ── Calls (the same paths as the DMs companion) ──────────────────────────
+  // A direct call (or one ringing out) is said in the header; any direct or group call, or one
+  // ringing in, blocks a new one (startCall refuses it). A voice room does not.
   $: callActive = ($isInCall && $callMode === 'direct') || Boolean($outgoingCall);
+  $: callBlocked = callActive || Boolean($incomingCall) || ($isInCall && $callMode === 'group');
   $: callWord = callActive ? (Boolean($outgoingCall) && !$isInCall ? 'Calling…' : 'Call active') : '';
+  $: callBlockedWord = callBlocked ? (callWord || 'Another call is on') : '';
   $: callTarget = isGroup ? (channel?.name || 'the group') : channelDisplayName;
   $: canCall = Boolean($socket) && (isGroup ? channel?.type === 'group' : Boolean(otherUser));
 
   async function startConversationCall(withVideo: boolean): Promise<void> {
     const live = $socket;
-    if (!live || callActive) return;
+    if (!live || callBlocked) return;
     try {
       if (isGroup && channel) {
         const myStableId = $currentUser?.dbUserId ? `user-${$currentUser.dbUserId}` : $currentUser?.id;
@@ -397,9 +425,7 @@
       }
     } catch (error) {
       console.warn(`[Call] ${isGroup ? 'group' : 'DM'} ${withVideo ? 'video' : 'voice'} call failed to start:`, error);
-      showToast(withVideo
-        ? 'Could not start the video call. Check camera and microphone permissions.'
-        : 'Could not start the call. Check microphone permissions.', 'error');
+      showToast(dmCallStartError(error, withVideo), 'error');
     }
   }
 
@@ -408,25 +434,15 @@
   $: phoneMenuItems = [
     ...(canCall
       ? [
-          { id: 'voice', label: `Call ${callTarget}`, icon: 'phone', keepCase: true, disabled: callActive, hint: callWord || undefined, onSelect: () => void startConversationCall(false) },
-          { id: 'video', label: `Video call ${callTarget}`, icon: 'video', keepCase: true, disabled: callActive, hint: callWord || undefined, onSelect: () => void startConversationCall(true) }
+          { id: 'voice', label: `Call ${callTarget}`, icon: 'phone', keepCase: true, disabled: callBlocked, hint: callBlockedWord || undefined, onSelect: () => void startConversationCall(false) },
+          { id: 'video', label: `Video call ${callTarget}`, icon: 'video', keepCase: true, disabled: callBlocked, hint: callBlockedWord || undefined, onSelect: () => void startConversationCall(true) }
         ] as MenuEntry[]
       : []),
     { id: 'notes', label: showNotes ? 'Back to messages' : 'Shared notes', icon: 'note', onSelect: toggleSharedNotes },
     ...(isGroup ? [{ id: 'group', label: showGroupSettings ? 'Back to group messages' : 'Group settings', icon: 'users', onSelect: toggleGroupSettings } as MenuEntry] : []),
-    ...(canEncrypt ? [{ id: 'encrypt', label: e2eeBusy ? 'Turning on…' : 'Encrypt new messages', icon: 'lock', seal: true, disabled: e2eeBusy, hint: 'Experimental', onSelect: () => void enableE2ee() } as MenuEntry] : []),
+    ...(canEncrypt ? [{ id: 'encrypt', label: e2eeBusy ? 'Turning on…' : 'Turn on experimental encryption', icon: 'lock', seal: true, disabled: e2eeBusy, keepCase: true, onSelect: () => void enableE2ee() } as MenuEntry] : []),
     ...(channelId && channel
-      ? [
-          { id: 'kept-kicker', type: 'kicker', label: 'Keep new messages for' } as MenuEntry,
-          ...retentionOptions.map((option) => ({
-            id: `kept-${option.value || 'forever'}`,
-            label: option.value ? option.label : 'Until someone deletes them',
-            role: 'menuitemradio',
-            checked: option.value === retentionValue,
-            keepCase: true,
-            onSelect: () => void setRetention(option.value)
-          }) as MenuEntry)
-        ]
+      ? [{ id: 'kept', label: retentionWords, icon: 'clock', keepCase: true, hint: 'Change', onSelect: openKeptSheet } as MenuEntry]
       : [])
   ];
 </script>
@@ -460,7 +476,7 @@
           class="dm-header-seal"
         />
       </span>
-      <div class="dm-header-actions">
+      <div class="dm-header-actions" bind:this={headerActions}>
         {#if callActive && !phone}
           <span class="w-tag dm-header-call" role="status" aria-live="polite"><span class="w-dot w-dot--online"></span>{callWord}</span>
         {/if}
@@ -478,11 +494,11 @@
           </Menu>
         {:else}
           {#if canCall}
-            <Tooltip text={`Call ${callTarget}`} placement="bottom">
-              <button type="button" class="w-ibtn" aria-label={`Call ${callTarget}`} disabled={callActive} on:click={() => void startConversationCall(false)}><Icon name="phone" /></button>
+            <Tooltip text={callBlockedWord ? `Call ${callTarget} · ${callBlockedWord}` : `Call ${callTarget}`} placement="bottom">
+              <button type="button" class="w-ibtn" aria-label={`Call ${callTarget}`} disabled={callBlocked} on:click={() => void startConversationCall(false)}><Icon name="phone" /></button>
             </Tooltip>
-            <Tooltip text={`Video call ${callTarget}`} placement="bottom">
-              <button type="button" class="w-ibtn" aria-label={`Video call ${callTarget}`} disabled={callActive} on:click={() => void startConversationCall(true)}><Icon name="video" /></button>
+            <Tooltip text={callBlockedWord ? `Video call ${callTarget} · ${callBlockedWord}` : `Video call ${callTarget}`} placement="bottom">
+              <button type="button" class="w-ibtn" aria-label={`Video call ${callTarget}`} disabled={callBlocked} on:click={() => void startConversationCall(true)}><Icon name="video" /></button>
             </Tooltip>
           {/if}
           <Tooltip text={context === 'right' ? 'Open in center stage' : 'Move to side panel'} placement="bottom">
@@ -510,29 +526,49 @@
         </p>
         <div class="dm-header-tools">
           {#if canEncrypt}
-            <Tooltip text="Turn on experimental encryption for new messages. Not independently verified." placement="bottom">
+            <Tooltip text="Applies to new messages. Not independently verified." placement="bottom">
               <button type="button" class="w-btn w-btn--sm dm-header-encrypt" aria-busy={e2eeBusy} disabled={e2eeBusy} on:click={() => void enableE2ee()}>
-                <Icon name="lock" size={14} />{e2eeBusy ? 'Turning on…' : 'Encrypt new messages'}
+                <Icon name="lock" size={14} />{e2eeBusy ? 'Turning on…' : 'Turn on experimental encryption'}
               </button>
             </Tooltip>
           {/if}
           {#if channelId && channel}
             <Tooltip text="Applies to new messages. Earlier messages keep their own lifetime." placement="bottom">
-              <Select class="dm-header-kept" label="Kept" heading="Keep new messages for" options={retentionOptions} bind:value={retentionValue} align="end" onchange={(value) => void setRetention(value)} />
+              <Menu
+                items={retentionItems}
+                label="Keep new messages for"
+                triggerLabel={dmRetentionControlLabel(retentionValue)}
+                class="w-select dm-header-kept"
+                align="end"
+                heading="Keep new messages for"
+              >
+                <Icon name="clock" size={14} /><span class="w-select__value">{retentionWords}</span><Icon name="chevDown" size={16} />
+              </Menu>
             </Tooltip>
           {/if}
           <button type="button" class="w-btn w-btn--quiet w-btn--sm dm-notes-action" aria-pressed={showNotes} on:click={toggleSharedNotes}>
-            <Icon name="note" size={14} />Shared notes
+            <Icon name="note" size={14} /><span class="dm-tool-label">Shared notes</span>
           </button>
           {#if isGroup}
-            <button type="button" class="w-btn w-btn--quiet w-btn--sm" aria-pressed={showGroupSettings} on:click={toggleGroupSettings}>
-              <Icon name="users" size={14} />Group settings
+            <button type="button" class="w-btn w-btn--quiet w-btn--sm dm-group-action" aria-pressed={showGroupSettings} on:click={toggleGroupSettings}>
+              <Icon name="users" size={14} /><span class="dm-tool-label">Group settings</span>
             </button>
           {/if}
         </div>
       </div>
     {/if}
   </header>
+
+  {#if phone && keptSheetAnchor}
+    <Menu
+      items={retentionItems}
+      label="Keep new messages for"
+      anchor={keptSheetAnchor}
+      bind:open={keptSheetOpen}
+      align="end"
+      heading="Keep new messages for"
+    />
+  {/if}
 
   {#if waitingForDevices}
     <p class="dm-header-wait" role="status">Encryption starts when {missingDeviceLabel || 'every participant'} {missingDeviceLabel.includes(',') ? 'have' : 'has'} an updated device. Until then new messages stay server-readable.</p>
@@ -593,7 +629,7 @@
     <div class="dm-shared-notes" class:hidden={!showNotes} aria-label="Shared conversation notes"><SharedConversationNotes {channelId} surface="center" /></div>
   {/if}
 
-  <div class="dm-composer" class:hidden={showGroupSettings || showNotes}>
+  <div class="dm-composer" class:hidden={showGroupSettings || showNotes} class:gated={Boolean(sendGate)}>
     {#if e2eeError && !(sendGate?.kind === 'checking' && e2eeError.action === 'check')}
       <div class="w-notice dm-notice" role="alert">
         <Icon name="alert" size={16} />
@@ -628,14 +664,14 @@
         <p class="w-notice__title">{failedCheck ? failedCheck.title : sendGate.title}</p>
         <p class="w-notice__text">{#if failedCheck}{failedCheck.text}{:else}{sendGate.text}{#if sendGate.detail} <span class="dm-gate-detail">{sendGate.detail}</span>{/if}{/if}</p>
         <div class="w-notice__actions">
-          {#each sendGate.actions as action (action.id)}
+          {#each gateActions as action (action.id)}
             <button
               type="button"
               class="w-btn w-btn--sm"
-              aria-busy={gateActionBusy(action.id)}
-              disabled={gateActionBusy(action.id)}
+              aria-busy={action.busy}
+              disabled={action.busy}
               on:click={() => runGateAction(action.id)}
-            >{gateActionBusy(action.id) ? action.busyLabel : action.label}</button>
+            >{action.label}</button>
           {/each}
         </div>
       </div>
@@ -807,6 +843,7 @@
   .dm-header-tools :global(.dm-header-kept) {
     height: 28px;
     font: var(--w-t-caption);
+    cursor: pointer;
   }
   .dm-header-tools :global(.w-btn[aria-pressed='true']) {
     background: var(--w-raise);
@@ -848,7 +885,9 @@
     gap: 8px;
   }
 
-  /* Below a 640px stage the presence line gives way to the tools; the words stay in ⋯ on phones. */
+  /* Below a 640px stage the presence line gives way to the tools; the words stay in ⋯ on phones.
+     Below 720px, Shared notes and Group settings keep their glyph and say their name to
+     assistive tech only, so the lifetime and encryption words never have to shrink. */
   @container dm-conversation (max-width: 639.98px) {
     .dm-header-sub {
       display: none;
@@ -857,9 +896,20 @@
       justify-content: flex-end;
     }
   }
-  @container dm-conversation (max-width: 479.98px) {
-    .dm-notes-action {
-      display: none;
+  @container dm-conversation (max-width: 719.98px) {
+    .dm-tool-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .dm-notes-action,
+    .dm-group-action {
+      width: 28px;
+      padding: 0;
+      justify-content: center;
     }
   }
 
@@ -924,9 +974,18 @@
     flex: none;
     min-width: 0;
   }
+  /* The paused row stands in the 80px footer band with its top edge on the footer rule (D21),
+     like the composer field it replaces; taller words grow it upward. */
+  .dm-composer.gated {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    box-sizing: border-box;
+    min-height: var(--w-foot, 80px);
+  }
   .dm-gate,
   .dm-notice {
-    margin: 0 var(--w-gutter, 32px) 16px;
+    margin: 0 var(--w-gutter, 32px) 12px;
   }
   .dm-notice {
     margin-top: 8px;
