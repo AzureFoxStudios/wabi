@@ -4,6 +4,7 @@ import {compatibilityFixtures} from './office-compatibility-fixtures.mjs';
 import {nativeCanvasAcceptance} from './office-native-canvas-acceptance.mjs';
 import {documentRecoveryAcceptance} from './office-document-acceptance.mjs';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -83,7 +84,13 @@ try {
     }};
     const alias=identities.map(name=>({find:'$lib/'+name,replacement:f('identity.js')}));
     alias.push({find:'$app/environment',replacement:f('environment.js')},{find:'$lib/mobileTabQueue',replacement:f('tabs.js')},{find:'$lib/workspaceNavigationState',replacement:f('tabs.js')},{find:'@wabi/workspace-sheets',replacement:path.join(frontend,'src/lib/workspaces/sheets/addon.ts')},{find:'@wabi/workspace-present',replacement:path.join(frontend,'src/lib/workspaces/present/addon.ts')},{find:'$lib',replacement:path.join(frontend,'src/lib')});
-    server=await createServer({configFile:false,root:fixture,plugins:[bootstrap,svelte({configFile:false})],resolve:{dedupe:['svelte','yjs'],alias},worker:{format:'es'},define:{__WABI_WORKSPACE_PACKAGED__:JSON.stringify({sheets:true,present:true})},optimizeDeps:{rolldownOptions:{tsconfig:false}},server:{host:'127.0.0.1',port:0,fs:{allow:[frontend]},proxy:{'/api':host.authorityUrl}},logLevel:'warn'});
+    // Pre-bundle what the office tools load lazily (the editor, xlsx, pptxgenjs, pdf.js): a
+    // dependency Vite first meets mid-test is optimized on the spot and reloads the page, which
+    // drops whatever the test was doing (the first PPTX export, the first spreadsheet). Only
+    // installed packages are listed, so a checkout without an optional engine still starts.
+    const prebundle=['yjs','y-codemirror.next','@codemirror/state','@codemirror/view','@codemirror/commands','@codemirror/lang-markdown','marked','dompurify','svelte-i18n','esm-env','jszip','pptxgenjs','xlsx','pdfjs-dist']
+        .filter(name=>existsSync(path.join(frontend,'node_modules',name,'package.json')));
+    server=await createServer({configFile:false,root:fixture,plugins:[bootstrap,svelte({configFile:false})],resolve:{dedupe:['svelte','yjs'],alias},worker:{format:'es'},define:{__WABI_WORKSPACE_PACKAGED__:JSON.stringify({sheets:true,present:true})},optimizeDeps:{include:prebundle,rolldownOptions:{tsconfig:false}},server:{host:'127.0.0.1',port:0,fs:{allow:[frontend]},proxy:{'/api':host.authorityUrl}},logLevel:'warn'});
     await server.listen();const origin=server.resolvedUrls.local[0];
     for(const engineName of(process.env.WORKSPACE_BROWSER||'chromium').split(',')){
         browser=await(engineName==='firefox'?firefox:chromium).launch({headless:!process.env.DISPLAY,...(engineName==='chromium'?{args:['--no-sandbox']}:{})});
