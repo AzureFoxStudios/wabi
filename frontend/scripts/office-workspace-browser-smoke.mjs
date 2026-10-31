@@ -36,15 +36,22 @@ try {
         export const serverMembers=writable(accounts.map(a=>({dbUserId:a.id,username:a.name})));
         export const currentUser=writable({dbUserId:account.id,username:account.name});
         export const currentChannel=writable('');export const channels=writable([]);export const switchChannel=id=>currentChannel.set(id);`);
-    await writeFile(f('tabs.js'),`import {writable} from 'svelte/store';
+    await writeFile(f('tabs.js'),`import {writable,derived} from 'svelte/store';
         export const active=writable('addon:workspace-'+(new URLSearchParams(location.search).get('tool')||'documents'));
-        export const mobileTabQueue={activeTabId:active,registerAddonTab(){},setActiveChannel(id){active.set('channel:'+id)},openAddonTab(id){active.set('addon:'+id)},unregisterAddonTab(){active.set('none')}};`);
+        // The stage's active view follows the tab, as in the shell (row A headers belong to a view).
+        export const activeWorkspaceView=derived(active,tab=>tab.startsWith('addon:workspace-')?tab.slice('addon:workspace-'.length):'chat');
+        const addonTabs=writable([]);
+        export const mobileTabQueue={activeTabId:active,addonTabs,registerAddonTab(tab){addonTabs.update(tabs=>[...tabs,tab]);},setActiveChannel(id){active.set('channel:'+id)},openAddonTab(id){active.set('addon:'+id)},unregisterAddonTab(){active.set('none')}};`);
+    // Row A of the stage masthead, as StageBar renders it: the header component (the office editor
+    // header: title field, locality, save state, modes), then the actions by the same names.
     await writeFile(f('App.svelte'),`<script>
         import WorkspaceHost from ${mod('src/lib/workspaces/WorkspaceHost.svelte')};import {active} from './tabs.js';
-        import {workspaceToolFromTab} from ${mod('src/lib/workspaces/bridge.ts')};$:tool=workspaceToolFromTab($active);
-        </script>{#if tool}<WorkspaceHost {tool}/>{/if}`);
+        import {workspaceToolFromTab} from ${mod('src/lib/workspaces/bridge.ts')};import {stageHeader} from ${mod('src/lib/stageHeader.ts')};
+        $:tool=workspaceToolFromTab($active);$:header=$stageHeader;
+        </script><div class="stage-a">{#if header}{#if header.component}<svelte:component this={header.component} {...header.props}/>{:else}<h2>{header.title}</h2>{/if}{#each header.actions as action (action.id)}<button type="button" aria-label={action.iconOnly?action.label:action.accessibleName} aria-pressed={action.pressed} disabled={action.disabled} on:click={(event)=>action.onSelect(event.currentTarget)}>{action.iconOnly?'':action.label}</button>{/each}{/if}</div>{#if tool}<WorkspaceHost {tool}/>{/if}`);
     await writeFile(f('main.js'),`import {mount} from 'svelte';import App from './App.svelte';
         import {openWorkspace,captureScope} from ${mod('src/lib/workspaces/bridge.ts')};import {account} from './identity.js';
+        import {initI18n} from ${mod('src/lib/i18n/index.ts')};initI18n();
         mount(App,{target:document.getElementById('app')});window.workspaceTest={open:openWorkspace,account,
             async records(kind){const m=await import(${mod('src/lib/workspaces/session.ts')});return m.listLocal(await captureScope(),kind);},
             async record(id){
@@ -70,11 +77,12 @@ try {
         if(source==='$app/environment')return f('environment.js');
         const normalized=(source.startsWith('$lib/')?path.join(frontend,'src/lib',source.slice(5)):source.startsWith('.')&&importer?path.resolve(path.dirname(importer.split('?')[0]),source):source).replace(/\.(?:ts|js)$/,'');
         if(identityPaths.has(normalized))return f('identity.js');
-        if(normalized===path.join(frontend,'src/lib/mobileTabQueue'))return f('tabs.js');
+        // Shell navigation: the tab queue and the stage's active view (row A headers read it).
+        if(normalized===path.join(frontend,'src/lib/mobileTabQueue')||normalized===path.join(frontend,'src/lib/workspaceNavigationState'))return f('tabs.js');
         return null;
     }};
     const alias=identities.map(name=>({find:'$lib/'+name,replacement:f('identity.js')}));
-    alias.push({find:'$app/environment',replacement:f('environment.js')},{find:'$lib/mobileTabQueue',replacement:f('tabs.js')},{find:'@wabi/workspace-sheets',replacement:path.join(frontend,'src/lib/workspaces/sheets/addon.ts')},{find:'@wabi/workspace-present',replacement:path.join(frontend,'src/lib/workspaces/present/addon.ts')},{find:'$lib',replacement:path.join(frontend,'src/lib')});
+    alias.push({find:'$app/environment',replacement:f('environment.js')},{find:'$lib/mobileTabQueue',replacement:f('tabs.js')},{find:'$lib/workspaceNavigationState',replacement:f('tabs.js')},{find:'@wabi/workspace-sheets',replacement:path.join(frontend,'src/lib/workspaces/sheets/addon.ts')},{find:'@wabi/workspace-present',replacement:path.join(frontend,'src/lib/workspaces/present/addon.ts')},{find:'$lib',replacement:path.join(frontend,'src/lib')});
     server=await createServer({configFile:false,root:fixture,plugins:[bootstrap,svelte({configFile:false})],resolve:{dedupe:['svelte','yjs'],alias},worker:{format:'es'},define:{__WABI_WORKSPACE_PACKAGED__:JSON.stringify({sheets:true,present:true})},optimizeDeps:{rolldownOptions:{tsconfig:false}},server:{host:'127.0.0.1',port:0,fs:{allow:[frontend]},proxy:{'/api':host.authorityUrl}},logLevel:'warn'});
     await server.listen();const origin=server.resolvedUrls.local[0];
     for(const engineName of(process.env.WORKSPACE_BROWSER||'chromium').split(',')){
