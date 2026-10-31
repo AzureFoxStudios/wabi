@@ -568,7 +568,8 @@ textarea.workspace-reviews__field--tall {
 	background: var(--w-text);
 	color: var(--w-bg);
 }
-.wabi-workspace :where(:is(input, select, textarea):not([class*='w-'])) {
+/* Text fields only: checkboxes and radios (rendered task lists) keep the kit box. */
+.wabi-workspace :where(:is(input, select, textarea):not([class*='w-'], [type='checkbox'], [type='radio'])) {
 	box-sizing: border-box;
 	min-height: 32px;
 	padding: 4px 8px;
@@ -582,48 +583,6 @@ textarea.workspace-reviews__field--tall {
 	outline-offset: 2px;
 }
 
-/* Documents' editor split and preview, on the roles (Documents' own package refines them). */
-.workspace-editor-split {
-	display: flex;
-	height: 100%;
-	min-height: 0;
-}
-.workspace-editor-split > section {
-	flex: 1;
-	min-width: 0;
-	overflow: auto;
-}
-.workspace-prose {
-	padding: 32px;
-	background: var(--w-bg);
-	color: var(--w-text);
-	line-height: 1.65;
-	overflow-wrap: anywhere;
-}
-.workspace-prose pre {
-	white-space: pre-wrap;
-}
-.workspace-prose img {
-	max-width: 100%;
-}
-.workspace-prose table {
-	display: block;
-	max-width: 100%;
-	overflow: auto;
-	border-collapse: collapse;
-}
-.workspace-prose :is(td, th) {
-	padding: 4px 6px;
-	border: var(--w-bw) solid var(--w-line);
-}
-.workspace-editor .cm-editor {
-	height: 100%;
-	min-height: 240px;
-}
-.workspace-editor .cm-scroller {
-	overflow: auto;
-}
-
 /* ---------- narrow stages and phones ---------- */
 @container stage (max-width: 759.98px) {
 	.workspace-library__column {
@@ -631,15 +590,6 @@ textarea.workspace-reviews__field--tall {
 	}
 	.workspace-library__open {
 		flex-wrap: wrap;
-	}
-	.workspace-editor-split {
-		flex-direction: column;
-	}
-	.workspace-editor-split > section {
-		min-height: 240px;
-	}
-	.workspace-prose {
-		padding: 16px;
 	}
 	/* Comments float over the content on a narrow stage instead of squeezing it. */
 	.workspace-reviews {

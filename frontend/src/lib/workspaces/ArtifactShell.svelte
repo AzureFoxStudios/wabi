@@ -225,6 +225,11 @@
 		await session.flush();
 		await setWorkspaceAddonEnabled(tool, false);
 	}
+	/** Open Comments on the current selection (the writing page's bubble on a shared document). */
+	export function commentOnSelection() {
+		reviewAnchor = selectionAnchor;
+		reviewOpen = true;
+	}
 	function openServerSettings() {
 		window.dispatchEvent(new CustomEvent('wabi:open-settings', { detail: { tab: 'admin' } }));
 	}
@@ -234,6 +239,13 @@
 		const items: MenuEntry[] = [
 			// On a phone the crumb steps out of row A for the title; the library is reachable here.
 			...($isMobile ? [{ id: 'library', label: `${toolName} library`, icon: 'arrowLeft', onSelect: () => void run(async () => { await session.flush(); if (alive) await onlibrary(); }) } satisfies MenuEntry] : []),
+			// …and so do the tool's modes (Write | Read), as radio rows.
+			...($isMobile && modes
+				? [
+						{ id: 'k-mode', type: 'kicker', label: modes.label } satisfies MenuEntry,
+						...modes.options.map((option) => ({ id: `mode-${option.value}`, label: option.label, role: 'menuitemradio', checked: modes!.value === option.value, onSelect: () => modes!.onchange(option.value) }) satisfies MenuEntry)
+					]
+				: []),
 			{ id: 'k-export', type: 'kicker', label: 'Export' },
 			...exports,
 			{ id: 'backup', label: 'Backup (.wabi.json)', icon: 'download', hint: 'Everything here, private drafts included', onSelect: backup },
@@ -245,7 +257,7 @@
 			items.push({ id: 'link', label: 'Copy link', icon: 'link', hint: 'Opens only with access', onSelect: () => void run(copyLink) });
 			if (selectionAnchor) {
 				items.push(
-					{ id: 'comment-sel', label: 'Comment on selection', icon: 'chat', hint: selectedReference.label, onSelect: () => { reviewAnchor = selectionAnchor; reviewOpen = true; } },
+					{ id: 'comment-sel', label: 'Comment on selection', icon: 'chat', hint: selectedReference.label, onSelect: commentOnSelection },
 					{ id: 'link-sel', label: 'Copy selection link', icon: 'link', onSelect: () => void run(copyReference) }
 				);
 			}

@@ -15,6 +15,8 @@
  *   them, because `---` straight under a paragraph would make it a heading.
  */
 
+import type { IconName } from '$lib/components/ui/icons';
+
 export type InlineMark = 'bold' | 'italic' | 'strike' | 'code';
 export type LineKind = 'paragraph' | 'heading2' | 'heading3' | 'bullet' | 'numbered' | 'checklist' | 'quote';
 export type BlockSnippet = 'divider' | 'code' | 'table' | 'schedule';
@@ -49,19 +51,19 @@ export const SCHEDULE_TABLE =
 	'| Time | What | Where | Who |\n| --- | --- | --- | --- |\n| 08:00 | Meet at the gate | Main entrance | Everyone |\n| 09:00 |  |  |  |\n| 10:00 |  |  |  |';
 const PLAIN_TABLE = '| Column | Column |\n| --- | --- |\n|  |  |';
 
-/** The Insert menu, in the order the contract lists it (§8.8). */
-export const INSERT_KINDS: readonly { kind: InsertKind; label: string }[] = Object.freeze([
-	{ kind: 'paragraph', label: 'Paragraph' },
-	{ kind: 'heading2', label: 'Heading 2' },
-	{ kind: 'heading3', label: 'Heading 3' },
-	{ kind: 'bullet', label: 'Bulleted list' },
-	{ kind: 'numbered', label: 'Numbered list' },
-	{ kind: 'checklist', label: 'Checklist' },
-	{ kind: 'quote', label: 'Quote' },
-	{ kind: 'divider', label: 'Divider' },
-	{ kind: 'code', label: 'Code block' },
-	{ kind: 'table', label: 'Table' },
-	{ kind: 'schedule', label: 'Schedule table' }
+/** The Insert menu, in the order the contract lists it (§8.8), each with its row glyph. */
+export const INSERT_KINDS: readonly { kind: InsertKind; label: string; icon: IconName }[] = Object.freeze([
+	{ kind: 'paragraph', label: 'Paragraph', icon: 'type' },
+	{ kind: 'heading2', label: 'Heading 2', icon: 'heading' },
+	{ kind: 'heading3', label: 'Heading 3', icon: 'heading' },
+	{ kind: 'bullet', label: 'Bulleted list', icon: 'list' },
+	{ kind: 'numbered', label: 'Numbered list', icon: 'listOrdered' },
+	{ kind: 'checklist', label: 'Checklist', icon: 'checkSquare' },
+	{ kind: 'quote', label: 'Quote', icon: 'quote' },
+	{ kind: 'divider', label: 'Divider', icon: 'minus' },
+	{ kind: 'code', label: 'Code block', icon: 'code' },
+	{ kind: 'table', label: 'Table', icon: 'columns' },
+	{ kind: 'schedule', label: 'Schedule table', icon: 'calendar' }
 ]);
 
 const LINE_KINDS: ReadonlySet<string> = new Set<LineKind>(['paragraph', 'heading2', 'heading3', 'bullet', 'numbered', 'checklist', 'quote']);
@@ -293,6 +295,22 @@ export function insertKind(text: string, selFrom: number, selTo: number, kind: I
 export function insertInline(text: string, selFrom: number, selTo: number, snippet: string): TextEdit {
 	const [from, to] = clampRange(text, selFrom, selTo);
 	return { from, to, insert: snippet, anchor: from + snippet.length, head: from + snippet.length };
+}
+
+const TASK = /^(\s*[-*+]\s+\[)([ xX])(\]\s)/;
+
+/**
+ * Tick or untick the checklist item on the line holding `pos` (a checkbox click, Ctrl Enter).
+ * Returns null when that line is not a checklist item. The caret stays where it was.
+ */
+export function toggleTaskAt(text: string, pos: number, caret = pos): TextEdit | null {
+	const at = Math.max(0, Math.min(pos, text.length));
+	const start = lineStartAt(text, at);
+	const match = TASK.exec(text.slice(start, lineEndAt(text, at)));
+	if (!match) return null;
+	const from = start + match[1].length;
+	const insert = match[2] === ' ' ? 'x' : ' ';
+	return { from, to: from + 1, insert, anchor: caret, head: caret };
 }
 
 /**

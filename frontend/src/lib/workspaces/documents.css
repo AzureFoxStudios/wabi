@@ -1,0 +1,153 @@
+/* ==========================================================================
+   DOCUMENTS PAGE (design contract §8.8, documents-wabi-ink.png)
+   DocumentsWorkspace.svelte: the page grid, the CONTENTS + FACTS aside, the display title, the
+   meta line, the hairline and Read mode. The writing page itself (type, markers, caret, bubble,
+   Insert) is the shared WritingFrame ($lib/editor/WritingFrame.svelte).
+
+   Tiers come from the page's own width (DocumentsWorkspace `tier`):
+     wide    aside minmax(180, 1fr) | 680 column | minmax(120, 1fr) margin, gap 56
+     mid     aside 180–200 | 680 column, centred
+     narrow  the 680 column alone (phones, narrow stages); no aside
+   Roles and tokens only, so every theme answers.
+   ========================================================================== */
+
+.document-library {
+	position: relative;
+}
+.document-page {
+	position: relative;
+	box-sizing: border-box;
+	min-height: 100%;
+	padding: 0 var(--w-gutter, 32px) 64px;
+	background: var(--w-bg);
+	color: var(--w-text);
+}
+/* The 2px line rides the top of the visible page while something opens. */
+.document-line {
+	position: sticky;
+	top: 0;
+	z-index: 3;
+	margin: 0 calc(-1 * var(--w-gutter, 32px));
+}
+.document-library > .document-line {
+	position: absolute;
+	inset: 0 0 auto;
+	margin: 0;
+}
+.document-notice {
+	box-sizing: border-box;
+	width: min(880px, 100%);
+	margin: 16px auto 0;
+}
+.document-library > .document-notice {
+	width: min(880px, 100% - 2 * var(--w-gutter, 32px));
+}
+
+.document-grid {
+	display: grid;
+	grid-template-columns: minmax(180px, 1fr) minmax(0, 680px) minmax(120px, 1fr);
+	column-gap: 56px;
+}
+.document-page--mid .document-grid {
+	grid-template-columns: minmax(180px, 200px) minmax(0, 680px);
+	justify-content: center;
+}
+.document-page--narrow .document-grid {
+	grid-template-columns: minmax(0, 680px);
+	justify-content: center;
+}
+
+/* ---------- aside: CONTENTS and FACTS ---------- */
+.document-aside {
+	position: sticky;
+	top: 0;
+	align-self: start;
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 240px;
+	max-height: calc(100dvh - 120px);
+	padding: 66px 0 24px;
+	overflow-y: auto;
+	scrollbar-width: thin;
+}
+.document-outline button {
+	overflow-wrap: anywhere;
+}
+.document-outline .document-outline__deep button {
+	padding-left: 38px;
+}
+.document-facts-title {
+	margin-top: 36px;
+}
+
+/* ---------- the sheet: display title, meta, hairline, prose ---------- */
+.document-sheet {
+	min-width: 0;
+	padding-top: 58px;
+}
+.document-head {
+	min-width: 0;
+}
+.document-title {
+	margin: 0;
+	color: var(--w-text);
+	font: 600 calc(38px * var(--w-fs)) / calc(46px * var(--w-fs)) var(--w-serif);
+	letter-spacing: 0.005em;
+	text-wrap: balance;
+	overflow-wrap: anywhere;
+}
+.document-meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px 8px;
+	margin: 14px 0 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+.document-meta__who {
+	font-weight: 500;
+}
+.document-meta__sep {
+	color: var(--w-faint);
+}
+.document-rule {
+	height: 0;
+	margin: 28px 0 30px;
+	border: 0;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+
+/* Read: the same prose on the page, the markers gone (no preview panel, no paper colour). */
+.document-read {
+	max-width: none;
+	padding-bottom: 48px;
+}
+.document-read pre {
+	white-space: pre-wrap;
+}
+.document-read table {
+	display: block;
+	max-width: 100%;
+	overflow-x: auto;
+}
+
+/* ---------- narrow stages and phones ---------- */
+@container stage (max-width: 599.98px) {
+	.document-page {
+		padding: 0 16px 48px;
+	}
+	.document-line {
+		margin: 0 -16px;
+	}
+	.document-sheet {
+		padding-top: 32px;
+	}
+	.document-title {
+		font-size: calc(30px * var(--w-fs));
+		line-height: calc(38px * var(--w-fs));
+	}
+	.document-rule {
+		margin: 22px 0 24px;
+	}
+}
