@@ -83,6 +83,11 @@ describe('editor header in row A', () => {
 		expect(header).toContain('role="status"');
 	});
 
+	test('on a phone Share… is the first row of ⋯, so row A keeps its room for the title', () => {
+		expect(shell).toContain("...($isMobile && isOwner ? [{ id: 'share', label: 'Share…', icon: 'share', disabled: busy, onSelect: showSharing } satisfies MenuEntry] : []),");
+		expect(shell).toContain("if (isOwner && !$isMobile) list.push({ id: 'share', label: 'Share…'");
+	});
+
 	test('the ⋯ menu keeps every capability the button wall had', () => {
 		for (const label of ['Backup (.wabi.json)', 'Original file', 'Make private copy', 'Copy link', 'Freeze live editing', 'Resume collaboration…', 'Discuss in chat…', 'Create private task', 'Undo', 'Redo', 'Server sharing settings']) {
 			expect(shell).toContain(`label: '${label}'`);

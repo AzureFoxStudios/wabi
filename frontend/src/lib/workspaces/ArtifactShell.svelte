@@ -243,6 +243,8 @@
 	const menuItems = $derived.by((): MenuEntry[] => {
 		const meta = $sessionState.meta;
 		const items: MenuEntry[] = [
+			// On a phone Share… steps out of row A too (the title keeps its room): it is the first row here.
+			...($isMobile && isOwner ? [{ id: 'share', label: 'Share…', icon: 'share', disabled: busy, onSelect: showSharing } satisfies MenuEntry] : []),
 			// On a phone the crumb steps out of row A for the title; the library is reachable here.
 			...($isMobile ? [{ id: 'library', label: `${toolName} library`, icon: 'arrowLeft', onSelect: () => void run(async () => { await session.flush(); if (alive) await onlibrary(); }) } satisfies MenuEntry] : []),
 			// …and so do the tool's modes (Write | Read), as radio rows.
@@ -293,8 +295,8 @@
 		if (meta) list.push({ id: 'review', label: openReviews ? `Review, ${openReviews} open` : 'Review', icon: 'chat', iconOnly: true, pressed: reviewOpen, onSelect: () => { reviewOpen = !reviewOpen; } });
 		if (meta?.mode === 'snapshot' && meta.role === 'owner') list.push({ id: 'publish', label: 'Publish revision', icon: 'upload', variant: 'default', disabled: busy, onSelect: () => void run(() => session.sync(true)) });
 		list.push(...actions);
-		// On a phone Share… is its icon (the name stays for assistive tech) so the title keeps its room.
-		if (isOwner) list.push({ id: 'share', label: 'Share…', icon: 'share', variant: 'default', iconOnly: $isMobile, disabled: busy, onSelect: showSharing });
+		// On a phone Share… is the first row of ⋯ instead, so the title keeps its room.
+		if (isOwner && !$isMobile) list.push({ id: 'share', label: 'Share…', icon: 'share', variant: 'default', disabled: busy, onSelect: showSharing });
 		list.push({ id: 'more', label: `${toolName} options`, icon: 'more', iconOnly: true, onSelect: (anchor) => { moreAnchor = anchor; moreOpen = !moreOpen; } });
 		return list;
 	});
