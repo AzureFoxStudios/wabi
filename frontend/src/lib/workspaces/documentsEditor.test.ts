@@ -91,13 +91,13 @@ describe('the text editor', () => {
 	});
 });
 
-describe('row A on a phone and the legacy control layer', () => {
+describe('row A on a phone, and no legacy control layer', () => {
 	test('on a phone the modes leave row A for radio rows in ⋯', () => {
 		expect(header).toContain('{#if modes && !$isMobile}');
 		expect(shell).toContain("role: 'menuitemradio', checked: modes!.value === option.value");
 	});
 
-	test('the legacy field layer never reaches checkboxes or radios (rendered task lists keep the kit box)', () => {
-		expect(workspaceCss).toContain(":not([class*='w-'], [type='checkbox'], [type='radio'])");
+	test('no workspace-wide field layer restyles inputs, so rendered task-list checkboxes keep the kit box', () => {
+		expect(workspaceCss).not.toMatch(/\.wabi-workspace :where\([^)]*\b(?:input|select|textarea)\b/);
 	});
 });
