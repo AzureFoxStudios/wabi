@@ -207,7 +207,7 @@
 			<div class="w-srow__text">
 				<p class="w-srow__label" id="a11y-reduce-motion">Reduce motion</p>
 				<p class="w-srow__hint">
-					Panels and menus appear without sliding, and animated scenes hold still.{$profileOsReducedMotion ? ' Your device asks for less motion, so this stays on.' : ''}
+					Panels and menus appear without sliding, and animated scenes hold still.{$profileOsReducedMotion ? ' Your system setting asks for less motion, so this stays on until you change it there.' : ''}
 				</p>
 			</div>
 			<div class="w-srow__control">

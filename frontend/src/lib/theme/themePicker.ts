@@ -90,3 +90,13 @@ export function themePreviewAttributes(theme: Theme): { 'data-theme': string; 'd
 		'data-mode': isLightTheme(theme) ? 'light' : 'dark'
 	};
 }
+
+/**
+ * What choosing a theme in the picker does. A new theme applies at once and is saved after a
+ * pause. Choosing the theme already shown does nothing, unless its last save failed: then it
+ * saves again, so "choose it again" (or Try again) really retries.
+ */
+export function themeChoiceAction(chosenId: string, currentId: string, lastSaveFailed: boolean): 'apply' | 'retry' | 'none' {
+	if (chosenId !== currentId) return 'apply';
+	return lastSaveFailed ? 'retry' : 'none';
+}

@@ -322,7 +322,8 @@
 		</div>
 		<div class="emoji-actions">
 			{#if singleNote}<p class="emoji-note" class:is-error={singleNote.error} role={singleNote.error ? 'alert' : 'status'}>{#if singleNote.error}<Icon name="alert" size={14} />{/if}{singleNote.text}</p>{/if}
-			<button type="button" class="w-btn w-btn--primary" on:click={uploadEmoji} disabled={uploadingEmoji || !selectedEmojiFile || !emojiName.trim()} aria-busy={uploadingEmoji}>
+			<!-- One primary per view (§2.4): once several images are chosen, their Add is the primary. -->
+			<button type="button" class="w-btn" class:w-btn--primary={bulkEmojiFiles.length === 0} on:click={uploadEmoji} disabled={uploadingEmoji || !selectedEmojiFile || !emojiName.trim()} aria-busy={uploadingEmoji}>
 				{uploadingEmoji ? 'Adding…' : `Add ${emojiType === 'sticker' ? 'sticker' : 'emoji'}`}
 			</button>
 		</div>
@@ -333,10 +334,10 @@
 		<p class="settings-block__hint">File names become shortcodes. Check them before adding.</p>
 		<input type="file" bind:this={bulkEmojiFileInput} on:change={handleBulkEmojiFileSelect} accept="image/png,image/gif,image/jpeg,image/webp" multiple class="hidden-file-input" tabindex="-1" aria-hidden="true" />
 		<div class="emoji-bulk-bar">
-			<button type="button" class="w-btn" on:click={() => bulkEmojiFileInput?.click()}><Icon name="upload" size={16} />Choose images…</button>
+			<span class="emoji-bulk-bar__pick"><button type="button" class="w-btn" on:click={() => bulkEmojiFileInput?.click()}><Icon name="upload" size={16} />Choose images…</button></span>
 			<label class="emoji-field"><span class="w-label">Folder</span><input class="w-field" type="text" list="emoji-folder-options" bind:value={bulkEmojiFolder} placeholder="Reactions" maxlength="48" /></label>
 			<label class="emoji-field"><span class="w-label">Artist</span><input class="w-field" type="text" bind:value={bulkEmojiArtist} placeholder="Optional credit" maxlength="60" /></label>
-			<div class="emoji-field"><span class="w-label" id="emoji-bulk-type">Kind</span><Segmented labelledby="emoji-bulk-type" options={TYPE_OPTIONS} value={bulkEmojiType} onchange={(value) => (bulkEmojiType = value === 'sticker' ? 'sticker' : 'emoji')} /></div>
+			<div class="emoji-field"><span class="w-label" id="emoji-bulk-type">Kind</span><span class="emoji-field__seg"><Segmented labelledby="emoji-bulk-type" options={TYPE_OPTIONS} value={bulkEmojiType} onchange={(value) => (bulkEmojiType = value === 'sticker' ? 'sticker' : 'emoji')} /></span></div>
 		</div>
 
 		{#if bulkEmojiFiles.length > 0}
@@ -511,6 +512,14 @@
 	}
 	.emoji-bulk-bar > .emoji-field:last-child {
 		flex: 0 0 auto;
+	}
+	/* The button and the segment sit on the 38px field line, so every label and control in the
+	   bar shares one top and one centre. */
+	.emoji-bulk-bar__pick,
+	.emoji-field__seg {
+		display: flex;
+		align-items: center;
+		min-height: 38px;
 	}
 	.emoji-sheet {
 		display: grid;

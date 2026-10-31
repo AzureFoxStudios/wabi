@@ -18,6 +18,7 @@
 		type DetectedAddon
 	} from './addonDetection';
 	import { getServerUrl } from '$lib/serverUrl';
+	import { currentUser } from '$lib/socket';
 	import { getAuthToken } from '$lib/authSession';
 	import { brandName } from '$lib/branding';
 	import { hydrateWorkspaceAddons, setWorkspaceAddonEnabled, workspaceAddonEnabled, type OfficeAddon } from '$lib/workspaces/addonState';
@@ -113,6 +114,17 @@
 	);
 	const visibleServerCount = $derived(visibleBackendAddons.length + visibleFrontendAddons.length);
 	const filtering = $derived(Boolean(addonSearchQuery.trim()) || enabledOnly || categoryFilter !== 'all');
+	// Server rows are in scope unless the Kind filter picked a local kind. While their list loads or
+	// fails, the server section shows that state, so the empty state speaks only for the tools here
+	// (and is left out when the server list is all that is in view: a failed list is never empty).
+	const serverRowsInScope = $derived(addonView.showServerRows || addonView.showBundledRows);
+	const serverListPending = $derived(serverRowsInScope && (addonsError || addonsLoading));
+	const nothingMatches = $derived(
+		filtering && visibleLocalCount + visibleServerCount === 0 && (addonView.showLocalRows || !serverListPending)
+	);
+	const showServerSection = $derived(serverRowsInScope && (serverListPending || visibleServerCount > 0));
+	/** Only owners and admins can switch a server add-on; everyone else sees its state as a fact. */
+	const canSwitchServerAddons = $derived(['owner', 'admin'].includes($currentUser?.highestRole ?? ''));
 
 	function clearFilters(): void {
 		addonSearchQuery = '';
@@ -121,9 +133,10 @@
 	}
 
 	function serverAddonDescription(addon: DetectedAddon): string {
-		return addon.runtimeSwitch
-			? 'Part of this server. Owners and admins can turn it on or off here.'
-			: 'Part of this server, fixed when the server was set up.';
+		if (!addon.runtimeSwitch) return 'Part of this server, fixed when the server was set up.';
+		return canSwitchServerAddons
+			? 'Part of this server. Switching it changes it for everyone here.'
+			: 'Part of this server. Its owners and admins can turn it on or off.';
 	}
 
 	/**
@@ -131,7 +144,7 @@
 	 * when the server restarts, and the server says which.
 	 */
 	async function toggleServerAddon(addon: DetectedAddon): Promise<void> {
-		if (!addon.runtimeSwitch || addonSwitchBusy) return;
+		if (!addon.runtimeSwitch || !canSwitchServerAddons || addonSwitchBusy) return;
 		const next = !addon.enabled;
 		addonSwitchBusy = addon.id;
 		addonSwitchStatus = '';
@@ -241,11 +254,20 @@
 		<Segmented label="Show" options={[{ value: 'all', label: 'All' }, { value: 'on', label: 'On' }]} bind:value={showWhich} />
 		<Select ariaLabel="Kind of add-on" options={categoryOptions} value={categoryFilter} onchange={(value) => (categoryFilter = value as AddonCategoryFilter)} applied={categoryFilter !== 'all'} align="end" />
 	</div>
-	{#if filtering}
+	{#if filtering && !nothingMatches}
 		<p class="addons-toolbar__count" role="status">
-			{visibleLocalCount + visibleServerCount === 0 ? 'Nothing matches.' : `${visibleLocalCount + visibleServerCount} shown`}
+			{visibleLocalCount + visibleServerCount} shown
 			<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={clearFilters}>Clear</button>
 		</p>
+	{/if}
+	{#if nothingMatches}
+		<!-- One message for an empty search, with its way out (§7.16). -->
+		<div class="w-empty addons-empty" role="status">
+			<Icon name="search" />
+			<p class="w-empty__title">{serverListPending ? 'No tools match' : 'No add-ons match'}</p>
+			<p class="w-empty__text">Try another word, or show every kind.</p>
+			<div class="w-empty__actions"><button type="button" class="w-btn w-btn--sm" onclick={clearFilters}>Clear filters</button></div>
+		</div>
 	{/if}
 
 	{#if addonView.showLocalRows}
@@ -262,19 +284,13 @@
 			<UtilitiesSection {localAddonControlMatches} />
 		</div>
 	{/if}
-	{#if filtering && visibleLocalCount === 0 && addonView.showLocalRows}
-		<div class="addons-empty">
-			<p class="addons-empty__title">No tools match</p>
-			<p class="addons-empty__text">Try another word, or show every kind.</p>
-		</div>
-	{/if}
 </section>
 
 <!-- What this server includes. -->
-{#if addonsError || backendAddons.length || frontendAddons.length || addonsLoading}
+{#if showServerSection}
 	<section class="settings-block addons-server" aria-labelledby="addons-server-title" aria-busy={addonsLoading}>
 		<h3 class="settings-block__title" id="addons-server-title">Included with this server</h3>
-		<p class="settings-block__hint">Add-ons built into this server and app. They don't change from this device.</p>
+		<p class="settings-block__hint">Built into this server and app, and the same for everyone on this server.</p>
 		{#if addonsError}
 			<Notice title="This server didn't list its add-ons" text="Office tools and the tools above work as they are." onretry={refreshAddonDetection} />
 		{:else if addonsLoading && !backendAddons.length && !frontendAddons.length}
@@ -287,9 +303,10 @@
 						label={addon.name}
 						description={serverAddonDescription(addon)}
 						enabled={addon.enabled}
-						locked={!addon.runtimeSwitch}
+						locked={!addon.runtimeSwitch || !canSwitchServerAddons}
+						fixedWord={addon.runtimeSwitch ? (addon.enabled ? 'On' : 'Off') : undefined}
 						meta={`Version ${addon.version}`}
-						onToggle={addon.runtimeSwitch ? () => void toggleServerAddon(addon) : undefined}
+						onToggle={addon.runtimeSwitch && canSwitchServerAddons ? () => void toggleServerAddon(addon) : undefined}
 					/>
 				{/each}
 				{#each visibleFrontendAddons as addon (addon.id + addon.source)}

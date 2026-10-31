@@ -3,6 +3,11 @@
  * switch under Settings › Audio & video › Troubleshooting, off by default. When it is on, the
  * Calls page opens its Connection details section (route, latency, packet loss) while you are in
  * a call; the call's ⋯ menu still opens and closes that section on demand.
+ *
+ * Settings never pushes the live section open during a call: on the Calls page store that would
+ * uncover the Calls page and dock a full-window call, so a settings control would change center
+ * stage. Outside a call it mirrors the switch into the live store for the next call, and the live
+ * store (callSurfaces.ts) starts from the stored preference, so the choice survives a reload.
  */
 
 export const CONNECTION_DETAILS_KEY = 'wabi:call-connection-details';
@@ -32,4 +37,9 @@ export function writeConnectionDetailsPreference(on: boolean, storage: StorageLi
 	} catch {
 		// Private windows can refuse storage; the switch still applies to this session.
 	}
+}
+
+/** Whether Settings may mirror the switch into the live store: only while no call or call stage is up. */
+export function shouldMirrorConnectionDetails(inCall: boolean, callSessionCount = 0): boolean {
+	return !inCall && callSessionCount === 0;
 }

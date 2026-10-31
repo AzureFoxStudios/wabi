@@ -90,7 +90,6 @@
 
 	$: isVideo = !!backgroundImage && VIDEO_EXT_RE.test(backgroundImage.url);
 	$: animated = settings.scene !== 'none' && settings.scene !== 'image';
-	$: imageSynced = Boolean(getAuthToken());
 
 	/** Theme-agnostic read: the top-level setting, else the legacy customTheme copy. */
 	function syncFromStores() {
@@ -232,12 +231,10 @@
 </script>
 
 <section class="settings-block backdrop-settings" aria-labelledby="chat-backdrop-heading">
-	<div class="settings-block__head">
-		<h3 class="settings-block__title" id="chat-backdrop-heading">Chat background</h3>
-	</div>
-	<p class="settings-block__hint">
-		What sits behind the conversation. Scenes stay on this device{#if imageSynced}; an uploaded image follows your account{/if}.
-	</p>
+	<h3 class="settings-block__title" id="chat-backdrop-heading">Chat background</h3>
+	<!-- Where it is saved is said once, in the page's scope note (an uploaded image follows a
+	     signed-in account; scenes stay on this device). -->
+	<p class="settings-block__hint">What sits behind the conversation.</p>
 
 	<div class="backdrop-preview" aria-hidden="true">
 		{#if settings.scene === 'image' && backgroundImage}
@@ -267,9 +264,16 @@
 			{/if}
 		{/if}
 		<ChatBackdrop scene={settings.scene} motion={settings.motion} dim={settings.dim} frost={settings.frost} />
+		<!-- Two message rows drawn the stream's way (avatar, name, text; no bubbles, §7.18). -->
 		<div class="backdrop-preview__copy">
-			<p class="backdrop-preview__msg"><b>Wabi</b><span>The background moves. The conversation stays readable.</span></p>
-			<p class="backdrop-preview__msg backdrop-preview__msg--own"><b>You</b><span>Pick one that suits the room.</span></p>
+			<div class="backdrop-preview__row">
+				<span class="backdrop-preview__avatar">W</span>
+				<p class="backdrop-preview__msg"><b>Wabi</b><span>The background moves. The conversation stays readable.</span></p>
+			</div>
+			<div class="backdrop-preview__row">
+				<span class="backdrop-preview__avatar">Y</span>
+				<p class="backdrop-preview__msg"><b>You</b><span>Pick one that suits the room.</span></p>
+			</div>
 		</div>
 	</div>
 
@@ -297,7 +301,9 @@
 					</p>
 				</div>
 				<div class="w-srow__control">
-					<input class="backdrop-file" type="file" accept={ACCEPT} bind:this={fileInput} on:change={handleFileSelect} disabled={isUploading} tabindex="-1" aria-hidden="true" />
+					<!-- Not rendered (display: none), so it can never stretch or scroll the dialog frame;
+					     the button below opens it. -->
+					<input class="backdrop-file" type="file" accept={ACCEPT} bind:this={fileInput} on:change={handleFileSelect} disabled={isUploading} hidden />
 					<button type="button" class="w-btn w-btn--sm" aria-busy={isUploading} disabled={isUploading} on:click={() => fileInput?.click()}>
 						<Icon name="upload" size={16} />
 						{isUploading ? 'Uploading…' : backgroundImage ? 'Replace…' : 'Choose file…'}
@@ -387,7 +393,7 @@
 					type="button"
 					class="w-disclosure settings-disclosure"
 					aria-expanded={showMoreImageOptions}
-					aria-controls="backdrop-more-options"
+					aria-controls={showMoreImageOptions ? 'backdrop-more-options' : undefined}
 					on:click={() => (showMoreImageOptions = !showMoreImageOptions)}
 				>
 					<Icon name="chevRight" size={16} />

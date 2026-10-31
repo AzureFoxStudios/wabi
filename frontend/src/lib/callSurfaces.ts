@@ -15,6 +15,7 @@ import { revokeGroupCall } from './calling_impl_core';
 import { CallJoinOfflineError, createCallJoinTracker, type CallJoinMode } from './callJoinState';
 import { selectWorkspaceView } from './workspaceNavigationState';
 import { showToast } from './toast';
+import { readConnectionDetailsPreference } from './components/settings/connectionDetailsSetting';
 import {
 	joinVoiceChannel,
 	leaveVoiceChannel,
@@ -64,9 +65,11 @@ export function dismissJoinFailure(channelId: string): void {
 /**
  * The Calls page's Connection details section (§8.5, §9.5: one surface). Opened from the Calls
  * masthead ⋯ and from the sidebar voice status row's options; it lives on the Calls page so
- * route, latency and packet loss are described in one place.
+ * route, latency and packet loss are described in one place. It starts from this device's
+ * "Show connection details during calls" preference, so the saved choice still holds after a
+ * reload; the section itself only shows while you are in a call.
  */
-export const callConnectionDetailsOpen = writable(false);
+export const callConnectionDetailsOpen = writable(readConnectionDetailsPreference());
 
 /** Show Connection details on the Calls page (opening Calls in center stage when needed). */
 export function openConnectionDetails(): void {

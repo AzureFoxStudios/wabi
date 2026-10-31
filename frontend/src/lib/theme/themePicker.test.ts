@@ -8,6 +8,7 @@ import {
 	CHARACTER_METRICS,
 	PIXEL_SERIF,
 	themeCharacterWord,
+	themeChoiceAction,
 	themePickerGroups,
 	themePreviewAttributes,
 	themePreviewStyle
@@ -134,5 +135,17 @@ describe('theme previews draw each theme with its own roles', () => {
 			expect(declared(body, '--w-bw') ?? `${CHARACTER_METRICS.soft.bw}px`).toBe(`${CHARACTER_METRICS[character].bw}px`);
 		}
 		expect(declared(ruleBody(characterCss, ":root[data-char='pixel']"), '--w-serif')).toBe(PIXEL_SERIF);
+	});
+});
+
+describe('choosing a theme', () => {
+	test('a new theme applies; the shown theme does nothing while its save is fine', () => {
+		expect(themeChoiceAction('light', 'wabi-ink', false)).toBe('apply');
+		expect(themeChoiceAction('light', 'wabi-ink', true)).toBe('apply');
+		expect(themeChoiceAction('wabi-ink', 'wabi-ink', false)).toBe('none');
+	});
+
+	test('after a failed save, choosing the shown theme again retries the save', () => {
+		expect(themeChoiceAction('wabi-ink', 'wabi-ink', true)).toBe('retry');
 	});
 });

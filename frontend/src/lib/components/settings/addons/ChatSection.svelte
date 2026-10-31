@@ -157,9 +157,9 @@
 		onToggle={toggleSplitLargeMessagesAddon}
 	>
 		{#snippet preferences()}
-			<label class="addon-field">
-				<span class="w-label">Characters per message</span>
-				<input class="w-field"
+			<label class="addon-option">
+				<span class="addon-option__label">Characters per message</span>
+				<input class="w-field addon-number"
 					type="number"
 					min="250"
 					max="4000"
@@ -170,10 +170,10 @@
 				/>
 			</label>
 			<div class="addon-note">
-				Composer max length: {splitLargeMessagesInputMaxLength} characters.
+				Messages can be up to {splitLargeMessagesInputMaxLength.toLocaleString()} characters.
 				{splitLargeMessagesEnabled
-					? ` Messages are split into chunks of up to ${splitLargeMessagesChunkSize} characters.`
-					: ' Long posts stay intact and switch to Reader previews after 2,000 characters.'}
+					? ` Longer text goes out in parts of up to ${splitLargeMessagesChunkSize.toLocaleString()} characters.`
+					: ' Long posts stay as one message and open in Reader after 2,000 characters.'}
 			</div>
 		{/snippet}
 	</AddonRow>

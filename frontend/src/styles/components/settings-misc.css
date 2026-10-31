@@ -21,7 +21,10 @@
 	justify-content: flex-end;
 }
 
-/* A quiet icon button on roles (§7.2): no fill at rest, raise on hover, accent focus ring. */
+/* A quiet icon button on roles (§7.2): no fill at rest, raise on hover, accent focus ring. This is
+   the same button modal-skin.css draws for every legacy modal; each consumer outside a modal
+   (AvatarEditor, CameraCapture, AudioRecorder, EmojiPicker, Lore, live, plugins) sets its own
+   border and background, so none relied on the old tinted edge. */
 .close-btn {
 	display: inline-flex;
 	align-items: center;
@@ -120,18 +123,8 @@
 .w-addons > .w-addon:last-child .w-addon__head {
 	border-bottom: var(--w-bw) solid var(--w-line);
 }
-.addons-empty {
+.w-empty.addons-empty {
 	padding: 24px 0 8px;
-}
-.addons-empty__title {
-	margin: 0;
-	color: var(--w-text);
-	font: 600 calc(18px * var(--w-fs)) / calc(24px * var(--w-fs)) var(--w-serif);
-}
-.addons-empty__text {
-	margin: 4px 0 0;
-	color: var(--w-mute);
-	font: var(--w-t-ui);
 }
 
 /* One add-on row. */
@@ -242,6 +235,12 @@
 	min-width: 0;
 	color: var(--w-text);
 	font: var(--w-t-ui);
+}
+/* A small number beside its label, as wide as the value it holds (Audio's .audio-number). */
+.addon-option > .addon-number {
+	flex: none;
+	width: 120px;
+	font-variant-numeric: tabular-nums;
 }
 .addon-list {
 	display: grid;
