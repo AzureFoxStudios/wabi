@@ -19,7 +19,7 @@ export type SettingsTab =
 	| 'about';
 
 /** Values other surfaces may ask Settings to open (MainLayout, wabi:open-settings). */
-export type SettingsRequest = 'profile' | 'server' | 'notifications' | 'audio' | 'addons';
+export type SettingsRequest = 'profile' | 'server' | 'notifications' | 'audio' | 'addons' | 'admin';
 
 export type SettingsIcon =
 	| 'user'

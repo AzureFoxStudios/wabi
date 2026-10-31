@@ -98,7 +98,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	export let accountSecurityOpenRequest = 0;
 	let showSettings = false;
 	let requestedSettingsPaymentSurface: 'connections' | null = null;
-	let requestedSettingsTab: 'profile' | 'server' | 'notifications' | 'audio' | 'addons' | null = null;
+	let requestedSettingsTab: 'profile' | 'server' | 'notifications' | 'audio' | 'addons' | 'admin' | null = null;
 	let activityActionError = '';
 	let requestedSettingsPasswordChangeRequest = 0;
 	let lastHandledAccountSecurityOpenRequest = 0;
@@ -521,7 +521,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		const openDesktopSettings = (event: Event) => {
 			openSettings();
 			const tab = (event as CustomEvent<{ tab?: string }>).detail?.tab;
-			if (tab === 'profile' || tab === 'audio' || tab === 'addons') requestedSettingsTab = tab;
+			if (tab === 'profile' || tab === 'audio' || tab === 'addons' || tab === 'admin') requestedSettingsTab = tab;
 		};
 		const openDesktopServers = () => {
 			openServerSwitcher();

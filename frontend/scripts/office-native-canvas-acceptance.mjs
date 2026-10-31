@@ -61,7 +61,7 @@ export async function nativeCanvasAcceptance(page, audience, accounts, artifacts
     for (const name of names.filter(name => name.endsWith('.xml'))) assert(!(await zip.file(name).async('string')).includes('PRIVATE_NATIVE_NOTES'));
     checks++;
 
-    await page.getByRole('button', { name: 'Library', exact: true }).click();
+    await page.getByRole('button', { name: 'Present library', exact: true }).click();
     await page.evaluate(id => window.workspaceTest.open('present', { id }), record.id);
     await page.locator('.designer-stage .scene').waitFor();
     await page.getByText('NATIVE_CANVAS_PERSISTED_TEXT', { exact: true }).waitFor();
@@ -73,8 +73,8 @@ export async function nativeCanvasAcceptance(page, audience, accounts, artifacts
     await page.getByLabel('Person', { exact: true }).selectOption(String(accounts[1].id));
     await page.getByLabel('Recipient permission', { exact: true }).selectOption('viewer');
     await page.getByRole('button', { name: 'Add person', exact: true }).click();
-    await page.getByRole('button', { name: 'Publish and save sharing', exact: true }).click();
-    await page.locator('dialog[open]').waitFor({ state: 'hidden' });
+    await page.getByRole('button', { name: 'Share', exact: true }).click();
+    await page.getByRole('dialog', { name: /^Share / }).waitFor({ state: 'hidden' });
     const starting = page.waitForResponse(response => response.url().endsWith('/api/workspace/presentations') && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Present to channel…', exact: true }).click();
     await page.getByRole('button', { name: 'Start approved presentation', exact: true }).click();
@@ -92,6 +92,6 @@ export async function nativeCanvasAcceptance(page, audience, accounts, artifacts
     await page.getByRole('button', { name: 'End presentation', exact: true }).click();
     await page.waitForFunction(() => document.body.textContent.includes('Ended'));
     await page.evaluate(id => window.workspaceTest.open('present', { id }), record.id);
-    await page.getByRole('button', { name: 'Library', exact: true }).click();
+    await page.getByRole('button', { name: 'Present library', exact: true }).click();
     return checks;
 }

@@ -14,6 +14,7 @@
 	import Segmented from '../ui/Segmented.svelte';
 	import Switch from '../ui/Switch.svelte';
 	import { guestSwitchAvailable, guestsAllowed, joinModeOf, needsEmailCheck, policyForJoinMode, type AuthPolicy, type JoinMode } from './adminJoinPolicy';
+	import { captureScope, request } from '$lib/workspaces/bridge';
 
 	const dispatch = createEventDispatcher<{ openDashboard: { section: AdminSection } }>();
 	const canManageAdmin = $derived(['owner', 'admin'].includes($currentUser?.highestRole ?? ''));
@@ -77,8 +78,50 @@
 		}
 	}
 
+	// ── Office tools (the server's sharing policy, moved here from the office host's band) ──
+	type OfficeCapabilities = { documents: boolean; sheets: boolean; present: boolean; admin: boolean; officeConversion: boolean };
+	let office = $state<OfficeCapabilities | null>(null);
+	let officeState = $state<'loading' | 'ready' | 'error'>('loading');
+	let officeSaving = $state(false);
+	let officeNote = $state<{ text: string; error: boolean } | null>(null);
+
+	async function loadOffice(): Promise<void> {
+		officeState = 'loading';
+		officeNote = null;
+		try {
+			const scope = await captureScope();
+			office = await request<OfficeCapabilities>(scope, '/capabilities');
+			officeState = 'ready';
+		} catch (error) {
+			console.warn('[Admin] office capabilities did not load:', error);
+			officeState = 'error';
+		}
+	}
+
+	async function saveOffice(next: { sheets: boolean; present: boolean }): Promise<void> {
+		if (!office?.admin || officeSaving) return;
+		const previous = office;
+		office = { ...office, ...next };
+		officeSaving = true;
+		officeNote = null;
+		try {
+			const scope = await captureScope();
+			office = await request<OfficeCapabilities>(scope, '/capabilities', next, 'PUT');
+			officeNote = { text: 'Saved. It applies to new shares on this server.', error: false };
+		} catch (error) {
+			console.warn('[Admin] office capabilities save failed:', error);
+			office = previous;
+			officeNote = { text: "That change wasn't saved. Sharing works as it did before.", error: true };
+		} finally {
+			officeSaving = false;
+		}
+	}
+
 	onMount(() => {
-		if (canManageAdmin) void loadPolicy();
+		if (canManageAdmin) {
+			void loadPolicy();
+			void loadOffice();
+		}
 	});
 </script>
 
@@ -152,6 +195,49 @@
 			</div>
 		{:else if policyNote}
 			<p class="admin-join__note" class:is-error={policyNote.error} role={policyNote.error ? 'alert' : 'status'}>{policyNote.text}</p>
+		{/if}
+	</section>
+
+	<section class="settings-block admin-office" aria-labelledby="admin-office-title" aria-busy={officeState === 'loading' || officeSaving}>
+		<h3 class="settings-block__title" id="admin-office-title">Office tools <span class="w-tag w-tag--mat" title={$t('maturity.preview_title')}>{$t('maturity.preview')}</span></h3>
+		<p class="settings-block__hint">Shared spreadsheets and decks use the same accounts and permissions as shared Documents. Shared files are server-readable.</p>
+		{#if officeState === 'ready' && office}
+			{#if office.admin}
+				<div class="w-srows">
+					<div class="w-srow">
+						<div class="w-srow__text">
+							<p class="w-srow__label" id="admin-office-sheets">Allow shared spreadsheets</p>
+							<p class="w-srow__hint">Members can share Sheets files on this server.</p>
+						</div>
+						<div class="w-srow__control">
+							<Switch labelledby="admin-office-sheets" checked={office.sheets} disabled={officeSaving} onchange={(on) => office && void saveOffice({ sheets: on, present: office.present })} />
+						</div>
+					</div>
+					<div class="w-srow">
+						<div class="w-srow__text">
+							<p class="w-srow__label" id="admin-office-present">Allow shared decks and presentations</p>
+							<p class="w-srow__hint">Members can share Present decks and present them to a channel.</p>
+						</div>
+						<div class="w-srow__control">
+							<Switch labelledby="admin-office-present" checked={office.present} disabled={officeSaving} onchange={(on) => office && void saveOffice({ sheets: office.sheets, present: on })} />
+						</div>
+					</div>
+				</div>
+			{:else}
+				<p class="admin-join__note">Shared Sheets: {office.sheets ? 'on' : 'off'} · Present: {office.present ? 'on' : 'off'}. Only the server's office admin can change these.</p>
+			{/if}
+		{:else if officeState === 'loading'}
+			<p class="admin-join__note" role="status">Checking office sharing…</p>
+		{/if}
+		{#if officeState === 'error'}
+			<div class="w-notice admin-join__notice" role="alert">
+				<Icon name="alert" />
+				<p class="w-notice__title">The office sharing settings didn't load</p>
+				<p class="w-notice__text">Sharing works as it did before.</p>
+				<button type="button" class="w-btn w-btn--sm" onclick={loadOffice}>Retry</button>
+			</div>
+		{:else if officeNote}
+			<p class="admin-join__note" class:is-error={officeNote.error} role={officeNote.error ? 'alert' : 'status'}>{officeNote.text}</p>
 		{/if}
 	</section>
 
