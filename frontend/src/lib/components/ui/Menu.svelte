@@ -15,7 +15,8 @@
 	  <Icon name="more" />
 	</Menu>
 
-	For an existing trigger element, pass `anchor={element}` and drive `bind:open` yourself.
+	For an existing trigger element, pass `anchor={element}` and drive `bind:open` yourself; leave
+	out the children, and nothing is rendered in place (not even while the anchor is still null).
 -->
 <script module lang="ts">
 	let menuButtonCounter = 0;
@@ -113,7 +114,10 @@
 	}
 </script>
 
-{#if !anchor}
+<!-- A trigger only when the menu has trigger content. An externally anchored menu (`anchor`,
+     driven with `bind:open`) draws nothing of its own, also before its anchor is first set:
+     a menu opened from row A or a right-click must never leave a stray empty button. -->
+{#if !anchor && children}
 	<button
 		{...rest}
 		bind:this={trigger}

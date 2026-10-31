@@ -137,6 +137,31 @@
 							{#if action.icon}<Icon name={action.icon} />{/if}
 						</button>
 					</Tooltip>
+				{:else if action.menu}
+					{@const menu = action.menu}
+					<!-- A split primary ("Present ▾"): the action, then the chevron that opens its menu. -->
+					<span class="w-split stage-a__split">
+						<button
+							type="button"
+							class={actionClass(action)}
+							aria-label={action.accessibleName}
+							disabled={action.disabled}
+							onclick={(event) => action.onSelect(event.currentTarget)}
+						>
+							{#if action.icon}<Icon name={action.icon} size={16} />{/if}{action.label}
+						</button>
+						<button
+							type="button"
+							class="{actionClass(action)} w-split__menu"
+							aria-label={menu.label}
+							aria-haspopup="menu"
+							title={menu.label}
+							disabled={action.disabled}
+							onclick={(event) => menu.onSelect(event.currentTarget)}
+						>
+							<Icon name="chevDown" size={16} />
+						</button>
+					</span>
 				{:else}
 					<button
 						type="button"

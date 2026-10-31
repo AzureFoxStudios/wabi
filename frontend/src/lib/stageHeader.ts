@@ -58,6 +58,12 @@ export interface StageHeaderAction {
 	disabled?: boolean;
 	/** Shortcut shown in the tooltip, e.g. "Ctrl F". */
 	shortcut?: string;
+	/**
+	 * Makes a text action a split button (`.w-split`, "Present ▾"): the action is the main half
+	 * and this is the 32px chevron half, named by `label`, which opens a menu anchored to it.
+	 * Ignored on icon-only actions (a phone puts those choices in ⋯ instead).
+	 */
+	menu?: { label: string; onSelect: (anchor: HTMLElement) => void };
 	onSelect: (anchor: HTMLElement) => void;
 }
 

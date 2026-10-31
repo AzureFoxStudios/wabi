@@ -153,6 +153,12 @@ export const ICONS = {
 	rowAdd: '<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 15v6M9 18h6"/>',
 	columnAdd: '<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M15 12h6M18 9v6"/>',
 	chart: '<path d="M3 3v18h18M8 17v-5M13 17V8M18 17v-9"/>',
+	play: '<path d="M7 4.5v15l12-7.5z"/>',
+	shapeRect: '<rect x="4" y="6" width="16" height="12" rx="1"/>',
+	shapeEllipse: '<ellipse cx="12" cy="12" rx="8.5" ry="6.5"/>',
+	shapeLine: '<path d="M5 19 19 5"/>',
+	table: '<rect x="3.5" y="4.5" width="17" height="15" rx="1.5"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5v10"/>',
+	pointer: '<circle cx="12" cy="12" r="2.5"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>',
 
 	// ---- notices and states ----
 	info: '<circle cx="12" cy="12" r="9.5"/><path d="M12 16v-4M12 8h.01"/>',
