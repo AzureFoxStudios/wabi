@@ -20,6 +20,7 @@ const designer = read('./NativeSlideDesigner.svelte');
 const version = read('./PresentedVersion.svelte');
 const conversion = read('./OfficeConversion.svelte');
 const css = stripComments(read('./present.css'));
+const shared = stripComments(read('../slides.css'));
 const files = read('./files.ts');
 const slide = read('../AudienceSlide.svelte');
 const scene = read('../SceneView.svelte');
@@ -122,13 +123,20 @@ describe('the designer (office-present#5, #6, #9, #13, #14)', () => {
 		expect(workspace).toContain("error = e instanceof WorkspaceError || (e instanceof Error && e.constructor === Error) || !cause ?");
 	});
 
-	test('present.css draws with roles: the 168 · pasteboard · 272 grid, solid edges in High Contrast', () => {
+	test('present.css and slides.css draw with roles: the 168 · pasteboard · 272 grid, solid edges in High Contrast', () => {
 		expect(css).toContain('grid-template-columns: 168px minmax(0, 1fr) 272px;');
 		expect(css).toContain('background: var(--w-sink);');
-		expect(css).not.toMatch(/#[0-9a-f]{3,8}\b/i);
-		expect(css).not.toMatch(/rgba?\(/);
-		expect(css).not.toMatch(/--surface-|--text-primary|--accent-primary|--border-subtle|system-ui|!important|:has\(|:global/);
+		for (const sheet of [css, shared]) {
+			expect(sheet).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+			expect(sheet).not.toMatch(/rgba?\(/);
+			expect(sheet).not.toMatch(/--surface-|--text-primary|--accent-primary|--border-subtle|system-ui|!important|:has\(|:global/);
+		}
 		expect(css).toContain(":root[data-char='contrast'] .present-film__card,");
+	});
+
+	test('the room needs nothing from the Present add-on: it ships without it', () => {
+		expect(room).toContain("import './slides.css';");
+		expect(room).not.toMatch(/from '\.\/present\/|import '\.\/present\//);
 	});
 });
 
@@ -145,7 +153,7 @@ describe('presenting (office-present#2, #3, #8, #10, #12, #17)', () => {
 
 	test('the presenter’s slide keeps at least 60%: one column of at most a third', () => {
 		expect(css).toContain('grid-template-columns: minmax(0, 1fr) min(320px, 34%);');
-		expect(css.match(/min\(320px, 34%\)/g)!.length).toBe(2);
+		expect(shared).toContain('grid-template-columns: minmax(0, 1fr) min(320px, 34%);');
 	});
 
 	test('the room: no role=img on the slide, announcements, private notes named, a person picker for handoff', () => {

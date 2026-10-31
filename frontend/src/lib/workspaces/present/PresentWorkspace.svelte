@@ -48,6 +48,7 @@
 	import { isMobile } from '$lib/layoutStoreStates';
 	import { toast } from '$lib/toast';
 	import '../workspace.css';
+	import '../slides.css';
 	import './present.css';
 
 	type Proposal = { title: string; aspect: number; slides: Omit<AudienceSlide, 'id'>[]; warnings: string[]; source?: File };
