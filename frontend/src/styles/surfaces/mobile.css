@@ -318,6 +318,18 @@ html[data-shell='mobile'] body {
 	:root .app-container .channel-sidebar-container .sb-search .w-kbd {
 		display: none;
 	}
+	/* Its close key is a 44px target on a phone whatever the pointer (the kit grows it only for a
+	   coarse one), and its list scrolls without a bar beside the 44px rows. */
+	:root .app-container .channel-sidebar-container .mobile-close-btn {
+		width: 44px;
+		height: 44px;
+	}
+	:root .app-container .channel-sidebar-container .channel-list {
+		scrollbar-width: none;
+	}
+	:root .app-container .channel-sidebar-container .channel-list::-webkit-scrollbar {
+		display: none;
+	}
 
 	/* The scrim over what the drawer leaves of the stage; a tap closes the drawer. */
 	.mobile-panel-backdrop {
@@ -440,8 +452,8 @@ html[data-shell='mobile'] body {
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	/* The legacy floating-card rules (main-layout-part2.css) drew pill buttons that wrapped to a
-	   second row; here the keys are the kit's 44px icon buttons in one row. */
+	/* The keys are the kit's 44px icon buttons in one row (the legacy floating card's pill
+	   buttons, which wrapped to a second row, are gone). */
 	:root .app-container .voice-channel-strip .voice-channel-actions {
 		display: flex;
 		flex: none;
