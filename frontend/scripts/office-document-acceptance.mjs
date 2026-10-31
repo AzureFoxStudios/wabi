@@ -108,7 +108,8 @@ export async function documentRecoveryAcceptance(owner, editor, commenter, accou
     passed('revocation rejects retry without discarding the disconnected editor draft');
 
     await officeMenu(owner, 'Resume collaboration…');
-    assert.equal(await owner.getByLabel('Working mode', { exact: true }).inputValue(), 'live');
+    // Working mode is a segmented radio group: Resume collaboration preselects Collaborative.
+    assert.equal(await owner.getByRole('radiogroup', { name: 'Working mode', exact: true }).getByRole('radio', { name: 'Collaborative', exact: true }).isChecked(), true);
     await owner.getByRole('button', { name: 'Share', exact: true }).click();
     await owner.getByRole('dialog', { name: /^Share / }).waitFor({ state: 'hidden' });
     const resumed = (await owner.evaluate(id => window.workspaceTest.record(id), id)).meta;
@@ -120,7 +121,8 @@ export async function documentRecoveryAcceptance(owner, editor, commenter, accou
 
     const beforeCopy = await owner.evaluate(() => window.workspaceTest.records('document'));
     await officeMenu(owner, 'Make private copy');
-    await owner.waitForFunction(() => document.querySelector('.workspace-privacy')?.textContent.includes('Private · this device'));
+    // Row A's locality chip (the editor header) names the copy's place.
+    await owner.waitForFunction(() => document.querySelector('.oeh-scope')?.textContent.includes('Private · this device'));
     const copies = await owner.evaluate(() => window.workspaceTest.records('document'));
     const copy = copies.find(item => !beforeCopy.some(old => old.id === item.id));
     assert(copy);
@@ -139,7 +141,8 @@ export async function documentRecoveryAcceptance(owner, editor, commenter, accou
         await owner.locator('.cm-content').click();
         await owner.keyboard.press('Control+End');
         await owner.keyboard.insertText(' — QUOTA_RECOVERY_MUST_SURVIVE');
-        await owner.waitForFunction(() => document.querySelector('.workspace-status')?.textContent === 'Needs attention');
+        // Row A's save state; a selection label may follow it after " · ".
+        await owner.waitForFunction(() => document.querySelector('.oeh-status')?.textContent.startsWith('Needs attention'));
         await owner.getByRole('button', { name: 'Documents library', exact: true }).click();
         assert((await owner.locator('.cm-content').innerText()).includes('QUOTA_RECOVERY_MUST_SURVIVE'));
         const quota = await backup(owner, artifacts, `${engineName}-quota-recovery`);
@@ -150,7 +153,8 @@ export async function documentRecoveryAcceptance(owner, editor, commenter, accou
         await owner.evaluate(() => window.restoreWorkspaceStorage());
     }
     await owner.getByRole('button', { name: 'Retry', exact: true }).click();
-    await owner.waitForFunction(() => document.querySelector('.workspace-status')?.textContent === 'Saved on this device');
+    // "Saved on this device" reads "Saved 09:41" in row A (the locality chip already says where).
+    await owner.waitForFunction(() => /^Saved \d/.test(document.querySelector('.oeh-status')?.textContent || ''));
     await owner.reload();
     await owner.waitForFunction(() => !!window.workspaceTest);
     await owner.evaluate(id => window.workspaceTest.open('documents', { id }), copy.id);
