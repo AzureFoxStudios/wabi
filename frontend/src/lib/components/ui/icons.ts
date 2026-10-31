@@ -143,6 +143,17 @@ export const ICONS = {
 	checkSquare: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m8 12 3 3 5-6"/>',
 	type: '<path d="M4 7V5h16v2M9 19h6M12 5v14"/>',
 
+	// ---- spreadsheet (Sheets toolbar) ----
+	alignLeft: '<path d="M21 6H3M15 12H3M17 18H3"/>',
+	alignCenter: '<path d="M21 6H3M17 12H7M19 18H5"/>',
+	alignRight: '<path d="M21 6H3M21 12H9M21 18H7"/>',
+	fill: '<path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2a2 2 0 0 0 2.8 0z"/><path d="m5 2 5 5M2 13h15M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4z"/>',
+	borders: '<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 12h18M12 3v18"/>',
+	wrapText: '<path d="M3 6h18M3 12h15a3 3 0 0 1 0 6h-4M3 18h7"/><path d="m16 16-2 2 2 2"/>',
+	rowAdd: '<rect x="3" y="4" width="18" height="7" rx="1"/><path d="M12 15v6M9 18h6"/>',
+	columnAdd: '<rect x="4" y="3" width="7" height="18" rx="1"/><path d="M15 12h6M18 9v6"/>',
+	chart: '<path d="M3 3v18h18M8 17v-5M13 17V8M18 17v-9"/>',
+
 	// ---- notices and states ----
 	info: '<circle cx="12" cy="12" r="9.5"/><path d="M12 16v-4M12 8h.01"/>',
 	alert: '<circle cx="12" cy="12" r="9.5"/><path d="M12 7.5v5M12 16.5h.01"/>',
