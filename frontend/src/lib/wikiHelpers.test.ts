@@ -14,9 +14,12 @@ import {
 	buildWikiOutline,
 	currentSectionIndex,
 	flattenOutline,
+	hangsMarkers,
 	headingAnchorIds,
 	outlinePlace,
+	paneHasMargin,
 	shouldOpenOnlyPage,
+	WIKI_MARGIN_PANE,
 	showsOutline,
 	treeColumnShown,
 	wikiVersionNote,
@@ -128,13 +131,35 @@ describe('wiki reading', () => {
 	});
 
 	test('ON THIS PAGE has exactly one place for each width', () => {
-		// A 1100px stage leaves the reading pane about 858px beside a 242px tree.
-		expect(outlinePlace(858, true)).toBe('margin');
+		// 1536 with People unpinned: a 1228px stage leaves a 958px pane beside the tree.
+		expect(outlinePlace(958, true)).toBe('margin');
+		// A 1100px stage leaves about 858px: the margin would squeeze the article under 600px,
+		// so the outline sits under the tree and the article keeps its 720 column.
+		expect(outlinePlace(858, true)).toBe('side');
+		// 1536 with People pinned (the acceptance capture): a 632px pane.
 		expect(outlinePlace(632, true)).toBe('side');
 		expect(outlinePlace(632, false)).toBe('inline');
+		expect(outlinePlace(1536, false)).toBe('margin');
 		expect(treeColumnShown(852, false)).toBe(true);
 		expect(treeColumnShown(700, false)).toBe(false);
 		expect(treeColumnShown(1200, true)).toBe(false);
+	});
+
+	test('the margin column only exists where the article keeps 600px beside it', () => {
+		// 600 article + 40 gap + 200 outline + two 32px gutters.
+		expect(WIKI_MARGIN_PANE).toBe(904);
+		expect(paneHasMargin(903)).toBe(false);
+		expect(paneHasMargin(904)).toBe(true);
+		// In a 958px pane the grid gives the article 958 - 64 - 40 - 240 = 614px: never under 600.
+		expect(958 - 64 - 40 - 240).toBeGreaterThanOrEqual(600);
+	});
+
+	test('heading markers hang only where the column has 48px of free page beside it', () => {
+		expect(hangsMarkers(632)).toBe(false);
+		expect(hangsMarkers(816)).toBe(true);
+		// The margin column puts the block at 1000px, so a 958px pane has no room to hang.
+		expect(hangsMarkers(958)).toBe(false);
+		expect(hangsMarkers(1096)).toBe(true);
 	});
 
 	test('the current section is the last heading that reached the reading line', () => {
@@ -166,5 +191,13 @@ describe('wiki reading', () => {
 			'wiki-panel-cafe',
 			'wiki-panel-section',
 		]);
+	});
+
+	test('a heading titled like a numbered repeat never collides with the repeat (keyed outline)', () => {
+		const ids = headingAnchorIds(['Weekly rhythm', 'Weekly rhythm', 'Weekly rhythm 2', 'Weekly rhythm 2'], 'p');
+		expect(new Set(ids).size).toBe(ids.length);
+		expect(ids).toEqual(['p-weekly-rhythm', 'p-weekly-rhythm-2', 'p-weekly-rhythm-2-2', 'p-weekly-rhythm-2-3']);
+		const reversed = headingAnchorIds(['Weekly rhythm 2', 'Weekly rhythm', 'Weekly rhythm'], 'p');
+		expect(new Set(reversed).size).toBe(3);
 	});
 });

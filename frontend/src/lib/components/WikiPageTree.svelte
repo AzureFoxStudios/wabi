@@ -257,10 +257,14 @@
 	{#if loading && visiblePages.length === 0}
 		<Skeleton variant="row" rows={4} label="Loading pages" class="wiki-tree-skeleton" />
 	{:else if visibleTree.length === 0}
-		<div class="wiki-tree-empty">
-			<p role="status">{emptyStateLabel ?? (normalizedQuery ? `No pages match “${searchQuery.trim()}”.` : 'No pages yet.')}</p>
-			{#if normalizedQuery && !emptyStateLabel}<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={clearSearch}>Clear search</button>{/if}
-		</div>
+		<!-- A wiki with no pages, or one that failed to load, is said once, by the reading pane
+		     (its EmptyState or Notice); the tree only answers its own search. -->
+		{#if normalizedQuery || emptyStateLabel}
+			<div class="wiki-tree-empty">
+				<p role="status">{emptyStateLabel ?? `No pages match “${searchQuery.trim()}”.`}</p>
+				{#if normalizedQuery && !emptyStateLabel}<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={clearSearch}>Clear search</button>{/if}
+			</div>
+		{/if}
 	{:else}
 		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 		<ul class="wiki-tree-list" role="tree" aria-labelledby={headingId} bind:this={treeEl} on:keydown={handleTreeKey}>

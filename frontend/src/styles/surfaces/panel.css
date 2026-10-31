@@ -263,7 +263,9 @@
    The notebook and the wiki style themselves (NotesWorkspace's scoped styles,
    styles/components/wiki.css); the Notes list skin that sat here is gone. What stays: their title
    fields are the page's title, not chrome fields, so the panel's legacy field skin above (0,4,1)
-   must not box them. Same weight, later in this file. */
+   must not box them. Same weight, later in this file. The wiki title keeps wiki.css's title size
+   (24/30 in the panel) through its custom properties. Focus stays visible: the note title's
+   accent underline, the wiki title's 2px accent outline (§4.6). */
 :root .right-panel .notes-workspace input.note-heading,
 :root .right-panel .wiki-channel input.wiki-title-input {
 	min-height: 0;
@@ -277,7 +279,7 @@
 }
 :root .right-panel .wiki-channel input.wiki-title-input {
 	border-bottom: 0;
-	font: 600 calc(24px * var(--w-fs, 1)) / calc(30px * var(--w-fs, 1)) var(--w-serif);
+	font: 600 var(--wiki-title-fs) / var(--wiki-title-lh) var(--w-serif);
 }
 :root .right-panel .notes-workspace input.note-heading:focus,
 :root .right-panel .wiki-channel input.wiki-title-input:focus {
@@ -286,4 +288,9 @@
 }
 :root .right-panel .notes-workspace input.note-heading:focus-visible {
 	border-bottom-color: var(--w-accent);
+}
+:root .right-panel .wiki-channel input.wiki-title-input:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 4px;
+	border-radius: var(--radius-sm);
 }

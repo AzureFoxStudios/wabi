@@ -45,14 +45,17 @@
 	import type { User } from '$lib/socket-types';
 	import { forumAuthors } from '$lib/forumIdentity';
 	import { forumShareItems } from '$lib/forumMenus';
-	import { pendingNav, completePendingNavAfterRender } from '$lib/pendingNav';
+	import { pendingNav, completePendingNavAfterRender, peekPendingNav, clearPendingNav } from '$lib/pendingNav';
+	import { confirmAction } from '$lib/confirm';
 	import { formatWikiCitationMarkdown, getWikiBreadcrumbs, getWikiCitation } from '$lib/wikiHelpers';
 	import {
 		buildWikiOutline,
 		currentSectionIndex,
 		flattenOutline,
+		hangsMarkers,
 		headingAnchorIds,
 		outlinePlace,
+		paneHasMargin,
 		shouldOpenOnlyPage,
 		showsOutline,
 		treeColumnShown,
@@ -63,17 +66,33 @@
 	import { INSERT_KINDS, type InsertKind } from '$lib/editor/writingMarkdown';
 
 	const wikiWorkspace = createWikiWorkspace();
+	// Names what goes here (§7.3); the Insert menu and the bubble carry the how.
+	const WRITING_PLACEHOLDER = 'Write the page…';
 	const { wikiPagesStore, wikiRevisionsStore, wikiLoadingStore, wikiErrorStore, loadWiki, loadRevisions, createWikiPage, updateWikiPage, formatWikiTime } = wikiWorkspace;
 
 	export let channelId: string | undefined = undefined;
 	export let draftSurface = 'center';
 	export let previewPageId: string | undefined = undefined;
 	$: effectiveChannel = channelId || $currentChannel;
+	// Load first. A `$:` statement runs at most once per update, so a store alias such as
+	// `isLoading = $wikiLoadingStore` that ran before loadWiki() set the store in the same update
+	// would keep the old value until the store changed again: the wiki then showed "No pages
+	// yet" for as long as the first request was pending. Svelte orders `$:` statements by source
+	// order after their dependencies, so these stay above every alias of the wiki's stores.
+	$: if (effectiveChannel && effectiveChannel !== loadedChannelId) {
+		loadedChannelId = effectiveChannel;
+		openDraft(effectiveChannel);
+		loadWiki(effectiveChannel);
+	}
+	$: if (!effectiveChannel) {
+		if (loadedChannelId) { draftOwner?.save(snapshot()); retireDraft(); }
+		loadedChannelId = null;
+		wikiSearchQuery = '';
+	}
 	$: inPanel = draftSurface === 'panel';
 	$: canWrite = draftSurface !== 'glance';
 
 	$: allPages = $wikiPagesStore;
-	$: allRevisions = $wikiRevisionsStore;
 	$: isLoading = $wikiLoadingStore;
 	$: error = $wikiErrorStore;
 
@@ -118,6 +137,7 @@
 	let wikiWidth = 0;
 	let paneWidth = 0;
 	let proseEl: HTMLDivElement | null = null;
+	let startTitleEl: HTMLHeadingElement | null = null;
 	let outlineHeadings: OutlineHeading[] = [];
 	let currentOutlineId: string | null = null;
 	let outlineOpen = false;
@@ -221,18 +241,8 @@
 		editMode = false;
 		viewRevision = null;
 	}
-
-	$: if (effectiveChannel && effectiveChannel !== loadedChannelId) {
-		loadedChannelId = effectiveChannel;
-		openDraft(effectiveChannel);
-		loadWiki(effectiveChannel);
-	}
-
-	$: if (!effectiveChannel) {
-		if (loadedChannelId) { draftOwner?.save(snapshot()); retireDraft(); }
-		loadedChannelId = null;
-		wikiSearchQuery = '';
-	}
+	// After the statement above that reloads the revisions (see the note at the load statement).
+	$: allRevisions = $wikiRevisionsStore;
 
 	$: if (draftSurface === 'glance' && previewPageId && loadedChannelId === effectiveChannel && allPages.length) {
 		const hit = allPages.find(page => page.pageId === previewPageId);
@@ -249,9 +259,15 @@
 			const hit = allPages.find((p) => p.pageId === pending.pageId);
 			if (hit) {
 				const channel = effectiveChannel, owner = draftOwner;
-				// Wait until the initial derived reader state has finished updating.
+				// Wait until the initial derived reader state has finished updating. Over unsaved
+				// writing the page opens once the person confirms; the link is then used up.
 				void completePendingNavAfterRender(pending, tick,
-					() => mounted && effectiveChannel === channel && owner === draftOwner && !!owner?.current(), () => selectPage(hit));
+					() => mounted && effectiveChannel === channel && owner === draftOwner && !!owner?.current(),
+					() => !draftOwner?.isSending() && afterDiscard(
+						() => { openPage(hit); if (peekPendingNav() === pending) clearPendingNav(); },
+						// Declining the discard also declines the link: it must not open later on its
+						// own once the writing is saved and the pages reload.
+						() => { if (peekPendingNav() === pending) clearPendingNav(); }));
 			}
 		}
 	}
@@ -276,17 +292,48 @@
 	$: displayRevisionCount = allRevisions.length;
 	$: authorName = displayAuthor?.username || (selectedPage ? `User #${selectedPage.authorUserId}` : '');
 
-	function confirmLeaveWriting(): boolean {
-		if (editIsDirty && !window.confirm('Discard unsaved wiki changes?')) return false;
-		if (showNewPage && (newPageTitle.trim() || newPageBody.trim()) && !window.confirm('Discard this unsaved wiki page?')) return false;
-		return true;
+	/** The unsaved writing a move would drop: an edited page, a new page with words, or none. */
+	function writingAtRisk(): 'edit' | 'new' | null {
+		if (editIsDirty) return 'edit';
+		if (showNewPage && (newPageTitle.trim() || newPageBody.trim())) return 'new';
+		return null;
 	}
 
-	function selectPage(page: WikiPage) {
-		if (draftOwner?.isSending()) return false;
-		if (!confirmLeaveWriting()) return false;
+	/**
+	 * Runs `leave` now when no unsaved writing would be lost; otherwise after the person confirms
+	 * in the confirm dialog (§7.13), not a native browser prompt. Returns whether it ran now. An
+	 * answer that comes back after the wiki, the draft owner or the editor changed does nothing.
+	 * `onDecline` runs when the person keeps their writing.
+	 */
+	function afterDiscard(leave: () => void, onDecline?: () => void): boolean {
+		const risk = writingAtRisk();
+		if (!risk) {
+			leave();
+			return true;
+		}
+		const owner = draftOwner;
+		const epoch = editorEpoch;
+		void confirmAction(risk === 'edit'
+			? { title: 'Discard your changes to this page?', body: 'The page keeps its last saved version.', confirm: 'Discard changes', danger: true }
+			: { title: 'Discard this new page?', body: 'Its title and text have not been saved anywhere.', confirm: 'Discard page', danger: true }
+		).then((discard) => {
+			if (!discard) {
+				onDecline?.();
+				return;
+			}
+			if (!mounted || owner !== draftOwner || epoch !== editorEpoch || draftOwner?.isSending()) return;
+			leave();
+		});
+		return false;
+	}
+
+	function closeNewPage() {
+		showNewPage = false; newPageTitle = ''; newPageBody = ''; newPageParentId = null; createError = '';
+	}
+
+	function openPage(page: WikiPage) {
 		editorEpoch += 1; imageUploading = false;
-		if (showNewPage) { showNewPage = false; newPageTitle = ''; newPageBody = ''; newPageParentId = null; createError = ''; }
+		if (showNewPage) closeNewPage();
 		selectedPageId = page.pageId;
 		showTreeOnMobile = false;
 		editMode = false;
@@ -294,17 +341,30 @@
 		viewRevision = null;
 		previewing = false;
 		outlineOpen = false;
-		return true;
+	}
+
+	function selectPage(page: WikiPage): boolean {
+		if (draftOwner?.isSending()) return false;
+		return afterDiscard(() => openPage(page));
 	}
 
 	function goToOverview() {
-		if (draftOwner?.isSending() || !confirmLeaveWriting()) return;
-		editorEpoch += 1; imageUploading = false;
-		if (showNewPage) { showNewPage = false; newPageTitle = ''; newPageBody = ''; newPageParentId = null; createError = ''; }
-		editMode = false;
-		selectedPageId = null;
-		showHistory = false;
-		viewRevision = null;
+		if (draftOwner?.isSending()) return;
+		afterDiscard(() => {
+			editorEpoch += 1; imageUploading = false;
+			if (showNewPage) closeNewPage();
+			editMode = false;
+			selectedPageId = null;
+			showHistory = false;
+			viewRevision = null;
+			previewing = false;
+			// The overview has no breadcrumb row and so no Pages toggle: where the tree stacks
+			// (phones, narrow stages, the panel) it shows again, with New page and the search.
+			showTreeOnMobile = true;
+			// The crumb that was pressed is gone with the breadcrumb row, so keyboard and screen
+			// reader focus moves to the overview's heading instead of falling to <body>.
+			void tick().then(() => { if (mounted) startTitleEl?.focus(); });
+		});
 	}
 
 	function handleEdit() {
@@ -323,12 +383,13 @@
 
 	function handleCancelEdit() {
 		if (draftOwner?.isSending()) return;
-		if (editIsDirty && !window.confirm('Discard unsaved wiki changes?')) return;
-		editorEpoch += 1; imageUploading = false;
-		editMode = false;
-		previewing = false;
-		saveState = 'idle';
-		saveProblem = '';
+		afterDiscard(() => {
+			editorEpoch += 1; imageUploading = false;
+			editMode = false;
+			previewing = false;
+			saveState = 'idle';
+			saveProblem = '';
+		});
 	}
 
 	/** Back to Write (the editor mounts and makes its view in an effect), then run `action`. */
@@ -405,10 +466,11 @@
 
 	function handleHistory() {
 		if (draftOwner?.isSending()) return;
-		if (editIsDirty && !window.confirm('Discard unsaved wiki changes?')) return;
-		showHistory = !showHistory;
-		if (showHistory && effectiveChannel && selectedPage) void loadRevisions(effectiveChannel, selectedPage.pageId);
-		editMode = false;
+		afterDiscard(() => {
+			showHistory = !showHistory;
+			if (showHistory && effectiveChannel && selectedPage) void loadRevisions(effectiveChannel, selectedPage.pageId);
+			editMode = false;
+		});
 	}
 
 	function handleCloseHistory() {
@@ -449,44 +511,37 @@
 		}
 	}
 
-	function handleOpenNewPage() {
-		if (draftOwner?.isSending()) return;
-		if (showNewPage) return;
-		if (editIsDirty && !window.confirm('Discard unsaved wiki changes?')) return;
+	function startNewPage(parentId: string | null) {
 		editorEpoch += 1; imageUploading = false;
 		editMode = false;
 		createError = '';
 		newPageTitle = '';
 		newPageBody = '';
-		newPageParentId = null;
+		newPageParentId = parentId;
 		previewing = false;
 		showNewPage = true;
 		showTreeOnMobile = false;
+	}
+
+	function handleOpenNewPage() {
+		if (draftOwner?.isSending() || showNewPage) return;
+		afterDiscard(() => startNewPage(null));
 	}
 
 	function handleNewChild(parent: WikiPage | null) {
 		if (draftOwner?.isSending()) return;
 		if (!parent) { handleOpenNewPage(); return; }
-		if ((editIsDirty || (showNewPage && (newPageTitle.trim() || newPageBody.trim()))) && !window.confirm('Discard unsaved wiki changes?')) return;
-		editorEpoch += 1; imageUploading = false;
-		editMode = false;
-		newPageTitle = '';
-		newPageBody = '';
-		newPageParentId = parent.pageId;
-		previewing = false;
-		showNewPage = true;
-		showTreeOnMobile = false;
+		afterDiscard(() => startNewPage(parent.pageId));
 	}
 
 	function handleCancelNewPage() {
 		if (creatingPage) return;
-		if ((newPageTitle.trim() || newPageBody.trim()) && !window.confirm('Discard this unsaved wiki page?')) return;
-		editorEpoch += 1; imageUploading = false;
-		showNewPage = false;
-		newPageTitle = '';
-		newPageBody = '';
-		previewing = false;
-		if (!selectedPageId) showTreeOnMobile = true;
+		afterDiscard(() => {
+			editorEpoch += 1; imageUploading = false;
+			closeNewPage();
+			previewing = false;
+			if (!selectedPageId) showTreeOnMobile = true;
+		});
 	}
 
 	async function handleCreateNewPage() {
@@ -606,10 +661,14 @@
 	$: outline = buildWikiOutline(outlineHeadings);
 	$: outlineEntries = flattenOutline(outline);
 	$: outlineAt = outlinePlace(paneWidth, sideShown);
+	// A pane with room keeps the margin column in every mode (reading with or without an outline,
+	// Edit, New page, the overview), so the column and the breadcrumbs share one left edge and
+	// nothing moves when Edit is pressed.
+	$: paneWide = paneHasMargin(paneWidth);
 	$: readingArticle = Boolean(selectedPage) && !editMode && !showNewPage;
 	$: outlineVisible = readingArticle && showsOutline(outline);
-	// Heading markers hang in the margin only where the 720 column has free margin beside it.
-	$: hangMarkers = paneWidth >= 800;
+	// Heading markers hang in the margin only where the column has free page beside it.
+	$: hangMarkers = hangsMarkers(paneWidth);
 	$: if (proseEl && renderedBody !== undefined) void tick().then(collectHeadings);
 	$: if (!readingArticle) outlineHeadings = [];
 
@@ -694,14 +753,14 @@
 
 {#snippet writingTools(primaryLabel: string, primaryBusy: string, onPrimary: () => void, primaryDisabled: boolean, onCancel: () => void, busy: boolean)}
 	<div class="wiki-crumb-actions wiki-write-actions">
-		<Menu class="w-btn w-btn--quiet wiki-insert" label="Insert" heading="Insert" items={insertItems} align="end" disabled={busy}>
+		<Menu class="w-btn w-btn--quiet wiki-insert" label="Insert" triggerLabel="Insert" heading="Insert" items={insertItems} align="end" disabled={busy}>
 			<Icon name="plus" size={16} /><span class="wiki-action-words">Insert</span>
 		</Menu>
 		<div class="w-seg wiki-mode" role="group" aria-label="Writing mode">
 			<button type="button" aria-pressed={!previewing} on:click={() => { previewing = false; void tick().then(() => writer?.focus()); }}>Write</button>
 			<button type="button" aria-pressed={previewing} on:click={() => { previewing = true; }}>Preview</button>
 		</div>
-		<button type="button" class="w-btn w-btn--quiet" disabled={busy} on:click={onCancel}>{$_('common.cancel')}</button>
+		<button type="button" class="w-btn w-btn--quiet wiki-cancel" aria-label={$_('common.cancel')} disabled={busy} on:click={onCancel}><Icon name="x" size={16} class="wiki-cancel-icon" /><span class="wiki-action-words" aria-hidden="true">{$_('common.cancel')}</span></button>
 		<button type="button" class="w-btn w-btn--primary" aria-busy={busy} disabled={primaryDisabled} on:click={onPrimary}>
 			<span class="w-btn__swap"><span>{primaryLabel}</span><span>{primaryBusy}</span></span>
 		</button>
@@ -730,19 +789,18 @@
 				quiet={inPanel || editMode || showNewPage}
 				newPageDisabled={showNewPage || creatingPage || saveState === 'saving'}
 				idPrefix={`wiki-${draftSurface}`}
-				emptyStateLabel={isLoading ? null : error && allPages.length === 0 ? 'Pages could not be loaded.' : null}
 			/>
 			{#if outlineVisible && outlineAt === 'side'}
 				<div class="wiki-side-outline">{@render outlineList(outline, true)}</div>
 			{/if}
 		</div>
 
-		<div class="wiki-content-pane" bind:this={readingPane} bind:clientWidth={paneWidth} on:scroll={trackSection}>
+		<div class="wiki-content-pane" class:is-wide={paneWide} bind:this={readingPane} bind:clientWidth={paneWidth} on:scroll={trackSection}>
 			<LoadLine active={isLoading} label="Loading pages" class="wiki-loadline" />
 			{#if showNewPage}
 				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 				<section class="wiki-writing" aria-label="New page draft" on:keydown={(event) => { if (event.key === 'Escape' && !event.defaultPrevented) handleCancelNewPage(); }}>
-					<div class="wiki-crumbs-row">
+					<div class="wiki-crumbs-row wiki-crumbs-row--writing"><div class="wiki-crumbs-inner">
 						{@render pagesToggle()}
 						<nav class="wiki-crumbs" aria-label="Breadcrumb">
 							<ol>
@@ -754,7 +812,7 @@
 							</ol>
 						</nav>
 						{@render writingTools('Create page', 'Creating…', handleCreateNewPage, creatingPage || !newPageTitle.trim(), handleCancelNewPage, creatingPage)}
-					</div>
+					</div></div>
 					{#if copyError}
 						<div class="wiki-page wiki-page--notice"><div class="wiki-article">
 							<Notice title={copyError} tone="info" ondismiss={() => { copyError = ''; }} />
@@ -767,14 +825,14 @@
 								<p class="wiki-meta">
 									<span>{newPageParent ? `Under ${newPageParent.title}` : 'Top-level page'}</span>
 									<span class="wiki-meta-sep" aria-hidden="true">·</span>
-									<span class="wiki-meta-status" class:problem={Boolean(createError)} role="status">{newPageStatus}</span>
+									<span class="wiki-meta-status" class:problem={Boolean(createError)} role="status">{#if createError}<span class="w-dot w-dot--danger" aria-hidden="true"></span>{:else if newPageDirty && !creatingPage}<span class="w-dot w-dot--warn" aria-hidden="true"></span>{/if}{newPageStatus}</span>
 								</p>
 							</header>
 							{#if previewing}
 								<div class="w-prose wiki-prose wiki-preview">{#if newPageBody.trim()}{@html renderWikiBody(newPageBody)}{:else}<p class="wiki-preview-empty">Nothing to preview yet.</p>{/if}</div>
 							{:else}
 								{#key editorEpoch}
-									<WritingEditor bind:this={writer} value={newPageBody} onchange={(value) => { newPageBody = value; }} ariaLabel="Page text" placeholder="Write the page. ## starts a heading, - a list, [[Page title]] links a page." readonly={creatingPage} hang={hangMarkers} class="wiki-writer" />
+									<WritingEditor bind:this={writer} value={newPageBody} onchange={(value) => { newPageBody = value; }} ariaLabel="Page text" placeholder={WRITING_PLACEHOLDER} readonly={creatingPage} hang={hangMarkers} class="wiki-writer" />
 								{/key}
 							{/if}
 						</div>
@@ -792,9 +850,14 @@
 						<EmptyState variant="top" title="No pages yet" text={canWrite ? 'Pages keep what this community wants to remember: guides, plans and answers. Start one with New page.' : 'Pages written here will show up in this list.'} as="h2" />
 					</div></div>
 				{:else}
+					{#if error}
+						<div class="wiki-page wiki-page--notice"><div class="wiki-article">
+							<Notice title="Part of this wiki could not be loaded" text="The pages below are the last ones this view received." error={error} onretry={() => effectiveChannel && loadWiki(effectiveChannel)} ondismiss={() => wikiErrorStore.set(null)} />
+						</div></div>
+					{/if}
 					<div class="wiki-page">
 						<section class="wiki-article wiki-start" aria-labelledby={`wiki-start-title-${draftSurface}`}>
-							<h1 class="wiki-start-title" id={`wiki-start-title-${draftSurface}`}>Explore this wiki</h1>
+							<h1 class="wiki-start-title" id={`wiki-start-title-${draftSurface}`} tabindex="-1" bind:this={startTitleEl}>Explore this wiki</h1>
 							<p class="wiki-start-hint">Browse a topic, search page titles and contents, or pick up a recently updated page.</p>
 							<p class="w-kicker wiki-start-kicker">Topics</p>
 							<ul class="wiki-start-list">
@@ -813,7 +876,7 @@
 					</div>
 				{/if}
 			{:else}
-				<div class="wiki-crumbs-row">
+				<div class="wiki-crumbs-row" class:wiki-crumbs-row--writing={editMode}><div class="wiki-crumbs-inner">
 					{@render pagesToggle()}
 					<nav class="wiki-crumbs" aria-label="Breadcrumb">
 						<ol>
@@ -839,7 +902,7 @@
 							{/if}
 						</div>
 					{/if}
-				</div>
+				</div></div>
 
 				{#if copyError}
 					<div class="wiki-page wiki-page--notice"><div class="wiki-article">
@@ -860,20 +923,20 @@
 								<p class="wiki-meta">
 									<span>Editing</span>
 									<span class="wiki-meta-sep" aria-hidden="true">·</span>
-									<span class="wiki-meta-status" class:problem={saveState === 'failed'} role="status">{editStatus}</span>
+									<span class="wiki-meta-status" class:problem={saveState === 'failed'} role="status">{#if saveState === 'failed'}<span class="w-dot w-dot--danger" aria-hidden="true"></span>{:else if editIsDirty && saveState !== 'saving'}<span class="w-dot w-dot--warn" aria-hidden="true"></span>{/if}{editStatus}</span>
 								</p>
 							</header>
 							{#if previewing}
 								<div class="w-prose wiki-prose wiki-preview">{#if editBody.trim()}{@html renderWikiBody(editBody)}{:else}<p class="wiki-preview-empty">Nothing to preview yet.</p>{/if}</div>
 							{:else}
 								{#key editorEpoch}
-									<WritingEditor bind:this={writer} value={editBody} onchange={(value) => { editBody = value; }} ariaLabel="Page text" placeholder="Write the page. ## starts a heading, - a list, [[Page title]] links a page." readonly={saveState === 'saving'} hang={hangMarkers} class="wiki-writer" />
+									<WritingEditor bind:this={writer} value={editBody} onchange={(value) => { editBody = value; }} ariaLabel="Page text" placeholder={WRITING_PLACEHOLDER} readonly={saveState === 'saving'} hang={hangMarkers} class="wiki-writer" />
 								{/key}
 							{/if}
 						</div>
 					</div>
 				{:else}
-					<div class="wiki-page" class:has-margin={outlineVisible && outlineAt === 'margin'}>
+					<div class="wiki-page">
 						<article class="wiki-article" aria-labelledby={`wiki-title-${draftSurface}`}>
 							{#if viewRevision}
 								<div class="wiki-revision-banner" role="status">

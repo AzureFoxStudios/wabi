@@ -64,15 +64,48 @@ export function currentSectionIndex(tops: readonly number[], line: number): numb
 export type OutlinePlace = 'margin' | 'side' | 'inline';
 
 /**
- * Where ON THIS PAGE goes. In the right margin when the reading pane has room for the 720
- * column's margin rail (a stage of about 1100px and up, or fullscreen reading); otherwise under
- * the page tree while the tree column shows; otherwise (phone, companion panel) as a collapsed
- * disclosure under the article meta. Never pushes the article down when it has a place beside it.
+ * The reading block (design contract §8.7, §4.2): a 720 column, and beside it, when the pane has
+ * room, a margin column for ON THIS PAGE (200–240px after a 40px gap). The margin only appears
+ * when the article keeps at least WIKI_READING_MIN beside it, so the outline never squeezes the
+ * page narrower than the plain column would be. Widths assume the 32px stage gutter.
+ */
+export const WIKI_COLUMN = 720;
+export const WIKI_READING_MIN = 600;
+export const WIKI_MARGIN_GAP = 40;
+export const WIKI_MARGIN_MIN = 200;
+export const WIKI_MARGIN_MAX = 240;
+const GUTTER = 32;
+/** The narrowest reading pane that carries the margin column. */
+export const WIKI_MARGIN_PANE = WIKI_READING_MIN + WIKI_MARGIN_GAP + WIKI_MARGIN_MIN + 2 * GUTTER;
+
+/**
+ * The pane keeps a margin column: reading (with or without an outline), Edit and New page all lay
+ * out on the same block then, so the title never moves when you press Edit or open another page.
+ */
+export function paneHasMargin(paneWidth: number): boolean {
+	return paneWidth >= WIKI_MARGIN_PANE;
+}
+
+/**
+ * Where ON THIS PAGE goes. In the right margin when the pane carries the margin column (about a
+ * 1250px stage beside the tree, or fullscreen reading); otherwise under the page tree while the
+ * tree column shows; otherwise (phone, companion panel) as a collapsed disclosure under the
+ * article meta. Never pushes the article down when it has a place beside it.
  */
 export function outlinePlace(paneWidth: number, treeColumnShown: boolean): OutlinePlace {
-	if (paneWidth >= 840) return 'margin';
+	if (paneHasMargin(paneWidth)) return 'margin';
 	if (treeColumnShown) return 'side';
 	return 'inline';
+}
+
+/**
+ * The writing surface's Markdown heading markers hang left of the column only where the column
+ * has at least 48px of free page beside it (its 40px hang room plus air); otherwise they stay in
+ * the line, so nothing reaches past the pane edge.
+ */
+export function hangsMarkers(paneWidth: number): boolean {
+	const block = paneHasMargin(paneWidth) ? WIKI_COLUMN + WIKI_MARGIN_GAP + WIKI_MARGIN_MAX : WIKI_COLUMN;
+	return (paneWidth - block) / 2 >= 48;
 }
 
 /** The tree is a column of its own from a 760px wiki; narrower, and in the panel, it stacks. */
@@ -103,9 +136,13 @@ export function shouldOpenOnlyPage(input: {
 	return !input.alreadyDecided && input.pageCount === 1 && input.selectedPageId === null && !input.composing;
 }
 
-/** Ids for the rendered headings: unique per page and per mounted wiki (center and panel). */
+/**
+ * Ids for the rendered headings: unique per page and per mounted wiki (center and panel). A
+ * repeated title takes the next free "-2", "-3"…, checked against every id already given, so a
+ * heading literally titled "Weekly rhythm 2" can never collide with the second "Weekly rhythm".
+ */
 export function headingAnchorIds(texts: readonly string[], prefix: string): string[] {
-	const used = new Map<string, number>();
+	const used = new Set<string>();
 	return texts.map((text) => {
 		const words = text
 			.normalize('NFKD')
@@ -114,8 +151,9 @@ export function headingAnchorIds(texts: readonly string[], prefix: string): stri
 			.split(/[^\p{Letter}\p{Number}]+/u)
 			.filter(Boolean);
 		const base = words.join('-') || 'section';
-		const count = used.get(base) ?? 0;
-		used.set(base, count + 1);
-		return `${prefix}-${count ? `${base}-${count + 1}` : base}`;
+		let candidate = base;
+		for (let count = 2; used.has(candidate); count += 1) candidate = `${base}-${count}`;
+		used.add(candidate);
+		return `${prefix}-${candidate}`;
 	});
 }
