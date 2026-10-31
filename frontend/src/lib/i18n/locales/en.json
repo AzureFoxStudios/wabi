@@ -605,7 +605,10 @@
     },
     "you": {
       "servers": "Servers",
-      "all_settings": "All settings"
+      "all_settings": "All settings",
+      "presence": "Presence",
+      "presence_change": "Presence: {state}. Change presence",
+      "sign_out_body": "This device will no longer be signed in to {server}."
     }
   },
   "user": {
@@ -620,7 +623,8 @@
       "online": "Online",
       "away": "Away",
       "busy": "Do not disturb",
-      "offline": "Offline"
+      "offline": "Offline",
+      "invisible": "Invisible"
     },
     "errors": {
       "voice_call_failed": "Failed to start voice call. Please check microphone permissions.",

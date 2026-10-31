@@ -42,12 +42,12 @@
 		return text && text !== key ? text : fallback;
 	}
 
-	const PRESENCE_OPTIONS: Array<{ value: PresenceState; label: string }> = [
-		{ value: 'active', label: 'Online' },
-		{ value: 'away', label: 'Away' },
-		{ value: 'busy', label: 'Do not disturb' },
-		{ value: 'invisible', label: 'Invisible' }
-	];
+	const PRESENCE_OPTIONS = $derived<Array<{ value: PresenceState; label: string }>>([
+		{ value: 'active', label: word('user.status.online', 'Online') },
+		{ value: 'away', label: word('user.status.away', 'Away') },
+		{ value: 'busy', label: word('user.status.busy', 'Do not disturb') },
+		{ value: 'invisible', label: word('user.status.invisible', 'Invisible') }
+	]);
 
 	let title = $state<HTMLElement | null>(null);
 	let presence = $state<PresenceState>(getStoredPresence());
@@ -65,7 +65,7 @@
 	const ink = $derived($inkFor(me?.color));
 	// The dot shows what everyone else sees (invisible reads as offline), like the sidebar foot.
 	const dot = $derived(presence === 'active' && !me?.status ? 'active' : maskedStatus(presence));
-	const presenceLabel = $derived(PRESENCE_OPTIONS.find((option) => option.value === presence)?.label ?? 'Online');
+	const presenceLabel = $derived(PRESENCE_OPTIONS.find((option) => option.value === presence)?.label ?? word('user.status.online', 'Online'));
 	const presenceItems = $derived<MenuEntry[]>(
 		PRESENCE_OPTIONS.map((option) => ({
 			id: `presence-${option.value}`,
@@ -108,6 +108,7 @@
 	const allSettingsWord = $derived(word('shell.you.all_settings', 'All settings'));
 	const signOutWord = $derived(word('settings.tabs.logout', 'Sign out'));
 	const youWord = $derived(word('shell.mobile.you', 'You'));
+	const presenceWord = $derived(word('shell.you.presence', 'Presence'));
 
 	function changePresence(next: PresenceState): void {
 		presence = next;
@@ -117,8 +118,8 @@
 
 	async function signOut(): Promise<void> {
 		const confirmed = await confirmAction({
-			title: 'Sign out?',
-			body: `This device will no longer be signed in to ${communityName}.`,
+			title: word('settings.sign_out_confirm', 'Sign out?', { server: communityName }),
+			body: word('shell.you.sign_out_body', `This device will no longer be signed in to ${communityName}.`, { server: communityName }),
 			confirm: signOutWord
 		});
 		if (confirmed) onsignout();
@@ -148,9 +149,9 @@
 				<p class="you-handle">@{handle}</p>
 				<Menu
 					class="you-presence"
-					label="Presence"
-					heading="Presence"
-					triggerLabel={`Presence: ${presenceLabel}. Change presence`}
+					label={presenceWord}
+					heading={presenceWord}
+					triggerLabel={word('shell.you.presence_change', `Presence: ${presenceLabel}. Change presence`, { state: presenceLabel })}
 					items={presenceItems}
 				>
 					<span class="you-dot you-dot--{dot}" aria-hidden="true"></span>

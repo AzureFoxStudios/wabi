@@ -1397,7 +1397,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	{#if AdminCenterStageCmp}
 		<svelte:component this={AdminCenterStageCmp} />
 	{:else}
-		<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
+		<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label={$_('common.loading')}></span></div>
 	{/if}
 {:else}
 {#if mobileNavShown}
@@ -1639,37 +1639,37 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					{#if ModelViewportTabCmp}
 						<svelte:component this={ModelViewportTabCmp} />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label={$_('common.loading')}></span></div>
 					{/if}
 				{:else if isReaderTabActive}
 					{#if ReaderTabCmp}
 						<svelte:component this={ReaderTabCmp} />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label={$_('common.loading')}></span></div>
 					{/if}
 				{:else if isMediaAlbumsTabActive}
 					{#if MediaAlbumsTabCmp}
 						<svelte:component this={MediaAlbumsTabCmp} variant="full" />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label={$_('common.loading')}></span></div>
 					{/if}
 				{:else if isMapTabActive}
 					{#if MapWorkspaceCmp}
 						<svelte:component this={MapWorkspaceCmp} variant="full" />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label={$_('common.loading')}></span></div>
 					{/if}
 				{:else if isPlannerTabActive}
 					{#if PlannerWorkspaceCmp}
 						<svelte:component this={PlannerWorkspaceCmp} variant="full" />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label={$_('common.loading')}></span></div>
 					{/if}
 				{:else if isNotesTabActive}
 					{#if KeepNotesViewCmp}
 						<svelte:component this={KeepNotesViewCmp} />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label={$_('common.loading')}></span></div>
 					{/if}
 				{:else if $activeWorkspaceView === 'lore'}
 					{#await import('./ProjectWorkspace.svelte')}
@@ -1691,7 +1691,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					{#if VoiceViewCmp}
 						<svelte:component this={VoiceViewCmp} />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label={$_('common.loading')}></span></div>
 					{/if}
 				{:else if $activeWorkspaceView === 'notifications'}
 					<NotificationsCenter error={activityActionError} on:openDm={(event) => { selectWorkspaceView('messages'); activeView = 'dm'; layoutStore.openCenterDm(event.detail.channelId, null); void joinChannel(event.detail.channelId); }}
@@ -1720,7 +1720,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					{#if GalleryChannelCmp}
 						<svelte:component this={GalleryChannelCmp} />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label={$_('common.loading')}></span></div>
 					{/if}
 				{:else}
 					<Chat
@@ -1733,7 +1733,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			{#if CallModalCmp}
 				<svelte:component this={CallModalCmp} />
 			{:else if callUiActive}
-				<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
+				<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label={$_('common.loading')}></span></div>
 			{/if}
 		</div>
 	</div>
@@ -1761,7 +1761,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				{#if CallDebugPanelCmp}
 					<svelte:component this={CallDebugPanelCmp} open title="Calling Debug" />
 				{:else}
-					<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
+					<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label={$_('common.loading')}></span></div>
 				{/if}
 				<button
 					type="button"
@@ -1813,7 +1813,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			on:logout
 		/>
 	{:else}
-		<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
+		<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label={$_('common.loading')}></span></div>
 	{/if}
 {/if}
 {/if}

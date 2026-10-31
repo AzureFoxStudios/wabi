@@ -41,12 +41,13 @@
 		return text && text !== key ? text : fallback;
 	}
 
-	const PRESENCE_WORDS = { active: 'Online', away: 'Away', busy: 'Do not disturb', offline: 'Offline' } as const;
-	type Presence = keyof typeof PRESENCE_WORDS;
+	const PRESENCE_KEYS = { active: 'online', away: 'away', busy: 'busy', offline: 'offline' } as const;
+	const PRESENCE_ENGLISH = { active: 'Online', away: 'Away', busy: 'Do not disturb', offline: 'Offline' } as const;
+	type Presence = keyof typeof PRESENCE_KEYS;
 
 	const me = $derived($currentUser);
 	const presence = $derived<Presence>(
-		me?.status && me.status in PRESENCE_WORDS ? (me.status as Presence) : 'active'
+		me?.status && me.status in PRESENCE_KEYS ? (me.status as Presence) : 'active'
 	);
 	const initial = $derived(((me?.username || '').trim().charAt(0) || 'Y').toUpperCase());
 	const ink = $derived($inkFor(me?.color));
@@ -62,7 +63,7 @@
 				count === 1
 					? word('shell.mobile.activity_unread_one', `Activity, ${count} needs you`, { count })
 					: word('shell.mobile.activity_unread_many', `Activity, ${count} need you`, { count }),
-			youDetail: me ? PRESENCE_WORDS[presence] : undefined
+			youDetail: me ? word(`user.status.${PRESENCE_KEYS[presence]}`, PRESENCE_ENGLISH[presence]) : undefined
 		})
 	);
 </script>
