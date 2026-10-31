@@ -1,610 +1,454 @@
-	.popout-container {
-		position: fixed;
-		width: min(380px, calc(100vw - 16px));
-		max-height: min(680px, calc(100dvh - 16px));
-		background:
-			linear-gradient(180deg, color-mix(in srgb, var(--w-bg2) 96%, transparent), color-mix(in srgb, var(--w-bg) 96%, transparent)),
-			var(--w-bg2);
-		border: 1px solid color-mix(in srgb, var(--w-line) 78%, rgba(var(--accent-rgb), 0.18));
-		border-radius: 20px;
-		box-shadow: 0 24px 70px var(--shadow-lg, rgba(0, 0, 0, 0.46));
-		z-index: var(--z-popout);
-		overflow: hidden;
-		animation: popoutIn 0.15s ease-out;
-	}
-
-	@keyframes popoutIn {
-		from {
-			opacity: 0;
-			transform: scale(0.95);
-		}
-		to {
-			opacity: 1;
-			transform: scale(1);
-		}
-	}
-
-	.popout-container .popout-banner {
-		aspect-ratio: 3 / 1;
-		position: relative;
-	}
-
-	.popout-container .banner-gradient {
-		position: absolute;
-		bottom: 0;
-		left: 0;
-		right: 0;
-		height: 54px;
-		background:
-			radial-gradient(circle at 18% 18%, rgba(var(--text-inverse-rgb, 255, 255, 255), 0.28), transparent 24%),
-			linear-gradient(transparent, var(--w-bg2));
-	}
-
-	.popout-container .avatar-section {
-		display: flex;
-		justify-content: flex-start;
-		padding: 0 18px;
-		margin-top: -48px;
-		position: relative;
-		z-index: 1;
-	}
-
-	.popout-container .avatar-ring {
-		position: relative;
-		width: 80px;
-		height: 80px;
-		border-radius: 26px;
-		background: var(--w-bg2);
-		padding: 6px;
-		box-shadow: 0 14px 34px var(--shadow-md, rgba(0, 0, 0, 0.32));
-	}
-
-	.popout-container .popout-avatar,
-	.popout-container .popout-avatar-placeholder {
-		width: 100%;
-		height: 100%;
-		border-radius: 21px;
-		object-fit: cover;
-	}
-
-	.popout-container .popout-avatar-overlay {
-		position: absolute;
-		inset: 6px;
-		border-radius: 21px;
-		background-size: calc(100% * var(--overlay-scale, 1));
-		background-position: calc(50% + var(--overlay-offset-x, 0px)) calc(50% + var(--overlay-offset-y, 0px));
-		background-repeat: no-repeat;
-		pointer-events: none;
-	}
-
-	/* Presence dot — bottom-right of the avatar ring, Discord-style. */
-	.popout-container .popout-presence-dot {
-		position: absolute;
-		right: -2px;
-		bottom: -2px;
-		width: 20px;
-		height: 20px;
-		border-radius: 50%;
-		background: var(--status-color, var(--status-offline));
-		border: 4px solid var(--w-bg2);
-		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
-		z-index: 2;
-		pointer-events: none;
-	}
-
-	.popout-container .popout-avatar-placeholder {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 2rem;
-		font-weight: bold;
-		color: white;
-	}
-
-	.popout-container .popout-body {
-		padding: 12px 18px 18px;
-		max-height: calc(min(680px, 100dvh - 16px) - 164px);
-		overflow-y: auto;
-	}
-
-	.profile-full-backdrop {
-		position: fixed; inset: 0; border: 0; background: rgba(0, 0, 0, 0.65);
-		z-index: calc(var(--z-floating-ui, 2250) - 1);
-	}
-	.popout-container.profile-expanded {
-		width: min(680px, calc(100vw - 24px));
-		max-height: calc(100dvh - 24px);
-		top: 50% !important; left: 50% !important; transform: translate(-50%, -50%);
-		z-index: var(--z-floating-ui, 2250); animation: none;
-	}
-	.popout-container.profile-expanded .popout-body {
-		max-height: calc(100dvh - min(226px, (100vw - 24px) / 3) - 72px);
-		padding: 18px 24px 24px;
-	}
-	.popout-container.profile-expanded .display-name { font-size: 1.6rem; }
-	.popout-container.profile-docked {
-		position: relative; width: 100%; height: 100%; max-height: none;
-		top: 0 !important; left: 0 !important; right: auto;
-		display: flex; flex-direction: column; min-height: 0;
-		border: 0; border-radius: 0; box-shadow: none; animation: none; z-index: auto;
-	}
-	.popout-container.profile-docked .popout-banner,
-	.popout-container.profile-docked .avatar-section { flex-shrink: 0; }
-	.popout-container.profile-docked .popout-body {
-		flex: 1; min-height: 0; max-height: none; padding: 12px 16px 20px;
-	}
-	.popout-container.profile-docked .actions { flex-direction: column; }
-	.popout-container.profile-docked .action-btn { flex: 0 0 auto; width: 100%; min-height: 40px; }
-	.popout-container .profile-close {
-		position: absolute; top: 10px; right: 10px; z-index: 2;
-		width: 32px; height: 32px; padding: 0; border-radius: var(--radius-full);
-		border: 1px solid var(--w-line); background: var(--w-bg2);
-		color: var(--w-text); font-size: 1.4rem; cursor: pointer;
-	}
-	.popout-container .profile-close:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
-
-	.popout-container .username-section {
-		display: flex;
-		align-items: baseline;
-		flex-wrap: wrap;
-		gap: 4px;
-		margin-bottom: 4px;
-	}
-
-	.popout-container .display-name {
-		margin: 0;
-		font-size: 1.35rem;
-		font-weight: 800;
-		letter-spacing: -0.03em;
-		color: var(--w-text);
-	}
-
-	.popout-container .username-tag {
-		font-size: 0.875rem;
-		color: var(--w-mute);
-	}
-
-	.popout-container .local-identity-note {
-		font-size: 0.72rem;
-		color: var(--w-mute);
-	}
-
-	.popout-container .popout-role-tags {
-		display: flex;
-		align-items: center;
-		gap: 0.35rem;
-		margin: 0 0 0.55rem;
-	}
-
-	.popout-container .profile-detail-grid {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 0.5rem;
-		margin: 0 0 0.75rem;
-	}
-
-	.popout-container .profile-detail-grid > div {
-		display: grid;
-		gap: 0.12rem;
-		padding: 0.58rem 0.62rem;
-		border-radius: 12px;
-		border: 1px solid color-mix(in srgb, var(--w-line) 72%, transparent);
-		background: color-mix(in srgb, var(--w-raise) 58%, transparent);
-		min-width: 0;
-	}
-	.popout-container .profile-detail-grid > div:only-child { grid-column: 1 / -1; }
-
-	.popout-container .profile-detail-grid span {
-		color: var(--w-mute);
-		font-size: 0.64rem;
-		font-weight: 800;
-		letter-spacing: 0.06em;
-		text-transform: uppercase;
-	}
-
-	.popout-container .profile-detail-grid strong {
-		color: var(--w-text);
-		font-size: 0.82rem;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.popout-container .status-section {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		margin-bottom: 12px;
-	}
-
-	.popout-container .status-indicator {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-	}
-
-	.popout-container .status-label {
-		font-size: 0.8125rem;
-		color: var(--w-mute);
-	}
-
-	.popout-container .status-label-tooltip {
-		width: 5px;
-		height: 5px;
-		padding: 0;
-		border-radius: 50%;
-		background: var(--status-color, var(--text-muted));
-	}
-
-	.popout-container .username-handle,
-	.popout-container .member-since-ghost {
-		color: color-mix(in srgb, var(--w-mute) 58%, transparent);
-		font-size: 0.72rem;
-	}
-
-	.popout-container .member-since-ghost {
-		display: block;
-		margin: 0.2rem 0 0.7rem;
-		font-style: italic;
-	}
-
-	.popout-container .divider {
-		height: 1px;
-		background: color-mix(in srgb, var(--w-line) 82%, transparent);
-		margin: 12px 0;
-	}
-
-	.popout-container .section {
-		margin-bottom: 12px;
-		padding: 0.65rem;
-		border: 1px solid color-mix(in srgb, var(--w-line) 72%, transparent);
-		border-radius: 13px;
-		background: color-mix(in srgb, var(--w-raise) 52%, transparent);
-	}
-
-	.popout-container .section-title {
-		margin: 0 0 4px 0;
-		font-size: 0.75rem;
-		font-weight: 700;
-		text-transform: uppercase;
-		color: var(--w-mute);
-		letter-spacing: 0.02em;
-	}
-
-	.popout-container .section-content {
-		margin: 0;
-		font-size: 0.875rem;
-		color: var(--w-text);
-		line-height: 1.4;
-	}
-
-	.popout-container .note-content {
-		font-style: italic;
-		color: var(--w-mute);
-	}
-
-	.popout-container .note-input {
-		width: 100%;
-		min-height: 64px;
-		padding: 0.45rem 0.55rem;
-		border-radius: 8px;
-		border: 1px solid var(--w-line);
-		background: var(--w-raise);
-		color: var(--w-text);
-		font-size: 0.82rem;
-		line-height: 1.35;
-		resize: vertical;
-		box-sizing: border-box;
-	}
-
-	.popout-container .note-input:focus {
-		outline: 1.5px solid var(--w-accent);
-		outline-offset: 1px;
-		border-color: var(--w-line);
-		box-shadow: none;
-	}
-
-	.popout-container .note-actions {
-		display: flex;
-		align-items: center;
-		gap: 0.4rem;
-		margin-top: 0.4rem;
-	}
-
-	.popout-container .note-btn {
-		border: 1px solid var(--w-line);
-		background: var(--w-raise);
-		color: var(--w-mute);
-		border-radius: 999px;
-		padding: 0.16rem 0.5rem;
-		font-size: 0.72rem;
-		cursor: pointer;
-	}
-
-	.popout-container .note-btn.primary {
-		color: var(--w-text);
-		background: rgba(var(--accent-rgb), 0.2);
-		border-color: rgba(var(--accent-rgb), 0.5);
-	}
-
-	.popout-container .note-btn:disabled {
-		opacity: 0.5;
-		cursor: default;
-	}
-
-	.popout-container .note-count {
-		margin-left: auto;
-		font-size: 0.7rem;
-		color: var(--w-mute);
-	}
-
-	.popout-container .note-status {
-		margin: 0.32rem 0 0;
-		font-size: 0.72rem;
-		color: var(--w-mute);
-	}
-
-	.popout-container .connections-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.35rem;
-	}
-
-	.popout-container .connection-row {
-		display: flex;
-		align-items: baseline;
-		flex-wrap: wrap;
-		gap: 0.45rem;
-		min-width: 0;
-	}
-
-	.popout-container .connection-label {
-		font-size: 0.72rem;
-		font-weight: 700;
-		letter-spacing: 0.02em;
-		text-transform: uppercase;
-		color: var(--w-mute);
-		flex-shrink: 0;
-	}
-
-	.popout-container .connection-value,
-	.popout-container .connection-link {
-		font-size: 0.82rem;
-		color: var(--w-text);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		min-width: 0;
-	}
-
-	.popout-container .connection-link:hover {
-		color: var(--w-accent);
-	}
-
-	.popout-container .actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px;
-		margin-bottom: 8px;
-	}
-
-	.popout-container .action-btn {
-		flex: 1 1 110px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 8px;
-		padding: 10px 16px;
-		border: none;
-		border-radius: 12px;
-		font-size: 0.875rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.15s ease;
-	}
-
-	.popout-container .action-btn.primary {
-		background: var(--w-accent);
-		color: white;
-	}
-
-	.popout-container .action-btn.primary:hover {
-		background: var(--accent-hover);
-	}
-
-	.popout-container .action-btn.secondary {
-		background: var(--w-raise);
-		color: var(--w-text);
-	}
-
-	.popout-container .action-btn.secondary:hover {
-		background: var(--w-raise);
-	}
-
-	.popout-container .context-actions {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-
-	.popout-container .context-btn {
-		display: block;
-		width: 100%;
-		padding: 8px 12px;
-		background: transparent;
-		border: none;
-		border-radius: 4px;
-		font-size: 0.8125rem;
-		color: var(--w-mute);
-		text-align: left;
-		cursor: pointer;
-		transition: all 0.15s ease;
-	}
-
-	.popout-container .context-btn:hover {
-		background: var(--w-raise);
-		color: var(--w-text);
-	}
-
-	.popout-container .context-btn.danger {
-		color: color-mix(in srgb, var(--w-danger) 76%, var(--w-mute));
-	}
-
-	.popout-container .context-btn.danger:hover {
-		background: color-mix(in srgb, var(--w-danger) 16%, var(--w-raise));
-		color: var(--accent-danger-soft, var(--accent-danger-soft, var(--accent-danger-soft, #fca5a5)));
-	}
-
-	.popout-container .call-actions {
-		display: flex;
-		gap: 6px;
-		margin-bottom: 8px;
-		flex-wrap: wrap;
-	}
-
-	.popout-container .call-btn {
-		flex: 1;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 6px;
-		padding: 8px 10px;
-		border: none;
-		border-radius: 12px;
-		font-size: 0.75rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.15s ease;
-		background: var(--w-raise);
-		color: var(--w-mute);
-	}
-
-	.popout-container .call-btn:hover {
-		color: white;
-	}
-
-	.popout-container .call-btn.voice-call:hover {
-		background: var(--color-success, #43b581);
-	}
-
-	.popout-container .call-btn.video-call:hover {
-		background: var(--w-accent);
-	}
-
-	.popout-container .call-btn.screen-share:hover {
-		background: var(--color-warning, #faa61a);
-	}
-
-	@media (max-width: 640px) {
-		.popout-container {
-			left: 8px !important;
-			right: 8px;
-			width: auto;
-			max-height: calc(100dvh - 16px);
-		}
-
-		.popout-container .actions,
-		.popout-container .call-actions {
-			flex-direction: column;
-			align-items: stretch;
-		}
-
-		.popout-container .action-btn {
-			flex: 0 0 auto;
-			width: 100%;
-			height: auto;
-			min-height: 44px;
-		}
-	}
-
-	.popout-container .popout-banner { background: var(--banner-color, var(--pfp-banner, var(--accent-primary-color))); }
-	.popout-container .popout-avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary-color)); }
-	.popout-container .status-indicator { background-color: var(--status-color); }
-
-/* PR1: uploaded banner image */
-.popout-container .popout-banner-img {
+/* Profile popout (design contract §7.11, §7.12, §7.14, §8.9), used by UserPopoutImpl.svelte as a
+   popout anchored to a name or member row, as the docked side-panel profile and as the centred
+   full profile.
+
+   Identity first: a 64px stamp on the person's identity disc (--disc / --on from $inkFor), the
+   name in serif ink, the handle and role word, a presence line; then the bio, one primary
+   "Message", a default "Call" and ⋯; the private note is a quiet one-line field. Everything is on
+   roles; the only colors that are not roles are the person's identity ink (§5.5). */
+
+.popout-container {
+	--pop-surface: var(--w-bg2);
+	position: fixed;
+	z-index: var(--z-popout);
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	width: min(360px, calc(100vw - 16px));
+	max-height: min(680px, calc(100dvh - 16px));
+	overflow: hidden;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-lg);
+	background: var(--pop-surface);
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	outline: none;
+	animation: w-enter var(--w-dur-2) var(--w-ease);
+}
+:root[data-mode='light'] .popout-container {
+	--pop-surface: var(--w-lift);
+}
+
+/* Close and "keep in side panel" sit in the top-right corner, on the surface color so they stay
+   legible over an uploaded banner. */
+.popout-container .pop-tools {
 	position: absolute;
-	inset: 0;
+	top: 10px;
+	right: 10px;
+	z-index: 3;
+	display: flex;
+	gap: 2px;
+}
+.popout-container .pop-tools .w-ibtn {
+	background: var(--pop-surface);
+}
+.popout-container .pop-tools .w-ibtn:hover {
+	background: var(--w-raise);
+}
+
+/* An uploaded banner only: a picture strip, no tint, no gradient. */
+.popout-container .pop-banner {
+	position: relative;
+	flex: none;
+	height: 96px;
+	overflow: hidden;
+	border-bottom: var(--w-bw) solid var(--w-line);
+	background: var(--w-sink);
+}
+.popout-container .popout-banner-img {
+	display: block;
 	width: 100%;
 	height: 100%;
 	object-fit: cover;
-	opacity: 0.85;
 }
 
-/* PR2: overlay preview square in settings */
-.popout-container .avatar-overlay-preview {
-	width: 120px;
-	height: 120px;
-	border-radius: 50%;
-	background-size: cover;
-	background-position: center;
-	background-repeat: no-repeat;
+.popout-container .popout-body {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding: 16px 18px 18px;
 }
 
-/* PR2: overlay layer on avatar (messages, popouts, member list) */
-.popout-container .avatar-overlay-layer {
+/* ---- identity ---- */
+.popout-container .pop-id {
+	display: grid;
+	grid-template-columns: 64px minmax(0, 1fr);
+	align-items: center;
+	column-gap: 14px;
+}
+/* Room for the corner tools beside the name when there is no banner above. */
+.popout-container > .popout-body .pop-who {
+	padding-right: 60px;
+}
+.popout-container > .pop-banner + .popout-body .pop-who {
+	padding-right: 0;
+}
+
+.popout-container .pop-av {
+	position: relative;
+	display: block;
+	width: 64px;
+	height: 64px;
+	border-radius: var(--w-avr);
+}
+.popout-container .pop-av__stamp,
+.popout-container .pop-av__pic {
+	display: grid;
+	place-items: center;
+	box-sizing: border-box;
+	width: 64px;
+	height: 64px;
+	border-radius: var(--w-avr);
+	object-fit: cover;
+}
+.popout-container .pop-av__stamp {
+	background: var(--disc, var(--w-raise));
+	color: var(--on, var(--w-text));
+	font: 600 calc(28px * var(--w-fs)) / 1 var(--w-serif);
+	user-select: none;
+}
+.popout-container .popout-avatar-overlay {
 	position: absolute;
 	inset: 0;
-	background-size: cover;
-	background-position: center;
-	background-repeat: no-repeat;
+	border-radius: var(--w-avr);
 	pointer-events: none;
 }
-
-/* Own-profile voice controls + share (C: popout UX) */
-.popout-container .voice-actions {
-	display: flex;
-	gap: 8px;
-	margin-bottom: 8px;
+/* Presence on the stamp: a dot with a ring in the surface color; offline is a hollow ring. */
+.popout-container .pop-av__presence {
+	position: absolute;
+	right: 1px;
+	bottom: 1px;
+	z-index: 2;
+	box-sizing: border-box;
+	width: 14px;
+	height: 14px;
+	border-radius: var(--w-avr);
+	background: var(--w-online);
+	box-shadow: 0 0 0 3px var(--pop-surface);
+}
+.popout-container .pop-av[data-presence='away'] .pop-av__presence {
+	background: var(--w-warn);
+}
+.popout-container .pop-av[data-presence='busy'] .pop-av__presence {
+	background: var(--w-danger);
+}
+.popout-container .pop-av[data-presence='offline'] .pop-av__presence {
+	background: var(--pop-surface);
+	box-shadow: inset 0 0 0 1.5px var(--w-faint), 0 0 0 3px var(--pop-surface);
 }
 
-.popout-container .voice-btn {
-	flex: 1;
+.popout-container .pop-who {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+.popout-container .pop-name {
+	display: flex;
+	min-width: 0;
+	margin: 0;
+	color: var(--w-text);
+	font: 600 calc(20px * var(--w-fs)) / calc(26px * var(--w-fs)) var(--w-serif);
+	letter-spacing: 0.005em;
+}
+.popout-container .pop-meta {
+	display: flex;
+	align-items: baseline;
+	flex-wrap: wrap;
+	gap: 2px 10px;
+	min-width: 0;
+	margin: 0;
+}
+.popout-container .pop-handle {
+	min-width: 0;
+	max-width: 100%;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: none;
+	color: var(--w-faint);
+	font: var(--w-t-mono);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: color var(--w-dur-1) var(--w-ease);
+}
+.popout-container .pop-handle:hover {
+	color: var(--w-text);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+.popout-container .pop-presence {
 	display: flex;
 	align-items: center;
-	justify-content: center;
-	padding: 8px 0;
-	border: none;
-	border-radius: 12px;
-	background: var(--w-raise);
+	gap: 7px;
+	min-width: 0;
+	margin: 2px 0 0;
 	color: var(--w-mute);
-	cursor: pointer;
-	transition: all 0.15s ease;
+	font: var(--w-t-small);
+}
+.popout-container .pop-presence__text {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.popout-container .pop-presence__dot {
+	flex: none;
+	box-sizing: border-box;
+	width: 7px;
+	height: 7px;
+	border-radius: var(--w-avr);
+	background: var(--w-online);
+}
+.popout-container .pop-presence__dot[data-presence='away'] {
+	background: var(--w-warn);
+}
+.popout-container .pop-presence__dot[data-presence='busy'] {
+	background: var(--w-danger);
+}
+.popout-container .pop-presence__dot[data-presence='offline'] {
+	background: transparent;
+	box-shadow: inset 0 0 0 1.5px var(--w-faint);
 }
 
-.popout-container .voice-btn:hover:not(:disabled) {
-	color: var(--w-text);
-	background: var(--w-raise);
+/* ---- about ---- */
+.popout-container .pop-bio {
+	margin: 14px 0 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+	overflow-wrap: anywhere;
+	white-space: pre-line;
+	text-wrap: pretty;
+}
+.popout-container .pop-aside,
+.popout-container .pop-since {
+	margin: 10px 0 0;
+	color: var(--w-faint);
+	font: 400 calc(12px * var(--w-fs)) / calc(16px * var(--w-fs)) var(--w-sans);
+}
+.popout-container .pop-badges {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 10px;
+}
+.popout-container .pop-facts {
+	margin-top: 14px;
 }
 
-.popout-container .voice-btn.active {
-	background: color-mix(in srgb, var(--w-accent) 20%, var(--w-raise));
-	color: var(--w-accent);
-}
-
-.popout-container .voice-btn:disabled {
-	opacity: 0.45;
-	cursor: not-allowed;
-}
-
-.popout-container .share-btn {
+/* ---- actions: one ink primary, one default, ⋯ ---- */
+.popout-container .pop-actions {
 	display: flex;
 	align-items: center;
-	justify-content: center;
 	gap: 8px;
-	width: 100%;
-	padding: 10px 16px;
-	margin-bottom: 8px;
-	border: none;
-	border-radius: 12px;
-	background: var(--w-raise);
-	color: var(--w-text);
-	font-size: 0.875rem;
-	font-weight: 500;
-	cursor: pointer;
-	transition: all 0.15s ease;
+	margin-top: 16px;
+}
+.popout-container .pop-actions__main,
+.popout-container .pop-actions__second {
+	flex: 1 1 0;
+	min-width: 0;
+}
+.popout-container .pop-actions__more {
+	flex: none;
+	border: var(--w-bw) solid var(--w-line-strong);
+}
+.popout-container .pop-actions__status {
+	margin: 8px 0 0;
+	color: var(--w-faint);
+	font: 400 calc(12px * var(--w-fs)) / calc(16px * var(--w-fs)) var(--w-sans);
+}
+.popout-container .pop-actions__error {
+	display: flex;
+	align-items: flex-start;
+	gap: 6px;
+	margin: 8px 0 0;
+	color: var(--w-danger);
+	font: var(--w-t-small);
+}
+.popout-container .pop-actions__error > svg {
+	flex: none;
+	margin-top: 2px;
 }
 
-.popout-container .share-btn:hover {
-	background: var(--w-raise);
+/* ---- the nickname on this device (inline, replaces window.prompt) ---- */
+.popout-container .pop-line {
+	margin-top: 14px;
+	padding-top: 12px;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.popout-container .pop-line__label {
+	display: block;
+	margin: 0 0 6px;
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+.popout-container .pop-line__field {
+	height: 32px;
+}
+.popout-container .pop-line__actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 8px;
+}
+
+/* ---- the private note: quiet, one line, grows while you write ---- */
+.popout-container .pop-note {
+	margin-top: 14px;
+}
+.popout-container textarea.pop-note__field {
+	min-height: 32px;
+	max-height: calc(96px * var(--w-fs));
+	padding: 6px 10px;
+	border-color: var(--w-line);
+	background: transparent;
+	font: var(--w-t-small);
+	line-height: calc(18px * var(--w-fs));
+	resize: none;
+	field-sizing: content;
+}
+:root[data-mode='light'] .popout-container textarea.pop-note__field {
+	border-color: color-mix(in srgb, var(--w-text) 16%, transparent);
+}
+.popout-container textarea.pop-note__field:hover:not(:disabled) {
+	border-color: var(--w-line-strong);
+}
+.popout-container textarea.pop-note__field:focus {
+	border-color: var(--w-accent);
+	background: var(--w-sink);
+	box-shadow: var(--w-ring);
+	outline: none;
+}
+.popout-container .pop-note__status {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	min-height: 0;
+	margin: 4px 0 0;
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+}
+.popout-container .pop-note__status:empty {
+	display: none;
+}
+.popout-container .pop-note__count {
+	margin-left: auto;
+	font-variant-numeric: tabular-nums;
+}
+.popout-container .pop-note__problem {
+	margin-top: 8px;
+}
+
+/* ---- links from the bio ---- */
+.popout-container .pop-links {
+	margin-top: 14px;
+	padding-top: 12px;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.popout-container .pop-links h4 {
+	margin: 0 0 6px;
+}
+.popout-container .pop-links ul {
+	display: grid;
+	gap: 4px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.popout-container .pop-links a {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 100%;
+	overflow: hidden;
+	color: var(--w-accent);
+	font: var(--w-t-small);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* ---- full profile: a centred dialog over the scrim ---- */
+.profile-full-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: calc(var(--z-floating-ui, 2250) - 1);
+	padding: 0;
+	border: 0;
+	background: var(--w-scrim);
+	animation: w-fade var(--w-dur-3) var(--w-ease);
+}
+.popout-container.profile-expanded {
+	--pop-surface: var(--w-bg);
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: var(--z-floating-ui, 2250);
+	width: min(560px, calc(100vw - 24px));
+	height: fit-content;
+	max-height: calc(100dvh - 48px);
+	margin: auto;
+	border-radius: var(--radius-xl);
+	animation: w-enter-up var(--w-dur-3) var(--w-ease);
+}
+.popout-container.profile-expanded .popout-body {
+	padding: 24px 28px 28px;
+}
+.popout-container.profile-expanded .pop-banner {
+	height: 140px;
+}
+
+/* ---- docked in the companion panel ---- */
+.popout-container.profile-docked {
+	--pop-surface: var(--w-bg2);
+	position: relative;
+	z-index: auto;
+	width: 100%;
+	height: 100%;
+	max-height: none;
+	top: 0;
+	left: 0;
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+	animation: none;
+}
+.popout-container.profile-docked .popout-body {
+	padding: 16px 16px 20px;
+}
+
+@media (pointer: coarse) {
+	.popout-container .pop-tools .w-ibtn {
+		width: 44px;
+		height: 44px;
+	}
+	.popout-container > .popout-body .pop-who {
+		padding-right: 88px;
+	}
+}
+
+@media (max-width: 640px) {
+	/* The component leaves `left` to this rule on narrow screens (no inline position). */
+	.popout-container:not(.profile-docked):not(.profile-expanded) {
+		left: 8px;
+		right: 8px;
+		width: auto;
+		max-height: calc(100dvh - 16px);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.popout-container,
+	.profile-full-backdrop {
+		animation: none;
+	}
+}
+:root[data-motion='reduce'] .popout-container,
+:root[data-motion='reduce'] .profile-full-backdrop {
+	animation: none;
 }

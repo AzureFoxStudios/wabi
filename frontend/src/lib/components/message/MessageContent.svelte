@@ -108,6 +108,27 @@
 		return citations;
 	}
 
+	// Long bodies (§7.18): a message taller than 22rem is clamped behind a quiet "Show more" on the
+	// wrapper, so the text itself is never a scroll container.
+	let textCollapsible = false;
+	let textExpanded = false;
+	function measureLongText(node: HTMLElement) {
+		if (typeof ResizeObserver === 'undefined') return {};
+		const measure = () => {
+			const body = node.firstElementChild as HTMLElement | null;
+			if (!body) return;
+			const root = getComputedStyle(document.documentElement);
+			const scale = Number.parseFloat(root.getPropertyValue('--w-fs')) || 1;
+			const limit = 22 * (Number.parseFloat(root.fontSize) || 16) * scale;
+			textCollapsible = body.scrollHeight > limit + 1;
+		};
+		const observer = new ResizeObserver(measure);
+		const body = node.firstElementChild;
+		if (body) observer.observe(body);
+		measure();
+		return { destroy: () => observer.disconnect() };
+	}
+
 	function findFirstObjectEntity(entities: MessageEntity[]): MessageEntity | null {
 		for (const e of entities) {
 			if (OBJECT_ENTITY_KINDS.has(e.kind)) return e;
@@ -330,11 +351,18 @@
 			spoiler={effectiveSpoiler}
 		/>
 	{:else}
+		<div class="message-text" class:is-clamped={textCollapsible && !textExpanded} use:measureLongText>
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div class="markdown-content" on:click={onHandleMarkdownContentClick}>
-			{@html parseMessage(messageText, message.entities || [])}
+				{@html parseMessage(messageText, message.entities || [])}
+			</div>
 		</div>
+		{#if textCollapsible}
+			<button type="button" class="message-more w-btn w-btn--quiet w-btn--sm" aria-expanded={textExpanded} on:click={() => (textExpanded = !textExpanded)}>
+				{textExpanded ? $_('messages.show_less') : $_('messages.show_more')}
+			</button>
+		{/if}
 	{/if}
 	{#if translatedText}
 		<div class="translated-content" class:loading={translationLoading}>

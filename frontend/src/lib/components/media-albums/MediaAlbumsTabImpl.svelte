@@ -935,6 +935,8 @@
 					onFileChange={(event) => void handleAlbumFileChange(event)}
 				/>
 
+				<!-- A developer instrument (§9.4): adding an item by URL and MIME type is for dev builds only. -->
+				{#if import.meta.env.DEV}
 				<details class="debug-add-item">
 					<summary>Advanced: add item by URL</summary>
 					<div class="debug-form">
@@ -950,6 +952,7 @@
 						</button>
 					</div>
 				</details>
+				{/if}
 
 				<div class="item-toolbar">
 					<div class="item-toolbar-left">

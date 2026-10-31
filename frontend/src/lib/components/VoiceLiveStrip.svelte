@@ -8,13 +8,13 @@
 	 * Hidden when there is nothing to show. Clicking a tile opens the embedded
 	 * call shell via openChannelCallPanel().
 	 */
-	import { onDestroy } from 'svelte';
 	import {
 		selectedRemoteVideo as wabidbRemoteVideoStreams,
 		selectedLocalVideoActive as wabidbLocalVideoActive,
 		selectedLocalVideo as wabidbLocalPreviewStreams
 	} from '$lib/callingVideoState';
 	import { isInCall, callMode, openChannelCallPanel } from '$lib/calling';
+	import { voiceChannelMembers } from '$lib/presenceStore';
 
 	interface StripTile {
 		key: string;
@@ -24,17 +24,25 @@
 		isScreen: boolean;
 	}
 
-	let tiles: StripTile[] = [];
-
 	// Reactive merge: remote feeds + local previews. Svelte 5 contract: all
 	// store reads happen in top-level $: derivations; the template only walks
 	// the precomputed array.
+	// Stable id → display name, so a tile says who it is instead of a raw id.
+	$: namesById = (() => {
+		const map = new Map<string, string>();
+		for (const roster of Object.values($voiceChannelMembers)) {
+			for (const member of roster) if (member.username) map.set(member.userId, member.username);
+		}
+		return map;
+	})();
+
 	$: stripTiles = computeStripTiles(
 		$wabidbRemoteVideoStreams,
 		$wabidbLocalVideoActive,
 		$wabidbLocalPreviewStreams,
 		$isInCall,
-		$callMode
+		$callMode,
+		namesById
 	);
 
 	function computeStripTiles(
@@ -42,7 +50,8 @@
 		localActive: boolean,
 		localPreviews: Map<'camera' | 'screen', MediaStream>,
 		inCall: boolean,
-		mode: string | null
+		mode: string | null,
+		names: Map<string, string>
 	): StripTile[] {
 		if (!inCall || mode !== 'channel') return [];
 		const out: StripTile[] = [];
@@ -50,9 +59,10 @@
 			const sep = key.lastIndexOf(':');
 			const source = key.slice(sep + 1);
 			const stableId = key.slice(0, sep);
+			const name = names.get(stableId) ?? 'Someone';
 			out.push({
 				key,
-				label: source === 'screen' ? 'Screen' : stableId.replace(/^user-/, ''),
+				label: source === 'screen' ? `${name} · screen` : name,
 				stream,
 				isLocal: false,
 				isScreen: source === 'screen'
@@ -62,7 +72,7 @@
 			const camera = localPreviews.get('camera');
 			if (camera) out.push({ key: 'local:camera', label: 'You', stream: camera, isLocal: true, isScreen: false });
 			const screen = localPreviews.get('screen');
-			if (screen) out.push({ key: 'local:screen', label: 'Your Screen', stream: screen, isLocal: true, isScreen: true });
+			if (screen) out.push({ key: 'local:screen', label: 'Your screen', stream: screen, isLocal: true, isScreen: true });
 		}
 		return out;
 	}
@@ -93,6 +103,7 @@
 				class="voice-live-tile"
 				class:screen={tile.isScreen}
 				on:click={openCallView}
+				aria-label={`Open call view: ${tile.label}`}
 				title="Open call view"
 			>
 				<video
@@ -109,13 +120,15 @@
 {/if}
 
 <style>
+	/* Role tokens only (design contract §5, §8.5): a hairline above, the column surface, video on
+	   the sink, the label on an image scrim. Sizes follow the interface scale. */
 	.voice-live-strip {
 		display: flex;
 		gap: 8px;
-		padding: 6px 10px;
+		padding: 8px 12px;
 		overflow-x: auto;
-		border-top: 1px solid var(--border-subtle);
-		background: color-mix(in srgb, var(--surface-base, #111827) 92%, black 8%);
+		border-top: var(--w-bw) solid var(--w-line);
+		background: var(--w-bg2);
 	}
 
 	.voice-live-tile {
@@ -123,12 +136,20 @@
 		flex: 0 0 auto;
 		width: 160px;
 		height: 90px;
-		border-radius: 8px;
-		overflow: hidden;
-		border: 1px solid var(--border-subtle);
-		background: #000;
-		cursor: pointer;
 		padding: 0;
+		overflow: hidden;
+		border: var(--w-bw) solid var(--w-line);
+		border-radius: var(--radius-md);
+		background: var(--w-sink);
+		cursor: pointer;
+		transition: border-color var(--w-dur-1) var(--w-ease);
+	}
+	.voice-live-tile:hover {
+		border-color: var(--w-line-strong);
+	}
+	.voice-live-tile:focus-visible {
+		outline: 2px solid var(--w-accent);
+		outline-offset: 2px;
 	}
 
 	.voice-live-tile.screen {
@@ -136,10 +157,10 @@
 	}
 
 	.voice-live-video {
+		display: block;
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
-		display: block;
 	}
 
 	.voice-live-tile.screen .voice-live-video {
@@ -149,16 +170,15 @@
 	.voice-live-label {
 		position: absolute;
 		left: 6px;
-		bottom: 4px;
+		bottom: 6px;
 		max-width: calc(100% - 12px);
-		padding: 1px 6px;
-		border-radius: 6px;
-		font-size: 0.68rem;
-		font-weight: 600;
-		color: #fff;
-		background: rgba(0, 0, 0, 0.55);
-		white-space: nowrap;
+		padding: 0 6px;
 		overflow: hidden;
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--w-bg) 80%, transparent);
+		color: var(--w-text);
+		font: var(--w-t-caption);
+		white-space: nowrap;
 		text-overflow: ellipsis;
 	}
 </style>

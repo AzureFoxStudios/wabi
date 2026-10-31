@@ -1,382 +1,346 @@
-/* Modal */
-.modal-overlay {
-	position: fixed;
-	top: 0;
-	left: 0;
-	right: 0;
-	bottom: 0;
-	background: rgba(0, 0, 0, 0.8);
+/* The task dialog and the Planner's older dialogs (design contract §7.13, §8.6).
+   Owner (wave 1): w1-planner-board. Role tokens only (--w-*), type tokens and kit classes.
+
+   1. `.planner-task-dialog`: KanbanTaskModal on BaseModal md. BaseModal portals it to <body>,
+      so its rules hang off the panel class, never off the Planner root.
+   2. The older Planner dialogs that still draw `.modal-overlay > .modal` inside the Planner
+      (event, day, project, sprint and Tasks-panel task dialogs). These rules used to be global
+      and leaked into every dialog in the app; they are scoped under `.planner` now and painted
+      from the roles until each dialog moves onto BaseModal. */
+
+/* ---------- 1. the task dialog ---------- */
+.planner-task-dialog .ptd-form {
 	display: flex;
-	align-items: center;
-	justify-content: center;
-	z-index: var(--z-overlay);
-	backdrop-filter: blur(2px);
-	animation: fadeIn 0.2s ease-out;
+	flex-direction: column;
+	gap: 16px;
+	padding-top: 4px;
 }
-
-@keyframes fadeIn {
-	from {
-		opacity: 0;
-	}
-	to {
-		opacity: 1;
-	}
-}
-
-.modal {
-	background: linear-gradient(135deg, var(--biz-bg-secondary, #1a2332), var(--biz-bg-tertiary, #243044));
-	border-radius: 12px;
-	width: 100%;
-	max-width: 480px;
-	max-height: 90vh;
-	overflow-y: auto;
-	border: 1px solid var(--biz-border, #2d3a4d);
-	box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-	animation: slideIn 0.3s ease-out;
-}
-
-@keyframes slideIn {
-	from {
-		transform: scale(0.95) translateY(-20px);
-		opacity: 0;
-	}
-	to {
-		transform: scale(1) translateY(0);
-		opacity: 1;
-	}
-}
-
-.modal-header {
+.planner-task-dialog .ptd-field {
 	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	padding: 1.5rem 1.5rem 1rem;
-	border-bottom: 2px solid var(--biz-border, #2d3a4d);
-	background: linear-gradient(90deg, rgba(245, 158, 11, 0.05), transparent);
+	flex-direction: column;
+	min-width: 0;
 }
-
-.modal-header h2 {
-	margin: 0;
-	font-size: 1.25rem;
-	font-weight: 600;
-	color: var(--biz-text-primary, #f1f5f9);
-	letter-spacing: -0.3px;
-}
-
-.close-btn {
-	background: transparent;
-	border: none;
-	color: var(--biz-text-secondary, #94a3b8);
-	font-size: 1.5rem;
-	cursor: pointer;
-	line-height: 1;
-	transition: all 0.2s;
-	padding: 0.25rem;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-}
-
-.close-btn:hover {
-	color: var(--biz-text-primary, #f1f5f9);
-	background: rgba(255, 255, 255, 0.05);
-	border-radius: 4px;
-}
-
-form {
-	padding: 1.5rem;
-}
-
-.form-group {
-	margin-bottom: 1.25rem;
-}
-
-.form-group label {
-	display: block;
-	font-size: 0.8rem;
-	margin-bottom: 0.5rem;
-	color: var(--biz-text-secondary, #94a3b8);
-	font-weight: 500;
-	text-transform: uppercase;
-	letter-spacing: 0.3px;
-}
-
-.form-group input,
-.form-group textarea,
-.form-group select {
-	width: 100%;
-	padding: 0.75rem;
-	background: var(--biz-bg-secondary, #1a2332);
-	border: 1px solid var(--biz-border, #2d3a4d);
-	border-radius: 8px;
-	color: var(--biz-text-primary, #f1f5f9);
-	font-size: 0.9rem;
-	transition: all 0.2s;
-	font-family: inherit;
-}
-
-.form-group input::placeholder,
-.form-group textarea::placeholder {
-	color: var(--biz-text-muted, #64748b);
-}
-
-.description-textarea {
-	resize: vertical;
-	min-height: 80px;
-}
-
-.assignee-search-wrap {
-	position: relative;
-}
-
-.assignee-input {
-	width: 100%;
-	padding: 0.75rem;
-	background: var(--biz-bg-secondary, #1a2332);
-	border: 1px solid var(--biz-border, #2d3a4d);
-	border-radius: 8px;
-	color: var(--biz-text-primary, #f1f5f9);
-	font-size: 0.9rem;
-	transition: all 0.2s;
-	font-family: inherit;
-}
-
-.assignee-input:focus {
-	outline: none;
-	border-color: var(--biz-accent, #f59e0b);
-	background: color-mix(in srgb, var(--biz-accent, #f59e0b) 5%, transparent);
-	box-shadow: 0 0 0 3px color-mix(in srgb, var(--biz-accent, #f59e0b) 12%, transparent);
-}
-
-.assignee-dropdown {
-	position: absolute;
-	top: 100%;
-	left: 0;
-	right: 0;
-	background: var(--biz-bg-secondary, #1a2332);
-	border: 1px solid var(--biz-border, #2d3a4d);
-	border-top: none;
-	border-radius: 0 0 8px 8px;
-	max-height: 180px;
-	overflow-y: auto;
-	z-index: 50;
-	margin-top: -1px;
-}
-
-.assignee-item {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	width: 100%;
-	padding: 0.6rem 0.75rem;
-	background: transparent;
-	border: none;
-	color: var(--biz-text-primary, #f1f5f9);
-	cursor: pointer;
-	text-align: left;
-	font-size: 0.9rem;
-	transition: all 0.2s;
-}
-
-.assignee-item:hover {
-	background: var(--biz-bg-tertiary, #243044);
-}
-
-.assignee-item-dot {
-	width: 8px;
-	height: 8px;
-	border-radius: 50%;
-	flex-shrink: 0;
-}
-
-.assignee-chip {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.5rem;
-	padding: 0.5rem 0.75rem;
-	background: var(--biz-bg-tertiary, #243044);
-	border: 1px solid var(--biz-border, #2d3a4d);
-	border-radius: 20px;
-	color: var(--biz-text-primary, #f1f5f9);
-	font-size: 0.85rem;
-	white-space: nowrap;
-}
-
-.assignee-dot {
-	width: 8px;
-	height: 8px;
-	border-radius: 50%;
-	flex-shrink: 0;
-}
-
-.chip-remove {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 16px;
-	height: 16px;
-	background: transparent;
-	border: none;
-	color: var(--biz-text-secondary, #94a3b8);
-	cursor: pointer;
-	font-size: 1.2rem;
-	padding: 0;
-	transition: all 0.2s;
-	margin-left: 0.25rem;
-}
-
-.chip-remove:hover {
-	color: var(--biz-text-primary, #f1f5f9);
-}
-
-.assignee-chip-card {
-	display: inline-flex;
-	align-items: center;
-	gap: 0.35rem;
-	padding: 0.15rem 0.5rem;
-	background: var(--biz-info-soft, rgba(59, 130, 246, 0.15));
-	color: var(--biz-info, #3b82f6);
-	border-radius: 4px;
-	font-size: 0.7rem;
-	white-space: nowrap;
-}
-
-.form-group input:focus,
-.form-group textarea:focus,
-.form-group select:focus {
-	outline: none;
-	border-color: var(--biz-accent, #f59e0b);
-	background: color-mix(in srgb, var(--biz-accent, #f59e0b) 5%, transparent);
-	box-shadow: 0 0 0 3px color-mix(in srgb, var(--biz-accent, #f59e0b) 12%, transparent);
-}
-
-.form-row {
+.planner-task-dialog .ptd-pair {
 	display: grid;
-	grid-template-columns: 1fr 1fr;
-	gap: 1rem;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 12px;
+}
+.planner-task-dialog .ptd-field--date,
+.planner-task-dialog .ptd-field--hours {
+	max-width: calc(50% - 6px);
+}
+.planner-task-dialog textarea.w-field {
+	min-height: 84px;
+	font: var(--w-t-ui);
+}
+.planner-task-dialog .w-field::placeholder {
+	color: var(--w-faint);
+	opacity: 1;
+}
+/* The kit select as a form control: field height, the whole width of its column. */
+.planner-task-dialog .ptd-select {
+	width: 100%;
+	height: 38px;
+	justify-content: space-between;
+	border-color: var(--w-line-strong);
+}
+.planner-task-dialog input[type='date'].w-field {
+	color-scheme: light dark;
+}
+:root[data-mode='light'] .planner-task-dialog input[type='date'].w-field {
+	color-scheme: light;
+}
+:root[data-mode='dark'] .planner-task-dialog input[type='date'].w-field {
+	color-scheme: dark;
 }
 
-.form-actions {
+.planner-task-dialog .ptd-srow {
+	min-height: 56px;
+	padding: 8px 0;
+	border-block: var(--w-bw) solid var(--w-line);
+}
+.planner-task-dialog .ptd-links {
+	margin-top: 8px;
+}
+
+/* Sign-offs (SignatureRow): inside the dialog it is a field like the others, not a tinted box,
+   and its toggle is a quiet hairline button: the accent is never decoration (§5.1). */
+.planner-task-dialog .ptd-signatures .sig-row {
+	gap: 8px;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+}
+.planner-task-dialog .ptd-signatures .sig-label {
+	flex-basis: 100%;
+	color: var(--w-text);
+	font: var(--w-t-label);
+	text-transform: none;
+	letter-spacing: 0;
+}
+.planner-task-dialog .ptd-signatures .sig-chip {
+	border-color: var(--w-line-strong);
+	background: var(--w-raise);
+	color: var(--w-text);
+	font: var(--w-t-small);
+}
+.planner-task-dialog .ptd-signatures .sig-chip.legacy {
+	border-color: var(--w-line);
+	background: transparent;
+	color: var(--w-mute);
+}
+.planner-task-dialog .ptd-signatures .sig-time {
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+}
+.planner-task-dialog .ptd-signatures .sig-toggle {
+	height: 28px;
+	min-height: 28px;
+	padding: 0 10px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-label-sm);
+}
+.planner-task-dialog .ptd-signatures .sig-toggle:hover {
+	background: var(--w-raise);
+}
+.planner-task-dialog .ptd-signatures .sig-toggle.signed {
+	border-style: solid;
+	border-color: var(--w-line-strong);
+	background: var(--w-raise);
+	color: var(--w-text);
+}
+.planner-task-dialog .ptd-signatures .sig-toggle:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+.planner-task-dialog .ptd-signatures .sig-explanation {
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+:root[data-char='contrast'] .planner-task-dialog .ptd-signatures .sig-toggle:hover {
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+@media (pointer: coarse) {
+	.planner-task-dialog .ptd-signatures .sig-toggle {
+		height: 44px;
+	}
+}
+
+.planner-task-dialog .ptd-foot {
+	padding-top: 16px;
+}
+/* Delete task sits at the footer's left (the kit's .w-btn margin reset outranks the kit's
+   .w-dialog__foot-start, so the push is restated here). */
+.planner-task-dialog .ptd-foot > .w-dialog__foot-start {
+	margin-inline-end: auto;
+}
+
+@media (max-width: 560px) {
+	.planner-task-dialog .ptd-pair {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.planner-task-dialog .ptd-field--date,
+	.planner-task-dialog .ptd-field--hours {
+		max-width: none;
+	}
+}
+
+/* ---------- 2. older Planner dialogs (`.modal-overlay > .modal`), scoped to the Planner ---------- */
+.planner .modal-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: var(--z-overlay);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 16px;
+	background: var(--w-scrim);
+}
+
+.planner .modal {
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 560px;
+	max-height: calc(100dvh - 32px);
+	overflow-y: auto;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-xl);
+	background: var(--w-bg);
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+
+.planner .modal-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	box-sizing: border-box;
+	min-height: 64px;
+	padding: 8px 16px 8px 24px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+	background: transparent;
+}
+.planner .modal-header :is(h2, h3) {
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-title);
+}
+
+.planner .modal-overlay .close-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	font: 400 calc(20px * var(--w-fs)) / 1 var(--w-sans);
+	cursor: pointer;
+}
+.planner .modal-overlay .close-btn:hover {
+	background: var(--w-raise);
+	color: var(--w-text);
+}
+
+/* Only the Planner's own dialog forms (header + form), not every <form> in the app. */
+.planner :where(.modal > .modal-header) + form {
+	padding: 24px;
+}
+
+.planner .modal .form-group {
+	margin-bottom: 16px;
+}
+.planner .modal .form-group > label:not(.checkbox-label) {
+	display: block;
+	margin-bottom: 6px;
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+.planner .modal .form-group :is(input:not([type='checkbox'], [type='radio'], [type='color']), textarea, select) {
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 38px;
+	padding: 0 10px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	transition:
+		border-color var(--w-dur-1) var(--w-ease),
+		box-shadow var(--w-dur-1) var(--w-ease);
+}
+.planner .modal .form-group textarea {
+	min-height: 76px;
+	padding: 8px 10px;
+	resize: vertical;
+}
+.planner .modal .form-group :is(input, textarea)::placeholder {
+	color: var(--w-faint);
+	opacity: 1;
+}
+.planner .modal .form-group :is(input, textarea, select):focus {
+	border-color: var(--w-accent);
+	box-shadow: var(--w-ring);
+	outline: none;
+}
+
+.planner .modal .form-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 12px;
+}
+
+.planner .modal .checkbox-label {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 32px;
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	cursor: pointer;
+}
+.planner .modal .checkbox-label input[type='checkbox'] {
+	accent-color: var(--w-accent);
+	cursor: pointer;
+}
+
+.planner .modal .form-actions {
 	display: flex;
 	justify-content: flex-end;
-	gap: 0.75rem;
-	margin-top: 2rem;
-	padding-top: 1.5rem;
-	border-top: 1px solid var(--biz-border, #2d3a4d);
+	gap: 8px;
+	margin-top: 24px;
+	padding-top: 16px;
+	border-top: var(--w-bw) solid var(--w-line);
 }
 
-.delete-btn {
-	padding: 0.75rem 1.5rem;
-	background: var(--biz-danger, #ef4444);
-	border: none;
-	border-radius: 8px;
-	color: white;
-	cursor: pointer;
-	margin-right: auto;
-	transition: all 0.2s;
-	font-weight: 500;
-	font-size: 0.9rem;
-}
-
-.delete-btn:hover {
-	background: var(--biz-danger-hover, #dc2626);
-	box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
-}
-
-.delete-btn:active {
-	transform: scale(0.98);
-}
-
-.cancel-btn {
-	padding: 0.75rem 1.5rem;
+/* Buttons follow the kit: ink primary, quiet Cancel, danger outlined until hover, left-most. */
+.planner .modal :is(.submit-btn, .cancel-btn, .delete-btn) {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	box-sizing: border-box;
+	height: 32px;
+	padding: 0 12px;
+	border: var(--w-bw) solid transparent;
+	border-radius: var(--radius-md);
 	background: transparent;
-	border: 1px solid var(--biz-border, #2d3a4d);
-	border-radius: 8px;
-	color: var(--biz-text-secondary, #94a3b8);
+	font: var(--w-t-label);
+	white-space: nowrap;
 	cursor: pointer;
-	transition: all 0.2s;
-	font-weight: 500;
-	font-size: 0.9rem;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		border-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
 }
-
-.cancel-btn:hover {
-	background: var(--biz-bg-tertiary, #243044);
-	color: var(--biz-text-primary, #f1f5f9);
-	border-color: var(--biz-border, #2d3a4d);
+.planner .modal .submit-btn {
+	border-color: var(--w-text);
+	background: var(--w-text);
+	color: var(--w-bg);
 }
-
-.cancel-btn:active {
-	transform: scale(0.98);
+.planner .modal .submit-btn:hover:not(:disabled) {
+	border-color: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+	background: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
 }
-
-.submit-btn {
-	padding: 0.75rem 2rem;
-	background: linear-gradient(135deg, var(--biz-accent, #f59e0b), var(--biz-accent-hover, #d97706));
-	border: none;
-	border-radius: 8px;
-	color: white;
-	cursor: pointer;
-	font-weight: 600;
-	transition: all 0.2s;
-	font-size: 0.9rem;
-	box-shadow: 0 4px 12px color-mix(in srgb, var(--biz-accent, #f59e0b) 35%, transparent);
+.planner .modal .cancel-btn {
+	color: var(--w-mute);
 }
-
-.submit-btn:hover {
-	transform: translateY(-1px);
-	box-shadow: 0 6px 20px color-mix(in srgb, var(--biz-accent, #f59e0b) 45%, transparent);
+.planner .modal .cancel-btn:hover {
+	background: var(--w-raise);
+	color: var(--w-text);
 }
-
-.submit-btn:active {
-	transform: scale(0.98);
+.planner .modal .delete-btn {
+	margin-right: auto;
+	border-color: color-mix(in srgb, var(--w-danger) 55%, transparent);
+	color: var(--w-danger);
+}
+.planner .modal .delete-btn:hover:not(:disabled) {
+	border-color: var(--w-danger);
+	background: var(--w-danger);
+	color: var(--w-on-danger, var(--w-bg));
+}
+.planner .modal :is(.submit-btn, .cancel-btn, .delete-btn):disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+.planner .modal :is(.submit-btn, .cancel-btn, .delete-btn, .close-btn):focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
 }
 
 @media (max-width: 768px) {
-	.kanban-header {
-		flex-direction: column;
-		align-items: stretch;
+	.planner .modal .form-row {
+		grid-template-columns: minmax(0, 1fr);
 	}
-
-	.filters {
-		flex-wrap: wrap;
-	}
-
-	.kanban-column {
-		flex: 0 0 260px;
-	}
-
-	.form-row {
-		grid-template-columns: 1fr;
-	}
-}
-
-.submit-btn:disabled,
-.delete-btn:disabled,
-.add-card-btn:disabled {
-	opacity: 0.5;
-	cursor: not-allowed;
-}
-
-.delete-btn:disabled:hover,
-.add-card-btn:disabled:hover {
-	background: none;
-	color: inherit;
-}
-
-.checkbox-group {
-	margin-bottom: 0.75rem;
-}
-
-.checkbox-label {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	padding: 0.5rem 0;
-	cursor: pointer;
-	color: var(--biz-text-secondary, #94a3b8);
-	font-size: 0.95rem;
-}
-
-.checkbox-label input[type="checkbox"] {
-	cursor: pointer;
 }

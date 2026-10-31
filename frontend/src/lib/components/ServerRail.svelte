@@ -1,7 +1,31 @@
+<!--
+	Saved-servers rail (design contract §8.1): shown left of the sidebar only while more than one
+	server is saved. Roles and kit only.
+
+	- Tiles are 52px: the server's icon, or its serif initial stamp, on the rail's --w-bg. The
+	  tiles carry no names, so a server without an icon is told apart by its initial (the ensō
+	  is Wabi's mark: it stays in the sidebar masthead and the named switcher rows). The server
+	  you are on takes the selection grammar: a --w-raise tile with aria-current="page" (High
+	  Contrast adds the inset ring); hover is the 70% raise mix. Nothing moves or reshapes under
+	  the pointer.
+	- Row A is the rail's kicker over the shared masthead rule; the sidebar's "Switch server" and
+	  the foot's "Add or switch servers" open the saved-servers panel, so there is no second
+	  ensō button here.
+	- Unread followed channels show as an 8px ink dot at the tile's top-right with a ring in the
+	  rail's colour; the count is in the tile's name and tooltip, never colour alone.
+	- Folders are a 2×2 stamp grid; the open folder is a kit popover.
+	- The foot band (80px, on the shared footer rule) holds Admin dashboard (a shield, so it is
+	  never mistaken for the sidebar foot's Settings gear) and Add or switch servers.
+	- The rail reports its rendered width (lib/serverSwitcherLayout.ts) so the switcher opens
+	  beside it instead of over it.
+-->
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onDestroy } from 'svelte';
 	import { longpress } from '$lib/actions/longpress';
-	import { brandName } from '$lib/branding';
+	import { serverUnreadLabel } from '$lib/serverSwitcherLabels';
+	import { desktopServerRailWidth } from '$lib/serverSwitcherLayout';
+	import Icon from '$lib/components/ui/Icon.svelte';
+	import Tooltip from '$lib/components/ui/Tooltip.svelte';
 	import {
 		centerPanelView,
 		railDensity,
@@ -47,6 +71,11 @@
 	let openFolderId: string | null = null;
 	let suppressTapUntil = 0;
 	let brokenImageUrls = new Set<string>();
+	let renderedWidth = 0;
+
+	// The switcher sits beside the rail; a hidden or phone rail takes no room.
+	$: desktopServerRailWidth.set(mobile ? 0 : renderedWidth);
+	onDestroy(() => desktopServerRailWidth.set(0));
 
 	$: activeMobileFolder =
 		mobile && openFolderId
@@ -57,8 +86,8 @@
 			: null;
 
 	function avatarText(server: SavedServerView | null): string {
-		if (!server?.effectiveName) return 'W';
-		return server.effectiveName.charAt(0).toUpperCase();
+		const name = server?.effectiveName?.trim();
+		return name ? name.charAt(0).toUpperCase() : '?';
 	}
 
 	function canRenderServerImage(url: string | null | undefined): boolean {
@@ -84,10 +113,9 @@
 		return folder.members.reduce((sum, server) => sum + getServerUnreadCount(server.url), 0);
 	}
 
-	function formatUnreadBadge(count: number): string {
-		if (count <= 0) return '';
-		if (count > 99) return '99+';
-		return String(count);
+	/** The tile's name for tooltips and assistive tech: "Common Ground, current server, 3 unread". */
+	function tileLabel(name: string, active: boolean, unread: number): string {
+		return [name, active ? 'current server' : '', serverUnreadLabel(unread)].filter(Boolean).join(', ');
 	}
 
 	function toggleFolder(folderId: string): void {
@@ -220,123 +248,129 @@
 	}
 </script>
 
-<aside class="server-rail" class:mobile class:density-full={$railDensity === 'full'} class:density-icons-only={$railDensity === 'icons-only'} class:density-hidden={$railDensity === 'hidden'} class:rail-right={$railSide === 'right'} aria-label="Saved servers">
+<aside class="server-rail" class:mobile class:density-full={$railDensity === 'full'} class:density-icons-only={$railDensity === 'icons-only'} class:density-hidden={$railDensity === 'hidden'} class:rail-right={$railSide === 'right'} aria-label="Saved servers" bind:offsetWidth={renderedWidth}>
 	<div class="rail-primary" class:mobile>
-		<button
-			type="button"
-			class="rail-home"
-			title="{brandName} — open server switcher"
-			on:click={() => dispatch('manage')}
-		>
-			<img src="/wabi-logo-small.webp" alt={brandName} class="server-avatar-image server-avatar-image--logo" />
-		</button>
-
-		{#if !mobile}
-			<div class="rail-divider"></div>
-		{/if}
+		<div class="rail-head">
+			<span class="w-kicker rail-kicker" aria-hidden="true">Servers</span>
+		</div>
 
 		<div class="rail-list">
 			{#each $savedServerRailItems as item (item.id)}
 				<div class="rail-item">
 					{#if item.kind === 'server'}
-						<button
-							type="button"
-							class="server-pill"
-							class:active={item.server.isActive}
-							class:drag-target={dropTargetId === item.id && draggedServerUrl !== null}
-							class:drop-before={dropTargetId === item.id && dropPosition === 'before'}
-							class:drop-after={dropTargetId === item.id && dropPosition === 'after'}
-							class:drop-inside={dropTargetId === item.id && dropPosition === 'inside'}
-							title={item.server.effectiveName}
-							draggable={!mobile}
-							use:longpress={{ duration: 430, cancelOnMove: 12, onLongPress: handleRailLongPress }}
-							on:click={() => handleServerSelect(item.server)}
-							on:dragstart={(event) => handleDragStart(item, event)}
-							on:dragover={(event) => handleDragOver(item, event)}
-							on:drop={(event) => handleDrop(item, event)}
-							on:dragend={clearDragState}
-						>
-							{#if canRenderServerImage(item.server.effectiveIconUrl)}
-								<img
-									src={item.server.effectiveIconUrl}
-									alt={item.server.effectiveName}
-									class="server-avatar-image"
-									on:error={() => markImageBroken(item.server.effectiveIconUrl)}
-								/>
-							{:else}
-								<span class="server-avatar-fallback">{avatarText(item.server)}</span>
-							{/if}
-							{#if getServerUnreadCount(item.server.url) > 0}
-								<span class="server-unread-badge">{formatUnreadBadge(getServerUnreadCount(item.server.url))}</span>
-							{/if}
-						</button>
-					{:else}
-						<div class="folder-shell">
+						{@const unread = getServerUnreadCount(item.server.url)}
+						<Tooltip text={tileLabel(item.server.effectiveName, item.server.isActive, unread)} placement={$railSide === 'right' ? 'left' : 'right'} describe={false}>
 							<button
 								type="button"
-								class="server-pill folder-pill"
-								class:active={Boolean(item.folder.activeMember)}
+								class="server-pill"
+								class:active={item.server.isActive}
 								class:drag-target={dropTargetId === item.id && draggedServerUrl !== null}
 								class:drop-before={dropTargetId === item.id && dropPosition === 'before'}
 								class:drop-after={dropTargetId === item.id && dropPosition === 'after'}
 								class:drop-inside={dropTargetId === item.id && dropPosition === 'inside'}
-								title={item.folder.effectiveName}
+								aria-label={tileLabel(item.server.effectiveName, item.server.isActive, unread)}
+								aria-current={item.server.isActive ? 'page' : undefined}
 								draggable={!mobile}
 								use:longpress={{ duration: 430, cancelOnMove: 12, onLongPress: handleRailLongPress }}
-								on:click={() => handleFolderSelect(item.folder.id)}
+								on:click={() => handleServerSelect(item.server)}
 								on:dragstart={(event) => handleDragStart(item, event)}
 								on:dragover={(event) => handleDragOver(item, event)}
 								on:drop={(event) => handleDrop(item, event)}
 								on:dragend={clearDragState}
 							>
-								<div class="folder-grid">
-									{#each folderPreviewMembers(item.folder) as server (server.url)}
-										<div class="folder-grid-cell">
-											{#if canRenderServerImage(server.effectiveIconUrl)}
-												<img
-													src={server.effectiveIconUrl}
-													alt={server.effectiveName}
-													class="folder-grid-image"
-													on:error={() => markImageBroken(server.effectiveIconUrl)}
-												/>
-											{:else}
-												<span>{avatarText(server)}</span>
-											{/if}
-										</div>
-									{/each}
-								</div>
-								{#if getFolderUnreadCount(item.folder) > 0}
-									<span class="server-unread-badge">{formatUnreadBadge(getFolderUnreadCount(item.folder))}</span>
+								<span class="server-mark">
+									{#if canRenderServerImage(item.server.effectiveIconUrl)}
+										<img
+											src={item.server.effectiveIconUrl}
+											alt=""
+											class="server-avatar-image"
+											on:error={() => markImageBroken(item.server.effectiveIconUrl)}
+										/>
+									{:else}
+										<span class="server-avatar-fallback" aria-hidden="true">{avatarText(item.server)}</span>
+									{/if}
+								</span>
+								{#if unread > 0}
+									<span class="server-unread-dot" aria-hidden="true"></span>
 								{/if}
 							</button>
+						</Tooltip>
+					{:else}
+						{@const folderUnread = getFolderUnreadCount(item.folder)}
+						<div class="folder-shell">
+							<Tooltip text={tileLabel(item.folder.effectiveName, Boolean(item.folder.activeMember), folderUnread)} placement={$railSide === 'right' ? 'left' : 'right'} describe={false}>
+								<button
+									type="button"
+									class="server-pill folder-pill"
+									class:active={Boolean(item.folder.activeMember)}
+									class:drag-target={dropTargetId === item.id && draggedServerUrl !== null}
+									class:drop-before={dropTargetId === item.id && dropPosition === 'before'}
+									class:drop-after={dropTargetId === item.id && dropPosition === 'after'}
+									class:drop-inside={dropTargetId === item.id && dropPosition === 'inside'}
+									aria-label={`Folder ${tileLabel(item.folder.effectiveName, Boolean(item.folder.activeMember), folderUnread)}`}
+									aria-expanded={openFolderId === item.folder.id}
+									draggable={!mobile}
+									use:longpress={{ duration: 430, cancelOnMove: 12, onLongPress: handleRailLongPress }}
+									on:click={() => handleFolderSelect(item.folder.id)}
+									on:dragstart={(event) => handleDragStart(item, event)}
+									on:dragover={(event) => handleDragOver(item, event)}
+									on:drop={(event) => handleDrop(item, event)}
+									on:dragend={clearDragState}
+								>
+									<span class="folder-grid" aria-hidden="true">
+										{#each folderPreviewMembers(item.folder) as server (server.url)}
+											<span class="folder-grid-cell">
+												{#if canRenderServerImage(server.effectiveIconUrl)}
+													<img
+														src={server.effectiveIconUrl}
+														alt=""
+														class="folder-grid-image"
+														on:error={() => markImageBroken(server.effectiveIconUrl)}
+													/>
+												{:else}
+													<span>{avatarText(server)}</span>
+												{/if}
+											</span>
+										{/each}
+									</span>
+									{#if folderUnread > 0}
+										<span class="server-unread-dot" aria-hidden="true"></span>
+									{/if}
+								</button>
+							</Tooltip>
 
 							{#if !mobile && openFolderId === item.folder.id}
-								<div class="folder-popout">
+								<div class="folder-popout" role="group" aria-label={`Folder ${item.folder.effectiveName}`}>
 									<div class="folder-popout-header">
 										<strong>{item.folder.effectiveName}</strong>
-										<span>{item.folder.members.length} saved</span>
+										<span class="w-count">{item.folder.members.length} saved</span>
 									</div>
 									<div class="folder-popout-list">
 										{#each item.folder.members as server (server.url)}
+											{@const memberUnread = getServerUnreadCount(server.url)}
 											<button
 												type="button"
 												class="folder-member"
 												class:active={server.isActive}
 												title={server.effectiveName}
+												aria-label={tileLabel(server.effectiveName, server.isActive, memberUnread)}
+												aria-current={server.isActive ? 'page' : undefined}
 												on:click={() => handleFolderMemberSelect(server)}
 											>
-												{#if canRenderServerImage(server.effectiveIconUrl)}
-													<img
-														src={server.effectiveIconUrl}
-														alt={server.effectiveName}
-														class="server-avatar-image"
-														on:error={() => markImageBroken(server.effectiveIconUrl)}
-													/>
-												{:else}
-													<span class="server-avatar-fallback">{avatarText(server)}</span>
-												{/if}
-												{#if getServerUnreadCount(server.url) > 0}
-													<span class="server-unread-badge server-unread-badge--member">{formatUnreadBadge(getServerUnreadCount(server.url))}</span>
+												<span class="server-mark server-mark--sm">
+													{#if canRenderServerImage(server.effectiveIconUrl)}
+														<img
+															src={server.effectiveIconUrl}
+															alt=""
+															class="server-avatar-image"
+															on:error={() => markImageBroken(server.effectiveIconUrl)}
+														/>
+													{:else}
+														<span class="server-avatar-fallback" aria-hidden="true">{avatarText(server)}</span>
+													{/if}
+												</span>
+												{#if memberUnread > 0}
+													<span class="server-unread-dot" aria-hidden="true"></span>
 												{/if}
 											</button>
 										{/each}
@@ -350,40 +384,45 @@
 		</div>
 
 		{#if mobile}
-		<button type="button" class="rail-manage rail-manage-mobile" title="Add or switch servers" on:click={() => dispatch('manage')}>
-			<span>+</span>
-		</button>
+			<button type="button" class="w-ibtn rail-manage rail-manage-mobile" aria-label="Add or switch servers" on:click={() => dispatch('manage')}>
+				<Icon name="plus" />
+			</button>
 		{/if}
 	</div>
 
 	{#if mobile && activeMobileFolder}
-		<div class="mobile-folder-tray">
+		<div class="mobile-folder-tray" role="group" aria-label={`Folder ${activeMobileFolder.effectiveName}`}>
 			<div class="folder-popout-header">
 				<strong>{activeMobileFolder.effectiveName}</strong>
-				<span>{activeMobileFolder.members.length} saved</span>
+				<span class="w-count">{activeMobileFolder.members.length} saved</span>
 			</div>
 			<div class="folder-popout-list mobile-folder-list">
 				{#each activeMobileFolder.members as server (server.url)}
+					{@const memberUnread = getServerUnreadCount(server.url)}
 					<button
 						type="button"
 						class="folder-member"
 						class:active={server.isActive}
 						title={server.effectiveName}
+						aria-label={tileLabel(server.effectiveName, server.isActive, memberUnread)}
+						aria-current={server.isActive ? 'page' : undefined}
 						use:longpress={{ duration: 430, cancelOnMove: 12, onLongPress: handleRailLongPress }}
 						on:click={() => handleFolderMemberSelect(server)}
 					>
-						{#if canRenderServerImage(server.effectiveIconUrl)}
-							<img
-								src={server.effectiveIconUrl}
-								alt={server.effectiveName}
-								class="server-avatar-image"
-								on:error={() => markImageBroken(server.effectiveIconUrl)}
-							/>
-						{:else}
-							<span class="server-avatar-fallback">{avatarText(server)}</span>
-						{/if}
-						{#if getServerUnreadCount(server.url) > 0}
-							<span class="server-unread-badge server-unread-badge--member">{formatUnreadBadge(getServerUnreadCount(server.url))}</span>
+						<span class="server-mark server-mark--sm">
+							{#if canRenderServerImage(server.effectiveIconUrl)}
+								<img
+									src={server.effectiveIconUrl}
+									alt=""
+									class="server-avatar-image"
+									on:error={() => markImageBroken(server.effectiveIconUrl)}
+								/>
+							{:else}
+								<span class="server-avatar-fallback" aria-hidden="true">{avatarText(server)}</span>
+							{/if}
+						</span>
+						{#if memberUnread > 0}
+							<span class="server-unread-dot" aria-hidden="true"></span>
 						{/if}
 					</button>
 				{/each}
@@ -392,14 +431,17 @@
 	{/if}
 
 	{#if !mobile}
-		<button type="button" class="rail-manage" title="Admin Dashboard" on:click={() => centerPanelView.set('admin')}>
-			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-			</svg>
-		</button>
-		<button type="button" class="rail-manage" title="Add or switch servers" on:click={() => dispatch('manage')}>
-			<span>+</span>
-		</button>
+		<div class="rail-foot">
+			<Tooltip text="Admin dashboard" placement={$railSide === 'right' ? 'left' : 'right'}>
+				<button type="button" class="w-ibtn rail-manage" aria-label="Admin dashboard" on:click={() => centerPanelView.set('admin')}>
+					<Icon name="shield" />
+				</button>
+			</Tooltip>
+			<Tooltip text="Add or switch servers" placement={$railSide === 'right' ? 'left' : 'right'}>
+				<button type="button" class="w-ibtn rail-manage" aria-label="Add or switch servers" on:click={() => dispatch('manage')}>
+					<Icon name="plus" />
+				</button>
+			</Tooltip>
+		</div>
 	{/if}
 </aside>
-

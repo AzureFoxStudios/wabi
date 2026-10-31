@@ -1,0 +1,27 @@
+/* Legacy chat rules that used to sit inline at the end of styles.css. Imported last by
+   styles.css so their cascade position is unchanged.
+   Owner (wave 1): w1-chat-stream. Blocks marked HELD FOR belong to another package; their
+   owner changes them by handoff. Rules here use !important, so a surface skin cannot win
+   against them on specificity or order: retire the legacy rule instead of overriding it.
+   Retired by w1-chat-stream: the cozy-density !important block (the row is owned by
+   stream.css), the "markdown p kill" line heights, the message edit form (now on roles in
+   stream.css) and the unused .panel-glass / .customization-panel / .density-toggle /
+   .density-btn blocks (no markup in frontend/src, plugins or core/addons uses them).
+   Cascade: last import of styles.css — after neutral-branding.css, before character.css,
+   typography.css, stream.css and every *-skin / surfaces file loaded by +layout.svelte. */
+
+/* Scroll padding of the center-stage scroller for the surfaces that share it (forum, wiki,
+   gallery, reception). The chat stream sets its own page padding on .messages-pane. */
+.messages,
+.message-list,
+.chat-messages {
+	padding: var(--space-1) 0 var(--space-4);
+}
+
+/* Retired by w1-composer: the !important composer chrome (.composer, .chat-composer,
+   .composer-shell, .message-composer, .input-wrapper .input-container). The composer is styled
+   on roles in surfaces/composer.css. */
+
+/* Retired by w1-dialogs-popouts: the `.confirm-btn.danger` !important label colour. ConfirmDialog
+   draws its destructive action with the kit `.w-btn--danger` (outlined, readableOn label on hover),
+   and no other component pairs .confirm-btn with .danger. */

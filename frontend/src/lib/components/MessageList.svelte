@@ -2,7 +2,6 @@
 	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
 	import { get } from 'svelte/store';
 	import { browser } from '$app/environment';
-	import { safeNameStyle, nameStylesVisible } from '$lib/addons/nameStyles';
 	import type { Message, User, Emoji, Channel, FileAttachment } from '$lib/socket';
 	import { users, currentUser, currentChannel, editMessage, deleteMessage, togglePinMessage, addReaction, removeReaction, emojis, channels, loadOlderMessages, channelAvailableArchives, channelLoadedArchives, channelLoadingOlder, loadOlderHistory, channelHistoryLoading, channelHasMoreHistory, roleDefinitions } from '$lib/socket';
 	import { themeStore } from '$lib/theme/themeStore';
@@ -44,7 +43,6 @@
 	import { parseMessage } from '$lib/markdown';
 	import {
 		getStoredAccessibilitySettings,
-		resolveUserDisplayColor,
 		type DeletionCountdownMode
 	} from '$lib/accessibility';
 	import '$lib/prism-theme.css';
@@ -55,8 +53,14 @@
 		import { MODEL_VIEWPORT_ADDON_ID, openModelViewport } from '$lib/modelViewportTab';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { layoutStore } from '$lib/layoutStore';
+	import { isMobile } from '$lib/layoutStoreStates';
 	import { showToast } from '$lib/toast';
-	import { _ } from '$lib/i18n';
+	import { confirmAction } from '$lib/confirm';
+	import { _, currentLocale } from '$lib/i18n';
+	import { isNearMessageBottom } from '$lib/messageViewport';
+	import { computeStreamMarks, type StreamMark } from './message/streamMarks';
+	import Skeleton from './ui/Skeleton.svelte';
+	import Icon from './ui/Icon.svelte';
 	import { addMediaAlbumItem, createMediaAlbum, listMediaAlbums, type MediaAlbumScopeType } from '$lib/api';
 	import { retentionClockShouldTick } from '$lib/messageRetentionClock';
 	import { messageDeadlineFromTimeline, parseRetentionTimeline, type RetentionEpoch } from '$lib/messageRetentionTimeline';
@@ -79,6 +83,7 @@
 	import {
 		displayEnhancementSettingsStore,
 		formatTimestampForDisplay,
+		isRenderableMessage,
 		type RevealAllSpoilersMinRole
 	} from '$lib/displayEnhancements';
 	import {
@@ -665,40 +670,6 @@
 		const currentPriority = REVEAL_ROLE_PRIORITY[currentRole] ?? REVEAL_ROLE_PRIORITY.guest;
 		return currentPriority >= minPriority;
 	}
-	function getUserColor(user: User | undefined, username: string): string {
-		const resolved = user || getUserByUsername(username);
-		return resolveUserDisplayColor(resolved?.roleColor, resolved?.color);
-	}
-
-	function getUsernameStyle(user: User | undefined, username: string, themeState: any): string {
-		let style = '';
-		const resolvedUser = user || getUserByUsername(username);
-
-		// Check if uniform font mode is enabled
-		if (themeState.uniformFontEnabled) {
-			// Use uniform font settings
-			if (themeState.uniformFontFamily && themeState.uniformFontFamily !== 'inherit') {
-				style += `font-family: ${themeState.uniformFontFamily};`;
-			}
-			if (themeState.uniformFontSize && themeState.uniformFontSize !== 'inherit') {
-				style += `font-size: ${themeState.uniformFontSize};`;
-			}
-			if (themeState.uniformFontWeight) {
-				style += `font-weight: ${themeState.uniformFontWeight};`;
-			}
-			if (themeState.uniformFontStyle) {
-				style += `font-style: ${themeState.uniformFontStyle};`;
-			}
-		} else {
-			// Use the user's custom font
-			if (resolvedUser?.usernameFont) {
-				style += safeNameStyle(resolvedUser.usernameFont, $nameStylesVisible);
-			}
-		}
-
-		return style;
-	}
-
 	function handleContextMenu(event: MouseEvent, message: Message) {
 		event.preventDefault();
 		event.stopPropagation();
@@ -946,7 +917,8 @@
 				showToast(`Added ${addedCount} file${addedCount === 1 ? '' : 's'} to "${targetAlbum.name}".`, 'info');
 			}
 		} catch (error) {
-			showToast(error instanceof Error ? error.message : 'Failed to add file(s) to album.', 'error');
+			console.error('Adding files to the album failed:', error);
+			showToast('Couldn’t add the files to the album. Nothing was added.', 'error');
 		} finally {
 			contextMenuVisible = false;
 		}
@@ -1118,8 +1090,11 @@
 			let targetAlbum =
 				albums.find((album) => normalizeAlbumName(album.name) === normalizeAlbumName(meta.name)) || null;
 			if (!targetAlbum) {
-				// D19 defer: convert to ConfirmDialog in album-picker follow-up
-				const shouldCreate = confirm(`"${meta.name}" no longer exists here. Recreate it and upload into it?`);
+				const shouldCreate = await confirmAction({
+					title: `Recreate “${meta.name}”?`,
+					body: 'This album no longer exists here. Recreating it makes a new album with the same name for these files.',
+					confirm: 'Recreate album'
+				});
 				if (!shouldCreate) return;
 				targetAlbum = await createMediaAlbum(token, {
 					scopeType: scope.scopeType,
@@ -1145,7 +1120,8 @@
 				showToast(`Added ${addedCount} file${addedCount === 1 ? '' : 's'} to "${targetAlbum.name}".`, 'info');
 			}
 		} catch (error) {
-			showToast(error instanceof Error ? error.message : 'Failed to upload into the album.', 'error');
+			console.error('Uploading into the album failed:', error);
+			showToast('Couldn’t upload into the album. Try again in a moment.', 'error');
 		} finally {
 			albumAnnouncementUploadName = null;
 		}
@@ -1222,7 +1198,6 @@
 	}
 	let showForwardDialog = false;
 	let forwardMessage: Message | null = null;
-	const MESSAGE_GROUP_WINDOW_MS = 7 * 60 * 1000;
 	function handleForward() {
 		if (!contextMenuMessage) return;
 		forwardMessage = contextMenuMessage;
@@ -1234,22 +1209,6 @@
 	function handleForwardFromBar(message: Message): void {
 		forwardMessage = message;
 		showForwardDialog = true;
-	}
-	function isGroupedWithPrevious(index: number): boolean {
-		if (index <= 0) return false;
-		const current = messages[index];
-		const previous = messages[index - 1];
-		if (!current || !previous) return false;
-		if (firstUnreadMessageId === current.id) return false;
-		if (current.user !== previous.user) return false;
-		if (current.replyTo || previous.replyTo) return false;
-		const delta = current.timestamp - previous.timestamp;
-		return delta >= 0 && delta <= MESSAGE_GROUP_WINDOW_MS;
-	}
-
-	function isGroupedWithNext(index: number): boolean {
-		if (index < 0 || index >= messages.length - 1) return false;
-		return isGroupedWithPrevious(index + 1);
 	}
 	function handleAddReaction() {
 		if (!contextMenuMessage) return;
@@ -1353,10 +1312,15 @@
 		deletionModeDeletingIds = next;
 	}
 
-	function toggleDeletionMode(): void {
+	async function toggleDeletionMode(): Promise<void> {
 		if (!canUseDeletionMode) return;
 		if (!deletionModeEnabled) {
-			const confirmed = window.confirm('Deletion mode removes messages immediately for everyone. Turn it on?');
+			const confirmed = await confirmAction({
+				title: 'Turn on deletion mode?',
+				body: 'Each message you click is removed immediately for everyone.',
+				confirm: 'Turn on deletion mode',
+				danger: true
+			});
 			if (!confirmed) return;
 		}
 		deletionModeEnabled = !deletionModeEnabled;
@@ -1427,7 +1391,7 @@
 		['fire'],
 		['eyes']
 	];
-	const QUICK_REACTION_VISIBLE_LIMIT = 4;
+	const QUICK_REACTION_VISIBLE_LIMIT = 3; // the hover toolbar shows three (§7.15)
 	const QUICK_REACTION_EXISTING_LIMIT = 2;
 	const QUICK_REACTION_ALIAS_SCAN_LIMIT = 320;
 	let quickReactionEmojiById = new Map<string, Emoji>();
@@ -1753,7 +1717,8 @@
 			);
 			showBlendImportSettings = false;
 		} catch (error) {
-			showToast(error instanceof Error ? error.message : get(_)('messages.blend.queue_failed'), 'error');
+			console.error('Queueing the blend import failed:', error);
+			showToast(get(_)('messages.blend.queue_failed'), 'error');
 		} finally {
 			blendImportSubmitting = false;
 		}
@@ -1960,6 +1925,120 @@
 		}
 	}
 
+	// Day rules, the unread rule and grouping for the rows actually drawn (§7.17, streamMarks.ts).
+	// They render inside the keyed #each below; keys are untouched.
+	let streamMarks: StreamMark[] = [];
+	$: streamMarks = computeStreamMarks(visibleMessages, {
+		isRendered: (message) => {
+			void $chatFilterStore;
+			return isRenderableMessage(message as Message) && !getFilteredIncomingMessage(message as Message).hidden;
+		},
+		firstUnreadId: firstUnreadMessageId,
+		locale: $currentLocale,
+		words: { today: $_('messages.day_today'), yesterday: $_('messages.day_yesterday') }
+	});
+
+	// Start of the conversation: the channel's name and description over its first message.
+	$: streamChannelName = activeMessageChannel?.name || '';
+	$: streamChannelTopic = (activeMessageChannel?.topic || activeMessageChannel?.description || '').trim();
+
+	// The rows sit in .ml-stream. Inside a pane (ChatMessagesPane) it has no box of its own; a
+	// host without one (the Alt-click glance preview) gets the pane from it, so the row grammar in
+	// styles/stream.css applies there too.
+	let standaloneStream = false;
+	function attachStreamList(node: HTMLElement) {
+		standaloneStream = !node.parentElement?.closest('.messages-pane');
+		return {};
+	}
+
+	// Jump to latest (§8.3): only the channel stage's scroller gets the pill (the DM views draw
+	// their own). Counts rows that arrive while the reader is up in the history. Phones keep
+	// Chat.svelte's own jump control there, so the pill stays off in the phone shell (one control).
+	const JUMP_DISTANCE_PX = 240;
+	let streamScroller: HTMLElement | null = null;
+	let awayFromLatest = false;
+	let unseenCount = 0;
+	let lastSeenLatestKey = '';
+	let lastSeenCount = 0;
+	function messageKeyOf(message: Message | undefined): string {
+		if (!message) return '';
+		return (message.id && !String(message.id).startsWith('optimistic:') ? message.id : '') || message.clientMessageId || message.id || message.clientNonce || '';
+	}
+	function readStreamScroll(): void {
+		if (!streamScroller) return;
+		awayFromLatest = !isNearMessageBottom(streamScroller, JUMP_DISTANCE_PX);
+		if (!awayFromLatest) unseenCount = 0;
+		readFloatingDay();
+	}
+
+	// The day you are reading stays named at the top of the stream (§7.17): once a day's rule has
+	// scrolled away, a copy floats at the top until the next day's own rule reaches it.
+	type FloatingDay = { relative: string; date: string; full: string };
+	let floatingDay: FloatingDay | null = null;
+	let floatingDayFrame = 0;
+	function readFloatingDay(): void {
+		if (!streamScroller || floatingDayFrame) return;
+		floatingDayFrame = requestAnimationFrame(() => {
+			floatingDayFrame = 0;
+			const scroller = streamScroller;
+			if (!scroller) return;
+			const top = scroller.getBoundingClientRect().top;
+			let current: HTMLElement | null = null;
+			let nextTop = Number.POSITIVE_INFINITY;
+			for (const rule of scroller.querySelectorAll<HTMLElement>('.stream-day[data-day-key]')) {
+				const box = rule.getBoundingClientRect();
+				if (box.top < top) current = rule;
+				else {
+					nextTop = box.top - top;
+					break;
+				}
+			}
+			// Float only while at least a line of that day still shows between the float and the
+			// next day's own rule; otherwise the two rules would stack.
+			const height = (current?.offsetHeight ?? 0) + 24;
+			const next =
+				current && nextTop >= height
+					? { relative: current.dataset.dayRel ?? '', date: current.dataset.dayDate ?? '', full: current.dataset.dayFull ?? '' }
+					: null;
+			if (next?.full !== floatingDay?.full || next?.relative !== floatingDay?.relative) floatingDay = next;
+		});
+	}
+	$: if (streamMarks && streamScroller) readFloatingDay();
+	function attachStreamScroller(node: HTMLElement) {
+		const scroller = node.closest<HTMLElement>('.messages');
+		if (!scroller) return {};
+		streamScroller = scroller;
+		const onScroll = () => readStreamScroll();
+		scroller.addEventListener('scroll', onScroll, { passive: true });
+		readStreamScroll();
+		return {
+			destroy() {
+				if (floatingDayFrame) cancelAnimationFrame(floatingDayFrame);
+				floatingDayFrame = 0;
+				scroller.removeEventListener('scroll', onScroll);
+				if (streamScroller === scroller) streamScroller = null;
+			}
+		};
+	}
+	$: {
+		const latestKey = messageKeyOf(messages[messages.length - 1]);
+		if (latestKey !== lastSeenLatestKey) {
+			if (lastSeenLatestKey && awayFromLatest && messages.length > lastSeenCount) {
+				unseenCount += messages.length - lastSeenCount;
+			}
+			lastSeenLatestKey = latestKey;
+		}
+		lastSeenCount = messages.length;
+	}
+	function jumpToLatest(): void {
+		if (!streamScroller) return;
+		const reduce =
+			document.documentElement.dataset.motion === 'reduce' ||
+			window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+		streamScroller.scrollTo({ top: streamScroller.scrollHeight, behavior: reduce ? 'auto' : 'smooth' });
+		unseenCount = 0;
+	}
+
 	async function handleLoadMore() {
 		if (!activeChannelId) return;
 		if (visibleMessageStart > 0) {
@@ -1992,6 +2071,7 @@
 	on:keydown={handleDeletionModeKeydown}
 />
 
+<div class="ml-stream" class:messages-pane={standaloneStream} use:attachStreamList>
 {#if canUseDeletionMode && deletionModeEnabled}
 	<div class="moderation-delete-toolbar active" role="region" aria-label="Deletion mode active">
 		<span class="moderation-delete-dot" aria-hidden="true"></span>
@@ -2000,32 +2080,48 @@
 	</div>
 {/if}
 
-<!-- Load More Messages Button -->
+<!-- The day being read, kept at the top of the stream once its own rule has scrolled away. -->
+<div class="stream-float" aria-hidden="true">
+	{#if floatingDay}
+		<div class="stream-day stream-day--float">
+			<span class="stream-day__label">{#if floatingDay.relative}<span class="stream-day__rel">{floatingDay.relative}</span>{' · '}{/if}{floatingDay.date}</span>
+		</div>
+	{/if}
+</div>
+
+<!-- Top of the stream: a quiet "Load older" (skeleton rows while it loads), or the start of the
+     channel. Either one takes the free space above, so a short conversation sits on the composer. -->
 {#if visibleMessageStart > 0 || ((hasMoreServerHistory || hasMoreMessages) && messages.length >= 50)}
-	<div class="load-more-container">
-		<button class="load-more-btn" on:click={handleLoadMore} disabled={isLoadingServerHistory || isLoadingOlder}>
-			{#if isLoadingServerHistory || isLoadingOlder}
-				<span class="spinner"></span> {$_('messages.pagination.loading')}
-			{:else if visibleMessageStart > 0}
-				{$_('messages.pagination.show_older_loaded')}
-			{:else}
-				{$_('messages.pagination.load_older')}
-			{/if}
-		</button>
+	<div class="stream-older">
+		{#if isLoadingServerHistory || isLoadingOlder}
+			<Skeleton variant="message" rows={2} label={$_('messages.pagination.loading')} />
+		{:else}
+			<div class="stream-older__action">
+				<button type="button" class="load-more-btn w-btn w-btn--quiet w-btn--sm" on:click={handleLoadMore}>
+					{visibleMessageStart > 0 ? $_('messages.pagination.show_older_loaded') : $_('messages.pagination.load_older')}
+				</button>
+			</div>
+		{/if}
 	</div>
 {:else if messages.length > 0}
-	<div class="load-more-container">
-		<div class="no-more-messages">{$_('messages.pagination.beginning')}</div>
+	<div class="stream-start">
+		{#if streamChannelName && !activeChannelIsPrivateConversation}
+			<p class="stream-start__kicker">{$_('messages.start_of', { values: { channel: streamChannelName } })}</p>
+			<h2 class="stream-start__title"><span class="stream-start__hash" aria-hidden="true">#</span>{streamChannelName}</h2>
+			{#if streamChannelTopic}<p class="stream-start__desc">{streamChannelTopic}</p>{/if}
+		{:else}
+			<p class="stream-start__kicker">{$_('messages.pagination.beginning')}</p>
+		{/if}
 	</div>
 {/if}
 
 {#each visibleMessages as message, localIndex ((message.id && !String(message.id).startsWith('optimistic:') ? message.id : null) || message.clientMessageId || message.id || message.clientNonce || `__missing_${localIndex}`)}
-	{@const index = visibleMessageStart + localIndex}
+	{@const mark = streamMarks[localIndex]}
 	{@const author = getUserByMessageAuthor(message)}
 	{@const displayUsername = getMessageDisplayUsername(message, author)}
 	{@const replyToMsg = getReplyToMessage(message.replyTo)}
-	{@const groupedWithPrevious = isGroupedWithPrevious(index)}
-	{@const groupedWithNext = isGroupedWithNext(index)}
+	{@const groupedWithPrevious = mark?.groupedWithPrevious ?? false}
+	{@const groupedWithNext = mark?.groupedWithNext ?? false}
 	{@const ownMessage = isOwnMessage(message)}
 	{@const deletionLabel = getMessageDeletionLabel(message)}
 	{@const retentionLife = getMessageLife(message, wickNow)}
@@ -2038,10 +2134,23 @@
 		{@const quickReactionEmojis = getQuickReactionEmojis(message)}
 
 	{#if !hideByFilter}
-		<!-- New Messages Divider -->
-		{#if firstUnreadMessageId === message.id}
-			<div class="new-messages-divider">
-				<span>{$_('messages.new_messages')}</span>
+		<!-- Day rule and unread rule: drawn inside this keyed block, never as rows of their own -->
+		{#if mark?.day}
+			<div
+				class="stream-day"
+				role="separator"
+				aria-label={mark.day.full}
+				data-day-key={mark.day.key}
+				data-day-rel={mark.day.relative ?? ''}
+				data-day-date={mark.day.date}
+				data-day-full={mark.day.full}
+			>
+				<span class="stream-day__label">{#if mark.day.relative}<span class="stream-day__rel">{mark.day.relative}</span>{' · '}{/if}{mark.day.date}</span>
+			</div>
+		{/if}
+		{#if mark?.unread}
+			<div class="stream-new new-messages-divider" role="separator" aria-label={$_('messages.new_messages_label')}>
+				<span class="stream-new__kicker" aria-hidden="true">{$_('messages.new_kicker')}</span>
 			</div>
 		{/if}
 
@@ -2127,6 +2236,21 @@
 		/>
 	{/if}
 {/each}
+
+<div class="stream-jump" use:attachStreamScroller>
+	{#if awayFromLatest && visibleMessages.length > 0 && !$isMobile}
+		<button
+			type="button"
+			class="stream-jump__btn"
+			aria-label={unseenCount > 0 ? $_('messages.jump_latest_label', { values: { count: unseenCount } }) : $_('messages.jump_latest')}
+			on:click={jumpToLatest}
+		>
+			<span>{unseenCount > 0 ? $_('messages.jump_latest_new', { values: { count: unseenCount } }) : $_('messages.jump_latest')}</span>
+			<Icon name="chevDown" size={16} />
+		</button>
+	{/if}
+</div>
+</div>
 
 <input
 	bind:this={albumAnnouncementUploadInput}

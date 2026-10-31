@@ -96,16 +96,38 @@
 	} from '$lib/calling/presenterOverlay';
 	import PresenterOverlayCanvas from './PresenterOverlayCanvas.svelte';
 	import CallParticipantGrid from './CallParticipantGrid.svelte';
+	import { followStreamBottom, streamScrollerFor } from './chat/composerGeometry';
 	import CallStage from './CallStage.svelte';
 	import { callSessions, focusedCallSessionId } from '$lib/callSessionManager';
-	import { leaveCall as leaveViewedCall } from '$lib/callSurfaces';
+	import { callConnectionDetailsOpen, leaveCall as leaveViewedCall, openConnectionDetails } from '$lib/callSurfaces';
+	import { activeWorkspaceView } from '$lib/workspaceNavigationState';
 	import CallControls from './CallControls.svelte';
 	import CallRecordingPanel from './CallRecordingPanel.svelte';
 	import IncomingCallModal from './IncomingCallModal.svelte';
 	import OutgoingCallModal from './OutgoingCallModal.svelte';
+	import Icon from './ui/Icon.svelte';
+	import Menu from './ui/Menu.svelte';
+	import Tooltip from './ui/Tooltip.svelte';
+	import type { MenuEntry } from './context-menu/ContextMenu.svelte';
+	import {
+		CAPTURE_FAILED_WORDS,
+		connectionWords,
+		cornerBar,
+		dockCallPanel,
+		followPlaceUnderCall,
+		minimizedCallLabel,
+		peopleCountLabel,
+		recordingNoteWords,
+		recordingReadout,
+		recordingResultWords,
+		sessionConnectionState
+	} from '$lib/callShell';
 	import { onDestroy, afterUpdate, onMount } from 'svelte';
 
 	type CallViewportMode = 'embedded' | 'focus' | 'docked';
+
+	/** Developer instruments (spatial seat debug, relay counters) exist only in dev builds (§9.4). */
+	const isDevBuild = import.meta.env.DEV;
 
 	let callNotification: Notification | null = null;
 	let lastIncomingCallToken: string | null = null;
@@ -133,6 +155,8 @@
 	let presenterOverlayUndoByTile: Record<string, PresenterOverlayElement[][]> = {};
 	let presenterOverlayRedoByTile: Record<string, PresenterOverlayElement[][]> = {};
 	let showSpatialDebugOverlay = false;
+	/** The spatial seat map lives in the stage; it is opened from the header's Call options. */
+	let spatialSeatsOpen = false;
 
 	let mediaDevices: MediaDeviceGroups | null = null;
 	let selectedAudioInputId: string | null = null;
@@ -198,19 +222,91 @@
 	// Channel stage counts as a live surface even when the legacy isInCall
 	// flag is false (listen-only joins never set it).
 	$: callSurfaceLive = $isInCall || hasChannelStage;
-	$: showDockedBar = callSurfaceLive && callViewportMode === 'docked' && $callMode !== 'channel';
+	// The docked bar is the minimized DM / group call. A minimized channel call (or a listen-only
+	// room, which never sets isInCall) lives in the sidebar's voice status and the Calls panel.
+	$: showDockedBar = $isInCall && callViewportMode === 'docked' && $callMode !== 'channel';
 	$: showCallShell = callSurfaceLive && callViewportMode !== 'docked';
-	$: showHatchToggle = callSurfaceLive && callViewportMode !== 'docked';
 	// Resolve the real channel name — joinVoiceChannel stores the raw id in
 	// activeVoiceChannel, so look the display name up in the channel list.
 	$: activeVoiceChannelName =
 		$channels.find((channel) => channel.id === $activeVoiceChannel?.id)?.name ??
 		$activeVoiceChannel?.name ??
 		'';
+	// Full window with the hatch open leaves the sidebar and the companion column visible. The
+	// companion's real reserved width is the shell's --w-dock-w (0 for a stowed pin) plus the rail,
+	// read in CSS; only the sidebar side is known here.
 	$: focusHatchInsetLeft = !$layoutStore.isMobile && $layoutStore.navDock === 'left' ? $layoutStore.channelSidebarWidth : 0;
-	$: focusHatchInsetRight = !$layoutStore.isMobile
-		? ($layoutStore.navDock === 'right' ? $layoutStore.channelSidebarWidth : 0) + ($layoutStore.showRightPanel ? $layoutStore.rightPanelWidth : 0)
-		: 0;
+	$: focusHatchInsetRight = !$layoutStore.isMobile && $layoutStore.navDock === 'right' ? $layoutStore.channelSidebarWidth : 0;
+
+	// Header (§8.5): the room's name, how many people, and connection trouble in plain words.
+	$: stageChannelId = hasChannelStage && stageSession ? (stageSession.channelId ?? stageSession.id) : null;
+	$: callTitle = stageChannelId && stageSession
+		? ($channels.find((channel) => channel.id === stageChannelId)?.name ?? stageSession.name ?? 'Voice room')
+		: $callMode === 'group'
+			? ($activeGroupCall?.name || 'Group call')
+			: $activeCalls[0]?.username
+				? `Call with ${$activeCalls[0].username}`
+				: $callMode === 'channel' && activeVoiceChannelName
+					? activeVoiceChannelName
+					: 'Call';
+	$: callPeopleCount = stageChannelId && stageSession
+		? (($voiceChannelMembers[stageChannelId] ?? []).length || stageSession.participants.length)
+		: $callMode === 'channel' && $activeVoiceChannel?.id
+			? (($voiceChannelMembers[$activeVoiceChannel.id] ?? []).length || 1 + $activeCalls.length)
+			: 1 + $activeCalls.length;
+	$: callPeopleLabel = peopleCountLabel(callPeopleCount);
+	$: dockedRegionLabel = minimizedCallLabel(callTitle);
+	$: callStatusWords = connectionWords(
+		stageChannelId && stageSession && !$isInCall ? sessionConnectionState(stageSession.lifecycle) : $connectionState
+	);
+	$: compactDock = $layoutStore.isMobile;
+	// The camera store defaults to "on" outside a call; a listen-only room has no camera to show.
+	$: cameraOn = $isInCall && !$isVideoOff;
+	$: callOptionsItems = [
+		{
+			id: 'spatial',
+			label: 'Spatial hearing',
+			role: 'menuitemcheckbox',
+			checked: spatialAudioActive,
+			hint: 'Places voices around you',
+			onSelect: toggleSpatialAudioEnabled
+		},
+		{
+			id: 'seats',
+			label: 'Arrange seats',
+			icon: 'users',
+			hidden: !(hasChannelStage && spatialAudioActive),
+			onSelect: () => {
+				spatialSeatsOpen = true;
+			}
+		},
+		{ id: 'sep-settings', type: 'separator' },
+		{
+			id: 'audio-settings',
+			label: 'Audio settings',
+			icon: 'gear',
+			onSelect: () => {
+				window.dispatchEvent(new CustomEvent('wabi:open-settings', { detail: { tab: 'audio' } }));
+			}
+		},
+		{
+			// Route, latency and packet loss live on the Calls page (one surface, §8.5, §9.5); opening
+			// them docks the call so that page is what center stage shows.
+			id: 'connection-details',
+			label: 'Connection details',
+			icon: 'signal',
+			onSelect: openConnectionDetails
+		},
+		{ id: 'dev', type: 'kicker', label: 'Developer', hidden: !isDevBuild },
+		{
+			id: 'spatial-debug',
+			label: 'Spatial debug overlay',
+			role: 'menuitemcheckbox',
+			checked: showSpatialDebugOverlay,
+			hidden: !isDevBuild,
+			onSelect: handleToggleSpatialDebug
+		}
+	] satisfies MenuEntry[];
 
 	$: participants = buildWabidbAwareParticipants(
 		buildParticipants($activeCalls, $isInCall, $localStream, $isVideoOff),
@@ -262,20 +358,10 @@
 	$: tileById = new Map(renderTiles.map((tile) => [tile.id, tile]));
 	$: captureAvailable = shares.length > 0;
 	$: activeSpeakerLevels = buildActiveSpeakerLevels(participants, $activeCalls, $isLocalSpeaking, $isMuted, $isDeafened);
-	$: recordingLabel =
-		$callRecordingState.status === 'recording'
-			? `Recording ${formatRecordingElapsed($callRecordingState.elapsedMs)}`
-			: $callRecordingState.status === 'saving'
-				? 'Saving recording...'
-				: $callRecordingState.savedFileCount > 1
-					? `Saved ${$callRecordingState.savedFileCount} files`
-				: $callRecordingState.savedPath
-					? `Saved: ${$callRecordingState.savedPath}`
-					: $callRecordingState.savedFileCount === 1
-						? 'Saved 1 file'
-					: $callRecordingState.lastError
-						? `Recording error: ${$callRecordingState.lastError}`
-						: '';
+	// After a recording: plain words, never the file path or the raw error (§7.16); the error is
+	// logged once instead.
+	$: recordingLabel = recordingResultWords($callRecordingState);
+	$: logRecordingError($callRecordingState.status === 'error' ? $callRecordingState.lastError : null);
 	$: selfStableUserId =
 		typeof $currentUser?.dbUserId === 'number'
 			? `user-${$currentUser.dbUserId}`
@@ -307,22 +393,19 @@
 		$callRecordingState.status === 'recording' ||
 		$callRecordingState.status === 'saving' ||
 		activeRecordingCount > 0;
-	$: recordingPillText =
-		$callRecordingState.status === 'saving'
-			? 'Saving'
-			: $callRecordingState.status === 'recording'
-				? `REC ${formatRecordingElapsed($callRecordingState.elapsedMs)}`
-				: activeRecordingCount > 0
-					? `REC ${activeRecordingCount}`
-					: '';
-	$: recordingPresenceCopy =
-		$callRecordingState.status === 'saving'
-			? 'Recording has stopped. Saving locally on this device.'
-			: activeRecordingCount > 0
-				? formatRecordingPresenceCopy(activeScopeRecordingParticipants, selfStableUserId)
-				: $callRecordingState.status === 'recording'
-					? 'Recording is starting. Everyone in this call will see the badge.'
-					: '';
+	// One readout for everyone in the call: "Recording 02:14" (§8.5, §9.5).
+	$: recordingPillText = recordingReadout(
+		$callRecordingState.status,
+		formatRecordingElapsed($callRecordingState.elapsedMs),
+		activeRecordingCount
+	);
+	// Who is recording, by name once the presence echo arrives; your own recording is named by its
+	// state until then ("starting", then "You're recording" once the readout runs).
+	$: recordingPresenceCopy = recordingNoteWords(
+		$callRecordingState.status,
+		$callRecordingState.elapsedMs,
+		activeRecordingCount > 0 ? formatRecordingPresenceCopy(activeScopeRecordingParticipants, selfStableUserId) : ''
+	);
 
 	$: {
 		const nextPins = sanitizePinnedIds(pinnedTileIds, tileById);
@@ -380,23 +463,14 @@
 		(presenterOverlayRedoByTile[activePresenterOverlayTileId]?.length || 0) > 0;
 	$: presenterOverlayActiveLabel =
 		(activePresenterOverlayTileId && tileById.get(activePresenterOverlayTileId)?.label) || 'Screen';
-	$: routeListeningCount = (() => {
-		const ids = new Set($listeningVoiceChannels);
-		if ($activeVoiceChannel?.id) ids.add($activeVoiceChannel.id);
-		return ids.size;
-	})();
-	$: voiceRouteText =
-		$callMode === 'channel'
-			? `Speaking: ${$activeVoiceChannel?.name || 'None'} | Listening: ${routeListeningCount} channel(s)`
-			: $callMode === 'group'
-				? `Group call: ${$activeGroupCall?.name || 'Group'}`
-			: $isInCall
-				? (
-					$callTransportState.reason === 'direct_call_turn_unconfigured'
-						? 'Direct call: P2P/STUN only. TURN relay is not configured on this server.'
-						: 'Direct call: P2P/TURN'
-				)
-				: '';
+	// Transport and route details are developer diagnostics (dev builds only, §9.4).
+	$: devRouteText = !isDevBuild
+		? ''
+		: $callMode === 'direct' && $isInCall
+			? $callTransportState.reason === 'direct_call_turn_unconfigured'
+				? 'Direct call: STUN only, no TURN relay configured on this server'
+				: 'Direct call: peer-to-peer with TURN fallback'
+			: '';
 	$: ringingMenuItems = ringingMenuTarget
 		? ([
 			{
@@ -463,6 +537,16 @@
 		}
 		wasChannelPanelOpen = $channelCallPanelOpen;
 	}
+
+	// Center stage owns the selected workspace: while the call covers the stage, choosing another
+	// place (a folio word, Ctrl K, a channel, a DM in center stage, Open whiteboard) docks the call,
+	// so the stage shows what the masthead now names. The sidebar voice room (second click), the
+	// live strip and the minimized card's Open bring it back.
+	$: stagePlace = `${$activeWorkspaceView}|${$currentChannel ?? ''}|${$layoutStore.centerDmChannelId ?? ''}`;
+	$: followStagePlace(showCallShell, stagePlace);
+	// Connection details live on the Calls page (one surface, §9.5): opening them, from the call's
+	// options, the Calls masthead or the sidebar voice status, uncovers that page.
+	$: followConnectionDetails($callConnectionDetailsOpen);
 
 	$: {
 		const incomingToken = $incomingCall
@@ -825,9 +909,8 @@
 			);
 			setCaptureFeedback('Captured frame queued for the whiteboard.');
 		} catch (error) {
-			setCaptureFeedback(
-				error instanceof Error ? error.message : 'Failed to capture the current frame.'
-			);
+			console.warn('[CallModal] capture to whiteboard failed:', error);
+			setCaptureFeedback(CAPTURE_FAILED_WORDS);
 		} finally {
 			captureBusy = false;
 		}
@@ -852,10 +935,93 @@
 		hatchOpen = !hatchOpen;
 	}
 
+	/** The header's Minimize: the person dismisses the call, so it stays down for this call. */
 	function minimizeToDocked(): void {
 		callViewportMode = 'docked';
-		dismissChannelCallPanel();
 		hatchOpen = false;
+		dockCallPanel('minimize', { close: () => channelCallPanelOpen.set(false), dismiss: dismissChannelCallPanel });
+	}
+
+	/**
+	 * Navigation moved center stage somewhere else: the call docks with a plain close, exactly like
+	 * the sidebar's text-channel click, so it is not a dismissal and a remote screen share can still
+	 * bring it back (dockCallPanel).
+	 */
+	function dockForNavigation(): void {
+		callViewportMode = 'docked';
+		hatchOpen = false;
+		dockCallPanel('navigation', { close: () => channelCallPanelOpen.set(false) });
+	}
+
+	// The place center stage showed when the call came up over it (see followPlaceUnderCall).
+	let placeUnderCall: string | null = null;
+	function followStagePlace(covering: boolean, place: string): void {
+		const next = followPlaceUnderCall(placeUnderCall, place, covering);
+		placeUnderCall = next.remembered;
+		if (next.dock) dockForNavigation();
+	}
+
+	let connectionDetailsWereOpen = false;
+	function followConnectionDetails(open: boolean): void {
+		if (open && !connectionDetailsWereOpen && showCallShell) dockForNavigation();
+		connectionDetailsWereOpen = open;
+	}
+
+	let loggedRecordingError: string | null = null;
+	function logRecordingError(error: string | null | undefined): void {
+		if (error && error !== loggedRecordingError) console.warn('[CallModal] recording failed:', error);
+		loggedRecordingError = error ?? null;
+	}
+
+	/**
+	 * The call foot takes its height from the workspace above it; a stream that was showing its
+	 * newest message keeps showing it (the composer's own rule for a growing field).
+	 */
+	function keepStreamAtLatest(node: HTMLElement) {
+		const composer = node.parentElement?.querySelector(':scope > .chat-surface .composer');
+		const scroller = streamScrollerFor(composer);
+		if (scroller) followStreamBottom(scroller, node.offsetHeight);
+		return {};
+	}
+
+	/**
+	 * The embedded call and the minimized call foot are part of center stage. Under a held peek's
+	 * scrim MainLayout makes the stage parts inert (both paint under that scrim too), so they follow
+	 * the workspace beside them: inert while `.chat-surface` is. Full window is never covered.
+	 */
+	function followStageInert(node: HTMLElement, embedded: boolean) {
+		let observer: MutationObserver | null = null;
+		const surface = (): Element | null => node.parentElement?.querySelector(':scope > .chat-surface') ?? null;
+		const sync = () => {
+			if (embedded && surface()?.hasAttribute('inert')) node.setAttribute('inert', '');
+			else node.removeAttribute('inert');
+		};
+		const watch = () => {
+			observer?.disconnect();
+			observer = null;
+			const target = surface();
+			if (embedded && target && typeof MutationObserver !== 'undefined') {
+				observer = new MutationObserver(sync);
+				observer.observe(target, { attributes: true, attributeFilter: ['inert'] });
+			}
+			sync();
+		};
+		watch();
+		return {
+			update(next: boolean) {
+				embedded = next;
+				watch();
+			},
+			destroy() {
+				observer?.disconnect();
+				node.removeAttribute('inert');
+			}
+		};
+	}
+
+	/** Full window fills the app window above every column; pressing it again returns to the stage. */
+	function toggleFullWindow(): void {
+		setViewportMode(callViewportMode === 'focus' ? 'embedded' : 'focus');
 	}
 
 	function closeHatch(): void {
@@ -995,14 +1161,18 @@
 {/if}
 
 {#if $callOfflineNotice}
-	<div class="call-offline-banner" transition:fade={{ duration: 160 }} role="alert">
-		{$callOfflineNotice}
-		<button
-			class="call-offline-dismiss"
-			on:click={() => callOfflineNotice.set(null)}
-			title="Dismiss"
-			aria-label="Dismiss call notice"
-		>×</button>
+	<div class="call-offline-banner w-notice w-notice--warn" transition:fade={{ duration: 160 }} role="alert">
+		<Icon name="warn" size={16} />
+		<p class="w-notice__title">{$callOfflineNotice}</p>
+		<div class="w-notice__actions">
+			<button
+				type="button"
+				class="w-ibtn w-ibtn--sm"
+				on:click={() => callOfflineNotice.set(null)}
+				title="Dismiss"
+				aria-label="Dismiss call notice"
+			><Icon name="x" size={16} /></button>
+		</div>
 	</div>
 {/if}
 
@@ -1020,126 +1190,152 @@
 {/if}
 
 {#if showDockedBar}
-	<div class="docked-bar" class:connected={$callMode === 'channel'} role="region" aria-label="Docked call controls">
+	<!-- The minimized DM / group call: the stage's call foot. It sits in the stage's flow below the
+	     workspace (never over the newest message or the composer), with the call's name, its
+	     people and the controls you reach for without opening it (§7.26). -->
+	<div
+		class="docked-bar"
+		role="region"
+		aria-label={dockedRegionLabel}
+		use:followStageInert={true}
+		use:keepStreamAtLatest
+		use:cornerBar
+	>
 		<div class="docked-status">
-			<span class="docked-voice-icon" aria-hidden="true">
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-			</span>
+			<span class="docked-live" aria-hidden="true"></span>
 			<div class="docked-info">
-				<span class="docked-channel">
-					{#if $callMode === 'channel'}
-						{activeVoiceChannelName || 'Voice channel'}
-					{:else}
-						Call in progress
-					{/if}
-				</span>
-				<span class="docked-meta">
-					{voiceRouteText || `${1 + $activeCalls.length} participant${$activeCalls.length === 0 ? '' : 's'}`}
-				</span>
+				<span class="docked-channel">{callTitle}</span>
+				<span class="docked-meta">{callPeopleLabel}{#if callStatusWords} · {callStatusWords}{/if}</span>
 			</div>
 			{#if recordingPillText}
-				<span class="recording-pill compact" class:is-saving={$callRecordingState.status === 'saving'}>
-					<span class="recording-dot"></span>
+				<span class="recording-pill" class:is-saving={$callRecordingState.status === 'saving'}>
+					<span class="recording-dot" aria-hidden="true"></span>
 					{recordingPillText}
 				</span>
 			{/if}
 		</div>
 		<div class="docked-actions">
-			<button class="dock-btn" on:click={() => setViewportMode('embedded')} title="Open call view">Open</button>
-			<button class="dock-btn" on:click={() => setViewportMode('focus')} title="Focus call">Focus</button>
-		<button
-			class="dock-btn"
-			class:active={spatialAudioActive}
-			on:click={toggleSpatialAudioEnabled}
-			title={spatialAudioActive ? 'Spatial hearing: on — turn off' : 'Spatial hearing: off — turn on'}
-			aria-label="Toggle spatial hearing"
-		><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1.6"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M8.46 8.46a5 5 0 0 0 0 7.07"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg></button>
+			<button type="button" class="w-btn w-btn--sm" on:click={() => setViewportMode('embedded')}>Open</button>
 			<button
-				class="dock-btn debug-toggle"
-				class:active={showSpatialDebugOverlay}
-				on:click={handleToggleSpatialDebug}
-				title="Spatial Debug Overlay"
-			>Diag</button>
-			<button class="dock-btn" class:active={$isMuted} on:click={handleToggleMute} title={$isMuted ? 'Unmute' : 'Mute'}>Mute</button>
-			<button class="dock-btn" class:active={$isDeafened} on:click={handleToggleDeafen} title={$isDeafened ? 'Undeafen' : 'Deafen'}>Deafen</button>
+				type="button"
+				class="w-ibtn docked-mic"
+				aria-label="Mute microphone"
+				aria-pressed={$isMuted}
+				title={$isMuted ? 'Unmute microphone' : 'Mute microphone'}
+				on:click={handleToggleMute}
+			><Icon name={$isMuted ? 'micOff' : 'mic'} /></button>
 			<button
-				class="dock-btn record"
-				class:active={$callRecordingState.status === 'recording'}
-				on:click={handleToggleRecording}
-				title={$callRecordingState.status === 'recording' ? 'Stop recording' : 'Start recording'}
-			>
-				{$callRecordingState.status === 'saving' ? 'Saving' : $callRecordingState.status === 'recording' ? 'Stop REC' : 'Record'}
+				type="button"
+				class="w-ibtn docked-sound"
+				aria-label="Deafen"
+				aria-pressed={$isDeafened}
+				title={$isDeafened ? 'Turn sound back on' : 'Deafen'}
+				on:click={handleToggleDeafen}
+			><Icon name={$isDeafened ? 'headphonesOff' : 'headphones'} /></button>
+			<button type="button" class="w-btn w-btn--danger w-btn--sm docked-leave" on:click={handleEndCall}>
+				<Icon name="phoneOff" />Leave
 			</button>
-			<button class="dock-btn end" on:click={handleEndCall} title="Leave call">
-			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07C9.44 17.28 8.17 16 7.05 14.68A19.79 19.79 0 0 1 4 6.05 2 2 0 0 1 5.99 4h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L10.68 11.68"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
-		</button>
 		</div>
 	</div>
 {/if}
 
 {#if showCallShell}
+	<!-- Embedded: center stage below the masthead (folio and channel context stay). Full window:
+	     the same call over the whole app window. Both share one header and one floating dock. -->
 	<div
 		class="call-shell"
 		class:mode-embedded={callViewportMode === 'embedded'}
 		class:mode-focus={callViewportMode === 'focus'}
 		class:hatch-open={callViewportMode === 'focus' && hatchOpen}
 		style={`--hatch-left: ${focusHatchInsetLeft}px; --hatch-right: ${focusHatchInsetRight}px;`}
+		use:followStageInert={callViewportMode === 'embedded'}
 	>
-		{#if callViewportMode === 'focus'}
+		{#if callViewportMode === 'focus' && hatchOpen}
 			<button
 				type="button"
 				class="hatch-scrim"
-				class:visible={hatchOpen}
 				on:click={closeHatch}
 				aria-label="Close hatch"
 			></button>
 		{/if}
 
-		{#if showHatchToggle}
-			<button
-				type="button"
-				class="hatch-toggle"
-				on:click={callViewportMode === 'focus' ? () => setViewportMode('embedded') : () => setViewportMode('focus')}
-				title={callViewportMode === 'focus' ? 'Exit fullscreen' : 'Fullscreen'}
-			>
-				{#if callViewportMode === 'focus'}
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="10" y1="14" x2="3" y2="21"/><line x1="21" y1="3" x2="14" y2="10"/></svg>
-				{:else}
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-				{/if}
-			</button>
-			{#if callViewportMode === 'embedded'}
-				<button
-					type="button"
-					class="hatch-toggle minimize"
-					on:click={minimizeToDocked}
-					title="Minimize to voice bar"
-					aria-label="Minimize call to voice bar"
-				>
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-				</button>
-			{/if}
-		{/if}
+		<section class="call-room" aria-labelledby="call-head-title">
+			<header class="call-head">
+				<div class="call-head__lead">
+					<span class="call-head__live" aria-hidden="true"></span>
+					<h2 class="call-head__title" id="call-head-title">{callTitle}</h2>
+					<span class="call-head__meta">{callPeopleLabel}</span>
+					{#if callStatusWords}
+						<span class="call-head__status" role="status">{callStatusWords}</span>
+					{/if}
+					{#if recordingPillText}
+						<!-- The one recording readout, the same words as the minimized card (§9.5). It ticks
+						     every second, so it is not a live region; the note below says who records. -->
+						<span class="recording-pill call-head__recording" class:is-saving={$callRecordingState.status === 'saving'}>
+							<span class="recording-dot" aria-hidden="true"></span>
+							{recordingPillText}
+						</span>
+					{/if}
+				</div>
+				<div class="call-head__actions">
+					<Tooltip text="Call options" placement="bottom">
+						<Menu items={callOptionsItems} label="Call options" triggerLabel="Call options" class="w-ibtn" align="end">
+							<Icon name="more" />
+						</Menu>
+					</Tooltip>
+					<Tooltip text="Minimize call" placement="bottom">
+						<button
+							type="button"
+							class="w-ibtn"
+							aria-label="Minimize call"
+							on:click={minimizeToDocked}
+						><Icon name="chevDown" /></button>
+					</Tooltip>
+					<Tooltip text={callViewportMode === 'focus' ? 'Back to the stage' : 'Fill the window'} placement="bottom">
+						<button
+							type="button"
+							class="w-ibtn"
+							aria-label="Full window"
+							aria-pressed={callViewportMode === 'focus'}
+							on:click={toggleFullWindow}
+						><Icon name={callViewportMode === 'focus' ? 'collapse' : 'expand'} /></button>
+					</Tooltip>
+				</div>
+			</header>
 
-		<div class="active-call-container">
-			{#if showRecordingPresenceBanner}
-				<CallRecordingPanel recordingState={$callRecordingState} {recordingPresenceCopy} {recordingPillText} />
+			{#if showRecordingPresenceBanner && recordingPresenceCopy}
+				<p class="call-recording-note" role="status">{recordingPresenceCopy}</p>
 			{/if}
-			<div class="call-context-row">
-			{#if $connectionState && $connectionState !== 'idle'}
-				<div class="connection-status">Connection: {$connectionState}</div>
+
+			{#if $callMode === 'group' && $groupCallRingingTargets.length > 0}
+				<div class="ringing-targets-panel">
+					<span class="ringing-targets-label w-kicker">Still ringing</span>
+					<div class="ringing-targets-list">
+						{#each $groupCallRingingTargets as target (target.stableUserId)}
+							<button
+								type="button"
+								class="ringing-target-chip"
+								title={`Manage ringing for ${target.username}`}
+								aria-haspopup="menu"
+								on:click={(event) => openRingingMenu(event, target)}
+								on:contextmenu={(event) => openRingingMenu(event, target)}
+							>
+								<span class="ringing-target-name">{target.username}</span>
+								<span class="ringing-target-state">Ringing</span>
+							</button>
+						{/each}
+					</div>
+				</div>
 			{/if}
-			{#if voiceRouteText}
-				<div class="route-status">{voiceRouteText}</div>
-			{/if}
-			</div>
-			<div class="call-stage" bind:this={callStageElement}>
+
+			<div class="call-stage" class:call-stage--grid={!hasChannelStage} bind:this={callStageElement}>
 				{#if hasChannelStage && stageSession}
 					<!-- Phase 3 + 2026-09-07 stage targeting: the clicked session's
-					     stage — avatar chips, video/screen tiles, spatial seats. -->
+					     stage — the audio room of stamps, video/screen tiles, spatial seats. -->
 					<CallStage
 						session={stageSession}
 						spatialEnabled={spatialAudioActive}
+						bind:seatsOpen={spatialSeatsOpen}
 					/>
 				{:else}
 				<CallParticipantGrid
@@ -1162,10 +1358,11 @@
 					heroIds={layoutResult.heroIds}
 				/>
 				{/if}
-				{#if showSpatialDebugOverlay && $isInCall}
+				{#if isDevBuild && showSpatialDebugOverlay && $isInCall}
+					<!-- Developer instrument (dev builds only, §9.4): seats, transport and relay counters. -->
 					<div class="spatial-debug-overlay" transition:fade={{ duration: 140 }}>
 						<div class="spatial-debug-header">
-							<strong>Spatial Debug</strong>
+							<span class="w-kicker">Spatial seats</span>
 							<span>{$spatialSeatDebugState.entries.length} sources</span>
 						</div>
 						<div class="spatial-debug-map">
@@ -1187,18 +1384,42 @@
 								<div class="spatial-debug-row">
 									<span class="spatial-debug-type">{seat.sourceType}</span>
 									<span>{seat.username}</span>
-									<span>S{seat.seatIndex + 1}/{seat.slotCount}</span>
+									<span>{seat.seatIndex + 1} of {seat.slotCount}</span>
 								</div>
 							{/each}
 						</div>
+						<dl class="spatial-debug-facts">
+							<dt>Transport</dt>
+							<dd>{$callTransportState.activeTransport}{$callTransportState.isFallback ? ' (fallback)' : ''}</dd>
+							<dt>Spatial</dt>
+							<dd>{$spatialAudioRuntimeStatus.effectiveMode}, {$spatialAudioDiagnostics.totalSources} sources</dd>
+							{#if devRouteText}
+								<dt>Route</dt>
+								<dd>{devRouteText}</dd>
+							{/if}
+							{#if relayAudioDiag}
+								<dt>Audio relay</dt>
+								<dd>{relayAudioDiag}</dd>
+							{/if}
+							{#if relayVideoDiag}
+								<dt>Video relay</dt>
+								<dd>{relayVideoDiag}</dd>
+							{/if}
+						</dl>
 					</div>
 				{/if}
 			</div>
 
+			{#if recordingLabel && !showRecordingPresenceBanner}
+				<CallRecordingPanel recordingState={$callRecordingState} {recordingLabel} />
+			{/if}
+
 			<CallControls
+				compact={compactDock}
+				feedback={captureFeedback}
 				isMuted={$isMuted}
 				isDeafened={$isDeafened}
-				isVideoOff={$isVideoOff}
+				isVideoOff={!cameraOn}
 				isSharing={$isSharing}
 				canScreenShare={canScreenShare()}
 				{captureAvailable}
@@ -1232,64 +1453,7 @@
 				onOpenDevicePicker={handleOpenDevicePicker}
 				onSelectDevice={handleSelectDevice}
 			/>
-
-
-			<button
-				class="dock-btn"
-				class:active={spatialAudioActive}
-				on:click={toggleSpatialAudioEnabled}
-				title={spatialAudioActive ? 'Spatial hearing: on — turn off' : 'Spatial hearing: off — turn on'}
-			><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1.6"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M8.46 8.46a5 5 0 0 0 0 7.07"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg> Spatial</button>
-			<details class="call-diagnostics"><summary>Call details</summary><div class="call-status-row">
-				<span class="transport-badge" class:degraded={$callTransportState.isFallback}>
-					Transport: {$callTransportState.activeTransport.toUpperCase()}
-					{#if $callTransportState.isFallback}
-						<span class="transport-note">fallback active</span>
-					{/if}
-				</span>
-				<span class="transport-badge">
-					Spatial: {$spatialAudioRuntimeStatus.effectiveMode.toUpperCase()}
-					<span class="transport-note">src {$spatialAudioDiagnostics.totalSources}</span>
-				</span>
-				{#if relayAudioDiag}
-					<span class="transport-badge">{relayAudioDiag}</span>
-				{/if}
-				{#if relayVideoDiag}
-					<span class="transport-badge">{relayVideoDiag}</span>
-				{/if}
-				<button
-					class="dock-btn debug-toggle"
-					class:active={showSpatialDebugOverlay}
-					on:click={handleToggleSpatialDebug}
-					title="Spatial Debug Overlay"
-				>Diag</button>
-			</div></details>
-			{#if recordingLabel && !showRecordingPresenceBanner}
-				<CallRecordingPanel recordingState={$callRecordingState} {recordingLabel} />
-			{/if}
-			{#if captureFeedback}
-				<div class="route-status">{captureFeedback}</div>
-			{/if}
-			{#if $callMode === 'group' && $groupCallRingingTargets.length > 0}
-				<div class="ringing-targets-panel">
-					<div class="ringing-targets-label">Still ringing</div>
-					<div class="ringing-targets-list">
-						{#each $groupCallRingingTargets as target (target.stableUserId)}
-							<button
-								type="button"
-								class="ringing-target-chip"
-								title={`Manage ringing for ${target.username}`}
-								on:click={(event) => openRingingMenu(event, target)}
-								on:contextmenu={(event) => openRingingMenu(event, target)}
-							>
-								<span class="ringing-target-name">{target.username}</span>
-								<span class="ringing-target-state">Ringing</span>
-							</button>
-						{/each}
-					</div>
-				</div>
-			{/if}
-		</div>
+		</section>
 	</div>
 {/if}
 

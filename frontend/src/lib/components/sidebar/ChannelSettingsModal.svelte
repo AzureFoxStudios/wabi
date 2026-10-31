@@ -1,147 +1,53 @@
+<!--
+	Channel settings (design contract §7.13, §8.9): a BaseModal lg (760) with a fixed title row,
+	a scrolling body and a footer that stays put.
+
+	- General · Permissions · Retention as a vertical segmented tablist on the left. Retention only
+	  exists where a chat stream keeps messages.
+	- Settings rows (.w-srow) with switches; permission rows wear the seal glyph (§5.1: the seal is
+	  for who can open or change something). The danger zone ends General as a hairline section
+	  with outlined danger buttons; it never wears the seal.
+	- One Save path: the footer's "Save changes" sends everything, the message lifetime included.
+	  Confirms go through confirmAction, errors render inline where the action happened.
+-->
 <script lang="ts">
-	import { createEventDispatcher, onDestroy } from 'svelte';
+	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { currentRetentionFromPrivacy, explicitRetentionUpdate } from '$lib/retentionDisplay';
-import { get } from 'svelte/store';
+	import { get } from 'svelte/store';
 	import type { Channel, VoiceChannelSettings } from '$lib/socket';
 	import { currentUser, channels } from '$lib/socket';
 	import { getLoreBinding, setLoreBinding, deleteLoreBinding, parseLoreChannelId } from '$lib/api/lore';
 	import { getAuthToken } from '$lib/authSession';
 	import { hasAddonCapability } from '$lib/addonInventory';
 	import { getSocket, connected } from '$lib/socketConnection';
+	import { confirmAction } from '$lib/confirm';
+	import BaseModal from '$lib/components/BaseModal.svelte';
+	import Icon from '$lib/components/ui/Icon.svelte';
+	import Notice from '$lib/components/ui/Notice.svelte';
+	import Select from '$lib/components/ui/Select.svelte';
+	import Switch from '$lib/components/ui/Switch.svelte';
 	import {
-		MESSAGE_RETENTION_LABELS,
-		MESSAGE_RETENTION_PRESETS,
-		LIVE_RETENTION,
-		isLiveRetention,
-		type MessageRetentionDuration
-	} from '../../../../../shared/messageRetention.js';
-
-	// A retention selection is either a durable preset, null (keep forever),
-	// or the "live" sentinel (session-only, never persisted).
-	type RetentionChoice = MessageRetentionDuration | null | typeof LIVE_RETENTION;
-
-	// Only workspace owners and admins may bulk-clear a channel's messages.
-	$: canClearMessages = ['owner', 'admin'].includes($currentUser?.highestRole || '');
-	$: canDeleteChannel = ['owner', 'admin'].includes($currentUser?.highestRole || '') && channel.id !== 'general' && channel.id !== 'voice';
-
-	let currentRetention: string | null = null;
-	let retentionReady = false;
-	let retentionError = '';
-	let retentionRequestKey = '';
-	let retentionAbort: AbortController | null = null;
-	$: {
-		const key = `${$activeServerUrl}|${channel.id}|${$currentUser?.dbUserId ?? 'guest'}|${String(channel.autoDeleteAfter)}`;
-		if (key !== retentionRequestKey) {
-			retentionRequestKey = key;
-			void loadCurrentRetention($activeServerUrl, channel.id, key);
-		}
-	}
-	$: effectiveAutoDelete = retentionReady
-		? currentRetention === 'forever' ? null : currentRetention
-		: undefined;
-	async function loadCurrentRetention(server: string, id: string, key: string): Promise<void> {
-		retentionAbort?.abort();
-		const abort = new AbortController(); retentionAbort = abort;
-		retentionReady = false; retentionError = '';
-		const token = getAuthToken(server);
-		if (!token) { retentionError = 'Sign in to verify the current message lifetime.'; return; }
-		try {
-			const response = await fetch(`${server}/api/privacy/channels/${encodeURIComponent(id)}`, {
-				headers: { Authorization: `Bearer ${token}` }, credentials: 'include', signal: abort.signal
-			});
-			if (!response.ok) throw new Error('Could not verify this room’s current message lifetime.');
-			const label = currentRetentionFromPrivacy(await response.json(), id);
-			if (abort.signal.aborted || retentionRequestKey !== key || getAuthToken(server) !== token || $activeServerUrl !== server) return;
-			if (label === null) throw new Error('This server returned an invalid message lifetime.');
-			currentRetention = label; retentionReady = true;
-		} catch (error) {
-			if (!abort.signal.aborted && retentionRequestKey === key) retentionError = error instanceof Error ? error.message : 'Could not verify the current message lifetime.';
-		}
-	}
-	onDestroy(() => retentionAbort?.abort());
-
-	async function clearAllMessages(): Promise<void> {
-		if (!canClearMessages || channel.type === 'dm') return;
-		const confirmed = window.confirm(
-			`Remove visible message history in #${channel.name} for everyone? Attachment files are not deleted, and backups or older storage may retain copies.`
-		);
-		if (!confirmed) return;
-		if (!get(connected)) {
-			window.alert('Reconnect to the server, then review the channel and request the clear again.');
-			return;
-		}
-		const sock = getSocket();
-		if (!sock) {
-			window.alert('The server connection is unavailable. Check the channel before retrying.');
-			return;
-		}
-		const requestedChannelId = channel.id;
-		const onSuccess = (payload: { channelId?: string }) => {
-			if (payload?.channelId === requestedChannelId) cleanup();
-		};
-		const onError = (payload: { channelId?: string; error?: string }) => {
-			if (payload?.channelId !== requestedChannelId) return;
-			cleanup();
-			window.alert(payload.error || 'Channel history could not be cleared. Check history before retrying.');
-		};
-		const cleanup = () => {
-			clearTimeout(timer);
-			sock.off('channel-messages-cleared', onSuccess);
-			sock.off('clear-channel-error', onError);
-		};
-		const timer = setTimeout(() => {
-			cleanup();
-			window.alert('No clear confirmation was received. Check channel history before retrying.');
-		}, 15_000);
-		sock.on('channel-messages-cleared', onSuccess);
-		sock.on('clear-channel-error', onError);
-		sock.emit('clear-channel-messages', { channelId: requestedChannelId });
-	}
-
-	/** Clear this channel's in-memory view; unowned legacy archives are untouched. */
-	async function clearLocalMessagesOnly(): Promise<void> {
-		if (channel.type === 'dm') return;
-		const confirmed = window.confirm(
-			`Clear the loaded messages for #${channel.name} on this device?\n\nServer history is unchanged and may load again when you reopen the channel. Legacy archives and exported files are not deleted.`
-		);
-		if (!confirmed) return;
-		try {
-			const { channelMessages } = await import('$lib/socket');
-			channelMessages.update((state) => ({ ...state, [channel.id]: [] }));
-		} catch (err) {
-			console.warn('[channel-settings] local clear failed', err);
-			window.alert('Could not clear local messages. Check console for details.');
-		}
-	}
-
-	function chooseRetention(next: RetentionChoice): void {
-		if (!retentionReady) return;
-		const prev = effectiveAutoDelete;
-		if (next === prev) return;
-		// Opt into Live (session-only, no persistence).
-		if (isLiveRetention(next) && !isLiveRetention(prev)) {
-			const ok = window.confirm(
-				`Make #${channel.name} a Live room?\n\nNew messages are session-only and are lost when the server restarts. Earlier retained messages keep their original policy in storage, but may be hidden from chat while Live mode is active. Live is not private from the server owner while messages are live.`
-			);
-			if (!ok) return;
-			saveChannelSettings(LIVE_RETENTION);
-			return;
-		}
-		// Leaving Live → timed/forever: nothing was stored, so no purge needed.
-		if (isLiveRetention(prev) && !isLiveRetention(next)) {
-			saveChannelSettings(next);
-			return;
-		}
-		// Opt into keep-forever (persistence) for future messages.
-		if (next === null && prev !== null) {
-			const ok = window.confirm(
-				`Keep new messages in #${channel.name} forever?\n\nEarlier messages keep the retention policy they had when sent. New history stays in chat until it is separately removed.`
-			);
-			if (!ok) return;
-		}
-		saveChannelSettings(next);
-	}
+		GATE_OPTIONS,
+		MANAGERS_LABEL,
+		MANAGERS_ONLY_HINT,
+		canManageChannel,
+		channelDraftDirty,
+		channelSettingsNote,
+		channelSettingsTabs,
+		channelSettingsTitle,
+		hasChannelGate,
+		isChatLikeKind,
+		nextTab,
+		persistToggleTab,
+		retentionChoiceFor,
+		retentionOptions,
+		retentionValue,
+		type ChannelDraftBaseline,
+		type ChannelSettingsTab,
+		type RetentionChoice
+	} from './channelSettingsModel';
+	import { LIVE_RETENTION, isLiveRetention, type MessageRetentionDuration } from '../../../../../shared/messageRetention.js';
 
 	export let channel: Channel;
 	export let canTogglePersistMessages = false;
@@ -165,19 +71,211 @@ import { get } from 'svelte/store';
 		};
 	}>();
 
-	let activeChannelId = '';
-	let tempPersistMessages = false;
+	const uid = `cs-${Math.random().toString(36).slice(2, 8)}`;
+	const formId = `${uid}-form`;
+	const RETENTION_OPTIONS = retentionOptions();
 
-	// --- Lore binding (spec 2026-08-28 P1.4) ---
+	// ---------------------------------------------------------------- who may do what
+	$: isStaff = canManageChannel($currentUser?.highestRole);
+	$: canClearMessages = isStaff;
+	$: canDeleteChannel = isStaff && channel.id !== 'general' && channel.id !== 'voice';
+
+	$: channelKind = (channel.type || 'text') as string;
+	$: isWikiChannel = channelKind === 'wiki';
+	$: isForumChannel = channelKind === 'forum';
+	$: isGalleryChannel = channelKind === 'gallery';
+	$: isVoiceChannel = channelKind === 'voice';
+	$: isFolder = channelKind === 'category';
+	$: isChatLikeChannel = isChatLikeKind(channelKind);
+	$: isConversation = channelKind === 'dm' || channelKind === 'group';
+	$: settingsTitle = channelSettingsTitle(channelKind);
+	$: placeName = channelSettingsNote(channelKind, channel.name);
+	$: kindNoun = isFolder ? 'folder' : isVoiceChannel ? 'room' : 'channel';
+	$: tabs = channelSettingsTabs(channelKind);
+	/** Which section holds the offline-copies switch for this kind (null: none). */
+	$: persistTab = canTogglePersistMessages ? persistToggleTab(channelKind) : null;
+
+	// ---------------------------------------------------------------- tabs
+	let activeTab: ChannelSettingsTab = 'general';
+	$: if (!tabs.some((tab) => tab.id === activeTab)) activeTab = 'general';
+	const tabButtons: Record<string, HTMLButtonElement | null> = {};
+
+	function selectTab(id: ChannelSettingsTab): void {
+		activeTab = id;
+		if (id === 'permissions') void ensureGateLoaded();
+	}
+
+	/** At 640px and under the tablist is a row (see the style block); say so to assistive tech. */
+	let tabsHorizontal = false;
+	onMount(() => {
+		if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+		const query = window.matchMedia('(max-width: 640px)');
+		const sync = () => (tabsHorizontal = query.matches);
+		sync();
+		query.addEventListener('change', sync);
+		return () => query.removeEventListener('change', sync);
+	});
+
+	async function handleTabKeydown(event: KeyboardEvent): Promise<void> {
+		const next = nextTab(tabs.map((tab) => tab.id), activeTab, event.key);
+		if (!next) return;
+		event.preventDefault();
+		selectTab(next);
+		await tick();
+		tabButtons[next]?.focus();
+	}
+
+	// ---------------------------------------------------------------- current message lifetime
+	let currentRetention: string | null = null;
+	let retentionReady = false;
+	let retentionError: '' | 'signin' | 'invalid' | 'failed' = '';
+	let retentionRequestKey = '';
+	let retentionAbort: AbortController | null = null;
+	$: {
+		const key = `${$activeServerUrl}|${channel.id}|${$currentUser?.dbUserId ?? 'guest'}|${String(channel.autoDeleteAfter)}`;
+		if (key !== retentionRequestKey) {
+			retentionRequestKey = key;
+			void loadCurrentRetention($activeServerUrl, channel.id, key);
+		}
+	}
+	$: effectiveAutoDelete = retentionReady
+		? currentRetention === 'forever' ? null : currentRetention
+		: undefined;
+
+	async function loadCurrentRetention(server: string, id: string, key: string): Promise<void> {
+		retentionAbort?.abort();
+		const abort = new AbortController();
+		retentionAbort = abort;
+		retentionReady = false;
+		retentionError = '';
+		const token = getAuthToken(server);
+		if (!token) {
+			retentionError = 'signin';
+			return;
+		}
+		try {
+			const response = await fetch(`${server}/api/privacy/channels/${encodeURIComponent(id)}`, {
+				headers: { Authorization: `Bearer ${token}` }, credentials: 'include', signal: abort.signal
+			});
+			if (!response.ok) throw new Error(`lifetime check failed (${response.status})`);
+			const label = currentRetentionFromPrivacy(await response.json(), id);
+			if (abort.signal.aborted || retentionRequestKey !== key || getAuthToken(server) !== token || $activeServerUrl !== server) return;
+			if (label === null) {
+				retentionError = 'invalid';
+				return;
+			}
+			currentRetention = label;
+			retentionReady = true;
+		} catch (error) {
+			if (abort.signal.aborted || retentionRequestKey !== key) return;
+			console.warn('[channel-settings] lifetime check failed', error);
+			retentionError = 'failed';
+		}
+	}
+	onDestroy(() => retentionAbort?.abort());
+
+	$: retentionErrorText =
+		retentionError === 'signin'
+			? 'Sign in again to check it. Nothing changes until it is checked.'
+			: retentionError === 'invalid'
+				? 'The server sent a lifetime Wabi does not recognise. Nothing changes until it is checked.'
+				: 'Nothing changes until the server confirms it.';
+
+	/** Unsaved lifetime choice; undefined while the room keeps its current one. */
+	let draftRetention: RetentionChoice | undefined = undefined;
+	let retentionSelect = '';
+	$: shownRetention = draftRetention !== undefined ? draftRetention : (effectiveAutoDelete as RetentionChoice | undefined);
+	$: if (!retentionBusy) retentionSelect = retentionValue(shownRetention);
+	let retentionBusy = false;
+
+	async function chooseRetention(value: string): Promise<void> {
+		if (!retentionReady) return;
+		const next = retentionChoiceFor(value);
+		const previous = shownRetention;
+		if (next === previous) return;
+		retentionBusy = true;
+		let ok = true;
+		if (isLiveRetention(next) && !isLiveRetention(previous)) {
+			ok = await confirmAction({
+				title: `Make #${channel.name} a live room?`,
+				body: 'New messages are not saved and are lost when the server restarts, and earlier messages may be hidden while the room is live. Not saving messages does not hide them from the server operator.',
+				confirm: 'Make it live'
+			});
+		} else if (next === null && previous !== null) {
+			ok = await confirmAction({
+				title: 'Keep new messages forever?',
+				body: `New messages in #${channel.name} stay until someone deletes them. Earlier messages keep the lifetime they were sent with.`,
+				confirm: 'Keep forever'
+			});
+		}
+		retentionBusy = false;
+		if (!ok) {
+			retentionSelect = retentionValue(previous);
+			return;
+		}
+		draftRetention = next === effectiveAutoDelete ? undefined : next;
+	}
+
+	// ---------------------------------------------------------------- who can open (channel gate)
+	let gateStatus: 'idle' | 'loading' | 'ready' | 'error' = 'idle';
+	let gateBase: string | null = null;
+	let tempGate = '';
+	let gateServer = '';
+	$: gateApplies = hasChannelGate(channelKind);
+
+	async function gateRequest(path: string, init: RequestInit, server: string): Promise<Record<string, unknown>> {
+		const token = getAuthToken(server);
+		if (!token) throw new Error('not signed in');
+		const response = await fetch(`${server}/api/server-center${path}`, {
+			...init,
+			credentials: 'include',
+			headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) }
+		});
+		const data = await response.json().catch(() => ({}));
+		if (!response.ok) throw new Error(`channel gate request failed (${response.status})`);
+		return data as Record<string, unknown>;
+	}
+
+	async function loadGate(): Promise<void> {
+		const server = $activeServerUrl;
+		gateServer = server;
+		gateStatus = 'loading';
+		try {
+			const data = await gateRequest('/channel-gates', {}, server);
+			if (gateServer !== server) return;
+			const roles = (data.minRoles ?? {}) as Record<string, string>;
+			gateBase = roles[channel.id] ?? '';
+			tempGate = gateBase;
+			gateStatus = 'ready';
+		} catch (error) {
+			if (gateServer !== server) return;
+			console.warn('[channel-settings] channel gate load failed', error);
+			gateStatus = 'error';
+		}
+	}
+
+	function ensureGateLoaded(): void {
+		if (isStaff && gateApplies && (gateStatus === 'idle' || gateStatus === 'error')) void loadGate();
+	}
+
+	// ---------------------------------------------------------------- Lore binding (spec 2026-08-28 P1.4)
 	let loreBindingAvailable = false;
 	let loreBindingActive = false;
 	let loreBindingStatus = '';
+	let loreBindingBusy = false;
 	let tempLoreRepoChannel = '';
 	let tempLorePath = '/';
 	let tempLoreBranch = 'main';
 	let tempLoreMode = 'hybrid';
 	let tempLoreAllowedTypes = '';
 	$: loreChannels = $channels.filter((c) => (c.type || 'text') === 'lore');
+	$: loreRepoOptions = loreChannels.map((c) => ({ value: c.id, label: c.name }));
+	const LORE_MODE_OPTIONS = [
+		{ value: 'none', label: 'None · promote by hand' },
+		{ value: 'direct', label: 'Direct commit' },
+		{ value: 'stage', label: 'Stage for review' },
+		{ value: 'hybrid', label: 'Hybrid · by role' }
+	];
 	void hasAddonCapability('lore').then((ok) => {
 		loreBindingAvailable = ok;
 	});
@@ -213,7 +311,8 @@ import { get } from 'svelte/store';
 		const repoNumeric = parseLoreChannelId(tempLoreRepoChannel);
 		const token = getAuthToken();
 		if (!numeric || !repoNumeric || !token) return;
-		loreBindingStatus = 'Saving…';
+		loreBindingBusy = true;
+		loreBindingStatus = '';
 		try {
 			await setLoreBinding(token, numeric, {
 				repoChannelId: repoNumeric,
@@ -226,42 +325,45 @@ import { get } from 'svelte/store';
 					.filter(Boolean)
 			});
 			loreBindingActive = true;
-			loreBindingStatus = 'Binding saved.';
+			loreBindingStatus = 'saved';
 		} catch (e) {
-			loreBindingStatus = e instanceof Error ? e.message : String(e);
+			console.warn('[channel-settings] lore binding save failed', e);
+			loreBindingStatus = 'save-failed';
+		} finally {
+			loreBindingBusy = false;
 		}
+	}
+
+	/** Enter in a binding field saves the binding, never the whole dialog's form. */
+	function handleLoreKeydown(event: KeyboardEvent): void {
+		if (event.key !== 'Enter' || event.isComposing) return;
+		event.preventDefault();
+		if (!loreBindingBusy && tempLoreRepoChannel && tempLorePath.startsWith('/')) void saveLoreBinding();
 	}
 
 	async function removeLoreBinding(): Promise<void> {
 		const numeric = parseLoreChannelId(channel.id);
 		const token = getAuthToken();
 		if (!numeric || !token) return;
-		loreBindingStatus = 'Removing…';
+		loreBindingBusy = true;
+		loreBindingStatus = '';
 		try {
 			await deleteLoreBinding(token, numeric);
 			loreBindingActive = false;
 			tempLoreRepoChannel = '';
 			tempLorePath = '/';
-			loreBindingStatus = 'Binding removed.';
+			loreBindingStatus = 'removed';
 		} catch (e) {
-			loreBindingStatus = e instanceof Error ? e.message : String(e);
+			console.warn('[channel-settings] lore binding remove failed', e);
+			loreBindingStatus = 'remove-failed';
+		} finally {
+			loreBindingBusy = false;
 		}
 	}
 
-	$: channelKind = (channel.type || 'text') as string;
-	$: isWikiChannel = channelKind === 'wiki';
-	$: isForumChannel = channelKind === 'forum';
-	$: isGalleryChannel = channelKind === 'gallery';
-	$: isChatLikeChannel = !isWikiChannel && !isForumChannel && !isGalleryChannel && channelKind !== 'voice';
-	$: settingsTitle = isWikiChannel
-		? 'Wiki Settings'
-		: isForumChannel
-			? 'Forum Settings'
-			: isGalleryChannel
-				? 'Gallery Settings'
-				: 'Channel Settings';
-	$: channelHeadingPrefix = isWikiChannel ? '◈' : isForumChannel ? '◫' : isGalleryChannel ? '▣' : '#';
-
+	// ---------------------------------------------------------------- draft fields
+	let activeChannelId = '';
+	let tempPersistMessages = false;
 	let tempDescription = '';
 	let tempChannelName = '';
 	let tempWatchQueueEnabled = false;
@@ -274,6 +376,7 @@ import { get } from 'svelte/store';
 	let tempLiveAttachMax = '';
 	let tempAfkAnnounce = true;
 	let tempLiveRenderWindow = getLiveRenderWindow();
+	let baseRenderWindow = tempLiveRenderWindow;
 
 	$: if (channel && channel.id !== activeChannelId) {
 		activeChannelId = channel.id;
@@ -291,13 +394,48 @@ import { get } from 'svelte/store';
 		tempLiveAttachMax = '';
 		tempAfkAnnounce = true;
 		tempLiveRenderWindow = getLiveRenderWindow();
+		baseRenderWindow = tempLiveRenderWindow;
+		draftRetention = undefined;
+		gateStatus = 'idle';
+		gateBase = null;
+		saveError = '';
+		clearState = 'idle';
 	}
 
-	function isEditableTarget(target: EventTarget | null): boolean {
-		if (!(target instanceof HTMLElement)) return false;
-		const tag = target.tagName;
-		return target.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-	}
+	$: liveActive = isLiveRetention(
+		draftRetention !== undefined ? draftRetention : retentionReady ? effectiveAutoDelete : channel.autoDeleteAfter
+	);
+
+	$: baseline = {
+		name: channel.name || '',
+		description: channel.description || '',
+		forceSpoiler: channel.forceSpoiler || false,
+		watchQueueEnabled: channel.watchQueueEnabled || false,
+		persistMessages: channel.persistMessages || false,
+		voiceUserLimit: channel.voiceSettings?.userLimit ? String(channel.voiceSettings.userLimit) : '',
+		voiceForceSolo: channel.voiceSettings?.forceSolo === true,
+		renderWindow: baseRenderWindow,
+		gate: gateBase,
+		// Nothing stores this yet (see the handoff), so the client default is the baseline.
+		afkAnnounce: true
+	} satisfies ChannelDraftBaseline;
+	$: dirty = channelDraftDirty(
+		{
+			name: tempChannelName,
+			description: tempDescription,
+			forceSpoiler: tempForceSpoiler,
+			watchQueueEnabled: tempWatchQueueEnabled,
+			persistMessages: tempPersistMessages,
+			voiceUserLimit: tempVoiceUserLimit,
+			voiceForceSolo: tempVoiceForceSolo,
+			renderWindow: tempLiveRenderWindow,
+			gate: gateStatus === 'ready' ? tempGate : null,
+			afkAnnounce: liveActive ? tempAfkAnnounce : true,
+			retention: draftRetention,
+			liveFields: liveActive ? [tempLiveTtl, tempLiveCap, tempLiveGrace, tempLiveAttachMax] : []
+		},
+		baseline
+	);
 
 	function parseVoiceUserLimitInput(rawValue: string): number | null {
 		const trimmed = rawValue.trim();
@@ -395,485 +533,733 @@ import { get } from 'svelte/store';
 		setLiveRenderWindow(tempLiveRenderWindow);
 	}
 
-	function handleOverlayKeydown(event: KeyboardEvent): void {
-		if (isEditableTarget(event.target)) return;
-		if (event.key === 'Enter' || event.key === ' ') {
-			event.preventDefault();
-			dispatch('close');
+	/** One paragraph: line breaks typed or pasted become spaces, Enter saves like the other fields. */
+	function handleDescriptionInput(event: Event & { currentTarget: HTMLTextAreaElement }): void {
+		const field = event.currentTarget;
+		const flat = field.value.replace(/\r?\n/g, ' ');
+		if (flat !== field.value) {
+			const caret = field.selectionStart;
+			field.value = flat;
+			field.setSelectionRange(caret, caret);
+		}
+		tempDescription = flat;
+	}
+
+	// WebKit (the Tauri shell on macOS and iOS) and Firefox have no `field-sizing: content`, so
+	// there the description would stay one line and scroll inside itself. Grow it by hand to its
+	// content height; the CSS max-height still caps it at five lines.
+	const descriptionGrowsNatively =
+		typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('field-sizing', 'content');
+
+	function fitDescription(field: HTMLTextAreaElement): void {
+		if (descriptionGrowsNatively) return;
+		field.style.height = 'auto';
+		field.style.height = `${field.scrollHeight + (field.offsetHeight - field.clientHeight)}px`;
+	}
+
+	function descriptionFit(field: HTMLTextAreaElement, _value: string) {
+		fitDescription(field);
+		return { update: () => fitDescription(field) };
+	}
+
+	function handleDescriptionKeydown(event: KeyboardEvent & { currentTarget: HTMLTextAreaElement }): void {
+		if (event.key !== 'Enter' || event.isComposing) return;
+		event.preventDefault();
+		event.currentTarget.form?.requestSubmit();
+	}
+
+	// ---------------------------------------------------------------- save
+	let saving = false;
+	let saveError = '';
+
+	async function handleSave(): Promise<void> {
+		if (saving || !dirty) return;
+		saveError = '';
+		if (gateStatus === 'ready' && gateBase !== null && tempGate !== gateBase) {
+			saving = true;
+			try {
+				await gateRequest(
+					`/channel-gates/${encodeURIComponent(channel.id)}`,
+					{ method: 'PUT', body: JSON.stringify({ minRole: tempGate || null }) },
+					gateServer || $activeServerUrl
+				);
+				gateBase = tempGate;
+			} catch (error) {
+				console.warn('[channel-settings] channel gate save failed', error);
+				saveError = 'gate';
+				saving = false;
+				activeTab = 'permissions';
+				return;
+			}
+			saving = false;
+		}
+		saveChannelSettings(draftRetention);
+	}
+
+	// ---------------------------------------------------------------- history
+	let clearState: 'idle' | 'busy' | 'done' | 'error' = 'idle';
+	let clearProblem = '';
+
+	async function clearAllMessages(): Promise<void> {
+		if (!canClearMessages || isConversation || clearState === 'busy') return;
+		const confirmed = await confirmAction({
+			title: `Clear the history of #${channel.name}?`,
+			body: 'Visible messages are removed for everyone once storage confirms it. Attachment files are not deleted, and backups or older storage may keep copies.',
+			confirm: 'Clear history',
+			danger: true
+		});
+		if (!confirmed) return;
+		if (!get(connected)) {
+			clearState = 'error';
+			clearProblem = 'Reconnect to the server, then check the channel and try again.';
+			return;
+		}
+		const sock = getSocket();
+		if (!sock) {
+			clearState = 'error';
+			clearProblem = 'The server connection is unavailable. Check the channel before trying again.';
+			return;
+		}
+		clearState = 'busy';
+		const requestedChannelId = channel.id;
+		const onSuccess = (payload: { channelId?: string }) => {
+			if (payload?.channelId !== requestedChannelId) return;
+			cleanup();
+			clearState = 'done';
+		};
+		const onError = (payload: { channelId?: string; error?: string }) => {
+			if (payload?.channelId !== requestedChannelId) return;
+			cleanup();
+			console.warn('[channel-settings] clear failed', payload?.error);
+			clearState = 'error';
+			clearProblem = 'Nothing was cleared that Wabi could confirm. Check the history before trying again.';
+		};
+		const cleanup = () => {
+			clearTimeout(timer);
+			sock.off('channel-messages-cleared', onSuccess);
+			sock.off('clear-channel-error', onError);
+		};
+		const timer = setTimeout(() => {
+			cleanup();
+			clearState = 'error';
+			clearProblem = 'No confirmation came back from the server. Check the history before trying again.';
+		}, 15_000);
+		sock.on('channel-messages-cleared', onSuccess);
+		sock.on('clear-channel-error', onError);
+		sock.emit('clear-channel-messages', { channelId: requestedChannelId });
+	}
+
+	let localClearState: 'idle' | 'done' | 'error' = 'idle';
+
+	/** Clear this channel's in-memory view; unowned legacy archives are untouched. */
+	async function clearLocalMessagesOnly(): Promise<void> {
+		if (isConversation) return;
+		const confirmed = await confirmAction({
+			title: 'Clear the loaded messages on this device?',
+			body: `Server history of #${channel.name} is unchanged and may load again when you reopen the channel. Archives and exported files are not deleted.`,
+			confirm: 'Clear on this device'
+		});
+		if (!confirmed) return;
+		try {
+			const { channelMessages } = await import('$lib/socket');
+			channelMessages.update((state) => ({ ...state, [channel.id]: [] }));
+			localClearState = 'done';
+		} catch (err) {
+			console.warn('[channel-settings] local clear failed', err);
+			localClearState = 'error';
 		}
 	}
 
-	function handleModalKeydown(event: KeyboardEvent): void {
-		if (isEditableTarget(event.target)) return;
-		if (event.key === 'Enter' || event.key === ' ') {
-			event.preventDefault();
-		}
+	// ---------------------------------------------------------------- footer rule only when the body scrolls
+	let bodyScrolls = false;
+	function watchBodyScroll(node: HTMLElement) {
+		const body = node.closest<HTMLElement>('.base-modal__body');
+		if (!body || typeof ResizeObserver === 'undefined') return {};
+		const measure = () => (bodyScrolls = body.scrollHeight > body.clientHeight + 1);
+		const observer = new ResizeObserver(measure);
+		observer.observe(body);
+		observer.observe(node);
+		measure();
+		return { destroy: () => observer.disconnect() };
 	}
+
+	const close = () => dispatch('close');
 </script>
 
-<div
-	class="modal-overlay"
-	role="button"
-	tabindex="0"
-	on:click={() => dispatch('close')}
-	on:keydown={handleOverlayKeydown}
+<BaseModal
+	isOpen={true}
+	onClose={close}
+	size="lg"
+	padded
+	title={settingsTitle}
+	note={placeName}
+	panelClass="channel-settings"
 >
-	<div
-		class="modal-content"
-		role="button"
-		tabindex="0"
-		on:click|stopPropagation
-		on:keydown|stopPropagation={handleModalKeydown}
-	>
-		<div class="modal-header">
-			<h2>
-				<svg class="modal-title-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path></svg>
-				{settingsTitle}
-			</h2>
-			<button class="close-btn" on:click={() => dispatch('close')}>&times;</button>
+	<form id={formId} class="cs-layout" use:watchBodyScroll on:submit|preventDefault={() => void handleSave()}>
+		<div class="w-seg w-seg--vertical cs-tabs" role="tablist" aria-orientation={tabsHorizontal ? 'horizontal' : 'vertical'} aria-label="{settingsTitle} sections">
+			{#each tabs as tab (tab.id)}
+				<button
+					type="button"
+					role="tab"
+					id="{uid}-tab-{tab.id}"
+					aria-selected={activeTab === tab.id}
+					aria-controls="{uid}-panel"
+					tabindex={activeTab === tab.id ? 0 : -1}
+					bind:this={tabButtons[tab.id]}
+					on:click={() => selectTab(tab.id)}
+					on:keydown={handleTabKeydown}
+				>{tab.label}</button>
+			{/each}
 		</div>
-		<div class="modal-body">
-			<div class="setting-section">
-				<h3>Channel: {channelHeadingPrefix}{channel.name}</h3>
 
-				<div class="setting-group">
-					<label for="channel-settings-name">Name</label>
-					<input
-						id="channel-settings-name"
-						type="text"
-						bind:value={tempChannelName}
-						placeholder="Channel name"
-						class="description-input"
-						maxlength="64"
-					/>
-				</div>
-
-				<div class="setting-group">
-					<label for="channel-settings-description">Description</label>
-					<input
-						id="channel-settings-description"
-						type="text"
-						bind:value={tempDescription}
-						placeholder="Add a channel description..."
-						class="description-input"
-						maxlength="200"
-					/>
-					<button class="save-description-btn" on:click={() => saveChannelSettings()}>
-						Save Settings
-					</button>
-				</div>
-
-				{#if isChatLikeChannel}
-				<div class="setting-group">
-					<span class="setting-label">Message retention</span>
-					<p class="setting-description">
-						Changes apply to new messages. Earlier messages keep their original lifetime, but may be hidden while Live mode is active. Live is session only. This room’s current lifetime is read from the server.
-					</p>
-
-					{#if !retentionReady}<p class="setting-description" role="status">{retentionError || 'Checking current message lifetime…'}</p>{#if retentionError}<button type="button" on:click={() => loadCurrentRetention($activeServerUrl, channel.id, retentionRequestKey)}>Retry lifetime check</button>{/if}{/if}
-					{#if retentionReady}<p class="setting-description">Current lifetime: {currentRetention === 'forever' ? 'Keep forever' : currentRetention === 'live' ? 'Live session' : MESSAGE_RETENTION_LABELS[currentRetention as MessageRetentionDuration] || currentRetention}.</p>{/if}
-					<div class="auto-delete-options">
-						<button
-							class="auto-delete-btn live-retention-btn"
-							disabled={!retentionReady}
-							class:active={effectiveAutoDelete === LIVE_RETENTION}
-							on:click={() => chooseRetention(LIVE_RETENTION)}
-							type="button"
-							title="Session only — messages are never saved and are lost on server restart"
-						>
-							Live · session only
-						</button>
-						<button
-							class="auto-delete-btn" disabled={!retentionReady}
-							class:active={effectiveAutoDelete === null}
-							on:click={() => chooseRetention(null)}
-							type="button"
-						>
-							Keep forever
-						</button>
-						{#each MESSAGE_RETENTION_PRESETS as duration}
-							<button
-								class="auto-delete-btn" disabled={!retentionReady}
-								class:active={effectiveAutoDelete === duration}
-								on:click={() => chooseRetention(duration)}
-								type="button"
-							>
-								{MESSAGE_RETENTION_LABELS[duration]}
-							</button>
-						{/each}
+		<div class="cs-panel" role="tabpanel" id="{uid}-panel" aria-labelledby="{uid}-tab-{activeTab}">
+			{#if activeTab === 'general'}
+				<div class="cs-fields">
+					<div class="cs-field">
+						<label class="w-label" for="{uid}-name">Name</label>
+						<div class="w-field cs-name">
+							{#if isChatLikeChannel}<span class="cs-prefix" aria-hidden="true">#</span>{/if}
+							<input id="{uid}-name" type="text" bind:value={tempChannelName} maxlength="64" autocomplete="off" disabled={!isStaff} />
+						</div>
 					</div>
-				</div>
-				{#if isChatLikeChannel && loreBindingAvailable}
-				<div class="setting-group">
-					<span class="setting-label">Lore binding</span>
-					<p class="setting-description">
-						Bind this channel to a path in a Lore repo — attachments can be promoted there
-						via their context menu.
-					</p>
-					{#if loreChannels.length === 0}
-						<p class="setting-description">No Lore channels exist yet — create one first.</p>
-					{:else}
-						<label class="setting-field">
-							<span class="setting-label">Repo (Lore channel)</span>
-							<select bind:value={tempLoreRepoChannel}>
-								<option value="" disabled>Select a Lore channel…</option>
-								{#each loreChannels as c (c.id)}
-									<option value={c.id}>{c.name}</option>
-								{/each}
-							</select>
-						</label>
-						<label class="setting-field">
-							<span class="setting-label">Target path</span>
-							<input type="text" bind:value={tempLorePath} placeholder="/art/concepts/" />
-						</label>
-						<label class="setting-field">
-							<span class="setting-label">Branch</span>
-							<input type="text" bind:value={tempLoreBranch} placeholder="main" />
-						</label>
-						<label class="setting-field">
-							<span class="setting-label">Mode</span>
-							<select bind:value={tempLoreMode}>
-								<option value="none">None (manual promote only)</option>
-								<option value="direct">Direct commit</option>
-								<option value="stage">Stage for review</option>
-								<option value="hybrid">Hybrid (role-based)</option>
-							</select>
-						</label>
-						<label class="setting-field">
-							<span class="setting-label">Allowed types (comma-separated, e.g. image/*, .blend)</span>
-							<input type="text" bind:value={tempLoreAllowedTypes} placeholder="image/*" />
-						</label>
-						<div class="lore-binding-actions">
-							<button class="save-btn" type="button" disabled={!tempLoreRepoChannel || !tempLorePath.startsWith('/')} on:click={saveLoreBinding}>
-								{loreBindingActive ? 'Update binding' : 'Save binding'}
-							</button>
-							{#if loreBindingActive}
-								<button class="danger-btn" type="button" on:click={removeLoreBinding}>Remove binding</button>
-							{/if}
-							{#if loreBindingStatus}
-								<span class="setting-description">{loreBindingStatus}</span>
-							{/if}
+					{#if !isFolder}
+						<div class="cs-field">
+							<label class="w-label" for="{uid}-description">Description</label>
+							<!-- Grows with the text instead of clipping it; it stays one paragraph. -->
+							<textarea
+								id="{uid}-description"
+								class="w-field cs-description"
+								rows="1"
+								value={tempDescription}
+								on:input={handleDescriptionInput}
+								on:keydown={handleDescriptionKeydown}
+								use:descriptionFit={tempDescription}
+								placeholder="What this {kindNoun} is for"
+								maxlength="200"
+								aria-describedby="{uid}-description-count"
+								disabled={!isStaff}
+							></textarea>
+							<div class="w-field-foot">
+								<span class="w-field-count" id="{uid}-description-count">{tempDescription.length} / 200</span>
+							</div>
 						</div>
 					{/if}
 				</div>
-				{/if}
-				{:else if isWikiChannel}
-				<div class="setting-group">
-					<span class="setting-label">Wiki options</span>
-					<p class="setting-description">
-						Pages live in this wiki channel. Name and description above identify the wiki surface.
-						Page history and permissions will expand here; chat retention does not apply.
-					</p>
-				</div>
-				{:else if isForumChannel}
-				<div class="setting-group">
-					<span class="setting-label">Forum options</span>
-					<p class="setting-description">
-						Threads and posts live in this forum. Chat spoiler/retention controls do not apply.
-						Moderation tools for threads will expand here.
-					</p>
-				</div>
-				{:else if isGalleryChannel}
-				<div class="setting-group">
-					<span class="setting-label">Gallery options</span>
-					<p class="setting-description">
-						Media albums are scoped to this gallery channel. Chat message retention does not apply.
-					</p>
-				</div>
-				{/if}
 
-			{#if isChatLikeChannel && channel.type !== 'dm'}
-				<div class="setting-group">
-					<label class="spoiler-toggle">
-						<input
-							type="checkbox"
-							checked={tempForceSpoiler}
-							on:change={(e) => (tempForceSpoiler = (e.currentTarget as HTMLInputElement).checked)}
-						/>
-						<span>
-							<strong>🔒 Spoiler channel</strong>
-							<span class="setting-description">
-								Every message sent here is automatically hidden until clicked — including old messages.
-							</span>
-						</span>
-					</label>
-				</div>
-			{/if}
-
-			{#if isChatLikeChannel && channel.type !== 'dm' && canClearMessages}
-				<div class="setting-group danger-zone">
-					<span class="setting-label">Clear channel history</span>
-					<p class="setting-description">
-						Server clear removes visible message history for everyone after storage confirms it.
-						Local only clears this browser’s cache. Attachments and backup copies are not deleted.
-					</p>
-					<div class="purge-actions">
-						<button class="clear-messages-btn" type="button" on:click={clearAllMessages}>Clear for everyone</button>
-						<button class="clear-messages-btn local-only" type="button" on:click={clearLocalMessagesOnly}>Local only</button>
-					</div>
-				</div>
-			{/if}
-
-			{#if channel.type !== 'dm' && canTogglePersistMessages}
-				<div class="setting-group">
-					<label class="inline-check">
-						<input type="checkbox" bind:checked={tempPersistMessages} class="setting-checkbox" />
-						<span>Keep offline cache on this device</span>
-					</label>
-					<p class="setting-description">
-						When on, this browser may retain channel messages across restarts. Separate from purge —
-						Storage settings can still wipe local data.
-					</p>
-				</div>
-			{/if}
-
-				{#if channel.type !== 'dm' && channel.type !== 'voice'}
-					<div class="setting-group">
-						<label class="setting-label">
-							<input
-								type="checkbox"
-								bind:checked={tempWatchQueueEnabled}
-								class="setting-checkbox"
-								disabled={!canManageWatchQueue}
-							/>
-							YouTube Queue Channel
-						</label>
-						<p class="setting-description">
-							Enable the dedicated watch queue embed area in this channel while keeping standard YouTube link previews.
-						</p>
-						{#if !canManageWatchQueue}
-							<p class="setting-description">Only workspace owners or admins can change this setting.</p>
-						{/if}
-					</div>
-				{/if}
-
-				{#if channel.type === 'voice'}
-					<div class="setting-group">
-						<div class="setting-label">Voice Capacity</div>
-						<p class="setting-description">Leave blank for unlimited. The sidebar will show current users as x/y when a limit is set.</p>
-						<input
-							type="number"
-							min="1"
-							max="99"
-							step="1"
-							value={tempVoiceUserLimit}
-							on:input={(event) => {
-								tempVoiceUserLimit = event.currentTarget.value;
-							}}
-							placeholder="Unlimited"
-							class="description-input"
-							disabled={!canManageVoiceSettings}
-						/>
-						{#if !canManageVoiceSettings}
-							<p class="setting-description">Only workspace owners or admins can change voice capacity.</p>
-						{/if}
-					</div>
-
-					<div class="setting-group">
-						<label class="setting-label">
-							<input
-								type="checkbox"
-								bind:checked={tempVoiceForceSolo}
-								class="setting-checkbox"
-								disabled={!canManageVoiceSettings}
-							/>
-							Focused Audio
-						</label>
-						<p class="setting-description">When enabled, joining this voice channel forces listen/transmit focus to this channel only. Use voice capacity `1` if you want a true one-person room.</p>
-						{#if !canManageVoiceSettings}
-							<p class="setting-description">Only workspace owners or admins can change focused audio mode.</p>
-						{/if}
-					</div>
-				{/if}
-
-				{#if isLiveRetention(channel.autoDeleteAfter)}
-					<div class="setting-section live-settings-section">
-						<h3>Live Room</h3>
-
-						<div class="setting-group">
-							<label for="live-ttl" class="setting-label">Message TTL</label>
-							<input
-								id="live-ttl"
-								type="text"
-								bind:value={tempLiveTtl}
-								placeholder="e.g. 10m"
-								class="description-input"
-							/>
-							<p class="setting-description">How long messages stay alive before expiring (e.g. 10m, 30s, 1h).</p>
-						</div>
-
-						<div class="setting-group">
-							<label for="live-cap" class="setting-label">Message Cap</label>
-							<input
-								id="live-cap"
-								type="text"
-								bind:value={tempLiveCap}
-								placeholder="e.g. 1000"
-								class="description-input"
-							/>
-							<p class="setting-description">Maximum number of alive messages in the server buffer.</p>
-						</div>
-
-						<div class="setting-group">
-							<label for="live-grace" class="setting-label">Reconnect Grace Period</label>
-							<input
-								id="live-grace"
-								type="text"
-								bind:value={tempLiveGrace}
-								placeholder="e.g. 60s"
-								class="description-input"
-							/>
-							<p class="setting-description">Time after disconnect before a user is marked AFK (e.g. 60s, 5m).</p>
-						</div>
-
-						<div class="setting-group">
-							<label for="live-attach-max" class="setting-label">Max Attachment Size</label>
-							<input
-								id="live-attach-max"
-								type="text"
-								bind:value={tempLiveAttachMax}
-								placeholder="e.g. 8 MB"
-								class="description-input"
-							/>
-							<p class="setting-description">Maximum attachment file size for live messages.</p>
-						</div>
-
-						<div class="setting-group">
-							<label class="setting-label">
-								<input
-									type="checkbox"
-									bind:checked={tempAfkAnnounce}
-									class="setting-checkbox"
-								/>
-								AFK Announcements
-							</label>
-							<p class="setting-description">Show system messages when someone goes AFK or returns.</p>
-						</div>
-
-						<div class="setting-group">
-							<label for="live-render-window" class="setting-label">Client Render Window</label>
-							<input
-								id="live-render-window"
-								type="number"
-								min="50"
-								max="5000"
-								step="50"
-								bind:value={tempLiveRenderWindow}
-								class="description-input"
-							/>
-							<p class="setting-description">Weaker PCs: keep last N messages in DOM. Server buffer is unaffected.</p>
-						</div>
-
-						<button class="save-description-btn" on:click={() => saveChannelSettings()}>
-							Save Live Settings
-						</button>
-					</div>
-				{/if}
-
-				{#if canDeleteChannel}
-					<div class="setting-group danger-zone delete-zone">
-						<div class="danger-zone-heading">
-							<div>
-								<span class="setting-label">Danger zone</span>
-								<p class="setting-description">Delete this channel or folder from the server. Folder deletion will ask whether to keep its channels.</p>
+				<div class="w-srows cs-rows">
+					{#if isWikiChannel || isForumChannel || isGalleryChannel}
+						<div class="w-srow">
+							<div class="w-srow__text">
+								<p class="w-srow__label">{isWikiChannel ? 'Pages' : isForumChannel ? 'Threads' : 'Albums'}</p>
+								<p class="w-srow__hint">
+									{#if isWikiChannel}Pages live in this wiki. Message lifetime and spoilers do not apply.
+									{:else if isForumChannel}Threads and replies live in this forum. Message lifetime and spoilers do not apply.
+									{:else}Albums belong to this gallery. Message lifetime does not apply.{/if}
+								</p>
 							</div>
-							<button class="delete-channel-btn" type="button" on:click={() => dispatch('delete', { channel })}>Delete {channel.type === 'category' ? 'folder' : 'channel'}</button>
+						</div>
+					{/if}
+
+					{#if isVoiceChannel}
+						<div class="w-srow">
+							<div class="w-srow__text">
+								<label class="w-srow__label" for="{uid}-capacity">Capacity</label>
+								<p class="w-srow__hint" id="{uid}-capacity-hint">
+									Leave empty for no limit. With a limit the sidebar shows who is in as 3/8.{#if !canManageVoiceSettings} {MANAGERS_ONLY_HINT}{/if}
+								</p>
+							</div>
+							<div class="w-srow__control">
+								<input
+									id="{uid}-capacity"
+									class="w-field cs-number"
+									type="number"
+									min="1"
+									max="99"
+									step="1"
+									inputmode="numeric"
+									value={tempVoiceUserLimit}
+									on:input={(event) => (tempVoiceUserLimit = event.currentTarget.value)}
+									placeholder="No limit"
+									aria-describedby="{uid}-capacity-hint"
+									disabled={!canManageVoiceSettings}
+								/>
+							</div>
+						</div>
+						<div class="w-srow">
+							<div class="w-srow__text">
+								<p class="w-srow__label" id="{uid}-solo-label">Focused audio</p>
+								<p class="w-srow__hint" id="{uid}-solo-hint">
+									Joining this room moves listening and talking to it alone. For a one-person room, set capacity to 1.{#if !canManageVoiceSettings} {MANAGERS_ONLY_HINT}{/if}
+								</p>
+							</div>
+							<div class="w-srow__control">
+								<Switch labelledby="{uid}-solo-label" describedby="{uid}-solo-hint" bind:checked={tempVoiceForceSolo} disabled={!canManageVoiceSettings} />
+							</div>
+						</div>
+					{/if}
+
+					{#if isChatLikeChannel && !isConversation}
+						<div class="w-srow">
+							<div class="w-srow__text">
+								<p class="w-srow__label" id="{uid}-spoiler-label">Spoiler channel</p>
+								<p class="w-srow__hint" id="{uid}-spoiler-hint">Every message here stays hidden until someone reveals it, earlier messages included.</p>
+							</div>
+							<div class="w-srow__control">
+								<Switch labelledby="{uid}-spoiler-label" describedby="{uid}-spoiler-hint" bind:checked={tempForceSpoiler} disabled={!isStaff} />
+							</div>
+						</div>
+					{/if}
+
+					{#if !isConversation && !isVoiceChannel && !isFolder}
+						<div class="w-srow">
+							<div class="w-srow__text">
+								<p class="w-srow__label" id="{uid}-queue-label">YouTube watch queue</p>
+								<p class="w-srow__hint" id="{uid}-queue-hint">
+									Adds a shared watch queue to this {kindNoun}. Ordinary YouTube link previews keep working.{#if !canManageWatchQueue} {MANAGERS_ONLY_HINT}{/if}
+								</p>
+							</div>
+							<div class="w-srow__control">
+								<Switch labelledby="{uid}-queue-label" describedby="{uid}-queue-hint" bind:checked={tempWatchQueueEnabled} disabled={!canManageWatchQueue} />
+							</div>
+						</div>
+					{/if}
+
+					<!-- Kinds without a Retention section keep the offline-copies switch here. -->
+					{#if persistTab === 'general'}
+						<div class="w-srow">
+							<div class="w-srow__text">
+								<p class="w-srow__label" id="{uid}-persist-label">Offline copies and older history</p>
+								<p class="w-srow__hint" id="{uid}-persist-hint">Browsers may keep this {kindNoun}'s messages across restarts, and members can load older history. Storage settings on each device can still clear them.</p>
+							</div>
+							<div class="w-srow__control">
+								<Switch labelledby="{uid}-persist-label" describedby="{uid}-persist-hint" bind:checked={tempPersistMessages} />
+							</div>
+						</div>
+					{/if}
+				</div>
+
+				{#if isChatLikeChannel && loreBindingAvailable}
+					<section class="cs-section" aria-labelledby="{uid}-lore-title">
+						<h3 class="cs-section__title" id="{uid}-lore-title">Lore binding</h3>
+						<p class="cs-section__hint">Bind this channel to a path in a Lore repository. Attachments can then be promoted there from their menu.</p>
+						{#if loreChannels.length === 0}
+							<p class="cs-section__hint">There are no Lore channels on this server yet. Create one first.</p>
+						{:else}
+							<div class="cs-lore">
+								<div class="cs-field">
+									<span class="w-label" id="{uid}-lore-repo">Repository</span>
+									<Select ariaLabel="Repository" options={loreRepoOptions} bind:value={tempLoreRepoChannel} placeholder="Choose a Lore channel" />
+								</div>
+								<div class="cs-field">
+									<span class="w-label">Mode</span>
+									<Select ariaLabel="Mode" options={LORE_MODE_OPTIONS} bind:value={tempLoreMode} />
+								</div>
+								<div class="cs-field">
+									<label class="w-label" for="{uid}-lore-path">Target path</label>
+									<input id="{uid}-lore-path" class="w-field" type="text" on:keydown={handleLoreKeydown} bind:value={tempLorePath} placeholder="/art/concepts/" />
+								</div>
+								<div class="cs-field">
+									<label class="w-label" for="{uid}-lore-branch">Branch</label>
+									<input id="{uid}-lore-branch" class="w-field" type="text" on:keydown={handleLoreKeydown} bind:value={tempLoreBranch} placeholder="main" />
+								</div>
+								<div class="cs-field cs-field--wide">
+									<label class="w-label" for="{uid}-lore-types">Allowed types</label>
+									<input id="{uid}-lore-types" class="w-field" type="text" on:keydown={handleLoreKeydown} bind:value={tempLoreAllowedTypes} placeholder="image/*, .blend" />
+								</div>
+							</div>
+							<div class="cs-actions">
+								<button class="w-btn w-btn--sm" type="button" disabled={loreBindingBusy || !tempLoreRepoChannel || !tempLorePath.startsWith('/')} on:click={saveLoreBinding}>
+									{loreBindingActive ? 'Update binding' : 'Save binding'}
+								</button>
+								{#if loreBindingActive}
+									<button class="w-btn w-btn--sm w-btn--danger" type="button" disabled={loreBindingBusy} on:click={removeLoreBinding}>Remove binding</button>
+								{/if}
+								{#if loreBindingStatus === 'saved' || loreBindingStatus === 'removed'}
+									<span class="cs-status" role="status">{loreBindingStatus === 'saved' ? 'Binding saved' : 'Binding removed'}</span>
+								{/if}
+							</div>
+							{#if loreBindingStatus === 'save-failed' || loreBindingStatus === 'remove-failed'}
+								<Notice
+									class="cs-notice"
+									title={loreBindingStatus === 'save-failed' ? "Couldn't save the binding" : "Couldn't remove the binding"}
+									text="The channel's binding is unchanged."
+								/>
+							{/if}
+						{/if}
+					</section>
+				{/if}
+
+				{#if (isChatLikeChannel && !isConversation && canClearMessages) || canDeleteChannel}
+					<section class="cs-section cs-danger" aria-labelledby="{uid}-danger-title">
+						<h3 class="cs-section__title" id="{uid}-danger-title">Danger zone</h3>
+						<div class="w-srows">
+							{#if isChatLikeChannel && !isConversation && canClearMessages}
+								<div class="w-srow">
+									<div class="w-srow__text">
+										<p class="w-srow__label">Clear history</p>
+										<p class="w-srow__hint">Removes the visible messages for everyone once storage confirms it. Attachments and backup copies are not deleted.</p>
+									</div>
+									<div class="w-srow__control">
+										<button class="w-btn w-btn--danger" type="button" aria-busy={clearState === 'busy'} disabled={clearState === 'busy'} on:click={clearAllMessages}>
+											{clearState === 'busy' ? 'Clearing…' : 'Clear for everyone'}
+										</button>
+									</div>
+								</div>
+							{/if}
+							{#if canDeleteChannel}
+								<div class="w-srow">
+									<div class="w-srow__text">
+										<p class="w-srow__label">Delete this {kindNoun}</p>
+										<p class="w-srow__hint">
+											{isFolder ? 'Removes the folder from the server. You choose whether to keep its channels.' : `Removes ${placeName} and its messages for everyone.`}
+										</p>
+									</div>
+									<div class="w-srow__control">
+										<button class="w-btn w-btn--danger" type="button" on:click={() => dispatch('delete', { channel })}>Delete {kindNoun}</button>
+									</div>
+								</div>
+							{/if}
+						</div>
+						{#if clearState === 'done'}
+							<p class="cs-status" role="status">History cleared for everyone.</p>
+						{:else if clearState === 'error'}
+							<Notice class="cs-notice" title="Couldn't clear the history" text={clearProblem} ondismiss={() => (clearState = 'idle')} />
+						{/if}
+					</section>
+				{/if}
+			{:else if activeTab === 'permissions'}
+				<div class="w-srows">
+					{#if gateApplies}
+						<div class="w-srow w-srow--seal">
+							<div class="w-srow__text">
+								<p class="w-srow__label" id="{uid}-gate-label"><Icon name="eye" size={14} />Who can open {placeName}</p>
+								<p class="w-srow__hint">
+									{isStaff
+										? 'Members below this level do not see the channel or its messages.'
+										: 'Only admins and the owner can see or change who can open a channel.'}
+								</p>
+							</div>
+							{#if isStaff}
+								<div class="w-srow__control">
+									{#if gateStatus === 'ready'}
+										<Select ariaLabel="Who can open {placeName}" options={GATE_OPTIONS} bind:value={tempGate} align="end" />
+									{:else if gateStatus === 'loading' || gateStatus === 'idle'}
+										<span class="w-skel cs-skel" aria-hidden="true"></span>
+										<span class="w-sr-only" role="status">Checking who can open this channel…</span>
+									{/if}
+								</div>
+							{/if}
+						</div>
+						{#if isStaff && gateStatus === 'error'}
+							<Notice class="cs-notice" title="Couldn't check who can open this channel" text="Its access is unchanged." onretry={() => void loadGate()} retryLabel="Check again" />
+						{/if}
+						{#if saveError === 'gate'}
+							<Notice class="cs-notice" title="Couldn't change who can open this channel" text="Nothing was saved. Your other changes are still here." />
+						{/if}
+					{/if}
+					<div class="w-srow w-srow--seal">
+						<div class="w-srow__text">
+							<p class="w-srow__label"><Icon name="key" size={14} />Who can change these settings</p>
+							<p class="w-srow__hint">
+								Name, description{isChatLikeChannel ? ', message lifetime, clearing history' : ''} and deleting this {kindNoun}.
+								{isStaff ? 'You are one of them.' : 'Ask one of them to make a change.'}
+							</p>
+						</div>
+						<div class="w-srow__control"><span class="cs-fact">{MANAGERS_LABEL}</span></div>
+					</div>
+				</div>
+			{:else if activeTab === 'retention'}
+				<div class="w-srows">
+					<div class="w-srow">
+						<div class="w-srow__text">
+							<p class="w-srow__label" id="{uid}-lifetime-label">Message lifetime</p>
+							<p class="w-srow__hint" id="{uid}-lifetime-hint">
+								Applies to new messages. Earlier messages keep the lifetime they were sent with.{#if !isStaff} {MANAGERS_ONLY_HINT}{/if}
+							</p>
+						</div>
+						<div class="w-srow__control">
+							{#if retentionReady}
+								<Select
+									ariaLabel="Message lifetime"
+									options={RETENTION_OPTIONS}
+									bind:value={retentionSelect}
+									onchange={(value) => void chooseRetention(value)}
+									disabled={!isStaff || retentionBusy}
+									align="end"
+								/>
+							{:else if !retentionError}
+								<span class="w-skel cs-skel" aria-hidden="true"></span>
+								<span class="w-sr-only" role="status">Checking the current lifetime…</span>
+							{/if}
 						</div>
 					</div>
+					{#if retentionError}
+						<Notice
+							class="cs-notice"
+							title="Couldn't check this room's message lifetime"
+							text={retentionErrorText}
+							onretry={() => void loadCurrentRetention($activeServerUrl, channel.id, retentionRequestKey)}
+							retryLabel="Retry lifetime check"
+						/>
+					{/if}
+
+					{#if persistTab === 'retention'}
+						<div class="w-srow">
+							<div class="w-srow__text">
+								<p class="w-srow__label" id="{uid}-persist-label">Offline copies and older history</p>
+								<p class="w-srow__hint" id="{uid}-persist-hint">Browsers may keep this channel's messages across restarts, and members can load older history. Storage settings on each device can still clear them.</p>
+							</div>
+							<div class="w-srow__control">
+								<Switch labelledby="{uid}-persist-label" describedby="{uid}-persist-hint" bind:checked={tempPersistMessages} />
+							</div>
+						</div>
+					{/if}
+
+					{#if !isConversation}
+						<div class="w-srow">
+							<div class="w-srow__text">
+								<p class="w-srow__label">Messages on this device</p>
+								<p class="w-srow__hint">Clears what is loaded here. Server history is unchanged.</p>
+							</div>
+							<div class="w-srow__control">
+								<button class="w-btn" type="button" on:click={clearLocalMessagesOnly}>Clear on this device</button>
+							</div>
+						</div>
+						{#if localClearState === 'done'}
+							<p class="cs-status" role="status">Cleared on this device.</p>
+						{:else if localClearState === 'error'}
+							<Notice class="cs-notice" title="Couldn't clear the messages on this device" text="Nothing else changed." ondismiss={() => (localClearState = 'idle')} />
+						{/if}
+					{/if}
+				</div>
+
+				{#if liveActive}
+					<section class="cs-section" aria-labelledby="{uid}-live-title">
+						<h3 class="cs-section__title" id="{uid}-live-title">Live room</h3>
+						<p class="cs-section__hint">Live messages are not saved. Not saving them does not hide them from the server operator.</p>
+						<div class="cs-lore">
+							<div class="cs-field">
+								<label class="w-label" for="{uid}-live-ttl">How long messages stay</label>
+								<input id="{uid}-live-ttl" class="w-field" type="text" bind:value={tempLiveTtl} placeholder="10m" aria-describedby="{uid}-live-ttl-hint" />
+								<p class="w-field-hint cs-hint" id="{uid}-live-ttl-hint">30s, 10m or 1h</p>
+							</div>
+							<div class="cs-field">
+								<label class="w-label" for="{uid}-live-cap">Messages kept live</label>
+								<input id="{uid}-live-cap" class="w-field" type="text" inputmode="numeric" bind:value={tempLiveCap} placeholder="1000" aria-describedby="{uid}-live-cap-hint" />
+								<p class="w-field-hint cs-hint" id="{uid}-live-cap-hint">The most the server holds at once</p>
+							</div>
+							<div class="cs-field">
+								<label class="w-label" for="{uid}-live-grace">Away after disconnecting</label>
+								<input id="{uid}-live-grace" class="w-field" type="text" bind:value={tempLiveGrace} placeholder="60s" aria-describedby="{uid}-live-grace-hint" />
+								<p class="w-field-hint cs-hint" id="{uid}-live-grace-hint">How long before someone shows as away</p>
+							</div>
+							<div class="cs-field">
+								<label class="w-label" for="{uid}-live-attach">Largest attachment</label>
+								<input id="{uid}-live-attach" class="w-field" type="text" bind:value={tempLiveAttachMax} placeholder="8 MB" />
+							</div>
+							<div class="cs-field">
+								<label class="w-label" for="{uid}-live-window">Messages drawn on this device</label>
+								<input id="{uid}-live-window" class="w-field" type="number" min="50" max="5000" step="50" bind:value={tempLiveRenderWindow} aria-describedby="{uid}-live-window-hint" />
+								<p class="w-field-hint cs-hint" id="{uid}-live-window-hint">Fewer helps slower computers. The server is unaffected.</p>
+							</div>
+						</div>
+						<div class="w-srows cs-rows">
+							<div class="w-srow">
+								<div class="w-srow__text">
+									<p class="w-srow__label" id="{uid}-afk-label">Away announcements</p>
+									<!-- The server does not store a per-room choice yet (handed off), so the switch
+									     stays on and says so instead of offering a change that is never kept. -->
+									<p class="w-srow__hint" id="{uid}-afk-hint">A line is posted when someone goes away or comes back. Always on for now: this server doesn't keep a per-room choice yet.</p>
+								</div>
+								<div class="w-srow__control">
+									<Switch labelledby="{uid}-afk-label" describedby="{uid}-afk-hint" bind:checked={tempAfkAnnounce} disabled />
+								</div>
+							</div>
+						</div>
+					</section>
 				{/if}
-			</div>
+			{/if}
 		</div>
+	</form>
+
+	<div slot="footer" class="w-dialog__foot cs-foot" class:w-dialog__foot--rule={bodyScrolls}>
+		{#if draftRetention !== undefined}
+			<p class="w-dialog__foot-start cs-unsaved"><span class="w-dot w-dot--warn" aria-hidden="true"></span>Lifetime changes when you save</p>
+		{/if}
+		<button type="button" class="w-btn w-btn--quiet" on:click={close} disabled={saving}>Cancel</button>
+		<button type="submit" form={formId} class="w-btn w-btn--primary" aria-busy={saving} disabled={!dirty || saving || !isStaff}>
+			{saving ? 'Saving…' : 'Save changes'}
+		</button>
 	</div>
-</div>
+</BaseModal>
 
 <style>
-	.danger-zone {
-		border: 1px solid color-mix(in srgb, var(--color-danger, #e2484d) 45%, transparent);
-		border-radius: var(--radius-lg, 12px);
-		padding: 0.95rem 1rem;
-		margin-top: 0.5rem;
-		background: color-mix(in srgb, var(--color-danger, #e2484d) 8%, transparent);
+	/* Nav on the left, the panel scrolls beside it; the nav stays at the top while it does. */
+	.cs-layout {
+		display: grid;
+		grid-template-columns: 148px minmax(0, 1fr);
+		column-gap: 32px;
+		align-items: start;
+		padding-top: 4px;
+	}
+	/* Sticks at its resting place (the layout's 4px top padding), so the tablist does not
+	   nudge up under the pointer once the body scrolls. */
+	.cs-tabs {
+		position: sticky;
+		top: 4px;
+		z-index: 1;
+		align-self: start;
+	}
+	.cs-tabs > button {
+		width: 100%;
+	}
+	/* One fixed frame for every section: the dialog keeps its size and place when you switch tabs
+	   (nothing moves under the pointer) and only the body scrolls, like the Settings frame. */
+	:global(.w-dialog.channel-settings) {
+		height: min(720px, calc(100dvh - 64px));
+	}
+	.cs-panel {
+		min-width: 0;
+		outline: none;
 	}
 
-	.delete-zone {
-		margin-top: 1rem;
-		background: linear-gradient(135deg, color-mix(in srgb, var(--color-danger, #e2484d) 9%, transparent), color-mix(in srgb, var(--surface-raised) 72%, transparent));
+	.cs-fields {
+		display: grid;
+		gap: 20px;
+		margin-bottom: 24px;
+	}
+	.cs-field {
+		min-width: 0;
+	}
+	.cs-name > input {
+		min-width: 0;
+	}
+	/* Starts as a 38px form field and grows line by line, up to five lines, then scrolls. */
+	textarea.cs-description {
+		min-height: 38px;
+		max-height: calc(118px * var(--w-fs));
+		resize: none;
+		field-sizing: content;
+	}
+	.cs-prefix {
+		flex: none;
+		color: var(--w-sig);
+		font: 400 calc(16px * var(--w-fs)) / 1 var(--w-sans);
+	}
+	.cs-number {
+		width: 120px;
 	}
 
-	.danger-zone-heading {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
+	/* A titled group inside a panel: serif subhead, one hint line, its rows below. */
+	.cs-section {
+		margin-top: 32px;
+	}
+	.cs-section__title {
+		margin: 0;
+		color: var(--w-text);
+		font: var(--w-t-subhead);
+	}
+	.cs-section__hint {
+		margin: 4px 0 14px;
+		color: var(--w-mute);
+		font: var(--w-t-small);
+		text-wrap: pretty;
+	}
+	/* The danger zone is a hairline section (its rows' rules), never a box or a seal. */
+	.cs-danger .cs-section__title {
+		margin-bottom: 12px;
+	}
+	.cs-rows + .cs-section {
+		margin-top: 32px;
 	}
 
-	.delete-channel-btn {
-		flex: 0 0 auto;
-		border: 1px solid color-mix(in srgb, var(--color-danger, #e2484d) 68%, transparent);
-		border-radius: var(--radius-md, 8px);
-		padding: 0.55rem 0.8rem;
-		background: color-mix(in srgb, var(--color-danger, #e2484d) 16%, transparent);
-		color: var(--color-danger, #e2484d);
-		font-weight: 700;
-		cursor: pointer;
+	.cs-lore {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 16px 20px;
 	}
-
-	.delete-channel-btn:hover {
-		background: var(--color-danger, #e2484d);
-		color: var(--text-on-danger, #fff);
+	.cs-field--wide {
+		grid-column: 1 / -1;
 	}
-
-	.purge-actions {
+	.cs-lore :global(.w-select) {
+		width: 100%;
+	}
+	.cs-hint {
+		display: block;
+		margin: 6px 0 0;
+	}
+	.cs-lore + .cs-rows {
+		margin-top: 20px;
+	}
+	.cs-actions {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
-		gap: 0.55rem;
-		margin-top: 0.75rem;
+		gap: 8px;
+		margin-top: 16px;
 	}
 
-	.clear-messages-btn {
-		margin-top: 0;
-		background: var(--color-danger, #e2484d);
-		color: #fff;
-		border: none;
-		border-radius: var(--radius-md, 8px);
-		padding: 0.55rem 0.95rem;
-		font-weight: 650;
-		cursor: pointer;
-		transition: filter 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+	.cs-fact {
+		color: var(--w-text);
+		font: var(--w-t-ui);
+		white-space: nowrap;
+	}
+	.cs-status {
+		margin: 12px 0 0;
+		color: var(--w-mute);
+		font: var(--w-t-small);
+	}
+	.cs-actions .cs-status {
+		margin: 0;
+	}
+	.cs-skel {
+		width: 160px;
+	}
+	.w-srows :global(.cs-notice),
+	.cs-section :global(.cs-notice) {
+		margin: 12px 0;
 	}
 
-	.clear-messages-btn:hover {
-		filter: brightness(1.05);
-		transform: translateY(-1px);
-		box-shadow: 0 8px 18px color-mix(in srgb, var(--color-danger, #e2484d) 28%, transparent);
-	}
-
-	.clear-messages-btn.local-only {
-		background: transparent;
-		color: var(--text-heading);
-		border: 1px solid color-mix(in srgb, var(--color-danger, #e2484d) 40%, transparent);
-	}
-
-	.clear-messages-btn.local-only:hover {
-		background: color-mix(in srgb, var(--color-danger, #e2484d) 12%, transparent);
-		box-shadow: none;
-	}
-
-	.inline-check {
+	.cs-unsaved {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.55rem;
-		cursor: pointer;
-		font-weight: 600;
-		color: var(--text-heading);
-		user-select: none;
+		gap: 8px;
+		margin: 0;
+		color: var(--w-mute);
+		font: var(--w-t-small);
+	}
+	/* The scrolling body ends with a little room above the footer. */
+	.cs-foot {
+		padding-top: 16px;
 	}
 
-	.inline-check input {
-		width: 16px;
-		height: 16px;
-		margin: 0;
-		accent-color: var(--accent-secondary-color, #818cf8);
+	.w-sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0 0 0 0);
+		white-space: nowrap;
+		border: 0;
+	}
+
+	@media (max-width: 640px) {
+		.cs-layout {
+			grid-template-columns: minmax(0, 1fr);
+			row-gap: 20px;
+		}
+		.cs-tabs {
+			position: static;
+			flex-direction: row;
+			justify-self: start;
+		}
+		.cs-tabs > button {
+			width: auto;
+		}
+		.cs-lore {
+			grid-template-columns: minmax(0, 1fr);
+		}
 	}
 </style>

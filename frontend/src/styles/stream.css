@@ -1,183 +1,704 @@
-/* Message stream — "ledger" layout.
-   [time][wick][avatar][message]. The time sits in its own right-aligned mono column and
-   the wick beside it shows how much retention life the message has left. Below 820px the
-   original stacked layout (time in the header) is kept. Specificity is deliberately
-   :root-prefixed to win over the many generations of per-density rules in ml-core.css. */
+/* Message stream (design contract §7.17-§7.19, §8.3). This sheet owns the row.
 
-@media (min-width: 820px) {
-	:root:not([data-own-messages-right='true']) .messages .message {
-		display: grid;
-		grid-template-columns: 66px 8px 38px minmax(0, 1fr);
-		column-gap: 12px;
-		align-items: start;
-		padding: 3px 28px 3px 14px;
-		gap: 0 12px;
-	}
-	:root:not([data-own-messages-right='true']) .messages .message .msg-time {
-		grid-column: 1;
-		justify-self: end;
-		padding-top: 5px;
-		font: 500 calc(11.5px * var(--w-fs, 1))/1.2 var(--w-mono);
-		font-variant-numeric: tabular-nums;
-		color: var(--w-faint);
-		white-space: nowrap;
-		transition: color 0.15s;
-	}
-	:root:not([data-own-messages-right='true']) .messages .message:hover .msg-time {
-		color: var(--w-mute);
-	}
-	:root:not([data-own-messages-right='true']) .messages .message.continuation .msg-time {
-		opacity: 0;
-	}
-	:root:not([data-own-messages-right='true']) .messages .message.continuation:hover .msg-time {
-		opacity: 1;
-	}
-	:root:not([data-own-messages-right='true']) .messages .message .msg-wick,
-	:root:not([data-own-messages-right='true']) .messages .message .msg-wick-spacer {
-		grid-column: 2;
-	}
-	:root:not([data-own-messages-right='true']) .messages .message .message-avatar {
-		grid-column: 3;
-		width: 38px;
-		height: 38px;
-	}
-	:root:not([data-own-messages-right='true']) .messages .message .message-body {
-		grid-column: 4;
-		min-width: 0;
-		max-width: 720px;
-	}
-	/* the header timestamp is replaced by the time column */
-	:root:not([data-own-messages-right='true']) .messages .message .message-header .timestamp {
-		display: none;
-	}
+   The page: time 52 | 14 | avatar 36 | 14 | text minmax(0, --w-measure), left-aligned at the
+   stage gutter. The day rule, the NEW rule, the start-of-channel block and the hover toolbar all
+   end at the same right edge (the page edge, D20). Below a 560px stream (phones, the DM panel)
+   the page becomes the stacked phone row: avatar 32, name + role word + time on one line.
+
+   Scope: every rule is under .messages-pane, the root of ChatMessagesPane, which hosts the stream
+   in the channel stage and in both DM views. MessageList wraps its rows in .ml-stream, which is
+   transparent inside a pane and becomes the pane itself where a host gives none (the Alt-click
+   glance preview). The pane's scroller is the `stream` container, so the layout follows the
+   width the stream really has, not the viewport (§2.9).
+   Message identity is not a styling concern: day and NEW rules are siblings drawn inside the
+   keyed #each in MessageList.svelte and never change keys. */
+
+/* ---------- the page ---------- */
+:where(.messages, .dm-messages, .dm-conversation-messages):has(> .messages-pane),
+:has(> .ml-stream.messages-pane) {
+	container: stream / inline-size;
+}
+/* MessageList's root: no box of its own inside a pane, the pane where its host has none. */
+.ml-stream:not(.messages-pane) {
+	display: contents;
+}
+/* The channel scroller hands its padding to the pane, so the page starts at the gutter. */
+:root .messages:has(> .messages-pane) {
+	padding: 0;
+}
+.messages-pane {
+	/* column metrics */
+	--stream-time: calc(52px * var(--w-fs));
+	--stream-av: 36px;
+	--stream-gap: 14px;
+	--stream-lead: calc(var(--stream-time) + var(--stream-gap)); /* avatar column: rules start here */
+	--stream-text-x: calc(var(--stream-lead) + var(--stream-av) + var(--stream-gap));
+	--stream-page: calc(var(--stream-text-x) + var(--w-measure));
+	--stream-surface: var(--w-bg);
+	box-sizing: border-box;
+	/* The pane grows with its rows (min-height 100% still bottom-anchors a short conversation).
+	   Shrunk to one scroller height, it would confine the sticky day rule to the first screen. */
+	flex-shrink: 0;
+	padding: 0 var(--w-gutter) 6px calc(var(--w-gutter) - 8px);
+}
+:is(.right-panel, .dm-conversation-messages, .glance-page) .messages-pane {
+	--stream-surface: var(--w-bg2);
 }
 
-/* Avatars off behaves like compact: no avatar column. */
-@media (min-width: 820px) {
-	:root:not([data-own-messages-right='true'])[data-chat-avatar-mode='off'] .messages .message {
-		grid-template-columns: 66px 8px minmax(0, 1fr);
-	}
-	:root:not([data-own-messages-right='true'])[data-chat-avatar-mode='off'] .messages .message .message-body { grid-column: 3; }
-}
-
-/* Compact density: IRC-style rows — [time][wick][name  message] on one line, no avatars.
-   ml-core.css owns the row padding with !important, so the grid gap is restated here. */
-@media (min-width: 820px) {
-	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message {
-		grid-template-columns: 62px 6px minmax(0, 1fr);
-		column-gap: 8px !important;
-		padding-left: 10px !important;
-		padding-right: 20px !important;
-	}
-	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .msg-time {
-		padding-top: 2px;
-		font-size: calc(11px * var(--w-fs, 1));
-	}
-	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .msg-wick {
-		margin: 3px 2px;
-	}
-	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .message-body {
-		grid-column: 3;
-		max-width: none;
-	}
-	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .message-header .username,
-	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .profile-name-text {
-		font-size: calc(13.5px * var(--w-fs, 1));
-	}
-	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .message-content,
-	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .markdown-content,
-	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .markdown-content p {
-		font-size: calc(14px * var(--w-fs, 1));
-		line-height: 1.45;
-	}
-	/* every compact row names its author, so the continuation header stays */
-	:root:not([data-own-messages-right='true'])[data-message-density='compact'] .messages .message .compact-only-header {
-		display: flex;
-	}
-}
-@media (max-width: 819px) {
-	.msg-time,
-	.msg-wick,
-	.msg-wick-spacer {
-		display: none;
-	}
-}
-
-/* 'Own messages on the right' needs the original flex rows, so the ledger columns step aside. */
-:root[data-own-messages-right='true'] .msg-time,
-:root[data-own-messages-right='true'] .msg-wick,
-:root[data-own-messages-right='true'] .msg-wick-spacer { display: none; }
-
-/* Retention wick */
-.msg-wick {
+/* ---------- the row ---------- */
+.messages-pane .message {
 	position: relative;
-	align-self: stretch;
-	width: 2px;
-	margin: 6px 3px;
-	background: var(--w-line);
-	border-radius: calc(2px * var(--w-rs, 1));
-	opacity: 0.45;
-	transition: opacity 0.2s;
+	isolation: isolate;
+	display: grid;
+	grid-template-columns: [time] var(--stream-time) [avatar] var(--stream-av) [text] minmax(0, var(--w-measure));
+	column-gap: var(--stream-gap);
+	align-items: baseline;
+	box-sizing: border-box;
+	max-width: var(--stream-page);
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
 }
-.message:hover .msg-wick,
-.msg-wick.soon {
+/* Group start. The :not() matches the legacy phone rule `.message + .message:not(.continuation)`
+   (ml-mobile.css), so the stream's spacing wins at every width. */
+.messages-pane .message:not(.continuation) {
+	margin-top: 18px;
+}
+.messages-pane .message.continuation {
+	margin-top: 2px;
+}
+/* Hover and focus paint a quiet sheet behind the row, never under the time gutter's neighbours. */
+.messages-pane .message::before {
+	content: '';
+	position: absolute;
+	inset: -4px -8px;
+	z-index: -1;
+	border-radius: var(--radius-md);
+	background: transparent;
+	pointer-events: none;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+.messages-pane .message:hover::before {
+	background: color-mix(in srgb, var(--w-raise) 60%, transparent);
+}
+:root[data-char='contrast'] .messages-pane .message:hover::before {
+	background: transparent;
+	box-shadow: inset 0 0 0 var(--w-bw) var(--w-line-strong);
+}
+/* Jump to a message: an accent tint that fades (static under reduced motion). */
+.messages-pane .message.highlighted::before {
+	animation: stream-found 1.6s var(--w-ease) both;
+}
+@keyframes stream-found {
+	from { background-color: var(--w-accent-soft); }
+	to { background-color: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+	.messages-pane .message.highlighted::before { animation: none; background: var(--w-accent-soft); }
+}
+:root[data-motion='reduce'] .messages-pane .message.highlighted::before {
+	animation: none;
+	background: var(--w-accent-soft);
+}
+
+/* time gutter */
+.messages-pane .message .msg-time {
+	grid-column: time;
+	grid-row: 1;
+	justify-self: end;
+	font: var(--w-t-micro);
+	font-variant-numeric: tabular-nums;
+	color: var(--w-faint);
+	white-space: nowrap;
+	transition: opacity var(--w-dur-1) var(--w-ease);
+}
+.messages-pane .message.continuation .msg-time {
+	opacity: 0;
+}
+.messages-pane .message.continuation:is(:hover, :focus-within) .msg-time {
 	opacity: 1;
 }
-.msg-wick::after {
+/* pinned: a 12px pin under the time */
+.messages-pane .message .msg-pin {
+	position: absolute;
+	top: calc(22px * var(--w-fs));
+	left: calc(var(--stream-time) - 12px);
+	display: block;
+	width: 12px;
+	height: 12px;
+	color: var(--w-mute);
+}
+
+/* retention wick: how much of its kept time a message has left, in the 14px between time and avatar */
+.messages-pane .msg-wick {
+	position: absolute;
+	top: 4px;
+	bottom: 4px;
+	left: calc(var(--stream-time) + var(--stream-gap) / 2 - 1px);
+	width: 2px;
+	border-radius: var(--w-pill);
+	background: var(--w-line);
+	pointer-events: none;
+}
+.messages-pane .msg-wick::after {
 	content: '';
 	position: absolute;
 	left: 0;
 	right: 0;
 	bottom: 0;
 	height: calc(var(--life, 1) * 100%);
-	background: linear-gradient(to top, var(--w-line-strong), var(--w-accent));
 	border-radius: inherit;
+	background: var(--w-line-strong);
 }
-.msg-wick::before {
-	content: '';
-	position: absolute;
-	left: -2px;
-	bottom: calc(var(--life, 1) * 100% - 3px);
-	width: 6px;
-	height: 6px;
-	border-radius: var(--w-avr, 50%);
+.messages-pane .msg-wick.soon::after {
 	background: var(--w-accent);
-	box-shadow: 0 0 8px var(--w-accent);
-	z-index: 1;
 }
-.msg-wick.soon::before {
-	animation: wick-ember 2.8s ease-in-out infinite;
-}
-@keyframes wick-ember {
-	0%, 100% { opacity: 0.55; box-shadow: 0 0 4px var(--w-accent); }
-	50% { opacity: 1; box-shadow: 0 0 12px var(--w-accent); }
-}
-@media (prefers-reduced-motion: reduce) {
-	.msg-wick.soon::before { animation: none; }
-}
-:root[data-char='contrast'] .msg-wick { opacity: 1; }
-:root[data-char='contrast'] .msg-wick::before { box-shadow: none; }
 
-/* Message typography (names keep their own font so the uniform-font setting still applies) */
-:root .messages .message .message-content,
-:root .messages .message .markdown-content {
-	font-family: var(--w-sans);
-	font-size: calc(15px * var(--w-fs, 1));
-	line-height: var(--w-lh, 1.6);
-	color: var(--w-text);
+/* avatar stamp (§7.12): identity disc and serif initial; a profile picture replaces it */
+.messages-pane .message .message-avatar {
+	grid-column: avatar;
+	grid-row: 1;
+	align-self: start;
+	position: relative;
+	width: var(--stream-av);
+	height: var(--stream-av);
+	margin: 0;
+	border-radius: var(--w-avr);
+	cursor: pointer;
 }
-:root .messages .message .markdown-content pre {
-	background: var(--w-sink);
-	border: var(--w-bw, 1px) solid var(--w-line);
-	border-radius: calc(8px * var(--w-rs, 1));
+.messages-pane .message .message-avatar:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+.messages-pane .message .message-avatar-spacer {
+	height: 0;
+	visibility: hidden;
+	pointer-events: none;
+	cursor: default;
+}
+.messages-pane .message .avatar,
+.messages-pane .message .avatar-placeholder {
+	display: block;
+	box-sizing: border-box;
+	width: var(--stream-av);
+	height: var(--stream-av);
+	border-radius: var(--w-avr);
+	object-fit: cover;
+}
+.messages-pane .message .avatar-placeholder {
+	display: grid;
+	place-items: center;
+	background: var(--disc, var(--w-raise));
+	color: var(--on, var(--w-mute));
+	font: 600 calc(var(--stream-av) * 0.44) / 1 var(--w-serif);
+	letter-spacing: 0;
+	user-select: none;
+}
+
+/* text column */
+.messages-pane .message .message-body {
+	grid-column: text;
+	grid-row: 1;
+	position: relative;
+	min-width: 0;
+	padding: 0;
+}
+.messages-pane .message .message-header {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
+	margin: 0;
+}
+.messages-pane .message .header-left {
+	display: flex;
+	align-items: baseline;
+	flex-wrap: wrap;
+	column-gap: 8px;
+	row-gap: 2px;
+	min-width: 0;
+}
+.messages-pane .message .username {
+	min-width: 0;
+	max-width: 100%;
+	font: var(--w-t-label);
+	color: var(--w-text);
+	cursor: text;
+}
+.messages-pane .message .username.clickable-username {
+	cursor: pointer;
+}
+.messages-pane .message .username.clickable-username:hover .profile-name-text {
+	text-decoration: underline;
+	text-decoration-thickness: var(--w-bw);
+	text-underline-offset: 3px;
+}
+/* The ledger reads the clock from the gutter, so the header repeats it only on the phone row.
+   A Complete or Detailed stamp (Settings › Chat) is more than the gutter holds: it shows after
+   the name at every width (.timestamp--full). */
+.messages-pane .message .message-header .timestamp {
+	margin: 0;
+	font: var(--w-t-micro);
+	font-variant-numeric: tabular-nums;
+	color: var(--w-faint);
+	opacity: 1;
+	white-space: nowrap;
+}
+.messages-pane .message .message-header .timestamp:not(.timestamp--full) {
+	display: none;
+}
+.messages-pane .message .message-kicker {
+	font: var(--w-t-kicker);
+	font-size: calc(10px * var(--w-fs));
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--w-faint);
+	white-space: nowrap;
+}
+
+/* body (§7.18): chat type, paragraphs 6px apart, never its own scroller */
+.messages-pane .message .message-content,
+.messages-pane .message .markdown-content {
+	font: var(--w-t-chat);
+	letter-spacing: 0;
+	color: var(--w-text);
+	text-wrap: pretty;
+	overflow-wrap: break-word;
+}
+.messages-pane .message .markdown-content p {
+	margin: 0;
+	font: inherit;
+}
+.messages-pane .message .markdown-content > * + * {
+	margin-top: 6px;
+}
+.messages-pane .message.is-sending .message-content {
+	color: var(--w-mute);
+}
+/* delivery states, without bars or glows: sending is quiet text, failed is a danger dot + words */
+.messages-pane .message .message-delivery-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: 4px 0 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+.messages-pane .message .message-delivery-row.is-failed {
+	color: var(--w-danger);
+}
+.messages-pane .message .message-delivery-row.is-failed::before {
+	content: '';
+	flex: none;
+	width: 7px;
+	height: 7px;
+	border-radius: var(--w-avr);
+	background: var(--w-danger);
+}
+.messages-pane .message .message-persistence-row {
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+	margin: 4px 0 0;
+	padding: 0;
+	border: 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+.messages-pane .message .message-persistence-row::before {
+	content: '';
+	flex: none;
+	width: 7px;
+	height: 7px;
+	border-radius: var(--w-avr);
+	background: var(--w-warn);
+	transform: translateY(-1px);
+}
+.messages-pane .message .edited-mark {
+	display: block;
+	margin-top: 2px;
+	font: var(--w-t-micro);
+	color: var(--w-faint);
+}
+
+/* editing in place: a form field on the sink, quiet Cancel, ink Save */
+.messages-pane .message .edit-mode {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	width: 100%;
+	margin-top: 2px;
+}
+.messages-pane .message .edit-textarea {
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 72px;
+	max-height: 240px;
 	padding: 8px 12px;
-	font: 400 calc(13px * var(--w-fs, 1))/1.55 var(--w-mono);
+	resize: vertical;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+	color: var(--w-text);
+	-webkit-text-fill-color: var(--w-text);
+	caret-color: var(--w-accent);
+	font: var(--w-t-chat);
+	outline: none;
+	transition: border-color var(--w-dur-1) var(--w-ease), box-shadow var(--w-dur-1) var(--w-ease);
+}
+.messages-pane .message .edit-textarea::placeholder {
+	color: var(--w-faint);
+	-webkit-text-fill-color: var(--w-faint);
+}
+.messages-pane .message .edit-textarea:focus {
+	border-color: var(--w-accent);
+	box-shadow: var(--w-ring);
+}
+.messages-pane .message .edit-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+.messages-pane .message :is(.edit-cancel, .edit-save) {
+	display: inline-flex;
+	align-items: center;
+	height: 28px;
+	padding: 0 10px;
+	border: var(--w-bw) solid transparent;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-caption);
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease), color var(--w-dur-1) var(--w-ease);
+}
+.messages-pane .message .edit-cancel:hover {
+	background: var(--w-raise);
 	color: var(--w-text);
 }
-:root .messages .message .markdown-content code {
-	font-family: var(--w-mono);
-	font-size: 0.9em;
+.messages-pane .message .edit-save {
+	border-color: var(--w-text);
+	background: var(--w-text);
+	color: var(--w-bg);
 }
-:root .messages .message:hover {
-	background: color-mix(in srgb, var(--w-raise) 55%, transparent);
+.messages-pane .message .edit-save:hover {
+	background: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+}
+.messages-pane .message :is(.edit-cancel, .edit-save):focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+
+/* long messages: clamp at 14 lines behind a quiet Show more (no inner scroller) */
+.messages-pane .message .message-text.is-clamped {
+	max-height: calc(24px * 14 * var(--w-fs));
+	overflow: hidden;
+}
+.messages-pane .message .message-more {
+	margin: 4px 0 0 -10px;
+	color: var(--w-mute);
+}
+
+/* ---------- separators (§7.17) ---------- */
+
+/* Day rule: hairlines both sides of a serif date, from the avatar column to the page edge.
+   While its day is in view a copy floats at the top of the stream (.stream-float, placed by
+   MessageList) until the next day's own rule reaches it. */
+.messages-pane .stream-day {
+	position: relative;
+	display: grid;
+	grid-template-columns: minmax(16px, 1fr) auto minmax(16px, 1fr);
+	align-items: center;
+	column-gap: 14px;
+	box-sizing: border-box;
+	max-width: calc(var(--stream-page) + 16px);
+	margin: 18px -8px 0;
+	padding: 12px 8px 10px calc(var(--stream-lead) + 8px);
+	background: var(--stream-surface);
+	font: 400 calc(13px * var(--w-fs)) / calc(18px * var(--w-fs)) var(--w-serif);
+	letter-spacing: 0.02em;
+	color: var(--w-mute);
+	white-space: nowrap;
+}
+.messages-pane .stream-day::before,
+.messages-pane .stream-day::after {
+	content: '';
+	height: var(--w-bw);
+	background: var(--w-line);
+}
+.messages-pane .stream-day__label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.messages-pane .stream-day__rel {
+	font-weight: 600;
+	color: var(--w-text);
+}
+.messages-pane .stream-float {
+	position: sticky;
+	top: 0;
+	z-index: 4;
+	height: 0;
+	flex: none;
+}
+.messages-pane .stream-day--float {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: calc(100% + 16px);
+	margin: 0 -8px;
+}
+/* the rule straight after the start block or the load-older control needs no extra air */
+.messages-pane :is(.stream-start, .stream-older) + .stream-day {
+	margin-top: 0;
+}
+
+/* Unread rule: 60% accent hairline from the avatar column, NEW at its end. Never danger. */
+.messages-pane .stream-new {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: 10px;
+	box-sizing: border-box;
+	max-width: var(--stream-page);
+	margin: 18px 0 0;
+	padding-left: var(--stream-lead);
+}
+.messages-pane .stream-new::before {
+	content: '';
+	height: var(--w-bw);
+	background: color-mix(in srgb, var(--w-accent) 60%, transparent);
+}
+.messages-pane .stream-new__kicker {
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--w-accent);
+}
+.messages-pane .stream-day + .stream-new {
+	margin-top: 6px;
+}
+
+/* ---------- top and bottom of the stream (§8.3) ---------- */
+
+/* A short conversation sits on the composer: the first block takes the free space above it. */
+.messages-pane .stream-start,
+.messages-pane .stream-older {
+	margin-top: auto;
+}
+.messages-pane .stream-start {
+	box-sizing: border-box;
+	max-width: var(--stream-page);
+	padding: 40px 0 8px var(--stream-text-x);
+}
+.messages-pane .stream-start__kicker {
+	margin: 0;
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--w-faint);
+}
+.messages-pane .stream-start__title {
+	margin: 6px 0 0;
+	font: 600 calc(28px * var(--w-fs)) / calc(34px * var(--w-fs)) var(--w-serif);
+	letter-spacing: 0.005em;
+	color: var(--w-text);
+	overflow-wrap: anywhere;
+	text-wrap: balance;
+}
+.messages-pane .stream-start__hash {
+	margin-right: 2px;
+	color: var(--w-sig);
+}
+.messages-pane .stream-start__desc {
+	margin: 8px 0 0;
+	max-width: var(--w-measure);
+	font: var(--w-t-ui);
+	color: var(--w-mute);
+}
+.messages-pane .stream-older {
+	box-sizing: border-box;
+	max-width: var(--stream-page);
+	padding: 16px 0 6px;
+}
+.messages-pane .stream-older__action {
+	display: flex;
+	justify-content: center;
+	padding-left: var(--stream-lead);
+}
+
+/* Jump to latest: a pill at the page's bottom-right, above the composer. */
+.messages-pane .stream-jump {
+	position: sticky;
+	bottom: 12px;
+	z-index: 3;
+	box-sizing: border-box;
+	max-width: var(--stream-page);
+	height: 0;
+	pointer-events: none;
+}
+.messages-pane .stream-jump__btn {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	box-sizing: border-box;
+	height: 32px;
+	margin: 0;
+	padding: 0 10px 0 14px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--w-pill);
+	background: var(--w-bg2);
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+	font: var(--w-t-caption);
+	white-space: nowrap;
+	cursor: pointer;
+	pointer-events: auto;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+	animation: w-enter-up var(--w-dur-2) var(--w-ease) both;
+}
+:root[data-mode='light'] .messages-pane .stream-jump__btn {
+	background: var(--w-lift);
+}
+.messages-pane .stream-jump__btn:hover {
+	background: var(--w-raise);
+}
+.messages-pane .stream-jump__btn:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+
+/* ---------- settings: avatars off, own messages on the right, compact density ---------- */
+:root[data-chat-avatar-mode='off'] .messages-pane .message {
+	grid-template-columns: [time] var(--stream-time) [text] minmax(0, var(--w-measure));
+	max-width: calc(var(--stream-lead) + var(--w-measure));
+}
+:root[data-chat-avatar-mode='off'] .messages-pane .message :is(.message-avatar, .message-avatar-spacer),
+:root[data-chat-avatar-mode='user'] .messages-pane .message.own-message :is(.message-avatar, .message-avatar-spacer) {
+	display: none;
+}
+
+/* Own messages on the right: the same page, bodies set flush right, no bubble. */
+:root[data-own-messages-right='true'] .messages-pane .message.own-message .message-body {
+	text-align: right;
+}
+:root[data-own-messages-right='true'] .messages-pane .message.own-message :is(.message-header, .header-left, .reactions) {
+	justify-content: flex-end;
+}
+
+/* Compact density (§7.18): 52 | 120 name | text, no avatars; the name cell is empty on
+   continuation rows, whose time shows on hover as in cozy. */
+@container stream (min-width: 560px) {
+	/* the text column starts after the name cell, so the rules and the jump pill end with it */
+	:root[data-message-density='compact'] .messages-pane {
+		--stream-text-x: calc(var(--stream-lead) + 120px * var(--w-fs) + var(--stream-gap));
+	}
+	:root[data-message-density='compact'] .messages-pane .message {
+		grid-template-columns: [time] var(--stream-time) [name] calc(120px * var(--w-fs)) [text] minmax(0, var(--w-measure));
+		grid-auto-flow: row dense;
+		align-items: baseline;
+		max-width: var(--stream-page);
+		margin-top: 6px;
+	}
+	:root[data-message-density='compact'] .messages-pane .message.continuation {
+		margin-top: 0;
+	}
+	:root[data-message-density='compact'] .messages-pane .message :is(.message-avatar, .message-avatar-spacer) {
+		display: none;
+	}
+	:root[data-message-density='compact'] .messages-pane .message .message-body {
+		display: contents;
+	}
+	:root[data-message-density='compact'] .messages-pane .message .message-body > * {
+		grid-column: text;
+	}
+	:root[data-message-density='compact'] .messages-pane .message .message-body > .message-header {
+		grid-column: name;
+		grid-row: 1;
+		justify-content: flex-end;
+		overflow: hidden;
+	}
+	:root[data-message-density='compact'] .messages-pane .message .header-left {
+		flex-wrap: nowrap;
+		justify-content: flex-end;
+		max-width: 100%;
+	}
+	/* the 120px name cell has no room for a dated stamp; the gutter tooltip carries it */
+	:root[data-message-density='compact'] .messages-pane .message .message-header .timestamp {
+		display: none;
+	}
+	:root[data-message-density='compact'] .messages-pane .message .reactions {
+		margin-top: 2px;
+	}
+	:root[data-message-density='compact'] .messages-pane .message .msg-pin {
+		top: calc(18px * var(--w-fs));
+	}
+	:root[data-message-density='compact'] .messages-pane .stream-start {
+		padding-left: var(--stream-lead);
+	}
+}
+
+/* ---------- narrow stream: phones and the DM panel (§8.12) ---------- */
+@container stream (max-width: 559.98px) {
+	.messages-pane {
+		--stream-av: 32px;
+		--stream-gap: 10px;
+		--stream-lead: 0px;
+		--stream-text-x: calc(var(--stream-av) + var(--stream-gap));
+		padding: 0 12px 6px;
+	}
+	.messages-pane .message {
+		grid-template-columns: [avatar] var(--stream-av) [text] minmax(0, 1fr);
+		max-width: none;
+	}
+	.messages-pane .message:not(.continuation) {
+		margin-top: 22px;
+	}
+	.messages-pane .message::before {
+		inset: -4px -6px;
+	}
+	.messages-pane .message :is(.msg-time, .msg-wick, .msg-pin) {
+		display: none;
+	}
+	.messages-pane .message .message-header .timestamp:not(.timestamp--full) {
+		display: inline;
+	}
+	.messages-pane .message .message-content,
+	.messages-pane .message .markdown-content {
+		font: 400 calc(15px * var(--w-fs)) / calc(23px * var(--w-fs)) var(--w-sans);
+	}
+	:root[data-chat-avatar-mode='off'] .messages-pane .message,
+	:root[data-message-density='compact'] .messages-pane .message {
+		grid-template-columns: [text] minmax(0, 1fr);
+		max-width: none;
+	}
+	:root[data-message-density='compact'] .messages-pane .message :is(.message-avatar, .message-avatar-spacer) {
+		display: none;
+	}
+	.messages-pane .stream-day {
+		max-width: none;
+		margin-inline: -4px;
+		padding-inline: 4px;
+	}
+	.messages-pane .stream-day--float {
+		width: calc(100% + 8px);
+	}
+	.messages-pane :is(.stream-new, .stream-start, .stream-older, .stream-jump) {
+		max-width: none;
+	}
+	.messages-pane .stream-start {
+		padding-top: 28px;
+	}
+}
+@media (max-width: 599.98px) {
+	.messages-pane {
+		padding-inline: var(--w-gutter);
+	}
 }

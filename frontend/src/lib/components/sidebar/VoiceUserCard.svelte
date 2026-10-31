@@ -1,11 +1,27 @@
+<!--
+	The sidebar voice status row (design contract §8.1 item 7), only while you are in a voice room:
+	a 56px row above the foot with the live dot, the room your mic goes to, and one line saying
+	where your mic goes and how many more rooms you hear ("Mic here · listening to 2 more", or
+	"Mic in all rooms I hear" under "Send my mic to: All rooms I hear"), then a 28px ⋯ (Call
+	options) and a 28px Leave. Where the mic goes follows the audio path (`micGoesTo` in
+	lib/callSessionTypes.ts), never the session focus alone.
+
+	- The ⋯ menu holds what used to be raw selects and chips: where your mic goes ("This room" /
+	  "All rooms I hear"), the rooms you listen to (the same session list the line counts; uncheck
+	  to stop listening), the time-in-call
+	  setting, the camera and screen share, and "Connection details", which open on the Calls page
+	  (one surface for route, latency and packet loss; §9.5).
+	- Recording lives in one control (the Calls masthead and the call dock), not here.
+	- Words come from the session model (lib/callSessionTypes.ts), never a transport or lifecycle
+	  enum.
+	Legacy (Svelte 4) syntax kept on purpose: all reactivity flows through top-level `$:`
+	derivations and the template reads only those (svelte5ReactivityTripwire.test.ts).
+-->
 <script lang="ts">
 	import type { Channel } from '$lib/socket';
+	import { _ } from '$lib/i18n';
 	import {
 		callMode,
-		connectionState as callConnectionState,
-		callConnectionDiagnostics,
-		callTransportState,
-		listeningVoiceChannels,
 		voiceTransmitMode,
 		isVideoOff,
 		isSharing,
@@ -14,13 +30,15 @@
 		isDeafened as callDeafened,
 		toggleVideo,
 		startScreenShare,
-		stopScreenShare,
-		activeCalls
+		stopScreenShare
 	} from '$lib/calling';
-	import { formatDiag } from './channelSidebarHelpers';
 	import { getSocket } from '$lib/socketConnection';
-	import { callRecordingState, startCallRecording, stopCallRecording } from '$lib/callRecording';
 	import { callSessions } from '$lib/callSessionManager';
+	import { voiceStatusLine, type CallCopy, type CallSession } from '$lib/callSessionTypes';
+	import { leaveCall, openConnectionDetails } from '$lib/callSurfaces';
+	import Icon from '$lib/components/ui/Icon.svelte';
+	import Menu from '$lib/components/ui/Menu.svelte';
+	import type { MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
 
 	export let runtimeActiveVoiceChannelId: string | null;
 	export let voiceChannels: Channel[];
@@ -31,78 +49,60 @@
 	export let onSetVoiceDurationMode: (mode: 'off' | 'others' | 'all') => void;
 	export let onLeaveVoice: () => Promise<void>;
 
-	let showVoiceDebugDetails = false;
-
 	// ============================================================================
 	// SVELTE 5 REACTIVITY CONTRACT (do not regress)
 	// ============================================================================
 	// Template expressions that call script functions compile to
 	// `$.untrack(() => fn(args))` in Svelte 5 legacy mode: args stay tracked but
-	// store/prop reads INSIDE the body register no dependency. The old
-	// `getCurrentVoiceChannelName()` helper made this card's header show a STALE
-	// channel name when switching primary / joining multiple channels (proven via
-	// compiler probe 2026-08-24). All reactivity flows through top-level `$:`
-	// derivations below; the template only references the derived values.
+	// store/prop reads INSIDE the body register no dependency. All reactivity
+	// flows through top-level `$:` derivations below; the template only
+	// references the derived values.
 
-	$: activeListenChips = voiceChannels.filter(ch =>
-		$listeningVoiceChannels.includes(ch.id) || ch.id === runtimeActiveVoiceChannelId
-	);
-	$: isBroadcasting = $voiceTransmitMode === 'all-listening' && activeListenChips.length > 1 && !$callMuted;
-
-	function resolveChannelName(channelId: string | null): string {
+	function resolveChannelName(channelId: string | null, list: Channel[]): string {
 		if (!channelId) return '';
-		const match = voiceChannels.find((channel) => channel.id === channelId);
-		return match?.name || channelId;
+		return list.find((channel) => channel.id === channelId)?.name || channelId;
 	}
 
-	// Primary channel first, then every additional listened channel, deduped.
-	$: connectedChannelEntries = (() => {
-		const entries: Array<{ id: string; name: string; isPrimary: boolean }> = [];
-		const seen = new Set<string>();
-		if (runtimeActiveVoiceChannelId) {
-			entries.push({ id: runtimeActiveVoiceChannelId, name: resolveChannelName(runtimeActiveVoiceChannelId), isPrimary: true });
-			seen.add(runtimeActiveVoiceChannelId);
-		}
-		for (const id of $listeningVoiceChannels) {
-			if (seen.has(id)) continue;
-			seen.add(id);
-			entries.push({ id, name: resolveChannelName(id), isPrimary: false });
-		}
-		return entries;
-	})();
+	function sessionName(session: CallSession, list: Channel[]): string {
+		return (session.channelId ? list.find((channel) => channel.id === session.channelId)?.name : undefined) || session.name || session.id;
+	}
 
-	// Chip visual state derived up here so the template each-body never reads a
-	// store inside an untracked attribute expression (stale tooltips bug).
-	$: listenChipStates = (() => {
-		const map = new Map<string, { active: boolean; locked: boolean; title: string }>();
-		for (const channel of activeListenChips) {
-			const isPrimary = channel.id === runtimeActiveVoiceChannelId;
-			const isListening = $listeningVoiceChannels.includes(channel.id);
-			map.set(channel.id, {
-				active: isPrimary || isListening,
-				locked: isPrimary,
-				title: isPrimary ? 'Primary voice channel' : isListening ? 'Stop listening' : 'Start listening'
-			});
-		}
-		return map;
-	})();
+	type Translate = (key: string, options?: { values?: Record<string, string | number> }) => string;
+	function makeCopy(translate: Translate): CallCopy {
+		return (key, values) => translate(key, values ? { values } : undefined);
+	}
 
-	$: currentVoiceChannelName =
-		runtimeActiveVoiceChannelId
-			? resolveChannelName(runtimeActiveVoiceChannelId)
-			: '';
+	$: copy = makeCopy($_);
+	$: connectionLabel = copy('calls.connection_details');
+	$: optionsLabel = 'Call options';
 
-	// Phase 5: connecting→connected badge from the session model (inline
-	// store reads in the $: derivation — the card's reactivity contract).
-	$: sessionConnectionLabel = (() => {
-		const sessions = [...$callSessions.values()];
-		const pending = sessions.filter((s) => s.lifecycle === 'joining' || s.lifecycle === 'reconnecting');
-		if (sessions.length > 0 && pending.length === sessions.length) return 'Connecting…';
-		if (pending.length > 0) return `Connecting… (${pending.length}/${sessions.length})`;
-		const failed = sessions.filter((s) => s.lifecycle === 'failed');
-		if (failed.length > 0) return 'Connection trouble';
-		return '';
-	})();
+	$: sessionList = [...$callSessions.values()];
+	$: status = voiceStatusLine(sessionList, { micMuted: $callMuted, deafened: $callDeafened, transmitMode: $voiceTransmitMode, t: copy });
+	// The legacy primary-channel state, for a join the session model has not registered yet.
+	$: legacyActive = $callMode === 'channel' && Boolean(runtimeActiveVoiceChannelId);
+	$: visible = Boolean(status) || legacyActive;
+	$: roomName = status ? sessionName(status.session, voiceChannels) : resolveChannelName(runtimeActiveVoiceChannelId, voiceChannels);
+	$: line = status
+		? status.line
+		: $voiceTransmitMode === 'all-listening'
+			? 'Mic in all rooms I hear'
+			: $callMuted
+				? copy('calls.muted')
+				: copy('sidebar.mic_here');
+	$: pending = status?.pending ?? false;
+	$: leaveLabel = roomName ? `${copy('calls.leave')} ${roomName}` : $_('shell.call.leave_voice');
+
+	// The other rooms the line counts ("listening to 2 more"), from the same session list:
+	// unchecking one stops listening there. The primary room is left with Leave instead.
+	$: listenedRooms = sessionList
+		.filter((session) => session.kind === 'channel' && session.id !== status?.session.id)
+		.map((session) => ({ id: session.channelId ?? session.id, name: sessionName(session, voiceChannels) }))
+		.filter((room) => room.id !== runtimeActiveVoiceChannelId);
+
+	function chooseTransmit(mode: 'primary' | 'all-listening') {
+		// The sidebar's handler reads the chosen value from the event target (it served a select).
+		onTransmitModeChange({ currentTarget: { value: mode } } as unknown as Event);
+	}
 
 	async function handleToggleVideo() {
 		await toggleVideo(getSocket() || undefined);
@@ -117,148 +117,68 @@
 			try {
 				await startScreenShare(sock);
 			} catch {
-				// swallow
+				// The share picker was dismissed; nothing changed.
 			}
 		}
 	}
 
-	// Ported from the removed channel docked bar so recording capability is
-	// preserved after the bar's removal (calling-audit P2.1).
-	async function handleToggleRecording() {
-		if ($callRecordingState.status === 'recording' || $callRecordingState.status === 'saving') {
-			await stopCallRecording();
-			return;
-		}
-		await startCallRecording();
+	function handleLeave() {
+		// Leave the room this row names (a failure says so in a toast); before the session model has
+		// it, leave the primary room through the sidebar, which reports failures the same way.
+		if (status) leaveCall(status.session, roomName);
+		else void onLeaveVoice();
 	}
+
+	$: menuItems = ((): MenuEntry[] => {
+		const items: MenuEntry[] = [
+			{ id: 'mic-kicker', type: 'kicker', label: 'Send my mic to' },
+			{ id: 'mic-room', label: 'This room', role: 'menuitemradio', checked: $voiceTransmitMode !== 'all-listening', onSelect: () => chooseTransmit('primary') },
+			{ id: 'mic-all', label: 'All rooms I hear', role: 'menuitemradio', checked: $voiceTransmitMode === 'all-listening', onSelect: () => chooseTransmit('all-listening') }
+		];
+		if (listenedRooms.length > 0) {
+			items.push({ id: 'listen-kicker', type: 'kicker', label: 'Listening to' });
+			for (const room of listenedRooms) {
+				items.push({ id: `listen-${room.id}`, label: room.name, keepCase: true, role: 'menuitemcheckbox', checked: true, onSelect: () => onToggleListenChannel(room.id) });
+			}
+		}
+		items.push(
+			{ id: 'time-kicker', type: 'kicker', label: 'Show time in call' },
+			{ id: 'time-off', label: 'Off', role: 'menuitemradio', checked: voiceDurationMode === 'off', onSelect: () => onSetVoiceDurationMode('off') },
+			{ id: 'time-others', label: 'For others', role: 'menuitemradio', checked: voiceDurationMode === 'others', onSelect: () => onSetVoiceDurationMode('others') },
+			{ id: 'time-all', label: 'For everyone', role: 'menuitemradio', checked: voiceDurationMode === 'all', onSelect: () => onSetVoiceDurationMode('all') },
+			{ id: 'media-sep', type: 'separator' },
+			{ id: 'camera', label: $isVideoOff ? $_('shell.call.turn_on_camera') : $_('shell.call.turn_off_camera'), icon: $isVideoOff ? 'video' : 'videoOff', onSelect: handleToggleVideo }
+		);
+		if (canScreenShare()) {
+			items.push({ id: 'screen', label: $isSharing ? 'Stop sharing your screen' : copy('calls.share_screen'), icon: 'screen', onSelect: handleToggleScreenShare });
+		}
+		items.push(
+			{ id: 'details-sep', type: 'separator' },
+			{ id: 'details', label: connectionLabel, icon: 'signal', onSelect: openConnectionDetails }
+		);
+		return items;
+	})();
 </script>
 
-{#if $callMode === 'channel' && runtimeActiveVoiceChannelId}
-	<div class="voice-usercard">
-		<button
-			type="button"
-			class="voice-usercard-header"
-			on:click={() => (showVoiceDebugDetails = !showVoiceDebugDetails)}
-			aria-expanded={showVoiceDebugDetails}
+{#if visible}
+	<div class="voice-status" class:voice-status--pending={pending} role="group" aria-label={`Voice: ${roomName}`}>
+		<div class="voice-status__text">
+			<span class="voice-status__room"><span class="voice-status__dot" aria-hidden="true"></span><span class="voice-status__name">{roomName}</span></span>
+			<span class="voice-status__line" role="status">{line}</span>
+		</div>
+		<Menu
+			items={menuItems}
+			label={optionsLabel}
+			triggerLabel={optionsLabel}
+			title={optionsLabel}
+			heading={roomName}
+			align="end"
+			class="w-ibtn w-ibtn--sm voice-status__more"
 		>
-				<div class="voice-usercard-title">
-					<span class="voice-online-dot"></span>
-					<div>
-						<strong>Voice Connected</strong>
-						{#if sessionConnectionLabel}
-							<small class="voice-connection-badge">{sessionConnectionLabel}</small>
-						{/if}
-						<small>{currentVoiceChannelName} / {$callConnectionState}</small>
-					{#if connectedChannelEntries.length > 1}
-						<small class="voice-listen-summary">Listening: {connectedChannelEntries.filter(e => !e.isPrimary).map(e => e.name).join(', ')}</small>
-					{/if}
-					{#if isBroadcasting}
-						<small class="voice-broadcast-badge">Broadcasting to {activeListenChips.length} channels</small>
-					{/if}
-				</div>
-			</div>
-			<span class="voice-chevron">{showVoiceDebugDetails ? 'v' : '>'}</span>
+			<Icon name="more" />
+		</Menu>
+		<button type="button" class="w-ibtn w-ibtn--sm voice-status__leave" aria-label={leaveLabel} title={leaveLabel} on:click={handleLeave}>
+			<Icon name="phoneOff" />
 		</button>
-
-		{#if showVoiceDebugDetails}
-			<div class="voice-usercard-debug">
-				<div><span>Ping</span><strong>{formatDiag($callConnectionDiagnostics.pingMs, 'ms')}</strong></div>
-				<div><span>Jitter</span><strong>{formatDiag($callConnectionDiagnostics.jitterMs, 'ms')}</strong></div>
-				<div><span>In Loss</span><strong>{formatDiag($callConnectionDiagnostics.inboundPacketLossPct, '%')}</strong></div>
-				<div><span>Out Loss</span><strong>{formatDiag($callConnectionDiagnostics.outboundPacketLossPct, '%')}</strong></div>
-				<div><span>In Rate</span><strong>{formatDiag($callConnectionDiagnostics.inboundKbps, 'kbps')}</strong></div>
-				<div><span>Out Rate</span><strong>{formatDiag($callConnectionDiagnostics.outboundKbps, 'kbps')}</strong></div>
-				<div><span>Transport</span><strong>{$callTransportState.activeTransport.toUpperCase()}</strong></div>
-				<div><span>Participants</span><strong>{1 + $activeCalls.length}</strong></div>
-			</div>
-		{/if}
-
-		<div class="voice-route-controls">
-			<label for="voice-transmit-mode">Transmit</label>
-			<select id="voice-transmit-mode" on:change={onTransmitModeChange} value={$voiceTransmitMode}>
-				<option value="primary">Primary channel</option>
-				<option value="all-listening">All listening channels</option>
-			</select>
-		</div>
-
-		<div class="voice-route-controls">
-			<label for="voice-duration-mode">Timers</label>
-			<select
-				id="voice-duration-mode"
-				value={voiceDurationMode}
-				on:change={(event) => onSetVoiceDurationMode((event.currentTarget as HTMLSelectElement).value as 'off' | 'others' | 'all')}
-			>
-				<option value="off">Off</option>
-				<option value="others">Others</option>
-				<option value="all">All</option>
-			</select>
-		</div>
-
-		{#if $listeningVoiceChannels.length > 0}
-		<div class="voice-listen-controls">
-			<div class="voice-listen-title">Listen In</div>
-			<div class="voice-listen-list">
-				{#each activeListenChips as voiceChannel (voiceChannel.id)}
-					{@const chip = listenChipStates.get(voiceChannel.id)}
-					<button
-						type="button"
-						class="voice-listen-chip"
-						class:active={chip?.active}
-						class:locked={chip?.locked}
-						on:click={() => onToggleListenChannel(voiceChannel.id)}
-						title={chip?.title ?? ''}
-					>
-						{voiceChannel.name}
-					</button>
-				{/each}
-			</div>
-		</div>
-		{/if}
-
-		<div class="voice-usercard-actions">
-			<button class:active={!$isVideoOff} on:click={handleToggleVideo} title={$isVideoOff ? 'Turn on camera' : 'Turn off camera'}>
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-			</button>
-			{#if canScreenShare()}
-			<button class:active={$isSharing} on:click={handleToggleScreenShare} title={$isSharing ? 'Stop sharing' : 'Share screen'}>
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-			</button>
-			{/if}
-			<button
-				class="record-btn"
-				class:active={$callRecordingState.status === 'recording'}
-				on:click={handleToggleRecording}
-				title={$callRecordingState.status === 'recording' ? 'Stop recording' : 'Start recording'}
-				disabled={$callRecordingState.status === 'saving'}
-			>
-				{$callRecordingState.status === 'saving' ? 'Saving' : $callRecordingState.status === 'recording' ? 'REC' : 'Record'}
-			</button>
-			<button class="leave-btn" on:click={onLeaveVoice} title="Leave voice channel">
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07C9.44 17.28 8.17 16 7.05 14.68A19.79 19.79 0 0 1 4 6.05 2 2 0 0 1 5.99 4h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L10.68 11.68"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
-			</button>
-		</div>
 	</div>
 {/if}
-
-<style>
-	.voice-broadcast-badge {
-		display: inline-block;
-		margin-top: 2px;
-		padding: 1px 6px;
-		border-radius: 999px;
-		background: rgba(152, 216, 200, 0.18);
-		color: var(--accent, #98d8c8);
-		font-size: 0.7rem;
-		font-weight: 600;
-		letter-spacing: 0.02em;
-	}
-
-	.voice-listen-summary {
-		display: block;
-		max-width: 100%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		opacity: 0.75;
-	}
-</style>

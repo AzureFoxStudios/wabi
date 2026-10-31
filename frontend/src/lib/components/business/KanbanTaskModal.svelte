@@ -1,6 +1,30 @@
+<script module lang="ts">
+	/** The field the dialog opens on ("Move task…" → Due date… / Assignee… / Priority…). */
+	export type TaskField = 'title' | 'due' | 'assignee' | 'priority';
+</script>
+
 <script lang="ts">
+	/**
+	 * The task dialog (design contract §7.13, §8.6): BaseModal md (560) with kit fields. Title,
+	 * description, kit selects for Status / Priority / Assignee / Project, a due date, a "Time
+	 * estimate" switch row, sign-offs and project file links. Footer: Delete task (danger) at the
+	 * left when editing, then a quiet Cancel and the primary Save.
+	 *
+	 * The form state stays with the board (two-way bound), so the dialog is presentation only.
+	 * BaseModal traps focus, closes on Esc, and returns focus to the card or button that opened it.
+	 *
+	 * Assignee is a kit select like Status, Priority and Project (its menu has typeahead). The
+	 * older combobox props (filteredUsers, showUserDropdown, userSearchQuery, filterUsers) are
+	 * still accepted so hosts that bind them keep working; the select does not need them.
+	 */
 	import { kanbanColumns, projects } from '$lib/business';
 	import type { Todo, TodoStatus, ItemSignature, LoreCitationRef } from '$lib/business/types';
+	import { formatFileLinks, laneLabel, parseFileLinks } from '$lib/business/plannerBoard';
+	import { _ } from '$lib/i18n';
+	import BaseModal from '$lib/components/BaseModal.svelte';
+	import Select, { type SelectOption } from '$lib/components/ui/Select.svelte';
+	import Switch from '$lib/components/ui/Switch.svelte';
+	import Icon from '$lib/components/ui/Icon.svelte';
 	import SignatureRow from './SignatureRow.svelte';
 	import LoreRefChips from './LoreRefChips.svelte';
 
@@ -13,6 +37,7 @@
 
 	export let editingTodo: Todo | null = null;
 	export let isReadOnly = false;
+	export let initialField: TaskField = 'title';
 	export let registeredUsers: RegisteredUser[] = [];
 	export let filteredUsers: RegisteredUser[] = [];
 	export let showUserDropdown = false;
@@ -28,198 +53,226 @@
 	export let draftSignatures: ItemSignature[] = [];
 	/** Legacy read-only signer shown when the item predates multi-sign. */
 	export let legacySignedBy: string | undefined = undefined;
-	/** Draft lore refs (two-way bound with host form). */
+	/** Draft project file links (two-way bound with the host form). */
 	export let draftLoreRefs: LoreCitationRef[] = [];
 	export let userSearchQuery = '';
 	export let targetColumn: TodoStatus = 'todo';
 	export let closeModal: () => void;
-
-	/** Parse "ch_abc ^c/path/file.ts:12" style input back into refs. */
-	function handleRefsInput(event: Event): void {
-		const raw = (event.target as HTMLInputElement).value.trim();
-		if (!raw) {
-			draftLoreRefs = [];
-			return;
-		}
-		const parsed: LoreCitationRef[] = [];
-		for (const part of raw.split(/[,\n]/).map(s => s.trim()).filter(Boolean)) {
-			const m = part.match(/^(ch_[0-9a-fA-F]+)\s*\^c\/(.+?)(?::(\d+)(?:-(\d+))?)?$/);
-			if (!m) continue;
-			parsed.push({
-				channelId: m[1],
-				path: m[2],
-				startLine: m[3] ? Number(m[3]) : undefined,
-				endLine: m[4] ? Number(m[4]) : undefined
-			});
-		}
-		draftLoreRefs = parsed;
-	}
 	export let handleSubmit: () => void;
 	export let handleDelete: (todo: Todo) => void;
 	export let filterUsers: (query: string) => void;
 	export let selectUser: (user: RegisteredUser) => void;
 	export let clearAssignee: () => void;
 	export let getAssigneeName: (userId: number | undefined) => string;
+
+	const FIELD_SELECTOR: Record<TaskField, string> = {
+		title: '#planner-task-title',
+		due: '#planner-task-due',
+		assignee: '#planner-task-assignee',
+		priority: '#planner-task-priority'
+	};
+
+	let linksUnread = 0;
+	// The combobox state the hosts still bind (see above); read here so the props stay declared.
+	$: void filteredUsers, showUserDropdown, userSearchQuery, filterUsers;
+
+	$: statusOptions = $kanbanColumns.map((col) => ({ value: col.id, label: laneLabel(col) })) satisfies SelectOption[];
+	const priorityOptions: SelectOption[] = [
+		{ value: 'low', label: 'Low' },
+		{ value: 'medium', label: 'Medium' },
+		{ value: 'high', label: 'High' },
+		{ value: 'urgent', label: 'Urgent' }
+	];
+	$: projectOptions = [
+		{ value: '', label: 'No project' },
+		...$projects.map((project) => ({ value: project.id, label: project.name }))
+	] satisfies SelectOption[];
+
+	// The kit select works on strings; the board keeps `null` for "no project".
+	let projectValue = formProjectId ?? '';
+	$: formProjectId = projectValue || null;
+	let statusValue: string = targetColumn;
+	$: targetColumn = statusValue as TodoStatus;
+	let priorityValue: string = formPriority;
+	$: formPriority = priorityValue as Todo['priority'];
+
+	$: titleMissing = formTitle.trim() === '';
+
+	// Assignee: "Unassigned" or one person from the directory. A saved assignee the directory
+	// does not know (yet) stays listed by name, so opening the dialog never drops it.
+	let assigneeValue = formAssigneeId ? String(formAssigneeId) : '';
+	$: assigneeOptions = buildAssigneeOptions(registeredUsers, formAssigneeId);
+	function buildAssigneeOptions(users: RegisteredUser[], current: number | null): SelectOption[] {
+		const people = [...users]
+			.sort((a, b) => a.username.localeCompare(b.username))
+			.map((user) => ({ value: String(user.user_id), label: user.username }));
+		if (current && !users.some((user) => user.user_id === current)) {
+			people.unshift({ value: String(current), label: getAssigneeName(current) || `Member ${current}` });
+		}
+		return [{ value: '', label: 'Unassigned' }, ...people];
+	}
+	function chooseAssignee(value: string): void {
+		const user = registeredUsers.find((candidate) => String(candidate.user_id) === value);
+		if (user) selectUser(user);
+		else if (!value) clearAssignee();
+		else formAssigneeId = Number(value);
+	}
+
+	/** Parse "ch_abc ^c/path/file.ts:12" style input back into refs. */
+	function handleRefsInput(event: Event): void {
+		const raw = (event.target as HTMLInputElement).value.trim();
+		if (!raw) {
+			draftLoreRefs = [];
+			linksUnread = 0;
+			return;
+		}
+		const parsed = parseFileLinks(raw);
+		draftLoreRefs = parsed.refs;
+		linksUnread = parsed.unread;
+	}
+
+	/** The footer's hairline shows only while the body scrolls (§7.13). */
+	let bodyScrolls = false;
+	function watchScroll(form: HTMLElement) {
+		const body = form.closest('.base-modal__body') as HTMLElement | null;
+		if (!body) return {};
+		const measure = () => (bodyScrolls = body.scrollHeight > body.clientHeight + 1);
+		measure();
+		const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+		observer?.observe(body);
+		observer?.observe(form);
+		return { destroy: () => observer?.disconnect() };
+	}
+
+	function submit(): void {
+		if (titleMissing || isReadOnly) return;
+		handleSubmit();
+	}
 </script>
 
-<div
-	class="modal-overlay"
-	role="button"
-	tabindex="0"
-	on:click={closeModal}
-	on:keydown={(event) => {
-		const tag = (event.target as HTMLElement).tagName;
-		if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-		if (event.key === 'Enter' || event.key === ' ') {
-			event.preventDefault();
-			closeModal();
-		}
-	}}
+<BaseModal
+	isOpen={true}
+	onClose={closeModal}
+	size="md"
+	padded
+	title={editingTodo ? 'Edit task' : $_('planner.new_task')}
+	note={isReadOnly ? 'Read-only: changes cannot be saved here' : ''}
+	initialFocus={FIELD_SELECTOR[initialField]}
+	panelClass="planner-task-dialog"
 >
-	<div
-		class="modal"
-		role="dialog"
-		aria-modal="true"
-		aria-label={editingTodo ? 'Edit task' : 'Add task'}
-		tabindex="-1"
-		on:click|stopPropagation
-		on:keydown|stopPropagation={(event) => {
-			const tag = (event.target as HTMLElement).tagName;
-			if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-			if (event.key === 'Enter' || event.key === ' ') {
-				event.preventDefault();
-			}
-		}}
-	>
-		<div class="modal-header">
-			<h2>{editingTodo ? 'Edit Task' : 'Add Task'}</h2>
-			<button class="close-btn" on:click={closeModal}>&times;</button>
+	<form id="planner-task-form" class="ptd-form" on:submit|preventDefault={submit} novalidate use:watchScroll>
+		<div class="ptd-field">
+			<label class="w-label" for="planner-task-title">Title</label>
+			<input
+				id="planner-task-title"
+				class="w-field"
+				type="text"
+				bind:value={formTitle}
+				placeholder="What needs doing?"
+				required
+				aria-required="true"
+				maxlength="300"
+				disabled={isReadOnly}
+			/>
 		</div>
-		<form on:submit|preventDefault={handleSubmit}>
-			<div class="form-group">
-				<label for="title">Title *</label>
-				<input id="title" type="text" bind:value={formTitle} placeholder="Task title" required />
-			</div>
 
-			<div class="form-group">
-				<label for="description">Description</label>
-				<textarea id="description" bind:value={formDescription} placeholder="Add more details..." rows="3"></textarea>
-			</div>
+		<div class="ptd-field">
+			<label class="w-label" for="planner-task-description">Description</label>
+			<textarea id="planner-task-description" class="w-field" bind:value={formDescription} placeholder="Add details, links or notes" rows="3" disabled={isReadOnly}></textarea>
+		</div>
 
-			<div class="form-group">
-				<label for="assignee">Assign to</label>
-				<div class="assignee-search-wrap">
-					{#if formAssigneeId}
-						<div class="assignee-chip">
-							<span class="assignee-dot" style="background-color: {registeredUsers.find(u => u.user_id === formAssigneeId)?.color || '#888'}"></span>
-							<span>{getAssigneeName(formAssigneeId)}</span>
-							<button type="button" class="chip-remove" on:click={clearAssignee} title="Clear assignee">×</button>
-						</div>
-					{:else}
-						<input
-							id="assignee"
-							type="text"
-							bind:value={userSearchQuery}
-							on:input={(e) => filterUsers((e.target as HTMLInputElement).value)}
-							on:focus={() => showUserDropdown = true}
-							placeholder="Search users..."
-							autocomplete="off"
-						/>
-						{#if showUserDropdown && filteredUsers.length > 0}
-							<div class="assignee-dropdown">
-								{#each filteredUsers as user (user.user_id)}
-									<button type="button" class="assignee-option" on:click={() => selectUser(user)}>
-										<span class="assignee-item-dot" style="background-color: {user.color}"></span>
-										<span>{user.username}</span>
-									</button>
-								{/each}
-							</div>
-						{/if}
-					{/if}
-				</div>
+		<div class="ptd-pair">
+			<div class="ptd-field">
+				<span class="w-label" id="planner-task-status-label">Status</span>
+				<Select id="planner-task-status" ariaLabel="Status" options={statusOptions} bind:value={statusValue} disabled={isReadOnly} heading="Status" class="ptd-select" />
 			</div>
-
-			<div class="form-row">
-				<div class="form-group">
-					<label for="priority">Priority</label>
-					<select id="priority" bind:value={formPriority}>
-						<option value="low">Low</option>
-						<option value="medium">Medium</option>
-						<option value="high">High</option>
-						<option value="urgent">Urgent</option>
-					</select>
-				</div>
-				<div class="form-group">
-					<label for="status">Status</label>
-					<select id="status" bind:value={targetColumn}>
-						{#each $kanbanColumns as col}
-							<option value={col.id}>{col.label}</option>
-						{/each}
-					</select>
-				</div>
+			<div class="ptd-field">
+				<span class="w-label" id="planner-task-priority-label">Priority</span>
+				<Select id="planner-task-priority" ariaLabel="Priority" options={priorityOptions} bind:value={priorityValue} disabled={isReadOnly} heading="Priority" class="ptd-select" />
 			</div>
+		</div>
 
-			<div class="form-row">
-				<div class="form-group">
-					<label for="project">Project</label>
-					<select id="project" bind:value={formProjectId}>
-						<option value={null}>No project</option>
-						{#each $projects as project}
-							<option value={project.id}>{project.name}</option>
-						{/each}
-					</select>
-				</div>
-				<div class="form-group">
-					<label for="dueDate">Due Date</label>
-					<input id="dueDate" type="date" bind:value={formDueDate} />
-				</div>
+		<div class="ptd-pair">
+			<div class="ptd-field ptd-assignee">
+				<span class="w-label" id="planner-task-assignee-label">Assignee</span>
+				<Select
+					id="planner-task-assignee"
+					ariaLabel="Assignee"
+					options={assigneeOptions}
+					bind:value={assigneeValue}
+					onchange={chooseAssignee}
+					disabled={isReadOnly}
+					heading="Assignee"
+					class="ptd-select"
+				/>
 			</div>
-
-			<div class="form-group checkbox-group">
-				<label class="checkbox-label">
-					<input type="checkbox" bind:checked={formHasTimeEstimate} />
-					<span>Track time estimate for burndown</span>
-				</label>
+			<div class="ptd-field">
+				<span class="w-label" id="planner-task-project-label">Project</span>
+				<Select id="planner-task-project" ariaLabel="Project" options={projectOptions} bind:value={projectValue} disabled={isReadOnly} heading="Project" class="ptd-select" />
 			</div>
+		</div>
 
-			{#if formHasTimeEstimate}
-				<div class="form-group">
-					<label for="estimatedHours">Estimated Time (hours)</label>
-					<input id="estimatedHours" type="number" min="0.25" step="0.25" bind:value={formEstimatedHours} />
+		<div class="ptd-field ptd-field--date">
+			<label class="w-label" for="planner-task-due">Due date</label>
+			<input id="planner-task-due" class="w-field" type="date" bind:value={formDueDate} disabled={isReadOnly} />
+		</div>
+
+		<div class="w-srow ptd-srow">
+			<div class="w-srow__text">
+				<span class="w-srow__label" id="planner-task-estimate-label">{$_('planner.time_estimate')}</span>
+				<span class="w-srow__hint" id="planner-task-estimate-hint">Used for the project burndown</span>
+			</div>
+			<Switch bind:checked={formHasTimeEstimate} labelledby="planner-task-estimate-label" describedby="planner-task-estimate-hint" disabled={isReadOnly} />
+		</div>
+		{#if formHasTimeEstimate}
+			<div class="ptd-field ptd-field--hours">
+				<label class="w-label" for="planner-task-hours">Hours</label>
+				<input id="planner-task-hours" class="w-field" type="number" min="0.25" step="0.25" inputmode="decimal" bind:value={formEstimatedHours} disabled={isReadOnly} />
+			</div>
+		{/if}
+
+		<div class="ptd-field ptd-signatures">
+			<SignatureRow bind:draftSignatures {legacySignedBy} label="Names attached" disabled={isReadOnly} />
+		</div>
+
+		<div class="ptd-field">
+			<label class="w-label" for="planner-task-links">Project file links</label>
+			<input
+				id="planner-task-links"
+				class="w-field"
+				type="text"
+				value={formatFileLinks(draftLoreRefs)}
+				on:change={handleRefsInput}
+				placeholder={$_('planner.file_link_placeholder')}
+				aria-invalid={linksUnread > 0}
+				aria-describedby={linksUnread > 0 ? 'planner-task-links-error' : undefined}
+				disabled={isReadOnly}
+			/>
+			{#if linksUnread > 0}
+				<div class="w-field-foot">
+					<span class="w-field-error" id="planner-task-links-error"><Icon name="alert" size={14} />{linksUnread === 1 ? 'One link is not a Project file link and was left out.' : `${linksUnread} links are not Project file links and were left out.`}</span>
 				</div>
 			{/if}
+			{#if draftLoreRefs.length > 0}
+				<div class="ptd-links">
+					<LoreRefChips refs={draftLoreRefs} size="sm" />
+				</div>
+			{/if}
+		</div>
+	</form>
 
-			<div class="form-group">
-				<SignatureRow bind:draftSignatures {legacySignedBy} label="Names attached" />
-			</div>
-
-			<div class="form-group">
-				<label for="loreRefs">Project file links (optional)</label>
-				<input
-					id="loreRefs"
-					type="text"
-					value={draftLoreRefs.map(r => `${r.channelId}^c/${r.path}${r.startLine ? ':' + r.startLine : ''}`).join(', ')}
-					on:change={handleRefsInput}
-					placeholder="channelId ^c/path/file.ts:12 (paste a code citation)"
-				/>
-				{#if draftLoreRefs.length > 0}
-					<div style="margin-top: 6px;">
-						<LoreRefChips refs={draftLoreRefs} size="sm" />
-					</div>
-				{/if}
-			</div>
-
-			<div class="form-actions">
-				{#if editingTodo}
-					<button type="button" class="delete-btn" on:click={() => editingTodo && handleDelete(editingTodo)} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Delete'}>
-						Delete
-					</button>
-				{/if}
-				<button type="button" class="cancel-btn" on:click={closeModal}>Cancel</button>
-				<button type="submit" class="submit-btn">
-					{editingTodo ? 'Save Changes' : 'Add Task'}
-				</button>
-			</div>
-		</form>
-	</div>
-</div>
+	<footer class="w-dialog__foot ptd-foot" class:w-dialog__foot--rule={bodyScrolls} slot="footer">
+		{#if editingTodo}
+			<button
+				type="button"
+				class="w-btn w-btn--danger w-dialog__foot-start"
+				on:click={() => editingTodo && handleDelete(editingTodo)}
+				disabled={isReadOnly}
+			>{$_('planner.delete_task')}</button>
+		{/if}
+		<button type="button" class="w-btn w-btn--quiet" on:click={closeModal}>Cancel</button>
+		<button type="submit" form="planner-task-form" class="w-btn w-btn--primary" disabled={isReadOnly || titleMissing}>
+			{editingTodo ? 'Save' : $_('planner.add_task')}
+		</button>
+	</footer>
+</BaseModal>

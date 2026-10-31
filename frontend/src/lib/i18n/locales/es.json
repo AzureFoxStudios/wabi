@@ -7,11 +7,17 @@
     "regenerate": "Regenerar",
     "cancel": "Cancelar",
     "save": "Guardar",
-    "on": "On",
-    "off": "Off"
+    "more": "Más",
+    "open": "Abrir",
+    "retry": "Reintentar",
+    "dismiss": "Descartar",
+    "discard": "Descartar",
+    "search": "Buscar",
+    "loading": "Cargando…",
+    "unsaved_changes": "Cambios sin guardar"
   },
   "settings": {
-    "title": "Configuracion",
+    "title": "Ajustes",
     "language": "Idioma",
     "tabs": {
       "games": "Juegos",
@@ -21,12 +27,13 @@
       "accessibility": "Accesibilidad",
       "appearance": "Apariencia",
       "server": "Servidor",
-      "addons": "Add-ons",
+      "addons": "Complementos",
       "emojis": "Emojis",
       "storage": "Almacenamiento",
       "admin": "Admin",
       "about": "Acerca de",
-      "logout": "Cerrar sesion"
+      "logout": "Cerrar sesión",
+      "privacy": "Privacidad y seguridad"
     },
     "sections": {
       "display_name": "Nombre visible",
@@ -35,43 +42,56 @@
       "notifications": "Notificaciones",
       "accessibility": "Accesibilidad",
       "appearance": "Apariencia",
-      "server_management": "Gestion del servidor",
-      "addons": "Add-ons",
+      "server_management": "Gestión del servidor",
+      "addons": "Complementos",
       "custom_emojis": "Emojis personalizados",
-      "admin_panel": "Panel admin",
+      "admin_panel": "Panel de administración",
       "about": "Acerca de"
-    },
-    "actions": {
-      "clear_server": "Limpiar servidor"
-    },
-    "confirm": {
-      "clear_local_title": "Limpiar datos locales",
-      "clear_local_message": "Seguro que deseas borrar todos los datos del chat? Esta accion no se puede deshacer.",
-      "clear_local_confirm": "Limpiar datos",
-      "clear_server_title": "Limpiar mensajes del servidor",
-      "clear_server_message": "Seguro que deseas eliminar TODOS los mensajes del servidor? Esto afecta a todos los usuarios y no se puede deshacer.",
-      "clear_server_confirm": "Eliminar todo"
     },
     "language_learning": {
       "label": "Aprendizaje progresivo de interfaz",
       "description": "Mezcla tu idioma seleccionado en la interfaz poco a poco.",
       "target_percent": "Idioma objetivo en la interfaz: {percent}%",
-      "hint": "Valores bajos mantienen mas ingles. Sube gradualmente mientras aprendes.",
-      "select_non_english": "Selecciona un idioma de aplicacion distinto de ingles para activar la mezcla progresiva."
+      "hint": "Los valores bajos mantienen más inglés. Súbelos poco a poco mientras aprendes.",
+      "select_non_english": "Elige un idioma de la aplicación distinto del inglés para activar la mezcla progresiva."
+    },
+    "search": "Buscar ajustes",
+    "groups": {
+      "account": "Cuenta",
+      "this_device": "Este dispositivo"
+    },
+    "sign_out_confirm": "¿Cerrar sesión en {server}?",
+    "appearance": {
+      "theme": "Tema",
+      "calm": "Sereno",
+      "accessible_expressive": "Accesible y expresivo",
+      "show_all_themes": "Mostrar los {count} temas",
+      "character_dark": "oscuro",
+      "character_light": "claro",
+      "character_pixel": "píxel",
+      "character_motion": "movimiento",
+      "reading": "Lectura",
+      "text_size": "Tamaño del texto",
+      "density": "Densidad de mensajes",
+      "cozy": "Cómoda",
+      "compact": "Compacta",
+      "own_right": "Tus mensajes a la derecha",
+      "reduce_motion": "Reducir movimiento",
+      "chat_background": "Fondo del chat"
     }
   },
   "login": {
     "tabs": {
       "guest": "Invitado",
       "login": "Iniciar sesión",
-      "register": "Registrarse"
+      "register": "Crear cuenta"
     },
     "language": {
       "label": "Idioma"
     },
     "guest": {
       "name_placeholder": "Escribe tu nombre",
-      "joining": "Entrando...",
+      "joining": "Entrando…",
       "join_button": "Entrar como invitado",
       "join_qr_button": "Unirse con código QR",
       "business_hub": "Centro de negocios"
@@ -79,13 +99,13 @@
     "auth": {
       "username_or_handle_placeholder": "Usuario o @handle",
       "password_placeholder": "Contraseña",
-      "logging_in": "Iniciando sesión...",
+      "logging_in": "Iniciando sesión…",
       "login_button": "Iniciar sesión",
       "display_name_placeholder": "Nombre visible",
       "handle_placeholder": "tuhandle",
       "password_rules_placeholder": "Contraseña (8+ caracteres)",
       "confirm_password_placeholder": "Confirmar contraseña",
-      "creating_account": "Creando cuenta...",
+      "creating_account": "Creando cuenta…",
       "create_account_button": "Crear cuenta",
       "forgot_password": "¿Olvidaste tu contraseña?",
       "remember_me": "Recuérdame en este dispositivo",
@@ -104,7 +124,7 @@
       "handle_invalid": "El handle debe empezar con una letra, tener 2-32 caracteres y usar solo minúsculas/números/guion bajo",
       "password_min": "La contraseña debe tener al menos 8 caracteres",
       "password_mismatch": "Las contraseñas no coinciden",
-      "registration_failed": "No se pudo completar el registro",
+      "registration_failed": "No se pudo crear la cuenta",
       "username_password_required": "Usuario y contraseña son obligatorios",
       "login_failed": "No se pudo iniciar sesión"
     },
@@ -112,76 +132,68 @@
       "open_modal": "Unirse con código QR",
       "title": "Escanear para unirse",
       "url_placeholder": "Nombre de sala opcional (ej. cocina)",
-      "close_modal_aria": "Cerrar modal del código QR",
+      "close_modal_aria": "Cerrar código QR",
       "dialog_aria": "Código QR para unirse al chat"
     },
     "wizard": {
       "welcome": "Bienvenido a Wabi",
-      "owner_subtitle": "Crea tu cuenta de propietario. Este sera el administrador principal del servidor.",
-      "advanced_setup_note": "Necesitas acceso publico, TURN, mesh o personalizar la pagina de inicio? Hazlo despues de iniciar sesion con los scripts de configuracion o launch-page config.",
+      "owner_subtitle": "Crea tu cuenta de propietario. Será la cuenta de administración principal del servidor.",
+      "advanced_setup_note": "¿Necesitas acceso público, TURN o una página de inicio de sesión con tu marca? Configúralo después de iniciar sesión, con los scripts de instalación o la configuración de launch-page.",
       "join_title": "¿Quién puede unirse a este servidor?",
       "join_subtitle": "Eres el propietario — decide cómo entra la gente nueva.",
       "join_open_label": "Abierto",
       "join_open_desc": "Cualquiera que llegue a este servidor puede crear una cuenta.",
       "join_closed_label": "Cerrado",
-      "join_closed_desc": "Por ahora solo tú puedes crear cuentas; los códigos de invitación llegarán más adelante.",
+      "join_closed_desc": "Nadie más puede crear una cuenta en este servidor.",
       "join_guest_label": "Permitir acceso de invitados",
       "join_guest_desc": "Permite que la gente entre como invitados temporales sin cuenta.",
-      "join_note": "Puedes cambiar esto más adelante en Configuración.",
-      "join_save_failed": "No se pudo guardar la configuración de acceso — continuando de todos modos. Puedes configurarla más adelante en Configuración.",
+      "join_note": "Puedes cambiarlo más adelante en Ajustes.",
+      "join_save_failed": "No se pudo guardar el ajuste de acceso; se continúa de todos modos. Puedes cambiarlo más adelante en Ajustes.",
       "finishing": "Finalizando…",
       "finish": "Finalizar configuración",
       "step_account": "Cuenta del propietario",
       "step_network": "Red",
-      "step_mesh": "Mesh de servidores",
       "step_branding": "Marca",
       "step_done": "Listo",
       "next": "Siguiente",
-      "back": "Atras",
+      "back": "Atrás",
       "skip": "Omitir",
-      "network_title": "Configuracion de red",
+      "network_title": "Configuración de red",
       "network_subtitle": "Haz tu servidor accesible para otros.",
-      "portforward_label": "Redireccion de puertos (por defecto)",
-      "portforward_instructions": "Para hacer tu servidor accesible publicamente, redirige estos puertos en tu router:",
-      "port_http": "80 — HTTP (validacion de certificados Caddy)",
-      "port_https": "443 — HTTPS (todo el trafico publico)",
-      "port_turn": "3478 — TURN (llamadas de voz/video, TCP+UDP)",
-      "public_address_label": "IP publica o dominio de tu servidor",
+      "portforward_label": "Redirección de puertos (predeterminada)",
+      "portforward_instructions": "Para que tu servidor sea accesible públicamente, redirige estos puertos en tu router:",
+      "port_http": "80 — HTTP (validación de certificados de Caddy)",
+      "port_https": "443 — HTTPS (todo el tráfico público)",
+      "port_turn": "3478 — TURN (llamadas de voz y video, TCP+UDP)",
+      "public_address_label": "IP pública o dominio de tu servidor",
       "public_address_placeholder": "ej. wabi.ejemplo.com o 203.0.113.10",
-      "restart_portforward": "Despues de redirigir puertos, reinicia con:",
-      "portforward_config_note": "Para una direccion publica real, ejecuta el script de configuracion o actualiza .env con tu IP/dominio publico antes de activar el perfil TURN. Los valores rapidos se quedan en localhost.",
-      "tunnel_checkbox": "Estoy usando un tunel de Cloudflare",
-      "tunnel_token_label": "Token del tunel de Cloudflare (desde Zero Trust)",
-      "tunnel_token_placeholder": "Pega tu token del tunel aqui",
-      "tunnel_no_token": "Sin token? Usa un tunel rapido para pruebas:",
+      "restart_portforward": "Después de redirigir los puertos, reinicia con:",
+      "portforward_config_note": "Para una dirección pública real, ejecuta el script de instalación o actualiza .env con tu IP o dominio público antes de activar el perfil TURN. Los valores de inicio rápido se quedan en localhost.",
+      "tunnel_checkbox": "Uso un túnel de Cloudflare",
+      "tunnel_token_label": "Token del túnel de Cloudflare (desde Zero Trust)",
+      "tunnel_token_placeholder": "Pega aquí el token del túnel",
+      "tunnel_no_token": "¿Sin token? Usa un túnel rápido para pruebas:",
       "tunnel_with_token": "Con un token:",
-      "tunnel_turn_note": "Las llamadas de voz/video aun necesitan el puerto 3478 para TURN.",
-      "mesh_title": "Te unes a un mesh de Wabi existente?",
-      "mesh_subtitle": "Si este es un segundo servidor uniendose a un despliegue existente, ambos servidores necesitan compartir una conexion SpacetimeDB y un token de mesh.",
-      "mesh_stdb_url": "URL de conexion STDB",
-      "mesh_token": "Token compartido del mesh",
-      "mesh_region": "Etiqueta de region del servidor",
-      "mesh_region_placeholder": "ej. us-west, eu-central",
-      "mesh_restart_note": "Aplica estos en el proximo reinicio con variables de entorno STDB.",
-      "branding_title": "Personaliza tu pagina de inicio",
-      "branding_subtitle": "Dale a tu servidor su propia identidad. Puedes editar data/launch-page.json despues para mas opciones.",
+      "tunnel_turn_note": "Las llamadas de voz y video aún necesitan el puerto 3478 redirigido para TURN.",
+      "branding_title": "Personaliza tu página de inicio de sesión",
+      "branding_subtitle": "Dale a tu servidor su propia identidad. Puedes editar data/launch-page.json después para tener más opciones.",
       "branding_name": "Nombre del servidor",
-      "branding_name_placeholder": "ej. Mi Comunidad",
+      "branding_name_placeholder": "ej. Mi comunidad",
       "branding_accent": "Color de acento",
       "branding_bg_image": "URL de imagen de fondo",
       "branding_bg_image_placeholder": "https://ejemplo.com/mi-fondo.jpg",
       "branding_custom_css": "CSS personalizado",
-      "branding_custom_css_placeholder": "/* Mover la tarjeta de inicio, cambiar fuentes, etc. */\n.login-card { ... }",
-      "done_title": "Todo listo!",
+      "branding_custom_css_placeholder": "/* Mueve la tarjeta de inicio de sesión, cambia las fuentes, etc. */\n.login-card '{' ... '}'",
+      "done_title": "¡Todo listo!",
       "done_subtitle": "Eres el propietario del servidor.",
-      "done_tip_admin": "Encuentra la configuracion de admin en Ajustes > Admin.",
+      "done_tip_admin": "Encuentra los ajustes de administración en Ajustes › Admin.",
       "done_tip_invite": "Comparte la URL de tu servidor para invitar usuarios.",
       "done_enter": "Entrar a Wabi"
     }
   },
   "chat": {
     "drag": {
-      "drop_to_upload": "Suelta archivos aqui para subir"
+      "drop_to_upload": "Suelta archivos aquí para subirlos"
     },
     "dm": {
       "badge": "Mensaje directo",
@@ -191,24 +203,24 @@
       "video_call_title": "Videollamada a {user}"
     },
     "typing": {
-      "one": "{user} esta escribiendo...",
-      "two": "{user1} y {user2} estan escribiendo...",
-      "many": "Muchos usuarios estan escribiendo...",
-      "multi": "{users}, y {lastUser} estan escribiendo..."
+      "one": "{user} está escribiendo",
+      "two": "{user1} y {user2} están escribiendo",
+      "many": "Varias personas están escribiendo",
+      "multi": "Varias personas están escribiendo"
     },
     "search": {
-      "placeholder": "Buscar (by:usuario, has:image, etc.)",
+      "placeholder": "Buscar mensajes",
       "results_one": "{count} resultado",
       "results_many": "{count} resultados",
-      "loading_older": "Cargando historial anterior...",
+      "loading_older": "Cargando historial anterior…",
       "full_history": "Buscar en todo el historial",
       "stop": "Detener ({count})",
       "status": {
-        "scanning": "Escaneando historial completo...",
+        "scanning": "Buscando en todo el historial…",
         "stopped": "Detenido.",
-        "changed": "Cambio la consulta o canal de busqueda.",
+        "changed": "Cambió la búsqueda o el canal.",
         "loaded": "Historial completo cargado para este canal.",
-        "limit": "Se alcanzo el limite de seguridad. Reduce la busqueda para continuar."
+        "limit": "Se alcanzó el límite de páginas. Acota la búsqueda para continuar."
       }
     },
     "compose": {
@@ -216,92 +228,96 @@
       "escape_to_cancel": "Presiona Escape para cancelar",
       "replying_to": "Respondiendo a {user}:",
       "attachment": "Adjunto",
-      "placeholder": "Escribe un mensaje... o /help para comandos (Shift+Enter para nueva linea)",
+      "placeholder": "Escribe un mensaje",
       "add_media": "Agregar contenido",
       "upload_file": "Subir archivo",
       "take_photo": "Tomar foto",
       "record_audio": "Grabar audio",
       "add_emoji": "Agregar emoji",
-      "send_message": "Enviar mensaje"
+      "send_message": "Enviar mensaje",
+      "placeholder_channel": "Mensaje a #{channel}",
+      "placeholder_dm": "Mensaje a {name}",
+      "newline_hint": "Shift Enter para una línea nueva",
+      "attach": "Adjuntar un archivo"
     },
     "mentions": {
-      "kind_mention": "Mencion",
+      "kind_mention": "Mención",
       "kind_user": "Usuario"
     },
     "upload": {
       "files_selected_one": "{count} archivo seleccionado",
       "files_selected_many": "{count} archivos seleccionados",
       "mark_spoiler": "Marcar como spoiler",
-      "spoiler_hint": "El contenido sensible se ocultara hasta hacer clic",
+      "spoiler_hint": "El contenido sensible se oculta hasta hacer clic",
       "upload_files_one": "Subir {count} archivo",
       "upload_files_many": "Subir {count} archivos",
-      "uploading": "Subiendo archivos..."
+      "uploading": "Subiendo archivos…"
     }
   },
   "messages": {
     "new_messages": "Mensajes nuevos",
-    "add_reaction": "Agregar reaccion",
-    "encrypted": "cifrado",
+    "add_reaction": "Agregar reacción",
+    "encrypted": "Cifrado experimental",
     "unknown_user": "Usuario desconocido",
     "file": "Archivo",
     "message": "Mensaje",
     "actions": {
       "reply": "Responder",
-      "more": "Mas"
+      "more": "Más"
     },
     "errors": {
-      "cannot_decrypt_session": "No se puede descifrar este adjunto en la sesion actual.",
-      "decrypt_failed": "No se pudo descifrar el adjunto."
+      "cannot_decrypt_session": "Este adjunto no se puede descifrar en esta sesión.",
+      "decrypt_failed": "No se pudo descifrar este adjunto."
     },
     "blend": {
-      "queued": "Importacion de Blend en cola",
-      "queued_with_id": "Importacion de Blend en cola: {id}",
-      "queue_failed": "No se pudo encolar la importacion de Blend",
-      "import_settings": "Importar configuracion",
+      "queued": "Importación de Blend en cola",
+      "queued_with_id": "Importación de Blend en cola: {id}",
+      "queue_failed": "No se pudo poner en cola la importación de Blend",
+      "import_settings": "Importar ajustes",
       "download": "Descargar .blend"
     },
     "media": {
       "click_enlarge": "Clic para ampliar",
       "click_enlarge_with_options": "Clic para ampliar, clic derecho para opciones",
-      "audio_not_supported": "Tu navegador no soporta el elemento de audio.",
+      "audio_not_supported": "Tu navegador no admite el elemento de audio.",
       "embedded_image_alt": "Imagen incrustada",
       "model_fallback_name": "modelo 3D",
-      "open_3d_tab": "Abrir pestaña 3D"
+      "open_3d_tab": "Abrir en el visor 3D"
     },
     "zip_preview": {
       "show": "Previsualizar contenido ZIP",
       "hide": "Ocultar contenido ZIP",
-      "loading": "Leyendo metadatos ZIP...",
+      "loading": "Leyendo metadatos ZIP…",
       "retry": "Intentar de nuevo",
       "entries": "{count} entradas",
       "uncompressed": "Sin comprimir: {size}",
       "compressed": "Comprimido: {size}",
-      "filter_placeholder": "Filtrar entradas del archivo...",
+      "filter_placeholder": "Filtrar entradas del archivo",
       "filter_results": "Mostrando {shown} de {total} entradas.",
       "no_matches": "No hay entradas que coincidan con ese filtro.",
       "sort": {
         "name_asc": "Nombre (A-Z)",
         "name_desc": "Nombre (Z-A)",
-        "size_desc": "Tamano (mayor)",
-        "size_asc": "Tamano (menor)"
+        "size_desc": "Tamaño (mayor)",
+        "size_asc": "Tamaño (menor)"
       },
       "preview": {
         "show": "Vista previa",
         "hide": "Ocultar vista",
-        "loading": "Cargando vista previa en linea...",
-        "unavailable": "No hay vista previa en linea para esta entrada."
+        "loading": "Cargando vista previa en línea…",
+        "unavailable": "No hay vista previa en línea para esta entrada."
       },
-      "encrypted_entries": "Contiene {count} entradas cifradas.",
+      "encrypted_entries": "Contiene {count} entradas protegidas con contraseña.",
       "empty": "Este archivo no tiene entradas.",
       "truncated": "Mostrando las primeras {count} entradas.",
-      "method_store": "Sin compresion",
+      "method_store": "Sin compresión",
       "method_deflate": "Deflate",
-      "method_other": "Metodo {method}",
+      "method_other": "Método {method}",
       "errors": {
         "failed": "No se pudo cargar la vista previa ZIP.",
-        "timeout": "La vista previa ZIP agoto el tiempo.",
-        "encrypted": "No se admiten vistas previas ZIP cifradas.",
-        "too_large": "El limite de vista previa ZIP es {limit}."
+        "timeout": "La vista previa del ZIP tardó demasiado.",
+        "encrypted": "Los ZIP protegidos con contraseña no se pueden previsualizar.",
+        "too_large": "El límite de vista previa del ZIP es {limit}."
       }
     },
     "pinned_title": "Mensaje fijado",
@@ -309,114 +325,128 @@
     "edited": "editado",
     "translated_label": "Traducido",
     "deletion": {
-      "scheduled_title": "Este mensaje conserva el plazo que tenia al enviarse. Cambiar el plazo de la sala solo afecta a mensajes nuevos; pueden quedar copias en respaldos",
-      "deleting": "Saliendo del chat...",
+      "scheduled_title": "Este mensaje conserva el plazo que tenía al enviarse. Cambiar el plazo de la sala solo afecta a los mensajes nuevos; pueden quedar copias en respaldos.",
+      "deleting": "Saliendo del chat…",
       "retention_lifetime": "Plazo de {duration}",
       "deletes_in": "Sale del chat en {duration}"
     },
     "persistence": {
-      "failed": "No guardado",
-      "retrying": "Guardando de nuevo...",
+      "failed": "No entregado",
+      "retrying": "Reintentando…",
       "retry": "Reintentar"
     },
     "pagination": {
-      "loading": "Cargando...",
+      "loading": "Cargando…",
       "show_older_loaded": "Mostrar mensajes antiguos ya cargados",
       "load_older": "Cargar mensajes anteriores",
-      "beginning": "Inicio de la conversacion"
+      "beginning": "Inicio de la conversación"
     },
     "confirm": {
-      "delete_title": "Eliminar mensaje",
-      "delete_message": "Seguro que deseas eliminar este mensaje?",
-      "delete_message_with_uploads": "Seguro que deseas eliminar este mensaje? Esto tambien elimina {count} archivo(s) subido(s).",
-      "delete_confirm": "Eliminar"
+      "delete_title": "¿Eliminar este mensaje?",
+      "delete_message": "No se puede deshacer.",
+      "delete_message_with_uploads": "También se eliminan sus archivos subidos ({count}). No se puede deshacer.",
+      "delete_confirm": "Eliminar mensaje"
     },
     "role_gate": {
       "title": "Control de rol",
-      "hint": "Reacciona abajo para entrar o salir de este rol de acceso."
+      "hint": "Reacciona abajo para activar o quitar este rol de acceso."
     },
     "viewer": {
-      "open_new_tab": "Abrir en nueva pestana",
-      "forward_share": "Reenviar / Compartir",
+      "open_new_tab": "Abrir en una pestaña nueva",
+      "forward_share": "Reenviar o compartir",
       "zoom_out": "Alejar",
       "reset_zoom": "Restablecer zoom",
       "zoom_in": "Acercar",
-      "more": "Mas",
-      "more_actions": "Mas acciones",
+      "more": "Más",
+      "more_actions": "Más acciones",
       "copy_image_link": "Copiar enlace de imagen",
       "copy_image": "Copiar imagen",
-      "reverse_search": "Busqueda inversa",
+      "reverse_search": "Búsqueda inversa de imagen",
       "image_details": "Detalles de imagen",
       "details_name": "Nombre",
       "details_dimensions": "Dimensiones",
-      "details_size": "Tamano",
+      "details_size": "Tamaño",
       "close": "Cerrar visor de imagen",
-      "video_not_supported": "Tu navegador no soporta la etiqueta de video.",
+      "video_not_supported": "Tu navegador no admite la etiqueta de video.",
       "enlarged_alt": "Ampliada",
       "previous": "Anterior",
       "next": "Siguiente"
-    }
+    },
+    "new_messages_label": "Mensajes nuevos desde tu última lectura",
+    "start_of": "Inicio de #{channel}",
+    "day_today": "Hoy",
+    "day_yesterday": "Ayer",
+    "jump_latest": "Ir a lo más reciente",
+    "jump_latest_new": "{count} nuevos",
+    "jump_latest_label": "Ir a lo más reciente, {count} mensajes nuevos",
+    "show_more": "Mostrar más",
+    "show_less": "Mostrar menos",
+    "pinned_kicker": "Fijado",
+    "pinned_on_device": "Fijado en este dispositivo",
+    "new_kicker": "Nuevos",
+    "sending": "Enviando…",
+    "download_file": "Descargar {name}"
   },
   "context_menu": {
     "aria_label": "Acciones del mensaje",
     "reply": "Responder",
-    "add_reaction": "Agregar reaccion",
+    "add_reaction": "Agregar reacción",
     "translate": "Traducir",
     "download": "Descargar",
-    "add_to_album": "Agregar al album",
+    "add_to_album": "Agregar al álbum",
     "forward": "Reenviar",
     "copy_quote": "Copiar cita",
     "copy_message_link": "Copiar enlace del mensaje",
     "edit_message": "Editar mensaje",
     "pin_message": "Fijar mensaje",
     "unpin_message": "Desfijar mensaje",
-    "quick_mention": "Mencion rapida",
-    "pin_local_message": "Fijar localmente",
-    "unpin_local_message": "Quitar fijacion local",
+    "quick_mention": "Mención rápida",
+    "pin_local_message": "Fijar en este dispositivo",
+    "unpin_local_message": "Quitar la fijación en este dispositivo",
     "copy_text": "Copiar texto",
     "delete_message": "Eliminar mensaje",
-    "delete_message_uploads": "ELIMINAR MENSAJE + ARCHIVOS",
-    "delete_message_uploads_hint": "Permanente - elimina archivos adjuntos",
+    "delete_message_uploads": "Eliminar mensaje y archivos…",
+    "delete_message_uploads_hint": "También elimina los archivos adjuntos",
     "delete_message_unavailable_hint": "Solo puedes eliminar tus propios mensajes"
   },
   "forward_dialog": {
     "title": "Reenviar mensaje",
-    "description": "Elige un canal para reenviar este mensaje:",
+    "description": "Elige un canal para reenviar este mensaje.",
     "close": "Cerrar"
   },
   "camera": {
     "title": "Tomar foto",
-    "switch_camera": "Cambiar camara",
+    "switch_camera": "Cambiar cámara",
     "captured_alt": "Foto capturada",
-    "accessing": "Accediendo a la camara...",
+    "accessing": "Abriendo la cámara…",
     "take_photo": "Tomar foto",
     "retake": "Repetir",
     "send": "Enviar",
     "errors": {
-      "access_required": "Se requiere acceso a la camara. Habilitalo en la configuracion del navegador.",
-      "not_found": "No se encontro camara en este dispositivo.",
-      "access_failed": "No se pudo acceder a la camara. Intenta de nuevo.",
-      "capture_failed": "No se pudo capturar la foto. Intenta de nuevo.",
-      "photo_too_large": "Foto demasiado grande (max 10MB). Intenta de nuevo con menor resolucion."
+      "access_required": "Se necesita acceso a la cámara. Actívalo en los ajustes del navegador.",
+      "not_found": "No se encontró ninguna cámara en este dispositivo.",
+      "access_failed": "No se pudo acceder a la cámara. Inténtalo de nuevo.",
+      "capture_failed": "No se pudo capturar la foto. Inténtalo de nuevo.",
+      "photo_too_large": "La foto es demasiado grande (máx. 10 MB). Inténtalo de nuevo con menor resolución."
     }
   },
   "audio": {
     "title": "Grabar mensaje de voz",
-    "microphone_label": "Microfono:",
-    "microphone_fallback": "Microfono {index}",
+    "microphone_label": "Micrófono:",
+    "microphone_fallback": "Micrófono {index}",
     "ready": "Listo para grabar",
-    "recording_stopped": "Grabacion detenida",
+    "recording_stopped": "Grabación detenida",
     "record": "Grabar",
     "stop": "Detener",
     "rerecord": "Volver a grabar",
     "send": "Enviar",
     "errors": {
-      "access_required": "Se requiere acceso al microfono. Habilitalo en la configuracion del navegador.",
-      "not_found": "No se encontro microfono en este dispositivo.",
-      "start_failed": "No se pudo iniciar la grabacion. Intenta de nuevo.",
-      "no_audio": "No se grabo audio. Intenta de nuevo.",
-      "too_large": "Audio demasiado grande (max 10MB). Graba un mensaje mas corto.",
-      "cannot_switch_while_recording": "No se puede cambiar de microfono mientras se graba. Deten primero."
+      "access_required": "Se necesita acceso al micrófono. Actívalo en los ajustes del navegador.",
+      "not_found": "No se encontró ningún micrófono en este dispositivo.",
+      "start_failed": "No se pudo iniciar la grabación. Inténtalo de nuevo.",
+      "no_audio": "No se grabó audio. Inténtalo de nuevo.",
+      "too_large": "El audio es demasiado grande (máx. 10 MB). Graba un mensaje más corto.",
+      "cannot_switch_while_recording": "No se puede cambiar de micrófono mientras se graba. Detén la grabación primero."
     }
   },
   "pinned": {
@@ -426,7 +456,7 @@
     "modal": {
       "title": "Mensajes fijados en #{channel}",
       "empty": "No hay mensajes fijados en este canal",
-      "hint": "Haz clic derecho en un mensaje y elige \"Fijar mensaje\" para fijarlo aqui."
+      "hint": "Haz clic derecho en un mensaje y elige “Fijar mensaje” para fijarlo aquí."
     },
     "actions": {
       "jump": "Ir a",
@@ -436,9 +466,9 @@
     }
   },
   "emoji_picker": {
-    "search_gifs_placeholder": "Buscar GIFs...",
-    "search_stickers_placeholder": "Buscar stickers (nombre/artista)...",
-    "search_emojis_placeholder": "Buscar emojis (nombre/artista)...",
+    "search_gifs_placeholder": "Buscar GIFs",
+    "search_stickers_placeholder": "Buscar stickers por nombre o artista",
+    "search_emojis_placeholder": "Buscar emojis por nombre o artista",
     "tabs": {
       "emojis": "Emojis",
       "stickers": "Stickers",
@@ -450,23 +480,23 @@
       "openmoji": "OpenMoji",
       "custom": "Personalizado"
     },
-    "loading": "Cargando...",
+    "loading": "Cargando…",
     "no_gifs": "No se encontraron GIFs",
     "no_stickers": "No se encontraron stickers",
     "no_emojis": "No se encontraron emojis",
-    "load_more": "Cargar mas ({remaining} restantes)"
+    "load_more": "Cargar más ({remaining} restantes)"
   },
   "admin": {
-    "title": "Panel de administracion",
-    "you": "Tu",
+    "title": "Panel de administración",
+    "you": "Tú",
     "subtitle": {
       "manage": "Administra roles, acceso de canales y automatizaciones de roles desde un solo panel.",
-      "moderate": "Vista de moderador: supervisa usuarios e inicia DMs de moderacion rapido.",
-      "none": "No se detectaron privilegios de moderacion."
+      "moderate": "Vista de moderación: supervisa usuarios e inicia rápido DM de moderación.",
+      "none": "No se detectaron privilegios de moderación."
     },
     "stats": {
       "users": "Usuarios",
-      "owners": "Owners",
+      "owners": "Propietarios",
       "admins": "Admins",
       "mods": "Mods",
       "guests": "Invitados"
@@ -475,7 +505,7 @@
       "role_names": "Nombres de roles",
       "channel_access": "Acceso de canal por rol",
       "role_gate_posts": "Posts de control de rol",
-      "emoji_role_automation": "Automatizacion de roles con emoji",
+      "emoji_role_automation": "Automatización de roles con emoji",
       "users": "Usuarios"
     },
     "select": {
@@ -486,9 +516,9 @@
       "role": "Seleccionar rol"
     },
     "placeholders": {
-      "role_gate_title": "Titulo del control de rol (ejemplo: Acceso 18+)",
-      "role_gate_description": "Descripcion/instrucciones opcionales",
-      "search_users": "Buscar usuarios por nombre o handle..."
+      "role_gate_title": "Título del control de rol (ejemplo: Acceso 18+)",
+      "role_gate_description": "Descripción o instrucciones opcionales",
+      "search_users": "Buscar usuarios por nombre o handle"
     },
     "role_gate": {
       "persist": "Persistir post de control",
@@ -496,10 +526,10 @@
       "note": "Solo las reacciones en estos posts de control pueden asignar o quitar roles."
     },
     "emoji_rules": {
-      "remove_on_unreact": "Quitar al quitar reaccion",
+      "remove_on_unreact": "Quitar al retirar la reacción",
       "add_rule": "Agregar regla",
       "reversible": "reversible",
-      "empty": "Aun no hay reglas de control de rol."
+      "empty": "Aún no hay reglas de control de rol."
     },
     "actions": {
       "message": "Mensaje",
@@ -511,126 +541,35 @@
       "delete": "Eliminar"
     },
     "empty": {
-      "search": "No hay usuarios que coincidan con tu busqueda."
+      "search": "No hay usuarios que coincidan con tu búsqueda."
     }
   },
   "storage": {
     "archiveBoundary": {
-      "title": "Los archivos locales de chat no están disponibles",
-      "explanation": "Esta versión no guarda un archivo del historial para consultar sin conexión. El historial del servidor sigue la política de retención de cada canal.",
+      "title": "Historial del chat",
+      "explanation": "El historial del chat viene del servidor. Cada canal decide cuánto tiempo se guardan los mensajes. Esta versión no guarda una copia aparte sin conexión en tu dispositivo.",
       "preserved": "Los archivos locales antiguos no pueden vincularse con certeza a una cuenta. Se conservan intactos en este dispositivo, pero no se cargan, exportan ni asignan a tu sesión actual. Los archivos que ya exportaste no cambian.",
-      "native": "Esta versión de escritorio no admite el guardado automático de archivos de chat nativos. La cola de salida compartida está disponible tanto en el navegador como en el escritorio.",
-      "queueExplanation": "La cola conserva las acciones de salida compatibles; no es una copia de tus conversaciones sin conexión. Los cambios de miembros de grupos y las llamadas requieren conexión.",
-      "queueUnavailable": "La cola de salida aún no está disponible. Actualízala cuando la aplicación termine de conectarse.",
+      "native": "La app de escritorio también usa el historial del servidor; no guarda automáticamente un archivo local del chat.",
+      "queueExplanation": "Conserva en este dispositivo los mensajes y acciones de salida compatibles hasta que haya conexión. Unirse a llamadas y cambiar los miembros de un grupo siguen requiriendo conexión.",
+      "queueUnavailable": "La cola de salida aún no está disponible. Actualiza cuando la app termine de conectarse.",
       "retryMarked": "Las acciones fallidas compatibles se marcaron para reintentar. El envío requiere conexión; las acciones con resultado incierto o acceso revocado no pueden reintentarse.",
       "refresh": "Actualizar cola"
     },
-    "tauri": {
-      "title": "Almacenamiento de escritorio Tauri",
-      "subtitle": "Tus datos se guardan en archivos sidecar organizados que puedes administrar, respaldar y exportar.",
-      "enable_toggle": "Habilitar almacenamiento de escritorio Tauri (auto-guardado cada 30s)",
-      "enable_hint": "Cuando esta activo, tus mensajes se guardan automaticamente en %APPDATA%/Wabi cada 30 segundos en archivos anuales organizados. Puedes desactivarlo en cualquier momento sin perder datos existentes.",
-      "exporting": "Exportando...",
-      "export_zip": "Exportar como ZIP",
-      "export_hint": "Descarga todos tus mensajes y adjuntos como un archivo ZIP portable. Perfecto para respaldos.",
-      "clear_all": "Limpiar todos los datos de Tauri",
-      "clear_hint": "Eliminar todos los datos almacenados localmente. Esta accion no se puede deshacer.",
-      "clear_admin_only": "Solo admins y owners pueden borrar datos sidecar."
-    },
-    "browser": {
-      "title": "Almacenamiento del navegador",
-      "subtitle": "Tu historial de chat se guarda solo en tu dispositivo. El servidor no guarda nada de forma permanente.",
-      "save_toggle": "Guardar historial del chat localmente",
-      "save_hint": "Cuando esta activo, los mensajes se guardan en tu navegador. Tu controlas tus datos.",
-      "rotation_period": "Periodo de rotacion",
-      "rotation_hint": "Con que frecuencia crear un nuevo archivo de historial",
-      "keep_last": "Conservar ultimos",
-      "archives_unit": "archivos",
-      "keep_last_hint": "Los archivos antiguos se eliminan automaticamente para ahorrar espacio",
-      "archive_history": "Historial de archivos",
-      "archive_meta": "{size} • {count} mensajes",
-      "no_archives": "Aun no hay archivos. Los mensajes se guardaran mientras chateas."
-    },
-    "rotation": {
-      "weekly": "Semanal",
-      "monthly": "Mensual",
-      "half_year": "Cada 6 meses",
-      "yearly": "Anual"
-    },
-    "stats": {
-      "total_messages": "Mensajes totales",
-      "storage_used": "Almacenamiento usado",
-      "archives": "Archivos"
-    },
-    "actions": {
-      "export_all": "Exportar todo",
-      "export": "Exportar",
-      "delete": "Eliminar",
-      "clear_all_history": "Limpiar todo el historial"
-    },
-    "confirm": {
-      "disable_local_title": "Desactivar almacenamiento local",
-      "disable_local_message": "Desactivar almacenamiento local? Tu historial guardado permanecera hasta que lo borres manualmente.",
-      "disable_local_confirm": "Desactivar",
-      "delete_archive_title": "Eliminar archivo",
-      "delete_archive_message": "Eliminar archivo \"{period}\"?",
-      "delete_archive_confirm": "Eliminar",
-      "delete_all_title": "Eliminar todo el historial",
-      "delete_all_message": "Eliminar TODO el historial guardado del chat? Esta accion no se puede deshacer.",
-      "delete_all_confirm": "Eliminar todo",
-      "clear_tauri_title": "Limpiar datos de Tauri",
-      "clear_tauri_message": "Eliminar TODOS los datos almacenados localmente? Esto incluye todos los mensajes y adjuntos. Esta accion no se puede deshacer.",
-      "clear_tauri_confirm": "Limpiar todo"
-    },
-    "alerts": {
-      "export_success": "Datos exportados correctamente!\n\nUbicacion: {path}",
-      "export_failed": "Fallo la exportacion: {error}",
-      "tauri_clear_success": "Datos de Tauri limpiados correctamente",
-      "clear_failed": "Fallo al limpiar: {error}",
-      "tauri_enabled": "Almacenamiento Tauri habilitado! Tus datos se guardaran automaticamente cada 30 segundos.",
-      "tauri_disabled": "Almacenamiento Tauri deshabilitado. Tus datos no se guardaran automaticamente.",
-      "save_setting_failed": "No se pudo guardar la configuracion"
-    },
     "offline": {
-      "title": "Sin conexión y conectividad",
-      "subtitle": "Administrar el comportamiento sin conexión y la configuración de sincronización de datos para WabiDB.",
-      "status": {
-        "connected": "Conectado",
-        "disconnected": "Sin conexión",
-        "recovering": "Recuperando la cola sin conexión…"
-      },
       "wabiDB": {
-        "status_label": "Estado de WabiDB",
-        "open": "Abierto",
-        "closed": "Cerrado",
-        "scope_label": "Alcances",
-        "queue_label": "Cola saliente",
+        "scope_label": "Qué conservar para enviar",
+        "queue_label": "Enviar al reconectar",
         "pending": "pendiente",
         "failed": "fallido",
-        "synced": "sincronizado",
-        "usage_label": "Uso",
-        "estimating": "Calculando…"
+        "synced": "sincronizado"
       },
       "retry": {
-        "button": "Reintentar acciones fallidas",
-        "success": "Cola sin conexión reintentada.",
-        "error": "Error al reintentar."
+        "button": "Reintentar acciones fallidas"
       },
       "scopes": {
-        "title": "Alcances sin conexión",
-        "corechat_desc": "Historial de mensajes, borradores y cola saliente para CoreChat.",
-        "system_desc": "Preferencias del sistema, temas y datos de sesión.",
         "enable": "Habilitar",
         "disable": "Deshabilitar",
-        "always_on": "Siempre activo",
-        "opt_in": "Opt-in",
-        "off": "Desactivado"
-      },
-      "alerts": {
-        "retry_success": "Cola sin conexión reintentada.",
-        "retry_failed": "Error al reintentar la cola.",
-        "scope_enabled": "Alcance habilitado.",
-        "scope_disabled": "Alcance deshabilitado."
+        "always_on": "Siempre activo"
       }
     }
   },
@@ -638,11 +577,18 @@
     "mobile": {
       "chat": "Chat",
       "channels": "Canales",
-      "browse": "Explorar",
-      "messages": "Mensajes",
+      "browse": "Canales",
+      "messages": "DM",
       "you": "Tú",
-      "users": "Usuarios",
-      "hub": "Hub"
+      "dms": "DM",
+      "activity": "Actividad",
+      "nav_label": "Principal",
+      "activity_unread_one": "Actividad, {count} te necesita",
+      "activity_unread_many": "Actividad, {count} te necesitan",
+      "workspace_button": "Espacio de trabajo: {name}",
+      "workspaces": "Espacios de trabajo",
+      "people_online": "{count} en línea",
+      "search": "Buscar"
     },
     "open_side_panel": "Abrir panel lateral",
     "unread_dms": "Mensajes directos sin leer",
@@ -650,50 +596,490 @@
     "open_dm_with": "Abrir DM con {user}",
     "user_fallback": "usuario",
     "call": {
-      "toggle_diagnostics": "Alternar diagnostico de llamada",
+      "toggle_diagnostics": "Detalles de conexión",
       "voice_connected": "Voz conectada",
       "in_voice": "En voz:",
-      "turn_on_camera": "Encender camara",
-      "turn_off_camera": "Apagar camara",
+      "turn_on_camera": "Encender cámara",
+      "turn_off_camera": "Apagar cámara",
       "leave_voice": "Salir de voz"
+    },
+    "you": {
+      "servers": "Servidores",
+      "all_settings": "Todos los ajustes"
     }
   },
   "user": {
-    "online": "En linea ({count})",
-    "you": "tu",
+    "online": "En línea ({count})",
+    "you": "tú",
     "start_dm": "Iniciar DM",
-    "logout_change_name": "Cerrar sesion y cambiar nombre",
+    "logout_change_name": "Cerrar sesión y cambiar nombre",
     "voice_call": "Llamada de voz",
     "video_call": "Videollamada",
     "screen_share": "Compartir pantalla",
     "status": {
-      "online": "En linea",
+      "online": "En línea",
       "away": "Ausente",
       "busy": "No molestar",
       "offline": "Desconectado"
     },
     "errors": {
-      "voice_call_failed": "No se pudo iniciar la llamada de voz. Revisa los permisos del microfono.",
-      "video_call_failed": "No se pudo iniciar la videollamada. Revisa los permisos de camara y microfono.",
-      "screen_share_failed": "No se pudo iniciar la pantalla compartida. Otorga permisos de compartir pantalla."
+      "voice_call_failed": "No se pudo iniciar la llamada de voz. Revisa los permisos del micrófono.",
+      "video_call_failed": "No se pudo iniciar la videollamada. Revisa los permisos de cámara y micrófono.",
+      "screen_share_failed": "No se pudo compartir la pantalla. Concede el permiso para compartir pantalla."
     },
     "popout": {
-      "about_me": "Sobre mi",
+      "about_me": "Sobre mí",
       "note": "Nota",
+      "note_placeholder": "Agrega una nota privada · solo tú la ves",
       "member_since": "Miembro desde",
-      "last_message": "Ultimo mensaje aqui",
+      "last_message": "Último mensaje aquí",
       "no_recent_messages": "Sin mensajes recientes en este canal",
       "connections": "Conexiones",
       "no_connections": "Sin conexiones vinculadas",
       "message": "Mensaje",
+      "call": "Llamar",
       "edit_profile": "Editar perfil",
       "view_full_profile": "Ver perfil completo",
       "mute": "Silenciar",
-      "deafen": "Ensordecer",
+      "deafen": "Silenciar audio",
       "settings": "Ajustes",
       "share_profile": "Compartir perfil"
     }
   },
   "gallery_upload": "Subir imagen",
-  "gallery_drop_hint": "Suelta la imagen aquí"
+  "gallery_drop_hint": "Suelta la imagen aquí",
+  "places": {
+    "server_home": "Inicio del servidor",
+    "dms": "DM",
+    "friends": "Amigos",
+    "chat": "Chat",
+    "threads": "Hilos",
+    "wiki": "Wiki",
+    "gallery": "Galería",
+    "forum": "Foro",
+    "files": "Archivos",
+    "whiteboard": "Pizarra",
+    "calls": "Llamadas",
+    "activity": "Actividad",
+    "project": "Proyecto",
+    "my_planner": "Mi agenda",
+    "notes": "Notas",
+    "documents": "Documentos",
+    "sheets": "Hojas",
+    "present": "Presentar",
+    "presentation": "Presentación",
+    "media": "Multimedia",
+    "reader": "Lector",
+    "model_viewer": "Visor 3D",
+    "map": "Mapa",
+    "people": "Personas",
+    "scratchpad": "Apuntes rápidos",
+    "conversations": "Conversaciones",
+    "transfers": "Transferencias",
+    "models": "Modelos",
+    "settings": "Ajustes",
+    "you": "Tú"
+  },
+  "maturity": {
+    "preview": "Vista previa",
+    "preview_title": "Candidata a integración, no es una función desplegada",
+    "preview_hint": "vista previa",
+    "optional_addon": "Complemento opcional",
+    "optional_addon_preview": "Complemento opcional · Vista previa",
+    "experimental": "Experimental",
+    "experimental_title": "Experimental: sin garantía de producción",
+    "off_on_device": "desactivado en este dispositivo"
+  },
+  "privacy": {
+    "state": {
+      "server_readable": "Legible por el servidor",
+      "server_readable_by_choice": "Legible por el servidor por tu elección",
+      "encryption_pending": "Cifrado pendiente",
+      "experimental_encryption": "Cifrado experimental",
+      "checking": "Comprobando la privacidad…",
+      "checking_short": "Comprobando…"
+    },
+    "sentence": {
+      "server_readable": "El operador del servidor puede leer los mensajes de este canal.",
+      "server_readable_conversation": "El operador del servidor puede leer los mensajes de esta conversación.",
+      "server_readable_by_choice": "Elegiste enviar sin cifrado en esta conversación.",
+      "encryption_pending": "Los mensajes esperan a los dispositivos de todos. Puedes elegir enviarlos legibles por el servidor.",
+      "experimental_encryption": "Sin verificación independiente."
+    },
+    "phone": {
+      "server_readable": "El operador puede leer este canal.",
+      "server_readable_conversation": "El operador puede leer esta conversación.",
+      "server_readable_by_choice": "Elegiste legible por el servidor.",
+      "encryption_pending": "Esperando dispositivos.",
+      "experimental_encryption": "Sin verificación independiente."
+    },
+    "popover": {
+      "server_readable": "El operador del servidor puede leer los mensajes de este canal.",
+      "server_readable_conversation": "El operador del servidor puede leer los mensajes de esta conversación.",
+      "server_readable_by_choice": "Elegiste enviar sin cifrado en esta conversación. El operador del servidor puede leer los mensajes enviados así.",
+      "encryption_pending": "Los mensajes esperan a los dispositivos de todos. Puedes elegir enviarlos legibles por el servidor.",
+      "experimental_encryption": "Los mensajes nuevos reciben cifrado experimental en el dispositivo de quien los envía antes de llegar al servidor. El operador del servidor aún puede ver quién está en esta conversación y cuándo se envían los mensajes. Los mensajes anteriores conservan la protección con la que se enviaron.",
+      "checking": "Preguntando al servidor quién puede leer los mensajes aquí."
+    },
+    "facts": {
+      "room": "Sala",
+      "kept": "Se guardan",
+      "encryption": "Cifrado",
+      "encryption_experimental": "Experimental · sin verificación independiente",
+      "encryption_pending": "Pendiente · esperando dispositivos",
+      "encryption_off_by_choice": "Desactivado · elegiste legible por el servidor",
+      "encryption_off_conversation": "Desactivado en esta conversación",
+      "encryption_channels": "Solo para DM y grupos",
+      "encryption_checking": "Comprobando…"
+    },
+    "explanation": "Los DM y grupos nuevos empiezan con el cifrado pendiente y usan cifrado experimental cuando los dispositivos de todos están listos. Enviar legible por el servidor requiere la elección de cada remitente. El cifrado no ha sido verificado de forma independiente y no oculta todo al operador del servidor.",
+    "link": "Cómo funciona la privacidad en Wabi",
+    "details": "Detalles de privacidad",
+    "retention": {
+      "forever": "Se guardan hasta que alguien los borre",
+      "live": "Solo en vivo · no se guardan",
+      "kept_for": "Se guardan {duration}",
+      "fact_forever": "Hasta que alguien los borre",
+      "fact_live": "Solo en vivo · no se guardan",
+      "title_forever": "Los mensajes nuevos se guardan hasta que alguien los borre.",
+      "title_live": "Los mensajes nuevos se muestran en vivo y no se guardan. No guardarlos no los oculta al operador del servidor.",
+      "title_duration": "Los mensajes nuevos se guardan {duration}. Los anteriores conservan la duración con la que se enviaron."
+    },
+    "duration": {
+      "second_one": "{count} segundo",
+      "second_many": "{count} segundos",
+      "minute_one": "{count} minuto",
+      "minute_many": "{count} minutos",
+      "hour_one": "{count} hora",
+      "hour_many": "{count} horas",
+      "day_one": "{count} día",
+      "day_many": "{count} días"
+    }
+  },
+  "locality": {
+    "only_you_device": "Solo tú · este dispositivo",
+    "private_device": "Privado · este dispositivo",
+    "local_draft": "Borrador local",
+    "saved_on_device": "Guardado en este dispositivo",
+    "saved_at": "Guardado {time}",
+    "synced": "Sincronizado con el servidor",
+    "shared_role": "Compartido · {role}",
+    "draft_kept": "Borrador guardado en este dispositivo",
+    "scope_device": "Guardado en este dispositivo · no se comparte",
+    "scope_community": "Visible para los miembros de {community}"
+  },
+  "states": {
+    "loading": "Cargando…",
+    "opening": "Abriendo {name}…",
+    "retry": "Reintentar",
+    "export_recovery": "Exportar recuperación",
+    "unchanged_draft": "Tu borrador y tus ajustes no cambiaron.",
+    "unchanged": "No se cambió nada.",
+    "error_offline": "No se pudo conectar con el servidor",
+    "error_load": "No se pudo cargar",
+    "error_save": "No se pudo guardar",
+    "error_permission": "No tienes permiso para hacerlo",
+    "nothing_matches": "Nada coincide con “{query}”."
+  },
+  "sidebar": {
+    "search": "Buscar o ir a",
+    "switch_server": "Cambiar de servidor",
+    "dms_label": "DM y amigos",
+    "dms_label_unread": "DM y amigos, {count} sin leer",
+    "channels": "Canales",
+    "voice": "Voz",
+    "channel_actions": "Acciones de canales",
+    "voice_actions": "Acciones de salas de voz",
+    "new_channel": "Nuevo canal",
+    "create_channel": "Crear canal",
+    "new_folder": "Nueva carpeta",
+    "new_voice_room": "Nueva sala de voz",
+    "mark_all_read": "Marcar todo como leído",
+    "unread_count": "{count} sin leer",
+    "and_more": "y {count} más",
+    "mic_here": "Micrófono aquí",
+    "listening": "Escuchando",
+    "listening_more": "escuchando {count} más",
+    "connection_details": "Detalles de conexión",
+    "leave_voice": "Salir",
+    "mute": "Silenciar",
+    "unmute": "Activar micrófono",
+    "deafen": "Silenciar audio",
+    "undeafen": "Activar audio",
+    "set_status": "Elegir tu estado"
+  },
+  "servers": {
+    "saved": "Servidores guardados",
+    "own_account": "Cada servidor conserva su propia cuenta.",
+    "add": "Agregar servidor",
+    "remove": "Quitar servidor"
+  },
+  "stage": {
+    "search_channel": "Buscar mensajes en #{channel}",
+    "search_conversation": "Buscar mensajes con {name}",
+    "search_help": "Acota los resultados con by:nombre, has:image, has:video, has:file o has:link.",
+    "pinned": "Mensajes fijados",
+    "about_channel": "Acerca de este canal",
+    "more_actions": "Más acciones"
+  },
+  "folio": {
+    "label": "Espacios de trabajo",
+    "more": "Más",
+    "pin_to_bar": "Fijar en la barra",
+    "remove_from_bar": "Quitar de la barra",
+    "open": "Abrir",
+    "open_beside": "Abrir al lado",
+    "needs_you_one": "{count} te necesita",
+    "needs_you_many": "{count} te necesitan",
+    "groups": {
+      "this_channel": "En este canal",
+      "community": "Comunidad",
+      "yours": "Solo tú",
+      "office": "Oficina",
+      "side_panels": "Paneles laterales"
+    },
+    "detail": {
+      "documents": "Documentos · privados hasta que los compartas · vista previa",
+      "sheets": "Hojas · privadas hasta que las compartas · vista previa",
+      "present": "Presentar · privado hasta que lo compartas · vista previa"
+    }
+  },
+  "jump": {
+    "label": "Ir a",
+    "placeholder": "Buscar o ir a",
+    "scopes": {
+      "everything": "Todo",
+      "channels": "Canales",
+      "people": "Personas",
+      "workspaces": "Espacios de trabajo",
+      "actions": "Acciones"
+    },
+    "groups": {
+      "workspaces": "Espacios de trabajo",
+      "recent_documents": "Documentos recientes",
+      "channels": "Canales",
+      "people": "Personas",
+      "actions": "Acciones"
+    },
+    "hint_move": "mover",
+    "hint_open": "abrir",
+    "hint_next_scope": "siguiente ámbito",
+    "count_one": "{count} resultado",
+    "count_many": "{count} resultados",
+    "empty_scope": "Nada coincide con “{query}” en {scope}. Prueba con Todo.",
+    "empty": "Nada coincide con “{query}”."
+  },
+  "forum": {
+    "new_thread": "Nuevo hilo",
+    "post_thread": "Publicar hilo",
+    "post_reply": "Publicar respuesta",
+    "reply_to": "Responder a {name}…",
+    "write": "Escribir",
+    "preview": "Vista previa",
+    "mark_solution": "Marcar como solución",
+    "solved": "Resuelto",
+    "upvote": "Votar a favor, {count} puntos",
+    "downvote": "Votar en contra, {count} puntos",
+    "original_version": "Versión original",
+    "edited_times": "Editado {count} veces",
+    "empty_title": "Aún no hay hilos en {channel}",
+    "empty_body": "Aquí viven las conversaciones largas, para que no se pierdan al desplazarse."
+  },
+  "wiki": {
+    "pages": "Páginas",
+    "new_page": "Nueva página",
+    "on_this_page": "En esta página"
+  },
+  "planner": {
+    "new_task": "Nueva tarea",
+    "add_task": "Agregar tarea",
+    "add_task_to": "Agregar tarea a {lane}",
+    "move_task": "Mover tarea…",
+    "delete_task": "Eliminar tarea",
+    "columns": "Columnas",
+    "edit_columns": "Editar columnas…",
+    "time_estimate": "Estimación de tiempo",
+    "file_link_placeholder": "Pega un enlace a un archivo o documento",
+    "new_sprint": "Nuevo sprint",
+    "add_on_date": "Agregar el {date}",
+    "more_count": "+{count} más",
+    "overdue_on": "Vencida · {date}",
+    "done_on": "Hecha · {date}"
+  },
+  "calls": {
+    "summary_rooms_one": "{count} sala",
+    "summary_rooms_many": "{count} salas",
+    "summary_mic_in": "micrófono en {room}",
+    "in_call": "En llamada",
+    "other_rooms": "Otras salas",
+    "listen": "Escuchar",
+    "join": "Unirse",
+    "joining": "Uniéndose…",
+    "join_failed": "No se pudo unir a {room}",
+    "leave": "Salir",
+    "leave_all": "Salir de todas",
+    "mic": "Micrófono",
+    "sound": "Sonido",
+    "camera": "Cámara",
+    "share_screen": "Compartir pantalla",
+    "record": "Grabar",
+    "recording": "Grabando {time}",
+    "mic_here": "Micrófono aquí",
+    "listening": "Escuchando",
+    "silent": "En silencio",
+    "speaking": "Hablando",
+    "muted": "Silenciado",
+    "in_call_count": "{count} en la llamada",
+    "people_count": "{count} personas",
+    "and_more": "y {count} más",
+    "silence_call": "Silenciar esta llamada",
+    "volume_for": "Volumen de {room}",
+    "connection_details": "Detalles de conexión",
+    "show_connection_details": "Mostrar detalles de conexión durante las llamadas",
+    "troubleshooting": "Solución de problemas",
+    "route_server": "A través de este servidor",
+    "route_direct": "Directa (entre pares)",
+    "empty_title": "No estás en una llamada",
+    "empty_body": "Únete a una sala de voz desde la barra lateral o desde la lista de abajo."
+  },
+  "activity": {
+    "all": "Todo",
+    "mentions": "Menciones",
+    "follows": "Seguidos",
+    "accept": "Aceptar",
+    "decline": "Rechazar",
+    "empty": "Nada te necesita ahora mismo."
+  },
+  "panels": {
+    "scratchpad_show": "Mostrar apuntes rápidos",
+    "scratchpad_hide": "Ocultar apuntes rápidos",
+    "scratchpad_resize": "Cambiar tamaño de los apuntes rápidos",
+    "open_in_stage": "Abrir en el centro",
+    "pin": "Fijar",
+    "unpin": "Desfijar",
+    "filter": "Filtrar",
+    "resize": "Cambiar tamaño del panel",
+    "search_people": "Buscar personas",
+    "search_dms": "Buscar DM",
+    "search_notes": "Buscar notas",
+    "new_note": "Nueva nota",
+    "note_actions": "Acciones de la nota",
+    "ink": "Tinta",
+    "new_message": "Nuevo mensaje",
+    "here_now": "Aquí ahora",
+    "away": "Ausente",
+    "offline": "Desconectado",
+    "in_room": "En {room}",
+    "show": "Mostrar",
+    "everyone": "Todos",
+    "group": "Agrupar",
+    "by_place": "Por lugar",
+    "by_role": "Por rol",
+    "sort": "Ordenar",
+    "by_name": "Por nombre",
+    "unread": "Sin leer",
+    "groups": "Grupos",
+    "add_panels": "Agregar paneles",
+    "rail": "Barra",
+    "side": "Lado",
+    "left": "Izquierda",
+    "right": "Derecha",
+    "open_on_hover": "Abrir al pasar el cursor",
+    "reset_rail": "Restablecer barra",
+    "move_up": "Subir",
+    "move_down": "Bajar",
+    "remove_from_rail": "Quitar de la barra"
+  },
+  "office": {
+    "library": {
+      "truth_documents": "Privado en este dispositivo hasta que lo compartas. Los documentos compartidos son legibles por el servidor.",
+      "truth_sheets": "Privado en este dispositivo hasta que lo compartas. Las hojas de cálculo compartidas son legibles por el servidor.",
+      "truth_present": "Privado en este dispositivo hasta que lo compartas. Las presentaciones compartidas son legibles por el servidor.",
+      "new_document": "Nuevo documento",
+      "new_spreadsheet": "Nueva hoja de cálculo",
+      "new_presentation": "Nueva presentación",
+      "open_file": "Abrir archivo…",
+      "on_device": "En este dispositivo",
+      "shared_with_you": "Compartido contigo",
+      "refresh_shared": "Actualizar compartidos",
+      "edited_at": "Editado {time}",
+      "empty_documents_title": "Aún no hay nada en este dispositivo",
+      "empty_documents_body": "Empieza un documento. Se queda en este dispositivo hasta que lo compartas.",
+      "empty_sheets_title": "Aún no hay hojas de cálculo en este dispositivo",
+      "empty_sheets_body": "Empieza una hoja de cálculo. Se queda en este dispositivo hasta que la compartas.",
+      "empty_present_title": "Aún no hay presentaciones en este dispositivo",
+      "empty_present_body": "Empieza una presentación. Se queda en este dispositivo hasta que la compartas.",
+      "shared_empty": "Aún no se ha compartido nada contigo",
+      "shared_error_title": "No se pudieron cargar los documentos compartidos",
+      "shared_error_body": "Los documentos de este dispositivo no cambiaron."
+    },
+    "editor": {
+      "document_title": "Título del documento",
+      "write": "Escribir",
+      "read": "Leer",
+      "edit": "Editar",
+      "present": "Presentar",
+      "present_locally": "Presentar en este dispositivo",
+      "present_to_channel": "Presentar en un canal…",
+      "share": "Compartir…",
+      "export": "Exportar",
+      "make_private_copy": "Hacer una copia privada",
+      "original_file": "Archivo original",
+      "private_drafts": "Borradores privados ({count})",
+      "discuss_in_chat": "Comentar en el chat…",
+      "create_private_task": "Crear tarea privada",
+      "turn_off": "Desactivar {tool} en este dispositivo…",
+      "server_sharing_settings": "Ajustes de uso compartido del servidor",
+      "contents": "Contenido",
+      "facts": "Datos",
+      "words": "Palabras",
+      "reading": "Lectura",
+      "reading_minutes": "{count} min",
+      "edited": "Editado",
+      "format": "Formato",
+      "started": "Empezado el {date}",
+      "insert": "Insertar",
+      "insert_block": "Insertar bloque",
+      "block_paragraph": "Párrafo",
+      "block_heading_2": "Título 2",
+      "block_heading_3": "Título 3",
+      "block_bulleted_list": "Lista con viñetas",
+      "block_numbered_list": "Lista numerada",
+      "block_checklist": "Lista de tareas",
+      "block_quote": "Cita",
+      "block_divider": "Separador",
+      "block_code": "Bloque de código",
+      "block_image": "Imagen…",
+      "bold": "Negrita",
+      "italic": "Cursiva",
+      "strikethrough": "Tachado",
+      "link": "Enlace",
+      "inline_code": "Código en línea",
+      "comment": "Comentar"
+    },
+    "sheets": {
+      "filter_my_view": "Filtrar mi vista",
+      "apply_row_order": "Aplicar el orden de filas para todos",
+      "protected": "Protegido",
+      "export_xlsx": "XLSX · subconjunto compatible",
+      "export_ods": "ODS · subconjunto compatible",
+      "export_csv": "CSV · hoja activa",
+      "export_tsv": "TSV · hoja activa"
+    },
+    "present": {
+      "private_notes": "Notas privadas · este dispositivo",
+      "only_you_marks": "Solo tú ves estas marcas"
+    },
+    "share": {
+      "add_people": "Agregar personas por nombre",
+      "viewer": "Lector",
+      "commenter": "Comentarista",
+      "editor": "Editor",
+      "truth": "Se publica en {host}. El operador del servidor puede leer este documento. No se crea ningún enlace público.",
+      "share": "Compartir"
+    },
+    "gate": {
+      "turn_on": "Activar {tool}"
+    }
+  }
 }

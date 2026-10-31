@@ -1,0 +1,624 @@
+/* Composer skin (design contract §7.17 typing row, §7.20 composer and colophon, §8.3, §8.12;
+   D8, D20, D21): the footer band, the field and its keys, the colophon, what a draft opens above
+   the field (reply and edit bars, file previews, upload progress, suggestions, the emoji panel),
+   and the foot of the stream it shares the page with (typing row, an empty room).
+   Owner (wave 1): w1-composer. Roles (--w-*), type tokens, radii and kit classes only.
+   Cascade: shell.css after stagebar.css — before login-skin, controls-kit and the stage /
+   settings / admin / modal / panels skins. Every composer rule carries two classes, so the kit's
+   one-class rules (.w-ibtn, .w-btn, .w-field) never win a tie. Nothing here needs !important:
+   the markup no longer uses the legacy composer classes (.input-wrapper, .input-container,
+   .send-button, .input-icon-button), so the old !important chrome in mobile-shell.css,
+   chat-mobile.css and accessibility.css (frost) no longer reaches it. */
+
+/* ---------- the footer band (D21): field top on the footer rule ---------- */
+.composer {
+	/* The stream's columns (stream.css .messages-pane): the field spans the avatar column to the
+	   page edge, so it ends where the day rule, the NEW rule and the typing row end (D20). */
+	--composer-lead: calc(var(--w-gutter) - 8px + 52px * var(--w-fs) + 14px);
+	--composer-page: calc(36px + 14px + var(--w-measure));
+	/* The field's text inset; the colophon's glyph sits on it. */
+	--composer-inset: 16px;
+	container: composer / inline-size;
+	position: relative;
+	z-index: var(--z-sticky);
+	flex: none;
+	box-sizing: border-box;
+	min-height: var(--w-foot);
+	margin: 0;
+	/* 48 field + 2 gap + 24 colophon + 6 = the 80px band. Larger text grows the colophon row;
+	   the bottom padding gives that room back first, so the field stays on the footer rule up
+	   to 125% text. */
+	padding: 0 0 max(0px, calc(30px - 24px * var(--w-fs)));
+	background: transparent;
+	transition:
+		transform var(--w-dur-3) var(--w-ease),
+		opacity var(--w-dur-3) var(--w-ease);
+}
+/* Phones scroll the composer out of the way while reading (Chat.svelte composerVisible). */
+.composer.composer--hidden {
+	transform: translateY(100%);
+	opacity: 0;
+	pointer-events: none;
+}
+.composer .composer__page {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	min-width: 0;
+	max-width: var(--composer-page);
+	/* --composer-scrollbar: the stream scroller's scrollbar (ChatComposer measures it), so the
+	   field ends where the rules inside that scroller end. */
+	margin: 0 calc(var(--w-gutter) + var(--composer-scrollbar, 0px)) 0 var(--composer-lead);
+}
+
+/* ---------- the field (§7.20) ---------- */
+.composer .composer__field {
+	position: relative;
+	display: flex;
+	align-items: flex-end;
+	gap: 2px;
+	box-sizing: border-box;
+	min-width: 0;
+	min-height: 48px;
+	margin: 0;
+	/* 48 = 34px keys (and one line of text) + this padding + two edges, at a 1px edge and at
+	   Joker's 2px alike. */
+	padding: calc(7px - var(--w-bw)) 6px calc(7px - var(--w-bw)) var(--composer-inset);
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-lg);
+	background: var(--w-lift);
+	box-shadow: var(--w-shadow-1);
+	transition:
+		border-color var(--w-dur-1) var(--w-ease),
+		box-shadow var(--w-dur-1) var(--w-ease);
+}
+.composer .composer__field:focus-within {
+	border-color: var(--w-accent);
+	box-shadow: var(--w-ring), var(--w-shadow-1);
+}
+/* The text grows upward (the keys stay on the bottom line) to 40% of the stage (JS height). */
+.composer .composer__input {
+	flex: 1 1 auto;
+	box-sizing: border-box;
+	min-width: 0;
+	/* One line is as tall as the keys (34px), so the field is 48px at any edge width. The line
+	   sits in the middle; at larger text the padding goes first, so one line keeps the field at
+	   48px up to about 140% text. */
+	--composer-line-box: 34px;
+	min-height: var(--composer-line-box);
+	margin: 0;
+	padding: max(0px, calc((var(--composer-line-box) - 24px * var(--w-fs)) / 2)) 8px max(0px, calc((var(--composer-line-box) - 24px * var(--w-fs)) / 2)) 0;
+	border: 0;
+	border-radius: 0;
+	outline: none;
+	background: transparent;
+	box-shadow: none;
+	color: var(--w-text);
+	-webkit-text-fill-color: currentColor;
+	caret-color: var(--w-accent);
+	font: var(--w-t-chat);
+	resize: none;
+	overflow-y: auto;
+}
+.composer .composer__input::placeholder {
+	color: var(--w-faint);
+	-webkit-text-fill-color: var(--w-faint);
+	opacity: 1;
+}
+/* The field shows focus (accent edge + ring); a second outline inside it would be noise. */
+.composer .composer__input:focus,
+.composer .composer__input:focus-visible {
+	outline: none;
+	box-shadow: none;
+}
+.composer .composer__counter {
+	flex: none;
+	align-self: center;
+	padding: 0 6px;
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+	font-feature-settings: 'tnum';
+	white-space: nowrap;
+}
+.composer .composer__counter--warn {
+	color: var(--w-text);
+	font-weight: 500;
+}
+
+/* Trailing keys: attach, emoji, send (34px, 18px glyphs). */
+.composer .composer__tools {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 2px;
+}
+.composer .composer__tool,
+.composer .composer__send {
+	width: 34px;
+	height: 34px;
+	border-radius: var(--radius-md);
+}
+.composer .composer__tool {
+	color: var(--w-mute);
+}
+/* Send: a quiet hairline key while there is nothing to send (aria-disabled, so it stays in the
+   tab order and keeps its name), ink on paper once there is. */
+.composer .composer__send {
+	margin-left: 4px;
+	border-color: var(--w-line);
+	background: transparent;
+	color: var(--w-faint);
+}
+.composer .composer__send[aria-disabled='true'] {
+	opacity: 1;
+	cursor: default;
+}
+.composer .composer__send.composer__send--ready {
+	border-color: var(--w-text);
+	background: var(--w-text);
+	color: var(--w-bg);
+}
+.composer .composer__send.composer__send--ready:hover {
+	border-color: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+	background: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+	color: var(--w-bg);
+}
+
+/* ---------- the colophon (§7.20, D8): who can read this, then how long it is kept ---------- */
+/* PrivacyBadge goes first and keeps its words (it picks the sentence that fits the width it is
+   given, never an ellipsis); the newline hint takes only the room that is left and leaves the
+   line entirely rather than show part of itself. The row has no fixed height: the badge may
+   take two lines (short sentence over the retention chip) or three at large text sizes. */
+.composer .composer__colophon {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+	box-sizing: border-box;
+	min-width: 0;
+	min-height: calc(24px * var(--w-fs));
+	margin: 2px 0 0;
+	padding: 0 4px 0 var(--composer-inset);
+}
+.composer .composer__colophon > .privacy-badge {
+	flex: 0 0 auto;
+	max-width: 100%;
+}
+.composer .composer__hint {
+	display: flex;
+	flex: 0 1 auto;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	box-sizing: border-box;
+	min-width: 0;
+	height: calc(24px * var(--w-fs));
+	margin-left: auto;
+	padding-top: calc(5px * var(--w-fs));
+	overflow: hidden;
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+	white-space: nowrap;
+	visibility: hidden;
+}
+/* An empty first item as tall as the row: when the words do not fit beside it they wrap to a
+   second line, below the clipped box, and the hint is simply not there. */
+.composer .composer__hint::before {
+	content: '';
+	flex: 1 0 0;
+	height: 100%;
+}
+.composer .composer__hint.composer__hint--shown {
+	visibility: visible;
+}
+
+/* ---------- above the field: what the draft holds ---------- */
+.composer .edit-bar,
+.composer .reply-bar {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	box-sizing: border-box;
+	min-width: 0;
+	min-height: 32px;
+	margin: 0 0 6px;
+	padding: 0 2px 0 var(--composer-inset);
+	border: 0;
+	background: transparent;
+	font: var(--w-t-small);
+}
+.composer :is(.edit-info, .reply-info) {
+	display: flex;
+	flex: 1 1 auto;
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+}
+.composer :is(.edit-label, .reply-label) {
+	flex: none;
+	color: var(--w-text);
+	font: var(--w-t-caption);
+}
+.composer :is(.edit-hint, .reply-preview) {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+	font-style: normal;
+}
+.composer :is(.cancel-edit, .cancel-reply) {
+	display: inline-grid;
+	flex: none;
+	place-items: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: var(--w-bw) solid transparent;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	font: 400 calc(13px * var(--w-fs)) / 1 var(--w-sans);
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
+}
+.composer :is(.cancel-edit, .cancel-reply):hover {
+	background: var(--w-raise);
+	color: var(--w-text);
+}
+
+/* Selected files: an object in flow (§4.5), on --w-lift with a hairline. */
+.composer .file-gallery {
+	box-sizing: border-box;
+	width: auto;
+	margin: 0 0 8px;
+	padding: 12px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-lg);
+	background: var(--w-lift);
+	box-shadow: var(--w-shadow-1);
+}
+
+/* Upload progress: the words and a 2px accent line, where the field is. */
+.composer .composer__progress {
+	display: grid;
+	gap: 6px;
+	margin: 0 0 8px;
+	padding: 0 4px 0 var(--composer-inset);
+}
+.composer .composer__progress-words {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+	color: var(--w-mute);
+	font: var(--w-t-caption);
+}
+.composer .composer__progress-count {
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+	font-feature-settings: 'tnum';
+}
+.composer .composer__progress-track {
+	display: block;
+	height: 2px;
+	overflow: hidden;
+	border-radius: var(--w-pill);
+	background: var(--w-line);
+}
+.composer .composer__progress-fill {
+	display: block;
+	height: 100%;
+	background: var(--w-accent);
+	transition: width var(--w-dur-2) var(--w-ease);
+}
+
+/* Sending paused (burst limit): a status line with its glyph, not an alarm. */
+.composer .composer__notice {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0 0 6px;
+	padding: 0 4px 0 var(--composer-inset);
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+.composer .composer__notice > svg {
+	flex: none;
+	color: var(--w-warn);
+}
+
+.composer .composer__aside {
+	margin: 0 0 6px;
+	padding: 0 4px 0 var(--composer-inset);
+	overflow: hidden;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.composer .gif-caption-draft-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 8px;
+	margin: 0 0 8px;
+}
+.composer .gif-caption-draft-input {
+	height: 32px;
+}
+.composer .gif-caption-draft-count {
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+	font-feature-settings: 'tnum';
+	white-space: nowrap;
+}
+.composer .gif-caption-draft-count.warn {
+	color: var(--w-text);
+	font-weight: 500;
+}
+
+/* ---------- overlays the draft opens (plane 2: --w-bg2, light --w-lift, --w-shadow) ---------- */
+/* Every overlay opens upward from the field and never pushes the stream. */
+.composer .emoji-picker-container,
+.composer .mention-suggestions,
+:root .composer .emoji-suggestions {
+	position: absolute;
+	bottom: calc(100% + 8px);
+	z-index: var(--z-popout);
+	box-sizing: border-box;
+}
+/* The frame. The emoji container is only an anchor (no frame, no clipping), so the panel it
+   holds, or the panel's loading/error line, draws the frame and the container is exactly as
+   large as that. */
+.composer .emoji-picker-container > :is(.emoji-picker, .emoji-picker-loading),
+.composer .mention-suggestions,
+:root .composer .emoji-suggestions {
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-lg);
+	background: var(--w-bg2);
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+}
+:root[data-mode='light'] .composer :is(.emoji-picker-container > .emoji-picker, .emoji-picker-container > .emoji-picker-loading, .mention-suggestions, .emoji-suggestions) {
+	background: var(--w-lift);
+}
+
+/* The emoji and GIF panel, above the field's right end on every width. EmojiPicker positions
+   itself (absolute on desktop, fixed to the viewport bottom on phones, which would cover the
+   field); here it sits in its anchor's flow instead and keeps its own inner layout. */
+.composer .emoji-picker-container {
+	right: 0;
+	display: block;
+}
+.composer .emoji-picker-container > .emoji-picker {
+	position: relative;
+	inset: auto;
+	z-index: auto;
+	width: min(480px, calc(100vw - 24px));
+	height: min(520px, calc(100dvh - 240px));
+	min-height: min(320px, 70dvh);
+	max-height: none;
+}
+.composer .emoji-picker-container > .emoji-picker-loading {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 220px;
+	padding: 14px 16px;
+	color: var(--w-mute);
+	font: var(--w-t-ui);
+	white-space: nowrap;
+}
+.composer .emoji-picker-container > .emoji-picker-loading.error {
+	color: var(--w-text);
+}
+
+.composer .mention-suggestions {
+	left: 0;
+	right: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	width: min(100%, 420px);
+	max-height: min(320px, 50vh);
+	overflow-y: auto;
+	padding: 6px;
+}
+.composer .mention-suggestion {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 36px;
+	padding: 6px 10px;
+	border: 0;
+	border-radius: var(--radius-inner);
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	text-align: left;
+	cursor: pointer;
+}
+/* One selection grammar (§5.2): the highlighted row is a --w-raise key, never an accent fill. */
+.composer .mention-suggestion:hover,
+.composer .mention-suggestion.selected {
+	background: var(--w-raise);
+	color: var(--w-text);
+}
+.composer .mention-copy {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	min-width: 0;
+}
+.composer .mention-label {
+	font: var(--w-t-label);
+}
+.composer .mention-detail {
+	overflow: hidden;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.composer .mention-kind {
+	flex: none;
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+}
+
+:root .composer .emoji-suggestions {
+	left: 0;
+	min-width: 220px;
+	max-width: min(360px, 100%);
+	max-height: 232px;
+	overflow-y: auto;
+	padding: 6px;
+}
+:root .composer .emoji-suggestion {
+	min-height: 36px;
+	padding: 6px 10px;
+	border-radius: var(--radius-inner);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+:root .composer :is(.emoji-suggestion.selected, .emoji-suggestion:hover) {
+	background: var(--w-raise);
+}
+
+/* High Contrast: hover and selection are an inset ring as well (§5.2). */
+:root[data-char='contrast'] .composer :is(.mention-suggestion, .emoji-suggestion):is(:hover, .selected),
+:root[data-char='contrast'] .composer :is(.cancel-edit, .cancel-reply):hover {
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+
+/* ---------- the foot of the stream: typing row (§7.17) and an empty room (§7.16) ---------- */
+/* The row keeps its height whether or not anyone is writing, so nothing jumps when it appears.
+   It starts at the avatar column and ends at the page edge, like the day and NEW rules. */
+.messages-pane .stream-typing {
+	position: relative;
+	box-sizing: border-box;
+	min-height: calc(16px * var(--w-fs) + 8px);
+	max-width: var(--stream-page);
+	margin: 6px 0 0;
+	padding-left: var(--stream-lead);
+}
+.messages-pane .stream-typing__row {
+	height: auto;
+	min-height: calc(16px * var(--w-fs) + 8px);
+	margin: 0;
+}
+.messages-pane .stream-typing__stamp {
+	display: inline-grid;
+	flex: none;
+	place-items: center;
+	width: 20px;
+	height: 20px;
+	border-radius: var(--w-avr);
+	background: var(--disc, var(--w-raise));
+	color: var(--on, var(--w-mute));
+	font: 500 calc(11px * var(--w-fs)) / 1 var(--w-sans);
+}
+.messages-pane .stream-typing__words {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* A room with no messages yet: the start-of-channel block (stream.css), then what happens next. */
+.messages-pane .stream-start--empty .stream-start__next {
+	margin-top: 16px;
+}
+.messages-pane .stream-start__actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 16px;
+}
+.messages-pane .stream-start__title--quiet {
+	font: var(--w-t-heading);
+}
+
+/* ---------- narrow pages: phones and the DM panel (the stream's 560px tier) ---------- */
+@container composer (max-width: 559.98px) {
+	.composer .composer__page {
+		max-width: none;
+		margin: 0 calc(12px + var(--composer-scrollbar, 0px)) 0 12px;
+	}
+}
+
+/* ---------- the phone shell (§8.12) ---------- */
+@media (max-width: 768px) {
+	.composer {
+		padding: 6px 0 0;
+		min-height: 0;
+	}
+	/* Nav hidden or the keyboard up: the composer is the last thing on screen. */
+	.app-container:not(.mobile-nav-visible) .composer,
+	:root[data-keyboard-open='1'] .composer {
+		padding-bottom: env(safe-area-inset-bottom, 0px);
+	}
+	/* 44 = 38px keys + this padding + two edges, at any edge width. */
+	.composer .composer__field {
+		min-height: 44px;
+		padding: calc(3px - var(--w-bw)) 2px calc(3px - var(--w-bw)) 14px;
+	}
+	.composer .composer__tool {
+		width: 38px;
+		height: 38px;
+	}
+	.composer .composer__send {
+		width: 36px;
+		height: 36px;
+		margin: 0 1px 1px 2px;
+	}
+	/* 16px inside the field so iOS does not zoom; the placeholder keeps the chat size. */
+	.composer .composer__input {
+		min-height: 38px;
+		padding: max(0px, calc((38px - 23px * var(--w-fs)) / 2)) 6px max(0px, calc((38px - 23px * var(--w-fs)) / 2)) 0;
+		font-size: max(16px, calc(15px * var(--w-fs)));
+		line-height: calc(23px * var(--w-fs));
+	}
+	.composer .composer__input::placeholder {
+		font-size: calc(15px * var(--w-fs));
+	}
+	.composer .composer__colophon {
+		align-items: center;
+		min-height: calc(32px * var(--w-fs));
+		margin: 0;
+		padding-left: 14px;
+	}
+	/* Phone keyboards have their own return key; the Shift Enter hint means nothing there. */
+	.composer .composer__hint {
+		display: none;
+	}
+}
+
+/* Touch targets (§7.2, §10): keys stay their drawn size and reach 44px: a 34px key on a
+   touch tablet gets 5px all round (44), the phone's 38 and 36px keys more. */
+@media (pointer: coarse) {
+	.composer :is(.composer__tool, .composer__send)::after {
+		content: '';
+		position: absolute;
+		inset: -5px;
+	}
+}
+
+/* ---------- forced colors: the field keeps a visible edge ---------- */
+@media (forced-colors: active) {
+	.composer .composer__field {
+		border-color: CanvasText;
+	}
+	.composer .composer__field:focus-within {
+		outline: 2px solid Highlight;
+		outline-offset: 2px;
+	}
+	.messages-pane .stream-typing__stamp {
+		border: 1px solid CanvasText;
+	}
+}

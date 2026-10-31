@@ -129,12 +129,13 @@
 	border-left: none;
 }
 
-/* The rail reserves its own column; a pinned panel makes room beside the stage (no overlap),
-   a peeked one floats over it. --w-dock-w is set on .app-container by MainLayout. */
+/* Center-stage guard (design contract §8.4): the rail reserves its own column and a pinned
+   companion makes room beside the stage (no overlap); a peek floats over it. MainLayout sets
+   --w-dock-w on .app-container from dockClamp.ts, so a pin never leaves the stage under 600px. */
 .app-container.rail-on {
 	padding-right: calc(var(--w-rail-w, 46px) + var(--w-dock-w, 0px));
 	box-sizing: border-box;
-	transition: padding 0.22s var(--ease-out, ease-out);
+	transition: padding var(--w-dur-3) var(--w-ease);
 }
 .app-container.rail-on.rail-left {
 	padding-right: 0;
@@ -142,37 +143,67 @@
 }
 .app-container.resizing.rail-on { transition: none; }
 
+/* The companion zone hangs from the rail edge at the width MainLayout clamps (pinned) or the
+   peek width, min(340px, 72% of the stage). Pinned sits in flow: no shadow, a column hairline. */
 .right-panel-zone {
 	flex: 0 0 auto;
 	position: fixed;
 	top: 0;
 	right: var(--w-rail-w, 46px);
 	bottom: 0;
-	z-index: 899; /* below modal overlays (--z-overlay 1000), above stage content */
+	z-index: 899; /* below the rail (900) and modal overlays (--z-overlay 1000), above stage content */
 	box-shadow: none;
 	height: 100dvh;
 	min-width: 0;
-	max-width: min(744px, 55vw);
+	/* Its motion is the keyframe entrance and exit below; a stowed pin comes back at once. */
+	transition: none;
 }
 
 .right-panel-zone.stub-left { left: var(--w-rail-w, 46px); right: auto; }
-/* a peek floats above the stage, so it gets a shadow; a pinned panel sits beside it */
-.right-panel-zone.peek { box-shadow: var(--w-shadow, -10px 0 40px rgba(0, 0, 0, 0.4)); }
 
+/* A stowed pin (no room beside the stage) stays mounted so the panel keeps its own state, but it is
+   not drawn and takes no pointer; MainLayout also makes it inert, so nothing in it can be focused or
+   read. content-visibility skips the contents' rendering and keeps their state (scroll positions
+   included). Not visibility: it is inherited, and under reduced motion every descendant would run
+   its own 0.01ms transition of it, so a returning pin would stay unfocusable for a frame. */
+.right-panel-zone.stowed {
+	opacity: 0;
+	content-visibility: hidden;
+	pointer-events: none;
+}
+
+/* Focus moves here when a held peek opens over a stage that had focus. The opaque body would
+   paint over an inset outline on the zone, so the ring is drawn by a layer above the content. */
+.right-panel-zone:focus-visible { outline: none; }
+.right-panel-zone:focus-visible::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	z-index: calc(var(--z-sticky) + 1); /* above the panel body and its sticky heads */
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+	pointer-events: none;
+}
+
+/* The lazily loaded panel's first open: the kit load line under the masthead plus skeleton rows. */
+.companion-loading {
+	box-sizing: border-box;
+	padding-top: calc(var(--w-mast, 96px) - 2px);
+}
+.companion-loading-rows { padding: 8px 16px; }
+.companion-loading-rows .w-skel-stack .w-skel:first-child { width: 46%; }
+.companion-loading-rows .w-skel-stack .w-skel:last-child { width: 72%; }
+.companion-loading-rows .w-skel-row:nth-child(even) .w-skel-stack .w-skel:first-child { width: 34%; }
+
+/* Plane 0 surface (§4.5): --w-bg2, no gradients, a --w-line hairline on the edge toward the stage. */
 .right-panel-body {
 	position: relative;
 	height: 100%;
 	min-width: 0;
 	display: flex;
 	overflow: hidden;
-	background:
-		linear-gradient(
-			180deg,
-			color-mix(in srgb, var(--surface-raised) 40%, transparent),
-			color-mix(in srgb, var(--surface-base) 96%, transparent)
-		),
-		var(--surface-base);
-	border-left: 1px solid color-mix(in srgb, var(--accent-primary-color) 10%, rgba(var(--border-rgb), var(--opacity-light)));
+	background: var(--w-bg2);
+	border-left: var(--w-bw) solid var(--w-line);
 }
 
 .right-panel-body > * {
@@ -180,116 +211,73 @@
 	min-width: 0;
 }
 
-/* The panel runs flush to the screen edge on the stub side; the floating
-   strip's stubs overlap the panel's outer edge (folder-tab look). The border
-   sits on the inner edge, mirroring for side-left. */
-.right-panel-zone.stub-right .right-panel-body {
-	border-left: 1px solid color-mix(in srgb, var(--accent-primary-color) 10%, rgba(var(--border-rgb), var(--opacity-light)));
-	border-right: none;
-}
-
 .right-panel-zone.stub-left .right-panel-body {
 	border-left: none;
-	border-right: 1px solid color-mix(in srgb, var(--accent-primary-color) 10%, rgba(var(--border-rgb), var(--opacity-light)));
+	border-right: var(--w-bw) solid var(--w-line);
 }
 
-/* Peek mode: fixed overlay over the chat content with a slide-in and shadow.
-   z-index: one tier below the stub strip (1199) so revealed stubs float above
-   the panel body. No scrim — content stays readable (spec §6). */
+/* Peek (plane 2): floats over the stage's edge with a --w-line-strong edge and the overlay
+   shadow. Entrance is opacity plus an 8px slide from the rail side (§4.7); exits run at 0.75x. */
 .right-panel-zone.peek {
-	position: fixed;
-	top: 0;
-	right: var(--w-rail-w, 46px);
-	bottom: 0;
-	z-index: 899; /* below modal overlays (--z-overlay 1000), above stage content */
-	box-shadow: -10px 0 40px rgba(0, 0, 0, 0.4);
-	animation: peek-in-right 0.22s var(--ease-out, ease-out) both;
+	box-shadow: var(--w-shadow);
+	animation: peek-in-right var(--w-dur-3) var(--w-ease) both;
 }
 
-.right-panel-zone.peek.stub-left {
-	left: var(--w-rail-w, 46px);
-	right: auto;
-	box-shadow: 10px 0 40px rgba(0, 0, 0, 0.4);
-	animation-name: peek-in-left;
-}
+.right-panel-zone.peek .right-panel-body { border-left-color: var(--w-line-strong); }
+.right-panel-zone.peek.stub-left .right-panel-body { border-right-color: var(--w-line-strong); }
 
-@keyframes peek-in-right {
-	from {
-		transform: translateX(100%);
-	}
-	to {
-		transform: translateX(0);
-	}
+/* A peek covers stage text, so it is always opaque: themes with a living background frost the
+   pinned column (surfaces/panel.css), never a peek. Light mode lifts it to --w-lift. */
+:root[data-ambient] .right-panel-zone.peek .right-panel-body {
+	background: var(--w-bg2);
+	-webkit-backdrop-filter: none;
+	backdrop-filter: none;
 }
+:root[data-mode='light'] .right-panel-zone.peek .right-panel-body,
+:root[data-mode='light'][data-ambient] .right-panel-zone.peek .right-panel-body { background: var(--w-lift); }
 
-@keyframes peek-in-left {
-	from {
-		transform: translateX(-100%);
-	}
-	to {
-		transform: translateX(0);
-	}
-}
+.right-panel-zone.peek.stub-left { animation-name: peek-in-left; }
 
-/* Closing: the peek retracting after the pointer left. Keeps the peek's fixed
-   positioning so the panel slides out instead of vanishing; pointer-events
-   are dead so the outgoing zone can't re-trigger hover logic. Unmount is
-   timer-driven in MainLayout (~210ms). */
+/* Closing: keeps the zone mounted while it leaves; pointer-events are dead so the outgoing
+   zone cannot re-trigger hover logic. Unmount is timer-driven in MainLayout. */
 .right-panel-zone.closing {
+	pointer-events: none;
+	animation: peek-out-right calc(var(--w-dur-3) * 0.75) var(--w-ease) both;
+}
+
+.right-panel-zone.closing.stub-left { animation-name: peek-out-left; }
+
+@keyframes peek-in-right { from { opacity: 0; transform: translateX(8px); } }
+@keyframes peek-in-left { from { opacity: 0; transform: translateX(-8px); } }
+@keyframes peek-out-right { to { opacity: 0; transform: translateX(8px); } }
+@keyframes peek-out-left { to { opacity: 0; transform: translateX(-8px); } }
+
+/* The stage scrim under a peek opened on purpose (§8.4, D11): the full --w-scrim over the stage
+   only (MainLayout sets left/right to the stage's edges). A click or tap closes the peek. */
+.stage-scrim {
 	position: fixed;
 	top: 0;
-	right: var(--w-rail-w, 46px);
 	bottom: 0;
-	z-index: 899; /* below modal overlays (--z-overlay 1000), above stage content */
-	box-shadow: -10px 0 40px rgba(0, 0, 0, 0.4);
+	z-index: 898; /* under the peek (899) and the rail (900) */
+	background: var(--w-scrim);
+	cursor: default;
+	animation: stage-scrim-in var(--w-dur-3) var(--w-ease) both;
+}
+
+/* The desktop app's titlebar sits above every fixed layer (desktop-shell.css). */
+:root[data-desktop-shell='true'] .stage-scrim { top: var(--desktop-titlebar-height); }
+
+.stage-scrim.closing {
 	pointer-events: none;
-	animation: peek-out-right 0.2s var(--ease-in, ease-in) both;
+	animation: stage-scrim-out calc(var(--w-dur-3) * 0.75) var(--w-ease) both;
 }
 
-.right-panel-zone.closing.stub-left {
-	left: var(--w-rail-w, 46px);
-	right: auto;
-	box-shadow: 10px 0 40px rgba(0, 0, 0, 0.4);
-	animation-name: peek-out-left;
-}
+@keyframes stage-scrim-in { from { opacity: 0; } }
+@keyframes stage-scrim-out { to { opacity: 0; } }
 
-@keyframes peek-out-right {
-	from {
-		transform: translateX(0);
-	}
-	to {
-		transform: translateX(100%);
-	}
-}
-
-@keyframes peek-out-left {
-	from {
-		transform: translateX(0);
-	}
-	to {
-		transform: translateX(-100%);
-	}
-}
-
-/* Pinned mode: plain flex child (resize handle floats on its inner edge). */
-.right-panel-zone:not(.peek) .resize-handle-right {
-	left: -4px;
-}
-
-.right-panel-zone.stub-left .resize-handle-right {
-	left: auto;
-	right: -4px;
-	border-left: none;
-	border-right: 1px solid color-mix(in srgb, var(--accent-primary-color) 18%, transparent);
-}
-
-.right-panel-zone.stub-left .resize-handle-right:hover,
-.right-panel-zone.stub-left .resize-handle-right:focus-visible {
-	border-left: none;
-	border-right-color: color-mix(in srgb, var(--accent-secondary-color) 55%, transparent);
-}
-
-/* Resize handles */
+/* Resize edges (§7.21): an 8px hit area on the column hairline. Invisible at rest; a 2px
+   --w-accent line on hover, keyboard focus and while dragging. The companion's edge is a
+   focusable role=separator (arrow keys resize; see MainLayout). */
 .resize-handle {
 	position: absolute;
 	top: 0;
@@ -300,61 +288,53 @@
 	background: transparent;
 	cursor: col-resize;
 	z-index: var(--z-sticky);
-	transition: background 0.15s ease;
+	touch-action: none;
 }
 
-.resize-handle:hover,
-.resize-handle:focus-visible {
-	background: color-mix(in srgb, var(--accent-secondary-color, var(--accent-primary-color)) 45%, transparent);
-	outline: none;
-}
-
-.resize-handle:active {
-	background: color-mix(in srgb, var(--accent-secondary-color, var(--accent-primary-color)) 70%, transparent);
-}
-.resize-handle-channel { right: -3px; }
-.resize-handle-right {
-	left: -4px;
-	width: 10px;
-	border-left: 1px solid color-mix(in srgb, var(--accent-primary-color) 18%, transparent);
-	z-index: var(--z-popout, 1200);
-}
-.resize-handle-right:hover,
-.resize-handle-right:focus-visible {
-	border-left-color: color-mix(in srgb, var(--accent-secondary-color) 55%, transparent);
-	background: color-mix(in srgb, var(--accent-secondary-color, var(--accent-primary-color)) 35%, transparent);
-}
-
-.app-container.obvious-grab-rails .resize-handle {
-	background: rgba(var(--status-away-rgb, 255, 176, 32), 0.35);
-	outline: 1px solid rgba(var(--status-away-rgb, 255, 176, 32), 0.95);
-	outline-offset: 0;
-	box-shadow: inset 0 0 0 1px var(--surface-modal-overlay, rgba(0, 0, 0, 0.45));
-	opacity: 1;
-}
-
-.app-container.obvious-grab-rails .resize-handle::after {
-	content: '6px grab';
+.resize-handle::before {
+	content: '';
 	position: absolute;
-	top: 10px;
-	left: 50%;
-	transform: translateX(-50%) rotate(90deg);
-	transform-origin: center;
-	padding: 2px 5px;
-	border-radius: 4px;
-	font-size: 0.625rem;
-	line-height: 1;
-	font-weight: 700;
-	letter-spacing: 0.03em;
-	color: var(--text-inverse, #2f2200);
-	background: rgba(var(--status-away-rgb, 255, 222, 122), 0.95);
-	white-space: nowrap;
-	pointer-events: none;
+	top: 0;
+	bottom: 0;
+	left: calc(50% - 1px);
+	width: 2px;
+	background: transparent;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+
+.resize-handle:hover::before,
+.resize-handle:focus-visible::before,
+.resize-handle.dragging::before {
+	background: var(--w-accent);
+}
+
+/* The accent line is the focus indicator; an outline would double it. */
+.resize-handle:focus-visible { outline: none; }
+
+.resize-handle-channel { right: -4px; }
+
+/* Sits on the zone (not inside the clipped body), its hit area wholly on the panel side of the
+   hairline so it never overlaps the stage's scrollbar at the 600px clamp. Its line covers the hairline. */
+.resize-handle-right {
+	left: 0;
+	z-index: 1;
+}
+.resize-handle-right::before { left: 0; }
+
+.right-panel-zone.stub-left .resize-handle-right {
+	left: auto;
+	right: 0;
+}
+.right-panel-zone.stub-left .resize-handle-right::before { left: auto; right: 0; }
+
+/* "Obvious grab rails" preference: the edges keep a plainly visible --w-mute line at rest. */
+.app-container.obvious-grab-rails .resize-handle:not(:hover, :focus-visible, .dragging)::before {
+	background: var(--w-mute);
 }
 
 .app-container.nav-right .resize-handle-channel {
 	right: auto;
-	left: -3px;
+	left: -4px;
 }
 
 .server-switcher-overlay {

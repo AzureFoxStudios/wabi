@@ -7,8 +7,14 @@
     "regenerate": "สร้างใหม่",
     "cancel": "ยกเลิก",
     "save": "บันทึก",
-    "on": "เปิด",
-    "off": "ปิด"
+    "more": "เพิ่มเติม",
+    "open": "เปิด",
+    "retry": "ลองอีกครั้ง",
+    "dismiss": "ปิด",
+    "discard": "ทิ้ง",
+    "search": "ค้นหา",
+    "loading": "กำลังโหลด…",
+    "unsaved_changes": "การเปลี่ยนแปลงที่ยังไม่บันทึก"
   },
   "settings": {
     "title": "การตั้งค่า",
@@ -26,7 +32,8 @@
       "storage": "พื้นที่จัดเก็บ",
       "admin": "ผู้ดูแลระบบ",
       "about": "เกี่ยวกับ",
-      "logout": "ออกจากระบบ"
+      "logout": "ออกจากระบบ",
+      "privacy": "ความเป็นส่วนตัวและความปลอดภัย"
     },
     "sections": {
       "display_name": "ชื่อที่แสดง",
@@ -41,51 +48,64 @@
       "admin_panel": "แผงผู้ดูแลระบบ",
       "about": "เกี่ยวกับ"
     },
-    "actions": {
-      "clear_server": "ล้างเซิร์ฟเวอร์"
-    },
-    "confirm": {
-      "clear_local_title": "ล้างข้อมูลในเครื่อง",
-      "clear_local_message": "คุณแน่ใจหรือไม่ว่าต้องการล้างข้อมูลแชททั้งหมด? การกระทำนี้ย้อนกลับไม่ได้",
-      "clear_local_confirm": "ล้างข้อมูล",
-      "clear_server_title": "ล้างข้อความบนเซิร์ฟเวอร์",
-      "clear_server_message": "คุณแน่ใจหรือไม่ว่าต้องการลบข้อความทั้งหมดจากเซิร์ฟเวอร์? การกระทำนี้จะลบข้อความของผู้ใช้ทุกคนและย้อนกลับไม่ได้!",
-      "clear_server_confirm": "ลบทั้งหมด"
-    },
     "language_learning": {
       "label": "การทยอยเรียนรู้ภาษาใน UI",
       "description": "ค่อย ๆ ผสมภาษาที่คุณเลือกเข้าไปใน UI ตามช่วงเวลา",
       "target_percent": "สัดส่วนภาษาเป้าหมายใน UI: {percent}%",
       "hint": "ค่าที่ต่ำจะคงภาษาอังกฤษไว้มากกว่า ค่อย ๆ เพิ่มขึ้นเมื่อคุณเรียนรู้มากขึ้น",
       "select_non_english": "เลือกภาษาของแอปที่ไม่ใช่ภาษาอังกฤษเพื่อเปิดใช้การผสมภาษาแบบทยอย"
+    },
+    "search": "ค้นหาการตั้งค่า",
+    "groups": {
+      "account": "บัญชี",
+      "this_device": "อุปกรณ์นี้"
+    },
+    "sign_out_confirm": "ออกจากระบบ {server} ไหม?",
+    "appearance": {
+      "theme": "ธีม",
+      "calm": "สงบ",
+      "accessible_expressive": "เข้าถึงง่ายและมีสีสัน",
+      "show_all_themes": "แสดงธีมทั้งหมด {count} แบบ",
+      "character_dark": "มืด",
+      "character_light": "สว่าง",
+      "character_pixel": "พิกเซล",
+      "character_motion": "เคลื่อนไหว",
+      "reading": "การอ่าน",
+      "text_size": "ขนาดตัวอักษร",
+      "density": "ความหนาแน่นของข้อความ",
+      "cozy": "สบายตา",
+      "compact": "กะทัดรัด",
+      "own_right": "ข้อความของคุณอยู่ทางขวา",
+      "reduce_motion": "ลดการเคลื่อนไหว",
+      "chat_background": "พื้นหลังแชท"
     }
   },
   "login": {
     "tabs": {
       "guest": "ผู้เยี่ยมชม",
       "login": "เข้าสู่ระบบ",
-      "register": "ลงทะเบียน"
+      "register": "สร้างบัญชี"
     },
     "language": {
       "label": "ภาษา"
     },
     "guest": {
       "name_placeholder": "ใส่ชื่อของคุณ",
-      "joining": "กำลังเข้าร่วม...",
+      "joining": "กำลังเข้าร่วม…",
       "join_button": "เข้าร่วมในฐานะผู้เยี่ยมชม",
-      "join_qr_button": "เข้าร่วมผ่าน QR Code",
+      "join_qr_button": "เข้าร่วมด้วย QR code",
       "business_hub": "ศูนย์ธุรกิจ"
     },
     "auth": {
       "username_or_handle_placeholder": "ชื่อผู้ใช้หรือ @handle",
       "password_placeholder": "รหัสผ่าน",
-      "logging_in": "กำลังเข้าสู่ระบบ...",
+      "logging_in": "กำลังเข้าสู่ระบบ…",
       "login_button": "เข้าสู่ระบบ",
       "display_name_placeholder": "เลือกชื่อที่แสดง",
       "handle_placeholder": "yourhandle",
       "password_rules_placeholder": "รหัสผ่าน (8 ตัวอักษรขึ้นไป)",
       "confirm_password_placeholder": "ยืนยันรหัสผ่าน",
-      "creating_account": "กำลังสร้างบัญชี...",
+      "creating_account": "กำลังสร้างบัญชี…",
       "create_account_button": "สร้างบัญชี",
       "forgot_password": "ลืมรหัสผ่าน?",
       "remember_me": "จำฉันไว้บนอุปกรณ์นี้",
@@ -104,27 +124,27 @@
       "handle_invalid": "Handle ต้องขึ้นต้นด้วยตัวอักษร ยาว 2-32 ตัวอักษร ใช้ได้เฉพาะตัวอักษรพิมพ์เล็ก ตัวเลข และขีดล่าง",
       "password_min": "รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร",
       "password_mismatch": "รหัสผ่านไม่ตรงกัน",
-      "registration_failed": "ลงทะเบียนไม่สำเร็จ",
+      "registration_failed": "สร้างบัญชีไม่สำเร็จ",
       "username_password_required": "ต้องระบุชื่อผู้ใช้และรหัสผ่าน",
       "login_failed": "เข้าสู่ระบบไม่สำเร็จ"
     },
     "qr": {
-      "open_modal": "เข้าร่วมผ่าน QR Code",
+      "open_modal": "เข้าร่วมด้วย QR code",
       "title": "สแกนเพื่อเข้าร่วม",
       "url_placeholder": "ชื่อห้อง (ไม่บังคับ เช่น kitchen)",
-      "close_modal_aria": "ปิดหน้าต่าง QR code",
+      "close_modal_aria": "ปิด QR code",
       "dialog_aria": "QR code สำหรับเข้าร่วมแชท"
     },
     "wizard": {
       "welcome": "ยินดีต้อนรับสู่ Wabi",
       "owner_subtitle": "สร้างบัญชีเจ้าของของคุณ บัญชีนี้จะเป็นผู้ดูแลระบบหลักของเซิร์ฟเวอร์",
-      "advanced_setup_note": "ต้องการการเข้าถึงจากภายนอก TURN เมช หรือการปรับแต่งหน้าล็อกอิน? ทำได้หลังเข้าสู่ระบบผ่านสคริปต์ติดตั้งหรือการตั้งค่า launch-page",
+      "advanced_setup_note": "ต้องการการเข้าถึงจากภายนอก TURN หรือการปรับแต่งหน้าเข้าสู่ระบบ? ตั้งค่าได้หลังเข้าสู่ระบบ ผ่านสคริปต์ติดตั้งหรือการตั้งค่า launch-page",
       "join_title": "ใครเข้าร่วมเซิร์ฟเวอร์นี้ได้?",
       "join_subtitle": "คุณเป็นเจ้าของเซิร์ฟเวอร์ — คุณเป็นคนตัดสินใจว่าคนใหม่จะเข้ามาได้อย่างไร",
       "join_open_label": "เปิด",
       "join_open_desc": "ทุกคนที่เข้าถึงเซิร์ฟเวอร์นี้สามารถสร้างบัญชีได้",
       "join_closed_label": "ปิด",
-      "join_closed_desc": "ตอนนี้มีเพียงคุณเท่านั้นที่สร้างบัญชีได้ รหัสเชิญจะมาในภายหลัง",
+      "join_closed_desc": "คนอื่นจะสร้างบัญชีบนเซิร์ฟเวอร์นี้ไม่ได้",
       "join_guest_label": "อนุญาตผู้เยี่ยมชม",
       "join_guest_desc": "ให้ผู้ใช้เข้าร่วมเป็นผู้เยี่ยมชมชั่วคราวโดยไม่ต้องมีบัญชี",
       "join_note": "คุณสามารถเปลี่ยนได้ภายหลังในการตั้งค่า",
@@ -133,7 +153,6 @@
       "finish": "เสร็จสิ้นการตั้งค่า",
       "step_account": "บัญชีเจ้าของ",
       "step_network": "การตั้งค่าเครือข่าย",
-      "step_mesh": "เมชของเซิร์ฟเวอร์",
       "step_branding": "แบรนด์",
       "step_done": "เสร็จสิ้น",
       "next": "ถัดไป",
@@ -156,14 +175,7 @@
       "tunnel_no_token": "ยังไม่มีโทเคน? ใช้อุโมงค์แบบชั่วคราวสำหรับทดสอบ:",
       "tunnel_with_token": "ถ้ามีโทเคน:",
       "tunnel_turn_note": "การโทรเสียง/วิดีโอยังต้องฟอร์เวิร์ดพอร์ต 3478 สำหรับ TURN",
-      "mesh_title": "กำลังจะเข้าร่วมเมช Wabi ที่มีอยู่?",
-      "mesh_subtitle": "ถ้านี่เป็นเซิร์ฟเวอร์ที่สองที่เข้าร่วมการติดตั้งที่มีอยู่ เซิร์ฟเวอร์ทั้งสองต้องใช้การเชื่อมต่อ SpacetimeDB และโทเคนเมชเดียวกัน",
-      "mesh_stdb_url": "URL การเชื่อมต่อ STDB",
-      "mesh_token": "โทเคนใช้ร่วมของเมช",
-      "mesh_region": "ป้ายชื่อภูมิภาคของเซิร์ฟเวอร์",
-      "mesh_region_placeholder": "เช่น us-west, eu-central",
-      "mesh_restart_note": "การตั้งค่าจะมีผลหลังรีสตาร์ทครั้งถัดไปผ่านตัวแปรสภาพแวดล้อม STDB",
-      "branding_title": "ปรับแต่งหน้าล็อกอินของคุณ",
+      "branding_title": "ปรับแต่งหน้าเข้าสู่ระบบของคุณ",
       "branding_subtitle": "ให้เซิร์ฟเวอร์ของคุณมีเอกลักษณ์ของตัวเอง คุณแก้ไข data/launch-page.json ภายหลังเพื่อตัวเลือกเพิ่มเติมได้ตลอดเวลา",
       "branding_name": "ชื่อเซิร์ฟเวอร์",
       "branding_name_placeholder": "เช่น ชุมชนของฉัน",
@@ -171,10 +183,10 @@
       "branding_bg_image": "URL รูปพื้นหลัง",
       "branding_bg_image_placeholder": "https://example.com/my-background.jpg",
       "branding_custom_css": "CSS แบบกำหนดเอง",
-      "branding_custom_css_placeholder": "/* Move the login card, change fonts, etc. */\n.login-card { ... }",
+      "branding_custom_css_placeholder": "/* Move the sign-in card, change fonts, etc. */\n.login-card '{' ... '}'",
       "done_title": "พร้อมใช้งานแล้ว!",
       "done_subtitle": "คุณคือเจ้าของเซิร์ฟเวอร์",
-      "done_tip_admin": "ดูการตั้งค่าผู้ดูแลได้ที่ การตั้งค่า > ผู้ดูแลระบบ",
+      "done_tip_admin": "ดูการตั้งค่าผู้ดูแลได้ที่ การตั้งค่า › ผู้ดูแลระบบ",
       "done_tip_invite": "แชร์ URL ของเซิร์ฟเวอร์เพื่อเชิญผู้ใช้",
       "done_enter": "เข้าสู่ Wabi"
     }
@@ -191,20 +203,20 @@
       "video_call_title": "สายวิดีโอกับ {user}"
     },
     "typing": {
-      "one": "{user} กำลังพิมพ์...",
-      "two": "{user1} และ {user2} กำลังพิมพ์...",
-      "many": "มีหลายคนกำลังพิมพ์...",
-      "multi": "{users} และ {lastUser} กำลังพิมพ์..."
+      "one": "{user} กำลังพิมพ์",
+      "two": "{user1} และ {user2} กำลังพิมพ์",
+      "many": "หลายคนกำลังพิมพ์",
+      "multi": "หลายคนกำลังพิมพ์"
     },
     "search": {
-      "placeholder": "ค้นหา (by:username, has:image ฯลฯ)",
+      "placeholder": "ค้นหาข้อความ",
       "results_one": "ผลลัพธ์ {count} รายการ",
       "results_many": "ผลลัพธ์ {count} รายการ",
-      "loading_older": "กำลังโหลดประวัติเก่า...",
+      "loading_older": "กำลังโหลดประวัติเก่า…",
       "full_history": "ค้นหาประวัติทั้งหมด",
       "stop": "หยุด ({count})",
       "status": {
-        "scanning": "กำลังสแกนประวัติทั้งหมด...",
+        "scanning": "กำลังสแกนประวัติทั้งหมด…",
         "stopped": "หยุดแล้ว",
         "changed": "คำค้นหาหรือช่องเปลี่ยนไป",
         "loaded": "โหลดประวัติทั้งหมดของช่องนี้แล้ว",
@@ -216,13 +228,17 @@
       "escape_to_cancel": "กด Escape เพื่อยกเลิก",
       "replying_to": "กำลังตอบกลับ {user}:",
       "attachment": "ไฟล์แนบ",
-      "placeholder": "พิมพ์ข้อความ... หรือ /help สำหรับคำสั่ง (Shift+Enter เพื่อขึ้นบรรทัดใหม่)",
+      "placeholder": "เขียนข้อความ",
       "add_media": "เพิ่มสื่อ",
       "upload_file": "อัปโหลดไฟล์",
       "take_photo": "ถ่ายรูป",
       "record_audio": "บันทึกเสียง",
       "add_emoji": "เพิ่มอิโมจิ",
-      "send_message": "ส่งข้อความ"
+      "send_message": "ส่งข้อความ",
+      "placeholder_channel": "ส่งข้อความถึง #{channel}",
+      "placeholder_dm": "ส่งข้อความถึง {name}",
+      "newline_hint": "Shift Enter เพื่อขึ้นบรรทัดใหม่",
+      "attach": "แนบไฟล์"
     },
     "mentions": {
       "kind_mention": "กล่าวถึง",
@@ -235,13 +251,13 @@
       "spoiler_hint": "เนื้อหาที่ละเอียดอ่อนจะถูกซ่อนจนกว่าจะคลิก",
       "upload_files_one": "อัปโหลด {count} ไฟล์",
       "upload_files_many": "อัปโหลด {count} ไฟล์",
-      "uploading": "กำลังอัปโหลดไฟล์..."
+      "uploading": "กำลังอัปโหลดไฟล์…"
     }
   },
   "messages": {
     "new_messages": "ข้อความใหม่",
     "add_reaction": "เพิ่มรีแอคชัน",
-    "encrypted": "เข้ารหัสลับ",
+    "encrypted": "การเข้ารหัสแบบทดลอง",
     "unknown_user": "ผู้ใช้ที่ไม่รู้จัก",
     "file": "ไฟล์",
     "message": "ข้อความ",
@@ -266,17 +282,17 @@
       "audio_not_supported": "เบราว์เซอร์ของคุณไม่รองรับการเล่นเสียง",
       "embedded_image_alt": "รูปภาพที่ฝังมา",
       "model_fallback_name": "โมเดล 3 มิติ",
-      "open_3d_tab": "เปิดแท็บ 3D"
+      "open_3d_tab": "เปิดในตัวดู 3D"
     },
     "zip_preview": {
       "show": "ดูตัวอย่างเนื้อหา ZIP",
       "hide": "ซ่อนเนื้อหา ZIP",
-      "loading": "กำลังอ่านข้อมูล ZIP...",
+      "loading": "กำลังอ่านข้อมูล ZIP…",
       "retry": "ลองอีกครั้ง",
       "entries": "{count} รายการ",
       "uncompressed": "ขนาดเมื่อไม่บีบอัด: {size}",
       "compressed": "ขนาดเมื่อบีบอัดแล้ว: {size}",
-      "filter_placeholder": "กรองรายการในแฟ้ม...",
+      "filter_placeholder": "กรองรายการในแฟ้ม",
       "filter_results": "แสดง {shown} จาก {total} รายการ",
       "no_matches": "ไม่มีรายการที่ตรงกับตัวกรองนี้",
       "sort": {
@@ -288,10 +304,10 @@
       "preview": {
         "show": "ดูตัวอย่าง",
         "hide": "ซ่อนตัวอย่าง",
-        "loading": "กำลังโหลดตัวอย่าง...",
+        "loading": "กำลังโหลดตัวอย่าง…",
         "unavailable": "ไม่สามารถดูตัวอย่างรายการนี้ได้"
       },
-      "encrypted_entries": "มีรายการที่เข้ารหัสลับ {count} รายการ",
+      "encrypted_entries": "มีรายการที่ป้องกันด้วยรหัสผ่าน {count} รายการ",
       "empty": "แฟ้มนี้ไม่มีรายการ",
       "truncated": "แสดง {count} รายการแรก",
       "method_store": "จัดเก็บเท่านั้น",
@@ -299,8 +315,8 @@
       "method_other": "วิธี {method}",
       "errors": {
         "failed": "โหลดตัวอย่าง ZIP ไม่สำเร็จ",
-        "timeout": "หมดเวลาดูตัวอย่าง ZIP",
-        "encrypted": "ไม่รองรับการดูตัวอย่าง ZIP ที่เข้ารหัสลับ",
+        "timeout": "การดูตัวอย่าง ZIP ใช้เวลานานเกินไป",
+        "encrypted": "ดูตัวอย่าง ZIP ที่ป้องกันด้วยรหัสผ่านไม่ได้",
         "too_large": "ขีดจำกัดของตัวอย่าง ZIP คือ {limit}"
       }
     },
@@ -309,35 +325,35 @@
     "edited": "แก้ไขแล้ว",
     "translated_label": "แปลแล้ว",
     "deletion": {
-      "scheduled_title": "ข้อความนี้ถูกตั้งเวลาให้ลบอัตโนมัติ",
-      "deleting": "กำลังลบ...",
-      "deletes_in": "จะลบในอีก {duration}",
+      "scheduled_title": "ข้อความนี้ใช้ตัวจับเวลาที่ตั้งไว้ตอนส่ง การเปลี่ยนตัวจับเวลาของห้องมีผลกับข้อความใหม่เท่านั้น และอาจยังมีสำเนาอยู่ในข้อมูลสำรอง",
+      "deleting": "กำลังออกจากแชท…",
+      "deletes_in": "ออกจากแชทในอีก {duration}",
       "retention_lifetime": "ตัวจับเวลา {duration}"
     },
     "persistence": {
-      "failed": "ไม่ได้บันทึก",
-      "retrying": "กำลังลองบันทึกอีกครั้ง...",
+      "failed": "ส่งไม่สำเร็จ",
+      "retrying": "กำลังลองอีกครั้ง…",
       "retry": "ลองอีกครั้ง"
     },
     "pagination": {
-      "loading": "กำลังโหลด...",
+      "loading": "กำลังโหลด…",
       "show_older_loaded": "แสดงข้อความเก่าที่โหลดไว้",
       "load_older": "โหลดข้อความเก่ากว่า",
       "beginning": "จุดเริ่มต้นของการสนทนา"
     },
     "confirm": {
-      "delete_title": "ลบข้อความ",
-      "delete_message": "คุณแน่ใจหรือไม่ว่าต้องการลบข้อความนี้?",
-      "delete_message_with_uploads": "คุณแน่ใจหรือไม่ว่าต้องการลบข้อความนี้? การดำเนินการนี้จะลบไฟล์ที่อัปโหลด {count} ไฟล์ด้วย",
-      "delete_confirm": "ลบ"
+      "delete_title": "ลบข้อความนี้ไหม?",
+      "delete_message": "การลบนี้ย้อนกลับไม่ได้",
+      "delete_message_with_uploads": "ไฟล์ที่อัปโหลดไว้ ({count}) จะถูกลบด้วย การลบนี้ย้อนกลับไม่ได้",
+      "delete_confirm": "ลบข้อความ"
     },
     "role_gate": {
-      "title": "Role Gate",
+      "title": "Role gate",
       "hint": "กดรีแอคชันด้านล่างเพื่อเข้าร่วมหรือออกจากบทบาทการเข้าถึงนี้"
     },
     "viewer": {
       "open_new_tab": "เปิดในแท็บใหม่",
-      "forward_share": "ส่งต่อ / แชร์",
+      "forward_share": "ส่งต่อหรือแชร์",
       "zoom_out": "ซูมออก",
       "reset_zoom": "รีเซ็ตการซูม",
       "zoom_in": "ซูมเข้า",
@@ -355,7 +371,21 @@
       "enlarged_alt": "ขยายแล้ว",
       "previous": "ก่อนหน้า",
       "next": "ถัดไป"
-    }
+    },
+    "new_messages_label": "ข้อความใหม่ตั้งแต่ที่คุณอ่านครั้งล่าสุด",
+    "start_of": "จุดเริ่มต้นของ #{channel}",
+    "day_today": "วันนี้",
+    "day_yesterday": "เมื่อวาน",
+    "jump_latest": "ไปที่ล่าสุด",
+    "jump_latest_new": "ใหม่ {count}",
+    "jump_latest_label": "ไปที่ล่าสุด มีข้อความใหม่ {count} ข้อความ",
+    "show_more": "แสดงเพิ่มเติม",
+    "show_less": "แสดงน้อยลง",
+    "pinned_kicker": "ปักหมุด",
+    "pinned_on_device": "ปักหมุดไว้บนอุปกรณ์นี้",
+    "new_kicker": "ใหม่",
+    "sending": "กำลังส่ง…",
+    "download_file": "ดาวน์โหลด {name}"
   },
   "context_menu": {
     "aria_label": "การกระทำของข้อความ",
@@ -371,24 +401,24 @@
     "pin_message": "ปักหมุดข้อความ",
     "unpin_message": "เลิกปักหมุดข้อความ",
     "quick_mention": "กล่าวถึงด่วน",
-    "pin_local_message": "ปักหมุดในเครื่อง",
-    "unpin_local_message": "เลิกปักหมุดในเครื่อง",
+    "pin_local_message": "ปักหมุดบนอุปกรณ์นี้",
+    "unpin_local_message": "เลิกปักหมุดบนอุปกรณ์นี้",
     "copy_text": "คัดลอกข้อความ",
     "delete_message": "ลบข้อความ",
-    "delete_message_uploads": "ลบข้อความ + ไฟล์แนบ",
-    "delete_message_uploads_hint": "ถาวร - ลบไฟล์ที่แนบมาด้วย",
+    "delete_message_uploads": "ลบข้อความและไฟล์ที่อัปโหลด…",
+    "delete_message_uploads_hint": "ลบไฟล์ที่แนบมาด้วย",
     "delete_message_unavailable_hint": "ลบได้เฉพาะข้อความของคุณเองเท่านั้น"
   },
   "forward_dialog": {
     "title": "ส่งต่อข้อความ",
-    "description": "เลือกช่องที่จะส่งต่อข้อความนี้ไป:",
+    "description": "เลือกช่องที่จะส่งต่อข้อความนี้",
     "close": "ปิด"
   },
   "camera": {
     "title": "ถ่ายรูป",
     "switch_camera": "สลับกล้อง",
     "captured_alt": "รูปที่ถ่ายได้",
-    "accessing": "กำลังเข้าถึงกล้อง...",
+    "accessing": "กำลังเปิดกล้อง…",
     "take_photo": "ถ่ายรูป",
     "retake": "ถ่ายใหม่",
     "send": "ส่ง",
@@ -426,7 +456,7 @@
     "modal": {
       "title": "ข้อความที่ปักหมุดใน #{channel}",
       "empty": "ไม่มีข้อความที่ปักหมุดในช่องนี้",
-      "hint": "คลิกขวาที่ข้อความแล้วเลือก \"ปักหมุดข้อความ\" เพื่อปักหมุดไว้ที่นี่"
+      "hint": "คลิกขวาที่ข้อความแล้วเลือก “ปักหมุดข้อความ” เพื่อปักหมุดไว้ที่นี่"
     },
     "actions": {
       "jump": "ไปที่",
@@ -436,9 +466,9 @@
     }
   },
   "emoji_picker": {
-    "search_gifs_placeholder": "ค้นหา GIF...",
-    "search_stickers_placeholder": "ค้นหาสติกเกอร์ (ชื่อ/ศิลปิน)...",
-    "search_emojis_placeholder": "ค้นหาอิโมจิ (ชื่อ/ศิลปิน)...",
+    "search_gifs_placeholder": "ค้นหา GIF",
+    "search_stickers_placeholder": "ค้นหาสติกเกอร์ตามชื่อหรือศิลปิน",
+    "search_emojis_placeholder": "ค้นหาอิโมจิตามชื่อหรือศิลปิน",
     "tabs": {
       "emojis": "อิโมจิ",
       "stickers": "สติกเกอร์",
@@ -450,7 +480,7 @@
       "openmoji": "OpenMoji",
       "custom": "กำหนดเอง"
     },
-    "loading": "กำลังโหลด...",
+    "loading": "กำลังโหลด…",
     "no_gifs": "ไม่พบ GIF",
     "no_stickers": "ไม่พบสติกเกอร์",
     "no_emojis": "ไม่พบอิโมจิ",
@@ -474,7 +504,7 @@
     "sections": {
       "role_names": "ชื่อบทบาท",
       "channel_access": "การเข้าถึงช่องตามบทบาท",
-      "role_gate_posts": "โพสต์ Role Gate",
+      "role_gate_posts": "โพสต์ role gate",
       "emoji_role_automation": "ระบบอัตโนมัติอิโมจิ-บทบาท",
       "users": "ผู้ใช้"
     },
@@ -488,11 +518,11 @@
     "placeholders": {
       "role_gate_title": "ชื่อ role gate (ตัวอย่าง: โซน 18+)",
       "role_gate_description": "คำอธิบาย/คำแนะนำ (ไม่บังคับ)",
-      "search_users": "ค้นหาผู้ใช้ตามชื่อหรือ handle..."
+      "search_users": "ค้นหาผู้ใช้ตามชื่อหรือ handle"
     },
     "role_gate": {
       "persist": "เก็บโพสต์ gate ไว้",
-      "create": "สร้างโพสต์ Gate",
+      "create": "สร้างโพสต์ gate",
       "note": "มีเพียงรีแอคชันบนโพสต์ gate เฉพาะเหล่านี้เท่านั้นที่ให้หรือถอนบทบาทได้"
     },
     "emoji_rules": {
@@ -516,121 +546,30 @@
   },
   "storage": {
     "archiveBoundary": {
-      "title": "คลังแชทในเครื่องไม่พร้อมใช้งาน",
-      "explanation": "เวอร์ชันนี้ไม่บันทึกคลังประวัติแชทแบบออฟไลน์ ประวัติบนเซิร์ฟเวอร์เป็นไปตามการตั้งค่าการเก็บรักษาของแต่ละช่อง",
+      "title": "ประวัติแชท",
+      "explanation": "ประวัติแชทมาจากเซิร์ฟเวอร์ แต่ละช่องกำหนดว่าจะเก็บข้อความไว้นานเท่าใด เวอร์ชันนี้ไม่ได้เก็บสำเนาออฟไลน์แยกไว้บนอุปกรณ์ของคุณ",
       "preserved": "คลังในเครื่องเก่าไม่สามารถจับคู่กับบัญชีได้อย่างน่าเชื่อถือ ข้อมูลจะยังอยู่บนอุปกรณ์นี้ตามเดิม แต่จะไม่ถูกโหลด ส่งออก หรือผูกกับการเข้าสู่ระบบปัจจุบัน ไฟล์ที่คุณเคยส่งออกไว้จะไม่เปลี่ยนแปลง",
-      "native": "การบันทึกไฟล์แชทอัตโนมัติแบบเนทีฟไม่รองรับในบิลด์เดสก์ท็อปนี้ คิวขาออกที่ใช้ร่วมกันด้านล่างใช้ได้ทั้งในเบราว์เซอร์และไคลเอนต์เดสก์ท็อป",
-      "queueExplanation": "คิวนี้เก็บการกระทำขาออกที่ทำได้ ไม่ใช่สำเนาออฟไลน์ของบทสนทนาของคุณ การเปลี่ยนสมาชิกกลุ่มและการเข้าร่วมสายต้องมีการเชื่อมต่อจริง",
+      "native": "แอปเดสก์ท็อปก็ใช้ประวัติจากเซิร์ฟเวอร์เช่นกัน และไม่ได้บันทึกคลังแชทในเครื่องโดยอัตโนมัติ",
+      "queueExplanation": "เก็บข้อความและการกระทำขาออกที่รองรับไว้บนอุปกรณ์นี้จนกว่าจะเชื่อมต่อได้ การเข้าร่วมสายและการเปลี่ยนสมาชิกกลุ่มยังต้องออนไลน์อยู่",
       "queueUnavailable": "ยังไม่มีคิวขาออก โปรดรีเฟรชอีกครั้งหลังแอปเชื่อมต่อเสร็จ",
       "retryMarked": "การกระทำที่ล้มเหลวซึ่งลองใหม่ได้ถูกทำเครื่องหมายไว้แล้ว การส่งต้องมีการเชื่อมต่อ ส่วนการกระทำที่ไม่แน่นอนหรือถูกเพิกถอนสิทธิ์จะลองใหม่ไม่ได้",
       "refresh": "รีเฟรชคิว"
     },
-    "tauri": {
-      "title": "พื้นที่จัดเก็บ Tauri Desktop",
-      "subtitle": "ข้อมูลของคุณถูกเก็บในไฟล์ sidecar ที่จัดระเบียบ ซึ่งคุณจัดการ สำรอง และส่งออกได้",
-      "enable_toggle": "เปิดใช้พื้นที่จัดเก็บ Tauri Desktop (บันทึกอัตโนมัติทุก 30 วินาที)",
-      "enable_hint": "เมื่อเปิดใช้ ข้อความของคุณจะถูกบันทึกอัตโนมัติทุก 30 วินาทีไปที่ %APPDATA%/Wabi เป็นไฟล์รายปีที่จัดระเบียบ คุณปิดได้ตลอดเวลาโดยไม่สูญเสียข้อมูลที่มีอยู่",
-      "exporting": "กำลังส่งออก...",
-      "export_zip": "ส่งออกเป็น ZIP",
-      "export_hint": "ดาวน์โหลดข้อความและไฟล์แนบทั้งหมดเป็นไฟล์ ZIP ที่พกพาสะดวก เหมาะกับการสำรองข้อมูล!",
-      "clear_all": "ล้างข้อมูล Tauri ทั้งหมด",
-      "clear_hint": "ลบข้อมูลในเครื่องทั้งหมด การกระทำนี้ย้อนกลับไม่ได้",
-      "clear_admin_only": "มีเฉพาะผู้ดูแลระบบและเจ้าของเท่านั้นที่ล้างข้อมูล sidecar ได้"
-    },
-    "browser": {
-      "title": "พื้นที่จัดเก็บในเบราว์เซอร์",
-      "subtitle": "ประวัติแชทของคุณถูกบันทึกบนอุปกรณ์ของคุณเท่านั้น เซิร์ฟเวอร์ไม่เก็บอะไรถาวร",
-      "save_toggle": "บันทึกประวัติแชทไว้ในเครื่อง",
-      "save_hint": "เมื่อเปิดใช้ ข้อความจะถูกเก็บในเบราว์เซอร์ของคุณ คุณเป็นผู้ควบคุมข้อมูลของคุณเอง",
-      "rotation_period": "รอบการหมุนเวียนคลัง",
-      "rotation_hint": "ความถี่ในการสร้างไฟล์คลังใหม่ (เหมือนการเปลี่ยนถ่าน)",
-      "keep_last": "เก็บล่าสุดไว้",
-      "archives_unit": "คลัง",
-      "keep_last_hint": "คลังที่เก่ากว่าจะถูกลบอัตโนมัติเพื่อประหยัดพื้นที่",
-      "archive_history": "ประวัติคลัง",
-      "archive_meta": "{size} • {count} ข้อความ",
-      "no_archives": "ยังไม่มีคลัง ข้อความจะถูกบันทึกเมื่อคุณแชท"
-    },
-    "rotation": {
-      "weekly": "รายสัปดาห์",
-      "monthly": "รายเดือน",
-      "half_year": "ทุก 6 เดือน",
-      "yearly": "รายปี"
-    },
-    "stats": {
-      "total_messages": "ข้อความทั้งหมด",
-      "storage_used": "พื้นที่ที่ใช้",
-      "archives": "คลัง"
-    },
-    "actions": {
-      "export_all": "ส่งออกทั้งหมด",
-      "export": "ส่งออก",
-      "delete": "ลบ",
-      "clear_all_history": "ล้างประวัติทั้งหมด"
-    },
-    "confirm": {
-      "disable_local_title": "ปิดพื้นที่จัดเก็บในเครื่อง",
-      "disable_local_message": "ปิดพื้นที่จัดเก็บในเครื่อง? ประวัติที่บันทึกไว้จะยังอยู่จนกว่าคุณจะลบเอง",
-      "disable_local_confirm": "ปิด",
-      "delete_archive_title": "ลบคลัง",
-      "delete_archive_message": "ลบคลัง \"{period}\"?",
-      "delete_archive_confirm": "ลบ",
-      "delete_all_title": "ลบประวัติทั้งหมด",
-      "delete_all_message": "ลบประวัติแชทที่บันทึกไว้ทั้งหมด? การกระทำนี้ย้อนกลับไม่ได้!",
-      "delete_all_confirm": "ลบทั้งหมด",
-      "clear_tauri_title": "ล้างข้อมูล Tauri",
-      "clear_tauri_message": "ลบข้อมูลในเครื่องทั้งหมด? รวมถึงข้อความและไฟล์แนบทุกรายการ การกระทำนี้ย้อนกลับไม่ได้!",
-      "clear_tauri_confirm": "ล้างทั้งหมด"
-    },
-    "alerts": {
-      "export_success": "ส่งออกข้อมูลสำเร็จ!\n\nตำแหน่ง: {path}",
-      "export_failed": "ส่งออกไม่สำเร็จ: {error}",
-      "tauri_clear_success": "ล้างข้อมูล Tauri สำเร็จแล้ว",
-      "clear_failed": "ล้างไม่สำเร็จ: {error}",
-      "tauri_enabled": "เปิดใช้พื้นที่จัดเก็บ Tauri แล้ว! ข้อมูลของคุณจะถูกบันทึกอัตโนมัติทุก 30 วินาที",
-      "tauri_disabled": "ปิดพื้นที่จัดเก็บ Tauri แล้ว ข้อมูลของคุณจะไม่ถูกบันทึกอัตโนมัติ",
-      "save_setting_failed": "บันทึกการตั้งค่าไม่สำเร็จ"
-    },
     "offline": {
-      "title": "ออฟไลน์และการเชื่อมต่อ",
-      "subtitle": "จัดการพฤติกรรมออฟไลน์และการตั้งค่าการซิงก์ข้อมูลสำหรับ WabiDB",
-      "status": {
-        "connected": "เชื่อมต่อแล้ว",
-        "disconnected": "ออฟไลน์",
-        "recovering": "กำลังกู้คืนคิวออฟไลน์…"
-      },
       "wabiDB": {
-        "status_label": "สถานะ WabiDB",
-        "open": "เปิด",
-        "closed": "ปิด",
-        "scope_label": "ขอบเขต",
-        "queue_label": "คิวขาออก",
+        "scope_label": "สิ่งที่เก็บไว้เพื่อส่ง",
+        "queue_label": "ส่งเมื่อเชื่อมต่อใหม่",
         "pending": "รอดำเนินการ",
         "failed": "ล้มเหลว",
-        "synced": "ซิงก์แล้ว",
-        "usage_label": "การใช้งาน",
-        "estimating": "กำลังประมาณการ…"
+        "synced": "ซิงก์แล้ว"
       },
       "retry": {
-        "button": "ลองทำการกระทำที่ล้มเหลวอีกครั้ง",
-        "success": "ลองใหม่คิวออฟไลน์แล้ว",
-        "error": "ลองใหม่ไม่สำเร็จ"
+        "button": "ลองทำการกระทำที่ล้มเหลวอีกครั้ง"
       },
       "scopes": {
-        "title": "ขอบเขตออฟไลน์",
-        "corechat_desc": "ประวัติข้อความ ฉบับร่าง และคิวขาออกสำหรับ CoreChat",
-        "system_desc": "การตั้งค่าระบบ ธีม และข้อมูลเซสชัน",
         "enable": "เปิดใช้",
         "disable": "ปิดใช้",
-        "always_on": "เปิดตลอดเวลา",
-        "opt_in": "เลือกเปิดเอง",
-        "off": "ปิด"
-      },
-      "alerts": {
-        "retry_success": "ลองใหม่คิวออฟไลน์แล้ว",
-        "retry_failed": "ลองใหม่คิวไม่สำเร็จ",
-        "scope_enabled": "เปิดใช้ขอบเขตแล้ว",
-        "scope_disabled": "ปิดใช้ขอบเขตแล้ว"
+        "always_on": "เปิดตลอดเวลา"
       }
     }
   },
@@ -638,11 +577,18 @@
     "mobile": {
       "chat": "แชท",
       "channels": "ช่อง",
-      "browse": "เรียกดู",
-      "messages": "ข้อความ",
+      "browse": "ช่อง",
+      "messages": "DM",
       "you": "คุณ",
-      "users": "ผู้ใช้",
-      "hub": "ศูนย์กลาง"
+      "dms": "DM",
+      "activity": "กิจกรรม",
+      "nav_label": "หลัก",
+      "activity_unread_one": "กิจกรรม {count} รายการรอคุณ",
+      "activity_unread_many": "กิจกรรม {count} รายการรอคุณ",
+      "workspace_button": "พื้นที่ทำงาน: {name}",
+      "workspaces": "พื้นที่ทำงาน",
+      "people_online": "ออนไลน์ {count}",
+      "search": "ค้นหา"
     },
     "open_side_panel": "เปิดแผงด้านข้าง",
     "unread_dms": "ข้อความส่วนตัวที่ยังไม่ได้อ่าน",
@@ -650,12 +596,16 @@
     "open_dm_with": "เปิด DM กับ {user}",
     "user_fallback": "ผู้ใช้",
     "call": {
-      "toggle_diagnostics": "สลับการวินิจฉัยสาย",
+      "toggle_diagnostics": "รายละเอียดการเชื่อมต่อ",
       "voice_connected": "เชื่อมต่อเสียงแล้ว",
       "in_voice": "อยู่ในห้องเสียง:",
       "turn_on_camera": "เปิดกล้อง",
       "turn_off_camera": "ปิดกล้อง",
       "leave_voice": "ออกจากห้องเสียง"
+    },
+    "you": {
+      "servers": "เซิร์ฟเวอร์",
+      "all_settings": "การตั้งค่าทั้งหมด"
     }
   },
   "user": {
@@ -680,12 +630,14 @@
     "popout": {
       "about_me": "เกี่ยวกับฉัน",
       "note": "โน้ต",
+      "note_placeholder": "เพิ่มโน้ตส่วนตัว · เฉพาะคุณที่เห็น",
       "member_since": "เป็นสมาชิกตั้งแต่",
       "last_message": "ข้อความล่าสุดที่นี่",
       "no_recent_messages": "ไม่มีข้อความล่าสุดในช่องนี้",
       "connections": "การเชื่อมต่อ",
       "no_connections": "ไม่มีการเชื่อมต่อที่ผูกไว้",
       "message": "ส่งข้อความ",
+      "call": "โทร",
       "edit_profile": "แก้ไขโปรไฟล์",
       "view_full_profile": "ดูโปรไฟล์ทั้งหมด",
       "mute": "ปิดเสียง",
@@ -695,5 +647,439 @@
     }
   },
   "gallery_upload": "อัปโหลดรูปภาพ",
-  "gallery_drop_hint": "วางรูปที่นี่"
+  "gallery_drop_hint": "วางรูปที่นี่",
+  "places": {
+    "server_home": "หน้าหลักเซิร์ฟเวอร์",
+    "dms": "DM",
+    "friends": "เพื่อน",
+    "chat": "แชท",
+    "threads": "เธรด",
+    "wiki": "วิกิ",
+    "gallery": "แกลเลอรี",
+    "forum": "ฟอรัม",
+    "files": "ไฟล์",
+    "whiteboard": "ไวท์บอร์ด",
+    "calls": "การโทร",
+    "activity": "กิจกรรม",
+    "project": "โปรเจกต์",
+    "my_planner": "แพลนเนอร์ของฉัน",
+    "notes": "โน้ต",
+    "documents": "เอกสาร",
+    "sheets": "ชีต",
+    "present": "นำเสนอ",
+    "presentation": "งานนำเสนอ",
+    "media": "สื่อ",
+    "reader": "ตัวอ่าน",
+    "model_viewer": "ตัวดู 3D",
+    "map": "แผนที่",
+    "people": "ผู้คน",
+    "scratchpad": "กระดาษทด",
+    "conversations": "บทสนทนา",
+    "transfers": "การโอนไฟล์",
+    "models": "โมเดล",
+    "settings": "การตั้งค่า",
+    "you": "คุณ"
+  },
+  "maturity": {
+    "preview": "พรีวิว",
+    "preview_title": "ตัวเลือกสำหรับการผสานรวม ยังไม่ใช่ฟีเจอร์ที่เปิดใช้งานจริง",
+    "preview_hint": "พรีวิว",
+    "optional_addon": "ส่วนเสริมที่เลือกใช้ได้",
+    "optional_addon_preview": "ส่วนเสริมที่เลือกใช้ได้ · พรีวิว",
+    "experimental": "ทดลอง",
+    "experimental_title": "ทดลอง: ไม่รับประกันสำหรับการใช้งานจริง",
+    "off_on_device": "ปิดอยู่บนอุปกรณ์นี้"
+  },
+  "privacy": {
+    "state": {
+      "server_readable": "เซิร์ฟเวอร์อ่านได้",
+      "server_readable_by_choice": "เซิร์ฟเวอร์อ่านได้ตามที่คุณเลือก",
+      "encryption_pending": "รอการเข้ารหัส",
+      "experimental_encryption": "การเข้ารหัสแบบทดลอง",
+      "checking": "กำลังตรวจสอบความเป็นส่วนตัว…",
+      "checking_short": "กำลังตรวจสอบ…"
+    },
+    "sentence": {
+      "server_readable": "ผู้ดูแลเซิร์ฟเวอร์อ่านข้อความในช่องนี้ได้",
+      "server_readable_conversation": "ผู้ดูแลเซิร์ฟเวอร์อ่านข้อความในบทสนทนานี้ได้",
+      "server_readable_by_choice": "คุณเลือกส่งโดยไม่เข้ารหัสในบทสนทนานี้",
+      "encryption_pending": "ข้อความจะรอจนอุปกรณ์ของทุกคนพร้อม คุณเลือกส่งแบบที่เซิร์ฟเวอร์อ่านได้แทนก็ได้",
+      "experimental_encryption": "ยังไม่ผ่านการตรวจสอบโดยอิสระ"
+    },
+    "phone": {
+      "server_readable": "ผู้ดูแลอ่านช่องนี้ได้",
+      "server_readable_conversation": "ผู้ดูแลอ่านบทสนทนานี้ได้",
+      "server_readable_by_choice": "คุณเลือกให้เซิร์ฟเวอร์อ่านได้",
+      "encryption_pending": "กำลังรออุปกรณ์",
+      "experimental_encryption": "ยังไม่ผ่านการตรวจสอบโดยอิสระ"
+    },
+    "popover": {
+      "server_readable": "ผู้ดูแลเซิร์ฟเวอร์อ่านข้อความในช่องนี้ได้",
+      "server_readable_conversation": "ผู้ดูแลเซิร์ฟเวอร์อ่านข้อความในบทสนทนานี้ได้",
+      "server_readable_by_choice": "คุณเลือกส่งโดยไม่เข้ารหัสในบทสนทนานี้ ผู้ดูแลเซิร์ฟเวอร์อ่านข้อความที่ส่งแบบนี้ได้",
+      "encryption_pending": "ข้อความจะรอจนอุปกรณ์ของทุกคนพร้อม คุณเลือกส่งแบบที่เซิร์ฟเวอร์อ่านได้แทนก็ได้",
+      "experimental_encryption": "ข้อความใหม่จะถูกเข้ารหัสแบบทดลองบนอุปกรณ์ของผู้ส่งก่อนถึงเซิร์ฟเวอร์ ผู้ดูแลเซิร์ฟเวอร์ยังเห็นได้ว่าใครอยู่ในบทสนทนานี้และมีการส่งข้อความเมื่อใด ข้อความก่อนหน้ายังคงมีการป้องกันแบบเดียวกับตอนที่ส่ง",
+      "checking": "กำลังถามเซิร์ฟเวอร์ว่าใครอ่านข้อความที่นี่ได้บ้าง"
+    },
+    "facts": {
+      "room": "ห้อง",
+      "kept": "การเก็บ",
+      "encryption": "การเข้ารหัส",
+      "encryption_experimental": "ทดลอง · ยังไม่ผ่านการตรวจสอบโดยอิสระ",
+      "encryption_pending": "รอดำเนินการ · กำลังรออุปกรณ์",
+      "encryption_off_by_choice": "ปิด · คุณเลือกให้เซิร์ฟเวอร์อ่านได้",
+      "encryption_off_conversation": "ปิดในบทสนทนานี้",
+      "encryption_channels": "เฉพาะ DM และกลุ่ม",
+      "encryption_checking": "กำลังตรวจสอบ…"
+    },
+    "explanation": "DM และกลุ่มใหม่จะเริ่มในสถานะรอการเข้ารหัส และใช้การเข้ารหัสแบบทดลองเมื่ออุปกรณ์ของทุกคนพร้อม การส่งแบบที่เซิร์ฟเวอร์อ่านได้แทนต้องเป็นการเลือกของผู้ส่งแต่ละคน การเข้ารหัสนี้ยังไม่ผ่านการตรวจสอบโดยอิสระ และไม่ได้ซ่อนทุกอย่างจากผู้ดูแลเซิร์ฟเวอร์",
+    "link": "ความเป็นส่วนตัวใน Wabi ทำงานอย่างไร",
+    "details": "รายละเอียดความเป็นส่วนตัว",
+    "retention": {
+      "forever": "เก็บไว้จนกว่าจะมีคนลบ",
+      "live": "แสดงสดเท่านั้น · ไม่บันทึก",
+      "kept_for": "เก็บไว้ {duration}",
+      "fact_forever": "จนกว่าจะมีคนลบ",
+      "fact_live": "แสดงสดเท่านั้น · ไม่บันทึก",
+      "title_forever": "ข้อความใหม่จะถูกเก็บไว้จนกว่าจะมีคนลบ",
+      "title_live": "ข้อความใหม่จะแสดงสดและไม่ถูกบันทึก การไม่บันทึกไม่ได้ซ่อนข้อความจากผู้ดูแลเซิร์ฟเวอร์",
+      "title_duration": "ข้อความใหม่จะถูกเก็บไว้ {duration} ข้อความก่อนหน้ายังคงอายุตามที่ตั้งไว้ตอนส่ง"
+    },
+    "duration": {
+      "second_one": "{count} วินาที",
+      "second_many": "{count} วินาที",
+      "minute_one": "{count} นาที",
+      "minute_many": "{count} นาที",
+      "hour_one": "{count} ชั่วโมง",
+      "hour_many": "{count} ชั่วโมง",
+      "day_one": "{count} วัน",
+      "day_many": "{count} วัน"
+    }
+  },
+  "locality": {
+    "only_you_device": "เฉพาะคุณ · อุปกรณ์นี้",
+    "private_device": "ส่วนตัว · อุปกรณ์นี้",
+    "local_draft": "ฉบับร่างในเครื่อง",
+    "saved_on_device": "บันทึกไว้บนอุปกรณ์นี้",
+    "saved_at": "บันทึกแล้ว {time}",
+    "synced": "ซิงค์กับเซิร์ฟเวอร์แล้ว",
+    "shared_role": "แชร์แล้ว · {role}",
+    "draft_kept": "เก็บฉบับร่างไว้บนอุปกรณ์นี้",
+    "scope_device": "บันทึกไว้บนอุปกรณ์นี้ · ไม่ได้แชร์",
+    "scope_community": "สมาชิกของ {community} มองเห็นได้"
+  },
+  "states": {
+    "loading": "กำลังโหลด…",
+    "opening": "กำลังเปิด {name}…",
+    "retry": "ลองอีกครั้ง",
+    "export_recovery": "ส่งออกข้อมูลกู้คืน",
+    "unchanged_draft": "ฉบับร่างและการตั้งค่าของคุณไม่เปลี่ยนแปลง",
+    "unchanged": "ไม่มีอะไรเปลี่ยนแปลง",
+    "error_offline": "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้",
+    "error_load": "โหลดไม่สำเร็จ",
+    "error_save": "บันทึกไม่สำเร็จ",
+    "error_permission": "คุณไม่มีสิทธิ์ทำสิ่งนี้",
+    "nothing_matches": "ไม่พบสิ่งที่ตรงกับ “{query}”"
+  },
+  "sidebar": {
+    "search": "ค้นหาหรือไปที่",
+    "switch_server": "สลับเซิร์ฟเวอร์",
+    "dms_label": "DM และเพื่อน",
+    "dms_label_unread": "DM และเพื่อน ยังไม่ได้อ่าน {count}",
+    "channels": "ช่อง",
+    "voice": "ห้องเสียง",
+    "channel_actions": "การกระทำของช่อง",
+    "voice_actions": "การกระทำของห้องเสียง",
+    "new_channel": "ช่องใหม่",
+    "create_channel": "สร้างช่อง",
+    "new_folder": "โฟลเดอร์ใหม่",
+    "new_voice_room": "ห้องเสียงใหม่",
+    "mark_all_read": "ทำเครื่องหมายว่าอ่านทั้งหมดแล้ว",
+    "unread_count": "ยังไม่ได้อ่าน {count}",
+    "and_more": "และอีก {count} คน",
+    "mic_here": "ไมค์อยู่ที่นี่",
+    "listening": "กำลังฟัง",
+    "listening_more": "กำลังฟังอีก {count} ห้อง",
+    "connection_details": "รายละเอียดการเชื่อมต่อ",
+    "leave_voice": "ออก",
+    "mute": "ปิดไมค์",
+    "unmute": "เปิดไมค์",
+    "deafen": "ปิดเสียงทั้งหมด",
+    "undeafen": "เปิดเสียง",
+    "set_status": "ตั้งสถานะของคุณ"
+  },
+  "servers": {
+    "saved": "เซิร์ฟเวอร์ที่บันทึกไว้",
+    "own_account": "แต่ละเซิร์ฟเวอร์มีบัญชีของตัวเอง",
+    "add": "เพิ่มเซิร์ฟเวอร์",
+    "remove": "นำเซิร์ฟเวอร์ออก"
+  },
+  "stage": {
+    "search_channel": "ค้นหาข้อความใน #{channel}",
+    "search_conversation": "ค้นหาข้อความกับ {name}",
+    "search_help": "จำกัดผลลัพธ์ด้วย by:ชื่อ, has:image, has:video, has:file หรือ has:link",
+    "pinned": "ข้อความที่ปักหมุด",
+    "about_channel": "เกี่ยวกับช่องนี้",
+    "more_actions": "การกระทำเพิ่มเติม"
+  },
+  "folio": {
+    "label": "พื้นที่ทำงาน",
+    "more": "เพิ่มเติม",
+    "pin_to_bar": "ปักไว้ที่แถบ",
+    "remove_from_bar": "นำออกจากแถบ",
+    "open": "เปิด",
+    "open_beside": "เปิดด้านข้าง",
+    "needs_you_one": "{count} รายการรอคุณ",
+    "needs_you_many": "{count} รายการรอคุณ",
+    "groups": {
+      "this_channel": "ในช่องนี้",
+      "community": "ชุมชน",
+      "yours": "เฉพาะคุณ",
+      "office": "ออฟฟิศ",
+      "side_panels": "แผงด้านข้าง"
+    },
+    "detail": {
+      "documents": "เอกสาร · ส่วนตัวจนกว่าคุณจะแชร์ · พรีวิว",
+      "sheets": "ชีต · ส่วนตัวจนกว่าคุณจะแชร์ · พรีวิว",
+      "present": "นำเสนอ · ส่วนตัวจนกว่าคุณจะแชร์ · พรีวิว"
+    }
+  },
+  "jump": {
+    "label": "ไปที่",
+    "placeholder": "ค้นหาหรือไปที่",
+    "scopes": {
+      "everything": "ทั้งหมด",
+      "channels": "ช่อง",
+      "people": "ผู้คน",
+      "workspaces": "พื้นที่ทำงาน",
+      "actions": "การกระทำ"
+    },
+    "groups": {
+      "workspaces": "พื้นที่ทำงาน",
+      "recent_documents": "เอกสารล่าสุด",
+      "channels": "ช่อง",
+      "people": "ผู้คน",
+      "actions": "การกระทำ"
+    },
+    "hint_move": "เลื่อน",
+    "hint_open": "เปิด",
+    "hint_next_scope": "ขอบเขตถัดไป",
+    "count_one": "ผลลัพธ์ {count} รายการ",
+    "count_many": "ผลลัพธ์ {count} รายการ",
+    "empty_scope": "ไม่พบ “{query}” ใน{scope} ลองค้นหาในทั้งหมด",
+    "empty": "ไม่พบสิ่งที่ตรงกับ “{query}”"
+  },
+  "forum": {
+    "new_thread": "เธรดใหม่",
+    "post_thread": "โพสต์เธรด",
+    "post_reply": "โพสต์คำตอบ",
+    "reply_to": "ตอบกลับ {name}…",
+    "write": "เขียน",
+    "preview": "ดูตัวอย่าง",
+    "mark_solution": "ทำเครื่องหมายเป็นคำตอบ",
+    "solved": "แก้ไขแล้ว",
+    "upvote": "โหวตขึ้น {count} คะแนน",
+    "downvote": "โหวตลง {count} คะแนน",
+    "original_version": "ฉบับดั้งเดิม",
+    "edited_times": "แก้ไข {count} ครั้ง",
+    "empty_title": "ยังไม่มีเธรดใน {channel}",
+    "empty_body": "บทสนทนายาว ๆ อยู่ที่นี่ จะได้ไม่เลื่อนหายไป"
+  },
+  "wiki": {
+    "pages": "หน้า",
+    "new_page": "หน้าใหม่",
+    "on_this_page": "ในหน้านี้"
+  },
+  "planner": {
+    "new_task": "งานใหม่",
+    "add_task": "เพิ่มงาน",
+    "add_task_to": "เพิ่มงานใน {lane}",
+    "move_task": "ย้ายงาน…",
+    "delete_task": "ลบงาน",
+    "columns": "คอลัมน์",
+    "edit_columns": "แก้ไขคอลัมน์…",
+    "time_estimate": "เวลาโดยประมาณ",
+    "file_link_placeholder": "วางลิงก์ไปยังไฟล์หรือเอกสาร",
+    "new_sprint": "สปรินต์ใหม่",
+    "add_on_date": "เพิ่มในวันที่ {date}",
+    "more_count": "+อีก {count}",
+    "overdue_on": "เลยกำหนด · {date}",
+    "done_on": "เสร็จแล้ว · {date}"
+  },
+  "calls": {
+    "summary_rooms_one": "{count} ห้อง",
+    "summary_rooms_many": "{count} ห้อง",
+    "summary_mic_in": "ไมค์อยู่ใน {room}",
+    "in_call": "อยู่ในสาย",
+    "other_rooms": "ห้องอื่น",
+    "listen": "ฟัง",
+    "join": "เข้าร่วม",
+    "joining": "กำลังเข้าร่วม…",
+    "join_failed": "เข้าร่วม {room} ไม่สำเร็จ",
+    "leave": "ออก",
+    "leave_all": "ออกทั้งหมด",
+    "mic": "ไมค์",
+    "sound": "เสียง",
+    "camera": "กล้อง",
+    "share_screen": "แชร์หน้าจอ",
+    "record": "บันทึก",
+    "recording": "กำลังบันทึก {time}",
+    "mic_here": "ไมค์อยู่ที่นี่",
+    "listening": "กำลังฟัง",
+    "silent": "ปิดเสียง",
+    "speaking": "กำลังพูด",
+    "muted": "ปิดไมค์",
+    "in_call_count": "อยู่ในสาย {count} คน",
+    "people_count": "{count} คน",
+    "and_more": "และอีก {count} คน",
+    "silence_call": "ปิดเสียงสายนี้",
+    "volume_for": "ระดับเสียงของ {room}",
+    "connection_details": "รายละเอียดการเชื่อมต่อ",
+    "show_connection_details": "แสดงรายละเอียดการเชื่อมต่อระหว่างสาย",
+    "troubleshooting": "การแก้ไขปัญหา",
+    "route_server": "ผ่านเซิร์ฟเวอร์นี้",
+    "route_direct": "โดยตรง (peer-to-peer)",
+    "empty_title": "ไม่ได้อยู่ในสาย",
+    "empty_body": "เข้าร่วมห้องเสียงจากแถบด้านข้างหรือจากรายการด้านล่าง"
+  },
+  "activity": {
+    "all": "ทั้งหมด",
+    "mentions": "การกล่าวถึง",
+    "follows": "ที่ติดตาม",
+    "accept": "ยอมรับ",
+    "decline": "ปฏิเสธ",
+    "empty": "ตอนนี้ยังไม่มีอะไรรอคุณ"
+  },
+  "panels": {
+    "scratchpad_show": "แสดงกระดาษทด",
+    "scratchpad_hide": "ซ่อนกระดาษทด",
+    "scratchpad_resize": "ปรับขนาดกระดาษทด",
+    "open_in_stage": "เปิดที่พื้นที่หลัก",
+    "pin": "ปักหมุด",
+    "unpin": "เลิกปักหมุด",
+    "filter": "ตัวกรอง",
+    "resize": "ปรับขนาดแผง",
+    "search_people": "ค้นหาผู้คน",
+    "search_dms": "ค้นหา DM",
+    "search_notes": "ค้นหาโน้ต",
+    "new_note": "โน้ตใหม่",
+    "note_actions": "ตัวเลือกโน้ต",
+    "ink": "หมึก",
+    "new_message": "ข้อความใหม่",
+    "here_now": "อยู่ที่นี่ตอนนี้",
+    "away": "ไม่อยู่",
+    "offline": "ออฟไลน์",
+    "in_room": "ใน {room}",
+    "show": "แสดง",
+    "everyone": "ทุกคน",
+    "group": "จัดกลุ่ม",
+    "by_place": "ตามสถานที่",
+    "by_role": "ตามบทบาท",
+    "sort": "เรียงลำดับ",
+    "by_name": "ตามชื่อ",
+    "unread": "ยังไม่ได้อ่าน",
+    "groups": "กลุ่ม",
+    "add_panels": "เพิ่มแผง",
+    "rail": "แถบ",
+    "side": "ด้าน",
+    "left": "ซ้าย",
+    "right": "ขวา",
+    "open_on_hover": "เปิดเมื่อชี้เมาส์",
+    "reset_rail": "รีเซ็ตแถบ",
+    "move_up": "เลื่อนขึ้น",
+    "move_down": "เลื่อนลง",
+    "remove_from_rail": "นำออกจากแถบ"
+  },
+  "office": {
+    "library": {
+      "truth_documents": "เป็นส่วนตัวบนอุปกรณ์นี้จนกว่าคุณจะแชร์ เอกสารที่แชร์แล้วเซิร์ฟเวอร์อ่านได้",
+      "truth_sheets": "เป็นส่วนตัวบนอุปกรณ์นี้จนกว่าคุณจะแชร์ สเปรดชีตที่แชร์แล้วเซิร์ฟเวอร์อ่านได้",
+      "truth_present": "เป็นส่วนตัวบนอุปกรณ์นี้จนกว่าคุณจะแชร์ งานนำเสนอที่แชร์แล้วเซิร์ฟเวอร์อ่านได้",
+      "new_document": "เอกสารใหม่",
+      "new_spreadsheet": "สเปรดชีตใหม่",
+      "new_presentation": "งานนำเสนอใหม่",
+      "open_file": "เปิดไฟล์…",
+      "on_device": "บนอุปกรณ์นี้",
+      "shared_with_you": "แชร์กับคุณ",
+      "refresh_shared": "รีเฟรชรายการที่แชร์",
+      "edited_at": "แก้ไขเมื่อ {time}",
+      "empty_documents_title": "ยังไม่มีอะไรบนอุปกรณ์นี้",
+      "empty_documents_body": "เริ่มเอกสาร เอกสารจะอยู่บนอุปกรณ์นี้จนกว่าคุณจะแชร์",
+      "empty_sheets_title": "ยังไม่มีสเปรดชีตบนอุปกรณ์นี้",
+      "empty_sheets_body": "เริ่มสเปรดชีต สเปรดชีตจะอยู่บนอุปกรณ์นี้จนกว่าคุณจะแชร์",
+      "empty_present_title": "ยังไม่มีงานนำเสนอบนอุปกรณ์นี้",
+      "empty_present_body": "เริ่มงานนำเสนอ งานนำเสนอจะอยู่บนอุปกรณ์นี้จนกว่าคุณจะแชร์",
+      "shared_empty": "ยังไม่มีใครแชร์อะไรกับคุณ",
+      "shared_error_title": "โหลดเอกสารที่แชร์ไม่สำเร็จ",
+      "shared_error_body": "เอกสารบนอุปกรณ์นี้ไม่เปลี่ยนแปลง"
+    },
+    "editor": {
+      "document_title": "ชื่อเอกสาร",
+      "write": "เขียน",
+      "read": "อ่าน",
+      "edit": "แก้ไข",
+      "present": "นำเสนอ",
+      "present_locally": "นำเสนอบนอุปกรณ์นี้",
+      "present_to_channel": "นำเสนอในช่อง…",
+      "share": "แชร์…",
+      "export": "ส่งออก",
+      "make_private_copy": "ทำสำเนาส่วนตัว",
+      "original_file": "ไฟล์ต้นฉบับ",
+      "private_drafts": "ฉบับร่างส่วนตัว ({count})",
+      "discuss_in_chat": "คุยในแชท…",
+      "create_private_task": "สร้างงานส่วนตัว",
+      "turn_off": "ปิด {tool} บนอุปกรณ์นี้…",
+      "server_sharing_settings": "การตั้งค่าการแชร์ของเซิร์ฟเวอร์",
+      "contents": "สารบัญ",
+      "facts": "ข้อมูล",
+      "words": "คำ",
+      "reading": "เวลาอ่าน",
+      "reading_minutes": "{count} นาที",
+      "edited": "แก้ไขล่าสุด",
+      "format": "รูปแบบ",
+      "started": "เริ่มเมื่อ {date}",
+      "insert": "แทรก",
+      "insert_block": "แทรกบล็อก",
+      "block_paragraph": "ย่อหน้า",
+      "block_heading_2": "หัวเรื่อง 2",
+      "block_heading_3": "หัวเรื่อง 3",
+      "block_bulleted_list": "รายการสัญลักษณ์",
+      "block_numbered_list": "รายการลำดับเลข",
+      "block_checklist": "รายการตรวจสอบ",
+      "block_quote": "คำพูด",
+      "block_divider": "เส้นคั่น",
+      "block_code": "บล็อกโค้ด",
+      "block_image": "รูปภาพ…",
+      "bold": "ตัวหนา",
+      "italic": "ตัวเอียง",
+      "strikethrough": "ขีดฆ่า",
+      "link": "ลิงก์",
+      "inline_code": "โค้ดในบรรทัด",
+      "comment": "แสดงความคิดเห็น"
+    },
+    "sheets": {
+      "filter_my_view": "กรองมุมมองของฉัน",
+      "apply_row_order": "ใช้ลำดับแถวนี้กับทุกคน",
+      "protected": "ถูกป้องกัน",
+      "export_xlsx": "XLSX · รองรับบางส่วน",
+      "export_ods": "ODS · รองรับบางส่วน",
+      "export_csv": "CSV · ชีตปัจจุบัน",
+      "export_tsv": "TSV · ชีตปัจจุบัน"
+    },
+    "present": {
+      "private_notes": "โน้ตส่วนตัว · อุปกรณ์นี้",
+      "only_you_marks": "เฉพาะคุณที่เห็นเครื่องหมายเหล่านี้"
+    },
+    "share": {
+      "add_people": "เพิ่มผู้คนตามชื่อ",
+      "viewer": "ผู้ดู",
+      "commenter": "ผู้แสดงความคิดเห็น",
+      "editor": "ผู้แก้ไข",
+      "truth": "เผยแพร่ไปยัง {host} ผู้ดูแลเซิร์ฟเวอร์อ่านเอกสารนี้ได้ ไม่มีการสร้างลิงก์สาธารณะ",
+      "share": "แชร์"
+    },
+    "gate": {
+      "turn_on": "เปิด {tool}"
+    }
+  }
 }

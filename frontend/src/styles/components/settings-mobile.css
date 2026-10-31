@@ -11,22 +11,17 @@
 			padding: 0;
 		}
 
-		.modal-content {
+		/* Settings only: other dialogs keep their own size on phones. */
+		.modal-content.wabi-settings-modal {
 			width: 100%;
 			max-width: 100%;
 			height: calc(100dvh - env(safe-area-inset-top, 0px));
 			max-height: calc(100dvh - env(safe-area-inset-top, 0px));
-			border-radius: 18px 18px 0 0;
+			border-radius: var(--radius-xl) var(--radius-xl) 0 0;
 		}
 
-		.modal-header {
-			align-items: flex-start;
+		.wabi-settings-modal > .modal-header {
 			gap: 0.75rem;
-			padding: 0.9rem;
-		}
-
-		.modal-header h2 {
-			font-size: 1.05rem;
 		}
 
 		.settings-layout {

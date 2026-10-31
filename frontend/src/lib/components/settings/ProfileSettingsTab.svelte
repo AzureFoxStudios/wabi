@@ -1,17 +1,26 @@
 <script lang="ts">
-	import { createEventDispatcher, onMount, tick } from 'svelte';
-	import { _ as t } from '$lib/i18n';
+	/**
+	 * Settings › Profile (design contract §8.9): a flat preview of how members see you, then one
+	 * form (display name, status message, About me) with one save. The sticky footer
+	 * "Unsaved changes · Discard · Save" appears only while the drafts differ from what is
+	 * published, and Save sends the changed fields in a single profile update. Pictures, presence
+	 * and the password act right away, each with its own words.
+	 */
+	import { createEventDispatcher, onMount, tick, untrack } from 'svelte';
 	import { brandName } from '$lib/branding';
 	import { currentUser } from '$lib/socket';
 	import { saveProfilePatch } from '$lib/profileSave';
 	import { selectPresence, getStoredPresence, type PresenceState } from '$lib/presenceControl';
-	import { profileAppearance, setProfileAppearance, profileDecorationsVisible } from '$lib/profileAppearance';
+	import { profileDecorationsVisible } from '$lib/profileAppearance';
 	import ProfileName from '$lib/components/ProfileName.svelte';
 	import { getAuthToken, authSessionGeneration } from '$lib/authSession';
 	import { paymentAccessStore } from '$lib/payments/paymentAccessStore';
 	import { activeServerUrl, getServerUrl } from '$lib/serverUrl';
+	import { currentSavedServer } from '$lib/savedServers';
 	import { changePassword, getUserSettings } from '$lib/api';
 	import { clearActiveCustomStatusPreset } from '$lib/customStatusPresets';
+	import { confirmAction } from '$lib/confirm';
+	import { inkFor } from '$lib/theme/identity';
 	import {
 		defaultLocalWabiAccountStore,
 		getLocalWabiAccountDisplayLabel,
@@ -31,7 +40,23 @@
 	import RoleBadge from '../RoleBadge.svelte';
 	import ProfileMedia from '$lib/components/ProfileMedia.svelte';
 	import ProfileDecoration from '$lib/components/ProfileDecoration.svelte';
+	import Icon from '../ui/Icon.svelte';
+	import Segmented from '../ui/Segmented.svelte';
+	import Select from '../ui/Select.svelte';
 	import { mediaUrl } from '$lib/mediaUrl';
+	import {
+		PROFILE_LIMITS,
+		isProfileDirty,
+		profileCounter,
+		profileIssues,
+		profilePatch,
+		profileSaveCause,
+		profileSaveFailure,
+		profileSaveUnconfirmed,
+		publishedAfterSave,
+		trimmedDraft,
+		type ProfileDraft
+	} from './profileForm';
 
 	const dispatch = createEventDispatcher<{
 		openAvatarEditor: void;
@@ -43,14 +68,120 @@
 	let { passwordChangeRequest = 0 } = $props();
 	let nameDesignStudio = $state<{ loadExampleDraft: (example: ProfileArtExample) => void } | null>(null);
 	let lastHandledPasswordChangeRequest = $state(0);
+	let guideOpen = $state(false);
+	// The name style studio has its own save, so it waits behind a closed disclosure and the
+	// page's one form stays About you. It stays mounted while closed, so its draft survives.
+	let nameStyleOpen = $state(false);
 
-	// ── Display name ──
-	let displayNameDraft = $state('');
-	let updatingDisplayName = $state(false);
-	let displayNameStatus = $state('');
+	const communityName = $derived($currentSavedServer?.effectiveName?.trim() || 'this community');
+
+	// ── The form: drafts against what is published ──
+	let draft = $state<ProfileDraft>({ name: '', status: '', bio: '' });
+	let published = $state<ProfileDraft>({ name: '', status: '', bio: '' });
 	let loadedProfileIdentity = $state('');
-	let selectedPresence = $state<PresenceState>(getStoredPresence());
+	let saving = $state(false);
+	let saveError = $state('');
+	let savedAt = $state('');
+	let showIssues = $state(false);
 
+	const dirty = $derived(isProfileDirty(draft, published));
+	const issues = $derived(profileIssues(draft));
+	const canSave = $derived(dirty && !saving && Object.keys(issues).length === 0);
+
+	function fromUser(): ProfileDraft {
+		return {
+			name: $currentUser?.username || '',
+			status: $currentUser?.statusMessage || '',
+			bio: $currentUser?.bio || ''
+		};
+	}
+
+	$effect(() => {
+		const identity = `${getServerUrl()}:${$currentUser?.dbUserId ?? $currentUser?.id ?? ''}`;
+		const incoming = fromUser();
+		untrack(() => {
+			if (!$currentUser) return;
+			if (identity !== loadedProfileIdentity) {
+				// A different account or server: start from its published profile.
+				loadedProfileIdentity = identity;
+				published = incoming;
+				draft = { ...incoming };
+				saveError = '';
+				savedAt = '';
+				showIssues = false;
+				return;
+			}
+			// The same account changed elsewhere: follow it unless you are mid-edit.
+			if (!saving && !isProfileDirty(draft, published) && isProfileDirty(incoming, published)) {
+				published = incoming;
+				draft = { ...incoming };
+			}
+		});
+	});
+
+	// A failure note belongs to the attempt it describes: the next edit clears it.
+	$effect(() => {
+		void draft.name;
+		void draft.status;
+		void draft.bio;
+		untrack(() => {
+			if (!saving) saveError = '';
+		});
+	});
+
+	function discard(): void {
+		if (saving) return;
+		draft = { ...published };
+		saveError = '';
+		showIssues = false;
+	}
+
+	async function save(): Promise<void> {
+		if (saving || !dirty) return;
+		if (Object.keys(issues).length) {
+			showIssues = true;
+			return;
+		}
+		const submitted = trimmedDraft(draft);
+		const patch = profilePatch(submitted, published);
+		saving = true;
+		saveError = '';
+		try {
+			await saveProfilePatch({ ...patch });
+			published = publishedAfterSave(published, submitted);
+			// Keep edits made while the save was in flight; otherwise settle on the trimmed text.
+			if (!isProfileDirty(draft, submitted)) draft = { ...published };
+			savedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+			showIssues = false;
+		} catch (error) {
+			console.warn('[Profile] save failed:', error);
+			saveError = profileSaveFailure(error);
+		} finally {
+			saving = false;
+		}
+	}
+
+	function handleFormKeydown(event: KeyboardEvent): void {
+		// Ctrl/⌘ Enter saves from any field, including About me.
+		if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+			event.preventDefault();
+			void save();
+		}
+	}
+
+	// ── Presence (applies right away) ──
+	let selectedPresence = $state<PresenceState>(getStoredPresence());
+	const PRESENCE_OPTIONS: { value: PresenceState; label: string }[] = [
+		{ value: 'active', label: 'Online' },
+		{ value: 'away', label: 'Away' },
+		{ value: 'busy', label: 'Busy' },
+		{ value: 'invisible', label: 'Invisible' }
+	];
+	function changePresence(next: PresenceState): void {
+		clearActiveCustomStatusPreset();
+		selectedPresence = next;
+		selectPresence(next);
+	}
 
 	// ── Local Wabi accounts ──
 	let linkedWabiImportSourceKey = $state('');
@@ -67,6 +198,9 @@
 	const linkedWabiImportPreview = $derived(
 		getLocalWabiProfileImportPreview(linkedWabiImportSourceKey, $currentUser)
 	);
+	const localAccountOptions = $derived(
+		otherLocalWabiAccounts.map((account) => ({ value: account.key, label: getLocalWabiAccountDisplayLabel(account) }))
+	);
 
 	$effect(() => {
 		const selectedStillValid = otherLocalWabiAccounts.some(
@@ -80,11 +214,37 @@
 		}
 	});
 
-	// ── Password change (two-step flow) ──
+	function makeCurrentLocalWabiDefault(): void {
+		if (!currentLocalWabiAccountKey) return;
+		setDefaultLocalWabiAccount(currentLocalWabiAccountKey);
+		linkedWabiImportStatus = `This account is now the default ${brandName} profile on this device.`;
+	}
+
+	async function importProfileFromSelectedLocalWabiAccount(): Promise<void> {
+		if (!linkedWabiImportSourceKey || linkedWabiImporting) return;
+		linkedWabiImporting = true;
+		linkedWabiImportStatus = '';
+		try {
+			const result = await applyLocalWabiProfileImport(linkedWabiImportSourceKey);
+			if (currentLocalWabiAccountKey) {
+				markLocalWabiImportPromptHandled(currentLocalWabiAccountKey);
+			}
+			if (!result.success) {
+				linkedWabiImportStatus = result.errors.join(' ') || 'The import did not finish.';
+				return;
+			}
+			linkedWabiImportStatus = `Copied ${result.importedFields.join(' and ')}.`;
+		} finally {
+			linkedWabiImporting = false;
+		}
+	}
+
+	// ── Password (two steps) ──
 	let currentPasswordDraft = $state('');
 	let newPasswordDraft = $state('');
 	let confirmNewPasswordDraft = $state('');
 	let currentPasswordInput = $state<HTMLInputElement | null>(null);
+	let newPasswordInput = $state<HTMLInputElement | null>(null);
 	let mustChangeOwnPassword = $state(false);
 	let changingPassword = $state(false);
 	let passwordStep = $state<1 | 2>(1);
@@ -99,64 +259,57 @@
 			return;
 		}
 		passwordStep = 2;
-		tick().then(() => {
-			document.querySelector<HTMLInputElement>('[data-pwd-new]')?.focus();
-		});
+		void tick().then(() => newPasswordInput?.focus());
 	}
 
 	function backPasswordStep(): void {
 		passwordStep = 1;
 		passwordError = '';
 		passwordSuccess = '';
-		tick().then(() => currentPasswordInput?.focus());
+		void tick().then(() => currentPasswordInput?.focus());
 	}
 
-	// Profile identity drafts stay local until the Authority confirms the save.
-	let bioDraft = $state('');
-	let bioStatus = $state('');
-	let bioSaving = $state(false);
-	let statusMessageDraft = $state('');
-	let statusMessageFeedback = $state('');
-	let statusMessageSaving = $state(false);
-	const statusMessageBytes = $derived(new TextEncoder().encode(statusMessageDraft.trim()).length);
-	const bioBytes = $derived(new TextEncoder().encode(bioDraft.trim()).length);
-	$effect(() => {
-		const identity = `${getServerUrl()}:${$currentUser?.dbUserId ?? $currentUser?.id ?? ''}`;
-		if ($currentUser && identity !== loadedProfileIdentity) {
-			loadedProfileIdentity = identity;
-			displayNameDraft = $currentUser.username || '';
-			bioDraft = $currentUser.bio || '';
-			statusMessageDraft = $currentUser.statusMessage || '';
-			statusMessageFeedback = '';
-			bioStatus = ''; displayNameStatus = '';
+	async function changeOwnPassword(): Promise<void> {
+		if (changingPassword) return;
+		passwordError = '';
+		passwordSuccess = '';
+		if (!currentPasswordDraft || !newPasswordDraft || !confirmNewPasswordDraft) {
+			passwordError = 'Fill in every field to change your password.';
+			return;
 		}
-	});
-	function changeStatus(newStatus: PresenceState) {
-		clearActiveCustomStatusPreset();
-		selectedPresence = newStatus;
-		selectPresence(newStatus);
-	}
-	async function saveBio() {
-		if (bioSaving) return;
-		if (bioBytes > 280) { bioStatus = 'About me must be 280 bytes or fewer. Emoji and some letters use more than one byte.'; return; }
-		bioSaving = true; bioStatus = 'Saving bio…';
+		if (newPasswordDraft !== confirmNewPasswordDraft) {
+			passwordError = 'The new passwords do not match.';
+			return;
+		}
+		if (newPasswordDraft.length < 8) {
+			passwordError = 'Use at least 8 characters for the new password.';
+			return;
+		}
+		const token = getAuthToken();
+		if (!token) {
+			passwordError = 'Sign in again to change your password.';
+			return;
+		}
+		changingPassword = true;
 		try {
-			const submitted = bioDraft; const next = submitted.trim();
-			await saveProfilePatch({ bio: next });
-			if (bioDraft === submitted) { bioDraft = next; bioStatus = next ? 'Bio saved.' : 'Bio cleared.'; }
-			else bioStatus = 'Earlier bio saved. Your newer edits are still a draft.';
-		} catch (error) { bioStatus = error instanceof Error ? error.message : 'Could not save bio. Your draft is still here.'; }
-		finally { bioSaving = false; }
+			await changePassword(token, currentPasswordDraft, newPasswordDraft);
+			currentPasswordDraft = '';
+			newPasswordDraft = '';
+			confirmNewPasswordDraft = '';
+			mustChangeOwnPassword = false;
+			passwordStep = 1;
+			passwordSuccess = 'Password changed.';
+		} catch (error) {
+			passwordError = error instanceof Error ? error.message : 'The password was not changed.';
+		} finally {
+			changingPassword = false;
+		}
 	}
-	async function saveStatusMessage(): Promise<void> {
-		if (statusMessageSaving || statusMessageBytes > 120) return;
-		statusMessageSaving = true; statusMessageFeedback = 'Saving status message…';
-		const submitted = statusMessageDraft;
-		try {
-			await saveProfilePatch({ statusMessage: submitted.trim() });
-			statusMessageFeedback = statusMessageDraft === submitted ? (submitted.trim() ? 'Status message saved.' : 'Status message cleared.') : 'Earlier status message saved. Your newer edits are still a draft.';
-		} catch (error) { statusMessageFeedback = error instanceof Error ? error.message : 'Could not save the status message.'; }
-		finally { statusMessageSaving = false; }
+
+	async function focusPasswordChangeForm(): Promise<void> {
+		await tick();
+		currentPasswordInput?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+		currentPasswordInput?.focus();
 	}
 
 	$effect(() => {
@@ -166,27 +319,41 @@
 		}
 	});
 
-	// ── PR1/PR2/PR3: Banner / overlay upload (proxy-card driven) ──
+	// ── Pictures: banner and avatar overlay ──
 	let bannerUploading = $state(false);
-	let bannerStatus = $state('');
 	let overlayUploading = $state(false);
 	let avatarRemoving = $state(false);
-	let avatarStatus = $state('');
-	let overlayStatus = $state('');
-	const disableAllBannersLocal = $derived(!$profileDecorationsVisible);
+	let mediaStatus = $state('');
+	const decorationsHidden = $derived(!$profileDecorationsVisible);
 
-	// ── Overlay alignment editor (per-user scale + X/Y offset) ──
+	// Overlay alignment (per-user scale + X/Y offset), drafted on the preview avatar.
 	let overlayAlignMode = $state(false);
 	let overlayPendingUrl = $state('');
 	let overlayDraftOwner = $state('');
-	function overlayOwner() { return `${getServerUrl()}:${$currentUser?.dbUserId ?? $currentUser?.id ?? ''}:${authSessionGeneration(getServerUrl())}`; }
-	$effect(() => { void $activeServerUrl; void $currentUser?.id; if (overlayDraftOwner && overlayDraftOwner !== overlayOwner()) { overlayPendingUrl = ''; overlayAlignMode = false; overlayDraftOwner = ''; overlayDrag = null; } });
 	let overlayDraftScale = $state(1);
 	let overlayDraftX = $state(0);
 	let overlayDraftY = $state(0);
 	let overlayAlignSaving = $state(false);
-	const overlayPreviewUser = $derived(overlayAlignMode ? { overlayUrl: overlayPendingUrl || $currentUser?.overlayUrl, overlayScale: overlayDraftScale, overlayOffsetX: overlayDraftX, overlayOffsetY: overlayDraftY } : { overlayUrl: $currentUser?.overlayUrl, overlayScale: $currentUser?.overlayScale, overlayOffsetX: $currentUser?.overlayOffsetX, overlayOffsetY: $currentUser?.overlayOffsetY });
 	let overlayDrag: { pointerId: number; startX: number; startY: number; baseX: number; baseY: number } | null = null;
+
+	function overlayOwner() {
+		return `${getServerUrl()}:${$currentUser?.dbUserId ?? $currentUser?.id ?? ''}:${authSessionGeneration(getServerUrl())}`;
+	}
+	$effect(() => {
+		void $activeServerUrl;
+		void $currentUser?.id;
+		if (overlayDraftOwner && overlayDraftOwner !== overlayOwner()) {
+			overlayPendingUrl = '';
+			overlayAlignMode = false;
+			overlayDraftOwner = '';
+			overlayDrag = null;
+		}
+	});
+	const overlayPreviewUser = $derived(
+		overlayAlignMode
+			? { overlayUrl: overlayPendingUrl || $currentUser?.overlayUrl, overlayScale: overlayDraftScale, overlayOffsetX: overlayDraftX, overlayOffsetY: overlayDraftY }
+			: { overlayUrl: $currentUser?.overlayUrl, overlayScale: $currentUser?.overlayScale, overlayOffsetX: $currentUser?.overlayOffsetX, overlayOffsetY: $currentUser?.overlayOffsetY }
+	);
 
 	function clampOverlayDrafts() {
 		overlayDraftScale = Math.min(3, Math.max(0.5, Number.isFinite(overlayDraftScale) ? overlayDraftScale : 1));
@@ -202,11 +369,12 @@
 		overlayDraftY = typeof u?.overlayOffsetY === 'number' && Number.isFinite(u.overlayOffsetY) ? u.overlayOffsetY : 0;
 		clampOverlayDrafts();
 		overlayAlignMode = true;
+		mediaStatus = '';
 	}
 
 	function cancelOverlayAlign() {
 		if (overlayAlignSaving) return;
-		overlayStatus = 'Overlay changes cancelled.';
+		mediaStatus = overlayPendingUrl ? 'New overlay discarded. Your published overlay is unchanged.' : 'Overlay position unchanged.';
 		overlayAlignMode = false;
 		overlayPendingUrl = '';
 		overlayDrag = null;
@@ -226,26 +394,30 @@
 
 	async function saveOverlayAlign() {
 		if (overlayAlignSaving) return;
-		if (overlayDraftOwner !== overlayOwner()) { cancelOverlayAlign(); overlayStatus = 'Your account changed. Choose the overlay again.'; return; }
-		clampOverlayDrafts(); overlayAlignSaving = true; overlayStatus = 'Saving alignment…';
+		if (overlayDraftOwner !== overlayOwner()) {
+			cancelOverlayAlign();
+			mediaStatus = 'Your account changed. Choose the overlay again.';
+			return;
+		}
+		clampOverlayDrafts();
+		overlayAlignSaving = true;
+		mediaStatus = 'Saving the overlay position…';
 		try {
 			await saveProfilePatch({ ...(overlayPendingUrl ? { overlayUrl: overlayPendingUrl } : {}), overlayScale: overlayDraftScale, overlayOffsetX: overlayDraftX, overlayOffsetY: overlayDraftY });
 			overlayPendingUrl = '';
-			overlayStatus = 'Overlay alignment saved.'; overlayAlignMode = false;
-		} catch (error) { overlayStatus = error instanceof Error ? error.message : 'Could not save overlay alignment.'; }
-		finally { overlayAlignSaving = false; }
+			mediaStatus = 'Overlay saved.';
+			overlayAlignMode = false;
+		} catch (error) {
+			mediaStatus = mediaFailure(error, 'The overlay was not saved.');
+		} finally {
+			overlayAlignSaving = false;
+		}
 	}
 
 	function onOverlayPointerDown(e: PointerEvent) {
 		if (!overlayAlignMode || overlayAlignSaving) return;
 		(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-		overlayDrag = {
-			pointerId: e.pointerId,
-			startX: e.clientX,
-			startY: e.clientY,
-			baseX: overlayDraftX,
-			baseY: overlayDraftY
-		};
+		overlayDrag = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, baseX: overlayDraftX, baseY: overlayDraftY };
 	}
 
 	function onOverlayPointerMove(e: PointerEvent) {
@@ -267,95 +439,171 @@
 		nudgeOverlayScale(e.deltaY < 0 ? 0.05 : -0.05);
 	}
 
+	/** Arrow keys move the overlay 2px (10 with Shift); + and − scale it. */
+	function onOverlayKeydown(e: KeyboardEvent) {
+		if (!overlayAlignMode || overlayAlignSaving) return;
+		const step = e.shiftKey ? 10 : 2;
+		const moves: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+		if (moves[e.key]) {
+			e.preventDefault();
+			const [dx, dy] = moves[e.key];
+			overlayDraftX = Math.min(200, Math.max(-200, overlayDraftX + dx));
+			overlayDraftY = Math.min(200, Math.max(-200, overlayDraftY + dy));
+		} else if (e.key === '+' || e.key === '=') {
+			e.preventDefault();
+			nudgeOverlayScale(0.05);
+		} else if (e.key === '-') {
+			e.preventDefault();
+			nudgeOverlayScale(-0.05);
+		}
+	}
+
+	function onPreviewAvatarClick() {
+		if (!overlayAlignMode) dispatch('openAvatarEditor');
+	}
+
 	const PROFILE_MEDIA_LIMIT = 10 * 1024 * 1024;
+	/** A failure this tab already words for people; anything else is logged and summarised. */
+	class MediaProblem extends Error {}
+	function mediaFailure(error: unknown, lead: string): string {
+		if (error instanceof MediaProblem) return error.message;
+		console.warn('[Profile] picture change failed:', error);
+		if (profileSaveUnconfirmed(error)) return `The server did not confirm the change. ${profileSaveCause(error)}`;
+		return `${lead} ${profileSaveCause(error) ?? 'Try again in a moment.'}`;
+	}
 	function validateProfileMedia(file: File, overlay = false) {
 		const allowed = overlay ? ['image/png', 'image/gif', 'image/webp'] : ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-		if (!allowed.includes(file.type)) throw new Error(overlay ? 'Choose a PNG, GIF or WebP overlay.' : 'Choose a PNG, JPEG, GIF or WebP banner.');
-		if (file.size > PROFILE_MEDIA_LIMIT) throw new Error('Export profile artwork at 10 MiB or less.');
+		if (!allowed.includes(file.type)) throw new MediaProblem(overlay ? 'Choose a PNG, GIF or WebP overlay.' : 'Choose a PNG, JPEG, GIF or WebP banner.');
+		if (file.size > PROFILE_MEDIA_LIMIT) throw new MediaProblem('Export profile artwork at 10 MiB or less.');
 	}
+
 	async function removeAvatar() {
-		if (avatarRemoving) return; avatarRemoving = true; avatarStatus = 'Removing avatar…';
-		try { await saveProfilePatch({ profilePicture: '' }); avatarStatus = 'Avatar removed.'; }
-		catch (error) { avatarStatus = error instanceof Error ? error.message : 'Could not remove your avatar.'; }
-		finally { avatarRemoving = false; }
+		if (avatarRemoving) return;
+		const confirmed = await confirmAction({
+			title: 'Remove your profile picture?',
+			body: `Members of ${communityName} will see your initial instead.`,
+			confirm: 'Remove picture',
+			danger: true
+		});
+		if (!confirmed) return;
+		avatarRemoving = true;
+		mediaStatus = 'Removing your profile picture…';
+		try {
+			await saveProfilePatch({ profilePicture: '' });
+			mediaStatus = 'Profile picture removed.';
+		} catch (error) {
+			mediaStatus = mediaFailure(error, 'Your profile picture was not removed.');
+		} finally {
+			avatarRemoving = false;
+		}
 	}
+
 	async function removeProfileMedia(kind: 'banner' | 'overlay') {
-		if (kind === 'banner') { bannerUploading = true; bannerStatus = 'Removing banner…'; }
-		else { overlayUploading = true; overlayStatus = 'Removing overlay…'; }
+		const confirmed = await confirmAction({
+			title: kind === 'banner' ? 'Remove your banner?' : 'Remove your avatar overlay?',
+			body: kind === 'banner' ? 'Your profile shows a plain band instead.' : 'Your profile picture shows without it.',
+			confirm: kind === 'banner' ? 'Remove banner' : 'Remove overlay',
+			danger: true
+		});
+		if (!confirmed) return;
+		if (kind === 'banner') bannerUploading = true;
+		else overlayUploading = true;
+		mediaStatus = kind === 'banner' ? 'Removing your banner…' : 'Removing your overlay…';
 		try {
 			await saveProfilePatch(kind === 'banner' ? { bannerUrl: '' } : { overlayUrl: '', overlayScale: 1, overlayOffsetX: 0, overlayOffsetY: 0 });
-			if (kind === 'banner') bannerStatus = 'Banner removed.';
-			else { overlayStatus = 'Overlay removed.'; overlayAlignMode = false; }
+			mediaStatus = kind === 'banner' ? 'Banner removed.' : 'Overlay removed.';
+			if (kind === 'overlay') overlayAlignMode = false;
 		} catch (error) {
-			const message = error instanceof Error ? error.message : 'Could not remove profile artwork.';
-			if (kind === 'banner') bannerStatus = message; else overlayStatus = message;
-		} finally { if (kind === 'banner') bannerUploading = false; else overlayUploading = false; }
+			mediaStatus = mediaFailure(error, kind === 'banner' ? 'Your banner was not removed.' : 'Your overlay was not removed.');
+		} finally {
+			if (kind === 'banner') bannerUploading = false;
+			else overlayUploading = false;
+		}
+	}
+
+	async function uploadProfileMedia(file: File): Promise<string> {
+		const server = getServerUrl();
+		const fd = new FormData();
+		fd.append('file', file, file.name || 'artwork.png');
+		const res = await fetch(`${server}/api/upload-profile-media`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${getAuthToken()}` },
+			body: fd
+		});
+		const payload = await res.json().catch(() => ({}));
+		if (!res.ok) {
+			console.warn('[Profile] upload refused:', res.status, payload?.error);
+			throw new MediaProblem(res.status === 413 ? 'That file is larger than this server accepts.' : 'The upload did not finish. Try again in a moment.');
+		}
+		const url = typeof payload?.fileUrl === 'string' ? payload.fileUrl : '';
+		if (!url) throw new MediaProblem('The upload did not finish. Try again in a moment.');
+		return url;
 	}
 
 	async function uploadBanner(file: File) {
-		if (!file) return;
 		bannerUploading = true;
-		bannerStatus = '';
+		mediaStatus = 'Uploading your banner…';
 		try {
 			validateProfileMedia(file);
-			const fd = new FormData();
-			fd.append('file', file, file.name || 'banner.png');
-			const res = await fetch(`${getServerUrl()}/api/upload-profile-media`, {
-				method: 'POST',
-				headers: { Authorization: `Bearer ${getAuthToken()}` },
-				body: fd
-			});
-			const payload = await res.json().catch(() => ({}));
-			if (!res.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : `Upload failed (${res.status})`);
-			const url = typeof payload?.fileUrl === 'string' ? payload.fileUrl : '';
-			if (!url) throw new Error('No URL returned');
+			const url = await uploadProfileMedia(file);
 			await saveProfilePatch({ bannerUrl: url });
-			bannerStatus = 'Banner saved.';
+			mediaStatus = 'Banner saved.';
 		} catch (e) {
-			bannerStatus = e instanceof Error ? e.message : 'Banner upload failed.';
+			mediaStatus = mediaFailure(e, 'Your banner was not saved.');
 		} finally {
 			bannerUploading = false;
 		}
 	}
 
 	async function uploadOverlay(file: File) {
-		if (!file) return;
 		const server = getServerUrl(), token = getAuthToken(), generation = authSessionGeneration(server);
 		overlayUploading = true;
-		overlayStatus = '';
+		mediaStatus = 'Uploading your overlay…';
 		try {
 			validateProfileMedia(file, true);
-			const fd = new FormData();
-			fd.append('file', file, file.name || 'overlay.png');
-			const res = await fetch(`${server}/api/upload-profile-media`, {
-				method: 'POST',
-				headers: { Authorization: `Bearer ${token}` },
-				body: fd
-			});
-			const payload = await res.json().catch(() => ({}));
-			if (!res.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : `Upload failed (${res.status})`);
-			const url = typeof payload?.fileUrl === 'string' ? payload.fileUrl : '';
-			if (!url) throw new Error('No URL returned');
-			if (server !== getServerUrl() || token !== getAuthToken() || generation !== authSessionGeneration(server)) return;
+			const url = await uploadProfileMedia(file);
+			if (server !== getServerUrl() || token !== getAuthToken() || generation !== authSessionGeneration(server)) {
+				// The account changed mid-upload: drop the file and its "Uploading…" note.
+				mediaStatus = '';
+				return;
+			}
 			overlayDraftOwner = overlayOwner();
 			overlayPendingUrl = url;
-			overlayDraftScale = 1; overlayDraftX = 0; overlayDraftY = 0; overlayAlignMode = true;
-			overlayStatus = 'Position your new overlay, then save it. Your existing overlay stays published until you save.';
+			overlayDraftScale = 1;
+			overlayDraftX = 0;
+			overlayDraftY = 0;
+			overlayAlignMode = true;
+			mediaStatus = 'Position the new overlay, then save it. Your published overlay stays until you do.';
 		} catch (e) {
-			overlayStatus = e instanceof Error ? e.message : 'Overlay upload failed.';
+			mediaStatus = mediaFailure(e, 'The overlay was not uploaded.');
 		} finally {
 			overlayUploading = false;
 		}
 	}
 
 	async function onBannerFile(event: Event) {
-		const input = event.currentTarget as HTMLInputElement; const file = input.files?.[0];
-		if (file) await uploadBanner(file); input.value = '';
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		if (file) await uploadBanner(file);
+		input.value = '';
 	}
+
 	async function onOverlayFile(event: Event) {
-		const input = event.currentTarget as HTMLInputElement; const file = input.files?.[0];
-		if (file) await uploadOverlay(file); input.value = '';
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		if (file) await uploadOverlay(file);
+		input.value = '';
 	}
+
+	/** "Use design" in the artwork guide opens the name style studio, then loads the example. */
+	async function useExampleDesign(example: ProfileArtExample): Promise<void> {
+		nameStyleOpen = true;
+		await tick();
+		nameDesignStudio?.loadExampleDraft(example);
+	}
+
+	let bannerInput = $state<HTMLInputElement | null>(null);
+	let overlayInput = $state<HTMLInputElement | null>(null);
 
 	onMount(() => {
 		const token = getAuthToken();
@@ -369,436 +617,376 @@
 			});
 	});
 
-	// ── Handlers ──
-	async function updateDisplayName() {
-		if (updatingDisplayName) return;
-		const nextName = displayNameDraft.trim();
-		const bytes = new TextEncoder().encode(nextName).length;
-		if (nextName.length < 2 || bytes > 32) { displayNameStatus = 'Use at least 2 characters and at most 32 bytes for your display name.'; return; }
-		if (nextName === ($currentUser?.username || '')) return;
-		updatingDisplayName = true; displayNameStatus = 'Saving name…';
-		try { await saveProfilePatch({ username: nextName }); displayNameStatus = displayNameDraft.trim() === nextName ? 'Display name saved.' : 'Earlier name saved. Your newer edits are still a draft.'; }
-		catch (error) { displayNameStatus = error instanceof Error ? error.message : 'Could not save your name.'; }
-		finally { updatingDisplayName = false; }
-	}
-
-	function makeCurrentLocalWabiDefault(): void {
-		if (!currentLocalWabiAccountKey) return;
-		setDefaultLocalWabiAccount(currentLocalWabiAccountKey);
-		linkedWabiImportStatus = `This account is now the default local ${brandName} profile source on this device.`;
-	}
-
-	async function importProfileFromSelectedLocalWabiAccount(): Promise<void> {
-		if (!linkedWabiImportSourceKey || linkedWabiImporting) return;
-		linkedWabiImporting = true;
-		linkedWabiImportStatus = '';
-		try {
-			const result = await applyLocalWabiProfileImport(linkedWabiImportSourceKey);
-			if (currentLocalWabiAccountKey) {
-				markLocalWabiImportPromptHandled(currentLocalWabiAccountKey);
-			}
-			if (!result.success) {
-				linkedWabiImportStatus = result.errors.join(' ') || 'Profile import did not complete.';
-				return;
-			}
-			linkedWabiImportStatus = `Imported ${result.importedFields.join(' and ')}.`;
-		} finally {
-			linkedWabiImporting = false;
-		}
-	}
-
-	async function changeOwnPassword() {
-		if (changingPassword) return;
-		passwordError = '';
-		passwordSuccess = '';
-		if (!currentPasswordDraft || !newPasswordDraft || !confirmNewPasswordDraft) {
-			passwordError = 'Fill in every field to update your password.';
-			return;
-		}
-		if (newPasswordDraft !== confirmNewPasswordDraft) {
-			passwordError = 'New password confirmation does not match.';
-			return;
-		}
-		if (newPasswordDraft.length < 8) {
-			passwordError = 'New password must be at least 8 characters.';
-			return;
-		}
-
-		const token = getAuthToken();
-		if (!token) {
-			passwordError = 'You must be logged in to change password.';
-			return;
-		}
-
-		changingPassword = true;
-		try {
-			await changePassword(token, currentPasswordDraft, newPasswordDraft);
-			currentPasswordDraft = '';
-			newPasswordDraft = '';
-			confirmNewPasswordDraft = '';
-			mustChangeOwnPassword = false;
-			passwordStep = 1;
-			passwordSuccess = 'Password updated.';
-		} catch (error) {
-			passwordError = error instanceof Error ? error.message : 'Failed to change password.';
-		} finally {
-			changingPassword = false;
-		}
-	}
-
-	async function focusPasswordChangeForm(): Promise<void> {
-		await tick();
-		currentPasswordInput?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-		currentPasswordInput?.focus();
-	}
-
-	function openPaymentConnectionsSafe(): void {
-		const token = getAuthToken();
-		if (!token || !$currentUser?.dbUserId) {
-			alert('Sign in with a registered account to manage saved payment references.');
-			return;
-		}
-		dispatch('openPaymentConnections');
-	}
-
-	function openPaymentHistorySafe(): void {
-		const token = getAuthToken();
-		if (!token || !$currentUser?.dbUserId) {
-			alert('Sign in with a registered account to view your payment history.');
-			return;
-		}
-		dispatch('openPaymentHistory');
-	}
-
+	// ── Preview ──
+	const previewName = $derived(draft.name.trim() || $currentUser?.username || 'You');
 	const previewHandle = $derived(
-		$currentUser?.handle
-			? `@${$currentUser.handle}`
-			: $currentUser?.username
-				? `@${$currentUser.username}`
-				: 'No handle'
+		$currentUser?.handle ? `@${$currentUser.handle}` : $currentUser?.dbUserId ? 'Registered account' : 'Local account'
 	);
-	const previewName = $derived(displayNameDraft.trim() || $currentUser?.username || 'You');
 	const previewJoined = $derived(
-		new Date($currentUser?.joinedAt || Date.now()).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+		$currentUser?.joinedAt
+			? new Date($currentUser.joinedAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })
+			: ''
 	);
-
+	const presenceWord = $derived(PRESENCE_OPTIONS.find((option) => option.value === selectedPresence)?.label ?? 'Online');
+	const identityVars = $derived($inkFor($currentUser?.color));
+	const hasBanner = $derived(Boolean($currentUser?.bannerUrl) && !decorationsHidden);
+	const mediaBusy = $derived(bannerUploading || overlayUploading || avatarRemoving || overlayAlignSaving);
 </script>
 
-<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" id="banner-file-input" class="hidden-file-input" onchange={onBannerFile} />
-<input type="file" accept="image/png,image/gif,image/webp" id="overlay-file-input" class="hidden-file-input" onchange={onOverlayFile} />
+<input bind:this={bannerInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="hidden-file-input" tabindex="-1" aria-hidden="true" onchange={onBannerFile} />
+<input bind:this={overlayInput} type="file" accept="image/png,image/gif,image/webp" class="hidden-file-input" tabindex="-1" aria-hidden="true" onchange={onOverlayFile} />
 
-<section class="profile-settings-layout">
-	<div class="profile-preview-column">
-		<p class="profile-preview-kicker">How others see you</p>
-		<div class="profile-preview-card" aria-label="Live profile preview">
-			<button
-				type="button"
-				class="profile-preview-banner"
-				class:is-empty={!$currentUser?.bannerUrl || disableAllBannersLocal}
-				style={`background: linear-gradient(135deg, ${$currentUser?.color || 'var(--accent-secondary-color)'}, var(--accent-primary-color))`}
-				onclick={() => document.getElementById('banner-file-input')?.click()}
-				disabled={bannerUploading}
-				title={bannerUploading ? 'Uploading banner…' : 'Change banner'}
-				aria-label="Change banner"
-			>
-				{#if $currentUser?.bannerUrl && !disableAllBannersLocal}<ProfileMedia src={mediaUrl($currentUser.bannerUrl)} class="profile-preview-banner-media" decorative={true} />{/if}
-				<span class="profile-preview-banner-hint">{bannerUploading ? 'Uploading banner…' : 'Change banner'}</span>
-			</button>
-			<div class="profile-preview-avatar-wrap">
-<button
+<div class="w-profile">
+	<!-- How members see you: a flat preview, not a second editor. -->
+	<section class="w-profile__preview" aria-labelledby="profile-preview-kicker">
+		<p class="w-kicker" id="profile-preview-kicker">How others see you</p>
+		<div class="w-profile-card" style={identityVars}>
+			<div class="w-profile-card__banner" class:has-media={hasBanner} aria-hidden="true">
+				{#if hasBanner && $currentUser?.bannerUrl}<ProfileMedia src={mediaUrl($currentUser.bannerUrl)} class="w-profile-card__banner-media" decorative={true} />{/if}
+			</div>
+			<div class="w-profile-card__body">
+				<button
 					type="button"
-					class="profile-preview-avatar"
+					class="w-profile-card__avatar"
 					class:aligning={overlayAlignMode}
-					onclick={() => { if (!overlayAlignMode) dispatch('openAvatarEditor'); }}
+					onclick={onPreviewAvatarClick}
 					onpointerdown={onOverlayPointerDown}
 					onpointermove={onOverlayPointerMove}
 					onpointerup={onOverlayPointerUp}
 					onpointercancel={onOverlayPointerUp}
 					onwheel={onOverlayWheel}
-					title={overlayAlignMode ? 'Drag to move the overlay · scroll to scale' : 'Change avatar'}
-					aria-label={overlayAlignMode ? 'Overlay alignment preview. Drag to move.' : 'Change avatar'}
-					style={overlayAlignMode ? 'touch-action: none; cursor: move;' : undefined}
+					onkeydown={onOverlayKeydown}
+					aria-label={overlayAlignMode ? 'Overlay position. Drag or use the arrow keys to move it; plus and minus change its size.' : 'Change profile picture'}
+					aria-describedby={overlayAlignMode ? 'profile-overlay-help' : undefined}
 				>
 					{#if $currentUser?.profilePicture}
-						<ProfileMedia src={mediaUrl($currentUser.profilePicture)} class="profile-preview-avatar-media" decorative={true} />
+						<ProfileMedia src={mediaUrl($currentUser.profilePicture)} class="w-profile-card__avatar-media" decorative={true} />
 					{:else}
-						<span class="profile-preview-avatar-fallback" style="--avatar-color: {$currentUser?.color || 'var(--accent-primary-color)'}">
-							{previewName.charAt(0).toUpperCase()}
-						</span>
+						<span class="w-profile-card__initial" aria-hidden="true">{previewName.charAt(0).toUpperCase()}</span>
 					{/if}
-					{#if ($currentUser?.overlayUrl || overlayPendingUrl) && !disableAllBannersLocal}
-						<ProfileDecoration user={overlayPreviewUser} class="profile-preview-overlay" />
+					{#if ($currentUser?.overlayUrl || overlayPendingUrl) && !decorationsHidden}
+						<ProfileDecoration user={overlayPreviewUser} class="w-profile-card__overlay" />
 					{/if}
-
+					<span class="w-profile-card__presence" data-presence={selectedPresence} aria-hidden="true"></span>
 				</button>
-				<details class="profile-presence-picker">
-					<summary class="profile-preview-status" class:away={selectedPresence === 'away'} class:busy={selectedPresence === 'busy'} class:offline={selectedPresence === 'invisible'} aria-label={`Presence: ${selectedPresence}. Change presence`} title="Change presence"></summary>
-					<div class="profile-presence-menu" role="group" aria-label="Presence">
-						{#each ['active', 'away', 'busy', 'invisible'] as status}
-							<button type="button" aria-pressed={selectedPresence === status} onclick={(event) => { changeStatus(status as PresenceState); event.currentTarget.closest('details')?.removeAttribute('open'); }}>{status === 'active' ? 'Online' : status === 'away' ? 'Away' : status === 'busy' ? 'Busy' : 'Invisible'}</button>
-						{/each}
-					</div>
-				</details>
-			</div>
-			<div class="profile-preview-edit-tools">
-				<button type="button" class="action-btn secondary small" onclick={() => dispatch('openAvatarEditor')}>Change avatar</button>
-				<button type="button" class="action-btn secondary small" onclick={() => document.getElementById('overlay-file-input')?.click()} disabled={overlayUploading || overlayAlignSaving}>{overlayUploading ? 'Uploading…' : 'Change overlay'}</button>
-				{#if $currentUser?.overlayUrl && !overlayAlignMode}<button type="button" class="action-btn secondary small" onclick={enterOverlayAlign}>Position overlay</button>{/if}
-			</div>
-			{#if overlayAlignMode}
-				<div class="overlay-align-editor" role="group" aria-label="Overlay alignment">
-					<p class="runtime-note">Drag the preview to move · scroll or use −/+ to scale.</p>
-					<div class="overlay-align-row">
-						<button type="button" class="action-btn secondary small" onclick={() => nudgeOverlayScale(-0.05)} aria-label="Decrease overlay scale">−</button>
-						<span class="runtime-note" aria-live="polite">Scale {overlayDraftScale.toFixed(2)}×</span>
-						<button type="button" class="action-btn secondary small" onclick={() => nudgeOverlayScale(0.05)} aria-label="Increase overlay scale">+</button>
-					</div>
-					<div class="overlay-align-row">
-						<button type="button" class="action-btn secondary small" onclick={resetOverlayAlign}>Reset</button>
-						<button type="button" class="action-btn secondary small" onclick={cancelOverlayAlign}>Cancel</button>
-						<button type="button" class="action-btn small" onclick={saveOverlayAlign} disabled={overlayAlignSaving}>
-							{overlayAlignSaving ? 'Saving…' : 'Save alignment'}
-						</button>
-					</div>
+				<div class="w-profile-card__who">
+					<p class="w-profile-card__name"><ProfileName username={previewName} font={$currentUser?.usernameFont} color={$currentUser?.color} preview={true} /></p>
+					<p class="w-profile-card__handle">{previewHandle}<span aria-hidden="true">{' · '}</span>{presenceWord}</p>
 				</div>
-			{/if}
-			<div class="profile-preview-body">
-				<strong class="profile-preview-name"><ProfileName username={previewName} font={$currentUser?.usernameFont} color={$currentUser?.color} preview={true} /></strong>
-				<span class="profile-preview-handle">{previewHandle}</span>
-				{#if bioDraft.trim()}
-					<p class="profile-preview-bio">{bioDraft.trim()}</p>
-				{/if}
-				{#if $currentUser?.joinedAt}<span class="profile-preview-meta">Member since {previewJoined}</span>{/if}
+				{#if draft.status.trim()}<p class="w-profile-card__status">{draft.status.trim()}</p>{/if}
+				{#if draft.bio.trim()}<p class="w-profile-card__bio">{draft.bio.trim()}</p>{/if}
+				{#if previewJoined}<p class="w-profile-card__meta">Member since {previewJoined}</p>{/if}
 			</div>
 		</div>
-	</div>
-
-	<div class="profile-editor-column">
-<div class="profile-mock">
-	<div class="profile-mock-body">
-
-		<div class="profile-mock-identity">
-			<div class="profile-mock-name-row">
-				<input
-					type="text"
-					class="profile-mock-name"
-					maxlength="32"
-					bind:value={displayNameDraft}
-					placeholder="Display name"
-					aria-label="Display name"
-				/>
-				<button
-					type="button"
-					class="profile-mock-save"
-					onclick={updateDisplayName}
-					disabled={updatingDisplayName || !displayNameDraft.trim() || displayNameDraft.trim() === ($currentUser?.username || '')}
-				>
-					{updatingDisplayName ? '…' : 'Save'}
-				</button>
+		{#if overlayAlignMode}
+			<div class="w-profile-align" role="group" aria-label="Overlay position">
+				<p class="w-profile-align__help" id="profile-overlay-help">Drag the picture above to move the overlay. Scroll, or use − and +, to change its size.</p>
+				<div class="w-profile-align__controls">
+					<span class="w-profile-align__scale">
+						<button type="button" class="w-ibtn w-ibtn--sm w-ibtn--edge" onclick={() => nudgeOverlayScale(-0.05)} aria-label="Make the overlay smaller" disabled={overlayAlignSaving}><Icon name="minus" /></button>
+						<span class="w-profile-align__value" aria-live="polite">{Math.round(overlayDraftScale * 100)}%</span>
+						<button type="button" class="w-ibtn w-ibtn--sm w-ibtn--edge" onclick={() => nudgeOverlayScale(0.05)} aria-label="Make the overlay larger" disabled={overlayAlignSaving}><Icon name="plus" /></button>
+					</span>
+					<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={resetOverlayAlign} disabled={overlayAlignSaving}>Reset</button>
+					<span class="w-profile-align__end">
+						<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={cancelOverlayAlign} disabled={overlayAlignSaving}>Cancel</button>
+						<button type="button" class="w-btn w-btn--sm w-btn--primary" onclick={saveOverlayAlign} disabled={overlayAlignSaving} aria-busy={overlayAlignSaving}>
+							{overlayAlignSaving ? 'Saving…' : 'Save overlay'}
+						</button>
+					</span>
+				</div>
 			</div>
-			<p class="profile-mock-handle">
-				{#if $currentUser?.handle}
-					@{$currentUser.handle}
-				{:else if $currentUser?.dbUserId}
-					Registered
-				{:else}
-					Local account
-				{/if}
-			</p>
+		{/if}
+	</section>
 
-			<label class="setting-label" for="profile-status-message">Status message</label>
-			<input id="profile-status-message" type="text" maxlength="120" bind:value={statusMessageDraft} placeholder="What are you up to?" class="profile-mock-bio" />
-			<div class="profile-bio-actions">
-				<button type="button" class="profile-mock-save ghost" onclick={saveStatusMessage} disabled={statusMessageSaving || statusMessageBytes > 120}>{statusMessageSaving ? 'Saving…' : 'Save status message'}</button>
-				<span class="runtime-note">{statusMessageBytes}/120 bytes</span>
+	<!-- The one form: name, status, About me. -->
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+	<form
+		class="settings-block w-profile__form"
+		aria-labelledby="profile-about-title"
+		onsubmit={(event) => { event.preventDefault(); void save(); }}
+		onkeydown={handleFormKeydown}
+	>
+		<div class="settings-block__head">
+			<h3 class="settings-block__title" id="profile-about-title">About you</h3>
+			<p class="w-profile__saved" role="status">{#if savedAt && !dirty}Saved {savedAt}{/if}</p>
+		</div>
+		<p class="settings-block__hint">Members of {communityName} see this next to your messages and on your profile.</p>
+
+		<div class="w-profile-field">
+			<label class="w-label" for="profile-display-name">Display name</label>
+			<input
+				id="profile-display-name"
+				class="w-field"
+				type="text"
+				maxlength={PROFILE_LIMITS.name}
+				autocomplete="nickname"
+				bind:value={draft.name}
+				aria-invalid={showIssues && issues.name ? 'true' : undefined}
+				aria-describedby="profile-display-name-foot"
+			/>
+			<div class="w-field-foot" id="profile-display-name-foot">
+				{#if (showIssues || draft.name.trim().length > 0) && issues.name}<span class="w-field-error"><Icon name="alert" />{issues.name}</span>{/if}
+				<span class="w-field-count">{profileCounter(draft.name, PROFILE_LIMITS.name)}</span>
 			</div>
-			{#if statusMessageBytes > 120}<p class="profile-bio-error" role="alert">Shorten this status message before saving. Emoji can use more than one byte.</p>{/if}
-			{#if statusMessageFeedback}<p class="runtime-note" role="status">{statusMessageFeedback}</p>{/if}
+		</div>
+
+		<div class="w-profile-field">
+			<label class="w-label" for="profile-status-message">Status message</label>
+			<input
+				id="profile-status-message"
+				class="w-field"
+				type="text"
+				maxlength={PROFILE_LIMITS.status}
+				placeholder="Out walking until 3"
+				bind:value={draft.status}
+				aria-invalid={issues.status ? 'true' : undefined}
+				aria-describedby="profile-status-message-foot"
+			/>
+			<div class="w-field-foot" id="profile-status-message-foot">
+				{#if issues.status}<span class="w-field-error"><Icon name="alert" />{issues.status}</span>{/if}
+				<span class="w-field-count">{profileCounter(draft.status, PROFILE_LIMITS.status)}</span>
+			</div>
+		</div>
+
+		<div class="w-profile-field">
+			<label class="w-label" for="profile-about-me">About me</label>
 			<textarea
-				class="profile-mock-bio"
-				rows="2"
-				maxlength="280"
-				bind:value={bioDraft}
-				placeholder="About me…"
-				aria-label="About me"
+				id="profile-about-me"
+				class="w-field"
+				rows="3"
+				maxlength={PROFILE_LIMITS.bio}
+				placeholder="A line or two about you"
+				bind:value={draft.bio}
+				aria-invalid={issues.bio ? 'true' : undefined}
+				aria-describedby="profile-about-me-foot"
 			></textarea>
-			{#if bioBytes > 280}<p class="profile-bio-error" role="alert">About me is too long. Emoji and some letters use more than one byte; shorten it before saving.</p>{/if}
-			<div class="profile-mock-bio-bar">
-				<button type="button" class="profile-mock-save ghost" onclick={saveBio} disabled={bioSaving || bioBytes > 280}>{bioSaving ? 'Saving…' : 'Save bio'}</button><span class="runtime-note" class:bio-over-limit={bioBytes > 280}>{bioBytes}/280 bytes</span>
-				{#if bioStatus}<span class="runtime-note" role="status">{bioStatus}</span>{/if}
-				{#if displayNameStatus}<span class="runtime-note" role="status">{displayNameStatus}</span>{/if}
-				{#if bannerStatus}<span class="runtime-note">{bannerStatus}</span>{/if}
-				{#if overlayStatus}<span class="runtime-note" role="status">{overlayStatus}</span>{/if}
-				{#if avatarStatus}<span class="runtime-note" role="status">{avatarStatus}</span>{/if}
+			<div class="w-field-foot" id="profile-about-me-foot">
+				{#if issues.bio}<span class="w-field-error"><Icon name="alert" />{issues.bio}</span>{/if}
+				<span class="w-field-count">{profileCounter(draft.bio, PROFILE_LIMITS.bio)}</span>
 			</div>
 		</div>
-	</div>
+	</form>
 
-	<details class="profile-art-reset"><summary>Remove artwork</summary>
-		<div class="profile-art-actions">
-			{#if $currentUser?.profilePicture}<button type="button" class="action-btn secondary small" disabled={avatarRemoving} onclick={removeAvatar}>Remove avatar</button>{/if}
-			{#if $currentUser?.bannerUrl}<button type="button" class="action-btn secondary small" disabled={bannerUploading} onclick={() => removeProfileMedia('banner')}>Remove banner</button>{/if}
-			{#if $currentUser?.overlayUrl}<button type="button" class="action-btn secondary small" disabled={overlayUploading || overlayAlignSaving} onclick={() => removeProfileMedia('overlay')}>Remove overlay</button>{/if}
+	<section class="settings-block" aria-labelledby="profile-presence-title">
+		<h3 class="settings-block__title" id="profile-presence-title">Presence</h3>
+		<div class="w-srows">
+			<div class="w-srow">
+				<div class="w-srow__text">
+					<p class="w-srow__label" id="profile-presence-label">Show me as</p>
+					<p class="w-srow__hint">Changes right away. Invisible members appear offline.</p>
+				</div>
+				<div class="w-srow__control">
+					<Segmented labelledby="profile-presence-label" options={PRESENCE_OPTIONS} value={selectedPresence} onchange={(value) => changePresence(value as PresenceState)} />
+				</div>
+			</div>
 		</div>
-	</details>
+	</section>
 
+	<section class="settings-block" aria-labelledby="profile-pictures-title">
+		<h3 class="settings-block__title" id="profile-pictures-title">Pictures</h3>
+		<p class="settings-block__hint">Changes publish when the upload finishes.</p>
+		<div class="w-srows">
+			<div class="w-srow">
+				<div class="w-srow__text">
+					<p class="w-srow__label">Profile picture</p>
+					<p class="w-srow__hint">Shown beside your messages and in People.</p>
+				</div>
+				<div class="w-srow__control">
+					{#if $currentUser?.profilePicture}<button type="button" class="w-btn w-btn--sm w-btn--quiet" disabled={mediaBusy} onclick={removeAvatar}>Remove</button>{/if}
+					<button type="button" class="w-btn w-btn--sm" disabled={mediaBusy} onclick={() => dispatch('openAvatarEditor')}>Change picture</button>
+				</div>
+			</div>
+			<div class="w-srow">
+				<div class="w-srow__text">
+					<p class="w-srow__label">Banner</p>
+					<p class="w-srow__hint">1200 × 400 PNG, JPEG, GIF or WebP, up to 10 MiB.</p>
+				</div>
+				<div class="w-srow__control">
+					{#if $currentUser?.bannerUrl}<button type="button" class="w-btn w-btn--sm w-btn--quiet" disabled={mediaBusy} onclick={() => removeProfileMedia('banner')}>Remove</button>{/if}
+					<button type="button" class="w-btn w-btn--sm" disabled={mediaBusy} aria-busy={bannerUploading} onclick={() => bannerInput?.click()}>{bannerUploading ? 'Uploading…' : 'Change banner'}</button>
+				</div>
+			</div>
+			<div class="w-srow">
+				<div class="w-srow__text">
+					<p class="w-srow__label">Avatar overlay</p>
+					<p class="w-srow__hint">A transparent frame drawn over your picture: 512 × 512 PNG, GIF or WebP.</p>
+				</div>
+				<div class="w-srow__control">
+					{#if $currentUser?.overlayUrl && !overlayAlignMode}
+						<button type="button" class="w-btn w-btn--sm w-btn--quiet" disabled={mediaBusy} onclick={() => removeProfileMedia('overlay')}>Remove</button>
+						<button type="button" class="w-btn w-btn--sm w-btn--quiet" disabled={mediaBusy} onclick={enterOverlayAlign}>Position</button>
+					{/if}
+					<button type="button" class="w-btn w-btn--sm" disabled={mediaBusy} aria-busy={overlayUploading} onclick={() => overlayInput?.click()}>{overlayUploading ? 'Uploading…' : 'Change overlay'}</button>
+				</div>
+			</div>
+		</div>
+		<p class="w-profile__media-status" role="status">{mediaStatus}</p>
+		{#if decorationsHidden}
+			<p class="w-profile__note">Banners and overlays are hidden on this device (Appearance › Profile decorations), so the preview leaves them out.</p>
+		{/if}
+		<button type="button" class="w-disclosure" aria-expanded={guideOpen} aria-controls="profile-art-guide" onclick={() => (guideOpen = !guideOpen)}>
+			<Icon name="chevRight" />Artwork guide and templates
+		</button>
+		{#if guideOpen}
+			<div class="w-disclosure__body w-profile__guide" id="profile-art-guide">
+				<p><strong>Banner:</strong> 1200 × 400 px, 3:1. Keep key artwork inside the template’s safe area; your picture overlaps the lower left and smaller views may crop the edges.</p>
+				<p><strong>Avatar overlay:</strong> 512 × 512 px with a transparent center. Check both the rounded-square profile crop and the round crop in messages and People. PNG for still art; GIF or WebP for animation.</p>
+				<p><strong>Animation:</strong> a looping GIF or animated WebP at 10 MiB or less; a 3–6 second loop at 12–24 fps is a good start. Choose a calm first frame: people can pause artwork or reduce motion. Video and SVG files are not accepted.</p>
+				<p class="w-profile__downloads">
+					<a href="/profile-art/banner-guide.svg" download>Banner template (SVG)</a>
+					<a href="/profile-art/avatar-overlay-guide.svg" download>Overlay template (SVG)</a>
+					<a href="/profile-art/artist-guide.md" download>Full artist guide</a>
+				</p>
+				<ProfileArtExamples onUseDesign={useExampleDesign} />
+			</div>
+		{/if}
+	</section>
 
-</div>
-	</div>
-</section>
-
-<div class="settings-section">
-	<div class="settings-group-card tight">
-		<div class="setting-item-full" style="padding-top:0.55rem">
+	<section class="settings-block w-profile__studio" aria-labelledby="profile-name-style-title">
+		<h3 class="settings-block__title" id="profile-name-style-title">Name style</h3>
+		<p class="settings-block__hint">Fonts, colors and effects for your name, with a save of their own.</p>
+		<button type="button" class="w-disclosure" aria-expanded={nameStyleOpen} aria-controls="profile-name-style" onclick={() => (nameStyleOpen = !nameStyleOpen)}>
+			<Icon name="chevRight" />Design your name
+		</button>
+		<div class="w-disclosure__body w-profile__studio-body" id="profile-name-style" hidden={!nameStyleOpen}>
 			<UsernameFontCustomizer bind:this={nameDesignStudio} />
 		</div>
-	</div>
-</div>
+	</section>
 
-<div class="settings-section profile-art-resources">	<details class="profile-art-guide">
-		<summary>Artwork resources · Templates and examples</summary>
-		<p><strong>Banner:</strong> 1200 × 400 px, 3:1. Export PNG, JPEG, GIF or WebP at 10 MiB or less. Keep key artwork inside the guide’s safe area; the avatar overlaps the lower left and smaller views may crop the edges.</p>
-		<p><strong>Avatar overlay:</strong> 512 × 512 px with a transparent center. Check the rounded square profile crop and circular message/People crops. PNG for still art; GIF or WebP for animation. Scale and position it with Adjust overlay.</p>
-		<p><strong>Animation:</strong> export a looping GIF or animated WebP at 10 MiB or less. A 3–6 second seamless loop at 12–24 fps is a useful starting point. Choose a calm still frame: viewers can pause artwork or use reduced motion. Videos and SVG uploads are not profile artwork formats.</p>
-		<div class="profile-guide-downloads"><a href="/profile-art/banner-guide.svg" download>Banner template · SVG</a><a href="/profile-art/avatar-overlay-guide.svg" download>Overlay template · SVG</a><a href="/profile-art/artist-guide.md" download>Full artist guide</a></div>
-		<ProfileArtExamples onUseDesign={(example) => nameDesignStudio?.loadExampleDraft(example)} />
-	</details>
-</div>
-
-{#if $currentUser?.badges?.length}
-	<div class="settings-section">
-		<h3>Badges</h3>
-		<div class="settings-group-card tight">
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">Assigned by server admins</span>
-					<span class="setting-description">Shown next to your name across the app.</span>
-				</div>
-				<RoleBadge user={$currentUser} size="md" maxBadges={8} />
-			</div>
-		</div>
-	</div>
-{/if}
-
-<!-- 2026-08-27: payment surfaces are omitted entirely unless the server
-     explicitly permits payments (canViewPaymentUi). -->
-{#if $paymentAccessStore.canViewPaymentUi}
-<div class="settings-section">
-	<div class="icon-action-row">
-		<button type="button" class="icon-action" title="Payment requests you created" onclick={openPaymentHistorySafe} disabled={!$currentUser?.dbUserId}>
-			<span class="icon-action-glyph" aria-hidden="true">
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18v10H3z"/><path d="M3 10h18"/><path d="M7 15h4"/></svg>
-			</span>
-			<span class="icon-action-label">History</span>
-		</button>
-		<button type="button" class="icon-action" title="Saved non-sensitive payment references" onclick={openPaymentConnectionsSafe} disabled={!$currentUser?.dbUserId}>
-			<span class="icon-action-glyph" aria-hidden="true">
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/><path d="M7 15h2"/></svg>
-			</span>
-			<span class="icon-action-label">Refs</span>
-		</button>
-		<button type="button" class="icon-action" title="Support this server" onclick={() => dispatch('openServerDonation')}>
-			<span class="icon-action-glyph" aria-hidden="true">
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 11c0 5.5-7 10-7 10z"/></svg>
-			</span>
-			<span class="icon-action-label">Support</span>
-		</button>
-	</div>
-</div>
-{/if}
-
-{#if $currentUser?.dbUserId}
-	<div class="settings-section">
-		<h3>Account</h3>
-		<div class="settings-group-card">
-			<div class="setting-item-full">
-				<div class="setting-info">
-					<span class="setting-label">Password</span>
-					<span class="setting-description">No email recovery — ask an owner/admin if locked out.</span>
-				</div>
-				{#if mustChangeOwnPassword}
-					<p class="warning-text">Temporary password — change it now.</p>
-				{/if}
-
-				{#if passwordStep === 1}
-					<div class="pwd-step">
-						<input
-							type="password"
-							class="emoji-name-input"
-							placeholder="Current password"
-							bind:value={currentPasswordDraft}
-							bind:this={currentPasswordInput}
-							autocomplete="current-password"
-							onkeydown={(e) => { if (e.key === 'Enter') advancePasswordStep(); }}
-						/>
-						<button type="button" class="action-btn" onclick={advancePasswordStep}>Continue</button>
+	{#if $currentUser?.badges?.length}
+		<section class="settings-block" aria-labelledby="profile-badges-title">
+			<h3 class="settings-block__title" id="profile-badges-title">Badges</h3>
+			<div class="w-srows">
+				<div class="w-srow">
+					<div class="w-srow__text">
+						<p class="w-srow__label">Given by admins of {communityName}</p>
+						<p class="w-srow__hint">Shown next to your name.</p>
 					</div>
-				{:else}
-					<div class="pwd-step">
-						<button type="button" class="action-btn secondary small" onclick={backPasswordStep} title="Back to current password">
-							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
-							Back
+					<div class="w-srow__control"><RoleBadge user={$currentUser} size="md" maxBadges={8} /></div>
+				</div>
+			</div>
+		</section>
+	{/if}
+
+	<!-- Payment surfaces are left out entirely unless the server permits payments. -->
+	{#if $paymentAccessStore.canViewPaymentUi}
+		<section class="settings-block" aria-labelledby="profile-payments-title">
+			<h3 class="settings-block__title" id="profile-payments-title">Payments</h3>
+			<div class="w-srows">
+				<div class="w-srow">
+					<div class="w-srow__text">
+						<p class="w-srow__label">Payment requests</p>
+						<p class="w-srow__hint">Requests you created, and the references you saved for them.</p>
+					</div>
+					<div class="w-srow__control">
+						<button type="button" class="w-btn w-btn--sm" onclick={() => dispatch('openPaymentConnections')} disabled={!$currentUser?.dbUserId}>Saved references</button>
+						<button type="button" class="w-btn w-btn--sm" onclick={() => dispatch('openPaymentHistory')} disabled={!$currentUser?.dbUserId}>History</button>
+					</div>
+				</div>
+				<div class="w-srow">
+					<div class="w-srow__text">
+						<p class="w-srow__label">Support {communityName}</p>
+						<p class="w-srow__hint">Send a contribution to the people who run this server.</p>
+					</div>
+					<div class="w-srow__control">
+						<button type="button" class="w-btn w-btn--sm" onclick={() => dispatch('openServerDonation')}>Support</button>
+					</div>
+				</div>
+			</div>
+		</section>
+	{/if}
+
+	{#if $currentUser?.dbUserId}
+		<section class="settings-block" aria-labelledby="profile-account-title">
+			<h3 class="settings-block__title" id="profile-account-title">Account</h3>
+			<div class="w-srows">
+				<div class="w-srow w-profile__password">
+					<div class="w-srow__text">
+						<p class="w-srow__label" id="profile-password-label">Password</p>
+						<p class="w-srow__hint">There is no email recovery. If you are locked out, ask an owner or admin of {communityName}.</p>
+						{#if mustChangeOwnPassword}
+							<p class="w-profile__warn"><span class="w-dot w-dot--warn" aria-hidden="true"></span>You signed in with a temporary password. Change it now.</p>
+						{/if}
+					</div>
+					<div class="w-profile__password-form" role="group" aria-labelledby="profile-password-label">
+						{#if passwordStep === 1}
+							<label class="w-label" for="profile-current-password">Current password</label>
+							<div class="w-profile__inline">
+								<input
+									id="profile-current-password"
+									type="password"
+									class="w-field"
+									bind:value={currentPasswordDraft}
+									bind:this={currentPasswordInput}
+									autocomplete="current-password"
+									onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); advancePasswordStep(); } }}
+								/>
+								<button type="button" class="w-btn" onclick={advancePasswordStep}>Continue</button>
+							</div>
+						{:else}
+							<label class="w-label" for="profile-new-password">New password</label>
+							<input id="profile-new-password" type="password" class="w-field" bind:this={newPasswordInput} bind:value={newPasswordDraft} autocomplete="new-password" />
+							<label class="w-label" for="profile-confirm-password">Repeat new password</label>
+							<input id="profile-confirm-password" type="password" class="w-field" bind:value={confirmNewPasswordDraft} autocomplete="new-password" onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void changeOwnPassword(); } }} />
+							<div class="w-profile__inline w-profile__inline--end">
+								<button type="button" class="w-btn w-btn--quiet" onclick={backPasswordStep}>Back</button>
+								<button type="button" class="w-btn" onclick={changeOwnPassword} disabled={changingPassword} aria-busy={changingPassword}>
+									{changingPassword ? 'Changing…' : 'Change password'}
+								</button>
+							</div>
+						{/if}
+						{#if passwordError}<p class="w-field-error" role="alert"><Icon name="alert" />{passwordError}</p>{/if}
+						{#if passwordSuccess}<p class="w-profile__ok" role="status">{passwordSuccess}</p>{/if}
+					</div>
+				</div>
+
+				<div class="w-srow">
+					<div class="w-srow__text">
+						<p class="w-srow__label">Default profile on this device</p>
+						<p class="w-srow__hint">
+							{$defaultLocalWabiAccountStore ? getLocalWabiAccountDisplayLabel($defaultLocalWabiAccountStore) : 'None chosen yet'}. New servers can start from its look.
+						</p>
+					</div>
+					<div class="w-srow__control">
+						<button type="button" class="w-btn w-btn--sm" onclick={makeCurrentLocalWabiDefault} disabled={!currentLocalWabiAccountKey || currentLocalWabiAccountIsDefault}>
+							{currentLocalWabiAccountIsDefault ? 'This is the default' : 'Make this the default'}
 						</button>
-						<div class="pwd-grid">
-							<input type="password" class="emoji-name-input" placeholder="New password" data-pwd-new bind:value={newPasswordDraft} autocomplete="new-password" />
-							<input type="password" class="emoji-name-input" placeholder="Confirm new password" bind:value={confirmNewPasswordDraft} autocomplete="new-password" onkeydown={(e) => { if (e.key === 'Enter') changeOwnPassword(); }} />
-							<button type="button" class="action-btn" onclick={changeOwnPassword} disabled={changingPassword}>
-								{changingPassword ? '…' : 'Update password'}
+					</div>
+				</div>
+
+				{#if otherLocalWabiAccounts.length > 0}
+					<div class="w-srow">
+						<div class="w-srow__text">
+							<p class="w-srow__label" id="profile-import-label">Copy your look from another account</p>
+							<p class="w-srow__hint">
+								{#if linkedWabiImportPreview?.canImport}Copies {linkedWabiImportPreview.importableFields.join(', ')}.{:else}Nothing new to copy from that account.{/if}
+							</p>
+						</div>
+						<div class="w-srow__control">
+							<Select ariaLabel="Account to copy from" options={localAccountOptions} bind:value={linkedWabiImportSourceKey} align="end" />
+							<button type="button" class="w-btn w-btn--sm" onclick={importProfileFromSelectedLocalWabiAccount} disabled={!linkedWabiImportPreview?.canImport || linkedWabiImporting} aria-busy={linkedWabiImporting}>
+								{linkedWabiImporting ? 'Copying…' : 'Copy look'}
 							</button>
 						</div>
 					</div>
 				{/if}
-				{#if passwordError}
-					<p class="pwd-feedback pwd-error" role="alert">{passwordError}</p>
-				{/if}
-				{#if passwordSuccess}
-					<p class="pwd-feedback pwd-success" role="status">{passwordSuccess}</p>
-				{/if}
 			</div>
+			{#if linkedWabiImportStatus}<p class="w-profile__media-status" role="status">{linkedWabiImportStatus}</p>{/if}
+		</section>
+	{/if}
 
-			<div class="setting-item-full">
-				<div class="local-accounts-head">
-					<div class="setting-info">
-						<span class="setting-label">Local accounts</span>
-						<span class="setting-description">Default: {$defaultLocalWabiAccountStore ? getLocalWabiAccountDisplayLabel($defaultLocalWabiAccountStore) : 'none'}</span>
-					</div>
-					<button
-						type="button"
-						class="action-btn secondary small"
-						onclick={makeCurrentLocalWabiDefault}
-						disabled={!currentLocalWabiAccountKey || currentLocalWabiAccountIsDefault}
-					>
-						{currentLocalWabiAccountIsDefault ? 'Is default' : 'Make default'}
-					</button>
-				</div>
-				{#if otherLocalWabiAccounts.length > 0}
-					<div class="setting-inline-save" style="margin-top:0.45rem">
-						<select class="emoji-name-input" bind:value={linkedWabiImportSourceKey}>
-							{#each otherLocalWabiAccounts as account (account.key)}
-								<option value={account.key}>{getLocalWabiAccountDisplayLabel(account)}</option>
-							{/each}
-						</select>
-						<button
-							type="button"
-							class="action-btn secondary small"
-							onclick={importProfileFromSelectedLocalWabiAccount}
-							disabled={!linkedWabiImportPreview?.canImport || linkedWabiImporting}
-						>
-							{linkedWabiImporting ? '…' : 'Import look'}
-						</button>
-					</div>
-					<div class="runtime-note">
-						{#if linkedWabiImportPreview?.canImport}
-							Can copy: {linkedWabiImportPreview.importableFields.join(', ')}
-						{:else}
-							Nothing new from that account.
-						{/if}
-					</div>
-				{:else}
-					<div class="runtime-note">No other local accounts yet.</div>
-				{/if}
-				{#if linkedWabiImportStatus}<div class="runtime-note">{linkedWabiImportStatus}</div>{/if}
-			</div>
+	{#if dirty || saving}
+		<div class="w-profile__savebar" role="region" aria-label="Unsaved profile changes">
+			{#if saveError}
+				<p class="w-profile__savebar-text is-error" role="alert"><Icon name="alert" size={14} />{saveError} Your edits are still here.</p>
+			{:else}
+				<p class="w-profile__savebar-text"><span class="w-dot w-dot--warn" aria-hidden="true"></span>Unsaved changes</p>
+			{/if}
+			<button type="button" class="w-btn w-btn--quiet" onclick={discard} disabled={saving}>Discard</button>
+			<button type="button" class="w-btn w-btn--primary" onclick={() => void save()} disabled={saving || !dirty} aria-disabled={!canSave} aria-busy={saving}>
+				{saving ? 'Saving…' : 'Save'}
+			</button>
 		</div>
-	</div>
-{/if}
+	{/if}
+</div>

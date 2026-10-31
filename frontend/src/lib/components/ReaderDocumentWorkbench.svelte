@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { openWorkspace } from '$lib/workspaces/bridge';
-	import WorkspaceShortcuts from '$lib/workspaces/WorkspaceShortcuts.svelte';
 	import { onDestroy, onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { notebookOwner } from '$lib/notes/scope';
@@ -315,7 +314,6 @@
 </script>
 
 <div class="reader-workbench" class:has-selection={Boolean(selection)}>
-	<WorkspaceShortcuts />
 	<div class="reader-document-bar" class:reader-document-bar--home={!selection}>
 		<div class="reader-document-identity">
 			{#if activeDocument}
@@ -325,8 +323,8 @@
 				<span class="reader-document-kind">Reader</span>
 				<span class="reader-document-privacy">Source unchanged</span>
 			{:else}
-				<span class="reader-document-kind">Documents</span>
-				<span class="reader-document-privacy">Local first</span>
+				<span class="reader-document-kind">Reader</span>
+				<span class="reader-document-privacy">Private · this device</span>
 			{/if}
 		</div>
 

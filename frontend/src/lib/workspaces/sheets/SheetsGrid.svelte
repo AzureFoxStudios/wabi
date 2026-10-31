@@ -1,17 +1,26 @@
 <script lang="ts">
-    import {onDestroy} from 'svelte';
+    import {onDestroy,tick} from 'svelte';
+    import Icon from '$lib/components/ui/Icon.svelte';
+    import Menu from '$lib/components/ui/Menu.svelte';
+    import Notice from '$lib/components/ui/Notice.svelte';
+    import Tooltip from '$lib/components/ui/Tooltip.svelte';
+    import type {IconName} from '$lib/components/ui/icons';
+    import type {MenuEntry} from '$lib/components/context-menu/ContextMenu.svelte';
+    import {toast} from '$lib/toast';
+    import {_} from '$lib/i18n';
+    import './sheets.css';
     import {download,Y,type ArtifactSession,type PrivateDraft} from '../session';
     import {request,type Meta,type ProtectedRange} from '../bridge';
     import {parseAnchor,rangeAnchor} from '../anchors';
     import {orderedSheets,snapshot,sheets,setCell,setCells,setStyle,styleOf,formatValue,addSheet,renameSheet,reorderSheet,removeSheet,restoreSheet,insertAxis,removeAxis,reorderRows,columnWidth,setColumnWidth,fill,recoverRemoved,cachedResultIsStale,cellKey,heads,inputOf,type CellStyle,type CellTarget} from './model';
-    import {columnName,type Calculation} from './formula';
+    import {columnName,literal,type Calculation,type CellVersion,type Scalar} from './formula';
     import {SheetWorker} from './workerClient';
     let {session,onselection,onactivesheet,focusAnchor}:{session:ArtifactSession;onselection?:(anchor:string|null)=>void;onactivesheet?:(id:string)=>void;focusAnchor?:string|null}=$props();
     const sessionState=session.state;
     let sheetId=$state(''),selectedRow=$state(''),selectedColumn=$state(''),endRow=$state(''),endColumn=$state('');
     let filter=$state(''),sort=$state<'none'|'asc'|'desc'>('none'),scrollTop=$state(0),viewportHeight=$state(600);
     let grid:HTMLDivElement,formulaInput:HTMLInputElement;
-    let draft=$state(''),editing=$state(false),error=$state(''),notice=$state(''),chart=$state<'none'|'bar'|'line'|'pie'>('none');
+    let draft=$state(''),editing=$state(false),error=$state(''),chart=$state<'none'|'bar'|'line'|'pie'>('none');
     let editingTarget:{sheet:string;row:string;column:string;parents:string[]}|null=null;
     let bufferId='cell:'+crypto.randomUUID();
     let protectionOpen=$state(false),protectBusy=$state(false),recoveryOpen=$state(false),freeze=$state(true);
@@ -33,7 +42,9 @@
         const entries=Array.from(sheets(session.data),([id,sheet])=>({id,name:String(sheet.get('name')),removed:sheet.get('removed')}));
         return entries.filter(sheet=>sheet.removed);
     });
-    const rowHeight=$derived.by(()=>{dataEpoch;const styles=ysheet?.get('styles');return styles instanceof Y.Map&&Array.from(styles.values()).some(style=>(style as CellStyle).wrap)?72:32;});
+    // Rows are 28px (40 on touch screens, so a finger can pick one).
+    const baseRow=typeof window!=='undefined'&&window.matchMedia?.('(pointer: coarse)').matches?40:28;
+    const rowHeight=$derived.by(()=>{dataEpoch;const styles=ysheet?.get('styles');return styles instanceof Y.Map&&Array.from(styles.values()).some(style=>(style as CellStyle).wrap)?72:baseRow;});
     const rows=$derived.by(()=>{
         if(!current)return[];let result=current.rows;
         if(filter){const query=filter.toLocaleLowerCase();result=result.filter(row=>current.columns.some(column=>value(row.id,column.id).toLocaleLowerCase().includes(query)));}
@@ -77,7 +88,12 @@
     function value(row:string,column:string):string{
         if(!current||!ysheet)return'';const key=`${current.id}/${cellKey(row,column)}`,versions=heads(current.cells[cellKey(row,column)]||[]);
         if(versions.length>1)return'#CONFLICT!';if(calculations.errors[key])return versions[0]?.cached!==undefined?`${String(versions[0].cached??'')} ${cachedResultIsStale(session.data)?'STALE':'†'}`:calculations.errors[key];
-        return formatValue(calculations.values[key]??(versions[0]?.literal??null),styleOf(ysheet,row,column));
+        return formatValue(calculations.values[key]??typed(versions[0]),styleOf(ysheet,row,column));
+    }
+    /** A typed (non-formula) value shows at once, before the calculator answers or if it cannot. */
+    function typed(version:CellVersion|undefined):Scalar{
+        if(!version)return null;if(version.literal!==undefined)return version.literal;
+        return version.input.startsWith('=')?null:literal(version.input);
     }
     function beginEdit(){if(!editable||!current||isProtected(selectedRow,selectedColumn))return;if(!editingTarget){editingTarget={sheet:current.id,row:selectedRow,column:selectedColumn,parents:selectedVersions.map(version=>version.id)};bufferId='cell:'+crypto.randomUUID();}editing=true;}
     function stage(value:string){draft=value;if(!editingTarget)beginEdit();if(!editingTarget)return;const target=editingTarget;attempt(()=>session.stageDraft(bufferId,{kind:'cell',text:value,context:{...target},updatedAt:Date.now()}));}
@@ -105,7 +121,7 @@
         if(!current)return;const rowIds=[...new Set(selection.map(cell=>cell.row))],columnIds=[...new Set(selection.map(cell=>cell.column))];
         const escape=(text:string)=>/[\t\r\n"]/.test(text)?`"${text.replaceAll('"','""')}"`:text;
         const text=rowIds.map(row=>columnIds.map(column=>{const output=value(row,column),raw=calculations.values[`${current!.id}/${cellKey(row,column)}`];return escape(typeof raw!=='number'&&/^[=+@-]/.test(output)?"'"+output:output);}).join('\t')).join('\n');
-        try{await navigator.clipboard.writeText(text);notice='Selected values copied as a text-safe snapshot. No hidden cells or formulas were included.';}catch{error='Clipboard access was denied. Use export instead.';}
+        try{await navigator.clipboard.writeText(text);toast('Selected values copied as a text-safe snapshot. No hidden cells or formulas were included.',{tone:'info'});}catch{error='Clipboard access was denied. Use export instead.';}
     }
     function parseTsv(text:string){const result:string[][]=[[]];let field='',quoted=false;for(let index=0;index<text.length;index++){const c=text[index];if(c==='"'&&(quoted||field==='')){if(quoted&&text[index+1]==='"'){field+='"';index++;}else quoted=!quoted;}else if(!quoted&&(c==='\t'||c==='\n')){result.at(-1)!.push(field.replace(/\r$/,''));field='';if(c==='\n')result.push([]);}else field+=c;}result.at(-1)!.push(field.replace(/\r$/,''));if(result.length>1&&result.at(-1)!.length===1&&result.at(-1)![0]==='')result.pop();if(quoted)throw new Error('Pasted table has an unclosed quote.');return result;}
     function paste(event:ClipboardEvent){
@@ -123,7 +139,9 @@
         if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='c'){event.preventDefault();void copy();return;}
         if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='a'){event.preventDefault();if(current&&rows.length){selectedRow=rows[0].id;selectedColumn=current.columns[0].id;endRow=rows.at(-1)!.id;endColumn=current.columns.at(-1)!.id;}return;}
         if(event.key==='F2'||event.key==='Enter'){event.preventDefault();startEdit();return;}if(!current)return;
-        let row=rows.findIndex(item=>item.id===selectedRow),column=current.columns.findIndex(item=>item.id===selectedColumn);const direction:Record<string,[number,number]>={ArrowUp:[-1,0],ArrowDown:[1,0],ArrowLeft:[0,-1],ArrowRight:[0,1],Tab:[0,event.shiftKey?-1:1]};
+        // Shift extends the range from its far corner, so the selection can grow past one cell.
+        const extending=event.shiftKey&&event.key!=='Tab';
+        let row=rows.findIndex(item=>item.id===(extending?(endRow||selectedRow):selectedRow)),column=current.columns.findIndex(item=>item.id===(extending?(endColumn||selectedColumn):selectedColumn));const direction:Record<string,[number,number]>={ArrowUp:[-1,0],ArrowDown:[1,0],ArrowLeft:[0,-1],ArrowRight:[0,1],Tab:[0,event.shiftKey?-1:1]};
         if(direction[event.key]){event.preventDefault();row=Math.max(0,Math.min(rows.length-1,row+direction[event.key][0]));column=Math.max(0,Math.min(current.columns.length-1,column+direction[event.key][1]));if(rows[row])choose(rows[row].id,current.columns[column].id,event.shiftKey&&event.key!=='Tab');if(row*rowHeight<grid.scrollTop)grid.scrollTop=row*rowHeight;else if(row*rowHeight>grid.scrollTop+grid.clientHeight-96)grid.scrollTop=row*rowHeight-grid.clientHeight+96;return;}
         if(allowSelected&&(event.key==='Delete'||event.key==='Backspace')){event.preventDefault();clearSelection();return;}
         if(allowSelected&&event.key.length===1&&!event.ctrlKey&&!event.metaKey&&!event.altKey){event.preventDefault();beginEdit();stage(event.key);formulaInput.focus();}
@@ -139,61 +157,264 @@
         try{
             await session.sync();const ranges:ProtectedRange[]=removeId?protections.filter(range=>range.id!==removeId):[...protections,{id:crypto.randomUUID(),sheetId:current.id,rows:[...new Set(selection.map(cell=>cell.row))],columns:[...new Set(selection.map(cell=>cell.column))],label:`${current.name}: protected selection`}];
             const response=await request<{meta:Meta}>(session.scope,`/artifacts/${session.id}/protection`,{expectedRevision:session.record.meta!.revision,ranges});
-            if(disposed)return;session.record.meta=response.meta;await session.flush();notice='Range protection saved on the server.';
+            if(disposed)return;session.record.meta=response.meta;await session.flush();toast('Range protection saved on the server.',{tone:'info'});
         }catch(e){if(!disposed)error=e instanceof Error?e.message:String(e);}finally{if(!disposed)protectBusy=false;}
     }
-    const chartData=$derived.by(()=>{if(!current)return[];const rs=[...new Set(selection.map(cell=>cell.row))].slice(0,30),cs=[...new Set(selection.map(cell=>cell.column))];if(cs.length<2)return[];return rs.map(row=>({label:value(row,cs[0]),value:calculations.values[`${current.id}/${cellKey(row,cs[1])}`]})).filter((item):item is{label:string;value:number}=>typeof item.value==='number'&&Number.isFinite(item.value));});
+    const chartData=$derived.by(()=>{if(!current)return[];const rs=[...new Set(selection.map(cell=>cell.row))].slice(0,30),cs=[...new Set(selection.map(cell=>cell.column))];if(cs.length<2)return[];return rs.map(row=>({label:value(row,cs[0]),value:raw(row,cs[1])})).filter((item):item is{label:string;value:number}=>typeof item.value==='number'&&Number.isFinite(item.value));});
     const minimum=$derived(Math.min(0,...chartData.map(item=>item.value))),maximum=$derived(Math.max(1,...chartData.map(item=>item.value)));
     const chartY=(value:number)=>260-(value-minimum)/(maximum-minimum)*220;
     function piePath(index:number){const positive=chartData.map(item=>Math.max(0,item.value)),total=positive.reduce((a,b)=>a+b,0);if(!total)return'';const begin=positive.slice(0,index).reduce((a,b)=>a+b,0)/total*Math.PI*2-Math.PI/2,span=positive[index]/total*Math.PI*2,end=begin+Math.min(span,Math.PI*2-.00001);const x=(angle:number)=>200+110*Math.cos(angle),y=(angle:number)=>140+110*Math.sin(angle);return`M200 140 L${x(begin)} ${y(begin)} A110 110 0 ${end-begin>Math.PI?1:0} 1 ${x(end)} ${y(end)} Z`;}
+
+    // ---- the editor's chrome (design contract §8.8 Sheets) ----
+    let toolbar=$state<HTMLDivElement|null>(null);
+    let formatOpen=$state(false),chartOpen=$state(true);
+    let renamingSheet=$state<string|null>(null);
+    let tabMenuAnchor=$state<HTMLElement|null>(null),tabMenuOpen=$state(false),tabMenuSheet=$state('');
+    const gridId='sheet-grid-'+crypto.randomUUID();
+    const sheetName=(item:{value:Y.Map<unknown>})=>String(item.value.get('name'));
+    const cellName=$derived(current&&selectedColumn&&selectedRow?`${columnName(current.columns.findIndex(column=>column.id===selectedColumn))}${current.rows.findIndex(row=>row.id===selectedRow)+1}`:'');
+    const rowIndex=$derived(new Map(rows.map((row,index)=>[row.id,index])));
+    const colIndex=$derived(new Map((current?.columns||[]).map((column,index)=>[column.id,index])));
+    /** The selected range's edges (row and column indexes), for its 1px accent perimeter. */
+    const bounds=$derived.by(()=>{
+        const a=rowIndex.get(selectedRow),b=rowIndex.get(endRow||selectedRow),c=colIndex.get(selectedColumn),d=colIndex.get(endColumn||selectedColumn);
+        if(a===undefined||b===undefined||c===undefined||d===undefined)return null;
+        return{r0:Math.min(a,b),r1:Math.max(a,b),c0:Math.min(c,d),c1:Math.max(c,d)};
+    });
+    const selectedColumns=$derived(new Set(selection.map(cell=>cell.column)));
+    const selectedRows=$derived(new Set(selection.map(cell=>cell.row)));
+    /** The cell's own value (calculated, else its literal) for the footer and number alignment. */
+    function raw(row:string,column:string):unknown{
+        if(!current)return undefined;const key=`${current.id}/${cellKey(row,column)}`;
+        return calculations.values[key]??typed(heads(current.cells[cellKey(row,column)]||[])[0]);
+    }
+    const numeric=(row:string,column:string)=>typeof raw(row,column)==='number';
+    /** Sum, average and count of the selection: numbers sum and average; count is filled cells. */
+    const stats=$derived.by(()=>{
+        if(!current||selection.length<2)return null;let sum=0,numbers=0,count=0;
+        for(const cell of selection){const value=raw(cell.row,cell.column);if(value===undefined||value===null||value==='')continue;count++;if(typeof value==='number'&&Number.isFinite(value)){sum+=value;numbers++;}}
+        return{count,numbers,sum,average:numbers?sum/numbers:null};
+    });
+    const number=(value:number)=>new Intl.NumberFormat(undefined,{maximumFractionDigits:4}).format(value);
+    /** A cached result from an imported file (Wabi cannot recalculate its formula): say so where it is read. */
+    const activeCached=$derived.by(()=>{
+        if(!current)return null;const key=`${current.id}/${cellKey(selectedRow,selectedColumn)}`;
+        if(!calculations.errors[key]||selectedVersions[0]?.cached===undefined)return null;
+        return cachedResultIsStale(session.data)?'stale':'cached';
+    });
+
+    function switchSheet(id:string){if(id===current?.id)return;if(!commit())return;sheetId=id;scrollTop=0;filter='';sort='none';}
+    function newSheet(){attempt(()=>{if(!commit())return;session.doc.transact(()=>{sheetId=addSheet(session.data,`Sheet ${available.length+1}`).id;},session.origin);});}
+    async function startRename(id:string){if(!editable)return;renamingSheet=id;await tick();toolbar?.closest('.sheets-editor')?.querySelector<HTMLInputElement>('.sheet-tab__rename')?.select();}
+    function finishRename(id:string,value:string){renamingSheet=null;const name=value.trim();if(name)attempt(()=>renameSheet(session.data,id,name,session.origin));}
+    function removeSheetById(id:string){attempt(()=>{if($sessionState.meta?.role!=='owner'&&protections.some(range=>range.sheetId===id))throw new Error('This sheet contains protected cells.');if(commit())removeSheet(session.data,id,session.origin);});}
+    function openTabMenu(event:MouseEvent,id:string){event.preventDefault();tabMenuSheet=id;tabMenuAnchor=event.currentTarget as HTMLElement;tabMenuOpen=true;}
+    const tabMenuItems=$derived<MenuEntry[]>([
+        {id:'rename',label:'Rename sheet',icon:'pencil',disabled:!editable,onSelect:()=>void startRename(tabMenuSheet)},
+        {id:'left',label:'Move left',icon:'arrowLeft',disabled:!editable,onSelect:()=>attempt(()=>reorderSheet(session.data,tabMenuSheet,-1,session.origin))},
+        {id:'right',label:'Move right',icon:'arrowRight',disabled:!editable,onSelect:()=>attempt(()=>reorderSheet(session.data,tabMenuSheet,1,session.origin))},
+        {id:'sep',type:'separator',label:''},
+        {id:'remove',label:'Remove sheet',icon:'trash',danger:true,disabled:!editable||available.length<2,hint:'Kept for recovery',onSelect:()=>removeSheetById(tabMenuSheet)}
+    ]);
+
+    const FORMATS:{value:NonNullable<CellStyle['format']>;label:string}[]=[{value:'general',label:'General'},{value:'number',label:'Number'},{value:'currency',label:'Currency'},{value:'percent',label:'Percent'},{value:'date',label:'Date (native serial)'},{value:'text',label:'Text'}];
+    const formatLabel=$derived(FORMATS.find(item=>item.value===(selectedStyle.format||'general'))?.label??'General');
+    const formatItems=$derived<MenuEntry[]>(FORMATS.map(item=>({id:`format-${item.value}`,label:item.label,role:'menuitemradio',checked:(selectedStyle.format||'general')===item.value,disabled:!allowSelected,onSelect:()=>style({format:item.value})})));
+    const CURRENCIES=['USD','THB','EUR','GBP','JPY'];
+    const currencyItems=$derived<MenuEntry[]>(CURRENCIES.map(code=>({id:`currency-${code}`,label:code,keepCase:true,role:'menuitemradio',checked:(selectedStyle.currency||'USD')===code,disabled:!allowSelected,onSelect:()=>style({currency:code})})));
+    const SORTS:{value:'none'|'asc'|'desc';label:string}[]=[{value:'none',label:'Original row order'},{value:'asc',label:'Selected column: ascending'},{value:'desc',label:'Selected column: descending'}];
+    const sortItems=$derived<MenuEntry[]>(SORTS.map(item=>({id:`sort-${item.value}`,label:item.label,role:'menuitemradio',checked:sort===item.value,hint:item.value==='none'?undefined:'Your view only',onSelect:()=>{sort=item.value;}})));
+    const CHARTS:{value:'none'|'bar'|'line'|'pie';label:string}[]=[{value:'none',label:'No chart'},{value:'bar',label:'Bar chart'},{value:'line',label:'Line chart'},{value:'pie',label:'Pie chart'}];
+    const chartItems=$derived<MenuEntry[]>(CHARTS.map(item=>({id:`chart-${item.value}`,label:item.label,role:'menuitemradio',checked:chart===item.value,onSelect:()=>{chart=item.value;chartOpen=true;}})));
+    const ALIGNS:{value:'left'|'center'|'right';label:string;icon:IconName}[]=[{value:'left',label:'Align left',icon:'alignLeft'},{value:'center',label:'Align center',icon:'alignCenter'},{value:'right',label:'Align right',icon:'alignRight'}];
+    /** Everything the one toolbar has no room for (design contract §8.8): ⋯ Spreadsheet tools. */
+    const moreItems=$derived.by(():MenuEntry[]=>{
+        const items:MenuEntry[]=[
+            {id:'k-cells',type:'kicker',label:'Cells'},
+            {id:'wrap',label:'Wrap text',icon:'wrapText',role:'menuitemcheckbox',checked:!!selectedStyle.wrap,disabled:!allowSelected,onSelect:()=>style({wrap:!selectedStyle.wrap})},
+            {id:'plain',label:'Clear formatting',icon:'x',disabled:!allowSelected,onSelect:()=>style({bold:false,italic:false,fill:'',border:false,wrap:false,format:'general'})},
+            {id:'details',label:'Decimals and column width…',icon:'sliders',onSelect:()=>{formatOpen=true;}},
+            {id:'fill-down',label:'Fill down',icon:'arrowRight',disabled:!editable,onSelect:fillDown},
+            {id:'copy',label:'Copy range',icon:'copy',shortcut:'Ctrl C',onSelect:()=>void copy()},
+            {id:'sep-1',type:'separator',label:''},
+            {id:'k-rows',type:'kicker',label:'Rows and columns'},
+            {id:'delete-row',label:'Delete row',icon:'trash',disabled:!editable,onSelect:()=>axis('rows',true)},
+            {id:'delete-column',label:'Delete column',icon:'trash',disabled:!editable,onSelect:()=>axis('columns',true)},
+            {id:'freeze',label:'Freeze headers',icon:'pin',role:'menuitemcheckbox',checked:freeze,onSelect:()=>{freeze=!freeze;}},
+            {id:'sep-2',type:'separator',label:''},
+            {id:'k-shared',type:'kicker',label:'For everyone'},
+            {id:'apply-order',label:$_('office.sheets.apply_row_order'),icon:'users',disabled:!editable||!!filter||sort==='none',hint:sort==='none'?'Sort your view first':filter?'Clear the filter first':'Reorders the rows for everyone',onSelect:()=>attempt(()=>{if(commit()){reorderRows(session.data,current!.id,rows.map(row=>row.id),session.origin);sort='none';}})},
+            {id:'protect',label:protections.length?`Protected ranges (${protections.length})`:'Protected ranges…',icon:'lock',seal:true,onSelect:()=>{protectionOpen=true;}}
+        ];
+        if(cellDrafts.length||(ysheet&&recoverRemoved(ysheet).length)||removedSheets.length)items.push({id:'sep-3',type:'separator',label:''},{id:'k-recover',type:'kicker',label:'Recovery'});
+        if(cellDrafts.length)items.push({id:'drafts',label:`Recover cell drafts (${cellDrafts.length})`,icon:'history',onSelect:()=>{recoveryOpen=true;}});
+        if(ysheet&&recoverRemoved(ysheet).length)items.push({id:'removed',label:'Export removed content',icon:'download',hint:'Removed rows and columns',onSelect:()=>download('removed-sheet-content.json',JSON.stringify(recoverRemoved(ysheet!),null,2))});
+        for(const item of removedSheets)items.push({id:`restore-${item.id}`,label:`Restore ${item.name}`,keepCase:true,icon:'undo',disabled:!editable,onSelect:()=>attempt(()=>restoreSheet(session.data,item.id,session.origin))});
+        return items;
+    });
+
+    // The toolbar is one tab stop (design contract §10): arrow keys move between its controls,
+    // Tab moves on to the formula bar and the grid. The filter field keeps its own stop.
+    function roving(){return toolbar?Array.from(toolbar.querySelectorAll<HTMLElement>('[data-rove]')).filter(element=>!(element as HTMLButtonElement).disabled):[];}
+    function settleRoving(focused?:HTMLElement){
+        const items=roving();if(!items.length)return;const keep=focused&&items.includes(focused)?focused:items.find(item=>item.tabIndex===0)||items[0];
+        for(const item of items)item.tabIndex=item===keep?0:-1;
+    }
+    function toolbarKeydown(event:KeyboardEvent){
+        const target=event.target as HTMLElement;if(!target.hasAttribute('data-rove'))return;
+        const items=roving(),index=items.indexOf(target);if(index<0)return;
+        let next=-1;if(event.key==='ArrowRight')next=(index+1)%items.length;else if(event.key==='ArrowLeft')next=(index-1+items.length)%items.length;else if(event.key==='Home')next=0;else if(event.key==='End')next=items.length-1;
+        if(next<0)return;event.preventDefault();settleRoving(items[next]);items[next].focus();
+    }
+    $effect(()=>{allowSelected;editable;sort;filter;void tick().then(()=>settleRoving());});
+    const PIE=['var(--w-accent)','var(--w-seal)','var(--w-online)','var(--w-sig)','color-mix(in srgb, var(--w-accent) 50%, var(--w-bg))','color-mix(in srgb, var(--w-seal) 50%, var(--w-bg))','color-mix(in srgb, var(--w-online) 50%, var(--w-bg))','color-mix(in srgb, var(--w-sig) 50%, var(--w-bg))'];
 </script>
+
 <div class="sheets-editor">
-    <div class="workspace-toolbar sheet-tools"><select aria-label="Active sheet" value={current?.id} onchange={event=>{if(!commit()){event.currentTarget.value=current?.id||'';return;}sheetId=event.currentTarget.value;scrollTop=0;filter='';sort='none';}}>{#each available as item(item.id)}<option value={item.id}>{String(item.value.get('name'))}</option>{/each}</select>
-        <button disabled={!editable} onclick={()=>attempt(()=>{if(!commit())return;session.doc.transact(()=>{sheetId=addSheet(session.data,`Sheet ${available.length+1}`).id;},session.origin);})}>+ Sheet</button>
-        {#if ysheet}<input aria-label="Sheet name" value={String(ysheet.get('name'))} disabled={!editable} maxlength="100" onchange={event=>attempt(()=>renameSheet(session.data,current!.id,event.currentTarget.value,session.origin))}/>{/if}
-        <button disabled={!editable} onclick={()=>attempt(()=>reorderSheet(session.data,current!.id,-1,session.origin))}>Move sheet left</button><button disabled={!editable} onclick={()=>attempt(()=>reorderSheet(session.data,current!.id,1,session.origin))}>Move sheet right</button>
-        <button disabled={!editable||available.length<2} onclick={()=>attempt(()=>{if($sessionState.meta?.role!=='owner'&&protections.some(range=>range.sheetId===current?.id))throw new Error('This sheet contains protected cells.');if(commit())removeSheet(session.data,current!.id,session.origin);})}>Remove sheet</button>
-        <button disabled={!allowSelected} onclick={()=>style({bold:!selectedStyle.bold})}>Bold</button><button disabled={!allowSelected} onclick={()=>style({italic:!selectedStyle.italic})}>Italic</button><button disabled={!allowSelected} onclick={()=>style({bold:false,italic:false,fill:'',border:false,wrap:false,format:'general'})}>Plain</button>
-        <select aria-label="Cell number format" value={selectedStyle.format||'general'} disabled={!allowSelected} onchange={event=>style({format:event.currentTarget.value as CellStyle['format']})}><option value="general">General</option><option value="number">Number</option><option value="currency">Currency</option><option value="percent">Percent</option><option value="date">Date (native serial)</option><option value="text">Text</option></select>
-        <select aria-label="Currency" value={selectedStyle.currency||'USD'} disabled={!allowSelected} onchange={event=>style({currency:event.currentTarget.value})}><option>USD</option><option>THB</option><option>EUR</option><option>GBP</option><option>JPY</option></select>
-        <input aria-label="Decimal precision" type="number" min="0" max="10" value={selectedStyle.precision??2} disabled={!allowSelected} onchange={event=>style({precision:Number(event.currentTarget.value)})}/>
-        <select aria-label="Cell alignment" value={selectedStyle.align||'left'} disabled={!allowSelected} onchange={event=>style({align:event.currentTarget.value as CellStyle['align']})}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
-        <input aria-label="Cell fill color" type="color" value={selectedStyle.fill||'#30364a'} disabled={!allowSelected} oninput={event=>style({fill:event.currentTarget.value})}/>
-        <button disabled={!allowSelected} onclick={()=>style({wrap:!selectedStyle.wrap})}>Wrap</button><button disabled={!allowSelected} onclick={()=>style({border:!selectedStyle.border})}>Borders</button>
-        {#if ysheet}<input aria-label="Column width" type="number" min="60" max="600" value={columnWidth(ysheet,selectedColumn)} disabled={!editable} onchange={event=>attempt(()=>setColumnWidth(session.data,current!.id,selectedColumn,Number(event.currentTarget.value),session.origin))}/>{/if}
+    <!-- One 44px toolbar (design contract §8.8); the rest is in ⋯ Spreadsheet tools. -->
+    <!-- svelte-ignore a11y_interactive_supports_focus -->
+    <div class="sheet-toolbar" role="toolbar" aria-label="Spreadsheet tools" bind:this={toolbar} onkeydown={toolbarKeydown} onfocusin={event=>settleRoving(event.target as HTMLElement)}>
+        <Menu class="w-btn w-btn--quiet sheet-toolbar__format" items={formatItems} label="Number format" heading="Number format" triggerLabel={`Number format: ${formatLabel}`} disabled={!allowSelected} data-rove>
+            <span class="sheet-toolbar__format-words">{formatLabel}</span><Icon name="chevDown" size={16} />
+        </Menu>
+        {#if selectedStyle.format==='currency'}
+            <Menu class="w-btn w-btn--quiet" items={currencyItems} label="Currency" heading="Currency" triggerLabel={`Currency: ${selectedStyle.currency||'USD'}`} disabled={!allowSelected} data-rove>
+                {selectedStyle.currency||'USD'}<Icon name="chevDown" size={16} />
+            </Menu>
+        {/if}
+        <span class="w-tool__sep" aria-hidden="true"></span>
+        <Tooltip text="Bold" placement="bottom"><button type="button" class="w-ibtn" aria-label="Bold" aria-pressed={!!selectedStyle.bold} disabled={!allowSelected} data-rove onclick={()=>style({bold:!selectedStyle.bold})}><Icon name="bold" /></button></Tooltip>
+        <Tooltip text="Italic" placement="bottom"><button type="button" class="w-ibtn" aria-label="Italic" aria-pressed={!!selectedStyle.italic} disabled={!allowSelected} data-rove onclick={()=>style({italic:!selectedStyle.italic})}><Icon name="italic" /></button></Tooltip>
+        <span class="w-tool__sep" aria-hidden="true"></span>
+        <span class="sheet-toolbar__group" role="group" aria-label="Alignment">
+            {#each ALIGNS as align (align.value)}
+                <Tooltip text={align.label} placement="bottom"><button type="button" class="w-ibtn" aria-label={align.label} aria-pressed={(selectedStyle.align||'left')===align.value} disabled={!allowSelected} data-rove onclick={()=>style({align:align.value})}><Icon name={align.icon} /></button></Tooltip>
+            {/each}
+        </span>
+        <span class="w-tool__sep" aria-hidden="true"></span>
+        <Tooltip text="Cell fill" placement="bottom">
+            <label class="w-ibtn sheet-toolbar__fill" class:disabled={!allowSelected}>
+                <Icon name="fill" /><span class="sheet-toolbar__swatch" style:background-color={selectedStyle.fill||'transparent'}></span>
+                <input class="sheet-toolbar__color" aria-label="Cell fill color" type="color" value={selectedStyle.fill||'#fff3b0'} disabled={!allowSelected} data-rove oninput={event=>style({fill:event.currentTarget.value})} />
+            </label>
+        </Tooltip>
+        <Tooltip text="Borders" placement="bottom"><button type="button" class="w-ibtn" aria-label="Borders" aria-pressed={!!selectedStyle.border} disabled={!allowSelected} data-rove onclick={()=>style({border:!selectedStyle.border})}><Icon name="borders" /></button></Tooltip>
+        <span class="w-tool__sep" aria-hidden="true"></span>
+        <Tooltip text="Insert row" placement="bottom"><button type="button" class="w-ibtn" aria-label="Insert row" disabled={!editable} data-rove onclick={()=>axis('rows')}><Icon name="rowAdd" /></button></Tooltip>
+        <Tooltip text="Insert column" placement="bottom"><button type="button" class="w-ibtn" aria-label="Insert column" disabled={!editable} data-rove onclick={()=>axis('columns')}><Icon name="columnAdd" /></button></Tooltip>
+        <span class="w-tool__sep" aria-hidden="true"></span>
+        <label class="w-field sheet-toolbar__filter"><Icon name="filter" /><input aria-label={$_('office.sheets.filter_my_view')} placeholder={`${$_('office.sheets.filter_my_view')}…`} bind:value={filter} /></label>
+        <Menu class="w-ibtn" items={sortItems} label="Sort my view" heading="Sort my view by the selected column" triggerLabel={sort==='none'?'Sort my view':`Sort my view: ${sort==='asc'?'ascending':'descending'}`} aria-pressed={sort!=='none'} data-rove>
+            <Icon name="chevUpDown" />
+        </Menu>
+        <Menu class="w-ibtn" items={chartItems} label="Chart" heading="Chart the selected range" triggerLabel={chart==='none'?'Chart':`Chart: ${chart}`} aria-pressed={chart!=='none'} data-rove>
+            <Icon name="chart" />
+        </Menu>
+        <span class="sheet-toolbar__spacer"></span>
+        <Menu class="w-ibtn" items={moreItems} label="Spreadsheet tools" heading="Spreadsheet tools" triggerLabel="More spreadsheet tools" align="end" data-rove>
+            <Icon name="more" />
+        </Menu>
     </div>
-    <div class="workspace-toolbar sheet-tools">
-        <button disabled={!editable} onclick={()=>axis('rows')}>Insert row</button><button disabled={!editable} onclick={()=>axis('columns')}>Insert column</button><button disabled={!editable} onclick={()=>axis('rows',true)}>Delete row</button><button disabled={!editable} onclick={()=>axis('columns',true)}>Delete column</button><button disabled={!editable} onclick={fillDown}>Fill down</button><button onclick={()=>void copy()}>Copy range</button>
-        <input aria-label="Filter my view" placeholder="Filter my view…" bind:value={filter}/><select aria-label="Sort my view by selected column" bind:value={sort}><option value="none">Original row order</option><option value="asc">Selected column: ascending</option><option value="desc">Selected column: descending</option></select>
-        <button disabled={!editable||!!filter||sort==='none'} onclick={()=>attempt(()=>{if(commit()){reorderRows(session.data,current!.id,rows.map(row=>row.id),session.origin);sort='none';}})}>Apply row order to everyone</button>
-        <button onclick={()=>freeze=!freeze}>{freeze?'Unfreeze headers':'Freeze headers'}</button><button onclick={()=>protectionOpen=!protectionOpen}>Protected ranges {protections.length||''}</button>
-        <select aria-label="Chart selected range" bind:value={chart}><option value="none">No chart</option><option value="bar">Bar chart</option><option value="line">Line chart</option><option value="pie">Pie chart</option></select>
-        {#if cellDrafts.length}<button onclick={()=>recoveryOpen=!recoveryOpen}>Recover cell drafts {cellDrafts.length}</button>{/if}
-        <span>{selection.length} selected · {calculating?'Calculating…':'Calculated'} · † source-cached result; STALE means the workbook changed.</span>
-    </div>
-    {#if protectionOpen}<section class="sheet-tools" aria-label="Protected ranges"><p>Protected cells remain readable. Only the owner can edit their values or remove protection.</p>
-        {#if $sessionState.meta?.role==='owner'}<button disabled={protectBusy||!selection.length} onclick={()=>void protect()}>Protect selected range</button>{:else if !$sessionState.meta}<p>Share this workbook before configuring server-enforced range protection.</p>{/if}
-        {#each protections as range(range.id)}<p>{range.label} · {range.rows.length} × {range.columns.length}{#if $sessionState.meta?.role==='owner'} <button disabled={protectBusy} onclick={()=>void protect(range.id)}>Remove protection</button>{/if}</p>{/each}
-    </section>{/if}
-    {#if recoveryOpen}<section class="sheet-tools" aria-label="Cell draft recovery">{#each cellDrafts as [id, entry] (id)}<p>{entry.text.slice(0,120)||'(empty cell draft)'} <button onclick={()=>restoreBuffer(id,entry)}>Restore cell draft</button></p>{/each}<button onclick={()=>download('spreadsheet-recovery.wabi.json',session.recovery())}>Export all recovery data</button></section>{/if}
-    <form class="formula-bar" onsubmit={event=>{event.preventDefault();if(commit())grid?.focus();}}><span>{current?`${columnName(current.columns.findIndex(column=>column.id===selectedColumn))}${current.rows.findIndex(row=>row.id===selectedRow)+1}`:''}</span><input aria-label="Cell value or formula" bind:this={formulaInput} value={draft} maxlength="8192" disabled={!editable||(!editing&&selectionProtected)} onfocus={beginEdit} oninput={event=>stage(event.currentTarget.value)} onblur={()=>commit()} onkeydown={event=>{if(event.key==='Escape'){event.preventDefault();cancelEdit();}}}/><button disabled={!editable}>Apply</button>{#if editing}<button type="button" onpointerdown={event=>event.preventDefault()} onclick={cancelEdit}>Cancel cell edit</button>{/if}</form>
-    {#if error}<p class="workspace-notice" role="alert">{error}</p>{/if}{#if notice}<p class="sheet-tools" role="status">{notice}</p>{/if}
-    {#if selectedVersions.length>1}<div class="workspace-notice" role="alert"><span>This cell has competing edits. Choose one or enter a replacement; alternatives remain in saved history.</span>{#each selectedVersions as version(version.id)}<button disabled={!allowSelected} onclick={()=>attempt(()=>{if(current){permitted([{row:selectedRow,column:selectedColumn}]);setCell(session.data,current.id,selectedRow,selectedColumn,version.input,session.origin,version.expression?{expression:version.expression}:undefined);}})}>{version.input||'(empty)'}</button>{/each}</div>{/if}
-    {#if chart!=='none'}<section class="sheet-chart" aria-label="Selected range chart">{#if chartData.length}<svg viewBox="0 0 600 300" role="img" aria-label={`${chart} chart of the selected two-column range`}>
-        {#if chart==='bar'}<line x1="25" y1={chartY(0)} x2="580" y2={chartY(0)} stroke="currentColor"/>{#each chartData as item,index}<rect x={30+index*540/chartData.length} y={Math.min(chartY(0),chartY(item.value))} width={Math.max(2,450/chartData.length)} height={Math.abs(chartY(0)-chartY(item.value))} fill="currentColor"><title>{item.label}: {item.value}</title></rect>{/each}
-        {:else if chart==='line'}<polyline points={chartData.map((item,index)=>`${30+index*540/Math.max(1,chartData.length-1)},${chartY(item.value)}`).join(' ')} fill="none" stroke="currentColor" stroke-width="3"/>
-        {:else}{#each chartData as item,index}<path d={piePath(index)} fill={`hsl(${index*61} 55% 55%)`} stroke="var(--surface-base,#161826)"><title>{item.label}: {item.value}</title></path>{/each}{/if}
-    </svg><div>{#if chart==='pie'}<small>Pie slices use positive values only.</small>{/if}{#each chartData as item}<span>{item.label}: {item.value}</span>{/each}</div>{:else}<p>Select a label column and a numeric column, then choose a chart.</p>{/if}</section>{/if}
-    <div class="sheet-grid" class:freeze bind:this={grid} tabindex="0" role="region" aria-label="Spreadsheet grid" aria-busy={calculating} onkeydown={keydown} onpaste={paste} onscroll={()=>{scrollTop=grid.scrollTop;viewportHeight=grid.clientHeight;}}>
-        {#if current}<table role="grid" aria-rowcount={rows.length+1} aria-colcount={current.columns.length+1}><colgroup><col style:width="52px"/>{#each current.columns as column(column.id)}<col style:width={`${ysheet?columnWidth(ysheet,column.id):140}px`}/>{/each}</colgroup><thead><tr><th class="row-label">#</th>{#each current.columns as column,index(column.id)}<th scope="col" style:width={`${ysheet?columnWidth(ysheet,column.id):140}px`}>{columnName(index)}</th>{/each}</tr></thead><tbody>
+
+    <!-- The 40px formula bar: name box, fx, the cell's input. Enter applies, Esc cancels. -->
+    <form class="sheet-formula" onsubmit={event=>{event.preventDefault();if(commit())grid?.focus();}}>
+        <output class="sheet-formula__name" aria-label="Selected cell">{cellName}</output>
+        <span class="sheet-formula__fx" aria-hidden="true">fx</span>
+        <input class="sheet-formula__input" aria-label="Cell value or formula" bind:this={formulaInput} value={draft} maxlength="8192" spellcheck="false" autocomplete="off" disabled={!editable||(!editing&&selectionProtected)} onfocus={beginEdit} oninput={event=>stage(event.currentTarget.value)} onblur={()=>commit()} onkeydown={event=>{if(event.key==='Escape'){event.preventDefault();cancelEdit();}}} />
+        {#if activeCached}<span class="w-tag sheet-formula__tag" title={activeCached==='stale'?'The saved result from the original file. The workbook changed since, and Wabi cannot recalculate this formula.':'The saved result from the original file. Wabi cannot recalculate this formula.'}>{activeCached==='stale'?'Stale':'Cached'}</span>{/if}
+        {#if selectionProtected}<span class="w-seal sheet-formula__protected"><Icon name="lock" />{$_('office.sheets.protected')}</span>{/if}
+        {#if editing}<button type="button" class="w-ibtn w-ibtn--sm" aria-label="Cancel cell edit" onpointerdown={event=>event.preventDefault()} onclick={cancelEdit}><Icon name="x" /></button>{/if}
+    </form>
+
+    {#if error}
+        <div class="sheet-notice"><Notice title={error} text="Your spreadsheet is unchanged." ondismiss={()=>(error='')} /></div>
+    {/if}
+    {#if selectedVersions.length>1}
+        <div class="sheet-notice">
+            <Notice tone="warn" title="This cell has competing edits" text="Choose one or enter a replacement; the others stay in saved history.">
+                {#snippet actions()}
+                    {#each selectedVersions as version (version.id)}<button type="button" class="w-btn w-btn--sm" disabled={!allowSelected} onclick={()=>attempt(()=>{if(current){permitted([{row:selectedRow,column:selectedColumn}]);setCell(session.data,current.id,selectedRow,selectedColumn,version.input,session.origin,version.expression?{expression:version.expression}:undefined);}})}>{version.input||'(empty)'}</button>{/each}
+                {/snippet}
+            </Notice>
+        </div>
+    {/if}
+
+    {#if formatOpen}
+        <section class="sheet-panel" aria-label="Decimals and column width">
+            <label class="sheet-panel__field"><span class="w-label">Decimals</span><input class="w-field" type="number" min="0" max="10" value={selectedStyle.precision??2} disabled={!allowSelected} onchange={event=>style({precision:Number(event.currentTarget.value)})} /></label>
+            {#if ysheet}<label class="sheet-panel__field"><span class="w-label">Column width (px)</span><input class="w-field" type="number" min="60" max="600" value={columnWidth(ysheet,selectedColumn)} disabled={!editable} onchange={event=>attempt(()=>setColumnWidth(session.data,current!.id,selectedColumn,Number(event.currentTarget.value),session.origin))} /></label>{/if}
+            <button type="button" class="w-ibtn w-ibtn--sm sheet-panel__close" aria-label="Close decimals and column width" onclick={()=>(formatOpen=false)}><Icon name="x" /></button>
+        </section>
+    {/if}
+    {#if protectionOpen}
+        <section class="sheet-panel sheet-panel--stack" aria-label="Protected ranges">
+            <div class="sheet-panel__head"><h2 class="sheet-panel__title">Protected ranges</h2><button type="button" class="w-ibtn w-ibtn--sm" aria-label="Close protected ranges" onclick={()=>(protectionOpen=false)}><Icon name="x" /></button></div>
+            <p class="sheet-panel__text">Protected cells stay readable. Only the owner can edit their values or remove protection.</p>
+            {#if $sessionState.meta?.role==='owner'}<div><button type="button" class="w-btn w-btn--sm" disabled={protectBusy||!selection.length} onclick={()=>void protect()}>Protect selected range</button></div>{:else if !$sessionState.meta}<p class="sheet-panel__text">Share this workbook before configuring server-enforced range protection.</p>{/if}
+            {#each protections as range (range.id)}<p class="sheet-panel__row"><span class="w-seal"><Icon name="lock" />{$_('office.sheets.protected')}</span><span>{range.label} · {range.rows.length} × {range.columns.length}</span>{#if $sessionState.meta?.role==='owner'}<button type="button" class="w-btn w-btn--quiet w-btn--sm" disabled={protectBusy} onclick={()=>void protect(range.id)}>Remove protection</button>{/if}</p>{/each}
+        </section>
+    {/if}
+    {#if recoveryOpen}
+        <section class="sheet-panel sheet-panel--stack" aria-label="Cell draft recovery">
+            <div class="sheet-panel__head"><h2 class="sheet-panel__title">Unsubmitted cell drafts</h2><button type="button" class="w-ibtn w-ibtn--sm" aria-label="Close cell draft recovery" onclick={()=>(recoveryOpen=false)}><Icon name="x" /></button></div>
+            {#each cellDrafts as [id, entry] (id)}<p class="sheet-panel__row"><span class="sheet-panel__draft">{entry.text.slice(0,120)||'(empty cell draft)'}</span><button type="button" class="w-btn w-btn--sm" onclick={()=>restoreBuffer(id,entry)}>Restore cell draft</button></p>{/each}
+            <div><button type="button" class="w-btn w-btn--quiet w-btn--sm" onclick={()=>download('spreadsheet-recovery.wabi.json',session.recovery())}>Export all recovery data</button></div>
+        </section>
+    {/if}
+
+    <div class="sheet-grid" class:freeze id={gridId} bind:this={grid} tabindex="0" role="region" aria-label="Spreadsheet grid" aria-busy={calculating} onkeydown={keydown} onpaste={paste} onscroll={()=>{scrollTop=grid.scrollTop;viewportHeight=grid.clientHeight;}}>
+        {#if current}<table role="grid" aria-label={current.name} aria-rowcount={rows.length+1} aria-colcount={current.columns.length+1} aria-multiselectable="true" style:--sheet-row={`${rowHeight}px`}><colgroup><col class="sheet-col-label"/>{#each current.columns as column(column.id)}<col style:width={`${ysheet?columnWidth(ysheet,column.id):140}px`}/>{/each}</colgroup><thead><tr><th class="row-label corner" scope="col"><span class="sr-only">Row</span></th>{#each current.columns as column,index(column.id)}<th scope="col" class:selected-head={selectedColumns.has(column.id)} style:width={`${ysheet?columnWidth(ysheet,column.id):140}px`}>{columnName(index)}</th>{/each}</tr></thead><tbody>
             {#if first>0}<tr aria-hidden="true"><td colspan={current.columns.length+1} style:height={`${first*rowHeight}px`} class="spacer"></td></tr>{/if}
-            {#each visible as row(row.id)}<tr aria-rowindex={rows.findIndex(item=>item.id===row.id)+2} style:height={`${rowHeight}px`}><th class="row-label" scope="row">{current.rows.findIndex(item=>item.id===row.id)+1}</th>{#each current.columns as column(column.id)}{@const cellStyle=ysheet?styleOf(ysheet,row.id,column.id):{}}<td role="gridcell" aria-readonly={!editable||isProtected(row.id,column.id)} aria-selected={selectedSet.has(cellKey(row.id,column.id))} class:selected={selectedSet.has(cellKey(row.id,column.id))} class:active={row.id===selectedRow&&column.id===selectedColumn} class:protected={isProtected(row.id,column.id)} class:bordered={cellStyle.border} style:font-weight={cellStyle.bold?'700':'400'} style:font-style={cellStyle.italic?'italic':'normal'} style:text-align={cellStyle.align||'left'} style:background-color={cellStyle.fill||undefined} style:white-space={cellStyle.wrap?'normal':'nowrap'} style:width={`${ysheet?columnWidth(ysheet,column.id):140}px`} style:max-width={`${ysheet?columnWidth(ysheet,column.id):140}px`} title={value(row.id,column.id)} onclick={event=>choose(row.id,column.id,event.shiftKey)} ondblclick={()=>{choose(row.id,column.id);startEdit();}}><span style:max-height={`${rowHeight-8}px`}>{value(row.id,column.id)||'\u00a0'}</span></td>{/each}</tr>{/each}
+            {#each visible as row(row.id)}{@const ri=rowIndex.get(row.id)??-1}<tr aria-rowindex={ri+2} style:height={`${rowHeight}px`}><th class="row-label" class:selected-head={selectedRows.has(row.id)} scope="row">{current.rows.findIndex(item=>item.id===row.id)+1}</th>{#each current.columns as column(column.id)}{@const cellStyle=ysheet?styleOf(ysheet,row.id,column.id):{}}{@const isNumber=numeric(row.id,column.id)}{@const ci=colIndex.get(column.id)??-1}<td role="gridcell" class:edge-t={bounds?.r0===ri} class:edge-b={bounds?.r1===ri} class:edge-l={bounds?.c0===ci} class:edge-r={bounds?.c1===ci} aria-readonly={!editable||isProtected(row.id,column.id)} aria-selected={selectedSet.has(cellKey(row.id,column.id))} class:selected={selectedSet.has(cellKey(row.id,column.id))} class:active={row.id===selectedRow&&column.id===selectedColumn} class:protected={isProtected(row.id,column.id)} class:bordered={cellStyle.border} class:num={isNumber} style:font-weight={cellStyle.bold?'700':undefined} style:font-style={cellStyle.italic?'italic':undefined} style:text-align={cellStyle.align||(isNumber?'right':undefined)} style:background-color={cellStyle.fill||undefined} style:white-space={cellStyle.wrap?'normal':undefined} style:width={`${ysheet?columnWidth(ysheet,column.id):140}px`} style:max-width={`${ysheet?columnWidth(ysheet,column.id):140}px`} title={value(row.id,column.id)} onclick={event=>choose(row.id,column.id,event.shiftKey)} ondblclick={()=>{choose(row.id,column.id);startEdit();}}><span style:max-height={`${rowHeight-8}px`}>{value(row.id,column.id)||' '}</span></td>{/each}</tr>{/each}
             {#if last<rows.length}<tr aria-hidden="true"><td colspan={current.columns.length+1} style:height={`${(rows.length-last)*rowHeight}px`} class="spacer"></td></tr>{/if}
         </tbody></table>{/if}
     </div>
-    {#if ysheet&&recoverRemoved(ysheet).length}<div class="sheet-tools"><span>Content in removed rows or columns remains recoverable.</span><button onclick={()=>download('removed-sheet-content.json',JSON.stringify(recoverRemoved(ysheet!),null,2))}>Export removed content</button></div>{/if}
-    {#if removedSheets.length}<details class="sheet-tools"><summary>Removed sheets retained for recovery</summary>{#each removedSheets as item(item.id)}<button disabled={!editable} onclick={()=>attempt(()=>restoreSheet(session.data,item.id,session.origin))}>Restore {item.name}</button>{/each}</details>{/if}
+
+    {#if chart!=='none'}
+        <!-- The chart: a collapsible card below the grid, in the palette's series colours. -->
+        <section class="sheet-chart" class:collapsed={!chartOpen} aria-label="Selected range chart">
+            <div class="sheet-chart__head">
+                <button type="button" class="w-btn w-btn--quiet w-btn--sm sheet-chart__toggle" aria-expanded={chartOpen} onclick={()=>(chartOpen=!chartOpen)}><Icon name={chartOpen?'chevDown':'chevRight'} size={16} />{CHARTS.find(item=>item.value===chart)?.label}</button>
+                <span class="sheet-chart__note">{chartData.length?`${chartData.length} rows from the selection`:'Select a label column and a numeric column'}</span>
+                <button type="button" class="w-ibtn w-ibtn--sm" aria-label="Remove chart" onclick={()=>(chart='none')}><Icon name="x" /></button>
+            </div>
+            {#if chartOpen}
+                {#if chartData.length}
+                    <div class="sheet-chart__body">
+                        <svg viewBox="0 0 600 300" role="img" aria-label={`${chart} chart of the selected two-column range`}>
+                            {#if chart==='bar'}<line x1="25" y1={chartY(0)} x2="580" y2={chartY(0)} class="sheet-chart__axis"/>{#each chartData as item,index}<rect x={30+index*540/chartData.length} y={Math.min(chartY(0),chartY(item.value))} width={Math.max(2,450/chartData.length)} height={Math.abs(chartY(0)-chartY(item.value))} style:fill={PIE[0]}><title>{item.label}: {item.value}</title></rect>{/each}
+                            {:else if chart==='line'}<line x1="25" y1={chartY(0)} x2="580" y2={chartY(0)} class="sheet-chart__axis"/><polyline points={chartData.map((item,index)=>`${30+index*540/Math.max(1,chartData.length-1)},${chartY(item.value)}`).join(' ')} fill="none" style:stroke={PIE[0]} stroke-width="3"/>
+                            {:else}{#each chartData as item,index}<path d={piePath(index)} style:fill={PIE[index%PIE.length]} style:stroke="var(--w-bg)"><title>{item.label}: {item.value}</title></path>{/each}{/if}
+                        </svg>
+                        <ul class="sheet-chart__legend">{#if chart==='pie'}<li class="sheet-chart__hint">Pie slices use positive values only.</li>{/if}{#each chartData as item,index}<li><span class="sheet-chart__key" style:background-color={chart==='pie'?PIE[index%PIE.length]:PIE[0]}></span>{item.label}<span class="sheet-chart__value">{number(item.value)}</span></li>{/each}</ul>
+                    </div>
+                {:else}
+                    <p class="sheet-chart__empty">Select a label column and a numeric column, then choose a chart.</p>
+                {/if}
+            {/if}
+        </section>
+    {/if}
+
+    <!-- 32px footer: sheet tabs (double-click renames, right-click for more) and the readout. -->
+    <footer class="sheet-footer">
+        <div class="sheet-tabs" role="tablist" aria-label="Sheets">
+            {#each available as item (item.id)}
+                {#if renamingSheet===item.id}
+                    <input class="sheet-tab__rename" aria-label="Sheet name" value={sheetName(item)} maxlength="100" onkeydown={event=>{if(event.key==='Enter'){event.preventDefault();finishRename(item.id,event.currentTarget.value);grid?.focus();}else if(event.key==='Escape'){event.preventDefault();renamingSheet=null;grid?.focus();}}} onblur={event=>finishRename(item.id,event.currentTarget.value)} />
+                {:else}
+                    <button type="button" role="tab" class="sheet-tab" class:active={item.id===current?.id} aria-selected={item.id===current?.id} aria-controls={gridId} tabindex={item.id===current?.id?0:-1} onclick={()=>switchSheet(item.id)} ondblclick={()=>void startRename(item.id)} oncontextmenu={event=>openTabMenu(event,item.id)} onkeydown={event=>{if(event.key==='F2'){event.preventDefault();void startRename(item.id);}else if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10')){event.preventDefault();tabMenuSheet=item.id;tabMenuAnchor=event.currentTarget;tabMenuOpen=true;}}}>{sheetName(item)}</button>
+                {/if}
+            {/each}
+            <Tooltip text="Add sheet" placement="top"><button type="button" class="w-ibtn w-ibtn--sm" aria-label="Add sheet" disabled={!editable} onclick={newSheet}><Icon name="plus" /></button></Tooltip>
+        </div>
+        <p class="sheet-stats" aria-live="polite">
+            {#if calculating}<span>Calculating…</span>
+            {:else if stats}{#if stats.numbers}<span>Sum {number(stats.sum)}</span><span>Avg {number(stats.average??0)}</span>{/if}<span>Count {stats.count}</span>
+            {:else}<span>{selection.length===1?cellName:''}</span>{/if}
+        </p>
+    </footer>
 </div>
-<style>
-.sheets-editor{height:100%;display:flex;flex-direction:column;min-height:0}.sheet-tools{padding:.5rem;border-bottom:1px solid var(--border-subtle,#35384c);font-size:.8rem}.sheet-tools input{max-width:160px}.sheet-tools input[type=number]{width:80px}.sheet-tools input[type=color]{width:42px}.sheet-tools span{color:var(--text-secondary,#b5bad0)}.formula-bar{display:flex;align-items:center;gap:.5rem;padding:.5rem}.formula-bar span{min-width:64px;text-align:center;font-variant-numeric:tabular-nums}.formula-bar input{flex:1;min-width:0;font-family:monospace}.sheet-grid{overflow:auto;flex:1;min-height:260px;background:var(--surface-base,#161826);outline:none}.sheet-grid:focus-visible{outline:2px solid var(--accent-primary,#aaa4ff);outline-offset:-2px}table{border-collapse:separate;border-spacing:0;table-layout:fixed;font-size:13px;font-variant-numeric:tabular-nums}th,td{box-sizing:border-box;min-width:60px;height:32px;padding:3px 7px;overflow:hidden;text-overflow:ellipsis;border-right:1px solid var(--border-subtle,#35384c);border-bottom:1px solid var(--border-subtle,#35384c)}td span{display:block;overflow:hidden;overflow-wrap:anywhere}thead th{background:var(--surface-raised,#25293f)}.row-label{min-width:52px;max-width:52px;width:52px;background:var(--surface-raised,#25293f)}.freeze thead th{position:sticky;top:0;z-index:3}.freeze .row-label{position:sticky;left:0;z-index:2}.freeze thead .row-label{z-index:4}.selected{box-shadow:inset 0 0 0 999px color-mix(in srgb,var(--accent-primary,#8d80dc) 20%,transparent)}.active{outline:2px solid var(--accent-primary,#aa9ff6);outline-offset:-2px}.protected{background-image:repeating-linear-gradient(135deg,transparent 0 8px,#8881 8px 10px)}.bordered{border:1px solid var(--text-secondary,#aab)}.spacer{padding:0;border:0}.sheet-chart{height:220px;min-height:220px;display:flex;overflow:auto;padding:.5rem;color:var(--accent-primary,#9e96eb)}.sheet-chart svg{height:100%;min-width:350px}.sheet-chart div{display:flex;flex-direction:column;color:var(--text-secondary,#b5bad0);font-size:.8rem}
-</style>
+
+{#if tabMenuAnchor}
+    <Menu items={tabMenuItems} label="Sheet actions" anchor={tabMenuAnchor} bind:open={tabMenuOpen} heading={available.find(item=>item.id===tabMenuSheet)?sheetName(available.find(item=>item.id===tabMenuSheet)!):'Sheet'} />
+{/if}

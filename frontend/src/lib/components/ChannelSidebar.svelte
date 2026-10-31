@@ -55,20 +55,33 @@
 	import UnifiedChannelList from './sidebar/UnifiedChannelList.svelte';
 	import {
 		buildMixedRoot,
-		filterMixedRoot,
+		channelNoun,
+		communityUnreadIds,
+		deleteConfirmCopy,
+		dmRowLabel,
+		formatBadge,
 		formatGlimpseTime,
 		resolveDropGap,
+		resolveSidebarPlace,
+		sidebarWidthTier,
+		splitRootSections,
 		summarizeGlimpseMessage
 	} from './sidebar/channelSidebarHelpers';
+	import type { ChannelNoun } from './sidebar/channelSidebarHelpers';
 	import type { DragAnchor, DropGap } from './sidebar/channelSidebarHelpers';
 	import VoiceUserCard from './sidebar/VoiceUserCard.svelte';
 	import ProfileCard from './sidebar/ProfileCard.svelte';
 	import CreateChannelForm from './sidebar/CreateChannelForm.svelte';
-	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
-	import type { ContextMenuItem } from '$lib/context-menu/types';
+	import ContextMenu, { type MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
+	import Icon from '$lib/components/ui/Icon.svelte';
+	import Tooltip from '$lib/components/ui/Tooltip.svelte';
+	import Menu from '$lib/components/ui/Menu.svelte';
+	import { openPalette } from '$lib/jumpPalette';
+	import { activeWorkspaceView } from '$lib/workspaceNavigationState';
+	import { _ } from '$lib/i18n';
 	import type { Channel } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
-	import { selectedDmChannelId } from '$lib/layoutStoreStates';
+	import { compactShellTier, selectedDmChannelId } from '$lib/layoutStoreStates';
 	import { currentSavedServer } from '$lib/savedServers';
 	import { resolveServerUrl } from '$lib/serverUrl';
 	import { openDetachedPanel } from '$lib/detachedPanels';
@@ -81,7 +94,7 @@
 	} from '$lib/following';
 	import { setWhiteboardSurface } from '$lib/whiteboard/whiteboardSurface';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
-	import { isServerChannelMuted, toggleServerMutedChannelId } from '$lib/serverSettings';
+	import { activeServerSettings, toggleServerMutedChannelId } from '$lib/serverSettings';
 	import { whiteboardPresence } from '$lib/presenceStore';
 	import { hasAddonCapability } from '$lib/addonInventory';
 	import type { CreateableChannelType } from '$lib/channelStore';
@@ -108,7 +121,7 @@
 	let showDeleteConfirm = false;
 	let channelToDelete = '';
 	let channelToDeleteName = '';
-	let channelToDeleteIsCategory = false;
+	let channelToDeleteNoun: ChannelNoun = 'channel';
 	let channelToDeleteChildCount = 0;
 	let deletingChannel = false;
 	let deleteChannelError = '';
@@ -141,7 +154,7 @@
 	}
 	function closeChannelGlimpse() { glimpseChannelId = null; }
 	let isTextSectionExpanded = true;
-	let channelSearchQuery = '';
+	let isVoiceSectionExpanded = true;
 	let collapsedCategories = new Set<string>();
 	// Folder collapse state persists per-server across reloads and surface
 	// switches. Keyed by server URL under one localStorage entry.
@@ -178,7 +191,14 @@
 	let voiceDropTargetChannelId: string | null = null;
 
 	$: sidebarWidth = $layoutStore.channelSidebarWidth;
-	$: isCompactSidebar = sidebarWidth === 60;
+	// A real compact rail (spec §8.1): any narrow desktop column renders 40px glyph tiles; a
+	// narrow (but not compact) column drops the search keycap. The phone drawer is always full.
+	// In the 769–1023px band (§8.13) the shell decides: the 60px rail at rest, the full column
+	// while it is open over the stage; the stored width stays the desktop preference.
+	$: widthTier = (!$layoutStore.isMobile && $compactShellTier) || sidebarWidthTier(sidebarWidth, $layoutStore.isMobile);
+	$: isCompactSidebar = widthTier === 'compact';
+	// Exactly one "you are here" entry: Server home, DMs, or the channel (page or context).
+	$: sidebarPlace = resolveSidebarPlace(activeView, $activeWorkspaceView);
 	$: runtimeActiveVoiceChannelId = $callActiveVoiceChannel?.id || $socketActiveVoiceChannel || null;
 	$: connectedVoiceChannelIds = (() => {
 		const ids = new Set<string>();
@@ -188,9 +208,7 @@
 	})();
 	$: primaryVoiceChannelId = runtimeActiveVoiceChannelId || $listeningVoiceChannels[0] || null;
 	$: currentServerLabel = $currentSavedServer?.effectiveName || (() => { try { return new URL(resolveServerUrl().url).hostname; } catch { return brandName; } })();
-	$: currentServerBannerUrl = $currentSavedServer?.effectiveBannerUrl || null;
 	$: serverIdentityIconUrl = $currentSavedServer?.effectiveIconUrl || null;
-	$: currentServerTagline = $currentSavedServer?.effectiveTagline || null;
 	$: if (serverIdentityIconUrl !== lastServerIdentityIconUrl) { lastServerIdentityIconUrl = serverIdentityIconUrl; serverIdentityImageFailed = false; }
 	$: followedChannelIds = new Set($currentServerFollowedChannels.map(e => e.channelId));
 	$: followedChannelPreferences = new Map($currentServerFollowedChannels.map(e => [e.channelId, e]));
@@ -206,9 +224,16 @@
 	let showOwnProfilePopout = false;
 	let ownProfilePopoutAnchor: HTMLElement | null = null;
 
-	function openOwnProfilePopout(event: Event) { if (!$currentUser) return; ownProfilePopoutAnchor = event.currentTarget as HTMLElement | null; showOwnProfilePopout = true; }
-	function isChannelLocallyMuted(id: string) { return isServerChannelMuted(id); }
-	function shouldHideChannelFromList(ch: Channel) { return $displayEnhancementSettingsStore.hideMutedCategoriesEnabled && $currentChannel !== ch.id && isChannelLocallyMuted(ch.id); }
+	function openOwnProfilePopout(event: CustomEvent<{ anchor: HTMLElement | null }>) { if (!$currentUser) return; ownProfilePopoutAnchor = event.detail?.anchor ?? null; showOwnProfilePopout = true; }
+	// Read the per-server mute list from the store value (isServerChannelMuted() indexes the
+	// store object itself, so it never sees a mute).
+	$: mutedChannelIds = new Set<string>($activeServerSettings.mutedChannelIds ?? []);
+	function isChannelLocallyMuted(id: string) { return mutedChannelIds.has(id); }
+	/** Muted channels hidden by the "hide muted" setting; the open channel always stays listed. */
+	$: hiddenMutedIds = $displayEnhancementSettingsStore.hideMutedCategoriesEnabled
+		? new Set([...mutedChannelIds].filter((id) => id !== $currentChannel))
+		: new Set<string>();
+	function shouldHideChannelFromList(ch: Channel, hidden: Set<string>) { return hidden.has(ch.id); }
 
 	/**
 	 * Categories are first-class channels (type === 'category'). The unified
@@ -216,23 +241,23 @@
 	 * folder grouping; nothing here needs the old per-type category maps.
 	 */
 
-	$: textChannelsAll = $channels.filter(ch => { const t = ch.type as string | undefined; return (!t || t === 'public' || t === 'text' || t === 'live') && t !== 'lore'; }).filter(ch => !shouldHideChannelFromList(ch));
-	$: groupChannels = $channels.filter(ch => ch.type === 'group').filter(ch => !shouldHideChannelFromList(ch));
+	$: textChannelsAll = $channels.filter(ch => { const t = ch.type as string | undefined; return (!t || t === 'public' || t === 'text' || t === 'live') && t !== 'lore'; }).filter(ch => !shouldHideChannelFromList(ch, hiddenMutedIds));
+	$: groupChannels = $channels.filter(ch => ch.type === 'group').filter(ch => !shouldHideChannelFromList(ch, hiddenMutedIds));
 	$: allCategories = $channels.filter(ch => (ch.type as string | undefined) === 'category').sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
 	$: threadChannels = $channels.filter(ch => ch.type === 'thread_public' || ch.type === 'thread_private').sort((a, b) => (b.threadLastActivityAt || b.createdAt || 0) - (a.threadLastActivityAt || a.createdAt || 0));
 	$: threadChannelsByParent = threadChannels.reduce((acc: Record<string, Channel[]>, t) => { const p = t.parentChannelId; if (!p) return acc; (acc[p] ||= []).push(t); return acc; }, {});
-	$: allVoiceChannelsAll = $channels.filter(ch => ch.type === 'voice').filter(ch => !shouldHideChannelFromList(ch));
+	$: allVoiceChannelsAll = $channels.filter(ch => ch.type === 'voice').filter(ch => !shouldHideChannelFromList(ch, hiddenMutedIds));
 	$: breakoutChannelsByParent = allVoiceChannelsAll.filter(ch => ch.isBreakout && ch.parentChannelId).reduce((acc: Record<string, Channel[]>, ch) => { const p = ch.parentChannelId!; (acc[p] ||= []).push(ch); return acc; }, {});
 	$: Object.values(breakoutChannelsByParent).forEach(r => r.sort((a, b) => (a.breakoutIndex || 0) - (b.breakoutIndex || 0)));
 	$: voiceChannels = allVoiceChannelsAll.filter(ch => !ch.isBreakout);
-	$: galleryChannelsAll = $channels.filter(ch => ch.type === 'gallery').filter(ch => !shouldHideChannelFromList(ch));
+	$: galleryChannelsAll = $channels.filter(ch => ch.type === 'gallery').filter(ch => !shouldHideChannelFromList(ch, hiddenMutedIds));
 	// C3: forum/wiki own sections — never mix into text list
-	$: forumChannelsAll = $channels.filter(ch => ch.type === 'forum').filter(ch => !shouldHideChannelFromList(ch));
-	$: wikiChannelsAll = $channels.filter(ch => ch.type === 'wiki').filter(ch => !shouldHideChannelFromList(ch));
+	$: forumChannelsAll = $channels.filter(ch => ch.type === 'forum').filter(ch => !shouldHideChannelFromList(ch, hiddenMutedIds));
+	$: wikiChannelsAll = $channels.filter(ch => ch.type === 'wiki').filter(ch => !shouldHideChannelFromList(ch, hiddenMutedIds));
 	// L2: Asset Storage (lore) — never mix into text list
-	$: loreChannelsAll = $channels.filter(ch => { const t = ch.type as string | undefined; return t === 'lore' || (ch as any).asset_storage === true; }).filter(ch => !shouldHideChannelFromList(ch));
+	$: loreChannelsAll = $channels.filter(ch => { const t = ch.type as string | undefined; return t === 'lore' || (ch as any).asset_storage === true; }).filter(ch => !shouldHideChannelFromList(ch, hiddenMutedIds));
 	// Planning channels open the shared Project workspace; personal Planner is separate.
-	$: planningChannelsAll = $channels.filter(ch => (ch.type as string | undefined) === 'planning').filter(ch => !shouldHideChannelFromList(ch));
+	$: planningChannelsAll = $channels.filter(ch => (ch.type as string | undefined) === 'planning').filter(ch => !shouldHideChannelFromList(ch, hiddenMutedIds));
 	// Unified sidebar: ONE pool of every sidebar channel (all types), grouped by
 	// category folders that may hold ANY mix of types. Folders are first-class
 	// category channels; a channel belongs to a folder when its parentId points at it.
@@ -246,10 +271,10 @@
 		...loreChannelsAll,
 		...planningChannelsAll,
 	].filter(ch => (ch.type as string | undefined) !== 'category');
-	$: mixedRootItems = filterMixedRoot(buildMixedRoot($channels, unifiedSidebarChannels), channelSearchQuery);
-	$: unifiedChannelCount = unifiedSidebarChannels.length;
-	$: workspaceChannelCount = textChannelsAll.length + groupChannels.length + voiceChannels.length + galleryChannelsAll.length + forumChannelsAll.length + wikiChannelsAll.length + loreChannelsAll.length + planningChannelsAll.length;
-	$: totalUnreadNotifications = Object.values($channelUnreadCounts).reduce((s, v) => s + (Number.isFinite(v) ? v : 0), 0);
+	$: mixedRootItems = buildMixedRoot($channels, unifiedSidebarChannels);
+	$: rootSections = splitRootSections(mixedRootItems);
+	/** Community channels with unread messages: what CHANNELS › Mark all read clears (never DMs). */
+	$: communityUnread = communityUnreadIds($channelUnreadCounts, $channels);
 	/** Unread across DM + group DM channels only — badge for Messages hub. */
 	$: dmUnreadCount = $channels
 		.filter((ch) => ch.type === 'dm' || ch.type === 'group')
@@ -271,10 +296,9 @@
 
 	let reduceMotion = false;
 	$: sectionSlideParams = reduceMotion ? { duration: 0 } : { duration: 180, easing: cubicOut };
-	// Flip is the *settle* confirmation after a commit — suppressed while the
-	// search filter reshuffles the list (typing would animate half the tree)
-	// and collapsed to instant under prefers-reduced-motion.
-	$: rootFlipParams = reduceMotion || searchActive ? { duration: 0 } : { duration: 220, easing: cubicOut };
+	// Flip is the *settle* confirmation after a commit, collapsed to instant
+	// under prefers-reduced-motion. (Filtering moved to the jump palette.)
+	$: rootFlipParams = reduceMotion ? { duration: 0 } : { duration: 220, easing: cubicOut };
 
 	onMount(() => {
 		if (typeof window !== 'undefined' && window.matchMedia) {
@@ -322,11 +346,11 @@
 			createFolderChoice = 'none';
 			createNewFolderName = '';
 			showCreateInput = true;
-			// Same re-probe as toggleCreateInputForType: a flaky mount-time
-			// capability probe must not leave the Project chip disabled when the
-			// form is opened from the LoreWorkspace "New Project Channel" button.
+			// Same re-probe as openCreateForm: a flaky mount-time capability probe
+			// must not leave Project files disabled when the dialog is opened from
+			// the LoreWorkspace "New Project Channel" button. The dialog focuses
+			// its name field itself.
 			void refreshLoreCapability();
-			void tick().then(() => (document.querySelector('.create-channel input') as HTMLInputElement | null)?.focus());
 		};
 		window.addEventListener('wabi:create-channel', onCreateChannelRequest);
 		return () => { document.removeEventListener('pointerdown', onPtr); document.removeEventListener('keydown', onKey); document.removeEventListener('scroll', onScroll, true); window.removeEventListener('wabi:create-channel', onCreateChannelRequest); };
@@ -366,7 +390,16 @@
 		void tick().then(() => { if (glimpseMessagesEl) glimpseMessagesEl.scrollTop = glimpseMessagesEl.scrollHeight; });
 	}
 
-	function clearAllUnreadNotifications() { for (const id of Object.keys($channelUnreadCounts)) markChannelAsRead(id); markMessagesAsRead(); }
+	/** CHANNELS › Mark all read: the community's channels only; DMs and groups keep their own state. */
+	function markCommunityRead() { for (const id of communityUnread) markChannelAsRead(id); }
+	/** Unread entries a channel's menu "Mark as read" clears: the channel, or a folder's channels. */
+	function unreadIdsFor(ch: Channel, counts: Record<string, number>): string[] {
+		const ids = (ch.type as string | undefined) === 'category'
+			? $channels.filter((item) => item.parentId === ch.id).map((item) => item.id)
+			: [ch.id];
+		return ids.filter((id) => Number(counts[id]) > 0);
+	}
+	function markEntriesRead(ids: string[]) { for (const id of ids) markChannelAsRead(id); }
 	function openFollowingView() { activeView = 'following'; glimpseChannelId = null; dispatch('close'); }
 	function openDmHub() { activeView = 'dm'; glimpseChannelId = null; dispatch('openMessages'); dispatch('close'); }
 	function openFriendsHub() { activeView = 'dm'; glimpseChannelId = null; dispatch('openFriends'); dispatch('close'); }
@@ -472,18 +505,21 @@
 	let draggedCategoryId: string | null = null;
 
 	let channelListEl: HTMLElement | null = null;
+	/** The CHANNELS and VOICE section bodies: top-level voice rooms render under VOICE. */
+	let channelSectionEl: HTMLElement | null = null;
+	let voiceSectionEl: HTMLElement | null = null;
 
 	/** Current computed landing gap (drives both the line and the commit). */
 	let activeGap: DropGap | null = null;
 	/** Insertion-line position in scroll-content coordinates; null hides it. */
 	let dropLine: { y: number; x: number } | null = null;
 	const ROOT_LINE_X = 4;
-	const FOLDER_LINE_X = 18;
+	/** Folder children sit 12px in (sidebar.css .category-channels), so their line does too. */
+	const FOLDER_LINE_X = 30;
 
 	let dragFrameHandle: number | null = null;
 	let lastPointer = { x: 0, y: 0 };
 
-	$: searchActive = channelSearchQuery.trim().length > 0;
 	/** Server enforces the same rule (Owner/Admin/Moderator) in channel_ops.rs. */
 	$: canReorderChannels = ['owner', 'admin', 'mod'].includes($currentUser?.highestRole || '');
 
@@ -531,11 +567,30 @@
 		}
 	}
 
+	/** True while the row being dragged is a voice room. */
+	function isDraggingVoiceRoom(): boolean {
+		if (!draggedChannelId) return false;
+		return $channels.find((c) => c.id === draggedChannelId)?.type === 'voice';
+	}
+
+	/**
+	 * Anchors the drag may land on, in document order. The line never lies about where the row
+	 * will appear: a top-level voice room always renders under VOICE, so a voice room only
+	 * targets folders and the VOICE rows, and every other row ignores the VOICE section.
+	 */
 	function collectAnchors(): DragAnchor[] {
 		if (!channelListEl) return [];
 		const nodes = channelListEl.querySelectorAll<HTMLElement>('[data-drop-anchor]');
 		const anchors: DragAnchor[] = [];
+		const voiceDrag = isDraggingVoiceRoom();
 		for (const node of nodes) {
+			const inVoiceSection = Boolean(voiceSectionEl?.contains(node));
+			if (voiceDrag) {
+				const looseRootRow = !inVoiceSection && node.dataset.dropAnchor === 'channel' && !node.dataset.parentFolder;
+				if (looseRootRow) continue;
+			} else if (inVoiceSection) {
+				continue;
+			}
 			const rect = node.getBoundingClientRect();
 			if (rect.height <= 0) continue;
 			anchors.push({
@@ -563,13 +618,20 @@
 		if (distanceUp < 0) listEl.scrollTop += Math.max(4, Math.min(18, -distanceUp / 3));
 		else if (distanceDown < 0) listEl.scrollTop -= Math.max(4, Math.min(18, -distanceDown / 3));
 
+		// The tail gap ("end of the list") sits under the section the row will render in.
+		const voiceDrag = isDraggingVoiceRoom();
+		const tailSection = voiceDrag ? voiceSectionEl : channelSectionEl;
+		const tailY = tailSection ? Math.min(tailSection.getBoundingClientRect().bottom, containerRect.bottom) : containerRect.bottom;
+		// A voice room dropped "before/after a folder" would land at the top level, which renders
+		// under VOICE, so for a voice room a folder header only means "into this folder".
 		const resolved = resolveDropGap(
 			collectAnchors(),
 			lastPointer.y,
 			Boolean(draggedCategoryId),
 			containerRect.top,
 			listEl.scrollTop,
-			containerRect.bottom
+			tailY,
+			voiceDrag
 		);
 
 		// Collapsed-folder dwell: hovering a collapsed folder's interior target
@@ -592,7 +654,7 @@
 	}
 
 	function handleListDragOver(event: DragEvent) {
-		if (!canReorderChannels || searchActive || !isDraggingAnything()) return;
+		if (!canReorderChannels || !isDraggingAnything()) return;
 		event.preventDefault();
 		if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
 		lastPointer = { x: event.clientX, y: event.clientY };
@@ -701,7 +763,7 @@
 	}
 
 	function handleChannelDragStart(e: DragEvent, channelId: string) {
-		if (!canReorderChannels || searchActive) { e.preventDefault(); return; }
+		if (!canReorderChannels) { e.preventDefault(); return; }
 		// Don't steal category-folder drags
 		const ch = $channels.find((c) => c.id === channelId);
 		if ((ch?.type as string | undefined) === 'category') return;
@@ -722,7 +784,7 @@
 	}
 
 	function handleCategoryFolderDragStart(e: DragEvent, catId: string) {
-		if (!canReorderChannels || searchActive) { e.preventDefault(); return; }
+		if (!canReorderChannels) { e.preventDefault(); return; }
 		draggedChannelId = null;
 		draggedCategoryId = catId;
 		if (e.dataTransfer) {
@@ -930,26 +992,13 @@
 		createFolderChoice = 'none';
 		createNewFolderName = '';
 	}
-	function toggleCreateInputForType(t: CreateableChannelType) {
-		if (t === 'lore' && !loreAvailable) return;
-		if (showCreateInput && newChannelType === t) {
-			closeCreateForm();
-			return;
-		}
-		newChannelType = t;
-		createChannelError = '';
-		showCreateInput = true;
-		// Re-probe lore capability when the form opens: the mount-time check
-		// may have raced the very first page load and returned false, which
-		// would otherwise leave the Project chip stuck on "Addon unavailable".
-		void refreshLoreCapability();
-		tick().then(() => (document.querySelector('.create-channel input') as HTMLInputElement | null)?.focus());
-	}
+	/** The confirm names what is deleted: "Delete this voice room?", never "channel" for a room. */
+	$: deleteCopy = deleteConfirmCopy(channelToDeleteNoun, channelToDeleteName || channelToDelete, channelToDeleteChildCount);
 	function handleDeleteChannel(id: string) {
 		const channel = $channels.find((item) => item.id === id);
 		channelToDelete = id;
 		channelToDeleteName = channel?.name || id;
-		channelToDeleteIsCategory = (channel?.type as string | undefined) === 'category';
+		channelToDeleteNoun = channelNoun(channel?.type as string | undefined);
 		channelToDeleteChildCount = $channels.filter((item) => item.parentId === id).length;
 		showDeleteConfirm = true;
 	}
@@ -999,56 +1048,155 @@
 		});
 	}
 
-	$: channelMenuItems = contextMenuChannel ? buildChannelMenuItems(contextMenuChannel) : [];
-	function buildChannelMenuItems(ch: Channel): ContextMenuItem[] {
+	// Built when the menu opens; the reactive inputs are passed in so a mute or follow change
+	// while it is open re-renders the rows.
+	$: channelMenuItems = contextMenuChannel
+		? buildChannelMenuItems(contextMenuChannel, { muted: mutedChannelIds, followed: followedChannelIds, unreadCounts: $channelUnreadCounts })
+		: [];
+	/**
+	 * Channel menu (spec §7.4, §9.6): sentence case at the source, kicker groups (Open, Follow,
+	 * Organize, Move to folder), one glyph per meaning (star = bookmark, pin = pinned messages),
+	 * folders as menuitemradio rows, and the destructive row last. Toggles keep one label and
+	 * report their state through `checked` ("Mute channel", checked), never a flipped verb.
+	 */
+	function buildChannelMenuItems(
+		ch: Channel,
+		state: { muted: Set<string>; followed: Set<string>; unreadCounts: Record<string, number> }
+	): MenuEntry[] {
 		const sup = ch.type === 'text' || ch.type === 'public' || ch.type === 'group' || !ch.type;
 		const isCategory = (ch.type as string | undefined) === 'category';
-		const noun = ch.type === 'group' ? 'Group' : 'Channel';
-		const followed = sup && followedChannelIds.has(ch.id);
-		const items: ContextMenuItem[] = [
-	{ id: 'open-floating-panel', label: 'Open floating panel', icon: 'message-circle', onSelect: () => openChannelFloatingPanel(ch) },
-	{ id: 'open-os-window', label: 'Open OS window', icon: 'external-window', onSelect: () => openDetachedPanel({ kind: 'channel-chat', channelId: ch.id, channelName: ch.name }) },
-	{ id: 'windowing-divider', type: 'separator' },
-	{ id: 'pin-channel', label: isChannelBookmarked(ch) ? 'Remove Bookmark' : 'Bookmark Channel', icon: 'pin', onSelect: () => toggleChannelBookmark(ch) },
-	{ id: 'pinned-messages', label: 'Pinned Messages', icon: 'pin', onSelect: () => handleShowPinnedMessages(ch.id) },
-	{ id: 'toggle-mute-channel', label: isChannelLocallyMuted(ch.id) ? 'Unmute Channel' : 'Mute Channel', onSelect: () => toggleServerMutedChannelId(ch.id) },
-	{ id: 'channel-settings', label: isCategory ? 'Category Settings' : 'Channel Settings', icon: 'settings', onSelect: () => handleOpenChannelSettings(ch) }
-		];
-		if (!isCategory && allCategories.length > 0 && canReorderChannels) {
-			items.push({ id: 'category-divider', type: 'separator' });
-			items.push({ id: 'pick-category', label: 'Move to folder', leading: '▸', disabled: true });
-			for (const cat of allCategories) {
-				const active = ch.parentId === cat.id;
-				items.push(
-					{
-						id: `move-to-${cat.id}`,
-						label: cat.name,
-						leading: active ? '●' : '◦',
-						hint: active ? 'current' : undefined,
-						onSelect: () => moveChannelToCategory(ch.id, cat.id)
-					}
-				);
+		const isVoiceRoom = ch.type === 'voice';
+		const noun = channelNoun(ch.type as string | undefined);
+		const followed = sup && state.followed.has(ch.id);
+		const muted = state.muted.has(ch.id);
+		const items: MenuEntry[] = [];
+
+		if (!isCategory) {
+			items.push(
+				{ id: 'open-kicker', type: 'kicker', label: 'Open' },
+				{ id: 'open-floating-panel', label: 'Open in a floating panel', icon: 'chat', onSelect: () => openChannelFloatingPanel(ch) },
+				{ id: 'open-os-window', label: 'Open in a new window', icon: 'externalLink', onSelect: () => openDetachedPanel({ kind: 'channel-chat', channelId: ch.id, channelName: ch.name }) }
+			);
+			// The hover tray's whiteboard key, reachable on touch too (the tray is hidden there).
+			if (isVoiceRoom) {
+				items.push({ id: 'open-whiteboard', label: 'Open whiteboard', icon: 'whiteboard', onSelect: () => openVoiceChannelWhiteboard(ch.id) });
 			}
-			if (ch.parentId) {
-				items.push({ id: 'move-to-root', label: 'Move to top level', onSelect: () => moveChannelToRoot(ch.id) });
+			if (ch.type === 'text' || ch.type === 'public' || !ch.type) {
+				items.push({ id: 'create-thread', label: 'New thread', icon: 'reply', onSelect: () => handleCreateThread(ch) });
 			}
 		}
-		if (sup) items.unshift(
-	{ id: 'follow-feed', label: 'Open Follow Feed', leading: '≈', hint: $currentServerFollowedChannels.length > 0 ? `${$currentServerFollowedChannels.length} followed` : undefined, disabled: $currentServerFollowedChannels.length === 0, onSelect: openFollowingView },
-	{ id: 'follow-alerts', label: followed ? 'Cycle Follow Alerts' : `Follow ${noun} With Alerts`, leading: '!', hint: FOLLOW_ALERT_LEVEL_LABELS[followedChannelPreferences.get(ch.id)?.alertLevel || 'off'], onSelect: () => cycleFollowAlert(ch.id) },
-	{ id: 'toggle-follow', label: followed ? `Unfollow ${noun}` : `Follow ${noun}`, leading: followed ? '★' : '☆', onSelect: () => toggleChannelFollowState(ch.id) },
-	{ id: 'follow-divider', type: 'separator' }
-		);
-		if (ch.type === 'text' || ch.type === 'public' || !ch.type) items.splice(1, 0, { id: 'create-thread', label: 'Create Thread', icon: 'message-circle', onSelect: () => handleCreateThread(ch) });
-		if (ch.type === 'voice' && !ch.isBreakout) {
-	items.push({ id: 'voice-divider', type: 'separator' });
-	items.push(hasBreakoutRooms(ch.id) ? { id: 'close-breakout-rooms', label: 'Close Breakout Rooms', icon: 'archive-restore', onSelect: () => handleCloseBreakoutRooms(ch) } : { id: 'create-breakout-rooms', label: 'Create Breakout Rooms', icon: 'archive', onSelect: () => handleCreateBreakoutRooms(ch) });
+
+		if (sup) {
+			const followCount = $currentServerFollowedChannels.length;
+			items.push(
+				{ id: 'follow-kicker', type: 'kicker', label: 'Follow' },
+				{ id: 'toggle-follow', label: `Follow ${noun}`, icon: 'bell', role: 'menuitemcheckbox', checked: followed, onSelect: () => toggleChannelFollowState(ch.id) },
+				{ id: 'follow-alerts', label: followed ? 'Change follow alerts' : `Follow ${noun} with alerts`, icon: 'flag', hint: FOLLOW_ALERT_LEVEL_LABELS[followedChannelPreferences.get(ch.id)?.alertLevel || 'off'], onSelect: () => cycleFollowAlert(ch.id) },
+				{ id: 'follow-feed', label: 'Open follow feed', icon: 'list', hint: followCount > 0 ? `${followCount} followed` : 'None followed yet', disabled: followCount === 0, onSelect: openFollowingView }
+			);
 		}
-		if (ch.id !== 'general' && ch.id !== 'voice' && !ch.isBreakout && canCreateChannel) items.push({ id: 'danger-divider', type: 'separator' }, { id: 'delete-channel', label: isCategory ? 'Delete Category' : 'Delete Channel', icon: 'trash-2', danger: true, onSelect: () => handleDeleteChannel(ch.id) });
+
+		items.push({ id: 'organize-kicker', type: 'kicker', label: 'Organize' });
+		if (!isCategory) {
+			items.push(
+				{ id: 'pin-channel', label: isChannelBookmarked(ch) ? 'Remove bookmark' : `Bookmark ${noun}`, icon: 'star', onSelect: () => toggleChannelBookmark(ch) },
+				{ id: 'pinned-messages', label: 'Pinned messages', icon: 'pin', onSelect: () => handleShowPinnedMessages(ch.id) }
+			);
+		}
+		items.push({ id: 'toggle-mute-channel', label: `Mute ${noun}`, icon: 'eyeOff', role: 'menuitemcheckbox', checked: muted, onSelect: () => toggleServerMutedChannelId(ch.id) });
+		// This entry only (a folder: its channels). Mark all read lives in the CHANNELS menu.
+		if (!isVoiceRoom) {
+			const unreadHere = unreadIdsFor(ch, state.unreadCounts);
+			items.push({
+				id: 'mark-read',
+				label: isCategory ? 'Mark folder as read' : 'Mark as read',
+				icon: 'check',
+				disabled: unreadHere.length === 0,
+				hint: unreadHere.length === 0 ? 'Nothing unread' : undefined,
+				onSelect: () => markEntriesRead(unreadHere)
+			});
+		}
+		items.push({ id: 'channel-settings', label: `${noun[0].toUpperCase()}${noun.slice(1)} settings`, icon: 'gear', onSelect: () => handleOpenChannelSettings(ch) });
 		if (!isCategory && canCreateChannel) {
-			items.push({ id: 'create-category-divider', type: 'separator' }, { id: 'create-category', label: 'Create Category', icon: 'archive', onSelect: openCreateFormForCategory });
+			items.push({ id: 'create-category', label: 'New folder', icon: 'folder', onSelect: openCreateFormForCategory });
+		}
+
+		if (!isCategory && allCategories.length > 0 && canReorderChannels) {
+			items.push({ id: 'move-kicker', type: 'kicker', label: 'Move to folder' });
+			for (const cat of allCategories) {
+				items.push({
+					id: `move-to-${cat.id}`,
+					label: cat.name,
+					keepCase: true,
+					role: 'menuitemradio',
+					checked: ch.parentId === cat.id,
+					onSelect: () => moveChannelToCategory(ch.id, cat.id)
+				});
+			}
+			items.push({ id: 'move-to-root', label: 'No folder (top level)', role: 'menuitemradio', checked: !ch.parentId, onSelect: () => { if (ch.parentId) moveChannelToRoot(ch.id); } });
+		}
+
+		if (isVoiceRoom && !ch.isBreakout) {
+			items.push({ id: 'voice-kicker', type: 'kicker', label: 'Voice room' });
+			items.push(
+				hasBreakoutRooms(ch.id)
+					? { id: 'close-breakout-rooms', label: 'Close breakout rooms', icon: 'undo', onSelect: () => handleCloseBreakoutRooms(ch) }
+					: { id: 'create-breakout-rooms', label: 'Create breakout rooms', icon: 'layers', onSelect: () => handleCreateBreakoutRooms(ch) }
+			);
+		}
+
+		// Destructive action always last (§7.4), behind a confirm.
+		if (ch.id !== 'general' && ch.id !== 'voice' && !ch.isBreakout && canCreateChannel) {
+			items.push({ id: 'danger-divider', type: 'separator' }, { id: 'delete-channel', label: `Delete ${noun}…`, icon: 'trash', danger: true, onSelect: () => handleDeleteChannel(ch.id) });
 		}
 		return items;
+	}
+
+	/** Open the create dialog on a kind (the CHANNELS / VOICE menus and buttons). */
+	function openCreateForm(type: CreateableChannelType) {
+		if (type === 'lore' && !loreAvailable) return;
+		newChannelType = type;
+		createChannelError = '';
+		if (type === 'category') {
+			createFolderChoice = 'none';
+			createNewFolderName = '';
+		}
+		showCreateInput = true;
+		// Re-probe lore capability when the form opens: the mount-time check
+		// may have raced the very first page load and returned false, which
+		// would otherwise leave the Project files option stuck as unavailable.
+		void refreshLoreCapability();
+	}
+
+	/** The CHANNELS kicker menu (spec §8.1): New channel, New folder, Mark all read. */
+	$: channelsMenuItems = [
+		...(canCreateChannel
+			? ([
+					{ id: 'new-channel', label: $_('sidebar.new_channel'), icon: 'plus', onSelect: () => openCreateForm('text') },
+					{ id: 'new-folder', label: $_('sidebar.new_folder'), icon: 'folder', onSelect: openCreateFormForCategory },
+					{ id: 'channels-divider', type: 'separator' }
+				] satisfies MenuEntry[])
+			: []),
+		{
+			id: 'mark-all-read',
+			label: $_('sidebar.mark_all_read'),
+			icon: 'check',
+			disabled: communityUnread.length === 0,
+			hint: communityUnread.length === 0 ? 'Nothing unread' : undefined,
+			onSelect: markCommunityRead
+		}
+	] satisfies MenuEntry[];
+
+	/** Row B: the search field opens the jump palette (§7.24); typing in it carries the text over. */
+	function openSearch(event: MouseEvent) {
+		openPalette('all', { origin: event.currentTarget as HTMLElement | null });
+	}
+	function handleSearchKeydown(event: KeyboardEvent) {
+		if (event.ctrlKey || event.metaKey || event.altKey) return;
+		if (event.key.length === 1 && event.key !== ' ') {
+			event.preventDefault();
+			openPalette('all', { query: event.key, origin: event.currentTarget as HTMLElement | null });
+		}
 	}
 
 	function openCreateFormForCategory() {
@@ -1058,7 +1206,6 @@
 		createNewFolderName = '';
 		showCreateInput = true;
 		void refreshLoreCapability();
-		void tick().then(() => (document.querySelector('.create-channel input') as HTMLInputElement | null)?.focus());
 	}
 
 	/** Re-probe lore addon capability (mount-time check may have raced). */
@@ -1069,55 +1216,203 @@
 	}
 </script>
 
-<div class="channel-sidebar" class:compact={isCompactSidebar} class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'} style:width={$layoutStore.isMobile ? '100%' : `${$layoutStore.channelSidebarWidth}px`}>
-	<div class="top-section" class:has-banner={Boolean(currentServerBannerUrl)} style:--sidebar-banner-image={currentServerBannerUrl ? `url('${currentServerBannerUrl}')` : 'none'}>
-		<button class="mobile-close-btn" on:click={() => dispatch('close')}>&times;</button>
-		<button type="button" class="server-identity" class:active={activeView === 'server'} aria-label={`Open ${currentServerLabel} hub`} aria-current={activeView === 'server' ? 'page' : undefined} on:click={() => { dispatch('openServerHub'); dispatch('close'); }}>
-	<div class="logo">
-		{#if serverIdentityIconUrl && !serverIdentityImageFailed}
-			<img src={serverIdentityIconUrl} alt={`${currentServerLabel} icon`} class="logo-img server-logo-img" on:error={() => (serverIdentityImageFailed = true)} />
-		{:else}
-			<img src="/wabi-logo-small.webp" alt={brandName} class="logo-img brand-logo-img" />
-		{/if}
-	</div>
-	{#if !isCompactSidebar}
-		<div class="server-copy"><strong class="server-name">{currentServerLabel}</strong><span class="server-tagline">Server home{currentServerTagline ? ` · ${currentServerTagline}` : ''}</span></div>
-	{/if}
-		</button>
-		<button type="button" class="server-switcher-button" aria-label="Switch or add saved servers" title="Saved servers" on:click={() => dispatch('openServerSwitcher')}>
-			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-		</button>
-		{#if sidebarWidth < 170 && !isCompactSidebar}
-	<div class="header-buttons">
-		<button class="control-btn compact-settings-btn" on:click={() => dispatch('openSettings')} title="User Settings">
-			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path></svg>
-		</button>
-	</div>
-		{/if}
-	</div>
-
-	<!-- Personal hub: sticky under server chrome, above server channel list -->
-	<div class="personal-nav" class:compact={isCompactSidebar}>
+<nav
+	class="channel-sidebar"
+	class:compact={isCompactSidebar}
+	class:narrow={widthTier === 'narrow'}
+	class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
+	style:width={$layoutStore.isMobile ? '100%' : $compactShellTier === 'full' ? null : `${$compactShellTier === 'compact' ? 60 : $layoutStore.channelSidebarWidth}px`}
+	aria-label={currentServerLabel}
+>
+	<!--
+		Names show in tooltips only in the 60px rail, so a Tooltip (its bubble, observers and
+		listeners) is mounted only there; the full column renders the bare controls.
+	-->
+	{#snippet homeButton()}
 		<button
-			class="messages-hub-btn"
 			type="button"
-			class:active={activeView === 'dm'}
-			on:click={openDmHub}
-			title="Home · Messages and friends"
-			aria-label={`Home, ${dmUnreadCount} unread messages, ${friendRequestCount} friend requests`}
-			aria-current={activeView === 'dm' ? 'page' : undefined}
+			class="server-identity sb-home"
+			class:active={sidebarPlace === 'server'}
+			aria-label={`${currentServerLabel}, ${$_('places.server_home')}`}
+			aria-current={sidebarPlace === 'server' ? 'page' : undefined}
+			on:click={() => { dispatch('openServerHub'); dispatch('close'); }}
 		>
-			<span class="messages-hub-icon" aria-hidden="true">
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-			</span>
-			{#if !isCompactSidebar}
-				<span class="messages-hub-label">Home</span>
+			{#if serverIdentityIconUrl && !serverIdentityImageFailed}
+				<img src={serverIdentityIconUrl} alt="" class="sb-mark sb-mark--image" on:error={() => (serverIdentityImageFailed = true)} />
+			{:else}
+				<span class="sb-mark sb-enso" aria-hidden="true"></span>
 			{/if}
-			{#if dmUnreadCount > 0}
-				<span class="messages-hub-badge">{dmUnreadCount > 99 ? '99+' : dmUnreadCount}</span>
-			{/if}
-			{#if friendRequestCount > 0}<span class="messages-hub-badge" title="Friend requests">{friendRequestCount}</span>{/if}
+			<span class="server-name">{currentServerLabel}</span>
 		</button>
+	{/snippet}
+	{#snippet searchButton()}
+		<button
+			type="button"
+			class="w-field w-field--chrome sb-search"
+			aria-label={$_('sidebar.search')}
+			aria-haspopup="dialog"
+			aria-keyshortcuts="Control+K"
+			on:click={openSearch}
+			on:keydown={handleSearchKeydown}
+		>
+			<Icon name="search" size={16} />
+			<span class="sb-search-label">{$_('sidebar.search')}</span>
+			<kbd class="w-kbd">Ctrl K</kbd>
+		</button>
+	{/snippet}
+	{#snippet dmsButton()}
+		<button
+			class="channel-btn messages-hub-btn"
+			type="button"
+			class:active={sidebarPlace === 'dm'}
+			class:unread={dmUnreadCount > 0}
+			on:click={openDmHub}
+			aria-label={dmRowLabel(dmUnreadCount, friendRequestCount)}
+			aria-current={sidebarPlace === 'dm' ? 'page' : undefined}
+		>
+			<span class="row-glyph" aria-hidden="true"><Icon name="dm" size={18} /></span>
+			<span class="row-name">{$_('places.dms')}</span>
+			<span class="row-trail" aria-hidden="true">
+				{#if friendRequestCount > 0}
+					<span class="row-mark row-mark--count" title="Friend requests"><Icon name="userPlus" size={14} /><span class="w-count">{formatBadge(friendRequestCount)}</span></span>
+				{/if}
+				{#if dmUnreadCount > 0}<span class="w-badge">{formatBadge(dmUnreadCount)}</span>{/if}
+			</span>
+		</button>
+	{/snippet}
+
+	<!-- Masthead: row A (community, Switch server) + row B (search), one hairline at --w-mast. -->
+	<header class="sb-mast">
+		<div class="sb-head">
+			<button type="button" class="mobile-close-btn w-ibtn" aria-label="Close channels" on:click={() => dispatch('close')}><Icon name="x" size={20} /></button>
+			{#if isCompactSidebar}
+				<Tooltip text={currentServerLabel} placement="right" describe={false}>{@render homeButton()}</Tooltip>
+			{:else}
+				{@render homeButton()}
+			{/if}
+			<button
+				type="button"
+				class="w-ibtn sb-switch"
+				aria-label={$_('sidebar.switch_server')}
+				title={$_('sidebar.switch_server')}
+				on:click={() => dispatch('openServerSwitcher')}
+			><Icon name="chevUpDown" size={18} /></button>
+		</div>
+		<div class="sb-search-row">
+			{#if isCompactSidebar}
+				<Tooltip text={$_('sidebar.search')} shortcut="Ctrl K" placement="right" describe={false}>{@render searchButton()}</Tooltip>
+			{:else}
+				{@render searchButton()}
+			{/if}
+		</div>
+	</header>
+
+	<div
+		class="channel-list"
+		bind:this={channelListEl}
+		on:dragover={handleListDragOver}
+		on:dragleave={handleListDragLeave}
+		on:drop={handleListDrop}
+	>
+		<!-- DMs: the personal destination (spec D6: one name, "DMs"). -->
+		<div class="personal-nav">
+			{#if isCompactSidebar}
+				<Tooltip text={$_('places.dms')} placement="right" describe={false}>{@render dmsButton()}</Tooltip>
+			{:else}
+				{@render dmsButton()}
+			{/if}
+		</div>
+
+		<!-- CHANNELS -->
+		<div class="sb-sec">
+			<button class="sb-sec-toggle" type="button" aria-expanded={isTextSectionExpanded} on:click={() => (isTextSectionExpanded = !isTextSectionExpanded)}>
+				<span class="w-kicker">{$_('sidebar.channels')}</span>
+				<span class="sb-sec-chevron" aria-hidden="true"><Icon name="chevDown" size={12} /></span>
+			</button>
+			<!-- The menu also holds Mark all read, so its name is the whole set, not "New channel". -->
+			<Menu class="w-ibtn sb-sec-add" label={$_('sidebar.channel_actions')} triggerLabel={$_('sidebar.channel_actions')} align="end" items={channelsMenuItems}>
+				<Icon name={canCreateChannel ? 'plus' : 'more'} size={14} />
+			</Menu>
+		</div>
+		{#if isTextSectionExpanded}
+		<div class="section-body" bind:this={channelSectionEl} transition:slide={sectionSlideParams}>
+	{#each rootSections.channels as item (item.id)}
+		<div class="mixed-root-item" animate:flip={rootFlipParams}>
+		{#if item.kind === 'folder'}
+		<div
+			class="category-row"
+			role="group"
+			class:is-dragging={draggedCategoryId === item.id}
+			draggable={canReorderChannels}
+			data-drop-anchor="folder"
+			data-folder-id={item.id}
+			on:dragstart|stopPropagation={(e) => handleCategoryFolderDragStart(e, item.id)}
+			on:dragend={handleChannelDragEnd}
+			on:contextmenu={(e) => handleChannelRightClick(e, item.channel)}
+			use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, item.channel) }}
+		>
+			{#snippet folderToggle()}
+				<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(item.id)} on:click={() => toggleCategory(item.id)}>
+					<span class="category-chevron" aria-hidden="true"><Icon name="chevRight" size={14} /></span>
+					<span class="category-folder-icon" aria-hidden="true"><Icon name="folder" size={16} /></span>
+					<span class="category-name">{item.channel.name}</span>
+					<span class="w-count category-count" aria-hidden="true">{item.children.length}</span>
+					<span class="sr-only">, folder, {item.children.length} {item.children.length === 1 ? 'channel' : 'channels'}</span>
+				</button>
+			{/snippet}
+			{#if isCompactSidebar}
+				<Tooltip text={item.channel.name} placement="right" describe={false}>{@render folderToggle()}</Tooltip>
+			{:else}
+				{@render folderToggle()}
+			{/if}
+		</div>
+		{#if !collapsedCategories.has(item.id)}
+			<div
+				class="category-channels"
+				data-category-id={item.id}
+				class:drop-target={autoExpandCategoryId === item.id}
+			>
+				<UnifiedChannelList channels={item.children} currentPlace={sidebarPlace} compact={isCompactSidebar} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} reorderEnabled={canReorderChannels} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} {canKickVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onKickVoiceMember={handleKickVoiceMember} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragEnd={handleChannelDragEnd} />
+			</div>
+		{/if}
+		{:else}
+		<UnifiedChannelList channels={[item.channel]} currentPlace={sidebarPlace} compact={isCompactSidebar} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} reorderEnabled={canReorderChannels} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} {canKickVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onKickVoiceMember={handleKickVoiceMember} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragEnd={handleChannelDragEnd} />
+		{/if}
+		</div>
+	{/each}
+		</div>
+		{/if}
+
+		<!-- VOICE: top-level rooms (a room inside a folder stays in its folder). -->
+		{#if rootSections.voice.length > 0 || canCreateChannel}
+			<div class="sb-sec">
+				<button class="sb-sec-toggle" type="button" aria-expanded={isVoiceSectionExpanded} on:click={() => (isVoiceSectionExpanded = !isVoiceSectionExpanded)}>
+					<span class="w-kicker">{$_('sidebar.voice')}</span>
+					<span class="sb-sec-chevron" aria-hidden="true"><Icon name="chevDown" size={12} /></span>
+				</button>
+				{#if canCreateChannel}
+					<button type="button" class="w-ibtn sb-sec-add" aria-label={$_('sidebar.new_voice_room')} title={$_('sidebar.new_voice_room')} on:click={() => openCreateForm('voice')}><Icon name="plus" size={14} /></button>
+				{/if}
+			</div>
+			{#if isVoiceSectionExpanded}
+				<div class="section-body voice-section" bind:this={voiceSectionEl} transition:slide={sectionSlideParams}>
+					{#each rootSections.voice as item (item.id)}
+						<div class="mixed-root-item" animate:flip={rootFlipParams}>
+							<UnifiedChannelList channels={[item.channel]} currentPlace={sidebarPlace} compact={isCompactSidebar} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} reorderEnabled={canReorderChannels} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} {canKickVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onKickVoiceMember={handleKickVoiceMember} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragEnd={handleChannelDragEnd} />
+						</div>
+					{/each}
+				</div>
+			{/if}
+		{/if}
+
+		{#if dropLine}
+			<div
+				class="drop-indicator-overlay"
+				class:indented={dropLine.x > ROOT_LINE_X + 1}
+				style="top:{dropLine.y}px; left:{dropLine.x}px;"
+				aria-hidden="true"
+			></div>
+		{/if}
 	</div>
 
 	<CreateChannelForm
@@ -1158,91 +1453,13 @@
 		onCancel={closeCreateForm}
 	/>
 
-	<div
-		class="channel-list"
-		bind:this={channelListEl}
-		on:dragover={handleListDragOver}
-		on:dragleave={handleListDragLeave}
-		on:drop={handleListDrop}
-	>
-		<div class="channel-search-row">
-			<svg class="channel-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
-			<input class="channel-search-input" type="search" bind:value={channelSearchQuery} placeholder="Search channels" aria-label="Search channels" />
-			<span class="channel-search-count">{workspaceChannelCount}</span>
-		</div>
-		{#if $displayEnhancementSettingsStore.readAllNotificationsButtonEnabled && totalUnreadNotifications > 0}
-	<div class="channel-list-actions"><button class="clear-unread-btn" on:click={clearAllUnreadNotifications}>Clear Unread ({totalUnreadNotifications})</button></div>
-		{/if}
-
-		<div
-			class="section-heading-row"
-		>
-	<button class="section-toggle" type="button" aria-expanded={isTextSectionExpanded} on:click={() => (isTextSectionExpanded = !isTextSectionExpanded)}>
-		<span class="section-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg></span>
-		<span class="section-toggle-label">Channels</span><span class="section-count">{unifiedChannelCount}</span>
-	</button>
-	{#if canCreateChannel}<button class="section-add-btn" class:active={showCreateInput && newChannelType !== 'category'} on:click={() => toggleCreateInputForType('text')} title="Create channel" aria-label="Create channel"><span class="plus-glyph" aria-hidden="true">+</span></button>
-		<button class="section-add-btn section-category-btn" class:active={showCreateInput && newChannelType === 'category'} on:click={openCreateFormForCategory} title="Create category" aria-label="Create category"><span class="plus-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><line x1="12" y1="10" x2="12" y2="16"></line><line x1="9" y1="13" x2="15" y2="13"></line></svg></span></button>{/if}
-		</div>
-		{#if isTextSectionExpanded}
-		<div class="section-body" transition:slide={sectionSlideParams}>
-	{#each mixedRootItems as item (item.id)}
-		<div class="mixed-root-item" animate:flip={rootFlipParams}>
-		{#if item.kind === 'folder'}
-		<div
-			class="category-row"
-			class:is-dragging={draggedCategoryId === item.id}
-			draggable={canReorderChannels && !searchActive}
-			data-drop-anchor="folder"
-			data-folder-id={item.id}
-			title="Drag to move this folder · Drop a channel on the middle to nest it"
-			on:dragstart|stopPropagation={(e) => handleCategoryFolderDragStart(e, item.id)}
-			on:dragend={handleChannelDragEnd}
-			on:contextmenu={(e) => handleChannelRightClick(e, item.channel)}
-			use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, item.channel) }}
-		>
-			<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(item.id)} on:click={() => toggleCategory(item.id)}>
-				{#if canReorderChannels && !searchActive}<span class="category-drag-grip" aria-hidden="true" title="Drag to reorder">⋮⋮</span>{/if}
-				<span class="category-chevron" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg></span>
-				<span class="category-folder-icon"><svg class="category-folder-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg></span>
-				<span class="category-name">{item.channel.name}<span class="category-count">{item.children.length}</span></span>
-			</button>
-		</div>
-		{#if !collapsedCategories.has(item.id)}
-			<div
-				class="category-channels"
-				data-category-id={item.id}
-				class:drop-target={autoExpandCategoryId === item.id}
-			>
-				<UnifiedChannelList channels={item.children} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} reorderEnabled={canReorderChannels} suppressFlip={searchActive} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} {canKickVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onKickVoiceMember={handleKickVoiceMember} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragEnd={handleChannelDragEnd} />
-			</div>
-		{/if}
-		{:else}
-		<UnifiedChannelList channels={[item.channel]} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} reorderEnabled={canReorderChannels} suppressFlip={searchActive} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} {canKickVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onKickVoiceMember={handleKickVoiceMember} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragEnd={handleChannelDragEnd} />
-		{/if}
-		</div>
-	{/each}
-		</div>
-	{/if}
-
-		{#if dropLine}
-			<div
-				class="drop-indicator-overlay"
-				class:indented={dropLine.x > ROOT_LINE_X + 1}
-				style="top:{dropLine.y}px; left:{dropLine.x}px;"
-				aria-hidden="true"
-			></div>
-		{/if}
-
-		</div>
-
-	<ContextMenu open={showContextMenu && !!contextMenuChannel} x={contextMenuPosition.x} y={contextMenuPosition.y} items={channelMenuItems} ariaLabel="Channel actions" headerLabel={contextMenuChannel ? `#${contextMenuChannel.name}` : null} on:close={closeContextMenu} />
+	<ContextMenu open={showContextMenu && !!contextMenuChannel} x={contextMenuPosition.x} y={contextMenuPosition.y} items={channelMenuItems} ariaLabel={$_('sidebar.channel_actions')} headerLabel={contextMenuChannel ? (((contextMenuChannel.type as string | undefined) === 'category' || contextMenuChannel.type === 'voice') ? contextMenuChannel.name : `#${contextMenuChannel.name}`) : null} on:close={closeContextMenu} />
 	<VoiceUserCard {runtimeActiveVoiceChannelId} {voiceChannels} {voiceDurationMode} onToggleListenChannel={handleToggleListenChannel} onTransmitModeChange={handleTransmitModeChange} onSetVoiceDurationMode={setVoiceDurationMode} onLeaveVoice={handleLeaveVoice} />
-	<ProfileCard {sidebarWidth} on:openProfilePopout={openOwnProfilePopout} on:openSettings={() => dispatch('openSettings')} />
+	<ProfileCard {sidebarWidth} compact={isCompactSidebar} on:openProfilePopout={openOwnProfilePopout} on:openSettings={() => dispatch('openSettings')} />
 
 	{#if glimpseChannelId && glimpseChannel}
 		<div
-			class="channel-glimpse-popout channel-glimpse-fixed"
+			class="channel-glimpse-popout channel-glimpse-fixed w-pop"
 			bind:this={glimpsePopover}
 			style="left:{glimpsePosition.x}px; top:{glimpsePosition.y}px;"
 			transition:fly={{ x: 8, duration: 140 }}
@@ -1261,7 +1478,8 @@
 				</div>
 				<button
 					type="button"
-					class="channel-glimpse-follow-btn"
+					class="channel-glimpse-follow-btn w-btn w-btn--sm"
+					aria-pressed={followedChannelIds.has(glimpseChannel.id)}
 					on:click|stopPropagation={(event) => toggleChannelFollowState(glimpseChannel.id, event)}
 					title={followedChannelIds.has(glimpseChannel.id) ? 'Unfollow channel' : 'Follow channel'}
 				>
@@ -1287,11 +1505,21 @@
 			{/if}
 		</div>
 	{/if}
-</div>
+</nav>
 
 {#if deleteChannelError}<div class="channel-delete-error" role="alert">{deleteChannelError}</div>{/if}
 <BreakoutRoomsModal open={showBreakoutModal} channelName={breakoutTargetChannel?.name || ''} memberCount={breakoutTargetChannel ? getVoiceMembers(breakoutTargetChannel.id).length : 0} onCreate={confirmCreateBreakoutRooms} onClose={() => { showBreakoutModal = false; }} />
-<ConfirmDialog isOpen={showDeleteConfirm} title={channelToDeleteIsCategory ? 'Delete Folder' : 'Delete Channel'} message={channelToDeleteIsCategory && channelToDeleteChildCount > 0 ? `This folder contains ${channelToDeleteChildCount} channel${channelToDeleteChildCount === 1 ? '' : 's'}. Delete the folder only, or delete everything inside it too?` : `Delete channel #${channelToDeleteName || channelToDelete}? This action cannot be undone.`} confirmText={deletingChannel ? 'Deleting…' : channelToDeleteIsCategory && channelToDeleteChildCount > 0 ? 'Delete folder and channels' : 'Delete'} secondaryText={channelToDeleteIsCategory && channelToDeleteChildCount > 0 ? 'Delete folder, keep channels' : null} variant="danger" onConfirm={confirmDeleteChannel} onSecondary={() => void confirmDeleteChannelPreserveChildren()} onCancel={() => { if (!deletingChannel) showDeleteConfirm = false; }} />
+<ConfirmDialog
+	isOpen={showDeleteConfirm}
+	title={deleteCopy.title}
+	message={deleteCopy.message}
+	confirmText={deletingChannel ? 'Deleting…' : deleteCopy.confirm}
+	secondaryText={deleteCopy.secondary}
+	variant="danger"
+	onConfirm={confirmDeleteChannel}
+	onSecondary={() => void confirmDeleteChannelPreserveChildren()}
+	onCancel={() => { if (!deletingChannel) showDeleteConfirm = false; }}
+/>
 <PinnedMessagesModal bind:isOpen={showPinnedModal} channelId={selectedChannelForPinned} />
 <UserPopout user={$currentUser} bind:isOpen={showOwnProfilePopout} anchorElement={ownProfilePopoutAnchor} isOwnProfile={true} on:close={() => (showOwnProfilePopout = false)} on:openFullProfile={() => dispatch('openSettings')} />
 {#if showChannelSettingsModal && selectedChannelForSettings}

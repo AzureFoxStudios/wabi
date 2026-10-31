@@ -1,15 +1,32 @@
+<!--
+	File export status (design contract §8.8): the exporter's words, verbatim, as a toast. Never a
+	band that pushes the editor down. "Saving…" stays up until the result replaces it; a failure or
+	an uncertain result is announced assertively and stays longer. Renders nothing itself.
+-->
 <script lang="ts">
-    import { workspaceExportState, dismissExportStatus } from './fileExport';
-    const attention=$derived($workspaceExportState.phase==='error'||$workspaceExportState.phase==='uncertain');
+	import { workspaceExportState, dismissExportStatus } from './fileExport';
+	import { toast, type ToastHandle } from '$lib/toast';
+
+	let shown: ToastHandle | null = null;
+	let lastKey = '';
+
+	$effect(() => {
+		const state = $workspaceExportState;
+		if (state.phase === 'idle') {
+			lastKey = '';
+			return;
+		}
+		const key = `${state.phase}|${state.message}`;
+		if (key === lastKey) return;
+		lastKey = key;
+		shown?.dismiss();
+		const attention = state.phase === 'error' || state.phase === 'uncertain';
+		shown = toast(state.message, {
+			tone: state.phase === 'error' ? 'error' : state.phase === 'uncertain' ? 'warning' : 'info',
+			timeout: state.phase === 'saving' ? 60000 : attention ? 12000 : 6000
+		});
+		// The toast now carries the words; a finished export returns the store to idle so the
+		// next one is announced again.
+		if (state.phase !== 'saving') dismissExportStatus();
+	});
 </script>
-{#if $workspaceExportState.phase!=='idle'}
-    <div class="file-export-notice" class:attention role={attention?'alert':'status'} aria-live="polite" aria-label="File export status">
-        <span>{$workspaceExportState.message}</span>
-        {#if $workspaceExportState.phase!=='saving'}<button onclick={dismissExportStatus} aria-label="Dismiss export status">Dismiss</button>{/if}
-    </div>
-{/if}
-<style>
-    .file-export-notice{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.5rem .75rem;font:13px/1.4 system-ui;background:var(--surface-raised,#25293f);color:var(--text-primary,#eef0f8);border-bottom:1px solid var(--border-subtle,#484c66)}
-    .file-export-notice.attention{border-inline-start:3px solid var(--text-warning,#e4b45a)}
-    button{flex-shrink:0;padding:.35rem .6rem;border:1px solid var(--border-subtle,#484c66);border-radius:5px;background:transparent;color:inherit;cursor:pointer}
-</style>

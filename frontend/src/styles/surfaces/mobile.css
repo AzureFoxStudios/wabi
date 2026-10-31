@@ -1,0 +1,481 @@
+/* Phone shell skin: the root navigation (bottom nav under 600px, 72px left rail from 600 to
+   768px), the Channels drawer and the scrims, the stage frame around them and the minimized
+   voice strip (design contract §8.12, §8.13). The You page styles itself (YouPage.svelte); the
+   769–1023px compact band is in components/sidebar-compact.css.
+   Owner (wave 2): w2-mobile-shell. Roles, type, spacing and radius tokens only; no global
+   button/input rules (scoped to the shell's own elements).
+   Cascade: imported by components/mobile-shell.css (styles.css, after main-layout.css), so it
+   follows the shell's base layout and precedes the wave-1 skins. Rules that refine a later skin
+   carry :root plus the shell container, never !important. */
+
+html[data-shell='mobile'] body {
+	overscroll-behavior-y: none;
+	-webkit-tap-highlight-color: transparent;
+	touch-action: manipulation;
+}
+
+/* ---------- metrics: one source for every sheet that keeps clear of the nav ---------- */
+@media (max-width: 768px) {
+	:root {
+		/* Nav row; the home indicator's inset is padding below it, at least 14px (§8.12). */
+		--mobile-nav-bar: 58px;
+		--mobile-nav-pad: max(14px, env(safe-area-inset-bottom, 0px));
+		/* What the nav takes from the bottom of the screen (server switcher, banners, pills). */
+		--mobile-nav-height: calc(var(--mobile-nav-bar) + var(--mobile-nav-pad));
+		/* What the nav takes from the start edge (the 600–768px rail). */
+		--mobile-rail-w: 0px;
+	}
+}
+@media (min-width: 600px) and (max-width: 768px) {
+	:root {
+		--mobile-nav-height: 0px;
+		--mobile-rail-w: 72px;
+	}
+}
+
+/* ---------- the stage frame ---------- */
+@media (max-width: 768px) {
+	.app-container {
+		height: calc(100dvh - var(--mobile-nav-height));
+		max-height: calc(100dvh - var(--mobile-nav-height));
+	}
+	/* A call takes the nav away (shouldRenderMobileNavigation). */
+	.app-container.in-call {
+		height: 100dvh;
+		max-height: 100dvh;
+	}
+	/* The rail stands beside the stage; the stage keeps the rest of the width. */
+	.app-container.nav-rail {
+		box-sizing: border-box;
+		padding-inline-start: var(--mobile-rail-w);
+	}
+	/* The keyboard is up: the stage ends at the keyboard (and the bottom nav steps aside, below). */
+	:root[data-keyboard-open='1'] .app-container {
+		height: calc(100dvh - var(--keyboard-inset, 0px));
+		max-height: calc(100dvh - var(--keyboard-inset, 0px));
+	}
+	.main-content {
+		flex: 1;
+		width: 100%;
+		min-width: 0;
+	}
+	/* Desktop-only frame parts. */
+	.resize-handle,
+	.nav-reopen-rail,
+	.dm-notification-rail,
+	.server-rail-container {
+		display: none;
+	}
+}
+
+/* ---------- root navigation: the bottom nav (§8.12) ---------- */
+@media (max-width: 768px) {
+	.mobile-bottom-nav {
+		position: fixed;
+		right: 0;
+		bottom: 0;
+		left: 0;
+		z-index: var(--z-toast);
+		display: grid;
+		grid-template-columns: repeat(5, minmax(0, 1fr));
+		box-sizing: border-box;
+		height: var(--mobile-nav-height);
+		padding: 0 0 var(--mobile-nav-pad);
+		border-top: var(--w-bw) solid var(--w-line);
+		background: var(--w-bg2);
+		color: var(--w-mute);
+	}
+	/* A kit dialog or sheet is modal: its scrim dims the nav and takes its taps like the rest of
+	   the page, and a tall dialog is never cut off under it. So while one is open the nav steps
+	   under the kit's scrim layer. The Channels drawer, the side-panel overlay and the server
+	   switcher stop above the nav and keep it in front, as the way out. */
+	:root:has(.base-modal-scrim) .mobile-bottom-nav,
+	:root:has(.sheet-scrim) .mobile-bottom-nav {
+		z-index: calc(var(--z-modal) - 2);
+	}
+	.mobile-bottom-nav .mnav-tab {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 2px;
+		box-sizing: border-box;
+		min-width: 0;
+		height: var(--mobile-nav-bar);
+		margin: 0;
+		padding: 0 2px;
+		border: 0;
+		border-radius: 0;
+		background: transparent;
+		color: var(--w-mute);
+		font: 500 calc(11px * var(--w-fs)) / calc(14px * var(--w-fs)) var(--w-sans);
+		letter-spacing: 0;
+		cursor: pointer;
+		-webkit-tap-highlight-color: transparent;
+		transition: color var(--w-dur-1) var(--w-ease);
+	}
+	/* The 24×2 mark sits on the edge that meets the stage (here the nav's top rule). */
+	.mobile-bottom-nav .mnav-tab::before {
+		content: '';
+		position: absolute;
+		top: calc(-1 * var(--w-bw));
+		left: 50%;
+		width: 24px;
+		height: 2px;
+		margin-left: -12px;
+		border-radius: 0 0 2px 2px;
+		background: var(--w-sig);
+		opacity: 0;
+	}
+	.mobile-bottom-nav .mnav-tab[aria-current='page'] {
+		color: var(--w-text);
+	}
+	.mobile-bottom-nav .mnav-tab[aria-current='page']::before {
+		opacity: 1;
+	}
+	.mobile-bottom-nav .mnav-tab:focus-visible {
+		outline: 2px solid var(--w-accent);
+		outline-offset: -2px;
+	}
+	/* The icon wrapper never clips: the badge hangs off its top-right corner. */
+	.mobile-bottom-nav .mnav-icon {
+		position: relative;
+		display: grid;
+		place-items: center;
+		width: 24px;
+		height: 24px;
+		overflow: visible;
+		color: var(--w-mute);
+	}
+	.mobile-bottom-nav .mnav-icon > svg {
+		width: 22px;
+		height: 22px;
+	}
+	.mobile-bottom-nav .mnav-tab[aria-current='page'] .mnav-icon {
+		color: var(--w-sig);
+	}
+	.mobile-bottom-nav .mnav-badge {
+		--w-badge-ring: var(--w-bg2);
+		position: absolute;
+		top: -6px;
+		left: calc(50% + 4px);
+		pointer-events: none;
+	}
+	.mobile-bottom-nav .mnav-label {
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	/* You: the avatar stamp (24px: sans initial) with its presence dot. */
+	.mobile-bottom-nav .mnav-avatar {
+		position: relative;
+		display: grid;
+		place-items: center;
+		width: 24px;
+		height: 24px;
+		border-radius: var(--w-avr, 50%);
+		background: var(--disc, var(--w-raise));
+		color: var(--on, var(--w-text));
+		font: 500 calc(11px * var(--w-fs)) / 1 var(--w-sans);
+	}
+	.mobile-bottom-nav .mnav-avatar :is(.mnav-avatar__picture, img, canvas) {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		border-radius: var(--w-avr, 50%);
+		object-fit: cover;
+	}
+	.mobile-bottom-nav .mnav-presence {
+		position: absolute;
+		right: -2px;
+		bottom: -2px;
+		width: 8px;
+		height: 8px;
+		border-radius: var(--w-avr, 50%);
+		background: var(--w-online);
+		box-shadow: 0 0 0 2px var(--w-bg2);
+	}
+	.mobile-bottom-nav .mnav-presence--away {
+		background: var(--w-warn);
+	}
+	.mobile-bottom-nav .mnav-presence--busy {
+		background: var(--w-danger);
+	}
+	.mobile-bottom-nav .mnav-presence--offline {
+		background: var(--w-bg2);
+		box-shadow:
+			inset 0 0 0 1.5px var(--w-faint),
+			0 0 0 2px var(--w-bg2);
+	}
+	/* The current You tab: the stamp wears a --w-sig ring, since it has no glyph to colour. */
+	.mobile-bottom-nav .mnav-tab[aria-current='page'] .mnav-avatar {
+		box-shadow:
+			0 0 0 2px var(--w-bg2),
+			0 0 0 3.5px var(--w-sig);
+	}
+}
+/* The keyboard covers the bottom nav's place; the rail stands beside the keyboard and stays. */
+@media (max-width: 599.98px) {
+	:root[data-keyboard-open='1'] .mobile-bottom-nav {
+		display: none;
+	}
+}
+@media (max-width: 768px) and (hover: hover) and (pointer: fine) {
+	.mobile-bottom-nav .mnav-tab:hover,
+	.mobile-bottom-nav .mnav-tab:hover .mnav-icon {
+		color: var(--w-text);
+	}
+	.mobile-bottom-nav .mnav-tab[aria-current='page']:hover .mnav-icon {
+		color: var(--w-sig);
+	}
+}
+
+/* ---------- 600–768px: the same five destinations as a 72px left rail (§8.13) ---------- */
+@media (min-width: 600px) and (max-width: 768px) {
+	.mobile-bottom-nav {
+		top: 0;
+		right: auto;
+		bottom: 0;
+		grid-template-columns: minmax(0, 1fr);
+		grid-auto-rows: 64px;
+		align-content: start;
+		row-gap: 4px;
+		width: var(--mobile-rail-w);
+		height: auto;
+		padding: calc(env(safe-area-inset-top, 0px) + 52px + 8px) 0 env(safe-area-inset-bottom, 0px);
+		border-top: 0;
+		border-inline-end: var(--w-bw) solid var(--w-line);
+	}
+	/* The top bar's rule runs on across the rail (§2.2); the destinations start under it. */
+	.mobile-bottom-nav::after {
+		content: '';
+		position: absolute;
+		top: calc(env(safe-area-inset-top, 0px) + 52px - var(--w-bw));
+		right: 0;
+		left: 0;
+		height: var(--w-bw);
+		background: var(--w-line);
+		pointer-events: none;
+	}
+	.mobile-bottom-nav .mnav-tab {
+		height: 64px;
+	}
+	/* The mark stands on the rail's inner rule, beside the stage. */
+	.mobile-bottom-nav .mnav-tab::before {
+		top: 50%;
+		right: calc(-1 * var(--w-bw));
+		left: auto;
+		width: 2px;
+		height: 24px;
+		margin: -12px 0 0;
+		border-radius: 2px 0 0 2px;
+	}
+}
+
+/* ---------- the Channels drawer: min(88vw, 360px) from the start edge (§8.12) ---------- */
+@media (max-width: 768px) {
+	.channel-sidebar-container {
+		position: fixed;
+		top: 0;
+		bottom: var(--mobile-nav-height);
+		left: var(--mobile-rail-w);
+		z-index: var(--z-modal);
+		box-sizing: border-box;
+		width: min(88vw, 360px);
+		padding-top: env(safe-area-inset-top, 0px);
+		border: 0;
+		background: var(--w-bg2);
+		visibility: hidden;
+		transition:
+			transform var(--w-dur-3) var(--w-ease),
+			visibility 0s linear var(--w-dur-3);
+	}
+	.channel-sidebar-container.mobile-visible,
+	.channel-sidebar-container.preview-visible {
+		visibility: visible;
+		box-shadow: var(--w-shadow);
+		transition: transform var(--w-dur-3) var(--w-ease);
+	}
+	.channel-sidebar-container.preview-visible {
+		pointer-events: none;
+	}
+	:root[data-keyboard-open='1'] .channel-sidebar-container {
+		bottom: 0;
+	}
+	/* The column fills the drawer (the legacy phone sheet sized it for a 56px nav). Its edge is an
+	   overlay's edge. */
+	:root .app-container .channel-sidebar-container > .channel-sidebar {
+		height: 100%;
+		max-width: none;
+		border-right: var(--w-bw) solid var(--w-line-strong);
+	}
+	/* The drawer holds places only (DMs, Channels, Voice under the server name and switcher):
+	   the person's foot is the nav's You page, and no keyboard means no shortcut keycap. */
+	:root .app-container .channel-sidebar-container .profile-card.sb-foot,
+	:root .app-container .channel-sidebar-container .sb-search .w-kbd {
+		display: none;
+	}
+
+	/* The scrim over what the drawer leaves of the stage; a tap closes the drawer. */
+	.mobile-panel-backdrop {
+		display: block;
+		position: fixed;
+		top: 0;
+		right: 0;
+		bottom: var(--mobile-nav-height);
+		left: var(--mobile-rail-w);
+		z-index: calc(var(--z-modal) - 1);
+		background: var(--w-scrim);
+		animation: w-fade var(--w-dur-3) var(--w-ease);
+	}
+
+	/* A side panel on the phone: the whole stage, from the end edge. */
+	.mobile-right-overlay {
+		position: fixed;
+		top: 0;
+		right: 0;
+		bottom: var(--mobile-nav-height);
+		left: var(--mobile-rail-w);
+		z-index: var(--z-modal);
+		display: flex;
+		flex-direction: column;
+		box-sizing: border-box;
+		padding-top: env(safe-area-inset-top, 0px);
+		background: var(--w-bg);
+		scrollbar-width: none;
+		transform: translateX(100%);
+		visibility: hidden;
+		transition:
+			transform var(--w-dur-3) var(--w-ease),
+			visibility 0s linear var(--w-dur-3);
+	}
+	.mobile-right-overlay.visible,
+	.mobile-right-overlay.preview-visible {
+		visibility: visible;
+		box-shadow: var(--w-shadow);
+		transition: transform var(--w-dur-3) var(--w-ease);
+	}
+	.mobile-right-overlay.preview-visible {
+		pointer-events: none;
+	}
+	.mobile-right-overlay::-webkit-scrollbar {
+		display: none;
+	}
+	:root[data-keyboard-open='1'] .mobile-right-overlay {
+		bottom: 0;
+	}
+
+	/* The server switcher's sheet starts beside the rail, never under it. */
+	.app-container.nav-rail .server-switcher.mobile {
+		left: var(--mobile-rail-w);
+	}
+
+	/* A DM conversation's Back is real navigation on the phone: a full touch target. */
+	.center-dm-thread .dm-conversation .dm-header-back {
+		width: 44px;
+		min-width: 44px;
+		height: 44px;
+	}
+}
+
+/* ---------- the minimized voice strip (a call is on, its room is not on stage) ---------- */
+@media (max-width: 768px) {
+	/* One 56px row at the foot of the stage: live dot, room, plain connection words, three keys.
+	   A call takes the nav and the composer away on the phone (the dock is the only action bar,
+	   §8.12), so the strip sits on the home-indicator inset; the connection badge rises above it
+	   (use:cornerBar). */
+	:root .app-container .voice-channel-strip {
+		position: absolute;
+		right: 8px;
+		bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+		left: 8px;
+		z-index: var(--z-sticky);
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		gap: 8px;
+		box-sizing: border-box;
+		width: auto;
+		min-width: 0;
+		height: 56px;
+		padding: 0 6px 0 14px;
+		border: var(--w-bw) solid var(--w-line-strong);
+		border-radius: var(--radius-lg);
+		background: var(--w-bg2);
+		box-shadow: var(--w-shadow);
+		color: var(--w-text);
+		backdrop-filter: none;
+		overflow: visible;
+	}
+	:root[data-mode='light'] .app-container .voice-channel-strip {
+		background: var(--w-lift);
+	}
+	.voice-channel-strip .voice-strip__dot {
+		flex: none;
+		width: 7px;
+		height: 7px;
+		border-radius: var(--w-avr, 50%);
+		background: var(--w-online);
+	}
+	.voice-channel-strip .voice-strip__text {
+		display: flex;
+		flex: 1 1 auto;
+		flex-direction: column;
+		min-width: 0;
+	}
+	.voice-channel-strip .voice-strip__room {
+		overflow: hidden;
+		font: var(--w-t-label);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.voice-channel-strip .voice-strip__state {
+		overflow: hidden;
+		color: var(--w-faint);
+		font: var(--w-t-caption);
+		font-weight: 400;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	/* The legacy floating-card rules (main-layout-part2.css) drew pill buttons that wrapped to a
+	   second row; here the keys are the kit's 44px icon buttons in one row. */
+	:root .app-container .voice-channel-strip .voice-channel-actions {
+		display: flex;
+		flex: none;
+		flex-wrap: nowrap;
+		gap: 2px;
+		width: auto;
+	}
+	:root .app-container .voice-channel-strip .voice-channel-actions .w-ibtn {
+		flex: none;
+		width: 44px;
+		height: 44px;
+		padding: 0;
+		border: 0;
+		border-radius: var(--radius-md);
+		background: transparent;
+		color: var(--w-mute);
+	}
+	:root .app-container .voice-channel-strip .voice-channel-actions .w-ibtn > svg {
+		width: 20px;
+		height: 20px;
+	}
+	:root .app-container .voice-channel-strip .voice-channel-actions .w-ibtn:hover,
+	:root .app-container .voice-channel-strip .voice-channel-actions .w-ibtn[aria-pressed='true'] {
+		background: var(--w-raise);
+		color: var(--w-text);
+	}
+	:root .app-container .voice-channel-strip .voice-channel-actions .w-ibtn.leave {
+		color: var(--w-danger);
+	}
+	:root .app-container .voice-channel-strip .voice-channel-actions .w-ibtn.leave:hover {
+		background: color-mix(in srgb, var(--w-danger) 14%, transparent);
+	}
+	:root .app-container .voice-channel-strip .voice-channel-actions .w-ibtn:focus-visible {
+		outline: 2px solid var(--w-accent);
+		outline-offset: -2px;
+	}
+}

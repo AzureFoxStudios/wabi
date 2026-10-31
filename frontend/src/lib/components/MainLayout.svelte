@@ -8,8 +8,10 @@
 	import GamesHost from '$lib/games/GamesHost.svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import { get } from 'svelte/store';
-	import { centerPanelView, centerDmOtherUser, centerGroupChannel, focusMode } from '$lib/layoutStoreStates';
+	import { centerPanelView, centerDmOtherUser, centerGroupChannel, compactSidebarOpen, focusMode, isCompactShell, isNavRail } from '$lib/layoutStoreStates';
 	import { armPeekDismiss, cancelPeekDismiss, peekAnimationGate, setPeekPointerInside } from '$lib/rightPeekGestures';
+	import { dockCanPin, endPeek, peekHeld, peekRequested } from '$lib/layoutStoreRightPanel';
+	import { DOCK_DEFAULT_PANEL, DOCK_MIN_PANEL, dockWidthFor, resizeKeyWidth } from '$lib/dockClamp';
 	import { registerPluginWorkspacePanels } from '$lib/workspacePanels';
 	import { fetchPluginInventory } from '$lib/addonInventory';
 	import Chat from '$lib/components/Chat.svelte';
@@ -40,10 +42,12 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import { activeWorkspaceView, selectWorkspaceView } from '$lib/workspaceNavigationState';
 	import type { WorkspaceViewKey } from './chat/types';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
-	import { channelMessages, channelUnreadCounts, channels, currentChannel, currentUser, users, createDM, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, joinChannel, type Channel, type User } from '$lib/socket';
-	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, incomingCall, outgoingCall, isInCall, activeGroupCall, groupCallRingingTargets, isVideoOff, toggleVideo, channelCallPanelOpen, callOfflineNotice } from '$lib/calling';
+	import { channelUnreadCounts, channels, currentChannel, currentUser, users, createDM, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, joinChannel, type User } from '$lib/socket';
+	import { activeCalls, activeVoiceChannel, callMode, connectionState, incomingCall, outgoingCall, isInCall, activeGroupCall, groupCallRingingTargets, isVideoOff, toggleVideo, channelCallPanelOpen, callOfflineNotice } from '$lib/calling';
+	import { connectionWords, cornerBar, dockCallPanel } from '$lib/callShell';
+	import Icon from '$lib/components/ui/Icon.svelte';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
-	import { onDestroy, onMount } from 'svelte';
+	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 import { _ } from '$lib/i18n';
 import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { playNotificationSound } from '$lib/notifications';
@@ -53,7 +57,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { MEDIA_ALBUMS_ADDON_ID } from '$lib/mediaAlbumsWorkspace';
 	import { PLANNER_ADDON_ID } from '$lib/plannerWorkspace';
 	import { NOTES_ADDON_ID } from '$lib/notesWorkspace';
-	import WorkspaceViewBar from '$lib/components/WorkspaceViewBar.svelte';
+	import StageBar from '$lib/components/StageBar.svelte';
 	import {
 		getServerScopedUserKey,
 		getTrackedPersonKeyForUser,
@@ -68,7 +72,23 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { quickScratchpadOpen, closeQuickScratchpad } from '$lib/notesStore';
 	import QuickScratchpad from '$lib/components/QuickScratchpad.svelte';
 	import InstallAppBanner from '$lib/components/pwa/InstallAppBanner.svelte';
-	import { formatMobileUnreadBadge, nextMobileBackSurface, reconcileMobileSurfaceStack, sumUnreadConversationCount, type MobileBackSurface, type MobileSurfaceState } from '$lib/mobileShellModel';
+	import {
+		formatMobileUnreadBadge,
+		mobileNavDestination,
+		nextMobileBackSurface,
+		reconcileMobileSurfaceStack,
+		shouldRenderMobileNavigation,
+		sidebarFlowWidth,
+		sumUnreadCommunityCount,
+		sumUnreadConversationCount,
+		type MobileBackSurface,
+		type MobileNavDestination,
+		type MobileSurfaceState,
+		type YouSettingsPage
+	} from '$lib/mobileShellModel';
+	import MobileNav from '$lib/components/MobileNav.svelte';
+	import YouPage from '$lib/components/YouPage.svelte';
+	import type { SettingsRequest } from '$lib/components/settings/settingsFrame';
 	import { showToast } from '$lib/toast';
 	import { workspaceViewSelect, workspaceActivityBadge } from '$lib/workspaceViewBridge';
 
@@ -94,7 +114,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	export let accountSecurityOpenRequest = 0;
 	let showSettings = false;
 	let requestedSettingsPaymentSurface: 'connections' | null = null;
-	let requestedSettingsTab: 'profile' | 'server' | 'notifications' | 'audio' | 'addons' | null = null;
+	// Settings resolves any page id (resolveSettingsRequest); the You page also opens Appearance and
+	// Privacy & security directly.
+	let requestedSettingsTab: SettingsRequest | YouSettingsPage | null = null;
 	let activityActionError = '';
 	let requestedSettingsPasswordChangeRequest = 0;
 	let lastHandledAccountSecurityOpenRequest = 0;
@@ -102,8 +124,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	$: showQuickScratchpad = $quickScratchpadOpen;
 
 	$: totalUnreadDMs = sumUnreadConversationCount($channelUnreadCounts, $channels);
-	$: mobileUnreadBadge = formatMobileUnreadBadge(totalUnreadDMs);
-	$: mobileFriendRequestBadge = formatMobileUnreadBadge($friendships.incoming.length);
+	$: communityUnread = sumUnreadCommunityCount($channelUnreadCounts, $channels);
 	let hubRequestSequence = 0;
 	let friendsOpenRequest = 0;
 	let messagesOpenRequest = 0;
@@ -111,24 +132,29 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	let unsubscribeFriendshipSync: (() => void) | null = null;
 	let unsubscribeFriendRequestNotices: (() => void) | null = null;
 	let knownIncomingRequestIds: Set<string> | null = null;
-	$: activityBadge = formatMobileUnreadBadge($friendships.incoming.length + Object.values($remoteFriendRequests).reduce((sum, entry) => sum + entry.requests.length, 0) + Object.values($followUnreadCountsByServer).reduce((sum, count) => sum + count, 0) + totalUnreadDMs);
+	$: activityCount = $friendships.incoming.length + Object.values($remoteFriendRequests).reduce((sum, entry) => sum + entry.requests.length, 0) + Object.values($followUnreadCountsByServer).reduce((sum, count) => sum + count, 0) + totalUnreadDMs;
+	$: activityBadge = formatMobileUnreadBadge(activityCount);
 
 	let resizingChannel = false;
 	let resizingRight = false;
-	let showVoiceDebugDetails = false;
 	let showCallDebugPanel = false;
-	// Dev-only gate: the floating calling-diagnostics overlay must never ship to regular users.
-	// 2026-08-27: the diagnostics overlay was DEV-only, so real users could
-	// never see ping/loss/bitrate during field tests. Always compiled in; the
-	// floating toggle only MOUNTS while a call surface is active.
-	const callDebugPanelEnabled = true;
+	// The floating calling-diagnostics toggle is a developer instrument (§9.4): CallDebugPanel
+	// renders only in dev builds, so the toggle and its overlay exist only there too. Members reach
+	// Connection details (ping, loss, route) from the call's Call options and the Calls page.
+	const callDebugPanelEnabled = import.meta.env.DEV;
 	let showServerSwitcher = false;
 	let serverHubReturnView: typeof activeView = 'chat';
 	let serverHubWelcome = newlyRegistered;
-	let mobileNavVisible = false;
-	let mobileNavIdleTimer: ReturnType<typeof setTimeout> | null = null;
-	let navTouchStartY = 0;
-	let navTouchDragging = false;
+	const dispatch = createEventDispatcher<{ logout: void }>();
+	// Root navigation is structural chrome (§8.12): present whenever the phone shell is, never
+	// behind a reveal gesture. The keyboard (CSS, data-keyboard-open) and a call are the only
+	// takeovers. Under 600px it is the bottom nav; from 600 to 768px a 72px left rail.
+	$: mobileNavShown = shouldRenderMobileNavigation({ isMobile: $layoutStore.isMobile, isInCall: $layoutStore.isInCall });
+	$: bottomNavShown = mobileNavShown && !$isNavRail;
+	$: navRailShown = mobileNavShown && $isNavRail;
+	// The You page (§8.12): a page in the phone stage; the nav stays.
+	let mobileYouOpen = false;
+	$: youPageShown = mobileYouOpen && $layoutStore.isMobile;
 	let touchStartX = 0;
 	let touchStartY = 0;
 	let touchStartTime = 0;
@@ -138,28 +164,273 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	let swipePreviewTarget: 'none' | 'channels' | 'users' = 'none';
 	let swipePreviewOffsetX = 0;
 	let mobileSurfaceStack: MobileBackSurface[] = [];
-	// Right-panel peek retract: when the peek collapses, keep the zone mounted
+	// Right-panel peek retract: when the panel leaves the screen, keep the zone mounted
 	// briefly to play the slide-out instead of yanking it from the DOM.
 	// (Legacy reactivity — this file is not runes-mode.)
 	let peekClosing = false;
 	let peekClosingTimer: ReturnType<typeof setTimeout> | null = null;
-	let prevRightPanelMode: 'none' | 'peek' | 'pinned' | null = null;
-	$: trackRightPanelMode($layoutStore.rightPanelMode);
-	function trackRightPanelMode(mode: 'none' | 'peek' | 'pinned') {
-		if (mode !== 'none') {
+	let prevZoneOpenForExit = false;
+	// Center-stage guard (§8.4, dockClamp.ts): a companion pins in flow only while the stage keeps
+	// 600px. A panel opened when there is no room is a peek over the stage with the scrim; a pin that
+	// loses its room is stowed (kept, off screen) until the room comes back. The stage width never
+	// changes for a peek. Widths are measured here and the verdict is published for the rail.
+	let viewportWidth = typeof window === 'undefined' ? 1536 : window.innerWidth;
+	let railWidth = 44;
+	function measureRailWidth(): void {
+		if (typeof window === 'undefined') return;
+		const value = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--w-rail-w'));
+		if (Number.isFinite(value) && value > 0) railWidth = value;
+	}
+	$: dockRail = !$layoutStore.isMobile && !$focusMode ? railWidth : 0;
+	// The sidebar's width in flow: the stored desktop width, or the 60px compact rail in the
+	// 769–1023px band (§8.13), where the full column opens over the stage instead.
+	$: compactShell = !$layoutStore.isMobile && $isCompactShell;
+	$: sidebarColumnWidth = $layoutStore.isMobile ? 0 : sidebarFlowWidth($layoutStore.channelSidebarWidth, compactShell);
+	$: dockSidebar = $layoutStore.isMobile ? 0 : sidebarColumnWidth + desktopServerRailOffset;
+
+	// The compact band's drawer: the full sidebar over the stage, with a scrim; the stage keeps its
+	// width. Escape, the scrim, the toggle or choosing a place (a channel, DMs, a workspace) close it.
+	let sidebarContainer: HTMLElement | null = null;
+	let compactToggle: HTMLButtonElement | null = null;
+	$: compactDrawerOpen = compactShell && $compactSidebarOpen;
+	$: if (!compactShell && $compactSidebarOpen) compactSidebarOpen.set(false);
+	let compactDrawerPlace = '';
+	function openCompactSidebar(): void {
+		compactDrawerPlace = stagePlace;
+		compactSidebarOpen.set(true);
+		void tick().then(() => {
+			const here = sidebarContainer?.querySelector<HTMLElement>('.channel-sidebar [aria-current="page"]');
+			(here ?? sidebarContainer?.querySelector<HTMLElement>('.channel-sidebar button'))?.focus({ preventScroll: true });
+		});
+	}
+	function closeCompactSidebar(returnFocus: boolean): void {
+		if (!get(compactSidebarOpen)) return;
+		compactSidebarOpen.set(false);
+		if (returnFocus) void tick().then(() => compactToggle?.focus({ preventScroll: true }));
+	}
+	function toggleCompactSidebar(): void {
+		if (get(compactSidebarOpen)) closeCompactSidebar(false);
+		else openCompactSidebar();
+	}
+	$: if (compactDrawerOpen && stagePlace !== compactDrawerPlace) closeCompactSidebar(false);
+	function handleCompactDrawerKeydown(event: KeyboardEvent): void {
+		if (!compactDrawerOpen || event.key !== 'Escape' || event.defaultPrevented) return;
+		if (event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+		event.preventDefault();
+		closeCompactSidebar(true);
+	}
+	$: dock = dockWidthFor({ viewport: viewportWidth, sidebar: dockSidebar, rail: dockRail, requested: $layoutStore.rightPanelWidth });
+	$: dockCanPin.set(dock.mode === 'pin');
+	$: dockPinned = !$layoutStore.isMobile && $layoutStore.rightPanelMode === 'pinned' && dock.mode === 'pin';
+	// The layout store's pinStowed(): pinned, no room. Off screen unless a held peek shows a panel over it.
+	$: dockStowed = !$layoutStore.isMobile && $layoutStore.rightPanelMode === 'pinned' && dock.mode === 'peek';
+	$: dockPeeking = !$layoutStore.isMobile && ($layoutStore.rightPanelMode === 'peek' || (dockStowed && $peekHeld));
+	$: zoneOpen = $layoutStore.rightPanelMode !== 'none' && !(dockStowed && !$peekHeld);
+	$: trackZoneOpen(zoneOpen);
+	// A stowed pin keeps its zone mounted, hidden and inert, so the panel's own state (search text,
+	// a channel picked inside it, a loaded viewer, scroll) survives a resize. Only a close unmounts it.
+	$: zoneMounted = $layoutStore.rightPanelMode !== 'none';
+	$: zoneHidden = !zoneOpen && !peekClosing;
+	// A peek the person asked for gets the full scrim; a click on it ends the peek (§8.4, D11). A peek
+	// the app opened on its own (the Calls peek on joining a call) never dims the stage. A peek opened
+	// on purpose also takes the covered stage out of keyboard reach; a hover glance never touches focus.
+	$: stageScrim = dockPeeking && ($peekHeld || $peekRequested);
+	$: stageInert = dockPeeking && $peekHeld;
+	// A closing peek keeps its place, edge and shadow while it leaves.
+	let zoneWasPeek = false;
+	$: if (zoneOpen) zoneWasPeek = dockPeeking;
+	$: zoneFloats = dockPeeking || (peekClosing && zoneWasPeek);
+	// The scrim stays through the peek's exit animation, then goes.
+	let scrimVisible = false;
+	$: updateScrimVisible(stageScrim, peekClosing);
+	function updateScrimVisible(scrim: boolean, closing: boolean): void {
+		scrimVisible = scrim || (scrimVisible && closing);
+	}
+	onMount(measureRailWidth);
+	// The scrim covers exactly the stage (everything between the sidebar and the rail), and a peek
+	// hangs over the stage's edge on the rail side: past the sidebar when both share that side.
+	$: navOnStubSide = ($layoutStore.navDock === 'right') === ($layoutStore.stubSide !== 'left');
+	$: peekInset = dockRail + (navOnStubSide ? dockSidebar : 0);
+	$: scrimLeft = ($layoutStore.stubSide === 'left' ? dockRail : 0) + ($layoutStore.navDock === 'right' ? 0 : dockSidebar);
+	$: scrimRight = ($layoutStore.stubSide === 'left' ? 0 : dockRail) + ($layoutStore.navDock === 'right' ? dockSidebar : 0);
+
+	// Under a held peek's scrim the covered stage (masthead, surface, voice strip) is out of
+	// reach for the pointer, so it is inert for the keyboard too. The covered parts stay direct
+	// children of .chat-stack and each gets `inert` (coverStage), so no wrapper sits between the
+	// stage container and its parts.
+	// The embedded call and the minimized call foot are stage parts as well: they paint under the
+	// scrim and are inert with the stage. CallModal sets that inert itself (followStageInert mirrors
+	// .chat-surface's), because it alone knows when the shell turns into full window, which covers
+	// the whole app and is never under the scrim. They are listed here (CALL_STAGE_PARTS) so focus
+	// in them moves into the peek and comes back like focus on the rest of the stage. The incoming
+	// and outgoing call dialogs are not stage parts: they sit above the scrim and stay live, so a
+	// call can always be answered.
+	const STAGE_PARTS = '.stage-bar, .chat-surface, .voice-live-strip';
+	const CALL_STAGE_PARTS = '.call-shell.mode-embedded, .docked-bar';
+	let chatStack: HTMLElement | null = null;
+	function inCoveredStage(element: Element): boolean {
+		return Array.from(chatStack?.children ?? []).some((part) => (part.matches(STAGE_PARTS) || part.matches(CALL_STAGE_PARTS)) && part.contains(element));
+	}
+	/** Svelte action for .chat-stack: makes its stage parts inert while covered, including parts mounted meanwhile. */
+	function coverStage(node: HTMLElement, covered: boolean) {
+		const madeInert = new Set<Element>();
+		let observer: MutationObserver | null = null;
+		const apply = () => {
+			for (const part of Array.from(node.children)) {
+				if (!part.matches(STAGE_PARTS) || part.hasAttribute('inert')) continue;
+				part.setAttribute('inert', '');
+				madeInert.add(part);
+			}
+		};
+		const release = () => {
+			observer?.disconnect();
+			observer = null;
+			for (const part of madeInert) part.removeAttribute('inert');
+			madeInert.clear();
+		};
+		const update = (next: boolean) => {
+			if (!next) {
+				release();
+				return;
+			}
+			apply();
+			if (!observer && typeof MutationObserver !== 'undefined') {
+				observer = new MutationObserver(apply);
+				observer.observe(node, { childList: true });
+			}
+		};
+		update(covered);
+		return { update, destroy: release };
+	}
+
+	// Focus that was on the covered stage moves into the peek and returns when the scrim clears.
+	// Focus stranded on the zone, or inside a panel that leaves the screen, goes back to the stage
+	// element it came from or to the panel's stub. Focus the person put anywhere else stays put.
+	// Focus inside a pin that gets stowed waits on the panel's stub and goes back to where it was
+	// once the pin is in flow again, unless the person has moved it in the meantime.
+	let companionZone: HTMLElement | null = null;
+	let stageFocusReturn: HTMLElement | null = null;
+	let stowedFocus: { target: HTMLElement; parking: Element | null } | null = null;
+	let shownPanelId: string = $layoutStore.activeRightTab;
+	$: if (zoneOpen) shownPanelId = $layoutStore.activeRightTab;
+	let prevStageInert = false;
+	let prevZoneOpenForFocus = false;
+	let prevInFlowForFocus = false;
+	$: guardCompanionFocus(stageInert, zoneOpen, dockPinned, zoneMounted);
+	function guardCompanionFocus(inert: boolean, open: boolean, inFlow: boolean, mounted: boolean): void {
+		if (typeof document === 'undefined') return;
+		const inertChanged = inert !== prevStageInert;
+		const openChanged = open !== prevZoneOpenForFocus;
+		const wasInFlow = prevInFlowForFocus;
+		prevStageInert = inert;
+		prevZoneOpenForFocus = open;
+		prevInFlowForFocus = inFlow;
+		if (!inertChanged && !openChanged) return;
+		if (open && openChanged) {
+			// Back on screen. A pin back in flow gets the focus it had when it was stowed.
+			const kept = stowedFocus;
+			stowedFocus = null;
+			if (kept && inFlow && !inert) {
+				void tick().then(() => {
+					const active = document.activeElement;
+					const untouched = !active || active === document.body || active === kept.parking;
+					if (untouched && kept.target.isConnected && companionZone?.contains(kept.target) && !kept.target.closest('[inert]')) {
+						kept.target.focus({ preventScroll: true });
+					}
+				});
+			}
+		}
+		if (inert) {
+			if (!inertChanged) return;
+			const active = document.activeElement;
+			if (active instanceof HTMLElement && inCoveredStage(active)) {
+				stageFocusReturn = active;
+				void tick().then(() => companionZone?.focus({ preventScroll: true }));
+			}
+			return;
+		}
+		// The scrim cleared (the peek closed or pinned) or the panel left the screen (closed or stowed).
+		const opener = stageFocusReturn;
+		stageFocusReturn = null;
+		const panelId = shownPanelId;
+		const current = document.activeElement;
+		if (!opener && !(current && companionZone?.contains(current))) return;
+		// A pin in flow that was just stowed stays mounted: remember the control that had focus in it.
+		const keep = !open && mounted && wasInFlow && current instanceof HTMLElement && current !== companionZone && Boolean(companionZone?.contains(current));
+		void tick().then(() => {
+			const active = document.activeElement;
+			const stranded = !active || active === document.body || active === companionZone || (!open && Boolean(companionZone?.contains(active)));
+			if (!stranded) return;
+			if (opener?.isConnected && !opener.closest('[inert]')) {
+				opener.focus({ preventScroll: true });
+			} else {
+				document.querySelector<HTMLElement>(`.rail .stub[data-panel-id="${CSS.escape(panelId)}"]`)?.focus({ preventScroll: true });
+			}
+			if (keep) stowedFocus = { target: current as HTMLElement, parking: document.activeElement };
+		});
+	}
+
+	// While a pin is stowed, the focus it had is only kept until the person acts somewhere else: a
+	// press or focus outside the zone (stage text, the sidebar, the stub) drops it, so the room
+	// coming back never pulls focus into the panel out from under them.
+	onMount(() => {
+		const dropStowedFocus = (event: Event) => {
+			if (!stowedFocus) return;
+			const target = event.target;
+			if (target instanceof Node && companionZone?.contains(target)) return;
+			stowedFocus = null;
+		};
+		document.addEventListener('pointerdown', dropStowedFocus, true);
+		document.addEventListener('focusin', dropStowedFocus, true);
+		return () => {
+			document.removeEventListener('pointerdown', dropStowedFocus, true);
+			document.removeEventListener('focusin', dropStowedFocus, true);
+		};
+	});
+
+	// Escape ends a peek and nothing else: it never unpins (endPeek). Menus and dialogs own it first.
+	function handleStagePeekKeydown(event: KeyboardEvent): void {
+		if (!dockPeeking || event.key !== 'Escape' || event.defaultPrevented) return;
+		if (event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+		if (endPeek()) event.preventDefault();
+	}
+
+	/** Width from the pointer to the rail edge the panel hangs from, clamped to what fits. */
+	function dockWidthAtPointer(clientX: number): number {
+		const fromEdge = $layoutStore.stubSide === 'left' ? clientX : window.innerWidth - clientX;
+		return Math.min(Math.max(DOCK_MIN_PANEL, dock.max), Math.max(DOCK_MIN_PANEL, Math.round(fromEdge - dockRail)));
+	}
+
+	function handleDockSeparatorKeydown(event: KeyboardEvent): void {
+		const next = resizeKeyWidth(event.key, dock.width, {
+			shift: event.shiftKey,
+			towardStage: $layoutStore.stubSide === 'left' ? 'ArrowRight' : 'ArrowLeft',
+			max: dock.max
+		});
+		if (next === null) return;
+		event.preventDefault();
+		layoutStore.rightPanelWidth.set(next);
+	}
+
+	function resetDockWidth(): void {
+		layoutStore.rightPanelWidth.set(DOCK_DEFAULT_PANEL);
+	}
+	function trackZoneOpen(open: boolean) {
+		if (open) {
 			if (peekClosingTimer) {
 				clearTimeout(peekClosingTimer);
 				peekClosingTimer = null;
 			}
 			peekClosing = false;
-		} else if (prevRightPanelMode === 'peek' || prevRightPanelMode === 'pinned') {
+		} else if (prevZoneOpenForExit) {
 			peekClosing = true;
+			// Matches the exit animation in main-layout-part1.css (0.75 x --w-dur-3).
 			peekClosingTimer = setTimeout(() => {
 				peekClosingTimer = null;
 				peekClosing = false;
-			}, 210);
+			}, 190);
 		}
-		prevRightPanelMode = mode;
+		prevZoneOpenForExit = open;
 	}
 	type FriendPresenceSnapshot = {
 		status: User['status'];
@@ -218,7 +489,26 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	$: if (callUiActive && !CallModalCmp) void import('./CallModal.svelte').then((m) => (CallModalCmp = m.default));
 	$: if (($layoutStore.rightPanelMode !== 'none' || peekClosing || ($layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'users')) && !RightPanelCmp) void import('./RightPanel.svelte').then((m) => (RightPanelCmp = m.default));
 
+	// Center stage owns the selected workspace (layout contract): a call that covers the stage
+	// (embedded below the masthead, or full window) docks whenever navigation picks what the stage
+	// shows, so the stage always shows what the folio or the sidebar now names. CallModal does this
+	// for the changes it can see (workspace view, channel, center-stage DM); these are the ones only
+	// this layout sees: its own activeView (Server home, the DM hub, the following feed) and choosing
+	// the folio word, DMs or Server home that is already current. Navigation docks with a plain
+	// close, like the sidebar's text-channel click, not the person's Minimize, so a later remote
+	// screen share can still bring the call back (dockCallPanel in $lib/callShell).
+	function dockCallForNavigation(): void {
+		if (!get(channelCallPanelOpen)) return;
+		dockCallPanel('navigation', { close: () => channelCallPanelOpen.set(false) });
+	}
+	let viewUnderCall = activeView;
+	$: if (activeView !== viewUnderCall) {
+		viewUnderCall = activeView;
+		dockCallForNavigation();
+	}
+
 	function handleWorkspaceViewSelect(view: WorkspaceViewKey): void {
+		dockCallForNavigation();
 		activeView = 'chat';
 		// The picker owns the center only; keep docked DM conversations intact.
 		layoutStore.closeCenterDm();
@@ -261,10 +551,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	const MOBILE_EDGE_SWIPE_MIN_X_PX = 56;
 	const MOBILE_EDGE_SWIPE_MAX_Y_PX = 72;
 	const MOBILE_EDGE_SWIPE_MAX_MS = 700;
-	const MOBILE_NAV_REVEAL_ZONE_PX = 88;
-	const MOBILE_NAV_SWIPE_MIN_Y_PX = 46;
-	const MOBILE_NAV_IDLE_HIDE_MS = 2200;
-	const MOBILE_NAV_PULL_DOWN_HIDE_PX = 26;
 	const SERVER_RAIL_WIDTH = 92;
 	$: desktopServerRailVisible =
 		!$layoutStore.isMobile &&
@@ -291,7 +577,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		const openDesktopSettings = (event: Event) => {
 			openSettings();
 			const tab = (event as CustomEvent<{ tab?: string }>).detail?.tab;
-			if (tab === 'profile' || tab === 'audio' || tab === 'addons') requestedSettingsTab = tab;
+			if (tab === 'profile' || tab === 'audio' || tab === 'addons' || tab === 'admin') requestedSettingsTab = tab;
 		};
 		const openDesktopServers = () => {
 			openServerSwitcher();
@@ -333,6 +619,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		syncMobileSurfaceStack({
 			workspaceOpen: $activeWorkspaceView !== 'messages',
 			conversationOpen: Boolean($layoutStore.centerDmChannelId),
+			youOpen: youPageShown,
 			browseOpen: $layoutStore.showMobileChannels,
 			rightOverlayOpen: $layoutStore.rightPanelMode !== 'none',
 			serverSwitcherOpen: showServerSwitcher,
@@ -360,24 +647,70 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		showSettings = true;
 	}
 
+	/** Settings on one page (the You page's rows), or on its list of pages. */
+	function openSettingsPage(page: YouSettingsPage | null): void {
+		requestedSettingsPaymentSurface = null;
+		requestedSettingsTab = page;
+		showSettings = true;
+	}
+
+	// ---------------------------------------------------------------- phone root navigation (§8.12)
+	// Each destination puts its place on screen and closes what covered the stage. The nav marks
+	// the destination from what is actually showing (mobileNavDestination), not from the last tap.
+	$: mobileNavActive = mobileNavDestination({
+		channelsOpen: $layoutStore.showMobileChannels,
+		youOpen: youPageShown,
+		settingsOpen: showSettings,
+		activeView,
+		workspaceView: $activeWorkspaceView,
+		conversationOpen: Boolean($layoutStore.centerDmChannelId)
+	});
+	$: mobileNavCounts = {
+		channelsUnread: communityUnread,
+		dmsUnread: totalUnreadDMs,
+		friendRequests: $friendships.incoming.length,
+		activity: activityCount
+	};
+
+	function selectMobileDestination(destination: MobileNavDestination): void {
+		if (destination === 'chat') openMobileChat();
+		// Channels opens the drawer; a second tap closes it again (Back does too).
+		else if (destination === 'channels') {
+			if ($layoutStore.showMobileChannels) layoutStore.showMobileChannels.set(false);
+			else openMobileBrowse();
+		}
+		else if (destination === 'dms') openMobileMessages();
+		else if (destination === 'activity') openMobileActivity();
+		else openMobileYou();
+	}
+
+	function closeMobileYou(): void {
+		mobileYouOpen = false;
+	}
+
 	function openMobileChat(): void {
-		selectWorkspaceView('messages');
+		dockCallForNavigation();
+		closeMobileYou();
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
 		activeView = 'chat';
 		layoutStore.closeDM();
 		selectWorkspaceView('messages');
 		mobileSurfaceStack = [];
-		scheduleMobileNavIdleHide();
 	}
 
 	function openMobileBrowse(): void {
+		// The drawer opens over the stage's root (the channel), so it never returns to You.
+		closeMobileYou();
 		layoutStore.closeRightPanel();
 		layoutStore.showMobileChannels.set(true);
-		scheduleMobileNavIdleHide();
 	}
 
 	function selectMessagesHub(closeConversation = false): void {
+		dockCallForNavigation();
+		// The DM hub is center stage only under the 'messages' view: without this, opening DMs from
+		// another workspace (e.g. Calls) marked DMs in the sidebar but left that workspace on stage.
+		selectWorkspaceView('messages');
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
 		if (closeConversation) layoutStore.closeCenterDm();
@@ -386,53 +719,59 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		messagesOpenRequest = ++hubRequestSequence;
 	}
 
+	// Friends is a segment of the DM hub (Conversations | Friends, §8.10); the sidebar's Friends
+	// entry and a friend-request toast land here.
 	function openFriendsHub(): void {
+		dockCallForNavigation();
+		selectWorkspaceView('messages');
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
 		layoutStore.closeCenterDm();
 		activeView = 'dm';
 		dmHubActiveTab = 'friends';
 		friendsOpenRequest = ++hubRequestSequence;
-		scheduleMobileNavIdleHide();
 	}
 
 	function openMobileMessages(): void {
-		selectWorkspaceView('messages');
+		closeMobileYou();
 		layoutStore.closeDM();
 		selectMessagesHub(true);
+		// Back from the DM hub returns to Chat (handleMobilePopState's root case).
 		try {
 			history.pushState({ wabiMobileSheet: 'messages' }, '');
 		} catch {
-			/* ignore */
+			/* History is best-effort; the nav still reaches every destination. */
 		}
-		scheduleMobileNavIdleHide();
-	}
-
-	function openMobileFriends(): void {
-		layoutStore.closeDM();
-		openFriendsHub();
-		try {
-			history.pushState({ wabiMobileSheet: 'friends' }, '');
-		} catch {
-			/* ignore */
-		}
-		scheduleMobileNavIdleHide();
 	}
 
 	function openMobileActivity(): void {
+		dockCallForNavigation();
+		closeMobileYou();
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
 		layoutStore.closeCenterDm();
 		activeView = 'chat';
 		selectWorkspaceView('notifications');
-		scheduleMobileNavIdleHide();
 	}
 
 	function openMobileYou(): void {
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
-		openSettings();
-		scheduleMobileNavIdleHide();
+		youPlace = stagePlace;
+		mobileYouOpen = true;
+	}
+
+	// The You page covers the stage until the stage is asked for something else: any navigation
+	// that changes the place (a channel, a workspace, a DM, Server home) closes it, wherever it
+	// came from (a notification, a link, the drawer).
+	$: stagePlace = [activeView, $activeWorkspaceView, $currentChannel ?? '', $layoutStore.centerDmChannelId ?? '', $activeTabId ?? ''].join('|');
+	let youPlace = '';
+	$: if (mobileYouOpen && stagePlace !== youPlace) closeMobileYou();
+	$: if (mobileYouOpen && !$layoutStore.isMobile) closeMobileYou();
+
+	function signOutFromYou(): void {
+		closeMobileYou();
+		dispatch('logout');
 	}
 
 	function handleWabiNavigate(event: Event): void {
@@ -450,7 +789,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		if (detail.view === 'dm' || detail.view === 'messages') {
 			activeView = 'dm';
 			layoutStore.showMobileChannels.set(false);
-			layoutStore.closeRightPanel();
+			if (detail.preserveRightPanel !== true) layoutStore.closeRightPanel();
 			if (typeof detail.channelId === 'string' && detail.channelId) {
 				layoutStore.openCenterDm(detail.channelId, null);
 				void joinChannel(detail.channelId);
@@ -472,6 +811,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		switch (surface) {
 			case 'settings':
 				showSettings = false;
+				return;
+			case 'you':
+				closeMobileYou();
 				return;
 			case 'server-switcher':
 				closeServerSwitcher();
@@ -506,6 +848,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	}
 
 	function openServerHub(): void {
+		dockCallForNavigation();
 		showServerSwitcher = false;
 		serverHubWelcome = false;
 		if (activeView !== 'server') serverHubReturnView = activeView;
@@ -569,12 +912,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			}
 			knownIncomingRequestIds = nextIds;
 		});
-		// Mobile navigation is structural chrome, not transient decoration.
-		// Keep it present while the phone shell is active; the keyboard and
-		// full-screen call surfaces are the only normal takeovers.
-		if ($layoutStore.isMobile && !$layoutStore.isInCall) {
-			mobileNavVisible = true;
-		}
 
 		mobileTabQueue.registerAddonTab({
 			id: MODEL_VIEWPORT_ADDON_ID,
@@ -716,10 +1053,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		mobileTabQueue.unregisterAddonTab(PLANNER_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(NOTES_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(NOTIFICATIONS_ADDON_ID);
-		if (mobileNavIdleTimer) {
-			clearTimeout(mobileNavIdleTimer);
-			mobileNavIdleTimer = null;
-		}
 		if (unsubscribeFriendPresence) {
 			unsubscribeFriendPresence();
 			unsubscribeFriendPresence = null;
@@ -786,10 +1119,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			layoutStore.channelSidebarWidth.set(Math.max(0, Math.min(width, window.innerWidth)));
 		}
 		if (resizingRight) {
-			// Measure from the viewport edge the strip sits on (spec: stub-side-aware).
-			const onLeft = $layoutStore.stubSide === 'left';
-			const newWidth = onLeft ? e.clientX : window.innerWidth - e.clientX;
-			layoutStore.rightPanelWidth.set(Math.max(0, newWidth));
+			// Measured from the rail edge the panel hangs from (stub-side-aware), and clamped so
+			// the stored width is the width you see: 240px up to what leaves the stage 600px.
+			layoutStore.rightPanelWidth.set(dockWidthAtPointer(e.clientX));
 		}
 	}
 
@@ -813,40 +1145,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		layoutStore.isResizingChannel.set(true);
 	}
 
-	function getLastMessageTimestamp(channelId: string): number {
-		const messages = $channelMessages[channelId] || [];
-		return messages.length > 0 ? messages[messages.length - 1].timestamp : 0;
-	}
-
-	function getChannelOtherUser(channel: Channel): User | null {
-		if (channel.otherUser) return channel.otherUser;
-		const myStableId = $currentUser?.dbUserId ? `user-${$currentUser.dbUserId}` : $currentUser?.id;
-		const otherStableId = (channel.members || []).find((id: string) => id !== myStableId);
-		if (!otherStableId) return null;
-		if (otherStableId.startsWith('user-')) {
-			const dbId = parseInt(otherStableId.substring(5), 10);
-			return $users.find(u => u.dbUserId === dbId) || null;
-		}
-		return $users.find(u => u.id === otherStableId) || null;
-	}
-
-	function openUnreadDM(channel: Channel) {
-		if (channel.type === 'group') {
-			layoutStore.openGroupDM(channel.id, channel);
-		} else {
-			const other = getChannelOtherUser(channel);
-			if (other) {
-				layoutStore.openDM(channel.id, other);
-			}
-		}
-		joinChannel(channel.id);
-	}
-
-	function formatUnreadBadge(count: number): string {
-		if (count > 99) return '99+';
-		return `${count}`;
-	}
-
 	function handleLeaveVoiceChannel() {
 		const channel = get(activeVoiceChannel);
 		if (!channel) return;
@@ -864,10 +1162,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		handleWorkspaceViewSelect('whiteboard');
 	}
 
-	function formatDiag(value: number | null, unit = ''): string {
-		if (value == null || Number.isNaN(value)) return '--';
-		return `${value}${unit}`;
-	}
+	// Connection trouble in plain words on the phone strip, never the lifecycle enum (§9.4).
+	$: stripConnectionWords = connectionWords($connectionState);
 
 	function resetTouchSwipe(): void {
 		touchStartX = 0;
@@ -917,14 +1213,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		if (!channelsOpen && !usersOpen && (nearLeftEdge || nearRightEdge)) {
 			swipePreviewTarget = nearLeftEdge ? 'channels' : 'users';
 			swipePreviewActive = true;
-			swipePreviewOffsetX = nearLeftEdge ? 0 : 0;
-		}
-
-		// P3: reappear on interaction — touching the content brings the hidden
-		// bottom nav back (it then auto-hides again after the idle timeout).
-		// Touches on buttons (incl. the grabber) were already bailed out above.
-		if (!mobileNavVisible && !$layoutStore.isInCall) {
-			showMobileNav();
+			swipePreviewOffsetX = 0;
 		}
 	}
 
@@ -994,24 +1283,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		const deltaY = touch.clientY - touchStartY;
 		const elapsedMs = Date.now() - touchStartTime;
 		const horizontalMin = Math.max(96, Math.floor(window.innerWidth * 0.22));
-		const verticalMin = Math.max(78, Math.floor(window.innerHeight * 0.09));
-		const isVerticalSwipe =
-			Math.abs(deltaY) >= Math.max(MOBILE_NAV_SWIPE_MIN_Y_PX, verticalMin) &&
-			Math.abs(deltaY) > Math.abs(deltaX) &&
-			elapsedMs <= MOBILE_EDGE_SWIPE_MAX_MS;
-
-		if (isVerticalSwipe) {
-			const startedNearBottom = touchStartY >= window.innerHeight - MOBILE_NAV_REVEAL_ZONE_PX;
-			const swipeUp = deltaY < 0;
-			const swipeDown = deltaY > 0;
-
-			if (!mobileNavVisible && startedNearBottom && swipeUp) {
-				mobileNavVisible = true;
-				resetTouchSwipe();
-				return;
-			}
-		}
-
 		const isHorizontalSwipe =
 			Math.abs(deltaX) >= Math.max(MOBILE_EDGE_SWIPE_MIN_X_PX, horizontalMin) &&
 			Math.abs(deltaY) <= MOBILE_EDGE_SWIPE_MAX_Y_PX &&
@@ -1064,45 +1335,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		resetTouchSwipe();
 	}
 
-	function showMobileNav(): void {
-		if (!$layoutStore.isMobile) return;
-		mobileNavVisible = true;
-		scheduleMobileNavIdleHide();
-	}
-
-	function scheduleMobileNavIdleHide(): void {
-		// Intentionally persistent. Older mobile chrome disappeared after
-		// 2.2 seconds, making ordinary reading feel like a hidden-gesture UI.
-		if ($layoutStore.isMobile && !$layoutStore.isInCall) mobileNavVisible = true;
-	}
-
-	function hideMobileNavNow(): void {
-		// Retained for old gesture call sites; root navigation no longer hides
-		// merely because the user pulled or paused.
-		if ($layoutStore.isMobile && !$layoutStore.isInCall) mobileNavVisible = true;
-	}
-
-	function handleMobileNavTouchStart(event: TouchEvent): void {
-		if (!$layoutStore.isMobile || !mobileNavVisible || event.touches.length !== 1) return;
-		navTouchStartY = event.touches[0].clientY;
-		navTouchDragging = true;
-		scheduleMobileNavIdleHide();
-	}
-
-	function handleMobileNavTouchMove(event: TouchEvent): void {
-		if (!navTouchDragging || event.touches.length !== 1) return;
-		const deltaY = event.touches[0].clientY - navTouchStartY;
-		if (deltaY >= MOBILE_NAV_PULL_DOWN_HIDE_PX) {
-			hideMobileNavNow();
-			navTouchDragging = false;
-		}
-	}
-
-	function handleMobileNavTouchEnd(): void {
-		navTouchDragging = false;
-		if (mobileNavVisible) scheduleMobileNavIdleHide();
-	}
-
 	// Pass panel and gesture state explicitly so Svelte updates these inline
 	// styles when a sheet opens, closes, or follows a swipe.
 	function getChannelPreviewTransform(mobile: boolean, channelsOpen: boolean, previewActive: boolean, previewTarget: string, offsetX: number): string | undefined {
@@ -1141,25 +1373,16 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		return 0.35 + (p * 0.65);
 	}
 
-	$: if ($callMode !== 'channel' || !$activeVoiceChannel) {
-		showVoiceDebugDetails = false;
-	}
-
-	$: if (!$layoutStore.isMobile || $layoutStore.isInCall) {
-		mobileNavVisible = false;
-		if (mobileNavIdleTimer) {
-			clearTimeout(mobileNavIdleTimer);
-			mobileNavIdleTimer = null;
-		}
-	} else if (!mobileNavVisible) {
-		mobileNavVisible = true;
-	}
 	$: activeOfficeTool = workspaceToolFromTab($activeTabId);
 </script>
 
 <GlanceHost />
 
 <svelte:window
+	bind:innerWidth={viewportWidth}
+	on:resize={measureRailWidth}
+	on:keydown={handleStagePeekKeydown}
+	on:keydown={handleCompactDrawerKeydown}
 	on:mousemove={handleMouseMove}
 	on:mouseup={stopResize}
 	on:touchstart={handleTouchStart}
@@ -1175,107 +1398,19 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	{#if AdminCenterStageCmp}
 		<svelte:component this={AdminCenterStageCmp} />
 	{:else}
-		<div class="lazy-panel-placeholder" aria-busy="true"></div>
+		<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 	{/if}
 {:else}
-{#if $layoutStore.isMobile && !$layoutStore.isInCall}
-	{#if !mobileNavVisible}
-		<button
-			type="button"
-			class="mobile-nav-grabber"
-			on:click={showMobileNav}
-			aria-label="Show mobile menu"
-			title="Swipe up for menu"
-		>
-			<span></span>
-		</button>
-	{/if}
-	<!-- Mobile Bottom Navigation Bar -->
-	<nav class="mobile-bottom-nav" class:visible={mobileNavVisible}>
-		<button
-			type="button"
-			class:active={
-				!$layoutStore.showMobileChannels &&
-				$layoutStore.rightPanelMode === 'none' &&
-				activeView !== 'dm' &&
-				$activeWorkspaceView !== 'notifications' &&
-				!showSettings
-			}
-			on:click={openMobileChat}
-			on:touchstart={handleMobileNavTouchStart}
-			on:touchmove={handleMobileNavTouchMove}
-			on:touchend={handleMobileNavTouchEnd}
-		>
-			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-			<span>{$_('shell.mobile.chat')}</span>
-		</button>
-		<button
-			type="button"
-			class:active={$layoutStore.showMobileChannels}
-			on:click={openMobileBrowse}
-			on:touchstart={handleMobileNavTouchStart}
-			on:touchmove={handleMobileNavTouchMove}
-			on:touchend={handleMobileNavTouchEnd}
-		>
-			<svg width="24" height="24" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
-			<span>{$_('shell.mobile.browse')}</span>
-		</button>
-		<button
-			type="button"
-			class:active={activeView === 'dm' && dmHubActiveTab === 'messages' && !$layoutStore.showMobileChannels}
-			on:click={openMobileMessages}
-			on:touchstart={handleMobileNavTouchStart}
-			on:touchmove={handleMobileNavTouchMove}
-			on:touchend={handleMobileNavTouchEnd}
-		>
-			<span class="mobile-nav-icon-wrap">
-				<svg width="24" height="24" viewBox="0 0 24 24"><path d="M4 4h16v12H5.17L4 17.17V4z"/><path d="M8 8h8M8 12h5"/></svg>
-				{#if mobileUnreadBadge}
-					<span class="mobile-nav-badge" aria-label={`${totalUnreadDMs} unread messages`}>{mobileUnreadBadge}</span>
-				{/if}
-			</span>
-			<span>{$_('shell.mobile.messages')}</span>
-		</button>
-		<button type="button" class:active={$activeWorkspaceView === 'notifications' && !$layoutStore.showMobileChannels}
-			on:click={openMobileActivity} on:touchstart={handleMobileNavTouchStart} on:touchmove={handleMobileNavTouchMove} on:touchend={handleMobileNavTouchEnd}>
-			<span class="mobile-nav-icon-wrap"><svg width="24" height="24" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z"/><path d="M10 21h4"/></svg>
-				{#if activityBadge}<span class="mobile-nav-badge" aria-label="Unread activity">{activityBadge}</span>{/if}</span>
-			<span>Activity</span>
-		</button>
-		<button
-			type="button"
-			class:active={activeView === 'dm' && dmHubActiveTab === 'friends' && !$layoutStore.showMobileChannels}
-			on:click={openMobileFriends}
-			on:touchstart={handleMobileNavTouchStart}
-			on:touchmove={handleMobileNavTouchMove}
-			on:touchend={handleMobileNavTouchEnd}
-			aria-label={$friendships.incoming.length > 0 ? `Friends, ${$friendships.incoming.length} requests waiting` : 'Friends'}
-		>
-			<span class="mobile-nav-icon-wrap">
-				<svg width="24" height="24" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-				{#if mobileFriendRequestBadge}
-					<span class="mobile-nav-badge" aria-label={`${$friendships.incoming.length} friend requests`}>{mobileFriendRequestBadge}</span>
-				{/if}
-			</span>
-			<span>Friends</span>
-		</button>
-		<button
-			type="button"
-			class:active={showSettings}
-			on:click={openMobileYou}
-			on:touchstart={handleMobileNavTouchStart}
-			on:touchmove={handleMobileNavTouchMove}
-			on:touchend={handleMobileNavTouchEnd}
-		>
-			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-			<span>{$_('shell.mobile.you')}</span>
-		</button>
-	</nav>
+{#if mobileNavShown}
+	<!-- Root navigation (§8.12): the bottom nav under 600px, a 72px left rail from 600 to 768px. -->
+	<MobileNav active={mobileNavActive} counts={mobileNavCounts} onselect={selectMobileDestination} />
 {/if}
 
 {#if $layoutStore.isMobile && ($layoutStore.showMobileChannels || $layoutStore.rightPanelMode !== 'none')}
-	<!-- Mobile backdrop overlay - closes panels on tap -->
-	<div class="mobile-panel-backdrop" on:click={() => { layoutStore.showMobileChannels.set(false); layoutStore.closeRightPanel(); }}></div>
+	<!-- The scrim over the stage while a drawer is open; a tap closes it (the drawer's own close
+	     button and Back cover the keyboard). -->
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<div class="mobile-panel-backdrop" aria-hidden="true" on:click={() => { layoutStore.showMobileChannels.set(false); layoutStore.closeRightPanel(); }}></div>
 {/if}
 
 <div
@@ -1283,17 +1418,17 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		class:focus-mode={$focusMode}
 		class:resizing={$layoutStore.isResizing}
 		class:in-call={$layoutStore.isMobile && $layoutStore.isInCall}
-		class:mobile-nav-visible={mobileNavVisible && $layoutStore.isMobile && !$layoutStore.isInCall}
+		class:mobile-nav-visible={bottomNavShown}
+		class:nav-rail={navRailShown}
+		class:compact-shell={compactShell}
 		class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
 		class:obvious-grab-rails={$layoutStore.obviousGrabRails}
 		class:rail-on={!$layoutStore.isMobile && !$focusMode}
-		class:dock-pinned={$layoutStore.rightPanelMode === 'pinned'}
+		class:dock-pinned={dockPinned}
 		class:rail-left={$layoutStore.stubSide === 'left'}
 		style:--w-sig={$currentSavedServer?.frontendMetadata?.accentColor || null}
 		style:--w-serif={communityDisplayFont($currentSavedServer?.frontendMetadata?.displayFont, $currentTheme?.character)}
-		style:--w-dock-w={$layoutStore.rightPanelMode === 'pinned' && !$layoutStore.isMobile
-			? `min(${Math.min($layoutStore.rightPanelWidth, 744)}px, 55vw)`
-			: '0px'}
+		style:--w-dock-w={dockPinned ? `${dock.width}px` : '0px'}
 	>
 	{#if !$layoutStore.isMobile && $layoutStore.channelSidebarWidth === 0}
 		<button
@@ -1311,13 +1446,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			title="Open channel sidebar"
 			aria-label="Open channel sidebar"
 		>
-			<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-				{#if $layoutStore.navDock === 'right'}
-					<polyline points="15 18 9 12 15 6"/>
-				{:else}
-					<polyline points="9 18 15 12 9 6"/>
-				{/if}
-			</svg>
+			<Icon name={$layoutStore.navDock === 'right' ? 'chevLeft' : 'chevRight'} size={14} />
 		</button>
 	{/if}
 
@@ -1330,8 +1459,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	<!-- Channel Sidebar (Left) - Mobile uses overlay -->
 	<div
 		class="channel-sidebar-container"
-		style:width="{$layoutStore.channelSidebarWidth}px"
+		bind:this={sidebarContainer}
+		style:width={$layoutStore.isMobile ? null : `${sidebarColumnWidth}px`}
 		class:mobile-visible={$layoutStore.showMobileChannels}
+		class:compact-drawer={compactDrawerOpen}
 		class:preview-visible={$layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'channels'}
 		class:dock-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
 		style:transform={getChannelPreviewTransform($layoutStore.isMobile, $layoutStore.showMobileChannels, swipePreviewActive, swipePreviewTarget, swipePreviewOffsetX)}
@@ -1339,7 +1470,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		style:transition={swipePreviewActive ? 'none' : undefined}
 	>
 		<ChannelSidebar
-			on:close={() => layoutStore.showMobileChannels.set(false)}
+			on:close={() => { layoutStore.showMobileChannels.set(false); closeCompactSidebar(false); }}
 			on:openMessages={() => selectMessagesHub(true)}
 			on:openFriends={openFriendsHub}
 			on:openServerSwitcher={openServerSwitcher}
@@ -1350,14 +1481,33 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			on:logout
 			on:openSettings={() => openSettings()}
 		/>
-		<!-- Channel resize handle -->
-		<button
-			type="button"
-			class="resize-handle resize-handle-channel"
-			aria-label="Resize channel sidebar"
-			on:mousedown|preventDefault={() => layoutStore.isResizingChannel.set(true)}
-		></button>
+		<!-- Channel resize handle (not in the compact band: the band owns the column's width there) -->
+		{#if !compactShell}
+			<button
+				type="button"
+				class="resize-handle resize-handle-channel"
+				aria-label="Resize channel sidebar"
+				on:mousedown|preventDefault={() => layoutStore.isResizingChannel.set(true)}
+			></button>
+		{:else if sidebarColumnWidth > 0}
+			<!-- 769–1023px (§8.13): the 60px rail opens the full sidebar over the stage. -->
+			<button
+				type="button"
+				class="compact-sidebar-toggle"
+				bind:this={compactToggle}
+				aria-expanded={$compactSidebarOpen}
+				aria-label={$compactSidebarOpen ? 'Close channel list' : 'Show channel list'}
+				title={$compactSidebarOpen ? 'Close channel list' : 'Show channel list'}
+				on:click={toggleCompactSidebar}
+			><Icon name={$compactSidebarOpen ? 'chevLeft' : 'chevRight'} size={14} /></button>
+		{/if}
 	</div>
+
+	{#if compactDrawerOpen}
+		<!-- Pointer-only affordance: Escape, the toggle and choosing a place cover the keyboard. -->
+		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+		<div class="compact-scrim" aria-hidden="true" on:click={() => closeCompactSidebar(false)}></div>
+	{/if}
 
 	{#if showServerSwitcher}
 		<div
@@ -1370,41 +1520,82 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		</div>
 	{/if}
 
-	<!-- Right Panel — single mode-driven node (peek = fixed overlay, pinned = flex child).
-	       One DOM node for both modes so the panel never remounts on peek↔pin (spec §6).
-	       The stub strip mounts INSIDE the zone so the stubs ride the panel like folder
-	       tabs (peek slide-in carries them with it); a standalone strip serves the
-	       closed (mode = none) cabinet state. -->
+	<!-- Right Panel — one mode-driven node for pin and peek, so the panel never remounts when it
+	       switches between them. Pinned: in flow beside the stage (.app-container reserves
+	       --w-dock-w), clamped so the stage keeps 600px; with no room it is stowed (mounted, hidden
+	       and inert) until the room comes back. Peek: floats over the stage's edge; a peek the
+	       person asked for has the scrim under it. -->
 	{#if !$layoutStore.isMobile}
-		{#if $layoutStore.rightPanelMode !== 'none' || peekClosing}
+		{#if scrimVisible}
+			<!-- Pointer-only affordance: Escape, the stub and the panel's own close button cover the keyboard. -->
+			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+			<div
+				class="stage-scrim"
+				class:closing={!stageScrim}
+				style:left="{scrimLeft}px"
+				style:right="{scrimRight}px"
+				aria-hidden="true"
+				on:click={() => endPeek()}
+			></div>
+		{/if}
+		{#if zoneMounted || peekClosing}
 			<!-- Pointer moving anywhere inside the zone cancels a pending
 			     dismissal: stub mouseleave arms it, and the zone's mouseenter
 			     will not re-fire for a pointer that never left the zone. -->
 			<div
+				bind:this={companionZone}
 				class="right-panel-zone"
-				class:peek={$layoutStore.rightPanelMode === 'peek'}
-				class:closing={peekClosing && $layoutStore.rightPanelMode === 'none'}
+				class:pinned={dockPinned}
+				class:peek={zoneFloats}
+				class:closing={peekClosing && !zoneOpen}
+				class:stowed={zoneHidden}
 				class:stub-right={$layoutStore.stubSide === 'right'}
 				class:stub-left={$layoutStore.stubSide === 'left'}
-				style:width="{$layoutStore.rightPanelWidth}px"
-				style:flex-basis="{$layoutStore.rightPanelWidth}px"
-				style:max-width="min(744px, 55vw)"
+				role="complementary"
+				aria-label="Side panel"
+				tabindex="-1"
+				inert={zoneHidden}
+				style:width="{dock.width}px"
+				style:right={zoneFloats && $layoutStore.stubSide !== 'left' ? `${peekInset}px` : null}
+				style:left={zoneFloats && $layoutStore.stubSide === 'left' ? `${peekInset}px` : null}
 				use:peekAnimationGate
 				on:mouseenter={() => setPeekPointerInside(true)}
 				on:mouseleave={() => { setPeekPointerInside(false); armPeekDismiss(); }}
 				on:pointermove={cancelPeekDismiss}
 			>
-				<div class="right-panel-body">
-					{#if $layoutStore.rightPanelMode === 'pinned'}
-						<button
-							type="button"
-							class="resize-handle resize-handle-right"
-							aria-label="Resize right panel"
-							on:mousedown|preventDefault={() => layoutStore.isResizingRight.set(true)}
-						></button>
-					{/if}
+				{#if dockPinned}
+					<!-- The resize edge straddles the panel's inner hairline, outside the clipped body.
+					     A focusable separator is an interactive widget (WAI-ARIA window splitter). -->
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
+					<div
+						class="resize-handle resize-handle-right"
+						class:dragging={resizingRight}
+						role="separator"
+						tabindex="0"
+						aria-orientation="vertical"
+						aria-label="Resize side panel"
+						aria-controls="companion-panel-body"
+						aria-valuenow={dock.width}
+						aria-valuemin={DOCK_MIN_PANEL}
+						aria-valuemax={Math.max(DOCK_MIN_PANEL, dock.max)}
+						on:mousedown|preventDefault={() => layoutStore.isResizingRight.set(true)}
+						on:dblclick={resetDockWidth}
+						on:keydown={handleDockSeparatorKeydown}
+					></div>
+				{/if}
+				<div class="right-panel-body" id="companion-panel-body">
 					{#if RightPanelCmp}
 						<svelte:component this={RightPanelCmp} on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />
+					{:else}
+						<!-- First open loads the panel lazily: a real loading state, never a blank sheet (§7.16). -->
+						<div class="companion-loading" aria-busy="true">
+							<span class="w-loadline" role="progressbar" aria-label="Loading panel"></span>
+							<div class="companion-loading-rows" aria-hidden="true">
+								{#each [0, 1, 2, 3, 4] as row (row)}
+									<div class="w-skel-row"><span class="w-skel w-skel--disc"></span><span class="w-skel-stack"><span class="w-skel"></span><span class="w-skel"></span></span></div>
+								{/each}
+							</div>
+						</div>
 					{/if}
 				</div>
 			</div>
@@ -1426,14 +1617,22 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		</div>
 	{/if}
 
-	<!-- Main Content -->
+	<!-- Main Content. Under a held peek's scrim the stage parts (masthead, surface, voice strip)
+	     are inert (coverStage); they stay direct children of .chat-stack. The embedded call and the
+	     call foot that CallModal renders below them are inert with the stage too (its
+	     followStageInert); the incoming and outgoing call dialogs sit above the scrim and stay live.
+	     The masthead (StageBar, §7.23 / §8.2) is mounted once above every center-stage workspace,
+	     so switching workspaces never moves or unmounts the folio. Server home and the DM hub have
+	     their own headers. -->
 	<div class="main-content">
-		<div class="chat-stack">
-			{#if activeView !== 'server' && ((!$layoutStore.centerDmChannelId && activeView !== 'dm' && activeView !== 'following') || $activeWorkspaceView !== 'messages')}
-				<WorkspaceViewBar {activityBadge} activeView={$activeWorkspaceView} onSelectView={handleWorkspaceViewSelect} canOpenWhiteboard={Boolean($currentChannel)} />
+		<div class="chat-stack" bind:this={chatStack} use:coverStage={stageInert || compactDrawerOpen}>
+			{#if !youPageShown && activeView !== 'server' && ((!$layoutStore.centerDmChannelId && activeView !== 'dm' && activeView !== 'following') || $activeWorkspaceView !== 'messages')}
+				<StageBar {activityBadge} onSelectView={handleWorkspaceViewSelect} />
 			{/if}
 			<div class="chat-surface">
-				{#if activeView === 'server'}
+				{#if youPageShown}
+					<YouPage onopensettings={openSettingsPage} onopenservers={openServerSwitcher} onsignout={signOutFromYou} />
+				{:else if activeView === 'server'}
 					<ServerHub on:profileSettings={() => showSettings = true} welcome={serverHubWelcome} on:complete={completeServerWelcome} on:back={returnFromServerHub} on:browse={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'chat'; }} on:openRoom={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'chat'; }} on:messages={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'dm'; }} on:members={() => layoutStore.openRightPanel('users')} on:settings={openServerSettings} on:manage={() => layoutStore.showAdminCenterStage()} />
 				{:else if activeOfficeTool}
 					<WorkspaceHost tool={activeOfficeTool} />
@@ -1441,37 +1640,37 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					{#if ModelViewportTabCmp}
 						<svelte:component this={ModelViewportTabCmp} />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 					{/if}
 				{:else if isReaderTabActive}
 					{#if ReaderTabCmp}
 						<svelte:component this={ReaderTabCmp} />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 					{/if}
 				{:else if isMediaAlbumsTabActive}
 					{#if MediaAlbumsTabCmp}
 						<svelte:component this={MediaAlbumsTabCmp} variant="full" />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 					{/if}
 				{:else if isMapTabActive}
 					{#if MapWorkspaceCmp}
 						<svelte:component this={MapWorkspaceCmp} variant="full" />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 					{/if}
 				{:else if isPlannerTabActive}
 					{#if PlannerWorkspaceCmp}
 						<svelte:component this={PlannerWorkspaceCmp} variant="full" />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 					{/if}
 				{:else if isNotesTabActive}
 					{#if KeepNotesViewCmp}
 						<svelte:component this={KeepNotesViewCmp} />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 					{/if}
 				{:else if $activeWorkspaceView === 'lore'}
 					{#await import('./ProjectWorkspace.svelte')}
@@ -1493,7 +1692,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					{#if VoiceViewCmp}
 						<svelte:component this={VoiceViewCmp} />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 					{/if}
 				{:else if $activeWorkspaceView === 'notifications'}
 					<NotificationsCenter error={activityActionError} on:openDm={(event) => { selectWorkspaceView('messages'); activeView = 'dm'; layoutStore.openCenterDm(event.detail.channelId, null); void joinChannel(event.detail.channelId); }}
@@ -1510,9 +1709,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 								<DmConversationView context="center" channelIdProp={$layoutStore.centerDmChannelId} otherUserProp={$centerDmOtherUser} channelProp={$centerGroupChannel} />
 							{:else}
 								<div class="center-dm-empty">
-									<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-										<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-									</svg>
+									<Icon name="dm" size={28} />
 									<span>Select a conversation</span>
 								</div>
 							{/if}
@@ -1524,7 +1721,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					{#if GalleryChannelCmp}
 						<svelte:component this={GalleryChannelCmp} />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 					{/if}
 				{:else}
 					<Chat
@@ -1537,7 +1734,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			{#if CallModalCmp}
 				<svelte:component this={CallModalCmp} />
 			{:else if callUiActive}
-				<div class="lazy-panel-placeholder" aria-busy="true"></div>
+				<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 			{/if}
 		</div>
 	</div>
@@ -1565,7 +1762,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				{#if CallDebugPanelCmp}
 					<svelte:component this={CallDebugPanelCmp} open title="Calling Debug" />
 				{:else}
-					<div class="lazy-panel-placeholder" aria-busy="true"></div>
+					<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 				{/if}
 				<button
 					type="button"
@@ -1573,70 +1770,31 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					on:click={() => (showCallDebugPanel = false)}
 					aria-label="Close calling diagnostics"
 					title="Close calling diagnostics"
-				>
-					×
-				</button>
+				><Icon name="x" size={14} /></button>
 			</div>
 		{/if}
 	{/if}
 
-	{#if $layoutStore.isMobile && $callMode === 'channel' && $activeVoiceChannel}
-		<div class="voice-channel-strip" role="status" aria-live="polite" transition:fly={{ y: 20, duration: 220 }}>
-			<button
-				class="voice-status-header"
-				type="button"
-				on:click={() => (showVoiceDebugDetails = !showVoiceDebugDetails)}
-				aria-expanded={showVoiceDebugDetails}
-				title={$_('shell.call.toggle_diagnostics')}
-			>
-				<span class="status-leading">
-					<span class="dot"></span>
-					<span class="voice-status-text">
-						<strong>{$_('shell.call.voice_connected')}</strong>
-						<small>{$activeVoiceChannel.name} / {$connectionState}</small>
-					</span>
-				</span>
-				<span class="status-chevron">{showVoiceDebugDetails ? 'v' : '>'}</span>
-			</button>
-
-			{#if showVoiceDebugDetails}
-				<div class="voice-debug-grid">
-					<div class="debug-item"><span>Ping</span><strong>{formatDiag($callConnectionDiagnostics.pingMs, 'ms')}</strong></div>
-					<div class="debug-item"><span>Jitter</span><strong>{formatDiag($callConnectionDiagnostics.jitterMs, 'ms')}</strong></div>
-					<div class="debug-item"><span>Inbound Loss</span><strong>{formatDiag($callConnectionDiagnostics.inboundPacketLossPct, '%')}</strong></div>
-					<div class="debug-item"><span>Outbound Loss</span><strong>{formatDiag($callConnectionDiagnostics.outboundPacketLossPct, '%')}</strong></div>
-					<div class="debug-item"><span>Inbound Rate</span><strong>{formatDiag($callConnectionDiagnostics.inboundKbps, 'kbps')}</strong></div>
-					<div class="debug-item"><span>Outbound Rate</span><strong>{formatDiag($callConnectionDiagnostics.outboundKbps, 'kbps')}</strong></div>
-					<div class="debug-item"><span>Transport</span><strong>{$callTransportState.activeTransport.toUpperCase()}</strong></div>
-					<div class="debug-item"><span>Participants</span><strong>{1 + $activeCalls.length}</strong></div>
-				</div>
-			{/if}
-
-			<div class="voice-channel-meta">
-				<span class="voice-channel-name-label">{$_('shell.call.in_voice')}</span>
-				<strong>{$activeVoiceChannel.name}</strong>
-			</div>
+	<!-- The phone channel-call strip, while the room is minimized. When the call is open in the
+	     stage its dock is the only action bar (§8.12), so the strip steps aside. Connection details
+	     live on the Calls page (§8.5), not in a toggle on this header (§9.4). -->
+	{#if $layoutStore.isMobile && $callMode === 'channel' && $activeVoiceChannel && !$channelCallPanelOpen}
+		<div class="voice-channel-strip" role="group" aria-label={$_('shell.call.voice_connected')} use:cornerBar transition:fly={{ y: 8, duration: 180 }}>
+			<span class="voice-strip__dot" aria-hidden="true"></span>
+			<!-- The words are the live region; the keys beside them are not re-announced. -->
+			<span class="voice-strip__text" role="status" aria-live="polite">
+				<strong class="voice-strip__room"><span class="sr-only">{$_('shell.call.in_voice')} </span>{$activeVoiceChannel.name}</strong>
+				<small class="voice-strip__state">{stripConnectionWords || $_('shell.call.voice_connected')}</small>
+			</span>
 			<div class="voice-channel-actions">
-				<button on:click={handleOpenVoiceWhiteboard} title="Open whiteboard for this voice channel" aria-label="Open whiteboard for this voice channel">
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-						<rect x="3" y="4" width="18" height="14" rx="2"></rect>
-						<path d="M7 8h10"></path>
-						<path d="M7 12h6"></path>
-						<path d="M8 20h8"></path>
-					</svg>
+				<button type="button" class="w-ibtn" on:click={handleOpenVoiceWhiteboard} title="Open whiteboard for this voice channel" aria-label="Open whiteboard for this voice channel">
+					<Icon name="whiteboard" size={20} />
 				</button>
-				<button class:active={!$isVideoOff} on:click={handleToggleVideoFromStrip} title={$isVideoOff ? $_('shell.call.turn_on_camera') : $_('shell.call.turn_off_camera')} aria-label={$isVideoOff ? $_('shell.call.turn_on_camera') : $_('shell.call.turn_off_camera')}>
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-						<path d="M23 7l-7 5 7 5V7z"></path>
-						<rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
-					</svg>
+				<button type="button" class="w-ibtn" aria-pressed={!$isVideoOff} on:click={handleToggleVideoFromStrip} title={$isVideoOff ? $_('shell.call.turn_on_camera') : $_('shell.call.turn_off_camera')} aria-label={$isVideoOff ? $_('shell.call.turn_on_camera') : $_('shell.call.turn_off_camera')}>
+					<Icon name={$isVideoOff ? 'videoOff' : 'video'} size={20} />
 				</button>
-				<button class="leave icon-only" on:click={handleLeaveVoiceChannel} title={$_('shell.call.leave_voice')} aria-label={$_('shell.call.leave_voice')}>
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-						<path d="M14 3h7v18h-7"></path>
-						<path d="M10 17l5-5-5-5"></path>
-						<path d="M15 12H3"></path>
-					</svg>
+				<button type="button" class="w-ibtn leave" on:click={handleLeaveVoiceChannel} title={$_('shell.call.leave_voice')} aria-label={$_('shell.call.leave_voice')}>
+					<Icon name="phoneOff" size={20} />
 				</button>
 			</div>
 		</div>
@@ -1651,12 +1809,12 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			this={SettingsCmp}
 			bind:isOpen={showSettings}
 			requestedPaymentSurface={requestedSettingsPaymentSurface}
-			requestedTab={requestedSettingsTab}
+			requestedTab={requestedSettingsTab as SettingsRequest | null}
 			requestedPasswordChangeRequest={requestedSettingsPasswordChangeRequest}
 			on:logout
 		/>
 	{:else}
-		<div class="lazy-panel-placeholder" aria-busy="true"></div>
+		<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 	{/if}
 {/if}
 {/if}
@@ -1673,7 +1831,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		}}
 		role="dialog"
 		aria-modal="true"
-		aria-label="Quick Scratchpad"
+		aria-label="Scratchpad"
+		tabindex="-1"
 	>
 		<QuickScratchpad />
 	</div>
@@ -1682,29 +1841,13 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 <GamesHost />
 
 <style>
-	/* Uniform placeholder for lazily-loaded panels (Phase 4 boot optimization). */
+	/* A lazily loaded surface (Phase 4 boot optimization) while its chunk arrives: the kit load
+	   line where the surface will be (§7.16), never a shimmering box. */
 	.lazy-panel-placeholder {
 		height: 100%;
 		min-height: 8rem;
-		border-radius: var(--radius-md, 8px);
-		background: linear-gradient(
-			100deg,
-			rgba(255, 255, 255, 0.04) 40%,
-			rgba(255, 255, 255, 0.09) 50%,
-			rgba(255, 255, 255, 0.04) 60%
-		);
-		background-size: 200% 100%;
-		animation: lazy-shimmer 1.2s ease-in-out infinite;
-	}
-	@keyframes lazy-shimmer {
-		to {
-			background-position: -200% 0;
-		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.lazy-panel-placeholder {
-			animation: none;
-		}
+		color: var(--w-faint);
+		font: var(--w-t-small);
 	}
 
 	.center-dm-layout {
@@ -1730,7 +1873,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
-		border-right: 1px solid var(--color-border-primary, #302b63);
+		border-right: var(--w-bw) solid var(--w-line);
 	}
 
 	.center-dm-thread {
@@ -1747,9 +1890,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 0.75rem;
-		color: var(--text-muted, #9999ff);
-		font-size: 0.95rem;
+		gap: 12px;
+		color: var(--w-faint);
+		font: var(--w-t-ui);
 	}
 
 	/* Docked panels reduce available space independently of the viewport. */
@@ -1772,19 +1915,19 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		display: flex;
 		align-items: flex-end;
 		justify-content: flex-end;
-		padding: 1rem;
-		background: rgba(0, 0, 0, 0.35);
+		padding: 16px;
+		background: var(--w-scrim);
 	}
 
 	.quick-scratchpad-overlay > :global(*) {
 		width: min(420px, 92vw);
-		max-height: min(380px, 72vh);
-		border-radius: 12px;
+		max-height: min(380px, 72dvh);
+		border-radius: var(--radius-lg);
 		overflow: hidden;
-		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+		box-shadow: var(--w-shadow);
 	}
 
-	/* Dev-only calling-diagnostics overlay (gated by import.meta.env.DEV) */
+	/* Dev-only calling-diagnostics overlay (callDebugPanelEnabled = import.meta.env.DEV). */
 	.call-debug-toggle {
 		position: fixed;
 		left: 8px;
@@ -1792,24 +1935,24 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		z-index: var(--z-sticky, 100);
 		width: 32px;
 		height: 32px;
-		border-radius: 8px;
-		border: 1px solid var(--border-subtle);
-		background: var(--surface-base, #24243e);
-		color: var(--text-secondary, #b3b3ff);
+		border-radius: var(--radius-md);
+		border: var(--w-bw) solid var(--w-line);
+		background: var(--w-bg2);
+		color: var(--w-mute);
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		cursor: pointer;
-		transition: all 0.18s ease;
+		transition: background-color var(--w-dur-1) var(--w-ease), color var(--w-dur-1) var(--w-ease), opacity var(--w-dur-1) var(--w-ease);
 		opacity: 0.5;
 	}
 
 	.call-debug-toggle:hover,
 	.call-debug-toggle.active {
 		opacity: 1;
-		background: var(--accent-primary-color);
-		color: var(--text-inverse, #fff);
-		border-color: var(--accent-primary-color);
+		background: var(--w-raise);
+		color: var(--w-text);
+		border-color: var(--w-line-strong);
 	}
 
 	.call-debug-overlay {
@@ -1828,14 +1971,13 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		position: absolute;
 		top: 6px;
 		right: 6px;
-		width: 22px;
-		height: 22px;
-		line-height: 1;
-		border-radius: 999px;
-		border: 1px solid var(--border-subtle);
-		background: var(--surface-base, #24243e);
-		color: var(--text-secondary, #b3b3ff);
-		font-size: 1rem;
+		width: 24px;
+		height: 24px;
+		padding: 0;
+		border-radius: var(--radius-inner);
+		border: var(--w-bw) solid var(--w-line);
+		background: var(--w-bg2);
+		color: var(--w-mute);
 		cursor: pointer;
 		display: flex;
 		align-items: center;
@@ -1843,9 +1985,14 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	}
 
 	.call-debug-close:hover {
-		background: var(--accent-danger-soft, rgba(239, 68, 68, 0.2));
-		color: var(--color-danger, #ef4444);
-		border-color: rgba(var(--color-danger-rgb, 239, 68, 68), 0.5);
+		background: var(--w-raise);
+		color: var(--w-text);
+	}
+
+	.call-debug-toggle:focus-visible,
+	.call-debug-close:focus-visible {
+		outline: 2px solid var(--w-accent);
+		outline-offset: 2px;
 	}
 
 	@media (max-width: 768px) {
@@ -1857,4 +2004,5 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			bottom: calc(var(--mobile-nav-height, 56px) + 48px);
 		}
 	}
+
 </style>

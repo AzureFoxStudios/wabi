@@ -4,6 +4,7 @@ import {compatibilityFixtures} from './office-compatibility-fixtures.mjs';
 import {nativeCanvasAcceptance} from './office-native-canvas-acceptance.mjs';
 import {documentRecoveryAcceptance} from './office-document-acceptance.mjs';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -36,15 +37,23 @@ try {
         export const serverMembers=writable(accounts.map(a=>({dbUserId:a.id,username:a.name})));
         export const currentUser=writable({dbUserId:account.id,username:account.name});
         export const currentChannel=writable('');export const channels=writable([]);export const switchChannel=id=>currentChannel.set(id);`);
-    await writeFile(f('tabs.js'),`import {writable} from 'svelte/store';
+    await writeFile(f('tabs.js'),`import {writable,derived} from 'svelte/store';
         export const active=writable('addon:workspace-'+(new URLSearchParams(location.search).get('tool')||'documents'));
-        export const mobileTabQueue={activeTabId:active,registerAddonTab(){},setActiveChannel(id){active.set('channel:'+id)},openAddonTab(id){active.set('addon:'+id)},unregisterAddonTab(){active.set('none')}};`);
+        // The stage's active view follows the tab, as in the shell (row A headers belong to a view).
+        // …with the shell's alias: the presentation room is the Present view (bridge OFFICE_TOOL_VIEW).
+        export const activeWorkspaceView=derived(active,tab=>{const tool=tab.startsWith('addon:workspace-')?tab.slice('addon:workspace-'.length):'';return tool==='audience'?'present':(tool||'chat');});
+        const addonTabs=writable([]);
+        export const mobileTabQueue={activeTabId:active,addonTabs,registerAddonTab(tab){addonTabs.update(tabs=>[...tabs,tab]);},setActiveChannel(id){active.set('channel:'+id)},openAddonTab(id){active.set('addon:'+id)},unregisterAddonTab(){active.set('none')}};`);
+    // Row A of the stage masthead, as StageBar renders it: the header component (the office editor
+    // header: title field, locality, save state, modes), then the actions by the same names.
     await writeFile(f('App.svelte'),`<script>
         import WorkspaceHost from ${mod('src/lib/workspaces/WorkspaceHost.svelte')};import {active} from './tabs.js';
-        import {workspaceToolFromTab} from ${mod('src/lib/workspaces/bridge.ts')};$:tool=workspaceToolFromTab($active);
-        </script>{#if tool}<WorkspaceHost {tool}/>{/if}`);
+        import {workspaceToolFromTab} from ${mod('src/lib/workspaces/bridge.ts')};import {stageHeader} from ${mod('src/lib/stageHeader.ts')};
+        $:tool=workspaceToolFromTab($active);$:header=$stageHeader;
+        </script><div class="stage-a">{#if header}{#if header.component}<svelte:component this={header.component} {...header.props}/>{:else}<h2>{header.title}</h2>{/if}{#each header.actions as action (action.id)}<button type="button" aria-label={action.iconOnly?action.label:action.accessibleName} aria-pressed={action.pressed} disabled={action.disabled} on:click={(event)=>action.onSelect(event.currentTarget)}>{action.iconOnly?'':action.label}</button>{#if action.menu&&!action.iconOnly}<button type="button" aria-label={action.menu.label} aria-haspopup="menu" disabled={action.disabled} on:click={(event)=>action.menu.onSelect(event.currentTarget)}></button>{/if}{/each}{/if}</div>{#if tool}<WorkspaceHost {tool}/>{/if}`);
     await writeFile(f('main.js'),`import {mount} from 'svelte';import App from './App.svelte';
         import {openWorkspace,captureScope} from ${mod('src/lib/workspaces/bridge.ts')};import {account} from './identity.js';
+        import {initI18n} from ${mod('src/lib/i18n/index.ts')};initI18n();
         mount(App,{target:document.getElementById('app')});window.workspaceTest={open:openWorkspace,account,
             async records(kind){const m=await import(${mod('src/lib/workspaces/session.ts')});return m.listLocal(await captureScope(),kind);},
             async record(id){
@@ -70,12 +79,19 @@ try {
         if(source==='$app/environment')return f('environment.js');
         const normalized=(source.startsWith('$lib/')?path.join(frontend,'src/lib',source.slice(5)):source.startsWith('.')&&importer?path.resolve(path.dirname(importer.split('?')[0]),source):source).replace(/\.(?:ts|js)$/,'');
         if(identityPaths.has(normalized))return f('identity.js');
-        if(normalized===path.join(frontend,'src/lib/mobileTabQueue'))return f('tabs.js');
+        // Shell navigation: the tab queue and the stage's active view (row A headers read it).
+        if(normalized===path.join(frontend,'src/lib/mobileTabQueue')||normalized===path.join(frontend,'src/lib/workspaceNavigationState'))return f('tabs.js');
         return null;
     }};
     const alias=identities.map(name=>({find:'$lib/'+name,replacement:f('identity.js')}));
-    alias.push({find:'$app/environment',replacement:f('environment.js')},{find:'$lib/mobileTabQueue',replacement:f('tabs.js')},{find:'@wabi/workspace-sheets',replacement:path.join(frontend,'src/lib/workspaces/sheets/addon.ts')},{find:'@wabi/workspace-present',replacement:path.join(frontend,'src/lib/workspaces/present/addon.ts')},{find:'$lib',replacement:path.join(frontend,'src/lib')});
-    server=await createServer({configFile:false,root:fixture,plugins:[bootstrap,svelte({configFile:false})],resolve:{dedupe:['svelte','yjs'],alias},worker:{format:'es'},define:{__WABI_WORKSPACE_PACKAGED__:JSON.stringify({sheets:true,present:true})},optimizeDeps:{rolldownOptions:{tsconfig:false}},server:{host:'127.0.0.1',port:0,fs:{allow:[frontend]},proxy:{'/api':host.authorityUrl}},logLevel:'warn'});
+    alias.push({find:'$app/environment',replacement:f('environment.js')},{find:'$lib/mobileTabQueue',replacement:f('tabs.js')},{find:'$lib/workspaceNavigationState',replacement:f('tabs.js')},{find:'@wabi/workspace-sheets',replacement:path.join(frontend,'src/lib/workspaces/sheets/addon.ts')},{find:'@wabi/workspace-present',replacement:path.join(frontend,'src/lib/workspaces/present/addon.ts')},{find:'$lib',replacement:path.join(frontend,'src/lib')});
+    // Pre-bundle what the office tools load lazily (the editor, xlsx, pptxgenjs, pdf.js): a
+    // dependency Vite first meets mid-test is optimized on the spot and reloads the page, which
+    // drops whatever the test was doing (the first PPTX export, the first spreadsheet). Only
+    // installed packages are listed, so a checkout without an optional engine still starts.
+    const prebundle=['yjs','y-codemirror.next','@codemirror/state','@codemirror/view','@codemirror/commands','@codemirror/lang-markdown','marked','dompurify','svelte-i18n','esm-env','jszip','pptxgenjs','xlsx','pdfjs-dist']
+        .filter(name=>existsSync(path.join(frontend,'node_modules',name,'package.json')));
+    server=await createServer({configFile:false,root:fixture,plugins:[bootstrap,svelte({configFile:false})],resolve:{dedupe:['svelte','yjs'],alias},worker:{format:'es'},define:{__WABI_WORKSPACE_PACKAGED__:JSON.stringify({sheets:true,present:true})},optimizeDeps:{include:prebundle,rolldownOptions:{tsconfig:false}},server:{host:'127.0.0.1',port:0,fs:{allow:[frontend]},proxy:{'/api':host.authorityUrl}},logLevel:'warn'});
     await server.listen();const origin=server.resolvedUrls.local[0];
     for(const engineName of(process.env.WORKSPACE_BROWSER||'chromium').split(',')){
         browser=await(engineName==='firefox'?firefox:chromium).launch({headless:!process.env.DISPLAY,...(engineName==='chromium'?{args:['--no-sandbox']}:{})});
@@ -89,7 +105,7 @@ try {
             const records=await a.evaluate(()=>window.workspaceTest.records('document')),id=records[0].id;
             await waitForState(a,async id=>(await window.workspaceTest.record(id))?.pending>0,id);checks++;
             await a.getByRole('button',{name:'Share…',exact:true}).click();await a.getByLabel('Person',{exact:true}).selectOption(String(host.accounts[1].id));await a.getByRole('button',{name:'Add person',exact:true}).click();
-            await a.getByRole('button',{name:'Publish and save sharing',exact:true}).click();await a.locator('dialog[open]').waitFor({state:'hidden'});checks++;
+            await a.getByRole('button',{name:'Share',exact:true}).click();await a.getByRole('dialog',{name:/^Share /}).waitFor({state:'hidden'});checks++;
             await b.goto(origin+'?account=1&tool=documents');await b.waitForFunction(()=>!!window.workspaceTest);await b.evaluate(id=>window.workspaceTest.open('documents',{id}),id);
             await b.waitForFunction(()=>document.querySelector('.cm-content')?.textContent?.includes('Original shared lesson'));checks++;
             await ca.setOffline(true);await a.locator('.cm-content').click();await a.keyboard.press('Control+End');await a.keyboard.insertText(' — Alice offline');await waitForState(a,async id=>(await window.workspaceTest.record(id))?.pending>0,id);checks++;
@@ -102,10 +118,10 @@ try {
             await a.evaluate(()=>{window.workspaceWrites=0;const put=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(...args){if(this.name==='artifacts')window.workspaceWrites++;return put.apply(this,args);};});
             await a.waitForTimeout(3600);assert.equal(await a.evaluate(()=>window.workspaceWrites),0,'Idle sync must not rewrite the entire document');checks++;
             await a.screenshot({path:path.join(artifacts,`${engineName}-documents.png`)});
-            await a.evaluate(()=>window.workspaceTest.open('sheets'));await a.getByRole('button',{name:'Enable addon',exact:true}).click();await a.getByRole('button',{name:'New spreadsheet',exact:true}).click();
+            await a.evaluate(()=>window.workspaceTest.open('sheets'));await a.getByRole('button',{name:'Turn on Sheets',exact:true}).click();await a.getByRole('button',{name:'New spreadsheet',exact:true}).click();
             const formula=a.getByLabel('Cell value or formula',{exact:true});await formula.fill('12');await formula.press('Enter');await a.locator('.sheet-grid').press('ArrowRight');await formula.fill('=A1*2');await formula.press('Enter');await a.waitForFunction(()=>Array.from(document.querySelectorAll('.sheet-grid td')).some(element=>element.textContent==='24'));checks++;
             await a.screenshot({path:path.join(artifacts,`${engineName}-sheets.png`)});
-            await a.evaluate(()=>window.workspaceTest.open('present'));await a.getByRole('button',{name:'Enable addon',exact:true}).click();
+            await a.evaluate(()=>window.workspaceTest.open('present'));await a.getByRole('button',{name:'Turn on Present',exact:true}).click();
             if(process.env.WORKSPACE_OFFICE_CONVERTER_TEST==='1'){
                 for(const fixture of await compatibilityFixtures()){
                     let uploads=0;const track=request=>{if(request.url().endsWith('/api/workspace/conversion')&&request.method()==='POST')uploads++;};a.on('request',track);
@@ -124,23 +140,23 @@ try {
                     await a.getByLabel('Slide title',{exact:true}).waitFor();
                     const records=await a.evaluate(()=>window.workspaceTest.records('present'));const imported=records.find(item=>item.title===fixture.name);
                     assert(imported);assert.equal((await a.evaluate(id=>window.workspaceTest.record(id),imported.id)).originalName,fixture.name);checks++;
-                    await a.getByRole('button',{name:'Library',exact:true}).click();a.off('request',track);
+                    await a.getByRole('button',{name:'Present library',exact:true}).click();a.off('request',track);
                 }
             }
             checks+=await nativeCanvasAcceptance(a,b,host.accounts,artifacts,engineName);
             await a.getByRole('button',{name:'New presentation',exact:true}).click();
             await a.getByLabel('Slide title',{exact:true}).fill('Visible first slide');await a.getByLabel('Private speaker notes',{exact:true}).fill('PRIVATE_NOTES_MUST_NEVER_REACH_AUDIENCE');
-            await a.getByRole('button',{name:'Add',exact:true}).click();await a.getByLabel('Slide title',{exact:true}).fill('HIDDEN_SLIDE_MUST_NEVER_REACH_AUDIENCE');await a.getByRole('button',{name:'Hide from audience',exact:true}).click();
-            await a.getByRole('button',{name:'Add',exact:true}).click();await a.getByLabel('Slide title',{exact:true}).fill('Visible final slide');
-            await a.getByRole('button',{name:'Share…',exact:true}).click();await a.getByLabel('Person',{exact:true}).selectOption(String(host.accounts[1].id));await a.getByLabel('Recipient permission',{exact:true}).selectOption('viewer');await a.getByRole('button',{name:'Add person',exact:true}).click();await a.getByRole('button',{name:'Publish and save sharing',exact:true}).click();await a.locator('dialog[open]').waitFor({state:'hidden'});
-            const starting=a.waitForResponse(response=>response.url().endsWith('/api/workspace/presentations')&&response.request().method()==='POST');await a.getByRole('button',{name:'Present to channel…',exact:true}).click();await a.getByRole('button',{name:'Start approved presentation',exact:true}).click();
+            await a.getByRole('button',{name:'Add slide',exact:true}).click();await a.getByLabel('Slide title',{exact:true}).fill('HIDDEN_SLIDE_MUST_NEVER_REACH_AUDIENCE');await a.getByRole('switch',{name:'Visible to audience',exact:true}).click();
+            await a.getByRole('button',{name:'Add slide',exact:true}).click();await a.getByLabel('Slide title',{exact:true}).fill('Visible final slide');
+            await a.getByRole('button',{name:'Share…',exact:true}).click();await a.getByLabel('Person',{exact:true}).selectOption(String(host.accounts[1].id));await a.getByLabel('Recipient permission',{exact:true}).selectOption('viewer');await a.getByRole('button',{name:'Add person',exact:true}).click();await a.getByRole('button',{name:'Share',exact:true}).click();await a.getByRole('dialog',{name:/^Share /}).waitFor({state:'hidden'});
+            const starting=a.waitForResponse(response=>response.url().endsWith('/api/workspace/presentations')&&response.request().method()==='POST');await a.getByRole('button',{name:'Ways to present',exact:true}).click();await a.getByRole('menuitem',{name:/^Present to channel…/}).click();await a.getByRole('button',{name:'Start approved presentation',exact:true}).click();
             const response=await starting;assert.equal(response.status(),200);const session=await response.json();assert.equal(session.slides.length,2);checks++;
             await b.goto(origin+'?account=1&tool=audience');await b.waitForFunction(()=>!!window.workspaceTest);const payloads=[];b.on('response',response=>{if(response.url().includes('/api/workspace/'))void response.text().then(text=>payloads.push(text)).catch(()=>{});});await b.evaluate(id=>window.workspaceTest.open('audience',{sessionId:id}),session.id);await b.getByRole('heading',{name:'Visible first slide',exact:true}).waitFor();checks++;
             const before=await b.evaluate(id=>window.workspaceTest.api(`/presentations/${id}`),session.id);const forged=await b.evaluate(({id,generation,sequence})=>window.workspaceTest.api(`/presentations/${id}`,{action:'blank',generation,sequence}),{id:session.id,generation:before.body.generation,sequence:before.body.sequence});assert.equal(forged.status,403);checks++;
-            await b.getByRole('button',{name:'Browse independently',exact:true}).click();await a.getByRole('button',{name:'Next',exact:true}).click();await a.getByRole('heading',{name:'Visible final slide',exact:true}).waitFor();assert.equal(await b.getByRole('heading',{name:'Visible first slide',exact:true}).count(),1);checks++;
+            await b.getByRole('button',{name:'Browse independently',exact:true}).click();await a.getByRole('button',{name:'Next slide',exact:true}).click();await a.getByRole('heading',{name:'Visible final slide',exact:true}).waitFor();assert.equal(await b.getByRole('heading',{name:'Visible first slide',exact:true}).count(),1);checks++;
             await b.getByRole('button',{name:'Back to presenter',exact:true}).click();await b.getByRole('heading',{name:'Visible final slide',exact:true}).waitFor();checks++;
             await b.screenshot({path:path.join(artifacts,`${engineName}-audience.png`)});const joined=payloads.join('\n');assert(!joined.includes('PRIVATE_NOTES_MUST_NEVER_REACH_AUDIENCE'));assert(!joined.includes('HIDDEN_SLIDE_MUST_NEVER_REACH_AUDIENCE'));checks++;
-            await a.getByLabel('New presenter account ID',{exact:true}).fill(String(host.accounts[1].id));await a.getByRole('button',{name:'Pass control',exact:true}).click();await b.getByRole('button',{name:'End presentation',exact:true}).waitFor();await b.getByRole('button',{name:'End presentation',exact:true}).click();await b.waitForFunction(()=>document.body.textContent.includes('Ended'));checks++;
+            await a.getByRole('button',{name:'Presentation options',exact:true}).click();await a.getByRole('menuitem',{name:/^Pass control…/}).click();await a.getByLabel('New presenter',{exact:true}).selectOption(String(host.accounts[1].id));await a.getByRole('button',{name:'Pass control',exact:true}).click();await b.getByRole('button',{name:'End presentation',exact:true}).waitFor();await b.getByRole('button',{name:'End presentation',exact:true}).click();await b.waitForFunction(()=>document.body.textContent.includes('This presentation has ended'));checks++;
             const ended=await b.evaluate(id=>window.workspaceTest.api(`/presentations/${id}`),session.id);assert.equal(ended.body.ended,true);assert.deepEqual(ended.body.slides,[]);checks++;
             await a.evaluate(id=>window.workspaceTest.open('documents',{id}),id);await a.locator('.cm-content').waitFor();
             await b.evaluate(id=>window.workspaceTest.open('documents',{id}),id);await b.locator('.cm-content').waitFor();

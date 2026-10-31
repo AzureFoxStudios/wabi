@@ -2,14 +2,9 @@
 	import { _ } from '$lib/i18n';
 	import type { Message, User } from '$lib/socket';
 	import SteamStatusBadge from '$lib/components/SteamStatusBadge.svelte';
-	import BadgeMark from '$lib/components/BadgeMark.svelte';
 	import RoleBadge from '$lib/components/RoleBadge.svelte';
-	import { currentSavedServer } from '$lib/savedServers';
-	import { ownerBadgeMark, staffBadgeMark } from '$lib/badgeMarks';
 	import ProfileName from '$lib/components/ProfileName.svelte';
-
-	$: ownerMark = ownerBadgeMark($currentSavedServer?.frontendMetadata);
-	$: staffMark = staffBadgeMark($currentSavedServer?.frontendMetadata);
+	import Icon from '$lib/components/ui/Icon.svelte';
 
 	export let author: User | undefined;
 	export let displayUsername: string;
@@ -28,6 +23,25 @@
 	export let shouldShowStaffTag: (user: User | undefined) => boolean;
 	export let formatTime: (timestamp: number) => string;
 	export let formatTimeTooltip: (timestamp: number) => string;
+
+	/** The role word after a name (D5): a word, never a glyph, never accent or seal. */
+	function roleWord(user: User | undefined, bot: boolean): { word: string; title: string } | null {
+		if (bot) return { word: 'Bot', title: 'Bot account' };
+		if (!user) return null;
+		const tone = getTopRoleBadgeTone(user);
+		const shown = shouldShowStaffTag(user) || (tone === 'owner' && Boolean(getTopRoleBadgeLabel(user)));
+		if (!shown) return null;
+		if (tone === 'owner') return { word: 'Admin', title: 'Community owner' };
+		if (tone === 'admin') return { word: 'Admin', title: 'Community admin' };
+		if (tone === 'mod') return { word: 'Mod', title: 'Moderator' };
+		return null;
+	}
+
+	$: role = roleWord(author, Boolean(author?.isBot || message.isBot));
+	// Compact is the clock the gutter already shows; Complete and Detailed carry the date as well,
+	// so that stamp is shown after the name at every width (styles/stream.css).
+	$: fullStamp = Boolean(displayEnhancementSettingsStore?.timestampDisplayMode && displayEnhancementSettingsStore.timestampDisplayMode !== 'compact');
+	$: pinnedWord = message.isPinned ? $_('messages.pinned_kicker') : isPersonalPinned ? $_('messages.pinned_on_device') : '';
 </script>
 
 {#if !groupedWithPrevious}
@@ -48,58 +62,22 @@
 			{:else}
 				<span class="username">{displayUsername}</span>
 			{/if}
-			{#if getTopRoleBadgeLabel(author) && getTopRoleBadgeTone(author) === 'owner'}
-				<span class="role-inline-badge tone-owner role-mark" title="Owner" aria-label="Owner"><BadgeMark kind="owner" mark={ownerMark} /></span>
-			{/if}
-			{#if shouldShowStaffTag(author)}
-				<span class="staff-inline-tag role-mark" title="Staff" aria-label="Staff"><BadgeMark kind="staff" mark={staffMark} /></span>
-			{/if}
-			{#if author?.isBot || message.isBot}
-				<span class="bot-inline-badge" title="Bot account">BOT</span>
+			{#if role}
+				<span class="w-role" title={role.title}>{role.word}</span>
 			{/if}
 			<RoleBadge user={author} size="sm" mode="custom" />
 			<SteamStatusBadge user={author} />
-			<span class="timestamp" title={formatTimeTooltip(message.timestamp)}>
+			{#if pinnedWord}
+				<span class="message-kicker">{pinnedWord}</span>
+			{/if}
+			<time class="timestamp" class:timestamp--full={fullStamp} datetime={new Date(message.timestamp).toISOString()} title={formatTimeTooltip(message.timestamp)}>
 				{formatTime(message.timestamp)}
-			</span>
+			</time>
 			{#if deletionLabel}
 				<span class="deletion-timer" title={$_('messages.deletion.scheduled_title')}>
-					<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="5.75"/><path d="M8 4.5v3.7l2.35 1.4"/></svg>
+					<Icon name="clock" size={12} />
 					{deletionLabel}
 				</span>
-			{/if}
-			{#if message.isEdited}
-				<span class="edited-badge" title={$_('messages.edited_title')}>({$_('messages.edited')})</span>
-			{/if}
-		</div>
-	</div>
-{:else}
-	<!-- Compact-mode inline header for continuation messages (hidden in cozy) -->
-	<div class="message-header compact-only-header">
-		<div class="header-left">
-			<span class="timestamp" title={formatTimeTooltip(message.timestamp)}>
-				{formatTime(message.timestamp)}
-			</span>
-			{#if author}
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<!-- svelte-ignore a11y-no-static-element-interactions -->
-				<span
-					class="username"
-					class:clickable-username={displayEnhancementSettingsStore.clickableMentionsEnabled}
-					style={themeStore.uniformFontEnabled ? getUsernameStyle(author, displayUsername, themeStore) : ''}
-					on:click={(event) => onUsernameClick(event, message, author)}
-					on:contextmenu={(event) => onUsernameContextMenu(event, message, author)}
-				>
-					<ProfileName username={displayUsername} font={themeStore.uniformFontEnabled ? null : author.usernameFont} color={getUserColor(author, displayUsername)} />
-				</span>
-			{:else}
-				<span class="username">{displayUsername}</span>
-			{/if}
-			{#if getTopRoleBadgeLabel(author) && getTopRoleBadgeTone(author) === 'owner'}
-				<span class="role-inline-badge tone-owner role-mark" title="Owner" aria-label="Owner"><BadgeMark kind="owner" mark={ownerMark} /></span>
-			{/if}
-			{#if shouldShowStaffTag(author)}
-				<span class="staff-inline-tag role-mark" title="Staff" aria-label="Staff"><BadgeMark kind="staff" mark={staffMark} /></span>
 			{/if}
 		</div>
 	</div>
@@ -107,7 +85,7 @@
 {#if groupedWithPrevious && deletionLabel}
 	<div class="grouped-deletion-meta">
 		<span class="deletion-timer" title={$_('messages.deletion.scheduled_title')}>
-			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="5.75"/><path d="M8 4.5v3.7l2.35 1.4"/></svg>
+			<Icon name="clock" size={12} />
 			{deletionLabel}
 		</span>
 	</div>

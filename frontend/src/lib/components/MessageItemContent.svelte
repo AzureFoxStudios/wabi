@@ -4,7 +4,7 @@
 	import ProfileMedia from '$lib/components/ProfileMedia.svelte';
 	import { safeNameStyle, nameStylesVisible } from '$lib/addons/nameStyles';
 	import type { Message, User, Emoji, FileAttachment, Channel } from '$lib/socket';
-	import { _ } from '$lib/i18n';
+	import { _, currentLocale } from '$lib/i18n';
 	import type { ChatFilterResult } from '$lib/chatEnhancements';
 	import type { AnimationPassPreset } from '$lib/animationPass';
 	import { formatTimestampForDisplay, isRenderableMessage } from '$lib/displayEnhancements';
@@ -19,8 +19,9 @@
 	import MessagePersistenceRow from './message/MessagePersistenceRow.svelte';
 	import MessageDeliveryRow from './message/MessageDeliveryRow.svelte';
 	import MessageContent from './message/MessageContent.svelte';
-	import { overlayStyle } from '$lib/overlayStyle';
 	import { mediaUrl } from '$lib/mediaUrl';
+	import { inkFor } from '$lib/theme/identity';
+	import Icon from '$lib/components/ui/Icon.svelte';
 
 	export let message: Message;
 	export let messageDomId = '';
@@ -113,20 +114,42 @@
 		return labels;
 	})();
 
-	function formatTime(timestamp: number): string {
-		return formatTimestampForDisplay(timestamp, displayEnhancementSettingsStore.timestampDisplayMode);
+	/** The clock, in the reader's locale: the time gutter, and the phone row's header in Compact mode. */
+	function formatGutterTime(timestamp: number, locale: string | null | undefined): string {
+		const date = new Date(timestamp);
+		if (!Number.isFinite(date.getTime())) return '';
+		try {
+			return date.toLocaleTimeString(locale || undefined, { hour: 'numeric', minute: '2-digit' });
+		} catch {
+			return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+		}
 	}
 
+	// The header stamp follows Settings › Chat › CompleteTimestamps. Compact uses the gutter's
+	// formatter, so the clock reads the same at every width; Complete and Detailed add the date
+	// in the reader's locale. Reassigned when the mode or locale changes, so the header re-renders.
+	$: formatTime = (timestamp: number): string => {
+		const mode = displayEnhancementSettingsStore?.timestampDisplayMode;
+		if (!mode || mode === 'compact') return formatGutterTime(timestamp, $currentLocale);
+		try {
+			return formatTimestampForDisplay(timestamp, mode, $currentLocale || undefined);
+		} catch {
+			return formatTimestampForDisplay(timestamp, mode);
+		}
+	};
+
 	function formatTimeTooltip(timestamp: number): string {
-		return new Date(timestamp).toLocaleString();
+		return new Date(timestamp).toLocaleString($currentLocale || undefined);
 	}
 
 	function getUserColor(user: User | undefined, username: string): string {
 		return resolveUserDisplayColor(user?.roleColor, user?.color);
 	}
 
+	// The name's color is ProfileName's identity ink (--ink); the wrapper only carries the font
+	// settings, so nothing else in it inherits the raw chosen color.
 	function getUsernameStyle(user: User | undefined, username: string, themeState: any): string {
-		let style = `color: ${getUserColor(user, username)};`;
+		let style = '';
 		const resolvedUser = user;
 
 		if (themeState.uniformFontEnabled) {
@@ -199,13 +222,13 @@
 		{#if deletionModeEnabled && canDeleteInDeletionMode}
 			<button
 				type="button"
-				class="deletion-mode-delete-btn"
+				class="deletion-mode-delete-btn w-btn w-btn--danger w-btn--sm"
 				disabled={deletionModeDeleting}
 				title="Delete this message"
 				aria-label="Delete this message"
 				on:click|preventDefault|stopPropagation={() => onDeletionModeDelete(message)}
 			>
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+				<Icon name="trash" size={14} />
 				<span>{deletionModeDeleting ? 'Deleting…' : 'Delete'}</span>
 			</button>
 		{/if}
@@ -225,15 +248,18 @@
 			{onHandleUtilityEdit}
 		/>
 
-	<!-- Time column + retention wick (laid out by styles/stream.css; hidden on narrow screens) -->
-	<time class="msg-time" datetime={new Date(message.timestamp).toISOString()} title={formatTimeTooltip(message.timestamp)}>{formatTime(message.timestamp)}</time>
+	<!-- Time gutter + retention wick (laid out by styles/stream.css; the phone row shows the time in the header) -->
+	<time class="msg-time" datetime={new Date(message.timestamp).toISOString()} title={formatTimeTooltip(message.timestamp)}>{formatGutterTime(message.timestamp, $currentLocale)}</time>
 	{#if retentionLife !== null}
 		<span class="msg-wick" class:soon={retentionLife < 0.15} style="--life: {retentionLife.toFixed(3)}" aria-hidden="true"></span>
-	{:else}
-		<span class="msg-wick-spacer" aria-hidden="true"></span>
+	{/if}
+	{#if message.isPinned || isPersonalPinned}
+		<span class="msg-pin" title={message.isPinned ? $_('messages.pinned_title') : $_('messages.pinned_on_device')}>
+			<Icon name="pin" size={12} label={message.isPinned ? $_('messages.pinned_title') : $_('messages.pinned_on_device')} />
+		</span>
 	{/if}
 
-	<!-- Profile Picture -->
+	<!-- Avatar stamp: identity disc + initial; a profile picture replaces it -->
 	{#if groupedWithPrevious}
 		<div class="message-avatar message-avatar-spacer" aria-hidden="true"></div>
 	{:else}
@@ -243,6 +269,7 @@
 				class="message-avatar"
 				role="button"
 				tabindex="0"
+				aria-label={displayUsername}
 				on:click={(e) => onHandleUsernameClick(e, message, author)}
 				on:contextmenu={(e) => onHandleUsernameContextMenu(e, message, author)}
 				on:keydown={(e) => {
@@ -255,8 +282,8 @@
 				{#if author?.profilePicture}
 					<ProfileMedia src={mediaUrl(author.profilePicture)} alt={displayUsername} class="avatar" />
 				{:else}
-					<div class="avatar-placeholder" style="--avatar-color: {getUserColor(author, displayUsername)}">
-						{displayUsername.charAt(0).toUpperCase()}
+					<div class="avatar-placeholder" style={$inkFor(getUserColor(author, displayUsername))} aria-hidden="true">
+						{Array.from(displayUsername.trim())[0]?.toUpperCase() ?? '?'}
 					</div>
 				{/if}
 				{#if author?.overlayUrl && $profileDecorationsVisible}
@@ -266,16 +293,6 @@
 	{/if}
 	<!-- Message Content -->
 	<div class="message-body">
-		{#if message.isPinned || isPersonalPinned}
-			<div
-				class="pin-indicator"
-				class:personal={isPersonalPinned && !message.isPinned}
-				title={message.isPinned ? $_('messages.pinned_title') : $_('context_menu.pin_local_message')}
-			>
-				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="2"></circle><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"></path><line x1="12" y1="15" x2="12" y2="21"></line></svg>
-				<span>{message.isPinned ? $_('messages.pinned_title') : $_('context_menu.pin_local_message')}</span>
-			</div>
-		{/if}
 		<MessageHeader
 			{author}
 			{displayUsername}
@@ -337,6 +354,9 @@
 					{ensureLinkPreviewLoaded}
 					{onHandleAlbumAnnouncementKeydown}
 				/>
+			{#if message.isEdited}
+				<span class="edited-mark" title={$_('messages.edited_title')}>({$_('messages.edited')})</span>
+			{/if}
 		{/if}
 
 		<MessageDeliveryRow
@@ -356,139 +376,45 @@
 {/if}
 
 <style>
-	/* The inline status now conveys pending delivery. Keep it readable instead
-	 * of dimming the entire message (including its status) on small screens. */
-	.message.is-sending {
-		opacity: 1;
-	}
-
-	:global(.message.deletion-mode-active) {
-		position: relative;
+	/* Row layout, states and the stamp live in styles/stream.css; this block holds only the
+	   deletion-mode affordance, which exists only on this component. */
+	:global(.messages-pane .message.deletion-mode-active) {
 		cursor: crosshair;
-		outline: 1px solid transparent;
-		transition: background var(--duration-fast, 150ms), outline-color var(--duration-fast, 150ms);
 	}
 
-	:global(.message.deletion-mode-active:hover) {
-		background: color-mix(in srgb, var(--color-danger, #ef4444) 7%, transparent) !important;
-		outline-color: color-mix(in srgb, var(--color-danger, #ef4444) 24%, transparent);
+	:global(.messages-pane .message.deletion-mode-active:hover::before) {
+		background: color-mix(in srgb, var(--w-danger) 8%, transparent);
+		box-shadow: inset 0 0 0 var(--w-bw) color-mix(in srgb, var(--w-danger) 35%, transparent);
 	}
 
+	/* Kit danger button (w-btn--danger), parked on the row's right edge until the row is hovered. */
 	.deletion-mode-delete-btn {
 		position: absolute;
-		right: var(--space-3, 12px);
+		right: 0;
 		top: 50%;
-		z-index: var(--z-popover, 60);
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1, 4px);
-		padding: var(--space-1, 4px) var(--space-2, 8px);
-		border: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 48%, transparent);
-		border-radius: var(--radius-md, 8px);
-		background: color-mix(in srgb, var(--color-danger, #ef4444) 92%, var(--bg-primary, #0f1020) 8%);
-		color: #fff;
-		font-size: var(--font-size-xs, 12px);
-		font-weight: 700;
-		line-height: 1;
-		box-shadow: var(--shadow-popover, 0 10px 24px rgba(0, 0, 0, 0.28));
-		transform: translateY(-50%) translateX(6px);
+		z-index: 4;
+		transform: translateY(-50%);
 		opacity: 0;
 		pointer-events: none;
-		transition: opacity var(--duration-fast, 150ms), transform var(--duration-fast, 150ms);
+		transition:
+			opacity var(--w-dur-1) var(--w-ease),
+			background-color var(--w-dur-1) var(--w-ease),
+			color var(--w-dur-1) var(--w-ease);
 	}
 
-	.deletion-mode-delete-btn svg {
-		width: 13px;
-		height: 13px;
+	/* an opaque face over the text it sits on; the kit's hover fill takes over */
+	.deletion-mode-delete-btn:not(:hover) {
+		background: var(--w-bg);
 	}
 
 	:global(.message.deletion-mode-active:hover) .deletion-mode-delete-btn,
 	.deletion-mode-delete-btn:focus-visible {
 		opacity: 1;
 		pointer-events: auto;
-		transform: translateY(-50%) translateX(0);
 	}
 
 	.deletion-mode-delete-btn:disabled {
 		opacity: 0.8;
 		cursor: progress;
-	}
-
-	/* Discord-like cozy force (groupStart 17px, thin line pad) */
-	:global(html[data-message-density='cozy'] .message),
-	:global(html:not([data-message-density]) .message) {
-		display: flex !important;
-		align-items: flex-start !important;
-		gap: 16px !important;
-		padding: 2px 16px !important;
-		margin: 0 !important;
-		border-radius: 0 !important;
-	}
-	:global(html[data-message-density='cozy'] .message + .message:not(.continuation)),
-	:global(html:not([data-message-density]) .message + .message:not(.continuation)) {
-		margin-top: 1.0625rem !important;
-	}
-	:global(html[data-message-density='cozy'] .message.continuation),
-	:global(html:not([data-message-density]) .message.continuation) {
-		padding-top: 2px !important;
-		padding-bottom: 2px !important;
-		margin-top: 0 !important;
-	}
-	:global(html[data-message-density='cozy'] .message.has-continuation),
-	:global(html:not([data-message-density]) .message.has-continuation) {
-		padding-bottom: 2px !important;
-	}
-	:global(html[data-message-density='cozy'] .message.continuation .message-header),
-	:global(html[data-message-density='cozy'] .compact-only-header),
-	:global(html:not([data-message-density]) .message.continuation .message-header),
-	:global(html:not([data-message-density]) .compact-only-header) {
-		display: none !important;
-	}
-	:global(html[data-message-density='cozy'] .message-avatar),
-	:global(html[data-message-density='cozy'] .message-avatar-spacer),
-	:global(html:not([data-message-density]) .message-avatar),
-	:global(html:not([data-message-density]) .message-avatar-spacer) {
-		width: 40px !important;
-		min-width: 40px !important;
-		flex-shrink: 0 !important;
-	}
-	:global(html[data-message-density='cozy'] .message .avatar),
-	:global(html[data-message-density='cozy'] .message .avatar-placeholder),
-	:global(html:not([data-message-density]) .message .avatar),
-	:global(html:not([data-message-density]) .message .avatar-placeholder) {
-		width: 40px !important;
-		height: 40px !important;
-	}
-	:global(html[data-message-density='cozy'] .message .username),
-	:global(html:not([data-message-density]) .message .username) {
-		font-size: 1rem !important; /* 16px Discord-ish */
-		font-weight: 500 !important;
-		line-height: 1.375 !important;
-	}
-	:global(html[data-message-density='cozy'] .message .timestamp),
-	:global(html:not([data-message-density]) .message .timestamp) {
-		font-size: 0.75rem !important; /* 12px */
-		line-height: 1.375 !important;
-	}
-	:global(html[data-message-density='cozy'] .message .message-content),
-	:global(html[data-message-density='cozy'] .message .markdown-content),
-	:global(html:not([data-message-density]) .message .message-content),
-	:global(html:not([data-message-density]) .message .markdown-content) {
-		font-size: 1rem !important;
-		line-height: 1.375 !important;
-	}
-	:global(.message .markdown-content p) {
-		margin: 0 !important;
-		line-height: 1.375 !important;
-	}
-	:global(.message .markdown-content p + p) {
-		margin-top: 0.25em !important;
-	}
-	:global(.messages-pane) {
-		gap: 0 !important;
-	}
-	:global(.no-more-messages) {
-		padding: 8px 12px 4px !important;
-		font-size: 13px !important;
 	}
 </style>

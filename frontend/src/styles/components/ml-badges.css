@@ -1,213 +1,86 @@
 /* ==========================================================================
    ML — BADGES STYLES
-   Extracted from messagelist.css
+   In the stream a role is a word after the name (.w-role: ADMIN, MOD, BOT — D5), never a
+   glyph, never accent or seal. These rules keep the shared inline badge (RoleBadge.svelte's
+   custom badges, the profile popout's role line) on roles, and style the retention timer.
    ========================================================================== */
 
+.role-inline-badge,
+.staff-inline-tag,
+.bot-inline-badge,
+.popout-container .popout-role-badge,
+.popout-container .popout-staff-tag {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: none;
+	box-shadow: none;
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+	font-size: calc(10px * var(--w-fs));
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	white-space: nowrap;
+	vertical-align: baseline;
+}
 
-	.role-inline-badge,
-	.staff-inline-tag,
-	.bot-inline-badge,
-	.popout-container .popout-role-badge,
-	.popout-container .popout-staff-tag {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.2rem;
-		padding: 0;
-		border: 0;
-		border-radius: 0;
-		background: none;
-		box-shadow: none;
-		font-size: 0.7rem;
-		font-weight: 650;
-		line-height: 1.2;
-		letter-spacing: 0.01em;
-		white-space: nowrap;
-		vertical-align: middle;
-	}
+.role-inline-badge::before,
+.staff-inline-tag::before,
+.bot-inline-badge::before,
+.popout-container .popout-role-badge::before,
+.popout-container .popout-staff-tag::before {
+	content: none;
+}
 
-	.role-inline-badge::before,
-	.staff-inline-tag::before,
-	.bot-inline-badge::before,
-	.popout-container .popout-role-badge::before,
-	.popout-container .popout-staff-tag::before {
-		content: '✧';
-		width: auto;
-		height: auto;
-		flex: 0 0 auto;
-		font-family: Georgia, 'Times New Roman', serif;
-		font-size: 0.88rem;
-		line-height: 1;
-	}
+.role-badge-md .role-inline-badge,
+.popout-container .popout-role-badge {
+	font-size: calc(11px * var(--w-fs));
+}
 
+/* Operator-chosen marks (BadgeMark) keep their size next to the word. */
+.role-mark {
+	gap: 0;
+	font-size: calc(14px * var(--w-fs));
+	line-height: 1;
+	letter-spacing: 0;
+	text-transform: none;
+}
 
-	.role-inline-badge.tone-owner,
-	.popout-container .popout-role-badge.tone-owner {
-		color: color-mix(in srgb, var(--color-warning, #f7d98c) 76%, white);
-	}
+/* Assignable badges are labels a community gives: a quiet hairline tag. */
+.role-inline-badge.badge-custom {
+	height: 18px;
+	padding: 0 6px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-sm);
+	color: var(--w-mute);
+	letter-spacing: 0.04em;
+	text-transform: none;
+}
 
-	.role-inline-badge.tone-owner::before,
-	.popout-container .popout-role-badge.tone-owner::before {
-		content: '♛';
-		font-size: 0.82rem;
-	}
+/* Retention: the time a message has left, as a small clock tag (never "private"). */
+.deletion-timer {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	height: 18px;
+	padding: 0 6px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--w-pill);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-micro);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+.deletion-timer svg {
+	width: 12px;
+	height: 12px;
+	flex: none;
+}
 
-
-	.role-inline-badge.tone-admin,
-	.popout-container .popout-role-badge.tone-admin {
-		color: color-mix(in srgb, var(--text-info, #cde0ff) 78%, white);
-	}
-
-	.role-inline-badge.tone-admin::before,
-	.popout-container .popout-role-badge.tone-admin::before {
-		content: '⬡';
-		font-size: 0.77rem;
-	}
-
-
-	.role-inline-badge.tone-mod,
-	.popout-container .popout-role-badge.tone-mod {
-		color: color-mix(in srgb, var(--text-success, #b6f0e9) 78%, white);
-	}
-
-	.role-inline-badge.tone-mod::before,
-	.popout-container .popout-role-badge.tone-mod::before {
-		content: '✦';
-		font-size: 0.79rem;
-	}
-
-
-	.role-inline-badge.tone-default,
-	.popout-container .popout-role-badge.tone-default {
-		color: color-mix(in srgb, var(--text-secondary) 84%, white);
-	}
-
-	.role-badge-md .role-inline-badge,
-	.popout-container .popout-role-badge {
-		font-size: 0.78rem;
-	}
-
-	.staff-inline-tag,
-	.popout-container .popout-staff-tag {
-		color: color-mix(in srgb, var(--text-info, #cde0ff) 82%, white);
-	}
-
-	.staff-inline-tag::before,
-	.popout-container .popout-staff-tag::before {
-		content: '✦';
-		font-size: 0.82rem;
-	}
-
-	.bot-inline-badge {
-		color: color-mix(in srgb, var(--text-secondary) 86%, white);
-	}
-
-	.bot-inline-badge::before {
-		content: '◈';
-	}
-
-	.role-inline-badge.badge-custom::before,
-	.role-inline-badge.badge-more::before,
-	.role-mark::before,
-	.popout-container .role-mark::before {
-		display: none;
-	}
-
-	.role-mark {
-		gap: 0;
-		font-size: 0.95rem;
-		line-height: 1;
-	}
-
-	.role-inline-badge.badge-custom {
-		padding: 0.08rem 0.3rem;
-		border-radius: 0.35rem;
-		background: color-mix(in srgb, var(--accent-primary-color) 13%, var(--surface-base));
-	}
-
-	.deletion-timer {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.28rem;
-		min-height: 1.3rem;
-		padding: 0.12rem 0.42rem;
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-full);
-		background: color-mix(in srgb, var(--surface-raised) 82%, transparent);
-		font-size: var(--text-xs);
-		font-weight: var(--font-weight-medium);
-		color: var(--text-secondary);
-		line-height: 1;
-		font-variant-numeric: tabular-nums;
-		white-space: nowrap;
-	}
-
-	.deletion-timer svg {
-		width: 0.72rem;
-		height: 0.72rem;
-		flex: none;
-	}
-
-
-	.grouped-deletion-meta {
-		margin-bottom: 0.18rem;
-	}
-
-
-	.message-persistence-row {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.45rem;
-		margin-bottom: 0.4rem;
-		flex-wrap: wrap;
-	}
-
-
-	.message-persistence-badge {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.14rem 0.5rem;
-		border-radius: var(--radius-full);
-		font-size: var(--text-xs);
-		font-weight: 700;
-		letter-spacing: 0.01em;
-		text-transform: uppercase;
-		background: color-mix(in srgb, var(--text-secondary) 16%, transparent);
-		color: var(--text-secondary);
-	}
-
-
-	.message-persistence-badge.is-failed {
-		background: color-mix(in srgb, var(--color-danger, #ef4444) 14%, transparent);
-		color: color-mix(in srgb, var(--color-danger, #ef4444) 88%, var(--text-heading));
-	}
-
-
-	.message-persistence-badge.is-retrying {
-		background: color-mix(in srgb, var(--color-warning, var(--color-warning, #ffd700)) 18%, transparent);
-		color: color-mix(in srgb, var(--color-warning, var(--color-warning, #ffd700)) 82%, var(--text-heading));
-	}
-
-
-	.message-persistence-badge.is-sending {
-		background: color-mix(in srgb, var(--text-secondary) 22%, transparent);
-		color: color-mix(in srgb, var(--text-secondary) 92%, var(--text-heading));
-	}
-
-
-	.message-persistence-retry {
-		border: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 30%, transparent);
-		background: transparent;
-		color: color-mix(in srgb, var(--color-danger, #ef4444) 88%, var(--text-heading));
-		border-radius: var(--radius-full);
-		padding: 0.16rem 0.55rem;
-		font-size: var(--text-xs);
-		font-weight: 700;
-		cursor: pointer;
-		transition: background var(--duration-fast) ease, border-color var(--duration-fast) ease;
-	}
-
-
-	.message-persistence-retry:hover {
-		background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, transparent);
-		border-color: color-mix(in srgb, var(--color-danger, #ef4444) 50%, transparent);
-	}
+.grouped-deletion-meta {
+	margin-bottom: 2px;
+}

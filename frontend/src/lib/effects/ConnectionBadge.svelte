@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
 	import { connectionState, type ConnectionState } from '$lib/socketConnectionState';
+	import { callCornerClearance } from '$lib/callShell';
 
 	/** Finding 21: badge reflects Wabi socket health + browser network, not navigator.onLine alone. */
 	type BadgeStatus = 'online' | 'offline' | 'connecting' | 'reconnecting' | 'unreachable' | 'idle';
@@ -61,6 +62,12 @@
 		unreachable: 'Server unreachable'
 	};
 
+	// The badge's corner is shared with the call foot and the call dock (phones, and a stage that
+	// reaches the window edge): while one of them is there, "Online" steps aside (nothing to say)
+	// and any other state rises above them, so it never paints over Leave.
+	$: callBarRise = $callCornerClearance;
+	$: yieldToCall = callBarRise > 0 && status === 'online';
+
 	onMount(() => {
 		if (!browser) return;
 		browserOnline = navigator.onLine;
@@ -91,6 +98,8 @@
 		class:badge--offline={status === 'offline'}
 		class:badge--connecting={status === 'connecting' || status === 'reconnecting'}
 		class:badge--unreachable={status === 'unreachable'}
+		class:badge--yield={yieldToCall}
+		style:bottom={callBarRise > 0 ? `${callBarRise + 8}px` : undefined}
 		aria-live="polite"
 		role="status"
 	>
@@ -157,6 +166,11 @@
 		border: 1px solid rgba(248, 113, 113, 0.22);
 		color: rgba(252, 165, 165, 0.9);
 		opacity: 0.8;
+	}
+
+	/* A call bar holds the corner: the healthy state is not drawn (and not read twice). */
+	.badge--yield {
+		visibility: hidden;
 	}
 
 	.badge__dot {
