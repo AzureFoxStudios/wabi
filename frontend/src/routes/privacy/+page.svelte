@@ -43,7 +43,7 @@
 			<p>Wabi is designed for independent hosting. Content and account data are generally handled by the Wabi instance you connect to, while some preferences and offline data may also be stored on your device. Instance operators are responsible for their own hosting, backups, retention, access controls, and infrastructure providers.</p>
 
             <h2>Messages and deletion</h2>
-            <p>Direct messages and private groups are server-readable by default. Experimental encryption is not a verified guarantee that content is hidden from the operator. A private conversation limits which community members can access it; that is separate from encryption.</p>
+            <p>New DMs and groups start encryption-pending and use experimental encryption once everyone's devices are ready. Sending server-readable instead needs each sender's choice. The encryption has not been independently verified, and it does not hide everything from the server operator. Older private rooms keep the policy they started with, and community channels are server-readable. A private conversation limits which community members can access it; that is separate from encryption.</p>
             <p>Deleting a message or choosing timed retention does not guarantee secure erasure from event records, backups, logs, or recipients' devices. Device-local Notes and Planner data also have their own browser storage and backup lifecycle. Ask your instance operator about the retention and recovery policy for that server.</p>
 
 			<h2>Analytics and advertising</h2>

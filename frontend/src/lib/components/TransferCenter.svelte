@@ -16,6 +16,7 @@
 	} from '$lib/p2pFileTransfer';
 	import TransferCard from './TransferCard.svelte';
 	import { getSocket } from '$lib/socket';
+	import { serverMembers, users } from '$lib/presenceIdentity';
 
 	const dispatch = createEventDispatcher();
 
@@ -81,6 +82,12 @@
 
 	function handleSettingsChange(field: keyof TransferSettings, value: boolean | number) {
 		transferSettings.update((s) => ({ ...s, [field]: value }));
+	}
+
+	/** Trusted senders by name; an id with no known person stays readable instead of a raw id. */
+	function trustedName(id: string): string {
+		const person = [...$serverMembers, ...$users].find((user) => String(user.dbUserId ?? '') === id || user.id === id || user.username === id);
+		return person?.username || 'Someone not on this server';
 	}
 </script>
 
@@ -203,7 +210,7 @@
 		{:else if activeTab === 'settings'}
 			<div class="tc-settings">
 				<h3 class="settings-heading">Transfer Settings</h3>
-				<p class="settings-note">Local preferences only — server policy not yet implemented.</p>
+				<p class="settings-note">Saved on this device · not shared</p>
 
 				<label class="setting-row">
 					<span>Ask before accepting files</span>
@@ -226,13 +233,13 @@
 				</label>
 
 				<details class="settings-details">
-					<summary>Trusted users (auto-accept list)</summary>
+					<summary>Trusted people (accepted without asking)</summary>
 					<div class="trusted-list">
 						{#if settings.autoAcceptUsers.length === 0}
-							<span class="trusted-empty">No trusted users configured.</span>
+							<span class="trusted-empty">No one yet. Files from people you add here are accepted without asking.</span>
 						{:else}
 							{#each settings.autoAcceptUsers as userId}
-								<span class="trusted-user">{userId}</span>
+								<span class="trusted-user" title={userId}>{trustedName(userId)}</span>
 							{/each}
 						{/if}
 					</div>
