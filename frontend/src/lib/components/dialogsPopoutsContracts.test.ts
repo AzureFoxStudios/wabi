@@ -36,6 +36,24 @@ describe('dialogs on the kit frame', () => {
 		}
 	});
 
+	test('New group says why Create group is disabled, and its footer rule follows the scroll', () => {
+		const group = read('./CreateGroupModal.svelte');
+		expect(group).toContain("'Name the group to create it'");
+		expect(group).toContain("'Pick at least one person'");
+		expect(group).toContain('aria-describedby="{uid}-foot"');
+		expect(group).toContain('class:w-dialog__foot--rule={bodyScrolls}');
+		expect(group).not.toContain('class="w-dialog__foot w-dialog__foot--rule"');
+		expect(group).toMatch(/\.cg-count \{[^}]*white-space: nowrap;/);
+		expect(group).toMatch(/<input\s+id="\{uid\}-name"[^>]*\srequired\b/);
+	});
+
+	test('Board settings draws its buttons in DOM order (no CSS reorder)', () => {
+		const panel = read('../../styles/surfaces/panel.css');
+		const block = panel.slice(panel.indexOf('HELD FOR w1-dialogs-popouts'), panel.indexOf('w1-switcher-dms, wave 1b'));
+		expect(block).toContain('.wb-settings-save');
+		expect(block).not.toMatch(/\border:\s*\d/);
+	});
+
 	test('dialog titles are sentence case', () => {
 		expect(read('./CreateGroupModal.svelte')).toContain('title="New group"');
 		expect(read('./CreateDMModal.svelte')).toContain('title="New message"');
@@ -81,6 +99,53 @@ describe('sign in (§8.9, settings#17, beta-sweep#20)', () => {
 		expect(login).toContain('w-btn w-btn--primary w-btn--lg login-submit');
 		expect(login).toContain('class="w-check"');
 		expect(login).not.toMatch(/auth-btn|ui-check|ui-radio|guest-expand/);
+	});
+
+	test('one login stylesheet on roles: no glows, rem sizes, unloaded weights or negative tracking', () => {
+		const skin = read('../../styles/login-skin.css');
+		expect(login).not.toContain("import './login.css'");
+		expect(skin).not.toMatch(/radial-gradient/);
+		// The only gradient is the operator's own two-colour launch palette.
+		expect(skin.match(/linear-gradient\([^;]*/g) ?? []).toEqual(['linear-gradient(180deg, transparent, var(--launch-bg-bottom, transparent))']);
+		expect(skin).not.toMatch(/font-size:\s*[\d.]+rem/);
+		expect(skin).not.toMatch(/font-weight:\s*(550|600|650)\b/);
+		expect(skin).not.toMatch(/font:\s*(550|600|650)\s+[^;]*var\(--w-sans\)/);
+		expect(skin).not.toMatch(/letter-spacing:\s*-/);
+		expect(skin).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/i);
+		// Form fields are 38px, 44px only under a coarse pointer (§7.3).
+		expect(skin).toMatch(/\.login-container \.w-field \{\s*height: 38px;/);
+		expect(skin).toMatch(/@media \(pointer: coarse\) \{\s*\.login-container \.w-field \{\s*height: 44px;/);
+	});
+
+	test('the sign-in card hangs from the top and errors sit under the action that failed', () => {
+		const skin = read('../../styles/login-skin.css');
+		expect(skin).toMatch(/\.login-container \.login-shell \{[^}]*margin: 0 auto;/);
+		expect(skin).toMatch(/\.login-container \.login-box-default \{[^}]*align-items: start;/);
+		const signIn = login.slice(login.indexOf("{#if authMode === 'login'}"), login.indexOf('{:else}', login.indexOf("{#if authMode === 'login'}")));
+		expect(signIn.indexOf('</form>')).toBeLessThan(signIn.indexOf('error-message'));
+		const heading = login.slice(login.indexOf('<header class="login-auth-heading">'), login.indexOf('</header>'));
+		expect(heading).not.toContain('error-message');
+	});
+
+	test('the server line carries Change server, and each glyph has one meaning', () => {
+		const heading = login.slice(login.indexOf('<header class="login-auth-heading">'), login.indexOf('</header>'));
+		expect(heading).toContain('<Icon name="server" size={14} />');
+		expect(heading).toContain("$_('login.auth.change_server_button')");
+		const footer = login.slice(login.indexOf('<footer class="login-footer">'), login.indexOf('</footer>'));
+		expect(footer).not.toContain('change_server_button');
+		// The globe means language here, as it does for Translate in the message menu.
+		expect(footer).toContain('<Icon name="globe" size={14} />');
+		expect(login.match(/name="globe"/g)?.length).toBe(1);
+	});
+
+	test('the change-server prompt shows a danger edge with an icon, and a way back', () => {
+		const prompt = read('./login/LoginConnectionPrompt.svelte');
+		expect(prompt).toContain("aria-invalid={connectionError ? 'true' : undefined}");
+		expect(prompt).toMatch(/class="w-field-error connection-error"[^>]*><Icon name="alert" size=\{14\} \/>/);
+		expect(prompt).toContain('Back to sign in');
+		expect(login).toContain('cancellable={promptReturnDomain !== null}');
+		const skin = read('../../styles/login-skin.css');
+		expect(skin).toMatch(/\[aria-invalid='true'\][^{]*\):focus-within \{\s*border-color: var\(--w-danger\)/);
 	});
 
 	test('no "mesh" setup option in any locale or in the login markup', () => {

@@ -11,7 +11,7 @@
 	  Confirms go through confirmAction, errors render inline where the action happened.
 -->
 <script lang="ts">
-	import { createEventDispatcher, onDestroy, tick } from 'svelte';
+	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { currentRetentionFromPrivacy, explicitRetentionUpdate } from '$lib/retentionDisplay';
 	import { get } from 'svelte/store';
@@ -29,6 +29,8 @@
 	import Switch from '$lib/components/ui/Switch.svelte';
 	import {
 		GATE_OPTIONS,
+		MANAGERS_LABEL,
+		MANAGERS_ONLY_HINT,
 		canManageChannel,
 		channelDraftDirty,
 		channelSettingsNote,
@@ -37,6 +39,7 @@
 		hasChannelGate,
 		isChatLikeKind,
 		nextTab,
+		persistToggleTab,
 		retentionChoiceFor,
 		retentionOptions,
 		retentionValue,
@@ -89,6 +92,8 @@
 	$: placeName = channelSettingsNote(channelKind, channel.name);
 	$: kindNoun = isFolder ? 'folder' : isVoiceChannel ? 'room' : 'channel';
 	$: tabs = channelSettingsTabs(channelKind);
+	/** Which section holds the offline-copies switch for this kind (null: none). */
+	$: persistTab = canTogglePersistMessages ? persistToggleTab(channelKind) : null;
 
 	// ---------------------------------------------------------------- tabs
 	let activeTab: ChannelSettingsTab = 'general';
@@ -99,6 +104,17 @@
 		activeTab = id;
 		if (id === 'permissions') void ensureGateLoaded();
 	}
+
+	/** At 640px and under the tablist is a row (see the style block); say so to assistive tech. */
+	let tabsHorizontal = false;
+	onMount(() => {
+		if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+		const query = window.matchMedia('(max-width: 640px)');
+		const sync = () => (tabsHorizontal = query.matches);
+		sync();
+		query.addEventListener('change', sync);
+		return () => query.removeEventListener('change', sync);
+	});
 
 	async function handleTabKeydown(event: KeyboardEvent): Promise<void> {
 		const next = nextTab(tabs.map((tab) => tab.id), activeTab, event.key);
@@ -318,6 +334,13 @@
 		}
 	}
 
+	/** Enter in a binding field saves the binding, never the whole dialog's form. */
+	function handleLoreKeydown(event: KeyboardEvent): void {
+		if (event.key !== 'Enter' || event.isComposing) return;
+		event.preventDefault();
+		if (!loreBindingBusy && tempLoreRepoChannel && tempLorePath.startsWith('/')) void saveLoreBinding();
+	}
+
 	async function removeLoreBinding(): Promise<void> {
 		const numeric = parseLoreChannelId(channel.id);
 		const token = getAuthToken();
@@ -392,7 +415,9 @@
 		voiceUserLimit: channel.voiceSettings?.userLimit ? String(channel.voiceSettings.userLimit) : '',
 		voiceForceSolo: channel.voiceSettings?.forceSolo === true,
 		renderWindow: baseRenderWindow,
-		gate: gateBase
+		gate: gateBase,
+		// Nothing stores this yet (see the handoff), so the client default is the baseline.
+		afkAnnounce: true
 	} satisfies ChannelDraftBaseline;
 	$: dirty = channelDraftDirty(
 		{
@@ -405,6 +430,7 @@
 			voiceForceSolo: tempVoiceForceSolo,
 			renderWindow: tempLiveRenderWindow,
 			gate: gateStatus === 'ready' ? tempGate : null,
+			afkAnnounce: liveActive ? tempAfkAnnounce : true,
 			retention: draftRetention,
 			liveFields: liveActive ? [tempLiveTtl, tempLiveCap, tempLiveGrace, tempLiveAttachMax] : []
 		},
@@ -505,6 +531,41 @@
 			} as any
 		});
 		setLiveRenderWindow(tempLiveRenderWindow);
+	}
+
+	/** One paragraph: line breaks typed or pasted become spaces, Enter saves like the other fields. */
+	function handleDescriptionInput(event: Event & { currentTarget: HTMLTextAreaElement }): void {
+		const field = event.currentTarget;
+		const flat = field.value.replace(/\r?\n/g, ' ');
+		if (flat !== field.value) {
+			const caret = field.selectionStart;
+			field.value = flat;
+			field.setSelectionRange(caret, caret);
+		}
+		tempDescription = flat;
+	}
+
+	// WebKit (the Tauri shell on macOS and iOS) and Firefox have no `field-sizing: content`, so
+	// there the description would stay one line and scroll inside itself. Grow it by hand to its
+	// content height; the CSS max-height still caps it at five lines.
+	const descriptionGrowsNatively =
+		typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('field-sizing', 'content');
+
+	function fitDescription(field: HTMLTextAreaElement): void {
+		if (descriptionGrowsNatively) return;
+		field.style.height = 'auto';
+		field.style.height = `${field.scrollHeight + (field.offsetHeight - field.clientHeight)}px`;
+	}
+
+	function descriptionFit(field: HTMLTextAreaElement, _value: string) {
+		fitDescription(field);
+		return { update: () => fitDescription(field) };
+	}
+
+	function handleDescriptionKeydown(event: KeyboardEvent & { currentTarget: HTMLTextAreaElement }): void {
+		if (event.key !== 'Enter' || event.isComposing) return;
+		event.preventDefault();
+		event.currentTarget.form?.requestSubmit();
 	}
 
 	// ---------------------------------------------------------------- save
@@ -635,7 +696,7 @@
 	panelClass="channel-settings"
 >
 	<form id={formId} class="cs-layout" use:watchBodyScroll on:submit|preventDefault={() => void handleSave()}>
-		<div class="w-seg w-seg--vertical cs-tabs" role="tablist" aria-orientation="vertical" aria-label="{settingsTitle} sections">
+		<div class="w-seg w-seg--vertical cs-tabs" role="tablist" aria-orientation={tabsHorizontal ? 'horizontal' : 'vertical'} aria-label="{settingsTitle} sections">
 			{#each tabs as tab (tab.id)}
 				<button
 					type="button"
@@ -664,16 +725,20 @@
 					{#if !isFolder}
 						<div class="cs-field">
 							<label class="w-label" for="{uid}-description">Description</label>
-							<input
+							<!-- Grows with the text instead of clipping it; it stays one paragraph. -->
+							<textarea
 								id="{uid}-description"
-								class="w-field"
-								type="text"
-								bind:value={tempDescription}
+								class="w-field cs-description"
+								rows="1"
+								value={tempDescription}
+								on:input={handleDescriptionInput}
+								on:keydown={handleDescriptionKeydown}
+								use:descriptionFit={tempDescription}
 								placeholder="What this {kindNoun} is for"
 								maxlength="200"
 								aria-describedby="{uid}-description-count"
 								disabled={!isStaff}
-							/>
+							></textarea>
 							<div class="w-field-foot">
 								<span class="w-field-count" id="{uid}-description-count">{tempDescription.length} / 200</span>
 							</div>
@@ -700,7 +765,7 @@
 							<div class="w-srow__text">
 								<label class="w-srow__label" for="{uid}-capacity">Capacity</label>
 								<p class="w-srow__hint" id="{uid}-capacity-hint">
-									Leave empty for no limit. With a limit the sidebar shows who is in as 3/8.{#if !canManageVoiceSettings} Only owners and admins can change it.{/if}
+									Leave empty for no limit. With a limit the sidebar shows who is in as 3/8.{#if !canManageVoiceSettings} {MANAGERS_ONLY_HINT}{/if}
 								</p>
 							</div>
 							<div class="w-srow__control">
@@ -724,7 +789,7 @@
 							<div class="w-srow__text">
 								<p class="w-srow__label" id="{uid}-solo-label">Focused audio</p>
 								<p class="w-srow__hint" id="{uid}-solo-hint">
-									Joining this room moves listening and talking to it alone. For a one-person room, set capacity to 1.{#if !canManageVoiceSettings} Only owners and admins can change it.{/if}
+									Joining this room moves listening and talking to it alone. For a one-person room, set capacity to 1.{#if !canManageVoiceSettings} {MANAGERS_ONLY_HINT}{/if}
 								</p>
 							</div>
 							<div class="w-srow__control">
@@ -750,11 +815,24 @@
 							<div class="w-srow__text">
 								<p class="w-srow__label" id="{uid}-queue-label">YouTube watch queue</p>
 								<p class="w-srow__hint" id="{uid}-queue-hint">
-									Adds a shared watch queue to this {kindNoun}. Ordinary YouTube link previews keep working.{#if !canManageWatchQueue} Only owners and admins can change it.{/if}
+									Adds a shared watch queue to this {kindNoun}. Ordinary YouTube link previews keep working.{#if !canManageWatchQueue} {MANAGERS_ONLY_HINT}{/if}
 								</p>
 							</div>
 							<div class="w-srow__control">
 								<Switch labelledby="{uid}-queue-label" describedby="{uid}-queue-hint" bind:checked={tempWatchQueueEnabled} disabled={!canManageWatchQueue} />
+							</div>
+						</div>
+					{/if}
+
+					<!-- Kinds without a Retention section keep the offline-copies switch here. -->
+					{#if persistTab === 'general'}
+						<div class="w-srow">
+							<div class="w-srow__text">
+								<p class="w-srow__label" id="{uid}-persist-label">Offline copies and older history</p>
+								<p class="w-srow__hint" id="{uid}-persist-hint">Browsers may keep this {kindNoun}'s messages across restarts, and members can load older history. Storage settings on each device can still clear them.</p>
+							</div>
+							<div class="w-srow__control">
+								<Switch labelledby="{uid}-persist-label" describedby="{uid}-persist-hint" bind:checked={tempPersistMessages} />
 							</div>
 						</div>
 					{/if}
@@ -778,15 +856,15 @@
 								</div>
 								<div class="cs-field">
 									<label class="w-label" for="{uid}-lore-path">Target path</label>
-									<input id="{uid}-lore-path" class="w-field" type="text" bind:value={tempLorePath} placeholder="/art/concepts/" />
+									<input id="{uid}-lore-path" class="w-field" type="text" on:keydown={handleLoreKeydown} bind:value={tempLorePath} placeholder="/art/concepts/" />
 								</div>
 								<div class="cs-field">
 									<label class="w-label" for="{uid}-lore-branch">Branch</label>
-									<input id="{uid}-lore-branch" class="w-field" type="text" bind:value={tempLoreBranch} placeholder="main" />
+									<input id="{uid}-lore-branch" class="w-field" type="text" on:keydown={handleLoreKeydown} bind:value={tempLoreBranch} placeholder="main" />
 								</div>
 								<div class="cs-field cs-field--wide">
 									<label class="w-label" for="{uid}-lore-types">Allowed types</label>
-									<input id="{uid}-lore-types" class="w-field" type="text" bind:value={tempLoreAllowedTypes} placeholder="image/*, .blend" />
+									<input id="{uid}-lore-types" class="w-field" type="text" on:keydown={handleLoreKeydown} bind:value={tempLoreAllowedTypes} placeholder="image/*, .blend" />
 								</div>
 							</div>
 							<div class="cs-actions">
@@ -854,11 +932,11 @@
 					{#if gateApplies}
 						<div class="w-srow w-srow--seal">
 							<div class="w-srow__text">
-								<p class="w-srow__label" id="{uid}-gate-label"><Icon name="shield" size={14} />Who can open {placeName}</p>
+								<p class="w-srow__label" id="{uid}-gate-label"><Icon name="eye" size={14} />Who can open {placeName}</p>
 								<p class="w-srow__hint">
 									{isStaff
 										? 'Members below this level do not see the channel or its messages.'
-										: 'Only owners and admins can see or change who can open a channel.'}
+										: 'Only admins and the owner can see or change who can open a channel.'}
 								</p>
 							</div>
 							{#if isStaff}
@@ -887,7 +965,7 @@
 								{isStaff ? 'You are one of them.' : 'Ask one of them to make a change.'}
 							</p>
 						</div>
-						<div class="w-srow__control"><span class="cs-fact">Owners and admins</span></div>
+						<div class="w-srow__control"><span class="cs-fact">{MANAGERS_LABEL}</span></div>
 					</div>
 				</div>
 			{:else if activeTab === 'retention'}
@@ -896,7 +974,7 @@
 						<div class="w-srow__text">
 							<p class="w-srow__label" id="{uid}-lifetime-label">Message lifetime</p>
 							<p class="w-srow__hint" id="{uid}-lifetime-hint">
-								Applies to new messages. Earlier messages keep the lifetime they were sent with.{#if !isStaff} Only owners and admins can change it.{/if}
+								Applies to new messages. Earlier messages keep the lifetime they were sent with.{#if !isStaff} {MANAGERS_ONLY_HINT}{/if}
 							</p>
 						</div>
 						<div class="w-srow__control">
@@ -925,7 +1003,7 @@
 						/>
 					{/if}
 
-					{#if canTogglePersistMessages && !isConversation}
+					{#if persistTab === 'retention'}
 						<div class="w-srow">
 							<div class="w-srow__text">
 								<p class="w-srow__label" id="{uid}-persist-label">Offline copies and older history</p>
@@ -989,10 +1067,12 @@
 							<div class="w-srow">
 								<div class="w-srow__text">
 									<p class="w-srow__label" id="{uid}-afk-label">Away announcements</p>
-									<p class="w-srow__hint" id="{uid}-afk-hint">Post a line when someone goes away or comes back.</p>
+									<!-- The server does not store a per-room choice yet (handed off), so the switch
+									     stays on and says so instead of offering a change that is never kept. -->
+									<p class="w-srow__hint" id="{uid}-afk-hint">A line is posted when someone goes away or comes back. Always on for now: this server doesn't keep a per-room choice yet.</p>
 								</div>
 								<div class="w-srow__control">
-									<Switch labelledby="{uid}-afk-label" describedby="{uid}-afk-hint" bind:checked={tempAfkAnnounce} />
+									<Switch labelledby="{uid}-afk-label" describedby="{uid}-afk-hint" bind:checked={tempAfkAnnounce} disabled />
 								</div>
 							</div>
 						</div>
@@ -1022,19 +1102,24 @@
 		align-items: start;
 		padding-top: 4px;
 	}
+	/* Sticks at its resting place (the layout's 4px top padding), so the tablist does not
+	   nudge up under the pointer once the body scrolls. */
 	.cs-tabs {
 		position: sticky;
-		top: 0;
+		top: 4px;
 		z-index: 1;
 		align-self: start;
 	}
 	.cs-tabs > button {
 		width: 100%;
 	}
+	/* One fixed frame for every section: the dialog keeps its size and place when you switch tabs
+	   (nothing moves under the pointer) and only the body scrolls, like the Settings frame. */
+	:global(.w-dialog.channel-settings) {
+		height: min(720px, calc(100dvh - 64px));
+	}
 	.cs-panel {
 		min-width: 0;
-		/* Switching sections does not make the centred dialog jump. */
-		min-height: calc(380px * var(--w-fs));
 		outline: none;
 	}
 
@@ -1048,6 +1133,13 @@
 	}
 	.cs-name > input {
 		min-width: 0;
+	}
+	/* Starts as a 38px form field and grows line by line, up to five lines, then scrolls. */
+	textarea.cs-description {
+		min-height: 38px;
+		max-height: calc(118px * var(--w-fs));
+		resize: none;
+		field-sizing: content;
 	}
 	.cs-prefix {
 		flex: none;
@@ -1168,9 +1260,6 @@
 		}
 		.cs-lore {
 			grid-template-columns: minmax(0, 1fr);
-		}
-		.cs-panel {
-			min-height: 0;
 		}
 	}
 </style>

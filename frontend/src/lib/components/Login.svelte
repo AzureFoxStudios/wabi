@@ -21,7 +21,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	import { buildLaunchPageStyles, hasOperatorLaunchStyling, injectNeutralBranding } from '$lib/components/loginHelpers';
 	import type { StarterChannel } from '$lib/api/auth';
 	import Icon from '$lib/components/ui/Icon.svelte';
-	import './login.css';
+	// Styles: styles/login-skin.css (loaded by the root layout).
 
 	const dispatch = createEventDispatcher<{
 		login: { username: string; token?: string; authMethod: 'guest' | 'registered'; newlyRegistered?: boolean; mustChangePassword?: boolean };
@@ -35,8 +35,12 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	let password = '';
 	let passwordConfirm = '';
 	let error = '';
+	/** Where the notice shows: under the form that failed, or under the guest join. */
+	let errorAt: 'form' | 'guest' = 'form';
 	let loading = false;
 	let showConnectionPrompt = true;
+	/** The server address to go back to when "Change server" is cancelled (null: nothing to go back to). */
+	let promptReturnDomain: string | null = null;
 	let privateTunnelActive = false;
 	let serverDomain = '';
 	let rememberMe = false;
@@ -124,13 +128,25 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 		} catch { return ''; }
 	}
 
+	function openServerPrompt(): void {
+		promptReturnDomain = serverDomain;
+		showConnectionPrompt = true;
+	}
+
+	function closeServerPrompt(applied: boolean): void {
+		if (!applied && promptReturnDomain !== null) serverDomain = promptReturnDomain;
+		promptReturnDomain = null;
+		showConnectionPrompt = false;
+	}
+
 	function switchAuthMode(newMode: 'login' | 'register') {
-		authMode = newMode; error = ''; username = ''; guestName = ''; handle = ''; handleManuallyEdited = false; password = ''; passwordConfirm = '';
+		authMode = newMode; error = ''; errorAt = 'form'; username = ''; guestName = ''; handle = ''; handleManuallyEdited = false; password = ''; passwordConfirm = '';
 	}
 
 	async function leavePrivateTunnel(): Promise<void> {
 		loading = true;
 		error = '';
+		errorAt = 'form';
 		try {
 			const { invoke } = await import('@tauri-apps/api/core');
 			await invoke('tailcat_disconnect');
@@ -146,6 +162,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 		if (!guestName.trim() || loading) return;
 		loading = true;
 		error = '';
+		errorAt = 'guest';
 		try {
 			const result = await joinAsGuest(guestName.trim());
 			clearAuthSession();
@@ -158,7 +175,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	}
 
 	async function handleRegister() {
-		error = '';
+		error = ''; errorAt = 'form';
 		if (username.length < 2) { error = t('login.errors.username_min'); return; }
 		const cleanHandle = handle.replace(/^@/, '').toLowerCase();
 		if (!/^[a-z][a-z0-9_]{1,31}$/.test(cleanHandle)) { error = t('login.errors.handle_invalid'); return; }
@@ -182,7 +199,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 
 	async function completeWizardJoinPolicy() {
 		if (!pendingOwnerLogin) return;
-		loading = true; error = '';
+		loading = true; error = ''; errorAt = 'form';
 		try {
 			// Owner token is admin on a fresh server; persist the join choice so
 			// it governs registration/guest access immediately.
@@ -203,7 +220,7 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 	}
 
 	async function handleLogin() {
-		error = '';
+		error = ''; errorAt = 'form';
 		if (!username || !password) { error = t('login.errors.username_password_required'); return; }
 		loading = true;
 		try {
@@ -322,16 +339,18 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 					<button type="button" class="login-change-server" on:click={leavePrivateTunnel} disabled={loading}>Leave private tunnel</button>
 				{/if}
 				{#if showConnectionPrompt}
-					<LoginConnectionPrompt bind:serverDomain {loading} on:applied={() => (showConnectionPrompt = false)} />
+					<LoginConnectionPrompt
+						bind:serverDomain
+						{loading}
+						cancellable={promptReturnDomain !== null}
+						on:applied={() => closeServerPrompt(true)}
+						on:cancel={() => closeServerPrompt(false)}
+					/>
 				{:else}
 					{#if wizardMode && wizardStep === 1}
 						<div class="wizard">
 							<h3>{$_('login.wizard.welcome')}</h3>
 							<p class="wizard-subtitle">{$_('login.wizard.owner_subtitle')}</p>
-
-							{#if error}
-								<div class="w-notice error-message" role="alert"><Icon name="alert" size={16} /><p class="w-notice__title">{error}</p></div>
-							{/if}
 
 							<form on:submit|preventDefault={handleRegister}>
 								<label class="field-label">
@@ -372,6 +391,9 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 									{loading ? $_('login.auth.creating_account') : $_('login.auth.create_account_button')}
 								</button>
 							</form>
+							{#if error}
+								<div class="w-notice error-message" role="alert"><Icon name="alert" size={16} /><p class="w-notice__title">{error}</p></div>
+							{/if}
 
 							<p class="wizard-note wizard-note-standalone">{$_('login.wizard.advanced_setup_note')}</p>
 						</div>
@@ -380,10 +402,6 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 						<div class="wizard">
 							<h3>{$_('login.wizard.join_title')}</h3>
 							<p class="wizard-subtitle">{$_('login.wizard.join_subtitle')}</p>
-
-							{#if error}
-								<div class="w-notice error-message" role="alert"><Icon name="alert" size={16} /><p class="w-notice__title">{error}</p></div>
-							{/if}
 
 							<div class="join-policy-options" role="radiogroup" aria-label={$_('login.wizard.join_title')}>
 								<label class="join-option" class:selected={joinPolicy === 'open'}>
@@ -409,6 +427,9 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 							<button type="button" class="w-btn w-btn--primary w-btn--lg login-submit" aria-busy={loading} disabled={loading} on:click={completeWizardJoinPolicy}>
 								{loading ? $_('login.wizard.finishing') : $_('login.wizard.finish')}
 							</button>
+							{#if error}
+								<div class="w-notice error-message" role="alert"><Icon name="alert" size={16} /><p class="w-notice__title">{error}</p></div>
+							{/if}
 
 							<p class="wizard-note wizard-note-standalone">{$_('login.wizard.join_note')}</p>
 						</div>
@@ -417,13 +438,12 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 						<header class="login-auth-heading">
 							<h2>{authMode === 'login' ? 'Welcome back.' : 'Find your place here.'}</h2>
 							<p>{authMode === 'login' ? 'Sign in to your community.' : 'Create an account on this server.'}</p>
-							{#if serverAddress}
-								<p class="login-server-address"><Icon name="globe" size={14} /><span>{serverAddress}</span></p>
-							{/if}
+							<!-- The server and the way to change it, together and above the fold at every width. -->
+							<p class="login-server-address">
+								{#if serverAddress}<Icon name="server" size={14} /><span>{serverAddress}</span>{/if}
+								<button type="button" class="login-change-server" on:click={openServerPrompt}>{$_('login.auth.change_server_button')}</button>
+							</p>
 						</header>
-						{#if error}
-							<div class="w-notice error-message" role="alert"><Icon name="alert" size={16} /><p class="w-notice__title">{error}</p></div>
-						{/if}
 
 						{#if authMode === 'login'}
 							<form class="auth-form" on:submit|preventDefault={handleLogin}>
@@ -451,6 +471,9 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 									{loading ? $_('login.auth.logging_in') : $_('login.auth.login_button')}
 								</button>
 							</form>
+							{#if error && errorAt === 'form'}
+								<div class="w-notice error-message" role="alert"><Icon name="alert" size={16} /><p class="w-notice__title">{error}</p></div>
+							{/if}
 							<p class="auth-alt-prompt">
 								{#if authPolicy.allowRegister}
 									{$_('login.auth.create_account_prompt')} <button type="button" class="auth-link" on:click={() => switchAuthMode('register')}>{$_('login.auth.create_account_link')}</button>
@@ -484,6 +507,9 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 									{loading ? $_('login.auth.creating_account') : $_('login.auth.create_account_button')}
 								</button>
 							</form>
+							{#if error && errorAt === 'form'}
+								<div class="w-notice error-message" role="alert"><Icon name="alert" size={16} /><p class="w-notice__title">{error}</p></div>
+							{/if}
 							<p class="auth-alt-prompt">
 								Already have an account? <button type="button" class="auth-link" on:click={() => switchAuthMode('login')}>{$_('login.tabs.login')}</button>
 							</p>
@@ -505,13 +531,16 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 										{loading ? $_('login.guest.joining') : $_('login.guest.join_button')}
 									</button>
 								</form>
+								{#if error && errorAt === 'guest'}
+									<div class="w-notice error-message" role="alert"><Icon name="alert" size={16} /><p class="w-notice__title">{error}</p></div>
+								{/if}
 								<div class="guest-extras">
 									<button type="button" on:click={() => (showQR = true)} class="w-btn w-btn--quiet" disabled={loading}>{$_('login.guest.join_qr_button')}</button>
 									<a href="/business" class="w-btn w-btn--quiet">{$_('login.guest.business_hub')}</a>
 								</div>
 							</div>
 						{:else}
-							<button type="button" class="w-btn w-btn--lg login-submit" on:click={() => { guestExpanded = true; error = ''; }}>
+							<button type="button" class="w-btn w-btn--lg login-submit" on:click={() => { guestExpanded = true; error = ''; errorAt = 'guest'; }}>
 								{$_('login.auth.guest_access_link')}
 							</button>
 						{/if}
@@ -538,9 +567,6 @@ import { setRefreshToken } from '$lib/api/authRefresh';
 						{#each getAvailableLocales() as localeOption}<option value={localeOption.code}>{localeOption.label}</option>{/each}
 					</select>
 				</label>
-				{#if !wizardMode && !showConnectionPrompt}
-					<button type="button" class="login-change-server" on:click={() => (showConnectionPrompt = true)}>{$_('login.auth.change_server_button')}</button>
-				{/if}
 			</nav>
 		</footer>
 	</div>

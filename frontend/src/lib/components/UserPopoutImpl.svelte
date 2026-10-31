@@ -36,7 +36,7 @@
 	import { inkFor } from '$lib/theme/identity';
 	import { roleBadgeLabel } from '$lib/badges';
 	import { resolveUserDisplayColor } from '$lib/accessibility';
-	import { memberSince, presenceLabelKey, presenceOf, stampInitial } from './userPopoutModel';
+	import { memberSince, noteProblemCopy, presenceLabelKey, presenceOf, stampInitial, type NoteProblemKind } from './userPopoutModel';
 	import RoleBadge from '$lib/components/RoleBadge.svelte';
 	import { requestLiveRoleChange, selectAssignableRoles } from './userListHelpers';
 	import { attachUserBanListeners, bannedUserIds } from '$lib/presenceStore';
@@ -74,8 +74,8 @@
 	let userNoteDraft = '';
 	/** What the quiet line under the note says; '' says nothing. */
 	let userNoteStatus = '';
-	/** A save or load that failed: the draft stays, with Download draft / Load saved offered. */
-	let noteProblem = '';
+	/** A save or load that failed ('' when none); the notice's words depend on whether a draft exists. */
+	let noteProblem: NoteProblemKind | '' = '';
 	let lastLoadedUserId = '';
 	let noteOwner: NotebookOwner | null = null;
 	let noteSubject = '';
@@ -219,7 +219,7 @@
 		} catch (error) {
 			if (ticket !== noteLoad) return;
 			console.warn('[profile] personal note load failed', error);
-			noteProblem = "Couldn't open this note.";
+			noteProblem = 'load';
 		}
 	}
 
@@ -244,9 +244,12 @@
 			if (ticket !== noteLoad) return;
 			console.warn('[profile] personal note save failed', error);
 			userNoteStatus = '';
-			noteProblem = "Couldn't save the note.";
+			noteProblem = 'save';
 		} finally { if (ticket === noteLoad) noteBusy = false; }
 	}
+
+	// A load that failed with a draft kept here (noteReady) can still offer it; one with nothing kept cannot.
+	$: noteProblemText = noteProblem ? noteProblemCopy(noteProblem, (noteProblem === 'save' || noteReady) && userNoteDraft !== '') : null;
 
 	/** Enter saves (Shift Enter is a new line); Esc puts the saved text back. */
 	function handleNoteKeydown(event: KeyboardEvent) {
@@ -741,7 +744,9 @@
 						on:input={() => queueMicrotask(retainNoteDraft)}
 						on:keydown={handleNoteKeydown}
 						on:blur={() => void saveUserNoteDraft()}
-						disabled={!noteReady || noteBusy}
+						disabled={!noteReady}
+						readonly={noteBusy}
+						aria-busy={noteBusy}
 						aria-label="Private note about {popoutDisplayName}"
 						aria-describedby="{titleId}-note-status"
 						placeholder={$_('user.popout.note_placeholder')}
@@ -749,14 +754,16 @@
 					<p class="pop-note__status" id="{titleId}-note-status" role="status">
 						{userNoteStatus}{#if userNoteDraft.length > MAX_USER_NOTE_LENGTH - 80}<span class="pop-note__count">{userNoteDraft.length} / {MAX_USER_NOTE_LENGTH}</span>{/if}
 					</p>
-					{#if noteProblem}
+					{#if noteProblemText}
 						<div class="w-notice pop-note__problem" role="alert">
 							<Icon name="alert" size={16} />
-							<p class="w-notice__title">{noteProblem}</p>
-							<p class="w-notice__text">Your draft is still here on this device.</p>
+							<p class="w-notice__title">{noteProblemText.title}</p>
+							<p class="w-notice__text">{noteProblemText.text}</p>
 							<div class="w-notice__actions">
-								<button type="button" class="w-btn w-btn--sm" on:click={downloadNoteDraft} disabled={!userNoteDraft}>Download draft</button>
-								<button type="button" class="w-btn w-btn--sm" on:click={reloadSavedNote} disabled={noteBusy}>Load saved note</button>
+								{#if noteProblemText.canDownload}
+									<button type="button" class="w-btn w-btn--sm" on:click={downloadNoteDraft}>Download draft</button>
+								{/if}
+								<button type="button" class="w-btn w-btn--sm" on:click={reloadSavedNote} disabled={noteBusy}>{noteProblemText.retryLabel}</button>
 							</div>
 						</div>
 					{/if}

@@ -23,7 +23,7 @@ export function getEffectiveBrandConfig(): BrandConfig {
 
 /**
  * Injects neutral branding at launch. Sets/removes `data-neutral-branding` on
- * <html> so neutral-branding.css / login.css can strip the hardcoded "Wabi"
+ * <html> so neutral-branding.css / styles/login-skin.css can strip the hardcoded "Wabi"
  * logo + title and neutralize the accent palette. Also rebrands the boot shell
  * while it is still visible. Idempotent; safe to call repeatedly.
  * When `useNeutral` is omitted, auto-detects from the active server.

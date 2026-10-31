@@ -1,65 +1,703 @@
-/* Login / launch — editorial skin on the theme roles. Operator branding (logo, banner,
-   headline, palette) still flows in through Login.svelte; this only sets the typography,
-   surfaces and controls so the first screen matches the app. */
+/* Sign in, register, owner setup and the server prompt (design contract §8.9): the one login
+   stylesheet. It used to be split between components/login.css (layout) and this file
+   (overrides on top of it); both now live here, on roles and the type scale.
 
-:root .login-container {
-	/* An operator's launch palette (--launch-*, set inline by Login.svelte) wins over the theme;
-	   without one the login follows the viewer's theme like the rest of the app. */
+   - The page is a flat --w-bg: no glows or washes (§4.5). An operator's launch palette
+     (--launch-*, set inline by Login.svelte) and background image still win, because that is
+     their branding.
+   - The card is an object in flow (--w-lift, hairline, --w-shadow-1). It hangs from the top of
+     the page instead of being centred, and errors appear under the action that caused them, so
+     nothing above the pointer moves when a notice appears (§2.7).
+   - Fields and buttons are the kit (.w-field 38px in forms, 44px under a coarse pointer;
+     .w-btn). Only the operator's launch accent is carried into the focus edge.
+   - Sans uses 400/500/700, serif 600, mono 400/500; every text size follows --w-fs. */
+
+.login-container {
 	--login-accent: var(--launch-accent, var(--w-accent));
 	--login-accent-soft: color-mix(in srgb, var(--login-accent) 16%, transparent);
-	background:
-		radial-gradient(900px 520px at 85% -10%, color-mix(in srgb, var(--login-accent) 14%, transparent), transparent 62%),
-		linear-gradient(180deg, var(--launch-bg-top, var(--w-bg)), var(--launch-bg-bottom, var(--w-bg)));
+	box-sizing: border-box;
+	height: 100dvh;
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+	overflow: auto;
+	overscroll-behavior-y: contain;
+	padding: clamp(24px, 9vh, 88px) clamp(24px, 5vw, 72px) clamp(24px, 5vw, 72px);
+	background-color: var(--launch-bg-top, var(--w-bg));
+	/* Only an operator's two-colour palette draws a gradient; without one this is transparent. */
+	background-image: linear-gradient(180deg, transparent, var(--launch-bg-bottom, transparent));
 	color: var(--launch-text, var(--w-text));
-	font-family: var(--w-sans);
+	font: var(--w-t-ui);
 }
 
-/* brand column */
-:root .login-container .login-title { font: 600 calc(26px * var(--w-fs, 1))/1.1 var(--w-serif); letter-spacing: 0.01em; color: var(--launch-text, var(--w-text)); }
-:root .login-container .login-kicker {
-	font: 500 calc(11.5px * var(--w-fs, 1))/1.3 var(--w-mono);
+.login-container.has-atmosphere {
+	background-size: cover;
+	background-position: center;
+	background-repeat: no-repeat;
+}
+
+/* Hangs from the top: a notice or a longer form grows the page downward only. */
+.login-container .login-shell {
+	width: min(1080px, 100%);
+	margin: 0 auto;
+}
+
+.login-container .login-box {
+	min-width: 0;
+}
+
+.login-container .login-box-default {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 440px);
+	align-items: start;
+	gap: clamp(40px, 7vw, 112px);
+}
+
+/* ---- brand column ---- */
+.login-container .login-brand-panel {
+	min-width: 0;
+	text-align: left;
+}
+
+.login-container .login-brand-lockup {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-bottom: 52px;
+}
+
+.login-container .login-logo {
+	display: block;
+	width: auto;
+	max-width: 110px;
+	height: 48px;
+	object-fit: contain;
+}
+
+.login-container .login-logo-invert {
+	filter: invert(1);
+}
+
+/* Daylight keeps the stock black mark legible; uploaded logos remain untouched. */
+html[data-theme='light'] .login-container .login-logo-invert {
+	filter: none;
+}
+
+.login-container .login-title {
+	color: var(--launch-text, var(--w-text));
+	font: 600 calc(26px * var(--w-fs)) / calc(30px * var(--w-fs)) var(--w-serif);
+	letter-spacing: 0.01em;
+	overflow-wrap: anywhere;
+}
+
+.login-container .login-kicker {
+	margin: 0 0 16px;
+	color: var(--w-mute);
+	font: var(--w-t-kicker);
 	letter-spacing: 0.14em;
 	text-transform: uppercase;
-	color: var(--w-mute);
 }
-:root .login-container .login-introduction h1 {
-	font: 600 calc(clamp(38px, 5vw, 58px) * var(--w-fs, 1))/1.08 var(--w-serif);
-	letter-spacing: 0;
+
+.login-container .login-introduction h1 {
+	max-width: 15ch;
+	margin: 0;
 	color: var(--w-text);
+	font: 600 calc(clamp(38px, 5vw, 58px) * var(--w-fs)) / 1.08 var(--w-serif);
+	letter-spacing: 0;
+	text-wrap: balance;
 }
-:root .login-container .login-description { font: 400 calc(16px * var(--w-fs, 1))/1.7 var(--w-sans); color: var(--w-mute); }
-:root .login-container .login-capabilities li { font: 400 calc(14.5px * var(--w-fs, 1))/1.4 var(--w-sans); color: var(--w-mute); }
-:root .login-container .login-capabilities li span:first-child { font: 500 calc(12px * var(--w-fs, 1)) var(--w-mono); color: var(--login-accent); }
 
-/* auth card */
-:root .login-container .login-auth-panel {
-	background: var(--launch-card-bg, var(--w-bg2));
-	border: var(--w-bw, 1px) solid var(--w-line);
-	border-radius: calc(16px * var(--w-rs, 1));
-	box-shadow: var(--w-shadow);
+.login-container .login-description {
+	max-width: 34ch;
+	margin: 24px 0 0;
+	color: var(--w-mute);
+	font: 400 calc(16px * var(--w-fs)) / calc(27px * var(--w-fs)) var(--w-sans);
+	text-wrap: pretty;
 }
-:root .login-container .login-auth-heading h2 { font: 600 calc(30px * var(--w-fs, 1))/1.15 var(--w-serif); color: var(--launch-text, var(--w-text)); }
-:root .login-container .login-auth-heading p { color: var(--w-mute); }
-:root .login-container .login-server-address { margin: 12px 0 0; font: var(--w-t-mono); color: var(--w-mute); }
 
-:root .login-container .field-caption { font: var(--w-t-label); color: var(--w-text); }
-/* Fields and buttons are the kit (.w-field, .w-btn, .w-check); only the operator's launch accent
-   is carried into the field focus edge and ring. */
-:root .login-container .w-field:focus-within {
+.login-container .login-capabilities {
+	display: grid;
+	gap: 14px;
+	margin: 40px 0 0;
+	padding: 0;
+	list-style: none;
+}
+
+.login-container .login-capabilities li {
+	display: flex;
+	align-items: baseline;
+	gap: 14px;
+	color: var(--w-mute);
+	font: var(--w-t-ui);
+}
+
+.login-container .login-capabilities li > span {
+	color: var(--login-accent);
+	font: var(--w-t-mono);
+	font-variant-numeric: tabular-nums;
+}
+
+/* ---- the card ---- */
+.login-container .login-auth-panel {
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	padding: clamp(24px, 3vw, 36px);
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-xl);
+	background: var(--launch-card-bg, var(--w-lift));
+	box-shadow: var(--w-shadow-1);
+	text-align: left;
+}
+
+.login-container .login-auth-heading {
+	margin-bottom: 24px;
+}
+
+.login-container .login-auth-heading h2 {
+	margin: 0 0 8px;
+	color: var(--launch-text, var(--w-text));
+	font: 600 calc(28px * var(--w-fs)) / calc(34px * var(--w-fs)) var(--w-serif);
+	letter-spacing: 0;
+}
+
+.login-container .login-auth-heading p {
+	margin: 0;
+	color: var(--w-mute);
+	font: var(--w-t-ui);
+}
+
+/* The server you are signing in to, and the way to change it, on one line. */
+.login-container .login-auth-heading .login-server-address {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	column-gap: 8px;
+	margin-top: 12px;
+	color: var(--w-mute);
+	font: var(--w-t-mono);
+}
+.login-container .login-server-address > svg {
+	flex: none;
+	color: var(--w-faint);
+}
+.login-container .login-server-address > span {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.login-container .login-server-address .login-change-server {
+	margin-left: auto;
+}
+
+.login-container .auth-form,
+.login-container .wizard form,
+.login-container .guest-section form {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	margin: 0;
+	padding: 0;
+}
+
+.login-container .field-label {
+	display: block;
+	margin: 0;
+	text-align: left;
+}
+
+.login-container .field-caption {
+	display: block;
+	margin-bottom: 6px;
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+
+/* Form fields: 38px (§7.3), 44px under a coarse pointer. The handle and password fields are
+   .w-field wrappers around an input (the @ prefix, the show-password icon button). */
+.login-container .w-field {
+	height: 38px;
+	caret-color: var(--login-accent);
+}
+.login-container .w-field:focus-within {
 	border-color: var(--login-accent);
 	box-shadow: 0 0 0 3px var(--login-accent-soft);
 }
-:root .login-container .remember-row { color: var(--w-mute); font: var(--w-t-small); }
-:root .login-container .auth-link { color: var(--login-accent); text-decoration-color: color-mix(in srgb, var(--login-accent) 50%, transparent); }
-:root .login-container .auth-alt-prompt { color: var(--w-mute); font: var(--w-t-small); }
-:root .login-container .auth-divider span { font: var(--w-t-kicker); letter-spacing: 0.12em; text-transform: uppercase; color: var(--w-faint); }
+/* A field the server or the form rejected keeps its danger edge while focused. */
+.login-container .w-field:is([aria-invalid='true'], :has(> [aria-invalid='true'])) {
+	border-color: var(--w-danger);
+}
+.login-container .w-field:is([aria-invalid='true'], :has(> [aria-invalid='true'])):focus-within {
+	border-color: var(--w-danger);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--w-danger) 16%, transparent);
+}
+.login-container .login-password {
+	padding-right: 3px;
+}
+.login-container .handle-prefix {
+	flex: none;
+	color: var(--w-faint);
+	font: var(--w-t-ui);
+}
+.login-container .field-hint {
+	display: block;
+	margin-top: 6px;
+}
 
-/* footer */
-:root .login-container .login-footer { border-top: var(--w-bw, 1px) solid var(--w-line); }
-:root .login-container .login-footer p,
-:root .login-container .login-footer a,
-:root .login-container .login-locale-control,
-:root .login-container .login-change-server { font: var(--w-t-mono); color: var(--w-mute); }
-:root .login-container .login-footer a:hover,
-:root .login-container .login-change-server:hover { color: var(--login-accent); }
-:root .login-container .login-auth-heading { margin-bottom: 24px; }
+.login-container .field-row {
+	display: flex;
+	align-items: center;
+}
+
+.login-container .remember-row {
+	min-height: 32px;
+	margin: -4px 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+
+/* Buttons are the kit .w-btn (§7.1); the form's actions fill the column. */
+.login-container .login-submit {
+	width: 100%;
+}
+
+.login-container :is(button, a, select, input[type='checkbox'], input[type='radio']):focus-visible {
+	outline: 2px solid var(--login-accent);
+	outline-offset: 2px;
+}
+
+.login-container .auth-alt-prompt {
+	margin: 16px 0 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+	text-align: center;
+}
+
+.login-container .auth-link {
+	display: inline;
+	padding: 4px 0;
+	border: 0;
+	background: none;
+	color: var(--login-accent);
+	font: inherit;
+	font-weight: 500;
+	text-decoration: underline;
+	text-decoration-color: color-mix(in srgb, var(--login-accent) 50%, transparent);
+	text-underline-offset: 0.2em;
+	cursor: pointer;
+}
+.login-container .auth-link:hover {
+	text-decoration-color: currentColor;
+}
+
+.login-container .auth-divider {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin: 22px 0 16px;
+}
+.login-container .auth-divider::before,
+.login-container .auth-divider::after {
+	content: '';
+	flex: 1;
+	height: var(--w-bw);
+	background: var(--w-line);
+}
+.login-container .auth-divider span {
+	color: var(--w-faint);
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+
+.login-container .guest-extras {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 8px;
+	margin-top: 8px;
+}
+
+/* Errors are the kit .w-notice, under the action that failed. */
+.login-container .error-message {
+	margin: 16px 0 0;
+	overflow-wrap: anywhere;
+}
+.login-container .error-message--top {
+	margin: 0 0 16px;
+}
+
+/* ---- owner setup ---- */
+.login-container .wizard h3 {
+	margin: 0 0 8px;
+	color: var(--w-text);
+	font: var(--w-t-display);
+	letter-spacing: 0;
+}
+
+.login-container .wizard-subtitle {
+	margin: 0 0 24px;
+	color: var(--w-mute);
+	font: var(--w-t-ui);
+}
+
+.login-container .wizard-note,
+.login-container .launch-footer-note {
+	margin: 18px 0 0;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+}
+
+.login-container .join-policy-options {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	margin-bottom: 14px;
+}
+
+.login-container .join-option {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	gap: 4px 12px;
+	align-items: center;
+	padding: 16px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	cursor: pointer;
+}
+.login-container .join-option input {
+	grid-row: span 2;
+}
+.login-container .join-option.selected {
+	border-color: var(--login-accent);
+	background: var(--login-accent-soft);
+}
+
+.login-container .join-option-title {
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+
+.login-container .join-option-desc {
+	grid-column: 2;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+
+.login-container .join-guest-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+	margin-bottom: 16px;
+	padding: 16px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	cursor: pointer;
+}
+.login-container .join-guest-row > input {
+	margin-top: 2px;
+}
+.login-container .join-guest-row .join-option-title,
+.login-container .join-guest-row .join-option-desc {
+	display: block;
+}
+
+.login-container .starter-layout {
+	display: grid;
+	gap: 8px;
+	margin: 4px 0;
+	padding: 16px 0;
+	border-block: var(--w-bw) solid var(--w-line);
+}
+.login-container .starter-layout > label {
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+.login-container .starter-layout > p {
+	margin: 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+.login-container .starter-room {
+	display: grid;
+	grid-template-columns: 96px minmax(0, 1fr) 32px;
+	align-items: center;
+	gap: 8px;
+}
+.login-container .starter-add {
+	justify-self: start;
+}
+
+/* ---- footer ---- */
+.login-container .login-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px 32px;
+	margin-top: 48px;
+	padding-top: 18px;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+
+.login-container .login-footer > p {
+	margin: 0;
+	color: var(--w-mute);
+	font: var(--w-t-mono);
+}
+
+.login-container .login-footer-links {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	flex-wrap: wrap;
+	gap: 4px 18px;
+}
+
+.login-container .login-footer-links a,
+.login-container .login-change-server,
+.login-container .login-locale-control {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 32px;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-mono);
+	text-decoration: none;
+	cursor: pointer;
+}
+.login-container .login-footer-links a:hover,
+.login-container .login-change-server:hover,
+.login-container .login-locale-control:hover {
+	color: var(--w-text);
+}
+.login-container .login-change-server {
+	white-space: nowrap;
+}
+.login-container .login-auth-heading .login-change-server {
+	color: var(--login-accent);
+	font: var(--w-t-small);
+	text-decoration: underline;
+	text-decoration-color: color-mix(in srgb, var(--login-accent) 50%, transparent);
+	text-underline-offset: 0.2em;
+}
+.login-container .login-auth-heading .login-change-server:hover {
+	color: var(--login-accent);
+	text-decoration-color: currentColor;
+}
+
+.login-container .login-locale-control select {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	opacity: 0;
+	cursor: pointer;
+}
+.login-container .login-locale-control:focus-within {
+	border-radius: var(--radius-sm);
+	outline: 2px solid var(--login-accent);
+	outline-offset: 2px;
+}
+
+/* ---- a configured launch story keeps its introduction and artwork ---- */
+.login-container .login-shell.has-launch {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 440px);
+	align-items: start;
+	gap: 32px;
+}
+.login-container .has-launch .login-box {
+	padding: 32px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-xl);
+	background: var(--launch-card-bg, var(--w-lift));
+	box-shadow: var(--w-shadow-1);
+}
+.login-container .has-launch .login-auth-panel {
+	padding: 0;
+	border: 0;
+	background: transparent;
+	box-shadow: none;
+}
+.login-container .has-launch .login-brand-lockup {
+	justify-content: center;
+	margin-bottom: 16px;
+}
+.login-container .has-launch .login-logo {
+	max-width: 180px;
+	height: 64px;
+}
+.login-container .has-launch .login-brand-panel {
+	margin-bottom: 24px;
+	text-align: center;
+}
+.login-container .launch-headline {
+	margin: 0 0 8px;
+	color: var(--w-text);
+	font: var(--w-t-heading);
+}
+.login-container .launch-subheadline {
+	margin: 0;
+	color: var(--w-mute);
+	font: var(--w-t-ui);
+}
+.login-container .has-launch .login-footer {
+	grid-column: 1 / -1;
+	margin-top: 0;
+}
+
+/* Neutral branding (no operator brand): the login draws the neutral palette through the roles. */
+html[data-neutral-branding] .login-container {
+	--login-accent: var(--neutral-accent);
+	--w-accent: var(--neutral-accent);
+	--w-bg: var(--neutral-surface);
+	--w-bg2: var(--neutral-surface-raised);
+	--w-lift: var(--neutral-surface-raised);
+	--w-sink: var(--neutral-surface-sunken);
+	--w-raise: var(--neutral-surface-raised);
+	--w-text: var(--neutral-text);
+	--w-mute: var(--neutral-text-secondary);
+	--w-faint: var(--neutral-text-muted);
+	--w-line: var(--neutral-border);
+}
+html[data-neutral-branding] .login-container .login-brand-panel::before {
+	width: 44px;
+	height: 44px;
+	flex-basis: 44px;
+	margin-bottom: 32px;
+}
+html[data-neutral-branding] .login-container .login-brand-lockup {
+	display: none;
+}
+
+@media (pointer: coarse) {
+	.login-container .w-field {
+		height: 44px;
+	}
+	.login-container .login-footer-links a,
+	.login-container .login-change-server,
+	.login-container .login-locale-control,
+	.login-container .remember-row {
+		min-width: 44px;
+		min-height: 44px;
+	}
+}
+
+@media (max-width: 900px) {
+	.login-container {
+		padding: 32px;
+	}
+	.login-container .login-box-default {
+		grid-template-columns: minmax(0, 1fr) minmax(0, 390px);
+		gap: 36px;
+	}
+	.login-container .login-introduction h1 {
+		font-size: calc(44px * var(--w-fs));
+	}
+	.login-container .login-shell.has-launch {
+		grid-template-columns: 1fr;
+		max-width: 600px;
+	}
+	.login-container .login-footer {
+		flex-direction: column;
+		gap: 8px;
+	}
+	.login-container .login-footer-links {
+		justify-content: center;
+	}
+}
+
+@media (max-width: 700px) {
+	.login-container {
+		padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+	}
+	.login-container .login-shell {
+		max-width: 440px;
+	}
+	.login-container .login-box-default {
+		grid-template-columns: 1fr;
+		gap: 20px;
+	}
+	.login-container .login-brand-lockup {
+		gap: 10px;
+		margin-bottom: 16px;
+	}
+	.login-container .login-logo {
+		max-width: 80px;
+		height: 32px;
+	}
+	.login-container .login-title {
+		font-size: calc(21px * var(--w-fs));
+	}
+	.login-container .login-kicker,
+	.login-container .login-capabilities {
+		display: none;
+	}
+	.login-container .login-introduction h1 {
+		max-width: 16ch;
+		font: var(--w-t-display);
+	}
+	.login-container .login-heading-break {
+		display: none;
+	}
+	.login-container .login-description {
+		max-width: 39ch;
+		margin-top: 10px;
+		font: var(--w-t-ui);
+	}
+	.login-container .login-auth-panel {
+		padding: 22px;
+	}
+	.login-container .login-auth-heading {
+		margin-bottom: 20px;
+	}
+	.login-container .login-auth-heading h2 {
+		font: var(--w-t-title);
+	}
+	.login-container .login-auth-heading .login-server-address {
+		margin-top: 10px;
+	}
+	.login-container .login-footer {
+		margin-top: 20px;
+		padding-top: 12px;
+		gap: 6px;
+	}
+	.login-container .login-footer-links {
+		width: 100%;
+		gap: 0 18px;
+	}
+	.login-container .has-launch .login-box {
+		padding: 22px;
+	}
+	html[data-neutral-branding] .login-container .login-brand-panel::before {
+		width: 32px;
+		height: 32px;
+		margin-bottom: 16px;
+	}
+}
+
+@media (max-width: 360px) {
+	.login-container {
+		padding-left: 12px;
+		padding-right: 12px;
+	}
+	.login-container .login-auth-panel {
+		padding: 18px;
+	}
+	.login-container .guest-extras {
+		grid-template-columns: 1fr;
+	}
+}
+
+/* The show-password button fills the field's inner height, so a 44px touch field keeps a 44px-wide,
+   full-height target inside its edge. */
+@media (pointer: coarse) {
+	.login-container .login-password {
+		padding-right: 0;
+	}
+	.login-container .login-password > .password-toggle {
+		width: 44px;
+		height: 100%;
+	}
+}
