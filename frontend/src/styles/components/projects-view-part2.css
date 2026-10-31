@@ -165,6 +165,21 @@
 	outline: 2px solid var(--w-accent);
 	outline-offset: 1px;
 }
+.planner .pj-row__meta {
+	display: inline-flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+}
+/* High and Urgent only (§7.27): a status dot and the word. */
+.planner .pj-row__mark {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--w-mute);
+	font: var(--w-t-micro);
+	white-space: nowrap;
+}
 .planner .pj-row__due {
 	color: var(--w-faint);
 	font: var(--w-t-micro);
@@ -317,11 +332,22 @@
 	font: 500 calc(13px * var(--w-fs)) / 1 var(--w-mono);
 	font-feature-settings: 'tnum';
 }
-.planner .pj-burn__chart {
-	display: block;
+/* The frame measures the width the chart is drawn at (ProjectDetail binds it), so the chart's
+   user units are pixels and its labels keep their size at every width. */
+.planner .pj-burn__frame {
 	width: 100%;
 	max-width: 760px;
-	height: auto;
+	min-width: 0;
+	overflow: hidden;
+}
+.planner .pj-burn__chart {
+	display: block;
+	max-width: 100%;
+}
+.planner .pj-burn__note {
+	margin: 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
 }
 .planner .pj-burn__grid line {
 	stroke: var(--w-line);

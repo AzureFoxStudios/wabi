@@ -2,7 +2,7 @@
  * My Planner — Projects (design contract §8.6): what a project card and the project page say
  * about a project. Pure functions over the store's arrays, so the words are tested once.
  */
-import type { Project, Todo } from './types';
+import type { Project, Sprint, Todo } from './types';
 import { projectTasks } from './projectHierarchy';
 import { isOpenTask, startOfDay } from './plannerCalendar';
 
@@ -96,4 +96,51 @@ export function hasEstimates(tasks: readonly Pick<Todo, 'estimatedMinutes'>[]): 
 /** True when a due date is before today (for the danger tone on "Next due"). */
 export function isPastDue(at: number | undefined, now = Date.now()): boolean {
 	return at !== undefined && at < startOfDay(now).getTime();
+}
+
+/** Every project under `projectId`, at any depth (a loop in the parent links is cut). */
+export function descendantIds(projects: readonly Pick<Project, 'id' | 'parentId'>[], projectId: string): string[] {
+	const found: string[] = [];
+	const seen = new Set([projectId]);
+	const queue = [projectId];
+	while (queue.length) {
+		const parent = queue.shift() as string;
+		for (const project of projects) {
+			if (project.parentId !== parent || seen.has(project.id)) continue;
+			seen.add(project.id);
+			found.push(project.id);
+			queue.push(project.id);
+		}
+	}
+	return found;
+}
+
+function counted(count: number, one: string, many: string): string {
+	return `${count} ${count === 1 ? one : many}`;
+}
+
+/**
+ * The delete-project confirmation says everything that goes (projectStore.deleteProject removes
+ * the project, every sub-project at any depth, all their tasks and all their sprints):
+ * "“Zine fair”, its 2 sub-projects, 7 tasks and 1 sprint will be removed from your Planner."
+ */
+export function deleteProjectWords(
+	projects: readonly Pick<Project, 'id' | 'parentId'>[],
+	todos: readonly Pick<Todo, 'projectId'>[],
+	sprints: readonly Pick<Sprint, 'projectId'>[],
+	project: Pick<Project, 'id' | 'name'>
+): string {
+	const children = descendantIds(projects, project.id);
+	const ids = new Set([project.id, ...children]);
+	const tasks = todos.filter((todo) => todo.projectId && ids.has(todo.projectId)).length;
+	const runs = sprints.filter((sprint) => ids.has(sprint.projectId)).length;
+	const parts = [
+		children.length ? counted(children.length, 'sub-project', 'sub-projects') : '',
+		tasks ? counted(tasks, 'task', 'tasks') : '',
+		runs ? counted(runs, 'sprint', 'sprints') : ''
+	].filter(Boolean);
+	const name = `“${project.name}”`;
+	if (parts.length === 0) return `${name} will be removed from your Planner.`;
+	const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+	return `${name}${parts.length === 1 ? ' and' : ','} its ${list} will be removed from your Planner.`;
 }

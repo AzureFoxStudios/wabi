@@ -32,9 +32,14 @@
 	import type { DiaryEntry } from '$lib/business/types';
 	import { confirmAction } from '$lib/confirm';
 	import { DAY_MS, sameDay, startOfDay } from '$lib/business/plannerCalendar';
+	import { isMobile } from '$lib/layoutStoreStates';
 	import SignatureRow from './SignatureRow.svelte';
 
 	// Props
+	// The empty states point at the masthead's New entry. On the phone that control is a bare +
+	// glyph, so the sentence names what the person can actually see.
+	$: newEntryWords = $isMobile ? '+' : 'New entry';
+
 	export let isReadOnly = false;
 	export let embedded = false;
 	export let addSignal = 0;
@@ -314,6 +319,11 @@
 		void startEditing();
 	}
 
+	/** The editor is a form; Enter in a one-line field must not submit it (only Save does). */
+	function keepEditingOnEnter(event: KeyboardEvent) {
+		if (event.key === 'Enter' && !event.isComposing) event.preventDefault();
+	}
+
 	// Sort entries by date (newest first)
 	$: sortedEntries = [...$diaryEntries].sort((a, b) => b.date - a.date);
 
@@ -357,7 +367,9 @@
 			<header class="jr-intro">
 				<h2 class="jr-title" id={`journal-${uid}-title`} tabindex="-1">Journal</h2>
 				<p class="jr-lede">One page a day for sketches, decisions and small discoveries.</p>
-				{#if !isReadOnly && sortedEntries.length > 0}
+				<!-- In My Planner the masthead's "New entry" is this view's one primary and writes today's
+				     entry, so the page offers no second copy of it (§7.1). -->
+				{#if !isReadOnly && sortedEntries.length > 0 && (todayEntry || !embedded)}
 					<div class="jr-intro__actions">
 						{#if todayEntry}
 							<button type="button" class="w-btn" on:click={() => todayEntry && selectEntry(todayEntry)}>Open today’s entry</button>
@@ -373,8 +385,10 @@
 					icon="book"
 					as="h3"
 					title="No journal entries yet"
-					text="Write a few lines for today. Photos and sketches are welcome."
-					action={isReadOnly ? undefined : 'Write today’s entry'}
+					text={embedded && !isReadOnly
+						? `Use ${newEntryWords} to write a few lines for today. Photos and sketches are welcome.`
+						: 'Write a few lines for today. Photos and sketches are welcome.'}
+					action={isReadOnly || embedded ? undefined : 'Write today’s entry'}
 					onaction={writeToday}
 					class="jr-empty"
 				/>
@@ -498,7 +512,8 @@
 					<div class="jr-fields">
 						<div class="jr-field">
 							<label class="w-label" for={`journal-${uid}-tags`}>Tags</label>
-							<input id={`journal-${uid}-tags`} class="w-field" type="text" bind:value={formTags} placeholder="Separate tags with commas" />
+							<!-- Enter here only ends a tag list; it never saves and closes the editor. -->
+							<input id={`journal-${uid}-tags`} class="w-field" type="text" bind:value={formTags} placeholder="Separate tags with commas" enterkeyhint="done" on:keydown={keepEditingOnEnter} />
 						</div>
 						<div class="w-srow jr-srow">
 							<div class="w-srow__text">
@@ -539,13 +554,23 @@
 						</div>
 					{/if}
 				</article>
+			{:else if embedded && !onToday && !isReadOnly}
+				<!-- A past day in My Planner: the masthead's ink New entry stays the view's one primary
+				     (it writes today), so this day's own action is a default button (§7.1). -->
+				<EmptyState icon="book" as="h3" title={`Nothing written for ${kickerDate.format(selectedDate)}`} text="Write a few lines while the day is fresh." class="jr-empty">
+					{#snippet actions()}
+						<button type="button" class="w-btn" on:click={startEditing}>Write this entry</button>
+					{/snippet}
+				</EmptyState>
 			{:else}
 				<EmptyState
 					icon="book"
 					as="h3"
 					title={`Nothing written for ${onToday ? 'today' : kickerDate.format(selectedDate)}`}
-					text="Write a few lines while the day is fresh."
-					action={isReadOnly ? undefined : 'Write this entry'}
+					text={embedded && onToday && !isReadOnly
+						? `Use ${newEntryWords} to write a few lines while the day is fresh.`
+						: 'Write a few lines while the day is fresh.'}
+					action={isReadOnly || (embedded && onToday) ? undefined : 'Write this entry'}
 					onaction={startEditing}
 					class="jr-empty"
 				/>

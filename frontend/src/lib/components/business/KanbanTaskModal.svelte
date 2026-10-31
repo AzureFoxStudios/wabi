@@ -12,6 +12,10 @@
 	 *
 	 * The form state stays with the board (two-way bound), so the dialog is presentation only.
 	 * BaseModal traps focus, closes on Esc, and returns focus to the card or button that opened it.
+	 *
+	 * Assignee is a kit select like Status, Priority and Project (its menu has typeahead). The
+	 * older combobox props (filteredUsers, showUserDropdown, userSearchQuery, filterUsers) are
+	 * still accepted so hosts that bind them keep working; the select does not need them.
 	 */
 	import { kanbanColumns, projects } from '$lib/business';
 	import type { Todo, TodoStatus, ItemSignature, LoreCitationRef } from '$lib/business/types';
@@ -64,12 +68,13 @@
 	const FIELD_SELECTOR: Record<TaskField, string> = {
 		title: '#planner-task-title',
 		due: '#planner-task-due',
-		assignee: '#planner-task-assignee, #planner-task-assignee-clear',
+		assignee: '#planner-task-assignee',
 		priority: '#planner-task-priority'
 	};
 
 	let linksUnread = 0;
-	let assigneeHighlight = -1;
+	// The combobox state the hosts still bind (see above); read here so the props stay declared.
+	$: void filteredUsers, showUserDropdown, userSearchQuery, filterUsers;
 
 	$: statusOptions = $kanbanColumns.map((col) => ({ value: col.id, label: laneLabel(col) })) satisfies SelectOption[];
 	const priorityOptions: SelectOption[] = [
@@ -91,8 +96,27 @@
 	let priorityValue: string = formPriority;
 	$: formPriority = priorityValue as Todo['priority'];
 
-	$: assigneeName = formAssigneeId ? getAssigneeName(formAssigneeId) || `Member ${formAssigneeId}` : '';
 	$: titleMissing = formTitle.trim() === '';
+
+	// Assignee: "Unassigned" or one person from the directory. A saved assignee the directory
+	// does not know (yet) stays listed by name, so opening the dialog never drops it.
+	let assigneeValue = formAssigneeId ? String(formAssigneeId) : '';
+	$: assigneeOptions = buildAssigneeOptions(registeredUsers, formAssigneeId);
+	function buildAssigneeOptions(users: RegisteredUser[], current: number | null): SelectOption[] {
+		const people = [...users]
+			.sort((a, b) => a.username.localeCompare(b.username))
+			.map((user) => ({ value: String(user.user_id), label: user.username }));
+		if (current && !users.some((user) => user.user_id === current)) {
+			people.unshift({ value: String(current), label: getAssigneeName(current) || `Member ${current}` });
+		}
+		return [{ value: '', label: 'Unassigned' }, ...people];
+	}
+	function chooseAssignee(value: string): void {
+		const user = registeredUsers.find((candidate) => String(candidate.user_id) === value);
+		if (user) selectUser(user);
+		else if (!value) clearAssignee();
+		else formAssigneeId = Number(value);
+	}
 
 	/** Parse "ch_abc ^c/path/file.ts:12" style input back into refs. */
 	function handleRefsInput(event: Event): void {
@@ -105,31 +129,6 @@
 		const parsed = parseFileLinks(raw);
 		draftLoreRefs = parsed.refs;
 		linksUnread = parsed.unread;
-	}
-
-	function handleAssigneeKeydown(event: KeyboardEvent): void {
-		if (!showUserDropdown || filteredUsers.length === 0) {
-			if (event.key === 'ArrowDown') {
-				showUserDropdown = true;
-				event.preventDefault();
-			}
-			return;
-		}
-		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-			event.preventDefault();
-			const step = event.key === 'ArrowDown' ? 1 : -1;
-			assigneeHighlight = (assigneeHighlight + step + filteredUsers.length) % filteredUsers.length;
-		} else if (event.key === 'Enter' && assigneeHighlight >= 0) {
-			event.preventDefault();
-			selectUser(filteredUsers[assigneeHighlight]);
-			assigneeHighlight = -1;
-		} else if (event.key === 'Escape') {
-			// Close the list, not the dialog.
-			event.preventDefault();
-			event.stopPropagation();
-			showUserDropdown = false;
-			assigneeHighlight = -1;
-		}
 	}
 
 	/** The footer's hairline shows only while the body scrolls (§7.13). */
@@ -195,54 +194,17 @@
 
 		<div class="ptd-pair">
 			<div class="ptd-field ptd-assignee">
-				<label class="w-label" for={formAssigneeId ? 'planner-task-assignee-clear' : 'planner-task-assignee'}>Assignee</label>
-				{#if formAssigneeId}
-					<div class="ptd-assigned">
-						<span class="ptd-assigned__name">{assigneeName}</span>
-						<button
-							type="button"
-							id="planner-task-assignee-clear"
-							class="w-ibtn w-ibtn--sm"
-							on:click={clearAssignee}
-							disabled={isReadOnly}
-							aria-label="Remove {assigneeName} as assignee"
-						><Icon name="x" size={16} /></button>
-					</div>
-				{:else}
-					<div class="ptd-combo">
-						<input
-							id="planner-task-assignee"
-							class="w-field"
-							type="text"
-							role="combobox"
-							aria-expanded={showUserDropdown && filteredUsers.length > 0}
-							aria-controls="planner-task-assignee-list"
-							aria-autocomplete="list"
-							aria-activedescendant={assigneeHighlight >= 0 ? `planner-task-assignee-${filteredUsers[assigneeHighlight]?.user_id}` : undefined}
-							bind:value={userSearchQuery}
-							on:input={(e) => { filterUsers((e.target as HTMLInputElement).value); assigneeHighlight = -1; showUserDropdown = true; }}
-							on:focus={() => (showUserDropdown = true)}
-							on:keydown={handleAssigneeKeydown}
-							placeholder={registeredUsers.length ? 'Search people' : 'No one to assign yet'}
-							autocomplete="off"
-							disabled={isReadOnly}
-						/>
-						{#if showUserDropdown && filteredUsers.length > 0}
-							<ul class="ptd-combo__list w-pop" id="planner-task-assignee-list" role="listbox" aria-label="People">
-								{#each filteredUsers as user, index (user.user_id)}
-									<li
-										id="planner-task-assignee-{user.user_id}"
-										role="option"
-										aria-selected={index === assigneeHighlight}
-										class="ptd-combo__option"
-										class:is-active={index === assigneeHighlight}
-										on:mousedown|preventDefault={() => selectUser(user)}
-									>{user.username}</li>
-								{/each}
-							</ul>
-						{/if}
-					</div>
-				{/if}
+				<span class="w-label" id="planner-task-assignee-label">Assignee</span>
+				<Select
+					id="planner-task-assignee"
+					ariaLabel="Assignee"
+					options={assigneeOptions}
+					bind:value={assigneeValue}
+					onchange={chooseAssignee}
+					disabled={isReadOnly}
+					heading="Assignee"
+					class="ptd-select"
+				/>
 			</div>
 			<div class="ptd-field">
 				<span class="w-label" id="planner-task-project-label">Project</span>

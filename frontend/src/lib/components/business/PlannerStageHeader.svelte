@@ -7,8 +7,12 @@
 	  the title, tag and status use StageBar's own classes and tiers (the tag collapses to its dot
 	  below a 760px stage, with the words in its tooltip, in ⋯ and for assistive tech).
 	- `part="inline"` renders the same row as the Planner's own masthead where no StageBar exists
-	  (the personal workspace route). `part="tabs"` is the phone strip under the 52px bar: the
-	  segment at full width and the New split; on the phone bar itself only the title shows.
+	  (the personal workspace route).
+	- Phone shell (§8.12; on the 52px bar itself the title and the locality tag's dot show, and ⋯
+	  says the locality and the save state in words): `part="tabs"` is the one row under the bar for Calendar, Journal and
+	  Projects (the segment and New, 44px targets); on the board the view menu
+	  (`part="views"`) and New (`part="new"`) join the board's one tools row instead. Each phone
+	  part keeps the save state as a status live region for assistive tech.
 	- Below a 1000px stage the segment becomes one "Board ▾" view menu, and below 560 the New
 	  button keeps only its glyph (its name stays for assistive tech).
 	- The segment is a tablist (roving tabindex, ←/→ Home/End select) controlling the Planner's
@@ -34,7 +38,7 @@
 		newHint: string;
 		onNew: () => void;
 		newItems: MenuEntry[];
-		part?: 'row' | 'inline' | 'tabs';
+		part?: 'row' | 'inline' | 'tabs' | 'views' | 'new';
 		readOnly?: boolean;
 	}
 
@@ -56,8 +60,8 @@
 	}: Props = $props();
 
 	const inline = $derived(part === 'inline');
-	const tabsOnly = $derived(part === 'tabs');
-	// On the phone bar row A keeps only the title; the segment and New live in the strip below.
+	// On the phone bar row A keeps the title and the tag's dot; the views and New sit in the row
+	// below it (the strip, or on the board its tools row).
 	const phone = $derived($isMobile && part === 'row');
 	const activeLabel = $derived(views.find((view) => view.value === activeView)?.label ?? '');
 	let tablist = $state<HTMLElement | null>(null);
@@ -92,72 +96,93 @@
 	}
 </script>
 
-<div class="psh" class:psh--inline={inline} class:psh--tabs={tabsOnly}>
-	{#if !tabsOnly}
+{#snippet viewMenu(extra: string)}
+	<Menu items={viewItems} label="Planner views" class={`w-btn w-btn--quiet psh-viewmenu ${extra}`} triggerLabel={`View: ${activeLabel}`} heading="Planner views">
+		<span>{activeLabel}</span><Icon name="chevDown" size={14} />
+	</Menu>
+{/snippet}
+
+{#snippet newSplit(glyphOnly: boolean)}
+	<span class="w-split psh-new">
+		<button
+			type="button"
+			class="w-btn w-btn--primary planner-new-primary"
+			data-planner-new={activeView}
+			title={readOnly ? 'Read-only: nothing can be added here' : newHint}
+			aria-label={glyphOnly ? newLabel : undefined}
+			disabled={readOnly}
+			onclick={onNew}
+		>
+			<Icon name="plus" size={16} />{#if !glyphOnly}<span class="psh-new-words">{newLabel}</span>{/if}
+		</button>
+		<Menu items={newItems} label="Create new" class="w-btn w-btn--primary w-split__menu" triggerLabel="Choose what to create" align="end" disabled={readOnly}>
+			<Icon name="chevDown" size={16} />
+		</Menu>
+	</span>
+{/snippet}
+
+{#snippet tablistKeys()}
+	<div class="w-seg planner-tabs psh-seg" role="tablist" aria-label="Planner views" bind:this={tablist}>
+		{#each views as view, index (view.value)}
+			<button
+				type="button"
+				role="tab"
+				id={tabId(view.value)}
+				aria-selected={view.value === activeView}
+				aria-controls={panelId}
+				tabindex={view.value === activeView ? 0 : -1}
+				onclick={() => onSelectView(view.value)}
+				onkeydown={(event) => handleTabKeydown(event, index)}
+			>{view.label}</button>
+		{/each}
+	</div>
+{/snippet}
+
+{#snippet phoneStatus()}
+	<!-- The phone bar shows no save state; it is still announced (and said in ⋯). -->
+	{#if status}<span class="psh-sr" role="status">{status}</span>{/if}
+{/snippet}
+
+{#if part === 'tabs'}
+	<div class="psh psh--tabs psh--phone">
+		{@render tablistKeys()}
+		{@render newSplit(true)}
+		{@render phoneStatus()}
+	</div>
+{:else if part === 'views'}
+	<div class="psh psh--phone">{@render viewMenu('psh-viewmenu--always')}</div>
+{:else if part === 'new'}
+	<div class="psh psh--phone">
+		{@render newSplit(true)}
+		{@render phoneStatus()}
+	</div>
+{:else}
+	<div class="psh" class:psh--inline={inline}>
 		{#if inline}
 			<h1 class="psh-title">{title}</h1>
 		{:else}
 			<h2 class="stage-a__title"><span class="stage-a__name">{title}</span></h2>
 		{/if}
-	{/if}
-	{#if !phone}
 		{#if inline}
 			<span class="w-tag psh-chip" title={scopeTitle || undefined}>{scope}</span>
 			{#if status}<span class="psh-status" role="status">{status}</span>{/if}
-		{:else if !tabsOnly}
+		{:else}
+			<!-- On the phone bar (and any stage under 760px) this tag is its dot; the words stay in
+			     its tooltip, in ⋯ and for assistive tech (§7.23). -->
 			<span class="w-tag stage-a__chip stage-a__scope" title={scopeTitle || scope}>
 				<span class="w-dot stage-a__scope-dot" aria-hidden="true"></span><span class="stage-a__scope-words">{scope}</span>
 			</span>
-			{#if status}<span class="stage-a__status" role="status">{status}</span>{/if}
+			<!-- The phone parts below the bar carry the save state's live region instead. -->
+			{#if status && !phone}<span class="stage-a__status" role="status">{status}</span>{/if}
 		{/if}
-
-		{#if !tabsOnly}<span class="psh-spacer" aria-hidden="true"></span>{/if}
-
-		<div class="w-seg planner-tabs psh-seg" role="tablist" aria-label="Planner views" bind:this={tablist}>
-			{#each views as view, index (view.value)}
-				<button
-					type="button"
-					role="tab"
-					id={tabId(view.value)}
-					aria-selected={view.value === activeView}
-					aria-controls={panelId}
-					tabindex={view.value === activeView ? 0 : -1}
-					onclick={() => onSelectView(view.value)}
-					onkeydown={(event) => handleTabKeydown(event, index)}
-				>{view.label}</button>
-			{/each}
-		</div>
-		{#if !tabsOnly}
-			<Menu items={viewItems} label="Planner views" class="w-btn w-btn--quiet psh-viewmenu" triggerLabel={`View: ${activeLabel}`} heading="Planner views">
-				<span>{activeLabel}</span><Icon name="chevDown" size={14} />
-			</Menu>
+		{#if !phone}
+			<span class="psh-spacer" aria-hidden="true"></span>
+			{@render tablistKeys()}
+			{@render viewMenu('')}
+			{@render newSplit(false)}
 		{/if}
-
-		<span class="w-split psh-new">
-			<button
-				type="button"
-				class="w-btn w-btn--primary planner-new-primary"
-				data-planner-new={activeView}
-				title={readOnly ? 'Read-only: nothing can be added here' : newHint}
-				aria-label={tabsOnly ? newLabel : undefined}
-				disabled={readOnly}
-				onclick={onNew}
-			>
-				<Icon name="plus" size={16} />{#if !tabsOnly}<span class="psh-new-words">{newLabel}</span>{/if}
-			</button>
-			<Menu items={newItems} label="Create new" class="w-btn w-btn--primary w-split__menu" triggerLabel="Choose what to create" align="end" disabled={readOnly}>
-				<Icon name="chevDown" size={16} />
-			</Menu>
-		</span>
-		{#if tabsOnly}
-			<!-- The phone bar hides row A's tag and status; the truth is still said once, here. -->
-			<p class="psh-meta">
-				<span class="w-tag psh-chip" title={scopeTitle || undefined}>{scope}</span>
-				{#if status}<span class="psh-status" role="status">{status}</span>{/if}
-			</p>
-		{/if}
-	{/if}
-</div>
+	</div>
+{/if}
 
 <style>
 	/* The row's parts are flex items of StageBar's lead (or of the inline masthead). */
@@ -237,21 +262,12 @@
 		white-space: nowrap;
 	}
 
-	/* ---------- phone strip: the segment at full width, New as its glyph ---------- */
+	/* ---------- phone parts (§8.12): one row, every target 44×44 ---------- */
 	.psh--tabs {
 		display: flex;
-		flex-wrap: wrap;
 		align-items: center;
 		gap: 8px;
 		min-width: 0;
-	}
-	.psh-meta {
-		flex: 1 0 100%;
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		min-width: 0;
-		margin: 0;
 	}
 	.psh--tabs .psh-seg {
 		flex: 1 1 auto;
@@ -261,18 +277,34 @@
 	.psh--tabs .psh-seg > button {
 		flex: 1 1 0;
 		min-width: 0;
-		height: 36px;
+		height: 44px;
 		padding-inline: 4px;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
-	.psh--tabs .planner-new-primary {
-		width: 40px;
+	.psh--phone .planner-new-primary {
+		width: 44px;
+		height: 44px;
 		padding: 0;
 		justify-content: center;
 	}
-	.psh--tabs .psh-new :global(.w-split__menu) {
-		width: 32px;
+	.psh--phone .psh-new :global(.w-split__menu) {
+		width: 44px;
+		height: 44px;
 	}
-	.psh--tabs :is(.planner-new-primary, .psh-new :global(.w-split__menu)) {
-		height: 40px;
+	.psh :global(.psh-viewmenu.psh-viewmenu--always) {
+		display: inline-flex;
+		gap: 6px;
+		height: 44px;
+		padding-inline: 12px 10px;
+		color: var(--w-text);
+	}
+	.psh-sr {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 </style>

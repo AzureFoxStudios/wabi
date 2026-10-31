@@ -135,6 +135,14 @@
 .planner .day-detail-content .event-time {
 	color: var(--w-faint);
 	font: var(--w-t-mono);
+}
+/* A task row's priority word (the dialog prints the raw value): only High and Urgent earn a word
+   (§7.27), as one capitalised word; Medium and Low say nothing. Everything else keeps the
+   sentence case it was written in ("All day"). */
+.planner .day-detail-content .event-time:is(.priority-medium, .priority-low) {
+	display: none;
+}
+.planner .day-detail-content .event-time:is(.priority-high, .priority-urgent) {
 	text-transform: capitalize;
 }
 .planner .day-detail-content .signature {

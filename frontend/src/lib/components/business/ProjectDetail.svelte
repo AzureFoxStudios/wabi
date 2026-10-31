@@ -2,8 +2,12 @@
 	/**
 	 * My Planner — one project (design contract §8.6). A crumb row ("Projects › A field guide to
 	 * belonging", with the project-tree toggle), the serif title with the project's colour as a dot
-	 * (user data: a dot only), then one tools row: the Overview | Board | Reports segment, the ink
-	 * "New sprint" (always visible), "Add sub-project" and ⋯ (Edit project, Delete project).
+	 * (user data: a dot only), then one tools row: the Overview | Board | Reports segment,
+	 * "Add sub-project", "New sprint" (always visible; a default button, because the masthead's
+	 * New is this view's one ink primary, §7.1) and ⋯ (Edit project, Delete project).
+	 * Every count on the page (the facts line, Overview and the Reports figures) takes the same
+	 * tasks: this project and its sub-projects. Only the burndown is this project's own tasks (the
+	 * store draws it per project), and says so when the project has sub-projects.
 	 *
 	 * - Overview: ProjectOverview (progress, next deadlines, work in progress, sub-projects).
 	 * - Board: this project's tasks by lane, rows that open the task dialog; each lane adds a task
@@ -11,13 +15,15 @@
 	 * - Reports: the sprint line, four quiet figures, the burndown on roles (remaining in
 	 *   --w-accent, done in --w-ok, the ideal dashed in --w-line-strong) or, when no task has a
 	 *   time estimate, a plain sentence instead of a chart of guessed hours; and the Gantt chart.
+	 *   The chart is drawn at the width it is shown at (one user unit is one pixel), so its 11px
+	 *   labels stay 11px on a phone and on a wide stage.
 	 *
 	 * Svelte 4 (`export let`) — matches the business tree.
 	 */
 	import { projects, todos, sprints, visibleKanbanColumns, updateTodo, generateBurnChartData } from '$lib/business/store';
 	import type { Project, Sprint, BurnChartDataPoint, Todo, TodoStatus } from '$lib/business/types';
 	import { projectTasks } from '$lib/business/projectHierarchy';
-	import { dueLabel, laneLabel } from '$lib/business/plannerBoard';
+	import { dueLabel, laneLabel, priorityMark } from '$lib/business/plannerBoard';
 	import { completeTask } from '$lib/business/plannerCalendar';
 	import { hasEstimates, progressWords, projectPath, projectStatus } from '$lib/business/plannerProjects';
 	import { toast } from '$lib/toast';
@@ -58,7 +64,11 @@
 	/** Burn range control: auto (sprint/project) or fixed windows. */
 	let burnRange: 'auto' | '30d' | '90d' = 'auto';
 
-	const chartWidth = 600;
+	/** The chart's width is the width it is shown at (bound below), never scaled text. */
+	const CHART_MAX = 760;
+	const CHART_MIN = 280;
+	let burnFrameWidth = 600;
+	$: chartWidth = Math.round(Math.min(CHART_MAX, Math.max(CHART_MIN, burnFrameWidth || 600)));
 	const chartHeight = 250;
 	const chartPadding = 40;
 	const dateFormat = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -86,9 +96,11 @@
 	$: status = projectStatus(selectedProject.status);
 	$: scopeTasks = projectTasks($projects, $todos, selectedProject.id);
 	$: ownTasks = $todos.filter((t) => t.projectId === selectedProject.id);
-	$: doneCount = ownTasks.filter((t) => t.status === 'done').length;
-	$: progressCount = ownTasks.filter((t) => t.status === 'in_progress').length;
-	$: progress = ownTasks.length ? Math.round((doneCount / ownTasks.length) * 100) : 0;
+	// The same tasks as the facts line and Overview: this project and its sub-projects.
+	$: doneCount = scopeTasks.filter((t) => t.status === 'done').length;
+	$: progressCount = scopeTasks.filter((t) => t.status === 'in_progress').length;
+	$: progress = scopeTasks.length ? Math.round((doneCount / scopeTasks.length) * 100) : 0;
+	$: hasSubprojects = $projects.some((p) => p.parentId === selectedProject.id);
 	$: lanes = $visibleKanbanColumns.map((column) => ({
 		id: column.id as TodoStatus,
 		label: laneLabel(column),
@@ -120,7 +132,7 @@
 		return `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h`;
 	}
 
-	function generateChartPath(data: BurnChartDataPoint[], key: 'remainingPoints' | 'completedPoints'): string {
+	function generateChartPath(data: BurnChartDataPoint[], key: 'remainingPoints' | 'completedPoints', chartWidth: number): string {
 		if (data.length === 0) return '';
 		const maxPoints = Math.max(...data.map((d) => d.totalPoints), 1);
 		const xScale = (chartWidth - chartPadding * 2) / Math.max(data.length - 1, 1);
@@ -134,7 +146,7 @@
 			.join(' ');
 	}
 
-	function generateIdealLine(data: BurnChartDataPoint[]): string {
+	function generateIdealLine(data: BurnChartDataPoint[], chartWidth: number): string {
 		if (data.length === 0) return '';
 		const totalPoints = data[0]?.totalPoints || 0;
 		const maxPoints = Math.max(...data.map((d) => d.totalPoints), 1);
@@ -196,7 +208,7 @@
 		</h2>
 		<p class="pj-facts">
 			<span class="pj-facts__status"><span class="w-dot w-dot--{status.tone}" aria-hidden="true"></span>{status.word}</span>
-			<span>{progressWords({ total: scopeTasks.length, done: scopeTasks.filter((t) => t.status === 'done').length })}</span>
+			<span>{progressWords({ total: scopeTasks.length, done: doneCount })}</span>
 			{#if selectedProject.targetEndDate}<span>Target {formatDate(selectedProject.targetEndDate)}</span>{/if}
 		</p>
 		{#if selectedProject.description}
@@ -210,7 +222,7 @@
 			<button type="button" class="w-btn" on:click={() => onOpenProjectModal(undefined, selectedProject.id)} disabled={isReadOnly} title={isReadOnly ? 'Read-only: sub-projects cannot be added here' : undefined}>
 				<Icon name="plus" size={16} />Add sub-project
 			</button>
-			<button type="button" class="w-btn w-btn--primary" on:click={() => onOpenSprintModal()} disabled={isReadOnly} title={isReadOnly ? 'Read-only: sprints cannot be added here' : undefined}>
+			<button type="button" class="w-btn" on:click={() => onOpenSprintModal()} disabled={isReadOnly} title={isReadOnly ? 'Read-only: sprints cannot be added here' : undefined}>
 				<Icon name="plus" size={16} />New sprint
 			</button>
 			<Menu label="Project actions" triggerLabel="Project actions" class="w-ibtn" align="end" heading={selectedProject.name} items={moreItems}>
@@ -231,6 +243,7 @@
 						<ul class="pj-rows">
 							{#each lane.tasks as task (task.id)}
 								{@const due = dueLabel(task)}
+								{@const mark = task.status === 'done' ? null : priorityMark(task.priority)}
 								<li class="pj-row" class:is-done={task.status === 'done'}>
 									{#if task.status === 'done'}
 										<Icon name="check" size={16} class="pj-row__done" />
@@ -238,7 +251,10 @@
 										<input type="checkbox" class="w-check" aria-label={`Mark “${task.title}” done`} checked={false} disabled={isReadOnly} on:change={() => complete(task)} />
 									{/if}
 									<button type="button" class="pj-row__title" on:click={() => (dialogTodo = task)}>{task.title}</button>
-									{#if due}<span class="pj-row__due" class:is-overdue={due.tone === 'overdue'} title={due.title}>{due.text}</span>{/if}
+									<span class="pj-row__meta">
+										{#if mark}<span class="pj-row__mark"><span class="w-dot w-dot--{mark.tone}" aria-hidden="true"></span>{mark.word}</span>{/if}
+										{#if due}<span class="pj-row__due" class:is-overdue={due.tone === 'overdue'} title={due.title}>{due.text}</span>{/if}
+									</span>
 								</li>
 							{/each}
 						</ul>
@@ -276,7 +292,7 @@
 			</section>
 
 			<dl class="pj-figures">
-				<div class="pj-figure"><dt>Tasks</dt><dd>{ownTasks.length}</dd></div>
+				<div class="pj-figure"><dt>Tasks</dt><dd>{scopeTasks.length}</dd></div>
 				<div class="pj-figure"><dt>Done</dt><dd>{doneCount}</dd></div>
 				<div class="pj-figure"><dt>In progress</dt><dd>{progressCount}</dd></div>
 				<div class="pj-figure">
@@ -317,22 +333,27 @@
 								</p>
 								<Segmented label="Burndown range" options={burnRanges} bind:value={burnRange} />
 							</div>
-							<svg class="pj-burn__chart" viewBox="0 0 {chartWidth} {chartHeight}" preserveAspectRatio="xMidYMid meet" role="img" aria-label={`Burndown: ${formatHours(latestBurnPoint?.remainingPoints)} remaining of ${formatHours(burnChartData[0]?.totalPoints)}`}>
-								<g class="pj-burn__grid">
-									{#each [0, 0.25, 0.5, 0.75, 1] as ratio}
-										{@const y = chartHeight - chartPadding - ratio * (chartHeight - chartPadding * 2)}
-										<line x1={chartPadding} y1={y} x2={chartWidth - chartPadding} y2={y} />
-										<text x={chartPadding - 8} y={y + 4} text-anchor="end">{formatHours(maxScope * ratio)}</text>
-									{/each}
-								</g>
-								<path class="pj-burn__ideal" d={generateIdealLine(burnChartData)} />
-								<path class="pj-burn__remaining" d={generateChartPath(burnChartData, 'remainingPoints')} />
-								<path class="pj-burn__done" d={generateChartPath(burnChartData, 'completedPoints')} />
-								<g class="pj-burn__axis">
-									<text x={chartPadding} y={chartHeight - chartPadding + 20} text-anchor="start">{axisFormat.format(new Date(burnChartData[0].date))}</text>
-									<text x={chartWidth - chartPadding} y={chartHeight - chartPadding + 20} text-anchor="end">{axisFormat.format(new Date(burnChartData[burnChartData.length - 1].date))}</text>
-								</g>
-							</svg>
+							{#if hasSubprojects}
+								<p class="pj-burn__note">Hours of this project’s own tasks; each sub-project has its own burndown.</p>
+							{/if}
+							<div class="pj-burn__frame" bind:clientWidth={burnFrameWidth}>
+								<svg class="pj-burn__chart" width={chartWidth} height={chartHeight} viewBox="0 0 {chartWidth} {chartHeight}" role="img" aria-label={`Burndown: ${formatHours(latestBurnPoint?.remainingPoints)} remaining of ${formatHours(burnChartData[0]?.totalPoints)}`}>
+									<g class="pj-burn__grid">
+										{#each [0, 0.25, 0.5, 0.75, 1] as ratio}
+											{@const y = chartHeight - chartPadding - ratio * (chartHeight - chartPadding * 2)}
+											<line x1={chartPadding} y1={y} x2={chartWidth - chartPadding} y2={y} />
+											<text x={chartPadding - 8} y={y + 4} text-anchor="end">{formatHours(maxScope * ratio)}</text>
+										{/each}
+									</g>
+									<path class="pj-burn__ideal" d={generateIdealLine(burnChartData, chartWidth)} />
+									<path class="pj-burn__remaining" d={generateChartPath(burnChartData, 'remainingPoints', chartWidth)} />
+									<path class="pj-burn__done" d={generateChartPath(burnChartData, 'completedPoints', chartWidth)} />
+									<g class="pj-burn__axis">
+										<text x={chartPadding} y={chartHeight - chartPadding + 20} text-anchor="start">{axisFormat.format(new Date(burnChartData[0].date))}</text>
+										<text x={chartWidth - chartPadding} y={chartHeight - chartPadding + 20} text-anchor="end">{axisFormat.format(new Date(burnChartData[burnChartData.length - 1].date))}</text>
+									</g>
+								</svg>
+							</div>
 							<ul class="pj-legend">
 								<li><span class="pj-legend__key pj-legend__key--remaining" aria-hidden="true"></span>Remaining hours</li>
 								<li><span class="pj-legend__key pj-legend__key--done" aria-hidden="true"></span>Done hours</li>

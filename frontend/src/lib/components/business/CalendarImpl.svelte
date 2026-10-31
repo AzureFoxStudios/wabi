@@ -3,9 +3,16 @@
 	 * My Planner calendar (design contract §8.6). A quiet month grid on the page: mono weekday
 	 * kickers, today as an accent disc, events as tinted pills that never clip (overflow becomes
 	 * "+N more"), tasks with their own checkbox (the title opens the task, it never completes it).
-	 * Day cells are gridcells, not buttons: each has a separate "Add on <date>" button. Below a
-	 * 720px stage the month becomes an agenda list. The side list shows overdue and upcoming
-	 * tasks, and steps aside while the Tasks companion panel is open.
+	 * Titles take up to two lines; how many lines a day shows is measured from the cell's height
+	 * (calendarFit.ts), never a fixed count, and "+N more" sits in the day's head row beside the
+	 * date so the lines keep the cell's height. Day cells are gridcells, not buttons: each has a
+	 * separate "Add on <date>" button, and a click on the day itself (or Enter) opens the day.
+	 * Below a 720px stage the month becomes an agenda list.
+	 *
+	 * The side list (Overdue, Upcoming) sits beside the month only while every day column keeps
+	 * 140px (a container query in calendar-view-part1.css); otherwise, and while a Tasks list is
+	 * on screen, it steps aside and the head says "1 overdue · 7 due this week", each opening the
+	 * Tasks companion on that filter.
 	 *
 	 * Keyboard: the grid is one tab stop; arrows move a day or a week, Home/End to the week's
 	 * ends, PageUp/PageDown by a month, Enter opens the day. Tab moves into the day's controls.
@@ -34,11 +41,12 @@
 	import { occurrencesForRange } from '$lib/business/calendarOccurrences';
 	import { buildCalendarEventData } from '$lib/business/calendarForm';
 	import { dateWords } from '$lib/business/plannerBoard';
-	import { tasksPanelShown } from '$lib/business/plannerTasksPanel';
+	import { openPlannerTasksPanel, tasksListShown } from '$lib/business/plannerTasksPanel';
+	import { fitDayLines } from './calendarFit';
 	import {
 		AGENDA_BELOW,
+		SIDE_LIST_ROWS,
 		agendaDays,
-		cellLines,
 		completeTask,
 		dayKey,
 		eventTint,
@@ -166,8 +174,17 @@
 	$: overdue = overdueOf($todos, now);
 	$: upcoming = upcomingOf($todos, now);
 	$: agendaList = agenda ? agendaDays(currentMonth, eventsByDay, taskMap, now) : [];
-	// The side list steps aside while the Tasks companion shows the same tasks beside the page.
-	$: showAside = !agenda && !$tasksPanelShown;
+	// The side list steps aside while a Tasks list (the companion, or the Planner's in-surface
+	// split) shows the same tasks beside the page; the CSS also hides it when the month is narrow.
+	$: showAside = !agenda && !$tasksListShown;
+	// The head's counts stand in for the side list whenever it is not beside the month.
+	$: showSummary = !$tasksListShown && (overdue.length > 0 || upcoming.length > 0);
+
+	/** Lines behind each day's "+N more", as measured by fitDayLines. */
+	let hiddenByDay: Record<string, number> = {};
+	function onFit(key: string, hidden: number): void {
+		if ((hiddenByDay[key] ?? 0) !== hidden) hiddenByDay = { ...hiddenByDay, [key]: hidden };
+	}
 
 	// The roving day stays inside the month on screen.
 	$: if (activeDay.getMonth() !== currentMonth.getMonth() || activeDay.getFullYear() !== currentMonth.getFullYear()) {
@@ -242,6 +259,13 @@
 	/** A control inside a day (clicked or tabbed to) makes that day the grid's tab stop. */
 	function onCellFocus(day: Date) {
 		if (dayKey(day) !== activeKey) activeDay = day;
+	}
+
+	/** A click on the day itself (not on one of its controls) opens the day, as Enter does. */
+	function onCellClick(event: MouseEvent, day: Date) {
+		const target = event.target as Element | null;
+		if (target?.closest('button, input, label, a')) return;
+		openDayModal(day);
 	}
 
 	// ── tasks ──
@@ -404,18 +428,21 @@
 </script>
 
 {#snippet taskLine(task: Todo, inCell: boolean, active: boolean)}
-	<!-- The checkbox completes (with Undo); the title opens the task. Never one control for both. -->
-	<input
-		type="checkbox"
-		class="w-check cal-task__check"
-		aria-label={`Mark “${task.title}” done`}
-		checked={false}
-		disabled={isReadOnly}
-		tabindex={inCell && !active ? -1 : 0}
-		on:change={() => complete(task)}
-	/>
+	<!-- The checkbox completes (with Undo); the title opens the task. Never one control for both.
+	     The label is the checkbox's hit area (§7.7), kept clear of the title. -->
+	<label class="cal-task__hit">
+		<input
+			type="checkbox"
+			class="w-check cal-task__check"
+			aria-label={`Mark “${task.title}” done`}
+			checked={false}
+			disabled={isReadOnly}
+			tabindex={inCell && !active ? -1 : 0}
+			on:change={() => complete(task)}
+		/>
+	</label>
 	<button type="button" class="cal-task__title" tabindex={inCell && !active ? -1 : 0} on:click={() => openTask(task)}>
-		{task.title}
+		<span class="cal-task__text">{task.title}</span>
 	</button>
 {/snippet}
 
@@ -429,12 +456,13 @@
 		on:click={() => openEditModal(event)}
 	>
 		<span class="cal-pill__dot" aria-hidden="true"></span>
-		{#if !event.allDay}<span class="cal-pill__time">{inCell ? shortTime(event.startDate) : formatTime(event.startDate)}</span>{/if}
-		<span class="cal-pill__title">{event.title}</span>
+		<span class="cal-pill__text">
+			{#if !event.allDay}<span class="cal-pill__time">{inCell ? shortTime(event.startDate) : formatTime(event.startDate)}</span>{' '}{/if}<span class="cal-pill__title">{event.title}</span>
+		</span>
 	</button>
 {/snippet}
 
-<div class="cal" class:cal--embedded={embedded} class:cal--agenda={agenda} bind:clientWidth={width}>
+<div class="cal" class:cal--embedded={embedded} class:cal--agenda={agenda} class:cal--aside={showAside} bind:clientWidth={width}>
 	<header class="cal-head">
 		<div class="cal-steps">
 			<Tooltip text="Previous month">
@@ -445,6 +473,27 @@
 			</Tooltip>
 		</div>
 		<h2 class="cal-title" id={titleId} aria-live="polite">{monthLabel}</h2>
+		{#if showSummary}
+			<!-- Stands in for the side list when it is not beside the month: each count opens the
+			     Tasks companion on that filter (center stage keeps the month). -->
+			<div class="cal-sum" role="group" aria-label="Tasks with a due date">
+				{#if overdue.length > 0}
+					<Tooltip text="Show overdue tasks in the Tasks panel">
+						<button type="button" class="cal-sum__item cal-sum__item--danger" on:click={() => openPlannerTasksPanel('overdue')}>
+							<b>{overdue.length}</b> overdue
+						</button>
+					</Tooltip>
+				{/if}
+				{#if overdue.length > 0 && upcoming.length > 0}<span class="cal-sum__sep" aria-hidden="true">·</span>{/if}
+				{#if upcoming.length > 0}
+					<Tooltip text="Show this week’s tasks in the Tasks panel">
+						<button type="button" class="cal-sum__item" on:click={() => openPlannerTasksPanel('week')}>
+							<b>{upcoming.length}</b> due this week
+						</button>
+					</Tooltip>
+				{/if}
+			</div>
+		{/if}
 		<div class="cal-head__end">
 			<button type="button" class="w-btn w-btn--sm" on:click={goToToday}>Today</button>
 			{#if !embedded}
@@ -511,9 +560,10 @@
 							{@const key = dayKey(day)}
 							{@const dayEvents = eventsOn(day, eventsByDay)}
 							{@const dayTasks = tasksOn(day, taskMap)}
-							{@const lines = cellLines(dayEvents, dayTasks)}
 							{@const active = key === activeKey}
 							{@const isToday = sameDay(day, today)}
+							{@const total = dayEvents.length + dayTasks.length}
+							{@const hidden = total ? Math.min(total, hiddenByDay[key] ?? 0) : 0}
 							<div
 								class="cal-cell"
 								class:is-today={isToday}
@@ -525,9 +575,26 @@
 								aria-current={isToday ? 'date' : undefined}
 								on:keydown={(event) => onCellKey(event, day)}
 								on:focusin={() => onCellFocus(day)}
+								on:click={(event) => onCellClick(event, day)}
 							>
 								<div class="cal-cell__head">
 									<span class="cal-date" aria-hidden="true">{day.getDate()}</span>
+									{#if hidden > 0}
+										<!-- In the head row beside the date, so the lines below keep the cell's
+										     height for titles. Narrow days drop the word ("+4"); the name and
+										     the tooltip say it in full. -->
+										<Tooltip text={`Show all ${total} items`}>
+											<button
+												type="button"
+												class="cal-more"
+												tabindex={active ? 0 : -1}
+												aria-label={`${hidden} more: show all ${total} items on ${dayMonthFormat.format(day)}`}
+												on:click={() => openDayModal(day)}
+											>
+												<span>+{hidden}</span><span class="cal-more__word">more</span>
+											</button>
+										</Tooltip>
+									{/if}
 									{#if !isReadOnly}
 										<Tooltip text={`Add on ${dayMonthFormat.format(day)}`}>
 											<button
@@ -542,27 +609,16 @@
 										</Tooltip>
 									{/if}
 								</div>
-								{#if lines.events.length || lines.tasks.length || lines.hidden}
-									<ul class="cal-lines">
-										{#each lines.events as event (`${event.id}-${event.startDate}`)}
-											<li>{@render eventPill(event, true, active)}</li>
+								{#if dayEvents.length || dayTasks.length}
+									<!-- Every line is here; fitDayLines hides what does not fit and counts it
+									     for the head's "+N more". -->
+									<ul class="cal-lines" use:fitDayLines={{ key, onfit: onFit }}>
+										{#each dayEvents as event (`${event.id}-${event.startDate}`)}
+											<li data-fit-item>{@render eventPill(event, true, active)}</li>
 										{/each}
-										{#each lines.tasks as task (task.id)}
-											<li class="cal-task">{@render taskLine(task, true, active)}</li>
+										{#each dayTasks as task (task.id)}
+											<li class="cal-task" data-fit-item>{@render taskLine(task, true, active)}</li>
 										{/each}
-										{#if lines.hidden > 0}
-											<li>
-												<button
-													type="button"
-													class="cal-more"
-													tabindex={active ? 0 : -1}
-													aria-label={`Show all ${dayEvents.length + dayTasks.length} items on ${dayMonthFormat.format(day)}`}
-													on:click={() => openDayModal(day)}
-												>
-													+{lines.hidden} more
-												</button>
-											</li>
-										{/if}
 									</ul>
 								{/if}
 							</div>
@@ -580,15 +636,17 @@
 							Overdue <span class="cal-aside__count">{overdue.length}</span>
 						</h3>
 						<ul class="cal-aside__list">
-							{#each overdue.slice(0, 5) as task (task.id)}
+							{#each overdue.slice(0, SIDE_LIST_ROWS) as task (task.id)}
 								<li class="cal-aside__row cal-task">
 									{@render taskLine(task, false, true)}
 									<span class="cal-aside__date is-overdue">{dateWords(task.dueDate ?? now, now)}</span>
 								</li>
 							{/each}
 						</ul>
-						{#if overdue.length > 5}
-							<p class="cal-aside__more">and {overdue.length - 5} more overdue</p>
+						{#if overdue.length > SIDE_LIST_ROWS}
+							<button type="button" class="cal-aside__more" on:click={() => openPlannerTasksPanel('overdue')}>
+								and {overdue.length - SIDE_LIST_ROWS} more overdue
+							</button>
 						{/if}
 					</section>
 				{/if}
@@ -600,13 +658,18 @@
 						<p class="cal-aside__empty">Nothing due in the next seven days.</p>
 					{:else}
 						<ul class="cal-aside__list">
-							{#each upcoming as task (task.id)}
+							{#each upcoming.slice(0, SIDE_LIST_ROWS) as task (task.id)}
 								<li class="cal-aside__row cal-task">
 									{@render taskLine(task, false, true)}
 									<span class="cal-aside__date">{dateWords(task.dueDate ?? now, now)}</span>
 								</li>
 							{/each}
 						</ul>
+						{#if upcoming.length > SIDE_LIST_ROWS}
+							<button type="button" class="cal-aside__more" on:click={() => openPlannerTasksPanel('week')}>
+								and {upcoming.length - SIDE_LIST_ROWS} more this week
+							</button>
+						{/if}
 					{/if}
 				</section>
 			</aside>

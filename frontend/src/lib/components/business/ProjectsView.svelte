@@ -2,6 +2,8 @@
 	import { plannerActor as currentUser } from '$lib/business/personalWorkspace';
 	import {
 		projects,
+		todos,
+		sprints,
 		addProject,
 		updateProject,
 		deleteProject,
@@ -10,6 +12,7 @@
 		deleteSprint
 	} from '$lib/business/store';
 	import type { Project, Sprint } from '$lib/business/types';
+	import { deleteProjectWords } from '$lib/business/plannerProjects';
 	import { onMount } from 'svelte';
 	import { confirmAction } from '$lib/confirm';
 	import ProjectDetail from './ProjectDetail.svelte';
@@ -161,7 +164,7 @@
 	async function handleDeleteProject(project: Project) {
 		const confirmed = await confirmAction({
 			title: 'Delete this project?',
-			body: `“${project.name}” and all its tasks will be removed from your Planner.`,
+			body: deleteProjectWords($projects, $todos, $sprints, project),
 			confirm: 'Delete project',
 			danger: true
 		});

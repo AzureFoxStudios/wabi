@@ -5,14 +5,24 @@
  * are tested without a browser.
  */
 import type { CalendarEvent, Todo } from './types';
+import { calendarDay, daysFromToday, isClosedStatus } from './plannerBoard';
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** How many lines a day cell shows before the rest becomes "+N more" (§8.6: never clipped). */
-export const CELL_LINES = 3;
-
 /** Below this stage width the month grid becomes an agenda list (§8.6). */
 export const AGENDA_BELOW = 720;
+
+/**
+ * The narrowest day column the month keeps beside the Overdue / Upcoming list. Below it the list
+ * steps aside (the head's "1 overdue · 7 due this week" opens the same tasks in the Tasks
+ * companion) so titles keep their words instead of shrinking to a few letters.
+ */
+export const MIN_DAY_COLUMN = 140;
+/** The side list's width and the gap before it (calendar-view-part1.css). */
+export const ASIDE_WIDTH = 248;
+export const ASIDE_GAP = 28;
+/** The calendar width (inside its gutters) from which the side list sits beside the month. */
+export const ASIDE_BESIDE_FROM = 7 * MIN_DAY_COLUMN + ASIDE_GAP + ASIDE_WIDTH;
 
 export function startOfDay(at: number | Date): Date {
 	const d = new Date(at);
@@ -52,24 +62,23 @@ export function monthWeeks(month: Date, weekStartsOn = 0): Date[][] {
 	return weeks;
 }
 
-export interface CellLines<E, T> {
-	events: E[];
-	tasks: T[];
-	/** Items behind the "+N more" button (0 when everything fits). */
-	hidden: number;
-}
-
 /**
- * What a day cell shows: everything when it fits in `lines`, otherwise one line fewer plus a
- * "+N more" line, so a cell never grows and never clips a label. Events come before tasks.
+ * How many of a day's lines fit in its cell (§8.6: never clipped; overflow is "+N more").
+ * `bottoms` are the bottom edges of every line laid out in order, measured from the top of the
+ * cell's list; `room` is the list's height. Everything shows when the last line fits. Otherwise
+ * the cell keeps as many whole lines as leave room for a "+N more" line of `moreHeight` after
+ * them (which may be none, in a very short cell). The calendar puts "+N more" in the day's head
+ * row and passes 0, so the list spends all its height on titles. Lines may be one or two text
+ * lines tall, so the cap comes from the cell's height, never a fixed count.
  */
-export function cellLines<E, T>(events: readonly E[], tasks: readonly T[], lines = CELL_LINES): CellLines<E, T> {
-	const total = events.length + tasks.length;
-	if (total <= lines) return { events: [...events], tasks: [...tasks], hidden: 0 };
-	const room = Math.max(0, lines - 1);
-	const shownEvents = events.slice(0, room);
-	const shownTasks = tasks.slice(0, Math.max(0, room - shownEvents.length));
-	return { events: shownEvents, tasks: shownTasks, hidden: total - shownEvents.length - shownTasks.length };
+export function fitCount(bottoms: readonly number[], room: number, moreHeight: number, gap: number, slack = 0.5): number {
+	const total = bottoms.length;
+	if (total === 0) return 0;
+	if (bottoms[total - 1] <= room + slack) return total;
+	for (let shown = total - 1; shown > 0; shown--) {
+		if (bottoms[shown - 1] + gap + moreHeight <= room + slack) return shown;
+	}
+	return 0;
 }
 
 export type GridKey = 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown' | 'Home' | 'End' | 'PageUp' | 'PageDown';
@@ -116,9 +125,23 @@ export function moveDay(from: Date, key: GridKey, weekStartsOn = 0): Date {
 	}
 }
 
-/** Open, dated tasks a calendar shows: not finished, archived or parked. */
+/**
+ * Open tasks: not done, archived or parked. Parked ("Get to later", status `scrapped`) is closed
+ * work like the board treats it (plannerBoard.isClosedStatus): the board's "N overdue" and
+ * "N due this week" counts leave it out, so the calendar, its side list and the Tasks companion
+ * do too, rather than nag about a date the person put off on purpose.
+ */
 export function isOpenTask(todo: Pick<Todo, 'status'>): boolean {
-	return todo.status !== 'done' && todo.status !== 'archived' && todo.status !== 'scrapped';
+	return !isClosedStatus(todo.status);
+}
+
+/**
+ * The local day a task's due date names. The task dialog saves a chosen day as UTC midnight;
+ * plannerBoard.calendarDay reads that as the date it was saved as, so the calendar puts a task
+ * on the same day the board's card names (never the evening before, west of UTC).
+ */
+export function dueDay(dueDate: number): Date {
+	return new Date(calendarDay(dueDate));
 }
 
 /** Open tasks by the day they are due, earliest first within a day. */
@@ -126,7 +149,7 @@ export function tasksByDay(todos: readonly Todo[]): Map<string, Todo[]> {
 	const map = new Map<string, Todo[]>();
 	for (const todo of todos) {
 		if (!todo.dueDate || !isOpenTask(todo)) continue;
-		const key = dayKey(new Date(todo.dueDate));
+		const key = dayKey(dueDay(todo.dueDate));
 		const list = map.get(key);
 		if (list) list.push(todo);
 		else map.set(key, [todo]);
@@ -135,23 +158,29 @@ export function tasksByDay(todos: readonly Todo[]): Map<string, Todo[]> {
 	return map;
 }
 
-/** Open tasks due before today, oldest first. */
+/** Open tasks due before today, oldest first (a task is never overdue on its own due day). */
 export function overdueTasks(todos: readonly Todo[], now = Date.now()): Todo[] {
-	const today = startOfDay(now).getTime();
 	return todos
-		.filter((t) => t.dueDate !== undefined && isOpenTask(t) && t.dueDate < today)
+		.filter((t) => t.dueDate !== undefined && isOpenTask(t) && daysFromToday(t.dueDate, now) < 0)
 		.sort((a, b) => (a.dueDate ?? 0) - (b.dueDate ?? 0));
 }
 
-/** Open tasks due from today through the next 6 days, soonest first. */
-export function upcomingTasks(todos: readonly Todo[], now = Date.now(), limit = 8): Todo[] {
-	const today = startOfDay(now).getTime();
-	const end = today + 7 * DAY_MS;
+/**
+ * Open tasks due from today through the next 6 days, soonest first: the same window as the
+ * board's "due this week". All of them (the side list shows the first few and says how many more).
+ */
+export function upcomingTasks(todos: readonly Todo[], now = Date.now()): Todo[] {
 	return todos
-		.filter((t) => t.dueDate !== undefined && isOpenTask(t) && t.dueDate >= today && t.dueDate < end)
-		.sort((a, b) => (a.dueDate ?? 0) - (b.dueDate ?? 0))
-		.slice(0, limit);
+		.filter((t) => {
+			if (t.dueDate === undefined || !isOpenTask(t)) return false;
+			const days = daysFromToday(t.dueDate, now);
+			return days >= 0 && days < 7;
+		})
+		.sort((a, b) => (a.dueDate ?? 0) - (b.dueDate ?? 0));
 }
+
+/** How many tasks each side-list group shows before "and N more". */
+export const SIDE_LIST_ROWS = 6;
 
 export interface AgendaDay<E, T> {
 	date: Date;
@@ -198,8 +227,11 @@ export function completeTask(todo: Pick<Todo, 'status' | 'completedAt'>, now = D
 	};
 }
 
-/** The event colour as user data (§5.5): a tint and a dot only; no colour falls back to the accent role. */
+/**
+ * The event colour as user data (§5.5): a tint and a dot only. An event without a usable colour
+ * is neutral (--w-line-strong), never the accent: the accent means state, not decoration (§5.1).
+ */
 export function eventTint(event: Pick<CalendarEvent, 'color'>): string {
 	const color = (event.color ?? '').trim();
-	return /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(color) ? color : 'var(--w-accent)';
+	return /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(color) ? color : 'var(--w-line-strong)';
 }

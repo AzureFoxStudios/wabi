@@ -4,10 +4,14 @@
 
    A quiet month on the page: hairline rules between days (no box, no bands), mono weekday
    kickers, today as a 24px accent disc. Events are pills tinted with the person's colour (18%
-   into --w-raise, a 6px dot, --w-text label, ellipsis, never clipped: overflow is "+N more").
-   Tasks carry their own checkbox; the title is a separate button that opens the task.
-   The side list (Overdue, Upcoming) sits in a 264px column; below a 720px stage the month is
-   an agenda list (CalendarImpl measures its width).
+   into --w-raise, a 6px dot, --w-text label). Titles take up to two lines, then an ellipsis;
+   a day shows as many whole lines as its cell holds (calendarFit.ts measures it) and the rest
+   is "+N more" in the day's head row beside the date, never clipped. Tasks carry their own checkbox; the title is a separate button
+   that opens the task. A click on the day itself opens the day.
+   The side list (Overdue, Upcoming) sits in a 248px column only while every day column keeps
+   140px (the planner-cal container is 1256px or wider: 7 × 140 + 28 + 248, plannerCalendar.ts
+   ASIDE_BESIDE_FROM); otherwise the head's "1 overdue · 7 due this week" stands in for it.
+   Below a 720px stage the month is an agenda list (CalendarImpl measures its width).
    ========================================================================== */
 
 .planner .cal {
@@ -19,14 +23,16 @@
 	padding: 0 var(--w-gutter) 24px;
 	color: var(--w-text);
 	font: var(--w-t-ui);
+	container: planner-cal / inline-size;
 }
 
 /* ---------- head row (52, no band): ‹ › · month · Today ---------- */
 .planner .cal-head {
 	flex: none;
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
-	gap: 12px;
+	gap: 4px 12px;
 	box-sizing: border-box;
 	min-height: 52px;
 	padding: 10px 0;
@@ -55,6 +61,56 @@
 	margin-left: auto;
 }
 
+/* "1 overdue · 7 due this week": mono counts like the board's summary; each opens the Tasks
+   companion on that filter. Shown while the side list is not beside the month. */
+.planner .cal-sum {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	min-width: 0;
+}
+.planner .cal-sum__sep {
+	flex: none;
+	color: var(--w-faint);
+	font: var(--w-t-mono);
+}
+.planner .cal-sum__item {
+	flex: none;
+	display: inline-flex;
+	align-items: baseline;
+	gap: 0.5ch;
+	box-sizing: border-box;
+	height: 28px;
+	margin: 0;
+	padding: 0 8px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-mono);
+	font-variant-numeric: tabular-nums;
+	line-height: 28px;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease), color var(--w-dur-1) var(--w-ease);
+}
+.planner .cal-sum__item b {
+	color: var(--w-text);
+	font-weight: 500;
+}
+.planner .cal-sum__item:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+	color: var(--w-text);
+}
+.planner .cal-sum__item--danger,
+.planner .cal-sum__item--danger b {
+	color: var(--w-danger);
+}
+.planner .cal-sum__item:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+
 /* ---------- body: the month and the side list ---------- */
 .planner .cal-body {
 	flex: 1 1 auto;
@@ -63,9 +119,6 @@
 	align-items: start;
 	gap: 28px;
 	min-width: 0;
-}
-.planner .cal-body--aside {
-	grid-template-columns: minmax(0, 1fr) 248px;
 }
 
 /* ---------- the month grid: rules, not boxes ---------- */
@@ -108,8 +161,12 @@
 	box-sizing: border-box;
 	min-width: 0;
 	min-height: calc(104px * var(--w-fs));
-	padding: 6px 6px 8px;
+	padding: 6px;
 	outline: none;
+	/* A click on the day itself opens it (its controls keep their own cursor and action). */
+	cursor: pointer;
+	/* Each day is a container so a narrow day can shorten "+4 more" to "+4" (below). */
+	container: cal-day / inline-size;
 }
 .planner .cal-cell + .cal-cell {
 	border-left: var(--w-bw) solid var(--w-line);
@@ -119,14 +176,18 @@
 	outline-offset: -2px;
 }
 
+/* The date at the start; "+N more" and the add button at the end (the add button's own box
+   spaces them). */
 .planner .cal-cell__head {
+	flex: none;
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	gap: 4px;
+	min-width: 0;
 	height: 24px;
 }
 .planner .cal-date {
+	flex: none;
+	margin-right: auto;
 	display: inline-flex;
 	align-items: center;
 	box-sizing: border-box;
@@ -151,10 +212,11 @@
 	color: var(--w-on-accent);
 }
 
-/* "Add on <date>": revealed on hover and focus; always there for touch. */
+/* "Add on <date>": the kit's 28px icon button, revealed on hover and focus. It overhangs the
+   24px date row by 2px instead of growing it, so the lines keep that room. On touch the day
+   itself opens (its dialog has Add event), so the cells keep their room for lines. */
 .planner .cal-add.w-ibtn {
-	width: 24px;
-	height: 24px;
+	margin: -2px -2px -2px 0;
 	opacity: 0;
 	transition: opacity var(--w-dur-1) var(--w-ease), background-color var(--w-dur-1) var(--w-ease);
 }
@@ -163,31 +225,43 @@
 	opacity: 1;
 }
 
+/* The lines take the cell's free height and never size the row: calendarFit measures what fits
+   in it and hides the rest (data-fit-hidden), so a row never grows and a label never clips. */
 .planner .cal-lines {
+	flex: 1 1 0;
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
 	min-width: 0;
+	min-height: 0;
 	margin: 0;
 	padding: 0;
 	list-style: none;
+	contain: size;
 }
+/* Each line is exactly as tall as its pill, task or "+N more" (no inline line box around it),
+   so what calendarFit measures is what the cell holds. */
 .planner .cal-lines > li {
+	flex: none;
+	display: flex;
 	min-width: 0;
+}
+.planner .cal-lines > [data-fit-hidden] {
+	display: none;
 }
 
 /* ---------- event pill: the person's colour as a tint and a dot, text on --w-text ---------- */
 .planner .cal-pill {
-	--pill: var(--w-accent);
+	--pill: var(--w-line-strong);
 	display: flex;
-	align-items: center;
+	align-items: flex-start;
 	gap: 6px;
 	box-sizing: border-box;
 	width: 100%;
 	min-width: 0;
-	height: calc(22px * var(--w-fs));
+	min-height: calc(22px * var(--w-fs));
 	margin: 0;
-	padding: 0 6px;
+	padding: 3px 6px;
 	border: 0;
 	border-radius: var(--radius-sm);
 	background: color-mix(in srgb, var(--pill) 18%, var(--w-raise));
@@ -208,39 +282,54 @@
 	flex: none;
 	width: 6px;
 	height: 6px;
+	/* Centred on the first 16px text line. */
+	margin-top: calc((16px * var(--w-fs) - 6px) / 2);
 	border-radius: var(--w-pill);
 	background: var(--pill);
 }
+/* The time leads the first line and the title flows after it: two lines, then an ellipsis. */
+.planner .cal-pill__text {
+	flex: 1 1 auto;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	min-width: 0;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+	text-overflow: ellipsis;
+}
 .planner .cal-pill__time {
-	flex: none;
 	color: var(--w-mute);
 	font: var(--w-t-micro);
 	font-feature-settings: 'tnum';
 }
 .planner .cal-pill__title {
 	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
 }
 
 /* ---------- task line: checkbox completes, title opens ---------- */
 .planner .cal-task {
 	display: flex;
-	align-items: center;
-	gap: 6px;
+	align-items: flex-start;
+	gap: 4px;
 	box-sizing: border-box;
 	min-width: 0;
-	height: calc(22px * var(--w-fs));
-	padding: 0 6px;
+	min-height: calc(22px * var(--w-fs));
+	padding: 3px 6px 3px 0;
 }
-.planner .cal-task__check.w-check {
-	width: 14px;
-	height: 14px;
-}
-.planner .cal-task__check.w-check::before {
-	width: 10px;
-	height: 10px;
+/* The checkbox's hit area (§7.7): the label spans the line's full height and stops short of
+   the title, so a press beside the box never opens or completes the wrong thing. */
+.planner .cal-task__hit {
+	flex: none;
+	display: flex;
+	justify-content: center;
+	align-self: stretch;
+	box-sizing: border-box;
+	width: 24px;
+	margin: -3px 0;
+	padding-top: calc(3px + (16px * var(--w-fs) - 16px) / 2);
+	cursor: pointer;
 }
 .planner .cal-task__title {
 	flex: 1 1 auto;
@@ -253,12 +342,19 @@
 	color: var(--w-text);
 	font: 400 calc(12px * var(--w-fs)) / calc(16px * var(--w-fs)) var(--w-sans);
 	text-align: start;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
 	cursor: pointer;
 }
-.planner .cal-task__title:hover {
+/* Two lines, then an ellipsis. */
+.planner .cal-task__text {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+	text-overflow: ellipsis;
+}
+.planner .cal-task__title:hover .cal-task__text {
 	text-decoration: underline;
 	text-decoration-color: color-mix(in srgb, var(--w-text) 45%, transparent);
 	text-underline-offset: 2px;
@@ -269,17 +365,25 @@
 }
 
 /* "+N more" opens the day; a word, not a chip. */
+/* "+4 more": in the day's head row beside the date (the lines below keep the cell's height for
+   titles). Mono, like every count; it opens the day. */
 .planner .cal-more {
+	flex: none;
 	display: inline-flex;
 	align-items: center;
+	box-sizing: border-box;
+	gap: 0.6ch;
+	/* Holds one line of --w-t-micro at every text size. */
 	height: calc(20px * var(--w-fs));
-	margin: 0;
-	padding: 0 6px;
+	margin: 0 0 0 4px;
+	padding: 0 4px;
 	border: 0;
 	border-radius: var(--radius-sm);
 	background: transparent;
 	color: var(--w-mute);
 	font: var(--w-t-micro);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
 	cursor: pointer;
 	transition: background-color var(--w-dur-1) var(--w-ease), color var(--w-dur-1) var(--w-ease);
 }
@@ -293,8 +397,9 @@
 }
 
 /* ---------- side list: Overdue, Upcoming ---------- */
+/* Beside the month only in a wide calendar (the planner-cal container query below). */
 .planner .cal-aside {
-	display: flex;
+	display: none;
 	flex-direction: column;
 	gap: 28px;
 	min-width: 0;
@@ -325,30 +430,16 @@
 	list-style: none;
 }
 .planner .cal-aside__row.cal-task {
-	align-items: flex-start;
-	gap: 10px;
-	height: auto;
+	gap: 6px;
 	min-height: 40px;
 	padding: 11px 0 9px;
 }
-.planner .cal-aside__row .cal-task__check.w-check {
-	margin-top: 1px;
-}
-.planner .cal-aside__row .cal-task__check.w-check {
-	width: 16px;
-	height: 16px;
-}
-.planner .cal-aside__row .cal-task__check.w-check::before {
-	width: 12px;
-	height: 12px;
+.planner .cal-aside__row .cal-task__hit {
+	width: 28px;
+	margin: -11px 0 -9px -6px;
+	padding-top: calc(11px + 1px);
 }
 .planner .cal-aside__row .cal-task__title {
-	display: -webkit-box;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 2;
-	line-clamp: 2;
-	white-space: normal;
-	overflow-wrap: anywhere;
 	font: var(--w-t-small);
 }
 .planner .cal-aside__date {
@@ -361,11 +452,33 @@
 .planner .cal-aside__date.is-overdue {
 	color: var(--w-danger);
 }
-.planner .cal-aside__more,
 .planner .cal-aside__empty {
 	margin: 8px 0 0;
 	color: var(--w-mute);
 	font: var(--w-t-small);
+}
+/* "and 3 more overdue": opens the rest in the Tasks companion. */
+.planner .cal-aside__more {
+	display: inline-flex;
+	align-items: center;
+	min-height: 32px;
+	margin: 4px 0 0 -8px;
+	padding: 0 8px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease), color var(--w-dur-1) var(--w-ease);
+}
+.planner .cal-aside__more:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+	color: var(--w-text);
+}
+.planner .cal-aside__more:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
 }
 
 /* ---------- agenda (stage under 720px) ---------- */
@@ -405,22 +518,26 @@
 	min-height: 44px;
 }
 .planner .cal-agenda__row .cal-pill {
-	height: 36px;
-	padding: 0 10px;
+	align-items: center;
+	min-height: 36px;
+	padding: 8px 10px;
 	font: var(--w-t-label);
 }
+.planner .cal-agenda__row .cal-pill__dot {
+	margin-top: 0;
+}
 .planner .cal-agenda__row.cal-task {
-	gap: 12px;
-	height: 44px;
-	padding: 0 10px;
+	align-items: center;
+	gap: 8px;
+	min-height: 44px;
+	padding: 4px 10px 4px 0;
 }
-.planner .cal-agenda__row .cal-task__check.w-check {
-	width: 16px;
-	height: 16px;
-}
-.planner .cal-agenda__row .cal-task__check.w-check::before {
-	width: 12px;
-	height: 12px;
+.planner .cal-agenda__row .cal-task__hit {
+	align-items: center;
+	width: 36px;
+	min-height: 44px;
+	margin: -4px 0;
+	padding-top: 0;
 }
 .planner .cal-agenda__row .cal-task__title {
 	font: var(--w-t-ui);
@@ -435,34 +552,69 @@
 }
 
 /* ---------- widths, touch, High Contrast ---------- */
-@container stage (max-width: 1000px) {
+/* Wide enough for seven 140px days and the side list (ASIDE_BESIDE_FROM): the list sits beside
+   the month and the head's counts give way to it. Narrower, the days keep the width. */
+@container planner-cal (min-width: 1256px) {
 	.planner .cal-body--aside {
-		grid-template-columns: minmax(0, 1fr) 216px;
-		gap: 24px;
+		grid-template-columns: minmax(0, 1fr) 248px;
+	}
+	.planner .cal-body--aside .cal-aside {
+		display: flex;
+	}
+	.planner .cal--aside .cal-sum {
+		display: none;
 	}
 }
-@container stage (max-width: 880px) {
-	/* The side list moves under the month rather than squeezing seven columns. */
-	.planner .cal-body--aside {
-		grid-template-columns: minmax(0, 1fr);
+/* A narrow day (the date, "+12 more" and the add button need about 8.25em of the cell's 14px
+   text): "+4" alone. Its name and tooltip still say "4 more: show all 6 items". */
+@container cal-day (max-width: 8.25em) {
+	.planner .cal-more__word {
+		display: none;
 	}
-	.planner .cal-aside {
-		flex-direction: row;
-		flex-wrap: wrap;
-	}
-	.planner .cal-aside__group {
-		flex: 1 1 240px;
-		min-width: 0;
+}
+/* A narrow calendar: the counts take their own line under the month name. */
+@container planner-cal (max-width: 560px) {
+	.planner .cal-sum {
+		order: 3;
+		flex: 1 0 100%;
+		margin-left: -8px;
 	}
 }
 
+/* Touch (§10): every target 44px. A tap on the day opens it (with Add event), so the cells drop
+   the per-day add button instead of spending a 44px row on it; lines and the checkbox's hit
+   area grow to 44. */
 @media (pointer: coarse) {
 	.planner .cal-add.w-ibtn {
-		opacity: 1;
+		display: none;
 	}
-	.planner .cal-pill,
+	.planner .cal-pill {
+		align-items: center;
+		min-height: 44px;
+	}
+	.planner .cal-pill__dot {
+		margin-top: 0;
+	}
 	.planner .cal-task {
-		height: 28px;
+		align-items: center;
+		min-height: 44px;
+		padding-block: 0;
+	}
+	.planner .cal-task__hit {
+		align-items: center;
+		width: 36px;
+		min-height: 44px;
+		margin: 0 0 0 -6px;
+		padding-top: 0;
+	}
+	.planner .cal-sum__item,
+	.planner .cal-aside__more {
+		min-height: 44px;
+	}
+	/* "+N more" opens the day, as a tap anywhere on the day does: the tap goes to the whole cell
+	   (far larger than 44px) instead of the 20px word. Keyboard and assistive tech keep it. */
+	.planner .cal-more {
+		pointer-events: none;
 	}
 }
 

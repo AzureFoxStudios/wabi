@@ -7,11 +7,12 @@
  * The filter lives here so a caller (the board's "1 overdue" summary, the palette) can open the
  * panel already showing what it asked for.
  */
-import { derived, writable, type Readable } from 'svelte/store';
-import { openRightPanel } from '$lib/layoutStoreRightPanel';
-import { activeRightTab, dockStack, rightPanelMode } from '$lib/layoutStoreStates';
+import { derived, get, writable, type Readable } from 'svelte/store';
+import { dockCanPin, endPeek, openRightPanel, peekHeld, unpinOne } from '$lib/layoutStoreRightPanel';
+import { activeRightTab, dockStack, isMobile, pinnedPanelId, rightPanelMode } from '$lib/layoutStoreStates';
 import type { Todo } from './types';
-import { isOpenTask, startOfDay, DAY_MS } from './plannerCalendar';
+import { isOpenTask } from './plannerCalendar';
+import { daysFromToday } from './plannerBoard';
 
 export const TASKS_PANEL_ID = 'planner-tasks';
 
@@ -35,30 +36,104 @@ export function openPlannerTasksPanel(show: TasksFilter = 'all'): void {
 	openRightPanel(TASKS_PANEL_ID);
 }
 
-/** True while the Tasks companion is on screen (displayed, or pinned in the dock stack). */
+export interface CompanionState {
+	mode: 'none' | 'peek' | 'pinned' | string;
+	/** The panel the companion displays (a hover peek moves it too). */
+	tab: string;
+	/** Everything pinned in the dock (empty for a single legacy pin, which `pinned` names). */
+	stack: readonly string[];
+	pinned: string | null;
+	/** The stage keeps 600px beside a pin (layoutStoreRightPanel.dockCanPin). */
+	canPin: boolean;
+	mobile: boolean;
+	/** A peek opened on purpose (click, tap, Enter), not a hover. */
+	held: boolean;
+}
+
+/**
+ * Whether a panel is really on screen and stays there: pinned in flow (not a stowed pin, which
+ * keeps its place but is off screen while the stage has no room), or a held peek. A hover peek
+ * is a glance that retracts on pointer leave, so it does not count: center stage must not
+ * reflow because the pointer crossed a stub.
+ */
+export function panelOnScreen(state: CompanionState, panelId: string): boolean {
+	if (state.mode === 'none') return false;
+	if (state.held && state.tab === panelId) return true;
+	if (state.mode !== 'pinned' || !(state.canPin || state.mobile)) return false;
+	const pins = state.stack.length > 0 ? state.stack : state.pinned ? [state.pinned] : [];
+	return pins.includes(panelId);
+}
+
+/** True while the Tasks companion is on screen (pinned in flow or a held peek; see panelOnScreen). */
 export const tasksPanelShown: Readable<boolean> = derived(
-	[rightPanelMode, activeRightTab, dockStack],
-	([$mode, $tab, $stack]) => $mode !== 'none' && ($tab === TASKS_PANEL_ID || ($mode === 'pinned' && $stack.includes(TASKS_PANEL_ID)))
+	[rightPanelMode, activeRightTab, dockStack, pinnedPanelId, dockCanPin, isMobile, peekHeld],
+	([$mode, $tab, $stack, $pinned, $canPin, $mobile, $held]) =>
+		panelOnScreen({ mode: $mode, tab: $tab, stack: $stack, pinned: $pinned, canPin: $canPin, mobile: $mobile, held: $held }, TASKS_PANEL_ID)
+);
+
+/**
+ * Put the Tasks companion away: a held peek of it ends (a stowed pin under it stays), a pin of it
+ * is unpinned and the other pins keep their place. Nothing else on the rail changes.
+ */
+export function closePlannerTasksPanel(): void {
+	if (get(peekHeld) && get(activeRightTab) === TASKS_PANEL_ID) {
+		endPeek();
+		return;
+	}
+	unpinOne(TASKS_PANEL_ID);
+}
+
+/**
+ * The Planner's "Tasks panel" switch (a menuitemcheckbox whose checked state is
+ * `$tasksPanelShown`): open the companion on `show`, or put it away when it is on screen.
+ */
+export function togglePlannerTasksPanel(show: TasksFilter = 'all'): void {
+	if (get(tasksPanelShown)) closePlannerTasksPanel();
+	else openPlannerTasksPanel(show);
+}
+
+/**
+ * Tasks lists drawn inside a surface rather than in the companion frame (the Planner's older
+ * in-surface split still mounts TaskPanel). Each one registers while mounted so the Calendar's
+ * side list steps aside for it too, instead of showing the same tasks twice side by side.
+ */
+const inSurfaceLists = writable(0);
+
+/** Register an in-surface Tasks list; returns the call that removes it. */
+export function registerInSurfaceTasksList(): () => void {
+	inSurfaceLists.update((count) => count + 1);
+	let done = false;
+	return () => {
+		if (done) return;
+		done = true;
+		inSurfaceLists.update((count) => Math.max(0, count - 1));
+	};
+}
+
+/** True while any Tasks list is on screen: the companion, or an in-surface list. */
+export const tasksListShown: Readable<boolean> = derived(
+	[tasksPanelShown, inSurfaceLists],
+	([$panel, $lists]) => $panel || $lists > 0
 );
 
 const PRIORITY_ORDER: Record<Todo['priority'], number> = { urgent: 0, high: 1, medium: 2, low: 3 };
 
 /** Open tasks for one filter, urgent first, then by due date (undated last). */
 export function filterTasks(todos: readonly Todo[], show: TasksFilter, now = Date.now()): Todo[] {
-	const today = startOfDay(now).getTime();
-	const tomorrow = today + DAY_MS;
-	const weekEnd = today + 7 * DAY_MS;
 	return todos
 		.filter((todo) => {
 			if (!isOpenTask(todo)) return false;
-			const due = todo.dueDate;
+			if (show === 'all') return true;
+			if (todo.dueDate === undefined) return false;
+			// Calendar days, read the way the board reads them (plannerBoard.daysFromToday).
+			const days = daysFromToday(todo.dueDate, now);
 			switch (show) {
 				case 'today':
-					return due !== undefined && due >= today && due < tomorrow;
+					return days === 0;
 				case 'overdue':
-					return due !== undefined && due < today;
+					return days < 0;
 				case 'week':
-					return due !== undefined && due >= today && due < weekEnd;
+					return days >= 0 && days < 7;
 				default:
 					return true;
 			}

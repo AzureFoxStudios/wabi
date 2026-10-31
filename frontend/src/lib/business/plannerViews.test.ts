@@ -3,23 +3,54 @@
  * lists; the Tasks companion's filters; the project card words. Pure functions, no browser.
  */
 import { describe, expect, test } from 'bun:test';
-import type { Project, Todo } from './types';
+import { get } from 'svelte/store';
+import type { Project, Todo, TodoStatus } from './types';
 import {
-	CELL_LINES,
+	ASIDE_BESIDE_FROM,
+	ASIDE_GAP,
+	ASIDE_WIDTH,
+	MIN_DAY_COLUMN,
 	agendaDays,
-	cellLines,
 	completeTask,
 	dayKey,
 	eventTint,
+	fitCount,
 	isGridKey,
+	isOpenTask,
 	monthWeeks,
 	moveDay,
 	overdueTasks,
 	tasksByDay,
 	upcomingTasks
 } from './plannerCalendar';
-import { emptyTasksWords, filterTasks, TASKS_FILTERS } from './plannerTasksPanel';
-import { hasEstimates, inventoryProjects, isPastDue, progressWords, projectPath, projectStatus, projectSummary } from './plannerProjects';
+import { isClosedStatus } from './plannerBoard';
+import { openRightPanel } from '$lib/layoutStoreRightPanel';
+import { dockStack, pinnedPanelId, rightPanelMode } from '$lib/layoutStoreStates';
+import {
+	closePlannerTasksPanel,
+	emptyTasksWords,
+	filterTasks,
+	panelOnScreen,
+	tasksPanelFilter,
+	tasksPanelShown,
+	togglePlannerTasksPanel,
+	registerInSurfaceTasksList,
+	tasksListShown,
+	TASKS_FILTERS,
+	TASKS_PANEL_ID,
+	type CompanionState
+} from './plannerTasksPanel';
+import {
+	deleteProjectWords,
+	descendantIds,
+	hasEstimates,
+	inventoryProjects,
+	isPastDue,
+	progressWords,
+	projectPath,
+	projectStatus,
+	projectSummary
+} from './plannerProjects';
 
 const day = (y: number, m: number, d: number, h = 12) => new Date(y, m, d, h).getTime();
 // Monday 21 September 2026, mid-morning.
@@ -72,25 +103,52 @@ describe('the month grid', () => {
 	});
 });
 
-describe('a day cell never clips: overflow becomes "+N more"', () => {
-	test('everything shows when it fits', () => {
-		const lines = cellLines(['e1'], ['t1', 't2']);
-		expect(lines).toEqual({ events: ['e1'], tasks: ['t1', 't2'], hidden: 0 });
+describe('a day cell never clips: it shows what its height holds, then "+N more"', () => {
+	// Lines of 22px (one text line) or 38px (a two-line title), 2px apart; "+N more" is 20px.
+	const bottomsOf = (heights: number[]) => {
+		const bottoms: number[] = [];
+		let y = 0;
+		for (const [i, h] of heights.entries()) {
+			y += (i ? 2 : 0) + h;
+			bottoms.push(y);
+		}
+		return bottoms;
+	};
+
+	test('everything shows when the last line fits', () => {
+		expect(fitCount(bottomsOf([22, 22, 22, 22]), 100, 20, 2)).toBe(4);
+		expect(fitCount([], 100, 20, 2)).toBe(0);
 	});
 
-	test('one line fewer plus "+N more" when it does not', () => {
-		const lines = cellLines(['e1', 'e2'], ['t1', 't2', 't3']);
-		expect(lines.events).toEqual(['e1', 'e2']);
-		expect(lines.tasks).toEqual([]);
-		expect(lines.hidden).toBe(3);
-		expect(lines.events.length + lines.tasks.length + 1).toBe(CELL_LINES);
+	test('a tall cell shows more than three lines (the cap comes from the height)', () => {
+		// 109px of room (a 151px row): four one-line items fit (94px); six need "+N more", which
+		// leaves room for three. 140px of room holds five and "+1 more".
+		const shown = fitCount(bottomsOf([22, 22, 22, 22, 22, 22]), 109, 20, 2);
+		expect(shown).toBe(3);
+		expect(fitCount(bottomsOf([22, 22, 22, 22]), 109, 20, 2)).toBe(4);
+		expect(fitCount(bottomsOf([22, 22, 22, 22, 22, 22]), 140, 20, 2)).toBe(5);
 	});
 
-	test('events come before tasks', () => {
-		const lines = cellLines(['e1'], ['t1', 't2', 't3']);
-		expect(lines.events).toEqual(['e1']);
-		expect(lines.tasks).toEqual(['t1']);
-		expect(lines.hidden).toBe(2);
+	test('two-line titles take their room; whole lines only, with room left for "+N more"', () => {
+		// 38 + 2 + 38 = 78; + 2 + 20 = 100 fits in 100; a third 38px line would not.
+		expect(fitCount(bottomsOf([38, 38, 38, 22]), 100, 20, 2)).toBe(2);
+		expect(fitCount(bottomsOf([38, 38, 38, 22]), 99, 20, 2)).toBe(1);
+	});
+
+	test('with "+N more" in the head row the list keeps no room for it: every line that fits shows', () => {
+		// 109px of room: 22 + 38 + 38 = 102 (with gaps) fits; the 22px fourth line would not.
+		expect(fitCount(bottomsOf([22, 38, 38, 22, 22]), 109, 0, 0)).toBe(3);
+		expect(fitCount(bottomsOf([22, 38, 38, 22, 22]), 79, 0, 0)).toBe(2);
+		expect(fitCount(bottomsOf([22, 22]), 79, 0, 0)).toBe(2);
+	});
+
+	test('a very short cell keeps only "+N more"', () => {
+		expect(fitCount(bottomsOf([38, 38]), 30, 20, 2)).toBe(0);
+	});
+
+	test('the side list sits beside the month only while each day keeps 140px', () => {
+		expect(ASIDE_BESIDE_FROM).toBe(7 * MIN_DAY_COLUMN + ASIDE_GAP + ASIDE_WIDTH);
+		expect(MIN_DAY_COLUMN).toBe(140);
 	});
 });
 
@@ -136,9 +194,26 @@ describe('tasks on the calendar', () => {
 		expect(map.get(dayKey(new Date(2026, 8, 21)))?.map((t) => t.title)).toEqual(['Today']);
 	});
 
+	test('open means what the board means: parked is closed work there and here', () => {
+		const statuses: TodoStatus[] = ['ideas', 'todo', 'in_progress', 'done', 'archived', 'scrapped'];
+		for (const status of statuses) expect(isOpenTask({ status })).toBe(!isClosedStatus(status));
+		expect(isOpenTask({ status: 'scrapped' })).toBe(false);
+	});
+
 	test('overdue is before today; upcoming is today through the next six days', () => {
 		expect(overdueTasks(all, NOW).map((t) => t.title)).toEqual(['Late']);
 		expect(upcomingTasks(all, NOW).map((t) => t.title)).toEqual(['Today', 'Soon']);
+	});
+
+	test('upcoming is every task of the week, so its count never undercounts', () => {
+		const many = Array.from({ length: 11 }, (_, i) => todo({ title: `Week ${i}`, dueDate: day(2026, 8, 21 + (i % 7)) }));
+		expect(upcomingTasks(many, NOW).length).toBe(11);
+	});
+
+	test('a day saved as UTC midnight (the task dialog) lands on that day, as on the board', () => {
+		const saved = todo({ title: 'Saved', dueDate: Date.UTC(2026, 8, 23) });
+		expect(tasksByDay([saved]).get(dayKey(new Date(2026, 8, 23)))?.map((t) => t.title)).toEqual(['Saved']);
+		expect(overdueTasks([saved], new Date(2026, 8, 23, 20).getTime())).toEqual([]);
 	});
 
 	test('completing records what Undo restores', () => {
@@ -154,10 +229,10 @@ describe('tasks on the calendar', () => {
 		expect(days.find((d) => d.date.getDate() === 21)?.tasks.map((t) => t.title)).toEqual(['Today']);
 	});
 
-	test('an event colour is a tint only when it is a colour; otherwise the accent role', () => {
+	test('an event colour is a tint only when it is a colour; otherwise neutral, never the accent', () => {
 		expect(eventTint({ color: '#98d8c8' })).toBe('#98d8c8');
-		expect(eventTint({ color: undefined })).toBe('var(--w-accent)');
-		expect(eventTint({ color: 'red; background: url(x)' })).toBe('var(--w-accent)');
+		expect(eventTint({ color: undefined })).toBe('var(--w-line-strong)');
+		expect(eventTint({ color: 'red; background: url(x)' })).toBe('var(--w-line-strong)');
 	});
 });
 
@@ -184,6 +259,55 @@ describe('the Tasks companion', () => {
 		expect(filterTasks(all, 'today', NOW).map((t) => t.title)).toEqual(['Medium today']);
 		expect(filterTasks(all, 'overdue', NOW).map((t) => t.title)).toEqual(['Low overdue']);
 		expect(filterTasks(all, 'week', NOW).map((t) => t.title)).toEqual(['Urgent later', 'Medium today']);
+	});
+
+	const base: CompanionState = { mode: 'pinned', tab: TASKS_PANEL_ID, stack: [TASKS_PANEL_ID], pinned: TASKS_PANEL_ID, canPin: true, mobile: false, held: false };
+
+	test('a pin in flow is on screen; a stowed pin is not', () => {
+		expect(panelOnScreen(base, TASKS_PANEL_ID)).toBe(true);
+		expect(panelOnScreen({ ...base, tab: 'people', stack: ['people', TASKS_PANEL_ID] }, TASKS_PANEL_ID)).toBe(true);
+		expect(panelOnScreen({ ...base, canPin: false }, TASKS_PANEL_ID)).toBe(false);
+		// Phones show the pin as a sheet: nothing is stowed there.
+		expect(panelOnScreen({ ...base, canPin: false, mobile: true }, TASKS_PANEL_ID)).toBe(true);
+		expect(panelOnScreen({ ...base, mode: 'none' }, TASKS_PANEL_ID)).toBe(false);
+	});
+
+	test('a held peek is on screen; a hover peek is a glance and does not count', () => {
+		const hover: CompanionState = { mode: 'peek', tab: TASKS_PANEL_ID, stack: [], pinned: null, canPin: true, mobile: false, held: false };
+		expect(panelOnScreen(hover, TASKS_PANEL_ID)).toBe(false);
+		expect(panelOnScreen({ ...hover, held: true }, TASKS_PANEL_ID)).toBe(true);
+		// Hovering the Tasks stub over another pin does not put Tasks on screen either.
+		expect(panelOnScreen({ ...base, tab: TASKS_PANEL_ID, stack: ['people'], pinned: 'people' }, TASKS_PANEL_ID)).toBe(false);
+		// A held peek over a stowed pin is.
+		expect(panelOnScreen({ ...base, stack: ['people'], pinned: 'people', canPin: false, held: true }, TASKS_PANEL_ID)).toBe(true);
+	});
+
+	test('the Planner switch opens the companion and puts it away again; other pins stay', () => {
+		rightPanelMode.set('none');
+		dockStack.set([]);
+		pinnedPanelId.set(null);
+		expect(get(tasksPanelShown)).toBe(false);
+		togglePlannerTasksPanel('overdue');
+		expect(get(tasksPanelShown)).toBe(true);
+		expect(get(tasksPanelFilter)).toBe('overdue');
+		openRightPanel('people');
+		togglePlannerTasksPanel();
+		expect(get(tasksPanelShown)).toBe(false);
+		expect(get(dockStack)).toEqual(['people']);
+		closePlannerTasksPanel();
+		expect(get(dockStack)).toEqual(['people']);
+		rightPanelMode.set('none');
+		dockStack.set([]);
+		pinnedPanelId.set(null);
+	});
+
+	test('an in-surface Tasks list counts as a Tasks list on screen while it is mounted', () => {
+		expect(get(tasksListShown)).toBe(false);
+		const remove = registerInSurfaceTasksList();
+		expect(get(tasksListShown)).toBe(true);
+		remove();
+		remove();
+		expect(get(tasksListShown)).toBe(false);
 	});
 });
 
@@ -229,6 +353,23 @@ describe('project words', () => {
 	test('a burndown in hours needs at least one estimate', () => {
 		expect(hasEstimates([{ estimatedMinutes: undefined }, { estimatedMinutes: 0 }])).toBe(false);
 		expect(hasEstimates([{ estimatedMinutes: 30 }])).toBe(true);
+	});
+
+	test('deleting a project says everything that goes: sub-projects at any depth, tasks, sprints', () => {
+		expect(descendantIds(projects, root.id)).toEqual([child.id, grandchild.id]);
+		const sprints = [{ projectId: child.id }, { projectId: 'elsewhere' }];
+		expect(deleteProjectWords(projects, tasks, sprints, root)).toBe(
+			'“A field guide to belonging”, its 2 sub-projects, 4 tasks and 1 sprint will be removed from your Planner.'
+		);
+		expect(deleteProjectWords(projects, tasks, [], grandchild)).toBe('“Legend” will be removed from your Planner.');
+		expect(deleteProjectWords(projects, tasks, [], child)).toBe('“The fold-out map”, its 1 sub-project and 2 tasks will be removed from your Planner.');
+		const lone = project({ name: 'Zine' });
+		expect(deleteProjectWords([lone], [todo({ projectId: lone.id })], [], lone)).toBe('“Zine” and its 1 task will be removed from your Planner.');
+		// A loop in the parent links never hangs the count.
+		const a = project({ name: 'A' });
+		const b = project({ name: 'B', parentId: a.id });
+		a.parentId = b.id;
+		expect(descendantIds([a, b], a.id)).toEqual([b.id]);
 	});
 
 	test('past due means before today', () => {
