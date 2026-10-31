@@ -22,8 +22,6 @@
    .composer-shell, .message-composer, .input-wrapper .input-container). The composer is styled
    on roles in surfaces/composer.css. */
 
-/* HELD FOR w0-dialogs-menus (ConfirmDialog.svelte). */
-/* Delete confirm uses ConfirmDialog — ensure danger btn readable */
-.confirm-btn.danger {
-	color: var(--text-on-danger, #fff) !important;
-}
+/* Retired by w1-dialogs-popouts: the `.confirm-btn.danger` !important label colour. ConfirmDialog
+   draws its destructive action with the kit `.w-btn--danger` (outlined, readableOn label on hover),
+   and no other component pairs .confirm-btn with .danger. */

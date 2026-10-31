@@ -112,42 +112,149 @@
 :root .group-settings button:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
 :root .group-settings .operation-error { margin: 12px 20px 0; color: var(--w-danger); font: var(--w-t-small); }
 
-/* HELD FOR the dialogs work (w0-dialogs-menus / w1-dialogs-popouts) — WhiteboardBoardSettings
-   .svelte is a BaseModal dialog over the whiteboard on center stage, not a panel; no wave-1
-   package owns it. */
-/* whiteboard */
-:root .board-settings-body { font-family: var(--w-sans); color: var(--w-text); }
-:root .wb-settings-label { font: 600 calc(14px * var(--w-fs, 1))/1.3 var(--w-sans); color: var(--w-text); }
-:root .wb-settings-description { font: 400 calc(13px * var(--w-fs, 1))/1.5 var(--w-sans); color: var(--w-mute); }
-:root .wb-settings-segmented {
+/* HELD FOR w1-dialogs-popouts (the dialogs surface) — WhiteboardBoardSettings.svelte is a
+   BaseModal dialog over the whiteboard on center stage, not a panel; the component itself has no
+   wave-1 owner, so its body is put on the kit grammar from here (§7.5, §7.1, §7.25):
+   settings sections divided by hairlines, the device preferences as a paper segmented control
+   (the selected key is paper, never an accent fill, §5.2), the role select and role search on
+   sink fields, an ink "Save" and a quiet "Cancel". Rules are prefixed with .board-settings-body so
+   they outrank the component's scoped legacy rules regardless of load order. */
+:root .board-settings-body {
+	padding: 0 24px 24px;
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+:root .board-settings-body .wb-settings-section {
+	gap: 8px;
+	padding: 16px 0;
+}
+:root .board-settings-body .wb-settings-section + .wb-settings-section {
+	border-top: var(--w-bw, 1px) solid var(--w-line);
+}
+:root .board-settings-body .wb-settings-label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+:root .board-settings-body .wb-settings-description {
+	margin: 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+:root .board-settings-body .wb-settings-segmented {
 	display: inline-flex;
-	border: var(--w-bw, 1px) solid var(--w-line-strong);
-	border-radius: calc(10px * var(--w-rs, 1));
-	overflow: hidden;
+	flex-wrap: nowrap;
+	align-self: flex-start;
+	gap: 2px;
+	padding: 2px;
+	overflow: visible;
+	border: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: calc(var(--radius-md) + 2px);
 	background: var(--w-bg2);
 }
-:root .wb-settings-seg-btn {
-	min-height: 32px;
-	padding: 5px 14px;
+:root .board-settings-body .wb-settings-seg-btn {
+	flex: 0 0 auto;
+	min-height: 26px;
+	padding: 0 12px;
 	border: 0;
+	border-radius: var(--radius-inner);
 	background: transparent;
 	color: var(--w-mute);
-	font: 600 calc(13px * var(--w-fs, 1))/1.2 var(--w-sans);
+	font: var(--w-t-label-sm);
+	transition: background-color var(--w-dur-1) var(--w-ease), color var(--w-dur-1) var(--w-ease), box-shadow var(--w-dur-1) var(--w-ease);
 }
-:root .wb-settings-seg-btn + .wb-settings-seg-btn { border-left: var(--w-bw, 1px) solid var(--w-line); }
-:root .wb-settings-seg-btn:hover { color: var(--w-text); }
-:root .wb-settings-seg-btn.active,
-:root .wb-settings-seg-btn[aria-checked='true'] { background: var(--w-accent); color: var(--w-on-accent); }
-:root .wb-settings-save,
-:root .wb-settings-cancel {
-	min-height: 34px;
-	padding: 6px 14px;
-	border-radius: calc(10px * var(--w-rs, 1));
-	font: 700 calc(13.5px * var(--w-fs, 1))/1.2 var(--w-sans);
+:root .board-settings-body .wb-settings-seg-btn + .wb-settings-seg-btn {
+	border-left: 0;
 }
-:root .wb-settings-save { border: 0; background: var(--w-text); color: var(--w-bg); }
-:root .wb-settings-cancel { border: var(--w-bw, 1px) solid var(--w-line-strong); background: transparent; color: var(--w-text); }
-:root .wb-settings-cancel:hover { background: var(--w-raise); border-color: var(--w-accent); }
+:root .board-settings-body .wb-settings-seg-btn:hover {
+	color: var(--w-text);
+}
+:root .board-settings-body .wb-settings-seg-btn:is(.active, [aria-checked='true']) {
+	background: var(--w-bg);
+	color: var(--w-text);
+	box-shadow: 0 0 0 var(--w-bw, 1px) var(--w-line-strong), var(--w-shadow-1);
+}
+:root[data-mode='light'] .board-settings-body .wb-settings-seg-btn:is(.active, [aria-checked='true']) {
+	background: var(--w-lift);
+}
+:root .board-settings-body .wb-settings-seg-btn:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+:root .board-settings-body select,
+:root .board-settings-body .custom-roles input[type='search'] {
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 38px;
+	padding: 0 10px;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+:root .board-settings-body select:focus-visible,
+:root .board-settings-body .custom-roles input[type='search']:focus-visible {
+	border-color: var(--w-accent);
+	box-shadow: var(--w-ring);
+	outline: none;
+}
+:root .board-settings-body .custom-roles {
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+:root .board-settings-body .custom-roles label {
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+:root .board-settings-body .custom-roles input[type='checkbox'] {
+	accent-color: var(--w-text);
+}
+:root .board-settings-body .wb-settings-actions {
+	gap: 8px;
+	padding-top: 16px;
+	border-top: var(--w-bw, 1px) solid var(--w-line);
+}
+/* Quiet Cancel, then the ink primary (§7.13 order) — the component lists Save first, so the
+   flex order puts Cancel before it. */
+:root .board-settings-body .wb-settings-cancel {
+	order: 1;
+	min-height: 32px;
+	padding: 0 12px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-label);
+}
+:root .board-settings-body .wb-settings-cancel:hover {
+	border-color: transparent;
+	background: var(--w-raise);
+	color: var(--w-text);
+}
+:root .board-settings-body .wb-settings-save {
+	order: 2;
+	min-height: 32px;
+	padding: 0 12px;
+	border: var(--w-bw, 1px) solid var(--w-text);
+	border-radius: var(--radius-md);
+	background: var(--w-text);
+	color: var(--w-bg);
+	font: var(--w-t-label);
+}
+:root .board-settings-body .wb-settings-save:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+}
+:root .board-settings-body .wb-settings-save:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+:root .board-settings-body :is(.wb-settings-save, .wb-settings-cancel):focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
 
 /* (The DM protection pills and the left-barred encryption gate that sat here are gone: the
    conversation views say the privacy state through PrivacyBadge and their own sending-paused

@@ -1,12 +1,24 @@
+<!--
+	The popout's action row (design contract §8.9): one primary, one default and a ⋯ menu.
+
+	- Someone else: "Message" (ink primary), "Call" (default) and ⋯ with video, screen share,
+	  friends, the nickname on this device and moderation (seal glyphs, ban last in danger).
+	- You: "Edit profile" (primary), "View full profile" and, with an account, ⋯ › Games.
+	Rows come from userPopoutModel.buildProfileMenu; confirms go through confirmAction.
+-->
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { _ } from '$lib/i18n';
 	import { openGames } from '$lib/games/navigation';
 	import { getAuthToken } from '$lib/authSession';
+	import { confirmAction } from '$lib/confirm';
+	import Icon from '$lib/components/ui/Icon.svelte';
+	import Menu from '$lib/components/ui/Menu.svelte';
 
 	import type { User } from '$lib/socket';
 	import { canFriendUser as isFriendEligible, friendshipRelation } from '$lib/friendshipRelation';
 	import { acceptFriendship, dismissFriendship, friendships, removeFriendship, requestFriendship, startFriendshipSync } from '$lib/friendships';
+	import { buildProfileMenu } from './userPopoutModel';
 
 	export let isOwnProfile = false;
 	export let profileExpanded = false;
@@ -14,39 +26,10 @@
 	export let localNicknamesEnabled = false;
 	export let localNickname = '';
 	export let user: User | null = null;
-	let friendActionBusy = false;
-	let friendActionError = '';
-	$: friendRelation = friendshipRelation($friendships, user?.dbUserId);
-	$: canFriendUser = isFriendEligible(user) && Boolean(getAuthToken()) && $friendships.ready;
-	onMount(startFriendshipSync);
-
-	async function handleFriendAction() {
-		if (!canFriendUser || !user?.dbUserId || friendActionBusy || !$friendships.ready) return;
-		friendActionBusy = true;
-		friendActionError = '';
-		try {
-			if (friendRelation.kind === 'none') await requestFriendship(user.dbUserId);
-			else if (friendRelation.kind === 'incoming') await acceptFriendship(friendRelation.request.id);
-			else if (friendRelation.kind === 'outgoing') await dismissFriendship(friendRelation.request.id);
-		} catch (error) {
-			friendActionError = error instanceof Error ? error.message : 'Could not update friendship.';
-		} finally {
-			friendActionBusy = false;
-		}
-	}
-
-	async function handleRemoveFriend() {
-		if (!user?.dbUserId || friendActionBusy) return;
-		if (!window.confirm(`Remove ${user.username} from your friends?`)) return;
-		friendActionBusy = true;
-		friendActionError = '';
-		try { await removeFriendship(user.dbUserId); }
-		catch (error) { friendActionError = error instanceof Error ? error.message : 'Could not remove friend.'; }
-		finally { friendActionBusy = false; }
-	}
 	export let onClose: () => void = () => {};
 	export let onOpenDM: () => void = () => {};
 	export let onOpenFullProfile: () => void = () => {};
+	export let onEditProfile: () => void = () => {};
 	export let onVoiceCall: () => void = () => {};
 	export let onVideoCall: () => void = () => {};
 	export let onScreenShare: () => void = () => {};
@@ -63,140 +46,125 @@
 	export let onBanUser: () => void = () => {};
 	export let onUnbanUser: () => void = () => {};
 
+	let friendActionBusy = false;
+	let friendActionError = '';
+	$: friendRelation = friendshipRelation($friendships, user?.dbUserId);
+	$: canFriendUser = isFriendEligible(user) && Boolean(getAuthToken()) && $friendships.ready;
+	onMount(startFriendshipSync);
+
+	async function handleFriendAction() {
+		if (!canFriendUser || !user?.dbUserId || friendActionBusy || !$friendships.ready) return;
+		friendActionBusy = true;
+		friendActionError = '';
+		try {
+			if (friendRelation.kind === 'none') await requestFriendship(user.dbUserId);
+			else if (friendRelation.kind === 'incoming') await acceptFriendship(friendRelation.request.id);
+			else if (friendRelation.kind === 'outgoing') await dismissFriendship(friendRelation.request.id);
+		} catch (error) {
+			console.warn('[profile] friendship update failed', error);
+			friendActionError = "Couldn't update the friendship. Nothing changed.";
+		} finally {
+			friendActionBusy = false;
+		}
+	}
+
+	async function handleRemoveFriend() {
+		if (!user?.dbUserId || friendActionBusy) return;
+		const name = user.username;
+		const confirmed = await confirmAction({
+			title: `Remove ${name} from your friends?`,
+			body: 'You can send a new friend request later.',
+			confirm: 'Remove friend',
+			danger: true
+		});
+		if (!confirmed || !user?.dbUserId) return;
+		friendActionBusy = true;
+		friendActionError = '';
+		try {
+			await removeFriendship(user.dbUserId);
+		} catch (error) {
+			console.warn('[profile] remove friend failed', error);
+			friendActionError = `Couldn't remove ${name}. You are still friends.`;
+		} finally {
+			friendActionBusy = false;
+		}
+	}
+
+	function handleOpenGames() {
+		if (!user?.dbUserId) return;
+		const profile = { profileId: String(user.dbUserId), label: user.username };
+		onClose();
+		openGames(profile);
+	}
+
+	$: friendState = (friendRelation.kind === 'friend' || friendRelation.kind === 'incoming' || friendRelation.kind === 'outgoing'
+		? friendRelation.kind
+		: 'none') as 'none' | 'incoming' | 'outgoing' | 'friend';
+	$: menuItems = buildProfileMenu({
+		isOwnProfile,
+		hasAccount: Boolean(user?.dbUserId),
+		profileExpanded,
+		inSidePanel,
+		friendsReady: $friendships.ready,
+		canFriend: canFriendUser,
+		friendState,
+		friendBusy: friendActionBusy,
+		localNicknamesEnabled,
+		localNickname,
+		canManageRoles: canManageRoles && Boolean(user),
+		targetRole,
+		roles,
+		isBanned,
+		onOpenFullProfile,
+		onOpenGames: handleOpenGames,
+		onVideoCall,
+		onScreenShare,
+		onFriendAction: () => void handleFriendAction(),
+		onRemoveFriend: () => void handleRemoveFriend(),
+		onSetLocalNickname,
+		onClearLocalNickname,
+		onSetRole,
+		onBanUser,
+		onUnbanUser
+	});
+	$: displayName = user?.username ?? '';
+	$: statusLines = [
+		friendRelation.kind === 'friend' && !isOwnProfile ? 'Friends' : '',
+		roleActionStatus,
+		banActionStatus,
+		canManageRoles && hiddenRoleCount > 0 ? `${hiddenRoleCount} more role${hiddenRoleCount === 1 ? '' : 's'} in the member list` : ''
+	].filter(Boolean);
 </script>
 
-<div class="actions">
-  {#if user?.dbUserId}
-    <button class="action-btn secondary" on:click={() => { onClose(); openGames({profileId: String(user!.dbUserId),label:user!.username}); }}>Games</button>
-  {/if}
-	{#if !isOwnProfile}
-		<button class="action-btn primary" on:click={onOpenDM}>
-			<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-				<path d="M4.79805 3C3.80445 3 2.99805 3.8055 2.99805 4.8V15.6C2.99805 16.5936 3.80445 17.4 4.79805 17.4H7.49805V21L11.098 17.4H19.198C20.1925 17.4 20.998 16.5936 20.998 15.6V4.8C20.998 3.8055 20.1925 3 19.198 3H4.79805Z"/>
-			</svg>
-			{$_('user.popout.message')}
+<div class="pop-actions" class:pop-actions--stacked={inSidePanel && !profileExpanded}>
+	{#if isOwnProfile}
+		<button type="button" class="w-btn w-btn--primary pop-actions__main" on:click={onEditProfile}>
+			<Icon name="pencil" size={16} />{$_('user.popout.edit_profile')}
 		</button>
-		{#if canFriendUser}
-			<button class="action-btn secondary" on:click={handleFriendAction} disabled={friendActionBusy || !$friendships.ready || friendRelation.kind === 'friend'}>
-				{#if friendActionBusy}Saving…{:else if !$friendships.ready}Checking…{:else if friendRelation.kind === 'friend'}Friends{:else if friendRelation.kind === 'incoming'}Accept request{:else if friendRelation.kind === 'outgoing'}Cancel request{:else}Add friend{/if}
-			</button>
+		<button type="button" class="w-btn pop-actions__second" data-profile-expand on:click={onOpenFullProfile}>
+			{profileExpanded ? (inSidePanel ? 'Return to side panel' : 'Back to popout') : $_('user.popout.view_full_profile')}
+		</button>
+		{#if user?.dbUserId}
+			<Menu items={menuItems.filter((item) => item.id === 'games')} label="More for your profile" triggerLabel="More" class="w-ibtn pop-actions__more" align="end" heading={displayName}>
+				<Icon name="more" size={18} />
+			</Menu>
 		{/if}
+	{:else}
+		<button type="button" class="w-btn w-btn--primary pop-actions__main" on:click={onOpenDM}>
+			<Icon name="chat" size={16} />{$_('user.popout.message')}
+		</button>
+		<button type="button" class="w-btn pop-actions__second" on:click={onVoiceCall}>
+			<Icon name="phone" size={16} />{$_('user.popout.call')}
+		</button>
+		<Menu items={menuItems} label="More for {displayName}" triggerLabel="More for {displayName}" class="w-ibtn pop-actions__more" align="end" heading={displayName} data-profile-expand>
+			<Icon name="more" size={18} />
+		</Menu>
 	{/if}
-	<button class="action-btn secondary" data-profile-expand on:click={onOpenFullProfile}>
-		<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-			<path d="M12 12C14.21 12 16 10.21 16 8C16 5.79 14.21 4 12 4C9.79 4 8 5.79 8 8C8 10.21 9.79 12 12 12ZM12 14C9.33 14 4 15.34 4 18V20H20V18C20 15.34 14.67 14 12 14Z"/>
-		</svg>
-		{profileExpanded ? (inSidePanel ? 'Return to side panel' : 'Back to popout') : $_('user.popout.view_full_profile')}
-	</button>
-
 </div>
 
-{#if friendActionError}<p class="friend-action-error" role="alert">{friendActionError}</p>{/if}
-
-<style>
-	.friend-action-error { margin: 0.35rem 0.65rem; color: var(--w-danger); font-size: 0.75rem; }
-	.manage-roles {
-		display: grid;
-		gap: 0.4rem;
-		padding-top: 0.2rem;
-	}
-	.manage-roles-label {
-		font-size: 0.7rem;
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		color: var(--w-mute);
-	}
-	.manage-roles-buttons {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.35rem;
-	}
-	.manage-roles-status {
-		font-size: 0.72rem;
-		color: var(--w-mute);
-	}
-	.context-btn.active-role {
-		border-color: rgba(var(--accent-rgb), 0.5);
-		background: rgba(var(--accent-rgb), 0.14);
-	}
-</style>
-
-{#if !isOwnProfile}
-	<div class="call-actions">
-		<button class="call-btn voice-call" on:click={onVoiceCall} title={$_('user.voice_call')}>
-			<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-				<path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 00-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/>
-			</svg>
-			{$_('user.voice_call')}
-		</button>
-		<button class="call-btn video-call" on:click={onVideoCall} title={$_('user.video_call')}>
-			<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-				<path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
-			</svg>
-			{$_('user.video_call')}
-		</button>
-		<button class="call-btn screen-share" on:click={onScreenShare} title={$_('user.screen_share')}>
-			<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-				<path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/>
-			</svg>
-			{$_('user.screen_share')}
-		</button>
-	</div>
+{#if statusLines.length}
+	<p class="pop-actions__status" role="status">{statusLines.join(' · ')}</p>
 {/if}
-
-
-<div class="context-actions">
-	{#if !isOwnProfile && canFriendUser && friendRelation.kind === 'friend'}
-		<button class="context-btn danger" on:click={handleRemoveFriend} disabled={friendActionBusy}>Remove friend</button>
-	{/if}
-	{#if !isOwnProfile && localNicknamesEnabled}
-		<button class="context-btn" on:click={onSetLocalNickname}>
-			Set Local Nickname
-		</button>
-		{#if localNickname}
-			<button class="context-btn danger" on:click={onClearLocalNickname}>
-				Clear Local Nickname
-			</button>
-		{/if}
-	{/if}
-	{#if canManageRoles && user}
-		<div class="manage-roles">
-			<div class="manage-roles-label">Moderation</div>
-			<div class="manage-roles-buttons">
-				{#each roles as role (role.roleName)}
-					<button
-						class="context-btn"
-						class:active-role={targetRole === role.roleName}
-						on:click={() => onSetRole(targetRole === role.roleName ? 'member' : role.roleName)}
-					>
-						{targetRole === role.roleName ? `Remove ${role.displayName}` : `Make ${role.displayName}`}
-					</button>
-				{/each}
-			{#if roles.some((role) => role.roleName === targetRole) || ['admin', 'developer', 'mod', 'artist'].includes(targetRole)}
-				<button class="context-btn danger" on:click={() => onSetRole('member')}>
-					Reset to Member
-				</button>
-			{/if}
-			{#if isBanned}
-				<button class="context-btn danger" on:click={onUnbanUser}>
-					Unban
-				</button>
-			{:else}
-				<button class="context-btn danger" on:click={onBanUser}>
-					Ban from server
-				</button>
-			{/if}
-		</div>
-		{#if hiddenRoleCount > 0}
-			<span class="manage-roles-status">+{hiddenRoleCount} more role{hiddenRoleCount === 1 ? '' : 's'} in the member list.</span>
-		{/if}
-		{#if roleActionStatus}
-			<span class="manage-roles-status">{roleActionStatus}</span>
-		{/if}
-		{#if banActionStatus}
-			<span class="manage-roles-status">{banActionStatus}</span>
-		{/if}
-		</div>
-	{/if}
-</div>
+{#if friendActionError}
+	<p class="pop-actions__error" role="alert"><Icon name="alert" size={14} />{friendActionError}</p>
+{/if}

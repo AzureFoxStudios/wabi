@@ -3,8 +3,9 @@
 	import { currentUser } from '$lib/socket';
 	import { get } from 'svelte/store';
 	import ContextMenu from '$lib/components/context-menu/ContextMenu.svelte';
-	import type { ContextMenuItem } from '$lib/context-menu/types';
+	import type { MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
 	import { getTranslatorSettings } from '$lib/components/message/messageTranslator';
+	import { buildMessageMenu } from './messageContextMenuItems';
 	import { _ } from '$lib/i18n';
 
 	export let message: Message;
@@ -63,34 +64,36 @@
 	// settings change without requiring a page reload.
 	$: items = buildItems(visible);
 
-	function buildItems(_menuVisible: boolean): ContextMenuItem[] {
-		const list: ContextMenuItem[] = [{ id: 'reply', label: get(_)('context_menu.reply'), icon: 'message-circle', onSelect: onReply }];
-		if (quickMentionEnabled && onQuickMention && !isOwnMessageByIdentity) list.push({ id: 'quick-mention', label: get(_)('context_menu.quick_mention'), icon: 'message-circle', onSelect: onQuickMention });
-		if (onAddReaction) list.push({ id: 'react', label: get(_)('context_menu.add_reaction'), icon: 'smile', onSelect: onAddReaction });
-		const translatorEnabled = getTranslatorSettings().mode !== 'off';
-		if (translatorEnabled && onTranslate && canCopyText) list.push({ id: 'translate', label: get(_)('context_menu.translate'), icon: 'languages', onSelect: onTranslate });
-		if (hasFile && onDownload) list.push({ id: 'download', label: get(_)('context_menu.download'), icon: 'download', onSelect: onDownload });
-		if (hasFile && onAddToAlbum) list.push({ id: 'add-to-album', label: get(_)('context_menu.add_to_album'), icon: 'archive', onSelect: onAddToAlbum });
-		if (hasFile && onPromoteToLore) list.push({ id: 'promote-to-lore', label: 'Promote to Lore…', icon: 'archive', onSelect: onPromoteToLore });
-		if (onForward) list.push({ id: 'forward', label: get(_)('context_menu.forward'), icon: 'forward', onSelect: onForward });
-		if (onCopyQuote) list.push({ id: 'copy-quote', label: get(_)('context_menu.copy_quote'), icon: 'copy', onSelect: onCopyQuote });
-		if (onCopyMessageLink) list.push({ id: 'copy-link', label: get(_)('context_menu.copy_message_link'), icon: 'copy', onSelect: onCopyMessageLink });
-		if (canEditMessage) list.push({ id: 'edit', label: get(_)('context_menu.edit_message'), icon: 'edit', onSelect: onEdit });
-		list.push({ id: 'pin', label: message.isPinned ? get(_)('context_menu.unpin_message') : get(_)('context_menu.pin_message'), icon: 'pin', onSelect: onPin });
-		if (personalPinsEnabled && onTogglePersonalPin) list.push({ id: 'personal-pin', label: isPersonalPinned ? get(_)('context_menu.unpin_local_message') : get(_)('context_menu.pin_local_message'), icon: 'pin', onSelect: onTogglePersonalPin });
-		list.push({ id: 'copy', label: get(_)('context_menu.copy_text'), icon: 'copy', disabled: !canCopyText, onSelect: copyText });
-		if (onReport && !isOwnMessageByIdentity) {
-			list.push({ id: 'report-divider', type: 'separator' });
-			list.push({ id: 'report', label: 'Report message', icon: 'message-circle', onSelect: onReport });
-		}
-		list.push({ id: 'danger-divider', type: 'separator' });
-		list.push({
-			id: 'delete',
-			label: canDeleteResolved ? get(_)('context_menu.delete_message_uploads') : get(_)('context_menu.delete_message'),
-			hint: canDeleteResolved ? get(_)('context_menu.delete_message_uploads_hint') : get(_)('context_menu.delete_message_unavailable_hint'),
-			icon: 'trash-2', danger: true, disabled: !canDeleteResolved, onSelect: onDelete
+	function buildItems(_menuVisible: boolean): MenuEntry[] {
+		return buildMessageMenu({
+			t: get(_),
+			isOwn: isOwnMessageByIdentity,
+			canEdit: canEditMessage,
+			canDelete: canDeleteResolved,
+			hasFile,
+			canCopyText,
+			isPinned: !!message.isPinned,
+			isPersonalPinned,
+			translatorEnabled: getTranslatorSettings().mode !== 'off',
+			quickMentionEnabled,
+			personalPinsEnabled,
+			onReply,
+			onAddReaction,
+			onQuickMention,
+			onTranslate,
+			onForward,
+			onCopyText: copyText,
+			onCopyQuote,
+			onCopyMessageLink,
+			onDownload,
+			onAddToAlbum,
+			onPromoteToLore,
+			onEdit,
+			onPin,
+			onTogglePersonalPin,
+			onReport,
+			onDelete
 		});
-		return list;
 	}
 </script>
 
