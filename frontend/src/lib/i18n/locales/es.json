@@ -605,7 +605,10 @@
     },
     "you": {
       "servers": "Servidores",
-      "all_settings": "Todos los ajustes"
+      "all_settings": "Todos los ajustes",
+      "presence": "Estado",
+      "presence_change": "Estado: {state}. Cambiar estado",
+      "sign_out_body": "Este dispositivo dejará de tener la sesión iniciada en {server}."
     }
   },
   "user": {
@@ -620,7 +623,8 @@
       "online": "En línea",
       "away": "Ausente",
       "busy": "No molestar",
-      "offline": "Desconectado"
+      "offline": "Desconectado",
+      "invisible": "Invisible"
     },
     "errors": {
       "voice_call_failed": "No se pudo iniciar la llamada de voz. Revisa los permisos del micrófono.",

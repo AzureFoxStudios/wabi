@@ -19,7 +19,7 @@
 
 	// Everyone connected (the viewer always counts as here), as in the People companion.
 	const pile = $derived(facepileOf({ online: $currentUser ? [$currentUser, ...$users] : $users, self: $currentUser ?? null }));
-	const label = $derived(`${$_('places.people')}, ${pile.count} here now`);
+	const label = $derived(`${$_('places.people')}, ${$_('shell.mobile.people_online', { values: { count: pile.count } })}`);
 	const initial = (name: string | undefined) => (name || '?').trim().charAt(0).toUpperCase() || '?';
 </script>
 
