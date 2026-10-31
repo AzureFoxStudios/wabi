@@ -1,559 +1,172 @@
 <script lang="ts">
-	import { get } from 'svelte/store';
-	import { plannerActor as currentUser } from '$lib/business/personalWorkspace';
-	import { todos, projects, addTodo, updateTodo, deleteTodo, type Todo } from '$lib/business';
+	/**
+	 * Tasks (design contract §8.6, §7.21): My Planner's open tasks as a companion panel. In the
+	 * shell's companion frame (panel id `planner-tasks`, `compact`) the frame owns row A (title,
+	 * count, Unpin) and row B; this body is a filter row, the list and a quiet "Add task" row.
+	 * Hosts without the frame (an in-surface split) get a small title row with Close.
+	 *
+	 * One task dialog everywhere: the title of a row and "Add task" open PlannerTaskDialog, the
+	 * same dialog the board's New task uses. The checkbox completes a task, with Undo.
+	 *
+	 * Svelte 4 (`export let`) — matches the business tree.
+	 */
+	import { onDestroy } from 'svelte';
+	import { todos, projects, updateTodo, type Todo } from '$lib/business';
+	import { plannerUserById, getPlannerUserColor, getPlannerUserAvatarUrl, ensurePlannerDirectory } from '$lib/business/plannerUsers';
+	import { dueLabel, priorityMark, spansSeveralProjects } from '$lib/business/plannerBoard';
+	import { completeTask, startOfDay } from '$lib/business/plannerCalendar';
 	import {
-		plannerUserById,
-		getPlannerUserColor,
-		getPlannerUserAvatarUrl,
-		ensurePlannerDirectory
-	} from '$lib/business/plannerUsers';
+		TASKS_FILTERS,
+		TASKS_PANEL_ID,
+		emptyTasksWords,
+		filterTasks,
+		tasksPanelFilter,
+		type TasksFilter
+	} from '$lib/business/plannerTasksPanel';
+	import { setPanelFrameCount } from '$lib/workspacePanels';
+	import { toast } from '$lib/toast';
+	import Icon from '$lib/components/ui/Icon.svelte';
+	import Tooltip from '$lib/components/ui/Tooltip.svelte';
+	import Segmented from '$lib/components/ui/Segmented.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import PlannerAvatar from './PlannerAvatar.svelte';
+	import PlannerTaskDialog from './PlannerTaskDialog.svelte';
 
 	export let onClose: (() => void) | undefined = undefined;
-	/**
-	 * Compact mode — rendered inside the right workspace dock (~320px):
-	 * tighter paddings, hidden close button (the dock owns open/close).
-	 */
+	/** In the companion frame: no own title row (the frame names the panel and holds Unpin). */
 	export let compact = false;
-	import { onMount, tick } from 'svelte';
-
-	interface RegisteredUser {
-		user_id: number;
-		username: string;
-		profile_picture?: string;
-		color: string;
-	}
-
-	let newTaskTitle = '';
-	let newTaskDescription = '';
-	let newTaskPriority: Todo['priority'] = 'medium';
-	let newTaskProject: string | null = null;
-	let newTaskAssignee: number | null = null;
-	let newTaskHasTimeEstimate = false;
-	let newTaskEstimatedHours = '1';
-	let registeredUsers: RegisteredUser[] = [];
-	let filteredUsers: RegisteredUser[] = [];
-	let showUserDropdown = false;
-	let userSearchQuery = '';
-	let showAddForm = false;
-	let quickAddTitleInput: HTMLInputElement | null = null;
-
-	$: if (showAddForm) {
-		void tick().then(() => quickAddTitleInput?.focus());
-	}
-
-	// Edit mode state
-	let editingTaskId: string | null = null;
-	let editingTaskTitle = '';
-	let editingTaskDescription = '';
-	let editingTaskPriority: Todo['priority'] = 'medium';
-	let editingTaskProject: string | null = null;
-	let editingTaskAssignee: number | null = null;
-	let editingTaskHasTimeEstimate = false;
-	let editingTaskEstimatedHours = '1';
-
-	// Filter options
-	type FilterType = 'all' | 'today' | 'overdue' | 'upcoming';
 	/**
-	 * Initial filter — lets host surfaces (Planner stat pills) open the panel
-	 * pre-focused on Overdue/Today/etc. Only read on mount.
+	 * Filter to start on for hosts without the frame (an in-surface split). The companion reads
+	 * the shared filter that openPlannerTasksPanel() sets. 'upcoming' is the older name of 'week'.
 	 */
-	export let initialFilter: FilterType = 'all';
-	let activeFilter: FilterType = initialFilter;
+	export let initialFilter: TasksFilter | 'upcoming' = 'all';
 
-	onMount(async () => {
-		// Shared one-shot user directory (also used by kanban + calendar).
-		ensurePlannerDirectory();
+	ensurePlannerDirectory();
+
+	let localFilter: TasksFilter = initialFilter === 'upcoming' ? 'week' : initialFilter;
+	$: activeFilter = compact ? $tasksPanelFilter : localFilter;
+	function setFilter(next: TasksFilter): void {
+		if (compact) tasksPanelFilter.set(next);
+		else localFilter = next;
+	}
+
+	const filterOptions = TASKS_FILTERS.map((option) =>
+		option.value === 'week' ? { value: option.value, label: 'Week', title: 'Due in the next seven days' } : { ...option }
+	);
+
+	let now = Date.now();
+	const clock = setInterval(() => (now = Date.now()), 60_000);
+
+	$: list = filterTasks($todos, activeFilter, now);
+	$: showProjects = spansSeveralProjects(list);
+	$: empty = emptyTasksWords(activeFilter);
+	$: if (compact) setPanelFrameCount(TASKS_PANEL_ID, list.length);
+
+	onDestroy(() => {
+		clearInterval(clock);
+		if (compact) setPanelFrameCount(TASKS_PANEL_ID, null);
 	});
 
-	// Mirror shared directory into the assignee picker's legacy shape.
-	$: registeredUsers = $plannerUserById.size > 0 ? [...$plannerUserById.values()] : registeredUsers;
+	// ── the task dialog ──
+	let dialogTodo: Todo | null = null;
+	let creating = false;
+	$: newDueDate = activeFilter === 'today' ? startOfDay(now).setHours(12) : undefined;
 
-	function filterUsers(query: string) {
-		userSearchQuery = query;
-		if (!query.trim()) {
-			filteredUsers = registeredUsers;
-		} else {
-			const lowerQuery = query.toLowerCase();
-			filteredUsers = registeredUsers.filter(u =>
-				u.username.toLowerCase().includes(lowerQuery)
-			);
-		}
+	function openTask(todo: Todo): void {
+		creating = false;
+		dialogTodo = todo;
+	}
+	function addTask(): void {
+		dialogTodo = null;
+		creating = true;
+	}
+	function closeDialog(): void {
+		dialogTodo = null;
+		creating = false;
 	}
 
-	function selectUser(user: RegisteredUser) {
-		newTaskAssignee = user.user_id;
-		showUserDropdown = false;
-		userSearchQuery = '';
-	}
-
-	function getAssigneeName(userId: number | undefined): string {
-		if (!userId) return '';
-		const user = registeredUsers.find(u => u.user_id === userId);
-		return user?.username || '';
-	}
-
-	function getAssigneeColor(userId: number | undefined): string {
-		if (!userId) return '#888888';
-		return getPlannerUserColor($plannerUserById, userId);
-	}
-
-	function getAssigneeAvatarUrl(userId: number | undefined): string | undefined {
-		if (!userId) return undefined;
-		return getPlannerUserAvatarUrl($plannerUserById, userId);
-	}
-
-	function openEditMode(todo: Todo) {
-		editingTaskId = todo.id;
-		editingTaskTitle = todo.title;
-		editingTaskDescription = todo.description || '';
-		editingTaskPriority = todo.priority;
-		editingTaskProject = todo.projectId || null;
-		editingTaskAssignee = todo.assignedTo ? parseInt(String(todo.assignedTo), 10) : null;
-		editingTaskHasTimeEstimate =
-			typeof todo.estimatedMinutes === 'number' && todo.estimatedMinutes > 0;
-		editingTaskEstimatedHours = editingTaskHasTimeEstimate
-			? (todo.estimatedMinutes! / 60).toString()
-			: '1';
-	}
-
-	function closeEditMode() {
-		editingTaskId = null;
-		editingTaskTitle = '';
-		editingTaskDescription = '';
-		editingTaskPriority = 'medium';
-		editingTaskProject = null;
-		editingTaskAssignee = null;
-		editingTaskHasTimeEstimate = false;
-		editingTaskEstimatedHours = '1';
-	}
-
-	function saveEditedTask() {
-		if (!editingTaskId || !editingTaskTitle.trim()) return;
-		const todo = $todos.find(t => t.id === editingTaskId);
-		if (!todo) return;
-
-		updateTodo(editingTaskId, {
-			title: editingTaskTitle.trim(),
-			description: editingTaskDescription.trim() || undefined,
-			priority: editingTaskPriority,
-			estimatedMinutes:
-				editingTaskHasTimeEstimate &&
-				Number.isFinite(Number.parseFloat(editingTaskEstimatedHours)) &&
-				Number.parseFloat(editingTaskEstimatedHours) > 0
-					? Math.max(1, Math.round(Number.parseFloat(editingTaskEstimatedHours) * 60))
-					: undefined,
-			projectId: editingTaskProject || undefined,
-			assignedTo: editingTaskAssignee?.toString()
-		});
-
-		closeEditMode();
-	}
-
-	function deleteEditingTask() {
-		if (!editingTaskId) return;
-		if (confirm('Delete this task?')) {
-			deleteTodo(editingTaskId);
-			closeEditMode();
-		}
-	}
-
-	$: filteredTodos = $todos.filter(todo => {
-		if (todo.status === 'done' || todo.status === 'archived') return false;
-
-		const now = new Date();
-		const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-		const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
-		const weekFromNow = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
-
-		switch (activeFilter) {
-			case 'today':
-				return todo.dueDate && todo.dueDate >= today.getTime() && todo.dueDate < tomorrow.getTime();
-			case 'overdue':
-				return todo.dueDate && todo.dueDate < today.getTime();
-			case 'upcoming':
-				return todo.dueDate && todo.dueDate >= today.getTime() && todo.dueDate < weekFromNow.getTime();
-			default:
-				return true;
-		}
-	}).sort((a, b) => {
-		// Sort by priority then due date
-		const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 };
-		if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
-			return priorityOrder[a.priority] - priorityOrder[b.priority];
-		}
-		if (a.dueDate && b.dueDate) return a.dueDate - b.dueDate;
-		if (a.dueDate) return -1;
-		if (b.dueDate) return 1;
-		return 0;
-	});
-
-	function handleAddTask() {
-		if (!newTaskTitle.trim()) return;
-
-		addTodo({
-			title: newTaskTitle.trim(),
-			description: newTaskDescription.trim() || undefined,
-			priority: newTaskPriority,
-			estimatedMinutes:
-				newTaskHasTimeEstimate &&
-				Number.isFinite(Number.parseFloat(newTaskEstimatedHours)) &&
-				Number.parseFloat(newTaskEstimatedHours) > 0
-					? Math.max(1, Math.round(Number.parseFloat(newTaskEstimatedHours) * 60))
-					: undefined,
-			projectId: newTaskProject,
-			assignedTo: newTaskAssignee?.toString(),
-			status: 'todo',
-			createdBy: $currentUser?.id || 'unknown'
-		});
-
-		newTaskTitle = '';
-		newTaskDescription = '';
-		newTaskPriority = 'medium';
-		newTaskProject = null;
-		newTaskAssignee = null;
-		newTaskHasTimeEstimate = false;
-		newTaskEstimatedHours = '1';
-		showAddForm = false;
-	}
-
-	function toggleTaskStatus(todo: Todo) {
-		const newStatus = todo.status === 'done' ? 'todo' : 'done';
-		updateTodo(todo.id, {
-			status: newStatus,
-			completedAt: newStatus === 'done' ? Date.now() : undefined
+	function complete(todo: Todo): void {
+		const { patch, undo } = completeTask(todo);
+		updateTodo(todo.id, patch);
+		toast(`Marked “${todo.title}” done`, {
+			action: 'Undo',
+			onAction: () => updateTodo(todo.id, { status: undo.status, completedAt: undo.completedAt })
 		});
 	}
 
-	function getProjectName(projectId: string | null | undefined): string {
-		if (!projectId) return '';
-		const project = get(projects).find(p => p.id === projectId);
-		return project?.name || '';
+	function projectName(projectId: string | undefined): string {
+		return projectId ? ($projects.find((p) => p.id === projectId)?.name ?? '') : '';
 	}
-
-	function getPriorityClass(priority: Todo['priority']): string {
-		return `priority-${priority}`;
+	function assigneeId(todo: Todo): number | undefined {
+		const id = todo.assignedTo ? Number.parseInt(String(todo.assignedTo), 10) : NaN;
+		return Number.isFinite(id) ? id : undefined;
 	}
-
-	function formatDueDate(timestamp: number | null | undefined): string {
-		if (!timestamp) return '';
-		const date = new Date(timestamp);
-		const now = new Date();
-		const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-		const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
-
-		if (timestamp < today.getTime()) return 'Overdue';
-		if (timestamp < tomorrow.getTime()) return 'Today';
-
-		const diffDays = Math.ceil((timestamp - today.getTime()) / (24 * 60 * 60 * 1000));
-		if (diffDays <= 7) return `${diffDays}d`;
-
-		return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-	}
-
-	function formatEstimateHours(minutes: number | undefined): string {
+	function hours(minutes: number | undefined): string {
 		if (!minutes || minutes <= 0) return '';
-		return `${(minutes / 60).toFixed(1)}h`;
-	}
-
-	function isOverdue(timestamp: number | null | undefined): boolean {
-		if (!timestamp) return false;
-		const now = new Date();
-		const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-		return timestamp < today.getTime();
+		const value = minutes / 60;
+		return `${Number.isInteger(value) ? value : value.toFixed(1)}h`;
 	}
 </script>
 
-<div class="task-panel-container" class:compact>
-	<div class="panel-header">
-		<h2>Tasks</h2>
-		<div class="header-buttons">
-			<button class="add-btn" on:click={() => showAddForm = !showAddForm} title="Add Task">
-				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<line x1="12" y1="5" x2="12" y2="19"/>
-					<line x1="5" y1="12" x2="19" y2="12"/>
-				</svg>
-			</button>
-			{#if onClose && !compact}
-				<button class="close-panel-btn" on:click={onClose} title="Close task panel">
-					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<line x1="18" y1="6" x2="6" y2="18"/>
-						<line x1="6" y1="6" x2="18" y2="18"/>
-					</svg>
-				</button>
+<div class="task-panel" class:task-panel--frame={compact}>
+	{#if !compact}
+		<header class="tp-head">
+			<h2 class="tp-title">Tasks <span class="tp-count">{list.length}</span></h2>
+			{#if onClose}
+				<Tooltip text="Close Tasks">
+					<button type="button" class="w-ibtn w-ibtn--sm" aria-label="Close Tasks" on:click={onClose}><Icon name="x" /></button>
+				</Tooltip>
 			{/if}
-		</div>
-	</div>
-
-	<!-- Filter Tabs -->
-	<div class="filter-tabs">
-		<button
-			class="filter-tab"
-			class:active={activeFilter === 'all'}
-			on:click={() => activeFilter = 'all'}
-		>All</button>
-		<button
-			class="filter-tab"
-			class:active={activeFilter === 'today'}
-			on:click={() => activeFilter = 'today'}
-		>Today</button>
-		<button
-			class="filter-tab"
-			class:active={activeFilter === 'overdue'}
-			on:click={() => activeFilter = 'overdue'}
-		>Overdue</button>
-		<button
-			class="filter-tab"
-			class:active={activeFilter === 'upcoming'}
-			on:click={() => activeFilter = 'upcoming'}
-		>Week</button>
-	</div>
-
-	<!-- Quick Add Form -->
-	{#if showAddForm}
-		<form class="quick-add-form" on:submit|preventDefault={handleAddTask}>
-			<input
-				bind:this={quickAddTitleInput}
-				type="text"
-				bind:value={newTaskTitle}
-				placeholder="What needs to be done?"
-				class="task-input"
-			/>
-			<textarea
-				bind:value={newTaskDescription}
-				placeholder="Add details..."
-				class="description-input"
-				rows="2"
-			></textarea>
-			<div class="form-row">
-				<select bind:value={newTaskPriority} class="priority-select">
-					<option value="low">Low</option>
-					<option value="medium">Medium</option>
-					<option value="high">High</option>
-					<option value="urgent">Urgent</option>
-				</select>
-				<select bind:value={newTaskProject} class="project-select">
-					<option value={null}>No Project</option>
-					{#each $projects as project}
-						<option value={project.id}>{project.name}</option>
-					{/each}
-				</select>
-			</div>
-			<label class="time-toggle">
-				<input type="checkbox" bind:checked={newTaskHasTimeEstimate} />
-				<span>Track time estimate for burndown</span>
-			</label>
-			{#if newTaskHasTimeEstimate}
-				<input
-					type="number"
-					min="0.25"
-					step="0.25"
-					bind:value={newTaskEstimatedHours}
-					class="task-input"
-					placeholder="Estimated hours"
-				/>
-			{/if}
-			<div class="assignee-field">
-				{#if newTaskAssignee}
-					<div class="assignee-chip">
-						<span class="assignee-dot" style="background-color: {registeredUsers.find(u => u.user_id === newTaskAssignee)?.color || '#888'}"></span>
-						<span>{getAssigneeName(newTaskAssignee)}</span>
-						<button type="button" class="chip-remove" on:click={() => newTaskAssignee = null} title="Clear assignee">×</button>
-					</div>
-				{:else}
-					<input
-						type="text"
-						placeholder="Assign to user..."
-						value={userSearchQuery}
-						on:input={(e) => filterUsers(e.currentTarget.value)}
-						on:focus={() => showUserDropdown = true}
-						on:blur={() => setTimeout(() => showUserDropdown = false, 200)}
-						class="assignee-input"
-					/>
-					{#if showUserDropdown && filteredUsers.length > 0}
-						<div class="assignee-dropdown">
-							{#each filteredUsers as user (user.user_id)}
-								<button
-									type="button"
-									class="assignee-item"
-									on:click={() => {
-										newTaskAssignee = user.user_id;
-										showUserDropdown = false;
-										userSearchQuery = '';
-									}}
-								>
-									<span class="assignee-item-dot" style="background-color: {user.color}"></span>
-									<span>{user.username}</span>
-								</button>
-							{/each}
-						</div>
-					{/if}
-				{/if}
-			</div>
-			<div class="form-actions">
-				<button type="button" class="cancel-btn" on:click={() => showAddForm = false}>Cancel</button>
-				<button type="submit" class="submit-btn">Add Task</button>
-			</div>
-		</form>
+		</header>
 	{/if}
 
-	<!-- Task List -->
-	<div class="task-list">
-		{#if filteredTodos.length === 0}
-			<div class="empty-state">
-				<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-					<path d="M9 11l3 3L22 4"/>
-					<path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-				</svg>
-				<p>No tasks {activeFilter !== 'all' ? `for ${activeFilter}` : ''}</p>
-			</div>
+	<div class="tp-tools">
+		<Segmented label="Show tasks" options={filterOptions} value={activeFilter} onchange={setFilter} class="tp-filter" />
+	</div>
+
+	<div class="tp-body">
+		{#if list.length === 0}
+			<EmptyState icon="checkSquare" as="h3" title={empty.title} text={empty.text} action="Add task" onaction={addTask} class="tp-empty" />
 		{:else}
-			{#each filteredTodos as todo (todo.id)}
-				{#if editingTaskId === todo.id}
-					<!-- Edit Mode -->
-					<form class="edit-task-form" on:submit|preventDefault={saveEditedTask}>
-						<div class="form-header">
-							<h3>Edit Task</h3>
-							<button type="button" class="close-btn" on:click={closeEditMode}>×</button>
-						</div>
-						<input
-							type="text"
-							bind:value={editingTaskTitle}
-							placeholder="Task title"
-							class="task-input"
-							required
-						/>
-						<textarea
-							bind:value={editingTaskDescription}
-							placeholder="Add details..."
-							class="description-input"
-							rows="2"
-						></textarea>
-						<div class="form-row">
-							<select bind:value={editingTaskPriority} class="priority-select">
-								<option value="low">Low</option>
-								<option value="medium">Medium</option>
-								<option value="high">High</option>
-								<option value="urgent">Urgent</option>
-							</select>
-							<select bind:value={editingTaskProject} class="project-select">
-								<option value={null}>No Project</option>
-								{#each $projects as project}
-									<option value={project.id}>{project.name}</option>
-								{/each}
-							</select>
-						</div>
-						<label class="time-toggle">
-							<input type="checkbox" bind:checked={editingTaskHasTimeEstimate} />
-							<span>Track time estimate for burndown</span>
-						</label>
-						{#if editingTaskHasTimeEstimate}
-							<input
-								type="number"
-								min="0.25"
-								step="0.25"
-								bind:value={editingTaskEstimatedHours}
-								class="task-input"
-								placeholder="Estimated hours"
-							/>
-						{/if}
-						<div class="assignee-field">
-							{#if editingTaskAssignee}
-								<div class="assignee-chip">
-									<span class="assignee-dot" style="background-color: {registeredUsers.find(u => u.user_id === editingTaskAssignee)?.color || '#888'}"></span>
-									<span>{getAssigneeName(editingTaskAssignee)}</span>
-									<button type="button" class="chip-remove" on:click={() => editingTaskAssignee = null} title="Clear assignee">×</button>
+			<ul class="tp-list" aria-label={`${list.length} ${list.length === 1 ? 'task' : 'tasks'}`}>
+				{#each list as todo (todo.id)}
+					{@const due = dueLabel(todo, now)}
+					{@const mark = priorityMark(todo.priority)}
+					{@const person = assigneeId(todo)}
+					{@const project = showProjects ? projectName(todo.projectId) : ''}
+					<li class="tp-row">
+						<input type="checkbox" class="w-check tp-row__check" aria-label={`Mark “${todo.title}” done`} checked={false} on:change={() => complete(todo)} />
+						<div class="tp-row__text">
+							<button type="button" class="tp-row__title" on:click={() => openTask(todo)}>{todo.title}</button>
+							{#if due || mark || project || todo.estimatedMinutes}
+								<div class="tp-row__meta">
+									{#if due}
+										<span class="tp-meta tp-meta--due" class:is-overdue={due.tone === 'overdue'} title={due.title}>
+											<Icon name="calendar" size={14} />{due.text}
+										</span>
+									{/if}
+									{#if mark}
+										<span class="tp-meta tp-meta--mark"><span class="w-dot w-dot--{mark.tone}" aria-hidden="true"></span>{mark.word}</span>
+									{/if}
+									{#if project}<span class="tp-meta">{project}</span>{/if}
+									{#if todo.estimatedMinutes}<span class="tp-meta">{hours(todo.estimatedMinutes)}</span>{/if}
 								</div>
-							{:else}
-								<input
-									type="text"
-									placeholder="Assign to user..."
-									value={userSearchQuery}
-									on:input={(e) => filterUsers(e.currentTarget.value)}
-									on:focus={() => showUserDropdown = true}
-									on:blur={() => setTimeout(() => showUserDropdown = false, 200)}
-									class="assignee-input"
-								/>
-								{#if showUserDropdown && filteredUsers.length > 0}
-									<div class="assignee-dropdown">
-										{#each filteredUsers as user (user.user_id)}
-											<button
-												type="button"
-												class="assignee-item"
-												on:click={() => {
-													editingTaskAssignee = user.user_id;
-													showUserDropdown = false;
-													userSearchQuery = '';
-												}}
-											>
-												<span class="assignee-item-dot" style="background-color: {user.color}"></span>
-												<span>{user.username}</span>
-											</button>
-										{/each}
-									</div>
-								{/if}
 							{/if}
 						</div>
-						<div class="form-actions">
-							<button type="button" class="delete-btn" on:click={deleteEditingTask}>Delete</button>
-							<button type="button" class="cancel-btn" on:click={closeEditMode}>Cancel</button>
-							<button type="submit" class="submit-btn">Save</button>
-						</div>
-					</form>
-				{:else}
-					<!-- View Mode -->
-					<div class="task-item {getPriorityClass(todo.priority)}">
-						<button
-							class="checkbox"
-							class:checked={todo.status === 'done'}
-							on:click={() => toggleTaskStatus(todo)}
-						>
-							{#if todo.status === 'done'}
-								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-									<polyline points="20 6 9 17 4 12"/>
-								</svg>
-							{/if}
-						</button>
-						<div class="task-content">
-							<span class="task-title" class:completed={todo.status === 'done'}>{todo.title}</span>
-							<div class="task-meta">
-								{#if todo.estimatedMinutes}
-									<span class="estimate-tag">{formatEstimateHours(todo.estimatedMinutes)}</span>
-								{/if}
-								{#if todo.assignedTo}
-								{@const aid = parseInt(String(todo.assignedTo), 10)}
-								<span class="assignee-tag">
-									<PlannerAvatar
-										name={getAssigneeName(aid)}
-										color={getAssigneeColor(aid)}
-										src={getAssigneeAvatarUrl(aid)}
-										size="xs"
-									/>
-									<span>{getAssigneeName(aid)}</span>
-								</span>
-							{/if}
-								{#if todo.projectId}
-									<span class="project-tag">{getProjectName(todo.projectId)}</span>
-								{/if}
-								{#if todo.dueDate}
-									<span class="due-date" class:overdue={isOverdue(todo.dueDate)}>
-										{formatDueDate(todo.dueDate)}
-									</span>
-								{/if}
-							</div>
-						</div>
-						<button class="edit-btn" on:click={() => openEditMode(todo)} title="Edit task">
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-								<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-							</svg>
-						</button>
-						<div class="priority-indicator"></div>
-					</div>
-				{/if}
-			{/each}
+						{#if person}
+							{@const name = $plannerUserById.get(person)?.username ?? ''}
+							<span class="tp-row__who" title={name ? `Assigned to ${name}` : undefined}>
+								<PlannerAvatar {name} color={getPlannerUserColor($plannerUserById, person)} src={getPlannerUserAvatarUrl($plannerUserById, person)} size="sm" label={name ? `Assigned to ${name}` : ''} />
+							</span>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+			<button type="button" class="tp-add" on:click={addTask}><Icon name="plus" size={16} />Add task</button>
 		{/if}
 	</div>
 </div>
 
+{#if dialogTodo || creating}
+	<PlannerTaskDialog todo={dialogTodo} dueDate={creating ? newDueDate : undefined} onclose={closeDialog} />
+{/if}

@@ -52,28 +52,39 @@
 :root .main-content .gallery-title { font: 600 calc(20px * var(--w-fs, 1))/1.2 var(--w-serif); }
 :root .main-content .project-subtitle { font: 400 calc(14px * var(--w-fs, 1))/1.5 var(--w-sans); color: var(--w-mute); }
 
-/* HELD FOR the project board skin (ProjectWorkspace / SharedProjectBoard): no wave-1 package
-   owns those components; w1-planner-board's surfaces/planner.css may adopt this block. */
+/* HELD FOR the project board skin (ProjectWorkspace / SharedProjectBoard). Restyled by
+   w1-planner-views (wave 1c) on roles and type tokens; the components keep their markup.
+   An editorial header on the page, not a banner: no gradient, glow or tinted mark; the eyebrow
+   is a kicker, the name a serif title, the picker a kit field, the active tab a --w-sig
+   underline on the rule (§5.2). The board's lane heads follow §7.27: sans label in --w-mute,
+   a mono count, a hairline under the head. */
 /* ---- project view: editorial header, ledger board ---- */
-:root .project-workspace .project-hero { background: var(--w-bg); border-bottom: var(--w-bw, 1px) solid var(--w-line); padding-block: 1rem; }
+:root .project-workspace .project-hero { background: var(--w-bg); border-bottom: var(--w-bw, 1px) solid var(--w-line); padding-block: 20px; }
 :root .project-workspace .project-hero::after { display: none; }
-:root .project-workspace .project-mark { width: 2.4rem; height: 2.4rem; border-radius: calc(8px * var(--w-rs, 1)); background: transparent; border: var(--w-bw, 1px) solid var(--w-line-strong); }
-:root .project-workspace .project-mark svg { width: 1.25rem; height: 1.25rem; }
-:root .project-workspace .project-eyebrow, :root .shared-project-board .board-eyebrow { font: 600 .66rem var(--w-mono); letter-spacing: .1em; color: var(--w-mute); }
-:root .project-workspace .project-presence { background: var(--w-online); box-shadow: none; }
-:root .project-workspace .project-title-block h1, :root .shared-project-board .board-heading h2 { font-family: var(--w-serif); font-weight: 600; letter-spacing: .005em; }
-:root .project-workspace .project-picker select { border-radius: calc(8px * var(--w-rs, 1)); }
-:root .project-workspace .project-tabs button.active::after { box-shadow: none; background: var(--w-sig); border-radius: 0; }
+:root .project-workspace .project-mark { width: 40px; height: 40px; border-radius: var(--radius-md); background: transparent; border: var(--w-bw, 1px) solid var(--w-line-strong); box-shadow: none; color: var(--w-sig); }
+:root .project-workspace .project-mark svg { width: 20px; height: 20px; }
+:root .project-workspace .project-eyebrow, :root .shared-project-board .board-eyebrow { font: var(--w-t-kicker); letter-spacing: 0.12em; text-transform: uppercase; color: var(--w-faint); }
+:root .project-workspace .project-presence { width: 6px; height: 6px; background: var(--w-online); box-shadow: none; }
+:root .project-workspace .project-title-block h1 { font: var(--w-t-title); letter-spacing: 0.005em; color: var(--w-text); }
+:root .shared-project-board .board-heading h2 { font-family: var(--w-serif); font-weight: 600; letter-spacing: 0.005em; }
+:root .project-workspace .project-picker { font: var(--w-t-caption); color: var(--w-mute); }
+:root .project-workspace .project-picker select { min-height: 32px; padding: 0 10px; border: var(--w-bw, 1px) solid var(--w-line); border-radius: var(--radius-md); background: var(--w-lift); color: var(--w-text); font: var(--w-t-ui); }
+:root .project-workspace .project-picker select:focus-visible { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
+:root .project-workspace .project-tabs button { font: var(--w-t-label); color: var(--w-mute); }
+:root .project-workspace .project-tabs button.active, :root .project-workspace .project-tabs button:hover { color: var(--w-text); }
+:root .project-workspace .project-tabs button.active::after { box-shadow: none; background: var(--w-sig); border-radius: 2px 2px 0 0; }
+:root .project-workspace .project-tabs button:focus-visible { outline: 2px solid var(--w-accent); outline-offset: -2px; }
 :root .shared-project-board .board-overview { background: transparent; border-bottom: var(--w-bw, 1px) solid var(--w-line); }
-:root .shared-project-board .board-pulse { background: transparent; border-radius: calc(8px * var(--w-rs, 1)); border-color: var(--w-line); }
-:root .shared-project-board .pulse-stat :is(b, strong) { font-family: var(--w-mono); font-weight: 600; }
-:root .shared-project-board .progress-track { border-radius: 0; height: 3px; }
+:root .shared-project-board .board-pulse { background: transparent; border-radius: var(--radius-md); border-color: var(--w-line); box-shadow: none; }
+:root .shared-project-board .pulse-stat :is(b, strong) { font-family: var(--w-mono); font-weight: 500; font-feature-settings: 'tnum'; }
+:root .shared-project-board .progress-track { border-radius: var(--w-pill); height: 2px; background: var(--w-line); }
 :root .shared-project-board .section-line { border-radius: 0; background: var(--w-sig); }
-:root .shared-project-board .board-actions .new-card-button { background: var(--w-text); color: var(--w-bg); border-color: var(--w-text); border-radius: calc(8px * var(--w-rs, 1)); box-shadow: none; }
+:root .shared-project-board .board-actions .new-card-button { background: var(--w-text); color: var(--w-bg); border-color: var(--w-text); border-radius: var(--radius-md); box-shadow: none; }
+:root .shared-project-board .board-actions .new-card-button:hover { background: color-mix(in srgb, var(--w-text) 86%, var(--w-bg)); border-color: color-mix(in srgb, var(--w-text) 86%, var(--w-bg)); }
 
-:root .shared-project-board .board-actions button { border-radius: calc(8px * var(--w-rs, 1)); min-height: 2.2rem; }
-:root .shared-project-board .board-intro h2 { letter-spacing: .005em; }
-:root .shared-project-board .board-scroll .column-indicator { box-shadow: none; border-radius: 1px; width: .55rem; height: .55rem; }
-:root .shared-project-board .board-scroll .column-labels h2 { font: 600 1.02rem var(--w-serif); }
-:root .shared-project-board .board-scroll .column-count { background: transparent; color: var(--w-mute); font: 600 .72rem var(--w-mono); padding: 0; }
+:root .shared-project-board .board-actions button { border-radius: var(--radius-md); min-height: 32px; font: var(--w-t-label); }
+:root .shared-project-board .board-intro h2 { letter-spacing: 0.005em; }
+:root .shared-project-board .board-scroll .column-indicator { box-shadow: none; border-radius: var(--w-pill); width: 8px; height: 8px; }
+:root .shared-project-board .board-scroll .column-labels h2 { font: 500 calc(13px * var(--w-fs, 1)) / calc(18px * var(--w-fs, 1)) var(--w-sans); letter-spacing: 0; color: var(--w-mute); }
+:root .shared-project-board .board-scroll .column-count { background: transparent; color: var(--w-faint); font: var(--w-t-micro); padding: 0; }
 :root .shared-project-board .board-scroll .column-header { border-bottom: var(--w-bw, 1px) solid var(--w-line); }
