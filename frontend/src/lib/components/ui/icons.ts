@@ -76,6 +76,9 @@ export const ICONS = {
 	phone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/>',
 	phoneOff: '<path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91M22 2 2 22"/>',
 	signal: '<path d="M2 20h.01M7 20v-4M12 20v-8M17 20V8M22 4v16"/>',
+	// Recording: a solid dot. The registry is stroke-only, so the disc is drawn as overlapping
+	// rings (1.75 strokes 1 apart) that fill it in currentColor; static, it never pulses.
+	record: '<circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="12" r="1"/>',
 
 	// ---- universal verbs ----
 	search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',

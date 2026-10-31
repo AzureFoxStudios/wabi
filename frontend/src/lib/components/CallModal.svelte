@@ -112,9 +112,12 @@
 	import {
 		CAPTURE_FAILED_WORDS,
 		connectionWords,
+		cornerBar,
+		dockCallPanel,
 		followPlaceUnderCall,
 		minimizedCallLabel,
 		peopleCountLabel,
+		recordingNoteWords,
 		recordingReadout,
 		recordingResultWords,
 		sessionConnectionState
@@ -396,14 +399,13 @@
 		formatRecordingElapsed($callRecordingState.elapsedMs),
 		activeRecordingCount
 	);
-	$: recordingPresenceCopy =
-		$callRecordingState.status === 'saving'
-			? 'Recording has stopped. Saving locally on this device.'
-			: activeRecordingCount > 0
-				? formatRecordingPresenceCopy(activeScopeRecordingParticipants, selfStableUserId)
-				: $callRecordingState.status === 'recording'
-					? 'Recording is starting. Everyone in this call can see it.'
-					: '';
+	// Who is recording, by name once the presence echo arrives; your own recording is named by its
+	// state until then ("starting", then "You're recording" once the readout runs).
+	$: recordingPresenceCopy = recordingNoteWords(
+		$callRecordingState.status,
+		$callRecordingState.elapsedMs,
+		activeRecordingCount > 0 ? formatRecordingPresenceCopy(activeScopeRecordingParticipants, selfStableUserId) : ''
+	);
 
 	$: {
 		const nextPins = sanitizePinnedIds(pinnedTileIds, tileById);
@@ -933,10 +935,22 @@
 		hatchOpen = !hatchOpen;
 	}
 
+	/** The header's Minimize: the person dismisses the call, so it stays down for this call. */
 	function minimizeToDocked(): void {
 		callViewportMode = 'docked';
-		dismissChannelCallPanel();
 		hatchOpen = false;
+		dockCallPanel('minimize', { close: () => channelCallPanelOpen.set(false), dismiss: dismissChannelCallPanel });
+	}
+
+	/**
+	 * Navigation moved center stage somewhere else: the call docks with a plain close, exactly like
+	 * the sidebar's text-channel click, so it is not a dismissal and a remote screen share can still
+	 * bring it back (dockCallPanel).
+	 */
+	function dockForNavigation(): void {
+		callViewportMode = 'docked';
+		hatchOpen = false;
+		dockCallPanel('navigation', { close: () => channelCallPanelOpen.set(false) });
 	}
 
 	// The place center stage showed when the call came up over it (see followPlaceUnderCall).
@@ -944,12 +958,12 @@
 	function followStagePlace(covering: boolean, place: string): void {
 		const next = followPlaceUnderCall(placeUnderCall, place, covering);
 		placeUnderCall = next.remembered;
-		if (next.dock) minimizeToDocked();
+		if (next.dock) dockForNavigation();
 	}
 
 	let connectionDetailsWereOpen = false;
 	function followConnectionDetails(open: boolean): void {
-		if (open && !connectionDetailsWereOpen && showCallShell) minimizeToDocked();
+		if (open && !connectionDetailsWereOpen && showCallShell) dockForNavigation();
 		connectionDetailsWereOpen = open;
 	}
 
@@ -1185,6 +1199,7 @@
 		aria-label={dockedRegionLabel}
 		use:followStageInert={true}
 		use:keepStreamAtLatest
+		use:cornerBar
 	>
 		<div class="docked-status">
 			<span class="docked-live" aria-hidden="true"></span>

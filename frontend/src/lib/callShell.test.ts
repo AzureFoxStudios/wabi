@@ -181,6 +181,8 @@ describe('call dock', () => {
 		const record = items.find((item) => item.id === 'record');
 		expect(record?.role).toBe('menuitemcheckbox');
 		expect(record?.checked).toBe(false);
+		// Start recording has its own glyph (a static dot), so its 16px slot is not empty.
+		expect(record?.icon).toBe('record');
 		for (const item of items) if (item.icon) expect(isIconName(item.icon)).toBe(true);
 		// One meaning per glyph (§6): drawing on the screen and the whiteboard do not share a glyph.
 		const glyphs = items.filter((item) => item.icon).map((item) => item.icon);
@@ -270,7 +272,8 @@ describe('call shell markup (member UI)', () => {
 		expect(modal).toMatch(/import \{ activeWorkspaceView \} from '\$lib\/workspaceNavigationState'/);
 		expect(modal).toMatch(/\$: stagePlace = `\$\{\$activeWorkspaceView\}\|\$\{\$currentChannel/);
 		expect(modal).toMatch(/\$: followStagePlace\(showCallShell, stagePlace\)/);
-		expect(modal).toMatch(/if \(next\.dock\) minimizeToDocked\(\)/);
+		// Navigation docks with a plain close, not the Minimize dismissal (callShellLayout.test.ts).
+		expect(modal).toMatch(/if \(next\.dock\) dockForNavigation\(\)/);
 		expect(modal).toMatch(/\$: followConnectionDetails\(\$callConnectionDetailsOpen\)/);
 		expect(modal).toMatch(/id: 'connection-details',\s*label: 'Connection details',\s*icon: 'signal',\s*onSelect: openConnectionDetails/);
 	});

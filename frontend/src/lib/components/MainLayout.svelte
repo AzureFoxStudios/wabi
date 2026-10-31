@@ -43,7 +43,9 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import type { WorkspaceViewKey } from './chat/types';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
 	import { channelMessages, channelUnreadCounts, channels, currentChannel, currentUser, users, createDM, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, joinChannel, type Channel, type User } from '$lib/socket';
-	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callMode, callTransportState, connectionState, incomingCall, outgoingCall, isInCall, activeGroupCall, groupCallRingingTargets, isVideoOff, toggleVideo, channelCallPanelOpen, callOfflineNotice } from '$lib/calling';
+	import { activeCalls, activeVoiceChannel, callMode, connectionState, incomingCall, outgoingCall, isInCall, activeGroupCall, groupCallRingingTargets, isVideoOff, toggleVideo, channelCallPanelOpen, callOfflineNotice } from '$lib/calling';
+	import { connectionWords, dockCallPanel } from '$lib/callShell';
+	import Icon from '$lib/components/ui/Icon.svelte';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
 	import { onDestroy, onMount, tick } from 'svelte';
 import { _ } from '$lib/i18n';
@@ -117,13 +119,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 
 	let resizingChannel = false;
 	let resizingRight = false;
-	let showVoiceDebugDetails = false;
 	let showCallDebugPanel = false;
-	// Dev-only gate: the floating calling-diagnostics overlay must never ship to regular users.
-	// 2026-08-27: the diagnostics overlay was DEV-only, so real users could
-	// never see ping/loss/bitrate during field tests. Always compiled in; the
-	// floating toggle only MOUNTS while a call surface is active.
-	const callDebugPanelEnabled = true;
+	// The floating calling-diagnostics toggle is a developer instrument (§9.4): CallDebugPanel
+	// renders only in dev builds, so the toggle and its overlay exist only there too. Members reach
+	// Connection details (ping, loss, route) from the call's Call options and the Calls page.
+	const callDebugPanelEnabled = import.meta.env.DEV;
 	let showServerSwitcher = false;
 	let serverHubReturnView: typeof activeView = 'chat';
 	let serverHubWelcome = newlyRegistered;
@@ -195,14 +195,21 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	$: scrimRight = ($layoutStore.stubSide === 'left' ? 0 : dockRail) + ($layoutStore.navDock === 'right' ? dockSidebar : 0);
 
 	// Under a held peek's scrim the covered stage (masthead, surface, voice strip) is out of
-	// reach for the pointer, so it is inert for the keyboard too. The call layer is not covered: it
-	// paints above the scrim and stays live (an incoming call can always be answered).
-	// The covered parts stay direct children of .chat-stack and each gets `inert` (coverStage), so
-	// no wrapper sits between the stage container and its parts.
+	// reach for the pointer, so it is inert for the keyboard too. The covered parts stay direct
+	// children of .chat-stack and each gets `inert` (coverStage), so no wrapper sits between the
+	// stage container and its parts.
+	// The embedded call and the minimized call foot are stage parts as well: they paint under the
+	// scrim and are inert with the stage. CallModal sets that inert itself (followStageInert mirrors
+	// .chat-surface's), because it alone knows when the shell turns into full window, which covers
+	// the whole app and is never under the scrim. They are listed here (CALL_STAGE_PARTS) so focus
+	// in them moves into the peek and comes back like focus on the rest of the stage. The incoming
+	// and outgoing call dialogs are not stage parts: they sit above the scrim and stay live, so a
+	// call can always be answered.
 	const STAGE_PARTS = '.stage-bar, .chat-surface, .voice-live-strip';
+	const CALL_STAGE_PARTS = '.call-shell.mode-embedded, .docked-bar';
 	let chatStack: HTMLElement | null = null;
 	function inCoveredStage(element: Element): boolean {
-		return Array.from(chatStack?.children ?? []).some((part) => part.matches(STAGE_PARTS) && part.contains(element));
+		return Array.from(chatStack?.children ?? []).some((part) => (part.matches(STAGE_PARTS) || part.matches(CALL_STAGE_PARTS)) && part.contains(element));
 	}
 	/** Svelte action for .chat-stack: makes its stage parts inert while covered, including parts mounted meanwhile. */
 	function coverStage(node: HTMLElement, covered: boolean) {
@@ -422,7 +429,26 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	$: if (callUiActive && !CallModalCmp) void import('./CallModal.svelte').then((m) => (CallModalCmp = m.default));
 	$: if (($layoutStore.rightPanelMode !== 'none' || peekClosing || ($layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'users')) && !RightPanelCmp) void import('./RightPanel.svelte').then((m) => (RightPanelCmp = m.default));
 
+	// Center stage owns the selected workspace (layout contract): a call that covers the stage
+	// (embedded below the masthead, or full window) docks whenever navigation picks what the stage
+	// shows, so the stage always shows what the folio or the sidebar now names. CallModal does this
+	// for the changes it can see (workspace view, channel, center-stage DM); these are the ones only
+	// this layout sees: its own activeView (Server home, the DM hub, the following feed) and choosing
+	// the folio word, DMs or Server home that is already current. Navigation docks with a plain
+	// close, like the sidebar's text-channel click, not the person's Minimize, so a later remote
+	// screen share can still bring the call back (dockCallPanel in $lib/callShell).
+	function dockCallForNavigation(): void {
+		if (!get(channelCallPanelOpen)) return;
+		dockCallPanel('navigation', { close: () => channelCallPanelOpen.set(false) });
+	}
+	let viewUnderCall = activeView;
+	$: if (activeView !== viewUnderCall) {
+		viewUnderCall = activeView;
+		dockCallForNavigation();
+	}
+
 	function handleWorkspaceViewSelect(view: WorkspaceViewKey): void {
+		dockCallForNavigation();
 		activeView = 'chat';
 		// The picker owns the center only; keep docked DM conversations intact.
 		layoutStore.closeCenterDm();
@@ -582,6 +608,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	}
 
 	function selectMessagesHub(closeConversation = false): void {
+		dockCallForNavigation();
+		// The DM hub is center stage only under the 'messages' view: without this, opening DMs from
+		// another workspace (e.g. Calls) marked DMs in the sidebar but left that workspace on stage.
+		selectWorkspaceView('messages');
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
 		if (closeConversation) layoutStore.closeCenterDm();
@@ -591,6 +621,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	}
 
 	function openFriendsHub(): void {
+		dockCallForNavigation();
+		selectWorkspaceView('messages');
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
 		layoutStore.closeCenterDm();
@@ -710,6 +742,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	}
 
 	function openServerHub(): void {
+		dockCallForNavigation();
 		showServerSwitcher = false;
 		serverHubWelcome = false;
 		if (activeView !== 'server') serverHubReturnView = activeView;
@@ -1067,10 +1100,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		handleWorkspaceViewSelect('whiteboard');
 	}
 
-	function formatDiag(value: number | null, unit = ''): string {
-		if (value == null || Number.isNaN(value)) return '--';
-		return `${value}${unit}`;
-	}
+	// Connection trouble in plain words on the phone strip, never the lifecycle enum (§9.4).
+	$: stripConnectionWords = connectionWords($connectionState);
 
 	function resetTouchSwipe(): void {
 		touchStartX = 0;
@@ -1342,10 +1373,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		const width = Math.max(window.innerWidth, 1);
 		const p = Math.min(1, Math.abs(offsetX) / (width * 0.34));
 		return 0.35 + (p * 0.65);
-	}
-
-	$: if ($callMode !== 'channel' || !$activeVoiceChannel) {
-		showVoiceDebugDetails = false;
 	}
 
 	$: if (!$layoutStore.isMobile || $layoutStore.isInCall) {
@@ -1672,8 +1699,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	{/if}
 
 	<!-- Main Content. Under a held peek's scrim the stage parts (masthead, surface, voice strip)
-	     are inert (coverStage); they stay direct children of .chat-stack. The call layer below them
-	     paints above the scrim and stays live.
+	     are inert (coverStage); they stay direct children of .chat-stack. The embedded call and the
+	     call foot that CallModal renders below them are inert with the stage too (its
+	     followStageInert); the incoming and outgoing call dialogs sit above the scrim and stay live.
 	     The masthead (StageBar, §7.23 / §8.2) is mounted once above every center-stage workspace,
 	     so switching workspaces never moves or unmounts the folio. Server home and the DM hub have
 	     their own headers. -->
@@ -1823,44 +1851,25 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					on:click={() => (showCallDebugPanel = false)}
 					aria-label="Close calling diagnostics"
 					title="Close calling diagnostics"
-				>
-					×
-				</button>
+				><Icon name="x" size={14} /></button>
 			</div>
 		{/if}
 	{/if}
 
-	{#if $layoutStore.isMobile && $callMode === 'channel' && $activeVoiceChannel}
+	<!-- The phone channel-call strip, while the room is minimized. When the call is open in the
+	     stage its dock is the only action bar (§8.12), so the strip steps aside. Connection details
+	     live on the Calls page (§8.5), not in a toggle on this header (§9.4). -->
+	{#if $layoutStore.isMobile && $callMode === 'channel' && $activeVoiceChannel && !$channelCallPanelOpen}
 		<div class="voice-channel-strip" role="status" aria-live="polite" transition:fly={{ y: 20, duration: 220 }}>
-			<button
-				class="voice-status-header"
-				type="button"
-				on:click={() => (showVoiceDebugDetails = !showVoiceDebugDetails)}
-				aria-expanded={showVoiceDebugDetails}
-				title={$_('shell.call.toggle_diagnostics')}
-			>
+			<div class="voice-status-header">
 				<span class="status-leading">
 					<span class="dot"></span>
 					<span class="voice-status-text">
 						<strong>{$_('shell.call.voice_connected')}</strong>
-						<small>{$activeVoiceChannel.name} / {$connectionState}</small>
+						{#if stripConnectionWords}<small>{stripConnectionWords}</small>{/if}
 					</span>
 				</span>
-				<span class="status-chevron">{showVoiceDebugDetails ? 'v' : '>'}</span>
-			</button>
-
-			{#if showVoiceDebugDetails}
-				<div class="voice-debug-grid">
-					<div class="debug-item"><span>Ping</span><strong>{formatDiag($callConnectionDiagnostics.pingMs, 'ms')}</strong></div>
-					<div class="debug-item"><span>Jitter</span><strong>{formatDiag($callConnectionDiagnostics.jitterMs, 'ms')}</strong></div>
-					<div class="debug-item"><span>Inbound Loss</span><strong>{formatDiag($callConnectionDiagnostics.inboundPacketLossPct, '%')}</strong></div>
-					<div class="debug-item"><span>Outbound Loss</span><strong>{formatDiag($callConnectionDiagnostics.outboundPacketLossPct, '%')}</strong></div>
-					<div class="debug-item"><span>Inbound Rate</span><strong>{formatDiag($callConnectionDiagnostics.inboundKbps, 'kbps')}</strong></div>
-					<div class="debug-item"><span>Outbound Rate</span><strong>{formatDiag($callConnectionDiagnostics.outboundKbps, 'kbps')}</strong></div>
-					<div class="debug-item"><span>Transport</span><strong>{$callTransportState.activeTransport.toUpperCase()}</strong></div>
-					<div class="debug-item"><span>Participants</span><strong>{1 + $activeCalls.length}</strong></div>
-				</div>
-			{/if}
+			</div>
 
 			<div class="voice-channel-meta">
 				<span class="voice-channel-name-label">{$_('shell.call.in_voice')}</span>
@@ -2034,7 +2043,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 	}
 
-	/* Dev-only calling-diagnostics overlay (gated by import.meta.env.DEV) */
+	/* Dev-only calling-diagnostics overlay (callDebugPanelEnabled = import.meta.env.DEV). */
 	.call-debug-toggle {
 		position: fixed;
 		left: 8px;
@@ -2042,24 +2051,24 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		z-index: var(--z-sticky, 100);
 		width: 32px;
 		height: 32px;
-		border-radius: 8px;
-		border: 1px solid var(--border-subtle);
-		background: var(--surface-base, #24243e);
-		color: var(--text-secondary, #b3b3ff);
+		border-radius: var(--radius-md);
+		border: var(--w-bw) solid var(--w-line);
+		background: var(--w-bg2);
+		color: var(--w-mute);
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		cursor: pointer;
-		transition: all 0.18s ease;
+		transition: background-color var(--w-dur-1) var(--w-ease), color var(--w-dur-1) var(--w-ease), opacity var(--w-dur-1) var(--w-ease);
 		opacity: 0.5;
 	}
 
 	.call-debug-toggle:hover,
 	.call-debug-toggle.active {
 		opacity: 1;
-		background: var(--accent-primary-color);
-		color: var(--text-inverse, #fff);
-		border-color: var(--accent-primary-color);
+		background: var(--w-raise);
+		color: var(--w-text);
+		border-color: var(--w-line-strong);
 	}
 
 	.call-debug-overlay {
@@ -2078,14 +2087,13 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		position: absolute;
 		top: 6px;
 		right: 6px;
-		width: 22px;
-		height: 22px;
-		line-height: 1;
-		border-radius: 999px;
-		border: 1px solid var(--border-subtle);
-		background: var(--surface-base, #24243e);
-		color: var(--text-secondary, #b3b3ff);
-		font-size: 1rem;
+		width: 24px;
+		height: 24px;
+		padding: 0;
+		border-radius: var(--radius-inner);
+		border: var(--w-bw) solid var(--w-line);
+		background: var(--w-bg2);
+		color: var(--w-mute);
 		cursor: pointer;
 		display: flex;
 		align-items: center;
@@ -2093,9 +2101,14 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	}
 
 	.call-debug-close:hover {
-		background: var(--accent-danger-soft, rgba(239, 68, 68, 0.2));
-		color: var(--color-danger, #ef4444);
-		border-color: rgba(var(--color-danger-rgb, 239, 68, 68), 0.5);
+		background: var(--w-raise);
+		color: var(--w-text);
+	}
+
+	.call-debug-toggle:focus-visible,
+	.call-debug-close:focus-visible {
+		outline: 2px solid var(--w-accent);
+		outline-offset: 2px;
 	}
 
 	@media (max-width: 768px) {
@@ -2106,5 +2119,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		.call-debug-overlay {
 			bottom: calc(var(--mobile-nav-height, 56px) + 48px);
 		}
+	}
+
+	/* The phone channel-call strip's header is a status line now, not a diagnostics toggle. */
+	.voice-status-header {
+		cursor: default;
 	}
 </style>

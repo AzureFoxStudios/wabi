@@ -299,6 +299,19 @@ describe('stagebar.css: role-only skin', () => {
 	});
 });
 
+describe('the sidebar DMs and Friends rows put the DM hub on center stage', () => {
+	test('both hub entry points select the messages view, whatever workspace was showing', () => {
+		// Regression (w1-call-shell follow-up verify): from Calls, the sidebar DMs row set
+		// activeView 'dm' but left Calls on stage, because the center stage shows the DM hub only
+		// while $activeWorkspaceView is 'messages'.
+		for (const fn of ['function selectMessagesHub(', 'function openFriendsHub(']) {
+			const body = between(mainLayout, fn, '\n\t}\n');
+			expect(body).toContain("selectWorkspaceView('messages');");
+			expect(body).toContain("activeView = 'dm';");
+		}
+	});
+});
+
 describe('one persistent masthead (MainLayout → StageBar → folio)', () => {
 	test('MainLayout mounts StageBar once at the top of the stage; the standalone bar is gone', () => {
 		const stack = between(mainLayout, '<div class="chat-stack"', '<div class="chat-surface">');
