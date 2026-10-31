@@ -81,7 +81,7 @@
 	import { _ } from '$lib/i18n';
 	import type { Channel } from '$lib/socket';
 	import { layoutStore } from '$lib/layoutStore';
-	import { selectedDmChannelId } from '$lib/layoutStoreStates';
+	import { compactShellTier, selectedDmChannelId } from '$lib/layoutStoreStates';
 	import { currentSavedServer } from '$lib/savedServers';
 	import { resolveServerUrl } from '$lib/serverUrl';
 	import { openDetachedPanel } from '$lib/detachedPanels';
@@ -193,7 +193,9 @@
 	$: sidebarWidth = $layoutStore.channelSidebarWidth;
 	// A real compact rail (spec §8.1): any narrow desktop column renders 40px glyph tiles; a
 	// narrow (but not compact) column drops the search keycap. The phone drawer is always full.
-	$: widthTier = sidebarWidthTier(sidebarWidth, $layoutStore.isMobile);
+	// In the 769–1023px band (§8.13) the shell decides: the 60px rail at rest, the full column
+	// while it is open over the stage; the stored width stays the desktop preference.
+	$: widthTier = (!$layoutStore.isMobile && $compactShellTier) || sidebarWidthTier(sidebarWidth, $layoutStore.isMobile);
 	$: isCompactSidebar = widthTier === 'compact';
 	// Exactly one "you are here" entry: Server home, DMs, or the channel (page or context).
 	$: sidebarPlace = resolveSidebarPlace(activeView, $activeWorkspaceView);
@@ -1219,7 +1221,7 @@
 	class:compact={isCompactSidebar}
 	class:narrow={widthTier === 'narrow'}
 	class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
-	style:width={$layoutStore.isMobile ? '100%' : `${$layoutStore.channelSidebarWidth}px`}
+	style:width={$layoutStore.isMobile ? '100%' : $compactShellTier === 'full' ? null : `${$compactShellTier === 'compact' ? 60 : $layoutStore.channelSidebarWidth}px`}
 	aria-label={currentServerLabel}
 >
 	<!--

@@ -31,7 +31,6 @@ type Rule = keyof typeof RULES;
 const LEDGER: Record<string, Partial<Record<Rule, number>>> = {
 	'lib/components/DesktopTitlebar.css': { legacy: 20 },
 	'lib/components/FfxivReferencePanel.css': { hex: 10, rgb: 21, legacy: 27, frost: 1 },
-	'lib/components/ModeTabsDrawer.css': { hex: 29, rgb: 22, legacy: 41, named: 2 },
 	'lib/components/WhiteboardCanvas.css': { hex: 17, rgb: 3, legacy: 13, frost: 1 },
 	'lib/components/ZipPreviewPanel.css': { hex: 16, rgb: 9, legacy: 17 },
 	'lib/components/lore/loreWorkspace.css': { hex: 16, legacy: 4 },
@@ -66,8 +65,6 @@ const LEDGER: Record<string, Partial<Record<Rule, number>>> = {
 	'styles/components/ml-mobile.css': { legacy: 13 },
 	'styles/components/ml-spoiler.css': { rgb: 1, legacy: 2 },
 	'styles/components/ml-translated.css': { legacy: 6 },
-	'styles/components/mobile-breakpoints.css': { rgb: 1, legacy: 10, named: 2, frost: 1 },
-	'styles/components/mobile-shell.css': { hex: 4, rgb: 3, legacy: 12, named: 3, frost: 10 },
 	'styles/components/model-viewer-3d.css': { hex: 31, legacy: 5 },
 	'styles/components/payment-sheet.css': { hex: 11, rgb: 33, legacy: 18 },
 	'styles/components/reader-tab.css': { hex: 52, systemUi: 5 },
