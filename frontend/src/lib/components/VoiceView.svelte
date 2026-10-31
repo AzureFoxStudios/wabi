@@ -68,7 +68,8 @@
 		callConnectionDiagnostics,
 		switchCallTransport,
 		localScreenStream,
-		screenShares
+		screenShares,
+		channelCallPanelOpen
 	} from '$lib/calling';
 	import { callRecordingState, startCallRecording, stopCallRecording, formatRecordingElapsedForUi } from '$lib/callRecording';
 	import { voiceCallRecordingParticipants } from '$lib/callRecordingPresence';
@@ -363,8 +364,18 @@
 		return items;
 	});
 
+	/**
+	 * A call open in center stage on a phone brings its own dock, and on phones the dock is the only
+	 * action bar (§8.12): the phone bar keeps the "Calls" title but drops Mic, Sound and ⋯.
+	 */
+	const phoneCallOpen = $derived($isMobile && $channelCallPanelOpen);
+	$effect(() => {
+		if (phoneCallOpen) moreOpen = false;
+	});
+
 	const headerActions = $derived.by<StageHeaderAction[]>(() => {
 		if (!inCall) return [];
+		if (phoneCallOpen) return [];
 		// Mic and Sound keep one name and report their state with aria-pressed, exactly like the
 		// sidebar foot's Mute and Deafen (spec §7.2, §8.1 item 8).
 		const mic: StageHeaderAction = {

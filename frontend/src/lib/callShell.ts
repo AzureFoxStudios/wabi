@@ -9,6 +9,7 @@
  *   desktop, and on phones they move into More, so the dock is Mic, Sound, More, Leave and fits
  *   a 390px screen. Everything else (draw, capture, whiteboard, recording, devices) is in More.
  */
+import { derived, writable, type Readable } from 'svelte/store';
 import type { IconName } from './components/ui/icons';
 import type { ConnectionLifecycleState } from './callingTypes';
 
@@ -108,6 +109,27 @@ export function followPlaceUnderCall(
 	return { remembered: null, dock: true };
 }
 
+/**
+ * Why the call leaves center stage, and so how its panel closes. Navigation (a folio word, Ctrl K,
+ * a channel, a DM, Server home, the DM hub, Connection details) is a plain close, the same as the
+ * sidebar's text-channel click: the call can still come back by itself, for example when someone
+ * starts sharing their screen. Only the call's own Minimize is the person dismissing it, which
+ * keeps it down for the rest of that call (dismissChannelCallPanel).
+ */
+export type CallDockCause = 'navigation' | 'minimize';
+
+export function dockCallPanel(
+	cause: CallDockCause,
+	panel: { close: () => void; dismiss?: () => void }
+): 'closed' | 'dismissed' {
+	if (cause === 'minimize' && panel.dismiss) {
+		panel.dismiss();
+		return 'dismissed';
+	}
+	panel.close();
+	return 'closed';
+}
+
 /** The minimized call's region name, without saying "Call" twice ("Call with Theo Park"). */
 export function minimizedCallLabel(title: string): string {
 	return /\bcall\b/i.test(title) ? title : `Call: ${title}`;
@@ -143,6 +165,105 @@ export function recordingReadout(
 	if (othersRecording > 0) return 'Recording';
 	return '';
 }
+
+/**
+ * The note under the call header that says who is recording (§8.5, §9.5). The names come from the
+ * recording presence echo; until it arrives your own recording is named by its state: "starting"
+ * only before the readout has counted a second, then "You're recording", so the note never says
+ * "starting" beside a running timer (local-only or offline recordings get no echo at all).
+ */
+export function recordingNoteWords(
+	status: 'idle' | 'recording' | 'saving' | 'error',
+	elapsedMs: number,
+	presenceWords: string
+): string {
+	if (status === 'saving') return 'Recording has stopped. Saving locally on this device.';
+	if (presenceWords) return presenceWords;
+	if (status !== 'recording') return '';
+	return Number.isFinite(elapsedMs) && elapsedMs >= 1000
+		? "You're recording. Everyone in this call can see it."
+		: 'Recording is starting. Everyone in this call can see it.';
+}
+
+/**
+ * The call foot and the call dock can sit in the window's bottom-right corner on phones, where the
+ * global connection badge lives. Each publishes how far it rises from the bottom of the window
+ * there; the badge stays clear of the highest one (ConnectionBadge.svelte).
+ */
+export const CORNER_BADGE_ZONE = { width: 160, height: 36 } as const;
+
+type Box = { left: number; top: number; right: number; bottom: number };
+
+/** How far `rect` rises from the window bottom when it reaches into the badge's corner, else 0. */
+export function cornerClearance(
+	rect: Box,
+	viewport: { width: number; height: number },
+	zone: { width: number; height: number } = CORNER_BADGE_ZONE
+): number {
+	if (!(rect.right > rect.left && rect.bottom > rect.top)) return 0;
+	const reachesCorner = rect.right > viewport.width - zone.width && rect.bottom > viewport.height - zone.height;
+	const onScreen = rect.top < viewport.height && rect.left < viewport.width;
+	return reachesCorner && onScreen ? Math.max(0, Math.ceil(viewport.height - rect.top)) : 0;
+}
+
+const cornerBars = writable<ReadonlyMap<symbol, number>>(new Map());
+
+/** The highest call bar in the badge's corner, in px from the window bottom (0: none). */
+export const callCornerClearance: Readable<number> = derived(cornerBars, (bars) => Math.max(0, ...bars.values()));
+
+/** Publish one bar's corner clearance (0 withdraws it). */
+export function reportCornerBar(key: symbol, clearance: number): void {
+	cornerBars.update((bars) => {
+		if ((bars.get(key) ?? 0) === clearance) return bars;
+		const next = new Map(bars);
+		if (clearance > 0) next.set(key, clearance);
+		else next.delete(key);
+		return next;
+	});
+}
+
+/**
+ * Svelte action for a call bar (the call foot, the dock): measures where it sits and keeps its
+ * corner clearance published while it is mounted. A bar moves when the box it is placed in
+ * changes size (the stage, the call room going full window), so those few ancestors are watched
+ * as well as the bar itself and the window.
+ */
+export function cornerBar(node: HTMLElement) {
+	const key = Symbol('call-corner-bar');
+	let frame = 0;
+	const measure = () => {
+		frame = 0;
+		const box = node.getBoundingClientRect();
+		reportCornerBar(key, cornerClearance(box, { width: window.innerWidth, height: window.innerHeight }));
+	};
+	const schedule = () => {
+		if (!frame) frame = requestAnimationFrame(measure);
+	};
+	const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null;
+	observer?.observe(node);
+	for (let box = node.parentElement, depth = 0; box && depth < 3; box = box.parentElement, depth += 1) observer?.observe(box);
+	window.addEventListener('resize', schedule);
+	// The bar's entrance moves it (translate) without resizing it: measure again where it lands.
+	node.addEventListener('animationend', schedule);
+	node.addEventListener('transitionend', schedule);
+	schedule();
+	return {
+		destroy() {
+			if (frame) cancelAnimationFrame(frame);
+			observer?.disconnect();
+			window.removeEventListener('resize', schedule);
+			node.removeEventListener('animationend', schedule);
+			node.removeEventListener('transitionend', schedule);
+			reportCornerBar(key, 0);
+		}
+	};
+}
+
+/**
+ * The More menu opens from a key inside the dock pill (6px padding + its hairline), so it keeps
+ * a 14px gap from the key: it clears the pill's edge by 7px instead of touching it (§7.4, §7.26).
+ */
+export const DOCK_MENU_GAP = 14;
 
 export type DockControl = 'mic' | 'sound' | 'camera' | 'screen';
 
@@ -243,6 +364,7 @@ export function dockMoreItems(state: DockMenuState, actions: DockMenuActions): D
 				: state.callRecordingStatus === 'recording'
 					? 'Stop recording'
 					: 'Start recording',
+		icon: 'record',
 		role: 'menuitemcheckbox',
 		checked: state.callRecordingStatus === 'recording',
 		disabled: state.callRecordingStatus === 'saving',

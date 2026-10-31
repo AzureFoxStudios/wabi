@@ -16,7 +16,7 @@
      .w-menu (role=menu) > .w-menu__kicker · .w-menu__item (svg, .w-menu__label, trailing
        .w-menu__check | .w-menu__key | .w-menu__hint | .w-tag--mat) · hr / .w-menu__sep
        Items: --danger (last), --seal (moderation glyph); highlight = :hover, :focus-visible,
-       [data-highlighted]; aria-disabled dims.
+       [data-highlighted]; aria-disabled dims the glyph and label, never the hint.
      .w-tool > .w-ibtn · .w-tool__quick (emoji) · .w-tool__sep; --bubble (30px keys)
      .w-tip (+ .w-tip__key)
      .w-toast-region > .w-toast > svg + .w-toast__msg + button.w-toast__action
@@ -222,8 +222,13 @@
 }
 .w-menu__item:is(:disabled, [aria-disabled='true']),
 .w-menu [role^='menuitem'][aria-disabled='true'] {
-	opacity: 0.45;
 	cursor: not-allowed;
+}
+/* A disabled row dims what it would do (its glyph, label and trailing marks); the reason it is off
+   (the hint, "Needs a shared screen") keeps its full --w-faint so it can still be read. */
+:is(.w-menu__item, .w-menu [role^='menuitem']):is(:disabled, [aria-disabled='true']) > :not(.w-menu__hint, .menu-hint, .menu-text),
+:is(.w-menu__item, .w-menu [role^='menuitem']):is(:disabled, [aria-disabled='true']) > .menu-text > :not(.menu-hint) {
+	opacity: 0.45;
 }
 .w-menu__item:is(:disabled, [aria-disabled='true']):hover {
 	background: transparent;

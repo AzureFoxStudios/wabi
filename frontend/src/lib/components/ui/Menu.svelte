@@ -7,7 +7,8 @@
 	  Click, Enter, Space or ↓ open the menu (focus on the first row from the keyboard), ↑ opens it
 	  on the last row; Esc or Tab close it and focus returns to the trigger.
 	- The menu opens below the trigger, aligned to its start (or end), and flips above when there
-	  is more room there. On phones (≤768px) it opens as a bottom sheet titled by `heading`.
+	  is more room there, `gap` px from it (4 by default). On phones (≤768px) it opens as a bottom
+	  sheet titled by `heading`.
 
 	<Menu label="Message actions" triggerLabel="More actions" class="w-ibtn" align="end"
 	      items={[{ id: 'copy', label: 'Copy text', icon: 'copy', onSelect: copy }, …]}>
@@ -44,6 +45,8 @@
 		/** An element outside this component to anchor to (no trigger is rendered). */
 		anchor?: HTMLElement | null;
 		minWidth?: number;
+		/** Space between the trigger and the menu, px (4 by default; more for a trigger inside a frame). */
+		gap?: number;
 		onselect?: (id: string) => void;
 		onopenchange?: (open: boolean) => void;
 	}
@@ -61,6 +64,7 @@
 		disabled = false,
 		anchor = null,
 		minWidth = 220,
+		gap = undefined,
 		onselect,
 		onopenchange,
 		...rest
@@ -133,6 +137,7 @@
 	anchor={rect}
 	{align}
 	{minWidth}
+	{gap}
 	{menuId}
 	ariaLabel={label}
 	headerLabel={heading}

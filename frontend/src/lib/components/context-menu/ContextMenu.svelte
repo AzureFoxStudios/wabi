@@ -5,7 +5,8 @@
 	- Portaled to <body> (or the fullscreen element) and placed with `position: fixed`, so no
 	  scroller or transformed dock can clip it. At a point (right-click) it opens down-right and
 	  flips left/up at the viewport edge; at an `anchor` rect (a trigger button) it opens below and
-	  flips above when there is more room there. It never leaves an 8px viewport margin.
+	  flips above when there is more room there, `gap` px from the anchor (4 by default). It never
+	  leaves an 8px viewport margin.
 	- Under (max-width: 768px) it opens as a bottom sheet (`.w-scrim` + `.w-sheet`) with 52px rows.
 	- role=menu with role=menuitem / menuitemradio / menuitemcheckbox rows, a roving tabindex,
 	  ↑/↓, Home/End, typeahead, Esc (focus returns to the opener) and Tab (closes). Disabled rows
@@ -154,6 +155,11 @@
 		return blocked ? label : recased;
 	}
 
+	/** The anchor gap in px: the caller's when it is a usable number, else the 4px default. */
+	export function anchorGap(gap: number | null | undefined): number {
+		return typeof gap === 'number' && Number.isFinite(gap) && gap >= 0 ? gap : GAP;
+	}
+
 	function iconFor(entry: MenuEntry): IconName | null {
 		if (entry.icon) {
 			if (isIconName(entry.icon)) return entry.icon;
@@ -242,6 +248,7 @@
 	let menuCounter = 0;
 	const SHEET_QUERY = '(max-width: 768px)';
 	const MARGIN = 8;
+	/** Default space between an anchor (a trigger button) and its menu. */
 	const GAP = 4;
 </script>
 
@@ -261,6 +268,11 @@
 	/** Trigger rect for button menus; when set, x/y are ignored. */
 	export let anchor: MenuAnchor | null = null;
 	export let align: 'start' | 'end' = 'start';
+	/**
+	 * Space between the anchor and the menu, px. A trigger that sits inside a frame of its own (the
+	 * call dock's pill) passes more, so the menu clears the frame instead of touching it.
+	 */
+	export let gap: number | undefined = undefined;
 	/** 'auto': the first row when opened from the keyboard, nothing when opened by a pointer. */
 	export let initialFocus: 'auto' | 'first' | 'last' | 'checked' = 'auto';
 	/** Element that gets focus back on Esc / Tab (defaults to whatever had focus at open). */
@@ -359,15 +371,16 @@
 		let top: number;
 		let maxHeight = room;
 		if (anchor) {
+			const space = anchorGap(gap);
 			left = align === 'end' ? anchor.right - width : anchor.left;
-			const below = vh - MARGIN - (anchor.bottom + GAP);
-			const above = anchor.top - GAP - MARGIN;
+			const below = vh - MARGIN - (anchor.bottom + space);
+			const above = anchor.top - space - MARGIN;
 			if (natural <= below || below >= above) {
-				top = anchor.bottom + GAP;
+				top = anchor.bottom + space;
 				maxHeight = Math.max(below, 120);
 			} else {
 				maxHeight = above;
-				top = anchor.top - GAP - Math.min(natural, above);
+				top = anchor.top - space - Math.min(natural, above);
 			}
 		} else {
 			left = x + width > vw - MARGIN ? x - width : x;

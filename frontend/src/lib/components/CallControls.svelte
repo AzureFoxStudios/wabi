@@ -19,7 +19,7 @@
 	import { onMount, tick } from 'svelte';
 	import type { PresenterOverlayTool } from '$lib/calling/presenterOverlay';
 	import { PRESENTER_OVERLAY_COLORS, PRESENTER_OVERLAY_WIDTHS } from '$lib/calling/presenterOverlay';
-	import { deviceIcon, dockBarControls, dockMoreItems } from '$lib/callShell';
+	import { cornerBar, deviceIcon, dockBarControls, dockMoreItems, DOCK_MENU_GAP } from '$lib/callShell';
 	import Icon from './ui/Icon.svelte';
 	import Menu from './ui/Menu.svelte';
 	import Segmented from './ui/Segmented.svelte';
@@ -290,7 +290,7 @@
 	<!-- `call-controls` and the Leave key's `end` class are the hooks the audio smoke harness
 	     (test/call-panel-browser-harness.ts) clicks; data-call-leave is the stable one. No style
 	     uses them. -->
-	<div class="call-dock call-controls" id={dockId} role="group" aria-label="Call controls">
+	<div class="call-dock call-controls" id={dockId} role="group" aria-label="Call controls" use:cornerBar>
 		{#each barControls as control (control)}
 			{#if control === 'mic'}
 				<Tooltip text={isMuted ? 'Unmute microphone' : 'Mute microphone'} placement="top">
@@ -343,6 +343,7 @@
 			heading={compact ? 'Call controls' : null}
 			class={moreHasActive ? 'w-ibtn call-dock__btn w-ibtn--dot' : 'w-ibtn call-dock__btn'}
 			align={compact ? 'end' : 'start'}
+			gap={DOCK_MENU_GAP}
 		>
 			<Icon name="more" />
 		</Menu>
