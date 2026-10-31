@@ -3,7 +3,9 @@ import { get } from 'svelte/store';
 import type { Todo } from './types';
 import {
 	NO_FILTERS,
+	appliedFilterCount,
 	boardSummary,
+	calendarDay,
 	cardFocusTarget,
 	completedAtFor,
 	dateFromInput,
@@ -12,6 +14,8 @@ import {
 	dueDateForSave,
 	dueLabel,
 	formatFileLinks,
+	isDueThisWeek,
+	isOverdue,
 	laneGlyph,
 	laneLabel,
 	matchesFilters,
@@ -22,6 +26,7 @@ import {
 	priorityMark,
 	requestPlannerNew,
 	spansSeveralProjects,
+	summaryItems,
 	takePlannerNewRequest,
 	tasksByLane
 } from './plannerBoard';
@@ -59,8 +64,83 @@ describe('due words', () => {
 
 	test('finished work shows when it was done, never its due date', () => {
 		expect(dueLabel({ status: 'done', dueDate: at(-3), completedAt: at(-4) }, NOW, 'en-GB')).toEqual({ text: 'Done · Sat 19', tone: 'done', title: 'Done Sat 19' });
-		expect(dueLabel({ status: 'done', dueDate: at(2) }, NOW)?.text).toBe('Done');
 		expect(dueLabel({ status: 'archived', dueDate: at(-3) }, NOW)).toBeNull();
+	});
+
+	test('done work with no completion time says nothing rather than repeat the lane', () => {
+		expect(dueLabel({ status: 'done', dueDate: at(2) }, NOW)).toBeNull();
+		expect(dueLabel({ status: 'done' }, NOW)).toBeNull();
+	});
+});
+
+/** Runs `body` with the process clock in `zone` (Bun reads TZ changes at runtime). */
+function inZone(zone: string, body: () => void): void {
+	const previous = process.env.TZ;
+	process.env.TZ = zone;
+	try {
+		body();
+	} finally {
+		if (previous === undefined) delete process.env.TZ;
+		else process.env.TZ = previous;
+	}
+}
+
+describe('due dates saved by the task dialog, in every time zone', () => {
+	// The dialog stores the chosen day as UTC midnight; the card must name that same day
+	// whether the reader sits west or east of UTC.
+	for (const zone of ['America/New_York', 'America/Los_Angeles', 'UTC', 'Europe/Berlin', 'Asia/Tokyo', 'Pacific/Auckland']) {
+		test(`a due date saved for Wed 4 Nov reads as Wed 4 Nov in ${zone}`, () => {
+			inZone(zone, () => {
+				const stored = dueDateForSave('2026-11-04', undefined)!;
+				expect(stored).toBe(dateFromInput('2026-11-04')!);
+				const monday = new Date(2026, 10, 2, 10, 0).getTime();
+				const tuesday = new Date(2026, 10, 3, 21, 0).getTime();
+				const wednesday = new Date(2026, 10, 4, 10, 0).getTime();
+				const wednesdayLate = new Date(2026, 10, 4, 23, 30).getTime();
+				const thursday = new Date(2026, 10, 5, 0, 30).getTime();
+				const task = { status: 'todo' as const, dueDate: stored };
+
+				expect(dueLabel(task, monday, 'en-GB')?.text).toBe('Wed 4');
+				expect(dueLabel(task, tuesday, 'en-GB')?.text).toBe('Tomorrow');
+				expect(dueLabel(task, wednesday, 'en-GB')).toEqual({ text: 'Today', tone: 'due', title: 'Due Today' });
+				expect(dueLabel(task, wednesdayLate, 'en-GB')?.tone).toBe('due');
+				expect(isOverdue(task, wednesday)).toBe(false);
+				expect(isOverdue(task, wednesdayLate)).toBe(false);
+				expect(isOverdue(task, thursday)).toBe(true);
+				expect(dueLabel(task, thursday, 'en-GB')?.text).toBe('Overdue · Yesterday');
+
+				// The summary filters agree with the words.
+				const due = [{ ...todo({ id: 'w' }), dueDate: stored }];
+				expect(boardSummary(due, ['todo'], NO_FILTERS, monday)).toEqual({ tasks: 1, dueThisWeek: 1, overdue: 0 });
+				expect(boardSummary(due, ['todo'], NO_FILTERS, wednesday)).toEqual({ tasks: 1, dueThisWeek: 1, overdue: 0 });
+				expect(boardSummary(due, ['todo'], NO_FILTERS, thursday)).toEqual({ tasks: 1, dueThisWeek: 0, overdue: 1 });
+				// Six days ahead is this week; seven is not.
+				expect(isDueThisWeek(task, new Date(2026, 9, 29, 9, 0).getTime())).toBe(true);
+				expect(isDueThisWeek(task, new Date(2026, 9, 28, 9, 0).getTime())).toBe(false);
+
+				// And the field shows the day that was chosen.
+				expect(dateInputValue(stored)).toBe('2026-11-04');
+			});
+		});
+	}
+
+	test('a due date stored as a time of day (local noon) stays on the local calendar', () => {
+		inZone('America/New_York', () => {
+			const noon = new Date(2026, 10, 4, 12, 0).getTime();
+			expect(calendarDay(noon)).toBe(new Date(2026, 10, 4).getTime());
+			expect(dateWords(noon, new Date(2026, 10, 4, 8, 0).getTime(), 'en-GB')).toBe('Today');
+		});
+	});
+
+	test('across a daylight-saving change the day count stays whole', () => {
+		inZone('America/New_York', () => {
+			// US clocks go back on Sun 1 Nov 2026.
+			const sat = new Date(2026, 9, 31, 9, 0).getTime();
+			expect(dateWords(dateFromInput('2026-11-01')!, sat, 'en-GB')).toBe('Tomorrow');
+			expect(dateWords(dateFromInput('2026-11-06')!, sat, 'en-GB')).toBe('Fri 6');
+			expect(isDueThisWeek({ status: 'todo', dueDate: dateFromInput('2026-11-06')! }, sat)).toBe(true);
+			expect(isDueThisWeek({ status: 'todo', dueDate: dateFromInput('2026-11-07')! }, sat)).toBe(false);
+		});
 	});
 });
 
@@ -122,6 +202,20 @@ describe('filters and summary', () => {
 	test('each summary count is a real filter', () => {
 		expect(todos.filter((t) => matchesFilters(t, { ...NO_FILTERS, summary: 'week' }, NOW)).map((t) => t.id)).toEqual(['a']);
 		expect(todos.filter((t) => matchesFilters(t, { ...NO_FILTERS, summary: 'overdue' }, NOW)).map((t) => t.id)).toEqual(['b']);
+	});
+
+	test('summary items show only when non-zero, so no separator is ever left over', () => {
+		expect(summaryItems({ tasks: 10, dueThisWeek: 7, overdue: 1 }, 1)).toEqual(['all', 'week', 'overdue', 'events']);
+		expect(summaryItems({ tasks: 3, dueThisWeek: 0, overdue: 2 }, 0)).toEqual(['all', 'overdue']);
+		// Filters that hide every task leave the event alone, first, with nothing before it.
+		expect(summaryItems({ tasks: 0, dueThisWeek: 0, overdue: 0 }, 1)).toEqual(['events']);
+		expect(summaryItems({ tasks: 0, dueThisWeek: 0, overdue: 0 }, 0)).toEqual([]);
+	});
+
+	test('the Filter button counts every filter that narrows the board', () => {
+		expect(appliedFilterCount(NO_FILTERS)).toBe(0);
+		expect(appliedFilterCount({ ...NO_FILTERS, priority: 'urgent' })).toBe(1);
+		expect(appliedFilterCount({ project: 'p', priority: 'high', assignee: 'none', summary: 'overdue' })).toBe(4);
 	});
 
 	test('assignee filter: one person, or unassigned', () => {

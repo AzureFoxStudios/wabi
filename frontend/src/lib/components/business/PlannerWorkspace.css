@@ -131,39 +131,6 @@
 	display: none;
 }
 
-/* ── Tasks panel: an optional companion inside the Planner; the view keeps center stage ── */
-.planner .planner-task-resizer {
-	position: relative;
-	flex: none;
-	width: 8px;
-	margin: 0 -4px;
-	z-index: 1;
-	cursor: col-resize;
-	outline: none;
-	touch-action: none;
-}
-.planner .planner-task-resizer::after {
-	content: '';
-	position: absolute;
-	inset: 0 3px;
-	background: transparent;
-	transition: background-color var(--w-dur-1) var(--w-ease);
-}
-.planner .planner-task-resizer:hover::after,
-.planner .planner-task-resizer:focus-visible::after {
-	background: var(--w-accent);
-}
-
-.planner .planner-task-panel {
-	flex: none;
-	display: flex;
-	flex-direction: column;
-	min-height: 0;
-	overflow: hidden;
-	border-left: var(--w-bw) solid var(--w-line);
-	background: var(--w-bg2);
-}
-
 /* ── Variants ── */
 .planner.variant-detached {
 	border-radius: var(--radius-lg);

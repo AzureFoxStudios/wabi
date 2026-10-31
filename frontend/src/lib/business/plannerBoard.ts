@@ -100,14 +100,38 @@ export function startOfDay(at: number): number {
 	return d.getTime();
 }
 
-function weekdayDay(at: number, locale?: string): string {
-	const d = new Date(at);
+/**
+ * The local midnight of the calendar day a stored date names.
+ *
+ * The task dialog saves a chosen day as UTC midnight (`dateFromInput`, i.e.
+ * `Date.parse('YYYY-MM-DD')`). Read on the local calendar that instant is the evening before
+ * anywhere west of UTC, which would make every card name the previous day and turn a task
+ * overdue on its own due day. So an exact UTC midnight is read as the calendar date it was saved
+ * as; any other instant (a completion time, a due date set to local noon) is read on the local
+ * calendar. A local midnight equals a UTC midnight only where the offset is zero, and there
+ * both readings agree.
+ */
+export function calendarDay(at: number): number {
+	if (at % DAY === 0) {
+		const d = new Date(at);
+		return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()).getTime();
+	}
+	return startOfDay(at);
+}
+
+/** Whole calendar days from today to the day `at` names (negative in the past). DST-safe. */
+export function daysFromToday(at: number, now = Date.now()): number {
+	return Math.round((calendarDay(at) - startOfDay(now)) / DAY);
+}
+
+function weekdayDay(day: number, locale?: string): string {
+	const d = new Date(day);
 	const weekday = new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(d);
 	return `${weekday} ${d.getDate()}`;
 }
 
-function dayMonth(at: number, now: number, locale?: string): string {
-	const d = new Date(at);
+function dayMonth(day: number, now: number, locale?: string): string {
+	const d = new Date(day);
 	const sameYear = d.getFullYear() === new Date(now).getFullYear();
 	return new Intl.DateTimeFormat(locale, sameYear ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' }).format(d);
 }
@@ -115,16 +139,16 @@ function dayMonth(at: number, now: number, locale?: string): string {
 /**
  * A date as words a person reads at a glance: "Today", "Tomorrow", "Wed 23" within the coming
  * week (and the past week), otherwise "3 Oct" (with the year when it differs). Never "2d".
+ * A date-only value (UTC midnight, see `calendarDay`) names the day it was saved as.
  */
 export function dateWords(at: number, now = Date.now(), locale?: string): string {
-	const day = startOfDay(at);
-	const today = startOfDay(now);
-	const diff = Math.round((day - today) / DAY);
+	const day = calendarDay(at);
+	const diff = daysFromToday(at, now);
 	if (diff === 0) return 'Today';
 	if (diff === 1) return 'Tomorrow';
 	if (diff === -1) return 'Yesterday';
-	if (diff > -7 && diff < 7) return weekdayDay(at, locale);
-	return dayMonth(at, now, locale);
+	if (diff > -7 && diff < 7) return weekdayDay(day, locale);
+	return dayMonth(day, now, locale);
 }
 
 export type DueTone = 'due' | 'overdue' | 'done';
@@ -139,18 +163,18 @@ export interface DueLabel {
 /**
  * What a card's date line says. Open work shows its due date ("Wed 23", or "Overdue · Mon 21" in
  * danger once the day has passed). Finished work shows when it was done ("Done · Sat 19") and
- * never a due date: it no longer matters.
+ * never a due date: it no longer matters. Done work with no stored completion time says nothing
+ * (the lane already says Done; repeating it on every card is noise).
  */
 export function dueLabel(todo: Pick<Todo, 'status' | 'dueDate' | 'completedAt'>, now = Date.now(), locale?: string): DueLabel | null {
 	if (isClosedStatus(todo.status)) {
-		if (todo.status !== 'done') return null;
-		if (!todo.completedAt) return { text: 'Done', tone: 'done', title: 'Done' };
+		if (todo.status !== 'done' || !todo.completedAt) return null;
 		const when = dateWords(todo.completedAt, now, locale);
 		return { text: `Done · ${when}`, tone: 'done', title: `Done ${when}` };
 	}
 	if (!todo.dueDate) return null;
 	const when = dateWords(todo.dueDate, now, locale);
-	if (startOfDay(todo.dueDate) < startOfDay(now)) {
+	if (daysFromToday(todo.dueDate, now) < 0) {
 		return { text: `Overdue · ${when}`, tone: 'overdue', title: `Overdue, was due ${when}` };
 	}
 	return { text: when, tone: 'due', title: `Due ${when}` };
@@ -177,14 +201,16 @@ export interface BoardFilters {
 
 export const NO_FILTERS: BoardFilters = { project: null, priority: null, assignee: null, summary: 'all' };
 
+/** Open work due today or in the six days after it (calendar days, see `calendarDay`). */
 export function isDueThisWeek(todo: Pick<Todo, 'status' | 'dueDate'>, now = Date.now()): boolean {
 	if (!todo.dueDate || isClosedStatus(todo.status)) return false;
-	const today = startOfDay(now);
-	return todo.dueDate >= today && todo.dueDate < today + 7 * DAY;
+	const diff = daysFromToday(todo.dueDate, now);
+	return diff >= 0 && diff < 7;
 }
 
+/** Open work whose due day has passed; a task is never overdue on its own due day. */
 export function isOverdue(todo: Pick<Todo, 'status' | 'dueDate'>, now = Date.now()): boolean {
-	return Boolean(todo.dueDate) && !isClosedStatus(todo.status) && (todo.dueDate as number) < startOfDay(now);
+	return Boolean(todo.dueDate) && !isClosedStatus(todo.status) && daysFromToday(todo.dueDate as number, now) < 0;
 }
 
 /** The select filters (project, priority, assignee): what the summary counts are taken over. */
@@ -220,6 +246,23 @@ export function boardSummary(todos: readonly Todo[], laneIds: readonly string[],
 		if (isOverdue(todo, now)) summary.overdue += 1;
 	}
 	return summary;
+}
+
+/** The summary filters that show, in order: each only when its count is non-zero (§8.6). */
+export type SummaryItem = 'all' | 'week' | 'overdue' | 'events';
+
+export function summaryItems(summary: BoardSummary, events: number): SummaryItem[] {
+	const items: SummaryItem[] = [];
+	if (summary.tasks > 0) items.push('all');
+	if (summary.dueThisWeek > 0) items.push('week');
+	if (summary.overdue > 0) items.push('overdue');
+	if (events > 0) items.push('events');
+	return items;
+}
+
+/** How many filters narrow the board (the phone's "Filter" button shows this number). */
+export function appliedFilterCount(filters: BoardFilters): number {
+	return [filters.project, filters.priority, filters.assignee].filter(Boolean).length + (filters.summary === 'all' ? 0 : 1);
 }
 
 export function plural(count: number, one: string, many: string): string {

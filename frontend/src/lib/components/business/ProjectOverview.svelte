@@ -21,8 +21,9 @@
 	const working = $derived(tasks.filter((task) => task.status === 'in_progress'));
 	const ratio = $derived(tasks.length ? completed / tasks.length : 0);
 
+	/** The assignee's name, or nothing: an unassigned row says nothing rather than repeat it. */
 	function assignee(id: string | undefined): string {
-		if (!id) return 'Unassigned';
+		if (!id) return '';
 		const user = $plannerUserById.get(Number.parseInt(id, 10));
 		return user?.username ?? 'Assigned';
 	}
@@ -58,9 +59,10 @@
 			<section class="pj-list" aria-labelledby={`${uid}-wip`}>
 				<h3 class="pj-list__title" id={`${uid}-wip`}>In progress</h3>
 				{#each working.slice(0, 5) as task (task.id)}
+					{@const who = assignee(task.assignedTo)}
 					<div class="pj-list__row">
 						<span class="pj-list__name">{task.title}</span>
-						<span class="pj-list__fact">{assignee(task.assignedTo)}</span>
+						{#if who}<span class="pj-list__fact">{who}</span>{/if}
 					</div>
 				{:else}
 					<p class="pj-list__none">Nothing in progress. Move a task to In progress on the Board when you start it.</p>
@@ -70,7 +72,7 @@
 	{/if}
 
 	<section class="pj-children" aria-labelledby={`${uid}-subs`}>
-		<h3 class="pj-list__title" id={`${uid}-subs`}>Sub-projects <span class="pj-list__count">{children.length}</span></h3>
+		<h3 class="pj-list__title" id={`${uid}-subs`}>Sub-projects{#if children.length}{' '}<span class="pj-list__count">{children.length}</span>{/if}</h3>
 		{#if children.length}
 			<ul class="pj-grid pj-grid--sub">
 				{#each children as child (child.id)}

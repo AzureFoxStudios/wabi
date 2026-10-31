@@ -498,3 +498,8 @@
 :root[data-char='contrast'] .planner .pj-card {
 	border-color: var(--w-line-strong);
 }
+/* High Contrast makes --w-line the strong edge; a full-strength track would read as a full bar,
+   so the track steps back and the filled share keeps its contrast. */
+:root[data-char='contrast'] .planner .pj-bar {
+	background: color-mix(in srgb, var(--w-line-strong) 28%, var(--w-bg));
+}

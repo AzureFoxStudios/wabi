@@ -27,6 +27,7 @@
 	import { activeWorkspaceView } from '$lib/workspaceNavigationState';
 	import { setStageHeader, clearStageHeader, type StageHeaderAction } from '$lib/stageHeader';
 	import { plannerNewRequest, plannerViewFrom, takePlannerNewRequest, type PlannerView } from '$lib/business/plannerBoard';
+	import { tasksPanelShown, togglePlannerTasksPanel } from '$lib/business/plannerTasksPanel';
 	import type { MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
 	import Menu from '$lib/components/ui/Menu.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
@@ -35,20 +36,15 @@
 	import KanbanBoardImpl from '$lib/components/business/KanbanBoardImpl.svelte';
 	import DiaryView from '$lib/components/business/DiaryView.svelte';
 	import ProjectsView from '$lib/components/business/ProjectsView.svelte';
-	import TaskPanel from '$lib/components/business/TaskPanel.svelte';
 	import PlannerStageHeader from '$lib/components/business/PlannerStageHeader.svelte';
 
 	type Variant = 'full' | 'compact' | 'detached';
-	type TaskPanelFilter = 'all' | 'today' | 'overdue' | 'upcoming';
 
 	export let variant: Variant = 'full';
 
 	const ACTIVE_VIEW_KEY = 'planner.activeView';
-	const TASK_PANEL_WIDTH_KEY = 'plannerTaskPanelWidth';
 	const HEADER_OWNER = 'planner';
 	const PANEL_ID = 'planner-view-panel';
-	const PANEL_MIN = 260;
-	const PANEL_MAX = 460;
 
 	const VIEWS: { value: PlannerView; label: string }[] = [
 		{ value: 'calendar', label: 'Calendar' },
@@ -66,9 +62,6 @@
 	};
 
 	let activeView: PlannerView = 'calendar';
-	let showTaskPanel = false;
-	let taskPanelFilter: TaskPanelFilter = 'all';
-	let taskPanelWidth = 340;
 	let addSignal = 0;
 	let importFileInput: HTMLInputElement;
 	let moreAnchor: HTMLElement | null = null;
@@ -84,8 +77,6 @@
 			if (deepLink) sessionStorage.removeItem('plannerDeepLinkView');
 			// Views are device-local by design: restore the last one used here.
 			saved = browser ? localStorage.getItem(ACTIVE_VIEW_KEY) : null;
-			const savedWidth = browser ? Number(localStorage.getItem(TASK_PANEL_WIDTH_KEY)) : 0;
-			if (Number.isFinite(savedWidth) && savedWidth >= PANEL_MIN) taskPanelWidth = Math.min(savedWidth, PANEL_MAX);
 		} catch {
 			// Storage blocked: the Planner opens on Calendar.
 		}
@@ -115,6 +106,29 @@
 		if (activeView !== view) addSignal = 0;
 		activeView = view;
 		persistActiveView(view);
+		// On the phone the view switch lives in two places (the strip under the bar for Calendar,
+		// Journal and Projects; the board's tools-row menu for Board), so the control that was just
+		// used can unmount with its own action. Focus then moves to the new view's control instead
+		// of falling to <body>; elsewhere the control stays and keeps focus.
+		void tick().then(() => {
+			const active = document.activeElement;
+			if (!active || active === document.body || !active.isConnected) focusViewControl(view);
+		});
+	}
+
+	/**
+	 * Focus the control that names `view`: its tab, or where the tabs are folded (a narrow stage:
+	 * the view menu; the phone board: the view menu in its tools row) that menu, else the view
+	 * panel itself, never a hidden element.
+	 */
+	function focusViewControl(view: PlannerView): void {
+		const shown = (element: HTMLElement | null): element is HTMLElement => Boolean(element && element.getClientRects().length > 0);
+		const candidates = [
+			document.getElementById(`${PANEL_ID}-tab-${view}`),
+			...document.querySelectorAll<HTMLElement>('.psh-viewmenu'),
+			document.getElementById(PANEL_ID)
+		];
+		candidates.find(shown)?.focus();
 	}
 
 	/** Increments the child-visible signal so the active view opens its "new" form. */
@@ -180,8 +194,9 @@
 			label: 'Tasks panel',
 			icon: 'sidebarRight',
 			role: 'menuitemcheckbox',
-			checked: showTaskPanel,
-			onSelect: () => toggleTaskPanel()
+			// The Tasks companion on the rail (§7.21), not a private split inside the Planner.
+			checked: $tasksPanelShown,
+			onSelect: () => togglePlannerTasksPanel()
 		}
 	] satisfies MenuEntry[];
 
@@ -199,6 +214,8 @@
 
 	// Only the center-stage instance describes row A; it is cleared on destroy (stageHeader.ts).
 	$: onStage = variant === 'full' && $activeWorkspaceView === 'planner';
+	// The phone board: no strip under the bar, its tools row carries the view menu and New (§8.12).
+	$: phoneBoard = onStage && $isMobile && activeView === 'board';
 	$: if (mounted && onStage) {
 		setStageHeader(HEADER_OWNER, {
 			view: 'planner',
@@ -207,53 +224,6 @@
 			props: headerProps,
 			actions: headerActions
 		});
-	}
-
-	// ── Tasks panel (optional companion inside the Planner; the stage keeps its view) ──
-	function toggleTaskPanel(): void {
-		showTaskPanel = !showTaskPanel;
-		if (showTaskPanel) taskPanelFilter = 'all';
-	}
-
-	function persistPanelWidth(): void {
-		try {
-			if (browser) localStorage.setItem(TASK_PANEL_WIDTH_KEY, String(taskPanelWidth));
-		} catch {
-			// Storage blocked: the width holds for this visit.
-		}
-	}
-
-	let resizingPanel = false;
-	function startPanelResize(event: PointerEvent): void {
-		if (event.button !== 0) return;
-		event.preventDefault();
-		resizingPanel = true;
-		const onMove = (ev: PointerEvent) => {
-			if (!resizingPanel) return;
-			taskPanelWidth = Math.min(Math.max(window.innerWidth - ev.clientX - 32, PANEL_MIN), PANEL_MAX);
-		};
-		const onUp = () => {
-			resizingPanel = false;
-			window.removeEventListener('pointermove', onMove);
-			window.removeEventListener('pointerup', onUp);
-			persistPanelWidth();
-		};
-		window.addEventListener('pointermove', onMove);
-		window.addEventListener('pointerup', onUp);
-	}
-
-	/** Keyboard resize (§7.21 resize edge): ←/→ 16px, Shift 64px, Home/End to the limits. */
-	function handleResizeKey(event: KeyboardEvent): void {
-		const step = event.shiftKey ? 64 : 16;
-		let next = taskPanelWidth;
-		if (event.key === 'ArrowLeft') next += step;
-		else if (event.key === 'ArrowRight') next -= step;
-		else if (event.key === 'Home') next = PANEL_MAX;
-		else if (event.key === 'End') next = PANEL_MIN;
-		else return;
-		event.preventDefault();
-		taskPanelWidth = Math.min(Math.max(next, PANEL_MIN), PANEL_MAX);
-		persistPanelWidth();
 	}
 
 	// ── Import / Export (device-to-device bridge while server sync is absent) ──
@@ -310,10 +280,10 @@
 		importFileInput?.click();
 	}
 
-	/** The board's "1 event" summary opens the Calendar. */
+	/** The board's "1 event" summary opens the Calendar and moves focus to its control. */
 	function openCalendar(): void {
 		setActiveView('calendar');
-		void tick().then(() => document.getElementById(`${PANEL_ID}-tab-calendar`)?.focus());
+		void tick().then(() => focusViewControl('calendar'));
 	}
 </script>
 
@@ -332,22 +302,39 @@
 				<Icon name="more" />
 			</Menu>
 		</header>
-	{:else if $isMobile}
-		<!-- The phone bar keeps only the title; the views and New sit in one strip under it. -->
+	{:else if !phoneBoard && $isMobile}
+		<!-- The phone bar keeps only the title; the views and New sit in one row under it. The
+		     board has no strip: its one tools row carries the view menu and New (§8.12). -->
 		<div class="planner-phone-strip">
 			<PlannerStageHeader part="tabs" {...headerProps} />
 		</div>
 	{/if}
 
 	<div class="planner-body">
-		<div class="planner-main" id={PANEL_ID} role="tabpanel" aria-labelledby={`${PANEL_ID}-tab-${activeView}`} tabindex="-1">
+		<!-- The phone board has no tab strip (its tools row carries the view menu): the panel is
+		     then named by its view instead of by a tab that is not there. -->
+		<div
+			class="planner-main"
+			id={PANEL_ID}
+			role="tabpanel"
+			aria-labelledby={phoneBoard ? undefined : `${PANEL_ID}-tab-${activeView}`}
+			aria-label={phoneBoard ? VIEWS.find((view) => view.value === activeView)?.label : undefined}
+			tabindex="-1"
+		>
 			{#if activeView === 'calendar'}
 				<div class="planner-view active view-calendar">
 					<Calendar embedded {addSignal} />
 				</div>
 			{:else if activeView === 'board'}
 				<div class="planner-view active view-board">
-					<KanbanBoardImpl embedded {addSignal} onOpenCalendar={openCalendar} />
+					<KanbanBoardImpl embedded {addSignal} onOpenCalendar={openCalendar}>
+						<svelte:fragment slot="lead">
+							{#if onStage && $isMobile}<PlannerStageHeader part="views" {...headerProps} />{/if}
+						</svelte:fragment>
+						<svelte:fragment slot="trail">
+							{#if onStage && $isMobile}<PlannerStageHeader part="new" {...headerProps} />{/if}
+						</svelte:fragment>
+					</KanbanBoardImpl>
 				</div>
 			{:else if activeView === 'journal'}
 				<div class="planner-view active view-journal">
@@ -359,27 +346,6 @@
 				</div>
 			{/if}
 		</div>
-
-		{#if showTaskPanel}
-			<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions: a focusable splitter (role=separator) is the WAI-ARIA window-splitter pattern -->
-			<div
-				class="planner-task-resizer"
-				role="separator"
-				aria-orientation="vertical"
-				aria-label="Resize tasks panel"
-				aria-controls="planner-task-panel"
-				aria-valuenow={taskPanelWidth}
-				aria-valuemin={PANEL_MIN}
-				aria-valuemax={PANEL_MAX}
-				tabindex="0"
-				on:pointerdown={startPanelResize}
-				on:keydown={handleResizeKey}
-				on:dblclick={() => { taskPanelWidth = 340; persistPanelWidth(); }}
-			></div>
-			<aside class="planner-task-panel" id="planner-task-panel" style:width="{taskPanelWidth}px" aria-label="Tasks panel">
-				<TaskPanel onClose={() => (showTaskPanel = false)} initialFilter={taskPanelFilter} />
-			</aside>
-		{/if}
 	</div>
 
 	<input
@@ -393,7 +359,9 @@
 	/>
 </div>
 
-<!-- Anchored to the masthead ⋯ only: without an anchor Menu would draw its own unnamed trigger. -->
+<!-- Anchored to the masthead ⋯ only: without an anchor Menu would draw its own unnamed trigger. The
+     phone bar shows the tag only as its dot and no save state, so there ⋯ says both in words (§7.23:
+     the words stay available). -->
 {#if onStage && moreAnchor}
-	<Menu items={moreItems} label="Planner options" anchor={moreAnchor} bind:open={moreOpen} align="end" heading={$_('places.my_planner')} subheading={localityTitle} />
+	<Menu items={moreItems} label="Planner options" anchor={moreAnchor} bind:open={moreOpen} align="end" heading={$_('places.my_planner')} subheading={$isMobile ? `${localityLabel}. ${localityTitle} ${saveStatus}.` : localityTitle} />
 {/if}

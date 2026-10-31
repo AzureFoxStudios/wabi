@@ -3,15 +3,21 @@
 	 * Tasks (design contract §8.6, §7.21): My Planner's open tasks as a companion panel. In the
 	 * shell's companion frame (panel id `planner-tasks`, `compact`) the frame owns row A (title,
 	 * count, Unpin) and row B; this body is a filter row, the list and a quiet "Add task" row.
-	 * Hosts without the frame (an in-surface split) get a small title row with Close.
+	 * Hosts without the frame (an in-surface split) get a small title row with Close, and register
+	 * as an in-surface Tasks list so the Calendar's side list steps aside for them too.
+	 * Locality (§9.3) is said once per screen: the Planner's row A says it while the Planner is
+	 * on stage; beside any other page this panel is the entry point, so it says it under the filter.
 	 *
 	 * One task dialog everywhere: the title of a row and "Add task" open PlannerTaskDialog, the
 	 * same dialog the board's New task uses. The checkbox completes a task, with Undo.
 	 *
 	 * Svelte 4 (`export let`) — matches the business tree.
 	 */
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
+	import { _ } from '$lib/i18n';
 	import { todos, projects, updateTodo, type Todo } from '$lib/business';
+	import { businessSyncAvailable } from '$lib/business/sync';
+	import { activeWorkspaceView } from '$lib/workspaceNavigationState';
 	import { plannerUserById, getPlannerUserColor, getPlannerUserAvatarUrl, ensurePlannerDirectory } from '$lib/business/plannerUsers';
 	import { dueLabel, priorityMark, spansSeveralProjects } from '$lib/business/plannerBoard';
 	import { completeTask, startOfDay } from '$lib/business/plannerCalendar';
@@ -20,6 +26,7 @@
 		TASKS_PANEL_ID,
 		emptyTasksWords,
 		filterTasks,
+		registerInSurfaceTasksList,
 		tasksPanelFilter,
 		type TasksFilter
 	} from '$lib/business/plannerTasksPanel';
@@ -66,6 +73,13 @@
 		clearInterval(clock);
 		if (compact) setPanelFrameCount(TASKS_PANEL_ID, null);
 	});
+
+	// An in-surface list (no frame) counts as a Tasks list on screen while it is mounted.
+	onMount(() => (compact ? undefined : registerInSurfaceTasksList()));
+
+	// Beside another page the panel is where the person learns where these tasks live.
+	$: sayLocality = compact && $activeWorkspaceView !== 'planner';
+	$: locality = $businessSyncAvailable === true ? $_('locality.synced') : $_('locality.only_you_device');
 
 	// ── the task dialog ──
 	let dialogTodo: Todo | null = null;
@@ -122,6 +136,7 @@
 
 	<div class="tp-tools">
 		<Segmented label="Show tasks" options={filterOptions} value={activeFilter} onchange={setFilter} class="tp-filter" />
+		{#if sayLocality}<p class="tp-where">{locality}</p>{/if}
 	</div>
 
 	<div class="tp-body">

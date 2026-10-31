@@ -3,7 +3,8 @@
    Every rule is scoped to the board's own roots (.kanban-container, .kanban-board) or to the
    Planner root (.planner); nothing here reaches another surface. The shared project board
    (SharedProjectBoard.svelte) renders the same lanes and cards and refines them in its own
-   component styles. */
+   component styles: it sizes the lanes itself on a max-content row, so the lane grid below is
+   only for the Planner (`.kanban-board--grid`), and the base `.kanban-board` stays a flex row. */
 
 /* ---------- frame ---------- */
 .kanban-container {
@@ -92,7 +93,7 @@
 	color: var(--w-danger);
 }
 /* Applied (the narrowing filters only; "N tasks" is the resting state and stays quiet). */
-.kanban-container .planner-summary__item[aria-pressed='true']:not(:first-child) {
+.kanban-container .planner-summary__item[aria-pressed='true']:not(.planner-summary__item--rest) {
 	border-color: color-mix(in srgb, var(--w-accent) 45%, transparent);
 	background: var(--w-accent-soft);
 	color: var(--w-text);
@@ -109,6 +110,52 @@
 .kanban-container .planner-columns-btn {
 	flex: none;
 	gap: 6px;
+}
+
+/* Phone shell (§8.12): one tools row, every target 44×44: the host's view menu, "Filter" (the
+   selects, the summary filters and the lanes in one menu), then New at the end. */
+.kanban-container .planner-tools.planner-tools--compact {
+	gap: 8px;
+	min-height: 60px;
+	padding: 8px var(--w-gutter);
+}
+.kanban-container .planner-filter-btn {
+	flex: none;
+	gap: 6px;
+	height: 44px;
+	padding-inline: 12px;
+}
+/* Applied: the kit's applied-filter state (§7.4) and the number of filters in mono. */
+.kanban-container .planner-filter-btn.is-applied {
+	border-color: color-mix(in srgb, var(--w-accent) 45%, transparent);
+	background: var(--w-accent-soft);
+	color: var(--w-text);
+}
+.kanban-container .planner-filter-btn__count {
+	color: var(--w-text);
+	font: var(--w-t-mono);
+	font-variant-numeric: tabular-nums;
+}
+
+/* The lane switcher (phone): which lane of the snap list is in view; a key moves to its lane. */
+.kanban-container .planner-lane-switch {
+	flex: none;
+	display: flex;
+	margin: 0 var(--w-gutter) 4px;
+}
+.kanban-container .planner-lane-switch > button {
+	flex: 1 1 0;
+	min-width: 0;
+	height: 44px;
+	padding-inline: 4px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Filters that hide every task say so, with the way back (§7.16). */
+.kanban-container .planner-board-empty {
+	flex: none;
+	padding: 4px var(--w-gutter) 16px;
 }
 
 /* Edit columns… (KanbanColumnManagement): a quiet panel under the tools row, not a box in a box. */
@@ -274,10 +321,6 @@
 	overflow-x: auto;
 	overflow-y: hidden;
 	overscroll-behavior-x: contain;
-	scrollbar-width: none;
-}
-.kanban-board-wrapper::-webkit-scrollbar {
-	display: none;
 }
 .kanban-board-wrapper.panning {
 	cursor: grabbing;
@@ -297,17 +340,33 @@
 	mask-image: linear-gradient(to right, transparent, var(--w-text) var(--board-fade), var(--w-text) calc(100% - var(--board-fade)), transparent);
 }
 
+/* Any host: one row of lanes as wide as they need (the shared board sizes its lanes itself). */
 .kanban-board {
-	display: grid;
-	grid-template-columns: repeat(var(--lanes, 4), minmax(240px, 1fr));
-	align-items: start;
+	display: flex;
+	align-items: flex-start;
 	gap: 24px;
 	box-sizing: border-box;
-	width: 100%;
-	min-width: min-content;
+	width: max-content;
+	min-width: 100%;
 	height: 100%;
 	min-height: 0;
 	padding: 4px var(--w-gutter) 24px;
+}
+.kanban-board > .kanban-column {
+	flex: 0 0 280px;
+}
+/* My Planner (§8.6): lanes share the stage in a grid, `repeat(N, minmax(240px, 1fr))`, and the
+   board scrolls sideways once they reach their minimum. A lane's content never widens its
+   track (inline-size containment), whatever width a host gives the board. */
+.kanban-board.kanban-board--grid {
+	display: grid;
+	grid-template-columns: repeat(var(--lanes, 4), minmax(240px, 1fr));
+	align-items: start;
+	width: 100%;
+	min-width: min-content;
+}
+.kanban-board--grid > .kanban-column {
+	contain: inline-size;
 }
 
 /* ---------- lane: no fill, no outline, no full-height rule ---------- */
@@ -426,10 +485,6 @@
 	padding: 12px 4px 4px;
 	overflow-y: auto;
 	list-style: none;
-	scrollbar-width: none;
-}
-.kanban-board .column-cards::-webkit-scrollbar {
-	display: none;
 }
 .kanban-board .kanban-card-item {
 	flex: none;
@@ -463,19 +518,23 @@
 :root[data-char='contrast'] .kanban-board .kanban-card:hover {
 	box-shadow: inset 0 0 0 1px var(--w-line-strong);
 }
-/* The card picked up: lifted for the drag image (shadow, strong edge, a slight turn)… */
-.kanban-board .kanban-card.is-lifting {
-	border-color: var(--w-line-strong);
-	box-shadow: var(--w-shadow);
-	transform: rotate(-1.2deg);
-}
-/* …while the place it left stays as a quiet outline. */
+/* While a card is dragged the place it left stays as a quiet outline… */
 .kanban-board .kanban-card.dragging {
 	border-style: dashed;
 	border-color: var(--w-line-strong);
 	background: transparent;
 	box-shadow: none;
 	opacity: 0.55;
+}
+/* …and the drag image is the card lifted (shadow, strong edge, a slight turn). The lift comes
+   after the placeholder in the sheet, so it wins whenever both are set. */
+.kanban-board .kanban-card.is-lifting {
+	border-style: solid;
+	border-color: var(--w-line-strong);
+	background: var(--w-lift);
+	box-shadow: var(--w-shadow);
+	opacity: 1;
+	transform: rotate(-1.2deg);
 }
 .kanban-board .drop-slot {
 	flex: none;
@@ -558,9 +617,6 @@
 	font: var(--w-t-mono);
 	font-variant-numeric: tabular-nums;
 }
-.kanban-board .card-meta:empty {
-	display: none;
-}
 .kanban-board .card-meta > span {
 	display: inline-flex;
 	align-items: center;
@@ -576,9 +632,10 @@
 .kanban-board .card-due--overdue {
 	color: var(--w-danger);
 }
+/* The priority word is part of the mono meta row (§7.27); its dot carries the tone. */
 .kanban-board .card-mark {
-	color: var(--w-mute);
-	font: var(--w-t-caption);
+	color: inherit;
+	font: inherit;
 }
 .kanban-board .card-mark .w-dot {
 	width: 7px;
@@ -632,6 +689,12 @@
 		background-color var(--w-dur-1) var(--w-ease),
 		color var(--w-dur-1) var(--w-ease);
 }
+/* The lane's main way to add a task: a full 44px target on touch (§8.12, §10). */
+@media (pointer: coarse) {
+	.kanban-board .add-task-row {
+		height: 44px;
+	}
+}
 .kanban-board .add-task-row:hover:not(:disabled) {
 	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
 	color: var(--w-text);
@@ -671,35 +734,19 @@
 		margin-inline-start: -8px;
 	}
 }
-/* Phone stage: one sideways-scrolling tools line, and one lane at a time that snaps into place
-   with the next lane's edge showing. */
+/* Phone stage: one lane at a time that snaps into place with the next lane's edge showing (the
+   lane switcher above moves between them). */
 @container stage (max-width: 599.98px) {
-	.kanban-container .planner-tools {
-		flex-wrap: nowrap;
-		overflow-x: auto;
-		scrollbar-width: none;
-	}
-	.kanban-container .planner-tools::-webkit-scrollbar {
-		display: none;
-	}
-	.kanban-container .planner-summary {
-		order: 0;
-		flex: none;
-		margin-inline-start: 4px;
-		overflow: visible;
-	}
-	.kanban-container .planner-tools__spacer {
-		display: none;
-	}
 	.kanban-board-wrapper {
 		scroll-snap-type: x mandatory;
 		scroll-padding-inline: var(--w-gutter);
 	}
-	.kanban-board {
+	.kanban-board.kanban-board--grid {
 		grid-template-columns: repeat(var(--lanes, 4), calc(100cqi - 2 * var(--w-gutter) - 32px));
 		gap: 16px;
 	}
-	.kanban-board .kanban-column {
+	.kanban-board--grid > .kanban-column {
 		scroll-snap-align: start;
 	}
 }
+

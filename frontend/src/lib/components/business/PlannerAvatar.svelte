@@ -5,6 +5,9 @@
 	 * surface (`--disc`) with the initial in their ink nudged to 4.5:1 on it (`--on`), computed per
 	 * theme by `$inkFor` — never the raw pastel with a white letter. Below 28px the initial is
 	 * sans 500; at 28px and up it is a serif 600 stamp. Joker's squares come from --w-avr.
+	 * Sizes are the contract's (§7.12): `sm` 20 and `md` 28. `xs` is kept for older callers and
+	 * draws the 20px stamp too: the smallest stamp the contract allows (its initial is 10px;
+	 * 16px would put an 8px letter under the type floor).
 	 * Used on kanban cards, the day dialog, Tasks rows, Gantt bars and signature chips.
 	 *
 	 * Svelte 4 (`export let`) — matches the business tree.
@@ -21,7 +24,7 @@
 	/** Accessible label; without one the avatar is decorative (the row says the name). */
 	export let label = '';
 
-	const sizePx: Record<'xs' | 'sm' | 'md', number> = { xs: 16, sm: 20, md: 28 };
+	const sizePx: Record<'xs' | 'sm' | 'md', number> = { xs: 20, sm: 20, md: 28 };
 
 	$: px = sizePx[size];
 	$: initial = (name || '?').trim().charAt(0).toUpperCase() || '?';

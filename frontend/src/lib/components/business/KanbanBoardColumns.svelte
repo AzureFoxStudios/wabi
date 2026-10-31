@@ -43,6 +43,11 @@
 
 	export let sortedTodosByColumn: Record<TodoStatus, Todo[]>;
 	export let columns: KanbanColumn[] | null = null;
+	/**
+	 * 'grid' (My Planner, §8.6): lanes share the stage in `repeat(N, minmax(240px, 1fr))`.
+	 * 'row' (default, the shared project board): one max-content row whose lanes the host sizes.
+	 */
+	export let layout: 'grid' | 'row' = 'row';
 	export let showPriorityLabel = false;
 	export let compactEmpty = false;
 	export let getColumnHint: (status: TodoStatus) => string = () => '';
@@ -75,8 +80,12 @@
 	export let handleCardClick: (todo: Todo) => void;
 	/** Keyboard moves ([ ], Move task…). Without it the cards still open with Enter. */
 	export let moveTodo: ((todo: Todo, status: TodoStatus) => void) | null = null;
-	/** Opens the task dialog on one field (Move task… → Due date…, Assignee…, Priority…). */
-	export let openTaskField: ((todo: Todo, field: TaskField) => void) | null = null;
+	/**
+	 * Opens the task dialog on one field (Move task… → Due date…, Assignee…, Priority…). `opener`
+	 * is the card's own title button: the menu row that was focused is gone by the time the
+	 * dialog closes, so focus goes back to the card instead.
+	 */
+	export let openTaskField: ((todo: Todo, field: TaskField, opener?: HTMLElement | null) => void) | null = null;
 	export let onHideColumn: ((status: TodoStatus) => void) | null = null;
 	export let onEditColumns: (() => void) | null = null;
 
@@ -167,12 +176,17 @@
 		if (openTaskField) {
 			items.push(
 				{ id: 'move-sep', type: 'separator', label: '' },
-				{ id: 'field-due', label: 'Due date…', icon: 'calendar', onSelect: () => openTaskField?.(todo, 'due') },
-				{ id: 'field-assignee', label: 'Assignee…', icon: 'user', onSelect: () => openTaskField?.(todo, 'assignee') },
-				{ id: 'field-priority', label: 'Priority…', icon: 'flag', onSelect: () => openTaskField?.(todo, 'priority') }
+				{ id: 'field-due', label: 'Due date…', icon: 'calendar', onSelect: () => openField(todo, 'due') },
+				{ id: 'field-assignee', label: 'Assignee…', icon: 'user', onSelect: () => openField(todo, 'assignee') },
+				{ id: 'field-priority', label: 'Priority…', icon: 'flag', onSelect: () => openField(todo, 'priority') }
 			);
 		}
 		return items;
+	}
+
+	function openField(todo: Todo, field: TaskField): void {
+		currentId = todo.id;
+		openTaskField?.(todo, field, document.getElementById(cardId(todo.id)));
 	}
 
 	function laneItems(column: KanbanColumn): MenuEntry[] {
@@ -217,8 +231,11 @@
 			event.preventDefault();
 			return;
 		}
-		// The drag image is taken right after this handler: lift the card for it, then let the
-		// card left behind become the quiet placeholder.
+		// The browser takes the drag image right after this handler returns: lift the card for
+		// it (class set synchronously), and drop the lift on the next frame, once the image is
+		// taken. The host marks the drag (`draggingId`: the dashed placeholder, stretched lanes)
+		// only after that, in a later task (KanbanBoardImpl.handleDragStart), so a microtask
+		// flush can never turn the drag image into the placeholder.
 		const card = event.currentTarget as HTMLElement;
 		card.classList.add('is-lifting');
 		requestAnimationFrame(() => card.classList.remove('is-lifting'));
@@ -226,13 +243,14 @@
 	}
 </script>
 
-<div class="kanban-board" class:is-dragging={Boolean(draggingId)} style="--lanes: {Math.max(lanes.length, 1)}">
+<div class="kanban-board" class:kanban-board--grid={layout === 'grid'} class:is-dragging={Boolean(draggingId)} style="--lanes: {Math.max(lanes.length, 1)}">
 	{#each lanes as column (column.id)}
 		{@const cards = sortedTodosByColumn[column.id] || []}
 		{@const name = laneLabel(column)}
 		{@const glyph = laneGlyph(column.id)}
 		<section
 			class="kanban-column"
+			data-lane={column.id}
 			class:drag-over={dragOverColumn === column.id && draggingStatus !== column.id}
 			aria-labelledby="{uid}-lane-{column.id}"
 			on:dragover={(e) => handleDragOver(e, column.id)}
@@ -273,6 +291,11 @@
 					{@const mark = priorityMark(todo.priority)}
 					{@const aid = todo.assignedTo ? parseAssigneeId(todo.assignedTo) : null}
 					{@const working = getWorkingLabel(todo)}
+					{@const projectName = showProjects && todo.projectId ? getProjectName(todo.projectId) : ''}
+					{@const signed = (todo.signatures?.length ?? 0) > 0 || Boolean(todo.signedBy)}
+					{@const showMark = Boolean(mark) && !closed && !showPriorityLabel}
+					<!-- No empty meta row: a done card without a completion date says nothing more. -->
+					{@const hasMeta = Boolean(dueText || showMark || projectName || todo.estimatedMinutes || signed || working || aid)}
 					<li class="kanban-card-item">
 						<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions: the whole card is a pointer convenience; its title button is the keyboard path -->
 						<div
@@ -291,7 +314,7 @@
 									class="card-open"
 									id={cardId(todo.id)}
 									tabindex={todo.id === tabStopId ? 0 : -1}
-									aria-describedby="{uid}-meta-{todo.id}"
+									aria-describedby={hasMeta ? `${uid}-meta-${todo.id}` : undefined}
 									aria-keyshortcuts={moveTodo && !isReadOnly ? 'Enter M [ ]' : 'Enter'}
 									on:focus={() => (currentId = todo.id)}
 									on:click={() => handleCardClick(todo)}
@@ -303,24 +326,25 @@
 							{/if}
 							{#if canClaim(todo)}<button class="w-btn w-btn--sm claim-card" type="button" on:click={() => claimTask(todo)} disabled={isReadOnly}>{getClaimLabel(todo)}</button>{/if}
 							<LoreRefChips refs={todo.loreRefs ?? []} />
+							{#if hasMeta}
 							<div class="card-meta" id="{uid}-meta-{todo.id}">
 								{#if dueText}
 									<span class="card-due card-due--{dueText.tone}" title={dueText.title}>
 										{#if dueText.tone === 'done'}<Icon name="check" size={14} />{:else}<Icon name="calendar" size={14} />{/if}<span class="sr-only">{dueText.title}</span><span aria-hidden="true">{dueText.text}</span>
 									</span>
 								{/if}
-								{#if mark && !closed && !showPriorityLabel}
+								{#if showMark && mark}
 									<span class="card-mark"><span class="w-dot w-dot--{mark.tone}" aria-hidden="true"></span>{mark.word}</span>
 								{/if}
-								{#if showProjects && todo.projectId && getProjectName(todo.projectId)}
+								{#if projectName}
 									<span class="card-project">
-										<span class="card-project__dot" style="--project-dot: {getProjectColor(todo.projectId) || 'var(--w-faint)'}" aria-hidden="true"></span>{getProjectName(todo.projectId)}
+										<span class="card-project__dot" style="--project-dot: {getProjectColor(todo.projectId) || 'var(--w-faint)'}" aria-hidden="true"></span>{projectName}
 									</span>
 								{/if}
 								{#if todo.estimatedMinutes}
 									<span class="card-estimate" title="Time estimate">{formatEstimateHours(todo.estimatedMinutes)}</span>
 								{/if}
-								{#if (todo.signatures?.length ?? 0) > 0 || todo.signedBy}
+								{#if signed}
 									<span
 										class="card-signed"
 										title={todo.signatures?.length
@@ -343,6 +367,7 @@
 									</span>
 								{/if}
 							</div>
+							{/if}
 						</div>
 					</li>
 				{/each}

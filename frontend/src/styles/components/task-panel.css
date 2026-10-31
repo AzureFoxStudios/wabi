@@ -52,13 +52,22 @@
 .task-panel .tp-tools {
 	flex: none;
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
+	gap: 6px 12px;
 	box-sizing: border-box;
 	min-height: 44px;
 	padding: 8px 12px 4px 20px;
 }
 .task-panel .tp-filter {
 	max-width: 100%;
+}
+/* Where these tasks live, said here only while the Planner's own row A is not on screen. */
+.task-panel .tp-where {
+	flex: 1 0 100%;
+	margin: 0;
+	color: var(--w-faint);
+	font: var(--w-t-micro);
 }
 
 /* ---------- list ---------- */
