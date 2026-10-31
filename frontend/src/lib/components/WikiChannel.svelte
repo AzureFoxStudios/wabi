@@ -588,7 +588,7 @@
 	] satisfies MenuEntry[] : [];
 
 	$: insertItems = [
-		...INSERT_KINDS.map(({ kind, label }) => ({ id: `insert-${kind}`, label, onSelect: () => insertBlock(kind) })),
+		...INSERT_KINDS.map(({ kind, label, icon }) => ({ id: `insert-${kind}`, label, icon, onSelect: () => insertBlock(kind) })),
 		{ id: 'insert-sep', type: 'separator' },
 		{ id: 'insert-image', label: imageUploading ? 'Uploading image…' : 'Image…', icon: 'image', disabled: imageUploading, onSelect: () => imageInput?.click() }
 	] satisfies MenuEntry[];
@@ -832,7 +832,7 @@
 								<div class="w-prose wiki-prose wiki-preview">{#if newPageBody.trim()}{@html renderWikiBody(newPageBody)}{:else}<p class="wiki-preview-empty">Nothing to preview yet.</p>{/if}</div>
 							{:else}
 								{#key editorEpoch}
-									<WritingEditor bind:this={writer} value={newPageBody} onchange={(value) => { newPageBody = value; }} ariaLabel="Page text" placeholder={WRITING_PLACEHOLDER} readonly={creatingPage} hang={hangMarkers} class="wiki-writer" />
+									<WritingEditor bind:this={writer} value={newPageBody} onchange={(value) => { newPageBody = value; }} ariaLabel="Page text" placeholder={WRITING_PLACEHOLDER} readonly={creatingPage} hang={hangMarkers} onimage={() => imageInput?.click()} imageBusy={imageUploading} class="wiki-writer" />
 								{/key}
 							{/if}
 						</div>
@@ -930,7 +930,7 @@
 								<div class="w-prose wiki-prose wiki-preview">{#if editBody.trim()}{@html renderWikiBody(editBody)}{:else}<p class="wiki-preview-empty">Nothing to preview yet.</p>{/if}</div>
 							{:else}
 								{#key editorEpoch}
-									<WritingEditor bind:this={writer} value={editBody} onchange={(value) => { editBody = value; }} ariaLabel="Page text" placeholder={WRITING_PLACEHOLDER} readonly={saveState === 'saving'} hang={hangMarkers} class="wiki-writer" />
+									<WritingEditor bind:this={writer} value={editBody} onchange={(value) => { editBody = value; }} ariaLabel="Page text" placeholder={WRITING_PLACEHOLDER} readonly={saveState === 'saving'} hang={hangMarkers} onimage={() => imageInput?.click()} imageBusy={imageUploading} class="wiki-writer" />
 								{/key}
 							{/if}
 						</div>

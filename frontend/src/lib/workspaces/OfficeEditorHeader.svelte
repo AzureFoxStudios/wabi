@@ -23,6 +23,7 @@
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import type { IconName } from '$lib/components/ui/icons';
 	import { _ } from '$lib/i18n';
+	import { isMobile } from '$lib/layoutStoreStates';
 
 	interface Props {
 		tool: 'documents' | 'sheets' | 'present';
@@ -77,8 +78,9 @@
 {:else}
 	<span class="w-tag oeh-chip oeh-scope" title="Private on this device. Opening and editing do not upload this file."><span class="w-dot oeh-scope__dot" aria-hidden="true"></span><span class="oeh-scope__words">Private · this device</span></span>
 {/if}
-<span class="oeh-status" role="status">{status}{#if selection}<span class="oeh-selection"> · {selection}</span>{/if}</span>
-{#if modes}
+<span class="oeh-status" role="status">{status}{#if selection}<span class="oeh-selection">{` · ${selection}`}</span>{/if}</span>
+<!-- On a phone the modes are rows in ⋯ (ArtifactShell), so the title keeps row A. -->
+{#if modes && !$isMobile}
 	<Segmented class="oeh-modes" label={modes.label} options={modes.options} value={modes.value} onchange={modes.onchange} />
 {/if}
 
@@ -119,10 +121,10 @@
 		color: var(--w-faint);
 	}
 	/* The title is the document's name, not a field: borderless serif until hovered or focused. */
+	/* As wide as the name (field-sizing), between 96px and 46ch; it shrinks before the actions. */
 	.oeh-title {
 		flex: 0 1 auto;
 		box-sizing: border-box;
-		width: 22ch;
 		min-width: 96px;
 		max-width: 46ch;
 		field-sizing: content;
@@ -138,6 +140,11 @@
 		transition:
 			border-color var(--w-dur-1) var(--w-ease),
 			box-shadow var(--w-dur-1) var(--w-ease);
+	}
+	@supports not (field-sizing: content) {
+		.oeh-title {
+			width: 22ch;
+		}
 	}
 	.oeh-title:hover:not(:disabled) {
 		border-color: var(--w-line-strong);
@@ -203,7 +210,14 @@
 			display: inline-block;
 		}
 		.oeh-title {
-			width: 14ch;
+			max-width: 24ch;
+		}
+	}
+	@container stage (max-width: 759.98px) {
+		@supports not (field-sizing: content) {
+			.oeh-title {
+				width: 14ch;
+			}
 		}
 	}
 </style>

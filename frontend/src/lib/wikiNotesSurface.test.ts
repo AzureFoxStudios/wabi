@@ -16,6 +16,10 @@ const channel = read('./components/WikiChannel.svelte');
 const tree = read('./components/WikiPageTree.svelte');
 const notes = read('./components/NotesWorkspace.svelte');
 const writer = read('./components/WritingEditor.svelte');
+// The shared writing page (wiki, Notes and Documents): its look, the bubble and Insert.
+const frame = read('./editor/WritingFrame.svelte');
+const bubble = read('./editor/SelectionBubble.svelte');
+const insertMenu = read('./editor/InsertMenu.svelte');
 
 function withoutComments(source: string, open = '/*', close = '*/'): string {
 	let out = '';
@@ -79,6 +83,9 @@ describe('wiki.css and the HELD blocks draw only with roles and tokens', () => {
 		expectRolesOnly(withoutComments(heldBlock(readingCss, 'w1-wiki-notes')), 'reading.css block');
 		expectRolesOnly(styles(notes), 'NotesWorkspace styles');
 		expectRolesOnly(styles(writer), 'WritingEditor styles');
+		expectRolesOnly(styles(frame), 'WritingFrame styles');
+		expectRolesOnly(styles(bubble), 'SelectionBubble styles');
+		expectRolesOnly(styles(insertMenu), 'InsertMenu styles');
 	});
 
 	test('no left bars or accent selection fills (§5.2)', () => {
@@ -236,7 +243,7 @@ describe('WikiChannel (§8.7, forum-wiki#3, #10, #11, #12)', () => {
 		expect(channel).not.toContain('wiki-editor-toolbar');
 		expect(channel).not.toContain('<textarea');
 		// The Schedule table keeps its place, in the Insert menu.
-		expect(read('./editor/writingMarkdown.ts')).toContain("{ kind: 'schedule', label: 'Schedule table' }");
+		expect(read('./editor/writingMarkdown.ts')).toContain("{ kind: 'schedule', label: 'Schedule table', icon: 'calendar' }");
 	});
 
 	test('while a page is written the tree steps its New page back, so the page owns the one primary', () => {
@@ -364,12 +371,17 @@ describe('NotesWorkspace in center stage (§8.7, forum-wiki#16)', () => {
 
 describe('WritingEditor: the selection bubble (§7.15)', () => {
 	test('a kit .w-tool--bubble toolbar with no shadow', () => {
-		const html = markup(writer);
+		const html = markup(bubble);
 		expect(html).toContain('class="w-tool w-tool--bubble writing-bubble"');
 		expect(html).toContain('role="toolbar"');
 		expect(html).toContain('aria-label="Format selection"');
-		expect(styles(writer)).not.toMatch(/\.writing-bubble[^{]*\{[^}]*box-shadow/);
-		for (const key of ['Bold', 'Italic', 'Strikethrough', 'Link', 'Inline code']) expect(writer).toContain(`label: '${key}'`);
+		expect(styles(bubble)).not.toMatch(/\.writing-bubble[^{]*\{[^}]*box-shadow/);
+		for (const key of ['Bold', 'Italic', 'Strikethrough', 'Link', 'Inline code']) expect(bubble).toContain(`label: '${key}'`);
+	});
+	test('the wiki and Notes editor renders the shared writing page, not a surface of its own', () => {
+		expect(writer).toContain('<WritingFrame {controller}');
+		expect(writer).toContain('new WritingController(');
+		expect(markup(writer)).not.toContain('w-tool--bubble');
 	});
 });
 
