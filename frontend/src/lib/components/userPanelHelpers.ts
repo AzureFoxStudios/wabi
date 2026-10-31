@@ -227,6 +227,21 @@ export function sortPeopleEntries(entries: PersonEntry[], displayName: (user: Us
 }
 
 /**
+ * The phone bar's People facepile (§8.12): how many people are here now (the viewer counts, as in
+ * "Here now"; anyone the server shows offline does not) and up to `limit` faces, the others first
+ * by the name on screen, then the viewer.
+ */
+export function facepileOf(
+	input: { online: readonly User[]; self: User | null; displayName?: (user: User) => string },
+	limit = 3
+): { count: number; faces: User[] } {
+	const here = buildPeopleEntries({ online: input.online, members: [], self: input.self, rooms: [] }).filter((entry) => entry.presence !== 'offline');
+	const sorted = sortPeopleEntries(here, input.displayName);
+	const faces = [...sorted.filter((entry) => !entry.isSelf), ...sorted.filter((entry) => entry.isSelf)].slice(0, limit).map((entry) => entry.user);
+	return { count: here.length, faces };
+}
+
+/**
  * The People companion's groups. By place (default): "In <room>" for each voice room with people
  * in it, then "Here now", "Away", "Offline". By role: one group per role of the people online
  * (highest first), then "Offline". Empty groups are left out.

@@ -775,3 +775,35 @@ describe('Chat.svelte keeps the stream and composer wiring', () => {
 		expect(chat).toContain('bind:this={chatComposer}');
 	});
 });
+
+describe('the phone bar People facepile (§8.12)', () => {
+	const facepile = read('./components/chat/PeopleFacepile.svelte');
+	const body = (selector: string) => skinRules.filter((rule) => rule.selectors.includes(selector)).map((rule) => rule.body).join('\n');
+
+	test('a channel bar shows it on the phone (not a DM, not while searching) and it opens People', () => {
+		expect(chatHeader).toContain('{#if phone && !expanded}<PeopleFacepile />{/if}');
+		const conversation = between(chatHeader, '{#if conversation}', '{:else}');
+		expect(conversation).not.toContain('PeopleFacepile');
+		expect(facepile).toContain("onclick={() => openRightPanel('users')}");
+		expect(facepile).toContain('aria-label={label}');
+	});
+
+	test('three 24px stamps overlapping 7px with a 2px --w-bg ring, the count in micro mono', () => {
+		expect(body('.stage-bar .stage-people__stamp')).toContain('width: 24px;');
+		expect(body('.stage-bar .stage-people__stamp')).toContain('box-shadow: 0 0 0 2px var(--w-bg);');
+		expect(body('.stage-bar .stage-people__stamp + .stage-people__stamp')).toContain('margin-inline-start: -7px;');
+		expect(body('.stage-bar .stage-people__count')).toContain('font: var(--w-t-micro);');
+		expect(body('.stage-bar .stage-people')).toContain('height: 44px;');
+	});
+
+	test('stamps give way whole before the name floor and "Chat ▾": a one-line wrapping pile that hides its overflow', () => {
+		const pile = body('.stage-bar .stage-people__pile');
+		for (const part of ['flex-wrap: wrap;', 'justify-content: flex-end;', 'height: 28px;', 'overflow: hidden;', 'min-width: 28px;', 'row-gap: 8px;']) expect(pile).toContain(part);
+		// The same 10⁶ shrink as the lead, so the "Chat ▾" label never loses a fraction of a pixel.
+		expect(body('.stage-bar .stage-people')).toContain('flex: 0 1000000 auto;');
+		const narrow = between(skin, '@container stage (max-width: 379.98px) {', '\n}');
+		expect(narrow).toContain('.stage-bar .stage-people {');
+		expect(narrow).toContain('display: none;');
+	});
+});
+

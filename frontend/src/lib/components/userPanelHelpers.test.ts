@@ -4,6 +4,7 @@ import type { VoiceChannelParticipant } from '$lib/presenceStore';
 import {
 	buildPeopleEntries,
 	buildPeopleGroups,
+	facepileOf,
 	getStatusColor,
 	participantMatchesUser,
 	personAriaLabel,
@@ -218,5 +219,26 @@ describe('Invisible stays invisible (presence.rs masks it as "offline")', () => 
 		expect(personAriaLabel('Mira', meEntry, personSubline(meEntry), 'Admin')).toBe('Mira, invisible, you, admin');
 		expect(presenceOf(me, true, false)).toBe('offline');
 		expect(presenceOf(me, false, true)).toBe('offline');
+	});
+});
+
+describe('the phone bar facepile (§8.12)', () => {
+	test('counts everyone here now, the viewer included, and shows three others by name', () => {
+		const pile = facepileOf({ online: [mira, theo, nora, jun, amara], self: mira });
+		expect(pile.count).toBe(5);
+		expect(pile.faces.map((user) => user.username)).toEqual(['Amara Okafor', 'Jun Sato', 'Nora Ellis']);
+	});
+
+	test('away people are here; people the server shows offline are not counted or shown', () => {
+		const ghost = person(9, 'Ada Ghost', { status: 'offline' });
+		const pile = facepileOf({ online: [mira, sofia, ghost], self: mira });
+		expect(pile.count).toBe(2);
+		expect(pile.faces.map((user) => user.username)).toEqual(['Sofia Reyes', 'Mira']);
+	});
+
+	test('the viewer shows last, and only when there is room; duplicates count once', () => {
+		expect(facepileOf({ online: [mira, mira], self: mira }).faces.map((user) => user.username)).toEqual(['Mira']);
+		expect(facepileOf({ online: [mira, mira], self: mira }).count).toBe(1);
+		expect(facepileOf({ online: [], self: null })).toEqual({ count: 0, faces: [] });
 	});
 });

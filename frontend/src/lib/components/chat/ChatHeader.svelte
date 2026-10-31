@@ -10,7 +10,9 @@
 	  galleries, a stream with no composer). About this channel keeps it as a fact.
 	- DM / group: avatar 28 + name + the seal chip (PrivacyBadge, which owns every privacy word)
 	  with the retention chip; actions: search, call, video, More.
-	- Phone bar (52px, §8.12): avatar + name (96px floor, ellipsis) + "Chat ▾" + search + More.
+	- Phone bar (52px, §8.12): avatar + name (96px floor, ellipsis) + "Chat ▾" + search + More;
+	  a channel adds the People facepile before search (PeopleFacepile.svelte), whose stamps give
+	  way first when the bar is short of room.
 	  The avatar steps aside first when the stage has no room for it at the current text size.
 	  The seal chip, Voice call and Video call have no room there, so More carries them: its
 	  first row is the privacy state (glyph, word, short sentence; every word from
@@ -130,6 +132,7 @@
 	import type { E2eeRoomStatus } from '$lib/e2ee';
 	import { mediaUrl } from '$lib/mediaUrl';
 	import { inkFor } from '$lib/theme/identity';
+	import PeopleFacepile from './PeopleFacepile.svelte';
 	import { portal } from '$lib/actions/portal';
 	import type { MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
@@ -722,6 +725,7 @@
 		{/if}
 	</div>
 	{@render trail?.()}
+	{#if phone && !expanded}<PeopleFacepile />{/if}
 	<div class="stage-a__actions" class:stage-a__actions--searching={expanded}>
 		{@render searchControl()}
 		{#if searchable}

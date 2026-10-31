@@ -614,6 +614,90 @@
 	width: auto;
 }
 
+/* The People facepile (§8.12; chat/PeopleFacepile.svelte): three 24px stamps overlapping by 7px,
+   each ringed 2px in the bar's --w-bg, then the count in --w-t-micro; 44px to touch. It gives way
+   with the lead (the same 10⁶ shrink), so "Chat ▾" keeps its whole label: the pile is a one-line
+   wrapping row of fixed height whose overflow is hidden, so a stamp that no longer fits drops out
+   whole (never half-clipped) and the ones left stay right-aligned against the count. One stamp is
+   the pile's floor. Below a 380px stage the bar has no room for it beside the name's floor, the
+   whole "Chat" and search + ⋯, so the facepile steps aside there; People stays one tap away in the
+   Workspaces sheet (Side panels). */
+.stage-bar .stage-people {
+	flex: 0 1000000 auto;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	box-sizing: border-box;
+	min-width: 44px;
+	height: 44px;
+	margin: 0 0 0 auto;
+	padding: 0 6px 0 4px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
+}
+.stage-bar .stage-people:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+	color: var(--w-text);
+}
+.stage-bar .stage-people:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+.stage-bar .stage-people + .stage-a__actions {
+	margin-inline-start: 0;
+}
+.stage-bar .stage-people__pile {
+	flex: 0 1 auto;
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	row-gap: 8px;
+	box-sizing: border-box;
+	min-width: 28px;
+	height: 28px;
+	padding: 2px;
+	overflow: hidden;
+}
+.stage-bar .stage-people__stamp {
+	flex: none;
+	box-sizing: border-box;
+	width: 24px;
+	height: 24px;
+	border-radius: var(--w-avr);
+	box-shadow: 0 0 0 2px var(--w-bg);
+	object-fit: cover;
+}
+.stage-bar .stage-people__stamp + .stage-people__stamp {
+	margin-inline-start: -7px;
+}
+.stage-bar .stage-people__stamp--initial {
+	display: grid;
+	place-items: center;
+	background: var(--disc, var(--w-raise));
+	color: var(--on, var(--w-text));
+	font: 600 calc(11px * var(--w-fs)) / 1 var(--w-serif);
+}
+.stage-bar .stage-people__count {
+	flex: none;
+	font: var(--w-t-micro);
+	font-variant-numeric: tabular-nums;
+}
+/* (A wrapped stamp starts 8px below the pile's box, so nothing of it shows in the ring padding.) */
+@container stage (max-width: 379.98px) {
+	.stage-bar .stage-people {
+		display: none;
+	}
+	.stage-bar .stage-people + .stage-a__actions {
+		margin-inline-start: auto;
+	}
+}
+
 /* The "Chat ▾" workspace button: 30px drawn, 44px to touch (row A is 52, nothing clips it).
    It gives way after the lead's floor: the label takes an ellipsis (the full name stays in its
    aria-label), the chevron and 2em of words stay. */
