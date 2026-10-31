@@ -110,10 +110,7 @@ Partly resolved:
    - `BaseModal.svelte` now renders the kit `.w-scrim` + `.w-dialog` frame, and the ServerRail pair is gone.
    - Still open: `lib/components/StorageSettings.css` is not imported. It is dead; `styles/components/storage-settings.css` is the live copy.
 10. **`100vh` stragglers.** The listed ones (`reader-tab.css`, `user-popout.css`, `call-view.css`) are fixed, and most other uses now have a `100dvh` line after them. `:fullscreen` rules use `100vh` on purpose. Still bare `100vh`, with no `100dvh`:
-    - `ModeTabsDrawer.css:50`
     - `EmojiPicker.svelte:553-554`
-    - `ReportMessageDialog.svelte`, at `calc(100vh - 36px)`
-    - `routes/business/businessPage.css:14`
     - `routes/business/+page.svelte:31`
     - the dev review routes `__annotated_review` and `__forum_review`
 - **Old indigo brand** (foundation#19). Done:
@@ -133,7 +130,7 @@ Still open. Fold each into the surface package that owns the file:
 8. **Off-scale radii and the `ml-core` duplicate.**
    - Four radius literals remain in `UserListTabImpl.css` (6px and 10px). Use the `--radius-*` codemod (contract §4.4).
    - `styles/components/ml-core.css` still defines `.message` twice: the base rule at line 46, then a second unscoped "Cozy default" block at line 580 that overrides it. The density blocks after it use `!important`.
-9. **Raw z-index.** `ModeTabsDrawer.css` still uses 1999/2000. The other listed files use `--z-*` tokens, or small local values inside their own stacking context.
+9. ~~**Raw z-index** in `ModeTabsDrawer.css` (1999/2000)~~ — rebuilt on the kit in wave 2 (no z-index, no `100vh`). The other listed files use `--z-*` tokens, or small local values inside their own stacking context.
 12. **Font-size drift.** Hardcoded `rem` sizes remain:
     - `FollowingFeed.svelte`: six of them, 0.7–1.2rem.
     - `DmHub.svelte:570` (`.85rem`) and `:575` (`1.25rem`).

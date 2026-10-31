@@ -1,59 +1,195 @@
+<!--
+	Report a message to this server's staff (design contract §7.13 dialog, §9 truth words). The kit
+	dialog (BaseModal sm): the message as a quoted snapshot, what is wrong, an optional note, then
+	what sending keeps and who sees it, in the server's own words. Moderation is the seal's subject,
+	so the evidence line carries the seal glyph. A failure is one notice in the dialog with its own
+	sentence (the server's raw error goes to the console, never on screen).
+-->
 <script lang="ts">
 	import type { Message } from '$lib/socket';
 	import { activeServerUrl } from '$lib/serverUrl';
 	import { currentChannel } from '$lib/channelStore';
 	import { getAuthToken } from '$lib/authSession';
+	import BaseModal from './BaseModal.svelte';
+	import Icon from './ui/Icon.svelte';
+	import Notice from './ui/Notice.svelte';
 
 	export let visible = false;
 	export let message: Message | null = null;
 	export let onClose: () => void = () => {};
 
+	type Failure = { title: string; text: string; cause?: unknown };
+
 	let reason = 'Server rule violation';
 	let comment = '';
 	let busy = false;
-	let error = '';
+	let failure: Failure | null = null;
 	let sent = false;
 	const reasons = ['Spam', 'Harassment', 'Hate / abusive behavior', 'Sexual content', 'Threats / dangerous behavior', 'Server rule violation', 'Something else'];
 
-	$: if (!visible) { error = ''; sent = false; comment = ''; reason = 'Server rule violation'; }
+	$: if (!visible) { failure = null; sent = false; comment = ''; reason = 'Server rule violation'; }
 
 	async function submit() {
 		if (!message || busy) return;
-		busy = true; error = '';
+		busy = true; failure = null;
 		try {
 			const token = getAuthToken($activeServerUrl);
-			if (!token) throw new Error('Sign in again before reporting a message.');
+			if (!token) {
+				failure = { title: 'Sign in again to report', text: 'Your session on this server has ended. Nothing was sent.' };
+				return;
+			}
 			const response = await fetch(`${$activeServerUrl}/api/server-center/reports`, {
 				method: 'POST', credentials: 'include', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
 				body: JSON.stringify({ channelId: $currentChannel, messageId: message.id, reason, comment: comment.trim() || null })
 			});
 			const data = await response.json().catch(() => ({}));
-			if (!response.ok) throw new Error(data.error || `Could not submit report (${response.status}).`);
+			if (!response.ok) {
+				failure = { title: 'The report was not sent', text: 'The server did not accept it. Try again, or tell a moderator directly.', cause: { status: response.status, error: data?.error } };
+				return;
+			}
 			sent = true;
-		} catch (cause) { error = cause instanceof Error ? cause.message : 'Could not submit report.'; }
-		finally { busy = false; }
+		} catch (cause) {
+			failure = { title: 'The report was not sent', text: 'The server could not be reached. Check your connection and try again.', cause };
+		} finally {
+			busy = false;
+		}
 	}
 </script>
 
-{#if visible && message}
-	<div class="backdrop" role="presentation" onclick={(event) => { if (event.currentTarget === event.target) onClose(); }}>
-		<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="report-title">
-			{#if sent}
-				<div class="success"><span class="mark">✓</span><h2 id="report-title">Report sent</h2><p>Server staff can review the evidence snapshot and your note. Your report does not automatically punish anyone.</p><button onclick={onClose}>Done</button></div>
-			{:else}
-				<header><div><span>Report to this server</span><h2 id="report-title">Report message</h2></div><button class="close" aria-label="Close" onclick={onClose}>×</button></header>
-				<div class="snapshot"><strong>@{message.user}</strong><p>{message.text || 'This message has no text.'}</p></div>
-				<label><span>What is wrong?</span><select bind:value={reason}>{#each reasons as item}<option>{item}</option>{/each}</select></label>
-				<label><span>Anything staff should know? <small>Optional</small></span><textarea bind:value={comment} maxlength="1000" rows="4" placeholder="Add context without having to copy/paste the message…"></textarea></label>
-				<div class="evidence"><strong>This report preserves evidence.</strong><span>Even if this channel is ephemeral or the message is later deleted, submitting the report stores this message snapshot in the server’s moderation case so staff can review what you chose to report.</span></div>
-				<p class="privacy">The active snapshot remains until the server’s chosen expiry or owner removal; backups may last longer. Wabi does not send it to a central moderation service. Cancel if you do not want to disclose this message to staff.</p>
-				{#if error}<div class="error" role="alert">{error}</div>{/if}
-				<footer><button class="cancel" onclick={onClose}>Cancel</button><button class="submit" onclick={submit} disabled={busy}>{busy ? 'Sending…' : 'Preserve & send report'}</button></footer>
-			{/if}
-		</section>
+<BaseModal
+	isOpen={visible && Boolean(message)}
+	{onClose}
+	size="sm"
+	padded
+	title={sent ? 'Report sent' : 'Report message'}
+	note={sent ? '' : 'To this server’s staff'}
+	closeOnScrim={!busy}
+	initialFocus={sent ? null : '#report-reason'}
+	panelClass="report"
+>
+	{#if message}
+		{#if sent}
+			<div class="report-done" role="status">
+				<p class="report-done__lead"><Icon name="check" size={18} />Server staff can review the evidence snapshot and your note.</p>
+				<p class="report-quiet">Your report does not automatically punish anyone.</p>
+			</div>
+		{:else}
+			<div class="report-form">
+				<blockquote class="report-snapshot">
+					<span class="report-snapshot__author">@{message.user}</span>
+					<p class="report-snapshot__text">{message.text || 'This message has no text.'}</p>
+				</blockquote>
+				<div class="report-field">
+					<label class="w-label" for="report-reason">What is wrong?</label>
+					<span class="w-field"><select id="report-reason" bind:value={reason} disabled={busy}>{#each reasons as item}<option>{item}</option>{/each}</select></span>
+				</div>
+				<div class="report-field">
+					<label class="w-label" for="report-comment">Anything staff should know? <span class="report-optional">Optional</span></label>
+					<textarea id="report-comment" class="w-field report-comment" bind:value={comment} maxlength="1000" rows="4" disabled={busy} placeholder="Add context without copying the message"></textarea>
+				</div>
+				<section class="report-evidence" aria-labelledby="report-evidence-title">
+					<p class="report-evidence__title" id="report-evidence-title"><Icon name="flag" size={16} />This report preserves evidence</p>
+					<p>Even if this channel is ephemeral or the message is later deleted, sending stores this message snapshot in the server’s moderation case, so staff can review what you chose to report.</p>
+					<p class="report-quiet">The active snapshot remains until the server’s chosen expiry or the owner removes it; backups may last longer. Wabi does not send it to a central moderation service. Cancel if you do not want staff to see this message.</p>
+				</section>
+				{#if failure}<Notice title={failure.title} text={failure.text} error={failure.cause} />{/if}
+			</div>
+		{/if}
+	{/if}
+	<div slot="footer" class="w-dialog__foot">
+		{#if sent}
+			<button type="button" class="w-btn w-btn--primary" on:click={onClose}>Done</button>
+		{:else}
+			<button type="button" class="w-btn w-btn--quiet" on:click={onClose} disabled={busy}>Cancel</button>
+			<button type="button" class="w-btn w-btn--primary" on:click={submit} disabled={busy} aria-busy={busy}>{busy ? 'Sending…' : 'Preserve & send report'}</button>
+		{/if}
 	</div>
-{/if}
+</BaseModal>
 
 <style>
-	.backdrop{position:fixed;inset:0;z-index:10020;display:grid;place-items:center;padding:18px;background:rgba(0,0,0,.52);backdrop-filter:blur(5px)}.dialog{width:min(520px,100%);max-height:min(760px,calc(100vh - 36px));overflow:auto;padding:20px;border:1px solid var(--border-default);border-radius:18px;background:var(--surface-raised);box-shadow:0 24px 80px rgba(0,0,0,.35);display:grid;gap:15px}.dialog header{display:flex;justify-content:space-between;align-items:start}.dialog header span{font-size:.75rem;text-transform:uppercase;letter-spacing:.09em;color:var(--text-muted)}h2{margin:3px 0 0}.close{font-size:1.5rem;line-height:1;width:36px;height:36px;padding:0}.snapshot{padding:13px 14px;background:var(--surface-base);border:1px solid var(--border-default);border-radius:11px}.snapshot p{margin:5px 0 0;white-space:pre-wrap;max-height:130px;overflow:auto;color:var(--text-secondary)}label{display:grid;gap:6px}label>span{font-size:.84rem;font-weight:600}small{color:var(--text-muted);font-weight:400}select,textarea{width:100%;box-sizing:border-box;font:inherit;color:var(--text-primary);background:var(--surface-base);border:1px solid var(--border-default);border-radius:10px;padding:10px}textarea{resize:vertical}.evidence{display:grid;gap:4px;padding:11px 12px;border:1px solid var(--border-default);border-radius:10px;background:var(--surface-base)}.evidence span,.privacy{color:var(--text-secondary);font-size:.82rem;line-height:1.4}.privacy{margin:0}.error{padding:10px 12px;border:1px solid var(--danger);border-radius:9px}footer{display:flex;justify-content:flex-end;gap:8px}button{font:inherit;cursor:pointer;color:var(--text-primary);background:var(--surface-base);border:1px solid var(--border-default);border-radius:9px;padding:9px 13px}.submit{font-weight:650}.success{text-align:center;padding:14px 4px;display:grid;justify-items:center;gap:9px}.success h2,.success p{margin:0}.success p{color:var(--text-secondary);max-width:390px}.mark{display:grid;place-items:center;width:48px;height:48px;border-radius:50%;border:1px solid var(--border-default);font-size:1.4rem}
+	.report-form {
+		display: grid;
+		gap: 16px;
+	}
+	/* The reported message, quoted as it will be kept: a hairline on the start edge, never a card. */
+	.report-snapshot {
+		margin: 0;
+		padding: 2px 0 2px 12px;
+		border-inline-start: 2px solid var(--w-line-strong);
+	}
+	.report-snapshot__author {
+		color: var(--w-text);
+		font: 500 calc(14px * var(--w-fs)) / calc(20px * var(--w-fs)) var(--w-sans);
+	}
+	.report-snapshot__text {
+		max-height: 132px;
+		margin: 2px 0 0;
+		overflow: auto;
+		color: var(--w-mute);
+		font: var(--w-t-ui);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.report-field {
+		display: grid;
+		gap: 6px;
+	}
+	.report-optional {
+		margin-inline-start: 6px;
+		color: var(--w-faint);
+		font: var(--w-t-small);
+	}
+	.report-comment {
+		height: auto;
+		min-height: 96px;
+		padding: 8px 10px;
+		resize: vertical;
+	}
+	.report-evidence {
+		display: grid;
+		gap: 6px;
+		padding-top: 14px;
+		border-top: var(--w-bw) solid var(--w-line);
+	}
+	.report-evidence p {
+		margin: 0;
+		color: var(--w-text);
+		font: var(--w-t-small);
+	}
+	.report-evidence .report-evidence__title {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font: 500 calc(14px * var(--w-fs)) / calc(20px * var(--w-fs)) var(--w-sans);
+	}
+	/* Moderation is the seal's subject: the glyph is the seal, the words stay ink. */
+	.report-evidence__title :global(svg) {
+		flex: none;
+		color: var(--w-seal);
+	}
+	.report-quiet {
+		color: var(--w-mute);
+	}
+	.report-evidence .report-quiet {
+		color: var(--w-mute);
+	}
+	.report-done {
+		display: grid;
+		gap: 6px;
+	}
+	.report-done p {
+		margin: 0;
+		font: var(--w-t-ui);
+	}
+	.report-done__lead {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		color: var(--w-text);
+	}
+	.report-done__lead :global(svg) {
+		flex: none;
+		margin-top: 1px;
+		color: var(--w-ok);
+	}
 </style>
