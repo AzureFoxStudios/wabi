@@ -22,7 +22,14 @@ const REMOVED = [
 	'./components/sidebar/ForumChannelList.svelte',
 	'./components/sidebar/GalleryChannelList.svelte',
 	'./components/sidebar/WikiChannelList.svelte',
-	'./components/UserContextMenu.svelte'
+	'./components/UserContextMenu.svelte',
+	// Wave 2 legacy retirement: the desktop floating voice card's sheet (the strip is phone-only,
+	// styled in styles/surfaces/mobile.css; its 1280px rule used Svelte-only :global() and never
+	// applied).
+	'../styles/components/main-layout-part2.css',
+	// Its phone rules matched nothing the drawer still draws, but for the close key and the list's
+	// hidden bar, which moved to styles/surfaces/mobile.css.
+	'../styles/components/sidebar-mobile.css'
 ];
 
 describe('removed dead code stays removed', () => {

@@ -2,7 +2,7 @@
    SIDEBAR — CORE STRUCTURE
    The sidebar's look lives in styles/surfaces/sidebar.css (design contract §8.1). This sheet
    keeps only the column's box model (height, flex column, clipping), which mobile-shell,
-   sidebar-mobile and desktop-shell adjust per viewport at this same weight.
+   styles/surfaces/mobile.css and desktop-shell adjust per viewport at this same weight.
    Deleted with the redesign: the indigo/teal gradients and glow behind the column and the
    community header, the banner art, the logo disc, the Clear Unread row, the hidden action
    tray, the text-glyph follow star and the duplicate switcher-button rules (critique shell#5,

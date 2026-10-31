@@ -57,7 +57,6 @@ const LEDGER: Record<string, Partial<Record<Rule, number>>> = {
 	'styles/components/gallery-channel.css': { rgb: 41, legacy: 2, named: 11 },
 	'styles/components/gallery-feedback.css': { legacy: 1, named: 2 },
 	'styles/components/main-layout-part1.css': { hex: 3, rgb: 4, legacy: 10, named: 1 },
-	'styles/components/main-layout-part2.css': { rgb: 8, legacy: 13, frost: 1 },
 	'styles/components/map-workspace-part1.css': { hex: 18, rgb: 52, legacy: 54 },
 	'styles/components/map-workspace-part2.css': { hex: 12, rgb: 35, legacy: 20, named: 4 },
 	'styles/components/ml-directions.css': { legacy: 30 },

@@ -366,6 +366,11 @@ describe('the phone shell stylesheets (§8.12, mobile#3, #7, #18)', () => {
 		expect(ruleBody(compact, '.app-container.compact-shell .compact-scrim')).toContain('background: var(--w-scrim);');
 	});
 
+	test('the drawer close key is 44px on any phone and the drawer list scrolls without a bar', () => {
+		expect(ruleBody(skin, ':root .app-container .channel-sidebar-container .mobile-close-btn')).toContain('height: 44px;');
+		expect(ruleBody(skin, ':root .app-container .channel-sidebar-container .channel-list')).toContain('scrollbar-width: none;');
+	});
+
 	test('a kit dialog or sheet covers the nav (its scrim dims it); drawers keep the nav in front', () => {
 		for (const open of [':root:has(.base-modal-scrim) .mobile-bottom-nav', ':root:has(.sheet-scrim) .mobile-bottom-nav']) {
 			expect(ruleBody(skin, open)).toContain('z-index: calc(var(--z-modal) - 2);');
