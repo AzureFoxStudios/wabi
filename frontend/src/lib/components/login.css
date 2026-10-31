@@ -1,6 +1,6 @@
 /* Scoped entry presentation. Similar workspace control names must not leak in. */
 .login-container {
-	--login-accent: var(--accent-primary-color);
+	--login-accent: var(--w-accent);
 	box-sizing: border-box;
 	height: 100dvh;
 	display: flex;
@@ -9,7 +9,7 @@
 	overflow: auto;
 	overscroll-behavior-y: contain;
 	padding: clamp(1.5rem, 5vw, 4.5rem);
-	background: radial-gradient(ellipse 60rem 45rem at 12% 28%, color-mix(in srgb, var(--login-accent) 10%, transparent), transparent 70%), linear-gradient(145deg, color-mix(in srgb, var(--surface-app) 94%, transparent), color-mix(in srgb, var(--surface-sunken) 88%, transparent));
+	background: radial-gradient(ellipse 60rem 45rem at 12% 28%, color-mix(in srgb, var(--login-accent) 10%, transparent), transparent 70%), linear-gradient(145deg, color-mix(in srgb, var(--w-bg) 94%, transparent), color-mix(in srgb, var(--w-sink) 88%, transparent));
 }
 
 .login-container.has-atmosphere {
@@ -64,7 +64,7 @@ html[data-theme='light'] .login-container .login-logo-invert {
 }
 
 .login-container .login-title {
-	color: var(--text-heading);
+	color: var(--w-text);
 	font-size: 1.65rem;
 	font-weight: 650;
 	letter-spacing: -0.04em;
@@ -73,7 +73,7 @@ html[data-theme='light'] .login-container .login-logo-invert {
 
 .login-container .login-kicker {
 	margin: 0 0 1rem;
-	color: var(--text-secondary);
+	color: var(--w-mute);
 	font-size: 0.75rem;
 	font-weight: 650;
 	letter-spacing: 0.12em;
@@ -83,7 +83,7 @@ html[data-theme='light'] .login-container .login-logo-invert {
 .login-container .login-introduction h1 {
 	margin: 0;
 	max-width: 15ch;
-	color: var(--text-heading);
+	color: var(--w-text);
 	font-size: clamp(2.5rem, 4.6vw, 3.7rem);
 	font-weight: 600;
 	line-height: 1.08;
@@ -96,7 +96,7 @@ html[data-theme='light'] .login-container .login-logo-invert {
 	margin: 1.5rem 0 0;
 	font-size: 1.05rem;
 	line-height: 1.75;
-	color: var(--text-secondary);
+	color: var(--w-mute);
 	text-wrap: pretty;
 }
 
@@ -113,11 +113,11 @@ html[data-theme='light'] .login-container .login-logo-invert {
 	align-items: baseline;
 	gap: 0.9rem;
 	font-size: 0.85rem;
-	color: var(--text-secondary);
+	color: var(--w-mute);
 }
 
 .login-container .login-capabilities li > span {
-	color: var(--text-muted);
+	color: var(--w-faint);
 	font-variant-numeric: tabular-nums;
 	font-size: 0.7rem;
 	letter-spacing: 0.04em;
@@ -128,10 +128,10 @@ html[data-theme='light'] .login-container .login-logo-invert {
 	min-width: 0;
 	box-sizing: border-box;
 	padding: clamp(1.5rem, 3vw, 2.25rem);
-	background: color-mix(in srgb, var(--surface-raised) 92%, var(--surface-app));
-	border: 1px solid var(--border-subtle);
+	background: color-mix(in srgb, var(--w-bg2) 92%, var(--w-bg));
+	border: 1px solid var(--w-line);
 	border-radius: var(--radius-xl, 16px);
-	box-shadow: 0 18px 60px color-mix(in srgb, var(--surface-sunken) 30%, transparent), inset 0 1px 0 color-mix(in srgb, var(--text-heading) 4%, transparent);
+	box-shadow: 0 18px 60px color-mix(in srgb, var(--w-sink) 30%, transparent), inset 0 1px 0 color-mix(in srgb, var(--w-text) 4%, transparent);
 	text-align: left;
 }
 
@@ -141,7 +141,7 @@ html[data-theme='light'] .login-container .login-logo-invert {
 
 .login-container .login-auth-heading h2 {
 	margin: 0 0 0.5rem;
-	color: var(--text-heading);
+	color: var(--w-text);
 	font-size: 1.7rem;
 	line-height: 1.2;
 	letter-spacing: -0.04em;
@@ -150,7 +150,7 @@ html[data-theme='light'] .login-container .login-logo-invert {
 
 .login-container .login-auth-heading p {
 	margin: 0;
-	color: var(--text-secondary);
+	color: var(--w-mute);
 	font-size: 0.9rem;
 	line-height: 1.5;
 }
@@ -160,7 +160,7 @@ html[data-theme='light'] .login-container .login-logo-invert {
 	align-items: center;
 	gap: 0.45rem;
 	margin-top: 0.9rem;
-	color: var(--text-secondary);
+	color: var(--w-mute);
 	font-size: 0.75rem;
 	line-height: 1.5;
 }
@@ -191,94 +191,33 @@ html[data-theme='light'] .login-container .login-logo-invert {
 .login-container .field-caption {
 	display: block;
 	margin-bottom: 0.45rem;
-	color: var(--text-secondary);
+	color: var(--w-mute);
 	font-size: 0.8rem;
 	font-weight: 550;
 	line-height: 1.4;
 }
 
-.login-container .login-box input:not([type='checkbox']):not([type='radio']) {
-	width: 100%;
-	min-width: 0;
-	min-height: 48px;
-	box-sizing: border-box;
-	margin: 0;
-	padding: 0.75rem 0.9rem;
-	border: 1px solid var(--border-subtle);
-	border-radius: var(--radius-md, 8px);
-	background: var(--surface-sunken);
-	color: var(--text-heading);
-	-webkit-text-fill-color: var(--text-heading);
-	font: inherit;
-	font-size: 1rem;
+/* Fields are the kit .w-field (§7.3), at 44px here so the sign-in form reads as the page's one
+   task and stays touch-sized. The handle and password fields are .w-field wrappers around an
+   input (the @ prefix, the show-password icon button inside the edge). */
+.login-container .w-field {
+	height: 44px;
 	caret-color: var(--login-accent);
-	box-shadow: none;
-	transition: border-color 150ms ease, box-shadow 150ms ease;
 }
-
-.login-container .login-box input::placeholder {
-	color: var(--text-secondary);
-	-webkit-text-fill-color: var(--text-secondary);
-	opacity: 1;
-}
-
-.login-container .login-box input:not([type='checkbox']):not([type='radio']):focus-visible {
-	outline: 2px solid color-mix(in srgb, var(--login-accent) 75%, var(--text-heading));
-	outline-offset: 2px;
+.login-container .w-field:focus-within {
 	border-color: var(--login-accent);
 }
-
-.login-container .login-box input:disabled {
-	opacity: 0.6;
-	cursor: not-allowed;
+.login-container .login-password {
+	padding-right: 4px;
 }
-
-.login-container .password-wrapper {
-	position: relative;
-}
-
-.login-container .password-wrapper input {
-	padding-right: 3.25rem !important;
-}
-
-.login-container .password-toggle {
-	position: absolute;
-	right: 3px;
-	top: 50%;
-	transform: translateY(-50%);
-	display: grid;
-	place-items: center;
-	width: 42px;
-	height: 42px;
-	padding: 0;
-	border: 0;
-	border-radius: var(--radius-md);
-	color: var(--text-secondary);
-	background: transparent;
-	cursor: pointer;
-}
-
-.login-container .password-toggle:hover {
-	color: var(--text-heading);
-	background: var(--surface-hover);
-}
-
-.login-container .handle-input-wrapper {
-	position: relative;
-	display: flex;
-	align-items: center;
-}
-
 .login-container .handle-prefix {
-	position: absolute;
-	left: 0.9rem;
-	color: var(--text-muted);
-	font-size: 1rem;
-	pointer-events: none;
+	flex: none;
+	color: var(--w-faint);
+	font: var(--w-t-ui);
 }
-
-.login-container input.handle-input {
-	padding-left: 1.85rem !important;
+.login-container .field-hint {
+	display: block;
+	margin-top: 6px;
 }
 
 .login-container .field-row {
@@ -287,96 +226,15 @@ html[data-theme='light'] .login-container .login-logo-invert {
 }
 
 .login-container .remember-row {
-	display: flex;
-	flex-direction: row;
-	align-items: center;
-	justify-content: flex-start;
-	gap: 0.65rem;
 	min-height: 40px;
 	margin: -0.3rem 0;
-	color: var(--text-secondary);
-	font-size: 0.8rem;
-	line-height: 1.45;
-	cursor: pointer;
+	color: var(--w-mute);
+	font: var(--w-t-small);
 }
 
-.login-container .remember-row > span {
-	flex: 1;
-	text-align: left;
-}
-
-.login-container .login-box input[type='checkbox'], .login-container .login-box input[type='radio'] {
-	appearance: auto;
-	-webkit-appearance: auto;
-	width: 17px;
-	height: 17px;
-	min-width: 17px;
-	min-height: 0;
-	flex: 0 0 17px;
-	padding: 0;
-	margin: 0;
-	accent-color: var(--login-accent);
-	box-shadow: none;
-}
-
-.login-container .login-box input[type='checkbox']::before, .login-container .login-box input[type='checkbox']::after, .login-container .login-box input[type='radio']::before, .login-container .login-box input[type='radio']::after {
-	content: none;
-}
-
-.login-container .auth-btn, .login-container .guest-expand {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	gap: 0.5rem;
+/* Buttons are the kit .w-btn (§7.1); the form's actions fill the column. */
+.login-container .login-submit {
 	width: 100%;
-	min-height: 46px;
-	box-sizing: border-box;
-	padding: 0.7rem 1rem;
-	border: 1px solid transparent;
-	border-radius: var(--radius-md, 8px);
-	font: inherit;
-	font-size: 0.9rem;
-	font-weight: 600;
-	text-align: center;
-	text-decoration: none;
-	cursor: pointer;
-	transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
-}
-
-.login-container .auth-btn-primary {
-	color: var(--surface-sunken);
-	background: var(--text-heading);
-}
-
-.login-container .auth-btn-primary:hover:not(:disabled) {
-	background: color-mix(in srgb, var(--text-heading) 92%, var(--surface-sunken));
-}
-
-.login-container .auth-btn-secondary, .login-container .guest-expand {
-	color: var(--text-heading);
-	background: transparent;
-	border-color: var(--border-subtle);
-}
-
-.login-container .auth-btn-secondary:hover:not(:disabled), .login-container .guest-expand:hover {
-	background: var(--surface-hover);
-	border-color: color-mix(in srgb, var(--text-secondary) 55%, var(--border-subtle));
-}
-
-.login-container .auth-btn-ghost {
-	background: transparent;
-	color: var(--text-secondary);
-	font-size: 0.8rem;
-}
-
-.login-container .auth-btn-ghost:hover {
-	color: var(--text-heading);
-	background: var(--surface-hover);
-}
-
-.login-container .auth-btn:disabled {
-	opacity: 0.6;
-	cursor: not-allowed;
 }
 
 .login-container :is(button, a, select, input[type='checkbox'], input[type='radio']):focus-visible {
@@ -387,7 +245,7 @@ html[data-theme='light'] .login-container .login-logo-invert {
 .login-container .auth-alt-prompt {
 	margin: 1.1rem 0 0;
 	text-align: center;
-	color: var(--text-secondary);
+	color: var(--w-mute);
 	font-size: 0.8rem;
 	line-height: 1.7;
 }
@@ -397,9 +255,9 @@ html[data-theme='light'] .login-container .login-logo-invert {
 	padding: 0.25rem 0;
 	border: 0;
 	background: none;
-	color: var(--text-heading);
+	color: var(--w-text);
 	text-decoration: underline;
-	text-decoration-color: color-mix(in srgb, var(--text-heading) 35%, transparent);
+	text-decoration-color: color-mix(in srgb, var(--w-text) 35%, transparent);
 	text-underline-offset: 0.2em;
 	font: inherit;
 	font-weight: 600;
@@ -421,11 +279,11 @@ html[data-theme='light'] .login-container .login-logo-invert {
 	content: '';
 	flex: 1;
 	height: 1px;
-	background: var(--border-subtle);
+	background: var(--w-line);
 }
 
 .login-container .auth-divider span {
-	color: var(--text-secondary);
+	color: var(--w-mute);
 	font-size: 0.7rem;
 	letter-spacing: 0.07em;
 	text-transform: uppercase;
@@ -438,21 +296,15 @@ html[data-theme='light'] .login-container .login-logo-invert {
 	margin-top: 0.5rem;
 }
 
+/* Errors are the kit .w-notice, rendered above the form where the action happened. */
 .login-container .error-message {
-	padding: 0.85rem;
 	margin: 0 0 1rem;
-	border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
-	border-radius: var(--radius-md);
-	color: var(--color-danger);
-	background: color-mix(in srgb, var(--color-danger) 8%, transparent);
-	font-size: 0.85rem;
-	line-height: 1.5;
 	overflow-wrap: anywhere;
 }
 
 .login-container .wizard h3, .login-container .experience-prompt h3 {
 	margin: 0 0 0.6rem;
-	color: var(--text-heading);
+	color: var(--w-text);
 	font-size: 1.55rem;
 	line-height: 1.25;
 	font-weight: 600;
@@ -461,14 +313,14 @@ html[data-theme='light'] .login-container .login-logo-invert {
 
 .login-container .wizard-subtitle, .login-container .experience-prompt p {
 	margin: 0 0 1.5rem;
-	color: var(--text-secondary);
+	color: var(--w-mute);
 	font-size: 0.9rem;
 	line-height: 1.6;
 }
 
 .login-container .wizard-note, .login-container .launch-footer-note {
 	margin: 1.1rem 0 0;
-	color: var(--text-muted);
+	color: var(--w-faint);
 	font-size: 0.78rem;
 	line-height: 1.6;
 }
@@ -489,7 +341,7 @@ html[data-theme='light'] .login-container .login-logo-invert {
 	gap: 0.3rem 0.75rem;
 	align-items: center;
 	padding: 1rem;
-	border: 1px solid var(--border-subtle);
+	border: 1px solid var(--w-line);
 	border-radius: var(--radius-md);
 	cursor: pointer;
 }
@@ -504,14 +356,14 @@ html[data-theme='light'] .login-container .login-logo-invert {
 }
 
 .login-container .join-option-title {
-	color: var(--text-heading);
+	color: var(--w-text);
 	font-size: 0.9rem;
 	font-weight: 600;
 }
 
 .login-container .join-option-desc {
 	grid-column: 2;
-	color: var(--text-secondary);
+	color: var(--w-mute);
 	font-size: 0.8rem;
 	line-height: 1.55;
 }
@@ -522,7 +374,7 @@ html[data-theme='light'] .login-container .login-logo-invert {
 	gap: 0.75rem;
 	padding: 1rem;
 	margin-bottom: 1rem;
-	border: 1px solid var(--border-subtle);
+	border: 1px solid var(--w-line);
 	border-radius: var(--radius-md);
 	cursor: pointer;
 }
@@ -542,12 +394,12 @@ html[data-theme='light'] .login-container .login-logo-invert {
 	gap: 1rem 2rem;
 	margin-top: 3rem;
 	padding-top: 1.15rem;
-	border-top: 1px solid var(--border-subtle);
+	border-top: 1px solid var(--w-line);
 }
 
 .login-container .login-footer > p {
 	margin: 0;
-	color: var(--text-secondary);
+	color: var(--w-mute);
 	font-size: 0.75rem;
 	line-height: 1.5;
 }
@@ -567,7 +419,7 @@ html[data-theme='light'] .login-container .login-logo-invert {
 	gap: 0.4rem;
 	min-height: 40px;
 	padding: 0;
-	color: var(--text-secondary);
+	color: var(--w-mute);
 	background: transparent;
 	border: 0;
 	font: inherit;
@@ -578,7 +430,7 @@ html[data-theme='light'] .login-container .login-logo-invert {
 }
 
 .login-container .login-footer-links a:hover, .login-container .login-change-server:hover, .login-container .login-locale-control:hover {
-	color: var(--text-heading);
+	color: var(--w-text);
 }
 
 .login-container .login-change-server {
@@ -609,8 +461,8 @@ html[data-theme='light'] .login-container .login-logo-invert {
 
 .login-container .has-launch .login-box {
 	padding: 2rem;
-	background: var(--launch-card-bg, var(--surface-raised));
-	border: 1px solid var(--border-subtle);
+	background: var(--launch-card-bg, var(--w-bg2));
+	border: 1px solid var(--w-line);
 	border-radius: var(--radius-xl);
 }
 
@@ -638,14 +490,14 @@ html[data-theme='light'] .login-container .login-logo-invert {
 
 .login-container .launch-headline {
 	margin: 0 0 0.5rem;
-	color: var(--text-heading);
+	color: var(--w-text);
 	font-size: 1.2rem;
 	line-height: 1.4;
 }
 
 .login-container .launch-subheadline {
 	margin: 0;
-	color: var(--text-secondary);
+	color: var(--w-mute);
 	font-size: 0.9rem;
 	line-height: 1.6;
 }
@@ -655,16 +507,18 @@ html[data-theme='light'] .login-container .login-logo-invert {
 	margin-top: 0;
 }
 
+/* Neutral branding (no operator brand): the login draws the neutral palette through the roles. */
 html[data-neutral-branding] .login-container {
 	--login-accent: var(--neutral-accent);
-	--surface-app: var(--neutral-surface);
-	--surface-raised: var(--neutral-surface-raised);
-	--surface-sunken: var(--neutral-surface-sunken);
-	--surface-hover: var(--neutral-surface-raised);
-	--text-heading: var(--neutral-text);
-	--text-secondary: var(--neutral-text-secondary);
-	--text-muted: var(--neutral-text-muted);
-	--border-subtle: var(--neutral-border);
+	--w-accent: var(--neutral-accent);
+	--w-bg: var(--neutral-surface);
+	--w-bg2: var(--neutral-surface-raised);
+	--w-sink: var(--neutral-surface-sunken);
+	--w-raise: var(--neutral-surface-raised);
+	--w-text: var(--neutral-text);
+	--w-mute: var(--neutral-text-secondary);
+	--w-faint: var(--neutral-text-muted);
+	--w-line: var(--neutral-border);
 }
 
 html[data-neutral-branding] .login-container .login-brand-panel::before {
@@ -805,10 +659,9 @@ html[data-neutral-branding] .login-container .login-brand-lockup {
 	}
 }
 
-.login-container .starter-layout { display: grid; gap: .55rem; margin: .8rem 0; padding: .85rem; border: 1px solid var(--border-default); border-radius: 12px; }
-.login-container .starter-layout > label { font-weight: 650; }
-.login-container .starter-layout > p { margin: 0; color: var(--text-secondary); font-size: .82rem; }
-.login-container .starter-layout select, .login-container .starter-layout input { min-width: 0; width: 100%; padding: .55rem .7rem; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-base); color: var(--text-primary); font: inherit; }
-.login-container .starter-room { display: grid; grid-template-columns: 85px minmax(0,1fr) 36px; gap: .4rem; }
-.login-container .starter-room button, .login-container .starter-add { border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-base); color: var(--text-primary); cursor: pointer; }
-.login-container .starter-add { justify-self: start; padding: .45rem .7rem; }
+.login-container .starter-layout { display: grid; gap: 8px; margin: 4px 0; padding: 16px 0; border-block: var(--w-bw) solid var(--w-line); }
+.login-container .starter-layout > label { color: var(--w-text); font: var(--w-t-label); }
+.login-container .starter-layout > p { margin: 0; color: var(--w-mute); font: var(--w-t-small); }
+.login-container .starter-layout .w-field { height: 38px; }
+.login-container .starter-room { display: grid; grid-template-columns: 96px minmax(0, 1fr) 32px; align-items: center; gap: 8px; }
+.login-container .starter-add { justify-self: start; }
