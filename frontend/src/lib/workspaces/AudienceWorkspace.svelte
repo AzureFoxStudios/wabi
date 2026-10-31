@@ -29,7 +29,7 @@
 	import { toast } from '$lib/toast';
 	import { _ } from '$lib/i18n';
 	import './workspace.css';
-	import './present/present.css';
+	import './slides.css';
 	interface Question { id: string; slideId: string; authorUserId: number; authorName: string; body: string; createdAt: number; resolved: boolean; }
 	type State = AudienceState & { artifactId?: string | null; controllerLost?: boolean; questions?: Question[] };
 	const HEADER_OWNER = 'presentation-room';
