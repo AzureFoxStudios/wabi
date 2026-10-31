@@ -84,7 +84,7 @@
 				if (new URL(scope.server).origin !== url.origin) throw new Error('Switch to the server in this link before opening its document.');
 				id = url.searchParams.get('workspaceArtifact') || '';
 			}
-			if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Paste a Wabi document link or document ID.');
+			if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error(`Paste a Wabi ${noun.one} link or ID.`);
 			onopen(id);
 		} catch (e) {
 			addressError = e instanceof Error ? e.message : String(e);
@@ -172,7 +172,7 @@
 			{/if}
 			<form class="workspace-library__open" onsubmit={(event) => { event.preventDefault(); openAddress(); }}>
 				<label class="w-field workspace-library__address"><Icon name="link" /><input aria-label="Document link or ID" placeholder="Paste a Wabi link to open it" bind:value={address} /></label>
-				<button type="submit" class="w-btn" disabled={!address.trim()}>Open shared document</button>
+				<button type="submit" class="w-btn" disabled={!address.trim()}>Open shared {noun.one}</button>
 			</form>
 			{#if addressError}<p class="workspace-library__error" role="alert"><Icon name="alert" size={16} />{addressError}</p>{/if}
 		</section>

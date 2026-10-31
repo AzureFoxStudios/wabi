@@ -1,0 +1,1024 @@
+/* ==========================================================================
+   Present (design contract §8.8; integration candidate, PREVIEW)
+   The designer (filmstrip 168 · pasteboard on --w-sink · inspector 272), the local show, and
+   Present's dialogs. Chrome draws only with --w-* roles, type tokens and radii. The slide itself
+   is user content: its paper, ink and face are AudienceSlide's slide tokens, never these roles.
+   Owner: PresentWorkspace, NativeSlideDesigner, PresentedVersion, OfficeConversion.
+   ========================================================================== */
+
+.present {
+	container: present / inline-size;
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+}
+.present-notice {
+	margin: 12px 16px 0;
+}
+.present-home {
+	display: flex;
+	flex-direction: column;
+}
+.present-home > .present-notice {
+	margin: 16px 32px 0;
+}
+
+/* A room exists: one quiet line, never a band of controls. */
+.present-live {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 36px;
+	padding: 0 12px 0 16px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+	background: var(--w-bg);
+	font: var(--w-t-small);
+	color: var(--w-mute);
+}
+.present-live__text {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* ---------- the designer grid ---------- */
+.present-edit {
+	flex: 1;
+	min-height: 0;
+	display: grid;
+	grid-template-columns: 168px minmax(0, 1fr) 272px;
+}
+
+/* Filmstrip: real thumbnails (the slide itself, smaller), numbers in the gutter. */
+.present-film {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	border-inline-end: var(--w-bw) solid var(--w-line);
+	background: var(--w-bg);
+}
+.present-film__list {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	margin: 0;
+	padding: 14px 14px 8px 4px;
+	overflow-y: auto;
+	list-style: none;
+}
+.present-film__item {
+	display: grid;
+	grid-template-columns: 22px minmax(0, 1fr);
+	align-items: start;
+}
+.present-film__num {
+	padding: 1px 7px 0 0;
+	text-align: end;
+	font: var(--w-t-micro);
+	font-variant-numeric: tabular-nums;
+	color: var(--w-faint);
+}
+.present-film__card {
+	position: relative;
+	border-radius: 2px;
+	box-shadow: 0 0 0 var(--w-bw) var(--w-line);
+}
+.present-film__card--current {
+	box-shadow: none;
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+.present-film__item--current .present-film__num {
+	color: var(--w-text);
+}
+.present-film__frame {
+	display: block;
+	overflow: hidden;
+	border-radius: 2px;
+	pointer-events: none;
+}
+.present-film__item--hidden .present-film__frame {
+	opacity: 0.4;
+}
+.present-film__flag {
+	position: absolute;
+	top: 4px;
+	right: 4px;
+	display: grid;
+	place-items: center;
+	width: 20px;
+	height: 20px;
+	border-radius: var(--radius-inner);
+	background: var(--w-bg);
+	color: var(--w-mute);
+}
+.present-film__hit {
+	position: absolute;
+	inset: 0;
+	min-height: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 2px;
+	background: transparent;
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+.present-film__hit:hover {
+	background: color-mix(in srgb, var(--w-accent) 8%, transparent);
+}
+.present-film__hit:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+.present-film__add {
+	flex: none;
+	justify-content: center;
+	margin: 4px 14px 14px 26px;
+}
+
+/* ---------- pasteboard ---------- */
+.present-board {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	background: var(--w-sink);
+}
+.present-insert {
+	flex: none;
+	align-self: center;
+	margin-top: 14px;
+}
+.present-board__stage {
+	flex: 1;
+	min-height: 0;
+	display: grid;
+	place-items: center;
+	padding: 28px 40px;
+	container-type: size;
+}
+/* The slide fits the pasteboard: as wide as it can be without outgrowing the height. */
+.present-board__frame,
+.present-show__frame {
+	width: min(100cqw, calc(100cqh * var(--present-ratio, 1.7778)));
+}
+.present-board__frame .audience-slide {
+	box-shadow: 0 0 0 var(--w-bw) var(--w-line-strong);
+	border-radius: 2px;
+}
+.designer-stage {
+	position: relative;
+	width: 100%;
+}
+.object-handle {
+	position: absolute;
+	z-index: 2;
+	box-sizing: border-box;
+	min-height: 0;
+	margin: 0;
+	padding: 0;
+	border: var(--w-bw) dashed transparent;
+	border-radius: 0;
+	background: transparent;
+	touch-action: none;
+	cursor: move;
+}
+.object-handle:hover {
+	border-color: color-mix(in srgb, var(--w-accent) 70%, transparent);
+}
+.object-handle:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+.object-handle.chosen {
+	border: var(--w-bw) solid var(--w-accent);
+	box-shadow: 0 0 0 1px var(--w-accent);
+}
+.object-grip {
+	position: absolute;
+	z-index: 3;
+	box-sizing: border-box;
+	width: 11px;
+	height: 11px;
+	margin: -6px 0 0 -6px;
+	border: 1.5px solid var(--w-accent);
+	border-radius: 2px;
+	background: var(--w-bg);
+	cursor: nwse-resize;
+	touch-action: none;
+}
+
+/* Speaker notes under the slide: private, so they say so where they are typed. */
+.present-notes {
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	height: 152px;
+	border-top: var(--w-bw) solid var(--w-line);
+	background: var(--w-bg);
+}
+.present-notes__head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px 10px;
+	padding: 12px 20px 2px;
+}
+.present-notes__title {
+	margin: 0;
+}
+.present-notes__status {
+	margin-inline-start: auto;
+	font: var(--w-t-small);
+	color: var(--w-faint);
+}
+.present-notes__field {
+	flex: 1;
+	min-height: 0;
+	margin: 0;
+	padding: 6px 20px 14px;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	resize: none;
+}
+.present-notes__field::placeholder {
+	color: var(--w-faint);
+}
+.present-notes__field:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+
+/* ---------- inspector ---------- */
+.present-inspector {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	border-inline-start: var(--w-bw) solid var(--w-line);
+	background: var(--w-bg);
+}
+.present-inspector__head {
+	flex: none;
+	display: flex;
+	padding: 12px 16px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.present-inspector__seg {
+	flex: 1;
+}
+.present-inspector__seg > * {
+	flex: 1;
+}
+.present-inspector__body {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	padding: 16px 16px 28px;
+	overflow-y: auto;
+}
+.present-inspector__group {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding-top: 16px;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.present-inspector__kicker {
+	margin: 0;
+}
+.present-inspector__wide {
+	justify-content: center;
+	width: 100%;
+}
+.present-inspector__remove {
+	align-self: flex-start;
+	color: var(--w-danger);
+}
+.present-inspector__empty {
+	padding: 20px 2px;
+}
+.present-inspector__empty-title {
+	margin: 0 0 4px;
+	font: var(--w-t-subhead);
+	color: var(--w-text);
+}
+
+.present-field {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	margin: 0;
+}
+.present-area {
+	height: auto;
+	min-height: 96px;
+	padding: 8px 10px;
+	line-height: 1.45;
+	resize: vertical;
+}
+.present-area--short {
+	min-height: 64px;
+}
+.present-hint {
+	margin: 0;
+	font: var(--w-t-small);
+	color: var(--w-mute);
+	text-wrap: pretty;
+}
+.present-hint--lead {
+	color: var(--w-text);
+}
+.present-field > .present-hint {
+	margin-top: 6px;
+}
+.present-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+.present-switch {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+.present-switch__label {
+	font: var(--w-t-label);
+	color: var(--w-text);
+}
+
+/* Position and size: four mono fields, the axis inside on the left, % on the right. */
+.present-grid4 {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 8px;
+}
+.present-num {
+	position: relative;
+	display: flex;
+	align-items: center;
+	min-width: 0;
+}
+.present-num__name {
+	position: absolute;
+	left: 10px;
+	font: var(--w-t-micro);
+	color: var(--w-faint);
+	pointer-events: none;
+}
+.present-num > input.w-field {
+	height: 32px;
+	padding: 0 22px 0 26px;
+	font: var(--w-t-mono);
+	font-variant-numeric: tabular-nums;
+	text-align: end;
+	appearance: textfield;
+}
+.present-num > input.w-field::-webkit-inner-spin-button,
+.present-num > input.w-field::-webkit-outer-spin-button {
+	margin: 0;
+	appearance: none;
+}
+.present-num__unit {
+	position: absolute;
+	right: 9px;
+	font: var(--w-t-micro);
+	color: var(--w-faint);
+	pointer-events: none;
+}
+.present-num--wide {
+	width: 92px;
+}
+.present-num--wide > input.w-field {
+	padding: 0 10px 0 38px;
+}
+.present-field--range {
+	flex-direction: row;
+	align-items: center;
+	gap: 10px;
+}
+.present-field--range .present-num__name {
+	position: static;
+	flex: none;
+	width: 44px;
+}
+.present-field--range .w-range {
+	flex: 1;
+	min-width: 0;
+}
+
+/* Colour: a swatch inside a kit-weight button, never the bare native control. */
+.present-swatch {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	height: 32px;
+	padding: 0 10px 0 6px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: var(--w-lift);
+	color: var(--w-text);
+	font: var(--w-t-small);
+	cursor: pointer;
+}
+.present-swatch:hover {
+	background: var(--w-raise);
+}
+.present-swatch:focus-within {
+	border-color: var(--w-accent);
+	box-shadow: var(--w-ring);
+}
+.present-swatch input[type='color'] {
+	width: 20px;
+	height: 20px;
+	min-height: 0;
+	margin: 0;
+	padding: 0;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-inner);
+	background: none;
+	cursor: pointer;
+}
+.present-swatch input[type='color']:focus-visible {
+	outline: none;
+}
+.present-swatch input[type='color']::-webkit-color-swatch-wrapper {
+	padding: 0;
+}
+.present-swatch input[type='color']::-webkit-color-swatch {
+	border: 0;
+	border-radius: calc(var(--radius-inner) - 1px);
+}
+.present-swatch input[type='color']::-moz-color-swatch {
+	border: 0;
+	border-radius: calc(var(--radius-inner) - 1px);
+}
+.present-swatch--none input[type='color'] {
+	opacity: 0.3;
+}
+
+/* ---------- Present: the local show ---------- */
+.present-show {
+	flex: 1;
+	min-height: 0;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	background: var(--w-sink);
+}
+/* Notes take one 320 column but never more than a third: the slide keeps at least 60%. */
+.present-show--notes {
+	grid-template-columns: minmax(0, 1fr) min(320px, 34%);
+}
+.present-show__stage {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	outline: none;
+}
+.present-show__fit {
+	flex: 1;
+	min-height: 0;
+	display: grid;
+	place-items: center;
+	padding: 28px 32px 16px;
+	container-type: size;
+}
+.present-show__frame .audience-slide {
+	box-shadow: 0 0 0 var(--w-bw) var(--w-line-strong);
+}
+.present-transport {
+	flex: none;
+	align-self: center;
+	margin: 0 0 18px;
+	transition: opacity var(--w-dur-2, 200ms) var(--w-ease);
+}
+.present-transport__count {
+	min-width: 60px;
+	text-align: center;
+	font: var(--w-t-mono);
+	font-variant-numeric: tabular-nums;
+	color: var(--w-text);
+}
+.present-transport__end {
+	gap: 8px;
+}
+.present-transport__end .w-kbd {
+	opacity: 0.7;
+}
+/* Fullscreen is the projector: the slide on black (letterbox, slide content not chrome), the
+   transport floating and fading after 2s without pointer movement. */
+.present-show__stage:fullscreen {
+	background: black;
+}
+.present-show__stage:fullscreen .present-show__fit {
+	padding: 0;
+}
+.present-show__stage:fullscreen .audience-slide {
+	box-shadow: none;
+}
+.present-show__stage:fullscreen .present-transport {
+	position: absolute;
+	bottom: 24px;
+	left: 50%;
+	margin: 0;
+	transform: translateX(-50%);
+}
+.present-show__stage--idle {
+	cursor: none;
+}
+.present-show__stage--idle .present-transport {
+	opacity: 0;
+	pointer-events: none;
+}
+.present-show__notes {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	min-height: 0;
+	padding: 16px 20px 24px;
+	overflow-y: auto;
+	border-inline-start: var(--w-bw) solid var(--w-line);
+	background: var(--w-bg);
+}
+.present-show__notes .present-notes__head {
+	padding: 0;
+}
+.present-show__note {
+	margin: 0 0 8px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font: var(--w-t-read);
+	color: var(--w-text);
+}
+.present-show__note--empty {
+	font: var(--w-t-ui);
+	color: var(--w-faint);
+}
+.present-show__next {
+	overflow: hidden;
+	border-radius: 2px;
+	box-shadow: 0 0 0 var(--w-bw) var(--w-line);
+}
+.present-show__next-title {
+	margin: 0;
+	font: var(--w-t-small);
+	color: var(--w-mute);
+}
+
+/* ---------- dialogs ---------- */
+.present-dialog {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+.present-dialog__truth {
+	margin: 0;
+	font: var(--w-t-ui);
+	color: var(--w-mute);
+	text-wrap: pretty;
+}
+.present-dialog__truth strong {
+	font-weight: 500;
+	color: var(--w-text);
+}
+.present-dialog__count {
+	margin: 0;
+	font: var(--w-t-small);
+	color: var(--w-mute);
+}
+.present-dialog__notes {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.present-dialog__notes li {
+	display: grid;
+	grid-template-columns: 16px minmax(0, 1fr);
+	gap: 8px;
+	font: var(--w-t-small);
+	color: var(--w-mute);
+}
+.present-dialog__notes svg {
+	margin-top: 1px;
+	color: var(--w-info);
+}
+.present-thumbs {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
+	gap: 16px 12px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.present-thumbs__frame {
+	display: block;
+	overflow: hidden;
+	border-radius: 2px;
+	box-shadow: 0 0 0 var(--w-bw) var(--w-line);
+}
+.present-thumbs__item--current .present-thumbs__frame {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+.present-thumbs__caption {
+	display: flex;
+	gap: 6px;
+	margin-top: 6px;
+	overflow: hidden;
+	font: var(--w-t-small);
+	color: var(--w-text);
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.present-thumbs__num {
+	flex: none;
+	font-variant-numeric: tabular-nums;
+	color: var(--w-faint);
+}
+.present-proposal {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.present-proposal__item {
+	display: grid;
+	grid-template-columns: 200px minmax(0, 1fr) auto;
+	align-items: start;
+	gap: 14px;
+	padding-top: 16px;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.present-proposal__thumb {
+	display: block;
+	overflow: hidden;
+	border-radius: 2px;
+	box-shadow: 0 0 0 var(--w-bw) var(--w-line);
+}
+.present-proposal__fields {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	min-width: 0;
+}
+.present-proposal__num {
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--w-faint);
+}
+.present-proposal__actions {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+/* ---------- High Contrast: solid edges where hairlines were tints ---------- */
+:root[data-char='contrast'] .present-film__card,
+:root[data-char='contrast'] .present-thumbs__frame,
+:root[data-char='contrast'] .present-proposal__thumb,
+:root[data-char='contrast'] .present-show__next {
+	box-shadow: 0 0 0 var(--w-bw) var(--w-line-strong);
+}
+:root[data-char='contrast'] .object-handle:hover {
+	border-color: var(--w-accent);
+}
+
+/* ---------- narrower stages ---------- */
+@container present (max-width: 1099.98px) {
+	.present-edit {
+		grid-template-columns: 136px minmax(0, 1fr) 248px;
+	}
+	.present-board__stage {
+		padding: 20px 24px;
+	}
+}
+/* Phones and narrow panes: the slide first, the filmstrip as a row under it, then the
+   inspector; the page scrolls as one. */
+@container present (max-width: 759.98px) {
+	.present-edit {
+		display: flex;
+		flex-direction: column;
+		overflow-y: auto;
+	}
+	.present-board {
+		flex: none;
+	}
+	.present-board__stage {
+		flex: none;
+		padding: 16px;
+		container-type: normal;
+	}
+	.present-board__frame {
+		width: 100%;
+	}
+	.present-notes {
+		height: 128px;
+	}
+	.present-film {
+		order: 1;
+		flex: none;
+		border-inline-end: 0;
+		border-block: var(--w-bw) solid var(--w-line);
+	}
+	.present-film__list {
+		flex-direction: row;
+		gap: 10px;
+		padding: 14px 16px 8px;
+		overflow-x: auto;
+		overflow-y: hidden;
+	}
+	.present-film__item {
+		flex: none;
+		grid-template-columns: minmax(0, 1fr);
+		width: 112px;
+	}
+	.present-film__num {
+		display: none;
+	}
+	.present-film__add {
+		align-self: flex-start;
+		margin: 2px 16px 14px;
+	}
+	.present-inspector {
+		order: 2;
+		flex: none;
+		border-inline-start: 0;
+	}
+	.present-inspector__body {
+		overflow: visible;
+	}
+	.present-show--notes {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: minmax(0, 1fr) minmax(0, 40%);
+	}
+	.present-show__notes {
+		border-inline-start: 0;
+		border-top: var(--w-bw) solid var(--w-line);
+	}
+	.present-show__fit {
+		padding: 16px;
+	}
+	.present-proposal__item {
+		grid-template-columns: minmax(0, 1fr) auto;
+	}
+	.present-proposal__thumb {
+		grid-column: 1 / -1;
+	}
+}
+
+/* ==========================================================================
+   The presentation room (AudienceWorkspace): the slide gets the stage, one 320 column
+   ========================================================================== */
+.room {
+	container: room / inline-size;
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+}
+.room-body {
+	flex: 1;
+	min-height: 0;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	background: var(--w-sink);
+}
+/* The column is 320 but never more than a third, so the slide keeps at least 60%. */
+.room-body--column {
+	grid-template-columns: minmax(0, 1fr) min(320px, 34%);
+}
+.room-stage {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+}
+.room-fit {
+	flex: 1;
+	min-height: 0;
+	display: grid;
+	place-items: center;
+	padding: 28px 32px 16px;
+	container-type: size;
+}
+.room-frame {
+	position: relative;
+	width: min(100cqw, calc(100cqh * var(--present-ratio, 1.7778)));
+}
+.room-frame .audience-slide {
+	box-shadow: 0 0 0 var(--w-bw) var(--w-line-strong);
+}
+.room-stage:fullscreen {
+	background: black;
+}
+.room-stage:fullscreen .room-fit {
+	padding: 0;
+}
+.room-stage:fullscreen .audience-slide {
+	box-shadow: none;
+}
+.room-stage:fullscreen .room-transport {
+	position: absolute;
+	bottom: 24px;
+	left: 50%;
+	margin: 0;
+	transform: translateX(-50%);
+}
+.room-transport .present-transport__count {
+	min-width: 64px;
+	justify-content: center;
+	font: var(--w-t-mono);
+	font-variant-numeric: tabular-nums;
+}
+.room-empty {
+	max-width: 420px;
+	text-align: center;
+}
+.room-empty__title {
+	margin: 0 0 6px;
+	font: var(--w-t-heading);
+	color: var(--w-text);
+}
+.room-empty__text {
+	margin: 0;
+	font: var(--w-t-ui);
+	color: var(--w-mute);
+}
+
+.room-column {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	border-inline-start: var(--w-bw) solid var(--w-line);
+	background: var(--w-bg);
+}
+.room-column__head {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: 56px;
+	padding: 0 12px 0 16px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.room-column__seg {
+	flex: 1;
+}
+.room-column__seg > * {
+	flex: 1;
+}
+.room-column__title {
+	flex: 1;
+	margin: 0;
+	font: var(--w-t-subhead);
+	color: var(--w-text);
+}
+.room-column__clock {
+	font: var(--w-t-mono);
+	font-variant-numeric: tabular-nums;
+	color: var(--w-mute);
+}
+.room-column__body {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 16px 16px 24px;
+	overflow-y: auto;
+}
+.room-column__kicker {
+	padding: 0;
+}
+.room-ask {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding-bottom: 14px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.room-ask__foot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+}
+.room-question {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 10px 0;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.room-question__by {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 8px;
+	margin: 0;
+	font: var(--w-t-label);
+	color: var(--w-text);
+}
+.room-question__state {
+	font: var(--w-t-micro);
+	color: var(--w-faint);
+}
+.room-question__body {
+	margin: 0;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font: var(--w-t-ui);
+	color: var(--w-text);
+}
+.room-question--resolved .room-question__body {
+	color: var(--w-mute);
+}
+.room-question__foot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+.room-question__slide {
+	min-width: 0;
+	padding-inline: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--w-mute);
+}
+
+/* Joining: an empty state in the stage, not a form floating at the top. */
+.room-join {
+	box-sizing: border-box;
+	width: min(560px, 100%);
+	margin: 18vh auto 0;
+	padding: 0 24px;
+}
+.room-join > svg {
+	color: var(--w-faint);
+}
+.room-join__title {
+	margin: 12px 0 6px;
+	font: var(--w-t-heading);
+	font-size: calc(20px * var(--w-fs));
+	color: var(--w-text);
+}
+.room-join__text {
+	margin: 0 0 16px;
+	font: var(--w-t-ui);
+	color: var(--w-mute);
+}
+.room-join__form {
+	display: flex;
+	gap: 8px;
+}
+.room-join__form .w-field {
+	flex: 1;
+}
+
+:root[data-char='contrast'] .room-frame .audience-slide {
+	box-shadow: 0 0 0 var(--w-bw) var(--w-text);
+}
+
+@container room (max-width: 759.98px) {
+	.room-body--column {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: minmax(0, 1fr) minmax(0, 45%);
+	}
+	.room-column {
+		border-inline-start: 0;
+		border-top: var(--w-bw) solid var(--w-line);
+	}
+	.room-fit {
+		padding: 16px;
+	}
+	.room-join__form {
+		flex-direction: column;
+	}
+}

@@ -314,12 +314,14 @@
 		style="cursor: {overlayCursor};"
 	></canvas>
 
+	<!-- The marks are drawn on this device only and are never sent to the call; only "Capture to
+	     whiteboard" bakes them into a picture. The words say so where the marks are made (§8.8). -->
 	{#if enabled && !active}
-		<div class="presenter-overlay-hint">Click to annotate this screen</div>
+		<div class="presenter-overlay-hint">Click to draw on this screen · only you see it</div>
 	{/if}
 
 	{#if enabled && active}
-		<div class="presenter-overlay-pill">Presenter Overlay</div>
+		<div class="presenter-overlay-pill">Only you see these marks</div>
 	{/if}
 
 	{#if interactionLabel}
@@ -350,27 +352,20 @@
 	.presenter-overlay-hint,
 	.presenter-overlay-pill {
 		position: absolute;
-		left: 0.65rem;
-		top: 0.65rem;
-		padding: 0.28rem 0.5rem;
-		border-radius: 999px;
-		background: rgba(var(--surface-app-rgb, 15, 23, 42), 0.78);
-		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.16);
-		color: var(--text-inverse, #f8fafc);
-		font-size: 0.68rem;
-		font-weight: 700;
-		letter-spacing: 0.04em;
+		left: 10px;
+		top: 10px;
+		padding: 4px 10px;
+		border: var(--w-bw, 1px) solid var(--w-line-strong);
+		border-radius: var(--w-pill, 999px);
+		background: color-mix(in srgb, var(--w-bg) 88%, transparent);
+		color: var(--w-mute);
+		font: var(--w-t-caption);
 		backdrop-filter: blur(6px);
 		pointer-events: none;
 	}
 
-	.presenter-overlay-hint {
-		color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.92);
-	}
-
 	.presenter-overlay-pill {
-		background: rgba(var(--surface-app-rgb, 15, 23, 42), 0.86);
-		color: var(--accent-warning-soft, #fef3c7);
+		color: var(--w-text);
 	}
 
 	.sr-only {

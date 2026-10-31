@@ -40,7 +40,9 @@
 		onanchor,
 		oncopy,
 		modes = null,
-		exports = []
+		exports = [],
+		actions = [],
+		tools = []
 	}: {
 		session: ArtifactSession;
 		onlibrary: () => void | Promise<void>;
@@ -53,6 +55,10 @@
 		modes?: OfficeHeaderModes | null;
 		/** Tool exports for the ⋯ Export group, each with its format truth as the hint. */
 		exports?: MenuEntry[];
+		/** The tool's own row A actions, before Share… (Present: the "Present ▾" split primary). */
+		actions?: StageHeaderAction[];
+		/** The tool's own ⋯ entries, first in the menu (Present on a phone: the ways to present). */
+		tools?: MenuEntry[];
 	} = $props();
 
 	const sessionState = session.state;
@@ -246,6 +252,7 @@
 						...modes.options.map((option) => ({ id: `mode-${option.value}`, label: option.label, role: 'menuitemradio', checked: modes!.value === option.value, onSelect: () => modes!.onchange(option.value) }) satisfies MenuEntry)
 					]
 				: []),
+			...tools,
 			{ id: 'k-export', type: 'kicker', label: 'Export' },
 			...exports,
 			{ id: 'backup', label: 'Backup (.wabi.json)', icon: 'download', hint: 'Everything here, private drafts included', onSelect: backup },
@@ -285,6 +292,7 @@
 		const list: StageHeaderAction[] = [];
 		if (meta) list.push({ id: 'review', label: openReviews ? `Review, ${openReviews} open` : 'Review', icon: 'chat', iconOnly: true, pressed: reviewOpen, onSelect: () => { reviewOpen = !reviewOpen; } });
 		if (meta?.mode === 'snapshot' && meta.role === 'owner') list.push({ id: 'publish', label: 'Publish revision', icon: 'upload', variant: 'default', disabled: busy, onSelect: () => void run(() => session.sync(true)) });
+		list.push(...actions);
 		// On a phone Share… is its icon (the name stays for assistive tech) so the title keeps its room.
 		if (isOwner) list.push({ id: 'share', label: 'Share…', icon: 'share', variant: 'default', iconOnly: $isMobile, disabled: busy, onSelect: showSharing });
 		list.push({ id: 'more', label: `${toolName} options`, icon: 'more', iconOnly: true, onSelect: (anchor) => { moreAnchor = anchor; moreOpen = !moreOpen; } });
