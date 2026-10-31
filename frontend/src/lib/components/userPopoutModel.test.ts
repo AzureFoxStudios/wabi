@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { buildProfileMenu, memberSince, presenceLabelKey, presenceOf, stampInitial, type ProfileMenuInput } from './userPopoutModel';
+import { buildProfileMenu, memberSince, noteProblemCopy, presenceLabelKey, presenceOf, stampInitial, type ProfileMenuInput } from './userPopoutModel';
 
 const noop = () => {};
 function input(patch: Partial<ProfileMenuInput> = {}): ProfileMenuInput {
@@ -52,6 +52,21 @@ describe('profile popout words', () => {
 		expect(stampInitial('🌿 garden')).toBe('🌿');
 	});
 
+	test('the note notice promises a draft only when one exists', () => {
+		expect(noteProblemCopy('load', false)).toEqual({
+			title: "Couldn't open this note.",
+			text: 'Nothing was changed. Try again in a moment.',
+			canDownload: false,
+			retryLabel: 'Try again'
+		});
+		expect(noteProblemCopy('load', true)).toMatchObject({ text: 'Your unsaved draft is still here on this device.', canDownload: true, retryLabel: 'Load saved note' });
+		expect(noteProblemCopy('save', true)).toMatchObject({ title: "Couldn't save the note.", text: 'Your draft is still here on this device.', canDownload: true });
+		expect(noteProblemCopy('save', false)).toMatchObject({ title: "Couldn't clear the note.", canDownload: false });
+		for (const kind of ['load', 'save'] as const) {
+			expect(noteProblemCopy(kind, false).text).not.toMatch(/draft is still here/);
+		}
+	});
+
 	test('member since is empty for a missing or unreadable date', () => {
 		expect(memberSince(undefined)).toBe('');
 		expect(memberSince('not a date')).toBe('');
@@ -78,6 +93,19 @@ describe('profile ⋯ menu (§8.9)', () => {
 		expect(ids({ friendsReady: false })).not.toContain('friend');
 	});
 
+	test('danger rows come last, after moderation, for staff viewers too', () => {
+		const order = ids({
+			canManageRoles: true,
+			friendState: 'friend',
+			roles: [{ roleName: 'admin', displayName: 'Admin' }]
+		});
+		expect(order.slice(-3)).toEqual(['danger-rule', 'remove-friend', 'ban']);
+		expect(order.indexOf('roles-kicker')).toBeLessThan(order.indexOf('remove-friend'));
+		const rows = buildProfileMenu(input({ canManageRoles: true, friendState: 'friend' }));
+		const firstDanger = rows.findIndex((entry) => entry.danger);
+		expect(rows.slice(firstDanger).every((entry) => entry.danger || entry.type === 'separator')).toBe(true);
+	});
+
 	test('a nickname on this device can be changed or cleared', () => {
 		const rows = buildProfileMenu(input({ localNickname: 'Nono' }));
 		expect(rows.find((entry) => entry.id === 'nickname')?.label).toBe('Change nickname on this device');
@@ -85,20 +113,43 @@ describe('profile ⋯ menu (§8.9)', () => {
 		expect(ids({ localNicknamesEnabled: false })).not.toContain('nickname');
 	});
 
-	test('moderation sits under a kicker with seal glyphs; ban is danger and unban is not', () => {
+	test('the server role is a radio list whose checked row is the role held now', () => {
+		const set: string[] = [];
 		const rows = buildProfileMenu(
-			input({ canManageRoles: true, targetRole: 'artist', roles: [{ roleName: 'artist', displayName: 'Artist' }, { roleName: 'mod', displayName: 'Moderator' }] })
+			input({
+				canManageRoles: true,
+				targetRole: 'artist',
+				roles: [{ roleName: 'artist', displayName: 'Artist' }, { roleName: 'mod', displayName: 'Moderator' }],
+				onSetRole: (role) => set.push(role)
+			})
 		);
 		const kicker = rows.findIndex((entry) => entry.type === 'kicker');
-		expect(rows[kicker].label).toBe('Moderation');
-		const moderation = rows.slice(kicker + 1);
-		expect(moderation.map((entry) => entry.id)).toEqual(['role-artist', 'role-mod', 'reset-role', 'ban']);
-		expect(moderation.find((entry) => entry.id === 'role-artist')).toMatchObject({ label: 'Remove Artist', checked: true, seal: true });
-		expect(moderation.find((entry) => entry.id === 'role-mod')).toMatchObject({ label: 'Make Moderator', checked: false, seal: true });
-		expect(moderation.find((entry) => entry.id === 'ban')).toMatchObject({ danger: true });
+		expect(rows[kicker].label).toBe('Server role');
+		const roleRows = rows.filter((entry) => entry.id.startsWith('role-'));
+		expect(roleRows.map((entry) => entry.id)).toEqual(['role-member', 'role-artist', 'role-mod']);
+		for (const entry of roleRows) expect(entry.role).toBe('menuitemradio');
+		expect(roleRows.map((entry) => [entry.label, entry.checked])).toEqual([['Member', false], ['Artist', true], ['Moderator', false]]);
+		// No "Remove X, checked" rows, and no Title Case verb phrases.
+		expect(rows.some((entry) => /^(Make|Remove) [A-Z]/.test(entry.label ?? ''))).toBe(false);
+		roleRows[0].onSelect?.();
+		roleRows[1].onSelect?.();
+		roleRows[2].onSelect?.();
+		expect(set).toEqual(['member', 'mod']);
+		// A role this short list does not show checks nothing rather than claiming "Member".
+		const hidden = buildProfileMenu(input({ canManageRoles: true, targetRole: 'developer', roles: [{ roleName: 'mod', displayName: 'Moderator' }] }));
+		expect(hidden.filter((entry) => entry.checked).length).toBe(0);
+	});
+
+	test('ban is danger and last; unban sits under Moderation with the seal', () => {
+		const rows = buildProfileMenu(input({ canManageRoles: true }));
+		expect(rows.at(-1)).toMatchObject({ id: 'ban', danger: true, icon: 'shield' });
 		const banned = buildProfileMenu(input({ canManageRoles: true, isBanned: true }));
-		expect(banned.find((entry) => entry.id === 'unban')).toMatchObject({ seal: true });
+		const kicker = banned.findIndex((entry) => entry.id === 'moderation-kicker');
+		expect(banned[kicker + 1]).toMatchObject({ id: 'unban', seal: true, icon: 'shield' });
 		expect(banned.find((entry) => entry.id === 'unban')?.danger).toBeUndefined();
+		// The shield means server moderation only: no other row wears it.
+		const other = buildProfileMenu(input({ canManageRoles: true, roles: [{ roleName: 'mod', displayName: 'Moderator' }] }));
+		expect(other.filter((entry) => entry.icon === 'shield').map((entry) => entry.id)).toEqual(['ban']);
 	});
 
 	test('every row label is sentence case', () => {
@@ -123,6 +174,20 @@ describe('profile popout components', () => {
 		expect(identity).toBeLessThan(actionRow);
 		expect(actionRow).toBeLessThan(note);
 		expect(impl).toContain("$_('user.popout.note_placeholder')");
+	});
+
+	test('saving the note keeps focus in the field (readonly while busy, never disabled)', () => {
+		const field = impl.slice(impl.indexOf('<textarea'), impl.indexOf('</textarea>'));
+		expect(field).toContain('disabled={!noteReady}');
+		expect(field).toContain('readonly={noteBusy}');
+		expect(field).toContain('aria-busy={noteBusy}');
+		expect(field).not.toMatch(/disabled=\{[^}]*noteBusy/);
+		expect(impl).toContain('noteProblemCopy(noteProblem');
+		expect(impl).not.toContain('<p class="w-notice__text">Your draft is still here on this device.</p>');
+	});
+
+	test('the action row has no dead modifiers', () => {
+		expect(actions).not.toContain('pop-actions--stacked');
 	});
 
 	test('Message is the one ink primary; there are no native prompts or confirms', () => {

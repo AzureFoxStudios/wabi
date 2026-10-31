@@ -2,12 +2,15 @@
 	import { createEventDispatcher } from 'svelte';
 	import { setConfiguredServerUrl } from '$lib/serverUrl';
 	import { brandConfig, brandName } from '$lib/branding';
+	import Icon from '$lib/components/ui/Icon.svelte';
 
 	export let serverDomain = '';
 	export let rememberServer = true;
 	export let loading = false;
+	/** Opened from "Change server": offer a way back to the sign-in form. */
+	export let cancellable = false;
 
-	const dispatch = createEventDispatcher<{ applied: { serverDomain: string } }>();
+	const dispatch = createEventDispatcher<{ applied: { serverDomain: string }; cancel: void }>();
 	let connectionError = '';
 
 	function focusOnMount(node: HTMLInputElement) { node.focus(); return {}; }
@@ -21,6 +24,13 @@
 		} catch (err) {
 			console.warn('[login] server address rejected', err);
 			connectionError = 'Enter a domain like example.org or a full https:// address.';
+		}
+	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape' && cancellable && !loading) {
+			event.preventDefault();
+			dispatch('cancel');
 		}
 	}
 </script>
@@ -41,16 +51,22 @@
 		aria-invalid={connectionError ? 'true' : undefined}
 		aria-describedby={connectionError ? 'login-connection-error' : undefined}
 		use:focusOnMount
+		on:keydown={handleKeydown}
 		disabled={loading}
 	/>
 	{#if connectionError}
-		<p class="w-field-error connection-error" id="login-connection-error" role="alert">{connectionError}</p>
+		<p class="w-field-error connection-error" id="login-connection-error" role="alert"><Icon name="alert" size={14} />{connectionError}</p>
 	{/if}
 	<label class="w-choice connection-remember">
 		<input type="checkbox" class="w-check" bind:checked={rememberServer} />
 		<span>Remember this server on this device</span>
 	</label>
-	<button type="submit" class="w-btn w-btn--primary w-btn--lg connection-submit" disabled={loading}>Continue</button>
+	<div class="connection-actions">
+		{#if cancellable}
+			<button type="button" class="w-btn w-btn--quiet w-btn--lg" on:click={() => dispatch('cancel')} disabled={loading}>Back to sign in</button>
+		{/if}
+		<button type="submit" class="w-btn w-btn--primary w-btn--lg connection-submit" disabled={loading}>Continue</button>
+	</div>
 </form>
 
 <style>
@@ -72,9 +88,6 @@
 		font: var(--w-t-small);
 		text-wrap: pretty;
 	}
-	.connection-input {
-		height: 44px;
-	}
 	.connection-error {
 		margin-top: 6px;
 	}
@@ -82,7 +95,12 @@
 		margin: 12px 0 16px;
 		color: var(--w-mute);
 	}
+	/* A quiet way back, then the primary (§7.13 order). */
+	.connection-actions {
+		display: flex;
+		gap: 8px;
+	}
 	.connection-submit {
-		width: 100%;
+		flex: 1;
 	}
 </style>

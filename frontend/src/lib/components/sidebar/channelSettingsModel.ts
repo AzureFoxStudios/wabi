@@ -80,13 +80,32 @@ export function retentionOptions(): SelectOption[] {
 	];
 }
 
+/** Who manages a room, in the same words as the gate's top option and Admin › Channels. */
+export const MANAGERS_LABEL = 'Admins and owner';
+
+/** The hint a read-only row adds for members who cannot change it. */
+export const MANAGERS_ONLY_HINT = 'Only admins and the owner can change it.';
+
 /** Who may open an ordinary room (the server's channel gate). Same words as Admin › Channels. */
 export const GATE_OPTIONS: SelectOption[] = [
 	{ value: '', label: 'All signed-in accounts' },
 	{ value: 'member', label: 'Registered members' },
 	{ value: 'moderator', label: 'Moderators and admins' },
-	{ value: 'admin', label: 'Admins and owner' }
+	{ value: 'admin', label: MANAGERS_LABEL }
 ];
+
+/**
+ * Where the "Offline copies and older history" switch lives for a kind, or null where it means
+ * nothing. Chat streams keep it with the other retention rows; voice rooms, forums, wikis and
+ * galleries have no Retention section, so it sits in General (their message lists still use it
+ * for Load more and full-history search). Direct messages never had it, and a folder holds no
+ * messages of its own.
+ */
+export function persistToggleTab(kind: string | null | undefined): ChannelSettingsTab | null {
+	const k = kind || 'text';
+	if (k === 'dm' || k === 'category') return null;
+	return isChatLikeKind(k) ? 'retention' : 'general';
+}
 
 /** Rooms the gate applies to: not conversations, folders or the Welcome room. */
 export function hasChannelGate(kind: string | null | undefined): boolean {
@@ -108,6 +127,8 @@ export interface ChannelDraftBaseline {
 	voiceForceSolo: boolean;
 	renderWindow: number;
 	gate: string | null;
+	/** Live rooms: post a line when someone goes away or comes back. The client default is on. */
+	afkAnnounce: boolean;
 }
 
 export type ChannelDraft = ChannelDraftBaseline & {
@@ -130,7 +151,8 @@ export function channelDraftDirty(draft: ChannelDraft, base: ChannelDraftBaselin
 		draft.persistMessages !== base.persistMessages ||
 		draft.voiceUserLimit.trim() !== base.voiceUserLimit ||
 		draft.voiceForceSolo !== base.voiceForceSolo ||
-		draft.renderWindow !== base.renderWindow
+		draft.renderWindow !== base.renderWindow ||
+		draft.afkAnnounce !== base.afkAnnounce
 	);
 }
 

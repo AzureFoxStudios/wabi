@@ -136,7 +136,7 @@
 	].filter(Boolean);
 </script>
 
-<div class="pop-actions" class:pop-actions--stacked={inSidePanel && !profileExpanded}>
+<div class="pop-actions">
 	{#if isOwnProfile}
 		<button type="button" class="w-btn w-btn--primary pop-actions__main" on:click={onEditProfile}>
 			<Icon name="pencil" size={16} />{$_('user.popout.edit_profile')}

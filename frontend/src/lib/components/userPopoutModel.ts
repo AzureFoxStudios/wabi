@@ -43,6 +43,33 @@ export function memberSince(joinedAt: string | number | null | undefined, locale
 	return date.toLocaleDateString(locale, { month: 'short', year: 'numeric' });
 }
 
+export type NoteProblemKind = 'load' | 'save';
+
+export interface NoteProblemCopy {
+	title: string;
+	text: string;
+	/** Offer "Download draft" (only when there is draft text to keep). */
+	canDownload: boolean;
+	/** The one way back: reload the saved note, or try opening it again. */
+	retryLabel: string;
+}
+
+/**
+ * What the note's notice says (§7.16: the cause, then what is unchanged). It only promises a
+ * draft when there is one: a note that failed to open with nothing kept on this device offers
+ * just "Try again".
+ */
+export function noteProblemCopy(kind: NoteProblemKind, hasDraft: boolean): NoteProblemCopy {
+	if (kind === 'save') {
+		return hasDraft
+			? { title: "Couldn't save the note.", text: 'Your draft is still here on this device.', canDownload: true, retryLabel: 'Load saved note' }
+			: { title: "Couldn't clear the note.", text: 'The saved note is unchanged.', canDownload: false, retryLabel: 'Load saved note' };
+	}
+	return hasDraft
+		? { title: "Couldn't open the saved note.", text: 'Your unsaved draft is still here on this device.', canDownload: true, retryLabel: 'Load saved note' }
+		: { title: "Couldn't open this note.", text: 'Nothing was changed. Try again in a moment.', canDownload: false, retryLabel: 'Try again' };
+}
+
 export type FriendState = 'none' | 'incoming' | 'outgoing' | 'friend';
 
 export interface ProfileMenuInput {
@@ -75,8 +102,6 @@ export interface ProfileMenuInput {
 	onUnbanUser: () => void;
 }
 
-const STAFF_ROLES = ['admin', 'developer', 'mod', 'artist'];
-
 function friendLabel(state: FriendState): string {
 	if (state === 'incoming') return 'Accept friend request';
 	if (state === 'outgoing') return 'Cancel friend request';
@@ -84,8 +109,10 @@ function friendLabel(state: FriendState): string {
 }
 
 /**
- * The ⋯ rows: open · call · friends and this device · moderation (seal glyphs, under a kicker),
- * with the destructive rows (remove friend, ban) last.
+ * The ⋯ rows: open · call · friends and this device · server role (a radio list under a kicker)
+ * · moderation (seal glyph, under a kicker), then the destructive rows (remove friend, ban) as
+ * the last group (§7.4). The menu draws danger rows last as well; building them last keeps this
+ * list in the order people read it.
  */
 export function buildProfileMenu(input: ProfileMenuInput): MenuEntry[] {
 	const rows: MenuEntry[] = [];
@@ -108,8 +135,9 @@ export function buildProfileMenu(input: ProfileMenuInput): MenuEntry[] {
 		{ id: 'screen-share', label: 'Share screen', icon: 'screen', onSelect: input.onScreenShare }
 	]);
 
+	const friendRows = input.canFriend && input.friendsReady;
 	const personal: MenuEntry[] = [];
-	if (input.canFriend && input.friendsReady && input.friendState !== 'friend') {
+	if (friendRows && input.friendState !== 'friend') {
 		personal.push({
 			id: 'friend',
 			label: friendLabel(input.friendState),
@@ -127,34 +155,36 @@ export function buildProfileMenu(input: ProfileMenuInput): MenuEntry[] {
 		});
 		if (input.localNickname) personal.push({ id: 'clear-nickname', label: 'Clear nickname on this device', icon: 'minus', onSelect: input.onClearLocalNickname });
 	}
-	if (input.canFriend && input.friendsReady && input.friendState === 'friend') {
-		personal.push({ id: 'remove-friend', label: 'Remove friend', icon: 'x', danger: true, disabled: input.friendBusy, onSelect: input.onRemoveFriend });
-	}
 	group('personal', personal);
 
-	if (input.canManageRoles) {
-		const moderation: MenuEntry[] = input.roles.map((role) => {
-			const has = input.targetRole === role.roleName;
-			return {
-				id: `role-${role.roleName}`,
-				label: has ? `Remove ${role.displayName}` : `Make ${role.displayName}`,
-				icon: 'shield',
-				seal: true,
-				keepCase: true,
-				role: 'menuitemcheckbox',
-				checked: has,
-				onSelect: () => input.onSetRole(has ? 'member' : role.roleName)
-			} satisfies MenuEntry;
-		});
-		if (input.roles.some((role) => role.roleName === input.targetRole) || STAFF_ROLES.includes(input.targetRole)) {
-			moderation.push({ id: 'reset-role', label: 'Reset to member', icon: 'undo', seal: true, onSelect: () => input.onSetRole('member') });
-		}
-		moderation.push(
-			input.isBanned
-				? { id: 'unban', label: 'Unban from server', icon: 'shield', seal: true, onSelect: input.onUnbanUser }
-				: { id: 'ban', label: 'Ban from server', icon: 'shield', danger: true, onSelect: input.onBanUser }
-		);
-		group('moderation', moderation, 'Moderation');
+	const destructive: MenuEntry[] = [];
+	if (friendRows && input.friendState === 'friend') {
+		destructive.push({ id: 'remove-friend', label: 'Remove friend', icon: 'x', danger: true, disabled: input.friendBusy, onSelect: input.onRemoveFriend });
 	}
+
+	if (input.canManageRoles) {
+		// The person's server role as a radio list: the checked row is the role they hold now, so a
+		// screen reader hears "Admin, checked" only when that is true. Role names are names
+		// (keepCase), and "Member" takes back any role.
+		// A role this short list does not show (the member list has them all) checks no row.
+		const current = input.targetRole || 'member';
+		const roleRows: MenuEntry[] = [{ roleName: 'member', displayName: 'Member' }, ...input.roles].map((role) => ({
+			id: `role-${role.roleName}`,
+			label: role.displayName,
+			keepCase: true,
+			role: 'menuitemradio',
+			checked: current === role.roleName,
+			onSelect: () => {
+				if (current !== role.roleName) input.onSetRole(role.roleName);
+			}
+		}));
+		group('roles', roleRows, 'Server role');
+		if (input.isBanned) {
+			group('moderation', [{ id: 'unban', label: 'Unban from server', icon: 'shield', seal: true, onSelect: input.onUnbanUser }], 'Moderation');
+		} else {
+			destructive.push({ id: 'ban', label: 'Ban from server', icon: 'shield', danger: true, onSelect: input.onBanUser });
+		}
+	}
+	group('danger', destructive);
 	return rows;
 }

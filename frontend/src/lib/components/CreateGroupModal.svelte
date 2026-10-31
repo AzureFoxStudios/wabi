@@ -52,6 +52,31 @@
 
 	const memberCount = $derived(selectedUsers.length + 1);
 	const canCreate = $derived(!pending && groupName.trim().length > 0 && selectedUsers.length > 0);
+	/** The footer line: what is still missing while Create group is disabled, else the count. */
+	const footLine = $derived(
+		pending
+			? 'Waiting for the server…'
+			: !groupName.trim() && selectedUsers.length === 0
+				? 'Name the group and pick people to create it'
+				: !groupName.trim()
+					? 'Name the group to create it'
+					: selectedUsers.length === 0
+						? 'Pick at least one person'
+						: `${memberCount} ${memberCount === 1 ? 'person' : 'people'}, you included`
+	);
+
+	/** The footer's hairline shows only while the body scrolls (§7.13). */
+	let bodyScrolls = $state(false);
+	function watchBodyScroll(node: HTMLElement) {
+		const body = node.closest<HTMLElement>('.base-modal__body');
+		if (!body || typeof ResizeObserver === 'undefined') return {};
+		const measure = () => (bodyScrolls = body.scrollHeight > body.clientHeight + 1);
+		const observer = new ResizeObserver(measure);
+		observer.observe(body);
+		observer.observe(node);
+		measure();
+		return { destroy: () => observer.disconnect() };
+	}
 
 	function toggleUser(user: User) {
 		if (pending) return;
@@ -95,9 +120,9 @@
 </script>
 
 <BaseModal {isOpen} onClose={closeModal} size="md" padded title="New group" initialFocus="#{uid}-name" panelClass="cg" closeOnScrim={!pending}>
-	<form id="{uid}-form" class="cg-form" aria-busy={pending} onsubmit={(event) => { event.preventDefault(); void handleCreate(); }}>
+	<form id="{uid}-form" class="cg-form" aria-busy={pending} use:watchBodyScroll onsubmit={(event) => { event.preventDefault(); void handleCreate(); }}>
 		<div class="cg-field">
-			<label class="w-label" for="{uid}-name">Group name</label>
+			<label class="w-label" for="{uid}-name">Group name <span class="cg-required">required</span></label>
 			<input
 				id="{uid}-name"
 				class="w-field"
@@ -105,6 +130,7 @@
 				bind:value={groupName}
 				maxlength="64"
 				autocomplete="off"
+				required
 				disabled={pending}
 				aria-describedby="{uid}-privacy"
 			/>
@@ -182,14 +208,14 @@
 		{/if}
 	</form>
 
-	<div slot="footer" class="w-dialog__foot w-dialog__foot--rule">
-		<p class="w-dialog__foot-start cg-count" role="status">
-			{pending ? 'Waiting for the server…' : `${memberCount} ${memberCount === 1 ? 'person' : 'people'}, you included`}
-		</p>
-		<button type="button" class="w-btn w-btn--quiet" onclick={closeModal} disabled={pending}>Cancel</button>
-		<button type="submit" form="{uid}-form" class="w-btn w-btn--primary" aria-busy={pending} disabled={!canCreate}>
-			{pending ? 'Creating…' : 'Create group'}
-		</button>
+	<div slot="footer" class="w-dialog__foot cg-foot" class:w-dialog__foot--rule={bodyScrolls}>
+		<p class="w-dialog__foot-start cg-count" id="{uid}-foot" role="status">{footLine}</p>
+		<div class="cg-foot__actions">
+			<button type="button" class="w-btn w-btn--quiet" onclick={closeModal} disabled={pending}>Cancel</button>
+			<button type="submit" form="{uid}-form" class="w-btn w-btn--primary" aria-busy={pending} aria-describedby="{uid}-foot" disabled={!canCreate}>
+				{pending ? 'Creating…' : 'Create group'}
+			</button>
+		</div>
 	</div>
 </BaseModal>
 
@@ -354,11 +380,30 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	.cg-required {
+		margin-left: 6px;
+		color: var(--w-faint);
+		font: var(--w-t-micro);
+	}
+	/* When the line and the buttons don't fit on one row (phones), the line takes its own row
+	   whole instead of breaking mid-phrase. */
+	.cg-foot {
+		flex-wrap: wrap;
+		row-gap: 8px;
+	}
+	/* Cancel and Create group stay together; the pair wraps below the line as one. */
+	.cg-foot__actions {
+		display: flex;
+		flex: none;
+		gap: 8px;
+		margin-left: auto;
+	}
 	.cg-count {
 		margin-top: 0;
 		margin-bottom: 0;
 		color: var(--w-faint);
 		font: var(--w-t-small);
+		white-space: nowrap;
 	}
 	@media (pointer: coarse) {
 		.cg-row {
