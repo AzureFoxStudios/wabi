@@ -7,17 +7,16 @@
 		deleteProject,
 		addSprint,
 		updateSprint,
-		deleteSprint,
-		rootProjects
+		deleteSprint
 	} from '$lib/business/store';
 	import type { Project, Sprint } from '$lib/business/types';
 	import { onMount } from 'svelte';
+	import { confirmAction } from '$lib/confirm';
 	import ProjectDetail from './ProjectDetail.svelte';
 	import ProjectInventory from './ProjectInventory.svelte';
 	import ProjectModal from './ProjectModal.svelte';
 	import ProjectSidebar from './ProjectSidebar.svelte';
 	import SprintModal from './SprintModal.svelte';
-	import SignatureRow from './SignatureRow.svelte';
 
 	export let isReadOnly = false;
 	export let embedded = false;
@@ -58,25 +57,32 @@
 	let sprintDraftSignatures: Sprint['signatures'] = [];
 	let sprintLegacySignedBy: string | undefined = undefined;
 
+	// Project colours are the person's choice (user data), shown only as dots.
 	const colorOptions = [
 		'#5865f2', '#3ba55d', '#faa81a', '#ed4245',
 		'#9b59b6', '#e91e63', '#00bcd4', '#ff9800'
 	];
 
 	onMount(() => {
-		const savedProjectId = localStorage.getItem('businessHubSelectedProject');
-		if (savedProjectId) {
-			const project = $projects.find(p => p.id === savedProjectId);
-			if (project) {
-				selectedProject = project;
-				return;
-			}
+		let savedProjectId: string | null = null;
+		try {
+			savedProjectId = localStorage.getItem('businessHubSelectedProject');
+		} catch {
+			savedProjectId = null;
 		}
+		const project = savedProjectId ? $projects.find((p) => p.id === savedProjectId) : undefined;
+		if (project) selectedProject = project;
 	});
 
 	$: if (selectedProject) {
-		localStorage.setItem('businessHubSelectedProject', selectedProject.id);
+		try {
+			localStorage.setItem('businessHubSelectedProject', selectedProject.id);
+		} catch {
+			// Storage blocked: the open project is remembered for this visit only.
+		}
 	}
+	// A project deleted elsewhere (another tab, an import) closes its page.
+	$: if (selectedProject && !$projects.some((p) => p.id === selectedProject?.id)) backToProjects();
 
 	function openProjectModal(project?: Project, parentId?: string) {
 		if (project) {
@@ -152,12 +158,25 @@
 		closeProjectModal();
 	}
 
-	function handleDeleteProject(project: Project) {
-		if (confirm(`Delete "${project.name}" and all its tasks?`)) {
-			deleteProject(project.id);
-			if (selectedProject?.id === project.id) {
-				selectedProject = null;
-			}
+	async function handleDeleteProject(project: Project) {
+		const confirmed = await confirmAction({
+			title: 'Delete this project?',
+			body: `“${project.name}” and all its tasks will be removed from your Planner.`,
+			confirm: 'Delete project',
+			danger: true
+		});
+		if (!confirmed) return;
+		deleteProject(project.id);
+		if (selectedProject?.id === project.id) backToProjects();
+	}
+
+	function backToProjects() {
+		selectedProject = null;
+		showProjectTree = false;
+		try {
+			localStorage.removeItem('businessHubSelectedProject');
+		} catch {
+			// Storage blocked: the choice was only for this visit anyway.
 		}
 	}
 
@@ -214,36 +233,38 @@
 		closeSprintModal();
 	}
 
-	function handleDeleteSprint(sprint: Sprint) {
-		if (confirm(`Delete sprint "${sprint.name}"?`)) {
-			deleteSprint(sprint.id);
-			closeSprintModal();
-		}
+	async function handleDeleteSprint(sprint: Sprint) {
+		const confirmed = await confirmAction({
+			title: 'Delete this sprint?',
+			body: `“${sprint.name}” will be removed. Its tasks stay in the project.`,
+			confirm: 'Delete sprint',
+			danger: true
+		});
+		if (!confirmed) return;
+		deleteSprint(sprint.id);
+		closeSprintModal();
 	}
 </script>
 
-<div class="projects-container" class:embedded={embedded}>
+<div class="projects" class:projects--embedded={embedded} class:projects--tree={Boolean(selectedProject && showProjectTree)}>
 	{#if selectedProject && showProjectTree}
-	<ProjectSidebar
-		bind:selectedProject
-		bind:expandedProjects
-		onOpenProjectModal={openProjectModal}
-	/>
-
+		<ProjectSidebar bind:selectedProject bind:expandedProjects onOpenProjectModal={openProjectModal} />
 	{/if}
-	<main class="project-main">
+	<main class="projects-main">
 		{#if selectedProject}
-			<div class="project-navigation"><button type="button" class="tree-toggle" on:click={() => showProjectTree = !showProjectTree} aria-expanded={showProjectTree}>Browse project tree</button><button class="inventory-back" on:click={() => { selectedProject = null; localStorage.removeItem('businessHubSelectedProject'); }}>← All projects</button></div>
 			<ProjectDetail
-				onSelectProject={(project) => selectedProject = project}
 				{selectedProject}
 				{isReadOnly}
+				onSelectProject={(project) => (selectedProject = project)}
 				onOpenProjectModal={openProjectModal}
 				onDeleteProject={handleDeleteProject}
 				onOpenSprintModal={openSprintModal}
+				onBack={backToProjects}
+				treeOpen={showProjectTree}
+				onToggleTree={() => (showProjectTree = !showProjectTree)}
 			/>
 		{:else}
-			<ProjectInventory onSelect={(project) => selectedProject = project} onCreate={() => openProjectModal()} {isReadOnly} />
+			<ProjectInventory onSelect={(project) => (selectedProject = project)} onCreate={() => openProjectModal()} {isReadOnly} />
 		{/if}
 	</main>
 </div>
@@ -281,5 +302,3 @@
 		onDeleteSprint={handleDeleteSprint}
 	/>
 {/if}
-
-<style>.project-navigation{display:flex;justify-content:space-between;align-items:center;padding:16px 28px;gap:12px}.tree-toggle{background:var(--surface-base);border:1px solid var(--border-subtle);border-radius:var(--radius-md);color:var(--text-secondary);padding:8px 12px;cursor:pointer}.project-navigation .inventory-back{margin:0}.projects-container :global(.projects-sidebar){width:220px}.projects-container :global(.project-item){min-width:0;padding:10px;background:var(--surface-base);border-radius:var(--radius-md)}.projects-container :global(.project-item.selected){background:var(--surface-raised);border-color:var(--accent-primary)}.projects-container :global(.project-name){white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;font-size:13px}.projects-container :global(.project-progress-mini){display:none}.projects-container :global(.sub-projects){margin-left:8px;padding-left:4px}.projects-container :global(.projects-list){overflow-x:hidden}.project-main{min-width:0}@media(max-width:720px){.projects-container{flex-direction:column}.projects-container :global(.projects-sidebar){width:100%;max-height:220px}.project-navigation{padding:12px 20px}}.inventory-back{margin:20px 28px 0;background:transparent;color:var(--text-secondary);border:0;cursor:pointer}</style>

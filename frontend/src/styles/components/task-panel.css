@@ -1,660 +1,191 @@
-	.task-panel-container {
-		display: flex;
-		flex-direction: column;
-		height: 100%;
-		padding: 1rem;
-	}
-
-	:where(.task-panel-container) .panel-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 1rem;
-	}
-
-	:where(.task-panel-container) .panel-header h2 {
-		margin: 0;
-		font-size: 1.1rem;
-		font-weight: 600;
-		color: var(--biz-text-primary, #f1f5f9);
-	}
-
-	:where(.task-panel-container) .header-buttons {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-
-	:where(.task-panel-container) .add-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 40px;
-		height: 40px;
-		padding: 0;
-		flex-shrink: 0;
-		background: var(--biz-accent, #f59e0b);
-		border: none;
-		border-radius: 8px;
-		color: white;
-		cursor: pointer;
-		transition: background-color var(--duration-fast);
-	}
-
-	:where(.task-panel-container) .add-btn:hover {
-		background: var(--biz-accent-hover, #d97706);
-		transform: none;
-	}
-
-	:where(.task-panel-container) .close-panel-btn {
-		display: none;
-		align-items: center;
-		justify-content: center;
-		width: 32px;
-		height: 32px;
-		background: transparent;
-		border: 1px solid var(--biz-border, #2d3a4d);
-		border-radius: 8px;
-		color: var(--biz-text-secondary, #94a3b8);
-		cursor: pointer;
-		transition: all 0.2s;
-		padding: 0;
-	}
-
-	:where(.task-panel-container) .close-panel-btn:hover {
-		background: var(--biz-bg-hover, #2a3a4d);
-		color: var(--biz-text-primary, #f1f5f9);
-		border-color: var(--biz-accent, #f59e0b);
-	}
-
-	/* Filter Tabs */
-	:where(.task-panel-container) .filter-tabs {
-		display: flex;
-		gap: 0.25rem;
-		margin-bottom: 1rem;
-		padding: 0.25rem;
-		background: var(--biz-bg-tertiary, #243044);
-		border-radius: 8px;
-	}
-
-	:where(.task-panel-container) .filter-tab {
-		flex: 1;
-		padding: 0.5rem 0.75rem;
-		background: transparent;
-		border: none;
-		border-radius: 6px;
-		color: var(--biz-text-secondary, #94a3b8);
-		font-size: 0.8rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	:where(.task-panel-container) .filter-tab:hover {
-		color: var(--biz-text-primary, #f1f5f9);
-	}
-
-	:where(.task-panel-container) .filter-tab.active {
-		background: var(--biz-bg-secondary, #1a2332);
-		color: var(--biz-accent, #f59e0b);
-	}
-
-	/* Quick Add Form */
-	:where(.task-panel-container) .quick-add-form {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-		padding: 1rem;
-		background: var(--biz-bg-tertiary, #243044);
-		border-radius: 10px;
-		margin-bottom: 1rem;
-	}
-
-	:where(.task-panel-container) .task-input {
-		padding: 0.75rem;
-		background: var(--biz-bg-primary, #0f1419);
-		border: 1px solid var(--biz-border, #2d3a4d);
-		border-radius: 8px;
-		color: var(--biz-text-primary, #f1f5f9);
-		font-size: 0.9rem;
-	}
-
-	:where(.task-panel-container) .task-input:focus {
-		outline: none;
-		border-color: var(--biz-accent, #f59e0b);
-	}
-
-	:where(.task-panel-container) .form-row {
-		display: flex;
-		gap: 0.5rem;
-	}
-
-	:where(.task-panel-container) .time-toggle {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		font-size: 0.8rem;
-		color: var(--biz-text-secondary, #94a3b8);
-	}
-
-	:where(.task-panel-container) .priority-select,
-	:where(.task-panel-container) .project-select {
-		flex: 1;
-		padding: 0.5rem;
-		background: var(--biz-bg-primary, #0f1419);
-		border: 1px solid var(--biz-border, #2d3a4d);
-		border-radius: 6px;
-		color: var(--biz-text-primary, #f1f5f9);
-		font-size: 0.85rem;
-	}
-
-	:where(.task-panel-container) .form-actions {
-		display: flex;
-		gap: 0.5rem;
-		justify-content: flex-end;
-	}
-
-	:where(.task-panel-container) .cancel-btn {
-		padding: 0.5rem 1rem;
-		background: transparent;
-		border: 1px solid var(--biz-border, #2d3a4d);
-		border-radius: 6px;
-		color: var(--biz-text-secondary, #94a3b8);
-		font-size: 0.85rem;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	:where(.task-panel-container) .cancel-btn:hover {
-		background: var(--biz-bg-hover, #2a3a4d);
-		color: var(--biz-text-primary, #f1f5f9);
-	}
-
-	:where(.task-panel-container) .submit-btn {
-		padding: 0.5rem 1rem;
-		background: var(--biz-accent, #f59e0b);
-		border: none;
-		border-radius: 6px;
-		color: white;
-		font-size: 0.85rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	:where(.task-panel-container) .submit-btn:hover {
-		background: var(--biz-accent-hover, #d97706);
-	}
-
-	/* Task List */
-	:where(.task-panel-container) .task-list {
-		flex: 1;
-		overflow-y: auto;
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	:where(.task-panel-container) .empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: var(--space-12) var(--space-4);
-		color: var(--biz-text-muted, #64748b);
-		text-align: center;
-	}
-
-	:where(.task-panel-container) .empty-state svg {
-		margin-bottom: var(--space-4);
-		opacity: var(--opacity-50);
-	}
-
-	:where(.task-panel-container) .empty-state p {
-		margin: 0;
-		font-size: var(--font-size-base);
-	}
-
-	/* Task Item */
-	:where(.task-panel-container) .task-item {
-		display: flex;
-		align-items: flex-start;
-		gap: 0.75rem;
-		padding: 0.75rem;
-		background: var(--biz-bg-tertiary, #243044);
-		border-radius: 8px;
-		border-left: 3px solid var(--priority-color, var(--biz-border));
-		transition: all 0.2s;
-	}
-
-	:where(.task-panel-container) .task-item:hover {
-		background: var(--biz-bg-hover, #2a3a4d);
-	}
-
-	:where(.task-panel-container) .edit-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 24px;
-		height: 24px;
-		background: transparent;
-		border: none;
-		color: var(--biz-text-secondary, #94a3b8);
-		cursor: pointer;
-		transition: all 0.2s;
-		flex-shrink: 0;
-		padding: 0;
-	}
-
-	:where(.task-panel-container) .edit-btn:hover {
-		color: var(--biz-accent, #f59e0b);
-	}
-
-	:where(.task-panel-container) .edit-task-form {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-		padding: 1rem;
-		background: var(--biz-bg-tertiary, #243044);
-		border-radius: 8px;
-		margin-bottom: 0.5rem;
-		border: 1px solid var(--biz-accent, #f59e0b);
-	}
-
-	:where(.task-panel-container) .form-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 0.5rem;
-	}
-
-	:where(.task-panel-container) .form-header h3 {
-		margin: 0;
-		font-size: 0.9rem;
-		color: var(--biz-text-primary, #f1f5f9);
-		font-weight: 600;
-	}
-
-	:where(.task-panel-container) .close-btn {
-		background: transparent;
-		border: none;
-		color: var(--biz-text-secondary, #94a3b8);
-		font-size: 1.5rem;
-		cursor: pointer;
-		padding: 0;
-		width: 24px;
-		height: 24px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	:where(.task-panel-container) .close-btn:hover {
-		color: var(--biz-text-primary, #f1f5f9);
-	}
-
-	:where(.task-panel-container) .form-actions {
-		display: flex;
-		gap: 0.5rem;
-		justify-content: flex-end;
-		margin-top: 0.5rem;
-	}
-
-	:where(.task-panel-container) .delete-btn {
-		padding: 0.4rem 0.8rem;
-		background: var(--biz-danger, #ef4444);
-		border: none;
-		border-radius: 6px;
-		color: white;
-		font-size: 0.8rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s;
-		margin-right: auto;
-	}
-
-	:where(.task-panel-container) .delete-btn:hover {
-		background: var(--biz-danger-hover, #dc2626);
-	}
-
-	:where(.task-panel-container) .cancel-btn,
-	:where(.task-panel-container) .submit-btn {
-		padding: 0.4rem 0.8rem;
-		border: none;
-		border-radius: 6px;
-		font-size: 0.8rem;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	:where(.task-panel-container) .cancel-btn {
-		background: transparent;
-		border: 1px solid var(--biz-border, #2d3a4d);
-		color: var(--biz-text-secondary, #94a3b8);
-	}
-
-	:where(.task-panel-container) .cancel-btn:hover {
-		background: var(--biz-bg-hover, #2a3a4d);
-		color: var(--biz-text-primary, #f1f5f9);
-	}
-
-	:where(.task-panel-container) .submit-btn {
-		background: var(--biz-accent, #f59e0b);
-		color: white;
-	}
-
-	:where(.task-panel-container) .submit-btn:hover {
-		background: var(--biz-accent-hover, #d97706);
-	}
-
-	:where(.task-panel-container) .task-item.priority-urgent { --priority-color: #ef4444; }
-	:where(.task-panel-container) .task-item.priority-high { --priority-color: #f97316; }
-	:where(.task-panel-container) .task-item.priority-medium { --priority-color: #eab308; }
-	:where(.task-panel-container) .task-item.priority-low { --priority-color: #22c55e; }
-
-	:where(.task-panel-container) .checkbox {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 20px;
-		height: 20px;
-		background: transparent;
-		border: 2px solid var(--biz-border-light, #3d4a5d);
-		border-radius: 4px;
-		color: white;
-		cursor: pointer;
-		transition: all 0.2s;
-		flex-shrink: 0;
-		margin-top: 2px;
-	}
-
-	:where(.task-panel-container) .checkbox:hover {
-		border-color: var(--biz-accent, #f59e0b);
-	}
-
-	:where(.task-panel-container) .checkbox.checked {
-		background: var(--biz-success, #10b981);
-		border-color: var(--biz-success, #10b981);
-	}
-
-	:where(.task-panel-container) .task-content {
-		flex: 1;
-		min-width: 0;
-	}
-
-	:where(.task-panel-container) .task-assignee-badge {
-		font-size: 0.7rem;
-		color: var(--biz-accent, #f59e0b);
-		font-weight: 600;
-		margin-bottom: 0.2rem;
-		text-transform: uppercase;
-		letter-spacing: 0.5px;
-		display: block;
-	}
-
-	:where(.task-panel-container) .task-title {
-		display: block;
-		font-size: 0.9rem;
-		color: var(--biz-text-primary, #f1f5f9);
-		line-height: 1.4;
-		word-break: break-word;
-	}
-
-	:where(.task-panel-container) .task-title.completed {
-		text-decoration: line-through;
-		color: var(--biz-text-muted, #64748b);
-	}
-
-	:where(.task-panel-container) .task-meta {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.5rem;
-		margin-top: 0.35rem;
-	}
-
-	:where(.task-panel-container) .estimate-tag {
-		font-size: 0.7rem;
-		padding: 0.15rem 0.5rem;
-		background: var(--biz-accent-soft, rgba(245, 158, 11, 0.15));
-		color: var(--biz-accent, #f59e0b);
-		border-radius: 4px;
-		font-weight: 600;
-	}
-
-	:where(.task-panel-container) .project-tag {
-		font-size: 0.7rem;
-		padding: 0.15rem 0.5rem;
-		background: var(--biz-info-soft, rgba(59, 130, 246, 0.15));
-		color: var(--biz-info, #3b82f6);
-		border-radius: 4px;
-	}
-
-	:where(.task-panel-container) .due-date {
-		font-size: 0.7rem;
-		color: var(--biz-text-muted, #64748b);
-	}
-
-	:where(.task-panel-container) .due-date.overdue {
-		color: var(--biz-danger, #ef4444);
-		font-weight: 500;
-	}
-
-	:where(.task-panel-container) .priority-indicator {
-		display: none;
-	}
-
-	:where(.task-panel-container) .description-input {
-		width: 100%;
-		padding: 0.75rem;
-		background: var(--biz-bg-primary, #0f1419);
-		border: 1px solid var(--biz-border, #2d3a4d);
-		border-radius: 8px;
-		color: var(--biz-text-primary, #f1f5f9);
-		font-size: 0.9rem;
-		font-family: inherit;
-		resize: vertical;
-		min-height: 50px;
-	}
-
-	:where(.task-panel-container) .description-input:focus {
-		outline: none;
-		border-color: var(--biz-accent, #f59e0b);
-	}
-
-	:where(.task-panel-container) .assignee-field {
-		position: relative;
-	}
-
-	:where(.task-panel-container) .assignee-input {
-		width: 100%;
-		padding: 0.5rem;
-		background: var(--biz-bg-primary, #0f1419);
-		border: 1px solid var(--biz-border, #2d3a4d);
-		border-radius: 6px;
-		color: var(--biz-text-primary, #f1f5f9);
-		font-size: 0.85rem;
-		font-family: inherit;
-	}
-
-	:where(.task-panel-container) .assignee-input:focus {
-		outline: none;
-		border-color: var(--biz-accent, #f59e0b);
-	}
-
-	:where(.task-panel-container) .assignee-dropdown {
-		position: absolute;
-		top: 100%;
-		left: 0;
-		right: 0;
-		background: var(--biz-bg-secondary, #1a2332);
-		border: 1px solid var(--biz-border, #2d3a4d);
-		border-top: none;
-		border-radius: 0 0 6px 6px;
-		max-height: 150px;
-		overflow-y: auto;
-		z-index: 50;
-		margin-top: -1px;
-	}
-
-	:where(.task-panel-container) .assignee-item {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		width: 100%;
-		padding: 0.5rem 0.75rem;
-		background: transparent;
-		border: none;
-		color: var(--biz-text-primary, #f1f5f9);
-		cursor: pointer;
-		text-align: left;
-		font-size: 0.85rem;
-		transition: all 0.2s;
-	}
-
-	:where(.task-panel-container) .assignee-item:hover {
-		background: var(--biz-bg-tertiary, #243044);
-	}
-
-	:where(.task-panel-container) .assignee-item-dot {
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		flex-shrink: 0;
-	}
-
-	:where(.task-panel-container) .assignee-chip {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.35rem;
-		padding: 0.4rem 0.6rem;
-		background: var(--biz-bg-tertiary, #243044);
-		border: 1px solid var(--biz-border, #2d3a4d);
-		border-radius: 16px;
-		color: var(--biz-text-primary, #f1f5f9);
-		font-size: 0.8rem;
-		white-space: nowrap;
-		margin-bottom: 0.5rem;
-	}
-
-	:where(.task-panel-container) .assignee-dot {
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		flex-shrink: 0;
-	}
-
-	:where(.task-panel-container) .chip-remove {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 14px;
-		height: 14px;
-		background: transparent;
-		border: none;
-		color: var(--biz-text-secondary, #94a3b8);
-		cursor: pointer;
-		font-size: 1rem;
-		padding: 0;
-		transition: all 0.2s;
-		margin-left: 0.2rem;
-	}
-
-	:where(.task-panel-container) .chip-remove:hover {
-		color: var(--biz-text-primary, #f1f5f9);
-	}
-
-	:where(.task-panel-container) .assignee-tag {
-		font-size: 0.7rem;
-		padding: 0.15rem 0.5rem;
-		background: var(--biz-info-soft, rgba(59, 130, 246, 0.15));
-		color: var(--biz-info, #3b82f6);
-		border-radius: 4px;
-		display: inline-flex;
-		align-items: center;
-		gap: 0.35rem;
-		white-space: nowrap;
-	}
-
-	/* Mobile styles */
-	@media (max-width: 768px) {
-		.task-panel-container {
-			padding: 0.75rem;
-		}
-
-		:where(.task-panel-container) .panel-header h2 {
-			font-size: 1rem;
-		}
-
-		:where(.task-panel-container) .close-panel-btn {
-			display: flex;
-		}
-
-		:where(.task-panel-container) .filter-tabs {
-			margin-bottom: 0.75rem;
-		}
-
-		:where(.task-panel-container) .filter-tab {
-			padding: 0.4rem 0.5rem;
-			font-size: 0.75rem;
-		}
-
-		:where(.task-panel-container) .task-item {
-			padding: 0.6rem;
-			gap: 0.5rem;
-		}
-
-		:where(.task-panel-container) .task-title {
-			font-size: 0.85rem;
-		}
-
-		:where(.task-panel-container) .task-list {
-			/* Hide scrollbar on mobile */
-			-ms-overflow-style: none;
-			scrollbar-width: none;
-		}
-
-		:where(.task-panel-container) .task-list::-webkit-scrollbar {
-			display: none;
-		}
-	}
-
-	/* ── Compact mode: right workspace dock (~320px) ───────────────────────── */
-	.task-panel-container.compact {
-		height: 100%;
-		padding: 0.6rem;
-		gap: 0.5rem;
-		background: var(--biz-bg-primary, var(--surface-base, #24243e));
-	}
-
-	.task-panel-container.compact .panel-header {
-		min-height: 32px;
-		margin-bottom: 0.25rem;
-	}
-
-	.task-panel-container.compact .panel-header h2 {
-		font-size: 0.95rem;
-	}
-
-	.task-panel-container.compact .filter-tabs {
-		margin-bottom: 0.4rem;
-	}
-
-	.task-panel-container.compact .filter-tab {
-		padding: 0.35rem 0.55rem;
-		font-size: 0.72rem;
-	}
-
-	.task-panel-container.compact .task-item {
-		padding: 0.45rem 0.5rem;
-		gap: 0.45rem;
-	}
-
-	.task-panel-container.compact .task-title {
-		font-size: 0.82rem;
-	}
-
-	.task-panel-container.compact .task-meta {
-		flex-wrap: wrap;
-		row-gap: 0.2rem;
-	}
+/* ==========================================================================
+   Tasks — My Planner's tasks as a companion panel (design contract §8.6, §7.21, §7.27).
+   Owner (wave 1): w1-planner-views. Role tokens only; every rule hangs off `.task-panel`
+   (TaskPanel.svelte), which renders inside the companion frame (`.task-panel--frame`) or,
+   with its own small title row, in a host without the frame.
+
+   Body: a 44px filter row (kit segmented), the list, a quiet "Add task" row. Rows are 44px+:
+   a 16px checkbox (completes, with Undo), the title (opens the task dialog), a mono meta line
+   (due words with a calendar glyph, overdue in --w-danger; a mark + word only for High and
+   Urgent; the project only when the list spans several), the assignee stamp last.
+   No priority rails, no project chips, no always-visible edit icon.
+   ========================================================================== */
+
+.task-panel {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	height: 100%;
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+
+/* Title row for hosts without the companion frame (56, like the frame's row A). */
+.task-panel .tp-head {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	box-sizing: border-box;
+	height: var(--w-head-a, 56px);
+	padding: 0 10px 0 20px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.task-panel .tp-title {
+	flex: 1 1 auto;
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	min-width: 0;
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-heading);
+}
+.task-panel .tp-count {
+	color: var(--w-faint);
+	font: var(--w-t-mono);
+	font-feature-settings: 'tnum';
+}
+
+/* ---------- filter row ---------- */
+.task-panel .tp-tools {
+	flex: none;
+	display: flex;
+	align-items: center;
+	box-sizing: border-box;
+	min-height: 44px;
+	padding: 8px 12px 4px 20px;
+}
+.task-panel .tp-filter {
+	max-width: 100%;
+}
+
+/* ---------- list ---------- */
+.task-panel .tp-body {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 4px 12px 20px 12px;
+}
+.task-panel .tp-list {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.task-panel .tp-row {
+	display: grid;
+	grid-template-columns: 16px minmax(0, 1fr) auto;
+	align-items: start;
+	column-gap: 12px;
+	box-sizing: border-box;
+	min-height: 44px;
+	padding: 12px 8px 10px;
+	border-radius: var(--radius-md);
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+.task-panel .tp-row:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+}
+.task-panel .tp-row__check {
+	margin-top: 2px;
+}
+.task-panel .tp-row__text {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+}
+.task-panel .tp-row__title {
+	align-self: flex-start;
+	max-width: 100%;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-label);
+	text-align: start;
+	overflow-wrap: anywhere;
+	cursor: pointer;
+}
+.task-panel .tp-row__title:hover {
+	text-decoration: underline;
+	text-decoration-color: color-mix(in srgb, var(--w-text) 45%, transparent);
+	text-underline-offset: 2px;
+}
+.task-panel .tp-row__title:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+.task-panel .tp-row__meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 12px;
+	color: var(--w-faint);
+	font: var(--w-t-mono);
+	font-feature-settings: 'tnum';
+}
+.task-panel .tp-meta {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	min-width: 0;
+	white-space: nowrap;
+}
+.task-panel .tp-meta--due.is-overdue {
+	color: var(--w-danger);
+}
+.task-panel .tp-meta--mark {
+	color: var(--w-mute);
+	font: var(--w-t-caption);
+}
+.task-panel .tp-row__who {
+	display: inline-flex;
+	padding-top: 1px;
+}
+
+/* "Add task": a quiet 32px row at the end of the list (like a lane's). */
+.task-panel .tp-add {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	box-sizing: border-box;
+	width: 100%;
+	height: 32px;
+	margin-top: 4px;
+	padding: 0 8px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-label);
+	text-align: start;
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease), color var(--w-dur-1) var(--w-ease);
+}
+.task-panel .tp-add:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+	color: var(--w-text);
+}
+.task-panel .tp-add:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+
+.task-panel .tp-empty {
+	padding: 20px 8px 0;
+}
+
+@media (pointer: coarse) {
+	.task-panel .tp-add {
+		height: 44px;
+	}
+}
+
+:root[data-char='contrast'] .task-panel :is(.tp-row, .tp-add):hover {
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}

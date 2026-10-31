@@ -1,563 +1,475 @@
-.calendar-wrapper {
-	height: 100%;
-	display: flex;
-	gap: 1rem;
-}
+/* ==========================================================================
+   My Planner — Calendar (design contract §8.6). Owner (wave 1): w1-planner-views.
+   Role tokens only (--w-*), type tokens, kit classes; every rule is scoped under `.planner`.
 
-.calendar-container {
-	flex: 1;
+   A quiet month on the page: hairline rules between days (no box, no bands), mono weekday
+   kickers, today as a 24px accent disc. Events are pills tinted with the person's colour (18%
+   into --w-raise, a 6px dot, --w-text label, ellipsis, never clipped: overflow is "+N more").
+   Tasks carry their own checkbox; the title is a separate button that opens the task.
+   The side list (Overdue, Upcoming) sits in a 264px column; below a 720px stage the month is
+   an agenda list (CalendarImpl measures its width).
+   ========================================================================== */
+
+.planner .cal {
+	flex: 1 0 auto;
 	display: flex;
 	flex-direction: column;
+	box-sizing: border-box;
 	min-width: 0;
+	padding: 0 var(--w-gutter) 24px;
+	color: var(--w-text);
+	font: var(--w-t-ui);
 }
 
-/* Tasks Sidebar */
-.tasks-sidebar {
-	width: 280px;
-	flex-shrink: 0;
-	display: flex;
-	flex-direction: column;
-	gap: 1rem;
-}
-
-.sidebar-section {
-	background: var(--biz-bg-secondary, #1a2332);
-	border-radius: 12px;
-	padding: 1rem;
-	border: 1px solid var(--biz-border, #2d3a4d);
-}
-
-.sidebar-section h3 {
-	margin: 0 0 0.75rem 0;
-	font-size: 0.9rem;
-	color: var(--biz-text-secondary, #94a3b8);
-	text-transform: uppercase;
-	letter-spacing: 0.5px;
-}
-
-.overdue-section {
-	border-color: var(--biz-danger, #ef4444);
-	background: rgba(239, 68, 68, 0.1);
-}
-
-.overdue-section h3 {
-	color: var(--biz-danger, #ef4444);
-}
-
-.task-list {
-	display: flex;
-	flex-direction: column;
-	gap: 0.5rem;
-}
-
-.sidebar-task {
+/* ---------- head row (52, no band): ‹ › · month · Today ---------- */
+.planner .cal-head {
+	flex: none;
 	display: flex;
 	align-items: center;
-	gap: 0.5rem;
-	padding: 0.6rem;
-	background: var(--biz-bg-tertiary, #243044);
-	border-radius: 8px;
-	cursor: pointer;
-	transition: all 0.2s;
+	gap: 12px;
+	box-sizing: border-box;
+	min-height: 52px;
+	padding: 10px 0;
+}
+.planner .cal-steps {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	/* The first glyph's ink sits on the gutter line, like the board's first select edge. */
+	margin-left: -7px;
+}
+.planner .cal-title {
+	margin: 0;
+	min-width: 0;
+	overflow: hidden;
+	color: var(--w-text);
+	font: var(--w-t-title);
+	letter-spacing: 0.005em;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.planner .cal-head__end {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-left: auto;
 }
 
-.sidebar-task:hover {
-	background: var(--biz-bg-hover, #2a3a4d);
+/* ---------- body: the month and the side list ---------- */
+.planner .cal-body {
+	flex: 1 1 auto;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	align-items: start;
+	gap: 28px;
+	min-width: 0;
+}
+.planner .cal-body--aside {
+	grid-template-columns: minmax(0, 1fr) 248px;
 }
 
-.sidebar-task:hover .complete-btn {
+/* ---------- the month grid: rules, not boxes ---------- */
+.planner .cal-grid {
+	align-self: stretch;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	/* The weekday kickers take their own height; the weeks share the rest of the page, never
+	   less than a readable day. */
+	grid-template-rows: auto;
+	grid-auto-rows: minmax(calc(104px * var(--w-fs)), 1fr);
+	min-width: 0;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.planner .cal-row {
+	display: grid;
+	grid-template-columns: repeat(7, minmax(0, 1fr));
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.planner .cal-row--head {
+	border-top: 0;
+}
+.planner .cal-weekday {
+	box-sizing: border-box;
+	height: 32px;
+	padding: 8px 10px 0;
+	color: var(--w-faint);
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	white-space: nowrap;
+	overflow: hidden;
+}
+
+.planner .cal-cell {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	box-sizing: border-box;
+	min-width: 0;
+	min-height: calc(104px * var(--w-fs));
+	padding: 6px 6px 8px;
+	outline: none;
+}
+.planner .cal-cell + .cal-cell {
+	border-left: var(--w-bw) solid var(--w-line);
+}
+.planner .cal-cell:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+
+.planner .cal-cell__head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 4px;
+	height: 24px;
+}
+.planner .cal-date {
+	display: inline-flex;
+	align-items: center;
+	box-sizing: border-box;
+	min-width: 24px;
+	height: 24px;
+	padding: 0 4px;
+	border-radius: var(--w-pill);
+	color: var(--w-mute);
+	font: 500 calc(12px * var(--w-fs)) / 1 var(--w-mono);
+	font-feature-settings: 'tnum';
+}
+.planner .cal-cell.is-out .cal-date {
+	color: var(--w-faint);
+	font-weight: 400;
+}
+/* Today: a 24px accent disc with the on-accent numeral; the cell itself is not tinted. */
+.planner .cal-cell.is-today .cal-date {
+	justify-content: center;
+	width: 24px;
+	padding: 0;
+	background: var(--w-accent);
+	color: var(--w-on-accent);
+}
+
+/* "Add on <date>": revealed on hover and focus; always there for touch. */
+.planner .cal-add.w-ibtn {
+	width: 24px;
+	height: 24px;
+	opacity: 0;
+	transition: opacity var(--w-dur-1) var(--w-ease), background-color var(--w-dur-1) var(--w-ease);
+}
+.planner .cal-cell:hover .cal-add,
+.planner .cal-cell:focus-within .cal-add {
 	opacity: 1;
 }
 
-.sidebar-task.overdue {
-	background: rgba(239, 68, 68, 0.15);
-}
-
-.task-priority {
-	width: 4px;
-	height: 24px;
-	border-radius: 2px;
-	flex-shrink: 0;
-}
-
-.task-info {
-	flex: 1;
-	min-width: 0;
-}
-
-.task-name {
-	display: block;
-	font-size: 0.85rem;
-	color: var(--biz-text-primary, #f1f5f9);
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.task-date {
-	font-size: 0.75rem;
-	color: var(--biz-text-muted, #64748b);
-}
-
-.complete-btn {
-	opacity: 0;
-	color: var(--biz-success, #10b981);
-	font-size: 1rem;
-	transition: opacity 0.2s;
-}
-
-.empty-tasks {
-	color: var(--biz-text-muted, #64748b);
-	font-size: var(--font-size-sm);
-	text-align: center;
-	padding: var(--space-4) 0;
-	margin: 0;
-}
-
-.see-more {
-	font-size: 0.8rem;
-	color: var(--biz-text-muted, #64748b);
-	text-align: center;
-	padding: 0.25rem;
-}
-
-.calendar-header {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	margin-bottom: 1rem;
-	flex-wrap: nowrap;
-	gap: 0.75rem;
-	min-width: 0;
-}
-
-/* Hosted-in-Planner: no page title, one compact secondary toolbar */
-.calendar-header.embedded {
-	justify-content: space-between;
-	margin-bottom: 0.5rem;
-	overflow-x: auto;
-	overflow-y: hidden;
-	row-gap: 0;
-}
-
-.calendar-header.embedded .header-center {
-	order: 1;
-	flex: 1 1 auto;
-	min-width: 0;
-	justify-content: center;
-}
-
-.calendar-header.embedded .header-right {
-	order: 2;
-	flex-shrink: 0;
-}
-
-.header-left h1 {
-	margin: 0;
-	font-size: 1.5rem;
-	color: var(--biz-text-primary, #f1f5f9);
-}
-
-.header-center {
-	display: flex;
-	align-items: center;
-	gap: 0.65rem;
-	flex-wrap: nowrap;
-	min-width: 0;
-}
-
-.month-label {
-	margin: 0;
-	font-size: 1.1rem;
-	min-width: 9.5rem;
-	text-align: center;
-	color: var(--biz-text-primary, #f1f5f9);
-	white-space: nowrap;
-}
-
-.nav-btn {
-	background: var(--biz-bg-tertiary, #243044);
-	border: 1px solid var(--biz-border, #2d3a4d);
-	color: var(--biz-text-primary, #f1f5f9);
-	padding: 0.5rem 0.75rem;
-	border-radius: 8px;
-	cursor: pointer;
-	font-size: 1rem;
-	transition: all 0.2s;
-}
-
-.nav-btn.icon {
-	width: 36px;
-	height: 36px;
-	min-width: 36px;
-	padding: 0;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-}
-
-.nav-btn:hover {
-	background: var(--biz-bg-hover, #2a3a4d);
-	border-color: var(--biz-accent, #f59e0b);
-}
-
-.header-right {
-	display: flex;
-	gap: 0.5rem;
-	align-items: center;
-	flex-wrap: nowrap;
-	flex-shrink: 0;
-}
-
-.today-btn {
-	padding: 0.5rem 1rem;
-	min-height: 36px;
-	background: var(--biz-bg-tertiary, #243044);
-	border: 1px solid var(--biz-border, #2d3a4d);
-	color: var(--biz-text-primary, #f1f5f9);
-	border-radius: 8px;
-	cursor: pointer;
-	transition: all 0.2s;
-}
-
-.today-btn:hover {
-	background: var(--biz-bg-hover, #2a3a4d);
-}
-
-.add-btn {
-	padding: 0.5rem 1rem;
-	min-height: 36px;
-	background: var(--biz-accent, #f59e0b);
-	color: white;
-	border: none;
-	border-radius: 8px;
-	cursor: pointer;
-	font-weight: 500;
-	transition: all 0.2s;
-}
-
-.add-btn:hover {
-	background: var(--biz-accent-hover, #d97706);
-}
-
-/* Calendar Grid */
-.calendar-grid {
-	flex: 1;
-	background: var(--biz-bg-secondary, #1a2332);
-	border-radius: 12px;
-	overflow: hidden;
-	display: flex;
-	flex-direction: column;
-	border: 1px solid var(--biz-border, #2d3a4d);
-}
-
-.weekday-header {
-	display: grid;
-	grid-template-columns: repeat(7, minmax(0, 1fr));
-	background: var(--biz-bg-tertiary, #243044);
-	border-bottom: 1px solid var(--biz-border, #2d3a4d);
-}
-
-.weekday {
-	padding: 0.75rem;
-	text-align: center;
-	font-size: 0.8rem;
-	font-weight: 600;
-	color: var(--biz-text-secondary, #94a3b8);
-	text-transform: uppercase;
-}
-
-.days-grid {
-	display: grid;
-	grid-template-columns: repeat(7, minmax(0, 1fr));
-	flex: 1;
-}
-
-.day-cell {
-	min-width: 0;
-	border-right: 1px solid var(--biz-border, #2d3a4d);
-	border-bottom: 1px solid var(--biz-border, #2d3a4d);
-	padding: 0.5rem;
-	min-height: 100px;
-	cursor: pointer;
-	transition: background 0.2s;
-	background: var(--biz-bg-secondary, #1a2332);
-}
-
-.day-cell:nth-child(7n) {
-	border-right: none;
-}
-
-.day-cell:hover {
-	background: var(--biz-bg-hover, #2a3a4d);
-}
-
-.day-cell.today {
-	background: var(--biz-accent-soft, rgba(245, 158, 11, 0.1));
-}
-
-.day-cell.today .day-number {
-	background: var(--biz-accent, #f59e0b);
-	color: white;
-	border-radius: 50%;
-	width: 28px;
-	height: 28px;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-}
-
-.day-cell.other-month {
-	opacity: 0.4;
-	background: var(--biz-bg-primary, #0f1419);
-}
-
-.day-number {
-	font-size: 0.9rem;
-	font-weight: 500;
-	margin-bottom: 0.25rem;
-	display: inline-block;
-	color: var(--biz-text-primary, #f1f5f9);
-}
-
-.day-events {
+.planner .cal-lines {
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.planner .cal-lines > li {
+	min-width: 0;
 }
 
-.event-pill {
-	font-size: var(--font-size-xs);
-	padding: 2px 6px;
-	border-radius: 4px;
-	border: 0;
-	color: white;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	cursor: pointer;
-	display: flex;
-	gap: 4px;
-	font-family: inherit;
-	text-align: left;
-}
-
-.event-pill:hover {
-	filter: brightness(1.15);
-}
-
-.task-pill {
-	font-size: var(--font-size-xs);
-	padding: 2px 6px;
-	border-radius: 4px;
-	background: var(--biz-bg-tertiary, #243044);
-	border-left: 3px solid;
-	border-top: 0;
-	border-right: 0;
-	border-bottom: 0;
-	color: var(--biz-text-primary, #f1f5f9);
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	cursor: pointer;
+/* ---------- event pill: the person's colour as a tint and a dot, text on --w-text ---------- */
+.planner .cal-pill {
+	--pill: var(--w-accent);
 	display: flex;
 	align-items: center;
-	gap: 4px;
-	font-family: inherit;
-	text-align: left;
+	gap: 6px;
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	height: calc(22px * var(--w-fs));
+	margin: 0;
+	padding: 0 6px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: color-mix(in srgb, var(--pill) 18%, var(--w-raise));
+	color: var(--w-text);
+	font: var(--w-t-caption);
+	text-align: start;
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+.planner .cal-pill:hover {
+	background: color-mix(in srgb, var(--pill) 28%, var(--w-raise));
+}
+.planner .cal-pill:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 1px;
+}
+.planner .cal-pill__dot {
+	flex: none;
+	width: 6px;
+	height: 6px;
+	border-radius: var(--w-pill);
+	background: var(--pill);
+}
+.planner .cal-pill__time {
+	flex: none;
+	color: var(--w-mute);
+	font: var(--w-t-micro);
+	font-feature-settings: 'tnum';
+}
+.planner .cal-pill__title {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
-.task-pill:hover {
-	background: var(--biz-bg-hover, #2a3a4d);
+/* ---------- task line: checkbox completes, title opens ---------- */
+.planner .cal-task {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	box-sizing: border-box;
+	min-width: 0;
+	height: calc(22px * var(--w-fs));
+	padding: 0 6px;
 }
-
-.task-checkbox {
+.planner .cal-task__check.w-check {
+	width: 14px;
+	height: 14px;
+}
+.planner .cal-task__check.w-check::before {
 	width: 10px;
 	height: 10px;
-	border: 1px solid var(--biz-text-muted, #64748b);
-	border-radius: 2px;
-	flex-shrink: 0;
 }
-
-.task-pill:hover .task-checkbox {
-	border-color: var(--biz-success, #10b981);
-	background: rgba(16, 185, 129, 0.2);
-}
-
-.task-title {
+.planner .cal-task__title {
+	flex: 1 1 auto;
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--w-text);
+	font: 400 calc(12px * var(--w-fs)) / calc(16px * var(--w-fs)) var(--w-sans);
+	text-align: start;
 	overflow: hidden;
 	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+}
+.planner .cal-task__title:hover {
+	text-decoration: underline;
+	text-decoration-color: color-mix(in srgb, var(--w-text) 45%, transparent);
+	text-underline-offset: 2px;
+}
+.planner .cal-task__title:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 1px;
 }
 
-.event-time {
-	opacity: 0.8;
+/* "+N more" opens the day; a word, not a chip. */
+.planner .cal-more {
+	display: inline-flex;
+	align-items: center;
+	height: calc(20px * var(--w-fs));
+	margin: 0;
+	padding: 0 6px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-micro);
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease), color var(--w-dur-1) var(--w-ease);
+}
+.planner .cal-more:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+	color: var(--w-text);
+}
+.planner .cal-more:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 1px;
 }
 
-.more-events {
-	font-size: 0.7rem;
-	font-weight: 600;
-	color: var(--biz-text-secondary, #94a3b8);
-	background: var(--biz-bg-tertiary, #243044);
-	border: 1px solid var(--biz-border, #2d3a4d);
-	border-radius: 4px;
-	padding: 1px 6px;
-	width: fit-content;
-	align-self: flex-start;
+/* ---------- side list: Overdue, Upcoming ---------- */
+.planner .cal-aside {
+	display: flex;
+	flex-direction: column;
+	gap: 28px;
+	min-width: 0;
+}
+.planner .cal-aside__kicker {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	margin: 0;
+	padding: 8px 0;
+	border-bottom: var(--w-bw) solid var(--w-line);
+	color: var(--w-faint);
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+.planner .cal-aside__kicker--overdue {
+	color: var(--w-danger);
+}
+.planner .cal-aside__count {
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+	letter-spacing: 0;
+}
+.planner .cal-aside__list {
+	margin: 4px 0 0;
+	padding: 0;
+	list-style: none;
+}
+.planner .cal-aside__row.cal-task {
+	align-items: flex-start;
+	gap: 10px;
+	height: auto;
+	min-height: 40px;
+	padding: 11px 0 9px;
+}
+.planner .cal-aside__row .cal-task__check.w-check {
 	margin-top: 1px;
 }
+.planner .cal-aside__row .cal-task__check.w-check {
+	width: 16px;
+	height: 16px;
+}
+.planner .cal-aside__row .cal-task__check.w-check::before {
+	width: 12px;
+	height: 12px;
+}
+.planner .cal-aside__row .cal-task__title {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	white-space: normal;
+	overflow-wrap: anywhere;
+	font: var(--w-t-small);
+}
+.planner .cal-aside__date {
+	flex: none;
+	padding-top: 1px;
+	color: var(--w-faint);
+	font: var(--w-t-mono);
+	font-feature-settings: 'tnum';
+}
+.planner .cal-aside__date.is-overdue {
+	color: var(--w-danger);
+}
+.planner .cal-aside__more,
+.planner .cal-aside__empty {
+	margin: 8px 0 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
 
-/* Modals */
-.modal-overlay {
-	position: fixed;
-	top: 0;
-	left: 0;
-	right: 0;
-	bottom: 0;
-	background: rgba(0, 0, 0, 0.8);
+/* ---------- agenda (stage under 720px) ---------- */
+.planner .cal-agenda {
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+	min-width: 0;
+}
+.planner .cal-agenda__head {
 	display: flex;
 	align-items: center;
-	justify-content: center;
-	z-index: var(--z-overlay);
-	backdrop-filter: blur(2px);
-	animation: fadeIn 0.2s ease-out;
+	gap: 8px;
+	min-height: 32px;
+	border-bottom: var(--w-bw) solid var(--w-line);
 }
-
-@keyframes fadeIn {
-	from {
-		opacity: 0;
-	}
-	to {
-		opacity: 1;
-	}
-}
-
-.modal {
-	background: linear-gradient(135deg, var(--biz-bg-secondary, #1a2332), var(--biz-bg-tertiary, #243044));
-	border-radius: 12px;
-	width: 100%;
-	max-width: 450px;
-	max-height: 90vh;
-	overflow-y: auto;
-	border: 1px solid var(--biz-border, #2d3a4d);
-	box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-	animation: slideIn 0.3s ease-out;
-}
-
-@keyframes slideIn {
-	from {
-		transform: scale(0.95) translateY(-20px);
-		opacity: 0;
-	}
-	to {
-		transform: scale(1) translateY(0);
-		opacity: 1;
-	}
-}
-
-.day-modal {
-	max-width: 400px;
-}
-
-.modal-header {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	padding: 1.5rem 1.5rem 1rem;
-	border-bottom: 2px solid var(--biz-border, #2d3a4d);
-	background: linear-gradient(90deg, rgba(245, 158, 11, 0.05), transparent);
-}
-
-.modal-header h2 {
+.planner .cal-agenda__date {
+	flex: 1 1 auto;
+	min-width: 0;
 	margin: 0;
-	font-size: 1.25rem;
+	color: var(--w-mute);
+	font: 400 calc(13px * var(--w-fs)) / calc(18px * var(--w-fs)) var(--w-serif);
+	letter-spacing: 0.02em;
+}
+.planner .cal-agenda__date strong {
+	color: var(--w-text);
 	font-weight: 600;
-	color: var(--biz-text-primary, #f1f5f9);
-	letter-spacing: -0.3px;
 }
-
-.close-btn {
-	background: transparent;
-	border: none;
-	color: var(--biz-text-secondary, #94a3b8);
-	font-size: 1.5rem;
-	cursor: pointer;
-	line-height: 1;
-	transition: all 0.2s;
-	padding: 0.25rem;
+.planner .cal-agenda__list {
+	margin: 4px 0 0;
+	padding: 0;
+	list-style: none;
+}
+.planner .cal-agenda__row {
 	display: flex;
 	align-items: center;
-	justify-content: center;
+	min-height: 44px;
+}
+.planner .cal-agenda__row .cal-pill {
+	height: 36px;
+	padding: 0 10px;
+	font: var(--w-t-label);
+}
+.planner .cal-agenda__row.cal-task {
+	gap: 12px;
+	height: 44px;
+	padding: 0 10px;
+}
+.planner .cal-agenda__row .cal-task__check.w-check {
+	width: 16px;
+	height: 16px;
+}
+.planner .cal-agenda__row .cal-task__check.w-check::before {
+	width: 12px;
+	height: 12px;
+}
+.planner .cal-agenda__row .cal-task__title {
+	font: var(--w-t-ui);
+}
+.planner .cal-agenda__none {
+	margin: 8px 0 0;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+}
+.planner .cal-agenda .w-empty {
+	padding-top: 24px;
 }
 
-.close-btn:hover {
-	color: var(--biz-text-primary, #f1f5f9);
-	background: rgba(255, 255, 255, 0.05);
-	border-radius: 4px;
+/* ---------- widths, touch, High Contrast ---------- */
+@container stage (max-width: 1000px) {
+	.planner .cal-body--aside {
+		grid-template-columns: minmax(0, 1fr) 216px;
+		gap: 24px;
+	}
+}
+@container stage (max-width: 880px) {
+	/* The side list moves under the month rather than squeezing seven columns. */
+	.planner .cal-body--aside {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.planner .cal-aside {
+		flex-direction: row;
+		flex-wrap: wrap;
+	}
+	.planner .cal-aside__group {
+		flex: 1 1 240px;
+		min-width: 0;
+	}
 }
 
-/* Only the planner's own modal forms (header + form), not every <form> in the app. */
-:where(.modal > .modal-header) + form {
-	padding: 1.5rem;
+@media (pointer: coarse) {
+	.planner .cal-add.w-ibtn {
+		opacity: 1;
+	}
+	.planner .cal-pill,
+	.planner .cal-task {
+		height: 28px;
+	}
 }
 
-.form-group {
-	margin-bottom: 1.25rem;
+:root[data-char='contrast'] .planner .cal-pill {
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
 }
-
-.form-group label,
-.form-group .form-label {
-	display: block;
-	font-size: 0.8rem;
-	margin-bottom: 0.5rem;
-	color: var(--biz-text-secondary, #94a3b8);
-	font-weight: 500;
-	text-transform: uppercase;
-	letter-spacing: 0.3px;
-}
-
-.checkbox-label {
-	display: flex !important;
-	align-items: center;
-	gap: 0.5rem;
-	cursor: pointer;
-	color: var(--biz-text-primary, #f1f5f9);
-	font-size: 0.9rem;
-	margin: 0;
-}
-
-.form-group:has(.checkbox-label) {
-	margin-bottom: 0.75rem;
-}
-
-.checkbox-label input {
-	width: auto;
-	accent-color: var(--biz-accent, #f59e0b);
-	cursor: pointer;
-	margin-top: 0;
-}
-
-.form-group input,
-.form-group textarea {
-	width: 100%;
-	padding: 0.75rem;
-	background: var(--biz-bg-secondary, #1a2332);
-	border: 1px solid var(--biz-border, #2d3a4d);
-	border-radius: 8px;
-	color: var(--biz-text-primary, #f1f5f9);
-	font-size: 0.9rem;
-	transition: all 0.2s;
-	font-family: inherit;
-}
-
-.form-group input::placeholder,
-.form-group textarea::placeholder {
-	color: var(--biz-text-muted, #64748b);
-}
-
-.form-group input:focus,
-.form-group textarea:focus {
-	outline: none;
-	border-color: var(--biz-accent, #f59e0b);
-	background: rgba(245, 158, 11, 0.05);
-	box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+:root[data-char='contrast'] .planner .cal-more:hover {
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
 }

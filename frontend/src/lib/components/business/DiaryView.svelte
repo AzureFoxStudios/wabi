@@ -1,5 +1,24 @@
 <script lang="ts">
+	/**
+	 * My Planner — Journal (design contract §8.6, §8.7). One 680px column on the page, set in the
+	 * prose style: a short intro, then the entries newest first, each under its date kicker. A day
+	 * opens as a page in the same column (a crumb back to the Journal, ‹ › to step days, Today),
+	 * and the editor sits inline in that page: no dialog, no card in a card.
+	 *
+	 * Truth: where the Journal is kept is said once, by the Planner's row A tag ("Only you · this
+	 * device" or "Synced to server"); nothing here repeats it. "Personal entry" is a marker for
+	 * the writer only: it never changes who can read an entry, so it carries no lock and is never
+	 * called private.
+	 *
+	 * Svelte 4 (`export let`) — matches the business tree.
+	 */
+	import { tick } from 'svelte';
 	import ImageViewer from '$lib/components/ImageViewer.svelte';
+	import Icon from '$lib/components/ui/Icon.svelte';
+	import Tooltip from '$lib/components/ui/Tooltip.svelte';
+	import Segmented from '$lib/components/ui/Segmented.svelte';
+	import Switch from '$lib/components/ui/Switch.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import { parseMessage } from '$lib/markdown';
 	import { journalCodeBlock } from '$lib/business/journalFormatting';
 	import { plannerActor as currentUser } from '$lib/business/personalWorkspace';
@@ -11,12 +30,16 @@
 		getDiaryEntryForDate
 	} from '$lib/business/store';
 	import type { DiaryEntry } from '$lib/business/types';
+	import { confirmAction } from '$lib/confirm';
+	import { DAY_MS, sameDay, startOfDay } from '$lib/business/plannerCalendar';
 	import SignatureRow from './SignatureRow.svelte';
 
 	// Props
 	export let isReadOnly = false;
 	export let embedded = false;
 	export let addSignal = 0;
+
+	const uid = Math.random().toString(36).slice(2, 8);
 
 	let selectedDate: Date | null = null;
 	let isEditing = false;
@@ -41,56 +64,107 @@
 	/** Legacy signer name of the loaded entry (read-only display). */
 	let legacySignedBy: string | undefined = undefined;
 	let fileInput: HTMLInputElement;
- let codeInput: HTMLInputElement;
- let contentEditor: HTMLTextAreaElement;
- let showPreview = false;
- let attachmentError = '';
- let editorGeneration = 0;
- function insertFormatting(before: string, after = '') {
-  const start = contentEditor?.selectionStart ?? formContent.length;
-  const end = contentEditor?.selectionEnd ?? start;
-  formContent = formContent.slice(0,start) + before + formContent.slice(start,end) + after + formContent.slice(end);
-  showPreview = false;
- }
- async function importCode(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const generation = editorGeneration;
-  const file = input.files?.[0]; input.value = '';
-  if (!file) return;
-  if (file.size > 1024 * 1024) { attachmentError = 'Choose a text or code file smaller than 1 MB.'; return; }
-  try {
-   const content = await file.text();
-   if (generation !== editorGeneration) return;
-   if (content.includes('\0')) { attachmentError = 'This looks like a binary file. Add a link to it instead.'; return; }
-   formContent += `\n\n${journalCodeBlock(content,file.name.split('.').pop() || '')}\n`;
-   attachmentError = ''; showPreview = false;
-  } catch { attachmentError = 'Could not read that file. Please try again.'; }
- }
- function pasteImages(event: ClipboardEvent) {
-  const files = Array.from(event.clipboardData?.files || []).filter(file => file.type.startsWith('image/'));
-  if (files.length) {event.preventDefault(); addImages(files);}
- }
- function addImages(files: File[]) {
-  const generation = editorGeneration;
-  for (const file of files) {
-   if (!file.type.startsWith('image/')) continue;
-   if (file.size > 5 * 1024 * 1024) {attachmentError = 'Choose images smaller than 5 MB each.'; continue;}
-   const reader = new FileReader();
-   reader.onload = () => {if(generation === editorGeneration && typeof reader.result === 'string') formImages = [...formImages,reader.result];};
-   reader.onerror = () => attachmentError = 'Could not read that image. Please try again.';
-   reader.readAsDataURL(file);
-  }
- }
+	let codeInput: HTMLInputElement;
+	let contentEditor: HTMLTextAreaElement;
+	let editorMode: 'write' | 'preview' = 'write';
+	let attachmentError = '';
+	let editorGeneration = 0;
 
+	const editorModes = [
+		{ value: 'write' as const, label: 'Write' },
+		{ value: 'preview' as const, label: 'Preview' }
+	];
 
-	// Image upload handling
+	// ── words ──
+	const longDate = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+	const kickerDate = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+	const monthFormat = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' });
+	const clockFormat = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+	const shortDate = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
+
+	function relativeDay(date: Date): string | null {
+		const today = startOfDay(Date.now());
+		const day = startOfDay(date);
+		const diff = Math.round((day.getTime() - today.getTime()) / DAY_MS);
+		if (diff === 0) return 'Today';
+		if (diff === -1) return 'Yesterday';
+		return null;
+	}
+
+	function written(entry: DiaryEntry): string {
+		const at = new Date(entry.createdAt);
+		const onDay = sameDay(at, new Date(entry.date));
+		const when = onDay ? clockFormat.format(at) : `${shortDate.format(at)}, ${clockFormat.format(at)}`;
+		return entry.updatedAt !== entry.createdAt ? `Written ${when} · edited ${shortDate.format(new Date(entry.updatedAt))}` : `Written ${when}`;
+	}
+
+	// ── editor helpers ──
+	function insertFormatting(before: string, after = '') {
+		const start = contentEditor?.selectionStart ?? formContent.length;
+		const end = contentEditor?.selectionEnd ?? start;
+		formContent = formContent.slice(0, start) + before + formContent.slice(start, end) + after + formContent.slice(end);
+		editorMode = 'write';
+		void tick().then(() => {
+			contentEditor?.focus();
+			contentEditor?.setSelectionRange(start + before.length, end + before.length);
+		});
+	}
+
+	async function importCode(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const generation = editorGeneration;
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file) return;
+		if (file.size > 1024 * 1024) {
+			attachmentError = 'Choose a text or code file smaller than 1 MB.';
+			return;
+		}
+		try {
+			const content = await file.text();
+			if (generation !== editorGeneration) return;
+			if (content.includes('\0')) {
+				attachmentError = 'This looks like a binary file. Add a link to it instead.';
+				return;
+			}
+			formContent += `\n\n${journalCodeBlock(content, file.name.split('.').pop() || '')}\n`;
+			attachmentError = '';
+			editorMode = 'write';
+		} catch {
+			attachmentError = 'Could not read that file. Please try again.';
+		}
+	}
+
+	function pasteImages(event: ClipboardEvent) {
+		const files = Array.from(event.clipboardData?.files || []).filter((file) => file.type.startsWith('image/'));
+		if (files.length) {
+			event.preventDefault();
+			addImages(files);
+		}
+	}
+
+	function addImages(files: File[]) {
+		const generation = editorGeneration;
+		for (const file of files) {
+			if (!file.type.startsWith('image/')) continue;
+			if (file.size > 5 * 1024 * 1024) {
+				attachmentError = 'Choose images smaller than 5 MB each.';
+				continue;
+			}
+			const reader = new FileReader();
+			reader.onload = () => {
+				if (generation === editorGeneration && typeof reader.result === 'string') formImages = [...formImages, reader.result];
+			};
+			reader.onerror = () => (attachmentError = 'Could not read that image. Please try again.');
+			reader.readAsDataURL(file);
+		}
+	}
+
 	function handleImageUpload(event: Event) {
 		const input = event.target as HTMLInputElement;
 		if (!input.files?.length) return;
-
 		addImages(Array.from(input.files));
-
-		// Reset input so same file can be selected again
+		// Reset input so the same file can be chosen again
 		input.value = '';
 	}
 
@@ -98,35 +172,37 @@
 		formImages = formImages.filter((_, i) => i !== index);
 	}
 
-	function formatDate(date: Date): string {
-		return date.toLocaleDateString('en-US', {
-			weekday: 'long',
-			year: 'numeric',
-			month: 'long',
-			day: 'numeric'
-		});
+	/** The writing area grows with the text (no inner scroller); `value` re-fits it on outside changes. */
+	function autogrow(node: HTMLTextAreaElement, value?: string) {
+		void value;
+		const fit = () => {
+			node.style.height = 'auto';
+			node.style.height = `${node.scrollHeight + 2}px`;
+		};
+		fit();
+		node.addEventListener('input', fit);
+		const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(fit);
+		observer?.observe(node);
+		return {
+			update: fit,
+			destroy() {
+				node.removeEventListener('input', fit);
+				observer?.disconnect();
+			}
+		};
 	}
 
-	function formatShortDate(timestamp: number): string {
-		return new Date(timestamp).toLocaleDateString('en-US', {
-			month: 'short',
-			day: 'numeric'
-		});
-	}
-
+	// ── days ──
 	function prevDay() {
 		if (!selectedDate) return;
-		selectedDate = new Date(selectedDate.getTime() - 24 * 60 * 60 * 1000);
+		selectedDate = new Date(selectedDate.getTime() - DAY_MS);
 		loadEntry();
 	}
 
 	function nextDay() {
-		if (!selectedDate) return;
-		const tomorrow = new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000);
-		if (tomorrow <= new Date()) {
-			selectedDate = tomorrow;
-			loadEntry();
-		}
+		if (!selectedDate || !canGoNext) return;
+		selectedDate = new Date(selectedDate.getTime() + DAY_MS);
+		loadEntry();
 	}
 
 	function goToToday() {
@@ -134,15 +210,19 @@
 		loadEntry();
 	}
 
-	function clearSelection() {
+	async function clearSelection() {
 		selectedDate = null;
 		currentEntry = null;
 		isEditing = false;
 		resetForm();
+		await tick();
+		document.getElementById(`journal-${uid}-title`)?.focus();
 	}
 
 	function loadEntry() {
-		editorGeneration++; showPreview = false; attachmentError = "";
+		editorGeneration++;
+		editorMode = 'write';
+		attachmentError = '';
 		if (!selectedDate) {
 			currentEntry = null;
 			resetForm();
@@ -164,7 +244,9 @@
 	}
 
 	function resetForm() {
-		editorGeneration++; showPreview = false; attachmentError = "";
+		editorGeneration++;
+		editorMode = 'write';
+		attachmentError = '';
 		formContent = '';
 		formTags = '';
 		formIsPrivate = false;
@@ -173,8 +255,11 @@
 		legacySignedBy = undefined;
 	}
 
-	function startEditing() {
+	async function startEditing() {
+		if (isReadOnly) return;
 		isEditing = true;
+		await tick();
+		contentEditor?.focus();
 	}
 
 	function cancelEditing() {
@@ -182,11 +267,12 @@
 	}
 
 	function handleSave() {
+		if (!selectedDate) return;
 		const entryData = {
 			date: new Date(selectedDate).setHours(12, 0, 0, 0), // Normalize to noon
 			content: formContent.trim(),
 			images: formImages.length > 0 ? formImages : undefined,
-			tags: formTags ? formTags.split(',').map(t => t.trim()).filter(Boolean) : undefined,
+			tags: formTags ? formTags.split(',').map((t) => t.trim()).filter(Boolean) : undefined,
 			isPrivate: formIsPrivate,
 			createdBy: $currentUser?.id || 'unknown',
 			signatures: draftSignatures.length > 0 ? [...draftSignatures] : undefined,
@@ -203,366 +289,269 @@
 		loadEntry();
 	}
 
-	function handleDelete() {
-		if (currentEntry && confirm('Are you sure you want to delete this entry?')) {
-			deleteDiaryEntry(currentEntry.id);
-			currentEntry = null;
-			resetForm();
-		}
+	async function handleDelete() {
+		if (!currentEntry || !selectedDate) return;
+		const confirmed = await confirmAction({
+			title: 'Delete this entry?',
+			body: `The entry for ${kickerDate.format(selectedDate)} will be removed from your Journal.`,
+			confirm: 'Delete entry',
+			danger: true
+		});
+		if (!confirmed || !currentEntry) return;
+		deleteDiaryEntry(currentEntry.id);
+		currentEntry = null;
+		resetForm();
 	}
 
-	function selectEntry(entry: DiaryEntry) {
+	function selectEntry(entry: DiaryEntry, edit = false) {
 		selectedDate = new Date(entry.date);
 		loadEntry();
+		if (edit) void startEditing();
+	}
+
+	function writeToday() {
+		goToToday();
+		void startEditing();
 	}
 
 	// Sort entries by date (newest first)
 	$: sortedEntries = [...$diaryEntries].sort((a, b) => b.date - a.date);
 
 	// Group entries by month for display
-	$: entriesByMonth = sortedEntries.reduce((groups, entry) => {
-		const date = new Date(entry.date);
-		const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-		const monthLabel = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-		if (!groups[monthKey]) {
-			groups[monthKey] = { label: monthLabel, entries: [] };
-		}
-		groups[monthKey].entries.push(entry);
-		return groups;
-	}, {} as Record<string, { label: string; entries: typeof sortedEntries }>);
+	$: months = sortedEntries.reduce(
+		(groups, entry) => {
+			const date = new Date(entry.date);
+			const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+			const last = groups[groups.length - 1];
+			if (last && last.key === key) last.entries.push(entry);
+			else groups.push({ key, label: monthFormat.format(date), entries: [entry] });
+			return groups;
+		},
+		[] as { key: string; label: string; entries: DiaryEntry[] }[]
+	);
 
-	// Check if we can go to next day
-	$: canGoNext = selectedDate ? new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000) <= new Date() : false;
+	$: todayEntry = (void $diaryEntries, getDiaryEntryForDate(Date.now()));
+	$: canGoNext = selectedDate ? startOfDay(selectedDate.getTime() + DAY_MS).getTime() <= Date.now() : false;
+	$: onToday = selectedDate ? sameDay(selectedDate, new Date()) : false;
+	$: canSave = formContent.trim().length > 0 || formImages.length > 0;
 </script>
 
-<div class="diary-container" class:journal-stream={!selectedDate}>
-	{#if selectedDate && sortedEntries.length}
-	<aside class="entries-sidebar">
-		<div class="sidebar-header">
-			<h2>Journal Entries</h2>
-			<span class="entry-count">{$diaryEntries.length}</span>
-		</div>
-		<div class="entries-list">
-			{#if sortedEntries.length === 0}
-				<p class="empty-message">No entries yet. Start writing!</p>
-			{:else}
-				{#each sortedEntries as entry (entry.id)}
-					<button
-						class="entry-item"
-						class:active={currentEntry?.id === entry.id}
-						on:click={() => selectEntry(entry)}
-					>
-						<div class="entry-date-badge">
-							<span class="entry-day">{new Date(entry.date).getDate()}</span>
-							<span class="entry-month">{new Date(entry.date).toLocaleDateString('en-US', { month: 'short' })}</span>
-						</div>
-						<div class="entry-preview">
-							{#if entry.images?.length}
-								<span class="entry-has-images" title="{entry.images.length} image(s)">
-									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-										<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-										<circle cx="8.5" cy="8.5" r="1.5"/>
-										<polyline points="21 15 16 10 5 21"/>
-									</svg>
-								</span>
-							{/if}
-							<p class="entry-excerpt">{entry.content.slice(0, 50)}{entry.content.length > 50 ? '...' : ''}</p>
-						</div>
-						{#if entry.isPrivate}
-							<span class="private-badge" title="Private">🔒</span>
+{#snippet entryFooter(entry: DiaryEntry)}
+	{@const names = entry.signatures?.length ? entry.signatures.map((s) => s.name).join(', ') : entry.signedBy}
+	<p class="jr-meta">
+		<span>{written(entry)}</span>
+		{#if entry.isPrivate}<span class="w-tag jr-personal" title="A marker for you; it does not change who can read this entry">Personal</span>{/if}
+		{#if names}<span class="jr-names">Names attached: {names}</span>{/if}
+	</p>
+	{#if entry.tags?.length}
+		<ul class="jr-tags" aria-label="Tags">
+			{#each entry.tags as tag}<li class="w-tag">{tag}</li>{/each}
+		</ul>
+	{/if}
+{/snippet}
+
+<div class="journal" class:journal--embedded={embedded}>
+	{#if !selectedDate}
+		<!-- The Journal: an intro and the entries, newest first. -->
+		<div class="jr-column">
+			<header class="jr-intro">
+				<h2 class="jr-title" id={`journal-${uid}-title`} tabindex="-1">Journal</h2>
+				<p class="jr-lede">One page a day for sketches, decisions and small discoveries.</p>
+				{#if !isReadOnly && sortedEntries.length > 0}
+					<div class="jr-intro__actions">
+						{#if todayEntry}
+							<button type="button" class="w-btn" on:click={() => todayEntry && selectEntry(todayEntry)}>Open today’s entry</button>
+						{:else}
+							<button type="button" class="w-btn w-btn--primary" on:click={writeToday}><Icon name="pencil" size={16} />Write today’s entry</button>
 						{/if}
-					</button>
+					</div>
+				{/if}
+			</header>
+
+			{#if sortedEntries.length === 0}
+				<EmptyState
+					icon="book"
+					as="h3"
+					title="No journal entries yet"
+					text="Write a few lines for today. Photos and sketches are welcome."
+					action={isReadOnly ? undefined : 'Write today’s entry'}
+					onaction={writeToday}
+					class="jr-empty"
+				/>
+			{:else}
+				{#each months as month (month.key)}
+					<section class="jr-month" aria-labelledby={`journal-${uid}-${month.key}`}>
+						<h3 class="jr-month__title" id={`journal-${uid}-${month.key}`}>{month.label}</h3>
+						{#each month.entries as entry (entry.id)}
+							{@const day = new Date(entry.date)}
+							{@const word = relativeDay(day)}
+							<article class="jr-entry" aria-labelledby={`journal-${uid}-e-${entry.id}`}>
+								<div class="jr-entry__head">
+									<h4 class="jr-kicker" id={`journal-${uid}-e-${entry.id}`}>
+										<button type="button" class="jr-kicker__link" on:click={() => selectEntry(entry)}>
+											{word ? `${word} · ${kickerDate.format(day)}` : kickerDate.format(day)}
+										</button>
+									</h4>
+									{#if !isReadOnly}
+										<button type="button" class="w-btn w-btn--sm w-btn--quiet jr-entry__edit" on:click={() => selectEntry(entry, true)} aria-label={`Edit the entry for ${kickerDate.format(day)}`}>Edit</button>
+									{/if}
+								</div>
+								{#if entry.content.trim()}
+									<div class="w-prose jr-prose">{@html parseMessage(entry.content, [], { allowTables: true })}</div>
+								{/if}
+								{#if entry.images?.length}
+									<div class="jr-gallery">
+										{#each entry.images.slice(0, 4) as image, i}
+											<button type="button" class="jr-thumb" on:click={() => (viewingImage = image)} aria-label={`View picture ${i + 1} of ${entry.images.length}`}>
+												<img src={image} alt="" />
+											</button>
+										{/each}
+										{#if entry.images.length > 4}
+											<button type="button" class="jr-thumb jr-thumb--more" on:click={() => selectEntry(entry)}>+{entry.images.length - 4}</button>
+										{/if}
+									</div>
+								{/if}
+								{@render entryFooter(entry)}
+							</article>
+						{/each}
+					</section>
 				{/each}
 			{/if}
 		</div>
-	</aside>
-	{/if}
+	{:else}
+		<!-- One day as a page: crumb, day steppers, the entry or the editor inline. -->
+		<div class="jr-column">
+			<nav class="jr-crumb" aria-label="Journal">
+				<button type="button" class="jr-crumb__back" on:click={clearSelection}><Icon name="chevLeft" size={16} />Journal</button>
+				<span class="jr-crumb__steps">
+					<Tooltip text="Previous day">
+						<button type="button" class="w-ibtn" aria-label="Previous day" on:click={prevDay}><Icon name="chevLeft" /></button>
+					</Tooltip>
+					<Tooltip text={canGoNext ? 'Next day' : 'Today is the latest day'}>
+						<button type="button" class="w-ibtn" aria-label="Next day" on:click={nextDay} disabled={!canGoNext}><Icon name="chevRight" /></button>
+					</Tooltip>
+					<button type="button" class="w-btn w-btn--sm" on:click={goToToday} disabled={onToday}>Today</button>
+				</span>
+			</nav>
 
-	<main class="diary-main">
-		{#if selectedDate}
-			<header class="diary-header">
-				<div class="date-navigation">
-					<button class="back-btn" on:click={clearSelection} title="Back to list">
-						<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M19 12H5M12 19l-7-7 7-7"/>
-						</svg>
-					</button>
-					<button class="nav-btn" on:click={prevDay}>&larr;</button>
-					<h1>{formatDate(selectedDate)}</h1>
-					<button class="nav-btn" on:click={nextDay} disabled={!canGoNext}>&rarr;</button>
-				</div>
-				<div class="header-actions">
-					<button class="today-btn" on:click={goToToday}>Today</button>
-					{#if currentEntry && !isEditing}
-						<button class="edit-btn" on:click={startEditing} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Edit'}>Edit</button>
-						<button class="delete-btn" on:click={handleDelete} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Delete'}>Delete</button>
+			<header class="jr-day">
+				{#if relativeDay(selectedDate)}<p class="jr-kicker">{relativeDay(selectedDate)}</p>{/if}
+				<h2 class="jr-day__title" aria-live="polite">{longDate.format(selectedDate)}</h2>
+			</header>
+
+			{#if isEditing}
+				<!-- The editor, inline on the page. -->
+				<form class="jr-editor" on:submit|preventDefault={handleSave}>
+					<div class="jr-toolbar" role="toolbar" aria-label="Formatting">
+						<Tooltip text="Bold"><button type="button" class="w-ibtn" aria-label="Bold" on:click={() => insertFormatting('**', '**')}><Icon name="bold" /></button></Tooltip>
+						<Tooltip text="Heading"><button type="button" class="w-ibtn" aria-label="Heading" on:click={() => insertFormatting('## ')}><Icon name="heading" /></button></Tooltip>
+						<Tooltip text="Link"><button type="button" class="w-ibtn" aria-label="Link" on:click={() => insertFormatting('[', '](https://)')}><Icon name="link" /></button></Tooltip>
+						<Tooltip text="List"><button type="button" class="w-ibtn" aria-label="List" on:click={() => insertFormatting('\n- ')}><Icon name="list" /></button></Tooltip>
+						<Tooltip text="Code block"><button type="button" class="w-ibtn" aria-label="Code block" on:click={() => insertFormatting('\n```\n', '\n```\n')}><Icon name="code" /></button></Tooltip>
+						<span class="jr-toolbar__sep" aria-hidden="true"></span>
+						<Tooltip text="Add pictures"><button type="button" class="w-ibtn" aria-label="Add pictures" on:click={() => fileInput.click()}><Icon name="image" /></button></Tooltip>
+						<Tooltip text="Add a text or code file (kept as text)"><button type="button" class="w-ibtn" aria-label="Add a text or code file" on:click={() => codeInput.click()}><Icon name="file" /></button></Tooltip>
+						<Segmented label="Editor mode" options={editorModes} bind:value={editorMode} class="jr-mode" />
+					</div>
+					<input bind:this={fileInput} type="file" accept="image/*" multiple on:change={handleImageUpload} hidden />
+					<input bind:this={codeInput} type="file" accept=".txt,.md,.js,.ts,.json,.py,.rs,.sh,.css,.html,.yaml,.yml,.toml,.sql,.c,.cpp,.h,.go,.java,.xml,.csv" on:change={importCode} hidden />
+
+					{#if attachmentError}
+						<div class="w-notice jr-notice" role="alert">
+							<Icon name="alert" size={16} />
+							<div class="w-notice__text"><p class="w-notice__title">{attachmentError}</p><p>The entry is unchanged.</p></div>
+						</div>
 					{/if}
-				</div>
-			</header>
-		{:else}
-			<header class="diary-header welcome-header" class:embedded={embedded}>
-<div class="journal-intro"><span>MY PLANNER · ON THIS DEVICE</span><h1>A little space to think.</h1><p>Keep the sketches, decisions, and small discoveries along the way.</p></div>
-				{#if !embedded}<div class="header-actions">
-					<button class="today-btn primary" on:click={() => { goToToday(); startEditing(); }}>+ New Entry</button>
-				</div>{/if}
-			</header>
-		{/if}
 
-		<div class="diary-content">
-			{#if !selectedDate}
-				<!-- Welcome/List View -->
-				<div class="welcome-view">
-					{#if sortedEntries.length === 0}
-						<div class="empty-state">
-							<div class="empty-icon">
-								<svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-									<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-									<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-								</svg>
-							</div>
-							<h2>No journal entries yet</h2>
-							<p>Capture a thought for today. Photos and sketches welcome.</p>
-							{#if !isReadOnly}
-								<button type="button" class="today-btn primary" on:click={() => { goToToday(); startEditing(); }}>Write today’s entry</button>
+					{#if editorMode === 'preview'}
+						<div class="w-prose jr-prose jr-preview" aria-label="Preview">
+							{#if formContent.trim()}
+								{@html parseMessage(formContent, [], { allowTables: true })}
+							{:else}
+								<p class="jr-preview__empty">Nothing written yet.</p>
 							{/if}
 						</div>
-					{:else}
-						<div class="entries-list-view">
-							{#each Object.entries(entriesByMonth).sort((a, b) => b[0].localeCompare(a[0])) as [monthKey, { label, entries }] (monthKey)}
-								<div class="month-group">
-									<h3 class="month-header">{label}</h3>
-									<div class="month-entries">
-										{#each entries as entry (entry.id)}
-											<button class="entry-row" on:click={() => selectEntry(entry)}>
-												{#if entry.images?.length}
-													<div class="entry-row-image">
-														<img src={entry.images[0]} alt="" />
-														<div class="image-fade"></div>
-														{#if entry.images.length > 1}
-															<span class="image-count-badge">+{entry.images.length - 1}</span>
-														{/if}
-													</div>
-												{:else}
-													<div class="entry-row-date-badge">
-														<span class="date-day">{new Date(entry.date).getDate()}</span>
-														<span class="date-weekday">{new Date(entry.date).toLocaleDateString('en-US', { weekday: 'short' })}</span>
-													</div>
-												{/if}
-												<div class="entry-row-content">
-													<div class="entry-row-header">
-														<span class="entry-row-date">
-															{new Date(entry.date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
-														</span>
-														{#if entry.isPrivate}
-															<span class="private-badge-small">🔒</span>
-														{/if}
-													</div>
-													<p class="entry-row-excerpt">{entry.content.slice(0, 200)}{entry.content.length > 200 ? '...' : ''}</p>
-													{#if entry.tags?.length}
-														<div class="entry-row-tags">
-															{#each entry.tags.slice(0, 4) as tag}
-																<span class="tag-mini">{tag}</span>
-															{/each}
-														</div>
-													{/if}
-												</div>
-												<div class="entry-row-arrow">
-													<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-														<path d="M9 18l6-6-6-6"/>
-													</svg>
-												</div>
-											</button>
-										{/each}
-									</div>
-								</div>
+					{/if}
+					<textarea
+						class="jr-text"
+						bind:this={contentEditor}
+						use:autogrow={formContent}
+						aria-label={`Journal entry for ${kickerDate.format(selectedDate)}`}
+						on:paste={pasteImages}
+						hidden={editorMode === 'preview'}
+						bind:value={formContent}
+						placeholder="What happened today? Notes, lists, links and pasted pictures all work."
+						rows="10"
+					></textarea>
+
+					{#if formImages.length > 0}
+						<div class="jr-gallery jr-gallery--edit">
+							{#each formImages as image, i}
+								<figure class="jr-thumb">
+									<img src={image} alt={`Picture ${i + 1}`} />
+									<button type="button" class="w-ibtn w-ibtn--sm jr-thumb__remove" on:click={() => removeImage(i)} aria-label={`Remove picture ${i + 1}`}><Icon name="x" size={14} /></button>
+								</figure>
 							{/each}
 						</div>
 					{/if}
-				</div>
-			{:else if isEditing || !currentEntry}
-				<!-- Edit Mode -->
-				<div class="editor">
- <div class="journal-formatting" role="toolbar" aria-label="Journal formatting">
-  <button type="button" on:click={() => insertFormatting('**','**')}>Bold</button>
-  <button type="button" on:click={() => insertFormatting('## ')}>Heading</button>
-  <button type="button" on:click={() => insertFormatting('[','](https://)')}>Link</button>
-  <button type="button" on:click={() => insertFormatting('\n```\n','\n```\n')}>Code block</button>
-  <button type="button" on:click={() => codeInput.click()}>Add text / code file</button>
-  <button type="button" on:click={() => showPreview = !showPreview} aria-pressed={showPreview}>{showPreview ? 'Write' : 'Preview'}</button>
- </div>
- <input type="file" bind:this={codeInput} accept=".txt,.md,.js,.ts,.json,.py,.rs,.sh,.css,.html,.yaml,.yml,.toml,.sql,.c,.cpp,.h,.go,.java,.xml,.csv" on:change={importCode} style="display:none" />
- <p class="format-hint">Write notes, lists, links, tables, or fenced code. Paste images here or use Add image. Code is saved as text and never runs.</p>
- {#if attachmentError}<p role="alert">{attachmentError}</p>{/if}
- {#if showPreview}<div class="journal-markdown">{@html parseMessage(formContent,[],{allowTables:true})}</div>{/if}
 
-					<textarea
-						class="content-editor"
-						bind:this={contentEditor}
-						aria-label="Journal entry content"
-						on:paste={pasteImages}
-						class:preview-hidden={showPreview}
-						bind:value={formContent}
-						placeholder="Document your learnings, ideas, or notes..."
-						rows="12"
-					></textarea>
-
-					<!-- Image Upload Section -->
-					<div class="image-upload-section">
-						<div class="image-upload-header">
-							<span class="upload-label">Attach Images</span>
-							<button
-								type="button"
-								class="upload-btn"
-								on:click={() => fileInput.click()}
-							>
-								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-									<circle cx="8.5" cy="8.5" r="1.5"/>
-									<polyline points="21 15 16 10 5 21"/>
-								</svg>
-								Add image
-							</button>
-							<input
-								bind:this={fileInput}
-								type="file"
-								accept="image/*"
-								multiple
-								on:change={handleImageUpload}
-								style="display: none;"
-							/>
+					<div class="jr-fields">
+						<div class="jr-field">
+							<label class="w-label" for={`journal-${uid}-tags`}>Tags</label>
+							<input id={`journal-${uid}-tags`} class="w-field" type="text" bind:value={formTags} placeholder="Separate tags with commas" />
 						</div>
-						{#if formImages.length > 0}
-							<div class="image-preview-grid">
-								{#each formImages as image, i}
-									<div class="image-preview-item">
-										<img src={image} alt="Uploaded {i + 1}" />
-										<button
-											class="remove-image-btn"
-											on:click={() => removeImage(i)}
-											title="Remove image"
-										>
-											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-												<line x1="18" y1="6" x2="6" y2="18"/>
-												<line x1="6" y1="6" x2="18" y2="18"/>
-											</svg>
-										</button>
-									</div>
-								{/each}
+						<div class="w-srow jr-srow">
+							<div class="w-srow__text">
+								<span class="w-srow__label" id={`journal-${uid}-personal`}>Personal entry</span>
+								<span class="w-srow__hint" id={`journal-${uid}-personal-hint`}>A marker for you. It does not change who can read this entry.</span>
 							</div>
-						{/if}
-					</div>
-
-					<div class="editor-footer">
-						<div class="tags-input">
-							<input
-								type="text"
-								bind:value={formTags}
-								placeholder="Tags (comma separated)"
-							/>
+							<Switch labelledby={`journal-${uid}-personal`} describedby={`journal-${uid}-personal-hint`} bind:checked={formIsPrivate} />
 						</div>
-
-						<label class="private-toggle">
-							<input type="checkbox" bind:checked={formIsPrivate} />
-							<span>Personal entry</span>
-						</label>
-
-						<p class="journal-visibility">Visibility: only on this device. The personal marker does not change access or publish this entry.</p>
-						<!-- Names attached -->
-						<div class="sign-toggle">
+						<div class="jr-names-row">
 							<SignatureRow bind:draftSignatures {legacySignedBy} label="Names attached" />
 						</div>
 					</div>
 
-					<div class="editor-actions">
-						{#if currentEntry}
-							<button class="cancel-btn" on:click={cancelEditing}>Cancel</button>
-						{/if}
-						<button
-							class="save-btn"
-							on:click={handleSave}
-							disabled={!formContent.trim() && formImages.length === 0}
-						>
-							{currentEntry ? 'Save Changes' : 'Save Entry'}
-						</button>
+					<div class="jr-actions">
+						<button type="button" class="w-btn w-btn--quiet" on:click={cancelEditing}>Cancel</button>
+						<button type="submit" class="w-btn w-btn--primary" disabled={!canSave}>{currentEntry ? 'Save changes' : 'Save entry'}</button>
 					</div>
-				</div>
-			{:else}
-				<!-- View Mode -->
-				<div class="entry-view">
-					<div class="entry-content journal-markdown">{@html parseMessage(currentEntry.content,[],{allowTables:true})}</div>
-
-					{#if currentEntry.images?.length}
-						<div class="entry-images">
-							<h3 class="images-header">Attached Images ({currentEntry.images.length})</h3>
-							<div class="images-gallery large">
-								{#each currentEntry.images as image, i}
-									<button
-										class="gallery-image-large"
-										on:click={() => viewingImage = image}
-										title="Click to view full size"
-									>
-										<img src={image} alt="Note {i + 1}" />
-									</button>
-								{/each}
-							</div>
-						</div>
+				</form>
+			{:else if currentEntry}
+				<article class="jr-entry jr-entry--page">
+					{#if currentEntry.content.trim()}
+						<div class="w-prose jr-prose">{@html parseMessage(currentEntry.content, [], { allowTables: true })}</div>
 					{/if}
-
-					{#if currentEntry.tags?.length}
-						<div class="entry-tags">
-							{#each currentEntry.tags as tag}
-								<span class="tag">{tag}</span>
+					{#if currentEntry.images?.length}
+						<div class="jr-gallery jr-gallery--page">
+							{#each currentEntry.images as image, i}
+								<button type="button" class="jr-thumb" on:click={() => (viewingImage = image)} aria-label={`View picture ${i + 1} of ${currentEntry.images.length}`}>
+									<img src={image} alt="" />
+								</button>
 							{/each}
 						</div>
 					{/if}
-
-					<div class="entry-meta">
-						<span class="created-at">
-							Written on {new Date(currentEntry.createdAt).toLocaleDateString('en-US', {
-								month: 'long',
-								day: 'numeric',
-								year: 'numeric',
-								hour: 'numeric',
-								minute: '2-digit'
-							})}
-						</span>
-						{#if currentEntry.updatedAt !== currentEntry.createdAt}
-							<span class="updated-at">
-								(edited {new Date(currentEntry.updatedAt).toLocaleDateString()})
-							</span>
-						{/if}
-						{#if (currentEntry.signatures?.length ?? 0) > 0}
-						<span class="signature" title="Signed off by {currentEntry.signatures!.map((s) => s.name).join(', ')}">
-							✍️ {currentEntry.signatures!.map((s) => s.name).join(', ')}
-						</span>
-					{:else if currentEntry.signedBy}
-						<span class="signature" title="Signed by {currentEntry.signedBy}">
-							✍️ {currentEntry.signedBy}
-						</span>
+					{@render entryFooter(currentEntry)}
+					{#if !isReadOnly}
+						<div class="jr-actions jr-actions--page">
+							<button type="button" class="w-btn" on:click={startEditing}><Icon name="pencil" size={16} />Edit entry</button>
+							<button type="button" class="w-btn w-btn--danger" on:click={handleDelete}>Delete entry</button>
+						</div>
 					{/if}
-					</div>
-				</div>
-			{/if}
-
-			{#if selectedDate && !currentEntry && !isEditing}
-				<div class="no-entry">
-					<p>No entry for this day</p>
-					<button class="start-writing-btn" on:click={startEditing} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Start Writing'}>
-						Start Writing
-					</button>
-				</div>
+				</article>
+			{:else}
+				<EmptyState
+					icon="book"
+					as="h3"
+					title={`Nothing written for ${onToday ? 'today' : kickerDate.format(selectedDate)}`}
+					text="Write a few lines while the day is fresh."
+					action={isReadOnly ? undefined : 'Write this entry'}
+					onaction={startEditing}
+					class="jr-empty"
+				/>
 			{/if}
 		</div>
-	</main>
+	{/if}
 </div>
 
-<ImageViewer src={viewingImage || ''} alt="Diary image" onClose={() => (viewingImage = null)} />
-
-
-<style>
- .journal-visibility{flex-basis:100%;font-size:12px;color:var(--text-muted);line-height:1.5;margin:0}
- .journal-formatting{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}.journal-formatting button{padding:7px 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface-base);color:var(--text-secondary);cursor:pointer}.format-hint{font-size:12px;line-height:1.6;color:var(--text-muted);margin:0 0 14px}.preview-hidden{display:none}.journal-markdown{line-height:1.75;overflow-wrap:anywhere}.journal-markdown :global(pre){padding:16px;overflow:auto;background:var(--surface-sunken);border-radius:var(--radius-lg);white-space:pre}.journal-markdown :global(code){font-family:var(--font-mono);font-size:.9em}.journal-markdown :global(table){border-collapse:collapse;display:block;overflow:auto}.journal-markdown :global(th),.journal-markdown :global(td){border:1px solid var(--border-subtle);padding:8px}.journal-markdown :global(img){max-width:100%}.journal-markdown :global(a){color:var(--accent-secondary)}
- .journal-intro{padding:12px 24px}.journal-intro span{font-size:11px;letter-spacing:.1em;color:var(--text-muted);font-weight:700}.journal-intro h1{font-size:30px;margin:14px 0}.journal-intro p{font-size:14px;line-height:1.6;color:var(--text-secondary);margin:0}
- .journal-stream .diary-main{width:100%;max-width:1000px;margin:0 auto}.journal-stream :global(.welcome-view){padding:24px}.journal-stream :global(.month-header){font-size:13px;letter-spacing:.06em;color:var(--text-muted);margin:24px 0 12px}.journal-stream :global(.month-entries){display:grid;gap:14px}.journal-stream :global(.entry-row){padding:20px;border-radius:var(--radius-xl);background:var(--surface-base);border:1px solid var(--border-subtle)}.journal-stream :global(.entry-row-excerpt){line-height:1.7}.journal-stream :global(.empty-state){max-width:520px;min-height:0;margin:24px auto;padding:32px;border:1px solid var(--border-subtle);border-radius:var(--radius-xl);background:var(--surface-base)}
- @media(max-width:720px){.diary-container :global(.entries-sidebar){display:none}.journal-stream :global(.welcome-view){padding:16px}}
-</style>
+<ImageViewer src={viewingImage || ''} alt="Journal picture" onClose={() => (viewingImage = null)} />

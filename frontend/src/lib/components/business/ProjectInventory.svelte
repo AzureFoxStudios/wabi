@@ -1,18 +1,94 @@
+<!--
+	My Planner — Projects inventory (design contract §8.6, §4.5). The projects as cards on
+	--w-lift in a `repeat(auto-fill, minmax(280px, 1fr))` grid: a colour dot (the project's
+	colour is user data: a dot only) and the serif name, two lines of description, a 64×2
+	progress bar with "3/10 done", and the next due date. A status word appears only when the
+	project is not simply active. The whole card opens the project: a stretched button inside
+	an <article>, so the heading and text are never inside a button. The search field shows
+	once there are enough projects to look through. "New project" is the masthead's New.
+-->
 <script lang="ts">
- import { projects, todos } from '$lib/business/store';
- import { projectTasks } from '$lib/business/projectHierarchy';
- import type { Project } from '$lib/business/types';
- let { onSelect, onCreate, isReadOnly = false }: { onSelect:(project:Project)=>void; onCreate:()=>void; isReadOnly?:boolean } = $props();
- let search = $state('');
- let results = $derived($projects.filter(project => search.trim() ? `${project.name} ${project.description || ''}`.toLowerCase().includes(search.toLowerCase().trim()) : !project.parentId));
+	import { projects, todos } from '$lib/business/store';
+	import type { Project } from '$lib/business/types';
+	import { dateWords } from '$lib/business/plannerBoard';
+	import { SEARCH_FROM, inventoryProjects, isPastDue, progressWords, projectStatus, projectSummary } from '$lib/business/plannerProjects';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import Icon from '$lib/components/ui/Icon.svelte';
+
+	let { onSelect, onCreate, isReadOnly = false }: { onSelect: (project: Project) => void; onCreate: () => void; isReadOnly?: boolean } = $props();
+
+	const uid = $props.id();
+	let search = $state('');
+	const results = $derived(inventoryProjects($projects, search));
+	const searchable = $derived($projects.length >= SEARCH_FROM || search.trim() !== '');
+	const now = Date.now();
 </script>
-<section class="inventory">
- <header><span class="eyebrow">MY PLANNER · ON THIS DEVICE</span><h1>Your projects</h1><p>Plan a convention, a collection, or a larger goal. Keep the smaller pieces together.</p></header>
- <label>Find a project<input bind:value={search} placeholder="Search projects…" /></label>
- <div class="grid">{#each results as project (project.id)}{@const tasks = projectTasks($projects,$todos,project.id)}
- <button class="card" onclick={() => onSelect(project)}><span class="status"><i style:background={project.color}></i>{project.status}</span><h2>{project.name}</h2><p>{project.description || 'Your next plan starts here.'}</p><footer><span>{tasks.filter(task=>task.status==='done').length} / {tasks.length} tasks</span><span>{project.targetEndDate ? new Date(project.targetEndDate).toLocaleDateString() : 'No target date'}</span></footer></button>
- {:else}<div class="empty"><h2>{search ? 'No matching projects' : 'From a big idea to a finished piece.'}</h2><p>{search ? 'Try another name or description.' : 'Start with a convention, collection, or goal. Add sub-projects as the plan grows.'}</p>{#if !search && !isReadOnly}<button class="create" onclick={onCreate}>Create your first project</button>{/if}</div>{/each}</div>
+
+<section class="pj-inventory" aria-labelledby={`${uid}-title`}>
+	<header class="pj-inventory__head">
+		<div class="pj-inventory__intro">
+			<h2 class="pj-inventory__title" id={`${uid}-title`}>Projects</h2>
+			<p class="pj-inventory__lede">Plan a convention, a collection or a larger goal, and keep the smaller pieces together.</p>
+		</div>
+		{#if searchable}
+			<label class="pj-search">
+				<span class="visually-hidden">Find a project</span>
+				<Icon name="search" size={16} />
+				<input class="w-field w-field--chrome" type="search" bind:value={search} placeholder="Find a project" />
+			</label>
+		{/if}
+	</header>
+
+	{#if results.length === 0}
+		{#if search.trim()}
+			<EmptyState icon="search" as="h3" title="No matching projects" text="Try another name or a word from the description." class="pj-empty" />
+		{:else}
+			<EmptyState
+				icon="layers"
+				as="h3"
+				title="No projects yet"
+				text="Start with a convention, a collection or a goal. Add sub-projects as the plan grows."
+				action={isReadOnly ? undefined : 'Create your first project'}
+				onaction={onCreate}
+				class="pj-empty"
+			/>
+		{/if}
+	{:else}
+		<ul class="pj-grid">
+			{#each results as project (project.id)}
+				{@const summary = projectSummary($projects, $todos, project.id)}
+				{@const status = projectStatus(project.status)}
+				<li>
+					<article class="pj-card" aria-labelledby={`${uid}-${project.id}`}>
+						<div class="pj-card__top">
+							<span class="pj-dot" style:--project={project.color} aria-hidden="true"></span>
+							<h3 class="pj-card__name" id={`${uid}-${project.id}`}>
+								<button type="button" class="pj-card__hit" onclick={() => onSelect(project)}>{project.name}</button>
+							</h3>
+							{#if !status.quiet}
+								<span class="w-tag pj-card__status"><span class="w-dot w-dot--{status.tone}" aria-hidden="true"></span>{status.word}</span>
+							{/if}
+						</div>
+						<p class="pj-card__desc">{project.description || 'No description yet.'}</p>
+						<div class="pj-card__meta">
+							<span class="pj-progress">
+								<span class="pj-bar" aria-hidden="true"><span class="pj-bar__fill" style:width={`${Math.round(summary.ratio * 100)}%`}></span></span>
+								<span>{progressWords(summary)}</span>
+							</span>
+							{#if summary.nextDue?.dueDate}
+								<span class:is-overdue={isPastDue(summary.nextDue.dueDate, now)} title={`Next due: ${summary.nextDue.title}`}>
+									Next due {dateWords(summary.nextDue.dueDate, now)}
+								</span>
+							{:else if project.targetEndDate}
+								<span>Target {dateWords(project.targetEndDate, now)}</span>
+							{/if}
+							{#if summary.subprojects}
+								<span>{summary.subprojects} {summary.subprojects === 1 ? 'sub-project' : 'sub-projects'}</span>
+							{/if}
+						</div>
+					</article>
+				</li>
+			{/each}
+		</ul>
+	{/if}
 </section>
-<style>
- .inventory{max-width:1120px;margin:0 auto;width:100%;box-sizing:border-box;padding:36px;display:grid;gap:28px;color:var(--text-primary)}.eyebrow{color:var(--text-muted);font-size:11px;letter-spacing:.1em;font-weight:700}h1{font-size:30px;line-height:1.25;margin:14px 0}p{color:var(--text-secondary);line-height:1.6;margin:0}label{display:grid;gap:8px;color:var(--text-muted);font-size:12px;max-width:420px}input{padding:12px 16px;border:1px solid var(--border-subtle);border-radius:var(--radius-lg);background:var(--surface-base);color:var(--text-primary)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}.card{text-align:left;padding:24px;border:1px solid var(--border-subtle);border-radius:var(--radius-xl);background:var(--surface-base);color:var(--text-primary);cursor:pointer;min-width:0}.card:hover{border-color:var(--accent-primary)}h2{font-size:21px;margin:18px 0 12px;overflow-wrap:anywhere}.card p{font-size:14px}.status{font-size:12px;color:var(--text-muted);text-transform:capitalize}i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px}footer{display:flex;justify-content:space-between;gap:12px;margin-top:28px;font-size:12px;color:var(--text-muted)}.empty{grid-column:1/-1;padding:36px;border:1px dashed var(--border-subtle);border-radius:var(--radius-xl)}.empty h2{margin:0 0 12px;font-size:22px}.create{margin-top:24px;padding:12px 18px;background:var(--accent-primary);border:0;border-radius:var(--radius-md);color:var(--text-on-accent,#fff);cursor:pointer}@media(max-width:720px){.inventory{padding:20px}h1{font-size:25px}.grid{grid-template-columns:1fr}}
-</style>

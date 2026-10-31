@@ -1,5 +1,16 @@
 <script lang="ts">
-	import { get } from 'svelte/store';
+	/**
+	 * My Planner calendar (design contract §8.6). A quiet month grid on the page: mono weekday
+	 * kickers, today as an accent disc, events as tinted pills that never clip (overflow becomes
+	 * "+N more"), tasks with their own checkbox (the title opens the task, it never completes it).
+	 * Day cells are gridcells, not buttons: each has a separate "Add on <date>" button. Below a
+	 * 720px stage the month becomes an agenda list. The side list shows overdue and upcoming
+	 * tasks, and steps aside while the Tasks companion panel is open.
+	 *
+	 * Keyboard: the grid is one tab stop; arrows move a day or a week, Home/End to the week's
+	 * ends, PageUp/PageDown by a month, Enter opens the day. Tab moves into the day's controls.
+	 */
+	import { onMount, tick } from 'svelte';
 	import { plannerActor as currentUser } from '$lib/business/personalWorkspace';
 	import {
 		calendarEvents,
@@ -13,48 +24,63 @@
 	import type { CalendarEvent, Todo } from '$lib/business/types';
 	import CalendarDayModal from './CalendarDayModal.svelte';
 	import CalendarEventModal from './CalendarEventModal.svelte';
-	import PlannerAvatar from './PlannerAvatar.svelte';
-	import {
-		plannerUserById,
-		getPlannerUserName,
-		getPlannerUserColor,
-		getPlannerUserAvatarUrl,
-		parseAssigneeId,
-		ensurePlannerDirectory
-	} from '$lib/business/plannerUsers';
-	import { onMount } from 'svelte';
-	import { showToast } from '$lib/toast';
+	import PlannerTaskDialog from './PlannerTaskDialog.svelte';
+	import Icon from '$lib/components/ui/Icon.svelte';
+	import Tooltip from '$lib/components/ui/Tooltip.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import { ensurePlannerDirectory } from '$lib/business/plannerUsers';
+	import { showToast, toast } from '$lib/toast';
+	import { confirmAction } from '$lib/confirm';
 	import { occurrencesForRange } from '$lib/business/calendarOccurrences';
 	import { buildCalendarEventData } from '$lib/business/calendarForm';
+	import { dateWords } from '$lib/business/plannerBoard';
+	import { tasksPanelShown } from '$lib/business/plannerTasksPanel';
+	import {
+		AGENDA_BELOW,
+		agendaDays,
+		cellLines,
+		completeTask,
+		dayKey,
+		eventTint,
+		isGridKey,
+		monthWeeks,
+		moveDay,
+		overdueTasks as overdueOf,
+		sameDay,
+		tasksByDay as groupTasksByDay,
+		upcomingTasks as upcomingOf
+	} from '$lib/business/plannerCalendar';
 
 	// Props
 	export let isReadOnly = false;
 	export let embedded = false;
 	export let addSignal = 0;
 
+	const uid = Math.random().toString(36).slice(2, 8);
+	const titleId = `planner-cal-title-${uid}`;
+
 	// Current view state
 	let currentMonth = new Date();
-	let days: Date[] = [];
 	let showEventModal = false;
 	let editingEvent: CalendarEvent | null = null;
 	let selectedDayEvents: CalendarEvent[] = [];
 	let showDayModal = false;
 	let lastAddSignal = 0;
+	/** The task open in the task dialog (a title was pressed). */
+	let openTodo: Todo | null = null;
+	/** The roving day of the grid (one tab stop): the key of the day that takes focus. */
+	let activeDay = new Date();
+	let gridEl: HTMLElement | null = null;
+	let width = 0;
+	let now = Date.now();
 
 	onMount(() => {
-		// Shared one-shot user directory for assignee avatars.
+		// Shared one-shot user directory for assignee names.
 		ensurePlannerDirectory();
+		// "Today" moves on at midnight without a reload.
+		const timer = setInterval(() => (now = Date.now()), 60_000);
+		return () => clearInterval(timer);
 	});
-
-	function assigneeName(todo: Todo): string {
-		return getPlannerUserName($plannerUserById, parseAssigneeId(todo.assignedTo));
-	}
-	function assigneeColor(todo: Todo): string {
-		return getPlannerUserColor($plannerUserById, parseAssigneeId(todo.assignedTo));
-	}
-	function assigneeAvatarUrl(todo: Todo): string | undefined {
-		return getPlannerUserAvatarUrl($plannerUserById, parseAssigneeId(todo.assignedTo));
-	}
 
 	// Host "New ▾ → event" trigger
 	$: if (addSignal > lastAddSignal) {
@@ -69,6 +95,7 @@
 	let formStartTime = '';
 	let formEndDate = '';
 	let formAllDay = false;
+	// Event colours are the person's choice (user data); the palette lives in the event dialog.
 	let formColor = '#5865f2';
 	let formRecurring = false;
 	let formRecurringFrequency: 'daily' | 'weekly' | 'monthly' | 'yearly' = 'weekly';
@@ -90,164 +117,158 @@
 		'#ff9800'  // Orange
 	];
 
-	// Calendar generation
-	function getDaysInMonth(date: Date): Date[] {
-		const year = date.getFullYear();
-		const month = date.getMonth();
-		const firstDay = new Date(year, month, 1);
-		const lastDay = new Date(year, month + 1, 0);
 
-		const days: Date[] = [];
+	// ── the month ──
+	$: weeks = monthWeeks(currentMonth);
+	$: monthLabel = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(currentMonth);
+	$: today = new Date(now);
+	$: showingThisMonth = currentMonth.getFullYear() === today.getFullYear() && currentMonth.getMonth() === today.getMonth();
+	$: agenda = width > 0 && width < AGENDA_BELOW;
+	$: weekdays = weeks[0].map((day) => ({
+		short: new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(day),
+		long: new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(day)
+	}));
 
-		// Add padding days from previous month
-		const startPadding = firstDay.getDay();
-		for (let i = startPadding - 1; i >= 0; i--) {
-			const d = new Date(year, month, -i);
-			days.push(d);
-		}
-
-		// Add days of current month
-		for (let d = 1; d <= lastDay.getDate(); d++) {
-			days.push(new Date(year, month, d));
-		}
-
-		// Add padding days from next month to complete the grid
-		const remaining = 42 - days.length; // 6 rows * 7 days
-		for (let i = 1; i <= remaining; i++) {
-			days.push(new Date(year, month + 1, i));
-		}
-
-		return days;
-	}
-
-	function dayKey(date: Date): string {
-		return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-	}
-
-	function isToday(date: Date): boolean {
-		const today = new Date();
-		return date.toDateString() === today.toDateString();
-	}
-
-	function isCurrentMonth(date: Date): boolean {
-		return date.getMonth() === currentMonth.getMonth();
-	}
-
-	function isSameDay(date1: Date, date2: Date): boolean {
-		return date1.toDateString() === date2.toDateString();
-	}
-
-	/**
-	 * Build once per events/todos/month change — template used to call
-	 * getEventsForDay() 42× (full array scan each) every reactive tick.
-	 */
+	/** Events by day over the visible weeks (occurrences of repeating events included). */
 	$: eventsByDay = (() => {
-		void $calendarEvents;
 		const map = new Map<string, CalendarEvent[]>();
-		const visibleDays = getDaysInMonth(currentMonth);
-		const first = visibleDays[0], last = visibleDays[visibleDays.length - 1];
+		const first = weeks[0][0];
+		const lastWeek = weeks[weeks.length - 1];
+		const last = lastWeek[lastWeek.length - 1];
 		for (const event of $calendarEvents) {
 			for (const occurrence of occurrencesForRange(event, first, last)) {
-				const start = new Date(occurrence.start), end = new Date(occurrence.end);
+				const start = new Date(occurrence.start);
+				const end = new Date(occurrence.end);
 				const cursor = new Date(Math.max(first.getTime(), new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime()));
 				const endDay = new Date(Math.min(last.getTime(), new Date(end.getFullYear(), end.getMonth(), end.getDate()).getTime()));
 				const displayed = { ...event, startDate: occurrence.start, endDate: occurrence.end };
 				while (cursor <= endDay) {
 					const key = dayKey(cursor);
 					const list = map.get(key);
-					if (list) list.push(displayed); else map.set(key, [displayed]);
+					if (list) list.push(displayed);
+					else map.set(key, [displayed]);
 					cursor.setDate(cursor.getDate() + 1);
 				}
 			}
 		}
-		for (const list of map.values()) {
-			list.sort((a, b) => a.startDate - b.startDate);
-		}
+		for (const list of map.values()) list.sort((a, b) => Number(b.allDay) - Number(a.allDay) || a.startDate - b.startDate);
 		return map;
 	})();
+	$: taskMap = groupTasksByDay($todos);
 
-	$: tasksByDay = (() => {
-		void $todos;
-		const map = new Map<string, Todo[]>();
-		for (const todo of $todos) {
-			if (!todo.dueDate || todo.status === 'done' || todo.status === 'archived') continue;
-			const d = new Date(todo.dueDate);
-			const key = dayKey(d);
-			const list = map.get(key);
-			if (list) list.push(todo);
-			else map.set(key, [todo]);
-		}
-		for (const list of map.values()) {
-			list.sort((a, b) => (a.dueDate || 0) - (b.dueDate || 0));
-		}
-		return map;
-	})();
-
-	function getEventsForDay(date: Date): CalendarEvent[] {
-		return eventsByDay.get(dayKey(date)) || [];
+	function eventsOn(date: Date, map: Map<string, CalendarEvent[]>): CalendarEvent[] {
+		return map.get(dayKey(date)) ?? [];
+	}
+	function tasksOn(date: Date, map: Map<string, Todo[]>): Todo[] {
+		return map.get(dayKey(date)) ?? [];
 	}
 
-	function getTasksForDay(date: Date): Todo[] {
-		return tasksByDay.get(dayKey(date)) || [];
+	$: overdue = overdueOf($todos, now);
+	$: upcoming = upcomingOf($todos, now);
+	$: agendaList = agenda ? agendaDays(currentMonth, eventsByDay, taskMap, now) : [];
+	// The side list steps aside while the Tasks companion shows the same tasks beside the page.
+	$: showAside = !agenda && !$tasksPanelShown;
+
+	// The roving day stays inside the month on screen.
+	$: if (activeDay.getMonth() !== currentMonth.getMonth() || activeDay.getFullYear() !== currentMonth.getFullYear()) {
+		activeDay = showingThisMonth ? new Date(now) : new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+	}
+	$: activeKey = dayKey(activeDay);
+
+	// ── words ──
+	const fullDateFormat = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+	const dayMonthFormat = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long' });
+	const timeFormat = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+	const hourFormat = new Intl.DateTimeFormat(undefined, { hour: 'numeric' });
+
+	function formatTime(timestamp: number): string {
+		return timeFormat.format(new Date(timestamp));
+	}
+	/** The short time a day cell shows: "7 PM" on the hour, "7:30 PM" otherwise (19 / 19:30 in 24-hour locales). */
+	function shortTime(timestamp: number): string {
+		const d = new Date(timestamp);
+		return d.getMinutes() === 0 ? hourFormat.format(d) : timeFormat.format(d);
+	}
+	function plural(count: number, one: string, many: string): string {
+		return `${count} ${count === 1 ? one : many}`;
+	}
+	/** "Tuesday 22 September, 2 events, 1 task due" (the cell's name for assistive tech). */
+	function cellLabel(day: Date, events: number, tasks: number): string {
+		const parts = [fullDateFormat.format(day)];
+		if (sameDay(day, today)) parts[0] = `Today, ${parts[0]}`;
+		if (events) parts.push(plural(events, 'event', 'events'));
+		if (tasks) parts.push(`${plural(tasks, 'task', 'tasks')} due`);
+		return parts.join(', ');
+	}
+	/** The day words a person reads in an agenda heading: "Today", "Tomorrow", or the date. */
+	function relativeWord(day: Date): string | null {
+		const words = dateWords(day.getTime(), now);
+		return words === 'Today' || words === 'Tomorrow' || words === 'Yesterday' ? words : null;
 	}
 
-	function getPriorityColor(priority: string): string {
-		// Updated to use CSS variable values for consistency with theme system
-		switch (priority) {
-			case 'urgent': return 'var(--priority-urgent)';
-			case 'high': return 'var(--priority-high)';
-			case 'medium': return 'var(--priority-medium)';
-			case 'low': return 'var(--priority-low)';
-			default: return 'var(--biz-text-muted, #64748b)';
-		}
-	}
-
-	function toggleTaskComplete(todo: Todo) {
-		updateTodo(todo.id, {
-			status: todo.status === 'done' ? 'todo' : 'done',
-			completedAt: todo.status === 'done' ? undefined : Date.now()
-		});
-	}
-
-	// Upcoming tasks (next 7 days)
-	$: upcomingTasks = $todos
-		.filter(t =>
-			t.dueDate &&
-			t.status !== 'done' &&
-			t.status !== 'archived' &&
-			t.dueDate >= Date.now() &&
-			t.dueDate <= Date.now() + 7 * 24 * 60 * 60 * 1000
-		)
-		.sort((a, b) => (a.dueDate || 0) - (b.dueDate || 0))
-		.slice(0, 8);
-
-	// Overdue tasks
-	$: overdueTasks = $todos
-		.filter(t =>
-			t.dueDate &&
-			t.status !== 'done' &&
-			t.status !== 'archived' &&
-			t.dueDate < Date.now()
-		)
-		.sort((a, b) => (a.dueDate || 0) - (b.dueDate || 0));
-
+	// ── moves ──
 	function prevMonth() {
 		currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1);
 	}
-
 	function nextMonth() {
 		currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1);
 	}
-
 	function goToToday() {
-		currentMonth = new Date();
+		currentMonth = new Date(now);
+		activeDay = new Date(now);
 	}
 
-	function formatTime(timestamp: number): string {
-		return new Date(timestamp).toLocaleTimeString('en-US', {
-			hour: 'numeric',
-			minute: '2-digit'
+	async function focusDay(day: Date) {
+		if (day.getMonth() !== currentMonth.getMonth() || day.getFullYear() !== currentMonth.getFullYear()) {
+			currentMonth = new Date(day.getFullYear(), day.getMonth(), 1);
+		}
+		activeDay = day;
+		await tick();
+		gridEl?.querySelector<HTMLElement>(`[data-day="${dayKey(day)}"]`)?.focus();
+	}
+
+	/** Keys on a day cell itself (not on the controls inside it). */
+	function onCellKey(event: KeyboardEvent, day: Date) {
+		if (event.target !== event.currentTarget) return;
+		if (isGridKey(event.key)) {
+			event.preventDefault();
+			void focusDay(moveDay(day, event.key));
+		} else if (event.key === 'Enter' || event.key === ' ') {
+			event.preventDefault();
+			openDayModal(day);
+		}
+	}
+
+	/** A control inside a day (clicked or tabbed to) makes that day the grid's tab stop. */
+	function onCellFocus(day: Date) {
+		if (dayKey(day) !== activeKey) activeDay = day;
+	}
+
+	// ── tasks ──
+	function openTask(todo: Todo) {
+		openTodo = todo;
+	}
+
+	/** The checkbox is the only thing that completes a task, and Undo puts it back. */
+	function complete(todo: Todo) {
+		if (isReadOnly) return;
+		const { patch, undo } = completeTask(todo);
+		updateTodo(todo.id, patch);
+		toast(`Marked “${todo.title}” done`, {
+			action: 'Undo',
+			onAction: () => updateTodo(todo.id, { status: undo.status, completedAt: undo.completedAt })
 		});
+	}
+
+	function priorityColor(priority: string): string {
+		switch (priority) {
+			case 'urgent':
+				return 'var(--w-danger)';
+			case 'high':
+				return 'var(--w-warn)';
+			default:
+				return 'var(--w-line-strong)';
+		}
 	}
 
 	function formatDateForInput(date: Date): string {
@@ -297,14 +318,14 @@
 		showDayModal = true;
 	}
 
-	// Reactive statement: update selectedDayEvents whenever calendar events or selected date changes
-	$: {
-		if (showDayModal) {
-			selectedDayEvents = getEventsForDay(new Date($selectedDate));
-		}
-		// Force dependency on calendarEvents by reading it
-		void $calendarEvents;
+	/** The day dialog's task rows open the task too (never complete it): close the day, open the task. */
+	function openTaskFromDay(todo: Todo) {
+		showDayModal = false;
+		openTask(todo);
 	}
+
+	// The day dialog follows the events store while it is open.
+	$: if (showDayModal) selectedDayEvents = eventsOn(new Date($selectedDate), eventsByDay);
 
 	function closeModal() {
 		showEventModal = false;
@@ -365,211 +386,232 @@
 		closeModal();
 	}
 
-	function handleDelete(id: string) {
-		if (confirm('Are you sure you want to delete this event?')) {
-			deleteCalendarEvent(id);
-			closeModal();
-		}
+	async function handleDelete(id: string) {
+		const event = $calendarEvents.find((item) => item.id === id);
+		const confirmed = await confirmAction({
+			title: 'Delete this event?',
+			body: event?.recurring
+				? `“${event.title}” and every time it repeats will be removed from your Planner.`
+				: `“${event?.title ?? 'This event'}” will be removed from your Planner.`,
+			confirm: 'Delete event',
+			danger: true
+		});
+		if (!confirmed) return;
+		deleteCalendarEvent(id);
+		closeModal();
 	}
 
-	// Regenerate calendar whenever events/todos/month change
-	$: {
-		void $calendarEvents; // Force dependency tracking
-		void $todos; // Force dependency tracking
-		days = getDaysInMonth(currentMonth);
-	}
-	$: monthLabel = currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 </script>
 
-<div class="calendar-wrapper">
-	<div class="calendar-container">
-		<header class="calendar-header" class:embedded={embedded}>
+{#snippet taskLine(task: Todo, inCell: boolean, active: boolean)}
+	<!-- The checkbox completes (with Undo); the title opens the task. Never one control for both. -->
+	<input
+		type="checkbox"
+		class="w-check cal-task__check"
+		aria-label={`Mark “${task.title}” done`}
+		checked={false}
+		disabled={isReadOnly}
+		tabindex={inCell && !active ? -1 : 0}
+		on:change={() => complete(task)}
+	/>
+	<button type="button" class="cal-task__title" tabindex={inCell && !active ? -1 : 0} on:click={() => openTask(task)}>
+		{task.title}
+	</button>
+{/snippet}
+
+{#snippet eventPill(event: CalendarEvent, inCell: boolean, active: boolean)}
+	<button
+		type="button"
+		class="cal-pill"
+		style:--pill={eventTint(event)}
+		tabindex={inCell && !active ? -1 : 0}
+		aria-label={`${event.title}, ${event.allDay ? 'all day' : formatTime(event.startDate)}. Edit event`}
+		on:click={() => openEditModal(event)}
+	>
+		<span class="cal-pill__dot" aria-hidden="true"></span>
+		{#if !event.allDay}<span class="cal-pill__time">{inCell ? shortTime(event.startDate) : formatTime(event.startDate)}</span>{/if}
+		<span class="cal-pill__title">{event.title}</span>
+	</button>
+{/snippet}
+
+<div class="cal" class:cal--embedded={embedded} class:cal--agenda={agenda} bind:clientWidth={width}>
+	<header class="cal-head">
+		<div class="cal-steps">
+			<Tooltip text="Previous month">
+				<button type="button" class="w-ibtn" aria-label="Previous month" on:click={prevMonth}><Icon name="chevLeft" /></button>
+			</Tooltip>
+			<Tooltip text="Next month">
+				<button type="button" class="w-ibtn" aria-label="Next month" on:click={nextMonth}><Icon name="chevRight" /></button>
+			</Tooltip>
+		</div>
+		<h2 class="cal-title" id={titleId} aria-live="polite">{monthLabel}</h2>
+		<div class="cal-head__end">
+			<button type="button" class="w-btn w-btn--sm" on:click={goToToday}>Today</button>
 			{#if !embedded}
-				<div class="header-left">
-					<h1>Calendar</h1>
-				</div>
+				<button type="button" class="w-btn w-btn--sm w-btn--primary" on:click={() => openAddModal()} disabled={isReadOnly} title={isReadOnly ? 'Read-only: events cannot be added here' : undefined}>
+					<Icon name="plus" size={16} />Add event
+				</button>
 			{/if}
-			<div class="header-center">
-				<button class="nav-btn icon" aria-label="Previous month" on:click={prevMonth}>
-					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<polyline points="15 18 9 12 15 6"/>
-					</svg>
-				</button>
-				<h2 class="month-label">{monthLabel}</h2>
-				<button class="nav-btn icon" aria-label="Next month" on:click={nextMonth}>
-					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<polyline points="9 18 15 12 9 6"/>
-					</svg>
-				</button>
-			</div>
-			<div class="header-right">
-				<button class="today-btn" on:click={goToToday}>Today</button>
-				{#if !embedded}
-					<button class="add-btn" on:click={() => openAddModal()} disabled={isReadOnly} title={isReadOnly ? 'Read-only mode' : 'Add new event'}>+ Add Event</button>
-				{/if}
-			</div>
-		</header>
-
-		<div class="calendar-grid">
-		<div class="weekday-header">
-			{#each ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as day}
-				<div class="weekday">{day}</div>
-			{/each}
 		</div>
+	</header>
 
-		<div class="days-grid">
-			{#each days as day}
-				{@const dayEvents = getEventsForDay(day)}
-				{@const dayTasks = getTasksForDay(day)}
-				{@const totalItems = dayEvents.length + dayTasks.length}
-				{@const visibleEvents = dayEvents.slice(0, 3)}
-				{@const visibleTasks = dayTasks.slice(0, Math.max(0, 3 - dayEvents.length))}
-				{@const hiddenCount = totalItems - visibleEvents.length - visibleTasks.length}
-				<div
-					class="day-cell"
-					class:today={isToday(day)}
-					class:other-month={!isCurrentMonth(day)}
-					class:has-events={totalItems > 0}
-					role="button"
-					tabindex="0"
-					on:click={() => openDayModal(day)}
-					on:keydown={(keyboardEvent) => {
-						if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') {
-							keyboardEvent.preventDefault();
-							openDayModal(day);
-						}
-					}}
-				>
-					<span class="day-number">{day.getDate()}</span>
-					<div class="day-events">
-						{#each visibleEvents as event}
-							<button
-								type="button"
-								class="event-pill"
-								style="background-color: {event.color || '#5865f2'}"
-								aria-label={`Edit event ${event.title}`}
-								on:click|stopPropagation={() => openEditModal(event)}
-							>
-								{#if !event.allDay}
-									<span class="event-time">{formatTime(event.startDate)}</span>
+	<div class="cal-body" class:cal-body--aside={showAside}>
+		{#if agenda}
+			<!-- Narrow stage: the month as a list of the days that have something on them. -->
+			<section class="cal-agenda" aria-labelledby={titleId}>
+				{#if agendaList.length === 0}
+					<EmptyState
+						icon="calendar"
+						as="h3"
+						title={`Nothing planned in ${new Intl.DateTimeFormat(undefined, { month: 'long' }).format(currentMonth)}`}
+						text="Events and tasks with a date in this month show up here."
+						action={isReadOnly ? undefined : 'Add event'}
+						onaction={() => openAddModal(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1))}
+					/>
+				{:else}
+					{#each agendaList as day (dayKey(day.date))}
+						{@const word = relativeWord(day.date)}
+						<section class="cal-agenda__day" aria-label={fullDateFormat.format(day.date)}>
+							<div class="cal-agenda__head">
+								<h3 class="cal-agenda__date">{#if word}<strong>{word}</strong>{' · '}{/if}{fullDateFormat.format(day.date)}</h3>
+								{#if !isReadOnly}
+									<Tooltip text={`Add on ${dayMonthFormat.format(day.date)}`}>
+										<button type="button" class="w-ibtn w-ibtn--sm" aria-label={`Add on ${dayMonthFormat.format(day.date)}`} on:click={() => openAddModal(day.date)}>
+											<Icon name="plus" size={16} />
+										</button>
+									</Tooltip>
 								{/if}
-								<span class="event-title">{event.title}</span>
-							</button>
-						{/each}
-						{#each visibleTasks as task}
-							<button
-								type="button"
-								class="task-pill"
-								style="border-left-color: {getPriorityColor(task.priority)}"
-								aria-label={`Mark task ${task.title} complete`}
-								on:click|stopPropagation={() => toggleTaskComplete(task)}
-								title="Click to complete"
-							>
-								<span class="task-checkbox"></span>
-								<span class="task-title">{task.title}</span>
-								{#if task.assignedTo}
-									<span class="task-pill-assignee" aria-hidden="true">
-										<PlannerAvatar
-											name={assigneeName(task)}
-											color={assigneeColor(task)}
-											src={assigneeAvatarUrl(task)}
-											size="xs"
-										/>
-									</span>
-								{/if}
-							</button>
-						{/each}
-						{#if hiddenCount > 0}
-							<div class="more-events">+{hiddenCount} more</div>
-						{/if}
-					</div>
-				</div>
-			{/each}
-		</div>
-		</div>
-	</div>
-
-	<!-- Tasks Sidebar -->
-	<aside class="tasks-sidebar">
-		{#if overdueTasks.length > 0}
-			<div class="sidebar-section overdue-section">
-				<h3>Overdue</h3>
-				<div class="task-list">
-					{#each overdueTasks.slice(0, 5) as task}
-						<div
-							class="sidebar-task overdue"
-							role="button"
-							tabindex="0"
-							on:click={() => toggleTaskComplete(task)}
-							on:keydown={(event) => {
-								if (event.key === 'Enter' || event.key === ' ') {
-									event.preventDefault();
-									toggleTaskComplete(task);
-								}
-							}}
-						>
-							<span class="task-priority" style="background-color: {getPriorityColor(task.priority)}"></span>
-							<div class="task-info">
-								<span class="task-name">{task.title}</span>
-								<span class="task-date">{new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
 							</div>
-							{#if task.assignedTo}
-								<span class="sidebar-task-assignee" title={`Assigned to ${assigneeName(task)}`}>
-									<PlannerAvatar
-										name={assigneeName(task)}
-										color={assigneeColor(task)}
-										src={assigneeAvatarUrl(task)}
-										size="xs"
-									/>
-								</span>
+							{#if day.events.length === 0 && day.tasks.length === 0}
+								<p class="cal-agenda__none">Nothing planned yet.</p>
+							{:else}
+								<ul class="cal-agenda__list">
+									{#each day.events as event (`${event.id}-${event.startDate}`)}
+										<li class="cal-agenda__row">{@render eventPill(event, false, true)}</li>
+									{/each}
+									{#each day.tasks as task (task.id)}
+										<li class="cal-agenda__row cal-task">{@render taskLine(task, false, true)}</li>
+									{/each}
+								</ul>
 							{/if}
-							<span class="complete-btn" title="Mark complete">&#10003;</span>
-						</div>
+						</section>
 					{/each}
-					{#if overdueTasks.length > 5}
-						<div class="see-more">+{overdueTasks.length - 5} more overdue</div>
-					{/if}
+				{/if}
+			</section>
+		{:else}
+			<div class="cal-grid" role="grid" aria-labelledby={titleId} bind:this={gridEl}>
+				<div class="cal-row cal-row--head" role="row">
+					{#each weekdays as weekday}
+						<div class="cal-weekday" role="columnheader" aria-label={weekday.long}>{weekday.short}</div>
+					{/each}
 				</div>
+				{#each weeks as week (dayKey(week[0]))}
+					<div class="cal-row" role="row">
+						{#each week as day (dayKey(day))}
+							{@const key = dayKey(day)}
+							{@const dayEvents = eventsOn(day, eventsByDay)}
+							{@const dayTasks = tasksOn(day, taskMap)}
+							{@const lines = cellLines(dayEvents, dayTasks)}
+							{@const active = key === activeKey}
+							{@const isToday = sameDay(day, today)}
+							<div
+								class="cal-cell"
+								class:is-today={isToday}
+								class:is-out={day.getMonth() !== currentMonth.getMonth()}
+								role="gridcell"
+								tabindex={active ? 0 : -1}
+								data-day={key}
+								aria-label={cellLabel(day, dayEvents.length, dayTasks.length)}
+								aria-current={isToday ? 'date' : undefined}
+								on:keydown={(event) => onCellKey(event, day)}
+								on:focusin={() => onCellFocus(day)}
+							>
+								<div class="cal-cell__head">
+									<span class="cal-date" aria-hidden="true">{day.getDate()}</span>
+									{#if !isReadOnly}
+										<Tooltip text={`Add on ${dayMonthFormat.format(day)}`}>
+											<button
+												type="button"
+												class="w-ibtn w-ibtn--sm cal-add"
+												tabindex={active ? 0 : -1}
+												aria-label={`Add on ${dayMonthFormat.format(day)}`}
+												on:click={() => openAddModal(day)}
+											>
+												<Icon name="plus" size={14} />
+											</button>
+										</Tooltip>
+									{/if}
+								</div>
+								{#if lines.events.length || lines.tasks.length || lines.hidden}
+									<ul class="cal-lines">
+										{#each lines.events as event (`${event.id}-${event.startDate}`)}
+											<li>{@render eventPill(event, true, active)}</li>
+										{/each}
+										{#each lines.tasks as task (task.id)}
+											<li class="cal-task">{@render taskLine(task, true, active)}</li>
+										{/each}
+										{#if lines.hidden > 0}
+											<li>
+												<button
+													type="button"
+													class="cal-more"
+													tabindex={active ? 0 : -1}
+													aria-label={`Show all ${dayEvents.length + dayTasks.length} items on ${dayMonthFormat.format(day)}`}
+													on:click={() => openDayModal(day)}
+												>
+													+{lines.hidden} more
+												</button>
+											</li>
+										{/if}
+									</ul>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{/each}
 			</div>
 		{/if}
 
-		<div class="sidebar-section">
-			<h3>Upcoming Tasks</h3>
-			{#if upcomingTasks.length === 0}
-				<p class="empty-tasks">No upcoming tasks this week</p>
-			{:else}
-				<div class="task-list">
-					{#each upcomingTasks as task}
-						<div
-							class="sidebar-task"
-							role="button"
-							tabindex="0"
-							on:click={() => toggleTaskComplete(task)}
-							on:keydown={(event) => {
-								if (event.key === 'Enter' || event.key === ' ') {
-									event.preventDefault();
-									toggleTaskComplete(task);
-								}
-							}}
-						>
-							<span class="task-priority" style="background-color: {getPriorityColor(task.priority)}"></span>
-							<div class="task-info">
-								<span class="task-name">{task.title}</span>
-								<span class="task-date">
-									{#if task.dueDate && new Date(task.dueDate).toDateString() === new Date().toDateString()}
-										Today
-									{:else if task.dueDate}
-										{new Date(task.dueDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-									{/if}
-								</span>
-							</div>
-							<span class="complete-btn" title="Mark complete">&#10003;</span>
-						</div>
-					{/each}
-				</div>
-			{/if}
-		</div>
-	</aside>
+		{#if showAside}
+			<aside class="cal-aside" aria-label="Tasks with a due date">
+				{#if overdue.length > 0}
+					<section class="cal-aside__group" aria-labelledby={`${titleId}-overdue`}>
+						<h3 class="cal-aside__kicker cal-aside__kicker--overdue" id={`${titleId}-overdue`}>
+							Overdue <span class="cal-aside__count">{overdue.length}</span>
+						</h3>
+						<ul class="cal-aside__list">
+							{#each overdue.slice(0, 5) as task (task.id)}
+								<li class="cal-aside__row cal-task">
+									{@render taskLine(task, false, true)}
+									<span class="cal-aside__date is-overdue">{dateWords(task.dueDate ?? now, now)}</span>
+								</li>
+							{/each}
+						</ul>
+						{#if overdue.length > 5}
+							<p class="cal-aside__more">and {overdue.length - 5} more overdue</p>
+						{/if}
+					</section>
+				{/if}
+				<section class="cal-aside__group" aria-labelledby={`${titleId}-upcoming`}>
+					<h3 class="cal-aside__kicker" id={`${titleId}-upcoming`}>
+						Upcoming {#if upcoming.length}<span class="cal-aside__count">{upcoming.length}</span>{/if}
+					</h3>
+					{#if upcoming.length === 0}
+						<p class="cal-aside__empty">Nothing due in the next seven days.</p>
+					{:else}
+						<ul class="cal-aside__list">
+							{#each upcoming as task (task.id)}
+								<li class="cal-aside__row cal-task">
+									{@render taskLine(task, false, true)}
+									<span class="cal-aside__date">{dateWords(task.dueDate ?? now, now)}</span>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</section>
+			</aside>
+		{/if}
+	</div>
 </div>
 
 <!-- Event Modal -->
@@ -596,125 +638,21 @@
 	/>
 {/if}
 
-<!-- Day Detail Modal -->
+<!-- Day Detail Modal: its task rows open the task (the prop keeps its old name). -->
 {#if showDayModal}
 	<CalendarDayModal
 		{selectedDayEvents}
-		modalDayTasks={getTasksForDay(new Date($selectedDate))}
+		modalDayTasks={tasksOn(new Date($selectedDate), taskMap)}
 		{isReadOnly}
 		{formatTime}
-		{getPriorityColor}
+		getPriorityColor={priorityColor}
 		{openEditModal}
-		{toggleTaskComplete}
+		toggleTaskComplete={openTaskFromDay}
 		{closeModal}
 		{openAddModal}
 	/>
 {/if}
 
-<!-- Scoped header styles: the legacy global todo-list.css (imported LAST in
-     styles.css) re-defines .add-btn/.header-right/.today-btn/.nav-btn with
-     old todo-list colors/layout, which overrode the calendar's own
-     calendar-view-part1.css design. Scoped rules always beat globals, so the
-     calendar header is immune to that cascade fight. -->
-<style>
-	.calendar-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 1rem;
-		flex-wrap: nowrap;
-		gap: 0.75rem;
-		min-width: 0;
-	}
-	.calendar-header.embedded {
-		justify-content: space-between;
-		margin-bottom: 0.5rem;
-		overflow-x: auto;
-		overflow-y: hidden;
-		scrollbar-width: thin;
-		row-gap: 0;
-	}
-	.header-center {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 0.5rem;
-		min-width: 0;
-	}
-	.header-left {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		flex-shrink: 0;
-	}
-	.header-right {
-		display: flex;
-		gap: 0.5rem;
-		align-items: center;
-		flex-wrap: nowrap;
-		flex-shrink: 0;
-	}
-	.nav-btn {
-		background: var(--biz-bg-tertiary, #243044);
-		border: 1px solid var(--biz-border, #2d3a4d);
-		color: var(--biz-text-primary, #f1f5f9);
-		border-radius: 8px;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-	.nav-btn.icon {
-		width: 36px;
-		height: 36px;
-		min-width: 36px;
-		padding: 0;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-	}
-	.nav-btn:hover {
-		background: var(--biz-bg-hover, #2a3a4d);
-		border-color: var(--biz-accent, #f59e0b);
-	}
-	.month-label {
-		margin: 0;
-		font-size: 1rem;
-		font-weight: 600;
-		color: var(--biz-text-primary, #f1f5f9);
-		white-space: nowrap;
-	}
-	.today-btn {
-		padding: 0.5rem 1rem;
-		min-height: 36px;
-		background: var(--biz-bg-tertiary, #243044);
-		border: 1px solid var(--biz-border, #2d3a4d);
-		color: var(--biz-text-primary, #f1f5f9);
-		border-radius: 8px;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-	.today-btn:hover {
-		background: var(--biz-bg-hover, #2a3a4d);
-	}
-	.add-btn {
-		padding: 0.5rem 1rem;
-		min-height: 36px;
-		background: var(--biz-accent, #f59e0b);
-		color: white;
-		border: none;
-		border-radius: 8px;
-		cursor: pointer;
-		font-weight: 500;
-		transition: all 0.2s;
-	}
-	.add-btn:hover {
-		background: var(--biz-accent-hover, #d97706);
-	}
-
- .calendar-container { background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: 14px; overflow: hidden; }
- .calendar-header.embedded { padding: 16px; }
- .weekday-header { background: var(--bg-secondary); padding-block: 12px; color: var(--text-muted); font-size: 12px; letter-spacing: .04em; }
- .day-cell { background: var(--bg-primary); min-height: 96px; padding: 10px; transition: background .12s; }
- .day-cell:hover { background: var(--surface-hover); }
- .day-number { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; font-size: 13px; border-radius: 50%; }
- @media (max-width: 700px) { .day-cell { padding: 4px; min-height: 70px; } .calendar-header.embedded { padding: 10px; } }
-</style>
+{#if openTodo}
+	<PlannerTaskDialog todo={openTodo} {isReadOnly} onclose={() => (openTodo = null)} />
+{/if}

@@ -1,362 +1,194 @@
-	/* No Entry */
-	.no-entry {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		height: 100%;
-		text-align: center;
+/* ==========================================================================
+   My Planner — Journal day page and inline editor (design contract §8.6, §7.3, §7.5, §7.25).
+   Owner (wave 1): w1-planner-views. Scoped under `.planner`, role tokens only.
+
+   The day page: a crumb back to the Journal with ‹ › and Today on the right, a kicker
+   ("Today") over the serif date, then the entry or the editor in the same 680 column.
+   The editor: one toolbar row of 32px icon buttons with a Write | Preview segment, a writing
+   area that grows with the text (sink, strong hairline, accent focus), pictures, then the
+   fields as settings rows (Tags, Personal entry switch, Names attached) and the footer
+   (quiet Cancel, ink Save).
+   ========================================================================== */
+
+/* ---------- crumb row ---------- */
+.planner .jr-crumb {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 40px;
+	margin: -16px 0 20px;
+}
+.planner .jr-crumb__back {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	height: 32px;
+	margin-left: -6px;
+	padding: 0 8px 0 4px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-label);
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease), color var(--w-dur-1) var(--w-ease);
+}
+.planner .jr-crumb__back:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+	color: var(--w-text);
+}
+.planner .jr-crumb__back:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+.planner .jr-crumb__steps {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	margin-left: auto;
+}
+.planner .jr-crumb__steps .w-btn {
+	margin-left: 6px;
+}
+
+/* ---------- the day ---------- */
+.planner .jr-day {
+	padding-bottom: 20px;
+	margin-bottom: 20px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.planner .jr-day .jr-kicker {
+	margin-bottom: 6px;
+}
+.planner .jr-day__title {
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-title);
+	letter-spacing: 0.005em;
+	text-wrap: balance;
+}
+.planner .jr-entry--page {
+	padding-top: 0;
+	border-bottom: 0;
+}
+.planner .jr-actions--page {
+	display: flex;
+	gap: 8px;
+	margin-top: 28px;
+}
+
+/* ---------- editor ---------- */
+.planner .jr-editor {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+.planner .jr-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 2px;
+	margin-left: -6px;
+}
+.planner .jr-toolbar__sep {
+	width: var(--w-bw);
+	height: 16px;
+	margin: 0 6px;
+	background: var(--w-line);
+}
+.planner .jr-mode {
+	margin-left: auto;
+}
+.planner .jr-text {
+	display: block;
+	box-sizing: border-box;
+	width: 100%;
+	min-height: max(280px, 40vh);
+	margin: 0;
+	padding: 16px 18px;
+	overflow: hidden;
+	resize: none;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+	color: var(--w-text);
+	font: 400 calc(16px * var(--w-fs)) / calc(28px * var(--w-fs)) var(--w-sans);
+	transition: border-color var(--w-dur-1) var(--w-ease), box-shadow var(--w-dur-1) var(--w-ease);
+}
+.planner .jr-text::placeholder {
+	color: var(--w-faint);
+	opacity: 1;
+}
+.planner .jr-text:focus {
+	border-color: var(--w-accent);
+	box-shadow: var(--w-ring);
+	outline: none;
+}
+.planner .jr-text[hidden] {
+	display: none;
+}
+.planner .jr-preview {
+	min-height: 200px;
+	padding: 2px 0 8px;
+}
+.planner .jr-preview__empty {
+	color: var(--w-faint);
+	font: var(--w-t-ui);
+}
+.planner .jr-notice {
+	margin: 0;
+}
+
+/* Pictures being added: a remove button on each, in the surface colour. */
+.planner .jr-gallery--edit {
+	margin-top: 0;
+}
+.planner .jr-gallery--edit .jr-thumb {
+	cursor: default;
+}
+.planner .jr-thumb__remove.w-ibtn {
+	position: absolute;
+	top: 4px;
+	right: 4px;
+	background: var(--w-bg);
+	color: var(--w-text);
+}
+.planner .jr-thumb__remove.w-ibtn:hover {
+	background: var(--w-raise);
+}
+
+/* Fields as settings rows: one rule above the group, one under each row. */
+.planner .jr-fields {
+	display: flex;
+	flex-direction: column;
+	padding-top: 16px;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.planner .jr-field {
+	max-width: 360px;
+	padding-bottom: 12px;
+}
+.planner .jr-field .w-field {
+	width: 100%;
+}
+.planner .jr-srow {
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.planner .jr-names-row {
+	padding: 12px 0 4px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+
+/* Footer: quiet Cancel, then the ink primary, right-aligned under the fields. */
+.planner .jr-editor .jr-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	padding: 4px 0 12px;
+}
+
+@container stage (max-width: 600px) {
+	.planner .jr-mode {
+		margin-left: 0;
 	}
-
-	.no-entry p {
-		color: var(--biz-text-muted, #64748b);
-		margin-bottom: 1rem;
-	}
-
-	.start-writing-btn {
-		padding: 0.75rem 1.5rem;
-		background: var(--biz-accent, #f59e0b);
-		color: white;
-		border: none;
-		border-radius: 8px;
-		cursor: pointer;
-		font-weight: 500;
-		font-size: 1rem;
-		transition: background 0.2s;
-	}
-
-	.start-writing-btn:hover {
-		background: var(--biz-accent-hover, #d97706);
-	}
-
-	/* Welcome/List View */
-	.welcome-header {
-		justify-content: space-between;
-	}
-
-	.welcome-header h1 {
-		font-size: 1.5rem;
-		color: var(--biz-text-primary, #f1f5f9);
-		margin: 0;
-	}
-
-	/* Hosted-in-Planner: no "Journal" page title, one centered primary CTA */
-	.welcome-header.embedded {
-		justify-content: center;
-		margin-bottom: 0.75rem;
-	}
-
-	.today-btn.primary {
-		background: var(--biz-accent, #f59e0b);
-		border-color: var(--biz-accent, #f59e0b);
-		color: white;
-		min-height: 36px;
-	}
-
-	.today-btn.primary:hover {
-		background: var(--biz-accent-hover, #d97706);
-	}
-
-	.back-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 36px;
-		height: 36px;
-		background: var(--biz-bg-tertiary, #243044);
-		border: 1px solid var(--biz-border, #2d3a4d);
-		border-radius: 8px;
-		color: var(--biz-text-secondary, #94a3b8);
-		cursor: pointer;
-		transition: all 0.2s;
-		padding: 0;
-		margin-right: 0.5rem;
-	}
-
-	.back-btn:hover {
-		background: var(--biz-accent, #f59e0b);
-		color: white;
-	}
-
-	.welcome-view {
-		height: 100%;
-	}
-
-	.empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		height: 100%;
-		text-align: center;
-		padding: var(--space-8);
-	}
-
-	.empty-icon {
-		color: var(--biz-text-muted, #64748b);
-		margin-bottom: var(--space-6);
-		opacity: var(--opacity-50);
-	}
-
-	.empty-state h2 {
-		margin: 0 0 var(--space-3) 0;
-		font-size: var(--font-size-2xl);
-		color: var(--biz-text-primary, #f1f5f9);
-	}
-
-	.empty-state p {
-		color: var(--biz-text-secondary, #94a3b8);
-		max-width: 400px;
-		margin: 0 0 var(--space-6) 0;
-		line-height: 1.6;
-	}
-
-	.start-btn {
-		padding: 0.75rem 1.5rem;
-		background: var(--biz-accent, #f59e0b);
-		color: white;
-		border: none;
-		border-radius: 8px;
-		cursor: pointer;
-		font-weight: 500;
-		font-size: 1rem;
-		transition: background 0.2s;
-	}
-
-	.start-btn:hover {
-		background: var(--biz-accent-hover, #d97706);
-	}
-
-	/* Entries Row List View */
-	.entries-list-view {
-		display: flex;
-		flex-direction: column;
-		gap: 2rem;
-	}
-
-	.month-group {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	.month-header {
-		font-size: 0.85rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: var(--biz-text-muted, #64748b);
-		padding: 0.5rem 0;
-		border-bottom: 1px solid var(--biz-border, #2d3a4d);
-		margin: 0;
-	}
-
-	.month-entries {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	.entry-row {
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-		width: 100%;
-		padding: 0.75rem;
-		background: var(--biz-bg-tertiary, #243044);
-		border: 1px solid var(--biz-border, #2d3a4d);
-		border-radius: 12px;
-		cursor: pointer;
-		text-align: left;
-		color: var(--biz-text-primary, #f1f5f9);
-		transition: all 0.2s;
-	}
-
-	.entry-row:hover {
-		border-color: var(--biz-accent, #f59e0b);
-		background: var(--biz-bg-hover, #2a3a4d);
-	}
-
-	.entry-row-image {
-		position: relative;
-		width: 100px;
-		height: 70px;
-		border-radius: 8px;
-		overflow: hidden;
-		flex-shrink: 0;
-	}
-
-	.entry-row-image img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-
-	.entry-row-image .image-fade {
-		position: absolute;
-		top: 0;
-		right: 0;
-		bottom: 0;
-		width: 50%;
-		background: linear-gradient(to right, transparent, var(--biz-bg-tertiary, #243044));
-		pointer-events: none;
-	}
-
-	.entry-row:hover .entry-row-image .image-fade {
-		background: linear-gradient(to right, transparent, var(--biz-bg-hover, #2a3a4d));
-	}
-
-	.image-count-badge {
-		position: absolute;
-		bottom: 4px;
-		left: 4px;
-		background: rgba(0, 0, 0, 0.7);
-		color: white;
-		padding: 2px 6px;
-		border-radius: 4px;
-		font-size: 0.65rem;
-		font-weight: 500;
-	}
-
-	.entry-row-date-badge {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		width: 100px;
-		height: 70px;
-		background: var(--biz-bg-secondary, #1a2332);
-		border-radius: 8px;
-		flex-shrink: 0;
-	}
-
-	.entry-row-date-badge .date-day {
-		font-size: 1.5rem;
-		font-weight: 700;
-		color: var(--biz-accent, #f59e0b);
-		line-height: 1;
-	}
-
-	.entry-row-date-badge .date-weekday {
-		font-size: 0.7rem;
-		text-transform: uppercase;
-		color: var(--biz-text-muted, #64748b);
-		margin-top: 0.25rem;
-	}
-
-	.entry-row-content {
-		flex: 1;
-		min-width: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-	}
-
-	.entry-row-header {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-
-	.entry-row-date {
-		font-size: 0.85rem;
-		font-weight: 600;
-		color: var(--biz-text-primary, #f1f5f9);
-	}
-
-	.private-badge-small {
-		font-size: 0.75rem;
-	}
-
-	.entry-row-excerpt {
-		margin: 0;
-		font-size: 0.85rem;
-		color: var(--biz-text-secondary, #94a3b8);
-		line-height: 1.4;
-		display: -webkit-box;
-		line-clamp: 2;
-		-webkit-line-clamp: 2;
-		-webkit-box-orient: vertical;
-		overflow: hidden;
-	}
-
-	.entry-row-tags {
-		display: flex;
-		gap: 0.25rem;
-		margin-top: 0.25rem;
-	}
-
-	.tag-mini {
-		font-size: 0.7rem;
-		padding: 0.15rem 0.4rem;
-		background: var(--biz-info-soft, rgba(59, 130, 246, 0.15));
-		color: var(--biz-info, #3b82f6);
-		border-radius: 3px;
-	}
-
-	.entry-row-arrow {
-		color: var(--biz-text-muted, #64748b);
-		flex-shrink: 0;
-		transition: all 0.2s;
-	}
-
-	.entry-row:hover .entry-row-arrow {
-		color: var(--biz-accent, #f59e0b);
-		transform: translateX(4px);
-	}
-
-	/* Large Gallery for Entry View */
-	.images-gallery.large {
-		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-		gap: 1rem;
-	}
-
-	.gallery-image-large {
-		aspect-ratio: auto;
-		min-height: 200px;
-		max-height: 400px;
-		border-radius: 12px;
-		overflow: hidden;
-		cursor: pointer;
-		border: 2px solid transparent;
-		background: var(--biz-bg-tertiary, #243044);
-		padding: 0;
-		transition: all 0.2s;
-	}
-
-	.gallery-image-large:hover {
-		border-color: var(--biz-accent, #f59e0b);
-		transform: scale(1.02);
-	}
-
-	.gallery-image-large img {
-		width: 100%;
-		height: 100%;
-		object-fit: contain;
-		background: var(--biz-bg-primary, #0f1419);
-	}
-
-	@media (max-width: 900px) {
-		.diary-container {
-			flex-direction: column;
-		}
-
-		.entries-sidebar {
-			width: 100%;
-			max-height: 200px;
-		}
-
-		.entries-list {
-			display: flex;
-			gap: 0.5rem;
-			padding: 0.5rem;
-			overflow-x: auto;
-		}
-
-		.entry-item {
-			flex-direction: column;
-			min-width: 100px;
-			text-align: center;
-		}
-
-	}
+}
