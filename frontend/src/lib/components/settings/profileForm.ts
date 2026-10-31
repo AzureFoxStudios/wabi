@@ -73,3 +73,34 @@ export function publishedAfterSave(published: ProfileDraft, submitted: ProfileDr
 		bio: patch.bio ?? published.bio
 	};
 }
+
+/**
+ * Why a profile save failed, in plain words (§7.16: never the raw reason). Server and socket
+ * reasons are developer text ("username must be nonempty text…"), so known causes become a
+ * sentence and anything else returns null; the caller logs the raw error. Disconnects and
+ * timeouts may still have landed, so they say to check before trying again.
+ */
+export function profileSaveCause(error: unknown): string | null {
+	const reason = (error instanceof Error ? error.message : typeof error === 'string' ? error : '').toLowerCase();
+	if (reason.startsWith('connect to your server')) return 'Connect to your server first.';
+	if (reason.includes('disconnected before') || reason.includes('could not be confirmed')) {
+		return 'Check your profile after reconnecting before you try again.';
+	}
+	if (reason.includes('authentication required') || reason.includes('sign in again')) return 'Sign in again, then save.';
+	if (reason.startsWith('username ')) return 'The server did not accept that display name.';
+	if (reason.startsWith('statusmessage ')) return 'The server did not accept that status message.';
+	if (reason.startsWith('bio ')) return 'The server did not accept that About me.';
+	return null;
+}
+
+/** Whether the failure may still have landed: the server never answered either way. */
+export function profileSaveUnconfirmed(error: unknown): boolean {
+	const reason = (error instanceof Error ? error.message : '').toLowerCase();
+	return reason.includes('disconnected before') || reason.includes('could not be confirmed');
+}
+
+/** The save bar's words after a failed save: what happened, then why (the bar adds that the edits are kept). */
+export function profileSaveFailure(error: unknown): string {
+	const cause = profileSaveCause(error) ?? 'The server did not save it. Try again in a moment.';
+	return `${profileSaveUnconfirmed(error) ? 'Not confirmed.' : 'Not saved.'} ${cause}`;
+}

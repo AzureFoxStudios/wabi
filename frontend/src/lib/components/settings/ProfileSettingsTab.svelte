@@ -50,6 +50,9 @@
 		profileCounter,
 		profileIssues,
 		profilePatch,
+		profileSaveCause,
+		profileSaveFailure,
+		profileSaveUnconfirmed,
 		publishedAfterSave,
 		trimmedDraft,
 		type ProfileDraft
@@ -66,6 +69,9 @@
 	let nameDesignStudio = $state<{ loadExampleDraft: (example: ProfileArtExample) => void } | null>(null);
 	let lastHandledPasswordChangeRequest = $state(0);
 	let guideOpen = $state(false);
+	// The name style studio has its own save, so it waits behind a closed disclosure and the
+	// page's one form stays About you. It stays mounted while closed, so its draft survives.
+	let nameStyleOpen = $state(false);
 
 	const communityName = $derived($currentSavedServer?.effectiveName?.trim() || 'this community');
 
@@ -113,6 +119,16 @@
 		});
 	});
 
+	// A failure note belongs to the attempt it describes: the next edit clears it.
+	$effect(() => {
+		void draft.name;
+		void draft.status;
+		void draft.bio;
+		untrack(() => {
+			if (!saving) saveError = '';
+		});
+	});
+
 	function discard(): void {
 		if (saving) return;
 		draft = { ...published };
@@ -138,7 +154,8 @@
 			savedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 			showIssues = false;
 		} catch (error) {
-			saveError = error instanceof Error ? error.message : 'The server did not confirm the save.';
+			console.warn('[Profile] save failed:', error);
+			saveError = profileSaveFailure(error);
 		} finally {
 			saving = false;
 		}
@@ -391,7 +408,7 @@
 			mediaStatus = 'Overlay saved.';
 			overlayAlignMode = false;
 		} catch (error) {
-			mediaStatus = error instanceof Error ? error.message : 'The overlay was not saved.';
+			mediaStatus = mediaFailure(error, 'The overlay was not saved.');
 		} finally {
 			overlayAlignSaving = false;
 		}
@@ -446,10 +463,18 @@
 	}
 
 	const PROFILE_MEDIA_LIMIT = 10 * 1024 * 1024;
+	/** A failure this tab already words for people; anything else is logged and summarised. */
+	class MediaProblem extends Error {}
+	function mediaFailure(error: unknown, lead: string): string {
+		if (error instanceof MediaProblem) return error.message;
+		console.warn('[Profile] picture change failed:', error);
+		if (profileSaveUnconfirmed(error)) return `The server did not confirm the change. ${profileSaveCause(error)}`;
+		return `${lead} ${profileSaveCause(error) ?? 'Try again in a moment.'}`;
+	}
 	function validateProfileMedia(file: File, overlay = false) {
 		const allowed = overlay ? ['image/png', 'image/gif', 'image/webp'] : ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-		if (!allowed.includes(file.type)) throw new Error(overlay ? 'Choose a PNG, GIF or WebP overlay.' : 'Choose a PNG, JPEG, GIF or WebP banner.');
-		if (file.size > PROFILE_MEDIA_LIMIT) throw new Error('Export profile artwork at 10 MiB or less.');
+		if (!allowed.includes(file.type)) throw new MediaProblem(overlay ? 'Choose a PNG, GIF or WebP overlay.' : 'Choose a PNG, JPEG, GIF or WebP banner.');
+		if (file.size > PROFILE_MEDIA_LIMIT) throw new MediaProblem('Export profile artwork at 10 MiB or less.');
 	}
 
 	async function removeAvatar() {
@@ -467,7 +492,7 @@
 			await saveProfilePatch({ profilePicture: '' });
 			mediaStatus = 'Profile picture removed.';
 		} catch (error) {
-			mediaStatus = error instanceof Error ? error.message : 'Your profile picture was not removed.';
+			mediaStatus = mediaFailure(error, 'Your profile picture was not removed.');
 		} finally {
 			avatarRemoving = false;
 		}
@@ -489,7 +514,7 @@
 			mediaStatus = kind === 'banner' ? 'Banner removed.' : 'Overlay removed.';
 			if (kind === 'overlay') overlayAlignMode = false;
 		} catch (error) {
-			mediaStatus = error instanceof Error ? error.message : 'The artwork was not removed.';
+			mediaStatus = mediaFailure(error, kind === 'banner' ? 'Your banner was not removed.' : 'Your overlay was not removed.');
 		} finally {
 			if (kind === 'banner') bannerUploading = false;
 			else overlayUploading = false;
@@ -506,9 +531,12 @@
 			body: fd
 		});
 		const payload = await res.json().catch(() => ({}));
-		if (!res.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : `The upload did not finish (${res.status}).`);
+		if (!res.ok) {
+			console.warn('[Profile] upload refused:', res.status, payload?.error);
+			throw new MediaProblem(res.status === 413 ? 'That file is larger than this server accepts.' : 'The upload did not finish. Try again in a moment.');
+		}
 		const url = typeof payload?.fileUrl === 'string' ? payload.fileUrl : '';
-		if (!url) throw new Error('The server did not return the uploaded file.');
+		if (!url) throw new MediaProblem('The upload did not finish. Try again in a moment.');
 		return url;
 	}
 
@@ -521,7 +549,7 @@
 			await saveProfilePatch({ bannerUrl: url });
 			mediaStatus = 'Banner saved.';
 		} catch (e) {
-			mediaStatus = e instanceof Error ? e.message : 'The banner was not uploaded.';
+			mediaStatus = mediaFailure(e, 'Your banner was not saved.');
 		} finally {
 			bannerUploading = false;
 		}
@@ -534,7 +562,11 @@
 		try {
 			validateProfileMedia(file, true);
 			const url = await uploadProfileMedia(file);
-			if (server !== getServerUrl() || token !== getAuthToken() || generation !== authSessionGeneration(server)) return;
+			if (server !== getServerUrl() || token !== getAuthToken() || generation !== authSessionGeneration(server)) {
+				// The account changed mid-upload: drop the file and its "Uploading…" note.
+				mediaStatus = '';
+				return;
+			}
 			overlayDraftOwner = overlayOwner();
 			overlayPendingUrl = url;
 			overlayDraftScale = 1;
@@ -543,7 +575,7 @@
 			overlayAlignMode = true;
 			mediaStatus = 'Position the new overlay, then save it. Your published overlay stays until you do.';
 		} catch (e) {
-			mediaStatus = e instanceof Error ? e.message : 'The overlay was not uploaded.';
+			mediaStatus = mediaFailure(e, 'The overlay was not uploaded.');
 		} finally {
 			overlayUploading = false;
 		}
@@ -561,6 +593,13 @@
 		const file = input.files?.[0];
 		if (file) await uploadOverlay(file);
 		input.value = '';
+	}
+
+	/** "Use design" in the artwork guide opens the name style studio, then loads the example. */
+	async function useExampleDesign(example: ProfileArtExample): Promise<void> {
+		nameStyleOpen = true;
+		await tick();
+		nameDesignStudio?.loadExampleDraft(example);
 	}
 
 	let bannerInput = $state<HTMLInputElement | null>(null);
@@ -799,13 +838,20 @@
 					<a href="/profile-art/avatar-overlay-guide.svg" download>Overlay template (SVG)</a>
 					<a href="/profile-art/artist-guide.md" download>Full artist guide</a>
 				</p>
-				<ProfileArtExamples onUseDesign={(example) => nameDesignStudio?.loadExampleDraft(example)} />
+				<ProfileArtExamples onUseDesign={useExampleDesign} />
 			</div>
 		{/if}
 	</section>
 
-	<section class="settings-block w-profile__studio" aria-label="Name style">
-		<UsernameFontCustomizer bind:this={nameDesignStudio} />
+	<section class="settings-block w-profile__studio" aria-labelledby="profile-name-style-title">
+		<h3 class="settings-block__title" id="profile-name-style-title">Name style</h3>
+		<p class="settings-block__hint">Fonts, colors and effects for your name, with a save of their own.</p>
+		<button type="button" class="w-disclosure" aria-expanded={nameStyleOpen} aria-controls="profile-name-style" onclick={() => (nameStyleOpen = !nameStyleOpen)}>
+			<Icon name="chevRight" />Design your name
+		</button>
+		<div class="w-disclosure__body w-profile__studio-body" id="profile-name-style" hidden={!nameStyleOpen}>
+			<UsernameFontCustomizer bind:this={nameDesignStudio} />
+		</div>
 	</section>
 
 	{#if $currentUser?.badges?.length}
@@ -933,7 +979,7 @@
 	{#if dirty || saving}
 		<div class="w-profile__savebar" role="region" aria-label="Unsaved profile changes">
 			{#if saveError}
-				<p class="w-profile__savebar-text is-error" role="alert"><Icon name="alert" size={14} />Not saved. {saveError}</p>
+				<p class="w-profile__savebar-text is-error" role="alert"><Icon name="alert" size={14} />{saveError} Your edits are still here.</p>
 			{:else}
 				<p class="w-profile__savebar-text"><span class="w-dot w-dot--warn" aria-hidden="true"></span>Unsaved changes</p>
 			{/if}

@@ -34,14 +34,17 @@
 	import NotificationsSettingsTab from './settings/NotificationsSettingsTab.svelte';
 	import ProfileSettingsTab from './settings/ProfileSettingsTab.svelte';
 	import ServerSettingsTab from './settings/ServerSettingsTab.svelte';
+	import SettingsSearch from './settings/SettingsSearch.svelte';
 	import {
 		FOOT_PAGE,
 		SETTINGS_PAGES,
+		centeredScrollTop,
 		resolveSettingsRequest,
-		searchSettings,
+		rowFocusTarget,
 		settingsNavGroups,
 		settingsScopeNote,
 		settingsTabOrder,
+		type SettingsNavGroup,
 		type SettingsPage,
 		type SettingsRequest,
 		type SettingsSearchResult,
@@ -96,23 +99,23 @@
 	let avatarUploadStatus = '';
 	let avatarUploadError = '';
 
-	// "Search settings"
-	let searchQuery = '';
-	let searchOpen = false;
-	let searchActive = 0;
-	let searchInput: HTMLInputElement | null = null;
+	/** "Search settings" (its own state; the dialog unmounts it on close, which clears it). */
+	let search: { focus: () => void } | null = null;
 	let contentEl: HTMLElement | null = null;
+	let backButton: HTMLButtonElement | null = null;
 	const tabButtons: Record<string, HTMLButtonElement | null> = {};
+
+	/** The nav foot (About) is drawn like a group without a kicker, above Sign out. */
+	type NavSection = Omit<SettingsNavGroup, 'id'> & { id: SettingsNavGroup['id'] | 'foot' };
 
 	$: canManageAdmin = $currentUser?.highestRole === 'owner' || $currentUser?.highestRole === 'admin';
 	$: communityName = $currentSavedServer?.effectiveName || serverHostLabel();
-	$: navGroups = settingsNavGroups(communityName, canManageAdmin);
+	$: navSections = navSectionsFor(communityName, canManageAdmin);
 	$: tabOrder = settingsTabOrder(canManageAdmin);
 	$: activePage = SETTINGS_PAGES[activeSettingsTab];
-	$: scopeNote = settingsScopeNote(activeSettingsTab, communityName);
-	$: searchResults = searchSettings(searchQuery, canManageAdmin);
-	$: if (searchActive >= searchResults.length) searchActive = 0;
-	$: showResults = searchOpen && searchQuery.trim().length > 0;
+	// Signed in, the theme and an uploaded background image are saved to the account.
+	$: signedIn = Boolean($currentUser) && Boolean(getAuthToken());
+	$: scopeNote = settingsScopeNote(activeSettingsTab, communityName, signedIn);
 	$: if (!canManageAdmin && activeSettingsTab === 'admin') {
 		activeSettingsTab = 'profile';
 	}
@@ -120,8 +123,6 @@
 		lastHandledRequestedPaymentSurface = null;
 		lastHandledRequestedTab = null;
 		phonePageOpen = false;
-		searchQuery = '';
-		searchOpen = false;
 	}
 	$: if (isOpen && requestedTab && lastHandledRequestedTab !== requestedTab) {
 		const target = resolveSettingsRequest(requestedTab);
@@ -145,6 +146,10 @@
 		phonePageOpen = true;
 	}
 
+	function navSectionsFor(name: string, admin: boolean): NavSection[] {
+		return [...settingsNavGroups(name, admin), { id: 'foot', label: '', pages: [FOOT_PAGE] }];
+	}
+
 	function serverHostLabel(): string {
 		try {
 			return new URL(resolveServerUrl().url).hostname;
@@ -156,8 +161,12 @@
 	/** The page's translated label (falls back to English); `translate` is passed in so the
 	 *  template re-renders when the language changes. */
 	function pageLabel(page: SettingsPage, translate: (key: string) => string): string {
-		const translated = translate(page.labelKey);
-		return translated && translated !== page.labelKey ? translated : page.label;
+		return translatedOr(translate, page.labelKey, page.label);
+	}
+
+	function translatedOr(translate: (key: string) => string, key: string, fallback: string): string {
+		const translated = translate(key);
+		return translated && translated !== key ? translated : fallback;
 	}
 
 	function closeModal(): void {
@@ -166,12 +175,19 @@
 
 	function selectTab(tab: SettingsTab, focus = false): void {
 		activeSettingsTab = tab;
+		// On phones the page is pushed over the list, which hides the tab that had focus:
+		// focus moves to the page's back button so keyboard and screen-reader users keep their place.
+		const pushed = $isMobile && !phonePageOpen;
 		phonePageOpen = true;
 		if (contentEl) contentEl.scrollTop = 0;
-		if (focus) void tick().then(() => tabButtons[tab]?.focus());
+		if (pushed) void tick().then(() => backButton?.focus());
+		else if (focus) void tick().then(() => tabButtons[tab]?.focus());
 	}
 
-	/** Vertical tablist: ↑/↓ move and open (wrapping), Home/End jump. */
+	/**
+	 * Vertical tablist: ↑/↓ move (wrapping), Home/End jump. On the desktop the tab opens as focus
+	 * reaches it; the phone list only moves focus, and Enter or Space opens the page.
+	 */
 	function handleTabKeydown(event: KeyboardEvent, tab: SettingsTab): void {
 		const index = tabOrder.indexOf(tab);
 		let next = -1;
@@ -181,7 +197,8 @@
 		else if (event.key === 'End') next = tabOrder.length - 1;
 		else return;
 		event.preventDefault();
-		selectTab(tabOrder[next], true);
+		if ($isMobile) tabButtons[tabOrder[next]]?.focus();
+		else selectTab(tabOrder[next], true);
 	}
 
 	function backToList(): void {
@@ -202,13 +219,15 @@
 
 	// ---------------------------------------------------------------- search
 	function openSearchResult(result: SettingsSearchResult): void {
-		searchOpen = false;
-		searchQuery = '';
 		selectTab(result.tab);
 		void revealSetting(result.label);
 	}
 
-	/** After the page renders, scroll to the row with this label and mark it briefly. */
+	/**
+	 * After the page renders, scroll the page column (only it: the dialog frame is clipped and
+	 * must never move) so the row with this label is centred, mark it briefly and focus its
+	 * control without scrolling again.
+	 */
 	async function revealSetting(label: string): Promise<void> {
 		await tick();
 		await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -221,34 +240,17 @@
 		const match = Array.from(candidates).find((node) => (node.textContent ?? '').trim().toLowerCase().startsWith(wanted));
 		if (!match) return;
 		const row = match.closest<HTMLElement>('.w-srow, .setting-item, .setting-item-full, section, .settings-section') ?? match;
-		row.scrollIntoView({ block: 'center' });
+		const scroller = root.getBoundingClientRect();
+		const target = row.getBoundingClientRect();
+		root.scrollTop = centeredScrollTop(
+			{ scrollTop: root.scrollTop, top: scroller.top, height: root.clientHeight, scrollHeight: root.scrollHeight },
+			{ top: target.top, height: target.height }
+		);
 		row.classList.remove('settings-found');
 		void row.offsetWidth;
 		row.classList.add('settings-found');
 		window.setTimeout(() => row.classList.remove('settings-found'), 1700);
-		const control = row.querySelector<HTMLElement>('button, input, select, textarea, [tabindex="0"]');
-		control?.focus({ preventScroll: true });
-	}
-
-	function handleSearchKeydown(event: KeyboardEvent): void {
-		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-			if (!searchResults.length) return;
-			event.preventDefault();
-			searchOpen = true;
-			const step = event.key === 'ArrowDown' ? 1 : -1;
-			searchActive = (searchActive + step + searchResults.length) % searchResults.length;
-		} else if (event.key === 'Enter') {
-			const result = searchResults[searchActive];
-			if (!result) return;
-			event.preventDefault();
-			openSearchResult(result);
-		} else if (event.key === 'Escape' && (searchOpen || searchQuery)) {
-			// Clear the search first; a second Escape closes Settings.
-			event.preventDefault();
-			event.stopPropagation();
-			searchQuery = '';
-			searchOpen = false;
-		}
+		rowFocusTarget<HTMLElement>(row)?.focus({ preventScroll: true });
 	}
 
 	/** "/" focuses the search field unless you are typing somewhere. */
@@ -257,7 +259,7 @@
 		const target = event.target as HTMLElement | null;
 		if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
 		event.preventDefault();
-		searchInput?.focus();
+		search?.focus();
 	}
 
 	function openAdminDashboard(event?: CustomEvent<{ section?: AdminSection }>): void {
@@ -396,26 +398,43 @@
 			<div class="settings-nav__head">
 				<h2 class="settings-nav__title" id="settings-nav-title">{$t('settings.title')}</h2>
 				{#if $isMobile}
-					<button type="button" class="w-ibtn settings-close" on:click={closeModal} aria-label="Close settings">
+					<button type="button" class="w-ibtn settings-close" on:click={closeModal} aria-label={translatedOr($t, 'common.close', 'Close')}>
 						<Icon name="x" size={18} />
 					</button>
 				{/if}
 			</div>
 			{#if $isMobile}
-				{@render searchField('phone')}
+				<SettingsSearch bind:this={search} variant="phone" {canManageAdmin} onpick={openSearchResult} />
 			{/if}
 			<div class="settings-nav__list" role="tablist" aria-orientation="vertical" aria-labelledby="settings-nav-title">
-				{#each navGroups as group (group.id)}
-					{#if group.pages.length}
-						<div class="settings-nav__kicker w-kicker" id="settings-group-{group.id}">{group.label}</div>
-						{#each group.pages as page (page.id)}
-							{@render navItem(page)}
-						{/each}
+				{#each navSections as section (section.id)}
+					{#if section.pages.length}
+						<div class="settings-nav__section" class:settings-nav__foot={section.id === 'foot'} role="presentation">
+							{#if section.label}
+								<div class="settings-nav__kicker w-kicker" id="settings-group-{section.id}">{section.label}</div>
+							{/if}
+							{#each section.pages as page (page.id)}
+								{@const selected = activeSettingsTab === page.id}
+								<button
+									type="button"
+									class="settings-tab settings-nav__item"
+									id="settings-tab-{page.id}"
+									role="tab"
+									aria-selected={selected}
+									aria-controls={selected ? 'settings-panel' : undefined}
+									tabindex={selected ? 0 : -1}
+									bind:this={tabButtons[page.id]}
+									on:click={() => selectTab(page.id)}
+									on:keydown={(event) => handleTabKeydown(event, page.id)}
+								>
+									<Icon name={page.icon} size={17} />
+									<span>{pageLabel(page, $t)}</span>
+									{#if $isMobile}<Icon name="chevRight" size={16} class="settings-nav__chev" />{/if}
+								</button>
+							{/each}
+						</div>
 					{/if}
 				{/each}
-				<div class="settings-nav__foot">
-					{@render navItem(FOOT_PAGE)}
-				</div>
 			</div>
 			<button type="button" class="settings-tab settings-signout" on:click={handleSignOut}>
 				<Icon name="logout" size={17} />
@@ -426,18 +445,21 @@
 		<div class="settings-main">
 			<header class="settings-head">
 				{#if $isMobile}
-					<button type="button" class="w-ibtn settings-back" on:click={backToList} aria-label="All settings">
+					<button type="button" class="w-ibtn settings-back" bind:this={backButton} on:click={backToList} aria-label="All settings">
 						<Icon name="chevLeft" size={18} />
 					</button>
 				{/if}
-				<h2 class="settings-head__title" id="settings-page-title">
-					<span class="settings-head__name">{pageLabel(activePage, $t)}</span>
-					{#if scopeNote}<span class="settings-head__note">{scopeNote}</span>{/if}
-				</h2>
+				<!-- The scope note sits beside the heading, not in it: the heading is the page name, and
+				     the note describes the page (aria-describedby on the panel). It drops to its own
+				     line, and wraps, when it does not fit beside the name. -->
+				<div class="settings-head__title">
+					<h2 class="settings-head__name" id="settings-page-title">{pageLabel(activePage, $t)}</h2>
+					{#if scopeNote}<p class="settings-head__note" id="settings-scope-note">{scopeNote}</p>{/if}
+				</div>
 				{#if !$isMobile}
-					{@render searchField('desk')}
+					<SettingsSearch bind:this={search} {canManageAdmin} onpick={openSearchResult} />
 				{/if}
-				<button type="button" class="w-ibtn settings-close" on:click={closeModal} aria-label="Close settings">
+				<button type="button" class="w-ibtn settings-close" on:click={closeModal} aria-label={translatedOr($t, 'common.close', 'Close')}>
 					<Icon name="x" size={18} />
 				</button>
 			</header>
@@ -447,6 +469,7 @@
 				id="settings-panel"
 				role="tabpanel"
 				aria-labelledby="settings-tab-{activeSettingsTab}"
+				aria-describedby={scopeNote ? 'settings-scope-note' : undefined}
 				tabindex="-1"
 				bind:this={contentEl}
 			>
@@ -495,7 +518,7 @@
 				{:else if activeSettingsTab === 'accessibility'}
 					<AccessibilitySettingsTab />
 				{:else if activeSettingsTab === 'appearance'}
-					<AppearanceSettingsTab />
+					<AppearanceSettingsTab {signedIn} />
 				{:else if activeSettingsTab === 'addons'}
 					<AddonSettingsTab />
 				{:else if activeSettingsTab === 'emojis'}
@@ -511,81 +534,6 @@
 		</div>
 	</div>
 </BaseModal>
-
-{#snippet navItem(page: SettingsPage)}
-	{@const selected = activeSettingsTab === page.id}
-	<button
-		type="button"
-		class="settings-tab settings-nav__item"
-		id="settings-tab-{page.id}"
-		role="tab"
-		aria-selected={selected}
-		aria-controls={selected ? 'settings-panel' : undefined}
-		tabindex={selected ? 0 : -1}
-		bind:this={tabButtons[page.id]}
-		on:click={() => selectTab(page.id)}
-		on:keydown={(event) => handleTabKeydown(event, page.id)}
-	>
-		<Icon name={page.icon} size={17} />
-		<span>{pageLabel(page, $t)}</span>
-		{#if $isMobile}<Icon name="chevRight" size={16} class="settings-nav__chev" />{/if}
-	</button>
-{/snippet}
-
-{#snippet searchField(where: 'desk' | 'phone')}
-	<div class="settings-search" class:settings-search--phone={where === 'phone'}>
-		<label class="w-field w-field--chrome settings-search__field">
-			<Icon name="search" size={16} />
-			<input
-				bind:this={searchInput}
-				bind:value={searchQuery}
-				type="text"
-				role="combobox"
-				aria-label="Search settings"
-				aria-expanded={showResults}
-				aria-controls={showResults ? 'settings-search-results' : undefined}
-				aria-autocomplete="list"
-				aria-activedescendant={showResults && searchResults.length ? `settings-search-option-${searchActive}` : undefined}
-				placeholder="Search settings"
-				autocomplete="off"
-				spellcheck="false"
-				on:input={() => {
-					searchOpen = true;
-					searchActive = 0;
-				}}
-				on:focus={() => (searchOpen = true)}
-				on:blur={() => window.setTimeout(() => (searchOpen = false), 120)}
-				on:keydown={handleSearchKeydown}
-			/>
-			{#if where === 'desk' && !searchQuery}<kbd class="w-kbd" aria-hidden="true">/</kbd>{/if}
-		</label>
-		{#if showResults}
-			<div class="settings-search__pop w-pop">
-				{#if searchResults.length}
-					<ul class="settings-search__list" id="settings-search-results" role="listbox" aria-label="Settings">
-						{#each searchResults as result, index (result.tab + result.label)}
-							<li
-								id="settings-search-option-{index}"
-								class="settings-search__option"
-								role="option"
-								aria-selected={index === searchActive}
-								on:mousedown|preventDefault={() => openSearchResult(result)}
-								on:mouseenter={() => (searchActive = index)}
-							>
-								<span class="settings-search__label">{result.label}</span>
-								<span class="settings-search__page">{result.pageLabel}</span>
-							</li>
-						{/each}
-					</ul>
-				{:else}
-					<p class="settings-search__empty" id="settings-search-results" role="status">
-						Nothing in Settings matches “{searchQuery.trim()}”.
-					</p>
-				{/if}
-			</div>
-		{/if}
-	</div>
-{/snippet}
 
 <AvatarEditor
 	bind:isOpen={showAvatarEditor}

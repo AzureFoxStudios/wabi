@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { getAuthToken } from '$lib/authSession';
-	import { currentLocale, getAvailableLocales, setAppLocale } from '$lib/i18n';
+	import { _ as t, currentLocale, getAvailableLocales, setAppLocale } from '$lib/i18n';
 	import ThemeCustomizer from '../ThemeCustomizer.svelte';
 	import UniformFontMode from '../UniformFontMode.svelte';
 	import EffectsTab from '$lib/effects/EffectsTab.svelte';
@@ -13,7 +13,9 @@
 	import Switch from '../ui/Switch.svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import { railPeekKey, type RailPeekKey } from '$lib/railPrefs';
+	import { persistRailLayout } from '$lib/railLayout';
 	import {
+		MAX_DOCK_STACK_LIMIT,
 		dockStackLimit,
 		homeLayout,
 		type HomeLayoutMode,
@@ -30,6 +32,7 @@
 	import { saveThemeToLocalStorage } from '$lib/theme/themeManager';
 	import {
 		themeCharacterWord,
+		themeChoiceAction,
 		themePickerGroups,
 		themePreviewAttributes,
 		themePreviewStyle
@@ -56,11 +59,15 @@
 		type VideoCompressionPresetOption,
 		type VideoCompressionRuntime
 	} from '$lib/video/videoCompressionSettings';
-	import { APPEARANCE_TEXT_SIZES, textSizeOptions, textSizeValue } from './settingsFrame';
+	import { APPEARANCE_TEXT_SIZES, appearanceLayoutScopeHint, dockLimitOptions, textSizeOptions, textSizeValue } from './settingsFrame';
+
+	/** Signed in to an account (Settings knows): some choices here are saved to it. */
+	export let signedIn = false;
 
 	const themeGroups = themePickerGroups(THEMES);
 	const themeCount = Object.keys(THEMES).length;
 	const languages = getAvailableLocales().map((locale) => ({ value: locale.code, label: locale.label }));
+	const dockLimits = dockLimitOptions(MAX_DOCK_STACK_LIMIT);
 
 	let nativeApp = false;
 	let ownMessagesOnRight = false;
@@ -79,8 +86,16 @@
 	let showAllThemes = false;
 	let showThemeTuning = false;
 	let themeSaveError = '';
+	/** Failed saves so far: each failure re-creates the alert so it is read out again. */
+	let themeSaveFailures = 0;
+	let themeSaveSeq = 0;
+	let themeRetrying = false;
+	let themeRetryButton: HTMLButtonElement | null = null;
 	let themeSaveTimer: ReturnType<typeof setTimeout> | null = null;
 	let themeButtons: Record<string, HTMLButtonElement | null> = {};
+
+	const THEME_SAVE_FAILED = 'Your theme could not be saved to your account. It still applies on this device.';
+	const THEME_SAVE_FAILED_AGAIN = 'Saving to your account failed again. Your theme still applies on this device.';
 
 	$: customThemeActive = $themeStore.themeId === 'custom';
 	$: selectedThemeId = customThemeActive ? null : getThemeById($themeStore.themeId)?.id ?? null;
@@ -95,12 +110,12 @@
 	$: visibleThemeIds = visibleThemeGroups.flatMap((group) => group.themes.map((theme) => theme.id));
 	// The one radio Tab lands on: the checked theme, else the first one shown.
 	$: themeTabStop = selectedThemeId && visibleThemeIds.includes(selectedThemeId) ? selectedThemeId : visibleThemeIds[0];
-	$: themeSynced = Boolean(getAuthToken());
 	$: textSizes = textSizeOptions(interfaceScale, APPEARANCE_TEXT_SIZES);
 	$: textSize = textSizeValue(interfaceScale, textSizes);
 	$: selectedPreset = videoCompressionPresetOptions.find((option) => option.id === defaultVideoCompressionPreset) ?? null;
-	$: dockLimitOptions = dockLimitChoices($dockStackLimit);
 	$: profileDecorations = $profileAppearance.showCosmetics;
+	$: languageLabel = translatedOr($t, 'settings.language', 'Language');
+	$: layoutScopeHint = appearanceLayoutScopeHint(signedIn, nativeApp);
 
 	onMount(() => {
 		nativeApp = isTauriRuntime();
@@ -125,26 +140,70 @@
 		}
 	});
 
+	function translatedOr(translate: (key: string) => string, key: string, fallback: string): string {
+		const translated = translate(key);
+		return translated && translated !== key ? translated : fallback;
+	}
+
 	// ---------------------------------------------------------------- theme
-	/** Applies at once; saving waits for a pause, so arrowing through the radios sends one save. */
+	/**
+	 * Applies at once; saving waits for a pause, so arrowing through the radios sends one save.
+	 * Choosing the shown theme again after a failed save retries it (themeChoiceAction).
+	 */
 	function chooseTheme(themeId: string) {
-		if (themeId === $themeStore.themeId) return;
-		themeStore.setThemeId(themeId);
+		const action = themeChoiceAction(themeId, $themeStore.themeId, Boolean(themeSaveError));
+		if (action === 'none') return;
+		if (action === 'apply') themeStore.setThemeId(themeId);
 		themeSaveError = '';
 		if (themeSaveTimer) clearTimeout(themeSaveTimer);
 		themeSaveTimer = setTimeout(() => {
 			themeSaveTimer = null;
 			void persistTheme(themeId);
-		}, 450);
+		}, action === 'retry' ? 0 : 450);
 	}
 
-	async function persistTheme(themeId: string) {
+	/**
+	 * Try again keeps its row, and so its focus, while the save runs (aria-busy). A repeat failure
+	 * re-reads the alert in new words; a success hands focus to the checked theme before the row
+	 * goes, so keyboard focus never falls out of the dialog.
+	 */
+	async function retryThemeSave() {
+		if (themeRetrying) return;
+		if (themeSaveTimer) {
+			clearTimeout(themeSaveTimer);
+			themeSaveTimer = null;
+		}
+		themeRetrying = true;
+		// persistTheme takes the next sequence number; a newer save started meanwhile owns the
+		// alert (and the account's copy), so this older retry must not clear it.
+		const retrySeq = themeSaveSeq + 1;
+		const saved = await persistTheme($themeStore.themeId);
+		themeRetrying = false;
+		if (!saved || retrySeq !== themeSaveSeq) return;
+		if (themeRetryButton && document.activeElement === themeRetryButton) {
+			const checked = (selectedThemeId && themeButtons[selectedThemeId]) || (themeTabStop && themeButtons[themeTabStop]) || null;
+			checked?.focus();
+		}
+		themeSaveError = '';
+		themeSaveFailures = 0;
+	}
+
+	/** True when saved. Only the latest attempt reports, so an older failure never covers a newer choice. */
+	async function persistTheme(themeId: string): Promise<boolean> {
+		const seq = ++themeSaveSeq;
 		try {
 			if (getAuthToken()) await saveThemePreferences({ theme_id: themeId });
 			else saveThemeToLocalStorage(themeId);
+			// Once no error shows, the next failure is a first failure again.
+			if (seq === themeSaveSeq && !themeSaveError) themeSaveFailures = 0;
+			return true;
 		} catch (error) {
 			console.error('[Settings] Failed to save theme:', error);
-			themeSaveError = 'Your theme could not be saved to the server. It is still applied here; choose it again to retry.';
+			if (seq === themeSaveSeq) {
+				themeSaveError = themeSaveFailures > 0 ? THEME_SAVE_FAILED_AGAIN : THEME_SAVE_FAILED;
+				themeSaveFailures += 1;
+			}
+			return false;
 		}
 	}
 
@@ -209,11 +268,19 @@
 		setOpeningSurface(surface);
 	}
 
-	/** 1–4 side by side, plus a saved larger limit so the control shows the real setting. */
-	function dockLimitChoices(current: number) {
-		const values = [1, 2, 3, 4];
-		if (Number.isFinite(current) && !values.includes(current)) values.push(current);
-		return values.sort((a, b) => a - b).map((value) => ({ value, label: String(value) }));
+	/**
+	 * The server rail's density and side live in the account's layout container (railLayout.ts).
+	 * These rows are their only writer, so they save through it: without this a change here never
+	 * reached the account and the account's older copy came back on the next load.
+	 */
+	function setRailDensity(value: RailDensity) {
+		railDensity.set(value);
+		persistRailLayout();
+	}
+
+	function setRailSide(value: RailSide) {
+		railSide.set(value);
+		persistRailLayout();
 	}
 
 	function loadWorkspaceByName(name: string) {
@@ -322,10 +389,7 @@
 
 <!-- Theme -->
 <section class="settings-block" aria-labelledby="appearance-theme-title">
-	<div class="settings-block__head">
-		<h3 class="settings-block__title" id="appearance-theme-title">Theme</h3>
-		{#if themeSynced}<span class="w-tag" title="Your theme follows your account on this server">Synced to server</span>{/if}
-	</div>
+	<h3 class="settings-block__title" id="appearance-theme-title">Theme</h3>
 	<p class="settings-block__hint">Every theme keeps the same layout; only color, corners and type change.</p>
 
 	<div class="theme-picker" role="radiogroup" aria-labelledby="appearance-theme-title">
@@ -376,19 +440,33 @@
 			<Icon name={showAllThemes ? 'chevUp' : 'chevDown'} size={16} />
 		</button>
 		{#if customThemeActive}<span class="theme-picker__custom">Using your custom theme</span>{/if}
-		<button
-			type="button"
-			class="w-disclosure theme-picker__tune"
-			aria-expanded={showThemeTuning}
-			aria-controls="appearance-theme-tuning"
-			on:click={() => (showThemeTuning = !showThemeTuning)}
-		>
-			<Icon name="chevRight" size={16} />
-			Customize theme
-		</button>
 	</div>
-	{#if themeSaveError}<p class="w-field-error settings-block__error" role="alert"><Icon name="alert" size={14} />{themeSaveError}</p>{/if}
+	{#if themeSaveError}
+		<div class="settings-block__error settings-error-row">
+			{#key themeSaveFailures}
+				<p class="w-field-error" role="alert"><Icon name="alert" size={14} />{themeSaveError}</p>
+			{/key}
+			<button
+				type="button"
+				class="w-btn w-btn--sm"
+				aria-busy={themeRetrying}
+				bind:this={themeRetryButton}
+				on:click={retryThemeSave}>Try again</button
+			>
+		</div>
+	{/if}
 
+	<!-- The older theme editors, behind their own disclosure row under the picker (§7.25). -->
+	<button
+		type="button"
+		class="w-disclosure theme-tuning__toggle"
+		aria-expanded={showThemeTuning}
+		aria-controls={showThemeTuning ? 'appearance-theme-tuning' : undefined}
+		on:click={() => (showThemeTuning = !showThemeTuning)}
+	>
+		<Icon name="chevRight" size={16} />
+		Customize theme
+	</button>
 	{#if showThemeTuning}
 		<div class="w-disclosure__body settings-disclosure__body" id="appearance-theme-tuning">
 			<div class="settings-embed"><ThemeCustomizer /></div>
@@ -429,7 +507,7 @@
 			<div class="w-srow__text">
 				<p class="w-srow__label" id="appearance-reduce-motion">Reduce motion</p>
 				<p class="w-srow__hint">
-					Panels and menus appear without sliding.{$profileOsReducedMotion ? ' Your device asks for less motion, so this stays on.' : ''}
+					Panels and menus appear without sliding.{$profileOsReducedMotion ? ' Your system setting asks for less motion, so this stays on until you change it there.' : ''}
 				</p>
 			</div>
 			<div class="w-srow__control">
@@ -452,11 +530,11 @@
 		</div>
 		<div class="w-srow">
 			<div class="w-srow__text">
-				<p class="w-srow__label" id="appearance-language">Language</p>
+				<p class="w-srow__label" id="appearance-language">{languageLabel}</p>
 				<p class="w-srow__hint">Menus and labels. Messages stay in the language they were written in.</p>
 			</div>
 			<div class="w-srow__control">
-				<Select ariaLabel="Language" heading="Language" align="end" options={languages} value={$currentLocale || 'en'} onchange={changeLanguage} />
+				<Select ariaLabel={languageLabel} heading={languageLabel} align="end" options={languages} value={$currentLocale || 'en'} onchange={changeLanguage} />
 			</div>
 		</div>
 	</div>
@@ -512,6 +590,7 @@
 <!-- Layout -->
 <section class="settings-block" aria-labelledby="appearance-layout-title">
 	<h3 class="settings-block__title" id="appearance-layout-title">Layout</h3>
+	{#if layoutScopeHint}<p class="settings-block__hint" id="appearance-layout-scope">{layoutScopeHint}</p>{/if}
 	<div class="w-srows">
 		<div class="w-srow">
 			<div class="w-srow__text">
@@ -565,7 +644,7 @@
 					labelledby="appearance-rail-density"
 					options={[{ value: 'full', label: 'Full' }, { value: 'icons-only', label: 'Icons' }, { value: 'hidden', label: 'Hidden' }]}
 					value={$railDensity}
-					onchange={(value) => railDensity.set(value as RailDensity)}
+					onchange={(value) => setRailDensity(value as RailDensity)}
 				/>
 			</div>
 		</div>
@@ -579,7 +658,7 @@
 					labelledby="appearance-rail-side"
 					options={[{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }]}
 					value={$railSide}
-					onchange={(value) => railSide.set(value as RailSide)}
+					onchange={(value) => setRailSide(value as RailSide)}
 				/>
 			</div>
 		</div>
@@ -589,11 +668,12 @@
 				<p class="w-srow__hint">How many side panels stay open together. Lowering it closes the oldest pins.</p>
 			</div>
 			<div class="w-srow__control">
-				<Segmented
-					labelledby="appearance-dock-limit"
-					options={dockLimitOptions}
-					value={$dockStackLimit}
-					onchange={(value) => layoutStore.setDockStackLimit(value)}
+				<Select
+					ariaLabel="Panels pinned side by side"
+					align="end"
+					options={dockLimits}
+					value={String($dockStackLimit)}
+					onchange={(value) => layoutStore.setDockStackLimit(Number(value))}
 				/>
 			</div>
 		</div>

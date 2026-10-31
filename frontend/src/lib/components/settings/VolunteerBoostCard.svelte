@@ -10,6 +10,7 @@
     import { infrastructureRequest } from '$lib/api/infrastructure';
     import { boosterState, canBoost, startBoosting, stopBoosting, setPeerDownloads } from '$lib/volunteerBoosters';
     import Icon from '../ui/Icon.svelte';
+    import Switch from '../ui/Switch.svelte';
     import { brandName } from '$lib/branding';
     let enabled = $state(false); let checked = $state(false); let busy = $state(false); let error = $state('');
     let name = $state('My device'); let uploadKiBPerSecond = $state(512); let cacheMiB = $state(32); let sessionMiB = $state(128);
@@ -36,6 +37,12 @@
         : checked && !enabled ? "This server's owner hasn't turned on volunteer boosting."
         : ''
     );
+    // Why the controls are off right now, in words (the boxes and switch also look disabled).
+    const statusWordUnknown = "Not available until this server's status is known.";
+    const statusWord = $derived(
+        why || (checked ? '' : error ? statusWordUnknown : 'Checking whether this server takes volunteers…')
+    );
+    const receiveLocked = $derived(!$boosterState.receiving && (!enabled || !supported));
 </script>
 
 <section class="settings-block boost" aria-labelledby="boost-title">
@@ -74,7 +81,7 @@
                     {#if $boosterState.active}
                         {$boosterState.cachedFiles} cached {$boosterState.cachedFiles === 1 ? 'file' : 'files'} · {mib($boosterState.cachedBytes)} · {mib($boosterState.sentBytes)} sent this session
                     {:else}
-                        {why || 'Starts a new upload budget each time.'}
+                        {statusWord || 'Starts a new upload budget each time.'}
                     {/if}
                 </p>
             </div>
@@ -103,14 +110,28 @@
     {/if}
 
     <button type="button" class="w-disclosure" aria-expanded={testOpen} aria-controls="boost-test" onclick={() => (testOpen = !testOpen)}>
-        <Icon name="chevRight" />Download from volunteers<span class="w-count boost__count">{mib($boosterState.receivedBytes)} received</span>
+        <Icon name="chevRight" />Download from volunteers
     </button>
     {#if testOpen}
-        <div class="w-disclosure__body" id="boost-test">
-            <label class="w-choice boost__consent" class:is-disabled={!$boosterState.receiving && (!enabled || !supported)}>
-                <input type="checkbox" class="w-check" checked={$boosterState.receiving} disabled={!$boosterState.receiving && (!enabled || !supported)} onchange={event => setPeerDownloads(event.currentTarget.checked)} />
-                <span>Try volunteer downloads on this server during this app session.</span>
-            </label>
+        <div class="w-disclosure__body boost__test" id="boost-test">
+            <div class="w-srows boost__subrows">
+                <div class="w-srow">
+                    <div class="w-srow__text">
+                        <p class="w-srow__label" id="boost-receive-label">Try volunteer downloads</p>
+                        <p class="w-srow__hint" id="boost-receive-hint">
+                            {#if receiveLocked}
+                                <!-- The first row already gives the reason under the notice; say it once. -->
+                                {statusWord === statusWordUnknown ? '' : statusWord}
+                            {:else}
+                                On this server, until you close the app.{#if $boosterState.receivedBytes > 0} {mib($boosterState.receivedBytes)} received so far.{/if}
+                            {/if}
+                        </p>
+                    </div>
+                    <div class="w-srow__control">
+                        <Switch labelledby="boost-receive-label" describedby="boost-receive-hint" checked={$boosterState.receiving} disabled={receiveLocked} onchange={(on) => setPeerDownloads(on)} />
+                    </div>
+                </div>
+            </div>
             <p class="boost__note">Optional, even when you volunteer. Downloading from a member shows them your network address. Every file is checked against the server’s copy; anything missing or wrong comes from the server instead.</p>
         </div>
     {/if}
@@ -126,8 +147,12 @@
     .boost__consent { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 12px; color: var(--w-text); font: var(--w-t-small); cursor: pointer; }
     .boost__consent :global(.w-check) { flex: none; margin-top: 1px; }
     .boost__consent.is-disabled { color: var(--w-mute); cursor: not-allowed; }
+    /* A box that can't be ticked yet reads as such: sunk, on a faint edge (the kit also dims it). */
+    .boost__consent.is-disabled :global(.w-check) { border-color: var(--w-line); background: var(--w-sink); }
     .boost__note { margin: 10px 0 0; color: var(--w-mute); font: var(--w-t-small); }
-    .boost__count { margin-left: auto; }
+    .boost__subrows { border-top: 0; }
+    .boost__subrows > :global(.w-srow:last-child) { border-bottom: 0; }
+    .boost__test { padding: 0 0 12px; }
     .boost > :global(.w-disclosure) { margin-top: 12px; border-bottom: var(--w-bw) solid var(--w-line); }
     .boost > :global(.w-disclosure + .w-disclosure) { margin-top: 0; }
     .boost__limits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; padding: 12px 0 16px; border-top: 0; }

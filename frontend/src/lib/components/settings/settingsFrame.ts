@@ -103,24 +103,98 @@ export function resolveSettingsRequest(request: SettingsRequest | string | null 
 export const DEVICE_SCOPE_NOTE = 'Saved on this device · not shared';
 
 /**
- * The header's scope note (§9.3): device pages say they stay here, community pages say who sees
- * them. Pages that mix both, or describe rather than store, have none.
+ * Appearance for a signed-in account names what the header can say truthfully for the whole
+ * page: the theme (and its tuning) and an uploaded chat background image are saved to the account
+ * (saveThemePreferences, persistBackgroundImageSetting). It makes no claim about "the rest": some
+ * Layout rows follow the account too, and the Layout section says which
+ * (appearanceLayoutScopeHint). Short enough to sit beside the page title at the 1040 dialog.
  */
-export function settingsScopeNote(tab: SettingsTab, communityName: string): string {
+export const APPEARANCE_ACCOUNT_SCOPE_NOTE = 'Theme and background image follow your account';
+
+/**
+ * The Layout section's one-line locality hint, signed in: the rows of a THIS DEVICE page that
+ * follow the account instead. Navigation side and the desktop app's layout presets live in the
+ * workspace layout that queuePersist also PUTs to /api/user/layout (the newer copy wins when
+ * another device loads), and the server rail's density and side sit in the same account container
+ * (railLayout.ts). Open to, Visible navigation, Panels pinned side by side and Peek a side panel
+ * stay in this browser, as the page's nav group says. Signed out nothing leaves the device, which
+ * the page header already says, so there is no line.
+ */
+export function appearanceLayoutScopeHint(signedIn: boolean, layoutPresets: boolean): string {
+	if (!signedIn) return '';
+	return layoutPresets
+		? 'Navigation side, the server rail and layout presets follow your account.'
+		: 'Navigation side and the server rail follow your account.';
+}
+
+/**
+ * The header's scope note (§9.3), said once for the whole page: device pages say they stay here,
+ * community pages say who sees them. Pages that mix both, or describe rather than store, have
+ * none and say it in their sections instead (Notifications keeps sounds here, but its push
+ * choices are account switches that reach every device on the account).
+ */
+export function settingsScopeNote(tab: SettingsTab, communityName: string, signedIn = false): string {
 	switch (tab) {
 		case 'appearance':
+			return signedIn ? APPEARANCE_ACCOUNT_SCOPE_NOTE : DEVICE_SCOPE_NOTE;
 		case 'accessibility':
 		case 'audio':
 		case 'addons':
-		case 'notifications':
 			return DEVICE_SCOPE_NOTE;
 		case 'profile':
+			// The page also holds the password and payment references, which members never see,
+			// so the note names what they do see.
+			return `Your profile is visible to members of ${communityName.trim() || 'this community'}`;
 		case 'emojis':
 		case 'admin':
 			return `Visible to members of ${communityName.trim() || 'this community'}`;
 		default:
 			return '';
 	}
+}
+
+// ---------------------------------------------------------------------------- landing on a row
+
+/**
+ * What a search jump focuses inside the row it lands on, best first: the checked option of a
+ * segmented control or radio group (never an unchecked key, where one Space press would change
+ * the setting), then the row's tab stop, then its first enabled control.
+ */
+export const ROW_FOCUS_SELECTORS = [
+	'[role="radio"][aria-checked="true"]',
+	'[tabindex="0"]',
+	'button:not([tabindex="-1"]):not(:disabled), input:not([type="hidden"]):not([tabindex="-1"]):not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]'
+] as const;
+
+export function rowFocusTarget<T>(row: { querySelector(selector: string): T | null }): T | null {
+	for (const selector of ROW_FOCUS_SELECTORS) {
+		const found = row.querySelector(selector);
+		if (found) return found;
+	}
+	return null;
+}
+
+/**
+ * The page scroller's scrollTop that centres a row in it (rects in viewport pixels). Only the
+ * page column scrolls: scrollIntoView would also scroll the clipped dialog frame around it.
+ */
+export function centeredScrollTop(
+	scroller: { scrollTop: number; top: number; height: number; scrollHeight: number },
+	row: { top: number; height: number }
+): number {
+	const offset = row.top - scroller.top - Math.max(0, (scroller.height - row.height) / 2);
+	const max = Math.max(0, scroller.scrollHeight - scroller.height);
+	return Math.min(max, Math.max(0, Math.round(scroller.scrollTop + offset)));
+}
+
+// ---------------------------------------------------------------------------- layout
+
+/** "Panels pinned side by side": every limit the layout store accepts (1…max). */
+export function dockLimitOptions(max: number): Array<{ value: string; label: string }> {
+	return Array.from({ length: Math.max(1, Math.floor(max)) }, (_, index) => {
+		const count = index + 1;
+		return { value: String(count), label: count === 1 ? '1 panel' : `${count} panels` };
+	});
 }
 
 // ---------------------------------------------------------------------------- search
@@ -171,6 +245,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
 	{ tab: 'appearance', label: 'Video compression', keywords: ['upload', 'video quality'] },
 	{ tab: 'appearance', label: 'Profile decorations', keywords: ['cosmetics', 'nameplates', 'styled names', 'banners'] },
 	{ tab: 'appearance', label: 'Customize theme', keywords: ['custom theme', 'fonts', 'effects', 'colors'] },
+	{ tab: 'appearance', label: 'Pointer effects', keywords: ['cursor', 'mouse', 'trail', 'feelers'] },
 	{ tab: 'appearance', label: 'Performance', keywords: ['animations', 'pop-out', 'windows', 'spring'] },
 	{ tab: 'accessibility', label: 'Text size', keywords: ['interface scale', 'zoom', 'larger'] },
 	{ tab: 'accessibility', label: 'Color assist', keywords: ['colour assist', 'saturation', 'contrast', 'filters'] },

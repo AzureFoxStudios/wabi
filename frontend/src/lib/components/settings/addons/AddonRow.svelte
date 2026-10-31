@@ -17,6 +17,8 @@
 		enabled?: boolean;
 		/** Compiled in or always on: the state is a fact, not a control. */
 		locked?: boolean;
+		/** The word a locked row shows for its state, when "Always on" / "Off in this build" isn't true. */
+		fixedWord?: string;
 		/** Where it comes from ("Chat", "On this server", "Comes with this app"). */
 		badge?: string;
 		/** A small fact shown with the options (version, server address). */
@@ -32,6 +34,7 @@
 		description = '',
 		enabled = false,
 		locked = false,
+		fixedWord,
 		badge = '',
 		meta = '',
 		onToggle,
@@ -71,7 +74,7 @@
 				</button>
 			{/if}
 			{#if fixed}
-				<span class="w-addon__fixed">{enabled ? 'Always on' : 'Off in this build'}</span>
+				<span class="w-addon__fixed">{fixedWord ?? (enabled ? 'Always on' : 'Off in this build')}</span>
 			{:else}
 				<button
 					type="button"

@@ -149,10 +149,13 @@
 	border-color: var(--page-edge);
 }
 
+/* Name and character word share a line while they fit; at larger text sizes the word moves
+   under the name and the name wraps by word, so neither is cut off. */
 .theme-option__name {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
-	gap: 6px;
+	gap: 2px 6px;
 	min-width: 0;
 	color: var(--w-text);
 	font: var(--w-t-caption);
@@ -164,10 +167,9 @@
 	color: var(--w-accent);
 }
 .theme-option__label {
+	flex: 0 1 auto;
 	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	overflow-wrap: anywhere;
 }
 .theme-option__word {
 	flex: none;
@@ -191,19 +193,12 @@
 	text-decoration: underline;
 	text-underline-offset: 3px;
 }
-/* "Customize theme" opens the older theme editors under the picker; quiet, at the row's end. */
-.theme-picker__foot .theme-picker__tune {
-	width: auto;
-	height: 32px;
-	margin-left: auto;
-	color: var(--w-mute);
-}
-.theme-picker__foot .theme-picker__tune:hover {
-	color: var(--w-text);
-}
-.theme-picker__foot + .settings-disclosure__body,
-.theme-picker__foot + .settings-block__error + .settings-disclosure__body {
-	margin-top: 12px;
+/* "Customize theme": its own 40px disclosure row under the picker, on a top rule (§7.25); the
+   opened editors sit under the body's own rule. */
+/* .settings-content lifts this over the kit's `.w-disclosure { border: 0 }`, which loads later. */
+.settings-content .theme-tuning__toggle {
+	margin-top: 14px;
+	border-top: var(--w-bw) solid var(--w-line);
 }
 .theme-picker__custom {
 	color: var(--w-mute);
@@ -230,37 +225,44 @@
 	height: 100%;
 	object-fit: cover;
 }
+/* Message rows as the stream draws them: avatar, then name over text; no bubbles (§7.18). */
 .backdrop-preview__copy {
 	position: relative;
 	z-index: 1;
 	display: grid;
-	gap: 10px;
-	padding: 20px;
+	gap: 14px;
+	padding: 20px 22px;
+}
+.backdrop-preview__row {
+	display: grid;
+	grid-template-columns: 32px minmax(0, 1fr);
+	align-items: start;
+	gap: 12px;
+}
+.backdrop-preview__avatar {
+	display: grid;
+	place-items: center;
+	width: 32px;
+	height: 32px;
+	border-radius: var(--w-avr);
+	background: var(--w-raise);
+	color: var(--w-mute);
+	font: var(--w-t-label);
 }
 .backdrop-preview__msg {
 	display: grid;
 	gap: 2px;
-	width: min(80%, 26rem);
+	max-width: 60ch;
 	margin: 0;
-	padding: 10px 12px;
-	border: var(--w-bw) solid var(--w-line);
-	border-radius: var(--radius-lg);
-	background: var(--w-bg2);
 	color: var(--w-text);
-	font: var(--w-t-small);
+	font: var(--w-t-ui);
 }
 .backdrop-preview__msg > b {
 	font: var(--w-t-label);
 }
-.backdrop-preview__msg--own {
-	justify-self: end;
-}
+/* The file input is never rendered: the Choose file button opens it. */
 .backdrop-file {
-	position: absolute;
-	width: 1px;
-	height: 1px;
-	opacity: 0;
-	pointer-events: none;
+	display: none;
 }
 
 /* Add-ons › Appearance: timed theme fields. */

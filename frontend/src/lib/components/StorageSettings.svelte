@@ -22,7 +22,8 @@
   let olderOpen = $state(false);
   let mounted = false;
   const isTauri = isTauriRuntime();
-  const NOT_READY = 'Not ready yet. Check again once the app has connected.';
+  // Said once, under "Waiting on this device"; the rows above describe what they do.
+  const NOT_READY = `Not ready yet. Check again once ${brandName} has connected.`;
 
   /** The member-facing scopes: chat sends can be switched; required app actions are a fact. */
   const chatScope = $derived(scopes.find((scope) => scope.scopeId === 'corechat') ?? null);
@@ -122,9 +123,7 @@
         <div class="w-srow__text">
           <p class="w-srow__label" id="storage-chat-label">Send chat messages later</p>
           <p class="w-srow__hint">
-            {#if !ready}
-              Available once {brandName} has connected.
-            {:else if !chatScope}
+            {#if ready && !chatScope}
               This server doesn't support waiting messages.
             {:else}
               Messages you send without a connection wait on this device and go out when {brandName} reconnects.

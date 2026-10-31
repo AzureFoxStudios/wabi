@@ -13,7 +13,7 @@
 	import Icon from '../ui/Icon.svelte';
 	import Segmented from '../ui/Segmented.svelte';
 	import Switch from '../ui/Switch.svelte';
-	import { guestSwitchAvailable, guestsAllowed, joinModeOf, policyForJoinMode, type AuthPolicy, type JoinMode } from './adminJoinPolicy';
+	import { guestSwitchAvailable, guestsAllowed, joinModeOf, needsEmailCheck, policyForJoinMode, type AuthPolicy, type JoinMode } from './adminJoinPolicy';
 
 	const dispatch = createEventDispatcher<{ openDashboard: { section: AdminSection } }>();
 	const canManageAdmin = $derived(['owner', 'admin'].includes($currentUser?.highestRole ?? ''));
@@ -95,6 +95,8 @@
 								{label('login.wizard.join_open_desc', 'Anyone who reaches this server can create an account.')}
 							{:else if joinMode === 'invite'}
 								People need an invite link to create an account.
+							{:else if joinMode === 'unsupported'}
+								This server is set to check email first, which this version can't do, so no one can join. Choose who can join to fix it.
 							{:else}
 								{label('login.wizard.join_closed_desc', 'No one else can create an account on this server.')} Invite links can't create accounts either.
 							{/if}
@@ -118,8 +120,10 @@
 					<div class="w-srow__text">
 						<p class="w-srow__label" id="admin-join-guest">{label('login.wizard.join_guest_label', 'Allow guest access')}</p>
 						<p class="w-srow__hint" id="admin-join-guest-hint">
-							{#if policy && !guestSwitchAvailable(policy)}
-								Invite-only servers don't take guests.
+							{#if policy && needsEmailCheck(policy)}
+								Choose who can join first.
+							{:else if policy && !guestSwitchAvailable(policy)}
+								{joinMode === 'invite' ? "Invite-only servers don't take guests." : "This server doesn't take guests while it's closed."}
 							{:else}
 								{label('login.wizard.join_guest_desc', 'Let people join as temporary guests without an account.')}
 							{/if}

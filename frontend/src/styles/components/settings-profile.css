@@ -289,6 +289,30 @@
 	text-underline-offset: 3px;
 }
 
+/* ---------- name style ----------
+   The studio (UsernameFontCustomizer) has its own save, so it waits behind a closed disclosure
+   under this block's serif title. Its own kicker, heading and "Free to create & share" label
+   repeat that title, so they are hidden here; the heading stays in the tree (clipped, not
+   display: none) because "Use design" in the artwork guide focuses it. Remove these three
+   rules once the studio drops its own heading (handoff). */
+.w-profile__studio-body {
+	padding-top: 16px;
+}
+.w-profile__studio-body[hidden] {
+	display: none;
+}
+.w-profile .w-profile__studio-body .studio-heading > div > :is(.studio-kicker, h3) {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+.w-profile .w-profile__studio-body .studio-free-label {
+	display: none;
+}
+
 /* ---------- account ---------- */
 /* The password row stacks: label and hint over a small form, so the fields keep their width. */
 .w-profile__password {

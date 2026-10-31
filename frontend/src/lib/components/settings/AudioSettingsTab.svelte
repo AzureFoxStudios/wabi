@@ -13,8 +13,9 @@
 	import Select from '../ui/Select.svelte';
 	import Switch from '../ui/Switch.svelte';
 	import ConnectionDiagnostics from './ConnectionDiagnostics.svelte';
-	import { readConnectionDetailsPreference, writeConnectionDetailsPreference } from './connectionDetailsSetting';
-	import { audioProcessingRuntimeStatus, clearAudioPerformanceFallbackOverride, applyCurrentAudioProcessingToLocalTrack, refreshLocalAudioMuteState, refreshSpatialAudioRuntime, spatialAudioRuntimeStatus } from '$lib/calling';
+	import { readConnectionDetailsPreference, shouldMirrorConnectionDetails, writeConnectionDetailsPreference } from './connectionDetailsSetting';
+	import { callSessions } from '$lib/callSessionManager';
+	import { isInCall, audioProcessingRuntimeStatus, clearAudioPerformanceFallbackOverride, applyCurrentAudioProcessingToLocalTrack, refreshLocalAudioMuteState, refreshSpatialAudioRuntime, spatialAudioRuntimeStatus } from '$lib/calling';
 	import { refreshCallRecordingMix } from '$lib/callRecording';
 	import { DESKTOP_HELPER_PROFILE_KEY, desktopHelperState, syncDesktopHelperService, type DesktopHelperProfileMode } from '$lib/desktopHelper';
 	import { getTauriPlatform } from '$lib/tauri-platform';
@@ -71,7 +72,9 @@
 	function setConnectionDetailsDuringCalls(on: boolean): void {
 		connectionDetailsDuringCalls = on;
 		writeConnectionDetailsPreference(on);
-		callConnectionDetailsOpen.set(on);
+		// Settings never moves a live call: opening the details uncovers the Calls page, which docks a
+		// full-window call and changes center stage. Outside a call, the next call follows the switch.
+		if (shouldMirrorConnectionDetails(get(isInCall), get(callSessions).size)) callConnectionDetailsOpen.set(on);
 	}
 
 	const micOptions = $derived([
@@ -398,7 +401,7 @@
 				<div class="w-srow">
 					<div class="w-srow__text">
 						<p class="w-srow__label" id="audio-conn-label">Show connection details during calls</p>
-						<p class="w-srow__hint" id="audio-conn-hint">Latency, packet loss and the route on the Calls page while you are in a call. Off by default.</p>
+						<p class="w-srow__hint" id="audio-conn-hint">Latency, packet loss and the route on the Calls page, from your next call. During a call, open them from the call's options.</p>
 					</div>
 					<div class="w-srow__control"><Switch labelledby="audio-conn-label" describedby="audio-conn-hint" checked={connectionDetailsDuringCalls} onchange={setConnectionDetailsDuringCalls} /></div>
 				</div>
@@ -433,9 +436,12 @@
 		margin-top: 16px;
 		border-top: var(--w-bw) solid var(--w-line);
 	}
+	/* §7.25: a disclosure's content is not indented. The header's rule is its top rule; the body
+	   closes with its own, so the next header is separated from the last row. */
 	.audio-tab :global(.w-disclosure__body) {
+		padding: 0 0 8px;
 		border-top: 0;
-		padding: 0 0 8px 24px;
+		border-bottom: var(--w-bw) solid var(--w-line);
 	}
 	.audio-subrows {
 		border-top: 0;
@@ -494,9 +500,6 @@
 	@media (max-width: 600px) {
 		.audio-range {
 			width: 140px;
-		}
-		.audio-tab :global(.w-disclosure__body) {
-			padding-left: 0;
 		}
 	}
 </style>

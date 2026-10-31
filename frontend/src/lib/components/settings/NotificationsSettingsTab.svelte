@@ -705,7 +705,7 @@
 		<div class="w-srow">
 			<div class="w-srow__text">
 				<p class="w-srow__label" id="notif-sound-label">Notification sound</p>
-				<p class="w-srow__hint">{notificationSound === DEFAULT_SOUND ? 'The Wabi chime.' : `Your file: ${notificationSoundLabel}.`} Sounds play after you have clicked somewhere in {brandName}.</p>
+				<p class="w-srow__hint">{notificationSound === DEFAULT_SOUND ? 'The built-in chime.' : `Your file: ${notificationSoundLabel}.`} Sounds play after you have clicked somewhere in {brandName}.</p>
 			</div>
 			<div class="w-srow__control">
 				<button type="button" class="w-btn w-btn--sm w-btn--quiet" on:click={testNotificationSound}>Play</button>
