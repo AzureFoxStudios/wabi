@@ -13,7 +13,13 @@
      the controls and the reading style; this sheet places them. It loads before the kit, so a
      rule that changes a kit property is scoped under .wiki-channel.
    - Center stage sizes every h1 at 28px / 1.15 (surfaces/headings.css); the wiki's title and
-     prose heading sizes are restated in surfaces/reading.css, the slot after it.
+     prose heading sizes are restated in surfaces/reading.css, the slot after it. The title size
+     is one pair of custom properties (--wiki-title-fs / -lh) set here per tier, so the reading
+     title and the Edit title field are always the same size and no rule elsewhere outranks one.
+   - One reading block per pane (--wiki-block): the 720 column, plus the 40px gap and a 240px
+     margin column when the pane carries ON THIS PAGE beside the page (.is-wide). The breadcrumb
+     row's inner line, the article, the Edit and New page columns and the overview all sit on it,
+     so the breadcrumbs and the title share one left edge and pressing Edit moves nothing.
    - One scroller per column: the tree column and the reading pane (the body when the tree
      stacks; the panel host in the companion). Nothing nests a scroller.
    ========================================================================== */
@@ -26,17 +32,23 @@
 }
 
 .wiki-channel {
-	/* The page has its own title, so the writing surface's heading sizes step down one level
-	   to match the reading view (WritingEditor reads these). */
+	/* The page has its own title, so a Markdown # reads as a section (the prose H2 size) and
+	   never as a second title; ## and ### keep the one prose style (WritingEditor reads these). */
 	--writing-h1: calc(22px * var(--w-fs));
 	--writing-h1-lh: calc(30px * var(--w-fs));
-	--writing-h2: calc(18px * var(--w-fs));
-	--writing-h2-lh: calc(24px * var(--w-fs));
-	--writing-h3: calc(16px * var(--w-fs));
-	--writing-h3-lh: calc(22px * var(--w-fs));
-	--writing-h4: calc(15px * var(--w-fs));
+	--writing-h2: calc(22px * var(--w-fs));
+	--writing-h2-lh: calc(30px * var(--w-fs));
+	--writing-h3: calc(18px * var(--w-fs));
+	--writing-h3-lh: calc(24px * var(--w-fs));
+	--writing-h4: calc(16px * var(--w-fs));
 	--writing-h4-lh: calc(22px * var(--w-fs));
+	/* The page title, reading and writing (§8.7 serif 34/40; 28/34 on phones, 24/30 in the panel). */
+	--wiki-title-fs: calc(34px * var(--w-fs));
+	--wiki-title-lh: calc(40px * var(--w-fs));
+	/* The shell's stage gutter: 32, 24 at ≤1100px, 16 on phones (tokens.css). */
 	--wiki-gutter: var(--w-gutter, 32px);
+	--wiki-icon-btn: 32px;
+	--wiki-crumbs-h: 44px;
 	container: wiki / inline-size;
 	position: relative;
 	display: flex;
@@ -203,6 +215,7 @@
 
 /* ---------- the reading pane ---------- */
 .wiki-content-pane {
+	--wiki-block: 720px;
 	container: wiki-page / inline-size;
 	position: relative;
 	min-width: 0;
@@ -219,6 +232,10 @@
 	right: 0;
 	z-index: 3;
 }
+/* 720 + 40 + 240: the column and the margin column (wikiReading.paneHasMargin). */
+.wiki-content-pane.is-wide {
+	--wiki-block: 1000px;
+}
 .wiki-content-pane:fullscreen {
 	width: 100vw;
 	height: 100vh;
@@ -226,19 +243,24 @@
 	background: var(--w-bg);
 }
 
-/* Breadcrumb row (44): Wiki › parent › page, then the page's actions. Sticky over the page. */
+/* Breadcrumb row (44): Wiki › parent › page, then the page's actions. Sticky over the page; its
+   hairline runs the pane's width, its line sits on the reading block. */
 .wiki-crumbs-row {
 	position: sticky;
 	top: 0;
 	z-index: 2;
+	padding: 0 var(--wiki-gutter);
+	border-bottom: var(--w-bw) solid var(--w-line);
+	background: var(--w-bg);
+}
+.wiki-crumbs-inner {
 	display: flex;
 	align-items: center;
 	gap: 8px;
 	box-sizing: border-box;
-	min-height: 44px;
-	padding: 0 var(--wiki-gutter);
-	border-bottom: var(--w-bw) solid var(--w-line);
-	background: var(--w-bg);
+	max-width: var(--wiki-block);
+	min-height: var(--wiki-crumbs-h);
+	margin: 0 auto;
 }
 .wiki-crumbs {
 	flex: 1 1 auto;
@@ -259,10 +281,16 @@
 	gap: 4px;
 	min-width: 0;
 }
+/* "Wiki" never shrinks (it is the way back to the overview); the current page takes the cut. */
+.wiki-crumbs li:first-child {
+	flex: none;
+}
 .wiki-crumbs li:last-child {
 	flex: 0 1 auto;
 }
 .wiki-crumb {
+	display: block;
+	box-sizing: border-box;
 	min-width: 0;
 	max-width: 22ch;
 	margin: 0;
@@ -304,25 +332,32 @@ button.wiki-crumb:hover {
 .wiki-write-actions {
 	gap: 8px;
 }
+/* Cancel is a word; on phones, where the row is short of room, the close glyph (wiki.css below). */
+.wiki-channel .wiki-cancel-icon {
+	display: none;
+}
 .wiki-channel .wiki-pages-toggle {
 	display: none;
 	flex: none;
 }
 
-/* ---------- the page: one 720 column, the outline in the right margin ---------- */
+/* ---------- the page: one 720 column on the reading block, the outline in its margin ---------- */
 .wiki-page {
 	display: grid;
 	grid-template-columns: minmax(0, 720px);
-	justify-content: center;
+	box-sizing: content-box;
+	max-width: var(--wiki-block);
+	margin: 0 auto;
 	padding: 0 var(--wiki-gutter) 64px;
 }
-.wiki-page.has-margin {
-	grid-template-columns: minmax(0, 1fr) minmax(0, 720px) minmax(200px, 1fr);
-	column-gap: 48px;
-	justify-content: stretch;
+/* The margin column only exists where the article keeps 600px or more beside it; it stays (empty)
+   while writing and on pages without an outline, so the column never moves. */
+.wiki-content-pane.is-wide .wiki-page {
+	grid-template-columns: minmax(0, 720px) minmax(200px, 240px);
+	column-gap: 40px;
 }
-.wiki-page.has-margin > .wiki-article {
-	grid-column: 2;
+.wiki-page > .wiki-article {
+	grid-column: 1;
 }
 .wiki-page--notice {
 	padding-bottom: 0;
@@ -341,7 +376,7 @@ button.wiki-crumb:hover {
 }
 .wiki-article-title {
 	color: var(--w-text);
-	font: 600 calc(34px * var(--w-fs)) / calc(40px * var(--w-fs)) var(--w-serif);
+	font: 600 var(--wiki-title-fs) / var(--wiki-title-lh) var(--w-serif);
 	letter-spacing: 0.005em;
 	text-wrap: balance;
 	overflow-wrap: break-word;
@@ -403,8 +438,8 @@ button.wiki-crumb:hover {
 	object-fit: cover;
 }
 
-/* The article's prose: the kit .w-prose; the page has its own title, so Markdown headings read
-   one step down (# as a section, ## as a subsection) and never as a second title. */
+/* The article's prose: the kit .w-prose, the one prose style (H2 22/30, H3 18/24). The page has
+   its own title, so only a Markdown # steps down, to the H2 size: never a second title. */
 .wiki-prose {
 	min-width: 0;
 }
@@ -412,16 +447,8 @@ button.wiki-crumb:hover {
 	font-size: calc(22px * var(--w-fs));
 	line-height: calc(30px * var(--w-fs));
 }
-.wiki-article .w-prose h2 {
-	font: var(--w-t-heading);
-}
-.wiki-article .w-prose > h2:not(:first-child) {
-	margin-top: 32px;
-}
-.wiki-article .w-prose h3 {
-	font: var(--w-t-subhead);
-	font-size: calc(16px * var(--w-fs));
-	line-height: calc(22px * var(--w-fs));
+.wiki-article .w-prose > h1:not(:first-child) {
+	margin-top: 40px;
 }
 .wiki-article .w-prose :is(h1, h2, h3, h4) {
 	scroll-margin-top: 60px;
@@ -445,13 +472,13 @@ button.wiki-crumb:hover {
 
 /* ON THIS PAGE in the right margin: sticky under the breadcrumb row, top-aligned with the title. */
 .wiki-margin {
-	grid-column: 3;
+	grid-column: 2;
 	position: sticky;
-	top: 44px;
+	top: var(--wiki-crumbs-h);
 	align-self: start;
 	box-sizing: border-box;
 	max-width: 240px;
-	max-height: calc(100dvh - var(--w-mast, 96px) - 44px);
+	max-height: calc(100dvh - var(--w-mast, 96px) - var(--wiki-crumbs-h));
 	padding: 48px 0 24px;
 	overflow-y: auto;
 }
@@ -528,7 +555,7 @@ button.wiki-crumb:hover {
 	border-radius: 0;
 	background: transparent;
 	color: var(--w-text);
-	font: 600 calc(34px * var(--w-fs)) / calc(40px * var(--w-fs)) var(--w-serif);
+	font: 600 var(--wiki-title-fs) / var(--wiki-title-lh) var(--w-serif);
 	letter-spacing: 0.005em;
 	outline: none;
 }
@@ -536,16 +563,28 @@ button.wiki-crumb:hover {
 	color: var(--w-faint);
 	opacity: 1;
 }
-/* The head's hairline is the title field's edge: accent (2px) while the title has focus. */
-.wiki-article--writing .wiki-article-head {
-	transition: border-color var(--w-dur-1) var(--w-ease), box-shadow var(--w-dur-1) var(--w-ease);
+/* Focus is the kit's 2px accent outline on the field itself (§4.6), so it never depends on :has(). */
+.wiki-title-input:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 4px;
+	border-radius: var(--radius-sm);
 }
-.wiki-article--writing .wiki-article-head:has(.wiki-title-input:focus-visible) {
-	border-bottom-color: var(--w-accent);
-	box-shadow: 0 1px 0 var(--w-accent);
-}
+/* A title the page cannot be saved with: the head's hairline is the field's edge (§7.3), in danger,
+   next to the danger mark and words in the meta line. */
 .wiki-article--writing .wiki-article-head:has(.wiki-title-input[aria-invalid='true']) {
 	border-bottom-color: var(--w-danger);
+}
+/* mobile.css sets every input to 16px !important under 768px (iOS zoom). The title field is the
+   page title, larger than 16px already, so it keeps its size: this !important only defeats that
+   one, and max() keeps it at 16px or more. */
+@media (max-width: 768px) {
+	.wiki-channel .wiki-title-input {
+		font-size: max(16px, var(--wiki-title-fs)) !important;
+	}
+}
+.wiki-meta-status .w-dot {
+	margin-right: 6px;
+	vertical-align: 1px;
 }
 .wiki-channel .wiki-writer {
 	--writing-min: calc(360px * var(--w-fs));
@@ -726,35 +765,69 @@ button.wiki-crumb:hover {
 	margin: 0;
 }
 
-/* ---------- narrow pane: a 16px gutter, the page title at 28/34, icon-only actions ---------- */
-@container wiki-page (max-width: 639.98px) {
-	.wiki-crumbs-row,
+/* ---------- narrow panes: phones, the panel, a narrow desktop pane ---------- */
+/* Phones read the page title at 28/34; a desktop pane keeps 34/40 down to 560px. */
+@media (max-width: 599.98px) {
+	.wiki-channel {
+		--wiki-title-fs: calc(28px * var(--w-fs));
+		--wiki-title-lh: calc(34px * var(--w-fs));
+	}
+}
+@container wiki-page (max-width: 559.98px) {
 	.wiki-page {
-		--wiki-gutter: 16px;
+		--wiki-title-fs: calc(28px * var(--w-fs));
+		--wiki-title-lh: calc(34px * var(--w-fs));
 	}
 	.wiki-article {
 		padding-top: 28px;
 	}
-	.wiki-article-title,
-	.wiki-title-input {
-		font-size: calc(28px * var(--w-fs));
-		line-height: calc(34px * var(--w-fs));
-	}
-	.wiki-channel .wiki-action-words {
+	.wiki-channel :is(.wiki-insert, .wiki-edit-btn) .wiki-action-words {
 		display: none;
 	}
-	.wiki-channel .wiki-insert,
-	.wiki-channel .wiki-edit-btn {
-		width: 32px;
+	.wiki-channel :is(.wiki-insert, .wiki-edit-btn) {
+		width: var(--wiki-icon-btn);
 		padding: 0;
 		justify-content: center;
 	}
 }
-@container wiki-page (max-width: 459.98px) {
-	.wiki-write-actions {
-		gap: 4px;
+/* While writing, the breadcrumbs keep their own line and the tools take a second one, Insert and
+   Write | Preview first, Cancel and the primary at the end: the one row would not fit. */
+@container wiki-page (max-width: 599.98px) {
+	.wiki-crumbs-row--writing .wiki-crumbs-inner {
+		flex-wrap: wrap;
+		column-gap: 8px;
 	}
-	.wiki-crumbs li:not(:last-child) {
+	.wiki-crumbs-row--writing .wiki-crumbs {
+		flex: 1 1 0;
+		min-height: var(--wiki-crumbs-h);
+		display: flex;
+		align-items: center;
+	}
+	.wiki-crumbs-row--writing .wiki-write-actions {
+		flex: 1 1 100%;
+		flex-wrap: wrap;
+		gap: 6px 4px;
+		margin-left: 0;
+		padding-bottom: 8px;
+	}
+	.wiki-crumbs-row--writing .wiki-cancel {
+		margin-left: auto;
+	}
+}
+@container wiki-page (max-width: 459.98px) {
+	.wiki-channel .wiki-cancel .wiki-action-words {
+		display: none;
+	}
+	.wiki-channel .wiki-cancel .wiki-cancel-icon {
+		display: inline-block;
+	}
+	.wiki-channel .wiki-cancel {
+		width: var(--wiki-icon-btn);
+		padding: 0;
+		justify-content: center;
+	}
+	/* Wiki › … › page: the way back to the overview stays; the parents between step out. */
+	.wiki-crumbs li:not(:first-child, :last-child) {
 		display: none;
 	}
 }
@@ -803,6 +876,8 @@ button.wiki-crumb:hover {
 }
 .wiki-channel.in-panel {
 	--wiki-gutter: 16px;
+	--wiki-title-fs: calc(24px * var(--w-fs));
+	--wiki-title-lh: calc(30px * var(--w-fs));
 	height: auto;
 	min-height: 100%;
 	background: var(--w-bg2);
@@ -838,20 +913,20 @@ button.wiki-crumb:hover {
 .wiki-channel.in-panel .wiki-article {
 	padding-top: 24px;
 }
-.wiki-channel.in-panel .wiki-article-title,
-.wiki-channel.in-panel .wiki-title-input {
-	font-size: calc(24px * var(--w-fs));
-	line-height: calc(30px * var(--w-fs));
+/* The panel's 24/30 title wins over the phone and narrow-pane tiers. */
+.wiki-channel.in-panel .wiki-page {
+	--wiki-title-fs: calc(24px * var(--w-fs));
+	--wiki-title-lh: calc(30px * var(--w-fs));
 }
 .wiki-channel.in-panel .w-prose {
 	font-size: calc(15px * var(--w-fs));
 	line-height: calc(26px * var(--w-fs));
 }
-.wiki-channel.in-panel .wiki-article .w-prose h1 {
+.wiki-channel.in-panel .wiki-article .w-prose :is(h1, h2) {
 	font-size: calc(19px * var(--w-fs));
 	line-height: calc(26px * var(--w-fs));
 }
-.wiki-channel.in-panel .wiki-article .w-prose h2 {
+.wiki-channel.in-panel .wiki-article .w-prose h3 {
 	font-size: calc(16px * var(--w-fs));
 	line-height: calc(22px * var(--w-fs));
 }
@@ -859,13 +934,22 @@ button.wiki-crumb:hover {
 	margin-top: 28px;
 }
 
-/* ---------- touch: rows and crumbs reach 44px ---------- */
+/* ---------- touch: every target reaches 44px ---------- */
 @media (pointer: coarse) {
+	.wiki-channel {
+		--wiki-icon-btn: 44px;
+		/* The kit's 44px segmented keys sit inside the row with their track: the row grows to
+		   hold them instead of covering its own hairline. */
+		--wiki-crumbs-h: 52px;
+	}
 	.wiki-tree-row {
 		min-height: 44px;
 	}
-	.wiki-crumb {
+	/* The crumb links reach 44px with padding, so their words stay on the row's middle line with
+	   the current page (a span) and the icons. */
+	button.wiki-crumb {
 		min-height: 44px;
+		padding-block: 13px;
 	}
 	.wiki-start-row {
 		min-height: 52px;

@@ -38,18 +38,14 @@
 
 /* HELD FOR w1-wiki-notes (WikiChannel.svelte): the wiki's titles and prose headings.
    surfaces/headings.css sizes every h1 in center stage at 28px / 1.15 at (0,3,1) and sets serif
-   h1/h2 at (0,4,1). The page title is serif 34/40 (28/34 in a narrow pane), the overview title
-   30/38, and Markdown headings inside a page read one step down (# at 22/30), so these restate
-   them one slot later. Everything else in the wiki lives in styles/components/wiki.css. */
+   h1/h2 at (0,4,1). These restate the wiki's sizes one slot later: the page title reads
+   wiki.css's --wiki-title-fs / -lh (34/40; 28/34 on phones and in a narrow pane; 24/30 in the
+   panel), so the title and the Edit title field never disagree; the overview title is 30/38;
+   a Markdown # inside a page reads at the prose H2 size, 22/30. Everything else in the wiki
+   lives in styles/components/wiki.css. */
 :root .wiki-channel .wiki-article h1.wiki-article-title {
-	font: 600 calc(34px * var(--w-fs, 1)) / calc(40px * var(--w-fs, 1)) var(--w-serif);
+	font: 600 var(--wiki-title-fs) / var(--wiki-title-lh) var(--w-serif);
 	letter-spacing: 0.005em;
-}
-@container wiki-page (max-width: 639.98px) {
-	:root .wiki-channel .wiki-article h1.wiki-article-title {
-		font-size: calc(28px * var(--w-fs, 1));
-		line-height: calc(34px * var(--w-fs, 1));
-	}
 }
 :root .wiki-channel .wiki-start h1.wiki-start-title {
 	font: 600 calc(30px * var(--w-fs, 1)) / calc(38px * var(--w-fs, 1)) var(--w-serif);
@@ -58,6 +54,10 @@
 :root .wiki-channel .wiki-prose h1 {
 	font-size: calc(22px * var(--w-fs, 1));
 	line-height: calc(30px * var(--w-fs, 1));
+}
+:root .wiki-channel.in-panel .wiki-prose h1 {
+	font-size: calc(19px * var(--w-fs, 1));
+	line-height: calc(26px * var(--w-fs, 1));
 }
 
 /* ---- forum (w1-forum): the article title, the list titles and the prose headings ----
