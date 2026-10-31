@@ -4,9 +4,16 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Doc, applyUpdate } from 'yjs';
 
+/** Opens the office editor's ⋯ menu and picks an item (the editor header keeps its actions there). */
+async function officeMenu(page, item) {
+    await page.getByRole('button', { name: /^(Documents|Sheets|Present) options$/ }).click();
+    await page.getByRole('menuitem', { name: item }).click();
+}
+
+
 async function backup(page, artifacts, name) {
     const downloading = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Export backup', exact: true }).click();
+    await officeMenu(page, /^Backup \(\.wabi\.json\)/);
     const download = await downloading;
     const output = path.join(artifacts, name + '.wabi.json');
     await download.saveAs(output);
@@ -27,12 +34,14 @@ export async function documentRecoveryAcceptance(owner, editor, commenter, accou
     await owner.getByLabel('Person', { exact: true }).selectOption(String(accounts[2].id));
     await owner.getByLabel('Recipient permission', { exact: true }).selectOption('commenter');
     await owner.getByRole('button', { name: 'Add person', exact: true }).click();
-    await owner.getByRole('button', { name: 'Publish and save sharing', exact: true }).click();
-    await owner.locator('dialog[open]').waitFor({ state: 'hidden' });
+    await owner.getByRole('button', { name: 'Share', exact: true }).click();
+    await owner.getByRole('dialog', { name: /^Share / }).waitFor({ state: 'hidden' });
     await commenter.evaluate(id => window.workspaceTest.open('documents', { id }), id);
     await commenter.locator('.cm-content').waitFor();
     assert.equal(await commenter.locator('.cm-content').getAttribute('contenteditable'), 'false');
-    assert.equal(await commenter.getByRole('button', { name: 'Freeze live editing', exact: true }).count(), 0);
+    await commenter.getByRole('button', { name: /^(Documents|Sheets|Present) options$/ }).click();
+    assert.equal(await commenter.getByRole('menuitem', { name: 'Freeze live editing' }).count(), 0);
+    await commenter.keyboard.press('Escape');
     passed('commenter cannot directly edit or freeze the shared document');
 
     await commenter.getByRole('button', { name: /^Review\b/ }).click();
@@ -41,10 +50,10 @@ export async function documentRecoveryAcceptance(owner, editor, commenter, accou
     await commenter.reload();
     await commenter.waitForFunction(() => !!window.workspaceTest);
     await commenter.evaluate(id => window.workspaceTest.open('documents', { id }), id);
-    await commenter.getByRole('button', { name: /^Private drafts\b/ }).click();
+    await officeMenu(commenter, /^Private drafts\b/);
     await commenter.getByRole('button', { name: 'Restore review', exact: true }).click();
     assert.equal(await commenter.getByLabel('Review comment', { exact: true }).inputValue(), 'RECOVERABLE_COMMENT_DRAFT');
-    await commenter.getByRole('button', { name: 'Submit review', exact: true }).click();
+    await commenter.getByRole('button', { name: 'Comment', exact: true }).click();
     await owner.getByRole('button', { name: /^Review\b/ }).click();
     await owner.locator('.workspace-reviews article').filter({ hasText: 'RECOVERABLE_COMMENT_DRAFT' }).waitFor();
     passed('unsubmitted comment survives reload and reaches the owner only after submission');
@@ -53,7 +62,7 @@ export async function documentRecoveryAcceptance(owner, editor, commenter, accou
     const wording = await commenter.getByLabel('Proposed document text', { exact: true }).inputValue();
     await commenter.getByLabel('Proposed document text', { exact: true }).fill(wording + ' — ACCEPTED_REVIEW_WORDING');
     await commenter.getByLabel('Review comment', { exact: true }).fill('Suggestion for acceptance');
-    await commenter.getByRole('button', { name: 'Submit review', exact: true }).click();
+    await commenter.getByRole('button', { name: 'Comment', exact: true }).click();
     const proposal = owner.locator('.workspace-reviews article').filter({ hasText: 'Suggestion for acceptance' });
     await proposal.waitFor();
     await proposal.getByRole('button', { name: 'Apply', exact: true }).click();
@@ -69,8 +78,8 @@ export async function documentRecoveryAcceptance(owner, editor, commenter, accou
     await editor.keyboard.press('Control+End');
     await editor.keyboard.insertText(' — PRIVATE_OFFLINE_RECOVERY');
     await waitForState(editor, async id => (await window.workspaceTest.record(id))?.pending > 0, id);
-    owner.once('dialog', dialog => dialog.accept());
-    await owner.getByRole('button', { name: 'Freeze live editing', exact: true }).click();
+    await officeMenu(owner, 'Freeze live editing');
+    await owner.getByRole('alertdialog').getByRole('button', { name: 'Freeze live editing', exact: true }).click();
     await waitForState(owner, async id => (await window.workspaceTest.record(id))?.meta?.mode === 'snapshot', id);
     const frozen = (await owner.evaluate(id => window.workspaceTest.record(id), id)).meta;
     assert.equal(frozen.generation, beforeFreeze.generation + 1);
@@ -87,9 +96,9 @@ export async function documentRecoveryAcceptance(owner, editor, commenter, accou
     passed('late frozen-generation edits are rejected but remain in a portable recovery copy');
 
     await owner.getByRole('button', { name: 'Share…', exact: true }).click();
-    await owner.locator('dialog[open] .workspace-toolbar').filter({ hasText: accounts[1].name }).getByRole('button', { name: 'Remove access', exact: true }).click();
-    await owner.getByRole('button', { name: 'Publish and save sharing', exact: true }).click();
-    await owner.locator('dialog[open]').waitFor({ state: 'hidden' });
+    await owner.getByRole('button', { name: `Remove access for ${accounts[1].name}`, exact: true }).click();
+    await owner.getByRole('button', { name: 'Share', exact: true }).click();
+    await owner.getByRole('dialog', { name: /^Share / }).waitFor({ state: 'hidden' });
     const denied = editor.waitForResponse(response => response.url().endsWith(`/artifacts/${id}/sync`) && response.status() === 404);
     await editor.getByRole('button', { name: 'Retry', exact: true }).click();
     await denied;
@@ -98,10 +107,10 @@ export async function documentRecoveryAcceptance(owner, editor, commenter, accou
     assert(Object.keys(revoked.record.pending).length > 0);
     passed('revocation rejects retry without discarding the disconnected editor draft');
 
-    await owner.getByRole('button', { name: 'Resume collaboration…', exact: true }).click();
+    await officeMenu(owner, 'Resume collaboration…');
     assert.equal(await owner.getByLabel('Working mode', { exact: true }).inputValue(), 'live');
-    await owner.getByRole('button', { name: 'Publish and save sharing', exact: true }).click();
-    await owner.locator('dialog[open]').waitFor({ state: 'hidden' });
+    await owner.getByRole('button', { name: 'Share', exact: true }).click();
+    await owner.getByRole('dialog', { name: /^Share / }).waitFor({ state: 'hidden' });
     const resumed = (await owner.evaluate(id => window.workspaceTest.record(id), id)).meta;
     assert.equal(resumed.mode, 'live');
     assert.equal(resumed.generation, frozen.generation + 1);
@@ -110,7 +119,7 @@ export async function documentRecoveryAcceptance(owner, editor, commenter, accou
     passed('explicit resume preserves current permissions and does not regrant a revoked account');
 
     const beforeCopy = await owner.evaluate(() => window.workspaceTest.records('document'));
-    await owner.getByRole('button', { name: 'Make private copy', exact: true }).click();
+    await officeMenu(owner, 'Make private copy');
     await owner.waitForFunction(() => document.querySelector('.workspace-privacy')?.textContent.includes('Private · this device'));
     const copies = await owner.evaluate(() => window.workspaceTest.records('document'));
     const copy = copies.find(item => !beforeCopy.some(old => old.id === item.id));
@@ -131,7 +140,7 @@ export async function documentRecoveryAcceptance(owner, editor, commenter, accou
         await owner.keyboard.press('Control+End');
         await owner.keyboard.insertText(' — QUOTA_RECOVERY_MUST_SURVIVE');
         await owner.waitForFunction(() => document.querySelector('.workspace-status')?.textContent === 'Needs attention');
-        await owner.getByRole('button', { name: 'Library', exact: true }).click();
+        await owner.getByRole('button', { name: 'Documents library', exact: true }).click();
         assert((await owner.locator('.cm-content').innerText()).includes('QUOTA_RECOVERY_MUST_SURVIVE'));
         const quota = await backup(owner, artifacts, `${engineName}-quota-recovery`);
         assert(quota.text.includes('QUOTA_RECOVERY_MUST_SURVIVE'));
@@ -148,7 +157,7 @@ export async function documentRecoveryAcceptance(owner, editor, commenter, accou
     await owner.waitForFunction(() => document.querySelector('.cm-content')?.textContent.includes('QUOTA_RECOVERY_MUST_SURVIVE'));
     passed('retry after storage recovery survives a full browser-page reload');
 
-    await owner.getByRole('button', { name: 'Library', exact: true }).click();
+    await owner.getByRole('button', { name: 'Documents library', exact: true }).click();
     let uploads = 0;
     const track = request => { if (request.method() === 'POST' && /\/api\/workspace\/artifacts(?:\/|$)/.test(request.url())) uploads++; };
     owner.on('request', track);
@@ -160,7 +169,7 @@ export async function documentRecoveryAcceptance(owner, editor, commenter, accou
         await owner.keyboard.press('Control+End');
         await owner.keyboard.insertText('Private changed copy');
         const downloading = owner.waitForEvent('download');
-        await owner.getByRole('button', { name: 'Original file', exact: true }).click();
+        await officeMenu(owner, /^Original file/);
         const download = await downloading, output = path.join(artifacts, `${engineName}-unchanged-original.txt`);
         await download.saveAs(output);
         assert.deepEqual(await readFile(output), original);

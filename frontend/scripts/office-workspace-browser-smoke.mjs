@@ -89,7 +89,7 @@ try {
             const records=await a.evaluate(()=>window.workspaceTest.records('document')),id=records[0].id;
             await waitForState(a,async id=>(await window.workspaceTest.record(id))?.pending>0,id);checks++;
             await a.getByRole('button',{name:'Share…',exact:true}).click();await a.getByLabel('Person',{exact:true}).selectOption(String(host.accounts[1].id));await a.getByRole('button',{name:'Add person',exact:true}).click();
-            await a.getByRole('button',{name:'Publish and save sharing',exact:true}).click();await a.locator('dialog[open]').waitFor({state:'hidden'});checks++;
+            await a.getByRole('button',{name:'Share',exact:true}).click();await a.getByRole('dialog',{name:/^Share /}).waitFor({state:'hidden'});checks++;
             await b.goto(origin+'?account=1&tool=documents');await b.waitForFunction(()=>!!window.workspaceTest);await b.evaluate(id=>window.workspaceTest.open('documents',{id}),id);
             await b.waitForFunction(()=>document.querySelector('.cm-content')?.textContent?.includes('Original shared lesson'));checks++;
             await ca.setOffline(true);await a.locator('.cm-content').click();await a.keyboard.press('Control+End');await a.keyboard.insertText(' — Alice offline');await waitForState(a,async id=>(await window.workspaceTest.record(id))?.pending>0,id);checks++;
@@ -102,10 +102,10 @@ try {
             await a.evaluate(()=>{window.workspaceWrites=0;const put=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(...args){if(this.name==='artifacts')window.workspaceWrites++;return put.apply(this,args);};});
             await a.waitForTimeout(3600);assert.equal(await a.evaluate(()=>window.workspaceWrites),0,'Idle sync must not rewrite the entire document');checks++;
             await a.screenshot({path:path.join(artifacts,`${engineName}-documents.png`)});
-            await a.evaluate(()=>window.workspaceTest.open('sheets'));await a.getByRole('button',{name:'Enable addon',exact:true}).click();await a.getByRole('button',{name:'New spreadsheet',exact:true}).click();
+            await a.evaluate(()=>window.workspaceTest.open('sheets'));await a.getByRole('button',{name:'Turn on Sheets',exact:true}).click();await a.getByRole('button',{name:'New spreadsheet',exact:true}).click();
             const formula=a.getByLabel('Cell value or formula',{exact:true});await formula.fill('12');await formula.press('Enter');await a.locator('.sheet-grid').press('ArrowRight');await formula.fill('=A1*2');await formula.press('Enter');await a.waitForFunction(()=>Array.from(document.querySelectorAll('.sheet-grid td')).some(element=>element.textContent==='24'));checks++;
             await a.screenshot({path:path.join(artifacts,`${engineName}-sheets.png`)});
-            await a.evaluate(()=>window.workspaceTest.open('present'));await a.getByRole('button',{name:'Enable addon',exact:true}).click();
+            await a.evaluate(()=>window.workspaceTest.open('present'));await a.getByRole('button',{name:'Turn on Present',exact:true}).click();
             if(process.env.WORKSPACE_OFFICE_CONVERTER_TEST==='1'){
                 for(const fixture of await compatibilityFixtures()){
                     let uploads=0;const track=request=>{if(request.url().endsWith('/api/workspace/conversion')&&request.method()==='POST')uploads++;};a.on('request',track);
@@ -124,7 +124,7 @@ try {
                     await a.getByLabel('Slide title',{exact:true}).waitFor();
                     const records=await a.evaluate(()=>window.workspaceTest.records('present'));const imported=records.find(item=>item.title===fixture.name);
                     assert(imported);assert.equal((await a.evaluate(id=>window.workspaceTest.record(id),imported.id)).originalName,fixture.name);checks++;
-                    await a.getByRole('button',{name:'Library',exact:true}).click();a.off('request',track);
+                    await a.getByRole('button',{name:'Present library',exact:true}).click();a.off('request',track);
                 }
             }
             checks+=await nativeCanvasAcceptance(a,b,host.accounts,artifacts,engineName);
@@ -132,7 +132,7 @@ try {
             await a.getByLabel('Slide title',{exact:true}).fill('Visible first slide');await a.getByLabel('Private speaker notes',{exact:true}).fill('PRIVATE_NOTES_MUST_NEVER_REACH_AUDIENCE');
             await a.getByRole('button',{name:'Add',exact:true}).click();await a.getByLabel('Slide title',{exact:true}).fill('HIDDEN_SLIDE_MUST_NEVER_REACH_AUDIENCE');await a.getByRole('button',{name:'Hide from audience',exact:true}).click();
             await a.getByRole('button',{name:'Add',exact:true}).click();await a.getByLabel('Slide title',{exact:true}).fill('Visible final slide');
-            await a.getByRole('button',{name:'Share…',exact:true}).click();await a.getByLabel('Person',{exact:true}).selectOption(String(host.accounts[1].id));await a.getByLabel('Recipient permission',{exact:true}).selectOption('viewer');await a.getByRole('button',{name:'Add person',exact:true}).click();await a.getByRole('button',{name:'Publish and save sharing',exact:true}).click();await a.locator('dialog[open]').waitFor({state:'hidden'});
+            await a.getByRole('button',{name:'Share…',exact:true}).click();await a.getByLabel('Person',{exact:true}).selectOption(String(host.accounts[1].id));await a.getByLabel('Recipient permission',{exact:true}).selectOption('viewer');await a.getByRole('button',{name:'Add person',exact:true}).click();await a.getByRole('button',{name:'Share',exact:true}).click();await a.getByRole('dialog',{name:/^Share /}).waitFor({state:'hidden'});
             const starting=a.waitForResponse(response=>response.url().endsWith('/api/workspace/presentations')&&response.request().method()==='POST');await a.getByRole('button',{name:'Present to channel…',exact:true}).click();await a.getByRole('button',{name:'Start approved presentation',exact:true}).click();
             const response=await starting;assert.equal(response.status(),200);const session=await response.json();assert.equal(session.slides.length,2);checks++;
             await b.goto(origin+'?account=1&tool=audience');await b.waitForFunction(()=>!!window.workspaceTest);const payloads=[];b.on('response',response=>{if(response.url().includes('/api/workspace/'))void response.text().then(text=>payloads.push(text)).catch(()=>{});});await b.evaluate(id=>window.workspaceTest.open('audience',{sessionId:id}),session.id);await b.getByRole('heading',{name:'Visible first slide',exact:true}).waitFor();checks++;
