@@ -1,69 +1,70 @@
-/* SETTINGS — ABOUT */
-.about-card {
-	display: flex;
-	gap: 0.85rem;
-	align-items: flex-start;
-	padding: 0.9rem 1rem;
-	border-radius: var(--radius-xl);
-	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 14%, transparent);
-	background:
-		linear-gradient(
-			180deg,
-			color-mix(in srgb, var(--surface-raised) 70%, transparent),
-			color-mix(in srgb, var(--surface-sunken) 52%, transparent)
-		);
-	margin-bottom: 0.75rem;
-}
+/* ==========================================================================
+   SETTINGS › ABOUT (design contract §8.9)
+   The ensō in --w-sig, the name in serif, then facts: --w-faint terms, mono values.
+   ========================================================================== */
 
-.about-logo {
+.about__mark {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+}
+.about__enso,
+.about__logo {
+	flex: none;
 	width: 44px;
 	height: 44px;
-	border-radius: 12px;
+}
+.about__enso {
+	display: block;
+	background: var(--w-sig);
+	-webkit-mask: url('/wabi-logo-small.webp') center / contain no-repeat;
+	mask: url('/wabi-logo-small.webp') center / contain no-repeat;
+}
+.about__logo {
+	border-radius: var(--radius-md);
 	object-fit: contain;
-	flex: 0 0 auto;
-	background: color-mix(in srgb, var(--surface-sunken) 50%, transparent);
 }
-
-:root:not([data-theme='light']) .about-logo-wabi {
-	filter: invert(1);
-}
-
-.about-copy {
+.about__lede {
 	min-width: 0;
-	display: flex;
-	flex-direction: column;
-	gap: 0.25rem;
 }
-
-.about-title {
+.about__lede > .settings-block__title,
+.about__lede > .settings-block__hint {
+	margin-top: 0;
+	margin-bottom: 0;
+}
+.about__lede > .settings-block__hint {
+	margin-top: 2px;
+}
+.about__facts {
+	display: grid;
+	/* One label column for both sections, so the values line up down the page. */
+	grid-template-columns: minmax(max-content, 120px) minmax(0, 1fr);
+	gap: 8px 24px;
+	margin: 18px 0 0;
+	padding: 14px 0 0;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.about__facts dt {
+	color: var(--w-faint);
+	font: var(--w-t-small);
+}
+.about__facts dd {
 	margin: 0;
-	color: var(--text-heading);
-	font-size: 1.05rem;
+	min-width: 0;
+	color: var(--w-text);
+	font: var(--w-t-mono);
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
 }
-
-.about-blurb,
-.about-footer {
-	margin: 0;
-	color: var(--text-secondary);
-	font-size: 0.85rem;
-	line-height: 1.4;
+.about__facts dd.about__plain {
+	font: var(--w-t-label);
 }
-
-.about-card .version,
-.about-info .version {
-	margin: 0.15rem 0 0;
-	font-size: 0.75rem;
-	color: var(--text-muted);
-	font-weight: 650;
-	letter-spacing: 0.04em;
+.about__facts dd.about__missing {
+	color: var(--w-mute);
+	font: var(--w-t-small);
 }
-
-/* legacy */
-.about-info {
-	padding: 0.9rem 1rem;
-	border-radius: var(--radius-xl);
-	background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
-	border: 1px solid color-mix(in srgb, var(--accent-primary-color) 12%, transparent);
+.about__footer {
+	margin: 14px 0 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
 }
-.about-info p { margin: 0.35rem 0; color: var(--text-secondary); }
-.about-info p strong { color: var(--text-heading); font-size: 1.05rem; }

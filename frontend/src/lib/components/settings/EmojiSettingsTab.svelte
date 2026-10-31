@@ -7,6 +7,23 @@
 	import { getAuthToken } from '$lib/authSession';
 	import type { Emoji } from '$lib/socket-types';
 	import { emojiUploadError, emojiUploadFailureMessage } from '$lib/emojiUploadErrors';
+	import { confirmAction } from '$lib/confirm';
+	import { currentSavedServer } from '$lib/savedServers';
+	import Icon from '../ui/Icon.svelte';
+	import Select from '../ui/Select.svelte';
+	import Segmented from '../ui/Segmented.svelte';
+
+	/** Feedback where each action happened (§7.16), never a browser alert. */
+	type Note = { text: string; error: boolean; lines?: string[] } | null;
+	let singleNote: Note = null;
+	let bulkNote: Note = null;
+	let libraryNote: Note = null;
+	const TYPE_OPTIONS = [
+		{ value: 'emoji', label: 'Emoji' },
+		{ value: 'sticker', label: 'Sticker' }
+	];
+	$: communityName = $currentSavedServer?.effectiveName?.trim() || 'this server';
+	$: folderOptions = [{ value: 'all', label: 'All folders' }, ...existingFolders.map((folder) => ({ value: folder, label: folder }))];
 
 	let emojiFileInput: HTMLInputElement;
 	let emojiName = '';
@@ -99,8 +116,9 @@
 		const file = input.files?.[0];
 		if (!file) return;
 		const error = validateImage(file);
+		singleNote = null;
 		if (error) {
-			alert(error);
+			singleNote = { text: error, error: true };
 			input.value = '';
 			return;
 		}
@@ -112,9 +130,10 @@
 
 	async function uploadEmoji() {
 		if (!selectedEmojiFile || !emojiName.trim()) {
-			alert('Please select a file and enter an emoji name');
+			singleNote = { text: 'Choose an image and give it a shortcode first.', error: true };
 			return;
 		}
+		singleNote = null;
 
 		uploadingEmoji = true;
 		try {
@@ -141,19 +160,29 @@
 			selectedEmojiFile = null;
 			emojiPreview = null;
 			if (emojiFileInput) emojiFileInput.value = '';
-			alert(`${uploadedType === 'sticker' ? 'Sticker' : 'Emoji'} "${result.emoji.displayName || result.emoji.name}" uploaded to ${normalizeFolder(emojiFolder)}.`);
+			singleNote = { text: `Added ${uploadedType === 'sticker' ? 'sticker' : 'emoji'} “${result.emoji.displayName || result.emoji.name}” to ${normalizeFolder(emojiFolder)}.`, error: false };
 		} catch (error) {
 			console.error('Emoji upload error:', error);
-			alert(emojiUploadFailureMessage(error));
+			singleNote = { text: emojiUploadFailureMessage(error), error: true };
 		} finally {
 			uploadingEmoji = false;
 		}
 	}
 
 	async function deleteEmoji(target: Emoji) {
-		if (!confirm(`Delete ${target.type === 'sticker' ? 'sticker' : 'emoji'} ":${target.name}:"?`)) return;
+		const kind = target.type === 'sticker' ? 'sticker' : 'emoji';
+		const confirmed = await confirmAction({
+			title: `Delete :${target.name}:?`,
+			body: `Members of ${communityName} can no longer use this ${kind}. Messages that used it show its shortcode.`,
+			confirm: `Delete ${kind}`,
+			danger: true
+		});
+		if (!confirmed) return;
 		const sock = getSocket();
-		if (!sock) return;
+		if (!sock) {
+			libraryNote = { text: `Not connected, so :${target.name}: was not deleted.`, error: true };
+			return;
+		}
 		const db = getWabiDB();
 		const online = get(connected);
 		if (db && !online) {
@@ -169,15 +198,16 @@
 		if (files.length === 0) return;
 
 		const imageFiles = files.filter((file) => SUPPORTED_IMAGE_TYPES.has(file.type));
+		bulkNote = null;
 		if (imageFiles.length === 0) {
-			alert('No valid image files selected');
+			bulkNote = { text: 'None of those files is a PNG, GIF, JPG or WebP image.', error: true };
 			return;
 		}
 
 		for (const file of imageFiles) {
 			const error = validateImage(file);
 			if (error) {
-				alert(error);
+				bulkNote = { text: error, error: true };
 				return;
 			}
 		}
@@ -192,13 +222,14 @@
 
 	async function uploadBulkEmojis() {
 		if (bulkEmojiFiles.length === 0) {
-			alert('No files selected');
+			bulkNote = { text: 'Choose some images first.', error: true };
 			return;
 		}
 		if (bulkEmojiFiles.some((item) => !item.name.trim())) {
-			alert('All emojis must have a shortcode');
+			bulkNote = { text: 'Give every image a shortcode before adding them.', error: true };
 			return;
 		}
+		bulkNote = null;
 
 		uploadingBulk = true;
 		let successCount = 0;
@@ -224,7 +255,7 @@
 					if (!response.ok) {
 						failCount++;
 						failedItems.push(item);
-						failures.push(`:${item.name}: — ${await emojiUploadError(response)}`);
+						failures.push(`:${item.name}: ${await emojiUploadError(response)}`);
 						continue;
 					}
 					successCount++;
@@ -232,7 +263,7 @@
 					console.error(`Error uploading ${item.name}:`, error);
 					failCount++;
 					failedItems.push(item);
-					failures.push(`:${item.name}: — ${emojiUploadFailureMessage(error)}`);
+					failures.push(`:${item.name}: ${emojiUploadFailureMessage(error)}`);
 				}
 			}
 
@@ -241,10 +272,16 @@
 				bulkEmojiArtist = '';
 				if (bulkEmojiFileInput) bulkEmojiFileInput.value = '';
 			}
-			alert(`Upload complete to ${normalizeFolder(bulkEmojiFolder)}.\n✅ ${successCount} successful\n❌ ${failCount} failed${failures.length ? `\n\n${failures.join('\n')}\n\nFailed items are kept below so you can fix their shortcodes and retry.` : ''}`);
+			bulkNote = failCount === 0
+				? { text: `Added ${successCount} to ${normalizeFolder(bulkEmojiFolder)}.`, error: false }
+				: {
+					text: `Added ${successCount} of ${successCount + failCount} to ${normalizeFolder(bulkEmojiFolder)}. The rest stay below so you can fix them and try again.`,
+					error: true,
+					lines: failures
+				};
 		} catch (error) {
 			console.error('Bulk upload error:', error);
-			alert(emojiUploadFailureMessage(error));
+			bulkNote = { text: emojiUploadFailureMessage(error), error: true };
 		} finally {
 			uploadingBulk = false;
 		}
@@ -255,15 +292,7 @@
 	}
 </script>
 
-<div class="settings-section emoji-settings-v2">
-	<div class="emoji-settings-heading">
-		<div>
-			<h3>Server emoji &amp; stickers</h3>
-			<p>Uploads are saved to this Wabi server and shared with its members. They are available when you connect to the same server from another browser or the desktop app. Other Wabi servers keep separate libraries.</p><p>Built-in emoji are available in the picker. This page manages the server library; it does not create a private, device-only collection.</p>
-		</div>
-		<div class="emoji-library-stat"><strong>{customEntries.length}</strong><span>community assets</span></div>
-	</div>
-
+<div class="emoji-tab">
 	<datalist id="emoji-folder-options">
 		{#each existingFolders as folder}<option value={folder}></option>{/each}
 		<option value="General"></option>
@@ -273,98 +302,102 @@
 		<option value="Seasonal"></option>
 	</datalist>
 
-	<section class="emoji-admin-card">
-		<div class="emoji-card-heading">
-			<div><span class="emoji-card-kicker">Single upload</span><h4>Add one reaction</h4></div>
-			<span>Shortcode, readable name, artist, folder.</span>
-		</div>
-
-		<input type="file" bind:this={emojiFileInput} on:change={handleEmojiFileSelect} accept="image/png,image/gif,image/jpeg,image/webp" class="hidden" />
-
-		<div class="single-upload-layout">
-			<button type="button" class="asset-drop-button" on:click={() => emojiFileInput?.click()}>
-				{#if emojiPreview}<img src={emojiPreview} alt="Selected emoji preview" />{:else}<span class="asset-drop-icon" aria-hidden="true">＋</span>{/if}
-				<strong>{emojiPreview ? 'Change image' : 'Choose image'}</strong>
-				<small>PNG · GIF · JPG · WebP · max 2MB</small>
+	<section class="settings-block" aria-labelledby="emoji-add-title">
+		<h3 class="settings-block__title" id="emoji-add-title">Custom emojis</h3>
+		<p class="settings-block__hint">Add one at a time with its shortcode, name, credit and folder.</p>
+		<input type="file" bind:this={emojiFileInput} on:change={handleEmojiFileSelect} accept="image/png,image/gif,image/jpeg,image/webp" class="hidden-file-input" tabindex="-1" aria-hidden="true" />
+		<div class="emoji-single">
+			<button type="button" class="emoji-drop" on:click={() => emojiFileInput?.click()} aria-label={emojiPreview ? 'Change image' : 'Choose image'}>
+				{#if emojiPreview}<img src={emojiPreview} alt="" />{:else}<Icon name="image" size={28} />{/if}
+				<span class="emoji-drop__label">{emojiPreview ? 'Change image' : 'Choose image'}</span>
+				<span class="emoji-drop__hint">PNG, GIF, JPG or WebP, up to 2 MB</span>
 			</button>
-
-			<div class="emoji-form-grid">
-				<label><span>Shortcode</span><input type="text" bind:value={emojiName} placeholder="tabi_wave" maxlength="30" /></label>
-				<label><span>Display name</span><input type="text" bind:value={emojiDisplayName} placeholder="Tabi Wave" maxlength="60" /></label>
-				<label><span>Artist / pack creator</span><input type="text" bind:value={emojiArtist} placeholder="Optional credit" maxlength="60" /></label>
-				<label><span>Folder / pack</span><input type="text" list="emoji-folder-options" bind:value={emojiFolder} placeholder="Reactions" maxlength="48" /></label>
-				<label><span>Asset type</span><select bind:value={emojiType}><option value="emoji">Emoji</option><option value="sticker">Sticker</option></select></label>
+			<div class="emoji-fields">
+				<label class="emoji-field"><span class="w-label">Shortcode</span><input class="w-field" type="text" bind:value={emojiName} placeholder="tabi_wave" maxlength="30" /></label>
+				<label class="emoji-field"><span class="w-label">Name</span><input class="w-field" type="text" bind:value={emojiDisplayName} placeholder="Tabi wave" maxlength="60" /></label>
+				<label class="emoji-field"><span class="w-label">Artist</span><input class="w-field" type="text" bind:value={emojiArtist} placeholder="Optional credit" maxlength="60" /></label>
+				<label class="emoji-field"><span class="w-label">Folder</span><input class="w-field" type="text" list="emoji-folder-options" bind:value={emojiFolder} placeholder="Reactions" maxlength="48" /></label>
+				<div class="emoji-field"><span class="w-label" id="emoji-single-type">Kind</span><Segmented labelledby="emoji-single-type" options={TYPE_OPTIONS} value={emojiType} onchange={(value) => (emojiType = value === 'sticker' ? 'sticker' : 'emoji')} /></div>
 			</div>
 		</div>
-
-		<button class="emoji-upload-btn primary-upload" on:click={uploadEmoji} disabled={uploadingEmoji || !selectedEmojiFile || !emojiName.trim()}>
-			{uploadingEmoji ? 'Uploading…' : `Add ${emojiType === 'sticker' ? 'sticker' : 'emoji'} to ${normalizeFolder(emojiFolder)}`}
-		</button>
+		<div class="emoji-actions">
+			{#if singleNote}<p class="emoji-note" class:is-error={singleNote.error} role={singleNote.error ? 'alert' : 'status'}>{#if singleNote.error}<Icon name="alert" size={14} />{/if}{singleNote.text}</p>{/if}
+			<button type="button" class="w-btn w-btn--primary" on:click={uploadEmoji} disabled={uploadingEmoji || !selectedEmojiFile || !emojiName.trim()} aria-busy={uploadingEmoji}>
+				{uploadingEmoji ? 'Adding…' : `Add ${emojiType === 'sticker' ? 'sticker' : 'emoji'}`}
+			</button>
+		</div>
 	</section>
 
-	<section class="emoji-admin-card bulk-card">
-		<div class="emoji-card-heading">
-			<div><span class="emoji-card-kicker">Pack import</span><h4>Upload a batch</h4></div>
-			<span>Filenames become shortcodes automatically; fix anything before importing.</span>
-		</div>
-		<input type="file" bind:this={bulkEmojiFileInput} on:change={handleBulkEmojiFileSelect} accept="image/png,image/gif,image/jpeg,image/webp" multiple class="hidden" />
-
-		<div class="bulk-toolbar">
-			<button class="emoji-select-btn" on:click={() => bulkEmojiFileInput?.click()}>Select images</button>
-			<label><span>Folder / pack</span><input type="text" list="emoji-folder-options" bind:value={bulkEmojiFolder} placeholder="Reactions" maxlength="48" /></label>
-			<label><span>Type</span><select bind:value={bulkEmojiType}><option value="emoji">Emoji</option><option value="sticker">Sticker</option></select></label>
-			<label><span>Artist</span><input type="text" bind:value={bulkEmojiArtist} placeholder="Optional credit" maxlength="60" /></label>
+	<section class="settings-block" aria-labelledby="emoji-bulk-title">
+		<h3 class="settings-block__title" id="emoji-bulk-title">Add several at once</h3>
+		<p class="settings-block__hint">File names become shortcodes. Check them before adding.</p>
+		<input type="file" bind:this={bulkEmojiFileInput} on:change={handleBulkEmojiFileSelect} accept="image/png,image/gif,image/jpeg,image/webp" multiple class="hidden-file-input" tabindex="-1" aria-hidden="true" />
+		<div class="emoji-bulk-bar">
+			<button type="button" class="w-btn" on:click={() => bulkEmojiFileInput?.click()}><Icon name="upload" size={16} />Choose images…</button>
+			<label class="emoji-field"><span class="w-label">Folder</span><input class="w-field" type="text" list="emoji-folder-options" bind:value={bulkEmojiFolder} placeholder="Reactions" maxlength="48" /></label>
+			<label class="emoji-field"><span class="w-label">Artist</span><input class="w-field" type="text" bind:value={bulkEmojiArtist} placeholder="Optional credit" maxlength="60" /></label>
+			<div class="emoji-field"><span class="w-label" id="emoji-bulk-type">Kind</span><Segmented labelledby="emoji-bulk-type" options={TYPE_OPTIONS} value={bulkEmojiType} onchange={(value) => (bulkEmojiType = value === 'sticker' ? 'sticker' : 'emoji')} /></div>
 		</div>
 
 		{#if bulkEmojiFiles.length > 0}
-			<div class="bulk-summary"><strong>{bulkEmojiFiles.length}</strong> files ready for <b>{normalizeFolder(bulkEmojiFolder)}</b></div>
-			<div class="bulk-contact-sheet">
+			<ul class="emoji-sheet" aria-label="Images to add">
 				{#each bulkEmojiFiles as item, index (item.preview ?? index)}
-					<div class="bulk-asset-card">
-						<div class="bulk-asset-preview"><img src={item.preview} alt="" /></div>
-						<label><span>Shortcode</span><input type="text" bind:value={item.name} placeholder="emoji_name" maxlength="30" /></label>
-						<label><span>Name</span><input type="text" bind:value={item.displayName} placeholder="Display name" maxlength="60" /></label>
-						<button type="button" class="bulk-remove-btn" on:click={() => removeBulkEmoji(index)} title="Remove from batch" aria-label={`Remove ${item.displayName || item.name} from batch`}>×</button>
-					</div>
+					<li class="emoji-sheet__item">
+						<img src={item.preview} alt="" />
+						<label class="emoji-field"><span class="w-label">Shortcode</span><input class="w-field" type="text" bind:value={item.name} placeholder="emoji_name" maxlength="30" /></label>
+						<label class="emoji-field"><span class="w-label">Name</span><input class="w-field" type="text" bind:value={item.displayName} placeholder="Display name" maxlength="60" /></label>
+						<button type="button" class="w-ibtn w-ibtn--sm emoji-sheet__remove" on:click={() => removeBulkEmoji(index)} aria-label={`Leave out ${item.displayName || item.name}`}><Icon name="x" /></button>
+					</li>
 				{/each}
-			</div>
-			<button class="emoji-upload-btn primary-upload" on:click={uploadBulkEmojis} disabled={uploadingBulk || bulkEmojiFiles.length === 0}>
-				{uploadingBulk ? 'Uploading pack…' : `Import ${bulkEmojiFiles.length} ${bulkEmojiType === 'sticker' ? 'sticker' : 'emoji'}${bulkEmojiFiles.length === 1 ? '' : 's'}`}
-			</button>
+			</ul>
 		{/if}
+		<div class="emoji-actions">
+			{#if bulkNote}
+				<div class="emoji-note" class:is-error={bulkNote.error} role={bulkNote.error ? 'alert' : 'status'}>
+					{#if bulkNote.error}<Icon name="alert" size={14} />{/if}
+					<span>{bulkNote.text}{#if bulkNote.lines?.length}<span class="emoji-note__lines">{#each bulkNote.lines as line}<span>{line}</span>{/each}</span>{/if}</span>
+				</div>
+			{/if}
+			{#if bulkEmojiFiles.length > 0}
+				<button type="button" class="w-btn w-btn--primary" on:click={uploadBulkEmojis} disabled={uploadingBulk} aria-busy={uploadingBulk}>
+					{uploadingBulk ? 'Adding…' : `Add ${bulkEmojiFiles.length} ${bulkEmojiType === 'sticker' ? (bulkEmojiFiles.length === 1 ? 'sticker' : 'stickers') : 'emoji'}`}
+				</button>
+			{/if}
+		</div>
 	</section>
 
-	<section class="emoji-admin-card library-card">
-		<div class="emoji-card-heading">
-			<div><span class="emoji-card-kicker">Community library</span><h4>What members can use</h4></div>
-			<span>Folders appear in the picker instead of one endless custom-emote wall.</span>
+	<section class="settings-block" aria-labelledby="emoji-library-title">
+		<h3 class="settings-block__title" id="emoji-library-title">Library</h3>
+		<p class="settings-block__hint">What every member sees in the picker, grouped by folder. Other servers keep their own.</p>
+		<div class="emoji-filters">
+			<Select ariaLabel="Folder" label="Folder" options={folderOptions} value={libraryFolder} applied={libraryFolder !== 'all'} onchange={(value) => (libraryFolder = value)} />
+			<Segmented label="Kind" options={[{ value: 'all', label: 'All' }, { value: 'emoji', label: 'Emoji' }, { value: 'sticker', label: 'Stickers' }]} value={libraryType} onchange={(value) => (libraryType = value === 'emoji' || value === 'sticker' ? value : 'all')} />
+			<span class="w-count emoji-filters__count">{filteredCustomEntries.length === customEntries.length ? `${customEntries.length} in the library` : `${filteredCustomEntries.length} of ${customEntries.length} shown`}</span>
 		</div>
-
-		<div class="library-filters">
-			<label><span>Folder</span><select bind:value={libraryFolder}><option value="all">All folders</option>{#each existingFolders as folder}<option value={folder}>{folder}</option>{/each}</select></label>
-			<label><span>Type</span><select bind:value={libraryType}><option value="all">Emoji + stickers</option><option value="emoji">Emoji</option><option value="sticker">Stickers</option></select></label>
-			<div class="library-count"><strong>{filteredCustomEntries.length}</strong><span>shown</span></div>
-		</div>
+		{#if libraryNote}<p class="emoji-note" class:is-error={libraryNote.error} role={libraryNote.error ? 'alert' : 'status'}>{libraryNote.text}</p>{/if}
 
 		{#if groupedEntries.length === 0}
-			<div class="empty-community-library"><strong>No community assets in this view.</strong><span>Upload a reaction or switch the filters above.</span></div>
+			<div class="emoji-empty">
+				<Icon name="smile" size={28} />
+				<p class="emoji-empty__title">{customEntries.length === 0 ? 'No custom emoji yet' : 'Nothing in this folder'}</p>
+				<p class="emoji-empty__text">{customEntries.length === 0 ? 'Add one above and every member can use it.' : 'Choose another folder or kind.'}</p>
+			</div>
 		{:else}
 			{#each groupedEntries as group (group.folder)}
-				<div class="folder-section">
-					<div class="folder-heading"><strong>{group.folder}</strong><span>{group.entries.length}</span></div>
-					<div class="emoji-grid-list">
+				<div class="emoji-folder">
+					<p class="w-kicker emoji-folder__title">{group.folder}<span class="w-count">{group.entries.length}</span></p>
+					<ul class="emoji-grid">
 						{#each group.entries as emoji (emoji.id)}
-							<div class="emoji-item">
-								<img src={emoji.url} alt="" class="emoji-thumb" />
-								<div class="emoji-item-meta">
-									<span class="emoji-item-name">:{emoji.name}:</span>
-									<span class="emoji-item-sub">{labelFor(emoji)} · {(emoji.type || 'emoji') === 'sticker' ? 'Sticker' : 'Emoji'}</span>
-									{#if emoji.artist}<span class="emoji-item-sub">by {emoji.artist}</span>{/if}
-								</div>
-								<button class="emoji-delete-btn" on:click={() => deleteEmoji(emoji)} title={`Delete ${emoji.name}`} aria-label={`Delete ${emoji.name}`}>×</button>
-							</div>
+							<li class="emoji-item">
+								<img src={emoji.url} alt="" class="emoji-item__img" />
+								<span class="emoji-item__text">
+									<span class="emoji-item__code">:{emoji.name}:</span>
+									<span class="emoji-item__meta">{labelFor(emoji)} · {(emoji.type || 'emoji') === 'sticker' ? 'Sticker' : 'Emoji'}{#if emoji.artist} · by {emoji.artist}{/if}</span>
+								</span>
+								<button type="button" class="w-ibtn w-ibtn--sm emoji-item__delete" on:click={() => deleteEmoji(emoji)} aria-label={`Delete :${emoji.name}:`}><Icon name="trash" /></button>
+							</li>
 						{/each}
-					</div>
+					</ul>
 				</div>
 			{/each}
 		{/if}
@@ -372,69 +405,229 @@
 </div>
 
 <style>
-	.emoji-settings-v2 { display: flex; flex-direction: column; gap: 1rem; }
-	.emoji-settings-heading, .emoji-card-heading, .bulk-toolbar, .library-filters, .folder-heading { display: flex; align-items: center; }
-	.emoji-settings-heading { justify-content: space-between; gap: 1rem; }
-	.emoji-settings-heading h3, .emoji-card-heading h4 { margin: 0; color: var(--text-heading); }
-	.emoji-settings-heading p { max-width: 52rem; margin: 0.35rem 0 0; color: var(--text-secondary); font-size: 0.86rem; line-height: 1.45; }
-	.emoji-library-stat { flex: none; min-width: 92px; padding: 0.65rem 0.8rem; display: flex; flex-direction: column; align-items: flex-end; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-raised); }
-	.emoji-library-stat strong { font-size: 1.15rem; color: var(--text-heading); }
-	.emoji-library-stat span { font-size: 0.67rem; color: var(--text-muted); }
-
-	.emoji-admin-card { padding: 1rem; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--surface-raised); }
-	.bulk-card { background: color-mix(in srgb, var(--surface-base) 70%, var(--surface-raised)); }
-	.emoji-card-heading { justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 0.9rem; }
-	.emoji-card-heading > span { max-width: 28rem; color: var(--text-muted); font-size: 0.74rem; line-height: 1.35; text-align: right; }
-	.emoji-card-kicker { display: block; margin-bottom: 0.15rem; color: var(--accent-primary-color); font-size: 0.65rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
-
-	.single-upload-layout { display: grid; grid-template-columns: minmax(150px, 0.34fr) minmax(0, 1fr); gap: 0.9rem; }
-	.asset-drop-button { min-height: 180px; padding: 0.8rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.35rem; border: 1px dashed var(--border-strong, var(--border-subtle)); border-radius: 10px; background: var(--surface-app); color: var(--text-heading); cursor: pointer; }
-	.asset-drop-button:hover { border-color: var(--accent-primary-color); background: var(--surface-base); }
-	.asset-drop-button img { max-width: 112px; max-height: 112px; object-fit: contain; }
-	.asset-drop-icon { font-size: 1.55rem; color: var(--accent-primary-color); }
-	.asset-drop-button small { color: var(--text-muted); font-size: 0.65rem; text-align: center; }
-
-	.emoji-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; align-content: start; }
-	.emoji-form-grid label, .bulk-toolbar label, .bulk-asset-card label, .library-filters label { min-width: 0; display: flex; flex-direction: column; gap: 0.25rem; }
-	.emoji-form-grid label > span, .bulk-toolbar label > span, .bulk-asset-card label > span, .library-filters label > span { color: var(--text-secondary); font-size: 0.68rem; font-weight: 650; }
-	.emoji-form-grid input, .emoji-form-grid select, .bulk-toolbar input, .bulk-toolbar select, .bulk-asset-card input, .library-filters select { width: 100%; box-sizing: border-box; min-height: 38px; padding: 0.45rem 0.55rem; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--surface-app); color: var(--text-heading); font: inherit; font-size: 0.8rem; }
-	.emoji-form-grid input:focus, .emoji-form-grid select:focus, .bulk-toolbar input:focus, .bulk-toolbar select:focus, .bulk-asset-card input:focus, .library-filters select:focus { outline: 2px solid color-mix(in srgb, var(--accent-primary-color) 45%, transparent); outline-offset: 1px; border-color: var(--accent-primary-color); }
-	.primary-upload { width: 100%; margin-top: 0.85rem; }
-
-	.bulk-toolbar { align-items: end; gap: 0.65rem; flex-wrap: wrap; }
-	.bulk-toolbar > button { min-height: 38px; }
-	.bulk-toolbar label { flex: 1 1 150px; }
-	.bulk-summary { margin: 0.85rem 0 0.6rem; color: var(--text-secondary); font-size: 0.76rem; }
-	.bulk-contact-sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.65rem; }
-	.bulk-asset-card { position: relative; padding: 0.65rem; display: grid; gap: 0.5rem; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-raised); }
-	.bulk-asset-preview { height: 96px; display: grid; place-items: center; border-radius: 8px; background: var(--surface-app); }
-	.bulk-asset-preview img { max-width: 82px; max-height: 82px; object-fit: contain; }
-	.bulk-remove-btn { position: absolute; top: 5px; right: 5px; width: 28px; height: 28px; padding: 0; display: grid; place-items: center; border: 1px solid var(--border-subtle); border-radius: 999px; background: var(--surface-modal); color: var(--text-secondary); }
-	.bulk-remove-btn:hover { color: var(--color-danger); }
-
-	.library-filters { gap: 0.65rem; flex-wrap: wrap; margin-bottom: 0.85rem; }
-	.library-filters label { flex: 0 1 220px; }
-	.library-count { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; }
-	.library-count strong { color: var(--text-heading); }
-	.library-count span { color: var(--text-muted); font-size: 0.65rem; }
-	.folder-section + .folder-section { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-subtle); }
-	.folder-heading { justify-content: space-between; margin-bottom: 0.5rem; }
-	.folder-heading strong { color: var(--text-heading); font-size: 0.82rem; }
-	.folder-heading span { min-width: 24px; padding: 0.1rem 0.35rem; border-radius: 999px; background: var(--surface-base); color: var(--text-muted); font-size: 0.65rem; text-align: center; }
-	.empty-community-library { min-height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.25rem; color: var(--text-secondary); text-align: center; }
-	.empty-community-library strong { color: var(--text-heading); }
-	.empty-community-library span { font-size: 0.75rem; }
-
-	.emoji-delete-btn { color: var(--text-muted); }
-	.emoji-delete-btn:hover { color: var(--color-danger); }
-
+	.emoji-tab {
+		display: flex;
+		flex-direction: column;
+		gap: 32px;
+	}
+	.emoji-tab > :global(.settings-block) {
+		margin-block: 0;
+	}
+	.emoji-single {
+		display: grid;
+		grid-template-columns: 160px minmax(0, 1fr);
+		gap: 16px;
+		margin-top: 14px;
+	}
+	.emoji-drop {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		min-height: 168px;
+		padding: 12px;
+		border: var(--w-bw) dashed var(--w-line-strong);
+		border-radius: var(--radius-md);
+		background: var(--w-sink);
+		color: var(--w-faint);
+		cursor: pointer;
+		transition: background-color var(--w-dur-1) var(--w-ease), border-color var(--w-dur-1) var(--w-ease);
+	}
+	.emoji-drop:hover {
+		border-color: var(--w-accent);
+		background: color-mix(in srgb, var(--w-raise) 70%, var(--w-sink));
+	}
+	.emoji-drop img {
+		max-width: 104px;
+		max-height: 104px;
+		object-fit: contain;
+	}
+	.emoji-drop__label {
+		color: var(--w-text);
+		font: var(--w-t-label);
+	}
+	.emoji-drop__hint {
+		color: var(--w-faint);
+		font: var(--w-t-caption);
+		text-align: center;
+	}
+	.emoji-fields {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 12px 16px;
+		align-content: start;
+	}
+	.emoji-field {
+		display: grid;
+		align-content: start;
+		justify-items: start;
+		min-width: 0;
+	}
+	.emoji-field > .w-field {
+		width: 100%;
+		box-sizing: border-box;
+	}
+	.emoji-actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 8px 16px;
+		margin-top: 14px;
+	}
+	.emoji-note {
+		display: flex;
+		flex: 1 1 260px;
+		align-items: flex-start;
+		gap: 6px;
+		margin: 0;
+		color: var(--w-mute);
+		font: var(--w-t-small);
+	}
+	.emoji-note.is-error {
+		color: var(--w-danger);
+	}
+	.emoji-note :global(svg) {
+		flex: none;
+		margin-top: 2px;
+	}
+	.emoji-note__lines {
+		display: grid;
+		gap: 2px;
+		margin-top: 4px;
+		color: var(--w-mute);
+		font: var(--w-t-mono);
+	}
+	.emoji-bulk-bar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: end;
+		gap: 12px;
+		margin-top: 14px;
+	}
+	.emoji-bulk-bar > .emoji-field {
+		flex: 1 1 160px;
+	}
+	.emoji-bulk-bar > .emoji-field:last-child {
+		flex: 0 0 auto;
+	}
+	.emoji-sheet {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+		gap: 12px;
+		margin: 16px 0 0;
+		padding: 0;
+		list-style: none;
+	}
+	.emoji-sheet__item {
+		position: relative;
+		display: grid;
+		gap: 8px;
+		padding: 12px;
+		border: var(--w-bw) solid var(--w-line);
+		border-radius: var(--radius-md);
+		background: var(--w-lift);
+		box-shadow: var(--w-shadow-1);
+	}
+	.emoji-sheet__item > img {
+		justify-self: center;
+		width: 72px;
+		height: 72px;
+		object-fit: contain;
+	}
+	.emoji-sheet__remove {
+		position: absolute;
+		top: 6px;
+		right: 6px;
+	}
+	.emoji-filters {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px 12px;
+		margin: 14px 0 6px;
+	}
+	.emoji-filters__count {
+		margin-left: auto;
+	}
+	.emoji-folder {
+		margin-top: 18px;
+	}
+	.emoji-folder__title {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 0 0 8px;
+	}
+	.emoji-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		border-top: var(--w-bw) solid var(--w-line);
+	}
+	.emoji-item {
+		display: grid;
+		grid-template-columns: 32px minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 10px;
+		min-height: 52px;
+		padding: 6px 4px 6px 0;
+		border-bottom: var(--w-bw) solid var(--w-line);
+	}
+	.emoji-item__img {
+		width: 32px;
+		height: 32px;
+		object-fit: contain;
+	}
+	.emoji-item__text {
+		display: grid;
+		min-width: 0;
+	}
+	.emoji-item__code {
+		overflow: hidden;
+		color: var(--w-text);
+		font: var(--w-t-mono);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.emoji-item__meta {
+		overflow: hidden;
+		color: var(--w-faint);
+		font: var(--w-t-caption);
+		font-weight: 400;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.emoji-item__delete:hover {
+		color: var(--w-danger);
+	}
+	.emoji-empty {
+		display: grid;
+		justify-items: start;
+		gap: 4px;
+		padding: 32px 0 8px;
+		color: var(--w-faint);
+	}
+	.emoji-empty__title {
+		margin: 8px 0 0;
+		color: var(--w-text);
+		font: 600 calc(20px * var(--w-fs)) / calc(26px * var(--w-fs)) var(--w-serif);
+	}
+	.emoji-empty__text {
+		margin: 0;
+		color: var(--w-mute);
+		font: var(--w-t-ui);
+	}
 	@media (max-width: 760px) {
-		.emoji-settings-heading, .emoji-card-heading { align-items: flex-start; flex-direction: column; }
-		.emoji-library-stat { align-items: flex-start; }
-		.emoji-card-heading > span { text-align: left; }
-		.single-upload-layout { grid-template-columns: 1fr; }
-		.asset-drop-button { min-height: 140px; }
-		.emoji-form-grid { grid-template-columns: 1fr; }
-		.library-count { margin-left: 0; align-items: flex-start; }
+		.emoji-single,
+		.emoji-fields {
+			grid-template-columns: 1fr;
+		}
+		.emoji-drop {
+			min-height: 128px;
+		}
 	}
 </style>

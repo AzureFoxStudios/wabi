@@ -1,314 +1,60 @@
-
-	.pfp-placeholder {
-		width: 80px;
-		height: 80px;
-		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 2rem;
-		font-weight: bold;
-		color: white;
-	}
-
-
-	.pfp-upload-form {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		justify-content: center;
-		align-items: flex-start;
-		gap: 0.75rem;
-		min-height: 80px;
-	}
-
-
-	.pfp-select-btn,
-	.pfp-upload-btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0.75rem;
-		border-radius: 10px;
-		border: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
-		font-weight: 750;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-
-	.pfp-select-btn {
-		background: var(--surface-base);
-		color: var(--text-heading);
-	}
-
-
-	.pfp-select-btn:hover {
-		background: var(--surface-app);
-	}
-
-
-	.pfp-upload-btn {
-		background: var(--accent-primary-color);
-		color: white;
-		border-color: rgba(var(--accent-rgb), 0.34);
-	}
-
-
-	.pfp-upload-btn:hover:not(:disabled) {
-		opacity: 0.9;
-	}
-
-
-	.pfp-upload-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-
-	/* Emoji Upload Styles */
-	.emoji-upload-form {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-		padding: 1rem;
-		background: var(--surface-raised);
-		border-radius: 8px;
-		margin-bottom: 1.5rem;
-	}
-
-
-	.emoji-preview {
-		text-align: center;
-		padding: 1rem;
-		background: var(--surface-app);
-		border-radius: 8px;
-	}
-
-
-	.emoji-preview img {
-		max-width: 128px;
-		max-height: 128px;
-		object-fit: contain;
-	}
-
-
-	.emoji-select-btn,
-	.emoji-upload-btn {
-		padding: 0.75rem;
-		border-radius: 8px;
-		border: none;
-		font-weight: 600;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-
-	.emoji-select-btn {
-		background: var(--surface-base);
-		color: var(--text-heading);
-	}
-
-
-	.emoji-select-btn:hover {
-		background: var(--surface-app);
-	}
-
-
-	.emoji-upload-btn {
-		background: var(--accent-primary-color);
-		color: white;
-	}
-
-
-	.emoji-upload-btn:hover:not(:disabled) {
-		opacity: 0.9;
-		transform: translateY(-1px);
-	}
-
-
-	.emoji-upload-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-
-	.emoji-name-input,
-	.emoji-category-select {
-		padding: 0.75rem;
-		border-radius: 8px;
-		border: 1px solid var(--border-subtle);
-		background: var(--surface-app);
-		color: var(--text-heading);
-		font-size: 1rem;
-	}
-
-
-	.emoji-hint {
-		font-size: 0.875rem;
-		color: var(--text-secondary);
-		text-align: center;
-		margin: 0;
-	}
-
-
-	.emoji-list h4 {
-		margin: 0 0 1rem 0;
-		color: var(--text-heading);
-	}
-
-
-	.emoji-grid-list {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-		gap: 0.75rem;
-	}
-
-
-	.emoji-item {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.75rem;
-		background: var(--surface-raised);
-		border-radius: 8px;
-		position: relative;
-	}
-
-
-	.emoji-item-meta {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		gap: 0.1rem;
-		min-width: 0;
-	}
-
-
-	.emoji-thumb {
-		width: 32px;
-		height: 32px;
-		object-fit: contain;
-		flex-shrink: 0;
-	}
-
-
-	.emoji-item-name {
-		font-size: 0.875rem;
-		font-family: monospace;
-		color: var(--text-heading);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-
-	.emoji-item-sub {
-		font-size: 0.72rem;
-		color: var(--text-secondary);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-
-	.emoji-delete-btn {
-		background: none;
-		border: none;
-		font-size: 1.1rem;
-		cursor: pointer;
-		padding: 0.25rem;
-		opacity: 0.6;
-		transition: opacity 0.2s;
-	}
-
-
-	.emoji-delete-btn:hover {
-		opacity: 1;
-	}
-
-
-	/* Bulk Upload Styles */
-	.emoji-upload-form.bulk {
-		background: var(--surface-base);
-		border: 2px dashed var(--border-subtle);
-	}
-
-
-	.emoji-upload-form.bulk h4 {
-		margin: 0 0 1rem 0;
-		color: var(--text-heading);
-	}
-
-
-	.bulk-emoji-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-		margin-top: 1rem;
-	}
-
-
-	.bulk-count {
-		font-size: 0.875rem;
-		font-weight: 600;
-		color: var(--text-heading);
-		margin: 0;
-	}
-
-
-	.bulk-emoji-item {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 0.75rem;
-		padding: 0.75rem;
-		background: var(--surface-raised);
-		border-radius: 8px;
-	}
-
-
-	.bulk-preview {
-		width: 48px;
-		height: 48px;
-		object-fit: contain;
-		flex-shrink: 0;
-		background: var(--surface-app);
-		border-radius: 4px;
-	}
-
-
-	.bulk-name-input {
-		flex: 1 1 180px;
-		padding: 0.5rem;
-		border-radius: 4px;
-		border: 1px solid var(--border-subtle);
-		background: var(--surface-app);
-		color: var(--text-heading);
-		font-size: 0.875rem;
-		font-family: monospace;
-	}
-
-
-	.bulk-remove-btn {
-		background: none;
-		border: none;
-		color: var(--text-secondary);
-		font-size: 1.25rem;
-		cursor: pointer;
-		padding: 0.25rem 0.5rem;
-		opacity: 0.6;
-		transition: opacity 0.2s;
-	}
-
-
-	.bulk-remove-btn:hover {
-		opacity: 1;
-		color: var(--color-danger);
-	}
-
-
-	@keyframes spin {
-		from { transform: rotate(0deg); }
-		to { transform: rotate(360deg); }
-	}
+/* ==========================================================================
+   SETTINGS — ADMIN FORM LEFTOVERS
+   The emoji and profile-picture upload rules that lived here went with the kit Emojis and
+   Profile tabs (their styles are scoped to those components now). What is left is used by the
+   admin panels (settings/admin/BrandingSettings, DonationConfig) until they move to the kit:
+   their text fields and their one primary button, on the roles.
+   ========================================================================== */
+
+/* A plain form field (§7.3). Inside Settings the page's field rule draws the same thing. */
+.emoji-name-input {
+	box-sizing: border-box;
+	min-height: 38px;
+	padding: 0 10px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+textarea.emoji-name-input {
+	padding: 8px 10px;
+}
+.emoji-name-input:focus {
+	border-color: var(--w-accent);
+	box-shadow: var(--w-ring);
+	outline: none;
+}
+
+/* The ink primary (§7.1). */
+.pfp-upload-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	box-sizing: border-box;
+	height: 32px;
+	padding: 0 12px;
+	border: var(--w-bw) solid var(--w-text);
+	border-radius: var(--radius-md);
+	background: var(--w-text);
+	color: var(--w-bg);
+	font: var(--w-t-label);
+	white-space: nowrap;
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		border-color var(--w-dur-1) var(--w-ease);
+}
+.pfp-upload-btn:hover:not(:disabled) {
+	border-color: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+	background: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+}
+.pfp-upload-btn:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+.pfp-upload-btn:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}

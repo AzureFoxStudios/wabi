@@ -1,6 +1,7 @@
 <script lang="ts">
 	/**
-	 * Member-facing private-access (Tailcat) connection card.
+	 * Private access (Tailcat), this device's choice under Settings › Privacy & security. Errors are
+	 * said in plain words where the action happened; the raw cause is only logged.
 	 * Desktop-only flow: register this device's key with the server, then
 	 * dial the server's tc… address. The Tauri shell runs the SOCKS tunnel
 	 * plus a local forwarder; the app's server URL is switched to the
@@ -28,6 +29,7 @@
 	let label = $state('');
 
 	const desktop = $derived(isTauriRuntime());
+	const TUNNEL_CLOSED = 'Tunnel closed. Choose your server address from the sign-in screen.';
 
 	async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
 		// Lazy import keeps browser bundles free of the Tauri API.
@@ -45,7 +47,8 @@
 			}
 			info = await getTailcatConnectInfo(getAuthToken());
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
+			console.warn('[Private access] status check failed:', e);
+			error = "Couldn't check private access on this server. Your usual address still works.";
 		}
 	}
 
@@ -60,7 +63,8 @@
 			label = '';
 			await refresh();
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
+			console.warn('[Private access] registration failed:', e);
+			error = "This device wasn't registered. Try again, or ask an admin of this server.";
 		} finally {
 			busy = false;
 		}
@@ -98,7 +102,8 @@
 				await invoke('tailcat_disconnect').catch(() => {});
 				if (!restoreTailcatConnection()) clearTailcatConnection();
 			}
-			error = e instanceof Error ? e.message : String(e);
+			console.warn('[Private access] connect failed:', e);
+			error = "The private tunnel didn't connect. You're still on your usual address.";
 		} finally {
 			busy = false;
 		}
@@ -111,11 +116,12 @@
 		try {
 			await invoke('tailcat_disconnect');
 			if (!restoreTailcatConnection()) {
-				throw new Error('Tunnel closed. Choose your server address from the login screen.');
+				throw new Error(TUNNEL_CLOSED);
 			}
 			window.location.reload();
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
+			console.warn('[Private access] disconnect failed:', e);
+			error = e instanceof Error && e.message === TUNNEL_CLOSED ? TUNNEL_CLOSED : "The tunnel didn't close. Quit and reopen the app to use your usual address.";
 		} finally {
 			busy = false;
 		}
@@ -126,86 +132,74 @@
 	});
 </script>
 
-<div class="tailcat-card">
-	<h4>Private access</h4>
-	{#if error}
-		<p class="error">{error}</p>
-	{/if}
-	{#if notice}
-		<p class="notice">{notice}</p>
-	{/if}
-
-	{#if desktop && tunnel?.connected}
-		<p class="notice">
-			Private tunnel connected. Local forwarder port {tunnel.proxyPort}.
-		</p>
-		<button disabled={busy} onclick={disconnect}>Disconnect</button>
-	{:else if info === null}
-		<p class="muted">Loading…</p>
-	{:else if !info.enabled}
-		<p class="muted">
-			This server doesn't use private access tunnels. Connect the normal way (server address).
-		</p>
-	{:else if !desktop}
-		<p class="muted">
-			Private access tunnels need the desktop app. In the browser, keep using the normal server
-			address.
-		</p>
-	{:else if !info.registered}
-		<p class="muted">
-			Register this device to connect through the server's private tunnel. Your key is tied to
-			your account — an admin can revoke it at any time.
-		</p>
-		<div class="row">
-			<input
-				type="text"
-				placeholder="Device label (e.g. “mom's laptop”)"
-				bind:value={label}
-				maxlength={64}
-			/>
-			<button class="primary" disabled={busy} onclick={registerDevice}>
-				Register this device
-			</button>
+<section class="settings-block tailcat" aria-labelledby="tailcat-title">
+	<h3 class="settings-block__title" id="tailcat-title">Private access</h3>
+	<p class="settings-block__hint">Reach this server through its private tunnel from the desktop app, without a public address.</p>
+	<div class="w-srows">
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label">
+					{#if desktop && tunnel?.connected}Connected through the private tunnel{:else if info === null}Checking…{:else if !info.enabled}Not offered by this server{:else if !desktop}Needs the desktop app{:else if !info.registered}This device is not registered{:else}This device is registered{/if}
+				</p>
+				<p class="w-srow__hint">
+					{#if desktop && tunnel?.connected}
+						Disconnect to go back to the address you used before.
+					{:else if info === null}
+						Asking the server whether it offers private access.
+					{:else if !info.enabled}
+						Connect the usual way, with the server address.
+					{:else if !desktop}
+						In the browser, keep using the usual server address.
+					{:else if !info.registered}
+						Registering ties a key on this device to your account. An admin can revoke it at any time.
+					{:else}
+						Connecting switches the app to the tunnel address and asks you to sign in there.
+					{/if}
+				</p>
+			</div>
+			<div class="w-srow__control">
+				{#if desktop && tunnel?.connected}
+					<button type="button" class="w-btn w-btn--sm" disabled={busy} aria-busy={busy} onclick={disconnect}>Disconnect</button>
+				{:else if info?.enabled && desktop && info.registered}
+					<button type="button" class="w-btn w-btn--sm w-btn--primary" disabled={busy} aria-busy={busy} onclick={connect}>{busy ? 'Connecting…' : 'Connect'}</button>
+				{/if}
+			</div>
 		</div>
-	{:else}
-		<p class="muted">
-			This device is registered. Connect through the server's private tunnel without a domain.
-			The app will switch to the tunnel address and ask you to sign in there. Disconnect to
-			return to the previous address.
-		</p>
-		<button class="primary" disabled={busy} onclick={connect}>Connect</button>
-	{/if}
-</div>
+		{#if info?.enabled && desktop && !info.registered && !tunnel?.connected}
+			<div class="w-srow">
+				<div class="w-srow__text">
+					<label class="w-srow__label" for="tailcat-label">Device label</label>
+					<p class="w-srow__hint">So admins can tell your devices apart, such as “kitchen laptop”.</p>
+				</div>
+				<div class="w-srow__control tailcat__register">
+					<input id="tailcat-label" class="w-field" type="text" bind:value={label} maxlength={64} />
+					<button type="button" class="w-btn w-btn--sm w-btn--primary" disabled={busy} aria-busy={busy} onclick={registerDevice}>Register this device</button>
+				</div>
+			</div>
+		{/if}
+	</div>
+	{#if error}<p class="tailcat__note is-error" role="alert">{error}</p>{/if}
+	{#if notice}<p class="tailcat__note" role="status">{notice}</p>{/if}
+</section>
 
 <style>
-	.tailcat-card {
-		display: flex;
-		flex-direction: column;
-		gap: 10px;
-		padding: 14px;
-		border: 1px solid var(--wabi-border, #2a2a35);
-		border-radius: 10px;
+	.tailcat__register .w-field {
+		width: 200px;
 	}
-	h4 {
-		margin: 0;
+	.tailcat__note {
+		margin: 10px 0 0;
+		color: var(--w-mute);
+		font: var(--w-t-small);
 	}
-	.muted {
-		opacity: 0.7;
-		font-size: 0.9em;
+	.tailcat__note.is-error {
+		color: var(--w-danger);
 	}
-	.error {
-		color: #ff6b6b;
-	}
-	.notice {
-		color: #6bcb77;
-	}
-	.row {
-		display: flex;
-		gap: 8px;
-		flex-wrap: wrap;
-	}
-	input {
-		flex: 1;
-		min-width: 200px;
+	@media (max-width: 600px) {
+		.tailcat__register {
+			flex-wrap: wrap;
+		}
+		.tailcat__register .w-field {
+			width: 100%;
+		}
 	}
 </style>

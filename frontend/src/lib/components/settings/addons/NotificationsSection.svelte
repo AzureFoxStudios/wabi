@@ -2,7 +2,9 @@
 	import { displayEnhancementSettingsStore, setFriendNotificationsEnabled, setFriendNotificationsTrackedOnly } from '$lib/displayEnhancements';
 	import { clearAllTrackedPersonStatusAlerts, trackedStatusAlertPersonCountStore } from '$lib/peopleTracker';
 	import { ADDON_SECTION_LABELS } from '../addonSettingsRegistry';
+	import { confirmAction } from '$lib/confirm';
 	import AddonRow from './AddonRow.svelte';
+	import Switch from '../../ui/Switch.svelte';
 
 	export let localAddonControlMatches: (controlId: string) => boolean;
 
@@ -22,41 +24,41 @@
 		setFriendNotificationsTrackedOnly(!friendNotificationsTrackedOnly);
 	}
 
-	function clearFriendNotificationTrackedUsers(): void {
-		if (!window.confirm('Clear all tracked people for status alerts on this device?')) return;
-		clearAllTrackedPersonStatusAlerts();
+	async function clearFriendNotificationTrackedUsers(): Promise<void> {
+		const confirmed = await confirmAction({
+			title: 'Clear your status alerts list?',
+			body: 'You stop getting alerts when these people come online or go away.',
+			confirm: 'Clear list',
+			danger: true
+		});
+		if (confirmed) clearAllTrackedPersonStatusAlerts();
 	}
 </script>
 
 {#if localAddonControlMatches('friend_notifications')}
 	<AddonRow
 		id="friend_notifications"
-		label="FriendNotifications"
-		description="Desktop notifications when people change presence status."
+		label="Status alerts"
+		description="An alert when people you choose come online or go away."
 		enabled={friendNotificationsEnabled}
 		badge={SECTION}
 		onToggle={toggleFriendNotificationsAddon}
 	>
 		{#snippet preferences()}
-			<label class="addon-pref-check">
-				<input
-					type="checkbox"
-					checked={friendNotificationsTrackedOnly}
-					on:change={toggleFriendNotificationsTrackedOnlyAddon}
-					disabled={!friendNotificationsEnabled}
-				/>
-				<span>Status alerts list only</span>
-			</label>
-			<div class="runtime-note">
-				Tracked people for status alerts: {$trackedStatusAlertPersonCountStore}. Use the People tab context menu to enable or disable alerts per person on each server.
+<div class="addon-option">
+				<span class="addon-option__label" id="addon-opt-status-list">Only people on my list</span>
+				<Switch labelledby="addon-opt-status-list" checked={friendNotificationsTrackedOnly} disabled={!friendNotificationsEnabled} onchange={toggleFriendNotificationsTrackedOnlyAddon} />
 			</div>
-			<div class="settings-row-actions">
+			<div class="addon-note">
+				{$trackedStatusAlertPersonCountStore === 1 ? '1 person' : `${$trackedStatusAlertPersonCountStore} people`} on your list. Right-click someone in People to add or remove them.
+			</div>
+			<div class="addon-actions">
 				<button
-					class="action-btn secondary"
+					class="w-btn w-btn--sm"
 					on:click={clearFriendNotificationTrackedUsers}
 					disabled={$trackedStatusAlertPersonCountStore === 0}
 				>
-					Clear Status Alerts List
+					Clear status alerts list
 				</button>
 			</div>
 		{/snippet}

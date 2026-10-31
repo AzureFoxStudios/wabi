@@ -1,10 +1,13 @@
 <script lang="ts">
-	import GamesSettingsEntry from '$lib/games/GamesSettingsEntry.svelte';
-	import {
-		ADDON_SECTION_IDS,
-		ADDON_SECTION_LABELS,
-		type AddonSectionId
-	} from './addonSettingsRegistry';
+	/**
+	 * Settings › Add-ons (THIS DEVICE, §8.9): the office tools first, as per-device switches with
+	 * their maturity word and consent facts, then the small chat and reading tools, then what this
+	 * server includes. No usage counters, no build flags: members see what each add-on does and
+	 * whether it is on.
+	 */
+	import { onMount } from 'svelte';
+	import { _ as t } from '$lib/i18n';
+	import { ADDON_SECTION_IDS, ADDON_SECTION_LABELS, LOCAL_ADDON_CONTROL_META } from './addonSettingsRegistry';
 	import { createAddonSettingsView, type AddonCategoryFilter } from './addonSettingsView';
 	import { addonEnabledState } from './addonEnabledRegistry.svelte';
 	import {
@@ -16,7 +19,13 @@
 	} from './addonDetection';
 	import { getServerUrl } from '$lib/serverUrl';
 	import { getAuthToken } from '$lib/authSession';
-	import { onMount } from 'svelte';
+	import { brandName } from '$lib/branding';
+	import { hydrateWorkspaceAddons, setWorkspaceAddonEnabled, workspaceAddonEnabled, type OfficeAddon } from '$lib/workspaces/addonState';
+	import { OFFICE_ADDON_ROWS, OFFICE_KICKER, PREVIEW_TITLE, RETIRED_LOCAL_ADDON_CONTROLS, officeAddonState } from './officeAddonsSetting';
+	import Icon from '../ui/Icon.svelte';
+	import Segmented from '../ui/Segmented.svelte';
+	import Select from '../ui/Select.svelte';
+	import Notice from '../ui/Notice.svelte';
 	import AddonRow from './addons/AddonRow.svelte';
 	import ChatSection from './addons/ChatSection.svelte';
 	import SpoilersSection from './addons/SpoilersSection.svelte';
@@ -28,70 +37,98 @@
 	import AppearanceSection from './addons/AppearanceSection.svelte';
 	import UtilitiesSection from './addons/UtilitiesSection.svelte';
 
-	/** Backend-enabled addons from GET /api/addons */
-	let backendAddons = $state<DetectedAddon[]>([]);
-	/** Bundled frontend allowlist entries reported by inventory */
-	let frontendAddons = $state<DetectedAddon[]>([]);
-	let addonsLastDetectedAt = $state('');
-	let addonsLoading = $state(false);
-	let addonsError = $state('');
-	let addonSearchQuery = $state('');
-	/** Blender's "Enabled Only" filter. */
-	let enabledOnly = $state(false);
-	/** Blender's category dropdown: All / Server / Bundled / one local section. */
-	let categoryFilter = $state<AddonCategoryFilter>('all');
-	/** In-app switch feedback (owner action on a compiled-in add-on). */
-	let addonSwitchBusy = $state<string | null>(null);
-	let addonSwitchStatus = $state('');
-	let translatorAddonDetected = $derived(
-		[...frontendAddons, ...backendAddons].some((addon) => addon.id === 'translator-assist')
-	);
-	let addonView = $derived(
-		createAddonSettingsView(addonSearchQuery, enabledOnly, addonEnabledState, categoryFilter)
-	);
-	let localAddonControlMatches = $derived(addonView.localAddonControlMatches);
-	let addonSectionMatchCount = $derived(addonView.addonSectionMatchCount);
-	let availableLocalAddonControlCount = $derived(addonView.availableLocalAddonControlCount);
-	let visibleLocalAddonControlCount = $derived(addonView.visibleLocalAddonControlCount);
-	let visibleBackendAddons = $derived(addonView.showServerRows
-		? backendAddons.filter((addon) => addonView.inventoryAddonMatches(addon, 'server')) : []);
-	let visibleFrontendAddons = $derived(addonView.showBundledRows
-		? frontendAddons.filter((addon) => addonView.inventoryAddonMatches(addon, 'bundled')) : []);
-	let visibleAddonControlCount = $derived(visibleLocalAddonControlCount + visibleBackendAddons.length + visibleFrontendAddons.length);
-	let availableAddonControlCount = $derived(availableLocalAddonControlCount + backendAddons.length + frontendAddons.length);
-	let hasVisibleRows = $derived(visibleAddonControlCount > 0);
+	/** A locale word, or the English fallback while packs load. */
+	const word = (key: string, fallback: string) => {
+		const value = $t(key);
+		return value && value !== key ? value : fallback;
+	};
 
-	function clearAddonSearchQuery(): void {
-		addonSearchQuery = '';
+	// ── Office tools (Sheets, Present): per device ──
+	let officeAvailable = $state<Record<OfficeAddon, boolean | null>>({ sheets: null, present: null });
+	let officeBusy = $state<OfficeAddon | null>(null);
+	let officeError = $state<{ id: OfficeAddon; text: string } | null>(null);
+
+	async function loadOfficeAvailability(): Promise<void> {
+		try {
+			await hydrateWorkspaceAddons();
+		} catch (error) {
+			console.warn('[Add-ons] office add-on state did not load:', error);
+		}
+		const [sheets, present] = await Promise.all([
+			import('@wabi/workspace-sheets').then((entry) => entry.available).catch(() => false),
+			import('@wabi/workspace-present').then((entry) => entry.available).catch(() => false)
+		]);
+		officeAvailable = { sheets, present };
 	}
 
-	/** How this add-on is attached: build-time feature and/or runtime switch. */
-	function attachMeta(addon: DetectedAddon): string {
-		const parts = [`version: ${addon.version}`];
-		parts.push(addon.cargoFeature ? `build: --features ${addon.cargoFeature}` : 'always compiled');
-		if (addon.runtimeEnv) parts.push(`runtime: ${addon.runtimeEnv}=1`);
-		parts.push(addon.runtimeSwitch ? 'switch: in-app' : 'switch: rebuild only');
-		return parts.join(' · ');
+	async function toggleOffice(id: OfficeAddon): Promise<void> {
+		if (officeBusy || !officeAvailable[id]) return;
+		const next = !$workspaceAddonEnabled[id];
+		officeBusy = id;
+		officeError = null;
+		try {
+			await setWorkspaceAddonEnabled(id, next);
+		} catch (error) {
+			console.warn('[Add-ons] office add-on switch failed:', error);
+			const name = id === 'sheets' ? 'Sheets' : 'Present';
+			officeError = { id, text: `${name} wasn't turned ${next ? 'on' : 'off'}. Nothing changed on this device.` };
+		} finally {
+			officeBusy = null;
+		}
+	}
+
+	// ── Chat and reading tools (local) ──
+	let addonSearchQuery = $state('');
+	/** "All" or only the tools that are on. */
+	let showWhich = $state<'all' | 'on'>('all');
+	let categoryFilter = $state<AddonCategoryFilter>('all');
+	const enabledOnly = $derived(showWhich === 'on');
+	const categoryOptions = $derived([
+		{ value: 'all', label: 'All kinds' },
+		...ADDON_SECTION_IDS.map((section) => ({ value: section, label: ADDON_SECTION_LABELS[section] })),
+		{ value: 'server', label: 'On this server', group: 'Server' }
+	]);
+
+	// ── What this server includes (GET /api/addons) ──
+	let backendAddons = $state<DetectedAddon[]>([]);
+	let frontendAddons = $state<DetectedAddon[]>([]);
+	let addonsLoading = $state(false);
+	let addonsError = $state(false);
+	let addonSwitchBusy = $state<string | null>(null);
+	let addonSwitchStatus = $state('');
+
+	const addonView = $derived(createAddonSettingsView(addonSearchQuery, enabledOnly, addonEnabledState, categoryFilter));
+	const localAddonControlMatches = $derived(addonView.localAddonControlMatches);
+	const visibleBackendAddons = $derived(
+		addonView.showServerRows ? backendAddons.filter((addon) => addonView.inventoryAddonMatches(addon, 'server')) : []
+	);
+	const visibleFrontendAddons = $derived(
+		addonView.showBundledRows ? frontendAddons.filter((addon) => addonView.inventoryAddonMatches(addon, 'bundled')) : []
+	);
+	// Count only rows that render: a retired control can still sit in the registry.
+	const visibleLocalCount = $derived(
+		Object.keys(LOCAL_ADDON_CONTROL_META).filter(
+			(id) => !RETIRED_LOCAL_ADDON_CONTROLS.has(id) && addonView.localAddonControlMatches(id)
+		).length
+	);
+	const visibleServerCount = $derived(visibleBackendAddons.length + visibleFrontendAddons.length);
+	const filtering = $derived(Boolean(addonSearchQuery.trim()) || enabledOnly || categoryFilter !== 'all');
+
+	function clearFilters(): void {
+		addonSearchQuery = '';
+		showWhich = 'all';
+		categoryFilter = 'all';
 	}
 
 	function serverAddonDescription(addon: DetectedAddon): string {
-		const detach = addon.cargoFeature
-			? `Detach it by rebuilding without the ${addon.cargoFeature} cargo feature.`
-			: 'Always compiled into this server binary — detaching needs a rebuild.';
-		const runtime = addon.runtimeEnv
-			? ` Runtime switch on the host: ${addon.runtimeEnv}=1.`
-			: '';
-		return `Server add-on. ${detach}${runtime}`;
-	}
-
-	function bundledAddonDescription(): string {
-		return 'Bundled with this client build (static allowlist — never a remote import). Remove it from the allowlist and rebuild the frontend to detach.';
+		return addon.runtimeSwitch
+			? 'Part of this server. Owners and admins can turn it on or off here.'
+			: 'Part of this server, fixed when the server was set up.';
 	}
 
 	/**
-	 * Flip a compiled-in add-on from the app (owner/admin). Steam and tailcat
-	 * apply immediately; lore attaches to its service at startup, so the server
-	 * tells us when a restart is needed.
+	 * Flip a compiled-in add-on from the app (owner/admin). Some apply right away; others attach
+	 * when the server restarts, and the server says which.
 	 */
 	async function toggleServerAddon(addon: DetectedAddon): Promise<void> {
 		if (!addon.runtimeSwitch || addonSwitchBusy) return;
@@ -101,25 +138,19 @@
 		const result = await switchAddon(getServerUrl(), getAuthToken(), addon.id, next);
 		addonSwitchBusy = null;
 		if (!result) {
-			addonSwitchStatus = `Could not switch ${addon.name}. This action needs an owner or admin session on this server.`;
+			addonSwitchStatus = `${addon.name} didn't change. Only owners and admins of this server can switch it.`;
 			return;
 		}
-		backendAddons = backendAddons.map((entry) =>
-			entry.id === addon.id ? { ...entry, enabled: result.enabled } : entry
-		);
+		backendAddons = backendAddons.map((entry) => (entry.id === addon.id ? { ...entry, enabled: result.enabled } : entry));
 		addonSwitchStatus = result.appliesOnRestart
-			? `${addon.name} ${result.enabled ? 'enabled' : 'disabled'} — applies after the next server restart.`
-			: `${addon.name} ${result.enabled ? 'enabled' : 'disabled'}.`;
+			? `${addon.name} is ${result.enabled ? 'on' : 'off'} after the server next restarts.`
+			: `${addon.name} is ${result.enabled ? 'on' : 'off'}.`;
 		void refreshAddonDetection();
 	}
 
-	/**
-	 * A4: inventory only from GET /api/addons (via addonDetection).
-	 * No package install, no broken ./plugins/*.svelte glob, no import theater.
-	 */
 	async function refreshAddonDetection(): Promise<void> {
 		addonsLoading = true;
-		addonsError = '';
+		addonsError = false;
 		try {
 			const plugins = await fetchPluginInventory(getServerUrl(), getAuthToken());
 			if (plugins) {
@@ -128,111 +159,128 @@
 			} else {
 				backendAddons = [];
 				frontendAddons = [];
-				addonsError =
-					'Could not reach GET /api/addons. Is the server running this build with the addons endpoint?';
+				addonsError = true;
 			}
-			addonsLastDetectedAt = new Date().toLocaleString();
 		} catch (err) {
+			console.warn('[Add-ons] server inventory failed:', err);
 			backendAddons = [];
 			frontendAddons = [];
-			addonsError = err instanceof Error ? err.message : 'Failed to refresh add-on inventory';
+			addonsError = true;
 		} finally {
 			addonsLoading = false;
 		}
 	}
 
 	onMount(() => {
+		void loadOfficeAvailability();
 		void refreshAddonDetection();
 	});
 </script>
 
-<div class="settings-section">
-	<GamesSettingsEntry />
-
-	<div class="addons-settings-window">
-		<div class="addons-settings-window-header">
-			<div class="addons-settings-toolbar">
-				<label class="addons-search-field">
-					<span class="addons-search-icon" aria-hidden="true">
-						<svg viewBox="0 0 24 24">
-							<circle cx="11" cy="11" r="7" />
-							<path d="M20 20l-3.6-3.6" />
-						</svg>
-					</span>
-					<input
-						type="search"
-						class="addon-search-input"
-						bind:value={addonSearchQuery}
-						placeholder="Search add-ons…"
-						aria-label="Search add-ons"
-						name="addon-filter"
-						id="settings-addon-filter"
-						autocomplete="off"
-						autocapitalize="off"
-						autocorrect="off"
-						spellcheck="false"
-						data-lpignore="true"
-						data-1p-ignore="true"
-						data-form-type="other"
-					/>
-				</label>
-				<label class="addon-enabled-only">
-					<input type="checkbox" bind:checked={enabledOnly} />
-					<span>Enabled Only</span>
-				</label>
-				<div class="addon-toolbar-actions">
-					<label class="addon-category-filter">
-						<select class="addon-category-select" aria-label="Add-on category" bind:value={categoryFilter}>
-							<option value="all">All</option>
-							<option value="server">Server</option>
-							<option value="bundled">Bundled</option>
-							{#each ADDON_SECTION_IDS as section (section)}
-								<option value={section}>
-									{ADDON_SECTION_LABELS[section]} ({addonSectionMatchCount(section)})
-								</option>
-							{/each}
-						</select>
-					</label>
+<!-- Office tools: one switch per device each, maturity and consent said first. -->
+<section class="settings-block addons-office" aria-labelledby="addons-office-title">
+	<p class="w-kicker addons-office__kicker" title={word('maturity.preview_title', PREVIEW_TITLE)}>{word('maturity.optional_addon_preview', OFFICE_KICKER)}</p>
+	<h3 class="settings-block__title" id="addons-office-title">Office tools</h3>
+	<p class="settings-block__hint">An integration candidate, not a deployed feature. Each tool is off on this device until you turn it on here.</p>
+	<div class="w-srows">
+		{#each OFFICE_ADDON_ROWS as row (row.id)}
+			{@const available = officeAvailable[row.id]}
+			{@const on = $workspaceAddonEnabled[row.id]}
+			<div class="w-srow addons-office__row">
+				<div class="w-srow__text">
+					<p class="w-srow__label">
+						<span id={`addons-office-${row.id}`}>{row.name}</span>
+						<span class="w-tag w-tag--mat" title={word('maturity.preview_title', PREVIEW_TITLE)}>{word('maturity.preview', 'Preview')}</span>
+					</p>
+					<p class="w-srow__hint" id={`addons-office-${row.id}-hint`}>{row.summary} {officeAddonState(available, on)}</p>
+					<ul class="addons-office__facts" aria-label={`Turning on ${row.name}`}>
+						{#each row.facts as fact (fact)}<li>{fact}</li>{/each}
+					</ul>
+					{#if officeError?.id === row.id}
+						<p class="addon-note is-error" role="alert"><Icon name="alert" size={14} />{officeError.text}</p>
+					{/if}
+				</div>
+				<div class="w-srow__control">
 					<button
 						type="button"
-						class="addon-icon-btn"
-						onclick={refreshAddonDetection}
-						disabled={addonsLoading}
-						title="Refresh add-on inventory"
-						aria-label="Refresh add-on inventory"
-					>
-						<svg viewBox="0 0 24 24" aria-hidden="true">
-							<path d="M21 12a9 9 0 1 1-2.6-6.4" />
-							<path d="M21 4v5h-5" />
-						</svg>
-					</button>
+						class="w-switch"
+						role="switch"
+						aria-checked={Boolean(available) && on}
+						aria-labelledby={`addons-office-${row.id}`}
+						aria-describedby={`addons-office-${row.id}-hint`}
+						aria-busy={officeBusy === row.id}
+						disabled={!available || officeBusy !== null}
+						onclick={() => void toggleOffice(row.id)}
+					></button>
 				</div>
 			</div>
-			<div class="addons-search-meta">
-				<span class="addon-status-note">
-					Showing {visibleAddonControlCount} of {availableAddonControlCount} add-ons{#if addonsLastDetectedAt}
-						· inventory refreshed {addonsLastDetectedAt}{/if}
-				</span>
-				{#if addonSearchQuery.trim()}
-					<button
-						type="button"
-						class="addon-search-clear"
-						onclick={clearAddonSearchQuery}
-					>
-						Clear
-					</button>
-				{/if}
-			</div>
-			{#if addonSwitchStatus}
-				<div class="addon-status-note addon-switch-status" role="status">{addonSwitchStatus}</div>
-			{/if}
-		</div>
-		<div class="addons-settings-window-body">
-			{#if addonsError}
-				<div class="runtime-note addon-error">{addonsError}</div>
-			{/if}
+		{/each}
+	</div>
+	<p class="addon-note">Admins of this server choose whether members can share spreadsheets and decks.</p>
+</section>
 
-			{#if addonView.showServerRows}
+<!-- Small tools for chat and reading. -->
+<section class="settings-block addons-local" aria-labelledby="addons-local-title">
+	<h3 class="settings-block__title" id="addons-local-title">Chat and reading tools</h3>
+	<p class="settings-block__hint">Small tools that change how {brandName} looks and behaves for you.</p>
+	<div class="addons-toolbar" role="search" aria-label="Find an add-on">
+		<label class="w-field w-field--chrome addons-toolbar__search">
+			<Icon name="search" size={16} />
+			<input
+				type="search"
+				bind:value={addonSearchQuery}
+				placeholder="Find an add-on"
+				aria-label="Find an add-on"
+				autocomplete="off"
+				spellcheck="false"
+				data-lpignore="true"
+				data-1p-ignore="true"
+				data-form-type="other"
+			/>
+		</label>
+		<Segmented label="Show" options={[{ value: 'all', label: 'All' }, { value: 'on', label: 'On' }]} bind:value={showWhich} />
+		<Select ariaLabel="Kind of add-on" options={categoryOptions} value={categoryFilter} onchange={(value) => (categoryFilter = value as AddonCategoryFilter)} applied={categoryFilter !== 'all'} align="end" />
+	</div>
+	{#if filtering}
+		<p class="addons-toolbar__count" role="status">
+			{visibleLocalCount + visibleServerCount === 0 ? 'Nothing matches.' : `${visibleLocalCount + visibleServerCount} shown`}
+			<button type="button" class="w-btn w-btn--sm w-btn--quiet" onclick={clearFilters}>Clear</button>
+		</p>
+	{/if}
+
+	{#if addonView.showLocalRows}
+		<div class="w-srows w-addons">
+			<!-- Section instances stay mounted through empty searches so local edits survive. -->
+			<ChatSection {localAddonControlMatches} />
+			<SpoilersSection {localAddonControlMatches} />
+			<SearchSection {localAddonControlMatches} />
+			<NavigationSection {localAddonControlMatches} />
+			<IdentitySection {localAddonControlMatches} />
+			<NotificationsSection {localAddonControlMatches} />
+			<MediaSection {localAddonControlMatches} />
+			<AppearanceSection {localAddonControlMatches} />
+			<UtilitiesSection {localAddonControlMatches} />
+		</div>
+	{/if}
+	{#if filtering && visibleLocalCount === 0 && addonView.showLocalRows}
+		<div class="addons-empty">
+			<p class="addons-empty__title">No tools match</p>
+			<p class="addons-empty__text">Try another word, or show every kind.</p>
+		</div>
+	{/if}
+</section>
+
+<!-- What this server includes. -->
+{#if addonsError || backendAddons.length || frontendAddons.length || addonsLoading}
+	<section class="settings-block addons-server" aria-labelledby="addons-server-title" aria-busy={addonsLoading}>
+		<h3 class="settings-block__title" id="addons-server-title">Included with this server</h3>
+		<p class="settings-block__hint">Add-ons built into this server and app. They don't change from this device.</p>
+		{#if addonsError}
+			<Notice title="This server didn't list its add-ons" text="Office tools and the tools above work as they are." onretry={refreshAddonDetection} />
+		{:else if addonsLoading && !backendAddons.length && !frontendAddons.length}
+			<p class="addon-note" role="status">Checking this server…</p>
+		{:else if addonView.showServerRows}
+			<div class="w-srows w-addons">
 				{#each visibleBackendAddons as addon (addon.id)}
 					<AddonRow
 						id={`server:${addon.id}`}
@@ -240,60 +288,22 @@
 						description={serverAddonDescription(addon)}
 						enabled={addon.enabled}
 						locked={!addon.runtimeSwitch}
-						badge="Server"
-						meta={attachMeta(addon)}
+						meta={`Version ${addon.version}`}
 						onToggle={addon.runtimeSwitch ? () => void toggleServerAddon(addon) : undefined}
 					/>
 				{/each}
-			{/if}
-
-			{#if addonView.showBundledRows && frontendAddons.length > 0}
 				{#each visibleFrontendAddons as addon (addon.id + addon.source)}
 					<AddonRow
 						id={`bundled:${addon.id}`}
 						label={addon.name}
-						description={bundledAddonDescription()}
+						description="Comes with this app."
 						enabled={addon.enabled}
 						locked={true}
-						badge="Bundled"
-						meta={attachMeta(addon)}
+						meta={`Version ${addon.version}`}
 					/>
 				{/each}
-			{/if}
-
-			{#if !hasVisibleRows && !addonsLoading && !addonsError}
-				<div class="addon-empty-state">
-					<div class="addon-empty-state-title">No add-ons matched that filter.</div>
-					<div class="runtime-note">
-						Try another keyword, turn off Enabled Only, or clear the category filter.
-					</div>
-					<button type="button" class="addon-search-clear" onclick={() => { clearAddonSearchQuery(); enabledOnly = false; categoryFilter = 'all'; }}>
-						Clear filters
-					</button>
-				</div>
-			{/if}
-			{#if addonView.showLocalRows}
-				<!-- Keep section instances alive through empty searches so local edits survive. -->
-				<ChatSection {localAddonControlMatches} />
-				<SpoilersSection {localAddonControlMatches} />
-				<SearchSection {localAddonControlMatches} />
-				<NavigationSection {localAddonControlMatches} />
-				<IdentitySection {localAddonControlMatches} />
-				<NotificationsSection {localAddonControlMatches} />
-				<MediaSection {localAddonControlMatches} />
-				<AppearanceSection {localAddonControlMatches} />
-				<UtilitiesSection {localAddonControlMatches} {translatorAddonDetected} />
-			{/if}
-		</div>
-	</div>
-</div>
-
-<style>
-	.addons-settings-toolbar { gap: var(--space-2); }
-	.addon-toolbar-actions { display: flex; align-items: center; gap: var(--space-2); }
-	.addons-settings-toolbar .addons-search-field { height: 40px; border-radius: var(--radius-control, var(--radius-md)); }
-	.addons-settings-toolbar input.addon-search-input { height: 100%; padding: 0; background: transparent; }
-	.addons-settings-toolbar select.addon-category-select { height: 40px; min-width: 130px; padding: 0 var(--space-3); border-radius: var(--radius-control, var(--radius-md)); }
-	.addons-settings-toolbar .addon-icon-btn { width: 40px; height: 40px; border-radius: var(--radius-control, var(--radius-md)); }
-	.addon-empty-state { margin: var(--space-3); border-radius: var(--radius-lg); }
-</style>
+			</div>
+		{/if}
+		{#if addonSwitchStatus}<p class="addon-note" role="status">{addonSwitchStatus}</p>{/if}
+	</section>
+{/if}
