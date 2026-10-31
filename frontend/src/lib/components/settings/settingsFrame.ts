@@ -18,8 +18,9 @@ export type SettingsTab =
 	| 'admin'
 	| 'about';
 
-/** Values other surfaces may ask Settings to open (MainLayout, wabi:open-settings). */
-export type SettingsRequest = 'profile' | 'server' | 'notifications' | 'audio' | 'addons' | 'admin';
+/** Values other surfaces may ask Settings to open (MainLayout, wabi:open-settings, the phone's
+ *  You page, which opens Appearance and Privacy & security directly). */
+export type SettingsRequest = 'profile' | 'server' | 'notifications' | 'audio' | 'addons' | 'admin' | 'appearance' | 'privacy';
 
 export type SettingsIcon =
 	| 'user'

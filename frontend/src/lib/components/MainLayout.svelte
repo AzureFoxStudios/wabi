@@ -114,9 +114,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	export let accountSecurityOpenRequest = 0;
 	let showSettings = false;
 	let requestedSettingsPaymentSurface: 'connections' | null = null;
-	// Settings resolves any page id (resolveSettingsRequest); the You page also opens Appearance and
-	// Privacy & security directly.
-	let requestedSettingsTab: SettingsRequest | YouSettingsPage | null = null;
+	// Settings resolves any page id (resolveSettingsRequest), the You page's pages included.
+	let requestedSettingsTab: SettingsRequest | null = null;
 	let activityActionError = '';
 	let requestedSettingsPasswordChangeRequest = 0;
 	let lastHandledAccountSecurityOpenRequest = 0;
@@ -1809,7 +1808,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			this={SettingsCmp}
 			bind:isOpen={showSettings}
 			requestedPaymentSurface={requestedSettingsPaymentSurface}
-			requestedTab={requestedSettingsTab as SettingsRequest | null}
+			requestedTab={requestedSettingsTab}
 			requestedPasswordChangeRequest={requestedSettingsPasswordChangeRequest}
 			on:logout
 		/>
