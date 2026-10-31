@@ -125,8 +125,8 @@ describe('workspace.css', () => {
 		expect(code).not.toMatch(/rgba?\(/);
 	});
 
-	test('is unminified and keeps the legacy control layer at zero specificity', () => {
+	test('is unminified, and every office control is a kit control (no legacy control layer)', () => {
 		expect(css.split('\n').length).toBeGreaterThan(200);
-		expect(code).toContain(".wabi-workspace :where(button:not([class*='w-']))");
+		expect(code).not.toContain(":where(button:not([class*='w-']))");
 	});
 });

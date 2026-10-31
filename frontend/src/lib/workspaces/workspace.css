@@ -532,56 +532,6 @@ textarea.workspace-reviews__field--tall {
 .workspace-file-input {
 	display: none;
 }
-.workspace-home-note {
-	max-width: 70ch;
-	margin: 0;
-	padding: 16px var(--w-gutter, 32px);
-	color: var(--w-mute);
-	font: var(--w-t-small);
-}
-
-/*
- * Tool bodies (Documents, Sheets, Present) that still draw plain controls get the quiet kit
- * look on the roles here, until each tool's own package moves them onto kit classes. Kit
- * controls (.w-btn, .w-ibtn, .w-field, .w-seg…) are untouched: :where() keeps this at zero
- * specificity and the class check skips them.
- */
-.wabi-workspace :where(button:not([class*='w-'])) {
-	min-height: 32px;
-	padding: 0 12px;
-	border: var(--w-bw) solid var(--w-line-strong);
-	border-radius: var(--radius-md);
-	background: var(--w-lift);
-	color: var(--w-text);
-	font: var(--w-t-ui);
-	cursor: pointer;
-}
-.wabi-workspace :where(button:not([class*='w-']):hover:not(:disabled)) {
-	background: var(--w-raise);
-}
-.wabi-workspace :where(button:not([class*='w-']):disabled) {
-	opacity: 0.5;
-	cursor: default;
-}
-.wabi-workspace :where(button:not([class*='w-']).primary) {
-	border-color: var(--w-text);
-	background: var(--w-text);
-	color: var(--w-bg);
-}
-/* Text fields only: checkboxes and radios (rendered task lists) keep the kit box. */
-.wabi-workspace :where(:is(input, select, textarea):not([class*='w-'], [type='checkbox'], [type='radio'])) {
-	box-sizing: border-box;
-	min-height: 32px;
-	padding: 4px 8px;
-	border: var(--w-bw) solid var(--w-line-strong);
-	border-radius: var(--radius-md);
-	background: var(--w-sink);
-	color: var(--w-text);
-}
-.wabi-workspace :where(:is(button, input, select, textarea):not([class*='w-']):focus-visible) {
-	outline: 2px solid var(--w-accent);
-	outline-offset: 2px;
-}
 
 /* ---------- narrow stages and phones ---------- */
 @container stage (max-width: 759.98px) {
@@ -604,9 +554,6 @@ textarea.workspace-reviews__field--tall {
 	}
 }
 @media (pointer: coarse) {
-	.wabi-workspace :where(button:not([class*='w-'])) {
-		min-height: 44px;
-	}
 	.workspace-card {
 		min-height: 76px;
 	}
