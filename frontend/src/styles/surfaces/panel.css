@@ -260,17 +260,31 @@
    conversation views say the privacy state through PrivacyBadge and their own sending-paused
    row, in their own scoped styles. w1-switcher-dms, wave 1b.) */
 
-/* HELD FOR w1-wiki-notes — NotesWorkspace.svelte (shown on center stage and in the panel). */
-/* ---- notes list: tabs as a quiet underline pair, rows as ledger lines ---- */
-:root .notes-workspace .list-tabs { gap: 0; padding: 0 12px; border-bottom: var(--w-bw, 1px) solid var(--w-line); }
-:root .notes-workspace .list-tabs button { flex: 0 0 auto; min-height: 32px; padding: 4px 12px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--w-mute); font: 600 .72rem var(--w-mono); letter-spacing: .08em; text-transform: uppercase; }
-:root .notes-workspace .list-tabs button.active { background: transparent; color: var(--w-text); border-bottom-color: var(--w-sig); }
-:root .notes-workspace .list-tabs button:last-child { margin-left: auto; padding: 4px 8px; }
-:root .notes-workspace .note-row { margin: 0; border: 0; border-bottom: var(--w-bw, 1px) solid var(--w-line); border-left: 2px solid transparent; border-radius: 0; padding: 10px 12px; }
-:root .notes-workspace .note-row.selected { background: var(--w-accent-soft); border-left-color: var(--w-sig); }
-:root .notes-workspace .note-row strong { font: 600 .88rem var(--w-sans); }
-:root .notes-workspace .note-row > span { font-style: normal; }
-:root .notes-workspace .notebook-empty h3, :root .notes-workspace .list-empty p:first-child { font-family: var(--w-serif); }
-:root .notes-workspace .notebook-settings button { min-height: 32px; border: 0; background: transparent; color: var(--w-mute); }
-:root .notes-workspace .notebook-settings button:hover { color: var(--w-text); }
-:root .notes-workspace .note-title { font: 600 1.5rem/1.25 var(--w-serif); }
+/* HELD FOR w1-wiki-notes — NotesWorkspace.svelte and WikiChannel.svelte in the panel.
+   The notebook and the wiki style themselves (NotesWorkspace's scoped styles,
+   styles/components/wiki.css); the Notes list skin that sat here is gone. What stays: their title
+   fields are the page's title, not chrome fields, so the panel's legacy field skin above (0,4,1)
+   must not box them. Same weight, later in this file. */
+:root .right-panel .notes-workspace input.note-heading,
+:root .right-panel .wiki-channel input.wiki-title-input {
+	min-height: 0;
+	padding: 0;
+	border: 0;
+	border-bottom: var(--w-bw) solid transparent;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	font: var(--w-t-heading);
+}
+:root .right-panel .wiki-channel input.wiki-title-input {
+	border-bottom: 0;
+	font: 600 calc(24px * var(--w-fs, 1)) / calc(30px * var(--w-fs, 1)) var(--w-serif);
+}
+:root .right-panel .notes-workspace input.note-heading:focus,
+:root .right-panel .wiki-channel input.wiki-title-input:focus {
+	box-shadow: none;
+	outline: none;
+}
+:root .right-panel .notes-workspace input.note-heading:focus-visible {
+	border-bottom-color: var(--w-accent);
+}
