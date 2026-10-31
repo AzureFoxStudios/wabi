@@ -3,7 +3,7 @@
  * Layout store state definitions
  */
 
-import { readable, writable } from 'svelte/store';
+import { derived, readable, writable, type Readable } from 'svelte/store';
 import type { User, Channel } from './socket-types';
 import { createDefaultLayoutState, FALLBACK_WORKSPACE_PANEL_ID, type LayoutStateV1, type WorkspacePanelId } from '$lib/docking/layoutSchema';
 import { getWorkspacePanelManifest } from './workspacePanels';
@@ -29,16 +29,39 @@ export type RailSide = 'left' | 'right';
 
 export const DEFAULT_STUB_STRIP: WorkspacePanelId[] = ['users', 'dms', 'notes'];
 
-export const isMobile = readable(false, (set) => {
-	if (typeof window === 'undefined') {
-		return;
-	}
-	const mql = window.matchMedia('(max-width: 768px)');
-	set(mql.matches);
-	const listener = (e: MediaQueryListEvent) => set(e.matches);
-	mql.addEventListener('change', listener);
-	return () => mql.removeEventListener('change', listener);
-});
+/** True while the viewport matches `query`; false outside a browser. */
+function mediaFlag(query: string): Readable<boolean> {
+	return readable(false, (set) => {
+		if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+			return;
+		}
+		const mql = window.matchMedia(query);
+		set(mql.matches);
+		const listener = (e: MediaQueryListEvent) => set(e.matches);
+		mql.addEventListener('change', listener);
+		return () => mql.removeEventListener('change', listener);
+	});
+}
+
+/** The phone shell structure (one top bar, drawers, sheets, the You page): up to 768px (§8.12). */
+export const isMobile = mediaFlag('(max-width: 768px)');
+
+/**
+ * 600–768px (portrait tablets, e.g. iPad mini): the phone shell keeps its structure, but the five
+ * destinations sit in a 72px left nav rail instead of the bottom nav (§8.13). The same query is
+ * in styles/surfaces/mobile.css, so the first paint already has the rail.
+ */
+export const isNavRail = mediaFlag('(min-width: 600px) and (max-width: 768px)');
+
+/**
+ * 769–1023px: the desktop shell with the sidebar on its 60px compact rail by default; the full
+ * sidebar opens over the stage as a drawer (§8.13). The stored sidebar width is the desktop
+ * preference and is never rewritten by the band (it syncs to the account).
+ */
+export const isCompactShell = mediaFlag('(min-width: 768.02px) and (max-width: 1023.98px)');
+
+/** The compact band's sidebar is open over the stage as a drawer. */
+export const compactSidebarOpen = writable(false);
 
 export const layoutState = writable<LayoutStateV1>(createDefaultLayoutState());
 export const activeWorkspace = writable('default');
@@ -88,6 +111,16 @@ dockStackLimit.subscribe((value) => {
 export const showMobileChannels = writable(false);
 
 export const channelSidebarWidth = writable(DEFAULT_NAV_WIDTH);
+
+/**
+ * How the compact band (isCompactShell) draws the sidebar, or null when the stored width decides
+ * (outside the band, or a sidebar the person closed): the 60px rail at rest, the full column while
+ * it is open as a drawer.
+ */
+export const compactShellTier: Readable<'compact' | 'full' | null> = derived(
+	[isCompactShell, compactSidebarOpen, channelSidebarWidth],
+	([$band, $open, $width]) => ($band && $width > 0 ? ($open ? 'full' : 'compact') : null)
+);
 export const rightPanelWidth = writable(DEFAULT_RIGHT_WIDTH);
 export const isResizingChannel = writable(false);
 export const isResizingRight = writable(false);

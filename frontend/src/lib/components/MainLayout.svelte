@@ -8,7 +8,7 @@
 	import GamesHost from '$lib/games/GamesHost.svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import { get } from 'svelte/store';
-	import { centerPanelView, centerDmOtherUser, centerGroupChannel, focusMode } from '$lib/layoutStoreStates';
+	import { centerPanelView, centerDmOtherUser, centerGroupChannel, compactSidebarOpen, focusMode, isCompactShell, isNavRail } from '$lib/layoutStoreStates';
 	import { armPeekDismiss, cancelPeekDismiss, peekAnimationGate, setPeekPointerInside } from '$lib/rightPeekGestures';
 	import { dockCanPin, endPeek, peekHeld, peekRequested } from '$lib/layoutStoreRightPanel';
 	import { DOCK_DEFAULT_PANEL, DOCK_MIN_PANEL, dockWidthFor, resizeKeyWidth } from '$lib/dockClamp';
@@ -42,12 +42,12 @@ import DmHub from '$lib/components/DmHub.svelte';
 	import { activeWorkspaceView, selectWorkspaceView } from '$lib/workspaceNavigationState';
 	import type { WorkspaceViewKey } from './chat/types';
 	import AuthErrorBanner from '$lib/components/AuthErrorBanner.svelte';
-	import { channelMessages, channelUnreadCounts, channels, currentChannel, currentUser, users, createDM, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, joinChannel, type Channel, type User } from '$lib/socket';
+	import { channelUnreadCounts, channels, currentChannel, currentUser, users, createDM, getSocket, leaveVoiceChannel as leaveSocketVoiceChannel, joinChannel, type User } from '$lib/socket';
 	import { activeCalls, activeVoiceChannel, callMode, connectionState, incomingCall, outgoingCall, isInCall, activeGroupCall, groupCallRingingTargets, isVideoOff, toggleVideo, channelCallPanelOpen, callOfflineNotice } from '$lib/calling';
-	import { connectionWords, dockCallPanel } from '$lib/callShell';
+	import { connectionWords, cornerBar, dockCallPanel } from '$lib/callShell';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import { mobileTabQueue } from '$lib/mobileTabQueue';
-	import { onDestroy, onMount, tick } from 'svelte';
+	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 import { _ } from '$lib/i18n';
 import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { playNotificationSound } from '$lib/notifications';
@@ -72,7 +72,23 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { quickScratchpadOpen, closeQuickScratchpad } from '$lib/notesStore';
 	import QuickScratchpad from '$lib/components/QuickScratchpad.svelte';
 	import InstallAppBanner from '$lib/components/pwa/InstallAppBanner.svelte';
-	import { formatMobileUnreadBadge, nextMobileBackSurface, reconcileMobileSurfaceStack, sumUnreadConversationCount, type MobileBackSurface, type MobileSurfaceState } from '$lib/mobileShellModel';
+	import {
+		formatMobileUnreadBadge,
+		mobileNavDestination,
+		nextMobileBackSurface,
+		reconcileMobileSurfaceStack,
+		shouldRenderMobileNavigation,
+		sidebarFlowWidth,
+		sumUnreadCommunityCount,
+		sumUnreadConversationCount,
+		type MobileBackSurface,
+		type MobileNavDestination,
+		type MobileSurfaceState,
+		type YouSettingsPage
+	} from '$lib/mobileShellModel';
+	import MobileNav from '$lib/components/MobileNav.svelte';
+	import YouPage from '$lib/components/YouPage.svelte';
+	import type { SettingsRequest } from '$lib/components/settings/settingsFrame';
 	import { showToast } from '$lib/toast';
 	import { workspaceViewSelect, workspaceActivityBadge } from '$lib/workspaceViewBridge';
 
@@ -98,7 +114,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	export let accountSecurityOpenRequest = 0;
 	let showSettings = false;
 	let requestedSettingsPaymentSurface: 'connections' | null = null;
-	let requestedSettingsTab: 'profile' | 'server' | 'notifications' | 'audio' | 'addons' | 'admin' | null = null;
+	// Settings resolves any page id (resolveSettingsRequest); the You page also opens Appearance and
+	// Privacy & security directly.
+	let requestedSettingsTab: SettingsRequest | YouSettingsPage | null = null;
 	let activityActionError = '';
 	let requestedSettingsPasswordChangeRequest = 0;
 	let lastHandledAccountSecurityOpenRequest = 0;
@@ -106,8 +124,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	$: showQuickScratchpad = $quickScratchpadOpen;
 
 	$: totalUnreadDMs = sumUnreadConversationCount($channelUnreadCounts, $channels);
-	$: mobileUnreadBadge = formatMobileUnreadBadge(totalUnreadDMs);
-	$: mobileFriendRequestBadge = formatMobileUnreadBadge($friendships.incoming.length);
+	$: communityUnread = sumUnreadCommunityCount($channelUnreadCounts, $channels);
 	let hubRequestSequence = 0;
 	let friendsOpenRequest = 0;
 	let messagesOpenRequest = 0;
@@ -115,7 +132,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	let unsubscribeFriendshipSync: (() => void) | null = null;
 	let unsubscribeFriendRequestNotices: (() => void) | null = null;
 	let knownIncomingRequestIds: Set<string> | null = null;
-	$: activityBadge = formatMobileUnreadBadge($friendships.incoming.length + Object.values($remoteFriendRequests).reduce((sum, entry) => sum + entry.requests.length, 0) + Object.values($followUnreadCountsByServer).reduce((sum, count) => sum + count, 0) + totalUnreadDMs);
+	$: activityCount = $friendships.incoming.length + Object.values($remoteFriendRequests).reduce((sum, entry) => sum + entry.requests.length, 0) + Object.values($followUnreadCountsByServer).reduce((sum, count) => sum + count, 0) + totalUnreadDMs;
+	$: activityBadge = formatMobileUnreadBadge(activityCount);
 
 	let resizingChannel = false;
 	let resizingRight = false;
@@ -127,10 +145,16 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	let showServerSwitcher = false;
 	let serverHubReturnView: typeof activeView = 'chat';
 	let serverHubWelcome = newlyRegistered;
-	let mobileNavVisible = false;
-	let mobileNavIdleTimer: ReturnType<typeof setTimeout> | null = null;
-	let navTouchStartY = 0;
-	let navTouchDragging = false;
+	const dispatch = createEventDispatcher<{ logout: void }>();
+	// Root navigation is structural chrome (§8.12): present whenever the phone shell is, never
+	// behind a reveal gesture. The keyboard (CSS, data-keyboard-open) and a call are the only
+	// takeovers. Under 600px it is the bottom nav; from 600 to 768px a 72px left rail.
+	$: mobileNavShown = shouldRenderMobileNavigation({ isMobile: $layoutStore.isMobile, isInCall: $layoutStore.isInCall });
+	$: bottomNavShown = mobileNavShown && !$isNavRail;
+	$: navRailShown = mobileNavShown && $isNavRail;
+	// The You page (§8.12): a page in the phone stage; the nav stays.
+	let mobileYouOpen = false;
+	$: youPageShown = mobileYouOpen && $layoutStore.isMobile;
 	let touchStartX = 0;
 	let touchStartY = 0;
 	let touchStartTime = 0;
@@ -158,7 +182,43 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		if (Number.isFinite(value) && value > 0) railWidth = value;
 	}
 	$: dockRail = !$layoutStore.isMobile && !$focusMode ? railWidth : 0;
-	$: dockSidebar = $layoutStore.isMobile ? 0 : Math.max(0, $layoutStore.channelSidebarWidth) + desktopServerRailOffset;
+	// The sidebar's width in flow: the stored desktop width, or the 60px compact rail in the
+	// 769–1023px band (§8.13), where the full column opens over the stage instead.
+	$: compactShell = !$layoutStore.isMobile && $isCompactShell;
+	$: sidebarColumnWidth = $layoutStore.isMobile ? 0 : sidebarFlowWidth($layoutStore.channelSidebarWidth, compactShell);
+	$: dockSidebar = $layoutStore.isMobile ? 0 : sidebarColumnWidth + desktopServerRailOffset;
+
+	// The compact band's drawer: the full sidebar over the stage, with a scrim; the stage keeps its
+	// width. Escape, the scrim, the toggle or choosing a place (a channel, DMs, a workspace) close it.
+	let sidebarContainer: HTMLElement | null = null;
+	let compactToggle: HTMLButtonElement | null = null;
+	$: compactDrawerOpen = compactShell && $compactSidebarOpen;
+	$: if (!compactShell && $compactSidebarOpen) compactSidebarOpen.set(false);
+	let compactDrawerPlace = '';
+	function openCompactSidebar(): void {
+		compactDrawerPlace = stagePlace;
+		compactSidebarOpen.set(true);
+		void tick().then(() => {
+			const here = sidebarContainer?.querySelector<HTMLElement>('.channel-sidebar [aria-current="page"]');
+			(here ?? sidebarContainer?.querySelector<HTMLElement>('.channel-sidebar button'))?.focus({ preventScroll: true });
+		});
+	}
+	function closeCompactSidebar(returnFocus: boolean): void {
+		if (!get(compactSidebarOpen)) return;
+		compactSidebarOpen.set(false);
+		if (returnFocus) void tick().then(() => compactToggle?.focus({ preventScroll: true }));
+	}
+	function toggleCompactSidebar(): void {
+		if (get(compactSidebarOpen)) closeCompactSidebar(false);
+		else openCompactSidebar();
+	}
+	$: if (compactDrawerOpen && stagePlace !== compactDrawerPlace) closeCompactSidebar(false);
+	function handleCompactDrawerKeydown(event: KeyboardEvent): void {
+		if (!compactDrawerOpen || event.key !== 'Escape' || event.defaultPrevented) return;
+		if (event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]')) return;
+		event.preventDefault();
+		closeCompactSidebar(true);
+	}
 	$: dock = dockWidthFor({ viewport: viewportWidth, sidebar: dockSidebar, rail: dockRail, requested: $layoutStore.rightPanelWidth });
 	$: dockCanPin.set(dock.mode === 'pin');
 	$: dockPinned = !$layoutStore.isMobile && $layoutStore.rightPanelMode === 'pinned' && dock.mode === 'pin';
@@ -491,10 +551,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	const MOBILE_EDGE_SWIPE_MIN_X_PX = 56;
 	const MOBILE_EDGE_SWIPE_MAX_Y_PX = 72;
 	const MOBILE_EDGE_SWIPE_MAX_MS = 700;
-	const MOBILE_NAV_REVEAL_ZONE_PX = 88;
-	const MOBILE_NAV_SWIPE_MIN_Y_PX = 46;
-	const MOBILE_NAV_IDLE_HIDE_MS = 2200;
-	const MOBILE_NAV_PULL_DOWN_HIDE_PX = 26;
 	const SERVER_RAIL_WIDTH = 92;
 	$: desktopServerRailVisible =
 		!$layoutStore.isMobile &&
@@ -563,6 +619,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		syncMobileSurfaceStack({
 			workspaceOpen: $activeWorkspaceView !== 'messages',
 			conversationOpen: Boolean($layoutStore.centerDmChannelId),
+			youOpen: youPageShown,
 			browseOpen: $layoutStore.showMobileChannels,
 			rightOverlayOpen: $layoutStore.rightPanelMode !== 'none',
 			serverSwitcherOpen: showServerSwitcher,
@@ -590,21 +647,63 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		showSettings = true;
 	}
 
+	/** Settings on one page (the You page's rows), or on its list of pages. */
+	function openSettingsPage(page: YouSettingsPage | null): void {
+		requestedSettingsPaymentSurface = null;
+		requestedSettingsTab = page;
+		showSettings = true;
+	}
+
+	// ---------------------------------------------------------------- phone root navigation (§8.12)
+	// Each destination puts its place on screen and closes what covered the stage. The nav marks
+	// the destination from what is actually showing (mobileNavDestination), not from the last tap.
+	$: mobileNavActive = mobileNavDestination({
+		channelsOpen: $layoutStore.showMobileChannels,
+		youOpen: youPageShown,
+		settingsOpen: showSettings,
+		activeView,
+		workspaceView: $activeWorkspaceView,
+		conversationOpen: Boolean($layoutStore.centerDmChannelId)
+	});
+	$: mobileNavCounts = {
+		channelsUnread: communityUnread,
+		dmsUnread: totalUnreadDMs,
+		friendRequests: $friendships.incoming.length,
+		activity: activityCount
+	};
+
+	function selectMobileDestination(destination: MobileNavDestination): void {
+		if (destination === 'chat') openMobileChat();
+		// Channels opens the drawer; a second tap closes it again (Back does too).
+		else if (destination === 'channels') {
+			if ($layoutStore.showMobileChannels) layoutStore.showMobileChannels.set(false);
+			else openMobileBrowse();
+		}
+		else if (destination === 'dms') openMobileMessages();
+		else if (destination === 'activity') openMobileActivity();
+		else openMobileYou();
+	}
+
+	function closeMobileYou(): void {
+		mobileYouOpen = false;
+	}
+
 	function openMobileChat(): void {
-		selectWorkspaceView('messages');
+		dockCallForNavigation();
+		closeMobileYou();
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
 		activeView = 'chat';
 		layoutStore.closeDM();
 		selectWorkspaceView('messages');
 		mobileSurfaceStack = [];
-		scheduleMobileNavIdleHide();
 	}
 
 	function openMobileBrowse(): void {
+		// The drawer opens over the stage's root (the channel), so it never returns to You.
+		closeMobileYou();
 		layoutStore.closeRightPanel();
 		layoutStore.showMobileChannels.set(true);
-		scheduleMobileNavIdleHide();
 	}
 
 	function selectMessagesHub(closeConversation = false): void {
@@ -620,6 +719,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		messagesOpenRequest = ++hubRequestSequence;
 	}
 
+	// Friends is a segment of the DM hub (Conversations | Friends, §8.10); the sidebar's Friends
+	// entry and a friend-request toast land here.
 	function openFriendsHub(): void {
 		dockCallForNavigation();
 		selectWorkspaceView('messages');
@@ -629,46 +730,48 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		activeView = 'dm';
 		dmHubActiveTab = 'friends';
 		friendsOpenRequest = ++hubRequestSequence;
-		scheduleMobileNavIdleHide();
 	}
 
 	function openMobileMessages(): void {
-		selectWorkspaceView('messages');
+		closeMobileYou();
 		layoutStore.closeDM();
 		selectMessagesHub(true);
+		// Back from the DM hub returns to Chat (handleMobilePopState's root case).
 		try {
 			history.pushState({ wabiMobileSheet: 'messages' }, '');
 		} catch {
-			/* ignore */
+			/* History is best-effort; the nav still reaches every destination. */
 		}
-		scheduleMobileNavIdleHide();
-	}
-
-	function openMobileFriends(): void {
-		layoutStore.closeDM();
-		openFriendsHub();
-		try {
-			history.pushState({ wabiMobileSheet: 'friends' }, '');
-		} catch {
-			/* ignore */
-		}
-		scheduleMobileNavIdleHide();
 	}
 
 	function openMobileActivity(): void {
+		dockCallForNavigation();
+		closeMobileYou();
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
 		layoutStore.closeCenterDm();
 		activeView = 'chat';
 		selectWorkspaceView('notifications');
-		scheduleMobileNavIdleHide();
 	}
 
 	function openMobileYou(): void {
 		layoutStore.showMobileChannels.set(false);
 		layoutStore.closeRightPanel();
-		openSettings();
-		scheduleMobileNavIdleHide();
+		youPlace = stagePlace;
+		mobileYouOpen = true;
+	}
+
+	// The You page covers the stage until the stage is asked for something else: any navigation
+	// that changes the place (a channel, a workspace, a DM, Server home) closes it, wherever it
+	// came from (a notification, a link, the drawer).
+	$: stagePlace = [activeView, $activeWorkspaceView, $currentChannel ?? '', $layoutStore.centerDmChannelId ?? '', $activeTabId ?? ''].join('|');
+	let youPlace = '';
+	$: if (mobileYouOpen && stagePlace !== youPlace) closeMobileYou();
+	$: if (mobileYouOpen && !$layoutStore.isMobile) closeMobileYou();
+
+	function signOutFromYou(): void {
+		closeMobileYou();
+		dispatch('logout');
 	}
 
 	function handleWabiNavigate(event: Event): void {
@@ -708,6 +811,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		switch (surface) {
 			case 'settings':
 				showSettings = false;
+				return;
+			case 'you':
+				closeMobileYou();
 				return;
 			case 'server-switcher':
 				closeServerSwitcher();
@@ -806,12 +912,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			}
 			knownIncomingRequestIds = nextIds;
 		});
-		// Mobile navigation is structural chrome, not transient decoration.
-		// Keep it present while the phone shell is active; the keyboard and
-		// full-screen call surfaces are the only normal takeovers.
-		if ($layoutStore.isMobile && !$layoutStore.isInCall) {
-			mobileNavVisible = true;
-		}
 
 		mobileTabQueue.registerAddonTab({
 			id: MODEL_VIEWPORT_ADDON_ID,
@@ -953,10 +1053,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		mobileTabQueue.unregisterAddonTab(PLANNER_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(NOTES_ADDON_ID);
 		mobileTabQueue.unregisterAddonTab(NOTIFICATIONS_ADDON_ID);
-		if (mobileNavIdleTimer) {
-			clearTimeout(mobileNavIdleTimer);
-			mobileNavIdleTimer = null;
-		}
 		if (unsubscribeFriendPresence) {
 			unsubscribeFriendPresence();
 			unsubscribeFriendPresence = null;
@@ -1049,40 +1145,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		layoutStore.isResizingChannel.set(true);
 	}
 
-	function getLastMessageTimestamp(channelId: string): number {
-		const messages = $channelMessages[channelId] || [];
-		return messages.length > 0 ? messages[messages.length - 1].timestamp : 0;
-	}
-
-	function getChannelOtherUser(channel: Channel): User | null {
-		if (channel.otherUser) return channel.otherUser;
-		const myStableId = $currentUser?.dbUserId ? `user-${$currentUser.dbUserId}` : $currentUser?.id;
-		const otherStableId = (channel.members || []).find((id: string) => id !== myStableId);
-		if (!otherStableId) return null;
-		if (otherStableId.startsWith('user-')) {
-			const dbId = parseInt(otherStableId.substring(5), 10);
-			return $users.find(u => u.dbUserId === dbId) || null;
-		}
-		return $users.find(u => u.id === otherStableId) || null;
-	}
-
-	function openUnreadDM(channel: Channel) {
-		if (channel.type === 'group') {
-			layoutStore.openGroupDM(channel.id, channel);
-		} else {
-			const other = getChannelOtherUser(channel);
-			if (other) {
-				layoutStore.openDM(channel.id, other);
-			}
-		}
-		joinChannel(channel.id);
-	}
-
-	function formatUnreadBadge(count: number): string {
-		if (count > 99) return '99+';
-		return `${count}`;
-	}
-
 	function handleLeaveVoiceChannel() {
 		const channel = get(activeVoiceChannel);
 		if (!channel) return;
@@ -1151,14 +1213,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		if (!channelsOpen && !usersOpen && (nearLeftEdge || nearRightEdge)) {
 			swipePreviewTarget = nearLeftEdge ? 'channels' : 'users';
 			swipePreviewActive = true;
-			swipePreviewOffsetX = nearLeftEdge ? 0 : 0;
-		}
-
-		// P3: reappear on interaction — touching the content brings the hidden
-		// bottom nav back (it then auto-hides again after the idle timeout).
-		// Touches on buttons (incl. the grabber) were already bailed out above.
-		if (!mobileNavVisible && !$layoutStore.isInCall) {
-			showMobileNav();
+			swipePreviewOffsetX = 0;
 		}
 	}
 
@@ -1228,24 +1283,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		const deltaY = touch.clientY - touchStartY;
 		const elapsedMs = Date.now() - touchStartTime;
 		const horizontalMin = Math.max(96, Math.floor(window.innerWidth * 0.22));
-		const verticalMin = Math.max(78, Math.floor(window.innerHeight * 0.09));
-		const isVerticalSwipe =
-			Math.abs(deltaY) >= Math.max(MOBILE_NAV_SWIPE_MIN_Y_PX, verticalMin) &&
-			Math.abs(deltaY) > Math.abs(deltaX) &&
-			elapsedMs <= MOBILE_EDGE_SWIPE_MAX_MS;
-
-		if (isVerticalSwipe) {
-			const startedNearBottom = touchStartY >= window.innerHeight - MOBILE_NAV_REVEAL_ZONE_PX;
-			const swipeUp = deltaY < 0;
-			const swipeDown = deltaY > 0;
-
-			if (!mobileNavVisible && startedNearBottom && swipeUp) {
-				mobileNavVisible = true;
-				resetTouchSwipe();
-				return;
-			}
-		}
-
 		const isHorizontalSwipe =
 			Math.abs(deltaX) >= Math.max(MOBILE_EDGE_SWIPE_MIN_X_PX, horizontalMin) &&
 			Math.abs(deltaY) <= MOBILE_EDGE_SWIPE_MAX_Y_PX &&
@@ -1298,45 +1335,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		resetTouchSwipe();
 	}
 
-	function showMobileNav(): void {
-		if (!$layoutStore.isMobile) return;
-		mobileNavVisible = true;
-		scheduleMobileNavIdleHide();
-	}
-
-	function scheduleMobileNavIdleHide(): void {
-		// Intentionally persistent. Older mobile chrome disappeared after
-		// 2.2 seconds, making ordinary reading feel like a hidden-gesture UI.
-		if ($layoutStore.isMobile && !$layoutStore.isInCall) mobileNavVisible = true;
-	}
-
-	function hideMobileNavNow(): void {
-		// Retained for old gesture call sites; root navigation no longer hides
-		// merely because the user pulled or paused.
-		if ($layoutStore.isMobile && !$layoutStore.isInCall) mobileNavVisible = true;
-	}
-
-	function handleMobileNavTouchStart(event: TouchEvent): void {
-		if (!$layoutStore.isMobile || !mobileNavVisible || event.touches.length !== 1) return;
-		navTouchStartY = event.touches[0].clientY;
-		navTouchDragging = true;
-		scheduleMobileNavIdleHide();
-	}
-
-	function handleMobileNavTouchMove(event: TouchEvent): void {
-		if (!navTouchDragging || event.touches.length !== 1) return;
-		const deltaY = event.touches[0].clientY - navTouchStartY;
-		if (deltaY >= MOBILE_NAV_PULL_DOWN_HIDE_PX) {
-			hideMobileNavNow();
-			navTouchDragging = false;
-		}
-	}
-
-	function handleMobileNavTouchEnd(): void {
-		navTouchDragging = false;
-		if (mobileNavVisible) scheduleMobileNavIdleHide();
-	}
-
 	// Pass panel and gesture state explicitly so Svelte updates these inline
 	// styles when a sheet opens, closes, or follows a swipe.
 	function getChannelPreviewTransform(mobile: boolean, channelsOpen: boolean, previewActive: boolean, previewTarget: string, offsetX: number): string | undefined {
@@ -1375,15 +1373,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		return 0.35 + (p * 0.65);
 	}
 
-	$: if (!$layoutStore.isMobile || $layoutStore.isInCall) {
-		mobileNavVisible = false;
-		if (mobileNavIdleTimer) {
-			clearTimeout(mobileNavIdleTimer);
-			mobileNavIdleTimer = null;
-		}
-	} else if (!mobileNavVisible) {
-		mobileNavVisible = true;
-	}
 	$: activeOfficeTool = workspaceToolFromTab($activeTabId);
 </script>
 
@@ -1393,6 +1382,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	bind:innerWidth={viewportWidth}
 	on:resize={measureRailWidth}
 	on:keydown={handleStagePeekKeydown}
+	on:keydown={handleCompactDrawerKeydown}
 	on:mousemove={handleMouseMove}
 	on:mouseup={stopResize}
 	on:touchstart={handleTouchStart}
@@ -1408,107 +1398,19 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	{#if AdminCenterStageCmp}
 		<svelte:component this={AdminCenterStageCmp} />
 	{:else}
-		<div class="lazy-panel-placeholder" aria-busy="true"></div>
+		<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 	{/if}
 {:else}
-{#if $layoutStore.isMobile && !$layoutStore.isInCall}
-	{#if !mobileNavVisible}
-		<button
-			type="button"
-			class="mobile-nav-grabber"
-			on:click={showMobileNav}
-			aria-label="Show mobile menu"
-			title="Swipe up for menu"
-		>
-			<span></span>
-		</button>
-	{/if}
-	<!-- Mobile Bottom Navigation Bar -->
-	<nav class="mobile-bottom-nav" class:visible={mobileNavVisible} data-toast-anchor>
-		<button
-			type="button"
-			class:active={
-				!$layoutStore.showMobileChannels &&
-				$layoutStore.rightPanelMode === 'none' &&
-				activeView !== 'dm' &&
-				$activeWorkspaceView !== 'notifications' &&
-				!showSettings
-			}
-			on:click={openMobileChat}
-			on:touchstart={handleMobileNavTouchStart}
-			on:touchmove={handleMobileNavTouchMove}
-			on:touchend={handleMobileNavTouchEnd}
-		>
-			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-			<span>{$_('shell.mobile.chat')}</span>
-		</button>
-		<button
-			type="button"
-			class:active={$layoutStore.showMobileChannels}
-			on:click={openMobileBrowse}
-			on:touchstart={handleMobileNavTouchStart}
-			on:touchmove={handleMobileNavTouchMove}
-			on:touchend={handleMobileNavTouchEnd}
-		>
-			<svg width="24" height="24" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
-			<span>{$_('shell.mobile.browse')}</span>
-		</button>
-		<button
-			type="button"
-			class:active={activeView === 'dm' && dmHubActiveTab === 'messages' && !$layoutStore.showMobileChannels}
-			on:click={openMobileMessages}
-			on:touchstart={handleMobileNavTouchStart}
-			on:touchmove={handleMobileNavTouchMove}
-			on:touchend={handleMobileNavTouchEnd}
-		>
-			<span class="mobile-nav-icon-wrap">
-				<svg width="24" height="24" viewBox="0 0 24 24"><path d="M4 4h16v12H5.17L4 17.17V4z"/><path d="M8 8h8M8 12h5"/></svg>
-				{#if mobileUnreadBadge}
-					<span class="mobile-nav-badge" aria-label={`${totalUnreadDMs} unread messages`}>{mobileUnreadBadge}</span>
-				{/if}
-			</span>
-			<span>{$_('shell.mobile.messages')}</span>
-		</button>
-		<button type="button" class:active={$activeWorkspaceView === 'notifications' && !$layoutStore.showMobileChannels}
-			on:click={openMobileActivity} on:touchstart={handleMobileNavTouchStart} on:touchmove={handleMobileNavTouchMove} on:touchend={handleMobileNavTouchEnd}>
-			<span class="mobile-nav-icon-wrap"><svg width="24" height="24" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z"/><path d="M10 21h4"/></svg>
-				{#if activityBadge}<span class="mobile-nav-badge" aria-label="Unread activity">{activityBadge}</span>{/if}</span>
-			<span>Activity</span>
-		</button>
-		<button
-			type="button"
-			class:active={activeView === 'dm' && dmHubActiveTab === 'friends' && !$layoutStore.showMobileChannels}
-			on:click={openMobileFriends}
-			on:touchstart={handleMobileNavTouchStart}
-			on:touchmove={handleMobileNavTouchMove}
-			on:touchend={handleMobileNavTouchEnd}
-			aria-label={$friendships.incoming.length > 0 ? `Friends, ${$friendships.incoming.length} requests waiting` : 'Friends'}
-		>
-			<span class="mobile-nav-icon-wrap">
-				<svg width="24" height="24" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-				{#if mobileFriendRequestBadge}
-					<span class="mobile-nav-badge" aria-label={`${$friendships.incoming.length} friend requests`}>{mobileFriendRequestBadge}</span>
-				{/if}
-			</span>
-			<span>Friends</span>
-		</button>
-		<button
-			type="button"
-			class:active={showSettings}
-			on:click={openMobileYou}
-			on:touchstart={handleMobileNavTouchStart}
-			on:touchmove={handleMobileNavTouchMove}
-			on:touchend={handleMobileNavTouchEnd}
-		>
-			<svg width="24" height="24" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-			<span>{$_('shell.mobile.you')}</span>
-		</button>
-	</nav>
+{#if mobileNavShown}
+	<!-- Root navigation (§8.12): the bottom nav under 600px, a 72px left rail from 600 to 768px. -->
+	<MobileNav active={mobileNavActive} counts={mobileNavCounts} onselect={selectMobileDestination} />
 {/if}
 
 {#if $layoutStore.isMobile && ($layoutStore.showMobileChannels || $layoutStore.rightPanelMode !== 'none')}
-	<!-- Mobile backdrop overlay - closes panels on tap -->
-	<div class="mobile-panel-backdrop" on:click={() => { layoutStore.showMobileChannels.set(false); layoutStore.closeRightPanel(); }}></div>
+	<!-- The scrim over the stage while a drawer is open; a tap closes it (the drawer's own close
+	     button and Back cover the keyboard). -->
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<div class="mobile-panel-backdrop" aria-hidden="true" on:click={() => { layoutStore.showMobileChannels.set(false); layoutStore.closeRightPanel(); }}></div>
 {/if}
 
 <div
@@ -1516,7 +1418,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		class:focus-mode={$focusMode}
 		class:resizing={$layoutStore.isResizing}
 		class:in-call={$layoutStore.isMobile && $layoutStore.isInCall}
-		class:mobile-nav-visible={mobileNavVisible && $layoutStore.isMobile && !$layoutStore.isInCall}
+		class:mobile-nav-visible={bottomNavShown}
+		class:nav-rail={navRailShown}
+		class:compact-shell={compactShell}
 		class:nav-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
 		class:obvious-grab-rails={$layoutStore.obviousGrabRails}
 		class:rail-on={!$layoutStore.isMobile && !$focusMode}
@@ -1542,13 +1446,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			title="Open channel sidebar"
 			aria-label="Open channel sidebar"
 		>
-			<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-				{#if $layoutStore.navDock === 'right'}
-					<polyline points="15 18 9 12 15 6"/>
-				{:else}
-					<polyline points="9 18 15 12 9 6"/>
-				{/if}
-			</svg>
+			<Icon name={$layoutStore.navDock === 'right' ? 'chevLeft' : 'chevRight'} size={14} />
 		</button>
 	{/if}
 
@@ -1561,8 +1459,10 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	<!-- Channel Sidebar (Left) - Mobile uses overlay -->
 	<div
 		class="channel-sidebar-container"
-		style:width="{$layoutStore.channelSidebarWidth}px"
+		bind:this={sidebarContainer}
+		style:width={$layoutStore.isMobile ? null : `${sidebarColumnWidth}px`}
 		class:mobile-visible={$layoutStore.showMobileChannels}
+		class:compact-drawer={compactDrawerOpen}
 		class:preview-visible={$layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'channels'}
 		class:dock-right={!$layoutStore.isMobile && $layoutStore.navDock === 'right'}
 		style:transform={getChannelPreviewTransform($layoutStore.isMobile, $layoutStore.showMobileChannels, swipePreviewActive, swipePreviewTarget, swipePreviewOffsetX)}
@@ -1570,7 +1470,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		style:transition={swipePreviewActive ? 'none' : undefined}
 	>
 		<ChannelSidebar
-			on:close={() => layoutStore.showMobileChannels.set(false)}
+			on:close={() => { layoutStore.showMobileChannels.set(false); closeCompactSidebar(false); }}
 			on:openMessages={() => selectMessagesHub(true)}
 			on:openFriends={openFriendsHub}
 			on:openServerSwitcher={openServerSwitcher}
@@ -1581,14 +1481,33 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			on:logout
 			on:openSettings={() => openSettings()}
 		/>
-		<!-- Channel resize handle -->
-		<button
-			type="button"
-			class="resize-handle resize-handle-channel"
-			aria-label="Resize channel sidebar"
-			on:mousedown|preventDefault={() => layoutStore.isResizingChannel.set(true)}
-		></button>
+		<!-- Channel resize handle (not in the compact band: the band owns the column's width there) -->
+		{#if !compactShell}
+			<button
+				type="button"
+				class="resize-handle resize-handle-channel"
+				aria-label="Resize channel sidebar"
+				on:mousedown|preventDefault={() => layoutStore.isResizingChannel.set(true)}
+			></button>
+		{:else if sidebarColumnWidth > 0}
+			<!-- 769–1023px (§8.13): the 60px rail opens the full sidebar over the stage. -->
+			<button
+				type="button"
+				class="compact-sidebar-toggle"
+				bind:this={compactToggle}
+				aria-expanded={$compactSidebarOpen}
+				aria-label={$compactSidebarOpen ? 'Close channel list' : 'Show channel list'}
+				title={$compactSidebarOpen ? 'Close channel list' : 'Show channel list'}
+				on:click={toggleCompactSidebar}
+			><Icon name={$compactSidebarOpen ? 'chevLeft' : 'chevRight'} size={14} /></button>
+		{/if}
 	</div>
+
+	{#if compactDrawerOpen}
+		<!-- Pointer-only affordance: Escape, the toggle and choosing a place cover the keyboard. -->
+		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+		<div class="compact-scrim" aria-hidden="true" on:click={() => closeCompactSidebar(false)}></div>
+	{/if}
 
 	{#if showServerSwitcher}
 		<div
@@ -1706,12 +1625,14 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	     so switching workspaces never moves or unmounts the folio. Server home and the DM hub have
 	     their own headers. -->
 	<div class="main-content">
-		<div class="chat-stack" bind:this={chatStack} use:coverStage={stageInert}>
-			{#if activeView !== 'server' && ((!$layoutStore.centerDmChannelId && activeView !== 'dm' && activeView !== 'following') || $activeWorkspaceView !== 'messages')}
+		<div class="chat-stack" bind:this={chatStack} use:coverStage={stageInert || compactDrawerOpen}>
+			{#if !youPageShown && activeView !== 'server' && ((!$layoutStore.centerDmChannelId && activeView !== 'dm' && activeView !== 'following') || $activeWorkspaceView !== 'messages')}
 				<StageBar {activityBadge} onSelectView={handleWorkspaceViewSelect} />
 			{/if}
 			<div class="chat-surface">
-				{#if activeView === 'server'}
+				{#if youPageShown}
+					<YouPage onopensettings={openSettingsPage} onopenservers={openServerSwitcher} onsignout={signOutFromYou} />
+				{:else if activeView === 'server'}
 					<ServerHub on:profileSettings={() => showSettings = true} welcome={serverHubWelcome} on:complete={completeServerWelcome} on:back={returnFromServerHub} on:browse={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'chat'; }} on:openRoom={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'chat'; }} on:messages={() => { serverHubWelcome = false; selectWorkspaceView('messages'); activeView = 'dm'; }} on:members={() => layoutStore.openRightPanel('users')} on:settings={openServerSettings} on:manage={() => layoutStore.showAdminCenterStage()} />
 				{:else if activeOfficeTool}
 					<WorkspaceHost tool={activeOfficeTool} />
@@ -1719,37 +1640,37 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					{#if ModelViewportTabCmp}
 						<svelte:component this={ModelViewportTabCmp} />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 					{/if}
 				{:else if isReaderTabActive}
 					{#if ReaderTabCmp}
 						<svelte:component this={ReaderTabCmp} />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 					{/if}
 				{:else if isMediaAlbumsTabActive}
 					{#if MediaAlbumsTabCmp}
 						<svelte:component this={MediaAlbumsTabCmp} variant="full" />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 					{/if}
 				{:else if isMapTabActive}
 					{#if MapWorkspaceCmp}
 						<svelte:component this={MapWorkspaceCmp} variant="full" />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 					{/if}
 				{:else if isPlannerTabActive}
 					{#if PlannerWorkspaceCmp}
 						<svelte:component this={PlannerWorkspaceCmp} variant="full" />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 					{/if}
 				{:else if isNotesTabActive}
 					{#if KeepNotesViewCmp}
 						<svelte:component this={KeepNotesViewCmp} />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 					{/if}
 				{:else if $activeWorkspaceView === 'lore'}
 					{#await import('./ProjectWorkspace.svelte')}
@@ -1771,7 +1692,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					{#if VoiceViewCmp}
 						<svelte:component this={VoiceViewCmp} />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 					{/if}
 				{:else if $activeWorkspaceView === 'notifications'}
 					<NotificationsCenter error={activityActionError} on:openDm={(event) => { selectWorkspaceView('messages'); activeView = 'dm'; layoutStore.openCenterDm(event.detail.channelId, null); void joinChannel(event.detail.channelId); }}
@@ -1788,9 +1709,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 								<DmConversationView context="center" channelIdProp={$layoutStore.centerDmChannelId} otherUserProp={$centerDmOtherUser} channelProp={$centerGroupChannel} />
 							{:else}
 								<div class="center-dm-empty">
-									<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-										<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-									</svg>
+									<Icon name="dm" size={28} />
 									<span>Select a conversation</span>
 								</div>
 							{/if}
@@ -1802,7 +1721,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					{#if GalleryChannelCmp}
 						<svelte:component this={GalleryChannelCmp} />
 					{:else}
-						<div class="lazy-panel-placeholder" aria-busy="true"></div>
+						<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 					{/if}
 				{:else}
 					<Chat
@@ -1815,7 +1734,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			{#if CallModalCmp}
 				<svelte:component this={CallModalCmp} />
 			{:else if callUiActive}
-				<div class="lazy-panel-placeholder" aria-busy="true"></div>
+				<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 			{/if}
 		</div>
 	</div>
@@ -1843,7 +1762,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				{#if CallDebugPanelCmp}
 					<svelte:component this={CallDebugPanelCmp} open title="Calling Debug" />
 				{:else}
-					<div class="lazy-panel-placeholder" aria-busy="true"></div>
+					<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 				{/if}
 				<button
 					type="button"
@@ -1860,42 +1779,22 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	     stage its dock is the only action bar (§8.12), so the strip steps aside. Connection details
 	     live on the Calls page (§8.5), not in a toggle on this header (§9.4). -->
 	{#if $layoutStore.isMobile && $callMode === 'channel' && $activeVoiceChannel && !$channelCallPanelOpen}
-		<div class="voice-channel-strip" role="status" aria-live="polite" transition:fly={{ y: 20, duration: 220 }}>
-			<div class="voice-status-header">
-				<span class="status-leading">
-					<span class="dot"></span>
-					<span class="voice-status-text">
-						<strong>{$_('shell.call.voice_connected')}</strong>
-						{#if stripConnectionWords}<small>{stripConnectionWords}</small>{/if}
-					</span>
-				</span>
-			</div>
-
-			<div class="voice-channel-meta">
-				<span class="voice-channel-name-label">{$_('shell.call.in_voice')}</span>
-				<strong>{$activeVoiceChannel.name}</strong>
-			</div>
+		<div class="voice-channel-strip" role="group" aria-label={$_('shell.call.voice_connected')} use:cornerBar transition:fly={{ y: 8, duration: 180 }}>
+			<span class="voice-strip__dot" aria-hidden="true"></span>
+			<!-- The words are the live region; the keys beside them are not re-announced. -->
+			<span class="voice-strip__text" role="status" aria-live="polite">
+				<strong class="voice-strip__room"><span class="sr-only">{$_('shell.call.in_voice')} </span>{$activeVoiceChannel.name}</strong>
+				<small class="voice-strip__state">{stripConnectionWords || $_('shell.call.voice_connected')}</small>
+			</span>
 			<div class="voice-channel-actions">
-				<button on:click={handleOpenVoiceWhiteboard} title="Open whiteboard for this voice channel" aria-label="Open whiteboard for this voice channel">
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-						<rect x="3" y="4" width="18" height="14" rx="2"></rect>
-						<path d="M7 8h10"></path>
-						<path d="M7 12h6"></path>
-						<path d="M8 20h8"></path>
-					</svg>
+				<button type="button" class="w-ibtn" on:click={handleOpenVoiceWhiteboard} title="Open whiteboard for this voice channel" aria-label="Open whiteboard for this voice channel">
+					<Icon name="whiteboard" size={20} />
 				</button>
-				<button class:active={!$isVideoOff} on:click={handleToggleVideoFromStrip} title={$isVideoOff ? $_('shell.call.turn_on_camera') : $_('shell.call.turn_off_camera')} aria-label={$isVideoOff ? $_('shell.call.turn_on_camera') : $_('shell.call.turn_off_camera')}>
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-						<path d="M23 7l-7 5 7 5V7z"></path>
-						<rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
-					</svg>
+				<button type="button" class="w-ibtn" aria-pressed={!$isVideoOff} on:click={handleToggleVideoFromStrip} title={$isVideoOff ? $_('shell.call.turn_on_camera') : $_('shell.call.turn_off_camera')} aria-label={$isVideoOff ? $_('shell.call.turn_on_camera') : $_('shell.call.turn_off_camera')}>
+					<Icon name={$isVideoOff ? 'videoOff' : 'video'} size={20} />
 				</button>
-				<button class="leave icon-only" on:click={handleLeaveVoiceChannel} title={$_('shell.call.leave_voice')} aria-label={$_('shell.call.leave_voice')}>
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-						<path d="M14 3h7v18h-7"></path>
-						<path d="M10 17l5-5-5-5"></path>
-						<path d="M15 12H3"></path>
-					</svg>
+				<button type="button" class="w-ibtn leave" on:click={handleLeaveVoiceChannel} title={$_('shell.call.leave_voice')} aria-label={$_('shell.call.leave_voice')}>
+					<Icon name="phoneOff" size={20} />
 				</button>
 			</div>
 		</div>
@@ -1910,12 +1809,12 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			this={SettingsCmp}
 			bind:isOpen={showSettings}
 			requestedPaymentSurface={requestedSettingsPaymentSurface}
-			requestedTab={requestedSettingsTab}
+			requestedTab={requestedSettingsTab as SettingsRequest | null}
 			requestedPasswordChangeRequest={requestedSettingsPasswordChangeRequest}
 			on:logout
 		/>
 	{:else}
-		<div class="lazy-panel-placeholder" aria-busy="true"></div>
+		<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label="Loading"></span></div>
 	{/if}
 {/if}
 {/if}
@@ -1932,7 +1831,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		}}
 		role="dialog"
 		aria-modal="true"
-		aria-label="Quick Scratchpad"
+		aria-label="Scratchpad"
+		tabindex="-1"
 	>
 		<QuickScratchpad />
 	</div>
@@ -1941,29 +1841,13 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 <GamesHost />
 
 <style>
-	/* Uniform placeholder for lazily-loaded panels (Phase 4 boot optimization). */
+	/* A lazily loaded surface (Phase 4 boot optimization) while its chunk arrives: the kit load
+	   line where the surface will be (§7.16), never a shimmering box. */
 	.lazy-panel-placeholder {
 		height: 100%;
 		min-height: 8rem;
-		border-radius: var(--radius-md, 8px);
-		background: linear-gradient(
-			100deg,
-			rgba(255, 255, 255, 0.04) 40%,
-			rgba(255, 255, 255, 0.09) 50%,
-			rgba(255, 255, 255, 0.04) 60%
-		);
-		background-size: 200% 100%;
-		animation: lazy-shimmer 1.2s ease-in-out infinite;
-	}
-	@keyframes lazy-shimmer {
-		to {
-			background-position: -200% 0;
-		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.lazy-panel-placeholder {
-			animation: none;
-		}
+		color: var(--w-faint);
+		font: var(--w-t-small);
 	}
 
 	.center-dm-layout {
@@ -1989,7 +1873,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
-		border-right: 1px solid var(--color-border-primary, #302b63);
+		border-right: var(--w-bw) solid var(--w-line);
 	}
 
 	.center-dm-thread {
@@ -2006,9 +1890,9 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 0.75rem;
-		color: var(--text-muted, #9999ff);
-		font-size: 0.95rem;
+		gap: 12px;
+		color: var(--w-faint);
+		font: var(--w-t-ui);
 	}
 
 	/* Docked panels reduce available space independently of the viewport. */
@@ -2031,16 +1915,16 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		display: flex;
 		align-items: flex-end;
 		justify-content: flex-end;
-		padding: 1rem;
-		background: rgba(0, 0, 0, 0.35);
+		padding: 16px;
+		background: var(--w-scrim);
 	}
 
 	.quick-scratchpad-overlay > :global(*) {
 		width: min(420px, 92vw);
-		max-height: min(380px, 72vh);
-		border-radius: 12px;
+		max-height: min(380px, 72dvh);
+		border-radius: var(--radius-lg);
 		overflow: hidden;
-		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+		box-shadow: var(--w-shadow);
 	}
 
 	/* Dev-only calling-diagnostics overlay (callDebugPanelEnabled = import.meta.env.DEV). */
@@ -2121,8 +2005,4 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		}
 	}
 
-	/* The phone channel-call strip's header is a status line now, not a diagnostics toggle. */
-	.voice-status-header {
-		cursor: default;
-	}
 </style>

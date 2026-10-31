@@ -1,127 +1,114 @@
+<!--
+	Server shortcuts (the "Shortcuts" disclosure inside the server switcher): Recent channels on
+	this server and Followed channels across saved servers. A kit segmented key picks the list;
+	rows are 44px on roles with the channel's real glyph (§6) and the ink unread badge (§7.9).
+	Unfollow is a quiet x key per row. No emoji or text glyphs stand in for icons.
+	The floating toggle-and-popover mode is gone: the switcher embeds this list, the only caller.
+-->
 <script lang="ts">
 	import { channelUnreadCounts, channels, currentChannel, joinVoiceChannel, switchChannel } from '$lib/socket';
-	import { brandName } from '$lib/branding';
 	import { mobileTabQueue, type MobileQueueTab } from '$lib/mobileTabQueue';
 	import { currentSavedServer, savedServers, switchToSavedServerChannel } from '$lib/savedServers';
 	import { allServerFollowedChannels, getCurrentFollowServerUrl, unfollowChannel } from '$lib/following';
 	import { followedChannelSnapshots } from '$lib/followingSnapshots';
 	import { isServerScopedChannel } from '$lib/channelTypes';
-	import { buildChannelItem, buildFollowedServerGroups, followedServerGroupBodyId, type DrawerChannelItem, type FollowedServerGroup } from './modeTabsDrawerHelpers';
+	import Icon from '$lib/components/ui/Icon.svelte';
+	import Segmented from '$lib/components/ui/Segmented.svelte';
+	import type { IconName } from '$lib/components/ui/icons';
+	import { buildChannelItem, buildFollowedServerGroups, followedServerGroupBodyId, type DrawerChannelItem } from './modeTabsDrawerHelpers';
 	import './ModeTabsDrawer.css';
 
-	export let embedded = false;
-	let drawerVisible = false;
+	/** The switcher embeds the list (its only caller); kept so that call site stays valid. */
+	export let embedded = true;
 	let activeSection: 'recent' | 'saved' = 'recent';
 	let collapsedFollowedServerUrls: Record<string, boolean> = {};
 	const { tabs: queueTabs } = mobileTabQueue;
 
 	$: serverScopedChannels = $channels.filter(isServerScopedChannel);
 	$: channelById = new Map(serverScopedChannels.map((channel) => [channel.id, channel] as const));
-	$: serverIconUrl = $currentSavedServer?.effectiveIconUrl || null;
-	$: serverIconLabel = ($currentSavedServer?.effectiveName || brandName).trim().charAt(0).toUpperCase() || 'W';
 	$: activeFollowServerUrl = getCurrentFollowServerUrl();
 	$: snapshotByKey = new Map($followedChannelSnapshots.map((snapshot) => [`${snapshot.serverUrl}::${snapshot.channelId}`, snapshot] as const));
 	$: followedServerGroups = (buildFollowedServerGroups as any)($allServerFollowedChannels, $savedServers, snapshotByKey, activeFollowServerUrl, $currentSavedServer, channelById, $channelUnreadCounts, $currentChannel);
 	$: recentChannelItems = ($queueTabs as any).filter((item): item is Extract<MobileQueueTab, { type: 'channel' }> => item.type === 'channel').map((item) => { const channel = channelById.get(item.channelId); if (!channel) return null; return buildChannelItem(channel as any, 'recent', activeFollowServerUrl, $currentChannel, $channelUnreadCounts); }).filter((item): item is DrawerChannelItem => item !== null);
 	$: followedCount = followedServerGroups.reduce((sum, group) => sum + group.channels.length, 0);
 	$: recentCount = recentChannelItems.length;
-	$: hasVisibleItems = recentCount > 0 || followedCount > 0;
-	$: drawerToggleLabel = ['Open server shortcuts', recentCount > 0 ? `${recentCount} recent channel${recentCount === 1 ? '' : 's'}` : '', followedCount > 0 ? `${followedCount} followed channel${followedCount === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+	$: sections = [
+		{ value: 'recent' as const, label: recentCount > 0 ? `Recent ${recentCount}` : 'Recent' },
+		{ value: 'saved' as const, label: followedCount > 0 ? `Followed ${followedCount}` : 'Followed' }
+	];
 	$: activeSectionSubtitle = activeSection === 'recent' ? 'Recent channels on this server' : 'Followed channels across your servers';
 
-	function setDrawerOpen(open: boolean): void { drawerVisible = open; }
-	function toggleDrawer(): void { drawerVisible = !drawerVisible; }
+	/** The channel's own glyph; a text channel is a typeset #. */
+	function glyphFor(type: string | null): IconName | null {
+		if (type === 'voice') return 'voice';
+		if (type === 'wiki') return 'book';
+		if (type === 'forum') return 'forum';
+		if (type === 'gallery') return 'image';
+		return null;
+	}
+	function badgeText(count: number): string {
+		return count > 99 ? '99+' : String(count);
+	}
+
 	async function selectChannel(item: DrawerChannelItem): Promise<void> {
-		if (item.serverUrl !== activeFollowServerUrl) { switchToSavedServerChannel(item.serverUrl, item.channelId); setDrawerOpen(false); return; }
-		if (item.channelType === 'voice') { try { await joinVoiceChannel(item.channelId); } catch (error) { console.error('Failed to join voice channel from server shortcuts:', error); } setDrawerOpen(false); return; }
+		if (item.serverUrl !== activeFollowServerUrl) { switchToSavedServerChannel(item.serverUrl, item.channelId); return; }
+		if (item.channelType === 'voice') { try { await joinVoiceChannel(item.channelId); } catch (error) { console.error('Failed to join voice channel from server shortcuts:', error); } return; }
 		switchChannel(item.channelId);
-		setDrawerOpen(false);
 	}
 	function removeSavedChannel(item: DrawerChannelItem): void { unfollowChannel(item.channelId, item.serverUrl); }
 	function setFollowedServerGroupCollapsed(serverUrl: string, collapsed: boolean): void { collapsedFollowedServerUrls = { ...collapsedFollowedServerUrls, [serverUrl]: collapsed }; }
-	function isFollowedServerGroupCollapsed(serverUrl: string): boolean { return collapsedFollowedServerUrls[serverUrl] === true; }
-	function handleKeydown(event: KeyboardEvent): void { if (event.key === 'Escape' && drawerVisible) drawerVisible = false; }
+	function isFollowedServerGroupCollapsed(serverUrl: string, collapsed: Record<string, boolean>): boolean { return collapsed[serverUrl] === true; }
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<div class="mode-tabs" class:embedded role="region" aria-label="Server shortcuts">
+	<Segmented class="mode-tabs__seg" label="Shortcut list" options={sections} bind:value={activeSection} />
+	<p class="mode-tabs__hint">{activeSectionSubtitle}</p>
 
-<div class="mode-tabs-wrapper" class:embedded>
-	{#if !embedded}
-		<button class="drawer-toggle" class:active={drawerVisible} class:has-tabs={hasVisibleItems} type="button" aria-label={drawerToggleLabel} aria-expanded={drawerVisible} on:click={toggleDrawer} title={drawerToggleLabel}>
-			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg>
-			{#if hasVisibleItems}<span class="toggle-indicators" aria-hidden="true">{#if followedCount > 0}<span class="toggle-indicator toggle-indicator-bookmarks"></span>{/if}</span>{/if}
-		</button>
-	{/if}
-
-	{#if !embedded && drawerVisible}<div class="drawer-backdrop" on:click={() => setDrawerOpen(false)} on:keydown={() => {}} role="button" tabindex="-1"></div>{/if}
-
-	{#if embedded || drawerVisible}
-		<div class="drawer-panel" class:embedded role={embedded ? 'region' : 'dialog'} aria-label="Server shortcuts panel" aria-hidden={embedded ? undefined : !drawerVisible}>
-			{#if !embedded}
-				<div class="drawer-header">
-					<div><span class="drawer-title">Shortcuts</span><p class="drawer-subtitle">{activeSectionSubtitle}</p></div>
-					<button class="drawer-close" type="button" aria-label="Close panel" on:click={() => setDrawerOpen(false)}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
-				</div>
-			{/if}
-
-			<div class="drawer-content">
-				<div class="drawer-sections" role="tablist" aria-label="Server shortcut sections" style:--active-section-index={activeSection === 'recent' ? 0 : 1}>
-					<span class="drawer-section-highlight" aria-hidden="true"></span>
-					<button class="drawer-section-tab" class:active={activeSection === 'recent'} type="button" role="tab" aria-selected={activeSection === 'recent'} on:click={() => (activeSection = 'recent')}><span>Recent</span>{#if recentCount > 0}<span class="section-tab-count">{recentCount}</span>{/if}</button>
-					<button class="drawer-section-tab" class:active={activeSection === 'saved'} type="button" role="tab" aria-selected={activeSection === 'saved'} on:click={() => (activeSection = 'saved')}><span>Followed</span>{#if followedCount > 0}<span class="section-tab-count">{followedCount}</span>{/if}</button>
-				</div>
-
-				{#if activeSection === 'recent'}
-					<div class="drawer-section">
-						{#if !embedded}<span class="section-label">Recent</span>{/if}
-						{#if recentChannelItems.length === 0}<div class="drawer-empty"><p>Channels you visit show up here so you can jump back quickly.</p></div>{:else}
-							<div class="item-list">
-								{#each recentChannelItems as item (item.id)}
-									<div class="drawer-item-row" class:active={item.active}>
-										<button class="drawer-item" type="button" on:click={() => void selectChannel(item)}>
-											<span class="item-icon">{#if serverIconUrl}<img src={serverIconUrl} alt="" />{:else}<span>{serverIconLabel}</span>{/if}</span>
-											<span class="item-label">{item.label}</span>
-											{#if item.badgeCount > 0}<span class="item-badge">{item.badgeCount > 99 ? '99+' : item.badgeCount}</span>{/if}
-										</button>
-									</div>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				{:else}
-					<div class="drawer-section">
-						{#if !embedded}<span class="section-label">Followed</span>{/if}
-						{#if followedServerGroups.length === 0}<div class="drawer-empty"><p>Follow channels with the star in the sidebar to keep them handy here.</p></div>{:else}
-							<div class="followed-server-groups">
-								{#each followedServerGroups as group (group.serverUrl)}
-									<details class="followed-server-group" open={!isFollowedServerGroupCollapsed(group.serverUrl)} on:toggle={(event) => setFollowedServerGroupCollapsed(group.serverUrl, !(event.currentTarget as HTMLDetailsElement).open)}>
-										<summary class="followed-server-header" class:current={group.currentServer} aria-expanded={!isFollowedServerGroupCollapsed(group.serverUrl)} aria-controls={followedServerGroupBodyId(group.serverUrl)}>
-											<span class="followed-server-icon">{#if group.serverIconUrl}<img src={group.serverIconUrl} alt="" />{:else}<span>{group.serverIconLabel}</span>{/if}</span>
-											<div class="followed-server-copy"><div class="followed-server-title-row"><strong class:current={group.currentServer}>{group.serverName}</strong></div></div>
-											<span class="followed-server-count" aria-hidden="true">{group.channels.length}</span>
-											<span class="followed-server-toggle" class:collapsed={isFollowedServerGroupCollapsed(group.serverUrl)} aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M6 8l4 4 4-4" /></svg></span>
-										</summary>
-										<div id={followedServerGroupBodyId(group.serverUrl)} class="followed-server-body">
-											<div class="item-list item-list-grouped">
-												{#each group.channels as item (item.id)}
-													<div class="drawer-item-row" class:active={item.active}>
-														<button class="drawer-item" type="button" on:click={() => void selectChannel(item)}>
-															<span class="item-channel-prefix" aria-hidden="true">{item.channelType === 'voice' ? '🔊' : '#'}</span>
-															<span class="item-label">{item.label}</span>
-															{#if item.badgeCount > 0}<span class="item-badge">{item.badgeCount > 99 ? '99+' : item.badgeCount}</span>{/if}
-														</button>
-														<button class="item-close" type="button" aria-label={`Unfollow ${item.label}`} title={`Unfollow ${item.label}`} on:click={() => removeSavedChannel(item)}>★</button>
-													</div>
-												{/each}
-											</div>
-										</div>
-									</details>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				{/if}
-			</div>
+	{#if activeSection === 'recent'}
+		{#if recentChannelItems.length === 0}
+			<p class="mode-tabs__empty">Channels you visit show up here so you can jump back quickly.</p>
+		{:else}
+			<ul class="mode-tabs__list" role="list">
+				{#each recentChannelItems as item (item.id)}
+					{@const glyph = glyphFor(item.channelType)}
+					<li class="mode-tabs__row" class:active={item.active}>
+						<button type="button" class="mode-tabs__item" aria-current={item.active ? 'page' : undefined} on:click={() => void selectChannel(item)}>
+							<span class="mode-tabs__glyph" aria-hidden="true">{#if glyph}<Icon name={glyph} size={16} />{:else}#{/if}</span>
+							<span class="mode-tabs__label">{item.label}</span>
+							{#if item.badgeCount > 0}<span class="w-badge" aria-label={`${item.badgeCount} unread`}>{badgeText(item.badgeCount)}</span>{/if}
+						</button>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	{:else if followedServerGroups.length === 0}
+		<p class="mode-tabs__empty">Follow channels with the bell in the sidebar to keep them handy here.</p>
+	{:else}
+		<div class="mode-tabs__groups">
+			{#each followedServerGroups as group (group.serverUrl)}
+				{@const collapsed = isFollowedServerGroupCollapsed(group.serverUrl, collapsedFollowedServerUrls)}
+				<details class="mode-tabs__group" open={!collapsed} on:toggle={(event) => setFollowedServerGroupCollapsed(group.serverUrl, !(event.currentTarget as HTMLDetailsElement).open)}>
+					<summary class="mode-tabs__server" class:current={group.currentServer} aria-controls={followedServerGroupBodyId(group.serverUrl)}>
+						<span class="mode-tabs__server-icon" aria-hidden="true">{#if group.serverIconUrl}<img src={group.serverIconUrl} alt="" />{:else}{group.serverIconLabel}{/if}</span>
+						<span class="mode-tabs__server-name">{group.serverName}</span>
+						<span class="w-count">{group.channels.length}</span>
+						<Icon name={collapsed ? 'chevRight' : 'chevDown'} size={14} class="mode-tabs__chev" />
+					</summary>
+					<ul id={followedServerGroupBodyId(group.serverUrl)} class="mode-tabs__list" role="list">
+						{#each group.channels as item (item.id)}
+							{@const glyph = glyphFor(item.channelType)}
+							<li class="mode-tabs__row" class:active={item.active}>
+								<button type="button" class="mode-tabs__item" aria-current={item.active ? 'page' : undefined} on:click={() => void selectChannel(item)}>
+									<span class="mode-tabs__glyph" aria-hidden="true">{#if glyph}<Icon name={glyph} size={16} />{:else}#{/if}</span>
+									<span class="mode-tabs__label">{item.label}</span>
+									{#if item.badgeCount > 0}<span class="w-badge" aria-label={`${item.badgeCount} unread`}>{badgeText(item.badgeCount)}</span>{/if}
+								</button>
+								<button type="button" class="w-ibtn mode-tabs__unfollow" aria-label={`Unfollow ${item.label}`} title={`Unfollow ${item.label}`} on:click={() => removeSavedChannel(item)}><Icon name="x" size={16} /></button>
+							</li>
+						{/each}
+					</ul>
+				</details>
+			{/each}
 		</div>
 	{/if}
 </div>
