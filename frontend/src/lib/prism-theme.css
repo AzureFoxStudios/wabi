@@ -1,217 +1,63 @@
-/* Prism.js syntax highlighting theme - Dark mode optimized */
-code[class*="language-"],
-pre[class*="language-"] {
-  color: #f8f8f2;
-  background: none;
-  text-shadow: 0 1px rgba(0, 0, 0, 0.3);
-  font-family: 'Consolas', 'Monaco', 'Andale Mono', 'Ubuntu Mono', monospace;
-  font-size: 0.9em;
-  text-align: left;
-  white-space: pre;
-  word-spacing: normal;
-  word-break: normal;
-  word-wrap: normal;
-  line-height: 1.5;
-  tab-size: 4;
+/* Prism syntax token colours (spec §7.19), on theme roles so code reads in every theme.
+   Scoped to code blocks only: rendered message / forum markdown (`.markdown-content pre`),
+   blocks that carry `.code-block`, the code-block editor preview (`.code-preview`), and any
+   `pre.language-x` that parseMessage() renders elsewhere (Wiki pages, Diary entries).
+   There is no global code rule here: inline code and block chrome (sink, hairline, mono 13/20)
+   are styled by styles/components/ml-markdown.css and by each editor.
+   Palette: keywords take the accent; strings, numbers and names are accent/text mixes that keep
+   text-grade contrast on the sink; comments are faint; punctuation is muted. */
+
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) code[class*='language-'] {
+	color: var(--w-text);
+	background: none;
+	text-shadow: none;
+	font-family: var(--w-mono);
+	text-align: left;
+	word-spacing: normal;
+	word-break: normal;
+	overflow-wrap: normal;
+	tab-size: 4;
+	hyphens: none;
 }
 
-pre[class*="language-"] {
-  padding: 1em;
-  margin: 0.5em 0;
-  overflow: auto;
-  border-radius: 0.3em;
-  background: #1e1e1e;
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token:is(.comment, .prolog, .doctype, .cdata) {
+	color: var(--w-faint);
+	font-style: italic;
 }
 
-:not(pre) > code[class*="language-"],
-pre[class*="language-"] {
-  background: #1e1e1e;
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token:is(.punctuation, .operator, .entity, .url) {
+	color: var(--w-mute);
 }
 
-/* Inline code */
-:not(pre) > code[class*="language-"] {
-  padding: 0.1em 0.3em;
-  border-radius: 0.3em;
-  white-space: normal;
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token:is(.keyword, .atrule, .important, .rule) {
+	color: var(--w-accent);
 }
 
-.token.comment,
-.token.prolog,
-.token.doctype,
-.token.cdata {
-  color: #6a9955;
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token:is(.string, .char, .attr-value, .inserted, .regex) {
+	color: color-mix(in srgb, var(--w-accent) 45%, var(--w-text));
 }
 
-.token.punctuation {
-  color: #d4d4d4;
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token:is(.number, .boolean, .constant, .symbol, .deleted) {
+	color: color-mix(in srgb, var(--w-accent) 70%, var(--w-text));
 }
 
-.token.property,
-.token.tag,
-.token.boolean,
-.token.number,
-.token.constant,
-.token.symbol,
-.token.deleted {
-  color: #b5cea8;
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token:is(.function, .class-name, .builtin) {
+	color: var(--w-text);
+	font-weight: 500;
 }
 
-.token.selector,
-.token.attr-name,
-.token.string,
-.token.char,
-.token.builtin,
-.token.inserted {
-  color: #ce9178;
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token:is(.property, .tag, .selector, .attr-name, .variable, .namespace) {
+	color: color-mix(in srgb, var(--w-text) 78%, var(--w-mute));
 }
 
-.token.operator,
-.token.entity,
-.token.url,
-.language-css .token.string,
-.style .token.string {
-  color: #d4d4d4;
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token:is(.bold, .important) {
+	font-weight: 500;
 }
 
-.token.atrule,
-.token.attr-value,
-.token.keyword {
-  color: #c586c0;
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token.italic {
+	font-style: italic;
 }
 
-.token.function,
-.token.class-name {
-  color: #dcdcaa;
-}
-
-.token.regex,
-.token.important,
-.token.variable {
-  color: #d16969;
-}
-
-.token.important,
-.token.bold {
-  font-weight: bold;
-}
-
-.token.italic {
-  font-style: italic;
-}
-
-.token.entity {
-  cursor: help;
-}
-
-/* Inline code (non-block) */
-code:not([class*="language-"]) {
-  background: #2d2d2d;
-  color: #ce9178;
-  padding: 0.1em 0.3em;
-  border-radius: 0.3em;
-  font-family: 'Consolas', 'Monaco', 'Andale Mono', 'Ubuntu Mono', monospace;
-  font-size: 0.9em;
-}
-
-/* Markdown content styling */
-
-/* Block quotes */
-.markdown-content blockquote {
-  border-left: 4px solid var(--accent-primary-color, var(--accent-primary));
-  padding-left: 1em;
-  margin: 0.5em 0;
-  color: var(--text-muted, var(--text-secondary));
-  font-style: italic;
-}
-
-/* Headings */
-.markdown-content h1,
-.markdown-content h2,
-.markdown-content h3,
-.markdown-content h4,
-.markdown-content h5,
-.markdown-content h6 {
-  margin: 0.5em 0;
-  font-weight: 600;
-  color: var(--text-heading);
-}
-
-.markdown-content h1 {
-  font-size: 1.5em;
-  border-bottom: 2px solid var(--accent-primary-color, var(--accent-primary));
-  padding-bottom: 0.3em;
-}
-
-.markdown-content h2 {
-  font-size: 1.3em;
-  border-bottom: 1px solid var(--accent-primary-color, var(--accent-primary));
-  padding-bottom: 0.2em;
-}
-
-.markdown-content h3 {
-  font-size: 1.1em;
-}
-
-.markdown-content h4,
-.markdown-content h5,
-.markdown-content h6 {
-  font-size: 1em;
-}
-
-/* Lists */
-.markdown-content ul,
-.markdown-content ol {
-  margin: 0.5em 0;
-  padding-left: 2em;
-}
-
-.markdown-content li {
-  margin: 0.2em 0;
-}
-
-/* Horizontal rule */
-.markdown-content hr {
-  border: none;
-  border-top: 2px solid var(--border-strong, var(--accent-primary-color));
-  margin: 1em 0;
-}
-
-/* Bold, italic, strikethrough */
-.markdown-content strong {
-  color: var(--text-heading);
-  font-weight: 700;
-}
-
-.markdown-content em {
-  font-style: italic;
-}
-
-.markdown-content del {
-  color: #808080;
-  text-decoration: line-through;
-}
-
-.markdown-content s {
-  color: #808080;
-  text-decoration: line-through;
-}
-
-/* Links */
-.markdown-content a {
-  color: var(--text-link, var(--color-info, var(--accent-primary-color)));
-  text-decoration: none;
-}
-
-.markdown-content a:hover {
-  text-decoration: underline;
-  color: var(--color-info, var(--accent-primary-color));
-}
-
-/* Paragraphs — Discord-tight; no vertical fluff on chat messages */
-.markdown-content p {
-  margin: 0;
-  line-height: 1.375;
-}
-.markdown-content p + p {
-  margin-top: 0.25em;
+:where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) .token.entity {
+	cursor: help;
 }

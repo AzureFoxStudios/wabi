@@ -1,53 +1,64 @@
 /* ==========================================================================
    ML — REPLIES STYLES
-   Made to closely match standard Discord mobile/desktop reply bars.
+   The line above a reply: a short hairline hook, the replied-to name in label weight and one
+   line of their text in the muted ink. Click or Enter jumps to the original.
+   (MessageReplyPreview.svelte still carries an older !important block that wins over these
+   rules; its owner retires it by handoff.)
    ========================================================================== */
 
 .reply-preview {
 	display: flex;
 	align-items: center;
-	gap: var(--space-2);
-	margin-bottom: var(--space-1);
-	padding: 1px 0 1px 8px;
-	font-size: var(--text-sm);
-	line-height: 1.15;
+	gap: 6px;
+	min-width: 0;
+	margin: 0 0 2px;
+	padding: 0;
+	border-radius: var(--radius-sm);
+	color: var(--w-mute);
+	font: var(--w-t-small);
+	font-size: calc(12px * var(--w-fs));
+	line-height: calc(16px * var(--w-fs));
 	cursor: pointer;
-	opacity: 0.9;
 }
-
 .reply-preview:hover {
-	opacity: 1;
+	color: var(--w-text);
+}
+.reply-preview:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
 }
 
 .reply-line {
-	width: 2px;
-	height: 12px;
-	background: var(--accent-primary-color, var(--accent-primary));
-	border-radius: var(--radius-full);
-	flex-shrink: 0;
+	flex: none;
 	align-self: center;
+	width: 12px;
+	height: 6px;
+	margin-top: 4px;
+	border-top: var(--w-bw) solid var(--w-line-strong);
+	border-left: var(--w-bw) solid var(--w-line-strong);
+	border-top-left-radius: var(--radius-sm);
 }
 
 .reply-content {
 	display: flex;
 	align-items: baseline;
-	gap: var(--space-1);
-	min-width: 0;
+	gap: 6px;
 	flex: 1;
+	min-width: 0;
 }
 
 .reply-username {
-	font-weight: 600;
-	font-size: var(--text-sm);
+	flex: none;
+	color: var(--w-text);
+	font-weight: 500;
 	white-space: nowrap;
-	color: inherit;
 }
 
 .reply-text {
-	color: var(--text-muted, var(--text-secondary));
-	font-size: var(--text-sm);
+	min-width: 0;
+	max-width: 100%;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	max-width: 100%;
+	color: var(--w-mute);
 }

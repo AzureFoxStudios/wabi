@@ -60,6 +60,25 @@
   const stop=onAuthSessionCleared(() => { epoch++; runs=[]; members=[]; workers=[]; resumeTargets={};prompt=''; bot=''; resetSelection(); error='Sign in to view the assistant.'; });
   return () => { clearInterval(poll); stop(); epoch++; };
  });
+
+ /** Steps read as sentences, never raw JSON (§9.4): the tool in words, then what it touched. */
+ const stepTitle=(tool:string)=>{const words=tool.replace(/[_-]+/g,' ').trim();return words.charAt(0).toUpperCase()+words.slice(1);};
+ const describe=(value:unknown):string=>{
+  if(value==null)return '';
+  if(typeof value==='string')return value.length>140?`${value.slice(0,140)}…`:value;
+  if(typeof value==='number'||typeof value==='boolean')return String(value);
+  if(Array.isArray(value))return value.length?`${value.length} ${value.length===1?'item':'items'}`:'nothing';
+  if(typeof value==='object'){
+   const record=value as Record<string,unknown>;
+   const named=['title','name','column','status','page','summary','message'].map(key=>typeof record[key]==='string'?record[key] as string:null).find(Boolean);
+   if(named)return describe(named);
+   const keys=Object.keys(record);
+   return keys.length?keys.slice(0,4).map(key=>key.replace(/[_-]+/g,' ')).join(', '):'nothing';
+  }
+  return '';
+ };
+ const stepSentence=(args:unknown,result:unknown)=>{const what=describe(args),outcome=describe(result);return [what&&`On ${what}.`,outcome&&`Result: ${outcome}.`].filter(Boolean).join(' ')||'No details were recorded for this step.';};
+ const pendingSentence=(pending:unknown)=>{const record=(pending&&typeof pending==='object'?pending:{}) as Record<string,unknown>;const tool=typeof record.tool==='string'?stepTitle(record.tool):'An action';const what=describe(record.arguments);return `${tool}${what?` on ${what}`:''} may or may not have finished.`;};
 </script>
 <section class="assistant" aria-label="Project assistant">
  <header><div><p class="eyebrow">A CONVERSATION WITH THE WORK</p><h2>Your Project assistant</h2><p>Ask a question, or give a worker a small piece of the Project.</p></div><button type="button" onclick={() => void load()} disabled={busy}>Refresh</button></header>
@@ -76,7 +95,7 @@
    <div class="checkpoint" role="status">{run.checkpoint}{#if run.workerId}<span> · {workerName(run.workerId)}</span>{/if}{#if run.status==='queued'}<span> · Waiting for {run.targetWorkerId?workerName(run.targetWorkerId):'the assigned worker'}.</span>{/if}{#if run.status==='running' && expired(run)}<span> · Worker lease expired. Review before resuming.</span>{/if}</div>
    {#if run.recoveryPolicy?.automatic}<p class="model">Automatic recovery enabled · {run.recoveryCount??0} of {run.recoveryPolicy.maxRecoveries} used · same provider and model</p>{/if}
    {#if run.provider}<p class="model">{run.provider} / {run.model} · attempt {run.attempt}</p>{/if}
-   {#if run.steps.length || run.pending}<details><summary>{run.steps.length} recorded steps{run.pending?' · uncertain pending action':''}</summary>{#each run.steps as step (step.operationId)}<div class="step"><strong>{step.tool.replace('_',' ')}</strong><pre>{JSON.stringify({arguments:step.arguments,result:step.result},null,2)}</pre></div>{/each}{#if run.pending}<div class="error"><strong>Review before continuing</strong><p>Check whether the pending action completed, then take over or cancel this run.</p><pre>{JSON.stringify(run.pending,null,2)}</pre></div>{/if}</details>{/if}
+   {#if run.steps.length || run.pending}<details><summary>{run.steps.length} recorded steps{run.pending?' · uncertain pending action':''}</summary>{#each run.steps as step (step.operationId)}<div class="step"><strong>{stepTitle(step.tool)}</strong><p>{stepSentence(step.arguments, step.result)}</p></div>{/each}{#if run.pending}<div class="error"><strong>Review before continuing</strong><p>Check whether the pending action completed, then take over or cancel this run.</p><p>{pendingSentence(run.pending)}</p></div>{/if}</details>{/if}
    {#if run.status==='completed'}<button class="continue" type="button" onclick={() => { bot=String(run.botUserId); mode='chat'; consent=false; operationId=null; prompt=`Previous question:\n${run.prompt}\nAssistant reply:\n${run.reply}\n\nFollow-up:\n`; }}>Continue this conversation</button>{/if}
    {#if active(run)}<div class="run-controls">{#if run.status!=='paused'}<button type="button" disabled={busy} onclick={() => void control(run,'pause')}>Pause</button>{/if}{#if !run.pending && (run.status==='paused' || run.status==='running' && expired(run))}<label>Resume on<select aria-label={`Resume computer for ${run.prompt}`} bind:value={resumeTargets[run.runId]}><option value="">Previously selected worker</option>{#each workers.filter(w=>!run.provider || w.provider===run.provider && w.model===run.model) as computer (computer.workerId)}<option value={computer.workerId} disabled={!ready(computer)}>{computer.name}{ready(computer)?'':' · contact lost'}</option>{/each}</select></label><button type="button" disabled={busy} onclick={() => void control(run,'resume')}>Resume saved work</button>{/if}<button type="button" disabled={busy} onclick={() => void control(run,'takeover')}>Take over myself</button><button type="button" disabled={busy} onclick={() => void control(run,'cancel')}>Cancel run</button></div>{/if}
   </article>{/each}
@@ -103,7 +122,7 @@
  .conversation {display:grid;gap:1rem;padding:1.2rem 0;max-width:62rem;} .empty {text-align:center;padding:2rem;color:var(--w-mute);} .empty>span {font-size:2rem;color:var(--w-accent);} .empty h3 {color:var(--w-text);margin:.6rem 0;}
  .run {border:1px solid var(--w-line);border-radius:calc(14px * var(--w-rs, 1));padding:1rem;background:var(--w-raise);} .run-heading {display:flex;justify-content:space-between;flex-wrap:wrap;gap:.4rem;font-size:.8rem;} .run-heading>span,.model {color:var(--w-mute);font-size:.7rem;}
  .human-message,.reply {margin-top:.8rem;padding:.75rem 1rem;border-radius:calc(10px * var(--w-rs, 1));background:var(--w-bg2);} .reply {border-left:2px solid var(--w-accent);} .human-message>span,.reply>span {font-size:.65rem;color:var(--w-mute);font-weight:700;} .human-message p,.reply p {white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem;line-height:1.6;margin:.3rem 0 0;}
- .checkpoint {margin-top:.8rem;color:var(--w-mute);font-size:.75rem;line-height:1.5;} .model {margin:.3rem 0;} details {margin-top:.8rem;font-size:.75rem;} summary {cursor:pointer;} pre {white-space:pre-wrap;overflow-wrap:anywhere;max-height:16rem;overflow:auto;font-size:.7rem;} .step {margin:.7rem 0;padding:.7rem;background:var(--w-bg2);border-radius:calc(10px * var(--w-rs, 1));} .run-controls {display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.8rem;font-size:.75rem;}
+ .checkpoint {margin-top:.8rem;color:var(--w-mute);font-size:.75rem;line-height:1.5;} .model {margin:.3rem 0;} details {margin-top:.8rem;font-size:.75rem;} summary {cursor:pointer;} .step p, .error p {margin:.2rem 0 0;overflow-wrap:anywhere;color:var(--w-mute);font-size:.75rem;line-height:1.5;} .step {margin:.7rem 0;padding:.7rem;background:var(--w-bg2);border-radius:calc(10px * var(--w-rs, 1));} .run-controls {display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.8rem;font-size:.75rem;}
  form {max-width:62rem;padding:1rem;border:1px solid var(--w-line-strong);border-radius:calc(14px * var(--w-rs, 1));background:var(--w-raise);} .composer-options {display:flex;gap:.8rem;flex-wrap:wrap;} label {font-size:.75rem;color:var(--w-mute);} .composer-options label,.prompt-label {display:grid;gap:.4rem;flex:1;} select,textarea {font:inherit;border:1px solid var(--w-line-strong);border-radius:calc(10px * var(--w-rs, 1));padding:.6rem .7rem;background:var(--w-bg2);color:var(--w-text);} textarea {width:100%;box-sizing:border-box;resize:vertical;} .prompt-label {margin-top:.8rem;}
  form h3 {font-size:.9rem;margin:0 0 .4rem;} .worker-note {font-size:.75rem;color:var(--w-mute);line-height:1.5;margin:0 0 1rem;}
  .consent {display:flex;align-items:flex-start;gap:.5rem;margin-top:.8rem;line-height:1.5;} .consent input {margin-top:.2rem;} .composer-footer {display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.8rem;margin-top:.8rem;} .composer-footer>span {font-size:.7rem;color:var(--w-mute);} .send {background:var(--w-accent);color:var(--w-on-accent);border:0;font-weight:650;} .error {padding:.7rem;border-radius:calc(10px * var(--w-rs, 1));background:color-mix(in srgb,var(--w-danger) 12%,var(--w-bg2));color:var(--w-danger);font-size:.8rem;}

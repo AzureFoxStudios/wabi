@@ -99,16 +99,6 @@
 		}
 	}
 
-	function pathOf(raw: string): string {
-		try {
-			const u = new URL(raw);
-			const path = u.pathname === '/' ? '' : u.pathname;
-			return decodeURIComponent(path + u.search).slice(0, 80);
-		} catch {
-			return '';
-		}
-	}
-
 	function onKey(event: KeyboardEvent) {
 		if (event.key === 'Enter' || event.key === ' ') {
 			event.preventDefault();
@@ -123,15 +113,9 @@
 	$: empty = !!preview && !preview.title && !preview.description && !heroImage;
 </script>
 
-{#if loading}
-	<div class="lc lc-skeleton" aria-hidden="true"><span class="lc-bar"></span><span class="lc-bar short"></span></div>
-{:else if error || empty}
-	<!-- Nothing readable came back: say so, instead of printing the link a second time. -->
-	<a class="lc lc-plain" href={url} target="_blank" rel="noopener noreferrer">
-		<span class="lc-meta"><span class="lc-site">{host}</span><span class="lc-sep">·</span><span>preview unavailable</span></span>
-		{#if pathOf(url)}<span class="lc-path">{pathOf(url)}</span>{/if}
-	</a>
-{:else if preview}
+<!-- Nothing renders until a readable preview exists: the link is already in the message text,
+     so a loading shimmer or a "preview unavailable" card would only repeat it (§7.19). -->
+{#if !loading && !error && !empty && preview}
 	{#if kind === 'video' && preview.youtubeId}
 		<div class="lc lc-video">
 			{#if playing}
@@ -145,11 +129,9 @@
 					></iframe>
 				</div>
 			{:else}
-				<button class="lc-poster" on:click={() => (playing = true)} aria-label="Play video">
+				<button type="button" class="lc-poster" on:click={() => (playing = true)} aria-label="Play video">
 					{#if heroImage}<img src={heroImage} alt="" loading="lazy" />{/if}
-					<span class="lc-play" aria-hidden="true">
-						<svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" /></svg>
-					</span>
+					<span class="lc-play" aria-hidden="true"><span class="lc-play__tri"></span></span>
 				</button>
 			{/if}
 			<div class="lc-body">
@@ -202,73 +184,65 @@
 {/if}
 
 <style>
-	/* Link cards: flat, tight, information first. Colors and corners come from the theme roles. */
+	/* Link cards (§7.19): an object in flow — lift, hairline, md corners. Host in mono, title as a
+	   label, at most two lines of description, an optional 80px thumbnail on the right. */
 	.lc {
 		display: block;
 		box-sizing: border-box;
-		max-width: 520px;
-		margin: 6px 0;
-		padding: 10px 12px 11px;
-		border: var(--w-bw, 1px) solid var(--w-line);
-		border-radius: calc(10px * var(--w-rs, 1));
-		background: var(--w-bg2);
+		max-width: 440px;
+		margin: 6px 0 0;
+		padding: 10px 12px;
+		border: var(--w-bw) solid var(--w-line);
+		border-radius: var(--radius-md);
+		background: var(--w-lift);
+		box-shadow: var(--w-shadow-1);
 		color: var(--w-text);
+		text-align: left;
 		text-decoration: none;
-		font-family: var(--w-sans);
 		overflow: hidden;
-		transition: border-color 0.15s;
+		transition: border-color var(--w-dur-1) var(--w-ease);
 	}
 	.lc[role='link'] { cursor: pointer; }
 	.lc:hover { border-color: var(--w-line-strong); }
 	.lc:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
 
-	.lc-meta { display: flex; align-items: center; gap: 6px; font: 500 calc(11.5px * var(--w-fs, 1))/1.3 var(--w-mono); color: var(--w-faint); min-width: 0; }
-	.lc-site { color: var(--w-mute); text-transform: lowercase; }
-	.lc-sep { color: var(--w-line-strong); }
-	.lc-title { display: block; margin-top: 5px; font: 600 calc(15px * var(--w-fs, 1))/1.35 var(--w-sans); color: var(--w-text); text-decoration: none; overflow-wrap: anywhere; }
-	a.lc-title:hover { color: var(--w-accent); }
-	.lc-mono { font-family: var(--w-mono); font-weight: 500; font-size: calc(14px * var(--w-fs, 1)); }
-	.lc-text { margin: 4px 0 0; font: 400 calc(13.5px * var(--w-fs, 1))/1.55 var(--w-sans); color: var(--w-mute); overflow-wrap: anywhere; white-space: pre-line; }
-	.lc-clamp-2, .lc-clamp-3 { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
-	.lc-clamp-2 { -webkit-line-clamp: 2; line-clamp: 2; }
-	.lc-clamp-3 { -webkit-line-clamp: 3; line-clamp: 3; }
-
-	/* skeleton + plain */
-	.lc-skeleton { height: 62px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
-	.lc-bar { display: block; height: 8px; width: 70%; border-radius: 2px; background: var(--w-line); }
-	.lc-bar.short { width: 40%; }
-	.lc-plain { display: flex; flex-direction: column; gap: 3px; padding: 8px 12px; }
-	.lc-plain .lc-path { font: 400 calc(12.5px * var(--w-fs, 1))/1.4 var(--w-mono); color: var(--w-mute); overflow-wrap: anywhere; }
-	.lc-plain:hover .lc-path { color: var(--w-accent); }
+	.lc-meta { display: flex; align-items: center; gap: 6px; min-width: 0; font: var(--w-t-mono); color: var(--w-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.lc-site { color: var(--w-faint); text-transform: lowercase; }
+	.lc-sep { color: var(--w-faint); }
+	.lc-title { display: block; margin-top: 4px; font: var(--w-t-label); color: var(--w-text); text-decoration: none; overflow-wrap: anywhere; }
+	a.lc-title:hover { text-decoration: underline; text-decoration-thickness: var(--w-bw); text-underline-offset: 3px; }
+	.lc-mono { font: 500 calc(13px * var(--w-fs)) / calc(18px * var(--w-fs)) var(--w-mono); }
+	.lc-text { margin: 4px 0 0; font: var(--w-t-small); color: var(--w-mute); overflow-wrap: anywhere; white-space: pre-line; }
+	.lc-clamp-2, .lc-clamp-3 { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; -webkit-line-clamp: 2; line-clamp: 2; }
 
 	/* post */
 	.lc-author { display: flex; align-items: center; gap: 10px; margin-top: 8px; min-width: 0; }
-	.lc-avatar { flex: none; width: 36px; height: 36px; object-fit: cover; border-radius: var(--w-avr, 50%); border: var(--w-bw, 1px) solid var(--w-line); }
+	.lc-avatar { flex: none; width: 36px; height: 36px; object-fit: cover; border-radius: var(--w-avr); border: var(--w-bw) solid var(--w-line); }
 	.lc-who { display: flex; flex-direction: column; min-width: 0; }
-	.lc-name { font: 600 calc(14.5px * var(--w-fs, 1))/1.3 var(--w-sans); }
-	.lc-handle { font: 500 calc(12px * var(--w-fs, 1))/1.3 var(--w-mono); color: var(--w-faint); }
-	.lc-post .lc-text { margin-top: 6px; font-size: calc(14.5px * var(--w-fs, 1)); line-height: 1.6; color: var(--w-text); }
-	.lc-media { margin-top: 8px; border-radius: calc(8px * var(--w-rs, 1)); overflow: hidden; border: var(--w-bw, 1px) solid var(--w-line); }
+	.lc-name { font: var(--w-t-label); }
+	.lc-handle { font: var(--w-t-mono); color: var(--w-faint); }
+	.lc-post .lc-text { margin-top: 6px; font: var(--w-t-chat); color: var(--w-text); }
+	.lc-media { margin-top: 8px; border-radius: var(--radius-inner); overflow: hidden; border: var(--w-bw) solid var(--w-line); background: var(--w-sink); }
 	.lc-media img { display: block; width: 100%; max-height: 280px; object-fit: cover; }
 
-	/* article / link: text left, small thumbnail right */
-	.lc-article { display: flex; gap: 14px; align-items: flex-start; }
+	/* article / link: text left, 80px thumbnail right */
+	.lc-article { display: flex; gap: 12px; align-items: flex-start; }
 	.lc-article .lc-body { flex: 1; min-width: 0; }
-	.lc-thumb { flex: none; width: 84px; height: 84px; object-fit: cover; border-radius: calc(7px * var(--w-rs, 1)); border: var(--w-bw, 1px) solid var(--w-line); }
+	.lc-thumb { flex: none; width: 80px; height: 80px; object-fit: cover; border-radius: var(--radius-inner); border: var(--w-bw) solid var(--w-line); background: var(--w-sink); }
 
 	/* audio */
 	.lc-audio { display: flex; gap: 12px; align-items: center; }
 	.lc-audio .lc-body { flex: 1; min-width: 0; }
-	.lc-cover { flex: none; width: 56px; height: 56px; object-fit: cover; border-radius: calc(6px * var(--w-rs, 1)); }
+	.lc-cover { flex: none; width: 56px; height: 56px; object-fit: cover; border-radius: var(--radius-inner); }
 
 	/* video */
-	.lc-video { padding: 0; max-width: 460px; }
-	.lc-video .lc-body { padding: 9px 12px 11px; }
+	.lc-video { padding: 0; }
+	.lc-video .lc-body { padding: 10px 12px; }
 	.lc-poster, .lc-embed { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; padding: 0; border: 0; background: var(--w-sink); cursor: pointer; }
 	.lc-poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 	.lc-embed iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-	.lc-play { position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; display: grid; place-items: center; border-radius: var(--w-pill, 999px); background: color-mix(in srgb, var(--w-bg) 78%, transparent); border: var(--w-bw, 1px) solid var(--w-line-strong); color: var(--w-text); transition: background 0.15s, color 0.15s; }
-	.lc-play svg { width: 22px; height: 22px; fill: currentColor; margin-left: 2px; }
-	.lc-poster:hover .lc-play { background: var(--w-accent); color: var(--w-on-accent); border-color: transparent; }
+	.lc-play { position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; display: grid; place-items: center; border-radius: var(--w-pill); background: var(--w-bg); border: var(--w-bw) solid var(--w-line-strong); color: var(--w-text); transition: background-color var(--w-dur-1) var(--w-ease), color var(--w-dur-1) var(--w-ease); }
+	.lc-play__tri { width: 0; height: 0; margin-left: 3px; border-style: solid; border-width: 7px 0 7px 12px; border-color: transparent transparent transparent currentColor; }
+	.lc-poster:hover .lc-play { background: var(--w-text); color: var(--w-bg); border-color: var(--w-text); }
 	.lc-poster:focus-visible { outline: 2px solid var(--w-accent); outline-offset: -2px; }
 </style>

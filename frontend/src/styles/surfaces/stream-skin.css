@@ -1,0 +1,74 @@
+/* Message stream skin — the 3D model viewer chrome and references inside text.
+   The row, attachments and file cards are styled by styles/stream.css and
+   styles/components/ml-attachments.css; scrollbars come from base.css.
+   Owner (wave 1): w1-chat-stream. The model viewer chrome is used from MessageList
+   attachments (ModelViewerShell.svelte), so it stays with the stream.
+   Cascade: stage-skin.css after headings.css — before panel, settings-skin, admin-skin,
+   modal-skin and panels-skin. Spec §11 puts surfaces after panels-skin.css; until
+   w2-retire-legacy-qa imports surfaces directly in that order, a rule added here loses
+   equal-specificity ties to every skin that loads later. */
+
+/* ---------- 3D / model viewer chrome ---------- */
+:root .mv-shell {
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-lg);
+	background: var(--w-bg2);
+	color: var(--w-text);
+	font-family: var(--w-sans);
+}
+:root .mv-shell .mv-heading,
+:root .mv-shell .mv-panel-title { font: var(--w-t-label); color: var(--w-text); }
+:root .mv-shell .mv-section-heading { font: 500 calc(11px * var(--w-fs, 1))/1 var(--w-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--w-faint); }
+:root .mv-shell .mv-stage,
+:root .mv-shell .mv-state-card { background: var(--w-sink); border-radius: var(--radius-md); }
+:root .mv-shell .mv-dimensions,
+:root .mv-shell .mv-diagnostics,
+:root .mv-shell .mv-range-label,
+:root .mv-shell .mv-small-badge { font-family: var(--w-mono); color: var(--w-mute); }
+:root .mv-shell .mv-button,
+:root .mv-shell .mv-icon-button {
+	min-height: 32px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-caption);
+}
+:root .mv-shell .mv-button:hover,
+:root .mv-shell .mv-icon-button:hover { background: var(--w-raise); border-color: var(--w-accent); }
+:root .mv-shell .mv-button.mv-primary { background: var(--w-text); color: var(--w-bg); border-color: transparent; }
+:root .mv-shell .mv-segment { border: var(--w-bw) solid var(--w-line-strong); border-radius: var(--radius-md); background: var(--w-bg2); }
+:root .mv-shell .mv-segment button[aria-pressed='true'],
+:root .mv-shell .mv-segment .active { background: var(--w-accent); color: var(--w-on-accent); }
+:root .mv-shell .mv-status-dot { background: var(--w-online); }
+:root .mv-shell input[type='range'] { accent-color: var(--w-accent); }
+
+/* ---------- references inside text: @people, #rooms, wiki / forum / gallery / map refs ---------- */
+:root .mention-token {
+	display: inline;
+	padding: 0 4px;
+	border: var(--w-bw) solid transparent;
+	border-radius: var(--radius-sm);
+	background: var(--w-accent-soft);
+	color: var(--w-text);
+	font-weight: 500;
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease), border-color var(--w-dur-1) var(--w-ease);
+}
+:root .mention-token:hover { background: color-mix(in srgb, var(--w-accent) 26%, transparent); border-color: color-mix(in srgb, var(--w-accent) 45%, transparent); }
+:root .mention-token:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 1px; }
+:root .mention-token-user,
+:root .mention-token-channel { color: var(--w-text); }
+:root .mention-token-wiki_page,
+:root .mention-token-forum_post,
+:root .mention-token-gallery_work,
+:root .mention-token-place {
+	background: transparent;
+	border-color: var(--w-line-strong);
+	font-family: var(--w-mono);
+	font-size: 0.88em;
+}
+:root .mention-token-wiki_page:hover,
+:root .mention-token-forum_post:hover,
+:root .mention-token-gallery_work:hover,
+:root .mention-token-place:hover { border-color: var(--w-accent); background: var(--w-accent-soft); }

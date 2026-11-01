@@ -65,7 +65,18 @@ async function loadFromServer(token: string): Promise<{ layoutJson: string | nul
  * keys — so every writer must GET-merge-PUT instead of blind-replacing,
  * or modules clobber each other and the whitelist 422s.
  */
-export async function mergeIntoServerContainer(token: string, slot: string, value: unknown): Promise<boolean> {
+export function mergeIntoServerContainer(token: string, slot: string, value: unknown): Promise<boolean> {
+	// One GET-merge-PUT at a time in this tab: the layout writer and the rail writer (Settings ›
+	// Appearance) share the container, and two overlapping round trips would each GET the old
+	// container so the later PUT reverts the other's slot (a lost update).
+	const run = containerWrites.then(() => mergeOnce(token, slot, value));
+	containerWrites = run.catch(() => false);
+	return run;
+}
+
+let containerWrites: Promise<unknown> = Promise.resolve();
+
+async function mergeOnce(token: string, slot: string, value: unknown): Promise<boolean> {
 	const headers = {
 		'Content-Type': 'application/json',
 		Authorization: `Bearer ${token}`

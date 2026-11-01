@@ -1,818 +1,118 @@
 /* ==========================================================================
    ML — CORE STYLES
-   Extracted from messagelist.css
+   The message row (grid, group rhythm, states, avatar stamp, day / NEW rules, start of
+   channel, load older, jump to latest) is owned by styles/stream.css under .messages-pane.
+   This sheet keeps only the shared pieces that live outside the row's layout: lightbox
+   chrome, embedded media, gallery overlays, the avatar decoration and the reaction-picker
+   loading line. No density, glow, left-bar or !important rules: those fought the row and
+   leaked onto every `.message` / `.avatar` in the app.
    ========================================================================== */
 
-/* ==========================================================================
-   MESSAGELIST COMPONENT STYLES
-   Extracted from MessageList.svelte — migrated to shared design system.
-   ========================================================================== */
-
-.new-messages-divider {
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-		margin: 1rem 0;
-		color: var(--color-danger-hover);
-		font-size: var(--text-sm);
-		font-weight: 600;
-		text-transform: uppercase;
-	}
-
-
-	.new-messages-divider::before,
-	.new-messages-divider::after {
-		content: '';
-		flex: 1;
-		height: 1px;
-		background: var(--color-danger-hover);
-	}
-
-
-	.plain-link-fallback {
-		color: var(--color-info);
-		text-decoration: underline;
-		word-break: break-all;
-	}
-
-
-	.emoji-picker-loading {
-		padding: 0.6rem;
-		color: var(--text-secondary);
-		font-size: var(--text-sm);
-	}
-
-
-.message {
-	display: flex;
-	align-items: flex-start;
-	gap: 0.35rem;
-	padding: 0.2rem 0.4rem;
-	border-radius: 0;
-	background: transparent;
-	margin-bottom: 0.05rem;
-	transition: all var(--duration-normal) ease;
-	position: relative;
-	margin-left: 0;
-	padding-left: 0.4rem;
+/* A link the preview card has not loaded for yet: the same address is already linked in the
+   message text, so the stream does not print it twice (§7.19). */
+.plain-link-fallback {
+	color: var(--w-accent);
+	text-decoration: underline;
+	text-decoration-thickness: var(--w-bw);
+	text-underline-offset: 2px;
+	overflow-wrap: anywhere;
 }
-
-
-.message.has-continuation {
-	margin-bottom: 0.02rem;
-	padding-bottom: 0.02rem;
-}
-
-
-	.message:hover {
-		background: rgba(var(--surface-base-rgb), var(--opacity-medium));
-	}
-
-	/* hover padding on continuation removed for mock stacked behavior */
-
-
-	.message.is-sending {
-		opacity: 0.72;
-	}
-
-
-	.message.is-sending .message-body,
-	.message.is-sending .message-content,
-	.message.is-sending .message-content p,
-	.message.is-sending .message-content span,
-	.message.is-sending .message-content li {
-		color: color-mix(in srgb, var(--text-secondary) 88%, var(--text-heading));
-	}
-
-
-	.message.is-send-failed {
-		background: color-mix(in srgb, var(--color-danger, #ef4444) 12%, transparent);
-		border-left: 3px solid color-mix(in srgb, var(--color-danger, #ef4444) 90%, white 10%);
-		box-shadow:
-			inset 0 0 0 1px color-mix(in srgb, var(--color-danger, #ef4444) 28%, transparent),
-			0 0 18px color-mix(in srgb, var(--color-danger, #ef4444) 18%, transparent);
-	}
-
-
-	.message.is-send-failed .message-body,
-	.message.is-send-failed .message-content,
-	.message.is-send-failed .message-content p,
-	.message.is-send-failed .message-content span,
-	.message.is-send-failed .message-content li {
-		color: color-mix(in srgb, var(--color-danger, #ef4444) 74%, var(--text-heading));
-	}
-
-
-	.message.continuation {
-		padding-top: 3px;
-		padding-bottom: 3px;
-		margin-bottom: 0;
-	}
-
-
-	.message.continuation .message-content {
-		min-height: 0;
-	}
-
-
-	.message.has-continuation + .message.continuation {
-		margin-top: -0.02rem;
-	}
-
-
-	/* Hard override: tightly stack merged consecutive messages (3px rhythm) */
-	.message.has-continuation {
-		margin-bottom: 0 !important;
-		padding-bottom: 3px !important;
-	}
-
-
-	.message.continuation {
-		margin-top: 0 !important;
-		margin-bottom: 0 !important;
-		padding-top: 3px !important;
-		padding-bottom: 3px !important;
-	}
-
-
-	.message.continuation .message-avatar-spacer {
-		height: 0;
-	}
-
-
-	/* Continuation rows should read as tightly stacked chat lines */
-	.message.continuation .message-body {
-		margin-top: 0;
-	}
-
-
-	html[data-own-messages-right='true'] .message.own-message {
-		flex-direction: row-reverse;
-	}
-
-
-	html[data-own-messages-right='true'] .message.own-message .message-body {
-		text-align: right;
-	}
-
-
-	html[data-own-messages-right='true'] .message.own-message .message-header {
-		justify-content: flex-end;
-	}
-
-
-	html[data-own-messages-right='true'] .message.own-message .header-left {
-		justify-content: flex-end;
-	}
-
-
-	.message.highlighted {
-		background: rgba(var(--accent-rgb), var(--opacity-light));
-		animation: highlight-pulse 2s ease-out;
-		border: none;
-		border-left: 3px solid var(--accent-primary-color);
-		z-index: var(--z-base);
-		box-shadow: 0 0 0 9999px rgba(var(--accent-rgb), var(--opacity-subtle));
-	}
-
-
-	.message.highlighted::before {
-		content: '';
-		position: absolute;
-		left: 0;
-		right: 0;
-		top: 0;
-		bottom: 0;
-		background: transparent;
-		pointer-events: none;
-	}
-
-
-	.message.pinned {
-		border-left: 3px solid var(--color-warning);
-		background: var(--accent-warning-soft, color-mix(in srgb, var(--color-warning) 14%, transparent));
-	}
-
-
-	.message.personal-pinned {
-		border-left: 3px solid color-mix(in srgb, var(--accent-primary-color) 74%, transparent);
-	}
-
-
-	.pin-indicator {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		margin: 0 0 4px 0;
-		padding: 1px 8px 1px 6px;
-		border-radius: var(--radius-full);
-		font-size: var(--text-xs);
-		font-weight: 600;
-		line-height: 1.4;
-		color: var(--color-warning, #e0a000);
-		background: color-mix(in srgb, var(--color-warning, #e0a000) 16%, transparent);
-		border: 1px solid color-mix(in srgb, var(--color-warning, #e0a000) 45%, transparent);
-		width: fit-content;
-	}
-
-
-	.pin-indicator svg {
-		width: 13px;
-		height: 13px;
-		flex-shrink: 0;
-	}
-
-
-	.pin-indicator.personal {
-		color: var(--accent-primary-color, #6aa0ff);
-		background: color-mix(in srgb, var(--accent-primary-color, #6aa0ff) 16%, transparent);
-		border-color: color-mix(in srgb, var(--accent-primary-color, #6aa0ff) 45%, transparent);
-	}
-
-
-	.message-avatar {
-		flex-shrink: 0;
-		cursor: pointer;
-		margin-top: 2px;
-		width: 40px;
-		position: relative;
-	}
-
-
-	.message-avatar-spacer {
-		width: 40px;
-		min-width: 40px;
-		height: 0;
-		cursor: default;
-		margin-top: 0;
-		pointer-events: none;
-		visibility: hidden;
-	}
-
-
-	.avatar {
-		width: 40px;
-		height: 40px;
-		border-radius: 50%;
-		object-fit: cover;
-	}
-
-
-	.avatar-placeholder {
-		width: 40px;
-		height: 40px;
-		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-weight: bold;
-		color: var(--text-heading);
-		font-size: var(--text-sm);
-	}
-
-
-	.message-body {
-		flex: 1;
-		min-width: 0;
-		position: relative; /* Added for message-actions positioning */
-	}
-
-
-	.message-header {
-		display: flex;
-		justify-content: flex-start;
-		align-items: baseline;
-		margin-bottom: 0.08rem;
-		gap: 0;
-	}
-
-
-	.header-left {
-		display: flex;
-		align-items: baseline;
-		column-gap: 0.48rem;
-		row-gap: 0.28rem;
-		flex-wrap: wrap;
-	}
-
-
-	.username {
-		font-weight: 600;
-		cursor: text;
-	}
-
-
-	.username.clickable-username {
-		cursor: pointer;
-	}
-
-
-	.username.clickable-username:hover {
-		text-decoration: underline;
-	}
-
-
-	.timestamp {
-		font-size: var(--text-xs);
-		font-weight: 500;
-		color: var(--text-secondary);
-		margin-left: 0.35rem;
-		opacity: 0.72;
-		white-space: nowrap;
-		line-height: 1.2;
-	}
-
-
-	.pin-badge {
-		display: inline-flex;
-		align-items: center;
-		margin-left: 0.25rem;
-	}
-
-
-	.local-pin-badge {
-		display: inline-flex;
-		align-items: center;
-		margin-left: 0.25rem;
-		padding: 0.08rem 0.38rem;
-		border-radius: var(--radius-full);
-		font-size: var(--text-xs);
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.02em;
-		background: color-mix(in srgb, var(--accent-primary-color) 14%, transparent);
-		color: color-mix(in srgb, var(--accent-primary-color) 90%, var(--text-heading));
-	}
-
-
-	.pin-badge svg {
-		width: 14px;
-		height: 14px;
-	}
-
-
-	.edited-badge {
-		font-size: var(--text-xs);
-		color: var(--text-secondary);
-		font-style: italic;
-		margin-left: 0.25rem;
-	}
-
-
-	.message-content {
-		min-height: 0;
-		word-wrap: break-word;
-		word-break: break-word;
-		overflow-wrap: break-word;
-	}
-
-
-	.toolbar-icon {
-		width: 16px;
-		height: 16px;
-		pointer-events: none;
-	}
-
-
-	.toolbar-more-wrap {
-		position: relative;
-	}
-
-
-	.nav-prev {
-		left: 2rem;
-	}
-
-
-	.nav-next {
-		right: 2rem;
-	}
-
-
-	.album-announcement-upload-input {
-		display: none;
-	}
-
-
-	.file-link {
-		text-decoration: none;
-		color: inherit;
-	}
-
-
-	.more-overlay {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, var(--opacity-strong));
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		pointer-events: none;
-	}
-
-
-	.more-count {
-		color: var(--text-heading);
-		font-size: var(--font-size-3xl);
-		font-weight: 700;
-		text-shadow: 0 2px 4px rgba(0, 0, 0, var(--opacity-strong));
-	}
-
-
-/* --- Load More Pagination Styles --- */
-
-.load-more-container {
-	display: flex;
-	justify-content: center;
-	align-items: center;
-	padding: 0.5rem 0.75rem;
-	gap: 0.5rem;
-}
-
-
-.load-more-btn {
-	display: flex;
-	align-items: center;
-	gap: 0.5rem;
-	padding: 0.5rem 1rem;
-	background-color: var(--accent-primary-color);
-	color: var(--text-on-accent);
-	border: none;
-	border-radius: var(--radius-md);
-	cursor: pointer;
-	font-size: var(--text-base);
-	font-weight: 500;
-	transition: background-color var(--duration-fast) ease, box-shadow var(--duration-fast) ease, transform var(--duration-fast) ease;
-}
-
-
-.load-more-btn:hover:not(:disabled) {
-	background-color: color-mix(in srgb, var(--accent-primary-color) 88%, transparent);
-	transform: translateY(-1px);
-}
-
-
-.load-more-btn:focus-visible {
-	outline: 2px solid color-mix(in srgb, var(--accent-primary-color) 70%, transparent);
-	outline-offset: 2px;
-}
-
-
-.load-more-btn:disabled {
-	opacity: 0.6;
-	cursor: not-allowed;
-	transform: none;
-}
-
-
-.load-more-btn .spinner {
-	display: inline-block;
-	width: 14px;
-	height: 14px;
-	border: 2px solid rgba(var(--text-primary-rgb), var(--opacity-light));
-	border-top-color: var(--text-heading);
-	border-radius: 50%;
-	animation: spin 0.6s linear infinite;
-}
-
-
-.no-more-messages {
-	text-align: center;
-	color: var(--text-secondary);
-	font-size: var(--text-sm);
-	padding: 8px 12px 4px;
-	opacity: 0.75;
-}
-
-
-/* TEMPORARY: Embedded media styles */
-.embedded-media {
-	max-width: 100%;
-	max-height: 400px;
-	border-radius: var(--radius-md);
-	margin: 0.5rem 0;
-	background: var(--surface-base);
-}
-
-
-.youtube-queue-section {
-	margin: 0.65rem 0 0.25rem;
-	padding-top: 0.5rem;
-	border-top: 1px dashed var(--border-subtle);
-}
-
-
-.embedded-image {
-	display: block;
-	cursor: pointer;
-	transition: opacity var(--duration-normal);
-}
-
-
-.embedded-image:hover {
-	opacity: 0.9;
-}
-
-
-.embedded-video {
-	display: block;
-	width: 100%;
-	max-width: 500px;
-}
-
-
-.embedded-audio {
-	display: block;
-	width: 100%;
-	margin: 0.5rem 0;
-}
-
-
-/* Avatar visibility modes */
-html[data-chat-avatar-mode='off'] .message {
-	gap: 0.3rem !important;
-}
-
-
-html[data-chat-avatar-mode='off'] .message-avatar,
-html[data-chat-avatar-mode='off'] .message-avatar-spacer {
-	display: none !important;
-	width: 0 !important;
-	height: 0 !important;
-	margin: 0 !important;
-}
-
-
-html[data-chat-avatar-mode='user'] .message.own-message {
-	gap: 0.3rem !important;
-}
-
-
-html[data-chat-avatar-mode='user'] .message.own-message .message-avatar,
-html[data-chat-avatar-mode='user'] .message.own-message .message-avatar-spacer {
-	display: none !important;
-	width: 0 !important;
-	height: 0 !important;
-	margin: 0 !important;
-}
-
-
-/* ===== MESSAGE DENSITY MODES ===== */
-
-/* Hide continuation headers + avatar in cozy (mock .stacked) */
-.compact-only-header {
+.messages-pane .plain-link-fallback {
 	display: none;
 }
-/* Only hide header on true continuations — NOT has-continuation (first of stack) */
-html[data-message-density='cozy'] .message.continuation .message-header {
-	display: none !important;
-}
-html[data-message-density='cozy'] .message.continuation .avatar,
-html[data-message-density='cozy'] .message.continuation .avatar-placeholder {
-	visibility: hidden !important;
+
+.emoji-picker-loading {
+	padding: 10px;
+	color: var(--w-mute);
+	font: var(--w-t-small);
 }
 
-
-/* Cozy default: Discord-like / mock spacing (authoritative values also in styles.css tail) */
-.message {
-	gap: 16px;
-	margin: 0;
-	padding: 2px 16px;
-	border-radius: 0;
-	overflow: visible;
+.message-content {
+	min-height: 0;
+	overflow-wrap: break-word;
 }
 
-html[data-message-density='cozy'] .message {
-	padding: 2px 16px !important;
-	gap: 16px !important;
-	border-radius: 0 !important;
-	margin: 0 !important;
+/* Image lightbox (ImageLightbox.svelte) */
+.toolbar-icon {
+	width: 16px;
+	height: 16px;
+	pointer-events: none;
+}
+.toolbar-more-wrap {
+	position: relative;
+}
+.nav-prev {
+	left: 2rem;
+}
+.nav-next {
+	right: 2rem;
 }
 
-html[data-message-density='compact'] .message {
-	padding: 4px 12px !important;
-	gap: 10px !important;
+.album-announcement-upload-input {
+	display: none;
 }
 
-
-.message:hover {
-	background: rgba(var(--surface-base-rgb), 0.28);
+.file-link {
+	text-decoration: none;
+	color: inherit;
 }
 
-html[data-message-density='cozy'] .message:hover {
-	background: rgba(var(--surface-base-rgb), 0.28) !important;
+/* "+3" over the fourth tile of a file gallery: an image scrim, the one gradient-free veil. */
+.more-overlay {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: color-mix(in srgb, var(--w-bg) 62%, transparent);
+	pointer-events: none;
+}
+.more-count {
+	color: var(--w-text);
+	font: 600 calc(22px * var(--w-fs)) / 1 var(--w-serif);
 }
 
-
-.message + .message:not(.continuation) {
-	margin-top: 1.0625rem;
+/* Media linked inside a message's text */
+.embedded-media {
+	display: block;
+	max-width: min(100%, 420px);
+	max-height: 320px;
+	margin: 6px 0 0;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+}
+.youtube-queue-section {
+	margin: 10px 0 4px;
+	padding-top: 8px;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.embedded-image {
+	cursor: pointer;
+}
+.embedded-video {
+	width: 100%;
+	max-width: 420px;
+}
+.embedded-audio {
+	width: 100%;
+	max-width: 420px;
+	border: 0;
+	background: transparent;
 }
 
-html[data-message-density='cozy'] .message + .message:not(.continuation) {
-	margin-top: 1.0625rem !important;
+/* Avatar decoration (a user-set image layered over the picture). Apply alongside an inline
+   `background-image: url(...)` inside any position:relative avatar wrapper (24px+). No z-index
+   on purpose: insert before presence dots so those keep painting on top. */
+.avatar-overlay-badge {
+	position: absolute;
+	inset: 0;
+	border-radius: var(--w-avr);
+	background-size: calc(100% * var(--overlay-scale, 1));
+	background-position: calc(50% + var(--overlay-offset-x, 0px)) calc(50% + var(--overlay-offset-y, 0px));
+	background-repeat: no-repeat;
+	pointer-events: none;
 }
-
-
-.message.has-continuation {
-	padding-bottom: 0;
-}
-
-html[data-message-density='cozy'] .message.has-continuation {
-	padding-bottom: 0 !important;
-}
-
-
-.message.continuation {
-	margin-top: 0;
-	padding-top: 0.214rem;
-	padding-bottom: 0.214rem;
-}
-
-html[data-message-density='cozy'] .message.continuation,
-html[data-message-density='cozy'] .message.stacked {
-	padding-top: 3px !important;
-	padding-bottom: 3px !important;
-}
-/* First message of a stack keeps full top padding; only tighten bottom toward the continuation */
-html[data-message-density='cozy'] .message.has-continuation {
-	padding-bottom: 3px !important;
-}
-
-
-.message.continuation .message-avatar-spacer {
-	height: 0;
-	margin-top: 0;
-}
-
-html[data-message-density='cozy'] .message.continuation .message-avatar-spacer {
-	height: 0 !important;
-	margin-top: 0 !important;
-}
-
-
-.message.continuation .message-body {
-	margin-top: 0;
-}
-
-html[data-message-density='cozy'] .message.continuation .message-body {
-	margin-top: 0 !important;
-}
-
-
-.message .message-header {
-	margin-bottom: 0.02rem;
-	line-height: 1.18;
-}
-
-html[data-message-density='cozy'] .message .message-header {
-	display: flex !important;
-	align-items: baseline !important;
-	gap: 0.5rem !important;
-	margin-bottom: 2px !important;
-	line-height: 1.25 !important;
-}
-
-
-.avatar,
-.avatar-placeholder {
-	width: 32px;
-	height: 32px;
-}
-
-html[data-message-density='cozy'] .avatar,
-html[data-message-density='cozy'] .avatar-placeholder {
-	width: 40px !important;
-	height: 40px !important;
-	font-size: var(--text-lg) !important;
-}
-
-
-.message-avatar-spacer {
-	width: 32px;
-}
-
-html[data-message-density='cozy'] .message-avatar-spacer {
-	width: 40px !important;
-	height: 0 !important;
-}
-
-
-/* Compact: IRC-style rows. Avatars are hidden and every row gets an inline identity header. */
-html[data-message-density='compact'] .message,
-html[data-message-density='compact'] .message.continuation,
-html[data-message-density='compact'] .message.has-continuation {
-	gap: 0 !important;
-	margin: 0 !important;
-	padding: 0.04rem 0.58rem !important;
-}
-
-
-html[data-message-density='compact'] .message + .message:not(.continuation) {
-	margin-top: 0.22rem !important;
-}
-
-
-html[data-message-density='compact'] .message-avatar,
-html[data-message-density='compact'] .message-avatar-spacer {
-	display: none !important;
-	width: 0 !important;
-	height: 0 !important;
-	margin: 0 !important;
-}
-
-
-html[data-message-density='compact'] .message-body {
-	display: flex !important;
-	align-items: baseline !important;
-	gap: 0.32rem !important;
-	width: 100% !important;
-	max-width: 100% !important;
-	margin: 0 !important;
-	padding: 0 !important;
-}
-
-
-html[data-message-density='compact'] .message-header,
-html[data-message-density='compact'] .compact-only-header {
-	display: flex !important;
-	flex: 0 1 auto !important;
-	min-width: 0 !important;
-	margin: 0 !important;
-	white-space: nowrap !important;
-	line-height: 1.2 !important;
-}
-
-
-html[data-message-density='compact'] .message-header .header-left {
-	gap: 0.24rem !important;
-	min-width: 0 !important;
-}
-
-
-html[data-message-density='compact'] .message-header .timestamp {
-	order: -1 !important;
-	margin: 0 0.16rem 0 0 !important;
-	font-size: var(--text-xs) !important;
-	opacity: 0.66 !important;
-}
-
-
-html[data-message-density='compact'] .message-header .username {
-	max-width: 8rem !important;
-	overflow: hidden !important;
-	text-overflow: ellipsis !important;
-	font-size: var(--text-base) !important;
-	font-weight: 650 !important;
-}
-
-
-html[data-message-density='compact'] .message-content {
-	display: block !important;
-	flex: 1 1 auto !important;
-	min-width: 0 !important;
-	width: auto !important;
-	margin: 0 !important;
-	padding: 0 !important;
-}
-
-
-
-	.avatar-placeholder { background-color: var(--avatar-color, var(--accent-primary-color)); }
-
-
-	/* Discord-style avatar overlay badge (user-set image layered over the pfp).
-	 * Apply alongside an inline `background-image: url(...)` style inside any
-	 * position:relative avatar wrapper (24px+ pfps only). No z-index on purpose:
-	 * insert before presence/status dots so those keep painting on top. */
-	.avatar-overlay-badge {
-		position: absolute;
-		inset: 0;
-		border-radius: 50%;
-		background-size: calc(100% * var(--overlay-scale, 1));
-		background-position: calc(50% + var(--overlay-offset-x, 0px)) calc(50% + var(--overlay-offset-y, 0px));
-		background-repeat: no-repeat;
-		pointer-events: none;
-	}
-
-
-	@keyframes highlight-pulse {
-		0% {
-			border-left-color: var(--accent-primary-color);
-			background: rgba(var(--accent-rgb), var(--opacity-medium));
-		}
-		50% {
-			border-left-color: var(--accent-primary-color);
-			background: rgba(var(--accent-rgb), var(--opacity-light));
-		}
-		100% {
-			border-left-color: var(--accent-primary-color);
-			background: rgba(var(--accent-rgb), var(--opacity-subtle));
-		}
-	}
-
 
 @keyframes spin {
 	to {

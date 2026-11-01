@@ -496,6 +496,54 @@ fn is_hex_color(s: &str) -> bool {
     (3..=8).contains(&hex.len()) && hex.chars().all(|c| c.is_ascii_hexdigit())
 }
 
+/// Swap the content of the `data-wabi-theme-color` meta for `accent`, whatever
+/// default the frontend shell ships, so a palette change in app.html cannot
+/// silently stop operator branding. Leaves the shell untouched when the marker
+/// is missing or the attribute is not a plain quoted value.
+fn replace_theme_color(html: &str, accent: &str) -> String {
+    const MARKER: &str = "\" data-wabi-theme-color";
+    const CONTENT: &str = "content=\"";
+    let Some(end) = html.find(MARKER) else {
+        return html.to_string();
+    };
+    let Some(start) = html[..end].rfind(CONTENT) else {
+        return html.to_string();
+    };
+    let value_start = start + CONTENT.len();
+    if html[value_start..end].contains(['"', '<', '>']) {
+        return html.to_string();
+    }
+    let mut out = String::with_capacity(html.len() + accent.len());
+    out.push_str(&html[..value_start]);
+    out.push_str(accent);
+    out.push_str(&html[end..]);
+    out
+}
+
+#[cfg(test)]
+mod theme_color_tests {
+    use super::replace_theme_color;
+
+    #[test]
+    fn replaces_whatever_default_the_shell_ships() {
+        let html = r##"<meta name="theme-color" content="#101315" data-wabi-theme-color />"##;
+        assert_eq!(
+            replace_theme_color(html, "#ff0055"),
+            r##"<meta name="theme-color" content="#ff0055" data-wabi-theme-color />"##
+        );
+        let old = r##"<meta name="theme-color" content="#0D1024" data-wabi-theme-color />"##;
+        assert!(replace_theme_color(old, "#abc").contains(r##"content="#abc" data-wabi-theme-color"##));
+    }
+
+    #[test]
+    fn leaves_the_shell_alone_without_a_clean_marker() {
+        let missing = r##"<meta name="theme-color" content="#101315" />"##;
+        assert_eq!(replace_theme_color(missing, "#ff0055"), missing);
+        let spans_tags = r##"<a content="x"><b" data-wabi-theme-color"##;
+        assert_eq!(replace_theme_color(spans_tags, "#ff0055"), spans_tags);
+    }
+}
+
 /// Compose index.html with server-injected brand tokens so first paint is
 /// branded with zero extra requests (Phase 1 boot optimization). Cached
 /// against the already-read policy value. A separate mtime read can race an
@@ -566,10 +614,7 @@ async fn composed_index_html(state: &Arc<AppState>) -> Vec<u8> {
             // Reject anything that isn't a plain hex color — this string would
             // otherwise land inside an HTML attribute/CSS context.
             if is_hex_color(accent) {
-                html = html.replace(
-                    "content=\"#0D1024\" data-wabi-theme-color",
-                    &format!("content=\"{}\" data-wabi-theme-color", accent),
-                );
+                html = replace_theme_color(&html, accent);
             }
         }
     }

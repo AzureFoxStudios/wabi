@@ -1,5 +1,9 @@
+<!--
+	New message (design contract §7.13, §8.10): a BaseModal md that picks one person and opens the
+	conversation in center stage. Search field, people rows with identity stamps and presence words,
+	a real empty state and an inline error where the action happened.
+-->
 <script lang="ts">
-	import { tick } from 'svelte';
 	import { onMount } from 'svelte';
 	import { users, serverMembers, currentUser, createDM, channels, joinChannel } from '$lib/socket';
 	import type { Channel, User } from '$lib/socket';
@@ -8,13 +12,17 @@
 	import { buildDmPlaceholderChannel, findExistingDmChannel, getDmStableUserId } from '$lib/dmConversations';
 	import { overlayStyle } from '$lib/overlayStyle';
 	import { mediaUrl } from '$lib/mediaUrl';
+	import { inkFor } from '$lib/theme/identity';
+	import { _ } from '$lib/i18n';
+	import BaseModal from './BaseModal.svelte';
 	import ProfileName from './ProfileName.svelte';
 	import ProfileMedia from './ProfileMedia.svelte';
+	import Icon from './ui/Icon.svelte';
+	import { presenceLabelKey, presenceOf, stampInitial } from './userPopoutModel';
 
 	export let isOpen = false;
 
 	let searchQuery = '';
-	let searchInput: HTMLInputElement | null = null;
 	let pendingUserKey = '';
 	let createError = '';
 
@@ -32,10 +40,6 @@
 			// ignore malformed local state
 		}
 	});
-
-	$: if (isOpen) {
-		void tick().then(() => searchInput?.focus());
-	}
 
 	$: filteredUsers = buildDmDirectoryUsers({
 		onlineUsers: $users,
@@ -88,9 +92,10 @@
 			return;
 		}
 
+		if (!result.ok) console.warn('[DM] Could not open conversation:', (result as { ok: false; error: string }).error);
 		createError = result.ok
-			? 'DM created, but the conversation was not returned by the server.'
-			: (result as { ok: false; error: string }).error;
+			? "The conversation was created, but the server didn't send it back. Look for it under DMs."
+			: `Couldn't start a conversation with ${user.username}. Nothing was created.`;
 	}
 
 	function closeModal() {
@@ -99,269 +104,194 @@
 		pendingUserKey = '';
 		createError = '';
 	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && isOpen) {
-			closeModal();
-		}
-	}
-
-	function getStatusColor(status: string) {
-		switch (status) {
-			case 'active':
-				return 'var(--status-online)';
-			case 'away':
-				return 'var(--status-away)';
-			case 'busy':
-				return 'var(--status-busy)';
-			default:
-				return 'var(--status-offline)';
-		}
-	}
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<BaseModal {isOpen} onClose={closeModal} size="md" padded title="New message" note="New conversations start encryption-pending" initialFocus=".cdm-search input" panelClass="cdm">
+	<div class="w-field w-field--chrome cdm-search">
+		<Icon name="search" size={16} />
+		<input type="search" bind:value={searchQuery} placeholder="Search people" aria-label="Search people" autocomplete="off" />
+	</div>
 
-{#if isOpen}
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div class="modal-overlay" on:click={closeModal}></div>
-	<div class="modal" role="dialog" aria-modal="true" tabindex="-1">
-		<div class="modal-header">
-			<h2>Start a Direct Message</h2>
-			<button class="close-btn" on:click={closeModal} aria-label="Close">&times;</button>
+	{#if createError}
+		<div class="w-notice cdm-notice" role="alert">
+			<Icon name="alert" size={16} />
+			<p class="w-notice__title">{createError}</p>
 		</div>
+	{/if}
 
-		<div class="search-container">
-			<input
-				bind:this={searchInput}
-				type="text"
-				bind:value={searchQuery}
-				placeholder="Search users..."
-			/>
+	{#if filteredUsers.length === 0}
+		<div class="w-empty cdm-empty">
+			<Icon name="users" size={28} />
+			<p class="w-empty__title">{searchQuery.trim() ? 'No one matches' : 'No one to message yet'}</p>
+			<p class="w-empty__text">{searchQuery.trim() ? 'Try another name or handle.' : 'People appear here as soon as they join this community.'}</p>
 		</div>
-
-		{#if createError}
-			<div class="create-error" role="alert">{createError}</div>
-		{/if}
-
-		<div class="user-list">
-			{#if filteredUsers.length === 0}
-				<div class="no-users">No users found</div>
-			{:else}
-				{#each filteredUsers as user (getDmDirectoryKey(user))}
-					{@const userKey = getDmDirectoryKey(user)}
+	{:else}
+		<ul class="cdm-list" aria-label="People">
+			{#each filteredUsers as user (getDmDirectoryKey(user))}
+				{@const userKey = getDmDirectoryKey(user)}
+				{@const presence = presenceOf(user.status)}
+				<li>
 					<button
-						class="user-item"
-						class:pending={pendingUserKey === userKey}
+						type="button"
+						class="cdm-row"
+						class:is-pending={pendingUserKey === userKey}
+						style={$inkFor(user.color)}
+						aria-busy={pendingUserKey === userKey}
 						disabled={Boolean(pendingUserKey)}
 						on:click={() => handleUserClick(user)}
 					>
-						<div class="user-avatar-container">
+						<span class="cdm-av" data-presence={presence}>
 							{#if user.profilePicture}
-								<ProfileMedia src={mediaUrl(user.profilePicture)} decorative class="user-avatar" />
+								<ProfileMedia src={mediaUrl(user.profilePicture)} decorative class="cdm-av__pic" />
 							{:else}
-								<div class="user-avatar-placeholder" style="background-color: {user.color}">
-									{user.username.charAt(0).toUpperCase()}
-								</div>
+								<span class="cdm-av__stamp" aria-hidden="true">{stampInitial(user.username)}</span>
 							{/if}
 							{#if user.overlayUrl && !disableAllBanners}
 								<span class="avatar-overlay-badge" style={overlayStyle(user)} aria-hidden="true"></span>
 							{/if}
-							<div class="status-indicator" style="background-color: {getStatusColor(user.status)}"></div>
-						</div>
-						<div class="user-info">
-							<div class="username"><ProfileName username={user.username} font={user.usernameFont} color={user.color} /></div>
-							<div class="status-text">
-								{pendingUserKey === userKey ? 'Opening…' : user.status}
-							</div>
-						</div>
+							<span class="cdm-av__presence" aria-hidden="true"></span>
+						</span>
+						<span class="cdm-text">
+							<span class="cdm-name"><ProfileName username={user.username} font={user.usernameFont} color={user.color} /></span>
+							<span class="cdm-sub">{pendingUserKey === userKey ? 'Opening…' : user.handle ? `@${user.handle}` : $_(presenceLabelKey(presence))}</span>
+						</span>
+						<span class="cdm-state">{pendingUserKey === userKey ? '' : $_(presenceLabelKey(presence))}</span>
 					</button>
-				{/each}
-			{/if}
-		</div>
-	</div>
-{/if}
+				</li>
+			{/each}
+		</ul>
+	{/if}
+</BaseModal>
 
 <style>
-	.modal-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: var(--surface-overlay, rgba(0, 0, 0, 0.6));
-		z-index: var(--z-modal);
+	.cdm-search {
+		margin-bottom: 12px;
 	}
-
-	.modal {
-		position: fixed;
-		top: 0;
-		right: 0;
-		width: 400px;
-		height: 100vh;
-		height: 100dvh;
-		background: var(--surface-modal, #0f0c29);
-		z-index: var(--z-modal-surface);
+	.cdm-search input[type='search']::-webkit-search-cancel-button {
+		-webkit-appearance: none;
+		appearance: none;
+	}
+	:global(.cdm-notice) {
+		margin-bottom: 12px;
+	}
+	.cdm-empty {
+		padding: 32px 0 8px;
+	}
+	.cdm-list {
+		display: grid;
+		gap: 2px;
+		margin: 0 -8px;
+		padding: 0;
+		list-style: none;
+	}
+	/* Person row (§7.11): 46px, 28px stamp + presence, name over a mono handle, presence word. */
+	.cdm-row {
+		display: grid;
+		grid-template-columns: 28px minmax(0, 1fr) auto;
+		align-items: center;
+		column-gap: 12px;
+		box-sizing: border-box;
+		width: 100%;
+		min-height: 46px;
+		padding: 0 8px;
+		border: 0;
+		border-radius: var(--radius-md);
+		background: transparent;
+		color: var(--w-text);
+		font: var(--w-t-ui);
+		text-align: left;
+		cursor: pointer;
+		transition: background-color var(--w-dur-1) var(--w-ease);
+	}
+	.cdm-row:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+	}
+	.cdm-row:focus-visible {
+		outline: 2px solid var(--w-accent);
+		outline-offset: -2px;
+	}
+	.cdm-row:disabled {
+		cursor: wait;
+	}
+	.cdm-row:disabled:not(.is-pending) {
+		opacity: 0.55;
+	}
+	.cdm-row.is-pending {
+		background: var(--w-raise);
+	}
+	:global(:root[data-char='contrast']) .cdm-row:hover:not(:disabled),
+	:global(:root[data-char='contrast']) .cdm-row.is-pending {
+		background: transparent;
+		box-shadow: inset 0 0 0 1px var(--w-line-strong);
+	}
+	.cdm-av {
+		position: relative;
+		display: block;
+		width: 28px;
+		height: 28px;
+		border-radius: var(--w-avr);
+	}
+	.cdm-av__stamp,
+	.cdm-av :global(.cdm-av__pic) {
+		display: grid;
+		place-items: center;
+		box-sizing: border-box;
+		width: 28px;
+		height: 28px;
+		border-radius: var(--w-avr);
+		object-fit: cover;
+	}
+	.cdm-av__stamp {
+		background: var(--disc, var(--w-raise));
+		color: var(--on, var(--w-text));
+		font: 600 calc(12px * var(--w-fs)) / 1 var(--w-serif);
+	}
+	.cdm-av__presence {
+		position: absolute;
+		right: -2px;
+		bottom: -2px;
+		box-sizing: border-box;
+		width: 10px;
+		height: 10px;
+		border-radius: var(--w-avr);
+		background: var(--w-online);
+		box-shadow: 0 0 0 2px var(--w-bg);
+	}
+	.cdm-av[data-presence='away'] .cdm-av__presence {
+		background: var(--w-warn);
+	}
+	.cdm-av[data-presence='busy'] .cdm-av__presence {
+		background: var(--w-danger);
+	}
+	.cdm-av[data-presence='offline'] .cdm-av__presence {
+		background: var(--w-bg);
+		box-shadow: inset 0 0 0 1.5px var(--w-faint), 0 0 0 2px var(--w-bg);
+	}
+	.cdm-text {
 		display: flex;
 		flex-direction: column;
-		box-shadow: var(--shadow-drawer-right, -8px 0 28px rgba(0, 0, 0, 0.35));
-	}
-
-	.modal-header {
-		padding: var(--space-6, 1.5rem);
-		border-bottom: 1px solid var(--border-subtle, #24243e);
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-
-	.modal-header h2 {
-		margin: 0;
-		font-size: var(--text-xl, 1.25rem);
-		font-weight: var(--font-weight-semibold, 600);
-		color: var(--text-heading, #e0e0ff);
-	}
-
-	.close-btn {
-		background: transparent;
-		border: none;
-		color: var(--text-secondary);
-		font-size: var(--text-2xl, 1.5rem);
-		cursor: pointer;
-		padding: 0;
-		width: 32px;
-		height: 32px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: all var(--duration-fast, 150ms);
-	}
-
-	.close-btn:hover {
-		color: var(--text-primary);
-		background: var(--surface-raised, #24243e);
-		transform: none;
-	}
-
-	.search-container {
-		padding: var(--space-4, 1rem) var(--space-6, 1.5rem);
-		border-bottom: 1px solid var(--border-subtle, #24243e);
-	}
-
-	.search-container input {
-		width: 100%;
-		padding: var(--space-3, 0.75rem);
-		background: var(--surface-base, #1a1a2e);
-		border: none;
-		color: var(--text-heading, #e0e0ff);
-		font-size: var(--text-base, 0.875rem);
-	}
-
-	.search-container input:focus {
-		outline: none;
-	}
-
-	.create-error {
-		margin: var(--space-3, 0.75rem) var(--space-6, 1.5rem) 0;
-		padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
-		border: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 28%, transparent);
-		border-radius: var(--radius-md, 8px);
-		background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, transparent);
-		color: var(--color-danger, #ef4444);
-		font-size: var(--text-sm, 0.8125rem);
-	}
-
-	.user-list {
-		flex: 1;
-		overflow-y: auto;
-		padding: var(--space-2, 0.5rem);
-	}
-
-	.no-users {
-		padding: var(--space-8, 2rem);
-		text-align: center;
-		color: var(--text-secondary);
-	}
-
-	.user-item {
-		display: flex;
-		align-items: center;
-		gap: var(--space-4, 1rem);
-		padding: var(--space-3, 0.75rem);
-		width: 100%;
-		background: transparent;
-		border: none;
-		cursor: pointer;
-		transition: background var(--duration-fast, 150ms);
-		text-align: left;
-	}
-
-	.user-item:hover:not(:disabled) {
-		background: var(--surface-raised, #24243e);
-	}
-
-	.user-item:disabled {
-		cursor: wait;
-		opacity: 0.65;
-	}
-
-	.user-item.pending {
-		background: color-mix(in srgb, var(--accent-primary-color, #6366f1) 12%, transparent);
-		opacity: 1;
-	}
-
-	.user-avatar-container {
-		position: relative;
-		flex-shrink: 0;
-	}
-
-	.user-avatar-container :global(.user-avatar),
-	.user-avatar-placeholder {
-		width: 32px;
-		height: 32px;
-	}
-
-	.user-avatar-placeholder {
-		font-weight: var(--font-weight-semibold, 600);
-		color: var(--text-heading, #e0e0ff);
-	}
-
-	.status-indicator {
-		position: absolute;
-		bottom: 0;
-		right: 0;
-		width: var(--space-3, 12px);
-		height: var(--space-3, 12px);
-		border-radius: 50%;
-		border: 2px solid var(--surface-modal, #0f0c29);
-	}
-
-	.user-info {
-		flex: 1;
 		min-width: 0;
 	}
-
-	.username {
-		font-size: var(--text-base, 0.875rem);
-		font-weight: var(--font-weight-medium, 500);
-		color: var(--text-heading, #e0e0ff);
-		margin-bottom: var(--space-1, 0.25rem);
+	.cdm-name {
+		display: flex;
+		min-width: 0;
+		font: var(--w-t-label);
 	}
-
-	.status-text {
-		font-size: var(--text-sm, 0.8125rem);
-		color: var(--text-secondary);
-		text-transform: capitalize;
+	.cdm-sub {
+		overflow: hidden;
+		color: var(--w-faint);
+		font: var(--w-t-mono);
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
-
-	/* Mobile responsiveness */
-	@media (max-width: 768px) {
-		.modal {
-			width: 100%;
-			right: 0;
-			height: 100vh;
-			height: 100dvh;
+	.cdm-state {
+		color: var(--w-faint);
+		font: 400 calc(12px * var(--w-fs)) / calc(16px * var(--w-fs)) var(--w-sans);
+		white-space: nowrap;
+	}
+	@media (pointer: coarse) {
+		.cdm-row {
+			min-height: 52px;
 		}
 	}
 </style>

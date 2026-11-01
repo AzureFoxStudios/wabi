@@ -2,12 +2,15 @@
 	import { createEventDispatcher } from 'svelte';
 	import { setConfiguredServerUrl } from '$lib/serverUrl';
 	import { brandConfig, brandName } from '$lib/branding';
+	import Icon from '$lib/components/ui/Icon.svelte';
 
 	export let serverDomain = '';
 	export let rememberServer = true;
 	export let loading = false;
+	/** Opened from "Change server": offer a way back to the sign-in form. */
+	export let cancellable = false;
 
-	const dispatch = createEventDispatcher<{ applied: { serverDomain: string } }>();
+	const dispatch = createEventDispatcher<{ applied: { serverDomain: string }; cancel: void }>();
 	let connectionError = '';
 
 	function focusOnMount(node: HTMLInputElement) { node.focus(); return {}; }
@@ -19,166 +22,85 @@
 			serverDomain = normalized;
 			dispatch('applied', { serverDomain: normalized });
 		} catch (err) {
-			connectionError = err instanceof Error ? err.message : 'Invalid domain';
+			console.warn('[login] server address rejected', err);
+			connectionError = 'Enter a domain like example.org or a full https:// address.';
+		}
+	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape' && cancellable && !loading) {
+			event.preventDefault();
+			dispatch('cancel');
 		}
 	}
 </script>
 
-<div class="connection-box">
-	<p class="connection-kicker">Server connection</p>
+<form class="connection-box" on:submit|preventDefault={apply}>
+	<p class="w-kicker connection-kicker">Server connection</p>
 	<h3>Connect to a {brandName} domain</h3>
-	<p class="connection-copy">Point this client at your self-hosted server. You can change it later from the login screen.</p>
-	<label class="connection-field">
-		<span>Domain or URL</span>
-		<input
-			type="text"
-			bind:value={serverDomain}
-			placeholder="{brandConfig.domain} or https://staging.{brandConfig.domain}"
-			use:focusOnMount
-			disabled={loading}
-		/>
-	</label>
-	<label class="remember-row">
-		<input type="checkbox" bind:checked={rememberServer} />
-		<span>Remember this domain on this device</span>
-	</label>
+	<p class="connection-copy">Point this client at your self-hosted server. You can change it later from the sign-in screen.</p>
+	<label class="w-label" for="login-connection-domain">Domain or URL</label>
+	<input
+		id="login-connection-domain"
+		class="w-field connection-input"
+		type="text"
+		bind:value={serverDomain}
+		placeholder="{brandConfig.domain}"
+		autocomplete="url"
+		spellcheck="false"
+		aria-invalid={connectionError ? 'true' : undefined}
+		aria-describedby={connectionError ? 'login-connection-error' : undefined}
+		use:focusOnMount
+		on:keydown={handleKeydown}
+		disabled={loading}
+	/>
 	{#if connectionError}
-		<div class="error-message">{connectionError}</div>
+		<p class="w-field-error connection-error" id="login-connection-error" role="alert"><Icon name="alert" size={14} />{connectionError}</p>
 	{/if}
-	<button type="button" class="join-btn" on:click={apply} disabled={loading}>Continue</button>
-</div>
+	<label class="w-choice connection-remember">
+		<input type="checkbox" class="w-check" bind:checked={rememberServer} />
+		<span>Remember this server on this device</span>
+	</label>
+	<div class="connection-actions">
+		{#if cancellable}
+			<button type="button" class="w-btn w-btn--quiet w-btn--lg" on:click={() => dispatch('cancel')} disabled={loading}>Back to sign in</button>
+		{/if}
+		<button type="submit" class="w-btn w-btn--primary w-btn--lg connection-submit" disabled={loading}>Continue</button>
+	</div>
+</form>
 
 <style>
 	.connection-box {
+		margin: 0;
 		text-align: left;
 	}
-
 	.connection-kicker {
-		margin: 0 0 0.35rem;
-		color: var(--launch-accent, var(--accent-secondary-color));
-		font-size: var(--font-size-xs);
-		font-weight: var(--font-weight-bold);
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
+		margin: 0 0 8px;
 	}
-
 	.connection-box h3 {
-		margin: 0 0 0.4rem 0;
-		color: var(--text-heading);
-		font-size: 1.35rem;
-		letter-spacing: -0.025em;
+		margin: 0 0 6px;
+		color: var(--w-text);
+		font: var(--w-t-title);
 	}
-
 	.connection-copy {
-		margin: 0 0 1.25rem;
-		color: var(--text-secondary);
-		font-size: var(--font-size-base);
-		line-height: 1.55;
+		margin: 0 0 20px;
+		color: var(--w-mute);
+		font: var(--w-t-small);
+		text-wrap: pretty;
 	}
-
-	.connection-field {
-		display: block;
-		margin-bottom: 1rem;
+	.connection-error {
+		margin-top: 6px;
 	}
-
-	.connection-field span {
-		display: block;
-		margin: 0 0 0.38rem;
-		color: var(--text-secondary);
-		font-size: 0.76rem;
-		font-weight: var(--font-weight-semibold);
-		letter-spacing: 0.055em;
-		text-transform: uppercase;
+	.connection-remember {
+		margin: 12px 0 16px;
+		color: var(--w-mute);
 	}
-
-	.remember-row {
+	/* A quiet way back, then the primary (§7.13 order). */
+	.connection-actions {
 		display: flex;
-		align-items: center;
-		gap: 0.6rem;
-		margin: 0.1rem 0 1rem 0;
-		color: var(--text-secondary);
-		font-size: var(--font-size-base);
+		gap: 8px;
 	}
-
-	.remember-row input[type='checkbox'] {
-		width: 18px;
-		height: 18px;
-		min-height: 0;
-		margin: 0;
-		padding: 0;
-		flex-shrink: 0;
-		border-radius: var(--radius-sm);
-		border: 1px solid color-mix(in srgb, var(--accent-primary-color) 30%, transparent);
-		background: color-mix(in srgb, var(--accent-primary-color) 8%, transparent);
-		accent-color: var(--launch-accent, var(--accent-primary-color));
-	}
-
-	input[type='text'] {
-		width: 100%;
-		padding: 0.875rem 1rem;
-		font-size: 1rem;
-		border-radius: var(--radius-lg);
-		border: 1px solid color-mix(in srgb, var(--accent-primary-color) 18%, transparent);
-		background: color-mix(in srgb, var(--surface-raised) 88%, color-mix(in srgb, var(--surface-sunken) 72%, transparent));
-		color: var(--text-heading);
-		caret-color: var(--launch-accent, var(--accent-primary-color));
-		margin-bottom: 0;
-		appearance: none;
-		-webkit-appearance: none;
-		transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
-	}
-
-	input[type='text']::placeholder {
-		color: var(--text-muted, #9fb1c9);
-		opacity: 0.86;
-	}
-
-	input[type='text']:focus,
-	input[type='text']:focus-visible {
-		outline: none;
-		border-color: color-mix(in srgb, var(--accent-primary-color) 56%, transparent);
-		box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary-color) 16%, transparent), 0 10px 26px color-mix(in srgb, var(--surface-app) 18%, transparent);
-	}
-
-	input:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-
-	.join-btn {
-		width: 100%;
-		padding: 0.875rem 1rem;
-		font-size: var(--font-size-lg);
-		font-weight: var(--font-weight-bold);
-		background: linear-gradient(135deg, var(--accent-primary-color, var(--accent-primary)), var(--accent-secondary-color, var(--launch-accent, var(--accent-secondary))));
-		color: var(--text-on-accent, #ffffff);
-		border: none;
-		border-radius: var(--radius-lg);
-		cursor: pointer;
-		margin-bottom: 0.75rem;
-		transition: all 0.18s ease;
-		appearance: none;
-		-webkit-appearance: none;
-	}
-
-	.join-btn:hover:not(:disabled) {
-		background: var(--accent-hover, var(--accent-primary-color));
-		transform: translateY(-2px);
-		box-shadow: 0 8px 20px color-mix(in srgb, var(--accent-primary-color, var(--accent-primary)) 30%, transparent);
-	}
-
-	.join-btn:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-
-	.error-message {
-		background: rgba(var(--color-danger-rgb), 0.12);
-		border: 1px solid rgba(var(--color-danger-rgb), 0.3);
-		color: var(--color-danger);
-		padding: 0.75rem 1rem;
-		border-radius: var(--radius-md);
-		margin-bottom: 1rem;
-		font-size: var(--font-size-base);
+	.connection-submit {
+		flex: 1;
 	}
 </style>

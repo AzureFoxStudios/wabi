@@ -30,10 +30,13 @@
 	import ProfileDecoration from '$lib/components/ProfileDecoration.svelte';
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { _ } from '$lib/i18n';
-	import { currentSavedServer } from '$lib/savedServers';
-	import BadgeMark from '$lib/components/BadgeMark.svelte';
-	import { ownerBadgeMark, staffBadgeMark } from '$lib/badgeMarks';
 	import UserPopoutActions from './UserPopoutActions.svelte';
+	import Icon from '$lib/components/ui/Icon.svelte';
+	import { confirmAction } from '$lib/confirm';
+	import { inkFor } from '$lib/theme/identity';
+	import { roleBadgeLabel } from '$lib/badges';
+	import { resolveUserDisplayColor } from '$lib/accessibility';
+	import { memberSince, noteProblemCopy, presenceLabelKey, presenceOf, stampInitial, type NoteProblemKind } from './userPopoutModel';
 	import RoleBadge from '$lib/components/RoleBadge.svelte';
 	import { requestLiveRoleChange, selectAssignableRoles } from './userListHelpers';
 	import { attachUserBanListeners, bannedUserIds } from '$lib/presenceStore';
@@ -69,7 +72,10 @@
 	let position = { top: 0, left: 0 };
 	let userNote = '';
 	let userNoteDraft = '';
+	/** What the quiet line under the note says; '' says nothing. */
 	let userNoteStatus = '';
+	/** A save or load that failed ('' when none); the notice's words depend on whether a draft exists. */
+	let noteProblem: NoteProblemKind | '' = '';
 	let lastLoadedUserId = '';
 	let noteOwner: NotebookOwner | null = null;
 	let noteSubject = '';
@@ -133,8 +139,6 @@
 	})();
 	$: popoutDisplayName = localNickname || liveUser?.username || user?.username || '';
 	$: popoutTopRoleName = getUserTopRoleName(liveUser ?? undefined);
-	$: ownerMark = ownerBadgeMark($currentSavedServer?.frontendMetadata);
-	$: staffMark = staffBadgeMark($currentSavedServer?.frontendMetadata);
 	// Live-sync status/avatar: the `user` prop is captured at click time and
 	// goes stale when presence changes. Resolve the freshest roster entry by
 	// id so the dot and label track the real status.
@@ -143,6 +147,17 @@
 		(user && $users.find((candidate) => sameProfileIdentity(candidate, user))) ||
 		(user && $serverMembers.find((candidate) => sameProfileIdentity(candidate, user))) || user || null;
 	$: popoutStatus = liveUser?.status || user?.status || 'offline';
+	$: presence = presenceOf(popoutStatus);
+	$: presenceWord = $_(presenceLabelKey(presence));
+	/** Identity ink for the stamp and the name (§5.5); a CSS-variable color inherits the text color. */
+	$: identityColor = (() => {
+		const color = resolveUserDisplayColor(liveUser?.roleColor, liveUser?.color);
+		return color && !color.startsWith('var(') ? color : '';
+	})();
+	$: inkStyle = $inkFor(identityColor);
+	$: roleWord = liveUser?.isBot ? 'Bot' : roleBadgeLabel(liveUser);
+	$: joinedLine = memberSince(liveUser?.joinedAt);
+	const titleId = `profile-${Math.random().toString(36).slice(2, 8)}-name`;
 
 	$: if (browser) {
 		const subject = stableUserNoteSubject(user?.dbUserId);
@@ -169,17 +184,20 @@
 		void tick().then(() => calculatePosition());
 	}
 
+	/** Under 641px the popout spans the viewport with 8px margins (user-popout.css), so no inline left. */
+	let narrowViewport = false;
 	function handleViewportChange(): void {
+		narrowViewport = browser && window.innerWidth <= 640;
 		if (surface === 'popout' && isOpen) calculatePosition();
 	}
 
 	async function loadUserNote(owner: NotebookOwner | null, subject: string | null) {
 		const ticket = ++noteLoad;
 		noteOwner = owner; noteSubject = subject || ''; noteReady = false;
-		userNote = ''; userNoteDraft = ''; noteRevision = 0; noteBusy = false;
+		userNote = ''; userNoteDraft = ''; noteRevision = 0; noteBusy = false; noteProblem = '';
 		legacyNotesFound = hasLegacyUserNotes();
 		if (!owner || !subject) {
-			userNoteStatus = !subject ? 'Personal notes need a stable account identity; this profile does not provide one.' : ($notebookOwner.error || 'Waiting for your notebook account.');
+			userNoteStatus = !subject ? '' : $notebookOwner.error ? "Your notebook isn't available right now." : 'Opening your notebook…';
 			return;
 		}
 		const retained = getUserNoteDraft(owner, subject, noteDraftSurface);
@@ -188,7 +206,7 @@
 			noteRevision = retained.baseRevision;
 			noteReady = true;
 		}
-		userNoteStatus = 'Loading personal note…';
+		userNoteStatus = '';
 		try {
 			const saved = await getUserNote(owner, subject);
 			if (ticket !== noteLoad || !owner.isCurrent()) return;
@@ -197,36 +215,54 @@
 			userNoteDraft = draft?.text ?? saved.text;
 			noteRevision = draft?.baseRevision ?? saved.revision;
 			noteReady = true;
-			userNoteStatus = draft ? 'Unsaved draft restored in this session.' : 'On this device · personal to this server/account';
+			userNoteStatus = draft && draft.text !== saved.text ? 'Unsaved draft restored' : '';
 		} catch (error) {
-			if (ticket === noteLoad) userNoteStatus = error instanceof Error ? error.message : 'Could not load this personal note.';
+			if (ticket !== noteLoad) return;
+			console.warn('[profile] personal note load failed', error);
+			noteProblem = 'load';
 		}
 	}
 
 	function retainNoteDraft() {
 		if (!noteOwner || !noteSubject || !noteReady) return;
 		retainUserNoteDraft(noteOwner, noteSubject, { text: userNoteDraft, baseRevision: noteRevision }, noteDraftSurface);
-		userNoteStatus = 'Unsaved on this device. Save or download before leaving.';
+		userNoteStatus = userNoteDraft === userNote ? '' : 'Not saved yet';
 	}
 
 	async function saveUserNoteDraft() {
-		if (!noteOwner || !noteSubject || !noteReady || noteBusy) return;
+		if (!noteOwner || !noteSubject || !noteReady || noteBusy || userNoteDraft === userNote) return;
 		const owner = noteOwner, subject = noteSubject, ticket = noteLoad, text = userNoteDraft, revision = noteRevision, draftSurface = noteDraftSurface;
-		retainNoteDraft(); noteBusy = true; userNoteStatus = 'Saving…';
+		retainNoteDraft(); noteBusy = true; noteProblem = ''; userNoteStatus = 'Saving…';
 		try {
 			const saved = await setUserNote(owner, subject, text, revision);
 			const retained = getUserNoteDraft(owner, subject, draftSurface);
 			if (retained?.text === text && retained.baseRevision === revision) forgetUserNoteDraft(owner, subject, draftSurface);
 			if (ticket !== noteLoad || !owner.isCurrent()) return;
 			userNote = saved.text; noteRevision = saved.revision;
-			userNoteStatus = 'Saved on this device.';
+			userNoteStatus = saved.text ? 'Saved on this device' : 'Note cleared';
 		} catch (error) {
-			if (ticket === noteLoad) userNoteStatus = error instanceof Error ? error.message : 'Could not save. Your draft is retained in this session.';
+			if (ticket !== noteLoad) return;
+			console.warn('[profile] personal note save failed', error);
+			userNoteStatus = '';
+			noteProblem = 'save';
 		} finally { if (ticket === noteLoad) noteBusy = false; }
 	}
 
-	function clearUserNoteDraft() {
-		userNoteDraft = ''; retainNoteDraft(); void saveUserNoteDraft();
+	// A load that failed with a draft kept here (noteReady) can still offer it; one with nothing kept cannot.
+	$: noteProblemText = noteProblem ? noteProblemCopy(noteProblem, (noteProblem === 'save' || noteReady) && userNoteDraft !== '') : null;
+
+	/** Enter saves (Shift Enter is a new line); Esc puts the saved text back. */
+	function handleNoteKeydown(event: KeyboardEvent) {
+		if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+			event.preventDefault();
+			void saveUserNoteDraft();
+		} else if (event.key === 'Escape' && userNoteDraft !== userNote) {
+			event.preventDefault();
+			event.stopPropagation();
+			userNoteDraft = userNote;
+			if (noteOwner && noteSubject) forgetUserNoteDraft(noteOwner, noteSubject, noteDraftSurface);
+			userNoteStatus = '';
+		}
 	}
 	function downloadNoteDraft() {
 		const url = URL.createObjectURL(new Blob([userNoteDraft], { type: 'text/plain;charset=utf-8' }));
@@ -243,27 +279,49 @@
 		void loadUserNote(noteOwner, noteSubject);
 	}
 
+	// ---- nickname on this device: an inline field instead of window.prompt ----
+	let nicknameEditing = false;
+	let nicknameDraft = '';
+	let nicknameInput: HTMLInputElement | null = null;
+
 	function promptSetLocalNickname(): void {
 		if (!browser || !user || !$displayEnhancementSettingsStore.localNicknamesEnabled) return;
-		const currentNickname = getLocalNicknameForUser(user);
-		const draft = window.prompt(
-			`Set local nickname (max ${MAX_LOCAL_NICKNAME_LENGTH} characters)`,
-			currentNickname || user.username
-		);
-		if (draft === null) return;
-		setLocalNicknameForUser(user, draft);
+		nicknameDraft = getLocalNicknameForUser(user) || user.username;
+		nicknameEditing = true;
+		void tick().then(() => {
+			nicknameInput?.focus();
+			nicknameInput?.select();
+		});
+	}
+
+	function saveLocalNickname(): void {
+		if (!user) return;
+		setLocalNicknameForUser(user, nicknameDraft);
+		nicknameEditing = false;
+	}
+
+	function handleNicknameKeydown(event: KeyboardEvent): void {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			saveLocalNickname();
+		} else if (event.key === 'Escape') {
+			event.preventDefault();
+			event.stopPropagation();
+			nicknameEditing = false;
+		}
 	}
 
 	function clearLocalNickname(): void {
 		if (!browser || !user) return;
 		clearLocalNicknameForUser(user);
+		nicknameEditing = false;
 	}
 
 	function calculatePosition() {
 		if (!anchorElement) return;
 
 		const rect = anchorElement.getBoundingClientRect();
-		const popoutWidth = popoutElement?.offsetWidth || Math.min(380, window.innerWidth - 16);
+		const popoutWidth = popoutElement?.offsetWidth || Math.min(360, window.innerWidth - 16);
 		// Measure the real node after it renders — the fixed 400px guess let
 		// tall popouts run past the viewport bottom with no way to scroll.
 		const popoutHeight = popoutElement?.offsetHeight || 400;
@@ -322,6 +380,9 @@
 		// every open after the first. Ignore clicks on the anchor (and anything
 		// inside it) — the popout's own toggle manages those.
 		if (anchorElement && anchorElement.contains(event.target as Node)) return;
+		// The ⋯ menu, its phone sheet and the ban/remove confirms are portaled to <body>: a click
+		// inside them belongs to the popout.
+		if (event.target instanceof Element && event.target.closest('[role="menu"], .w-sheet, .w-scrim, .w-dialog')) return;
 		if (popoutElement && !popoutElement.contains(event.target as Node)) {
 			closePopout();
 		}
@@ -421,16 +482,8 @@
 			await startScreenShare($socket);
 			closePopout();
 		} catch (error) {
-			alert(get(_)('user.errors.screen_share_failed'));
-		}
-	}
-
-	function getStatusColor(status: string) {
-		switch (status) {
-			case 'active': return 'var(--status-online)';
-			case 'away': return 'var(--status-away)';
-			case 'busy': return 'var(--status-busy)';
-			default: return 'var(--status-offline)';
+			console.warn('[Call] Screen share failed to start:', error);
+			showToast("Couldn't start screen sharing. Check that this browser may share your screen.", 'error', 5000);
 		}
 	}
 
@@ -464,24 +517,33 @@
 		roleActionStatus = 'Saving…';
 		try {
 			await requestLiveRoleChange($socket, user.dbUserId, role);
-			roleActionStatus = 'Saved.';
+			roleActionStatus = 'Role saved';
 			setTimeout(() => (roleActionStatus = ''), 2200);
 		} catch (error) {
-			roleActionStatus = error instanceof Error ? error.message : 'Could not change role.';
+			console.warn('[profile] role change failed', error);
+			roleActionStatus = "Couldn't change the role. Nothing changed.";
 		}
 	}
 
 	async function handleBanUser() {
 		if (!user?.dbUserId || !canManageRoles || !browser) return;
-		if (!window.confirm(`Ban @${user.username} from this server? They will be logged out and blocked from signing in.`)) return;
+		const handle = user.handle || user.username;
+		const confirmed = await confirmAction({
+			title: `Ban @${handle} from this server?`,
+			body: 'They are signed out and cannot sign in again until someone unbans them.',
+			confirm: 'Ban from server',
+			danger: true
+		});
+		if (!confirmed || !user?.dbUserId) return;
 		banActionStatus = 'Banning…';
 		try {
 			const { banUser } = await import('$lib/presenceStore');
 			await banUser(user.dbUserId);
-			banActionStatus = 'Banned.';
+			banActionStatus = 'Banned';
 			setTimeout(() => (banActionStatus = ''), 2200);
 		} catch (error) {
-			banActionStatus = error instanceof Error ? error.message : 'Could not ban this member.';
+			console.warn('[profile] ban failed', error);
+			banActionStatus = "Couldn't ban this member. Nothing changed.";
 		}
 	}
 
@@ -491,19 +553,11 @@
 		try {
 			const { unbanUser } = await import('$lib/presenceStore');
 			await unbanUser(user.dbUserId);
-			banActionStatus = 'Unbanned.';
+			banActionStatus = 'Unbanned';
 			setTimeout(() => (banActionStatus = ''), 2200);
 		} catch (error) {
-			banActionStatus = error instanceof Error ? error.message : 'Could not unban this member.';
-		}
-	}
-
-	function getStatusLabel(status: string) {
-		switch (status) {
-			case 'active': return get(_)('user.status.online');
-			case 'away': return get(_)('user.status.away');
-			case 'busy': return get(_)('user.status.busy');
-			default: return get(_)('user.status.offline');
+			console.warn('[profile] unban failed', error);
+			banActionStatus = "Couldn't unban this member. Nothing changed.";
 		}
 	}
 
@@ -518,18 +572,8 @@
 		return roleLabelMap[roleName] || roleName;
 	}
 
-	function roleToneClass(roleName: string): 'owner' | 'admin' | 'mod' | 'default' {
-		if (roleName === 'owner') return 'owner';
-		if (roleName === 'admin') return 'admin';
-		if (roleName === 'mod') return 'mod';
-		return 'default';
-	}
-
-	function isStaffRole(roleName: string): boolean {
-		return roleName === 'owner' || roleName === 'admin' || roleName === 'mod';
-	}
-
 	onMount(() => {
+		narrowViewport = window.innerWidth <= 640;
 		if (browser) {
 			document.addEventListener('click', handleClickOutside);
 			document.addEventListener('keydown', handleKeydown);
@@ -562,177 +606,84 @@
 		class:profile-docked={surface === 'panel' && !profileExpanded}
 		bind:this={popoutElement}
 		use:placeProfile={surface === 'popout' || profileExpanded}
-		style={surface === 'popout' ? `top: ${position.top}px; left: ${position.left}px;` : undefined}
+		style="{surface === 'popout' && !profileExpanded ? `top: ${position.top}px;${narrowViewport ? '' : ` left: ${position.left}px;`}` : ''}{inkStyle}"
 		role={surface === 'panel' && !profileExpanded ? 'region' : 'dialog'}
-		aria-label={surface === 'panel' && !profileExpanded ? 'Complete profile' : 'User profile'}
+		aria-labelledby={titleId}
 		aria-modal={profileExpanded ? 'true' : undefined}
 		tabindex="-1"
 		on:click|stopPropagation
 		on:keydown|stopPropagation={handleProfileKeydown}
 	>
-		<button type="button" class="profile-close" aria-label="Close profile" on:click={closePopout}>×</button>
-		<div class="profile-tools">
-			{#if isOwnProfile}<button type="button" aria-label="Edit profile" title="Edit profile" on:click={openProfileSettings}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 3 5 5-12 12-6 1 1-6Z"/><path d="m14 5 5 5"/></svg></button>{/if}
-			{#if surface !== 'panel'}<button type="button" aria-label="Keep in side panel" title="Keep in side panel" on:click={keepInProfilePanel}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>{/if}
-		</div>
-		<!-- Banner/Header Area -->
-		<div class="popout-banner" style="--banner-color: {liveUser?.color || 'var(--pfp-banner)'}">
-			<div class="banner-gradient"></div>
-			{#if liveUser?.bannerUrl && $profileDecorationsVisible}
-				<ProfileMedia src={mediaUrl(liveUser?.bannerUrl)} alt="Profile banner" class="popout-banner-img" />
+		<div class="pop-tools">
+			{#if surface !== 'panel'}
+				<button type="button" class="w-ibtn w-ibtn--sm" aria-label="Keep in side panel" title="Keep in side panel" on:click={keepInProfilePanel}>
+					<Icon name="sidebarRight" size={16} />
+				</button>
 			{/if}
+			<button type="button" class="w-ibtn w-ibtn--sm" aria-label={profileExpanded ? 'Close full profile' : 'Close profile'} on:click={closePopout}>
+				<Icon name="x" size={16} />
+			</button>
 		</div>
 
-		<!-- Avatar overlapping banner -->
-		<div class="avatar-section">
-			<div class="avatar-ring">
-				{#if liveUser?.profilePicture}
-					<ProfileMedia src={mediaUrl(liveUser?.profilePicture)} alt={popoutDisplayName} class="popout-avatar" />
-				{:else}
-					<div class="popout-avatar-placeholder" style="--avatar-color: {liveUser?.color}">
-						{popoutDisplayName.charAt(0).toUpperCase()}
-					</div>
-				{/if}
-				{#if liveUser?.overlayUrl && $profileDecorationsVisible}
-					<ProfileDecoration user={liveUser!} class="popout-avatar-overlay" />
-				{/if}
-				<!-- Presence dot: bottom-right of the avatar, tracks live status -->
-				<span
-					class="popout-presence-dot"
-					style="--status-color: {getStatusColor(popoutStatus)}"
-					title={getStatusLabel(popoutStatus)}
-					aria-label={getStatusLabel(popoutStatus)}
-				></span>
+		{#if liveUser?.bannerUrl && $profileDecorationsVisible}
+			<div class="pop-banner">
+				<ProfileMedia src={mediaUrl(liveUser?.bannerUrl)} alt="" decorative class="popout-banner-img" />
 			</div>
-		</div>
+		{/if}
 
-		<!-- User Info Card -->
 		<div class="popout-body">
-			<div class="username-section">
-				<h3 class="display-name"><ProfileName username={popoutDisplayName} font={liveUser?.usernameFont} color={liveUser?.color} /></h3>
-				<button type="button" class="username-handle handle-copy" title="Copy handle" on:click={copyHandle}>@{liveUser?.handle || liveUser?.username}</button>
-			</div>
-			{#if ($displayEnhancementSettingsStore.topRoleEverywhereEnabled && roleToneClass(popoutTopRoleName) === 'owner') || ($displayEnhancementSettingsStore.staffTagEnabled && isStaffRole(popoutTopRoleName)) || (user.badges?.length ?? 0) > 0}
-				<div class="popout-role-tags">
-					{#if $displayEnhancementSettingsStore.topRoleEverywhereEnabled && roleToneClass(popoutTopRoleName) === 'owner'}
-						<span class="popout-role-badge tone-owner role-mark" title="Owner" aria-label="Owner">
-							<BadgeMark kind="owner" mark={ownerMark} />
-						</span>
+			<!-- Identity first (§8.9): stamp, name in ink, role word, presence. -->
+			<header class="pop-id">
+				<span class="pop-av" data-presence={presence}>
+					{#if liveUser?.profilePicture}
+						<ProfileMedia src={mediaUrl(liveUser?.profilePicture)} alt="" decorative class="pop-av__pic" />
+					{:else}
+						<span class="pop-av__stamp" aria-hidden="true">{stampInitial(popoutDisplayName)}</span>
 					{/if}
-					{#if $displayEnhancementSettingsStore.staffTagEnabled && isStaffRole(popoutTopRoleName)}
-						<span class="popout-staff-tag role-mark" title="Staff" aria-label="Staff"><BadgeMark kind="staff" mark={staffMark} /></span>
+					{#if liveUser?.overlayUrl && $profileDecorationsVisible}
+						<ProfileDecoration user={liveUser} class="popout-avatar-overlay" />
 					{/if}
-					<RoleBadge user={liveUser!} size="md" mode="custom" />
+					<span class="pop-av__presence" aria-hidden="true"></span>
+				</span>
+				<div class="pop-who">
+					<h3 class="pop-name" id={titleId}>
+						<ProfileName username={popoutDisplayName} font={liveUser?.usernameFont} color={identityColor} />
+					</h3>
+					<p class="pop-meta">
+						<button type="button" class="pop-handle" title="Copy handle" on:click={copyHandle}>@{liveUser?.handle || liveUser?.username}</button>
+						{#if roleWord}<span class="w-role" title={getUserTopRoleLabel(liveUser ?? user)}>{roleWord}</span>{/if}
+					</p>
+					<p class="pop-presence">
+						<span class="pop-presence__dot" data-presence={presence} aria-hidden="true"></span>
+						<span class="pop-presence__text">{presenceWord}{#if liveUser?.statusMessage} · {liveUser.statusMessage}{/if}</span>
+					</p>
+				</div>
+			</header>
+
+			{#if localNickname}
+				<p class="pop-aside">Nickname on this device · {liveUser?.username || user.username}</p>
+			{/if}
+
+			{#if liveUser?.bio}
+				<p class="pop-bio">{liveUser.bio}</p>
+			{/if}
+
+			{#if (user.badges?.length ?? 0) > 0}
+				<div class="pop-badges">
+					<RoleBadge user={liveUser ?? user} size="md" mode="custom" />
 				</div>
 			{/if}
 
 			{#if completeProfile}
-				<div class="profile-detail-grid">
-					<div>
-						<span>Role</span>
-						<strong>{getUserTopRoleLabel(liveUser!)}</strong>
-					</div>
-					{#if liveUser?.joinedAt}
-						<div>
-							<span>Member since</span>
-							<strong>{new Date(liveUser.joinedAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</strong>
-						</div>
+				<dl class="w-pop__facts pop-facts">
+					<dt>Role</dt>
+					<dd>{getUserTopRoleLabel(liveUser ?? user)}</dd>
+					{#if joinedLine}
+						<dt>{$_('user.popout.member_since')}</dt>
+						<dd>{joinedLine}</dd>
 					{/if}
-				</div>
+				</dl>
 			{/if}
-
-			<div class="status-section">
-				<span class="status-indicator" style="--status-color: {getStatusColor(popoutStatus)}"></span>
-				<span class="status-label" title={getStatusLabel(popoutStatus)} aria-label={getStatusLabel(popoutStatus)}>{getStatusLabel(popoutStatus)}{#if liveUser?.statusMessage} · {liveUser.statusMessage}{/if}</span>
-			</div>
-
-			<div class="divider"></div>
-
-			<!-- About Me / Bio section -->
-			{#if liveUser?.bio}
-				<div class="section">
-					<h4 class="section-title">{$_('user.popout.about_me')}</h4>
-					<p class="section-content">{liveUser?.bio}</p>
-				</div>
-			{/if}
-
-			<!-- Personal Note (for other users) -->
-			{#if !isOwnProfile && $displayEnhancementSettingsStore.userNotesEnabled}
-				<div class="section">
-					<h4 class="section-title">{$_('user.popout.note')}</h4>
-					<textarea
-						class="note-input"
-						rows="3"
-						maxlength={MAX_USER_NOTE_LENGTH}
-						bind:value={userNoteDraft}
-						on:input={() => queueMicrotask(retainNoteDraft)}
-						disabled={!noteReady || noteBusy}
-						aria-label="Personal note"
-						placeholder="Add a private note about this user (local only)."
-					></textarea>
-					<div class="note-actions">
-						<button
-							class="note-btn primary"
-							on:click={saveUserNoteDraft}
-							disabled={!noteReady || noteBusy || userNoteDraft === userNote}
-						>
-							Save
-						</button>
-						<button
-							class="note-btn"
-							on:click={clearUserNoteDraft}
-							disabled={!noteReady || noteBusy || (!userNote && !userNoteDraft)}
-						>
-							Clear
-						</button>
-						<button class="note-btn" on:click={downloadNoteDraft} disabled={!userNoteDraft}>Download draft</button>
-						<button class="note-btn" on:click={reloadSavedNote} disabled={!noteOwner || !noteSubject || noteBusy}>{userNoteDraft !== userNote ? 'Download draft & load saved' : 'Reload saved note'}</button>
-						<span class="note-count">{userNoteDraft.length}/{MAX_USER_NOTE_LENGTH}</span>
-					</div>
-					{#if legacyNotesFound}<p class="note-status">Older personal notes are preserved on this device. Their owner and profile identities need explicit mapping before recovery; they have not been assigned to this account.</p>{/if}
-					{#if userNoteStatus}
-						<p class="note-status" role="status">{userNoteStatus}</p>
-					{:else if userNote}
-						<p class="section-content note-content">{userNote}</p>
-					{/if}
-				</div>
-			{/if}
-
-			{#if !completeProfile && liveUser?.joinedAt}
-				<span class="member-since-ghost">Member since {new Date(liveUser.joinedAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
-			{/if}
-
-
-			{#if $displayEnhancementSettingsStore.showConnectionsEnabled && connectionRows.length > 0}
-				<div class="section">
-					<h4 class="section-title">Links</h4>
-					{#if connectionRows.length === 0}
-						<p class="section-content note-content">{$_('user.popout.no_connections')}</p>
-					{:else}
-						<div class="connections-list">
-							{#each connectionRows as row (row.label + row.value)}
-								<div class="connection-row">
-									<span class="connection-label">{row.label}</span>
-									{#if row.url}
-										<a
-											class="connection-link"
-											href={row.url}
-											target="_blank"
-											rel="noopener noreferrer"
-										>
-											{row.value}
-										</a>
-									{:else}
-										<span class="connection-value">{row.value}</span>
-									{/if}
-								</div>
-							{/each}
-						</div>
-					{/if}
-				</div>
-			{/if}
-
-			<div class="divider"></div>
 
 			<UserPopoutActions
 				onClose={closePopout}
@@ -754,23 +705,94 @@
 				onUnbanUser={handleUnbanUser}
 				onOpenDM={openDM}
 				onOpenFullProfile={openFullProfile}
+				onEditProfile={openProfileSettings}
 				onVoiceCall={handleVoiceCall}
 				onVideoCall={handleVideoCall}
 				onScreenShare={handleScreenShare}
 				onSetLocalNickname={promptSetLocalNickname}
 				onClearLocalNickname={clearLocalNickname}
 			/>
+
+			{#if nicknameEditing}
+				<div class="pop-line">
+					<label class="pop-line__label" for="{titleId}-nickname">Nickname on this device</label>
+					<input
+						id="{titleId}-nickname"
+						class="w-field pop-line__field"
+						type="text"
+						maxlength={MAX_LOCAL_NICKNAME_LENGTH}
+						autocomplete="off"
+						bind:this={nicknameInput}
+						bind:value={nicknameDraft}
+						on:keydown={handleNicknameKeydown}
+					/>
+					<div class="pop-line__actions">
+						<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={() => (nicknameEditing = false)}>Cancel</button>
+						<button type="button" class="w-btn w-btn--sm" on:click={saveLocalNickname}>Save nickname</button>
+					</div>
+				</div>
+			{/if}
+
+			<!-- The private note: a quiet one-line field that only you see. -->
+			{#if !isOwnProfile && $displayEnhancementSettingsStore.userNotesEnabled && noteSubject}
+				<div class="pop-note">
+					<textarea
+						class="w-field pop-note__field"
+						rows="1"
+						maxlength={MAX_USER_NOTE_LENGTH}
+						bind:value={userNoteDraft}
+						on:input={() => queueMicrotask(retainNoteDraft)}
+						on:keydown={handleNoteKeydown}
+						on:blur={() => void saveUserNoteDraft()}
+						disabled={!noteReady}
+						readonly={noteBusy}
+						aria-busy={noteBusy}
+						aria-label="Private note about {popoutDisplayName}"
+						aria-describedby="{titleId}-note-status"
+						placeholder={$_('user.popout.note_placeholder')}
+					></textarea>
+					<p class="pop-note__status" id="{titleId}-note-status" role="status">
+						{userNoteStatus}{#if userNoteDraft.length > MAX_USER_NOTE_LENGTH - 80}<span class="pop-note__count">{userNoteDraft.length} / {MAX_USER_NOTE_LENGTH}</span>{/if}
+					</p>
+					{#if noteProblemText}
+						<div class="w-notice pop-note__problem" role="alert">
+							<Icon name="alert" size={16} />
+							<p class="w-notice__title">{noteProblemText.title}</p>
+							<p class="w-notice__text">{noteProblemText.text}</p>
+							<div class="w-notice__actions">
+								{#if noteProblemText.canDownload}
+									<button type="button" class="w-btn w-btn--sm" on:click={downloadNoteDraft}>Download draft</button>
+								{/if}
+								<button type="button" class="w-btn w-btn--sm" on:click={reloadSavedNote} disabled={noteBusy}>{noteProblemText.retryLabel}</button>
+							</div>
+						</div>
+					{/if}
+					{#if legacyNotesFound}
+						<p class="pop-aside">Older notes on this device are kept apart and are not linked to this account.</p>
+					{/if}
+				</div>
+			{/if}
+
+			{#if !completeProfile && joinedLine}
+				<p class="pop-since">{$_('user.popout.member_since')} {joinedLine}</p>
+			{/if}
+
+			{#if $displayEnhancementSettingsStore.showConnectionsEnabled && connectionRows.length > 0}
+				<section class="pop-links" aria-label="Links">
+					<h4 class="w-kicker">Links</h4>
+					<ul>
+						{#each connectionRows as row (row.label + row.value)}
+							<li>
+								{#if row.url}
+									<a href={row.url} target="_blank" rel="noopener noreferrer"><Icon name="link" size={14} />{row.label}</a>
+								{:else}
+									<span>{row.value}</span>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				</section>
+			{/if}
 		</div>
 	</div>
 {/if}
-
-<style>
-	.profile-tools {position:absolute;top:10px;right:48px;z-index:3;display:flex;gap:6px;}
-	.profile-tools button {display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:50%;background:var(--w-raise);color:var(--w-text);cursor:pointer;}
-	.handle-copy {border:0;background:none;padding:0;cursor:pointer;}
-	.handle-copy:hover {text-decoration:underline;}
-	.popout-container .note-actions { flex-wrap: wrap; gap: 0.5rem; }
-	.popout-container .note-actions .note-btn { min-height: 36px; padding: 0.375rem 0.625rem; font-size: 0.8125rem; border-radius: calc(10px * var(--w-rs, 1)); }
-	.popout-container .note-count { flex-basis: 100%; margin-left: 0; }
-	@media (pointer: coarse) { .popout-container .note-actions .note-btn { min-height: 44px; } }
-</style>

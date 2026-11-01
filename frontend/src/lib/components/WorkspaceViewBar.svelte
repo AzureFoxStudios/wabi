@@ -1,339 +1,614 @@
-<script lang="ts">
-	import { tick } from 'svelte';
+<!--
+	The folio: workspace navigation in masthead row B (design contract §7.10, §8.2, §8.12).
+
+	Desktop and tablet (`variant="folio"`):
+	- Labelled words only, in groups divided by 16px hairlines: this channel (Chat, named by the
+	  channel kind: Chat / Threads / Wiki / Gallery; Files; Whiteboard), community (Calls,
+	  Activity with its ink "needs you" count, Project), yours (My Planner, Notes), office
+	  (Documents, Sheets, Present, then one PREVIEW tag). Sheets and Present appear only when the
+	  add-on is on for this device.
+	- Active = --w-text + a 2px --w-sig underline on the masthead rule. Hover changes colour only:
+	  tabs never grow, never scroll and never move; the row is the same in every workspace.
+	- Tiers are container queries on the stage (stagebar.css, `@container stage`): ≥1000 all;
+	  880–999 Whiteboard and Project go to More; 700–879 also Files, Sheets and Present;
+	  <700 also Activity and Notes (and <560, a guard for tablets, the office group). The tiers
+	  are drawn for 100% text: when the row is still wider than the stage (a larger interface
+	  scale, longer words in another language), a measured fit pass moves more tabs to More in
+	  `folioFitOrder`, so the row never overlaps More or runs under the rail. A view pinned from
+	  More stays on the bar at every tier; only the fit pass can move it, and then its Pin row
+	  says so. More ▾ (right-aligned) lists exactly what the bar does not show, with kicker
+	  groups, a --w-sig check on the current view, hints ("preview", "off on this device") and a
+	  "Pin to bar" group. When the current view lives in More, More carries the underline.
+	- role=tablist with a roving tabindex: ←/→ move, Home/End jump, Enter/Space open. Each tab has a
+	  tooltip with its detail line. Right-click (or the context-menu key): Open · Open beside
+	  (views with a companion panel) · Remove from bar / Pin to bar. Bar choices are kept per
+	  server in this browser.
+
+	Phone shell, ≤768px (`variant="trigger"`): one "Chat ▾" button that opens the Workspaces
+	sheet (kicker groups, one-line details, "off on this device"), never a scrolling strip.
+-->
+<script module lang="ts">
 	import type { WorkspaceViewKey } from './chat/types';
 
-	let { activeView, onSelectView, canOpenWhiteboard = true, activityBadge = '', inline = false }: {
-		inline?: boolean;
+	export type FolioGroupId = 'channel' | 'community' | 'yours' | 'office';
+	/** 560 is a guard below the contract's tiers: a stage that narrow (a tablet before its sidebar
+	 *  folds to the compact rail) moves the office group to More rather than clip the row. */
+	export type FolioTier = 0 | 560 | 700 | 880 | 1000;
+
+	export interface FolioView {
+		id: WorkspaceViewKey;
+		group: FolioGroupId;
+		/** Stage width below which the view leaves the bar for More (0: no tier moves it). Views
+		 *  off the bar by default are 0, so a view the person pinned shows at every tier. */
+		tier: FolioTier;
+		/** On the bar unless the person removed it; the others live in More until pinned. */
+		bar: boolean;
+		preview?: boolean;
+		addon?: 'sheets' | 'present';
+	}
+
+	/** Bar order is this order; a pinned view takes its place in its group. */
+	export const FOLIO_VIEWS: readonly FolioView[] = Object.freeze([
+		{ id: 'messages', group: 'channel', tier: 0, bar: true },
+		{ id: 'files', group: 'channel', tier: 880, bar: true },
+		{ id: 'whiteboard', group: 'channel', tier: 1000, bar: true },
+		{ id: 'media', group: 'channel', tier: 0, bar: false },
+		{ id: 'voice', group: 'community', tier: 0, bar: true },
+		{ id: 'notifications', group: 'community', tier: 700, bar: true },
+		{ id: 'lore', group: 'community', tier: 1000, bar: true },
+		{ id: 'map', group: 'community', tier: 0, bar: false },
+		{ id: 'planner', group: 'yours', tier: 0, bar: true },
+		{ id: 'notes', group: 'yours', tier: 700, bar: true },
+		{ id: 'reader', group: 'yours', tier: 0, bar: false },
+		{ id: 'model', group: 'yours', tier: 0, bar: false },
+		{ id: 'documents', group: 'office', tier: 560, bar: true, preview: true },
+		{ id: 'sheets', group: 'office', tier: 880, bar: true, preview: true, addon: 'sheets' },
+		{ id: 'present', group: 'office', tier: 880, bar: true, preview: true, addon: 'present' }
+	] satisfies FolioView[]);
+
+	export const FOLIO_GROUPS: readonly FolioGroupId[] = Object.freeze(['channel', 'community', 'yours', 'office']);
+
+	/** The person's bar choices: views pinned from More, default views removed from the bar. */
+	export type FolioChoices = { pinned: WorkspaceViewKey[]; removed: WorkspaceViewKey[] };
+
+	/** Views on the bar for these choices (Chat can never leave it). */
+	export function folioBarIds(choices: FolioChoices, addons: { sheets: boolean; present: boolean }): WorkspaceViewKey[] {
+		return FOLIO_VIEWS.filter((view) => {
+			if (view.addon && !addons[view.addon]) return false;
+			if (view.id === 'messages') return true;
+			return view.bar ? !choices.removed.includes(view.id) : choices.pinned.includes(view.id);
+		}).map((view) => view.id);
+	}
+
+	/**
+	 * The order in which shown tabs leave for More when the row is still wider than the stage
+	 * after the tiers (larger interface text, longer words). First the default tabs a tier moves:
+	 * the ones a narrower stage keeps go last, and within a tier right to left. Then the views the
+	 * person pinned, so a pin displaces default tabs before it goes itself. Then the tabs no tier
+	 * moves. Chat never leaves the bar.
+	 */
+	export function folioFitOrder(shown: readonly WorkspaceViewKey[]): WorkspaceViewKey[] {
+		const rank = (view: FolioView) => (!view.bar ? 1 : view.tier > 0 ? 0 : 2);
+		return shown
+			.flatMap((id, index) => {
+				const view = FOLIO_VIEWS.find((entry) => entry.id === id);
+				return view && view.id !== 'messages' ? [{ view, index }] : [];
+			})
+			.sort((a, b) => rank(a.view) - rank(b.view) || b.view.tier - a.view.tier || b.index - a.index)
+			.map((entry) => entry.view.id);
+	}
+
+	const STORAGE_PREFIX = 'wabi:folio-bar:v1:';
+	const KNOWN = new Set<string>(FOLIO_VIEWS.map((view) => view.id));
+
+	export function readFolioChoices(server: string): FolioChoices {
+		try {
+			const parsed = JSON.parse(localStorage.getItem(STORAGE_PREFIX + server) || 'null');
+			const pick = (value: unknown) =>
+				Array.isArray(value) ? (value.filter((id) => typeof id === 'string' && KNOWN.has(id)) as WorkspaceViewKey[]) : [];
+			return { pinned: pick(parsed?.pinned), removed: pick(parsed?.removed) };
+		} catch {
+			return { pinned: [], removed: [] };
+		}
+	}
+
+	function writeFolioChoices(server: string, choices: FolioChoices): void {
+		try {
+			localStorage.setItem(STORAGE_PREFIX + server, JSON.stringify(choices));
+		} catch {
+			// A preference that cannot be stored lasts for this session only.
+		}
+	}
+</script>
+
+<script lang="ts">
+	import { onMount, tick, untrack } from 'svelte';
+	import { _ } from '$lib/i18n';
+	import { activeServerUrl } from '$lib/serverUrl';
+	import { hydrateWorkspaceAddons, workspaceAddonEnabled } from '$lib/workspaces/addonState';
+	import { businessSyncAvailable } from '$lib/business/sync';
+	import { openRightPanel } from '$lib/layoutStoreRightPanel';
+	import type { WorkspacePanelId } from '$lib/docking/layoutSchema';
+	import ContextMenu, { type MenuAnchor, type MenuEntry } from './context-menu/ContextMenu.svelte';
+	import Menu from './ui/Menu.svelte';
+	import Icon from './ui/Icon.svelte';
+	import Sheet from './ui/Sheet.svelte';
+	import Tooltip from './ui/Tooltip.svelte';
+
+	let {
+		activeView,
+		onSelectView,
+		canOpenWhiteboard = true,
+		activityBadge = '',
+		channelKind = 'text',
+		variant = 'folio'
+	}: {
 		activeView: WorkspaceViewKey;
 		onSelectView: (view: WorkspaceViewKey) => void;
 		canOpenWhiteboard?: boolean;
 		activityBadge?: string;
+		/** The current channel's kind names the Chat tab (Threads, Wiki, Gallery). */
+		channelKind?: string | null;
+		variant?: 'folio' | 'trigger';
 	} = $props();
-	const views: { id: WorkspaceViewKey; label: string; detail: string }[] = [
-		{ id: 'messages', label: 'Messages', detail: 'Your current channel' },
-		{ id: 'notifications', label: 'Activity', detail: 'Alerts, follows & friends' },
-		{ id: 'voice', label: 'Calls', detail: 'Voice, video & sharing' },
-		{ id: 'whiteboard', label: 'Whiteboard', detail: 'A canvas for your channel' },
-		{ id: 'planner', label: 'My Planner', detail: 'Personal tasks, journal & calendar' },
-		{ id: 'notes', label: 'Notes', detail: 'Your personal notes' },
-		{ id: 'lore', label: 'Project', detail: 'Shared Plan, Wiki & optional files' },
-		{ id: 'files', label: 'Files', detail: 'Browse files & transfers' },
-		{ id: 'media', label: 'Media', detail: 'Photos & albums' },
-		{ id: 'reader', label: 'Reader', detail: 'Documents & reading' },
-		{ id: 'model', label: '3D viewer', detail: 'Explore models' },
-		{ id: 'map', label: 'Map', detail: 'Places & directions' }
-	];
-	// In the channel header only the everyday views get an icon; "More" opens the full picker.
-	const PRIMARY: WorkspaceViewKey[] = ['messages', 'notifications', 'voice', 'lore', 'files', 'media'];
-	const stripViews = $derived(inline ? views.filter(view => PRIMARY.includes(view.id) || view.id === activeView) : views);
-	const pickerId = $props.id();
-	let open = $state(false);
-	let root: HTMLElement | undefined = $state();
-	let trigger: HTMLButtonElement | undefined = $state();
-	let panel: HTMLDivElement | undefined = $state();
-	const selected = $derived(views.find(view => view.id === activeView)!);
 
-	function close(restoreFocus = false): void {
-		open = false;
-		if (restoreFocus) (inline ? root?.querySelector<HTMLButtonElement>('.strip-more') : trigger)?.focus({ preventScroll: true });
-	}
-	async function toggle(): Promise<void> {
-		if (open) { close(true); return; }
-		open = true;
-		await tick();
-		(panel?.querySelector<HTMLButtonElement>('[aria-current="page"]') ??
-			panel?.querySelector<HTMLButtonElement>('button:not(:disabled)'))?.focus();
-	}
-	function select(view: WorkspaceViewKey): void {
-		onSelectView(view);
-		close(true);
-	}
-	function onKeydown(event: KeyboardEvent): void {
-		if (event.key === 'Escape' && open) {
-			event.preventDefault();
-			event.stopPropagation();
-			close(true);
-		} else if ((event.target === trigger || (event.target as HTMLElement | null)?.classList?.contains('strip-more')) && event.key === 'ArrowDown') {
-			event.preventDefault();
-			if (!open) void toggle();
+	// ---------------------------------------------------------------- words
+	function labelOf(id: WorkspaceViewKey): string {
+		switch (id) {
+			case 'messages':
+				return channelKind === 'forum'
+					? $_('places.threads')
+					: channelKind === 'wiki'
+						? $_('places.wiki')
+						: channelKind === 'gallery'
+							? $_('places.gallery')
+							: $_('places.chat');
+			case 'files': return $_('places.files');
+			case 'whiteboard': return $_('places.whiteboard');
+			case 'voice': return $_('places.calls');
+			case 'notifications': return $_('places.activity');
+			case 'lore': return $_('places.project');
+			case 'planner': return $_('places.my_planner');
+			case 'notes': return $_('places.notes');
+			case 'documents': return $_('places.documents');
+			case 'sheets': return $_('places.sheets');
+			case 'present': return $_('places.present');
+			case 'media': return $_('places.media');
+			case 'reader': return $_('places.reader');
+			case 'model': return $_('places.model_viewer');
+			case 'map': return $_('places.map');
 		}
 	}
+
+	// Detail lines for tooltips, menus and the phone sheet (§7.10: "Documents · private until you share · preview").
+	const DETAIL: Partial<Record<WorkspaceViewKey, string>> = {
+		messages: 'the conversation in this channel',
+		files: 'browse files & transfers',
+		whiteboard: 'a canvas for this channel',
+		voice: 'voice, video & sharing',
+		notifications: 'alerts, follows & friends',
+		lore: 'shared plan, wiki & optional files',
+		notes: 'your personal notes',
+		media: 'photos & albums',
+		reader: 'documents & reading',
+		model: 'explore 3D models',
+		map: 'places & directions'
+	};
+
+	function detailOf(id: WorkspaceViewKey): string {
+		// My Planner states its locality here, once (§8.12, §9.3): it syncs only when the server can.
+		if (id === 'planner') return $businessSyncAvailable === true ? 'Synced to server' : 'Only you · this device';
+		return DETAIL[id] ?? '';
+	}
+
+	function tooltipOf(view: FolioView): string {
+		if (view.id === 'documents') return $_('folio.detail.documents');
+		if (view.id === 'sheets') return $_('folio.detail.sheets');
+		if (view.id === 'present') return $_('folio.detail.present');
+		return `${labelOf(view.id)} · ${detailOf(view.id)}`;
+	}
+
+	function groupLabel(group: FolioGroupId): string {
+		switch (group) {
+			case 'channel': return $_('folio.groups.this_channel');
+			case 'community': return $_('folio.groups.community');
+			case 'yours': return $_('folio.groups.yours');
+			case 'office': return $_('folio.groups.office');
+		}
+	}
+
+	const needsYou = $derived(
+		activityBadge
+			? activityBadge === '1'
+				? $_('folio.needs_you_one', { values: { count: activityBadge } })
+				: $_('folio.needs_you_many', { values: { count: activityBadge } })
+			: ''
+	);
+
+	// ---------------------------------------------------------------- bar membership
+	let server = $state('');
+	let choices = $state<FolioChoices>({ pinned: [], removed: [] });
 	$effect(() => {
-		if (!open) return;
-		const onOutsidePress = (event: PointerEvent) => {
-			if (!root?.contains(event.target as Node)) close();
-		};
-		document.addEventListener('pointerdown', onOutsidePress);
-		return () => document.removeEventListener('pointerdown', onOutsidePress);
+		const next = $activeServerUrl || '';
+		if (next === server) return;
+		server = next;
+		choices = readFolioChoices(next);
 	});
+
+	onMount(() => {
+		// Sheets and Present join the bar only once the device's add-on state is known.
+		void hydrateWorkspaceAddons().catch(() => {});
+	});
+
+	const addons = $derived($workspaceAddonEnabled);
+	const barIds = $derived(folioBarIds(choices, addons));
+	const barViews = $derived(FOLIO_VIEWS.filter((view) => barIds.includes(view.id)));
+	const barGroups = $derived(
+		FOLIO_GROUPS.map((group) => {
+			const views = barViews.filter((view) => view.group === group);
+			// The group stays while any of its tabs is shown (the fit pass hides an emptied group).
+			return { id: group, views, tier: views.length ? Math.min(...views.map((view) => view.tier)) : 1000 };
+		}).filter((group) => group.views.length > 0)
+	);
+
+	function saveChoices(next: FolioChoices): void {
+		choices = next;
+		writeFolioChoices(server, next);
+	}
+
+	function setOnBar(id: WorkspaceViewKey, onBar: boolean): void {
+		const view = FOLIO_VIEWS.find((entry) => entry.id === id);
+		if (!view || id === 'messages') return;
+		const pinned = choices.pinned.filter((entry) => entry !== id);
+		const removed = choices.removed.filter((entry) => entry !== id);
+		if (view.bar && !onBar) removed.push(id);
+		if (!view.bar && onBar) pinned.push(id);
+		saveChoices({ pinned, removed });
+	}
+
+	// ---------------------------------------------------------------- what the bar hides at this width
+	let root = $state<HTMLElement | null>(null);
+	let moreWrap = $state<HTMLElement | null>(null);
+	/** Bar tabs not shown right now: moved by a tier rule or by the fit pass. */
+	let hiddenNow = $state<WorkspaceViewKey[]>([]);
+
+	function measureHidden(): void {
+		if (!root) return;
+		const hidden: WorkspaceViewKey[] = [];
+		for (const tab of root.querySelectorAll<HTMLElement>('[role="tab"][data-view]')) {
+			if (!tab.getClientRects().length) hidden.push(tab.dataset.view as WorkspaceViewKey);
+		}
+		if (hidden.join() !== hiddenNow.join()) hiddenNow = hidden;
+	}
+
+	const shows = (element: Element) => element.getClientRects().length > 0;
+
+	/**
+	 * The tiers assume 100% text. When the strip is still wider than the room it has (a larger
+	 * interface scale, longer words), move tabs to More in `folioFitOrder` until it fits; an
+	 * emptied group goes with its rule and its PREVIEW tag. `data-fit` is owned here, not by the
+	 * template: every pass starts from the tiers alone, so a wider stage brings tabs back.
+	 */
+	function fit(): void {
+		const strip = root?.querySelector<HTMLElement>('.w-folio__tabs');
+		if (!strip) return;
+		for (const element of strip.querySelectorAll<HTMLElement>('[data-fit]')) element.removeAttribute('data-fit');
+		const overflows = () => strip.scrollWidth > strip.clientWidth;
+		if (overflows()) {
+			const tabs = new Map<string, HTMLElement>();
+			for (const tab of strip.querySelectorAll<HTMLElement>('[role="tab"][data-view]')) {
+				if (shows(tab)) tabs.set(tab.dataset.view ?? '', tab);
+			}
+			for (const id of folioFitOrder([...tabs.keys()] as WorkspaceViewKey[])) {
+				const tab = tabs.get(id);
+				if (!tab) continue;
+				tab.setAttribute('data-fit', 'out');
+				const group = tab.closest<HTMLElement>('.w-folio__group');
+				if (group && !Array.from(group.querySelectorAll('[role="tab"]')).some(shows)) group.setAttribute('data-fit', 'out');
+				if (!overflows()) break;
+			}
+		}
+		measureHidden();
+	}
+
+	$effect(() => {
+		const element = root;
+		const more = moreWrap;
+		// Words change width without resizing the stage: the bar, the Activity count, the channel
+		// kind and the language all re-run the fit.
+		void barIds;
+		void activityBadge;
+		void channelKind;
+		void $_;
+		if (!element) return;
+		untrack(fit);
+		if (typeof ResizeObserver === 'undefined') return;
+		// Runs after layout, so the container-query tiers have already applied. The stage width
+		// resizes the folio; the interface scale resizes More (its words follow --w-fs).
+		const observer = new ResizeObserver(() => fit());
+		observer.observe(element);
+		if (more) observer.observe(more);
+		return () => observer.disconnect();
+	});
+
+	const shownIds = $derived(barIds.filter((id) => !hiddenNow.includes(id)));
+	const inMore = $derived(FOLIO_VIEWS.filter((view) => !shownIds.includes(view.id)));
+	const currentInMore = $derived(!shownIds.includes(activeView));
+	// Activity's count stays in sight when a narrow stage moves Activity into More.
+	const activityInMore = $derived(Boolean(activityBadge) && !shownIds.includes('notifications'));
+	const moreLabel = $derived(
+		[
+			$_('folio.more'),
+			currentInMore ? `${labelOf(activeView)} is open` : '',
+			activityInMore ? `${$_('places.activity')} ${needsYou}` : ''
+		].filter(Boolean).join(', ')
+	);
+
+	// ---------------------------------------------------------------- selection and keyboard
+	function disabled(id: WorkspaceViewKey): boolean {
+		return id === 'whiteboard' && !canOpenWhiteboard;
+	}
+
+	function select(id: WorkspaceViewKey): void {
+		if (disabled(id)) return;
+		onSelectView(id);
+	}
+
+	let focusId = $state<WorkspaceViewKey | null>(null);
+	const rovingId = $derived(
+		focusId && shownIds.includes(focusId) ? focusId : shownIds.includes(activeView) ? activeView : (shownIds[0] ?? 'messages')
+	);
+
+	function visibleTabs(): HTMLElement[] {
+		return Array.from(root?.querySelectorAll<HTMLElement>('[role="tab"][data-view]') ?? []).filter((tab) => tab.getClientRects().length > 0);
+	}
+
+	function onTabKeydown(event: KeyboardEvent): void {
+		const tabs = visibleTabs();
+		const index = tabs.indexOf(event.target as HTMLElement);
+		if (index < 0) return;
+		let next = -1;
+		if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+		else if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+		else if (event.key === 'Home') next = 0;
+		else if (event.key === 'End') next = tabs.length - 1;
+		if (next < 0) return;
+		event.preventDefault();
+		const target = tabs[next];
+		focusId = (target.dataset.view as WorkspaceViewKey) ?? null;
+		target.focus();
+	}
+
+	// ---------------------------------------------------------------- right-click menu
+	const COMPANION: Partial<Record<WorkspaceViewKey, WorkspacePanelId>> = { notes: 'notes' };
+	function companionOf(id: WorkspaceViewKey): WorkspacePanelId | null {
+		if (id === 'messages' && (channelKind === 'wiki' || channelKind === 'forum')) return channelKind;
+		return COMPANION[id] ?? null;
+	}
+
+	let tabMenu = $state<{ view: FolioView; x: number; y: number; anchor: MenuAnchor | null } | null>(null);
+
+	function openTabMenu(event: MouseEvent, view: FolioView): void {
+		event.preventDefault();
+		const target = event.currentTarget as HTMLElement;
+		// The context-menu key reports no pointer position: open under the tab instead.
+		const fromKeyboard = event.button !== 2 && event.clientX === 0 && event.clientY === 0;
+		const box = target.getBoundingClientRect();
+		tabMenu = {
+			view,
+			x: event.clientX,
+			y: event.clientY,
+			anchor: fromKeyboard ? { left: box.left, top: box.top, right: box.right, bottom: box.bottom } : null
+		};
+	}
+
+	const tabMenuItems = $derived.by<MenuEntry[]>(() => {
+		if (!tabMenu) return [];
+		const { view } = tabMenu;
+		const companion = companionOf(view.id);
+		const items: MenuEntry[] = [
+			{ id: 'open', label: $_('folio.open'), icon: 'arrowRight', disabled: disabled(view.id), onSelect: () => select(view.id) }
+		];
+		if (companion) items.push({ id: 'beside', label: $_('folio.open_beside'), icon: 'sidebarRight', onSelect: () => openRightPanel(companion) });
+		if (view.id !== 'messages') {
+			items.push({ id: 'sep', type: 'separator' });
+			items.push({ id: 'remove', label: $_('folio.remove_from_bar'), icon: 'minus', onSelect: () => setOnBar(view.id, false) });
+		}
+		return items;
+	});
+
+	// ---------------------------------------------------------------- More ▾
+	let moreOpen = $state(false);
+
+	function hintOf(view: FolioView): string | undefined {
+		if (view.id === 'notifications' && activityBadge) return needsYou;
+		if (view.addon && !addons[view.addon]) return $_('maturity.off_on_device');
+		if (view.preview) return $_('maturity.preview_hint');
+		return undefined;
+	}
+
+	const moreItems = $derived.by<MenuEntry[]>(() => {
+		const items: MenuEntry[] = [];
+		for (const group of FOLIO_GROUPS) {
+			const views = inMore.filter((view) => view.group === group);
+			if (!views.length) continue;
+			items.push({ id: `k-${group}`, type: 'kicker', label: groupLabel(group) });
+			for (const view of views) {
+				items.push({
+					id: view.id,
+					label: labelOf(view.id),
+					keepCase: true,
+					role: 'menuitemradio',
+					checked: view.id === activeView,
+					hint: hintOf(view),
+					disabled: disabled(view.id),
+					onSelect: () => select(view.id)
+				});
+			}
+		}
+		// Bar choices: the views the person can add to (or take off) the bar. A row stays while
+		// the menu is open, so checking a removed default view ticks it instead of dropping it.
+		const customizable = FOLIO_VIEWS.filter((view) => isCustomizable(view) || pinRows.includes(view.id));
+		if (customizable.length) {
+			items.push({ id: 'k-pin', type: 'kicker', label: $_('folio.pin_to_bar') });
+			for (const view of customizable) {
+				const onBar = barIds.includes(view.id);
+				items.push({
+					id: `pin-${view.id}`,
+					label: labelOf(view.id),
+					icon: 'pin',
+					keepCase: true,
+					role: 'menuitemcheckbox',
+					checked: onBar,
+					// On the bar by choice but out of room at this width: say where it shows.
+					hint: onBar && hiddenNow.includes(view.id) ? 'shows on a wider stage' : undefined,
+					keepOpen: true,
+					onSelect: () => setOnBar(view.id, !onBar)
+				});
+			}
+		}
+		return items;
+	});
+
+	function isCustomizable(view: FolioView): boolean {
+		if (view.id === 'messages' || (view.addon && !addons[view.addon])) return false;
+		return !view.bar || choices.removed.includes(view.id);
+	}
+
+	/** Pin rows listed when More opened; kept until it closes. */
+	let pinRows = $state<WorkspaceViewKey[]>([]);
+	function onMoreOpenChange(open: boolean): void {
+		pinRows = open ? FOLIO_VIEWS.filter(isCustomizable).map((view) => view.id) : [];
+	}
+
+	// ---------------------------------------------------------------- phone: Workspaces sheet
+	let sheetOpen = $state(false);
+	let trigger = $state<HTMLButtonElement | null>(null);
+	const SIDE_PANELS: { id: WorkspacePanelId; label: () => string; detail: string }[] = [
+		{ id: 'users', label: () => $_('places.people'), detail: 'who is here, by place' },
+		{ id: 'wiki', label: () => $_('places.wiki'), detail: 'read this community’s pages' },
+		{ id: 'forum', label: () => $_('places.forum'), detail: 'longer conversations' }
+	];
+
+	function chooseFromSheet(id: WorkspaceViewKey): void {
+		if (disabled(id)) return;
+		sheetOpen = false;
+		select(id);
+	}
+
+	async function openSidePanel(id: WorkspacePanelId): Promise<void> {
+		sheetOpen = false;
+		await tick();
+		openRightPanel(id);
+	}
 </script>
 
-{#snippet workspaceIcon(view: WorkspaceViewKey)}
-	{#if view === 'voice'}
-		<svg aria-hidden="true" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-			<path d="M3 18v-6a9 9 0 0 1 18 0v6"></path>
-			<path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path>
-		</svg>
-	{:else if view === 'messages'}
-		<svg aria-hidden="true" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-			<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-		</svg>
-	{:else if view === 'notifications'}
-		<svg aria-hidden="true" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-			<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z" /><path d="M10 21h4" />
-		</svg>
-	{:else if view === 'whiteboard'}
-		<svg aria-hidden="true" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-			<rect x="3" y="4" width="18" height="14" rx="2"></rect>
-			<path d="M7 8h10"></path>
-			<path d="M7 12h6"></path>
-			<path d="M8 20h8"></path>
-		</svg>
-	{:else if view === 'planner'}
-		<svg aria-hidden="true" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-			<rect x="3" y="3" width="18" height="18" rx="2"></rect>
-			<path d="M3 9h18"></path>
-			<path d="M9 21V9"></path>
-		</svg>
-	{:else if view === 'notes'}
-		<svg aria-hidden="true" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-			<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-			<polyline points="14 2 14 8 20 8"></polyline>
-			<line x1="16" y1="13" x2="8" y2="13"></line>
-			<line x1="16" y1="17" x2="8" y2="17"></line>
-		</svg>
-	{:else if view === 'lore'}
-		<svg aria-hidden="true" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-			<polyline points="16 18 22 12 16 6"></polyline>
-			<polyline points="8 6 2 12 8 18"></polyline>
-		</svg>
-	{:else if view === 'files'}
-		<svg aria-hidden="true" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-			<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-		</svg>
-	{:else if view === 'media'}
-		<svg aria-hidden="true" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-			<rect x="3" y="3" width="18" height="18" rx="2"></rect>
-			<circle cx="8.5" cy="8.5" r="1.5"></circle>
-			<polyline points="21 15 16 10 5 21"></polyline>
-		</svg>
-	{:else if view === 'reader'}
-		<svg aria-hidden="true" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-			<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
-			<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
-		</svg>
-	{:else if view === 'model'}
-		<svg aria-hidden="true" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-			<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-			<path d="M3.27 6.96 12 12.01l8.73-5.05"></path>
-			<path d="M12 22.08V12"></path>
-		</svg>
-	{:else if view === 'map'}
-		<svg aria-hidden="true" width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-			<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"></path>
-			<path d="M9 4v14"></path>
-			<path d="M15 6v14"></path>
-		</svg>
-	{/if}
-{/snippet}
-
-<svelte:window onblur={() => close()} onkeydown={onKeydown} />
-
-<nav class="workspace-view-bar" class:inline class:picker-open={open} aria-label="Workspace" bind:this={root}
-	onfocusout={(event) => { if (!root?.contains(event.relatedTarget as Node)) close(); }}>
-	<!-- Desktop: every view one click away. The active view shows its name; the rest reveal theirs on hover or focus. -->
-	<div class="workspace-strip" role="toolbar" aria-label="Workspace views">
-		{#each stripViews as view (view.id)}
-			<button type="button" class="strip-item" class:active={activeView === view.id} aria-label={view.label} title={`${view.label} · ${view.detail}`}
-				aria-current={activeView === view.id ? 'page' : undefined} disabled={view.id === 'whiteboard' && !canOpenWhiteboard} onclick={() => select(view.id)}>
-				{@render workspaceIcon(view.id)}
-				<span class="strip-label">{view.label}</span>
-				{#if view.id === 'notifications' && activityBadge}<span class="activity-badge" aria-label={`${activityBadge} items need attention`}>{activityBadge}</span>{/if}
+{#if variant === 'trigger'}
+	<button
+		bind:this={trigger}
+		type="button"
+		class="w-folio-trigger"
+		aria-haspopup="dialog"
+		aria-expanded={sheetOpen}
+		aria-label={`${labelOf(activeView)}: ${$_('folio.label')}`}
+		onclick={() => (sheetOpen = true)}
+	>
+		<!-- No count here: next to "Chat" it would read as unread chat; the bottom nav and the sheet carry Activity's. -->
+		<span class="w-folio-trigger__label">{labelOf(activeView)}</span>
+		<Icon name="chevDown" size={14} />
+	</button>
+	<Sheet bind:open={sheetOpen} title={$_('folio.label')} zIndex="calc(var(--z-toast, 2000) + 1)" onclose={() => trigger?.focus({ preventScroll: true })}>
+		{#each FOLIO_GROUPS as group (group)}
+			<p class="w-kicker w-folio-sheet__kicker">{group === 'office' ? `${groupLabel(group)} · ${$_('maturity.preview')}` : groupLabel(group)}</p>
+			{#each FOLIO_VIEWS.filter((view) => view.group === group) as view (view.id)}
+				<button
+					type="button"
+					class="w-sheet__row w-folio-sheet__row"
+					aria-current={activeView === view.id ? 'page' : undefined}
+					aria-disabled={disabled(view.id) || undefined}
+					onclick={() => chooseFromSheet(view.id)}
+				>
+					<span class="w-folio-sheet__words">
+						<span class="w-folio-sheet__label">{labelOf(view.id)}{#if view.id === 'notifications' && activityBadge}<span class="w-badge w-badge--sm" aria-hidden="true">{activityBadge}</span><span class="sr-only">, {needsYou}</span>{/if}</span>
+						<span class="w-folio-sheet__detail">{view.addon && !addons[view.addon] ? $_('maturity.off_on_device') : view.preview ? $_('folio.detail.' + view.id) : detailOf(view.id)}</span>
+					</span>
+					{#if activeView === view.id}<Icon name="check" size={16} class="w-folio-sheet__check" />{/if}
+				</button>
+			{/each}
+		{/each}
+		<p class="w-kicker w-folio-sheet__kicker">{$_('folio.groups.side_panels')}</p>
+		{#each SIDE_PANELS as panel (panel.id)}
+			<button type="button" class="w-sheet__row w-folio-sheet__row" onclick={() => void openSidePanel(panel.id)}>
+				<span class="w-folio-sheet__words">
+					<span class="w-folio-sheet__label">{panel.label()}</span>
+					<span class="w-folio-sheet__detail">{panel.detail}</span>
+				</span>
 			</button>
 		{/each}
-		{#if inline}
-			<button type="button" class="strip-item strip-more" aria-expanded={open} aria-controls={pickerId} aria-haspopup="dialog" aria-label="All workspaces" title="All workspaces" onclick={toggle}>
-				<svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
-			</button>
-		{/if}
-	</div>
-	<button class="workspace-trigger" type="button" bind:this={trigger}
-		aria-expanded={open} aria-controls={pickerId} aria-haspopup="dialog"
-		aria-label={`Switch workspace: ${selected.label}`} onclick={toggle}>
-		{@render workspaceIcon(activeView)}
-		<span class="workspace-trigger-copy"><span class="workspace-eyebrow">Workspace</span><span class="workspace-current">{selected.label}</span></span>
-		{#if activityBadge}<span class="activity-badge" aria-label={`${activityBadge} items need attention in Activity`}>{activityBadge}</span>{/if}
-		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-	</button>
-	<button class="workspace-return" class:unavailable={activeView === 'messages'} disabled={activeView === 'messages'} type="button" aria-label="Return to messages" onclick={() => select('messages')}>
-		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m12 5-7 7 7 7M5 12h14" /></svg>
-		<span>Messages</span>
-	</button>
-	{#if open}
-		<div class="workspace-picker" id={pickerId} role="dialog" aria-label="Choose workspace" bind:this={panel}>
-			<p class="workspace-picker-heading">Choose a workspace</p>
-			<div class="workspace-options">
-				{#each views as view (view.id)}
-					<button type="button" class="workspace-option" aria-label={view.label} aria-describedby={`${pickerId}-${view.id}-detail`} aria-current={activeView === view.id ? 'page' : undefined}
-						disabled={view.id === 'whiteboard' && !canOpenWhiteboard} onclick={() => select(view.id)}>
-						{@render workspaceIcon(view.id)}
-						<span><span class="workspace-option-label">{view.label}{#if view.id === 'notifications' && activityBadge} <span class="activity-badge">{activityBadge}</span>{/if}</span><span class="workspace-option-detail" id={`${pickerId}-${view.id}-detail`}>{view.detail}</span></span>
-					</button>
-				{/each}
-			</div>
+	</Sheet>
+{:else}
+	<nav class="w-folio" aria-label={$_('folio.label')} bind:this={root}>
+		<div class="w-folio__tabs" role="tablist" aria-label={$_('folio.label')} aria-orientation="horizontal" tabindex="-1" onkeydown={onTabKeydown}>
+			{#each barGroups as group (group.id)}
+				<div class="w-folio__group" role="none" data-group={group.id} data-tier={group.tier}>
+					{#each group.views as view (view.id)}
+						<Tooltip text={tooltipOf(view)} placement="bottom">
+							<button
+								type="button"
+								role="tab"
+								class="w-folio__tab"
+								data-view={view.id}
+								data-tier={view.tier}
+								aria-selected={activeView === view.id}
+								aria-current={activeView === view.id ? 'page' : undefined}
+								aria-disabled={disabled(view.id) || undefined}
+								tabindex={rovingId === view.id ? 0 : -1}
+								onfocus={() => (focusId = view.id)}
+								onclick={() => select(view.id)}
+								oncontextmenu={(event) => openTabMenu(event, view)}
+							>
+								<span class="w-folio__label">{labelOf(view.id)}</span>
+								{#if view.id === 'notifications' && activityBadge}
+									<span class="w-badge w-badge--sm" aria-hidden="true">{activityBadge}</span>
+									<span class="sr-only">, {needsYou}</span>
+								{/if}
+							</button>
+						</Tooltip>
+					{/each}
+					{#if group.id === 'office'}
+						<!-- The office tabs' descriptions say "preview" to assistive tech; the tag is the visible word. -->
+						<span class="w-tag w-tag--mat w-folio__mat" aria-hidden="true" title={$_('maturity.preview_title')}>{$_('maturity.preview')}</span>
+					{/if}
+				</div>
+			{/each}
 		</div>
-	{/if}
-</nav>
-
-<style>
-	.workspace-view-bar {
-		position: relative;
-		z-index: var(--z-dropdown);
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
-		flex: 0 0 auto;
-		min-width: 0;
-		padding: var(--space-1) var(--space-3);
-		border-bottom: 1px solid var(--border-subtle);
-		background: var(--surface-app);
-	}
-	button {
-		font: inherit;
-		color: var(--text-secondary);
-		border: 1px solid transparent;
-		background: transparent;
-		border-radius: var(--radius-md);
-		cursor: pointer;
-		text-align: start;
-		transition: background-color var(--duration-fast) ease, border-color var(--duration-fast) ease;
-	}
-	button:focus-visible { outline: 2px solid var(--accent-primary-color); outline-offset: 2px; }
-	@media (hover: hover) { button:hover:not(:disabled) { background: var(--surface-raised); color: var(--text-heading); } }
-	button:active:not(:disabled) { background: var(--surface-raised); }
-	button:disabled { opacity: 0.5; cursor: not-allowed; }
-	.workspace-trigger, .workspace-return {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-height: 44px;
-		padding: var(--space-1) var(--space-2);
-		min-width: 0;
-	}
-	.workspace-trigger { flex: 0 1 13rem; color: var(--text-heading); }
-	.workspace-trigger[aria-expanded="true"] { background: var(--surface-raised); border-color: var(--border-subtle); }
-	.workspace-trigger-copy { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-	.workspace-eyebrow { font-size: var(--text-xs); line-height: 1.3; color: var(--text-secondary); }
-	.workspace-current { font-size: var(--text-base); font-weight: var(--font-weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-	.workspace-return { font-size: var(--text-sm); flex-shrink: 0; }
-	/* Reserve the return slot so the picker/chevron never resize on selection. */
-	.workspace-return.unavailable { visibility: hidden; }
-	.workspace-view-bar :global(svg) { flex-shrink: 0; }
-	/* Strip on desktop, picker on small screens. */
-	.workspace-strip { display: none; }
-	@media (min-width: 900px) {
-		.workspace-strip { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-		.workspace-trigger, .workspace-return { display: none; }
-		.workspace-view-bar { justify-content: flex-start; padding-block: 0; }
-		.strip-item { display: inline-flex; align-items: center; gap: 0; min-height: 38px; padding: 0 10px; border-radius: calc(8px * var(--w-rs, 1)); color: var(--w-mute, var(--text-secondary)); position: relative; }
-		.strip-item :global(svg) { width: 17px; height: 17px; stroke-width: 1.6; }
-		.strip-label { max-width: 0; overflow: hidden; white-space: nowrap; opacity: 0; font: 600 .78rem var(--w-sans, inherit); transition: max-width .22s ease, opacity .18s ease, margin .22s ease; }
-		.strip-item:hover .strip-label, .strip-item:focus-visible .strip-label, .strip-item.active .strip-label { max-width: 9rem; opacity: 1; margin-inline-start: 7px; }
-		.strip-item.active { color: var(--w-text, var(--text-heading)); background: transparent; }
-		.strip-item.active::after { content: ''; position: absolute; inset-inline: 10px; bottom: 0; height: 2px; background: var(--w-sig, var(--accent-primary-color)); }
-		.strip-item:hover:not(:disabled) { color: var(--w-text, var(--text-heading)); background: var(--w-raise, var(--surface-raised)); }
-		.strip-item .activity-badge { margin-inline-start: 6px; }
-	}
-	.workspace-view-bar.inline { border-bottom: 0; background: transparent; padding: 0; z-index: var(--z-dropdown); }
-	.workspace-view-bar.inline .workspace-picker { inset-inline-start: auto; inset-inline-end: 0; }
-	@media (prefers-reduced-motion: reduce) { .strip-label { transition: none; } }
-	.workspace-picker {
-		position: absolute;
-		top: calc(100% + var(--space-1));
-		inset-inline-start: var(--space-2);
-		width: min(28rem, calc(100% - var(--space-4)));
-		box-sizing: border-box;
-		max-height: calc(100dvh - 140px);
-		overflow-y: auto;
-		overscroll-behavior: contain;
-		padding: var(--space-2);
-		border-radius: var(--radius-lg);
-		border: 1px solid var(--border-subtle);
-		background: var(--surface-popover);
-		box-shadow: var(--shadow-lg);
-	}
-	.workspace-picker-heading { margin: var(--space-2); color: var(--text-secondary); font-size: var(--text-sm); }
-	.workspace-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--space-1); }
-	.workspace-option { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-2); min-height: 56px; }
-	.workspace-option > span { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
-	.workspace-option-label { font-size: var(--text-base); font-weight: var(--font-weight-medium); color: var(--text-heading); }
-	.workspace-option-detail { font-size: var(--text-xs); line-height: 1.4; color: var(--text-secondary); }
-	.workspace-option[aria-current="page"] { border-color: var(--accent-primary-color); background: var(--surface-raised); }
-	/* Mobile: the picker becomes a bottom sheet with a dimming backdrop.
-	   Clicks pass through the backdrop to the document outside-press handler. */
-	@media (max-width: 768px) {
-		/* The persistent bottom nav uses z-toast. Lift only the open sheet above
-		   it so its last row is reachable; the closed bar must stay below panels. */
-		.workspace-view-bar.picker-open {
-			z-index: calc(var(--z-toast, 2000) + 1);
-		}
-		.workspace-picker {
-			position: fixed;
-			top: auto;
-			inset-inline: 0;
-			bottom: 0;
-			width: 100%;
-			max-height: min(72dvh, calc(100dvh - 90px));
-			border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-			border-bottom: 0;
-			padding: var(--space-4) var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
-			box-shadow: var(--shadow-lg), 0 -12px 40px rgba(0, 0, 0, 0.4);
-			animation: workspace-sheet-up 220ms cubic-bezier(0, 0, 0.2, 1);
-		}
-		.workspace-picker::before {
-			content: '';
-			position: fixed;
-			inset: 0;
-			z-index: -1;
-			background: rgba(0, 0, 0, 0.55);
-			pointer-events: none;
-		}
-		.workspace-picker::after {
-			content: '';
-			position: absolute;
-			top: 8px;
-			left: 50%;
-			transform: translateX(-50%);
-			width: 36px;
-			height: 4px;
-			border-radius: 999px;
-			background: var(--border-strong, rgba(255, 255, 255, 0.3));
-			pointer-events: none;
-		}
-		.workspace-picker-heading {
-			margin: var(--space-2) var(--space-1) var(--space-3);
-			text-align: center;
-			font-weight: var(--font-weight-semibold);
-			color: var(--text-heading);
-		}
-		.workspace-options { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
-		.workspace-option {
-			min-height: 64px;
-			padding: var(--space-2);
-			border-color: var(--border-subtle);
-			border-radius: var(--radius-md);
-			background: color-mix(in srgb, var(--surface-raised) 60%, transparent);
-		}
-	}
-	@keyframes workspace-sheet-up {
-		from { transform: translateY(24px); opacity: 0; }
-		to { transform: none; opacity: 1; }
-	}
-	@media (prefers-reduced-motion: reduce) {
-		button { transition: none; }
-		.workspace-picker { animation: none; }
-	}
-
- .activity-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--accent-primary); color: var(--text-on-accent, white); font-size: 11px; font-weight: 700; }
-</style>
+		<span class="w-folio__more-wrap" bind:this={moreWrap}>
+			<Menu
+				label={$_('folio.more')}
+				class="w-folio__more"
+				align="end"
+				items={moreItems}
+				bind:open={moreOpen}
+				onopenchange={onMoreOpenChange}
+				data-current={currentInMore ? 'true' : undefined}
+				triggerLabel={currentInMore || activityInMore ? moreLabel : undefined}
+			>
+				<span class="w-folio__label">{$_('folio.more')}</span>
+				{#if activityInMore}<span class="w-badge w-badge--sm" aria-hidden="true">{activityBadge}</span>{/if}
+				<Icon name="chevDown" size={14} />
+			</Menu>
+		</span>
+		{#if tabMenu}
+			<ContextMenu
+				open
+				x={tabMenu.x}
+				y={tabMenu.y}
+				anchor={tabMenu.anchor}
+				items={tabMenuItems}
+				ariaLabel={labelOf(tabMenu.view.id)}
+				headerLabel={labelOf(tabMenu.view.id)}
+				onClose={() => (tabMenu = null)}
+			/>
+		{/if}
+	</nav>
+{/if}

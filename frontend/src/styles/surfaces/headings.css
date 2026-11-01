@@ -1,0 +1,92 @@
+/* Center-stage page headings — server home, DM hub header, workspace page titles and the
+   project board's editorial header.
+   Owner (wave 1): w1-office-present. Blocks marked HELD FOR belong to another package and sit
+   here only because they share this cascade slot; their owner changes them by handoff.
+   Cascade: first import of stage-skin.css — after controls-kit.css, before stream-skin,
+   panel, settings-skin, admin-skin, modal-skin and panels-skin. Spec §11 puts surfaces after panels-skin.css; until
+   w2-retire-legacy-qa imports surfaces directly in that order, a rule added here loses
+   equal-specificity ties to every skin that loads later. */
+
+/* HELD FOR w1-switcher-dms (ServerHub.svelte) — the reception board inside Server home
+   (ReceptionBoard.svelte, no wave-1 owner). Server home's own masthead lives in ServerHub's
+   scoped styles; these restyle the board on roles: serif place names, rules instead of boxed
+   rows, kit-weight buttons. The DMs hub header that sat here is DmHub's own now. */
+:root .reception-board h1 { font: var(--w-t-display); letter-spacing: 0.005em; color: var(--w-text); text-wrap: balance; }
+:root .reception-board .server-description { font: var(--w-t-ui); color: var(--w-mute); }
+:root .reception-board .reception-section h2 { margin-bottom: 6px; font: var(--w-t-heading); color: var(--w-text); }
+:root .reception-board .reception-hint { font: var(--w-t-small); color: var(--w-mute); }
+:root .reception-board .server-icon { border-radius: var(--radius-lg); }
+:root .reception-board .rules-button {
+	min-height: 32px;
+	padding: 0 12px;
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+:root .reception-board .rules-button:hover { background: var(--w-raise); }
+:root .reception-board .rules-button:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
+/* The desk overview's scoped `.desk-overview .room-row` rule weighs (0,4,0); this list path outweighs it. */
+:root .reception-board .room-row,
+:root .reception-board .desk-overview .room-list .room-row {
+	border: 0;
+	border-bottom: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: 0;
+	background: transparent;
+}
+:root .reception-board .room-name { font: var(--w-t-label); color: var(--w-text); }
+:root .reception-board .room-name small { color: var(--w-faint); font: var(--w-t-small); }
+:root .reception-board .room-switch { color: var(--w-mute); font: var(--w-t-caption); }
+
+/* ---------- workspaces: wiki, forum, gallery, project boards ---------- */
+/* Page titles are serif; message markdown and the panels keep their own type. Row A sets its
+   own type (.stage-bar). A slide is user content with its own typography (AudienceSlide owns
+   it on .audience-slide, SceneView on .scene), so no app heading rule reaches into a slide:
+   it must look the same in the designer, the show, the room and the exports, in every theme. */
+:root .main-content :is(h1, h2):not(.markdown-content *):not(.stage-bar *):not(.audience-slide *):not(.scene *) {
+	font-family: var(--w-serif);
+	font-weight: 600;
+	letter-spacing: 0.01em;
+}
+/* The forum and the wiki state their own title sizes (reading.css). */
+:root .main-content h1:not(.markdown-content *):not(.audience-slide *):not(.scene *):not(.forum-channel *):not(.wiki-channel *) { font-size: calc(28px * var(--w-fs, 1)); line-height: 1.15; }
+:root .main-content .gallery-title { font: 600 calc(20px * var(--w-fs, 1))/1.2 var(--w-serif); }
+:root .main-content .project-subtitle { font: 400 calc(14px * var(--w-fs, 1))/1.5 var(--w-sans); color: var(--w-mute); }
+
+/* HELD FOR the project board skin (ProjectWorkspace / SharedProjectBoard). Restyled by
+   w1-planner-views (wave 1c) on roles and type tokens; the components keep their markup.
+   An editorial header on the page, not a banner: no gradient, glow or tinted mark; the eyebrow
+   is a kicker, the name a serif title, the picker a kit field, the active tab a --w-sig
+   underline on the rule (§5.2). The board's lane heads follow §7.27: sans label in --w-mute,
+   a mono count, a hairline under the head. */
+/* ---- project view: editorial header, ledger board ---- */
+:root .project-workspace .project-hero { background: var(--w-bg); border-bottom: var(--w-bw, 1px) solid var(--w-line); padding-block: 20px; }
+:root .project-workspace .project-hero::after { display: none; }
+:root .project-workspace .project-mark { width: 40px; height: 40px; border-radius: var(--radius-md); background: transparent; border: var(--w-bw, 1px) solid var(--w-line-strong); box-shadow: none; color: var(--w-sig); }
+:root .project-workspace .project-mark svg { width: 20px; height: 20px; }
+:root .project-workspace .project-eyebrow, :root .shared-project-board .board-eyebrow { font: var(--w-t-kicker); letter-spacing: 0.12em; text-transform: uppercase; color: var(--w-faint); }
+:root .project-workspace .project-presence { width: 6px; height: 6px; background: var(--w-online); box-shadow: none; }
+:root .project-workspace .project-title-block h1 { font: var(--w-t-title); letter-spacing: 0.005em; color: var(--w-text); }
+:root .shared-project-board .board-heading h2 { font-family: var(--w-serif); font-weight: 600; letter-spacing: 0.005em; }
+:root .project-workspace .project-picker { font: var(--w-t-caption); color: var(--w-mute); }
+:root .project-workspace .project-picker select { min-height: 32px; padding: 0 10px; border: var(--w-bw, 1px) solid var(--w-line); border-radius: var(--radius-md); background: var(--w-lift); color: var(--w-text); font: var(--w-t-ui); }
+:root .project-workspace .project-picker select:focus-visible { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
+:root .project-workspace .project-tabs button { font: var(--w-t-label); color: var(--w-mute); }
+:root .project-workspace .project-tabs button.active, :root .project-workspace .project-tabs button:hover { color: var(--w-text); }
+:root .project-workspace .project-tabs button.active::after { box-shadow: none; background: var(--w-sig); border-radius: 2px 2px 0 0; }
+:root .project-workspace .project-tabs button:focus-visible { outline: 2px solid var(--w-accent); outline-offset: -2px; }
+:root .shared-project-board .board-overview { background: transparent; border-bottom: var(--w-bw, 1px) solid var(--w-line); }
+:root .shared-project-board .board-pulse { background: transparent; border-radius: var(--radius-md); border-color: var(--w-line); box-shadow: none; }
+:root .shared-project-board .pulse-stat :is(b, strong) { font-family: var(--w-mono); font-weight: 500; font-feature-settings: 'tnum'; }
+:root .shared-project-board .progress-track { border-radius: var(--w-pill); height: 2px; background: var(--w-line); }
+:root .shared-project-board .section-line { border-radius: 0; background: var(--w-sig); }
+:root .shared-project-board .board-actions .new-card-button { background: var(--w-text); color: var(--w-bg); border-color: var(--w-text); border-radius: var(--radius-md); box-shadow: none; }
+:root .shared-project-board .board-actions .new-card-button:hover { background: color-mix(in srgb, var(--w-text) 86%, var(--w-bg)); border-color: color-mix(in srgb, var(--w-text) 86%, var(--w-bg)); }
+
+:root .shared-project-board .board-actions button { border-radius: var(--radius-md); min-height: 32px; font: var(--w-t-label); }
+:root .shared-project-board .board-intro h2 { letter-spacing: 0.005em; }
+:root .shared-project-board .board-scroll .column-indicator { box-shadow: none; border-radius: var(--w-pill); width: 8px; height: 8px; }
+:root .shared-project-board .board-scroll .column-labels h2 { font: 500 calc(13px * var(--w-fs, 1)) / calc(18px * var(--w-fs, 1)) var(--w-sans); letter-spacing: 0; color: var(--w-mute); }
+:root .shared-project-board .board-scroll .column-count { background: transparent; color: var(--w-faint); font: var(--w-t-micro); padding: 0; }
+:root .shared-project-board .board-scroll .column-header { border-bottom: var(--w-bw, 1px) solid var(--w-line); }

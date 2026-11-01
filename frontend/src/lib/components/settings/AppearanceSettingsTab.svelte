@@ -1,17 +1,22 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { _ as t } from '$lib/i18n';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import { getAuthToken } from '$lib/authSession';
+	import { _ as t, currentLocale, getAvailableLocales, setAppLocale } from '$lib/i18n';
 	import ThemeCustomizer from '../ThemeCustomizer.svelte';
-	import BackgroundImageEditor from '../BackgroundImageEditor.svelte';
 	import UniformFontMode from '../UniformFontMode.svelte';
 	import EffectsTab from '$lib/effects/EffectsTab.svelte';
-	import ProfileAppearanceControls from '$lib/components/ProfileAppearanceControls.svelte';
 	import PointerEffectsTab from '$lib/effects/PointerEffectsTab.svelte';
+	import ChatBackdropSettings from './ChatBackdropSettings.svelte';
+	import Icon from '../ui/Icon.svelte';
+	import Segmented from '../ui/Segmented.svelte';
+	import Select from '../ui/Select.svelte';
+	import Switch from '../ui/Switch.svelte';
 	import { layoutStore } from '$lib/layoutStore';
 	import { railPeekKey, type RailPeekKey } from '$lib/railPrefs';
-	import { dockStackLimit, MAX_DOCK_STACK_LIMIT } from '$lib/layoutStoreStates';
+	import { persistRailLayout } from '$lib/railLayout';
 	import {
+		MAX_DOCK_STACK_LIMIT,
+		dockStackLimit,
 		homeLayout,
 		type HomeLayoutMode,
 		railDensity,
@@ -20,10 +25,18 @@
 		type RailSide
 	} from '$lib/layoutStoreStates';
 	import { animationQuality } from '$lib/motion/animationQuality';
+	import { profileAppearance, profileOsReducedMotion, setProfileAppearance, type ProfileAppearance } from '$lib/profileAppearance';
 	import { themeStore } from '$lib/theme/themeStore';
-	import { THEMES } from '$lib/theme/themes';
+	import { THEMES, getThemeById } from '$lib/theme/themes';
 	import { saveThemePreferences } from '$lib/theme/themeApi';
 	import { saveThemeToLocalStorage } from '$lib/theme/themeManager';
+	import {
+		themeCharacterWord,
+		themeChoiceAction,
+		themePickerGroups,
+		themePreviewAttributes,
+		themePreviewStyle
+	} from '$lib/theme/themePicker';
 	import { getOpeningSurface, setOpeningSurface, type OpeningSurface } from '$lib/openingSurface';
 	import {
 		getStoredAccessibilitySettings,
@@ -34,6 +47,7 @@
 	} from '$lib/accessibility';
 	import { getTauriPlatform } from '$lib/tauri-platform';
 	import { isTauriRuntime } from '$lib/mediaRuntime';
+	import { confirmAction } from '$lib/confirm';
 	import type { VideoCompressionPresetId } from '$lib/video/videoCompressor';
 	import {
 		getDefaultVideoCompressionPreset,
@@ -45,139 +59,228 @@
 		type VideoCompressionPresetOption,
 		type VideoCompressionRuntime
 	} from '$lib/video/videoCompressionSettings';
+	import { APPEARANCE_TEXT_SIZES, appearanceLayoutScopeHint, dockLimitOptions, textSizeOptions, textSizeValue } from './settingsFrame';
 
-	let savingTheme = false;
-	let ownMessagesOnRight = false;
-	let openingSurface: OpeningSurface = 'last-channel';
-	let showAllThemes = false;
+	/** Signed in to an account (Settings knows): some choices here are saved to it. */
+	export let signedIn = false;
+
+	const themeGroups = themePickerGroups(THEMES);
+	const themeCount = Object.keys(THEMES).length;
+	const languages = getAvailableLocales().map((locale) => ({ value: locale.code, label: locale.label }));
+	const dockLimits = dockLimitOptions(MAX_DOCK_STACK_LIMIT);
+
 	let nativeApp = false;
+	let ownMessagesOnRight = false;
+	let reducedMotion = false;
+	let interfaceScale = 1;
+	let openingSurface: OpeningSurface = 'last-channel';
 	let chatAvatarMode: ChatAvatarMode = 'all';
-	let appChromeOpacity = 1;
-	let videoCompressionEnabled = true;
-	let videoCompressionRuntime: VideoCompressionRuntime = 'desktop';
-	let videoCompressionRuntimeLabel = 'Desktop';
-	let videoCompressionPresetOptions: VideoCompressionPresetOption[] =
-		getVideoCompressionPresetOptions('desktop');
-	let selectedVideoCompressionPresetOption: VideoCompressionPresetOption | null = null;
-	let defaultVideoCompressionPreset: VideoCompressionPresetId = 'balanced_720p';
 	let messageDensity: MessageDensity = 'cozy';
 	let deletionCountdownMode: DeletionCountdownMode = 'static';
 	let clickableSendEnabled = true;
-	let showAdvanced = false;
+	let videoCompressionEnabled = true;
+	let videoCompressionRuntime: VideoCompressionRuntime = 'desktop';
+	let videoCompressionRuntimeLabel = 'Desktop';
+	let videoCompressionPresetOptions: VideoCompressionPresetOption[] = getVideoCompressionPresetOptions('desktop');
+	let defaultVideoCompressionPreset: VideoCompressionPresetId = 'balanced_720p';
+	let showAllThemes = false;
+	let showThemeTuning = false;
+	let themeSaveError = '';
+	/** Failed saves so far: each failure re-creates the alert so it is read out again. */
+	let themeSaveFailures = 0;
+	let themeSaveSeq = 0;
+	let themeRetrying = false;
+	let themeRetryButton: HTMLButtonElement | null = null;
+	let themeSaveTimer: ReturnType<typeof setTimeout> | null = null;
+	let themeButtons: Record<string, HTMLButtonElement | null> = {};
 
-	$: selectedVideoCompressionPresetOption =
-		videoCompressionPresetOptions.find((option) => option.id === defaultVideoCompressionPreset) || null;
+	const THEME_SAVE_FAILED = 'Your theme could not be saved to your account. It still applies on this device.';
+	const THEME_SAVE_FAILED_AGAIN = 'Saving to your account failed again. Your theme still applies on this device.';
+
+	$: customThemeActive = $themeStore.themeId === 'custom';
+	$: selectedThemeId = customThemeActive ? null : getThemeById($themeStore.themeId)?.id ?? null;
+	// Collapsed, the extra group still shows the chosen theme, so the checked radio never disappears.
+	$: visibleThemeGroups = themeGroups
+		.map((group) =>
+			group.id === 'more' && !showAllThemes
+				? { ...group, themes: group.themes.filter((theme) => theme.id === selectedThemeId) }
+				: group
+		)
+		.filter((group) => group.themes.length);
+	$: visibleThemeIds = visibleThemeGroups.flatMap((group) => group.themes.map((theme) => theme.id));
+	// The one radio Tab lands on: the checked theme, else the first one shown.
+	$: themeTabStop = selectedThemeId && visibleThemeIds.includes(selectedThemeId) ? selectedThemeId : visibleThemeIds[0];
+	$: textSizes = textSizeOptions(interfaceScale, APPEARANCE_TEXT_SIZES);
+	$: textSize = textSizeValue(interfaceScale, textSizes);
+	$: selectedPreset = videoCompressionPresetOptions.find((option) => option.id === defaultVideoCompressionPreset) ?? null;
+	$: profileDecorations = $profileAppearance.showCosmetics;
+	$: languageLabel = translatedOr($t, 'settings.language', 'Language');
+	$: layoutScopeHint = appearanceLayoutScopeHint(signedIn, nativeApp);
 
 	onMount(() => {
 		nativeApp = isTauriRuntime();
-		const accessibilitySettings = getStoredAccessibilitySettings();
-		ownMessagesOnRight = accessibilitySettings.ownMessagesOnRight;
+		const stored = getStoredAccessibilitySettings();
+		ownMessagesOnRight = stored.ownMessagesOnRight;
+		reducedMotion = stored.reducedMotion;
+		interfaceScale = stored.interfaceScale;
+		chatAvatarMode = stored.chatAvatarMode;
+		messageDensity = stored.messageDensity;
+		deletionCountdownMode = stored.deletionCountdownMode;
+		clickableSendEnabled = stored.clickableSendEnabled;
 		openingSurface = getOpeningSurface();
-		chatAvatarMode = accessibilitySettings.chatAvatarMode;
-		appChromeOpacity = accessibilitySettings.appChromeOpacity;
-		messageDensity = accessibilitySettings.messageDensity;
-		deletionCountdownMode = accessibilitySettings.deletionCountdownMode;
-		clickableSendEnabled = accessibilitySettings.clickableSendEnabled;
 		videoCompressionEnabled = isVideoCompressionEnabled();
 		applyVideoCompressionRuntimePreferences();
+		if (customThemeActive) showThemeTuning = true;
 	});
 
-	function resolveVideoCompressionRuntimeScope(): VideoCompressionRuntime {
-		if (!isTauriRuntime()) return 'desktop';
-		const runtime = getTauriPlatform();
-		if (runtime === 'android' || runtime === 'ios' || runtime === 'desktop') {
-			return runtime;
+	onDestroy(() => {
+		if (themeSaveTimer) {
+			clearTimeout(themeSaveTimer);
+			void persistTheme($themeStore.themeId);
 		}
-		return 'desktop';
+	});
+
+	function translatedOr(translate: (key: string) => string, key: string, fallback: string): string {
+		const translated = translate(key);
+		return translated && translated !== key ? translated : fallback;
 	}
 
-	function applyVideoCompressionRuntimePreferences(): void {
-		videoCompressionRuntime = resolveVideoCompressionRuntimeScope();
-		const profile = getVideoCompressionRuntimeProfile(videoCompressionRuntime);
-		videoCompressionRuntimeLabel = profile.label;
-		videoCompressionPresetOptions = getVideoCompressionPresetOptions(videoCompressionRuntime);
-		const storedPreset = getDefaultVideoCompressionPreset(videoCompressionRuntime);
-		const presetAllowed = videoCompressionPresetOptions.some((option) => option.id === storedPreset);
-		const resolvedPreset = presetAllowed ? storedPreset : profile.recommendedPreset;
-		defaultVideoCompressionPreset = resolvedPreset;
-		if (resolvedPreset !== storedPreset) {
-			setDefaultVideoCompressionPreset(resolvedPreset, videoCompressionRuntime);
-		}
+	// ---------------------------------------------------------------- theme
+	/**
+	 * Applies at once; saving waits for a pause, so arrowing through the radios sends one save.
+	 * Choosing the shown theme again after a failed save retries it (themeChoiceAction).
+	 */
+	function chooseTheme(themeId: string) {
+		const action = themeChoiceAction(themeId, $themeStore.themeId, Boolean(themeSaveError));
+		if (action === 'none') return;
+		if (action === 'apply') themeStore.setThemeId(themeId);
+		themeSaveError = '';
+		if (themeSaveTimer) clearTimeout(themeSaveTimer);
+		themeSaveTimer = setTimeout(() => {
+			themeSaveTimer = null;
+			void persistTheme(themeId);
+		}, action === 'retry' ? 0 : 450);
 	}
 
-	async function handleThemeChange(themeId: string) {
+	/**
+	 * Try again keeps its row, and so its focus, while the save runs (aria-busy). A repeat failure
+	 * re-reads the alert in new words; a success hands focus to the checked theme before the row
+	 * goes, so keyboard focus never falls out of the dialog.
+	 */
+	async function retryThemeSave() {
+		if (themeRetrying) return;
+		if (themeSaveTimer) {
+			clearTimeout(themeSaveTimer);
+			themeSaveTimer = null;
+		}
+		themeRetrying = true;
+		// persistTheme takes the next sequence number; a newer save started meanwhile owns the
+		// alert (and the account's copy), so this older retry must not clear it.
+		const retrySeq = themeSaveSeq + 1;
+		const saved = await persistTheme($themeStore.themeId);
+		themeRetrying = false;
+		if (!saved || retrySeq !== themeSaveSeq) return;
+		if (themeRetryButton && document.activeElement === themeRetryButton) {
+			const checked = (selectedThemeId && themeButtons[selectedThemeId]) || (themeTabStop && themeButtons[themeTabStop]) || null;
+			checked?.focus();
+		}
+		themeSaveError = '';
+		themeSaveFailures = 0;
+	}
+
+	/** True when saved. Only the latest attempt reports, so an older failure never covers a newer choice. */
+	async function persistTheme(themeId: string): Promise<boolean> {
+		const seq = ++themeSaveSeq;
 		try {
-			savingTheme = true;
-			themeStore.setThemeId(themeId);
-
-			if (getAuthToken()) {
-				await saveThemePreferences({ theme_id: themeId });
-			} else {
-				saveThemeToLocalStorage(themeId);
-			}
+			if (getAuthToken()) await saveThemePreferences({ theme_id: themeId });
+			else saveThemeToLocalStorage(themeId);
+			// Once no error shows, the next failure is a first failure again.
+			if (seq === themeSaveSeq && !themeSaveError) themeSaveFailures = 0;
+			return true;
 		} catch (error) {
 			console.error('[Settings] Failed to save theme:', error);
-			alert('Failed to save theme preferences. Please try again.');
-		} finally {
-			savingTheme = false;
+			if (seq === themeSaveSeq) {
+				themeSaveError = themeSaveFailures > 0 ? THEME_SAVE_FAILED_AGAIN : THEME_SAVE_FAILED;
+				themeSaveFailures += 1;
+			}
+			return false;
 		}
 	}
 
-	function toggleOwnMessagesOnRight() {
-		const next = updateAccessibilitySettings({ ownMessagesOnRight: !ownMessagesOnRight });
-		ownMessagesOnRight = next.ownMessagesOnRight;
+	/** Radio keys: arrows move and choose (wrapping across groups), Home/End jump. */
+	async function handleThemeKeydown(event: KeyboardEvent, themeId: string) {
+		const index = visibleThemeIds.indexOf(themeId);
+		let next = -1;
+		if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % visibleThemeIds.length;
+		else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + visibleThemeIds.length) % visibleThemeIds.length;
+		else if (event.key === 'Home') next = 0;
+		else if (event.key === 'End') next = visibleThemeIds.length - 1;
+		else return;
+		event.preventDefault();
+		const target = visibleThemeIds[next];
+		chooseTheme(target);
+		await tick();
+		themeButtons[target]?.focus();
 	}
 
-	function updateChatAvatarMode(mode: ChatAvatarMode) {
-		const next = updateAccessibilitySettings({ chatAvatarMode: mode });
-		chatAvatarMode = next.chatAvatarMode;
-	}
-
-	function updateAppChromeOpacity(value: number) {
-		const next = updateAccessibilitySettings({ appChromeOpacity: value });
-		appChromeOpacity = next.appChromeOpacity;
-	}
-
-	function toggleVideoCompressionEnabled() {
-		videoCompressionEnabled = !videoCompressionEnabled;
-		setVideoCompressionEnabled(videoCompressionEnabled);
-	}
-
-	function updateVideoCompressionPreset(value: VideoCompressionPresetId) {
-		defaultVideoCompressionPreset = value;
-		setDefaultVideoCompressionPreset(value, videoCompressionRuntime);
+	// ---------------------------------------------------------------- reading
+	function updateTextSize(value: number) {
+		interfaceScale = updateAccessibilitySettings({ interfaceScale: value }).interfaceScale;
 	}
 
 	function updateMessageDensity(value: MessageDensity) {
-		const next = updateAccessibilitySettings({ messageDensity: value });
-		messageDensity = next.messageDensity;
+		messageDensity = updateAccessibilitySettings({ messageDensity: value }).messageDensity;
+	}
+
+	function setOwnMessagesOnRight(value: boolean) {
+		ownMessagesOnRight = updateAccessibilitySettings({ ownMessagesOnRight: value }).ownMessagesOnRight;
+	}
+
+	/** The switch also marks <html data-motion="reduce">, which the newer surfaces read (§4.7). */
+	function setReducedMotion(value: boolean) {
+		reducedMotion = updateAccessibilitySettings({ reducedMotion: value }).reducedMotion;
+		if (typeof document !== 'undefined') {
+			if (reducedMotion) document.documentElement.setAttribute('data-motion', 'reduce');
+			else document.documentElement.removeAttribute('data-motion');
+		}
+	}
+
+	function changeLanguage(code: string) {
+		void setAppLocale(code);
+	}
+
+	// ---------------------------------------------------------------- chat
+	function updateChatAvatarMode(mode: ChatAvatarMode) {
+		chatAvatarMode = updateAccessibilitySettings({ chatAvatarMode: mode }).chatAvatarMode;
+	}
+
+	function setClickableSend(value: boolean) {
+		clickableSendEnabled = updateAccessibilitySettings({ clickableSendEnabled: value }).clickableSendEnabled;
 	}
 
 	function updateDeletionCountdownMode(mode: DeletionCountdownMode) {
-		const next = updateAccessibilitySettings({ deletionCountdownMode: mode });
-		deletionCountdownMode = next.deletionCountdownMode;
+		deletionCountdownMode = updateAccessibilitySettings({ deletionCountdownMode: mode }).deletionCountdownMode;
 	}
 
-	function toggleClickableSendEnabled() {
-		const next = updateAccessibilitySettings({ clickableSendEnabled: !clickableSendEnabled });
-		clickableSendEnabled = next.clickableSendEnabled;
-	}
-
-	function updateDockSide(side: 'left' | 'right') {
-		layoutStore.setNavDock(side);
-	}
-
-	function updateHomeLayoutMode(mode: HomeLayoutMode) {
-		homeLayout.set(mode);
-	}
-
-	function toggleDockNavCollapsed() {
-		layoutStore.toggleNavCollapsed();
-	}
-
+	// ---------------------------------------------------------------- layout
 	function updateOpeningSurface(surface: OpeningSurface) {
 		openingSurface = surface;
 		setOpeningSurface(surface);
+	}
+
+	/**
+	 * The server rail's density and side live in the account's layout container (railLayout.ts).
+	 * These rows are their only writer, so they save through it: without this a change here never
+	 * reached the account and the account's older copy came back on the next load.
+	 */
+	function setRailDensity(value: RailDensity) {
+		railDensity.set(value);
+		persistRailLayout();
+	}
+
+	function setRailSide(value: RailSide) {
+		railSide.set(value);
+		persistRailLayout();
 	}
 
 	function loadWorkspaceByName(name: string) {
@@ -198,15 +301,21 @@
 		layoutStore.renameWorkspace(current, nextName);
 	}
 
-	function resetActiveWorkspace() {
-		layoutStore.resetWorkspace($layoutStore.activeWorkspace);
+	async function resetActiveWorkspace() {
+		const confirmed = await confirmAction({
+			title: 'Reset this layout?',
+			body: `“${$layoutStore.activeWorkspace}” goes back to its default panels and sizes.`,
+			confirm: 'Reset layout',
+			danger: true
+		});
+		if (confirmed) layoutStore.resetWorkspace($layoutStore.activeWorkspace);
 	}
 
 	async function exportWorkspaceJson() {
 		const json = layoutStore.exportLayoutJson();
 		if (navigator.clipboard?.writeText) {
 			await navigator.clipboard.writeText(json);
-			alert('Layout JSON copied to clipboard.');
+			void confirmAction({ title: 'Layout copied', body: 'The layout JSON is on your clipboard.', confirm: 'Done', cancel: null });
 			return;
 		}
 		window.prompt('Copy layout JSON:', json);
@@ -215,405 +324,513 @@
 	function importWorkspaceJsonPrompt() {
 		const pasted = window.prompt('Paste layout JSON');
 		if (!pasted) return;
-		const ok = layoutStore.importLayoutJson(pasted);
-		if (!ok) {
-			alert('Invalid layout JSON.');
+		if (!layoutStore.importLayoutJson(pasted)) {
+			void confirmAction({
+				title: 'That layout could not be read',
+				body: 'Paste the JSON exactly as it was exported. Your current layout is unchanged.',
+				confirm: 'Got it',
+				cancel: null
+			});
 		}
 	}
 
-	// Plain-words explanation of the auto-detected device tier (weak | mid | capable).
-	function getDeviceTierLabel(tier: string | undefined): string {
+	// ---------------------------------------------------------------- media
+	function resolveVideoCompressionRuntimeScope(): VideoCompressionRuntime {
+		if (!isTauriRuntime()) return 'desktop';
+		const runtime = getTauriPlatform();
+		return runtime === 'android' || runtime === 'ios' || runtime === 'desktop' ? runtime : 'desktop';
+	}
+
+	function applyVideoCompressionRuntimePreferences(): void {
+		videoCompressionRuntime = resolveVideoCompressionRuntimeScope();
+		const profile = getVideoCompressionRuntimeProfile(videoCompressionRuntime);
+		videoCompressionRuntimeLabel = profile.label;
+		videoCompressionPresetOptions = getVideoCompressionPresetOptions(videoCompressionRuntime);
+		const storedPreset = getDefaultVideoCompressionPreset(videoCompressionRuntime);
+		const presetAllowed = videoCompressionPresetOptions.some((option) => option.id === storedPreset);
+		const resolvedPreset = presetAllowed ? storedPreset : profile.recommendedPreset;
+		defaultVideoCompressionPreset = resolvedPreset;
+		if (resolvedPreset !== storedPreset) setDefaultVideoCompressionPreset(resolvedPreset, videoCompressionRuntime);
+	}
+
+	function setVideoCompression(value: boolean) {
+		videoCompressionEnabled = value;
+		setVideoCompressionEnabled(value);
+	}
+
+	function updateVideoCompressionPreset(value: string) {
+		defaultVideoCompressionPreset = value as VideoCompressionPresetId;
+		setDefaultVideoCompressionPreset(defaultVideoCompressionPreset, videoCompressionRuntime);
+	}
+
+	// ---------------------------------------------------------------- profile decorations
+	const decorationRows: Array<{ key: Exclude<keyof ProfileAppearance, 'showCosmetics'>; label: string; hint: string }> = [
+		{ key: 'names', label: 'Styled names', hint: 'Fonts and colors people chose for their names.' },
+		{ key: 'plates', label: 'Nameplates', hint: 'The band behind a name in member lists.' },
+		{ key: 'decorations', label: 'Banners and avatar decorations', hint: 'Profile banners and frames around avatars.' },
+		{ key: 'animate', label: 'Artwork and name animation', hint: 'Moving profile art and shimmering names.' }
+	];
+
+	// ---------------------------------------------------------------- performance
+	/** "Auto-tuned for a low-power device" — the article lives with each phrase. */
+	function deviceTierPhrase(tier: string | undefined): string {
 		switch (tier) {
 			case 'weak':
-				return 'low-power device';
+				return 'a low-power device';
 			case 'mid':
-				return 'mid-range device';
+				return 'a mid-range device';
 			case 'capable':
-				return 'full-power device';
+				return 'a full-power device';
 			default:
 				return 'this device';
 		}
 	}
 </script>
 
-<!-- Chat -->
-<div class="settings-section"><div class="settings-group-card"><ProfileAppearanceControls /></div></div>
-<div class="settings-section">
-	<h3>Chat</h3>
-	<div class="settings-group-card">
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Avatars</span>
-				<span class="setting-description">Who shows a profile picture in messages.</span>
+<!-- Theme -->
+<section class="settings-block" aria-labelledby="appearance-theme-title">
+	<h3 class="settings-block__title" id="appearance-theme-title">Theme</h3>
+	<p class="settings-block__hint">Every theme keeps the same layout; only color, corners and type change.</p>
+
+	<div class="theme-picker" role="radiogroup" aria-labelledby="appearance-theme-title">
+		{#each visibleThemeGroups as group (group.id)}
+			<div class="theme-picker__kicker w-kicker" id="theme-group-{group.id}">{group.label}</div>
+			<div class="theme-picker__grid">
+				{#each group.themes as theme (theme.id)}
+					{@const selected = theme.id === selectedThemeId}
+					{@const word = themeCharacterWord(theme)}
+					<button
+						type="button"
+						role="radio"
+						class="theme-option"
+						aria-checked={selected}
+						aria-describedby="theme-group-{group.id}"
+						tabindex={theme.id === themeTabStop ? 0 : -1}
+						title={theme.description}
+						data-theme-option={theme.id}
+						bind:this={themeButtons[theme.id]}
+						on:click={() => chooseTheme(theme.id)}
+						on:keydown={(event) => handleThemeKeydown(event, theme.id)}
+					>
+						<span class="theme-preview" style={themePreviewStyle(theme)} {...themePreviewAttributes(theme)} aria-hidden="true">
+							<span class="theme-preview__rail"><i></i><i></i><i></i></span>
+							<span class="theme-preview__page"><b>Aa</b><i><span class="theme-preview__sig"></span></i><i></i></span>
+							<span class="theme-preview__seal"></span>
+							<span class="theme-preview__primary"></span>
+						</span>
+						<span class="theme-option__name">
+							{#if selected}<Icon name="check" size={14} stroke={2.25} />{/if}
+							<span class="theme-option__label">{theme.name}</span>
+							{#if word}<small class="theme-option__word">{word}</small>{/if}
+						</span>
+					</button>
+				{/each}
 			</div>
-			<div class="segmented">
-				<button type="button" class:active={chatAvatarMode === 'off'} on:click={() => updateChatAvatarMode('off')}>Off</button>
-				<button type="button" class:active={chatAvatarMode === 'user'} on:click={() => updateChatAvatarMode('user')}>Others</button>
-				<button type="button" class:active={chatAvatarMode === 'all'} on:click={() => updateChatAvatarMode('all')}>All</button>
+		{/each}
+	</div>
+
+	<div class="theme-picker__foot">
+		<button
+			type="button"
+			class="w-btn w-btn--quiet w-btn--sm theme-picker__more"
+			aria-expanded={showAllThemes}
+			on:click={() => (showAllThemes = !showAllThemes)}
+		>
+			{showAllThemes ? 'Show fewer themes' : `Show all ${themeCount} themes`}
+			<Icon name={showAllThemes ? 'chevUp' : 'chevDown'} size={16} />
+		</button>
+		{#if customThemeActive}<span class="theme-picker__custom">Using your custom theme</span>{/if}
+	</div>
+	{#if themeSaveError}
+		<div class="settings-block__error settings-error-row">
+			{#key themeSaveFailures}
+				<p class="w-field-error" role="alert"><Icon name="alert" size={14} />{themeSaveError}</p>
+			{/key}
+			<button
+				type="button"
+				class="w-btn w-btn--sm"
+				aria-busy={themeRetrying}
+				bind:this={themeRetryButton}
+				on:click={retryThemeSave}>Try again</button
+			>
+		</div>
+	{/if}
+
+	<!-- The older theme editors, behind their own disclosure row under the picker (§7.25). -->
+	<button
+		type="button"
+		class="w-disclosure theme-tuning__toggle"
+		aria-expanded={showThemeTuning}
+		aria-controls={showThemeTuning ? 'appearance-theme-tuning' : undefined}
+		on:click={() => (showThemeTuning = !showThemeTuning)}
+	>
+		<Icon name="chevRight" size={16} />
+		Customize theme
+	</button>
+	{#if showThemeTuning}
+		<div class="w-disclosure__body settings-disclosure__body" id="appearance-theme-tuning">
+			<div class="settings-embed"><ThemeCustomizer /></div>
+			<div class="settings-embed"><UniformFontMode /></div>
+			<div class="settings-embed"><EffectsTab /></div>
+		</div>
+	{/if}
+</section>
+
+<!-- Reading -->
+<section class="settings-block" aria-labelledby="appearance-reading-title">
+	<h3 class="settings-block__title" id="appearance-reading-title">Reading</h3>
+	<div class="w-srows">
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-text-size">Text size</p>
+				<p class="w-srow__hint">Scales every word in Wabi, chat included.</p>
+			</div>
+			<div class="w-srow__control">
+				<Segmented labelledby="appearance-text-size" options={textSizes} value={textSize} onchange={updateTextSize} />
 			</div>
 		</div>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Density</span>
-				<span class="setting-description">How tightly messages pack together.</span>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-density">Message density</p>
+				<p class="w-srow__hint">Cozy shows avatars and room to breathe; compact fits more on screen.</p>
 			</div>
-			<div class="segmented">
-				<button type="button" class:active={messageDensity === 'cozy'} on:click={() => updateMessageDensity('cozy')}>Default</button>
-				<button type="button" class:active={messageDensity === 'compact'} on:click={() => updateMessageDensity('compact')}>Compact</button>
+			<div class="w-srow__control">
+				<Segmented
+					labelledby="appearance-density"
+					options={[{ value: 'cozy', label: 'Cozy' }, { value: 'compact', label: 'Compact' }]}
+					value={messageDensity}
+					onchange={(value) => updateMessageDensity(value as MessageDensity)}
+				/>
 			</div>
 		</div>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Own messages on right</span>
-				<span class="setting-description">Align your messages to the right side.</span>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-reduce-motion">Reduce motion</p>
+				<p class="w-srow__hint">
+					Panels and menus appear without sliding.{$profileOsReducedMotion ? ' Your system setting asks for less motion, so this stays on until you change it there.' : ''}
+				</p>
 			</div>
-			<button class="toggle-btn" class:active={ownMessagesOnRight} on:click={toggleOwnMessagesOnRight} role="switch" aria-checked={ownMessagesOnRight} aria-label="Own messages on right"></button>
+			<div class="w-srow__control">
+				<Switch
+					labelledby="appearance-reduce-motion"
+					checked={reducedMotion || $profileOsReducedMotion}
+					disabled={$profileOsReducedMotion}
+					onchange={setReducedMotion}
+				/>
+			</div>
 		</div>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Send button</span>
-				<span class="setting-description">Show a clickable send button in the composer.</span>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-own-right">Your messages on the right</p>
+				<p class="w-srow__hint">Lines your own messages up along the right edge of the conversation.</p>
 			</div>
-			<button class="toggle-btn" class:active={clickableSendEnabled} on:click={toggleClickableSendEnabled} role="switch" aria-checked={clickableSendEnabled} aria-label="Clickable send button"></button>
+			<div class="w-srow__control">
+				<Switch labelledby="appearance-own-right" checked={ownMessagesOnRight} onchange={setOwnMessagesOnRight} />
+			</div>
 		</div>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Deletion timer</span>
-				<span class="setting-description">Show when a message expires, or a continuously updating countdown.</span>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-language">{languageLabel}</p>
+				<p class="w-srow__hint">Menus and labels. Messages stay in the language they were written in.</p>
 			</div>
-			<div class="segmented">
-				<button type="button" class:active={deletionCountdownMode === 'off'} on:click={() => updateDeletionCountdownMode('off')}>Off</button>
-				<button type="button" class:active={deletionCountdownMode === 'static'} on:click={() => updateDeletionCountdownMode('static')}>Expiry label</button>
-				<button type="button" class:active={deletionCountdownMode === 'live'} on:click={() => updateDeletionCountdownMode('live')}>Countdown</button>
+			<div class="w-srow__control">
+				<Select ariaLabel={languageLabel} heading={languageLabel} align="end" options={languages} value={$currentLocale || 'en'} onchange={changeLanguage} />
 			</div>
 		</div>
 	</div>
-</div>
+</section>
+
+<!-- Chat background: one picker -->
+<ChatBackdropSettings />
+
+<!-- Chat -->
+<section class="settings-block" aria-labelledby="appearance-chat-title">
+	<h3 class="settings-block__title" id="appearance-chat-title">Chat</h3>
+	<div class="w-srows">
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-avatars">Avatars in chat</p>
+				<p class="w-srow__hint">Whose profile pictures appear beside messages.</p>
+			</div>
+			<div class="w-srow__control">
+				<Segmented
+					labelledby="appearance-avatars"
+					options={[{ value: 'off', label: 'None' }, { value: 'user', label: 'Others' }, { value: 'all', label: 'Everyone' }]}
+					value={chatAvatarMode}
+					onchange={(value) => updateChatAvatarMode(value as ChatAvatarMode)}
+				/>
+			</div>
+		</div>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-send-button">Send button</p>
+				<p class="w-srow__hint">Shows a send button in the composer. Enter still sends.</p>
+			</div>
+			<div class="w-srow__control">
+				<Switch labelledby="appearance-send-button" checked={clickableSendEnabled} onchange={setClickableSend} />
+			</div>
+		</div>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-deletion-timer">Deletion timer</p>
+				<p class="w-srow__hint">On messages that expire: when they go, or a live countdown.</p>
+			</div>
+			<div class="w-srow__control">
+				<Segmented
+					labelledby="appearance-deletion-timer"
+					options={[{ value: 'off', label: 'Off' }, { value: 'static', label: 'Expiry time' }, { value: 'live', label: 'Countdown' }]}
+					value={deletionCountdownMode}
+					onchange={(value) => updateDeletionCountdownMode(value as DeletionCountdownMode)}
+				/>
+			</div>
+		</div>
+	</div>
+</section>
 
 <!-- Layout -->
-<div class="settings-section">
-	<h3>Layout</h3>
-	<div class="settings-group-card">
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Open to</span>
-				<span class="setting-description">Your starting page on this device, for this account and server.</span>
+<section class="settings-block" aria-labelledby="appearance-layout-title">
+	<h3 class="settings-block__title" id="appearance-layout-title">Layout</h3>
+	{#if layoutScopeHint}<p class="settings-block__hint" id="appearance-layout-scope">{layoutScopeHint}</p>{/if}
+	<div class="w-srows">
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-open-to">Open to</p>
+				<p class="w-srow__hint">Where Wabi starts on this device, for this account and server.</p>
 			</div>
-			<div class="segmented">
-				<button type="button" class:active={openingSurface === 'last-channel'} on:click={() => updateOpeningSurface('last-channel')}>Last channel</button>
-				<button type="button" class:active={openingSurface === 'server'} on:click={() => updateOpeningSurface('server')}>Server home</button>
-				<button type="button" class:active={openingSurface === 'messages'} on:click={() => updateOpeningSurface('messages')}>Messages</button>
-			</div>
-		</div>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Nav dock</span>
-				<span class="setting-description">Which side the server list appears on.</span>
-			</div>
-			<div class="segmented">
-				<button type="button" class:active={$layoutStore.navDock === 'left'} on:click={() => updateDockSide('left')}>Left</button>
-				<button type="button" class:active={$layoutStore.navDock === 'right'} on:click={() => updateDockSide('right')}>Right</button>
+			<div class="w-srow__control">
+				<Segmented
+					labelledby="appearance-open-to"
+					options={[{ value: 'last-channel', label: 'Last channel' }, { value: 'server', label: 'Server home' }, { value: 'messages', label: 'DMs' }]}
+					value={openingSurface}
+					onchange={(value) => updateOpeningSurface(value as OpeningSurface)}
+				/>
 			</div>
 		</div>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Peek a right-rail panel</span>
-				<span class="setting-description">Hold this key and hover a rail icon to look at a panel without pinning it. Click an icon to pin it.</span>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-visible-nav">Visible navigation</p>
+				<p class="w-srow__hint">Whether the server list and the channel list show.</p>
 			</div>
-			<div class="segmented">
-				{#each [['shift', 'Shift'], ['alt', 'Alt'], ['ctrl', 'Ctrl'], ['none', 'Hover only']] as [key, label]}
-					<button type="button" class:active={$railPeekKey === key} on:click={() => railPeekKey.set(key as RailPeekKey)}>{label}</button>
-				{/each}
+			<div class="w-srow__control">
+				<Segmented
+					labelledby="appearance-visible-nav"
+					options={[{ value: 'server-browser', label: 'Servers and channels' }, { value: 'dm-focused', label: 'Channels only' }, { value: 'dm-pure', label: 'Neither' }]}
+					value={$homeLayout}
+					onchange={(value) => homeLayout.set(value as HomeLayoutMode)}
+				/>
 			</div>
 		</div>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Panels pinned side by side</span>
-				<span class="setting-description">How many right-rail panels can stay open together in the dock (1–{MAX_DOCK_STACK_LIMIT}). Lowering it closes the oldest pins.</span>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-nav-dock">Navigation side</p>
+				<p class="w-srow__hint">Which side the server list docks to.</p>
 			</div>
-			<input type="number" class="w-field" style="max-width: 5.5rem" min="1" max={MAX_DOCK_STACK_LIMIT} step="1" value={$dockStackLimit} aria-label="Panels pinned side by side" on:change={(event) => layoutStore.setDockStackLimit(Number(event.currentTarget.value))} />
+			<div class="w-srow__control">
+				<Segmented
+					labelledby="appearance-nav-dock"
+					options={[{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }]}
+					value={$layoutStore.navDock}
+					onchange={(value) => layoutStore.setNavDock(value as 'left' | 'right')}
+				/>
+			</div>
 		</div>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Visible navigation</span>
-				<span class="setting-description">Choose whether to show the server switcher and channel list.</span>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-rail-density">Server rail</p>
+				<p class="w-srow__hint">How much of the far-left server strip shows.</p>
 			</div>
-			<div class="segmented">
-				<button type="button" class:active={$homeLayout === 'server-browser'} on:click={() => updateHomeLayoutMode('server-browser')}>Servers & channels</button>
-				<button type="button" class:active={$homeLayout === 'dm-focused'} on:click={() => updateHomeLayoutMode('dm-focused')}>Channels only</button>
-				<button type="button" class:active={$homeLayout === 'dm-pure'} on:click={() => updateHomeLayoutMode('dm-pure')}>Hide both</button>
+			<div class="w-srow__control">
+				<Segmented
+					labelledby="appearance-rail-density"
+					options={[{ value: 'full', label: 'Full' }, { value: 'icons-only', label: 'Icons' }, { value: 'hidden', label: 'Hidden' }]}
+					value={$railDensity}
+					onchange={(value) => setRailDensity(value as RailDensity)}
+				/>
+			</div>
+		</div>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-rail-side">Server rail side</p>
+				<p class="w-srow__hint">Which screen edge the server rail pins to.</p>
+			</div>
+			<div class="w-srow__control">
+				<Segmented
+					labelledby="appearance-rail-side"
+					options={[{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }]}
+					value={$railSide}
+					onchange={(value) => setRailSide(value as RailSide)}
+				/>
+			</div>
+		</div>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-dock-limit">Panels pinned side by side</p>
+				<p class="w-srow__hint">How many side panels stay open together. Lowering it closes the oldest pins.</p>
+			</div>
+			<div class="w-srow__control">
+				<Select
+					ariaLabel="Panels pinned side by side"
+					align="end"
+					options={dockLimits}
+					value={String($dockStackLimit)}
+					onchange={(value) => layoutStore.setDockStackLimit(Number(value))}
+				/>
+			</div>
+		</div>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-peek-key">Peek a side panel</p>
+				<p class="w-srow__hint">Hold this key and point at a stub to look at its panel without pinning it. Click a stub to pin it.</p>
+			</div>
+			<div class="w-srow__control">
+				<Segmented
+					labelledby="appearance-peek-key"
+					options={[{ value: 'shift', label: 'Shift' }, { value: 'alt', label: 'Alt' }, { value: 'ctrl', label: 'Ctrl' }, { value: 'none', label: 'Hover only' }]}
+					value={$railPeekKey}
+					onchange={(value) => railPeekKey.set(value as RailPeekKey)}
+				/>
 			</div>
 		</div>
 		{#if nativeApp}
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Layout preset</span>
-				<span class="setting-description">Save and switch between layout configurations.</span>
+			<div class="w-srow">
+				<div class="w-srow__text">
+					<p class="w-srow__label" id="appearance-layout-preset">Layout preset</p>
+					<p class="w-srow__hint">Save and switch between window layouts in the desktop app.</p>
+				</div>
+				<div class="w-srow__control">
+					<Select
+						ariaLabel="Layout preset"
+						align="end"
+						options={$layoutStore.workspaces.map((name) => ({ value: name, label: name }))}
+						value={$layoutStore.activeWorkspace}
+						onchange={loadWorkspaceByName}
+					/>
+				</div>
 			</div>
-			<select class="theme-select" value={$layoutStore.activeWorkspace} on:change={(e) => loadWorkspaceByName(e.currentTarget.value)}>
-				{#each $layoutStore.workspaces as workspaceName}
-					<option value={workspaceName}>{workspaceName}</option>
-				{/each}
-			</select>
-		</div>
-		<div class="setting-item-full">
-			<div class="settings-row-actions">
-				<button type="button" class="action-btn" on:click={saveWorkspaceAsPrompt}>Save as…</button>
-				<button type="button" class="action-btn secondary" on:click={renameWorkspacePrompt}>Rename…</button>
-				<button type="button" class="action-btn danger" on:click={resetActiveWorkspace}>Reset</button>
+			<div class="settings-actions">
+				<button type="button" class="w-btn w-btn--sm" on:click={saveWorkspaceAsPrompt}>Save as…</button>
+				<button type="button" class="w-btn w-btn--sm" on:click={renameWorkspacePrompt}>Rename…</button>
+				<button type="button" class="w-btn w-btn--sm" on:click={exportWorkspaceJson}>Copy layout JSON</button>
+				<button type="button" class="w-btn w-btn--sm" on:click={importWorkspaceJsonPrompt}>Paste layout JSON…</button>
+				<button type="button" class="w-btn w-btn--sm w-btn--danger" on:click={resetActiveWorkspace}>Reset layout…</button>
 			</div>
-			<div class="settings-row-actions">
-				<button type="button" class="action-btn secondary" on:click={exportWorkspaceJson}>Export JSON</button>
-				<button type="button" class="action-btn secondary" on:click={importWorkspaceJsonPrompt}>Import JSON</button>
-			</div>
-		</div>
 		{/if}
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Server rail density</span>
-				<span class="setting-description">How compact the far-left server strip is.</span>
-			</div>
-			<div class="segmented">
-				<button type="button" class:active={$railDensity === 'full'} on:click={() => railDensity.set('full')}>Full</button>
-				<button type="button" class:active={$railDensity === 'icons-only'} on:click={() => railDensity.set('icons-only')}>Icons</button>
-				<button type="button" class:active={$railDensity === 'hidden'} on:click={() => railDensity.set('hidden')}>Hidden</button>
-			</div>
-		</div>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Server rail side</span>
-				<span class="setting-description">Which screen edge the server rail pins to.</span>
-			</div>
-			<div class="segmented">
-				<button type="button" class:active={$railSide === 'left'} on:click={() => railSide.set('left')}>Left</button>
-				<button type="button" class:active={$railSide === 'right'} on:click={() => railSide.set('right')}>Right</button>
-			</div>
-		</div>
-		<div class="setting-item setting-item-stack">
-			<div class="setting-info">
-				<span class="setting-label">Chrome opacity</span>
-				<span class="setting-description">{Math.round(appChromeOpacity * 100)}% panel transparency (desktop).</span>
-			</div>
-			<input type="range" min="0.2" max="1" step="0.05" bind:value={appChromeOpacity} on:input={(e) => updateAppChromeOpacity(parseFloat(e.currentTarget.value))} class="volume-slider" />
-		</div>
 	</div>
-</div>
+</section>
 
 <!-- Media -->
-<div class="settings-section">
-	<h3>Media</h3>
-	<div class="settings-group-card">
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Video compression ({videoCompressionRuntimeLabel})</span>
-				<span class="setting-description">Automatically compress large video uploads.</span>
+<section class="settings-block" aria-labelledby="appearance-media-title">
+	<h3 class="settings-block__title" id="appearance-media-title">Media</h3>
+	<div class="w-srows">
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-video-compression">Video compression</p>
+				<p class="w-srow__hint">Shrinks large video uploads before they are sent ({videoCompressionRuntimeLabel}).</p>
 			</div>
-			<button class="toggle-btn" class:active={videoCompressionEnabled} on:click={toggleVideoCompressionEnabled} role="switch" aria-checked={videoCompressionEnabled} aria-label="Video compression"></button>
-		</div>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Default preset</span>
-				<span class="setting-description">Quality preset for the upload dialog.</span>
+			<div class="w-srow__control">
+				<Switch labelledby="appearance-video-compression" checked={videoCompressionEnabled} onchange={setVideoCompression} />
 			</div>
-			<select class="theme-select" value={defaultVideoCompressionPreset} on:change={(e) => updateVideoCompressionPreset(e.currentTarget.value as VideoCompressionPresetId)} disabled={!videoCompressionEnabled}>
-				{#each videoCompressionPresetOptions as presetOption}
-					<option value={presetOption.id}>{presetOption.label}</option>
-				{/each}
-			</select>
 		</div>
-		{#if selectedVideoCompressionPresetOption && videoCompressionEnabled}
-			<div class="runtime-note" style="padding:0.25rem 0.1rem 0.55rem">{selectedVideoCompressionPresetOption.description}</div>
-		{/if}
-	</div>
-</div>
-
-<!-- Theme -->
-<div class="settings-section">
-	<h3>Theme</h3>
-	<div class="setting-item-full" style="padding:0;border:0;background:transparent;box-shadow:none">
-		<div class="theme-cards">
-			{#each Object.values(THEMES).filter((theme, index) => showAllThemes || index < 4 || theme.id === $themeStore.themeId) as theme}
-				<button
-					type="button"
-					class="theme-card"
-					class:active={$themeStore.themeId === theme.id}
-					on:click={() => handleThemeChange(theme.id)}
-					disabled={savingTheme}
-					title={theme.description}
-					style="--card-accent: {theme.colors.accentHex};"
-				>
-					<div class="theme-card-preview" style="background: {theme.colors.bgSecondary};">
-						<div class="theme-preview-top" style="background: {theme.colors.bgTertiary};"></div>
-						<div class="theme-preview-content">
-							<div class="theme-preview-bar long" style="background: {theme.colors.textPrimary}; opacity: 0.55;"></div>
-							<div class="theme-preview-bar short" style="background: {theme.colors.textSecondary}; opacity: 0.4;"></div>
-							<div class="theme-preview-accent" style="background: {theme.colors.accentHex};"></div>
-						</div>
-						{#if theme.ambient && theme.ambient.effect !== 'none'}
-							<div class="theme-card-glow" style="background: radial-gradient(circle at 30% 40%, {theme.colors.accentHex}33, transparent 70%);"></div>
-						{/if}
-					</div>
-					<div class="theme-card-footer">
-						<span class="theme-card-name">{theme.name}</span>
-						{#if $themeStore.themeId === theme.id}
-							<span class="theme-card-badge">
-								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-							</span>
-						{/if}
-					</div>
-				</button>
-			{/each}
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-video-preset">Default quality</p>
+				<p class="w-srow__hint">
+					{#if !videoCompressionEnabled}Turn on video compression to choose a quality.{:else}{selectedPreset?.description ?? 'Quality the upload dialog starts with.'}{/if}
+				</p>
+			</div>
+			<div class="w-srow__control">
+				<Select
+					ariaLabel="Default quality"
+					align="end"
+					disabled={!videoCompressionEnabled}
+					options={videoCompressionPresetOptions.map((option) => ({ value: option.id, label: option.label }))}
+					value={defaultVideoCompressionPreset}
+					onchange={updateVideoCompressionPreset}
+				/>
+			</div>
 		</div>
 	</div>
-	<button type="button" class="action-btn secondary" aria-expanded={showAllThemes} on:click={() => showAllThemes = !showAllThemes}>{showAllThemes ? 'Show fewer themes' : `Browse all ${Object.values(THEMES).length} themes`}</button>
-	{#if savingTheme}
-		<div class="save-indicator"><span class="spinner">...</span> Saving theme...</div>
-	{/if}
+</section>
 
-	<!-- Advanced theme controls — progressive disclosure -->
-	<button type="button" class="advanced-toggle" on:click={() => showAdvanced = !showAdvanced}>
-		<span class="advanced-label">{showAdvanced ? 'Hide' : 'Tune'} theme</span>
-		<svg class="advanced-chevron" class:rotated={showAdvanced} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-	</button>
-
-	{#if showAdvanced}
-		<div class="advanced-panel">
-			<div class="customizer-container settings-customizer-slot">
-				<ThemeCustomizer />
+<!-- Profile decorations (how other people's profiles look here) -->
+<section class="settings-block" aria-labelledby="appearance-decorations-title">
+	<h3 class="settings-block__title" id="appearance-decorations-title">Profile decorations</h3>
+	<p class="settings-block__hint">How other people's profiles look on this device. Nobody's saved design changes.</p>
+	<div class="w-srows">
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-decorations">Show profile decorations</p>
+				<p class="w-srow__hint">Off shows every profile plainly. Your choices below are kept for when you turn it back on.</p>
 			</div>
-			<div class="customizer-container settings-customizer-slot">
-				<UniformFontMode />
-			</div>
-			<div class="customizer-container settings-customizer-slot">
-				<EffectsTab />
+			<div class="w-srow__control">
+				<Switch labelledby="appearance-decorations" checked={profileDecorations} onchange={(value) => setProfileAppearance({ showCosmetics: value })} />
 			</div>
 		</div>
-	{/if}
-</div>
+		{#each decorationRows as row (row.key)}
+			<div class="w-srow settings-srow--sub" class:settings-srow--off={!profileDecorations}>
+				<div class="w-srow__text">
+					<p class="w-srow__label" id="appearance-decoration-{row.key}">{row.label}</p>
+					<p class="w-srow__hint">
+						{#if !profileDecorations}Turn on profile decorations to change this.{:else if row.key === 'animate'}{row.hint} Reduce motion keeps artwork still.{:else}{row.hint}{/if}
+					</p>
+				</div>
+				<div class="w-srow__control">
+					<Switch
+						labelledby="appearance-decoration-{row.key}"
+						disabled={!profileDecorations}
+						checked={$profileAppearance[row.key]}
+						onchange={(value) => setProfileAppearance({ [row.key]: value })}
+					/>
+				</div>
+			</div>
+		{/each}
+	</div>
+</section>
 
 <!-- Pointer effects are device preferences, independent of theme tuning. -->
-<PointerEffectsTab />
+<div class="settings-embed settings-embed--section"><PointerEffectsTab /></div>
 
 <!-- Performance -->
-<div class="settings-section">
-	<h3>Performance</h3>
-	<div class="settings-group-card">
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">CSS animations</span>
-				<span class="setting-description">
-					Use CSS transitions instead of spring animations.
-					{#if $animationQuality.cssOnly && !$animationQuality.userOverride}
-						<span class="auto-badge">Auto</span>
-					{/if}
-				</span>
+<section class="settings-block" aria-labelledby="appearance-performance-title">
+	<h3 class="settings-block__title" id="appearance-performance-title">Performance</h3>
+	{#if !$animationQuality.userOverride}
+		<p class="settings-block__hint">
+			Tuned for {deviceTierPhrase($animationQuality.tier)}: {$animationQuality.cssOnly ? 'simple animations' : 'full spring animations'},
+			{$animationQuality.disableWindows ? 'panels stay inline' : 'pop-out windows allowed'}. Change either switch to choose yourself.
+		</p>
+	{/if}
+	<div class="w-srows">
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-css-animations">
+					Simple animations
+					{#if $animationQuality.cssOnly && !$animationQuality.userOverride}<span class="w-tag settings-auto-tag">Auto</span>{/if}
+				</p>
+				<p class="w-srow__hint">Uses plain transitions instead of spring animations. Lighter on older devices.</p>
 			</div>
-			<button
-				class="toggle-btn"
-				class:active={$animationQuality.cssOnly}
-				on:click={() => animationQuality.setCssOnly(!$animationQuality.cssOnly)}
-				role="switch"
-				aria-checked={$animationQuality.cssOnly}
-				aria-label="CSS animations"
-			></button>
-		</div>
-		<div class="setting-item">
-			<div class="setting-info">
-				<span class="setting-label">Disable pop-out panels</span>
-				<span class="setting-description">
-					Keep all panels inline instead of opening new windows.
-					{#if $animationQuality.disableWindows && !$animationQuality.userOverride}
-						<span class="auto-badge">Auto</span>
-					{/if}
-				</span>
-			</div>
-			<button
-				class="toggle-btn"
-				class:active={$animationQuality.disableWindows}
-				on:click={() => animationQuality.setDisableWindows(!$animationQuality.disableWindows)}
-				role="switch"
-				aria-checked={$animationQuality.disableWindows}
-				aria-label="Disable new windows"
-			></button>
-		</div>
-		{#if !$animationQuality.userOverride}
-			<div class="runtime-note" style="padding: 0.35rem 0.1rem">
-				Auto-tuned for a {getDeviceTierLabel($animationQuality.tier)}:
-				{$animationQuality.cssOnly ? 'simple CSS animations' : 'full spring animations'}
-				·
-				{$animationQuality.disableWindows ? 'panels stay inline' : 'pop-out windows on'}.
-				Toggle above to take control.
-			</div>
-		{/if}
-		</div>
-		</div>
-
-		<!-- Chat background — always visible, not buried under Tune theme -->
-		<div class="settings-section">
-		<h3>Chat background</h3>
-		<div class="settings-group-card">
-			<div class="customizer-container settings-customizer-slot">
-				<BackgroundImageEditor />
+			<div class="w-srow__control">
+				<Switch
+					labelledby="appearance-css-animations"
+					checked={$animationQuality.cssOnly}
+					onchange={(value) => animationQuality.setCssOnly(value)}
+				/>
 			</div>
 		</div>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="appearance-disable-windows">
+					Keep panels inline
+					{#if $animationQuality.disableWindows && !$animationQuality.userOverride}<span class="w-tag settings-auto-tag">Auto</span>{/if}
+				</p>
+				<p class="w-srow__hint">Opens panels inside Wabi instead of in new windows.</p>
+			</div>
+			<div class="w-srow__control">
+				<Switch
+					labelledby="appearance-disable-windows"
+					checked={$animationQuality.disableWindows}
+					onchange={(value) => animationQuality.setDisableWindows(value)}
+				/>
+			</div>
 		</div>
-
-<style>
-	.advanced-toggle {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 0.4rem;
-		width: 100%;
-		margin-top: 0.85rem;
-		padding: 0.6rem 0;
-		background: transparent;
-		border: 1px dashed color-mix(in srgb, var(--border-subtle) 60%, transparent);
-		border-radius: var(--radius-md);
-		color: var(--text-secondary);
-		font-size: var(--font-size-sm);
-		font-weight: var(--font-weight-medium);
-		cursor: pointer;
-		transition: all var(--duration-fast);
-	}
-
-	.advanced-toggle:hover {
-		border-color: color-mix(in srgb, var(--accent-primary-color) 30%, transparent);
-		color: var(--text-heading);
-		background: color-mix(in srgb, var(--surface-raised) 40%, transparent);
-	}
-
-	.advanced-label {
-		letter-spacing: 0.02em;
-	}
-
-	.advanced-chevron {
-		transition: transform var(--duration-fast);
-	}
-
-	.advanced-chevron.rotated {
-		transform: rotate(180deg);
-	}
-
-	.advanced-panel {
-		animation: slideDown 0.2s ease-out;
-	}
-
-	@keyframes slideDown {
-		from {
-			opacity: 0;
-			transform: translateY(-6px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	.theme-card-glow {
-		position: absolute;
-		inset: 0;
-		pointer-events: none;
-		opacity: 0.6;
-	}
-</style>
+	</div>
+</section>

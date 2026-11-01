@@ -1,10 +1,16 @@
 /* ============================================================================
-   Shared controls — buttons, inputs, checkboxes, radios.
+   Legacy shared controls — .ui-btn, .ui-input/.ui-select/.ui-textarea, .ui-check/.ui-radio.
 
-   Token-driven so every control follows the active theme automatically.
-   New surfaces should use these classes; legacy button families
-   (.auth-btn, .admin-btn, per-component .btn-*) migrate here as the
-   screens that own them get polished.
+   New surfaces use the kit (controls-kit.css: .w-btn, .w-field, .w-select, .w-check). These
+   legacy classes stay for the screens that still carry them (admin panels, the surface
+   toolbar and header, login) and are drawn on the same roles as the kit, so they read as one
+   family in every theme:
+   - primary is ink on paper (--w-text fill, --w-bg label), never an accent fill (§2.4, §7.1);
+   - secondary is the kit's default button, ghost its quiet one, danger stays outlined until
+     hover (§7.1);
+   - focus is a 2px --w-accent outline (§4.6); fields take an accent edge plus --w-ring;
+   - a checked box is an ink fill with a paper check (§7.7).
+   Geometry is unchanged (36px controls, 48px on touch) so the screens using them do not move.
    ========================================================================== */
 
 :root {
@@ -14,8 +20,6 @@
 	--control-height-touch: 3rem;   /* 48px mobile normal control */
 	--control-pad-x: 0.875rem;
 	--radius-control: var(--radius-md); /* Match workspace fields and actions. */
-	/* Lightened accent: raw accent colors can fall under 3:1 against dark canvases */
-	--focus-ring-color: color-mix(in srgb, var(--accent-primary-color, #6366f1) 55%, #ffffff);
 }
 
 /* ---------------------------------------------------------------- buttons */
@@ -28,91 +32,92 @@
 	box-sizing: border-box;
 	min-height: var(--control-height);
 	padding: 0 var(--control-pad-x);
-	border: 1px solid transparent;
+	border: var(--w-bw) solid transparent;
 	border-radius: var(--radius-control);
 	font-family: inherit;
 	font-size: var(--text-sm, 0.8125rem);
-	font-weight: var(--font-weight-semibold, 600);
+	font-weight: 500;
 	line-height: 1;
 	white-space: nowrap;
 	cursor: pointer;
 	text-decoration: none;
 	transition:
-		background-color var(--duration-fast, 150ms) var(--ease-out, ease-out),
-		border-color var(--duration-fast, 150ms) var(--ease-out, ease-out),
-		color var(--duration-fast, 150ms) var(--ease-out, ease-out),
-		filter var(--duration-fast, 150ms) var(--ease-out, ease-out),
-		box-shadow var(--duration-fast, 150ms) var(--ease-out, ease-out);
+		background-color var(--w-dur-1) var(--w-ease),
+		border-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
 }
 
 .ui-btn:focus-visible {
-	outline: 2px solid var(--focus-ring-color, #d0baff);
+	outline: 2px solid var(--w-accent);
 	outline-offset: 2px;
 }
 
 .ui-btn:disabled {
-	opacity: 0.55;
+	opacity: 0.45;
 	cursor: not-allowed;
 }
 
-/* Primary — the one loud action on a screen. Solid theme accent. */
+/* Primary — the one action on a screen: ink on paper. */
 .ui-btn-primary {
-	background: var(--accent-primary-color, #6366f1);
-	color: var(--text-on-accent, #0f0c29);
+	border-color: var(--w-text);
+	background: var(--w-text);
+	color: var(--w-bg);
 }
 
 .ui-btn-primary:hover:not(:disabled) {
-	filter: brightness(1.1);
+	border-color: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+	background: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
 }
 
-.ui-btn-primary:active:not(:disabled) {
-	filter: brightness(0.95);
-}
-
-/* Secondary — quiet raised action. */
+/* Secondary — the default button: a line-strong edge, a raise fill on hover. */
 .ui-btn-secondary {
-	background: var(--surface-hover, rgba(255, 255, 255, 0.06));
-	border-color: var(--border-default, rgba(255, 255, 255, 0.15));
-	color: var(--text-heading, #e0e0ff);
+	border-color: var(--w-line-strong);
+	background: transparent;
+	color: var(--w-text);
 }
 
 .ui-btn-secondary:hover:not(:disabled) {
-	background: color-mix(
-		in srgb,
-		var(--accent-primary-color, #6366f1) 12%,
-		var(--surface-hover, rgba(255, 255, 255, 0.06))
-	);
+	background: var(--w-raise);
 }
 
-/* Ghost — tertiary / toolbar action. */
+/* Ghost — quiet: no edge, muted label until hovered. */
 .ui-btn-ghost {
 	background: transparent;
-	color: var(--text-secondary, #b3b3ff);
+	color: var(--w-mute);
 }
 
 .ui-btn-ghost:hover:not(:disabled) {
-	background: var(--surface-hover, rgba(255, 255, 255, 0.06));
-	color: var(--text-heading, #e0e0ff);
+	background: var(--w-raise);
+	color: var(--w-text);
 }
 
-/* Danger — destructive actions only. */
+/* Danger — destructive actions only: outlined until hover. */
 .ui-btn-danger {
-	background: var(--color-danger, #ef4444);
-	color: #ffffff;
+	border-color: color-mix(in srgb, var(--w-danger) 55%, transparent);
+	background: transparent;
+	color: var(--w-danger);
 }
 
 .ui-btn-danger:hover:not(:disabled) {
-	filter: brightness(1.1);
+	border-color: var(--w-danger);
+	background: var(--w-danger);
+	color: var(--w-on-danger, var(--w-bg));
 }
 
-/* Subtle danger — destructive-adjacent without the shouting fill. */
+/* Subtle danger — destructive-adjacent without the edge. */
 .ui-btn-danger-ghost {
 	background: transparent;
-	color: var(--color-danger, #ef4444);
+	color: var(--w-danger);
 }
 
 .ui-btn-danger-ghost:hover:not(:disabled) {
-	background: rgba(var(--color-danger-rgb, 239, 68, 68), 0.12);
+	background: color-mix(in srgb, var(--w-danger) 12%, transparent);
+}
+
+:root[data-char='contrast'] :is(.ui-btn-secondary, .ui-btn-ghost):hover:not(:disabled) {
+	border-color: var(--w-line-strong);
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
 }
 
 .ui-btn-sm {
@@ -145,15 +150,15 @@
 	width: 100%;
 	min-height: 2.5rem;
 	padding: 0.5rem 0.75rem;
-	background: var(--surface-input, rgba(255, 255, 255, 0.04));
-	border: 1px solid var(--border-default, rgba(255, 255, 255, 0.15));
+	background: var(--w-sink);
+	border: var(--w-bw) solid var(--w-line-strong);
 	border-radius: var(--radius-control);
-	color: var(--text-heading, #e0e0ff);
+	color: var(--w-text);
 	font-family: inherit;
 	font-size: var(--text-base, 0.875rem);
 	transition:
-		border-color var(--duration-fast, 150ms) var(--ease-out, ease-out),
-		box-shadow var(--duration-fast, 150ms) var(--ease-out, ease-out);
+		border-color var(--w-dur-1) var(--w-ease),
+		box-shadow var(--w-dur-1) var(--w-ease);
 }
 
 .ui-textarea {
@@ -163,23 +168,32 @@
 
 .ui-input::placeholder,
 .ui-textarea::placeholder {
-	color: var(--text-placeholder, #9999ff);
-	opacity: 0.75;
+	color: var(--w-faint);
+	opacity: 1;
 }
 
 .ui-input:focus,
 .ui-select:focus,
 .ui-textarea:focus {
 	outline: none;
-	border-color: var(--accent-primary-color, #6366f1);
-	box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb, 99, 102, 241), 0.25);
+	border-color: var(--w-accent);
+	box-shadow: var(--w-ring, 0 0 0 3px var(--w-accent-soft));
 }
 
 .ui-input:disabled,
 .ui-select:disabled,
 .ui-textarea:disabled {
-	opacity: 0.55;
+	opacity: 0.45;
 	cursor: not-allowed;
+}
+
+@media (forced-colors: active) {
+	.ui-input:focus,
+	.ui-select:focus,
+	.ui-textarea:focus {
+		outline: 2px solid CanvasText;
+		outline-offset: 1px;
+	}
 }
 
 /* ----------------------------------------------------- checkbox and radio */
@@ -195,63 +209,79 @@
 	margin: 0;
 	display: inline-grid;
 	place-content: center;
-	background: var(--surface-input, rgba(255, 255, 255, 0.04));
-	border: 1.5px solid var(--border-strong, rgba(255, 255, 255, 0.3));
+	background: transparent;
+	border: var(--w-bw) solid var(--w-line-strong);
 	cursor: pointer;
 	transition:
-		background-color var(--duration-fast, 150ms) var(--ease-out, ease-out),
-		border-color var(--duration-fast, 150ms) var(--ease-out, ease-out);
+		background-color var(--w-dur-1) var(--w-ease),
+		border-color var(--w-dur-1) var(--w-ease);
 }
 
 .ui-check {
-	border-radius: 5px;
+	border-radius: var(--radius-sm);
 }
 
 .ui-radio {
-	border-radius: 50%;
+	border-radius: var(--w-avr);
 }
 
 .ui-check:hover:not(:disabled),
 .ui-radio:hover:not(:disabled) {
-	border-color: var(--accent-primary-color, #6366f1);
+	border-color: var(--w-text);
 }
 
 .ui-check:checked {
-	background: var(--accent-primary-color, #6366f1);
-	border-color: var(--accent-primary-color, #6366f1);
+	background: var(--w-text);
+	border-color: var(--w-text);
 }
 
-/* Checkmark drawn with borders so it inherits no font and works pre-font-load */
+/* Checkmark drawn with a clip-path so it inherits no font and works pre-font-load */
 .ui-check:checked::before {
 	content: '';
 	width: 0.625rem;
 	height: 0.625rem;
-	background: var(--text-on-accent, #0f0c29);
+	background: var(--w-bg);
 	clip-path: polygon(14% 44%, 0 60%, 40% 100%, 100% 16%, 84% 2%, 39% 68%);
 }
 
 .ui-radio:checked {
-	border-color: var(--accent-primary-color, #6366f1);
+	border-color: var(--w-text);
 }
 
 .ui-radio:checked::before {
 	content: '';
-	width: 0.625rem;
-	height: 0.625rem;
-	border-radius: 50%;
-	background: var(--accent-primary-color, #6366f1);
+	width: 0.5rem;
+	height: 0.5rem;
+	border-radius: var(--w-avr);
+	background: var(--w-text);
 }
 
 .ui-check:focus-visible,
 .ui-radio:focus-visible {
-	outline: 2px solid var(--focus-ring-color, #d0baff);
+	outline: 2px solid var(--w-accent);
 	outline-offset: 2px;
 }
 
 .ui-check:disabled,
 .ui-radio:disabled {
-	opacity: 0.5;
+	opacity: 0.45;
 	cursor: not-allowed;
+}
+
+@media (forced-colors: active) {
+	.ui-check:checked {
+		border-color: Highlight;
+		background: Highlight;
+	}
+	.ui-check:checked::before {
+		background: HighlightText;
+	}
+	.ui-radio:checked {
+		border-color: Highlight;
+	}
+	.ui-radio:checked::before {
+		background: Highlight;
+	}
 }
 
 /* Checkbox/radio + label row */
@@ -260,12 +290,12 @@
 	align-items: center;
 	gap: 0.625rem;
 	cursor: pointer;
-	color: var(--text-secondary, #b3b3ff);
+	color: var(--w-mute);
 	font-size: var(--text-sm, 0.8125rem);
 }
 
 .ui-check-row:hover {
-	color: var(--text-heading, #e0e0ff);
+	color: var(--w-text);
 }
 
 /* ------------------------------------------------------------ touch sizes */

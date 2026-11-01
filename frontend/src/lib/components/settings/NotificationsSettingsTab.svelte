@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { pushFailureMessage } from '$lib/pwa/pushDiagnostics';
 	import { onDestroy, onMount } from 'svelte';
-	import { _ as t } from '$lib/i18n';
 	import { isTauriRuntime } from '$lib/tauri-platform';
 	import { areBackgroundFollowAlertsEnabled } from '$lib/notificationSettings';
 	import {
@@ -34,6 +33,38 @@
 	import { channels } from '$lib/channelStore';
 	import { buildPushChannelRows } from '$lib/pwa/pushChannels';
 	import { ensureChannelMembership } from '$lib/api/channelAccess';
+	import Switch from '../ui/Switch.svelte';
+	import Select from '../ui/Select.svelte';
+	import Icon from '../ui/Icon.svelte';
+	import { brandName } from '$lib/branding';
+
+	/** "Classic Bell" → "Classic bell": option words in sentence case (§9.6). */
+	const sentence = (label: string) => label.charAt(0).toUpperCase() + label.slice(1).toLowerCase();
+	const RINGTONE_SELECT_OPTIONS = CALL_RINGTONE_OPTIONS.map((option) => ({ value: option.value, label: sentence(option.label) }));
+	const WAVEFORM_SELECT_OPTIONS = CUSTOM_SYNTH_WAVEFORM_OPTIONS.map((option) => ({ value: option.value, label: sentence(option.label) }));
+	const DEFAULT_SOUND = '/sounds/ProjectSound.ogg';
+
+	/** Feedback under the sound and ringtone rows, where the action happened. */
+	let soundNote = { text: '', error: false };
+	let ringtoneNote = { text: '', error: false };
+	let channelsOpen = false;
+	const synthNumberFields: Array<{ key: keyof CustomSynthRingtonePreset; label: string; min: number; max: number; step: number }> = [
+		{ key: 'primaryToneHz', label: 'Main tone (Hz)', min: 120, max: 2200, step: 5 },
+		{ key: 'secondaryToneHz', label: 'Second tone (Hz, 0 for none)', min: 0, max: 2600, step: 5 },
+		{ key: 'burstCount', label: 'Rings per loop', min: 1, max: 6, step: 1 },
+		{ key: 'burstDurationMs', label: 'Ring length (ms)', min: 60, max: 2500, step: 10 },
+		{ key: 'burstSpacingMs', label: 'Gap between rings (ms)', min: 80, max: 4000, step: 10 },
+		{ key: 'cycleMs', label: 'Loop length (ms)', min: 300, max: 8000, step: 10 },
+		{ key: 'fadeOutMs', label: 'Fade out (ms)', min: 10, max: 800, step: 5 },
+		{ key: 'harmonicMultiplier', label: 'Harmonic multiplier', min: 1, max: 8, step: 0.1 },
+		{ key: 'tremoloHz', label: 'Tremolo speed (Hz)', min: 0, max: 30, step: 0.5 }
+	];
+	const synthRangeFields: Array<{ key: keyof CustomSynthRingtonePreset; label: string; min: number; max: number; step: number }> = [
+		{ key: 'level', label: 'Loudness', min: 0.02, max: 0.25, step: 0.01 },
+		{ key: 'harmonicGain', label: 'Harmonic level', min: 0, max: 0.4, step: 0.01 },
+		{ key: 'tremoloDepth', label: 'Tremolo depth', min: 0, max: 0.95, step: 0.01 }
+	];
+	const rangeFill = (value: number, min: number, max: number) => `--w-range-fill: ${Math.round(((value - min) / (max - min)) * 100)}%`;
 
 	let notificationsEnabled = true;
 	// True when the app is running as an installed PWA (standalone display mode).
@@ -117,7 +148,7 @@
 	}
 
 	function getCallRingtonePresetLabel(mode: CallRingtoneMode): string {
-		return CALL_RINGTONE_OPTIONS.find((option) => option.value === mode)?.label || 'Classic Bell';
+		return sentence(CALL_RINGTONE_OPTIONS.find((option) => option.value === mode)?.label || 'Classic bell');
 	}
 
 	function getResolvedCallRingtoneLabel(mode: CallRingtoneMode): string {
@@ -125,7 +156,7 @@
 			return localStorage.getItem('callRingtoneLabel') || 'Custom audio';
 		}
 		if (mode === 'custom-synth') {
-			return callRingtoneCustomSynth.name?.trim() || 'Custom Synth';
+			return callRingtoneCustomSynth.name?.trim() || 'Custom synth';
 		}
 		return getCallRingtonePresetLabel(mode);
 	}
@@ -153,9 +184,9 @@
 	function getCallRingtoneCustomSynthSummary(): string {
 		const secondaryTone =
 			callRingtoneCustomSynth.secondaryToneHz > 0
-				? ` + ${Math.round(callRingtoneCustomSynth.secondaryToneHz)}Hz`
+				? ` + ${Math.round(callRingtoneCustomSynth.secondaryToneHz)} Hz`
 				: '';
-		return `${callRingtoneCustomSynth.name} | ${callRingtoneCustomSynth.waveform} | ${Math.round(callRingtoneCustomSynth.primaryToneHz)}Hz${secondaryTone}`;
+		return `${callRingtoneCustomSynth.name} · ${callRingtoneCustomSynth.waveform} · ${Math.round(callRingtoneCustomSynth.primaryToneHz)} Hz${secondaryTone}`;
 	}
 
 	function toggleSuppressEveryoneHereMentions() {
@@ -222,9 +253,9 @@
 	function testNotificationSound() {
 		try {
 			playNotificationSound();
-			pushStatus = 'Notification sound test started.';
 		} catch (error) {
-			pushStatus = error instanceof Error ? error.message : 'Notification sound is unavailable.';
+			console.warn('[Settings] notification sound test failed:', error);
+			soundNote = { text: "The sound couldn't play here. Check that this tab may play audio.", error: true };
 		}
 	}
 
@@ -265,7 +296,8 @@
 		callRingtoneCustomSynth = getDefaultCustomSynthRingtonePreset();
 		localStorage.setItem('callRingtoneCustomSynth', JSON.stringify(callRingtoneCustomSynth));
 		updateCallRingtoneMode('classic-bell');
-		callRingtoneLabel = 'Classic Bell';
+		callRingtoneLabel = 'Classic bell';
+		ringtoneNote = { text: '', error: false };
 	}
 
 	function resetCallRingtoneCustomSynth(): void {
@@ -301,13 +333,14 @@
 		if (!file) return;
 
 		const isAudioFile = file.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac)$/i.test(file.name);
+		soundNote = { text: '', error: false };
 		if (!isAudioFile) {
-			alert('Please choose an audio file.');
+			soundNote = { text: 'Choose an audio file (MP3, WAV, OGG, M4A or AAC).', error: true };
 			input.value = '';
 			return;
 		}
 		if (file.size > 1024 * 1024) {
-			alert('Custom notification sounds must be 1MB or smaller.');
+			soundNote = { text: 'Choose a sound of 1 MB or less.', error: true };
 			input.value = '';
 			return;
 		}
@@ -327,7 +360,8 @@
 			updateNotificationSound(dataUrl);
 			testNotificationSound();
 		} catch (error) {
-			alert(error instanceof Error ? error.message : 'Failed to load custom sound.');
+			console.warn('[Settings] custom notification sound failed:', error);
+			soundNote = { text: "That file couldn't be read as a sound. Your current sound is unchanged.", error: true };
 		} finally {
 			input.value = '';
 		}
@@ -339,8 +373,9 @@
 		if (!file) return;
 
 		const isJsonFile = file.type === 'application/json' || /\.json$/i.test(file.name);
+		ringtoneNote = { text: '', error: false };
 		if (!isJsonFile) {
-			alert('Please choose a JSON preset file.');
+			ringtoneNote = { text: 'Choose a ringtone preset file (.json).', error: true };
 			input.value = '';
 			return;
 		}
@@ -354,7 +389,8 @@
 			callRingtoneSynthEditorExpanded = true;
 			testCallRingtone();
 		} catch (error) {
-			alert(error instanceof Error ? error.message : 'Failed to import synth preset.');
+			console.warn('[Settings] synth preset import failed:', error);
+			ringtoneNote = { text: "That file isn't a ringtone preset. Your ringtone is unchanged.", error: true };
 		} finally {
 			input.value = '';
 		}
@@ -366,13 +402,14 @@
 		if (!file) return;
 
 		const isAudioFile = file.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac)$/i.test(file.name);
+		ringtoneNote = { text: '', error: false };
 		if (!isAudioFile) {
-			alert('Please choose an audio file.');
+			ringtoneNote = { text: 'Choose an audio file (MP3, WAV, OGG, M4A or AAC).', error: true };
 			input.value = '';
 			return;
 		}
 		if (file.size > 1024 * 1024) {
-			alert('Custom call ringtones must be 1MB or smaller.');
+			ringtoneNote = { text: 'Choose a ringtone of 1 MB or less.', error: true };
 			input.value = '';
 			return;
 		}
@@ -393,7 +430,8 @@
 			updateCallRingtoneMode('custom-audio');
 			testCallRingtone();
 		} catch (error) {
-			alert(error instanceof Error ? error.message : 'Failed to load custom ringtone.');
+			console.warn('[Settings] custom ringtone failed:', error);
+			ringtoneNote = { text: "That file couldn't be read as a sound. Your ringtone is unchanged.", error: true };
 		} finally {
 			input.value = '';
 		}
@@ -420,7 +458,7 @@
 					if (pushSubscribed) await unsubscribeWebPush();
 				}
 				await refreshPushState();
-				pushStatus = 'Desktop notifications off.';
+				pushStatus = 'Notifications are off on this device.';
 				return;
 			}
 			if (!isTauriRuntime() && !('Notification' in window)) {
@@ -435,22 +473,22 @@
 				pushStatus =
 					permission === 'denied'
 						? 'Notifications are blocked for this site. Allow them in your browser or device settings, then try again.'
-						: 'Permission not granted.';
+						: 'Notifications were not allowed, so nothing changed.';
 				return;
 			}
 			notificationsEnabled = true;
 			localStorage.setItem('notificationsEnabled', 'true');
 			if (isTauriRuntime()) {
 				await refreshPushState();
-				pushStatus = 'System notifications on.';
+				pushStatus = 'Notifications are on for this device.';
 				return;
 			}
 			setPushOptOut(false);
 			const sub = await subscribeWebPush();
 			await refreshPushState();
 			pushStatus = sub.ok
-				? 'Desktop notifications on — push subscribed.'
-				: `Desktop notifications on; push: ${pushFailureMessage('reason' in sub ? sub.reason : 'failed')}`;
+				? 'Notifications are on for this device.'
+				: `Notifications are on while ${brandName} is open. ${pushFailureMessage('reason' in sub ? sub.reason : 'failed')}`;
 		} finally {
 			pushBusy = false;
 		}
@@ -465,13 +503,13 @@
 				setPushOptOut(true);
 				await unsubscribeWebPush();
 				await refreshPushState();
-				pushStatus = 'Push unsubscribed.';
+				pushStatus = `Nothing arrives on this device while ${brandName} is closed.`;
 			} else {
 				setPushOptOut(false);
 				const result = await subscribeWebPush();
 				await refreshPushState();
 				pushStatus = result.ok
-					? 'Push subscribed — background alerts enabled.'
+					? `Alerts can arrive on this device while ${brandName} is closed.`
 					: pushFailureMessage('reason' in result ? result.reason : 'failed');
 			}
 		} finally {
@@ -484,7 +522,8 @@
 		pushStatus = '';
 		try {
 			const result = await sendTestPush();
-			pushStatus = result.ok ? 'Test push sent — check the tray.' : `Test failed: ${result.reason}`;
+			if (!result.ok) console.warn('[Settings] test push failed:', result.reason);
+			pushStatus = result.ok ? 'Test sent. It should appear in a moment.' : "The test wasn't delivered. Turn delivery off and on again, then retry.";
 		} finally {
 			pushBusy = false;
 		}
@@ -515,7 +554,7 @@
 				try {
 					await ensureChannelMembership(channelId);
 				} catch {
-					pushStatus = "Couldn't join that channel — push wasn't turned on.";
+					pushStatus = "You couldn't join that channel, so its alerts stay off.";
 					return;
 				}
 			}
@@ -526,7 +565,7 @@
 				pushChannelsEnabled = next;
 				pushStatus = '';
 			} else {
-				pushStatus = 'Could not save that channel choice — try again.';
+				pushStatus = "That channel choice wasn't saved. Try again.";
 			}
 		} finally {
 			pushBusy = false;
@@ -534,314 +573,317 @@
 	}
 </script>
 
-<div class="settings-section">
-	<h3>{$t('settings.sections.notifications')}</h3>
-	<p class="notification-status-note">Activity brings friend requests, unread conversations, loaded mentions and followed channels together. Friends are managed there, separately from Messages. Each saved server keeps its own account and permissions.</p>
-	<div class="settings-group-card">
-	<div class="notification-status-note" role="status">
-		{#if pushPermission === 'denied'}
-			Browser notifications are blocked. Allow them for this site in browser settings, then retry.
-		{:else if pushPermission === 'unsupported'}
-			This browser does not support background notifications.
-		{:else if pushPermission === 'default'}
-			Notifications have not been requested yet. Turn Desktop Notifications on to allow them.
-		{:else}
-			Browser notifications are allowed. Sound tests still require one user interaction.
-		{/if}
-		{#if pushStatus}
-			<div class="setting-description" style="margin-top:0.35rem;">{pushStatus}</div>
-		{/if}
-	</div>
-	<div class="setting-item">
-		<div class="setting-info">
-			<span class="setting-label">Desktop Notifications</span>
-			<span class="setting-description">Allow supported alerts outside Wabi. Turning this off also stops background push on this device. Activity remains available when system alerts are off.</span>
+<!--
+	Settings › Notifications (§8.9): what reaches you outside the open app, which mentions count,
+	and the sounds. Switch rows on the kit; every state is said in words under its row.
+-->
+<section class="settings-block" aria-labelledby="notif-alerts-title">
+	<h3 class="settings-block__title" id="notif-alerts-title">Alerts on this device</h3>
+	<p class="settings-block__hint">Activity always collects your mentions, friend requests and followed channels, whatever you choose here.</p>
+	<div class="w-srows">
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="notif-desktop-label">{isTauriRuntime() ? 'System notifications' : 'Notifications'}</p>
+				<p class="w-srow__hint" id="notif-desktop-hint">
+					{#if isTauriRuntime()}
+						Alerts from the desktop app, outside the {brandName} window.
+					{:else if pushPermission === 'denied'}
+						This browser blocks notifications for {brandName}. Allow them in the browser's site settings, then turn this on.
+					{:else if pushPermission === 'unsupported'}
+						This browser can't show notifications. Activity still collects everything.
+					{:else}
+						Alerts outside {brandName}. Turning this off also stops alerts while {brandName} is closed.
+					{/if}
+				</p>
+			</div>
+			<div class="w-srow__control">
+				<button type="button" class="w-switch" role="switch" aria-labelledby="notif-desktop-label" aria-describedby="notif-desktop-hint" aria-checked={desktopNotificationsOn()} disabled={pushBusy || (!isTauriRuntime() && pushPermission === 'unsupported')} on:click={toggleDesktopNotifications}></button>
+			</div>
 		</div>
-		<button class="toggle-btn" class:active={desktopNotificationsOn()} disabled={pushBusy} on:click={toggleDesktopNotifications} role="switch" aria-checked={desktopNotificationsOn()} aria-label="Desktop notifications"></button>
-	</div>
 
-	{#if !isTauriRuntime() && isPwaStandalone}
-	<div class="setting-item">
-		<div class="setting-info">
-			<span class="setting-label">Background push</span>
-			<span class="setting-description">
-				Delivery while Wabi is closed: direct messages, the channels you switch on below, and incoming calls. Permission: {pushPermission}.
-				{pushSubscribed ? 'Subscribed.' : 'Not subscribed.'}
-			</span>
-		</div>
-		<div style="display:flex;flex-direction:column;gap:0.35rem;min-width:7.5rem;align-items:center;">
-			<button class="toggle-btn" class:active={pushSubscribed} disabled={pushBusy} on:click={togglePushSubscription} role="switch" aria-checked={pushSubscribed} aria-label="Background push"></button>
-			<button class="action-btn" disabled={pushBusy || !pushSubscribed} on:click={handleTestPush}>
-				Test push
-			</button>
-		</div>
+		{#if !isTauriRuntime() && isPwaStandalone}
+			<div class="w-srow">
+				<div class="w-srow__text">
+					<p class="w-srow__label" id="notif-background-label">While {brandName} is closed</p>
+					<p class="w-srow__hint">Direct messages, incoming calls and the channels you choose below can still reach this device.</p>
+				</div>
+				<div class="w-srow__control">
+					<button type="button" class="w-btn w-btn--sm w-btn--quiet" disabled={pushBusy || !pushSubscribed} on:click={handleTestPush}>Send a test</button>
+					<button type="button" class="w-switch" role="switch" aria-labelledby="notif-background-label" aria-checked={pushSubscribed} disabled={pushBusy} on:click={togglePushSubscription}></button>
+				</div>
+			</div>
+		{/if}
+
+		{#if !isTauriRuntime() && pushSubscribed}
+			<div class="w-srow">
+				<div class="w-srow__text">
+					<p class="w-srow__label" id="notif-push-dm-label">Direct messages</p>
+					<p class="w-srow__hint">New direct messages. Group chats follow the channel list below.</p>
+				</div>
+				<div class="w-srow__control">
+					<button type="button" class="w-switch" role="switch" aria-labelledby="notif-push-dm-label" aria-checked={pushPreferences.directMessages} disabled={pushBusy} on:click={() => togglePushPreference('directMessages')}></button>
+				</div>
+			</div>
+			<div class="w-srow">
+				<div class="w-srow__text">
+					<p class="w-srow__label" id="notif-push-calls-label">Incoming calls</p>
+					<p class="w-srow__hint">Someone calling you, whatever the channel list says.</p>
+				</div>
+				<div class="w-srow__control">
+					<button type="button" class="w-switch" role="switch" aria-labelledby="notif-push-calls-label" aria-checked={pushPreferences.calls} disabled={pushBusy} on:click={() => togglePushPreference('calls')}></button>
+				</div>
+			</div>
+		{/if}
 	</div>
-	{:else if isTauriRuntime()}
-	<div class="setting-item">
-		<div class="setting-info">
-			<span class="setting-label">System notifications</span>
-			<span class="setting-description">Native alerts from the desktop app.</span>
-		</div>
-		<button class="toggle-btn" class:active={notificationsEnabled} disabled={pushBusy} on:click={toggleDesktopNotifications} role="switch" aria-checked={notificationsEnabled} aria-label="System notifications"></button>
-	</div>
-	{/if}
 
 	{#if !isTauriRuntime() && pushSubscribed}
-	<div class="setting-item">
-		<div class="setting-info">
-			<span class="setting-label">Push: Direct messages</span>
-			<span class="setting-description">Notify me about new direct messages. Group chats and channels use the list below.</span>
-		</div>
-		<button class="toggle-btn" class:active={pushPreferences.directMessages} on:click={() => togglePushPreference('directMessages')} role="switch" aria-checked={pushPreferences.directMessages} aria-label="Push direct messages"></button>
-	</div>
-	<div class="setting-item">
-		<div class="setting-info">
-			<span class="setting-label">Push: Incoming calls</span>
-			<span class="setting-description">Notify me when someone calls. Calls ring regardless of the channel list below.</span>
-		</div>
-		<button class="toggle-btn" class:active={pushPreferences.calls} on:click={() => togglePushPreference('calls')} role="switch" aria-checked={pushPreferences.calls} aria-label="Push incoming calls"></button>
-	</div>
-	<div class="setting-item setting-item-stack">
-		<div class="setting-info">
-			<span class="setting-label">Push: Channels</span>
-			<span class="setting-description">Pick exactly which channels push while Wabi is closed. Each channel starts off — turn on the ones you need. Direct messages and calls use their own switches above.</span>
-			{#if !pushChannelsError}
-				<span class="setting-description">{pushChannelsEnabled.length} of {pushChannelRows.length} channels pushing.</span>
-			{/if}
-		</div>
-		{#if pushChannelsError}
-			<span class="setting-description">Couldn't load your choices — close and reopen settings to retry.</span>
-		{:else}
-			<div class="push-channel-list">
-				{#each pushChannelRows as row (row.id)}
-					<div class="push-channel-row">
-						<span class="push-channel-kind">{row.type}</span>
-						<span class="push-channel-name">{row.label}</span>
-						<button class="toggle-btn" class:active={pushChannelsEnabled.includes(row.id)} disabled={pushBusy} on:click={() => togglePushChannel(row.id)} role="switch" aria-checked={pushChannelsEnabled.includes(row.id)} aria-label={`Push notifications for ${row.label}`}></button>
-					</div>
+		<button type="button" class="w-disclosure" aria-expanded={channelsOpen} aria-controls="notif-push-channels" on:click={() => (channelsOpen = !channelsOpen)}>
+			<Icon name="chevRight" />Channels that alert you
+			{#if !pushChannelsError}<span class="w-count notif-count">{pushChannelsEnabled.length} of {pushChannelRows.length}</span>{/if}
+		</button>
+		{#if channelsOpen}
+			<div class="w-disclosure__body" id="notif-push-channels">
+				{#if pushChannelsError}
+					<p class="notif-note is-error" role="alert"><Icon name="alert" size={14} />Your channel choices didn't load. Close Settings and open it again to retry.</p>
 				{:else}
-					<span class="setting-description">No channels yet.</span>
-				{/each}
+					<p class="notif-note">Every channel starts off. Turning one on also joins it, so its alerts can reach you.</p>
+					<ul class="notif-channels" aria-label="Channels that alert you">
+						{#each pushChannelRows as row (row.id)}
+							<li class="notif-channel">
+								<Icon name={row.type === 'voice' ? 'voice' : row.type === 'forum' ? 'forum' : row.type === 'wiki' ? 'book' : 'hash'} size={16} />
+								<span class="notif-channel__name" id={`notif-push-${row.id}`}>{row.label}</span>
+								<button type="button" class="w-switch" role="switch" aria-labelledby={`notif-push-${row.id}`} aria-checked={pushChannelsEnabled.includes(row.id)} disabled={pushBusy} on:click={() => togglePushChannel(row.id)}></button>
+							</li>
+						{:else}
+							<li class="notif-note">There are no channels yet.</li>
+						{/each}
+					</ul>
+				{/if}
 			</div>
 		{/if}
-	</div>
 	{/if}
+	{#if pushStatus}<p class="notif-note notif-status" role="status">{pushStatus}</p>{/if}
+</section>
 
-	<div class="setting-item">
-		<div class="setting-info">
-			<span class="setting-label">Suppress @everyone, @here, and @all</span>
-			<span class="setting-description">Skip @everyone / @here / @all.</span>
+<section class="settings-block" aria-labelledby="notif-mentions-title">
+	<h3 class="settings-block__title" id="notif-mentions-title">Mentions and previews</h3>
+	<div class="w-srows">
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="notif-everyone-label">Mute @everyone, @here and @all</p>
+				<p class="w-srow__hint">Messages that mention everyone don't alert you.</p>
+			</div>
+			<div class="w-srow__control"><Switch labelledby="notif-everyone-label" checked={suppressEveryoneHereMentions} onchange={toggleSuppressEveryoneHereMentions} /></div>
 		</div>
-		<button class="toggle-btn" class:active={suppressEveryoneHereMentions} on:click={toggleSuppressEveryoneHereMentions} role="switch" aria-checked={suppressEveryoneHereMentions} aria-label="Suppress everyone mentions"></button>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="notif-roles-label">Mute role mentions</p>
+				<p class="w-srow__hint">Mentions of a role you hold, such as @mods, don't alert you. Mentions of your name still do.</p>
+			</div>
+			<div class="w-srow__control"><Switch labelledby="notif-roles-label" checked={suppressRoleMentions} onchange={toggleSuppressRoleMentions} /></div>
+		</div>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="notif-preview-label">Message preview</p>
+				<p class="w-srow__hint">Show the message text in alerts and Activity. Live messages are never kept as previews.</p>
+			</div>
+			<div class="w-srow__control"><Switch labelledby="notif-preview-label" checked={notificationPreviewEnabled} onchange={toggleNotificationPreview} /></div>
+		</div>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="notif-follow-label">Followed channels on other servers</p>
+				<p class="w-srow__hint">Alerts from channels you follow on servers you aren't looking at, when their alert level allows. They always appear in Activity.</p>
+			</div>
+			<div class="w-srow__control"><Switch labelledby="notif-follow-label" checked={backgroundFollowAlertsEnabled} onchange={toggleBackgroundFollowAlerts} /></div>
+		</div>
 	</div>
+</section>
 
-	<div class="setting-item">
-		<div class="setting-info">
-			<span class="setting-label">Suppress All Role @mentions</span>
-			<span class="setting-description">Skip role @mentions.</span>
+<section class="settings-block" aria-labelledby="notif-sounds-title">
+	<h3 class="settings-block__title" id="notif-sounds-title">Sounds</h3>
+	<div class="w-srows">
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="notif-sound-label">Notification sound</p>
+				<p class="w-srow__hint">{notificationSound === DEFAULT_SOUND ? 'The built-in chime.' : `Your file: ${notificationSoundLabel}.`} Sounds play after you have clicked somewhere in {brandName}.</p>
+			</div>
+			<div class="w-srow__control">
+				<button type="button" class="w-btn w-btn--sm w-btn--quiet" on:click={testNotificationSound}>Play</button>
+				{#if notificationSound !== DEFAULT_SOUND}
+					<button type="button" class="w-btn w-btn--sm w-btn--quiet" on:click={resetNotificationSoundToDefault}>Use the chime</button>
+				{/if}
+				<button type="button" class="w-btn w-btn--sm" on:click={triggerNotificationSoundFilePicker}>Choose file…</button>
+			</div>
 		</div>
-		<button class="toggle-btn" class:active={suppressRoleMentions} on:click={toggleSuppressRoleMentions} role="switch" aria-checked={suppressRoleMentions} aria-label="Suppress role mentions"></button>
-	</div>
+		{#if soundNote.text}<p class="notif-note" class:is-error={soundNote.error} role={soundNote.error ? 'alert' : 'status'}>{#if soundNote.error}<Icon name="alert" size={14} />{/if}{soundNote.text}</p>{/if}
+		<input type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac" bind:this={notificationSoundInput} on:change={handleNotificationSoundFileSelect} class="hidden-file-input" tabindex="-1" aria-hidden="true" />
 
-	<div class="setting-item">
-		<div class="setting-info">
-			<span class="setting-label">Show Message Preview</span>
-			<span class="setting-description">Include available message text in system alerts and Activity. Live messages are never saved as previews.</span>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<label class="w-srow__label" for="notif-volume">Notification volume</label>
+				<p class="w-srow__hint">{Math.round(notificationVolume * 100)}%</p>
+			</div>
+			<div class="w-srow__control">
+				<input id="notif-volume" type="range" class="w-range notif-range" min="0" max="1" step="0.05" value={notificationVolume} style={rangeFill(notificationVolume, 0, 1)} aria-valuetext={`${Math.round(notificationVolume * 100)}%`} on:input={(e) => updateNotificationVolume(parseFloat(e.currentTarget.value))} />
+			</div>
 		</div>
-		<button class="toggle-btn" class:active={notificationPreviewEnabled} on:click={toggleNotificationPreview} role="switch" aria-checked={notificationPreviewEnabled} aria-label="Show message preview"></button>
-	</div>
-	<div class="setting-item">
-		<div class="setting-info">
-			<span class="setting-label">Background follow alerts</span>
-			<span class="setting-description">Allow system toasts for followed channels on inactive servers when their alert level permits them. Followed activity still appears in Activity when off.</span>
-		</div>
-		<button class="toggle-btn" class:active={backgroundFollowAlertsEnabled} on:click={toggleBackgroundFollowAlerts} role="switch" aria-checked={backgroundFollowAlertsEnabled} aria-label="Background follow alerts"></button>
-	</div>
-	</div>
 
-	<div class="setting-item-full">
-		<div class="setting-info">
-			<span class="setting-label">
-				<svg class="setting-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-				Notification Sound
-			</span>
-			<span class="setting-description">Alert sound.</span>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<p class="w-srow__label" id="notif-ringtone-label">Ringtone</p>
+				<p class="w-srow__hint">Plays when someone calls you.{#if callRingtoneMode === 'custom-audio'} Your file: {callRingtoneLabel}.{/if}</p>
+			</div>
+			<div class="w-srow__control">
+				<button type="button" class="w-btn w-btn--sm w-btn--quiet" on:click={testCallRingtone}>Play</button>
+				{#if callRingtoneMode === 'custom-audio'}
+					<button type="button" class="w-btn w-btn--sm" on:click={triggerCallRingtoneFilePicker}>{callRingtoneLabel === 'Custom audio' ? 'Choose file…' : 'Replace file…'}</button>
+				{/if}
+				<Select ariaLabel="Ringtone" options={RINGTONE_SELECT_OPTIONS} value={callRingtoneMode} align="end" onchange={(value) => updateCallRingtoneMode(value as CallRingtoneMode)} />
+			</div>
 		</div>
-		<div class="sound-options">
-			<button class="sound-option" class:active={notificationSound === '/sounds/ProjectSound.ogg'} on:click={() => updateNotificationSound('/sounds/ProjectSound.ogg')}>
-				ProjectSound.ogg
-			</button>
-			<button class="sound-option" class:active={notificationSound.startsWith('data:audio')} on:click={triggerNotificationSoundFilePicker}>
-				Upload Custom Sound
-			</button>
-		</div>
-		<input type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac" bind:this={notificationSoundInput} on:change={handleNotificationSoundFileSelect} class="hidden" />
-		<div class="runtime-note">Active sound: {notificationSoundLabel}</div>
-		<div class="settings-row-actions">
-			<button class="action-btn secondary" on:click={testNotificationSound}>Test Sound</button>
-			<button class="action-btn secondary" on:click={resetNotificationSoundToDefault}>Reset Default</button>
-		</div>
-	</div>
+		<input type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac" bind:this={callRingtoneInput} on:change={handleCallRingtoneFileSelect} class="hidden-file-input" tabindex="-1" aria-hidden="true" />
 
-	<div class="setting-item-full">
-		<div class="setting-info">
-			<span class="setting-label">Call Ringtone</span>
-			<span class="setting-description">Incoming call loop.</span>
-		</div>
-		<select class="theme-select" bind:value={callRingtoneMode} on:change={(e) => updateCallRingtoneMode(e.currentTarget.value as CallRingtoneMode)}>
-			{#each CALL_RINGTONE_OPTIONS as option}
-				<option value={option.value}>{option.label}</option>
-			{/each}
-		</select>
 		{#if callRingtoneMode === 'custom-synth'}
-			<div class="runtime-note">Custom synth presets stay tiny in storage and can be imported or exported as JSON.</div>
-			<div class="settings-row-actions">
-				<button class="action-btn secondary" on:click={() => (callRingtoneSynthEditorExpanded = !callRingtoneSynthEditorExpanded)}>
-					{callRingtoneSynthEditorExpanded ? 'Hide Advanced' : 'Edit Synth'}
+			<div class="notif-synth">
+				<button type="button" class="w-disclosure" aria-expanded={callRingtoneSynthEditorExpanded} aria-controls="notif-synth-editor" on:click={() => (callRingtoneSynthEditorExpanded = !callRingtoneSynthEditorExpanded)}>
+					<Icon name="chevRight" />Shape your ringtone
+					<span class="w-count notif-count">{getCallRingtoneCustomSynthSummary()}</span>
 				</button>
-				<button class="action-btn secondary" on:click={exportCallRingtoneCustomSynth}>Export JSON</button>
-				<button class="action-btn secondary" on:click={triggerCallRingtoneSynthImportFilePicker}>Import JSON</button>
-			</div>
-			<div class="runtime-note">Preset: {getCallRingtoneCustomSynthSummary()}</div>
-			{#if callRingtoneSynthEditorExpanded}
-				<div class="synth-editor-grid">
-					<div class="quality-mode-row">
-						<label for="call-ringtone-synth-name">Preset Name</label>
-						<input id="call-ringtone-synth-name" class="theme-select" maxlength="48" value={callRingtoneCustomSynth.name} on:input={(e) => updateCallRingtoneCustomSynthField('name', e.currentTarget.value)} />
-					</div>
-					<div class="quality-mode-row">
-						<label for="call-ringtone-synth-waveform">Waveform</label>
-						<select id="call-ringtone-synth-waveform" class="theme-select" value={callRingtoneCustomSynth.waveform} on:change={(e) => updateCallRingtoneCustomSynthField('waveform', e.currentTarget.value as CustomSynthWaveform)}>
-							{#each CUSTOM_SYNTH_WAVEFORM_OPTIONS as option}
-								<option value={option.value}>{option.label}</option>
+				{#if callRingtoneSynthEditorExpanded}
+					<div class="w-disclosure__body notif-synth__body" id="notif-synth-editor">
+						<div class="notif-synth__grid">
+							<div class="notif-synth__field">
+								<label class="w-label" for="notif-synth-name">Name</label>
+								<input id="notif-synth-name" class="w-field" maxlength="48" value={callRingtoneCustomSynth.name} on:input={(e) => updateCallRingtoneCustomSynthField('name', e.currentTarget.value)} />
+							</div>
+							<div class="notif-synth__field">
+								<span class="w-label" id="notif-synth-wave">Waveform</span>
+								<Select ariaLabel="Waveform" options={WAVEFORM_SELECT_OPTIONS} value={callRingtoneCustomSynth.waveform} onchange={(value) => updateCallRingtoneCustomSynthField('waveform', value as CustomSynthWaveform)} />
+							</div>
+							{#each synthNumberFields as field (field.key)}
+								<div class="notif-synth__field">
+									<label class="w-label" for={`notif-synth-${field.key}`}>{field.label}</label>
+									<input id={`notif-synth-${field.key}`} class="w-field" type="number" min={field.min} max={field.max} step={field.step} value={callRingtoneCustomSynth[field.key]} on:input={(e) => updateCallRingtoneCustomSynthField(field.key, Number(e.currentTarget.value))} />
+								</div>
 							{/each}
-						</select>
+							{#each synthRangeFields as field (field.key)}
+								{@const value = Number(callRingtoneCustomSynth[field.key])}
+								<div class="notif-synth__field">
+									<label class="w-label" for={`notif-synth-${field.key}`}>{field.label}</label>
+									<input id={`notif-synth-${field.key}`} class="w-range" type="range" min={field.min} max={field.max} step={field.step} {value} style={rangeFill(value, field.min, field.max)} on:input={(e) => updateCallRingtoneCustomSynthField(field.key, Number(e.currentTarget.value))} />
+								</div>
+							{/each}
+						</div>
+						<div class="notif-synth__actions">
+							<button type="button" class="w-btn w-btn--sm w-btn--quiet" on:click={resetCallRingtoneCustomSynth}>Reset shape</button>
+							<button type="button" class="w-btn w-btn--sm" on:click={triggerCallRingtoneSynthImportFilePicker}>Import preset…</button>
+							<button type="button" class="w-btn w-btn--sm" on:click={exportCallRingtoneCustomSynth}>Export preset</button>
+						</div>
 					</div>
-					<div class="quality-mode-row">
-						<label for="call-ringtone-primary-tone">Primary Tone (Hz)</label>
-						<input id="call-ringtone-primary-tone" type="number" min="120" max="2200" step="5" class="theme-select" value={callRingtoneCustomSynth.primaryToneHz} on:input={(e) => updateCallRingtoneCustomSynthField('primaryToneHz', Number(e.currentTarget.value))} />
-					</div>
-					<div class="quality-mode-row">
-						<label for="call-ringtone-secondary-tone">Secondary Tone (Hz)</label>
-						<input id="call-ringtone-secondary-tone" type="number" min="0" max="2600" step="5" class="theme-select" value={callRingtoneCustomSynth.secondaryToneHz} on:input={(e) => updateCallRingtoneCustomSynthField('secondaryToneHz', Number(e.currentTarget.value))} />
-					</div>
-					<div class="quality-mode-row">
-						<label for="call-ringtone-burst-count">Burst Count</label>
-						<input id="call-ringtone-burst-count" type="number" min="1" max="6" step="1" class="theme-select" value={callRingtoneCustomSynth.burstCount} on:input={(e) => updateCallRingtoneCustomSynthField('burstCount', Number(e.currentTarget.value))} />
-					</div>
-					<div class="quality-mode-row">
-						<label for="call-ringtone-burst-duration">Burst Duration (ms)</label>
-						<input id="call-ringtone-burst-duration" type="number" min="60" max="2500" step="10" class="theme-select" value={callRingtoneCustomSynth.burstDurationMs} on:input={(e) => updateCallRingtoneCustomSynthField('burstDurationMs', Number(e.currentTarget.value))} />
-					</div>
-					<div class="quality-mode-row">
-						<label for="call-ringtone-burst-spacing">Burst Gap (ms)</label>
-						<input id="call-ringtone-burst-spacing" type="number" min="80" max="4000" step="10" class="theme-select" value={callRingtoneCustomSynth.burstSpacingMs} on:input={(e) => updateCallRingtoneCustomSynthField('burstSpacingMs', Number(e.currentTarget.value))} />
-					</div>
-					<div class="quality-mode-row">
-						<label for="call-ringtone-cycle">Loop Length (ms)</label>
-						<input id="call-ringtone-cycle" type="number" min="300" max="8000" step="10" class="theme-select" value={callRingtoneCustomSynth.cycleMs} on:input={(e) => updateCallRingtoneCustomSynthField('cycleMs', Number(e.currentTarget.value))} />
-					</div>
-					<div class="quality-mode-row">
-						<label for="call-ringtone-level">Synth Level</label>
-						<input id="call-ringtone-level" type="range" min="0.02" max="0.25" step="0.01" value={callRingtoneCustomSynth.level} on:input={(e) => updateCallRingtoneCustomSynthField('level', Number(e.currentTarget.value))} class="volume-slider" />
-					</div>
-					<div class="quality-mode-row">
-						<label for="call-ringtone-fadeout">Fade Out (ms)</label>
-						<input id="call-ringtone-fadeout" type="number" min="10" max="800" step="5" class="theme-select" value={callRingtoneCustomSynth.fadeOutMs} on:input={(e) => updateCallRingtoneCustomSynthField('fadeOutMs', Number(e.currentTarget.value))} />
-					</div>
-					<div class="quality-mode-row">
-						<label for="call-ringtone-harmonic-multiplier">Harmonic Multiplier</label>
-						<input id="call-ringtone-harmonic-multiplier" type="number" min="1" max="8" step="0.1" class="theme-select" value={callRingtoneCustomSynth.harmonicMultiplier} on:input={(e) => updateCallRingtoneCustomSynthField('harmonicMultiplier', Number(e.currentTarget.value))} />
-					</div>
-					<div class="quality-mode-row">
-						<label for="call-ringtone-harmonic-gain">Harmonic Gain</label>
-						<input id="call-ringtone-harmonic-gain" type="range" min="0" max="0.4" step="0.01" value={callRingtoneCustomSynth.harmonicGain} on:input={(e) => updateCallRingtoneCustomSynthField('harmonicGain', Number(e.currentTarget.value))} class="volume-slider" />
-					</div>
-					<div class="quality-mode-row">
-						<label for="call-ringtone-tremolo-hz">Tremolo Speed (Hz)</label>
-						<input id="call-ringtone-tremolo-hz" type="number" min="0" max="30" step="0.5" class="theme-select" value={callRingtoneCustomSynth.tremoloHz} on:input={(e) => updateCallRingtoneCustomSynthField('tremoloHz', Number(e.currentTarget.value))} />
-					</div>
-					<div class="quality-mode-row">
-						<label for="call-ringtone-tremolo-depth">Tremolo Depth</label>
-						<input id="call-ringtone-tremolo-depth" type="range" min="0" max="0.95" step="0.01" value={callRingtoneCustomSynth.tremoloDepth} on:input={(e) => updateCallRingtoneCustomSynthField('tremoloDepth', Number(e.currentTarget.value))} class="volume-slider" />
-					</div>
-				</div>
-				<div class="settings-row-actions">
-					<button class="action-btn secondary" on:click={resetCallRingtoneCustomSynth}>Reset Synth</button>
-				</div>
-			{/if}
-			<input type="file" accept="application/json,.json" bind:this={callRingtoneSynthImportInput} on:change={handleCallRingtoneSynthImportFileSelect} class="hidden" />
-		{:else if callRingtoneMode === 'custom-audio'}
-			<div class="sound-options">
-				<button class="action-btn secondary" on:click={triggerCallRingtoneFilePicker}>
-					{callRingtoneLabel === 'Custom audio' ? 'Upload Custom Audio' : 'Replace Custom Audio'}
-				</button>
-				<button class="action-btn secondary" on:click={resetCallRingtoneToDefault}>Back To Preset</button>
+				{/if}
+				<input type="file" accept="application/json,.json" bind:this={callRingtoneSynthImportInput} on:change={handleCallRingtoneSynthImportFileSelect} class="hidden-file-input" tabindex="-1" aria-hidden="true" />
 			</div>
-			<input type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac" bind:this={callRingtoneInput} on:change={handleCallRingtoneFileSelect} class="hidden" />
 		{/if}
-		<div class="runtime-note">Active ringtone: {callRingtoneLabel}</div>
-		<div class="settings-row-actions">
-			<button class="action-btn secondary" on:click={testCallRingtone}>Test Ringtone</button>
-			{#if callRingtoneMode !== 'custom-audio'}
-				<button class="action-btn secondary" on:click={resetCallRingtoneToDefault}>Reset Default</button>
-			{/if}
-		</div>
-	</div>
+		{#if ringtoneNote.text}<p class="notif-note" class:is-error={ringtoneNote.error} role={ringtoneNote.error ? 'alert' : 'status'}>{#if ringtoneNote.error}<Icon name="alert" size={14} />{/if}{ringtoneNote.text}</p>{/if}
 
-	<div class="setting-item-full">
-		<div class="setting-info">
-			<span class="setting-label">Notification Volume</span>
-			<span class="setting-description">Adjust the volume of notification sounds ({Math.round(notificationVolume * 100)}%)</span>
+		<div class="w-srow">
+			<div class="w-srow__text">
+				<label class="w-srow__label" for="notif-ring-volume">Ringtone volume</label>
+				<p class="w-srow__hint">{Math.round(callRingtoneVolume * 100)}%</p>
+			</div>
+			<div class="w-srow__control">
+				<input id="notif-ring-volume" type="range" class="w-range notif-range" min="0" max="1" step="0.05" value={callRingtoneVolume} style={rangeFill(callRingtoneVolume, 0, 1)} aria-valuetext={`${Math.round(callRingtoneVolume * 100)}%`} on:input={(e) => updateCallRingtoneVolume(parseFloat(e.currentTarget.value))} />
+			</div>
 		</div>
-		<input type="range" min="0" max="1" step="0.05" bind:value={notificationVolume} on:input={(e) => updateNotificationVolume(parseFloat(e.currentTarget.value))} class="volume-slider" />
 	</div>
-
-	<div class="setting-item-full">
-		<div class="setting-info">
-			<span class="setting-label">Call Ringtone Volume</span>
-			<span class="setting-description">Adjust the volume of the incoming call ringtone ({Math.round(callRingtoneVolume * 100)}%)</span>
-		</div>
-		<input type="range" min="0" max="1" step="0.05" bind:value={callRingtoneVolume} on:input={(e) => updateCallRingtoneVolume(parseFloat(e.currentTarget.value))} class="volume-slider" />
-	</div>
-</div>
+</section>
 
 <style>
-	.push-channel-list {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		max-height: 18rem;
-		overflow-y: auto;
-		padding: 0.2rem;
-	}
-	.push-channel-row {
-		display: flex;
-		align-items: center;
-		gap: var(--space-3);
-		padding: 0.5rem 0.75rem;
-		background: color-mix(in srgb, var(--surface-sunken) 55%, transparent);
-		border: 1px solid color-mix(in srgb, var(--accent-primary-color) 10%, transparent);
-		border-radius: var(--radius-md);
-	}
-	.push-channel-row:hover {
-		border-color: color-mix(in srgb, var(--accent-primary-color) 24%, transparent);
-	}
-	.push-channel-kind {
-		font-size: var(--font-size-xs);
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		color: var(--text-muted);
-		min-width: 4.5rem;
-		white-space: nowrap;
-	}
-	.push-channel-name {
-		flex: 1;
-		min-width: 0;
+	.notif-count {
+		margin-left: auto;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: var(--font-size-sm);
-		color: var(--text-heading);
+	}
+	.notif-note {
+		display: flex;
+		align-items: flex-start;
+		gap: 6px;
+		margin: 10px 0 0;
+		color: var(--w-mute);
+		font: var(--w-t-small);
+	}
+	.notif-note.is-error {
+		color: var(--w-danger);
+	}
+	.notif-note :global(svg) {
+		flex: none;
+		margin-top: 2px;
+	}
+	.w-srows > .notif-note {
+		margin: 0;
+		padding: 8px 0;
+		border-bottom: var(--w-bw) solid var(--w-line);
+	}
+	.notif-range {
+		width: 180px;
+	}
+	.notif-channels {
+		display: grid;
+		max-height: 18rem;
+		margin: 8px 0 0;
+		padding: 0;
+		overflow-y: auto;
+		list-style: none;
+	}
+	.notif-channel {
+		display: grid;
+		grid-template-columns: 16px minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 10px;
+		min-height: 44px;
+		padding: 0 4px 0 2px;
+		border-bottom: var(--w-bw) solid var(--w-line);
+		color: var(--w-faint);
+	}
+	.notif-channel__name {
+		overflow: hidden;
+		color: var(--w-text);
+		font: var(--w-t-ui);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.notif-synth {
+		border-bottom: var(--w-bw) solid var(--w-line);
+	}
+	.notif-synth__body {
+		display: grid;
+		gap: 16px;
+		padding: 12px 0 16px;
+	}
+	.notif-synth__grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+		gap: 12px 16px;
+	}
+	.notif-synth__field {
+		display: grid;
+		align-content: start;
+		min-width: 0;
+	}
+	.notif-synth__field > .w-field {
+		width: 100%;
+		box-sizing: border-box;
+	}
+	.notif-synth__actions {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		gap: 8px;
+	}
+	@media (max-width: 600px) {
+		.notif-range {
+			width: 140px;
+		}
 	}
 </style>

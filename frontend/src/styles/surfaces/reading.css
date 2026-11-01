@@ -1,0 +1,96 @@
+/* Reading surfaces skin — wiki landing, forum titles, gallery document covers.
+   Owner (wave 1): w1-forum owns the forum block (the article title, the list titles and the
+   prose headings). Blocks marked HELD FOR belong to another package and sit here only because
+   they share this cascade slot; their owner changes them by handoff or moves them out.
+   Cascade: panels-skin.css after calls.css — after modal-skin.css, before desktop-shell.css
+   (the only carved slot that follows modal-skin). */
+
+/* HELD FOR w1-dialogs-popouts (dialogs surface), not a reading rule: it must follow
+   modal-skin.css in the cascade, and this is the only carved file that does.
+   New message and New group (CreateDMModal / CreateGroupModal) now sit on BaseModal (the kit
+   .w-dialog). What is left is the legacy `.modal[role=dialog]` frame that the dialogs still built
+   on their own markup lean on: CameraCapture, AudioRecorder, TailcatPanel and the planner's
+   KanbanTaskModal. It puts them on the dialog roles (§7.13: --w-bg, line-strong edge, radius-xl,
+   overlay shadow, serif title, quiet close, sink fields with the accent ring) until each moves onto
+   BaseModal; then this block goes. */
+:root .modal[role='dialog'] {
+	background: var(--w-bg);
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: var(--radius-xl);
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+	font-family: var(--w-sans);
+}
+:root .modal[role='dialog'] .modal-header { background: transparent; border-bottom: var(--w-bw, 1px) solid var(--w-line); }
+:root .modal[role='dialog'] .modal-header h2,
+:root .modal[role='dialog'] .modal-header h3 { font: var(--w-t-title); color: var(--w-text); }
+:root .modal[role='dialog'] .close-btn { color: var(--w-mute); border-radius: var(--radius-md); }
+:root .modal[role='dialog'] .close-btn:hover { background: var(--w-raise); color: var(--w-text); }
+:root .modal[role='dialog'] input:not([type='checkbox']):not([type='radio']):not([type='range']) {
+	background: var(--w-sink);
+	border: var(--w-bw, 1px) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+:root .modal[role='dialog'] input:focus { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
+:root .modal[role='dialog'] .modal-footer { border-top: var(--w-bw, 1px) solid var(--w-line); }
+
+/* HELD FOR w1-wiki-notes (WikiChannel.svelte): the wiki's titles and prose headings.
+   surfaces/headings.css sizes every h1 in center stage at 28px / 1.15 at (0,3,1) and sets serif
+   h1/h2 at (0,4,1). These restate the wiki's sizes one slot later: the page title reads
+   wiki.css's --wiki-title-fs / -lh (34/40; 28/34 on phones and in a narrow pane; 24/30 in the
+   panel), so the title and the Edit title field never disagree; the overview title is 30/38;
+   a Markdown # inside a page reads at the prose H2 size, 22/30. Everything else in the wiki
+   lives in styles/components/wiki.css. */
+:root .wiki-channel .wiki-article h1.wiki-article-title {
+	font: 600 var(--wiki-title-fs) / var(--wiki-title-lh) var(--w-serif);
+	letter-spacing: 0.005em;
+}
+:root .wiki-channel .wiki-start h1.wiki-start-title {
+	font: 600 calc(30px * var(--w-fs, 1)) / calc(38px * var(--w-fs, 1)) var(--w-serif);
+	letter-spacing: 0.005em;
+}
+:root .wiki-channel .wiki-prose h1 {
+	font-size: calc(22px * var(--w-fs, 1));
+	line-height: calc(30px * var(--w-fs, 1));
+}
+:root .wiki-channel.in-panel .wiki-prose h1 {
+	font-size: calc(19px * var(--w-fs, 1));
+	line-height: calc(26px * var(--w-fs, 1));
+}
+
+/* ---- forum (w1-forum): the article title, the list titles and the prose headings ----
+   surfaces/headings.css sizes every h1 in center stage at 28px / 1.15 at (0,3,1) and the list
+   titles at 17px / 1.35 at (0,3,0). The forum article title is serif 30/38, list titles 17/24
+   (integer line heights, §4.1) and the prose keeps the kit's line heights, so these rules match
+   that weight one slot later. Once headings.css drops its forum line and the h1 line height,
+   they can go. Everything else in the forum lives in styles/components/forum.css. */
+:root .forum-channel h1.forum-article-title {
+	font: 600 calc(30px * var(--w-fs, 1)) / calc(38px * var(--w-fs, 1)) var(--w-serif);
+	letter-spacing: 0.005em;
+}
+@container forum (max-width: 519.98px) {
+	:root .forum-channel h1.forum-article-title {
+		font-size: calc(24px * var(--w-fs, 1));
+		line-height: calc(32px * var(--w-fs, 1));
+	}
+}
+:root .forum-channel .w-prose h1 {
+	font-size: calc(28px * var(--w-fs, 1));
+	line-height: calc(36px * var(--w-fs, 1));
+}
+:root .forum-channel .forum-post-row-title {
+	line-height: calc(24px * var(--w-fs, 1));
+}
+
+/* HELD FOR the gallery skin — GalleryChannel.svelte has no wave-1 owner. */
+/* ---- gallery: documents and models as cover cards ---- */
+:root .doc-cover { position: relative; width: 100%; min-height: 100%; aspect-ratio: 4 / 5; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; padding: 14px; background: var(--w-bg2); border: var(--w-bw, 1px) solid var(--w-line); }
+:root .doc-cover .doc-ext { align-self: flex-start; padding: 1px 7px; border: var(--w-bw, 1px) solid var(--w-line-strong); border-radius: calc(5px * var(--w-rs, 1)); font: 600 .68rem var(--w-mono); letter-spacing: .08em; color: var(--w-mute); }
+:root .doc-cover .doc-title { font: 600 clamp(1.05rem, .9rem + 1vw, 1.5rem)/1.2 var(--w-serif); color: var(--w-text); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; line-clamp: 4; -webkit-box-orient: vertical; word-break: break-word; }
+:root .doc-cover .doc-kind { font: 500 .66rem var(--w-mono); letter-spacing: .04em; color: var(--w-faint); }
+:root .doc-cover.model { background-image: linear-gradient(var(--w-line) 1px, transparent 1px), linear-gradient(90deg, var(--w-line) 1px, transparent 1px); background-size: 24px 24px; }
+:root .doc-cover { padding-bottom: 56px; }
+:root .doc-cover .doc-kind { display: none; }
+:root .recent-card-cover .doc-cover { aspect-ratio: 3 / 2; min-height: 0; height: 100%; }

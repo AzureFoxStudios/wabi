@@ -1,78 +1,63 @@
 /* ==========================================================================
-   ML — MEDIA STYLES
-   Extracted from messagelist.css
+   ML — MEDIA STYLES (§7.19)
+   Images and video at most 420 × 320, md corners, a hairline, on the sink so a transparent
+   PNG keeps a backing. One mono meta line follows (ml-attachments.css .media-meta).
    ========================================================================== */
 
+.inline-image,
+.inline-video {
+	display: block;
+	box-sizing: border-box;
+	max-width: min(100%, 420px);
+	max-height: 320px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+	cursor: pointer;
+}
+.inline-image {
+	object-fit: contain;
+}
+.inline-image:focus-visible,
+.inline-video:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
 
+.gif {
+	display: block;
+	max-width: min(100%, 420px);
+	max-height: 320px;
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+	cursor: pointer;
+}
 
-	/* ========== IMAGE & VIDEO SIZE LIMITS ========== */
-	.inline-image {
-		max-width: 450px;
-		max-height: 400px;
-		border-radius: var(--radius-md);
-		cursor: pointer;
-		object-fit: contain;
-		display: block;
-	}
+.gif-message-block {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	max-width: 420px;
+	margin-top: 2px;
+}
 
+.gif-caption {
+	max-width: 100%;
+	margin-top: 0;
+	overflow-wrap: break-word;
+}
+.gif-caption.style-accent {
+	padding-left: 10px;
+	border-left: 2px solid var(--w-line-strong);
+}
+.gif-caption.style-card {
+	padding: 6px 10px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: var(--w-lift);
+}
 
-	.inline-video {
-		max-width: 450px;
-		max-height: 400px;
-		border-radius: var(--radius-md);
-		cursor: pointer;
-		display: block;
-	}
-
-
-	.gif {
-		max-width: 400px;
-		max-height: 350px;
-		border-radius: var(--radius-md);
-		cursor: pointer;
-		display: block;
-	}
-
-
-	.gif-message-block {
-		display: flex;
-		flex-direction: column;
-		gap: 0.35rem;
-		max-width: 420px;
-	}
-
-
-	.gif-caption {
-		margin-top: 0;
-		max-width: 100%;
-		word-break: break-word;
-		line-height: 1.35;
-	}
-
-
-	.gif-caption.style-accent {
-		border-left: 2px solid rgba(var(--accent-rgb), 0.55);
-		padding-left: 0.45rem;
-	}
-
-
-	.gif-caption.style-card {
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-md);
-		padding: var(--space-1) var(--space-2);
-		background: color-mix(in srgb, var(--surface-raised) 85%, transparent);
-	}
-
-
-	.image-container,
-	.video-container,
-	.model-container {
-		margin-top: 0.5rem;
-		margin-bottom: 0.25rem;
-	}
-
-
-	.embedded-model-container {
-		margin: 0.5rem 0;
-		max-width: 560px;
-	}
+.embedded-model-container {
+	max-width: 560px;
+	margin: 6px 0 0;
+}

@@ -65,3 +65,51 @@ describe('prism import convention', () => {
 		expect(offenders).toEqual([]);
 	});
 });
+
+describe('prism theme stylesheet (spec §7.19)', () => {
+	const css = readFileSync(join(import.meta.dir, 'prism-theme.css'), 'utf8');
+	let code = css;
+	// Strip comments by looping one pattern until the text stops changing.
+	for (let previous = ''; previous !== code; ) {
+		previous = code;
+		code = code.replace(/\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\//, '');
+	}
+	const selectors = [...code.matchAll(/([^{}]+)\{[^{}]*\}/g)].flatMap((match) => {
+		const parts: string[] = [];
+		let depth = 0;
+		let current = '';
+		for (const ch of match[1]) {
+			if (ch === '(') depth++;
+			if (ch === ')') depth--;
+			if (ch === ',' && depth === 0) {
+				parts.push(current.trim());
+				current = '';
+			} else current += ch;
+		}
+		parts.push(current.trim());
+		return parts.filter(Boolean);
+	});
+
+	test('every rule is scoped to a code block: no global inline-code or token rule', () => {
+		expect(selectors.length).toBeGreaterThan(0);
+		for (const selector of selectors) {
+			expect(selector.startsWith(":where(.code-block, .markdown-content pre, .code-preview, pre[class*='language-']) ")).toBe(true);
+		}
+	});
+
+	test('token colours are roles, never the VS Code dark literals', () => {
+		expect(code).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+		expect(code).not.toMatch(/\brgba?\(/i);
+		expect(code).toContain('var(--w-accent)');
+	});
+
+	test('parseMessage blocks outside message markdown (Wiki, Diary) keep their token colours', () => {
+		// markdown.ts renders <pre class="language-x"><code class="language-x">; .wiki-content-body
+		// and .journal-markdown are not .markdown-content, so the scope must name the pre itself.
+		expect(code).toContain("pre[class*='language-']) .token:is(.keyword");
+	});
+
+	test('markdown typography no longer lives in the highlighting sheet', () => {
+		expect(code).not.toMatch(/\.markdown-content\s+(?:h[1-6]|blockquote|a|del|s|p|ul|ol|li|hr|strong|em)\b/);
+	});
+});

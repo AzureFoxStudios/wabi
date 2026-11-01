@@ -1,6 +1,11 @@
+<!--
+	Following (design contract §8.11, §7.16): the channels you follow, kept on this device.
+	A page header (kicker, serif title, one truthful line, mono counts), then the followed channels
+	on this server as 56px rows (glyph stamp, name, kind, unread count, alert level, Unfollow), then
+	the latest previews from every saved server as quiet rows. Everything is on --w-* roles.
+-->
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { brandName } from '$lib/branding';
 	import { channels, channelMessages, channelUnreadCounts, currentChannel, switchChannel, type Channel } from '$lib/socket';
 	import {
 		FOLLOW_ALERT_LEVEL_LABELS,
@@ -13,7 +18,8 @@
 	import { followedChannelSnapshots } from '$lib/followingSnapshots';
 	import { currentSavedServer, switchToSavedServerChannel } from '$lib/savedServers';
 	import { resolveServerUrl } from '$lib/serverUrl';
-	import { getChannelTypeIcon, getChannelTypeLabel } from '$lib/channelTypes';
+	import { getChannelTypeLabel } from '$lib/channelTypes';
+	import Icon from '$lib/components/ui/Icon.svelte';
 
 	const MAX_FEED_ITEMS = 64;
 	const dispatch = createEventDispatcher<{
@@ -61,14 +67,12 @@
 		cycleChannelFollowAlertLevel(channelId);
 	}
 
+	/** Today: the time; another day: the date (mono in the row). */
 	function formatTimestamp(timestamp: number): string {
 		try {
-			return new Intl.DateTimeFormat(undefined, {
-				month: 'short',
-				day: 'numeric',
-				hour: 'numeric',
-				minute: '2-digit'
-			}).format(new Date(timestamp));
+			const date = new Date(timestamp);
+			const today = date.toDateString() === new Date().toDateString();
+			return new Intl.DateTimeFormat(undefined, today ? { hour: '2-digit', minute: '2-digit' } : { month: 'short', day: 'numeric' }).format(date);
 		} catch {
 			return '';
 		}
@@ -83,397 +87,113 @@
 	}
 </script>
 
-<section class="following-feed">
-	<header class="following-hero">
-		<div>
-			<div class="following-eyebrow">Following</div>
-			<h1>Only the feeds you care about</h1>
-			<p>
-				Local to this device. One community can stay hot in RAM while followed previews from other saved
-				servers stay lightweight and quiet until you raise their alert level.
-			</p>
-		</div>
-		<div class="following-stats">
-			<div>
-				<strong>{totalFollowCount}</strong>
-				<span>feeds</span>
-			</div>
-			<div>
-				<strong>{followedUnreadCount}</strong>
-				<span>unread</span>
-			</div>
-		</div>
+<section class="following" aria-labelledby="following-title">
+	<header class="following__head">
+		<p class="w-kicker">Following</p>
+		<h1 class="following__title" id="following-title">Followed channels</h1>
+		<p class="following__truth">Kept on this device. Channels on other servers show light previews and stay quiet until you raise their alert level.</p>
+		<p class="following__counts"><span>{totalFollowCount} followed</span><span aria-hidden="true">·</span><span>{followedUnreadCount} unread here</span></p>
 	</header>
 
 	{#if totalFollowCount === 0}
-		<div class="following-empty">
-			<h2>Nothing followed yet</h2>
-			<p>Use the star in the channel list to follow a channel. Alt-click a channel there to glimpse it without fully switching.</p>
+		<div class="following__empty">
+			<Icon name="star" size={28} class="following__empty-glyph" />
+			<h2 class="following__empty-title">Nothing followed yet</h2>
+			<p class="following__empty-text">Use the star in the channel list to follow a channel. Alt-click a channel there to glimpse it without switching.</p>
 		</div>
 	{:else}
-		<section class="following-strip" aria-label="Followed channels">
+		<section class="following__section" aria-labelledby="following-here">
+			<h2 class="w-kicker following__kicker" id="following-here">On {currentServerName}</h2>
 			{#if followedChannels.length === 0}
-				<div class="following-empty following-empty--inline">
-					<h2>No follows on this server yet</h2>
-					<p>Your other saved servers can still appear below from lightweight follow snapshots.</p>
-				</div>
+				<p class="following__note">No follows on this server yet. Your other saved servers still appear below.</p>
+			{:else}
+				<ul class="following__list">
+					{#each followedChannels as entry (entry.channel.id)}
+						<li class="follow-row" class:follow-row--current={$currentChannel === entry.channel.id} class:follow-row--unread={entry.unreadCount > 0}>
+							<span class="follow-row__stamp" aria-hidden="true"><Icon name="hash" size={14} /></span>
+							<span class="follow-row__text">
+								<span class="follow-row__name">{entry.channel.name}</span>
+								<span class="follow-row__meta">{summarizeChannel(entry.channel)}{#if entry.previewCount} · {entry.previewCount} recent{/if}</span>
+							</span>
+							{#if entry.unreadCount > 0}<span class="w-badge w-badge--sm follow-row__count" aria-label={`${entry.unreadCount} unread`}>{entry.unreadCount}</span>{/if}
+							<span class="follow-row__actions">
+								<button type="button" class="w-btn w-btn--quiet w-btn--sm" aria-label={`Alert level for ${entry.channel.name}: ${FOLLOW_ALERT_LEVEL_LABELS[entry.preference.alertLevel]}. Change`} title="Change the alert level" on:click={() => cycleAlert(entry.channel.id)}><Icon name="bell" size={14} />{FOLLOW_ALERT_LEVEL_LABELS[entry.preference.alertLevel]}</button>
+								<button type="button" class="w-btn w-btn--quiet w-btn--sm" aria-label={`Unfollow ${entry.channel.name}`} on:click={() => unfollowChannel(entry.channel.id)}>Unfollow</button>
+							</span>
+							<button type="button" class="follow-row__hit" aria-label={`Open ${entry.channel.name}`} on:click={() => openChannel(entry.channel.id)}></button>
+						</li>
+					{/each}
+				</ul>
 			{/if}
-			{#each followedChannels as entry (entry.channel.id)}
-				<article class="follow-card" class:active={$currentChannel === entry.channel.id}>
-					<button type="button" class="follow-card-main" on:click={() => openChannel(entry.channel.id)}>
-						<div class="follow-card-header">
-							<span class="follow-channel-pill">{getChannelTypeIcon(entry.channel.type)}</span>
-							<strong>{entry.channel.name}</strong>
-							{#if entry.unreadCount > 0}
-								<span class="follow-unread">{entry.unreadCount}</span>
-							{/if}
-						</div>
-						<div class="follow-card-meta">
-							<span>{summarizeChannel(entry.channel)}</span>
-							<span>{entry.previewCount} cached</span>
-						</div>
-					</button>
-					<div class="follow-card-actions">
-						<button
-							type="button"
-							class="follow-alert-btn"
-							on:click={() => cycleAlert(entry.channel.id)}
-							title={`Alert level: ${FOLLOW_ALERT_LEVEL_LABELS[entry.preference.alertLevel]}`}
-						>
-							{FOLLOW_ALERT_LEVEL_LABELS[entry.preference.alertLevel]}
-						</button>
-						<button
-							type="button"
-							class="follow-unfollow-btn"
-							on:click={() => unfollowChannel(entry.channel.id)}
-							title="Unfollow channel"
-						>
-							Unfollow
-						</button>
-					</div>
-				</article>
-			{/each}
 		</section>
 
-		<section class="following-stream" aria-label="Recent posts from followed channels">
-			<div class="stream-header">
-				<h2>Recent from all followed servers</h2>
-				<p>Preview snapshots only. {brandName} is not loading whole extra communities into RAM for this view.</p>
-			</div>
-
+		<section class="following__section" aria-labelledby="following-recent">
+			<h2 class="w-kicker following__kicker" id="following-recent">Recent from followed servers</h2>
+			<p class="following__note">Previews of the latest messages, held in memory while Wabi is open.</p>
 			{#if snapshotFeedItems.length === 0}
-				<div class="following-empty following-empty--stream">
-					<h2>No recent posts loaded</h2>
-					<p>Follow a channel on a saved server to see its activity here. Message previews stay in memory and may disappear after Wabi closes.</p>
-				</div>
+				<p class="following__note following__note--empty">No recent posts yet. They appear as followed channels get new messages.</p>
 			{:else}
-				<div class="stream-list">
+				<ul class="following__list">
 					{#each snapshotFeedItems as item (`${item.serverUrl}:${item.channelId}:${item.previewMessages[0]?.id || item.updatedAt}`)}
-						<button type="button" class="stream-card" on:click={() => openSnapshot(item.serverUrl, item.channelId)}>
-							<div class="stream-card-topline">
-								<div class="stream-channel-meta">
-									<span class="stream-channel-name">{getChannelTypeIcon(item.channelType)} {item.channelName}</span>
-									<span class="stream-server-name">{item.serverName || item.serverUrl}</span>
-								</div>
-								<time>{formatTimestamp(item.lastActivityAt)}</time>
-							</div>
-							<div class="stream-card-summary">
-								<span class="stream-summary-pill">{summarizeSnapshotChannel(item.channelType)}</span>
-								{#if item.unreadCount > 0}
-									<span class="stream-summary-pill stream-summary-pill--unread">{item.unreadCount} unread</span>
-								{/if}
-							</div>
-							{#if item.previewMessages.length > 0}
-								<div class="stream-author">{item.previewMessages[item.previewMessages.length - 1]?.user}</div>
-								<div class="stream-body">{item.previewMessages[item.previewMessages.length - 1]?.text}</div>
-							{:else}
-								<div class="stream-body">No cached preview yet.</div>
-							{/if}
-						</button>
+						{@const last = item.previewMessages[item.previewMessages.length - 1]}
+						<li class="follow-row follow-row--post" class:follow-row--unread={item.unreadCount > 0}>
+							<span class="follow-row__stamp" aria-hidden="true"><Icon name="hash" size={14} /></span>
+							<span class="follow-row__text">
+								<span class="follow-row__name">{item.channelName}<span class="follow-row__server"> · {item.serverName || item.serverUrl}</span></span>
+								<span class="follow-row__body">{#if last}<strong>{last.user}</strong> {last.text}{:else}No preview yet · {summarizeSnapshotChannel(item.channelType)}{/if}</span>
+							</span>
+							{#if item.unreadCount > 0}<span class="w-badge w-badge--sm follow-row__count" aria-label={`${item.unreadCount} unread`}>{item.unreadCount}</span>{/if}
+							<time class="follow-row__time" datetime={new Date(item.lastActivityAt).toISOString()}>{formatTimestamp(item.lastActivityAt)}</time>
+							<button type="button" class="follow-row__hit" aria-label={`Open ${item.channelName} on ${item.serverName || item.serverUrl}`} on:click={() => openSnapshot(item.serverUrl, item.channelId)}></button>
+						</li>
 					{/each}
-				</div>
+				</ul>
 			{/if}
 		</section>
 	{/if}
 </section>
 
 <style>
-	.following-feed {
-		height: 100%;
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-		padding: 1.15rem 1.1rem 1.3rem;
-		background:
-			radial-gradient(circle at top left, rgba(var(--color-success-rgb, 45, 212, 191), 0.12), transparent 34%),
-			radial-gradient(circle at top right, rgba(var(--color-info-rgb, 56, 189, 248), 0.12), transparent 30%),
-			linear-gradient(180deg, rgba(var(--surface-app-rgb, 7, 12, 18), 0.98), rgba(var(--surface-app-rgb, 10, 15, 24), 0.96));
-		overflow: hidden;
-		box-sizing: border-box;
-	}
+	.following { flex: 1; min-height: 0; box-sizing: border-box; overflow-y: auto; padding: 40px var(--w-gutter, 32px) 56px; background: var(--w-bg); color: var(--w-text); }
+	.following > * { width: min(760px, 100%); margin-inline: auto; }
+	.following__head { margin-bottom: 28px; }
+	.following__title { margin: 6px 0 6px; font: var(--w-t-display); color: var(--w-text); text-wrap: balance; }
+	.following__truth { margin: 0; max-width: 64ch; font: var(--w-t-ui); color: var(--w-mute); }
+	.following__counts { display: flex; gap: 8px; margin: 10px 0 0; font: var(--w-t-mono); font-variant-numeric: tabular-nums; color: var(--w-faint); }
+	.following__section + .following__section { margin-top: 32px; }
+	.following__kicker { margin: 0 0 6px; }
+	.following__note { margin: 0 0 8px; font: var(--w-t-small); color: var(--w-mute); }
+	.following__note--empty { color: var(--w-faint); }
+	.following__list { margin: 0; padding: 0; list-style: none; border-top: var(--w-bw) solid var(--w-line); }
 
-	.following-hero {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-start;
-		gap: 1rem;
-		padding: 1.2rem 1.25rem;
-		border: 1px solid rgba(var(--accent-primary-rgb, 99, 102, 241), 0.14);
-		border-radius: 22px;
-		background: linear-gradient(145deg, rgba(var(--surface-app-rgb, 17, 24, 39), 0.92), rgba(var(--surface-app-rgb, 15, 23, 42), 0.82));
-		box-shadow: 0 16px 40px var(--shadow-md, var(--shadow-sm, var(--shadow-md, var(--shadow-lg, rgba(0, 0, 0, 0.24)))));
-	}
+	.follow-row { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto; align-items: center; column-gap: 14px; min-height: 56px; padding: 8px 10px; border-bottom: var(--w-bw) solid var(--w-line); }
+	.follow-row--post { grid-template-columns: 28px minmax(0, 1fr) auto auto; }
+	.follow-row:hover { background: color-mix(in srgb, var(--w-raise) 60%, transparent); }
+	.follow-row--current .follow-row__name { color: var(--w-accent); }
+	.follow-row__hit { position: absolute; inset: 0; z-index: 0; min-height: 0; margin: 0; padding: 0; border: 0; background: transparent; cursor: pointer; }
+	.follow-row__hit:focus-visible { outline: 2px solid var(--w-accent); outline-offset: -2px; }
+	.follow-row__actions { position: relative; z-index: 1; display: inline-flex; gap: 2px; }
+	.follow-row__stamp { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--radius-inner); background: var(--w-raise); color: var(--w-mute); }
+	.follow-row__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+	.follow-row__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--w-t-label); color: var(--w-text); }
+	.follow-row--unread .follow-row__name { font-weight: 700; }
+	.follow-row__server { font-weight: 400; color: var(--w-faint); }
+	.follow-row__meta { font: var(--w-t-small); color: var(--w-faint); }
+	.follow-row__body { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; font: var(--w-t-small); color: var(--w-mute); }
+	.follow-row__body strong { font-weight: 500; color: var(--w-text); }
+	.follow-row__count { position: relative; z-index: 1; }
+	.follow-row__time { font: var(--w-t-mono); font-variant-numeric: tabular-nums; color: var(--w-faint); white-space: nowrap; }
 
-	.following-eyebrow {
-		text-transform: uppercase;
-		letter-spacing: 0.18em;
-		font-size: 0.72rem;
-		font-weight: 700;
-		color: rgba(var(--color-success-rgb, 94, 234, 212), 0.86);
-		margin-bottom: 0.35rem;
-	}
+	.following__empty { max-width: 460px; padding-top: 12px; }
+	.following__empty :global(.following__empty-glyph) { color: var(--w-faint); }
+	.following__empty-title { margin: 12px 0 6px; font: 600 calc(20px * var(--w-fs)) / calc(26px * var(--w-fs)) var(--w-serif); color: var(--w-text); }
+	.following__empty-text { margin: 0; font: var(--w-t-ui); color: var(--w-mute); }
 
-	.following-hero h1,
-	.following-empty h2,
-	.stream-header h2 {
-		margin: 0;
-		font-size: clamp(1.15rem, 2vw, 1.7rem);
-	}
+	:global(:root[data-char='contrast']) .follow-row:hover { background: transparent; box-shadow: inset 0 0 0 var(--w-bw) var(--w-text); }
 
-	.following-hero p,
-	.following-empty p,
-	.stream-header p {
-		margin: 0.45rem 0 0;
-		color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.72);
-		line-height: 1.45;
-	}
-
-	.following-stats {
-		display: flex;
-		gap: 0.75rem;
-		flex-shrink: 0;
-	}
-
-	.following-stats > div {
-		min-width: 86px;
-		padding: 0.85rem 0.9rem;
-		border-radius: 18px;
-		background: rgba(var(--surface-app-rgb, 15, 23, 42), 0.72);
-		border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.14);
-		text-align: center;
-	}
-
-	.following-stats strong {
-		display: block;
-		font-size: 1.2rem;
-	}
-
-	.following-stats span {
-		font-size: 0.8rem;
-		color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.6);
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-	}
-
-	.following-strip {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-		gap: 0.85rem;
-	}
-
-	.follow-card,
-	.stream-card,
-	.following-empty {
-		border-radius: 20px;
-		border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.12);
-		background: rgba(var(--surface-app-rgb, 15, 23, 42), 0.72);
-		box-shadow: 0 12px 28px var(--shadow-md, var(--shadow-md, var(--shadow-md, rgba(0, 0, 0, 0.16))));
-	}
-
-	.follow-card {
-		padding: 0.9rem;
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-
-	.follow-card.active {
-		border-color: rgba(var(--color-success-rgb, 94, 234, 212), 0.42);
-		box-shadow: 0 16px 34px rgba(var(--color-success-rgb, 45, 212, 191), 0.16);
-	}
-
-	.follow-card-main,
-	.stream-card {
-		background: none;
-		border: 0;
-		color: inherit;
-		text-align: left;
-		cursor: pointer;
-	}
-
-	.follow-card-main {
-		padding: 0;
-	}
-
-	.follow-card-header {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-
-	.follow-channel-pill,
-	.follow-unread {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 999px;
-		padding: 0.16rem 0.5rem;
-		font-size: 0.73rem;
-		font-weight: 700;
-		background: rgba(var(--surface-base-rgb, 30, 41, 59), 0.88);
-	}
-
-	.follow-channel-pill {
-		color: rgba(var(--color-info-rgb, 125, 211, 252), 0.95);
-	}
-
-	.follow-unread {
-		margin-left: auto;
-		color: rgba(254, 242, 242, 0.95);
-		background: rgba(var(--color-danger-rgb, 239, 68, 68), 0.85);
-	}
-
-	.follow-card-meta,
-	.stream-card-topline,
-	.stream-channel-meta,
-	.follow-card-actions {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.55rem;
-	}
-
-	.follow-card-meta,
-	.stream-card-topline time,
-	.stream-server-name {
-		font-size: 0.8rem;
-		color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.58);
-	}
-
-	.follow-alert-btn,
-	.follow-unfollow-btn {
-		padding: 0.45rem 0.65rem;
-		border-radius: 999px;
-		border: 1px solid rgba(var(--text-muted-rgb, 148, 163, 184), 0.16);
-		background: rgba(var(--surface-app-rgb, 15, 23, 42), 0.9);
-		color: rgba(var(--text-inverse-rgb, 241, 245, 249), 0.86);
-		font: inherit;
-		cursor: pointer;
-	}
-
-	.follow-alert-btn:hover,
-	.follow-unfollow-btn:hover,
-	.stream-card:hover,
-	.follow-card-main:hover {
-		filter: brightness(1.08);
-	}
-
-	.following-stream {
-		min-height: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 0.85rem;
-	}
-
-	.stream-list {
-		min-height: 0;
-		overflow: auto;
-		display: flex;
-		flex-direction: column;
-		gap: 0.7rem;
-		padding-right: 0.2rem;
-	}
-
-	.stream-card {
-		padding: 0.95rem 1rem;
-		transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
-	}
-
-	.stream-card:hover {
-		transform: translateY(-1px);
-		border-color: rgba(var(--color-success-rgb, 94, 234, 212), 0.28);
-		background: rgba(var(--surface-app-rgb, 15, 23, 42), 0.88);
-	}
-
-	.stream-channel-name,
-	.stream-author {
-		font-weight: 700;
-	}
-
-	.stream-author {
-		margin-top: 0.45rem;
-	}
-
-	.stream-body {
-		margin-top: 0.32rem;
-		color: rgba(var(--text-inverse-rgb, 241, 245, 249), 0.82);
-		line-height: 1.45;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.following-empty {
-		padding: 1.25rem 1.35rem;
-	}
-
-	.following-empty--inline {
-		grid-column: 1 / -1;
-	}
-
-	.following-empty--stream {
-		margin-top: 0.25rem;
-	}
-
-	.stream-card-summary {
-		display: flex;
-		align-items: center;
-		gap: 0.45rem;
-		margin-top: 0.45rem;
-	}
-
-	.stream-summary-pill {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 999px;
-		padding: 0.14rem 0.48rem;
-		font-size: 0.7rem;
-		font-weight: 700;
-		background: rgba(var(--surface-base-rgb, 30, 41, 59), 0.88);
-		color: rgba(var(--text-inverse-rgb, 226, 232, 240), 0.9);
-	}
-
-	.stream-summary-pill--unread {
-		background: rgba(var(--color-danger-rgb, 239, 68, 68), 0.82);
-		color: var(--text-inverse, var(--text-inverse, #fff));
-	}
-
-	@media (max-width: 900px) {
-		.following-feed {
-			padding: 0.9rem 0.8rem 1rem;
-		}
-
-		.following-hero {
-			flex-direction: column;
-		}
-
-		.following-stats {
-			width: 100%;
-		}
-
-		.following-stats > div {
-			flex: 1;
-		}
+	@media (max-width: 768px) {
+		.following { padding: 20px 16px 40px; }
+		.follow-row { grid-template-columns: 28px minmax(0, 1fr) auto; row-gap: 4px; padding: 10px 4px; }
+		.follow-row__actions { grid-column: 2 / -1; grid-row: 2; }
 	}
 </style>

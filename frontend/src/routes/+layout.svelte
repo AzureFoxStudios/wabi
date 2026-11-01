@@ -42,6 +42,11 @@
 		consumeWabiNavFromLocation,
 		listenForServiceWorkerNavigation
 	} from '$lib/pwa/deepLink';
+	import type { Component } from 'svelte';
+	import { get, writable, type Writable } from 'svelte/store';
+	import { closePalette, palette, togglePalette } from '$lib/jumpPalette';
+	import { bufferedPaletteKey, paletteKeyAction, type PendingPaletteKey } from '$lib/jumpIndex';
+	import { workspaceViewSelect } from '$lib/workspaceViewBridge';
 
 	initI18n();
 	startSocketErrorToasts();
@@ -81,6 +86,100 @@ function isLocalPreviewHost(): boolean {
 	}
 	return hostname.endsWith('.localhost') || hostname.endsWith('.local');
 }
+
+	// Jump palette (Ctrl K, design contract §7.24): mounted once, here, and loaded lazily so standalone
+	// pages and the sign-in screen never pull in the channel and people stores. It is preloaded once
+	// the app shell has mounted, so the first Ctrl K opens it at once.
+	let JumpPalette: Component<{ pendingKeys?: Writable<PendingPaletteKey[]> }> | null = null;
+	let jumpPaletteLoad: Promise<void> | null = null;
+	let jumpPalettePreload = false;
+
+	function loadJumpPalette(): Promise<void> {
+		jumpPaletteLoad ??= import('$lib/components/JumpPalette.svelte')
+			.then((module) => {
+				JumpPalette = module.default;
+			})
+			.catch((error) => {
+				jumpPaletteLoad = null;
+				console.warn('[Layout] Jump palette failed to load:', error);
+				closePalette();
+			});
+		return jumpPaletteLoad;
+	}
+
+	$: if ($palette.open && !JumpPalette) void loadJumpPalette();
+	$: if ($workspaceViewSelect && !jumpPalettePreload && typeof window !== 'undefined') {
+		jumpPalettePreload = true;
+		const preload = () => void loadJumpPalette();
+		const idle = (window as Window & { requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number }).requestIdleCallback;
+		if (idle) idle(preload, { timeout: 3000 });
+		else window.setTimeout(preload, 1200);
+	}
+
+	/** Another visible modal dialog (Settings, a confirm): the palette does not open over it. */
+	function otherModalOpen(): boolean {
+		for (const element of document.querySelectorAll<HTMLElement>('[aria-modal="true"], dialog[open]')) {
+			if (element.closest('[data-jump-palette]')) continue;
+			if (element instanceof HTMLDialogElement && !isModalDialog(element)) continue;
+			if (element.getClientRects().length > 0) return true;
+		}
+		return false;
+	}
+
+	/** `:modal` throws on older WebKit (Tauri webkit2gtk); an open dialog then counts as modal. */
+	function isModalDialog(element: HTMLDialogElement): boolean {
+		try {
+			return element.matches(':modal');
+		} catch {
+			return true;
+		}
+	}
+
+	/** macOS keeps Ctrl K for "delete to the end of the line" in text fields (⌘K is the palette). */
+	const applePlatform =
+		typeof navigator !== 'undefined' &&
+		/mac|iphone|ipad|ipod/i.test(
+			(navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform || navigator.platform || ''
+		);
+
+	/**
+	 * Keys pressed while the palette is open but its field does not have focus yet (its code is
+	 * still loading) or no longer has it. They are taken in the capture phase, so the composer
+	 * never sees them (no sent draft, no lost letters), and the palette replays them in order.
+	 */
+	const pendingPaletteKeys = writable<PendingPaletteKey[]>([]);
+	// A closed palette has nothing to replay (Ctrl K may close it again before its code arrives).
+	$: if (!$palette.open && get(pendingPaletteKeys).length) pendingPaletteKeys.set([]);
+
+	function bufferPaletteKey(event: KeyboardEvent): void {
+		const state = get(palette);
+		if (!state.open) return;
+		const layer = document.querySelector('[data-jump-palette]');
+		const focused = document.activeElement;
+		const action = bufferedPaletteKey(event, { open: true, paletteHasFocus: Boolean(layer && focused && layer.contains(focused)) });
+		if (!action) return;
+		event.preventDefault();
+		event.stopPropagation();
+		if (action === 'close') {
+			pendingPaletteKeys.set([]);
+			closePalette();
+			return;
+		}
+		pendingPaletteKeys.update((keys) => [...keys, { key: event.key, shiftKey: event.shiftKey }].slice(-64));
+	}
+
+	// Bubble phase on purpose: an editor that binds Ctrl K itself handles (or marks) it first.
+	function handlePaletteShortcut(event: KeyboardEvent): void {
+		const action = paletteKeyAction(event, {
+			open: get(palette).open,
+			appReady: Boolean(get(workspaceViewSelect)),
+			modalOpen: otherModalOpen,
+			mac: applePlatform
+		});
+		if (action !== 'toggle') return;
+		event.preventDefault();
+		togglePalette();
+	}
 
 	function scheduleNonCritical(task: () => void, timeout = 1500): void {
 		if (typeof window === 'undefined') return;
@@ -256,6 +355,8 @@ function isLocalPreviewHost(): boolean {
 	<meta name="twitter:image" content="https://wabi.chat/screenshot-wide.png" />
 </svelte:head>
 
+<svelte:window on:keydown={handlePaletteShortcut} on:keydown|capture={bufferPaletteKey} />
+
 <DesktopTitlebar />
 <AmbientBackground />
 <div class="app-content-layer">
@@ -290,6 +391,10 @@ function isLocalPreviewHost(): boolean {
 
 <!-- User-owned local effects live behind one root host. -->
 <LocalVisualEffectsHost />
+
+{#if JumpPalette}
+	<svelte:component this={JumpPalette} pendingKeys={pendingPaletteKeys} />
+{/if}
 
 <style>
 	/* Keep the ambient effect canvas painted behind all app UI.

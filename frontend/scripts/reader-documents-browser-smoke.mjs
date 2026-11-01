@@ -19,11 +19,11 @@ try {
     for(const relative of [
         'src/lib/components/ReaderTab.svelte','src/lib/components/ReaderDocumentWorkbench.svelte',
         'src/lib/components/ReaderTabImpl.svelte','src/lib/components/ReaderImportSheet.svelte',
-        'src/lib/components/ReaderIcon.svelte','src/lib/components/readerTabHelpers.ts',
+        'src/lib/components/ReaderIcon.svelte','src/lib/components/ReaderImageAnnotator.svelte','src/lib/components/readerTabHelpers.ts',
         'src/lib/components/readerDocumentTools.ts','src/lib/components/readerCode.css',
         'src/lib/readerWorkspace.ts','src/lib/readerDocuments.ts','src/lib/readerDocumentScope.ts',
         'src/lib/readerLibrary.ts','src/lib/readerCode.ts','src/lib/prism.ts',
-        'src/lib/workspaces/bridge.ts','src/lib/workspaces/WorkspaceShortcuts.svelte',
+        'src/lib/workspaces/bridge.ts',
         'src/styles/components/reader-tab.css'
     ]) {
         await mkdir(path.dirname(path.join(fixture,relative)),{recursive:true});
@@ -31,7 +31,7 @@ try {
     }
     await writeFile(path.join(fixture,'tsconfig.json'),JSON.stringify({compilerOptions:{target:'ES2022',module:'ESNext',moduleResolution:'bundler',skipLibCheck:true}}));
     await writeFile(path.join(fixture,'environment.js'),'export const browser=true;export const dev=true;export const building=false;');
-    await writeFile(path.join(fixture,'tabQueue.js'),'export const mobileTabQueue={registerAddonTab(){},openAddonTab(id){window.readerOpenedTab=id;}};');
+    await writeFile(path.join(fixture,'tabQueue.js'),`import {writable} from 'svelte/store';const addonTabs=writable([]);export const mobileTabQueue={addonTabs,registerAddonTab(tab){addonTabs.update(tabs=>[...tabs,tab]);},openAddonTab(id){window.readerOpenedTab=id;}};`);
     await writeFile(path.join(fixture,'channelStore.js'),`import {writable} from 'svelte/store';export const currentChannel=writable('general');export const channels=writable([]);`);
     await writeFile(path.join(fixture,'loreWorkspace.js'),'export const openLoreSurface=()=>{};');
     await writeFile(path.join(fixture,'serverUrl.js'),`import {writable,get} from 'svelte/store';export const activeServerUrl=writable('https://one.example');export const getServerUrl=()=>get(activeServerUrl);`);

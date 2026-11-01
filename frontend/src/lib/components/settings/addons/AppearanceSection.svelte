@@ -7,6 +7,7 @@
 	} from '$lib/timedThemeMode';
 	import { ADDON_SECTION_LABELS } from '../addonSettingsRegistry';
 	import AddonRow from './AddonRow.svelte';
+	import Select from '../../ui/Select.svelte';
 
 	export let localAddonControlMatches: (controlId: string) => boolean;
 
@@ -52,7 +53,7 @@
 {#if localAddonControlMatches('name_styles')}
 	<AddonRow
 		id="name_styles"
-		label="Name Styles"
+		label="Name styles"
 		description="Show styled names in messages, People and profiles on this device. Create and share your own design in Profile settings; Appearance also controls plates, artwork and motion."
 		enabled={$nameStylesVisible}
 		badge={SECTION}
@@ -63,7 +64,7 @@
 {#if localAddonControlMatches('timed_theme_mode')}
 	<AddonRow
 		id="timed_theme_mode"
-		label="TimedLightDarkMode"
+		label="Light and dark by time of day"
 		description="Automatically switch between day and night themes using your local device time."
 		enabled={timedThemeModeEnabled}
 		badge={SECTION}
@@ -71,11 +72,11 @@
 	>
 		{#snippet preferences()}
 			{#if timedThemeModeEnabled}
-				<div class="timed-theme-grid">
-					<label class="timed-theme-field">
-						<span>Day starts (hour)</span>
+				<div class="addon-grid">
+					<label class="addon-field">
+						<span class="w-label">Day starts (hour)</span>
 						<input
-							class="theme-select"
+							class="w-field"
 							type="number"
 							min="0"
 							max="23"
@@ -84,10 +85,10 @@
 							on:change={(event) => updateTimedThemeDayStartHour(event.currentTarget.value)}
 						/>
 					</label>
-					<label class="timed-theme-field">
-						<span>Night starts (hour)</span>
+					<label class="addon-field">
+						<span class="w-label">Night starts (hour)</span>
 						<input
-							class="theme-select"
+							class="w-field"
 							type="number"
 							min="0"
 							max="23"
@@ -96,32 +97,16 @@
 							on:change={(event) => updateTimedThemeNightStartHour(event.currentTarget.value)}
 						/>
 					</label>
-					<label class="timed-theme-field">
-						<span>Day theme</span>
-						<select
-							class="theme-select"
-							bind:value={timedThemeLightThemeId}
-							on:change={(event) => updateTimedThemeLightTheme(event.currentTarget.value)}
-						>
-							{#each Object.values(THEMES) as theme}
-								<option value={theme.id}>{theme.name}</option>
-							{/each}
-						</select>
-					</label>
-					<label class="timed-theme-field">
-						<span>Night theme</span>
-						<select
-							class="theme-select"
-							bind:value={timedThemeDarkThemeId}
-							on:change={(event) => updateTimedThemeDarkTheme(event.currentTarget.value)}
-						>
-							{#each Object.values(THEMES) as theme}
-								<option value={theme.id}>{theme.name}</option>
-							{/each}
-						</select>
-					</label>
+					<div class="addon-field">
+						<span class="w-label">Day theme</span>
+						<Select ariaLabel="Day theme" options={Object.values(THEMES).map((theme) => ({ value: String(theme.id), label: String(theme.name) }))} bind:value={timedThemeLightThemeId} onchange={(value) => updateTimedThemeLightTheme(value)} />
+					</div>
+					<div class="addon-field">
+						<span class="w-label">Night theme</span>
+						<Select ariaLabel="Night theme" options={Object.values(THEMES).map((theme) => ({ value: String(theme.id), label: String(theme.name) }))} bind:value={timedThemeDarkThemeId} onchange={(value) => updateTimedThemeDarkTheme(value)} />
+					</div>
 				</div>
-				<div class="runtime-note">The app checks and applies scheduled theme changes automatically in the background.</div>
+				<div class="addon-note">The theme changes at these hours while the app is open.</div>
 			{/if}
 		{/snippet}
 	</AddonRow>

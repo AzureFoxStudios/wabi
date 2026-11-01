@@ -1,127 +1,280 @@
 /* ==========================================================================
-   CallStage (Phase 3) — focused channel stage: avatar chips, video tiles,
-   spatial seat map. Scoped by .cstage- prefixes; no legacy call-modal
-   selectors touched.
+   CallStage (design contract §8.5, §7.12). Owner (wave 1): w1-call-shell.
+   The channel call's stage inside the call shell: a calm audio room of 88px stamps, or, once
+   someone shares a screen or turns a camera on, 16:9 tiles on --w-sink with the people as a
+   compact row; plus the spatial seat map. Role tokens and type tokens only; scoped by .cstage-.
    ========================================================================== */
 
 .cstage {
+	position: relative;
 	display: flex;
 	flex-direction: column;
-	gap: 0.5rem;
-	height: 100%;
-	min-height: 0;
-	color: var(--text-primary, #e6e6e6);
+	gap: 12px;
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 100%;
+	padding: 16px var(--w-gutter) 0;
+	color: var(--w-text);
 }
 
-/* --- participant chips row --- */
-.cstage-chips {
+/* ---------- the audio room ---------- */
+.cstage-room {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 0;
+}
+
+/* Rows are centred one by one; CallStage caps them at four (then "and N more"). */
+.cstage-people {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 0.375rem;
-	padding: 0.25rem 0;
+	justify-content: center;
+	gap: 28px 24px;
+	width: 100%;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.cstage-person {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	width: 120px;
+	min-width: 0;
+	text-align: center;
+}
+
+.cstage-stamp {
+	position: relative;
+	display: grid;
+	place-items: center;
+	flex: none;
+	width: 88px;
+	height: 88px;
+	margin-bottom: 10px;
+	border-radius: var(--w-avr);
+	background: var(--disc, var(--w-raise));
+	color: var(--on, var(--w-text));
+	transition: box-shadow var(--w-dur-1) var(--w-ease);
+}
+
+/* A profile picture replaces the stamp; no disc shows around a picture with its own corners. */
+.cstage-stamp--pic {
+	background: transparent;
+}
+
+.cstage-stamp__img {
+	width: 100%;
+	height: 100%;
+	border-radius: inherit;
+	object-fit: cover;
+}
+
+.cstage-stamp__initial {
+	font: 600 calc(38px * var(--w-fs)) / 1 var(--w-serif);
+}
+
+/* Speaking: a ring in --w-online with a gap in the surface color, plus the word below. */
+.cstage-person.speaking .cstage-stamp {
+	box-shadow:
+		0 0 0 3px var(--w-bg),
+		0 0 0 5.5px var(--w-online);
+}
+
+/* Mic-off and listen-only marks sit on the stamp's lower right. */
+.cstage-mark {
+	position: absolute;
+	right: -2px;
+	bottom: -2px;
+	display: grid;
+	place-items: center;
+	box-sizing: border-box;
+	width: 28px;
+	height: 28px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--w-avr);
+	background: var(--w-bg2);
+	box-shadow: 0 0 0 2px var(--w-bg);
+	color: var(--w-mute);
+}
+
+.cstage-person__name {
+	max-width: 100%;
+	overflow: hidden;
+	color: var(--w-text);
+	font: var(--w-t-label);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.cstage-person.listening .cstage-person__name {
+	color: var(--w-mute);
+	font-weight: 400;
+}
+
+.cstage-person__state {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	min-height: calc(16px * var(--w-fs));
+	color: var(--w-faint);
+	font: 400 calc(12px * var(--w-fs)) / calc(16px * var(--w-fs)) var(--w-sans);
+}
+
+.cstage-person.speaking .cstage-person__state {
+	color: var(--w-mute);
+}
+
+.cstage-person.speaking .cstage-person__state > svg {
+	color: var(--w-online);
+}
+
+.cstage-stamp--more {
+	box-sizing: border-box;
+	border: var(--w-bw) dashed var(--w-line-strong);
+	background: transparent;
+	color: var(--w-mute);
+	font: 500 calc(18px * var(--w-fs)) / 1 var(--w-mono);
+	font-feature-settings: 'tnum';
+}
+
+.cstage-person--more .cstage-person__name {
+	color: var(--w-mute);
+	font-weight: 400;
+}
+
+/* ---------- with video or a shared screen ---------- */
+.cstage-roster {
+	flex: none;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 18px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
 }
 
 .cstage-chip {
 	display: inline-flex;
 	align-items: center;
-	gap: 0.35rem;
-	padding: 0.2rem 0.55rem 0.2rem 0.25rem;
-	border-radius: 999px;
-	border: 1px solid color-mix(in srgb, var(--border-subtle, #333) 70%, transparent);
-	background: color-mix(in srgb, var(--surface-raised, #1c1c22) 85%, transparent);
-	font-size: 0.75rem;
-	line-height: 1;
-	transition: border-color 120ms ease, box-shadow 120ms ease;
+	gap: 8px;
+	min-width: 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
 }
 
 .cstage-chip.speaking {
-	border-color: color-mix(in srgb, var(--accent-primary-color, #7aa2ff) 80%, transparent);
-	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary-color, #7aa2ff) 25%, transparent);
+	color: var(--w-text);
 }
 
-.cstage-chip.listening {
-	opacity: 0.72;
-	font-style: italic;
+.cstage-chip > svg {
+	color: var(--w-faint);
 }
 
-.cstage-chip-avatar,
-.cstage-chip-initial {
-	width: 22px;
-	height: 22px;
-	border-radius: 999px;
+.cstage-chip__stamp {
+	display: inline-grid;
+	place-items: center;
+	flex: none;
+	width: 24px;
+	height: 24px;
+	overflow: hidden;
+	border-radius: var(--w-avr);
+	background: var(--disc, var(--w-raise));
+	color: var(--on, var(--w-text));
+	font: 500 calc(11px * var(--w-fs)) / 1 var(--w-sans);
+}
+
+.cstage-chip__stamp img {
+	width: 100%;
+	height: 100%;
 	object-fit: cover;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	font-size: 0.7rem;
-	font-weight: 600;
-	background: color-mix(in srgb, var(--accent-primary-color, #7aa2ff) 22%, #23232b);
 }
 
-.cstage-chip-icon {
-	font-size: 0.65rem;
-	opacity: 0.85;
+.cstage-chip.speaking .cstage-chip__stamp {
+	box-shadow:
+		0 0 0 2px var(--w-bg),
+		0 0 0 3.5px var(--w-online);
 }
 
-/* --- video area --- */
+.cstage-chip__name {
+	max-width: 160px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .cstage-body {
+	position: relative;
+	flex: 1;
 	display: flex;
 	flex-direction: column;
-	gap: 0.5rem;
-	flex: 1;
+	gap: 12px;
 	min-height: 0;
 }
 
+/* A shared screen owns the stage. */
 .cstage-hero {
-	flex: 1 1 55%;
-	min-height: 0;
+	flex: 1 1 0;
 	display: grid;
-	gap: 0.5rem;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	grid-auto-rows: minmax(0, 1fr);
+	gap: 12px;
+	min-height: 200px;
 }
 
-.cstage-hero-item {
+.cstage-hero:has(> :only-child) {
+	grid-template-columns: 1fr;
+}
+
+.cstage-hero:has(> :nth-child(3):last-child) > :last-child {
+	grid-column: 1 / -1;
+	justify-self: center;
+	width: calc(50% - 6px);
+}
+
+.cstage-hero-item,
+.cstage-tile {
 	position: relative;
-	min-height: 140px;
-	border-radius: var(--radius-md, 10px);
+	min-height: 0;
 	overflow: hidden;
-	background: #000;
-	border: 1px solid var(--border-subtle, #333);
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-lg);
+	background: var(--w-sink);
+	transition:
+		border-color var(--w-dur-1) var(--w-ease),
+		box-shadow var(--w-dur-1) var(--w-ease);
 }
 
 .cstage-hero-item video {
 	width: 100%;
 	height: 100%;
 	object-fit: contain;
-	background: #000;
+	background: var(--w-sink);
 }
 
 .cstage-tiles {
+	flex: none;
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-	gap: 0.5rem;
-	flex: 0 0 auto;
-	max-height: 38%;
+	grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+	gap: 12px;
 	min-height: 0;
 }
 
-.cstage-tiles:has(.cstage-tile) {
-	flex: 1 1 38%;
+/* Cameras alone fill the stage; beside a shared screen they become a strip of small tiles. */
+.cstage-tiles:not(.has-hero) {
+	flex: 1;
+	align-content: center;
+}
+
+.cstage-tiles.has-hero {
+	grid-template-columns: repeat(auto-fill, minmax(160px, 220px));
 }
 
 .cstage-tile {
-	position: relative;
-	aspect-ratio: 16 / 10;
-	min-height: 0;
-	border-radius: var(--radius-md, 10px);
-	overflow: hidden;
-	background: #0b0b0f;
-	border: 1px solid var(--border-subtle, #333);
-	transition: border-color 120ms ease, box-shadow 120ms ease;
-}
-
-.cstage-tile.speaking {
-	border-color: color-mix(in srgb, var(--accent-primary-color, #7aa2ff) 80%, transparent);
-	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary-color, #7aa2ff) 25%, transparent);
+	aspect-ratio: 16 / 9;
 }
 
 .cstage-tile video {
@@ -130,167 +283,170 @@
 	object-fit: cover;
 }
 
-.cstage-tile video.mirror {
-	transform: scaleX(-1);
+.cstage-hero-item.speaking,
+.cstage-tile.speaking {
+	border-color: var(--w-online);
+	box-shadow: inset 0 0 0 1px var(--w-online);
 }
 
 .cstage-tile-label {
 	position: absolute;
-	left: 0.4rem;
-	bottom: 0.35rem;
-	padding: 0.1rem 0.4rem;
-	border-radius: 6px;
-	background: rgba(0, 0, 0, 0.55);
-	font-size: 0.68rem;
+	left: 8px;
+	bottom: 8px;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	box-sizing: border-box;
+	max-width: calc(100% - 16px);
+	padding: 2px 8px;
+	overflow: hidden;
+	border-radius: var(--radius-inner);
+	background: color-mix(in srgb, var(--w-bg) 78%, transparent);
+	color: var(--w-text);
+	font: var(--w-t-caption);
+	text-overflow: ellipsis;
+	white-space: nowrap;
 	pointer-events: none;
 }
 
-.cstage-empty {
-	display: grid;
-	place-items: center;
-	min-height: 120px;
-	border: 1px dashed var(--border-subtle, #333);
-	border-radius: var(--radius-md, 10px);
+/* ---------- spatial seats: a popover in the stage, opened from Call options ---------- */
+.cstage-seats {
+	position: absolute;
+	top: 12px;
+	right: var(--w-gutter);
+	z-index: 3;
+	box-sizing: border-box;
+	width: min(400px, calc(100% - 2 * var(--w-gutter)));
+	padding: 12px 12px 14px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-lg);
+	background: var(--w-bg2);
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+	animation: w-enter-up var(--w-dur-2) var(--w-ease);
 }
 
-.cstage-empty-hint {
-	font-size: 0.8rem;
-	opacity: 0.7;
+:root[data-mode='light'] .cstage-seats {
+	background: var(--w-lift);
 }
 
-/* --- spatial seat stage --- */
-.cstage-seatbar {
+.cstage-seats__head {
 	display: flex;
 	align-items: center;
-	gap: 0.6rem;
+	justify-content: space-between;
+	gap: 8px;
+	margin: -4px -4px 4px 4px;
 }
 
-.cstage-seat-toggle {
-	border: 1px solid var(--border-subtle, #333);
-	background: transparent;
-	color: inherit;
-	border-radius: 999px;
-	padding: 0.2rem 0.7rem;
-	font-size: 0.75rem;
-	cursor: pointer;
-	transition: background 120ms ease, border-color 120ms ease;
+.cstage-seats__title {
+	margin: 0;
+	font: var(--w-t-subhead);
 }
 
-.cstage-seat-toggle.active {
-	background: color-mix(in srgb, var(--accent-primary-color, #7aa2ff) 20%, transparent);
-	border-color: color-mix(in srgb, var(--accent-primary-color, #7aa2ff) 60%, transparent);
-}
-
-.cstage-seat-hint {
-	font-size: 0.72rem;
-	opacity: 0.7;
+.cstage-seats__hint {
+	margin: 0 4px 10px;
+	color: var(--w-mute);
+	font: var(--w-t-small);
 }
 
 .cstage-seatmap {
 	position: relative;
-	flex: 1 1 45%;
-	min-height: 220px;
-	border-radius: var(--radius-md, 10px);
-	border: 1px solid var(--border-subtle, #333);
-	background:
-		radial-gradient(circle at center, color-mix(in srgb, var(--accent-primary-color, #7aa2ff) 8%, transparent) 0 18%, transparent 19%),
-		repeating-linear-gradient(0deg, transparent 0 23%, color-mix(in srgb, #ffffff 4%, transparent) 23% 24%),
-		repeating-linear-gradient(90deg, transparent 0 23%, color-mix(in srgb, #ffffff 4%, transparent) 23% 24%);
-	touch-action: none;
+	height: 260px;
 	overflow: hidden;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+	touch-action: none;
+}
+
+/* One quiet ring marks the seating circle around you. */
+.cstage-seatmap::before {
+	content: '';
+	position: absolute;
+	inset: 16% 24%;
+	border: var(--w-bw) dashed var(--w-line-strong);
+	border-radius: 50%;
+	pointer-events: none;
 }
 
 .cstage-seat-center {
 	position: absolute;
 	left: 50%;
 	top: 50%;
-	transform: translate(-50%, -50%);
-	font-size: 1.1rem;
-	opacity: 0.85;
+	display: grid;
+	place-items: center;
+	color: var(--w-sig);
+	translate: -50% -50%;
 	pointer-events: none;
-}
-
-.cstage-seat-center svg {
-	width: 20px;
-	height: 20px;
-	display: block;
-}
-
-/* --- icon sizing (site-standard feather-style inline SVGs) --- */
-.cstage-chip-icon svg {
-	width: 11px;
-	height: 11px;
-	vertical-align: -2px;
-}
-.cstage-tile-label svg {
-	width: 12px;
-	height: 12px;
-	vertical-align: -2px;
-}
-.cstage-seat-toggle svg {
-	width: 13px;
-	height: 13px;
-	vertical-align: -2px;
-	margin-right: 0.25rem;
 }
 
 .cstage-seat-chip {
 	position: absolute;
-	transform: translate(-50%, -50%);
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 0.2rem;
-	padding: 0.3rem;
-	border-radius: 10px;
-	border: 1px solid var(--border-subtle, #333);
-	background: color-mix(in srgb, var(--surface-raised, #1c1c22) 90%, transparent);
+	gap: 2px;
+	padding: 4px;
+	border: var(--w-bw) solid transparent;
+	border-radius: var(--radius-md);
 	cursor: grab;
 	user-select: none;
-	transition: box-shadow 100ms ease, border-color 100ms ease;
+	touch-action: none;
+	translate: -50% -50%;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		border-color var(--w-dur-1) var(--w-ease);
 }
 
-.cstage-seat-chip.manual {
-	border-color: color-mix(in srgb, var(--accent-primary-color, #7aa2ff) 55%, transparent);
+.cstage-seat-chip:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+}
+
+.cstage-seat-chip.manual .cstage-chip__stamp {
+	box-shadow:
+		0 0 0 2px var(--w-sink),
+		0 0 0 3.5px var(--w-accent);
 }
 
 .cstage-seat-chip.dragging {
-	cursor: grabbing;
-	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
-	border-color: var(--accent-primary-color, #7aa2ff);
 	z-index: 5;
+	border-color: var(--w-line-strong);
+	background: var(--w-bg2);
+	box-shadow: var(--w-shadow);
+	cursor: grabbing;
 }
 
 .cstage-seat-name {
-	font-size: 0.62rem;
 	max-width: 72px;
 	overflow: hidden;
+	color: var(--w-mute);
+	font: 500 calc(11px * var(--w-fs)) / calc(14px * var(--w-fs)) var(--w-sans);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-.cstage { background: var(--bg-primary, #172326); padding: 16px; }
-.cstage-empty { flex: 1; min-height: 240px; border: 1px solid var(--border-subtle); background: var(--bg-secondary, #202f32); }
-.cstage-empty-hint { opacity: 1; font-size: 16px; color: var(--text-heading); }
+/* ---------- narrow stages (phones): smaller cells so the room fits above the dock ---------- */
+@container stage (max-width: 599px) {
+	.cstage-people {
+		gap: 20px 16px;
+	}
 
- .cstage { box-sizing: border-box; width: 100%; }
- .cstage-chips { flex-shrink: 0; padding: 8px 0 12px; }
- .cstage-chip { padding: 8px 12px 8px 8px; font-size: 13px; background: var(--bg-secondary); }
- .cstage-chip-avatar, .cstage-chip-initial { width: 32px; height: 32px; }
- .cstage-hero { grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); grid-auto-rows: minmax(180px, 1fr); overflow: auto; }
- .cstage-seat-chip { touch-action: none; }
+	.cstage-person {
+		width: 104px;
+	}
 
-/* Screen sharing owns the stage; spatial placement is an optional overlay. */
-.cstage-body { position: relative; }
-.cstage-hero { flex: 1; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); }
-.cstage-hero:has(> :only-child) { grid-template-columns: 1fr; }
-.cstage-hero:has(> :nth-child(3):last-child) > :last-child { grid-column: 1 / -1; width: calc(50% - 4px); justify-self: center; }
-.cstage-hero-item { min-height: 160px; }
-.cstage-hero-item.speaking { border-color: var(--accent-primary, #7aa2ff); box-shadow: inset 0 0 0 2px var(--accent-primary, #7aa2ff), 0 0 12px color-mix(in srgb, var(--accent-primary, #7aa2ff) 25%, transparent); }
-.cstage-tiles:empty { display: none; }
-.cstage-seatbar { position: absolute; right: 12px; top: 12px; z-index: 8; }
-.cstage-seat-toggle { display: grid; place-items: center; width: 40px; height: 40px; padding: 0; background: var(--bg-secondary, #202f32); border-radius: 10px; }
-.cstage-seat-toggle svg { width: 20px; height: 20px; margin: 0; }
-.cstage-seat-hint { display: none; }
-.cstage-seatmap { position: absolute; right: 12px; top: 60px; width: min(400px, calc(100% - 24px)); height: 260px; flex: none; z-index: 8; background-color: var(--bg-secondary, #202f32); box-shadow: 0 12px 40px #0006; }
-@media (max-width: 600px) { .cstage-hero { grid-template-columns: 1fr; grid-auto-rows: minmax(200px, 1fr); overflow: auto; } .cstage-hero:has(> :nth-child(3):last-child) > :last-child { grid-column: auto; width: 100%; } }
+	.cstage-hero {
+		grid-template-columns: 1fr;
+		grid-auto-rows: minmax(200px, 1fr);
+	}
+
+	.cstage-hero:has(> :nth-child(3):last-child) > :last-child {
+		grid-column: auto;
+		width: 100%;
+	}
+}
+
+:root[data-char='contrast'] .cstage-seat-chip:hover {
+	background: transparent;
+	border-color: var(--w-line-strong);
+}

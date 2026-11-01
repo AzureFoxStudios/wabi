@@ -1,6 +1,7 @@
 import { derived, get, writable } from 'svelte/store';
 import { brandName } from '$lib/branding';
 import type { User } from '$lib/socket-types';
+import type { IconName } from '$lib/components/ui/icons';
 import {
 	DEFAULT_WORKSPACE_PANEL_IDS,
 	FALLBACK_WORKSPACE_PANEL_ID,
@@ -58,9 +59,20 @@ export interface WorkspacePanelFallbackBehavior {
 
 export interface WorkspacePanelManifest {
 	id: WorkspacePanelId;
+	/** The panel's one name (§9.6): its rail stub, frame title and Add panels row. */
 	label: string;
+	/** A shorter rail label, only for add-on names too long to read vertically. */
 	shortLabel?: string;
-	icon: WorkspacePanelIcon;
+	/** A panel vocabulary name, or any registry glyph (WorkspacePanelIcon.svelte maps both). */
+	icon: WorkspacePanelIcon | IconName;
+	/** One line under the label in the Add panels popover, and row B of a panel without a toolbar. */
+	description?: string;
+	/** The panel draws its own masthead row B (search and filter, 40px) as its first child. */
+	ownsToolbar?: boolean;
+	/** Row A offers "Open in center stage" (§7.21: Notes, Wiki, Forum, DMs). */
+	opensInStage?: boolean;
+	/** Where the panel's data lives, said once in row A as a locality tag (§8.4, §9.3). */
+	locality?: string;
 	component: WorkspacePanelComponentKey;
 	capabilities?: string[];
 	defaultDock: WorkspacePanelDockArea;
@@ -79,7 +91,8 @@ export interface PluginWorkspacePanelDeclaration {
 	id?: string;
 	label?: string;
 	shortLabel?: string;
-	icon?: WorkspacePanelIcon;
+	icon?: WorkspacePanelIcon | IconName;
+	description?: string;
 	component?: string;
 	capabilities?: string[];
 	defaultDock?: WorkspacePanelDockArea;
@@ -109,9 +122,9 @@ export interface WorkspacePanelPluginRecord {
 export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 	{
 		id: 'model-viewport',
-		label: 'CAD & 3D',
-		shortLabel: 'CAD',
+		label: 'Models',
 		icon: 'box',
+		description: 'Inspect 3D models beside the page',
 		component: 'model-viewport',
 		capabilities: ['model-workspace'],
 		defaultDock: 'right',
@@ -122,7 +135,9 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 	{
 		id: 'calls',
 		label: 'Calls',
-		icon: 'headphones',
+		// The speaker is the voice-room glyph; headphones mean "Listening" (§6).
+		icon: 'voice',
+		description: 'Rooms you are in, with a volume for each',
 		component: 'calls',
 		capabilities: ['per-call-volume', 'focus-switch', 'hang-up'],
 		defaultDock: 'right',
@@ -134,6 +149,8 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 		id: 'users',
 		label: 'People',
 		icon: 'users',
+		description: 'Who is here, grouped by where they are',
+		ownsToolbar: true,
 		component: 'users',
 		capabilities: ['search', 'profile-actions', 'quick-dm'],
 		defaultDock: 'right',
@@ -143,9 +160,11 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 	},
 	{
 		id: 'dms',
-		label: 'Messages',
-		shortLabel: 'DMs',
+		label: 'DMs',
 		icon: 'messages',
+		description: 'Your direct and group conversations',
+		ownsToolbar: true,
+		opensInStage: true,
 		component: 'dms',
 		capabilities: ['compose', 'payments', 'notes-entry'],
 		defaultDock: 'right',
@@ -156,7 +175,8 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 	{
 		id: 'profile',
 		label: 'Profile',
-		icon: 'users',
+		icon: 'user',
+		description: 'Your profile and how others see it',
 		component: 'profile',
 		capabilities: ['complete-profile', 'profile-actions'],
 		defaultDock: 'right',
@@ -168,6 +188,10 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 		id: 'notes',
 		label: 'Notes',
 		icon: 'notes',
+		description: 'Personal notes, kept on this device',
+		ownsToolbar: true,
+		opensInStage: true,
+		locality: 'Only you · this device',
 		component: 'notes',
 		capabilities: ['scratchpad', 'local-persistence'],
 		defaultDock: 'bottom',
@@ -177,9 +201,10 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 	},
 	{
 		id: 'whiteboard-layers',
-		label: 'Whiteboard Layers',
+		label: 'Whiteboard layers',
 		shortLabel: 'Layers',
 		icon: 'layers',
+		description: 'Layers of the whiteboard on the page',
 		component: 'whiteboard-layers',
 		capabilities: ['whiteboard', 'layers'],
 		defaultDock: 'right',
@@ -191,6 +216,7 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 		id: 'map',
 		label: 'Map',
 		icon: 'map',
+		description: 'Places shared in this community',
 		component: 'map',
 		capabilities: ['places', 'directions', 'shared-context'],
 		defaultDock: 'right',
@@ -202,6 +228,7 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 		id: 'media',
 		label: 'Media',
 		icon: 'media',
+		description: 'Albums of shared pictures and video',
 		component: 'media',
 		capabilities: ['albums', 'lightbox', 'review'],
 		defaultDock: 'right',
@@ -213,6 +240,7 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 		id: 'admin',
 		label: 'Admin',
 		icon: 'admin',
+		description: 'Moderation, roles and server controls',
 		component: 'admin',
 		capabilities: ['moderation', 'roles', 'server-controls'],
 		defaultDock: 'right',
@@ -224,8 +252,8 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 	{
 		id: 'transfers',
 		label: 'Transfers',
-		shortLabel: 'Xfers',
 		icon: 'transfers',
+		description: 'Files sent straight between devices',
 		component: 'transfers',
 		capabilities: ['p2p-file-transfer', 'transfer-queue'],
 		defaultDock: 'right',
@@ -236,8 +264,8 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 	{
 		id: 'code',
 		label: 'Project',
-		shortLabel: 'Project',
-		icon: 'box',
+		icon: 'code',
+		description: 'Browse the project repository',
 		component: 'code',
 		capabilities: ['repo-browse'],
 		defaultDock: 'right',
@@ -248,8 +276,8 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 	{
 		id: 'planner-tasks',
 		label: 'Tasks',
-		shortLabel: 'Tasks',
 		icon: 'tasks',
+		description: 'Your tasks from My Planner',
 		component: 'planner-tasks',
 		capabilities: ['planner', 'todo-list'],
 		defaultDock: 'right',
@@ -261,6 +289,9 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 		id: 'wiki',
 		label: 'Wiki',
 		icon: 'wiki',
+		description: 'Read a wiki channel beside the page',
+		ownsToolbar: true,
+		opensInStage: true,
 		component: 'wiki',
 		capabilities: ['channel-scoped', 'wiki-channel'],
 		defaultDock: 'right',
@@ -272,6 +303,9 @@ export const BUILTIN_WORKSPACE_PANELS: WorkspacePanelManifest[] = [
 		id: 'forum',
 		label: 'Forum',
 		icon: 'forum',
+		description: 'Read a forum channel beside the page',
+		ownsToolbar: true,
+		opensInStage: true,
 		component: 'forum',
 		capabilities: ['channel-scoped', 'forum-channel'],
 		defaultDock: 'right',
@@ -402,6 +436,7 @@ export function coercePluginWorkspacePanels(plugin: WorkspacePanelPluginRecord):
 				label,
 				shortLabel: declaration.shortLabel,
 				icon: declaration.icon || bundled?.icon || 'box',
+				description: typeof declaration.description === 'string' ? declaration.description.trim() || undefined : undefined,
 				component,
 				capabilities: declaration.capabilities || [],
 				defaultDock: declaration.defaultDock || declaration.preferredDockArea || 'right',
@@ -436,4 +471,84 @@ export function registerPluginWorkspacePanels(plugins: WorkspacePanelPluginRecor
 export function getFallbackWorkspacePanelId(panelIds: WorkspacePanelId[]): WorkspacePanelId {
 	const registry = get(panelRegistry);
 	return panelIds.find((panelId) => Boolean(registry[panelId])) || FALLBACK_WORKSPACE_PANEL_ID;
+}
+
+/**
+ * The count beside a companion's title in its frame (row A, §7.21), set by the panel that knows
+ * it (People: the people listed). A panel that never sets one shows no count; null clears it.
+ */
+const frameCounts = writable<Record<string, number | string>>({});
+export const panelFrameCounts = { subscribe: frameCounts.subscribe };
+
+export function setPanelFrameCount(panelId: WorkspacePanelId, count: number | string | null | undefined): void {
+	frameCounts.update((counts) => {
+		const blank = count === null || count === undefined || count === '';
+		if (blank ? !(panelId in counts) : counts[panelId] === count) return counts;
+		const next = { ...counts };
+		if (blank) delete next[panelId];
+		else next[panelId] = count;
+		return next;
+	});
+}
+
+/**
+ * The channel a Wiki or Forum companion is reading (null: none chosen yet). Kept here so the
+ * frame's "Open in center stage" opens the same channel, and a stowed or re-mounted panel keeps it.
+ */
+export type ChannelCompanionKind = 'wiki' | 'forum';
+const companionChannels = writable<Record<ChannelCompanionKind, string | null>>({ wiki: null, forum: null });
+export const panelChannelChoice = { subscribe: companionChannels.subscribe };
+
+/**
+ * The person asked for the list ("All wikis" / "All forums"): the picker shows even while the stage
+ * reads a channel of that kind, until they choose one. Without this the stage channel would be
+ * picked again at once and the list could never be reached.
+ */
+const companionPicking = writable<Record<ChannelCompanionKind, boolean>>({ wiki: false, forum: false });
+export const panelChannelPicking = { subscribe: companionPicking.subscribe };
+
+/** Point the companion at a channel (null forgets the choice). Ends a requested picker. */
+export function choosePanelChannel(kind: ChannelCompanionKind, channelId: string | null): void {
+	companionChannels.update((choice) => (choice[kind] === channelId ? choice : { ...choice, [kind]: channelId }));
+	companionPicking.update((picking) => (picking[kind] ? { ...picking, [kind]: false } : picking));
+}
+
+/** "All wikis" / "All forums": forget the choice and show the picker until one is chosen. */
+export function showPanelChannelPicker(kind: ChannelCompanionKind): void {
+	companionChannels.update((choice) => (choice[kind] === null ? choice : { ...choice, [kind]: null }));
+	companionPicking.update((picking) => (picking[kind] ? picking : { ...picking, [kind]: true }));
+}
+
+/**
+ * Which channel a Wiki/Forum companion shows (§8.4): the one it was pointed at while that channel
+ * still exists, else the channel open on the stage when it is of that kind, else the only channel
+ * of the kind. With several and none chosen, or while the person asked for the list, it shows the
+ * picker (null). A single channel always opens directly: there is no list to choose from.
+ */
+export function resolvePanelChannel(
+	chosen: string | null,
+	ofKind: readonly { id: string }[],
+	stageChannelId: string | null,
+	picking = false
+): string | null {
+	if (ofKind.length === 1) return ofKind[0].id;
+	if (picking) return null;
+	if (chosen && ofKind.some((channel) => channel.id === chosen)) return chosen;
+	if (stageChannelId && ofKind.some((channel) => channel.id === stageChannelId)) return stageChannelId;
+	return null;
+}
+
+/**
+ * The channel the Wiki/Forum companion of this kind shows right now, from every channel the
+ * client knows: the same answer the panel renders, so the frame never acts on a stale choice.
+ */
+export function panelChannelShown(
+	kind: ChannelCompanionKind,
+	choice: Readonly<Record<ChannelCompanionKind, string | null>>,
+	picking: Readonly<Record<ChannelCompanionKind, boolean>>,
+	channels: readonly { id: string; type?: string }[],
+	stageChannelId: string | null
+): string | null {
+	const ofKind = channels.filter((channel) => channel.type === kind);
+	return resolvePanelChannel(choice[kind], ofKind, stageChannelId, picking[kind]);
 }

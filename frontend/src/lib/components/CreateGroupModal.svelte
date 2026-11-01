@@ -1,3 +1,9 @@
+<!--
+	New group (design contract §7.13, §8.10): a BaseModal md. Name field, the people you picked as
+	removable tags, a search over registered members, and a footer with the count, a quiet Cancel
+	and one primary "Create group". New groups start encryption-pending; the dialog says so in the
+	exact words of §9.2.
+-->
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { users, serverMembers, currentUser, createGroup } from '$lib/socket';
@@ -5,9 +11,16 @@
 	import { buildDmDirectoryUsers, getDmDirectoryKey } from '$lib/dmUserDirectory';
 	import { overlayStyle } from '$lib/overlayStyle';
 	import { mediaUrl } from '$lib/mediaUrl';
+	import { inkFor } from '$lib/theme/identity';
+	import { _ } from '$lib/i18n';
+	import BaseModal from './BaseModal.svelte';
+	import ProfileMedia from './ProfileMedia.svelte';
+	import Icon from './ui/Icon.svelte';
+	import { presenceLabelKey, presenceOf, stampInitial } from './userPopoutModel';
 
 	let { isOpen = $bindable(false), onCreated }: { isOpen?: boolean; onCreated?: (channel: Channel) => void } = $props();
 
+	const uid = `cg-${Math.random().toString(36).slice(2, 8)}`;
 	let searchQuery = $state('');
 	let groupName = $state('');
 	let selectedUsers = $state<User[]>([]);
@@ -37,6 +50,34 @@
 	}).filter((user) => /^user-[1-9][0-9]*$/.test(getDmDirectoryKey(user)) &&
 		!selectedUsers.some((selected) => getDmDirectoryKey(selected) === getDmDirectoryKey(user))));
 
+	const memberCount = $derived(selectedUsers.length + 1);
+	const canCreate = $derived(!pending && groupName.trim().length > 0 && selectedUsers.length > 0);
+	/** The footer line: what is still missing while Create group is disabled, else the count. */
+	const footLine = $derived(
+		pending
+			? 'Waiting for the server…'
+			: !groupName.trim() && selectedUsers.length === 0
+				? 'Name the group and pick people to create it'
+				: !groupName.trim()
+					? 'Name the group to create it'
+					: selectedUsers.length === 0
+						? 'Pick at least one person'
+						: `${memberCount} ${memberCount === 1 ? 'person' : 'people'}, you included`
+	);
+
+	/** The footer's hairline shows only while the body scrolls (§7.13). */
+	let bodyScrolls = $state(false);
+	function watchBodyScroll(node: HTMLElement) {
+		const body = node.closest<HTMLElement>('.base-modal__body');
+		if (!body || typeof ResizeObserver === 'undefined') return {};
+		const measure = () => (bodyScrolls = body.scrollHeight > body.clientHeight + 1);
+		const observer = new ResizeObserver(measure);
+		observer.observe(body);
+		observer.observe(node);
+		measure();
+		return { destroy: () => observer.disconnect() };
+	}
+
 	function toggleUser(user: User) {
 		if (pending) return;
 		const idx = selectedUsers.findIndex((selected) => getDmDirectoryKey(selected) === getDmDirectoryKey(user));
@@ -53,7 +94,7 @@
 	}
 
 	async function handleCreate() {
-		if (pending || !groupName.trim() || selectedUsers.length === 0) return;
+		if (!canCreate) return;
 		const memberIds = selectedUsers.map((user) => getDmDirectoryKey(user));
 		pending = true;
 		operationError = '';
@@ -63,7 +104,8 @@
 			closeModal();
 			onCreated?.(channel);
 		} catch (error) {
-			operationError = error instanceof Error ? error.message : 'Could not confirm group creation';
+			console.warn('[group] create failed', error);
+			operationError = "Couldn't confirm the new group. Check DMs before trying again.";
 		} finally { pending = false; }
 	}
 
@@ -75,346 +117,301 @@
 		selectedUsers = [];
 		operationError = '';
 	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && isOpen) {
-			closeModal();
-		}
-	}
-
-	function getStatusColor(status: string) {
-		switch (status) {
-			case 'active': return 'var(--status-online)';
-			case 'away': return 'var(--status-away)';
-			case 'busy': return 'var(--status-busy)';
-			default: return 'var(--status-offline)';
-		}
-	}
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
-{#if isOpen}
-	<!-- The dialog has a labelled close button and Escape handling. -->
-	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-	<div class="modal-overlay" onclick={closeModal}></div>
-	<div class="modal" role="dialog" aria-modal="true" aria-label="Create group" aria-busy={pending} tabindex="-1">
-		<div class="modal-header">
-			<h2>Create Group</h2>
-			<button class="close-btn" onclick={closeModal} disabled={pending} aria-label="Close">x</button>
-		</div>
-
-		<div class="group-name-container">
+<BaseModal {isOpen} onClose={closeModal} size="md" padded title="New group" initialFocus="#{uid}-name" panelClass="cg" closeOnScrim={!pending}>
+	<form id="{uid}-form" class="cg-form" aria-busy={pending} use:watchBodyScroll onsubmit={(event) => { event.preventDefault(); void handleCreate(); }}>
+		<div class="cg-field">
+			<label class="w-label" for="{uid}-name">Group name <span class="cg-required">required</span></label>
 			<input
+				id="{uid}-name"
+				class="w-field"
 				type="text"
 				bind:value={groupName}
-				placeholder="Group name..."
-				aria-label="Group name"
+				maxlength="64"
+				autocomplete="off"
+				required
 				disabled={pending}
-				class="group-name-input"
+				aria-describedby="{uid}-privacy"
 			/>
+			<p class="cg-privacy" id="{uid}-privacy">
+				<Icon name="hourglass" size={14} />
+				New groups start encryption-pending and use experimental encryption once everyone's devices are ready.
+			</p>
 		</div>
 
-		{#if selectedUsers.length > 0}
-			<div class="selected-chips">
-				{#each selectedUsers as user (getDmDirectoryKey(user))}
-					<span class="chip">
-						{user.username}
-						<button class="chip-remove" disabled={pending} aria-label={`Remove ${user.username} from selection`} onclick={() => removeSelected(user)}>x</button>
-					</span>
-				{/each}
+		<div class="cg-field">
+			<span class="w-label" id="{uid}-people">People</span>
+			{#if selectedUsers.length > 0}
+				<ul class="cg-chips" aria-labelledby="{uid}-people">
+					{#each selectedUsers as user (getDmDirectoryKey(user))}
+						<li class="w-tag cg-chip">
+							<span>{user.username}</span>
+							<button type="button" class="cg-chip__remove" disabled={pending} aria-label={`Remove ${user.username}`} onclick={() => removeSelected(user)}>
+								<Icon name="x" size={12} />
+							</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+			<div class="w-field w-field--chrome cg-search">
+				<Icon name="search" size={16} />
+				<input type="search" bind:value={searchQuery} placeholder="Search registered members" aria-label="Search registered members" disabled={pending} autocomplete="off" />
 			</div>
+		</div>
+
+		{#if filteredUsers.length === 0}
+			<div class="w-empty cg-empty">
+				<Icon name="users" size={28} />
+				<p class="w-empty__title">{searchQuery.trim() ? 'No one matches' : selectedUsers.length ? 'Everyone is in' : 'No one to add yet'}</p>
+				<p class="w-empty__text">
+					{searchQuery.trim()
+						? 'Try another name or handle. Guests cannot join groups.'
+						: selectedUsers.length
+							? 'Every registered member is already in this group.'
+							: 'Registered members appear here as soon as they join this community.'}
+				</p>
+			</div>
+		{:else}
+			<ul class="cg-list" aria-label="Registered members">
+				{#each filteredUsers as user (getDmDirectoryKey(user))}
+					{@const presence = presenceOf(user.status)}
+					<li>
+						<button type="button" class="cg-row" style={$inkFor(user.roleColor || user.color)} disabled={pending} aria-label={`Add ${user.username}`} onclick={() => toggleUser(user)}>
+							<span class="cg-av" data-presence={presence}>
+								{#if user.profilePicture}
+									<ProfileMedia src={mediaUrl(user.profilePicture)} decorative class="cg-av__pic" />
+								{:else}
+									<span class="cg-av__stamp" aria-hidden="true">{stampInitial(user.username)}</span>
+								{/if}
+								{#if user.overlayUrl && !disableAllBanners}
+									<span class="avatar-overlay-badge" style={overlayStyle(user)} aria-hidden="true"></span>
+								{/if}
+								<span class="cg-av__presence" aria-hidden="true"></span>
+							</span>
+							<span class="cg-text">
+								<span class="cg-name">{user.username}</span>
+								<span class="cg-sub">{user.handle ? `@${user.handle}` : $_(presenceLabelKey(presence))}</span>
+							</span>
+							<Icon name="plus" size={16} />
+						</button>
+					</li>
+				{/each}
+			</ul>
 		{/if}
 
-		<div class="search-container">
-			<input
-				type="text"
-				bind:value={searchQuery}
-				placeholder="Search users to add..."
-				aria-label="Search group invitees"
-				disabled={pending}
-			/>
-		</div>
+		{#if operationError}
+			<div class="w-notice cg-notice" role="alert">
+				<Icon name="alert" size={16} />
+				<p class="w-notice__title">{operationError}</p>
+			</div>
+		{/if}
+	</form>
 
-		<div class="user-list">
-			{#if filteredUsers.length === 0}
-				<div class="no-users">No users found</div>
-			{:else}
-				{#each filteredUsers as user (getDmDirectoryKey(user))}
-					<button class="user-item" disabled={pending} onclick={() => toggleUser(user)}>
-						<div class="user-avatar-container">
-							{#if user.profilePicture}
-								<img src={mediaUrl(user.profilePicture)} alt={user.username} class="user-avatar" />
-							{:else}
-								<div class="user-avatar-placeholder" style="background-color: {user.roleColor || user.color}">
-									{user.username.charAt(0).toUpperCase()}
-								</div>
-							{/if}
-							{#if user.overlayUrl && !disableAllBanners}
-								<span class="avatar-overlay-badge" style={overlayStyle(user)} aria-hidden="true"></span>
-							{/if}
-							<div class="status-indicator" style="background-color: {getStatusColor(user.status)}"></div>
-						</div>
-						<div class="user-info">
-							<div class="username">{user.username}</div>
-							{#if user.handle}<div class="handle">@{user.handle}</div>{/if}
-						</div>
-					</button>
-				{/each}
-			{/if}
-		</div>
-
-		<div class="modal-footer">
-			{#if operationError}<p class="operation-error" role="alert">{operationError}</p>{/if}
-			{#if pending}<p role="status">Waiting for server confirmation…</p>{/if}
-			<button class="create-btn" onclick={handleCreate} disabled={pending || !groupName.trim() || selectedUsers.length === 0}>
-				{pending ? 'Creating…' : `Create Group (${selectedUsers.length + 1} members)`}
+	<div slot="footer" class="w-dialog__foot cg-foot" class:w-dialog__foot--rule={bodyScrolls}>
+		<p class="w-dialog__foot-start cg-count" id="{uid}-foot" role="status">{footLine}</p>
+		<div class="cg-foot__actions">
+			<button type="button" class="w-btn w-btn--quiet" onclick={closeModal} disabled={pending}>Cancel</button>
+			<button type="submit" form="{uid}-form" class="w-btn w-btn--primary" aria-busy={pending} aria-describedby="{uid}-foot" disabled={!canCreate}>
+				{pending ? 'Creating…' : 'Create group'}
 			</button>
 		</div>
 	</div>
-{/if}
+</BaseModal>
 
 <style>
-	.operation-error { color: var(--color-danger, #f44336); overflow-wrap: anywhere; }
-	button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
-	.modal-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: var(--surface-overlay, rgba(0, 0, 0, 0.6));
-		z-index: var(--z-modal);
+	.cg-form {
+		display: grid;
+		gap: 20px;
 	}
-
-	.modal {
-		position: fixed;
-		top: 0;
-		right: 0;
-		width: 400px;
-		height: 100vh;
-		height: 100dvh;
-		background: var(--surface-modal, #0f0c29);
-		z-index: var(--z-modal-surface);
-		display: flex;
-		flex-direction: column;
-		box-shadow: var(--shadow-drawer-right, -8px 0 28px rgba(0, 0, 0, 0.35));
-	}
-
-	.modal-header {
-		padding: var(--space-6, 1.5rem);
-		border-bottom: 1px solid var(--border-subtle, #24243e);
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-
-	.modal-header h2 {
-		margin: 0;
-		font-size: var(--text-xl, 1.25rem);
-		font-weight: var(--font-weight-semibold, 600);
-		color: var(--text-heading, #e0e0ff);
-	}
-
-	.close-btn {
-		background: transparent;
-		border: none;
-		color: var(--text-secondary);
-		font-size: var(--text-2xl, 1.5rem);
-		cursor: pointer;
-		padding: 0;
-		width: 44px;
-		height: 44px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: color var(--duration-fast, 150ms), background-color var(--duration-fast, 150ms);
-	}
-
-	.close-btn:hover {
-		color: var(--text-primary);
-		background: var(--surface-raised, #24243e);
-	}
-
-	.group-name-container {
-		padding: var(--space-4, 1rem) var(--space-6, 1.5rem) var(--space-2, 0.5rem);
-	}
-
-	.group-name-input {
-		width: 100%;
-		padding: var(--space-3, 0.75rem);
-		background: var(--surface-base, #1a1a2e);
-		border: 1px solid var(--border-subtle, #24243e);
-		border-radius: var(--radius-md, 8px);
-		color: var(--text-heading, #e0e0ff);
-		font-size: var(--text-base, 0.875rem);
-	}
-
-	.group-name-input:focus {
-		outline: none;
-		border-color: var(--accent-primary-color, #6366f1);
-	}
-
-	.selected-chips {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-2, 0.5rem);
-		padding: var(--space-2, 0.5rem) var(--space-6, 1.5rem);
-	}
-
-	.chip {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1, 0.25rem);
-		padding: var(--space-1, 0.25rem) var(--space-2, 0.5rem);
-		background: var(--accent-primary-color, #6366f1);
-		color: var(--text-on-accent, #0f0c29);
-		border-radius: var(--radius-lg, 12px);
-		font-size: var(--text-sm, 0.8125rem);
-		font-weight: var(--font-weight-medium, 500);
-	}
-
-	.chip-remove {
-		background: none;
-		border: none;
-		color: var(--text-on-accent, #0f0c29);
-		cursor: pointer;
-		padding: 0 2px;
-		font-size: var(--text-sm, 0.8125rem);
-		line-height: 1;
-	}
-
-	.chip-remove:hover {
-		color: var(--text-on-accent, #0f0c29);
-		opacity: var(--opacity-80, 0.8);
-	}
-
-	.search-container {
-		padding: var(--space-2, 0.5rem) var(--space-6, 1.5rem);
-		border-bottom: 1px solid var(--border-subtle, #24243e);
-	}
-
-	.search-container input {
-		width: 100%;
-		padding: var(--space-3, 0.75rem);
-		background: var(--surface-base, #1a1a2e);
-		border: none;
-		color: var(--text-heading, #e0e0ff);
-		font-size: var(--text-base, 0.875rem);
-	}
-
-	.search-container input:focus {
-		outline: none;
-	}
-
-	.user-list {
-		flex: 1;
-		overflow-y: auto;
-		padding: var(--space-2, 0.5rem);
-	}
-
-	.no-users {
-		padding: var(--space-8, 2rem);
-		text-align: center;
-		color: var(--text-secondary);
-	}
-
-	.user-item {
-		display: flex;
-		align-items: center;
-		gap: var(--space-4, 1rem);
-		padding: var(--space-3, 0.75rem);
-		width: 100%;
-		background: transparent;
-		border: none;
-		cursor: pointer;
-		transition: background var(--duration-fast, 150ms);
-		text-align: left;
-		color: var(--text-heading, #e0e0ff);
-	}
-
-	.user-item:hover {
-		background: var(--surface-raised, #24243e);
-	}
-
-	.user-avatar-container {
-		position: relative;
-		flex-shrink: 0;
-	}
-
-	.user-avatar,
-	.user-avatar-placeholder {
-		width: 32px;
-		height: 32px;
-		border-radius: var(--radius-full, 9999px);
-		object-fit: cover;
-	}
-
-	.user-avatar-placeholder {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-weight: var(--font-weight-semibold, 600);
-		color: white;
-		font-size: var(--text-sm, 0.8125rem);
-	}
-
-	.status-indicator {
-		position: absolute;
-		bottom: 0;
-		right: 0;
-		width: var(--space-3, 12px);
-		height: var(--space-3, 12px);
-		border-radius: 50%;
-		border: 2px solid var(--surface-modal, #0f0c29);
-	}
-
-	.user-info {
-		flex: 1;
+	.cg-field {
 		min-width: 0;
 	}
-
-	.username {
-		font-size: var(--text-base, 0.875rem);
-		font-weight: var(--font-weight-medium, 500);
-		color: var(--text-heading, #e0e0ff);
+	.cg-privacy {
+		display: flex;
+		align-items: flex-start;
+		gap: 6px;
+		margin: 8px 0 0;
+		color: var(--w-mute);
+		font: 400 calc(12px * var(--w-fs)) / calc(16px * var(--w-fs)) var(--w-sans);
+		text-wrap: pretty;
 	}
-
-	.handle {
-		font-size: var(--text-sm, 0.8125rem);
-		color: var(--text-secondary);
+	.cg-privacy :global(svg) {
+		flex: none;
+		margin-top: 1px;
+		color: var(--w-seal);
 	}
-
-	.modal-footer {
-		padding: var(--space-4, 1rem) var(--space-6, 1.5rem);
-		border-top: 1px solid var(--border-subtle, #24243e);
+	.cg-chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin: 0 0 10px;
+		padding: 0;
+		list-style: none;
 	}
-
-	.create-btn {
-		width: 100%;
-		padding: var(--space-3, 0.75rem);
-		background: var(--accent-primary-color, #6366f1);
-		color: var(--text-on-accent, #0f0c29);
-		border: none;
-		border-radius: var(--radius-md, 8px);
-		font-size: var(--text-base, 0.875rem);
-		font-weight: var(--font-weight-semibold, 600);
+	.cg-chip {
+		gap: 4px;
+		padding-right: 3px;
+		color: var(--w-text);
+	}
+	.cg-chip__remove {
+		display: grid;
+		place-items: center;
+		width: 18px;
+		height: 18px;
+		padding: 0;
+		border: 0;
+		border-radius: var(--w-pill);
+		background: transparent;
+		color: var(--w-mute);
 		cursor: pointer;
-		transition: opacity var(--duration-fast, 150ms);
 	}
-
-	.create-btn:disabled {
-		opacity: var(--opacity-40, 0.4);
-		cursor: default;
+	.cg-chip__remove:hover {
+		background: var(--w-raise);
+		color: var(--w-text);
 	}
-
-	.create-btn:hover:not(:disabled) {
-		opacity: var(--opacity-90, 0.9);
+	.cg-chip__remove:focus-visible {
+		outline: 2px solid var(--w-accent);
+		outline-offset: 0;
 	}
-
-	@media (max-width: 768px) {
-		.modal {
-			width: 100%;
+	.cg-empty {
+		padding: 16px 0 0;
+	}
+	.cg-list {
+		display: grid;
+		gap: 2px;
+		margin: -12px -8px 0;
+		padding: 0;
+		list-style: none;
+	}
+	.cg-row {
+		display: grid;
+		grid-template-columns: 28px minmax(0, 1fr) auto;
+		align-items: center;
+		column-gap: 12px;
+		box-sizing: border-box;
+		width: 100%;
+		min-height: 46px;
+		padding: 0 8px;
+		border: 0;
+		border-radius: var(--radius-md);
+		background: transparent;
+		color: var(--w-mute);
+		font: var(--w-t-ui);
+		text-align: left;
+		cursor: pointer;
+		transition: background-color var(--w-dur-1) var(--w-ease), color var(--w-dur-1) var(--w-ease);
+	}
+	.cg-row:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+		color: var(--w-text);
+	}
+	.cg-row:focus-visible {
+		outline: 2px solid var(--w-accent);
+		outline-offset: -2px;
+	}
+	.cg-row:disabled {
+		opacity: 0.55;
+		cursor: not-allowed;
+	}
+	:global(:root[data-char='contrast']) .cg-row:hover:not(:disabled) {
+		background: transparent;
+		box-shadow: inset 0 0 0 1px var(--w-line-strong);
+	}
+	.cg-av {
+		position: relative;
+		display: block;
+		width: 28px;
+		height: 28px;
+		border-radius: var(--w-avr);
+	}
+	.cg-av__stamp,
+	.cg-av :global(.cg-av__pic) {
+		display: grid;
+		place-items: center;
+		box-sizing: border-box;
+		width: 28px;
+		height: 28px;
+		border-radius: var(--w-avr);
+		object-fit: cover;
+	}
+	.cg-av__stamp {
+		background: var(--disc, var(--w-raise));
+		color: var(--on, var(--w-text));
+		font: 600 calc(12px * var(--w-fs)) / 1 var(--w-serif);
+	}
+	.cg-av__presence {
+		position: absolute;
+		right: -2px;
+		bottom: -2px;
+		box-sizing: border-box;
+		width: 10px;
+		height: 10px;
+		border-radius: var(--w-avr);
+		background: var(--w-online);
+		box-shadow: 0 0 0 2px var(--w-bg);
+	}
+	.cg-av[data-presence='away'] .cg-av__presence {
+		background: var(--w-warn);
+	}
+	.cg-av[data-presence='busy'] .cg-av__presence {
+		background: var(--w-danger);
+	}
+	.cg-av[data-presence='offline'] .cg-av__presence {
+		background: var(--w-bg);
+		box-shadow: inset 0 0 0 1.5px var(--w-faint), 0 0 0 2px var(--w-bg);
+	}
+	.cg-text {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+	.cg-name {
+		overflow: hidden;
+		color: var(--ink, var(--w-text));
+		font: var(--w-t-label);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.cg-sub {
+		overflow: hidden;
+		color: var(--w-faint);
+		font: var(--w-t-mono);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.cg-required {
+		margin-left: 6px;
+		color: var(--w-faint);
+		font: var(--w-t-micro);
+	}
+	/* When the line and the buttons don't fit on one row (phones), the line takes its own row
+	   whole instead of breaking mid-phrase. */
+	.cg-foot {
+		flex-wrap: wrap;
+		row-gap: 8px;
+	}
+	/* Cancel and Create group stay together; the pair wraps below the line as one. */
+	.cg-foot__actions {
+		display: flex;
+		flex: none;
+		gap: 8px;
+		margin-left: auto;
+	}
+	.cg-count {
+		margin-top: 0;
+		margin-bottom: 0;
+		color: var(--w-faint);
+		font: var(--w-t-small);
+		white-space: nowrap;
+	}
+	@media (pointer: coarse) {
+		.cg-row {
+			min-height: 52px;
+		}
+		.cg-chip__remove {
+			width: 32px;
+			height: 32px;
 		}
 	}
 </style>

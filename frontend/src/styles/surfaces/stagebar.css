@@ -1,0 +1,792 @@
+/* Stage masthead skin: StageBar row A (channel / DM / workspace header), the folio in row B,
+   the masthead search, the About and Pinned popovers, and the phone bar with its Workspaces
+   sheet (design contract §7.10, §7.23, §8.2, §8.12).
+   Owner (wave 1): w1-stagebar. Role tokens only (--w-*), type tokens and kit classes.
+   Cascade: shell.css after sidebar.css, before controls-kit and the later skins, so rules here
+   carry one more class than the kit rule they refine. */
+
+/* ---------- the stage is the container every stage-width rule measures ---------- */
+:root .main-content .chat-stack {
+	container: stage / inline-size;
+}
+
+/* ---------- masthead frame: one hairline at y = --w-mast ---------- */
+.stage-bar {
+	position: relative;
+	z-index: var(--z-dropdown);
+	flex: none;
+	box-sizing: border-box;
+	display: grid;
+	grid-template-rows: var(--w-head-a) minmax(0, 1fr);
+	height: var(--w-mast);
+	min-width: 0;
+	padding: 0 var(--w-gutter);
+	border-bottom: var(--w-bw) solid var(--w-line);
+	background: var(--w-bg);
+	color: var(--w-text);
+}
+
+.stage-bar__b {
+	display: flex;
+	min-width: 0;
+}
+
+/* ---------- row A ---------- */
+.stage-bar .stage-a {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	min-width: 0;
+}
+
+/* The lead gives way first: topic, then chips, then the name (ellipsis). Its 4px padding keeps
+   the focus rings of the topic and the seal chip clear of the clip. The phone's workspace
+   button sits after the lead, outside this clip, so its 44px touch band survives. */
+.stage-bar .stage-a__lead {
+	flex: 1 1 auto;
+	display: flex;
+	align-items: baseline;
+	gap: 14px;
+	min-width: 0;
+	margin: -4px;
+	padding: 4px;
+	overflow: hidden;
+	white-space: nowrap;
+}
+.stage-bar .stage-a__lead--dm,
+.stage-bar .stage-a__lead--component {
+	align-items: center;
+	gap: 10px;
+}
+
+.stage-bar .stage-a__title {
+	flex: 0 1 auto;
+	display: flex;
+	align-items: baseline;
+	/* The name keeps 96px while the row shrinks, but a shorter name keeps only its own width
+	   (no hole before the next tag). Engines without calc-size() keep the plain 96px floor. */
+	min-width: min(96px, 100%);
+	min-width: calc-size(max-content, min(96px, size));
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-title);
+	letter-spacing: 0.005em;
+	white-space: nowrap;
+}
+.stage-bar .stage-a__name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.stage-bar .stage-a__glyph {
+	flex: none;
+	margin-inline-end: 1px;
+	color: var(--w-sig);
+	font-weight: 400;
+}
+.stage-bar .stage-a__glyph-icon {
+	flex: none;
+	align-self: center;
+	margin-inline-end: 8px;
+	color: var(--w-sig);
+}
+
+.stage-bar .stage-a__topic {
+	flex: 0 1000 auto;
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: none;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+	text-align: start;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: color var(--w-dur-1) var(--w-ease);
+}
+.stage-bar .stage-a__topic:hover,
+.stage-bar .stage-a__topic[aria-expanded='true'] {
+	color: var(--w-text);
+}
+.stage-bar .stage-a__topic:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+
+.stage-bar .stage-a__chips {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	align-self: center;
+}
+.stage-bar .stage-a__chip {
+	flex: none;
+	align-self: center;
+}
+
+/* Office crumb and the viewers' "Reader › title" crumb. */
+.stage-bar .stage-a__crumb {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	align-self: center;
+	color: var(--w-mute);
+	font: var(--w-t-label);
+}
+.stage-bar .stage-a__crumb-glyph,
+.stage-bar .stage-a__scope-dot {
+	display: none;
+}
+.stage-bar .stage-a__crumb-sep {
+	flex: none;
+	align-self: center;
+	margin-inline: -6px;
+	color: var(--w-faint);
+}
+.stage-bar .stage-a__status {
+	flex: none;
+	align-self: center;
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+	font-variant-numeric: tabular-nums;
+}
+
+/* DM and group identity: a serif initial stamp on the person's identity disc. */
+.stage-bar .stage-a__avatar {
+	flex: none;
+	box-sizing: border-box;
+	width: 28px;
+	height: 28px;
+	border-radius: var(--w-avr);
+	object-fit: cover;
+}
+.stage-bar .stage-a__avatar--stamp {
+	display: grid;
+	place-items: center;
+	background: var(--disc, var(--w-raise));
+	color: var(--on, var(--w-text));
+	font: 600 calc(12px * var(--w-fs)) / 1 var(--w-serif);
+}
+.stage-bar .stage-a__avatar--group {
+	display: grid;
+	place-items: center;
+	overflow: hidden;
+}
+
+.stage-bar .stage-a__actions {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin-inline-start: auto;
+}
+.stage-bar .stage-a__menu {
+	display: contents;
+}
+.stage-bar .stage-a__call {
+	margin-inline-end: 4px;
+}
+
+/* ---------- masthead search: a quiet icon that opens a 280px kit field ---------- */
+.stage-bar .stage-search {
+	position: relative;
+	display: flex;
+	align-items: center;
+}
+.stage-bar .stage-search__field {
+	width: min(280px, 40cqi);
+}
+/* A narrow field ends its placeholder ("Search messages in #small-discoveries") with an
+   ellipsis instead of cutting a word. */
+.stage-bar .stage-search__field > input,
+.stage-bar .stage-search__field > input::placeholder {
+	text-overflow: ellipsis;
+}
+.stage-bar .stage-search__drop {
+	position: absolute;
+	top: calc(100% + 8px);
+	right: 0;
+	z-index: var(--z-dropdown);
+	box-sizing: border-box;
+	width: min(320px, 80cqi);
+	padding: 12px 14px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-lg);
+	background: var(--w-bg2);
+	box-shadow: var(--w-shadow);
+	animation: w-enter var(--w-dur-2) var(--w-ease);
+}
+:root[data-mode='light'] .stage-bar .stage-search__drop {
+	background: var(--w-lift);
+}
+.stage-bar .stage-search__count {
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+.stage-bar .stage-search__busy,
+.stage-bar .stage-search__status {
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+.stage-bar .stage-search__status {
+	margin: 6px 0 0;
+}
+.stage-bar .stage-search__actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin: 8px -10px 0;
+}
+.stage-bar .stage-search__help {
+	margin: 0;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+	white-space: normal;
+}
+.stage-bar .stage-search__count ~ .stage-search__help,
+.stage-bar .stage-search__actions ~ .stage-search__help,
+.stage-bar .stage-search__status ~ .stage-search__help {
+	margin-top: 10px;
+	padding-top: 10px;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+
+/* ---------- About this channel, Pinned messages (portaled, fixed) ---------- */
+.stage-pop {
+	position: fixed;
+	z-index: var(--z-popover);
+	width: min(360px, calc(100vw - 16px));
+	outline: none;
+}
+.stage-pop__hash {
+	margin-inline-end: -6px;
+	color: var(--w-sig);
+	font-weight: 400;
+}
+.stage-pop__topic {
+	white-space: pre-line;
+}
+.stage-pop .w-pop__title .w-count {
+	margin-inline-start: 2px;
+}
+.stage-pop__pins {
+	display: grid;
+	gap: 2px;
+	max-height: min(360px, 50vh);
+	margin: 10px -10px 0;
+	padding: 0;
+	overflow: auto;
+	list-style: none;
+}
+.stage-pop__pin {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: start;
+	gap: 4px;
+	padding: 2px;
+	border-radius: var(--radius-md);
+}
+.stage-pop__pin:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+}
+.stage-pop__jump {
+	display: grid;
+	gap: 2px;
+	min-width: 0;
+	margin: 0;
+	padding: 6px 8px;
+	border: 0;
+	border-radius: var(--radius-inner);
+	background: none;
+	color: var(--w-text);
+	text-align: start;
+	cursor: pointer;
+}
+.stage-pop__jump:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+.stage-pop__meta {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+}
+.stage-pop__who {
+	font: var(--w-t-label);
+}
+.stage-pop__text {
+	display: -webkit-box;
+	overflow: hidden;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	-webkit-box-orient: vertical;
+}
+:root[data-char='contrast'] .stage-pop__pin:hover {
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+
+/* ---------- row B: the folio ---------- */
+/* Tabs carry 6px of padding each side, so labels sit 18px apart and the first label meets the
+   gutter; the 2px --w-sig underline of the current view lies on the masthead rule. Hover is a
+   colour change only: tabs never grow, the strip never scrolls. */
+.stage-bar .w-folio {
+	display: flex;
+	align-items: stretch;
+	flex: 1 1 auto;
+	min-width: 0;
+	margin-inline: -6px;
+}
+.stage-bar .w-folio__tabs {
+	display: flex;
+	align-items: stretch;
+	flex: 0 1 auto;
+	min-width: 0;
+	outline: none;
+}
+.stage-bar .w-folio__group {
+	display: flex;
+	align-items: stretch;
+	gap: 6px;
+}
+/* Group rule: 16px tall, 20px clear of the labels on both sides. */
+.stage-bar .w-folio__group + .w-folio__group::before {
+	content: '';
+	flex: none;
+	align-self: center;
+	width: var(--w-bw);
+	height: 16px;
+	margin-inline: 14px 8px;
+	background: var(--w-line);
+}
+.stage-bar .w-folio__tab,
+.stage-bar .w-folio__more {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	flex: none;
+	box-sizing: border-box;
+	height: 100%;
+	margin: 0;
+	padding: 0 6px;
+	border: 0;
+	border-radius: 0;
+	background: none;
+	color: var(--w-mute);
+	font: var(--w-t-label);
+	white-space: nowrap;
+	cursor: pointer;
+	transition: color var(--w-dur-1) var(--w-ease);
+}
+.stage-bar .w-folio__tab:hover,
+.stage-bar .w-folio__more:hover,
+.stage-bar .w-folio__more[aria-expanded='true'],
+.stage-bar .w-folio__tab[aria-selected='true'],
+.stage-bar .w-folio__more[data-current='true'] {
+	color: var(--w-text);
+}
+.stage-bar .w-folio__tab[aria-selected='true']::after,
+.stage-bar .w-folio__more[data-current='true']::after {
+	content: '';
+	position: absolute;
+	inset-inline: 6px;
+	bottom: calc(-1 * var(--w-bw));
+	height: 2px;
+	border-radius: 2px 2px 0 0;
+	background: var(--w-sig);
+}
+/* Inside the strip the ring is inset (§4.6), so nothing around the row can clip it. */
+.stage-bar .w-folio__tab:focus-visible,
+.stage-bar .w-folio__more:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+	border-radius: var(--radius-inner);
+}
+.stage-bar .w-folio__tab[aria-disabled='true'] {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+.stage-bar .w-folio__tab .w-badge {
+	align-self: center;
+}
+/* PREVIEW: once, 8px after the last office tab shown. */
+.stage-bar .w-folio__mat {
+	align-self: center;
+	margin-inline-start: -4px;
+}
+.stage-bar .w-folio__more-wrap {
+	display: flex;
+	align-items: stretch;
+	flex: none;
+	margin-inline-start: auto;
+	padding-inline-start: 12px;
+}
+.stage-bar .w-folio__more {
+	gap: 4px;
+}
+:root[data-char='contrast'] .stage-bar .w-folio__group + .w-folio__group::before {
+	background: var(--w-line-strong);
+}
+
+/* ---------- tiers, measured on the stage ---------- */
+@container stage (max-width: 999.98px) {
+	.stage-bar .w-folio [data-tier='1000'] {
+		display: none;
+	}
+}
+@container stage (max-width: 879.98px) {
+	.stage-bar .w-folio [data-tier='880'] {
+		display: none;
+	}
+	/* The DM's content-rules tag gives way to the seal and retention chips; ⋯ names it. */
+	.stage-bar .stage-a__rules {
+		display: none;
+	}
+}
+/* Below 760 (§7.23) the crumb collapses to its tool glyph and a scope tag to its dot. The words
+   stay in the title tooltip and for assistive tech (visually hidden, not removed). */
+@container stage (max-width: 759.98px) {
+	.stage-bar .stage-a__crumb-glyph {
+		display: block;
+	}
+	.stage-bar .stage-a__crumb-words,
+	.stage-bar .stage-a__scope-words {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+	.stage-bar .stage-a__scope {
+		justify-content: center;
+		width: 22px;
+		padding: 0;
+		border-color: transparent;
+	}
+	.stage-bar .stage-a__scope-dot {
+		display: inline-block;
+		width: 6px;
+		height: 6px;
+		color: var(--w-mute);
+	}
+}
+@container stage (max-width: 699.98px) {
+	.stage-bar .w-folio [data-tier='700'] {
+		display: none;
+	}
+	.stage-bar .stage-a__topic {
+		display: none;
+	}
+}
+/* Guard below the contract's tiers (a tablet stage before the sidebar folds to its compact rail):
+   the office group goes to More with its PREVIEW, so the row never clips. */
+@container stage (max-width: 559.98px) {
+	.stage-bar .w-folio [data-tier='560'] {
+		display: none;
+	}
+}
+/* The measured fit pass (WorkspaceViewBar.svelte): the tiers are drawn for 100% text, so a larger
+   interface scale or longer words move further tabs, never overlapping More or the rail. */
+.stage-bar .w-folio [data-fit='out'] {
+	display: none;
+}
+
+/* ---------- phone shell (≤768px): one 52px bar, no folio row ---------- */
+.stage-bar.stage-bar--phone {
+	grid-template-rows: 52px;
+	height: calc(52px + env(safe-area-inset-top, 0px));
+	padding: env(safe-area-inset-top, 0px) 16px 0;
+}
+/* At a larger interface text size the row's gaps give a little first (12px at 100%, 6px from
+   150%), so the name's 96px, a whole "Chat" and search + ⋯ still fit a 320 phone. */
+.stage-bar--phone .stage-a {
+	gap: clamp(6px, 12px - (var(--w-fs) - 1) * 12px, 12px);
+}
+.stage-bar--phone .stage-a__title {
+	font: 600 calc(20px * var(--w-fs)) / calc(26px * var(--w-fs)) var(--w-serif);
+}
+.stage-bar--phone .stage-a__lead {
+	flex: 0 1000000 auto;
+	align-items: center;
+	gap: 10px;
+}
+/* The name keeps its 96px (ellipsis, §8.12), with the DM avatar beside it: the lead gives way
+   first (flex-shrink 10⁶, so the "Chat ▾" button's share of a long name's overflow stays under a
+   layout unit; at 1000 a long name at large text took a fraction of a pixel from it and its
+   label read "Ch…") but never below that floor, or below its own width when it is
+   narrower; only then does the "Chat ▾" label give way. Nothing focusable sits in these leads
+   on the phone (the topic, chips and seal chip are not shown there), so they need no
+   focus-ring padding. Engines without calc-size() keep the plain shrink. */
+.stage-bar--phone .stage-a__lead:not(.stage-a__lead--component) {
+	min-width: calc-size(max-content, min(size, var(--stage-lead-floor, 96px)));
+	margin: 0;
+	padding: 0;
+}
+/* The DM avatar steps aside when the stage cannot hold it beside the name's 96px, "Chat ▾" and
+   search + ⋯ at the current text size: 32 gutters + 38 avatar and gap + 96 name + 12 + 40 trigger
+   frame + 12 + 92 actions = 322px, plus 2.5em of --w-t-label-sm (13px × --w-fs) for "Chat". (The
+   two 12px gaps narrow at larger text, so there the step is on the safe side.)
+   A container query cannot read --w-fs, so the step is a clamp on the avatar's width: 28px with
+   room, 0 without (× 1000 turns the ramp into a step). The floor follows the avatar. */
+.stage-bar--phone .stage-a__lead--dm {
+	--stage-avatar: clamp(0px, (100cqi - 322px - 32.5px * var(--w-fs)) * 1000, 28px);
+	--stage-lead-floor: calc(var(--stage-avatar) * 38 / 28 + 96px);
+	gap: 0;
+}
+.stage-bar--phone .stage-a__lead--dm > .stage-a__avatar {
+	width: var(--stage-avatar);
+	margin-inline-end: calc(var(--stage-avatar) * 10 / 28);
+	overflow: hidden;
+}
+
+/* An open search takes row A (the field is the task now): the lead keeps only its glyph (the
+   avatar or #; the name stays in the heading for assistive tech), "Chat ▾" steps aside, and the
+   field fills the row up to its Close button and ⋯. No floor is left to fight the field, so the
+   row never overflows and the page never scrolls sideways to reach the caret. Closing the
+   search removes these classes and the bar is back as it was. */
+.stage-bar--phone .stage-a__lead.stage-a__lead--searching {
+	flex: none;
+	min-width: auto;
+	gap: 0;
+}
+.stage-bar--phone .stage-a__lead--searching .stage-a__name {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+.stage-bar--phone .stage-a__lead--searching > .stage-a__avatar {
+	width: 28px;
+	margin-inline-end: 0;
+}
+.stage-bar--phone .stage-a__lead--searching + .w-folio-trigger {
+	display: none;
+}
+.stage-bar--phone .stage-a__actions--searching,
+.stage-bar--phone .stage-a__actions--searching > .stage-search {
+	flex: 1 1 0;
+	min-width: 0;
+}
+.stage-bar--phone .stage-a__actions--searching > .stage-search {
+	position: static;
+	gap: 4px;
+}
+/* The call state stays a live region on the phone; ⋯ names it beside Voice call and Video call. */
+.stage-bar--phone .stage-a__call {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+.stage-bar--phone .stage-a__topic,
+.stage-bar--phone .stage-a__chips,
+.stage-bar--phone .stage-a__status,
+.stage-bar--phone .stage-a__pinned {
+	display: none;
+}
+.stage-bar--phone .stage-a__actions .w-ibtn {
+	width: 44px;
+	height: 44px;
+}
+.stage-bar--phone .stage-search__field {
+	flex: 1 1 0;
+	width: auto;
+}
+/* The results card spans the phone bar (it is placed against .stage-bar, under the 52px row). */
+.stage-bar--phone .stage-search__drop {
+	right: 16px;
+	left: 16px;
+	width: auto;
+}
+
+/* The People facepile (§8.12; chat/PeopleFacepile.svelte): three 24px stamps overlapping by 7px,
+   each ringed 2px in the bar's --w-bg, then the count in --w-t-micro; 44px to touch. It gives way
+   with the lead (the same 10⁶ shrink), so "Chat ▾" keeps its whole label: the pile is a one-line
+   wrapping row of fixed height whose overflow is hidden, so a stamp that no longer fits drops out
+   whole (never half-clipped) and the ones left stay right-aligned against the count. One stamp is
+   the pile's floor. Below a 380px stage the bar has no room for it beside the name's floor, the
+   whole "Chat" and search + ⋯, so the facepile steps aside there; People stays one tap away in the
+   Workspaces sheet (Side panels). */
+.stage-bar .stage-people {
+	flex: 0 1000000 auto;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	box-sizing: border-box;
+	min-width: 44px;
+	height: 44px;
+	margin: 0 0 0 auto;
+	padding: 0 6px 0 4px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
+}
+.stage-bar .stage-people:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+	color: var(--w-text);
+}
+.stage-bar .stage-people:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+.stage-bar .stage-people + .stage-a__actions {
+	margin-inline-start: 0;
+}
+.stage-bar .stage-people__pile {
+	flex: 0 1 auto;
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	row-gap: 8px;
+	box-sizing: border-box;
+	min-width: 28px;
+	height: 28px;
+	padding: 2px;
+	overflow: hidden;
+}
+.stage-bar .stage-people__stamp {
+	flex: none;
+	box-sizing: border-box;
+	width: 24px;
+	height: 24px;
+	border-radius: var(--w-avr);
+	box-shadow: 0 0 0 2px var(--w-bg);
+	object-fit: cover;
+}
+.stage-bar .stage-people__stamp + .stage-people__stamp {
+	margin-inline-start: -7px;
+}
+.stage-bar .stage-people__stamp--initial {
+	display: grid;
+	place-items: center;
+	background: var(--disc, var(--w-raise));
+	color: var(--on, var(--w-text));
+	font: 600 calc(11px * var(--w-fs)) / 1 var(--w-serif);
+}
+.stage-bar .stage-people__count {
+	flex: none;
+	font: var(--w-t-micro);
+	font-variant-numeric: tabular-nums;
+}
+/* (A wrapped stamp starts 8px below the pile's box, so nothing of it shows in the ring padding.) */
+@container stage (max-width: 379.98px) {
+	.stage-bar .stage-people {
+		display: none;
+	}
+	.stage-bar .stage-people + .stage-a__actions {
+		margin-inline-start: auto;
+	}
+}
+
+/* The "Chat ▾" workspace button: 30px drawn, 44px to touch (row A is 52, nothing clips it).
+   It gives way after the lead's floor: the label takes an ellipsis (the full name stays in its
+   aria-label), the chevron and 2em of words stay. */
+.stage-bar .w-folio-trigger {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	flex: 0 1 auto;
+	box-sizing: border-box;
+	min-width: calc(40px + 2em);
+	height: 30px;
+	margin: 0;
+	padding: 0 8px 0 10px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-label-sm);
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+.stage-bar .w-folio-trigger::before {
+	content: '';
+	position: absolute;
+	/* Measured from inside the border: 7px past the 30px box on each side makes 44. */
+	inset: calc(-7px - var(--w-bw)) calc(-2px - var(--w-bw));
+}
+.stage-bar .w-folio-trigger:hover,
+.stage-bar .w-folio-trigger[aria-expanded='true'] {
+	background: var(--w-raise);
+}
+.stage-bar .w-folio-trigger:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+.stage-bar .w-folio-trigger > svg {
+	flex: none;
+	color: var(--w-mute);
+}
+.stage-bar .w-folio-trigger__label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Workspaces sheet (portaled with the kit sheet). */
+.w-folio-sheet__kicker {
+	margin: 0;
+	padding: 14px 12px 6px;
+}
+.w-folio-sheet__row {
+	width: 100%;
+	border: 0;
+	background: none;
+	color: var(--w-text);
+	text-align: start;
+	cursor: pointer;
+}
+.w-folio-sheet__row[aria-current='page'] {
+	background: var(--w-raise);
+}
+.w-folio-sheet__row[aria-disabled='true'] {
+	opacity: 0.45;
+}
+.w-folio-sheet__words {
+	display: grid;
+	flex: 1 1 auto;
+	gap: 2px;
+	min-width: 0;
+}
+.w-folio-sheet__label {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font: var(--w-t-label);
+}
+.w-folio-sheet__detail {
+	overflow: hidden;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.w-folio-sheet__check {
+	flex: none;
+	color: var(--w-sig);
+}
+:root[data-char='contrast'] .w-folio-sheet__row[aria-current='page'] {
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
