@@ -56,12 +56,16 @@ export function formatMobileUnreadBadge(count: number): string {
 	return String(Math.floor(count));
 }
 
+/**
+ * The root nav stays on a phone during a call, so the person can always get back to chat or the
+ * Channels drawer. Only the keyboard takes it away (the stage needs the room for typing). The call
+ * itself takes the stage, and the message box steps aside while a call is up (Chat.svelte).
+ */
 export function shouldRenderMobileNavigation(options: {
 	isMobile: boolean;
-	isInCall: boolean;
 	keyboardOpen?: boolean;
 }): boolean {
-	return options.isMobile && !options.isInCall && !options.keyboardOpen;
+	return options.isMobile && !options.keyboardOpen;
 }
 
 // ---------------------------------------------------------------- root navigation
@@ -180,11 +184,12 @@ export function mobileNavItems(
 			ariaLabel: name(labels.channels, channels ? [unread(channels)] : [])
 		},
 		{
-			// Friend requests are answered in DMs › Friends, so they count on DMs too.
+			// Activity counts every DM and friend request, so the DMs tab shows no numeral: the same
+			// number on two tabs read as two things. Its name still says what is waiting.
 			id: 'dms',
 			label: labels.dms,
 			icon: 'dm',
-			badge: formatMobileUnreadBadge(dms + friends),
+			badge: '',
 			ariaLabel: name(labels.dms, [...(dms ? [unread(dms)] : []), ...(friends ? [requests(friends)] : [])])
 		},
 		{

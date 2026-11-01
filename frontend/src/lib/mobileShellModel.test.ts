@@ -98,11 +98,10 @@ describe('mobile shell model', () => {
 		expect(formatMobileUnreadBadge(100)).toBe('99+');
 	});
 
-	test('keeps root navigation present except keyboard/call takeover', () => {
-		expect(shouldRenderMobileNavigation({ isMobile: true, isInCall: false })).toBe(true);
-		expect(shouldRenderMobileNavigation({ isMobile: true, isInCall: true })).toBe(false);
-		expect(shouldRenderMobileNavigation({ isMobile: true, isInCall: false, keyboardOpen: true })).toBe(false);
-		expect(shouldRenderMobileNavigation({ isMobile: false, isInCall: false })).toBe(false);
+	test('keeps root navigation present in a call; only the keyboard takes it away', () => {
+		expect(shouldRenderMobileNavigation({ isMobile: true })).toBe(true);
+		expect(shouldRenderMobileNavigation({ isMobile: true, keyboardOpen: true })).toBe(false);
+		expect(shouldRenderMobileNavigation({ isMobile: false })).toBe(false);
 	});
 });
 
@@ -141,7 +140,8 @@ describe('root navigation: five truthful destinations (§8.12)', () => {
 		const byId = Object.fromEntries(items.map((item) => [item.id, item]));
 		expect(byId.chat.badge).toBe('');
 		expect(byId.channels.badge).toBe('3');
-		expect(byId.dms.badge).toBe('3');
+		expect(byId.dms.badge).toBe('');
+		expect(byId.dms.ariaLabel).toBe('DMs, 2 unread, 1 friend request');
 		expect(byId.activity.badge).toBe('2');
 		expect(byId.you.badge).toBe('');
 		expect(byId.channels.ariaLabel).toBe('Channels, 3 unread');
@@ -150,7 +150,7 @@ describe('root navigation: five truthful destinations (§8.12)', () => {
 		const quiet = mobileNavItems(null, NO_COUNTS, { ...LABELS, youDetail: 'Away' });
 		expect(quiet.map((item) => item.ariaLabel)).toEqual(['Chat', 'Channels', 'DMs', 'Activity', 'You, Away']);
 		expect(quiet.some((item) => item.current)).toBe(false);
-		expect(mobileNavItems('dms', { ...NO_COUNTS, friendRequests: 120 }, LABELS)[2].badge).toBe('99+');
+		expect(mobileNavItems('dms', { ...NO_COUNTS, friendRequests: 120 }, LABELS)[2].badge).toBe('');
 	});
 
 	test('a locale can word the counts', () => {

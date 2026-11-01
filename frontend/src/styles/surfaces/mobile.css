@@ -39,11 +39,6 @@ html[data-shell='mobile'] body {
 		height: calc(100dvh - var(--mobile-nav-height));
 		max-height: calc(100dvh - var(--mobile-nav-height));
 	}
-	/* A call takes the nav away (shouldRenderMobileNavigation). */
-	.app-container.in-call {
-		height: 100dvh;
-		max-height: 100dvh;
-	}
 	/* The rail stands beside the stage; the stage keeps the rest of the width. */
 	.app-container.nav-rail {
 		box-sizing: border-box;

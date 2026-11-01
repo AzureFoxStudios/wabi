@@ -148,7 +148,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	// Root navigation is structural chrome (§8.12): present whenever the phone shell is, never
 	// behind a reveal gesture. The keyboard (CSS, data-keyboard-open) and a call are the only
 	// takeovers. Under 600px it is the bottom nav; from 600 to 768px a 72px left rail.
-	$: mobileNavShown = shouldRenderMobileNavigation({ isMobile: $layoutStore.isMobile, isInCall: $layoutStore.isInCall });
+	$: mobileNavShown = shouldRenderMobileNavigation({ isMobile: $layoutStore.isMobile });
 	$: bottomNavShown = mobileNavShown && !$isNavRail;
 	$: navRailShown = mobileNavShown && $isNavRail;
 	// The You page (§8.12): a page in the phone stage; the nav stays.

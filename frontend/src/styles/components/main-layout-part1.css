@@ -21,11 +21,6 @@
 	background: transparent;
 }
 
-.app-container.in-call {
-	height: 100dvh;
-	height: 100dvh;
-}
-
 .app-container.resizing {
 	cursor: col-resize;
 	user-select: none;
