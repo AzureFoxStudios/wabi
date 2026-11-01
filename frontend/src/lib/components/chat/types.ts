@@ -17,7 +17,15 @@ export type MentionSuggestion = {
 	poi?: PlaceRecord['pois'][number];
 };
 
-export type WorkspaceViewKey = 'messages' | 'notifications' | 'whiteboard' | 'planner' | 'notes' | 'reader' | 'model' | 'map' | 'media' | 'lore' | 'files' | 'voice';
+/**
+ * Every center-stage workspace the navigation can select. `documents`, `sheets` and `present`
+ * are the office tools (an integration candidate, labelled PREVIEW); their editors are addon
+ * tabs (`addon:workspace-<tool>`), and a joined presentation (`workspace-audience`) counts as
+ * `present`. See workspaceNavigationState.ts.
+ */
+export type WorkspaceViewKey =
+	| 'messages' | 'notifications' | 'whiteboard' | 'planner' | 'notes' | 'reader' | 'model' | 'map' | 'media' | 'lore' | 'files' | 'voice'
+	| 'documents' | 'sheets' | 'present';
 
 export type ChannelPaneAnimation = {
 	enabled: boolean;

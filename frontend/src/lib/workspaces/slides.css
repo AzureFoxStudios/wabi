@@ -1,0 +1,351 @@
+/* ==========================================================================
+   Slide surfaces shared by Present and the presentation room (design contract §8.8)
+   Core, not add-on: the room (AudienceWorkspace) ships without the Present add-on, so nothing
+   it needs may live under workspaces/present/ (the add-on bundle check keeps that boundary).
+   Present imports this file as well as its own present.css. Chrome draws only with --w-* roles,
+   type tokens and radii; the slide itself keeps AudienceSlide's slide tokens.
+   ========================================================================== */
+
+/* ---------- notices, fields, hints ---------- */
+.present-notice {
+	margin: 12px 16px 0;
+}
+.present-field {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	margin: 0;
+}
+.present-area {
+	height: auto;
+	min-height: 96px;
+	padding: 8px 10px;
+	line-height: 1.45;
+	resize: vertical;
+}
+.present-area--short {
+	min-height: 64px;
+}
+.present-hint {
+	margin: 0;
+	font: var(--w-t-small);
+	color: var(--w-mute);
+	text-wrap: pretty;
+}
+.present-hint--lead {
+	color: var(--w-text);
+}
+.present-field > .present-hint {
+	margin-top: 6px;
+}
+
+/* ---------- speaker notes heading ---------- */
+.present-notes__head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px 10px;
+	padding: 12px 20px 2px;
+}
+.present-notes__title {
+	margin: 0;
+}
+
+/* ---------- the transport pill under a presented slide ---------- */
+.present-transport {
+	flex: none;
+	align-self: center;
+	margin: 0 0 18px;
+	transition: opacity var(--w-dur-2, 200ms) var(--w-ease);
+}
+.present-transport__count {
+	min-width: 60px;
+	text-align: center;
+	font: var(--w-t-mono);
+	font-variant-numeric: tabular-nums;
+	color: var(--w-text);
+}
+.present-transport__end {
+	gap: 8px;
+}
+.present-transport__end .w-kbd {
+	opacity: 0.7;
+}
+
+/* ---------- notes and the next slide beside a presented slide ---------- */
+.present-show__note {
+	margin: 0 0 8px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font: var(--w-t-read);
+	color: var(--w-text);
+}
+.present-show__note--empty {
+	font: var(--w-t-ui);
+	color: var(--w-faint);
+}
+.present-show__next {
+	overflow: hidden;
+	border-radius: 2px;
+	box-shadow: 0 0 0 var(--w-bw) var(--w-line);
+}
+.present-show__next-title {
+	margin: 0;
+	font: var(--w-t-small);
+	color: var(--w-mute);
+}
+
+/* ---------- dialog text ---------- */
+.present-dialog {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+.present-dialog__truth {
+	margin: 0;
+	font: var(--w-t-ui);
+	color: var(--w-mute);
+	text-wrap: pretty;
+}
+.present-dialog__truth strong {
+	font-weight: 500;
+	color: var(--w-text);
+}
+
+:root[data-char='contrast'] .present-show__next {
+	box-shadow: 0 0 0 var(--w-bw) var(--w-line-strong);
+}
+
+/* ==========================================================================
+   The presentation room (AudienceWorkspace): the slide gets the stage, one 320 column
+   ========================================================================== */
+.room {
+	container: room / inline-size;
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+}
+.room-body {
+	flex: 1;
+	min-height: 0;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	background: var(--w-sink);
+}
+/* The column is 320 but never more than a third, so the slide keeps at least 60%. */
+.room-body--column {
+	grid-template-columns: minmax(0, 1fr) min(320px, 34%);
+}
+.room-stage {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+}
+.room-fit {
+	flex: 1;
+	min-height: 0;
+	display: grid;
+	place-items: center;
+	padding: 28px 32px 16px;
+	container-type: size;
+}
+.room-frame {
+	position: relative;
+	width: min(100cqw, calc(100cqh * var(--present-ratio, 1.7778)));
+}
+.room-frame .audience-slide {
+	box-shadow: 0 0 0 var(--w-bw) var(--w-line-strong);
+}
+.room-stage:fullscreen {
+	background: black;
+}
+.room-stage:fullscreen .room-fit {
+	padding: 0;
+}
+.room-stage:fullscreen .audience-slide {
+	box-shadow: none;
+}
+.room-stage:fullscreen .room-transport {
+	position: absolute;
+	bottom: 24px;
+	left: 50%;
+	margin: 0;
+	transform: translateX(-50%);
+}
+.room-transport .present-transport__count {
+	min-width: 64px;
+	justify-content: center;
+	font: var(--w-t-mono);
+	font-variant-numeric: tabular-nums;
+}
+.room-empty {
+	max-width: 420px;
+	text-align: center;
+}
+.room-empty__title {
+	margin: 0 0 6px;
+	font: var(--w-t-heading);
+	color: var(--w-text);
+}
+.room-empty__text {
+	margin: 0;
+	font: var(--w-t-ui);
+	color: var(--w-mute);
+}
+
+.room-column {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	border-inline-start: var(--w-bw) solid var(--w-line);
+	background: var(--w-bg);
+}
+.room-column__head {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: 56px;
+	padding: 0 12px 0 16px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.room-column__seg {
+	flex: 1;
+}
+.room-column__seg > * {
+	flex: 1;
+}
+.room-column__title {
+	flex: 1;
+	margin: 0;
+	font: var(--w-t-subhead);
+	color: var(--w-text);
+}
+.room-column__clock {
+	font: var(--w-t-mono);
+	font-variant-numeric: tabular-nums;
+	color: var(--w-mute);
+}
+.room-column__body {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 16px 16px 24px;
+	overflow-y: auto;
+}
+.room-column__kicker {
+	padding: 0;
+}
+.room-ask {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding-bottom: 14px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.room-ask__foot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+}
+.room-question {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 10px 0;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.room-question__by {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 8px;
+	margin: 0;
+	font: var(--w-t-label);
+	color: var(--w-text);
+}
+.room-question__state {
+	font: var(--w-t-micro);
+	color: var(--w-faint);
+}
+.room-question__body {
+	margin: 0;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font: var(--w-t-ui);
+	color: var(--w-text);
+}
+.room-question--resolved .room-question__body {
+	color: var(--w-mute);
+}
+.room-question__foot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+.room-question__slide {
+	min-width: 0;
+	padding-inline: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--w-mute);
+}
+
+/* Joining: an empty state in the stage, not a form floating at the top. */
+.room-join {
+	box-sizing: border-box;
+	width: min(560px, 100%);
+	margin: 18vh auto 0;
+	padding: 0 24px;
+}
+.room-join > svg {
+	color: var(--w-faint);
+}
+.room-join__title {
+	margin: 12px 0 6px;
+	font: var(--w-t-heading);
+	font-size: calc(20px * var(--w-fs));
+	color: var(--w-text);
+}
+.room-join__text {
+	margin: 0 0 16px;
+	font: var(--w-t-ui);
+	color: var(--w-mute);
+}
+.room-join__form {
+	display: flex;
+	gap: 8px;
+}
+.room-join__form .w-field {
+	flex: 1;
+}
+
+:root[data-char='contrast'] .room-frame .audience-slide {
+	box-shadow: 0 0 0 var(--w-bw) var(--w-text);
+}
+
+@container room (max-width: 759.98px) {
+	.room-body--column {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: minmax(0, 1fr) minmax(0, 45%);
+	}
+	.room-column {
+		border-inline-start: 0;
+		border-top: var(--w-bw) solid var(--w-line);
+	}
+	.room-fit {
+		padding: 16px;
+	}
+	.room-join__form {
+		flex-direction: column;
+	}
+}

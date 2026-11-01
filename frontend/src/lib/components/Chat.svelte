@@ -18,7 +18,6 @@
 		getDMChannelIdForUser,
 		getDMOtherUser,
 		userLookup,
-		socket,
 		loadOlderHistory,
 		channelHasMoreHistory,
 		channelHistoryLoading,
@@ -33,20 +32,17 @@
 	import { todos, projects, calendarEvents, diaryEntries } from '$lib/business/store';
 	import { layoutStore } from '$lib/layoutStore';
 	import { isMobile } from '$lib/layoutStoreStates';
-	import { callMode, isInCall, outgoingCall } from '$lib/callingStateStores';
-	import { startCall } from '$lib/calling';
+	import { isInCall } from '$lib/callingStateStores';
 	import VideoBackground from './VideoBackground.svelte';
 	import { _, currentLocale } from '$lib/i18n';
-	import { getUserIdentityKey } from '$lib/localNicknames';
 	import { animationPassStore } from '$lib/animationPass';
 	import { getAuthToken } from '$lib/authSession';
 	import { paymentAccessStore, refreshPaymentAccess } from '$lib/payments/paymentAccessStore';
 	import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	import { getSearchEngineProvider, openExternalSearch } from '$lib/searchEngineJump';
-	import { isExperimentalWabidbCallEnabled, setExperimentalWabidbCallEnabled } from '$lib/experimentalWabidbCalls';
-	import { focusedMapPlace, openFullMapTab } from '$lib/mapWorkspace';
-	import { modelViewportSelection, openModelViewportSurface } from '$lib/modelViewportTab';
-	import { openReaderSurface, readerSelection } from '$lib/readerWorkspace';
+	import { openFullMapTab } from '$lib/mapWorkspace';
+	import { openModelViewportSurface } from '$lib/modelViewportTab';
+	import { openReaderSurface } from '$lib/readerWorkspace';
 	import { pushLocalDirectionsCard } from '$lib/directionsAssist';
 	import { currentChatSurface } from '$lib/whiteboard/whiteboardSurface';
 	import { activeWorkspaceView } from '$lib/workspaceNavigationState';
@@ -54,7 +50,9 @@
 	import { isLiveRetention } from '../../../../shared/messageRetention.js';
 	import ChannelModePlaceholder from './ChannelModePlaceholder.svelte';
 	import ChatComposer from './chat/ChatComposer.svelte';
-	import ChatHeader from './chat/ChatHeader.svelte';
+	// Row A of the stage masthead (StageBar) shows the channel header and owns the search field;
+	// this stream filters by its query and reports the result facts back.
+	import { chatSearch, chatStageInfo, resetChatSearch, setChatSearchQuery } from './chat/ChatHeader.svelte';
 	import ChatMessagesPane from './chat/ChatMessagesPane.svelte';
 	import { executeChatCommand } from './chat/commandExecutor';
 	import { filterMessages, getChannelHistoryFlags, waitForHistoryIdle } from './chat/search';
@@ -90,46 +88,6 @@
 	$: pinnedMessages = messages.filter((m: Message) => m.isPinned);
 	$: currentChannelData = $channels.find(ch => ch.id === $currentChannel);
 	$: channelDisplayName = currentChannelData?.name || $currentChannel;
-	$: channelDescription = currentChannelData?.description?.trim() || '';
-	$: workspaceSurfaceLabel = (() => {
-		switch ($activeWorkspaceView) {
-			case 'whiteboard': return 'Whiteboard';
-			case 'reader': return 'Reader';
-			case 'model': return '3D Viewport';
-			case 'map': return 'Map';
-			case 'media': return 'Media Albums';
-			case 'files': return 'Files';
-			case 'voice': return 'Voice';
-			default: return '';
-		}
-	})();
-	$: workspaceHeaderTitle = (() => {
-		switch ($activeWorkspaceView) {
-			case 'reader': return $readerSelection?.title || 'Reader';
-			case 'model': return $modelViewportSelection?.fileName || '3D model';
-			case 'map': return $focusedMapPlace?.name || 'Map';
-			case 'voice': return 'Voice';
-			default:
-				// Prefer the live peer identity for DMs — the stored channel name
-				// can be stale/blank (renders as "Unknown"), while the peer is
-				// usually resolvable from presence/members.
-				return isDMChannel && dmCallTargetUser?.username
-					? dmCallTargetUser.username
-					: channelDisplayName;
-		}
-	})();
-	$: workspaceHeaderSubtitle = (() => {
-		switch ($activeWorkspaceView) {
-			case 'whiteboard': return channelDescription || 'Shared board for this channel';
-			case 'reader': return `Opened from #${channelDisplayName}`;
-			case 'model': return `Opened from #${channelDisplayName}`;
-			case 'map': return channelDisplayName ? `Opened from #${channelDisplayName}` : 'Map workspace';
-			case 'lore': return channelDescription;
-			case 'files': return "Shared files across this server's spaces";
-			case 'voice': return 'All calls, rosters and transport controls';
-			default: return channelDescription;
-		}
-	})();
 
 	$: isDMChannel = currentChannelData?.type === 'dm';
 	$: isGroupChannel = currentChannelData?.type === 'group';
@@ -145,9 +103,6 @@
 		return channelDisplayName ? `#${channelDisplayName}` : $currentChannel;
 	})();
 	$: paymentTargetKind = isDMChannel ? 'dm' : isGroupChannel ? 'group' : 'channel';
-	$: dmDirectCallActive = ($isInCall && $callMode === 'direct') || Boolean($outgoingCall);
-	$: dmDirectCallPending = Boolean($outgoingCall) && !$isInCall && $callMode === 'direct';
-	$: experimentalScopeVisible = isDMChannel || isGroupChannel;
 	$: channelPaneAnimation = (() => {
 		const baseDuration = $animationPassStore.level === 'full' ? 340 : 250;
 		const baseDistance = $animationPassStore.level === 'full' ? 34 : 22;
@@ -215,26 +170,12 @@
 		if (files.length) await chatComposer?.receiveFiles(files, 'replace');
 	}
 
-	// ── DM calls ────────────────────────────────────────────────────────────────
-	async function startDMVoiceCall() {
-		if (!$socket || !dmCallTargetUser || dmDirectCallActive) return;
-		try { await startCall($socket, getUserIdentityKey(dmCallTargetUser), false, { scope: 'dm', displayName: dmCallTargetUser.username }); }
-		catch (error) { console.warn('[Call] DM voice call failed to start:', error); }
-	}
-	async function startDMVideoCall() {
-		if (!$socket || !dmCallTargetUser || dmDirectCallActive) return;
-		try { await startCall($socket, getUserIdentityKey(dmCallTargetUser), true, { scope: 'dm', displayName: dmCallTargetUser.username }); }
-		catch (error) { console.warn('[Call] DM video call failed to start:', error); }
-	}
-
 	// ── Search ──────────────────────────────────────────────────────────────────
 	let chatContainer: HTMLElement;
 	let followLatestMessages = true;
 	let scrollChannelId = '';
-	let searchInput = '';
-	let searchExpanded = false;
-	let searchContainerElement: HTMLElement | null = null;
-	let searchInputElement: HTMLInputElement | null = null;
+	// The query lives in the masthead's search store (StageBar row A); read it here.
+	$: searchInput = $chatSearch.query;
 	let filteredMessages: Message[] = [];
 	const MESSAGE_WORKING_SET_LIMIT_EPHEMERAL = 600;
 	const MESSAGE_WORKING_SET_LIMIT_PERSISTENT_IDLE = 1200;
@@ -247,7 +188,6 @@
 	let fullHistorySearchStatus = '';
 	const MAX_FULL_HISTORY_SEARCH_PAGES = 80;
 	let visibleTypingUsers: string[] = [];
-	let experimentalWabidbCallsEnabled = false;
 
 	function getWorkingSetLimit(): number {
 		if (currentChannelData?.persistMessages) {
@@ -257,7 +197,6 @@
 	}
 
 	$: filteredMessages = filterMessages(messages, searchInput, getWorkingSetLimit());
-	$: if (searchInput.trim() && !searchExpanded) searchExpanded = true;
 	$: visibleTypingUsers = getVisibleTypingUsers($typingUsers[$currentChannel] || [], $currentUser, $users as User[]);
 	$: if (!searchInput.trim()) fullHistorySearchStatus = '';
 	$: searchBackfillBusy =
@@ -326,20 +265,6 @@
 		void runFullHistorySearchBackfill();
 	}
 
-	async function openSearch(): Promise<void> {
-		if (!searchExpanded) { searchExpanded = true; await tick(); }
-		searchInputElement?.focus();
-	}
-
-	function collapseSearchIfIdle(): void { if (!searchInput.trim()) searchExpanded = false; }
-
-	function handleSearchInputKeydown(event: KeyboardEvent): void {
-		if (event.key !== 'Escape') return;
-		if (searchInput.trim()) { searchInput = ''; return; }
-		searchExpanded = false;
-		searchInputElement?.blur();
-	}
-
 	function searchCurrentQueryInBrowser(): void {
 		if (!$displayEnhancementSettingsStore.googleSearchReplaceEnabled) return;
 		openExternalSearch(searchInput, getSearchEngineProvider());
@@ -353,7 +278,7 @@
 			channels: $channels, todos: $todos, calendarEvents: $calendarEvents,
 			diaryEntries: $diaryEntries, projects: $projects, currentLocale: $currentLocale,
 			paymentButtonEnabled, sendMessage: sendChatMessage, pinChannel, unpinChannel,
-			setSearchInput: v => { searchInput = v; },
+			setSearchInput: setChatSearchQuery,
 			openReaderSurface, openModelViewportSurface, openFullMapTab,
 			openPaymentSheet, dispatchLogout: () => dispatch('logout'),
 			onToggleDeletionMode: () => {
@@ -376,21 +301,29 @@
 	// ── Lifecycle ───────────────────────────────────────────────────────────────
 	onMount(() => {
 		scrollToBottom();
-		experimentalWabidbCallsEnabled = isExperimentalWabidbCallEnabled();
-		const onGlobalClick = (e: MouseEvent) => {
-			const t = e.target as Node | null;
-			if (t && searchContainerElement?.contains(t)) return;
-			collapseSearchIfIdle();
-		};
-		document.addEventListener('click', onGlobalClick);
-		return () => document.removeEventListener('click', onGlobalClick);
 	});
 
-	async function toggleExperimentalWabidbCallUi() {
-		const next = !experimentalWabidbCallsEnabled;
-		experimentalWabidbCallsEnabled = next;
-		await setExperimentalWabidbCallEnabled(next);
-	}
+	// What the masthead search shows about this stream: the result count, history backfill and
+	// the full-history scan. Only text-like streams showing messages filter by the query.
+	$: chatStageInfo.set({
+		channelId: $currentChannel,
+		searchable: channelUsesChatStream && !isLiveChannel && chatSurface === 'messages',
+		resultCount: filteredMessages.length,
+		backfillBusy: searchBackfillBusy,
+		persistMessages: Boolean(currentChannelData?.persistMessages),
+		fullHistoryRunning: isFullHistorySearchRunning,
+		fullHistoryPages: fullHistorySearchPagesLoaded,
+		fullHistoryStatus: fullHistorySearchStatus,
+		onSearchWeb: searchCurrentQueryInBrowser,
+		onToggleFullHistory: toggleFullHistorySearchBackfill
+	});
+	// Leaving the stream ends its search, as it always did when the header lived in here.
+	// A stream mounted meanwhile (a quick view switch) keeps what it published.
+	onDestroy(() => {
+		if (get(chatStageInfo)?.onSearchWeb !== searchCurrentQueryInBrowser) return;
+		chatStageInfo.set(null);
+		resetChatSearch();
+	});
 
 
 </script>
@@ -412,37 +345,6 @@
 			</div>
 		</div>
 	{/if}
-
-	<ChatHeader
-		{isDMChannel}
-		{workspaceSurfaceLabel}
-		{workspaceHeaderTitle}
-		{workspaceHeaderSubtitle}
-		selectedWorkspaceView={$activeWorkspaceView}
-		currentChannel={$currentChannel}
-		{dmCallTargetUser}
-		{dmDirectCallActive}
-		{dmDirectCallPending}
-		{experimentalScopeVisible}
-		{experimentalWabidbCallsEnabled}
-		currentChannelPersistMessages={Boolean(currentChannelData?.persistMessages)}
-		bind:searchExpanded
-		bind:searchInput
-		bind:searchContainerElement
-		bind:searchInputElement
-		filteredMessageCount={filteredMessages.length}
-		{searchBackfillBusy}
-		{isFullHistorySearchRunning}
-		{fullHistorySearchPagesLoaded}
-		{fullHistorySearchStatus}
-		onStartDMVoiceCall={startDMVoiceCall}
-		onStartDMVideoCall={startDMVideoCall}
-		onToggleExperimentalWabidbCall={toggleExperimentalWabidbCallUi}
-		onOpenSearch={openSearch}
-		onSearchInputKeydown={handleSearchInputKeydown}
-		onSearchCurrentQueryInBrowser={searchCurrentQueryInBrowser}
-		onToggleFullHistorySearchBackfill={toggleFullHistorySearchBackfill}
-	/>
 
 	{#if chatSurface === 'whiteboard'}
 		<div class="whiteboard-surface">
@@ -537,6 +439,7 @@
 				bind:this={chatComposer}
 				{isDMChannel}
 				channelId={$currentChannel}
+				channelType={currentChannelData?.type ?? null}
 				{paymentButtonEnabled}
 				bind:replyingTo
 				bind:composerVisible

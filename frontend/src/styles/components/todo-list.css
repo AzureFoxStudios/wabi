@@ -1,491 +1,148 @@
-	.todo-container {
-		height: 100%;
-		display: flex;
-		flex-direction: column;
-	}
+/* ==========================================================================
+   TodoTaskModal (`.modal-overlay.todo-task-modal`). Owner (wave 1): w1-planner-views.
+   Nothing in the app renders the old to-do list (`.todo-container`) or opens this dialog any
+   more (the Planner's task dialog is KanbanTaskModal / PlannerTaskDialog); the list rules are
+   gone and the dialog keeps a small role-based frame until the wave-2 dead-code sweep removes
+   it. Every rule stays inside :where(.todo-container, .todo-task-modal), so nothing here can
+   reach another dialog, form or button in the app.
+   ========================================================================== */
 
-	:where(.todo-container, .todo-task-modal) .todo-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 1rem;
-	}
+:where(.todo-task-modal).modal-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: var(--z-modal);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 16px;
+	background: var(--w-scrim);
+}
 
-	:where(.todo-container, .todo-task-modal) .header-left {
-		display: flex;
-		align-items: center;
-		gap: 1.5rem;
-	}
+:where(.todo-container, .todo-task-modal) .modal {
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 560px;
+	max-height: calc(100dvh - 32px);
+	overflow-y: auto;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-xl);
+	background: var(--w-bg);
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
 
-	:where(.todo-container, .todo-task-modal) .header-right {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-	}
+:where(.todo-container, .todo-task-modal) .modal-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	min-height: 64px;
+	padding: 8px 16px 8px 24px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+:where(.todo-container, .todo-task-modal) .modal-header h2 {
+	margin: 0;
+	font: var(--w-t-title);
+}
+:where(.todo-container, .todo-task-modal) .close-btn {
+	width: 32px;
+	height: 32px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	font: 400 calc(20px * var(--w-fs)) / 1 var(--w-sans);
+	cursor: pointer;
+}
+:where(.todo-container, .todo-task-modal) .close-btn:hover {
+	background: var(--w-raise);
+	color: var(--w-text);
+}
 
-	.todo-container .settings-btn,
-	.todo-container .archive-btn {
-		padding: 0.5rem 0.8rem;
-		background: var(--w-bg2);
-		border: 1px solid var(--border-color, #2a2a4a);
-		color: var(--w-mute);
-		border-radius: 6px;
-		cursor: pointer;
-		font-size: 0.85rem;
-		transition: all 0.2s;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
+:where(.todo-container, .todo-task-modal) form {
+	padding: 24px;
+}
+:where(.todo-container, .todo-task-modal) .form-group {
+	margin-bottom: 16px;
+}
+:where(.todo-container, .todo-task-modal) .form-group label {
+	display: block;
+	margin-bottom: 6px;
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+:where(.todo-container, .todo-task-modal) .form-group :is(input, textarea, select) {
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 38px;
+	padding: 0 10px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+:where(.todo-container, .todo-task-modal) .form-group textarea {
+	padding: 8px 10px;
+}
+:where(.todo-container, .todo-task-modal) .form-group :is(input, textarea, select):focus {
+	border-color: var(--w-accent);
+	box-shadow: var(--w-ring);
+	outline: none;
+}
+:where(.todo-container, .todo-task-modal) .form-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 12px;
+}
+:where(.todo-container, .todo-task-modal) .checkbox-label {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 32px;
+	color: var(--w-text);
+	cursor: pointer;
+}
+:where(.todo-container, .todo-task-modal) .checkbox-label input[type='checkbox'] {
+	accent-color: var(--w-accent);
+}
+:where(.todo-container, .todo-task-modal) .form-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 24px;
+}
+:where(.todo-container, .todo-task-modal) :is(.cancel-btn, .submit-btn) {
+	height: 32px;
+	padding: 0 12px;
+	border: var(--w-bw) solid transparent;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-label);
+	cursor: pointer;
+}
+:where(.todo-container, .todo-task-modal) .cancel-btn:hover {
+	background: var(--w-raise);
+	color: var(--w-text);
+}
+/* The primary is ink on paper (§7.1), never a label on an accent fill. */
+:where(.todo-container, .todo-task-modal) .submit-btn {
+	border-color: var(--w-text);
+	background: var(--w-text);
+	color: var(--w-bg);
+}
+:where(.todo-container, .todo-task-modal) .submit-btn:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+:where(.todo-container, .todo-task-modal) .signature {
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
 
-	:where(.todo-container, .todo-task-modal) .settings-icon {
-		width: 18px;
-		height: 18px;
-		flex-shrink: 0;
-	}
-
-	.todo-container .settings-btn:hover,
-	.todo-container .archive-btn:hover {
-		background: var(--w-raise);
-		color: var(--w-text);
-	}
-
-	/* Column Settings Panel — REMOVED legacy duplicate. The live kanban
-	   column settings/toggles are owned by kanban-board-part1.css
-	   (.column-settings, .column-toggle). Dead classes (.column-toggles,
-	   .toggle-color) removed with it. */
-
-	:where(.todo-container, .todo-task-modal) .todo-header h1 {
-		margin: 0;
-		font-size: 1.5rem;
-	}
-
-	:where(.todo-container, .todo-task-modal) .view-toggle {
-		display: flex;
-		background: var(--w-bg2);
-		border-radius: 8px;
-		padding: 4px;
-	}
-
-	:where(.todo-container, .todo-task-modal) .view-toggle button {
-		padding: 0.4rem 0.8rem;
-		border: none;
-		background: transparent;
-		color: var(--w-mute);
-		cursor: pointer;
-		border-radius: 6px;
-		font-size: 0.85rem;
-		transition: all 0.2s;
-	}
-
-	:where(.todo-container, .todo-task-modal) .view-toggle button.active {
-		background: var(--accent, var(--accent-primary-color));
-		color: white;
-	}
-
-	:where(.todo-container, .todo-task-modal) .add-btn {
-		padding: 0.6rem 1.2rem;
-		background: var(--accent, var(--accent-primary-color));
-		color: white;
-		border: none;
-		border-radius: 8px;
-		cursor: pointer;
-		font-weight: 500;
-		transition: all 0.2s;
-	}
-
-	:where(.todo-container, .todo-task-modal) .add-btn:hover {
-		background: var(--w-accent);
-	}
-
-	/* Filters — REMOVED legacy duplicate. Modern kanban filter bar styling
-	   lives in kanban-board-part1.css (.filters { flex; gap 0.5rem; nowrap;
-	   overflow-x auto }); this legacy copy (gap 0.75rem + margin-bottom)
-	   overrode it because todo-list.css imports last. */
-
-	/* Kanban Board — REMOVED legacy grid rules. Kanban layout lives in
-	   kanban-board-part1.css (.kanban-board { display:flex; row }) and
-	   this file MUST NOT redefine .kanban-board/.kanban-column: same
-	   specificity + later import order = grid stomps flex = columns
-	   stack vertically ("fall through the floor").
-	   Also removed: legacy .column-settings / .column-toggle / .empty-column
-	   duplicates — kanban-board-part1.css owns those for the live board. */
-
-	:where(.todo-container, .todo-task-modal) .todo-card {
-		background: var(--w-raise);
-		border-radius: 8px;
-		padding: 0.75rem;
-		cursor: grab;
-		transition: all 0.2s;
-		border: 1px solid transparent;
-	}
-
-	:where(.todo-container, .todo-task-modal) .todo-card:hover {
-		border-color: var(--accent, var(--accent-primary-color));
-	}
-
-	:where(.todo-container, .todo-task-modal) .todo-card.overdue {
-		border-left: 3px solid var(--w-danger);
-	}
-
-	:where(.todo-container, .todo-task-modal) .card-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 0.5rem;
-	}
-
-	:where(.todo-container, .todo-task-modal) .priority-badge {
-		font-size: 0.65rem;
-		padding: 0.15rem 0.4rem;
-		border-radius: 4px;
-		color: white;
-		text-transform: uppercase;
-		font-weight: 600;
-	}
-
-	:where(.todo-container, .todo-task-modal) .priority-badge.small {
-		font-size: 0.6rem;
-	}
-
-	:where(.todo-container, .todo-task-modal) .card-actions {
-		display: flex;
-		gap: 0.25rem;
-		opacity: 0;
-		transition: opacity 0.2s;
-	}
-
-	:where(.todo-container, .todo-task-modal) .todo-card:hover .card-actions {
-		opacity: 1;
-	}
-
-	:where(.todo-container, .todo-task-modal) .icon-btn {
-		background: transparent;
-		border: none;
-		cursor: pointer;
-		font-size: 0.8rem;
-		padding: 0.2rem;
-		border-radius: 4px;
-		transition: background 0.2s;
-	}
-
-	:where(.todo-container, .todo-task-modal) .icon-btn:hover {
-		background: var(--w-bg2);
-	}
-
-	:where(.todo-container, .todo-task-modal) .card-title {
-		margin: 0 0 0.25rem 0;
-		font-size: 0.9rem;
-		font-weight: 500;
-	}
-
-	:where(.todo-container, .todo-task-modal) .card-desc {
-		margin: 0;
-		font-size: 0.8rem;
-		color: var(--w-mute);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		display: -webkit-box;
-		line-clamp: 2;
-		-webkit-line-clamp: 2;
-		-webkit-box-orient: vertical;
-	}
-
-	:where(.todo-container, .todo-task-modal) .card-footer {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-top: 0.5rem;
-		flex-wrap: wrap;
-		gap: 0.25rem;
-	}
-
-	:where(.todo-container, .todo-task-modal) .due-date {
-		font-size: 0.75rem;
-		color: var(--w-mute);
-	}
-
-	:where(.todo-container, .todo-task-modal) .time-estimate {
-		font-size: 0.75rem;
-		color: var(--accent, var(--accent-primary-color));
-		font-weight: 600;
-	}
-
-	:where(.todo-container, .todo-task-modal) .due-date.overdue {
-		color: var(--w-danger);
-	}
-
-	:where(.todo-container, .todo-task-modal) .tags {
-		display: flex;
-		gap: 0.25rem;
-	}
-
-	:where(.todo-container, .todo-task-modal) .tag {
-		font-size: 0.65rem;
-		padding: 0.1rem 0.35rem;
-		background: var(--w-bg2);
-		border-radius: 4px;
-		color: var(--w-mute);
-	}
-
-	/* .empty-column — REMOVED legacy duplicate; kanban-board-part1.css owns
-	   the live empty-column (dashed drop-target button) on the board. */
-
-	/* List View */
-	:where(.todo-container, .todo-task-modal) .list-view {
-		flex: 1;
-		overflow: auto;
-	}
-
-	:where(.todo-container, .todo-task-modal) .todo-table {
-		width: 100%;
-		border-collapse: collapse;
-		background: var(--w-bg2);
-		border-radius: 12px;
-		overflow: hidden;
-	}
-
-	:where(.todo-container, .todo-task-modal) .todo-table th,
-	:where(.todo-container, .todo-task-modal) .todo-table td {
-		padding: 0.75rem 1rem;
-		text-align: left;
-		border-bottom: 1px solid var(--border-color, #2a2a4a);
-	}
-
-	:where(.todo-container, .todo-task-modal) .todo-table th {
-		background: var(--w-raise);
-		font-size: 0.8rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		color: var(--w-mute);
-	}
-
-	:where(.todo-container, .todo-task-modal) .todo-table tr.overdue td {
-		background: rgba(239, 68, 68, 0.1);
-	}
-
-	:where(.todo-container, .todo-task-modal) .todo-table tr.done .todo-title {
-		text-decoration: line-through;
-		color: var(--w-mute);
-	}
-
-	:where(.todo-container, .todo-task-modal) .title-cell {
-		display: flex;
-		flex-direction: column;
-	}
-
-	:where(.todo-container, .todo-task-modal) .todo-title {
-		font-weight: 500;
-	}
-
-	:where(.todo-container, .todo-task-modal) .todo-desc {
-		font-size: 0.8rem;
-		color: var(--w-mute);
-	}
-
-	:where(.todo-container, .todo-task-modal) .status-select {
-		padding: 0.35rem 0.5rem;
-		background: var(--w-raise);
-		border: 1px solid var(--border-color, #2a2a4a);
-		border-radius: 4px;
-		color: var(--w-text);
-		font-size: 0.8rem;
-	}
-
-	:where(.todo-container, .todo-task-modal) .table-actions {
-		display: flex;
-		gap: 0.25rem;
-	}
-
-	:where(.todo-container, .todo-task-modal) .empty-state {
-		text-align: center;
-		padding: var(--space-12);
-		color: var(--w-mute);
-	}
-
-	/* Modal */
-	:where(.todo-container) .modal-overlay, :where(.todo-task-modal).modal-overlay {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.7);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: var(--z-modal);
-	}
-
-	:where(.todo-container, .todo-task-modal) .modal {
-		background: var(--w-bg2);
-		border-radius: 12px;
-		width: 100%;
-		max-width: 500px;
-		max-height: 90vh;
-		overflow-y: auto;
-	}
-
-	:where(.todo-container, .todo-task-modal) .modal-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1rem 1.25rem;
-		border-bottom: 1px solid var(--border-color, #2a2a4a);
-	}
-
-	:where(.todo-container, .todo-task-modal) .modal-header h2 {
-		margin: 0;
-		font-size: 1.1rem;
-	}
-
-	:where(.todo-container, .todo-task-modal) .close-btn {
-		background: transparent;
-		border: none;
-		color: var(--w-mute);
-		font-size: 1.5rem;
-		cursor: pointer;
-		line-height: 1;
-	}
-
-	:where(.todo-container, .todo-task-modal) form {
-		padding: 1.25rem;
-	}
-
-	:where(.todo-container, .todo-task-modal) .form-group {
-		margin-bottom: 1rem;
-	}
-
-	:where(.todo-container, .todo-task-modal) .form-group label {
-		display: block;
-		font-size: 0.85rem;
-		margin-bottom: 0.35rem;
-		color: var(--w-mute);
-	}
-
-	:where(.todo-container, .todo-task-modal) .form-group input,
-	:where(.todo-container, .todo-task-modal) .form-group textarea,
-	:where(.todo-container, .todo-task-modal) .form-group select {
-		width: 100%;
-		padding: 0.6rem 0.75rem;
-		background: var(--w-raise);
-		border: 1px solid var(--border-color, #2a2a4a);
-		border-radius: 6px;
-		color: var(--w-text);
-		font-size: 0.9rem;
-	}
-
-	:where(.todo-container, .todo-task-modal) .form-group input:focus,
-	:where(.todo-container, .todo-task-modal) .form-group textarea:focus,
-	:where(.todo-container, .todo-task-modal) .form-group select:focus {
-		outline: none;
-		border-color: var(--accent, var(--accent-primary-color));
-	}
-
+@media (max-width: 600px) {
 	:where(.todo-container, .todo-task-modal) .form-row {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 1rem;
+		grid-template-columns: minmax(0, 1fr);
 	}
-
-	:where(.todo-container, .todo-task-modal) .form-actions {
-		display: flex;
-		justify-content: flex-end;
-		gap: 0.75rem;
-		margin-top: 1.5rem;
-	}
-
-	:where(.todo-container, .todo-task-modal) .cancel-btn {
-		padding: 0.6rem 1rem;
-		background: transparent;
-		border: 1px solid var(--border-color, #2a2a4a);
-		border-radius: 6px;
-		color: var(--w-mute);
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	:where(.todo-container, .todo-task-modal) .cancel-btn:hover {
-		background: var(--w-raise);
-	}
-
-	:where(.todo-container, .todo-task-modal) .submit-btn {
-		padding: 0.6rem 1.25rem;
-		background: var(--accent, var(--accent-primary-color));
-		border: none;
-		border-radius: 6px;
-		color: white;
-		cursor: pointer;
-		font-weight: 500;
-		transition: all 0.2s;
-	}
-
-	:where(.todo-container, .todo-task-modal) .submit-btn:hover {
-		background: var(--w-accent);
-	}
-
-	:where(.todo-container, .todo-task-modal) .submit-btn:disabled,
-	:where(.todo-container, .todo-task-modal) .add-btn:disabled,
-	:where(.todo-container, .todo-task-modal) .icon-btn:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	:where(.todo-container, .todo-task-modal) .icon-btn:disabled:hover {
-		background: none;
-	}
-
-	:where(.todo-container, .todo-task-modal) .checkbox-group {
-		margin-bottom: 0.75rem;
-	}
-
-	:where(.todo-container, .todo-task-modal) .checkbox-label {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 0;
-		cursor: pointer;
-		color: var(--w-mute);
-		font-size: 0.95rem;
-	}
-
-	:where(.todo-container, .todo-task-modal) .checkbox-label input[type="checkbox"] {
-		cursor: pointer;
-		width: 18px;
-		height: 18px;
-	}
-
-	:where(.todo-container, .todo-task-modal) .signature {
-		font-size: 0.75rem;
-		color: var(--color-warning);
-		padding: 0.2rem 0.5rem;
-		border-radius: 4px;
-		background: rgba(245, 158, 11, 0.1);
-		display: inline-flex;
-		align-items: center;
-		gap: 0.25rem;
-		white-space: nowrap;
-	}
-
-	@media (max-width: 900px) {
-		:where(.todo-container, .todo-task-modal) .header-right {
-			flex-wrap: wrap;
-		}
-	}
-
-	@media (max-width: 600px) {
-		:where(.todo-container, .todo-task-modal) .form-row {
-			grid-template-columns: 1fr;
-		}
-
-		:where(.todo-container, .todo-task-modal) .todo-header {
-			flex-direction: column;
-			gap: 1rem;
-			align-items: stretch;
-		}
-
-		:where(.todo-container, .todo-task-modal) .header-left,
-		:where(.todo-container, .todo-task-modal) .header-right {
-			justify-content: center;
-		}
-	}
+}

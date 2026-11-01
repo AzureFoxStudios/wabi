@@ -1,124 +1,102 @@
+<!--
+	Confirm (design contract §7.13): a small dialog that asks one question.
+
+	- Title states the action as a question ("Delete this message?"); one sentence of consequence;
+	  a quiet "Cancel", then the action as verb + object ("Delete message"): outlined danger for
+	  destructive actions, the ink primary otherwise.
+	- role=alertdialog, named by the title and described by the sentence. Esc, the scrim and
+	  Cancel all cancel. A destructive confirm opens with focus on Cancel, any other on the action.
+	- `cancelText={null}` leaves a single acknowledgement button (a replacement for alert()).
+
+	Prefer the promise service in $lib/confirm (`await confirmAction({...})`), which mounts this
+	component on demand; render it directly only where a page already owns the open state.
+-->
+<script module lang="ts">
+	let confirmCounter = 0;
+</script>
+
 <script lang="ts">
 	import BaseModal from './BaseModal.svelte';
 
 	export let isOpen = false;
-	export let title = 'Confirm Action';
-	export let message = 'Are you sure you want to proceed?';
-	export let confirmText = 'Confirm';
-	export let cancelText = 'Cancel';
+	export let title = 'Continue?';
+	export let message = '';
+	export let confirmText = 'Continue';
+	export let cancelText: string | null = 'Cancel';
 	export let variant: 'info' | 'warning' | 'danger' = 'warning';
 	export let onConfirm: () => void = () => {};
 	export let onCancel: () => void = () => {};
 	export let secondaryText: string | null = null;
 	export let onSecondary: () => void = () => {};
 	export let overlayZIndex: number | string | null = null;
+	/** The action is running: buttons are disabled and the action reads as busy. */
+	export let busy = false;
+
+	const bodyId = `confirm-dialog-${++confirmCounter}-body`;
+
+	$: danger = variant === 'danger';
+	$: initialFocus = danger && cancelText ? '[data-confirm-cancel]' : '[data-confirm-action]';
 
 	function handleConfirm() {
-		onConfirm();
+		if (!busy) onConfirm();
 	}
 
 	function handleCancel() {
-		onCancel();
+		if (!busy) onCancel();
 	}
 </script>
 
-<BaseModal {isOpen} {overlayZIndex} onClose={handleCancel} variant="center" width="480px">
-	<div slot="header" class="confirm-header">
-		<h2>{title}</h2>
-	</div>
+<BaseModal
+	{isOpen}
+	{overlayZIndex}
+	onClose={handleCancel}
+	size="sm"
+	role="alertdialog"
+	{title}
+	showCloseButton={false}
+	padded
+	describedBy={message ? bodyId : null}
+	{initialFocus}
+	panelClass="confirm-dialog"
+>
+	{#if message}
+		<p class="confirm-dialog__body" id={bodyId}>{message}</p>
+	{/if}
 
-	<div class="confirm-body">
-		<p>{message}</p>
-	</div>
-
-	<div slot="footer" class="confirm-actions">
-		<button class="cancel-btn" on:click={handleCancel}>{cancelText}</button>
-		{#if secondaryText}<button class="cancel-btn" on:click={onSecondary}>{secondaryText}</button>{/if}
-		<button class="confirm-btn {variant}" on:click={handleConfirm}>{confirmText}</button>
+	<div slot="footer" class="w-dialog__foot confirm-dialog__foot">
+		{#if cancelText}
+			<button type="button" class="w-btn w-btn--quiet" data-confirm-cancel disabled={busy} on:click={handleCancel}>
+				{cancelText}
+			</button>
+		{/if}
+		{#if secondaryText}
+			<button type="button" class="w-btn" class:w-btn--danger={danger} disabled={busy} on:click={onSecondary}>
+				{secondaryText}
+			</button>
+		{/if}
+		<button
+			type="button"
+			class="w-btn {danger ? 'w-btn--danger' : 'w-btn--primary'}"
+			data-confirm-action
+			aria-busy={busy ? 'true' : undefined}
+			disabled={busy}
+			on:click={handleConfirm}
+		>
+			{confirmText}
+		</button>
 	</div>
 </BaseModal>
 
 <style>
-	.confirm-header {
-		padding: 1.5rem;
-		border-bottom: 1px solid rgba(179, 179, 255, 0.15);
-		background: rgba(var(--surface-raised-rgb, 48, 43, 99), 0.3);
-	}
-
-	.confirm-header h2 {
+	.confirm-dialog__body {
 		margin: 0;
-		font-size: var(--text-xl);
-		font-weight: 600;
-		color: var(--text-heading);
+		color: var(--w-mute);
+		font: var(--w-t-ui);
+		text-wrap: pretty;
 	}
 
-	.confirm-body {
-		padding: 1.5rem;
-	}
-
-	.confirm-body p {
-		margin: 0;
-		color: var(--text-secondary);
-		font-size: var(--text-base);
-		line-height: 1.6;
-	}
-
-	.confirm-actions {
-		display: flex;
-		justify-content: flex-end;
-		gap: 0.75rem;
-		padding: 1.5rem;
-		border-top: 1px solid rgba(179, 179, 255, 0.15);
-		background-color: rgba(var(--surface-raised-rgb, 48, 43, 99), 0.2);
-	}
-
-	.cancel-btn,
-	.confirm-btn {
-		padding: 0.625rem 1.25rem;
-		border-radius: 8px;
-		font-weight: 500;
-		font-size: var(--text-base);
-		cursor: pointer;
-		transition: all 0.2s;
-		border: none;
-	}
-
-	.cancel-btn {
-		background: rgba(var(--surface-raised-rgb, 48, 43, 99), 0.5);
-		border: 1px solid rgba(179, 179, 255, 0.2);
-		color: var(--text-heading);
-	}
-
-	.cancel-btn:hover {
-		background-color: rgba(var(--surface-raised-rgb, 48, 43, 99), 0.8);
-		border-color: rgba(179, 179, 255, 0.4);
-	}
-
-	.confirm-btn {
-		color: white;
-	}
-
-	.confirm-btn.info {
-		background-color: var(--color-info);
-	}
-
-	.confirm-btn.info:hover {
-		background-color: var(--color-info-hover);
-	}
-
-	.confirm-btn.warning {
-		background-color: var(--color-warning);
-	}
-
-	.confirm-btn.warning:hover {
-		background-color: var(--color-warning-hover);
-	}
-
-	.confirm-btn.danger {
-		background-color: var(--color-danger);
-	}
-
-	.confirm-btn.danger:hover {
-		background-color: var(--color-danger-hover);
+	/* Three buttons never squeeze below the label width; on a phone they wrap, action last. */
+	.confirm-dialog__foot {
+		flex-wrap: wrap;
 	}
 </style>

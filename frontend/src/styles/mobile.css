@@ -1,76 +1,36 @@
 /* ==========================================================================
-   MOBILE / RESPONSIVE
-   Breakpoints, touch improvements, safe area, iOS fixes.
+   MOBILE / RESPONSIVE — platform rules only.
+   The phone shell itself (nav, drawer, stage frame) is styles/surfaces/mobile.css. Nothing here
+   restyles every <button> or <input>: the kit and each surface own their own sizes (§8.12).
    ========================================================================== */
 
-/* --- Tablet and below (768px) --- */
 @media (max-width: 768px) {
-	/* Main content fills width */
-	.main-content {
-		flex: 1;
-		width: 100%;
-	}
-
-	/* Business hub button reposition */
-	.business-hub-btn {
-		left: auto;
-		right: var(--space-5);
-		bottom: var(--space-5);
-		padding: var(--space-2) var(--space-3);
-		font-size: var(--font-size-2);
-	}
-
-	/* PureRef button smaller */
+	/* PureRef's floating launcher keeps clear of the phone's thumb zone. */
 	.pureref-button-container {
 		bottom: var(--space-3);
 		right: var(--space-3);
 	}
 
-	.pureref-button-container button {
-		padding: var(--space-1) var(--space-2);
-		font-size: var(--font-size-2);
-	}
-
-	/* Touch improvements */
-	button {
-		touch-action: manipulation;
-	}
-
-	button:active,
-	[role="button"]:active {
-		opacity: var(--opacity-heavy);
-	}
-
-	/* Prevent horizontal scroll */
+	/* No horizontal page scroll. */
 	body {
 		overflow-x: hidden;
 	}
 
-	/* iOS smooth scrolling */
-	.messages,
-	.channel-list,
-	.user-list,
-	.dm-messages,
-	.dm-list {
-		-webkit-overflow-scrolling: touch;
-	}
-
-	/* Prevent pull-to-refresh on chat */
+	/* Scrolling inside these never pulls the page (no pull-to-refresh over chat). */
 	.chat-container,
-	.dm-panel,
-	.channel-sidebar,
-	.user-panel {
+	.channel-sidebar {
 		overscroll-behavior: contain;
 	}
 
-	/* Prevent iOS zoom on inputs */
+	/* iOS zooms into a focused field whose text is under 16px. Surfaces that need a larger size
+	   (titles) state it with max(16px, …); none goes below. */
 	input,
 	textarea,
 	select {
 		font-size: 16px !important;
 	}
 
-	/* Modal overflow handling */
+	/* Legacy dialogs scroll inside the screen instead of running off it. */
 	[role="dialog"],
 	.modal-overlay,
 	.modal-content {
@@ -79,40 +39,10 @@
 		-webkit-overflow-scrolling: touch;
 	}
 
-	/* Better input sizing on mobile */
 	.modal input[type="text"],
 	.modal input[type="email"],
 	.modal textarea {
 		min-height: 44px;
 		font-size: 16px !important;
-	}
-}
-
-/* --- Small phones (480px) --- */
-@media (max-width: 480px) {
-	button {
-		padding: var(--space-1) var(--space-2);
-		font-size: var(--font-size-2);
-	}
-
-	input, textarea {
-		padding: var(--space-2);
-		font-size: var(--font-size-2);
-	}
-
-	.business-hub-btn {
-		right: var(--space-3);
-		bottom: var(--space-3);
-	}
-}
-
-/* --- Safe area for notches/home indicators --- */
-@supports (padding: env(safe-area-inset-bottom)) {
-	.mobile-bottom-nav {
-		padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom));
-	}
-
-	.input-wrapper {
-		padding-bottom: calc(var(--space-1) + env(safe-area-inset-bottom));
 	}
 }

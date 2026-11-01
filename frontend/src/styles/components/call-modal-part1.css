@@ -1,571 +1,586 @@
-	.remote-audio-sink {
-		position: absolute;
-		width: 0;
-		height: 0;
-		overflow: hidden;
-		pointer-events: none;
-	}
+/* Call shell, part 1 (design contract §4.5, §7.13, §7.26, §8.5). Owner (wave 1): w1-call-shell.
+   The incoming / outgoing call dialog, the minimized call card (docked bar), the offline notice,
+   and the call shell frame: the embedded call below the masthead and the full-window call, with
+   their 48px header. Role tokens, type tokens and kit classes only; no raw colors.
+   The DM / group tile grid (CallParticipantGrid / CallParticipantTile) and the recording banner
+   (CallRecordingPanel) carry their own scoped styles. */
 
-	.call-modal-overlay {
-		position: fixed;
-		inset: 0;
-		background-color: var(--surface-overlay, var(--surface-overlay, var(--surface-overlay, var(--surface-modal-overlay, rgba(0, 0, 0, 0.7)))));
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: var(--z-call-overlay);
-		backdrop-filter: blur(8px);
-	}
+.remote-audio-sink {
+	position: absolute;
+	width: 0;
+	height: 0;
+	overflow: hidden;
+	pointer-events: none;
+}
 
-	.incoming-call-modal {
-		background:
-			radial-gradient(circle at 20% 15%, rgba(var(--color-info-rgb, 56, 189, 248), 0.18), transparent 50%),
-			radial-gradient(circle at 80% 80%, rgba(var(--accent-primary-rgb, 99, 102, 241), 0.18), transparent 50%),
-			var(--surface-base, #111827);
-		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.1);
-		box-shadow: 0 24px 56px var(--shadow-lg, rgba(0, 0, 0, 0.52));
-		border-radius: 20px;
-		padding: 2rem;
-		width: min(420px, 92vw);
-		color: var(--text-inverse, var(--text-inverse, #fff));
-	}
+/* ---------- incoming / outgoing call: a small dialog over the scrim (§7.13) ---------- */
+.call-modal-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: var(--z-call-overlay);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 16px;
+	background: var(--w-scrim);
+	animation: w-fade var(--w-dur-3) var(--w-ease);
+}
 
-	.caller-info {
-		text-align: center;
-		margin-bottom: 1.5rem;
-	}
+.incoming-call-modal {
+	box-sizing: border-box;
+	width: min(400px, calc(100vw - 32px));
+	max-height: calc(100dvh - 64px);
+	overflow: auto;
+	padding: 32px 28px 24px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-xl);
+	background: var(--w-bg);
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	animation: w-enter-up var(--w-dur-3) var(--w-ease);
+}
 
-	.caller-info h2 {
-		color: var(--text-inverse, var(--text-inverse, #fff));
-		margin: 0 0 0.25rem;
-	}
+.caller-info {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	text-align: center;
+	margin-bottom: 24px;
+}
 
-	.caller-avatar {
-		width: 92px;
-		height: 92px;
-		border-radius: 50%;
-		background: var(--accent-primary-color);
-		color: white;
-		font-size: 2.5rem;
-		font-weight: 700;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		margin: 0 auto 0.75rem;
-		box-shadow: 0 0 0 4px rgba(var(--accent-primary-rgb, 88, 101, 242), 0.3);
-	}
+.caller-avatar {
+	display: grid;
+	place-items: center;
+	width: 88px;
+	height: 88px;
+	margin: 0 0 16px;
+	border-radius: var(--w-avr);
+	background: var(--w-raise);
+	color: var(--w-text);
+	font: 600 calc(38px * var(--w-fs)) / 1 var(--w-serif);
+}
 
-	.call-type {
-		margin: 0;
-		color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.6);
-	}
+.caller-info h2 {
+	margin: 0 0 4px;
+	max-width: 100%;
+	overflow: hidden;
+	color: var(--w-text);
+	font: var(--w-t-title);
+	letter-spacing: 0.005em;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
 
-	.call-subtitle {
-		margin: 0.35rem 0 0;
-		color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.82);
-		font-size: 0.95rem;
-	}
+.call-type {
+	margin: 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
 
-	.ringing-targets-panel {
-		margin-top: 1rem;
-		padding: 0.9rem 1rem;
-		border-radius: 14px;
-		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.06);
-		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.08);
-	}
+.call-subtitle {
+	margin: 4px 0 0;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+}
 
-	.ringing-targets-panel.outgoing {
-		text-align: left;
-	}
+.call-actions {
+	display: flex;
+	gap: 8px;
+}
 
-	.ringing-targets-label {
-		font-size: 0.8rem;
-		color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.72);
-		margin-bottom: 0.7rem;
-	}
+/* Answer is the one primary (ink on paper); Decline is the danger key, outlined until hover. */
+.answer-btn,
+.reject-btn {
+	flex: 1;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	height: 40px;
+	padding: 0 16px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: transparent;
+	font: var(--w-t-label);
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		border-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
+}
 
-	.ringing-targets-list {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.55rem;
-	}
+.answer-btn {
+	border-color: var(--w-text);
+	background: var(--w-text);
+	color: var(--w-bg);
+}
 
-	.ringing-target-chip {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.55rem;
-		padding: 0.55rem 0.8rem;
-		border-radius: 999px;
-		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.12);
-		background: rgba(var(--surface-app-rgb, 15, 23, 42), 0.6);
-		color: inherit;
-		cursor: pointer;
-	}
+.answer-btn:hover {
+	border-color: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+	background: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+}
 
-	.ringing-target-chip:hover {
-		background: rgba(var(--surface-base-rgb, 30, 41, 59), 0.88);
-		border-color: rgba(var(--color-info-rgb, 96, 165, 250), 0.38);
-	}
+.reject-btn {
+	border-color: color-mix(in srgb, var(--w-danger) 55%, transparent);
+	color: var(--w-danger);
+}
 
-	.ringing-target-name {
-		font-weight: 600;
-	}
+.reject-btn:hover {
+	border-color: var(--w-danger);
+	background: var(--w-danger);
+	color: var(--w-on-danger, var(--w-bg));
+}
 
-	.ringing-target-state {
-		font-size: 0.78rem;
-		color: rgba(var(--color-info-rgb, 125, 211, 252), 0.95);
-	}
-
-	.call-actions {
-		display: flex;
-		gap: 0.75rem;
-	}
-
+@media (pointer: coarse) {
 	.answer-btn,
 	.reject-btn {
-		flex: 1;
-		padding: 0.8rem 1rem;
-		border: none;
-		border-radius: 10px;
-		font-weight: 600;
-		cursor: pointer;
+		height: 44px;
+	}
+}
+
+/* ---------- people still being rung (group calls): kicker + chips ---------- */
+.ringing-targets-panel {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 12px;
+	margin-top: 16px;
+	text-align: left;
+}
+
+.call-room > .ringing-targets-panel {
+	flex: none;
+	margin: 0;
+	padding: 0 var(--w-gutter) 12px;
+}
+
+.ringing-targets-label {
+	color: var(--w-faint);
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+
+/* The dialog's longer instruction line keeps sentence case. */
+.incoming-call-modal .ringing-targets-label {
+	flex-basis: 100%;
+	font: var(--w-t-small);
+	letter-spacing: 0;
+	text-transform: none;
+}
+
+.ringing-targets-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.ringing-target-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	box-sizing: border-box;
+	height: 28px;
+	padding: 0 10px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--w-pill);
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-caption);
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		border-color var(--w-dur-1) var(--w-ease);
+}
+
+.ringing-target-chip:hover {
+	background: var(--w-raise);
+}
+
+.ringing-target-name {
+	font-weight: 500;
+}
+
+.ringing-target-state {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--w-mute);
+	font-weight: 400;
+}
+
+.ringing-target-state::before {
+	content: '';
+	width: 6px;
+	height: 6px;
+	border-radius: var(--w-avr);
+	background: var(--w-info);
+}
+
+/* ---------- call offline notice: floats at the top of the stage, under the masthead ---------- */
+.call-offline-banner.w-notice {
+	position: absolute;
+	top: 12px;
+	left: 50%;
+	z-index: var(--z-call-docked);
+	box-sizing: border-box;
+	width: max-content;
+	max-width: min(480px, calc(100% - 32px));
+	translate: -50% 0;
+	background: var(--w-bg2);
+	box-shadow: var(--w-shadow);
+	animation: w-enter var(--w-dur-2) var(--w-ease);
+}
+
+.stage-bar ~ .call-offline-banner.w-notice {
+	top: calc(var(--w-mast) + 12px);
+}
+
+.stage-bar--phone ~ .call-offline-banner.w-notice {
+	top: calc(52px + env(safe-area-inset-top, 0px) + 8px);
+}
+
+.call-offline-banner .w-notice__title {
+	font: var(--w-t-small);
+}
+
+:root[data-mode='light'] .call-offline-banner.w-notice {
+	background: var(--w-lift);
+}
+
+/* ---------- minimized DM / group call: the stage's call foot ----------
+   In the stage's flow, after the workspace (.chat-stack is a column and .chat-surface takes what
+   remains), so it never covers the newest message, the composer or anything else on the page.
+   On desktop it is the sidebar foot's 80px, so its hairline continues the footer rule across the
+   columns; the composer's band sits right above it. */
+.docked-bar {
+	position: relative;
+	flex: none;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	box-sizing: border-box;
+	height: var(--w-foot);
+	min-width: 0;
+	/* The live dot hangs in the gutter so the call's name lines up with the masthead title. */
+	padding: 0 calc(var(--w-gutter) - 8px) 0 calc(var(--w-gutter) - 16px);
+	border-top: var(--w-bw) solid var(--w-line);
+	background: var(--w-bg);
+	color: var(--w-text);
+	animation: w-enter var(--w-dur-2) var(--w-ease);
+}
+
+.docked-status {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+}
+
+.docked-live {
+	flex: none;
+	width: 6px;
+	height: 6px;
+	border-radius: var(--w-avr);
+	background: var(--w-online);
+}
+
+.docked-info {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.docked-channel {
+	overflow: hidden;
+	color: var(--w-text);
+	font: var(--w-t-label);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.docked-meta {
+	overflow: hidden;
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.docked-actions {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.docked-actions :is(.docked-mic, .docked-sound)[aria-pressed='true'] {
+	color: var(--w-danger);
+}
+
+.docked-actions .docked-leave {
+	margin-left: 4px;
+}
+
+/* The one recording readout: "Recording 02:14" in --w-danger with a static dot (§8.5). */
+.recording-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	flex: none;
+	color: var(--w-danger);
+	font: var(--w-t-caption);
+	font-feature-settings: 'tnum';
+	white-space: nowrap;
+}
+
+.recording-pill.is-saving {
+	color: var(--w-mute);
+}
+
+.recording-dot {
+	flex: none;
+	width: 7px;
+	height: 7px;
+	border-radius: var(--w-avr);
+	background: var(--w-danger);
+}
+
+.recording-pill.is-saving .recording-dot {
+	background: var(--w-warn);
+}
+
+/* ---------- the call shell ---------- */
+.call-shell {
+	pointer-events: none;
+	z-index: var(--z-call-shell);
+}
+
+/* Embedded: center stage below the masthead, so the folio and the channel context stay (§8.5).
+   The shell is a direct child of .chat-stack, after the masthead; it sits under the masthead's
+   own layer (its menus and search results open over the call) and over the stage content. */
+.call-shell.mode-embedded {
+	position: absolute;
+	inset: 0;
+	z-index: calc(var(--z-dropdown) - 1);
+}
+
+.stage-bar ~ .call-shell.mode-embedded {
+	top: var(--w-mast);
+}
+
+.stage-bar--phone ~ .call-shell.mode-embedded {
+	top: calc(52px + env(safe-area-inset-top, 0px));
+}
+
+/* Full window: the same call over every column, until "Full window" is pressed again. */
+.call-shell.mode-focus {
+	position: fixed;
+	inset: 0;
+	z-index: var(--z-call-focus);
+}
+
+.hatch-scrim {
+	position: fixed;
+	inset: 0;
+	z-index: 0;
+	border: 0;
+	background: var(--w-scrim);
+	pointer-events: auto;
+	animation: w-fade var(--w-dur-3) var(--w-ease);
+}
+
+/* The call room is a solid page (--w-bg): no frost, so nothing of the covered stage shows
+   through in ambient themes (§4.5). */
+.call-room {
+	/* The dock floats 16px above the footer rule (§7.26); the stage keeps clear of it. */
+	--call-dock-bottom: calc(var(--w-foot) + 16px);
+	--call-dock-h: 54px;
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	background: var(--w-bg);
+	color: var(--w-text);
+	pointer-events: auto;
+}
+
+.call-shell.mode-focus .call-room {
+	--call-dock-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+	position: fixed;
+	inset: 0;
+	z-index: 1;
+	padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Full window with the hatch open leaves the sidebar and the companion column (its real reserved
+   width: the rail plus --w-dock-w, 0 for a stowed pin) visible around the call. */
+.call-shell.mode-focus.hatch-open .call-room {
+	inset: 12px calc(var(--hatch-right, 0px) + var(--w-rail-w) + var(--w-dock-w, 0px) + 12px) 12px
+		calc(var(--hatch-left, 0px) + 12px);
+	overflow: hidden;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--w-shadow);
+}
+
+/* Header: 48px, the room name in serif, how many people, then Call options, Minimize and
+   Full window. In flow, so nothing floats over the stub rail. */
+.call-head {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	box-sizing: border-box;
+	height: 48px;
+	min-width: 0;
+	/* The live dot hangs in the gutter so the room name lines up with the masthead title. */
+	padding: 0 calc(var(--w-gutter) - 8px) 0 calc(var(--w-gutter) - 16px);
+}
+
+.call-head__lead {
+	flex: 1 1 auto;
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+}
+
+.call-head__live {
+	flex: none;
+	align-self: center;
+	width: 6px;
+	height: 6px;
+	border-radius: var(--w-avr);
+	background: var(--w-online);
+}
+
+.call-head__title {
+	flex: 0 1 auto;
+	min-width: 0;
+	margin: 0;
+	overflow: hidden;
+	color: var(--w-text);
+	font: var(--w-t-heading);
+	text-overflow: ellipsis;
+}
+
+.call-head__meta {
+	flex: none;
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+}
+
+.call-head__status {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--w-mute);
+	font: var(--w-t-caption);
+}
+
+.call-head__status::before {
+	content: '';
+	width: 6px;
+	height: 6px;
+	border-radius: var(--w-avr);
+	background: var(--w-warn);
+}
+
+.call-head__actions {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.call-head .call-head__recording {
+	align-self: center;
+}
+
+/* Who is recording, said once under the header (the readout itself is in the header). */
+.call-recording-note {
+	flex: none;
+	margin: -4px 0 0;
+	padding: 0 var(--w-gutter) 12px;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+
+/* The stage between the header and the dock; it scrolls rather than slide under the dock. */
+.call-room > .call-stage {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding-bottom: calc(var(--call-dock-bottom) + var(--call-dock-h) + 16px);
+	box-sizing: border-box;
+}
+
+/* The DM / group tile grid keeps its own gutters; give it the stage's. */
+.call-room > .call-stage--grid {
+	padding-inline: calc(var(--w-gutter) - 10px);
+}
+
+/* Phones and the phone shell: the dock sits just above the bottom nav, targets are 44px. */
+@media (max-width: 768px) {
+	.call-room {
+		--call-dock-bottom: 12px;
+		--call-dock-h: 58px;
 	}
 
-	.answer-btn {
-		background: var(--color-success, #16a34a);
-		color: var(--text-inverse, var(--text-inverse, #fff));
+	/* No gutter left to hang the live dot in: the room name starts on the 16px phone gutter, like
+	   the phone bar's title above it. */
+	.call-head {
+		gap: 8px;
+		padding: 0 8px 0 16px;
 	}
 
-	.reject-btn {
-		background: var(--color-danger-hover, #d83c3e);
-		color: var(--text-inverse, var(--text-inverse, #fff));
+	.call-head__live,
+	.docked-live {
+		display: none;
+	}
+
+	.call-head__actions {
+		gap: 0;
+	}
+
+	.call-head__actions .w-ibtn {
+		width: 44px;
+		height: 44px;
 	}
 
 	.docked-bar {
-		position: fixed;
-		right: 1rem;
-		bottom: 1rem;
-		z-index: var(--z-call-docked);
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 0.65rem 0.8rem;
-		border-radius: 12px;
-		background: color-mix(in srgb, var(--surface-base, #111827) 88%, black 12%);
-		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.12);
-		box-shadow: 0 12px 28px var(--shadow-md, rgba(0, 0, 0, 0.42));
+		gap: 8px;
+		height: 60px;
+		padding: 0 8px 0 16px;
 	}
 
-	/* Discord-style: connected voice channels tint the bar green. */
-	.docked-bar.connected {
-		border-color: rgba(var(--status-online-rgb, 87, 242, 135), 0.55);
-		box-shadow: 0 12px 28px rgba(var(--status-online-rgb, 87, 242, 135), 0.12),
-			0 12px 28px var(--shadow-md, rgba(0, 0, 0, 0.42));
+	.call-recording-note {
+		padding-inline: 16px;
 	}
 
-	.docked-status {
-		display: flex;
-		align-items: center;
-		gap: 0.6rem;
-		min-width: 0;
+	.docked-actions .w-ibtn {
+		width: 44px;
+		height: 44px;
 	}
 
-	.docked-voice-icon {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 30px;
-		height: 30px;
-		border-radius: 8px;
-		flex-shrink: 0;
-		background: rgba(var(--status-online-rgb, 87, 242, 135), 0.16);
-		color: var(--accent-success-soft, #57f287);
+	.docked-actions .w-btn {
+		height: 44px;
 	}
 
-	.docked-voice-icon svg {
-		width: 15px;
-		height: 15px;
-		stroke: currentColor;
-	}
+}
 
-	.docked-info {
-		display: flex;
-		flex-direction: column;
-		line-height: 1.25;
-		min-width: 0;
+@media (pointer: coarse) {
+	.call-head__actions .w-ibtn,
+	.docked-actions .w-ibtn {
+		width: 44px;
+		height: 44px;
 	}
-
-	.docked-channel {
-		font-size: 0.82rem;
-		font-weight: 700;
-		color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.96);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		max-width: 220px;
-	}
-
-	.docked-meta {
-		font-size: 0.68rem;
-		font-weight: 600;
-		color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.62);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		max-width: 260px;
-	}
-
-	.docked-actions {
-		display: flex;
-		gap: 0.45rem;
-	}
-
-	.dock-btn {
-		padding: 0.4rem 0.65rem;
-		border-radius: 8px;
-		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.15);
-		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.08);
-		color: var(--text-inverse, var(--text-inverse, #fff));
-		font-size: 0.72rem;
-		font-weight: 600;
-		cursor: pointer;
-	}
-
-	.dock-btn.active {
-		background: var(--accent, var(--accent-primary, var(--accent-primary-color)));
-	}
-
-	.dock-btn svg {
-		width: 14px;
-		height: 14px;
-		stroke: currentColor;
-		vertical-align: -2px;
-	}
-
-	.dock-btn.record {
-		background: rgba(185, 28, 28, 0.18);
-		border-color: rgba(var(--color-danger-rgb, 248, 113, 113), 0.36);
-		color: var(--accent-danger-soft, var(--accent-danger-soft, #fecaca));
-	}
-
-	.dock-btn.record.active {
-		background: rgba(var(--color-danger-rgb, 220, 38, 38), 0.48);
-		border-color: rgba(var(--color-danger-rgb, 248, 113, 113), 0.7);
-	}
-
-	.dock-btn.end {
-		background: var(--accent-danger-soft, rgba(var(--color-danger-rgb, 239, 68, 68), 0.2));
-		border-color: rgba(var(--color-danger-rgb, 239, 68, 68), 0.5);
-		color: var(--color-danger, #fda4af);
-		width: 30px;
-		height: 30px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0;
-	}
-
-	.dock-btn.end svg {
-		width: 14px;
-		height: 14px;
-		stroke: currentColor;
-	}
-
-	.call-shell {
-		pointer-events: none;
-		z-index: var(--z-call-shell);
-	}
-
-	.call-shell.mode-embedded {
-		position: absolute;
-		/* Center stage only: the shell lives INSIDE .chat-stack, which is
-		   already bounded by the sidebars/right panel. Fill it exactly —
-		   do NOT re-apply the viewport-level hatch insets here (that
-		   double-subtracted panel widths and shrank the call to a sliver).
-		   Re-applied 2026-08-23 after a peer checkout reverted it. */
-		inset: 0;
-	}
-
-	.call-shell.mode-focus {
-		position: fixed;
-		inset: 0;
-		z-index: var(--z-call-focus);
-	}
-
-	.hatch-scrim {
-		position: fixed;
-		inset: 0;
-		border: none;
-		background: var(--surface-overlay, rgba(8, 10, 17, 0.46));
-		backdrop-filter: blur(6px);
-		opacity: 0;
-		pointer-events: none;
-		transition: opacity 180ms ease;
-		z-index: 0;
-	}
-
-	.hatch-scrim.visible {
-		opacity: 1;
-		pointer-events: auto;
-	}
-
-	.hatch-toggle {
-		position: fixed;
-		top: 0.75rem;
-		right: 0.75rem;
-		z-index: var(--z-call-controls);
-		width: 32px;
-		height: 32px;
-		border-radius: 8px;
-		border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.18);
-		background: var(--shadow-lg, var(--surface-modal-overlay, rgba(0, 0, 0, 0.52)));
-		color: var(--text-inverse, var(--text-inverse, #fff));
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0;
-		backdrop-filter: blur(4px);
-	}
-
-	.hatch-toggle svg {
-		width: 15px;
-		height: 15px;
-		stroke: currentColor;
-	}
-
-	/* Minimize button sits left of the fullscreen toggle in center-stage mode. */
-	.hatch-toggle.minimize {
-		right: 3.25rem;
-	}
-
-	.active-call-container {
-		position: absolute;
-		inset: 0;
-		display: flex;
-		flex-direction: column;
-		background: var(--bg-primary, #172326);
-		pointer-events: auto;
-		transition:
-			inset 220ms ease,
-			transform 220ms ease,
-			border-radius 220ms ease,
-			box-shadow 220ms ease;
-	}
-
-	.call-shell.mode-focus .active-call-container {
-		position: fixed;
-		inset: 0;
-		z-index: 1;
-	}
-
-	.call-shell.mode-focus.hatch-open .active-call-container {
-		inset: 0.7rem calc(var(--hatch-right) + 0.7rem) 0.7rem calc(var(--hatch-left) + 0.7rem);
-		border-radius: 18px;
-		transform: scale(0.988);
-		box-shadow: 0 16px 40px var(--shadow-lg, rgba(0, 0, 0, 0.48));
-	}
-
-	.recording-banner {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.85rem;
-		padding: 0.65rem 0.9rem;
-		background: rgba(var(--color-danger-rgb, 127, 29, 29), 0.22);
-		border-bottom: 1px solid rgba(var(--color-danger-rgb, 248, 113, 113), 0.18);
-	}
-
-	.recording-copy {
-		font-size: 0.75rem;
-		font-weight: 600;
-		color: var(--text-inverse, rgba(254, 226, 226, 0.88));
-		text-align: right;
-	}
-
-	.recording-pill {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.45rem;
-		padding: 0.38rem 0.62rem;
-		border-radius: 999px;
-		background: rgba(var(--surface-app-rgb, 17, 24, 39), 0.76);
-		border: 1px solid rgba(var(--color-danger-rgb, 248, 113, 113), 0.28);
-		color: var(--accent-danger-soft, #fef2f2);
-		font-size: 0.78rem;
-		font-weight: 700;
-	}
-
-	.recording-pill.compact {
-		font-size: 0.68rem;
-		padding: 0.2rem 0.45rem;
-	}
-
-	.recording-pill.is-saving {
-		border-color: var(--color-warning, rgba(253, 224, 71, 0.3));
-		color: var(--accent-warning-soft, #fef9c3);
-	}
-
-	.recording-dot {
-		width: 0.56rem;
-		height: 0.56rem;
-		border-radius: 50%;
-		background: var(--color-danger, var(--color-danger, #ef4444));
-		box-shadow: 0 0 0 0 rgba(var(--color-danger-rgb, 239, 68, 68), 0.5);
-		animation: recording-pulse 1.4s infinite;
-	}
-
-	.recording-pill.is-saving .recording-dot {
-		background: var(--color-warning, #facc15);
-		box-shadow: none;
-		animation: none;
-	}
-
-	.call-stage {
-		flex: 1;
-		min-height: 0;
-	}
-
-	.tile-layout {
-		height: 100%;
-		display: grid;
-		gap: 0.65rem;
-		padding: 0.65rem;
-		overflow: auto;
-		align-content: start;
-	}
-
-	.template-screen-hero,
-	.template-single-hero {
-		grid-template-columns: repeat(12, minmax(0, 1fr));
-		grid-auto-rows: minmax(92px, auto);
-	}
-
-	.template-screen-hero .media-tile.hero,
-	.template-single-hero .media-tile.hero {
-		grid-column: 1 / -1;
-		grid-row: 1;
-		min-height: min(68vh, 100%);
-		aspect-ratio: auto;
-	}
-
-	.template-screen-hero .media-tile:not(.hero),
-	.template-single-hero .media-tile:not(.hero) {
-		grid-column: span 3;
-	}
-
-	.template-split {
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-	}
-
-	.template-hero-stack {
-		grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-		grid-auto-rows: minmax(120px, 1fr);
-	}
-
-	.template-hero-stack .media-tile.hero {
-		grid-column: 1;
-		grid-row: 1 / span 2;
-		aspect-ratio: auto;
-		min-height: 0;
-	}
-
-	.template-grid-2x2 {
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-	}
-
-	.template-double-hero-triple {
-		grid-template-columns: repeat(6, minmax(0, 1fr));
-	}
-
-	.template-double-hero-triple .media-tile.hero {
-		grid-column: span 3;
-		aspect-ratio: 16 / 9;
-	}
-
-	.template-double-hero-triple .media-tile:not(.hero) {
-		grid-column: span 2;
-	}
-
-	.template-uniform-grid {
-		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-	}
-
-	.template-scroll-grid {
-		grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-	}
-
-	.media-tile {
-		position: relative;
-		border-radius: 12px;
-		overflow: hidden;
-		background: color-mix(in srgb, var(--surface-base, #111827) 90%, black 10%);
-		aspect-ratio: 16 / 9;
-		border: 2px solid transparent;
-		min-height: 120px;
-	}
-
-	.media-tile.hero {
-		border-color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.2);
-	}
-
-	.media-tile.speaking {
-		border-color: rgba(var(--status-online-rgb, 34, 197, 94), 0.82);
-		box-shadow: 0 0 0 2px rgba(var(--status-online-rgb, 34, 197, 94), 0.35);
-	}
-
-	.media-tile.pinned {
-		border-color: rgba(var(--color-warning-rgb, 250, 204, 21), 0.88);
-	}
-
-	.media-tile.presenter-overlay-target {
-		border-color: rgba(var(--color-warning-rgb, 250, 204, 21), 0.94);
-		box-shadow: 0 0 0 2px rgba(var(--color-warning-rgb, 250, 204, 21), 0.28);
-	}
-
-	.tile-video {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-
-	.tile-video.contain {
-		object-fit: contain;
-		background: var(--surface-app, var(--surface-app, #000));
-	}
-
-	.tile-avatar {
-		width: 100%;
-		height: 100%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: linear-gradient(160deg, rgba(var(--surface-base-rgb, 30, 41, 59), 0.95), rgba(var(--surface-app-rgb, 15, 23, 42), 0.92));
-	}
-
-	.avatar-circle {
-		width: 84px;
-		height: 84px;
-		border-radius: 50%;
-		background: var(--accent, var(--accent-primary, var(--accent-primary-color)));
-		color: var(--text-inverse, var(--text-inverse, #fff));
-		font-size: 1.9rem;
-		font-weight: 700;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.tile-label {
-		position: absolute;
-		left: 0.55rem;
-		bottom: 0.55rem;
-		z-index: 3;
-		background: var(--shadow-lg, rgba(0, 0, 0, 0.64));
-		color: var(--text-inverse, var(--text-inverse, #fff));
-		padding: 0.25rem 0.45rem;
-		border-radius: 6px;
-		font-size: 0.72rem;
-		font-weight: 600;
-		pointer-events: none;
-	}
+}

@@ -1,319 +1,199 @@
-.form-row {
-	display: grid;
-	grid-template-columns: 1fr 1fr;
-	gap: 1rem;
+/* ==========================================================================
+   My Planner — the contents of the older Planner dialogs that the Calendar and Projects open
+   (CalendarEventModal, CalendarDayModal, ProjectModal, SprintModal). Owner (wave 1):
+   w1-planner-views. The dialog frame, title row, fields and footer buttons are the
+   `.planner .modal*` rules in kanban-board-part2.css (w1-planner-board); this sheet adds only
+   what those dialogs hold beyond a form: the colour choice, field captions written as spans,
+   and the day dialog's list. Role tokens only, scoped under `.planner` (no global .modal,
+   .form-group, .close-btn or form rules: they used to leak into every dialog in the app).
+   ========================================================================== */
+
+/* A field caption written as a span (the colour row has no single input to label). */
+.planner .modal :is(.form-label, .form-group-label) {
+	display: block;
+	margin-bottom: 6px;
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+.planner .modal .form-group small {
+	display: block;
+	margin-top: 6px;
+	color: var(--w-mute);
+	font: var(--w-t-small);
 }
 
-.color-picker {
+/* ---------- colour choice: the person's colours are user data, shown as swatches ---------- */
+.planner .modal .color-picker {
 	display: flex;
-	gap: 0.75rem;
 	flex-wrap: wrap;
+	gap: 10px;
 }
-
-.color-option {
-	width: 32px;
-	height: 32px;
-	min-width: 32px;
-	min-height: 32px;
-	border-radius: 50%;
-	border: 2px solid transparent;
-	cursor: pointer;
-	transition: all 0.2s;
+.planner .modal .color-option {
+	box-sizing: border-box;
+	width: 28px;
+	height: 28px;
+	margin: 0;
 	padding: 0;
-	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-	appearance: none;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--w-pill);
+	cursor: pointer;
 	-webkit-appearance: none;
-	-moz-appearance: none;
+	appearance: none;
+	transition: box-shadow var(--w-dur-1) var(--w-ease);
+}
+/* Selected (§5.2 selected card): 2px accent outline at 3px offset; nothing grows on hover. */
+.planner .modal .color-option.selected {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 3px;
+}
+.planner .modal .color-option:hover {
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--w-text) 14%, transparent);
+}
+.planner .modal .color-option:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 3px;
 }
 
-.color-option:hover {
-	transform: scale(1.15);
-	box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+/* ---------- the day dialog (CalendarDayModal) ---------- */
+.planner .modal.day-detail-modal {
+	max-width: 440px;
 }
-
-.color-option.selected {
-	border-color: white;
-	box-shadow: 0 0 0 2px var(--biz-bg-secondary, #1a2332), 0 0 0 4px var(--biz-accent, #f59e0b);
-}
-
-.form-actions {
+.planner .day-detail-content {
 	display: flex;
-	justify-content: flex-end;
-	gap: 0.75rem;
-	margin-top: 2rem;
-	padding-top: 1.5rem;
-	border-top: 1px solid var(--biz-border, #2d3a4d);
+	flex-direction: column;
+	gap: 20px;
+	padding: 20px 24px 24px;
 }
-
-.delete-btn {
-	padding: 0.75rem 1.5rem;
-	background: var(--biz-danger, #ef4444);
-	border: none;
-	border-radius: 8px;
-	color: white;
-	cursor: pointer;
-	margin-right: auto;
-	transition: all 0.2s;
-	font-weight: 500;
-	font-size: 0.9rem;
+.planner .day-detail-content .detail-section h4 {
+	margin: 0 0 6px;
+	padding-bottom: 6px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+	color: var(--w-faint);
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
 }
-
-.delete-btn:hover {
-	background: var(--biz-danger-hover, #dc2626);
-	box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
+.planner .day-detail-content .event-list {
+	margin: 0;
+	padding: 0;
+	list-style: none;
 }
-
-.delete-btn:active {
-	transform: scale(0.98);
-}
-
-.cancel-btn {
-	padding: 0.75rem 1.5rem;
-	background: transparent;
-	border: 1px solid var(--biz-border, #2d3a4d);
-	border-radius: 8px;
-	color: var(--biz-text-secondary, #94a3b8);
-	cursor: pointer;
-	transition: all 0.2s;
-	font-weight: 500;
-	font-size: 0.9rem;
-}
-
-.cancel-btn:hover {
-	background: var(--biz-bg-tertiary, #243044);
-	color: var(--biz-text-primary, #f1f5f9);
-	border-color: var(--biz-border, #2d3a4d);
-}
-
-.cancel-btn:active {
-	transform: scale(0.98);
-}
-
-.submit-btn {
-	padding: 0.75rem 2rem;
-	background: linear-gradient(135deg, var(--biz-accent, #f59e0b), var(--biz-accent-hover, #d97706));
-	border: none;
-	border-radius: 8px;
-	color: white;
-	cursor: pointer;
-	font-weight: 600;
-	transition: all 0.2s;
-	font-size: 0.9rem;
-	box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
-}
-
-.submit-btn:hover {
-	transform: translateY(-1px);
-	box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
-}
-
-.submit-btn:active {
-	transform: scale(0.98);
-}
-
-.submit-btn:disabled,
-.add-btn:disabled,
-.add-event-btn:disabled {
-	opacity: 0.5;
-	cursor: not-allowed;
-}
-
-.add-btn:disabled:hover,
-.add-event-btn:disabled:hover {
-	background: none;
-}
-
-.checkbox-group {
-	margin-bottom: 0.75rem;
-}
-
-.signature {
-	font-size: 0.75rem;
-	color: var(--biz-accent, #f59e0b);
-	padding: 0.2rem 0.5rem;
-	border-radius: 4px;
-	background: rgba(245, 158, 11, 0.1);
-	display: inline-flex;
+.planner .day-detail-content .event-detail-item {
+	display: flex;
 	align-items: center;
-	gap: 0.25rem;
+	gap: 12px;
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 44px;
+	margin: 0;
+	padding: 6px 8px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	text-align: start;
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+.planner .day-detail-content .event-detail-item:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+}
+.planner .day-detail-content .event-detail-item:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+/* The event colour (user data) or the task's priority, as a dot — never a stripe (§5.3). */
+.planner .day-detail-content .event-color {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: var(--w-pill);
+}
+.planner .day-detail-content .event-details {
+	flex: 1 1 auto;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+.planner .day-detail-content .event-title {
+	overflow: hidden;
+	color: var(--w-text);
+	font: var(--w-t-label);
+	text-overflow: ellipsis;
 	white-space: nowrap;
 }
-
-.event-meta {
+.planner .day-detail-content .event-meta {
 	display: flex;
-	gap: 0.5rem;
-	align-items: center;
 	flex-wrap: wrap;
-	margin-top: 0.25rem;
-}
-
-/* Day Detail Modal */
-.day-detail-content {
-	padding: 1rem;
-}
-
-.empty-message {
-	text-align: center;
-	color: var(--biz-text-muted, #64748b);
-	padding: var(--space-4) 0;
-}
-
-.event-list {
-	list-style: none;
-	padding: 0;
-	margin: 0 0 1rem 0;
-}
-
-.event-item {
-	display: flex;
 	align-items: center;
-	gap: 0.75rem;
-	padding: 0.75rem;
-	background: var(--biz-bg-tertiary, #243044);
-	border-radius: 8px;
-	margin-bottom: 0.5rem;
-	cursor: pointer;
-	transition: background 0.2s;
+	gap: 8px;
+	color: var(--w-faint);
+	font: var(--w-t-mono);
 }
-
-.event-item-button {
-	width: 100%;
-	border: 0;
-	font: inherit;
-	text-align: left;
+.planner .day-detail-content .event-time {
+	color: var(--w-faint);
+	font: var(--w-t-mono);
 }
-
-.event-item:hover {
-	background: var(--biz-bg-hover, #2a3a4d);
+/* A task row's priority word (the dialog prints the raw value): only High and Urgent earn a word
+   (§7.27), as one capitalised word; Medium and Low say nothing. Everything else keeps the
+   sentence case it was written in ("All day"). */
+.planner .day-detail-content .event-time:is(.priority-medium, .priority-low) {
+	display: none;
 }
-
-.event-color {
-	width: 4px;
-	height: 100%;
-	min-height: 32px;
-	border-radius: 2px;
+.planner .day-detail-content .event-time:is(.priority-high, .priority-urgent) {
+	text-transform: capitalize;
 }
-
-.event-details {
-	flex: 1;
+.planner .day-detail-content .signature {
+	color: var(--w-mute);
+	font: var(--w-t-small);
 }
-
-.event-details .event-title {
-	display: block;
-	font-weight: 500;
-	color: var(--biz-text-primary, #f1f5f9);
+.planner .day-detail-content .task-assignee {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--w-mute);
+	font: var(--w-t-small);
 }
-
-.event-details .event-time {
-	font-size: 0.8rem;
-	color: var(--biz-text-secondary, #94a3b8);
+/* A task row opens the task (CalendarImpl passes the opener); the old hover ✓ is not shown
+   because pressing the row never completes it. */
+.planner .day-detail-content .task-check {
+	display: none;
 }
-
-.add-event-btn {
-	width: 100%;
-	padding: 0.75rem;
+.planner .day-detail-content .empty-message {
+	margin: 0;
+	color: var(--w-mute);
+	font: var(--w-t-ui);
+}
+.planner .day-detail-content .add-event-btn {
+	align-self: flex-start;
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	height: 32px;
+	padding: 0 12px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
 	background: transparent;
-	border: 1px dashed var(--biz-border, #2d3a4d);
-	border-radius: 8px;
-	color: var(--biz-text-secondary, #94a3b8);
+	color: var(--w-text);
+	font: var(--w-t-label);
 	cursor: pointer;
-	transition: all 0.2s;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+.planner .day-detail-content .add-event-btn:hover:not(:disabled) {
+	background: var(--w-raise);
+}
+.planner .day-detail-content .add-event-btn:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+.planner .day-detail-content .add-event-btn:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
 }
 
-.add-event-btn:hover {
-	background: var(--biz-bg-tertiary, #243044);
-	color: var(--biz-accent, #f59e0b);
-	border-color: var(--biz-accent, #f59e0b);
-}
-
-/* Day Detail Modal Sections */
-.detail-section {
-	margin-bottom: 1rem;
-}
-
-.detail-section h4 {
-	margin: 0 0 0.5rem 0;
-	font-size: 0.8rem;
-	color: var(--biz-text-muted, #64748b);
-	text-transform: uppercase;
-	letter-spacing: 0.5px;
-}
-
-.task-item {
-	position: relative;
-}
-
-.task-check {
-	color: var(--biz-success, #10b981);
-	font-size: 1rem;
-	opacity: 0;
-	transition: opacity 0.2s;
-}
-
-.task-item:hover .task-check {
-	opacity: 1;
-}
-
-.priority-urgent {
-	color: var(--priority-urgent, #ef4444) !important;
-}
-
-.priority-high {
-	color: var(--priority-high, #f97316) !important;
-}
-
-.priority-medium {
-	color: var(--priority-medium, #eab308) !important;
-}
-
-.priority-low {
-	color: var(--priority-low, #22c55e) !important;
-}
-
-@media (max-width: 1024px) {
-	.tasks-sidebar {
-		width: 240px;
-	}
-}
-
-@media (max-width: 900px) {
-	.calendar-wrapper {
-		flex-direction: column;
-	}
-
-	.tasks-sidebar {
-		width: 100%;
-		flex-direction: row;
-		overflow-x: auto;
-	}
-
-	.sidebar-section {
-		min-width: 280px;
-	}
-}
-
-@media (max-width: 768px) {
-	.calendar-header {
-		flex-wrap: nowrap;
-		align-items: center;
-		overflow-x: auto;
-		overflow-y: hidden;
-	}
-
-	.header-center {
-		justify-content: center;
-	}
-
-	.header-right {
-		justify-content: flex-end;
-	}
-
-	.day-cell {
-		min-height: 60px;
-		padding: 0.25rem;
-	}
-
-	.event-pill {
-		font-size: 0.6rem;
-	}
+:root[data-char='contrast'] .planner .day-detail-content .event-detail-item:hover {
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
 }

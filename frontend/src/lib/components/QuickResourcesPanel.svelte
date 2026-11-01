@@ -1,3 +1,7 @@
+<script context="module" lang="ts">
+	let trayCounter = 0;
+</script>
+
 <script lang="ts">
 	import { onDestroy, tick } from 'svelte';
 	import { layoutStore, NOTES_DM_ID } from '$lib/layoutStore';
@@ -7,26 +11,61 @@
 		selectedDmChannelId,
 		dmOtherUser
 	} from '$lib/layoutStoreStates';
-	import { channelMessages, currentUser, sendMessage, joinChannel, type Message, type User } from '$lib/socket';
+	import { channelMessages, channels, currentUser, sendMessage, joinChannel, type Message, type User } from '$lib/socket';
+	import { cachedE2eeStatus, refreshE2eeStatus } from '$lib/dm/dmE2eeState';
+	import type { E2eeRoomStatus } from '$lib/e2ee';
+	import Icon from '$lib/components/ui/Icon.svelte';
+	import Segmented from '$lib/components/ui/Segmented.svelte';
+	import PrivacyBadge from './PrivacyBadge.svelte';
 	import QuickScratchpad from './QuickScratchpad.svelte';
+	import { openNotesSurface } from '$lib/notesWorkspace';
+
+	/*
+	 * The Scratchpad tray (design contract §7.21, §8.4): the companion's 80px footer band, on the
+	 * same footer rule as the sidebar foot, the composer and the rail's "Add panels". Collapsed it
+	 * names the scratchpad and where it is kept; expanded it grows upward (280px by default) with
+	 * the editor above the band, so the chevron never moves. The top edge is a keyboard separator.
+	 * A conversation pinned to the tray (or the one open in the DMs companion) gets its own view.
+	 */
+
 	let scratchpad: { openFull: () => void } | undefined;
 
 	export let parentHeight = 600;
 
-	const QUICK_MIN_HEIGHT = 160;
-	const QUICK_DEFAULT_HEIGHT = 240;
-	const QUICK_MAX_RATIO = 0.56;
-	const QUICK_COLLAPSED_BAR_HEIGHT = 44;
-	const QUICK_COLLAPSE_THRESHOLD = 130;
+	const TRAY_MIN_HEIGHT = 200;
+	const TRAY_DEFAULT_HEIGHT = 280;
+	const TRAY_MAX_RATIO = 0.6;
+	const TRAY_COLLAPSE_THRESHOLD = 150;
+	const TRAY_STEP = 16;
+	const TRAY_STEP_LARGE = 64;
 
-	type MicroTab = 'notes' | 'dm';
+	type TrayView = 'notes' | 'dm';
 
-	let quickPanelHeight = QUICK_DEFAULT_HEIGHT;
-	let quickPanelCollapsed = true;
-	let isResizingQuick = false;
-	let quickResizeStartY = 0;
-	let quickResizeStartHeight = QUICK_DEFAULT_HEIGHT;
-	let activeTab: MicroTab = 'notes';
+	const trayId = `scratchpad-tray-${++trayCounter}`;
+	let trayHeight = TRAY_DEFAULT_HEIGHT;
+	let collapsed = true;
+	let isResizing = false;
+	let resizeStartY = 0;
+	let resizeStartHeight = TRAY_DEFAULT_HEIGHT;
+	let activeView: TrayView = 'notes';
+	let scratchStatus = '';
+	let toggleButton: HTMLButtonElement | null = null;
+
+	// The editor mounts the first time the Scratchpad view is opened, not with the panel: opening it
+	// finds or creates the "Scratchpad" note, which must never happen without the person asking.
+	// Until then the band states where the scratchpad lives; once it exists the band shows its real
+	// save state, collapsed or not.
+	const SAVED_HERE = 'Saved on this device';
+	const FAILED_STATES = new Set(['Could not save', 'Conflicting changes', 'Not available']);
+	let scratchpadOpened = false;
+	$: if (!collapsed && !showingDm) scratchpadOpened = true;
+	$: bandStatus = scratchpadOpened ? scratchStatus || SAVED_HERE : SAVED_HERE;
+	// Autosave flips between "Saving…" and "Saved" as someone types: only a failure is announced,
+	// and only while collapsed (expanded, the editor's own notice is the alert).
+	$: bandAlert = collapsed && FAILED_STATES.has(scratchStatus) ? `Scratchpad: ${scratchStatus}` : '';
+
+	$: maxHeight = Math.max(TRAY_MIN_HEIGHT, Math.floor(parentHeight * TRAY_MAX_RATIO));
+	$: shownHeight = Math.max(TRAY_MIN_HEIGHT, Math.min(maxHeight, trayHeight));
 
 	// --- Compact DM slot: prefer pinned aux, else active right-panel DM ---
 	// Never bind NOTES_DM_ID (__keep_notes__) — openNotes() would hijack this slot.
@@ -42,25 +81,66 @@
 	$: microDmMessages = (microDmChannelId ? $channelMessages[microDmChannelId] || [] : []) as Message[];
 	$: recentDmMessages = microDmMessages.slice(-8);
 	$: dmLabel = microDmOther?.username || (microDmChannelId ? 'Direct message' : null);
+	$: hasDm = Boolean(microDmChannelId && microDmOther);
+	// The conversation view exists only while there is a conversation to show.
+	$: if (!hasDm && activeView === 'dm') activeView = 'notes';
+	$: showingDm = activeView === 'dm' && hasDm;
+	$: viewOptions = [
+		{ value: 'notes' as const, label: 'Scratchpad' },
+		{ value: 'dm' as const, label: dmLabel ?? 'Conversation' }
+	];
 
 	let dmDraft = '';
 	let dmListEl: HTMLDivElement | null = null;
+
+	// Who can read this conversation, and whether it can take a message now: the same rules as the
+	// DMs companion's composer (DMMessageView), from the room's own E2EE status. Until that status
+	// is known the state is Checking and sending waits (fail closed).
+	let dmPolicy: E2eeRoomStatus | null = null;
+	let dmPolicyFor: string | null = null;
+	// Asked again each time the conversation view opens, so a room that became ready is not held.
+	$: if (collapsed || !showingDm) dmPolicyFor = null;
+	$: if (showingDm && !collapsed && microDmChannelId && dmPolicyFor !== microDmChannelId) void loadDmPolicy(microDmChannelId);
+	$: microDmChannelType = (microDmChannelId ? $channels.find((channel) => channel.id === microDmChannelId)?.type : null) || 'dm';
+	$: dmCanSend = Boolean(
+		dmPolicy && !dmPolicy.pendingDefault && !dmPolicy.needsRekey && (!dmPolicy.serverReadableSelected || dmPolicy.serverReadableAllowedByMe)
+	);
+
+	async function loadDmPolicy(channelId: string): Promise<void> {
+		dmPolicyFor = channelId;
+		dmPolicy = cachedE2eeStatus(channelId);
+		try {
+			const status = await refreshE2eeStatus(channelId);
+			if (dmPolicyFor === channelId) dmPolicy = status;
+		} catch (error) {
+			console.warn('[scratchpad] conversation status unavailable', error);
+		}
+	}
 
 	async function scrollDmToBottom(): Promise<void> {
 		await tick();
 		if (dmListEl) dmListEl.scrollTop = dmListEl.scrollHeight;
 	}
 
-	$: if (activeTab === 'dm' && recentDmMessages.length) {
+	$: if (showingDm && !collapsed && recentDmMessages.length) {
 		void scrollDmToBottom();
 	}
 
-	function sendMicroDm(): void {
+	let dmSendError = '';
+
+	async function sendMicroDm(): Promise<void> {
 		const text = dmDraft.trim();
-		if (!text || !microDmChannelId) return;
-		void sendMessage(microDmChannelId, text, 'text');
+		const channelId = microDmChannelId;
+		if (!text || !channelId || !dmCanSend) return;
 		dmDraft = '';
+		dmSendError = '';
 		void scrollDmToBottom();
+		const result = await sendMessage(channelId, text, 'text');
+		// A message that did not leave keeps its words in the field.
+		if (result.ok === false && result.reason !== 'empty') {
+			if (!dmDraft) dmDraft = text;
+			dmSendError = 'Not sent. Your message is still in the field.';
+		}
 	}
 
 	function handleDmKeydown(event: KeyboardEvent): void {
@@ -71,7 +151,8 @@
 	}
 
 	function openFullNotes(): void {
-		scratchpad?.openFull();
+		if (scratchpad) scratchpad.openFull();
+		else openNotesSurface();
 	}
 
 	function openFullDms(): void {
@@ -89,45 +170,73 @@
 	}
 
 	onDestroy(() => {
-		stopQuickResize();
-
+		stopResize();
 	});
 
-	function startQuickResize(event: MouseEvent): void {
+	function startResize(event: PointerEvent): void {
+		if (event.button !== 0) return;
 		event.preventDefault();
-		isResizingQuick = true;
-		quickResizeStartY = event.clientY;
-		quickResizeStartHeight = quickPanelHeight;
-		window.addEventListener('mousemove', handleQuickResizeMove);
-		window.addEventListener('mouseup', stopQuickResize);
+		isResizing = true;
+		resizeStartY = event.clientY;
+		resizeStartHeight = shownHeight;
+		window.addEventListener('pointermove', handleResizeMove);
+		window.addEventListener('pointerup', stopResize);
+		window.addEventListener('pointercancel', stopResize);
 	}
 
-	function handleQuickResizeMove(event: MouseEvent): void {
-		if (!isResizingQuick) return;
-		const delta = quickResizeStartY - event.clientY;
-		const maxHeight = Math.floor(parentHeight * QUICK_MAX_RATIO);
-		const nextHeight = quickResizeStartHeight + delta;
-		if (nextHeight <= QUICK_COLLAPSE_THRESHOLD) {
-			quickPanelCollapsed = true;
+	function handleResizeMove(event: PointerEvent): void {
+		if (!isResizing) return;
+		const next = resizeStartHeight + (resizeStartY - event.clientY);
+		if (next <= TRAY_COLLAPSE_THRESHOLD) {
+			collapsed = true;
 			return;
 		}
-		quickPanelCollapsed = false;
-		quickPanelHeight = Math.max(QUICK_MIN_HEIGHT, Math.min(maxHeight, nextHeight));
+		collapsed = false;
+		trayHeight = Math.max(TRAY_MIN_HEIGHT, Math.min(maxHeight, next));
 	}
 
-	function stopQuickResize(): void {
-		isResizingQuick = false;
-		window.removeEventListener('mousemove', handleQuickResizeMove);
-		window.removeEventListener('mouseup', stopQuickResize);
+	function stopResize(): void {
+		isResizing = false;
+		window.removeEventListener('pointermove', handleResizeMove);
+		window.removeEventListener('pointerup', stopResize);
+		window.removeEventListener('pointercancel', stopResize);
 	}
 
-	function collapseQuickPanel(): void {
-		quickPanelCollapsed = true;
+	function handleSeparatorKeydown(event: KeyboardEvent): void {
+		const step = event.shiftKey ? TRAY_STEP_LARGE : TRAY_STEP;
+		let next: number | null = null;
+		if (event.key === 'ArrowUp') next = shownHeight + step;
+		else if (event.key === 'ArrowDown') next = shownHeight - step;
+		else if (event.key === 'Home') next = TRAY_MIN_HEIGHT;
+		else if (event.key === 'End') next = maxHeight;
+		else if (event.key === 'Enter') {
+			event.preventDefault();
+			// The separator leaves with the expanded tray: focus moves to the chevron that reopens it.
+			collapse();
+			void tick().then(() => toggleButton?.focus());
+			return;
+		}
+		if (next === null) return;
+		event.preventDefault();
+		trayHeight = Math.max(TRAY_MIN_HEIGHT, Math.min(maxHeight, next));
 	}
 
-	function expandQuickPanel(): void {
-		quickPanelCollapsed = false;
-		if (quickPanelHeight < QUICK_MIN_HEIGHT) quickPanelHeight = QUICK_DEFAULT_HEIGHT;
+	function resetHeight(): void {
+		trayHeight = TRAY_DEFAULT_HEIGHT;
+	}
+
+	function collapse(): void {
+		collapsed = true;
+	}
+
+	function expand(): void {
+		collapsed = false;
+		if (trayHeight < TRAY_MIN_HEIGHT) trayHeight = TRAY_DEFAULT_HEIGHT;
+	}
+
+	function toggle(): void {
+		if (collapsed) expand();
+		else collapse();
 	}
 
 	function formatTime(ts: number | undefined): string {
@@ -138,448 +247,388 @@
 			return '';
 		}
 	}
+
+	function isOwnMessage(msg: Message): boolean {
+		return msg.userId === $currentUser?.id || msg.senderStableId === $currentUser?.id || msg.user === $currentUser?.username;
+	}
 </script>
 
-<div
-	class="quick-resources"
-	class:is-collapsed={quickPanelCollapsed}
-	style={`height: ${quickPanelCollapsed ? QUICK_COLLAPSED_BAR_HEIGHT : quickPanelHeight}px;`}
+<section
+	class="scratch-tray"
+	class:is-collapsed={collapsed}
+	class:is-resizing={isResizing}
+	style={collapsed ? undefined : `height: ${shownHeight}px;`}
+	aria-label="Scratchpad tray"
 >
-	{#if quickPanelCollapsed}
-		<div class="quick-collapsed-bar">
-			<span class="quick-kicker">Quick</span>
-			<div class="quick-collapsed-summary">
-				<span class="quick-sub">
-					{activeTab === 'notes' ? 'Notes' : dmLabel ? `DM · ${dmLabel}` : 'DM'}
-				</span>
-			</div>
-			<button
-				class="quick-collapse-btn"
-				type="button"
-				title="Expand quick panel"
-				aria-label="Expand quick panel"
-				on:click={expandQuickPanel}
-			>
-				<!-- caret ^ -->
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-					<polyline points="18 15 12 9 6 15"></polyline>
-				</svg>
-			</button>
-		</div>
-	{:else}
-		<button
-			class="quick-resize-handle"
-			type="button"
-			on:mousedown={startQuickResize}
-			title="Drag down to collapse"
-			aria-label="Resize or collapse bottom panel"
-		></button>
+	{#if !collapsed}
+		<!-- A focusable window splitter (WAI-ARIA separator with a value): ↑/↓ resize, Enter collapses. -->
+		<!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
+		<div
+			class="scratch-edge"
+			role="separator"
+			aria-orientation="horizontal"
+			aria-label="Resize Scratchpad"
+			aria-controls={`${trayId}-body`}
+			aria-valuemin={TRAY_MIN_HEIGHT}
+			aria-valuemax={maxHeight}
+			aria-valuenow={shownHeight}
+			tabindex="0"
+			on:pointerdown={startResize}
+			on:keydown={handleSeparatorKeydown}
+			on:dblclick={resetHeight}
+		></div>
+	{/if}
 
-		<div class="quick-header">
-			<div class="quick-tabs" role="tablist" aria-label="Quick panel">
-				<button
-					type="button"
-					class="quick-tab"
-					class:active={activeTab === 'notes'}
-					role="tab"
-					aria-selected={activeTab === 'notes'}
-					on:click={() => (activeTab = activeTab === 'notes' ? 'dm' : 'notes')}
-				>
-					Notes
-				</button>
-				<button
-					type="button"
-					class="quick-tab"
-					class:active={activeTab === 'dm'}
-					role="tab"
-					aria-selected={activeTab === 'dm'}
-					on:click={() => (activeTab = activeTab === 'dm' ? 'notes' : 'dm')}
-				>
-					{dmLabel ? `DM · ${dmLabel}` : 'DM'}
-				</button>
-			</div>
-
-			<div class="quick-header-actions">
-				{#if activeTab === 'notes'}
-					<button class="quick-link-btn" type="button" title="Open full notes" on:click={openFullNotes}>
-						Full
-					</button>
-				{:else}
-					<button class="quick-link-btn" type="button" title="Open messages panel" on:click={openFullDms}>
-						Open
-					</button>
+	<div class="scratch-body" id={`${trayId}-body`} hidden={collapsed}>
+		{#if hasDm}
+			<div class="scratch-views">
+				<Segmented mode="pressed" label="Tray view" options={viewOptions} bind:value={activeView} />
+				{#if showingDm && $pinnedDmChannelId === microDmChannelId}
+					<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={unpinMicroDm}>Unpin</button>
 				{/if}
-				<button
-					class="quick-collapse-btn"
-					type="button"
-					title="Collapse quick panel"
-					aria-label="Collapse quick panel"
-					on:click={collapseQuickPanel}
-				>
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-						<polyline points="6 9 12 15 18 9"></polyline>
-					</svg>
-				</button>
 			</div>
-		</div>
-
-		<div class="quick-body">
-			{#if activeTab === 'notes'}
-				<QuickScratchpad bind:this={scratchpad} showFull={false} />
-			{:else}
-				<section class="micro-dm" aria-label="Quick DM">
-					{#if !microDmChannelId || !microDmOther}
-						<div class="micro-dm-empty">
-							<p>No DM pinned here.</p>
-							<p class="micro-hint">Open Messages, pick a chat, or pin one to keep it in this slot.</p>
-							<button class="quick-link-btn primary" type="button" on:click={openFullDms}>
-								Open messages
-							</button>
-						</div>
-					{:else}
-						<div class="micro-dm-head">
-							<span class="micro-dm-name">{microDmOther.username}</span>
-							{#if $pinnedDmChannelId === microDmChannelId}
-								<button
-									class="quick-link-btn"
-									type="button"
-									title="Unpin from quick slot"
-									on:click={unpinMicroDm}
-								>
-									Unpin
-								</button>
-							{/if}
-						</div>
-						<div class="micro-dm-list" bind:this={dmListEl}>
-							{#if recentDmMessages.length === 0}
-								<div class="micro-dm-empty-inline">No messages yet — say hi.</div>
-							{:else}
-								{#each recentDmMessages as msg (msg.id || msg.clientMessageId)}
-									<div
-										class="micro-dm-row"
-										class:own={msg.userId === $currentUser?.id ||
-											msg.senderStableId === $currentUser?.id ||
-											msg.user === $currentUser?.username}
-									>
-										<span class="micro-dm-meta">{formatTime(msg.timestamp)}</span>
-										<span class="micro-dm-text">{msg.text}</span>
-									</div>
-								{/each}
-							{/if}
-						</div>
-						<div class="micro-dm-compose">
-							<input
-								class="micro-dm-input"
-								type="text"
-								bind:value={dmDraft}
-								placeholder={`Message ${microDmOther.username}…`}
-								on:keydown={handleDmKeydown}
-							/>
-							<button
-								class="quick-link-btn primary"
-								type="button"
-								disabled={!dmDraft.trim()}
-								on:click={sendMicroDm}
-							>
-								Send
-							</button>
-						</div>
-					{/if}
-				</section>
+		{/if}
+		<!-- Once opened, the scratchpad stays mounted while collapsed so the band reports its real save state. -->
+		<div class="scratch-pane" hidden={showingDm}>
+			{#if scratchpadOpened}
+				<QuickScratchpad bind:this={scratchpad} bind:status={scratchStatus} showFull={false} showStatus={false} embedded />
 			{/if}
 		</div>
-	{/if}
-</div>
+		{#if showingDm && microDmOther}
+			<section class="micro-dm" aria-label={`Conversation with ${microDmOther.username}`}>
+				<div class="micro-dm-list" bind:this={dmListEl}>
+					{#if recentDmMessages.length === 0}
+						<p class="micro-dm-empty">No messages yet.</p>
+					{:else}
+						{#each recentDmMessages as msg (msg.id || msg.clientMessageId)}
+							<div class="micro-dm-row" class:own={isOwnMessage(msg)}>
+								<span class="micro-dm-meta">{formatTime(msg.timestamp)}</span>
+								<span class="micro-dm-text">{msg.text}</span>
+							</div>
+						{/each}
+					{/if}
+				</div>
+				{#if dmCanSend}
+					<div class="micro-dm-compose">
+						<label class="w-field w-field--chrome micro-dm-field">
+							<input
+								type="text"
+								bind:value={dmDraft}
+								placeholder={`Message ${microDmOther.username}`}
+								aria-label={`Message ${microDmOther.username}`}
+								aria-describedby={dmSendError ? `${trayId}-dm-error` : undefined}
+								on:keydown={handleDmKeydown}
+							/>
+						</label>
+						<button
+							type="button"
+							class="w-ibtn w-ibtn--sm w-ibtn--edge micro-dm-send"
+							aria-label="Send"
+							aria-disabled={!dmDraft.trim()}
+							on:click={sendMicroDm}
+						>
+							<Icon name="send" size={16} />
+						</button>
+					</div>
+					{#if dmSendError}<p class="micro-dm-error" id={`${trayId}-dm-error`} role="alert">{dmSendError}</p>{/if}
+				{:else}
+					<div class="micro-dm-paused" role="status">
+						<p class="micro-dm-paused-text">Sending is paused here until this conversation is ready.</p>
+						<button type="button" class="w-btn w-btn--quiet w-btn--sm" on:click={openFullDms}>Open in DMs</button>
+					</div>
+				{/if}
+				<div class="micro-dm-colophon">
+					<PrivacyBadge variant="colophon" input={{ channelType: microDmChannelType, policy: dmPolicy }} room={microDmOther.username} />
+				</div>
+			</section>
+		{/if}
+	</div>
+
+	<!-- The footer band: on the same 80px rule as the sidebar foot and the composer. -->
+	<div class="scratch-band">
+		<label class="scratch-label" for={`${trayId}-toggle`}>
+			<span class="scratch-glyph" aria-hidden="true"><Icon name={showingDm ? 'dm' : 'note'} size={18} /></span>
+			<span class="scratch-words">
+				<span class="scratch-title">{showingDm ? dmLabel : 'Scratchpad'}</span>
+				{#if showingDm}
+					<span class="scratch-status">{$pinnedDmChannelId === microDmChannelId ? 'Pinned conversation' : 'Open in DMs'}</span>
+				{:else}
+					<span class="scratch-status">{bandStatus}</span>
+				{/if}
+			</span>
+		</label>
+		{#if !collapsed}
+			<button
+				type="button"
+				class="w-ibtn w-ibtn--sm"
+				aria-label={showingDm ? 'Open conversation in DMs' : 'Open in Notes'}
+				title={showingDm ? 'Open conversation in DMs' : 'Open in Notes'}
+				on:click={showingDm ? openFullDms : openFullNotes}
+			>
+				<Icon name="expand" size={16} />
+			</button>
+		{/if}
+		<span class="sr-only" role="alert">{bandAlert}</span>
+		<button
+			bind:this={toggleButton}
+			type="button"
+			id={`${trayId}-toggle`}
+			class="w-ibtn w-ibtn--sm scratch-toggle"
+			aria-expanded={!collapsed}
+			aria-controls={`${trayId}-body`}
+			aria-label={collapsed ? 'Expand Scratchpad' : 'Collapse Scratchpad'}
+			on:click={toggle}
+		>
+			<Icon name={collapsed ? 'chevUp' : 'chevDown'} size={16} />
+		</button>
+	</div>
+</section>
 
 <style>
-	.quick-resources {
+	/* The tray paints no surface of its own: it sits on the companion's flat --w-bg2 body. */
+	.scratch-tray {
+		position: relative;
 		display: flex;
 		flex-direction: column;
+		flex: none;
+		box-sizing: border-box;
 		min-height: 0;
-		border-top: 1px solid color-mix(in srgb, var(--border-subtle) 86%, transparent);
-		background:
-			radial-gradient(circle at bottom right, rgba(var(--accent-rgb), 0.12), transparent 38%),
-			linear-gradient(
-				180deg,
-				color-mix(in srgb, var(--surface-base) 94%, transparent),
-				color-mix(in srgb, var(--surface-raised) 82%, transparent)
-			);
-		overflow: hidden;
+		border-top: var(--w-bw) solid var(--w-line);
+		color: var(--w-text);
+		font: var(--w-t-ui);
+	}
+	.scratch-tray.is-collapsed {
+		height: var(--w-foot);
+	}
+	.scratch-tray.is-resizing {
+		user-select: none;
 	}
 
-	:global(.mobile-workspace) .quick-resources {
+	:global(.mobile-workspace) .scratch-tray {
 		display: none;
 	}
 
-	.quick-resize-handle {
+	/* Resize edge: invisible at rest, a 2px accent line on hover, focus or drag. */
+	.scratch-edge {
+		position: absolute;
+		top: -4px;
+		left: 0;
+		right: 0;
+		z-index: 2;
 		height: 8px;
-		border: none;
-		background: transparent;
 		cursor: ns-resize;
-		padding: 0;
-		flex-shrink: 0;
+		touch-action: none;
 	}
-
-	.quick-header,
-	.quick-collapsed-bar {
-		display: flex;
-		align-items: center;
-		gap: 0.55rem;
-		padding: 0.4rem 0.65rem;
-		flex-shrink: 0;
-	}
-
-	.quick-header {
-		justify-content: space-between;
-		border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 76%, transparent);
-	}
-
-	.quick-collapsed-bar {
-		justify-content: space-between;
-		height: 100%;
-	}
-
-	.quick-collapsed-summary {
-		flex: 1;
-		min-width: 0;
-	}
-
-	.quick-tabs {
-		display: inline-flex;
-		gap: 0.25rem;
-		min-width: 0;
-		flex: 1;
-	}
-
-	.quick-tab {
-		border: 1px solid transparent;
+	.scratch-edge::after {
+		content: '';
+		position: absolute;
+		left: 0;
+		right: 0;
+		top: 3px;
+		height: 2px;
 		background: transparent;
-		color: var(--text-secondary);
-		font-size: 0.75rem;
-		font-weight: 650;
-		padding: 0.3rem 0.55rem;
-		border-radius: 8px;
-		cursor: pointer;
-		max-width: 100%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		transition: background-color var(--w-dur-1) var(--w-ease);
 	}
-
-	.quick-tab:hover {
-		color: var(--text-heading);
-		background: rgba(var(--accent-rgb), 0.08);
+	.scratch-edge:hover::after,
+	.scratch-edge:focus-visible::after,
+	.scratch-tray.is-resizing .scratch-edge::after {
+		background: var(--w-accent);
 	}
-
-	.quick-tab.active {
-		color: var(--text-heading);
-		border-color: color-mix(in srgb, var(--border-subtle) 80%, transparent);
-		background: color-mix(in srgb, var(--surface-raised) 90%, transparent);
-	}
-
-	.quick-header-actions {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.25rem;
-		flex-shrink: 0;
-	}
-
-	.quick-kicker {
-		font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-		font-size: 0.68rem;
-		font-weight: 700;
-		letter-spacing: 0.14em;
-		text-transform: uppercase;
-		color: var(--accent-primary-color, var(--text-secondary));
-		white-space: nowrap;
-	}
-
-	.quick-sub {
-		font-size: 0.72rem;
-		color: var(--text-muted);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.quick-collapse-btn {
-		width: 30px;
-		height: 30px;
-		flex-shrink: 0;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 999px;
-		border: none;
-		background: transparent;
-		color: var(--text-secondary);
-		cursor: pointer;
-		transition: background 120ms ease, color 120ms ease;
-	}
-
-	.quick-collapse-btn:hover {
-		background: rgba(var(--accent-rgb), 0.12);
-		color: var(--text-heading);
-	}
-
-	.quick-collapse-btn svg {
-		width: 16px;
-		height: 16px;
-	}
-
-	.quick-link-btn {
-		border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent);
-		background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
-		color: var(--text-heading);
-		font-size: 0.7rem;
-		font-weight: 650;
-		padding: 0.28rem 0.55rem;
-		border-radius: 8px;
-		cursor: pointer;
-	}
-
-	.quick-link-btn:hover {
-		border-color: rgba(var(--accent-rgb), 0.45);
-		background: rgba(var(--accent-rgb), 0.1);
-	}
-
-	.quick-link-btn.primary {
-		background: rgba(var(--accent-rgb), 0.18);
-		border-color: rgba(var(--accent-rgb), 0.4);
-	}
-
-	.quick-link-btn:disabled {
-		opacity: 0.45;
-		cursor: not-allowed;
-	}
-
-	.quick-body {
-		flex: 1;
-		min-height: 0;
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-	}
-
-	.micro-dm {
-		flex: 1;
-		min-height: 0;
-		display: flex;
-		flex-direction: column;
-	}
-
-	.micro-hint {
-		color: var(--text-muted);
-		font-size: 0.68rem;
-	}
-
-	.micro-dm-empty {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		justify-content: center;
-		gap: 0.45rem;
-		padding: 0.85rem;
-		color: var(--text-secondary);
-		font-size: 0.8rem;
-	}
-
-	.micro-dm-empty p {
-		margin: 0;
-	}
-
-	.micro-dm-head {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.5rem;
-		padding: 0.35rem 0.65rem;
-		border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
-		flex-shrink: 0;
-	}
-
-	.micro-dm-name {
-		font-size: 0.78rem;
-		font-weight: 650;
-		color: var(--text-heading);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.micro-dm-list {
-		flex: 1;
-		min-height: 0;
-		overflow-y: auto;
-		padding: 0.4rem 0.65rem;
-		display: flex;
-		flex-direction: column;
-		gap: 0.3rem;
-	}
-
-	.micro-dm-empty-inline {
-		color: var(--text-muted);
-		font-size: 0.75rem;
-		padding: 0.5rem 0;
-	}
-
-	.micro-dm-row {
-		display: flex;
-		flex-direction: column;
-		gap: 0.1rem;
-		max-width: 92%;
-		padding: 0.3rem 0.45rem;
-		border-radius: 8px;
-		background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
-		align-self: flex-start;
-	}
-
-	.micro-dm-row.own {
-		align-self: flex-end;
-		background: rgba(var(--accent-rgb), 0.14);
-	}
-
-	.micro-dm-meta {
-		font-size: 0.62rem;
-		color: var(--text-muted);
-	}
-
-	.micro-dm-text {
-		font-size: 0.78rem;
-		color: var(--text-heading);
-		white-space: pre-wrap;
-		word-break: break-word;
-	}
-
-	.micro-dm-compose {
-		display: flex;
-		gap: 0.35rem;
-		padding: 0.4rem 0.55rem 0.55rem;
-		border-top: 1px solid color-mix(in srgb, var(--border-subtle) 76%, transparent);
-		flex-shrink: 0;
-	}
-
-	.micro-dm-input {
-		flex: 1;
-		min-width: 0;
-		border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent);
-		background: color-mix(in srgb, var(--surface-input, var(--surface-base)) 92%, transparent);
-		color: var(--text-heading);
-		border-radius: 8px;
-		padding: 0.35rem 0.55rem;
-		font-size: 0.78rem;
+	.scratch-edge:focus-visible {
 		outline: none;
 	}
 
-	.micro-dm-input:focus {
-		border-color: rgba(var(--accent-rgb), 0.5);
+	.scratch-body {
+		display: flex;
+		flex: 1 1 auto;
+		flex-direction: column;
+		min-height: 0;
+	}
+	.scratch-body[hidden],
+	.scratch-pane[hidden] {
+		display: none;
+	}
+	.scratch-pane {
+		display: flex;
+		flex: 1 1 auto;
+		flex-direction: column;
+		min-height: 0;
+	}
+	.scratch-views {
+		display: flex;
+		flex: none;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		padding: 10px 12px 2px 16px;
+	}
+	.scratch-views :global(.w-seg) {
+		min-width: 0;
+		max-width: 100%;
+	}
+
+	/* ---------- the band ---------- */
+	.scratch-band {
+		display: flex;
+		flex: none;
+		align-items: center;
+		gap: 4px;
+		box-sizing: border-box;
+		height: calc(var(--w-foot) - var(--w-bw));
+		padding: 0 12px 0 20px;
+	}
+	.scratch-tray:not(.is-collapsed) .scratch-band {
+		border-top: var(--w-bw) solid var(--w-line);
+		height: var(--w-foot);
+	}
+	.scratch-label {
+		display: flex;
+		flex: 1 1 auto;
+		align-items: center;
+		gap: 12px;
+		min-width: 0;
+		cursor: pointer;
+	}
+	.scratch-glyph {
+		display: grid;
+		flex: none;
+		place-items: center;
+		color: var(--w-mute);
+	}
+	.scratch-words {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+	.scratch-title {
+		overflow: hidden;
+		color: var(--w-text);
+		font: var(--w-t-label);
+		white-space: nowrap;
+		text-overflow: ellipsis;
+	}
+	.scratch-status {
+		overflow: hidden;
+		color: var(--w-faint);
+		font: var(--w-t-micro);
+		white-space: nowrap;
+		text-overflow: ellipsis;
+	}
+	.scratch-band .w-ibtn:focus-visible {
+		outline: 2px solid var(--w-accent);
+		outline-offset: 2px;
+	}
+
+	/* ---------- the conversation view ---------- */
+	.micro-dm {
+		display: flex;
+		flex: 1 1 auto;
+		flex-direction: column;
+		min-height: 0;
+	}
+	.micro-dm-list {
+		display: flex;
+		flex: 1 1 auto;
+		flex-direction: column;
+		gap: 6px;
+		min-height: 0;
+		overflow-y: auto;
+		padding: 8px 16px;
+	}
+	.micro-dm-empty {
+		margin: 0;
+		padding: 8px 0;
+		color: var(--w-mute);
+		font: var(--w-t-small);
+	}
+	.micro-dm-row {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		align-self: flex-start;
+		max-width: 92%;
+	}
+	.micro-dm-row.own {
+		align-self: flex-end;
+		text-align: end;
+	}
+	.micro-dm-meta {
+		color: var(--w-faint);
+		font: var(--w-t-micro);
+	}
+	.micro-dm-text {
+		color: var(--w-text);
+		font: var(--w-t-small);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+	.micro-dm-compose {
+		display: flex;
+		flex: none;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 12px 10px 16px;
+	}
+	.micro-dm-field {
+		flex: 1 1 auto;
+	}
+	:global(:root) .micro-dm-field > input[type='text'] {
+		min-height: 0;
+		height: 100%;
+		padding: 0;
+		border: 0;
+		border-radius: 0;
+		background: transparent;
+		box-shadow: none;
+		color: var(--w-text);
+		font: inherit;
+		outline: none;
+	}
+	.micro-dm-send[aria-disabled='true'] {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
+	.micro-dm-error {
+		margin: 0;
+		padding: 0 16px 4px;
+		color: var(--w-danger);
+		font: var(--w-t-small);
+	}
+	.micro-dm-paused {
+		display: flex;
+		flex: none;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 4px 8px;
+		padding: 6px 12px 6px 16px;
+	}
+	.micro-dm-paused-text {
+		flex: 1 1 160px;
+		margin: 0;
+		color: var(--w-mute);
+		font: var(--w-t-small);
+	}
+	.micro-dm-paused .w-btn:focus-visible {
+		outline: 2px solid var(--w-accent);
+		outline-offset: 2px;
+	}
+	/* Who can read this conversation: the composer's colophon (§7.20), under the field. */
+	.micro-dm-colophon {
+		flex: none;
+		min-width: 0;
+		padding: 0 12px 8px 16px;
+	}
+
+	@media (pointer: coarse) {
+		.scratch-band .w-ibtn {
+			width: 44px;
+			height: 44px;
+		}
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.quick-collapse-btn,
-		.quick-tab,
-		.quick-link-btn {
+		.scratch-edge::after {
 			transition: none;
 		}
 	}

@@ -7,18 +7,18 @@
 	const labels = {
 		forum: {
 			title: 'Forum',
-			heading: 'Forum posts are not wired yet',
-			copy: 'This channel is ready for a topic-thread renderer once the forum message model lands.'
+			heading: 'This forum opens in its own view',
+			copy: 'Pick it again from the channel list to read and start threads.'
 		},
 		wiki: {
 			title: 'Wiki',
-			heading: 'Wiki pages are not wired yet',
-			copy: 'This channel is ready for a markdown page renderer and navigation layer.'
+			heading: 'This wiki opens in its own view',
+			copy: 'Pick it again from the channel list to read its pages.'
 		},
 		stage: {
 			title: 'Stage',
-			heading: 'Stage controls are not wired yet',
-			copy: 'This channel is ready for a moderated voice stage surface.'
+			heading: 'Stages have no room view in this version',
+			copy: 'Speaker and audience controls for stages aren’t available yet in this version of Wabi. Use a voice channel to talk together.'
 		}
 	};
 
@@ -29,8 +29,8 @@
 
 	$: content = labels[mode] ?? {
 		title: mode.charAt(0).toUpperCase() + mode.slice(1),
-		heading: `${mode} surface is not wired yet`,
-		copy: 'This channel type has no dedicated renderer yet.'
+		heading: `This ${mode} channel has no view in this version`,
+		copy: 'Open another channel from the list to keep going.'
 	};
 	$: channelName = channel?.name || content.title.toLowerCase();
 	$: topic = channel?.topic || channel?.description || '';

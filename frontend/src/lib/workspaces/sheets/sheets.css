@@ -1,0 +1,650 @@
+/* ==========================================================================
+   SHEETS EDITOR (design contract §8.8 Sheets)
+   SheetsGrid.svelte: one 44px toolbar, a 40px formula bar, the grid filling the rest of the
+   stage (one scroll container), an optional chart card, and a 32px footer with the sheet tabs
+   and a Sum / Avg / Count readout. The editor header (row A) is the shared office shell.
+
+   The grid is paper: --w-bg cells, --w-line gridlines (--w-line-strong in High Contrast),
+   headers on --w-bg2 in caption type, numbers in mono tabular figures right-aligned. The
+   selection is --w-accent-soft with a 1px accent perimeter, the active cell a 2px accent ring,
+   selected header cells tinted. Protected cells carry a --w-seal-soft hatch.
+   Roles and tokens only, so every theme answers.
+   ========================================================================== */
+
+.sheets-editor {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+	background: var(--w-bg);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+
+/* ---------- the toolbar ---------- */
+.sheet-toolbar {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	box-sizing: border-box;
+	height: 44px;
+	padding: 0 12px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+.sheet-toolbar::-webkit-scrollbar {
+	display: none;
+}
+.sheet-toolbar > * {
+	flex: none;
+}
+.sheet-toolbar .w-tool__sep {
+	height: 20px;
+	margin: 0 6px;
+}
+.sheet-toolbar__group {
+	display: inline-flex;
+	gap: 2px;
+}
+.sheet-toolbar .sheet-toolbar__format {
+	min-width: 132px;
+	justify-content: space-between;
+	gap: 8px;
+}
+.sheet-toolbar__format-words {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+/* Fill: the bucket over a bar in the selection's colour; the colour input covers the key. */
+.sheet-toolbar__fill {
+	position: relative;
+	flex-direction: column;
+	gap: 1px;
+	cursor: pointer;
+}
+.sheet-toolbar__fill.disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+.sheet-toolbar__swatch {
+	width: 14px;
+	height: 3px;
+	border-radius: 1px;
+	box-shadow: inset 0 0 0 var(--w-bw) var(--w-line-strong);
+}
+.sheet-toolbar__color {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	opacity: 0;
+	cursor: inherit;
+}
+.sheet-toolbar__fill:focus-within {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 1px;
+}
+.sheet-toolbar__filter {
+	width: 200px;
+	height: 32px;
+	margin-left: 4px;
+}
+.sheet-toolbar__spacer {
+	flex: 1 0 12px;
+}
+
+/* ---------- the formula bar ---------- */
+.sheet-formula {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	box-sizing: border-box;
+	height: 40px;
+	margin: 0;
+	padding: 0 12px 0 0;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.sheet-formula__name {
+	flex: none;
+	box-sizing: border-box;
+	width: 72px;
+	height: 100%;
+	padding: 0 8px;
+	border-right: var(--w-bw) solid var(--w-line);
+	color: var(--w-text);
+	font: var(--w-t-mono);
+	line-height: 40px;
+	text-align: center;
+	font-variant-numeric: tabular-nums;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.sheet-formula__fx {
+	flex: none;
+	color: var(--w-faint);
+	font: italic 400 calc(15px * var(--w-fs)) / 1 var(--w-serif);
+}
+.sheet-formula__input {
+	flex: 1;
+	min-width: 0;
+	height: 30px;
+	padding: 0 8px;
+	border: var(--w-bw) solid transparent;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-mono);
+	font-size: calc(13px * var(--w-fs));
+}
+.sheet-formula__input:hover:not(:disabled) {
+	border-color: var(--w-line);
+}
+.sheet-formula__input:focus {
+	border-color: var(--w-accent);
+	outline: none;
+	box-shadow: 0 0 0 2px var(--w-accent-soft);
+}
+.sheet-formula__input:disabled {
+	color: var(--w-mute);
+	cursor: not-allowed;
+}
+.sheet-formula__tag,
+.sheet-formula__protected {
+	flex: none;
+}
+
+/* ---------- notices and panels (in view, under the bars) ---------- */
+.sheet-notice {
+	flex: none;
+	padding: 10px 12px 0;
+}
+.sheet-panel {
+	flex: none;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: 10px 18px;
+	padding: 10px 16px 12px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+	background: var(--w-bg2);
+}
+.sheet-panel--stack {
+	flex-direction: column;
+	align-items: stretch;
+	gap: 8px;
+}
+.sheet-panel__head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+.sheet-panel__title {
+	margin: 0;
+	color: var(--w-text);
+	font: 600 calc(15px * var(--w-fs)) / calc(22px * var(--w-fs)) var(--w-serif);
+}
+.sheet-panel__text {
+	margin: 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+.sheet-panel__row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 12px;
+	margin: 0;
+	font: var(--w-t-small);
+}
+.sheet-panel__draft {
+	min-width: 0;
+	color: var(--w-text);
+	font: var(--w-t-mono);
+	overflow-wrap: anywhere;
+}
+.sheet-panel__field {
+	display: grid;
+	gap: 4px;
+}
+.sheet-panel__field .w-field {
+	width: 120px;
+}
+.sheet-panel__close {
+	margin-left: auto;
+	align-self: center;
+}
+
+/* ---------- the grid: one scroll container that fills the stage ---------- */
+.sheet-grid {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	background: var(--w-bg);
+	outline: none;
+}
+.sheet-grid:focus-visible {
+	box-shadow: inset 0 0 0 2px var(--w-accent);
+}
+.sheet-grid table {
+	border-collapse: separate;
+	border-spacing: 0;
+	table-layout: fixed;
+	color: var(--w-text);
+	font: 400 calc(13px * var(--w-fs)) / calc(18px * var(--w-fs)) var(--w-sans);
+}
+.sheet-grid .sheet-col-label {
+	width: 52px;
+}
+.sheet-grid :is(th, td) {
+	box-sizing: border-box;
+	min-width: 52px;
+	height: var(--sheet-row, 28px);
+	padding: 0 8px;
+	overflow: hidden;
+	border-right: var(--w-bw) solid var(--w-line);
+	border-bottom: var(--w-bw) solid var(--w-line);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.sheet-grid td span {
+	display: block;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+	text-overflow: ellipsis;
+}
+.sheet-grid td.num {
+	font-family: var(--w-mono);
+	font-variant-numeric: tabular-nums;
+}
+.sheet-grid thead th,
+.sheet-grid .row-label {
+	background: var(--w-bg2);
+	color: var(--w-mute);
+	font: var(--w-t-caption);
+	font-variant-numeric: tabular-nums;
+	text-align: center;
+}
+.sheet-grid .row-label {
+	width: 52px;
+	min-width: 52px;
+	max-width: 52px;
+}
+/* Header cells of the selection are tinted, so the eye finds the row and column. */
+.sheet-grid :is(thead th, .row-label).selected-head {
+	background: color-mix(in srgb, var(--w-accent) 16%, var(--w-bg2));
+	color: var(--w-text);
+}
+.sheet-grid.freeze thead th {
+	position: sticky;
+	top: 0;
+	z-index: 3;
+}
+.sheet-grid.freeze .row-label {
+	position: sticky;
+	left: 0;
+	z-index: 2;
+}
+.sheet-grid.freeze thead .row-label {
+	z-index: 4;
+}
+/* The selection: an accent wash over any fill, with a 1px accent perimeter. */
+.sheet-grid td.selected {
+	box-shadow: var(--edge-t, 0 0 transparent), var(--edge-b, 0 0 transparent), var(--edge-l, 0 0 transparent), var(--edge-r, 0 0 transparent), inset 0 0 0 999px var(--w-accent-soft);
+}
+.sheet-grid td.selected.edge-t {
+	--edge-t: inset 0 1px 0 var(--w-accent);
+}
+.sheet-grid td.selected.edge-b {
+	--edge-b: inset 0 -1px 0 var(--w-accent);
+}
+.sheet-grid td.selected.edge-l {
+	--edge-l: inset 1px 0 0 var(--w-accent);
+}
+.sheet-grid td.selected.edge-r {
+	--edge-r: inset -1px 0 0 var(--w-accent);
+}
+.sheet-grid td.bordered {
+	outline: var(--w-bw) solid var(--w-mute);
+	outline-offset: -1px;
+}
+.sheet-grid td.active {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+.sheet-grid td.protected {
+	background-image: repeating-linear-gradient(135deg, transparent 0 7px, var(--w-seal-soft) 7px 9px);
+}
+.sheet-grid .spacer {
+	padding: 0;
+	border: 0;
+}
+.sheet-grid .corner {
+	text-align: center;
+}
+
+/* ---------- the chart card ---------- */
+.sheet-chart {
+	flex: none;
+	margin: 8px 12px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: var(--w-lift);
+}
+.sheet-chart__head {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	height: 36px;
+	padding: 0 6px 0 4px;
+}
+.sheet-chart.collapsed .sheet-chart__head {
+	border-bottom: 0;
+}
+.sheet-chart__toggle {
+	gap: 4px;
+}
+.sheet-chart__note {
+	flex: 1;
+	min-width: 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.sheet-chart__body {
+	display: flex;
+	gap: 16px;
+	height: 200px;
+	padding: 4px 12px 12px;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.sheet-chart__body svg {
+	flex: 0 1 auto;
+	height: 100%;
+	min-width: 280px;
+}
+.sheet-chart__axis {
+	stroke: var(--w-line-strong);
+	stroke-width: 1;
+}
+.sheet-chart__legend {
+	display: grid;
+	align-content: start;
+	gap: 4px;
+	min-width: 0;
+	margin: 8px 0 0;
+	padding: 0;
+	overflow-y: auto;
+	list-style: none;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+.sheet-chart__legend li {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.sheet-chart__key {
+	flex: none;
+	width: 10px;
+	height: 10px;
+	border-radius: 2px;
+}
+.sheet-chart__value {
+	margin-left: auto;
+	color: var(--w-text);
+	font: var(--w-t-mono);
+	font-variant-numeric: tabular-nums;
+}
+.sheet-chart__hint,
+.sheet-chart__empty {
+	color: var(--w-faint);
+	font: var(--w-t-small);
+}
+.sheet-chart__empty {
+	margin: 0;
+	padding: 8px 14px 14px;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+
+/* ---------- the footer: sheet tabs and the readout ---------- */
+.sheet-footer {
+	flex: none;
+	display: flex;
+	align-items: stretch;
+	gap: 12px;
+	box-sizing: border-box;
+	height: 32px;
+	padding: 0 12px 0 0;
+	border-top: var(--w-bw) solid var(--w-line);
+	background: var(--w-bg2);
+}
+.sheet-tabs {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: none;
+}
+.sheet-tabs::-webkit-scrollbar {
+	display: none;
+}
+.sheet-tab {
+	flex: none;
+	height: 100%;
+	max-width: 200px;
+	margin: 0;
+	padding: 0 16px;
+	overflow: hidden;
+	border: 0;
+	border-right: var(--w-bw) solid var(--w-line);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-label);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: color var(--w-dur-1) var(--w-ease), background-color var(--w-dur-1) var(--w-ease);
+}
+.sheet-tab:hover {
+	color: var(--w-text);
+}
+/* The active sheet: the page colour with the 2px signature edge on top. */
+.sheet-tab.active {
+	background: var(--w-bg);
+	box-shadow: inset 0 2px 0 var(--w-sig);
+	color: var(--w-text);
+}
+.sheet-tab:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+.sheet-tab__rename {
+	box-sizing: border-box;
+	width: 150px;
+	height: 26px;
+	margin: 0 6px;
+	padding: 0 8px;
+	border: var(--w-bw) solid var(--w-accent);
+	border-radius: var(--radius-sm);
+	background: var(--w-bg);
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+.sheet-tab__rename:focus {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--w-accent-soft);
+}
+.sheet-tabs .w-ibtn {
+	margin-left: 4px;
+}
+.sheet-stats {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	margin: 0 0 0 auto;
+	color: var(--w-mute);
+	font: var(--w-t-mono);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+/* ---------- High Contrast: solid gridlines, an unmistakable active cell ---------- */
+:root[data-char='contrast'] .sheet-grid :is(th, td) {
+	border-color: var(--w-line-strong);
+}
+:root[data-char='contrast'] .sheet-grid td.active {
+	outline-width: 3px;
+	outline-offset: -3px;
+}
+:root[data-char='contrast'] .sheet-tab.active {
+	box-shadow: inset 0 3px 0 var(--w-sig), inset 0 0 0 var(--w-bw) var(--w-line-strong);
+}
+
+/* ---------- narrow stages and touch ---------- */
+@container stage (max-width: 759.98px) {
+	.sheet-toolbar {
+		padding: 0 8px;
+	}
+	.sheet-toolbar__filter {
+		width: 150px;
+	}
+	/* A narrow stage keeps the grid in charge: a short chart, the legend in columns. */
+	.sheet-chart__body {
+		flex-direction: column;
+		gap: 8px;
+		height: auto;
+		max-height: 200px;
+		overflow-y: auto;
+	}
+	.sheet-chart__body svg {
+		flex: none;
+		height: 110px;
+		min-width: 0;
+	}
+	.sheet-chart__legend {
+		grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+		gap: 4px 16px;
+		margin: 0;
+	}
+}
+@media (pointer: coarse) {
+	.sheet-toolbar {
+		height: 52px;
+	}
+	.sheet-toolbar .w-ibtn {
+		width: 44px;
+		height: 44px;
+	}
+	.sheet-footer {
+		height: 44px;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.sheet-tab {
+		transition: none;
+	}
+}
+
+/* ---------- the page around the editor, and the library ---------- */
+.sheets-page {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+}
+.sheets-page > .sheets-editor {
+	flex: 1;
+	min-height: 0;
+}
+.sheets-line {
+	position: absolute;
+	inset: 0 0 auto;
+	z-index: 5;
+}
+.sheets-library {
+	position: relative;
+}
+.sheets-library > .sheet-notice {
+	box-sizing: border-box;
+	width: min(880px, 100% - 2 * var(--w-gutter, 32px));
+	margin: 0 auto;
+	padding: 16px 0 0;
+}
+
+/* ---------- the import preview (dialog md) ---------- */
+.sheet-import {
+	display: grid;
+	gap: 14px;
+}
+.sheet-import__truth {
+	margin: 0;
+	color: var(--w-mute);
+	font: var(--w-t-ui);
+}
+.sheet-import__field {
+	display: grid;
+	gap: 6px;
+	justify-items: start;
+}
+.sheet-import__select {
+	width: 180px;
+}
+.sheet-import__warning {
+	margin: 0;
+	padding-left: 10px;
+	border-left: 2px solid var(--w-warn);
+	color: var(--w-text);
+	font: var(--w-t-small);
+}
+.sheet-import__sheet {
+	display: grid;
+	gap: 6px;
+}
+.sheet-import__name {
+	margin: 0;
+	color: var(--w-text);
+	font: 600 calc(15px * var(--w-fs)) / calc(22px * var(--w-fs)) var(--w-serif);
+}
+.sheet-import__facts,
+.sheet-import__limits {
+	margin: 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+.sheet-import__limits {
+	color: var(--w-faint);
+}
+.sheet-import__preview {
+	max-width: 100%;
+	overflow-x: auto;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-sm);
+}
+.sheet-import__preview table {
+	border-collapse: collapse;
+	font: var(--w-t-mono);
+	font-size: calc(12px * var(--w-fs));
+}
+.sheet-import__preview td {
+	max-width: 110px;
+	height: 26px;
+	padding: 0 8px;
+	overflow: hidden;
+	border-right: var(--w-bw) solid var(--w-line);
+	border-bottom: var(--w-bw) solid var(--w-line);
+	color: var(--w-text);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}

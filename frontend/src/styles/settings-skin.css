@@ -1,155 +1,991 @@
-/* App settings — shell and shared controls on the theme roles.
-   The older settings sheets use !important for switch geometry, so the few places that
-   must change colour are restated with it. Geometry (switch size, row padding) is kept. */
+/* ==========================================================================
+   SETTINGS (design contract §8.9, §7.25, §5.2)
+   The app Settings dialog: BaseModal size "settings" (1040 × min(808, 100dvh − 64)) with
+   panelClass .wabi-settings-modal. A 236px nav (serif title, kicker groups, foot with About and
+   a quiet Sign out), a 64px page header (serif title, scope note, Search settings, close), and a
+   scrolling page of hairline rows. Phones (the ≤768px shell) are list-first.
+
+   Rows are the kit's .w-srow. The older tabs still write .settings-group-card / .setting-item /
+   .toggle-btn / .segmented / .action-btn; those are mapped onto the same grammar here, inside
+   .settings-content only, until each tab moves to the kit: no card boxes, no left bars, no
+   ON/OFF text, ink-on-paper primaries, paper segmented keys.
+   Colors are --w-* roles only; type is --w-t-*; corners --radius-*; edges --w-bw.
+   ========================================================================== */
 
 /* ---------- frame ---------- */
-:root .modal-overlay.wabi-settings-overlay {
-	background: color-mix(in srgb, var(--w-sink) 78%, transparent);
-	backdrop-filter: blur(10px);
-	-webkit-backdrop-filter: blur(10px);
+/* BaseModal's body scrolls by default; here the page column scrolls and the nav stays put.
+   :root lifts this over the component's scoped rule. The panel and its body clip rather than
+   hide: an overflow: hidden box can still be scrolled by script (scrollIntoView, focus), which
+   slid the whole frame up and cut off its header; a clipped box cannot scroll at all. `hidden`
+   stays first as the fallback for engines without `clip`. */
+:root .wabi-settings-modal.w-dialog,
+:root .wabi-settings-modal > .base-modal__body {
+	overflow: hidden;
+	overflow: clip;
 }
-:root .modal-content.wabi-settings-modal {
-	background: var(--w-bg);
-	backdrop-filter: none;
-	-webkit-backdrop-filter: none;
-	border: var(--w-bw, 1px) solid var(--w-line-strong);
-	border-radius: calc(18px * var(--w-rs, 1));
-	box-shadow: var(--w-shadow);
-	font-family: var(--w-sans);
+:root .wabi-settings-modal > .base-modal__body {
+	display: flex;
 }
-:root .wabi-settings-modal .modal-header {
-	background: var(--w-bg2);
-	backdrop-filter: none;
-	border-bottom: var(--w-bw, 1px) solid var(--w-line);
-	padding: 16px 22px;
+.settings-frame {
+	display: grid;
+	grid-template-columns: 236px minmax(0, 1fr);
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 0;
 }
-:root .wabi-settings-modal .modal-header h2 { font: 600 calc(24px * var(--w-fs, 1))/1.2 var(--w-serif); letter-spacing: 0.01em; color: var(--w-text); }
-:root .wabi-settings-modal .modal-header .header-icon { color: var(--w-mute); filter: none; width: 20px; height: 20px; }
-:root .wabi-settings-modal .header-locale-label { font: 500 calc(11px * var(--w-fs, 1))/1 var(--w-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--w-faint); }
-:root .wabi-settings-modal .close-btn { color: var(--w-mute); border-radius: calc(9px * var(--w-rs, 1)); }
-:root .wabi-settings-modal .close-btn:hover { background: var(--w-raise); color: var(--w-text); }
 
 /* ---------- navigation ---------- */
-:root .wabi-settings-modal .settings-tabs { background: var(--w-bg2); border-right: var(--w-bw, 1px) solid var(--w-line); }
-:root .wabi-settings-modal .settings-tab {
-	min-height: 38px;
+.settings-nav {
+	--settings-nav-pad: 10px;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	padding: 0 var(--settings-nav-pad) 10px;
+	overflow-x: hidden;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	border-right: var(--w-bw) solid var(--w-line);
+	background: var(--w-bg2);
+}
+.settings-nav__head {
+	display: flex;
+	align-items: center;
+	flex: none;
+	gap: 8px;
+	height: 64px;
+	padding: 0 10px;
+}
+.settings-nav__title {
+	flex: 1;
+	min-width: 0;
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-title);
+	letter-spacing: 0.005em;
+}
+.settings-nav__list {
+	display: flex;
+	flex-direction: column;
+	flex: 1 0 auto;
+}
+.settings-nav__section {
+	display: flex;
+	flex-direction: column;
+}
+.settings-nav__kicker {
+	padding: 18px 10px 6px;
+}
+:where(.settings-nav__section:first-child) > .settings-nav__kicker {
+	padding-top: 6px;
+}
+/* Items carry .settings-tab for older scripts; every property the legacy phone rules set on
+   that class is restated here. */
+.wabi-settings-modal :is(.settings-nav__item, .settings-signout) {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 10px;
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 0;
+	height: 34px;
+	margin: 0;
+	padding: 0 10px;
 	border: 0;
-	border-radius: calc(10px * var(--w-rs, 1));
+	border-radius: var(--radius-md);
 	background: transparent;
+	box-shadow: none;
 	color: var(--w-mute);
-	font: 500 calc(14px * var(--w-fs, 1))/1.2 var(--w-sans);
+	font: var(--w-t-ui);
+	text-align: start;
+	white-space: nowrap;
+	cursor: pointer;
+	transform: none;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
+}
+.settings-nav__item + .settings-nav__item {
+	margin-top: 1px;
+}
+.wabi-settings-modal :is(.settings-nav__item, .settings-signout) > :where(svg) {
+	flex: none;
+	width: 17px;
+	height: 17px;
+	color: var(--w-faint);
+}
+.wabi-settings-modal :is(.settings-nav__item, .settings-signout) > span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.wabi-settings-modal :is(.settings-nav__item, .settings-signout):hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+	color: var(--w-text);
+}
+.wabi-settings-modal .settings-nav__item[aria-selected='true'] {
+	background: var(--w-raise);
+	color: var(--w-text);
+	font-weight: 500;
+}
+.wabi-settings-modal .settings-nav__item[aria-selected='true'] > svg {
+	color: var(--w-sig);
+}
+/* High Contrast: selection keeps its fill and adds the ring; hover is the ring alone (§5.2). */
+:root[data-char='contrast'] .wabi-settings-modal .settings-nav__item[aria-selected='true'] {
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+:root[data-char='contrast'] .wabi-settings-modal :is(.settings-nav__item, .settings-signout):not([aria-selected='true']):hover {
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+.wabi-settings-modal :is(.settings-nav__item, .settings-signout):focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+.settings-nav__chev {
+	margin-left: auto;
+}
+.settings-nav__foot {
+	margin: auto calc(-1 * var(--settings-nav-pad)) 0;
+	padding: 10px var(--settings-nav-pad) 0;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+/* Short dialogs (under ~650px of nav, e.g. a 900×700 window): the groups tighten before the nav
+   has to scroll for a few pixels. */
+@media (max-height: 760px) {
+	.settings-nav__kicker {
+		padding-bottom: 4px;
+	}
+	:where(.settings-nav__section + .settings-nav__section) > .settings-nav__kicker {
+		padding-top: 12px;
+	}
+	.wabi-settings-modal :is(.settings-nav__item, .settings-signout) {
+		height: 32px;
+	}
+	.settings-nav__foot {
+		padding-top: 6px;
+	}
+}
+/* Sign out is a quiet item with a confirm, never a danger colour (§8.9). */
+.wabi-settings-modal .settings-signout {
+	flex: none;
+	margin-top: 1px;
+}
+
+/* ---------- page header ---------- */
+.settings-main {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+}
+.settings-head {
+	display: flex;
+	align-items: center;
+	flex: none;
+	gap: 10px;
+	box-sizing: border-box;
+	min-height: 64px;
+	padding: 8px 14px 8px 44px;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+/* Title and scope note share the baseline while the note fits beside the name; otherwise the
+   note drops to its own line under the name and wraps there. A truth label is never cut off. */
+.settings-head__title {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	flex: 1;
+	gap: 0 14px;
+	min-width: 0;
+}
+.settings-head__name {
+	flex: none;
+	max-width: 100%;
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-title);
+	letter-spacing: 0.005em;
+	overflow-wrap: anywhere;
+}
+.settings-head__note {
+	flex: 0 1 auto;
+	min-width: 0;
+	margin: 0;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+	letter-spacing: 0;
+	text-wrap: pretty;
+}
+.settings-close,
+.settings-back {
+	flex: none;
+}
+
+/* Search settings: a 220px chrome field with a "/" keycap; results drop under it. */
+.settings-search {
+	position: relative;
+	flex: none;
+	width: 220px;
+}
+.settings-search__field {
+	padding-right: 6px;
+}
+.settings-search__field > input {
+	min-width: 0;
+}
+.settings-search__pop {
+	position: absolute;
+	top: calc(100% + 6px);
+	right: 0;
+	z-index: 3;
+	width: 320px;
+	max-width: min(320px, calc(100vw - 32px));
+	padding: 6px;
+}
+:root[data-mode='light'] .settings-search__pop {
+	background: var(--w-lift);
+}
+.settings-search__list {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.settings-search__option {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	min-height: 32px;
+	padding: 0 10px;
+	border-radius: var(--radius-inner);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	cursor: pointer;
+}
+.settings-search__option[aria-selected='true'] {
+	background: var(--w-raise);
+}
+:root[data-char='contrast'] .settings-search__option[aria-selected='true'] {
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+.settings-search__label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.settings-search__page {
+	flex: none;
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+}
+.settings-search__empty {
+	margin: 0;
+	padding: 8px 10px;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+
+/* ---------- the page ---------- */
+.wabi-settings-modal .settings-content {
+	container: settings-page / inline-size;
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	gap: 34px;
+	box-sizing: border-box;
+	min-height: 0;
+	padding: 26px 44px 40px;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	background: var(--w-bg);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+.wabi-settings-modal .settings-content:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+
+/* A section: serif 18 title, one-line hint, then rows on hairlines. */
+.settings-block {
+	min-width: 0;
+}
+.settings-block__head {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.settings-content .settings-block__title {
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-heading);
+	letter-spacing: 0;
+}
+.settings-block__hint {
+	max-width: 68ch;
+	margin: 4px 0 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+	text-wrap: pretty;
+}
+.settings-block > .w-srows,
+.settings-block > .settings-block__hint + .w-srows {
+	margin-top: 12px;
+}
+.settings-block__error {
+	margin-top: 10px;
+}
+/* An error with its retry: the words, then a small button that tries again. */
+.settings-error-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 12px;
+}
+/* A page foot (Reset accessibility): a row that follows the last section's rule, no rules of its own. */
+.settings-block--foot > .w-srow {
+	border-bottom: 0;
+}
+.settings-block__more {
+	margin: 12px 0 0;
+	font: var(--w-t-small);
+}
+.settings-content a {
+	color: var(--w-accent);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+/* Dependent rows read as part of the row above: indented words, no bar. */
+.settings-srow--sub .w-srow__text {
+	padding-left: 16px;
+}
+.settings-srow--off .w-srow__label {
+	color: var(--w-mute);
+}
+.settings-auto-tag {
+	height: 18px;
+	padding: 0 7px;
+}
+.settings-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	padding: 12px 0;
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.settings-disclosure {
+	margin-top: 8px;
+}
+.settings-disclosure__body {
+	padding-top: 12px;
+}
+.settings-disclosure__body > .w-srow:last-child {
+	border-bottom: 0;
+}
+/* Older editors embedded in a section (theme tuning, effects) are separated by rules. */
+.settings-embed + .settings-embed {
+	margin-top: 20px;
+	padding-top: 20px;
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.settings-range {
+	width: 220px;
+	max-width: 100%;
+}
+.settings-content input[type='range']:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+
+/* Search landing: the row found is tinted once, then fades (static under reduced motion). */
+.settings-content .settings-found {
+	animation: settings-found 1.6s var(--w-ease) both;
+}
+@keyframes settings-found {
+	from {
+		background-color: var(--w-accent-soft);
+	}
+	to {
+		background-color: transparent;
+	}
+}
+:root:is([data-motion='reduce'], [data-reduce-motion='true']) .settings-content .settings-found {
+	animation: none;
+	background-color: var(--w-accent-soft);
+}
+@media (prefers-reduced-motion: reduce) {
+	.settings-content .settings-found {
+		animation: none;
+		background-color: var(--w-accent-soft);
+	}
+}
+
+.settings-inline-status {
+	padding: 10px 12px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	color: var(--w-text);
+	font: var(--w-t-small);
+}
+.settings-inline-status.error {
+	border-color: color-mix(in srgb, var(--w-danger) 55%, transparent);
+	color: var(--w-danger);
+}
+
+/* Privacy & security: the three states, each with its seal glyph (§9.2). */
+.settings-privacy-states .w-srow {
+	min-height: 0;
+}
+
+/* ---------- older tabs, mapped onto the same grammar (settings content only) ---------- */
+.settings-content .settings-section {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	min-width: 0;
+}
+.settings-content .settings-section + .settings-section {
+	margin-top: 22px;
+}
+.settings-content :is(.settings-section > h3, h3:not([class])) {
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-heading);
+	letter-spacing: 0;
+	text-transform: none;
+}
+.settings-content h2:not([class]) {
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-heading);
+	letter-spacing: 0;
+	text-transform: none;
+}
+.settings-content h4:not([class]) {
+	margin: 0;
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+/* A group of rows: a top rule, never a box. */
+.settings-content :is(.settings-group-card, .admin-block) {
+	display: flex;
+	flex-direction: column;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-top: var(--w-bw) solid var(--w-line);
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+}
+.settings-content :is(.settings-group-title, .subsection-label, .admin-block-title) {
+	margin: 16px 0 6px;
+	padding: 0;
+	color: var(--w-faint);
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+.settings-content .settings-subsection {
+	margin-top: 20px;
+	padding-top: 0;
+	border-top: 0;
+}
+/* A row: label over hint on the left, the control on the right, a rule under it. */
+.settings-content :is(.setting-item, .setting-item-full) {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 10px 24px;
+	box-sizing: border-box;
+	min-height: 68px;
+	margin: 0;
+	padding: 12px 0;
+	border: 0;
+	border-bottom: var(--w-bw) solid var(--w-line);
+	border-radius: 0;
+	background: transparent;
 	box-shadow: none;
 	transform: none;
 }
-:root .wabi-settings-modal .settings-tab:hover { background: var(--w-raise); color: var(--w-text); transform: none; border: 0; }
-:root .wabi-settings-modal .settings-tab.active {
-	background: var(--w-raise);
+/* Rows stay rows at every width: the words take a 240px basis, so a control that does not fit
+   wraps under them by itself (this outweighs the older phone rule that turned rows into columns,
+   where that basis became a 240px-tall gap). Stacked rows put the control under the words. */
+.settings-content .setting-item {
+	flex-direction: row;
+}
+.settings-content .setting-item-full,
+.settings-content .setting-item-stack {
+	flex-direction: column;
+	align-items: stretch;
+	justify-content: flex-start;
+}
+.settings-content :is(.setting-item-full, .setting-item-stack) > .setting-info {
+	flex: none;
+}
+.settings-content :is(.setting-item, .setting-item-full):hover,
+.settings-content :is(.setting-item, .setting-item-full):focus-within {
+	background: transparent;
+	box-shadow: none;
+}
+.settings-content .setting-info {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 240px;
+	gap: 2px;
+	min-width: 0;
+}
+.settings-content :is(.setting-label, .setting-item strong) {
 	color: var(--w-text);
-	box-shadow: inset 2px 0 0 var(--w-accent);
+	font: var(--w-t-label);
+}
+.settings-content .setting-description {
+	max-width: 68ch;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+.settings-content :is(.runtime-note, .notification-status-note, .admin-help) {
+	margin: 0;
+	padding: 8px 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+.settings-content .warning-text {
+	margin: 0 0 6px;
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+.settings-content .auto-badge {
+	display: inline-flex;
+	align-items: center;
+	height: 18px;
+	margin-left: 6px;
+	padding: 0 7px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--w-pill);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-caption);
+	vertical-align: middle;
+}
+/* Nested settings are flat: no bar, no fade to near-invisible. */
+.settings-content .setting-nested {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	margin: 0;
+	padding: 0 0 0 16px;
 	border: 0;
 }
-:root .wabi-settings-modal .settings-tab:focus-visible { outline: 2px solid var(--w-accent); outline-offset: -2px; box-shadow: none; }
-:root .wabi-settings-modal .settings-tab.logout-tab { color: var(--w-danger); }
-:root .wabi-settings-modal .settings-tab.logout-tab:hover { background: color-mix(in srgb, var(--w-danger) 12%, transparent); }
+.settings-content .setting-nested.is-disabled {
+	opacity: 0.45;
+}
+.settings-content :is(.setting-inline-save, .settings-row-actions) {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+}
+.settings-content .setting-inline-save :is(input, select, textarea) {
+	flex: 1 1 180px;
+	min-width: 0;
+}
 
-/* ---------- content ---------- */
-:root .wabi-settings-modal .settings-content { background: var(--w-bg); }
-:root .wabi-settings-modal .settings-content h2,
-:root .wabi-settings-modal .settings-content h3 { font-family: var(--w-serif); font-weight: 600; letter-spacing: 0.01em; color: var(--w-text); }
-:root .wabi-settings-modal .settings-content h3 { font-size: calc(20px * var(--w-fs, 1)); text-transform: none; letter-spacing: 0.01em; }
+/* Switches written as .toggle-btn (in settings) or .settings-switch (anywhere, e.g. the upload
+   spoiler switch) draw the kit switch (§7.6): 36×20, 14px thumb, accent when on, no ON/OFF
+   text; any text inside stays for assistive tech. The theme gradient editor's disclosure button
+   shares the class name and is left alone. :root outweighs tab-scoped generic button rules
+   (the pointer-effects tab gives every button a 40px min-height). */
+:root :is(.settings-content .toggle-btn:not(.editor-header > *), button.settings-switch) {
+	position: relative;
+	flex: none;
+	box-sizing: border-box;
+	width: 36px;
+	min-width: 36px;
+	height: 20px;
+	min-height: 0;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--w-pill);
+	background: var(--w-sink);
+	box-shadow: none;
+	color: transparent;
+	font-size: 0;
+	line-height: 0;
+	letter-spacing: 0;
+	cursor: pointer;
+	transform: none;
+	transition:
+		background-color var(--w-dur-2) var(--w-ease),
+		border-color var(--w-dur-2) var(--w-ease);
+}
+:root :is(.settings-content .toggle-btn:not(.editor-header > *), button.settings-switch) > :where(svg) {
+	display: none;
+}
+:root :is(.settings-content .toggle-btn:not(.editor-header > *), button.settings-switch)::after {
+	content: '';
+	position: absolute;
+	top: calc(3px - var(--w-bw));
+	left: calc(3px - var(--w-bw));
+	width: 14px;
+	height: 14px;
+	border-radius: var(--w-avr);
+	background: var(--w-mute);
+	box-shadow: none;
+	transition:
+		transform var(--w-dur-2) var(--w-ease),
+		background-color var(--w-dur-2) var(--w-ease);
+}
+:root :is(.settings-content .toggle-btn:not(.editor-header > *), button.settings-switch):is(.active, [aria-checked='true']) {
+	border-color: var(--w-accent);
+	background: var(--w-accent);
+}
+:root :is(.settings-content .toggle-btn:not(.editor-header > *), button.settings-switch):is(.active, [aria-checked='true'])::after {
+	transform: translateX(16px);
+	background: var(--w-on-accent);
+}
+:root :is(.settings-content .toggle-btn:not(.editor-header > *), button.settings-switch):focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+	box-shadow: none;
+}
+:root :is(.settings-content .toggle-btn:not(.editor-header > *), button.settings-switch):disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
 
-/* group cards: flat panel, hairline rows */
-:root .settings-group-card,
-:root .admin-block {
+/* Segmented controls written as .segmented / .density-toggle: the kit track and paper key. */
+.settings-content :is(.segmented, .density-toggle) {
+	display: inline-flex;
+	align-items: center;
+	flex: none;
+	gap: 2px;
+	box-sizing: border-box;
+	max-width: 100%;
+	padding: 2px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: calc(var(--radius-md) + 2px);
 	background: var(--w-bg2);
-	border: var(--w-bw, 1px) solid var(--w-line);
-	border-radius: calc(14px * var(--w-rs, 1));
-	box-shadow: none;
 }
-:root .settings-group-card > .setting-item,
-:root .settings-group-card > .setting-item-full { border-bottom-color: var(--w-line) !important; }
-:root .settings-group-card > .setting-item:hover,
-:root .settings-group-card > .setting-item-full:hover { background: transparent !important; }
-:root .settings-content .setting-label,
-:root .settings-content .setting-item strong { font: 600 calc(14.5px * var(--w-fs, 1))/1.3 var(--w-sans); color: var(--w-text); }
-:root .settings-content .setting-description { font: 400 calc(13px * var(--w-fs, 1))/1.45 var(--w-sans); color: var(--w-mute); }
-:root .admin-block-title { font: 600 calc(11px * var(--w-fs, 1))/1 var(--w-mono); letter-spacing: 0.12em; color: var(--w-faint); }
-
-/* ---------- switches: accent, never the seal colour (the seal marks security rows) ---------- */
-:root .toggle-btn,
-:root button.settings-switch {
-	background: var(--w-sink) !important;
-	box-shadow: inset 0 0 0 var(--w-bw, 1px) var(--w-line-strong) !important;
-}
-:root .toggle-btn::after,
-:root button.settings-switch::after { background: var(--w-mute); box-shadow: none; }
-:root .toggle-btn.active,
-:root .toggle-btn.settings-switch.active,
-:root button.settings-switch.active {
-	background: var(--w-accent) !important;
-	box-shadow: none !important;
-}
-:root .toggle-btn.active::after,
-:root button.settings-switch.active::after { background: var(--w-on-accent); }
-:root .toggle-btn:focus-visible,
-:root button.settings-switch:focus-visible { box-shadow: 0 0 0 2px var(--w-bg), 0 0 0 4px var(--w-accent) !important; }
-
-/* ---------- buttons, fields ---------- */
-:root .settings-content .action-btn,
-:root .settings-content .btn-small,
-:root .settings-content .mic-test-btn {
-	min-height: 34px;
-	padding: 6px 13px;
-	border: var(--w-bw, 1px) solid var(--w-line-strong);
-	border-radius: calc(10px * var(--w-rs, 1));
+.settings-content :is(.segmented, .density-toggle) > button {
+	height: 26px;
+	margin: 0;
+	padding: 0 12px;
+	border: 0;
+	border-radius: var(--radius-inner);
 	background: transparent;
-	color: var(--w-text);
-	font: 600 calc(13.5px * var(--w-fs, 1))/1.2 var(--w-sans);
 	box-shadow: none;
+	color: var(--w-mute);
+	font: var(--w-t-label-sm);
+	white-space: nowrap;
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
 }
-:root .settings-content .action-btn:hover,
-:root .settings-content .btn-small:hover,
-:root .settings-content .mic-test-btn:hover { background: var(--w-raise); border-color: var(--w-accent); }
-:root .settings-content .action-btn:not(.secondary):not(.ghost),
-:root .settings-content .primary-upload {
+.settings-content :is(.segmented, .density-toggle) > button:hover {
+	color: var(--w-text);
+}
+.settings-content :is(.segmented, .density-toggle) > button:is(.active, [aria-pressed='true'], [aria-checked='true']) {
+	background: var(--w-bg);
+	box-shadow: 0 0 0 var(--w-bw) var(--w-line-strong), var(--w-shadow-1);
+	color: var(--w-text);
+}
+:root[data-mode='light'] .settings-content :is(.segmented, .density-toggle) > button:is(.active, [aria-pressed='true'], [aria-checked='true']) {
+	background: var(--w-lift);
+}
+.settings-content :is(.segmented, .density-toggle) > button:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+
+/* Choice chips (sound picker): selection is a raised fill and a strong edge, not an accent fill. */
+.settings-content .sound-options,
+.settings-content .font-scale-presets {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+.settings-content .sound-option {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	box-sizing: border-box;
+	height: 28px;
+	min-width: 0;
+	max-width: 100%;
+	padding: 0 10px;
+	overflow: hidden;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: transparent;
+	box-shadow: none;
+	color: var(--w-mute);
+	font: var(--w-t-caption);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+	transform: none;
+}
+.settings-content .sound-option:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+	color: var(--w-text);
+}
+.settings-content .sound-option:is(.active, [aria-pressed='true']) {
+	border-color: var(--w-line-strong);
+	background: var(--w-raise);
+	color: var(--w-text);
+}
+
+/* Buttons: .action-btn is the kit default; .danger the outlined destructive; primary is ink. */
+.settings-content :is(.action-btn, .btn-small, .mic-test-btn, .test-sound-btn, .addon-open-dashboard-btn) {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	box-sizing: border-box;
+	height: 32px;
+	min-width: 0;
+	max-width: 100%;
+	margin: 0;
+	padding: 0 12px;
+	overflow: hidden;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: transparent;
+	background-image: none;
+	box-shadow: none;
+	color: var(--w-text);
+	font: var(--w-t-label);
+	text-overflow: ellipsis;
+	text-shadow: none;
+	white-space: nowrap;
+	cursor: pointer;
+	transform: none;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		border-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
+}
+.settings-content :is(.btn-small, .mic-test-btn, .test-sound-btn, .action-btn.small) {
+	height: 28px;
+	padding: 0 10px;
+	font: var(--w-t-caption);
+}
+.settings-content :is(.action-btn, .btn-small, .mic-test-btn, .test-sound-btn):hover:not(:disabled) {
+	background: var(--w-raise);
+	color: var(--w-text);
+	transform: none;
+}
+.settings-content .action-btn.danger {
+	border-color: color-mix(in srgb, var(--w-danger) 55%, transparent);
+	background: transparent;
+	color: var(--w-danger);
+}
+.settings-content .action-btn.danger:hover:not(:disabled) {
+	border-color: var(--w-danger);
+	background: var(--w-danger);
+	color: var(--w-on-accent);
+}
+.settings-content :is(button.primary, .primary-upload, button.save-btn, .action-btn.primary) {
+	border-color: var(--w-text);
 	background: var(--w-text);
 	color: var(--w-bg);
-	border-color: transparent;
 }
-:root .settings-content .theme-select,
-:root .settings-content select,
-:root .settings-content input[type='text'],
-:root .settings-content input[type='search'],
-:root .settings-content input[type='password'],
-:root .settings-content input:not([type]),
-:root .settings-content textarea {
-	background: var(--w-sink);
-	border: var(--w-bw, 1px) solid var(--w-line-strong);
-	border-radius: calc(10px * var(--w-rs, 1));
-	color: var(--w-text);
-	font: 400 calc(14px * var(--w-fs, 1))/1.4 var(--w-sans);
+.settings-content :is(button.primary, .primary-upload, button.save-btn, .action-btn.primary):hover:not(:disabled) {
+	border-color: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+	background: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+	color: var(--w-bg);
 }
-:root .settings-content select:focus,
-:root .settings-content input:focus,
-:root .settings-content textarea:focus { outline: none; border-color: var(--w-accent); box-shadow: var(--w-ring); }
-:root .settings-content .sound-option,
-:root .settings-content .theme-card { border: var(--w-bw, 1px) solid var(--w-line); border-radius: calc(12px * var(--w-rs, 1)); background: var(--w-bg2); color: var(--w-text); }
-:root .settings-content .sound-option.active,
-:root .settings-content .theme-card.active { border-color: var(--w-accent); box-shadow: inset 2px 0 0 var(--w-accent); }
-:root .settings-content input[type='range'] { accent-color: var(--w-accent); }
-:root .wabi-settings-modal .settings-content h2 { font-size: calc(26px * var(--w-fs, 1)); text-transform: none; letter-spacing: 0.01em; margin-bottom: 14px; }
+.settings-content :is(.action-btn, .btn-small, .mic-test-btn, .test-sound-btn, button.primary, button.save-btn):disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+.settings-content :is(.action-btn, .btn-small, .mic-test-btn, .test-sound-btn, button.primary, button.save-btn):focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+:root[data-char='contrast'] .settings-content :is(.action-btn, .btn-small, .mic-test-btn, .test-sound-btn):not(.danger):hover:not(:disabled) {
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
 
-/* Legacy gradient buttons (pointer effects, imports…) fall in line with the kit. */
-:root .settings-content .action-btn,
-:root .settings-content .primary-upload,
-:root .settings-content button.primary {
-	background: transparent !important;
-	background-image: none !important;
-	color: var(--w-text) !important;
-	border: var(--w-bw, 1px) solid var(--w-line-strong) !important;
-	box-shadow: none !important;
-	text-shadow: none !important;
+/* Fields written as plain inputs: the kit form field (§7.3). Kit fields and inputs inside a kit
+   field wrapper (the add-on filter) are left alone, so no field draws a box inside another. */
+.settings-content :is(
+	input[type='text'],
+	input[type='password'],
+	input[type='number'],
+	input[type='email'],
+	input[type='url'],
+	input[type='time'],
+	input[type='search'],
+	input:not([type]),
+	textarea,
+	select
+):where(:not(.w-field, .w-field *, .w-range)) {
+	box-sizing: border-box;
+	min-width: 0;
+	min-height: 38px;
+	margin: 0;
+	padding: 0 10px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+	transition:
+		border-color var(--w-dur-1) var(--w-ease),
+		box-shadow var(--w-dur-1) var(--w-ease);
 }
-:root .settings-content .action-btn:hover:not(:disabled) { background: var(--w-raise) !important; border-color: var(--w-accent) !important; transform: none !important; }
-:root .settings-content .primary-upload,
-:root .settings-content button.primary { background: var(--w-text) !important; color: var(--w-bg) !important; border-color: transparent !important; }
+.settings-content textarea:where(:not(.w-field)) {
+	padding: 8px 10px;
+}
+.settings-content select:where(:not(.w-field)) {
+	max-width: 16rem;
+	min-height: 32px;
+	padding: 0 8px 0 12px;
+	border-color: var(--w-line);
+	background: var(--w-lift);
+	color-scheme: dark;
+	cursor: pointer;
+}
+:root[data-mode='light'] .settings-content select:where(:not(.w-field)) {
+	color-scheme: light;
+}
+.settings-content :is(input, textarea, select):where(:not(.w-field, .w-field *, .w-range, [type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color'])):focus {
+	border-color: var(--w-accent);
+	box-shadow: var(--w-ring);
+	outline: none;
+}
+.settings-content :is(input, textarea):where(:not(.w-field))::placeholder {
+	color: var(--w-faint);
+	opacity: 1;
+}
+
+/* ---------- phones: list-first, one page pushed over the list (§8.9) ---------- */
+@media (max-width: 768px) {
+	:root .wabi-settings-modal.w-dialog {
+		width: 100vw;
+		height: 100dvh;
+		max-height: none;
+		border: 0;
+		border-radius: 0;
+	}
+}
+.settings-frame--phone {
+	grid-template-columns: minmax(0, 1fr);
+}
+.settings-frame--phone .settings-nav {
+	--settings-nav-pad: 8px;
+	padding: env(safe-area-inset-top, 0px) var(--settings-nav-pad) calc(16px + env(safe-area-inset-bottom, 0px));
+	border-right: 0;
+	background: var(--w-bg);
+}
+.settings-frame--phone .settings-nav__head {
+	height: 56px;
+	padding: 0 4px 0 8px;
+}
+.settings-frame--phone .settings-search {
+	width: auto;
+	margin: 0 8px 8px;
+}
+.settings-frame--phone .settings-search__field {
+	height: 44px;
+}
+.settings-frame--phone .settings-search__pop {
+	left: 0;
+	width: auto;
+}
+.settings-frame--phone .settings-nav__kicker {
+	padding: 22px 8px 8px;
+}
+.wabi-settings-modal .settings-frame--phone :is(.settings-nav__item, .settings-signout) {
+	height: 52px;
+	padding: 0 8px;
+	font: var(--w-t-label);
+	font-weight: 400;
+}
+.settings-frame--phone .settings-nav__foot {
+	margin-top: 24px;
+}
+/* The phone list is a menu of pages, not a "you are here" list: no page is open while it shows,
+   so the remembered tab wears no selection (it keeps aria-selected for the tablist). */
+:root .wabi-settings-modal .settings-frame--phone .settings-nav__item[aria-selected='true'] {
+	background: transparent;
+	box-shadow: none;
+	font-weight: 400;
+}
+:root .wabi-settings-modal .settings-frame--phone .settings-nav__item[aria-selected='true'] > svg {
+	color: var(--w-faint);
+}
+.settings-frame--phone.settings-frame--page .settings-nav,
+.settings-frame--phone:not(.settings-frame--page) .settings-main {
+	display: none;
+}
+.settings-frame--phone .settings-head {
+	height: auto;
+	min-height: 56px;
+	padding: env(safe-area-inset-top, 0px) 4px 0;
+	gap: 4px;
+}
+.settings-frame--phone .settings-head__title {
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 0;
+	padding: 6px 0;
+}
+.settings-frame--phone .settings-head__name {
+	font: 600 calc(20px * var(--w-fs)) / calc(26px * var(--w-fs)) var(--w-serif);
+}
+.wabi-settings-modal .settings-frame--phone .settings-content {
+	gap: 28px;
+	padding: 20px 16px calc(32px + env(safe-area-inset-bottom, 0px));
+}
+@media (pointer: coarse) {
+	.wabi-settings-modal :is(.settings-nav__item, .settings-signout) {
+		height: 44px;
+	}
+	.settings-search__option {
+		min-height: 44px;
+	}
+}
+
+/* A narrow page (phones, tablets): a control that does not fit beside its words drops under them. */
+@container settings-page (max-width: 560px) {
+	.settings-content .w-srow {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 10px 16px;
+	}
+	.settings-content .w-srow__text {
+		flex: 1 1 200px;
+	}
+	.settings-content .w-srow__control {
+		flex: 0 1 auto;
+		max-width: 100%;
+		margin-left: auto;
+	}
+	.settings-content .w-srow__control > .w-seg {
+		max-width: 100%;
+		overflow-x: auto;
+	}
+	.settings-range {
+		width: min(220px, 100%);
+	}
+}

@@ -84,8 +84,9 @@
 			<span class="eyebrow">Privacy &amp; retention</span>
 			<h2>Choose how much Wabi remembers — and how much it watches.</h2>
 			<p>Retention, confidentiality and moderation are separate choices. Making chat ephemeral does not pretend the server could not see it while it was live.</p>
+			<p>New DMs and groups start encryption-pending and use experimental encryption once everyone's devices are ready. Sending server-readable instead needs each sender's choice. The encryption has not been independently verified, and it does not hide everything from the server operator.</p>
 		</div>
-		<div class="truth"><strong>Current private-chat boundary</strong><span>Server-readable by default · encryption remains experimental</span></div>
+		<div class="truth"><strong>Private conversations</strong><span>Encryption pending, then experimental encryption · not independently verified</span></div>
 	</section>
 
 	{#if error}<div class="error" role="alert">{error}</div>{/if}
@@ -107,13 +108,13 @@
 		</section>
 
 		<section class="card">
-			<header><div><span class="step">2</span><div><h3>Private conversation moderation</h3><p>DMs and private groups are server-readable today, but that does not mean Wabi should inspect them automatically.</p></div></div></header>
+			<header><div><span class="step">2</span><div><h3>Private conversation moderation</h3><p>Older private rooms, and messages a sender chose to send server-readable, can be read by the server. That does not mean Wabi should inspect them automatically.</p></div></div></header>
 			<div class="choice-row">
 				<div><strong>Reports only</strong><span>Default. Safety rules do not inspect DM/group message text. Participants can still deliberately report a message.</span></div>
 				<label class="switch"><input type="checkbox" bind:checked={policy.privateContentAutomation} onchange={() => saved = ''}/><span></span></label>
 			</div>
 			{#if policy.privateContentAutomation}
-				<div class="warning"><strong>Private-content automation enabled.</strong><span>Literal server safety rules may inspect server-readable DM/group text before delivery. This setting can never override future E2EE.</span></div>
+				<div class="warning"><strong>Private-content automation enabled.</strong><span>Literal server safety rules may inspect server-readable DM/group text before delivery. It never reaches messages sent with experimental encryption.</span></div>
 			{:else}
 				<div class="good"><strong>Private spaces are reports-only.</strong><span>Server-side content rules apply to community spaces, not private conversations.</span></div>
 			{/if}
@@ -146,8 +147,8 @@
 
 		<section class="principles">
 			<div><strong>What this never means</strong><span>Live/ephemeral = “not retained,” not “invisible to the running server.”</span></div>
-			<div><strong>Future E2EE</strong><span>Operator-blind content will be outside server-side classifiers. Reporting can disclose selected evidence from the participant’s client.</span></div>
-			<div><strong>No silent downgrade</strong><span>Future encrypted conversations must never become server-readable merely because an admin toggled a moderation option.</span></div>
+			<div><strong>Encrypted messages</strong><span>Server-side rules can't read messages sent with experimental encryption. Reporting can still disclose selected evidence from the participant’s client.</span></div>
+			<div><strong>No silent downgrade</strong><span>An encrypted conversation must never become server-readable because an admin changed a moderation option.</span></div>
 		</section>
 
 		<footer>

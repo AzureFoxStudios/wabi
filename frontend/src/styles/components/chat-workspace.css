@@ -1,87 +1,54 @@
 /* ==========================================================================
    CHAT — WORKSPACE STYLES
-   Extracted from chat.css
+   The placeholder a routed channel kind shows while its own view is not available
+   (ChannelModePlaceholder.svelte). The old "return to messages" pill is retired: the
+   folio in the stage masthead is the one way between workspaces.
    ========================================================================== */
 
+.channel-mode-placeholder {
+	min-height: 100%;
+	display: grid;
+	place-items: center;
+	padding: 32px;
+	color: var(--w-mute);
+}
 
+.channel-mode-placeholder__icon {
+	width: 48px;
+	height: 48px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	margin: 0 auto 16px;
+	color: var(--w-faint);
+}
 
-	.surface-return-btn {
-		border: 1px solid var(--border-subtle);
-		background: color-mix(in srgb, var(--surface-base) 92%, transparent);
-		color: var(--text-secondary);
-		border-radius: var(--radius-full);
-		padding: 0.45rem 0.75rem;
-		font-size: var(--text-sm);
-		font-weight: var(--font-weight-semibold);
-		cursor: pointer;
-		transition: all var(--duration-fast);
-	}
+.channel-mode-placeholder__icon svg {
+	width: 28px;
+	height: 28px;
+}
 
+.channel-mode-placeholder__copy {
+	max-width: 520px;
+	text-align: center;
+}
 
-	.surface-return-btn:hover,
-	.surface-return-btn:focus-visible {
-		border-color: var(--accent-primary-color);
-		color: var(--text-heading);
-		background: var(--surface-raised);
-	}
+.channel-mode-placeholder__kicker {
+	display: block;
+	margin-bottom: 8px;
+	color: var(--w-faint);
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
 
+.channel-mode-placeholder h2 {
+	margin: 0 0 8px;
+	color: var(--w-text);
+	font: 600 calc(20px * var(--w-fs)) / calc(26px * var(--w-fs)) var(--w-serif);
+}
 
-
-	.channel-mode-placeholder {
-		min-height: 100%;
-		display: grid;
-		place-items: center;
-		padding: 2rem;
-		color: var(--text-secondary);
-	}
-
-
-	.channel-mode-placeholder__icon {
-		width: 54px;
-		height: 54px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		margin: 0 auto 1rem;
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-lg);
-		background: var(--surface-raised);
-		color: var(--accent-primary-color);
-	}
-
-
-	.channel-mode-placeholder__icon svg {
-		width: 26px;
-		height: 26px;
-	}
-
-
-	.channel-mode-placeholder__copy {
-		max-width: 520px;
-		text-align: center;
-	}
-
-
-	.channel-mode-placeholder__kicker {
-		display: block;
-		margin-bottom: 0.45rem;
-		font-size: var(--text-sm);
-		font-weight: var(--font-weight-semibold);
-		color: var(--text-muted);
-		text-transform: uppercase;
-		letter-spacing: 0.02em;
-	}
-
-
-	.channel-mode-placeholder h2 {
-		margin: 0 0 0.55rem;
-		color: var(--text-heading);
-		font-size: var(--text-xl);
-		line-height: 1.25;
-	}
-
-
-	.channel-mode-placeholder p {
-		margin: 0;
-		line-height: 1.55;
-	}
+.channel-mode-placeholder p {
+	margin: 0;
+	font: var(--w-t-ui);
+}

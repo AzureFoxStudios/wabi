@@ -1,162 +1,202 @@
 /* ==========================================================================
-   CHAT — COMPRESSION STYLES
-   Extracted from chat.css
+   CHAT — VIDEO COMPRESSION DIALOG (VideoCompressionDialog.svelte, opened by the composer)
+   Owner (wave 1): w1-composer. Roles (--w-*), type tokens and radii only (design contract
+   §4.5 plane 2, §7.1 buttons, §7.13 dialog, §7.16 notices). Scoped to the dialog's own classes.
    ========================================================================== */
 
+.compression-modal-backdrop {
+	position: absolute;
+	inset: 0;
+	z-index: var(--z-popover);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 16px;
+	background: var(--w-scrim);
+}
 
+.compression-modal {
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	width: min(92vw, 420px);
+	padding: 20px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-xl);
+	background: var(--w-bg);
+	box-shadow: var(--w-shadow);
+	color: var(--w-text);
+}
 
-		.compression-modal-backdrop {
-			position: absolute;
-			inset: 0;
-			background: var(--surface-modal-overlay, var(--surface-modal-overlay, rgba(0, 0, 0, 0.56)));
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			padding: var(--space-4);
-			z-index: var(--z-popover, 500);
-		}
+.compression-modal h3 {
+	margin: 0 0 2px;
+	color: var(--w-text);
+	font: var(--w-t-heading);
+}
 
+.compression-copy {
+	margin: 0;
+	color: var(--w-mute);
+	font: var(--w-t-ui);
+	overflow-wrap: anywhere;
+}
 
-		.compression-modal {
-			width: min(92vw, 420px);
-			border: 1px solid var(--border-subtle);
-			background: var(--surface-base);
-			border-radius: var(--radius-lg);
-			padding: var(--space-3);
-			display: flex;
-			flex-direction: column;
-			gap: var(--space-2);
-		}
+.compression-runtime-note {
+	margin: 0;
+	color: var(--w-faint);
+	font: var(--w-t-mono);
+}
 
+.compression-preset-row {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
 
-		.compression-modal h3 {
-			margin: 0;
-			font-size: var(--text-lg);
-		}
+.compression-preset-row label {
+	color: var(--w-mute);
+	font: var(--w-t-caption);
+}
 
+.compression-preset-row select {
+	box-sizing: border-box;
+	height: 32px;
+	padding: 0 8px 0 12px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: var(--w-lift);
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
 
-		.compression-copy {
-			margin: 0;
-			font-size: var(--text-sm);
-			color: var(--text-secondary);
-			word-break: break-word;
-		}
+.compression-preset-row select:focus {
+	outline: none;
+	border-color: var(--w-accent);
+	box-shadow: var(--w-ring);
+}
 
+.compression-preset-note {
+	color: var(--w-faint);
+	font: var(--w-t-small);
+}
 
-		.compression-runtime-note {
-			margin: 0;
-			font-size: var(--text-xs);
-			color: var(--text-muted);
-		}
+.compression-estimate {
+	display: flex;
+	justify-content: space-between;
+	gap: 8px;
+	color: var(--w-mute);
+	font: var(--w-t-mono);
+	font-feature-settings: 'tnum';
+}
 
+.compression-estimate .estimate-saving {
+	color: var(--w-text);
+	font-weight: 500;
+}
 
-		.compression-preset-row {
-			display: flex;
-			flex-direction: column;
-			gap: var(--space-1);
-		}
+/* Info notice frame (§7.16): line-strong edge, no tint. */
+.compression-suggestion {
+	padding: 10px 12px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
 
+.compression-progress {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
 
-		.compression-preset-row label {
-			font-size: var(--text-xs);
-			color: var(--text-secondary);
-		}
+.compression-progress-info {
+	display: flex;
+	justify-content: space-between;
+	color: var(--w-mute);
+	font: var(--w-t-caption);
+	font-feature-settings: 'tnum';
+}
 
+.compression-progress .progress-bar {
+	height: 2px;
+	overflow: hidden;
+	border-radius: var(--w-pill);
+	background: var(--w-line);
+}
 
-		.compression-preset-row select {
-			border: 1px solid var(--border-subtle);
-			background: var(--surface-app);
-			color: var(--text-heading);
-			border-radius: var(--radius-md);
-			padding: var(--space-2) var(--space-2);
-			font-size: var(--text-sm);
-		}
+.compression-progress .progress-fill {
+	height: 100%;
+	background: var(--w-accent);
+	transition: width var(--w-dur-2) var(--w-ease);
+}
 
+/* Error notice frame (§7.16): 45% danger edge on a faint danger wash. */
+.compression-error {
+	padding: 10px 12px;
+	border: var(--w-bw) solid color-mix(in srgb, var(--w-danger) 45%, transparent);
+	border-radius: var(--radius-md);
+	background: color-mix(in srgb, var(--w-danger) 8%, var(--w-bg));
+	color: var(--w-text);
+	font: var(--w-t-small);
+	overflow-wrap: anywhere;
+}
 
-		.compression-preset-note {
-			font-size: var(--text-xs);
-			color: var(--text-muted);
-			line-height: 1.35;
-		}
+.compression-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 4px;
+}
 
+/* Buttons (§7.1): the first action is the one primary (ink), the rest default; Remove is danger,
+   outlined until hover and last. */
+.compression-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	height: 32px;
+	padding: 0 12px;
+	border: var(--w-bw) solid var(--w-text);
+	border-radius: var(--radius-md);
+	background: var(--w-text);
+	color: var(--w-bg);
+	font: var(--w-t-label);
+	white-space: nowrap;
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		border-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
+}
 
-		.compression-estimate {
-			display: flex;
-			justify-content: space-between;
-			gap: var(--space-2);
-			font-size: var(--text-xs);
-			color: var(--text-secondary);
-		}
+.compression-btn:hover {
+	border-color: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+	background: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+}
 
+.compression-btn.secondary {
+	border-color: var(--w-line-strong);
+	background: transparent;
+	color: var(--w-text);
+}
 
-		.compression-estimate .estimate-saving {
-			color: var(--color-success);
-		}
+.compression-btn.secondary:hover {
+	border-color: var(--w-line-strong);
+	background: var(--w-raise);
+}
 
+.compression-btn.danger {
+	order: 1;
+	border-color: color-mix(in srgb, var(--w-danger) 55%, transparent);
+	background: transparent;
+	color: var(--w-danger);
+}
 
-		.compression-suggestion {
-			border: 1px solid rgba(var(--accent-rgb), 0.35);
-			background: rgba(var(--accent-rgb), 0.12);
-			border-radius: var(--radius-md);
-			padding: var(--space-2) var(--space-2);
-			font-size: var(--text-xs);
-			color: var(--text-secondary);
-			line-height: 1.35;
-		}
-
-
-		.compression-progress {
-			display: flex;
-			flex-direction: column;
-			gap: var(--space-1);
-		}
-
-
-		.compression-progress-info {
-			display: flex;
-			justify-content: space-between;
-			font-size: var(--text-xs);
-			color: var(--text-secondary);
-		}
-
-
-		.compression-error {
-			border: 1px solid rgba(var(--color-danger-rgb), 0.45);
-			background: rgba(var(--color-danger-rgb), 0.14);
-			color: var(--color-danger);
-			border-radius: var(--radius-md);
-			padding: var(--space-2);
-			font-size: var(--text-sm);
-			word-break: break-word;
-		}
-
-
-		.compression-actions {
-			display: flex;
-			flex-wrap: wrap;
-			gap: var(--space-1);
-		}
-
-
-		.compression-btn {
-			border: 1px solid rgba(var(--accent-rgb), 0.5);
-			background: rgba(var(--accent-rgb), 0.2);
-			color: var(--text-heading);
-			border-radius: var(--radius-md);
-			padding: var(--space-1) var(--space-2);
-			font-size: var(--text-sm);
-			cursor: pointer;
-		}
-
-
-		.compression-btn.secondary {
-			border-color: var(--border-subtle);
-			background: var(--surface-hover, var(--surface-hover, rgba(255, 255, 255, 0.04)));
-		}
-
-
-		.compression-btn.danger {
-			border-color: rgba(var(--color-danger-rgb), 0.6);
-			background: rgba(var(--color-danger-rgb), 0.16);
-			color: var(--color-danger);
-		}
+.compression-btn.danger:hover {
+	border-color: var(--w-danger);
+	background: var(--w-danger);
+	color: var(--w-on-danger, var(--w-bg));
+}

@@ -1,138 +1,105 @@
 /**
- * Wabi Design Tokens
- * Unified CSS custom property system
+ * Wabi tokens: the scales every surface shares, and the bridge that keeps older rules on theme.
  *
- * These tokens establish a single naming convention.
- * Components should migrate from legacy tokens to semantic tokens.
+ * Where each kind of token lives:
+ *   colors        --w-* roles, written on <html> by lib/theme/roles.ts (design contract §5)
+ *   character     radii, border width, shadows, grain: styles/character.css (§4.4, §4.5)
+ *   type          faces and the --w-t-* scale: styles/typography.css (§4.1)
+ *   this file     spacing, shell metrics, motion, z-index and other scales (§4.2, §4.3, §4.7),
+ *                 plus the legacy bridge at the end
  *
- * IMPORTANT: This file is a LAYER on top of the existing theme system.
- * themeManager.ts still sets the old-style tokens (--surface-app, --text-heading, etc.)
- * This file creates semantic aliases that point to those tokens.
- *
- * As the refactor progresses, themeManager.ts will set semantic tokens directly.
+ * New and touched rules use the --w-* names only. The indigo-era names (--surface-*, --text-*,
+ * --accent-primary-*, --border-*) are kept solely so untouched legacy rules follow every theme;
+ * they now resolve to roles (see "Legacy bridge" below).
  */
 
 :root {
 	/* ========================================================================
-	   SEMANTIC TOKENS (point to legacy tokens set by themeManager.ts)
-	   These should be used by components going forward.
+	   SHELL METRICS (§4.3)
+	   The book-like frame: one masthead rule at y = --w-mast across sidebar, stage and companion,
+	   one footer band of --w-foot under all of them.
 	   ======================================================================== */
-
-	/* Surfaces */
---surface-app: var(--surface-app, #1a1a2e);
---surface-base: var(--surface-base, #24243e);
---surface-raised: var(--surface-raised, #302b63);
-	--surface-sunken: var(--surface-modal, #0f0c29);
---surface-sidebar: var(--surface-base, #24243e);
---surface-chat: var(--surface-app, #1a1a2e);
---surface-message: var(--surface-raised, #302b63);
---surface-modal: var(--surface-modal, #0f0c29);
---surface-card: var(--surface-raised, #302b63);
---surface-popover: var(--surface-base, #24243e);
---surface-tooltip: var(--surface-modal, #0f0c29);
---surface-input: var(--surface-base, #24243e);
---surface-button: var(--surface-raised, #302b63);
---surface-hover: var(--surface-hover, #302b63);
---surface-active: var(--surface-modal, #0f0c29);
---surface-selected: color-mix(in srgb, var(--accent-primary-color, #6366f1) 18%, transparent);
---surface-overlay: var(--surface-overlay, rgba(0, 0, 0, 0.6));
---surface-scrollbar: var(--gradient-scrollbar, var(--accent-primary, #6366f1));
---surface-elevated: var(--surface-raised, #302b63);
---surface-panel: var(--surface-base, #24243e);
---surface-modal-overlay: var(--surface-overlay, rgba(0, 0, 0, 0.6));
-	--surface-app-rgb: var(--bg-primary-rgb, 26, 22, 46);
-	--surface-base-rgb: var(--bg-secondary-rgb, 36, 36, 62);
-	--surface-raised-rgb: var(--bg-tertiary-rgb, 48, 43, 99);
-
-	/* Text */
-	--text-heading: var(--text-heading, #e0e0ff);
-	--text-body: var(--text-heading, #e0e0ff);
-	--text-secondary: var(--text-secondary, #b3b3ff);
-	--text-muted: var(--text-muted, #9999ff);
-	--text-placeholder: var(--text-muted, #9999ff);
-	--text-link: var(--accent, #6366f1);
-	--text-on-accent: var(--bg-sunken, #0f0c29);
-	--text-on-danger: #ffffff;
-	--text-on-success: #ffffff;
-	--text-on-warning: #000000;
-	--text-inverse: var(--bg-sunken, #0f0c29);
-	--text-danger: var(--color-danger, #ef4444);
-	--text-warning: var(--color-warning, #f59e0b);
-	--text-success: var(--color-success, #22c55e);
-	--text-info: var(--color-info, #3b82f6);
-
-	/* RGB variants (runtime-set by themeManager, static defaults here for pre-JS) */
-	--text-inverse-rgb: 255, 255, 255;
-	--text-muted-rgb: 153, 153, 255;
-	--color-success-rgb: 34, 197, 94;
-	--color-info-rgb: 59, 130, 246;
-	--color-warning-rgb: 245, 158, 11;
-	--color-danger-rgb: 239, 68, 68;
-
-	/* Borders */
-	--border-subtle: var(--border-subtle, #302b63);
-	--border-default: rgba(var(--text-secondary-rgb, 179, 179, 255), 0.15);
-	--border-strong: rgba(var(--text-secondary-rgb, 179, 179, 255), 0.3);
-	--border-focus: var(--accent, #6366f1);
-	--border-error: var(--color-danger, #ef4444);
-
-	/* Accent */
-	--accent-primary: var(--accent, #6366f1);
-	--accent-secondary: var(--accent-secondary, #818cf8);
-	--accent-primary-color: var(--color-accent-primary, #6366f1);
-	--accent-secondary-color: var(--color-accent-secondary, #818cf8);
-	--accent-gradient: var(--gradient-accent, linear-gradient(to right, #6366f1, #818cf8));
-	--accent-hover: color-mix(in srgb, var(--accent-primary, #6366f1) 85%, #ffffff);
-	--accent-subtle: var(--gradient-accent-subtle, rgba(99, 102, 241, 0.1));
-	--accent-medium: var(--gradient-accent-medium, rgba(99, 102, 241, 0.25));
-	--accent-glow: rgba(var(--accent-rgb, 99, 102, 241), 0.4);
-	--accent-danger-soft: rgba(var(--color-danger-rgb, 239, 68, 68), 0.15);
-	--accent-warning-soft: rgba(var(--color-warning-rgb, 255, 215, 0), 0.15);
-	--accent-success-soft: rgba(var(--color-success-rgb, 0, 255, 127), 0.15);
-	--accent-info-soft: rgba(var(--color-info-rgb, 0, 191, 255), 0.15);
-
-	/* Status */
-	--status-online: var(--status-online, #22c55e);
-	--status-away: var(--status-away, #f59e0b);
-	--status-busy: var(--status-busy, #ef4444);
-	--status-offline: var(--status-offline, #708090);
-	--status-online-rgb: 34, 197, 94;
-	--status-away-rgb: 245, 158, 11;
-	--status-busy-rgb: 239, 68, 68;
-	--status-offline-rgb: 112, 128, 144;
-
-	/* Semantic */
-	--color-success: var(--color-success, #22c55e);
-	--color-info: var(--color-info, #3b82f6);
-	--color-warning: var(--color-warning, #f59e0b);
-	--color-danger: var(--color-danger, #ef4444);
-	--color-success-bg: rgba(34, 197, 94, 0.15);
-	--color-danger-bg: rgba(239, 68, 68, 0.15);
-	--color-warning-bg: rgba(245, 158, 11, 0.15);
-	--color-info-bg: rgba(59, 130, 246, 0.15);
+	--w-head-a: 56px; /* masthead row A: community header, stage object row, panel title row */
+	--w-head-b: 40px; /* masthead row B: sidebar search, stage folio, panel search + filter */
+	--w-mast: calc(var(--w-head-a) + var(--w-head-b)); /* 96px: the rule every column shares */
+	--w-foot: 80px; /* footer band: sidebar foot, composer, Scratchpad tray, rail add */
+	--w-sb-w: 264px; /* sidebar */
+	--w-panel-w: 304px; /* companion panel default; user-resizable 240-744px */
+	--w-rail-w: 44px; /* stub rail */
+	--w-gutter: 32px; /* stage gutter */
+	--w-measure: calc(600px * var(--w-fs)); /* chat text column */
 
 	/* ========================================================================
-	   TYPOGRAPHY
+	   MOTION (§4.7)
+	   Hover changes color, never size or position. Entrances: opacity plus at most an 8px
+	   translate along the axis they come from; exits run at 0.75x. Never `transition: all`.
+	   Reduced motion is one global rule in motion.css.
 	   ======================================================================== */
-	--font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-	--font-mono: 'JetBrains Mono', 'Fira Code', Consolas, Monaco, monospace;
+	--w-dur-1: 120ms; /* color, border, opacity */
+	--w-dur-2: 180ms; /* menus, popovers, tooltips (after a 400ms hover delay), switch thumb */
+	--w-dur-3: 240ms; /* peeks, sheets, drawers, dialogs */
+	--w-ease: cubic-bezier(0.2, 0, 0, 1);
 
-	--font-size-2xs: 0.5625rem;  /* 9px */
-	--font-size-xs: 0.6875rem;   /* 11px */
-	--font-size-sm: 0.8125rem;   /* 13px */
-	--font-size-base: 0.875rem;  /* 14px */
-	--font-size-lg: 1rem;        /* 16px */
-	--font-size-xl: 1.25rem;     /* 20px */
-	--font-size-2xl: 1.5rem;     /* 24px */
-	--font-size-3xl: 2rem;       /* 32px */
+	/* Legacy motion names (older components) */
+	--duration-instant: 100ms;
+	--duration-fast: 150ms;
+	--duration-normal: 250ms;
+	--duration-slow: 350ms;
+	--duration-slower: 500ms;
+	--ease-out: cubic-bezier(0, 0, 0.2, 1);
+	--ease-in: cubic-bezier(0.4, 0, 1, 1);
+	--ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+	--ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+	--wabi-animation-multiplier: 1;
+	--wabi-animation-distance: 18px;
 
-	/* --text-* aliases (re-homed from src/app.css, which is unimported) */
-	--text-xs: calc(var(--font-size-xs) * var(--app-font-scale));      /* 11px */
-	--text-sm: calc(var(--font-size-sm) * var(--app-font-scale));      /* 13px */
-	--text-base: calc(var(--font-size-base) * var(--app-font-scale));  /* 14px */
-	--text-lg: calc(var(--font-size-lg) * var(--app-font-scale));      /* 16px */
-	--text-xl: calc(var(--font-size-xl) * var(--app-font-scale));      /* 20px */
-	--text-2xl: calc(var(--font-size-2xl) * var(--app-font-scale));    /* 24px */
+	/* ========================================================================
+	   SPACING (§4.2)
+	   2 · 4 · 8 · 12 · 16 · 20 · 24 · 32 · 40 · 48 · 64. Rhythm: 4 inside a control; 8 between
+	   icon and label and between sibling controls; 12 row padding; 16 panel inset; 32 stage
+	   gutter and between sections; 48-64 around empty states and document tops.
+	   ======================================================================== */
+	--space-unit: 0.25rem; /* 4px */
+	--space-0: 0;
+	--space-0_5: 0.125rem; /* 2px */
+	--space-1: 0.25rem; /* 4px */
+	--space-2: 0.5rem; /* 8px */
+	--space-3: 0.75rem; /* 12px */
+	--space-4: 1rem; /* 16px */
+	--space-5: 1.25rem; /* 20px */
+	--space-6: 1.5rem; /* 24px */
+	--space-8: 2rem; /* 32px */
+	--space-10: 2.5rem; /* 40px */
+	--space-12: 3rem; /* 48px */
+	--space-16: 4rem; /* 64px */
+
+	/* ========================================================================
+	   LEGACY TYPE SIZES
+	   New rules use the --w-t-* scale (typography.css). These older names are re-homed here
+	   (src/app.css, their old home, is not imported) and follow the interface scale like every
+	   design size. Nothing goes under 11px except tracked uppercase tags at 10px.
+	   ======================================================================== */
+	--font-size-2xs: calc(10px * var(--w-fs)); /* uppercase tags only */
+	--font-size-xs: calc(11px * var(--w-fs));
+	--font-size-sm: calc(13px * var(--w-fs));
+	--font-size-base: calc(14px * var(--w-fs));
+	--font-size-lg: calc(16px * var(--w-fs));
+	--font-size-xl: calc(20px * var(--w-fs));
+	--font-size-2xl: calc(24px * var(--w-fs));
+	--font-size-3xl: calc(32px * var(--w-fs));
+	--font-size-1: var(--font-size-xs);
+	--font-size-2: var(--font-size-sm);
+	--font-size-3: var(--font-size-base);
+	--font-size-4: var(--font-size-lg);
+	--font-size-5: var(--font-size-xl);
+	--font-size-6: var(--font-size-2xl);
+	--text-xs: calc(11px * var(--w-fs));
+	--text-sm: calc(13px * var(--w-fs));
+	--text-base: calc(14px * var(--w-fs));
+	--text-lg: calc(16px * var(--w-fs));
+	--text-xl: calc(20px * var(--w-fs));
+	--text-2xl: calc(24px * var(--w-fs));
+	--channel-btn-font-size: calc(0.9rem * var(--app-font-scale));
 
 	--font-weight-light: 300;
 	--font-weight-regular: 400;
@@ -145,30 +112,11 @@
 	--line-height-relaxed: 1.75;
 
 	/* ========================================================================
-	   SPACING (4px base unit)
-	   ======================================================================== */
-	--space-unit: 0.25rem; /* 4px */
-	--space-0: 0;
-	--space-1: 0.25rem;   /* 4px */
-	--space-2: 0.5rem;    /* 8px */
-	--space-3: 0.75rem;   /* 12px */
-	--space-4: 1rem;      /* 16px */
-	--space-5: 1.25rem;   /* 20px */
-	--space-6: 1.5rem;    /* 24px */
-	--space-8: 2rem;      /* 32px */
-	--space-10: 2.5rem;   /* 40px */
-	--space-12: 3rem;     /* 48px */
-	--space-16: 4rem;     /* 64px */
-
-	/* ========================================================================
 	   BORDERS & RADII
+	   The radius scale (--radius-sm/inner/md/lg/xl/2xl) follows the theme character and lives
+	   in character.css; these two are absolute.
 	   ======================================================================== */
 	--radius-none: 0;
-	--radius-sm: 4px;
-	--radius-md: 8px;
-	--radius-lg: 12px;
-	--radius-xl: 16px;
-	--radius-2xl: 24px;
 	--radius-full: 9999px;
 
 	--border-width-none: 0;
@@ -177,55 +125,50 @@
 	--border-width-lg: 4px;
 
 	/* ========================================================================
-	   SHADOWS
+	   LEGACY SHADOWS
+	   New rules use --w-shadow (overlays) and --w-shadow-1 (objects in flow), character.css.
 	   ======================================================================== */
 	--shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
 	--shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
 	--shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
 	--shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-	--shadow-focus: 0 0 0 3px var(--accent-glow);
 	--shadow-inset: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
 	--shadow-top: 0 -4px 12px rgba(0, 0, 0, 0.25);
 	--shadow-drawer-left: 8px 0 28px rgba(0, 0, 0, 0.35);
 	--shadow-drawer-right: -8px 0 28px rgba(0, 0, 0, 0.35);
 
 	/* ========================================================================
-	   POPOVER / FLOATING PANEL DIMENSIONS
-	   ======================================================================== */
-	--popover-max-height: 300px;
-
-	/* ========================================================================
 	   Z-INDEX SCALE
+	   One scale, in stacking order. These are the values the app has resolved to since the
+	   semantic and legacy blocks were merged; keep them, since raw z-indexes elsewhere are
+	   tuned against them.
 	   ======================================================================== */
 	--z-base: 0;
-	--z-dropdown: 100;
-	--z-sticky: 200;
+	--z-sticky: 100;
+	--z-dropdown: 200;
 	--z-popover: 500;
 	--z-overlay: 1000;
-	--z-modal: 1200;
-	--z-modal-nested: 1300;
+	--z-popout: 1200;
 	--z-call: 1400;
-	--z-toast: 1500;
+	--z-modal: 1500;
+	--z-modal-surface: 1501;
+	--z-modal-nested: 1600;
+	--z-modal-nested-surface: 1601;
 	--z-settings: 1600;
+	--z-call-shell: 1700;
 	--z-tooltip: 1700;
-	--z-lightbox: 2000;
+	--z-call-focus: 1750;
+	--z-call-docked: 1800;
+	--z-call-controls: 1802;
+	--z-toast: 2000;
+	--z-settings-shell: 2100;
+	--z-settings-nested: 2200;
+	--z-floating-ui: 2250;
+	--z-call-overlay: 2300;
+	--z-lightbox: 12000;
 
 	/* ========================================================================
-	   MOTION
-	   ======================================================================== */
-	--duration-instant: 100ms;
-	--duration-fast: 150ms;
-	--duration-normal: 250ms;
-	--duration-slow: 350ms;
-	--duration-slower: 500ms;
-
-	--ease-out: cubic-bezier(0, 0, 0.2, 1);
-	--ease-in: cubic-bezier(0.4, 0, 1, 1);
-	--ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
-	--ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
-
-	/* ========================================================================
-	   OPACITY
+	   OPACITY, ICONS, POPOVERS
 	   ======================================================================== */
 	--opacity-0: 0;
 	--opacity-10: 0.1;
@@ -238,12 +181,23 @@
 	--opacity-80: 0.8;
 	--opacity-90: 0.9;
 	--opacity-100: 1;
+	--opacity-subtle: 0.1;
+	--opacity-light: 0.15;
+	--opacity-medium: 0.25;
+	--opacity-strong: 0.5;
+	--opacity-heavy: 0.75;
+
+	--icon-sm: 16px;
+	--icon-md: 20px;
+	--icon-lg: 24px;
+
+	--popover-max-height: 300px;
 
 	/* ========================================================================
-	   AMBIENT EFFECTS
+	   AMBIENT EFFECTS (the user's optional background glow; intensity 0 by default)
 	   ======================================================================== */
 	--bg-effect-effect: none;
-	--bg-effect-color: var(--accent-primary-color, #6366f1);
+	--bg-effect-color: var(--w-accent);
 	--bg-effect-intensity: 0;
 	--bg-effect-size: 1;
 	--bg-effect-speed: 1;
@@ -270,7 +224,7 @@
 	   NEUTRAL (UNBRANDED) PALETTE
 	   B3 strip-Wabi mode: gray-only palette used by the launch/login overrides
 	   in neutral-branding.css when a server opts into `useNeutralBranding`.
-	   No indigo/accent tint — fully neutral.
+	   No accent tint — fully neutral.
 	   ======================================================================== */
 	--neutral-accent: #a1a1aa;
 	--neutral-accent-strong: #c8c8cf;
@@ -284,119 +238,53 @@
 	--neutral-text-muted: #71717a;
 
 	/* ========================================================================
-	   LEGACY ALIASES (backward compatibility — can remove once all components
-	   migrate to semantic tokens above)
+	   LEGACY STATUS AND CHANNEL VALUES
+	   themeManager.applyTheme writes the theme's own --status-*, --color-*, --*-rgb values
+	   on <html>; these are the pre-theme defaults and the tints derived from them.
+	   The `rgba(var(--*-rgb), a)` triplets are not bridged: CSS cannot turn a role color into a
+	   triplet, so they keep the raw palette (Midnight Violet tints stay #6F35D4) until
+	   roles.ts emits role triplets or their rules move to color-mix() of roles.
 	   ======================================================================== */
+	--surface-app-rgb: var(--bg-primary-rgb, 26, 22, 46);
+	--surface-base-rgb: var(--bg-secondary-rgb, 36, 36, 62);
+	--surface-raised-rgb: var(--bg-tertiary-rgb, 48, 43, 99);
+	--text-inverse-rgb: 255, 255, 255;
+	--text-muted-rgb: 153, 153, 255;
+	--color-success-rgb: 34, 197, 94;
+	--color-info-rgb: 59, 130, 246;
+	--color-warning-rgb: 245, 158, 11;
+	--color-danger-rgb: 239, 68, 68;
+	--status-online-rgb: 34, 197, 94;
+	--status-away-rgb: 245, 158, 11;
+	--status-busy-rgb: 239, 68, 68;
+	--status-offline-rgb: 112, 128, 144;
 
-	/* Legacy color namespace */
-	--surface-app: var(--bg-primary, linear-gradient(to right, #0f0c29 0%, #302b63 100%));
-	--color-background-primary-rgb: var(--bg-secondary-rgb, 26, 26, 46);
-	--surface-base: var(--surface-raised, #24243e);
-	--color-background-secondary-rgb: var(--bg-tertiary-rgb, 36, 36, 62);
-	--surface-raised: var(--surface-hover, #302b63);
-	--color-background-tertiary-rgb: var(--bg-tertiary-rgb, 48, 43, 99);
-	--text-heading: var(--text-heading, #e0e0ff);
-	--color-text-primary-rgb: var(--text-primary-rgb, 224, 224, 255);
-	--text-secondary: var(--text-secondary, #b3b3ff);
-	--color-text-secondary-rgb: var(--text-secondary-rgb, 179, 179, 255);
-	--text-muted: var(--text-muted, #9999ff);
-	--color-text-tertiary-rgb: var(--text-tertiary-rgb, 153, 153, 255);
-	--color-border-primary: var(--border-subtle, #302b63);
-	--color-border-primary-rgb: var(--border-rgb, 48, 43, 99);
-	--accent-primary: var(--accent-primary, #6366f1);
-	--color-accent-primary-rgb: var(--accent-rgb, 99, 102, 241);
-	--accent-secondary: var(--accent-secondary-color, #818cf8);
-	--color-accent-secondary-rgb: 129, 140, 248;
-	--color-accent-gradient: linear-gradient(to right, var(--accent-primary), var(--accent-secondary));
-	--color-success: var(--color-success, #22c55e);
-	--color-status-success-rgb: var(--color-success-rgb, 34, 197, 94);
-	--color-warning: var(--color-warning, #f59e0b);
-	--color-status-warning-rgb: var(--color-warning-rgb, 245, 158, 11);
-	--color-danger: var(--color-danger, #ef4444);
-	--color-status-danger-rgb: var(--color-danger-rgb, 239, 68, 68);
-	--color-info: var(--color-info, #3b82f6);
-	--color-status-info-rgb: var(--color-info-rgb, 59, 130, 246);
-	--status-offline: var(--status-offline, #708090);
-	--color-status-neutral-rgb: 112, 128, 144;
+	--text-on-danger: #ffffff;
+	--text-on-success: #ffffff;
+	--text-on-warning: #000000;
+	/* Not bridged: it resolves to its navy fallback in every theme (--bg-sunken is never set),
+	   while its rgb twin above is white. Its uses mean two opposite things (light text on call
+	   video and media scrims; dark text on a light inverse fill), so each rule picks its role
+	   when its surface is rewritten. */
+	--text-inverse: var(--bg-sunken, #0f0c29);
+	--text-warning: var(--color-warning, #f59e0b);
+	--text-success: var(--color-success, #22c55e);
+	--text-info: var(--color-info, #3b82f6);
 
-	/* Legacy font namespace */
-	--font-family-sans: var(--font-sans);
-	--font-family-mono: var(--font-mono);
-	--font-size-1: var(--font-size-xs);
-	--font-size-2: var(--font-size-sm);
-	--font-size-3: var(--font-size-base);
-	--font-size-4: var(--font-size-lg);
-	--font-size-5: var(--font-size-xl);
-	--font-size-6: var(--font-size-2xl);
-	--channel-btn-font-size: calc(0.9rem * var(--app-font-scale));
-
-	/* Legacy z-index namespace */
-	--z-base: 0;
-	--z-sticky: 100;
-	--z-dropdown: 200;
-	--z-overlay: 1000;
-	--z-popout: 1200;
-	--z-modal: 1500;
-	--z-modal-surface: 1501;
-	--z-modal-nested: 1600;
-	--z-modal-nested-surface: 1601;
-	--z-call-shell: 1700;
-	--z-call-focus: 1750;
-	--z-call-docked: 1800;
-	--z-call-controls: 1802;
-	--z-toast: 2000;
-	--z-settings-shell: 2100;
-	--z-settings-nested: 2200;
-	--z-floating-ui: 2250;
-	--z-call-overlay: 2300;
-	--z-lightbox: 12000;
-
-	/* Legacy shadow namespace */
-	--shadow-color-rgb: 0, 0, 0;
-	--shadow-focus-ring: 0 0 0 3px rgba(var(--accent-rgb, 99, 102, 241), 0.4);
-
-	/* Legacy motion namespace */
-	--wabi-animation-multiplier: 1;
-	--wabi-animation-distance: 18px;
-
-	/* Legacy opacity namespace */
-	--opacity-subtle: 0.1;
-	--opacity-light: 0.15;
-	--opacity-medium: 0.25;
-	--opacity-strong: 0.5;
-	--opacity-heavy: 0.75;
-
-	/* Legacy icon namespace */
-	--icon-sm: 16px;
-	--icon-md: 20px;
-	--icon-lg: 24px;
-
-	/* ========================================================================
-	   MISSING-TOKEN PATCH (defined here so they resolve at runtime; legacy block
-	   order ensures they win over the earlier semantic definitions)
-	   ======================================================================== */
-
-	/* Status hover variants (undefined → no hover before) */
+	--color-danger-bg: rgba(239, 68, 68, 0.15);
+	--accent-danger-soft: rgba(var(--color-danger-rgb, 239, 68, 68), 0.15);
+	--accent-warning-soft: rgba(var(--color-warning-rgb, 255, 215, 0), 0.15);
+	--accent-success-soft: rgba(var(--color-success-rgb, 0, 255, 127), 0.15);
+	--accent-info-soft: rgba(var(--color-info-rgb, 0, 191, 255), 0.15);
 	--color-info-hover: color-mix(in srgb, var(--color-info, #3b82f6) 85%, #ffffff);
 	--color-success-hover: color-mix(in srgb, var(--color-success, #22c55e) 85%, #ffffff);
 	--color-danger-hover: color-mix(in srgb, var(--color-danger, #ef4444) 85%, #ffffff);
 	--color-warning-hover: color-mix(in srgb, var(--color-warning, #f59e0b) 85%, #ffffff);
 
-	/* Warning surfaces used by pinned messages + deletion timers */
-	--bg-warning: rgba(var(--color-warning-rgb, 245, 158, 11), 0.12);
+	/* Warning band under pinned messages and deletion timers */
 	--bg-warning-light: rgba(var(--color-warning-rgb, 245, 158, 11), 0.18);
-	--border-warning: rgba(var(--color-warning-rgb, 245, 158, 11), 0.28);
 
-	/* Modal text */
-	--modal-text-secondary: var(--text-secondary, #b3b3ff);
-	--modal-text-muted: var(--text-muted, #9999ff);
-
-	/* Pinned message surfaces */
-	--pinned-bg: var(--surface-base, #24243e);
-	--pinned-border: color-mix(in srgb, var(--accent-primary-color, #6366f1) 22%, transparent);
-	--pinned-text-dark: var(--bg-sunken, #0f0c29);
-
-	/* Glass/overlay helpers */
+	/* Glass/overlay helper */
 	--color-glass-black-25: rgba(0, 0, 0, 0.25);
 
 	/* Accent stat/role colors (admin overview, notes, status dots) */
@@ -404,7 +292,103 @@
 	--accent-green: #4a9e5c;
 	--accent-purple: #9b59b6;
 	--accent-red: #d71921;
+}
 
-	/* DM-hub / settings accent border (was undefined → silent no-op) */
-	--accent-color: var(--accent-primary-color, #6366f1);
+/* Below 1100px the sidebar and the stage gutter tighten; phones keep a 16px gutter. */
+@media (max-width: 1100px) {
+	:root {
+		--w-sb-w: 252px;
+		--w-gutter: 24px;
+	}
+}
+@media (max-width: 599.98px) {
+	:root {
+		--w-gutter: 16px;
+	}
+}
+
+/* ==========================================================================
+   LEGACY BRIDGE
+   Every indigo-era color name resolves to the role that carries its meaning (§4.5, §5.1),
+   so legacy rules that nobody has rewritten yet still follow every theme: no raw indigo,
+   no accent gradients, the contrast-corrected accent and faint text, solid High Contrast rules.
+
+   Declared on body, not :root: themeManager.applyTheme and accessibility.ts write the older
+   palette into these same names inline on <html>, and nothing in a stylesheet outranks an
+   inline style without !important. Everything rendered lives in body and inherits from it, and
+   a component that sets one of these names on its own subtree (the neutral-branding login)
+   still wins there. Roles are resolved here, so a role changed further down the tree (the
+   per-community --w-sig) is not picked up through these names; new rules read --w-* directly.
+   ========================================================================== */
+body {
+	/* Surfaces: page --w-bg, columns and overlays --w-bg2, raised and selected --w-raise,
+	   field wells --w-sink, objects in flow --w-lift. */
+	--surface-app: var(--w-bg);
+	--surface-chat: var(--w-bg);
+	--surface-base: var(--w-bg);
+	--surface-modal: var(--w-bg);
+	--surface-sidebar: var(--w-bg2);
+	--surface-panel: var(--w-bg2);
+	--surface-popover: var(--w-bg2);
+	--surface-raised: var(--w-raise);
+	--surface-elevated: var(--w-raise);
+	--surface-message: var(--w-raise);
+	--surface-button: var(--w-raise);
+	--surface-active: var(--w-raise);
+	--surface-selected: var(--w-raise);
+	--surface-hover: color-mix(in srgb, var(--w-raise) 70%, transparent);
+	--surface-sunken: var(--w-sink);
+	--surface-input: var(--w-sink);
+	--surface-tooltip: var(--w-sink);
+	--surface-card: var(--w-lift, var(--w-bg2));
+	--surface-overlay: var(--w-scrim);
+	--surface-modal-overlay: var(--w-scrim);
+	--surface-scrollbar: var(--w-line-strong);
+	--pinned-bg: var(--w-bg2);
+	--pinned-border: color-mix(in srgb, var(--w-accent) 22%, transparent);
+	/* Text on the pinned band, an 18% warning tint over the page, so it is page text. */
+	--pinned-text-dark: var(--w-text);
+
+	/* Text: content --w-text, secondary --w-mute, small/quiet --w-faint (kept at 4.5:1). */
+	--text-heading: var(--w-text);
+	--text-body: var(--w-text);
+	--text-secondary: var(--w-mute);
+	--text-muted: var(--w-faint);
+	--text-placeholder: var(--w-faint);
+	--text-link: var(--w-accent);
+	--text-on-accent: var(--w-on-accent);
+	--text-danger: var(--w-danger);
+	--modal-text-secondary: var(--w-mute);
+
+	/* Accent: one contrast-corrected state color. The old secondary accent was often the seal
+	   hue, and its gradients and hover tints drifted toward it, so all of them are the accent.
+	   --w-accent is text-grade (4.5:1 on the page), so where a theme lightened it (Midnight
+	   Violet #6F35D4 -> #B698FF, Joker, Space, Longcat, Diamonds) a legacy accent FILL with a
+	   literal white label loses contrast (Midnight Violet 6.7:1 -> 2.35:1). The label on any
+	   accent fill is --text-on-accent / --w-on-accent (at least 5.3:1 in every theme); the
+	   rules that still hard-code white are being moved to it surface by surface, and §5.1 moves
+	   primary fills to --w-text. --accent-hover leans toward --w-text, the opposite pole from
+	   --w-on-accent in every shipped theme, so a hovered fill keeps that label readable. */
+	--accent-primary: var(--w-accent);
+	--accent-primary-color: var(--w-accent);
+	--accent-secondary: var(--w-accent);
+	--accent-secondary-color: var(--w-accent);
+	--accent-color: var(--w-accent);
+	--accent-hover: color-mix(in srgb, var(--w-accent) 85%, var(--w-text));
+	--accent-subtle: var(--w-accent-soft);
+
+	/* Borders: hairlines --w-line, control edges --w-line-strong. */
+	--border-subtle: var(--w-line);
+	--border-default: var(--w-line);
+	--color-border-primary: var(--w-line);
+	--border-strong: var(--w-line-strong);
+	--border-focus: var(--w-accent);
+	--border-error: var(--w-danger);
+
+	/* Focus ring for fields (§4.6); everything else uses the 2px accent outline. */
+	--shadow-focus-ring: 0 0 0 3px var(--w-accent-soft);
+
+	/* Faces */
+	--font-family-sans: var(--w-sans);
+	--font-family-mono: var(--w-mono);
 }

@@ -7,6 +7,8 @@ export interface LocalArtifact {
     schema:1;key:string;scopeId:string;id:string;kind:ArtifactKind;format:string;title:string;
     update:Uint8Array;pending:Record<string,Uint8Array>;meta:Meta|null;reviews:Review[];
     updatedAt:number;sourceKey?:string;presentationSession?:string;original?:{name:string;type:string;blob:Blob};
+    /** When this device created it (absent on records from before it was kept, and on documents opened from a share). */
+    createdAt?:number;
     /** Private editing buffers, never included in a network update. */
     drafts?:Record<string,PrivateDraft>;
 }
@@ -47,7 +49,7 @@ async function persist(input:LocalArtifact,add:Record<string,Uint8Array>,ack:str
             for(const [id,draft]of Object.entries(draftChanges)){if(draft===null)delete drafts[id];else drafts[id]=draft;}
             if(Object.keys(drafts).length>100||JSON.stringify(drafts).length>2*1024*1024)throw new Error('Private recovery buffers are full. Export or resolve older drafts before continuing.');
             const newer=old?.meta&&(!input.meta||old.meta.revision>input.meta.revision)?old:input;
-            output={...input,update,pending,meta:newer.meta,reviews:newer.reviews,drafts,original:input.original||old?.original};store.put(output);
+            output={...input,update,pending,meta:newer.meta,reviews:newer.reviews,drafts,original:input.original||old?.original,createdAt:input.createdAt??old?.createdAt};store.put(output);
         }catch(error){tx.abort();reject(error);}};
         tx.oncomplete=()=>resolve(output);tx.onerror=()=>reject(tx.error||new Error('Local workspace save failed'));tx.onabort=()=>reject(tx.error||new Error('Local workspace save was interrupted'));
     });
@@ -226,7 +228,7 @@ export async function createArtifact(scope:Scope,kind:ArtifactKind,title:string,
     const id=crypto.randomUUID(),doc=new Y.Doc();let update:Uint8Array;
     try {doc.getText('title').insert(0,title.trim().slice(0,200)||'Untitled');doc.getText('body');doc.getMap('data');seed(doc);update=Y.encodeStateAsUpdate(doc);}
     finally {doc.destroy();}
-    const record:LocalArtifact={schema:1,key:key(scope.scopeId,id),scopeId:scope.scopeId,id,kind,format,title,update,pending:{},meta:null,reviews:[],updatedAt:Date.now(),sourceKey,original};
+    const record:LocalArtifact={schema:1,key:key(scope.scopeId,id),scopeId:scope.scopeId,id,kind,format,title,update,pending:{},meta:null,reviews:[],updatedAt:Date.now(),createdAt:Date.now(),sourceKey,original};
     const saved=await persist(record,{[crypto.randomUUID()]:update},[]);
     if(!scope.isCurrent())throw new Error('Account changed; the draft was preserved under its original account.');
     const session=new ArtifactSession(scope,saved);liveSessions.set(record.key,session);return session;

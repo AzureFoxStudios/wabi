@@ -1,7 +1,13 @@
 /* Theme character: the non-color half of a theme.
    `data-char` is set on <html> by theme/roles.ts. Components read these tokens
    instead of hard-coding radii, borders and shadows, so a theme like Joker can
-   change the whole feel (square corners, hard shadows) without touching components. */
+   change the whole feel (square corners, hard shadows) without touching components.
+
+   --w-shadow is the overlay shadow (menus, popovers, dialogs, sheets, peeks, a dragged card).
+   --w-shadow-1 is the resting lift of an object in flow (attachment, task card, composer,
+   segmented key). It is composed in lists such as
+   `box-shadow: 0 0 0 var(--w-bw) var(--w-line-strong), var(--w-shadow-1)`, so it must always be
+   a valid shadow: "no lift" is `0 0 0 0 transparent`, never `none`. */
 :root,
 :root[data-char='soft'] {
 	--w-rs: 1;
@@ -9,17 +15,21 @@
 	--w-pill: 999px;
 	--w-avr: 50%;
 	--w-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+	--w-shadow-1: 0 0 0 0 transparent;
 	--w-grain: 0.07;
 }
+/* Daylight and other light themes: objects sit on paper with a soft contact shadow. */
 :root[data-mode='light'] {
 	--w-shadow: 0 24px 60px rgba(40, 50, 44, 0.25);
+	--w-shadow-1: 0 1px 2px color-mix(in srgb, var(--w-text) 10%, transparent), 0 0 0 0.5px color-mix(in srgb, var(--w-text) 4%, transparent);
 	--w-grain: 0.05;
 }
 :root[data-char='ink'] {
 	--w-rs: 0.7;
 }
 :root[data-char='pixel'] {
-	/* Joker: dot-matrix type for titles and digital strings. The theme's face outranks a community font. */
+	/* Joker: dot-matrix type for titles and digital strings. The theme's face outranks a community font.
+	   Pixelify draws its own baseline "…", so the serif stack here does not borrow Wabi Ellipsis. */
 	--w-serif: 'Pixelify Sans', 'Courier New', monospace;
 	--w-mono: 'Pixelify Sans', 'Courier New', monospace;
 	--w-rs: 0.2;
@@ -27,13 +37,21 @@
 	--w-pill: 5px;
 	--w-avr: 6px;
 	--w-shadow: 4px 4px 0 var(--w-sink);
+	--w-shadow-1: 2px 2px 0 var(--w-sink);
 	--w-grain: 0;
 }
-/* High Contrast: no glow, no grain, full-strength lines. */
+/* High Contrast: no glow, no grain, no lift, and every rule is solid. */
 :root[data-char='contrast'] {
 	--w-rs: 0.5;
-	--w-shadow: none;
+	--w-shadow: 0 0 0 0 transparent;
+	--w-shadow-1: 0 0 0 0 transparent;
 	--w-grain: 0;
+}
+/* theme/roles.ts writes --w-line inline on <html>, which no :root rule can outrank, so the solid
+   rule is also declared on body; everything rendered inherits it from there. */
+:root[data-char='contrast'],
+:root[data-char='contrast'] body {
+	--w-line: var(--w-line-strong);
 }
 @media (prefers-reduced-motion: reduce) {
 	:root {
@@ -41,10 +59,13 @@
 	}
 }
 
-/* The legacy radius scale follows the theme character, so older components pick up
-   Joker's square corners (or the soft default) without being edited. */
+/* Radii. Every corner is a base size times the theme's --w-rs (Ink 0.7, soft 1, High Contrast 0.5,
+   Joker 0.2), so older components pick up the character without being edited. The legacy names
+   keep their values; --radius-inner is for anything nested one level inside an 8px container
+   (segment option, menu item, tooltip, block handle): inner = outer - inset. */
 :root {
 	--radius-sm: calc(4px * var(--w-rs));
+	--radius-inner: calc(6px * var(--w-rs));
 	--radius-md: calc(8px * var(--w-rs));
 	--radius-lg: calc(12px * var(--w-rs));
 	--radius-xl: calc(16px * var(--w-rs));

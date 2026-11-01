@@ -1,325 +1,421 @@
 /* ==========================================================================
-   ML — ATTACHMENTS STYLES
-   Extracted from messagelist.css
+   ML — ATTACHMENTS STYLES (§7.19)
+   A file is an object in flow: lift, hairline, md corners, the resting lift shadow. One
+   metadata format everywhere, in mono: "PDF · 277.6 KB". Images sit on the sink so a
+   transparent PNG keeps a backing, with one mono meta line under them and no second caption.
    ========================================================================== */
 
-
-
-	.files-gallery {
-		display: grid;
-		grid-template-columns: repeat(4, 1fr);
-		gap: 0.25rem;
-		margin-top: 0.5rem;
-		max-width: 450px;
-	}
-
-
-	.album-message-card {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		gap: 0.8rem;
-		max-width: min(560px, 100%);
-		padding: 0.8rem 0.9rem;
-		border-radius: 16px;
-		border: 1px solid rgba(var(--accent-rgb), 0.22);
-		background:
-			linear-gradient(180deg, rgba(var(--accent-rgb), 0.1), var(--surface-hover, rgba(255, 255, 255, 0.02))),
-			var(--surface-hover, rgba(255, 255, 255, 0.03));
-		box-shadow: inset 0 0 0 1px var(--surface-hover, rgba(255, 255, 255, 0.02));
-	}
-
-
-	.album-message-card--actionable {
-		cursor: pointer;
-		transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
-	}
-
-
-	.album-message-card--actionable:hover {
-		border-color: rgba(var(--accent-rgb), 0.36);
-		background:
-			linear-gradient(180deg, rgba(var(--accent-rgb), 0.14), var(--surface-hover, rgba(255, 255, 255, 0.03))),
-			var(--surface-hover, rgba(255, 255, 255, 0.04));
-	}
-
-
-	.album-message-card--actionable:focus-visible {
-		outline: 2px solid rgba(var(--accent-rgb), 0.42);
-		outline-offset: 2px;
-	}
-
-
-	.album-message-card.is-uploading {
-		cursor: progress;
-	}
-
-
-	.album-message-main {
-		min-width: 0;
-		display: grid;
-		gap: 0.55rem;
-	}
-
-
-	.album-message-head {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.7rem;
-	}
-
-
-	.album-message-copy {
-		display: grid;
-		gap: 0.18rem;
-		min-width: 0;
-	}
-
-
-	.album-message-kicker {
-		font-size: 0.68rem;
-		font-weight: 700;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: var(--text-secondary);
-	}
-
-
-	.album-message-title {
-		font-size: 0.98rem;
-		font-weight: 700;
-		word-break: break-word;
-	}
-
-
-	.album-message-count {
-		display: inline-flex;
-		align-items: center;
-		height: 26px;
-		padding: 0 var(--space-2);
-		border-radius: var(--radius-full);
-		border: 1px solid rgba(var(--accent-rgb), 0.22);
-		background: rgba(var(--accent-rgb), 0.12);
-		font-size: var(--text-xs);
-		font-weight: 700;
-		color: var(--text-secondary);
-		white-space: nowrap;
-	}
-
-
-	.album-message-grid {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 0.4rem;
-	}
-
-
-	.album-message-tile {
-		padding: 0;
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-xl);
-		overflow: hidden;
-		background: var(--surface-hover, rgba(255, 255, 255, 0.04));
-		cursor: pointer;
-		aspect-ratio: 1 / 1;
-	}
-
-
-	.album-message-tile img,
-	.album-message-tile video {
-		display: block;
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-
-
-	.album-message-empty {
-		color: var(--text-secondary);
-		font-size: 0.84rem;
-		line-height: 1.45;
-	}
-
-
-	.album-message-note {
-		font-size: 0.75rem;
-		color: var(--text-secondary);
-	}
-
-
-	.album-message-actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.45rem;
-		align-items: center;
-		justify-content: flex-end;
-	}
-
-
-	.album-message-btn {
-		border: 1px solid var(--border-subtle);
-		background: var(--surface-hover, rgba(255, 255, 255, 0.06));
-		color: var(--text-heading);
-		border-radius: var(--radius-md);
-		padding: var(--space-2) var(--space-3);
-		font-size: var(--text-sm);
-		font-weight: 600;
-		cursor: pointer;
-	}
-
-
-	.album-message-btn.primary {
-		border-color: rgba(var(--accent-rgb), 0.4);
-		background: rgba(var(--accent-rgb), 0.18);
-	}
-
-
-	.album-message-btn:disabled {
-		opacity: 0.58;
-		cursor: progress;
-	}
-
-
-	.multi-zip-previews {
-		display: flex;
-		flex-direction: column;
-		gap: 0.35rem;
-		margin-top: 0.4rem;
-		max-width: 450px;
-	}
-
-
-	.gallery-file-item {
-		position: relative;
-		aspect-ratio: 1;
-		border-radius: var(--radius-md);
-		overflow: hidden;
-		border: 1px solid var(--border-subtle);
-		cursor: pointer;
-		transition: transform var(--duration-normal);
-		display: flex;
-		flex-direction: column;
-	}
-
-
-	.gallery-file-item:hover {
-		transform: scale(1.02);
-	}
-
-
-	.gallery-file-item.model-item {
-		aspect-ratio: auto;
-		min-height: 220px;
-		grid-column: span 2;
-		padding: 0.25rem;
-		gap: 0.25rem;
-		background: var(--surface-base);
-	}
-
-
-	.gallery-file-image {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-
-
-	.gallery-file-video {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		cursor: pointer;
-	}
-
-
-	.gallery-file-icon-large {
-		flex: 1;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 4rem;
-		background: var(--surface-base);
-	}
-
-
-	.gallery-file-overlay {
-		position: absolute;
-		bottom: 0;
-		left: 0;
-		right: 0;
-		background: var(--gradient-fade-top-dark);
-		color: white;
-		padding: 0.5rem;
-		font-size: var(--text-xs);
-		display: flex;
-		flex-direction: column;
-		gap: 0.125rem;
-	}
-
-
-	.file-name-truncate {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-weight: 500;
-	}
-
-
-	.file-size-small {
-		font-size: var(--text-xs);
-		opacity: 0.9;
-	}
-
-
-	/* Image & Video Download Links - Click Me! */
-	.image-download-link,
-	.video-download-link {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.3rem;
-		padding: 0.375rem 0.625rem;
-		margin-top: 0.75rem;
-		background: var(--gradient-accent-subtle);
-		border: 1px solid rgba(var(--accent-rgb), var(--opacity-light));
-		border-radius: var(--radius-sm);
-		color: var(--accent-primary-color);
-		text-decoration: none;
-		font-weight: 600;
-		font-size: var(--text-xs);
-		transition: all var(--duration-slow) ease;
-		cursor: pointer;
-		box-shadow: 0 2px 8px rgba(var(--accent-rgb), var(--opacity-subtle));
-	}
-
-
-	.open-viewport-btn {
-		border: 1px solid rgba(var(--accent-rgb), var(--opacity-light));
-		background: var(--surface-base);
-		color: var(--accent-primary-color);
-		border-radius: var(--radius-sm);
-		padding: var(--space-1) var(--space-2);
-		font-size: var(--text-xs);
-		font-weight: 600;
-		cursor: pointer;
-		width: fit-content;
-		margin-top: var(--space-1);
-	}
-
-
-	.open-viewport-btn:hover {
-		background: var(--surface-raised);
-	}
-
-
-	.image-download-link:hover,
-	.video-download-link:hover {
-		background: var(--gradient-accent-medium);
-		border-color: rgba(var(--accent-rgb), var(--opacity-strong));
-		color: var(--accent-primary-color);
-		box-shadow: 0 3px 12px rgba(var(--accent-rgb), var(--opacity-medium));
-	}
-
-
-	.gallery-file-item.last-item {
-		cursor: pointer;
-	}
+/* ---------- single file ---------- */
+.file-attachment {
+	position: relative;
+	display: grid;
+	grid-template-columns: 30px minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: 14px;
+	box-sizing: border-box;
+	max-width: 380px;
+	margin-top: 6px;
+	padding: 10px 8px 10px 14px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: var(--w-lift);
+	box-shadow: var(--w-shadow-1);
+	color: var(--w-text);
+	transition: border-color var(--w-dur-1) var(--w-ease);
+}
+.file-attachment:hover {
+	border-color: var(--w-line-strong);
+}
+/* the drawn page with its extension */
+.file-glyph {
+	position: relative;
+	display: grid;
+	place-items: center;
+	width: 30px;
+	height: 30px;
+	color: var(--w-mute);
+}
+.file-glyph .w-icon {
+	position: absolute;
+	inset: 0;
+	width: 30px;
+	height: 30px;
+}
+.file-glyph__ext {
+	position: relative;
+	margin-top: 9px;
+	font: 500 calc(7px * var(--w-fs)) / 1 var(--w-mono);
+	letter-spacing: 0.04em;
+	color: var(--w-mute);
+}
+.file-info {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+.file-attachment .file-name,
+.blend-file-card .file-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font: var(--w-t-label);
+	color: var(--w-text);
+}
+.file-attachment .file-size,
+.blend-file-card .file-size {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 6px;
+	font: var(--w-t-mono);
+	font-variant-numeric: tabular-nums;
+	color: var(--w-faint);
+}
+/* The download key is the card's one action; its hit area covers the card. */
+.file-attachment .file-download {
+	position: static;
+	color: var(--w-mute);
+}
+.file-attachment .file-download::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+}
+.file-attachment:hover .file-download {
+	background: var(--w-raise);
+	color: var(--w-text);
+}
+.file-attachment .file-download:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+
+/* An encrypted attachment is a security fact, so it wears the seal. */
+.file-sealed {
+	display: inline-flex;
+	align-items: center;
+	height: 18px;
+	margin-left: 6px;
+	padding: 0 7px;
+	border: var(--w-bw) solid color-mix(in srgb, var(--w-seal) 60%, transparent);
+	border-radius: var(--w-pill);
+	background: var(--w-seal-soft);
+	color: var(--w-text);
+	font: var(--w-t-caption);
+	font-size: calc(11px * var(--w-fs));
+	white-space: nowrap;
+}
+.file-size .file-sealed {
+	margin-left: 0;
+}
+
+/* Chat → Lore: where the file went, in words */
+.attachment-flag {
+	display: inline-flex;
+	align-items: center;
+	height: 20px;
+	margin: 0 0 4px;
+	padding: 0 8px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--w-pill);
+	color: var(--w-mute);
+	font: var(--w-t-micro);
+	white-space: nowrap;
+}
+
+/* .blend files: the same card with its import and download actions under it */
+.blend-file-card {
+	box-sizing: border-box;
+	max-width: 380px;
+	margin-top: 6px;
+	padding: 10px 12px 12px 14px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: var(--w-lift);
+	box-shadow: var(--w-shadow-1);
+}
+.blend-file-head {
+	display: grid;
+	grid-template-columns: 30px minmax(0, 1fr);
+	align-items: center;
+	column-gap: 14px;
+}
+.blend-file-actions,
+.blend-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 10px;
+}
+
+/* the small text actions around attachments read as kit buttons (.w-btn --sm) */
+.blend-import-btn,
+.blend-download-btn,
+.open-viewport-btn,
+.album-message-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	box-sizing: border-box;
+	width: fit-content;
+	height: 28px;
+	margin: 0;
+	padding: 0 10px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-caption);
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+.blend-import-btn:hover,
+.blend-download-btn:hover,
+.open-viewport-btn:hover,
+.album-message-btn:hover:not(:disabled) {
+	background: var(--w-raise);
+}
+.album-message-btn.primary {
+	border-color: var(--w-text);
+	background: var(--w-text);
+	color: var(--w-bg);
+}
+.album-message-btn.primary:hover {
+	background: color-mix(in srgb, var(--w-text) 86%, var(--w-bg));
+}
+.album-message-btn:disabled {
+	opacity: 0.45;
+	cursor: progress;
+}
+:is(.blend-import-btn, .blend-download-btn, .open-viewport-btn, .album-message-btn):focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+
+/* ---------- images, video, audio ---------- */
+.image-container,
+.video-container,
+.audio-container,
+.model-container {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 6px;
+	margin-top: 6px;
+	max-width: 100%;
+}
+.media-meta {
+	display: inline-flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 6px;
+	max-width: 420px;
+	font: var(--w-t-mono);
+	font-variant-numeric: tabular-nums;
+	color: var(--w-faint);
+	text-decoration: none;
+	overflow-wrap: anywhere;
+}
+a.media-meta:hover {
+	color: var(--w-text);
+	text-decoration: underline;
+	text-decoration-thickness: var(--w-bw);
+	text-underline-offset: 3px;
+}
+a.media-meta:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+	border-radius: var(--radius-sm);
+}
+
+/* ---------- several files ---------- */
+.files-gallery {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 4px;
+	max-width: 420px;
+	margin-top: 6px;
+}
+.gallery-file-item {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	aspect-ratio: 1;
+	overflow: hidden;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+	cursor: pointer;
+	transition: border-color var(--w-dur-1) var(--w-ease);
+}
+.gallery-file-item:hover {
+	border-color: var(--w-line-strong);
+}
+.gallery-file-item.file-link {
+	background: var(--w-lift);
+	color: var(--w-text);
+	text-decoration: none;
+}
+.gallery-file-item.model-item {
+	grid-column: span 2;
+	aspect-ratio: auto;
+	min-height: 220px;
+	gap: 4px;
+	padding: 4px;
+}
+.gallery-file-image,
+.gallery-file-video {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+.gallery-file-video {
+	cursor: pointer;
+}
+.gallery-file-icon-large {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	justify-content: center;
+	color: var(--w-mute);
+	font: 500 calc(13px * var(--w-fs)) / 1 var(--w-mono);
+	letter-spacing: 0.04em;
+}
+.gallery-file-overlay {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 6px 8px;
+	border-top: var(--w-bw) solid var(--w-line);
+	background: var(--w-lift);
+	color: var(--w-text);
+}
+.file-name-truncate {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font: var(--w-t-caption);
+}
+.file-size-small {
+	font: var(--w-t-micro);
+	font-variant-numeric: tabular-nums;
+	color: var(--w-faint);
+}
+.gallery-file-item.last-item {
+	cursor: pointer;
+}
+.multi-zip-previews {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	max-width: 420px;
+	margin-top: 6px;
+}
+
+/* ---------- shared album announcements ---------- */
+.album-message-card {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 12px;
+	box-sizing: border-box;
+	max-width: min(440px, 100%);
+	margin-top: 6px;
+	padding: 12px 14px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: var(--w-lift);
+	box-shadow: var(--w-shadow-1);
+	color: var(--w-text);
+}
+.album-message-card--actionable {
+	cursor: pointer;
+	transition: border-color var(--w-dur-1) var(--w-ease);
+}
+.album-message-card--actionable:hover {
+	border-color: var(--w-line-strong);
+}
+.album-message-card--actionable:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+.album-message-card.is-uploading {
+	cursor: progress;
+}
+.album-message-main {
+	display: grid;
+	gap: 8px;
+	min-width: 0;
+}
+.album-message-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+.album-message-copy {
+	display: grid;
+	gap: 2px;
+	min-width: 0;
+}
+.album-message-kicker {
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--w-faint);
+}
+.album-message-title {
+	font: var(--w-t-label);
+	overflow-wrap: anywhere;
+}
+.album-message-count {
+	display: inline-flex;
+	align-items: center;
+	height: 22px;
+	padding: 0 9px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--w-pill);
+	color: var(--w-mute);
+	font: var(--w-t-caption);
+	white-space: nowrap;
+}
+.album-message-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 4px;
+}
+.album-message-tile {
+	padding: 0;
+	overflow: hidden;
+	aspect-ratio: 1 / 1;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-inner);
+	background: var(--w-sink);
+	cursor: pointer;
+}
+.album-message-tile img,
+.album-message-tile video {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+.album-message-empty,
+.album-message-note {
+	font: var(--w-t-small);
+	color: var(--w-mute);
+}
+.album-message-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+}
+.album-message-deleted-note {
+	font: var(--w-t-caption);
+	color: var(--w-faint);
+}

@@ -48,7 +48,7 @@
 		<label class="master"><input type="checkbox" bind:checked={policy.enabled} /><span>{policy.enabled ? 'Rules active' : 'Rules paused'}</span></label>
 	</section>
 	<section class="principle"><strong>Simple is valid.</strong><span>A rule can be as dumb and dependable as “if message equals this word, ban from the channel.” More advanced detectors can still use the same action pipeline later.</span></section>
-	<section class="scope"><strong>Scope respects privacy.</strong><span>These rules apply to community spaces. DMs and private groups are reports-only unless an admin explicitly opts them into automation under <b>Privacy &amp; retention</b>. Future E2EE content is outside server-side scanning.</span></section>
+	<section class="scope"><strong>Scope respects privacy.</strong><span>These rules apply to community spaces. DMs and private groups are reports-only unless an admin explicitly opts them into automation under <b>Privacy &amp; retention</b>. Messages sent with experimental encryption are outside server-side scanning.</span></section>
 	{#if error}<div class="error" role="alert">{error}</div>{/if}
 	{#if saved}<div class="saved" role="status">{saved}</div>{/if}
 	{#if loading}<p>Loading safety rules…</p>{:else}

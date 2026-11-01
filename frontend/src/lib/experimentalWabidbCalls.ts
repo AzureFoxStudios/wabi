@@ -9,17 +9,16 @@
  *
  * This module is a thin compatibility layer: the modern `WabidbRelay*` names
  * below describe the current default-on behavior, and the legacy
- * `ExperimentalWabidbCall*` exports are kept as deprecated aliases so
- * existing importers (Chat.svelte, AudioSettingsTab.svelte, ChatHeader.svelte,
- * calling_impl_core.ts) keep compiling unchanged.
+ * `ExperimentalWabidbCall*` exports are kept as deprecated aliases for
+ * calling_impl_core.ts.
+ *
+ * The old DM/group header toggle ("wabiDB Relay ON/OFF") and its
+ * localStorage key are gone (design contract §8.10, §9.4): the toggle gated
+ * nothing, so it showed members a false state. The transport choice lives in
+ * Settings › Audio & video (`getStoredCallTransportMode`).
  */
 
-import { browser } from '$app/environment';
 import { getStoredCallTransportMode } from './mediaRuntime';
-
-// Legacy localStorage key, kept so the old "wabiDB EXP" toggle still
-// round-trips on upgrade. It no longer gates anything.
-const LEGACY_WABIDB_RELAY_KEY = 'wabi_experimental_wabidb_calls_enabled';
 
 /** Scopes that wabidb relay call routing applies to. */
 export type WabidbRelayCallScope = 'dm' | 'group' | 'channel' | 'unknown';
@@ -34,20 +33,6 @@ export function isWabidbRelayDefault(scope: WabidbRelayCallScope): boolean {
 	if (scope !== 'dm' && scope !== 'group') return false;
 	const mode = getStoredCallTransportMode();
 	return mode === 'auto' || mode === 'wabidb';
-}
-
-/**
- * Legacy toggle state, kept so the old settings switch keeps working. It no
- * longer gates anything — wabidb relay is the default transport.
- */
-export function isWabidbRelayToggleEnabled(): boolean {
-	if (!browser) return false;
-	return localStorage.getItem(LEGACY_WABIDB_RELAY_KEY) === 'true';
-}
-
-export async function setWabidbRelayToggleEnabled(enabled: boolean): Promise<void> {
-	if (!browser) return;
-	localStorage.setItem(LEGACY_WABIDB_RELAY_KEY, String(enabled));
 }
 
 /**
@@ -74,16 +59,6 @@ export type ExperimentalWabidbCallScope = WabidbRelayCallScope;
 /** @deprecated Use {@link isWabidbRelayDefault}. */
 export function shouldUseExperimentalWabidbCall(scope: ExperimentalWabidbCallScope): boolean {
 	return isWabidbRelayDefault(scope);
-}
-
-/** @deprecated Use {@link isWabidbRelayToggleEnabled}. */
-export function isExperimentalWabidbCallEnabled(): boolean {
-	return isWabidbRelayToggleEnabled();
-}
-
-/** @deprecated Use {@link setWabidbRelayToggleEnabled}. */
-export async function setExperimentalWabidbCallEnabled(enabled: boolean): Promise<void> {
-	return setWabidbRelayToggleEnabled(enabled);
 }
 
 /** @deprecated Use {@link recordWabidbRelayCallAttempt}. */

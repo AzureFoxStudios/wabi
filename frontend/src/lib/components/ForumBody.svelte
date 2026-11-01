@@ -62,6 +62,17 @@
  let container = $state<HTMLDivElement>();
  $effect(() => { html; if (!container) return; for (const token of container.querySelectorAll<HTMLElement>('[data-ref-kind], .mention-token, .spoiler')) { token.tabIndex = 0; token.setAttribute('role', token.classList.contains('spoiler') ? 'button' : 'link'); } });
  onMount(() => { ready = true; });
+ // Links, references, mentions and spoilers inside the rendered HTML are delegated from the body.
+ // The body itself is not a control (its post is the <article>), so the listeners are attached here
+ // instead of as attributes that would give a plain container pointer and key handlers.
+ $effect(() => {
+  const node = container; if (!node) return;
+  const onClick = (event: MouseEvent) => { void activate(event); };
+  const onKey = (event: KeyboardEvent) => { if ((event.key === 'Enter' || event.key === ' ') && event.target instanceof HTMLElement && event.target.matches('[data-ref-kind], .mention-token, .spoiler')) { event.preventDefault(); void activate(event); } };
+  node.addEventListener('click', onClick);
+  node.addEventListener('keydown', onKey);
+  return () => { node.removeEventListener('click', onClick); node.removeEventListener('keydown', onKey); };
+ });
  let navigationError = $state('');
  let profile = $state<User | null>(null), anchor = $state<HTMLElement | null>(null), profileOpen = $state(false);
  const html = $derived.by(() => {
@@ -103,22 +114,31 @@
  }
 </script>
 <!-- Sanitized by the shared chat renderer; navigation is delegated to Wabi. -->
-<div class="forum-rich-body markdown-content" bind:this={container} role="article" onclick={activate} onkeydown={(event) => { if ((event.key === 'Enter' || event.key === ' ') && event.target instanceof HTMLElement && event.target.matches('[data-ref-kind], .mention-token, .spoiler')) { event.preventDefault(); void activate(event); } }}>{@html html}</div>
-{#each objectCards as record (`${record?.kind}:${record?.id}`)}{#if record}<button class="object-card" type="button" onclick={(event)=>openObject(event,record)} title="Alt-click to preview">{#if record.thumbUrl}<img src={record.thumbUrl} alt="" loading="lazy" />{/if}<span><small>{record.kind==='wiki_page'?'Wiki page':record.kind==='gallery_work'?'Gallery work':record.kind==='forum_post'?'Forum thread':'Map place'}</small><strong>{record.title}</strong>{#if record.subtitle}<span>{record.subtitle}</span>{/if}</span></button>{/if}{/each}
+<div class="forum-rich-body w-prose" bind:this={container}>{@html html}</div>
+{#each objectCards as record (`${record?.kind}:${record?.id}`)}{#if record}<button class="object-card" type="button" onclick={(event)=>openObject(event,record)} >{#if record.thumbUrl}<img src={record.thumbUrl} alt="" loading="lazy" />{/if}<span><small>{record.kind==='wiki_page'?'Wiki page':record.kind==='gallery_work'?'Gallery work':record.kind==='forum_post'?'Forum thread':'Map place'}</small><strong>{record.title}</strong>{#if record.subtitle}<span>{record.subtitle}</span>{/if}</span></button>{/if}{/each}
 {#each lorePreviews as ref (`${ref.channelId}:${ref.filePath}:${ref.lines?.start ?? ''}-${ref.lines?.end ?? ''}`)}<ForumLorePreview channelId={ref.channelId} filePath={ref.filePath} lines={ref.lines} />{/each}
 {#each previewUrls as url (url)}<LinkPreview {url} />{/each}
-<span role="status">{navigationError || referenceNotice}</span>
+<span class="forum-ref-status" role="status">{navigationError || referenceNotice}</span>
 {#if profileOpen}<UserPopout user={profile} bind:isOpen={profileOpen} anchorElement={anchor} isOwnProfile={profile?.dbUserId === $currentUser?.dbUserId} />{/if}
 <style>
- .object-card {display:flex;gap:.8rem;align-items:center;width:100%;padding:.8rem;margin:.8rem 0;text-align:left;border:1px solid var(--w-line-strong);border-radius:calc(10px * var(--w-rs, 1));background:var(--w-raise);color:var(--w-text);cursor:pointer;}
- .object-card>span {display:flex;flex-direction:column;gap:.3rem;} .object-card small,.object-card span span {color:var(--w-mute);font-size:.8rem;} .object-card img {width:72px;height:72px;object-fit:cover;border-radius:calc(6px * var(--w-rs, 1));}
- .forum-rich-body :global(.mention-token-gallery_work), .forum-rich-body :global(.mention-token-forum_post), .forum-rich-body :global(.mention-token-wiki_page), .forum-rich-body :global(.mention-token-place) { display: inline-flex; padding: .3rem .55rem; margin: .12rem 0; border: 1px solid var(--w-line-strong); border-radius: .45rem; background: var(--w-bg2); font-weight: 500; }
-
- .forum-rich-body { overflow-wrap: anywhere; line-height: 1.65; }
- .forum-rich-body :global(p) { margin: 0 0 .8em; }
- .forum-rich-body :global(p:last-child) { margin-bottom: 0; }
- .forum-rich-body :global(pre) { overflow: auto; padding: .8em; border-radius: calc(10px * var(--w-rs, 1)); background: var(--w-bg2); }
- .forum-rich-body :global(a), .forum-rich-body :global(.mention-token) { color: var(--w-accent); cursor: pointer; }
- .forum-rich-body :global(table) { display: block; overflow: auto; border-collapse: collapse; }
- .forum-rich-body :global(td), .forum-rich-body :global(th) { padding: .35em .6em; border: 1px solid var(--w-line-strong); }
+ /* The body is the one prose style (.w-prose, kit-prose.css): no scoped type here. Linked
+    objects are objects in flow (§4.5): lift, hairline, the small in-flow shadow. */
+ .object-card {
+  display: flex; gap: 14px; align-items: center; box-sizing: border-box; width: 100%; max-width: 440px;
+  margin: 18px 0 0; padding: 10px 14px; text-align: left; cursor: pointer;
+  border: var(--w-bw) solid var(--w-line); border-radius: var(--radius-md);
+  background: var(--w-lift); box-shadow: var(--w-shadow-1); color: var(--w-text);
+  transition: border-color var(--w-dur-1) var(--w-ease);
+ }
+ .object-card:hover { border-color: var(--w-line-strong); }
+ .object-card:focus-visible { outline: 2px solid var(--w-accent); outline-offset: 2px; }
+ .object-card > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+ .object-card small { color: var(--w-faint); font: var(--w-t-kicker); letter-spacing: 0.12em; text-transform: uppercase; }
+ .object-card strong { font: var(--w-t-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ .object-card span span { color: var(--w-mute); font: var(--w-t-small); }
+ .object-card img { flex: none; width: 64px; height: 64px; object-fit: cover; border-radius: var(--radius-inner); }
+ .forum-rich-body :global(.emote) { display: inline-block; width: auto; height: 1.5em; max-width: 128px; max-height: 128px; margin: 0 0.1em; vertical-align: middle; }
+ .forum-rich-body :global(.emoji-inline) { display: inline-block; width: auto; height: 1.2em; margin: 0 0.05em; vertical-align: -0.2em; }
+ .forum-ref-status { display: block; margin-top: 8px; color: var(--w-faint); font: var(--w-t-small); }
+ .forum-ref-status:empty { display: none; }
 </style>

@@ -1,3 +1,5 @@
+<!-- A native canvas slide. It draws inside AudienceSlide and takes its face from the slide tokens
+     (--slide-face, the exports' Arial), so canvas text matches the PPTX subset (sceneExport.ts). -->
 <script lang="ts">
     import { cleanDesign, scenePalette, tableRows, chartRows, type SlideDesign } from './scene';
     let { design }: { design: SlideDesign } = $props();
@@ -23,7 +25,7 @@
 {:else}<p role="alert">This slide design is unavailable or exceeds its safety limits.</p>{/if}
 <style>
     .scene {position:absolute;inset:0;overflow:hidden;container-type:inline-size;}
-    .object {position:absolute;box-sizing:border-box;overflow:hidden;line-height:1.25;font-family:Arial,sans-serif;}
+    .object {position:absolute;box-sizing:border-box;overflow:hidden;line-height:1.25;font-family:var(--slide-face, Arial, sans-serif);letter-spacing:0;}
     .text {white-space:pre-wrap;overflow-wrap:anywhere;padding:.15em;}
     .ellipse {border-radius:50%;}
     img,svg {width:100%;height:100%;display:block;}

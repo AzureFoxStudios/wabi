@@ -1,317 +1,329 @@
+/* ==========================================================================
+   Saved-servers rail (design contract §8.1, §5.2 selection grammar, §5.3 status marks).
+   ServerRail.svelte. Roles, type tokens and kit classes only.
+
+   Page plane (--w-bg) with a column hairline toward the sidebar. Row A is the rail's kicker over
+   the shared 96px masthead rule. 52px tiles: the server's icon or its serif initial stamp
+   (tiles have no names, so servers must not all share one mark); hover is the 70% raise mix,
+   the current server a --w-raise tile (High Contrast adds the inset ring). Unread is an 8px ink
+   dot with a ring in the rail's colour. Nothing grows, lifts or reshapes under the pointer. The
+   foot band is 80px on the shared footer rule.
+   Cascade: styles.css (legacy slot). The stub rail (RightStubStrip.css) has its own class
+   names; nothing here may reach it.
+   ========================================================================== */
+
 .server-rail {
-	width: 92px;
-	flex-shrink: 0;
+	--server-rail-surface: var(--w-bg);
+	box-sizing: border-box;
 	display: flex;
 	flex-direction: column;
-	align-items: center;
-	gap: var(--space-3, 0.75rem);
-	padding: max(1.25rem, env(safe-area-inset-top)) 1rem 1.15rem;
-	border-right: 1px solid rgba(var(--border-rgb), var(--opacity-light));
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--surface-app) 96%, transparent) 0%, color-mix(in srgb, var(--surface-app) 90%, transparent) 100%),
-		radial-gradient(circle at top, color-mix(in srgb, var(--color-info) 16%, transparent), transparent 52%);
+	align-items: stretch;
+	flex-shrink: 0;
+	width: 92px;
+	height: 100%;
+	height: 100dvh;
+	padding: env(safe-area-inset-top, 0px) 0 0;
+	border-right: var(--w-bw) solid var(--w-line);
+	background: var(--server-rail-surface);
+	color: var(--w-text);
+}
+.server-rail.rail-right {
+	border-right: 0;
+	border-left: var(--w-bw) solid var(--w-line);
+}
+
+.server-rail .rail-primary {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	align-items: stretch;
+	min-height: 0;
+}
+
+/* Row A: the kicker, centred on row A's line, then the masthead rule at y = --w-mast. */
+.server-rail .rail-head {
+	display: flex;
+	flex: none;
+	align-items: flex-start;
+	justify-content: center;
 	box-sizing: border-box;
+	height: var(--w-mast, 96px);
+	padding-top: calc((var(--w-head-a, 56px) - 16px) / 2);
+	border-bottom: var(--w-bw) solid var(--w-line);
+}
+.server-rail .rail-kicker {
+	color: var(--w-faint);
+	white-space: nowrap;
 }
 
-/* Density states */
-.server-rail.density-icons-only {
-	width: 48px;
-	padding: max(1.25rem, env(safe-area-inset-top)) 0.4rem 1.15rem;
+.server-rail .server-pill,
+.server-rail .folder-member {
+	position: relative;
+	display: grid;
+	place-items: center;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-text);
+	font: var(--w-t-label);
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		box-shadow var(--w-dur-1) var(--w-ease);
+}
+.server-rail .server-pill {
+	width: 52px;
+	height: 52px;
+}
+.server-rail .server-pill:hover,
+.server-rail .folder-member:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+}
+.server-rail .server-pill.active,
+.server-rail .folder-pill[aria-expanded='true'],
+.server-rail .folder-member.active {
+	background: var(--w-raise);
+}
+.server-rail :is(.server-pill, .folder-member):focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+:root[data-char='contrast'] .server-rail :is(.server-pill, .folder-member):not(.active):hover {
+	background: transparent;
+}
+:root[data-char='contrast'] .server-rail :is(.server-pill, .folder-member):hover,
+:root[data-char='contrast'] .server-rail :is(.server-pill, .folder-member).active {
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
 }
 
-.server-rail.density-icons-only .rail-primary {
-	gap: var(--space-2, 0.5rem);
+.server-rail .server-mark {
+	display: grid;
+	place-items: center;
+	box-sizing: border-box;
+	width: 36px;
+	height: 36px;
+	overflow: hidden;
+	border-radius: var(--radius-md);
+}
+.server-rail .server-mark--sm {
+	width: 28px;
+	height: 28px;
+	border-radius: var(--radius-inner);
+}
+.server-rail .server-avatar-image {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+/* The initial stamp: one serif initial on paper (D26), the same for every theme. */
+.server-rail .server-avatar-fallback {
+	display: grid;
+	place-items: center;
+	box-sizing: border-box;
+	width: 100%;
+	height: 100%;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: inherit;
+	background: var(--w-bg2);
+	color: var(--w-mute);
+	font: 600 calc(16px * var(--w-fs)) / 1 var(--w-serif);
+}
+/* The server you are on: its stamp in ink on a firmer edge, inside the raised tile. */
+.server-rail :is(.server-pill, .folder-member).active .server-avatar-fallback {
+	border-color: var(--w-line-strong);
+	color: var(--w-text);
+}
+.server-rail .server-mark--sm .server-avatar-fallback {
+	font: 500 calc(11px * var(--w-fs)) / 1 var(--w-sans);
 }
 
-.server-rail.density-icons-only .rail-home,
-.server-rail.density-icons-only .rail-manage {
+/* Unread: an ink dot, never a count pill, never animated; the count is in the name. */
+.server-rail .server-unread-dot {
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	box-sizing: border-box;
+	width: 8px;
+	height: 8px;
+	border-radius: var(--w-avr);
+	background: var(--w-text);
+	box-shadow: 0 0 0 2px var(--server-rail-surface);
+	pointer-events: none;
+}
+.server-rail .server-pill.active .server-unread-dot,
+.server-rail .folder-member.active .server-unread-dot {
+	box-shadow: 0 0 0 2px var(--w-raise);
+}
+
+.server-rail .rail-list {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	align-items: center;
+	gap: 6px;
+	min-height: 0;
+	padding: 12px 0;
+	overflow-x: hidden;
+	overflow-y: auto;
+	scrollbar-width: none;
+}
+.server-rail .rail-list::-webkit-scrollbar {
+	display: none;
+}
+.server-rail .rail-item,
+.server-rail .folder-shell {
+	position: relative;
+	display: flex;
+	justify-content: center;
+	width: 100%;
+}
+
+/* Folder: four stamps in one square. */
+.server-rail .folder-grid {
+	display: grid;
+	grid-template-columns: repeat(2, 16px);
+	grid-template-rows: repeat(2, 16px);
+	gap: 2px;
+	box-sizing: border-box;
+	padding: 1px;
+	border: var(--w-bw) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: var(--w-sink);
+}
+.server-rail .folder-grid-cell {
+	display: grid;
+	place-items: center;
+	overflow: hidden;
+	border-radius: calc(4px * var(--w-rs, 1));
+	background: var(--w-bg2);
+	color: var(--w-mute);
+	font: 500 calc(11px * var(--w-fs)) / 1 var(--w-sans);
+}
+.server-rail .folder-grid-image {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+/* Drop places: accent rules and an accent ring, never coloured slabs. */
+.server-rail .server-pill.drop-inside {
+	box-shadow: inset 0 0 0 2px var(--w-accent);
+}
+.server-rail .server-pill.drop-before::before,
+.server-rail .server-pill.drop-after::after {
+	content: '';
+	position: absolute;
+	left: 10px;
+	right: 10px;
+	height: 2px;
+	border-radius: var(--w-pill);
+	background: var(--w-accent);
+	pointer-events: none;
+}
+.server-rail .server-pill.drop-before::before {
+	top: -4px;
+}
+.server-rail .server-pill.drop-after::after {
+	bottom: -4px;
+}
+
+/* The open folder: a kit popover beside the rail. */
+.server-rail .folder-popout,
+.server-rail .mobile-folder-tray {
+	position: absolute;
+	top: 0;
+	left: calc(100% + 8px);
+	z-index: var(--z-popout, 1200);
+	display: grid;
+	gap: 12px;
+	box-sizing: border-box;
+	width: 196px;
+	padding: 14px 14px 12px;
+	border: var(--w-bw) solid var(--w-line-strong);
+	border-radius: var(--radius-lg);
+	background: var(--w-bg2);
+	box-shadow: var(--w-shadow);
+}
+:root[data-mode='light'] .server-rail :is(.folder-popout, .mobile-folder-tray) {
+	background: var(--w-lift);
+}
+.server-rail.rail-right .folder-popout,
+.server-rail.rail-right .mobile-folder-tray {
+	left: auto;
+	right: calc(100% + 8px);
+}
+.server-rail .folder-popout-header {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 8px;
+	min-width: 0;
+}
+.server-rail .folder-popout-header strong {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--w-text);
+	font: var(--w-t-subhead);
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.server-rail .folder-popout-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+.server-rail .folder-member {
 	width: 40px;
 	height: 40px;
 }
 
+/* Foot band: Admin dashboard and Add or switch servers, on the footer rule. */
+.server-rail .rail-foot {
+	display: flex;
+	flex: none;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	box-sizing: border-box;
+	height: var(--w-foot, 80px);
+	padding-bottom: env(safe-area-inset-bottom, 0px);
+	border-top: var(--w-bw) solid var(--w-line);
+}
+.server-rail .rail-manage-mobile {
+	align-self: center;
+	margin: 8px 0;
+}
+
+/* Density: icons only (48px) and hidden. */
+.server-rail.density-icons-only {
+	width: 48px;
+}
+.server-rail.density-icons-only .server-pill {
+	width: 40px;
+	height: 40px;
+}
+.server-rail.density-icons-only .server-mark {
+	width: 28px;
+	height: 28px;
+}
+.server-rail.density-icons-only .rail-kicker {
+	display: none;
+}
 .server-rail.density-hidden {
 	width: 0;
 	min-width: 0;
 	padding: 0;
 	overflow: hidden;
-	border: none;
+	border: 0;
 }
 
-/* Side flip */
-.server-rail.rail-right {
-	border-right: none;
-	border-left: 1px solid rgba(var(--border-rgb), var(--opacity-light));
-}
-
-.server-rail.rail-right .folder-popout {
-	left: auto;
-	right: 100%;
-}
-
-.server-rail.rail-right .mobile-folder-tray {
-	left: auto;
-	right: 100%;
-}
-
-.rail-item,
-.folder-shell {
-	position: relative;
-	width: 100%;
-	display: flex;
-	justify-content: center;
-	padding: 0 0.2rem;
-}
-
-.rail-home,
-.server-pill,
-.rail-manage {
-	width: 56px;
-	height: 56px;
-	border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.08);
-	border-radius: var(--radius-full, 9999px);
-	background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.05);
-	color: var(--text-inverse, var(--text-inverse, #f8fafc));
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	cursor: pointer;
-	padding: 0;
-	overflow: hidden;
-	transition:
-		transform var(--duration-fast, 150ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1)),
-		border-radius var(--duration-normal, 250ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1)),
-		border-color var(--duration-fast, 150ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1)),
-		background var(--duration-fast, 150ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1)),
-		box-shadow var(--duration-fast, 150ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1));
-	will-change: transform, border-radius;
-}
-
-.rail-home:hover,
-.server-pill:hover,
-.rail-manage:hover {
-	transform: translateY(-1px);
-	border-radius: var(--radius-xl, 16px);
-	border-color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.18);
-	background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.1);
-}
-
-.server-pill.active {
-	border-radius: var(--radius-xl, 16px);
-	border-color: rgba(var(--color-success-rgb, 94, 234, 212), 0.48);
-	background: linear-gradient(135deg, rgba(var(--color-success-rgb, 45, 212, 191), 0.22), rgba(59, 130, 246, 0.18));
-	box-shadow: 0 0 0 1px rgba(var(--color-success-rgb, 94, 234, 212), 0.18);
-}
-
-.server-pill.drag-target {
-	border-color: rgba(var(--color-info-rgb, 125, 211, 252), 0.42);
-}
-
-.server-pill.drop-inside {
-	box-shadow: 0 0 0 2px rgba(var(--color-info-rgb, 125, 211, 252), 0.28);
-	background: linear-gradient(135deg, rgba(var(--color-info-rgb, 56, 189, 248), 0.24), rgba(var(--color-success-rgb, 45, 212, 191), 0.18));
-}
-
-.server-pill.drop-before::before,
-.server-pill.drop-after::after {
-	content: '';
-	position: absolute;
-	left: 50%;
-	width: 34px;
-	height: 3px;
-	border-radius: var(--radius-full, 9999px);
-	background: var(--color-info, #7dd3fc);
-	transform: translateX(-50%);
-	box-shadow: 0 0 0 1px color-mix(in srgb, var(--surface-sunken) 80%, transparent);
-}
-
-.server-pill.drop-before::before {
-	top: -7px;
-}
-
-.server-pill.drop-after::after {
-	bottom: -7px;
-}
-
-.server-avatar-image {
-	width: 100%;
-	height: 100%;
-	object-fit: cover;
-}
-
-.server-unread-badge {
-	position: absolute;
-	right: -6px;
-	bottom: -4px;
-	min-width: var(--space-5, 1.25rem);
-	height: var(--space-5, 1.25rem);
-	padding: 0 var(--space-1, 0.25rem);
-	border-radius: var(--radius-full, 9999px);
-	background: linear-gradient(135deg, var(--color-danger, var(--color-danger, #ef4444)), var(--color-warning, var(--color-warning, #f97316)));
-	color: var(--text-inverse, var(--text-inverse, #fff));
-	font-size: var(--font-size-xs, 0.6875rem);
-	font-weight: 800;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	border: 2px solid color-mix(in srgb, var(--surface-sunken) 96%, transparent);
-	box-shadow: 0 6px 18px rgba(var(--color-danger-rgb, 239, 68, 68), 0.34);
-	pointer-events: none;
-}
-
-.server-unread-badge--member {
-	right: -5px;
-	bottom: -5px;
-	min-width: var(--space-4, 1rem);
-	height: var(--space-4, 1rem);
-	font-size: var(--font-size-2xs, 0.5625rem);
-}
-
-.server-avatar-image--logo {
-	object-fit: contain;
-	padding: 0.55rem;
-}
-
-:root:not([data-theme='light']) .server-avatar-image--logo {
-	filter: invert(1);
-}
-
-.server-avatar-fallback,
-.rail-manage span {
-	font-size: var(--font-size-lg, 1rem);
-	font-weight: 700;
-	letter-spacing: 0.01em;
-}
-
-.rail-divider {
-	width: 28px;
-	height: 1px;
-	background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.12);
-}
-
-.rail-list {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: var(--space-4, 1rem);
-	width: 100%;
-	overflow-y: auto;
-	padding: 0.2rem 0 0.3rem;
-}
-
-.rail-list::-webkit-scrollbar {
-	width: 4px;
-}
-
-.rail-list::-webkit-scrollbar-thumb {
-	background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.12);
-	border-radius: var(--radius-full, 9999px);
-}
-
-.folder-pill {
-	padding: 0.34rem;
-}
-
-.folder-grid {
-	width: 100%;
-	height: 100%;
-	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-	grid-template-rows: repeat(2, minmax(0, 1fr));
-	gap: var(--space-1, 0.25rem);
-	padding: var(--space-1, 0.25rem);
-	box-sizing: border-box;
-}
-
-.folder-grid-cell {
-	border-radius: var(--radius-md, 8px);
-	background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.08);
-	overflow: hidden;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	font-size: var(--font-size-2xs, 0.5625rem);
-	font-weight: 700;
-}
-
-.folder-grid-image {
-	width: 100%;
-	height: 100%;
-	object-fit: cover;
-}
-
-.folder-popout {
-	position: absolute;
-	left: calc(100% + 0.75rem);
-	top: 0;
-	width: 188px;
-	padding: var(--space-3, 0.75rem);
-	border-radius: var(--radius-xl, 16px);
-	border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.08);
-	background:
-		linear-gradient(180deg, color-mix(in srgb, var(--surface-sunken) 97%, transparent) 0%, color-mix(in srgb, var(--surface-sunken) 97%, transparent) 100%),
-		radial-gradient(circle at top right, rgba(var(--color-success-rgb, 45, 212, 191), 0.14), transparent 50%);
-	box-shadow: 0 18px 36px rgba(var(--surface-app-rgb, 2, 6, 23), 0.42);
-	display: grid;
-	gap: var(--space-3, 0.75rem);
-	z-index: var(--z-popout, 1200);
-}
-
-.folder-popout-header {
-	display: grid;
-	gap: var(--space-1, 0.25rem);
-}
-
-.folder-popout-header strong {
-	font-size: var(--font-size-sm, 0.8125rem);
-	color: var(--text-inverse, var(--text-inverse, #f8fafc));
-}
-
-.folder-popout-header span {
-	font-size: var(--font-size-xs, 0.6875rem);
-	color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.62);
-	text-transform: uppercase;
-	letter-spacing: 0.04em;
-}
-
-.folder-popout-list {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--space-2, 0.5rem);
-}
-
-.folder-member {
-	width: 44px;
-	height: 44px;
-	padding: 0;
-	border-radius: var(--radius-full, 9999px);
-	border: 1px solid rgba(var(--text-inverse-rgb, 255, 255, 255), 0.08);
-	background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.05);
-	color: var(--text-inverse, var(--text-inverse, #fff));
-	cursor: pointer;
-	overflow: hidden;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	transition:
-		transform var(--duration-fast, 150ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1)),
-		border-radius var(--duration-normal, 250ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1)),
-		border-color var(--duration-fast, 150ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1)),
-		background var(--duration-fast, 150ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1));
-}
-
-.folder-member:hover {
-	transform: translateY(-1px);
-	border-radius: 16px;
-	border-color: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.18);
-	background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.1);
-}
-
-.folder-member.active {
-	border-color: rgba(var(--color-success-rgb, 94, 234, 212), 0.48);
-	background: linear-gradient(135deg, rgba(var(--color-success-rgb, 45, 212, 191), 0.24), rgba(59, 130, 246, 0.18));
-}
-
-.rail-manage {
-	margin-top: auto;
-	font-size: var(--font-size-xl, 1.25rem);
+@media (pointer: coarse) {
+	.server-rail .folder-member {
+		width: 44px;
+		height: 44px;
+	}
 }

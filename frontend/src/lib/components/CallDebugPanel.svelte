@@ -4,13 +4,16 @@
 	active transport and participant count. Works on BOTH transports: samples
 	come from WebRTC getStats() or the wabidb relay counters + socket RTT
 	echo, tagged via the `source` row. Pure read-only view of the call
-	stores — safe to embed anywhere; used as a floating overlay in MainLayout
-	(shown while a call is active, not just in dev builds).
+	stores — safe to embed anywhere; MainLayout floats it over the stage.
+	A developer instrument (design contract §9.4): it renders only in dev builds, so members
+	never see raw transport names or lifecycle enums.
 -->
 <script lang="ts">
 	import { activeCalls, activeVoiceChannel, callConnectionDiagnostics, callTransportState, connectionState } from '$lib/calling';
 	import { voiceChannelMembers } from '$lib/presenceStore';
 	import { callParticipantCount, formatDiag } from '$lib/components/sidebar/channelSidebarHelpers';
+
+	const isDevBuild = import.meta.env.DEV;
 
 	let {
 		open = false,
@@ -62,7 +65,7 @@
 	});
 </script>
 
-{#if open}
+{#if open && isDevBuild}
 	<section class="call-debug-panel" role="status" aria-live="polite">
 		<header class="call-debug-panel-header">
 			<strong>{title}</strong>
@@ -92,78 +95,89 @@
 {/if}
 
 <style>
-	.call-debug-scope { color: var(--text-secondary); font-size: .8rem; margin: 0 0 var(--space-2); max-width: 28rem; }
 	.call-debug-panel {
+		box-sizing: border-box;
 		min-width: 240px;
 		max-width: 320px;
-		border-radius: var(--radius-md, 8px);
-		border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-		background: var(--surface-raised, #302b63);
-		color: var(--text-heading, #e0e0ff);
-		box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
 		overflow: hidden;
+		border: var(--w-bw) solid var(--w-line-strong);
+		border-radius: var(--radius-lg);
+		background: var(--w-bg2);
+		box-shadow: var(--w-shadow);
+		color: var(--w-text);
+		font: var(--w-t-small);
 	}
 
 	.call-debug-panel-header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 0.5rem;
-		padding: 0.5rem 0.6rem;
-		font-size: 0.78rem;
-		background: var(--surface-base, #24243e);
-		border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+		gap: 8px;
+		padding: 10px 12px;
+		border-bottom: var(--w-bw) solid var(--w-line);
+		font: var(--w-t-label);
 	}
 
+	.call-debug-scope {
+		max-width: 28rem;
+		margin: 0;
+		padding: 8px 12px 0;
+		color: var(--w-mute);
+		font: var(--w-t-small);
+	}
+
+	/* Status is a mark plus a word (§5.3). */
 	.call-debug-state {
-		padding: 0.1rem 0.45rem;
-		border-radius: 999px;
-		font-size: 0.65rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		color: var(--text-muted, #9999ff);
-		background: rgba(var(--text-inverse-rgb, 255, 255, 255), 0.06);
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		color: var(--w-mute);
+		font: var(--w-t-micro);
 	}
 
-	.call-debug-state.connected {
-		color: var(--color-success, #22c55e);
-		background: rgba(var(--color-success-rgb, 34, 197, 94), 0.15);
+	.call-debug-state::before {
+		content: '';
+		width: 6px;
+		height: 6px;
+		border-radius: var(--w-avr);
+		background: var(--w-faint);
 	}
 
-	.call-debug-state.degraded {
-		color: var(--color-warning, #f59e0b);
-		background: rgba(var(--color-warning-rgb, 245, 158, 11), 0.15);
+	.call-debug-state.connected::before {
+		background: var(--w-online);
 	}
 
-	.call-debug-state.failed {
-		color: var(--color-danger, #ef4444);
-		background: rgba(var(--color-danger-rgb, 239, 68, 68), 0.15);
+	.call-debug-state.degraded::before {
+		background: var(--w-warn);
+	}
+
+	.call-debug-state.failed::before {
+		background: var(--w-danger);
 	}
 
 	.call-debug-grid {
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 0.45rem 0.7rem;
-		padding: 0.55rem 0.6rem;
+		gap: 6px 12px;
+		padding: 10px 12px 12px;
 	}
 
 	.call-debug-item {
 		display: flex;
-		justify-content: space-between;
 		align-items: baseline;
-		gap: 0.5rem;
-		font-size: 0.72rem;
+		justify-content: space-between;
+		gap: 8px;
+		font: var(--w-t-caption);
 	}
 
 	.call-debug-item span {
-		color: var(--text-secondary, #b3b3ff);
+		color: var(--w-faint);
 	}
 
 	.call-debug-item strong {
-		color: var(--text-heading, #e0e0ff);
-		font-size: 0.74rem;
-		font-family: var(--font-mono, ui-monospace, monospace);
+		color: var(--w-text);
+		font: var(--w-t-mono);
+		font-feature-settings: 'tnum';
 	}
 
 	@media (max-width: 768px) {

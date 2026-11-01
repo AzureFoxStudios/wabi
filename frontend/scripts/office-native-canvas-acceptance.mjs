@@ -10,9 +10,7 @@ export async function nativeCanvasAcceptance(page, audience, accounts, artifacts
     await page.getByRole('button', { name: 'New presentation', exact: true }).click();
     await page.getByLabel('Slide title', { exact: true }).fill('Canvas regression');
     await page.getByLabel('Slide text', { exact: true }).fill('Public copied text');
-    // Non-canvas slides start with the advanced controls collapsed. Exercise
-    // the same disclosure a person uses, rather than forcing a hidden control.
-    await page.locator('.designer-controls > summary').click();
+    // The canvas presets live in the inspector's Slide tab, always in view.
     await page.getByLabel('Native slide preset', { exact: true }).selectOption('comparison');
     await page.getByRole('button', { name: 'Apply native layout', exact: true }).click();
     await page.locator('.designer-stage .scene').waitFor();
@@ -23,6 +21,8 @@ export async function nativeCanvasAcceptance(page, audience, accounts, artifacts
     await page.getByRole('button', { name: 'Add text', exact: true }).click();
     await page.getByLabel('Object text or data', { exact: true }).fill('NATIVE_CANVAS_PERSISTED_TEXT');
     await page.locator('.object-handle.chosen').press('ArrowRight');
+    // The slide's theme is a Slide property: back to the Slide tab, then add the chart.
+    await page.getByRole('radio', { name: 'Slide', exact: true }).click();
     await page.getByLabel('Slide theme', { exact: true }).selectOption('night');
     await page.getByRole('button', { name: 'Add chart', exact: true }).click();
     await page.getByLabel('Object text or data', { exact: true }).fill('Public first\t12\nPublic second\t-4');
@@ -48,7 +48,8 @@ export async function nativeCanvasAcceptance(page, audience, accounts, artifacts
     checks++;
     await page.screenshot({ path: path.join(artifacts, `${engineName}-native-canvas.png`) });
     const downloading = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Export PPTX subset', exact: true }).click();
+    await page.getByRole('button', { name: 'Present options', exact: true }).click();
+    await page.getByRole('menuitem', { name: /^PPTX subset/ }).click();
     const download = await downloading;
     const output = path.join(artifacts, `${engineName}-native-canvas.pptx`);
     await download.saveAs(output);
@@ -61,10 +62,11 @@ export async function nativeCanvasAcceptance(page, audience, accounts, artifacts
     for (const name of names.filter(name => name.endsWith('.xml'))) assert(!(await zip.file(name).async('string')).includes('PRIVATE_NATIVE_NOTES'));
     checks++;
 
-    await page.getByRole('button', { name: 'Library', exact: true }).click();
+    await page.getByRole('button', { name: 'Present library', exact: true }).click();
     await page.evaluate(id => window.workspaceTest.open('present', { id }), record.id);
     await page.locator('.designer-stage .scene').waitFor();
-    await page.getByText('NATIVE_CANVAS_PERSISTED_TEXT', { exact: true }).waitFor();
+    // The filmstrip thumbnail draws the same text; read the slide on the pasteboard.
+    await page.locator('.designer-stage').getByText('NATIVE_CANVAS_PERSISTED_TEXT', { exact: true }).waitFor();
     assert.equal(await page.getByLabel('Private speaker notes', { exact: true }).inputValue(), 'PRIVATE_NATIVE_NOTES');
     const reopened = await page.evaluate(id => window.workspaceTest.record(id), record.id);
     assert.deepEqual(reopened.data, saved.data, 'Reopening must preserve stable identities, text, positions and pinned chart values'); checks++;
@@ -73,10 +75,11 @@ export async function nativeCanvasAcceptance(page, audience, accounts, artifacts
     await page.getByLabel('Person', { exact: true }).selectOption(String(accounts[1].id));
     await page.getByLabel('Recipient permission', { exact: true }).selectOption('viewer');
     await page.getByRole('button', { name: 'Add person', exact: true }).click();
-    await page.getByRole('button', { name: 'Publish and save sharing', exact: true }).click();
-    await page.locator('dialog[open]').waitFor({ state: 'hidden' });
+    await page.getByRole('button', { name: 'Share', exact: true }).click();
+    await page.getByRole('dialog', { name: /^Share / }).waitFor({ state: 'hidden' });
     const starting = page.waitForResponse(response => response.url().endsWith('/api/workspace/presentations') && response.request().method() === 'POST');
-    await page.getByRole('button', { name: 'Present to channel…', exact: true }).click();
+    await page.getByRole('button', { name: 'Ways to present', exact: true }).click();
+    await page.getByRole('menuitem', { name: /^Present to channel…/ }).click();
     await page.getByRole('button', { name: 'Start approved presentation', exact: true }).click();
     const response = await starting, room = await response.json();
     assert.equal(response.status(), 200, JSON.stringify(room));
@@ -90,8 +93,8 @@ export async function nativeCanvasAcceptance(page, audience, accounts, artifacts
     assert(!(await audience.locator('body').innerText()).includes('PRIVATE_NATIVE_NOTES')); checks++;
     await audience.screenshot({ path: path.join(artifacts, `${engineName}-native-audience.png`) });
     await page.getByRole('button', { name: 'End presentation', exact: true }).click();
-    await page.waitForFunction(() => document.body.textContent.includes('Ended'));
+    await page.waitForFunction(() => document.body.textContent.includes('This presentation has ended'));
     await page.evaluate(id => window.workspaceTest.open('present', { id }), record.id);
-    await page.getByRole('button', { name: 'Library', exact: true }).click();
+    await page.getByRole('button', { name: 'Present library', exact: true }).click();
     return checks;
 }

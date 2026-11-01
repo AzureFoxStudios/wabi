@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import { mobileTabQueue } from '$lib/mobileTabQueue';
 import { captureNotebookOwner, notebookOwner } from '$lib/notes/scope';
 import { getServerUrl, activeServerUrl } from '$lib/serverUrl';
@@ -33,11 +33,38 @@ activeServerUrl.subscribe(server=>{
 });
 onAuthSessionCleared(()=>targets.set({}));
 
+/** The workspace view each office tab belongs to: a joined presentation is part of Present. */
+export type OfficeView = 'documents' | 'sheets' | 'present';
+export const OFFICE_TOOL_VIEW: Readonly<Record<Tool, OfficeView>> = {documents:'documents',sheets:'sheets',present:'present',audience:'present'};
+/** One name per place on every platform (design contract §8.2); `audience` is the "Presentation" crumb. */
+export const OFFICE_TAB_LABEL: Readonly<Record<Tool, string>> = {documents:'Documents',sheets:'Sheets',present:'Present',audience:'Presentation'};
+/** The addon id of a tool's tab (`addon:` + this is the queue token). */
+export function workspaceTabId(tool:Tool):`workspace-${Tool}` {return `workspace-${tool}`;}
+/**
+ * Register a tool's addon tab when it is absent and return its addon id. It neither
+ * navigates, activates the tab nor touches `targets`.
+ */
+export function ensureWorkspaceTab(tool:Tool):string {
+    const id=workspaceTabId(tool);
+    if(!get(mobileTabQueue.addonTabs).some(tab=>tab.id===id))mobileTabQueue.registerAddonTab({id,label:OFFICE_TAB_LABEL[tool],shortLabel:OFFICE_TAB_LABEL[tool]});
+    return id;
+}
+/**
+ * Prepare a fresh entry into a tool from the workspace navigation and return its addon id:
+ * exactly `openWorkspace(tool)` minus the `wabi:navigate` dispatch and the activation, which
+ * the navigation owns (so choosing Documents from the folio does not navigate twice).
+ * The editor mounts anew on every entry and applies `targets[tool]`; a handoff target is
+ * one-shot, so it is cleared here. Otherwise the last handoff would replay: a Share dialog
+ * opening by itself, an import preview, a deleted Reader document re-created.
+ */
+export function enterWorkspaceTab(tool:Tool):string {
+    targets.update(value=>({...value,[tool]:{}}));
+    return ensureWorkspaceTab(tool);
+}
 export function openWorkspace(tool:Tool,target:Target={}) {
     window.dispatchEvent(new CustomEvent('wabi:navigate',{detail:{view:'chat',preserveRightPanel:true}}));
     targets.update(value=>({...value,[tool]:target}));
-    mobileTabQueue.registerAddonTab({id:`workspace-${tool}`,label:tool==='documents'?'Documents':tool==='audience'?'Presentation':tool==='sheets'?'Sheets':'Present',shortLabel:tool==='documents'?'Docs':tool==='audience'?'Slides':tool==='sheets'?'Sheets':'Present'});
-    mobileTabQueue.openAddonTab(`workspace-${tool}`);
+    mobileTabQueue.openAddonTab(ensureWorkspaceTab(tool));
 }
 export function workspaceLink(server:string,id:string,kind:ArtifactKind,anchor?:string){
     const url=new URL(server);url.searchParams.set('workspaceArtifact',id);url.searchParams.set('workspaceKind',kind);

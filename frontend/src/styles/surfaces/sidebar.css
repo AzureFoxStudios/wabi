@@ -1,0 +1,1163 @@
+/* Left sidebar skin: the table of contents (design contract §7.11, §7.12, §8.1).
+   Masthead (row A community + Switch server, row B search) on the --w-mast rule; DMs; CHANNELS and
+   VOICE sections; one 32px row layout for every entry; quiet voice rosters; the 80px foot on the
+   footer rule; and a real 60px compact rail. Roles, type, spacing and radius tokens only.
+   Owner (wave 1): w1-sidebar. Holds no other package's rules.
+   Cascade: first import of shell.css — after styles.css (the legacy sidebar sheets, which now keep
+   only the structure other surfaces still lean on) and before the later skins. Selectors are
+   :root-prefixed so they outrank the unscoped legacy and mobile sheets without !important. */
+
+/* ---------- column ---------- */
+:root .channel-sidebar-container .channel-sidebar,
+:root .channel-sidebar {
+	background: var(--w-bg2);
+	border-right: var(--w-bw, 1px) solid var(--w-line);
+	color: var(--w-text);
+	font-family: var(--w-sans);
+}
+:root .channel-sidebar.nav-right {
+	border-right: 0;
+	border-left: var(--w-bw, 1px) solid var(--w-line);
+}
+
+/* ---------- masthead: row A 56 + row B 40, one hairline at y = --w-mast ---------- */
+:root .channel-sidebar .sb-mast {
+	flex: none;
+	box-sizing: border-box;
+	height: var(--w-mast);
+	border-bottom: var(--w-bw, 1px) solid var(--w-line);
+}
+:root .channel-sidebar .sb-head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	box-sizing: border-box;
+	height: var(--w-head-a);
+	padding: 0 10px 0 8px;
+}
+/* The ensō + community name is the Server home button. */
+:root .channel-sidebar .sb-home {
+	display: flex;
+	flex: 1 1 auto;
+	align-items: center;
+	gap: 11px;
+	min-width: 0;
+	height: 40px;
+	margin: 0;
+	padding: 0 8px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-text);
+	text-align: left;
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+:root .channel-sidebar .sb-home:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+}
+:root .channel-sidebar .sb-home[aria-current='page'] {
+	background: var(--w-raise);
+}
+:root .channel-sidebar .sb-home:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+:root .channel-sidebar .sb-mark {
+	flex: none;
+	display: block;
+	width: 26px;
+	height: 26px;
+}
+/* The mark is the shipped ensō as a mask in --w-sig: never redrawn, outlined or inked. */
+:root .channel-sidebar .sb-enso {
+	background: var(--w-sig);
+	-webkit-mask: url('/wabi-logo-small.webp') center / contain no-repeat;
+	mask: url('/wabi-logo-small.webp') center / contain no-repeat;
+}
+/* An operator icon replaces the ensō as-is: no disc, ring, glow or filter. */
+:root .channel-sidebar .sb-mark--image {
+	border-radius: var(--radius-inner);
+	object-fit: contain;
+}
+:root .channel-sidebar .server-name {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	color: var(--w-text);
+	font: var(--w-t-heading);
+	letter-spacing: 0.005em;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+:root .channel-sidebar .mobile-close-btn {
+	display: none;
+}
+
+/* Row B: a field-shaped button that opens the jump palette (§7.24). No count inside. */
+:root .channel-sidebar .sb-search-row {
+	display: flex;
+	align-items: flex-start;
+	box-sizing: border-box;
+	height: var(--w-head-b);
+	padding: 0 12px;
+}
+:root .channel-sidebar .sb-search {
+	position: relative;
+	cursor: pointer;
+	text-align: left;
+}
+/* A narrow column keeps its room for the words: the keycap goes first. */
+:root .channel-sidebar.narrow .sb-search .w-kbd {
+	display: none;
+}
+:root .channel-sidebar .sb-search:hover {
+	border-color: var(--w-line-strong);
+}
+:root .channel-sidebar .sb-search-label {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	color: var(--w-faint);
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+/* ---------- the list ---------- */
+:root .channel-sidebar .channel-list {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	min-height: 0;
+	/* Anchors the absolute .drop-indicator-overlay (scroll-content coords). */
+	position: relative;
+	padding: 8px 0 16px;
+	overflow-x: hidden;
+	overflow-y: auto;
+}
+:root .channel-sidebar .mixed-root-item,
+:root .channel-sidebar .unified-channel-wrap {
+	min-width: 0;
+}
+:root .channel-sidebar .personal-nav {
+	padding: 0 8px;
+}
+
+/* Section heads: kicker + an add/menu button (CHANNELS, VOICE). */
+:root .channel-sidebar .sb-sec {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	box-sizing: border-box;
+	height: 32px;
+	margin-top: 14px;
+	padding: 0 12px 0 20px;
+}
+:root .channel-sidebar .sb-sec-toggle {
+	display: flex;
+	flex: 1 1 auto;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	height: 28px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	text-align: left;
+	cursor: pointer;
+}
+:root .channel-sidebar .sb-sec-toggle:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+:root .channel-sidebar .sb-sec-toggle:hover .w-kicker {
+	color: var(--w-mute);
+}
+/* The chevron is quiet until reached for, and stays visible while a section is folded. */
+:root .channel-sidebar .sb-sec-chevron {
+	display: inline-grid;
+	color: var(--w-faint);
+	opacity: 0;
+	transition:
+		opacity var(--w-dur-1) var(--w-ease),
+		transform var(--w-dur-1) var(--w-ease);
+}
+:root .channel-sidebar .sb-sec-toggle:is(:hover, :focus-visible) .sb-sec-chevron,
+:root .channel-sidebar .sb-sec-toggle[aria-expanded='false'] .sb-sec-chevron {
+	opacity: 1;
+}
+:root .channel-sidebar .sb-sec-toggle[aria-expanded='false'] .sb-sec-chevron {
+	transform: rotate(-90deg);
+}
+:root .channel-sidebar .sb-sec .sb-sec-add {
+	width: 24px;
+	height: 24px;
+	border-radius: var(--radius-inner);
+	color: var(--w-faint);
+}
+:root .channel-sidebar .sb-sec .sb-sec-add:hover {
+	color: var(--w-text);
+}
+
+/* ---------- one row layout: grid 20px | name | trailing at 32px (§7.11) ---------- */
+:root .channel-sidebar .channel-item {
+	position: relative;
+	margin: 1px 8px 0;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	box-shadow: none;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+:root .channel-sidebar .channel-btn {
+	position: relative;
+	display: grid;
+	grid-template-columns: 20px minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: 10px;
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	height: 32px;
+	min-height: 0;
+	margin: 0;
+	padding: 0 8px 0 10px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-ui);
+	letter-spacing: 0;
+	text-align: left;
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		color var(--w-dur-1) var(--w-ease);
+}
+:root .channel-sidebar .channel-btn:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+:root .channel-sidebar .row-glyph {
+	display: grid;
+	place-items: center;
+	width: 20px;
+	height: 20px;
+	color: var(--w-faint);
+}
+:root .channel-sidebar .row-glyph > svg {
+	width: 18px;
+	height: 18px;
+}
+:root .channel-sidebar .row-hash {
+	font: 500 calc(16px * var(--w-fs, 1)) / 1 var(--w-sans);
+}
+:root .channel-sidebar .row-name {
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+:root .channel-sidebar .row-trail {
+	display: inline-flex;
+	align-items: center;
+	justify-self: end;
+	gap: 6px;
+	min-width: 0;
+}
+/* Words in a row (Live, NSFW, Muted, Private, Rec): the role-word grammar, no box. */
+:root .channel-sidebar .row-tag {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	color: var(--w-faint);
+	font: 400 calc(10px * var(--w-fs, 1)) / 1 var(--w-mono);
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	white-space: nowrap;
+}
+:root .channel-sidebar .row-tag .w-dot {
+	width: 6px;
+	height: 6px;
+}
+:root .channel-sidebar .row-mark {
+	display: inline-grid;
+	color: var(--w-faint);
+}
+/* A glyph with its number (friend requests on the DMs row). */
+:root .channel-sidebar .row-mark--count {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+}
+:root .channel-sidebar .row-mark--count .w-count {
+	color: var(--w-mute);
+}
+/* A live voice room: a 6px online dot after the name. */
+:root .channel-sidebar .channel-item.live .row-name::after {
+	content: '';
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	margin-left: 8px;
+	border-radius: var(--w-avr, 50%);
+	background: var(--w-online);
+	vertical-align: 2px;
+}
+
+/* States: read (mute 400) · unread (text 700 + ink badge) · selected (raise fill, text 500,
+   sig glyph) · context (sig glyph, text label, no fill) · hover (raise at 70%). No left bars. */
+:root .channel-sidebar .channel-item:is(:hover, :focus-within),
+:root .channel-sidebar .messages-hub-btn:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+	/* Nothing moves under the pointer (§2.7): defeats animations.css's translateX(2px). */
+	transform: none;
+}
+:root .channel-sidebar .channel-item:is(:hover, :focus-within) .channel-btn,
+:root .channel-sidebar .messages-hub-btn:hover {
+	color: var(--w-text);
+}
+:root .channel-sidebar .channel-item.unread .channel-btn,
+:root .channel-sidebar .messages-hub-btn.unread {
+	color: var(--w-text);
+	font-weight: 700;
+}
+:root .channel-sidebar .channel-item.unread .row-glyph,
+:root .channel-sidebar .messages-hub-btn.unread .row-glyph {
+	color: var(--w-mute);
+}
+:root .channel-sidebar .channel-item.active,
+:root .channel-sidebar .messages-hub-btn.active {
+	background: var(--w-raise);
+}
+:root .channel-sidebar .channel-item.active .channel-btn,
+:root .channel-sidebar .messages-hub-btn.active {
+	color: var(--w-text);
+	font-weight: 500;
+}
+:root .channel-sidebar .channel-item:is(.active, .context, .connected) .row-glyph,
+:root .channel-sidebar .messages-hub-btn.active .row-glyph {
+	color: var(--w-sig);
+}
+:root .channel-sidebar .channel-item:is(.context, .connected) .channel-btn {
+	color: var(--w-text);
+}
+:root .channel-sidebar .channel-item.muted:not(.active) .row-name {
+	color: var(--w-faint);
+}
+:root .channel-sidebar .channel-item.is-dragging,
+:root .channel-sidebar .category-row.is-dragging {
+	opacity: 0.45;
+}
+:root .channel-sidebar .channel-item.voice-drop-target {
+	background: var(--w-accent-soft);
+}
+
+/* Hover tray (follow, pinned, settings): absolutely over the trailing slot, never takes width,
+   hides the trailing marks while shown, and appears on :focus-within. */
+:root .channel-sidebar .row-tray {
+	position: absolute;
+	inset-block: 2px;
+	inset-inline-end: 2px;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding-inline-start: 6px;
+	border-radius: var(--radius-inner);
+	background: color-mix(in srgb, var(--w-raise) 70%, var(--w-bg2));
+	opacity: 0;
+	visibility: hidden;
+	pointer-events: none;
+	transition:
+		opacity var(--w-dur-1) var(--w-ease),
+		visibility var(--w-dur-1) var(--w-ease);
+}
+:root .channel-sidebar .channel-item.active .row-tray {
+	background: var(--w-raise);
+}
+:root .channel-sidebar .channel-item:is(:hover, :focus-within) .row-tray {
+	opacity: 1;
+	visibility: visible;
+	pointer-events: auto;
+}
+:root .channel-sidebar .channel-item:is(:hover, :focus-within) .row-trail {
+	visibility: hidden;
+}
+:root .channel-sidebar .row-tray .w-ibtn {
+	width: 26px;
+	height: 26px;
+	border-radius: var(--radius-inner);
+	color: var(--w-mute);
+}
+:root .channel-sidebar .row-tray .w-ibtn:hover {
+	background: color-mix(in srgb, var(--w-text) 9%, transparent);
+	color: var(--w-text);
+}
+/* Following: the bell is on (accent says "this is on"). */
+:root .channel-sidebar .row-tray .w-ibtn[aria-pressed='true'] {
+	background: transparent;
+	color: var(--w-accent);
+}
+:root .channel-sidebar .row-tray .w-ibtn:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+
+/* ---------- folders: 28px disclosure rows with a kicker-style name ---------- */
+:root .channel-sidebar .category-row {
+	margin: 6px 8px 0;
+	border-radius: var(--radius-md);
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+:root .channel-sidebar .category-row[draggable='true'] {
+	cursor: grab;
+}
+:root .channel-sidebar .category-toggle {
+	display: grid;
+	grid-template-columns: 20px minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: 10px;
+	box-sizing: border-box;
+	width: 100%;
+	height: 28px;
+	margin: 0;
+	padding: 0 8px 0 10px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-faint);
+	text-align: left;
+	cursor: pointer;
+}
+:root .channel-sidebar .category-toggle:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+	color: var(--w-mute);
+}
+:root .channel-sidebar .category-toggle:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+:root .channel-sidebar .category-chevron {
+	display: grid;
+	place-items: center;
+	width: 20px;
+	transition: transform var(--w-dur-1) var(--w-ease);
+}
+:root .channel-sidebar .category-toggle[aria-expanded='true'] .category-chevron {
+	transform: rotate(90deg);
+}
+:root .channel-sidebar .category-folder-icon {
+	display: none;
+}
+:root .channel-sidebar .category-name {
+	min-width: 0;
+	overflow: hidden;
+	font: var(--w-t-kicker);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+/* A folder's channels sit one small step in, so the root rows after a folder read as root rows
+   (the folder row itself is a kicker-style name, like CHANNELS and VOICE). */
+:root .channel-sidebar .category-channels {
+	padding-left: 12px;
+}
+:root .channel-sidebar .category-channels.drop-target {
+	border-radius: var(--radius-md);
+	background: var(--w-accent-soft);
+}
+
+/* The drag coordinator's insertion line: one 2px accent rule. */
+:root .channel-sidebar .drop-indicator-overlay {
+	position: absolute;
+	left: 4px;
+	right: 12px;
+	height: 2px;
+	border-radius: 1px;
+	background: var(--w-accent);
+	pointer-events: none;
+	z-index: 6;
+	transform: translateY(-1px);
+	transition:
+		top 90ms var(--w-ease),
+		left 90ms var(--w-ease);
+}
+:root .channel-sidebar .drop-indicator-overlay.indented {
+	left: 30px;
+}
+
+/* ---------- voice participants: 28px quiet rows (.w-vp, §7.11) ---------- */
+:root .channel-sidebar .voice-member-list {
+	margin: 0 8px 2px;
+}
+:root .channel-sidebar .voice-member-item {
+	display: grid;
+	grid-template-columns: 20px minmax(0, 1fr) auto 14px;
+	align-items: center;
+	column-gap: 10px;
+	box-sizing: border-box;
+	height: 28px;
+	padding: 0 10px 0 40px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+:root .channel-sidebar .voice-member-item.voice-member-draggable {
+	cursor: grab;
+}
+:root .channel-sidebar .voice-member-item.voice-member-draggable:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+}
+:root .channel-sidebar .voice-member-avatar {
+	display: grid;
+	place-items: center;
+	box-sizing: border-box;
+	width: 20px;
+	height: 20px;
+	border: 0;
+	border-radius: var(--w-avr, 50%);
+	background: var(--disc, var(--w-raise));
+	color: var(--on, var(--w-text));
+	font: 500 calc(10px * var(--w-fs, 1)) / 1 var(--w-sans);
+	object-fit: cover;
+}
+:root .channel-sidebar .voice-member-item.speaking .voice-member-avatar {
+	box-shadow:
+		0 0 0 2px var(--w-bg2),
+		0 0 0 3.5px var(--w-online);
+}
+:root .channel-sidebar .voice-member-name {
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+:root .channel-sidebar .voice-member-item.speaking .voice-member-name {
+	color: var(--w-text);
+}
+:root .channel-sidebar .voice-member-extra {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+}
+:root .channel-sidebar .voice-member-state {
+	display: grid;
+	place-items: center;
+	color: var(--w-faint);
+}
+:root .channel-sidebar .voice-member-kick {
+	width: 22px;
+	height: 22px;
+	color: var(--w-faint);
+	opacity: 0;
+	visibility: hidden;
+}
+:root .channel-sidebar .voice-member-item:is(:hover, :focus-within) .voice-member-kick {
+	opacity: 1;
+	visibility: visible;
+}
+:root .channel-sidebar .voice-member-kick:hover {
+	color: var(--w-danger);
+}
+/* "and N more" continues the roster: it starts where the names start (40 + 20 stamp + 10 gap),
+   not under the stamps. */
+:root .channel-sidebar .voice-member-more {
+	display: block;
+	box-sizing: border-box;
+	width: 100%;
+	height: 28px;
+	margin: 0;
+	padding: 0 10px 0 70px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+	text-align: left;
+	cursor: pointer;
+}
+:root .channel-sidebar .voice-member-more:hover {
+	color: var(--w-text);
+}
+:root .channel-sidebar .voice-member-more:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+/* Breakout rooms sit one step in, under their parent room. */
+:root .channel-sidebar .breakout-channel-item {
+	margin-left: 28px;
+}
+:root .channel-sidebar .breakout-member-list {
+	margin-left: 36px;
+}
+
+/* ---------- threads under a channel ---------- */
+:root .channel-sidebar .thread-list {
+	margin: 0 8px 2px;
+}
+:root .channel-sidebar .thread-btn {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	box-sizing: border-box;
+	width: 100%;
+	height: 28px;
+	margin: 1px 0 0;
+	padding: 0 8px 0 40px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+	text-align: left;
+	cursor: pointer;
+}
+:root .channel-sidebar .thread-btn:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+	color: var(--w-text);
+}
+:root .channel-sidebar .thread-btn.active {
+	background: var(--w-raise);
+	color: var(--w-text);
+	font-weight: 500;
+}
+:root .channel-sidebar .thread-btn.unread {
+	color: var(--w-text);
+	font-weight: 700;
+}
+:root .channel-sidebar .thread-btn:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+:root .channel-sidebar .thread-name {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+/* ---------- foot: 80px on the footer rule (§8.1 item 8) ---------- */
+:root .channel-sidebar .profile-card.sb-foot {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 10px;
+	box-sizing: border-box;
+	height: var(--w-foot);
+	min-height: var(--w-foot);
+	padding: 0 10px 0 16px;
+	border-top: var(--w-bw, 1px) solid var(--w-line);
+	background: var(--w-bg2);
+	color: var(--w-text);
+}
+:root .channel-sidebar .sb-foot-avatar-wrap {
+	display: inline-flex;
+	flex: none;
+}
+:root .channel-sidebar .sb-foot-avatar {
+	position: relative;
+	display: grid;
+	flex: none;
+	place-items: center;
+	width: 36px;
+	height: 36px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: var(--w-avr, 50%);
+	background: transparent;
+	cursor: pointer;
+}
+:root .channel-sidebar .sb-foot-avatar:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: 2px;
+}
+:root .channel-sidebar .sb-foot-stamp {
+	position: relative;
+	display: grid;
+	place-items: center;
+	width: 36px;
+	height: 36px;
+	border-radius: var(--w-avr, 50%);
+	background: var(--disc, var(--w-raise));
+	color: var(--on, var(--w-text));
+	font: 600 calc(16px * var(--w-fs, 1)) / 1 var(--w-serif);
+}
+:root .channel-sidebar .sb-foot-stamp :is(.sb-foot-picture, img, video, canvas) {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	border-radius: var(--w-avr, 50%);
+	object-fit: cover;
+}
+:root .channel-sidebar .sb-foot-presence {
+	position: absolute;
+	right: -2px;
+	bottom: -2px;
+	width: 10px;
+	height: 10px;
+	border-radius: var(--w-avr, 50%);
+	background: var(--w-online);
+	box-shadow: 0 0 0 2px var(--w-bg2);
+}
+:root .channel-sidebar .sb-foot-presence.away {
+	background: var(--w-warn);
+}
+:root .channel-sidebar .sb-foot-presence.busy {
+	background: var(--w-danger);
+}
+:root .channel-sidebar .sb-foot-presence.offline {
+	background: var(--w-bg2);
+	box-shadow:
+		inset 0 0 0 1.5px var(--w-faint),
+		0 0 0 2px var(--w-bg2);
+}
+:root .channel-sidebar .sb-foot-me {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	gap: 1px;
+	min-width: 0;
+	margin: 0 0 0 -6px;
+	padding: 4px 6px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--w-text);
+	text-align: left;
+	cursor: pointer;
+	transition: background-color var(--w-dur-1) var(--w-ease);
+}
+:root .channel-sidebar .sb-foot-me:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+}
+:root .channel-sidebar .sb-foot-me:focus-visible {
+	outline: 2px solid var(--w-accent);
+	outline-offset: -2px;
+}
+:root .channel-sidebar .sb-foot-me > * {
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+:root .channel-sidebar .sb-foot-name {
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+:root .channel-sidebar .sb-foot-handle {
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+}
+:root .channel-sidebar .sb-foot-status {
+	color: var(--w-mute);
+	font: 400 calc(12px * var(--w-fs, 1)) / calc(16px * var(--w-fs, 1)) var(--w-sans);
+}
+:root .channel-sidebar .sb-foot-controls {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 2px;
+	margin-left: auto;
+}
+/* Muted / deafened: the pressed key keeps the kit raise fill; the glyph turns danger. */
+:root .channel-sidebar .sb-foot-toggle[aria-pressed='true'],
+:root .channel-sidebar .sb-foot-end {
+	color: var(--w-danger);
+}
+
+/* ---------- channel peek (Alt-click), a popover on the kit .w-pop frame ---------- */
+:root .channel-glimpse-popout.channel-glimpse-fixed {
+	position: fixed;
+	z-index: calc(var(--z-popout, 1200) + 50);
+	display: flex;
+	flex-direction: column;
+	width: min(320px, 56vw);
+	max-height: min(420px, 60vh);
+	overflow: hidden;
+}
+:root .channel-glimpse-popout .channel-glimpse-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 12px;
+}
+:root .channel-glimpse-popout .channel-glimpse-header small {
+	display: block;
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+}
+:root .channel-glimpse-popout .channel-glimpse-name {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--w-text);
+	font: var(--w-t-subhead);
+	text-align: left;
+	cursor: pointer;
+}
+:root .channel-glimpse-popout .channel-glimpse-name:hover {
+	color: var(--w-accent);
+}
+:root .channel-glimpse-popout .channel-glimpse-messages {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	gap: 10px;
+	min-height: 0;
+	overflow-y: auto;
+}
+:root .channel-glimpse-popout .channel-glimpse-meta {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+}
+:root .channel-glimpse-popout .channel-glimpse-meta strong {
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+:root .channel-glimpse-popout .channel-glimpse-meta span {
+	color: var(--w-faint);
+	font: var(--w-t-micro);
+}
+:root .channel-glimpse-popout .channel-glimpse-message p {
+	margin: 2px 0 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+:root .channel-glimpse-popout .channel-glimpse-empty {
+	margin: 0;
+	color: var(--w-mute);
+	font: var(--w-t-small);
+}
+
+/* ---------- New channel dialog (CreateChannelForm.svelte) ---------- */
+:root .create-channel-dialog .new-channel-form {
+	display: flex;
+	flex-direction: column;
+	margin: 0;
+}
+:root .create-channel-dialog .create-gap {
+	margin-top: 16px;
+}
+:root .create-channel-dialog .create-name-prefix {
+	flex: none;
+	color: var(--w-faint);
+	font: 500 calc(16px * var(--w-fs, 1)) / 1 var(--w-sans);
+}
+:root .create-channel-dialog .create-optional {
+	margin-left: 4px;
+	color: var(--w-faint);
+	font: var(--w-t-small);
+}
+:root .create-channel-dialog .create-kinds {
+	min-width: 0;
+	margin: 16px 0 0;
+	padding: 0;
+	border: 0;
+}
+:root .create-channel-dialog .create-kinds > legend {
+	padding: 0;
+}
+:root .create-channel-dialog .create-kind-list {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 6px;
+}
+:root .create-channel-dialog .create-kind {
+	display: grid;
+	grid-template-columns: 16px 20px minmax(0, 1fr);
+	align-items: center;
+	column-gap: 10px;
+	box-sizing: border-box;
+	min-height: 52px;
+	padding: 8px 12px;
+	border: var(--w-bw, 1px) solid var(--w-line);
+	border-radius: var(--radius-md);
+	background: transparent;
+	cursor: pointer;
+	transition:
+		background-color var(--w-dur-1) var(--w-ease),
+		border-color var(--w-dur-1) var(--w-ease);
+}
+:root .create-channel-dialog .create-kind:hover {
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+}
+:root .create-channel-dialog .create-kind.selected {
+	border-color: var(--w-line-strong);
+	background: var(--w-raise);
+}
+:root .create-channel-dialog .create-kind.unavailable {
+	cursor: not-allowed;
+	opacity: 0.55;
+}
+:root .create-channel-dialog .create-kind-glyph {
+	display: grid;
+	place-items: center;
+	color: var(--w-faint);
+}
+:root .create-channel-dialog .create-kind.selected .create-kind-glyph {
+	color: var(--w-sig);
+}
+:root .create-channel-dialog .create-kind-hash {
+	font: 500 calc(16px * var(--w-fs, 1)) / 1 var(--w-sans);
+}
+:root .create-channel-dialog .create-kind-text {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+:root .create-channel-dialog .create-kind-name {
+	color: var(--w-text);
+	font: var(--w-t-label);
+}
+:root .create-channel-dialog .create-kind-hint {
+	overflow: hidden;
+	color: var(--w-mute);
+	font: 400 calc(12px * var(--w-fs, 1)) / calc(16px * var(--w-fs, 1)) var(--w-sans);
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+:root .create-channel-dialog .create-nested {
+	margin-top: 8px;
+}
+:root .create-channel-dialog .create-hint {
+	margin: 6px 0 0;
+}
+:root .create-channel-dialog .create-spoiler {
+	color: var(--w-text);
+	font: var(--w-t-ui);
+}
+:root .create-channel-dialog .create-channel-error {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: 12px 0 0;
+	color: var(--w-danger);
+	font: var(--w-t-small);
+}
+
+/* ---------- High Contrast: rings instead of fills, solid rules ---------- */
+:root[data-char='contrast'] .channel-sidebar :is(.channel-item:is(:hover, :focus-within), :is(.messages-hub-btn, .sb-home, .category-toggle, .thread-btn, .sb-foot-me):hover) {
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+:root[data-char='contrast'] .channel-sidebar :is(.channel-item.active, .messages-hub-btn.active, .sb-home[aria-current='page'], .thread-btn.active) {
+	background: var(--w-raise);
+	box-shadow: inset 0 0 0 1px var(--w-line-strong);
+}
+:root[data-char='contrast'] .channel-sidebar .channel-item:not(.active) .row-tray {
+	background: var(--w-bg2);
+}
+
+/* ---------- touch and the phone drawer: rows reach 44px (§4.3, §8.12, §10) ---------- */
+@media (pointer: coarse), (max-width: 768px) {
+	:root .channel-sidebar:not(.compact) :is(.channel-btn, .messages-hub-btn) {
+		height: 44px;
+	}
+	:root .channel-sidebar:not(.compact) :is(.category-toggle, .thread-btn, .voice-member-more) {
+		height: 40px;
+	}
+	:root .channel-sidebar .voice-member-item {
+		height: 36px;
+	}
+	/* The section head grows with its 44px add key, so the key never overlaps the first row. */
+	:root .channel-sidebar:not(.compact) .sb-sec {
+		height: 44px;
+		margin-top: 8px;
+	}
+	:root .channel-sidebar:not(.compact) .sb-sec-toggle {
+		height: 44px;
+	}
+	:root .channel-sidebar:not(.compact) .sb-sec .sb-sec-add {
+		width: 44px;
+		height: 44px;
+	}
+}
+@media (pointer: coarse) {
+	:root .channel-sidebar .row-tray .w-ibtn {
+		width: 44px;
+		height: 44px;
+	}
+	/* Row B keeps the y = --w-mast rule that runs across every column (tablets, touch laptops):
+	   the field stays 32px and an invisible extender makes its target 44px (§10). */
+	:root .channel-sidebar .sb-search {
+		height: 32px;
+	}
+	:root .channel-sidebar .sb-search::after {
+		content: '';
+		position: absolute;
+		inset: -7px -1px;
+	}
+	/* No keyboard to press it with. */
+	:root .channel-sidebar .sb-search .w-kbd {
+		display: none;
+	}
+	/* No hover on touch: the tray stays out of the way (long-press opens the row menu). */
+	:root .channel-sidebar .row-tray {
+		display: none;
+	}
+	:root .channel-sidebar .channel-item:is(:hover, :focus-within) .row-trail {
+		visibility: visible;
+	}
+}
+
+/* Phone and the phone shell up to 768px: the sidebar is the Channels drawer. No other column
+   sits beside it, so row B grows to hold a real 44px field (§8.12) and the rule moves with it. */
+@media (max-width: 768px) {
+	:root .channel-sidebar .mobile-close-btn {
+		display: inline-grid;
+		flex: none;
+	}
+	:root .channel-sidebar .sb-head {
+		padding: 0 8px 0 4px;
+	}
+	:root .channel-sidebar .sb-mast {
+		height: calc(var(--w-head-a) + 52px);
+	}
+	:root .channel-sidebar .sb-search-row {
+		height: 52px;
+	}
+	:root .channel-sidebar .sb-search {
+		height: 44px;
+	}
+	:root .channel-sidebar .sb-search::after {
+		content: none;
+	}
+}
+
+/* ---------- compact rail (60px): glyph tiles, names in tooltips (§8.1) ---------- */
+:root .channel-sidebar.compact .sb-head,
+:root .channel-sidebar.compact .sb-search-row {
+	justify-content: center;
+	padding: 0;
+}
+:root .channel-sidebar.compact .sb-home {
+	flex: none;
+	justify-content: center;
+	width: 40px;
+	padding: 0;
+}
+:root .channel-sidebar.compact :is(.server-name, .sb-switch, .sb-search-label, .sb-search .w-kbd) {
+	display: none;
+}
+:root .channel-sidebar.compact .sb-search {
+	justify-content: center;
+	width: 40px;
+	padding: 0;
+	border-color: transparent;
+	background: transparent;
+}
+:root .channel-sidebar.compact .sb-search:hover {
+	border-color: transparent;
+	background: color-mix(in srgb, var(--w-raise) 70%, transparent);
+}
+:root .channel-sidebar.compact .sb-search > svg {
+	width: 18px;
+	height: 18px;
+	color: var(--w-mute);
+}
+:root .channel-sidebar.compact .personal-nav {
+	padding: 0;
+}
+:root .channel-sidebar.compact :is(.channel-item, .category-row, .messages-hub-btn) {
+	width: 40px;
+	margin: 2px auto 0;
+}
+:root .channel-sidebar.compact :is(.channel-btn, .category-toggle) {
+	grid-template-columns: 40px;
+	justify-items: center;
+	width: 40px;
+	height: 40px;
+	padding: 0;
+}
+:root .channel-sidebar.compact .row-glyph {
+	width: 40px;
+}
+/* Names stay in the accessibility tree (the tile's name); the tooltip shows them. */
+:root .channel-sidebar.compact :is(.row-name, .category-name) {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+:root .channel-sidebar.compact :is(.row-trail, .category-count, .category-chevron) {
+	display: none;
+}
+:root .channel-sidebar.compact .category-folder-icon {
+	display: grid;
+	place-items: center;
+	color: var(--w-faint);
+}
+:root .channel-sidebar.compact .channel-item.live .row-name::after {
+	content: none;
+}
+/* Unread: an 8px ink dot at the tile's top-right. Live room: a 6px online dot at bottom-right. */
+:root .channel-sidebar.compact :is(.channel-item.unread .channel-btn, .messages-hub-btn.unread)::after,
+:root .channel-sidebar.compact .channel-item.live .channel-btn::after {
+	content: '';
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	width: 8px;
+	height: 8px;
+	border-radius: var(--w-avr, 50%);
+	background: var(--w-text);
+	box-shadow: 0 0 0 2px var(--w-bg2);
+}
+:root .channel-sidebar.compact .channel-item.live:not(.unread) .channel-btn::after {
+	top: auto;
+	bottom: 7px;
+	width: 6px;
+	height: 6px;
+	background: var(--w-online);
+}
+:root .channel-sidebar.compact .breakout-channel-item {
+	margin-left: auto;
+}
+/* In the rail a folder is its folder tile, its channels' tiles, then a short closing hairline,
+   so the tiles after it read as top level again. */
+:root .channel-sidebar.compact .category-channels {
+	padding-left: 0;
+}
+:root .channel-sidebar.compact .category-channels::after {
+	content: '';
+	display: block;
+	width: 12px;
+	height: var(--w-bw, 1px);
+	margin: 6px auto 4px;
+	background: var(--w-line-strong);
+}
+/* Section heads become short hairlines between groups of tiles. */
+:root .channel-sidebar.compact .sb-sec {
+	justify-content: center;
+	height: 9px;
+	margin-top: 8px;
+	padding: 0;
+}
+:root .channel-sidebar.compact .sb-sec::before {
+	content: '';
+	width: 20px;
+	height: var(--w-bw, 1px);
+	background: var(--w-line);
+}
+:root .channel-sidebar.compact :is(.sb-sec-toggle, .sb-sec-add) {
+	display: none;
+}
+:root .channel-sidebar.compact .profile-card.sb-foot {
+	justify-content: center;
+	padding: 0;
+}
