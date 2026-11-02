@@ -58,7 +58,7 @@ export function noteSaveWord(status: Status, savedAt: number, locale?: string, n
  * The color names the note color menu shows, in NOTE_COLORS order. Color words people use, not
  * theme roles: the first preset follows the theme's own color, the last is the theme's gray.
  */
-export const NOTE_COLOR_NAMES: readonly string[] = Object.freeze(['Theme color', 'Green', 'Amber', 'Red', 'Purple', 'Gray']);
+export const NOTE_COLOR_NAMES: readonly string[] = Object.freeze(['Theme color', 'Green', 'Amber', 'Red', 'Blue', 'Gray']);
 
 /**
  * A note's color only ever comes from the preset list: anything else (an imported backup with

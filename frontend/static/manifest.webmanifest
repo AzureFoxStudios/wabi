@@ -8,8 +8,8 @@
 	"display": "standalone",
 	"display_override": ["standalone", "browser"],
 	"orientation": "any",
-	"background_color": "#0D1024",
-	"theme_color": "#0D1024",
+	"background_color": "#101315",
+	"theme_color": "#101315",
 	"categories": ["social", "communication", "productivity"],
 	"icons": [
 		{

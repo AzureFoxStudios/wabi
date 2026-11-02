@@ -12,6 +12,7 @@
 	import { allServerFollowedChannels, getCurrentFollowServerUrl, unfollowChannel } from '$lib/following';
 	import { followedChannelSnapshots } from '$lib/followingSnapshots';
 	import { isServerScopedChannel } from '$lib/channelTypes';
+	import { _ } from '$lib/i18n';
 	import Icon from '$lib/components/ui/Icon.svelte';
 	import Segmented from '$lib/components/ui/Segmented.svelte';
 	import type { IconName } from '$lib/components/ui/icons';
@@ -33,10 +34,10 @@
 	$: followedCount = followedServerGroups.reduce((sum, group) => sum + group.channels.length, 0);
 	$: recentCount = recentChannelItems.length;
 	$: sections = [
-		{ value: 'recent' as const, label: recentCount > 0 ? `Recent ${recentCount}` : 'Recent' },
-		{ value: 'saved' as const, label: followedCount > 0 ? `Followed ${followedCount}` : 'Followed' }
+		{ value: 'recent' as const, label: recentCount > 0 ? $_('shortcuts.recent_count', { values: { count: recentCount } }) : $_('shortcuts.recent') },
+		{ value: 'saved' as const, label: followedCount > 0 ? $_('shortcuts.followed_count', { values: { count: followedCount } }) : $_('shortcuts.followed') }
 	];
-	$: activeSectionSubtitle = activeSection === 'recent' ? 'Recent channels on this server' : 'Followed channels across your servers';
+	$: activeSectionSubtitle = activeSection === 'recent' ? $_('shortcuts.recent_subtitle') : $_('shortcuts.followed_subtitle');
 
 	/** The channel's own glyph; a text channel is a typeset #. */
 	function glyphFor(type: string | null): IconName | null {
@@ -60,13 +61,13 @@
 	function isFollowedServerGroupCollapsed(serverUrl: string, collapsed: Record<string, boolean>): boolean { return collapsed[serverUrl] === true; }
 </script>
 
-<div class="mode-tabs" class:embedded role="region" aria-label="Server shortcuts">
-	<Segmented class="mode-tabs__seg" label="Shortcut list" options={sections} bind:value={activeSection} />
+<div class="mode-tabs" class:embedded role="region" aria-label={$_('shortcuts.region')}>
+	<Segmented class="mode-tabs__seg" label={$_('shortcuts.list_label')} options={sections} bind:value={activeSection} />
 	<p class="mode-tabs__hint">{activeSectionSubtitle}</p>
 
 	{#if activeSection === 'recent'}
 		{#if recentChannelItems.length === 0}
-			<p class="mode-tabs__empty">Channels you visit show up here so you can jump back quickly.</p>
+			<p class="mode-tabs__empty">{$_('shortcuts.empty_recent')}</p>
 		{:else}
 			<ul class="mode-tabs__list" role="list">
 				{#each recentChannelItems as item (item.id)}
@@ -75,14 +76,14 @@
 						<button type="button" class="mode-tabs__item" aria-current={item.active ? 'page' : undefined} on:click={() => void selectChannel(item)}>
 							<span class="mode-tabs__glyph" aria-hidden="true">{#if glyph}<Icon name={glyph} size={16} />{:else}#{/if}</span>
 							<span class="mode-tabs__label">{item.label}</span>
-							{#if item.badgeCount > 0}<span class="w-badge" aria-label={`${item.badgeCount} unread`}>{badgeText(item.badgeCount)}</span>{/if}
+							{#if item.badgeCount > 0}<span class="w-badge" aria-label={item.badgeCount === 1 ? $_('shortcuts.unread_one', { values: { count: item.badgeCount } }) : $_('shortcuts.unread_many', { values: { count: item.badgeCount } })}>{badgeText(item.badgeCount)}</span>{/if}
 						</button>
 					</li>
 				{/each}
 			</ul>
 		{/if}
 	{:else if followedServerGroups.length === 0}
-		<p class="mode-tabs__empty">Follow channels with the bell in the sidebar to keep them handy here.</p>
+		<p class="mode-tabs__empty">{$_('shortcuts.empty_followed')}</p>
 	{:else}
 		<div class="mode-tabs__groups">
 			{#each followedServerGroups as group (group.serverUrl)}
@@ -101,9 +102,9 @@
 								<button type="button" class="mode-tabs__item" aria-current={item.active ? 'page' : undefined} on:click={() => void selectChannel(item)}>
 									<span class="mode-tabs__glyph" aria-hidden="true">{#if glyph}<Icon name={glyph} size={16} />{:else}#{/if}</span>
 									<span class="mode-tabs__label">{item.label}</span>
-									{#if item.badgeCount > 0}<span class="w-badge" aria-label={`${item.badgeCount} unread`}>{badgeText(item.badgeCount)}</span>{/if}
+									{#if item.badgeCount > 0}<span class="w-badge" aria-label={item.badgeCount === 1 ? $_('shortcuts.unread_one', { values: { count: item.badgeCount } }) : $_('shortcuts.unread_many', { values: { count: item.badgeCount } })}>{badgeText(item.badgeCount)}</span>{/if}
 								</button>
-								<button type="button" class="w-ibtn mode-tabs__unfollow" aria-label={`Unfollow ${item.label}`} title={`Unfollow ${item.label}`} on:click={() => removeSavedChannel(item)}><Icon name="x" size={16} /></button>
+								<button type="button" class="w-ibtn mode-tabs__unfollow" aria-label={$_('shortcuts.unfollow', { values: { name: item.label } })} title={$_('shortcuts.unfollow', { values: { name: item.label } })} on:click={() => removeSavedChannel(item)}><Icon name="x" size={16} /></button>
 							</li>
 						{/each}
 					</ul>

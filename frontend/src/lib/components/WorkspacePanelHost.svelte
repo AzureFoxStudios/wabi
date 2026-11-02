@@ -21,6 +21,7 @@
 	import WikiChannel from './WikiChannel.svelte';
 	import ForumChannel from './ForumChannel.svelte';
 	import Icon from './ui/Icon.svelte';
+	import GameSyncPanel from '$lib/game-sync/GameSyncPanel.svelte';
 	import { channels, currentChannel } from '$lib/socket';
 	import {
 		choosePanelChannel,
@@ -159,6 +160,8 @@
 	<div class="channel-companion" bind:this={companionEl}>
 		{@render channelCompanion('forum', forumChannels, forumPanelChannelId, forumPanelChannel)}
 	</div>
+{:else if panel.component === 'game-sync'}
+	<GameSyncPanel />
 {:else}
 	<AddonFallbackPanel {panel} />
 {/if}

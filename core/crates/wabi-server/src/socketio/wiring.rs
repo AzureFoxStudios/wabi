@@ -806,6 +806,57 @@ pub fn create_socket_layer(app: Arc<AppState>) -> SocketIoLayer {
                 }
             });
 
+            // game-sync addon
+            socket.on("game:join", {
+                let s = state.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone();
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_game_join(socket, data, s).await })
+                }
+            });
+            socket.on("game:leave", {
+                let s = state.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone();
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_game_leave(socket, data, s).await })
+                }
+            });
+            socket.on("game:create", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_game_create(socket, data, s, io).await })
+                }
+            });
+            socket.on("game:claim", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_game_claim(socket, data, s, io).await })
+                }
+            });
+            socket.on("game:move", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_game_move(socket, data, s, io).await })
+                }
+            });
+            socket.on("game:pass", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_game_pass(socket, data, s, io).await })
+                }
+            });
+            socket.on("game:resign", {
+                let s = state.clone(); let io = io.clone();
+                move |socket: SocketRef, Data(data): Data<Value>| {
+                    let s = s.clone(); let io = io.clone();
+                    scoped_socket_event(s.app.instance_operations.clone(), async move { let _membership = s.app.membership_gate.clone().read_owned().await; on_game_resign(socket, data, s, io).await })
+                }
+            });
+
             socket.on_disconnect({
                 let s = state.clone(); let io = io.clone();
                 move |socket: SocketRef, _reason: socketioxide::socket::DisconnectReason| {
