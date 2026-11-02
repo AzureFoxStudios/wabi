@@ -32,3 +32,52 @@ export function formatCoord(x: number, y: number): string {
   const letters = 'ABCDEFGHJKLMNOPQRSTUVWXYZ';
   return (letters[x] ?? '?') + (y + 1);
 }
+
+/**
+ * Grid lines for the board's SVG layer, in a size×size viewBox. Intersections
+ * sit at half-integer coordinates (x + 0.5, y + 0.5), so the outermost lines
+ * keep half a cell of paper around them. One path, so the browser draws every
+ * rule in a single stroke (grid lines are hairlines, not boxes).
+ */
+export function boardGridPaths(size: number): string {
+  if (size < 1) return '';
+  const first = 0.5;
+  const last = size - 0.5;
+  const parts: string[] = [];
+  for (let i = 0; i < size; i++) {
+    const at = i + 0.5;
+    parts.push(`M${first} ${at}H${last}`, `M${at} ${first}V${last}`);
+  }
+  return parts.join(' ');
+}
+
+/** Star-point centres in the grid's half-integer coordinate space. */
+export function boardStarPoints(size: number): { x: number; y: number }[] {
+  return starPoints(size).map(({ x, y }) => ({ x: x + 0.5, y: y + 0.5 }));
+}
+
+/**
+ * The next point for a roving-tabindex board. Arrows move one intersection and
+ * stop at the edge; Home/End jump to the ends of the current row. Returns null
+ * for any key the board does not own, so the caller can leave it alone.
+ */
+export function nextPointIndex(size: number, index: number, key: string): number | null {
+  if (size < 1 || index < 0 || index >= size * size) return null;
+  const { x, y } = indexPoint(size, index);
+  switch (key) {
+    case 'ArrowLeft':
+      return pointIndex(size, Math.max(0, x - 1), y);
+    case 'ArrowRight':
+      return pointIndex(size, Math.min(size - 1, x + 1), y);
+    case 'ArrowUp':
+      return pointIndex(size, x, Math.max(0, y - 1));
+    case 'ArrowDown':
+      return pointIndex(size, x, Math.min(size - 1, y + 1));
+    case 'Home':
+      return pointIndex(size, 0, y);
+    case 'End':
+      return pointIndex(size, size - 1, y);
+    default:
+      return null;
+  }
+}

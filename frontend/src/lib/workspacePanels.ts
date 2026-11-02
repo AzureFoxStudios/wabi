@@ -1,5 +1,6 @@
 import { derived, get, writable } from 'svelte/store';
 import { brandName } from '$lib/branding';
+import { retentionLabel } from '$lib/privacy/privacyState';
 import type { User } from '$lib/socket-types';
 import type { IconName } from '$lib/components/ui/icons';
 import {
@@ -93,6 +94,10 @@ export interface PluginWorkspacePanelDeclaration {
 	shortLabel?: string;
 	icon?: WorkspacePanelIcon | IconName;
 	description?: string;
+	/** The panel draws its own masthead row B (40px) as its first child. */
+	ownsToolbar?: boolean;
+	/** Where the panel's data lives, said once in row A as a locality tag. */
+	locality?: string;
 	component?: string;
 	capabilities?: string[];
 	defaultDock?: WorkspacePanelDockArea;
@@ -400,8 +405,28 @@ export function canAccessWorkspacePanel(manifest: WorkspacePanelManifest, user: 
  * server inventory. This table is the trusted frontend half: panel id ->
  * bundled component. Add an entry here when a bundled add-on ships a panel.
  */
-const BUNDLED_PANEL_COMPONENTS: Record<string, { component: WorkspacePanelComponentKey; label: string; icon: WorkspacePanelIcon; sortOrder?: number }> = {
-	'game-sync:play': { component: 'game-sync', label: 'Play', icon: 'activity', sortOrder: 310 }
+const BUNDLED_PANEL_COMPONENTS: Record<
+	string,
+	{
+		component: WorkspacePanelComponentKey;
+		label: string;
+		icon: WorkspacePanelIcon | IconName;
+		description?: string;
+		ownsToolbar?: boolean;
+		locality?: string;
+		sortOrder?: number;
+	}
+> = {
+	// "Games" already names the Steam-backed games surface; this panel is the Go board itself.
+	'game-sync:play': {
+		component: 'game-sync',
+		label: 'Go',
+		icon: 'gamepad',
+		description: 'A shared Go board in this channel',
+		ownsToolbar: true,
+		locality: retentionLabel('live') ?? 'Live only · not saved',
+		sortOrder: 310
+	}
 };
 
 export function coercePluginWorkspacePanels(plugin: WorkspacePanelPluginRecord): WorkspacePanelManifest[] {
@@ -429,6 +454,10 @@ export function coercePluginWorkspacePanels(plugin: WorkspacePanelPluginRecord):
 			const bundled = BUNDLED_PANEL_COMPONENTS[rawId];
 			const label = String(bundled?.label || declaration.label || plugin.name || pluginId).trim();
 			if (!label) return null;
+			const description =
+				typeof declaration.description === 'string' && declaration.description.trim()
+					? declaration.description.trim()
+					: bundled?.description;
 			const requestedComponent = String(declaration.component || bundled?.component || '').trim() as WorkspacePanelComponentKey;
 			const component = KNOWN_COMPONENT_KEYS.has(requestedComponent) ? requestedComponent : 'addon-fallback';
 			return {
@@ -436,7 +465,9 @@ export function coercePluginWorkspacePanels(plugin: WorkspacePanelPluginRecord):
 				label,
 				shortLabel: declaration.shortLabel,
 				icon: declaration.icon || bundled?.icon || 'box',
-				description: typeof declaration.description === 'string' ? declaration.description.trim() || undefined : undefined,
+				description,
+				ownsToolbar: declaration.ownsToolbar ?? bundled?.ownsToolbar,
+				locality: declaration.locality ?? bundled?.locality,
 				component,
 				capabilities: declaration.capabilities || [],
 				defaultDock: declaration.defaultDock || declaration.preferredDockArea || 'right',
