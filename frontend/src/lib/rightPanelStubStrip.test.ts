@@ -358,6 +358,17 @@ describe('companion manifests (§7.22, §9.4, §9.6)', () => {
 		const [bare] = coercePluginWorkspacePanels({ id: 'demo', workspacePanels: [{ id: 'two', label: 'Bare' }] });
 		expect(bare.description).toBeUndefined();
 	});
+
+	test('the bundled Go panel names itself, owns row B and says its retention', () => {
+		const [panel] = coercePluginWorkspacePanels({ id: 'game-sync', name: 'Game Sync', workspacePanels: [{ id: 'play' }] });
+		expect(panel.id).toBe('game-sync:play');
+		expect(panel.label).toBe('Go');
+		expect(panel.icon).toBe('gamepad');
+		expect(panel.description).toBe('A shared Go board in this channel');
+		expect(panel.ownsToolbar).toBe(true);
+		expect(panel.locality).toBe('Live only · not saved');
+		expect(panel.component).toBe('game-sync');
+	});
 });
 
 describe('companion frame state', () => {

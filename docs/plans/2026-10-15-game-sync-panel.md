@@ -47,7 +47,8 @@ Frontend (`$lib/game-sync/`):
   board, turn indicator, pass/resign, status/empty/loading/error states.
 - Wiring: `workspacePanels.ts` (`game-sync` component key), `WorkspacePanelHost`
   branch, `loader.ts` + `addonInventory.ts` bundled allowlist entries. Manifest
-  surfaces `game-sync:play` (addon panel, icon `activity`). MainLayout's existing
+  surfaces `game-sync:play` (addon panel; the design-alignment section below gives
+  it its current name, glyph, row B and locality tag). MainLayout's existing
   inventory-based `registerPluginWorkspacePanels` call registers it at runtime.
 
 ## Roadmap
@@ -83,3 +84,49 @@ Frontend (`$lib/game-sync/`):
   `game-sync:play`); disabled add-ons no longer register panels; channel
   selection survives chat switches once chosen manually; New-game button after
   a finished game.
+
+## Design alignment (2026-11-02, against main's design pass)
+The add-on moved onto the design contract; the contract was not bent to fit the add-on.
+
+- The panel id stays `game-sync:play`, but the bundled manifest names it **Go**
+  (not "Play", and not "Games", which belongs to the Steam-backed games surface),
+  glyph `gamepad`, description "A shared Go board in this channel". Its rail stub,
+  frame title and Add panels row use the same word.
+- The panel owns row B (`ownsToolbar: true`): the channel `Select` and the
+  `EXPERIMENTAL` maturity tag sit in the 40px band under the frame title, so there
+  is no second header inside the body. Row A carries the locality tag from
+  `retentionLabel('live')` — **Live only · not saved** — because sessions live in
+  memory only.
+- `GameSyncPanel.svelte` is rebuilt on the kit (`Select`, `Segmented`, `EmptyState`,
+  `Notice`, `LoadLine`, `.w-skel`, `confirmAction`). Phases are
+  `joining | ready | failed`; a 7s join deadline replaces the permanent "Loading…"
+  state. Server refusals are mapped by `present.ts` to a cause plus one consequence
+  line; the raw string reaches the console only. The arbitrary 400ms busy timers
+  are replaced by a busy flag cleared by the next state/error, with an 8s safety
+  deadline.
+- The board is drawn in roles only: a `--w-lift` plate with `--w-shadow-1`, an SVG
+  hairline grid and star points, ink-filled vs paper-hollow stones (the seats are
+  still called Black and White in words), a `--w-accent` last-move dot and a
+  dashed `--w-line-strong` ko ring. Up to 361 intersections share one tab stop;
+  arrows/Home/End move it and Enter/Space play. Labels use Go coordinates
+  ("C3, black stone, last move").
+- `game-sync.css` is component-owned so `designLint` scans it: no hex, `rgb()`,
+  named colours or legacy tokens, and no gradients or glows.
+- Known limitation: a 19×19 board on a 640px phone sheet has roughly 21px cells
+  (about 13px in a 304px pinned panel), below the 44px coarse-pointer target. The
+  9×9 board is the phone-sized affordance; the grid is not faked into 44px with
+  horizontal scrolling.
+- Strings remain hardcoded English while the add-on is experimental; translation
+  keys arrive with the shipping decision.
+
+### Verification for the alignment
+- `bun run check` — 0 errors (109 pre-existing warnings).
+- `bun test --isolate src/lib/game-sync src/lib/rightPanelStubStrip.test.ts` — all pass,
+  including the new `present.test.ts`, grid/keyboard cases and the bundled-Go manifest test.
+- `bun test src/lib/designLint.test.ts` — passes with `game-sync.css` outside the debt ledger.
+- `bun test --isolate src/lib` — 2897 pass, 3 skip; the only failure is the
+  pre-existing timezone-dependent `userPopoutModel.test.ts` case ("Sep 2026" vs
+  "Aug 2026").
+- `bun run build:static` — succeeds (478 immutable assets prepared for offline use).
+- Visual check still needs a real browser/Tauri window: pinned 304px, 240px minimum,
+  peek, and the phone sheet, in Wabi Ink and Daylight.
