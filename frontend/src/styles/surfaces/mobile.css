@@ -339,39 +339,59 @@ html[data-shell='mobile'] body {
 		animation: w-fade var(--w-dur-3) var(--w-ease);
 	}
 
-	/* A side panel on the phone: the whole stage, from the end edge. */
+	/* A side panel on a phone is a bottom sheet (§7.13): it rises from the foot of the screen,
+	   takes the top corners and the grabber, and keeps the nav out of its way until it closes.
+	   Opening and closing are taps (a stub, the facepile, the Workspaces sheet, the scrim, Escape
+	   or its own close key); the drawer's edge swipe never moves it. */
 	.mobile-right-overlay {
 		position: fixed;
-		top: 0;
 		right: 0;
-		bottom: var(--mobile-nav-height);
+		bottom: 0;
 		left: var(--mobile-rail-w);
-		z-index: var(--z-modal);
+		z-index: var(--z-modal-surface);
 		display: flex;
 		flex-direction: column;
 		box-sizing: border-box;
-		padding-top: env(safe-area-inset-top, 0px);
-		background: var(--w-bg);
+		width: auto;
+		/* A definite height, because the panel inside fills its host and scrolls itself. */
+		height: min(calc(100dvh - 48px), 760px);
+		padding: 0 0 env(safe-area-inset-bottom, 0px);
+		overflow: hidden;
+		border: var(--w-bw) solid var(--w-line-strong);
+		border-bottom: 0;
+		border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+		background: var(--w-bg2);
 		scrollbar-width: none;
-		transform: translateX(100%);
+		transform: translateY(100%);
 		visibility: hidden;
 		transition:
 			transform var(--w-dur-3) var(--w-ease),
 			visibility 0s linear var(--w-dur-3);
 	}
-	.mobile-right-overlay.visible,
-	.mobile-right-overlay.preview-visible {
+	/* The grabber the sheet is dragged by eye: 36×4 on its edge (§7.13). */
+	.mobile-right-overlay::before {
+		content: '';
+		flex: none;
+		width: 36px;
+		height: 4px;
+		margin: 8px auto 4px;
+		border-radius: var(--w-pill);
+		background: var(--w-line-strong);
+	}
+	.mobile-right-overlay.visible {
 		visibility: visible;
 		box-shadow: var(--w-shadow);
 		transition: transform var(--w-dur-3) var(--w-ease);
 	}
-	.mobile-right-overlay.preview-visible {
-		pointer-events: none;
-	}
 	.mobile-right-overlay::-webkit-scrollbar {
 		display: none;
 	}
-	:root[data-keyboard-open='1'] .mobile-right-overlay {
+	/* A sheet is modal, so the nav goes under its scrim (as with a kit dialog) instead of
+	   drawing over the sheet's foot. */
+	:root:has(.mobile-right-overlay.visible) .mobile-bottom-nav {
+		z-index: calc(var(--z-modal) - 2);
+	}
+	:root:has(.mobile-right-overlay.visible) .mobile-panel-backdrop {
 		bottom: 0;
 	}
 

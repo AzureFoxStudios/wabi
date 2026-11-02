@@ -550,8 +550,8 @@
 
 	:global(.reaction-picker-anchor) .emoji-picker {
 		width: min(440px, calc(100vw - 24px));
-		height: min(500px, calc(100vh - 88px));
-		max-height: calc(100vh - 88px);
+		height: min(500px, calc(100dvh - 88px));
+		max-height: calc(100dvh - 88px);
 	}
 
 	@media (max-width: 640px) {

@@ -609,7 +609,19 @@
       "presence": "Presence",
       "presence_change": "Presence: {state}. Change presence",
       "sign_out_body": "This device will no longer be signed in to {server}."
-    }
+    },
+    "show_channel_list": "Show channel list",
+    "close_channel_list": "Close channel list",
+    "resize_channel_list": "Resize channel sidebar",
+    "open_channel_sidebar": "Open channel sidebar",
+    "side_panel": "Side panel",
+    "resize_side_panel": "Resize side panel",
+    "loading_panel": "Loading panel",
+    "toggle_call_diagnostics": "Toggle calling diagnostics",
+    "close_call_diagnostics": "Close calling diagnostics",
+    "calling_debug": "Calling Debug",
+    "open_voice_whiteboard": "Open whiteboard for this voice channel",
+    "scratchpad": "Scratchpad"
   },
   "user": {
     "online": "Online ({count})",
@@ -817,6 +829,21 @@
     "own_account": "Each server keeps its own account.",
     "add": "Add server",
     "remove": "Remove server"
+  },
+  "shortcuts": {
+    "region": "Server shortcuts",
+    "list_label": "Shortcut list",
+    "recent": "Recent",
+    "recent_count": "Recent {count}",
+    "followed": "Followed",
+    "followed_count": "Followed {count}",
+    "recent_subtitle": "Recent channels on this server",
+    "followed_subtitle": "Followed channels across your servers",
+    "empty_recent": "Channels you visit show up here so you can jump back quickly.",
+    "empty_followed": "Follow channels with the bell in the sidebar to keep them handy here.",
+    "unfollow": "Unfollow {name}",
+    "unread_one": "{count} unread",
+    "unread_many": "{count} unread"
   },
   "stage": {
     "search_channel": "Search messages in #{channel}",

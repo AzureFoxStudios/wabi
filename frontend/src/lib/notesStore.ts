@@ -1,14 +1,14 @@
 import { writable } from 'svelte/store';
 
-// Preset swatches mapped to theme tokens (NOT hardcoded brand colors).
-// Stored on the note and resolved via a CSS custom property at render time.
+// Preset swatches are role tokens, never raw colours: the note's dot follows every theme.
+// Stored on the note and resolved through a CSS custom property at render time (a 7px dot).
 export const NOTE_COLORS: string[] = [
-	'var(--accent-primary-color)',
-	'var(--color-success, #22c55e)',
-	'var(--color-warning, #f59e0b)',
-	'var(--color-danger, #ef4444)',
-	'var(--accent-purple, #9b59b6)',
-	'var(--text-secondary, #8a8aa3)'
+	'var(--w-accent)',
+	'var(--w-ok)',
+	'var(--w-warn)',
+	'var(--w-danger)',
+	'var(--w-info)',
+	'var(--w-mute)'
 ];
 
 /** N1: floating QuickScratchpad open state (global hotkey + /scratch). */

@@ -3,10 +3,10 @@
   export let size: 'sm' | 'md' = 'sm'
 
   const statusColors: Record<string, string> = {
-    online: 'var(--accent-green, #4a9e5c)',
-    idle: 'var(--accent-yellow, #F39C12)',
-    dnd: 'var(--accent-red, #d71921)',
-    offline: 'var(--text-disabled, #666)',
+    online: 'var(--w-online)',
+    idle: 'var(--w-warn)',
+    dnd: 'var(--w-danger)',
+    offline: 'var(--w-faint)',
   }
 
   $: color = statusColors[status] ?? statusColors.offline

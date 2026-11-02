@@ -40,7 +40,7 @@ describe('notes view words', () => {
 
 	test('color names are color words, not theme roles', () => {
 		for (const role of ['Accent', 'Muted', 'Sig', 'Seal', 'Faint']) expect(NOTE_COLOR_NAMES).not.toContain(role);
-		expect(NOTE_COLOR_NAMES).toEqual(['Theme color', 'Green', 'Amber', 'Red', 'Purple', 'Gray']);
+		expect(NOTE_COLOR_NAMES).toEqual(['Theme color', 'Green', 'Amber', 'Red', 'Blue', 'Gray']);
 	});
 
 	test('notices show the notebook sentences, never a raw platform error', () => {
