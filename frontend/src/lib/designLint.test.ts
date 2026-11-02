@@ -47,7 +47,6 @@ const LEDGER: Record<string, Partial<Record<Rule, number>>> = {
 	'styles/animations.css': { legacy: 3 },
 	'styles/base.css': { legacy: 4 },
 	'styles/character.css': { rgb: 2 },
-	'styles/components/admin-center-stage.css': { hex: 83, rgb: 1, legacy: 75 },
 	'styles/components/admin-tab.css': { hex: 5, rgb: 13, legacy: 56 },
 	'styles/components/admin-workbench.css': { legacy: 30 },
 	'styles/components/chat-core.css': { hex: 3, rgb: 2, legacy: 26 },

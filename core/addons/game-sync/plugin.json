@@ -1,0 +1,22 @@
+{
+  "id": "game-sync",
+  "name": "Game Sync",
+  "version": "0.1.0",
+  "description": "Real-time shared Go games in chat channels (experimental, v1: Go)",
+  "backend": {
+    "runtime": "rust",
+    "path": "../../crates/wabi-server",
+    "crate": "wabi-server",
+    "cargo_feature": null
+  },
+  "frontend": {
+    "contributions": {
+      "channelTypes": [],
+      "workspacePanels": ["play"],
+      "settingsPages": [],
+      "mobileTabs": []
+    },
+    "bundled": true
+  },
+  "permissions": []
+}

@@ -59,6 +59,7 @@ pub async fn evict_channel_user(io: &SocketIo, state: &AppState, channel_id: &st
             crate::api::voice_policy::remove_admission(&state.config.data_dir, channel_id, &device.id.to_string());
             crate::api::voice_self_state::remove(channel_id, &device.id.to_string());
             evict_channel_whiteboards(&device, channel_id);
+            evict_channel_games(channel_id);
             let _ = device.emit("channel-access-revoked", &json!({ "channelId": channel_id }));
         }
     }
@@ -78,6 +79,7 @@ pub async fn evict_channel_disallowed(io: &SocketIo, state: &AppState, channel_i
             crate::api::voice_policy::remove_admission(&state.config.data_dir, channel_id, &device.id.to_string());
             crate::api::voice_self_state::remove(channel_id, &device.id.to_string());
         evict_channel_whiteboards(&device, channel_id);
+            evict_channel_games(channel_id);
         let _ = device.emit("channel-access-revoked", &json!({ "channelId": channel_id }));
     }
 }

@@ -22,6 +22,9 @@ const REMOVED = [
 	'./components/sidebar/ForumChannelList.svelte',
 	'./components/sidebar/GalleryChannelList.svelte',
 	'./components/sidebar/WikiChannelList.svelte',
+	// The last per-kind list: UnifiedChannelList is the only channel list the sidebar renders,
+	// and the call-panel browser harness now mounts that instead.
+	'./components/sidebar/VoiceChannelList.svelte',
 	'./components/UserContextMenu.svelte',
 	// Wave 2 legacy retirement: the desktop floating voice card's sheet (the strip is phone-only,
 	// styled in styles/surfaces/mobile.css; its 1280px rule used Svelte-only :global() and never

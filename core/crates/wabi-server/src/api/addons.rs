@@ -75,6 +75,7 @@ pub struct AddonRuntimeFlags {
     pub lore_enabled: bool,
     pub steam_enabled: bool,
     pub project_workers_enabled: bool,
+    pub game_sync_enabled: bool,
 }
 
 /// Build the inventory from compile-time features + runtime flags.
@@ -84,6 +85,7 @@ pub fn enabled_addons_with(runtime: AddonRuntimeFlags) -> Vec<AddonCapability> {
         lore_enabled,
         steam_enabled,
         project_workers_enabled,
+        game_sync_enabled,
     } = runtime;
     let mut out = Vec::new();
     out.push(AddonCapability {
@@ -112,6 +114,29 @@ pub fn enabled_addons_with(runtime: AddonRuntimeFlags) -> Vec<AddonCapability> {
                 channel_types: vec![],
                 workspace_panels: vec![],
                 settings_pages: vec!["steam".into()],
+                mobile_tabs: vec![],
+            },
+        },
+    });
+
+    out.push(AddonCapability {
+        id: "game-sync".into(),
+        name: "Game Sync".into(),
+        version: "0.1.0".into(),
+        description: "Shared real-time Go games in chat channels (experimental)".into(),
+        enabled: game_sync_enabled,
+        compiled: true,
+        backend_runtime: "rust".into(),
+        cargo_feature: None,
+        runtime_env: Some("WABI_GAME_SYNC_ENABLED".into()),
+        runtime_switch: true,
+        permissions: vec![],
+        frontend: FrontendInfo {
+            bundled: true,
+            contributions: FrontendContributions {
+                channel_types: vec![],
+                workspace_panels: vec!["play".into()],
+                settings_pages: vec![],
                 mobile_tabs: vec![],
             },
         },
@@ -297,6 +322,9 @@ async fn enabled_addons(state: &AppState) -> Vec<AddonCapability> {
                 false,
             )
             .await,
+        game_sync_enabled: state
+            .addon_enabled("game-sync", Some("WABI_GAME_SYNC_ENABLED"), false)
+            .await,
     })
 }
 
@@ -427,6 +455,7 @@ mod tests {
             lore_enabled: lore,
             steam_enabled: false,
             project_workers_enabled: false,
+            game_sync_enabled: false,
         }
     }
 

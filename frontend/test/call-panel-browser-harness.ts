@@ -5,13 +5,13 @@ import { selectWorkspaceView } from '../src/lib/workspaceNavigationState';
 import { mount, unmount, tick } from 'svelte';
 import { get } from 'svelte/store';
 import CallModal from '../src/lib/components/CallModal.svelte';
-import VoiceChannelList from '../src/lib/components/sidebar/VoiceChannelList.svelte';
+import UnifiedChannelList from '../src/lib/components/sidebar/UnifiedChannelList.svelte';
 import { startGroupCall, joinVoiceChannel, leaveVoiceChannel, revokeGroupCall,
   toggleChannelCallPanelFor, cleanupAllConnections } from '../src/lib/calling_impl_core';
 import { callSocketDisconnected } from '../src/lib/callSocketLifecycle';
 import { disconnectWabidbCall } from '../src/lib/callingWabidb';
 import { activeGroupCall, localStream, channelCallPanelOpen } from '../src/lib/callingStateStores';
-import { setWabidbRemoteVideoStream } from '../src/lib/wabidbVideoLane';
+import { setWabidbRemoteVideoStream, wabidbRemoteVideoSessions } from '../src/lib/wabidbVideoLane';
 import { channels, currentChannel } from '../src/lib/channelStore';
 import { voiceChannelMembers, currentUser } from '../src/lib/presenceStore';
 import { callSessionManager, focusedCallSessionId } from '../src/lib/callSessionManager';
@@ -100,26 +100,37 @@ async function run() {
     setWabidbRemoteVideoStream('user-2:camera', cameraA, ownerA, 'voice-a');
     setWabidbRemoteVideoStream('user-2:screen', screenB, ownerB, 'voice-b');
     modal = mount(CallModal, { target: panelRoot });
-    roster = mount(VoiceChannelList, { target: rosterRoot, props: { voiceChannels, allVoiceChannels: voiceChannels,
+    // The app's sidebar is UnifiedChannelList (the legacy VoiceChannelList is gone), so the roster
+    // checks run against the surface people actually see.
+    roster = mount(UnifiedChannelList, { target: rosterRoot, props: { channels: voiceChannels,
       breakoutChannelsByParent: {}, connectedVoiceChannelIds: new Set(['voice-a', 'voice-b']), runtimeActiveVoiceChannelId: 'voice-a',
       voiceDropTargetChannelId: null, voicePresenceSince: new Map(), voiceDurationMode: 'off', nowMs: Date.now(), followedChannelIds: new Set<string>(),
+      onChannelClick() {}, onChannelButtonClick() {},
       onVoiceChannelClick: id => toggleChannelCallPanelFor(id), onChannelRightClick() {}, onChannelLongPress() {},
-      onToggleChannelFollow() {}, onToggleListenChannel() {}, onOpenVoiceChannelWhiteboard() {},
+      onToggleChannelFollow() {}, onOpenChannelSettings() {}, onShowPinnedMessages() {},
+      onToggleListenChannel() {}, onOpenVoiceChannelWhiteboard() {},
       onVoiceMemberDragStart() {}, onVoiceMemberDragEnd() {}, onVoiceChannelDragOver() {},
       onVoiceChannelDragLeave() {}, onVoiceChannelDrop() {} } });
     await tick();
     const rows = () => [...rosterRoot.querySelectorAll('.voice-channel-item')];
     await until(() => rows().length === 2, 'both real sidebar rows');
     const rowA = rows()[0], rowB = rows()[1];
-    const badgeCounts = (row: Element) => {
+    // The roster marks a live screen share with its LIVE tag; the camera has no roster mark in
+    // this list (the call stage owns it), so per-channel isolation is checked on the tag and on
+    // the lane that feeds it.
+    const liveScreens = (row: Element) => {
       const members = row.nextElementSibling;
       assert(members?.classList.contains('voice-member-list'), 'channel has its sibling member list');
-      return [members!.querySelectorAll('[aria-label="camera on"]').length, members!.querySelectorAll('[aria-label="sharing screen"]').length];
+      return members!.querySelectorAll('.live-tag').length;
     };
-    check(JSON.stringify(badgeCounts(rowA)) === '[1,0]', `voice A badges contain only A media (camera/screen: ${badgeCounts(rowA)})`);
-    check(JSON.stringify(badgeCounts(rowB)) === '[0,1]', `voice B badges contain only B media (camera/screen: ${badgeCounts(rowB)})`);
+    const laneStreams = (sessionId: string) => [...(get(wabidbRemoteVideoSessions).get(sessionId)?.keys() ?? [])].sort();
+    check(liveScreens(rowA) === 0, `voice A roster shows no screen tag (${liveScreens(rowA)})`);
+    check(liveScreens(rowB) === 1, `voice B roster shows only B's screen tag (${liveScreens(rowB)})`);
+    check(JSON.stringify(laneStreams('voice-a')) === '["user-2:camera"]' && JSON.stringify(laneStreams('voice-b')) === '["user-2:screen"]',
+      `each voice lane keeps only its own media (A: ${laneStreams('voice-a')}, B: ${laneStreams('voice-b')})`);
     setWabidbRemoteVideoStream('user-2:screen', null, ownerB, 'voice-b'); await tick();
-    check(JSON.stringify(badgeCounts(rowB)) === '[0,0]' && JSON.stringify(badgeCounts(rowA)) === '[1,0]', 'removing B media updates its badge without clearing A camera');
+    check(liveScreens(rowB) === 0 && liveScreens(rowA) === 0, 'removing B screen clears its tag without touching A');
+    check(JSON.stringify(laneStreams('voice-a')) === '["user-2:camera"]', 'removing B screen leaves A camera in A lane');
     setWabidbRemoteVideoStream('user-2:screen', screenB, ownerB, 'voice-b'); await tick();
     (rowB.querySelector('.channel-btn') as HTMLButtonElement).click();
     await until(() => !!panelRoot.querySelector('.cstage video'), 'targeted embedded CallStage');

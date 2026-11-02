@@ -124,11 +124,6 @@ function findUntrackedStoreReads(
 }
 
 describe('svelte5 reactivity contract — calling sidebar', () => {
-	test('VoiceChannelList has no store-closing helpers called from the template', () => {
-		const source = readFileSync(join(componentDir, 'VoiceChannelList.svelte'), 'utf8');
-		expect(findUntrackedStoreReads(source)).toEqual([]);
-	});
-
 	test('VoiceUserCard has no store-closing helpers called from the template', () => {
 		const source = readFileSync(join(componentDir, 'VoiceUserCard.svelte'), 'utf8');
 		expect(findUntrackedStoreReads(source)).toEqual([]);

@@ -3,21 +3,31 @@
 <head>
 	<meta charset="utf-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-	<meta name="theme-color" content="#0f0c29" />
+	<!-- This page paints before any role token exists, so its colours are the resolved roles of the
+	     default theme (Wabi Ink), the same values app.html keeps in --boot-*. No gradients: the
+	     offline page is a page, not an object, so it takes paper and ink and nothing else. -->
+	<meta name="theme-color" content="#101315" />
 	<title>Wabi — Offline</title>
 	<style>
+		:root {
+			--ink: #101315;
+			--raise: #1b2125;
+			--text: #e8e7e0;
+			--mute: #9aa39d;
+			--faint: #818983;
+			--line-strong: #6a6b6a;
+			--radius: 8px;
+			color-scheme: dark;
+		}
 		html, body {
 			min-height: 100%;
 			margin: 0;
-			font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-			color: #e2e8f0;
-			background:
-				radial-gradient(circle at top, rgba(129, 140, 248, 0.16), transparent 38%),
-				radial-gradient(circle at bottom, rgba(56, 189, 248, 0.14), transparent 42%),
-				linear-gradient(180deg, #0f172a 0%, #0b1220 55%, #060b14 100%);
+			font-family: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Yu Gothic', 'Segoe UI', Roboto, sans-serif;
+			color: var(--text);
+			background: var(--ink);
 		}
 		.wrap {
-			min-height: 100vh;
+			min-height: 100dvh;
 			display: grid;
 			place-items: center;
 			padding: 24px;
@@ -35,28 +45,30 @@
 		h1 {
 			margin: 0 0 8px;
 			font-size: 1.35rem;
-			font-weight: 650;
+			font-weight: 500;
 			letter-spacing: 0.01em;
 		}
 		p {
 			margin: 0 auto 20px;
 			max-width: 28rem;
 			line-height: 1.5;
-			color: #94a3b8;
+			color: var(--mute);
 			font-size: 0.95rem;
 		}
 		.btn {
 			appearance: none;
-			border: 1px solid rgba(148, 163, 184, 0.35);
-			background: rgba(15, 23, 42, 0.65);
-			color: #e2e8f0;
-			border-radius: 10px;
+			border: 1px solid var(--line-strong);
+			background: var(--raise);
+			color: var(--text);
+			border-radius: var(--radius);
 			padding: 10px 16px;
 			font: inherit;
+			font-weight: 500;
 			cursor: pointer;
 		}
-		.btn:hover { border-color: rgba(129, 140, 248, 0.55); }
-		.hint { margin-top: 14px; font-size: 0.8rem; color: #64748b; }
+		.btn:hover { border-color: var(--text); }
+		.btn:focus-visible { outline: 2px solid var(--mute); outline-offset: 2px; }
+		.hint { margin-top: 14px; font-size: 0.8rem; color: var(--faint); }
 	</style>
 </head>
 <body>
