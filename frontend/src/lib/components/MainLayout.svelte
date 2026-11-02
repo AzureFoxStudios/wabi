@@ -160,7 +160,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 	let touchGestureEnabled = false;
 	let touchMovedEnough = false;
 	let swipePreviewActive = false;
-	let swipePreviewTarget: 'none' | 'channels' | 'users' = 'none';
+	let swipePreviewTarget: 'none' | 'channels' = 'none';
 	let swipePreviewOffsetX = 0;
 	let mobileSurfaceStack: MobileBackSurface[] = [];
 	// Right-panel peek retract: when the panel leaves the screen, keep the zone mounted
@@ -486,7 +486,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			$channelCallPanelOpen
 	);
 	$: if (callUiActive && !CallModalCmp) void import('./CallModal.svelte').then((m) => (CallModalCmp = m.default));
-	$: if (($layoutStore.rightPanelMode !== 'none' || peekClosing || ($layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'users')) && !RightPanelCmp) void import('./RightPanel.svelte').then((m) => (RightPanelCmp = m.default));
+	$: if (($layoutStore.rightPanelMode !== 'none' || peekClosing) && !RightPanelCmp) void import('./RightPanel.svelte').then((m) => (RightPanelCmp = m.default));
 
 	// Center stage owns the selected workspace (layout contract): a call that covers the stage
 	// (embedded below the masthead, or full window) docks whenever navigation picks what the stage
@@ -1202,15 +1202,14 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		touchGestureEnabled = true;
 		touchMovedEnough = false;
 		
-		// Check if touch started near left or right edge for panel opening
+		// Only the Channels drawer follows the pointer: the side panel is a bottom sheet now, so
+		// its open and close are taps, not a horizontal stage swipe (§7.13).
 		const nearLeftEdge = touchStartX <= MOBILE_EDGE_SWIPE_MIN_X_PX;
-		const nearRightEdge = touchStartX >= window.innerWidth - MOBILE_EDGE_SWIPE_MIN_X_PX;
 		const channelsOpen = $layoutStore.showMobileChannels;
 		const usersOpen = $layoutStore.rightPanelMode !== 'none';
-		
-		// If starting near an edge and no panel is open, prepare for edge swipe
-		if (!channelsOpen && !usersOpen && (nearLeftEdge || nearRightEdge)) {
-			swipePreviewTarget = nearLeftEdge ? 'channels' : 'users';
+
+		if (!channelsOpen && !usersOpen && nearLeftEdge) {
+			swipePreviewTarget = 'channels';
 			swipePreviewActive = true;
 			swipePreviewOffsetX = 0;
 		}
@@ -1238,18 +1237,11 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		const usersOpen = $layoutStore.rightPanelMode !== 'none';
 		const width = Math.max(window.innerWidth, 1);
 
-		// Edge swipe to OPEN panels (from closed state)
-		if (!channelsOpen && !usersOpen && swipePreviewActive && swipePreviewTarget !== 'none') {
-			if (swipePreviewTarget === 'channels' && deltaX > 0) {
-				// Swiping right from left edge - preview channels panel
-				swipePreviewOffsetX = Math.max(0, Math.min(width, deltaX));
-				return;
-			}
-			if (swipePreviewTarget === 'users' && deltaX < 0) {
-				// Swiping left from right edge - preview users panel
-				swipePreviewOffsetX = Math.max(-width, Math.min(0, deltaX));
-				return;
-			}
+		// Edge swipe to OPEN the drawer (from closed state)
+		if (!channelsOpen && !usersOpen && swipePreviewActive && swipePreviewTarget === 'channels' && deltaX > 0) {
+			// Swiping right from the left edge previews the channels drawer.
+			swipePreviewOffsetX = Math.max(0, Math.min(width, deltaX));
+			return;
 		}
 
 		if (channelsOpen) {
@@ -1260,15 +1252,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			return;
 		}
 
-		if (usersOpen) {
-			// Drag right to close users back to chat.
-			swipePreviewTarget = 'users';
-			swipePreviewOffsetX = Math.max(0, Math.min(width, deltaX));
-			swipePreviewActive = true;
-			return;
-		}
-
-		// Opening side panels is edge-only. Central horizontal drags belong to chat content.
+		// Opening a panel is edge-only, and the side panel is a sheet: it never follows this
+		// gesture. Central horizontal drags belong to chat content.
 	}
 
 	function handleTouchEnd(event: TouchEvent): void {
@@ -1298,35 +1283,20 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		const channelsOpen = $layoutStore.showMobileChannels;
 		const usersOpen = $layoutStore.rightPanelMode !== 'none';
 
-		// Edge swipe to OPEN panels from closed state
-		if (!channelsOpen && !usersOpen) {
-			if (swipeRight && swipePreviewTarget === 'channels') {
-				// Swiped right from left edge - open channels
-				layoutStore.showMobileChannels.set(true);
-				layoutStore.closeRightPanel();
-				resetTouchSwipe();
-				return;
-			}
-			if (swipeLeft && swipePreviewTarget === 'users') {
-				// Swiped left from right edge - open users
-				layoutStore.openRightPanel('users');
-				layoutStore.showMobileChannels.set(false);
-				resetTouchSwipe();
-				return;
-			}
-		}
-
-		// Stage navigation: Channels <-> Chat <-> Users
-		if (channelsOpen && swipeLeft) {
-			layoutStore.showMobileChannels.set(false);
+		// Edge swipe to OPEN the drawer from closed state
+		if (!channelsOpen && !usersOpen && swipeRight && swipePreviewTarget === 'channels') {
+			// Swiped right from the left edge opens the channels drawer.
+			layoutStore.showMobileChannels.set(true);
 			layoutStore.closeRightPanel();
 			resetTouchSwipe();
 			return;
 		}
 
-		if (usersOpen && swipeRight) {
-			layoutStore.closeRightPanel();
+		// Stage navigation: the drawer <-> the stage. A side panel is a sheet, so it is not a
+		// stage the swipe can reach.
+		if (channelsOpen && swipeLeft) {
 			layoutStore.showMobileChannels.set(false);
+			layoutStore.closeRightPanel();
 			resetTouchSwipe();
 			return;
 		}
@@ -1349,20 +1319,6 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		}
 		// Edge swipe to open - panel slides in from left
 		return `translateX(calc(-100% + ${Math.max(0, offsetX)}px))`;
-	}
-
-	function getUsersPreviewTransform(usersOpen: boolean, previewActive: boolean, previewTarget: string, offsetX: number): string {
-		if (!previewActive || previewTarget !== 'users') {
-			// When users panel is open normally, no transform
-			if (usersOpen) return 'translateX(0)';
-			return 'translateX(100%)';
-		}
-		if (usersOpen) {
-			// Dragging to close - panel moves right with positive offset
-			return `translateX(${Math.max(0, offsetX)}px)`;
-		}
-		// Edge swipe to open - panel slides in from right
-		return `translateX(calc(100% + ${Math.min(0, offsetX)}px))`;
 	}
 
 	function getPreviewOpacity(previewActive: boolean, previewTarget: string, offsetX: number): number {
@@ -1442,8 +1398,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				: null}
 			on:click={layoutStore.expandNav}
 			on:mousedown|preventDefault={startChannelResizeFromClosed}
-			title="Open channel sidebar"
-			aria-label="Open channel sidebar"
+			title={$_('shell.open_channel_sidebar')}
+			aria-label={$_('shell.open_channel_sidebar')}
 		>
 			<Icon name={$layoutStore.navDock === 'right' ? 'chevLeft' : 'chevRight'} size={14} />
 		</button>
@@ -1485,7 +1441,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			<button
 				type="button"
 				class="resize-handle resize-handle-channel"
-				aria-label="Resize channel sidebar"
+				aria-label={$_('shell.resize_channel_list')}
 				on:mousedown|preventDefault={() => layoutStore.isResizingChannel.set(true)}
 			></button>
 		{:else if sidebarColumnWidth > 0}
@@ -1495,8 +1451,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				class="compact-sidebar-toggle"
 				bind:this={compactToggle}
 				aria-expanded={$compactSidebarOpen}
-				aria-label={$compactSidebarOpen ? 'Close channel list' : 'Show channel list'}
-				title={$compactSidebarOpen ? 'Close channel list' : 'Show channel list'}
+				aria-label={$compactSidebarOpen ? $_('shell.close_channel_list') : $_('shell.show_channel_list')}
+				title={$compactSidebarOpen ? $_('shell.close_channel_list') : $_('shell.show_channel_list')}
 				on:click={toggleCompactSidebar}
 			><Icon name={$compactSidebarOpen ? 'chevLeft' : 'chevRight'} size={14} /></button>
 		{/if}
@@ -1551,7 +1507,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				class:stub-right={$layoutStore.stubSide === 'right'}
 				class:stub-left={$layoutStore.stubSide === 'left'}
 				role="complementary"
-				aria-label="Side panel"
+				aria-label={$_('shell.side_panel')}
 				tabindex="-1"
 				inert={zoneHidden}
 				style:width="{dock.width}px"
@@ -1572,7 +1528,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 						role="separator"
 						tabindex="0"
 						aria-orientation="vertical"
-						aria-label="Resize side panel"
+						aria-label={$_('shell.resize_side_panel')}
 						aria-controls="companion-panel-body"
 						aria-valuenow={dock.width}
 						aria-valuemin={DOCK_MIN_PANEL}
@@ -1588,7 +1544,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					{:else}
 						<!-- First open loads the panel lazily: a real loading state, never a blank sheet (§7.16). -->
 						<div class="companion-loading" aria-busy="true">
-							<span class="w-loadline" role="progressbar" aria-label="Loading panel"></span>
+							<span class="w-loadline" role="progressbar" aria-label={$_('shell.loading_panel')}></span>
 							<div class="companion-loading-rows" aria-hidden="true">
 								{#each [0, 1, 2, 3, 4] as row (row)}
 									<div class="w-skel-row"><span class="w-skel w-skel--disc"></span><span class="w-skel-stack"><span class="w-skel"></span><span class="w-skel"></span></span></div>
@@ -1602,14 +1558,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		<RightStubStrip />
 	{:else}
 		<!-- Mobile Right Panel Overlay -->
-		<div
-			class="mobile-right-overlay"
-			class:visible={$layoutStore.rightPanelMode !== 'none'}
-			class:preview-visible={$layoutStore.isMobile && swipePreviewActive && swipePreviewTarget === 'users'}
-			style:transform={getUsersPreviewTransform($layoutStore.rightPanelMode !== 'none', swipePreviewActive, swipePreviewTarget, swipePreviewOffsetX)}
-			style:opacity={getPreviewOpacity(swipePreviewActive, swipePreviewTarget, swipePreviewOffsetX)}
-			style:transition={swipePreviewActive ? 'none' : undefined}
-		>
+		<div class="mobile-right-overlay" class:visible={$layoutStore.rightPanelMode !== 'none'}>
 			{#if RightPanelCmp}
 				<svelte:component this={RightPanelCmp} on:openSettings={(event) => openSettings(event.detail?.paymentSurface ?? null)} />
 			{/if}
@@ -1748,8 +1697,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 			class="call-debug-toggle"
 			class:active={showCallDebugPanel}
 			on:click={() => (showCallDebugPanel = !showCallDebugPanel)}
-			title="Toggle calling diagnostics"
-			aria-label="Toggle calling diagnostics"
+			title={$_('shell.toggle_call_diagnostics')}
+			aria-label={$_('shell.toggle_call_diagnostics')}
 			aria-expanded={showCallDebugPanel}
 		>
 			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1759,7 +1708,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		{#if showCallDebugPanel}
 			<div class="call-debug-overlay">
 				{#if CallDebugPanelCmp}
-					<svelte:component this={CallDebugPanelCmp} open title="Calling Debug" />
+					<svelte:component this={CallDebugPanelCmp} open title={$_('shell.calling_debug')} />
 				{:else}
 					<div class="lazy-panel-placeholder" aria-busy="true"><span class="w-loadline" role="progressbar" aria-label={$_('common.loading')}></span></div>
 				{/if}
@@ -1767,8 +1716,8 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 					type="button"
 					class="call-debug-close"
 					on:click={() => (showCallDebugPanel = false)}
-					aria-label="Close calling diagnostics"
-					title="Close calling diagnostics"
+					aria-label={$_('shell.close_call_diagnostics')}
+					title={$_('shell.close_call_diagnostics')}
 				><Icon name="x" size={14} /></button>
 			</div>
 		{/if}
@@ -1786,7 +1735,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 				<small class="voice-strip__state">{stripConnectionWords || $_('shell.call.voice_connected')}</small>
 			</span>
 			<div class="voice-channel-actions">
-				<button type="button" class="w-ibtn" on:click={handleOpenVoiceWhiteboard} title="Open whiteboard for this voice channel" aria-label="Open whiteboard for this voice channel">
+				<button type="button" class="w-ibtn" on:click={handleOpenVoiceWhiteboard} title={$_('shell.open_voice_whiteboard')} aria-label={$_('shell.open_voice_whiteboard')}>
 					<Icon name="whiteboard" size={20} />
 				</button>
 				<button type="button" class="w-ibtn" aria-pressed={!$isVideoOff} on:click={handleToggleVideoFromStrip} title={$isVideoOff ? $_('shell.call.turn_on_camera') : $_('shell.call.turn_off_camera')} aria-label={$isVideoOff ? $_('shell.call.turn_on_camera') : $_('shell.call.turn_off_camera')}>
@@ -1830,7 +1779,7 @@ import { displayEnhancementSettingsStore } from '$lib/displayEnhancements';
 		}}
 		role="dialog"
 		aria-modal="true"
-		aria-label="Scratchpad"
+		aria-label={$_('shell.scratchpad')}
 		tabindex="-1"
 	>
 		<QuickScratchpad />

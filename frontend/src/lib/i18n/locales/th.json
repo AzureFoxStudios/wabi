@@ -609,7 +609,19 @@
       "presence": "สถานะ",
       "presence_change": "สถานะ: {state} เปลี่ยนสถานะ",
       "sign_out_body": "อุปกรณ์นี้จะไม่ได้ลงชื่อเข้าใช้ {server} อีกต่อไป"
-    }
+    },
+    "show_channel_list": "แสดงรายการช่อง",
+    "close_channel_list": "ปิดรายการช่อง",
+    "resize_channel_list": "ปรับความกว้างแถบช่อง",
+    "open_channel_sidebar": "เปิดแถบช่อง",
+    "side_panel": "แผงด้านข้าง",
+    "resize_side_panel": "ปรับความกว้างแผงด้านข้าง",
+    "loading_panel": "กำลังโหลดแผง",
+    "toggle_call_diagnostics": "เปิดหรือปิดการวินิจฉัยการโทร",
+    "close_call_diagnostics": "ปิดการวินิจฉัยการโทร",
+    "calling_debug": "การวินิจฉัยการโทร",
+    "open_voice_whiteboard": "เปิดไวต์บอร์ดของช่องเสียงนี้",
+    "scratchpad": "สมุดทด"
   },
   "user": {
     "online": "ออนไลน์ ({count})",
@@ -817,6 +829,21 @@
     "own_account": "แต่ละเซิร์ฟเวอร์มีบัญชีของตัวเอง",
     "add": "เพิ่มเซิร์ฟเวอร์",
     "remove": "นำเซิร์ฟเวอร์ออก"
+  },
+  "shortcuts": {
+    "region": "ทางลัดของเซิร์ฟเวอร์",
+    "list_label": "รายการทางลัด",
+    "recent": "ล่าสุด",
+    "recent_count": "ล่าสุด {count}",
+    "followed": "ติดตามอยู่",
+    "followed_count": "ติดตามอยู่ {count}",
+    "recent_subtitle": "ช่องที่เพิ่งเปิดในเซิร์ฟเวอร์นี้",
+    "followed_subtitle": "ช่องที่ติดตามจากทุกเซิร์ฟเวอร์ของคุณ",
+    "empty_recent": "ช่องที่คุณเปิดจะปรากฏที่นี่เพื่อกลับไปได้อย่างรวดเร็ว",
+    "empty_followed": "ติดตามช่องด้วยกระดิ่งในแถบด้านข้างเพื่อให้หยิบใช้ได้จากที่นี่",
+    "unfollow": "เลิกติดตาม {name}",
+    "unread_one": "ยังไม่ได้อ่าน {count}",
+    "unread_many": "ยังไม่ได้อ่าน {count}"
   },
   "stage": {
     "search_channel": "ค้นหาข้อความใน #{channel}",
