@@ -60,6 +60,32 @@ fn rooms() -> &'static Mutex<std::collections::HashMap<String, Room>> {
 }
 
 // ---------------------------------------------------------------------------
+// Process-local state bounds (2026-11-03 backend security audit)
+//
+// Sessions are in memory, and every move/pass/resign broadcasts the *entire*
+// session JSON (board + full move log) to the channel room. Without a move cap
+// an authenticated pair of players can grow that log forever: memory grows
+// linearly and the cumulative broadcast cost grows quadratically. The channel
+// map and the client-supplied channel id are bounded for the same reason.
+// ---------------------------------------------------------------------------
+
+const MAX_GAME_MOVES: usize = 1024;
+const MAX_GAME_ROOMS: usize = 4096;
+const MAX_CHANNEL_ID_LEN: usize = 128;
+
+fn channel_id_ok(id: &str) -> bool {
+    !id.is_empty() && id.len() <= MAX_CHANNEL_ID_LEN
+}
+
+fn move_log_full(len: usize) -> bool {
+    len >= MAX_GAME_MOVES
+}
+
+fn room_capacity_full(existing: bool, len: usize) -> bool {
+    !existing && len >= MAX_GAME_ROOMS
+}
+
+// ---------------------------------------------------------------------------
 // Go rules
 // ---------------------------------------------------------------------------
 
@@ -259,7 +285,7 @@ pub fn evict_channel_games(channel_id: &str) {
 
 pub async fn on_game_join(socket: SocketRef, data: serde_json::Value, state: SioState) {
     let channel_id = data.get("channelId").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
-    if channel_id.is_empty() { game_error(&socket, "missing channelId"); return; }
+    if !channel_id_ok(&channel_id) { game_error(&socket, "invalid channelId"); return; }
     if !game_sync_enabled(&state).await { game_error(&socket, "Game Sync is disabled on this server"); return; }
     let Some(_ident) = require_socket_channel(&socket, &state, &channel_id, "game:error").await else { return; };
     socket.join(format!("game:{}", channel_id));
@@ -274,16 +300,19 @@ pub async fn on_game_join(socket: SocketRef, data: serde_json::Value, state: Sio
     }
 }
 
-pub async fn on_game_leave(socket: SocketRef, data: serde_json::Value, _state: SioState) {
+pub async fn on_game_leave(socket: SocketRef, data: serde_json::Value, state: SioState) {
     let channel_id = data.get("channelId").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
-    if channel_id.is_empty() { return; }
+    if !channel_id_ok(&channel_id) { return; }
+    // Every game:* event must honour the add-on switch, including the
+    // room-leave path. Fail closed when the experimental add-on is off.
+    if !game_sync_enabled(&state).await { game_error(&socket, "Game Sync is disabled on this server"); return; }
     socket.leave(format!("game:{}", channel_id));
     let _ = socket.emit("game:left", &serde_json::json!({"channelId": channel_id}));
 }
 
 pub async fn on_game_create(socket: SocketRef, data: serde_json::Value, state: SioState, io: socketioxide::SocketIo) {
     let channel_id = data.get("channelId").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
-    if channel_id.is_empty() { game_error(&socket, "missing channelId"); return; }
+    if !channel_id_ok(&channel_id) { game_error(&socket, "invalid channelId"); return; }
     if !game_sync_enabled(&state).await { game_error(&socket, "Game Sync is disabled on this server"); return; }
     let Some(ident) = require_socket_channel(&socket, &state, &channel_id, "game:error").await else { return; };
     let size: u8 = data.get("size").and_then(serde_json::Value::as_u64).unwrap_or(19) as u8;
@@ -314,7 +343,13 @@ pub async fn on_game_create(socket: SocketRef, data: serde_json::Value, state: S
         revision: 0,
         created_at: game_now_micros(),
     };
-    if let Ok(mut g) = rooms().lock() {
+    {
+        let mut g = match rooms().lock() { Ok(g) => g, Err(_) => { game_error(&socket, "lock"); return; } };
+        if room_capacity_full(g.contains_key(&channel_id), g.len()) {
+            drop(g);
+            game_error(&socket, "game capacity reached");
+            return;
+        }
         g.insert(channel_id.clone(), Room { session: Some(sess.clone()) });
     }
     socket.join(format!("game:{}", channel_id));
@@ -323,7 +358,7 @@ pub async fn on_game_create(socket: SocketRef, data: serde_json::Value, state: S
 
 pub async fn on_game_claim(socket: SocketRef, data: serde_json::Value, state: SioState, io: socketioxide::SocketIo) {
     let channel_id = data.get("channelId").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
-    if channel_id.is_empty() { game_error(&socket, "missing channelId"); return; }
+    if !channel_id_ok(&channel_id) { game_error(&socket, "invalid channelId"); return; }
     if !game_sync_enabled(&state).await { game_error(&socket, "Game Sync is disabled on this server"); return; }
     let Some(ident) = require_socket_channel(&socket, &state, &channel_id, "game:error").await else { return; };
     let mut g = match rooms().lock() { Ok(g)=>g, Err(_)=>{ game_error(&socket,"lock"); return; } };
@@ -344,7 +379,7 @@ pub async fn on_game_claim(socket: SocketRef, data: serde_json::Value, state: Si
 
 pub async fn on_game_move(socket: SocketRef, data: serde_json::Value, state: SioState, io: socketioxide::SocketIo) {
     let channel_id = data.get("channelId").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
-    if channel_id.is_empty() { game_error(&socket, "missing channelId"); return; }
+    if !channel_id_ok(&channel_id) { game_error(&socket, "invalid channelId"); return; }
     if !game_sync_enabled(&state).await { game_error(&socket, "Game Sync is disabled on this server"); return; }
     let Some(ident) = require_socket_channel(&socket, &state, &channel_id, "game:error").await else { return; };
     // Parse as u64; validate against the board size before casting to u8 so
@@ -356,6 +391,7 @@ pub async fn on_game_move(socket: SocketRef, data: serde_json::Value, state: Sio
     let room = match g.get_mut(&channel_id) { Some(r)=>r, None=>{ drop(g); game_error(&socket,"no game"); return; } };
     let sess = match room.session.as_mut() { Some(s)=>s, None=>{ drop(g); game_error(&socket,"no game"); return; } };
     if sess.status != GameStatus::Active { drop(g); game_error(&socket, "game not active"); return; }
+    if move_log_full(sess.moves.len()) { drop(g); game_error(&socket, "game move limit reached"); return; }
     if x_raw >= sess.size as u64 || y_raw >= sess.size as u64 { drop(g); game_error(&socket, "out of bounds"); return; }
     let x = x_raw as u8;
     let y = y_raw as u8;
@@ -380,13 +416,14 @@ pub async fn on_game_move(socket: SocketRef, data: serde_json::Value, state: Sio
 
 pub async fn on_game_pass(socket: SocketRef, data: serde_json::Value, state: SioState, io: socketioxide::SocketIo) {
     let channel_id = data.get("channelId").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
-    if channel_id.is_empty() { game_error(&socket, "missing channelId"); return; }
+    if !channel_id_ok(&channel_id) { game_error(&socket, "invalid channelId"); return; }
     if !game_sync_enabled(&state).await { game_error(&socket, "Game Sync is disabled on this server"); return; }
     let Some(ident) = require_socket_channel(&socket, &state, &channel_id, "game:error").await else { return; };
     let mut g = match rooms().lock() { Ok(g)=>g, Err(_)=>{ game_error(&socket,"lock"); return; } };
     let room = match g.get_mut(&channel_id) { Some(r)=>r, None=>{ drop(g); game_error(&socket,"no game"); return; } };
     let sess = match room.session.as_mut() { Some(s)=>s, None=>{ drop(g); game_error(&socket,"no game"); return; } };
     if sess.status != GameStatus::Active { drop(g); game_error(&socket, "game not active"); return; }
+    if move_log_full(sess.moves.len()) { drop(g); game_error(&socket, "game move limit reached"); return; }
     let seat = if sess.seats[0] == Some(ident.user_id) { 0usize }
         else if sess.seats[1] == Some(ident.user_id) { 1usize }
         else { drop(g); game_error(&socket, "not a player"); return; };
@@ -416,7 +453,7 @@ pub async fn on_game_pass(socket: SocketRef, data: serde_json::Value, state: Sio
 
 pub async fn on_game_resign(socket: SocketRef, data: serde_json::Value, state: SioState, io: socketioxide::SocketIo) {
     let channel_id = data.get("channelId").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
-    if channel_id.is_empty() { game_error(&socket, "missing channelId"); return; }
+    if !channel_id_ok(&channel_id) { game_error(&socket, "invalid channelId"); return; }
     if !game_sync_enabled(&state).await { game_error(&socket, "Game Sync is disabled on this server"); return; }
     let Some(ident) = require_socket_channel(&socket, &state, &channel_id, "game:error").await else { return; };
     let mut g = match rooms().lock() { Ok(g)=>g, Err(_)=>{ game_error(&socket,"lock"); return; } };
@@ -504,5 +541,33 @@ mod game_ops_tests {
         // Exact equality is unreachable with half-point komi but must stay
         // white-favoured, matching half-point komi semantics.
         assert_eq!(decide_winner(20, 20), (1, "tie-komi"));
+    }
+
+    // 2026-11-03 audit: bounds for process-local in-memory game state.
+    #[test]
+    fn channel_ids_are_bounded_and_non_empty() {
+        assert!(!channel_id_ok(""));
+        assert!(channel_id_ok("channel-1"));
+        assert!(channel_id_ok(&"c".repeat(MAX_CHANNEL_ID_LEN)), "the exact bound is allowed");
+        assert!(!channel_id_ok(&"c".repeat(MAX_CHANNEL_ID_LEN + 1)), "one past the bound is refused");
+        assert!(MAX_CHANNEL_ID_LEN <= 512);
+    }
+
+    #[test]
+    fn move_log_cap_is_strict_at_the_bound() {
+        assert!(!move_log_full(0));
+        assert!(!move_log_full(MAX_GAME_MOVES - 1));
+        assert!(move_log_full(MAX_GAME_MOVES));
+        assert!(move_log_full(MAX_GAME_MOVES + 500));
+        assert!(MAX_GAME_MOVES <= 4096, "broadcast is O(moves) per event; keep the cap small");
+    }
+
+    #[test]
+    fn room_cap_only_blocks_new_channels() {
+        assert!(!room_capacity_full(true, MAX_GAME_ROOMS), "replacing an existing game is allowed");
+        assert!(!room_capacity_full(false, MAX_GAME_ROOMS - 1));
+        assert!(room_capacity_full(false, MAX_GAME_ROOMS));
+        assert!(room_capacity_full(false, MAX_GAME_ROOMS + 1));
+        assert!(MAX_GAME_ROOMS <= 65536);
     }
 }

@@ -1,0 +1,34 @@
+Wabi supply-chain gate — mode=advisory
+========================================================================
+[    ]        actions_pinned   95 active uses: lines across 17 workflows
+[    ]        bun_floor        12 explicit Bun version assertions checked; floor 1.4.4
+[    ]        bun_floor        no local bun binary (CI installs it via oven-sh/setup-bun)
+[    ]        node_floor       25 Node version references checked (fixed: 22.23.4 / 24.22.1 / 26.12.1)
+[    ]        node_floor       local runtime v22.22.3 (informational; dev machines are not gated)
+[    ]        install_scripts  6 lifecycle-script package(s), 6 allowlisted, 0 unapproved
+[    ]        ioc_sweep        626 locked npm package-version entries swept against 80 exact IOCs, 5 watch names, 19 watch scopes
+[    ]        doc_mentions     HANDOFF.md:59 mentions bun 1.3.14: - CI Bun 1.3.14 is available via `npm exec --yes --package=bun@1.3.14 -- bun ...`. System Bun is 1.3.12.
+[    ]        doc_mentions     HANDOFF.md:65 mentions bun 1.3.12: - One focused run: 14 pass, 0 fail, 45 assertions across one file using Bun 1.3.12. The final excerpt alone does not ide
+[    ]        doc_mentions     HANDOFF.md:83 mentions bun 1.3.14: 4. Run all three new frontend test files under Bun 1.3.14, then full `bun test src/lib`, `bun run check`, and `git diff 
+[    ]        doc_mentions     HANDOFF.md:84 mentions bun 1.3.14: 5. Produce an actual `STATIC_BUILD=1 bun run build` (using Bun 1.3.14), replacing the compile stub. Run the backend cont
+[    ]        doc_mentions     docs/audits/2026-11-CVE-register.md:28 mentions bun 1.4.4: | CVE-2026-111497 (Node2Shell) | 9.2 High | Node.js / Bun | CI `bun-version: 1.3.14`; `oven/bun:1.2.22`; `node:20-slim`;
+[    ]        doc_mentions     docs/audits/2026-11-backend-security-audit.md:84 mentions bun 1.4.4: Dynamic proof via `npm audit`, Bun 1.4.4 test suite, `svelte-check`, `vite build`,
+[    ]        doc_mentions     docs/audits/2026-11-backend-security-audit.md:306 mentions bun 1.4.4: | 6 | `bun test --isolate src/lib` (Bun 1.4.4), baseline vs patched | 2892 pass / 3 skip / 6 fail, identical names (diff
+[    ]        doc_mentions     docs/audits/2026-11-dependency-diet.md:77 mentions bun 1.4.4: | `bun test --isolate src/lib` (Bun 1.4.4) | 2892 pass / 3 skip / **6 fail** / 58008 expects / 2901 tests | **identical*
+[    ]        doc_mentions     docs/audits/2026-11-supply-chain-posture.md:186 mentions bun 1.4.4: | Frontend `bun test --isolate src/lib` | Bun 1.4.4, baseline vs patched | 2892 pass / 3 skip / 6 fail, **identical** |
+[    ]        doc_mentions     docs/audits/evidence/README.md:10 mentions bun 1.4.4: | `bun-test-before.txt`, `bun-test-after.txt` | full `bun test --isolate src/lib` on Bun 1.4.4, baseline vs patched: 289
+[    ]        doc_mentions     docs/deployment/BUILD-NATIVE.md:7 mentions bun 1.4.4: Use the repository-pinned Rust toolchain (1.93, currently patch 1.93.1), Node 22.23.4 or newer in the 22.x line, **Bun 1
+[    ]        doc_mentions     docs/plans/2026-09-10-pr-integration.md:37 mentions bun 1.3.14: Ubuntu 24.04, Rust 1.93, Node 22, Bun 1.3.14; strict dependency installation, no peer-dependency bypass.
+[    ]        doc_mentions     docs/plans/2026-09-15-first-production-test-readiness.md:43 mentions bun 1.3.14: | Clean frontend unit tests, CI-pinned Bun 1.3.14 | **759 passed, 3 skipped, 3 failed** on local HEAD. One is the upstre
+[    ]        doc_mentions     docs/plans/2026-09-15-pointer-worlds-recovery.md:59 mentions bun 1.3.14: CI-pinned Bun 1.3.14. Final validation:
+[    ]        doc_mentions     docs/plans/2026-09-17-production-finish-checkpoint.md:11 mentions bun 1.3.12: - Locked `npm ci` succeeded. Node 22.22.2 and Rust 1.93.1 available; system Bun 1.3.12 differs from CI. `npm exec --pack
+[    ]        doc_mentions     docs/plans/2026-10-02-all-branches-integration.md:93 mentions bun 1.3.14: Checks use repository Rust 1.93, Node 22.22.3 and Bun 1.3.14. Builds and fixture
+[    ]        doc_mentions     docs/plans/2026-11-02-design-cleanup-and-ci-triage.md:6 mentions bun 1.4.4: Verification actually run in this sandbox (bun 1.4.4, no Rust toolchain, no
+[    ]        doc_mentions     docs/reviews/pr-intake-2026-09-17.md:21 mentions bun 1.3.14: Verification on the integrated branch (all exit 0): `npm ci` clean; `bun test src/lib` (Bun 1.3.14) **905 pass / 3 skip 
+[    ]        doc_mentions     docs/reviews/pr-intake-2026-09-17.md:39 mentions bun 1.3.14: Every open PR (and main's recent children) shows the `test` job failing on GitHub CI. On this machine the same frontend 
+[    ]        doc_mentions     docs/testing/AI_LORE_PUBLICATION_2026-09-30.md:62 mentions bun 1.3.14: CI uses Bun 1.3.14. The complete frontend suite now runs with its built-in
+[    ]        doc_mentions     docs/testing/DESKTOP_SHELL_ALPHA_2026-09-21.md:84 mentions bun 1.3.12: Tool versions: Rust repository-pinned 1.93; available Bun 1.3.12 and Node 22.22.2. CI specifies Bun 1.3.14, so the local
+[    ]        doc_mentions     docs/testing/DESKTOP_SHELL_ALPHA_2026-09-21.md:84 mentions bun 1.3.14: Tool versions: Rust repository-pinned 1.93; available Bun 1.3.12 and Node 22.22.2. CI specifies Bun 1.3.14, so the local
+[    ]        doc_mentions     22 Bun version mentions in prose (dated plans/testing/reviews records are historical evidence, not instructions)
+========================================================================
+summary: {'info': 30}  ->  PASS

@@ -1,4 +1,4 @@
-FROM oven/bun:1.2.22 AS builder
+FROM oven/bun:1.4.4 AS builder
 
 WORKDIR /app
 
@@ -40,7 +40,7 @@ RUN bun run build
 RUN test -d build || (echo "ERROR: build directory not created" && ls -la && exit 1)
 RUN bun install --production
 
-FROM oven/bun:1.2.22
+FROM oven/bun:1.4.4
 
 WORKDIR /app
 

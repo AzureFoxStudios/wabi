@@ -1,0 +1,26 @@
+IOC spot-check 2026-11-03 — five clean locked packages
+Indicator set: 80 exact name@version IOCs across 53 packages,
+5 watch names, 19 watch scopes (scripts/security/npm-iocs.json).
+Method: exact name@version match, watch-name match, scope-prefix match, and live
+npm registry metadata (tarball host + lifecycle hooks).
+
+dompurify@3.4.17             exact_hit=False watch_name=False watch_scope=False
+    tarball=https://registry.npmjs.org/dompurify/-/dompurify-3.4.17.tgz
+    lifecycle_hooks=['prepare']  shasum=074bbb24eaa41953
+vite@8.3.5                   exact_hit=False watch_name=False watch_scope=False
+    tarball=https://registry.npmjs.org/vite/-/vite-8.3.5.tgz
+    lifecycle_hooks=[]  shasum=9614f66026cb92fe
+esbuild@0.25.12              exact_hit=False watch_name=False watch_scope=False
+    tarball=https://registry.npmjs.org/esbuild/-/esbuild-0.25.12.tgz
+    lifecycle_hooks=['postinstall']  shasum=97a1d041f4ab00c2
+@tauri-apps/api@2.11.1       exact_hit=False watch_name=False watch_scope=False
+    tarball=https://registry.npmjs.org/@tauri-apps/api/-/api-2.11.1.tgz
+    lifecycle_hooks=[]  shasum=cd6b13fc26403ca0
+socket.io-client@4.8.3       exact_hit=False watch_name=False watch_scope=False
+    tarball=https://registry.npmjs.org/socket.io-client/-/socket.io-client-4.8.3.tgz
+    lifecycle_hooks=[]  shasum=62717edd46a318c9
+
+Result: 0 exact-version hits, 0 watch-name hits, 0 watch-scope hits.
+All five resolve to registry.npmjs.org tarballs. No package carries a
+preinstall/install hook; esbuild@0.25.12 has the reviewed, allowlisted
+postinstall (scripts/security/install-script-allowlist.json).

@@ -3,7 +3,7 @@
 # Keep the connection file outside Git and restrict it to the service user.
 services:
   project-plugin:
-    image: docker.io/library/node:22.22.3-bookworm-slim
+    image: docker.io/library/node:22.23.4-bookworm-slim
     container_name: ${WABI_PROJECT_PLUGIN_CONTAINER:-wabi-project-plugin}
     user: '1000:1000'
     read_only: true
