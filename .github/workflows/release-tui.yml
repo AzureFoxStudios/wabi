@@ -30,9 +30,9 @@ jobs:
             artifact: wabi-tui-windows-x86_64.exe
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: dtolnay/rust-toolchain@1.93
+      - uses: dtolnay/rust-toolchain@633c1125191e55c620c8ae7d364073c0ead621c1 # 1.93 (branch)
         with:
           targets: ${{ matrix.target }}
 
@@ -58,7 +58,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: cp target/${{ matrix.target }}/release/wabi-tui.exe ${{ matrix.artifact }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
@@ -69,12 +69,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           merge-multiple: true
 
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: wabi-tui-*
           generate_release_notes: true

@@ -20,8 +20,8 @@ jobs:
   helpers:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.93
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@633c1125191e55c620c8ae7d364073c0ead621c1 # 1.93 (branch)
       - name: Test independent native helpers
         run: |
           cargo test --locked --manifest-path helpers/wabi-project/Cargo.toml
