@@ -5,6 +5,7 @@ are committed so a reviewer can re-check claims without trusting prose.
 
 | File | What it proves |
 | --- | --- |
+| `ci-enforcement-2026-11-04.txt` | re-landing of the workflow half (SHA pins, Node2Shell floors, fingerprint steps, supply-chain job): pin check 94/94, gate advisory+blocking exit 0, gate unittests 57/57 with migration applied |
 | `npm-audit-before.json` | `npm audit --json` against `HEAD`'s `frontend/package.json` + lock (14 vulns: 2 critical, 5 high, 7 low) |
 | `npm-audit-after.json` | same command against the patched lock (10 vulns: 1 critical, 2 high, 7 low) |
 | `bun-test-before.txt`, `bun-test-after.txt` | full `bun test --isolate src/lib` on Bun 1.4.4, baseline vs patched: 2892 pass / 3 skip / 6 fail / 58008 expects / 2901 tests, identical test-name sets |

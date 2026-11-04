@@ -1,6 +1,6 @@
 # Wabi supply-chain posture note — 2026-11-03 (Phase A)
 
-Owner: backend security audit · Status: **implemented on `arena/894edf78-wabi`** · Scope:
+Owner: backend security audit · Status: **implemented on `arena/894edf78-wabi`; the workflow half re-landed on main by the 2026-11-04 CI-enforcement PR (§8)** · Scope:
 CI workflows, lockfiles, container base images, build docs, frontend dependency
 pipeline. Companion: `2026-11-CVE-register.md`, `2026-11-backend-security-audit.md`.
 
@@ -8,7 +8,7 @@ pipeline. Companion: `2026-11-CVE-register.md`, `2026-11-backend-security-audit.
 
 | Acceptance criterion | Result | Proof |
 | --- | --- | --- |
-| Zero unpinned GitHub Actions | **PASS** | 95 active `uses:` lines across 17 workflows, all 40-char SHAs; `python3 scripts/security/pin_actions.py --check` → OK |
+| Zero unpinned GitHub Actions | **PASS** | 94 active `uses:` lines across 17 workflows, all 40-char SHAs (re-landed 2026-11-04, §8); `python3 scripts/security/pin_actions.py --check` → OK |
 | Zero unapproved install scripts | **PASS** | 6 lifecycle-script packages in 4 npm lockfiles, all in `scripts/security/install-script-allowlist.json` with a reviewed script body; `supply_chain_check.py` blocks any new one in *every* mode |
 | IOC sweep clean / quarantine | **PASS (0 hits)** | 626 locked npm name@version entries × 80 exact IOCs / 53 packages, 5 typosquat names, 19 watch scopes → 0 exact, 0 name, 0 scope hits |
 | Bun ≥ 1.4.4 in local/docs/actions/CI working dirs | **PASS (repo)** | 12 Bun assertions all ≥ 1.4.4; 10 `oven-sh/setup-bun` uses gained a runtime fingerprint step; local sandbox Node 22.22.3 is below the Node floor and is called out as residual |
@@ -20,8 +20,9 @@ pipeline. Companion: `2026-11-CVE-register.md`, `2026-11-backend-security-audit.
 ### 2.1 GitHub Action pinning
 
 `scripts/security/pin_actions.py` is an idempotent rewriter/validator. It pinned 92
-pre-existing `uses:` lines; the 3 new `supply-chain` job lines were authored already
-pinned. `scripts/security/action-pins.json` records **15 resolved refs** with the
+pre-existing `uses:` lines; the re-landed `supply-chain` job carries its 2 pinned
+action lines (checkout + setup-node; cargo-deny runs via a plain `run:` step),
+for **94** total. `scripts/security/action-pins.json` records **15 resolved refs** with the
 commit object verified on 2026-11-03 (`gh api .../git/commits/<sha>` and
 `git ls-remote`). Examples: `actions/checkout@v4` → `11d5960a…` (v4.4.0),
 `oven-sh/setup-bun@v2` → `0c5077e5…` (v2.2.0), `dtolnay/rust-toolchain@1.93` →
@@ -203,3 +204,38 @@ this sandbox). Do not read the table above as a green CI badge.
 5. `es5-ext`/`fsevents`/`sharp` are allowlisted, not removed; `--ignore-scripts`
    is not yet enforced repo-wide.
 6. Not every workflow sets `persist-credentials: false`; the new job does.
+
+## 8. Enforcement landing record (2026-11-04)
+
+The implementation session shipped scripts, containers and docs but **not the 17
+workflow files**: `.github/workflows/*` pushes were rejected because that
+session's GitHub App token lacks the `workflows` permission. PR #272 therefore
+merged without the CI half, and main's claims described the implementation tree,
+not main — `ci.yml` still held `actions/checkout@v4`, `bun-version: 1.3.14` and
+no `supply-chain` job. The unpushable edits were never recovered, so this PR
+re-lands the half from the committed spec instead:
+
+- 92 tag refs rewritten by `scripts/security/pin_actions.py` from
+  `action-pins.json` (idempotent, no network mutation of CI).
+- 10× `bun-version: 1.3.14` → `1.4.4`; 18× `node-version` floats → `22.23.4`
+  (uniform choice; no workflow builds `relay-node/Dockerfile`, the only
+  24.22.1 image — flagged for reviewer).
+- 10 runtime fingerprint steps inserted immediately after every
+  `oven-sh/setup-bun` (9 workflows).
+- The `supply-chain` job per §5 and the advisory `npm audit` step in the
+  `test` job; the job's checkout sets `persist-credentials: false`.
+
+Re-landing deviation from the authored set: the job needs 2 pinned action lines
+(not 3 — cargo-deny installs via `cargo install cargo-deny --version 0.20.2
+--locked`, no new action ref), so the running total is **94** active `uses:`
+lines. Verified on 2026-11-04 (`evidence/ci-enforcement-2026-11-04.txt`):
+`pin_actions.py --check` OK (94/94); `supply_chain_check.py` advisory **and**
+blocking exit 0 with 0 P0; gate unittests **57/57 OK** with the migration
+applied (the 2 migration-aware self-checks re-activated and ran); PyYAML
+17/17; `git diff --check` clean. The verification machine's Bun was upgraded
+1.3.14 → 1.4.4 (the gate's local-runtime check is P0 in every mode; dev
+machines are otherwise not gated — Node 22.22.3 remains 18 informational).
+CI effect from this PR's merge: the Bun floor in CI reaches ≥ 1.4.4 before
+the CVE-2026-111497 KEV deadline (2026-11-10), and every check listed in §5
+runs on every push/PR from now on.
+
