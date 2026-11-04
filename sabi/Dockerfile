@@ -1,12 +1,12 @@
 # Sabi — single container: Node 22 serves the API and the static web app; data lives in /data.
-FROM node:22-bookworm-slim AS build
+FROM node:22.23.4-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./
 COPY packages ./packages
 COPY apps ./apps
 RUN npm ci && npm run build
 
-FROM node:22-bookworm-slim
+FROM node:22.23.4-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production SABI_DATA=/data PORT=8080
 COPY --from=build /app/package.json /app/tsconfig.json ./

@@ -1,0 +1,49 @@
+{
+  "_comment": "Every npm lifecycle script in a committed package-lock.json must be listed here with a rationale, or CI fails. Adding an entry is a security decision, not a chore. Script bodies were read from the registry on 2026-11-03 with `npm view <name>@<version> scripts --json`.",
+  "reviewed_at": "2026-11-03",
+  "policy": "Lockfile-aware only. `npm ci --ignore-scripts` is not yet enforced repo-wide; the gate prevents NEW install-script packages from entering the tree. Removing an entry is safe; adding one requires review of the script body.",
+  "allowed": [
+    {
+      "lockfile": "frontend/package-lock.json",
+      "path": "node_modules/esbuild",
+      "script": "postinstall: node install.js",
+      "rationale": "Vite/esbuild native binary installer. Version is pinned by frontend/package.json `overrides.esbuild = 0.25.12`; esbuild also ships platform binaries as optionalDependencies so --ignore-scripts is viable. Candidate for removal in the dependency diet.",
+      "review": "2026-11-03"
+    },
+    {
+      "lockfile": "frontend/package-lock.json",
+      "path": "node_modules/es5-ext",
+      "script": "postinstall: node -e \"try{require('./_postinstall')}catch(e){}\" || exit 0",
+      "rationale": "Transitive of legacy svelte-i18n/deepmerge chain. Opaque dynamic require of an in-package file, silently swallowing errors: highest-risk script in the tree. Approved temporarily because no IOC matches its pinned version; remove when the svelte-i18n/deepmerge chain is dropped (Tier 2).",
+      "review": "2026-11-03"
+    },
+    {
+      "lockfile": "frontend/package-lock.json",
+      "path": "node_modules/fsevents",
+      "script": "install: node-gyp rebuild",
+      "rationale": "macOS-only optional dependency (os: darwin). Not installed on Linux CI runners. Native build script, no network fetch in the script body.",
+      "review": "2026-11-03"
+    },
+    {
+      "lockfile": "frontend/package-lock.json",
+      "path": "node_modules/playwright/node_modules/fsevents",
+      "script": "install: node-gyp rebuild",
+      "rationale": "Nested macOS-only optional fsevents for playwright 1.62.1; same as above.",
+      "review": "2026-11-03"
+    },
+    {
+      "lockfile": "package-lock.json",
+      "path": "node_modules/sharp",
+      "script": "install: node install/check.js || npm run build",
+      "rationale": "Root-level image tooling (sharp 0.34.5); native libvips binding check/build. Direct dependency, version pinned in package.json.",
+      "review": "2026-11-03"
+    },
+    {
+      "lockfile": "sabi/package-lock.json",
+      "path": "node_modules/fsevents",
+      "script": "install: node-gyp rebuild",
+      "rationale": "macOS-only optional dependency in the Sabi subtree; not installed on Linux.",
+      "review": "2026-11-03"
+    }
+  ]
+}

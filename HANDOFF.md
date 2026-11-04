@@ -1,5 +1,13 @@
 # Wabi production-finish handoff — 2026-09-17
 
+> **Superseded toolchain note (2026-11-03, backend security audit).** The Bun
+> 1.3.14 / 1.3.12 references below are a historical record of what ran on
+> 2026-09-17, not a current instruction. Never re-execute these steps with that
+> version: Bun < 1.4.4 is affected by CVE-2026-111497, and Node 22.22.x is below
+> the 22.23.4 fix. Use Bun >= 1.4.4 and Node >= 22.23.4, and check
+> `scripts/security/supply_chain_check.py` first. Historical test counts are
+> left unchanged on purpose; this document is evidence, not a build recipe.
+
 ## User request / current boundary
 
 Continue `docs/wabi-production-finish-continuation.md` and `docs/wabi-production-finish-agent-prompt.md` to completion. User then requested a clean-context handoff; implementation is now PAUSED. Two OpenCode workers were terminated and their PIDs were verified absent. No more workers should be assumed active. No push, merge, deployment, or production changes were made in this implementation phase.
