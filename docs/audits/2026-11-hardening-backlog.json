@@ -1,0 +1,138 @@
+{
+  "generated": "2026-11-03",
+  "audit": "2026-11-backend-security-audit",
+  "branch": "arena/894edf78-wabi",
+  "ifs_convention": "Issue Filing Status - tracker id/state for launch-prep import. 'not-filed' means no tracker issue was created by this audit.",
+  "items": [
+    {
+      "rank": 1, "id": "B-01", "severity": "P0 / High",
+      "title": "Refresh reachable Rust TLS chain (rustls, rustls-webpki, webpki-root-certs)",
+      "owner": "Backend lead (Rust)", "ifs": "not-filed", "tracker": null,
+      "evidence": "11 RustSec rows; outbound link previews via preview.rs, webhooks, Lore mirror, Tauri reqwest",
+      "fix": "cargo update -p rustls --precise 0.23.46 plus webpki/root-certs; regenerate Cargo.lock",
+      "proof_gate": "cargo check/test full workspace + server contract suites + cargo audit clean",
+      "target": "before launch"
+    },
+    {
+      "rank": 2, "id": "B-02", "severity": "P0 / High",
+      "title": "Bump tauri 2.10.3 to >= 2.11.1 (CVE-2026-42184 / GHSA-7gmj-67g7-phm9)",
+      "owner": "Desktop lead", "ifs": "not-filed", "tracker": null,
+      "evidence": "Official GHSA affected >=2.0,<=2.11.0; windows-latest in tauri-build.yml; not currently exploitable (no local:true capability, no custom URI scheme protocol)",
+      "fix": "Cargo.toml bump + cargo update -p tauri; regenerate src-tauri/Cargo.lock",
+      "proof_gate": "desktop cargo build on ubuntu/windows/macos + capability re-review",
+      "target": "before launch"
+    },
+    {
+      "rank": 3, "id": "B-04", "severity": "P1 / High",
+      "title": "Resolve reachable pptxgenjs 4.0.1 / image-size 2.0.2 DoS on PPTX export",
+      "owner": "Frontend / Office lead", "ifs": "not-filed", "tracker": null,
+      "evidence": "present/files.ts exports user-authored slides; npm fix suggests downgrade to pptxgenjs 4.0.0",
+      "fix": "owner-approved downgrade or vendored patched image-size; regenerate lock",
+      "proof_gate": "full bun test + office acceptance suite + vite build",
+      "target": "sprint +1"
+    },
+    {
+      "rank": 4, "id": "B-03", "severity": "P1 / Critical (present, not reachable)",
+      "title": "maplibre-gl 5.20.0 -> 6.16.0 critical XSS primitive",
+      "owner": "Frontend lead", "ifs": "not-filed", "tracker": null,
+      "evidence": "Only remaining npm critical; no Popup.setHTML / DOM.sanitize / innerHTML sink in MapVectorStage.svelte; addon runtime-gated",
+      "fix": "major bump with visual QA",
+      "proof_gate": "bun test + map/office visual QA + vite build + desktop build",
+      "target": "sprint +1"
+    },
+    {
+      "rank": 5, "id": "B-06", "severity": "P1 / High (conditional)",
+      "title": "quinn-proto -> 0.11.18 (8 DoS/panic advisories)",
+      "owner": "Backend lead", "ifs": "not-filed", "tracker": null,
+      "evidence": "reqwest 0.13.4 resolves quinn 0.11.11; outbound requests reach user-supplied URLs; no http3_prior_knowledge call site",
+      "fix": "cargo update -p quinn-proto --precise 0.11.18",
+      "proof_gate": "cargo check/test + preview.rs contract tests + HTTP/3 feature audit",
+      "target": "sprint +1"
+    },
+    {
+      "rank": 6, "id": "B-10", "severity": "P1 / Supply chain",
+      "title": "Remove CDN-hosted xlsx@0.20.3 tarball dependency",
+      "owner": "Build/CI lead", "ifs": "not-filed", "tracker": null,
+      "evidence": "frontend/package-lock.json resolves cdn.sheetjs.com; npm ci fails in restricted networks; escapes registry provenance/IOC scanning; no registry version exists",
+      "fix": "vendor a pinned tarball with committed digest or replace the spreadsheet adapter",
+      "proof_gate": "full bun test including fileAdapter.test.ts + office acceptance + clean-cache npm ci",
+      "target": "sprint +1"
+    },
+    {
+      "rank": 7, "id": "B-08", "severity": "P1 / Supply chain",
+      "title": "Remove es5-ext opaque postinstall by dropping svelte-i18n/deepmerge chain",
+      "owner": "Frontend lead", "ifs": "not-filed", "tracker": null,
+      "evidence": "postinstall dynamically requires ./_postinstall and swallows errors; allowlisted temporarily; no IOC match",
+      "fix": "retire legacy i18n path (pairs with B-05)",
+      "proof_gate": "bun test + i18n/office acceptance + lockdiff with 0 install scripts",
+      "target": "sprint +2"
+    },
+    {
+      "rank": 8, "id": "B-07", "severity": "P2 / Medium",
+      "title": "zip 2.4.2 -> 9.x (4 extract() advisories, currently unreachable)",
+      "owner": "Backend lead", "ifs": "not-filed", "tracker": null,
+      "evidence": "0 .extract( call sites; entries read into memory with explicit checks; parser still handles untrusted archives",
+      "fix": "major crate bump + API migration",
+      "proof_gate": "cargo check/test + office conversion suites + cargo audit",
+      "target": "sprint +2"
+    },
+    {
+      "rank": 9, "id": "B-05", "severity": "P2 / Low-major",
+      "title": "Coordinated SvelteKit 3.1.1 / adapter 6.0.1 / 4.0.1 chain (7 low advisories)",
+      "owner": "Frontend lead", "ifs": "not-filed", "tracker": null,
+      "evidence": "7 low npm rows share one major upgrade; also removes deepmerge (B-08)",
+      "fix": "coordinated major bump",
+      "proof_gate": "bun test + svelte-check + vite build + desktop build",
+      "target": "sprint +2"
+    },
+    {
+      "rank": 10, "id": "B-09", "severity": "P2 / Medium",
+      "title": "Pin Playwright browser binaries by digest and clean CI storage state",
+      "owner": "QA/CI lead", "ifs": "not-filed", "tracker": null,
+      "evidence": "official playwright 1.62.1 clean; malware was playwright-1.45/1.46/1.48 typosquats; npx playwright install fetches from CDN without committed digest; LiteLLM incident leaked storage state",
+      "fix": "commit browser digests, wipe/scope storageState, keep typosquat watch",
+      "proof_gate": "browser smoke suite on 3 OSes + CI artifact secret scan",
+      "target": "sprint +2"
+    },
+    {
+      "rank": null, "id": "B-11", "severity": "P2",
+      "title": "Narrow connect-src / style-src 'unsafe-inline' in tauri.conf.json",
+      "owner": "Desktop lead", "ifs": "not-filed", "tracker": null,
+      "evidence": "broad connect-src is a pre-existing self-hosting design decision",
+      "fix": "CSP narrowing with per-server allowlist",
+      "proof_gate": "desktop webview QA on self-hosted servers", "target": "backlog"
+    },
+    {
+      "rank": null, "id": "B-12", "severity": "P2",
+      "title": "Commit Rust advisory baseline; make cargo-deny block new high/critical Rust advisories",
+      "owner": "Backend lead", "ifs": "not-filed", "tracker": null,
+      "evidence": "Rust side of Phase E gates remains advisory-only",
+      "fix": "baseline file + blocking cargo-deny step",
+      "proof_gate": "cargo deny check in CI on 7 lockfiles", "target": "backlog"
+    },
+    {
+      "rank": null, "id": "B-13", "severity": "P2",
+      "title": "Human-adjudicate 85 HTTP + 27 Socket.IO REVIEW rows in the authorization matrix",
+      "owner": "Security / Backend lead", "ifs": "not-filed", "tracker": null,
+      "evidence": "2026-11-authorization-matrix.md generated 452 rows; 112 have no handler-level guard token",
+      "fix": "reviewed matrix with guard or explicit no-guard rationale per row",
+      "proof_gate": "matrix regenerated with zero REVIEW rows", "target": "backlog"
+    },
+    {
+      "rank": null, "id": "B-14", "severity": "P2",
+      "title": "Fix 42 pre-existing svelte-check errors so bun run check is green",
+      "owner": "Frontend lead", "ifs": "not-filed", "tracker": null,
+      "evidence": "baseline and patched svelte-check logs are byte-identical: 42 errors / 108 warnings",
+      "fix": "type-error cleanup",
+      "proof_gate": "npm run check exit 0; CI test job green", "target": "backlog"
+    },
+    {
+      "rank": null, "id": "B-15", "severity": "P3",
+      "title": "Deduplicate tokio/rand/reqwest versions; enforce --ignore-scripts repo-wide",
+      "owner": "Backend / Build lead", "ifs": "not-filed", "tracker": null,
+      "evidence": "cargo tree --duplicates not run; 6 lifecycle scripts remain allowlisted",
+      "fix": "version auction + CI flag",
+      "proof_gate": "cargo tree --duplicates + full build + 3-OS CI matrix", "target": "backlog"
+    }
+  ]
+}

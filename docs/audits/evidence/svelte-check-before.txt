@@ -1,0 +1,2351 @@
+
+> wabi-frontend@1.0.0 check
+> svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
+
+You have specified a baseUrl and/or paths in your tsconfig.json which interferes with SvelteKit's auto-generated tsconfig.json. Remove it to avoid problems with intellisense. For path aliases, use `kit.alias` instead: https://svelte.dev/docs/kit/configuration#alias
+You have specified a baseUrl and/or paths in your tsconfig.json which interferes with SvelteKit's auto-generated tsconfig.json. Remove it to avoid problems with intellisense. For path aliases, use `kit.alias` instead: https://svelte.dev/docs/kit/configuration#alias
+Loading svelte-check in workspace: /tmp/fv
+Getting Svelte diagnostics...
+
+/tmp/fv/src/lib/socket-types.ts:10:8
+Error: Cannot find module '../../../packages/wabi-protocol/src/index' or its corresponding type declarations. 
+  VoiceChannelSettings as ProtocolVoiceChannelSettings
+} from '../../../packages/wabi-protocol/src/index';
+
+/tmp/fv/src/lib/messageStore.ts:8:34
+Error: Cannot find module '../../../packages/wabi-protocol/src/generated/MessageType' or its corresponding type declarations. 
+import type { Message } from './socket-types';
+import type { MessageType } from '../../../packages/wabi-protocol/src/generated/MessageType';
+import { getSocket, connected } from './socketConnection';
+
+/tmp/fv/src/lib/socketConnectionCore.ts:690:34
+Error: Argument of type 'Channel[]' is not assignable to parameter of type '{ id?: string; }[]'.
+  Type 'Channel' has no properties in common with type '{ id?: string; }'. 
+			_resetHistoryRequests();
+			const offered = dedupeByIdKey(normalizeChannelList(payload?.channels));
+			const nextChannels = offered.filter(channel => channel.type !== 'group' || (realm && groupMembership.apply(channel, realm)));
+
+/tmp/fv/src/lib/socketConnectionCore.ts:691:59
+Error: Property 'type' does not exist on type '{ id?: string; }'. 
+			const offered = dedupeByIdKey(normalizeChannelList(payload?.channels));
+			const nextChannels = offered.filter(channel => channel.type !== 'group' || (realm && groupMembership.apply(channel, realm)));
+			if (realm) {
+
+/tmp/fv/src/lib/socketConnectionCore.ts:691:111
+Error: Argument of type '{ id?: string; }' is not assignable to parameter of type 'Channel'.
+  Property 'createdAt' is missing in type '{ id?: string; }' but required in type 'Channel'. 
+			const offered = dedupeByIdKey(normalizeChannelList(payload?.channels));
+			const nextChannels = offered.filter(channel => channel.type !== 'group' || (realm && groupMembership.apply(channel, realm)));
+			if (realm) {
+
+/tmp/fv/src/lib/socketConnectionCore.ts:693:68
+Error: Property 'type' does not exist on type '{ id?: string; }'. 
+			if (realm) {
+				const present = new Set(nextChannels.filter(channel => channel.type === 'group').map(channel => channel.id));
+				const known = new Set([...groupMembership.knownGroups(), ...get(channels).filter(channel => channel.type === 'group').map(channel => channel.id)]);
+
+/tmp/fv/src/lib/socketConnectionCore.ts:698:52
+Error: Property 'type' does not exist on type '{ id?: string; }'. 
+			}
+			for (const channel of nextChannels) if (channel.type === 'group') updateGroupPanels(channel);
+			channels.set(nextChannels);
+
+/tmp/fv/src/lib/socketConnectionCore.ts:698:88
+Error: Argument of type '{ id?: string; }' is not assignable to parameter of type 'Channel'.
+  Property 'createdAt' is missing in type '{ id?: string; }' but required in type 'Channel'. 
+			}
+			for (const channel of nextChannels) if (channel.type === 'group') updateGroupPanels(channel);
+			channels.set(nextChannels);
+
+/tmp/fv/src/lib/socketConnectionCore.ts:699:17
+Error: Argument of type '{ id?: string; }[]' is not assignable to parameter of type 'Channel[]'.
+  Property 'createdAt' is missing in type '{ id?: string; }' but required in type 'Channel'. 
+			for (const channel of nextChannels) if (channel.type === 'group') updateGroupPanels(channel);
+			channels.set(nextChannels);
+			_updatePinnedChannels();
+
+/tmp/fv/src/lib/socketConnectionCore.ts:705:36
+Error: Argument of type '{ id?: string; }[]' is not assignable to parameter of type 'readonly { id: string; name?: string; }[]'.
+  Type '{ id?: string; }' is not assignable to type '{ id: string; name?: string; }'.
+    Property 'id' is optional in type '{ id?: string; }' but required in type '{ id: string; name?: string; }'. 
+			// cards/labels stop showing "ch_…" ids.
+			backfillCallSessionChannelNames(nextChannels);
+
+/tmp/fv/src/lib/socketConnectionCore.ts:776:17
+Error: Property 'type' does not exist on type '{ id?: string; }'. 
+			for (const channel of nextChannels) {
+				if (channel.type === 'dm' || channel.type === 'group') loadDmPreview(channel.id);
+			}
+
+/tmp/fv/src/lib/socketConnectionCore.ts:776:42
+Error: Property 'type' does not exist on type '{ id?: string; }'. 
+			for (const channel of nextChannels) {
+				if (channel.type === 'dm' || channel.type === 'group') loadDmPreview(channel.id);
+			}
+
+/tmp/fv/src/lib/socketConnectionCore.ts:860:37
+Error: Property 'id' is missing in type 'Channel' but required in type '{ id: string; name?: string; }'. 
+			// raw-id placeholder on a live call session.
+			backfillCallSessionChannelNames([normalized]);
+			return true;
+
+/tmp/fv/src/lib/adminUserMessaging.test.ts:8:12
+Error: Conversion of type '{ id: string; type: string; members: string[]; }' to type 'Channel' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'createdAt' is missing in type '{ id: string; type: string; members: string[]; }' but required in type 'Channel'. 
+const member = { id: 'member-socket', dbUserId: 2, username: 'Member', color: '#fff', status: 'offline' } as User;
+const dm = { id: 'dm-existing', type: 'dm', members: ['user-1', 'user-2'] } as Channel;
+
+/tmp/fv/src/lib/breakoutChannels.test.ts:6:9
+Error: Conversion of type '{ id: string; name: string; type: string; }' to type 'Channel' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'createdAt' is missing in type '{ id: string; name: string; type: string; }' but required in type 'Channel'. 
+function textChannel(id: string): Channel {
+	return { id, name: `chan-${id}`, type: 'text' } as Channel;
+}
+
+/tmp/fv/src/lib/breakoutChannels.test.ts:29:4
+Error: Conversion of type '{ id: string; name: string; type: string; isBreakout: boolean; }' to type 'Channel' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'createdAt' is missing in type '{ id: string; name: string; type: string; isBreakout: boolean; }' but required in type 'Channel'. 
+			textChannel('main'),
+			{ id: 'br1', name: 'br1', type: 'voice', isBreakout: false } as Channel
+		];
+
+/tmp/fv/src/lib/breakoutChannels.test.ts:58:38
+Error: Conversion of type '{ id: string; type: string; }' to type 'Channel' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'createdAt' is missing in type '{ id: string; type: string; }' but required in type 'Channel'. 
+	test('removes exactly the closed room ids', () => {
+		const list = [textChannel('main'), { id: 'br1', type: 'voice' } as Channel, textChannel('keep')];
+		const out = removeBreakoutRooms(list, [{ id: 'br1' }]);
+
+/tmp/fv/src/lib/dmConversations.test.ts:8:19
+Error: Conversion of type '{ id: string; type: string; members: string[]; memberUsers: User[]; }' to type 'Channel' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'createdAt' is missing in type '{ id: string; type: string; members: string[]; memberUsers: User[]; }' but required in type 'Channel'. 
+test('DM identity uses authoritative member summaries before the directory is loaded', () => {
+  const channel = { id: 'dm-1-2', type: 'dm', members: ['user-1', 'user-2'], memberUsers: [self, other] } as Channel;
+  expect(resolveDmOtherUser(channel, self)?.username).toBe('Offline member');
+
+/tmp/fv/src/lib/dmConversations.test.ts:13:19
+Error: Conversion of type '{ id: string; type: string; members: string[]; }' to type 'Channel' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'createdAt' is missing in type '{ id: string; type: string; members: string[]; }' but required in type 'Channel'. 
+test('missing DM participants remain unresolved, never inferred from message authors', () => {
+  const channel = { id: 'dm-orphan', type: 'dm', members: ['user-1'] } as Channel;
+  expect(resolveDmOtherUser(channel, self)).toBeNull();
+
+/tmp/fv/src/lib/dmGroupBatch.test.ts:6:19
+Error: Conversion of type '{ id: string; type: string; }[]' to type 'Channel[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'createdAt' is missing in type '{ id: string; type: string; }' but required in type 'Channel'. 
+test('batch leave excludes one-to-one DMs and reports partial failures', async () => {
+	const channels = [
+		{ id: 'dm', type: 'dm' }, { id: 'group-a', type: 'group' }, { id: 'group-b', type: 'group' }
+	] as Channel[];
+	const attempted: string[] = [];
+
+/tmp/fv/src/lib/dmPresentation.ts:27:84
+Error: Argument of type 'unknown' is not assignable to parameter of type 'string | number'. 
+	const names = others
+		.map((memberId) => candidates.find((candidate) => userMatchesIdentity(candidate, memberId))?.username?.trim())
+		.filter((name): name is string => Boolean(name));
+
+/tmp/fv/src/lib/dmPresentation.test.ts:17:16
+Error: Conversion of type '{ id: string; type: string; members: string[]; }' to type 'Channel' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'createdAt' is missing in type '{ id: string; type: string; members: string[]; }' but required in type 'Channel'. 
+test('group heading names recipients and omits the current user', () => {
+	const group = { id: 'group-1', type: 'group', members: ['user-1', 'user-2', 'user-3'] } as Channel;
+	const ana = { id: 'user-3', dbUserId: 3, username: 'Ana' } as User;
+
+/tmp/fv/src/lib/glance.ts:13:46
+Error: Argument of type 'Channel[]' is not assignable to parameter of type 'readonly { id: string; name?: string; }[]'.
+  Property 'id' is missing in type 'Channel' but required in type '{ id: string; name?: string; }'. 
+ if (ref.kind === 'place') { glance.set({ref}); return true; }
+ const channelId = resolveGlanceChannel(ref, get(channels), [...get(objectRefStore).values()]);
+ if (!channelId) return false;
+
+/tmp/fv/src/lib/profileDesign.ts:2:52
+Error: Cannot find module '../../../packages/wabi-protocol/src/index' or its corresponding type declarations. 
+/** Portable, declarative cosmetics. Design files contain no identity, URLs or executable CSS. */
+import type { NameStyleDesign, UsernameFont } from '../../../packages/wabi-protocol/src/index';
+export type { NameStyleDesign };
+
+/tmp/fv/src/lib/components/lore/LoreTreeNode.svelte:36:6
+Warn: Elements with the ARIA role "treeitem" must have the following attributes defined: "aria-selected"
+https://svelte.dev/e/a11y_role_has_required_aria_props (svelte)
+{#if node.isFolder}
+	<li role="treeitem" aria-expanded={expanded}>
+		<button
+
+/tmp/fv/src/lib/components/lore/LoreTreeNode.svelte:61:6
+Warn: Elements with the ARIA role "treeitem" must have the following attributes defined: "aria-selected"
+https://svelte.dev/e/a11y_role_has_required_aria_props (svelte)
+{:else}
+	<li role="treeitem">
+		<button
+
+/tmp/fv/src/lib/components/lore/LoreHistoryPanel.svelte:78:5
+Warn: Visible, non-interactive element `<li>` with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+https://svelte.dev/e/a11y_click_events_have_key_events (svelte)
+			{#each filtered.slice(0, 50) as rev}
+				<li
+					class="history-item {selectedHash === rev.hash ? 'selected' : ''}"
+					onclick={() => selectRevision(rev.hash)}
+				>
+					<div class="rev-header">
+						<span class="rev-hash" title={rev.hash}>{rev.hash.slice(0, 8)}</span>
+						{#if rev.branch}
+							<span class="rev-branch">{rev.branch}</span>
+						{/if}
+					</div>
+					<div class="rev-message">{rev.message}</div>
+					<div class="rev-meta">
+						<span class="rev-author">{rev.author}</span>
+						<span class="rev-time">{timeAgo(rev.timestamp)}</span>
+						{#if rev.filesChanged}
+							<span class="rev-files">{rev.filesChanged} file{rev.filesChanged !== 1 ? 's' : ''}</span>
+						{/if}
+					</div>
+				</li>
+			{/each}
+
+/tmp/fv/src/lib/components/lore/LoreHistoryPanel.svelte:78:5
+Warn: Non-interactive element `<li>` should not be assigned mouse or keyboard event listeners
+https://svelte.dev/e/a11y_no_noninteractive_element_interactions (svelte)
+			{#each filtered.slice(0, 50) as rev}
+				<li
+					class="history-item {selectedHash === rev.hash ? 'selected' : ''}"
+					onclick={() => selectRevision(rev.hash)}
+				>
+					<div class="rev-header">
+						<span class="rev-hash" title={rev.hash}>{rev.hash.slice(0, 8)}</span>
+						{#if rev.branch}
+							<span class="rev-branch">{rev.branch}</span>
+						{/if}
+					</div>
+					<div class="rev-message">{rev.message}</div>
+					<div class="rev-meta">
+						<span class="rev-author">{rev.author}</span>
+						<span class="rev-time">{timeAgo(rev.timestamp)}</span>
+						{#if rev.filesChanged}
+							<span class="rev-files">{rev.filesChanged} file{rev.filesChanged !== 1 ? 's' : ''}</span>
+						{/if}
+					</div>
+				</li>
+			{/each}
+
+/tmp/fv/src/lib/components/lore/LoreBranchPicker.svelte:99:8
+Warn: Unused CSS selector ".btn-confirm"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.branch-picker {
+
+/tmp/fv/src/lib/components/lore/LoreBranchPicker.svelte:99:8
+Warn: Unused CSS selector ".confirm-delete"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.branch-picker {
+
+/tmp/fv/src/lib/components/lore/LoreBranchPicker.svelte:99:8
+Warn: Unused CSS selector ".confirm-delete p"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.branch-picker {
+
+/tmp/fv/src/lib/components/lore/LoreBranchPicker.svelte:99:8
+Warn: Unused CSS selector ".confirm-delete button"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.branch-picker {
+
+/tmp/fv/src/lib/components/lore/LoreBranchPicker.svelte:99:8
+Warn: Unused CSS selector ".btn-confirm"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.branch-picker {
+
+/tmp/fv/src/lib/components/lore/LoreHistoryBrowser.svelte:96:169
+Warn: Self-closing HTML tags for non-void elements are ambiguous — use `<option ...></option>` rather than `<option ... />`
+https://svelte.dev/e/element_invalid_self_closing_tag (svelte)
+			<form class="lw-inline-form" onsubmit={(event) => { event.preventDefault(); void loadPath(); }}><label>File path<input list={`lore-history-paths-${channelId}`} bind:value={path} oninput={pathChanged} placeholder="docs/README.md" required /></label><button class="lw-button" disabled={busy || !path.trim()}>Load versions</button></form>
+			<datalist id={`lore-history-paths-${channelId}`}>{#each files.filter(file => file.path.toLowerCase().includes(path.toLowerCase())).slice(0, 100) as file (file.path)}<option value={file.path} />{/each}</datalist>
+			{#if pathHistory.length}
+
+/tmp/fv/src/lib/components/lore/LoreConnectModal.svelte:158:2
+Warn: Visible, non-interactive element `<div>` with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+https://svelte.dev/e/a11y_click_events_have_key_events (svelte)
+<div class="lore-connect-modal" role="dialog" aria-modal="true" aria-label="Connect a Lore space">
+	<div class="connect-card" onclick={(e) => e.stopPropagation()}>
+		<div class="connect-header">
+			<div class="header-icon">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+					<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+					<polyline points="14 2 14 8 20 8"/>
+				</svg>
+			</div>
+			<div class="header-text">
+				<h2>Connect a Lore Space</h2>
+				<p>Versioned storage for this channel</p>
+			</div>
+			<button class="close-btn" onclick={onClose} aria-label="Close">×</button>
+		</div>
+
+		<!-- Health check -->
+		<div class="health-section">
+			<div class="health-row">
+				<span class="health-label">Lore Storage</span>
+				<span class="health-status" class:healthy={health === 'ok'} class:error={health === 'error' || health === 'disabled'}>
+					<span class="health-dot"></span>
+					{health === 'ok'
+						? 'Ready'
+						: health === 'disabled'
+							? 'Disabled'
+							: health === 'error'
+								? 'Unavailable'
+								: 'Checking...'}
+				</span>
+			</div>
+			{#if health === 'error'}
+				<div class="health-warning">
+					⚠️ Lore storage is unreachable. Embedded servers need no separate process — ask your operator to check the lore addon health and config on the server.
+				</div>
+			{:else if health === 'disabled'}
+				<div class="health-warning">
+					⚠️ The lore addon is disabled on this server (WABI_LORE_ENABLED=false). Ask your operator to enable it.
+				</div>
+			{/if}
+		</div>
+
+		<!-- Connection form -->
+		{#if step === 'connect'}
+			<form class="connect-form" onsubmit={(e) => { e.preventDefault(); void handleConnect(); }}>
+				<div class="form-group">
+					<span class="form-label-row">
+						<label>Where is this space coming from?</label>
+						<span class="mode-toggle" role="tablist" aria-label="Connect option">
+							<button
+								type="button"
+								class="mode-btn"
+								class:active={mode === 'create'}
+								onclick={() => mode = 'create'}
+								role="tab"
+								aria-selected={mode === 'create'}
+							>New space</button>
+							<button
+								type="button"
+								class="mode-btn"
+								class:active={mode === 'link'}
+								onclick={() => mode = 'link'}
+								role="tab"
+								aria-selected={mode === 'link'}
+							>Link existing</button>
+							<button
+								type="button"
+								class="mode-btn"
+								class:active={mode === 'external'}
+								onclick={() => mode = 'external'}
+								role="tab"
+								aria-selected={mode === 'external'}
+							>GitHub / GitLab</button>
+						</span>
+					</span>
+				</div>
+
+					{#if mode === 'create'}
+						<div class="form-group">
+							<label for="repo-name">Space name</label>
+							<input
+								id="repo-name"
+								type="text"
+								bind:value={repoName}
+								placeholder="my-project"
+								class="input-field"
+								autofocus
+							/>
+							<span class="input-hint">Creates a brand-new empty space for this channel.</span>
+						</div>
+
+						<label class="checkbox-row">
+							<input type="checkbox" bind:checked={autoBranchOnUpload} />
+							<span class="checkbox-copy">
+								<span class="checkbox-title">Review uploads with the team before they're official</span>
+								<span class="checkbox-hint">Uploads are saved as a new version and need approval before becoming official.</span>
+							</span>
+						</label>
+					{:else if mode === 'link'}
+						<div class="form-group">
+							<label for="repo-name">Space name</label>
+							<input
+								id="repo-name"
+								type="text"
+								bind:value={repoName}
+								placeholder="my-existing-project"
+								class="input-field"
+								autofocus
+							/>
+							<span class="input-hint">Links an existing space from the Lore server — history included (needs sidecar/remote mode; embedded servers have nothing to clone).</span>
+						</div>
+					{:else}
+					<div class="form-group">
+						<label for="repo-name">Space name</label>
+						<input
+							id="repo-name"
+							type="text"
+							bind:value={repoName}
+							placeholder="my-project"
+							class="input-field"
+							autofocus
+						/>
+						<span class="input-hint">What this space will be called in Wabi.</span>
+					</div>
+
+					<div class="form-group">
+						<label for="upstream-url">Source URL (GitHub / GitLab)</label>
+						<input
+							id="upstream-url"
+							type="text"
+							bind:value={upstreamUrl}
+							placeholder="https://github.com/org/project"
+							class="input-field"
+						/>
+						<span class="input-hint">Content is pulled from this location.</span>
+					</div>
+				{/if}
+
+				{#if error}
+					<div class="error-message">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<circle cx="12" cy="12" r="10"/>
+							<line x1="12" y1="8" x2="12" y2="12"/>
+							<line x1="12" y1="16" x2="12.01" y2="16"/>
+						</svg>
+						{error}
+					</div>
+				{/if}
+
+				<div class="form-actions">
+					<button type="button" class="btn btn-secondary" onclick={onClose}>Cancel</button>
+					{#if mode === 'external'}
+						<button
+							type="button"
+							class="btn btn-secondary"
+							disabled={creating}
+							onclick={() => { externalTarget = 'track'; void handleConnect(); }}
+						>
+							{#if creating && externalTarget === 'track'}<span class="spinner"></span>{/if}
+							Track it (read-only mirror)
+						</button>
+						<button
+							type="button"
+							class="btn btn-primary"
+							disabled={creating}
+							onclick={() => { externalTarget = 'import'; void handleConnect(); }}
+						>
+							{#if creating && externalTarget === 'import'}<span class="spinner"></span>{/if}
+							Import into Wabi (native, history starts fresh)
+						</button>
+					{:else}
+						<button type="submit" class="btn btn-primary" disabled={creating}>
+							{#if creating}<span class="spinner"></span>{/if}
+							{submitLabel()}
+						</button>
+					{/if}
+				</div>
+			</form>
+		{:else if step === 'confirm'}
+			<div class="confirm-section">
+				<div class="success-icon">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+						<polyline points="22 4 12 14.01 9 11.01"/>
+					</svg>
+				</div>
+				<h3>Space Connected!</h3>
+				<p>Your space <strong>{repoName}</strong> is now active for this channel.</p>
+				<button class="btn btn-primary" onclick={onConnected}>Start Working</button>
+			</div>
+		{/if}
+	</div>
+</div>
+
+/tmp/fv/src/lib/components/lore/LoreConnectModal.svelte:158:2
+Warn: `<div>` with a click handler must have an ARIA role
+https://svelte.dev/e/a11y_no_static_element_interactions (svelte)
+<div class="lore-connect-modal" role="dialog" aria-modal="true" aria-label="Connect a Lore space">
+	<div class="connect-card" onclick={(e) => e.stopPropagation()}>
+		<div class="connect-header">
+			<div class="header-icon">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+					<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+					<polyline points="14 2 14 8 20 8"/>
+				</svg>
+			</div>
+			<div class="header-text">
+				<h2>Connect a Lore Space</h2>
+				<p>Versioned storage for this channel</p>
+			</div>
+			<button class="close-btn" onclick={onClose} aria-label="Close">×</button>
+		</div>
+
+		<!-- Health check -->
+		<div class="health-section">
+			<div class="health-row">
+				<span class="health-label">Lore Storage</span>
+				<span class="health-status" class:healthy={health === 'ok'} class:error={health === 'error' || health === 'disabled'}>
+					<span class="health-dot"></span>
+					{health === 'ok'
+						? 'Ready'
+						: health === 'disabled'
+							? 'Disabled'
+							: health === 'error'
+								? 'Unavailable'
+								: 'Checking...'}
+				</span>
+			</div>
+			{#if health === 'error'}
+				<div class="health-warning">
+					⚠️ Lore storage is unreachable. Embedded servers need no separate process — ask your operator to check the lore addon health and config on the server.
+				</div>
+			{:else if health === 'disabled'}
+				<div class="health-warning">
+					⚠️ The lore addon is disabled on this server (WABI_LORE_ENABLED=false). Ask your operator to enable it.
+				</div>
+			{/if}
+		</div>
+
+		<!-- Connection form -->
+		{#if step === 'connect'}
+			<form class="connect-form" onsubmit={(e) => { e.preventDefault(); void handleConnect(); }}>
+				<div class="form-group">
+					<span class="form-label-row">
+						<label>Where is this space coming from?</label>
+						<span class="mode-toggle" role="tablist" aria-label="Connect option">
+							<button
+								type="button"
+								class="mode-btn"
+								class:active={mode === 'create'}
+								onclick={() => mode = 'create'}
+								role="tab"
+								aria-selected={mode === 'create'}
+							>New space</button>
+							<button
+								type="button"
+								class="mode-btn"
+								class:active={mode === 'link'}
+								onclick={() => mode = 'link'}
+								role="tab"
+								aria-selected={mode === 'link'}
+							>Link existing</button>
+							<button
+								type="button"
+								class="mode-btn"
+								class:active={mode === 'external'}
+								onclick={() => mode = 'external'}
+								role="tab"
+								aria-selected={mode === 'external'}
+							>GitHub / GitLab</button>
+						</span>
+					</span>
+				</div>
+
+					{#if mode === 'create'}
+						<div class="form-group">
+							<label for="repo-name">Space name</label>
+							<input
+								id="repo-name"
+								type="text"
+								bind:value={repoName}
+								placeholder="my-project"
+								class="input-field"
+								autofocus
+							/>
+							<span class="input-hint">Creates a brand-new empty space for this channel.</span>
+						</div>
+
+						<label class="checkbox-row">
+							<input type="checkbox" bind:checked={autoBranchOnUpload} />
+							<span class="checkbox-copy">
+								<span class="checkbox-title">Review uploads with the team before they're official</span>
+								<span class="checkbox-hint">Uploads are saved as a new version and need approval before becoming official.</span>
+							</span>
+						</label>
+					{:else if mode === 'link'}
+						<div class="form-group">
+							<label for="repo-name">Space name</label>
+							<input
+								id="repo-name"
+								type="text"
+								bind:value={repoName}
+								placeholder="my-existing-project"
+								class="input-field"
+								autofocus
+							/>
+							<span class="input-hint">Links an existing space from the Lore server — history included (needs sidecar/remote mode; embedded servers have nothing to clone).</span>
+						</div>
+					{:else}
+					<div class="form-group">
+						<label for="repo-name">Space name</label>
+						<input
+							id="repo-name"
+							type="text"
+							bind:value={repoName}
+							placeholder="my-project"
+							class="input-field"
+							autofocus
+						/>
+						<span class="input-hint">What this space will be called in Wabi.</span>
+					</div>
+
+					<div class="form-group">
+						<label for="upstream-url">Source URL (GitHub / GitLab)</label>
+						<input
+							id="upstream-url"
+							type="text"
+							bind:value={upstreamUrl}
+							placeholder="https://github.com/org/project"
+							class="input-field"
+						/>
+						<span class="input-hint">Content is pulled from this location.</span>
+					</div>
+				{/if}
+
+				{#if error}
+					<div class="error-message">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<circle cx="12" cy="12" r="10"/>
+							<line x1="12" y1="8" x2="12" y2="12"/>
+							<line x1="12" y1="16" x2="12.01" y2="16"/>
+						</svg>
+						{error}
+					</div>
+				{/if}
+
+				<div class="form-actions">
+					<button type="button" class="btn btn-secondary" onclick={onClose}>Cancel</button>
+					{#if mode === 'external'}
+						<button
+							type="button"
+							class="btn btn-secondary"
+							disabled={creating}
+							onclick={() => { externalTarget = 'track'; void handleConnect(); }}
+						>
+							{#if creating && externalTarget === 'track'}<span class="spinner"></span>{/if}
+							Track it (read-only mirror)
+						</button>
+						<button
+							type="button"
+							class="btn btn-primary"
+							disabled={creating}
+							onclick={() => { externalTarget = 'import'; void handleConnect(); }}
+						>
+							{#if creating && externalTarget === 'import'}<span class="spinner"></span>{/if}
+							Import into Wabi (native, history starts fresh)
+						</button>
+					{:else}
+						<button type="submit" class="btn btn-primary" disabled={creating}>
+							{#if creating}<span class="spinner"></span>{/if}
+							{submitLabel()}
+						</button>
+					{/if}
+				</div>
+			</form>
+		{:else if step === 'confirm'}
+			<div class="confirm-section">
+				<div class="success-icon">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+						<polyline points="22 4 12 14.01 9 11.01"/>
+					</svg>
+				</div>
+				<h3>Space Connected!</h3>
+				<p>Your space <strong>{repoName}</strong> is now active for this channel.</p>
+				<button class="btn btn-primary" onclick={onConnected}>Start Working</button>
+			</div>
+		{/if}
+	</div>
+</div>
+
+/tmp/fv/src/lib/components/lore/LoreConnectModal.svelte:204:7
+Warn: A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control (svelte)
+					<span class="form-label-row">
+						<label>Where is this space coming from?</label>
+						<span class="mode-toggle" role="tablist" aria-label="Connect option">
+
+/tmp/fv/src/lib/components/lore/LoreConnectModal.svelte:243:9
+Warn: Avoid using autofocus
+https://svelte.dev/e/a11y_autofocus (svelte)
+								class="input-field"
+								autofocus
+							/>
+
+/tmp/fv/src/lib/components/lore/LoreConnectModal.svelte:264:9
+Warn: Avoid using autofocus
+https://svelte.dev/e/a11y_autofocus (svelte)
+								class="input-field"
+								autofocus
+							/>
+
+/tmp/fv/src/lib/components/lore/LoreConnectModal.svelte:277:8
+Warn: Avoid using autofocus
+https://svelte.dev/e/a11y_autofocus (svelte)
+							class="input-field"
+							autofocus
+						/>
+
+/tmp/fv/src/lib/components/lore/LoreConnectModal.svelte:351:8
+Warn: Unused CSS selector ".health-warning code"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.lore-connect-modal {
+
+/tmp/fv/src/lib/components/lore/LoreEditorBridge.svelte:150:4
+Warn: `<iframe>` element should have a title attribute
+https://svelte.dev/e/a11y_missing_attribute (svelte)
+			</div>
+			<iframe src={sessionUrl} class="editor-frame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+		</div>
+
+/tmp/fv/src/lib/components/lore/LoreProjectWorkspace.svelte:37:40
+Warn: This reference only captures the initial value of `serverUrl`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+	} = $props();
+	const session = authSessionGeneration(serverUrl);
+	const channelId = parseLoreChannelId(channelKey)!;
+
+/tmp/fv/src/lib/components/lore/LoreProjectWorkspace.svelte:38:39
+Warn: This reference only captures the initial value of `channelKey`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+	const session = authSessionGeneration(serverUrl);
+	const channelId = parseLoreChannelId(channelKey)!;
+	let alive = true;
+
+/tmp/fv/src/lib/components/lore/LoreChannelShell.svelte:34:47
+Error: Type 'Channel[]' is not assignable to type '{ id: string; name: string; }[]'.
+  Type 'Channel' is missing the following properties from type '{ id: string; name: string; }': id, name (ts)
+		<LoreProjectWorkspace {compactHeader} channelKey={chosen.id} projectName={chosen.name} serverUrl={server} accountId={account}
+			roleName={$currentUser?.highestRole ?? ''} projects={projectPicker ? projects : []}
+			onSelectProject={projectPicker ? select : undefined} />
+
+/tmp/fv/src/lib/components/lore/LoreCitationChip.svelte:49:3
+Warn: `<button>` cannot be a child of `<button>`. When rendering this component on the server, the resulting HTML will be modified by the browser (by moving, removing, or inserting elements), likely resulting in a `hydration_mismatch` warning
+https://svelte.dev/e/node_invalid_placement_ssr (svelte)
+	{#if drift === 'Drifted' && onUpdate}
+		<button class="drift-action" onclick={(e) => { e.stopPropagation(); onUpdate(); }} title="Update citation">↻</button>
+	{/if}
+
+/tmp/fv/src/lib/components/lore/LoreCitationChip.svelte:52:3
+Warn: `<button>` cannot be a child of `<button>`. When rendering this component on the server, the resulting HTML will be modified by the browser (by moving, removing, or inserting elements), likely resulting in a `hydration_mismatch` warning
+https://svelte.dev/e/node_invalid_placement_ssr (svelte)
+	{#if !isPinned && onPin}
+		<button class="drift-action" onclick={(e) => { e.stopPropagation(); onPin(); }} title="Pin citation">📌</button>
+	{/if}
+
+/tmp/fv/src/lib/components/lore/LoreCitationPreview.svelte:27:1
+Warn: Visible, non-interactive element `<div>` with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+https://svelte.dev/e/a11y_click_events_have_key_events (svelte)
+
+<div class="citation-preview {drift ?? 'Current'}" onclick={onOpen}>
+	<div class="preview-header">
+		<span class="preview-path">{citation.file_path}</span>
+		<span class="preview-meta">
+			{citation.start_line}-{citation.end_line} · {lineCount} lines
+			{#if language}<span class="preview-lang">{language}</span>{/if}
+		</span>
+	</div>
+	{#if drift !== 'Missing'}
+		<pre class="preview-content"><code>{previewLines}</code></pre>
+		{#if hasMore}
+			<div class="preview-more">+{lineCount - 12} more lines...</div>
+		{/if}
+	{:else}
+		<div class="preview-missing">File no longer exists at this path</div>
+	{/if}
+	{#if drift === 'Drifted'}
+		<div class="drift-notice">⚠️ Content has changed since this citation was created</div>
+	{/if}
+</div>
+
+/tmp/fv/src/lib/components/lore/LoreCitationPreview.svelte:27:1
+Warn: `<div>` with a click handler must have an ARIA role
+https://svelte.dev/e/a11y_no_static_element_interactions (svelte)
+
+<div class="citation-preview {drift ?? 'Current'}" onclick={onOpen}>
+	<div class="preview-header">
+		<span class="preview-path">{citation.file_path}</span>
+		<span class="preview-meta">
+			{citation.start_line}-{citation.end_line} · {lineCount} lines
+			{#if language}<span class="preview-lang">{language}</span>{/if}
+		</span>
+	</div>
+	{#if drift !== 'Missing'}
+		<pre class="preview-content"><code>{previewLines}</code></pre>
+		{#if hasMore}
+			<div class="preview-more">+{lineCount - 12} more lines...</div>
+		{/if}
+	{:else}
+		<div class="preview-missing">File no longer exists at this path</div>
+	{/if}
+	{#if drift === 'Drifted'}
+		<div class="drift-notice">⚠️ Content has changed since this citation was created</div>
+	{/if}
+</div>
+
+/tmp/fv/../shared/messageRetention.ts:1:84
+Error: Cannot find module '../packages/wabi-protocol/src/generated/MessageRetentionDuration' or its corresponding type declarations. 
+import type { MessageRetentionDuration as GeneratedMessageRetentionDuration } from '../packages/wabi-protocol/src/generated/MessageRetentionDuration';
+
+/tmp/fv/src/lib/game-sync/present.test.ts:60:5
+Error: Conversion of type '{ id: string; name: string; type: any; }' to type 'Channel' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'createdAt' is missing in type '{ id: string; name: string; type: any; }' but required in type 'Channel'. 
+  const channel = (id: string, name: string, type: Channel['type']): Channel =>
+    ({ id, name, type }) as Channel;
+
+/tmp/fv/src/lib/workspaces/ArtifactShell.svelte:64:23
+Warn: This reference only captures the initial value of `session`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+
+	const sessionState = session.state;
+	const HEADER_OWNER = 'office-editor';
+
+/tmp/fv/src/lib/workspaces/ArtifactShell.svelte:73:41
+Warn: This reference only captures the initial value of `initialShare`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+	let handoff = $state<ArtifactHandoff>();
+	let mode = $state<'snapshot' | 'live'>(initialShare || 'live'), recipient = $state(''), recipientRole = $state<Role>('editor');
+	let grants = $state<Record<string, Role>>({}), channelId = $state(''), channelRole = $state<Role>('viewer'), accessRevision = $state(0);
+
+/tmp/fv/src/lib/workspaces/sheets/SheetsGrid.svelte:19:24
+Warn: This reference only captures the initial value of `session`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+    let {session,onselection,onactivesheet,focusAnchor}:{session:ArtifactSession;onselection?:(anchor:string|null)=>void;onactivesheet?:(id:string)=>void;focusAnchor?:string|null}=$props();
+    const sessionState=session.state;
+    let sheetId=$state(''),selectedRow=$state(''),selectedColumn=$state(''),endRow=$state(''),endColumn=$state('');
+
+/tmp/fv/src/lib/workspaces/sheets/SheetsGrid.svelte:31:5
+Warn: This reference only captures the initial value of `session`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+    const changed=()=>dataEpoch++;
+    session.doc.on('update',changed);
+    const engine=new SheetWorker();
+
+/tmp/fv/src/lib/workspaces/sheets/SheetsGrid.svelte:365:5
+Warn: noninteractive element cannot have nonnegative tabIndex value
+https://svelte.dev/e/a11y_no_noninteractive_tabindex (svelte)
+
+    <div class="sheet-grid" class:freeze id={gridId} bind:this={grid} tabindex="0" role="region" aria-label="Spreadsheet grid" aria-busy={calculating} onkeydown={keydown} onpaste={paste} onscroll={()=>{scrollTop=grid.scrollTop;viewportHeight=grid.clientHeight;}}>
+        {#if current}<table role="grid" aria-label={current.name} aria-rowcount={rows.length+1} aria-colcount={current.columns.length+1} aria-multiselectable="true" style:--sheet-row={`${rowHeight}px`}><colgroup><col class="sheet-col-label"/>{#each current.columns as column(column.id)}<col style:width={`${ysheet?columnWidth(ysheet,column.id):140}px`}/>{/each}</colgroup><thead><tr><th class="row-label corner" scope="col"><span class="sr-only">Row</span></th>{#each current.columns as column,index(column.id)}<th scope="col" class:selected-head={selectedColumns.has(column.id)} style:width={`${ysheet?columnWidth(ysheet,column.id):140}px`}>{columnName(index)}</th>{/each}</tr></thead><tbody>
+            {#if first>0}<tr aria-hidden="true"><td colspan={current.columns.length+1} style:height={`${first*rowHeight}px`} class="spacer"></td></tr>{/if}
+            {#each visible as row(row.id)}{@const ri=rowIndex.get(row.id)??-1}<tr aria-rowindex={ri+2} style:height={`${rowHeight}px`}><th class="row-label" class:selected-head={selectedRows.has(row.id)} scope="row">{current.rows.findIndex(item=>item.id===row.id)+1}</th>{#each current.columns as column(column.id)}{@const cellStyle=ysheet?styleOf(ysheet,row.id,column.id):{}}{@const isNumber=numeric(row.id,column.id)}{@const ci=colIndex.get(column.id)??-1}<td role="gridcell" class:edge-t={bounds?.r0===ri} class:edge-b={bounds?.r1===ri} class:edge-l={bounds?.c0===ci} class:edge-r={bounds?.c1===ci} aria-readonly={!editable||isProtected(row.id,column.id)} aria-selected={selectedSet.has(cellKey(row.id,column.id))} class:selected={selectedSet.has(cellKey(row.id,column.id))} class:active={row.id===selectedRow&&column.id===selectedColumn} class:protected={isProtected(row.id,column.id)} class:bordered={cellStyle.border} class:num={isNumber} style:font-weight={cellStyle.bold?'700':undefined} style:font-style={cellStyle.italic?'italic':undefined} style:text-align={cellStyle.align||(isNumber?'right':undefined)} style:background-color={cellStyle.fill||undefined} style:white-space={cellStyle.wrap?'normal':undefined} style:width={`${ysheet?columnWidth(ysheet,column.id):140}px`} style:max-width={`${ysheet?columnWidth(ysheet,column.id):140}px`} title={value(row.id,column.id)} onclick={event=>choose(row.id,column.id,event.shiftKey)} ondblclick={()=>{choose(row.id,column.id);startEdit();}}><span style:max-height={`${rowHeight-8}px`}>{value(row.id,column.id)||' '}</span></td>{/each}</tr>{/each}
+            {#if last<rows.length}<tr aria-hidden="true"><td colspan={current.columns.length+1} style:height={`${(rows.length-last)*rowHeight}px`} class="spacer"></td></tr>{/if}
+        </tbody></table>{/if}
+    </div>
+
+/tmp/fv/src/lib/workspaces/sheets/SheetsGrid.svelte:365:5
+Warn: Non-interactive element `<div>` should not be assigned mouse or keyboard event listeners
+https://svelte.dev/e/a11y_no_noninteractive_element_interactions (svelte)
+
+    <div class="sheet-grid" class:freeze id={gridId} bind:this={grid} tabindex="0" role="region" aria-label="Spreadsheet grid" aria-busy={calculating} onkeydown={keydown} onpaste={paste} onscroll={()=>{scrollTop=grid.scrollTop;viewportHeight=grid.clientHeight;}}>
+        {#if current}<table role="grid" aria-label={current.name} aria-rowcount={rows.length+1} aria-colcount={current.columns.length+1} aria-multiselectable="true" style:--sheet-row={`${rowHeight}px`}><colgroup><col class="sheet-col-label"/>{#each current.columns as column(column.id)}<col style:width={`${ysheet?columnWidth(ysheet,column.id):140}px`}/>{/each}</colgroup><thead><tr><th class="row-label corner" scope="col"><span class="sr-only">Row</span></th>{#each current.columns as column,index(column.id)}<th scope="col" class:selected-head={selectedColumns.has(column.id)} style:width={`${ysheet?columnWidth(ysheet,column.id):140}px`}>{columnName(index)}</th>{/each}</tr></thead><tbody>
+            {#if first>0}<tr aria-hidden="true"><td colspan={current.columns.length+1} style:height={`${first*rowHeight}px`} class="spacer"></td></tr>{/if}
+            {#each visible as row(row.id)}{@const ri=rowIndex.get(row.id)??-1}<tr aria-rowindex={ri+2} style:height={`${rowHeight}px`}><th class="row-label" class:selected-head={selectedRows.has(row.id)} scope="row">{current.rows.findIndex(item=>item.id===row.id)+1}</th>{#each current.columns as column(column.id)}{@const cellStyle=ysheet?styleOf(ysheet,row.id,column.id):{}}{@const isNumber=numeric(row.id,column.id)}{@const ci=colIndex.get(column.id)??-1}<td role="gridcell" class:edge-t={bounds?.r0===ri} class:edge-b={bounds?.r1===ri} class:edge-l={bounds?.c0===ci} class:edge-r={bounds?.c1===ci} aria-readonly={!editable||isProtected(row.id,column.id)} aria-selected={selectedSet.has(cellKey(row.id,column.id))} class:selected={selectedSet.has(cellKey(row.id,column.id))} class:active={row.id===selectedRow&&column.id===selectedColumn} class:protected={isProtected(row.id,column.id)} class:bordered={cellStyle.border} class:num={isNumber} style:font-weight={cellStyle.bold?'700':undefined} style:font-style={cellStyle.italic?'italic':undefined} style:text-align={cellStyle.align||(isNumber?'right':undefined)} style:background-color={cellStyle.fill||undefined} style:white-space={cellStyle.wrap?'normal':undefined} style:width={`${ysheet?columnWidth(ysheet,column.id):140}px`} style:max-width={`${ysheet?columnWidth(ysheet,column.id):140}px`} title={value(row.id,column.id)} onclick={event=>choose(row.id,column.id,event.shiftKey)} ondblclick={()=>{choose(row.id,column.id);startEdit();}}><span style:max-height={`${rowHeight-8}px`}>{value(row.id,column.id)||' '}</span></td>{/each}</tr>{/each}
+            {#if last<rows.length}<tr aria-hidden="true"><td colspan={current.columns.length+1} style:height={`${(rows.length-last)*rowHeight}px`} class="spacer"></td></tr>{/if}
+        </tbody></table>{/if}
+    </div>
+
+/tmp/fv/src/lib/addons/server-map/map/MapPlaceHeader.svelte:22:13
+Warn: Component has unused export property 'variant'. If it is for external reference only, please consider using `export const variant`
+https://svelte.dev/e/export_let_unused (svelte)
+	export let isCompactLayout: boolean;
+	export let variant: 'compact' | 'full' | 'detached';
+
+/tmp/fv/src/lib/addons/server-map/map/MapVectorStage.svelte:130:2
+Warn: noninteractive element cannot have nonnegative tabIndex value
+https://svelte.dev/e/a11y_no_noninteractive_tabindex (svelte)
+<div class="vector-stage">
+ <div bind:this={host} class="map-host" tabindex="0" role="application" onkeydown={navigate} aria-label="Interactive street map" aria-describedby={tilted ? 'map-navigation-help' : undefined}></div>
+ <div class="map-style-controls">
+
+/tmp/fv/src/lib/addons/server-map/map/MapVectorStage.svelte:130:2
+Warn: Non-interactive element `<div>` should not be assigned mouse or keyboard event listeners
+https://svelte.dev/e/a11y_no_noninteractive_element_interactions (svelte)
+<div class="vector-stage">
+ <div bind:this={host} class="map-host" tabindex="0" role="application" onkeydown={navigate} aria-label="Interactive street map" aria-describedby={tilted ? 'map-navigation-help' : undefined}></div>
+ <div class="map-style-controls">
+
+/tmp/fv/src/lib/addons/server-map/MapAddonWorkspace.svelte:54:8
+Warn: Unused CSS selector ".board-rail"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.maps-addon-root { width:100%; min-width:0; display:flex; flex-direction:column; min-height:0; height:100%; }
+
+/tmp/fv/src/lib/addons/server-map/MapAddonWorkspace.svelte:54:8
+Warn: Unused CSS selector ".maps-addon-shell.compact .board-rail"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.maps-addon-root { width:100%; min-width:0; display:flex; flex-direction:column; min-height:0; height:100%; }
+
+/tmp/fv/src/lib/components/admin/RoleNamesPanel.svelte:30:64
+Warn: The attribute 'aria-pressed' is not supported by the role 'tab'
+https://svelte.dev/e/a11y_role_supports_aria_props (svelte)
+		{#each TABS as [id, label]}
+			<button type="button" role="tab" aria-selected={tab === id} aria-pressed={tab === id} onclick={() => (tab = id)}>{label}</button>
+		{/each}
+
+/tmp/fv/src/lib/components/AdminWorkspace.svelte:199:56
+Error: Argument of type 'Channel[]' is not assignable to parameter of type 'readonly ChannelSource[]'.
+  Type 'Channel' is missing the following properties from type 'ChannelSource': id, name (ts)
+	});
+	const customChannels = $derived(adminChannelDirectory($channels));
+	const openAdminChannel = createAdminChannelOpener({
+
+/tmp/fv/src/lib/components/AdminWorkspace.svelte:201:19
+Error: Type 'Channel[]' is not assignable to type 'readonly ChannelSource[]'.
+  Type 'Channel' is missing the following properties from type 'ChannelSource': id, name (ts)
+	const openAdminChannel = createAdminChannelOpener({
+		channels: () => $channels,
+		canOpen: () => !disposed && canManageRoles,
+
+/tmp/fv/src/lib/components/AudioRecorder.svelte:146:5
+Warn: Visible, non-interactive element `<div>` with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+https://svelte.dev/e/a11y_click_events_have_key_events (svelte)
+  <div class="modal-backdrop" on:click={close} role="presentation">
+    <div class="modal" on:click|stopPropagation role="dialog" aria-labelledby="modal-title" aria-modal="true" tabindex="-1">
+      <div class="modal-header">
+        <h2 id="modal-title">{$_('audio.title')}</h2>
+        <button class="close-btn" on:click={close} aria-label={$_('common.close')}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        {#if availableDevices.length > 1 && state === 'idle'}
+          <div class="device-selector">
+            <label for="mic-select"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>{$_('audio.microphone_label')}</label>
+            <select id="mic-select" bind:value={selectedDeviceId} on:change={handleDeviceChange} disabled={state !== 'idle'}>
+              {#each availableDevices as device, index}<option value={device.deviceId}>{getDeviceLabel(device, index)}</option>{/each}
+            </select>
+          </div>
+        {/if}
+
+        {#if error}
+          <div class="error-message"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" /></svg><p>{error}</p></div>
+        {/if}
+
+        <div class="timer"><span class="current-time">{formatTime(duration)}</span><span class="separator">/</span><span class="max-time">{formatTime(MAX_DURATION)}</span></div>
+
+        <div class="visualizer-container">
+          <canvas bind:this={canvasElement} width="400" height="100" class="waveform-canvas" class:recording={state === 'recording'}></canvas>
+          {#if state === 'idle' || state === 'stopped'}<div class="placeholder-text">{state === 'idle' ? $_('audio.ready') : $_('audio.recording_stopped')}</div>{/if}
+        </div>
+
+        {#if state === 'preview' && audioUrl}<div class="preview-player"><audio bind:this={audioElement} src={audioUrl} controls on:play={() => (isPreviewPlaying = true)} on:pause={() => (isPreviewPlaying = false)}></audio><button type="button" class="preview-play-toggle" on:click={togglePreviewPlayback}>{isPreviewPlaying ? 'Pause' : 'Play'}</button></div>{/if}
+
+        <div class="controls">
+          {#if state === 'idle' && !error}<button class="btn-record" on:click={startRecording}><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8" /></svg>{$_('audio.record')}</button>{/if}
+          {#if state === 'recording'}<button class="btn-stop" on:click={stopRecording}><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>{$_('audio.stop')}</button>{/if}
+          {#if state === 'preview'}
+            <button class="btn-secondary" on:click={reRecord}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>{$_('audio.rerecord')}</button>
+            <button class="btn-secondary" on:click={close}>{$_('common.cancel')}</button>
+            <button class="btn-primary" on:click={sendAudio}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" /></svg>{$_('audio.send')}</button>
+          {/if}
+          {#if error}<button class="btn-secondary" on:click={close}>{$_('common.close')}</button>{/if}
+        </div>
+      </div>
+    </div>
+  </div>
+
+/tmp/fv/src/lib/components/ChannelSidebar.svelte:1310:2
+Warn: `<div>` with a dragover, dragleave or drop handler must have an ARIA role
+https://svelte.dev/e/a11y_no_static_element_interactions (svelte)
+
+	<div
+		class="channel-list"
+		bind:this={channelListEl}
+		on:dragover={handleListDragOver}
+		on:dragleave={handleListDragLeave}
+		on:drop={handleListDrop}
+	>
+		<!-- DMs: the personal destination (spec D6: one name, "DMs"). -->
+		<div class="personal-nav">
+			{#if isCompactSidebar}
+				<Tooltip text={$_('places.dms')} placement="right" describe={false}>{@render dmsButton()}</Tooltip>
+			{:else}
+				{@render dmsButton()}
+			{/if}
+		</div>
+
+		<!-- CHANNELS -->
+		<div class="sb-sec">
+			<button class="sb-sec-toggle" type="button" aria-expanded={isTextSectionExpanded} on:click={() => (isTextSectionExpanded = !isTextSectionExpanded)}>
+				<span class="w-kicker">{$_('sidebar.channels')}</span>
+				<span class="sb-sec-chevron" aria-hidden="true"><Icon name="chevDown" size={12} /></span>
+			</button>
+			<!-- The menu also holds Mark all read, so its name is the whole set, not "New channel". -->
+			<Menu class="w-ibtn sb-sec-add" label={$_('sidebar.channel_actions')} triggerLabel={$_('sidebar.channel_actions')} align="end" items={channelsMenuItems}>
+				<Icon name={canCreateChannel ? 'plus' : 'more'} size={14} />
+			</Menu>
+		</div>
+		{#if isTextSectionExpanded}
+		<div class="section-body" bind:this={channelSectionEl} transition:slide={sectionSlideParams}>
+	{#each rootSections.channels as item (item.id)}
+		<div class="mixed-root-item" animate:flip={rootFlipParams}>
+		{#if item.kind === 'folder'}
+		<div
+			class="category-row"
+			role="group"
+			class:is-dragging={draggedCategoryId === item.id}
+			draggable={canReorderChannels}
+			data-drop-anchor="folder"
+			data-folder-id={item.id}
+			on:dragstart|stopPropagation={(e) => handleCategoryFolderDragStart(e, item.id)}
+			on:dragend={handleChannelDragEnd}
+			on:contextmenu={(e) => handleChannelRightClick(e, item.channel)}
+			use:longpress={{ onLongPress: (e) => handleChannelLongPress(e, item.channel) }}
+		>
+			{#snippet folderToggle()}
+				<button class="category-toggle" type="button" aria-expanded={!collapsedCategories.has(item.id)} on:click={() => toggleCategory(item.id)}>
+					<span class="category-chevron" aria-hidden="true"><Icon name="chevRight" size={14} /></span>
+					<span class="category-folder-icon" aria-hidden="true"><Icon name="folder" size={16} /></span>
+					<span class="category-name">{item.channel.name}</span>
+					<span class="w-count category-count" aria-hidden="true">{item.children.length}</span>
+					<span class="sr-only">, folder, {item.children.length} {item.children.length === 1 ? 'channel' : 'channels'}</span>
+				</button>
+			{/snippet}
+			{#if isCompactSidebar}
+				<Tooltip text={item.channel.name} placement="right" describe={false}>{@render folderToggle()}</Tooltip>
+			{:else}
+				{@render folderToggle()}
+			{/if}
+		</div>
+		{#if !collapsedCategories.has(item.id)}
+			<div
+				class="category-channels"
+				data-category-id={item.id}
+				class:drop-target={autoExpandCategoryId === item.id}
+			>
+				<UnifiedChannelList channels={item.children} currentPlace={sidebarPlace} compact={isCompactSidebar} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} reorderEnabled={canReorderChannels} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} {canKickVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onKickVoiceMember={handleKickVoiceMember} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragEnd={handleChannelDragEnd} />
+			</div>
+		{/if}
+		{:else}
+		<UnifiedChannelList channels={[item.channel]} currentPlace={sidebarPlace} compact={isCompactSidebar} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} reorderEnabled={canReorderChannels} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} {canKickVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onKickVoiceMember={handleKickVoiceMember} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragEnd={handleChannelDragEnd} />
+		{/if}
+		</div>
+	{/each}
+		</div>
+		{/if}
+
+		<!-- VOICE: top-level rooms (a room inside a folder stays in its folder). -->
+		{#if rootSections.voice.length > 0 || canCreateChannel}
+			<div class="sb-sec">
+				<button class="sb-sec-toggle" type="button" aria-expanded={isVoiceSectionExpanded} on:click={() => (isVoiceSectionExpanded = !isVoiceSectionExpanded)}>
+					<span class="w-kicker">{$_('sidebar.voice')}</span>
+					<span class="sb-sec-chevron" aria-hidden="true"><Icon name="chevDown" size={12} /></span>
+				</button>
+				{#if canCreateChannel}
+					<button type="button" class="w-ibtn sb-sec-add" aria-label={$_('sidebar.new_voice_room')} title={$_('sidebar.new_voice_room')} on:click={() => openCreateForm('voice')}><Icon name="plus" size={14} /></button>
+				{/if}
+			</div>
+			{#if isVoiceSectionExpanded}
+				<div class="section-body voice-section" bind:this={voiceSectionEl} transition:slide={sectionSlideParams}>
+					{#each rootSections.voice as item (item.id)}
+						<div class="mixed-root-item" animate:flip={rootFlipParams}>
+							<UnifiedChannelList channels={[item.channel]} currentPlace={sidebarPlace} compact={isCompactSidebar} {threadChannelsByParent} {followedChannelIds} {liveWhiteboardChannelIds} {breakoutChannelsByParent} {connectedVoiceChannelIds} {runtimeActiveVoiceChannelId} {voiceDropTargetChannelId} {voicePresenceSince} {voiceDurationMode} {nowMs} reorderEnabled={canReorderChannels} {isChannelDragging} onChannelClick={handleChannelClick} onChannelButtonClick={handleChannelButtonClick} onVoiceChannelClick={handleVoiceChannelClick} onChannelRightClick={handleChannelRightClick} onChannelLongPress={handleChannelLongPress} onToggleChannelFollow={toggleChannelFollowState} onOpenChannelSettings={handleOpenChannelSettings} onShowPinnedMessages={handleShowPinnedMessages} onToggleListenChannel={handleToggleListenChannel} onOpenVoiceChannelWhiteboard={openVoiceChannelWhiteboard} {canDragVoiceMember} {canKickVoiceMember} onVoiceMemberDragStart={handleVoiceMemberDragStart} onVoiceMemberDragEnd={handleVoiceMemberDragEnd} onKickVoiceMember={handleKickVoiceMember} onVoiceChannelDragOver={handleVoiceChannelDragOver} onVoiceChannelDragLeave={handleVoiceChannelDragLeave} onVoiceChannelDrop={handleVoiceChannelDrop} onChannelDragStart={handleChannelDragStart} onChannelDragEnd={handleChannelDragEnd} />
+						</div>
+					{/each}
+				</div>
+			{/if}
+		{/if}
+
+		{#if dropLine}
+			<div
+				class="drop-indicator-overlay"
+				class:indented={dropLine.x > ROOT_LINE_X + 1}
+				style="top:{dropLine.y}px; left:{dropLine.x}px;"
+				aria-hidden="true"
+			></div>
+		{/if}
+	</div>
+
+/tmp/fv/src/lib/components/ChannelSidebar.svelte:104:13
+Warn: Component has unused export property 'dmHubTab'. If it is for external reference only, please consider using `export const dmHubTab`
+https://svelte.dev/e/export_let_unused (svelte)
+	export let activeView: 'chat' | 'business' | 'screen' | 'following' | 'dm' | 'server' = 'chat';
+	export let dmHubTab: 'messages' | 'friends' = 'messages';
+	export let friendRequestCount = 0;
+
+/tmp/fv/src/lib/components/ChannelSidebar.svelte:277:64
+Error: Argument of type 'Channel[]' is not assignable to parameter of type 'Pick<Channel, "id" | "type">[]'.
+  Property 'id' is missing in type 'Channel' but required in type 'Pick<Channel, "id" | "type">'. (ts)
+	/** Community channels with unread messages: what CHANNELS › Mark all read clears (never DMs). */
+	$: communityUnread = communityUnreadIds($channelUnreadCounts, $channels);
+	/** Unread across DM + group DM channels only — badge for Messages hub. */
+
+/tmp/fv/src/lib/components/chat/ChatComposer.svelte:686:65
+Error: Conversion of type 'Channel' to type '{ type: string; id: string; }' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'id' is missing in type 'Channel' but required in type '{ type: string; id: string; }'. (ts)
+		const authToken = getAuthToken();
+		const albumScope = createAlbumFromUpload ? getMediaAlbumScope(activeChannel as {type:string; id:string} | undefined) : null;
+		if (createAlbumFromUpload && !authToken) { showToast('Sign in with a registered account to turn multi-photo uploads into an album.', 'warning'); return; }
+
+/tmp/fv/src/lib/components/message/MessageEditForm.svelte:31:3
+Warn: Avoid using autofocus
+https://svelte.dev/e/a11y_autofocus (svelte)
+		rows="3"
+		autofocus
+		on:keydown={(e) => {
+
+/tmp/fv/src/lib/components/cad/Cad2DViewer.svelte:447:9
+Warn: Visible, non-interactive element `<svg>` with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+https://svelte.dev/e/a11y_click_events_have_key_events (svelte)
+      {:else if drawing}
+        <svg bind:this={svg} class:measure-mode={measureMode} class:review-mode={reviewMode} class:review-pan={reviewMode && reviewTool === 'pan'} viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
+          role="img" aria-label={`2D CAD drawing ${fileName}`}
+          onpointerdown={pointerDown} onpointermove={pointerMove} onpointerup={pointerUp} onpointercancel={pointerUp}
+          onwheel={wheel} onclick={measureClick}>
+          <defs>
+            <marker id={reviewMarkerId} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse" markerUnits="strokeWidth">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" />
+            </marker>
+          </defs>
+          <rect x={viewBox.x} y={viewBox.y} width={viewBox.width} height={viewBox.height} class="cad-bg" />
+          {#each visibleEntities as entity, index (`${entity.layer}-${entity.type}-${index}`)}
+            {#if entity.type === 'LINE'}
+              <line x1={entity.a.x} y1={-entity.a.y} x2={entity.b.x} y2={-entity.b.y} class="cad-entity" style={cadEntityStyle(entity)} />
+            {:else if entity.type === 'LWPOLYLINE' || entity.type === 'POLYLINE'}
+              <polyline points={`${entity.points.map((point) => `${point.x},${-point.y}`).join(' ')}${entity.closed ? ` ${entity.points[0].x},${-entity.points[0].y}` : ''}`} class="cad-entity" style={cadEntityStyle(entity)} />
+            {:else if entity.type === 'CIRCLE'}
+              <circle cx={entity.center.x} cy={-entity.center.y} r={entity.radius} class="cad-entity" style={cadEntityStyle(entity)} />
+            {:else if entity.type === 'ARC'}
+              {@const arc = cadArcPoints(entity)}
+              <polyline points={arc.map((point) => `${point.x},${-point.y}`).join(' ')} class="cad-entity" style={cadEntityStyle(entity)} />
+            {:else if entity.type === 'TEXT' || entity.type === 'MTEXT'}
+              <text x={entity.point.x} y={-entity.point.y} font-size={entity.height} transform={`rotate(${-entity.rotationDeg} ${entity.point.x} ${-entity.point.y})`} class="cad-text" style={cadFillStyle(entity)}>{entity.text}</text>
+            {:else if entity.type === 'POINT'}
+              <circle cx={entity.point.x} cy={-entity.point.y} r={Math.max(viewBox.width, viewBox.height) / 500} class="cad-point" style={cadFillStyle(entity)} />
+            {/if}
+          {/each}
+
+          {#each [...reviewElements, ...(reviewDraft ? [reviewDraft] : [])] as mark (mark.id)}
+            {#if mark.type === 'stroke'}
+              <polyline points={mark.points.map((point) => `${point.x},${-point.y}`).join(' ')} class="review-mark" stroke={mark.strokeColor} stroke-width={mark.strokeWidth} opacity={mark.opacity} />
+            {:else if mark.type === 'arrow'}
+              <line x1={mark.x} y1={-mark.y} x2={mark.x + mark.width} y2={-(mark.y + mark.height)} class="review-mark" stroke={mark.strokeColor} stroke-width={mark.strokeWidth} opacity={mark.opacity} marker-end={`url(#${reviewMarkerId})`} />
+            {:else if mark.type === 'rect'}
+              <rect x={mark.x} y={-(mark.y + mark.height)} width={mark.width} height={mark.height} class="review-mark" stroke={mark.strokeColor} stroke-width={mark.strokeWidth} opacity={mark.opacity} />
+            {:else if mark.type === 'ellipse'}
+              <ellipse cx={mark.x + mark.width / 2} cy={-(mark.y + mark.height / 2)} rx={mark.width / 2} ry={mark.height / 2} class="review-mark" stroke={mark.strokeColor} stroke-width={mark.strokeWidth} opacity={mark.opacity} />
+            {:else if mark.type === 'text'}
+              <text x={mark.x} y={-mark.y} font-size={mark.fontSize} class="review-text" fill={mark.fillColor || mark.strokeColor} opacity={mark.opacity}>{mark.text}</text>
+            {/if}
+          {/each}
+
+          {#if measureA}<circle cx={measureA.x} cy={-measureA.y} r={Math.max(viewBox.width, viewBox.height) / 260} class="measure-point" />{/if}
+          {#if measureA && measureB}
+            <line x1={measureA.x} y1={-measureA.y} x2={measureB.x} y2={-measureB.y} class="measure-line" />
+            <circle cx={measureB.x} cy={-measureB.y} r={Math.max(viewBox.width, viewBox.height) / 260} class="measure-point" />
+          {/if}
+        </svg>
+        {#if textPoint}
+
+/tmp/fv/src/lib/components/cad/Cad2DViewer.svelte:447:9
+Warn: Non-interactive element `<svg>` should not be assigned mouse or keyboard event listeners
+https://svelte.dev/e/a11y_no_noninteractive_element_interactions (svelte)
+      {:else if drawing}
+        <svg bind:this={svg} class:measure-mode={measureMode} class:review-mode={reviewMode} class:review-pan={reviewMode && reviewTool === 'pan'} viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
+          role="img" aria-label={`2D CAD drawing ${fileName}`}
+          onpointerdown={pointerDown} onpointermove={pointerMove} onpointerup={pointerUp} onpointercancel={pointerUp}
+          onwheel={wheel} onclick={measureClick}>
+          <defs>
+            <marker id={reviewMarkerId} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse" markerUnits="strokeWidth">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" />
+            </marker>
+          </defs>
+          <rect x={viewBox.x} y={viewBox.y} width={viewBox.width} height={viewBox.height} class="cad-bg" />
+          {#each visibleEntities as entity, index (`${entity.layer}-${entity.type}-${index}`)}
+            {#if entity.type === 'LINE'}
+              <line x1={entity.a.x} y1={-entity.a.y} x2={entity.b.x} y2={-entity.b.y} class="cad-entity" style={cadEntityStyle(entity)} />
+            {:else if entity.type === 'LWPOLYLINE' || entity.type === 'POLYLINE'}
+              <polyline points={`${entity.points.map((point) => `${point.x},${-point.y}`).join(' ')}${entity.closed ? ` ${entity.points[0].x},${-entity.points[0].y}` : ''}`} class="cad-entity" style={cadEntityStyle(entity)} />
+            {:else if entity.type === 'CIRCLE'}
+              <circle cx={entity.center.x} cy={-entity.center.y} r={entity.radius} class="cad-entity" style={cadEntityStyle(entity)} />
+            {:else if entity.type === 'ARC'}
+              {@const arc = cadArcPoints(entity)}
+              <polyline points={arc.map((point) => `${point.x},${-point.y}`).join(' ')} class="cad-entity" style={cadEntityStyle(entity)} />
+            {:else if entity.type === 'TEXT' || entity.type === 'MTEXT'}
+              <text x={entity.point.x} y={-entity.point.y} font-size={entity.height} transform={`rotate(${-entity.rotationDeg} ${entity.point.x} ${-entity.point.y})`} class="cad-text" style={cadFillStyle(entity)}>{entity.text}</text>
+            {:else if entity.type === 'POINT'}
+              <circle cx={entity.point.x} cy={-entity.point.y} r={Math.max(viewBox.width, viewBox.height) / 500} class="cad-point" style={cadFillStyle(entity)} />
+            {/if}
+          {/each}
+
+          {#each [...reviewElements, ...(reviewDraft ? [reviewDraft] : [])] as mark (mark.id)}
+            {#if mark.type === 'stroke'}
+              <polyline points={mark.points.map((point) => `${point.x},${-point.y}`).join(' ')} class="review-mark" stroke={mark.strokeColor} stroke-width={mark.strokeWidth} opacity={mark.opacity} />
+            {:else if mark.type === 'arrow'}
+              <line x1={mark.x} y1={-mark.y} x2={mark.x + mark.width} y2={-(mark.y + mark.height)} class="review-mark" stroke={mark.strokeColor} stroke-width={mark.strokeWidth} opacity={mark.opacity} marker-end={`url(#${reviewMarkerId})`} />
+            {:else if mark.type === 'rect'}
+              <rect x={mark.x} y={-(mark.y + mark.height)} width={mark.width} height={mark.height} class="review-mark" stroke={mark.strokeColor} stroke-width={mark.strokeWidth} opacity={mark.opacity} />
+            {:else if mark.type === 'ellipse'}
+              <ellipse cx={mark.x + mark.width / 2} cy={-(mark.y + mark.height / 2)} rx={mark.width / 2} ry={mark.height / 2} class="review-mark" stroke={mark.strokeColor} stroke-width={mark.strokeWidth} opacity={mark.opacity} />
+            {:else if mark.type === 'text'}
+              <text x={mark.x} y={-mark.y} font-size={mark.fontSize} class="review-text" fill={mark.fillColor || mark.strokeColor} opacity={mark.opacity}>{mark.text}</text>
+            {/if}
+          {/each}
+
+          {#if measureA}<circle cx={measureA.x} cy={-measureA.y} r={Math.max(viewBox.width, viewBox.height) / 260} class="measure-point" />{/if}
+          {#if measureA && measureB}
+            <line x1={measureA.x} y1={-measureA.y} x2={measureB.x} y2={-measureB.y} class="measure-line" />
+            <circle cx={measureB.x} cy={-measureB.y} r={Math.max(viewBox.width, viewBox.height) / 260} class="measure-point" />
+          {/if}
+        </svg>
+        {#if textPoint}
+
+/tmp/fv/src/lib/components/cad/Cad2DViewer.svelte:497:117
+Warn: Avoid using autofocus
+https://svelte.dev/e/a11y_autofocus (svelte)
+            <label for="cad-review-text">Review note</label>
+            <input id="cad-review-text" bind:value={textValue} maxlength="2000" placeholder="Type a short callout…" autofocus />
+            <div><button type="submit" disabled={!textValue.trim()}>Place</button><button type="button" onclick={() => { textPoint = null; textValue = ''; }}>Cancel</button></div>
+
+/tmp/fv/src/lib/components/plugins/ThreeMFViewer.svelte:22:24
+Warn: This reference only captures the initial value of `lazyLoad`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+	const THREE_BASE = 'https://esm.sh/three@0.181.1';
+	let started = $state(!lazyLoad);
+	let converting = $state(false);
+
+/tmp/fv/src/lib/components/ModelViewerLauncher.svelte:134:1
+Warn: `<div>` with a contextmenu handler must have an ARIA role
+https://svelte.dev/e/a11y_no_static_element_interactions (svelte)
+
+<div class="model-launcher" class:full-bleed={fullBleed} oncontextmenu={handleContextMenu}>
+  {#if !fullBleed && safeSrc}
+    <!-- Left-aligned on purpose: the message's hover actions float at the top right and used to cover these. -->
+    <div class="model-file-toolbar">
+      <span class="model-file-name" title={fileName}><b>{ext.toUpperCase() || 'MODEL'}</b>{fileName}</span>
+      <span class="model-file-actions">
+        <button class="model-workspace-open" type="button" onclick={openWorkspace}>{modelWorkspaceLabel(fileName)}</button>
+        <button class="model-workspace-open" type="button" aria-pressed={!previewHidden} onclick={() => setPreviewHidden(!previewHidden)}>{previewHidden ? 'Show preview' : 'Hide preview'}</button>
+        <ModelOpenMenu bind:this={openMenu} {asset} showSourceLink />
+      </span>
+    </div>
+  {/if}
+
+  {#if !safeSrc}
+    <div class="model-support-card" role="alert"><strong>Preview unavailable</strong><p>This attachment does not have a safe model source.</p></div>
+  {:else if previewHidden && !fullBleed}
+    <!-- preview closed: the toolbar above is the whole attachment -->
+  {:else if supportMessage}
+    <div class="model-support-card">
+      <span class="model-support-label">{family === 'cad' ? 'CAD IMPORTER REQUIRED' : family === 'mmd' ? 'MMD ADD-ON REQUIRED' : 'MODEL SUPPORT REQUIRED'}</span>
+      <strong title={fileName}>{fileName}</strong>
+      <p>{supportMessage}</p>
+    </div>
+  {:else if previewKind === 'cad-2d'}
+    {#if ext === 'dwg'}
+      <DwgCadViewer {src} {fileName} {height} {fullBleed} {lazyLoad} channelId={reviewChannelId} />
+    {:else if cadPreviewActive}
+      <CadDocument2DViewer {src} {fileName} {height} compact={!fullBleed} channelId={reviewChannelId} />
+    {:else}
+      <button class="cad-preview-activation" type="button" onclick={() => (cadPreviewActive = true)}>
+        <span>Activate CAD document preview</span>
+        <small>{fileName} · Wabi separates Model Space and Paper Space layouts when present</small>
+      </button>
+    {/if}
+  {:else if previewKind === 'cad-3d'}
+    {#if ext === '3mf'}
+      <ThreeMFViewer {src} {fileName} {height} {fullBleed} {lazyLoad} bind:hideUi />
+    {:else}
+      <OcctCadViewer {src} {fileName} {height} {fullBleed} {lazyLoad} bind:hideUi />
+    {/if}
+  {:else}
+    {#if desktop}
+      <div class="model-native-card">
+        <div class="model-native-copy"><span class="model-native-label">Desktop 3D viewer</span><strong title={fileName}>{fileName}</strong><p>Opens in the native viewer. Available inspection tools depend on your desktop build.</p></div>
+        <button class="model-native-open" type="button" onclick={launchNative} disabled={launching}>{launching ? 'Opening…' : 'Open native viewer'}</button>
+        {#if nativeError}<p class="model-launch-error" role="alert">{nativeError}</p>{/if}
+      </div>
+    {/if}
+
+    {#if !resolvingThree && ThreeViewer}
+      {#key `${selectionKey}\u0000${previewAttempt}`}
+        <ThreeViewer {src} {fileName} {height} {fullBleed} {lazyLoad} bind:hideUi onRetry={() => { previewAttempt += 1; }} />
+      {/key}
+    {:else if !desktop && resolvingThree}
+      <div class="model-launch-status" role="status">Opening model viewer…</div>
+    {:else if !desktop && launchError}
+      <div class="model-launch-status model-launch-error" role="alert">{launchError}</div>
+    {/if}
+  {/if}
+</div>
+
+/tmp/fv/src/lib/components/message/E2eeImage.svelte:5:48
+Error: Cannot find module '../../../../../packages/wabi-protocol/src' or its corresponding type declarations. (ts)
+	import { _ } from '$lib/i18n';
+	import type { AttachmentEncryptionMeta } from '../../../../../packages/wabi-protocol/src';
+
+/tmp/fv/src/lib/components/message/MessageFileContent.svelte:119:7
+Warn: noninteractive element cannot have nonnegative tabIndex value
+https://svelte.dev/e/a11y_no_noninteractive_tabindex (svelte)
+							.slice(0, 4)}
+						<div
+							class="album-message-card album-message-card--actionable"
+							class:album-message-card--deleted={albumAnnouncementDeleted}
+							role={albumAnnouncementDeleted ? undefined : 'button'}
+							tabindex={albumAnnouncementDeleted ? undefined : 0}
+							on:click={() => {
+								if (!albumAnnouncementDeleted) onHandleAlbumActivate(albumAnnouncement, true);
+							}}
+							on:keydown={(event) => {
+								if (!albumAnnouncementDeleted)
+									onHandleAlbumAnnouncementKeydown(event, albumAnnouncement, true);
+							}}
+						>
+							<div class="album-message-main">
+								<div class="album-message-head">
+									<div class="album-message-copy">
+										<div class="album-message-kicker">Shared album</div>
+										<div class="album-message-title">{albumAnnouncement.name}</div>
+									</div>
+									<span class="album-message-count">{getAlbumAnnouncementStatusLabel(albumAnnouncement, message.files.length)}</span>
+								</div>
+								{#if albumPreviewFiles.length > 0}
+									<div class="album-message-grid">
+										{#each albumPreviewFiles as fileAttachment}
+											<button
+												type="button"
+												class="album-message-tile"
+												on:click|stopPropagation={() => onOpenAlbumPreview(message, fileAttachment)}
+												title={fileAttachment.fileName}
+											>
+												{#if isVideo(fileAttachment.fileName)}
+													<video muted playsinline preload="metadata">
+														<source
+															src={getFileUrl(fileAttachment.fileUrl)}
+															type={getMediaMimeType(fileAttachment.fileName) || undefined}
+														/>
+													</video>
+												{:else}
+													<img
+														src={getFileUrl(fileAttachment.fileUrl)}
+														alt={fileAttachment.fileName}
+														loading="lazy"
+														decoding="async"
+													/>
+												{/if}
+											</button>
+										{/each}
+									</div>
+								{:else}
+									<div class="album-message-empty">
+										{getAlbumAnnouncementSupportText(albumAnnouncement, message.files.length)}
+									</div>
+								{/if}
+							</div>
+							<div class="album-message-actions">
+								{#if albumAnnouncementDeleted}
+									<span class="album-message-deleted-note">Album deleted</span>
+								{:else}
+									<button
+										type="button"
+										class="album-message-btn"
+										disabled={albumAnnouncementUploadName === albumAnnouncement.name}
+										on:click|stopPropagation={() => onTriggerAlbumUpload(albumAnnouncement)}
+									>
+										{albumAnnouncementUploadName === albumAnnouncement.name ? 'Uploading...' : 'Add Media'}
+									</button>
+									<button type="button" class="album-message-btn primary" on:click|stopPropagation={onOpenAlbumPanel}>
+										Open Album
+									</button>
+								{/if}
+								{#if albumPreviewFiles.length > 0}
+									<button
+										type="button"
+										class="album-message-btn"
+										on:click|stopPropagation={() => onOpenAlbumPreview(message, albumPreviewFiles[0])}
+									>
+										Preview
+									</button>
+								{/if}
+							</div>
+						</div>
+					{:else if message.files && message.files.length > 1}
+
+/tmp/fv/src/lib/components/message/MessageContent.svelte:248:3
+Warn: noninteractive element cannot have nonnegative tabIndex value
+https://svelte.dev/e/a11y_no_noninteractive_tabindex (svelte)
+	{:else if albumAnnouncement && (!message.files || message.files.length === 0)}
+		<div
+			class="album-message-card album-message-card--actionable album-message-card--empty"
+			class:album-message-card--deleted={albumAnnouncementDeleted}
+			class:is-uploading={!albumAnnouncementDeleted && albumAnnouncementUploadName === albumAnnouncement.name}
+			role={albumAnnouncementDeleted ? undefined : 'button'}
+			tabindex={albumAnnouncementDeleted ? undefined : 0}
+			aria-disabled={albumAnnouncementDeleted || albumAnnouncementUploadName === albumAnnouncement.name}
+			on:click={() => {
+				if (!albumAnnouncementDeleted) onHandleAlbumActivate(albumAnnouncement, false);
+			}}
+			on:keydown={(event) => {
+				if (!albumAnnouncementDeleted) onHandleAlbumAnnouncementKeydown(event, albumAnnouncement, false);
+			}}
+		>
+			<div class="album-message-main">
+				<div class="album-message-head">
+					<div class="album-message-copy">
+						<div class="album-message-kicker">Shared album</div>
+						<div class="album-message-title">{albumAnnouncement.name}</div>
+					</div>
+					<span class="album-message-count">{getAlbumAnnouncementStatusLabel(albumAnnouncement)}</span>
+				</div>
+				<div class="album-message-empty">
+					{getAlbumAnnouncementSupportText(albumAnnouncement)}
+				</div>
+			</div>
+			{#if albumAnnouncementDeleted}
+				<div class="album-message-actions">
+					<span class="album-message-deleted-note">Album deleted</span>
+				</div>
+			{:else}
+				<div class="album-message-actions">
+					<button
+						type="button"
+						class="album-message-btn"
+						disabled={albumAnnouncementUploadName === albumAnnouncement.name}
+						on:click|stopPropagation={() => onTriggerAlbumUpload(albumAnnouncement)}
+					>
+						{albumAnnouncementUploadName === albumAnnouncement.name ? 'Uploading...' : 'Add Media'}
+					</button>
+					<button type="button" class="album-message-btn primary" on:click|stopPropagation={onOpenAlbumPanel}>
+						Open Albums
+					</button>
+				</div>
+			{/if}
+		</div>
+	{:else if message.type === 'role_gate'}
+
+/tmp/fv/src/lib/components/MessageList.svelte:1931:38
+Error: Argument of type 'Message[]' is not assignable to parameter of type 'readonly StreamRow[]'.
+  Property 'timestamp' is missing in type 'Message' but required in type 'StreamRow'. (ts)
+	let streamMarks: StreamMark[] = [];
+	$: streamMarks = computeStreamMarks(visibleMessages, {
+		isRendered: (message) => {
+
+/tmp/fv/src/lib/components/WhiteboardToolbar.svelte:300:1
+Warn: Elements with the 'toolbar' interactive role must have a tabindex value
+https://svelte.dev/e/a11y_interactive_supports_focus (svelte)
+
+<div
+	class="wb-toolbar-rail"
+	class:open={toolbarOpen}
+	class:pinned={toolbarPinned}
+	role="toolbar"
+	aria-label="Whiteboard tools"
+	on:mouseenter={() => (toolbarHover = true)}
+	on:mouseleave={() => (toolbarHover = false)}
+>
+	<button type="button" class="wb-rail-toggle" on:click={() => (toolbarPinned = !toolbarPinned)} aria-pressed={toolbarPinned} title={toolbarPinned ? 'Collapse tools' : 'Keep tools open'}>
+		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6h12M4 10h12M4 14h12"/></svg>
+	</button>
+	<div class="wb-toolbar">
+	{#if activeLayer && layerModeBadge}
+		<div class="wb-layer-mode-chip" class:raster={layerModeBadge.mode === 'raster'} title="Active layer: {activeLayer.name} ({layerModeBadge.label})">
+			<span class="wb-layer-mode-name">{activeLayer.name}</span>
+			<span class="wb-layer-mode-badge">{layerModeBadge.label}</span>
+		</div>
+	{/if}
+	<div class="wb-toolbar-section tools">
+		<span class="wb-toolbar-group-label">Tools</span>
+		{#each tools as tool}
+			<button
+				class="wb-tool-btn"
+				class:active={$activeTool === tool.id}
+				class:readonly-disabled={isToolDisabled(tool.id)}
+				on:click={() => setTool(tool.id)}
+				disabled={isToolDisabled(tool.id)}
+				aria-label={tool.label} title="{tool.label}{tool.shortcut ? ` (${tool.shortcut})` : ''}{readOnly && drawingTools.has(tool.id) ? ' — disabled in view-only mode' : ''}"
+			>
+				<span class="wb-tool-icon">
+					{#if tool.icon === 'cursor'}
+						<svg viewBox="0 0 20 20" fill="currentColor"><path d="M4 2l12 8-5 1.5L9.5 17z"/></svg>
+					{:else if tool.icon === 'pen'}
+						<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 17l1.5-5L15 2l2 2L7.5 14.5z"/><path d="M12 5l2 2"/></svg>
+					{:else if tool.icon === 'line'}
+						<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="3" y1="17" x2="17" y2="3"/></svg>
+					{:else if tool.icon === 'rect'}
+						<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="14" height="12" rx="1"/></svg>
+					{:else if tool.icon === 'ellipse'}
+						<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="10" cy="10" rx="7" ry="5"/></svg>
+					{:else if tool.icon === 'arrow'}
+						<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="3" y1="17" x2="17" y2="3"/><polyline points="10,3 17,3 17,10"/></svg>
+					{:else if tool.icon === 'text'}
+						<svg viewBox="0 0 20 20" fill="currentColor"><text x="4" y="16" font-size="15" font-weight="bold" font-family="sans-serif">T</text></svg>
+					{:else if tool.icon === 'math'}
+						<svg viewBox="0 0 20 20" fill="currentColor"><text x="2.5" y="16" font-size="16" font-weight="bold" font-family="serif">Σ</text></svg>
+					{:else if tool.icon === 'pan'}
+						<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 2v16M2 10h16M10 2l-2 3m2-3l2 3M10 18l-2-3m2 3l2-3M2 10l3-2m-3 2l3 2M18 10l-3-2m3 2l-3 2"/></svg>
+					{:else if tool.icon === 'eraser'}
+						<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="m3 13 8.6-8.6a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L8 18H5a2 2 0 0 1-2-2v-3Z"/><path d="m8 18 5-5"/><path d="M6 15h.01" stroke-linecap="round"/></svg>
+					{/if}
+				</span>
+			</button>
+		{/each}
+	</div>
+
+	<div class="wb-toolbar-divider"></div>
+
+	<div class="wb-toolbar-section actions">
+		<span class="wb-toolbar-group-label">Edit</span>
+		<button
+			class="wb-tool-btn"
+			on:click={() => boardStore.undo()}
+			disabled={readOnly || !$canUndo}
+			title="Undo (Ctrl+Z)"
+		>
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 8l-3 3 3 3"/><path d="M2 11h11a4 4 0 000-8H8"/></svg>
+		</button>
+		<button
+			class="wb-tool-btn"
+			on:click={() => boardStore.redo()}
+			disabled={readOnly || !$canRedo}
+			title="Redo (Ctrl+Shift+Z)"
+		>
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 8l3 3-3 3"/><path d="M18 11H7a4 4 0 010-8h5"/></svg>
+		</button>
+		<button
+			class="wb-tool-btn"
+			on:click={() => onImportImages?.()}
+			disabled={readOnly || importDisabled || !onImportImages}
+			title="Add images to the board" aria-label="Add images to the board"
+		>
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+				<path d="M4 5.5A1.5 1.5 0 015.5 4h9A1.5 1.5 0 0116 5.5v9a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 014 14.5z"/>
+				<path d="M7 12l2-2 2 2 2.5-3 1.5 2"/>
+				<circle cx="8" cy="7.5" r="1"/>
+			</svg>
+		<span class="wb-export-label">Image</span></button>
+	</div>
+
+	<div class="wb-toolbar-divider"></div>
+
+	<!-- Align tools (visible when ≥2 elements selected) -->
+	{#if $selection.size >= 2}
+		<div class="wb-toolbar-section aligns">
+			<button class="wb-tool-btn" title="Align left" on:click={() => alignElements('x', 'min')} disabled={readOnly}>
+				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="5" y1="15" x2="15" y2="15"/></svg>
+			</button>
+			<button class="wb-tool-btn" title="Align center" on:click={() => alignElements('x', 'center')} disabled={readOnly}>
+				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="10" y1="4" x2="10" y2="16"/></svg>
+			</button>
+			<button class="wb-tool-btn" title="Align right" on:click={() => alignElements('x', 'max')} disabled={readOnly}>
+				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="15" y1="4" x2="5" y2="16"/></svg>
+			</button>
+			<div class="wb-toolbar-divider-sm"></div>
+			<button class="wb-tool-btn" title="Align top" on:click={() => alignElements('y', 'min')} disabled={readOnly}>
+				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="4" y1="5" x2="16" y2="5"/></svg>
+			</button>
+			<button class="wb-tool-btn" title="Align middle" on:click={() => alignElements('y', 'center')} disabled={readOnly}>
+				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="4" y1="10" x2="16" y2="10"/></svg>
+			</button>
+			<button class="wb-tool-btn" title="Align bottom" on:click={() => alignElements('y', 'max')} disabled={readOnly}>
+				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="12" height="12" rx="1.5"/><line x1="4" y1="15" x2="16" y2="5"/></svg>
+			</button>
+		</div>
+	{/if}
+
+	<div class="wb-toolbar-section exports">
+		<span class="wb-toolbar-group-label">File</span>
+		<button
+			class="wb-tool-btn wb-export-btn"
+			on:click={() => onExportPng?.()}
+			disabled={exportBusy || !onExportPng}
+			title="Export PNG"
+		>
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 3v9"/><path d="M6.5 8.5L10 12l3.5-3.5"/><path d="M4 14.5h12"/></svg>
+		</button>
+		<button
+			class="wb-tool-btn wb-export-btn"
+			on:click={() => onExportJson?.()}
+			disabled={exportBusy || !onExportJson}
+			title="Download board backup (editable JSON)" aria-label="Download board backup"
+		>
+			<span class="wb-export-label">Backup</span>
+		</button>
+	</div>
+
+	<div class="wb-toolbar-divider"></div>
+
+	<div class="wb-toolbar-section colors">
+		<label class="wb-color-quick" title="Stroke color">
+			<span>Ink</span>
+			<input type="color" value={$currentStyle.strokeColor} on:input={(e) => pickStrokeColor((e.currentTarget as HTMLInputElement).value)} disabled={readOnly} aria-label="Stroke color" />
+		</label>
+		<label class="wb-color-quick" title="Fill color">
+			<span>Fill</span>
+			<input type="color" value={$currentStyle.fillColor === 'transparent' ? '#ffffff' : $currentStyle.fillColor} on:input={(e) => pickFillColor((e.currentTarget as HTMLInputElement).value)} disabled={readOnly} aria-label="Fill color" />
+		</label>
+		<div class="wb-swatch-row" role="group" aria-label="Ink swatches">
+			{#each colorSwatches as color}
+				<button type="button" class="wb-color-swatch" class:active={$currentStyle.strokeColor === color} style="--swatch-color: {color}" on:click={() => pickStrokeColor(color)} disabled={readOnly} title={color}></button>
+			{/each}
+		</div>
+	</div>
+
+	<div class="wb-toolbar-divider"></div>
+
+	<!-- Canvas background color -->
+			<div class="wb-toolbar-section canvas-bg">
+			<button class="wb-tool-btn" title="Canvas background" on:click={() => canvasBgInput = $boardState.canvasBgColor || ''} disabled={readOnly}>
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="14" height="14" rx="2"/><circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/></svg>
+			</button>
+			<input
+			type="color"
+			class="wb-color-native wb-canvas-bg-picker"
+			value={canvasBgInput}
+			on:input={(e) => setCanvasBgColorInStore((e.currentTarget as HTMLInputElement).value)}
+			disabled={readOnly}
+			title="Canvas background color"
+			/>
+			<button class="wb-tool-btn wb-clear-bg" title="Clear background" on:click={() => setCanvasBgColorInStore('')} disabled={readOnly || !$boardState.canvasBgColor}>
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 5l10 10M15 5L5 15" stroke-linecap="round"/></svg>
+			</button>
+			</div>
+
+			<div class="wb-toolbar-divider"></div>
+
+			{#if $activeTool === 'pen'}
+		<div class="wb-brush-settings">
+			<span class="wb-toolbar-group-label">Brush</span>
+			<label class="wb-brush-control">
+				<span class="wb-brush-label">Size</span>
+				<span class="wb-brush-row">
+					<input
+						type="range"
+						min="1"
+						max="64"
+						step="1"
+						value={$currentStyle.strokeWidth}
+						on:input={(e) => setWidth(Number((e.currentTarget as HTMLInputElement).value))}
+						class="wb-brush-slider"
+						disabled={readOnly}
+						aria-label="Brush size"
+					/>
+					<span class="wb-brush-value">{$currentStyle.strokeWidth}px</span>
+				</span>
+			</label>
+			<label class="wb-brush-control">
+				<span class="wb-brush-label">Hardness</span>
+				<span class="wb-brush-row">
+					<input
+						type="range"
+						min="0"
+						max="100"
+						step="1"
+						value={Math.round(($currentStyle.hardness ?? 1) * 100)}
+						on:input={(e) => setHardness(Number((e.currentTarget as HTMLInputElement).value))}
+						class="wb-brush-slider"
+						disabled={readOnly}
+						aria-label="Brush hardness"
+					/>
+					<span class="wb-brush-value">{Math.round(($currentStyle.hardness ?? 1) * 100)}%</span>
+				</span>
+			</label>
+			<label class="wb-brush-control">
+				<span class="wb-brush-label">Opacity</span>
+				<span class="wb-brush-row">
+					<input
+						type="range"
+						min="10"
+						max="100"
+						step="1"
+						value={Math.round(($currentStyle.opacity ?? 1) * 100)}
+						on:input={(e) => setOpacity(Number((e.currentTarget as HTMLInputElement).value))}
+						class="wb-brush-slider"
+						disabled={readOnly}
+						aria-label="Brush opacity"
+					/>
+					<span class="wb-brush-value">{Math.round(($currentStyle.opacity ?? 1) * 100)}%</span>
+				</span>
+			</label>
+
+			{#if $activeTool === 'pen' || $activeTool === 'line' || $activeTool === 'arrow'}
+				<label class="wb-brush-control">
+					<span class="wb-brush-label">Dash</span>
+					<span class="wb-brush-row">
+						<select
+							class="wb-brush-select"
+							value={$currentStyle.strokeDash || 'none'}
+							on:change={(e) => {
+								const v = (e.currentTarget as HTMLSelectElement).value;
+								setStrokeDash(v === 'none' ? undefined : v === 'dashed' ? [8, 4] : v === 'dotted' ? [2, 4] : undefined);
+							}}
+							disabled={readOnly}
+							aria-label="Stroke dash style"
+						>
+							<option value="none">Solid</option>
+							<option value="dashed">Dashed</option>
+							<option value="dotted">Dotted</option>
+						</select>
+					</span>
+				</label>
+			{/if}
+			</div>
+	{:else}
+		<div class="wb-toolbar-section widths">
+			{#each strokeWidths as w}
+				<button
+					class="wb-width-btn"
+					class:active={$currentStyle.strokeWidth === w}
+					on:click={() => setWidth(w)}
+					disabled={readOnly}
+					title="{w}px"
+				>
+					<span class="wb-width-preview" style="height: {Math.max(2, w)}px"></span>
+				</button>
+			{/each}
+		</div>
+	{/if}
+
+	{#if $activeTool === 'rect'}
+		<div class="wb-toolbar-section context-settings">
+			<label class="wb-brush-control">
+				<span class="wb-brush-label">Radius</span>
+				<span class="wb-brush-row">
+					<input type="range" min="0" max="120" step="1" value={$currentStyle.borderRadius ?? 0} on:input={(e) => boardStore.setStyle({ borderRadius: Number((e.currentTarget as HTMLInputElement).value) })} class="wb-brush-slider" disabled={readOnly} aria-label="Corner radius" />
+					<span class="wb-brush-value">{$currentStyle.borderRadius ?? 0}px</span>
+				</span>
+			</label>
+		</div>
+	{/if}
+
+	{#if $activeTool === 'text'}
+		<div class="wb-toolbar-section context-settings">
+			<label class="wb-brush-control">
+				<span class="wb-brush-label">Text size</span>
+				<span class="wb-brush-row">
+					<input type="range" min="8" max="120" step="1" value={fontSizeInput} on:input={(e) => setFontSize(Number((e.currentTarget as HTMLInputElement).value))} class="wb-brush-slider" disabled={readOnly} aria-label="Text size" />
+					<span class="wb-brush-value">{fontSizeInput}px</span>
+				</span>
+			</label>
+		</div>
+	{/if}
+
+	{#if fontPickerVisible}
+		<div class="wb-toolbar-section context-settings">
+			<label class="wb-brush-control">
+				<span class="wb-brush-label">Font</span>
+				<span class="wb-brush-row">
+					<select
+						class="wb-brush-select"
+						value={fontSelectValue}
+						on:change={(e) => applyFontChoice((e.currentTarget as HTMLSelectElement).value)}
+						disabled={readOnly}
+						aria-label="Font family"
+					>
+						{#each BUILT_IN_FONTS as font (font.css)}
+							<option value={`builtin:${font.css}`}>{font.label}</option>
+						{/each}
+						{#if boardFonts.length > 0}
+							<optgroup label="Board fonts">
+								{#each boardFonts as font (font.fontId)}
+									<option value={`custom:${font.fontId}`}>{font.family}</option>
+								{/each}
+							</optgroup>
+						{/if}
+						{#if boardId && !readOnly}
+							<option value="__add__">+ Add font…</option>
+						{/if}
+					</select>
+					<input
+						type="file"
+						accept=".woff2,.woff,.ttf,.otf,font/woff2,font/woff,font/ttf,font/otf"
+						bind:this={fontUploadInput}
+						on:change={handleFontUpload}
+						class="wb-font-upload-input"
+						aria-label="Upload font file"
+					/>
+					{#if fontUploadBusy}<span class="wb-brush-value">Uploading…</span>{/if}
+					{#if fontError}<span class="wb-brush-value wb-font-error" role="alert">{fontError}</span>{/if}
+				</span>
+			</label>
+		</div>
+	{/if}
+
+	{#if policyBadge}
+		<div class="wb-policy-badge" title={policyBadge.label === 'Desktop-only'
+			? 'Only the Wabi desktop app can open this board'
+			: 'Only the Wabi desktop app can edit this board'}>
+			<span class="wb-policy-badge-icon">
+				{#if policyBadge.icon === 'lock'}
+					<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="9" width="12" height="8" rx="1.5"/><path d="M7 9V6a3 3 0 016 0v3"/></svg>
+				{:else}
+					<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="14" height="9" rx="1.5"/><path d="M8 17h4M10 13v4"/></svg>
+				{/if}
+			</span>
+			<span>{policyBadge.label}</span>
+		</div>
+	{/if}
+	</div>
+</div>
+
+/tmp/fv/src/lib/components/WhiteboardBoardSettings.svelte:111:104
+Warn: noninteractive element cannot have nonnegative tabIndex value
+https://svelte.dev/e/a11y_no_noninteractive_tabindex (svelte)
+
+		<div class="wb-settings-section"><label class="wb-settings-label" for="board-draw-role">Who can draw <span tabindex="0" class="policy-help" aria-label="About drawing permissions" title="Channel permissions control who can open this board. Drawing is checked against current server roles. Only the server owner can change this policy. Device preferences are not a security boundary.">ⓘ</span></label><select id="board-draw-role" bind:value={draftDrawRole}><option value="participants">Everyone with channel access</option><option value="moderators">Moderators, admins and owner</option><option value="admins">Admins and owner</option><option value="owner">Owner only</option><option value="custom">Selected roles</option></select><p class="wb-settings-description">Everyone with channel access can view. Drawing uses each person's current server role.</p></div>
+        {#if draftDrawRole === 'custom'}
+
+/tmp/fv/src/lib/components/WhiteboardBoardSettings.svelte:131:8
+Warn: Unused CSS selector ".wb-settings-backdrop"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+ .custom-roles { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+
+/tmp/fv/src/lib/components/WhiteboardBoardSettings.svelte:131:8
+Warn: Unused CSS selector ".wb-settings-popover"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+ .custom-roles { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+
+/tmp/fv/src/lib/components/WhiteboardBoardSettings.svelte:131:8
+Warn: Unused CSS selector ".wb-settings-head"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+ .custom-roles { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+
+/tmp/fv/src/lib/components/WhiteboardBoardSettings.svelte:131:8
+Warn: Unused CSS selector ".wb-settings-title"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+ .custom-roles { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+
+/tmp/fv/src/lib/components/WhiteboardBoardSettings.svelte:131:8
+Warn: Unused CSS selector ".wb-settings-close"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+ .custom-roles { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+
+/tmp/fv/src/lib/components/WhiteboardBoardSettings.svelte:131:8
+Warn: Unused CSS selector ".wb-settings-close:hover"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+ .custom-roles { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+
+/tmp/fv/src/lib/components/WhiteboardBoardSettings.svelte:131:8
+Warn: Unused CSS selector ".wb-settings-close svg"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+ .custom-roles { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+
+/tmp/fv/src/lib/components/WhiteboardBoardSettings.svelte:131:8
+Warn: Unused CSS selector ".wb-settings-note"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+ .custom-roles { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+
+/tmp/fv/src/lib/components/WhiteboardBoardSettings.svelte:131:8
+Warn: Unused CSS selector ".wb-settings-popover"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+ .custom-roles { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+
+/tmp/fv/src/lib/components/WhiteboardTab.svelte:454:8
+Warn: Unused CSS selector ".whiteboard-grid-toggle.active"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.whiteboard-shell {
+
+/tmp/fv/src/lib/components/WhiteboardTab.svelte:454:8
+Warn: Unused CSS selector ".whiteboard-layer-panel-wrap"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.whiteboard-shell {
+
+/tmp/fv/src/lib/components/WhiteboardTab.svelte:454:8
+Warn: Unused CSS selector ".whiteboard-layer-panel-wrap"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.whiteboard-shell {
+
+/tmp/fv/src/lib/components/WhiteboardTab.svelte:454:8
+Warn: Unused CSS selector ".whiteboard-jam-call"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.whiteboard-shell {
+
+/tmp/fv/src/lib/components/WhiteboardTab.svelte:454:8
+Warn: Unused CSS selector ".whiteboard-jam-call:hover"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.whiteboard-shell {
+
+/tmp/fv/src/lib/components/WhiteboardTab.svelte:454:8
+Warn: Unused CSS selector ".whiteboard-jam-call svg"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.whiteboard-shell {
+
+/tmp/fv/src/lib/components/WhiteboardTab.svelte:454:8
+Warn: Unused CSS selector ".whiteboard-jam-call"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.whiteboard-shell {
+
+/tmp/fv/src/lib/components/WhiteboardTab.svelte:109:5
+Error: Type 'Channel' is missing the following properties from type '{ id: string; name: string; type?: string; }': id, name (ts)
+	$: boardId = channelId ? getChannelBoardId(channelId) : '';
+	$: activeChannel = $channels.find((channel) => channel.id === channelId) || null;
+	$: channelLabel = activeChannel?.type === 'dm' || activeChannel?.type === 'group'
+
+/tmp/fv/src/lib/components/ProjectWorkspace.svelte:99:8
+Warn: Unused CSS selector ".project-sync-note"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.project-workspace { flex:1; width:100%; height:100%; min-height:0; min-width:0; display:flex; flex-direction:column; color:var(--w-text); background:var(--w-bg2); }
+
+/tmp/fv/src/lib/components/ProjectWorkspace.svelte:99:8
+Warn: Unused CSS selector ".project-sync-note span"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.project-workspace { flex:1; width:100%; height:100%; min-height:0; min-width:0; display:flex; flex-direction:column; color:var(--w-text); background:var(--w-bg2); }
+
+/tmp/fv/src/lib/components/ProjectWorkspace.svelte:99:8
+Warn: Unused CSS selector ".project-sync-note"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.project-workspace { flex:1; width:100%; height:100%; min-height:0; min-width:0; display:flex; flex-direction:column; color:var(--w-text); background:var(--w-bg2); }
+
+/tmp/fv/src/lib/components/ProjectWorkspace.svelte:35:27
+Error: Conversion of type 'Channel[]' to type 'ProjectChannel[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type 'Channel' is missing the following properties from type 'ProjectChannel': id, name (ts)
+    });
+	let projects = $derived(($channels as ProjectChannel[]).filter(channel => channel.type === 'planning' || channel.type === 'lore'));
+	let selected = $derived(projects.find(channel => channel.id === $currentChannel)
+
+/tmp/fv/src/lib/components/ReceptionBoard.svelte:278:8
+Warn: Unused CSS selector ".edit-choices"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.reception-board {
+
+/tmp/fv/src/lib/components/ReceptionBoard.svelte:278:8
+Warn: Unused CSS selector ".chip-row"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.reception-board {
+
+/tmp/fv/src/lib/components/ReceptionBoard.svelte:278:8
+Warn: Unused CSS selector ".chip"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.reception-board {
+
+/tmp/fv/src/lib/components/ReceptionBoard.svelte:278:8
+Warn: Unused CSS selector ".chip-on"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.reception-board {
+
+/tmp/fv/src/lib/components/CommunityRulesNotice.svelte:87:3
+Warn: Non-interactive element `<section>` cannot have interactive role 'dialog'
+https://svelte.dev/e/a11y_no_noninteractive_element_to_interactive_role (svelte)
+	<div class="rules-backdrop">
+		<section class="rules-reader" role="dialog" aria-modal="true" aria-labelledby="community-rules-title">
+			<header><div><span>Welcome to this server</span><h2 id="community-rules-title">Community rules</h2></div><div class="rules-controls"><button type="button" aria-label="Smaller rules text" disabled={rulesFontSize <= 14} onclick={() => rulesFontSize = Math.max(14, rulesFontSize - 2)}>A−</button><button type="button" aria-label="Larger rules text" disabled={rulesFontSize >= 24} onclick={() => rulesFontSize = Math.min(24, rulesFontSize + 2)}>A+</button><button type="button" onclick={() => communityRulesOpen.set(false)} aria-label="Close rules">×</button></div></header>
+			{#if loading && !rules}<p>Loading rules…</p>{/if}
+			{#if rules?.text?.trim()}<article style:font-size={`${rulesFontSize}px`}>{@html renderedRules}</article>{/if}
+			{#if error}<p class="rules-error" role="alert">{error}</p>{/if}
+			<footer><p>{rules?.requireAckBeforePosting && rules.revision > acknowledgedRevision ? "You can look around. Read and acknowledge the rules before posting. " : ""}Check each room’s retention label. A deliberate report can preserve the message you choose to send to staff.</p>{#if rules?.text?.trim() && rules.revision > acknowledgedRevision}<button type="button" class="rules-primary" onclick={acknowledge} disabled={saving}>{saving ? 'Saving…' : 'I’ve read these rules'}</button>{:else}<button type="button" onclick={() => communityRulesOpen.set(false)}>Done</button>{/if}</footer>
+		</section>
+	</div>
+
+/tmp/fv/src/lib/components/NoteInkEditor.svelte:5:60
+Warn: This reference only captures the initial value of `initial`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+ let { initial = null, initialTool = 'pen', embedded = false, onsave, oncancel }: { initial?: NoteInk | null; initialTool?: 'pen'|'eraser'|'line'; embedded?: boolean; onsave: (ink: NoteInk, png: string) => void; oncancel: () => void } = $props();
+ let ink = $state<NoteInk>(structuredClone($state.snapshot(initial || emptyInk())));
+ let canvas = $state<HTMLCanvasElement>();
+
+/tmp/fv/src/lib/components/NoteInkEditor.svelte:7:69
+Warn: This reference only captures the initial value of `initialTool`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+ let canvas = $state<HTMLCanvasElement>();
+ let tool = $state<'pen'|'eraser'|'scroll'|'line'|'rect'|'ellipse'>(initialTool);
+ $effect(() => { tool = initialTool; });
+
+/tmp/fv/src/lib/components/NoteInkEditor.svelte:10:21
+Warn: This reference only captures the initial value of `initial`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+ let shapeStart: [number, number] | null = null;
+ let color = $state(initial?.paper === 'dark' ? '#ffffff' : '#172326'), width = $state(3), error = $state('');
+ let undo = $state<NoteInk[]>([]), redo = $state<NoteInk[]>([]);
+
+/tmp/fv/src/lib/components/DmConversationView.svelte:63:52
+Error: No overload matches this call.
+  Overload 1 of 2, '(predicate: (value: Channel, index: number, obj: Channel[]) => value is Channel, thisArg?: any): Channel', gave the following error.
+    Argument of type '(c: { id: string; }) => boolean' is not assignable to parameter of type '(value: Channel, index: number, obj: Channel[]) => value is Channel'.
+      Types of parameters 'c' and 'value' are incompatible.
+        Property 'id' is missing in type 'Channel' but required in type '{ id: string; }'.
+  Overload 2 of 2, '(predicate: (value: Channel, index: number, obj: Channel[]) => unknown, thisArg?: any): Channel', gave the following error.
+    Argument of type '(c: { id: string; }) => boolean' is not assignable to parameter of type '(value: Channel, index: number, obj: Channel[]) => unknown'.
+      Types of parameters 'c' and 'value' are incompatible.
+        Property 'id' is missing in type 'Channel' but required in type '{ id: string; }'. (ts)
+  $: channelId = channelIdProp ?? $selectedDmChannelId;
+  $: channel = (channelId ? ($channels || []).find((c: { id: string }) => c.id === channelId) || null : null) ?? channelProp;
+  $: isGroup = channel?.type === 'group';
+
+/tmp/fv/src/lib/components/GlanceHost.svelte:110:64
+Warn: `<video>` elements must have a `<track kind="captions">`
+https://svelte.dev/e/a11y_media_has_caption (svelte)
+     {#if mediaKind === 'image'}<div class="glance-media"><img src={$glance.url} alt={title} onerror={() => error = 'Could not load this image.'} /></div>
+     {:else if mediaKind === 'video'}<div class="glance-media"><video src={$glance.url} controls aria-label={title} onerror={() => error = 'Could not load this video.'}></video></div>
+     {:else if mediaKind === 'audio'}<div class="glance-media"><audio src={$glance.url} controls aria-label={title} onerror={() => error = 'Could not load this audio.'}></audio></div>
+
+/tmp/fv/src/lib/workspaces/AudienceWorkspace.svelte:313:7
+Warn: `<div>` with a pointermove or pointerleave handler must have an ARIA role
+https://svelte.dev/e/a11y_no_static_element_interactions (svelte)
+						<!-- The presented slide is real text for assistive tech; it is not an image. -->
+						<div class="room-frame" bind:this={slideFrame} style:--present-ratio={ratio} onpointermove={point} onpointerleave={() => { pointer = null; pointerChanged = true; }}>
+							<AudienceSlideView slide={selected} aspect={ratio} blank={follow && presentationState?.blank} />
+							{#if displayPointer && follow && displayPointer.slideId === selected.id && !presentationState?.blank}<span class="laser-dot" style:left={`${displayPointer.x * 100}%`} style:top={`${displayPointer.y * 100}%`} aria-hidden="true"></span>{/if}
+						</div>
+					{:else if presentationState?.ended}
+
+/tmp/fv/src/lib/components/UserListTabImpl.svelte:276:82
+Error: Argument of type 'Channel[]' is not assignable to parameter of type 'readonly { id: string; name: string; type?: string; }[]'.
+  Type 'Channel' is missing the following properties from type '{ id: string; name: string; type?: string; }': id, name (ts)
+					const key = personKey(entry.user);
+					const writing = entry.isSelf ? null : writingChannelFor(entry.user, typing, channelList, currentChannelId);
+					const subline = personSubline(entry, writing);
+
+/tmp/fv/src/lib/components/ReaderImageAnnotator.svelte:16:28
+Warn: This reference only captures the initial value of `image`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+	let width = $state(4);
+	let naturalWidth = $state(image.width || 0);
+	let naturalHeight = $state(image.height || 0);
+
+/tmp/fv/src/lib/components/ReaderImageAnnotator.svelte:17:29
+Warn: This reference only captures the initial value of `image`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+	let naturalWidth = $state(image.width || 0);
+	let naturalHeight = $state(image.height || 0);
+	let marks: Mark[] = $state([]);
+
+/tmp/fv/src/lib/components/ReaderImageAnnotator.svelte:103:38
+Warn: `<svg>` with a pointerdown, pointermove, pointerup or pointercancel handler must have an ARIA role
+https://svelte.dev/e/a11y_no_static_element_interactions (svelte)
+		<button type="button" class="annotation-image-button" aria-label={`Open image ${pageIndex + 1}: ${image.alt || 'Image'}`} onclick={() => { if (mode === 'read') dispatch('open'); }}><img src={image.url} alt={image.alt || `Image ${pageIndex + 1}`} width={image.width} height={image.height} decoding="async" onload={(event) => { naturalWidth = (event.currentTarget as HTMLImageElement).naturalWidth; naturalHeight = (event.currentTarget as HTMLImageElement).naturalHeight; }} /></button>
+		{#if naturalWidth && naturalHeight}<svg bind:this={svg} class:interactive={mode !== 'read'} viewBox={`0 0 ${naturalWidth} ${naturalHeight}`} preserveAspectRatio="none" aria-label="Image annotations" onpointerdown={pointerDown} onpointermove={pointerMove} onpointerup={pointerEnd} onpointercancel={pointerEnd}>
+			{#each [...marks, ...(drawing ? [drawing] : [])] as mark (mark.id)}
+				{#if mark.kind === 'note'}<text x={mark.x} y={mark.y} fill={mark.color} font-size="20" stroke="black" stroke-width="0.4" onclick={() => erase(mark.id)}>{mark.text}</text>{:else}<path d={path(mark)} fill="none" stroke={mark.color} stroke-width={mark.kind === 'highlight' ? mark.width * 5 : mark.width} stroke-opacity={mark.kind === 'highlight' ? 0.35 : 1} stroke-linecap="round" stroke-linejoin="round" onclick={() => erase(mark.id)} />{/if}
+			{/each}
+		</svg>{/if}
+	</div>
+
+/tmp/fv/src/lib/components/ReaderImageAnnotator.svelte:105:31
+Warn: Visible, non-interactive element `<text>` with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+https://svelte.dev/e/a11y_click_events_have_key_events (svelte)
+			{#each [...marks, ...(drawing ? [drawing] : [])] as mark (mark.id)}
+				{#if mark.kind === 'note'}<text x={mark.x} y={mark.y} fill={mark.color} font-size="20" stroke="black" stroke-width="0.4" onclick={() => erase(mark.id)}>{mark.text}</text>{:else}<path d={path(mark)} fill="none" stroke={mark.color} stroke-width={mark.kind === 'highlight' ? mark.width * 5 : mark.width} stroke-opacity={mark.kind === 'highlight' ? 0.35 : 1} stroke-linecap="round" stroke-linejoin="round" onclick={() => erase(mark.id)} />{/if}
+			{/each}
+
+/tmp/fv/src/lib/components/ReaderImageAnnotator.svelte:105:31
+Warn: `<text>` with a click handler must have an ARIA role
+https://svelte.dev/e/a11y_no_static_element_interactions (svelte)
+			{#each [...marks, ...(drawing ? [drawing] : [])] as mark (mark.id)}
+				{#if mark.kind === 'note'}<text x={mark.x} y={mark.y} fill={mark.color} font-size="20" stroke="black" stroke-width="0.4" onclick={() => erase(mark.id)}>{mark.text}</text>{:else}<path d={path(mark)} fill="none" stroke={mark.color} stroke-width={mark.kind === 'highlight' ? mark.width * 5 : mark.width} stroke-opacity={mark.kind === 'highlight' ? 0.35 : 1} stroke-linecap="round" stroke-linejoin="round" onclick={() => erase(mark.id)} />{/if}
+			{/each}
+
+/tmp/fv/src/lib/components/ReaderImageAnnotator.svelte:105:182
+Warn: Visible, non-interactive element `<path>` with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+https://svelte.dev/e/a11y_click_events_have_key_events (svelte)
+			{#each [...marks, ...(drawing ? [drawing] : [])] as mark (mark.id)}
+				{#if mark.kind === 'note'}<text x={mark.x} y={mark.y} fill={mark.color} font-size="20" stroke="black" stroke-width="0.4" onclick={() => erase(mark.id)}>{mark.text}</text>{:else}<path d={path(mark)} fill="none" stroke={mark.color} stroke-width={mark.kind === 'highlight' ? mark.width * 5 : mark.width} stroke-opacity={mark.kind === 'highlight' ? 0.35 : 1} stroke-linecap="round" stroke-linejoin="round" onclick={() => erase(mark.id)} />{/if}
+			{/each}
+
+/tmp/fv/src/lib/components/ReaderImageAnnotator.svelte:105:182
+Warn: `<path>` with a click handler must have an ARIA role
+https://svelte.dev/e/a11y_no_static_element_interactions (svelte)
+			{#each [...marks, ...(drawing ? [drawing] : [])] as mark (mark.id)}
+				{#if mark.kind === 'note'}<text x={mark.x} y={mark.y} fill={mark.color} font-size="20" stroke="black" stroke-width="0.4" onclick={() => erase(mark.id)}>{mark.text}</text>{:else}<path d={path(mark)} fill="none" stroke={mark.color} stroke-width={mark.kind === 'highlight' ? mark.width * 5 : mark.width} stroke-opacity={mark.kind === 'highlight' ? 0.35 : 1} stroke-linecap="round" stroke-linejoin="round" onclick={() => erase(mark.id)} />{/if}
+			{/each}
+
+/tmp/fv/src/lib/components/UsernameFontCustomizer.svelte:153:8
+Warn: Unused CSS selector ".studio-viewer-controls"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.profile-design-studio { display: grid; gap: 1rem; min-width: 0; }
+
+/tmp/fv/src/lib/components/UsernameFontCustomizer.svelte:153:8
+Warn: Unused CSS selector ".studio-viewer-controls summary"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.profile-design-studio { display: grid; gap: 1rem; min-width: 0; }
+
+/tmp/fv/src/lib/components/UsernameFontCustomizer.svelte:153:8
+Warn: Unused CSS selector ".studio-viewer-grid"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.profile-design-studio { display: grid; gap: 1rem; min-width: 0; }
+
+/tmp/fv/src/lib/components/UsernameFontCustomizer.svelte:153:8
+Warn: Unused CSS selector ".studio-viewer-grid label"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.profile-design-studio { display: grid; gap: 1rem; min-width: 0; }
+
+/tmp/fv/src/lib/components/UsernameFontCustomizer.svelte:153:8
+Warn: Unused CSS selector ".studio-viewer-grid"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+	.profile-design-studio { display: grid; gap: 1rem; min-width: 0; }
+
+/tmp/fv/src/lib/components/lore/LoreCodePanel.svelte:72:46
+Warn: Using `on:click` to listen to the click event is deprecated. Use the event attribute `onclick` instead
+https://svelte.dev/e/event_directive_deprecated (svelte)
+			{/if}
+			<button type="button" class="refresh-btn" on:click={refresh} title="Refresh repo">↻</button>
+		</div>
+
+/tmp/fv/src/lib/components/WhiteboardLayerPanel.svelte:185:8
+Warn: Unused CSS selector ".layer-type-icon"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+ .layer-locks { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+
+/tmp/fv/src/lib/components/WhiteboardLayerPanel.svelte:185:8
+Warn: Unused CSS selector ".layer-type-icon.raster"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+ .layer-locks { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+
+/tmp/fv/src/lib/components/WhiteboardLayerPanel.svelte:185:8
+Warn: Unused CSS selector ".layer-type-icon svg"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+ .layer-locks { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+
+/tmp/fv/src/lib/components/WhiteboardLayerPanel.svelte:185:8
+Warn: Unused CSS selector ".tabular"
+https://svelte.dev/e/css_unused_selector (svelte)
+
+<style>
+ .layer-locks { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+
+/tmp/fv/src/lib/components/WorkspacePanelHost.svelte:41:72
+Error: Argument of type 'Channel[]' is not assignable to parameter of type 'readonly { id: string; }[]'.
+  Property 'id' is missing in type 'Channel' but required in type '{ id: string; }'. (ts)
+	$: forumChannels = $channels.filter((ch) => ch.type === 'forum');
+	$: wikiPanelChannelId = resolvePanelChannel($panelChannelChoice.wiki, wikiChannels, $currentChannel, $panelChannelPicking.wiki);
+	$: forumPanelChannelId = resolvePanelChannel($panelChannelChoice.forum, forumChannels, $currentChannel, $panelChannelPicking.forum);
+
+/tmp/fv/src/lib/components/WorkspacePanelHost.svelte:42:74
+Error: Argument of type 'Channel[]' is not assignable to parameter of type 'readonly { id: string; }[]'.
+  Property 'id' is missing in type 'Channel' but required in type '{ id: string; }'. (ts)
+	$: wikiPanelChannelId = resolvePanelChannel($panelChannelChoice.wiki, wikiChannels, $currentChannel, $panelChannelPicking.wiki);
+	$: forumPanelChannelId = resolvePanelChannel($panelChannelChoice.forum, forumChannels, $currentChannel, $panelChannelPicking.forum);
+	// Latch what the panel shows (the stage's channel, the only one, or a replacement for a channel
+
+/tmp/fv/src/lib/components/RightPanel.svelte:117:88
+Error: Argument of type 'Channel[]' is not assignable to parameter of type 'readonly { id: string; type?: string; }[]'.
+  Property 'id' is missing in type 'Channel' but required in type '{ id: string; type?: string; }'. (ts)
+		if (panel.component !== 'wiki' && panel.component !== 'forum') return null;
+		return panelChannelShown(panel.component, $panelChannelChoice, $panelChannelPicking, $channels, $currentChannel);
+	}
+
+/tmp/fv/src/lib/components/MainLayout.svelte:125:71
+Error: Argument of type 'Channel[]' is not assignable to parameter of type 'Pick<Channel, "id" | "type">[]'.
+  Property 'id' is missing in type 'Channel' but required in type 'Pick<Channel, "id" | "type">'. (ts)
+
+	$: totalUnreadDMs = sumUnreadConversationCount($channelUnreadCounts, $channels);
+	$: communityUnread = sumUnreadCommunityCount($channelUnreadCounts, $channels);
+
+/tmp/fv/src/lib/components/MainLayout.svelte:126:69
+Error: Argument of type 'Channel[]' is not assignable to parameter of type 'Pick<Channel, "id" | "type">[]'.
+  Property 'id' is missing in type 'Channel' but required in type 'Pick<Channel, "id" | "type">'. (ts)
+	$: totalUnreadDMs = sumUnreadConversationCount($channelUnreadCounts, $channels);
+	$: communityUnread = sumUnreadCommunityCount($channelUnreadCounts, $channels);
+	let hubRequestSequence = 0;
+
+/tmp/fv/src/lib/components/SpringPanel.svelte:232:1
+Warn: `<div>` with a pointerdown, pointermove, pointerup or pointercancel handler must have an ARIA role
+https://svelte.dev/e/a11y_no_static_element_interactions (svelte)
+
+<div
+  class="spring-panel"
+  class:css-mode={cssOnly}
+  class:drag={isDragging}
+  class:disabled
+  style="
+    --panel-width: {openWidth}px;
+    --direction: {direction};
+  "
+  bind:this={panelEl}
+  on:pointerdown={onPointerDown}
+  on:pointermove={onPointerMove}
+  on:pointerup={onPointerUp}
+  on:pointercancel={onPointerUp}
+>
+  <slot />
+</div>
+
+/tmp/fv/src/lib/components/admin/ui/Skeleton.svelte:5:1
+Warn: Self-closing HTML tags for non-void elements are ambiguous — use `<div ...></div>` rather than `<div ... />`
+https://svelte.dev/e/element_invalid_self_closing_tag (svelte)
+
+<div class="admin-skeleton {className}" />
+
+/tmp/fv/src/lib/components/admin/ui/StatusDot.svelte:17:1
+Warn: Self-closing HTML tags for non-void elements are ambiguous — use `<span ...></span>` rather than `<span ... />`
+https://svelte.dev/e/element_invalid_self_closing_tag (svelte)
+
+<span class="admin-status-dot {sizeClass}" class:admin-dot-pulse={pulse} style="background: {color}" />
+
+/tmp/fv/src/lib/components/map/MapPlaceHeader.svelte:22:13
+Warn: Component has unused export property 'variant'. If it is for external reference only, please consider using `export const variant`
+https://svelte.dev/e/export_let_unused (svelte)
+	export let isCompactLayout: boolean;
+	export let variant: 'compact' | 'full' | 'detached';
+
+/tmp/fv/src/lib/components/settings/admin/CommunityNodes.svelte:12:13
+Warn: Component has unused export property 'adminRelayRosterLoaded'. If it is for external reference only, please consider using `export const adminRelayRosterLoaded`
+https://svelte.dev/e/export_let_unused (svelte)
+	export let adminRelayRosterLoading: boolean;
+	export let adminRelayRosterLoaded: boolean;
+	export let adminRelayApproveBusyId: number | null;
+
+/tmp/fv/src/lib/components/settings/admin/CommunityNodes.svelte:16:13
+Warn: Component has unused export property 'communityNodeAccessLoaded'. If it is for external reference only, please consider using `export const communityNodeAccessLoaded`
+https://svelte.dev/e/export_let_unused (svelte)
+	export let communityNodeAccess: CommunityNodeAccessPolicy;
+	export let communityNodeAccessLoaded: boolean;
+	export let communityNodeAccessLoading: boolean;
+
+/tmp/fv/src/lib/components/settings/admin/CommunityNodes.svelte:25:13
+Warn: Component has unused export property 'communityNodeAnnouncementsLoaded'. If it is for external reference only, please consider using `export const communityNodeAnnouncementsLoaded`
+https://svelte.dev/e/export_let_unused (svelte)
+	export let communityNodeAnnouncements: CommunityNodeAnnouncementsPolicy;
+	export let communityNodeAnnouncementsLoaded: boolean;
+	export let communityNodeAnnouncementsLoading: boolean;
+
+/tmp/fv/src/lib/components/settings/admin/DonationConfig.svelte:23:13
+Warn: Component has unused export property 'adminDonationAuditLoaded'. If it is for external reference only, please consider using `export const adminDonationAuditLoaded`
+https://svelte.dev/e/export_let_unused (svelte)
+	export let adminDonationAuditLoading: boolean;
+	export let adminDonationAuditLoaded: boolean;
+	export let adminDonationRefundingIntentId: string;
+
+/tmp/fv/src/lib/components/settings/admin/DonationConfig.svelte:35:13
+Warn: Component has unused export property 'minorToMajorInput'. If it is for external reference only, please consider using `export const minorToMajorInput`
+https://svelte.dev/e/export_let_unused (svelte)
+	export let parseSuggestedAmountsInput: (value: string) => number[];
+	export let minorToMajorInput: (amountMinor: number, currency?: string) => string;
+</script>
+
+/tmp/fv/src/lib/components/settings/admin/OfflineDonations.svelte:7:13
+Warn: Component has unused export property 'adminOfflineDonationAuditLoaded'. If it is for external reference only, please consider using `export const adminOfflineDonationAuditLoaded`
+https://svelte.dev/e/export_let_unused (svelte)
+	export let adminOfflineDonationAuditLoading: boolean;
+	export let adminOfflineDonationAuditLoaded: boolean;
+	export let adminOfflineDonationVoidingSettlementId: string;
+
+/tmp/fv/src/routes/detached/+page.svelte:150:4
+Warn: `<div>` with a mouseenter handler must have an ARIA role
+https://svelte.dev/e/a11y_no_static_element_interactions (svelte)
+		{#if isDesktopTauri()}
+			<div class="window-controls-trigger" on:mouseenter={() => showWindowControls = true}></div>
+			<div class="window-controls-bar" class:visible={showWindowControls} on:mouseleave={() => showWindowControls = false} on:mouseenter={() => showWindowControls = true}>
+
+/tmp/fv/src/routes/detached/+page.svelte:151:4
+Warn: `<div>` with a mouseleave or mouseenter handler must have an ARIA role
+https://svelte.dev/e/a11y_no_static_element_interactions (svelte)
+			<div class="window-controls-trigger" on:mouseenter={() => showWindowControls = true}></div>
+			<div class="window-controls-bar" class:visible={showWindowControls} on:mouseleave={() => showWindowControls = false} on:mouseenter={() => showWindowControls = true}>
+				<div class="window-controls-title">
+					{#if panelState?.kind === 'channel-chat' && panelState.channelName}
+						#{panelState.channelName}
+					{:else if panelState?.kind === 'workspace-panel' && panelState.panelId}
+						{panelState.panelId}
+					{:else}
+						Detached Panel
+					{/if}
+				</div>
+				<div class="window-controls-actions">
+					<button class="snap-btn" title="Snap Left (Ctrl+←)" on:click={() => handleSnap('left')}>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="9" height="18" rx="1"></rect></svg>
+					</button>
+					<button class="snap-btn" title="Snap Right (Ctrl+→)" on:click={() => handleSnap('right')}>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="12" y="3" width="9" height="18" rx="1"></rect></svg>
+					</button>
+					<button class="snap-btn" title="Snap Top (Ctrl+↑)" on:click={() => handleSnap('top')}>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="9" rx="1"></rect></svg>
+					</button>
+					<button class="snap-btn" title="Snap Bottom (Ctrl+↓)" on:click={() => handleSnap('bottom')}>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="12" width="18" height="9" rx="1"></rect></svg>
+					</button>
+					<button class="snap-btn" title="Maximize (Ctrl+Enter)" on:click={() => handleSnap('maximize')}>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"></rect></svg>
+					</button>
+					<button class="snap-btn" title="Center (Ctrl+Esc)" on:click={() => handleSnap('center')}>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><circle cx="12" cy="12" r="7"></circle></svg>
+					</button>
+					<button class="snap-btn" title="Quarter: Top-Left" on:click={() => handleSnap('top-left')}>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="9" height="9" rx="1"></rect></svg>
+					</button>
+					<button class="snap-btn" title="Quarter: Top-Right" on:click={() => handleSnap('top-right')}>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="12" y="3" width="9" height="9" rx="1"></rect></svg>
+					</button>
+					<button class="snap-btn" title="Quarter: Bottom-Left" on:click={() => handleSnap('bottom-left')}>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="12" width="9" height="9" rx="1"></rect></svg>
+					</button>
+					<button class="snap-btn" title="Quarter: Bottom-Right" on:click={() => handleSnap('bottom-right')}>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="12" y="12" width="9" height="9" rx="1"></rect></svg>
+					</button>
+				</div>
+			</div>
+		{/if}
+
+/tmp/fv/tsconfig.json:13:3
+Warn: Option 'baseUrl' is deprecated and will stop functioning in TypeScript 7.0. Specify compilerOption '"ignoreDeprecations": "6.0"' to silence this error.
+  Visit https://aka.ms/ts6 for migration information. 
+		"moduleResolution": "bundler",
+		"baseUrl": ".",
+		"paths": {
+
+====================================
+svelte-check found 42 errors and 108 warnings in 68 files

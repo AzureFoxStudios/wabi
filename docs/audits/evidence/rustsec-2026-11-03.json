@@ -1,0 +1,1064 @@
+{
+  "generated": "2026-11-03",
+  "advisory_db": "/tmp/advisory-db",
+  "lockfiles": [
+    "Cargo.lock",
+    "addons/compliance/server-auditor/backend/Cargo.lock",
+    "addons/media/screen-share/backend/Cargo.lock",
+    "addons/payments-core/backend/Cargo.lock",
+    "helpers/wabi-project/Cargo.lock",
+    "scripts/host-safety/Cargo.lock",
+    "src-tauri/Cargo.lock"
+  ],
+  "matches": [
+    {
+      "id": "RUSTSEC-2026-0190",
+      "package": "anyhow",
+      "version": "1.0.102",
+      "locks": [
+        "addons/payments-core/backend/Cargo.lock",
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-06-25",
+      "title": "Unsoundness in `Error::downcast_mut()`",
+      "informational": "unsound",
+      "categories": [
+        "memory-corruption"
+      ],
+      "cvss": "",
+      "aliases": [],
+      "patched": [
+        ">= 1.0.103"
+      ],
+      "unaffected": [],
+      "affected_functions": [
+        "anyhow::Error::downcast_mut"
+      ],
+      "advisory_file": "crates/anyhow/RUSTSEC-2026-0190.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0374",
+      "package": "basic-toml",
+      "version": "0.1.10",
+      "locks": [
+        "Cargo.lock"
+      ],
+      "date": "2026-09-26",
+      "title": "`basic-toml` is unmaintained",
+      "informational": "unmaintained",
+      "categories": [],
+      "cvss": "",
+      "aliases": [],
+      "patched": [],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/basic-toml/RUSTSEC-2026-0374.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0387",
+      "package": "crypto-bigint",
+      "version": "0.5.5",
+      "locks": [
+        "Cargo.lock"
+      ],
+      "date": "2026-10-23",
+      "title": "Multiple timing variability issues in operations intended to be constant-time",
+      "informational": "",
+      "categories": [
+        "crypto-failure"
+      ],
+      "cvss": "",
+      "aliases": [],
+      "patched": [
+        ">= 0.7.6"
+      ],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/crypto-bigint/RUSTSEC-2026-0387.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0385",
+      "package": "ctutils",
+      "version": "0.4.2",
+      "locks": [
+        "Cargo.lock",
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-10-23",
+      "title": "Non-constant-time mask generation and `u128` comparisons",
+      "informational": "",
+      "categories": [
+        "crypto-failure"
+      ],
+      "cvss": "",
+      "aliases": [],
+      "patched": [
+        ">= 0.4.4"
+      ],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/ctutils/RUSTSEC-2026-0385.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0221",
+      "package": "event-listener",
+      "version": "5.4.1",
+      "locks": [
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-07-13",
+      "title": "`event-listener` allows `!Send` tags to cross thread boundaries via `StackSlot`",
+      "informational": "unsound",
+      "categories": [
+        "memory-corruption",
+        "thread-safety"
+      ],
+      "cvss": "",
+      "aliases": [],
+      "patched": [
+        ">= 5.4.2"
+      ],
+      "unaffected": [
+        "< 5.1.0"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/event-listener/RUSTSEC-2026-0221.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0002",
+      "package": "lru",
+      "version": "0.12.5",
+      "locks": [
+        "Cargo.lock"
+      ],
+      "date": "2026-01-07",
+      "title": "`IterMut` violates Stacked Borrows by invalidating internal pointer",
+      "informational": "unsound",
+      "categories": [
+        "memory-corruption"
+      ],
+      "cvss": "",
+      "aliases": [
+        "GHSA-rhfx-m35p-ff5j"
+      ],
+      "patched": [
+        ">= 0.16.3"
+      ],
+      "unaffected": [
+        "< 0.9.0"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/lru/RUSTSEC-2026-0002.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0253",
+      "package": "lru",
+      "version": "0.12.5",
+      "locks": [
+        "Cargo.lock"
+      ],
+      "date": "2026-05-12",
+      "title": "Potential use-after-free due to lack of panic safety in `LruCache::pop()`",
+      "informational": "unsound",
+      "categories": [
+        "memory-corruption"
+      ],
+      "cvss": "",
+      "aliases": [],
+      "patched": [
+        ">= 0.18.2"
+      ],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/lru/RUSTSEC-2026-0253.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0194",
+      "package": "quick-xml",
+      "version": "0.37.5",
+      "locks": [
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-06-29",
+      "title": "Quadratic run time when checking a start tag for duplicate attribute names",
+      "informational": "",
+      "categories": [
+        "denial-of-service"
+      ],
+      "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "aliases": [],
+      "patched": [
+        ">= 0.41.0"
+      ],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/quick-xml/RUSTSEC-2026-0194.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0195",
+      "package": "quick-xml",
+      "version": "0.37.5",
+      "locks": [
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-06-29",
+      "title": "Unbounded namespace-declaration allocation in `NsReader` enables memory-exhaustion denial of service",
+      "informational": "",
+      "categories": [
+        "denial-of-service"
+      ],
+      "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "aliases": [],
+      "patched": [
+        ">= 0.41.0"
+      ],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/quick-xml/RUSTSEC-2026-0195.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0194",
+      "package": "quick-xml",
+      "version": "0.39.2",
+      "locks": [
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-06-29",
+      "title": "Quadratic run time when checking a start tag for duplicate attribute names",
+      "informational": "",
+      "categories": [
+        "denial-of-service"
+      ],
+      "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "aliases": [],
+      "patched": [
+        ">= 0.41.0"
+      ],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/quick-xml/RUSTSEC-2026-0194.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0195",
+      "package": "quick-xml",
+      "version": "0.39.2",
+      "locks": [
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-06-29",
+      "title": "Unbounded namespace-declaration allocation in `NsReader` enables memory-exhaustion denial of service",
+      "informational": "",
+      "categories": [
+        "denial-of-service"
+      ],
+      "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "aliases": [],
+      "patched": [
+        ">= 0.41.0"
+      ],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/quick-xml/RUSTSEC-2026-0195.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0338",
+      "package": "quinn-proto",
+      "version": "0.11.16",
+      "locks": [
+        "Cargo.lock",
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-09-14",
+      "title": "Remote peer can panic quinn-proto with zero-length STREAM frames during unordered reads",
+      "informational": "",
+      "categories": [
+        "denial-of-service"
+      ],
+      "cvss": "",
+      "aliases": [
+        "GHSA-465w-v9q3-7j98"
+      ],
+      "patched": [
+        ">= 0.11.18"
+      ],
+      "unaffected": [
+        "< 0.7.0"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/quinn-proto/RUSTSEC-2026-0338.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0339",
+      "package": "quinn-proto",
+      "version": "0.11.16",
+      "locks": [
+        "Cargo.lock",
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-08-17",
+      "title": "Unbounded growth of pending connection ID retirements in quinn-proto",
+      "informational": "",
+      "categories": [
+        "denial-of-service"
+      ],
+      "cvss": "",
+      "aliases": [
+        "GHSA-hmxj-32vh-65vr"
+      ],
+      "patched": [
+        ">= 0.11.17"
+      ],
+      "unaffected": [
+        "< 0.6.0"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/quinn-proto/RUSTSEC-2026-0339.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0340",
+      "package": "quinn-proto",
+      "version": "0.11.16",
+      "locks": [
+        "Cargo.lock",
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-09-14",
+      "title": "Peer minimum ACK delay can panic quinn-proto when ACK_FREQUENCY transmission is enabled",
+      "informational": "",
+      "categories": [
+        "denial-of-service"
+      ],
+      "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "aliases": [
+        "GHSA-3g6h-r5qx-f6hq"
+      ],
+      "patched": [
+        ">= 0.11.18"
+      ],
+      "unaffected": [
+        "< 0.11.0"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/quinn-proto/RUSTSEC-2026-0340.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0341",
+      "package": "quinn-proto",
+      "version": "0.11.16",
+      "locks": [
+        "Cargo.lock",
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-08-17",
+      "title": "Stream reassembly memory-exhaustion guard in quinn-proto can be bypassed",
+      "informational": "",
+      "categories": [
+        "denial-of-service"
+      ],
+      "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "aliases": [
+        "GHSA-qfwj-vfxf-92j2"
+      ],
+      "patched": [
+        ">= 0.11.17"
+      ],
+      "unaffected": [
+        "< 0.11.15"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/quinn-proto/RUSTSEC-2026-0341.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0342",
+      "package": "quinn-proto",
+      "version": "0.11.16",
+      "locks": [
+        "Cargo.lock",
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-08-17",
+      "title": "Zero-length DATAGRAM frames bypass the receive buffer limit in quinn-proto",
+      "informational": "",
+      "categories": [
+        "denial-of-service"
+      ],
+      "cvss": "",
+      "aliases": [
+        "GHSA-2hv7-gw8g-gpq5"
+      ],
+      "patched": [
+        ">= 0.11.17"
+      ],
+      "unaffected": [
+        "< 0.5.0"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/quinn-proto/RUSTSEC-2026-0342.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0338",
+      "package": "quinn-proto",
+      "version": "0.11.17",
+      "locks": [
+        "helpers/wabi-project/Cargo.lock"
+      ],
+      "date": "2026-09-14",
+      "title": "Remote peer can panic quinn-proto with zero-length STREAM frames during unordered reads",
+      "informational": "",
+      "categories": [
+        "denial-of-service"
+      ],
+      "cvss": "",
+      "aliases": [
+        "GHSA-465w-v9q3-7j98"
+      ],
+      "patched": [
+        ">= 0.11.18"
+      ],
+      "unaffected": [
+        "< 0.7.0"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/quinn-proto/RUSTSEC-2026-0338.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0340",
+      "package": "quinn-proto",
+      "version": "0.11.17",
+      "locks": [
+        "helpers/wabi-project/Cargo.lock"
+      ],
+      "date": "2026-09-14",
+      "title": "Peer minimum ACK delay can panic quinn-proto when ACK_FREQUENCY transmission is enabled",
+      "informational": "",
+      "categories": [
+        "denial-of-service"
+      ],
+      "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "aliases": [
+        "GHSA-3g6h-r5qx-f6hq"
+      ],
+      "patched": [
+        ">= 0.11.18"
+      ],
+      "unaffected": [
+        "< 0.11.0"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/quinn-proto/RUSTSEC-2026-0340.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0343",
+      "package": "quinn-proto",
+      "version": "0.11.17",
+      "locks": [
+        "helpers/wabi-project/Cargo.lock"
+      ],
+      "date": "2026-09-14",
+      "title": "Outgoing datagram buffer accounting can panic the sender in quinn-proto",
+      "informational": "",
+      "categories": [
+        "denial-of-service"
+      ],
+      "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "aliases": [
+        "GHSA-ppcp-v39w-8jq2"
+      ],
+      "patched": [
+        ">= 0.11.18"
+      ],
+      "unaffected": [
+        "< 0.11.17"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/quinn-proto/RUSTSEC-2026-0343.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0097",
+      "package": "rand",
+      "version": "0.7.3",
+      "locks": [
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-04-09",
+      "title": "Rand is unsound with a custom logger using `rand::rng()`",
+      "informational": "unsound",
+      "categories": [],
+      "cvss": "",
+      "aliases": [
+        "GHSA-cq8v-f236-94qc"
+      ],
+      "patched": [
+        ">= 0.10.1",
+        "< 0.10.0, >= 0.9.3",
+        "< 0.9.0, >= 0.8.6"
+      ],
+      "unaffected": [
+        "< 0.7.0"
+      ],
+      "affected_functions": [
+        "rand::rng",
+        "rand::thread_rng"
+      ],
+      "advisory_file": "crates/rand/RUSTSEC-2026-0097.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0235",
+      "package": "rkyv",
+      "version": "0.7.46",
+      "locks": [
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-05-13",
+      "title": "Insufficient archive validation can cause out-of-bounds reads in archives containing Rc/Arc",
+      "informational": "",
+      "categories": [
+        "memory-exposure"
+      ],
+      "cvss": "",
+      "aliases": [],
+      "patched": [
+        ">= 0.8.17"
+      ],
+      "unaffected": [
+        "< 0.7.0-pre.2"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/rkyv/RUSTSEC-2026-0235.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0285",
+      "package": "rustls",
+      "version": "0.23.43",
+      "locks": [
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-09-14",
+      "title": "TLS 1.3 handshake messages incorrectly accepted across encryption level boundaries",
+      "informational": "",
+      "categories": [
+        "crypto-failure"
+      ],
+      "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+      "aliases": [
+        "GHSA-2mjx-qc3c-rqvc"
+      ],
+      "patched": [
+        ">= 0.23.45"
+      ],
+      "unaffected": [
+        "< 0.23.13"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/rustls/RUSTSEC-2026-0285.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0346",
+      "package": "rustls",
+      "version": "0.23.43",
+      "locks": [
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-10-14",
+      "title": "`Debug` impls for client session values expose TLS secrets",
+      "informational": "",
+      "categories": [
+        "crypto-failure"
+      ],
+      "cvss": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:H/I:N/A:N",
+      "aliases": [
+        "GHSA-c8m5-c952-6cm4"
+      ],
+      "patched": [
+        ">= 0.23.46"
+      ],
+      "unaffected": [
+        "< 0.21.0"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/rustls/RUSTSEC-2026-0346.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0348",
+      "package": "rustls",
+      "version": "0.23.43",
+      "locks": [
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-10-14",
+      "title": "Brotli certificate decompression can allocate up to 1 GiB before authentication",
+      "informational": "",
+      "categories": [
+        "denial-of-service"
+      ],
+      "cvss": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:L",
+      "aliases": [
+        "GHSA-h2v8-394m-p7vv"
+      ],
+      "patched": [
+        ">= 0.23.46"
+      ],
+      "unaffected": [
+        "< 0.23.9"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/rustls/RUSTSEC-2026-0348.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0349",
+      "package": "rustls",
+      "version": "0.23.43",
+      "locks": [
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-10-14",
+      "title": "Unauthenticated ServerHello can downgrade later connections to classical key exchange",
+      "informational": "",
+      "categories": [
+        "crypto-failure"
+      ],
+      "cvss": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+      "aliases": [
+        "GHSA-w44r-93j7-qv28"
+      ],
+      "patched": [
+        ">= 0.23.46"
+      ],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/rustls/RUSTSEC-2026-0349.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0346",
+      "package": "rustls",
+      "version": "0.23.45",
+      "locks": [
+        "Cargo.lock",
+        "helpers/wabi-project/Cargo.lock"
+      ],
+      "date": "2026-10-14",
+      "title": "`Debug` impls for client session values expose TLS secrets",
+      "informational": "",
+      "categories": [
+        "crypto-failure"
+      ],
+      "cvss": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:H/I:N/A:N",
+      "aliases": [
+        "GHSA-c8m5-c952-6cm4"
+      ],
+      "patched": [
+        ">= 0.23.46"
+      ],
+      "unaffected": [
+        "< 0.21.0"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/rustls/RUSTSEC-2026-0346.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0347",
+      "package": "rustls",
+      "version": "0.23.45",
+      "locks": [
+        "Cargo.lock",
+        "helpers/wabi-project/Cargo.lock"
+      ],
+      "date": "2026-10-14",
+      "title": "Buffered application data sent to outer server after ECH rejection",
+      "informational": "",
+      "categories": [
+        "crypto-failure"
+      ],
+      "cvss": "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N",
+      "aliases": [
+        "GHSA-vp88-798v-h67f"
+      ],
+      "patched": [
+        ">= 0.23.46"
+      ],
+      "unaffected": [
+        "< 0.23.44"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/rustls/RUSTSEC-2026-0347.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0348",
+      "package": "rustls",
+      "version": "0.23.45",
+      "locks": [
+        "Cargo.lock",
+        "helpers/wabi-project/Cargo.lock"
+      ],
+      "date": "2026-10-14",
+      "title": "Brotli certificate decompression can allocate up to 1 GiB before authentication",
+      "informational": "",
+      "categories": [
+        "denial-of-service"
+      ],
+      "cvss": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:L",
+      "aliases": [
+        "GHSA-h2v8-394m-p7vv"
+      ],
+      "patched": [
+        ">= 0.23.46"
+      ],
+      "unaffected": [
+        "< 0.23.9"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/rustls/RUSTSEC-2026-0348.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0349",
+      "package": "rustls",
+      "version": "0.23.45",
+      "locks": [
+        "Cargo.lock",
+        "helpers/wabi-project/Cargo.lock"
+      ],
+      "date": "2026-10-14",
+      "title": "Unauthenticated ServerHello can downgrade later connections to classical key exchange",
+      "informational": "",
+      "categories": [
+        "crypto-failure"
+      ],
+      "cvss": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+      "aliases": [
+        "GHSA-w44r-93j7-qv28"
+      ],
+      "patched": [
+        ">= 0.23.46"
+      ],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/rustls/RUSTSEC-2026-0349.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0382",
+      "package": "rustls-webpki",
+      "version": "0.103.14",
+      "locks": [
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-10-20",
+      "title": "Certificate verification may accept distrusted intermediates",
+      "informational": "",
+      "categories": [
+        "crypto-failure"
+      ],
+      "cvss": "",
+      "aliases": [
+        "CVE-2026-111943"
+      ],
+      "patched": [
+        ">= 0.103.16, < 0.104.0-alpha.1",
+        ">= 0.104.0-alpha.8"
+      ],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/rustls-webpki/RUSTSEC-2026-0382.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0382",
+      "package": "rustls-webpki",
+      "version": "0.103.15",
+      "locks": [
+        "Cargo.lock",
+        "helpers/wabi-project/Cargo.lock"
+      ],
+      "date": "2026-10-20",
+      "title": "Certificate verification may accept distrusted intermediates",
+      "informational": "",
+      "categories": [
+        "crypto-failure"
+      ],
+      "cvss": "",
+      "aliases": [
+        "CVE-2026-111943"
+      ],
+      "patched": [
+        ">= 0.103.16, < 0.104.0-alpha.1",
+        ">= 0.104.0-alpha.8"
+      ],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/rustls-webpki/RUSTSEC-2026-0382.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0215",
+      "package": "smallstr",
+      "version": "0.3.1",
+      "locks": [
+        "Cargo.lock"
+      ],
+      "date": "2026-07-22",
+      "title": "smallstr is unmaintained",
+      "informational": "unmaintained",
+      "categories": [],
+      "cvss": "",
+      "aliases": [],
+      "patched": [],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/smallstr/RUSTSEC-2026-0215.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0386",
+      "package": "tokio",
+      "version": "1.52.1",
+      "locks": [
+        "Cargo.lock",
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-10-13",
+      "title": "`AsyncFd::new` and related constructors violate I/O safety",
+      "informational": "unsound",
+      "categories": [
+        "memory-corruption"
+      ],
+      "cvss": "",
+      "aliases": [],
+      "patched": [
+        ">= 1.51.6, < 1.52.0",
+        ">= 1.53.3"
+      ],
+      "unaffected": [
+        "< 0.3.2"
+      ],
+      "affected_functions": [
+        "tokio::io::unix::AsyncFd::new",
+        "tokio::io::unix::AsyncFd::with_interest",
+        "tokio::io::unix::AsyncFd::try_new",
+        "tokio::io::unix::AsyncFd::try_with_interest"
+      ],
+      "advisory_file": "crates/tokio/RUSTSEC-2026-0386.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0386",
+      "package": "tokio",
+      "version": "1.53.1",
+      "locks": [
+        "helpers/wabi-project/Cargo.lock"
+      ],
+      "date": "2026-10-13",
+      "title": "`AsyncFd::new` and related constructors violate I/O safety",
+      "informational": "unsound",
+      "categories": [
+        "memory-corruption"
+      ],
+      "cvss": "",
+      "aliases": [],
+      "patched": [
+        ">= 1.51.6, < 1.52.0",
+        ">= 1.53.3"
+      ],
+      "unaffected": [
+        "< 0.3.2"
+      ],
+      "affected_functions": [
+        "tokio::io::unix::AsyncFd::new",
+        "tokio::io::unix::AsyncFd::with_interest",
+        "tokio::io::unix::AsyncFd::try_new",
+        "tokio::io::unix::AsyncFd::try_with_interest"
+      ],
+      "advisory_file": "crates/tokio/RUSTSEC-2026-0386.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0192",
+      "package": "ttf-parser",
+      "version": "0.25.1",
+      "locks": [
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-06-28",
+      "title": "`ttf-parser` is unmaintained",
+      "informational": "unmaintained",
+      "categories": [],
+      "cvss": "",
+      "aliases": [],
+      "patched": [],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/ttf-parser/RUSTSEC-2026-0192.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0383",
+      "package": "webpki-root-certs",
+      "version": "1.0.9",
+      "locks": [
+        "Cargo.lock",
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-10-19",
+      "title": "Bundled root certificates allow trust in distrusted emSign intermediates",
+      "informational": "",
+      "categories": [
+        "crypto-failure"
+      ],
+      "cvss": "",
+      "aliases": [
+        "CVE-2026-111943"
+      ],
+      "patched": [
+        ">= 1.0.10"
+      ],
+      "unaffected": [
+        "= 0.26.11"
+      ],
+      "affected_functions": [],
+      "advisory_file": "crates/webpki-root-certs/RUSTSEC-2026-0383.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0371",
+      "package": "zbus_names",
+      "version": "4.3.2",
+      "locks": [
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-10-16",
+      "title": "`zbus_names` is unmaintained",
+      "informational": "unmaintained",
+      "categories": [],
+      "cvss": "",
+      "aliases": [],
+      "patched": [],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/zbus_names/RUSTSEC-2026-0371.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0367",
+      "package": "zip",
+      "version": "2.4.2",
+      "locks": [
+        "Cargo.lock"
+      ],
+      "date": "2026-10-09",
+      "title": "Insecure Preservation of SUID/SGID Bits during ZIP Extraction Leading to Potential Privilege Escalation",
+      "informational": "",
+      "categories": [
+        "privilege-escalation"
+      ],
+      "cvss": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:H",
+      "aliases": [
+        "GHSA-vv5m-jxxh-4627"
+      ],
+      "patched": [
+        ">= 9.0.0"
+      ],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/zip/RUSTSEC-2026-0367.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0368",
+      "package": "zip",
+      "version": "2.4.2",
+      "locks": [
+        "Cargo.lock"
+      ],
+      "date": "2026-10-09",
+      "title": "zip: `ZipArchive::extract` creates symbolic links whose attacker-controlled targets are outside the destination directory",
+      "informational": "",
+      "categories": [
+        "privilege-escalation"
+      ],
+      "cvss": "",
+      "aliases": [
+        "GHSA-4v9h-p7m9-rh26"
+      ],
+      "patched": [
+        ">= 9.0.0"
+      ],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/zip/RUSTSEC-2026-0368.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0369",
+      "package": "zip",
+      "version": "2.4.2",
+      "locks": [
+        "Cargo.lock"
+      ],
+      "date": "2026-10-10",
+      "title": "ZipStreamReader::extract() and ZipArchive::extract() apply Unix permissions through symlinks without confining the target",
+      "informational": "",
+      "categories": [
+        "privilege-escalation"
+      ],
+      "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:H",
+      "aliases": [
+        "GHSA-4684-h2q9-2vcp"
+      ],
+      "patched": [
+        ">= 9.0.0"
+      ],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/zip/RUSTSEC-2026-0369.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0429",
+      "package": "zip",
+      "version": "2.4.2",
+      "locks": [
+        "Cargo.lock"
+      ],
+      "date": "2026-10-22",
+      "title": "zip: `ZipArchive::extract` aborts the process on a symlink entry with a large declared size",
+      "informational": "",
+      "categories": [
+        "denial-of-service"
+      ],
+      "cvss": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+      "aliases": [
+        "CVE-2026-115909",
+        "GHSA-q7v9-x93c-xqv3"
+      ],
+      "patched": [
+        ">= 9.0.0"
+      ],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/zip/RUSTSEC-2026-0429.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0370",
+      "package": "zvariant",
+      "version": "5.10.1",
+      "locks": [
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-10-16",
+      "title": "`zvariant` is unmaintained",
+      "informational": "unmaintained",
+      "categories": [],
+      "cvss": "",
+      "aliases": [],
+      "patched": [],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/zvariant/RUSTSEC-2026-0370.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0372",
+      "package": "zvariant_derive",
+      "version": "5.10.1",
+      "locks": [
+        "src-tauri/Cargo.lock"
+      ],
+      "date": "2026-10-16",
+      "title": "`zvariant_derive` is unmaintained",
+      "informational": "unmaintained",
+      "categories": [],
+      "cvss": "",
+      "aliases": [],
+      "patched": [],
+      "unaffected": [],
+      "affected_functions": [],
+      "advisory_file": "crates/zvariant_derive/RUSTSEC-2026-0372.md"
+    }
+  ]
+}

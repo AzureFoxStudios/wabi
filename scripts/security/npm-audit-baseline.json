@@ -1,0 +1,137 @@
+{
+  "generated": "2026-11-03",
+  "source": "docs/audits/evidence/npm-audit-after.json",
+  "policy": "Baseline of existing frontend npm debt after the 2026-11-03 patch bumps. Any high/critical advisory whose package name is not listed here fails CI. Low-severity items are recorded but do not gate.",
+  "advisories": [
+    {
+      "package": "@rollup/plugin-node-resolve",
+      "severity": "low",
+      "range": ">=8.0.0",
+      "fixAvailable": true,
+      "via_ids": [
+        "deepmerge"
+      ]
+    },
+    {
+      "package": "@sveltejs/adapter-node",
+      "severity": "low",
+      "range": "1.0.0-next.0 - 5.5.7",
+      "fixAvailable": {
+        "name": "@sveltejs/adapter-node",
+        "version": "6.0.1",
+        "isSemVerMajor": true
+      },
+      "via_ids": [
+        "@rollup/plugin-node-resolve",
+        "@sveltejs/kit"
+      ]
+    },
+    {
+      "package": "@sveltejs/adapter-static",
+      "severity": "low",
+      "range": "1.0.0-next.0 - 3.0.10",
+      "fixAvailable": {
+        "name": "@sveltejs/adapter-static",
+        "version": "4.0.1",
+        "isSemVerMajor": true
+      },
+      "via_ids": [
+        "@sveltejs/kit"
+      ]
+    },
+    {
+      "package": "@sveltejs/kit",
+      "severity": "low",
+      "range": "*",
+      "fixAvailable": {
+        "name": "@sveltejs/kit",
+        "version": "3.1.1",
+        "isSemVerMajor": true
+      },
+      "via_ids": [
+        "@sveltejs/vite-plugin-svelte",
+        "@sveltejs/kit",
+        "@sveltejs/kit"
+      ]
+    },
+    {
+      "package": "@sveltejs/vite-plugin-svelte",
+      "severity": "low",
+      "range": "*",
+      "fixAvailable": {
+        "name": "@sveltejs/kit",
+        "version": "3.1.1",
+        "isSemVerMajor": true
+      },
+      "via_ids": [
+        "deepmerge"
+      ]
+    },
+    {
+      "package": "deepmerge",
+      "severity": "low",
+      "range": ">=4.2.0",
+      "fixAvailable": {
+        "name": "@sveltejs/kit",
+        "version": "3.1.1",
+        "isSemVerMajor": true
+      },
+      "via_ids": [
+        "deepmerge"
+      ]
+    },
+    {
+      "package": "image-size",
+      "severity": "high",
+      "range": "0.6.3 - 2.0.2",
+      "fixAvailable": {
+        "name": "pptxgenjs",
+        "version": "4.0.0",
+        "isSemVerMajor": true
+      },
+      "via_ids": [
+        "image-size",
+        "image-size"
+      ]
+    },
+    {
+      "package": "maplibre-gl",
+      "severity": "critical",
+      "range": "<=6.4.0",
+      "fixAvailable": {
+        "name": "maplibre-gl",
+        "version": "6.16.0",
+        "isSemVerMajor": true
+      },
+      "via_ids": [
+        "maplibre-gl"
+      ]
+    },
+    {
+      "package": "pptxgenjs",
+      "severity": "high",
+      "range": ">=4.0.1-beta.0",
+      "fixAvailable": {
+        "name": "pptxgenjs",
+        "version": "4.0.0",
+        "isSemVerMajor": true
+      },
+      "via_ids": [
+        "image-size"
+      ]
+    },
+    {
+      "package": "svelte-i18n",
+      "severity": "low",
+      "range": "2.0.0-alpha.1 - 2.2.2 || >=3.2.0",
+      "fixAvailable": {
+        "name": "svelte-i18n",
+        "version": "3.1.0",
+        "isSemVerMajor": true
+      },
+      "via_ids": [
+        "deepmerge"
+      ]
+    }
+  ]
+}

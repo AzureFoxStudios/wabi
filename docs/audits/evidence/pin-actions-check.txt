@@ -1,0 +1,1 @@
+OK: all GitHub Actions are pinned to full commit SHAs

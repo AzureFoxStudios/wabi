@@ -1,0 +1,304 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "@rollup/plugin-node-resolve": {
+      "name": "@rollup/plugin-node-resolve",
+      "severity": "low",
+      "isDirect": false,
+      "via": [
+        "deepmerge"
+      ],
+      "effects": [],
+      "range": ">=8.0.0",
+      "nodes": [
+        "node_modules/@rollup/plugin-node-resolve"
+      ],
+      "fixAvailable": true
+    },
+    "@sveltejs/adapter-node": {
+      "name": "@sveltejs/adapter-node",
+      "severity": "low",
+      "isDirect": true,
+      "via": [
+        "@rollup/plugin-node-resolve",
+        "@sveltejs/kit"
+      ],
+      "effects": [],
+      "range": "1.0.0-next.0 - 5.5.7",
+      "nodes": [
+        "node_modules/@sveltejs/adapter-node"
+      ],
+      "fixAvailable": {
+        "name": "@sveltejs/adapter-node",
+        "version": "6.0.1",
+        "isSemVerMajor": true
+      }
+    },
+    "@sveltejs/adapter-static": {
+      "name": "@sveltejs/adapter-static",
+      "severity": "low",
+      "isDirect": true,
+      "via": [
+        "@sveltejs/kit"
+      ],
+      "effects": [],
+      "range": "1.0.0-next.0 - 3.0.10",
+      "nodes": [
+        "node_modules/@sveltejs/adapter-static"
+      ],
+      "fixAvailable": {
+        "name": "@sveltejs/adapter-static",
+        "version": "4.0.1",
+        "isSemVerMajor": true
+      }
+    },
+    "@sveltejs/kit": {
+      "name": "@sveltejs/kit",
+      "severity": "low",
+      "isDirect": true,
+      "via": [
+        "@sveltejs/vite-plugin-svelte",
+        {
+          "source": 1243067,
+          "name": "@sveltejs/kit",
+          "dependency": "@sveltejs/kit",
+          "title": "SvelteKit: URL redirection to untrusted site via enhanced form submission",
+          "url": "https://github.com/advisories/GHSA-pfhg-q3qv-9q6r",
+          "severity": "low",
+          "cwe": [
+            "CWE-601"
+          ],
+          "cvss": {
+            "score": 4.7,
+            "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:L/I:L/A:N"
+          },
+          "range": "<3.0.0"
+        },
+        {
+          "source": 1243076,
+          "name": "@sveltejs/kit",
+          "dependency": "@sveltejs/kit",
+          "title": "SvelteKit : XSS via untrusted cache-control header in prerendered page",
+          "url": "https://github.com/advisories/GHSA-27mw-82g8-phjj",
+          "severity": "low",
+          "cwe": [
+            "CWE-79"
+          ],
+          "cvss": {
+            "score": 0,
+            "vectorString": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:U/C:N/I:N/A:N"
+          },
+          "range": "<3.0.0"
+        }
+      ],
+      "effects": [
+        "@sveltejs/adapter-node",
+        "@sveltejs/adapter-static"
+      ],
+      "range": "*",
+      "nodes": [
+        "node_modules/@sveltejs/kit"
+      ],
+      "fixAvailable": {
+        "name": "@sveltejs/kit",
+        "version": "3.1.1",
+        "isSemVerMajor": true
+      }
+    },
+    "@sveltejs/vite-plugin-svelte": {
+      "name": "@sveltejs/vite-plugin-svelte",
+      "severity": "low",
+      "isDirect": true,
+      "via": [
+        "deepmerge"
+      ],
+      "effects": [
+        "@sveltejs/kit"
+      ],
+      "range": "*",
+      "nodes": [
+        "node_modules/@sveltejs/vite-plugin-svelte"
+      ],
+      "fixAvailable": {
+        "name": "@sveltejs/kit",
+        "version": "3.1.1",
+        "isSemVerMajor": true
+      }
+    },
+    "deepmerge": {
+      "name": "deepmerge",
+      "severity": "low",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1243505,
+          "name": "deepmerge",
+          "dependency": "deepmerge",
+          "title": "deepmerge mergeObject() allows prototype poisoning of returned objects",
+          "url": "https://github.com/advisories/GHSA-gcqx-w48m-w2h4",
+          "severity": "low",
+          "cwe": [
+            "CWE-1321"
+          ],
+          "cvss": {
+            "score": 5.3,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N"
+          },
+          "range": ">=4.2.0 <=4.3.1"
+        }
+      ],
+      "effects": [
+        "@rollup/plugin-node-resolve",
+        "@sveltejs/vite-plugin-svelte",
+        "svelte-i18n"
+      ],
+      "range": ">=4.2.0",
+      "nodes": [
+        "node_modules/deepmerge"
+      ],
+      "fixAvailable": {
+        "name": "@sveltejs/kit",
+        "version": "3.1.1",
+        "isSemVerMajor": true
+      }
+    },
+    "image-size": {
+      "name": "image-size",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1239765,
+          "name": "image-size",
+          "dependency": "image-size",
+          "title": "image-size: JXL and HEIF parsers allow denial of service through infinite loops",
+          "url": "https://github.com/advisories/GHSA-5p2g-fcmc-qvqq",
+          "severity": "high",
+          "cwe": [
+            "CWE-835"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": ">=1.2.0 <=2.0.2"
+        },
+        {
+          "source": 1239766,
+          "name": "image-size",
+          "dependency": "image-size",
+          "title": "image-size: ICNS parser allows denial of service through an infinite loop",
+          "url": "https://github.com/advisories/GHSA-w3rx-r6r6-pgpr",
+          "severity": "high",
+          "cwe": [
+            "CWE-835"
+          ],
+          "cvss": {
+            "score": 7.5,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+          },
+          "range": ">=0.6.3 <=2.0.2"
+        }
+      ],
+      "effects": [
+        "pptxgenjs"
+      ],
+      "range": "0.6.3 - 2.0.2",
+      "nodes": [
+        "node_modules/image-size"
+      ],
+      "fixAvailable": {
+        "name": "pptxgenjs",
+        "version": "4.0.0",
+        "isSemVerMajor": true
+      }
+    },
+    "maplibre-gl": {
+      "name": "maplibre-gl",
+      "severity": "critical",
+      "isDirect": true,
+      "via": [
+        {
+          "source": 1193680,
+          "name": "maplibre-gl",
+          "dependency": "maplibre-gl",
+          "title": "MapLibre GL JS: XSS Sanitizer Bypass in DOM.sanitize() via Live NamedNodeMap Removal Skip",
+          "url": "https://github.com/advisories/GHSA-jrc7-96c5-q579",
+          "severity": "critical",
+          "cwe": [
+            "CWE-79"
+          ],
+          "cvss": {
+            "score": 10,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N"
+          },
+          "range": "<=6.4.0"
+        }
+      ],
+      "effects": [],
+      "range": "<=6.4.0",
+      "nodes": [
+        "node_modules/maplibre-gl"
+      ],
+      "fixAvailable": {
+        "name": "maplibre-gl",
+        "version": "6.16.0",
+        "isSemVerMajor": true
+      }
+    },
+    "pptxgenjs": {
+      "name": "pptxgenjs",
+      "severity": "high",
+      "isDirect": true,
+      "via": [
+        "image-size"
+      ],
+      "effects": [],
+      "range": ">=4.0.1-beta.0",
+      "nodes": [
+        "node_modules/pptxgenjs"
+      ],
+      "fixAvailable": {
+        "name": "pptxgenjs",
+        "version": "4.0.0",
+        "isSemVerMajor": true
+      }
+    },
+    "svelte-i18n": {
+      "name": "svelte-i18n",
+      "severity": "low",
+      "isDirect": true,
+      "via": [
+        "deepmerge"
+      ],
+      "effects": [],
+      "range": "2.0.0-alpha.1 - 2.2.2 || >=3.2.0",
+      "nodes": [
+        "node_modules/svelte-i18n"
+      ],
+      "fixAvailable": {
+        "name": "svelte-i18n",
+        "version": "3.1.0",
+        "isSemVerMajor": true
+      }
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 7,
+      "moderate": 0,
+      "high": 2,
+      "critical": 1,
+      "total": 10
+    },
+    "dependencies": {
+      "prod": 203,
+      "dev": 149,
+      "optional": 103,
+      "peer": 1,
+      "peerOptional": 0,
+      "total": 391
+    }
+  }
+}

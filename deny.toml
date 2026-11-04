@@ -1,0 +1,49 @@
+# cargo-deny configuration — added by the 2026-11-03 backend security audit.
+#
+# CI runs `cargo deny check advisories licenses sources` in ADVISORY mode
+# (`continue-on-error: true`) until the triage in
+# docs/audits/2026-11-cve-register.md lands. Flip that step to blocking at the
+# same time as `supply_chain_check.py --mode blocking`.
+#
+# No advisory is blanket-ignored. If a specific RUSTSEC ID must be temporarily
+# accepted, add it to `ignore` WITH an expiry comment and a link to the register
+# row; the register's "residual-risk rationale" column is the review record.
+
+[graph]
+all-features = false
+
+[advisories]
+# cargo-deny 0.20.x (the CI-pinned version) has no `yanked` lint field; yanked
+# crate versions are handled through `ignore` entries with a reason instead.
+ignore = []
+
+[licenses]
+confidence-threshold = 0.8
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "0BSD",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",
+]
+# Deliberately no `[licenses] exceptions` and no `unused-allowed-license =
+# "allow"`: a licence that quietly appears or disappears is itself a finding.
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

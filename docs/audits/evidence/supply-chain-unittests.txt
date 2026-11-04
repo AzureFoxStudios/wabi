@@ -1,0 +1,108 @@
+test_baseline_only_contains_strings (test_npm_audit_gate.NpmAuditGateTests.test_baseline_only_contains_strings) ... ok
+test_committed_baseline_passes_current_debt (test_npm_audit_gate.NpmAuditGateTests.test_committed_baseline_passes_current_debt) ... ok
+test_new_critical_advisory_fails_blocking (test_npm_audit_gate.NpmAuditGateTests.test_new_critical_advisory_fails_blocking) ... ok
+test_new_critical_advisory_is_report_only_in_advisory_mode (test_npm_audit_gate.NpmAuditGateTests.test_new_critical_advisory_is_report_only_in_advisory_mode) ... ok
+test_new_low_advisory_does_not_gate (test_npm_audit_gate.NpmAuditGateTests.test_new_low_advisory_does_not_gate) ... ok
+test_artifact_symlinks_are_not_followed (test_release_manifest.ReleaseManifestTest.test_artifact_symlinks_are_not_followed) ... ok
+test_matching_release_records_exact_artifact_bytes (test_release_manifest.ReleaseManifestTest.test_matching_release_records_exact_artifact_bytes) ... ok
+test_mismatched_frontend_revision_is_rejected (test_release_manifest.ReleaseManifestTest.test_mismatched_frontend_revision_is_rejected) ... ok
+test_wrong_server_revision_and_debug_binary_are_rejected (test_release_manifest.ReleaseManifestTest.test_wrong_server_revision_and_debug_binary_are_rejected) ... ok
+test_all_assets_have_basename_checksums_and_executable_server (test_release_packaging.ReleasePackagingTests.test_all_assets_have_basename_checksums_and_executable_server) ... ok
+test_duplicate_basenames_are_rejected_before_packaging (test_release_packaging.ReleasePackagingTests.test_duplicate_basenames_are_rejected_before_packaging) ... ok
+test_mismatched_binary_is_rejected (test_release_packaging.ReleasePackagingTests.test_mismatched_binary_is_rejected) ... ok
+test_mismatched_revision_is_rejected (test_release_packaging.ReleasePackagingTests.test_mismatched_revision_is_rejected) ... ok
+test_indexed_runtime_file_rejected_without_reading_or_deleting_it (test_runtime_files.RuntimeFilesTest.test_indexed_runtime_file_rejected_without_reading_or_deleting_it) ... ok
+test_operator_state_and_nested_environment_files (test_runtime_files.RuntimeFilesTest.test_operator_state_and_nested_environment_files) ... ok
+test_source_and_documented_templates (test_runtime_files.RuntimeFilesTest.test_source_and_documented_templates) ... ok
+test_action_pins_are_current (test_supply_chain_check.CommittedRepository.test_action_pins_are_current) ... ok
+test_repository_passes_its_own_gate (test_supply_chain_check.CommittedRepository.test_repository_passes_its_own_gate) ... ok
+test_toolchain_fingerprint_script_is_executable_by_node (test_supply_chain_check.CommittedRepository.test_toolchain_fingerprint_script_is_executable_by_node) ... ok
+test_clean_fixture_passes (test_supply_chain_check.Fixture.test_clean_fixture_passes) ... ok
+test_eol_node_is_advisory_then_blocking (test_supply_chain_check.Fixture.test_eol_node_is_advisory_then_blocking) ... ok
+test_exact_chaindrop_ioc_is_p0_in_every_mode (test_supply_chain_check.Fixture.test_exact_chaindrop_ioc_is_p0_in_every_mode) ... ok
+test_new_lifecycle_script_blocks_in_advisory_mode (test_supply_chain_check.Fixture.test_new_lifecycle_script_blocks_in_advisory_mode) ... ok
+test_old_bun_docker_image_blocks_in_advisory_mode (test_supply_chain_check.Fixture.test_old_bun_docker_image_blocks_in_advisory_mode) ... ok
+test_old_bun_pin_blocks_in_advisory_mode (test_supply_chain_check.Fixture.test_old_bun_pin_blocks_in_advisory_mode) ... ok
+test_playwright_typosquat_is_p0 (test_supply_chain_check.Fixture.test_playwright_typosquat_is_p0) ... ok
+test_unpinned_action_is_advisory_then_blocking (test_supply_chain_check.Fixture.test_unpinned_action_is_advisory_then_blocking) ... ok
+test_watch_scope_is_review_item_not_p0 (test_supply_chain_check.Fixture.test_watch_scope_is_review_item_not_p0) ... ok
+test_allowed_control_and_denials (test_tailcat_reconnect.BoundaryContract.test_allowed_control_and_denials) ... ok
+test_any_forbidden_tcp_success_aborts_even_without_http_payload (test_tailcat_reconnect.BoundaryContract.test_any_forbidden_tcp_success_aborts_even_without_http_payload) ... ok
+test_dead_allowed_control_cannot_certify_boundary (test_tailcat_reconnect.BoundaryContract.test_dead_allowed_control_cannot_certify_boundary) ... ok
+test_other_lan_control_and_escape (test_tailcat_reconnect.BoundaryContract.test_other_lan_control_and_escape) ... ok
+test_protocol_failure_is_inconclusive_not_a_denial (test_tailcat_reconnect.BoundaryContract.test_protocol_failure_is_inconclusive_not_a_denial) ... ok
+test_actual_regression_is_failure_not_expected_pass (test_tailcat_reconnect.ReconnectContract.test_actual_regression_is_failure_not_expected_pass) ... ok
+test_corruption_cannot_pass_even_with_direct_counters (test_tailcat_reconnect.ReconnectContract.test_corruption_cannot_pass_even_with_direct_counters) ... ok
+test_counter_builder_tracks_shipped_revision (test_tailcat_reconnect.ReconnectContract.test_counter_builder_tracks_shipped_revision) ... ok
+test_counter_parser_requires_all_fields_and_uses_last_sample (test_tailcat_reconnect.ReconnectContract.test_counter_parser_requires_all_fields_and_uses_last_sample) ... ok
+test_direct_both_sessions_pass (test_tailcat_reconnect.ReconnectContract.test_direct_both_sessions_pass) ... ok
+test_failed_baseline_is_inconclusive_not_reconnect_failure (test_tailcat_reconnect.ReconnectContract.test_failed_baseline_is_inconclusive_not_reconnect_failure) ... ok
+test_missing_partial_negative_and_insufficient_counters_fail (test_tailcat_reconnect.ReconnectContract.test_missing_partial_negative_and_insufficient_counters_fail) ... ok
+test_mixed_incoming_path_does_not_claim_direct_only_payload (test_tailcat_reconnect.ReconnectContract.test_mixed_incoming_path_does_not_claim_direct_only_payload) ... ok
+test_permanent_runner_capture_is_also_rejected (test_tailcat_reconnect.ReconnectContract.test_permanent_runner_capture_is_also_rejected) ... ok
+test_route_probe_without_byte_counters_cannot_pass (test_tailcat_reconnect.ReconnectContract.test_route_probe_without_byte_counters_cannot_pass) ... ok
+test_activate_room_rejects_job_targeted_at_other_node (test_wabi_media_node.MediaNodeControllerTests.test_activate_room_rejects_job_targeted_at_other_node) ... ok
+test_activate_room_uses_node_secret_and_tenant_scoped_name (test_wabi_media_node.MediaNodeControllerTests.test_activate_room_uses_node_secret_and_tenant_scoped_name) ... ok
+test_authority_requests_refuse_credential_redirects_and_oversized_responses (test_wabi_media_node.MediaNodeControllerTests.test_authority_requests_refuse_credential_redirects_and_oversized_responses) ... ok
+test_duplicate_authority_urls_are_rejected (test_wabi_media_node.MediaNodeControllerTests.test_duplicate_authority_urls_are_rejected) ... ok
+test_livekit_token_is_scoped_to_exact_room_identity_and_grants (test_wabi_media_node.MediaNodeControllerTests.test_livekit_token_is_scoped_to_exact_room_identity_and_grants) ... ok
+test_pair_authority_uses_stable_physical_key_and_does_not_store_token (test_wabi_media_node.MediaNodeControllerTests.test_pair_authority_uses_stable_physical_key_and_does_not_store_token) ... npm audit: 10 advisories {'info': 0, 'low': 7, 'moderate': 0, 'high': 2, 'critical': 1, 'total': 10}
+baseline:  10 recorded packages -> scripts/security/npm-audit-baseline.json
+result: PASS - no new high/critical npm advisories
+npm audit: 1 advisories {'total': 1}
+baseline:  10 recorded packages -> scripts/security/npm-audit-baseline.json
+  [resolved] @rollup/plugin-node-resolve is no longer reported (baseline entry can be removed)
+  [resolved] @sveltejs/adapter-node is no longer reported (baseline entry can be removed)
+  [resolved] @sveltejs/adapter-static is no longer reported (baseline entry can be removed)
+  [resolved] @sveltejs/kit is no longer reported (baseline entry can be removed)
+  [resolved] @sveltejs/vite-plugin-svelte is no longer reported (baseline entry can be removed)
+  [resolved] deepmerge is no longer reported (baseline entry can be removed)
+  [resolved] image-size is no longer reported (baseline entry can be removed)
+  [resolved] maplibre-gl is no longer reported (baseline entry can be removed)
+  [resolved] pptxgenjs is no longer reported (baseline entry can be removed)
+  [resolved] svelte-i18n is no longer reported (baseline entry can be removed)
+  [NEW CRITICAL] brand-new-pkg: range=>=1.0.0 fix=False
+result: FAIL - 1 new high/critical npm advisories
+npm audit: 1 advisories {'total': 1}
+baseline:  10 recorded packages -> scripts/security/npm-audit-baseline.json
+  [resolved] @rollup/plugin-node-resolve is no longer reported (baseline entry can be removed)
+  [resolved] @sveltejs/adapter-node is no longer reported (baseline entry can be removed)
+  [resolved] @sveltejs/adapter-static is no longer reported (baseline entry can be removed)
+  [resolved] @sveltejs/kit is no longer reported (baseline entry can be removed)
+  [resolved] @sveltejs/vite-plugin-svelte is no longer reported (baseline entry can be removed)
+  [resolved] deepmerge is no longer reported (baseline entry can be removed)
+  [resolved] image-size is no longer reported (baseline entry can be removed)
+  [resolved] maplibre-gl is no longer reported (baseline entry can be removed)
+  [resolved] pptxgenjs is no longer reported (baseline entry can be removed)
+  [resolved] svelte-i18n is no longer reported (baseline entry can be removed)
+  [NEW CRITICAL] brand-new-pkg: range=>=1.0.0 fix=False
+result: ADVISORY - 1 new high/critical advisories (not failing)
+npm audit: 1 advisories {'total': 1}
+baseline:  10 recorded packages -> scripts/security/npm-audit-baseline.json
+  [resolved] @rollup/plugin-node-resolve is no longer reported (baseline entry can be removed)
+  [resolved] @sveltejs/adapter-node is no longer reported (baseline entry can be removed)
+  [resolved] @sveltejs/adapter-static is no longer reported (baseline entry can be removed)
+  [resolved] @sveltejs/kit is no longer reported (baseline entry can be removed)
+  [resolved] @sveltejs/vite-plugin-svelte is no longer reported (baseline entry can be removed)
+  [resolved] deepmerge is no longer reported (baseline entry can be removed)
+  [resolved] image-size is no longer reported (baseline entry can be removed)
+  [resolved] maplibre-gl is no longer reported (baseline entry can be removed)
+  [resolved] pptxgenjs is no longer reported (baseline entry can be removed)
+  [resolved] svelte-i18n is no longer reported (baseline entry can be removed)
+result: PASS - no new high/critical npm advisories
+[wabi-media-node] https://a.example.test: paired as node node-a; the one-time pairingToken can now be removed
+ok
+test_pairing_store_keeps_physical_key_and_independent_authorities (test_wabi_media_node.MediaNodeControllerTests.test_pairing_store_keeps_physical_key_and_independent_authorities) ... ok
+test_permission_job_uses_real_rpc_and_room_scoped_signature (test_wabi_media_node.MediaNodeControllerTests.test_permission_job_uses_real_rpc_and_room_scoped_signature) ... [wabi-media-node] https://authority.example.test: updated participant permissions
+ok
+test_permission_refresh_rejects_unknown_sources_before_http (test_wabi_media_node.MediaNodeControllerTests.test_permission_refresh_rejects_unknown_sources_before_http) ... ok
+test_permission_rpc_maps_allowed_sources_to_protocol_enum (test_wabi_media_node.MediaNodeControllerTests.test_permission_rpc_maps_allowed_sources_to_protocol_enum) ... ok
+test_permission_rpc_refuses_redirect_without_credential_replay (test_wabi_media_node.MediaNodeControllerTests.test_permission_rpc_refuses_redirect_without_credential_replay) ... ok
+test_permission_rpc_requires_matching_node_strict_grants_and_bounded_identity_response (test_wabi_media_node.MediaNodeControllerTests.test_permission_rpc_requires_matching_node_strict_grants_and_bounded_identity_response) ... ok
+test_profile_normalizes_endpoint_and_advertises_unknown_occupancy (test_wabi_media_node.MediaNodeControllerTests.test_profile_normalizes_endpoint_and_advertises_unknown_occupancy) ... ok
+test_shared_livekit_node_rejects_placeholder_root_credentials (test_wabi_media_node.MediaNodeControllerTests.test_shared_livekit_node_rejects_placeholder_root_credentials) ... ok
+
+----------------------------------------------------------------------
+Ran 57 tests in 6.428s
+
+OK

@@ -259,6 +259,33 @@ fn is_public_ipv6(ip: &std::net::Ipv6Addr) -> bool {
     if (o[0] & 0xff00) == 0xff00 {
         return false;
     } // multicast
+
+    // An IPv6 literal can still *encode* an IPv4 destination. `normalize_ip`
+    // already collapses ::ffff:a.b.c.d (IPv4-mapped) into an IPv4 address, but
+    // the transition prefixes below are not mapped and would otherwise be
+    // classified as public by the segment checks above. Reject them outright:
+    // a link preview never needs to reach a 6to4, Teredo, NAT64, compatible,
+    // documentation or discard-only literal, and accepting one would let a
+    // private/loopback IPv4 address reach the pinned connector through a
+    // different spelling of the same host.
+    if o[0] == 0 && o[1] == 0 && o[2] == 0 && o[3] == 0 && o[4] == 0 && o[5] == 0 {
+        return false; // ::a.b.c.d (IPv4-compatible) / ::ffff:0:0/96 remainder
+    }
+    if o[0] == 0x2002 {
+        return false; // 6to4 (2002::/16) embeds an IPv4 address in o[1..=2]
+    }
+    if o[0] == 0x2001 && o[1] == 0x0000 {
+        return false; // Teredo (2001::/32) embeds IPv4 endpoints
+    }
+    if o[0] == 0x0064 && o[1] == 0xff9b && o[2] == 0 && o[3] == 0 && o[4] == 0 && o[5] == 0 {
+        return false; // NAT64 well-known prefix 64:ff9b::/96
+    }
+    if o[0] == 0x2001 && o[1] == 0x0db8 {
+        return false; // documentation prefix 2001:db8::/32
+    }
+    if o[0] == 0x0100 {
+        return false; // discard-only 100::/64
+    }
     true
 }
 
@@ -832,6 +859,14 @@ mod tests {
             "http://[::ffff:127.0.0.1]/",
             "http://[::ffff:192.168.1.1]/",
             "http://[::ffff:169.254.169.254]/",
+            // 2026-11 audit: IPv6 spellings that embed a private/loopback
+            // IPv4 destination without being IPv4-*mapped*.
+            "http://[::127.0.0.1]/",
+            "http://[2002:0a00:0001::1]/",
+            "http://[2001:0::1]/",
+            "http://[64:ff9b::7f00:1]/",
+            "http://[2001:db8::1]/",
+            "http://[100::1]/",
         ] {
             assert!(
                 matches!(
@@ -866,6 +901,15 @@ mod tests {
             "fe80::1",
             "fec0::1",
             "feff::1",
+            // Transition/documentation prefixes: an embedded IPv4 literal is
+            // not allowed to bypass the IPv4 allowlist by wearing IPv6 syntax.
+            "::127.0.0.1",
+            "::7f00:1",
+            "2002:0a00:0001::1",
+            "2001:0::1",
+            "64:ff9b::7f00:1",
+            "2001:db8::1",
+            "100::1",
         ] {
             assert!(!is_public_ip(address.parse().unwrap()), "{address}");
         }
