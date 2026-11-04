@@ -93,7 +93,7 @@ adversarial request was sent to any remote server; no secret entered the repo.
 
 | Criterion | Result |
 | --- | --- |
-| zero unpinned Actions | PASS — 95/95 across 17 workflows, `pin_actions.py --check` OK |
+| zero unpinned Actions | PASS — 94/94 across 17 workflows, `pin_actions.py --check` OK (re-landed on main by the 2026-11-04 CI-enforcement PR; see posture §8) |
 | zero unapproved install scripts | PASS — 6 allowed, all with reviewed script bodies; gate blocks any new one |
 | IOC sweep | PASS — 0 exact / 0 typosquat / 0 watch-scope hits; 5-package spot-check saved |
 | Bun ≥ 1.4.4 everywhere | PASS in repo (12 assertions + 10 runtime fingerprints); local Node 22.22.3 is residual |
@@ -239,7 +239,7 @@ operational endpoints (`/metrics` gated by `WABI_METRICS_PUBLIC`).
 | ID | Sev | Status | Finding (file:line) | Repro / proof | Action |
 | --- | --- | --- | --- | --- | --- |
 | F-01 | High | **FIXED** | `ci.yml` used `bun-version: 1.3.14`, `Dockerfile.bun` `oven/bun:1.2.22`, `node:20-slim` (all < Node2Shell fix) | `grep -rn 'bun-version\|node:' .github/workflows/ Dockerfile*`; gate reports `p0` for any Bun < 1.4.4 | 12 Bun + 18 Node assertions, 6 images, 10 fingerprint steps, doc floors |
-| F-02 | High | **FIXED** | 92 `uses:` lines were tag refs (`actions/checkout@v4`, `oven-sh/setup-bun@v2`) | `python3 scripts/security/pin_actions.py --check` before/after | 95/95 full SHAs, `action-pins.json` |
+| F-02 | High | **FIXED** | 92 `uses:` lines were tag refs (`actions/checkout@v4`, `oven-sh/setup-bun@v2`) | `python3 scripts/security/pin_actions.py --check` before/after | 92 rewritten + 2 in the re-landed `supply-chain` job = 94/94 full SHAs, `action-pins.json` |
 | F-03 | High | **FIXED** | Critical `dompurify <=3.4.16` XSS, reachable in `frontend/src/lib/markdown.ts`, `notes/render.ts`, `readerTabHelpers.ts`, `documentMarkdown.ts`, `localVisualEffects.ts`, `DocumentsWorkspace.svelte` | `npm audit --json` critical row; `npm view dompurify@3.4.17` | bumped 3.4.14 → 3.4.17; `npm audit` critical 2→1 |
 | F-04 | Medium | **FIXED** | `api/preview.rs:245` `is_public_ipv6` accepted IPv6 transition/documentation prefixes (`::127.0.0.1`, `2002::/16` 6to4, `2001::/32` Teredo, `64:ff9b::/96` NAT64, `2001:db8::/32`, `100::/64`) that can encode an IPv4 destination without being IPv4-*mapped* | `validate_outbound_url("http://[::127.0.0.1]/")` previously reached the public-IP allowlist as a global IPv6 literal; now rejected before any DNS lookup | explicit rejects + 6 new literal cases + 7 new `is_public_ip` cases |
 | F-05 | Medium | **FIXED** | `socketio/game_ops.rs:59` unbounded `ROOMS` map, unbounded `moves` log, unbounded client `channelId`; every `game:move`/`game:pass` re-broadcasts the *entire* session JSON | an authenticated channel member alternating `pass` grows memory linearly and cumulative broadcast cost quadratically; `game:create` with a fresh random channelId grows the map without limit | `MAX_GAME_MOVES 1024`, `MAX_GAME_ROOMS 4096`, `MAX_CHANNEL_ID_LEN 128` + 3 unit tests |
@@ -392,7 +392,7 @@ identical in baseline and patched trees.
 
 | Criterion | Status |
 | --- | --- |
-| Phase A posture note, 0 unpinned Actions, 0 unapproved scripts, IOC clean, Playwright frozen | **DONE** |
+| Phase A posture note, 0 unpinned Actions, 0 unapproved scripts, IOC clean, Playwright frozen | **DONE** (actions/CI half re-landed on main by the 2026-11-04 CI-enforcement PR; see posture §8) |
 | Phase B `cargo audit` + `cargo-deny` + `cargo tree --duplicates` executed | **NOT DONE** (no Rust toolchain; offline RustSec matcher + `deny.toml` + CI jobs delivered instead) |
 | CVE register with required schema, every §2b item adjudicated | **DONE** (82 rows, 0 untriaged) |
 | Phase C reviewed-with-notes for every Oct commit | **DONE** (23 commits) |

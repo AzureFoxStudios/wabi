@@ -13,10 +13,10 @@ jobs:
   container-install:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          node-version: 22.23.4
       - name: Build the source-only Authority image
         run: docker build --build-arg WABI_SOURCE_REVISION -t wabi-candidate:ci -f core/crates/wabi-server/Dockerfile .
       - name: Fresh Compose install and restart
@@ -25,19 +25,19 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # --- Rust toolchain ---
       # Keep this version in sync with rust-toolchain.toml. The
       # dtolnay/rust-toolchain action does not accept a toolchain-file input.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.93
+        uses: dtolnay/rust-toolchain@633c1125191e55c620c8ae7d364073c0ead621c1 # 1.93 (branch)
 
       # --- Node (for npm install in frontend) ---
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          node-version: 22.23.4
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -52,11 +52,17 @@ jobs:
       - name: Install frontend deps
         working-directory: frontend
         run: npm ci --no-audit --no-fund
+      - name: npm audit (advisory grade of existing debt; blocks nothing here)
+        working-directory: frontend
+        run: npm audit --audit-level=high
+        continue-on-error: true
 
       - name: Install bun (for bun test + svelte-check)
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.3.14
+          bun-version: 1.4.4
+      - name: Runtime toolchain fingerprint (Node2Shell floor)
+        run: node scripts/security/toolchain-fingerprint.mjs --require-bun
 
       - name: Frontend unit tests
         working-directory: frontend
@@ -107,3 +113,34 @@ jobs:
       #     echo "Deploy + smoke step goes here"
       #     # e.g. scp binary to test box, ssh in, restart, curl /health
       # ------------------------------------------------------------------
+
+  # ------------------------------------------------------------------------
+  # Supply-chain gate (2026-11 backend security audit, Phase A/E).
+  # Advisory mode: ONLY three classes can fail CI here and in every mode --
+  #   (a) an unapproved npm lifecycle script in any lockfile, (b) a Bun
+  #   version < 1.4.4 anywhere, (c) an exact worm-IOC / typosquat name hit.
+  # Action pins and the Node floor stay report-only until triage land;
+  # flip everything by changing --mode to blocking and removing the two
+  # continue-on-error flags. Spec: docs/audits/2026-11-supply-chain-posture.md §5.
+  # ------------------------------------------------------------------------
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Install Node (floored, required by the npm audit gate)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.23.4
+      - name: Supply-chain gate (pins, floors, lifecycle scripts, IOCs)
+        run: python3 scripts/security/supply_chain_check.py --root . --mode advisory --json
+      - name: Action pin integrity
+        run: python3 scripts/security/pin_actions.py --check
+      - name: npm advisory baseline gate (blocks NEW high/critical advisories)
+        run: python3 scripts/security/npm_audit_gate.py --mode blocking
+      - name: Cargo advisories (existing rust debt graded, report-only)
+        continue-on-error: true
+        run: |
+          cargo install cargo-deny --version 0.20.2 --locked --quiet
+          cargo deny check advisories licenses sources
