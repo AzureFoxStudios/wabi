@@ -138,7 +138,7 @@ jobs:
       - name: Action pin integrity
         run: python3 scripts/security/pin_actions.py --check
       - name: npm advisory baseline gate (blocks NEW high/critical advisories)
-        run: python3 scripts/security/npm_audit_gate.py --mode blocking --json
+        run: python3 scripts/security/npm_audit_gate.py --mode blocking
       - name: Cargo advisories (existing rust debt graded, report-only)
         continue-on-error: true
         run: |
