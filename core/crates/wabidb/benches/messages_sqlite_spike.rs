@@ -47,7 +47,11 @@ fn channel(n: usize) -> String {
 
 /// The same command `WdbAdapter::send_message` builds (stream key, room-owner
 /// precondition with no placement, one `message_created` event on the room).
-async fn send_message(engine: &WabiDbEngine, rng: &mut StdRng, room: &str, user: u64) -> String {
+/// `command_key = false` is for dataset generation only: past 100,000 keyed
+/// commands the in-memory idempotency table sorts all entries on every insert
+/// (`commands/idempotency.rs`, pre-existing on main), which would turn a 1M
+/// generation into hours. The record's own idempotency_key field is kept.
+async fn send_message(engine: &WabiDbEngine, rng: &mut StdRng, room: &str, user: u64, command_key: bool) -> String {
     let message_id = format!("msg_{:032x}", rng.gen::<u128>());
     let body_len = rng.gen_range(20..300);
     let body: String = (0..body_len).map(|_| rng.gen_range(b'a'..=b'z') as char).collect();
@@ -77,7 +81,7 @@ async fn send_message(engine: &WabiDbEngine, rng: &mut StdRng, room: &str, user:
             caller_user_id: user,
             caller_device_id: "primary".into(),
             command_name: "send_message".into(),
-            idempotency_key: record.idempotency_key.clone(),
+            idempotency_key: if command_key { record.idempotency_key.clone() } else { None },
             events: vec![EventToWrite {
                 stream_id: room.into(),
                 event_type: "message_created".into(),
@@ -146,7 +150,7 @@ async fn generate(dir: PathBuf, messages: usize, channels: usize) {
             let mut cursors = Vec::new();
             for n in (task..messages).step_by(tasks) {
                 let room = channel(n % channels);
-                let id = send_message(&engine, &mut rng, &room, 1 + (n % 200) as u64).await;
+                let id = send_message(&engine, &mut rng, &room, 1 + (n % 200) as u64, false).await;
                 if n % 500 == 0 {
                     cursors.push(format!("{room} {id}"));
                 }
@@ -213,7 +217,7 @@ async fn cold(backend: String, dir: PathBuf) {
             for _ in 0..SENDS_PER_WRITER {
                 let room = &channels[rng.gen_range(0..channels.len())];
                 let started = Instant::now();
-                send_message(&engine, &mut rng, room, 1 + writer as u64).await;
+                send_message(&engine, &mut rng, room, 1 + writer as u64, true).await;
                 samples.push(started.elapsed());
             }
             samples
