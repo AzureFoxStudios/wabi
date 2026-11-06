@@ -17,8 +17,8 @@ Rules for this task:
 3. Do not edit any file under docs/ unless the task says to. If a doc claim is now false, list it at the end instead.
 4. Do not add a feature, module, or abstraction that the task did not ask for.
 5. If you are unsure whether a change is safe for existing stored data, stop and say so.
-6. Run `cargo test --workspace` (and `--features wabi-lore` tests if you touched Lore) before you finish.
-7. End with: the exact test command, its output, and the list of files changed.
+6. Before you finish, run the tests for the crate you changed, plus `cargo test -p wabi-server --features wabi-lore --lib -- lore` if you touched Lore. Run the full `cargo test --workspace` only with `CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0 --no-fail-fast` (a plain build does not fit this sandbox's disk). Failures that need a real frontend build, IPv6, or a non-root user are environmental here and pass on GitHub's runners; list them by name and move on. Do not try to build the frontend in this sandbox; its proxy blocks a CDN that `npm ci` needs.
+7. End with: the exact test command, its output, and the list of files changed. If the plan document named above is not on your branch, say so and continue from this task text; it is on a branch awaiting merge.
 ```
 
 ---
