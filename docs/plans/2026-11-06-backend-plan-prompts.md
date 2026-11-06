@@ -9,7 +9,7 @@ Usage: start a **new** session for each task, paste the **preamble** first, then
 ## Preamble (paste at the top of every session)
 
 ```
-Read AGENTS.md and docs/plans/2026-11-06-backend-plan.md before doing anything. Then do ONLY the task I paste after this. Create a new branch off main for it. Do not open a pull request unless I ask.
+Read AGENTS.md and docs/plans/2026-11-06-backend-plan.md before doing anything. Then do ONLY the task I paste after this. Create a new branch off main for it, named after the task. When the task is done and its tests pass, push that branch to origin and open one pull request against main with the summary from rule 7 as its description. Do not push to any other branch.
 
 Rules for this task:
 1. Write a test that reproduces the problem and fails on main before changing any code. Show me the failing output.
