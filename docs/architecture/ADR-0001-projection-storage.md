@@ -1,6 +1,6 @@
 # ADR-0001: Where WabiDB's read model lives
 
-- **Status:** Proposed, 2026-11-06. Accepted once the owner has read it.
+- **Status:** Accepted, 2026-11-06 (proposed and accepted the same day, after the Task 0.1 spike).
 - **Inputs:** [backend audit §6](../plans/2026-11-06-backend-audit-wabidb-lore.md#6-the-strategic-question-is-wabidb-worth-keeping); spike branch `spike/messages-projection-sqlite` (`core/crates/wabidb/benches/messages_sqlite_spike_RESULTS.md` has the full table, method and caveats).
 
 ## Context
