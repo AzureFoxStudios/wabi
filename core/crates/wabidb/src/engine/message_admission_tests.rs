@@ -435,3 +435,73 @@ async fn durable_message_writes_cannot_omit_or_substitute_an_actual_room_guard()
     );
     assert!(engine.is_healthy());
 }
+
+#[tokio::test]
+async fn removed_reaction_stays_removed_after_reopen_and_replay() {
+    let list = |engine: &WabiDbEngine| {
+        reactions::ReactionsProjection::list_reactions(&engine.projection_state(), "msg_a")
+            .unwrap()
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let engine = WabiDbEngine::open(config(dir.path())).await.unwrap();
+    for stream in [
+        "ch_a",
+        "reactions:msg_a",
+        "reactions:msg_a:thumbsup:removed",
+    ] {
+        engine.get_or_create_stream_key(stream).await.unwrap();
+    }
+    for (kind, stream, payload) in [
+        (
+            "message_created",
+            "ch_a",
+            encode_record(&record("ch_a", "msg_a")),
+        ),
+        (
+            "reaction_added",
+            "reactions:msg_a",
+            reactions::encode_reaction(&reaction("msg_a")),
+        ),
+    ] {
+        engine
+            .run_command(command(vec![event(kind, stream, payload)], None).0)
+            .await
+            .unwrap();
+    }
+    assert_eq!(list(&engine), vec![reaction("msg_a")]);
+
+    engine
+        .run_command(
+            command(
+                vec![event(
+                    "reaction_removed",
+                    "reactions:msg_a:thumbsup:removed",
+                    reactions::encode_reaction(&reaction("msg_a")),
+                )],
+                None,
+            )
+            .0,
+        )
+        .await
+        .unwrap();
+    assert!(list(&engine).is_empty(), "live read after removal");
+
+    // Ordinary restart (snapshot present).
+    drop(engine);
+    let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
+    drop(stopped);
+    let reopened = crate::tests::reopen_after_drop(config(dir.path()), None)
+        .await
+        .unwrap();
+    assert!(list(&reopened).is_empty(), "after reopen with snapshot");
+
+    // Restart that must rebuild projections from the durable log.
+    drop(reopened);
+    let stopped = crate::tests::wait_for_stopped_engine(dir.path()).await;
+    ProjectionState::remove_snapshot(dir.path());
+    drop(stopped);
+    let replayed = crate::tests::reopen_after_drop(config(dir.path()), None)
+        .await
+        .unwrap();
+    assert!(list(&replayed).is_empty(), "after reopen with log replay");
+}
