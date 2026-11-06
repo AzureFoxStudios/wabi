@@ -9,7 +9,7 @@ Usage: start a **new** session for each task, paste the **preamble** first, then
 ## Preamble (paste at the top of every session)
 
 ```
-Read AGENTS.md and docs/plans/2026-11-06-backend-plan.md before doing anything. Then do ONLY the task I paste after this. Create a new branch off main for it, named after the task. When the task is done and its tests pass, push that branch to origin and open one pull request against main with the summary from rule 7 as its description. Do not push to any other branch.
+Read AGENTS.md and docs/plans/2026-11-06-backend-plan.md before doing anything. Then do ONLY the task I paste after this. Create a new branch off main for it, named after the task.
 
 Rules for this task:
 1. Write a test that reproduces the problem and fails on main before changing any code. Show me the failing output.
@@ -18,7 +18,7 @@ Rules for this task:
 4. Do not add a feature, module, or abstraction that the task did not ask for.
 5. If you are unsure whether a change is safe for existing stored data, stop and say so.
 6. Before you finish, run the tests for the crate you changed, plus `cargo test -p wabi-server --features wabi-lore --lib -- lore` if you touched Lore. Run the full `cargo test --workspace` only with `CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0 --no-fail-fast` (a plain build does not fit this sandbox's disk). Failures that need a real frontend build, IPv6, or a non-root user are environmental here and pass on GitHub's runners; list them by name and move on. Do not try to build the frontend in this sandbox; its proxy blocks a CDN that `npm ci` needs.
-7. End with: the exact test command, its output, and the list of files changed. If the plan document named above is not on your branch, say so and continue from this task text; it is on a branch awaiting merge.
+7. End with: the exact test command, its output, and the list of files changed. When the task is done and its tests pass, push the task branch to origin and open one pull request against main, using that summary as the description. Do not push to any other branch. If the plan document named above is not on your branch, say so and continue from this task text; it is on a branch awaiting merge.
 ```
 
 ---
