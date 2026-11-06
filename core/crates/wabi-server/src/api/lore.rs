@@ -1861,6 +1861,8 @@ async fn upload_file(
             }
             let message = query.message.unwrap_or_else(|| "Upload via API".into());
             let repo_path = query.repo_path.unwrap_or_else(|| path.clone());
+            wabi_lore::validate_repo_path(&repo_path)
+                .map_err(|_| AppError::BadRequest("Invalid repository file path".into()))?;
 
             let lore = lore_service(&state).await?;
             // Mirror repos are read-only pointers — reject uploads with 501.
