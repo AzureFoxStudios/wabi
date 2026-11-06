@@ -36,7 +36,7 @@ Model: Opus/Fable. You check: the numbers table, and that the branch is marked t
 Prompt: "Write `docs/architecture/ADR-0001-projection-storage.md` using the spike numbers. State the decision (A or B), the three strongest reasons against it, and what would make us revisit it. Under 2 pages."
 Model: Opus/Fable. You check: that you agree with the decision after reading it once.
 
-**Decision taken 2026-11-06 (see audit §6 and the discussion that followed):** the default is **B**. Keep the WabiDB log as the source of truth; move the read model to SQLite behind the existing `WabiStore` seam, treated as derived and rebuildable. The spike is a check on B, not a coin flip: choose A only if the spike shows B is clearly worse at realistic load (for example, p99 read latency several times worse with no RAM or startup benefit).
+**Decision taken 2026-11-06, recorded in `docs/architecture/ADR-0001-projection-storage.md` (accepted after the spike):** the default is **B**. Keep the WabiDB log as the source of truth; move the read model to SQLite behind the existing `WabiStore` seam, treated as derived and rebuildable. The spike is a check on B, not a coin flip: choose A only if the spike shows B is clearly worse at realistic load (for example, p99 read latency several times worse with no RAM or startup benefit).
 
 Two requirements that come with B:
 
@@ -61,6 +61,8 @@ These are independent. Each is one PR with a failing test first.
 | 1.8 | CI job `power-loss`: `cargo test -p wabidb --features test-harness --lib tests::power_loss -- --ignored`. | process | Sonnet | Job appears green |
 | 1.9 | Batcher liveness in `is_healthy`/readiness, so a dead batcher returns 503. Test: kill batcher task, readiness fails. | W13 | Sonnet | Test exists |
 | 1.10 | `/recordings` enforces `can_asset_write_lore` and the blob cap. | L7 | Sonnet | Test exists |
+| 1.11 | Idempotency table eviction is O(n log n) per insert past the cap: `evict_for_insert` collects and sorts every record. Replace with an expiry-ordered structure so insert is O(log n). | ADR-0001 (a) | Sonnet | Benchmark shows flat insert cost at 100k entries |
+| 1.12 | Replay collects every post-snapshot event into one Vec before applying (`engine/replay.rs` `collected`). Apply in commit_seq order while streaming segments, bounded memory. | ADR-0001 (b) | Opus | Test asserts peak memory or that apply starts before the last segment is read |
 
 ---
 

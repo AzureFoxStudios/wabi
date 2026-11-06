@@ -217,6 +217,34 @@ Tests first (must fail on main): a view-only member of the Recordings channel ge
 
 You check: three tests, one per rule.
 
+### Task 1.11 Idempotency table eviction cost (Sonnet)
+
+```
+TASK 1.11.
+
+Problem, found by the ADR-0001 spike: core/crates/wabidb/src/commands/idempotency.rs CommandIdempotencyTable stores records in a HashMap keyed by (user, key). Once the table reaches its maximum size, every insert calls evict_for_insert, which first retains non-expired records (a full scan) and then builds a Vec of all records, sorts it by expiry, and evicts the oldest. That is O(n log n) per insert at the cap. In the spike, generating 100,000 messages went from 65 seconds to 52 minutes once the table was full.
+
+Fix: keep the HashMap for lookup, and add a BTreeMap<(expires_at, user, key), ()> or a BinaryHeap of (expires_at, user, key) as the eviction order, maintained on insert and remove, so eviction of the oldest is O(log n) and no full scan happens on the hot path. remove_expired may keep its scan since it runs on a timer, but it must also maintain the secondary structure. Keep the public API unchanged.
+
+Test first (must fail on main as a timing or operation-count assertion): a test that inserts 2x the maximum record count and asserts the total time stays under a generous bound (for example, 200,000 inserts under 2 seconds in release mode, or count calls to the sort via a test hook). Keep the existing eviction tests passing, including "prefers evicting expired over live".
+```
+
+You check: the test inserts well past the table cap and asserts a bound.
+
+### Task 1.12 Replay streams events instead of collecting them all (Opus)
+
+```
+TASK 1.12.
+
+Problem, found by the ADR-0001 spike: core/crates/wabidb/src/engine/replay.rs replay_projections reads every segment of every stream and pushes every post-snapshot event into one Vec called `collected` (around line 127), then sorts it by (commit_seq, ordinal) and applies. At 1,000,000 messages this holds about 1.2 GiB at peak, regardless of which read model is in use. The reason for collecting is that segment directory order is not commit order, and the global order must be restored.
+
+Fix: apply in commit_seq order without holding every event. The commit index already lists, for every commit_seq in order, the (stream_kind, stream_id, segment, offset, length) of each event (see the `committed` map at the top of the function and the StreamRef type). Iterate the commit index in commit_seq order and read each referenced record directly from its segment at the recorded offset, using the existing segment reader's seek capability or adding one, with a small per-segment read cache so sequential records in one segment are not re-opened. Keep every current check: orphan records are still ignored, every indexed post-snapshot event must still be found and decode, duplicates still fail, and the (commit_seq, ordinal) order is preserved. Do not change the on-disk format.
+
+Tests first: the existing replay tests must pass unchanged. Add one that writes events across three streams with interleaved commit_seqs, replays, and asserts the apply order equals commit_seq order (there is a test handler that records order around line 428 you can reuse). Add one that measures, via a counter in a test hook, that the maximum number of events held in memory at once during replay is bounded by a small constant times the number of streams, not by the total event count.
+```
+
+You check: a test asserts a bound on events held in memory during replay.
+
 ---
 
 ## Phase 2: delete and tell the truth
