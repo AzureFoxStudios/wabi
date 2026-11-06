@@ -12,15 +12,20 @@ bin=$(ls -t "$repo"/target/release/deps/messages_sqlite_spike-* | grep -v '\.d$'
 
 drop_caches() { sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || echo "WARN: page cache not dropped" >&2; }
 
+# A step that dies (e.g. killed for memory) is a result: record it, go on.
+step() { "$bin" "$@" || echo "{\"step\":\"$1-died\",\"backend\":\"$2\",\"exit\":$?}"; }
+
 mkdir -p "$root"
-rm -rf "$root/dataset"
-"$bin" generate "$root/dataset" "$messages" "$channels"
+if [ ! -f "$root/dataset/bench-cursors.txt" ]; then   # reuse a finished dataset
+  rm -rf "$root/dataset"
+  "$bin" generate "$root/dataset" "$messages" "$channels"
+fi
 for backend in memory sqlite; do
   rm -rf "$root/$backend"
   cp -a "$root/dataset" "$root/$backend"
   drop_caches
-  "$bin" cold "$backend" "$root/$backend"
+  step cold "$backend" "$root/$backend"
   drop_caches
-  "$bin" warm "$backend" "$root/$backend"
+  step warm "$backend" "$root/$backend"
   rm -rf "$root/$backend"
 done

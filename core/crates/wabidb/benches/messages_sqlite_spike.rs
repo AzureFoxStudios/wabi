@@ -201,35 +201,20 @@ async fn open_timed(backend: &str, dir: &Path) -> (WabiDbEngine, serde_json::Val
     (engine, info)
 }
 
+/// Print one result line now, so a later out-of-memory kill cannot lose it.
+fn emit(value: serde_json::Value) {
+    use std::io::Write;
+    println!("{value}");
+    std::io::stdout().flush().unwrap();
+}
+
 async fn cold(backend: String, dir: PathBuf) {
     let (engine, startup) = open_timed(&backend, &dir).await;
+    emit(serde_json::json!({ "step": "cold-startup", "backend": backend, "startup": startup }));
     let engine = Arc::new(engine);
     let channels: Vec<String> = (0..50).map(channel).collect();
 
-    // send_message under 8 concurrent writers.
-    let mut handles = Vec::new();
-    for writer in 0..WRITERS {
-        let engine = Arc::clone(&engine);
-        let channels = channels.clone();
-        handles.push(tokio::spawn(async move {
-            let mut rng = StdRng::seed_from_u64(1_000 + writer as u64);
-            let mut samples = Vec::with_capacity(SENDS_PER_WRITER);
-            for _ in 0..SENDS_PER_WRITER {
-                let room = &channels[rng.gen_range(0..channels.len())];
-                let started = Instant::now();
-                send_message(&engine, &mut rng, room, 1 + writer as u64, true).await;
-                samples.push(started.elapsed());
-            }
-            samples
-        }));
-    }
-    let write_started = Instant::now();
-    let mut sends = Vec::new();
-    for handle in handles {
-        sends.extend(handle.await.unwrap());
-    }
-    let write_seconds = write_started.elapsed().as_secs_f64();
-
+    // Reads first, so they are measured even if the write run is killed.
     // list_messages_page, 50 messages: newest page, and an older page before
     // a random message from anywhere in the channel's history.
     let cursors: Vec<(String, String)> = std::fs::read_to_string(dir.join(CURSORS_FILE))
@@ -257,34 +242,80 @@ async fn cold(backend: String, dir: PathBuf) {
         before.push(started.elapsed());
         assert!(page.messages.len() <= PAGE);
     }
+    emit(serde_json::json!({
+        "step": "cold-reads", "backend": backend,
+        "page_latest": percentiles(latest),
+        "page_before_random_cursor": percentiles(before),
+    }));
+
+    // send_message under 8 concurrent writers. Samples are shared so a
+    // progress line every 10 s survives a kill part-way through.
+    let samples = Arc::new(std::sync::Mutex::new(Vec::with_capacity(WRITERS * SENDS_PER_WRITER)));
+    let write_started = Instant::now();
+    let reporter = {
+        let samples = Arc::clone(&samples);
+        let backend = backend.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                let so_far: Vec<Duration> = samples.lock().unwrap().clone();
+                if so_far.is_empty() { continue; }
+                let (rss, hwm) = memory_kib();
+                emit(serde_json::json!({
+                    "step": "cold-writes-progress", "backend": backend,
+                    "elapsed_s": write_started.elapsed().as_secs_f64(),
+                    "send_message": percentiles(so_far),
+                    "rss_mib": rss as f64 / 1024.0, "peak_rss_mib": hwm as f64 / 1024.0,
+                }));
+            }
+        })
+    };
+    let mut handles = Vec::new();
+    for writer in 0..WRITERS {
+        let engine = Arc::clone(&engine);
+        let channels = channels.clone();
+        let samples = Arc::clone(&samples);
+        handles.push(tokio::spawn(async move {
+            let mut rng = StdRng::seed_from_u64(1_000 + writer as u64);
+            for _ in 0..SENDS_PER_WRITER {
+                let room = &channels[rng.gen_range(0..channels.len())];
+                let started = Instant::now();
+                send_message(&engine, &mut rng, room, 1 + writer as u64, true).await;
+                samples.lock().unwrap().push(started.elapsed());
+            }
+        }));
+    }
+    for handle in handles {
+        handle.await.unwrap();
+    }
+    reporter.abort();
+    let write_seconds = write_started.elapsed().as_secs_f64();
+    let sends = samples.lock().unwrap().clone();
     let (rss_end, hwm_end) = memory_kib();
+    emit(serde_json::json!({
+        "step": "cold-writes", "backend": backend,
+        "send_message": percentiles(sends),
+        "send_message_wall_s": write_seconds,
+        "rss_after_bench_mib": rss_end as f64 / 1024.0,
+        "peak_rss_after_bench_mib": hwm_end as f64 / 1024.0,
+    }));
 
     let started = Instant::now();
     drop(Arc::try_unwrap(engine).unwrap());
     let shutdown = started.elapsed();
     tokio::time::sleep(Duration::from_secs(2)).await;
-    println!(
-        "{}",
-        serde_json::json!({
-            "step": "cold", "backend": backend,
-            "startup": startup,
-            "send_message": percentiles(sends),
-            "send_message_wall_s": write_seconds,
-            "page_latest": percentiles(latest),
-            "page_before_random_cursor": percentiles(before),
-            "rss_after_bench_mib": rss_end as f64 / 1024.0,
-            "peak_rss_after_bench_mib": hwm_end as f64 / 1024.0,
-            "shutdown_s": shutdown.as_secs_f64(),
-            "read_model_bytes_on_disk": dir_bytes(&dir.join("projections")),
-        })
-    );
+    emit(serde_json::json!({
+        "step": "cold-shutdown", "backend": backend,
+        "shutdown_s": shutdown.as_secs_f64(),
+        "read_model_bytes_on_disk": dir_bytes(&dir.join("projections")),
+    }));
 }
 
 async fn warm(backend: String, dir: PathBuf) {
     let (engine, startup) = open_timed(&backend, &dir).await;
     drop(engine);
     tokio::time::sleep(Duration::from_secs(2)).await;
-    println!("{}", serde_json::json!({ "step": "warm", "backend": backend, "startup": startup }));
+    emit(serde_json::json!({ "step": "warm", "backend": backend, "startup": startup }));
 }
 
 fn main() {
