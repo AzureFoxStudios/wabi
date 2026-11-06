@@ -178,6 +178,9 @@ pub struct ProjectionState {
     applied_commit_seq: tokio::sync::watch::Sender<u64>,
     /// Count of fully applied commands, used for periodic checkpointing.
     dispatch_count: AtomicU64,
+    /// SPIKE (Task 0.1): when attached, the messages read model lives here
+    /// instead of in `indexes`.
+    messages_sqlite: std::sync::OnceLock<crate::projections::messages_sqlite::SqliteMessages>,
 }
 
 /// Canonical diagnostic for an in-memory projection view. No record bytes or
@@ -204,7 +207,23 @@ impl ProjectionState {
             indexes: RwLock::new(HashMap::new()),
             applied_commit_seq: tokio::sync::watch::channel(0).0,
             dispatch_count: AtomicU64::new(0),
+            messages_sqlite: std::sync::OnceLock::new(),
         }
+    }
+
+    /// SPIKE (Task 0.1): route the messages read model to SQLite. Attach
+    /// before replay and before the dispatcher starts.
+    pub(crate) fn attach_messages_sqlite(
+        &self,
+        store: crate::projections::messages_sqlite::SqliteMessages,
+    ) {
+        if self.messages_sqlite.set(store).is_err() {
+            panic!("messages SQLite store attached twice");
+        }
+    }
+
+    pub fn messages_sqlite(&self) -> Option<&crate::projections::messages_sqlite::SqliteMessages> {
+        self.messages_sqlite.get()
     }
 
     /// The current `applied_commit_seq` watermark. Reads compare against
@@ -595,6 +614,11 @@ impl ProjectionState {
         // Watermark-first alone is insufficient for multi-event commands:
         // checkpointing a partial commit can replay non-idempotent effects twice.
         let watermark = self.applied_commit_seq();
+        // SPIKE (Task 0.1): replay starts after this checkpoint, so SQLite must
+        // be durable at least up to its watermark first.
+        if let Some(messages) = self.messages_sqlite() {
+            messages.sync(watermark)?;
+        }
 
         let indexes = self
             .indexes
@@ -810,6 +834,19 @@ async fn run_dispatcher(
                 let key = item.event_type.as_bytes().to_vec();
                 let value = item.payload.clone();
                 state.insert("events", key, value, item.commit_seq);
+            }
+        }
+        // SPIKE (Task 0.1): commit this command's SQLite transaction before
+        // the watermark says its messages are readable.
+        if let Some(messages) = state.messages_sqlite() {
+            if let Err(e) = messages.finish_commit() {
+                state.apply_failed.store(true, Ordering::Release);
+                let error = WabiError::InternalInvariantViolated {
+                    invariant: format!("durable commit {} messages SQLite commit failed: {e}", commit.commit_seq),
+                };
+                tracing::error!("{error}");
+                let _ = commit.applied_tx.send(Err(error));
+                return;
             }
         }
         state.advance_watermark(commit.commit_seq);

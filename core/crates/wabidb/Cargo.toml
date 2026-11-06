@@ -52,12 +52,20 @@ toml = "0.8"
 # Async trait support (SyncTransport trait)
 async-trait = "0.1"
 
+# SPIKE (Task 0.1): SQLite storage behind MessagesProjection (opt-in per data dir).
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+
 [[bench]]
 name = "commit_throughput"
 harness = false
 
 [[bench]]
 name = "projection_read"
+harness = false
+
+# SPIKE (Task 0.1): in-memory vs SQLite messages read model.
+[[bench]]
+name = "messages_sqlite_spike"
 harness = false
 
 [features]

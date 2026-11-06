@@ -318,12 +318,27 @@ impl WabiDbEngine {
         let dispatch_table = type_registry.dispatch_table().clone();
 
         // 7. Load projection state (with optional snapshot)
-        let projection_state =
+        let mut projection_state =
             if let Some((state, _watermark)) = ProjectionState::load_snapshot(data_dir)? {
                 Arc::new(state)
             } else {
                 Arc::new(ProjectionState::new())
             };
+        // SPIKE (Task 0.1): opt-in SQLite messages read model. Replay starts
+        // after the in-memory snapshot, so a SQLite file behind it (deleted,
+        // or older) means the whole log must be replayed.
+        if crate::projections::messages_sqlite::opted_in(data_dir) {
+            let messages = crate::projections::messages_sqlite::SqliteMessages::open(data_dir)?;
+            if messages.applied_seq() < projection_state.applied_commit_seq()
+                || projection_state.index_len("messages") > 0
+            {
+                tracing::warn!(
+                    "messages SQLite read model is behind the projection snapshot; replaying the whole log"
+                );
+                projection_state = Arc::new(ProjectionState::new());
+            }
+            projection_state.attach_messages_sqlite(messages);
+        }
         // Older snapshots may lack derived ID lookups. Rebuild them before
         // the dispatcher or sequencer can use the state; validate message
         // pointers even when their count matches the primary index.
@@ -351,6 +366,10 @@ impl WabiDbEngine {
             snapshot_watermark,
         )
         .await?;
+        // SPIKE (Task 0.1): commit the last replayed commit's transaction.
+        if let Some(messages) = projection_state.messages_sqlite() {
+            messages.finish_commit()?;
+        }
 
         // 8. Create commit-index batcher
         let commit_index_dir = data_dir.join("global").join("commit-index");
@@ -1573,6 +1592,8 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
 
 #[cfg(test)]
 mod message_admission_tests;
+#[cfg(test)]
+mod spike_messages_sqlite_tests;
 
 #[cfg(test)]
 mod node_identity_tests;

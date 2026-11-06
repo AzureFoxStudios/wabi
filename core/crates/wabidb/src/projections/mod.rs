@@ -26,6 +26,8 @@ pub mod incidents;
 pub mod layouts;
 pub mod lore;
 pub mod messages;
+// SPIKE (Task 0.1): SQLite storage behind MessagesProjection; opt-in per data dir.
+pub mod messages_sqlite;
 pub mod message_lookup;
 pub mod noop;
 pub mod owner;

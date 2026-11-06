@@ -2,6 +2,7 @@ use crate::engine::locks::ProjectionState;
 use crate::error::Result;
 use crate::projections::codec::RecordCodec;
 use crate::projections::handler::{DurableEvent, Projection};
+use crate::projections::messages_sqlite::{SqliteMessages, TimeRange};
 use crate::projections::query::{apply_limit, MessagesFilter, QueryableProjection};
 use crate::projections::secondary_index::SecondaryIndex;
 use crossbeam_skiplist::SkipMap;
@@ -301,6 +302,11 @@ impl Projection for MessagesProjection {
     }
 
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
+        // SPIKE (Task 0.1): SQLite's applied_commit_seq acts as this
+        // projection's own snapshot watermark during replay.
+        if state.messages_sqlite().is_some_and(|sql| event.commit_seq <= sql.applied_seq()) {
+            return Ok(());
+        }
         let result = match event.event_type.as_str() {
             "message_created" => self.apply_created(event, state),
             "message_edited" => self.apply_edited(event, state),
@@ -322,6 +328,12 @@ impl MessagesProjection {
         channel_id: &str,
         message_id: &str,
     ) -> Result<Option<MessageRecord>> {
+        if let Some(sql) = state.messages_sqlite() {
+            return sql
+                .read(|conn| SqliteMessages::get(conn, channel_id, message_id))?
+                .map(|bytes| decode_record(&bytes))
+                .transpose();
+        }
         let key = encode_key(channel_id, message_id);
         match state.get("messages", &key) {
             None => Ok(None),
@@ -340,13 +352,18 @@ impl MessagesProjection {
         prefix.extend_from_slice(&(channel_id.len() as u64).to_le_bytes());
         prefix.extend_from_slice(channel_id.as_bytes());
         let mut results = Vec::new();
-        state.prefix_scan("messages", &prefix, |_key, value| {
+        let mut visit = |value: &[u8]| {
             if let Ok(record) = decode_record(value) {
                 if include_deleted || !record.is_deleted {
                     results.push(record);
                 }
             }
-        });
+        };
+        if let Some(sql) = state.messages_sqlite() {
+            sql.read(|conn| SqliteMessages::visit_latest(conn, Some(channel_id), |value| { visit(value); true }))?;
+        } else {
+            state.prefix_scan("messages", &prefix, |_key, value| visit(value));
+        }
         Ok(results)
     }
 
@@ -385,7 +402,7 @@ impl MessagesProjection {
         // rather than overwriting, so walking backwards the first entry seen
         // per message id is its latest state; older versions are skipped.
         let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-        state.prefix_scan_reverse("messages_by_channel_time", &prefix, |_key, value| {
+        let mut visit = |value: &[u8]| {
             if results_rev.len() >= limit {
                 return false; // window full — early exit
             }
@@ -401,7 +418,17 @@ impl MessagesProjection {
             }
             results_rev.push(record);
             true
-        });
+        };
+        if let Some(sql) = state.messages_sqlite() {
+            sql.read(|conn| {
+                SqliteMessages::visit_time(conn, channel_id, &TimeRange::all(true), |value| {
+                    Ok::<_, std::convert::Infallible>(visit(value))
+                })
+            })?
+            .unwrap_or(());
+        } else {
+            state.prefix_scan_reverse("messages_by_channel_time", &prefix, |_key, value| visit(value));
+        }
         results_rev.reverse();
         results_rev.truncate(limit);
         Ok(results_rev)
@@ -458,6 +485,16 @@ impl MessagesProjection {
             bucket: std::collections::BTreeMap::new(),
             messages: Vec::with_capacity(limit.saturating_add(1)),
         };
+        if let Some(sql) = state.messages_sqlite() {
+            // Same bounds as the key ranges below: a whole boundary bucket.
+            let range = match &page.cursor {
+                None => TimeRange::all(true),
+                Some((time, _)) if after => TimeRange { from_micros: *time, through_micros: i64::MAX, newest_first: false },
+                Some((time, _)) => TimeRange { from_micros: i64::MIN, through_micros: *time, newest_first: true },
+            };
+            sql.read(|conn| SqliteMessages::visit_time(conn, channel_id, &range, |value| page.visit(value)))??;
+            return Ok(page.finish(limit));
+        }
         state.with_index("messages_by_channel_time", |index| -> Result<()> {
             if after {
                 for entry in index.range((Included(lower), Excluded(upper))) {
@@ -506,21 +543,31 @@ impl MessagesProjection {
         // All supported timestamps are nonnegative. u64 also represents the
         // exclusive successor of i64::MAX without overflowing.
         upper.extend_from_slice(&(through_micros as u64 + 1).to_be_bytes());
-        state.with_index("messages_by_channel_time", |index| {
-            let mut seen = std::collections::HashSet::new();
-            let mut records = Vec::with_capacity(limit.min(1000));
-            for entry in index.range((Included(lower), Excluded(upper))).rev() {
-                let record = decode_record(entry.value())?;
-                // Edits and deletes append index versions at the same original
-                // timestamp. Resolve the latest version before applying the limit.
-                if !seen.insert(record.message_id.clone()) || record.is_deleted { continue; }
-                if record.created_at_micros >= from_micros && record.created_at_micros <= through_micros {
-                    records.push(record);
-                    if records.len() == limit { break; }
-                }
+        let mut seen = std::collections::HashSet::new();
+        let mut records = Vec::with_capacity(limit.min(1000));
+        let mut visit = |value: &[u8]| -> Result<bool> {
+            let record = decode_record(value)?;
+            // Edits and deletes append index versions at the same original
+            // timestamp. Resolve the latest version before applying the limit.
+            if !seen.insert(record.message_id.clone()) || record.is_deleted { return Ok(true); }
+            if record.created_at_micros >= from_micros && record.created_at_micros <= through_micros {
+                records.push(record);
+                if records.len() == limit { return Ok(false); }
             }
-            Ok(records)
-        })
+            Ok(true)
+        };
+        if let Some(sql) = state.messages_sqlite() {
+            let range = TimeRange { from_micros, through_micros, newest_first: true };
+            sql.read(|conn| SqliteMessages::visit_time(conn, channel_id, &range, &mut visit))??;
+            return Ok(records);
+        }
+        state.with_index("messages_by_channel_time", |index| -> Result<()> {
+            for entry in index.range((Included(lower), Excluded(upper))).rev() {
+                if !visit(entry.value())? { break; }
+            }
+            Ok(())
+        })?;
+        Ok(records)
     }
 
     /// Remove all soft-deleted records from the `messages` primary index and
@@ -528,6 +575,12 @@ impl MessagesProjection {
     /// time-index versions are removed so an older live row cannot reappear.
     /// Returns the total number of entries removed.
     pub fn compact(state: &ProjectionState) -> usize {
+        if let Some(sql) = state.messages_sqlite() {
+            return sql.compact().unwrap_or_else(|error| {
+                tracing::error!("messages SQLite compaction failed: {error}");
+                0
+            });
+        }
         let deleted_ids = std::cell::RefCell::new(std::collections::HashSet::new());
         let primary = state.compact_index("messages", |_key, value| {
             if let Ok(record) = decode_record_lenient(value) {
@@ -578,30 +631,18 @@ impl MessagesProjection {
         if record.message_id.trim().is_empty() {
             record.message_id = format!("msg_{:x}", event.commit_seq);
         }
-        let key = encode_key(&record.channel_id, &record.message_id);
-        let value = encode_record(&record);
-        state.insert("messages", key, value, event.commit_seq);
-        super::message_lookup::write(state, &record, event.commit_seq);
-        Ok(())
+        store(state, &record, event.commit_seq)
     }
 
     fn apply_edited(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
         let update: MessageRecord = decode_record(&event.payload)?;
         // Reconstruct the composite key from the update's channel + message id.
-        let key = encode_key(&update.channel_id, &update.message_id);
-        let value = encode_record(&update);
-        state.insert("messages", key, value, event.commit_seq);
-        super::message_lookup::write(state, &update, event.commit_seq);
-        Ok(())
+        store(state, &update, event.commit_seq)
     }
 
     fn apply_deleted(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
         let update: MessageRecord = decode_record(&event.payload)?;
-        let key = encode_key(&update.channel_id, &update.message_id);
-        let value = encode_record(&update);
-        state.insert("messages", key, value, event.commit_seq);
-        super::message_lookup::write(state, &update, event.commit_seq);
-        Ok(())
+        store(state, &update, event.commit_seq)
     }
 
     fn apply_channel_cleared(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
@@ -621,11 +662,20 @@ impl MessagesProjection {
         prefix.extend_from_slice(clear.channel_id.as_bytes());
         let mut records = Vec::new();
         let mut decode_error = None;
-        state.prefix_scan("messages", &prefix, |_key, value| match decode_record(value) {
+        let mut visit = |value: &[u8]| match decode_record(value) {
             Ok(record) if !record.is_deleted => records.push(record),
             Ok(_) => {}
             Err(error) => decode_error = Some(error),
-        });
+        };
+        if let Some(sql) = state.messages_sqlite() {
+            // Inside this commit's transaction, so earlier events of the same
+            // command are visible.
+            sql.write(event.commit_seq, |conn| {
+                SqliteMessages::visit_latest(conn, Some(&clear.channel_id), |value| { visit(value); true })
+            })?;
+        } else {
+            state.prefix_scan("messages", &prefix, |_key, value| visit(value));
+        }
         if let Some(error) = decode_error {
             return Err(error);
         }
@@ -671,7 +721,7 @@ impl QueryableProjection for MessagesProjection {
                 // collapsed to their latest version.
                 let mut seen_ids: std::collections::HashSet<String> =
                     std::collections::HashSet::new();
-                state.prefix_scan_reverse("messages_by_channel_time", &prefix, |_key, value| {
+                let mut visit = |value: &[u8]| {
                     if results.len() >= limit {
                         return false; // early exit — window is full
                     }
@@ -707,7 +757,17 @@ impl QueryableProjection for MessagesProjection {
                         }
                         Err(_) => true,
                     }
-                });
+                };
+                if let Some(sql) = state.messages_sqlite() {
+                    sql.read(|conn| {
+                        SqliteMessages::visit_time(conn, channel_id, &TimeRange::all(true), |value| {
+                            Ok::<_, std::convert::Infallible>(visit(value))
+                        })
+                    })?
+                    .unwrap_or(());
+                } else {
+                    state.prefix_scan_reverse("messages_by_channel_time", &prefix, |_key, value| visit(value));
+                }
                 // Index walk is newest-first; callers expect oldest-first.
                 results.reverse();
                 Ok(results)
@@ -717,31 +777,54 @@ impl QueryableProjection for MessagesProjection {
                 let mut prefix = Vec::new();
                 prefix.extend_from_slice(&(author_id.to_le_bytes()));
                 let mut results = Vec::new();
-                state.prefix_scan("messages_by_author", &prefix, |_key, value| {
+                let mut visit = |value: &[u8]| {
                     if let Ok(record) = decode_record(value) {
                         if !filter.include_deleted && record.is_deleted {
                             return;
                         }
                         results.push(record);
                     }
-                });
+                };
+                if let Some(sql) = state.messages_sqlite() {
+                    sql.read(|conn| SqliteMessages::visit_author(conn, *author_id, &mut visit))?;
+                } else {
+                    state.prefix_scan("messages_by_author", &prefix, |_key, value| visit(value));
+                }
                 filter_since_and_limit(results, filter)
             }
             // No indexed dimension: scan the primary index.
             (None, None) => {
                 let mut results = Vec::new();
-                state.for_each("messages", |_key, value| {
+                let mut visit = |value: &[u8]| {
                     if let Ok(record) = decode_record(value) {
                         if !filter.include_deleted && record.is_deleted {
                             return;
                         }
                         results.push(record);
                     }
-                });
+                };
+                if let Some(sql) = state.messages_sqlite() {
+                    sql.read(|conn| SqliteMessages::visit_latest(conn, None, |value| { visit(value); true }))?;
+                } else {
+                    state.for_each("messages", |_key, value| visit(value));
+                }
                 filter_since_and_limit(results, filter)
             }
         }
     }
+}
+
+/// Store one message version in the primary read model and its ID lookup.
+fn store(state: &ProjectionState, record: &MessageRecord, commit_seq: u64) -> Result<()> {
+    let value = encode_record(record);
+    if let Some(sql) = state.messages_sqlite() {
+        // SPIKE (Task 0.1): primary row + time row, in this commit's transaction.
+        return sql.write(commit_seq, |conn| SqliteMessages::put(conn, commit_seq, record, &value));
+    }
+    let key = encode_key(&record.channel_id, &record.message_id);
+    state.insert("messages", key, value, commit_seq);
+    super::message_lookup::write(state, record, commit_seq);
+    Ok(())
 }
 
 /// Apply the `since_seq` / `limit` portions of a `MessagesFilter` to a result
@@ -939,6 +1022,10 @@ pub const MESSAGES_SECONDARY_INDEXES: &[&dyn SecondaryIndex] = &[
 /// given event. Called from the same path as the primary `apply` so replays
 /// rebuild them automatically.
 pub fn apply_secondary_indexes(event: &DurableEvent, state: &ProjectionState) {
+    // SPIKE (Task 0.1): the SQLite tables carry their own indexes.
+    if state.messages_sqlite().is_some() {
+        return;
+    }
     for index in MESSAGES_SECONDARY_INDEXES {
         let name = index.name().to_string();
         state.with_index(&name, |map| index.apply(map, event));

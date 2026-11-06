@@ -40,6 +40,21 @@ pub fn write(state: &ProjectionState, record: &MessageRecord, commit_seq: u64) {
 }
 
 pub fn get(state: &ProjectionState, message_id: &str) -> Result<Option<MessageRecord>> {
+    // SPIKE (Task 0.1): the SQLite `messages` table is keyed by message ID.
+    if let Some(sql) = state.messages_sqlite() {
+        let mut rows = sql.read(|conn| {
+            crate::projections::messages_sqlite::SqliteMessages::by_id(conn, message_id)
+        })?;
+        if rows.len() > 1 {
+            return Err(corrupt(format!("message ID {message_id} belongs to multiple rooms")));
+        }
+        let Some((channel_id, bytes)) = rows.pop() else { return Ok(None) };
+        let record = decode_record(&bytes)?;
+        if record.message_id != message_id || record.channel_id != channel_id {
+            return Err(corrupt(format!("message {message_id} lookup does not match its row")));
+        }
+        return Ok(Some(record));
+    }
     // Bound the ambiguity check to two pointers; resolve primary rows after
     // releasing the index lock, never from inside the scan callback.
     let mut matches = Vec::with_capacity(2);
