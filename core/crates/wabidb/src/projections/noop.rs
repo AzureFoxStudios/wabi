@@ -5,10 +5,10 @@
 //! `Ok(())`. The events are still discoverable via the generic "events"
 //! index for subscription delivery and audit purposes.
 //!
-//! The four event types below have no projection state because their
-//! effects are purely ephemeral (presence, renames) or are handled
-//! as tombstones/deletions within other projections (reactions).
+//! The event types below have no projection state because their
+//! effects are purely ephemeral (presence, renames).
 //! They are kept for wire-format compatibility with WDB-era events.
+//! (`reaction_removed` is NOT here: `ReactionsProjection` applies it.)
 
 use crate::error::Result;
 use crate::projections::handler::{DurableEvent, Projection};
@@ -17,12 +17,11 @@ pub struct NoopProjection;
 
 impl Projection for NoopProjection {
     fn event_type(&self) -> &str {
-        "reaction_removed"
+        "member_joined"
     }
 
     fn event_types(&self) -> Vec<&str> {
         vec![
-            "reaction_removed",
             "member_joined",
             "member_left",
             "channel_renamed",
