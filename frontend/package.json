@@ -76,7 +76,7 @@
     "katex": "0.18.4",
     "livekit-client": "2.22.1",
     "maplibre-gl": "5.20.0",
-    "marked": "18.0.12",
+    "marked": "18.1.0",
     "motion": "13.2.0",
     "opus-recorder": "8.0.5",
     "pdfjs-dist": "6.2.108",
