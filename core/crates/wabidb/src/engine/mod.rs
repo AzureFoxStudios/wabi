@@ -987,7 +987,9 @@ impl WabiDbEngine {
         self.projection_state.is_healthy() && self.is_writer_running()
     }
 
-    /// Whether the sequencer still accepts commands and its task is alive.
+    /// Whether the sequencer still accepts commands and its task is alive,
+    /// and the commit-index batcher it depends on has not exited (once it
+    /// has, every write fails even though the sequencer loop keeps running).
     /// This is runtime liveness, not an acknowledgement of any particular write.
     pub fn is_writer_running(&self) -> bool {
         self.sequencer
@@ -995,6 +997,10 @@ impl WabiDbEngine {
             .is_some_and(|s| !s.sender().is_closed())
             && self
                 ._sequencer_handle
+                .as_ref()
+                .is_some_and(|h| !h.is_finished())
+            && self
+                ._batcher_handle
                 .as_ref()
                 .is_some_and(|h| !h.is_finished())
     }
@@ -2187,6 +2193,68 @@ mod tests {
         assert!(engine.is_writer_running());
         assert!(engine.is_healthy());
         assert!(engine._process_lock.is_some());
+    }
+
+    /// If the commit-index batcher task exits (flush error, abort), every
+    /// later write fails at `batcher.submit` even though the sequencer loop is
+    /// still running. Health must reflect that, and the write error must say
+    /// the engine halted rather than surface a generic channel error.
+    #[tokio::test]
+    async fn batcher_exit_makes_engine_unhealthy_and_writes_report_halt() {
+        let dir = tempdir().unwrap();
+        let engine = WabiDbEngine::open(replica_test_config(dir.path()))
+            .await
+            .unwrap();
+        let stream = "albums:user:1";
+        engine.get_or_create_stream_key(stream).await.unwrap();
+        assert!(engine.is_healthy());
+
+        // Stop the batcher task, as an error return from `flush_batch` would.
+        let batcher = engine._batcher_handle.as_ref().expect("batcher task");
+        batcher.abort();
+        for _ in 0..200 {
+            if batcher.is_finished() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(batcher.is_finished(), "batcher task should have exited");
+
+        assert!(
+            !engine.is_healthy(),
+            "engine must report unhealthy once the batcher has exited"
+        );
+        assert!(!engine.is_writer_running());
+
+        let (response_tx, _response_rx) = tokio::sync::oneshot::channel();
+        let error = engine
+            .run_command(CommandCommit {
+                room_owner_precondition: None,
+                caller_user_id: 1,
+                caller_device_id: "batcher-exit-test".into(),
+                command_name: "create_album".into(),
+                idempotency_key: None,
+                events: vec![EventToWrite {
+                    stream_id: stream.into(),
+                    event_type: "album_created".into(),
+                    stream_kind: 6,
+                    record_kind: RecordKind::Event,
+                    plaintext: vec![],
+                }],
+                essential: true,
+                response_tx,
+            })
+            .await
+            .expect_err("a write after batcher exit must fail");
+        let message = error.to_string();
+        assert!(
+            message.contains("engine halted"),
+            "error should say the engine halted, got: {message}"
+        );
+        assert!(
+            !matches!(error, WabiError::Io(_)),
+            "must not be a generic I/O error: {error:?}"
+        );
     }
 
     #[test]
