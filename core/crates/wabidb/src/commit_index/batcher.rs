@@ -458,7 +458,7 @@ pub fn read_all_entries(dir: &PathBuf) -> Result<Vec<CommitIndexEntry>> {
             break;
         }
         let data = std::fs::read(&path).map_err(WabiError::from)?;
-        let entries = parse_widx_file(&data)?;
+        let entries = parse_widx_file(&path, &data)?;
         all.extend(entries);
         file_number += 1;
     }
@@ -467,7 +467,11 @@ pub fn read_all_entries(dir: &PathBuf) -> Result<Vec<CommitIndexEntry>> {
 }
 
 /// Parse entries from the raw bytes of a `.widx` file (skipping header + trailer).
-fn parse_widx_file(data: &[u8]) -> Result<Vec<CommitIndexEntry>> {
+///
+/// An entry that fails the length check or its CRC ends the scan of this
+/// file: a power loss during `flush_batch` can leave a torn or zero-filled
+/// tail. The entries before it are returned and the file is left untouched.
+fn parse_widx_file(path: &std::path::Path, data: &[u8]) -> Result<Vec<CommitIndexEntry>> {
     if data.len() < FILE_HEADER_LEN {
         return Ok(Vec::new());
     }
@@ -482,8 +486,17 @@ fn parse_widx_file(data: &[u8]) -> Result<Vec<CommitIndexEntry>> {
         let entry_len = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap()) as usize;
         let entry_total = 4 + entry_len + 4;
 
-        if offset + entry_total > data.len() {
-            break; // truncated or trailer space
+        let valid = entry_len >= 65
+            && offset + entry_total <= data.len()
+            && crc32c::crc32c(&data[offset + 4..offset + 4 + entry_len]).to_le_bytes()[..]
+                == data[offset + 4 + entry_len..offset + entry_total];
+        if !valid {
+            tracing::warn!(
+                file = %path.display(),
+                offset,
+                "commit index: invalid entry, ignoring the rest of this file"
+            );
+            break;
         }
 
         let entry_bytes = &data[offset..offset + entry_total];
@@ -737,5 +750,153 @@ mod tests {
         let loaded = read_all_entries(&dir.path().to_path_buf()).unwrap();
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0], entry);
+    }
+
+    // -----------------------------------------------------------------------
+    // Torn / corrupt entries stop the scan of that file (Task 1.2)
+    // -----------------------------------------------------------------------
+
+    /// Size of one encoded `test_entry`: 4 (len) + 65 (body) + 4 (CRC).
+    const TEST_ENTRY_LEN: usize = 73;
+
+    /// Write `n` entries through the real batcher, fsync them, then kill the
+    /// batcher without sealing — the on-disk state a power loss leaves behind.
+    async fn write_unsealed(index_dir: &std::path::Path, n: u64) -> PathBuf {
+        std::fs::create_dir_all(index_dir).unwrap();
+        let (handle, fut) = new_batcher(
+            index_dir.to_path_buf(),
+            Some(100),
+            Some(Duration::from_secs(60)),
+        );
+        let join = tokio::spawn(fut);
+        for seq in 1..=n {
+            handle.submit(test_entry(seq)).unwrap();
+        }
+        handle.flush_now().await.unwrap();
+        join.abort();
+        let _ = join.await;
+        index_dir.join("00000000.widx")
+    }
+
+    async fn open_engine(data_dir: &std::path::Path) -> Result<crate::engine::WabiDbEngine> {
+        let mut config = crate::engine::WabiDbConfig::new(
+            data_dir.to_path_buf(),
+            crate::crypto::bootstrap::BootstrapSource::Provided([0x5c; 32]),
+        );
+        config.allow_init = true;
+        crate::engine::WabiDbEngine::open(config).await
+    }
+
+    #[tokio::test]
+    async fn zero_filled_tail_keeps_entries_and_engine_opens() {
+        let dir = tempdir().unwrap();
+        let index_dir = dir.path().join("global").join("commit-index");
+        let widx = write_unsealed(&index_dir, 3).await;
+
+        // Delayed allocation after power loss: the file grows but the new
+        // blocks read back as zeros.
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&widx)
+            .unwrap();
+        std::io::Write::write_all(&mut f, &[0u8; 200]).unwrap();
+        drop(f);
+
+        let engine = open_engine(dir.path()).await.unwrap();
+        assert_eq!(engine.barrier().current(), 3);
+
+        let entries = read_all_entries(&index_dir).unwrap();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[2].commit_seq, 3);
+    }
+
+    #[tokio::test]
+    async fn truncated_third_entry_keeps_first_two_and_engine_opens() {
+        let dir = tempdir().unwrap();
+        let index_dir = dir.path().join("global").join("commit-index");
+        let widx = write_unsealed(&index_dir, 3).await;
+
+        let cut = FILE_HEADER_LEN + 2 * TEST_ENTRY_LEN + TEST_ENTRY_LEN / 2;
+        let f = std::fs::OpenOptions::new().write(true).open(&widx).unwrap();
+        f.set_len(cut as u64).unwrap();
+        drop(f);
+
+        let entries = read_all_entries(&index_dir).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[1].commit_seq, 2);
+
+        let engine = open_engine(dir.path()).await.unwrap();
+        assert_eq!(engine.barrier().current(), 2);
+    }
+
+    /// Records the fields of every WARN event so a test can assert on them.
+    struct WarnCapture(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+
+    impl tracing::Subscriber for WarnCapture {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, event: &tracing::Event<'_>) {
+            struct Fields(String);
+            impl tracing::field::Visit for Fields {
+                fn record_debug(&mut self, f: &tracing::field::Field, v: &dyn std::fmt::Debug) {
+                    self.0.push_str(&format!("{}={:?} ", f.name(), v));
+                }
+            }
+            if *event.metadata().level() == tracing::Level::WARN {
+                let mut fields = Fields(String::new());
+                event.record(&mut fields);
+                self.0.lock().unwrap().push(fields.0);
+            }
+        }
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    /// Documents the chosen behaviour: corruption in the middle of a sealed
+    /// file is treated like a torn tail. Entries after the bad one in that
+    /// file are not returned, and a warning names the file and offset.
+    #[tokio::test]
+    async fn corrupt_middle_entry_in_sealed_file_stops_at_previous_entry() {
+        let dir = tempdir().unwrap();
+        let index_dir = dir.path().to_path_buf();
+        let (handle, fut) =
+            new_batcher(index_dir.clone(), Some(100), Some(Duration::from_secs(60)));
+        let join = tokio::spawn(fut);
+        for seq in 1..=3 {
+            handle.submit(test_entry(seq)).unwrap();
+        }
+        drop(handle); // graceful shutdown seals the file
+        join.await.unwrap().unwrap();
+
+        let widx = index_dir.join("00000000.widx");
+        let mut bytes = std::fs::read(&widx).unwrap();
+        assert_eq!(bytes[6..8], 0x0001u16.to_le_bytes(), "file must be sealed");
+        let entry2 = FILE_HEADER_LEN + TEST_ENTRY_LEN;
+        bytes[entry2 + 4 + 10] ^= 0xFF; // flip one byte in entry 2's body
+        std::fs::write(&widx, &bytes).unwrap();
+
+        let warnings = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let entries = tracing::subscriber::with_default(
+            WarnCapture(std::sync::Arc::clone(&warnings)),
+            || read_all_entries(&index_dir),
+        )
+        .unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].commit_seq, 1);
+        let warnings = warnings.lock().unwrap();
+        assert_eq!(warnings.len(), 1, "expected one warning, got {warnings:?}");
+        assert!(warnings[0].contains("00000000.widx"), "{}", warnings[0]);
+        assert!(
+            warnings[0].contains(&format!("offset={entry2}")),
+            "{}",
+            warnings[0]
+        );
     }
 }
