@@ -33,6 +33,8 @@ const DEFAULT_MAX_AGE_MS: u64 = 50;
 const ENTRIES_PER_FILE: u32 = 10_000;
 const FILE_HEADER_LEN: usize = 16;
 const FILE_TRAILER_LEN: usize = 32;
+/// Largest `entry_len` a partially written final entry may claim (1 MiB).
+const MAX_PLAUSIBLE_ENTRY_LEN: usize = 1 << 20;
 
 // Test-only instrumentation for group-commit occupancy assertions.
 // Keyed by the batcher's directory so concurrent tests (each with its own
@@ -451,6 +453,22 @@ fn make_file_header_sealed(entry_count: u32) -> Vec<u8> {
 pub fn read_all_entries(dir: &PathBuf) -> Result<Vec<CommitIndexEntry>> {
     let mut all = Vec::new();
     let mut file_number = 0u32;
+    // Only the highest-numbered file (the one the batcher was appending to)
+    // may end in a partially written entry.
+    let highest = match std::fs::read_dir(dir) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                e.file_name()
+                    .to_str()?
+                    .strip_suffix(".widx")?
+                    .parse::<u32>()
+                    .ok()
+            })
+            .max(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(WabiError::from(e)),
+    };
 
     loop {
         let path = dir.join(format!("{:08}.widx", file_number));
@@ -458,7 +476,8 @@ pub fn read_all_entries(dir: &PathBuf) -> Result<Vec<CommitIndexEntry>> {
             break;
         }
         let data = std::fs::read(&path).map_err(WabiError::from)?;
-        let entries = parse_widx_file(&path, &data)?;
+        let is_last = highest == Some(file_number);
+        let entries = parse_widx_file(&path, &data, is_last)?;
         all.extend(entries);
         file_number += 1;
     }
@@ -468,10 +487,18 @@ pub fn read_all_entries(dir: &PathBuf) -> Result<Vec<CommitIndexEntry>> {
 
 /// Parse entries from the raw bytes of a `.widx` file (skipping header + trailer).
 ///
-/// An entry that fails the length check or its CRC ends the scan of this
-/// file: a power loss during `flush_batch` can leave a torn or zero-filled
-/// tail. The entries before it are returned and the file is left untouched.
-fn parse_widx_file(path: &std::path::Path, data: &[u8]) -> Result<Vec<CommitIndexEntry>> {
+/// When an entry fails the length check or its CRC, scanning stops early only
+/// if the rest of the file looks like a power-loss tail from `flush_batch`:
+///   (a) every remaining byte is zero (delayed allocation), or
+///   (b) this is the last file and the entry claims a plausible length but
+///       runs past the end of the file (partially written final entry).
+/// Anything else is corruption of an acknowledged commit: return an error so
+/// the engine refuses to start. The file is never repaired or rewritten.
+fn parse_widx_file(
+    path: &std::path::Path,
+    data: &[u8],
+    is_last: bool,
+) -> Result<Vec<CommitIndexEntry>> {
     if data.len() < FILE_HEADER_LEN {
         return Ok(Vec::new());
     }
@@ -491,11 +518,30 @@ fn parse_widx_file(path: &std::path::Path, data: &[u8]) -> Result<Vec<CommitInde
             && crc32c::crc32c(&data[offset + 4..offset + 4 + entry_len]).to_le_bytes()[..]
                 == data[offset + 4 + entry_len..offset + entry_total];
         if !valid {
-            tracing::warn!(
-                file = %path.display(),
-                offset,
-                "commit index: invalid entry, ignoring the rest of this file"
-            );
+            if data[offset..].iter().all(|&b| b == 0) {
+                tracing::warn!(
+                    file = %path.display(),
+                    offset,
+                    "commit index: zero-filled tail after power loss, ignoring it"
+                );
+            } else if is_last
+                && (65..=MAX_PLAUSIBLE_ENTRY_LEN).contains(&entry_len)
+                && offset + entry_total > data.len()
+            {
+                tracing::warn!(
+                    file = %path.display(),
+                    offset,
+                    "commit index: partially written final entry, ignoring it"
+                );
+            } else {
+                return Err(WabiError::Corrupt {
+                    location: format!("commit index file {}", path.display()),
+                    detail: format!(
+                        "entry at offset={offset}: commit index entry corrupt; \
+                         refusing to start, restore from backup or wait for the quarantine tool"
+                    ),
+                });
+            }
             break;
         }
 
@@ -753,7 +799,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Torn / corrupt entries stop the scan of that file (Task 1.2)
+    // Power-loss tails are tolerated; other corruption refuses to open
     // -----------------------------------------------------------------------
 
     /// Size of one encoded `test_entry`: 4 (len) + 65 (body) + 4 (CRC).
@@ -829,42 +875,24 @@ mod tests {
         assert_eq!(engine.barrier().current(), 2);
     }
 
-    /// Records the fields of every WARN event so a test can assert on them.
-    struct WarnCapture(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
-
-    impl tracing::Subscriber for WarnCapture {
-        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
-            true
-        }
-        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
-            tracing::span::Id::from_u64(1)
-        }
-        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
-        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
-        fn event(&self, event: &tracing::Event<'_>) {
-            struct Fields(String);
-            impl tracing::field::Visit for Fields {
-                fn record_debug(&mut self, f: &tracing::field::Field, v: &dyn std::fmt::Debug) {
-                    self.0.push_str(&format!("{}={:?} ", f.name(), v));
-                }
-            }
-            if *event.metadata().level() == tracing::Level::WARN {
-                let mut fields = Fields(String::new());
-                event.record(&mut fields);
-                self.0.lock().unwrap().push(fields.0);
-            }
-        }
-        fn enter(&self, _: &tracing::span::Id) {}
-        fn exit(&self, _: &tracing::span::Id) {}
+    /// Open must fail, and the error must name the file and the bad offset.
+    async fn assert_open_refused(data_dir: &std::path::Path, offset: usize) {
+        let error = match open_engine(data_dir).await {
+            Ok(_) => panic!("engine opened over a corrupt commit index"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("00000000.widx"), "{error}");
+        assert!(error.contains(&format!("offset={offset}")), "{error}");
+        assert!(error.contains("refusing to start"), "{error}");
     }
 
-    /// Documents the chosen behaviour: corruption in the middle of a sealed
-    /// file is treated like a torn tail. Entries after the bad one in that
-    /// file are not returned, and a warning names the file and offset.
+    /// A bad entry followed by non-zero bytes in a sealed file is corruption
+    /// of an acknowledged commit, not a power-loss tail.
     #[tokio::test]
-    async fn corrupt_middle_entry_in_sealed_file_stops_at_previous_entry() {
+    async fn corrupt_middle_entry_in_sealed_file_refuses_to_open() {
         let dir = tempdir().unwrap();
-        let index_dir = dir.path().to_path_buf();
+        let index_dir = dir.path().join("global").join("commit-index");
+        std::fs::create_dir_all(&index_dir).unwrap();
         let (handle, fut) =
             new_batcher(index_dir.clone(), Some(100), Some(Duration::from_secs(60)));
         let join = tokio::spawn(fut);
@@ -878,25 +906,28 @@ mod tests {
         let mut bytes = std::fs::read(&widx).unwrap();
         assert_eq!(bytes[6..8], 0x0001u16.to_le_bytes(), "file must be sealed");
         let entry2 = FILE_HEADER_LEN + TEST_ENTRY_LEN;
+        assert_eq!(entry2, 89);
         bytes[entry2 + 4 + 10] ^= 0xFF; // flip one byte in entry 2's body
         std::fs::write(&widx, &bytes).unwrap();
 
-        let warnings = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let entries = tracing::subscriber::with_default(
-            WarnCapture(std::sync::Arc::clone(&warnings)),
-            || read_all_entries(&index_dir),
-        )
-        .unwrap();
+        assert_open_refused(dir.path(), entry2).await;
+    }
 
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].commit_seq, 1);
-        let warnings = warnings.lock().unwrap();
-        assert_eq!(warnings.len(), 1, "expected one warning, got {warnings:?}");
-        assert!(warnings[0].contains("00000000.widx"), "{}", warnings[0]);
-        assert!(
-            warnings[0].contains(&format!("offset={entry2}")),
-            "{}",
-            warnings[0]
-        );
+    /// Same rule in the current (last, unsealed) file: entry 3 follows the
+    /// bad CRC, so the bytes after it are not a tail.
+    #[tokio::test]
+    async fn bad_crc_in_current_file_refuses_to_open() {
+        let dir = tempdir().unwrap();
+        let index_dir = dir.path().join("global").join("commit-index");
+        let widx = write_unsealed(&index_dir, 3).await;
+
+        let mut bytes = std::fs::read(&widx).unwrap();
+        let entry2 = FILE_HEADER_LEN + TEST_ENTRY_LEN;
+        let crc = entry2 + TEST_ENTRY_LEN - 4..entry2 + TEST_ENTRY_LEN;
+        assert_ne!(bytes[crc.clone()], [0xDE, 0xAD, 0xBE, 0xEF]);
+        bytes[crc].copy_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        std::fs::write(&widx, &bytes).unwrap();
+
+        assert_open_refused(dir.path(), entry2).await;
     }
 }
