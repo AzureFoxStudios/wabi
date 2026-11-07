@@ -453,22 +453,6 @@ fn make_file_header_sealed(entry_count: u32) -> Vec<u8> {
 pub fn read_all_entries(dir: &PathBuf) -> Result<Vec<CommitIndexEntry>> {
     let mut all = Vec::new();
     let mut file_number = 0u32;
-    // Only the highest-numbered file (the one the batcher was appending to)
-    // may end in a partially written entry.
-    let highest = match std::fs::read_dir(dir) {
-        Ok(rd) => rd
-            .filter_map(|e| e.ok())
-            .filter_map(|e| {
-                e.file_name()
-                    .to_str()?
-                    .strip_suffix(".widx")?
-                    .parse::<u32>()
-                    .ok()
-            })
-            .max(),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => return Err(WabiError::from(e)),
-    };
 
     loop {
         let path = dir.join(format!("{:08}.widx", file_number));
@@ -476,8 +460,7 @@ pub fn read_all_entries(dir: &PathBuf) -> Result<Vec<CommitIndexEntry>> {
             break;
         }
         let data = std::fs::read(&path).map_err(WabiError::from)?;
-        let is_last = highest == Some(file_number);
-        let entries = parse_widx_file(&path, &data, is_last)?;
+        let entries = parse_widx_file(&path, &data)?;
         all.extend(entries);
         file_number += 1;
     }
@@ -490,18 +473,22 @@ pub fn read_all_entries(dir: &PathBuf) -> Result<Vec<CommitIndexEntry>> {
 /// When an entry fails the length check or its CRC, scanning stops early only
 /// if the rest of the file looks like a power-loss tail from `flush_batch`:
 ///   (a) every remaining byte is zero (delayed allocation), or
-///   (b) this is the last file and the entry claims a plausible length but
-///       runs past the end of the file (partially written final entry).
+///   (b) the header says the file is unsealed and the entry claims a
+///       plausible length but runs past the end of the file (partially
+///       written final entry).
 /// Anything else is corruption of an acknowledged commit: return an error so
 /// the engine refuses to start. The file is never repaired or rewritten.
-fn parse_widx_file(
-    path: &std::path::Path,
-    data: &[u8],
-    is_last: bool,
-) -> Result<Vec<CommitIndexEntry>> {
+fn parse_widx_file(path: &std::path::Path, data: &[u8]) -> Result<Vec<CommitIndexEntry>> {
     if data.len() < FILE_HEADER_LEN {
         return Ok(Vec::new());
     }
+
+    // `seal_file` sets the sealed flag only after every entry was fsynced, and
+    // the batcher never appends to a file again after a restart, so only an
+    // unsealed file can end mid-entry. A header that fails its own CRC is not
+    // trusted to say "unsealed".
+    let unsealed = crc32c::crc32c(&data[..12]).to_le_bytes()[..] == data[12..16]
+        && u16::from_le_bytes([data[6], data[7]]) & 0x0001 == 0;
 
     let mut offset = FILE_HEADER_LEN;
     let mut entries = Vec::new();
@@ -524,7 +511,7 @@ fn parse_widx_file(
                     offset,
                     "commit index: zero-filled tail after power loss, ignoring it"
                 );
-            } else if is_last
+            } else if unsealed
                 && (65..=MAX_PLAUSIBLE_ENTRY_LEN).contains(&entry_len)
                 && offset + entry_total > data.len()
             {
@@ -824,13 +811,44 @@ mod tests {
         index_dir.join("00000000.widx")
     }
 
-    async fn open_engine(data_dir: &std::path::Path) -> Result<crate::engine::WabiDbEngine> {
+    fn engine_config(data_dir: &std::path::Path) -> crate::engine::WabiDbConfig {
         let mut config = crate::engine::WabiDbConfig::new(
             data_dir.to_path_buf(),
             crate::crypto::bootstrap::BootstrapSource::Provided([0x5c; 32]),
         );
         config.allow_init = true;
-        crate::engine::WabiDbEngine::open(config).await
+        config
+    }
+
+    async fn open_engine(data_dir: &std::path::Path) -> Result<crate::engine::WabiDbEngine> {
+        crate::engine::WabiDbEngine::open(engine_config(data_dir)).await
+    }
+
+    /// Append the first 100 bytes of a 205-byte entry (4 event refs): a
+    /// partially written final entry long enough to reach the entry checks.
+    fn append_partial_entry(widx: &std::path::Path) {
+        let mut entry = test_entry(4);
+        entry.event_refs = (0..4)
+            .map(|i| crate::commit_index::record::StreamRef {
+                stream_id_hash: [i; 16],
+                stream_kind: 1,
+                segment_id: 0,
+                offset: 0,
+                length: 0,
+            })
+            .collect();
+        let encoded = entry.encode();
+        assert_eq!(encoded.len(), 205);
+        let mut f = std::fs::OpenOptions::new().append(true).open(widx).unwrap();
+        std::io::Write::write_all(&mut f, &encoded[..100]).unwrap();
+    }
+
+    fn indexed_seqs(index_dir: &std::path::Path) -> Vec<u64> {
+        read_all_entries(&index_dir.to_path_buf())
+            .unwrap()
+            .iter()
+            .map(|e| e.commit_seq)
+            .collect()
     }
 
     #[tokio::test]
@@ -873,6 +891,77 @@ mod tests {
 
         let engine = open_engine(dir.path()).await.unwrap();
         assert_eq!(engine.barrier().current(), 2);
+    }
+
+    /// Case (b): an unsealed file ending in a partially written entry.
+    #[tokio::test]
+    async fn partial_final_entry_in_unsealed_file_keeps_prior_entries_and_engine_opens() {
+        let dir = tempdir().unwrap();
+        let index_dir = dir.path().join("global").join("commit-index");
+        let widx = write_unsealed(&index_dir, 3).await;
+        append_partial_entry(&widx);
+
+        let engine = open_engine(dir.path()).await.unwrap();
+        assert_eq!(engine.barrier().current(), 3);
+        assert_eq!(indexed_seqs(&index_dir), vec![1, 2, 3]);
+    }
+
+    /// After recovering from a partial entry in file 0, the next commit goes to
+    /// file 1. File 0 is no longer the newest, but it is still unsealed, so the
+    /// following restart must accept the same tail.
+    #[tokio::test]
+    async fn partial_final_entry_survives_a_second_restart_after_new_commits() {
+        use crate::format::record::RecordKind;
+        use crate::projections::room_placement::{self, RoomPlacementRecord};
+        use crate::sequencer::types::{CommandCommit, EventToWrite};
+
+        let dir = tempdir().unwrap();
+        let index_dir = dir.path().join("global").join("commit-index");
+        let widx = write_unsealed(&index_dir, 3).await;
+        append_partial_entry(&widx);
+
+        // Restart 1: recover, then commit through the engine's own batcher.
+        let engine = open_engine(dir.path()).await.unwrap();
+        let stream = room_placement::stream_id("ch_restart");
+        engine.get_or_create_stream_key(&stream).await.unwrap();
+        engine
+            .run_command(CommandCommit {
+                caller_user_id: 0,
+                caller_device_id: "widx-restart-test".into(),
+                command_name: "test_placement".into(),
+                idempotency_key: None,
+                room_owner_precondition: None,
+                events: vec![EventToWrite {
+                    stream_id: stream,
+                    event_type: room_placement::EVENT.into(),
+                    stream_kind: 6,
+                    record_kind: RecordKind::Event,
+                    plaintext: serde_json::to_vec(&RoomPlacementRecord {
+                        schema_version: 1,
+                        channel_id: "ch_restart".into(),
+                        epoch: 1,
+                        owner_node_id: "local".into(),
+                        replica_node_ids: vec![],
+                    })
+                    .unwrap(),
+                }],
+                essential: true,
+                response_tx: tokio::sync::oneshot::channel().0,
+            })
+            .await
+            .unwrap();
+        assert!(index_dir.join("00000001.widx").exists());
+        let committed = engine.barrier().current();
+        assert_eq!(committed, 4);
+        drop(engine);
+        drop(crate::tests::wait_for_stopped_engine(dir.path()).await);
+
+        // Restart 2: the tail in file 0 is still accepted; every commit is present.
+        let engine = crate::tests::reopen_after_drop(engine_config(dir.path()), None)
+            .await
+            .unwrap();
+        assert_eq!(engine.barrier().current(), committed);
+        assert_eq!(indexed_seqs(&index_dir), vec![1, 2, 3, 4]);
     }
 
     /// Open must fail, and the error must name the file and the bad offset.
