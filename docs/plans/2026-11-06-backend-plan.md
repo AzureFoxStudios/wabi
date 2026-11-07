@@ -45,6 +45,10 @@ Two requirements that come with B:
 
 ---
 
+## Phase 1.0: make `main` green first (added 2026-11-07)
+
+`main` CI has been red since 2026-10-11. Three independent causes, none from the Phase 1 work: a permit-release ordering bug in wabi-consensus that makes one test flaky; recovery-policy tests that write into a world-readable temp root, which the loader correctly refuses; and the desktop-host restore path renaming a directory on Windows while holding a lock file inside it. Tasks 1.0a, 1.0b, 1.0c in the prompts file. Merge these before anything else, then re-run checks on the open PRs.
+
 ## Phase 1: stop the bleeding (2 to 3 weeks, mostly Sonnet)
 
 These are independent. Each is one PR with a failing test first.

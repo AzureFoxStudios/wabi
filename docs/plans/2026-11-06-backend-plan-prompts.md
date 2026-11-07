@@ -66,6 +66,54 @@ You check: you agree with the decision after reading it once.
 
 ---
 
+## Phase 1.0: make `main` green first
+
+Found 2026-11-07: `main` CI has been red since 2026-10-11 (last green: 2026-10-02). Three independent failures, none caused by the Phase 1 PRs. Until these land, "merge on green" cannot work, so they go first. After they merge, re-run the checks on the open PRs (they run against the merge commit, so no push is needed).
+
+### Task 1.0a Consensus permit released after "drained" (Opus)
+
+```
+TASK 1.0a.
+
+Bug: core/crates/wabi-consensus/src/transport/material/tests.rs::cancelled_caller_retains_admission_store_and_drained_work fails intermittently on CI and locally (assert available_permits() == 1, got 0). Cause, in core/crates/wabi-consensus/src/transport/material.rs around lines 138-156: the Completion guard's Drop body decrements `active` and calls notify_waiters(), which wakes close(); but the OwnedSemaphorePermit is a field of the same guard, so it is released only after the Drop body returns. close() can therefore return while the admission permit is still held. "Drained" does not yet mean "admission slot free".
+
+Fix: make the permit release happen-before the wake. Either hold the permit in an Option and drop it explicitly at the top of Drop::drop before notify_waiters(), or make close() also wait until available_permits() equals the worker count. Keep the public API unchanged.
+
+Test first: on main, run the existing test in a loop until it fails, for example 200 iterations with `cargo test -p wabi-consensus --lib -- transport::material::tests::cancelled_caller_retains_admission_store_and_drained_work` (a shell loop is fine; report the iteration it failed on). Then add a deterministic test if you can construct one (a guard dropped on another thread while close() is awaited, asserting the permit is available the moment close() returns). After the fix, run the loop 500 times with no failure.
+```
+
+You check: the report shows a failing iteration number on main and 500 clean iterations after.
+
+### Task 1.0b Recovery-policy tests use a world-readable temp root (Sonnet)
+
+```
+TASK 1.0b.
+
+Bug: core/crates/wabi-server/tests/recovery_publication_operator_contract.rs::configured_genuine_publication_preserves_original_receipt_and_refuses_unsafe_retry fails on CI and on any machine with umask 022 with "recovery node configuration ownership refused". Diagnosed cause: core/crates/wabi-server/src/recovery_node.rs::load (around line 195) correctly requires the policy file's parent directory to be owned by the current user with no group/other permission bits. The test writes publisher.json directly into the tempfile::tempdir() root (line 119), and tempfile creates directories with mode 0777 minus umask, which is 0755 under the default umask. The product check is correct; the fixture is wrong. The same layout exists in core/crates/wabi-server/src/recovery_publication_jobs/genuine_restart_tests.rs (around line 370) and genuine_crash_tests.rs (around line 288), which will fail the same way once the consensus test stops masking them in the `cargo test --workspace` job.
+
+Fix: in each affected test or fixture, make the policy file's parent private before writing it. Simplest: in the fixture's Root::new (tests/fixtures/recovery_publication_operator.rs around line 47) and the equivalent root creation in the two lib test modules, call fs::set_permissions(root, 0o700) right after tempdir(). Do not touch recovery_node.rs. Do not loosen the loader.
+
+Test first: run the failing test on main with `umask 022` set in the shell and show the "ownership refused" failure. After the fix it passes with umask 022. Also confirm it still passes with umask 077. Build wabi-server with an empty frontend/build directory if needed.
+```
+
+You check: the test passes with `umask 022` in the command.
+
+### Task 1.0c Desktop host restore cannot rename a directory on Windows while holding its lock (Opus)
+
+```
+TASK 1.0c. This can only be verified on the Windows CI job (build-tauri windows-latest); say so in the PR and watch that job.
+
+Bug: four tests in src-tauri/src/hosting/archive.rs (lease_blocks_competing_writer_and_keeps_ownership_after_relocation, restore_does_not_move_live_data_even_after_backup_validation, restore_preserves_original_and_rollback_keeps_failed_tree, rollback_refuses_live_restored_or_original_tree_without_moving_either) fail on Windows with "Access is denied (os error 5)" at the fs::rename around line 342. Cause: SnapshotLease::acquire(data) opens the WabiDB lock file inside the data directory and keeps it open, then fs::rename(data, original) moves that directory. Linux permits renaming a directory with open handles inside it; Windows does not.
+
+Fix: on Windows, release the lease's file handle immediately before each directory rename and reacquire it at the new path immediately after, verifying it is the same file (compare the Windows file index or volume serial plus file id, the equivalent of dev/inode) so the "same inode" guarantee the lease documents still holds. Keep the Unix behavior unchanged. If reacquisition fails, the code must stop and report, never continue with the directory moved and no lease. Keep every existing test's assertions; add one Windows-only test that a competing writer cannot take the lock during the release-and-reacquire window if you can make that deterministic, otherwise document the window in a comment and the PR.
+
+Test first: the four tests already fail on the Windows job on main; cite that run. After the fix, the Windows job must be green. Linux job must stay green.
+```
+
+You check: the Windows `build-tauri` job is green on the PR.
+
+---
+
 ## Phase 1: stop the bleeding
 
 ### Task 1.1 Reactions cannot be removed (Sonnet)
