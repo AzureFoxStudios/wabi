@@ -89,15 +89,16 @@ TASK 1.2.
 
 Bug: a torn or zero-filled tail in a commit index file makes the server non-starting. In core/crates/wabidb/src/commit_index/batcher.rs, parse_widx_file loops over entries and calls CommitIndexEntry::decode(entry_bytes)? on any entry whose length field fits in the buffer. After a power loss during flush_batch, the file can end with zero bytes (ext4/XFS delayed allocation). Zero bytes give entry_len = 0, decode returns Corrupt("body too short"), the error propagates through read_all_entries into engine/replay.rs, and WabiDbEngine::open fails. The segment reader (stream_log/segment_reader.rs) handles the same situation by breaking out of the scan; the index reader must do the same.
 
-Fix: in parse_widx_file, when an entry fails the length check or CRC, stop scanning that file, log the file name and byte offset at warn level, and return the entries parsed so far. Do not attempt to repair or rewrite the file. Do not change the on-disk format.
+Fix: in parse_widx_file, when an entry fails the length check or CRC, decide whether the remainder looks like a power-loss tail. Stopping early is allowed ONLY when (a) every byte from that offset to end of file is zero, or (b) this is the highest-numbered .widx file, the claimed entry length is plausible (65 bytes to 1 MiB), and the entry runs past end of file (a partially written final entry). In those two cases log the file name and byte offset at warn level and return the entries parsed so far. In every other case return a Corrupt error naming the file and offset, so the engine refuses to start as it does today; an acknowledged commit must never be silently dropped. Do not repair or rewrite the file. Do not change the on-disk format.
 
-Tests first (both must fail on main):
-1. Write three entries through the real batcher, append 200 zero bytes to the current .widx file, open the engine, assert exactly three entries are read and the engine opens.
-2. Write three entries, truncate the file in the middle of the third entry, open the engine, assert two entries are read.
-Also add a test that a corrupt entry in the MIDDLE of a sealed file (flip one byte of entry 2 of 3) stops at entry 1 and logs, so the behavior is documented by a test.
+Tests first:
+1. Write three entries through the real batcher, append 200 zero bytes to the current .widx file, open the engine, assert exactly three entries are read and the engine opens. (Fails on main.)
+2. Write three entries, truncate the file in the middle of the third entry, open the engine, assert two entries are read. (Already passes on main; keep it as a guard.)
+3. Flip one byte of entry 2 of 3 in a SEALED file; assert open fails and the error names the file and offset. (Fails on main only in message, but documents fail-closed.)
+4. In the current file, overwrite the CRC of entry 2 of 3 with garbage so valid bytes follow it; assert open fails.
 ```
 
-You check: one test appends zero bytes rather than only truncating.
+You check: one test asserts open succeeds on a zero-filled tail, and one asserts open fails on a flipped byte in a sealed file.
 
 ### Task 1.3 Directory fsync after creating a commit-index file (Sonnet)
 
