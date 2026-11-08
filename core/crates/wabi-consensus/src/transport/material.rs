@@ -141,10 +141,16 @@ struct Completion {
     work: Arc<WorkState>,
     // Both this permit and the store captured by the blocking closure remain
     // owned until actual synchronous work returns, despite caller cancellation.
-    _permit: OwnedSemaphorePermit,
+    // Held in an Option so Drop can release it *before* waking close():
+    // struct fields are only dropped after Drop::drop returns, which would let
+    // close() observe `active == 0` while the admission permit is still held.
+    permit: Option<OwnedSemaphorePermit>,
 }
 impl Drop for Completion {
     fn drop(&mut self) {
+        // Release admission before publishing `active` decrease, so any
+        // observer of `active == 0` (including close()) also sees the permit.
+        drop(self.permit.take());
         let mut state = self.work.state.lock().unwrap_or_else(|e| e.into_inner());
         state.active -= 1;
         drop(state);
@@ -286,7 +292,7 @@ impl MaterialIo {
             state.active += 1;
             Completion {
                 work: self.work.clone(),
-                _permit: permit,
+                permit: Some(permit),
             }
         };
         let store = self.store.clone();
