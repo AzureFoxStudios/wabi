@@ -44,7 +44,14 @@ impl Drop for Environment {
 /// process terminal. Never unlink advisory locks while async owners may live.
 pub struct Root(Option<tempfile::TempDir>);
 impl Root {
-    pub fn new() -> Self { Self(Some(tempfile::tempdir().unwrap())) }
+    pub fn new() -> Self {
+        let root = tempfile::tempdir().unwrap();
+        // recovery_node::load requires the policy file's parent (this root) to
+        // be private to the current user; tempdir() honours the caller umask
+        // (0755 under 022). Make it explicit without mutating the global umask.
+        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        Self(Some(root))
+    }
     pub fn path(&self) -> &Path { self.0.as_ref().unwrap().path() }
     pub fn completed(mut self) { self.0.take().unwrap().close().unwrap(); }
 }
