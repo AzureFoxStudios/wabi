@@ -558,9 +558,14 @@ impl Store {
         let guard = self.lane.clone().lock_owned().await;
         let inner = self.inner.clone();
         tokio::task::spawn_blocking(move || {
-            let _guard = guard;
-            inner.verify_lock()?;
-            operation(&inner)
+            let result = inner.verify_lock().and_then(|()| operation(&inner));
+            // Release this task's database/lock ownership before the lane.
+            // Captured values drop only after the body's locals, so without
+            // this order the next lane holder can finish and the last Store
+            // can be dropped while a detached task still holds the lock inode.
+            drop(inner);
+            drop(guard);
+            result
         })
         .await
         .map_err(|_| StoreError::Io)?
