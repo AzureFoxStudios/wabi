@@ -467,3 +467,33 @@ async fn worker_panic_releases_exact_admission_without_a_success_receipt() {
     assert_eq!(io.permits.available_permits(), 1);
     io.close().await;
 }
+/// Deterministic regression for the drain/permit ordering: the admission
+/// permit must be released before Completion publishes `active == 0` or wakes
+/// close(). Holding the state lock blocks Drop before it can decrement/notify,
+/// so the permit can only become available here if Drop releases it first.
+#[test]
+fn completion_releases_admission_permit_before_publishing_drain() {
+    let (_root, io, _manifest, _bytes) = setup(1);
+    let permit = io.permits.clone().try_acquire_owned().unwrap();
+    io.work.state.lock().unwrap().active += 1;
+    let completion = Completion {
+        work: io.work.clone(),
+        permit: Some(permit),
+    };
+    let guard = io.work.state.lock().unwrap();
+    let dropper = std::thread::spawn(move || drop(completion));
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while io.permits.available_permits() != 1 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "permit still held while Drop waits to publish the drain"
+        );
+        std::thread::yield_now();
+    }
+    // Drop has not yet decremented: observers of `active == 0` come later.
+    assert_eq!(guard.active, 1);
+    drop(guard);
+    dropper.join().unwrap();
+    assert_eq!(io.work.state.lock().unwrap().active, 0);
+    assert_eq!(io.permits.available_permits(), 1);
+}
