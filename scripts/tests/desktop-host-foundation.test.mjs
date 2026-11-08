@@ -106,7 +106,9 @@ test('Authority and Anchor use the shared bind policy and actual assigned port',
   assert.equal(source.split('listener::bind_configured(&args.host, args.port)').length - 1, 2);
   assert.ok(!source.includes('SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0]'));
   assert.ok(source.includes('port: bound_addr.port(),'));
-  assert.equal(source.split('wait_for_shutdown(args.shutdown_on_stdin_close)').length - 1, 2);
+  // Authority and Anchor listeners, plus the dedicated Linux recovery-node
+  // mode, all honour the desktop host's stdin-close shutdown signal.
+  assert.equal(source.split('wait_for_shutdown(args.shutdown_on_stdin_close)').length - 1, 3);
   assert.ok(source.includes('"event": "wabi-listener-bound"'));
 });
 test('hosting overlay retains the existing Tailcat sidecar', async () => {
