@@ -157,7 +157,10 @@ pub async fn compact_segment(
         .await
         .map_err(|e| WabiError::Io(e))?;
     {
-        let f = tokio::fs::File::open(&tmp_path)
+        // Writable handle: read-only handles cannot be flushed on Windows.
+        let f = tokio::fs::OpenOptions::new()
+            .write(true)
+            .open(&tmp_path)
             .await
             .map_err(|e| WabiError::Io(e))?;
         f.sync_all().await.map_err(|e| WabiError::Io(e))?;

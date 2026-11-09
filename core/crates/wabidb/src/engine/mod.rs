@@ -302,7 +302,11 @@ impl WabiDbEngine {
                 .await
                 .map_err(WabiError::Io)?;
             {
-                let f = tokio::fs::File::open(&manifest_path)
+                // Flush through a writable handle: on Windows, FlushFileBuffers
+                // refuses a handle opened read-only (Access is denied).
+                let f = tokio::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&manifest_path)
                     .await
                     .map_err(WabiError::Io)?;
                 f.sync_all().await.map_err(WabiError::Io)?;

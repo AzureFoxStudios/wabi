@@ -104,8 +104,7 @@ impl SnapshotWriter {
         file.sync_all().await?;
         fs::rename(&tmp_path, &file_path).await?;
         if let Some(parent) = file_path.parent() {
-            let parent_file = fs::File::open(parent).await?;
-            parent_file.sync_all().await?;
+            crate::storage::fsync::fsync_dir(parent).await?;
         }
 
         let snapshot_id = Ulid::new();
