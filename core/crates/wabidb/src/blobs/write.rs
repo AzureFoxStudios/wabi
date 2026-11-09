@@ -150,13 +150,18 @@ impl BlobWriter {
             ))
         })?;
 
-        // 5. fsync the tmp file.
-        let f = tokio::fs::File::open(&tmp_path).await.map_err(|e| {
-            WabiError::Io(std::io::Error::new(
-                e.kind(),
-                format!("open tmp blob for fsync: {e}"),
-            ))
-        })?;
+        // 5. fsync the tmp file through a writable handle (a read-only handle
+        // cannot be flushed on Windows).
+        let f = tokio::fs::OpenOptions::new()
+            .write(true)
+            .open(&tmp_path)
+            .await
+            .map_err(|e| {
+                WabiError::Io(std::io::Error::new(
+                    e.kind(),
+                    format!("open tmp blob for fsync: {e}"),
+                ))
+            })?;
         f.sync_all().await.map_err(|e| {
             WabiError::Io(std::io::Error::new(
                 e.kind(),
