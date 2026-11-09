@@ -307,6 +307,11 @@ async fn open_widx(dir_path: &PathBuf, widx_number: u32) -> Result<tokio::fs::Fi
             }
         })?;
 
+    // Fsync the parent directory so the new file's entry survives a power
+    // loss. Without this, every commit acknowledged before the file is sealed
+    // can lose its index entry (the segment writer does the same on open).
+    fsync_dir(dir_path).await?;
+
     // Write 16-byte file header (entry_count placeholder is 0; rewritten on seal).
     let header = make_file_header(false);
     let mut f = f;
@@ -649,6 +654,31 @@ mod tests {
 
         let entries = read_all_entries(&dir.path().to_path_buf()).unwrap();
         assert_eq!(entries.len(), 5, "expected 5 entries after flush_now");
+    }
+
+    // -----------------------------------------------------------------------
+    // creating a .widx file fsyncs its directory before any seal
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn new_widx_file_fsyncs_its_directory_on_creation() {
+        use crate::storage::fsync::call_log;
+        let dir = tempdir().unwrap();
+        let dir_path = dir.path().to_path_buf();
+        let (handle, fut) = new_batcher(dir_path.clone(), Some(100), Some(Duration::from_secs(60)));
+        tokio::spawn(fut);
+
+        // One entry plus flush_now creates the file without rotating or
+        // sealing it, so seal_file's own fsync_dir cannot be the one counted.
+        handle.submit(test_entry(1)).unwrap();
+        handle.flush_now().await.unwrap();
+
+        assert!(dir_path.join("00000000.widx").is_file());
+        assert_eq!(
+            call_log::count(&dir_path),
+            1,
+            "creating a .widx file must fsync its parent directory before any seal"
+        );
     }
 
     // -----------------------------------------------------------------------
