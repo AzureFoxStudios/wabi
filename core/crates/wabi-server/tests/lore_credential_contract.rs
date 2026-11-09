@@ -1205,6 +1205,27 @@ async fn scoped_write_rechecks_revocation_after_a_stalled_request_body() {
             .0,
             StatusCode::INTERNAL_SERVER_ERROR
         );
+        // File uploads authorize against the Lore repo before reading the
+        // body, so the stalled body is only reached once a service exists.
+        if suffix.starts_with("/files/") {
+            use std::os::unix::fs::PermissionsExt;
+            let binary = dir.path().join("fixture");
+            std::fs::write(
+                &binary,
+                include_bytes!("fixtures/lore-cli-credential-fixture.sh"),
+            )
+            .unwrap();
+            std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let lore = Arc::new(wabi_lore::LoreService::new(wabi_lore::LoreConfig {
+                lore_binary_path: binary,
+                lore_data_dir: dir.path().join("lore"),
+                ..Default::default()
+            }));
+            lore.create_repo(channel, owner as i64, "guard")
+                .await
+                .unwrap();
+            state.set_lore_service(lore).await;
+        }
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
         let (body_tx, body_rx) = tokio::sync::oneshot::channel::<String>();
         let stream = futures::stream::once(async move {
