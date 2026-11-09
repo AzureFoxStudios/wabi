@@ -456,6 +456,7 @@ async fn panic_closes_admission_and_drop_owner_drains_without_resetting_locks() 
     // Probe the exact existing owner lock, not a broad startup error retry.
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
+        let fork_gate = crate::fork_gate::acquire();
         let probe = OpenOptions::new()
             .read(true)
             .write(true)
@@ -463,8 +464,11 @@ async fn panic_closes_admission_and_drop_owner_drains_without_resetting_locks() 
             .open(policy.control_directory.join(OWNER_LOCK))
             .unwrap();
         assert_eq!(probe.metadata().unwrap().ino(), inode);
-        if probe.try_lock_exclusive().unwrap() {
-            drop(probe);
+        let free = probe.try_lock_exclusive().unwrap();
+        // Close the probe before any child may be created, then reopen.
+        drop(probe);
+        drop(fork_gate);
+        if free {
             break;
         }
         assert!(Instant::now() < deadline);

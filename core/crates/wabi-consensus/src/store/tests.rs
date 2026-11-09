@@ -17,6 +17,7 @@ async fn runtime_lease_covers_cancelled_blocking_io_snapshot_owner_and_actual_lo
     }
     impl Drop for Lease {
         fn drop(&mut self) {
+            let _fork_gate = crate::fork_gate::acquire();
             let probe = OpenOptions::new()
                 .read(true)
                 .write(true)
@@ -239,19 +240,20 @@ async fn actual_process_kill_preserves_v2_log_state_and_snapshot_transaction_bou
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
         fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
         let mut child = OwnedChild(
-            Command::new(std::env::current_exe().unwrap())
-                .args([
-                    "--exact",
-                    "store::tests::v2_transaction_process_worker",
-                    "--ignored",
-                    "--nocapture",
-                ])
-                .env("WABI_V2_KILL_ROOT", root.path())
-                .env("WABI_V2_KILL_BOUNDARY", mode)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .spawn()
-                .unwrap(),
+            crate::fork_gate::spawn(
+                Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "--exact",
+                        "store::tests::v2_transaction_process_worker",
+                        "--ignored",
+                        "--nocapture",
+                    ])
+                    .env("WABI_V2_KILL_ROOT", root.path())
+                    .env("WABI_V2_KILL_BOUNDARY", mode)
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null()),
+            )
+            .unwrap(),
         );
         let output = child.0.stdout.take().unwrap();
         let (ready, received) = std::sync::mpsc::channel();
