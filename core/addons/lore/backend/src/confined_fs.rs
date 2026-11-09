@@ -22,6 +22,18 @@ fn reserved(name: &OsStr) -> bool {
     ) || name.starts_with(".wabi-publish-")
 }
 
+/// Repo-wide ignore files. The server seeds and reads them through
+/// `InternalFile`, and an imported repo may carry its own, so they are not
+/// `reserved()` (import validation rejects that list). A member must still not
+/// write them: a `*` pattern hides every file from the manifest, and sync
+/// clients then delete their clean local copies.
+fn ignore_file(name: &OsStr) -> bool {
+    matches!(
+        name.to_string_lossy().to_ascii_lowercase().as_str(),
+        ".wabiignore" | ".loreignore"
+    )
+}
+
 fn portable_component(name: &OsStr) -> bool {
     let Some(name) = name.to_str() else {
         return false;
@@ -70,7 +82,9 @@ pub fn validate_path(path: &str) -> io::Result<PathBuf> {
     for component in Path::new(path).components() {
         match component {
             Component::CurDir => {}
-            Component::Normal(name) if portable_component(name) && !reserved(name) => {
+            Component::Normal(name)
+                if portable_component(name) && !reserved(name) && !ignore_file(name) =>
+            {
                 normalized.push(name)
             }
             _ => {
@@ -395,6 +409,35 @@ mod tests {
             validate_path("./normal/file.txt").unwrap(),
             Path::new("normal/file.txt")
         );
+    }
+
+    #[test]
+    fn ignore_files_are_closed_to_member_paths_but_open_to_the_server_and_imports() {
+        for path in [
+            ".wabiignore",
+            ".loreignore",
+            "sub/.wabiignore",
+            "./sub/.loreignore",
+            ".WabiIgnore",
+        ] {
+            assert!(validate_path(path).is_err(), "accepted {path}");
+        }
+        let tree = tempfile::tempdir().unwrap();
+        let repo = RepoDir::open(tree.path()).unwrap();
+        assert!(repo.write_from(".wabiignore", &b"*"[..]).is_err());
+        assert!(repo.remove_file(".wabiignore").is_err());
+        // Server seeding and reads go through InternalFile, not validate_path.
+        repo.seed_internal(InternalFile::WabiIgnore, b"node_modules\n")
+            .unwrap();
+        repo.seed_internal(InternalFile::LoreIgnore, b"node_modules\n")
+            .unwrap();
+        assert_eq!(
+            std::fs::read(tree.path().join(".wabiignore")).unwrap(),
+            b"node_modules\n"
+        );
+        assert!(repo.read_internal(InternalFile::WabiIgnore).is_ok());
+        // An imported repo may carry its own ignore files.
+        assert!(repo.validate_import().is_ok());
     }
 
     #[cfg(unix)]
