@@ -1252,7 +1252,7 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "wabidb::projections::messages::MessageRecord",
         },
         ProjectionRegistration {
-            event_types: &["reaction_added"],
+            event_types: &["reaction_added", "reaction_removed"],
             handler: Arc::new(ReactionsProjection),
             index_name: "reactions",
             record_type_name: "wabidb::projections::reactions::Reaction",
@@ -1558,7 +1558,6 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
         },
         ProjectionRegistration {
             event_types: &[
-                "reaction_removed",
                 "member_joined",
                 "member_left",
                 "channel_renamed",

@@ -33,9 +33,8 @@ use serde::{Deserialize, Serialize};
 /// A single reaction event.
 ///
 /// A reaction is a user attaching an emoji (or other short string) to a
-/// message. Reactions are append-only from the projection's point of view;
-/// un-reacting produces a separate `reaction_removed` event (handled by a
-/// future card, not wabidb-25).
+/// message. Un-reacting produces a separate `reaction_removed` event whose
+/// payload is the same `Reaction`; the projection deletes that composite key.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Reaction {
     /// The message the reaction is attached to.
@@ -103,12 +102,21 @@ impl Projection for ReactionsProjection {
         "reaction_added"
     }
 
+    fn event_types(&self) -> Vec<&str> {
+        vec!["reaction_added", "reaction_removed"]
+    }
+
     fn apply(&self, event: &DurableEvent, state: &ProjectionState) -> Result<()> {
         // Decode the payload (a postcard-encoded `Reaction`).
         let reaction: Reaction = decode_reaction(&event.payload)?;
         let key = composite_key(&reaction.message_id, reaction.user_id, &reaction.reaction_type);
-        let value = event.payload.clone();
-        state.insert("reactions", key, value, event.commit_seq);
+        if event.event_type == "reaction_removed" {
+            // Removing an absent reaction is a no-op, so replay is idempotent.
+            state.remove("reactions", &key);
+        } else {
+            let value = event.payload.clone();
+            state.insert("reactions", key, value, event.commit_seq);
+        }
         Ok(())
     }
 }
@@ -422,6 +430,49 @@ mod tests {
         let mut count = 0;
         state.for_each("reactions", |_, _| count += 1);
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn reaction_removed_deletes_only_its_composite_key() {
+        let state = ProjectionState::new();
+        let p = ReactionsProjection;
+        assert_eq!(p.event_types(), vec!["reaction_added", "reaction_removed"]);
+        let mk = |user_id: u64, reaction_type: &str| Reaction {
+            message_id: "msg_01".into(),
+            user_id,
+            reaction_type: reaction_type.into(),
+            created_at_micros: 1,
+            key_id: "k1".into(),
+        };
+        let apply = |kind: &str, r: &Reaction, seq: u64| {
+            p.apply(
+                &DurableEvent {
+                    commit_seq: seq,
+                    stream_id: "ch".into(),
+                    event_type: kind.into(),
+                    payload: encode_reaction(r),
+                },
+                &state,
+            )
+            .unwrap();
+        };
+        let target = mk(1, "👍");
+        apply("reaction_added", &target, 1);
+        apply("reaction_added", &mk(2, "👍"), 2); // other user, same emote
+        apply("reaction_added", &mk(1, "🎉"), 3); // same user, other emote
+
+        apply("reaction_removed", &target, 4);
+        apply("reaction_removed", &target, 5); // already gone: no-op, no error
+
+        let left = ReactionsProjection::list_reactions(&state, "msg_01").unwrap();
+        assert_eq!(left.len(), 2);
+        assert!(ReactionsProjection::get_reaction(&state, "msg_01", 1, "👍").unwrap().is_none());
+        assert!(ReactionsProjection::get_reaction(&state, "msg_01", 2, "👍").unwrap().is_some());
+        assert!(ReactionsProjection::get_reaction(&state, "msg_01", 1, "🎉").unwrap().is_some());
+
+        // Re-adding after removal works.
+        apply("reaction_added", &target, 6);
+        assert!(ReactionsProjection::get_reaction(&state, "msg_01", 1, "👍").unwrap().is_some());
     }
 
     #[test]
