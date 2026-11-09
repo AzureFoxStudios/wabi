@@ -33,6 +33,8 @@ const DEFAULT_MAX_AGE_MS: u64 = 50;
 const ENTRIES_PER_FILE: u32 = 10_000;
 const FILE_HEADER_LEN: usize = 16;
 const FILE_TRAILER_LEN: usize = 32;
+/// Largest `entry_len` a partially written final entry may claim (1 MiB).
+const MAX_PLAUSIBLE_ENTRY_LEN: usize = 1 << 20;
 
 // Test-only instrumentation for group-commit occupancy assertions.
 // Keyed by the batcher's directory so concurrent tests (each with its own
@@ -458,7 +460,7 @@ pub fn read_all_entries(dir: &PathBuf) -> Result<Vec<CommitIndexEntry>> {
             break;
         }
         let data = std::fs::read(&path).map_err(WabiError::from)?;
-        let entries = parse_widx_file(&data)?;
+        let entries = parse_widx_file(&path, &data)?;
         all.extend(entries);
         file_number += 1;
     }
@@ -467,10 +469,26 @@ pub fn read_all_entries(dir: &PathBuf) -> Result<Vec<CommitIndexEntry>> {
 }
 
 /// Parse entries from the raw bytes of a `.widx` file (skipping header + trailer).
-fn parse_widx_file(data: &[u8]) -> Result<Vec<CommitIndexEntry>> {
+///
+/// When an entry fails the length check or its CRC, scanning stops early only
+/// if the rest of the file looks like a power-loss tail from `flush_batch`:
+///   (a) every remaining byte is zero (delayed allocation), or
+///   (b) the header says the file is unsealed and the entry claims a
+///       plausible length but runs past the end of the file (partially
+///       written final entry).
+/// Anything else is corruption of an acknowledged commit: return an error so
+/// the engine refuses to start. The file is never repaired or rewritten.
+fn parse_widx_file(path: &std::path::Path, data: &[u8]) -> Result<Vec<CommitIndexEntry>> {
     if data.len() < FILE_HEADER_LEN {
         return Ok(Vec::new());
     }
+
+    // `seal_file` sets the sealed flag only after every entry was fsynced, and
+    // the batcher never appends to a file again after a restart, so only an
+    // unsealed file can end mid-entry. A header that fails its own CRC is not
+    // trusted to say "unsealed".
+    let unsealed = crc32c::crc32c(&data[..12]).to_le_bytes()[..] == data[12..16]
+        && u16::from_le_bytes([data[6], data[7]]) & 0x0001 == 0;
 
     let mut offset = FILE_HEADER_LEN;
     let mut entries = Vec::new();
@@ -482,8 +500,36 @@ fn parse_widx_file(data: &[u8]) -> Result<Vec<CommitIndexEntry>> {
         let entry_len = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap()) as usize;
         let entry_total = 4 + entry_len + 4;
 
-        if offset + entry_total > data.len() {
-            break; // truncated or trailer space
+        let valid = entry_len >= 65
+            && offset + entry_total <= data.len()
+            && crc32c::crc32c(&data[offset + 4..offset + 4 + entry_len]).to_le_bytes()[..]
+                == data[offset + 4 + entry_len..offset + entry_total];
+        if !valid {
+            if data[offset..].iter().all(|&b| b == 0) {
+                tracing::warn!(
+                    file = %path.display(),
+                    offset,
+                    "commit index: zero-filled tail after power loss, ignoring it"
+                );
+            } else if unsealed
+                && (65..=MAX_PLAUSIBLE_ENTRY_LEN).contains(&entry_len)
+                && offset + entry_total > data.len()
+            {
+                tracing::warn!(
+                    file = %path.display(),
+                    offset,
+                    "commit index: partially written final entry, ignoring it"
+                );
+            } else {
+                return Err(WabiError::Corrupt {
+                    location: format!("commit index file {}", path.display()),
+                    detail: format!(
+                        "entry at offset={offset}: commit index entry corrupt; \
+                         refusing to start, restore from backup or wait for the quarantine tool"
+                    ),
+                });
+            }
+            break;
         }
 
         let entry_bytes = &data[offset..offset + entry_total];
@@ -737,5 +783,240 @@ mod tests {
         let loaded = read_all_entries(&dir.path().to_path_buf()).unwrap();
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0], entry);
+    }
+
+    // -----------------------------------------------------------------------
+    // Power-loss tails are tolerated; other corruption refuses to open
+    // -----------------------------------------------------------------------
+
+    /// Size of one encoded `test_entry`: 4 (len) + 65 (body) + 4 (CRC).
+    const TEST_ENTRY_LEN: usize = 73;
+
+    /// Write `n` entries through the real batcher, fsync them, then kill the
+    /// batcher without sealing — the on-disk state a power loss leaves behind.
+    async fn write_unsealed(index_dir: &std::path::Path, n: u64) -> PathBuf {
+        std::fs::create_dir_all(index_dir).unwrap();
+        let (handle, fut) = new_batcher(
+            index_dir.to_path_buf(),
+            Some(100),
+            Some(Duration::from_secs(60)),
+        );
+        let join = tokio::spawn(fut);
+        for seq in 1..=n {
+            handle.submit(test_entry(seq)).unwrap();
+        }
+        handle.flush_now().await.unwrap();
+        join.abort();
+        let _ = join.await;
+        index_dir.join("00000000.widx")
+    }
+
+    fn engine_config(data_dir: &std::path::Path) -> crate::engine::WabiDbConfig {
+        let mut config = crate::engine::WabiDbConfig::new(
+            data_dir.to_path_buf(),
+            crate::crypto::bootstrap::BootstrapSource::Provided([0x5c; 32]),
+        );
+        config.allow_init = true;
+        config
+    }
+
+    async fn open_engine(data_dir: &std::path::Path) -> Result<crate::engine::WabiDbEngine> {
+        crate::engine::WabiDbEngine::open(engine_config(data_dir)).await
+    }
+
+    /// Append the first 100 bytes of a 205-byte entry (4 event refs): a
+    /// partially written final entry long enough to reach the entry checks.
+    fn append_partial_entry(widx: &std::path::Path) {
+        let mut entry = test_entry(4);
+        entry.event_refs = (0..4)
+            .map(|i| crate::commit_index::record::StreamRef {
+                stream_id_hash: [i; 16],
+                stream_kind: 1,
+                segment_id: 0,
+                offset: 0,
+                length: 0,
+            })
+            .collect();
+        let encoded = entry.encode();
+        assert_eq!(encoded.len(), 205);
+        let mut f = std::fs::OpenOptions::new().append(true).open(widx).unwrap();
+        std::io::Write::write_all(&mut f, &encoded[..100]).unwrap();
+    }
+
+    fn indexed_seqs(index_dir: &std::path::Path) -> Vec<u64> {
+        read_all_entries(&index_dir.to_path_buf())
+            .unwrap()
+            .iter()
+            .map(|e| e.commit_seq)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn zero_filled_tail_keeps_entries_and_engine_opens() {
+        let dir = tempdir().unwrap();
+        let index_dir = dir.path().join("global").join("commit-index");
+        let widx = write_unsealed(&index_dir, 3).await;
+
+        // Delayed allocation after power loss: the file grows but the new
+        // blocks read back as zeros.
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&widx)
+            .unwrap();
+        std::io::Write::write_all(&mut f, &[0u8; 200]).unwrap();
+        drop(f);
+
+        let engine = open_engine(dir.path()).await.unwrap();
+        assert_eq!(engine.barrier().current(), 3);
+
+        let entries = read_all_entries(&index_dir).unwrap();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[2].commit_seq, 3);
+    }
+
+    #[tokio::test]
+    async fn truncated_third_entry_keeps_first_two_and_engine_opens() {
+        let dir = tempdir().unwrap();
+        let index_dir = dir.path().join("global").join("commit-index");
+        let widx = write_unsealed(&index_dir, 3).await;
+
+        let cut = FILE_HEADER_LEN + 2 * TEST_ENTRY_LEN + TEST_ENTRY_LEN / 2;
+        let f = std::fs::OpenOptions::new().write(true).open(&widx).unwrap();
+        f.set_len(cut as u64).unwrap();
+        drop(f);
+
+        let entries = read_all_entries(&index_dir).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[1].commit_seq, 2);
+
+        let engine = open_engine(dir.path()).await.unwrap();
+        assert_eq!(engine.barrier().current(), 2);
+    }
+
+    /// Case (b): an unsealed file ending in a partially written entry.
+    #[tokio::test]
+    async fn partial_final_entry_in_unsealed_file_keeps_prior_entries_and_engine_opens() {
+        let dir = tempdir().unwrap();
+        let index_dir = dir.path().join("global").join("commit-index");
+        let widx = write_unsealed(&index_dir, 3).await;
+        append_partial_entry(&widx);
+
+        let engine = open_engine(dir.path()).await.unwrap();
+        assert_eq!(engine.barrier().current(), 3);
+        assert_eq!(indexed_seqs(&index_dir), vec![1, 2, 3]);
+    }
+
+    /// After recovering from a partial entry in file 0, the next commit goes to
+    /// file 1. File 0 is no longer the newest, but it is still unsealed, so the
+    /// following restart must accept the same tail.
+    #[tokio::test]
+    async fn partial_final_entry_survives_a_second_restart_after_new_commits() {
+        use crate::format::record::RecordKind;
+        use crate::projections::room_placement::{self, RoomPlacementRecord};
+        use crate::sequencer::types::{CommandCommit, EventToWrite};
+
+        let dir = tempdir().unwrap();
+        let index_dir = dir.path().join("global").join("commit-index");
+        let widx = write_unsealed(&index_dir, 3).await;
+        append_partial_entry(&widx);
+
+        // Restart 1: recover, then commit through the engine's own batcher.
+        let engine = open_engine(dir.path()).await.unwrap();
+        let stream = room_placement::stream_id("ch_restart");
+        engine.get_or_create_stream_key(&stream).await.unwrap();
+        engine
+            .run_command(CommandCommit {
+                caller_user_id: 0,
+                caller_device_id: "widx-restart-test".into(),
+                command_name: "test_placement".into(),
+                idempotency_key: None,
+                room_owner_precondition: None,
+                events: vec![EventToWrite {
+                    stream_id: stream,
+                    event_type: room_placement::EVENT.into(),
+                    stream_kind: 6,
+                    record_kind: RecordKind::Event,
+                    plaintext: serde_json::to_vec(&RoomPlacementRecord {
+                        schema_version: 1,
+                        channel_id: "ch_restart".into(),
+                        epoch: 1,
+                        owner_node_id: "local".into(),
+                        replica_node_ids: vec![],
+                    })
+                    .unwrap(),
+                }],
+                essential: true,
+                response_tx: tokio::sync::oneshot::channel().0,
+            })
+            .await
+            .unwrap();
+        assert!(index_dir.join("00000001.widx").exists());
+        let committed = engine.barrier().current();
+        assert_eq!(committed, 4);
+        drop(engine);
+        drop(crate::tests::wait_for_stopped_engine(dir.path()).await);
+
+        // Restart 2: the tail in file 0 is still accepted; every commit is present.
+        let engine = crate::tests::reopen_after_drop(engine_config(dir.path()), None)
+            .await
+            .unwrap();
+        assert_eq!(engine.barrier().current(), committed);
+        assert_eq!(indexed_seqs(&index_dir), vec![1, 2, 3, 4]);
+    }
+
+    /// Open must fail, and the error must name the file and the bad offset.
+    async fn assert_open_refused(data_dir: &std::path::Path, offset: usize) {
+        let error = match open_engine(data_dir).await {
+            Ok(_) => panic!("engine opened over a corrupt commit index"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("00000000.widx"), "{error}");
+        assert!(error.contains(&format!("offset={offset}")), "{error}");
+        assert!(error.contains("refusing to start"), "{error}");
+    }
+
+    /// A bad entry followed by non-zero bytes in a sealed file is corruption
+    /// of an acknowledged commit, not a power-loss tail.
+    #[tokio::test]
+    async fn corrupt_middle_entry_in_sealed_file_refuses_to_open() {
+        let dir = tempdir().unwrap();
+        let index_dir = dir.path().join("global").join("commit-index");
+        std::fs::create_dir_all(&index_dir).unwrap();
+        let (handle, fut) =
+            new_batcher(index_dir.clone(), Some(100), Some(Duration::from_secs(60)));
+        let join = tokio::spawn(fut);
+        for seq in 1..=3 {
+            handle.submit(test_entry(seq)).unwrap();
+        }
+        drop(handle); // graceful shutdown seals the file
+        join.await.unwrap().unwrap();
+
+        let widx = index_dir.join("00000000.widx");
+        let mut bytes = std::fs::read(&widx).unwrap();
+        assert_eq!(bytes[6..8], 0x0001u16.to_le_bytes(), "file must be sealed");
+        let entry2 = FILE_HEADER_LEN + TEST_ENTRY_LEN;
+        assert_eq!(entry2, 89);
+        bytes[entry2 + 4 + 10] ^= 0xFF; // flip one byte in entry 2's body
+        std::fs::write(&widx, &bytes).unwrap();
+
+        assert_open_refused(dir.path(), entry2).await;
+    }
+
+    /// Same rule in the current (last, unsealed) file: entry 3 follows the
+    /// bad CRC, so the bytes after it are not a tail.
+    #[tokio::test]
+    async fn bad_crc_in_current_file_refuses_to_open() {
+        let dir = tempdir().unwrap();
+        let index_dir = dir.path().join("global").join("commit-index");
+        let widx = write_unsealed(&index_dir, 3).await;
+
+        let mut bytes = std::fs::read(&widx).unwrap();
+        let entry2 = FILE_HEADER_LEN + TEST_ENTRY_LEN;
+        let crc = entry2 + TEST_ENTRY_LEN - 4..entry2 + TEST_ENTRY_LEN;
+        assert_ne!(bytes[crc.clone()], [0xDE, 0xAD, 0xBE, 0xEF]);
+        bytes[crc].copy_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        std::fs::write(&widx, &bytes).unwrap();
+
+        assert_open_refused(dir.path(), entry2).await;
     }
 }
