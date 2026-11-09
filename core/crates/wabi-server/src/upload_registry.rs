@@ -823,6 +823,10 @@ async fn recover_staged_upload(
                 "staged upload bytes differ from their publication record",
             ));
         }
+        // Read-only handles cannot be flushed on Windows (Access is denied);
+        // the staged bytes were synced when written, as sync_upload_directory
+        // is also Unix-only.
+        #[cfg(unix)]
         tokio::fs::File::open(&candidate).await?.sync_all().await?;
         sync_upload_directory(&staging_dir).await?;
         tokio::fs::rename(&candidate, uploads_dir.join(&record.filename)).await?;
