@@ -196,19 +196,9 @@ impl BlobWriter {
         let canonical_meta = self.metadata_path(&hash_bytes);
         let _ = tokio::fs::rename(&meta_tmp_path, &canonical_meta).await;
 
-        // 8. fsync the parent directory (durability of the rename).
-        let dir = tokio::fs::File::open(prefix_dir).await.map_err(|e| {
-            WabiError::Io(std::io::Error::new(
-                e.kind(),
-                format!("open prefix dir for fsync: {e}"),
-            ))
-        })?;
-        dir.sync_all().await.map_err(|e| {
-            WabiError::Io(std::io::Error::new(
-                e.kind(),
-                format!("fsync prefix dir: {e}"),
-            ))
-        })?;
+        // 8. fsync the parent directory (durability of the rename). The
+        // shared helper opens the directory correctly on Windows too.
+        crate::storage::fsync::fsync_dir(prefix_dir).await?;
 
         Ok(BlobWriteResult {
             hash: hash_bytes,

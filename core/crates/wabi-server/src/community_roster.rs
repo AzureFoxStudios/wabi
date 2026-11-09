@@ -433,6 +433,9 @@ fn persist_roster(path: &PathBuf, roster: &SavedRoster) -> std::io::Result<()> {
         file.write_all(&serde_json::to_vec(roster).map_err(std::io::Error::other)?)?;
         file.sync_all()?;
         fs::rename(&temp, path)?;
+        // Directory-entry fsync: a read-only directory handle cannot be
+        // flushed on Windows (Access is denied); NTFS journals the rename.
+        #[cfg(unix)]
         fs::File::open(parent)?.sync_all()?;
         Ok(())
     })();
