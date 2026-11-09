@@ -49,6 +49,8 @@ Two requirements that come with B:
 
 `main` CI has been red since 2026-10-11. Three independent causes, none from the Phase 1 work: a permit-release ordering bug in wabi-consensus that makes one test flaky; recovery-policy tests that write into a world-readable temp root, which the loader correctly refuses; and the desktop-host restore path renaming a directory on Windows while holding a lock file inside it. Tasks 1.0a, 1.0b, 1.0c in the prompts file. Merge these before anything else, then re-run checks on the open PRs.
 
+Status 2026-11-09: 1.0a, 1.0b (PR 281), a second consensus race (PR 284), and the Windows/macOS archive tests (1.0c+d, PR 285) are merged. Found and queued afterwards: 1.0f WabiDB directory fsync on Windows (PR 287, the engine could not open on Windows since 2026-10-30); 1.0h CI never ran the feature-gated Lore integration tests (PR 288); 1.0g wabi-consensus still has timing races that fail the workspace test jobs at random, now the main blocker; 1.0e and 1.0i are CI-only (a workflow missing a sidecar, and bundler helper downloads failing on upstream 5xx). Prompts for 1.0e, 1.0g and 1.0i are in the prompts file.
+
 ## Phase 1: stop the bleeding (2 to 3 weeks, mostly Sonnet)
 
 These are independent. Each is one PR with a failing test first.
