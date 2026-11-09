@@ -403,20 +403,21 @@ fn process_sigkill_at_all_publication_boundaries_preserves_lock_and_truth() {
             let initial = MaterialStore::open(root.path(), binding(), limits()).unwrap();
             let lock_inode = fs::metadata(root.path().join(LOCK)).unwrap().ino();
             drop(initial);
-            let mut child = Command::new(std::env::current_exe().unwrap())
-                .args([
-                    "--exact",
-                    "material::tests::material_process_crash_child",
-                    "--ignored",
-                    "--nocapture",
-                ])
-                .env("WABI_MATERIAL_CRASH_ROOT", root.path())
-                .env("WABI_MATERIAL_CRASH_MODE", mode)
-                .env("WABI_MATERIAL_CRASH_POINT", format!("{point:?}"))
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .spawn()
-                .unwrap();
+            let mut child = crate::fork_gate::spawn(
+                Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "--exact",
+                        "material::tests::material_process_crash_child",
+                        "--ignored",
+                        "--nocapture",
+                    ])
+                    .env("WABI_MATERIAL_CRASH_ROOT", root.path())
+                    .env("WABI_MATERIAL_CRASH_MODE", mode)
+                    .env("WABI_MATERIAL_CRASH_POINT", format!("{point:?}"))
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null()),
+            )
+            .unwrap();
             let output = child.stdout.take().unwrap();
             let (sender, receiver) = mpsc::channel();
             let reader = std::thread::spawn(move || {

@@ -31,6 +31,7 @@ fn reopen_owned(root: &Path, binding: StoreBinding) -> MaterialStore {
         assert_eq!(fs::metadata(root.join(LOCK)).unwrap().ino(), inode);
         // Probe actual lock contention only. Never retry the broad Ownership
         // error, which also covers unsafe mode/owner/inode/name failures.
+        let fork_gate = crate::fork_gate::acquire();
         let probe = OpenOptions::new()
             .read(true)
             .write(true)
@@ -42,13 +43,15 @@ fn reopen_owned(root: &Path, binding: StoreBinding) -> MaterialStore {
         assert_eq!(metadata.mode() & 0o077, 0);
         assert_eq!(metadata.nlink(), 1);
         assert_eq!(metadata.uid(), fs::metadata("/proc/self").unwrap().uid());
-        if !FileExt::try_lock_exclusive(&probe).unwrap() {
+        let free = FileExt::try_lock_exclusive(&probe).unwrap();
+        // Close the probe before any child may be created, then reopen.
+        drop(probe);
+        drop(fork_gate);
+        if !free {
             assert!(Instant::now() < deadline, "owned lock remained busy");
-            drop(probe);
             std::thread::sleep(Duration::from_millis(1));
             continue;
         }
-        drop(probe);
         // A new race/unsafe root still fails immediately here; no retry can
         // hide production refusal or silently replace the persistent inode.
         return MaterialStore::open(root, binding, limits())
@@ -128,7 +131,11 @@ fn owned_reopen_waits_for_held_descriptor_without_replacing_lock() {
     let (parent, _path, store, source) = stage(b"opaque");
     let root = parent.path().join("material");
     let inode = fs::metadata(root.join(LOCK)).unwrap().ino();
-    let retained = store.inner.lock.try_clone().unwrap();
+    // Duplicating a lock-bearing descriptor counts as acquiring (fork_gate).
+    let retained = {
+        let _fork_gate = crate::fork_gate::acquire();
+        store.inner.lock.try_clone().unwrap()
+    };
     drop(store);
     assert!(matches!(
         MaterialStore::open(&root, binding(source.signed()), limits()),
@@ -211,17 +218,29 @@ fn certification_contention_and_late_publication_refuse_success_without_deleting
         .join("material")
         .join(format!("{id}.checkpoint.json"))
         .exists());
-    let end = Instant::now() + Duration::from_millis(20);
+    // The deadline must still be open for every pre-publication check and
+    // expire only once publication has started. A short wall-clock budget made
+    // that depend on how fast validation and the staged fsync ran; instead the
+    // deadline is far away and expires exactly at the StageSynced hook.
+    struct ResetSkew;
+    impl Drop for ResetSkew {
+        fn drop(&mut self) {
+            DEADLINE_SKEW.set(Duration::ZERO);
+        }
+    }
+    let _reset = ResetSkew;
+    let end = Instant::now() + Duration::from_secs(3600);
+    let mut published = false;
     assert_eq!(
         store.certify_checkpoint_deadline(&manifest, "node-1", Some(end), |point| {
             if point == Point::StageSynced {
-                std::thread::sleep(
-                    end.saturating_duration_since(Instant::now()) + Duration::from_millis(10),
-                );
+                published = true;
+                DEADLINE_SKEW.set(Duration::from_secs(2 * 3600));
             }
         }),
         Err(MaterialError::Deadline)
     );
+    assert!(published, "deadline expired before publication started");
     // Started file publication is not preempted or rolled back. Its complete
     // immutable bytes survive; only a later fresh read can certify durability.
     store.inner.verify_object(&object, None).unwrap();
@@ -713,19 +732,20 @@ fn signed_manifest_sigkill_boundaries_preserve_receipt_truth_and_lock_inode() {
         let initial = MaterialStore::open(root.path(), binding(&source), limits()).unwrap();
         let inode = fs::metadata(root.path().join(LOCK)).unwrap().ino();
         drop(initial);
-        let mut child = Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "material::checkpoint::tests::signed_checkpoint_crash_child",
-                "--ignored",
-                "--nocapture",
-            ])
-            .env("WABI_SIGNED_CHECKPOINT_ROOT", root.path())
-            .env("WABI_SIGNED_CHECKPOINT_POINT", format!("{point:?}"))
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
+        let mut child = crate::fork_gate::spawn(
+            Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "material::checkpoint::tests::signed_checkpoint_crash_child",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env("WABI_SIGNED_CHECKPOINT_ROOT", root.path())
+                .env("WABI_SIGNED_CHECKPOINT_POINT", format!("{point:?}"))
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null()),
+        )
+        .unwrap();
         let output = child.stdout.take().unwrap();
         let (sender, receiver) = mpsc::channel();
         let reader = std::thread::spawn(move || {

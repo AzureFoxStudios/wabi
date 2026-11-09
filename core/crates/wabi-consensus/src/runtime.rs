@@ -180,6 +180,10 @@ impl Root {
         Ok(())
     }
     fn lock(&self) -> Result<File> {
+        // Test binary only: never acquire while a sibling test's child is
+        // between clone and exec (see fork_gate).
+        #[cfg(test)]
+        let _fork_gate = crate::fork_gate::acquire();
         let lock = OpenOptions::new()
             .read(true)
             .write(true)
