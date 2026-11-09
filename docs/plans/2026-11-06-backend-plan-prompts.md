@@ -168,6 +168,18 @@ Tests first, all in wabidb: (1) encode/decode round trip for every colon id abov
 
 You check: the four tests exist and failed or were impossible before the change, the Windows `build-tauri` job's smoke test passes Authority startup, and every `.join("streams")` site in the workspace goes through the one encode/decode pair.
 
+### Task 1.0k "Direct payment acceptance" workflow runs a script that was never committed (Sonnet)
+
+```
+TASK 1.0k.
+
+Problem: .github/workflows/payments-acceptance.yml, job direct-payments, step "xvfb-run -a node scripts/payments-browser-smoke.mjs" fails with "Cannot find module .../frontend/scripts/payments-browser-smoke.mjs". That file has never been committed (git log --all shows nothing for it). The step was added in 4a00104 (2026-10-30). The workflow only triggers on its path filter (payments code, Cargo.lock, Cargo.toml, rust-toolchain.toml and a few more), so it had not run on main since; it fired on PR 291 because that PR touches Cargo.lock.
+
+Find out first: check .gitignore for a pattern that hides the script, and read the sibling frontend/scripts/*-browser-smoke.mjs files and the earlier steps of this job to see what the smoke was meant to cover (the env it is given: WABI_PAYMENTS_STATIC, WABI_PAYMENTS_REQUIRE_RAILS, WABI_PAYMENTS_QR_QA, WABI_SMOKE_SERVER_BINARY). Then do one of two things and say which in the PR: (a) if a payments browser smoke is small and the sibling pattern makes it clear what to assert, write it, run it locally against the debug server, and keep the step; (b) otherwise remove the step and the upload-artifact step that depends on it, and add one line to docs/PROJECT_STATUS.md's payments section saying the browser acceptance for direct payments is not automated. Do not leave a step that cannot run. Do not touch the other steps of the job. Verify by pushing a branch that touches Cargo.lock in a harmless way is not acceptable; instead include the workflow file itself in the change, which is in its own path filter, so the job runs on the PR. Show it green.
+```
+
+You check: the `direct-payments` job is green on the PR, and the PR says whether coverage was added or removed.
+
 ## Phase 1: stop the bleeding
 
 ### Task 1.1 Reactions cannot be removed (Sonnet)
