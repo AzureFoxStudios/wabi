@@ -54,12 +54,65 @@ struct TemporaryFileStream {
     _temporary: tempfile::NamedTempFile,
 }
 
-async fn private_upload_source(bytes: &[u8]) -> Result<tempfile::NamedTempFile> {
+/// Stream an upload body into a private temporary file, hashing as it goes.
+/// Returns `None` the moment more than `max_bytes` arrive; dropping the
+/// temporary removes the partial file. Otherwise returns the file and the
+/// content etag (same value as `wabi_lore::etag_for_bytes`).
+async fn private_upload_source(
+    body: axum::body::Body,
+    max_bytes: u64,
+) -> Result<Option<(tempfile::NamedTempFile, String)>> {
+    use futures::StreamExt;
+    use sha2::{Digest, Sha256};
     let temporary = tempfile::NamedTempFile::new()?;
     let mut writer = tokio::fs::File::from_std(temporary.as_file().try_clone()?);
-    writer.write_all(bytes).await?;
+    let mut hasher = Sha256::new();
+    let mut written = 0u64;
+    let mut stream = body.into_data_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            // The transport-wide body limit (RequestBodyLimitLayer) surfaces as
+            // a LengthLimitError on the stream; that is a size rejection, so it
+            // stays 413 as it was before streaming, not a malformed request.
+            Err(error) if is_length_limit_error(&error) => return Ok(None),
+            Err(error) => {
+                return Err(AppError::BadRequest(format!(
+                    "Upload body could not be read: {error}"
+                )))
+            }
+        };
+        written = written.saturating_add(chunk.len() as u64);
+        if written > max_bytes {
+            return Ok(None);
+        }
+        hasher.update(&chunk);
+        writer.write_all(&chunk).await?;
+    }
     writer.flush().await?;
-    Ok(temporary)
+    Ok(Some((temporary, hex::encode(hasher.finalize()))))
+}
+
+fn is_length_limit_error(error: &axum::Error) -> bool {
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    while let Some(current) = source {
+        if current.is::<http_body_util::LengthLimitError>() {
+            return true;
+        }
+        source = current.source();
+    }
+    false
+}
+
+fn blob_too_large_response(max_bytes: u64) -> axum::response::Response {
+    (
+        axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+        Json(serde_json::json!({
+            "error": format!("file exceeds lore blob limit of {} MB", max_bytes / 1024 / 1024),
+            "type": "BlobTooLarge",
+        })),
+    )
+        .into_response()
 }
 impl futures::Stream for TemporaryFileStream {
     type Item = std::io::Result<axum::body::Bytes>;
@@ -1842,49 +1895,78 @@ struct UploadQuery {
     stage_only: Option<bool>,
 }
 
+/// Membership, role and repo checks for [`upload_file`]. Runs before any of
+/// the body is read and again under the admission that writes, because the
+/// admission guards are not held while the body streams. `None` means the
+/// repo is a read-only mirror.
+async fn admit_file_upload(
+    state: &AppState,
+    auth: &AuthUser,
+    channel_id: i64,
+    repo_path: &str,
+) -> Result<Option<Arc<wabi_lore::LoreService>>> {
+    ensure_channel_member(state, channel_id, auth.user_id).await?;
+    // L8: asset writes = Owner/Admin/Developer/Artist
+    if !can_asset_write_lore(state, auth.user_id).await {
+        return Err(AppError::Forbidden(
+            "Lore asset uploads require at least Artist role".into(),
+        ));
+    }
+    wabi_lore::validate_repo_path(repo_path)
+        .map_err(|_| AppError::BadRequest("Invalid repository file path".into()))?;
+
+    let lore = lore_service(state).await?;
+    // Mirror repos are read-only pointers — reject uploads with 501.
+    if repo_read_only(&lore, channel_id).await {
+        return Ok(None);
+    }
+    Ok(Some(lore))
+}
+
 async fn upload_file(
     State(state): State<Arc<AppState>>,
     LoreWriteUser(auth): LoreWriteUser,
     Path((channel_id, path)): Path<(i64, String)>,
     Query(query): Query<UploadQuery>,
     headers: axum::http::HeaderMap,
-    body: axum::body::Bytes,
+    body: axum::body::Body,
 ) -> Result<axum::response::Response> {
+    let message = query.message.unwrap_or_else(|| "Upload via API".into());
+    let repo_path = query.repo_path.unwrap_or_else(|| path.clone());
+    let operation_state = state.clone();
+
+    // Authorize and look up the blob cap before reading any of the body. The
+    // admission guards hold server-wide membership and credential gates, so
+    // they are released while the body streams and taken again for the write.
     let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
     super::lore_auth::validate_current_capability(&state, &auth, channel_id, true).await?;
-    let operation_state = state.clone();
+    let precheck = {
+        let (state, auth, repo_path) = (state.clone(), auth.clone(), repo_path.clone());
+        admission
+            .run(&operation_state, async move {
+                admit_file_upload(&state, &auth, channel_id, &repo_path).await
+            })
+            .await?
+    };
+    let Some(lore) = precheck else {
+        return Ok(mirror_read_only_response());
+    };
+
+    // Enforce the configured per-file size cap (WABI_LORE_MAX_BLOB_MB) while
+    // streaming into the private temporary file.
+    let max_bytes = lore.blob_max_size_bytes();
+    let Some((temporary, etag)) = private_upload_source(body, max_bytes).await? else {
+        return Ok(blob_too_large_response(max_bytes));
+    };
+
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    super::lore_auth::validate_current_capability(&state, &auth, channel_id, true).await?;
     admission
         .run(&operation_state, async move {
-            ensure_channel_member(&state, channel_id, auth.user_id).await?;
-            // L8: asset writes = Owner/Admin/Developer/Artist
-            if !can_asset_write_lore(&state, auth.user_id).await {
-                return Err(AppError::Forbidden(
-                    "Lore asset uploads require at least Artist role".into(),
-                ));
-            }
-            let message = query.message.unwrap_or_else(|| "Upload via API".into());
-            let repo_path = query.repo_path.unwrap_or_else(|| path.clone());
-            wabi_lore::validate_repo_path(&repo_path)
-                .map_err(|_| AppError::BadRequest("Invalid repository file path".into()))?;
-
-            let lore = lore_service(&state).await?;
-            // Mirror repos are read-only pointers — reject uploads with 501.
-            if repo_read_only(&lore, channel_id).await {
+            let Some(lore) = admit_file_upload(&state, &auth, channel_id, &repo_path).await?
+            else {
                 return Ok(mirror_read_only_response());
-            }
-
-            // Enforce the configured per-file size cap (WABI_LORE_MAX_BLOB_MB).
-            let max_bytes = lore.blob_max_size_bytes();
-            if body.len() as u64 > max_bytes {
-                return Ok((
-            axum::http::StatusCode::PAYLOAD_TOO_LARGE,
-            Json(serde_json::json!({
-                "error": format!("file exceeds lore blob limit of {} MB", max_bytes / 1024 / 1024),
-                "type": "BlobTooLarge",
-            })),
-        )
-            .into_response());
-            }
+            };
 
             // Optimistic concurrency: only when the client sent an If-Match. Without
             // a precondition the head-etag fetch is skipped entirely — it syncs the
@@ -1902,7 +1984,6 @@ async fn upload_file(
                 }
             }
 
-            let temporary = private_upload_source(&body).await?;
             let tmp_path = temporary.path();
 
             // Batch-push half of the device setup flow: stage the bytes now, seal the
@@ -1919,7 +2000,7 @@ async fn upload_file(
                 let etag = file
                     .etag
                     .clone()
-                    .unwrap_or_else(|| wabi_lore::etag_for_bytes(&body));
+                    .unwrap_or_else(|| etag.clone());
                 emit_lore_file_changed(
                     &state,
                     channel_id,
@@ -1952,7 +2033,6 @@ async fn upload_file(
                 )
                 .await?;
 
-            let etag = wabi_lore::etag_for_bytes(&body);
             let mut wdb_recorded = false;
             let mut cursor = 0u64;
             if let Some(repo) = lore.get_repo(channel_id).await {
@@ -2011,6 +2091,56 @@ struct UploadRecordingQuery {
     filename: Option<String>,
 }
 
+/// Channel, membership and repo checks for [`upload_recording`]. Runs before
+/// any of the body is read and again under the admission that writes, because
+/// the admission guards are not held while the body streams. `None` means the
+/// repo is a read-only mirror.
+async fn admit_recording_upload(
+    state: &AppState,
+    auth: &AuthUser,
+) -> Result<Option<(Arc<wabi_lore::LoreService>, i64)>> {
+    let lore = lore_service(state).await?;
+    let channel_name = lore.recordings_channel_name().to_string();
+
+    // Resolve the Recordings channel by name.
+    let channels = state.wdb.get_channels_raw().await?;
+    let channel = channels
+        .iter()
+        .find(|c| c.get("name").and_then(|v| v.as_str()) == Some(channel_name.as_str()))
+        .ok_or_else(|| {
+            AppError::NotFound(format!("Recordings channel '{channel_name}' not found"))
+        })?;
+
+    let channel_id_str = channel
+        .get("channel_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::Internal("Recordings channel missing id".into()))?;
+    let lore_channel_id = channel_id_str
+        .strip_prefix("ch_")
+        .and_then(|hex| i64::from_str_radix(hex, 16).ok())
+        .ok_or_else(|| {
+            AppError::Internal(format!("Invalid Recordings channel id {channel_id_str}"))
+        })?;
+
+    ensure_channel_member(state, lore_channel_id, auth.user_id).await?;
+
+    // The resolved channel must actually be a Lore-backed Asset Storage
+    // channel. If a non-asset-storage channel happens to share the name, or its
+    // repo was never created, fail cleanly with 404 rather than an opaque
+    // internal error from the upload path.
+    if lore.get_repo(lore_channel_id).await.is_none() {
+        return Err(AppError::NotFound(format!(
+            "Recordings channel '{channel_name}' is not an Asset Storage channel with a Lore repo"
+        )));
+    }
+
+    // Mirror repos are read-only pointers — reject uploads with 501.
+    if repo_read_only(&lore, lore_channel_id).await {
+        return Ok(None);
+    }
+    Ok(Some((lore, lore_channel_id)))
+}
+
 /// Upload a finished call recording to the configured "Recordings" Asset Storage
 /// channel.
 ///
@@ -2022,51 +2152,37 @@ async fn upload_recording(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Query(query): Query<UploadRecordingQuery>,
-    body: axum::body::Bytes,
+    body: axum::body::Body,
 ) -> Result<axum::response::Response> {
-    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
     let operation_state = state.clone();
+
+    // Authorize and look up the blob cap before reading any of the body; the
+    // admission guards are released while the body streams (see upload_file).
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
+    let precheck = {
+        let (state, auth) = (state.clone(), auth.clone());
+        admission
+            .run(&operation_state, async move {
+                admit_recording_upload(&state, &auth).await
+            })
+            .await?
+    };
+    let Some((lore, _)) = precheck else {
+        return Ok(mirror_read_only_response());
+    };
+
+    let max_bytes = lore.blob_max_size_bytes();
+    let Some((temporary, etag)) = private_upload_source(body, max_bytes).await? else {
+        return Ok(blob_too_large_response(max_bytes));
+    };
+
+    let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
     admission
         .run(&operation_state, async move {
-            let lore = lore_service(&state).await?;
-            let channel_name = lore.recordings_channel_name().to_string();
-
-            // Resolve the Recordings channel by name.
-            let channels = state.wdb.get_channels_raw().await?;
-            let channel = channels
-                .iter()
-                .find(|c| c.get("name").and_then(|v| v.as_str()) == Some(channel_name.as_str()))
-                .ok_or_else(|| {
-                    AppError::NotFound(format!("Recordings channel '{channel_name}' not found"))
-                })?;
-
-            let channel_id_str = channel
-                .get("channel_id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| AppError::Internal("Recordings channel missing id".into()))?;
-            let lore_channel_id = channel_id_str
-                .strip_prefix("ch_")
-                .and_then(|hex| i64::from_str_radix(hex, 16).ok())
-                .ok_or_else(|| {
-                    AppError::Internal(format!("Invalid Recordings channel id {channel_id_str}"))
-                })?;
-
-            ensure_channel_member(&state, lore_channel_id, auth.user_id).await?;
-
-            // The resolved channel must actually be a Lore-backed Asset Storage
-            // channel. If a non-asset-storage channel happens to share the name, or its
-            // repo was never created, fail cleanly with 404 rather than an opaque
-            // internal error from the upload path.
-            if lore.get_repo(lore_channel_id).await.is_none() {
-                return Err(AppError::NotFound(format!(
-            "Recordings channel '{channel_name}' is not an Asset Storage channel with a Lore repo"
-        )));
-            }
-
-            // Mirror repos are read-only pointers — reject uploads with 501.
-            if repo_read_only(&lore, lore_channel_id).await {
+            let Some((lore, lore_channel_id)) = admit_recording_upload(&state, &auth).await?
+            else {
                 return Ok(mirror_read_only_response());
-            }
+            };
 
             let filename = query
                 .filename
@@ -2076,7 +2192,6 @@ async fn upload_recording(
                 .message
                 .unwrap_or_else(|| format!("Call recording {filename}"));
 
-            let temporary = private_upload_source(&body).await?;
             let tmp_path = temporary.path();
 
             let result = lore
@@ -2090,7 +2205,6 @@ async fn upload_recording(
                 .await?;
             let (revision, file_info) = (result.revision, result.file_info);
 
-            let etag = wabi_lore::etag_for_bytes(&body);
             let mut wdb_recorded = false;
             if let Some(repo) = lore.get_repo(lore_channel_id).await {
                 let outcome = record_lore_commit_and_change(
