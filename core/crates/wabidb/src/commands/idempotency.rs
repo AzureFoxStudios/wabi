@@ -4,7 +4,7 @@
 //! so that replaying the same request returns the cached result instead of
 //! re-executing.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -49,6 +49,11 @@ impl CommandIdempotencyRecord {
 #[derive(Debug, Default)]
 pub struct CommandIdempotencyTable {
     records: HashMap<(u64, String), CommandIdempotencyRecord>,
+    /// Eviction order: `(expires_at, caller_user_id, client_request_id)` for
+    /// every record in `records`, soonest-expiring first. Invariant: holds
+    /// exactly one entry per record, so every write to `records` must go
+    /// through [`Self::store`] (or remove its entry here).
+    by_expiry: BTreeSet<(i64, u64, String)>,
 }
 
 /// Upper bound on live records. Each record is small (~200 bytes with a
@@ -78,13 +83,39 @@ impl CommandIdempotencyTable {
     /// at capacity — drops the soonest-expiring records until there is room.
     /// Evicting *before* the insert guarantees the new record is never a trim
     /// victim (it would otherwise often be the soonest-expiring entry).
-    /// O(n) on the trim path only; the steady state is a plain insert.
+    /// O(log n) per evicted record; no full scan on the insert path.
     pub fn insert(&mut self, record: CommandIdempotencyRecord) {
         if self.records.len() + 1 > MAX_RECORDS {
             self.evict_for_insert();
         }
+        self.store(record);
+    }
+
+    /// Write a record, keeping `by_expiry` in sync (drops the order entry of
+    /// any record this one replaces).
+    fn store(&mut self, record: CommandIdempotencyRecord) {
+        let order_key = (
+            record.expires_at,
+            record.caller_user_id,
+            record.client_request_id.clone(),
+        );
         let key = (record.caller_user_id, record.client_request_id.clone());
-        self.records.insert(key, record);
+        if let Some(old) = self.records.insert(key, record) {
+            self.by_expiry
+                .remove(&(old.expires_at, old.caller_user_id, old.client_request_id));
+        }
+        self.by_expiry.insert(order_key);
+    }
+
+    /// Remove the soonest-expiring record. Returns false if the table is empty.
+    fn evict_oldest(&mut self) -> bool {
+        match self.by_expiry.pop_first() {
+            Some((_, user_id, req_id)) => {
+                self.records.remove(&(user_id, req_id));
+                true
+            }
+            None => false,
+        }
     }
 
     /// Make room for one more record: drop already-expired entries first,
@@ -95,21 +126,15 @@ impl CommandIdempotencyTable {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64;
-        self.records.retain(|_, r| r.expires_at >= now);
-        if self.records.len() < MAX_RECORDS {
-            return;
+        while self
+            .by_expiry
+            .first()
+            .is_some_and(|(expires_at, _, _)| *expires_at < now)
+        {
+            self.evict_oldest();
         }
         // Still full: drop the soonest-expiring records.
-        let mut by_expiry: Vec<_> = self
-            .records
-            .values()
-            .map(|r| (r.expires_at, r.caller_user_id, r.client_request_id.clone()))
-            .collect();
-        by_expiry.sort_unstable();
-        let excess = self.records.len() - MAX_RECORDS + 1;
-        for (_, user_id, req_id) in by_expiry.into_iter().take(excess) {
-            self.records.remove(&(user_id, req_id));
-        }
+        while self.records.len() >= MAX_RECORDS && self.evict_oldest() {}
     }
 
     /// Look up a record by `(caller_user_id, client_request_id)`.
@@ -128,8 +153,14 @@ impl CommandIdempotencyTable {
     /// aggregate them.
     pub fn remove_expired(&mut self, now: i64) -> Vec<CommandIdempotencyRecord> {
         let mut removed = Vec::new();
+        let by_expiry = &mut self.by_expiry;
         self.records.retain(|_, record| {
             if record.expires_at < now {
+                by_expiry.remove(&(
+                    record.expires_at,
+                    record.caller_user_id,
+                    record.client_request_id.clone(),
+                ));
                 removed.push(record.clone());
                 false
             } else {
@@ -156,7 +187,7 @@ impl CommandIdempotencyTable {
                 });
             }
         }
-        self.records.insert(key, record);
+        self.store(record);
         Ok(())
     }
 }
@@ -265,6 +296,70 @@ mod tests {
             "table must stay bounded at {MAX_RECORDS}, got {}",
             table.len()
         );
+    }
+
+    /// Regression for ADR-0001 spike: once the table is full, every insert used
+    /// to do a full scan + clone + sort of all records (O(n log n) per insert),
+    /// turning 100k messages from 65s into 52min. At-cap inserts must be
+    /// ~O(log n). The bound is deliberately generous (debug build, slow CI) but
+    /// orders of magnitude below the quadratic behaviour; the loop aborts early
+    /// so a regression fails fast instead of hanging.
+    #[test]
+    fn insert_at_capacity_is_not_quadratic() {
+        use std::time::{Duration, Instant};
+
+        let bound = Duration::from_secs(10);
+        let far_future = 4_102_444_800; // 2100-01-01
+        let mut table = CommandIdempotencyTable::new();
+
+        // Fill to the cap (no eviction yet).
+        for i in 0..MAX_RECORDS {
+            table.insert(make_record(i as u64, "bulk", i as u64, far_future + i as i64));
+        }
+        assert_eq!(table.len(), MAX_RECORDS);
+
+        // Now insert another MAX_RECORDS (2x total): every one hits the cap.
+        let start = Instant::now();
+        for i in MAX_RECORDS..(2 * MAX_RECORDS) {
+            table.insert(make_record(i as u64, "bulk", i as u64, far_future + i as i64));
+            assert!(
+                start.elapsed() < bound,
+                "at-cap inserts too slow: only {} of {MAX_RECORDS} done in {bound:?}",
+                i - MAX_RECORDS + 1
+            );
+        }
+        assert!(table.len() <= MAX_RECORDS);
+    }
+
+    /// `by_expiry` must hold exactly one entry per record through replacement,
+    /// `remove_expired`, and eviction, and eviction must take the soonest first.
+    #[test]
+    fn expiry_index_stays_in_sync_and_evicts_soonest_first() {
+        let far_future = 4_102_444_800;
+        let mut table = CommandIdempotencyTable::new();
+
+        // Replace an expired record with a later-expiring one: no stale entry.
+        table.check_and_store(make_record(1, "k", 1, 500), 1000).unwrap();
+        table.check_and_store(make_record(1, "k", 2, far_future), 1000).unwrap();
+        assert_eq!(table.by_expiry.len(), table.records.len());
+
+        // remove_expired drops index entries too.
+        table.insert(make_record(2, "old", 3, 600));
+        assert_eq!(table.remove_expired(1000).len(), 1);
+        assert_eq!(table.by_expiry.len(), table.records.len());
+
+        // Fill past the cap with a strictly increasing expiry: the earliest
+        // inserted (soonest expiry) must be the ones evicted.
+        for i in 0..(MAX_RECORDS + 10) {
+            table.insert(make_record(100 + i as u64, "bulk", 0, far_future + 1 + i as i64));
+        }
+        assert_eq!(table.len(), MAX_RECORDS);
+        assert_eq!(table.by_expiry.len(), table.records.len());
+        // (1, "k") expired soonest of all live records, so it went first,
+        // followed by the earliest "bulk" records.
+        assert!(table.lookup(1, "k").is_none());
+        assert!(table.lookup(100, "bulk").is_none());
+        assert!(table.lookup(100 + (MAX_RECORDS + 9) as u64, "bulk").is_some());
     }
 
     #[test]
