@@ -114,6 +114,44 @@ You check: the Windows `build-tauri` job is green on the PR.
 
 ---
 
+### Task 1.0g wabi-consensus test races (Opus)
+
+```
+TASK 1.0g.
+
+Problem: core/crates/wabi-consensus has timing-dependent tests that fail intermittently in CI and locally, on different tests each time. Observed on post-fix code (after PRs 281 and 284 fixed two of them): store::tests::runtime_lease_covers_cancelled_blocking_io_snapshot_owner_and_actual_lock_release ("runtime lease was released before original database lock") and material::checkpoint::tests::certification_contention_and_late_publication_refuse_success_without_deleting_bytes (unwrap on NotFound at material/checkpoint/tests.rs around line 231). Because `cargo test --workspace` runs this crate in both the `test` and `build-server` jobs, every PR has a real chance of a red workspace job regardless of its content. This is the single largest blocker to "merge on green".
+
+Method: run `cargo test -p wabi-consensus --lib` in a loop (at least 40 iterations, with `--test-threads` at the default so the races reproduce) and record every failing test name and its assertion. For each, read the code under test and the test. Decide whether the race is in the product (an ordering the code should guarantee but does not, like the two fixed in PRs 281 and 284) or in the test (an assertion that assumes a scheduling order the API never promised). Fix product races in the product. Fix test-only races by waiting on the real signal the code exposes (a watch, notify, or join) instead of yield_now/sleep; never add sleeps or retries, never loosen an assertion, never mark a test ignored. Each fix is its own commit with the failing iteration count before and 100 clean iterations after. Report the final loop: 100 consecutive clean runs of the whole crate.
+
+If a race is in the product and the fix is not obvious within the test's scope, stop and describe it instead of guessing; durability and lock ordering in this crate are exactly where a wrong guess costs real data.
+```
+
+You check: the report shows 100 consecutive clean runs of the whole crate, and each fix names which side (product or test) had the race.
+
+### Task 1.0e "Tauri command and export routing" workflow lacks the server sidecar (Sonnet)
+
+```
+TASK 1.0e.
+
+Problem: the workflow .github/workflows/office-native-exports.yml job "Tauri command and export routing" runs scripts/fetch-tailcat-sidecar.sh and then `cargo test --manifest-path src-tauri/Cargo.toml --lib workspace_export`, but the Tauri build script requires both sidecars, and the job fails with "resource path `binaries/wabi-server-x86_64-unknown-linux-gnu` doesn't exist" (seen on PR 285, run 42556435806). It only triggers on src-tauri changes, so it had not been hit.
+
+Fix: do what the build.yml Tauri jobs do before cargo runs in that job (stage or placeholder the wabi-server sidecar; read build.yml to copy the exact step rather than inventing one). Keep the rest of the job unchanged. Verify by pushing a branch that touches a comment in src-tauri so the workflow runs, and show the job green.
+```
+
+You check: the job is green on the PR.
+
+### Task 1.0i Tauri bundler helper downloads fail CI on upstream 5xx (Sonnet)
+
+```
+TASK 1.0i.
+
+Problem: the build-tauri jobs in .github/workflows/build.yml fail whenever github.com/tauri-apps/binary-releases returns 502 or 504 while the bundler downloads AppRun, linuxdeploy (Linux) or nsis-3.11.zip (Windows). Seen on at least six PR runs on 2026-11-08 and 2026-11-09, always after the release binary built. These failures hide real results.
+
+Fix, smallest first: check whether the Tauri CLI honors a cache or env var for these helper binaries (TAURI_BUNDLER_TOOLS_GITHUB_MIRROR or an equivalent in the pinned tauri-cli version; read its docs for the pinned version rather than guessing). If so, pre-download the helpers with curl --retry in a step and point the bundler at the cache. If not, wrap the bundle step in a bounded retry (at most 3 attempts) that only retries when the log shows the download error, so a real build failure still fails fast. Do not pin to an unofficial mirror. Verify on the PR's Linux and Windows jobs.
+```
+
+You check: the PR's Linux and Windows Tauri jobs are green, and the retry or cache is visible in the job log.
+
 ## Phase 1: stop the bleeding
 
 ### Task 1.1 Reactions cannot be removed (Sonnet)
