@@ -5,6 +5,8 @@
 
 #[cfg(target_os = "linux")]
 pub mod availability_control;
+#[cfg(test)]
+pub(crate) mod fork_gate;
 #[cfg(target_os = "linux")]
 pub mod material;
 pub mod model;

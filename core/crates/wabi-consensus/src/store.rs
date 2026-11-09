@@ -368,6 +368,10 @@ impl Store {
     /// Requires a private, existing directory. A different node/community or
     /// format never silently reuses or resets an existing consensus database.
     pub fn open(root: &Path, binding: StoreBinding, limits: StoreLimits) -> Result<Self> {
+        // Test binary only: never acquire while a sibling test's child is
+        // between clone and exec (see fork_gate).
+        #[cfg(test)]
+        let _fork_gate = crate::fork_gate::acquire();
         if !binding.valid() || !limits.valid() {
             return Err(StoreError::Format);
         }
