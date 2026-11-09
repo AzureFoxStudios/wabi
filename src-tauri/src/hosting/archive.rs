@@ -135,7 +135,29 @@ fn walk(
 /// unlinked. Older root PID locks require explicit operator resolution.
 struct SnapshotLease {
     data: PathBuf,
-    lock: fs::File,
+    // `None` only on Windows, between `release_for_rename` and `relocated`.
+    lock: Option<fs::File>,
+    // Volume serial number and file index of the held lock file.
+    #[cfg(windows)]
+    identity: (u32, u64),
+}
+/// Windows equivalent of (dev, inode) for an open file.
+#[cfg(windows)]
+fn file_identity(file: &fs::File) -> Result<(u32, u64)> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: `file` owns an open handle for the duration of the call and
+    // `info` is a valid, writable BY_HANDLE_FILE_INFORMATION.
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    Ok((
+        info.dwVolumeSerialNumber,
+        (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+    ))
 }
 fn refuse_legacy_lock(data: &Path) -> Result<()> {
     match fs::symlink_metadata(data.join(".lock")) {
@@ -173,7 +195,9 @@ impl SnapshotLease {
         lock.try_lock().map_err(|_| "The Authority is running or safe locking is unavailable. Stop other Wabi processes; no data was copied or moved.".to_string())?;
         let lease = Self {
             data: data.to_owned(),
-            lock,
+            #[cfg(windows)]
+            identity: file_identity(&lock)?,
+            lock: Some(lock),
         };
         lease.verify()?;
         Ok(lease)
@@ -188,7 +212,7 @@ impl SnapshotLease {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
-            let held = self.lock.metadata().map_err(|e| e.to_string())?;
+            let held = self.held()?.metadata().map_err(|e| e.to_string())?;
             if (held.dev(), held.ino()) != (current.dev(), current.ino()) {
                 return Err(
                     "Authority process lock inode changed during the stopped operation".into(),
@@ -199,7 +223,7 @@ impl SnapshotLease {
         {
             use std::os::windows::fs::MetadataExt;
             if self
-                .lock
+                .held()?
                 .metadata()
                 .map_err(|e| e.to_string())?
                 .creation_time()
@@ -210,9 +234,54 @@ impl SnapshotLease {
         }
         Ok(())
     }
+    fn held(&self) -> Result<&fs::File> {
+        self.lock
+            .as_ref()
+            .ok_or_else(|| "Authority process lock is not held".to_string())
+    }
+    /// Windows refuses to rename a directory while any handle inside it is
+    /// open, including this lease's own lock handle. Release it immediately
+    /// before such a rename; `relocated` reacquires it at the new path and
+    /// requires the same file. Another process can take the lock in this
+    /// window: reacquisition then fails and the operation stops with an error.
+    /// Unix keeps the handle (and the lock) throughout.
+    fn release_for_rename(&mut self) {
+        #[cfg(windows)]
+        if let Some(lock) = self.lock.take() {
+            let _ = lock.unlock();
+        }
+    }
+    #[cfg(windows)]
+    fn reacquire(&mut self) -> Result<()> {
+        let path = self.data.join("wabidb/.lock");
+        let metadata = fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err("Authority process lock is no longer a regular file".into());
+        }
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .map_err(|e| e.to_string())?;
+        lock.try_lock().map_err(|_| {
+            format!(
+                "Another process took the Authority lock while its folder was being moved; the folder is now at {}. Stop other Wabi processes before continuing.",
+                self.data.display()
+            )
+        })?;
+        if file_identity(&lock)? != self.identity {
+            return Err("Authority process lock changed while its folder was being moved".into());
+        }
+        self.lock = Some(lock);
+        Ok(())
+    }
     fn relocated(&mut self, from: &Path, to: &Path) -> Result<()> {
         let relative = self.data.strip_prefix(from).map_err(|e| e.to_string())?;
         self.data = to.join(relative);
+        #[cfg(windows)]
+        if self.lock.is_none() {
+            self.reacquire()?;
+        }
         self.verify()
     }
 }
@@ -220,7 +289,9 @@ impl Drop for SnapshotLease {
     fn drop(&mut self) {
         // Closing a handle releases ownership, including after a crash. Unlock
         // explicitly too, avoiding an inherited descriptor delaying release.
-        let _ = self.lock.unlock();
+        if let Some(lock) = &self.lock {
+            let _ = lock.unlock();
+        }
     }
 }
 
@@ -339,6 +410,7 @@ pub fn install_restore(
     let mut staged_lease = SnapshotLease::acquire(staging)?;
     if had_data {
         lease.as_ref().unwrap().verify()?;
+        lease.as_mut().unwrap().release_for_rename();
         fs::rename(data, original).map_err(|e| {
             format!(
                 "Could not preserve the current community; copied backup is kept at {}: {e}",
@@ -348,8 +420,10 @@ pub fn install_restore(
         lease.as_mut().unwrap().relocated(data, original)?;
     }
     staged_lease.verify()?;
+    staged_lease.release_for_rename();
     if let Err(error) = fs::rename(staging, data) {
         if had_data {
+            lease.as_mut().unwrap().release_for_rename();
             fs::rename(original, data).map_err(|rollback| format!("Restore failed ({error}); the original is kept at {} and the backup copy at {}. Could not move the original back: {rollback}", original.display(), staging.display()))?;
             lease.as_mut().unwrap().relocated(original, data)?;
         }
@@ -380,9 +454,11 @@ pub fn rollback_restore(data: &Path, original: &Path, failed: &Path, had_data: b
     if let Some(lease) = &original_lease {
         lease.verify()?;
     }
+    restored_lease.release_for_rename();
     fs::rename(data, failed).map_err(|e| e.to_string())?;
     restored_lease.relocated(data, failed)?;
     if had_data {
+        original_lease.as_mut().unwrap().release_for_rename();
         fs::rename(original, data).map_err(|e| {
             format!(
                 "The original is still preserved at {}: {e}",
@@ -413,9 +489,13 @@ mod tests {
     struct Temporary(PathBuf);
     impl Temporary {
         fn new() -> Self {
+            // Coarse clocks (macOS) can repeat a nanosecond reading across
+            // parallel tests; the counter keeps every directory unique.
+            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
             let path = std::env::temp_dir().join(format!(
-                "wabi-snapshot-{}-{}",
+                "wabi-snapshot-{}-{}-{}",
                 std::process::id(),
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
@@ -516,8 +596,15 @@ mod tests {
             .unwrap();
         assert!(contender.try_lock().is_err());
         let original = t.0.join("original");
+        // Windows cannot rename a directory while any handle inside it is
+        // open, so the contender cannot be held across the move there; the
+        // moved contender below checks the same ownership at the new path.
+        #[cfg(windows)]
+        drop(contender);
+        lease.release_for_rename();
         fs::rename(&data, &original).unwrap();
         lease.relocated(&data, &original).unwrap();
+        #[cfg(not(windows))]
         assert!(contender.try_lock().is_err());
         let moved_contender = fs::OpenOptions::new()
             .read(true)
@@ -749,6 +836,10 @@ mod tests {
         assert!(data.join("jwt_secret").is_file());
         assert!(!original.exists());
         assert!(!staging.exists());
+        // Windows byte-range locks are mandatory: no other handle can read
+        // the locked file, so release the live writer before checking bytes.
+        #[cfg(windows)]
+        drop(writer);
         assert_eq!(
             fs::read(data.join("wabidb/.lock")).unwrap(),
             b"another-process"
