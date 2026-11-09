@@ -36,6 +36,11 @@ const FILE_TRAILER_LEN: usize = 32;
 /// Largest `entry_len` a partially written final entry may claim (1 MiB).
 const MAX_PLAUSIBLE_ENTRY_LEN: usize = 1 << 20;
 
+/// Reported when the batcher task has exited: nothing can be made durable
+/// any more, so the engine is halted until restarted.
+const HALTED_MSG: &str =
+    "commit batcher exited; engine halted, restart required before retry";
+
 // Test-only instrumentation for group-commit occupancy assertions.
 // Keyed by the batcher's directory so concurrent tests (each with its own
 // tempdir) never observe each other's flushes.
@@ -81,7 +86,7 @@ impl BatcherHandle {
     pub fn submit(&self, entry: CommitIndexEntry) -> Result<()> {
         self.tx.send(BatcherMessage::Entry(entry)).map_err(|_| {
             WabiError::InternalInvariantViolated {
-                invariant: "commit batcher message channel closed".into(),
+                invariant: HALTED_MSG.into(),
             }
         })
     }
@@ -93,11 +98,11 @@ impl BatcherHandle {
         let (tx, rx) = oneshot::channel();
         self.tx.send(BatcherMessage::Flush(tx)).map_err(|_| {
             WabiError::InternalInvariantViolated {
-                invariant: "commit batcher message channel closed".into(),
+                invariant: HALTED_MSG.into(),
             }
         })?;
         rx.await.map_err(|_| WabiError::InternalInvariantViolated {
-            invariant: "commit batcher flush oneshot cancelled".into(),
+            invariant: HALTED_MSG.into(),
         })?
     }
 }
