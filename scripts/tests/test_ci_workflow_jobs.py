@@ -42,6 +42,11 @@ class CiWorkflowJobsTest(unittest.TestCase):
         test = 'cargo test --locked -p wabi-server --features wabi-lore --lib -- lore'
         self.assertIn(check, block)
         self.assertIn(test, block)
+        integration = (
+            'cargo test --locked -p wabi-server --features wabi-lore --test "$(basename "$file" .rs)"'
+        )
+        self.assertIn(integration, block, 'features-full must run the feature-gated Lore integration tests')
+        self.assertIn('core/crates/wabi-server/tests/lore_*.rs', block)
         # rust-embed needs frontend/build before the server crate compiles.
         self.assertLess(build, block.index(check))
         self.assertLess(build, block.index(test))
