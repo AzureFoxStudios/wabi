@@ -367,6 +367,10 @@ impl MaterialStore {
         &self.inner.binding
     }
     pub fn open(root: &Path, binding: StoreBinding, limits: MaterialLimits) -> Result<Self> {
+        // Test binary only: never acquire while a sibling test's child is
+        // between clone and exec (see fork_gate).
+        #[cfg(test)]
+        let _fork_gate = crate::fork_gate::acquire();
         if !binding.valid()
             || !canonical_hex(&binding.community_id)
             || !limits.valid()

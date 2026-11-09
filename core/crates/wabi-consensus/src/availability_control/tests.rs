@@ -690,22 +690,23 @@ async fn actual_preserved_v1_worker_accepts_same_v1_binding_and_refuses_v2_upgra
     drop(reservations.remove(0));
     let spawn = || {
         OwnedChild(
-            Command::new(&binary)
-                .args([
-                    "--exact",
-                    "processes::separate_process_recovery_worker",
-                    "--ignored",
-                    "--nocapture",
-                    "--test-threads=1",
-                ])
-                .env_clear()
-                .env("WABI_RPC_FIXTURE_ROOT", root.path())
-                .env("WABI_RPC_FIXTURE_OWNER", &owner)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap(),
+            crate::fork_gate::spawn(
+                Command::new(&binary)
+                    .args([
+                        "--exact",
+                        "processes::separate_process_recovery_worker",
+                        "--ignored",
+                        "--nocapture",
+                        "--test-threads=1",
+                    ])
+                    .env_clear()
+                    .env("WABI_RPC_FIXTURE_ROOT", root.path())
+                    .env("WABI_RPC_FIXTURE_OWNER", &owner)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::piped()),
+            )
+            .unwrap(),
         )
     };
     let mut positive = spawn();
