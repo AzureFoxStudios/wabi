@@ -152,6 +152,34 @@ Fix, smallest first: check whether the Tauri CLI honors a cache or env var for t
 
 You check: the PR's Linux and Windows Tauri jobs are green, and the retry or cache is visible in the job log.
 
+### Task 1.0j WabiDB stream directories use the raw stream id, which Windows rejects (Opus)
+
+```
+TASK 1.0j. This can only be verified end to end on the Windows CI job (build-tauri windows-latest, step "real Authority smoke test"); say so in the PR and watch that job. Read AGENTS.md golden rules 5 and 9 before touching anything under core/crates/wabidb/src.
+
+Bug: the Authority cannot start on Windows. After PR 287 fixed the fsync errors, the smoke test on PR 287 (run 42572218636, head 306e09f) failed with "I/O error: The filename, directory name, or volume label syntax is incorrect. (os error 123)". Cause: core/crates/wabidb/src/sequencer/mod.rs::stream_events_dir builds streams/<kind>/<stream_id>/events with the stream id verbatim, and several server streams contain a colon, which Windows forbids in file names: "community-roster:v1" (community_roster.rs), "service-access:v1" (api/service_access.rs), "rbac:default-workspace" and "user:{id}" (auth_credentials.rs), "channel_members:{id}", "call_session:{id}", "channels:{id}". At least one is written during first boot. The colon ids date from 2026-10-09 or earlier and the smoke test from 2026-10-30, so this has never worked.
+
+Why this is not a one-line fix: engine/replay.rs reads the stream id back from the directory name (stream_path.file_name()) and derives the stream encryption key from it, so the directory name is semantically the stream id. Existing Linux data trees have raw colons in directory names and must keep replaying byte for byte. The same path is built in cli/dump_stream.rs, cli/tail.rs, cli/decrypt.rs, retention/compaction.rs, retention/key_destruction.rs and snapshots/writer.rs; grep the whole workspace for .join("streams") and route every site through one pair of functions.
+
+Fix: introduce one encode function stream_id -> directory name and its exact inverse, in sequencer/mod.rs next to stream_events_dir. An id encodes to itself only when it is made of [A-Za-z0-9._-], does not end in a dot, and is not a Windows reserved device name (CON, PRN, AUX, NUL, COM1-COM9, LPT1-LPT9, case-insensitive, with or without an extension); that keeps every existing safe directory untouched. Every other id, including those reserved names and trailing-dot names, gets a reversible, filesystem-safe encoding of your choice (percent-encoding of the offending bytes is fine, with the escape character itself always encoded so the mapping stays injective); the result must contain none of < > : " / \ | ? *, no control bytes, no trailing dot or space, and must not itself be a reserved device name. Replay and every reader must accept both the raw and the encoded directory name for the same id (dual decode, like golden rule 5 asks for records). A stream must never be split across two directories: when appending to a stream whose raw directory already exists on disk, keep writing there; encode only when creating a new stream directory. Do not rename or migrate existing directories at open; if you believe a migration is needed, stop and describe it instead.
+
+Tests first, all in wabidb: (1) encode/decode round trip for every colon id above plus ids with each forbidden character, and the Windows-safety properties listed; (2) a fixture tree with a raw "community-roster:v1" directory replays the same events, in the same order, with the same derived key, before and after the change; (3) open that fixture, append one more event to the same stream, reopen, and assert both events replay in commit order from one directory; (4) a fresh tree writes the encoded directory and replays it. Then the Windows job: the smoke test must get past Authority startup. If it fails later with a new error, report the exact message and stop; do not chase it in this PR.
+```
+
+You check: the four tests exist and failed or were impossible before the change, the Windows `build-tauri` job's smoke test passes Authority startup, and every `.join("streams")` site in the workspace goes through the one encode/decode pair.
+
+### Task 1.0k "Direct payment acceptance" workflow runs a script that was never committed (Sonnet)
+
+```
+TASK 1.0k.
+
+Problem: .github/workflows/payments-acceptance.yml, job direct-payments, step "xvfb-run -a node scripts/payments-browser-smoke.mjs" fails with "Cannot find module .../frontend/scripts/payments-browser-smoke.mjs". That file has never been committed (git log --all shows nothing for it). The step was added in 4a00104 (2026-10-30). The workflow only triggers on its path filter (payments code, Cargo.lock, Cargo.toml, rust-toolchain.toml and a few more), so it had not run on main since; it fired on PR 291 because that PR touches Cargo.lock.
+
+Find out first: check .gitignore for a pattern that hides the script, and read the sibling frontend/scripts/*-browser-smoke.mjs files and the earlier steps of this job to see what the smoke was meant to cover (the env it is given: WABI_PAYMENTS_STATIC, WABI_PAYMENTS_REQUIRE_RAILS, WABI_PAYMENTS_QR_QA, WABI_SMOKE_SERVER_BINARY). Then do one of two things and say which in the PR: (a) if a payments browser smoke is small and the sibling pattern makes it clear what to assert, write it, run it locally against the debug server, and keep the step; (b) otherwise remove the step and the upload-artifact step that depends on it, and add one line to docs/PROJECT_STATUS.md's payments section saying the browser acceptance for direct payments is not automated. Do not leave a step that cannot run. Do not touch the other steps of the job. Verify by pushing a branch that touches Cargo.lock in a harmless way is not acceptable; instead include the workflow file itself in the change, which is in its own path filter, so the job runs on the PR. Show it green.
+```
+
+You check: the `direct-payments` job is green on the PR, and the PR says whether coverage was added or removed.
+
 ## Phase 1: stop the bleeding
 
 ### Task 1.1 Reactions cannot be removed (Sonnet)
