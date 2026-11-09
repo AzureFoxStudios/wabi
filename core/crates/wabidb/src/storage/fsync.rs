@@ -17,9 +17,9 @@
 //!   filesystems (`tmpfs`, `overlayfs`, `aufs`) may return success without
 //!   actually flushing; the engine treats that as success but the calling code
 //!   should know. The current implementation does not special-case these.
-//! - **Windows:** `FlushFileBuffers` on a directory handle. Native paths use
-//!   the `OpenOptions` API; this implementation converts the path to a wide
-//!   string and calls `FlushFileBuffers` via `std::os::windows`.
+//! - **Windows:** `FlushFileBuffers` on a directory handle opened with
+//!   `FILE_FLAG_BACKUP_SEMANTICS` and write access (`sync_all` maps to
+//!   `FlushFileBuffers`, which refuses read-only handles).
 //!
 //! ## Usage
 //!
@@ -48,8 +48,36 @@ use tokio::fs::File;
 ///
 /// Use this after every atomic rename that adds a file to a directory, to
 /// guarantee that the directory entry is durable.
+/// Test-only record of `fsync_dir` calls per directory, so tests can assert
+/// that a durability-critical directory fsync actually happened.
+#[cfg(test)]
+pub(crate) mod call_log {
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Mutex, OnceLock};
+
+    fn table() -> &'static Mutex<HashMap<PathBuf, usize>> {
+        static TABLE: OnceLock<Mutex<HashMap<PathBuf, usize>>> = OnceLock::new();
+        TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+    }
+
+    pub fn record(path: &Path) {
+        *table()
+            .lock()
+            .unwrap()
+            .entry(path.to_path_buf())
+            .or_insert(0) += 1;
+    }
+
+    pub fn count(path: &Path) -> usize {
+        table().lock().unwrap().get(path).copied().unwrap_or(0)
+    }
+}
+
 pub async fn fsync_dir<P: AsRef<Path>>(path: P) -> Result<()> {
     let path = path.as_ref();
+    #[cfg(test)]
+    call_log::record(path);
 
     // On POSIX, opening a directory requires no special flags.
     // On Windows, we need FILE_FLAG_BACKUP_SEMANTICS to open a directory handle.
@@ -60,9 +88,11 @@ pub async fn fsync_dir<P: AsRef<Path>>(path: P) -> Result<()> {
     let file = {
         use std::os::windows::fs::OpenOptionsExt;
         let mut opts = tokio::fs::OpenOptions::new();
-        // FILE_FLAG_BACKUP_SEMANTICS = 0x02000000 — required to open a directory
+        // FILE_FLAG_BACKUP_SEMANTICS = 0x02000000 — required to open a directory.
+        // FlushFileBuffers needs a handle with write access; a read-only
+        // directory handle makes sync_all fail with "Access is denied".
         opts.custom_flags(0x02000000);
-        opts.read(true).open(path).await?
+        opts.read(true).write(true).open(path).await?
     };
 
     file.sync_all().await.map_err(|e| {
@@ -86,8 +116,9 @@ pub fn fsync_dir_sync<P: AsRef<Path>>(path: P) -> Result<()> {
     let file = {
         use std::os::windows::fs::OpenOptionsExt;
         let mut opts = std::fs::OpenOptions::new();
+        // See fsync_dir: FlushFileBuffers requires write access on the handle.
         opts.custom_flags(0x02000000);
-        opts.read(true).open(path)?
+        opts.read(true).write(true).open(path)?
     };
 
     file.sync_all().map_err(|e| {
