@@ -70,8 +70,18 @@ async fn private_upload_source(
     let mut written = 0u64;
     let mut stream = body.into_data_stream();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk
-            .map_err(|error| AppError::BadRequest(format!("Upload body could not be read: {error}")))?;
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            // The transport-wide body limit (RequestBodyLimitLayer) surfaces as
+            // a LengthLimitError on the stream; that is a size rejection, so it
+            // stays 413 as it was before streaming, not a malformed request.
+            Err(error) if is_length_limit_error(&error) => return Ok(None),
+            Err(error) => {
+                return Err(AppError::BadRequest(format!(
+                    "Upload body could not be read: {error}"
+                )))
+            }
+        };
         written = written.saturating_add(chunk.len() as u64);
         if written > max_bytes {
             return Ok(None);
@@ -81,6 +91,17 @@ async fn private_upload_source(
     }
     writer.flush().await?;
     Ok(Some((temporary, hex::encode(hasher.finalize()))))
+}
+
+fn is_length_limit_error(error: &axum::Error) -> bool {
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    while let Some(current) = source {
+        if current.is::<http_body_util::LengthLimitError>() {
+            return true;
+        }
+        source = current.source();
+    }
+    false
 }
 
 fn blob_too_large_response(max_bytes: u64) -> axum::response::Response {

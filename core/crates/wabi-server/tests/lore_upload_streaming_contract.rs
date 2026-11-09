@@ -131,8 +131,16 @@ impl Fixture {
 /// Owner, an Artist who is a member of the asset channel and the Recordings
 /// channel, and an Artist who is a member of neither.
 async fn fixture() -> Fixture {
+    fixture_with_max_body(None).await
+}
+
+/// Same fixture with an explicit transport-wide body limit
+/// (`ServerConfig::max_body_size`), for the transport-limit test.
+async fn fixture_with_max_body(max_body_size: Option<usize>) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
-    let state = Arc::new(AppState::new(server_config(dir.path())).await.unwrap());
+    let mut config = server_config(dir.path());
+    config.max_body_size = max_body_size;
+    let state = Arc::new(AppState::new(config).await.unwrap());
 
     let owner = state
         .wdb
@@ -230,7 +238,15 @@ async fn fixture() -> Fixture {
     // Repo creation is setup, not upload behavior.
     let _ = std::fs::remove_file(&cli_log);
 
-    let app = create_api_router(state.clone()).with_state(state.clone());
+    // The API router alone has no transport body limit; the full app adds
+    // RequestBodyLimitLayer in build_app_router. Mirror that layer here when a
+    // limit is requested so the transport-limit path can be exercised.
+    let router = create_api_router(state.clone());
+    let router = match max_body_size {
+        Some(limit) => router.layer(tower_http::limit::RequestBodyLimitLayer::new(limit)),
+        None => router,
+    };
+    let app = router.with_state(state.clone());
     Fixture {
         member_token: jwt(&state, artist, "artist"),
         outsider_token: jwt(&state, outsider, "outsider"),
@@ -513,4 +529,50 @@ async fn slow_upload_body_does_not_hold_membership_or_credential_gates() {
         in_flight.abort();
         let _ = in_flight.await;
     }
+}
+
+/// Test 5: a streamed body that trips the transport-wide limit
+/// (`max_body_size`, below the blob cap here) is still a 413 size rejection,
+/// as it was with the buffered extractor, not a 400 malformed request.
+#[tokio::test]
+async fn transport_body_limit_during_streaming_is_still_413() {
+    let _serial = SERIAL.lock().await;
+    private_tmpdir();
+    let f = fixture_with_max_body(Some(256 * 1024)).await;
+    let before = temporary_files();
+
+    for (label, method, uri, tree_path) in [
+        (
+            "file",
+            Method::PUT,
+            file_uri(f.asset_channel, "limited.bin"),
+            f.asset_tree.join("limited.bin"),
+        ),
+        (
+            "recording",
+            Method::POST,
+            "/addons/lore/recordings?filename=limited.webm".to_string(),
+            f.recordings_tree.join("recordings/limited.webm"),
+        ),
+    ] {
+        // Under the 1 MiB blob cap, over the 256 KiB transport limit.
+        let pulled = Arc::new(AtomicUsize::new(0));
+        let body = counted_body(vec![9u8; 512 * 1024], pulled.clone(), false);
+        let (status, response) =
+            send(&f.app, upload_request(method, &uri, &f.member_token, body)).await;
+        assert_eq!(
+            status,
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "{label}: transport-limited body must be 413, not 400: {response}"
+        );
+        assert!(
+            !tree_path.exists(),
+            "{label}: rejected upload must not reach the working tree"
+        );
+    }
+    assert_eq!(
+        temporary_files(),
+        before,
+        "rejected uploads must remove their private temporary file"
+    );
 }
