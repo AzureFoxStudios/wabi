@@ -211,17 +211,29 @@ fn certification_contention_and_late_publication_refuse_success_without_deleting
         .join("material")
         .join(format!("{id}.checkpoint.json"))
         .exists());
-    let end = Instant::now() + Duration::from_millis(20);
+    // The deadline must still be open for every pre-publication check and
+    // expire only once publication has started. A short wall-clock budget made
+    // that depend on how fast validation and the staged fsync ran; instead the
+    // deadline is far away and expires exactly at the StageSynced hook.
+    struct ResetSkew;
+    impl Drop for ResetSkew {
+        fn drop(&mut self) {
+            DEADLINE_SKEW.set(Duration::ZERO);
+        }
+    }
+    let _reset = ResetSkew;
+    let end = Instant::now() + Duration::from_secs(3600);
+    let mut published = false;
     assert_eq!(
         store.certify_checkpoint_deadline(&manifest, "node-1", Some(end), |point| {
             if point == Point::StageSynced {
-                std::thread::sleep(
-                    end.saturating_duration_since(Instant::now()) + Duration::from_millis(10),
-                );
+                published = true;
+                DEADLINE_SKEW.set(Duration::from_secs(2 * 3600));
             }
         }),
         Err(MaterialError::Deadline)
     );
+    assert!(published, "deadline expired before publication started");
     // Started file publication is not preempted or rolled back. Its complete
     // immutable bytes survive; only a later fresh read can certify durability.
     store.inner.verify_object(&object, None).unwrap();

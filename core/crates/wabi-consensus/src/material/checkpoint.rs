@@ -43,10 +43,25 @@ fn source_error(error: SourceError) -> MaterialError {
     }
 }
 fn check_deadline(deadline: Option<Instant>) -> Result<()> {
-    if deadline.is_some_and(|end| Instant::now() >= end) {
+    if deadline.is_some_and(|end| deadline_now() >= end) {
         return Err(MaterialError::Deadline);
     }
     Ok(())
+}
+#[cfg(not(test))]
+fn deadline_now() -> Instant {
+    Instant::now()
+}
+// Test seam: a test can expire a deadline at an exact hook point (for example
+// after publication has started) instead of hoping a short wall-clock budget
+// covers the work before it. Thread-local, so parallel tests never see it.
+#[cfg(test)]
+thread_local! {
+    static DEADLINE_SKEW: std::cell::Cell<Duration> = const { std::cell::Cell::new(Duration::ZERO) };
+}
+#[cfg(test)]
+fn deadline_now() -> Instant {
+    Instant::now() + DEADLINE_SKEW.get()
 }
 /// Community-key signature and exact local bytes only. No current source-role,
 /// encryption/replay, majority, full-instance or writer/nonce certification.
