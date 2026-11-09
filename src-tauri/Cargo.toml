@@ -56,6 +56,8 @@ apple-native-keyring-store = { version = "=1.0.2", features = ["protected"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-native-keyring-store = "=1.1.0"
+# Lock-file identity (volume serial + file index) for hosting::archive leases.
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-native-keyring-store = "=1.0.0"
