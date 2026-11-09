@@ -1248,3 +1248,111 @@ async fn scoped_write_rechecks_revocation_after_a_stalled_request_body() {
             .is_empty());
     }
 }
+
+#[tokio::test]
+async fn members_cannot_upload_ignore_files_that_hide_the_whole_repo() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let state = server(dir.path()).await;
+    let (owner, channel, _) = owner_and_repos(&state).await;
+    let binary = dir.path().join("fixture");
+    std::fs::write(
+        &binary,
+        include_bytes!("fixtures/lore-cli-credential-fixture.sh"),
+    )
+    .unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let lore = Arc::new(wabi_lore::LoreService::new(wabi_lore::LoreConfig {
+        lore_binary_path: binary,
+        lore_data_dir: dir.path().join("lore"),
+        ..Default::default()
+    }));
+    lore.create_repo(channel, owner as i64, "fresh")
+        .await
+        .unwrap();
+    let tree = lore.repo_working_tree(channel).await.unwrap();
+    state.set_lore_service(lore).await;
+
+    // A plain member whose Artist role carries lore.stage.
+    let member = state
+        .wdb
+        .create_user("artist", None, "registered-test-hash")
+        .await
+        .unwrap();
+    state
+        .wdb
+        .add_channel_member(&format!("ch_{channel:x}"), member, MemberRole::Member)
+        .await
+        .unwrap();
+    state
+        .wdb
+        .ingest_event(
+            "rbac",
+            "assign_role",
+            &json!({"workspaceId":"default-workspace","userId":member,"role":"Artist","assignedBy":owner}),
+        )
+        .await
+        .unwrap();
+    let app = create_api_router(state.clone()).with_state(state.clone());
+    let token = jwt(&state, member);
+
+    let put = |path: String| {
+        let app = app.clone();
+        let token = token.clone();
+        async move {
+            app.oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri(format!("/addons/lore/repos/{channel}/files/{path}"))
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::from("*\n"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .status()
+        }
+    };
+
+    // Control: this member really can stage ordinary files.
+    assert_eq!(put("ordinary.txt".into()).await, StatusCode::OK);
+
+    for path in [
+        ".wabiignore",
+        ".loreignore",
+        "sub/.wabiignore",
+        "sub/.loreignore",
+        ".WabiIgnore",
+    ] {
+        let target = tree.join(path);
+        let before = std::fs::read(&target).ok();
+        let status = put(path.to_string()).await;
+        assert!(
+            status.is_client_error(),
+            "PUT {path} was not rejected: {status}"
+        );
+        assert_eq!(
+            std::fs::read(&target).ok(),
+            before,
+            "PUT {path} changed the working tree"
+        );
+        // Deleting a seeded ignore file is refused the same way.
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri(format!("/addons/lore/repos/{channel}/files/{path}"))
+                    .header("authorization", format!("Bearer {token}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read(&target).ok(),
+            before,
+            "DELETE {path} changed the working tree"
+        );
+    }
+}
