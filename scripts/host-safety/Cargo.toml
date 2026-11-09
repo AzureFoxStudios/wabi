@@ -16,3 +16,7 @@ getrandom = "=0.3.4"
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.149"
 sha2 = "=0.10.9"
+
+# Same lock-file identity dependency as src-tauri's hosting::archive.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
