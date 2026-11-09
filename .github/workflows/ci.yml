@@ -184,6 +184,14 @@ jobs:
       - name: Lore tests
         run: cargo test --locked -p wabi-server --features wabi-lore --lib -- lore
 
+      # The Lore integration tests are feature-gated (#![cfg(feature = "wabi-lore")]),
+      # so `cargo test --workspace` compiles them to nothing. Run each file here.
+      - name: Lore integration tests
+        run: |
+          for file in core/crates/wabi-server/tests/lore_*.rs; do
+            cargo test --locked -p wabi-server --features wabi-lore --test "$(basename "$file" .rs)"
+          done
+
   # ------------------------------------------------------------------------
   # WabiDB crash-injection tests: #[ignore] + test-harness feature, so neither
   # `cargo test --workspace` nor any other job runs them.
