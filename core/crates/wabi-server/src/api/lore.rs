@@ -958,6 +958,9 @@ async fn promote_from_message(
                     .into(),
             )
         })?;
+    // The capability checks below are global; membership of the *target* repo
+    // channel is what scopes a promote to repos the caller may write to.
+    ensure_channel_member(&state, repo_channel_id, auth.user_id).await?;
     let base_path = payload
         .path
         .clone()
