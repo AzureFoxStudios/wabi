@@ -39,12 +39,6 @@ mod git_remote;
 use confined_fs::{InternalFile, RepoDir};
 pub use confined_fs::validate_path as validate_repo_path;
 
-// P4: Editor bridge — ephemeral code-server sessions
-pub mod editor_bridge;
-// P5: Script collaboration — run scripts from Lore repos
-pub mod script_runner;
-// P7: Off-box mirroring — publish to GitHub/GitLab/S3
-pub mod mirror;
 // Ignore filtering — .wabiignore at the Wabi layer (Lore has no .loreignore yet)
 pub mod ignore;
 
@@ -491,12 +485,6 @@ struct RepoStateFile {
 pub struct LoreService {
     config: LoreConfig,
     repos: RwLock<HashMap<i64, LoreRepo>>,
-    /// P4: ephemeral editor sessions (code-server bridge)
-    pub editor_bridge: editor_bridge::EditorBridge,
-    /// P5: collaborative script execution
-    pub script_runner: script_runner::ScriptRunner,
-    /// P7: off-box mirroring to GitHub/GitLab/S3
-    pub mirror: mirror::MirrorService,
     /// Ignore filters per channel (lazy-loaded, mtime-checked)
     ignore_filters: std::sync::RwLock<HashMap<i64, Arc<ignore::LazyRepoFilter>>>,
     /// (size, mtime) → etag memo so listings don't re-hash unchanged files
@@ -510,12 +498,7 @@ pub struct LoreService {
 
 impl LoreService {
     pub fn new(config: LoreConfig) -> Self {
-        let editor_config = editor_bridge::EditorBridgeConfig::default();
-        let script_config = script_runner::ScriptRunnerConfig::default();
         Self {
-            editor_bridge: editor_bridge::EditorBridge::new(editor_config),
-            script_runner: script_runner::ScriptRunner::new(script_config),
-            mirror: mirror::MirrorService::new(),
             config,
             repos: RwLock::new(HashMap::new()),
             ignore_filters: std::sync::RwLock::new(HashMap::new()),
@@ -1392,20 +1375,6 @@ impl LoreService {
     ) -> anyhow::Result<std::fs::File> {
         let _io = self.io_gate.lock().await;
         self.open_content_file_locked(channel_id, repo_path, revision).await
-    }
-
-    /// Publish a confined snapshot. The export worker owns the I/O gate
-    /// until all source handles stop being consumed, including cancellation.
-    pub async fn mirror_export(&self, channel_id: i64) -> anyhow::Result<mirror::MirrorResult> {
-        let gate = self.io_gate.clone().lock_owned().await;
-        let repo = self.get_repo(channel_id).await
-            .ok_or_else(|| anyhow::anyhow!("No Lore repository for mirror export"))?;
-        let root = RepoDir::open(&repo.working_tree)?;
-        let root = if matches!(repo.class, RepoClass::Mirror { .. }) {
-            self.ensure_mirror_cache(&repo).await?;
-            root.child(std::ffi::OsStr::new(".mirror-cache"), false)?
-        } else { root };
-        self.mirror.mirror(channel_id, Some(mirror::MirrorSource::new(root, gate))).await
     }
 
     /// Copy repository content into a caller-owned private regular file.
