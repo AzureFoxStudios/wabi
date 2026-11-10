@@ -72,6 +72,8 @@ proptest = "1"
 tokio = { version = "1", features = ["test-util"] }
 # Temporary directories for storage tests
 tempfile = "3"
+# Capture warn logs in tests (already in the workspace lockfile)
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 
 # Benchmarking
 criterion = "0.8"

@@ -18,9 +18,17 @@
 //! orphans (writes that crashed before the index append). They are skipped:
 //! the commit index is the source of truth for which commits exist, including
 //! when it is empty. Unindexed bytes must never become a successful write.
+//!
+//! # Quarantined commits (Task 3.2)
+//!
+//! Commits listed in `global/quarantine.json` (see `engine::quarantine`) are
+//! skipped whole, with a warn log naming each. Their records are passed over
+//! like orphans, before decryption, so a quarantined commit needs none of its
+//! events recovered to count as complete. A handler error or panic on any
+//! other commit fails replay with a `Corrupt` error naming that commit.
 
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BinaryHeap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap, VecDeque};
 use std::path::{Path, PathBuf};
 
 use tokio::sync::Mutex;
@@ -151,6 +159,8 @@ pub async fn replay_projections(
         super::membership_repair::MembershipRepair::from_snapshot(projection_state)?;
     let mut voice_repair =
         crate::projections::voice_restrictions::LegacyVoiceRepair::from_snapshot(projection_state)?;
+    // Refuse to start on an unreadable list rather than skip nothing.
+    let quarantine = super::quarantine::load(data_dir)?;
     let streams_dir = data_dir.join("streams");
     // --- Load the committed seq set (Option B orphan filter) ---
     let commit_index_dir = data_dir.join("global").join("commit-index");
@@ -174,7 +184,7 @@ pub async fn replay_projections(
         .unwrap_or(0)
         .max(snapshot_watermark);
     if !tokio::fs::try_exists(&streams_dir).await? {
-        if committed.values().any(|e| {
+        if committed.values().filter(|e| !quarantine.contains(&e.commit_seq)).any(|e| {
             e.event_refs.iter().any(|r| {
                 e.commit_seq > snapshot_watermark
                     || membership_repair
@@ -190,6 +200,11 @@ pub async fn replay_projections(
                 detail: "not all indexed events could be recovered; streams directory missing"
                     .into(),
             });
+        }
+        for seq in quarantine.iter().filter(|seq| committed.contains_key(seq)) {
+            tracing::warn!(
+                "replay: skipping quarantined commit {seq}; listed in global/quarantine.json"
+            );
         }
         if let Some(repair) = membership_repair {
             repair.finish(projection_state)?;
@@ -212,6 +227,7 @@ pub async fn replay_projections(
         snapshot_watermark,
         membership_repair,
         voice_repair,
+        quarantine,
         repairs_finished: false,
         replayed: 0,
     };
@@ -413,6 +429,15 @@ fn duplicate_event(commit_seq: u64, ordinal: usize) -> crate::error::WabiError {
         location: format!("commit {commit_seq} event {ordinal}"),
         detail: "duplicate indexed event during replay".into(),
     }
+}
+
+/// The text of a caught panic payload, when it carries one.
+fn panic_message(panic: &(dyn std::any::Any + Send)) -> &str {
+    panic
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("non-string panic payload")
 }
 
 /// Counts every record header replay sees, applied or not.
@@ -623,15 +648,23 @@ struct Applier<'a> {
     snapshot_watermark: u64,
     membership_repair: Option<super::membership_repair::MembershipRepair>,
     voice_repair: Option<crate::projections::voice_restrictions::LegacyVoiceRepair>,
+    /// Commits the operator quarantined: never recovered or applied.
+    quarantine: BTreeSet<u64>,
     repairs_finished: bool,
     replayed: u64,
 }
 
 impl Applier<'_> {
     /// Whether a record of `stream_hash` at `commit_seq` must be recovered:
-    /// every post-snapshot record, and the pre-snapshot history a repair
-    /// pass asks for.
+    /// a record replay [needs](Self::needed), unless its commit is
+    /// quarantined.
     fn wanted(&self, commit_seq: u64, stream_hash: &[u8; 16]) -> bool {
+        !self.quarantine.contains(&commit_seq) && self.needed(commit_seq, stream_hash)
+    }
+
+    /// Every post-snapshot record, and the pre-snapshot history a repair
+    /// pass asks for.
+    fn needed(&self, commit_seq: u64, stream_hash: &[u8; 16]) -> bool {
         commit_seq > self.snapshot_watermark
             || self
                 .membership_repair
@@ -644,7 +677,20 @@ impl Applier<'_> {
     }
 
     /// Fail unless exactly the wanted events of `entry` were recovered.
+    /// Called once per index entry, in commit order.
     fn check_recovered(&self, entry: &CommitIndexEntry, recovered: usize) -> Result<()> {
+        if self.quarantine.contains(&entry.commit_seq)
+            && entry
+                .event_refs
+                .iter()
+                .any(|r| self.needed(entry.commit_seq, &r.stream_id_hash))
+        {
+            tracing::warn!(
+                "replay: skipping quarantined commit {} (events={}); listed in global/quarantine.json",
+                entry.commit_seq,
+                entry.event_refs.len()
+            );
+        }
         let expected = entry
             .event_refs
             .iter()
@@ -703,15 +749,29 @@ impl Applier<'_> {
         self.finish_repairs()?;
         for Decoded { event, .. } in &events {
             if let Some(handler) = self.dispatch_table.get(&event.event_type) {
-                handler.apply(event, self.projection_state).map_err(|e| {
-                    crate::error::WabiError::Corrupt {
+                // A panic must not escape open(). The partly applied state
+                // is discarded with the failed open.
+                let applied = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    handler.apply(event, self.projection_state)
+                }));
+                let failure = match applied {
+                    Ok(Ok(())) => None,
+                    Ok(Err(e)) => Some(format!("replay failed: {e}")),
+                    Err(panic) => Some(format!("handler panicked: {}", panic_message(&*panic))),
+                };
+                if let Some(failure) = failure {
+                    return Err(crate::error::WabiError::Corrupt {
                         location: format!(
                             "projection {} at commit {}",
                             event.event_type, event.commit_seq
                         ),
-                        detail: format!("replay failed: {e}; repair required before startup"),
-                    }
-                })?;
+                        detail: format!(
+                            "{failure}; repair required before startup (copy the data \
+                             directory, then `wabidb-cli quarantine --seq {}` skips this commit)",
+                            event.commit_seq
+                        ),
+                    });
+                }
             } else {
                 // Match the live dispatcher's forward-compatible fallback.
                 self.projection_state.insert(

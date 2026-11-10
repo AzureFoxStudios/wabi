@@ -47,6 +47,8 @@ pub mod voice_restrictions;
 pub mod upload_assets;
 pub mod upload_revocations;
 pub mod webhooks;
+#[cfg(test)]
+pub(crate) mod test_poison;
 pub mod whiteboard_docs;
 pub mod wiki;
 pub mod workspace_writes;
