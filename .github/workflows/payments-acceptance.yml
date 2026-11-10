@@ -96,8 +96,3 @@ jobs:
           cargo test --locked -p wabi-payments-crypto -p wabi-payments-eu -p wabi-payments-us
       - name: Build complete feature-enabled Authority
         run: cargo build --locked -p wabi-server --features payments-rails,field-embed --bin wabi-server
-      - name: Install rendered browser environment
-        working-directory: frontend
-        run: |
-          npx playwright install --with-deps chromium
-          npm install --prefix "${{ runner.temp }}/payments-qr-qa" --ignore-scripts --no-audit --no-fund jsqr@1.4.0 pngjs@7.0.0
