@@ -60,6 +60,12 @@ mod state;
 mod upload_registry;
 mod web_push;
 mod websocket;
+// Test binaries only: the one wabi-consensus fork gate source, included
+// rather than copied or exported. This crate's test child spawns and the
+// flock acquisitions racing them go through it (see that file).
+#[cfg(test)]
+#[path = "../../wabi-consensus/src/fork_gate.rs"]
+mod fork_gate;
 use crate::nodes::NodeCapability;
 use crate::state::AppState;
 use clap::Parser;

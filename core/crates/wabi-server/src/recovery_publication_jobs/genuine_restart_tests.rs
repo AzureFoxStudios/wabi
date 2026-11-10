@@ -220,10 +220,18 @@ pub fn inode(path: &Path) -> (u64, u64) {
 }
 pub async fn stopped_lock(path: &Path) -> File {
     let original = inode(path);
-    let file = OpenOptions::new().read(true).write(true).open(path).unwrap();
+    // Opening and probing a lock-bearing file each hold the gate, never across
+    // the wait: no sibling test's child is between clone and exec (fork_gate).
+    let file = {
+        let _fork_gate = crate::fork_gate::acquire();
+        OpenOptions::new().read(true).write(true).open(path).unwrap()
+    };
     assert_eq!((file.metadata().unwrap().dev(), file.metadata().unwrap().ino()), original);
     tokio::time::timeout(Duration::from_secs(20), async {
-        while !FileExt::try_lock_exclusive(&file).unwrap() {
+        while !{
+            let _fork_gate = crate::fork_gate::acquire();
+            FileExt::try_lock_exclusive(&file).unwrap()
+        } {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }).await.expect("actual owned writers did not release original advisory lock");
@@ -278,7 +286,7 @@ fn full_router_automatically_reconciles_original_genuine_capture_intent() {
     }
     command.env("WABI_TEST_GENUINE_RESTART_CHILD", "1")
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = command.spawn().unwrap();
+    let mut child = crate::fork_gate::spawn(&mut command).unwrap();
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
     let read = |stream: Box<dyn Read + Send>| std::thread::spawn(move || {
