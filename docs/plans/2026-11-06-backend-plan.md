@@ -169,7 +169,7 @@ Model: Opus/Fable for the first three, Sonnet after the pattern is set. You chec
 
 ## Phase 4: Lore correctness (1 to 2 weeks, Sonnet)
 
-Status 2026-11-10: 4.4 and 4.5 are open together as PR 314. Review found both directory checks treated a listing error as "empty", so a tree that could not be read counted as safe to replace; they now fail closed.
+Status 2026-11-10: 4.4 and 4.5 merged together as PR 314 (`49a0754`). Review found both directory checks treated a listing error as "empty", so a tree that could not be read counted as safe to replace; they now fail closed.
 
 | # | Task | Finding |
 |---|---|---|
