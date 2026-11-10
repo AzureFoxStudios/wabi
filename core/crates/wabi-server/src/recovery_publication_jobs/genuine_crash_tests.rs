@@ -119,7 +119,7 @@ impl OwnedChild {
             if let Some(value) = std::env::var_os(name) { command.env(name, value); }
         }
         command.env("WABI_TEST_ORIGINAL_CRASH_ROOT", root).env("WABI_TEST_ORIGINAL_CRASH_MODE", mode);
-        let mut child = command.spawn().unwrap();
+        let mut child = crate::fork_gate::spawn(&mut command).unwrap();
         let read = |stream: Box<dyn Read + Send>| std::thread::spawn(move || {
             let mut bytes = Vec::new();
             stream.take(4 * 1024 * 1024 + 1).read_to_end(&mut bytes).unwrap();
@@ -204,7 +204,14 @@ async fn actual_collector_sigkill_reopens_original_capture_on_follower_without_c
     for policy in &saved.policies[1..] {
         let path = policy.control_directory.parent().unwrap().join("node.json");
         write_private(&path, policy);
-        followers.push(RecoveryRuntime::start(load(&path).unwrap()).await.unwrap());
+        // Start takes the runtime, control and material flocks: hold the gate
+        // so no sibling test's child is between clone and exec (fork_gate).
+        // This thread never spawns or re-enters the gate while holding it.
+        let started = {
+            let _fork_gate = crate::fork_gate::acquire();
+            RecoveryRuntime::start(load(&path).unwrap()).await
+        };
+        followers.push(started.unwrap());
     }
     write_private(&case_root.join("start-collector.json"), &json!({"go":true}));
     let cut: SyncedCut = serde_json::from_slice(&seed.marker(&case_root.join("synced-cut.json")).await).unwrap();
