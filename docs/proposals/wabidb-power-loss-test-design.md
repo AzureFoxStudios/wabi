@@ -174,5 +174,5 @@ The card says "marked ignored so it doesn't run on every CI commit due to disk I
 
 - It does not test hardware-level failures (disk failure, bit rot). Those are covered by `wabidb check` (the storage CLI) and the manifest-based backup's hash verification.
 - It does not test the network layer. Network failures between the client and the engine are covered by `wabidb-72` test 5 (resume_after_disconnect) and the helper-node protocol tests.
-- It does not test the encryption layer's key destruction. That is `wabidb-39` (cryptographic deletion) and `wabidb-69` (key rotation).
+- It does not test the encryption layer's key destruction. That is `wabidb-39` (key destruction (proposed)) and `wabidb-69` (key rotation).
 - It does not test retention-driven deletion. That is `wabidb-34` (TTL reaper) and `wabidb-37` (per-scope policy evaluation).

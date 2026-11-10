@@ -974,7 +974,7 @@
 						<div class="w-srow__text">
 							<p class="w-srow__label" id="{uid}-lifetime-label">Message lifetime</p>
 							<p class="w-srow__hint" id="{uid}-lifetime-hint">
-								Applies to new messages. Earlier messages keep the lifetime they were sent with.{#if !isStaff} {MANAGERS_ONLY_HINT}{/if}
+								Applies to new messages. A timed lifetime hides messages after that time; the encrypted record remains on the server until a future compaction feature exists. Earlier messages keep the lifetime they were sent with.{#if !isStaff} {MANAGERS_ONLY_HINT}{/if}
 							</p>
 						</div>
 						<div class="w-srow__control">

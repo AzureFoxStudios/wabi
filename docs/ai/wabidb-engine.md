@@ -32,7 +32,7 @@ CommandCommit
 - **Per-stream keys**: each stream has a unique 32-byte key via `register_stream_key()`
 - **AES-256-GCM**: event payloads encrypted with `commit_seq` as nonce
 - **Key exchange**: double ratchet protocol with X3DH initial handshake
-- **Key destruction**: cryptographic deletion for retention compliance
+- **Key destruction**: design intent only (no production caller); today timed retention is a soft delete and nothing is cryptographically destroyed
 
 ## Projections
 

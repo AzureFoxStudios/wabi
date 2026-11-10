@@ -427,7 +427,7 @@
 - **Acceptance:** 100 expired rows deleted, audit_log has 100 entries.
 - **Verify:** `cargo test -p wabidb --lib retention::reaper`
 
-### wabidb-39: Cryptographic deletion (key destruction + tombstone)
+### wabidb-39: Key destruction + tombstone (not wired into the server)
 - **Component:** Retention
 - **Tag:** DAYTIME
 - **Size:** M
@@ -1118,7 +1118,7 @@
 ### Phase 6: Retention Engine (7/9 — 3 core + 4 extra files)
 - [ ] wabidb-37 — expires_at indexes (NOT STARTED)
 - [x] wabidb-38 — Per-stream TTL reaper (`retention/reaper.rs` — `RetentionReaper` with run_once/run_forever)
-- [x] wabidb-39 — Cryptographic deletion (`retention/key_destruction.rs` — `destroy_stream_keys` with tombstone creation)
+- [x] wabidb-39 — Key destruction + tombstone, not wired into the server (`retention/key_destruction.rs` — `destroy_stream_keys` with tombstone creation)
 - [ ] wabidb-40 — retention_policies table (NOT STARTED)
 - [ ] wabidb-41 — Per-scope policy evaluation (NOT STARTED)
 - [x] wabidb-42 — Segment Compaction and GC (`retention/compaction.rs` — single-segment compaction, zero-and-remove, dir fsync)
