@@ -86,7 +86,7 @@ For `record_kind = 1 (event)`: the payload is the encrypted event. The plaintext
 
 For `record_kind = 2 (snapshot)`: the payload is the snapshot's serialized state (BLAKE3-keyed for tamper detection, per `wabidb-33`).
 
-For `record_kind = 3 (tombstone)`: the payload is empty. The record's existence is the signal that the stream is destroyed (per `wabidb-39` cryptographic deletion).
+For `record_kind = 3 (tombstone)`: the payload is empty. The record's existence is the signal that the stream is destroyed (per the `wabidb-39` key-destruction design, which is not wired into the server).
 
 For `record_kind = 4 (checkpoint)`: the payload is a high-water-mark checkpoint for projection rebuilds (per `wabidb-28`).
 
