@@ -1,132 +1,106 @@
-use std::path::Path;
+//! `wabidb-cli status`: counts and sizes from the segments and commit index.
+//!
+//! Read-only. Meant for a stopped server or a copy of the data directory;
+//! never takes, writes or unlinks `.lock`.
 
+use std::path::Path;
 
 use crate::error::Result;
 use crate::stream_log::segment_reader::SegmentReader;
 
 #[derive(Debug, Clone)]
 pub struct StatusReport {
-    pub data_dir_size_bytes: u64,
+    /// `streams/<kind>/<stream_dir>` directories.
     pub stream_count: u64,
     pub segment_count: u64,
-    pub commit_count: u64,
-    pub last_commit_seq_micros: Option<i64>,
-    pub oldest_event_micros: Option<i64>,
+    /// Total size of the `.wseg` files.
+    pub segment_bytes: u64,
+    /// Valid records in the segments, orphans included.
+    pub record_count: u64,
+    /// Highest `commit_seq` in any record header.
+    pub highest_record_seq: Option<u64>,
+    /// Entries in `global/commit-index`.
+    pub indexed_commits: u64,
+    pub highest_commit_seq: Option<u64>,
+    /// Commit timestamps (micros since the Unix epoch) from the index.
+    pub oldest_commit_micros: Option<i64>,
+    pub newest_commit_micros: Option<i64>,
 }
 
 pub async fn status(data_dir: &Path) -> Result<StatusReport> {
-    let mut data_dir_size = 0u64;
-    let mut stream_count = 0u64;
-    let mut segment_count = 0u64;
-    let mut commit_count = 0u64;
-    let mut last_commit_seq_micros: Option<i64> = None;
-    let mut oldest_event_micros: Option<i64> = None;
+    let mut report = StatusReport {
+        stream_count: 0,
+        segment_count: 0,
+        segment_bytes: 0,
+        record_count: 0,
+        highest_record_seq: None,
+        indexed_commits: 0,
+        highest_commit_seq: None,
+        oldest_commit_micros: None,
+        newest_commit_micros: None,
+    };
 
-    let streams_dir = data_dir.join("streams");
-    if !tokio::fs::try_exists(&streams_dir).await.unwrap_or(false) {
-        return Ok(StatusReport {
-            data_dir_size_bytes: 0,
-            stream_count: 0,
-            segment_count: 0,
-            commit_count: 0,
-            last_commit_seq_micros: None,
-            oldest_event_micros: None,
-        });
-    }
+    let index_dir = data_dir.join("global").join("commit-index");
+    let entries = crate::commit_index::batcher::read_all_entries(&index_dir)?;
+    report.indexed_commits = entries.len() as u64;
+    report.highest_commit_seq = entries.iter().map(|e| e.commit_seq).max();
+    report.oldest_commit_micros = entries.iter().map(|e| e.timestamp_micros).min();
+    report.newest_commit_micros = entries.iter().map(|e| e.timestamp_micros).max();
 
-    let mut streams_reader = tokio::fs::read_dir(&streams_dir).await?;
-    while let Some(entry) = streams_reader.next_entry().await? {
-        let stream_path = entry.path();
-        if !stream_path.is_dir() {
-            continue;
-        }
-        stream_count += 1;
-
-        if let Ok(meta) = tokio::fs::metadata(&stream_path).await {
-            data_dir_size = data_dir_size.saturating_add(meta.len());
-        }
-
-        let events_dir = stream_path.join("events");
-        if !tokio::fs::try_exists(&events_dir).await.unwrap_or(false) {
-            continue;
-        }
-
-        let mut events_reader = tokio::fs::read_dir(&events_dir).await?;
-        while let Some(seg_entry) = events_reader.next_entry().await? {
-            let seg_path = seg_entry.path();
-            if seg_path.extension().map_or(false, |ext| ext == "wseg") {
-                segment_count += 1;
-
-                if let Ok(meta) = tokio::fs::metadata(&seg_path).await {
-                    data_dir_size = data_dir_size.saturating_add(meta.len());
-                }
-
-                if let Ok(mut reader) = SegmentReader::open(&seg_path).await {
-                    if let Ok(recs) = reader.read_records().await {
-                        for r in &recs {
-                            commit_count += 1;
-                            last_commit_seq_micros = Some(r.header.commit_seq as i64);
-                            if oldest_event_micros.is_none() {
-                                oldest_event_micros = Some(r.header.commit_seq as i64);
-                            }
-                        }
+    for stream in super::stream_dirs(data_dir).await?.unwrap_or_default() {
+        report.stream_count += 1;
+        for seg_path in &stream.segments {
+            report.segment_count += 1;
+            if let Ok(meta) = tokio::fs::metadata(seg_path).await {
+                report.segment_bytes = report.segment_bytes.saturating_add(meta.len());
+            }
+            if let Ok(mut reader) = SegmentReader::open(seg_path).await {
+                if let Ok(recs) = reader.read_records().await {
+                    for r in &recs {
+                        report.record_count += 1;
+                        report.highest_record_seq =
+                            report.highest_record_seq.max(Some(r.header.commit_seq));
                     }
                 }
             }
         }
     }
 
-    Ok(StatusReport {
-        data_dir_size_bytes: data_dir_size,
-        stream_count,
-        segment_count,
-        commit_count,
-        last_commit_seq_micros,
-        oldest_event_micros,
-    })
+    Ok(report)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::format::record::{payload_crc32c, RecordHeader, RecordKind};
-    use crate::stream_log::segment_writer::SegmentWriter;
-    use tempfile::tempdir;
+    use crate::cli::test_support::{empty_engine_tree, real_engine_tree};
 
     #[tokio::test]
-    async fn empty_dir_returns_zeros() {
-        let dir = tempdir().unwrap();
+    async fn empty_engine_tree_returns_zeros() {
+        let dir = tempfile::tempdir().unwrap();
+        empty_engine_tree(dir.path()).await;
         let report = status(dir.path()).await.unwrap();
-        assert_eq!(report.stream_count, 0);
         assert_eq!(report.segment_count, 0);
-        assert_eq!(report.commit_count, 0);
-        assert!(report.last_commit_seq_micros.is_none());
+        assert_eq!(report.record_count, 0);
+        assert_eq!(report.indexed_commits, 0);
+        assert!(report.highest_commit_seq.is_none());
+        assert!(report.oldest_commit_micros.is_none());
     }
 
     #[tokio::test]
-    async fn populated_dir_returns_counts() {
-        let dir = tempdir().unwrap();
-        let data_dir = dir.path();
+    async fn real_engine_tree_returns_counts() {
+        let dir = tempfile::tempdir().unwrap();
+        real_engine_tree(dir.path()).await;
 
-        for sid in &["ch_a", "ch_b"] {
-            let events_dir = data_dir.join("streams").join(sid).join("events");
-            tokio::fs::create_dir_all(&events_dir).await.unwrap();
-            let payload = b"data";
-            let crc = payload_crc32c(payload);
-            let mut writer = SegmentWriter::open(&events_dir, sid.to_string()).await.unwrap();
-            for i in 0u64..3 {
-                let h = RecordHeader::new(RecordKind::Event, i, [0u8; 16], payload.len() as u32, crc);
-                writer.append(&h, payload).await.unwrap();
-            }
-            writer.close().await.unwrap();
-        }
-
-        let report = status(data_dir).await.unwrap();
-        assert_eq!(report.stream_count, 2);
+        let report = status(dir.path()).await.unwrap();
+        assert_eq!(report.stream_count, 2, "{report:#?}");
         assert_eq!(report.segment_count, 2);
-        assert_eq!(report.commit_count, 6);
-        assert!(report.data_dir_size_bytes > 0);
-        assert!(report.last_commit_seq_micros.is_some());
-        assert!(report.oldest_event_micros.is_some());
+        assert_eq!(report.record_count, 5);
+        assert_eq!(report.highest_record_seq, Some(4));
+        assert_eq!(report.indexed_commits, 4);
+        assert_eq!(report.highest_commit_seq, Some(4));
+        assert!(report.segment_bytes > 0);
+        let (oldest, newest) =
+            (report.oldest_commit_micros.unwrap(), report.newest_commit_micros.unwrap());
+        assert!(oldest > 0 && oldest <= newest, "{report:#?}");
     }
 }
