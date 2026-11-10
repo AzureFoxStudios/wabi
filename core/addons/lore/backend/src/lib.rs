@@ -139,6 +139,9 @@ pub enum LoreImportError {
     RepoExists,
     /// `git clone` failed; carries git's stderr for the 502 body.
     CloneFailed(String),
+    /// The channel has no live registration but its working tree directory
+    /// still holds files (e.g. after detach, or a tree skipped at boot).
+    TreeExists,
     /// Any other error.
     Other(anyhow::Error),
 }
@@ -150,6 +153,10 @@ impl std::fmt::Display for LoreImportError {
                 write!(f, "a Lore repo already exists for this channel")
             }
             LoreImportError::CloneFailed(stderr) => write!(f, "git clone failed: {stderr}"),
+            LoreImportError::TreeExists => write!(
+                f,
+                "a non-empty working tree already exists for this channel; remove it or re-attach it before importing"
+            ),
             LoreImportError::Other(e) => write!(f, "{e}"),
         }
     }
@@ -2397,6 +2404,10 @@ impl LoreService {
                 channel_id,
                 "Adopting empty Lore repo registration for git import"
             );
+        } else if dir_is_non_empty(&self.config.lore_data_dir.join(channel_id.to_string())).await {
+            // No live registration, but files are on disk (detached tree, or
+            // one skipped at boot). Never delete it to make room.
+            return Err(LoreImportError::TreeExists);
         }
 
         let tmp_dir = std::env::temp_dir().join(format!(
@@ -2486,6 +2497,12 @@ impl LoreService {
         // (same filesystem); fall back to a recursive copy for /tmp → data dir.
         let working_tree = self.config.lore_data_dir.join(channel_id.to_string());
         if working_tree.exists() {
+            // Only a pristine tree adopted above may be replaced; re-check
+            // here in case something wrote files during the clone.
+            if !working_tree_is_pristine(&working_tree).await {
+                let _ = tokio::fs::remove_dir_all(&tmp_dir).await;
+                return Err(LoreImportError::TreeExists);
+            }
             tokio::fs::remove_dir_all(&working_tree)
                 .await
                 .map_err(LoreImportError::from)?;
@@ -2634,6 +2651,14 @@ async fn walk_working_tree_files(root: &std::path::Path) -> Vec<String> {
     let mut out = Vec::new();
     walk(root, root, &mut out).await;
     out
+}
+
+/// True when `dir` exists and has at least one entry.
+async fn dir_is_non_empty(dir: &std::path::Path) -> bool {
+    match tokio::fs::read_dir(dir).await {
+        Ok(mut entries) => matches!(entries.next_entry().await, Ok(Some(_))),
+        Err(_) => false,
+    }
 }
 
 /// True when a working tree holds nothing but lore metadata and the seeded
@@ -3043,6 +3068,32 @@ mod tests {
         assert!(calls.contains("stage ."));
         assert!(calls.contains("commit Initial import"));
         assert!(matches!(service.import_from_git(42, 1, "Overwrite", source.path().to_str().unwrap()).await, Err(LoreImportError::RepoExists)));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn import_refuses_and_keeps_a_detached_non_empty_tree() {
+        use std::os::unix::fs::PermissionsExt;
+        let source = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        std::fs::write(source.path().join("hello.txt"), b"upstream").unwrap();
+        fixture_git_repo(source.path()).await;
+        let cli = data.path().join("lore-fixture");
+        std::fs::write(&cli, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let service = LoreService::new(LoreConfig {
+            mode: LoreMode::Embedded,
+            lore_data_dir: data.path().join("repos"),
+            lore_binary_path: cli,
+            ..LoreConfig::default()
+        });
+        let repo = service.create_repo(42, 1, "mine").await.unwrap();
+        let asset = repo.working_tree.join("asset.bin");
+        std::fs::write(&asset, b"real asset").unwrap();
+        service.detach_repo(42).await;
+        let result = service.import_from_git(42, 1, "Imported", source.path().to_str().unwrap()).await;
+        assert!(matches!(result, Err(LoreImportError::TreeExists)), "got {result:?}");
+        assert_eq!(std::fs::read(&asset).unwrap(), b"real asset");
     }
 
     #[tokio::test]
