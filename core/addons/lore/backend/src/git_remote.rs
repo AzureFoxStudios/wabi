@@ -472,60 +472,12 @@ pub(crate) async fn clone_into(raw: &str, destination: &Path) -> Result<Output> 
     Ok(output)
 }
 
-pub(crate) struct PushTarget {
-    url: String,
-    address: Option<SocketAddr>,
-}
-
-pub(crate) fn validate_push_target(raw: &str) -> Result<()> {
-    validate_source_target(raw)
-}
-
 pub(crate) fn validate_source_target(raw: &str) -> Result<()> {
     #[cfg(test)]
     if Path::new(raw).is_absolute() {
         return Ok(());
     }
     validate_url(raw).map(|_| ())
-}
-
-pub(crate) async fn resolve_push_target(raw: &str) -> Result<PushTarget> {
-    #[cfg(test)]
-    if Path::new(raw).is_absolute() {
-        return Ok(PushTarget {
-            url: raw.to_owned(),
-            address: None,
-        });
-    }
-    let url = validate_url(raw)?;
-    let address = approved_address(&url).await?;
-    Ok(PushTarget {
-        url: url.to_string(),
-        address: Some(address),
-    })
-}
-
-async fn push_target_command(
-    target: &PushTarget,
-    cwd: &Path,
-) -> Result<(Command, Option<GitBridge>, String)> {
-    match target.address {
-        Some(address) => {
-            let bridge = GitBridge::start(validate_url(&target.url)?, address).await?;
-            let url = bridge.url.clone();
-            Ok((bridge_command(cwd), Some(bridge), url))
-        }
-        None => {
-            #[cfg(test)]
-            {
-                let mut command = isolated_command(cwd);
-                command.args(["-c", "protocol.file.allow=always"]);
-                Ok((command, None, target.url.clone()))
-            }
-            #[cfg(not(test))]
-            bail!("Missing approved Git push address")
-        }
-    }
 }
 
 pub(crate) async fn checked_local(args: &[&str], cwd: &Path) -> Result<Output> {
@@ -536,60 +488,6 @@ pub(crate) async fn checked_local(args: &[&str], cwd: &Path) -> Result<Output> {
         bail!("Git snapshot preparation failed");
     }
     Ok(output)
-}
-
-/// Replace only the two explicit snapshot refs. Ref leases prevent an
-/// intervening remote update from being overwritten after inspection.
-pub(crate) async fn push_snapshot(target: &PushTarget, cwd: &Path, tags: bool) -> Result<()> {
-    let (mut inspect, bridge, url) = push_target_command(target, cwd).await?;
-    inspect
-        .args(["ls-remote", "--refs", "--"])
-        .arg(url)
-        .args(["refs/heads/main", "refs/tags/latest"])
-        .stdout(Stdio::piped());
-    let output = bounded_output(inspect, CLONE_TIMEOUT).await?;
-    drop(bridge);
-    if !output.status.success() {
-        bail!("Git mirror destination inspection failed");
-    }
-    let mut refs = std::collections::HashMap::new();
-    for line in std::str::from_utf8(&output.stdout)
-        .context("Invalid Git refs")?
-        .lines()
-    {
-        let (hash, name) = line.split_once('\t').context("Invalid Git refs")?;
-        if !matches!(name, "refs/heads/main" | "refs/tags/latest")
-            || !matches!(hash.len(), 40 | 64)
-            || !hash.bytes().all(|b| b.is_ascii_hexdigit())
-            || refs.insert(name.to_owned(), hash.to_owned()).is_some()
-        {
-            bail!("Invalid Git refs");
-        }
-    }
-    let (mut push, _bridge, url) = push_target_command(target, cwd).await?;
-    push.args(["push", "--quiet", "--atomic"]).arg(format!(
-        "--force-with-lease=refs/heads/main:{}",
-        refs.get("refs/heads/main")
-            .map(String::as_str)
-            .unwrap_or("")
-    ));
-    if tags {
-        push.arg(format!(
-            "--force-with-lease=refs/tags/latest:{}",
-            refs.get("refs/tags/latest")
-                .map(String::as_str)
-                .unwrap_or("")
-        ));
-    }
-    push.arg("--").arg(url).arg("HEAD:refs/heads/main");
-    if tags {
-        push.arg("HEAD:refs/tags/latest");
-    }
-    let output = bounded_output(push, CLONE_TIMEOUT).await?;
-    if !output.status.success() {
-        bail!("Git mirror push failed or destination changed");
-    }
-    Ok(())
 }
 
 #[cfg(test)]
