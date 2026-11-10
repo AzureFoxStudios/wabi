@@ -1,4 +1,4 @@
-//! Retention engine: tombstone, reaper, key destruction, backup.
+//! Retention: tombstone table and backup helpers.
 
 pub mod data_backup;
 pub mod manifest_backup;
