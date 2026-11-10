@@ -2,7 +2,6 @@ pub mod anti_entropy;
 pub mod config;
 pub mod observability;
 pub mod rate_limit;
-pub mod snapshot_shipping;
 pub mod state_machine;
 pub mod sync_protocol;
 pub mod sync_worker;
