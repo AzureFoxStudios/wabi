@@ -176,20 +176,29 @@ pub fn stream_id_candidates(dir_name: &str) -> Vec<String> {
 /// created there), and probing a name with `:` would address an NTFS
 /// alternate data stream, so the raw probe is skipped on Windows.
 ///
-/// Fails rather than share a directory if the encoded directory already
-/// holds a different, raw-named legacy stream (an old id that happens to be
-/// spelled like this id's encoding, e.g. `a%3Ab` vs `a:b`).
+/// Two ids can collide on one name when one is spelled like the other's
+/// encoding (`a%3Ab` vs `a:b`). A raw-named directory is then reused only
+/// if its records are this stream's, and this fails rather than share an
+/// encoded directory that holds the other stream's records.
 pub fn resolve_stream_dir(parent: &Path, stream_id: &str) -> Result<PathBuf> {
     let encoded = stream_dir_name(stream_id);
     if encoded == stream_id {
         return Ok(parent.join(encoded));
     }
-    if !cfg!(windows) && parent.join(stream_id).is_dir() {
-        return Ok(parent.join(stream_id));
+    let own = crate::stream_identity::stream_id_hash(stream_id);
+    let raw = parent.join(stream_id);
+    if !cfg!(windows) && raw.is_dir() {
+        // An id like `a%3Ab` is also the encoding of `a:b`, so a directory
+        // of that name may be `a:b`'s. Reuse it only when its records are
+        // this stream's; an empty one holds nothing a new directory splits.
+        let other_streams_encoding =
+            stream_id_from_dir_name(stream_id).is_some_and(|other| other != stream_id);
+        if !other_streams_encoding || first_record_stream_hash(&raw.join("events"))? == Some(own) {
+            return Ok(raw);
+        }
     }
     let path = parent.join(&encoded);
     if let Some(owner) = first_record_stream_hash(&path.join("events"))? {
-        let own = crate::stream_identity::stream_id_hash(stream_id);
         if owner != own && owner == crate::stream_identity::stream_id_hash(&encoded) {
             return Err(WabiError::InternalInvariantViolated {
                 invariant: format!(
@@ -1040,6 +1049,30 @@ mod stream_dir_name_tests {
         if !cfg!(windows) {
             assert_eq!(resolve_stream_dir(parent, legacy).unwrap(), parent.join(legacy));
         }
+    }
+
+    #[tokio::test]
+    async fn resolve_does_not_reuse_another_streams_encoded_directory_as_raw() {
+        let tmp = tempfile::tempdir().unwrap();
+        let parent = tmp.path();
+        // A new tree: "a:b" wrote its encoded directory "a%3Ab".
+        let events = resolve_stream_dir(parent, "a:b").unwrap().join("events");
+        assert_eq!(events, parent.join("a%3Ab").join("events"));
+        let mut writer = SegmentWriter::open(&events, "a:b".into()).await.unwrap();
+        let header = RecordHeader::new(
+            crate::format::record::RecordKind::Event,
+            1,
+            crate::stream_identity::stream_id_hash("a:b"),
+            4,
+            0,
+        );
+        writer.append(&header, b"data").await.unwrap();
+        writer.close().await.unwrap();
+
+        // A later stream whose literal id is "a%3Ab" must get its own
+        // encoded directory, not share the one "a:b" owns.
+        assert_eq!(resolve_stream_dir(parent, "a%3Ab").unwrap(), parent.join("a%253Ab"));
+        assert_eq!(resolve_stream_dir(parent, "a:b").unwrap(), parent.join("a%3Ab"));
     }
 }
 
