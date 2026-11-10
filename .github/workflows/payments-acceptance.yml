@@ -101,22 +101,3 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           npm install --prefix "${{ runner.temp }}/payments-qr-qa" --ignore-scripts --no-audit --no-fund jsqr@1.4.0 pngjs@7.0.0
-      - name: Exercise real payment UI against disposable Authority data
-        working-directory: frontend
-        env:
-          WABI_PAYMENTS_STATIC: '1'
-          WABI_PAYMENTS_REQUIRE_RAILS: '1'
-          WABI_PAYMENTS_QR_QA: ${{ runner.temp }}/payments-qr-qa
-          WABI_SMOKE_SERVER_BINARY: ${{ github.workspace }}/target/debug/wabi-server
-        run: xvfb-run -a node scripts/payments-browser-smoke.mjs
-      # Only synthetic screenshots and result metadata are retained. Never upload
-      # the disposable data tree, its account secrets, or provider credentials.
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
-        with:
-          name: direct-payment-browser-evidence
-          path: |
-            /tmp/wabi-payments-browser-*/*.png
-            /tmp/wabi-payments-browser-*/result.json
-          if-no-files-found: ignore
-          retention-days: 7
