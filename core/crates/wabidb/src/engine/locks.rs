@@ -649,19 +649,9 @@ impl ProjectionState {
     ///
     /// Returns `None` if the snapshot file does not exist (fresh data dir).
     pub fn load_snapshot(data_dir: &Path) -> Result<Option<(Self, u64)>> {
-        let path = Self::snapshot_path(data_dir);
-        if !path.exists() {
+        let Some(data) = Self::read_snapshot_data(data_dir)? else {
             return Ok(None);
-        }
-
-        let json = std::fs::read_to_string(&path).map_err(|e| {
-            WabiError::Io(std::io::Error::new(e.kind(), format!("snapshot read: {e}")))
-        })?;
-
-        let data: SnapshotData = serde_json::from_str(&json).map_err(|e| WabiError::Corrupt {
-            location: "projection snapshot".into(),
-            detail: format!("deserialize failed: {e}"),
-        })?;
+        };
 
         let state = ProjectionState::new();
         for (name, entries) in &data.indexes {
@@ -677,6 +667,29 @@ impl ProjectionState {
         state.set_applied_commit_seq(data.watermark);
 
         Ok(Some((state, data.watermark)))
+    }
+
+    /// The watermark of the snapshot file, without building its state.
+    /// `None` and the errors are exactly those of [`Self::load_snapshot`]:
+    /// both parse the whole file the same way.
+    pub fn read_snapshot_watermark(data_dir: &Path) -> Result<Option<u64>> {
+        Ok(Self::read_snapshot_data(data_dir)?.map(|data| data.watermark))
+    }
+
+    fn read_snapshot_data(data_dir: &Path) -> Result<Option<SnapshotData>> {
+        let path = Self::snapshot_path(data_dir);
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let json = std::fs::read_to_string(&path).map_err(|e| {
+            WabiError::Io(std::io::Error::new(e.kind(), format!("snapshot read: {e}")))
+        })?;
+
+        serde_json::from_str(&json).map(Some).map_err(|e| WabiError::Corrupt {
+            location: "projection snapshot".into(),
+            detail: format!("deserialize failed: {e}"),
+        })
     }
 
     /// Remove the snapshot file (e.g. when the engine is shutting down and
