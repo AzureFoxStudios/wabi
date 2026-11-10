@@ -2,7 +2,6 @@
 
 pub mod aes_gcm_record;
 pub mod bootstrap;
-pub mod dm_rekey;
 pub mod double_ratchet;
 pub mod identity;
 pub mod place_rekey;
