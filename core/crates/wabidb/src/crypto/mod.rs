@@ -4,7 +4,6 @@ pub mod aes_gcm_record;
 pub mod bootstrap;
 pub mod double_ratchet;
 pub mod identity;
-pub mod rekey;
 pub mod stream_key_registry;
 pub mod device_pinning;
 pub mod dm_envelope;
