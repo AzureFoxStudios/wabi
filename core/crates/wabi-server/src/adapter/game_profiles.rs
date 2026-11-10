@@ -31,7 +31,7 @@ impl WdbAdapter {
             events:vec![EventToWrite {stream_id,event_type:game_profiles::EVENT.into(),stream_kind:6,record_kind:RecordKind::Event,plaintext}],
             essential:true,response_tx:tokio::sync::oneshot::channel().0};
         self.engine.run_command(cmd).await?;
-        // No deliver_event: the record contains a private account association.
+        // The record contains a private account association.
         // API reads construct viewer-safe data. Event logs remain operator-readable.
         if self.get_user(user_id).await?.is_none() {return Err(AppError::NotFound("Account no longer exists".into()));}
         Ok(row)

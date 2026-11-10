@@ -29,16 +29,6 @@ impl WdbAdapter {
                 .get_or_create_stream_key(&event.stream_id)
                 .await?;
         }
-        let deliveries: Vec<_> = events
-            .iter()
-            .map(|e| {
-                (
-                    e.stream_id.clone(),
-                    e.event_type.clone(),
-                    e.plaintext.clone(),
-                )
-            })
-            .collect();
         let outcome = self
             .engine
             .run_command(CommandCommit {
@@ -52,12 +42,6 @@ impl WdbAdapter {
                 response_tx: tokio::sync::oneshot::channel().0,
             })
             .await?;
-        // Same applied-before-subscription-push boundary as adapter::run.
-        for (stream, kind, payload) in deliveries {
-            self.engine
-                .deliver_event(&stream, &kind, &payload, outcome.commit_seq)
-                .await;
-        }
         Ok(outcome.commit_seq)
     }
 
