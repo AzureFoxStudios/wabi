@@ -421,25 +421,6 @@ pub trait WabiStore: Send + Sync {
         })
     }
 
-    // --- subscription bridge ---
-
-    /// Subscribe a consumer (Socket.IO socket ID) to a topic (stream ID).
-    /// Returns a receiver for push delivery notifications.
-    async fn subscribe_stream(
-        &self,
-        _consumer_id: &str,
-        _topic: &str,
-        _since: u64,
-    ) -> Result<tokio::sync::broadcast::Receiver<crate::engine::SubscriptionDelivery>> {
-        let (_tx, rx) = tokio::sync::broadcast::channel(1);
-        Ok(rx)
-    }
-
-    /// Unsubscribe a consumer from a topic.
-    async fn unsubscribe_stream(&self, _consumer_id: &str, _topic: &str) -> Result<bool> {
-        Ok(false)
-    }
-
     // --- ingest_event ---
 
     /// WDB-compat: generic event ingest. The wabidb design is typed

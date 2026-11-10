@@ -21,7 +21,6 @@ use crate::commit_index::batcher::{new_batcher, BatcherHandle};
 use crate::commit_index::record::CommitIndexEntry;
 use crate::crypto::bootstrap::{load_bootstrap_key, BootstrapSource};
 use crate::crypto::stream_key_registry::StreamKeyRegistry;
-use crate::engine::locks::DispatchItem;
 use crate::engine::locks::{spawn_projection_dispatcher_with_lock, ProjectionState, SequencerPermit};
 use crate::error::{ErrorCategory, Result, WabiError};
 use crate::projections::barrier::LinearizabilityBarrier;
@@ -30,7 +29,6 @@ use crate::replication::{new_noop_transport, SyncTransport};
 use crate::sequencer::run_command::{run_command as submit_command_inner, CommitSequencer};
 use crate::sequencer::types::{CommandCommit, CommandOutcome};
 use crate::storage::fsync::fsync_dir;
-use crate::subscription::engine::SubscriptionEngine;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -153,8 +151,6 @@ pub struct WabiDbEngine {
     key_registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>>,
     /// Exclusive advisory lock, also retained by every background disk writer.
     _process_lock: Option<Arc<std::fs::File>>,
-    /// Subscription engine: topic-based pub/sub for real-time push.
-    subscription_engine: tokio::sync::Mutex<SubscriptionEngine>,
     /// Broadcast channel sender for subscription deliveries. Server-side
     /// code receives a receiver via `subscribe_stream()` and processes
     /// matched deliveries in a background task.
@@ -433,9 +429,8 @@ impl WabiDbEngine {
         // 11. Create CommitSequencer for public API
         let sequencer = CommitSequencer::new(cmd_tx);
 
-        // 12. Initialize subscription engine + delivery broadcast channel
+        // 12. Initialize delivery broadcast channel
         let (delivery_tx, _) = broadcast::channel::<SubscriptionDelivery>(1024);
-        let subscription_engine = tokio::sync::Mutex::new(SubscriptionEngine::new());
 
         // 13. Spawn background sync worker if replication is configured
         let transport_for_sync: Arc<dyn SyncTransport> = config
@@ -544,7 +539,6 @@ impl WabiDbEngine {
             _dispatcher_handle: dispatcher_task,
             key_registry: key_registry_for_engine,
             _process_lock: Some(process_lock),
-            subscription_engine,
             delivery_tx,
             sync_transport: transport_for_sync,
             replication_batcher,
@@ -918,62 +912,6 @@ impl WabiDbEngine {
         Ok(events)
     }
 
-    /// Deliver an event to all matching subscribers and broadcast results
-    /// on the delivery channel. Called by the adapter after a successful
-    /// `run_command`.
-    pub async fn deliver_event(
-        &self,
-        stream_id: &str,
-        event_type: &str,
-        payload: &[u8],
-        commit_seq: u64,
-    ) {
-        let item = DispatchItem {
-            commit_seq,
-            event_type: event_type.into(),
-            stream_id: stream_id.into(),
-            payload: payload.to_vec(),
-        };
-        let matches = self
-            .subscription_engine
-            .lock()
-            .await
-            .deliver(stream_id, &item);
-        for (consumer_id, _item) in matches {
-            let delivery = SubscriptionDelivery {
-                consumer_id,
-                event_type: event_type.into(),
-                stream_id: stream_id.into(),
-                commit_seq,
-                payload: payload.to_vec(),
-            };
-            let _ = self.delivery_tx.send(delivery);
-        }
-    }
-
-    /// Subscribe a consumer to a topic. Returns a `broadcast::Receiver`
-    /// that the server can use to receive push deliveries.
-    pub async fn subscribe_stream(
-        &self,
-        consumer_id: &str,
-        topic: &str,
-        since: u64,
-    ) -> broadcast::Receiver<SubscriptionDelivery> {
-        self.subscription_engine
-            .lock()
-            .await
-            .subscribe(consumer_id, topic, since);
-        self.delivery_tx.subscribe()
-    }
-
-    /// Unsubscribe a consumer from a topic.
-    pub async fn unsubscribe_stream(&self, consumer_id: &str, topic: &str) -> bool {
-        self.subscription_engine
-            .lock()
-            .await
-            .unsubscribe(consumer_id, topic)
-    }
-
     /// Get a receiver for the delivery broadcast channel. Used by server-side
     /// bridge tasks to receive subscription deliveries.
     pub fn delivery_receiver(&self) -> broadcast::Receiver<SubscriptionDelivery> {
@@ -1042,7 +980,6 @@ impl WabiDbEngine {
             _dispatcher_handle: None,
             key_registry: Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new())),
             _process_lock: None,
-            subscription_engine: tokio::sync::Mutex::new(SubscriptionEngine::new()),
             delivery_tx,
             sync_transport: new_noop_transport(),
             replication_batcher: None,
