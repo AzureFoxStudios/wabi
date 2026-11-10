@@ -1299,6 +1299,39 @@ fn sync_tree_directories(path: &Path) -> Result<()> {
 mod tests {
     use super::*;
 
+    // Each of these takes the engine lock's flock through ensure_stopped, and
+    // only run_cli calls them outside tests. These wrappers shadow the glob
+    // import, so every test call holds the fork gate shared for that one call:
+    // no sibling test's child is between clone and exec (see fork_gate).
+    pub(super) fn export(data: &Path, uploads: &Path, recipient: &str, output: &Path) -> Result<()> {
+        let _fork_gate = crate::fork_gate::acquire();
+        super::export(data, uploads, recipient, output)
+    }
+    pub(super) fn fence_stopped(data: &Path) -> Result<()> {
+        let _fork_gate = crate::fork_gate::acquire();
+        super::fence_stopped(data)
+    }
+    pub(super) fn fence_stopped_with_receipt(data: &Path, archive: &Path, receipt: &Path) -> Result<()> {
+        let _fork_gate = crate::fork_gate::acquire();
+        super::fence_stopped_with_receipt(data, archive, receipt)
+    }
+    pub(super) fn seal_passive_move(data: &Path, uploads: &Path, receipt: &Path) -> Result<()> {
+        let _fork_gate = crate::fork_gate::acquire();
+        super::seal_passive_move(data, uploads, receipt)
+    }
+    pub(super) fn activate_restored(target: &Path, receipt: &Path) -> Result<()> {
+        let _fork_gate = crate::fork_gate::acquire();
+        super::activate_restored(target, receipt)
+    }
+    pub(super) fn activate_passive(target: &Path, receipt: &Path, reviewed: bool) -> Result<()> {
+        let _fork_gate = crate::fork_gate::acquire();
+        super::activate_passive(target, receipt, reviewed)
+    }
+    fn ensure_stopped(data: &Path) -> Result<StoppedAuthority> {
+        let _fork_gate = crate::fork_gate::acquire();
+        super::ensure_stopped(data)
+    }
+
     fn fixture() -> (tempfile::TempDir, PathBuf, PathBuf, String, PathBuf) {
         let temp = tempfile::tempdir().unwrap();
         let data = temp.path().join("source-data");
@@ -1552,13 +1585,17 @@ mod tests {
         let (temp, data, uploads, recipient, _) = fixture();
         let archive = temp.path().join("snapshot.age");
         let path = data.join("wabidb/.lock");
-        let held = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .unwrap();
-        assert!(FileExt::try_lock_exclusive(&held).unwrap());
+        let held = {
+            let _fork_gate = crate::fork_gate::acquire();
+            let held = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .unwrap();
+            assert!(FileExt::try_lock_exclusive(&held).unwrap());
+            held
+        };
         assert!(export(&data, &uploads, &recipient, &archive).is_err());
         assert!(!archive.exists());
         drop(held);
@@ -1574,14 +1611,18 @@ mod tests {
         let (_temp, data, _uploads, _recipient, _) = fixture();
         let stopped = ensure_stopped(&data).unwrap();
         let path = data.join("wabidb/.lock");
-        let contender = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&path)
-            .unwrap();
+        let contender = {
+            let _fork_gate = crate::fork_gate::acquire();
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&path)
+                .unwrap()
+        };
         assert!(!FileExt::try_lock_exclusive(&contender).unwrap());
         stopped.verify().unwrap();
         drop(stopped);
+        let _fork_gate = crate::fork_gate::acquire();
         assert!(FileExt::try_lock_exclusive(&contender).unwrap());
     }
 

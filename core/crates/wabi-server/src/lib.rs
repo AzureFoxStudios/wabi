@@ -51,6 +51,12 @@ pub mod state;
 pub mod upload_registry;
 pub mod web_push;
 pub mod websocket;
+// Test binaries only: the one wabi-consensus fork gate source, included
+// rather than copied or exported. This crate's test child spawns and the
+// flock acquisitions racing them go through it (see that file).
+#[cfg(test)]
+#[path = "../../wabi-consensus/src/fork_gate.rs"]
+mod fork_gate;
 
 #[cfg(feature = "wabi-lore")]
 pub mod lore;
