@@ -325,6 +325,11 @@ an automatic remote join flow.
 
 This does not certify existing downloads, clean-machine installation, upgrades,
 Windows/macOS runtime behavior, remote reachability or physical-device calling.
+As of 2026-11-10 the Windows CI job's real-Authority smoke test (first start,
+owner registration, restart, profile lock, snapshot and restore) passes for the
+first time, after the fsync and stream-directory fixes in PRs 287 and 293. Before
+those the Authority could not start on Windows at all. This is one smoke test on
+a hosted CI runner, not acceptance on a real Windows machine.
 The app does not automatically provision internet/private access or a system
 service. A saved local community is started from Server status after reopening
 the app. Server-readable content remains server-readable.
