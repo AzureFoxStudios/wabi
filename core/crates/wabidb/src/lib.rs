@@ -18,7 +18,7 @@
 //! - **Retention** (`retention`): backup helpers.
 //! - **Blob store** (`blobs`): BLAKE3 content-addressed files, atomic write ordering, range
 //!   read protocol.
-//! - **Storage CLI** (`cli`): operator-facing tools (`wabidb check`, `dump-stream`).
+//! - **Storage CLI** (`cli`): read-only operator tools behind `wabidb-cli` (`check`, `verify`, `status`, `list-streams`).
 //!
 //! ## Design references
 //!
