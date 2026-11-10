@@ -4151,43 +4151,6 @@ impl WdbAdapter {
         }
     }
 
-    /// Discover segment file paths for a channel's stream.
-    /// Returns list of .wseg file paths under the channel's events directory.
-    /// (Security WS-8 groundwork for the retention reaper; inherent method,
-    /// not part of the `WabiStore` trait.)
-    pub async fn discover_channel_segments(&self, channel_id: &str) -> Vec<PathBuf> {
-        let data_dir = self.engine.data_dir();
-        let streams_dir = data_dir.join("streams");
-        let mut segments = Vec::new();
-
-        // Walk streams/{kind}/{channel_id}/events/*.wseg
-        let mut kind_reader = match tokio::fs::read_dir(&streams_dir).await {
-            Ok(r) => r,
-            Err(_) => return segments,
-        };
-        while let Ok(Some(kind_entry)) = kind_reader.next_entry().await {
-            let Ok(stream_dir) = wabidb::sequencer::resolve_stream_dir(&kind_entry.path(), channel_id)
-            else {
-                continue;
-            };
-            let stream_path = stream_dir.join("events");
-            if !stream_path.is_dir() {
-                continue;
-            }
-            let mut seg_reader = match tokio::fs::read_dir(&stream_path).await {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
-            while let Ok(Some(seg)) = seg_reader.next_entry().await {
-                let path = seg.path();
-                if path.extension().and_then(|e| e.to_str()) == Some("wseg") {
-                    segments.push(path);
-                }
-            }
-        }
-        segments
-    }
-
     /// Dump every message record in the `messages` projection, regardless of
     /// channel id. Used by maintenance diagnostics to detect channel-id
     /// mismatches that hide messages from `list_messages_typed`.
