@@ -141,11 +141,13 @@ jobs:
       - name: build Tauri
         shell: bash
         run: |
-          set -uo pipefail
+          # GitHub runs this with `bash -eo pipefail`. The `|| status=$?`
+          # keeps a failed build from ending the step before the check below.
+          set -u
           LOG="$RUNNER_TEMP/tauri-build.log"
           for attempt in 1 2 3; do
-            bunx @tauri-apps/cli@2.11.4 build --ci ${{ matrix.args }} -- --locked 2>&1 | tee "$LOG"
-            status=${PIPESTATUS[0]}
+            status=0
+            bunx @tauri-apps/cli@2.11.4 build --ci ${{ matrix.args }} -- --locked 2>&1 | tee "$LOG" || status=$?
             if [[ $status -eq 0 ]]; then
               exit 0
             fi
