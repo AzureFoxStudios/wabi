@@ -180,6 +180,24 @@ Find out first: check .gitignore for a pattern that hides the script, and read t
 
 You check: the `direct-payments` job is green on the PR, and the PR says whether coverage was added or removed.
 
+### Task 1.0l wabi-consensus integration tests see a phantom lock owner (Opus)
+
+```
+TASK 1.0l. Test-only change in core/crates/wabi-consensus. Do not change production code.
+
+Problem: PR 291 (Task 1.0g) fixed a race in the crate's unit-test binary: a forked child holds copies of every open descriptor until exec, including another test's just-dropped flock'ed store file, so an immediate reopen fails with Ownership. The fix is src/fork_gate.rs, which is #[cfg(test)] inside the library, so the integration test binaries under tests/ do not get it. Seen in CI on PR 298 (run 42756308919, job build-server): tests/storage_contract.rs::identity_and_exclusive_private_root_do_not_silently_reset panicked at storage_contract.rs:74 via :367 with Ownership, while killed_process_preserves_acknowledged_vote_logs_commit_applied_receipt_and_snapshot in the same binary was spawning a child of the test executable (lines 484 and 499). tests/encrypted_tcp_contract.rs also spawns children (four sites) and has the same exposure.
+
+Method: read src/fork_gate.rs and PR 291's description first; the mechanism and the measurements are there. Reproduce before fixing: loop `cargo test -p wabi-consensus --test storage_contract` and `--test encrypted_tcp_contract` (run two copies at once to load the machine, as PR 291 did) and record the failure count and every failing test name.
+
+Fix: give the integration tests the same protection. Put one small gate module under tests/ shared by both files (for example tests/common/mod.rs). Every child spawn goes through it: hold the gate exclusively until Command::spawn returns, and close inherited regular-file descriptors in pre_exec, exactly as fork_gate::spawn does. Every test that opens, drops and reopens a store, or probes a lock, holds the gate shared while it does. Decide whether the shared hold wraps each open or the whole test body, and justify it: the hold must cover every flock acquisition and probe, and must not deadlock a test that both spawns and opens. Do not add sleeps or retries, do not loosen any assertion, do not mark anything ignored. If duplicating the 60-line module is the cleanest way, duplicate it and say so; do not make the library's gate public or compile it into production builds.
+
+Proof: the failure count before, and 100 consecutive clean runs of both integration test binaries under the same two-copy load after. Then run the whole crate once: cargo test -p wabi-consensus.
+
+Also state, without fixing it here: whether wabi-server's own tests that use this crate and spawn children have the same exposure, with the file names.
+```
+
+You check: the report gives a failure count before the fix and 100 clean runs after, under the same load.
+
 ## Phase 1: stop the bleeding
 
 ### Task 1.1 Reactions cannot be removed (Sonnet)
