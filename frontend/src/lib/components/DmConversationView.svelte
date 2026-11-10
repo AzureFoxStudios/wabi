@@ -25,6 +25,7 @@
   import { getUserIdentityKey } from '$lib/localNicknames';
   import { showToast } from '$lib/toast';
   import { inkFor } from '$lib/theme/identity';
+  import { NO_KEY_NOTICE, hasNoKeyMessages } from '$lib/e2eeUnreadable';
   import { dmCallStartError, dmEncryptionError, dmGateActionView, dmRetentionChoice, dmRetentionControlLabel, dmRetentionOptions, dmRetentionPhrase, dmSendGate, type DmActionError, type DmEncryptionAction, type DmSendGateActionId } from '$lib/dm/dmConversationCopy';
   import type { MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
   import Icon from '$lib/components/ui/Icon.svelte';
@@ -80,6 +81,7 @@
     showJumpToLatest = false;
   }
   $: messages = channelId ? ($channelMessages[channelId] || []) : [];
+  $: showNoKeyNotice = hasNoKeyMessages(messages);
   $: filteredMessages = filterMessages(messages, '', Number.POSITIVE_INFINITY);
   $: pinnedMessages = messages.filter((m: Message) => m.isPinned);
   $: channelDisplayName = isGroup ? (channel?.name || 'Group message') : (otherUser?.username || otherUser?.handle || 'Recipient unavailable');
@@ -638,6 +640,13 @@
   {/if}
 
   <div class="dm-composer" class:hidden={showGroupSettings || showNotes} class:gated={Boolean(sendGate)}>
+    {#if showNoKeyNotice}
+      <div class="w-notice dm-notice" role="status">
+        <Icon name="alert" size={16} />
+        <p class="w-notice__title">{NO_KEY_NOTICE.title}</p>
+        <p class="w-notice__text">{NO_KEY_NOTICE.text}</p>
+      </div>
+    {/if}
     {#if e2eeError && !(sendGate?.kind === 'checking' && e2eeError.action === 'check')}
       <div class="w-notice dm-notice" role="alert">
         <Icon name="alert" size={16} />
