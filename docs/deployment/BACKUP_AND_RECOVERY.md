@@ -226,6 +226,11 @@ Do not assume arbitrary forward/backward restore compatibility between distant W
 
 The advisory-lock candidate requires a stopped upgrade from PID-based binaries: stop every old Authority/receiver process first and keep the engine lock inode in place. Old binaries do not participate in the new OS lock; mixed-version concurrent opens are unsafe. This is local filesystem exclusion, not distributed fencing or HA.
 
+Stream directory names changed on 2026-11-10 (PR 293) and the change is forward-only. WabiDB stores each stream under `streams/<kind>/<name>/`. Older builds used the stream id as the name unchanged, including ids with a colon such as `community-roster:v1`. Current builds percent-encode any id outside `[A-Za-z0-9._-]` when they create a **new** stream directory (`community-roster%3Av1`), because Windows forbids `:` in file names. Existing directories are never renamed: a stream that already has a raw-named directory keeps using it, and replay reads both spellings. Consequences:
+
+- **No rollback past this change once it has run.** A build from before PR 293 does not understand encoded directory names. If the newer build has created any new stream with such an id (for example a new user, channel membership or call session), the older build derives the wrong key for that directory and cannot decrypt its events. It then either refuses to start ("not all indexed events could be recovered", when those events are newer than the last projection snapshot) or starts from the snapshot and writes the same stream into a second, raw-named directory. Neither state is supported. Restore the pre-upgrade stopped backup instead of downgrading the binary.
+- **A data tree that contains raw colon directories cannot be restored on Windows.** That is every tree first written by a pre-PR 293 build on Linux or macOS. Trees first created by a current build use only portable names. There is no conversion tool yet.
+
 Before upgrading a server that matters:
 
 1. take a stopped-server backup;

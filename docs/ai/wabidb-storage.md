@@ -5,21 +5,27 @@ On-disk layout for the WabiDB event-sourced database.
 ## Data directory
 
 ```
-$DATA_DIR/
-├── manifests/storage-manifest.json
-├── commit-index/
+$DATA_DIR/                      (the engine directory, e.g. data/wabi-server/wabidb)
+├── .lock                       (advisory lock; never unlink it, see AGENTS.md rule 9)
+├── storage-manifest.json
+├── global/commit-index/
 │   └── *.widx
-├── streams/<kind>/<stream_id>/
+├── streams/<kind>/<stream_dir>/events/
 │   ├── 00000001.wseg
-│   ├── 00000002.wseg
-│   └── *.wsnap
-├── blobs/
-│   ├── <hash>.bin
-│   └── <hash>.meta
-└── wabidb/.lock
+│   └── 00000002.wseg
+├── projections/snapshot.json
+└── blobs/
 ```
 
-Stream ID format: `kind_ULID` (e.g., `ch_01JABCDEF...`). Segment files: zero-padded 8-digit numbers.
+`<kind>` is `channel`, `dm`, `whiteboard`, `place`, `kanban` or `other`. Segment files are zero-padded 8-digit numbers.
+
+Stream ids are arbitrary safe strings, not only `kind_ULID`: `ch_01JABCDEF...`, `channels`, `community-roster:v1`, `user:42`. `<stream_dir>` is the stream id made safe as a directory name (PR 293, 2026-11-10):
+
+- An id made only of `[A-Za-z0-9._-]`, not ending in `.`, and not a Windows device name (`CON`, `NUL`, `COM1`, ...) is its own directory name.
+- Any other id is percent-encoded with uppercase hex, so `community-roster:v1` is stored as `community-roster%3Av1`. `%` itself is always encoded, which keeps the mapping one-to-one.
+- Trees written before PR 293 hold the raw id as the directory name, colon included. Those directories are never renamed. A stream that has a raw-named directory keeps writing to it, and replay accepts both spellings, choosing the id whose hash matches each record header.
+
+The one encode/decode pair is `stream_dir_name` / `stream_id_from_dir_name` in `core/crates/wabidb/src/sequencer/mod.rs`; build stream paths with `resolve_stream_dir`, never by joining the id. Upgrade and restore consequences are in `docs/deployment/BACKUP_AND_RECOVERY.md`, Version compatibility.
 
 ## Stream segment format (.wseg)
 
