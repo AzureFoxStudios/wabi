@@ -18,10 +18,8 @@ pub async fn dump_stream(
     from_seq: Option<u64>,
     to_seq: Option<u64>,
 ) -> Result<Vec<DumpedRecord>> {
-    let events_dir = data_dir
-        .join("streams")
-        .join(stream_id)
-        .join("events");
+    let events_dir =
+        crate::sequencer::resolve_stream_dir(&data_dir.join("streams"), stream_id)?.join("events");
 
     let mut dir_entries = tokio::fs::read_dir(&events_dir).await.map_err(|e| {
         WabiError::NotFound {

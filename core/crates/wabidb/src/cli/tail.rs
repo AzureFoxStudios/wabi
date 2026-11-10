@@ -9,7 +9,8 @@ pub async fn tail(
     stream_id: &str,
     n: usize,
 ) -> Result<Vec<DurableEvent>> {
-    let events_dir = data_dir.join("streams").join(stream_id).join("events");
+    let events_dir =
+        crate::sequencer::resolve_stream_dir(&data_dir.join("streams"), stream_id)?.join("events");
     if !tokio::fs::try_exists(&events_dir).await.unwrap_or(false) {
         return Ok(Vec::new());
     }
