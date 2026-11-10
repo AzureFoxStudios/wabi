@@ -467,22 +467,27 @@ impl ReqwestTransport {
         let mut match_path = None;
         for entry in std::fs::read_dir(streams_dir)? {
             let dir_entry = entry?;
-            let Some(stream_id) = dir_entry.file_name().to_str().map(str::to_owned) else {
+            let Some(dir_name) = dir_entry.file_name().to_str().map(str::to_owned) else {
                 continue;
             };
-            if stream_id_hash(&stream_id) == stream_ref.stream_id_hash {
-                let file_type = dir_entry.file_type()?;
-                if !is_safe_stream_id(&stream_id)
-                    || !file_type.is_dir()
-                    || file_type.is_symlink()
-                    || match_path.is_some()
-                {
-                    return Err(invalid_peer_data(
-                        "source stream identity is unsafe or ambiguous",
-                    ));
-                }
-                match_path = Some((stream_id, dir_entry.path()));
+            // Raw (pre-Task 1.0j) or Windows-safe encoded directory name.
+            let Some(stream_id) = wabidb::sequencer::stream_id_candidates(&dir_name)
+                .into_iter()
+                .find(|id| stream_id_hash(id) == stream_ref.stream_id_hash)
+            else {
+                continue;
+            };
+            let file_type = dir_entry.file_type()?;
+            if !is_safe_stream_id(&stream_id)
+                || !file_type.is_dir()
+                || file_type.is_symlink()
+                || match_path.is_some()
+            {
+                return Err(invalid_peer_data(
+                    "source stream identity is unsafe or ambiguous",
+                ));
             }
+            match_path = Some((stream_id, dir_entry.path()));
         }
         match_path.ok_or_else(|| invalid_peer_data("source commit references a missing stream"))
     }

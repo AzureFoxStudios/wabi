@@ -217,7 +217,7 @@ async fn delayed_profile_event_cannot_restore_a_password_from_before_a_reset() {
     let segment = directory
         .path()
         .join("streams/other")
-        .join(&stream)
+        .join(wabidb::sequencer::stream_dir_name(&stream))
         .join("events/00000001.wseg");
     let records = SegmentReader::open(segment)
         .await

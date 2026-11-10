@@ -33,6 +33,24 @@ use crate::projections::handler::{DispatchTable, DurableEvent};
 use crate::sequencer::types::ReplayEnvelope;
 use crate::stream_log::segment_reader::SegmentReader;
 
+/// Register the deterministic stream key for `stream_id` unless present.
+async fn ensure_derived_key(
+    key_registry: &Mutex<StreamKeyRegistry>,
+    stream_id: &str,
+    bootstrap_key: &[u8; 32],
+) -> Result<()> {
+    let mut registry = key_registry.lock().await;
+    if !registry.has_stream(stream_id) {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"wabi-stream-key-v1");
+        hasher.update(stream_id.as_bytes());
+        hasher.update(bootstrap_key);
+        let key_material = *hasher.finalize().as_bytes();
+        registry.create_stream(stream_id, key_material)?;
+    }
+    Ok(())
+}
+
 /// Rebuild projection state by replaying events from the event log.
 ///
 /// Walks every stream's `.wseg` segment files under `data_dir/streams/`,
@@ -142,11 +160,11 @@ pub async fn replay_projections(
                 continue;
             }
 
-            let stream_id = stream_path
+            let dir_name = stream_path
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default();
-            if stream_id.is_empty() {
+            if dir_name.is_empty() {
                 continue;
             }
 
@@ -155,18 +173,23 @@ pub async fn replay_projections(
                 continue;
             }
 
+            // The directory is either a raw stream id (every tree written
+            // before Task 1.0j) or its Windows-safe encoding. Each record's
+            // header names its stream by hash; use the candidate it names,
+            // and the raw name otherwise, exactly as before.
+            let candidates: Vec<(String, [u8; 16])> =
+                crate::sequencer::stream_id_candidates(&dir_name)
+                    .into_iter()
+                    .map(|id| {
+                        let hash = crate::stream_identity::stream_id_hash(&id);
+                        (id, hash)
+                    })
+                    .collect();
+
             // --- Ensure the stream encryption key exists ---
-            {
-                let mut registry = key_registry.lock().await;
-                if !registry.has_stream(&stream_id) {
-                    let mut hasher = blake3::Hasher::new();
-                    hasher.update(b"wabi-stream-key-v1");
-                    hasher.update(stream_id.as_bytes());
-                    hasher.update(bootstrap_key);
-                    let key_material = *hasher.finalize().as_bytes();
-                    registry.create_stream(&stream_id, key_material)?;
-                }
-            }
+            // As before for the raw name; a decoded id gets its key when a
+            // record first names it (below).
+            ensure_derived_key(key_registry, &candidates[0].0, bootstrap_key).await?;
 
             // --- Collect and sort segment paths ---
             let mut seg_entries: Vec<_> = Vec::new();
@@ -234,11 +257,20 @@ pub async fn replay_projections(
                     };
 
                     let header_bytes = rec.header.encode();
+                    let stream_id = candidates
+                        .iter()
+                        .find(|(_, hash)| *hash == rec.header.stream_id_hash)
+                        .unwrap_or(&candidates[0])
+                        .0
+                        .as_str();
+                    if stream_id != candidates[0].0 {
+                        ensure_derived_key(key_registry, stream_id, bootstrap_key).await?;
+                    }
 
                     // Look up the stream key for this commit_seq range.
                     let key = {
                         let registry = key_registry.lock().await;
-                        match registry.get_active_key(&stream_id, commit_seq) {
+                        match registry.get_active_key(stream_id, commit_seq) {
                             Ok(sk) => sk.key_material,
                             Err(e) => {
                                 tracing::warn!(
