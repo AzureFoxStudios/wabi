@@ -35,21 +35,11 @@ use std::sync::{
     Arc,
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync::{broadcast, mpsc, RwLock, Semaphore};
+use tokio::sync::{mpsc, RwLock, Semaphore};
 
 const WRITER_FENCE_MARKER: &str = "writer-fenced-v1";
 const ACTIVATION_PENDING_MARKER: &str = "activation-pending-v1";
 pub const LIVE_CHECKPOINT_MARKER: &str = "live-checkpoint-v1";
-
-/// A single subscription delivery: a `consumer_id` matched to a commit event.
-#[derive(Debug, Clone)]
-pub struct SubscriptionDelivery {
-    pub consumer_id: String,
-    pub event_type: String,
-    pub stream_id: String,
-    pub commit_seq: u64,
-    pub payload: Vec<u8>,
-}
 
 /// Configuration for opening a `WabiDbEngine`.
 #[derive(Debug, Clone)]
@@ -151,10 +141,6 @@ pub struct WabiDbEngine {
     key_registry: Arc<tokio::sync::Mutex<StreamKeyRegistry>>,
     /// Exclusive advisory lock, also retained by every background disk writer.
     _process_lock: Option<Arc<std::fs::File>>,
-    /// Broadcast channel sender for subscription deliveries. Server-side
-    /// code receives a receiver via `subscribe_stream()` and processes
-    /// matched deliveries in a background task.
-    delivery_tx: broadcast::Sender<SubscriptionDelivery>,
     /// Replication transport (noop in single-node mode).
     sync_transport: Arc<dyn SyncTransport>,
     /// Batcher handle for replicated entries (segment shipping from peers).
@@ -182,7 +168,6 @@ impl std::fmt::Debug for WabiDbEngine {
             .field("projection_state", &self.projection_state)
             .field("barrier", &self.barrier)
             .field("sequencer", &self.sequencer)
-            .field("delivery_tx", &self.delivery_tx)
             .finish_non_exhaustive()
     }
 }
@@ -429,9 +414,6 @@ impl WabiDbEngine {
         // 11. Create CommitSequencer for public API
         let sequencer = CommitSequencer::new(cmd_tx);
 
-        // 12. Initialize delivery broadcast channel
-        let (delivery_tx, _) = broadcast::channel::<SubscriptionDelivery>(1024);
-
         // 13. Spawn background sync worker if replication is configured
         let transport_for_sync: Arc<dyn SyncTransport> = config
             .sync_transport
@@ -539,7 +521,6 @@ impl WabiDbEngine {
             _dispatcher_handle: dispatcher_task,
             key_registry: key_registry_for_engine,
             _process_lock: Some(process_lock),
-            delivery_tx,
             sync_transport: transport_for_sync,
             replication_batcher,
             replication_ingest: Arc::new(tokio::sync::Mutex::new(())),
@@ -912,11 +893,6 @@ impl WabiDbEngine {
         Ok(events)
     }
 
-    /// Get a receiver for the delivery broadcast channel. Used by server-side
-    /// bridge tasks to receive subscription deliveries.
-    pub fn delivery_receiver(&self) -> broadcast::Receiver<SubscriptionDelivery> {
-        self.delivery_tx.subscribe()
-    }
 
     /// A reference to the projection state, for read queries.
     pub fn projection_state(&self) -> &Arc<ProjectionState> {
@@ -964,7 +940,6 @@ impl WabiDbEngine {
         let mut data_dir = std::env::temp_dir();
         data_dir.push(format!("wabidb-test-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&data_dir);
-        let (delivery_tx, _) = broadcast::channel::<SubscriptionDelivery>(1024);
         Self {
             local_node_id: node_identity::DEFAULT_NODE_ID.into(),
             data_dir,
@@ -980,7 +955,6 @@ impl WabiDbEngine {
             _dispatcher_handle: None,
             key_registry: Arc::new(tokio::sync::Mutex::new(StreamKeyRegistry::new())),
             _process_lock: None,
-            delivery_tx,
             sync_transport: new_noop_transport(),
             replication_batcher: None,
             replication_ingest: Arc::new(tokio::sync::Mutex::new(())),
