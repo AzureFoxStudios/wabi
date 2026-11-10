@@ -2098,7 +2098,24 @@ struct UploadRecordingQuery {
 async fn admit_recording_upload(
     state: &AppState,
     auth: &AuthUser,
+    filename: &str,
 ) -> Result<Option<(Arc<wabi_lore::LoreService>, i64)>> {
+    // The filename is one path component under recordings/: no separators, so
+    // the caller cannot pick subdirectories. The full path still goes through
+    // the repo path validator.
+    if filename.contains(['/', '\\']) {
+        return Err(AppError::BadRequest(
+            "Recording filename must not contain path separators".into(),
+        ));
+    }
+    let validated = wabi_lore::validate_repo_path(&format!("recordings/{filename}"))
+        .map_err(|_| AppError::BadRequest("Invalid recording filename".into()))?;
+    // "" and "." normalize away and would name the recordings directory
+    // itself; the validated path must be exactly recordings/<one component>.
+    if validated.components().count() != 2 {
+        return Err(AppError::BadRequest("Invalid recording filename".into()));
+    }
+
     let lore = lore_service(state).await?;
     let channel_name = lore.recordings_channel_name().to_string();
 
@@ -2123,6 +2140,12 @@ async fn admit_recording_upload(
         })?;
 
     ensure_channel_member(state, lore_channel_id, auth.user_id).await?;
+    // Same asset-write gate as upload_file.
+    if !can_asset_write_lore(state, auth.user_id).await {
+        return Err(AppError::Forbidden(
+            "Lore asset uploads require at least Artist role".into(),
+        ));
+    }
 
     // The resolved channel must actually be a Lore-backed Asset Storage
     // channel. If a non-asset-storage channel happens to share the name, or its
@@ -2155,15 +2178,19 @@ async fn upload_recording(
     body: axum::body::Body,
 ) -> Result<axum::response::Response> {
     let operation_state = state.clone();
+    let filename = query
+        .filename
+        .clone()
+        .unwrap_or_else(|| format!("recording-{}.webm", uuid::Uuid::new_v4()));
 
     // Authorize and look up the blob cap before reading any of the body; the
     // admission guards are released while the body streams (see upload_file).
     let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
     let precheck = {
-        let (state, auth) = (state.clone(), auth.clone());
+        let (state, auth, filename) = (state.clone(), auth.clone(), filename.clone());
         admission
             .run(&operation_state, async move {
-                admit_recording_upload(&state, &auth).await
+                admit_recording_upload(&state, &auth, &filename).await
             })
             .await?
     };
@@ -2179,14 +2206,12 @@ async fn upload_recording(
     let admission = crate::channel_access::admit_mutation(&state, &auth).await?;
     admission
         .run(&operation_state, async move {
-            let Some((lore, lore_channel_id)) = admit_recording_upload(&state, &auth).await?
+            let Some((lore, lore_channel_id)) =
+                admit_recording_upload(&state, &auth, &filename).await?
             else {
                 return Ok(mirror_read_only_response());
             };
 
-            let filename = query
-                .filename
-                .unwrap_or_else(|| format!("recording-{}.webm", uuid::Uuid::new_v4()));
             let repo_path = format!("recordings/{filename}");
             let message = query
                 .message
