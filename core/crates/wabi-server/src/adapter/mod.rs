@@ -398,7 +398,7 @@ impl WdbAdapter {
     ) -> Result<u64> {
         let event_type_owned = event_type.to_string();
         let stream_id_for_cmd = stream_id.clone();
-        let plaintext_for_cmd = plaintext.clone();
+        let plaintext_for_cmd = plaintext;
         // Ensure the stream has an encryption key (derived from bootstrap key).
         self.engine
             .get_or_create_stream_key(&stream_id_for_cmd)
@@ -430,10 +430,6 @@ impl WdbAdapter {
             self.roster_revision.fetch_add(1, Ordering::AcqRel);
         }
         let outcome = outcome?;
-        // Fan-out to subscription engine for real-time push.
-        self.engine
-            .deliver_event(&stream_id, event_type, &plaintext, outcome.commit_seq)
-            .await;
         Ok(outcome.commit_seq)
     }
 
@@ -1986,23 +1982,6 @@ impl WabiStore for WdbAdapter {
         Err(WabiError::Validation { command: "is_user_banned".into(), reason: "Check AppState blacklist for account bans".into() })
     }
 
-    // --- subscription bridge ---
-
-    async fn subscribe_stream(
-        &self,
-        consumer_id: &str,
-        topic: &str,
-        since: u64,
-    ) -> Result<tokio::sync::broadcast::Receiver<wabidb::engine::SubscriptionDelivery>> {
-        Ok(self
-            .engine
-            .subscribe_stream(consumer_id, topic, since)
-            .await)
-    }
-
-    async fn unsubscribe_stream(&self, consumer_id: &str, topic: &str) -> Result<bool> {
-        Ok(self.engine.unsubscribe_stream(consumer_id, topic).await)
-    }
     // --- call-session state (replaces WDB call_session_* tables) ---
 
     async fn create_call_session(

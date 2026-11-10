@@ -15,9 +15,7 @@
 //! - **Projections** (`projections`): materialized views of the commit log, indexed for
 //!   read-path queries. Lock-free `crossbeam-skiplist::SkipMap` per index. Rebuildable from
 //!   snapshots + post-snapshot commit index entries.
-//! - **Subscription engine** (`subscription`): topic-based pub/sub with snapshot barrier,
-//!   resume, ticket-auth WebSocket, and membership revalidation.
-//! - **Retention** (`retention`): tombstone table and backup helpers.
+//! - **Retention** (`retention`): backup helpers.
 //! - **Blob store** (`blobs`): BLAKE3 content-addressed files, atomic write ordering, range
 //!   read protocol.
 //! - **Storage CLI** (`cli`): operator-facing tools (`wabidb check`, `dump-stream`).
@@ -49,7 +47,6 @@ pub mod snapshots;
 pub mod storage;
 pub mod stream_identity;
 pub mod stream_log;
-pub mod subscription;
 #[cfg(test)]
 pub mod tests;
 pub mod domain;

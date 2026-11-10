@@ -873,52 +873,6 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Spawn the subscription bridge: engine → Socket.IO push delivery.
-    // Reads from the engine's delivery broadcast and emits matching events
-    // to the appropriate Socket.IO rooms.
-    {
-        let state_clone = state.clone();
-        let delivery_rx = state.wdb.engine().delivery_receiver();
-        tokio::spawn(async move {
-            // Wait for the SocketIo instance to be available.
-            let io = loop {
-                if let Some(io) = state_clone.socket_io() {
-                    break io;
-                }
-                tracing::warn!(
-                    "subscription bridge: SocketIo handle not available, retrying in 1s"
-                );
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            };
-            let mut delivery_rx = delivery_rx;
-            while let Ok(delivery) = delivery_rx.recv().await {
-                let stream_id = &delivery.stream_id;
-                let event_type = &delivery.event_type;
-                // Deserialize payload as JSON and emit to the stream's room.
-                let payload: serde_json::Value = match serde_json::from_slice(&delivery.payload) {
-                    Ok(v) => v,
-                    Err(_) => {
-                        tracing::debug!(
-                            "subscription bridge: non-JSON payload for {} (event_type={}), skipping",
-                            stream_id,
-                            event_type,
-                        );
-                        continue;
-                    }
-                };
-                let event_data = serde_json::json!({
-                    "type": event_type,
-                    "streamId": stream_id,
-                    "commitSeq": delivery.commit_seq,
-                    "payload": payload,
-                });
-                let _ = io.to(delivery.stream_id).emit(event_type, &event_data);
-                // Also emit to the specific consumer for targeted delivery.
-                let _ = io.to(delivery.consumer_id).emit(event_type, &event_data);
-            }
-        });
-    }
-
     // Build the full application router. Extracted into app_router.rs so
     // integration tests can exercise the static SPA fallback (it lives on
     // this router, not inside create_api_router). The Socket.IO layer is
