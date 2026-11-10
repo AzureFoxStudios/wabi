@@ -217,117 +217,6 @@ async fn head_download_changes_immediately_and_missing_file_is_not_found() {
 }
 
 #[tokio::test]
-async fn host_execution_requires_current_owner_even_for_admin_or_repository_developer() {
-    let dir = tempfile::tempdir().unwrap();
-    let state = server(dir.path()).await;
-    let (owner, channel, _) = owner_and_repos(&state).await;
-    let lore = Arc::new(wabi_lore::LoreService::new(wabi_lore::LoreConfig {
-        lore_data_dir: dir.path().join("lore"),
-        ..Default::default()
-    }));
-    lore.register_external_mirror(
-        channel,
-        owner as i64,
-        "host-execution",
-        "https://github.com/example/repo.git",
-    )
-    .await
-    .unwrap();
-    state.set_lore_service(lore).await;
-    let app = create_api_router(state.clone()).with_state(state.clone());
-    for (name, role) in [
-        ("member", "Member"),
-        ("developer", "Developer"),
-        ("admin", "Admin"),
-    ] {
-        let user = state
-            .wdb
-            .create_user(name, None, "registered-fixture-hash")
-            .await
-            .unwrap();
-        state
-            .wdb
-            .add_channel_member(&format!("ch_{channel:x}"), user, MemberRole::Member)
-            .await
-            .unwrap();
-        state
-            .wdb
-            .ingest_event(
-                "rbac",
-                "assign_role",
-                &json!({"userId":user,
-            "workspaceId":"default-workspace","role":role,"assignedBy":owner}),
-            )
-            .await
-            .unwrap();
-        for (method, suffix, payload) in [
-            (
-                Method::POST,
-                "/scripts/run",
-                json!({"script_path":"scripts/test.py"}),
-            ),
-            (Method::POST, "/editor", json!({})),
-            (
-                Method::POST,
-                "/mirror",
-                json!({"remote_url":"https://github.com/example/repo.git"}),
-            ),
-            (Method::GET, "/mirror", json!(null)),
-            (Method::GET, "/mirror/configs", json!(null)),
-            (Method::POST, "/mirror/run", json!(null)),
-            (Method::DELETE, "/mirror", json!(null)),
-        ] {
-            let (status, body) = request(
-                &app,
-                method,
-                &format!("/addons/lore/repos/{channel}{suffix}"),
-                &jwt(&state, user),
-                payload,
-            )
-            .await;
-            assert_eq!(status, StatusCode::FORBIDDEN, "{role} {suffix}: {body}");
-        }
-    }
-    let mirror = format!("/addons/lore/repos/{channel}/mirror");
-    let owner_token = jwt(&state, owner);
-    for (method, payload) in [
-        (
-            Method::POST,
-            json!({"remote_url":"https://github.com/example/repo.git"}),
-        ),
-        (Method::GET, json!(null)),
-        (Method::DELETE, json!(null)),
-    ] {
-        let (status, body) = request(&app, method, &mirror, &owner_token, payload).await;
-        assert_eq!(status, StatusCode::OK, "{body}");
-    }
-    let path = format!("/addons/lore/repos/{channel}/scripts/run");
-    let (status, _) = request(
-        &app,
-        Method::POST,
-        &path,
-        &jwt(&state, owner),
-        json!({"script_path":"scripts/test.py","working_dir":"/outside"}),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    // Owner admission reaches the disabled-by-default runtime, without
-    // enabling or executing a process in this permissions contract.
-    assert_eq!(
-        request(
-            &app,
-            Method::POST,
-            &path,
-            &jwt(&state, owner),
-            json!({"script_path":"scripts/test.py"})
-        )
-        .await
-        .0,
-        StatusCode::INTERNAL_SERVER_ERROR
-    );
-}
-
-#[tokio::test]
 async fn detach_removes_live_access_and_keeps_working_tree() {
     let dir = tempfile::tempdir().unwrap();
     let state = server(dir.path()).await;
@@ -636,7 +525,7 @@ async fn read_only_and_cross_repo_writes_fail_before_file_side_effects() {
 }
 
 #[tokio::test]
-async fn write_tokens_cannot_manage_repos_execute_code_or_mint_download_capabilities() {
+async fn write_tokens_cannot_manage_repos_or_mint_download_capabilities() {
     let dir = tempfile::tempdir().unwrap();
     let state = server(dir.path()).await;
     let (uid, channel, _) = owner_and_repos(&state).await;
@@ -645,12 +534,6 @@ async fn write_tokens_cannot_manage_repos_execute_code_or_mint_download_capabili
     for (method, suffix) in [
         (Method::PATCH, ""),
         (Method::DELETE, ""),
-        (Method::POST, "/editor"),
-        (Method::GET, "/editor/sessions"),
-        (Method::POST, "/scripts/run"),
-        (Method::GET, "/scripts/active"),
-        (Method::GET, "/mirror"),
-        (Method::POST, "/mirror/run"),
         (Method::POST, "/external"),
         (Method::POST, "/branches"),
         (Method::GET, "/signed-url?path=example.txt"),

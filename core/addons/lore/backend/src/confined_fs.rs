@@ -287,34 +287,6 @@ impl RepoDir {
         self.dir.remove_dir_all(name)
     }
 
-    /// Descriptor-relative content inventory. Furniture and non-regular
-    /// entries are never exportable, regardless of editable ignore rules.
-    pub(crate) fn content_files(&self) -> io::Result<Vec<String>> {
-        fn walk(root: &RepoDir, prefix: &str, files: &mut Vec<String>) -> io::Result<()> {
-            for entry in root.dir.entries()? {
-                let entry = entry?;
-                let name = entry.file_name();
-                let Some(name_str) = name.to_str() else { continue };
-                if matches!(name_str, ".wabiignore" | ".loreignore") { continue; }
-                let relative = if prefix.is_empty() { name_str.to_owned() }
-                    else { format!("{prefix}/{name_str}") };
-                if validate_path(&relative).is_err() { continue; }
-                let metadata = root.dir.symlink_metadata(&name)?;
-                if metadata.is_dir() {
-                    root.child(&name, false).and_then(|child| walk(&child, &relative, files))?;
-                } else if metadata.is_file() {
-                    if files.len() >= 100_000 { return Err(denied("repository export has too many files")); }
-                    files.push(relative);
-                }
-            }
-            Ok(())
-        }
-        let mut files = Vec::new();
-        walk(self, "", &mut files)?;
-        files.sort();
-        Ok(files)
-    }
-
     /// Check a cloned tree before a CLI can consume repository-controlled
     /// furniture. Git's own top-level .git directory is the sole exception.
     pub(crate) fn validate_import(&self) -> io::Result<()> {
