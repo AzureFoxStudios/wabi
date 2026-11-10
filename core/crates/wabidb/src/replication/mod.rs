@@ -1,7 +1,6 @@
 pub mod config;
 pub mod state_machine;
 pub mod sync_protocol;
-pub mod sync_worker;
 
 use crate::commit_index::record::CommitIndexEntry;
 use crate::engine::locks::ProjectionState;
