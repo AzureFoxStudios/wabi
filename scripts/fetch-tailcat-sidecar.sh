@@ -77,7 +77,9 @@ download_release_sidecar() {
   local url="https://github.com/tailscale/tailcat/releases/download/${TAILCAT_VERSION}/${asset}"
 
   echo "fetching $url"
-  curl -fL --retry 3 --retry-delay 2 -o "$archive" "$url"
+  # GitHub release downloads answer 502/504 for a minute or more at a time;
+  # six seconds of retries was not enough to ride that out in CI.
+  curl -fL --retry 5 --retry-delay 15 -o "$archive" "$url"
 
   local actual
   actual="$(sha256_file "$archive")"
