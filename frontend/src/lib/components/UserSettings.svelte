@@ -125,7 +125,7 @@
 					<ul>
 						<li>When you're offline, messages are queued on the server</li>
 						<li>They're delivered when you reconnect</li>
-						<li>After the retention period, old messages are hidden; the encrypted record remains on the server until a future compaction feature exists</li>
+						<li>After the retention period, old messages are hidden. They are not erased: the stored record stays on the server</li>
 						<li>Real-time messages are lost if you're offline (only registered users get queuing)</li>
 					</ul>
 				</div>
