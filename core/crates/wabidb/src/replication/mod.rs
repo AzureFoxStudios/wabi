@@ -1,4 +1,3 @@
-pub mod anti_entropy;
 pub mod config;
 pub mod state_machine;
 pub mod sync_protocol;
