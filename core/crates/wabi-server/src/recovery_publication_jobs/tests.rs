@@ -168,7 +168,7 @@ async fn shutdown_joins_the_original_restart_worker_before_releasing_owners() {
 }
 
 #[path = "genuine_restart_tests.rs"]
-mod genuine_restart;
+pub(super) mod genuine_restart;
 
 #[path = "genuine_crash_tests.rs"]
 mod genuine_crash;

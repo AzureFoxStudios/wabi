@@ -88,22 +88,30 @@ pub fn write_policy(path: &Path, policy: &RecoveryNodeConfig) {
     file.write_all(&serde_json::to_vec(policy).unwrap()).unwrap();
     file.sync_all().unwrap();
 }
-pub fn policies(root: &Path, community: &str, source: &str) -> Vec<RecoveryNodeConfig> {
+/// One loopback listener per roster node. Callers keep these bound for the
+/// whole fixture and pass clones to each runtime start, so an address is never
+/// released between reservation and bind for another socket to take.
+pub fn reserve() -> Vec<TcpListener> {
+    (1..=3).map(|_| TcpListener::bind("127.0.0.1:0").unwrap()).collect()
+}
+pub fn addresses(reserved: &[TcpListener]) -> Vec<SocketAddr> {
+    reserved.iter().map(|listener| listener.local_addr().unwrap()).collect()
+}
+pub fn policies(root: &Path, community: &str, source: &str, addresses: &[SocketAddr])
+    -> Vec<RecoveryNodeConfig> {
+    assert_eq!(addresses.len(), 3);
     let mut peers = BTreeMap::new();
-    let mut reservations = Vec::new();
     for id in 1..=3 {
         let node = root.join(format!("node-{id}"));
         private(&node);
         for name in ["identity", "control", "material"] { private(&node.join(name)); }
         let identity = Identity::generate().unwrap();
         identity.persist_new(&node.join("identity")).unwrap();
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         peers.insert(id, RecoveryPeer { protocol: CONTROL_PROTOCOL, community_id: community.into(),
             site_id: format!("loopback-fixture-{id}"), public_key: identity.public_hex(),
-            rpc_address: listener.local_addr().unwrap().to_string() });
-        reservations.push(listener);
+            rpc_address: addresses[id as usize - 1].to_string() });
     }
-    let result = (1..=3).map(|id| {
+    (1..=3).map(|id| {
         let node = root.join(format!("node-{id}"));
         RecoveryNodeConfig { schema_version: 1, binding: StoreBinding {
             community_id: community.into(), partition_id: "community/control".into(), node_id: id },
@@ -111,10 +119,25 @@ pub fn policies(root: &Path, community: &str, source: &str) -> Vec<RecoveryNodeC
             control_directory: node.join("control"), material_directory: node.join("material"),
             bind_address: None, initialize: id == 1, work_timeout_seconds: 10,
             rpc_deadline_milliseconds: 1000, minimum_free_bytes: 64 * 1024 * 1024 }
-    }).collect();
-    // The bind race is real: runtime startup must fail if a reservation is lost.
-    drop(reservations);
-    result
+    }).collect()
+}
+/// Listeners handed to the publisher runtime that `AppState` starts from its
+/// policy file (see `start_runtime` in the parent module). Kept for the whole
+/// process; each start receives a clone, so the address is never released.
+static HANDED_OVER: std::sync::Mutex<Vec<TcpListener>> = std::sync::Mutex::new(Vec::new());
+pub fn hand_over(listener: TcpListener) {
+    HANDED_OVER.lock().unwrap().push(listener);
+}
+/// The handed-over listener bound to this policy's local address, if any.
+/// Same address rule as the runtime: explicit bind address, else own roster entry.
+pub(crate) fn handed_over(policy: &wabi_consensus::runtime::RuntimePolicy) -> Option<TcpListener> {
+    let expected = match policy.bind_address {
+        Some(address) => address,
+        None => policy.peers.get(&policy.binding.node_id)?.rpc_address.parse().ok()?,
+    };
+    HANDED_OVER.lock().unwrap().iter()
+        .find(|listener| listener.local_addr().ok() == Some(expected))
+        .map(|listener| listener.try_clone().unwrap())
 }
 pub async fn request(app: &Router, method: &str, uri: &str, peer: &str,
     secret: Option<&str>, body: Body) -> (StatusCode, Value) {
@@ -374,15 +397,18 @@ async fn isolated_genuine_restart_child() {
     let engine_inode = inode(&engine);
     halt(initial, app, None).await;
 
-    let policies = policies(root.path(), &community, &config.node_id);
+    let reserved = reserve();
+    let policies = policies(root.path(), &community, &config.node_id, &addresses(&reserved));
     let policy_path = root.path().join("publisher.json");
     write_policy(&policy_path, &policies[0]);
     env.set("WABI_RECOVERY_PUBLISHER_CONFIG", &policy_path);
+    hand_over(reserved[0].try_clone().unwrap());
     let mut followers = Vec::new();
-    for policy in &policies[1..] {
+    for (policy, listener) in policies[1..].iter().zip(&reserved[1..]) {
         let path = policy.control_directory.parent().unwrap().join("node.json");
         write_policy(&path, policy);
-        followers.push(RecoveryRuntime::start(load(&path).unwrap()).await.unwrap());
+        followers.push(RecoveryRuntime::start_with_listener(load(&path).unwrap(),
+            listener.try_clone().unwrap()).await.unwrap());
     }
     let state = Arc::new(AppState::new(config.clone()).await.unwrap());
     leader(&followers, Some(1)).await;

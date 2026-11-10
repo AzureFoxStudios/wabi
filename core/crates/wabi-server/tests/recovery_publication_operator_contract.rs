@@ -115,7 +115,14 @@ async fn configured_genuine_publication_preserves_original_receipt_and_refuses_u
     halt(initial, app, None).await;
     assert_eq!(inode(&engine_lock), engine_inode);
 
-    let mut policies = policies(root.path(), &community, &config.node_id);
+    let mut reserved = reserve();
+    let mut policies = policies(root.path(), &community, &config.node_id, &addresses(&reserved));
+    // Known remaining exposure: node 1 is the publisher that AppState starts
+    // from its policy file through the production `RecoveryRuntime::start`,
+    // which binds the address itself. This integration test links the
+    // non-test library, so no listener can be handed over; node 1's address is
+    // released here and before each restart below. Followers keep theirs.
+    drop(reserved.remove(0));
     let policy_path = root.path().join("publisher.json");
     let original = policies[0].clone();
     // Actual startup refusals, no direct injection of the private publisher.
@@ -134,10 +141,11 @@ async fn configured_genuine_publication_preserves_original_receipt_and_refuses_u
     env.set("WABI_CHECKPOINT_SOURCE_CONTEXT", "1");
 
     let mut followers = Vec::new();
-    for policy in &policies[1..] {
+    for (policy, listener) in policies[1..].iter().zip(&reserved) {
         let path = policy.control_directory.parent().unwrap().join("node.json");
         write_policy(&path, policy);
-        followers.push(RecoveryRuntime::start(load(&path).unwrap()).await.unwrap());
+        followers.push(RecoveryRuntime::start_with_listener(load(&path).unwrap(),
+            listener.try_clone().unwrap()).await.unwrap());
     }
     let state = Arc::new(AppState::new(config.clone()).await.unwrap());
     assert_eq!(state.community_roster.community_id(), community);
