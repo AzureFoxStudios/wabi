@@ -1,5 +1,4 @@
 pub mod config;
-pub mod state_machine;
 pub mod sync_protocol;
 
 use crate::commit_index::record::CommitIndexEntry;
