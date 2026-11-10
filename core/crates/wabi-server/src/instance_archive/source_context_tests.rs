@@ -164,18 +164,23 @@ fn verified_archive_returns_same_held_descriptor_at_zero_and_ingests_signed_byte
     let material_root = root.path().join("material");
     fs::create_dir(&material_root).unwrap();
     fs::set_permissions(&material_root, fs::Permissions::from_mode(0o700)).unwrap();
-    let store = wabi_consensus::material::MaterialStore::open(
-        &material_root,
-        wabi_consensus::model::StoreBinding {
-            community_id: context.claims.community_id.clone(),
-            partition_id: "community/control".into(),
-            node_id: 1,
-        },
-        wabi_consensus::material::MaterialLimits {
-            min_free_bytes: 1,
-            ..Default::default()
-        },
-    )
+    // Takes the store flock: never while a sibling test's child is between
+    // clone and exec (see fork_gate).
+    let store = {
+        let _fork_gate = crate::fork_gate::acquire();
+        wabi_consensus::material::MaterialStore::open(
+            &material_root,
+            wabi_consensus::model::StoreBinding {
+                community_id: context.claims.community_id.clone(),
+                partition_id: "community/control".into(),
+                node_id: 1,
+            },
+            wabi_consensus::material::MaterialLimits {
+                min_free_bytes: 1,
+                ..Default::default()
+            },
+        )
+    }
     .unwrap();
     let verified = context
         .verify(&context.claims.community_id, "node-1")
@@ -319,15 +324,16 @@ fn actual_process_death_never_exposes_partial_context_as_valid() {
     for point in ["StageSynced", "Linked", "StageRemoved", "DirectorySynced"] {
         let root = root();
         let id = uuid::Uuid::new_v4().to_string();
-        let mut child = Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", &child_test, "--ignored", "--nocapture"])
-            .env("WABI_SOURCE_CONTEXT_CHILD_ROOT", root.path())
-            .env("WABI_SOURCE_CONTEXT_CHILD_ID", &id)
-            .env("WABI_SOURCE_CONTEXT_CHILD_POINT", point)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .unwrap();
+        let mut child = crate::fork_gate::spawn(
+            Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", &child_test, "--ignored", "--nocapture"])
+                .env("WABI_SOURCE_CONTEXT_CHILD_ROOT", root.path())
+                .env("WABI_SOURCE_CONTEXT_CHILD_ID", &id)
+                .env("WABI_SOURCE_CONTEXT_CHILD_POINT", point)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::inherit()),
+        )
+        .unwrap();
         let stdout = child.stdout.take().unwrap();
         let (sender, receiver) = mpsc::channel();
         let reader = std::thread::spawn(move || {

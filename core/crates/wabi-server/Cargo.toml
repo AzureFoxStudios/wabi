@@ -109,6 +109,7 @@ wabi-payments-eu = { path = "../../addons/payments-eu/backend", optional = true 
 wabi-payments-us = { path = "../../addons/payments-us/backend", optional = true }
 
 [dev-dependencies]
+libc = "0.2"
 tower = { version = "0.5", features = ["util", "timeout"] }
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 

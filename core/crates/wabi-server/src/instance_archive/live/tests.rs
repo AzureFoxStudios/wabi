@@ -1,4 +1,6 @@
 use super::*;
+// Gated wrappers: these take the engine lock's flock (see fork_gate).
+use super::super::tests::{activate_passive, activate_restored};
 
 struct Fixture {
     temp: tempfile::TempDir,

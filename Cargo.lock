@@ -5718,6 +5718,7 @@ dependencies = [
  "http-body-util",
  "ipnet",
  "jsonwebtoken",
+ "libc",
  "mdns-sd",
  "mime_guess",
  "p256",
