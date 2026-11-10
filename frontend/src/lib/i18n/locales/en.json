@@ -759,7 +759,7 @@
       "fact_live": "Live only · not saved",
       "title_forever": "New messages are kept until someone deletes them.",
       "title_live": "New messages are shown live and not saved. Not saving them does not hide them from the server operator.",
-      "title_duration": "New messages are hidden after {duration}. The encrypted record remains on the server until a future compaction feature exists. Earlier messages keep the lifetime they were sent with."
+      "title_duration": "New messages are hidden after {duration}. They are not erased: the stored record stays on the server. Earlier messages keep the lifetime they were sent with."
     },
     "duration": {
       "second_one": "{count} second",
