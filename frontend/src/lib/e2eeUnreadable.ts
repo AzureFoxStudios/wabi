@@ -29,9 +29,9 @@ export function classifyUnreadable(error: unknown): E2eeUnreadableClass {
 }
 
 export const NO_KEY_TEXT =
-	'[This device does not have the key for this experimental encrypted message, so it cannot be shown]';
+	'[This message uses experimental encryption. This device does not have its key, so it cannot be shown]';
 export const FAILED_CHECK_TEXT =
-	'[This experimental encrypted message could not be verified and is not shown]';
+	'[This message uses experimental encryption. It failed a check on this device and is not shown]';
 
 export function unreadableMessageText(kind: E2eeUnreadableClass): string {
 	return kind === 'no-key' ? NO_KEY_TEXT : FAILED_CHECK_TEXT;
@@ -39,7 +39,7 @@ export function unreadableMessageText(kind: E2eeUnreadableClass): string {
 
 export const NO_KEY_NOTICE = {
 	title: 'Some messages can’t be shown on this device',
-	text: 'This device doesn’t have the keys for some experimental encrypted messages in this conversation. That can happen on a new device, or if this device’s saved keys were cleared or lost. Wabi can’t tell whether another device still has them.',
+	text: 'This device doesn’t have the keys for some messages in this conversation that use experimental encryption. That can happen on a new device, or if this device’s saved keys were cleared or lost. Wabi can’t tell whether another device still has them.',
 } as const;
 
 /** True when any message in the list is one this device holds no key for. */

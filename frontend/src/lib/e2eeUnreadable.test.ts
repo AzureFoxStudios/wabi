@@ -23,6 +23,10 @@ test('wording keeps to what the client knows', () => {
 		expect(lower).not.toContain('end-to-end');
 		expect(lower).not.toContain('e2ee');
 		expect(lower).not.toMatch(/operator|server can.?t|only you/);
+		// frontend/AGENTS.md: member UI never says "verified", and the one
+		// phrase for this feature is "experimental encryption".
+		expect(lower).not.toContain('verified');
+		if (/encrypt/.test(lower)) expect(lower).toContain('experimental encryption');
 	}
 	expect(unreadableMessageText('no-key')).toContain('experimental');
 	expect(unreadableMessageText('failed-check')).toContain('experimental');

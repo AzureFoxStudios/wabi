@@ -102,8 +102,8 @@ async function seedRoomKey(epoch: number, key: Uint8Array) {
 	store.set(`wabi:e2ee-room-key:v1:${REALM}:${channel}:${epoch}`, JSON.stringify({ iv: b64(iv), ciphertext: b64(ciphertext) }));
 }
 
-const NO_KEY_TEXT = '[This device does not have the key for this experimental encrypted message, so it cannot be shown]';
-const FAILED_TEXT = '[This experimental encrypted message could not be verified and is not shown]';
+const NO_KEY_TEXT = '[This message uses experimental encryption. This device does not have its key, so it cannot be shown]';
+const FAILED_TEXT = '[This message uses experimental encryption. It failed a check on this device and is not shown]';
 
 function expectNoKey(prepared: any) {
 	expect(prepared.e2eeUnreadable).toBe('no-key');
