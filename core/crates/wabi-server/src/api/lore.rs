@@ -1343,6 +1343,7 @@ async fn snapshot(
             if repo_read_only(&lore, channel_id).await {
                 return Ok(mirror_read_only_response());
             }
+            check_commit_message(&payload.message)?;
             let revision = lore
                 .commit_staged(channel_id, &payload.message, auth.user_id)
                 .await?;
@@ -1847,6 +1848,7 @@ async fn upload_file(
     body: axum::body::Body,
 ) -> Result<axum::response::Response> {
     let message = query.message.unwrap_or_else(|| "Upload via API".into());
+    check_commit_message(&message)?;
     let repo_path = query.repo_path.unwrap_or_else(|| path.clone());
     let operation_state = state.clone();
 
@@ -2131,6 +2133,7 @@ async fn upload_recording(
             let message = query
                 .message
                 .unwrap_or_else(|| format!("Call recording {filename}"));
+            check_commit_message(&message)?;
 
             let tmp_path = temporary.path();
 
@@ -2409,6 +2412,13 @@ async fn download_file(
         .expect("validated download headers"))
 }
 
+/// Reject flag-shaped/invalid commit messages with 400 before any CLI call.
+fn check_commit_message(message: &str) -> Result<()> {
+    wabi_lore::sanitize_commit_message(message)
+        .map(|_| ())
+        .map_err(|e| AppError::BadRequest(e.to_string()))
+}
+
 #[derive(Deserialize)]
 struct DeleteFilePayload {
     message: Option<String>,
@@ -2434,6 +2444,7 @@ async fn delete_file(
                 ));
             }
             let message = payload.message.unwrap_or_else(|| "Deleted via API".into());
+            check_commit_message(&message)?;
 
             let lore = lore_service(&state).await?;
             // Mirror repos are read-only pointers — reject writes with 501.
