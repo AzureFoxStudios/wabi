@@ -1,3 +1,8 @@
+//! `wabidb-cli list-streams`: one line per stream directory.
+//!
+//! Read-only. Meant for a stopped server or a copy of the data directory;
+//! never takes, writes or unlinks `.lock`.
+
 use std::path::Path;
 
 use crate::error::Result;
@@ -5,131 +10,114 @@ use crate::stream_log::segment_reader::SegmentReader;
 
 #[derive(Debug, Clone)]
 pub struct StreamInfo {
+    /// The id the records name (raw directory name or its decoding), as
+    /// replay resolves it. A directory with no records shows its raw name.
     pub stream_id: String,
-    pub stream_kind: u8,
-    pub last_commit_seq: u64,
+    /// Kind of the directory it sits in (`streams/<kind>`); `None` for a
+    /// directory name the engine does not write.
+    pub stream_kind: Option<u8>,
+    pub kind_dir: String,
+    /// The directory name on disk, encoded or raw.
+    pub dir_name: String,
     pub segment_count: u32,
+    pub record_count: u64,
+    pub last_commit_seq: u64,
 }
 
+/// Streams sorted by kind directory, then stream id.
 pub async fn list_streams(data_dir: &Path) -> Result<Vec<StreamInfo>> {
-    let streams_dir = data_dir.join("streams");
-    if !tokio::fs::try_exists(&streams_dir).await.unwrap_or(false) {
-        return Ok(Vec::new());
-    }
-
     let mut streams = Vec::new();
-    let mut streams_reader = tokio::fs::read_dir(&streams_dir).await?;
-
-    while let Some(entry) = streams_reader.next_entry().await? {
-        let stream_path = entry.path();
-        if !stream_path.is_dir() {
-            continue;
-        }
-
-        let dir_name = stream_path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-        // Raw (pre-Task 1.0j) or encoded directory name; the record header
-        // hash picks the id, as in replay. Empty streams show the raw name.
-        let candidates = crate::sequencer::stream_id_candidates(&dir_name);
-        let mut stream_id = dir_name.clone();
-
-        let events_dir = stream_path.join("events");
-        let mut segment_count = 0u32;
+    for stream in super::stream_dirs(data_dir).await?.unwrap_or_default() {
+        let mut hashes = Vec::new();
         let mut last_commit_seq = 0u64;
-
-        if tokio::fs::try_exists(&events_dir).await.unwrap_or(false) {
-            let mut events_reader = tokio::fs::read_dir(&events_dir).await?;
-            while let Some(seg_entry) = events_reader.next_entry().await? {
-                let seg_path = seg_entry.path();
-                if seg_path.extension().map_or(false, |ext| ext == "wseg") {
-                    segment_count += 1;
-                    if let Ok(mut reader) = SegmentReader::open(&seg_path).await {
-                        if let Ok(recs) = reader.read_records().await {
-                            for r in &recs {
-                                if let Some(id) = candidates.iter().find(|id| {
-                                    crate::stream_identity::stream_id_hash(id)
-                                        == r.header.stream_id_hash
-                                }) {
-                                    stream_id.clone_from(id);
-                                }
-                                if r.header.commit_seq > last_commit_seq {
-                                    last_commit_seq = r.header.commit_seq;
-                                }
-                            }
-                        }
+        for seg_path in &stream.segments {
+            if let Ok(mut reader) = SegmentReader::open(seg_path).await {
+                if let Ok(recs) = reader.read_records().await {
+                    for r in &recs {
+                        hashes.push(r.header.stream_id_hash);
+                        last_commit_seq = last_commit_seq.max(r.header.commit_seq);
                     }
                 }
             }
         }
-
-        let stream_kind = if stream_id.starts_with("ch_") {
-            1u8
-        } else if stream_id.starts_with("dm_") {
-            2u8
-        } else {
-            6u8
-        };
-
         streams.push(StreamInfo {
-            stream_id,
-            stream_kind,
+            stream_id: super::resolve_stream_id(&stream.dir_name, &hashes).stream_id,
+            stream_kind: stream.stream_kind,
+            kind_dir: stream.kind_dir,
+            dir_name: stream.dir_name,
+            segment_count: stream.segments.len() as u32,
+            record_count: hashes.len() as u64,
             last_commit_seq,
-            segment_count,
         });
     }
-
-    streams.sort_by(|a, b| a.stream_id.cmp(&b.stream_id));
+    streams.sort_by(|a, b| (&a.kind_dir, &a.stream_id).cmp(&(&b.kind_dir, &b.stream_id)));
     Ok(streams)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::format::record::{payload_crc32c, RecordHeader, RecordKind};
-    use crate::stream_log::segment_writer::SegmentWriter;
-    use tempfile::tempdir;
+    use crate::cli::test_support::{
+        empty_engine_tree, real_engine_tree, CHANNEL, ROSTER, ROSTER_ENCODED,
+    };
 
     #[tokio::test]
-    async fn empty_dir_returns_empty() {
-        let dir = tempdir().unwrap();
+    async fn empty_engine_tree_lists_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        empty_engine_tree(dir.path()).await;
+        assert!(list_streams(dir.path()).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn real_engine_tree_lists_decoded_ids_and_kinds() {
+        let dir = tempfile::tempdir().unwrap();
+        real_engine_tree(dir.path()).await;
+
         let streams = list_streams(dir.path()).await.unwrap();
-        assert!(streams.is_empty());
+        let rows: Vec<_> = streams
+            .iter()
+            .map(|s| {
+                (
+                    s.stream_id.as_str(),
+                    s.stream_kind,
+                    s.kind_dir.as_str(),
+                    s.dir_name.as_str(),
+                    s.segment_count,
+                    s.record_count,
+                    s.last_commit_seq,
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                (CHANNEL.0, Some(CHANNEL.1), "channel", CHANNEL.0, 1, 3, 4),
+                (ROSTER.0, Some(ROSTER.1), "other", ROSTER_ENCODED, 1, 2, 4),
+            ]
+        );
     }
 
+    /// A tree written before PR 293 holds the raw id, colon included, as
+    /// the directory name. Linux allows `:` in names, so the fixture is the
+    /// real engine's tree with the encoded directory renamed to the raw
+    /// name: segment and index bytes do not depend on the directory name.
+    #[cfg(unix)]
     #[tokio::test]
-    async fn multiple_streams_listed() {
-        let dir = tempdir().unwrap();
-        let data_dir = dir.path();
+    async fn legacy_raw_named_directory_lists_its_raw_id() {
+        let dir = tempfile::tempdir().unwrap();
+        real_engine_tree(dir.path()).await;
+        let other = dir.path().join("streams").join("other");
+        std::fs::rename(other.join(ROSTER_ENCODED), other.join(ROSTER.0)).unwrap();
 
-        for sid in &["ch_alpha", "dm_beta", "ch_gamma"] {
-            let events_dir = data_dir.join("streams").join(sid).join("events");
-            tokio::fs::create_dir_all(&events_dir).await.unwrap();
-            let payload = b"data";
-            let crc = payload_crc32c(payload);
-            let mut writer = SegmentWriter::open(&events_dir, sid.to_string()).await.unwrap();
-            let h = RecordHeader::new(RecordKind::Event, 1, [0u8; 16], payload.len() as u32, crc);
-            writer.append(&h, payload).await.unwrap();
-            writer.close().await.unwrap();
-        }
+        let streams = list_streams(dir.path()).await.unwrap();
+        let roster = streams.iter().find(|s| s.kind_dir == "other").unwrap();
+        assert_eq!(roster.stream_id, ROSTER.0);
+        assert_eq!(roster.dir_name, ROSTER.0);
+        assert_eq!(roster.record_count, 2);
 
-        let streams = list_streams(data_dir).await.unwrap();
-        assert_eq!(streams.len(), 3);
-    }
-
-    #[tokio::test]
-    async fn ordering_is_by_stream_id() {
-        let dir = tempdir().unwrap();
-        let data_dir = dir.path();
-
-        for sid in &["ch_z", "ch_a", "ch_m"] {
-            let events_dir = data_dir.join("streams").join(sid).join("events");
-            tokio::fs::create_dir_all(&events_dir).await.unwrap();
-        }
-
-        let streams = list_streams(data_dir).await.unwrap();
-        let ids: Vec<&str> = streams.iter().map(|s| s.stream_id.as_str()).collect();
-        assert_eq!(ids, vec!["ch_a", "ch_m", "ch_z"]);
+        let report = crate::cli::check::check(dir.path()).await.unwrap();
+        assert!(report.ok, "{report:#?}");
+        assert_eq!(report.stats.total_segments, 2);
+        assert_eq!(report.stats.total_records, 5);
     }
 }
