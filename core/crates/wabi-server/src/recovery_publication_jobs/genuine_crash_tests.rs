@@ -10,7 +10,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{fs::{self, File, OpenOptions}, io::{Read, Write},
-    os::unix::{fs::{MetadataExt, OpenOptionsExt}, process::ExitStatusExt},
+    net::{SocketAddr, TcpListener},
+    os::{fd::{AsRawFd, FromRawFd, RawFd},
+        unix::{fs::{MetadataExt, OpenOptionsExt}, process::{CommandExt, ExitStatusExt}}},
     path::{Path, PathBuf}, process::{Child, Command, ExitStatus, Stdio},
     sync::Arc, thread::JoinHandle, time::Duration};
 use wabi_consensus::{runtime::{PublicationStage, RecoveryRuntime}, source_context::SignedSourceContext};
@@ -18,6 +20,8 @@ use wabidb::{domain::ChannelKind, engine::wabi_store::WabiStore};
 
 const CHILD: &str = "recovery_publication_jobs::tests::genuine_crash::isolated_original_capture_crash_child";
 const NOFOLLOW: i32 = 0o400000;
+const LISTENER_FD: &str = "WABI_TEST_ORIGINAL_CRASH_LISTENER_FD";
+const ADDRESSES: &str = "WABI_TEST_ORIGINAL_CRASH_ADDRESSES";
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -110,7 +114,9 @@ struct OwnedChild {
     child: Child, original_start_ticks: u64, output: Option<JoinHandle<Vec<u8>>>, errors: Option<JoinHandle<Vec<u8>>>,
 }
 impl OwnedChild {
-    fn start(root: &Path, mode: &str) -> Self {
+    /// The child inherits the parent's bound node-1 listener (`listener`), so
+    /// node 1's address stays bound across seed, SIGKILL and reopen.
+    fn start(root: &Path, mode: &str, listener: &TcpListener, addresses: &[SocketAddr]) -> Self {
         private_case(root);
         let mut command = Command::new(std::env::current_exe().unwrap());
         command.args([CHILD, "--ignored", "--exact", "--test-threads=1", "--nocapture"])
@@ -119,6 +125,18 @@ impl OwnedChild {
             if let Some(value) = std::env::var_os(name) { command.env(name, value); }
         }
         command.env("WABI_TEST_ORIGINAL_CRASH_ROOT", root).env("WABI_TEST_ORIGINAL_CRASH_MODE", mode);
+        let fd = listener.as_raw_fd();
+        let addresses: Vec<_> = addresses.iter().map(SocketAddr::to_string).collect();
+        command.env(LISTENER_FD, fd.to_string()).env(ADDRESSES, addresses.join(","));
+        // SAFETY: runs in the forked child before exec and only calls the
+        // async-signal-safe fcntl. Clearing FD_CLOEXEC there changes only the
+        // child's copy; the parent's descriptor stays close-on-exec.
+        unsafe {
+            command.pre_exec(move || {
+                if libc::fcntl(fd, libc::F_SETFD, 0) == -1 { return Err(std::io::Error::last_os_error()); }
+                Ok(())
+            });
+        }
         let mut child = crate::fork_gate::spawn(&mut command).unwrap();
         let read = |stream: Box<dyn Read + Send>| std::thread::spawn(move || {
             let mut bytes = Vec::new();
@@ -198,18 +216,23 @@ async fn actual_collector_sigkill_reopens_original_capture_on_follower_without_c
     let root = fixture::Root::new();
     let case_root = root.path().join("case");
     fixture::private(&case_root);
-    let mut seed = OwnedChild::start(&case_root, "seed");
+    // The parent keeps every roster listener bound for the whole test: node 1's
+    // is inherited by both children, and the followers here start on clones.
+    let reserved = fixture::reserve();
+    let addresses = fixture::addresses(&reserved);
+    let mut seed = OwnedChild::start(&case_root, "seed", &reserved[0], &addresses);
     let saved: SavedCase = serde_json::from_slice(&seed.marker(&case_root.join("case.json")).await).unwrap();
     let mut followers = Vec::new();
-    for policy in &saved.policies[1..] {
+    for (policy, listener) in saved.policies[1..].iter().zip(&reserved[1..]) {
         let path = policy.control_directory.parent().unwrap().join("node.json");
         write_private(&path, policy);
+        let listener = listener.try_clone().unwrap();
         // Start takes the runtime, control and material flocks: hold the gate
         // so no sibling test's child is between clone and exec (fork_gate).
         // This thread never spawns or re-enters the gate while holding it.
         let started = {
             let _fork_gate = crate::fork_gate::acquire();
-            RecoveryRuntime::start(load(&path).unwrap()).await
+            RecoveryRuntime::start_with_listener(load(&path).unwrap(), listener).await
         };
         followers.push(started.unwrap());
     }
@@ -239,7 +262,7 @@ async fn actual_collector_sigkill_reopens_original_capture_on_follower_without_c
     }
     let actual_survivor = fixture::leader_from_allowed(&followers, &[2,3]).await;
     assert!(actual_survivor == 2 || actual_survivor == 3);
-    let mut reopened = OwnedChild::start(&case_root, "follower-reopen");
+    let mut reopened = OwnedChild::start(&case_root, "follower-reopen", &reserved[0], &addresses);
     reopened.finish().await;
     let report: serde_json::Value = serde_json::from_slice(&read_private(&case_root.join("follower-refusal.json"), 512 * 1024)).unwrap();
     assert_eq!(report["originalOperationId"], cut.operation_id);
@@ -261,14 +284,32 @@ async fn actual_collector_sigkill_reopens_original_capture_on_follower_without_c
 async fn isolated_original_capture_crash_child() {
     let root = PathBuf::from(std::env::var_os("WABI_TEST_ORIGINAL_CRASH_ROOT").unwrap());
     private_case(&root);
+    let addresses = inherit_listener();
     match std::env::var("WABI_TEST_ORIGINAL_CRASH_MODE").unwrap().as_str() {
-        "seed" => seed_original(&root).await,
+        "seed" => seed_original(&root, &addresses).await,
         "follower-reopen" => reopen_original(&root).await,
         _ => panic!("unknown isolated fixture mode"),
     }
 }
 
-async fn seed_original(root: &Path) {
+/// Adopt node 1's listener inherited from the parent and hand it to the
+/// publisher runtime that `AppState` starts. Returns the reserved roster.
+fn inherit_listener() -> Vec<SocketAddr> {
+    let addresses: Vec<SocketAddr> = std::env::var(ADDRESSES).unwrap().split(',')
+        .map(|address| address.parse().unwrap()).collect();
+    let fd: RawFd = std::env::var(LISTENER_FD).unwrap().parse().unwrap();
+    assert!(fd > 2);
+    // SAFETY: the parent cleared FD_CLOEXEC on exactly this descriptor for this
+    // exec. Nothing else in this process owns it; ownership moves here once.
+    let listener = unsafe { TcpListener::from_raw_fd(fd) };
+    assert_eq!(listener.local_addr().unwrap(), addresses[0]);
+    // SAFETY: plain fcntl on a descriptor this process now owns.
+    assert_ne!(unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) }, -1);
+    fixture::hand_over(listener);
+    addresses
+}
+
+async fn seed_original(root: &Path, addresses: &[SocketAddr]) {
     let secret = uuid::Uuid::new_v4().simple().to_string();
     let recipient = age::x25519::Identity::generate().to_public().to_string();
     fixture::private(&root.join("checkpoints"));
@@ -283,7 +324,7 @@ async fn seed_original(root: &Path) {
     let capture = fixture::capture(&app, &initial, &secret).await;
     let community = initial.community_roster.community_id().to_string();
     fixture::halt(initial, app, None).await;
-    let policies = fixture::policies(root, &community, &config.node_id);
+    let policies = fixture::policies(root, &community, &config.node_id, addresses);
     let saved = SavedCase { config: config.clone(), secret: secret.clone(), recipient,
         policies: policies.clone(), capture_id: capture.id.clone(), message_id };
     write_private(&root.join("case.json"), &saved);

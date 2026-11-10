@@ -482,14 +482,35 @@ impl Drop for RecoveryRuntime {
     }
 }
 impl RecoveryRuntime {
+    /// Bind the policy's local address at the usual point of startup.
     pub async fn start(policy: RuntimePolicy) -> Result<Self> {
+        Self::start_from(policy, None).await
+    }
+    /// Start on a listener the caller already bound and is listening on, so
+    /// the address is never released between reservation and startup. Its
+    /// local address must equal the policy's local address (the explicit bind
+    /// address, else this node's roster address), or startup refuses with
+    /// `Configuration`. Everything else is exactly `start`.
+    pub async fn start_with_listener(
+        policy: RuntimePolicy,
+        listener: std::net::TcpListener,
+    ) -> Result<Self> {
+        Self::start_from(policy, Some(listener)).await
+    }
+    async fn start_from(
+        policy: RuntimePolicy,
+        listener: Option<std::net::TcpListener>,
+    ) -> Result<Self> {
         // Cancellation of the caller cannot strand a partially started actor.
         // An unobserved successful result drops its owner and requests drain.
-        tokio::spawn(Self::start_owned(policy))
+        tokio::spawn(Self::start_owned(policy, listener))
             .await
             .map_err(|_| RuntimeError::Unavailable)?
     }
-    async fn start_owned(policy: RuntimePolicy) -> Result<Self> {
+    async fn start_owned(
+        policy: RuntimePolicy,
+        listener: Option<std::net::TcpListener>,
+    ) -> Result<Self> {
         let deadline = Instant::now()
             .checked_add(policy.work_timeout)
             .ok_or(RuntimeError::Configuration)?;
@@ -520,9 +541,12 @@ impl RecoveryRuntime {
             1,
         )
         .map_err(|_| RuntimeError::Configuration)?;
-        let listener = TcpListener::bind(opened.config.local_address())
-            .await
-            .map_err(|_| RuntimeError::Unavailable)?;
+        let listener = match listener {
+            None => TcpListener::bind(opened.config.local_address())
+                .await
+                .map_err(|_| RuntimeError::Unavailable)?,
+            Some(listener) => adopt_listener(listener, opened.config.local_address())?,
+        };
         let raft = openraft::Raft::new(
             opened.config.node_id(),
             options,
@@ -742,6 +766,16 @@ impl RecoveryRuntime {
             .await
             .map_err(|_| RuntimeError::Unavailable)?
     }
+}
+/// A pre-bound listener is accepted only for the exact configured address.
+fn adopt_listener(listener: std::net::TcpListener, expected: SocketAddr) -> Result<TcpListener> {
+    if listener.local_addr().map_err(|_| RuntimeError::Unavailable)? != expected {
+        return Err(RuntimeError::Configuration);
+    }
+    listener
+        .set_nonblocking(true)
+        .map_err(|_| RuntimeError::Unavailable)?;
+    TcpListener::from_std(listener).map_err(|_| RuntimeError::Unavailable)
 }
 fn runtime_transport_error(error: transport::Error) -> RuntimeError {
     match error {

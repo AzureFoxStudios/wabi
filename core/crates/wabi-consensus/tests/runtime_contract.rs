@@ -49,7 +49,19 @@ fn source(bytes: &[u8]) -> SignedSourceContext {
         signature: hex::encode(signature.normalize_s().unwrap_or(signature).to_bytes()),
     }
 }
-fn policies(root: &Path, context: &SignedSourceContext) -> Vec<RuntimePolicy> {
+/// One listener per roster node, bound for the whole test. Each start gets a
+/// clone of the same socket, so no address is released between reservation
+/// and startup, or between a stop and a restart, for another socket to take.
+struct Reserved(Vec<std::net::TcpListener>);
+impl Reserved {
+    async fn start(&self, policy: &RuntimePolicy) -> Result<RecoveryRuntime, RuntimeError> {
+        let listener = self.0[policy.binding.node_id as usize - 1]
+            .try_clone()
+            .unwrap();
+        RecoveryRuntime::start_with_listener(policy.clone(), listener).await
+    }
+}
+fn policies(root: &Path, context: &SignedSourceContext) -> (Vec<RuntimePolicy>, Reserved) {
     let mut peers = BTreeMap::new();
     let mut reservations = Vec::new();
     for id in 1..=3 {
@@ -73,7 +85,7 @@ fn policies(root: &Path, context: &SignedSourceContext) -> Vec<RuntimePolicy> {
         );
         reservations.push(address);
     }
-    (1..=3)
+    let policies = (1..=3)
         .map(|id| {
             let node = root.join(format!("node-{id}"));
             RuntimePolicy {
@@ -104,7 +116,8 @@ fn policies(root: &Path, context: &SignedSourceContext) -> Vec<RuntimePolicy> {
                 work_timeout: Duration::from_secs(10),
             }
         })
-        .collect()
+        .collect();
+    (policies, Reserved(reservations))
 }
 fn client(policy: &RuntimePolicy, target: u64) -> CheckpointClient {
     let config = Config::new(
@@ -157,13 +170,13 @@ async fn managed_nodes_commit_reopen_material_and_control_with_original_identiti
     let root = tempfile::tempdir().unwrap();
     let bytes = vec![61; 130_123];
     let context = source(&bytes);
-    let mut policies = policies(root.path(), &context);
+    let (mut policies, ports) = policies(root.path(), &context);
     let mut nodes = BTreeMap::new();
     // Followers first, then explicitly initialize the one approved bootstrap node.
     for index in [1, 2, 0] {
         nodes.insert(
             index as u64 + 1,
-            RecoveryRuntime::start(policies[index].clone())
+            ports.start(&policies[index])
                 .await
                 .unwrap(),
         );
@@ -223,7 +236,7 @@ async fn managed_nodes_commit_reopen_material_and_control_with_original_identiti
     for policy in &policies {
         nodes.insert(
             policy.binding.node_id,
-            RecoveryRuntime::start(policy.clone()).await.unwrap(),
+            ports.start(&policy).await.unwrap(),
         );
     }
     let second_leader = leader(&nodes).await;
@@ -267,7 +280,7 @@ async fn managed_nodes_commit_reopen_material_and_control_with_original_identiti
     let index = stopped as usize - 1;
     nodes.insert(
         stopped,
-        RecoveryRuntime::start(policies[index].clone())
+        ports.start(&policies[index])
             .await
             .unwrap(),
     );
@@ -332,12 +345,12 @@ async fn owned_publication_distributes_journals_reopens_original_receipt_and_use
         .unwrap();
     let bytes = vec![41; 130_123];
     let context = source(&bytes);
-    let mut policies = policies(root.path(), &context);
+    let (mut policies, ports) = policies(root.path(), &context);
     let mut nodes = BTreeMap::new();
     for index in [1, 2, 0] {
         nodes.insert(
             index as u64 + 1,
-            RecoveryRuntime::start(policies[index].clone())
+            ports.start(&policies[index])
                 .await
                 .unwrap(),
         );
@@ -506,7 +519,7 @@ async fn owned_publication_distributes_journals_reopens_original_receipt_and_use
     for policy in &policies {
         nodes.insert(
             policy.binding.node_id,
-            RecoveryRuntime::start(policy.clone()).await.unwrap(),
+            ports.start(&policy).await.unwrap(),
         );
     }
     let restarted_leader = leader(&nodes).await;
@@ -596,7 +609,7 @@ async fn owned_publication_distributes_journals_reopens_original_receipt_and_use
     );
     nodes.insert(
         stopped,
-        RecoveryRuntime::start(policies[stopped as usize - 1].clone())
+        ports.start(&policies[stopped as usize - 1])
             .await
             .unwrap(),
     );

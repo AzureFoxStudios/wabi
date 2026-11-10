@@ -13,7 +13,7 @@ fn setup() -> (
         .tempdir()
         .unwrap();
     let source = crate::source_context::tests::fixture(b"original opaque capture");
-    let policy = super::super::tests::signed_capture_policy(root.path(), &source);
+    let (policy, _ports) = super::super::tests::signed_capture_policy(root.path(), &source);
     let opened = Opened::open(&policy).unwrap();
     (root, policy, opened, source)
 }
@@ -295,8 +295,8 @@ async fn cancelled_journal_job_retains_blocking_owner_through_actual_write_and_s
         .tempdir()
         .unwrap();
     let source = crate::source_context::tests::fixture(b"opaque journal intent");
-    let policy = super::super::tests::signed_capture_policy(root.path(), &source);
-    let runtime = Arc::new(RecoveryRuntime::start(policy.clone()).await.unwrap());
+    let (policy, ports) = super::super::tests::signed_capture_policy(root.path(), &source);
+    let runtime = Arc::new(ports.start(&policy).await.unwrap());
     let inode = fs::metadata(policy.control_directory.join(OWNER_LOCK))
         .unwrap()
         .ino();
@@ -382,9 +382,12 @@ async fn worker_finished(node: &RecoveryRuntime) {
     .await
     .unwrap();
 }
-fn cluster_policies(root: &Path, context: &SignedSourceContext) -> Vec<RuntimePolicy> {
+fn cluster_policies(
+    root: &Path,
+    context: &SignedSourceContext,
+) -> (Vec<RuntimePolicy>, super::super::tests::Reserved) {
     let mut peers = BTreeMap::new();
-    let mut reservations = Vec::new();
+    let reserved = super::super::tests::Reserved::reserve();
     for id in 1..=3 {
         let node = root.join(format!("node-{id}"));
         fs::create_dir(&node).unwrap();
@@ -395,7 +398,6 @@ fn cluster_policies(root: &Path, context: &SignedSourceContext) -> Vec<RuntimePo
         }
         let identity = Identity::generate().unwrap();
         identity.persist_new(&node.join("identity")).unwrap();
-        let address = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         peers.insert(
             id,
             RecoveryPeer {
@@ -403,12 +405,11 @@ fn cluster_policies(root: &Path, context: &SignedSourceContext) -> Vec<RuntimePo
                 community_id: context.claims.community_id.clone(),
                 site_id: format!("fixture-{id}"),
                 public_key: identity.public_hex(),
-                rpc_address: address.local_addr().unwrap().to_string(),
+                rpc_address: reserved.address(id),
             },
         );
-        reservations.push(address);
     }
-    (1..=3)
+    let policies = (1..=3)
         .map(|id| {
             let node = root.join(format!("node-{id}"));
             RuntimePolicy {
@@ -439,7 +440,8 @@ fn cluster_policies(root: &Path, context: &SignedSourceContext) -> Vec<RuntimePo
                 work_timeout: Duration::from_secs(10),
             }
         })
-        .collect()
+        .collect();
+    (policies, reserved)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -453,7 +455,7 @@ async fn actual_pre_admission_manifest_and_prepared_prefixes_resume_identical_co
         .unwrap();
     let bytes = b"original pre-admission opaque capture";
     let context = crate::source_context::tests::fixture(bytes);
-    let mut policies = cluster_policies(root.path(), &context);
+    let (mut policies, ports) = cluster_policies(root.path(), &context);
     let path = root.path().join("original.age");
     fs::write(&path, bytes).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
@@ -461,7 +463,7 @@ async fn actual_pre_admission_manifest_and_prepared_prefixes_resume_identical_co
     for index in [1, 2, 0] {
         nodes.insert(
             index as u64 + 1,
-            RecoveryRuntime::start(policies[index].clone())
+            ports.start(&policies[index])
                 .await
                 .unwrap(),
         );
@@ -594,7 +596,7 @@ async fn actual_pre_admission_manifest_and_prepared_prefixes_resume_identical_co
         policy.initialize = false;
     }
     for policy in &policies {
-        let node = RecoveryRuntime::start(policy.clone()).await.unwrap();
+        let node = ports.start(&policy).await.unwrap();
         // Explicit test election preserves the journal collector identity.
         // This is not automatic publication failover to a different collector.
         node.inner.raft.enable_elect(false);
@@ -668,8 +670,8 @@ async fn post_control_read_boundary_refuses_late_state_and_root_loss_even_on_io_
         .tempdir()
         .unwrap();
     let source = crate::source_context::tests::fixture(b"boundary fixture");
-    let policy = super::super::tests::signed_capture_policy(root.path(), &source);
-    let runtime = RecoveryRuntime::start(policy.clone()).await.unwrap();
+    let (policy, ports) = super::super::tests::signed_capture_policy(root.path(), &source);
+    let runtime = ports.start(&policy).await.unwrap();
     let inode = fs::metadata(policy.control_directory.join(OWNER_LOCK))
         .unwrap()
         .ino();
@@ -751,12 +753,12 @@ async fn original_capture_intent_is_durable_before_bytes_and_reopens_without_rep
         .tempdir()
         .unwrap();
     let context = crate::source_context::tests::fixture(b"original admission-only context");
-    let policies = cluster_policies(root.path(), &context);
+    let (policies, ports) = cluster_policies(root.path(), &context);
     let mut nodes = BTreeMap::new();
     for index in [1, 2, 0] {
         nodes.insert(
             index as u64 + 1,
-            RecoveryRuntime::start(policies[index].clone()).await.unwrap(),
+            ports.start(&policies[index]).await.unwrap(),
         );
     }
     let leader = cluster_leader(&nodes).await;

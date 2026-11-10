@@ -10,12 +10,37 @@ fn private(path: &Path) {
     fs::create_dir(path).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
 }
-fn build_policy(root: &Path) -> RuntimePolicy {
+/// One listener per roster node, bound for the whole test. Each start gets a
+/// clone of the same socket, so no address is released between reservation
+/// and startup, or between a stop and a restart, for another socket to take.
+pub(super) struct Reserved(Vec<std::net::TcpListener>);
+impl Reserved {
+    pub(super) fn reserve() -> Self {
+        Self(
+            (1..=3)
+                .map(|_| std::net::TcpListener::bind("127.0.0.1:0").unwrap())
+                .collect(),
+        )
+    }
+    pub(super) fn address(&self, node_id: u64) -> String {
+        self.0[node_id as usize - 1]
+            .local_addr()
+            .unwrap()
+            .to_string()
+    }
+    pub(super) fn listener(&self, node_id: u64) -> std::net::TcpListener {
+        self.0[node_id as usize - 1].try_clone().unwrap()
+    }
+    pub(super) async fn start(&self, policy: &RuntimePolicy) -> Result<RecoveryRuntime> {
+        RecoveryRuntime::start_with_listener(policy.clone(), self.listener(policy.binding.node_id))
+            .await
+    }
+}
+fn build_policy(root: &Path) -> (RuntimePolicy, Reserved) {
     let mut peers = BTreeMap::new();
-    let mut reservations = Vec::new();
+    let reserved = Reserved::reserve();
     for id in 1..=3 {
         let key = Identity::generate().unwrap();
-        let address = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         peers.insert(
             id,
             RecoveryPeer {
@@ -23,18 +48,17 @@ fn build_policy(root: &Path) -> RuntimePolicy {
                 community_id: "ab".repeat(32),
                 site_id: format!("site-{id}"),
                 public_key: key.public_hex(),
-                rpc_address: address.local_addr().unwrap().to_string(),
+                rpc_address: reserved.address(id),
             },
         );
         if id == 1 {
             private(&root.join("identity"));
             key.persist_new(&root.join("identity")).unwrap();
         }
-        reservations.push(address);
     }
     private(&root.join("control"));
     private(&root.join("material"));
-    RuntimePolicy {
+    let policy = RuntimePolicy {
         binding: StoreBinding {
             community_id: "ab".repeat(32),
             partition_id: "community/control".into(),
@@ -57,17 +81,21 @@ fn build_policy(root: &Path) -> RuntimePolicy {
         },
         transport_limits: Limits::default(),
         work_timeout: Duration::from_secs(10),
-    }
+    };
+    (policy, reserved)
 }
 
-pub(super) fn signed_capture_policy(root: &Path, context: &SignedSourceContext) -> RuntimePolicy {
-    let mut policy = build_policy(root);
+pub(super) fn signed_capture_policy(
+    root: &Path,
+    context: &SignedSourceContext,
+) -> (RuntimePolicy, Reserved) {
+    let (mut policy, reserved) = build_policy(root);
     policy.binding.community_id = context.claims.community_id.clone();
     policy.source_node_id = context.claims.source_node_id.clone();
     for peer in policy.peers.values_mut() {
         peer.community_id = policy.binding.community_id.clone();
     }
-    policy
+    (policy, reserved)
 }
 async fn wait_finished_local_job(runtime: &RecoveryRuntime) {
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -107,7 +135,7 @@ async fn owned_capture_file_uses_signed_binding_and_reopens_durable_material_aft
     // Current 64 KiB transfer chunks: exercise a complete and a partial chunk.
     let bytes = vec![b'x'; 64 * 1024 + 31];
     let context = crate::source_context::tests::fixture(&bytes);
-    let policy = signed_capture_policy(root.path(), &context);
+    let (policy, ports) = signed_capture_policy(root.path(), &context);
     let archive = root.path().join("capture.age");
     fs::write(&archive, &bytes).unwrap();
     fs::set_permissions(&archive, fs::Permissions::from_mode(0o600)).unwrap();
@@ -118,7 +146,7 @@ async fn owned_capture_file_uses_signed_binding_and_reopens_durable_material_aft
     ));
     let mut file = File::open(&pinned).unwrap();
     file.seek(SeekFrom::Start(bytes.len() as u64 + 17)).unwrap();
-    let runtime = RecoveryRuntime::start(policy.clone()).await.unwrap();
+    let runtime = ports.start(&policy).await.unwrap();
     let lock = fs::metadata(policy.control_directory.join(OWNER_LOCK))
         .unwrap()
         .ino();
@@ -154,7 +182,7 @@ async fn owned_capture_file_uses_signed_binding_and_reopens_durable_material_aft
         material_lock
     );
     drop(material);
-    let reopened = RecoveryRuntime::start(policy.clone()).await.unwrap();
+    let reopened = ports.start(&policy).await.unwrap();
     reopened.shutdown().await.unwrap();
     assert_eq!(
         fs::metadata(policy.control_directory.join(OWNER_LOCK))
@@ -171,11 +199,11 @@ async fn owned_capture_file_refuses_bad_signature_unsafe_file_and_busy_job_witho
         .tempdir()
         .unwrap();
     let context = crate::source_context::tests::fixture(b"opaque");
-    let policy = signed_capture_policy(root.path(), &context);
+    let (policy, ports) = signed_capture_policy(root.path(), &context);
     let archive = root.path().join("capture.age");
     fs::write(&archive, b"opaque").unwrap();
     fs::set_permissions(&archive, fs::Permissions::from_mode(0o600)).unwrap();
-    let runtime = Arc::new(RecoveryRuntime::start(policy.clone()).await.unwrap());
+    let runtime = Arc::new(ports.start(&policy).await.unwrap());
     let mut bad = context.clone();
     bad.signature.replace_range(
         0..1,
@@ -257,7 +285,7 @@ async fn owned_capture_file_refuses_bad_signature_unsafe_file_and_busy_job_witho
 #[test]
 fn preflight_refuses_alias_symlink_unowned_key_and_invalid_source_before_enrollment() {
     let root = tempfile::tempdir().unwrap();
-    let policy = build_policy(root.path());
+    let (policy, _ports) = build_policy(root.path());
     let mut candidate = policy.clone();
     candidate.material_directory = candidate.control_directory.clone();
     assert!(matches!(
@@ -305,7 +333,7 @@ fn preflight_refuses_alias_symlink_unowned_key_and_invalid_source_before_enrollm
 #[test]
 fn enrollment_and_existing_locks_are_immutable_no_implicit_legacy_adoption() {
     let root = tempfile::tempdir().unwrap();
-    let policy = build_policy(root.path());
+    let (policy, _ports) = build_policy(root.path());
     let opened = Opened::open(&policy).unwrap();
     let enrollment = fs::read(policy.control_directory.join(ENROLLMENT)).unwrap();
     let inode = fs::metadata(policy.control_directory.join(OWNER_LOCK))
@@ -351,7 +379,7 @@ fn enrollment_and_existing_locks_are_immutable_no_implicit_legacy_adoption() {
     assert_eq!(fs::metadata(&lock_path).unwrap().mode() & 0o777, 0o644);
 
     let foreign = tempfile::tempdir().unwrap();
-    let candidate = build_policy(foreign.path());
+    let (candidate, _ports) = build_policy(foreign.path());
     fs::write(
         candidate.control_directory.join("old-state"),
         b"must preserve",
@@ -371,7 +399,7 @@ fn enrollment_and_existing_locks_are_immutable_no_implicit_legacy_adoption() {
 #[test]
 fn partial_enrollment_refuses_restart_without_replacement() {
     let root = tempfile::tempdir().unwrap();
-    let policy = build_policy(root.path());
+    let (policy, _ports) = build_policy(root.path());
     let path = policy.control_directory.join(ENROLLMENT);
     let mut file = OpenOptions::new()
         .write(true)
@@ -395,8 +423,8 @@ fn partial_enrollment_refuses_restart_without_replacement() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancelled_caller_keeps_job_owned_and_shutdown_waits_for_actual_completion() {
     let root = tempfile::tempdir().unwrap();
-    let policy = build_policy(root.path());
-    let runtime = Arc::new(RecoveryRuntime::start(policy.clone()).await.unwrap());
+    let (policy, ports) = build_policy(root.path());
+    let runtime = Arc::new(ports.start(&policy).await.unwrap());
     let (entered, entered_rx) = oneshot::channel();
     let (release, released) = oneshot::channel();
     let caller_runtime = runtime.clone();
@@ -433,8 +461,8 @@ async fn cancelled_caller_keeps_job_owned_and_shutdown_waits_for_actual_completi
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn panic_closes_admission_and_drop_owner_drains_without_resetting_locks() {
     let root = tempfile::tempdir().unwrap();
-    let policy = build_policy(root.path());
-    let runtime = RecoveryRuntime::start(policy.clone()).await.unwrap();
+    let (policy, ports) = build_policy(root.path());
+    let runtime = ports.start(&policy).await.unwrap();
     assert_eq!(
         runtime
             .run_job(async {
@@ -448,7 +476,7 @@ async fn panic_closes_admission_and_drop_owner_drains_without_resetting_locks() 
     );
     assert!(!runtime.status().accepting);
     assert!(runtime.shutdown().await.is_err());
-    let runtime = RecoveryRuntime::start(policy.clone()).await.unwrap();
+    let runtime = ports.start(&policy).await.unwrap();
     let inode = fs::metadata(policy.control_directory.join(OWNER_LOCK))
         .unwrap()
         .ino();
@@ -488,8 +516,8 @@ async fn panic_closes_admission_and_drop_owner_drains_without_resetting_locks() 
 async fn real_snapshot_builder_prevents_early_shutdown_success_and_allows_immediate_reopen() {
     use openraft::{storage::RaftStateMachine, RaftSnapshotBuilder};
     let root = tempfile::tempdir().unwrap();
-    let policy = build_policy(root.path());
-    let runtime = RecoveryRuntime::start(policy.clone()).await.unwrap();
+    let (policy, ports) = build_policy(root.path());
+    let runtime = ports.start(&policy).await.unwrap();
     let metrics = runtime.inner.raft.metrics();
     let mut source = runtime.inner.opened.control.clone();
     let mut builder = source.get_snapshot_builder().await;
@@ -527,4 +555,35 @@ async fn real_snapshot_builder_prevents_early_shutdown_success_and_allows_immedi
             .ino(),
         inode
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pre_bound_listener_must_match_policy_address_and_keeps_it_bound_across_restart() {
+    let root = tempfile::tempdir().unwrap();
+    let (policy, ports) = build_policy(root.path());
+    let address: SocketAddr = ports.address(1).parse().unwrap();
+    // A listener on any other address is refused, and the refused startup
+    // leaves nothing behind that a correct start would trip over.
+    let other = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    assert_eq!(
+        RecoveryRuntime::start_with_listener(policy.clone(), other)
+            .await
+            .err(),
+        Some(RuntimeError::Configuration)
+    );
+    // While the reservation is held nothing else can take the address, and
+    // the binding `start` reports exactly what the reserve/drop race produced.
+    assert!(std::net::TcpListener::bind(address).is_err());
+    assert_eq!(
+        RecoveryRuntime::start(policy.clone()).await.err(),
+        Some(RuntimeError::Unavailable)
+    );
+    let runtime = ports.start(&policy).await.unwrap();
+    assert!(runtime.status().accepting);
+    // The runtime serves on the handed-over socket itself.
+    drop(tokio::net::TcpStream::connect(address).await.unwrap());
+    runtime.shutdown().await.unwrap();
+    // A restart takes another clone of the same reservation.
+    assert!(std::net::TcpListener::bind(address).is_err());
+    ports.start(&policy).await.unwrap().shutdown().await.unwrap();
 }

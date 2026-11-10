@@ -213,7 +213,7 @@ impl PublicationJobs {
             });
             // Transfer original storage ownership before any runtime startup.
             // Ordinary startup errors await the actual runtime startup result.
-            let runtime = RecoveryRuntime::start(policy).await?;
+            let runtime = start_runtime(policy).await?;
             *inner.runtime.lock().await = Some(runtime);
             let owner = inner.clone();
             let supervisor = tokio::spawn(async move { supervise(owner, stopped).await });
@@ -337,7 +337,16 @@ async fn publish(inner: Arc<Inner>, state: Arc<AppState>, capture: &str,
     let result = publish_inner(inner.clone(), state, capture, operation, deadline, admitted).await;
     // Every error is treated as potentially indeterminate. Close publication
     // admission and drain actual runtime owners before releasing source guards.
-    if result.is_err() { inner.close(); }
+    if let Err(error) = &result {
+        // The status view reports only `publication_indeterminate`, so the
+        // cause is recorded here; nothing else keeps it.
+        tracing::error!(capture, error = ?error, "original publication failed; admission closed");
+        // Test processes install no log subscriber. The isolated children's
+        // stderr is what a failing parent test prints.
+        #[cfg(test)]
+        eprintln!("original publication failed for {capture}: {error:?}");
+        inner.close();
+    }
     result
 }
 async fn publish_inner(inner: Arc<Inner>, state: Arc<AppState>, capture: &str,
@@ -563,6 +572,21 @@ async fn supervise(inner: Arc<Inner>, mut stopped: oneshot::Receiver<()>) -> Res
     inner.authority.lock().unwrap_or_else(|e| e.into_inner()).take();
     ensure!(!failed, "publication owned drain failed");
     Ok(())
+}
+
+#[cfg(not(test))]
+async fn start_runtime(policy: RuntimePolicy) -> wabi_consensus::runtime::Result<RecoveryRuntime> {
+    RecoveryRuntime::start(policy).await
+}
+/// Test builds only: a lib test fixture that reserved this node's address
+/// hands its bound listener over, so the address is never released before
+/// the runtime listens on it. Without one, this is exactly `start`.
+#[cfg(test)]
+async fn start_runtime(policy: RuntimePolicy) -> wabi_consensus::runtime::Result<RecoveryRuntime> {
+    match tests::genuine_restart::handed_over(&policy) {
+        Some(listener) => RecoveryRuntime::start_with_listener(policy, listener).await,
+        None => RecoveryRuntime::start(policy).await,
+    }
 }
 
 #[cfg(test)]
