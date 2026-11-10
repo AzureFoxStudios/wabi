@@ -198,6 +198,26 @@ Also state, without fixing it here: whether wabi-server's own tests that use thi
 
 You check: the report gives a failure count before the fix and 100 clean runs after, under the same load.
 
+### Task 1.0m wabi-server unit tests have the same phantom lock owner exposure (Opus, optional)
+
+Found by the Task 1.0l session. Never seen failing in CI, so this is optional; run it only if the server tests start failing with `Ownership`.
+
+```
+TASK 1.0m. Test-only change in core/crates/wabi-server. Do not change production code in wabi-server or wabi-consensus.
+
+Background: read core/crates/wabi-consensus/src/fork_gate.rs and the descriptions of PR 291 and PR 301 first. A forked child holds copies of every open descriptor until exec, including a flock'ed consensus store file another test has just dropped, so an immediate reopen is refused with Ownership. PR 291 fixed this for wabi-consensus unit tests and PR 301 for its integration tests. PR 301's session found the same exposure in wabi-server's own unit-test binary: tests in src/instance_archive/source_context_tests.rs, src/recovery_publication_jobs/genuine_restart_tests.rs and src/recovery_publication_jobs/genuine_crash_tests.rs spawn copies of the test executable, while tests in the same binary (those three files plus src/recovery_node/tests.rs and src/checkpoint_jobs.rs) open wabi-consensus stores and runtimes with no gate. It has not been seen failing in CI.
+
+Step 1, reproduce or prove. Loop the wabi-server lib tests that are involved (filter to those modules; run two copies at once for load) at least 100 times and record failures by test name. If nothing fails, do not guess: write a small targeted stress test, as PR 291 did, that shows the mechanism in this binary (a child spawn overlapping a drop-then-reopen of a consensus store). If you can show neither a failure nor the mechanism, stop and report that; do not change anything.
+
+Step 2, fix. Reuse the one gate source file the way PR 301 does (#[path] include under cfg(test); do not copy it, do not make it public, do not compile it into production builds). Every child spawn in the wabi-server unit tests goes through the gate's spawn. The harder half is the shared side: here the stores are opened inside library code that wabi-server production code calls, not by the tests directly. Find the narrowest test-side points that cover every flock acquisition and probe (for example the test helpers that start a recovery node or runtime), hold the gate shared there, and explain why that covers every acquisition and cannot deadlock a test that both spawns and opens. If it cannot be covered from test code alone, stop and describe what would be needed instead of adding a test hook to production code.
+
+No sleeps or retries, no loosened assertions, nothing newly ignored.
+
+Proof: the failure or mechanism count before, and 100 consecutive clean runs of the same loop under the same load after. Then the full wabi-server suite once, listing environmental failures by name as the preamble describes.
+```
+
+You check: the report shows the race or its mechanism before the fix, and 100 clean runs after.
+
 ## Phase 1: stop the bleeding
 
 ### Task 1.1 Reactions cannot be removed (Sonnet)
@@ -385,8 +405,10 @@ You check: a test asserts a bound on events held in memory during replay.
 
 ### Task 2.1 Delete dead WabiDB modules (Sonnet, Opus review)
 
+Revised 2026-11-10: the compiler decides what is dead, not a text search, and stored-data types count as callers.
+
 ```
-TASK 2.1.
+TASK 2.1. Read AGENTS.md golden rule 5 first.
 
 The audit in docs/plans/2026-11-06-backend-audit-wabidb-lore.md found these WabiDB modules have no production caller (only their own tests reference them). They look finished, so the risk is that someone builds on them. Remove them.
 
@@ -400,11 +422,19 @@ Under core/crates/wabidb/src/:
 - replication/failover.rs, snapshot_shipping.rs, rate_limit.rs, observability.rs, anti_entropy.rs, and the SyncWorker and ReplicaStateMachine types
 - commands/membership_revalidation.rs
 - cli/backup.rs, cli/restore.rs, cli/rebuild_indexes.rs, cli/rebuild_indexes_cmd.rs
-- tests/compaction_regression.rs if it only exercises compact_segment
 
-Procedure, one module per commit: grep the whole workspace (core/, crates/, src-tauri/, helpers/) for any use of the module outside itself and its tests. If there is a non-test caller, do NOT delete; add it to a list at the end with the file:line of the caller. Otherwise delete the module, its tests, and its mod declaration, and remove any dependency that nothing else uses. Keep the wabidb lib.rs module doc accurate: remove bullets for deleted modules, do not add new claims.
+Procedure, one module per commit. Do not decide by text search: names like subscription, ephemeral, tombstone, compaction and rekey are also ordinary words and identifiers elsewhere, so grep gives dozens of false hits. Let the compiler decide. Remove the module's `mod` declaration and its files, then run `cargo check --workspace --all-targets` and `cargo check -p wabi-server --features full --all-targets`. If the only errors are in that module's own tests, delete those tests too and it is dead. If any other code fails to compile, that code is a caller: restore the module, do NOT delete it, and add it to a list at the end with the file:line of the caller.
 
-After all deletions: cargo test --workspace, cargo check -p wabi-server --features full, and cargo deny check if it is configured, must pass. Report the "not deleted because of a caller" list, which should be empty.
+Three things count as a caller even when the compiler is quiet, so check each before deleting:
+1. Anything registered in the type registry or projection dispatch table (build_type_registry and what it calls).
+2. Any type that is serialized into stored events, records, the commit index or the projection snapshot. Deleting a type that existing data on disk contains is a data-compatibility change; stop and list it instead.
+3. Anything reachable from a binary under core/crates/wabidb/src/bin or core/crates/wabi-server/src/bin, or from src-tauri or helpers.
+
+Recent changes to be aware of: PR 287 and PR 293 touched retention/compaction.rs, retention/key_destruction.rs and the cli/ files (fsync handles and stream directory names). That does not make them live; judge them by the rules above. Do not touch sequencer/, engine/, stream_log/, commit_index/ or projections/ except to remove a `mod` line or an import the deletion orphans.
+
+After each deletion remove any dependency in Cargo.toml that nothing else uses, and keep the wabidb lib.rs module doc accurate: remove bullets for deleted modules, do not add new claims. There is no failing test to write first for a deletion; say so, and treat the full suite staying green as the proof.
+
+After all deletions these must pass: `cargo test -p wabidb`, the full wabi-server suite (`CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0 cargo test -p wabi-server --no-fail-fast`, listing the environmental failures by name as the preamble describes), `cargo check -p wabi-server --features full`, and `cargo deny check` if it is configured. Report lines of code removed per module and the "not deleted because of a caller" list.
 ```
 
 You check: the "not deleted" list is empty or you understand each entry.
