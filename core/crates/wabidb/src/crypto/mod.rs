@@ -6,7 +6,6 @@ pub mod identity;
 pub mod stream_key_registry;
 pub mod device_pinning;
 pub mod helper_revocation;
-pub mod safety_number;
 pub mod version_skew;
 pub mod x3dh_handshake;
 pub mod x3dh_identity;
