@@ -35,7 +35,6 @@
 #![allow(clippy::needless_return)]
 
 // Top-level modules. Each is filled in by its own kanban card.
-pub mod auth;
 pub mod blobs;
 pub mod cli;
 pub mod commands;
