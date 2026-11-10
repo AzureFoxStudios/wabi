@@ -2108,8 +2108,13 @@ async fn admit_recording_upload(
             "Recording filename must not contain path separators".into(),
         ));
     }
-    wabi_lore::validate_repo_path(&format!("recordings/{filename}"))
+    let validated = wabi_lore::validate_repo_path(&format!("recordings/{filename}"))
         .map_err(|_| AppError::BadRequest("Invalid recording filename".into()))?;
+    // "" and "." normalize away and would name the recordings directory
+    // itself; the validated path must be exactly recordings/<one component>.
+    if validated.components().count() != 2 {
+        return Err(AppError::BadRequest("Invalid recording filename".into()));
+    }
 
     let lore = lore_service(state).await?;
     let channel_name = lore.recordings_channel_name().to_string();
