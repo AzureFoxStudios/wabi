@@ -448,7 +448,7 @@ is what makes the web Code view and remote wabi-sync instances refresh live.
 Tokens authenticate as `Authorization: Bearer wblore_…` on explicitly opted-in
 repository-data routes only. They are **not account logins** and cannot be used
 for core account APIs, token creation/listing/revocation, repository lifecycle
-or configuration, editors/script runners/mirrors, branch administration,
+or configuration, branch administration,
 binding/promote/recording operations, or signed-download URL minting (401).
 
 Within the exact channel for which the token was minted:
@@ -737,23 +737,14 @@ The `upload_recording` endpoint additionally restricts its target to the single
 configured Recordings channel and refuses (404) anything that isn't a real Lore
 repo, so a user cannot redirect recordings into an arbitrary channel.
 
-Host operations have a narrower boundary: running host scripts, starting an
-editor container, and configuring or running an external export require the
-current server owner, current channel membership and a current account session.
-Repository Developer and server Admin roles do not grant host execution.
-Scripts and editor containers are disabled by default. Script working directories
-are the actual channel repository, and session inspection/control is limited to
-the matching channel and its creator or authorized staff.
-
 The current worktree uses descriptor-relative file access and rejects symlinks,
 traversal and internal repository furniture. Downloads and ZIP archives use
 private streamed snapshots rather than a shared predictable cache or whole-file
-memory buffers. Git import and mirror fetch/push accept public HTTPS targets,
+memory buffers. Git import and mirror fetch accept public HTTPS targets,
 reject embedded credentials and private addresses, pin an approved DNS result,
 disable redirects and ambient Git configuration, and bound subprocess execution.
 Local paths, `file:` remotes and ambient SSH authentication are unsupported in
-these API-selected operations. Export remains an explicit snapshot replacement;
-it is not automatic synchronization or a Lore history bridge.
+these API-selected operations. Wabi has no export or push path to external remotes.
 
 ### 11.3 Encryption & transport
 
