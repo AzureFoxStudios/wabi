@@ -76,6 +76,8 @@ export interface Message extends Omit<ProtocolMessageView, MessageOptionalProtoc
   e2eeSenderDeviceId?: string;
   /** Local-only failure detail. Ciphertext is never rendered as message text. */
   e2eeError?: string;
+  /** Why an encrypted message is not shown: no key on this device, or it failed a check. */
+  e2eeUnreadable?: 'no-key' | 'failed-check';
   localCard?: {
     kind: 'directions';
     placeId: string;
