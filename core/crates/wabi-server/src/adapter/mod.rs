@@ -1318,9 +1318,10 @@ impl WabiStore for WdbAdapter {
                     None,
                 )
                 .await?;
-            // Retention-reaper groundwork (security WS-8): tombstones are not
-            // wired yet; the trait returns () so the seq is deliberately
-            // dropped here.
+            // The delete is a soft delete: the `message_deleted` event hides
+            // the message from the read model and the original record stays
+            // in the segment. The trait returns (), so the commit seq is
+            // deliberately unused here.
             let _ = commit_seq;
         }
         Ok(())
@@ -4206,14 +4207,6 @@ impl WdbAdapter {
             }
         }
         segments
-    }
-
-    /// Record a tombstone for a soft-deleted message so the retention reaper
-    /// can later compact the segment and crypto-shred the key.
-    /// (Security WS-8 groundwork; inherent method, not part of the trait.)
-    pub async fn record_tombstone(&self, channel_id: &str, message_id: &str, commit_seq: u64) {
-        // Best-effort: tombstone recording is not critical-path.
-        let _ = (channel_id, message_id, commit_seq).clone();
     }
 
     /// Dump every message record in the `messages` projection, regardless of

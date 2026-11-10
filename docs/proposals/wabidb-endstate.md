@@ -248,7 +248,7 @@ When a stream's retention expires:
 4. Append a `tombstone` record to the stream's segment log (or to the global commit index) recording the destruction event for audit.
 5. The commit index retains a tombstone entry that points to the destroyed stream; this entry is used by the storage CLI for `list-streams` and audit reporting.
 
-The destructive semantics: even if disk bytes persist (filesystem caching, backup retention), key destruction makes the ciphertext unrecoverable. This is the cryptographic deletion primitive.
+The destructive semantics: even if disk bytes persist (filesystem caching, backup retention), key destruction makes the ciphertext unrecoverable. This is the key destruction (proposed) primitive.
 
 Compaction (separate from retention): periodically, the engine merges small segments within a stream into larger ones, removes no-longer-needed records, and rewrites the segment index. Compaction is internal to a stream; it does not cross stream boundaries.
 
@@ -2877,7 +2877,7 @@ The retention engine enforces per-stream policies. The destructive flow:
 5. The engine appends a `tombstone` record to the global commit index, recording the destruction event for audit.
 6. The engine triggers a projection rebuild (the stream's indexes are cleared).
 
-The destructive semantics: **even if disk bytes persist** (filesystem caching, backup retention, forensic recovery), key destruction makes the ciphertext permanently unrecoverable. This is the cryptographic deletion primitive.
+The destructive semantics: **even if disk bytes persist** (filesystem caching, backup retention, forensic recovery), key destruction makes the ciphertext permanently unrecoverable. This is the key destruction (proposed) primitive.
 
 A restore from backup that includes a destroyed stream's segments will fail decryption at the storage layer (no key to decrypt with). The backup tooling surfaces this as "stream is destroyed; cannot restore."
 

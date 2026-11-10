@@ -38,7 +38,7 @@ Wabi should provide useful moderation, reporting, audit, export, and recovery to
 | Space / state | Confidentiality today | Retention |
 |---|---|---|
 | Live/ephemeral public chat | Server-readable while live | Not durably retained by that mode |
-| Timed public chat | Server-readable | Visible until expiry/deletion; underlying event records and backups may remain |
+| Timed public chat | Server-readable | Hidden after N days; the encrypted record remains on the server until a future compaction feature exists, and backups may keep it too |
 | Forever/archived public chat | Server-readable | Visible until explicitly deleted; underlying event records and backups may remain |
 | New DM or group | Encryption-pending blocks plaintext, then experimental encrypted text after participant devices are ready; each sender may explicitly choose server-readable fallback | Policy/implementation dependent |
 | Earlier DM or group | Keeps its previous policy, including server-readable mode unless experimental encryption was already enabled | Policy/implementation dependent |
@@ -47,7 +47,7 @@ Wabi should provide useful moderation, reporting, audit, export, and recovery to
 
 A memory-only message can still be read by the server process while it exists. Call it **ephemeral/not retained**, not “private from the operator.”
 
-The current Authority deletion path writes a deleted message record; it does not purge the original event history. Timed retention uses the same logical deletion path. See [message retention](features/MESSAGE_RETENTION.md) for the sweep cadence, upgrade effect and reproducible canary checks. Database event history is distinct from rotating diagnostic log files. A UI disappearance, a retention timer firing, or routine log rotation is not evidence of secure erasure. Attachment files, explicit report evidence, browser caches, exported copies and backups have separate lifecycles.
+The current Authority deletion path appends a `message_deleted` event that hides the message from the read model; it does not purge the original event history. The original encrypted record stays in the append-only segment, and the per-stream key is re-derived from the bootstrap key on every start, so nothing is cryptographically destroyed. Timed retention uses the same soft-delete path: a message is hidden after N days and the record remains until a future compaction feature exists. Only the `live` mode never writes a message, and that means not retained, not confidential. See [message retention](features/MESSAGE_RETENTION.md) for the sweep cadence, upgrade effect and reproducible canary checks. Database event history is distinct from rotating diagnostic log files. A UI disappearance, a retention timer firing, or routine log rotation is not evidence of secure erasure. Attachment files, explicit report evidence, browser caches, exported copies and backups have separate lifecycles.
 
 The upload registry also stores filenames revoked from the `/uploads/` capability URL path. A malformed registry blocks startup rather than forgetting those revocations, and the server reports a revocation only after its registry update is saved. A missing registry blocks Authority startup when the uploads directory is nonempty; an empty fresh installation can still start. This is an access denial, not erasure of file bytes or cached copies. Restore `upload_registry.json` with the matching upload tree; do not delete or replace a damaged registry to resume service. See the [local persistence check](testing/UPLOAD_REVOCATION_RECOVERY_2026-09-27.md).
 

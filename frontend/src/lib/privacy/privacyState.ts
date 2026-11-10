@@ -324,7 +324,7 @@ export function retentionTitle(policy: PrivacyPolicy | string | null | undefined
 	if (label === 'forever') return 'New messages are kept until someone deletes them.';
 	const duration = durationWords(label);
 	return duration
-		? `New messages are kept ${duration}. Earlier messages keep the lifetime they were sent with.`
+		? `New messages are hidden after ${duration}. The encrypted record remains on the server until a future compaction feature exists. Earlier messages keep the lifetime they were sent with.`
 		: null;
 }
 

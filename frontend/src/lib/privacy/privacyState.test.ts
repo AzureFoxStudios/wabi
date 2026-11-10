@@ -322,7 +322,9 @@ describe('retention', () => {
 		expect(retentionTitle('live')).toBe(
 			'New messages are shown live and not saved. Not saving them does not hide them from the server operator.'
 		);
-		expect(retentionTitle('24h')).toBe('New messages are kept 24 hours. Earlier messages keep the lifetime they were sent with.');
+		expect(retentionTitle('24h')).toBe(
+			'New messages are hidden after 24 hours. The encrypted record remains on the server until a future compaction feature exists. Earlier messages keep the lifetime they were sent with.'
+		);
 	});
 });
 

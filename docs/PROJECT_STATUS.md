@@ -689,7 +689,7 @@ Wabi is privacy-oriented through self-hosting and minimized central dependence, 
 
 - The server operator controls the instance and can access server-readable content.
 - New DMs/groups in the Tim rollout begin encryption-pending and may move to experimental encrypted text after participant devices are ready. Updated clients also upgrade future messages in older readable rooms when all devices are ready, unless server-readable mode was explicitly selected; historical plaintext remains readable. Explicit server-readable fallback needs each sender's confirmation. First-seen device keys come from the Authority, and the full client/protocol has not been independently verified.
-- Retention and confidentiality are separate. A message that is not retained after its configured lifetime is still visible to the server while it exists.
+- Retention and confidentiality are separate. `live` means not retained and is not private: the server can read a message while it exists. Timed retention hides a message after N days; the encrypted record remains on the server until a future compaction feature exists.
 - Client-local preferences/effects/queues remain a different trust boundary from server state.
 - Optional reverse proxies, tunnels, DERP relays, media services, external tools, and plugins add their own operators/software to the trust chain.
 - Translator Assist does not use the Authority as a translation relay. A remote self-hosted translator is nevertheless another plaintext recipient for any text the user asks it to translate; localhost translation keeps that additional processing on the user's device.
