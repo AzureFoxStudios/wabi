@@ -130,6 +130,11 @@ cargo build --locked -p wabi-server --features payments-rails,field-embed --bin 
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/payments -p 'test_*.py' -v
 ```
 
+**Status 2026-11-10:** the browser harness `frontend/scripts/payments-browser-smoke.mjs`
+described below was never committed to this repository, so the command cannot be
+run from a checkout and CI no longer references it (PR 292). The description is
+kept as the record of what the 2026-10-03 local acceptance covered.
+
 The browser harness requires real headful Chromium. On a machine with no display,
 use Xvfb. Install `jsqr@1.4.0` and `pngjs@7.0.0` in a disposable QA directory,
 then run from `frontend/`:
@@ -148,8 +153,10 @@ processes afterward. It checks the actual Authority-served index and entry chunk
 against the frontend used by the browser. Missing optional rails fail acceptance
 when `WABI_PAYMENTS_REQUIRE_RAILS=1`.
 
-[Payment CI](../../.github/workflows/payments-acceptance.yml) uses these commands,
-pinned QR tools and headful Xvfb. YAML and gate configuration were checked
+[Payment CI](../../.github/workflows/payments-acceptance.yml) runs the non-browser
+commands above. As first written it also ran the browser harness with pinned QR
+tools and headful Xvfb; that step was removed on 2026-11-10 because the script is
+not in the repository. YAML and gate configuration were checked
 locally; no GitHub workflow run, push or deployment has been performed. Only
 synthetic screenshots and result metadata are configured for upload, never test
 account data or provider secrets.
