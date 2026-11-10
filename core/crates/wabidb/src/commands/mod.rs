@@ -10,7 +10,6 @@ pub mod config;
 pub mod dm_auth;
 pub mod dm_send_auth;
 pub mod idempotency;
-pub mod membership_revalidation;
 pub mod metrics;
 pub mod namespace;
 pub mod rate_limit;
