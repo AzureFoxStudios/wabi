@@ -568,7 +568,9 @@ async fn legacy_membership_repair_fails_closed_with_missing_history_and_preserve
     let checkpoint = std::fs::read(ProjectionState::snapshot_path(dir.path())).unwrap();
     std::fs::remove_file(
         dir.path()
-            .join("streams/channel/channel_members:ch_a/events/00000001.wseg"),
+            .join("streams/channel")
+            .join(crate::sequencer::stream_dir_name("channel_members:ch_a"))
+            .join("events/00000001.wseg"),
     )
     .unwrap();
     drop(stopped);

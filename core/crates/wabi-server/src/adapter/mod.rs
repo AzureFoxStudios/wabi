@@ -4186,7 +4186,11 @@ impl WdbAdapter {
             Err(_) => return segments,
         };
         while let Ok(Some(kind_entry)) = kind_reader.next_entry().await {
-            let stream_path = kind_entry.path().join(channel_id).join("events");
+            let Ok(stream_dir) = wabidb::sequencer::resolve_stream_dir(&kind_entry.path(), channel_id)
+            else {
+                continue;
+            };
+            let stream_path = stream_dir.join("events");
             if !stream_path.is_dir() {
                 continue;
             }

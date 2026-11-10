@@ -26,10 +26,14 @@ pub async fn list_streams(data_dir: &Path) -> Result<Vec<StreamInfo>> {
             continue;
         }
 
-        let stream_id = stream_path
+        let dir_name = stream_path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
+        // Raw (pre-Task 1.0j) or encoded directory name; the record header
+        // hash picks the id, as in replay. Empty streams show the raw name.
+        let candidates = crate::sequencer::stream_id_candidates(&dir_name);
+        let mut stream_id = dir_name.clone();
 
         let events_dir = stream_path.join("events");
         let mut segment_count = 0u32;
@@ -44,6 +48,12 @@ pub async fn list_streams(data_dir: &Path) -> Result<Vec<StreamInfo>> {
                     if let Ok(mut reader) = SegmentReader::open(&seg_path).await {
                         if let Ok(recs) = reader.read_records().await {
                             for r in &recs {
+                                if let Some(id) = candidates.iter().find(|id| {
+                                    crate::stream_identity::stream_id_hash(id)
+                                        == r.header.stream_id_hash
+                                }) {
+                                    stream_id.clone_from(id);
+                                }
                                 if r.header.commit_seq > last_commit_seq {
                                     last_commit_seq = r.header.commit_seq;
                                 }
