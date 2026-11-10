@@ -51,11 +51,34 @@ Two requirements that come with B:
 
 Status 2026-11-09: 1.0a, 1.0b (PR 281), a second consensus race (PR 284), and the Windows/macOS archive tests (1.0c+d, PR 285) are merged. Merged afterwards: 1.0f WabiDB fsync on Windows (PR 287: directory fsync plus four read-only flush handles; the engine could not open on Windows since 2026-10-30) and 1.0h CI now runs the feature-gated Lore integration tests (PR 288). Found by PR 287's Windows run once the fsync errors were gone: 1.0j WabiDB uses the raw stream id as a directory name and several server streams contain a colon, so the Authority has never started on Windows; needs a reversible encoding with dual decode, prompt in the prompts file. Still open at that point: 1.0g, 1.0e, 1.0i.
 
-Status 2026-11-10: 1.0g merged (PR 291: two test-only wabi-consensus races fixed, 100 of 100 clean runs; one rare port-reuse race in the runtime cluster tests is left unfixed and needs a product change to pass a pre-bound listener, to be scheduled only if it keeps failing CI). 1.0k merged (PR 292: the payments acceptance workflow ran a browser smoke script that was never committed; the step is removed and PROJECT_STATUS says browser acceptance for direct payments is not automated). 1.0j merged (PR 293 at 7f675b8: Windows-safe stream directory names with dual decode; the Windows real-Authority smoke test passes for the first time; forward-only on disk, see BACKUP_AND_RECOVERY.md, Version compatibility). 1.10 is in review (PR 295: recordings upload requires asset-write and a filename that is exactly one component). Still open: 1.0e and 1.0i (CI-only; prompts in the prompts file), then 1.12.
+Status 2026-11-10: 1.0g merged (PR 291: two test-only wabi-consensus races fixed, 100 of 100 clean runs; one rare port-reuse race in the runtime cluster tests is left unfixed and needs a product change to pass a pre-bound listener, to be scheduled only if it keeps failing CI). 1.0k merged (PR 292: the payments acceptance workflow ran a browser smoke script that was never committed; the step is removed and PROJECT_STATUS says browser acceptance for direct payments is not automated). 1.0j merged (PR 293 at 7f675b8: Windows-safe stream directory names with dual decode; the Windows real-Authority smoke test passes for the first time; forward-only on disk, see BACKUP_AND_RECOVERY.md, Version compatibility). 1.10 merged (PR 295). 1.0e merged (PR 297: the office exports job creates an empty stand-in for the Authority sidecar; that workflow passes for the first time). 1.0i merged (PR 298: the Tauri bundle step retries only on a 5xx helper download, at most twice more). Still open in Phase 1.0: 1.0l, a wabi-consensus integration-test race (the PR 291 fix covers the unit-test binary only; `tests/storage_contract.rs` and `tests/encrypted_tcp_contract.rs` spawn children and can see a phantom lock owner; seen once in CI on PR 298), prompt in the prompts file; and the port-reuse race noted above.
 
 ## Phase 1: stop the bleeding (2 to 3 weeks, mostly Sonnet)
 
 These are independent. Each is one PR with a failing test first.
+
+**Status 2026-11-10: Phase 1 is complete.** Every task below is merged to `main`.
+
+| Task | PR | Note |
+|---|---|---|
+| 1.1 | 277 | |
+| 1.2 | 280 | Scope corrected during the task: only an all-zero remainder or an unsealed file's partial final entry is tolerated; anything else fails closed. |
+| 1.3 | 287 | Landed with the Windows fsync fixes (1.0f). |
+| 1.4 | 278 | |
+| 1.5 | 286 | Two admissions around the streamed body, so a slow upload never holds the membership gates. |
+| 1.6 | 275 | |
+| 1.7, 1.8 | 274 | PR 288 later made `features-full` run the Lore integration tests too. |
+| 1.9 | 279 | |
+| 1.10 | 295 | Asset-write role required; filename must be exactly `recordings/<one component>` (empty and `.` were accepted before review). |
+| 1.11 | 276 | |
+| 1.12 | 299 | k-way merge over stream directories; see the two consequences below. |
+
+Two consequences of 1.12 that later work must respect:
+
+- **Replay is stricter.** A stream directory whose indexed records are not in commit order now refuses startup with `Corrupt`; the old code sorted globally and started. No normal write path produces such a directory, but the first start of a build containing PR 299 on real data is the test. Try it on a stopped copy first (`docs/deployment/BACKUP_AND_RECOVERY.md`, Version compatibility).
+- **Replay applies while it validates.** The old code validated the whole log, then applied. Now a failure late in the log happens after earlier events were applied. Harmless today, because the read model is in memory and a failed open discards it. It is binding on Task 3.5: a persistent read model must wrap startup replay in one transaction, or delete and rebuild the file on failure.
+
+The memory bound of 1.12 is proven by a test counter (at most two decoded events per stream directory). Nobody has measured process memory at 1,000,000 messages on the new code; do that once before quoting a number.
 
 | # | Task | Finding | Model | You check |
 |---|---|---|---|---|
@@ -117,7 +140,7 @@ Model: Opus. You check: `ls -l` in the test output shows `-rw-------`.
 **Task 3.4 Message index keys.** Fix W7 so secondary indexes use the same id as the primary row, with a test that edits and deletes a message and asserts the index entry count.
 Model: Sonnet. You check: test exists.
 
-**Task 3.5 If B was chosen: projection migration.** One projection per PR, in this order: messages (already spiked), channels, channel_members, users, then the rest. Each PR: same behavior tests pass, plus a startup-from-log test that proves the SQLite file can be deleted and rebuilt.
+**Task 3.5 If B was chosen: projection migration.** Constraint from Task 1.12 (PR 299): startup replay applies events while it validates the log, so every projection moved to SQLite must be written inside one startup transaction that is rolled back if replay fails, or the file must be deleted and rebuilt from the log on failure. Add a test that injects a replay failure after some events were applied and asserts the SQLite file holds none of them. One projection per PR, in this order: messages (already spiked), channels, channel_members, users, then the rest. Each PR: same behavior tests pass, plus a startup-from-log test that proves the SQLite file can be deleted and rebuilt.
 Model: Opus/Fable for the first three, Sonnet after the pattern is set. You check: the "delete the SQLite file and restart" test exists in each PR.
 
 ---
