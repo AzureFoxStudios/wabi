@@ -17,14 +17,10 @@
 //!   snapshots + post-snapshot commit index entries.
 //! - **Subscription engine** (`subscription`): topic-based pub/sub with snapshot barrier,
 //!   resume, ticket-auth WebSocket, and membership revalidation.
-//! - **Ephemeral bus** (`ephemeral`): in-memory broadcast for events that must not survive
-//!   a crash (typing, call signals, cursor movement).
-//! - **Retention engine** (`retention`): per-scope TTL with cryptographic deletion (key
-//!   destruction + tombstone) and segment compaction.
+//! - **Retention** (`retention`): tombstone table and backup helpers.
 //! - **Blob store** (`blobs`): BLAKE3 content-addressed files, atomic write ordering, range
 //!   read protocol.
-//! - **Storage CLI** (`cli`): operator-facing tools (`wabidb check`, `dump-stream`,
-//!   `rebuild-indexes`, manifest-based backup).
+//! - **Storage CLI** (`cli`): operator-facing tools (`wabidb check`, `dump-stream`).
 //!
 //! ## Design references
 //!
