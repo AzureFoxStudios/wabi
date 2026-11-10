@@ -33,6 +33,61 @@ use crate::projections::handler::{DispatchTable, DurableEvent};
 use crate::sequencer::types::ReplayEnvelope;
 use crate::stream_log::segment_reader::SegmentReader;
 
+/// Test hook: how many decoded events replay holds at once (Task 1.12).
+///
+/// A [`Token`] lives beside every decoded event replay keeps; the peak is
+/// read by tests. Thread-local, so concurrent tests do not share it; replay
+/// runs on the test's current-thread runtime.
+#[cfg(test)]
+pub(crate) mod held_events {
+    use std::cell::Cell;
+
+    thread_local! {
+        static HELD: Cell<usize> = const { Cell::new(0) };
+        static PEAK: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(crate) struct Token(());
+
+    impl Token {
+        pub(crate) fn new() -> Self {
+            let held = HELD.with(|h| {
+                h.set(h.get() + 1);
+                h.get()
+            });
+            PEAK.with(|p| p.set(p.get().max(held)));
+            Token(())
+        }
+    }
+
+    impl Drop for Token {
+        fn drop(&mut self) {
+            HELD.with(|h| h.set(h.get() - 1));
+        }
+    }
+
+    /// Restart peak tracking from what is held right now.
+    pub(crate) fn reset() {
+        PEAK.with(|p| p.set(HELD.with(Cell::get)));
+    }
+
+    pub(crate) fn peak() -> usize {
+        PEAK.with(Cell::get)
+    }
+}
+
+#[cfg(not(test))]
+mod held_events {
+    pub(crate) struct Token;
+
+    impl Token {
+        #[inline(always)]
+        pub(crate) fn new() -> Self {
+            Token
+        }
+    }
+}
+
 /// Register the deterministic stream key for `stream_id` unless present.
 async fn ensure_derived_key(
     key_registry: &Mutex<StreamKeyRegistry>,
@@ -142,7 +197,7 @@ pub async fn replay_projections(
     // wabi.chat 2026-08-27). The sequencer assigns globally unique,
     // totally ordered commit_seqs; sorting restores exactly the order the
     // live dispatcher applied.
-    let mut collected: Vec<(usize, DurableEvent)> = Vec::new();
+    let mut collected: Vec<(usize, DurableEvent, held_events::Token)> = Vec::new();
     let mut recovered_events: HashMap<u64, std::collections::HashSet<usize>> = HashMap::new();
     let mut kind_reader = tokio::fs::read_dir(&streams_dir).await?;
 
@@ -348,6 +403,7 @@ pub async fn replay_projections(
                             event_type: envelope.event_type,
                             payload: envelope.payload,
                         },
+                        held_events::Token::new(),
                     ));
                 }
             }
@@ -384,11 +440,11 @@ pub async fn replay_projections(
             });
         }
     }
-    collected.sort_by_key(|(ordinal, event)| (event.commit_seq, *ordinal));
+    collected.sort_by_key(|(ordinal, event, _)| (event.commit_seq, *ordinal));
     if let Some(mut repair) = membership_repair.take() {
-        for (_, event) in collected
+        for (_, event, _) in collected
             .iter()
-            .filter(|(_, e)| e.commit_seq <= snapshot_watermark)
+            .filter(|(_, e, _)| e.commit_seq <= snapshot_watermark)
         {
             let hash: [u8; 16] = blake3::hash(event.stream_id.as_bytes()).as_bytes()[..16]
                 .try_into()
@@ -400,14 +456,14 @@ pub async fn replay_projections(
         repair.finish(projection_state)?;
     }
     if let Some(mut repair) = voice_repair.take() {
-        for (_, event) in collected.iter().filter(|(_, e)| e.commit_seq <= snapshot_watermark) {
+        for (_, event, _) in collected.iter().filter(|(_, e, _)| e.commit_seq <= snapshot_watermark) {
             repair.observe(event)?;
         }
         repair.finish(projection_state)?;
     }
-    for (_, event) in collected
+    for (_, event, _) in collected
         .iter()
-        .filter(|(_, e)| e.commit_seq > snapshot_watermark)
+        .filter(|(_, e, _)| e.commit_seq > snapshot_watermark)
     {
         if let Some(handler) = dispatch_table.get(&event.event_type) {
             handler.apply(event, projection_state).map_err(|e| {
@@ -555,5 +611,236 @@ mod tests {
             "replay applied events out of commit_seq order: {order:?}"
         );
         assert_eq!(*order.last().unwrap(), high);
+    }
+
+    fn test_config(path: &std::path::Path, bootstrap: [u8; 32]) -> WabiDbConfig {
+        WabiDbConfig {
+            data_dir: path.to_path_buf(),
+            bootstrap_source: BootstrapSource::Provided(bootstrap),
+            bootstrap_salt: None,
+            allow_init: true,
+            replication_config: None,
+            sync_transport: None,
+            test_boot_wallclock_override: None,
+        }
+    }
+
+    /// Three streams in three kind directories. Two engine incarnations, so
+    /// every stream has two segments; the second commit is one command that
+    /// writes all three streams.
+    const THREE: [(&str, u8); 3] = [("channels", 6), ("channels:ch_1", 1), ("dm:a", 2)];
+
+    async fn commit_all(engine: &crate::engine::WabiDbEngine, streams: &[(&str, u8)]) {
+        for (stream, _) in streams {
+            engine.get_or_create_stream_key(stream).await.unwrap();
+        }
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let cmd = CommandCommit {
+            room_owner_precondition: None,
+            caller_user_id: 1,
+            caller_device_id: "dev".into(),
+            command_name: "test_cmd".into(),
+            idempotency_key: None,
+            events: streams
+                .iter()
+                .map(|(stream, kind)| EventToWrite {
+                    stream_id: stream.to_string(),
+                    event_type: "test_event".into(),
+                    stream_kind: *kind,
+                    record_kind: RecordKind::Event,
+                    plaintext: stream.as_bytes().to_vec(),
+                })
+                .collect(),
+            essential: false,
+            response_tx: tx,
+        };
+        engine.run_command(cmd).await.unwrap();
+    }
+
+    /// Write `per_incarnation` single-stream commits round-robin over
+    /// `THREE`, in each of two engine incarnations (so two segments per
+    /// stream). Returns the number of events written.
+    async fn write_interleaved(path: &std::path::Path, bootstrap: [u8; 32], per_incarnation: u64) -> u64 {
+        let mut written = 0;
+        for _ in 0..2 {
+            let engine = crate::tests::reopen_after_drop(test_config(path, bootstrap), None)
+                .await
+                .unwrap();
+            for i in 0..per_incarnation {
+                let (stream, kind) = THREE[(i % 3) as usize];
+                commit(&engine, i, stream, kind).await;
+                written += 1;
+            }
+            drop(engine);
+            drop(crate::tests::wait_for_stopped_engine(path).await);
+        }
+        written
+    }
+
+    async fn replay_recording(
+        path: &std::path::Path,
+        bootstrap: [u8; 32],
+        snapshot_watermark: u64,
+    ) -> (Result<u64>, Vec<u64>) {
+        let state = Arc::new(ProjectionState::new());
+        let recorder = Arc::new(RecordingProjection {
+            order: Mutex::new(Vec::new()),
+        });
+        let table = DispatchTable::new(vec![recorder.clone()]).unwrap();
+        let registry = tokio::sync::Mutex::new(StreamKeyRegistry::new());
+        let barrier = LinearizabilityBarrier::new(state.clone());
+        let high = replay_projections(
+            path,
+            &registry,
+            &bootstrap,
+            &state,
+            &table,
+            &barrier,
+            snapshot_watermark,
+        )
+        .await;
+        let order = recorder.order.lock().unwrap().clone();
+        (high, order)
+    }
+
+    /// Task 1.12: three streams in three kind directories, commit_seqs
+    /// interleaved across them, two segments per stream and one commit
+    /// that spans all three. Replay applies exactly commit_seq order.
+    #[tokio::test]
+    async fn replay_applies_three_interleaved_streams_in_commit_seq_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bootstrap = [0xA1u8; 32];
+        let mut expected = Vec::new();
+        let mut seq = 0;
+        for incarnation in 0..2u64 {
+            let engine =
+                crate::tests::reopen_after_drop(test_config(tmp.path(), bootstrap), None)
+                    .await
+                    .unwrap();
+            for i in 0..7u64 {
+                if incarnation == 0 && i == 3 {
+                    commit_all(&engine, &THREE).await;
+                    seq += 1;
+                    expected.extend([seq; 3]);
+                    continue;
+                }
+                let (stream, kind) = THREE[((i * 2 + incarnation) % 3) as usize];
+                commit(&engine, i, stream, kind).await;
+                seq += 1;
+                expected.push(seq);
+            }
+            drop(engine);
+            drop(crate::tests::wait_for_stopped_engine(tmp.path()).await);
+        }
+
+        let (high, order) = replay_recording(tmp.path(), bootstrap, 0).await;
+        assert_eq!(order, expected, "replay order must be commit_seq order");
+        assert_eq!(high.unwrap(), seq);
+    }
+
+    /// Records the stream of every event a replay applies.
+    struct StreamRecorder(Mutex<Vec<String>>);
+
+    impl Projection for StreamRecorder {
+        fn event_type(&self) -> &str {
+            "test_event"
+        }
+
+        fn apply(&self, event: &DurableEvent, _state: &ProjectionState) -> Result<()> {
+            self.0.lock().unwrap().push(event.stream_id.clone());
+            Ok(())
+        }
+    }
+
+    /// Events of one commit apply in the command's event order, whatever
+    /// order their stream directories are walked in.
+    #[tokio::test]
+    async fn replay_applies_one_commits_events_in_command_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bootstrap = [0xA2u8; 32];
+        let streams = [THREE[2], THREE[0], THREE[1]];
+        {
+            let engine = crate::tests::reopen_after_drop(test_config(tmp.path(), bootstrap), None)
+                .await
+                .unwrap();
+            commit_all(&engine, &streams).await;
+            commit_all(&engine, &THREE).await;
+        }
+        drop(crate::tests::wait_for_stopped_engine(tmp.path()).await);
+
+        let state = Arc::new(ProjectionState::new());
+        let recorder = Arc::new(StreamRecorder(Mutex::new(Vec::new())));
+        let table = DispatchTable::new(vec![recorder.clone()]).unwrap();
+        let registry = tokio::sync::Mutex::new(StreamKeyRegistry::new());
+        let barrier = LinearizabilityBarrier::new(state.clone());
+        replay_projections(tmp.path(), &registry, &bootstrap, &state, &table, &barrier, 0)
+            .await
+            .unwrap();
+        let expected: Vec<String> = streams
+            .iter()
+            .chain(THREE.iter())
+            .map(|(stream, _)| stream.to_string())
+            .collect();
+        assert_eq!(*recorder.0.lock().unwrap(), expected);
+    }
+
+    /// Task 1.12: replay must not hold every post-snapshot event at once.
+    /// The decoded events alive at any moment are bounded by a small
+    /// constant times the number of stream directories, not by the total.
+    #[tokio::test]
+    async fn replay_holds_decoded_events_bounded_by_stream_count() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bootstrap = [0xA3u8; 32];
+        // More records per segment than one read-ahead batch.
+        let total = write_interleaved(tmp.path(), bootstrap, 150).await;
+
+        held_events::reset();
+        let (high, order) = replay_recording(tmp.path(), bootstrap, 0).await;
+        let peak = held_events::peak();
+        assert_eq!(high.unwrap(), total);
+        assert_eq!(order, (1..=total).collect::<Vec<_>>());
+        let streams = THREE.len();
+        assert!(
+            peak <= 2 * streams,
+            "replay held {peak} decoded events at once for {streams} streams and {total} events"
+        );
+    }
+
+    /// Task 1.12: the k-way merge relies on each stream directory holding
+    /// its indexed records in commit order. A directory whose indexed
+    /// records are out of order must refuse startup, not misapply.
+    #[tokio::test]
+    async fn replay_refuses_stream_directory_out_of_commit_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bootstrap = [0xA4u8; 32];
+        // "channels" gets seq 1 in segment 1 and seq 4 in segment 2.
+        write_interleaved(tmp.path(), bootstrap, 3).await;
+        let events = tmp.path().join("streams/other/channels/events");
+        let index_dir = tmp.path().join("global").join("commit-index");
+        let mut entries = crate::commit_index::batcher::read_all_entries(&index_dir).unwrap();
+        // Move segment 1 behind segment 2 and point its commit at the new
+        // name: every reference stays exact, only the order changes.
+        std::fs::rename(events.join("00000001.wseg"), events.join("00000003.wseg")).unwrap();
+        let first = entries.iter_mut().find(|e| e.commit_seq == 1).unwrap();
+        assert_eq!(first.event_refs[0].segment_id, 1);
+        first.event_refs[0].segment_id = 3;
+        std::fs::remove_dir_all(&index_dir).unwrap();
+        std::fs::create_dir_all(&index_dir).unwrap();
+        let (batcher, run) = crate::commit_index::batcher::new_batcher(index_dir.clone(), None, None);
+        let task = tokio::spawn(run);
+        for entry in entries {
+            batcher.submit(entry).unwrap();
+        }
+        batcher.flush_now().await.unwrap();
+        drop(batcher);
+        task.await.unwrap().unwrap();
+
+        let (result, _) = replay_recording(tmp.path(), bootstrap, 0).await;
+        let error = result.unwrap_err();
+        assert!(
+            matches!(error, crate::error::WabiError::Corrupt { .. })
+                && error.to_string().contains("out of commit order"),
+            "{error}"
+        );
     }
 }
