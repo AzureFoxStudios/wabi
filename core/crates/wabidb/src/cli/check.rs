@@ -33,6 +33,9 @@ pub struct CheckReport {
     pub errors: Vec<String>,
     pub warnings: Vec<String>,
     pub stats: CheckStats,
+    /// Indexed commits in `global/quarantine.json`, ascending. Startup skips
+    /// them, so damage to their records is not an error or counted in stats.
+    pub quarantined_commits: Vec<u64>,
 }
 
 /// Check the engine directory `data_dir`. `ok` is false if the manifest is
@@ -40,7 +43,8 @@ pub struct CheckReport {
 /// a directory whose name does not match its stream, the commit index has
 /// entries but no segment was found, or the segments do not hold exactly
 /// the records the commit index acknowledges (one missing, or stored with
-/// a payload whose hash differs from the index).
+/// a payload whose hash differs from the index), or `global/quarantine.json`
+/// is present but unreadable. Quarantined commits are listed, not checked.
 pub async fn check(data_dir: &Path) -> Result<CheckReport> {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
@@ -61,8 +65,10 @@ pub async fn check(data_dir: &Path) -> Result<CheckReport> {
             errors: vec!["missing storage-manifest.json".into()],
             warnings,
             stats,
+            quarantined_commits: Vec::new(),
         });
     }
+    let quarantine = super::quarantine_for_report(data_dir, &mut errors);
 
     let index_dir = data_dir.join("global").join("commit-index");
     // Without a readable index there is nothing to match records against;
@@ -70,7 +76,7 @@ pub async fn check(data_dir: &Path) -> Result<CheckReport> {
     let mut indexed = match crate::commit_index::batcher::read_all_entries(&index_dir) {
         Ok(entries) => {
             stats.indexed_commits = entries.len();
-            Some(super::IndexedRecords::new(&entries))
+            Some(super::IndexedRecords::new(&entries, &quarantine))
         }
         Err(e) => {
             errors.push(format!("cannot read commit index {}: {e}", index_dir.display()));
@@ -127,12 +133,20 @@ pub async fn check(data_dir: &Path) -> Result<CheckReport> {
         }
     }
 
+    let mut quarantined_commits = Vec::new();
     if let Some(indexed) = indexed {
         let matched = indexed.finish();
         stats.corrupt_records = matched.corrupt_records;
         stats.missing_records = matched.missing_records;
         stats.orphan_records = matched.orphan_records;
         errors.extend(matched.errors());
+        quarantined_commits = matched.quarantined_commits;
+    }
+    if !quarantined_commits.is_empty() {
+        warnings.push(format!(
+            "commits {quarantined_commits:?} are quarantined (global/quarantine.json): \
+             startup skips them and their records are not checked"
+        ));
     }
 
     if stats.total_segments == 0 && stats.indexed_commits > 0 {
@@ -148,6 +162,7 @@ pub async fn check(data_dir: &Path) -> Result<CheckReport> {
         errors,
         warnings,
         stats,
+        quarantined_commits,
     })
 }
 
@@ -274,6 +289,61 @@ mod tests {
         let reopened =
             crate::tests::reopen_after_drop(crate::cli::test_support::config(dir.path()), None).await;
         assert!(reopened.is_err(), "the engine started on a tree with a corrupt indexed record");
+    }
+
+    /// Task 3.2: a quarantined commit is reported as quarantined, not as
+    /// damage, and the engine that refused it starts once it is quarantined.
+    #[tokio::test]
+    async fn quarantined_corrupt_commit_is_reported_as_quarantined() {
+        let dir = tempfile::tempdir().unwrap();
+        real_engine_tree(dir.path()).await;
+        let segment = channel_segment(dir.path());
+        let mut bytes = std::fs::read(&segment).unwrap();
+        bytes[crate::format::record::HEADER_LEN as usize] ^= 0xFF; // commit 1
+        std::fs::write(&segment, &bytes).unwrap();
+        let _ = std::fs::remove_file(dir.path().join("projections").join("snapshot.json"));
+        let config = crate::cli::test_support::config(dir.path());
+        let refused = crate::tests::reopen_after_drop(config.clone(), None).await;
+        let error = refused.err().expect("the engine started on a corrupt indexed record");
+        assert!(error.to_string().contains("commit 1"), "{error}");
+
+        crate::cli::quarantine::quarantine(dir.path(), 1).unwrap();
+
+        let report = check(dir.path()).await.unwrap();
+        assert!(report.ok, "{report:#?}");
+        assert_eq!(report.quarantined_commits, vec![1]);
+        assert_eq!(report.stats.corrupt_records, 0);
+        assert!(report.warnings.iter().any(|w| w.contains("[1] are quarantined")), "{report:#?}");
+        let verified = crate::cli::verify::verify(dir.path()).await.unwrap();
+        assert!(verified.ok, "{verified:#?}");
+        assert_eq!(verified.quarantined_commits, vec![1]);
+
+        // Damage outside the quarantined commit is still an error.
+        let len = std::fs::metadata(&segment).unwrap().len();
+        std::fs::OpenOptions::new().write(true).open(&segment).unwrap().set_len(len - 1).unwrap();
+        let report = check(dir.path()).await.unwrap();
+        assert!(!report.ok, "{report:#?}");
+        assert_eq!(report.stats.missing_records, 1);
+        assert!(!crate::cli::verify::verify(dir.path()).await.unwrap().ok);
+        std::fs::OpenOptions::new().write(true).open(&segment).unwrap().set_len(len).unwrap();
+        std::fs::write(&segment, &bytes).unwrap();
+
+        // The engine needs none of commit 1's records now.
+        let engine = crate::tests::reopen_after_drop(config, None).await.unwrap();
+        assert_eq!(engine.projection_state().applied_commit_seq(), 4);
+    }
+
+    /// An unreadable quarantine file stops startup, so it is an error here.
+    #[tokio::test]
+    async fn unreadable_quarantine_file_is_not_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        real_engine_tree(dir.path()).await;
+        std::fs::write(crate::engine::quarantine::path(dir.path()), b"not json").unwrap();
+        let report = check(dir.path()).await.unwrap();
+        assert!(!report.ok, "{report:#?}");
+        assert!(report.errors.iter().any(|e| e.contains("quarantine.json")), "{report:#?}");
+        let verified = crate::cli::verify::verify(dir.path()).await.unwrap();
+        assert!(!verified.ok, "{verified:#?}");
     }
 
     /// A segment cut short loses its last record, which the index still

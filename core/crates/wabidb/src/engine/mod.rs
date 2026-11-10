@@ -11,6 +11,7 @@ pub mod checkpoint;
 mod membership_repair;
 pub mod node_identity;
 pub mod offline_inspect;
+pub(crate) mod quarantine;
 pub mod replay;
 pub mod wabi_store;
 
@@ -366,6 +367,20 @@ impl WabiDbEngine {
             update_manifest_high_seq(data_dir, recovered_high_seq);
         }
 
+        // 8.2 Replay has already refused an unreadable quarantine file. A
+        // listed seq above everything on disk would be given to the next real
+        // write, which the dispatcher would then skip.
+        let quarantined = quarantine::load(data_dir)?;
+        if let Some(seq) = quarantined.iter().find(|seq| **seq > recovered_high_seq) {
+            return Err(WabiError::Corrupt {
+                location: quarantine::path(data_dir).display().to_string(),
+                detail: format!(
+                    "lists commit {seq}, above every commit on disk ({recovered_high_seq}); \
+                     the next write would receive that seq and be skipped"
+                ),
+            });
+        }
+
         // 9. Create command channel and acquire the sequencer permit
         let (cmd_tx, cmd_rx) = mpsc::channel::<CommandCommit>(1024);
         let sem = Arc::new(Semaphore::new(1));
@@ -378,6 +393,7 @@ impl WabiDbEngine {
             Some(data_dir.clone()),
             Some(1000),
             Some(Arc::clone(&process_lock)),
+            quarantined,
         )?;
         let dispatcher_tx = dispatcher_handle.sender;
         let dispatcher_task = dispatcher_handle.handle;
@@ -1487,6 +1503,18 @@ fn build_type_registry() -> Result<crate::projections::registry::TypeRegistry> {
             record_type_name: "",
         },
     ];
+    // Task 3.2 tests need a handler that fails on a chosen payload.
+    #[cfg(test)]
+    let entries = {
+        let mut entries = entries;
+        entries.push(ProjectionRegistration {
+            event_types: &[crate::projections::test_poison::EVENT_TYPE],
+            handler: Arc::new(crate::projections::test_poison::PoisonProjection),
+            index_name: crate::projections::test_poison::INDEX,
+            record_type_name: "",
+        });
+        entries
+    };
     TypeRegistry::new(entries)
 }
 
@@ -1501,6 +1529,9 @@ mod workspace_admission_tests;
 
 #[cfg(test)]
 mod stream_dir_tests;
+
+#[cfg(test)]
+mod quarantine_tests;
 
 #[cfg(test)]
 mod tests {
