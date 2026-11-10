@@ -9,10 +9,10 @@ Usage: start a **new** session for each task, paste the **preamble** first, then
 ## Preamble (paste at the top of every session)
 
 ```
-Read AGENTS.md and docs/plans/2026-11-06-backend-plan.md before doing anything. Then do ONLY the task I paste after this. Create a new branch off main for it, named after the task.
+Read AGENTS.md and docs/plans/2026-11-06-backend-plan.md before doing anything. Then do ONLY the task I paste after this. Work on the branch this session was assigned; if none was assigned, create a new branch off main named after the task.
 
 Rules for this task:
-1. Write a test that reproduces the problem and fails on main before changing any code. Show me the failing output.
+1. Write a test that reproduces the problem and fails on main before changing any code. Show me the failing output. If the change is CI configuration or documentation with nothing to unit test, say so; the failing CI run is the reproduction and the same job passing on the PR is the proof.
 2. Change the smallest amount of code that makes the test pass. No drive-by refactors.
 3. Do not edit any file under docs/ unless the task says to. If a doc claim is now false, list it at the end instead.
 4. Do not add a feature, module, or abstraction that the task did not ask for.
