@@ -22,6 +22,7 @@
 	import { missingDeviceParticipantLabel } from '$lib/dmPresentation';
 	import { showToast } from '$lib/toast';
 	import { normalizeMessageRetentionDuration } from '../../../../shared/messageRetention.js';
+	import { NO_KEY_NOTICE, hasNoKeyMessages } from '$lib/e2eeUnreadable';
 	import { dmEncryptionError, dmGateActionView, dmRetentionChoice, dmRetentionControlLabel, dmRetentionOptions, dmRetentionPhrase, dmSendGate, type DmActionError, type DmEncryptionAction, type DmSendGateActionId } from '$lib/dm/dmConversationCopy';
 	import type { MenuEntry } from '$lib/components/context-menu/ContextMenu.svelte';
 	import Icon from '$lib/components/ui/Icon.svelte';
@@ -67,6 +68,7 @@
 	$: displayName = isGroup ? activeChannel?.name || 'Group message' : otherUser?.username || 'Direct message';
 	$: messagesForChannel = channelMessagesStore(channelId);
 	$: messages = $messagesForChannel || [];
+	$: showNoKeyNotice = hasNoKeyMessages(messages);
 	$: filteredMessages = filterMessages(messages, '', Number.POSITIVE_INFINITY);
 	$: pinnedMessages = messages.filter((message: Message) => message.isPinned);
 	$: selectedRetention = dmRetentionChoice(activeChannel);
@@ -406,6 +408,13 @@
 				</button>
 			{/if}
 			<div class="dm-conversation-composer" class:gated={Boolean(sendGate)}>
+				{#if showNoKeyNotice}
+					<div class="w-notice dm-notice" role="status">
+						<Icon name="alert" size={16} />
+						<p class="w-notice__title">{NO_KEY_NOTICE.title}</p>
+						<p class="w-notice__text">{NO_KEY_NOTICE.text}</p>
+					</div>
+				{/if}
 				{#if e2eeError && !(sendGate?.kind === 'checking' && e2eeError.action === 'check')}
 					<div class="w-notice dm-notice" role="alert">
 						<Icon name="alert" size={16} />

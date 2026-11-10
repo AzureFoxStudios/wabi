@@ -4,6 +4,7 @@ import { getAuthToken } from '$lib/authSession';
 import { tryRefresh } from '$lib/api/authRefresh';
 import { getServerUrl } from '$lib/serverUrl';
 import type { Message } from '$lib/socket-types';
+import { E2eeNoKeyError, classifyUnreadable, unreadableMessageText, type E2eeUnreadableClass } from './e2eeUnreadable';
 import type { AttachmentEncryptionMeta } from '../../../packages/wabi-protocol/src';
 
 export const E2EE_MESSAGE_PREFIX = 'wabi-e2ee-v1:';
@@ -103,6 +104,7 @@ export type E2eePreparedMessage = Message & {
 	e2eeEpoch?: number;
 	e2eeSenderDeviceId?: string;
 	e2eeError?: string;
+	e2eeUnreadable?: E2eeUnreadableClass;
 };
 
 export class E2eeTrustError extends Error {
@@ -485,11 +487,11 @@ async function currentRoomKey(channelId: string, epoch: number, status?: E2eeRoo
 	if (cached) return cached;
 	const room = status ?? await getE2eeRoomStatus(channelId);
 	if (!room.enabled || room.epoch !== epoch) {
-		throw new Error('This device does not have the historical E2EE key for that message epoch.');
+		throw new E2eeNoKeyError('This device does not have the historical E2EE key for that message epoch.');
 	}
 	const identity = await ensureE2eeDeviceRegistered();
 	const envelope = room.keyEnvelopes.find((entry) => entry.recipientDeviceId === identity.deviceId);
-	if (!envelope) throw new Error('This device was not a recipient of the current E2EE room key. Rekey the room from a participant device.');
+	if (!envelope) throw new E2eeNoKeyError('This device was not a recipient of the current E2EE room key. Rekey the room from a participant device.');
 	const sender = room.devices.find((device) => device.deviceId === envelope.senderDeviceId);
 	if (!sender) throw new Error('The E2EE room-key sender device is no longer available for verification.');
 	await pinDevice(sender, true);
@@ -646,7 +648,7 @@ export async function prepareIncomingE2eeMessage(channelId: string, message: Mes
 	// headed for the screen: never hand the raw envelope back to the
 	// renderer. The store's contract is authenticated plaintext or a safe
 	// failure marker, never the encrypted bytes.
-	if (!envelope) return undecryptableMessage(message, 'envelope_did_not_parse');
+	if (!envelope) return undecryptableMessage(message, 'envelope_did_not_parse', 'failed-check');
 	try {
 		if (envelope.room !== channelId) throw new Error('Encrypted message room mismatch.');
 		const senderUserId = normalizeMessageUserId(message.userId);
@@ -695,7 +697,7 @@ export async function prepareIncomingE2eeMessage(channelId: string, message: Mes
 		};
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : 'Unable to decrypt message.';
-		return undecryptableMessage(message, detail);
+		return undecryptableMessage(message, detail, classifyUnreadable(error));
 	}
 }
 
@@ -704,15 +706,16 @@ export async function prepareIncomingE2eeMessage(channelId: string, message: Mes
  * prefix on the text marks ciphertext, and ciphertext must never reach the
  * screen, the search index, or a notification.
  */
-function undecryptableMessage(message: Message, detail: string): E2eePreparedMessage {
+function undecryptableMessage(message: Message, detail: string, kind: E2eeUnreadableClass): E2eePreparedMessage {
 	return {
 		...message,
-		text: '[Unable to decrypt this end-to-end encrypted message on this device]',
+		text: unreadableMessageText(kind),
 		type: 'text' as Message['type'],
 		encrypted: true,
 		e2ee: true,
 		e2eeVerified: false,
-		e2eeError: detail
+		e2eeError: detail,
+		e2eeUnreadable: kind
 	};
 }
 
