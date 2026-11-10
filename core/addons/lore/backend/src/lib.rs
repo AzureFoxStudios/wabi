@@ -2676,11 +2676,15 @@ async fn walk_working_tree_files(root: &std::path::Path) -> Vec<String> {
     out
 }
 
-/// True when `dir` exists and has at least one entry.
+/// True unless `dir` is known to hold nothing: it is missing, or it is a
+/// directory that lists as empty. Anything else counts as occupied,
+/// including a path that exists but cannot be listed (permissions, an I/O
+/// error, not a directory). A listing error is not proof of emptiness, and
+/// the caller deletes on "empty".
 async fn dir_is_non_empty(dir: &std::path::Path) -> bool {
     match tokio::fs::read_dir(dir).await {
-        Ok(mut entries) => matches!(entries.next_entry().await, Ok(Some(_))),
-        Err(_) => false,
+        Ok(mut entries) => !matches!(entries.next_entry().await, Ok(None)),
+        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
     }
 }
 
@@ -2696,10 +2700,19 @@ async fn working_tree_is_pristine(dir: &std::path::Path) -> bool {
         Box::pin(async move {
             let mut entries = match tokio::fs::read_dir(dir).await {
                 Ok(e) => e,
-                // Missing/unreadable tree — nothing to protect, treat as pristine.
-                Err(_) => return true,
+                // A missing tree has nothing to protect.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return true,
+                // A tree that cannot be listed is not known to be empty, and
+                // the caller replaces a pristine tree. Fail closed.
+                Err(_) => return false,
             };
-            while let Ok(Some(entry)) = entries.next_entry().await {
+            loop {
+                let entry = match entries.next_entry().await {
+                    Ok(Some(entry)) => entry,
+                    Ok(None) => break,
+                    // Same rule for an error part-way through the listing.
+                    Err(_) => return false,
+                };
                 if top {
                     // Seeded repo furniture: lore metadata, the Wabi sidecar
                     // state file, ignore files, and the mirror clone cache.
@@ -3182,6 +3195,36 @@ mod tests {
         let result = service.import_from_git(42, 1, "Imported", source.path().to_str().unwrap()).await;
         assert!(matches!(result, Err(LoreImportError::TreeExists)), "got {result:?}");
         assert_eq!(std::fs::read(&asset).unwrap(), b"real asset");
+    }
+
+    /// The channel's path exists but cannot be listed as a directory. The
+    /// check must not read that as "empty": a listing error is not proof
+    /// that nothing is there. Here the path is a regular file, which fails
+    /// the same way for every user, root included.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn import_refuses_when_the_existing_path_cannot_be_listed() {
+        use std::os::unix::fs::PermissionsExt;
+        let source = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        std::fs::write(source.path().join("hello.txt"), b"upstream").unwrap();
+        fixture_git_repo(source.path()).await;
+        let cli = data.path().join("lore-fixture");
+        std::fs::write(&cli, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let repos = data.path().join("repos");
+        std::fs::create_dir_all(&repos).unwrap();
+        let occupied = repos.join("42");
+        std::fs::write(&occupied, b"not a directory, still someone's data").unwrap();
+        let service = LoreService::new(LoreConfig {
+            mode: LoreMode::Embedded,
+            lore_data_dir: repos,
+            lore_binary_path: cli,
+            ..LoreConfig::default()
+        });
+        let result = service.import_from_git(42, 1, "Imported", source.path().to_str().unwrap()).await;
+        assert!(matches!(result, Err(LoreImportError::TreeExists)), "got {result:?}");
+        assert_eq!(std::fs::read(&occupied).unwrap(), b"not a directory, still someone's data");
     }
 
     #[tokio::test]
