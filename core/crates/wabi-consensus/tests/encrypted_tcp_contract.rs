@@ -21,6 +21,8 @@ use wabi_consensus::{
     ConsensusTypes,
 };
 
+mod common;
+
 type Node = Raft<ConsensusTypes>;
 type Cuts = Arc<RwLock<BTreeSet<(u64, u64)>>>;
 struct Proxy {
@@ -201,7 +203,7 @@ impl Cluster {
         let root = self.root.path().join(format!("node-{id}"));
         let store = tokio::time::timeout(Duration::from_secs(2), async {
             loop {
-                match Store::open(&root, binding(id), StoreLimits::default()) {
+                match common::open_store(&root, binding(id), StoreLimits::default()) {
                     Ok(store) => break store,
                     Err(StoreError::Ownership) => {
                         tokio::time::sleep(Duration::from_millis(10)).await
@@ -903,7 +905,8 @@ mod processes {
             .with_bind_address(config.bind_address)
             .unwrap(),
         );
-        let store = Store::open(&root, config.binding.clone(), StoreLimits::default()).unwrap();
+        let store =
+            common::open_store(&root, config.binding.clone(), StoreLimits::default()).unwrap();
         let options = Arc::new(worker_raft_config(config.raft_timing.as_ref()));
         let raft = Node::new(
             id,
@@ -1068,21 +1071,22 @@ mod processes {
     }
     impl Process {
         fn start(node_id: u64, root: PathBuf, owner: String) -> Self {
-            let child = Command::new(std::env::current_exe().unwrap())
-                .args([
-                    "--exact",
-                    "processes::separate_process_recovery_worker",
-                    "--ignored",
-                    "--test-threads=1",
-                ])
-                .env_clear()
-                .env("WABI_RPC_FIXTURE_ROOT", &root)
-                .env("WABI_RPC_FIXTURE_OWNER", &owner)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .unwrap();
+            let child = common::spawn(
+                Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "--exact",
+                        "processes::separate_process_recovery_worker",
+                        "--ignored",
+                        "--test-threads=1",
+                    ])
+                    .env_clear()
+                    .env("WABI_RPC_FIXTURE_ROOT", &root)
+                    .env("WABI_RPC_FIXTURE_OWNER", &owner)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null()),
+            )
+            .unwrap();
             Self {
                 child,
                 node_id,
@@ -1176,22 +1180,23 @@ mod processes {
         node_id: u64,
         owner: &str,
     ) -> (bool, Option<PublicIdentity>) {
-        let child = Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "processes::separate_process_identity_bootstrap",
-                "--ignored",
-                "--nocapture",
-                "--test-threads=1",
-            ])
-            .env_clear()
-            .env("WABI_RPC_FIXTURE_ROOT", root)
-            .env("WABI_RPC_FIXTURE_OWNER", owner)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
+        let child = common::spawn(
+            Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "processes::separate_process_identity_bootstrap",
+                    "--ignored",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env_clear()
+                .env("WABI_RPC_FIXTURE_ROOT", root)
+                .env("WABI_RPC_FIXTURE_OWNER", owner)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null()),
+        )
+        .unwrap();
         // Reuse the direct-child drop backstop: a deadline/panicking parent
         // cannot leave this known child alive when its TempDir is removed.
         let mut process = Process {

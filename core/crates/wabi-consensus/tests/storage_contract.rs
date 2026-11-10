@@ -11,6 +11,8 @@ use wabi_consensus::{
     ConsensusTypes, Entry, LogId,
 };
 
+mod common;
+
 fn private_root() -> tempfile::TempDir {
     let root = tempfile::tempdir().unwrap();
     #[cfg(unix)]
@@ -71,7 +73,7 @@ fn data(index: u64, command: ControlCommand) -> Entry {
     }
 }
 fn open(root: &std::path::Path, node: u64) -> Store {
-    Store::open(root, binding(node), StoreLimits::default()).unwrap()
+    common::open_store(root, binding(node), StoreLimits::default()).unwrap()
 }
 
 struct Builder;
@@ -269,7 +271,7 @@ async fn stale_wrong_community_and_changed_snapshot_metadata_refuse() {
     let c = private_root();
     let mut different = binding(3);
     different.community_id = "ef".repeat(32);
-    let mut foreign = Store::open(c.path(), different, StoreLimits::default()).unwrap();
+    let mut foreign = common::open_store(c.path(), different, StoreLimits::default()).unwrap();
     let snapshot = source.build_snapshot().await.unwrap();
     assert!(foreign
         .install_snapshot(&snapshot.meta, snapshot.snapshot)
@@ -343,7 +345,7 @@ async fn budgets_refuse_before_snapshot_allocation_or_log_publication() {
     let root = private_root();
     let mut limits = StoreLimits::default();
     limits.max_log_bytes = 128;
-    let mut store = Store::open(root.path(), binding(1), limits).unwrap();
+    let mut store = common::open_store(root.path(), binding(1), limits).unwrap();
     assert!(store.blocking_append([membership(0)]).await.is_err());
     assert_eq!(store.get_log_state().await.unwrap().last_log_id, None);
     drop(store);
@@ -356,12 +358,12 @@ fn identity_and_exclusive_private_root_do_not_silently_reset() {
     let root = private_root();
     let store = open(root.path(), 1);
     assert!(matches!(
-        Store::open(root.path(), binding(1), StoreLimits::default()),
+        common::open_store(root.path(), binding(1), StoreLimits::default()),
         Err(StoreError::Ownership)
     ));
     drop(store);
     assert!(matches!(
-        Store::open(root.path(), binding(2), StoreLimits::default()),
+        common::open_store(root.path(), binding(2), StoreLimits::default()),
         Err(StoreError::Format)
     ));
     let store = open(root.path(), 1);
@@ -372,14 +374,14 @@ fn identity_and_exclusive_private_root_do_not_silently_reset() {
         let root = private_root();
         std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
         assert!(matches!(
-            Store::open(root.path(), binding(1), StoreLimits::default()),
+            common::open_store(root.path(), binding(1), StoreLimits::default()),
             Err(StoreError::Ownership)
         ));
         std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         let elsewhere = tempfile::NamedTempFile::new().unwrap();
         symlink(elsewhere.path(), root.path().join(".lock")).unwrap();
         assert!(matches!(
-            Store::open(root.path(), binding(1), StoreLimits::default()),
+            common::open_store(root.path(), binding(1), StoreLimits::default()),
             Err(StoreError::Ownership)
         ));
     }
@@ -496,7 +498,7 @@ async fn killed_process_preserves_acknowledged_vote_logs_commit_applied_receipt_
         if applied {
             process.env("WABI_CONSENSUS_KILL_APPLIED", "1");
         }
-        let mut child = OwnedChild(process.spawn().unwrap());
+        let mut child = OwnedChild(common::spawn(&mut process).unwrap());
         let output = child.0.stdout.take().unwrap();
         let (sender, ready) = std::sync::mpsc::channel();
         let drain = std::thread::spawn(move || {
