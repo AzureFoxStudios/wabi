@@ -1,6 +1,5 @@
 pub mod anti_entropy;
 pub mod config;
-pub mod failover;
 pub mod observability;
 pub mod rate_limit;
 pub mod snapshot_shipping;
