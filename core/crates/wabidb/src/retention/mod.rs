@@ -3,6 +3,5 @@
 pub mod compaction;
 pub mod data_backup;
 pub mod manifest_backup;
-pub mod reaper;
 pub mod tombstone;
 pub mod verify_backup;
