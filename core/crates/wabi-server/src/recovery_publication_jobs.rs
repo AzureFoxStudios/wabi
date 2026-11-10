@@ -337,7 +337,16 @@ async fn publish(inner: Arc<Inner>, state: Arc<AppState>, capture: &str,
     let result = publish_inner(inner.clone(), state, capture, operation, deadline, admitted).await;
     // Every error is treated as potentially indeterminate. Close publication
     // admission and drain actual runtime owners before releasing source guards.
-    if result.is_err() { inner.close(); }
+    if let Err(error) = &result {
+        // The status view reports only `publication_indeterminate`, so the
+        // cause is recorded here; nothing else keeps it.
+        tracing::error!(capture, error = ?error, "original publication failed; admission closed");
+        // Test processes install no log subscriber. The isolated children's
+        // stderr is what a failing parent test prints.
+        #[cfg(test)]
+        eprintln!("original publication failed for {capture}: {error:?}");
+        inner.close();
+    }
     result
 }
 async fn publish_inner(inner: Arc<Inner>, state: Arc<AppState>, capture: &str,
