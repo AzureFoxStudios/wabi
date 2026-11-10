@@ -41,7 +41,6 @@ pub mod cli;
 pub mod commands;
 pub mod commit_index;
 pub mod crypto;
-pub mod ephemeral;
 pub mod engine;
 pub mod error;
 pub mod format;
