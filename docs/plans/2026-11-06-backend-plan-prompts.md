@@ -502,6 +502,29 @@ Remove the corresponding routes and handlers in core/crates/wabi-server/src/api/
 
 You check: `grep -n "scripts\|editor\|mirror/run" core/crates/wabi-server/src/api/lore.rs` shows no routes.
 
+### Task 2.6 Honest state for encrypted messages a device cannot read (Sonnet)
+
+```
+TASK 2.6. Frontend only. Read AGENTS.md golden rules 2, 3, 7 and 13 first. Do not change the encryption protocol, key handling, the server, or any stored format.
+
+Problem: frontend/src/lib/e2ee.ts, prepareIncomingE2eeMessage. Every failure to open an encrypted message goes through undecryptableMessage and shows the same line: "[Unable to decrypt this end-to-end encrypted message on this device]". So a device that was registered after the message was sent, which is expected and harmless, looks exactly like a failed signature check or a room mismatch, which is not. The wording also says "end-to-end encrypted" with no qualifier; rule 13 requires this encryption to be labelled experimental and never implied to be independently verified or operator-blind.
+
+Do this:
+1. List every way prepareIncomingE2eeMessage can fail today (read the code; include what currentRoomKey and getE2eeRoomStatus throw). Sort each into one of two classes: "this device has no key for this message" (the device was not a recipient for that epoch) or "the message failed a check" (signature, room mismatch, unknown sender device, malformed envelope or payload). If a cause cannot be told apart from the error available, say so in the report rather than guessing; put it in the second class.
+2. Carry the class on the prepared message as a typed field next to e2eeError, not by matching error strings in components. Preserve message identity exactly as it is (rule 3): do not touch id or clientMessageId handling.
+3. Wording. The first class says plainly that this message was sent before this device joined the conversation's experimental encryption and cannot be shown here, and that it is still readable on the device that had the key. The second class says the message could not be verified and is not shown. Neither may say "end-to-end encrypted" without "experimental", and neither may suggest the server cannot read anything. Never render ciphertext.
+4. When a conversation contains first-class messages, show one notice for the conversation using the existing notice pattern in the DM view (the w-notice block in DMMessageView.svelte), instead of relying on the repeated per-message line alone. Follow the patterns already in that component; do not add a new store or navigation path.
+5. Check every other place that prints the old fixed line or tests for it (search the frontend for the old text and for e2eeVerified) and keep them consistent, including notifications and search indexing, which must keep excluding these messages.
+
+Tests first: unit tests for the classification, one per failure cause, that fail on main because the class field does not exist. Then the change. Run `bun run check` and the frontend unit tests.
+
+Rule 7 applies: say plainly in the report whether you saw this in a real browser. If you did not, say that visual acceptance is still owed; do not describe how it looks.
+
+Report: a table of failure cause, class, and the exact text shown.
+```
+
+You check: the table has a row for every cause, and the report says whether a real browser was used.
+
 ---
 
 ## Phase 3: make stored data safe to evolve
