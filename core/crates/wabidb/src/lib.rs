@@ -17,7 +17,7 @@
 //!   snapshots + post-snapshot commit index entries.
 //! - **Subscription engine** (`subscription`): topic-based pub/sub with snapshot barrier,
 //!   resume, ticket-auth WebSocket, and membership revalidation.
-//! - **Retention** (`retention`): tombstone table and backup helpers.
+//! - **Retention** (`retention`): backup helpers.
 //! - **Blob store** (`blobs`): BLAKE3 content-addressed files, atomic write ordering, range
 //!   read protocol.
 //! - **Storage CLI** (`cli`): operator-facing tools (`wabidb check`, `dump-stream`).
