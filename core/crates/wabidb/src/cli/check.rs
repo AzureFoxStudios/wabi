@@ -44,7 +44,9 @@ pub struct CheckReport {
 /// entries but no segment was found, or the segments do not hold exactly
 /// the records the commit index acknowledges (one missing, or stored with
 /// a payload whose hash differs from the index), or `global/quarantine.json`
-/// is present but unreadable. Quarantined commits are listed, not checked.
+/// or `projections/snapshot.json` is present but unreadable, or the
+/// quarantine list names a commit above everything on disk. Quarantined
+/// commits are listed, not checked.
 pub async fn check(data_dir: &Path) -> Result<CheckReport> {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
@@ -69,6 +71,7 @@ pub async fn check(data_dir: &Path) -> Result<CheckReport> {
         });
     }
     let quarantine = super::quarantine_for_report(data_dir, &mut errors);
+    let snapshot_watermark = super::snapshot_watermark_for_report(data_dir, &mut errors);
 
     let index_dir = data_dir.join("global").join("commit-index");
     // Without a readable index there is nothing to match records against;
@@ -76,7 +79,10 @@ pub async fn check(data_dir: &Path) -> Result<CheckReport> {
     let mut indexed = match crate::commit_index::batcher::read_all_entries(&index_dir) {
         Ok(entries) => {
             stats.indexed_commits = entries.len();
-            Some(super::IndexedRecords::new(&entries, &quarantine))
+            Some(
+                super::IndexedRecords::new(&entries, &quarantine)
+                    .with_snapshot_watermark(snapshot_watermark),
+            )
         }
         Err(e) => {
             errors.push(format!("cannot read commit index {}: {e}", index_dir.display()));
@@ -413,5 +419,71 @@ mod tests {
             "{report:#?}"
         );
         assert!(!crate::cli::verify::verify(dir.path()).await.unwrap().ok);
+    }
+
+    /// The engine refuses to start on a snapshot it cannot parse, and the
+    /// watermark cannot be read from one, so that is an error here too.
+    #[tokio::test]
+    async fn unreadable_snapshot_is_not_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        real_engine_tree(dir.path()).await;
+        let snapshot = crate::engine::locks::ProjectionState::snapshot_path(dir.path());
+        let bytes = std::fs::read(&snapshot).unwrap();
+        std::fs::write(&snapshot, &bytes[..bytes.len() / 2]).unwrap();
+
+        let reopened =
+            crate::tests::reopen_after_drop(crate::cli::test_support::config(dir.path()), None).await;
+        assert!(reopened.is_err(), "the engine started on half a snapshot");
+
+        let report = check(dir.path()).await.unwrap();
+        assert!(!report.ok, "{report:#?}");
+        assert!(
+            report.errors.iter().any(|e| e.contains("cannot read projections/snapshot.json")),
+            "{report:#?}"
+        );
+        assert!(!crate::cli::verify::verify(dir.path()).await.unwrap().ok);
+    }
+
+    /// The engine also counts its checkpoint watermark toward the height a
+    /// quarantined seq must stay under. With the index and segments lost and
+    /// the checkpoint left, it starts with a list the index alone would call
+    /// "above every commit", so `check` and `verify` must not say it refuses.
+    #[tokio::test]
+    async fn quarantine_entry_under_the_snapshot_watermark_is_not_reported() {
+        const REFUSAL: &str = "above every commit on disk";
+        let dir = tempfile::tempdir().unwrap();
+        real_engine_tree(dir.path()).await;
+        let (_, watermark) =
+            crate::engine::locks::ProjectionState::load_snapshot(dir.path()).unwrap().unwrap();
+        assert_eq!(watermark, 4, "the engine left a checkpoint at its last commit");
+
+        remove_segments(dir.path());
+        for file in std::fs::read_dir(dir.path().join("global").join("commit-index")).unwrap() {
+            std::fs::remove_file(file.unwrap().path()).unwrap();
+        }
+        let list = crate::engine::quarantine::path(dir.path());
+        std::fs::write(&list, br#"{"version":1,"commit_seqs":[3]}"#).unwrap();
+
+        let reopened =
+            crate::tests::reopen_after_drop(crate::cli::test_support::config(dir.path()), None).await;
+        assert!(reopened.is_ok(), "the engine refused a seq under its checkpoint: {:?}", reopened.err());
+        drop(reopened);
+        drop(crate::tests::wait_for_stopped_engine(dir.path()).await);
+
+        let report = check(dir.path()).await.unwrap();
+        assert!(!report.errors.iter().any(|e| e.contains(REFUSAL)), "{report:#?}");
+        let verified = crate::cli::verify::verify(dir.path()).await.unwrap();
+        assert!(!verified.errors.iter().any(|e| e.contains(REFUSAL)), "{verified:#?}");
+
+        // A seq above the checkpoint is still refused, and still reported.
+        std::fs::write(&list, br#"{"version":1,"commit_seqs":[5]}"#).unwrap();
+        let reopened =
+            crate::tests::reopen_after_drop(crate::cli::test_support::config(dir.path()), None).await;
+        assert!(reopened.is_err(), "the engine started with a future seq quarantined");
+        let report = check(dir.path()).await.unwrap();
+        assert!(
+            report.errors.iter().any(|e| e.contains("[5]") && e.contains("above every commit on disk (4)")),
+            "{report:#?}"
+        );
     }
 }

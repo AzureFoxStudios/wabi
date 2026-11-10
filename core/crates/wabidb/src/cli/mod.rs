@@ -160,7 +160,8 @@ pub(crate) struct IndexedRecords {
     quarantined: std::collections::BTreeSet<u64>,
     /// Everything `global/quarantine.json` lists, indexed or not.
     listed: std::collections::BTreeSet<u64>,
-    /// Highest commit_seq in the index or in any record, orphans included.
+    /// Highest commit_seq in the index, in any record (orphans included) or
+    /// in the snapshot watermark: the height the engine continues above.
     highest_seq: u64,
     /// Payload hashes still unmatched, per (commit_seq, stream id hash).
     expected: std::collections::HashMap<(u64, [u8; 16]), Vec<[u8; 32]>>,
@@ -196,9 +197,8 @@ pub(crate) struct IndexedRecordsReport {
     /// The engine refuses to start on these: the next write would receive
     /// that seq and be skipped.
     pub future_quarantined: Vec<u64>,
-    /// Highest commit_seq in the index or in any record, orphans included.
-    /// The engine also counts its snapshot watermark, which these commands
-    /// do not read; that is never above the index on a tree it wrote.
+    /// Highest commit_seq in the index, in any record (orphans included) or
+    /// in the snapshot watermark, as the engine computes it at startup.
     pub highest_commit_seq: u64,
 }
 
@@ -235,7 +235,8 @@ impl IndexedRecordsReport {
         }
         if !self.future_quarantined.is_empty() {
             errors.push(format!(
-                "global/quarantine.json lists commits {:?} above every commit on disk ({});                  the engine refuses to start until they are removed from the list",
+                "global/quarantine.json lists commits {:?} above every commit on disk ({}); \
+                 the engine refuses to start until they are removed from the list",
                 self.future_quarantined, self.highest_commit_seq
             ));
         }
@@ -277,6 +278,14 @@ impl IndexedRecords {
             }
         }
         this
+    }
+
+    /// Count the watermark of `projections/snapshot.json` toward the height
+    /// a quarantined seq must stay under. The engine does: a checkpoint can
+    /// outlive the index files and segments it was taken from.
+    pub(crate) fn with_snapshot_watermark(mut self, watermark: u64) -> Self {
+        self.highest_seq = self.highest_seq.max(watermark);
+        self
     }
 
     /// Account for one record read from a segment.
@@ -363,6 +372,21 @@ pub(crate) fn quarantine_for_report(
         errors.push(e.to_string());
         Default::default()
     })
+}
+
+/// The snapshot watermark for `check` and `verify`, 0 without a snapshot.
+/// An unreadable snapshot is an error in their report (the engine will not
+/// start on it) and counts as 0. Read with the engine's own parser.
+pub(crate) fn snapshot_watermark_for_report(data_dir: &Path, errors: &mut Vec<String>) -> u64 {
+    match crate::engine::locks::ProjectionState::read_snapshot_watermark(data_dir) {
+        Ok(watermark) => watermark.unwrap_or(0),
+        Err(e) => {
+            errors.push(format!(
+                "cannot read projections/snapshot.json: {e}; the engine refuses to start on it"
+            ));
+            0
+        }
+    }
 }
 
 /// Real-engine data directories for the CLI tests. Every CLI test runs the
