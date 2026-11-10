@@ -969,7 +969,9 @@ mod tests {
             let segment = std::fs::read(
                 source_dir
                     .path()
-                    .join(format!("streams/other/{stream}/events/00000001.wseg")),
+                    .join("streams/other")
+                    .join(crate::sequencer::stream_dir_name(stream))
+                    .join("events/00000001.wseg"),
             )
             .unwrap();
             receiver

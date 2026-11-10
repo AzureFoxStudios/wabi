@@ -53,13 +53,187 @@ pub fn stream_kind_dir_name(kind: u8) -> &'static str {
 }
 
 /// Compute the events directory path for a given stream.
-fn stream_events_dir(data_dir: &Path, stream_kind: u8, stream_id: &str) -> PathBuf {
-    let kind_dir = stream_kind_dir_name(stream_kind);
-    data_dir
-        .join("streams")
-        .join(kind_dir)
-        .join(stream_id)
-        .join("events")
+fn stream_events_dir(data_dir: &Path, stream_kind: u8, stream_id: &str) -> Result<PathBuf> {
+    let kind_dir = data_dir.join("streams").join(stream_kind_dir_name(stream_kind));
+    Ok(resolve_stream_dir(&kind_dir, stream_id)?.join("events"))
+}
+
+// ---------------------------------------------------------------------------
+// Stream id <-> directory name (Task 1.0j)
+// ---------------------------------------------------------------------------
+//
+// Replay derives the stream id, and from it the stream key, from the
+// directory name, so the name is semantically the id. Windows rejects `:`
+// and other characters that real stream ids contain ("community-roster:v1"),
+// so ids outside a small portable set are stored percent-encoded. Trees
+// written before this change hold raw names; they are read and appended to
+// as they are and never renamed (golden rule 5: dual decode, no rewrite).
+
+/// Bytes an id may contain and still be its own directory name.
+fn is_plain_dir_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-')
+}
+
+/// Windows device names, reserved with or without an extension. COM0 and
+/// LPT0 are included because current Windows documentation lists them too.
+fn is_windows_reserved_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).trim_end_matches(' ');
+    let upper = stem.to_ascii_uppercase();
+    match upper.as_bytes() {
+        b"CON" | b"PRN" | b"AUX" | b"NUL" => true,
+        [b'C', b'O', b'M', digit] | [b'L', b'P', b'T', digit] => digit.is_ascii_digit(),
+        _ => false,
+    }
+}
+
+/// Encode a stream id as one directory name that is valid on Windows, macOS
+/// and Linux.
+///
+/// An id made only of `[A-Za-z0-9._-]` that does not end in `.` and is not a
+/// Windows device name is returned unchanged, so every existing portable
+/// directory keeps its name. Otherwise every byte outside that set (always
+/// including `%`), a trailing `.`, and the first byte of a device name are
+/// written as `%XX` (uppercase hex). The result is ASCII, contains none of
+/// `< > : " / \ | ? *`, no control bytes, no trailing dot or space, and is
+/// never a device name. [`stream_id_from_dir_name`] is its exact inverse.
+///
+/// Callers still validate the id with
+/// [`crate::stream_identity::is_safe_stream_id`]; an encoded name can be up
+/// to three times the id's length.
+pub fn stream_dir_name(stream_id: &str) -> String {
+    use std::fmt::Write as _;
+    let bytes = stream_id.as_bytes();
+    let mut out = String::with_capacity(bytes.len() + 8);
+    for (index, &byte) in bytes.iter().enumerate() {
+        let trailing_dot = byte == b'.' && index + 1 == bytes.len();
+        if is_plain_dir_byte(byte) && !trailing_dot {
+            out.push(byte as char);
+        } else {
+            let _ = write!(out, "%{byte:02X}");
+        }
+    }
+    if is_windows_reserved_name(&out) {
+        // A device name starts with an ASCII letter; escaping it is enough.
+        let first = out.as_bytes()[0];
+        out.replace_range(0..1, &format!("%{first:02X}"));
+    }
+    out
+}
+
+/// Exact inverse of [`stream_dir_name`]: `Some(id)` iff
+/// `stream_dir_name(id) == dir_name`.
+///
+/// `None` means the name is not an encoding this build would write, e.g. a
+/// raw directory from a tree written before Task 1.0j
+/// (`community-roster:v1`). Readers walking directories must also accept
+/// the raw name as an id; see [`stream_id_candidates`].
+pub fn stream_id_from_dir_name(dir_name: &str) -> Option<String> {
+    let bytes = dir_name.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'%' => {
+                let hex = bytes.get(index + 1..index + 3)?;
+                if !hex.iter().all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(b)) {
+                    return None;
+                }
+                decoded.push(u8::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok()?);
+                index += 3;
+            }
+            byte if is_plain_dir_byte(byte) => {
+                decoded.push(byte);
+                index += 1;
+            }
+            _ => return None,
+        }
+    }
+    let stream_id = String::from_utf8(decoded).ok()?;
+    // Reject non-canonical spellings so the mapping stays injective.
+    (stream_dir_name(&stream_id) == dir_name).then_some(stream_id)
+}
+
+/// Every stream id a directory named `dir_name` can hold: the raw name
+/// (all trees written before Task 1.0j) and, when different, its decoding.
+/// Callers pick the one whose [`crate::stream_identity::stream_id_hash`]
+/// matches the record header or commit index; the raw name comes first.
+pub fn stream_id_candidates(dir_name: &str) -> Vec<String> {
+    let mut candidates = vec![dir_name.to_owned()];
+    if let Some(decoded) = stream_id_from_dir_name(dir_name) {
+        if decoded != dir_name {
+            candidates.push(decoded);
+        }
+    }
+    candidates
+}
+
+/// The directory under `parent` (`streams/<kind>`) that holds `stream_id`.
+///
+/// If a raw-named directory from an older tree exists, it is used, so a
+/// stream is never split between its raw and encoded directories; only a
+/// stream with no directory yet gets the encoded name. Windows never has
+/// raw directories that differ from their encoding (they cannot be
+/// created there), and probing a name with `:` would address an NTFS
+/// alternate data stream, so the raw probe is skipped on Windows.
+///
+/// Two ids can collide on one name when one is spelled like the other's
+/// encoding (`a%3Ab` vs `a:b`). A raw-named directory is then reused only
+/// if its records are this stream's, and this fails rather than share an
+/// encoded directory that holds the other stream's records.
+pub fn resolve_stream_dir(parent: &Path, stream_id: &str) -> Result<PathBuf> {
+    let encoded = stream_dir_name(stream_id);
+    if encoded == stream_id {
+        return Ok(parent.join(encoded));
+    }
+    let own = crate::stream_identity::stream_id_hash(stream_id);
+    let raw = parent.join(stream_id);
+    if !cfg!(windows) && raw.is_dir() {
+        // An id like `a%3Ab` is also the encoding of `a:b`, so a directory
+        // of that name may be `a:b`'s. Reuse it only when its records are
+        // this stream's; an empty one holds nothing a new directory splits.
+        let other_streams_encoding =
+            stream_id_from_dir_name(stream_id).is_some_and(|other| other != stream_id);
+        if !other_streams_encoding || first_record_stream_hash(&raw.join("events"))? == Some(own) {
+            return Ok(raw);
+        }
+    }
+    let path = parent.join(&encoded);
+    if let Some(owner) = first_record_stream_hash(&path.join("events"))? {
+        if owner != own && owner == crate::stream_identity::stream_id_hash(&encoded) {
+            return Err(WabiError::InternalInvariantViolated {
+                invariant: format!(
+                    "stream directory {} belongs to the legacy stream of that raw name, \
+                     not to {stream_id:?}; refusing to mix two streams",
+                    path.display()
+                ),
+            });
+        }
+    }
+    Ok(path)
+}
+
+/// Stream hash of the first record in the lowest-numbered non-empty segment.
+fn first_record_stream_hash(events_dir: &Path) -> Result<Option<[u8; 16]>> {
+    use std::io::Read as _;
+    let mut segments = match std::fs::read_dir(events_dir) {
+        Ok(entries) => entries
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| path.extension() == Some(std::ffi::OsStr::new("wseg")))
+            .collect::<Vec<_>>(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    segments.sort();
+    let mut header = [0u8; crate::format::record::HEADER_LEN as usize];
+    for segment in segments {
+        let mut file = std::fs::File::open(&segment)?;
+        if file.read_exact(&mut header).is_ok() {
+            if let Ok(decoded) = RecordHeader::decode(&header) {
+                return Ok(Some(decoded.stream_id_hash));
+            }
+        }
+    }
+    Ok(None)
 }
 
 // ---------------------------------------------------------------------------
@@ -516,8 +690,7 @@ async fn prepare_command(
         payload_hashes.push(*payload_hash.as_bytes());
 
         // Get or create the segment writer for this stream.
-        let events_dir = stream_events_dir(data_dir, event.stream_kind, &event.stream_id);
-        let entry = get_or_create_writer(writers, &event.stream_id, &events_dir).await?;
+        let entry = get_or_create_writer(writers, data_dir, event).await?;
 
         // Write the record.
         let offset = entry.writer.append(&header, &ciphertext).await?;
@@ -653,11 +826,15 @@ async fn finalize_command(
 /// Return the existing writer for `stream_id`, or open a new segment.
 async fn get_or_create_writer<'a>(
     writers: &'a mut HashMap<String, WriterEntry>,
-    stream_id: &str,
-    events_dir: &Path,
+    data_dir: &Path,
+    event: &EventToWrite,
 ) -> Result<&'a mut WriterEntry> {
+    let stream_id = event.stream_id.as_str();
     if !writers.contains_key(stream_id) {
-        let writer = SegmentWriter::open(events_dir, stream_id.to_string()).await?;
+        // Resolve the directory only when opening a writer: the raw/encoded
+        // choice is made once per segment, not on every append.
+        let events_dir = stream_events_dir(data_dir, event.stream_kind, stream_id)?;
+        let writer = SegmentWriter::open(&events_dir, stream_id.to_string()).await?;
         writers.insert(stream_id.to_string(), WriterEntry { writer });
     }
     // SAFETY: we just ensured the entry exists.
@@ -714,6 +891,190 @@ pub fn crash_point(name: &str) {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod stream_dir_name_tests {
+    use super::*;
+
+    /// Server stream ids that contain `:` (Task 1.0j). Several are written on
+    /// first boot, which is why the Authority could not start on Windows.
+    const COLON_IDS: &[&str] = &[
+        "community-roster:v1",
+        "service-access:v1",
+        "rbac:default-workspace",
+        "user:42",
+        "channel_members:ch_1",
+        "call_session:ch_1",
+        "channels:ch_1",
+        "reactions:msg_1:👍🏽:removed",
+    ];
+
+    const WINDOWS_FORBIDDEN: &[char] = &['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+
+    fn assert_windows_safe(id: &str, name: &str) {
+        assert!(!name.is_empty(), "{id:?} encoded to an empty name");
+        assert!(
+            !name.contains(WINDOWS_FORBIDDEN),
+            "{id:?} -> {name:?} contains a character Windows forbids"
+        );
+        assert!(
+            !name.bytes().any(|b| b < 0x20 || b == 0x7f),
+            "{id:?} -> {name:?} contains a control byte"
+        );
+        assert!(
+            !name.ends_with('.') && !name.ends_with(' '),
+            "{id:?} -> {name:?} ends in a dot or space"
+        );
+        assert!(
+            !is_windows_reserved_name(name),
+            "{id:?} -> {name:?} is a Windows device name"
+        );
+        assert!(name.is_ascii(), "{id:?} -> {name:?} is not ASCII");
+    }
+
+    fn assert_round_trip(id: &str) -> String {
+        let name = stream_dir_name(id);
+        assert_eq!(
+            stream_id_from_dir_name(&name).as_deref(),
+            Some(id),
+            "{id:?} -> {name:?} does not decode back"
+        );
+        assert_windows_safe(id, &name);
+        name
+    }
+
+    #[test]
+    fn colon_ids_round_trip_to_windows_safe_names() {
+        for id in COLON_IDS {
+            let name = assert_round_trip(id);
+            assert_ne!(&name, id, "{id:?} must be encoded");
+        }
+        assert_eq!(stream_dir_name("community-roster:v1"), "community-roster%3Av1");
+    }
+
+    #[test]
+    fn every_forbidden_and_control_character_is_encoded_reversibly() {
+        let mut specials: Vec<char> = WINDOWS_FORBIDDEN.to_vec();
+        specials.extend(['%', ' ', '\0', '\t', '\n', '\u{1f}', '\u{7f}', 'é', '👍']);
+        for special in specials {
+            for id in [
+                format!("{special}"),
+                format!("a{special}b"),
+                format!("{special}lead"),
+                format!("trail{special}"),
+            ] {
+                let name = assert_round_trip(&id);
+                assert_ne!(name, id, "{id:?} must be encoded");
+            }
+        }
+    }
+
+    #[test]
+    fn portable_ids_keep_their_existing_directory_name() {
+        for id in ["channels", "server_meta", "room-1", "ch_test", "legacy.room-1", "a", "con-x", "COM10", "LPTX", "CONSOLE"] {
+            assert_eq!(stream_dir_name(id), id);
+            assert_eq!(stream_id_from_dir_name(id).as_deref(), Some(id));
+            assert_windows_safe(id, id);
+        }
+    }
+
+    #[test]
+    fn device_names_and_trailing_dots_are_encoded() {
+        for id in [
+            "CON", "con", "Prn", "AUX", "NUL", "COM1", "com9", "LPT1", "lpt9", "COM0", "LPT0",
+            "NUL.txt", "con.tar.gz", "aux.", "trailing.", "dots..", ".", "..", "CON.",
+        ] {
+            let name = assert_round_trip(id);
+            assert_ne!(name, id, "{id:?} must be encoded");
+        }
+        assert_eq!(stream_dir_name("CON"), "%43ON");
+        assert_eq!(stream_dir_name("nul.txt"), "%6Eul.txt");
+        assert_eq!(stream_dir_name("trailing."), "trailing%2E");
+        assert_eq!(stream_dir_name(".."), ".%2E");
+    }
+
+    #[test]
+    fn decoding_is_canonical_so_the_mapping_is_injective() {
+        // Raw legacy names are not encodings; readers use them as they are.
+        for raw in ["community-roster:v1", "a b", "x%", "x%3", "x%zz", "x%3a", "%41", "CON", "end."] {
+            assert_eq!(stream_id_from_dir_name(raw), None, "{raw:?}");
+        }
+        // `%` is always escaped, so `a%3Ab` and `a:b` get distinct names.
+        assert_eq!(stream_dir_name("a:b"), "a%3Ab");
+        assert_eq!(stream_dir_name("a%3Ab"), "a%253Ab");
+        assert_eq!(stream_id_from_dir_name("a%253Ab").as_deref(), Some("a%3Ab"));
+    }
+
+    #[test]
+    fn directory_candidates_accept_raw_and_encoded_names() {
+        assert_eq!(stream_id_candidates("community-roster:v1"), vec!["community-roster:v1"]);
+        assert_eq!(
+            stream_id_candidates("community-roster%3Av1"),
+            vec!["community-roster%3Av1", "community-roster:v1"]
+        );
+        assert_eq!(stream_id_candidates("channels"), vec!["channels"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_prefers_an_existing_raw_directory_and_encodes_new_ones() {
+        let tmp = tempfile::tempdir().unwrap();
+        let parent = tmp.path();
+        assert_eq!(resolve_stream_dir(parent, "a:b").unwrap(), parent.join("a%3Ab"));
+        std::fs::create_dir(parent.join("a:b")).unwrap();
+        assert_eq!(resolve_stream_dir(parent, "a:b").unwrap(), parent.join("a:b"));
+        assert_eq!(resolve_stream_dir(parent, "plain").unwrap(), parent.join("plain"));
+    }
+
+    #[tokio::test]
+    async fn resolve_refuses_an_encoded_directory_owned_by_a_legacy_raw_stream() {
+        let tmp = tempfile::tempdir().unwrap();
+        let parent = tmp.path();
+        // A legacy raw id spelled exactly like the encoding of "a:b".
+        let legacy = "a%3Ab";
+        let events = parent.join(legacy).join("events");
+        let mut writer = SegmentWriter::open(&events, legacy.into()).await.unwrap();
+        let header = RecordHeader::new(
+            crate::format::record::RecordKind::Event,
+            1,
+            crate::stream_identity::stream_id_hash(legacy),
+            4,
+            0,
+        );
+        writer.append(&header, b"data").await.unwrap();
+        writer.close().await.unwrap();
+
+        assert!(resolve_stream_dir(parent, "a:b").is_err());
+        // The legacy stream itself still resolves to its raw directory.
+        if !cfg!(windows) {
+            assert_eq!(resolve_stream_dir(parent, legacy).unwrap(), parent.join(legacy));
+        }
+    }
+
+    #[tokio::test]
+    async fn resolve_does_not_reuse_another_streams_encoded_directory_as_raw() {
+        let tmp = tempfile::tempdir().unwrap();
+        let parent = tmp.path();
+        // A new tree: "a:b" wrote its encoded directory "a%3Ab".
+        let events = resolve_stream_dir(parent, "a:b").unwrap().join("events");
+        assert_eq!(events, parent.join("a%3Ab").join("events"));
+        let mut writer = SegmentWriter::open(&events, "a:b".into()).await.unwrap();
+        let header = RecordHeader::new(
+            crate::format::record::RecordKind::Event,
+            1,
+            crate::stream_identity::stream_id_hash("a:b"),
+            4,
+            0,
+        );
+        writer.append(&header, b"data").await.unwrap();
+        writer.close().await.unwrap();
+
+        // A later stream whose literal id is "a%3Ab" must get its own
+        // encoded directory, not share the one "a:b" owns.
+        assert_eq!(resolve_stream_dir(parent, "a%3Ab").unwrap(), parent.join("a%253Ab"));
+        assert_eq!(resolve_stream_dir(parent, "a:b").unwrap(), parent.join("a%3Ab"));
+    }
+}
 
 #[cfg(test)]
 mod tests {

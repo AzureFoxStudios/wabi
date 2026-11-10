@@ -1183,7 +1183,9 @@ mod tests {
         let segment = std::fs::read(
             source_dir
                 .path()
-                .join("streams/other/auth-revocations:v1/events/00000001.wseg"),
+                .join("streams/other")
+                .join(crate::sequencer::stream_dir_name("auth-revocations:v1"))
+                .join("events/00000001.wseg"),
         )
         .unwrap();
         for entry in entries {

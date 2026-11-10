@@ -81,7 +81,11 @@ pub async fn decrypt(config: &DecryptConfig) -> Result<DecryptResult> {
     let _bootstrap_key = load_bootstrap_key(&config.bootstrap_source)?;
 
     // 2. Build the segment path
-    let events_dir = config.data_dir.join("streams").join(&config.stream_id).join("events");
+    let events_dir = crate::sequencer::resolve_stream_dir(
+        &config.data_dir.join("streams"),
+        &config.stream_id,
+    )?
+    .join("events");
     let segment_filename = format!("{:08}.wseg", config.segment_id);
     let segment_path = events_dir.join(&segment_filename);
 
