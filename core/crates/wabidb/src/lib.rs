@@ -17,14 +17,10 @@
 //!   snapshots + post-snapshot commit index entries.
 //! - **Subscription engine** (`subscription`): topic-based pub/sub with snapshot barrier,
 //!   resume, ticket-auth WebSocket, and membership revalidation.
-//! - **Ephemeral bus** (`ephemeral`): in-memory broadcast for events that must not survive
-//!   a crash (typing, call signals, cursor movement).
-//! - **Retention engine** (`retention`): per-scope TTL with cryptographic deletion (key
-//!   destruction + tombstone) and segment compaction.
+//! - **Retention** (`retention`): tombstone table and backup helpers.
 //! - **Blob store** (`blobs`): BLAKE3 content-addressed files, atomic write ordering, range
 //!   read protocol.
-//! - **Storage CLI** (`cli`): operator-facing tools (`wabidb check`, `dump-stream`,
-//!   `rebuild-indexes`, manifest-based backup).
+//! - **Storage CLI** (`cli`): operator-facing tools (`wabidb check`, `dump-stream`).
 //!
 //! ## Design references
 //!
@@ -35,20 +31,17 @@
 #![allow(clippy::needless_return)]
 
 // Top-level modules. Each is filled in by its own kanban card.
-pub mod auth;
 pub mod blobs;
 pub mod cli;
 pub mod commands;
 pub mod commit_index;
 pub mod crypto;
-pub mod ephemeral;
 pub mod engine;
 pub mod error;
 pub mod format;
 pub mod fuzz;
 pub mod maintenance;
 pub mod projections;
-pub mod protocol;
 pub mod replication;
 pub mod retention;
 pub mod sequencer;

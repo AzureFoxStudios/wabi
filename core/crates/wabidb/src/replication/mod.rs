@@ -1,12 +1,5 @@
-pub mod anti_entropy;
 pub mod config;
-pub mod failover;
-pub mod observability;
-pub mod rate_limit;
-pub mod snapshot_shipping;
-pub mod state_machine;
 pub mod sync_protocol;
-pub mod sync_worker;
 
 use crate::commit_index::record::CommitIndexEntry;
 use crate::engine::locks::ProjectionState;

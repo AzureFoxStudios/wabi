@@ -5846,7 +5846,6 @@ dependencies = [
  "tokio",
  "toml 0.8.23",
  "tracing",
- "x25519-dalek",
  "zeroize",
 ]
 
