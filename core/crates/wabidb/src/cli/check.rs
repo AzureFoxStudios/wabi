@@ -392,4 +392,26 @@ mod tests {
         );
         assert!(!crate::cli::verify::verify(dir.path()).await.unwrap().ok);
     }
+    /// A hand-edited `quarantine.json` naming a commit above everything on
+    /// disk. The engine refuses to start on it (the next write would get
+    /// that seq and be skipped), so `check` and `verify` must not say ok.
+    #[tokio::test]
+    async fn quarantine_entry_above_every_commit_is_not_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        real_engine_tree(dir.path()).await;
+        let list = crate::engine::quarantine::path(dir.path());
+        std::fs::write(&list, br#"{"version":1,"commit_seqs":[99]}"#).unwrap();
+
+        let reopened =
+            crate::tests::reopen_after_drop(crate::cli::test_support::config(dir.path()), None).await;
+        assert!(reopened.is_err(), "the engine started with a future seq quarantined");
+
+        let report = check(dir.path()).await.unwrap();
+        assert!(!report.ok, "{report:#?}");
+        assert!(
+            report.errors.iter().any(|e| e.contains("[99]") && e.contains("above every commit on disk (4)")),
+            "{report:#?}"
+        );
+        assert!(!crate::cli::verify::verify(dir.path()).await.unwrap().ok);
+    }
 }
