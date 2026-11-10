@@ -649,6 +649,43 @@ async fn recording_filename_with_a_separator_is_rejected_and_writes_nothing() {
     assert_eq!(temporary_files(), before, "no private temporary may remain");
 }
 
+/// A filename that names no file ("" or ".") would resolve to the
+/// `recordings` directory path itself. It is refused with 400 and nothing is
+/// written: creating a file called `recordings` would block every later
+/// recording.
+#[tokio::test]
+async fn recording_filename_that_names_no_file_is_rejected_and_writes_nothing() {
+    let _serial = SERIAL.lock().await;
+    private_tmpdir();
+    let f = fixture().await;
+    let before = temporary_files();
+
+    for filename in ["", ".", "..", "%20"] {
+        let body = counted_body(b"bytes".to_vec(), Arc::new(AtomicUsize::new(0)), false);
+        let (status, response) = send(
+            &f.app,
+            upload_request(
+                Method::POST,
+                &format!("/addons/lore/recordings?filename={filename}"),
+                &f.member_token,
+                body,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{filename:?}: {response}");
+    }
+    assert!(
+        !f.recordings_tree.join("recordings").is_file(),
+        "no file may be created at the recordings directory path"
+    );
+    let calls = f.cli_calls();
+    assert!(
+        !calls.contains("stage") && !calls.contains("commit"),
+        "rejected filenames must not stage or commit: {calls}"
+    );
+    assert_eq!(temporary_files(), before, "no private temporary may remain");
+}
+
 /// Regression test (already passes on main; the cap came from PR 286): a
 /// recording body over the blob cap is 413 and writes nothing.
 #[tokio::test]
