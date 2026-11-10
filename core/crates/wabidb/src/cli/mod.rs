@@ -158,6 +158,10 @@ pub(crate) struct IndexedRecords {
     indexed_commits: std::collections::HashSet<u64>,
     /// Indexed commits the operator quarantined.
     quarantined: std::collections::BTreeSet<u64>,
+    /// Everything `global/quarantine.json` lists, indexed or not.
+    listed: std::collections::BTreeSet<u64>,
+    /// Highest commit_seq in the index or in any record, orphans included.
+    highest_seq: u64,
     /// Payload hashes still unmatched, per (commit_seq, stream id hash).
     expected: std::collections::HashMap<(u64, [u8; 16]), Vec<[u8; 32]>>,
     /// Records of an indexed commit whose payload matched no expected hash.
@@ -188,6 +192,14 @@ pub(crate) struct IndexedRecordsReport {
     /// Indexed commits listed in `global/quarantine.json`, ascending.
     /// Startup skips them, so damage to their records is not counted above.
     pub quarantined_commits: Vec<u64>,
+    /// Commits `global/quarantine.json` lists above `highest_commit_seq`.
+    /// The engine refuses to start on these: the next write would receive
+    /// that seq and be skipped.
+    pub future_quarantined: Vec<u64>,
+    /// Highest commit_seq in the index or in any record, orphans included.
+    /// The engine also counts its snapshot watermark, which these commands
+    /// do not read; that is never above the index on a tree it wrote.
+    pub highest_commit_seq: u64,
 }
 
 impl IndexedRecordsReport {
@@ -221,6 +233,12 @@ impl IndexedRecordsReport {
                 self.unreferenced_records, self.unreferenced_commits
             ));
         }
+        if !self.future_quarantined.is_empty() {
+            errors.push(format!(
+                "global/quarantine.json lists commits {:?} above every commit on disk ({});                  the engine refuses to start until they are removed from the list",
+                self.future_quarantined, self.highest_commit_seq
+            ));
+        }
         errors
     }
 }
@@ -234,6 +252,8 @@ impl IndexedRecords {
         let mut this = Self {
             indexed_commits: Default::default(),
             quarantined: Default::default(),
+            listed: quarantine.clone(),
+            highest_seq: 0,
             expected: Default::default(),
             unmatched: Default::default(),
             malformed_entries: Vec::new(),
@@ -241,6 +261,7 @@ impl IndexedRecords {
         };
         for entry in entries {
             this.indexed_commits.insert(entry.commit_seq);
+            this.highest_seq = this.highest_seq.max(entry.commit_seq);
             if quarantine.contains(&entry.commit_seq) {
                 this.quarantined.insert(entry.commit_seq);
                 continue;
@@ -260,6 +281,8 @@ impl IndexedRecords {
 
     /// Account for one record read from a segment.
     pub(crate) fn observe(&mut self, header: &crate::format::record::RecordHeader, payload: &[u8]) {
+        // Orphans count too: the sequencer continues above them.
+        self.highest_seq = self.highest_seq.max(header.commit_seq);
         if !self.indexed_commits.contains(&header.commit_seq) {
             self.orphan_records += 1;
             return;
@@ -288,6 +311,13 @@ impl IndexedRecords {
         let mut report = IndexedRecordsReport {
             orphan_records: self.orphan_records,
             quarantined_commits: self.quarantined.iter().copied().collect(),
+            future_quarantined: self
+                .listed
+                .iter()
+                .copied()
+                .filter(|seq| *seq > self.highest_seq)
+                .collect(),
+            highest_commit_seq: self.highest_seq,
             ..Default::default()
         };
         let (mut missing, mut corrupt, mut unreferenced) = (Vec::new(), Vec::new(), Vec::new());
