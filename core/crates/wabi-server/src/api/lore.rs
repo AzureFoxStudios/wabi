@@ -1301,6 +1301,11 @@ async fn import_repo(
             Json(serde_json::json!({ "error": "a Lore repo already exists for this channel" })),
         )
             .into_response()),
+        Err(e @ wabi_lore::LoreImportError::TreeExists) => Ok((
+            axum::http::StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response()),
         Err(wabi_lore::LoreImportError::CloneFailed(stderr)) => Ok((
             axum::http::StatusCode::BAD_GATEWAY,
             Json(serde_json::json!({ "error": stderr })),
