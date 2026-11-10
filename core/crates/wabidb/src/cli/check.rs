@@ -16,7 +16,13 @@ pub struct CheckStats {
     pub total_segments: usize,
     /// Valid records read from those segments.
     pub total_records: usize,
+    /// Indexed records whose stored payload does not match the hash the
+    /// commit index recorded for it.
     pub corrupt_records: usize,
+    /// Indexed records found in no segment.
+    pub missing_records: usize,
+    /// Records of commands that never committed. Replay skips them.
+    pub orphan_records: usize,
     /// Entries in `global/commit-index`.
     pub indexed_commits: usize,
 }
@@ -31,8 +37,10 @@ pub struct CheckReport {
 
 /// Check the engine directory `data_dir`. `ok` is false if the manifest is
 /// missing, a segment or the commit index cannot be read, a record sits in
-/// a directory whose name does not match its stream, or the commit index
-/// has entries but no segment was found.
+/// a directory whose name does not match its stream, the commit index has
+/// entries but no segment was found, or the segments do not hold exactly
+/// the records the commit index acknowledges (one missing, or stored with
+/// a payload whose hash differs from the index).
 pub async fn check(data_dir: &Path) -> Result<CheckReport> {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
@@ -41,6 +49,8 @@ pub async fn check(data_dir: &Path) -> Result<CheckReport> {
         total_segments: 0,
         total_records: 0,
         corrupt_records: 0,
+        missing_records: 0,
+        orphan_records: 0,
         indexed_commits: 0,
     };
 
@@ -55,10 +65,18 @@ pub async fn check(data_dir: &Path) -> Result<CheckReport> {
     }
 
     let index_dir = data_dir.join("global").join("commit-index");
-    match crate::commit_index::batcher::read_all_entries(&index_dir) {
-        Ok(entries) => stats.indexed_commits = entries.len(),
-        Err(e) => errors.push(format!("cannot read commit index {}: {e}", index_dir.display())),
-    }
+    // Without a readable index there is nothing to match records against;
+    // that is already an error.
+    let mut indexed = match crate::commit_index::batcher::read_all_entries(&index_dir) {
+        Ok(entries) => {
+            stats.indexed_commits = entries.len();
+            Some(super::IndexedRecords::new(&entries))
+        }
+        Err(e) => {
+            errors.push(format!("cannot read commit index {}: {e}", index_dir.display()));
+            None
+        }
+    };
 
     for stream in super::stream_dirs(data_dir).await?.unwrap_or_default() {
         stats.total_streams += 1;
@@ -88,10 +106,14 @@ pub async fn check(data_dir: &Path) -> Result<CheckReport> {
                 Ok(recs) => {
                     stats.total_records += recs.len();
                     hashes.extend(recs.iter().map(|r| r.header.stream_id_hash));
+                    if let Some(indexed) = indexed.as_mut() {
+                        for record in &recs {
+                            indexed.observe(&record.header, &record.payload);
+                        }
+                    }
                 }
-                Err(_) => {
-                    stats.corrupt_records += 1;
-                    errors.push(format!("corrupt segment: {}", seg_path.display()));
+                Err(e) => {
+                    errors.push(format!("cannot read segment {}: {e}", seg_path.display()));
                 }
             }
         }
@@ -103,6 +125,14 @@ pub async fn check(data_dir: &Path) -> Result<CheckReport> {
                 resolved.unmatched_records, resolved.stream_id
             ));
         }
+    }
+
+    if let Some(indexed) = indexed {
+        let matched = indexed.finish();
+        stats.corrupt_records = matched.corrupt_records;
+        stats.missing_records = matched.missing_records;
+        stats.orphan_records = matched.orphan_records;
+        errors.extend(matched.errors());
     }
 
     if stats.total_segments == 0 && stats.indexed_commits > 0 {
@@ -207,5 +237,89 @@ mod tests {
             report.errors.iter().any(|e| e.contains("2 records belong to a stream other than \"ch_alpha\"")),
             "{report:#?}"
         );
+    }
+    fn channel_segment(root: &std::path::Path) -> std::path::PathBuf {
+        root.join("streams").join("channel").join("ch_alpha").join("events").join("00000001.wseg")
+    }
+
+    /// One flipped payload byte in an acknowledged record. Fails without the
+    /// commit-index match: the sequencer writes `payload_crc32c = 0`, so the
+    /// reader returns the altered record as valid and `check` reported ok
+    /// with all 5 records, on a tree the engine refuses to start on.
+    #[tokio::test]
+    async fn corrupt_indexed_record_is_not_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        real_engine_tree(dir.path()).await;
+        let segment = channel_segment(dir.path());
+        let mut bytes = std::fs::read(&segment).unwrap();
+        // First payload byte of the first record: commit 1.
+        bytes[crate::format::record::HEADER_LEN as usize] ^= 0xFF;
+        std::fs::write(&segment, &bytes).unwrap();
+
+        let report = check(dir.path()).await.unwrap();
+        assert!(!report.ok, "{report:#?}");
+        assert_eq!(report.stats.total_records, 5, "the reader still returns it");
+        assert_eq!(report.stats.corrupt_records, 1);
+        assert_eq!(report.stats.missing_records, 0);
+        assert!(
+            report.errors.iter().any(|e| e.contains("do not match the payload hash") && e.contains("[1]")),
+            "{report:#?}"
+        );
+        let verified = crate::cli::verify::verify(dir.path()).await.unwrap();
+        assert!(!verified.ok, "{verified:#?}");
+
+        // The engine agrees. The snapshot is derived data; without it the
+        // engine must replay commit 1.
+        let _ = std::fs::remove_file(dir.path().join("projections").join("snapshot.json"));
+        let reopened =
+            crate::tests::reopen_after_drop(crate::cli::test_support::config(dir.path()), None).await;
+        assert!(reopened.is_err(), "the engine started on a tree with a corrupt indexed record");
+    }
+
+    /// A segment cut short loses its last record, which the index still
+    /// acknowledges (commit 4 wrote both streams).
+    #[tokio::test]
+    async fn missing_indexed_record_is_not_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        real_engine_tree(dir.path()).await;
+        let segment = channel_segment(dir.path());
+        let len = std::fs::metadata(&segment).unwrap().len();
+        std::fs::OpenOptions::new().write(true).open(&segment).unwrap().set_len(len - 1).unwrap();
+
+        let report = check(dir.path()).await.unwrap();
+        assert!(!report.ok, "{report:#?}");
+        assert_eq!(report.stats.total_records, 4);
+        assert_eq!(report.stats.missing_records, 1);
+        assert_eq!(report.stats.corrupt_records, 0);
+        assert!(
+            report.errors.iter().any(|e| e.contains("missing from the segments") && e.contains("[4]")),
+            "{report:#?}"
+        );
+        assert!(!crate::cli::verify::verify(dir.path()).await.unwrap().ok);
+    }
+    /// One stream's only segment is gone while the other stream's remains:
+    /// segments exist, so only the commit index shows the loss.
+    #[tokio::test]
+    async fn one_missing_segment_among_others_is_not_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        real_engine_tree(dir.path()).await;
+        let roster_segment = dir
+            .path()
+            .join("streams")
+            .join("other")
+            .join(crate::cli::test_support::ROSTER_ENCODED)
+            .join("events")
+            .join("00000001.wseg");
+        std::fs::remove_file(roster_segment).unwrap();
+
+        let report = check(dir.path()).await.unwrap();
+        assert!(!report.ok, "{report:#?}");
+        assert_eq!(report.stats.total_segments, 1);
+        assert_eq!(report.stats.missing_records, 2);
+        assert!(
+            report.errors.iter().any(|e| e.contains("missing from the segments") && e.contains("[2, 4]")),
+            "{report:#?}"
+        );
+        assert!(!crate::cli::verify::verify(dir.path()).await.unwrap().ok);
     }
 }

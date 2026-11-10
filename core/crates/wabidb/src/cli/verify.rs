@@ -1,4 +1,6 @@
-//! `wabidb-cli verify`: parse the storage manifest and verify every segment.
+//! `wabidb-cli verify`: parse the storage manifest and verify every segment
+//! against the commit index (every acknowledged record present, with the
+//! payload hash the index recorded).
 //!
 //! Read-only. Meant for a stopped server or a copy of the data directory;
 //! never takes, writes or unlinks `.lock`.
@@ -63,6 +65,15 @@ pub async fn verify(data_dir: &Path) -> Result<VerifyReport> {
         errors.push(format!("unsupported manifest format_version {}", manifest.format_version));
     }
 
+    let index_dir = data_dir.join("global").join("commit-index");
+    let mut indexed = match crate::commit_index::batcher::read_all_entries(&index_dir) {
+        Ok(entries) => Some(super::IndexedRecords::new(&entries)),
+        Err(e) => {
+            errors.push(format!("cannot read commit index {}: {e}", index_dir.display()));
+            None
+        }
+    };
+
     let mut segments_verified = 0;
     for stream in super::stream_dirs(data_dir).await?.unwrap_or_default() {
         for seg_path in &stream.segments {
@@ -74,7 +85,13 @@ pub async fn verify(data_dir: &Path) -> Result<VerifyReport> {
                     continue;
                 }
             };
-            if let Err(e) = reader.read_records().await {
+            let records = reader.read_records().await;
+            if let (Ok(records), Some(indexed)) = (&records, indexed.as_mut()) {
+                for record in records {
+                    indexed.observe(&record.header, &record.payload);
+                }
+            }
+            if let Err(e) = records {
                 errors.push(format!("segment failed verification: {}: {e}", seg_path.display()));
             } else {
                 let len = tokio::fs::metadata(seg_path).await.map(|m| m.len()).unwrap_or(0);
@@ -86,6 +103,10 @@ pub async fn verify(data_dir: &Path) -> Result<VerifyReport> {
                 }
             }
         }
+    }
+
+    if let Some(indexed) = indexed {
+        errors.extend(indexed.finish().errors());
     }
 
     Ok(VerifyReport {
