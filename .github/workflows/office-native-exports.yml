@@ -91,6 +91,20 @@ jobs:
       - name: Stage the existing checksum-pinned desktop sidecar
         shell: bash
         run: ./scripts/fetch-tailcat-sidecar.sh
+      # This job compiles the Tauri command registrations and runs the export
+      # tests. It never bundles, uploads or starts the Authority. tauri-build
+      # only checks that every externalBin path exists, so an empty stand-in
+      # satisfies it. Installers get the real binary from
+      # scripts/build-desktop-host.mjs in build.yml.
+      - name: Stand in for the Authority sidecar (compile-only job)
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET=$(rustc -vV | sed -n 's/^host: //p')
+          SIDECAR="src-tauri/binaries/wabi-server-$TARGET"
+          test ! -e "$SIDECAR"
+          mkdir -p src-tauri/binaries
+          : > "$SIDECAR"
       - name: Compile real Tauri registrations and run native export tests
         shell: bash
         run: |
