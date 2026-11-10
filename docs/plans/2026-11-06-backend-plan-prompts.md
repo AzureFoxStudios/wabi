@@ -198,6 +198,26 @@ Also state, without fixing it here: whether wabi-server's own tests that use thi
 
 You check: the report gives a failure count before the fix and 100 clean runs after, under the same load.
 
+### Task 1.0m wabi-server unit tests have the same phantom lock owner exposure (Opus, optional)
+
+Found by the Task 1.0l session. Never seen failing in CI, so this is optional; run it only if the server tests start failing with `Ownership`.
+
+```
+TASK 1.0m. Test-only change in core/crates/wabi-server. Do not change production code in wabi-server or wabi-consensus.
+
+Background: read core/crates/wabi-consensus/src/fork_gate.rs and the descriptions of PR 291 and PR 301 first. A forked child holds copies of every open descriptor until exec, including a flock'ed consensus store file another test has just dropped, so an immediate reopen is refused with Ownership. PR 291 fixed this for wabi-consensus unit tests and PR 301 for its integration tests. PR 301's session found the same exposure in wabi-server's own unit-test binary: tests in src/instance_archive/source_context_tests.rs, src/recovery_publication_jobs/genuine_restart_tests.rs and src/recovery_publication_jobs/genuine_crash_tests.rs spawn copies of the test executable, while tests in the same binary (those three files plus src/recovery_node/tests.rs and src/checkpoint_jobs.rs) open wabi-consensus stores and runtimes with no gate. It has not been seen failing in CI.
+
+Step 1, reproduce or prove. Loop the wabi-server lib tests that are involved (filter to those modules; run two copies at once for load) at least 100 times and record failures by test name. If nothing fails, do not guess: write a small targeted stress test, as PR 291 did, that shows the mechanism in this binary (a child spawn overlapping a drop-then-reopen of a consensus store). If you can show neither a failure nor the mechanism, stop and report that; do not change anything.
+
+Step 2, fix. Reuse the one gate source file the way PR 301 does (#[path] include under cfg(test); do not copy it, do not make it public, do not compile it into production builds). Every child spawn in the wabi-server unit tests goes through the gate's spawn. The harder half is the shared side: here the stores are opened inside library code that wabi-server production code calls, not by the tests directly. Find the narrowest test-side points that cover every flock acquisition and probe (for example the test helpers that start a recovery node or runtime), hold the gate shared there, and explain why that covers every acquisition and cannot deadlock a test that both spawns and opens. If it cannot be covered from test code alone, stop and describe what would be needed instead of adding a test hook to production code.
+
+No sleeps or retries, no loosened assertions, nothing newly ignored.
+
+Proof: the failure or mechanism count before, and 100 consecutive clean runs of the same loop under the same load after. Then the full wabi-server suite once, listing environmental failures by name as the preamble describes.
+```
+
+You check: the report shows the race or its mechanism before the fix, and 100 clean runs after.
+
 ## Phase 1: stop the bleeding
 
 ### Task 1.1 Reactions cannot be removed (Sonnet)
@@ -385,8 +405,10 @@ You check: a test asserts a bound on events held in memory during replay.
 
 ### Task 2.1 Delete dead WabiDB modules (Sonnet, Opus review)
 
+Revised 2026-11-10: the compiler decides what is dead, not a text search, and stored-data types count as callers.
+
 ```
-TASK 2.1.
+TASK 2.1. Read AGENTS.md golden rule 5 first.
 
 The audit in docs/plans/2026-11-06-backend-audit-wabidb-lore.md found these WabiDB modules have no production caller (only their own tests reference them). They look finished, so the risk is that someone builds on them. Remove them.
 
@@ -400,14 +422,48 @@ Under core/crates/wabidb/src/:
 - replication/failover.rs, snapshot_shipping.rs, rate_limit.rs, observability.rs, anti_entropy.rs, and the SyncWorker and ReplicaStateMachine types
 - commands/membership_revalidation.rs
 - cli/backup.rs, cli/restore.rs, cli/rebuild_indexes.rs, cli/rebuild_indexes_cmd.rs
-- tests/compaction_regression.rs if it only exercises compact_segment
 
-Procedure, one module per commit: grep the whole workspace (core/, crates/, src-tauri/, helpers/) for any use of the module outside itself and its tests. If there is a non-test caller, do NOT delete; add it to a list at the end with the file:line of the caller. Otherwise delete the module, its tests, and its mod declaration, and remove any dependency that nothing else uses. Keep the wabidb lib.rs module doc accurate: remove bullets for deleted modules, do not add new claims.
+Procedure, one module per commit. Do not decide by text search: names like subscription, ephemeral, tombstone, compaction and rekey are also ordinary words and identifiers elsewhere, so grep gives dozens of false hits. Let the compiler decide. Remove the module's `mod` declaration and its files, then run `cargo check --workspace --all-targets` and `cargo check -p wabi-server --features full --all-targets`. If the only errors are in that module's own tests, delete those tests too and it is dead. If any other code fails to compile, that code is a caller: restore the module, do NOT delete it, and add it to a list at the end with the file:line of the caller.
 
-After all deletions: cargo test --workspace, cargo check -p wabi-server --features full, and cargo deny check if it is configured, must pass. Report the "not deleted because of a caller" list, which should be empty.
+Three things count as a caller even when the compiler is quiet, so check each before deleting:
+1. Anything registered in the type registry or projection dispatch table (build_type_registry and what it calls).
+2. Any type that is serialized into stored events, records, the commit index or the projection snapshot. Deleting a type that existing data on disk contains is a data-compatibility change; stop and list it instead.
+3. Anything reachable from a binary under core/crates/wabidb/src/bin or core/crates/wabi-server/src/bin, or from src-tauri or helpers.
+
+Recent changes to be aware of: PR 287 and PR 293 touched retention/compaction.rs, retention/key_destruction.rs and the cli/ files (fsync handles and stream directory names). That does not make them live; judge them by the rules above. Do not touch sequencer/, engine/, stream_log/, commit_index/ or projections/ except to remove a `mod` line or an import the deletion orphans.
+
+After each deletion remove any dependency in Cargo.toml that nothing else uses, and keep the wabidb lib.rs module doc accurate: remove bullets for deleted modules, do not add new claims. There is no failing test to write first for a deletion; say so, and treat the full suite staying green as the proof.
+
+After all deletions these must pass: `cargo test -p wabidb`, the full wabi-server suite (`CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0 cargo test -p wabi-server --no-fail-fast`, listing the environmental failures by name as the preamble describes), `cargo check -p wabi-server --features full`, and `cargo deny check` if it is configured. Report lines of code removed per module and the "not deleted because of a caller" list.
 ```
 
 You check: the "not deleted" list is empty or you understand each entry.
+
+### Task 2.1b Two leftovers from Task 2.1 (Opus)
+
+```
+TASK 2.1b. Read AGENTS.md golden rules 5 and 8 first, then the description of PR 302 (Task 2.1), section "Not deleted because of a caller".
+
+Task 2.1 kept two WabiDB modules because other code compiles against them. Both look dead one level further out. Prove it, then remove them. Two commits at least, part (a) first.
+
+(a) retention/tombstone.rs. core/crates/wabi-server/src/state.rs has a `tombstone_table` field (declared near line 96, built near line 581). On main nothing reads it. Confirm with the compiler: remove the field and its construction, run `cargo check --workspace --all-targets` and `cargo check -p wabi-server --features full --all-targets`. If that is clean, remove core/crates/wabidb/src/retention/tombstone.rs and its `mod` line the same way, and correct the retention/mod.rs and lib.rs module docs so they name only what is left. If anything else fails to compile, stop and report the caller.
+
+(b) subscription/. core/crates/wabidb/src/engine/mod.rs owns a SubscriptionEngine and exposes deliver_event, subscribe_stream and unsubscribe_stream. The server adapter calls deliver_event after every durable write (core/crates/wabi-server/src/adapter/mod.rs in the shared run path, and adapter/group_commands.rs), passing a copy of the event plaintext. subscribe_stream and unsubscribe_stream are on the WabiStore trait (wabidb/src/engine/wabi_store.rs) and implemented by the adapter, but on main nothing calls them. So every write does delivery work for zero subscribers.
+
+Step 1, prove nobody subscribes. Do not trust a text search alone: remove subscribe_stream and unsubscribe_stream from the WabiStore trait and its implementations and run both cargo check commands above, plus `cargo check --workspace --all-targets --all-features` if it builds on main (if it does not build on main, say so and skip it). Any compile error outside the trait, the adapter impl and the engine is a subscriber: restore everything, stop, and report it with file:line. Also confirm how realtime clients actually get events today (name the function that pushes to Socket.IO or WebSocket clients after a write) and show that it does not go through SubscriptionEngine.
+
+Step 2, remove. Only if step 1 found no subscriber: remove the two trait methods, the adapter's deliver_event calls, the engine's subscription field, its construction and the three engine methods, then the subscription/ module. This is the write path, so be exact:
+- Nothing before `outcome?` may change. The order "durable commit, projection applied, then return commit_seq" must be identical.
+- If the plaintext copy or the `deliveries` list in group_commands.rs existed only to feed deliver_event, remove it too and say so. If it has another use, keep it.
+- deliver_event returns nothing today, so removing it cannot change a write's result. Confirm that by reading it and say so in one sentence.
+- Do not touch sequencer/, stream_log/, commit_index/ or projections/.
+
+There is no failing test to write first for a deletion; say so. The proof is: `cargo test -p wabidb`, the full wabi-server suite (`CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0 cargo test -p wabi-server --no-fail-fast`, environmental failures listed by name as the preamble describes), and `cargo check -p wabi-server --features full`. Name the existing tests that cover "a client receives a live event after a write" and show they pass.
+
+Report: the step 1 evidence, lines removed per part, and the two write-path call sites before and after.
+```
+
+You check: the report names the function that really pushes live events, and the before and after of the two write-path call sites show nothing changed above the removed lines.
 
 ### Task 2.2 Fix or remove the operator CLI (Opus)
 
@@ -471,6 +527,29 @@ Remove the corresponding routes and handlers in core/crates/wabi-server/src/api/
 ```
 
 You check: `grep -n "scripts\|editor\|mirror/run" core/crates/wabi-server/src/api/lore.rs` shows no routes.
+
+### Task 2.6 Honest state for encrypted messages a device cannot read (Sonnet)
+
+```
+TASK 2.6. Frontend only. Read AGENTS.md golden rules 2, 3, 7 and 13 first. Do not change the encryption protocol, key handling, the server, or any stored format.
+
+Problem: frontend/src/lib/e2ee.ts, prepareIncomingE2eeMessage. Every failure to open an encrypted message goes through undecryptableMessage and shows the same line: "[Unable to decrypt this end-to-end encrypted message on this device]". So a device that simply has no key for the message, which is ordinary on a new or reset device, looks exactly like a failed signature check or a room mismatch, which is not ordinary. The wording also says "end-to-end encrypted" with no qualifier; rule 13 requires this encryption to be labelled experimental and never implied to be independently verified or operator-blind.
+
+Do this:
+1. List every way prepareIncomingE2eeMessage can fail today (read the code; include what currentRoomKey and getE2eeRoomStatus throw). Sort each into one of two classes: "this device has no key for this message" (no cached key for that epoch and no key envelope addressed to this device) or "the message failed a check" (signature, room mismatch, unknown sender device, malformed envelope or payload). If a cause cannot be told apart from the error available, say so in the report rather than guessing; put it in the second class.
+2. Carry the class on the prepared message as a typed field next to e2eeError, not by matching error strings in components. Preserve message identity exactly as it is (rule 3): do not touch id or clientMessageId handling.
+3. Wording. Say only what the client knows. For the first class it knows one thing: this device does not have the key for this message, so it cannot show it. It does not know why (the device may be new, or its local keys may have been cleared or lost), and it does not know whether any other device still has the key. So the text may name those reasons as possibilities, but must not state one as the cause, and must not promise the message is readable anywhere else. The second class says the message could not be verified and is not shown. Neither may say "end-to-end encrypted" without "experimental", and neither may suggest the server cannot read anything. Never render ciphertext.
+4. When a conversation contains first-class messages, show one notice for the conversation using the existing notice pattern in the DM view (the w-notice block in DMMessageView.svelte), instead of relying on the repeated per-message line alone. Follow the patterns already in that component; do not add a new store or navigation path.
+5. Check every other place that prints the old fixed line or tests for it (search the frontend for the old text and for e2eeVerified) and keep them consistent, including notifications and search indexing, which must keep excluding these messages.
+
+Tests first: unit tests for the classification, one per failure cause, that fail on main because the class field does not exist. Then the change. Run `bun run check` and the frontend unit tests.
+
+Rule 7 applies: say plainly in the report whether you saw this in a real browser. If you did not, say that visual acceptance is still owed; do not describe how it looks.
+
+Report: a table of failure cause, class, and the exact text shown.
+```
+
+You check: the table has a row for every cause, and the report says whether a real browser was used.
 
 ---
 
