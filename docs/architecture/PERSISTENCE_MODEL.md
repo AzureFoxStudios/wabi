@@ -44,7 +44,7 @@ Streams are deleted after a TTL. Used for high-churn channels (e.g. temporary co
 
 **Implementation:**
 - The Wabidb retention engine (`wabidb::retention::reaper`) scans for streams past their TTL
-- On expiry, the stream's encryption key is destroyed (cryptographic deletion)
+- On expiry, the stream's encryption key is destroyed (key destruction; design intent, see section 6)
 - The segments become unreadable garbage
 - The commit index entry remains (audit trail) but the data is unrecoverable
 
@@ -149,9 +149,11 @@ The manifest is regenerated whenever the engine reopens the data directory. It i
 
 ---
 
-## 6. Cryptographic Deletion
+## 6. Key Destruction (design intent, not implemented)
 
-Wabidb supports **cryptographic deletion** of streams: rather than overwriting data on disk (slow, fragile on SSDs), the engine destroys the stream's encryption key. The on-disk bytes become mathematically unrecoverable.
+> **Status:** nothing in the running server destroys stream keys. Timed retention is a soft delete: a `message_deleted` event hides the message and the original encrypted record stays in the segment. The per-stream key is re-derived from the bootstrap key on every start. The text below describes the intended design only.
+
+The intended design is **key destruction** for streams: rather than overwriting data on disk (slow, fragile on SSDs), the engine destroys the stream's encryption key. The on-disk bytes become mathematically unrecoverable.
 
 **Lifecycle:**
 1. **Create:** A new stream is allocated with a fresh 256-bit key. The key is stored in the `StreamKeyRegistry` (in-memory + optional offline backup).

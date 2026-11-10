@@ -24,7 +24,7 @@
 	let saved = $state('');
 
 	const retention: Array<{ value: ServerDefaultRetention; label: string; detail: string }> = [
-		{ value: 'live', label: 'Live', detail: 'Session-only. New channel messages are not durably written.' },
+		{ value: 'live', label: 'Live', detail: 'Not retained: new channel messages are not durably written. The server can still read them while they are live.' },
 		{ value: '1h', label: '1 hour', detail: 'Very short-lived chat for transient coordination.' },
 		{ value: '24h', label: '24 hours', detail: 'Wabi’s privacy-oriented baseline.' },
 		{ value: '7d', label: '7 days', detail: 'Seven days of visible message history.' },
