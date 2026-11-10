@@ -183,8 +183,10 @@ pub enum WabiError {
     /// The Double Ratchet skipped-key cache is full.
     SkippedKeyCacheFull,
 
-    // --- Retention / compaction ---
-    /// A stream's key was destroyed (cryptographic deletion succeeded).
+    // --- Stream key registry ---
+    /// The stream's key is marked destroyed in the in-memory key registry.
+    /// Stream keys are re-derived from the bootstrap key at startup, so this
+    /// is not key destruction on disk and nothing is erased.
     StreamDestroyed {
         /// The stream that was destroyed.
         stream_id: String,
@@ -311,7 +313,7 @@ impl fmt::Display for WabiError {
                 write!(f, "double ratchet skipped key cache full (max 1000)")
             }
             Self::StreamDestroyed { stream_id } => {
-                write!(f, "stream {stream_id} destroyed (cryptographic deletion)")
+                write!(f, "stream {stream_id} key is marked destroyed")
             }
             Self::BlobMissing { hash } => {
                 write!(f, "blob missing: {hash}")
