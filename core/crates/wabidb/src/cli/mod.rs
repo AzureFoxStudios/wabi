@@ -1,9 +1,13 @@
-//! Read-only operator commands behind the `wabidb-cli` binary: `check`,
-//! `verify`, `status` and `list-streams`.
+//! Operator commands behind the `wabidb-cli` binary.
 //!
-//! Every command reads an engine directory (`data/wabi-server/wabidb`) of a
-//! stopped server, or a copy of one. None opens the engine, and none takes,
-//! writes or unlinks the advisory `.lock` file (AGENTS.md golden rule 9).
+//! `check`, `verify`, `status` and `list-streams` only read. Each reads an
+//! engine directory (`data/wabi-server/wabidb`) of a stopped server, or a
+//! copy of one. None opens the engine, and none takes, writes or unlinks
+//! the advisory `.lock` file (AGENTS.md golden rule 9).
+//!
+//! `quarantine` is the one command that writes: it takes the advisory lock
+//! while it runs, so it cannot run against a live engine, and adds a commit
+//! to `global/quarantine.json`. It never creates or unlinks `.lock`.
 //!
 //! The on-disk layout is `streams/<kind>/<stream_dir>/events/*.wseg`
 //! (docs/ai/wabidb-storage.md). Kind and stream directory names come only
@@ -13,9 +17,12 @@
 //! `check` and `verify` also match every record against the commit index
 //! ([`IndexedRecords`]): an acknowledged record that is missing, or whose
 //! stored payload no longer has the hash the index recorded, is an error.
+//! A commit in `global/quarantine.json` is reported as quarantined instead:
+//! startup skips it whole, so its records are not required.
 
 pub mod check;
 pub mod list_streams;
+pub mod quarantine;
 pub mod status;
 pub mod verify;
 
@@ -149,6 +156,8 @@ pub(crate) fn resolve_stream_id<'a>(
 /// to start with "not all indexed events could be recovered".
 pub(crate) struct IndexedRecords {
     indexed_commits: std::collections::HashSet<u64>,
+    /// Indexed commits the operator quarantined.
+    quarantined: std::collections::BTreeSet<u64>,
     /// Payload hashes still unmatched, per (commit_seq, stream id hash).
     expected: std::collections::HashMap<(u64, [u8; 16]), Vec<[u8; 32]>>,
     /// Records of an indexed commit whose payload matched no expected hash.
@@ -176,6 +185,9 @@ pub(crate) struct IndexedRecordsReport {
     /// Records whose commit_seq is not in the index: leftovers of a command
     /// that never committed. Replay skips them; they are not an error.
     pub orphan_records: usize,
+    /// Indexed commits listed in `global/quarantine.json`, ascending.
+    /// Startup skips them, so damage to their records is not counted above.
+    pub quarantined_commits: Vec<u64>,
 }
 
 impl IndexedRecordsReport {
@@ -214,9 +226,14 @@ impl IndexedRecordsReport {
 }
 
 impl IndexedRecords {
-    pub(crate) fn new(entries: &[crate::commit_index::record::CommitIndexEntry]) -> Self {
+    /// `quarantine` is the content of `global/quarantine.json`.
+    pub(crate) fn new(
+        entries: &[crate::commit_index::record::CommitIndexEntry],
+        quarantine: &std::collections::BTreeSet<u64>,
+    ) -> Self {
         let mut this = Self {
             indexed_commits: Default::default(),
+            quarantined: Default::default(),
             expected: Default::default(),
             unmatched: Default::default(),
             malformed_entries: Vec::new(),
@@ -224,6 +241,10 @@ impl IndexedRecords {
         };
         for entry in entries {
             this.indexed_commits.insert(entry.commit_seq);
+            if quarantine.contains(&entry.commit_seq) {
+                this.quarantined.insert(entry.commit_seq);
+                continue;
+            }
             if entry.event_refs.len() != entry.payload_hashes.len() {
                 this.malformed_entries.push(entry.commit_seq);
             }
@@ -241,6 +262,9 @@ impl IndexedRecords {
     pub(crate) fn observe(&mut self, header: &crate::format::record::RecordHeader, payload: &[u8]) {
         if !self.indexed_commits.contains(&header.commit_seq) {
             self.orphan_records += 1;
+            return;
+        }
+        if self.quarantined.contains(&header.commit_seq) {
             return;
         }
         let key = (header.commit_seq, header.stream_id_hash);
@@ -263,6 +287,7 @@ impl IndexedRecords {
         }
         let mut report = IndexedRecordsReport {
             orphan_records: self.orphan_records,
+            quarantined_commits: self.quarantined.iter().copied().collect(),
             ..Default::default()
         };
         let (mut missing, mut corrupt, mut unreferenced) = (Vec::new(), Vec::new(), Vec::new());
@@ -296,6 +321,18 @@ impl IndexedRecords {
         report.malformed_entries = self.malformed_entries;
         report
     }
+}
+
+/// The quarantine list for `check` and `verify`. An unreadable file is an
+/// error in their report (the engine will not start) and counts as empty.
+pub(crate) fn quarantine_for_report(
+    data_dir: &Path,
+    errors: &mut Vec<String>,
+) -> std::collections::BTreeSet<u64> {
+    crate::engine::quarantine::load(data_dir).unwrap_or_else(|e| {
+        errors.push(e.to_string());
+        Default::default()
+    })
 }
 
 /// Real-engine data directories for the CLI tests. Every CLI test runs the
@@ -413,9 +450,9 @@ mod tests {
         out
     }
 
-    /// Every command runs while another handle holds the advisory lock (so
-    /// none needs it) and leaves the tree, `.lock` inode and bytes included,
-    /// exactly as it was.
+    /// Every read-only command runs while another handle holds the advisory
+    /// lock (so none needs it) and leaves the tree, `.lock` inode and bytes
+    /// included, exactly as it was. (`quarantine` writes; see its tests.)
     #[tokio::test]
     async fn commands_are_read_only_and_never_touch_the_lock() {
         let dir = tempfile::tempdir().unwrap();
@@ -471,7 +508,7 @@ mod tests {
         ];
 
         // Everything present, in any order, plus an orphan of commit 9.
-        let mut all = super::IndexedRecords::new(&entries);
+        let mut all = super::IndexedRecords::new(&entries, &Default::default());
         for (seq, name, payload) in
             [(1, "a", &b"two"[..]), (1, "a", b"one"), (2, "b", b"four"), (2, "a", b"three"), (3, "a", b"five"), (9, "a", b"x")]
         {
@@ -483,7 +520,7 @@ mod tests {
 
         // Commit 1: one of two payloads altered. Commit 2: stream b absent.
         // Commit 3: its record plus one the commit does not reference.
-        let mut damaged = super::IndexedRecords::new(&entries);
+        let mut damaged = super::IndexedRecords::new(&entries, &Default::default());
         for (seq, name, payload) in
             [(1, "a", &b"one"[..]), (1, "a", b"tw0"), (2, "a", b"three"), (3, "a", b"five"), (3, "c", b"six")]
         {

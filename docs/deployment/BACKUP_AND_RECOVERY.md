@@ -270,6 +270,43 @@ When a host fails, preserve evidence before experimenting:
 
 For engine-level corruption or replay failures, use the WabiDB storage/recovery tooling and architecture docs rather than deleting indexes or segments by guesswork.
 
+## Startup refuses one commit: quarantine it
+
+Since 2026-11-10 an operator can get past a single durable commit that stops startup, instead of restoring a backup. This is a last-resort repair. Restoring a known-good backup is still the safer choice when you have one.
+
+**When it applies.** The Authority refuses to start and its log names one commit, for example:
+
+```text
+corrupt projection message_created at commit 1234: replay failed: ...; repair required before startup (copy the data directory, then `wabidb-cli quarantine --seq 1234` skips this commit)
+corrupt projection message_created at commit 1234: handler panicked: ...; repair required before startup (...)
+```
+
+The first means the projection code rejected that event. The second means it panicked; startup now reports the panic as this error instead of crashing. Both usually point at a server bug rather than disk damage. While the server was running, the same event halted the engine (the log said "engine halted, repair required before retry").
+
+Quarantine also skips a commit whose stored records are damaged ("commit N: not all indexed events could be recovered"). That is real data damage, so restore a backup if you can.
+
+**What it costs.** A quarantined commit stays in the log, but no part of the server's state ever applies it again. Whatever that command did (a message, an edit, a membership or settings change) is gone from what users see, and later commands that depended on it may behave differently. Keep `quarantine.json`. Deleting it does not bring the commit back, and it can make a later startup refuse the same commit again.
+
+**Procedure.**
+
+1. Stop the Authority: `docker compose stop wabi-server`.
+2. Copy the whole data directory first, exactly as in [the stopped backup above](#safest-supported-backup-stop-copy-start). Do not skip this step.
+3. Read the commit number N from the startup error: `docker compose logs wabi-server`.
+4. Build the tool from the same checkout and release as the server: `cargo build --release -p wabidb --bin wabidb-cli`. The server image does not contain it.
+5. Run it against the engine directory, as the user that owns the data (UID 1000 for the Docker image):
+
+   ```bash
+   target/release/wabidb-cli quarantine --seq N data/wabi-server/wabidb
+   ```
+
+   It takes the engine's advisory lock while it runs, so it fails with `AlreadyRunning` if anything still holds the data directory open. It refuses a directory without `data/wabi-server/wabidb/.lock`, and refuses an N that is not in the commit index. It adds N to `data/wabi-server/wabidb/global/quarantine.json` atomically. It never creates or deletes `.lock`; never delete it yourself (step 6 of [restore onto a clean Authority](#restore-onto-a-clean-authority)).
+6. Optional: `target/release/wabidb-cli check data/wabi-server/wabidb` lists N under `quarantined_commits`. `check` and `verify` report a quarantined commit as quarantined, not as damage.
+7. Start the Authority and verify `/livez` and `/readyz`. Its log shows a warning for every quarantined commit it skips: `replay: skipping quarantined commit N`.
+
+If startup then refuses a different commit, it is safe to repeat the procedure for that commit. If more than one or two commits fail, stop: a bad build or wider damage is more likely than a few bad events, so restore the backup instead.
+
+The Authority refuses to start if `quarantine.json` cannot be parsed, or if it lists a commit above every commit on disk (the next write would receive that number and be skipped). Restore the file from the copy taken in step 2.
+
 ## Future HA acceptance gate
 
 Wabi should not call a multi-node arrangement “HA” until all of the following are demonstrated in repeatable tests:

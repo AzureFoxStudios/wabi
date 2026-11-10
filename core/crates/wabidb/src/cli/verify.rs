@@ -35,6 +35,9 @@ pub struct VerifyReport {
     pub manifest: Option<ManifestSummary>,
     /// `.wseg` files verified.
     pub segments_verified: usize,
+    /// Indexed commits in `global/quarantine.json`, ascending. Startup skips
+    /// them, so their records are not verified against the index.
+    pub quarantined_commits: Vec<u64>,
 }
 
 pub async fn verify(data_dir: &Path) -> Result<VerifyReport> {
@@ -48,8 +51,10 @@ pub async fn verify(data_dir: &Path) -> Result<VerifyReport> {
             errors: vec!["missing storage-manifest.json".into()],
             manifest: None,
             segments_verified: 0,
+            quarantined_commits: Vec::new(),
         });
     }
+    let quarantine = super::quarantine_for_report(data_dir, &mut errors);
 
     let manifest_raw = tokio::fs::read_to_string(&manifest_path).await.map_err(WabiError::Io)?;
     let manifest: ManifestSummary = serde_json::from_str(&manifest_raw).map_err(|e| {
@@ -67,7 +72,7 @@ pub async fn verify(data_dir: &Path) -> Result<VerifyReport> {
 
     let index_dir = data_dir.join("global").join("commit-index");
     let mut indexed = match crate::commit_index::batcher::read_all_entries(&index_dir) {
-        Ok(entries) => Some(super::IndexedRecords::new(&entries)),
+        Ok(entries) => Some(super::IndexedRecords::new(&entries, &quarantine)),
         Err(e) => {
             errors.push(format!("cannot read commit index {}: {e}", index_dir.display()));
             None
@@ -105,8 +110,11 @@ pub async fn verify(data_dir: &Path) -> Result<VerifyReport> {
         }
     }
 
+    let mut quarantined_commits = Vec::new();
     if let Some(indexed) = indexed {
-        errors.extend(indexed.finish().errors());
+        let matched = indexed.finish();
+        errors.extend(matched.errors());
+        quarantined_commits = matched.quarantined_commits;
     }
 
     Ok(VerifyReport {
@@ -114,6 +122,7 @@ pub async fn verify(data_dir: &Path) -> Result<VerifyReport> {
         errors,
         manifest: Some(manifest),
         segments_verified,
+        quarantined_commits,
     })
 }
 

@@ -39,7 +39,7 @@ use crate::error::{ErrorCategory, Result, WabiError};
 use crate::projections::handler::{DispatchTable, DurableEvent};
 use crossbeam_skiplist::SkipMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::ops::Bound;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -736,11 +736,13 @@ pub fn spawn_projection_dispatcher(
         checkpoint_data_dir,
         checkpoint_interval,
         None,
+        BTreeSet::new(),
     )
 }
 
 /// Engine-owned dispatcher checkpoints must retain the process lock until
 /// their task exits, even when the public engine has already been dropped.
+/// Commits in `quarantine` (`global/quarantine.json`) are skipped.
 pub(crate) fn spawn_projection_dispatcher_with_lock(
     state: Arc<ProjectionState>,
     table: Arc<DispatchTable>,
@@ -748,6 +750,7 @@ pub(crate) fn spawn_projection_dispatcher_with_lock(
     checkpoint_data_dir: Option<std::path::PathBuf>,
     checkpoint_interval: Option<u64>,
     process_lock: Option<Arc<std::fs::File>>,
+    quarantine: BTreeSet<u64>,
 ) -> Result<DispatcherHandle> {
     let depth = channel_depth.unwrap_or(DEFAULT_DISPATCHER_CHANNEL_DEPTH);
     let (tx, rx) = mpsc::channel::<DispatchCommit>(depth);
@@ -756,7 +759,7 @@ pub(crate) fn spawn_projection_dispatcher_with_lock(
     let interval = checkpoint_interval.unwrap_or(0);
     let handle = tokio::spawn(async move {
         let _process_lock = process_lock;
-        run_dispatcher(rx, state_clone, table, checkpoint_data_dir, interval).await;
+        run_dispatcher(rx, state_clone, table, checkpoint_data_dir, interval, quarantine).await;
     });
 
     Ok(DispatcherHandle {
@@ -768,6 +771,12 @@ pub(crate) fn spawn_projection_dispatcher_with_lock(
 /// Receives whole commits, applies all events, advances the watermark and
 /// acknowledges application. Any handler failure halts the applied prefix.
 ///
+/// A commit in `quarantine` is skipped whole, as replay skips it: nothing is
+/// applied, the watermark advances and the commit is acknowledged. The
+/// quarantine command accepts only commits already in the commit index and
+/// the sequencer continues above those, so a running engine does not
+/// normally see one; this keeps both paths to the same rule.
+///
 /// If `checkpoint_data_dir` is `Some`, a snapshot is written every
 /// `checkpoint_interval` complete commits for faster restart.
 async fn run_dispatcher(
@@ -776,8 +785,24 @@ async fn run_dispatcher(
     table: Arc<DispatchTable>,
     checkpoint_data_dir: Option<std::path::PathBuf>,
     checkpoint_interval: u64,
+    quarantine: BTreeSet<u64>,
 ) {
     while let Some(commit) = receiver.recv().await {
+        if quarantine.contains(&commit.commit_seq) {
+            tracing::warn!(
+                "projection dispatcher: skipping quarantined commit {} (events={}); listed in global/quarantine.json",
+                commit.commit_seq,
+                commit.events.len()
+            );
+            let application = state
+                .application
+                .write()
+                .expect("projection application lock poisoned");
+            state.advance_watermark(commit.commit_seq);
+            drop(application);
+            let _ = commit.applied_tx.send(Ok(()));
+            continue;
+        }
         // Synchronous handlers never hold this lock across an await.
         let application = state
             .application
@@ -1045,6 +1070,51 @@ mod tests {
         let state = ProjectionState::new();
         let removed = state.compact_index("nonexistent", |_, _| true);
         assert_eq!(removed, 0);
+    }
+
+    /// Task 3.2: the live dispatcher skips a quarantined commit as replay
+    /// does: nothing applied, watermark advanced, acknowledged, still
+    /// healthy. Without the skip, commit 2 halts the engine.
+    #[tokio::test]
+    async fn dispatcher_skips_a_quarantined_commit() {
+        use crate::projections::test_poison;
+        let state = Arc::new(ProjectionState::new());
+        let table = Arc::new(DispatchTable::new(vec![Arc::new(test_poison::PoisonProjection)]).unwrap());
+        let handle = spawn_projection_dispatcher_with_lock(
+            Arc::clone(&state),
+            table,
+            Some(16),
+            None,
+            None,
+            None,
+            BTreeSet::from([2]),
+        )
+        .unwrap();
+
+        for (seq, payload) in [(1, &b"one"[..]), (2, test_poison::FAIL), (3, b"three")] {
+            let (applied_tx, applied_rx) = tokio::sync::oneshot::channel();
+            let event = DispatchItem {
+                commit_seq: seq,
+                event_type: test_poison::EVENT_TYPE.into(),
+                stream_id: "ch_poison".into(),
+                payload: payload.to_vec(),
+            };
+            handle
+                .sender
+                .send(DispatchCommit {
+                    commit_seq: seq,
+                    events: vec![event],
+                    applied_tx,
+                })
+                .await
+                .unwrap();
+            applied_rx.await.unwrap().unwrap();
+            assert_eq!(state.applied_commit_seq(), seq);
+        }
+        assert!(state.is_healthy());
+        assert!(state.get(test_poison::INDEX, &1u64.to_be_bytes()).is_some());
+        assert!(state.get(test_poison::INDEX, &2u64.to_be_bytes()).is_none());
+        assert!(state.get(test_poison::INDEX, &3u64.to_be_bytes()).is_some());
     }
 
     #[tokio::test]
