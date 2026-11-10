@@ -6,7 +6,6 @@ pub mod double_ratchet;
 pub mod identity;
 pub mod stream_key_registry;
 pub mod device_pinning;
-pub mod dm_envelope;
 pub mod helper_revocation;
 pub mod safety_number;
 pub mod version_skew;
