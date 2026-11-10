@@ -86,22 +86,30 @@ pub fn write_policy(path: &Path, policy: &RecoveryNodeConfig) {
     file.write_all(&serde_json::to_vec(policy).unwrap()).unwrap();
     file.sync_all().unwrap();
 }
-pub fn policies(root: &Path, community: &str, source: &str) -> Vec<RecoveryNodeConfig> {
+/// One loopback listener per roster node. Keep each one bound for as long as
+/// its address may be needed and start runtimes on clones, so the address is
+/// never released between reservation and bind for another socket to take.
+pub fn reserve() -> Vec<TcpListener> {
+    (1..=3).map(|_| TcpListener::bind("127.0.0.1:0").unwrap()).collect()
+}
+pub fn addresses(reserved: &[TcpListener]) -> Vec<SocketAddr> {
+    reserved.iter().map(|listener| listener.local_addr().unwrap()).collect()
+}
+pub fn policies(root: &Path, community: &str, source: &str, addresses: &[SocketAddr])
+    -> Vec<RecoveryNodeConfig> {
+    assert_eq!(addresses.len(), 3);
     let mut peers = BTreeMap::new();
-    let mut reservations = Vec::new();
     for id in 1..=3 {
         let node = root.join(format!("node-{id}"));
         private(&node);
         for name in ["identity", "control", "material"] { private(&node.join(name)); }
         let identity = Identity::generate().unwrap();
         identity.persist_new(&node.join("identity")).unwrap();
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         peers.insert(id, RecoveryPeer { protocol: CONTROL_PROTOCOL, community_id: community.into(),
             site_id: format!("loopback-fixture-{id}"), public_key: identity.public_hex(),
-            rpc_address: listener.local_addr().unwrap().to_string() });
-        reservations.push(listener);
+            rpc_address: addresses[id as usize - 1].to_string() });
     }
-    let result = (1..=3).map(|id| {
+    (1..=3).map(|id| {
         let node = root.join(format!("node-{id}"));
         RecoveryNodeConfig { schema_version: 1, binding: StoreBinding {
             community_id: community.into(), partition_id: "community/control".into(), node_id: id },
@@ -109,10 +117,7 @@ pub fn policies(root: &Path, community: &str, source: &str) -> Vec<RecoveryNodeC
             control_directory: node.join("control"), material_directory: node.join("material"),
             bind_address: None, initialize: id == 1, work_timeout_seconds: 10,
             rpc_deadline_milliseconds: 1000, minimum_free_bytes: 64 * 1024 * 1024 }
-    }).collect();
-    // The bind race is real: runtime startup must fail if a reservation is lost.
-    drop(reservations);
-    result
+    }).collect()
 }
 pub async fn request(app: &Router, method: &str, uri: &str, peer: &str,
     secret: Option<&str>, body: Body) -> (StatusCode, Value) {

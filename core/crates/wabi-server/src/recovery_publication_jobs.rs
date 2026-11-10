@@ -213,7 +213,7 @@ impl PublicationJobs {
             });
             // Transfer original storage ownership before any runtime startup.
             // Ordinary startup errors await the actual runtime startup result.
-            let runtime = RecoveryRuntime::start(policy).await?;
+            let runtime = start_runtime(policy).await?;
             *inner.runtime.lock().await = Some(runtime);
             let owner = inner.clone();
             let supervisor = tokio::spawn(async move { supervise(owner, stopped).await });
@@ -563,6 +563,21 @@ async fn supervise(inner: Arc<Inner>, mut stopped: oneshot::Receiver<()>) -> Res
     inner.authority.lock().unwrap_or_else(|e| e.into_inner()).take();
     ensure!(!failed, "publication owned drain failed");
     Ok(())
+}
+
+#[cfg(not(test))]
+async fn start_runtime(policy: RuntimePolicy) -> wabi_consensus::runtime::Result<RecoveryRuntime> {
+    RecoveryRuntime::start(policy).await
+}
+/// Test builds only: a lib test fixture that reserved this node's address
+/// hands its bound listener over, so the address is never released before
+/// the runtime listens on it. Without one, this is exactly `start`.
+#[cfg(test)]
+async fn start_runtime(policy: RuntimePolicy) -> wabi_consensus::runtime::Result<RecoveryRuntime> {
+    match tests::genuine_restart::handed_over(&policy) {
+        Some(listener) => RecoveryRuntime::start_with_listener(policy, listener).await,
+        None => RecoveryRuntime::start(policy).await,
+    }
 }
 
 #[cfg(test)]
