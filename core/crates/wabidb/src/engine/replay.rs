@@ -186,10 +186,14 @@ pub async fn replay_projections(
                     })
                     .collect();
 
-            // --- Ensure the stream encryption key exists ---
-            // As before for the raw name; a decoded id gets its key when a
-            // record first names it (below).
-            ensure_derived_key(key_registry, &candidates[0].0, bootstrap_key).await?;
+            // --- Ensure the stream encryption keys exist ---
+            // Every directory registers its stream's key here, even when a
+            // snapshot covers all its records: later writes rely on it. The
+            // registry is fresh at startup and keys are derived from the id,
+            // so registering an unused candidate changes no other stream.
+            for (stream_id, _) in &candidates {
+                ensure_derived_key(key_registry, stream_id, bootstrap_key).await?;
+            }
 
             // --- Collect and sort segment paths ---
             let mut seg_entries: Vec<_> = Vec::new();
@@ -263,9 +267,6 @@ pub async fn replay_projections(
                         .unwrap_or(&candidates[0])
                         .0
                         .as_str();
-                    if stream_id != candidates[0].0 {
-                        ensure_derived_key(key_registry, stream_id, bootstrap_key).await?;
-                    }
 
                     // Look up the stream key for this commit_seq range.
                     let key = {
