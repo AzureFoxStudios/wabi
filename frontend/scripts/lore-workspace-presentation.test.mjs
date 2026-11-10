@@ -61,8 +61,14 @@ test('late requests cannot repaint an unmounted workspace', () => {
 
 // Source-contract checks are supplementary. They are NOT a Svelte compile/browser test.
 test('both Project wrappers delegate to the same channel shell', () => {
-  for (const file of ['components/LoreWorkspace.svelte', 'components/LoreRepositoryWorkspace.svelte']) {
-    const source = text(file); assert.match(source, /<LoreChannelShell projectPicker/);
+  // LoreWorkspace sits inside the Project view, which already lists projects,
+  // so it asks for the compact header and no second picker. The repository
+  // entry point stands alone and keeps the picker.
+  for (const [file, shell] of [
+    ['components/LoreWorkspace.svelte', /<LoreChannelShell compactHeader \/>/],
+    ['components/LoreRepositoryWorkspace.svelte', /<LoreChannelShell projectPicker \/>/],
+  ]) {
+    const source = text(file); assert.match(source, shell);
     assert.doesNotMatch(source, /Overview|Local changes/);
   }
   assert.match(text('components/lore/LoreChannelShell.svelte'), /<LoreProjectWorkspace/);
