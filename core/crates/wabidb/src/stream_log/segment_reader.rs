@@ -108,7 +108,48 @@ impl SegmentReader {
         F: Fn(&RecordHeader) -> bool,
     {
         let mut records = Vec::new();
+        while let Some(record) = self.next_record().await? {
+            // --- Apply orphan filter ---
+            if !filter(&record.header) {
+                // Orphaned record (not in commit index) — skip silently.
+                continue;
+            }
+            records.push(record);
+        }
+        Ok(records)
+    }
 
+    /// Open a segment file and resume sequential reading at byte `offset`,
+    /// which must be a record boundary previously reported by
+    /// [`cursor`](Self::cursor). Reading from there is identical to having
+    /// read the segment from the start up to that point.
+    ///
+    /// ## Errors
+    ///
+    /// Returns [`WabiError::Io`] if the file cannot be opened or seeked.
+    pub async fn open_at<P: AsRef<Path>>(path: P, offset: u64) -> Result<Self> {
+        use tokio::io::AsyncSeekExt;
+        let path = path.as_ref().to_path_buf();
+        let mut file = File::open(&path).await?;
+        file.seek(std::io::SeekFrom::Start(offset)).await?;
+        Ok(Self {
+            reader: BufReader::new(file),
+            path,
+            cursor: offset,
+        })
+    }
+
+    /// Read the next valid record, or `None` at the end of the valid prefix.
+    ///
+    /// Same rules as [`read_records`](Self::read_records), one record at a
+    /// time: a truncated tail, an invalid header or non-zero padding ends
+    /// the segment (`None`; do not call again), and a record whose payload
+    /// CRC fails is skipped.
+    ///
+    /// ## Errors
+    ///
+    /// Returns [`WabiError::Io`] on non-transient I/O errors.
+    pub async fn next_record(&mut self) -> Result<Option<ValidRecord>> {
         loop {
             let offset = self.cursor;
 
@@ -120,7 +161,7 @@ impl SegmentReader {
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                     // Truncated tail — no more complete records.
-                    break;
+                    return Ok(None);
                 }
                 Err(e) => return Err(WabiError::Io(e)),
             }
@@ -130,7 +171,7 @@ impl SegmentReader {
                 Ok(h) => h,
                 Err(_) => {
                     // Invalid header = truncated tail. Stop scanning.
-                    break;
+                    return Ok(None);
                 }
             };
 
@@ -145,7 +186,7 @@ impl SegmentReader {
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                     // Truncated tail — record body is incomplete.
-                    break;
+                    return Ok(None);
                 }
                 Err(e) => return Err(WabiError::Io(e)),
             }
@@ -160,7 +201,7 @@ impl SegmentReader {
             // the segment is not trustworthy past this point. Return what we
             // have so far.
             if padding.iter().any(|&b| b != 0) {
-                break;
+                return Ok(None);
             }
 
             // --- Verify payload CRC ---
@@ -169,21 +210,13 @@ impl SegmentReader {
                 continue;
             }
 
-            // --- Apply orphan filter ---
-            if !filter(&header) {
-                // Orphaned record (not in commit index) — skip silently.
-                continue;
-            }
-
             // --- Record is valid and accepted ---
-            records.push(ValidRecord {
+            return Ok(Some(ValidRecord {
                 header,
                 payload: payload.to_vec(),
                 offset,
-            });
+            }));
         }
-
-        Ok(records)
     }
 }
 
