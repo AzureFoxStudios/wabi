@@ -22,6 +22,7 @@ Good news first: **only `frontend/src/lib/callingLivekit.ts` imports the `liveki
 | F4 | `mediaRuntime.ts:275-314`, `callingTransport.ts:34-58`, `relaySelector.ts:29,98`, `callingTransports/builtins.ts:43-49` | `provider === 'livekit'` hard-coded as the only meaning of "SFU"; reads a `runtime.media.livekit` payload |
 | F5 | `mediaGateway.ts:95-116` | Token call goes to `/api/media/livekit/token` and returns `LivekitAccessTokenResponse` |
 | F6 | `core/crates/wabi-server/src/api/media.rs` | Route `/livekit/token` (line 94), `provider != "livekit"` check (469), runtime payload key `livekit` (667-810), all behind the default-off `experimental-livekit-broker` feature |
+| F8 | `frontend/src/lib/calling.ts:77-80,144-146` | The public calling barrel re-exports the LiveKit token-refresh functions and constants |
 | F7 | `frontend/src/lib/callingTransports/registry.ts` | The adapter registry is used only by its own test. `ensureBuiltinTransports()` is never called by the app. Its header comment says the chain executor consumes it; that is not true today |
 
 Two facts that shape the work:
@@ -75,7 +76,7 @@ It must check every .ts and .svelte file under frontend/src (skip *.test.ts) for
 
 Files allowed to do this permanently: callingLivekit.ts and callingLivekitTokenRefresh.ts.
 
-Files that do it today are listed in an explicit KNOWN_LEAKS array in the test, each with the finding number from the plan (F1, F2, F3) and a one-line reason. Build that array from what the scan actually finds on main, not from the plan's table.
+Files that do it today are listed in an explicit KNOWN_LEAKS array in the test, each with the finding number from the plan (F1, F2, F3, F8) and a one-line reason. Build that array from what the scan actually finds on main, not from the plan's table.
 
 The test fails if (a) a file not in either list leaks, or (b) a file in KNOWN_LEAKS no longer leaks (so the entry must be deleted when the leak is fixed).
 
@@ -120,6 +121,8 @@ Do this one call site at a time. For each, the PR description lists: the old lin
 Do not touch the fallback order, the transport-selection logic, or any wabidb/P2P code path.
 
 Remove calling_impl_core.ts from KNOWN_LEAKS in the boundary test.
+
+frontend/src/lib/calling.ts is a barrel that re-exports scheduleLivekitTokenRefresh, cancelLivekitTokenRefresh and the LIVEKIT_TOKEN_REFRESH_* constants. Search the repo for consumers of those names through the barrel. If there are none, delete the re-exports and remove calling.ts from KNOWN_LEAKS. If there are, leave them, keep the KNOWN_LEAKS entry, and list the consumers in your summary.
 
 If calling_impl_core.ts can be imported under bun test, add tests with a fake SfuProvider asserting that leaving a channel disconnects with the same arguments as before and that mute state reaches setMicrophoneEnabled. If it cannot be imported without a large harness, do not build one; say so.
 ```
