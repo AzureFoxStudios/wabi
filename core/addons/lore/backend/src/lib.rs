@@ -1198,6 +1198,8 @@ impl LoreService {
         message: &str,
         author_id: i64,
     ) -> anyhow::Result<LoreUploadResult> {
+        let message = sanitize_commit_message(message)?;
+        let message = message.as_str();
         let _io = self.io_gate.lock().await;
         let repo = self.resolve_writable_target(channel_id, repo_path).await?;
 
@@ -1266,6 +1268,20 @@ impl LoreService {
         // Parse revision from commit output
         let stdout = String::from_utf8_lossy(&commit_output.stdout);
         let revision = parse_revision_from_output(&stdout);
+        if revision.hash.is_empty() {
+            // The CLI exited 0 but reported no revision (nothing committed).
+            // Do not report success; leave the repo on its mainline branch.
+            if let Some(mainline) = &mainline_branch {
+                let _ = run_lore(
+                    &self.config.lore_binary_path,
+                    &repo.working_tree,
+                    &["branch", "switch", mainline],
+                    self.config.mode,
+                )
+                .await;
+            }
+            anyhow::bail!("lore commit reported no revision signature; nothing was committed");
+        }
 
         // Persist this version's bytes so `?revision=` downloads work without
         // relying on unverified lore CLI capabilities.
@@ -1968,6 +1984,8 @@ impl LoreService {
         message: &str,
         _author_id: i64,
     ) -> anyhow::Result<LoreRevision> {
+        let message = sanitize_commit_message(message)?;
+        let message = message.as_str();
         let _io = self.io_gate.lock().await;
         let repo = self
             .get_repo(channel_id)
@@ -1988,6 +2006,9 @@ impl LoreService {
 
         let stdout = String::from_utf8_lossy(&commit_output.stdout);
         let revision = parse_revision_from_output(&stdout);
+        if revision.hash.is_empty() {
+            anyhow::bail!("lore commit reported no revision signature; nothing was committed");
+        }
         // A batch snapshot seals files that stage_file did not cache. Keep
         // the I/O gate through publication so a branch switch cannot substitute
         // another revision's bytes while the snapshot is being copied.
@@ -2010,6 +2031,8 @@ impl LoreService {
         repo_path: &str,
         message: &str,
     ) -> anyhow::Result<()> {
+        let message = sanitize_commit_message(message)?;
+        let message = message.as_str();
         let _io = self.io_gate.lock().await;
         let repo = self
             .get_repo(channel_id)
@@ -2732,6 +2755,26 @@ pub(crate) fn sanitize_revision_arg(arg: &str) -> anyhow::Result<String> {
     Ok(arg.to_string())
 }
 
+/// Validate a user-supplied commit message BEFORE it becomes a bare CLI
+/// argument. A leading `-` would be parsed by the lore binary as a flag (the
+/// command then exits 0 without committing), so it is rejected along with
+/// empty, oversized, and control-character messages. Newlines are allowed.
+pub fn sanitize_commit_message(message: &str) -> anyhow::Result<String> {
+    if message.is_empty() {
+        anyhow::bail!("commit message must not be empty");
+    }
+    if message.len() > 4096 {
+        anyhow::bail!("commit message too long (max 4 KiB)");
+    }
+    if message.starts_with('-') {
+        anyhow::bail!("commit message may not start with '-'");
+    }
+    if message.chars().any(|c| c.is_control() && c != '\n') {
+        anyhow::bail!("commit message contains invalid control characters");
+    }
+    Ok(message.to_string())
+}
+
 /// Parse revision info from `lore commit` output.
 ///
 /// Lore writes prose progress lines ("Fragmenting files…", "Committing…")
@@ -3068,6 +3111,51 @@ mod tests {
         assert!(calls.contains("stage ."));
         assert!(calls.contains("commit Initial import"));
         assert!(matches!(service.import_from_git(42, 1, "Overwrite", source.path().to_str().unwrap()).await, Err(LoreImportError::RepoExists)));
+    }
+
+    #[cfg(unix)]
+    async fn stub_service(data: &std::path::Path, body: &str) -> (LoreService, std::path::PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let cli = data.join("lore-stub");
+        let calls = data.join("calls");
+        std::fs::write(&cli, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\n{}\n", calls.display(), body)).unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let service = LoreService::new(LoreConfig {
+            mode: LoreMode::Embedded,
+            lore_data_dir: data.join("repos"),
+            lore_binary_path: cli,
+            ..LoreConfig::default()
+        });
+        (service, calls)
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn flag_shaped_commit_message_is_rejected_before_any_cli_call() {
+        let data = tempfile::tempdir().unwrap();
+        let (service, calls) = stub_service(data.path(), "exit 0").await;
+        service.create_repo(42, 1, "r").await.unwrap();
+        std::fs::remove_file(&calls).ok();
+        let upload = data.path().join("upload");
+        std::fs::write(&upload, b"bytes").unwrap();
+        assert!(service.upload_file(42, upload.to_str().unwrap(), "a.txt", "--help", 1).await.is_err());
+        assert!(service.commit_staged(42, "--help", 1).await.is_err());
+        assert!(service.delete_file(42, "a.txt", "--help").await.is_err());
+        assert!(!calls.exists(), "lore CLI must not run for a flag-shaped message");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn commit_without_a_signature_line_is_an_error_not_an_empty_revision() {
+        let data = tempfile::tempdir().unwrap();
+        let (service, _calls) = stub_service(data.path(), "exit 0").await;
+        service.create_repo(42, 1, "r").await.unwrap();
+        let upload = data.path().join("upload");
+        std::fs::write(&upload, b"bytes").unwrap();
+        let uploaded = service.upload_file(42, upload.to_str().unwrap(), "a.txt", "ok", 1).await;
+        assert!(uploaded.is_err(), "got {uploaded:?}");
+        let committed = service.commit_staged(42, "ok", 1).await;
+        assert!(committed.is_err(), "got {committed:?}");
     }
 
     #[cfg(unix)]
