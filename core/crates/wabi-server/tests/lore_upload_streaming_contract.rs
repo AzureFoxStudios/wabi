@@ -120,6 +120,8 @@ struct Fixture {
     asset_channel: i64,
     member_token: String,
     outsider_token: String,
+    /// Member of the Recordings channel with only `lore.view` (Member role).
+    viewer_token: String,
 }
 
 impl Fixture {
@@ -151,7 +153,7 @@ async fn fixture_with_max_body(max_body_size: Option<usize>) -> Fixture {
     *state.owner_user_id.write().await = Some(owner as i64);
 
     let mut artists = Vec::new();
-    for name in ["artist", "outsider"] {
+    for (name, role) in [("artist", "Artist"), ("outsider", "Artist"), ("viewer", "Member")] {
         let uid = state
             .wdb
             .create_user(name, None, "test-registered-hash")
@@ -165,7 +167,7 @@ async fn fixture_with_max_body(max_body_size: Option<usize>) -> Fixture {
                 &json!({
                     "userId": uid,
                     "workspaceId": "default-workspace",
-                    "role": "Artist",
+                    "role": role,
                     "assignedBy": owner,
                 }),
             )
@@ -173,7 +175,7 @@ async fn fixture_with_max_body(max_body_size: Option<usize>) -> Fixture {
             .unwrap();
         artists.push(uid);
     }
-    let (artist, outsider) = (artists[0], artists[1]);
+    let (artist, outsider, viewer) = (artists[0], artists[1], artists[2]);
 
     let assets = state
         .wdb
@@ -186,7 +188,7 @@ async fn fixture_with_max_body(max_body_size: Option<usize>) -> Fixture {
         .await
         .unwrap();
     for channel in [&assets, &recordings] {
-        for uid in [owner, artist] {
+        for uid in [owner, artist, viewer] {
             state
                 .wdb
                 .add_channel_member(channel, uid, MemberRole::Member)
@@ -250,6 +252,7 @@ async fn fixture_with_max_body(max_body_size: Option<usize>) -> Fixture {
     Fixture {
         member_token: jwt(&state, artist, "artist"),
         outsider_token: jwt(&state, outsider, "outsider"),
+        viewer_token: jwt(&state, viewer, "viewer"),
         _dir: dir,
         state,
         app,
@@ -575,4 +578,133 @@ async fn transport_body_limit_during_streaming_is_still_413() {
         before,
         "rejected uploads must remove their private temporary file"
     );
+}
+
+/// A view-only member of the Recordings channel (no `lore.stage`) is refused
+/// with 403 before any body byte is read, under both admissions.
+#[tokio::test]
+async fn view_only_member_recording_upload_is_403_before_any_body_byte_is_read() {
+    let _serial = SERIAL.lock().await;
+    private_tmpdir();
+    let f = fixture().await;
+
+    let pulled = Arc::new(AtomicUsize::new(0));
+    let body = counted_body(b"viewer-bytes".to_vec(), pulled.clone(), false);
+    let (status, response) = send(
+        &f.app,
+        upload_request(
+            Method::POST,
+            "/addons/lore/recordings?filename=viewer.webm",
+            &f.viewer_token,
+            body,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{response}");
+    assert_eq!(
+        pulled.load(Ordering::SeqCst),
+        0,
+        "the body must not be read before the asset-write check"
+    );
+    assert!(!f.recordings_tree.join("recordings/viewer.webm").exists());
+    let calls = f.cli_calls();
+    assert!(
+        !calls.contains("stage") && !calls.contains("commit"),
+        "refused uploads must not stage or commit: {calls}"
+    );
+}
+
+/// The filename is a single path component: separators are refused with 400
+/// and nothing is written, so a caller cannot choose subdirectories (or
+/// escape) under recordings/.
+#[tokio::test]
+async fn recording_filename_with_a_separator_is_rejected_and_writes_nothing() {
+    let _serial = SERIAL.lock().await;
+    private_tmpdir();
+    let f = fixture().await;
+    let before = temporary_files();
+
+    for filename in ["sub%2Fdir.webm", "sub%5Cdir.webm", "..%2Fescape.webm", "a%2F..%2Fb.webm"] {
+        let body = counted_body(b"bytes".to_vec(), Arc::new(AtomicUsize::new(0)), false);
+        let (status, response) = send(
+            &f.app,
+            upload_request(
+                Method::POST,
+                &format!("/addons/lore/recordings?filename={filename}"),
+                &f.member_token,
+                body,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{filename}: {response}");
+    }
+    assert!(!f.recordings_tree.join("recordings/sub").exists());
+    assert!(!f.recordings_tree.join("recordings/sub\\dir.webm").exists());
+    assert!(!f.recordings_tree.join("escape.webm").exists());
+    let calls = f.cli_calls();
+    assert!(
+        !calls.contains("stage") && !calls.contains("commit"),
+        "rejected filenames must not stage or commit: {calls}"
+    );
+    assert_eq!(temporary_files(), before, "no private temporary may remain");
+}
+
+/// A filename that names no file ("" or ".") would resolve to the
+/// `recordings` directory path itself. It is refused with 400 and nothing is
+/// written: creating a file called `recordings` would block every later
+/// recording.
+#[tokio::test]
+async fn recording_filename_that_names_no_file_is_rejected_and_writes_nothing() {
+    let _serial = SERIAL.lock().await;
+    private_tmpdir();
+    let f = fixture().await;
+    let before = temporary_files();
+
+    for filename in ["", ".", "..", "%20"] {
+        let body = counted_body(b"bytes".to_vec(), Arc::new(AtomicUsize::new(0)), false);
+        let (status, response) = send(
+            &f.app,
+            upload_request(
+                Method::POST,
+                &format!("/addons/lore/recordings?filename={filename}"),
+                &f.member_token,
+                body,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{filename:?}: {response}");
+    }
+    assert!(
+        !f.recordings_tree.join("recordings").is_file(),
+        "no file may be created at the recordings directory path"
+    );
+    let calls = f.cli_calls();
+    assert!(
+        !calls.contains("stage") && !calls.contains("commit"),
+        "rejected filenames must not stage or commit: {calls}"
+    );
+    assert_eq!(temporary_files(), before, "no private temporary may remain");
+}
+
+/// Regression test (already passes on main; the cap came from PR 286): a
+/// recording body over the blob cap is 413 and writes nothing.
+#[tokio::test]
+async fn recording_over_the_blob_cap_is_413_regression() {
+    let _serial = SERIAL.lock().await;
+    private_tmpdir();
+    let f = fixture().await;
+
+    let body = counted_body(vec![7u8; CAP + 1], Arc::new(AtomicUsize::new(0)), true);
+    let (status, response) = send(
+        &f.app,
+        upload_request(
+            Method::POST,
+            "/addons/lore/recordings?filename=cap.webm",
+            &f.member_token,
+            body,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{response}");
+    assert!(!f.recordings_tree.join("recordings/cap.webm").exists());
 }
