@@ -439,6 +439,32 @@ After all deletions these must pass: `cargo test -p wabidb`, the full wabi-serve
 
 You check: the "not deleted" list is empty or you understand each entry.
 
+### Task 2.1b Two leftovers from Task 2.1 (Opus)
+
+```
+TASK 2.1b. Read AGENTS.md golden rules 5 and 8 first, then the description of PR 302 (Task 2.1), section "Not deleted because of a caller".
+
+Task 2.1 kept two WabiDB modules because other code compiles against them. Both look dead one level further out. Prove it, then remove them. Two commits at least, part (a) first.
+
+(a) retention/tombstone.rs. core/crates/wabi-server/src/state.rs has a `tombstone_table` field (declared near line 96, built near line 581). On main nothing reads it. Confirm with the compiler: remove the field and its construction, run `cargo check --workspace --all-targets` and `cargo check -p wabi-server --features full --all-targets`. If that is clean, remove core/crates/wabidb/src/retention/tombstone.rs and its `mod` line the same way, and correct the retention/mod.rs and lib.rs module docs so they name only what is left. If anything else fails to compile, stop and report the caller.
+
+(b) subscription/. core/crates/wabidb/src/engine/mod.rs owns a SubscriptionEngine and exposes deliver_event, subscribe_stream and unsubscribe_stream. The server adapter calls deliver_event after every durable write (core/crates/wabi-server/src/adapter/mod.rs in the shared run path, and adapter/group_commands.rs), passing a copy of the event plaintext. subscribe_stream and unsubscribe_stream are on the WabiStore trait (wabidb/src/engine/wabi_store.rs) and implemented by the adapter, but on main nothing calls them. So every write does delivery work for zero subscribers.
+
+Step 1, prove nobody subscribes. Do not trust a text search alone: remove subscribe_stream and unsubscribe_stream from the WabiStore trait and its implementations and run both cargo check commands above, plus `cargo check --workspace --all-targets --all-features` if it builds on main (if it does not build on main, say so and skip it). Any compile error outside the trait, the adapter impl and the engine is a subscriber: restore everything, stop, and report it with file:line. Also confirm how realtime clients actually get events today (name the function that pushes to Socket.IO or WebSocket clients after a write) and show that it does not go through SubscriptionEngine.
+
+Step 2, remove. Only if step 1 found no subscriber: remove the two trait methods, the adapter's deliver_event calls, the engine's subscription field, its construction and the three engine methods, then the subscription/ module. This is the write path, so be exact:
+- Nothing before `outcome?` may change. The order "durable commit, projection applied, then return commit_seq" must be identical.
+- If the plaintext copy or the `deliveries` list in group_commands.rs existed only to feed deliver_event, remove it too and say so. If it has another use, keep it.
+- deliver_event returns nothing today, so removing it cannot change a write's result. Confirm that by reading it and say so in one sentence.
+- Do not touch sequencer/, stream_log/, commit_index/ or projections/.
+
+There is no failing test to write first for a deletion; say so. The proof is: `cargo test -p wabidb`, the full wabi-server suite (`CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0 cargo test -p wabi-server --no-fail-fast`, environmental failures listed by name as the preamble describes), and `cargo check -p wabi-server --features full`. Name the existing tests that cover "a client receives a live event after a write" and show they pass.
+
+Report: the step 1 evidence, lines removed per part, and the two write-path call sites before and after.
+```
+
+You check: the report names the function that really pushes live events, and the before and after of the two write-path call sites show nothing changed above the removed lines.
+
 ### Task 2.2 Fix or remove the operator CLI (Opus)
 
 ```

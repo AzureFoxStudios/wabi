@@ -104,6 +104,10 @@ Prompt: "Remove these modules and their tests, and anything that only they used:
 Model: Sonnet. You check: the agent's list of "had a caller, did not delete" is empty or you understand each entry.
 Revised 2026-11-10: the prompt in the prompts file replaces the one above. The compiler decides what is dead, not a text search, and a type that stored data contains counts as a caller.
 
+**Task 2.1b Two leftovers from Task 2.1 (added 2026-11-10).**
+Task 2.1 (PR 302) kept two modules because other code still compiles against them. Both look dead one level further out. `retention/tombstone.rs`: `wabi-server/src/state.rs` builds a `tombstone_table` field that nothing reads. `subscription/`: the adapter calls `engine.deliver_event` after every durable write, but nothing in the workspace calls `subscribe_stream`, so each write does delivery work for no listener. Removing the second one edits the write path in `engine/` and the adapter, which is why it is its own task.
+Model: Opus. You check: the report shows the search that proves nothing subscribes, and the write path before and after.
+
 **Task 2.2 Fix or remove the CLI.**
 Prompt: "`wabidb-cli check/verify/status` walk `streams/<id>/events` but the engine writes `streams/<kind>/<id>/events`, and `verify` expects a manifest shape the engine never writes. Either fix all three to read the real layout and manifest, with a test that runs them against a directory produced by the real engine, or remove them. `check` must never return ok on a tree with zero segments found."
 Model: Opus. You check: the test opens a real engine first.
