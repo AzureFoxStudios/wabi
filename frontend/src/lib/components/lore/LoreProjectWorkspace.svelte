@@ -24,9 +24,6 @@
 	import LoreRolesAdmin from './LoreRolesAdmin.svelte';
 	import LoreConnectModal from './LoreConnectModal.svelte';
 	import LoreConnectPanel from '../sidebar/LoreConnectPanel.svelte';
-	import LoreEditorBridge from './LoreEditorBridge.svelte';
-	import LoreScriptRunner from './LoreScriptRunner.svelte';
-	import LoreMirrorPanel from './LoreMirrorPanel.svelte';
 	import LoreActivityFeed from './LoreActivityFeed.svelte';
 	import './loreWorkspace.css';
 
@@ -63,7 +60,6 @@
 	let counts = $state({ outgoing: 0, incoming: 0, conflicts: 0 });
 	let showConnect = $state(false);
 	let showTokens = $state(false);
-	let showEditor = $state(false);
 	let settingsSection = $state<'general' | 'permissions'>('general');
 	let permissionDirty = $state(false);
 	let reviewDraft = $state<boolean | null>(null);
@@ -297,7 +293,7 @@
 	</header>
 	<nav class="lw-navigation" aria-label="Project sections">
 		{#each PROJECT_TABS as item}<button class="lw-nav-button" class:is-active={tab === item} aria-current={tab === item ? 'page' : undefined} onclick={() => navigate(item)}><LoreIcon name={item} />{item[0].toUpperCase() + item.slice(1)}{#if item === 'changes' && changeCount}<span class="lw-count">{changeCount}</span>{/if}{#if item === 'review' && reviewQueue.length}<span class="lw-count">{reviewQueue.length}</span>{/if}</button>{/each}
-		<details class="lw-tools"><summary><LoreIcon name="tools" />Tools<LoreIcon name="chevron" size={14} /></summary><div class="lw-menu"><button onclick={() => navigate('timeline')}>Activity timeline</button><button onclick={() => navigate('automation')}>Scripts and mirrors</button><button disabled={!repo || !canEdit} onclick={() => showEditor = true}>External editor</button><button disabled={!repo} onclick={() => showTokens = true}>Command-line connections</button></div></details>
+		<details class="lw-tools"><summary><LoreIcon name="tools" />Tools<LoreIcon name="chevron" size={14} /></summary><div class="lw-menu"><button onclick={() => navigate('timeline')}>Activity timeline</button><button disabled={!repo} onclick={() => showTokens = true}>Command-line connections</button></div></details>
 	</nav>
 	{#if error}<div class="lw-alert" role="alert">{error}<button class="lw-button" disabled={loading} onclick={() => void reload()}>Retry</button></div>{/if}
 	{#if notice}<p class="lw-notice" role="status">{notice}</p>{/if}
@@ -329,7 +325,7 @@
 			{#if localOpened}<section class="lw-panel lw-local" hidden={tab !== 'changes'} aria-label="Local changes">{#if accountId}<LoreLocalChanges channelId={channelKey} {projectName} {serverUrl} {accountId} onCounts={(value) => counts = value} />{:else}<p class="lw-empty-inline">Sign in to connect a local project folder.</p>{/if}</section>{/if}
 			{#if historyOpened}<section class="lw-panel" hidden={tab !== 'history'} aria-label="Repository history"><LorePushCalendar {revisions} /><LoreHistoryBrowser {revisions} {files} {channelId} getToken={token} isActive={active} initialPath={historyPath} /></section>{/if}
 			<section class="lw-panel lw-scroll" hidden={tab !== 'review'} aria-label="Review queue"><div class="lw-page"><p class="lw-eyebrow">Team workflow</p><h2>Review</h2><p class="lw-lead">Uploads waiting to become official. Approval and rejection are deliberate actions.</p>{#each reviewQueue as branch (branch.name)}<article class="lw-review-card"><div><span class="lw-badge">Awaiting review</span><h3>{branch.name.replace(/^uploads\//, '')}</h3><code>{branch.name}</code></div>{#if canEdit}<div class="lw-actions"><button class="lw-button" disabled={!!busy} onclick={() => { if (window.confirm(`Reject ${branch.name}?`)) void run('Rejecting upload', auth => reviewLoreBranch(auth, channelId, branch.name, 'reject')); }}>Reject…</button><button class="lw-button lw-primary" disabled={!!busy} onclick={() => { if (window.confirm(`Approve ${branch.name} and make its uploads official?`)) void run('Approving upload', auth => reviewLoreBranch(auth, channelId, branch.name, 'approve')); }}>Approve…</button></div>{/if}</article>{:else}<div class="lw-empty-card"><LoreIcon name="review" size={28} /><h3>No uploads awaiting review</h3><p>{repo.auto_branch_on_upload ? 'New uploads will appear here for approval.' : 'Review is optional for this repository. You can change its policy in Settings.'}</p></div>{/each}</div></section>
-			<section class="lw-panel lw-scroll" hidden={tab !== 'settings'} aria-label="Project settings"><div class="lw-page"><p class="lw-eyebrow">Project configuration</p><h2>Settings</h2><nav class="lw-settings-nav" aria-label="Settings sections"><button class="lw-button" onclick={() => navigate('automation')}>Mirrors & scripts</button><button class="lw-button" aria-pressed={settingsSection === 'general'} onclick={() => settingsPane('general')}>General & workflow</button>{#if canManage}<button class="lw-button" aria-pressed={settingsSection === 'permissions'} onclick={() => settingsPane('permissions')}>Permissions</button>{/if}</nav>
+			<section class="lw-panel lw-scroll" hidden={tab !== 'settings'} aria-label="Project settings"><div class="lw-page"><p class="lw-eyebrow">Project configuration</p><h2>Settings</h2><nav class="lw-settings-nav" aria-label="Settings sections"><button class="lw-button" aria-pressed={settingsSection === 'general'} onclick={() => settingsPane('general')}>General & workflow</button>{#if canManage}<button class="lw-button" aria-pressed={settingsSection === 'permissions'} onclick={() => settingsPane('permissions')}>Permissions</button>{/if}</nav>
 				{#if settingsSection === 'permissions'}<LoreRolesAdmin onClose={() => settingsPane('general')} onDirtyChange={(value) => permissionDirty = value} />{:else}
 					<section class="lw-settings-card"><h3>Repository</h3><dl><dt>Name</dt><dd>{repo.repoName}</dd><dt>Channel</dt><dd>{projectName}</dd><dt>Storage</dt><dd>{readOnly ? 'Read-only external mirror' : 'Versioned Lore repository'}</dd>{#if repo.imported_from}<dt>Imported from</dt><dd>{repo.imported_from}</dd>{/if}</dl><p class="lw-help">Repository settings apply to the shared project.</p></section>
 					<section class="lw-settings-card"><h3>Review policy</h3><label class="lw-setting-toggle"><input type="checkbox" checked={reviewDraft ?? !!repo.auto_branch_on_upload} disabled={!canEdit || readOnly || !!busy} onchange={(event) => reviewDraft = event.currentTarget.checked} /><span><strong>Require review for uploads</strong><small>New uploads go to a review branch instead of immediately becoming official.</small></span></label><div class="lw-form-footer"><span>{reviewDirty ? 'Unsaved policy change' : 'Current server policy'}</span><button class="lw-button" disabled={!reviewDirty || !!busy} onclick={() => reviewDraft = null}>Cancel</button><button class="lw-button lw-primary" disabled={!canEdit || !reviewDirty || !!busy} onclick={() => void run('Saving review policy', async auth => { await updateLoreRepoSettings(auth, channelId, { auto_branch_on_upload: !!reviewDraft }); if (active()) reviewDraft = null; })}>Save policy</button></div></section>
@@ -338,7 +334,6 @@
 				{/if}
 			</div></section>
 			{#if tab === 'timeline'}<section class="lw-panel lw-scroll"><div class="lw-page"><h2>Activity timeline</h2><LoreActivityFeed {activity} /></div></section>{/if}
-			{#if tab === 'automation'}<section class="lw-panel lw-scroll"><div class="lw-page"><h2>Scripts & mirrors</h2><p class="lw-lead">Optional project tools. Nothing runs until you start it.</p>{#if canEdit}<section class="lw-settings-card"><h3>Scripts</h3><LoreScriptRunner channelId={channelKey} /></section><section class="lw-settings-card"><h3>Mirrors</h3><LoreMirrorPanel channelId={channelKey} /></section>{:else}<p>These tools require repository editing access.</p>{/if}</div></section>{/if}
 		{/if}
 	</div>
 	<input class="lw-hidden-input" tabindex="-1" type="file" multiple bind:this={uploadInput} onchange={(event) => queueFiles(event, false)} aria-label="Choose files to upload" />
@@ -350,5 +345,4 @@
 	{#if contextTarget}<LoreDialog title="File actions" busy={!!busy} onClose={() => contextTarget = null}><code>{contextTarget.path}</code><div class="lw-context-actions">{#if contextTarget.folder && canWrite}<button class="lw-button" onclick={() => { destination = contextTarget!.path; contextTarget = null; uploadInput.click(); }}>Upload files here…</button>{/if}{#if !contextTarget.folder}<button class="lw-button" onclick={() => comparePath(contextTarget!.path)}>History & compare</button><button class="lw-button" onclick={() => void download(contextTarget!.path)}>Download file</button>{#if canWrite}<button class="lw-button" disabled={!!busy} onclick={() => void run('Updating lock', auth => files.find(file => file.path === contextTarget!.path)?.lockedBy ? unlockLoreFile(auth, channelId, contextTarget!.path) : lockLoreFile(auth, channelId, contextTarget!.path))}>{files.find(file => file.path === contextTarget!.path)?.lockedBy ? 'Unlock file' : 'Lock file'}</button><button class="lw-button lw-danger-text" onclick={() => confirmAction('file', contextTarget!.path)}>Delete file…</button>{/if}{/if}</div></LoreDialog>{/if}
 	{#if showConnect}<LoreConnectModal channelId={channelKey} onConnected={() => { showConnect = false; void reload(); void refreshHealth(); }} onClose={() => showConnect = false} />{/if}
 	{#if showTokens}<LoreConnectPanel {channelKey} repoId={channelId} repoName={repo?.repoName ?? null} onclose={() => showTokens = false} />{/if}
-	{#if showEditor}<LoreEditorBridge channelId={channelKey} onClose={() => showEditor = false} />{/if}
 </section>
