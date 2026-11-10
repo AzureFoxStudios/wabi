@@ -751,12 +751,11 @@ impl WabiDbEngine {
         let mut writes = Vec::with_capacity(segments.len());
         for (stream_id, stream_kind, segment_id, data) in &segments {
             let kind_dir = crate::sequencer::stream_kind_dir_name(*stream_kind);
-            let seg_dir = self
-                .data_dir
-                .join("streams")
-                .join(kind_dir)
-                .join(stream_id)
-                .join("events");
+            let seg_dir = crate::sequencer::resolve_stream_dir(
+                &self.data_dir.join("streams").join(kind_dir),
+                stream_id,
+            )?
+            .join("events");
             let seg_path = seg_dir.join(format!("{segment_id:08}.wseg"));
             let (existing_len, exists) = match tokio::fs::symlink_metadata(&seg_path).await {
                 Ok(metadata) => {
@@ -1590,6 +1589,9 @@ mod node_identity_tests;
 mod workspace_admission_tests;
 
 #[cfg(test)]
+mod stream_dir_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::format::record::RecordKind;
@@ -2055,7 +2057,7 @@ mod tests {
         let segment_path = source_dir
             .path()
             .join("streams/channel")
-            .join(stream_id)
+            .join(crate::sequencer::stream_dir_name(stream_id))
             .join("events/00000001.wseg");
         let first_segment = tokio::fs::read(&segment_path).await.unwrap();
 
@@ -2120,7 +2122,7 @@ mod tests {
         let replica_segment = replica_dir
             .path()
             .join("streams/channel")
-            .join(stream_id)
+            .join(crate::sequencer::stream_dir_name(stream_id))
             .join("events/00000001.wseg");
         assert_eq!(
             tokio::fs::read(&replica_segment).await.unwrap(),
