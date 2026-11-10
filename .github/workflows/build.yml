@@ -131,8 +131,32 @@ jobs:
             node scripts/build-desktop-host.mjs
           fi
 
+      # At bundle time the Tauri bundler downloads helper tools (AppRun,
+      # linuxdeploy, NSIS) from github.com/tauri-apps/binary-releases. When
+      # that host answers 5xx, the step fails after the release binary has
+      # already built, with: failed to bundle project: `http status: 504`.
+      # Retry that one case, at most twice more. Any other failure, including
+      # a compile error or a different bundler error, fails at once. A retry
+      # reuses the compiled binary, so it costs minutes, not a rebuild.
       - name: build Tauri
-        run: bunx @tauri-apps/cli@2.11.4 build --ci ${{ matrix.args }} -- --locked
+        shell: bash
+        run: |
+          set -uo pipefail
+          LOG="$RUNNER_TEMP/tauri-build.log"
+          for attempt in 1 2 3; do
+            bunx @tauri-apps/cli@2.11.4 build --ci ${{ matrix.args }} -- --locked 2>&1 | tee "$LOG"
+            status=${PIPESTATUS[0]}
+            if [[ $status -eq 0 ]]; then
+              exit 0
+            fi
+            if [[ $attempt -lt 3 ]] && grep -Eq 'failed to bundle project: `http status: 5[0-9]{2}`' "$LOG"; then
+              delay=$((attempt * 30))
+              echo "::warning::Tauri bundler helper download returned 5xx (attempt $attempt of 3); retrying in ${delay}s"
+              sleep "$delay"
+              continue
+            fi
+            exit "$status"
+          done
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
