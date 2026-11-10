@@ -218,6 +218,28 @@ Proof: the failure or mechanism count before, and 100 consecutive clean runs of 
 
 You check: the report shows the race or its mechanism before the fix, and 100 clean runs after.
 
+### Task 1.0n Tests release a reserved port before the runtime binds it (Opus)
+
+Measured by PR 304 at about 1 run in 100 on main. It fails unrelated PRs.
+
+```
+TASK 1.0n. Read the descriptions of PR 291 and PR 304 first; both describe this race and PR 304 has the measurements.
+
+Problem: tests reserve a port by binding 127.0.0.1:0, read the address, drop the listener, and write the address into a runtime policy. The recovery runtime binds that address later (core/crates/wabi-consensus/src/runtime.rs, `start`, the `TcpListener::bind(opened.config.local_address())` call). Anything that binds or connects in between can take the port, and start then fails with Unavailable after EADDRINUSE. Seen in wabi-consensus runtime cluster tests and in wabi-server's genuine_restart and genuine_crash tests (core/crates/wabi-server/src/recovery_publication_jobs/). PR 304 measured 3 failures in 300 runs on main with the failed bind traced.
+
+Step 1, reproduce. Use the same loop PR 304 used (filtered wabi-server lib tests, two copies at once) and the wabi-consensus runtime tests under the same load. Record failures by test name and confirm each is this race (Unavailable, EADDRINUSE on a reserved address), not something else.
+
+Step 2, fix the cause, not the symptom. Let the runtime accept a listener that is already bound: add a start variant that takes a pre-bound listener and checks its local address equals the policy's address, and make the existing `start` bind and then call it. Behavior of `start` for production callers must not change. Then change every test that reserves a port in the same process to keep its listener and pass it in, so the port is never released.
+
+Some tests start the runtime in a child process from a policy file, so a listener cannot simply be passed. For each such site, say which approach you chose and why: for example the child inherits the bound socket, or the addresses are assigned in a way that never releases them. If a site cannot be fixed without a larger design change, leave it, list it with the reason, and do not paper over it.
+
+Rules: no sleeps, no retry loops, no loosened assertions, nothing newly ignored. Do not change the experimental status of anything; this is the recovery runtime, which docs/PROJECT_STATUS.md marks experimental.
+
+Proof: failure count before, and 300 consecutive clean runs of the same loops after, under the same load. Then cargo test -p wabi-consensus and the full wabi-server suite once, listing environmental failures by name as the preamble describes. Report every site you changed and every site you left.
+```
+
+You check: the report lists every port-reserving site, split into changed and left, and gives the count before and 300 clean runs after.
+
 ## Phase 1: stop the bleeding
 
 ### Task 1.1 Reactions cannot be removed (Sonnet)
@@ -482,23 +504,38 @@ You check: each CLI test opens a real engine before running the command.
 
 ### Task 2.3 Docs truth pass (Sonnet)
 
-```
-TASK 2.3. This task edits docs only. Do not change any code.
+Revised 2026-11-10 after Tasks 2.1, 2.1b, 2.2, 2.4 and 2.5: each of those PRs listed doc passages its change made false and left them for this task.
 
-For each file below, find every sentence that states what the engine or addon DOES (not what it is planned to do), and either (a) append a reference to the test that proves it, in the form "(test: path::test_name)", or (b) change the sentence to say it is planned, or delete it if it describes something removed in Task 2.1. Use docs/plans/2026-11-06-backend-audit-wabidb-lore.md sections "Documented claims the code does not back" as the starting list, but read the files in full.
+```
+TASK 2.3. This task edits docs and doc comments only. Do not change any code or any test.
+
+For each file below, find every sentence that states what the engine or addon DOES (not what it is planned to do), and either (a) append a reference to the test that proves it, in the form "(test: path::test_name)", or (b) change the sentence to say it is planned, or (c) delete it if it describes something that has been removed. Read the files in full.
+
+Starting lists, all of which must be covered:
+- docs/plans/2026-11-06-backend-audit-wabidb-lore.md, sections "Documented claims the code does not back".
+- The descriptions of merged PRs 302, 305, 306, 307 and 309. Each has a section listing doc passages it made false and did not edit (for example kanban entries that mark removed commands as done, a `wabidb-cli backup` command that does not exist, the subscription and ephemeral bus, key destruction and compaction, and docs/audits/2026-11-authorization-matrix.md rows for removed Lore routes).
 
 Files:
 - docs/architecture/STORAGE_FORMAT.md
 - docs/architecture/PERSISTENCE_MODEL.md
+- docs/ai/wabidb-engine.md and docs/ai/wabidb-storage.md
+- docs/deployment/BACKUP_AND_RECOVERY.md (only sentences about `wabidb-cli`; the commands are now check, verify, status and list-streams, and they are read-only)
+- docs/audits/2026-11-authorization-matrix.md (remove rows for routes that no longer exist; change nothing else)
+- docs/wabidb-kanban.md (do not rewrite history: where an entry marks as done something that has since been removed, add "removed in PR N" next to it)
 - core/crates/wabidb/src/lib.rs (module doc comment only)
 - core/crates/wabidb/src/engine/locks.rs (module doc comment only)
 - core/crates/wabidb/src/projections/noop.rs (doc comment only)
 - docs/addons/lore.md sections 8.2, 11.2 and 14
 
-Deliver a table at the end: sentence (shortened), file:line, what you did. No row may say "left as is" unless it already had a test reference.
+Rules:
+- docs/proposals/ are design proposals, not descriptions of the product. Do not rewrite them. If one states as present fact something that does not exist, add one line at the top saying it is a proposal and naming docs/PROJECT_STATUS.md as the status of record, and leave the body.
+- Keep AGENTS.md golden rules 11 and 13: no claim of HA, and no confidentiality claim for retention or for the experimental encryption.
+- Do not add new product claims. A sentence you cannot tie to a test becomes "planned" or goes.
+
+Deliver a table at the end: sentence (shortened), file:line, what you did. No row may say "left as is" unless it already had a test reference. Then run `cargo doc -p wabidb --no-deps` to prove the doc comments still build.
 ```
 
-You check: the table has no "left as is" rows.
+You check: the table has no "left as is" rows, and it has rows for the passages each of the five PRs listed.
 
 ### Task 2.4 Retention wording (Sonnet)
 
@@ -550,6 +587,28 @@ Report: a table of failure cause, class, and the exact text shown.
 ```
 
 You check: the table has a row for every cause, and the report says whether a real browser was used.
+
+### Task 2.7 Triage the dependency advisories (Sonnet)
+
+```
+TASK 2.7. Read docs/audits/2026-11-supply-chain-posture.md, deny.toml and the supply-chain job in .github/workflows/ci.yml first.
+
+Problem: the CI step "Cargo advisories (existing rust debt graded, report-only)" runs `cargo deny check advisories licenses sources` with continue-on-error, so its findings never block and nobody has triaged them. PR 302's session found `cargo deny check` failing on advisories and bans on main.
+
+Do this:
+1. Install the CI-pinned cargo-deny (0.20.2) and run `cargo deny check` on main. List every finding: advisory id, crate and version, which workspace crate pulls it in (cargo tree -i), severity, and whether a patched version exists.
+2. For each advisory with a patched version that is a semver-compatible update, update just that crate (cargo update -p <crate> --precise <version>), one crate per commit, and run cargo check --workspace --all-targets and cargo check -p wabi-server --features full --all-targets after each. If an update needs code changes or a major version bump, do not do it; list it instead.
+3. For each advisory you cannot fix this way, decide from the code whether the vulnerable function is reachable in Wabi, and say how you know. Do not add an `ignore` entry on your own. List what you would ignore, with the reason and a proposed expiry date, for the user to approve.
+4. For each `bans` finding, say what it is and whether it is a real problem or a config choice.
+5. Do not change CI from report-only to blocking in this PR. Say whether it could be flipped after your changes and what would still fail.
+6. There are open dependabot PRs from October. List which ones your updates make unnecessary, and which are still wanted. Do not close or merge any of them.
+
+Run cargo test -p wabidb and the full wabi-server suite once at the end, listing environmental failures by name as the preamble describes.
+
+Report: the before and after output of cargo deny check advisories, the table from step 1 with a final column for what you did, and the lists from steps 2, 3 and 6.
+```
+
+You check: every advisory has a row and a decision, and no `ignore` entry was added without you.
 
 ---
 
