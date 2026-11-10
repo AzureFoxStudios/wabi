@@ -230,3 +230,28 @@ async fn fresh_tree_writes_encoded_directory_and_replays_it() {
     );
     assert_eq!(key, derived_key(ROSTER));
 }
+
+/// Replay registers the key of every stream directory it finds, even when a
+/// snapshot already covers all its records, because later writes rely on
+/// it. An encoded directory must register the decoded stream id's key.
+#[tokio::test]
+async fn encoded_directory_registers_decoded_key_when_snapshot_covers_records() {
+    let tmp = tempfile::tempdir().unwrap();
+    let engine = open(tmp.path()).await;
+    append(&engine, b"first").await;
+    drop(engine);
+    assert_eq!(stream_dir_names(tmp.path()), vec![ROSTER_ENCODED.to_string()]);
+
+    let state = Arc::new(ProjectionState::new());
+    let table = DispatchTable::new(vec![]).unwrap();
+    let registry = tokio::sync::Mutex::new(StreamKeyRegistry::new());
+    let barrier = LinearizabilityBarrier::new(state.clone());
+    replay_projections(tmp.path(), &registry, &BOOTSTRAP, &state, &table, &barrier, 1)
+        .await
+        .unwrap();
+    let registry = registry.lock().await;
+    assert_eq!(
+        registry.get_active_key(ROSTER, 2).unwrap().key_material,
+        derived_key(ROSTER)
+    );
+}
