@@ -1,6 +1,5 @@
 //! Operator-facing CLI commands (wabidb check, dump-stream, decrypt, etc.).
 
-pub mod backup;
 pub mod check;
 pub mod decrypt;
 pub mod dump_stream;
