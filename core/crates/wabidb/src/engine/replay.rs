@@ -19,11 +19,13 @@
 //! the commit index is the source of truth for which commits exist, including
 //! when it is empty. Unindexed bytes must never become a successful write.
 
-use std::collections::HashMap;
-use std::path::Path;
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BinaryHeap, VecDeque};
+use std::path::{Path, PathBuf};
 
 use tokio::sync::Mutex;
 
+use crate::commit_index::record::CommitIndexEntry;
 use crate::crypto::aes_gcm_record::decrypt_record;
 use crate::crypto::stream_key_registry::StreamKeyRegistry;
 use crate::engine::locks::ProjectionState;
@@ -31,48 +33,63 @@ use crate::error::Result;
 use crate::projections::barrier::LinearizabilityBarrier;
 use crate::projections::handler::{DispatchTable, DurableEvent};
 use crate::sequencer::types::ReplayEnvelope;
-use crate::stream_log::segment_reader::SegmentReader;
+use crate::stream_log::segment_reader::{SegmentReader, ValidRecord};
 
 /// Test hook: how many decoded events replay holds at once (Task 1.12).
 ///
-/// A [`Token`] lives beside every decoded event replay keeps; the peak is
-/// read by tests. Thread-local, so concurrent tests do not share it; replay
-/// runs on the test's current-thread runtime.
+/// A [`Token`](held_events::Token) lives beside every decoded event replay
+/// keeps. A test calls [`track`](held_events::track) on its thread first;
+/// tokens created on that thread count toward the returned counter, and
+/// every other replay counts nothing.
 #[cfg(test)]
 pub(crate) mod held_events {
-    use std::cell::Cell;
+    use std::cell::RefCell;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
-    thread_local! {
-        static HELD: Cell<usize> = const { Cell::new(0) };
-        static PEAK: Cell<usize> = const { Cell::new(0) };
+    #[derive(Default)]
+    pub(crate) struct Counter {
+        held: AtomicUsize,
+        peak: AtomicUsize,
     }
 
-    pub(crate) struct Token(());
+    impl Counter {
+        /// The most tokens alive at once since `track`.
+        pub(crate) fn peak(&self) -> usize {
+            self.peak.load(Ordering::SeqCst)
+        }
+    }
+
+    thread_local! {
+        static TRACKED: RefCell<Option<Arc<Counter>>> = const { RefCell::new(None) };
+    }
+
+    /// Count tokens created on this thread from now on.
+    pub(crate) fn track() -> Arc<Counter> {
+        let counter = Arc::new(Counter::default());
+        TRACKED.with(|t| *t.borrow_mut() = Some(counter.clone()));
+        counter
+    }
+
+    pub(crate) struct Token(Option<Arc<Counter>>);
 
     impl Token {
         pub(crate) fn new() -> Self {
-            let held = HELD.with(|h| {
-                h.set(h.get() + 1);
-                h.get()
-            });
-            PEAK.with(|p| p.set(p.get().max(held)));
-            Token(())
+            let counter = TRACKED.with(|t| t.borrow().clone());
+            if let Some(counter) = &counter {
+                let held = counter.held.fetch_add(1, Ordering::SeqCst) + 1;
+                counter.peak.fetch_max(held, Ordering::SeqCst);
+            }
+            Token(counter)
         }
     }
 
     impl Drop for Token {
         fn drop(&mut self) {
-            HELD.with(|h| h.set(h.get() - 1));
+            if let Some(counter) = &self.0 {
+                counter.held.fetch_sub(1, Ordering::SeqCst);
+            }
         }
-    }
-
-    /// Restart peak tracking from what is held right now.
-    pub(crate) fn reset() {
-        PEAK.with(|p| p.set(HELD.with(Cell::get)));
-    }
-
-    pub(crate) fn peak() -> usize {
-        PEAK.with(Cell::get)
     }
 }
 
@@ -110,7 +127,8 @@ async fn ensure_derived_key(
 ///
 /// Walks every stream's `.wseg` segment files under `data_dir/streams/`,
 /// decrypts each record, deserializes the [`ReplayEnvelope`], and dispatches
-/// the event through the registered projection handlers.
+/// the event through the registered projection handlers, merging the
+/// streams in commit order (see the module docs).
 ///
 /// Returns the highest `commit_seq` observed in ANY on-disk record —
 /// including orphaned and skipped records. Callers use this to seed the
@@ -129,14 +147,14 @@ pub async fn replay_projections(
     barrier: &LinearizabilityBarrier,
     snapshot_watermark: u64,
 ) -> Result<u64> {
-    let mut membership_repair =
+    let membership_repair =
         super::membership_repair::MembershipRepair::from_snapshot(projection_state)?;
     let mut voice_repair =
         crate::projections::voice_restrictions::LegacyVoiceRepair::from_snapshot(projection_state)?;
     let streams_dir = data_dir.join("streams");
     // --- Load the committed seq set (Option B orphan filter) ---
     let commit_index_dir = data_dir.join("global").join("commit-index");
-    let committed: HashMap<_, _> =
+    let committed: BTreeMap<_, _> =
         crate::commit_index::batcher::read_all_entries(&commit_index_dir)
             .map(|entries| entries.into_iter().map(|e| (e.commit_seq, e)).collect())?;
     if let Some(repair) = voice_repair.as_mut() {
@@ -183,22 +201,25 @@ pub async fn replay_projections(
         return Ok(applied_seq);
     }
 
-    let mut highest_seq = applied_seq;
-    let mut orphan_skipped: u64 = 0;
-    let mut decrypt_skipped: u64 = 0;
-    let mut replayed: u64 = 0;
-    // Collect first, apply AFTER sorting by commit_seq. Directory iteration
-    // order (category dir → stream dir → segment) is filesystem-dependent —
-    // ext4 hash order differs per filesystem — and applying inline let a
-    // later-seq event on one stream (e.g. `channel_deleted` on
-    // `channels:{id}`) land BEFORE an earlier-seq event on another (the
-    // shared `channels` stream's `channel_created`), which resurrected
-    // deleted channels on restart ("zombie channels", observed live on
-    // wabi.chat 2026-08-27). The sequencer assigns globally unique,
-    // totally ordered commit_seqs; sorting restores exactly the order the
-    // live dispatcher applied.
-    let mut collected: Vec<(usize, DurableEvent, held_events::Token)> = Vec::new();
-    let mut recovered_events: HashMap<u64, std::collections::HashSet<usize>> = HashMap::new();
+    let mut tally = Tally {
+        highest_seq: applied_seq,
+        orphan_skipped: 0,
+        decrypt_skipped: 0,
+    };
+    let mut applier = Applier {
+        projection_state,
+        dispatch_table,
+        snapshot_watermark,
+        membership_repair,
+        voice_repair,
+        repairs_finished: false,
+        replayed: 0,
+    };
+
+    // --- Walk every stream directory once: register keys, list segments ---
+    // Nothing is decoded or applied until every directory has registered
+    // its keys.
+    let mut cursors: Vec<StreamCursor> = Vec::new();
     let mut kind_reader = tokio::fs::read_dir(&streams_dir).await?;
 
     while let Some(kind_entry) = kind_reader.next_entry().await? {
@@ -251,241 +272,116 @@ pub async fn replay_projections(
             }
 
             // --- Collect and sort segment paths ---
-            let mut seg_entries: Vec<_> = Vec::new();
+            // Ascending segment id is the order the writer created them in.
+            let mut seg_paths: Vec<(Option<u64>, PathBuf)> = Vec::new();
             {
                 let mut seg_reader = tokio::fs::read_dir(&events_dir).await?;
                 while let Some(seg) = seg_reader.next_entry().await? {
-                    if seg.path().extension() == Some(std::ffi::OsStr::new("wseg")) {
-                        seg_entries.push(seg);
+                    let path = seg.path();
+                    if path.extension() == Some(std::ffi::OsStr::new("wseg")) {
+                        seg_paths.push((segment_id(&path), path));
                     }
                 }
             }
-            seg_entries.sort_by_key(|e| e.file_name());
+            seg_paths.sort();
 
-            for seg_entry in &seg_entries {
-                let seg_path = seg_entry.path();
-                let mut reader = match SegmentReader::open(&seg_path).await {
-                    Ok(r) => r,
-                    Err(e) => {
-                        tracing::warn!(
-                            "replay: skipping unreadable segment {}: {e}",
-                            seg_path.display()
-                        );
-                        continue;
-                    }
-                };
-
-                let records = match reader.read_records().await {
-                    Ok(r) => r,
-                    Err(e) => {
-                        tracing::warn!(
-                            "replay: skipping corrupt segment {}: {e}",
-                            seg_path.display()
-                        );
-                        continue;
-                    }
-                };
-
-                for rec in &records {
-                    let commit_seq = rec.header.commit_seq;
-
-                    // Track the max seq seen on disk BEFORE any filtering:
-                    // even skipped/orphaned records consumed their nonce and
-                    // must never be reused by a restarted sequencer.
-                    highest_seq = highest_seq.max(commit_seq);
-
-                    // Old snapshots could acknowledge ignored membership or
-                    // voice restrictions. Recover their required history;
-                    // unrelated events remain covered by the snapshot.
-                    if commit_seq <= snapshot_watermark
-                        && !membership_repair
-                            .as_ref()
-                            .is_some_and(|repair| repair.includes(&rec.header.stream_id_hash))
-                        && !voice_repair
-                            .as_ref()
-                            .is_some_and(|repair| repair.includes(&rec.header.stream_id_hash))
-                    {
-                        continue;
-                    }
-
-                    // Option B: records absent from the commit index are
-                    // orphans of partially-committed commands — skip them.
-                    let Some(entry) = committed.get(&commit_seq) else {
-                        orphan_skipped += 1;
-                        continue;
-                    };
-
-                    let header_bytes = rec.header.encode();
-                    let stream_id = candidates
-                        .iter()
-                        .find(|(_, hash)| *hash == rec.header.stream_id_hash)
-                        .unwrap_or(&candidates[0])
-                        .0
-                        .as_str();
-
-                    // Look up the stream key for this commit_seq range.
-                    let key = {
-                        let registry = key_registry.lock().await;
-                        match registry.get_active_key(stream_id, commit_seq) {
-                            Ok(sk) => sk.key_material,
-                            Err(e) => {
-                                tracing::warn!(
-                                    "replay: no key for stream={stream_id} seq={commit_seq}: {e}"
-                                );
-                                continue;
-                            }
-                        }
-                    };
-
-                    // Decrypt.
-                    let env_bytes = match decrypt_record(
-                        &key,
-                        commit_seq,
-                        &header_bytes,
-                        &rec.payload,
-                    ) {
-                        Ok(b) => b,
-                        Err(e) => {
-                            decrypt_skipped += 1;
-                            tracing::debug!(
-                                "replay: decrypt failed for stream={stream_id} seq={commit_seq}: {e}"
-                            );
-                            continue;
-                        }
-                    };
-
-                    // Deserialize the replay envelope.
-                    // Indexed decode failures are rejected by the completeness
-                    // check below; old records need an explicit migration.
-                    let envelope: ReplayEnvelope = match serde_json::from_slice(&env_bytes) {
-                        Ok(e) => e,
-                        Err(_) => continue,
-                    };
-
-                    // Preserve the command's event order across streams.
-                    // Sorting by seq alone leaves ties in filesystem order.
-                    let segment_id = seg_path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .and_then(|s| s.parse::<u64>().ok());
-                    // Legacy writers cache by stream ID, not (kind, ID).
-                    // Workspace/chat can share an ID with different kinds;
-                    // match the physical record identity, not the directory kind.
-                    let ordinal = entry
-                        .event_refs
-                        .iter()
-                        .position(|r| {
-                            r.stream_id_hash == rec.header.stream_id_hash
-                                && Some(r.segment_id) == segment_id
-                                && u64::from(r.offset) == rec.offset
-                                && r.length as usize == rec.header.total_size()
-                        })
-                        .ok_or_else(|| crate::error::WabiError::Corrupt {
-                            location: format!("commit {commit_seq}"),
-                            detail: "segment record not referenced by its commit index entry"
-                                .into(),
-                        })?;
-                    if !recovered_events
-                        .entry(commit_seq)
-                        .or_default()
-                        .insert(ordinal)
-                    {
-                        return Err(crate::error::WabiError::Corrupt {
-                            location: format!("commit {commit_seq} event {ordinal}"),
-                            detail: "duplicate indexed event during replay".into(),
-                        });
-                    }
-                    collected.push((
-                        ordinal,
-                        DurableEvent {
-                            commit_seq,
-                            stream_id: envelope.stream_id,
-                            event_type: envelope.event_type,
-                            payload: envelope.payload,
-                        },
-                        held_events::Token::new(),
-                    ));
-                }
-            }
-        }
-    }
-
-    // Global total order (see `collected` above): sort by commit_seq, then
-    // apply. DurableEvent derives nothing that orders it, so sort by field.
-    // Never report readiness after silently losing part of a durable commit.
-    for entry in committed.values() {
-        let expected = entry
-            .event_refs
-            .iter()
-            .filter(|r| {
-                entry.commit_seq > snapshot_watermark
-                    || membership_repair
-                        .as_ref()
-                        .is_some_and(|repair| repair.includes(&r.stream_id_hash))
-                    || voice_repair
-                        .as_ref()
-                        .is_some_and(|repair| repair.includes(&r.stream_id_hash))
-            })
-            .count();
-        if recovered_events
-            .get(&entry.commit_seq)
-            .map(|events| events.len())
-            .unwrap_or(0)
-            != expected
-        {
-            return Err(crate::error::WabiError::Corrupt {
-                location: format!("commit {}", entry.commit_seq),
-                detail: "not all indexed events could be recovered; repair required before startup"
-                    .into(),
+            cursors.push(StreamCursor {
+                dir: stream_path,
+                candidates,
+                segments: seg_paths.into_iter().collect(),
+                current: None,
+                buffered: VecDeque::new(),
+                head: None,
             });
         }
     }
-    collected.sort_by_key(|(ordinal, event, _)| (event.commit_seq, *ordinal));
-    if let Some(mut repair) = membership_repair.take() {
-        for (_, event, _) in collected
-            .iter()
-            .filter(|(_, e, _)| e.commit_seq <= snapshot_watermark)
+
+    // --- Merge the streams in global (commit_seq, ordinal) order ---
+    // Directory iteration order (category dir → stream dir) is
+    // filesystem-dependent — ext4 hash order differs per filesystem — and
+    // applying each directory in turn let a later-seq event on one stream
+    // (e.g. `channel_deleted` on `channels:{id}`) land BEFORE an earlier-seq
+    // event on another (the shared `channels` stream's `channel_created`),
+    // which resurrected deleted channels on restart ("zombie channels",
+    // observed live on wabi.chat 2026-08-27). The sequencer assigns globally
+    // unique, totally ordered commit_seqs and appends each stream's records
+    // in that order, so a k-way merge over one cursor per stream directory
+    // restores exactly the order the live dispatcher applied, while holding
+    // only one decoded event per stream plus the commit being assembled.
+    let mut heap: BinaryHeap<Reverse<(u64, usize, usize)>> = BinaryHeap::new();
+    for (index, cursor) in cursors.iter_mut().enumerate() {
+        if let Some(event) = cursor
+            .next_event(&applier, &committed, key_registry, &mut tally)
+            .await?
         {
-            let hash: [u8; 16] = blake3::hash(event.stream_id.as_bytes()).as_bytes()[..16]
-                .try_into()
-                .unwrap();
-            if repair.includes(&hash) {
-                repair.observe(event)?;
+            heap.push(Reverse((event.event.commit_seq, event.ordinal, index)));
+            cursor.head = Some(event);
+        }
+    }
+
+    let mut index_entries = committed.values().peekable();
+    // Events of the commit being assembled, in ordinal order. A commit is
+    // applied only once every one of its events has been recovered.
+    let mut commit: Vec<Decoded> = Vec::new();
+    loop {
+        let next = heap.pop().map(|Reverse(key)| key);
+        if let Some(first) = commit.first() {
+            let seq = first.event.commit_seq;
+            if next.map(|(next_seq, _, _)| next_seq) != Some(seq) {
+                // Every later record sorts after `seq`: the commit is whole.
+                applier.complete_commit(&mut index_entries, seq, std::mem::take(&mut commit))?;
             }
         }
-        repair.finish(projection_state)?;
-    }
-    if let Some(mut repair) = voice_repair.take() {
-        for (_, event, _) in collected.iter().filter(|(_, e, _)| e.commit_seq <= snapshot_watermark) {
-            repair.observe(event)?;
-        }
-        repair.finish(projection_state)?;
-    }
-    for (_, event, _) in collected
-        .iter()
-        .filter(|(_, e, _)| e.commit_seq > snapshot_watermark)
-    {
-        if let Some(handler) = dispatch_table.get(&event.event_type) {
-            handler.apply(event, projection_state).map_err(|e| {
-                crate::error::WabiError::Corrupt {
-                    location: format!(
-                        "projection {} at commit {}",
-                        event.event_type, event.commit_seq
+        let Some((commit_seq, ordinal, index)) = next else {
+            break;
+        };
+        let cursor = &mut cursors[index];
+        let event = cursor.head.take().ok_or_else(|| {
+            crate::error::WabiError::InternalInvariantViolated {
+                invariant: "replay merge entry has no stream head".into(),
+            }
+        })?;
+        if let Some(following) = cursor
+            .next_event(&applier, &committed, key_registry, &mut tally)
+            .await?
+        {
+            let key = (following.event.commit_seq, following.ordinal);
+            if key == (commit_seq, ordinal) {
+                return Err(duplicate_event(commit_seq, ordinal));
+            }
+            // The merge is only correct if each directory is in commit
+            // order. Never guess: refuse startup if one is not.
+            if key < (commit_seq, ordinal) {
+                return Err(crate::error::WabiError::Corrupt {
+                    location: format!("stream directory {}", cursor.dir.display()),
+                    detail: format!(
+                        "indexed records out of commit order (commit {} after commit {commit_seq}); \
+                         repair required before startup",
+                        key.0
                     ),
-                    detail: format!("replay failed: {e}; repair required before startup"),
-                }
-            })?;
-        } else {
-            // Match the live dispatcher's forward-compatible fallback.
-            projection_state.insert(
-                "events",
-                event.event_type.as_bytes().to_vec(),
-                event.payload.clone(),
-                event.commit_seq,
-            );
+                });
+            }
+            heap.push(Reverse((key.0, key.1, index)));
+            cursor.head = Some(following);
         }
-        replayed += 1;
+        // Another directory holding the same indexed record.
+        if commit.last().is_some_and(|last| last.ordinal == ordinal) {
+            return Err(duplicate_event(commit_seq, ordinal));
+        }
+        commit.push(event);
     }
+
+    // Never report readiness after silently losing part of a durable commit.
+    for entry in index_entries {
+        applier.check_recovered(entry, 0)?;
+    }
+    applier.finish_repairs()?;
+    let replayed = applier.replayed;
+    let Tally {
+        highest_seq,
+        orphan_skipped,
+        decrypt_skipped,
+    } = tally;
 
     // Nonce allocation includes orphan sequences; application progress does not.
     barrier.advance(applied_seq)?;
@@ -497,6 +393,353 @@ pub async fn replay_projections(
         tracing::info!("replayed projections up to commit_seq={highest_seq} (applied={replayed})");
     }
     Ok(highest_seq)
+}
+
+/// Raw records one stream cursor reads per file open. The segment file is
+/// closed between batches, so a tree with many streams never holds one open
+/// file per stream; buffered memory is at most this many raw records per
+/// stream directory.
+const READ_AHEAD_RECORDS: usize = 32;
+
+/// Segment number from a `NNNNNNNN.wseg` path, if it has one.
+fn segment_id(path: &Path) -> Option<u64> {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .and_then(|s| s.parse::<u64>().ok())
+}
+
+fn duplicate_event(commit_seq: u64, ordinal: usize) -> crate::error::WabiError {
+    crate::error::WabiError::Corrupt {
+        location: format!("commit {commit_seq} event {ordinal}"),
+        detail: "duplicate indexed event during replay".into(),
+    }
+}
+
+/// Counts every record header replay sees, applied or not.
+struct Tally {
+    /// Highest commit_seq on disk, orphans included (nonce safety).
+    highest_seq: u64,
+    orphan_skipped: u64,
+    decrypt_skipped: u64,
+}
+
+/// A decoded event waiting in the merge, with its index in its commit.
+struct Decoded {
+    ordinal: usize,
+    event: DurableEvent,
+    _held: held_events::Token,
+}
+
+/// The segment a cursor is reading.
+struct CurrentSegment {
+    path: PathBuf,
+    id: Option<u64>,
+    /// Byte offset of the next unread record.
+    resume_at: u64,
+    /// The valid prefix has been read to its end.
+    exhausted: bool,
+}
+
+/// One stream directory's position in the replay merge.
+struct StreamCursor {
+    dir: PathBuf,
+    candidates: Vec<(String, [u8; 16])>,
+    /// Segments not yet started, ascending.
+    segments: VecDeque<(Option<u64>, PathBuf)>,
+    current: Option<CurrentSegment>,
+    /// Raw records read ahead from `current`.
+    buffered: VecDeque<ValidRecord>,
+    /// The next decoded event of this directory, if any.
+    head: Option<Decoded>,
+}
+
+impl StreamCursor {
+    /// The next valid record of this directory, with its segment id.
+    async fn next_record(&mut self) -> Option<(ValidRecord, Option<u64>)> {
+        loop {
+            let Some(segment) = self.current.as_mut() else {
+                let (id, path) = self.segments.pop_front()?;
+                self.current = Some(CurrentSegment {
+                    path,
+                    id,
+                    resume_at: 0,
+                    exhausted: false,
+                });
+                continue;
+            };
+            if let Some(record) = self.buffered.pop_front() {
+                return Some((record, segment.id));
+            }
+            if segment.exhausted {
+                self.current = None;
+                continue;
+            }
+            let mut reader = match SegmentReader::open_at(&segment.path, segment.resume_at).await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!(
+                        "replay: skipping unreadable segment {}: {e}",
+                        segment.path.display()
+                    );
+                    segment.exhausted = true;
+                    continue;
+                }
+            };
+            while self.buffered.len() < READ_AHEAD_RECORDS {
+                match reader.next_record().await {
+                    Ok(Some(record)) => self.buffered.push_back(record),
+                    Ok(None) => {
+                        segment.exhausted = true;
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "replay: skipping corrupt segment {} from offset {}: {e}",
+                            segment.path.display(),
+                            reader.cursor()
+                        );
+                        segment.exhausted = true;
+                        break;
+                    }
+                }
+            }
+            segment.resume_at = reader.cursor();
+        }
+    }
+
+    /// The next record of this directory that replay must apply or show a
+    /// repair pass, decrypted and decoded. Every record read on the way
+    /// counts toward `tally`.
+    async fn next_event(
+        &mut self,
+        applier: &Applier<'_>,
+        committed: &BTreeMap<u64, CommitIndexEntry>,
+        key_registry: &Mutex<StreamKeyRegistry>,
+        tally: &mut Tally,
+    ) -> Result<Option<Decoded>> {
+        while let Some((rec, segment_id)) = self.next_record().await {
+            let commit_seq = rec.header.commit_seq;
+
+            // Track the max seq seen on disk BEFORE any filtering:
+            // even skipped/orphaned records consumed their nonce and
+            // must never be reused by a restarted sequencer.
+            tally.highest_seq = tally.highest_seq.max(commit_seq);
+
+            // Old snapshots could acknowledge ignored membership or
+            // voice restrictions. Recover their required history;
+            // unrelated events remain covered by the snapshot.
+            if !applier.wanted(commit_seq, &rec.header.stream_id_hash) {
+                continue;
+            }
+
+            // Option B: records absent from the commit index are
+            // orphans of partially-committed commands — skip them.
+            let Some(entry) = committed.get(&commit_seq) else {
+                tally.orphan_skipped += 1;
+                continue;
+            };
+
+            let header_bytes = rec.header.encode();
+            let stream_id = self
+                .candidates
+                .iter()
+                .find(|(_, hash)| *hash == rec.header.stream_id_hash)
+                .unwrap_or(&self.candidates[0])
+                .0
+                .as_str();
+
+            // Look up the stream key for this commit_seq range.
+            let key = {
+                let registry = key_registry.lock().await;
+                match registry.get_active_key(stream_id, commit_seq) {
+                    Ok(sk) => sk.key_material,
+                    Err(e) => {
+                        tracing::warn!(
+                            "replay: no key for stream={stream_id} seq={commit_seq}: {e}"
+                        );
+                        continue;
+                    }
+                }
+            };
+
+            // Decrypt.
+            let env_bytes = match decrypt_record(&key, commit_seq, &header_bytes, &rec.payload) {
+                Ok(b) => b,
+                Err(e) => {
+                    tally.decrypt_skipped += 1;
+                    tracing::debug!(
+                        "replay: decrypt failed for stream={stream_id} seq={commit_seq}: {e}"
+                    );
+                    continue;
+                }
+            };
+
+            // Deserialize the replay envelope.
+            // Indexed decode failures are rejected by the completeness
+            // check; old records need an explicit migration.
+            let envelope: ReplayEnvelope = match serde_json::from_slice(&env_bytes) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            // Preserve the command's event order across streams.
+            // Ordering by seq alone leaves ties in filesystem order.
+            // Legacy writers cache by stream ID, not (kind, ID).
+            // Workspace/chat can share an ID with different kinds;
+            // match the physical record identity, not the directory kind.
+            let ordinal = entry
+                .event_refs
+                .iter()
+                .position(|r| {
+                    r.stream_id_hash == rec.header.stream_id_hash
+                        && Some(r.segment_id) == segment_id
+                        && u64::from(r.offset) == rec.offset
+                        && r.length as usize == rec.header.total_size()
+                })
+                .ok_or_else(|| crate::error::WabiError::Corrupt {
+                    location: format!("commit {commit_seq}"),
+                    detail: "segment record not referenced by its commit index entry".into(),
+                })?;
+            return Ok(Some(Decoded {
+                ordinal,
+                event: DurableEvent {
+                    commit_seq,
+                    stream_id: envelope.stream_id,
+                    event_type: envelope.event_type,
+                    payload: envelope.payload,
+                },
+                _held: held_events::Token::new(),
+            }));
+        }
+        Ok(None)
+    }
+}
+
+/// Applies whole commits in order: pre-snapshot events go to the repair
+/// passes, post-snapshot events to the projections.
+struct Applier<'a> {
+    projection_state: &'a ProjectionState,
+    dispatch_table: &'a DispatchTable,
+    snapshot_watermark: u64,
+    membership_repair: Option<super::membership_repair::MembershipRepair>,
+    voice_repair: Option<crate::projections::voice_restrictions::LegacyVoiceRepair>,
+    repairs_finished: bool,
+    replayed: u64,
+}
+
+impl Applier<'_> {
+    /// Whether a record of `stream_hash` at `commit_seq` must be recovered:
+    /// every post-snapshot record, and the pre-snapshot history a repair
+    /// pass asks for.
+    fn wanted(&self, commit_seq: u64, stream_hash: &[u8; 16]) -> bool {
+        commit_seq > self.snapshot_watermark
+            || self
+                .membership_repair
+                .as_ref()
+                .is_some_and(|repair| repair.includes(stream_hash))
+            || self
+                .voice_repair
+                .as_ref()
+                .is_some_and(|repair| repair.includes(stream_hash))
+    }
+
+    /// Fail unless exactly the wanted events of `entry` were recovered.
+    fn check_recovered(&self, entry: &CommitIndexEntry, recovered: usize) -> Result<()> {
+        let expected = entry
+            .event_refs
+            .iter()
+            .filter(|r| self.wanted(entry.commit_seq, &r.stream_id_hash))
+            .count();
+        if recovered != expected {
+            return Err(crate::error::WabiError::Corrupt {
+                location: format!("commit {}", entry.commit_seq),
+                detail: "not all indexed events could be recovered; repair required before startup"
+                    .into(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Check commit `commit_seq` and every indexed commit before it, then
+    /// hand its events, in ordinal order, to the repairs or projections.
+    fn complete_commit<'e>(
+        &mut self,
+        index_entries: &mut std::iter::Peekable<impl Iterator<Item = &'e CommitIndexEntry>>,
+        commit_seq: u64,
+        events: Vec<Decoded>,
+    ) -> Result<()> {
+        // Indexed commits with nothing on disk sort before this one.
+        while let Some(entry) = index_entries.next_if(|e| e.commit_seq < commit_seq) {
+            self.check_recovered(entry, 0)?;
+        }
+        let entry = index_entries
+            .next()
+            .filter(|e| e.commit_seq == commit_seq)
+            .ok_or_else(|| crate::error::WabiError::InternalInvariantViolated {
+                invariant: format!("replayed commit {commit_seq} is not next in the commit index"),
+            })?;
+        self.check_recovered(entry, events.len())?;
+
+        if commit_seq <= self.snapshot_watermark {
+            if let Some(repair) = self.membership_repair.as_mut() {
+                for Decoded { event, .. } in &events {
+                    let hash: [u8; 16] = blake3::hash(event.stream_id.as_bytes()).as_bytes()[..16]
+                        .try_into()
+                        .unwrap();
+                    if repair.includes(&hash) {
+                        repair.observe(event)?;
+                    }
+                }
+            }
+            if let Some(repair) = self.voice_repair.as_mut() {
+                for Decoded { event, .. } in &events {
+                    repair.observe(event)?;
+                }
+            }
+            return Ok(());
+        }
+
+        // All pre-snapshot history has been observed: commits arrive in order.
+        self.finish_repairs()?;
+        for Decoded { event, .. } in &events {
+            if let Some(handler) = self.dispatch_table.get(&event.event_type) {
+                handler.apply(event, self.projection_state).map_err(|e| {
+                    crate::error::WabiError::Corrupt {
+                        location: format!(
+                            "projection {} at commit {}",
+                            event.event_type, event.commit_seq
+                        ),
+                        detail: format!("replay failed: {e}; repair required before startup"),
+                    }
+                })?;
+            } else {
+                // Match the live dispatcher's forward-compatible fallback.
+                self.projection_state.insert(
+                    "events",
+                    event.event_type.as_bytes().to_vec(),
+                    event.payload.clone(),
+                    event.commit_seq,
+                );
+            }
+            self.replayed += 1;
+        }
+        Ok(())
+    }
+
+    /// Finish the repair passes once, before the first post-snapshot event.
+    fn finish_repairs(&mut self) -> Result<()> {
+        if self.repairs_finished {
+            return Ok(());
+        }
+        self.repairs_finished = true;
+        if let Some(repair) = self.membership_repair.take() {
+            repair.finish(self.projection_state)?;
+        }
+        if let Some(repair) = self.voice_repair.take() {
+            repair.finish(self.projection_state)?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -794,9 +1037,9 @@ mod tests {
         // More records per segment than one read-ahead batch.
         let total = write_interleaved(tmp.path(), bootstrap, 150).await;
 
-        held_events::reset();
+        let held = held_events::track();
         let (high, order) = replay_recording(tmp.path(), bootstrap, 0).await;
-        let peak = held_events::peak();
+        let peak = held.peak();
         assert_eq!(high.unwrap(), total);
         assert_eq!(order, (1..=total).collect::<Vec<_>>());
         let streams = THREE.len();
@@ -806,20 +1049,13 @@ mod tests {
         );
     }
 
-    /// Task 1.12: the k-way merge relies on each stream directory holding
-    /// its indexed records in commit order. A directory whose indexed
-    /// records are out of order must refuse startup, not misapply.
-    #[tokio::test]
-    async fn replay_refuses_stream_directory_out_of_commit_order() {
-        let tmp = tempfile::tempdir().unwrap();
-        let bootstrap = [0xA4u8; 32];
-        // "channels" gets seq 1 in segment 1 and seq 4 in segment 2.
-        write_interleaved(tmp.path(), bootstrap, 3).await;
-        let events = tmp.path().join("streams/other/channels/events");
-        let index_dir = tmp.path().join("global").join("commit-index");
+    /// Move the "channels" stream's segment 1 behind its segment 2 and point
+    /// its commit at the new name: every reference stays exact, only the
+    /// order of the directory's indexed records changes.
+    async fn move_first_segment_last(path: &std::path::Path) {
+        let events = path.join("streams/other/channels/events");
+        let index_dir = path.join("global").join("commit-index");
         let mut entries = crate::commit_index::batcher::read_all_entries(&index_dir).unwrap();
-        // Move segment 1 behind segment 2 and point its commit at the new
-        // name: every reference stays exact, only the order changes.
         std::fs::rename(events.join("00000001.wseg"), events.join("00000003.wseg")).unwrap();
         let first = entries.iter_mut().find(|e| e.commit_seq == 1).unwrap();
         assert_eq!(first.event_refs[0].segment_id, 1);
@@ -834,12 +1070,37 @@ mod tests {
         batcher.flush_now().await.unwrap();
         drop(batcher);
         task.await.unwrap().unwrap();
+    }
 
-        let (result, _) = replay_recording(tmp.path(), bootstrap, 0).await;
+    /// Task 1.12: the k-way merge relies on each stream directory holding
+    /// its indexed records in commit order. A directory whose indexed
+    /// records are out of order must refuse startup, not misapply.
+    #[tokio::test]
+    async fn replay_refuses_stream_directory_out_of_commit_order() {
+        // One stream: seq 2 (segment 2) is read before seq 1 (now segment 3).
+        let tmp = tempfile::tempdir().unwrap();
+        let bootstrap = [0xA4u8; 32];
+        write_interleaved(tmp.path(), bootstrap, 1).await;
+        move_first_segment_last(tmp.path()).await;
+        let (result, applied) = replay_recording(tmp.path(), bootstrap, 0).await;
         let error = result.unwrap_err();
         assert!(
             matches!(error, crate::error::WabiError::Corrupt { .. })
                 && error.to_string().contains("out of commit order"),
+            "{error}"
+        );
+        assert!(applied.is_empty(), "applied {applied:?} before refusing");
+
+        // Three streams: commit 1 is due before its record is reached, so
+        // it is reported missing. Either way startup refuses.
+        let tmp = tempfile::tempdir().unwrap();
+        write_interleaved(tmp.path(), bootstrap, 3).await;
+        move_first_segment_last(tmp.path()).await;
+        let (result, _) = replay_recording(tmp.path(), bootstrap, 0).await;
+        let error = result.unwrap_err();
+        assert!(
+            matches!(error, crate::error::WabiError::Corrupt { .. })
+                && error.to_string().contains("repair required before startup"),
             "{error}"
         );
     }
