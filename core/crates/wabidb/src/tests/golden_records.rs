@@ -8,7 +8,7 @@
 use crate::error::Result;
 use std::fmt::Debug;
 
-fn bytes(hex_literal: &str) -> Vec<u8> {
+pub(crate) fn bytes(hex_literal: &str) -> Vec<u8> {
     hex::decode(hex_literal).expect("golden literal is valid hex")
 }
 
@@ -728,7 +728,8 @@ fn golden_user_record_v1() {
     assert_eq!(decoded, user_v1_decoded());
 }
 
-/// Every durable record type above writes the versioned header.
+/// Every durable record type and event payload above writes the versioned
+/// header.
 #[test]
 fn every_durable_record_is_versioned() {
     let encoded: Vec<(&str, Vec<u8>)> = vec![
@@ -762,6 +763,15 @@ fn every_durable_record_is_versioned() {
         ("PaymentDeleteKey", payment_delete_key().encode()),
         ("MessageRecord", messages::encode_record(&message())),
         ("UserRecord", users::encode_record(&user())),
+        ("forum_post_voted", forum::encode_vote(&forum_vote())),
+        ("forum_post_solution_set", forum::encode_solution(&forum_solution())),
+        (
+            "user_deleted",
+            crate::projections::user_deletion::encode_payload(&crate::domain::UserDeleted {
+                user_id: 4_200_000_001,
+            }),
+        ),
+        ("dm_onetime_prekey_consumed", dm_identities::encode_consumed(&dm_prekey_consumed())),
     ];
     let unversioned: Vec<&str> = encoded
         .iter()
@@ -778,15 +788,15 @@ fn every_durable_record_is_versioned() {
 // ---------------------------------------------------------------------------
 
 /// `forum_post_voted`: post, thread, channel, direction, actor.
-const FORUM_VOTE_LEGACY: &str =
+pub(crate) const FORUM_VOTE_LEGACY: &str =
     "06706f73745f31057468725f310863685f666f72756d02757081d4dbd20f";
 /// `forum_post_solution_set`: post, thread, channel, actor.
-const FORUM_SOLUTION_LEGACY: &str =
+pub(crate) const FORUM_SOLUTION_LEGACY: &str =
     "06706f73745f31057468725f310863685f666f72756d81d4dbd20f";
 /// `user_deleted`: the deleted user's id.
-const USER_DELETED_LEGACY: &str = "81d4dbd20f";
+pub(crate) const USER_DELETED_LEGACY: &str = "81d4dbd20f";
 /// `dm_onetime_prekey_consumed`: user, device, prekey.
-const DM_PREKEY_CONSUMED_LEGACY: &str = "09096465762d70686f6e65046f746b31";
+pub(crate) const DM_PREKEY_CONSUMED_LEGACY: &str = "09096465762d70686f6e65046f746b31";
 
 /// The encoders as they were before Task 3.1b. The vote and solution structs
 /// are verbatim copies of the private structs in wabi-server's
