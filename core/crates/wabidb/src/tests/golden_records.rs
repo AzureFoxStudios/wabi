@@ -711,7 +711,7 @@ fn golden_payment_policy_record() {
 
 #[test]
 fn golden_payment_user_block_record() {
-    unchanged_today(PAYMENT_USER_BLOCK_LEGACY, &payment_user_block(), PaymentUserBlockRecord::encode, PaymentUserBlockRecord::decode);
+    converted(PAYMENT_USER_BLOCK_LEGACY, b"PBLK", &payment_user_block(), PaymentUserBlockRecord::encode, PaymentUserBlockRecord::decode);
 }
 
 #[test]
