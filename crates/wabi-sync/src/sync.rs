@@ -8,7 +8,7 @@ use anyhow::{bail, Context};
 
 use crate::api::{DeleteOutcome, UploadOutcome, WabiClient};
 use crate::config::{LinkConfig, SyncState, LINK_FILE, STATE_DIR};
-use crate::etag::{etag_for_bytes, etag_for_file};
+use crate::etag::{etag_for_bytes, etag_for_file, ETAG_FULL_HASH_MAX_BYTES};
 
 /// Paths never synced regardless of ignore files.
 fn is_internal(rel: &str) -> bool {
@@ -202,6 +202,22 @@ impl<'a> SyncEngine<'a> {
         self.state.save(self.folder)
     }
 
+    /// `bytes` were just downloaded and written to `path`: record the
+    /// server's etag as the baseline and the local file as unchanged.
+    fn record_download(&mut self, path: &str, bytes: &[u8], manifest_etag: &str) -> anyhow::Result<()> {
+        // Up to the full-hash limit the etag is the content hash. Above it
+        // only the server can say what its etag is, so take the manifest's.
+        let server_etag = if bytes.len() as u64 > ETAG_FULL_HASH_MAX_BYTES && !manifest_etag.is_empty() {
+            manifest_etag.to_string()
+        } else {
+            etag_for_bytes(bytes)
+        };
+        let local_etag = etag_for_file(&self.folder.join(path))?;
+        self.state.record_local(path, &local_etag, &server_etag);
+        self.state.baselines.insert(path.to_string(), Some(server_etag));
+        Ok(())
+    }
+
     /// Pull remote changes down (three-way against baselines).
     pub async fn pull(&mut self) -> anyhow::Result<SyncReport> {
         let mut report = SyncReport::new();
@@ -234,12 +250,12 @@ impl<'a> SyncEngine<'a> {
                 // for review; the branches below settle the path (a pending
                 // local file differs from its baseline, so it is kept as a
                 // conflict copy).
-                self.state.pending_review.remove(*path);
                 let local_clean = match (local_etag, &baseline) {
-                    (Some(le), Some(b)) => Some(le.as_str()) == Some(b.as_str()),
+                    (Some(le), Some(_)) => self.state.local_matches_baseline(path, le),
                     (None, b) => b.is_none(), // both absent → clean
                     (Some(_), None) => false, // local-only file → diverged
                 };
+                self.state.pending_review.remove(*path);
                 if !local_has || local_clean {
                     let bytes = self
                         .client
@@ -252,10 +268,7 @@ impl<'a> SyncEngine<'a> {
                     }
                     std::fs::write(&full, &bytes)?;
                     report.downloaded.push(path.to_string());
-                    self.state.baselines.insert(
-                        path.to_string(),
-                        Some(etag_for_bytes(&bytes)),
-                    );
+                    self.record_download(path, &bytes, remote_etag)?;
                 } else {
                     // Both sides changed → keep both, server wins the canonical name.
                     let tag = remote_etag.chars().take(8).collect::<String>();
@@ -272,10 +285,7 @@ impl<'a> SyncEngine<'a> {
                         "{path} (your version saved as {})",
                         copy.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
                     ));
-                    self.state.baselines.insert(
-                        path.to_string(),
-                        Some(etag_for_bytes(&bytes)),
-                    );
+                    self.record_download(path, &bytes, remote_etag)?;
                 }
             }
         }
@@ -289,11 +299,13 @@ impl<'a> SyncEngine<'a> {
             let baseline = self.state.baselines.get(&path).cloned().flatten();
             if baseline.is_none() {
                 self.state.baselines.remove(&path);
+                self.state.local_fingerprints.remove(&path);
                 continue;
             }
-            self.state.pending_review.remove(&path);
             let local_etag = local.get(&path);
-            let local_clean = local_etag.map(|le| Some(le.as_str()) == baseline.as_deref()).unwrap_or(true);
+            let local_clean = local_etag.map(|le| self.state.local_matches_baseline(&path, le)).unwrap_or(true);
+            self.state.pending_review.remove(&path);
+            self.state.local_fingerprints.remove(&path);
             let local_file = self.folder.join(&path);
             if local_clean {
                 if local_etag.is_some() {
@@ -343,18 +355,29 @@ impl<'a> SyncEngine<'a> {
         // Upload new + modified local files.
         for (path, local_etag) in &local {
             let baseline = self.state.baselines.get(path).cloned().flatten();
-            if baseline.as_deref() == Some(local_etag.as_str()) {
+            if self.state.local_matches_baseline(path, local_etag) {
                 // Unchanged since last sync (or put back to the mainline
-                // version while an edit was waiting for review).
-                self.state.pending_review.remove(path);
+                // version while an edit was waiting for review; the
+                // fingerprint then described the edit, so it goes too).
+                if self.state.pending_review.remove(path).is_some() {
+                    self.state.local_fingerprints.remove(path);
+                }
                 continue;
             }
-            if self.state.pending_review.get(path) == Some(local_etag) {
+            if self.state.local_matches_pending(path, local_etag) {
                 // Already uploaded to a review branch; nothing new to send.
                 report.waiting_review.push(path.clone());
                 continue;
             }
             let bytes = std::fs::read(self.folder.join(path))?;
+            // What the file looked like locally when these bytes were sent.
+            // Up to the full-hash limit that is the hash of the bytes read
+            // just now; above it, the sampled etag from the scan.
+            let sent_etag = if bytes.len() as u64 <= ETAG_FULL_HASH_MAX_BYTES {
+                etag_for_bytes(&bytes)
+            } else {
+                local_etag.clone()
+            };
             let message = format!("wabi-sync: update {path}");
             let outcome = self
                 .client
@@ -370,9 +393,12 @@ impl<'a> SyncEngine<'a> {
                 UploadOutcome::Ok { etag, revision, pending_review } => {
                     report.uploaded.push(path.clone());
                     let _ = revision;
-                    // Adopt the server's canonical etag (handles q- sampling
-                    // mismatches on huge files).
-                    let adopted = if etag.is_empty() { local_etag.clone() } else { etag };
+                    // Adopt the server's canonical etag: it is what If-Match
+                    // and the manifest comparison need. For a file over the
+                    // full-hash limit it never equals the local etag, so the
+                    // local one is recorded next to it.
+                    let adopted = if etag.is_empty() { sent_etag.clone() } else { etag };
+                    self.state.record_local(path, &sent_etag, &adopted);
                     if pending_review {
                         // The bytes went to a review branch, not the mainline:
                         // the baseline stays the mainline's so the pull does
@@ -386,6 +412,7 @@ impl<'a> SyncEngine<'a> {
                 }
                 UploadOutcome::Conflict(conflict) => {
                     self.state.pending_review.remove(path);
+                    self.state.local_fingerprints.remove(path);
                     let tag = conflict
                         .current_etag
                         .as_deref()
@@ -408,6 +435,7 @@ impl<'a> SyncEngine<'a> {
 
         // A file removed locally is no longer waiting for review.
         self.state.pending_review.retain(|path, _| local.contains_key(path));
+        self.state.local_fingerprints.retain(|path, _| local.contains_key(path));
 
         // Baseline files deleted locally → delete remotely.
         let baseline_paths: Vec<String> = self.state.baselines.keys().cloned().collect();
