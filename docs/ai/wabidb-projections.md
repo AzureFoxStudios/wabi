@@ -153,11 +153,37 @@ durable record/event layout changes. Compaction removes the pointer and every
 historical time-index version for each removed message, preventing an older
 live version from reappearing. See [operator guidance](../deployment/MESSAGE_ID_LOOKUP.md).
 
-Messages registers `MessagesByChannelIndex` and `MessagesByAuthorIndex`. Applied after successful primary apply so replay rebuilds indexes.
+Messages registers `MessagesByChannelIndex`, `MessagesByAuthorIndex` and `MessagesByChannelTimeIndex`. Applied after successful primary apply so replay rebuilds indexes.
 
-**Value encoding**: on `message_created`, primary retains a writer-stamped ID
+**Key and value encoding**: on `message_created`, primary retains a writer-stamped ID
 and falls back to `format!("msg_{:x}", commit_seq)` for a blank legacy ID.
-Secondary values and new-command admission must use the same fallback.
+Secondary keys, secondary values and new-command admission use the same id
+(`resolved_message_id`; test: `projections::messages::tests::uuid_message_leaves_no_index_entries_after_delete_and_compact`).
+
+**Entries saved under the old key**: before Task 3.4 a created message's
+`messages_by_channel` and `messages_by_author` entries were keyed by
+`msg_{commit_seq:x}` even when the record had its own id, so an edit or delete
+wrote a second entry and left the first behind. `rekey_legacy_index_entries`
+runs at engine open, before the dispatcher starts, and on the saved view in
+offline inspection. If it finds an entry whose key does not match its own
+record, it rebuilds both indexes: `messages_by_channel` as a copy of
+`messages`, and `messages_by_author` from the latest event per author and
+message id in `messages_by_channel_time` (whose keys carry the commit
+sequence), plus any primary row that index does not cover. Open then saves the
+corrected projection. Otherwise it changes nothing
+(tests: `projections::messages::tests::repair_of_one_message_matches_replay`,
+`projections::messages::tests::repair_matches_replay_when_an_own_id_looks_like_a_legacy_key`,
+`projections::messages::tests::repair_matches_replay_when_author_entries_collide_or_move`,
+`tests::pre_versioning_fixture::opening_rewrites_wrongly_keyed_message_index_entries`).
+Known limits, for shapes the server does not write (it sends one message event
+per command): two events for one author and message id in the same commit share
+a sequence number, so which one `messages_by_author` keeps can differ from
+replay; a commit that created a message with its own id and then one with a
+blank id leaves no wrongly keyed entry, so nothing is rebuilt; and a time index
+that is missing events cannot order two rooms' rows. In offline inspection a match now
+means the directory opens to the state the log gives, not that the saved file
+is byte for byte what replay writes. No server code reads either index today;
+`MessagesProjection::compact` has no production caller.
 
 **Query ordering**: `prefix_scan` returns lexicographic key order. After decode + filter, sort by parsed numeric commit_seq, THEN apply limit. Without this, mixed-width ids misorder.
 

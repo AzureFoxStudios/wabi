@@ -361,6 +361,11 @@ pub async fn inspect_frozen_locked(
             "inspection snapshot watermark differs from checkpoint",
         ));
     }
+    // The engine rebuilds two message indexes when it opens a projection that
+    // an older build saved with wrongly keyed entries. Compare what it would
+    // then hold: a match means the directory opens to the state the log gives,
+    // not that the file is byte for byte what replay writes.
+    crate::projections::messages::rekey_legacy_index_entries(&saved);
     let saved_fingerprint = saved.content_fingerprint(limits.max_entries, limits.max_file_bytes)?;
     let state = Arc::new(ProjectionState::new());
     let barrier = LinearizabilityBarrier::new(state.clone());
