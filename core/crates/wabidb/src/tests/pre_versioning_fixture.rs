@@ -4,7 +4,9 @@
 //! `write_pre_versioning_fixture` while every record encoder still wrote raw
 //! postcard. It holds one durable event per record type, plus the snapshot the
 //! engine wrote on close. `expected.txt` lists every projection entry as it
-//! decoded then.
+//! decoded then, except the `messages_by_channel` and `messages_by_author`
+//! lines: Task 3.4 changed their keys from `msg_{commit_seq:x}` to the
+//! message's own id. The saved snapshot still holds the old keys.
 //!
 //! Do not regenerate the fixture: the generator now writes versioned records,
 //! so a regenerated directory would no longer prove anything about old data.
@@ -467,6 +469,28 @@ async fn pre_versioning_directory_passes_offline_inspection() {
     let scratch = scratch_copy();
     let matches = inspect(&scratch.path().join("data")).await;
     assert!(matches!(matches, Ok(true)), "{:?}", matches.map_err(|e| e.to_string()));
+}
+
+/// The fixture's snapshot was saved by a build that keyed a created message's
+/// channel and author index entries by `msg_{commit_seq:x}` (Task 3.4). Opening
+/// it moves them to the message's own id and saves the corrected projection.
+#[tokio::test]
+async fn opening_rewrites_wrongly_keyed_message_index_entries() {
+    let scratch = scratch_copy();
+    let data = scratch.path().join("data");
+    let (saved, _) = ProjectionState::load_snapshot(&data).unwrap().unwrap();
+    assert_eq!(
+        messages::rekey_legacy_index_entries(&saved),
+        2,
+        "the fixture must still hold the old keys, or this test proves nothing"
+    );
+
+    drop(reopen(&data).await);
+    drop(super::wait_for_stopped_engine(&data).await);
+
+    let (saved, _) = ProjectionState::load_snapshot(&data).unwrap().unwrap();
+    assert_eq!(messages::rekey_legacy_index_entries(&saved), 0);
+    assert_eq!(describe_state(&saved), expected());
 }
 
 /// The same after an upgrade: this build opened the old directory, wrote a

@@ -859,11 +859,7 @@ impl SecondaryIndex for MessagesByAuthorIndex {
             Err(_) => return vec![],
         };
         let message_id = resolved_message_id(event, &record);
-        let mut buf = Vec::new();
-        buf.extend_from_slice(&(record.author_user_id as u64).to_le_bytes());
-        buf.extend_from_slice(&(message_id.len() as u64).to_le_bytes());
-        buf.extend_from_slice(message_id.as_bytes());
-        vec![buf]
+        vec![author_index_key(record.author_user_id, &message_id)]
     }
 
     fn apply(&self, index: &SkipMap<Vec<u8>, Vec<u8>>, event: &DurableEvent) {
@@ -871,6 +867,70 @@ impl SecondaryIndex for MessagesByAuthorIndex {
             index.insert(key, reencoded_payload(event));
         }
     }
+}
+
+/// Key of a `messages_by_author` entry: author id, then the length-prefixed
+/// message id.
+fn author_index_key(author_user_id: u64, message_id: &str) -> Vec<u8> {
+    let mut key = Vec::with_capacity(16 + message_id.len());
+    key.extend_from_slice(&author_user_id.to_le_bytes());
+    key.extend_from_slice(&(message_id.len() as u64).to_le_bytes());
+    key.extend_from_slice(message_id.as_bytes());
+    key
+}
+
+/// Move `messages_by_channel` and `messages_by_author` entries that an older
+/// build saved under the wrong key.
+///
+/// Before Task 3.4 a `message_created` event was indexed under
+/// `msg_{commit_seq:x}` even when the record carried its own id, while edits
+/// and deletes used the record's id. A saved projection from such a build
+/// therefore holds entries whose key does not match the id inside the value.
+/// Replay no longer writes them, so a state loaded from that projection would
+/// differ from the log until its next full rebuild.
+///
+/// An entry is wrongly keyed when its key is not the one its own record gives.
+/// It is removed. If nothing sits at the right key, no edit or delete followed
+/// the create, so the message's primary row is copied there. If an entry is
+/// already at the right key, a later edit or delete wrote it and it stays.
+/// A value that does not decode is left alone: its key cannot be judged.
+///
+/// Run at engine open before the dispatcher starts, and on the saved view in
+/// offline inspection. Returns the number of entries removed; zero for a
+/// projection written by a build with the fix.
+///
+/// Known limit: `messages_by_author` keys do not include the channel. If one
+/// author has the same message id in two rooms, replay keeps the later event
+/// and this keeps whichever it meets first.
+pub fn rekey_legacy_index_entries(state: &ProjectionState) -> usize {
+    let mut removed = 0;
+    for index in ["messages_by_channel", "messages_by_author"] {
+        let right_key = |record: &MessageRecord| match index {
+            "messages_by_channel" => encode_key(&record.channel_id, &record.message_id),
+            _ => author_index_key(record.author_user_id, &record.message_id),
+        };
+        let mut wrong = Vec::new();
+        state.for_each(index, |key, value| {
+            if let Ok(record) = decode_record(value) {
+                if right_key(&record) != key {
+                    wrong.push((key.to_vec(), record));
+                }
+            }
+        });
+        for (key, record) in wrong {
+            state.remove(index, &key);
+            removed += 1;
+            let right = right_key(&record);
+            if state.get(index, &right).is_some() {
+                continue;
+            }
+            let primary = encode_key(&record.channel_id, &record.message_id);
+            if let Some(row) = state.get("messages", &primary) {
+                state.insert(index, right, row, state.applied_commit_seq());
+            }
+        }
+    }
+    removed
 }
 
 /// Message id as `apply_created` stores it: the writer-stamped id, or the
@@ -2105,5 +2165,106 @@ mod tests {
         assert_eq!(results.len(), 1, "stale msg_<seq> row must not appear");
         assert_eq!(results[0].message_id, rec.message_id);
         assert_eq!(results[0].encrypted_body_ref, "edited");
+    }
+
+    /// The two index entries a build before Task 3.4 wrote for a created
+    /// message: keyed by `msg_{commit_seq:x}`, holding the record as stored.
+    fn insert_legacy_created_entries(state: &ProjectionState, record: &MessageRecord, seq: u64) {
+        let legacy_id = format!("msg_{seq:x}");
+        let value = encode_record(record);
+        state.insert(
+            "messages_by_channel",
+            encode_key(&record.channel_id, &legacy_id),
+            value.clone(),
+            seq,
+        );
+        state.insert(
+            "messages_by_author",
+            author_key(record.author_user_id, &legacy_id),
+            value,
+            seq,
+        );
+    }
+
+    /// The state the fixed code builds from the same events.
+    fn replayed(events: &[(u64, &str, &MessageRecord)]) -> ProjectionState {
+        let state = ProjectionState::new();
+        for (seq, kind, record) in events {
+            let event = make_event(*seq, kind, record);
+            MessagesProjection.apply(&event, &state).unwrap();
+            apply_secondary_indexes(&event, &state);
+        }
+        state
+    }
+
+    fn assert_same_index(left: &ProjectionState, right: &ProjectionState, index: &str) {
+        assert_eq!(collect_index(left, index), collect_index(right, index), "{index}");
+    }
+
+    #[test]
+    fn legacy_entry_of_an_unedited_message_moves_to_its_own_id() {
+        let created = uuid_message();
+        let want = replayed(&[(5, "message_created", &created)]);
+
+        // What the older build saved: right primary row, wrongly keyed entries.
+        let state = replayed(&[(5, "message_created", &created)]);
+        state.remove(
+            "messages_by_channel",
+            &encode_key(&created.channel_id, &created.message_id),
+        );
+        state.remove("messages_by_author", &author_key(7, &created.message_id));
+        insert_legacy_created_entries(&state, &created, 5);
+
+        assert_eq!(rekey_legacy_index_entries(&state), 2);
+        assert_same_index(&state, &want, "messages_by_channel");
+        assert_same_index(&state, &want, "messages_by_author");
+        assert_eq!(rekey_legacy_index_entries(&state), 0, "second run finds nothing");
+    }
+
+    #[test]
+    fn legacy_entry_of_an_edited_message_is_dropped_and_the_edit_stays() {
+        let created = uuid_message();
+        let mut edited = created.clone();
+        edited.encrypted_body_ref = "edited".into();
+        let events = [(5, "message_created", &created), (6, "message_edited", &edited)];
+        let want = replayed(&events);
+
+        // The older build wrote the edit under the right key and left the
+        // created version behind under `msg_5`.
+        let state = replayed(&events);
+        insert_legacy_created_entries(&state, &created, 5);
+        assert_eq!(state.index_len("messages_by_channel"), 2);
+
+        assert_eq!(rekey_legacy_index_entries(&state), 2);
+        assert_same_index(&state, &want, "messages_by_channel");
+        assert_same_index(&state, &want, "messages_by_author");
+    }
+
+    #[test]
+    fn rekey_leaves_a_correct_projection_alone() {
+        // A blank id falls back to `msg_{seq:x}` in the record itself, so its
+        // key is right and must not be mistaken for a legacy entry.
+        let mut blank = uuid_message();
+        blank.message_id = String::new();
+        let named = uuid_message();
+        let events = [(5, "message_created", &blank), (6, "message_created", &named)];
+        let state = replayed(&events);
+        let want = replayed(&events);
+
+        assert_eq!(rekey_legacy_index_entries(&state), 0);
+        assert_same_index(&state, &want, "messages_by_channel");
+        assert_same_index(&state, &want, "messages_by_author");
+        assert_same_index(&state, &want, "messages");
+    }
+
+    #[test]
+    fn rekey_does_not_bring_back_a_message_with_no_primary_row() {
+        let created = uuid_message();
+        let state = ProjectionState::new();
+        insert_legacy_created_entries(&state, &created, 5);
+
+        assert_eq!(rekey_legacy_index_entries(&state), 2);
+        assert_eq!(state.index_len("messages_by_channel"), 0);
+        assert_eq!(state.index_len("messages_by_author"), 0);
     }
 }

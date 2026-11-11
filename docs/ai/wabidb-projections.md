@@ -153,11 +153,26 @@ durable record/event layout changes. Compaction removes the pointer and every
 historical time-index version for each removed message, preventing an older
 live version from reappearing. See [operator guidance](../deployment/MESSAGE_ID_LOOKUP.md).
 
-Messages registers `MessagesByChannelIndex` and `MessagesByAuthorIndex`. Applied after successful primary apply so replay rebuilds indexes.
+Messages registers `MessagesByChannelIndex`, `MessagesByAuthorIndex` and `MessagesByChannelTimeIndex`. Applied after successful primary apply so replay rebuilds indexes.
 
-**Value encoding**: on `message_created`, primary retains a writer-stamped ID
+**Key and value encoding**: on `message_created`, primary retains a writer-stamped ID
 and falls back to `format!("msg_{:x}", commit_seq)` for a blank legacy ID.
-Secondary values and new-command admission must use the same fallback.
+Secondary keys, secondary values and new-command admission use the same id
+(`resolved_message_id`; test: `projections::messages::tests::uuid_message_leaves_no_index_entries_after_delete_and_compact`).
+
+**Entries saved under the old key**: before Task 3.4 a created message's
+`messages_by_channel` and `messages_by_author` entries were keyed by
+`msg_{commit_seq:x}` even when the record had its own id, so an edit or delete
+wrote a second entry and left the first behind. `rekey_legacy_index_entries`
+runs at engine open, before the dispatcher starts, and on the saved view in
+offline inspection. It removes each entry whose key does not match its own
+record and, when nothing is at the right key, copies the primary row there
+(tests: `projections::messages::tests::legacy_entry_of_an_edited_message_is_dropped_and_the_edit_stays`,
+`tests::pre_versioning_fixture::opening_rewrites_wrongly_keyed_message_index_entries`).
+Known limit: `messages_by_author` keys have no channel, so one author holding
+the same message id in two rooms keeps one entry, and which one can differ
+from replay. No server code reads either index today; `MessagesProjection::compact`
+has no production caller.
 
 **Query ordering**: `prefix_scan` returns lexicographic key order. After decode + filter, sort by parsed numeric commit_seq, THEN apply limit. Without this, mixed-width ids misorder.
 

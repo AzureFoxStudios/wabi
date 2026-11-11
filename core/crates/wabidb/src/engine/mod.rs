@@ -316,7 +316,11 @@ impl WabiDbEngine {
         let rebuilt_albums =
             crate::projections::albums::AlbumProjection::rebuild_id_index(&projection_state)?;
         let rebuilt_messages = crate::projections::message_lookup::rebuild(&projection_state)?;
-        if rebuilt_albums > 0 || rebuilt_messages > 0 {
+        // Builds before Task 3.4 saved some message index entries under the
+        // wrong key. Replay no longer writes those, so move them here.
+        let rekeyed_messages =
+            crate::projections::messages::rekey_legacy_index_entries(&projection_state);
+        if rebuilt_albums > 0 || rebuilt_messages > 0 || rekeyed_messages > 0 {
             projection_state.save_snapshot(data_dir)?;
         }
         let snapshot_watermark = projection_state.applied_commit_seq();
